@@ -71,14 +71,29 @@ screenshots headless, verifies they are non-blank, uploads them as an artifact,
 and (for same-repo PRs) publishes them to a force-pushed `screenshots` branch
 and comments them onto the PR.
 
+### Attaching images to a pull request
+
+GitHub renders external image URLs in comments, so CI uploads each PNG to a
+public image host and embeds the returned URL in the PR comment:
+
+- **Default:** anonymous [Catbox](https://catbox.moe) upload (no account needed).
+- **Optional:** set the repository secret `IMGUR_CLIENT_ID` to upload to Imgur
+  instead. The upload helper is `tools/screenshot/upload_image.py`; run it
+  locally too:
+
+  ```bash
+  python tools/screenshot/upload_image.py shots/shot_10s.png
+  ```
+
+If the external upload fails, the comment falls back to the raw URLs of the
+`screenshots` branch. The branch is force-pushed, so its CDN URLs can briefly be
+stale; the PR comment links the exact commit SHA of that run instead.
+
 Stable image URL pattern:
 
 ```
 https://raw.githubusercontent.com/<owner>/<repo>/screenshots/<file>.png
 ```
-
-Because the branch is force-pushed, the CDN can briefly serve a stale image;
-the PR comment links to the exact commit SHA of that run instead.
 
 ## Adding graphic checks later
 

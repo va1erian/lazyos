@@ -1,0 +1,4 @@
+# Enable unstable artifact dependencies (used to build the kernel binary for the
+# bare-metal target and feed it to the bootloader's image builder).
+[unstable]
+bindeps = true

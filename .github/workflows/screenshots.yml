@@ -104,6 +104,24 @@ jobs:
             shots/summary.json
           if-no-files-found: error
 
+      - name: Upload screenshots to image host
+        id: host
+        # External upload is best-effort; on failure we fall back to the
+        # `screenshots` branch raw URLs in the PR comment.
+        continue-on-error: true
+        shell: bash
+        env:
+          IMGUR_CLIENT_ID: ${{ secrets.IMGUR_CLIENT_ID }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          pngs=(shots/*.png)
+          if [ ${#pngs[@]} -eq 0 ]; then
+            echo "no screenshots to upload"
+            exit 0
+          fi
+          python tools/screenshot/upload_image.py "${pngs[@]}" | tee shots/urls.tsv
+
       - name: Publish screenshots to 'screenshots' branch
         id: publish
         if: >-
@@ -152,10 +170,16 @@ jobs:
               name=$(basename "$png")
               echo "**${name}**"
               echo
-              if [ -n "$sha" ]; then
+              url=""
+              if [ -f shots/urls.tsv ]; then
+                url=$(awk -F'\t' -v n="$name" '$1==n {print $2; exit}' shots/urls.tsv || true)
+              fi
+              if [ -n "$url" ] && [ "${url:0:4}" = "http" ]; then
+                echo "![${name}](${url})"
+              elif [ -n "$sha" ]; then
                 echo "![${name}](https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${ref}/${name})"
               else
-                echo "_screenshots published as a workflow artifact (fork PR)_"
+                echo "_screenshot available as a workflow artifact_"
               fi
               echo
             done
