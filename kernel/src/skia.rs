@@ -15,8 +15,9 @@ pub fn render_demo() {
         match draw(fb.width() as u32, fb.height() as u32) {
             Some(pixmap) => {
                 crate::serial_println!("skia: pixmap ready, blitting");
+                let t = ts();
                 blit(fb, &pixmap);
-                crate::serial_println!("skia: blit done");
+                crate::serial_println!("skia: blit done ({} cyc)", ts() - t);
             }
             None => crate::serial_println!("skia: draw returned None"),
         }
