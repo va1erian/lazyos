@@ -21,6 +21,7 @@ mod gfxlib;
 mod input;
 mod logging;
 mod mem;
+mod process;
 mod serial;
 mod skia;
 mod surface;

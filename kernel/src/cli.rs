@@ -181,6 +181,7 @@ impl Cli {
                     "  bench         draw the scene with tiny-skia vs our own rasterizer",
                     "  ls | dir      list files on the disk",
                     "  cat <file>    print a file (e.g. cat HELLO.TXT)",
+                    "  run <file>    load and run an ELF program (e.g. run HELLO.ELF)",
                     "  clear         clear the output",
                     "  pos           show the window position",
                     "  quit          (no-op; the shell is the demo)",
@@ -219,6 +220,19 @@ impl Cli {
                     gfx_cycles
                 );
                 self.show_scene = true;
+            }
+            "run" | "exec" => {
+                if arg.is_empty() {
+                    self.push_line("usage: run <file>".to_string());
+                } else {
+                    match crate::fs::read(arg) {
+                        Some(bytes) => match crate::process::run(&bytes) {
+                            Ok(()) => self.push_line(format!("{arg}: exited")),
+                            Err(err) => self.push_line(format!("{arg}: {err}")),
+                        },
+                        None => self.push_line(format!("not found: {arg}")),
+                    }
+                }
             }
             "clear" => self.lines.clear(),
             "ls" | "dir" => {

@@ -13,6 +13,7 @@ spin = "0.9"
 tiny-skia = { version = "0.12", default-features = false, features = ["no-std-float"] }
 uart_16550 = "0.3"
 x86_64 = "0.15"
+xmas-elf = "0.10"
 
 [build-dependencies]
 font-atlas = { path = "../font-atlas" }
