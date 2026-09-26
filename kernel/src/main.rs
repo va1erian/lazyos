@@ -2,15 +2,18 @@
 
 #![no_std]
 #![no_main]
+#![feature(abi_x86_interrupt)]
 
 extern crate alloc;
 
 #[macro_use]
 mod macros;
 
+mod arch;
 mod console;
 mod font;
 mod gfx;
+mod input;
 mod logging;
 mod mem;
 mod serial;
@@ -20,6 +23,8 @@ use bootloader_api::config::{BootloaderConfig, Mapping};
 use bootloader_api::info::Optional;
 use bootloader_api::{entry_point, BootInfo};
 use core::panic::PanicInfo;
+use core::sync::atomic::Ordering;
+use input::keyboard::Key;
 
 /// Request a full physical-memory mapping so the kernel can inspect and edit
 /// page tables.
@@ -77,8 +82,10 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     println!("anti-aliased 2D on the CPU, blitted to the framebuffer");
     println!("{}x{} {:?}", info.width, info.height, info.pixel_format);
 
-    serial_println!("LazyOS: tiny-skia demo rendered; entering idle loop");
-    halt();
+    // Interrupts: PIC + PIT + PS/2 keyboard, then an echo loop driven by IRQs.
+    arch::init();
+    x86_64::instructions::interrupts::enable();
+    interactive();
 }
 
 fn boot_banner() {
@@ -89,13 +96,6 @@ fn boot_banner() {
     println!("ABCDEFGHIJKLMNOPQRSTUVWXYZ");
     println!("abcdefghijklmnopqrstuvwxyz");
     println!("0123456789 !\"#$%&'()*+,-./:;<=>?@[\\]^_`{{|}}~");
-    println!();
-    println!("Anti-aliased JetBrains Mono, rendered from a TTF at build time.");
-    println!();
-    println!("Scrolling to exercise wrapping and scrollback:");
-    for i in 1..=40 {
-        println!("  line {0:02}  the quick brown fox 0123456789", i);
-    }
 }
 
 /// Exercise the heap: allocate, grow, format, and drop.
@@ -121,6 +121,37 @@ fn alloc_demo() {
     println!("{}", message);
 }
 
+/// Keyboard echo loop, driven entirely by interrupts.
+fn interactive() -> ! {
+    println!();
+    println!("interrupts on - type; keys are echoed below (Esc/arrows too)");
+    let mut enters = 0u64;
+    loop {
+        match input::keyboard::read_key() {
+            Key::Char(c) => print!("{}", c),
+            Key::Space => print!(" "),
+            Key::Enter => {
+                enters += 1;
+                println!(
+                    "   [enter #{}, tick {}]",
+                    enters,
+                    arch::TICKS.load(Ordering::Relaxed)
+                );
+            }
+            Key::Backspace => print!("\u{8}"),
+            Key::Tab => print!("    "),
+            Key::Escape => {
+                println!();
+                println!("   [esc]");
+            }
+            Key::Left => print!("<"),
+            Key::Right => print!(">"),
+            Key::Up => print!("^"),
+            Key::Down => print!("v"),
+        }
+    }
+}
+
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
     serial_println!("LazyOS PANIC: {}", info);
@@ -128,7 +159,7 @@ fn panic(info: &PanicInfo) -> ! {
 }
 
 /// Halt the CPU forever. QEMU keeps running, so screenshots can still be taken.
-fn halt() -> ! {
+pub(crate) fn halt() -> ! {
     x86_64::instructions::interrupts::disable();
     loop {
         x86_64::instructions::hlt();

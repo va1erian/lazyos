@@ -142,15 +142,16 @@ class Qmp:
             arguments["device"] = device
         self.execute("input-send-event", **arguments)
 
-    def type_text(self, text: str, device: str | None = None, chunk: int = 128) -> None:
-        """Type ``text`` using a US keyboard layout."""
-        events: list[dict] = []
+    def type_text(self, text: str, device: str | None = None, delay: float = 0.01) -> None:
+        """Type ``text`` using a US keyboard layout.
+
+        Events are paced with a small delay: injecting a whole string at once
+        overruns QEMU's 16-byte i8042 output FIFO and silently drops keys.
+        """
         for ch in text:
-            events += char_events(ch)
-            if len(events) >= chunk:
-                self.send_events(events, device)
-                events = []
-        self.send_events(events, device)
+            self.send_events(char_events(ch), device)
+            if delay:
+                time.sleep(delay)
 
     def press_key(self, name: str, device: str | None = None) -> None:
         self.send_events(named_key_events(name), device)

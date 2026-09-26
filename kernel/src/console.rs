@@ -37,7 +37,6 @@ impl Console {
     fn bottom_margin(&self) -> usize {
         font::DESCENDER.unsigned_abs() as usize
     }
-
     fn newline(&mut self) {
         self.pen_x = MARGIN;
         let next = self.baseline + font::LINE_HEIGHT as usize;
@@ -45,6 +44,20 @@ impl Console {
             self.fb.scroll_up(font::LINE_HEIGHT as usize, self.bg);
         } else {
             self.baseline = next;
+        }
+    }
+
+    /// Move back one cell and erase it with the background colour.
+    fn backspace(&mut self) {
+        if self.pen_x < MARGIN + font::ADVANCE as usize {
+            return;
+        }
+        self.pen_x -= font::ADVANCE as usize;
+        let top = self.baseline.saturating_sub(font::ASCENDER.max(0) as usize);
+        for y in top..top + font::LINE_HEIGHT as usize {
+            for x in self.pen_x..self.pen_x + font::ADVANCE as usize {
+                self.fb.write_pixel(x, y, self.bg);
+            }
         }
     }
 
@@ -89,6 +102,7 @@ impl fmt::Write for Console {
             match ch {
                 '\n' => self.newline(),
                 '\r' => {}
+                '\u{8}' => self.backspace(),
                 _ => {
                     self.draw_glyph(ch);
                     self.pen_x += font::ADVANCE as usize;
