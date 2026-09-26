@@ -105,7 +105,8 @@ jobs:
             echo "::error::no screenshots were captured"
             exit 1
           fi
-          python tools/screenshot/pngstats.py "${pngs[@]}" --min-nonblack 0.001
+          python tools/screenshot/pngstats.py "${pngs[@]}" --min-nonblack 0.001 \
+            --min-colors 40
 
       - name: Upload screenshots artifact
         uses: actions/upload-artifact@v4

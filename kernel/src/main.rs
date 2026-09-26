@@ -14,6 +14,7 @@ mod gfx;
 mod logging;
 mod mem;
 mod serial;
+mod skia;
 
 use bootloader_api::config::{BootloaderConfig, Mapping};
 use bootloader_api::info::Optional;
@@ -68,9 +69,15 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     );
     alloc_demo();
 
-    println!();
-    println!("console ready");
-    serial_println!("LazyOS: banner drawn; entering idle loop");
+    // Graphics: render a tiny-skia scene and blit it, then label it with text
+    // drawn over the image (the console blends over existing pixels).
+    skia::render_demo();
+    console::reset_cursor();
+    println!("tiny-skia");
+    println!("anti-aliased 2D on the CPU, blitted to the framebuffer");
+    println!("{}x{} {:?}", info.width, info.height, info.pixel_format);
+
+    serial_println!("LazyOS: tiny-skia demo rendered; entering idle loop");
     halt();
 }
 
