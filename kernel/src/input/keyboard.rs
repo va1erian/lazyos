@@ -68,6 +68,7 @@ pub fn try_read_key() -> Option<Key> {
 }
 
 /// Block until a key is available (interrupts must be enabled).
+#[allow(dead_code)]
 pub fn read_key() -> Key {
     loop {
         if let Some(key) = try_read_key() {

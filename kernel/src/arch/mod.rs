@@ -6,6 +6,7 @@ pub mod pic;
 /// Initialise interrupt hardware and load the IDT.
 pub fn init() {
     idt::init_hardware();
+    crate::input::mouse::init();
 }
 
 /// Timer ticks (100 Hz) since boot.

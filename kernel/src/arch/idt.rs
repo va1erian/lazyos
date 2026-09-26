@@ -1,7 +1,7 @@
 //! Interrupt descriptor table and handlers.
 
 use crate::arch::pic;
-use crate::input::keyboard;
+use crate::input::{keyboard, mouse};
 use alloc::boxed::Box;
 use core::sync::atomic::{AtomicU64, Ordering};
 use x86_64::instructions::port::Port;
@@ -20,9 +20,10 @@ pub fn init() {
         .set_handler_fn(general_protection_fault_handler);
     idt.page_fault.set_handler_fn(page_fault_handler);
     idt.double_fault.set_handler_fn(double_fault_handler);
-    // PIC IRQ0 (timer) and IRQ1 (keyboard) are remapped to vectors 32 and 33.
+    // PIC IRQ0 (timer), IRQ1 (keyboard) and IRQ12 (mouse) after remapping.
     idt[32].set_handler_fn(timer_handler);
     idt[33].set_handler_fn(keyboard_handler);
+    idt[44].set_handler_fn(mouse_handler);
 
     // Leak so the table outlives this call; `load` needs a 'static reference.
     let idt: &'static InterruptDescriptorTable = Box::leak(Box::new(idt));
@@ -83,12 +84,11 @@ extern "x86-interrupt" fn timer_handler(_stack: InterruptStackFrame) {
 }
 
 extern "x86-interrupt" fn keyboard_handler(_stack: InterruptStackFrame) {
-    // Drain the i8042 output buffer: rapid input can queue several scancodes
-    // before one IRQ is serviced, and leaving them can overrun the controller.
+    // Drain the i8042 output buffer, but only keyboard bytes (aux bit clear).
     loop {
         // Safety: reading the i8042 status/output ports is valid in IRQ1.
         let status: u8 = unsafe { Port::<u8>::new(0x64).read() };
-        if status & 0x01 == 0 {
+        if status & 0x01 == 0 || status & 0x20 != 0 {
             break;
         }
         let scancode: u8 = unsafe { Port::<u8>::new(0x60).read() };
@@ -96,4 +96,19 @@ extern "x86-interrupt" fn keyboard_handler(_stack: InterruptStackFrame) {
     }
     // Safety: we are in the IRQ1 handler.
     unsafe { pic::end_of_interrupt(1) };
+}
+
+extern "x86-interrupt" fn mouse_handler(_stack: InterruptStackFrame) {
+    // Read every pending byte that came from the auxiliary device.
+    loop {
+        // Safety: reading the i8042 status/output ports is valid in IRQ12.
+        let status: u8 = unsafe { Port::<u8>::new(0x64).read() };
+        if status & 0x01 == 0 || status & 0x20 == 0 {
+            break;
+        }
+        let byte: u8 = unsafe { Port::<u8>::new(0x60).read() };
+        mouse::push_byte(byte);
+    }
+    // Safety: we are in the IRQ12 handler.
+    unsafe { pic::end_of_interrupt(12) };
 }

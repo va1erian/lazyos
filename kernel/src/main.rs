@@ -12,6 +12,7 @@ mod macros;
 mod arch;
 mod cli;
 mod console;
+mod cursor;
 mod font;
 mod gfx;
 mod gfxlib;
@@ -141,36 +142,80 @@ fn cli_demo() -> ! {
     redraw_rect(&mut back, &cli, cli.rect(), fbw, fbh);
     serial_println!("LazyOS: CLI ready (type 'help')");
 
+    input::mouse::set_bounds(fbw as i32, fbh as i32);
+    let mut cursor_pos: Option<(i32, i32)> = None;
+
     loop {
-        let key = input::keyboard::read_key();
-        let before = cli.rect();
-        match key {
-            Key::Left | Key::Right | Key::Up | Key::Down => {
-                let (dx, dy) = match key {
-                    Key::Left => (-16, 0),
-                    Key::Right => (16, 0),
-                    Key::Up => (0, -16),
-                    _ => (0, 16),
-                };
-                cli.move_by(dx, dy, fbw as i32, fbh as i32);
-                redraw_rect(
-                    &mut back,
-                    &cli,
-                    union_rect(before, cli.rect(), fbw, fbh),
-                    fbw,
-                    fbh,
+        let mut repaint = false;
+
+        if let Some(key) = input::keyboard::try_read_key() {
+            let before = cli.rect();
+            match key {
+                Key::Left | Key::Right | Key::Up | Key::Down => {
+                    let (dx, dy) = match key {
+                        Key::Left => (-16, 0),
+                        Key::Right => (16, 0),
+                        Key::Up => (0, -16),
+                        _ => (0, 16),
+                    };
+                    cli.move_by(dx, dy, fbw as i32, fbh as i32);
+                    redraw_rect(
+                        &mut back,
+                        &cli,
+                        union_rect(before, cli.rect(), fbw, fbh),
+                        fbw,
+                        fbh,
+                    );
+                    repaint = true;
+                }
+                other => match cli.on_key(other) {
+                    cli::Effect::None => {}
+                    cli::Effect::Redraw => {
+                        redraw_rect(&mut back, &cli, cli.rect(), fbw, fbh);
+                        repaint = true;
+                    }
+                    cli::Effect::Ball => {
+                        run_ball_demo(&mut back, &cli);
+                        redraw_rect(&mut back, &cli, cli.rect(), fbw, fbh);
+                        repaint = true;
+                    }
+                },
+            }
+        }
+
+        // Cursor overlay: erase the old sprite from the back buffer, then draw
+        // the new one. Window repaints may overwrite it, so redraw when needed.
+        if let Some((nx, ny)) = input::mouse::take_moved() {
+            if let Some((px, py)) = cursor_pos {
+                present(
+                    &back,
+                    px.max(0) as usize,
+                    py.max(0) as usize,
+                    cursor::WIDTH as usize,
+                    cursor::HEIGHT as usize,
                 );
             }
-            other => match cli.on_key(other) {
-                cli::Effect::None => {}
-                cli::Effect::Redraw => redraw_rect(&mut back, &cli, cli.rect(), fbw, fbh),
-                cli::Effect::Ball => {
-                    run_ball_demo(&mut back, &cli);
-                    redraw_rect(&mut back, &cli, cli.rect(), fbw, fbh);
-                }
-            },
+            cursor_pos = Some((nx, ny));
+            draw_cursor((nx, ny));
+        } else if repaint {
+            if let Some(pos) = cursor_pos {
+                draw_cursor(pos);
+            }
         }
+
+        if cursor_pos.is_none() {
+            let state = input::mouse::state();
+            cursor_pos = Some((state.x, state.y));
+            draw_cursor((state.x, state.y));
+        }
+
+        x86_64::instructions::hlt();
     }
+}
+
+/// Draw the cursor sprite directly onto the live framebuffer.
+fn draw_cursor(pos: (i32, i32)) {
+    console::with_framebuffer(|fb| cursor::draw(fb, pos.0, pos.1));
 }
 
 /// Compose a screen rectangle into the back buffer and present it in one blit.

@@ -63,7 +63,7 @@ Type commands and press Enter: `help`, `echo <text>`, `box` (static colour
 grid), `ball` (animated bouncing squares — any key stops), `bench` (renders the
 scene with tiny-skia and with our own rasterizer and reports cycle counts),
 `clear`, `pos`. Arrow keys move the window; Page Up/Down scroll the output;
-Home/End jump.
+Home/End jump. A mouse cursor sprite follows the PS/2 mouse.
 
 QEMU hardware acceleration (WHPX on Windows, KVM on Linux) is auto-detected and
 makes rendering several times faster than TCG; force it off with `--accel none`.
