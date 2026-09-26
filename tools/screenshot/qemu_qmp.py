@@ -64,7 +64,11 @@ def detect_accel(qemu: str) -> str | None:
         return None
     if os.name == "nt" and "whpx" in available:
         return "whpx"
-    if "kvm" in available and os.path.exists("/dev/kvm"):
+    if (
+        "kvm" in available
+        and os.path.exists("/dev/kvm")
+        and os.access("/dev/kvm", os.R_OK | os.W_OK)
+    ):
         return "kvm"
     return None
 
