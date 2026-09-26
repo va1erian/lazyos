@@ -19,10 +19,12 @@ fn main() {
         String::from("NOTES.TXT"),
         b"LazyOS notes\n-----------\n- single-tasking x86_64 kernel\n- tiny-skia graphics\n- PS/2 keyboard + mouse\n- FAT16 read-only filesystem\n".to_vec(),
     );
-    // The ring-3 demo program, loaded and run by `run HELLO.ELF`.
+    // The ring-3 demo programs, loaded and run by `run HELLO.ELF` / `run SH.ELF`.
     let hello =
-        std::env::var_os("CARGO_BIN_FILE_USER_hello").expect("user program artifact not found");
+        std::env::var_os("CARGO_BIN_FILE_USER_hello").expect("user hello artifact not found");
     builder.set_file(String::from("HELLO.ELF"), PathBuf::from(hello));
+    let sh = std::env::var_os("CARGO_BIN_FILE_USER_sh").expect("user sh artifact not found");
+    builder.set_file(String::from("SH.ELF"), PathBuf::from(sh));
     builder
         .create_bios_image(&bios_image)
         .expect("failed to create BIOS disk image");

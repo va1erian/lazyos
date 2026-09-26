@@ -63,7 +63,8 @@ Type commands and press Enter: `help`, `echo <text>`, `box` (static colour
 grid), `ball` (animated bouncing squares — any key stops), `bench` (renders the
 scene with tiny-skia and with our own rasterizer and reports cycle counts),
 `ls`/`dir` (list the disk), `cat <file>` (print a file), `run <file>` (load and
-run a ring-3 ELF program, e.g. `run HELLO.ELF`), `clear`, `pos`. Arrow keys move
+run a ring-3 ELF program: `run HELLO.ELF` or the interpreter `run SH.ELF`),
+`clear`, `pos`. Arrow keys move
 the window; Page Up/Down scroll the output; Home/End jump. A mouse cursor sprite
 follows the PS/2 mouse.
 

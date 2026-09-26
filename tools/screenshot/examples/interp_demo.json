@@ -1,0 +1,16 @@
+[
+  {"at": 6.0, "shot": "prompt"},
+  {"at": 7.0, "type": "run SH.ELF"},
+  {"at": 8.0, "key": "enter"},
+  {"at": 9.0, "shot": "interp"},
+  {"at": 9.4, "type": "let x = 6*7"},
+  {"at": 10.2, "key": "enter"},
+  {"at": 10.8, "type": "(1+2)*3"},
+  {"at": 11.4, "key": "enter"},
+  {"at": 12.0, "type": "print x + 1"},
+  {"at": 12.8, "key": "enter"},
+  {"at": 13.4, "type": "quit"},
+  {"at": 14.0, "key": "enter"},
+  {"at": 14.8, "shot": "after"},
+  {"at": 15.5, "quit": true}
+]

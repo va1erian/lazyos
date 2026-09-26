@@ -105,8 +105,39 @@ extern "C" fn syscall_dispatch(regs: *mut Regs) {
     regs.rax = match regs.rax {
         1 => sys_write(regs.rdi, regs.rsi),
         2 => sys_read_char(),
+        3 => sys_read_file(regs.rdi, regs.rsi, regs.rdx),
         _ => u64::MAX,
     };
+}
+
+/// Read a NUL-terminated string from user memory.
+fn user_cstr(ptr: u64) -> &'static str {
+    let mut len = 0usize;
+    // Safety: the caller must pass a valid, NUL-terminated user pointer.
+    unsafe {
+        while len < 4096 && core::ptr::read_volatile((ptr as *const u8).add(len)) != 0 {
+            len += 1;
+        }
+        let bytes = core::slice::from_raw_parts(ptr as *const u8, len);
+        core::str::from_utf8(bytes).unwrap_or("")
+    }
+}
+
+/// syscall 3: read a file into a user buffer. Returns the byte count, or
+/// `u64::MAX` if the file is missing.
+fn sys_read_file(name_ptr: u64, buf_ptr: u64, buf_len: u64) -> u64 {
+    let name = user_cstr(name_ptr);
+    match crate::fs::read(name) {
+        Some(bytes) => {
+            let count = bytes.len().min(buf_len as usize);
+            // Safety: the destination is a valid user buffer of `buf_len` bytes.
+            unsafe {
+                core::ptr::copy_nonoverlapping(bytes.as_ptr(), buf_ptr as *mut u8, count);
+            }
+            count as u64
+        }
+        None => u64::MAX,
+    }
 }
 
 fn sys_write(ptr: u64, len: u64) -> u64 {
