@@ -55,11 +55,8 @@ pub fn push_scancode(scancode: u8) {
         decode(code, shift)
     };
     if let Some(key) = key {
-        // `try_lock` avoids any chance of deadlocking against a lock held on
-        // the interrupted stack.
-        if let Some(mut queue) = QUEUE.try_lock() {
-            queue.push_back(key);
-        }
+        // Route the key to the focused task (or switch focus on Tab).
+        crate::task::on_key(key);
     }
 }
 /// Non-blocking: return the next key if one is queued.

@@ -3,7 +3,7 @@
 use crate::arch::pic;
 use crate::input::{keyboard, mouse};
 use alloc::boxed::Box;
-use core::sync::atomic::{AtomicU64, Ordering};
+use core::sync::atomic::AtomicU64;
 use x86_64::instructions::port::Port;
 use x86_64::registers::control::Cr2;
 use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode};
@@ -24,8 +24,8 @@ pub fn init() {
             .set_handler_fn(double_fault_handler)
             .set_stack_index(crate::arch::gdt::DOUBLE_FAULT_IST);
     }
-    // PIC IRQ0 (timer), IRQ1 (keyboard) and IRQ12 (mouse) after remapping.
-    idt[32].set_handler_fn(timer_handler);
+    // PIC IRQ0 (timer) drives preemption via the naked ISR in `task::switch`.
+    idt[32].set_handler_fn(timer_gate());
     idt[33].set_handler_fn(keyboard_handler);
     idt[44].set_handler_fn(mouse_handler);
     // int 0x80: user-mode syscall gate (DPL 3).
@@ -85,10 +85,14 @@ extern "x86-interrupt" fn double_fault_handler(stack: InterruptStackFrame, error
     crate::halt();
 }
 
-extern "x86-interrupt" fn timer_handler(_stack: InterruptStackFrame) {
-    TICKS.fetch_add(1, Ordering::Relaxed);
-    // Safety: we are in the IRQ0 handler.
-    unsafe { pic::end_of_interrupt(0) };
+/// Handler for the naked timer ISR (it switches tasks itself).
+fn timer_gate() -> x86_64::structures::idt::HandlerFunc {
+    // Safety: `timer_isr` is a naked ISR with a compatible (no ABI) signature.
+    unsafe {
+        core::mem::transmute::<*const (), x86_64::structures::idt::HandlerFunc>(
+            crate::task::switch::timer_isr as *const (),
+        )
+    }
 }
 
 extern "x86-interrupt" fn keyboard_handler(_stack: InterruptStackFrame) {

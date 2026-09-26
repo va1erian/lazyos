@@ -122,22 +122,6 @@ pub fn init(base: usize, info: FrameBufferInfo) {
     *CONSOLE.lock() = Some(console);
 }
 
-/// Write a formatted message to the console (used by the `print!` macros).
-pub fn _print(args: fmt::Arguments) {
-    use core::fmt::Write;
-    if let Some(console) = CONSOLE.lock().as_mut() {
-        let _ = console.write_fmt(args);
-    }
-}
-
-/// Write a string to the console (used by the unified logging sink).
-pub fn _write_str(s: &str) {
-    use core::fmt::Write;
-    if let Some(console) = CONSOLE.lock().as_mut() {
-        let _ = console.write_str(s);
-    }
-}
-
 /// Run a closure with mutable access to the underlying framebuffer, e.g. to
 /// blit a rendered image.
 pub fn with_framebuffer<R>(f: impl FnOnce(&mut Framebuffer) -> R) -> Option<R> {

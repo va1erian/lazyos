@@ -1,0 +1,14 @@
+[
+  {"at": 8.0, "shot": "initial"},
+  {"at": 9.0, "key": "tab"},
+  {"at": 9.5, "type": "let x = 7*6"},
+  {"at": 10.3, "key": "enter"},
+  {"at": 10.8, "type": "x + 1"},
+  {"at": 11.4, "key": "enter"},
+  {"at": 12.0, "shot": "sh_input"},
+  {"at": 12.6, "key": "tab"},
+  {"at": 13.0, "type": "hey"},
+  {"at": 13.6, "key": "enter"},
+  {"at": 14.2, "shot": "hello_input"},
+  {"at": 15.0, "quit": true}
+]

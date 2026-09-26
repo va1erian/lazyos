@@ -75,3 +75,12 @@ pub struct Selectors {
     pub user_code: u16,
     pub user_data: u16,
 }
+
+/// Point the ring0 stack used for the next user->kernel trap at `top`.
+pub fn set_kernel_stack(top: u64) {
+    // Safety: single-threaded access to the TSS.
+    unsafe {
+        let tss = &mut *addr_of!(TSS).cast_mut();
+        tss.privilege_stack_table[0] = VirtAddr::new(top);
+    }
+}

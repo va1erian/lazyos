@@ -14,9 +14,9 @@ Examples
     python tools/run_demo.py --no-build      # boot the existing target/lazyos.img
     python tools/run_demo.py -- --cpu max    # pass extra args to QEMU
 
-In the demo: type `help`, `echo <text>`, `box`, `ball`, `bench`, `clear`, `pos`
-and press Enter. Arrow keys move the window; Page Up / Page Down scroll;
-Home / End jump.
+In the demo: two windows run concurrently (a demo program and the `sh`
+interpreter). Press Tab to move focus (green border); typed input goes to the
+focused program.
 """
 
 from __future__ import annotations
