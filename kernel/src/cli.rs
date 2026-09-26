@@ -4,10 +4,12 @@
 //! window, Page Up/Down scroll the output, Home/End jump. Two commands render
 //! demos in the window body: `box` (static) and `ball` (animated).
 
+use crate::arch;
 use crate::font;
 use crate::gfx::Color;
+use crate::gfxlib;
 use crate::input::keyboard::Key;
-use crate::surface::Surface;
+use crate::surface::{RgbaBuffer, Surface};
 use crate::text;
 use alloc::format;
 use alloc::string::{String, ToString};
@@ -45,6 +47,7 @@ pub struct Cli {
     input: String,
     scroll: usize,
     show_boxes: bool,
+    show_scene: bool,
 }
 
 impl Cli {
@@ -59,6 +62,7 @@ impl Cli {
             input: String::new(),
             scroll: 0,
             show_boxes: false,
+            show_scene: false,
         };
         for line in [
             "LazyOS shell - type 'help' for commands",
@@ -103,9 +107,10 @@ impl Cli {
     }
 
     pub fn on_key(&mut self, key: Key) -> Effect {
-        if self.show_boxes {
-            // Any key leaves the box demo.
+        if self.show_boxes || self.show_scene {
+            // Any key leaves a demo/bench view.
             self.show_boxes = false;
+            self.show_scene = false;
             return Effect::Redraw;
         }
         match key {
@@ -173,6 +178,7 @@ impl Cli {
                     "  echo <text>   print text",
                     "  box           draw a colour grid in the window",
                     "  ball          animate bouncing balls (any key to stop)",
+                    "  bench         draw the scene with tiny-skia vs our own rasterizer",
                     "  clear         clear the output",
                     "  pos           show the window position",
                     "  quit          (no-op; the shell is the demo)",
@@ -188,6 +194,29 @@ impl Cli {
             "ball" => {
                 self.push_line("running ball demo (any key to stop)".to_string());
                 return Effect::Ball;
+            }
+            "bench" => {
+                let (_, _, cw, ch) = self.content_rect();
+                let t0 = arch::rdtsc();
+                let _ = crate::skia::build_scene(cw as u32, ch as u32);
+                let skia_cycles = arch::rdtsc().wrapping_sub(t0);
+
+                let mut scratch = RgbaBuffer::new(cw.max(1) as usize, ch.max(1) as usize);
+                let t1 = arch::rdtsc();
+                gfxlib::scene(&mut scratch, 0, 0, cw, ch);
+                let gfx_cycles = arch::rdtsc().wrapping_sub(t1);
+
+                self.push_line(format!("same scene, {}x{}:", cw, ch));
+                self.push_line(format!("  tiny-skia: {} cycles", skia_cycles));
+                self.push_line(format!("  gfxlib:    {} cycles", gfx_cycles));
+                crate::serial_println!(
+                    "bench {}x{}: tiny-skia {} cyc, gfxlib {} cyc",
+                    cw,
+                    ch,
+                    skia_cycles,
+                    gfx_cycles
+                );
+                self.show_scene = true;
             }
             "clear" => self.lines.clear(),
             "pos" => self.push_line(format!("window at ({}, {})", self.x, self.y)),
@@ -252,7 +281,11 @@ impl Cli {
 
     fn draw_text(&self, surface: &mut impl Surface) {
         let (cx, cy, cw, ch) = self.content_rect();
-        surface.fill_rect(cx, cy, cx + cw, cy + ch, BODY);
+        if self.show_scene {
+            gfxlib::scene(surface, cx, cy, cw, ch);
+        } else {
+            surface.fill_rect(cx, cy, cx + cw, cy + ch, BODY);
+        }
 
         let clip = text::Rect {
             x0: cx,

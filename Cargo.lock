@@ -293,6 +293,7 @@ version = "0.1.0"
 dependencies = [
  "bootloader_api",
  "font-atlas",
+ "libm",
  "linked_list_allocator",
  "spin",
  "tiny-skia",

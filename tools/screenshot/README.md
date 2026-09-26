@@ -15,6 +15,7 @@ CI and an AI agent can *see* what LazyOS renders, without a physical display.
 | `examples/type_and_shot.json` | Example session script. |
 | `examples/window_demo.json` | Session script exercising window move/scroll. |
 | `examples/cli_demo.json` | Session script for the CLI demos (help, box, ball). |
+| `examples/bench.json` | Session script that runs the `bench` command. |
 | `../run_demo.py` | Build and boot the interactive demo in QEMU with one command. |
 
 ### Why QMP instead of `-vnc`/`-nographic`
@@ -42,6 +43,13 @@ Outputs land in `shots/`: `shot_<t>s.png`, `serial.log`, `summary.json`.
 
 On Windows, QEMU is often installed at `C:\Program Files\qemu`; if that
 directory is not on `PATH`, either add it or pass `--qemu "C:\Program Files\qemu\qemu-system-x86_64.exe"`.
+
+### Acceleration
+
+All QEMU tools accept `--accel auto|none|tcg|whpx|kvm` (default `auto`). Auto
+uses WHPX on Windows or KVM on Linux when available; this makes software
+rendering many times faster than pure TCG emulation. Use `--accel none` for
+deterministic CI behaviour.
 
 ## `qemu_shot.py` options
 
