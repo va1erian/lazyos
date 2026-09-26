@@ -29,3 +29,12 @@ pub fn _write_str(s: &str) {
         let _ = port.write_str(s);
     }
 }
+
+/// Write raw bytes to the serial port (mirrors user-program output).
+pub fn write_bytes(bytes: &[u8]) {
+    if let Some(port) = SERIAL1.lock().as_mut() {
+        for &byte in bytes {
+            port.send(byte);
+        }
+    }
+}

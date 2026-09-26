@@ -1,11 +1,19 @@
-//! A read-only FAT16 driver over the ATA block device.
+//! A read-only FAT12/FAT16 driver over the ATA block device.
 //!
-//! The bootloader builds the disk image as MBR + a FAT16 partition holding the
-//! kernel (and any files added at build time).
+//! The bootloader builds the disk as MBR + a FAT partition holding the kernel
+//! and any files added at build time. Small images come out as FAT12 and larger
+//! ones as FAT16, so both are supported.
 
 use crate::block::ata;
 use alloc::string::String;
 use alloc::vec::Vec;
+
+/// Which FAT flavour the volume uses (determined by cluster count).
+#[derive(Clone, Copy, PartialEq)]
+enum FatKind {
+    Fat12,
+    Fat16,
+}
 
 /// A directory entry.
 pub struct Entry {
@@ -15,15 +23,15 @@ pub struct Entry {
     pub is_dir: bool,
 }
 
-/// A mounted FAT16 volume.
+/// A mounted FAT12/FAT16 volume.
 pub struct Fat16 {
-    partition_lba: u32,
     bytes_per_sector: u16,
     sectors_per_cluster: u8,
-    reserved: u16,
-    root_entries: u16,
+    fat_start: u32,
     root_lba: u32,
     data_lba: u32,
+    root_entries: u16,
+    kind: FatKind,
 }
 
 fn read_sector(lba: u32) -> Option<[u8; 512]> {
@@ -49,66 +57,107 @@ fn le32(buf: &[u8], offset: usize) -> u32 {
 }
 
 impl Fat16 {
-    /// Locate and parse the FAT16 volume on the primary disk.
+    /// Locate and parse the FAT volume on the primary disk.
     pub fn open() -> Option<Fat16> {
         let mbr = read_sector(0)?;
-        // Scan the four MBR partition entries.
         for i in 0..4 {
             let base = 0x1BE + i * 16;
             let kind = mbr[base + 4];
             let lba = le32(&mbr, base + 8);
             let sectors = le32(&mbr, base + 12);
-            let fat_type = matches!(kind, 0x01 | 0x04 | 0x06 | 0x0B | 0x0C);
-            if !fat_type || sectors == 0 {
+            let is_fat = matches!(kind, 0x01 | 0x04 | 0x06 | 0x0B | 0x0C);
+            if !is_fat || sectors == 0 {
                 continue;
             }
-            let bpb = read_sector(lba)?;
-            let bytes_per_sector = le16(&bpb, 11);
-            let fat_size = le16(&bpb, 22);
-            let root_entries = le16(&bpb, 17);
-            // FAT12/16 have non-zero 16-bit fields; FAT32 leaves them zero.
-            if bytes_per_sector != 512 || fat_size == 0 || root_entries == 0 {
-                continue;
+            if let Some(volume) = Self::parse(lba) {
+                return Some(volume);
             }
-            let reserved = le16(&bpb, 14);
-            let fats = bpb[16];
-            let sectors_per_cluster = bpb[13];
-            let root_lba = lba + reserved as u32 + fats as u32 * fat_size as u32;
-            let data_lba = root_lba + (root_entries as u32 * 32).div_ceil(512);
-            return Some(Fat16 {
-                partition_lba: lba,
-                bytes_per_sector,
-                sectors_per_cluster,
-                reserved,
-                root_entries,
-                root_lba,
-                data_lba,
-            });
         }
         None
     }
 
-    fn fat_start(&self) -> u32 {
-        self.partition_lba + self.reserved as u32
+    fn parse(lba: u32) -> Option<Fat16> {
+        let bpb = read_sector(lba)?;
+        let bytes_per_sector = le16(&bpb, 11);
+        let sectors_per_cluster = bpb[13];
+        let reserved = le16(&bpb, 14) as u32;
+        let fats = bpb[16] as u32;
+        let root_entries = le16(&bpb, 17);
+        // FAT12/16 use 16-bit sector counts and FAT sizes; FAT32 uses 32-bit.
+        let total_sectors = if le16(&bpb, 19) != 0 {
+            le16(&bpb, 19) as u32
+        } else {
+            le32(&bpb, 32)
+        };
+        let fat_size = if le16(&bpb, 22) != 0 {
+            le16(&bpb, 22) as u32
+        } else {
+            le32(&bpb, 36)
+        };
+        if bytes_per_sector != 512 || sectors_per_cluster == 0 || fat_size == 0 {
+            return None;
+        }
+
+        let root_dir_sectors = (root_entries as u32 * 32).div_ceil(bytes_per_sector as u32);
+        let root_lba = lba + reserved + fats * fat_size;
+        let data_lba = root_lba + root_dir_sectors;
+        let data_sectors =
+            total_sectors.saturating_sub(reserved + fats * fat_size + root_dir_sectors);
+        let clusters = data_sectors / sectors_per_cluster as u32;
+        let kind = if clusters < 4085 {
+            FatKind::Fat12
+        } else if clusters < 65525 {
+            FatKind::Fat16
+        } else {
+            return None; // FAT32 not supported
+        };
+
+        Some(Fat16 {
+            bytes_per_sector,
+            sectors_per_cluster,
+            fat_start: lba + reserved,
+            root_lba,
+            data_lba,
+            root_entries,
+            kind,
+        })
     }
 
     fn cluster_lba(&self, cluster: u16) -> u32 {
         self.data_lba + (cluster as u32 - 2) * self.sectors_per_cluster as u32
     }
 
-    /// Next cluster in the chain (FAT16 entries are 16-bit).
+    /// Next cluster in a chain, following the FAT (12- or 16-bit entries).
     fn next_cluster(&self, cluster: u16) -> Option<u16> {
-        let fat_offset = cluster as u32 * 2;
-        let sector = self.fat_start() + fat_offset / self.bytes_per_sector as u32;
-        let index = (fat_offset % self.bytes_per_sector as u32) as usize;
+        let (byte_offset, _) = match self.kind {
+            FatKind::Fat12 => ((cluster as u32 + cluster as u32 / 2), 0),
+            FatKind::Fat16 => (cluster as u32 * 2, 0),
+        };
+        let sector = self.fat_start + byte_offset / self.bytes_per_sector as u32;
+        let index = (byte_offset % self.bytes_per_sector as u32) as usize;
         let buf = read_sector(sector)?;
-        let next = le16(&buf, index);
-        if next >= 0xFFF8 {
-            None // end of chain
-        } else if next == 0 {
+
+        let value = match self.kind {
+            FatKind::Fat12 => {
+                let word = le16(&buf, index);
+                // 12-bit entries are packed; pick the low or high nibble pair.
+                if cluster % 2 == 0 {
+                    word & 0x0FFF
+                } else {
+                    word >> 4
+                }
+            }
+            FatKind::Fat16 => le16(&buf, index),
+        };
+
+        let end_of_chain = match self.kind {
+            FatKind::Fat12 => value >= 0xFF8,
+            FatKind::Fat16 => value >= 0xFFF8,
+        };
+        if end_of_chain || value == 0 {
             None
         } else {
-            Some(next)
+            Some(value)
         }
     }
 
@@ -125,25 +174,21 @@ impl Fat16 {
             let entry = &buf[index..index + 32];
             offset += 1;
 
-            let first = entry[0];
-            if first == 0x00 {
+            if entry[0] == 0x00 {
                 break; // end of directory
             }
-            if first == 0xE5 {
+            if entry[0] == 0xE5 {
                 continue; // deleted
             }
             let attr = entry[11];
             if attr == 0x0F || attr & 0x08 != 0 {
-                continue; // LFN or volume label
+                continue; // long-name entry or volume label
             }
 
-            let name = format_name(&entry[0..8], &entry[8..11]);
-            let cluster = le16(entry, 26);
-            let size = le32(entry, 28);
             entries.push(Entry {
-                name,
-                size,
-                cluster,
+                name: format_name(&entry[0..8], &entry[8..11]),
+                cluster: le16(entry, 26),
+                size: le32(entry, 28),
                 is_dir: attr & 0x10 != 0,
             });
         }
@@ -159,7 +204,7 @@ impl Fat16 {
             }
             let candidate = normalize(&entry.name);
             let matches = match (&wanted, &candidate) {
-                (Some(w), Some(c)) => w == c,
+                (Some(want), Some(candidate)) => want == candidate,
                 _ => entry.name.eq_ignore_ascii_case(name),
             };
             if matches {
@@ -175,12 +220,11 @@ impl Fat16 {
             return Some(data);
         }
         let mut cluster = start;
-        // Bounded to avoid an infinite loop on a corrupt chain.
+        // Bounded so a corrupt chain cannot loop forever.
         for _ in 0..0x10000 {
             let lba = self.cluster_lba(cluster);
-            for s in 0..self.sectors_per_cluster as u32 {
-                let buf = read_sector(lba + s)?;
-                data.extend_from_slice(&buf);
+            for sector in 0..self.sectors_per_cluster as u32 {
+                data.extend_from_slice(&read_sector(lba + sector)?);
             }
             if data.len() as u32 >= size {
                 data.truncate(size as usize);
@@ -216,7 +260,7 @@ fn format_name(base: &[u8], ext: &[u8]) -> String {
 /// Normalize `NAME.EXT` to an uppercase "NAME.EXT" or "NAME" key.
 fn normalize(name: &str) -> Option<String> {
     let (base, ext) = match name.split_once('.') {
-        Some((b, e)) => (b, e),
+        Some((base, ext)) => (base, ext),
         None => (name, ""),
     };
     if base.is_empty() || base.len() > 8 || ext.len() > 3 {

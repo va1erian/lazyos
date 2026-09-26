@@ -142,8 +142,3 @@ pub fn take_moved() -> Option<(i32, i32)> {
         None
     }
 }
-
-/// Current position and buttons.
-pub fn state() -> MouseState {
-    *STATE.lock()
-}

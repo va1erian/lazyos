@@ -53,42 +53,52 @@ only reacts once it has a keyboard/mouse driver (Phase 3+).
 
 ## Running the demo
 
-Boot the interactive CLI in a window with one command:
+LazyOS is a preemptive, single-address-space-per-task kernel with a simple
+terminal multiplexer. Boot it with one command:
 
 ```bash
 python tools/run_demo.py
 ```
 
-Type commands and press Enter: `help`, `echo <text>`, `box` (static colour
-grid), `ball` (animated bouncing squares — any key stops), `bench` (renders the
-scene with tiny-skia and with our own rasterizer and reports cycle counts),
-`ls`/`dir` (list the disk), `cat <file>` (print a file), `run <file>` (load and
-run a ring-3 ELF program: `run HELLO.ELF` or the interpreter `run SH.ELF`),
-`clear`, `pos`. Arrow keys move
-the window; Page Up/Down scroll the output; Home/End jump. A mouse cursor sprite
-follows the PS/2 mouse.
+Two windows appear, each running a different ring-3 program concurrently
+(`hello` and the `sh` interpreter). **Tab** moves keyboard focus (the focused
+window has a green border); typed input goes to the focused program. A mouse
+cursor sprite follows the PS/2 mouse.
 
-The boot disk is MBR + a **FAT16** partition. Files are added at build time in
-`build.rs` via `DiskImageBuilder::set_file_contents` / `set_file`; the kernel
-reads them with the ATA PIO driver (`block::ata`) and a read-only FAT16 reader
-(`fs`). `HELLO.ELF` and `SH.ELF` are real ring-3 programs (`user/`), loaded by
-`process` at `0x400000`. `user/src/lib.rs` is the shared ring-3 runtime: `sys`
-(the `int 0x80` wrappers) and a bump heap allocator backed by the `sbrk`
-syscall (number 4), so user programs can use `alloc`. Syscalls: `exit` (0),
-`write` (1), `read_char` (2), `read_file` (3), `sbrk` (4). `SH.ELF` is a small
-Dyon-inspired interpreter (`user/src/lang/`: `lexer`, `parser`, `interp`,
-`value`) supporting `f64` numbers, booleans, strings, arrays, `let`, `print`,
-`if`/`else`, arithmetic, comparisons and indexing.
+The boot disk is MBR + a **FAT12/FAT16** partition. Files are added at build
+time in `build.rs` via `DiskImageBuilder::set_file_contents` / `set_file`; the
+kernel reads them with the ATA PIO driver (`block::ata`) and a read-only FAT
+reader (`fs`). `HELLO.ELF` and `SH.ELF` are real ring-3 programs (`user/`),
+loaded by `process::load_image` into each task's own address space at
+`0x400000`. `user/src/lib.rs` is the shared ring-3 runtime: `sys` (the
+`int 0x80` wrappers) and a bump heap allocator backed by the `sbrk` syscall
+(number 4), so user programs can use `alloc`. Syscalls: `exit` (0), `write` (1),
+`read_char` (2), `read_file` (3), `sbrk` (4). `SH.ELF` is a small Dyon-inspired
+interpreter (`user/src/lang/`: `lexer`, `parser`, `interp`, `value`) supporting
+`f64` numbers, booleans, strings, arrays, `let`, `print`, `if`/`else`,
+arithmetic, comparisons and indexing.
+
+### How multitasking works
+
+- `mem` can build a fresh address space (`new_user_table`) sharing the kernel's
+  higher-half mappings; each task has its own PML4, kernel stack, heap break,
+  terminal buffer and input queue.
+- `task` runs a round-robin scheduler. The timer ISR (`task::switch::timer_isr`,
+  a naked stub) saves the GP registers, calls `task::schedule`, and resumes the
+  returned stack — switching address space (`CR3`) and the ring0 stack (TSS
+  `RSP0`) as needed.
+- `mux` is the kernel task (slot 0): it repaints the windows when output or
+  focus changes. `Tab` is handled in the keyboard IRQ.
 
 QEMU hardware acceleration (WHPX on Windows, KVM on Linux) is auto-detected and
 makes rendering several times faster than TCG; force it off with `--accel none`.
 `run_demo.py` builds `target/lazyos.img` if needed (`--no-build`, `--headless`,
-`-- --cpu max` are supported). For scripted visual verification, capture the
+`-- --cpu max` are supported). For scripted visual verification, capture a
 session script instead:
 
 ```bash
 python tools/screenshot/qemu_session.py --image target/lazyos.img \
-    --out shots/demo --script tools/screenshot/examples/cli_demo.json
+    --out shots/demo --script tools/screenshot/examples/multitask_demo.json
 ```
 
 ## Project conventions

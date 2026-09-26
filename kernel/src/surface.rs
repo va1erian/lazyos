@@ -37,6 +37,7 @@ pub trait Surface {
         h: usize,
     );
 
+    #[allow(dead_code)]
     fn blit_rgba_at(&mut self, rgba: &[u8], width: usize, height: usize, dx: usize, dy: usize) {
         self.blit_rgba_region(rgba, width, height, 0, 0, dx, dy, width, height);
     }

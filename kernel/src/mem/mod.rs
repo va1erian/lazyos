@@ -30,18 +30,9 @@ struct Frames {
     index: usize,
     cursor: u64,
     allocated: usize,
-    total: usize,
 }
 
 static FRAMES: Mutex<Option<Frames>> = Mutex::new(None);
-
-/// Summary of memory initialisation, for logging.
-#[derive(Clone, Copy, Debug)]
-pub struct MemStats {
-    pub heap_size: usize,
-    pub frames_allocated: usize,
-    pub frames_total: usize,
-}
 
 /// Adapter so `map_to` can pull frames from the global allocator.
 struct GlobalFrames;
@@ -107,33 +98,69 @@ unsafe fn active_level_4_table(offset: VirtAddr) -> &'static mut PageTable {
 
 /// Map one page in the active page table. Returns false on failure.
 pub fn map_page(virt: VirtAddr, phys: PhysAddr, flags: PageTableFlags) -> bool {
+    map_page_in(kernel_table(), virt, phys, flags)
+}
+
+/// Physical frame of the currently active (kernel) page table.
+pub fn kernel_table() -> PhysAddr {
+    let (frame, _) = Cr3::read();
+    frame.start_address()
+}
+
+/// Create a fresh address space: a new PML4 sharing the kernel's higher-half
+/// entries (indices 1..512) but with an empty user half (index 0).
+pub fn new_user_table() -> Option<PhysAddr> {
+    let phys = alloc_zeroed_frame()?;
     let offset = physical_offset();
-    // Safety: the bootloader mapped all physical memory at `offset`.
-    let mut mapper = unsafe { OffsetPageTable::new(active_level_4_table(offset), offset) };
+    // Safety: the active table and the new frame are mapped.
+    unsafe {
+        let kernel = active_level_4_table(offset) as *const PageTable as *const u64;
+        let table = phys_to_virt(phys).as_mut_ptr::<u64>();
+        for i in 1..512 {
+            core::ptr::write_volatile(table.add(i), core::ptr::read_volatile(kernel.add(i)));
+        }
+    }
+    Some(phys)
+}
+
+/// Map a page into a specific page table.
+pub fn map_page_in(table: PhysAddr, virt: VirtAddr, phys: PhysAddr, flags: PageTableFlags) -> bool {
+    let offset = physical_offset();
+    let table_virt = phys_to_virt(table);
+    // Safety: `table` is a PML4 frame we own.
+    let level_4 = unsafe { &mut *table_virt.as_mut_ptr::<PageTable>() };
+    let mut mapper = unsafe { OffsetPageTable::new(level_4, offset) };
     let mut frames = GlobalFrames;
     let page = Page::<Size4KiB>::containing_address(virt);
     let frame = PhysFrame::containing_address(phys);
-    // Safety: the virtual page is being (re)mapped for exclusive use.
+    // Safety: the virtual page is not otherwise mapped in this table.
     unsafe {
-        // Remove any pre-existing bootloader mapping for this page.
-        if let Ok((_, flush)) = mapper.unmap(page) {
-            flush.flush();
-        }
         match mapper.map_to(page, frame, flags, &mut frames) {
             Ok(flush) => {
                 flush.flush();
                 true
             }
             Err(err) => {
-                crate::serial_println!("map_page {:#x} failed: {:?}", virt.as_u64(), err);
+                crate::serial_println!("map_page_in {:#x} failed: {:?}", virt.as_u64(), err);
                 false
             }
         }
     }
 }
 
+/// Switch the active address space.
+pub fn switch_to(table: PhysAddr) {
+    // Safety: `table` is a valid PML4 whose kernel entries match the current one.
+    unsafe {
+        Cr3::write(
+            PhysFrame::containing_address(table),
+            x86_64::registers::control::Cr3Flags::empty(),
+        );
+    }
+}
+
 /// Initialise frame allocation and the kernel heap.
-pub fn init(boot_info: &'static mut BootInfo) -> MemStats {
+pub fn init(boot_info: &'static mut BootInfo) {
     let offset = match boot_info.physical_memory_offset {
         Optional::Some(offset) => VirtAddr::new(offset),
         Optional::None => panic!("bootloader did not map physical memory"),
@@ -143,7 +170,6 @@ pub fn init(boot_info: &'static mut BootInfo) -> MemStats {
     let mut starts = [0u64; MAX_REGIONS];
     let mut ends = [0u64; MAX_REGIONS];
     let mut count = 0;
-    let mut total = 0;
     for region in boot_info
         .memory_regions
         .iter()
@@ -158,7 +184,6 @@ pub fn init(boot_info: &'static mut BootInfo) -> MemStats {
         }
         starts[count] = start;
         ends[count] = region.end;
-        total += ((region.end - start) / 4096) as usize;
         count += 1;
     }
     *FRAMES.lock() = Some(Frames {
@@ -168,7 +193,6 @@ pub fn init(boot_info: &'static mut BootInfo) -> MemStats {
         index: 0,
         cursor: LOWEST_FRAME,
         allocated: 0,
-        total,
     });
 
     // Map the kernel heap.
@@ -191,12 +215,4 @@ pub fn init(boot_info: &'static mut BootInfo) -> MemStats {
     }
     // Safety: the range was just mapped writable and is otherwise unused.
     unsafe { heap::init(HEAP_START as usize, HEAP_SIZE as usize) };
-
-    let guard = FRAMES.lock();
-    let frames = guard.as_ref().unwrap();
-    MemStats {
-        heap_size: HEAP_SIZE as usize,
-        frames_allocated: frames.allocated,
-        frames_total: frames.total,
-    }
 }

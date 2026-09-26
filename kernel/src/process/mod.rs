@@ -1,39 +1,33 @@
-//! Ring-3 user programs: the `int 0x80` syscall gate and a static ELF64 loader.
+//! Ring-3 execution: the `int 0x80` syscall gate and a static ELF64 loader.
+//!
+//! The loader maps a program into a given address space ([`load_image`]); the
+//! scheduler (`crate::task`) then runs it in ring 3. Syscalls reach the kernel
+//! through the gate installed at vector `0x80`.
 
 use alloc::vec::Vec;
-use core::arch::{asm, global_asm};
-use core::sync::atomic::{AtomicU64, Ordering};
+use core::arch::global_asm;
 use x86_64::structures::idt::HandlerFunc;
 use x86_64::structures::paging::PageTableFlags;
 use x86_64::{PhysAddr, VirtAddr};
 use xmas_elf::program::{SegmentData, Type as ProgramType};
 use xmas_elf::ElfFile;
 
-use crate::arch::gdt;
-use crate::console;
-use crate::input::keyboard;
-use crate::mem;
+use crate::task;
+use crate::{fs, input::keyboard, mem};
 
-/// Fixed virtual base for user programs.
+/// Base of the user heap (grows up toward the stack).
 pub const USER_HEAP_BASE: u64 = 0x60_0000;
 /// Top of the user stack (grows down).
 pub const USER_STACK_TOP: u64 = 0x80_0000;
 /// User stack size.
 pub const USER_STACK_SIZE: u64 = 0x2_0000;
 
-/// Current heap break for the running user program (advanced by `sbrk`).
-static HEAP_BREAK: AtomicU64 = AtomicU64::new(0);
-
 /// Page flags for user-accessible mappings.
 fn user_flags() -> PageTableFlags {
     PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::USER_ACCESSIBLE
 }
 
-/// Kernel stack pointer saved when entering user mode; restored by `exit`.
-#[no_mangle]
-pub static mut SAVED_KERNEL_RSP: u64 = 0;
-
-/// Saved general-purpose registers, laid out to match the push order below.
+/// Saved general-purpose registers, laid out to match the syscall stub's pushes.
 #[repr(C)]
 struct Regs {
     rax: u64,
@@ -45,7 +39,7 @@ struct Regs {
     rdi: u64,
 }
 
-// Syscall entry stub: save the argument registers, dispatch, restore, iretq.
+// Syscall entry stub: save argument registers, dispatch, restore, iretq.
 global_asm!(
     r#"
     .global syscall_isr
@@ -74,30 +68,6 @@ extern "C" {
     fn syscall_isr();
 }
 
-// Ring-3 entry trampoline. Captures `rsp` at its very entry (before any Rust
-// prologue) so `exit` can restore the caller's stack and `ret` back to it.
-// Arguments (System V): rdi = entry, rsi = stack, rdx = user CS, rcx = user SS.
-global_asm!(
-    r#"
-    .global enter_user_asm
-    enter_user_asm:
-        mov [rip + SAVED_KERNEL_RSP], rsp
-        mov rax, rcx
-        mov ds, ax
-        mov es, ax
-        push rcx
-        push rsi
-        push 0x202
-        push rdx
-        push rdi
-        iretq
-    "#
-);
-
-extern "C" {
-    fn enter_user_asm(entry: u64, stack: u64, code: u64, data: u64);
-}
-
 /// The handler to install at vector `0x80` (DPL 3).
 pub fn syscall_gate() -> HandlerFunc {
     // Safety: `syscall_isr` is a naked ISR with a compatible (no ABI) signature.
@@ -120,31 +90,34 @@ extern "C" fn syscall_dispatch(regs: *mut Regs) {
     };
 }
 
-/// syscall 4: grow the heap by `increment` bytes; returns the previous break,
-/// or `u64::MAX` on failure. `increment == 0` just reports the current break.
-fn sys_sbrk(increment: u64) -> u64 {
-    let current = HEAP_BREAK.load(Ordering::Relaxed);
-    if increment == 0 {
-        return current;
-    }
-    let page = 4096u64;
-    let new_break = (current + increment + page - 1) & !(page - 1);
-    // Never run into the user stack.
-    if new_break > USER_STACK_TOP - USER_STACK_SIZE {
-        return u64::MAX;
-    }
-    let mut va = current;
-    while va < new_break {
-        let Some(phys) = mem::alloc_zeroed_frame() else {
-            return u64::MAX;
-        };
-        if !mem::map_page(VirtAddr::new(va), phys, user_flags()) {
-            return u64::MAX;
+/// syscall 1: write bytes to the task's terminal (and the serial log).
+fn sys_write(ptr: u64, len: u64) -> u64 {
+    // Safety: syscalls only pass pointers into the (mapped) user address space.
+    let bytes = unsafe { core::slice::from_raw_parts(ptr as *const u8, len as usize) };
+    task::write_output(bytes);
+    crate::serial::write_bytes(bytes);
+    len
+}
+
+/// syscall 2: block until a key is routed to this task, then return its code.
+fn sys_read_char() -> u64 {
+    loop {
+        if let Some(key) = task::take_key() {
+            return match key {
+                keyboard::Key::Char(c) => c as u64,
+                keyboard::Key::Enter => b'\n' as u64,
+                keyboard::Key::Space => b' ' as u64,
+                keyboard::Key::Backspace => 8,
+                keyboard::Key::Tab => b'\t' as u64,
+                keyboard::Key::Escape => 27,
+                _ => 0,
+            };
         }
-        va += page;
+        // Interrupts are disabled inside the gate; enable them so the timer can
+        // preempt us (letting other tasks run) and the keyboard can deliver keys.
+        x86_64::instructions::interrupts::enable();
+        x86_64::instructions::hlt();
     }
-    HEAP_BREAK.store(new_break, Ordering::Relaxed);
-    current
 }
 
 /// Read a NUL-terminated string from user memory.
@@ -160,11 +133,10 @@ fn user_cstr(ptr: u64) -> &'static str {
     }
 }
 
-/// syscall 3: read a file into a user buffer. Returns the byte count, or
-/// `u64::MAX` if the file is missing.
+/// syscall 3: read a file into a user buffer. Returns the count, or `u64::MAX`.
 fn sys_read_file(name_ptr: u64, buf_ptr: u64, buf_len: u64) -> u64 {
     let name = user_cstr(name_ptr);
-    match crate::fs::read(name) {
+    match fs::read(name) {
         Some(bytes) => {
             let count = bytes.len().min(buf_len as usize);
             // Safety: the destination is a valid user buffer of `buf_len` bytes.
@@ -177,77 +149,57 @@ fn sys_read_file(name_ptr: u64, buf_ptr: u64, buf_len: u64) -> u64 {
     }
 }
 
-fn sys_write(ptr: u64, len: u64) -> u64 {
-    // Safety: syscalls only pass pointers into the (mapped) user address space.
-    let bytes = unsafe { core::slice::from_raw_parts(ptr as *const u8, len as usize) };
-    match core::str::from_utf8(bytes) {
-        Ok(text) => {
-            console::_write_str(text);
-            crate::serial::_write_str(text);
-        }
-        Err(_) => {
-            for &byte in bytes {
-                let buf = [byte];
-                let s = unsafe { core::str::from_utf8_unchecked(&buf) };
-                console::_write_str(s);
-                crate::serial::_write_str(s);
-            }
-        }
+/// syscall 4: grow this task's heap; returns the previous break or `u64::MAX`.
+fn sys_sbrk(increment: u64) -> u64 {
+    let current = task::heap_break();
+    if increment == 0 {
+        return current;
     }
-    len
+    let page = 4096u64;
+    let new_break = (current + increment + page - 1) & !(page - 1);
+    if new_break > USER_STACK_TOP - USER_STACK_SIZE {
+        return u64::MAX;
+    }
+    let mut va = current;
+    while va < new_break {
+        let Some(phys) = mem::alloc_zeroed_frame() else {
+            return u64::MAX;
+        };
+        // The active page table is this task's, so map_page targets it.
+        if !mem::map_page(VirtAddr::new(va), phys, user_flags()) {
+            return u64::MAX;
+        }
+        va += page;
+    }
+    task::set_heap_break(new_break);
+    current
 }
 
-fn sys_read_char() -> u64 {
-    // Interrupts are disabled while inside the syscall gate; re-enable them so
-    // the keyboard IRQ can arrive and wake the blocking read.
-    let was_enabled = x86_64::instructions::interrupts::are_enabled();
-    x86_64::instructions::interrupts::enable();
-    let key = keyboard::read_key();
-    if !was_enabled {
-        x86_64::instructions::interrupts::disable();
-    }
-    match key {
-        keyboard::Key::Char(c) => c as u64,
-        keyboard::Key::Enter => b'\n' as u64,
-        keyboard::Key::Space => b' ' as u64,
-        keyboard::Key::Backspace => 8,
-        keyboard::Key::Tab => b'\t' as u64,
-        keyboard::Key::Escape => 27,
-        _ => 0,
-    }
-}
-
-/// Terminate the current user program and return control to the kernel.
+/// syscall 0: terminate the current task.
 fn exit(_code: u32) -> ! {
-    crate::serial_println!("user: program exited");
-    // Safety: restores the kernel stack saved by `enter_user_asm`, then returns.
-    unsafe {
-        asm!(
-            "mov rsp, [rip + {saved}]",
-            "ret",
-            saved = sym SAVED_KERNEL_RSP,
-            options(noreturn),
-        );
+    serial_println!("user: task exited");
+    task::finish_current();
+    // Wait for the scheduler to switch to another task.
+    loop {
+        x86_64::instructions::interrupts::enable();
+        x86_64::instructions::hlt();
     }
 }
 
-/// Load a static ELF64 image and run it in ring 3. Returns on load error or
-/// after the program exits.
-pub fn run(elf_bytes: &[u8]) -> Result<(), &'static str> {
+/// Load a static ELF64 image into the address space `table`, returning its
+/// entry point. Segments are mapped once (they can share pages) and populated
+/// from the file; a user stack is mapped below `USER_STACK_TOP`.
+pub fn load_image(table: PhysAddr, elf_bytes: &[u8]) -> Result<u64, &'static str> {
     let elf = ElfFile::new(elf_bytes).map_err(|_| "not a valid ELF")?;
     let entry = elf.header.pt2.entry_point();
 
-    // Fresh heap for this program.
-    HEAP_BREAK.store(USER_HEAP_BASE, Ordering::Relaxed);
-
-    // Map each page once (segments can share pages) and remember its frame.
     let mut pages: Vec<(u64, u64)> = Vec::new();
-    for ph in elf.program_iter() {
-        if ph.get_type() != Ok(ProgramType::Load) {
+    for program_header in elf.program_iter() {
+        if program_header.get_type() != Ok(ProgramType::Load) {
             continue;
         }
-        let vaddr = ph.virtual_addr();
-        let mem_size = ph.mem_size();
+        let vaddr = program_header.virtual_addr();
+        let mem_size = program_header.mem_size();
         let start = vaddr & !0xFFF;
         let end = (vaddr + mem_size + 0xFFF) & !0xFFF;
 
@@ -255,7 +207,7 @@ pub fn run(elf_bytes: &[u8]) -> Result<(), &'static str> {
         while va < end {
             if phys_for(&pages, va).is_none() {
                 let phys = mem::alloc_zeroed_frame().ok_or("out of memory")?;
-                if !mem::map_page(VirtAddr::new(va), phys, user_flags()) {
+                if !mem::map_page_in(table, VirtAddr::new(va), phys, user_flags()) {
                     return Err("failed to map segment");
                 }
                 pages.push((va, phys.as_u64()));
@@ -263,7 +215,9 @@ pub fn run(elf_bytes: &[u8]) -> Result<(), &'static str> {
             va += 4096;
         }
 
-        let data = ph.get_data(&elf).map_err(|_| "bad segment data")?;
+        let data = program_header
+            .get_data(&elf)
+            .map_err(|_| "bad segment data")?;
         if let SegmentData::Undefined(file_bytes) = data {
             for (i, &byte) in file_bytes.iter().enumerate() {
                 let va = vaddr + i as u64;
@@ -276,31 +230,16 @@ pub fn run(elf_bytes: &[u8]) -> Result<(), &'static str> {
         }
     }
 
-    // Map the user stack.
     let mut va = USER_STACK_TOP - USER_STACK_SIZE;
     while va < USER_STACK_TOP {
         let phys = mem::alloc_zeroed_frame().ok_or("out of memory (stack)")?;
-        if !mem::map_page(VirtAddr::new(va), phys, user_flags()) {
+        if !mem::map_page_in(table, VirtAddr::new(va), phys, user_flags()) {
             return Err("failed to map stack");
         }
         va += 4096;
     }
 
-    let selectors = gdt::selectors();
-    crate::serial_println!("user: entering ring 3 at {:#x}", entry);
-    // Safety: the trampoline builds an `iretq` frame and drops to ring 3.
-    unsafe {
-        enter_user_asm(
-            entry,
-            USER_STACK_TOP - 16,
-            selectors.user_code as u64,
-            selectors.user_data as u64,
-        );
-    }
-    // `enter_user_asm` never returns; keep the call non-tail so the return
-    // address stays on the kernel stack for `exit` to use.
-    core::hint::black_box(());
-    Ok(())
+    Ok(entry)
 }
 
 fn phys_for(mappings: &[(u64, u64)], va: u64) -> Option<u64> {
