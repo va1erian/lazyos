@@ -35,6 +35,22 @@ graphics change works from source alone — capture and inspect real pixels.
 
 See `tools/screenshot/README.md` for full options.
 
+## Driving the guest (input injection)
+
+To interact with LazyOS — type commands, click, scroll — script it with
+`qemu_session.py` and capture the resulting pixels:
+
+```bash
+python tools/screenshot/qemu_session.py --image target/lazyos.img \
+    --out shots/session --script tools/screenshot/examples/type_and_shot.json
+```
+
+Then Read the resulting `shots/session/shot_*.png`. For custom agent loops,
+import `tools/screenshot/qemu_qmp.py` and call `type_text`, `press_key`,
+`mouse_move`, `mouse_click`, `mouse_scroll`, `mouse_abs`, and `screenshot`.
+Input is delivered via QMP `input-send-event`, so it works headless; the guest
+only reacts once it has a keyboard/mouse driver (Phase 3+).
+
 ## Project conventions
 
 - The OS is `no_std`; target `x86_64-unknown-none`; built via the root crate's

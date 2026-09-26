@@ -115,3 +115,11 @@ pub fn _print(args: fmt::Arguments) {
         let _ = console.write_fmt(args);
     }
 }
+
+/// Write a string to the console (used by the unified logging sink).
+pub fn _write_str(s: &str) {
+    use core::fmt::Write;
+    if let Some(console) = CONSOLE.lock().as_mut() {
+        let _ = console.write_str(s);
+    }
+}

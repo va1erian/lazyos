@@ -1,0 +1,11 @@
+[
+  {"at": 2.0, "shot": "boot"},
+  {"at": 3.0, "type": "hello world"},
+  {"at": 3.5, "key": "enter"},
+  {"at": 4.0, "shot": "after_type"},
+  {"at": 5.0, "mouse_move": [200, 0]},
+  {"at": 5.3, "mouse_click": "left"},
+  {"at": 5.6, "mouse_scroll": 3},
+  {"at": 6.0, "shot": "after_mouse"},
+  {"at": 7.0, "quit": true}
+]

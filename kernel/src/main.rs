@@ -9,6 +9,7 @@ mod macros;
 mod console;
 mod font;
 mod gfx;
+mod logging;
 mod serial;
 
 use bootloader_api::info::Optional;
@@ -58,6 +59,13 @@ fn boot_banner() {
     println!("0123456789 !\"#$%&'()*+,-./:;<=>?@[\\]^_`{{|}}~");
     println!();
     println!("Anti-aliased JetBrains Mono, rendered from a TTF at build time.");
+    println!();
+    println!("Scrolling to exercise wrapping and scrollback:");
+    for i in 1..=40 {
+        println!("  line {0:02}  the quick brown fox 0123456789", i);
+    }
+    println!();
+    println!("console ready");
     serial_println!("LazyOS: banner drawn; entering idle loop");
 }
 

@@ -20,7 +20,7 @@ macro_rules! serial_println {
 #[macro_export]
 macro_rules! print {
     ($($arg:tt)*) => {{
-        $crate::console::_print(format_args!($($arg)*));
+        $crate::logging::_print(format_args!($($arg)*));
     }};
 }
 

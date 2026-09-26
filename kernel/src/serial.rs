@@ -21,3 +21,11 @@ pub fn _print(args: fmt::Arguments) {
         let _ = port.write_fmt(args);
     }
 }
+
+/// Write a string to the serial port (used by the unified logging sink).
+pub fn _write_str(s: &str) {
+    use core::fmt::Write;
+    if let Some(port) = SERIAL1.lock().as_mut() {
+        let _ = port.write_str(s);
+    }
+}
