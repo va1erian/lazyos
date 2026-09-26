@@ -7,8 +7,12 @@ CI and an AI agent can *see* what LazyOS renders, without a physical display.
 
 | File | Purpose |
 |------|---------|
-| `qemu_shot.py` | Boot an image (or bare firmware) with `-display none` and capture PNGs via the QEMU Machine Protocol. Stdlib only. |
+| `qemu_qmp.py` | Shared QMP client: screenshot capture + keyboard/mouse injection. |
+| `qemu_shot.py` | Boot an image (or bare firmware) with `-display none` and capture PNGs. |
+| `qemu_session.py` | Drive the guest with a scripted timeline of input + captures. |
 | `pngstats.py`  | Decode a PNG (stdlib only) and report/assert pixel statistics. |
+| `upload_image.py` | Upload PNGs to a public image host for PR comments. |
+| `examples/type_and_shot.json` | Example session script. |
 
 ### Why QMP instead of `-vnc`/`-nographic`
 
@@ -62,6 +66,37 @@ fails. Assertions:
 | `--max-mean M` | mean RGB `> M` (all-white detection) |
 
 Use `--json` for machine-readable output.
+
+## Driving the guest (keyboard & mouse)
+
+`qemu_session.py` injects input over QMP (`input-send-event`) and captures
+screenshots at chosen moments, so an agent can interact with the OS without a
+human at the keyboard:
+
+```bash
+python tools/screenshot/qemu_session.py --image target/lazyos.img \
+    --out shots/session --script tools/screenshot/examples/type_and_shot.json
+```
+
+A script is a JSON list of steps; each has an optional `at` (seconds since boot)
+and one action:
+
+| Action | Example |
+|--------|---------|
+| capture a screenshot | `{"at": 2, "shot": "boot"}` |
+| type text (US layout) | `{"type": "dir\\n"}` |
+| press a named key | `{"key": "enter"}` / `{"key": "f5"}` |
+| press several keys | `{"keys": ["up", "up", "enter"]}` |
+| move the mouse | `{"mouse_move": [dx, dy]}` |
+| click | `{"mouse_click": "left"}` |
+| scroll | `{"mouse_scroll": 3}` |
+| absolute pointer | `{"mouse_abs": [x, y]}` (needs `--tablet`) |
+| wait / quit | `{"wait": 1.5}` / `{"quit": true}` |
+
+Keyboard uses a US layout (Shift handled automatically for symbols/capitals).
+Mouse uses relative motion/buttons (PS/2) by default; pass `--tablet` to attach
+`usb-tablet` for absolute positioning. Guest-side handling requires a driver —
+the tooling is ready before then, and events are delivered via QMP regardless.
 
 ## CI
 
