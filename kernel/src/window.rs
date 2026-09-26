@@ -1,9 +1,9 @@
 //! A small draggable, scrollable window rendered with tiny-skia chrome and
 //! text drawn from the bitmap atlas.
 
-use crate::console;
 use crate::font;
 use crate::gfx::Color;
+use crate::surface::Surface;
 use crate::text;
 use alloc::boxed::Box;
 use alloc::format;
@@ -92,78 +92,81 @@ impl Window {
         self.y = ny.clamp(0, (fbh - self.h).max(0));
     }
 
-    /// Draw the window (chrome + title + visible lines) at its position.
-    pub fn render(&self) {
-        let _ = console::with_framebuffer(|fb| {
-            fb.blit_rgba_at(
-                self.chrome.data(),
-                self.w as usize,
-                self.h as usize,
-                self.x as usize,
-                self.y as usize,
-            );
+    /// The screen rectangle occupied by the window: (x, y, w, h).
+    pub fn rect(&self) -> (i32, i32, i32, i32) {
+        (self.x, self.y, self.w, self.h)
+    }
 
-            let whole = text::Rect {
-                x0: self.x + 1,
-                y0: self.y + 1,
-                x1: self.x + self.w - 1,
-                y1: self.y + self.h - 1,
-            };
-            text::draw_text(
-                fb,
-                self.x + PAD,
-                self.y + TITLE_H - 8,
-                TITLE,
-                Color::rgb(235, 238, 255),
-                whole,
-            );
+    /// Draw the window (chrome + title + visible lines) onto `surface`.
+    pub fn render_into(&self, surface: &mut impl Surface) {
+        surface.blit_rgba_at(
+            self.chrome.data(),
+            self.w as usize,
+            self.h as usize,
+            self.x as usize,
+            self.y as usize,
+        );
 
-            // Scrollbar on the right edge.
-            let track_x0 = self.x + self.w - 8;
-            let track_y0 = self.y + TITLE_H + 4;
-            let track_h = (self.h - TITLE_H - 8).max(1);
-            let total = self.lines.len().max(1);
-            let thumb_h = (track_h * self.visible_lines() as i32 / total as i32).max(12);
-            let thumb_y = track_y0
-                + (track_h - thumb_h) * self.scroll as i32 / self.max_scroll().max(1) as i32;
-            fb.fill_rect(
-                track_x0,
-                track_y0,
-                self.x + self.w - 4,
-                track_y0 + track_h,
-                Color::rgb(30, 34, 50),
-            );
-            fb.fill_rect(
-                track_x0 + 1,
-                thumb_y,
-                self.x + self.w - 5,
-                thumb_y + thumb_h,
-                Color::rgb(120, 150, 220),
-            );
+        let whole = text::Rect {
+            x0: self.x + 1,
+            y0: self.y + 1,
+            x1: self.x + self.w - 1,
+            y1: self.y + self.h - 1,
+        };
+        text::draw_text(
+            surface,
+            self.x + PAD,
+            self.y + TITLE_H - 8,
+            TITLE,
+            Color::rgb(235, 238, 255),
+            whole,
+        );
 
-            let content = text::Rect {
-                x0: self.x + PAD,
-                y0: self.y + TITLE_H + 2,
-                x1: self.x + self.w - 12,
-                y1: self.y + self.h - PAD,
-            };
-            let mut baseline = self.y + TITLE_H + PAD + font::ASCENDER.max(0);
-            for i in 0..self.visible_lines() {
-                let index = self.scroll + i;
-                if index >= self.lines.len() {
-                    break;
-                }
-                text::draw_text(
-                    fb,
-                    self.x + PAD,
-                    baseline,
-                    self.lines[index],
-                    Color::rgb(205, 210, 225),
-                    content,
-                );
-                baseline += LINE_H;
+        // Scrollbar on the right edge.
+        let track_x0 = self.x + self.w - 8;
+        let track_y0 = self.y + TITLE_H + 4;
+        let track_h = (self.h - TITLE_H - 8).max(1);
+        let total = self.lines.len().max(1);
+        let thumb_h = (track_h * self.visible_lines() as i32 / total as i32).max(12);
+        let thumb_y =
+            track_y0 + (track_h - thumb_h) * self.scroll as i32 / self.max_scroll().max(1) as i32;
+        surface.fill_rect(
+            track_x0,
+            track_y0,
+            self.x + self.w - 4,
+            track_y0 + track_h,
+            Color::rgb(30, 34, 50),
+        );
+        surface.fill_rect(
+            track_x0 + 1,
+            thumb_y,
+            self.x + self.w - 5,
+            thumb_y + thumb_h,
+            Color::rgb(120, 150, 220),
+        );
+
+        let content = text::Rect {
+            x0: self.x + PAD,
+            y0: self.y + TITLE_H + 2,
+            x1: self.x + self.w - 12,
+            y1: self.y + self.h - PAD,
+        };
+        let mut baseline = self.y + TITLE_H + PAD + font::ASCENDER.max(0);
+        for i in 0..self.visible_lines() {
+            let index = self.scroll + i;
+            if index >= self.lines.len() {
+                break;
             }
-        });
+            text::draw_text(
+                surface,
+                self.x + PAD,
+                baseline,
+                self.lines[index],
+                Color::rgb(205, 210, 225),
+                content,
+            );
+            baseline += LINE_H;
+        }
     }
 }
 

@@ -1,9 +1,10 @@
-//! Draw text at arbitrary positions into the framebuffer using the build-time
+//! Draw text at arbitrary positions onto any [`Surface`] using the build-time
 //! glyph atlas. Unlike the console, this has no cursor state and supports a
-//! clip rectangle, so text can be rendered inside windows.
+//! clip rectangle, so text can be rendered inside windows or back buffers.
 
 use crate::font::{self, COVERAGE, GLYPHS};
-use crate::gfx::{Color, Framebuffer};
+use crate::gfx::Color;
+use crate::surface::Surface;
 
 /// A clip rectangle (half-open: `x0 <= x < x1`).
 #[derive(Clone, Copy)]
@@ -17,7 +18,7 @@ pub struct Rect {
 /// Draw `text` with its pen starting at `x` and the baseline at `baseline_y`.
 /// Pixels outside `clip` are skipped.
 pub fn draw_text(
-    fb: &mut Framebuffer,
+    surface: &mut impl Surface,
     x: i32,
     baseline_y: i32,
     text: &str,
@@ -29,12 +30,19 @@ pub fn draw_text(
         if pen >= clip.x1 {
             break;
         }
-        draw_glyph(fb, pen, baseline_y, ch, color, clip);
+        draw_glyph(surface, pen, baseline_y, ch, color, clip);
         pen += font::ADVANCE as i32;
     }
 }
 
-fn draw_glyph(fb: &mut Framebuffer, pen: i32, baseline_y: i32, ch: char, color: Color, clip: Rect) {
+fn draw_glyph(
+    surface: &mut impl Surface,
+    pen: i32,
+    baseline_y: i32,
+    ch: char,
+    color: Color,
+    clip: Rect,
+) {
     let code = ch as u32;
     if code < font::FIRST_CHAR as u32 || code > font::LAST_CHAR as u32 {
         return;
@@ -63,7 +71,7 @@ fn draw_glyph(fb: &mut Framebuffer, pen: i32, baseline_y: i32, ch: char, color: 
             if x < clip.x0 || x >= clip.x1 {
                 continue;
             }
-            fb.blend_pixel(x as usize, y as usize, color, alpha);
+            surface.blend_pixel(x as usize, y as usize, color, alpha);
         }
     }
 }
