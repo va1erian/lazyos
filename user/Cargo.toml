@@ -10,3 +10,9 @@ name = "hello"
 path = "src/main.rs"
 test = false
 bench = false
+
+[[bin]]
+name = "sh"
+path = "src/bin/sh.rs"
+test = false
+bench = false
