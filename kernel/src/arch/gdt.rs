@@ -24,8 +24,6 @@ static mut DOUBLE_FAULT_STACK: [u8; DOUBLE_FAULT_STACK_SIZE] = [0; DOUBLE_FAULT_
 
 static mut USER_CODE: u16 = 0;
 static mut USER_DATA: u16 = 0;
-static mut KERNEL_CODE: u16 = 0;
-static mut KERNEL_DATA: u16 = 0;
 
 /// Install the GDT and TSS.
 pub fn init() {
@@ -56,40 +54,24 @@ pub fn init() {
         GS::set_reg(kdata);
         load_tss(tss_selector);
 
-        KERNEL_CODE = kcode.0;
-        KERNEL_DATA = kdata.0;
         USER_CODE = ucode.0;
         USER_DATA = udata.0;
     }
 }
 
-/// User-mode `CS`/`SS` selectors (with RPL 3), plus kernel ones for `iretq`.
+/// User-mode `CS`/`SS` selectors (with RPL 3).
 pub fn selectors() -> Selectors {
     unsafe {
         Selectors {
             user_code: USER_CODE,
             user_data: USER_DATA,
-            kernel_code: KERNEL_CODE,
-            kernel_data: KERNEL_DATA,
         }
     }
 }
 
-/// The selectors we need when building an `iretq` frame.
+/// The selectors needed when building an `iretq` frame.
 #[derive(Clone, Copy)]
 pub struct Selectors {
     pub user_code: u16,
     pub user_data: u16,
-    pub kernel_code: u16,
-    pub kernel_data: u16,
-}
-
-/// Top of the kernel stack used for user->kernel transitions.
-pub fn kernel_stack_top() -> u64 {
-    addr_of!(KERNEL_STACK) as u64 + KERNEL_STACK_SIZE as u64
-}
-
-/// Top of the double-fault IST stack.
-pub fn double_fault_stack_top() -> u64 {
-    addr_of!(DOUBLE_FAULT_STACK) as u64 + DOUBLE_FAULT_STACK_SIZE as u64
 }

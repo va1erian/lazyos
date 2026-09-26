@@ -2,6 +2,7 @@
 
 use alloc::vec::Vec;
 use core::arch::{asm, global_asm};
+use core::sync::atomic::{AtomicU64, Ordering};
 use x86_64::structures::idt::HandlerFunc;
 use x86_64::structures::paging::PageTableFlags;
 use x86_64::{PhysAddr, VirtAddr};
@@ -14,11 +15,19 @@ use crate::input::keyboard;
 use crate::mem;
 
 /// Fixed virtual base for user programs.
-pub const USER_CODE_BASE: u64 = 0x40_0000;
+pub const USER_HEAP_BASE: u64 = 0x60_0000;
 /// Top of the user stack (grows down).
 pub const USER_STACK_TOP: u64 = 0x80_0000;
 /// User stack size.
 pub const USER_STACK_SIZE: u64 = 0x2_0000;
+
+/// Current heap break for the running user program (advanced by `sbrk`).
+static HEAP_BREAK: AtomicU64 = AtomicU64::new(0);
+
+/// Page flags for user-accessible mappings.
+fn user_flags() -> PageTableFlags {
+    PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::USER_ACCESSIBLE
+}
 
 /// Kernel stack pointer saved when entering user mode; restored by `exit`.
 #[no_mangle]
@@ -92,7 +101,7 @@ extern "C" {
 /// The handler to install at vector `0x80` (DPL 3).
 pub fn syscall_gate() -> HandlerFunc {
     // Safety: `syscall_isr` is a naked ISR with a compatible (no ABI) signature.
-    unsafe { core::mem::transmute(syscall_isr as usize) }
+    unsafe { core::mem::transmute::<*const (), HandlerFunc>(syscall_isr as *const ()) }
 }
 
 #[no_mangle]
@@ -106,8 +115,36 @@ extern "C" fn syscall_dispatch(regs: *mut Regs) {
         1 => sys_write(regs.rdi, regs.rsi),
         2 => sys_read_char(),
         3 => sys_read_file(regs.rdi, regs.rsi, regs.rdx),
+        4 => sys_sbrk(regs.rdi),
         _ => u64::MAX,
     };
+}
+
+/// syscall 4: grow the heap by `increment` bytes; returns the previous break,
+/// or `u64::MAX` on failure. `increment == 0` just reports the current break.
+fn sys_sbrk(increment: u64) -> u64 {
+    let current = HEAP_BREAK.load(Ordering::Relaxed);
+    if increment == 0 {
+        return current;
+    }
+    let page = 4096u64;
+    let new_break = (current + increment + page - 1) & !(page - 1);
+    // Never run into the user stack.
+    if new_break > USER_STACK_TOP - USER_STACK_SIZE {
+        return u64::MAX;
+    }
+    let mut va = current;
+    while va < new_break {
+        let Some(phys) = mem::alloc_zeroed_frame() else {
+            return u64::MAX;
+        };
+        if !mem::map_page(VirtAddr::new(va), phys, user_flags()) {
+            return u64::MAX;
+        }
+        va += page;
+    }
+    HEAP_BREAK.store(new_break, Ordering::Relaxed);
+    current
 }
 
 /// Read a NUL-terminated string from user memory.
@@ -200,8 +237,8 @@ pub fn run(elf_bytes: &[u8]) -> Result<(), &'static str> {
     let elf = ElfFile::new(elf_bytes).map_err(|_| "not a valid ELF")?;
     let entry = elf.header.pt2.entry_point();
 
-    let user_flags =
-        PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::USER_ACCESSIBLE;
+    // Fresh heap for this program.
+    HEAP_BREAK.store(USER_HEAP_BASE, Ordering::Relaxed);
 
     // Map each page once (segments can share pages) and remember its frame.
     let mut pages: Vec<(u64, u64)> = Vec::new();
@@ -218,7 +255,7 @@ pub fn run(elf_bytes: &[u8]) -> Result<(), &'static str> {
         while va < end {
             if phys_for(&pages, va).is_none() {
                 let phys = mem::alloc_zeroed_frame().ok_or("out of memory")?;
-                if !mem::map_page(VirtAddr::new(va), phys, user_flags) {
+                if !mem::map_page(VirtAddr::new(va), phys, user_flags()) {
                     return Err("failed to map segment");
                 }
                 pages.push((va, phys.as_u64()));
@@ -243,7 +280,7 @@ pub fn run(elf_bytes: &[u8]) -> Result<(), &'static str> {
     let mut va = USER_STACK_TOP - USER_STACK_SIZE;
     while va < USER_STACK_TOP {
         let phys = mem::alloc_zeroed_frame().ok_or("out of memory (stack)")?;
-        if !mem::map_page(VirtAddr::new(va), phys, user_flags) {
+        if !mem::map_page(VirtAddr::new(va), phys, user_flags()) {
             return Err("failed to map stack");
         }
         va += 4096;

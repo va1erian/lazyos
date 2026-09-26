@@ -71,8 +71,14 @@ follows the PS/2 mouse.
 The boot disk is MBR + a **FAT16** partition. Files are added at build time in
 `build.rs` via `DiskImageBuilder::set_file_contents` / `set_file`; the kernel
 reads them with the ATA PIO driver (`block::ata`) and a read-only FAT16 reader
-(`fs`). `HELLO.ELF` is a real ring-3 program (`user/`), loaded by `process` at
-`0x400000` and driven by `int 0x80` syscalls (`exit`, `write`, `read_char`).
+(`fs`). `HELLO.ELF` and `SH.ELF` are real ring-3 programs (`user/`), loaded by
+`process` at `0x400000`. `user/src/lib.rs` is the shared ring-3 runtime: `sys`
+(the `int 0x80` wrappers) and a bump heap allocator backed by the `sbrk`
+syscall (number 4), so user programs can use `alloc`. Syscalls: `exit` (0),
+`write` (1), `read_char` (2), `read_file` (3), `sbrk` (4). `SH.ELF` is a small
+Dyon-inspired interpreter (`user/src/lang/`: `lexer`, `parser`, `interp`,
+`value`) supporting `f64` numbers, booleans, strings, arrays, `let`, `print`,
+`if`/`else`, arithmetic, comparisons and indexing.
 
 QEMU hardware acceleration (WHPX on Windows, KVM on Linux) is auto-detected and
 makes rendering several times faster than TCG; force it off with `--accel none`.
