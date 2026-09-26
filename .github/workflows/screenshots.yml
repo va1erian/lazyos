@@ -90,7 +90,7 @@ jobs:
           if [ -z "$image" ]; then image="${{ steps.build.outputs.image }}"; fi
           if [ -n "$image" ] && [ -f "$image" ]; then
             python tools/screenshot/qemu_session.py --image "$image" --out shots \
-              --script tools/screenshot/examples/window_demo.json
+              --script tools/screenshot/examples/cli_demo.json
           else
             echo "no disk image; skipping input smoke test"
           fi

@@ -62,12 +62,15 @@ pub fn push_scancode(scancode: u8) {
         }
     }
 }
+/// Non-blocking: return the next key if one is queued.
+pub fn try_read_key() -> Option<Key> {
+    x86_64::instructions::interrupts::without_interrupts(|| QUEUE.lock().pop_front())
+}
 
 /// Block until a key is available (interrupts must be enabled).
 pub fn read_key() -> Key {
     loop {
-        let key = x86_64::instructions::interrupts::without_interrupts(|| QUEUE.lock().pop_front());
-        if let Some(key) = key {
+        if let Some(key) = try_read_key() {
             return key;
         }
         x86_64::instructions::hlt();

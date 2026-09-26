@@ -53,20 +53,22 @@ only reacts once it has a keyboard/mouse driver (Phase 3+).
 
 ## Running the demo
 
-Boot the interactive window demo (arrow keys move the window; Page Up/Down
-scroll the text; Home/End jump) with one command:
+Boot the interactive CLI in a window with one command:
 
 ```bash
 python tools/run_demo.py
 ```
 
-It builds `target/lazyos.img` if needed and launches QEMU windowed
-(`--no-build`, `--headless`, `-- --cpu max` are supported). For scripted visual
-verification, capture the session script instead:
+Type commands and press Enter: `help`, `echo <text>`, `box` (static colour
+grid), `ball` (animated bouncing squares — any key stops), `clear`, `pos`.
+Arrow keys move the window; Page Up/Down scroll the output; Home/End jump.
+`run_demo.py` builds `target/lazyos.img` if needed (`--no-build`, `--headless`,
+`-- --cpu max` are supported). For scripted visual verification, capture the
+session script instead:
 
 ```bash
 python tools/screenshot/qemu_session.py --image target/lazyos.img \
-    --out shots/demo --script tools/screenshot/examples/window_demo.json
+    --out shots/demo --script tools/screenshot/examples/cli_demo.json
 ```
 
 ## Project conventions

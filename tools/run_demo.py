@@ -7,8 +7,8 @@ Examples
     python tools/run_demo.py --no-build      # boot the existing target/lazyos.img
     python tools/run_demo.py -- --cpu max    # pass extra args to QEMU
 
-In the demo: arrow keys move the window, Page Up / Page Down scroll the text,
-Home / End jump to the top / bottom.
+In the demo: type `help`, `echo <text>`, `box`, `ball`, `clear`, `pos` and press
+Enter. Arrow keys move the window; Page Up / Page Down scroll; Home / End jump.
 """
 
 from __future__ import annotations

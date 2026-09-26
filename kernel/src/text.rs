@@ -35,6 +35,11 @@ pub fn draw_text(
     }
 }
 
+/// Width in pixels of `text` at the atlas' fixed advance.
+pub fn text_width(text: &str) -> i32 {
+    text.chars().count() as i32 * font::ADVANCE as i32
+}
+
 fn draw_glyph(
     surface: &mut impl Surface,
     pen: i32,

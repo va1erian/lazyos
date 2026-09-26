@@ -10,6 +10,7 @@ extern crate alloc;
 mod macros;
 
 mod arch;
+mod cli;
 mod console;
 mod font;
 mod gfx;
@@ -20,12 +21,12 @@ mod serial;
 mod skia;
 mod surface;
 mod text;
-mod window;
 
 use bootloader_api::config::{BootloaderConfig, Mapping};
 use bootloader_api::info::Optional;
 use bootloader_api::{entry_point, BootInfo};
 use core::panic::PanicInfo;
+use gfx::Color;
 use input::keyboard::Key;
 use surface::Surface;
 
@@ -84,7 +85,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     arch::init();
     x86_64::instructions::interrupts::enable();
 
-    window_demo();
+    cli_demo();
 }
 
 fn boot_banner() {
@@ -120,65 +121,76 @@ fn alloc_demo() {
     println!("{}", message);
 }
 
-/// Interactive demo: a movable window with scrollable text.
+/// Window-hosted CLI with runnable demos.
 ///
-/// Arrow keys move the window; Page Up / Page Down scroll a page; Home / End
-/// jump to the top / bottom. Drawing happens off-screen and is presented in a
-/// single blit (double buffering) to avoid flicker.
-fn window_demo() -> ! {
+/// Typing edits the prompt; Enter runs a command. Arrow keys move the window,
+/// Page Up/Down scroll the output. `box` and `ball` render demos in the body.
+/// Drawing is double buffered to avoid flicker.
+fn cli_demo() -> ! {
     let (fbw, fbh) =
         console::with_framebuffer(|fb| (fb.width(), fb.height())).unwrap_or((1280, 720));
 
-    // Back buffer seeded with the static scene.
     let mut back = surface::RgbaBuffer::new(fbw, fbh);
     skia::background_blit_into(&mut back, 0, 0, fbw, fbh);
 
-    let mut win = match window::Window::new(140, 90, 560, 400) {
-        Some(win) => win,
+    let mut cli = match cli::Cli::new(120, 70, 660, 460) {
+        Some(cli) => cli,
         None => halt(),
     };
-    win.render_into(&mut back);
-    present(&back, 0, 0, fbw, fbh);
-    serial_println!("LazyOS: window demo ready (arrows move, PgUp/PgDn scroll)");
+    redraw_rect(&mut back, &cli, cli.rect(), fbw, fbh);
+    serial_println!("LazyOS: CLI ready (type 'help')");
 
-    let step = 16;
     loop {
         let key = input::keyboard::read_key();
-        let before = win.rect();
-        let scroll_before = win.scroll;
-
+        let before = cli.rect();
         match key {
-            Key::Left => win.move_to(win.x - step, win.y, fbw as i32, fbh as i32),
-            Key::Right => win.move_to(win.x + step, win.y, fbw as i32, fbh as i32),
-            Key::Up => win.move_to(win.x, win.y - step, fbw as i32, fbh as i32),
-            Key::Down => win.move_to(win.x, win.y + step, fbw as i32, fbh as i32),
-            Key::PageUp => {
-                win.scroll_page(-1);
+            Key::Left | Key::Right | Key::Up | Key::Down => {
+                let (dx, dy) = match key {
+                    Key::Left => (-16, 0),
+                    Key::Right => (16, 0),
+                    Key::Up => (0, -16),
+                    _ => (0, 16),
+                };
+                cli.move_by(dx, dy, fbw as i32, fbh as i32);
+                redraw_rect(
+                    &mut back,
+                    &cli,
+                    union_rect(before, cli.rect(), fbw, fbh),
+                    fbw,
+                    fbh,
+                );
             }
-            Key::PageDown => {
-                win.scroll_page(1);
-            }
-            Key::Home => {
-                win.scroll_to(0);
-            }
-            Key::End => {
-                win.scroll_to(usize::MAX);
-            }
-            _ => {}
-        }
-
-        let after = win.rect();
-        if after != before || win.scroll != scroll_before {
-            // Compose the dirty union off-screen, then present it in one blit.
-            let (x, y, w, h) = union_rect(before, after, fbw, fbh);
-            skia::background_blit_into(&mut back, x, y, w, h);
-            win.render_into(&mut back);
-            present(&back, x, y, w, h);
+            other => match cli.on_key(other) {
+                cli::Effect::None => {}
+                cli::Effect::Redraw => redraw_rect(&mut back, &cli, cli.rect(), fbw, fbh),
+                cli::Effect::Ball => {
+                    run_ball_demo(&mut back, &cli);
+                    redraw_rect(&mut back, &cli, cli.rect(), fbw, fbh);
+                }
+            },
         }
     }
 }
 
-/// Present a rectangle of the back buffer to the live framebuffer in one pass.
+/// Compose a screen rectangle into the back buffer and present it in one blit.
+fn redraw_rect(
+    back: &mut surface::RgbaBuffer,
+    cli: &cli::Cli,
+    rect: (i32, i32, i32, i32),
+    _fbw: usize,
+    _fbh: usize,
+) {
+    let (x, y, w, h) = rect;
+    if w <= 0 || h <= 0 {
+        return;
+    }
+    let (x, y, w, h) = (x.max(0) as usize, y.max(0) as usize, w as usize, h as usize);
+    skia::background_blit_into(back, x, y, w, h);
+    cli.draw_into(back);
+    present(back, x, y, w, h);
+}
+
+/// Present a rectangle of the back buffer to the live framebuffer.
 fn present(back: &surface::RgbaBuffer, x: usize, y: usize, w: usize, h: usize) {
     console::with_framebuffer(|fb| {
         fb.blit_rgba_region(back.data(), back.width(), back.height(), x, y, x, y, w, h);
@@ -191,17 +203,82 @@ fn union_rect(
     b: (i32, i32, i32, i32),
     fw: usize,
     fh: usize,
-) -> (usize, usize, usize, usize) {
+) -> (i32, i32, i32, i32) {
     let x0 = a.0.min(b.0).max(0);
     let y0 = a.1.min(b.1).max(0);
     let x1 = (a.0 + a.2).max(b.0 + b.2).min(fw as i32);
     let y1 = (a.1 + a.3).max(b.1 + b.3).min(fh as i32);
-    (
-        x0 as usize,
-        y0 as usize,
-        (x1 - x0).max(0) as usize,
-        (y1 - y0).max(0) as usize,
-    )
+    (x0, y0, (x1 - x0).max(0), (y1 - y0).max(0))
+}
+
+/// Demo 2: bouncing squares animated at ~30 fps until a key is pressed.
+fn run_ball_demo(back: &mut surface::RgbaBuffer, cli: &cli::Cli) {
+    let (cx, cy, cw, ch) = cli.content_rect();
+    let size = 20.0f32;
+    let base = [
+        (100.0f32, 60.0f32, 4.0f32, 3.0f32, Color::rgb(239, 71, 111)),
+        (200.0, 140.0, -3.0, 4.0, Color::rgb(255, 209, 102)),
+        (320.0, 90.0, 5.0, -3.0, Color::rgb(6, 214, 160)),
+        (420.0, 180.0, -4.0, -4.0, Color::rgb(17, 138, 178)),
+        (260.0, 220.0, 3.0, 5.0, Color::rgb(150, 120, 255)),
+    ];
+    // Offset ball starts relative to the content area.
+    let mut balls = base;
+    for ball in balls.iter_mut() {
+        ball.0 += cx as f32;
+        ball.1 += cy as f32;
+    }
+
+    let left = cx as f32;
+    let right = (cx + cw) as f32 - size;
+    let top = cy as f32;
+    let bottom = (cy + ch) as f32 - size;
+
+    let mut last = arch::ticks();
+    loop {
+        if input::keyboard::try_read_key().is_some() {
+            break;
+        }
+        let now = arch::ticks();
+        if now.wrapping_sub(last) < 3 {
+            x86_64::instructions::hlt();
+            continue;
+        }
+        last = now;
+
+        for ball in balls.iter_mut() {
+            ball.0 += ball.2;
+            ball.1 += ball.3;
+            if ball.0 < left {
+                ball.0 = left;
+                ball.2 = ball.2.abs();
+            }
+            if ball.0 > right {
+                ball.0 = right;
+                ball.2 = -ball.2.abs();
+            }
+            if ball.1 < top {
+                ball.1 = top;
+                ball.3 = ball.3.abs();
+            }
+            if ball.1 > bottom {
+                ball.1 = bottom;
+                ball.3 = -ball.3.abs();
+            }
+        }
+
+        cli.clear_content(back);
+        for (x, y, _, _, color) in balls.iter() {
+            back.fill_rect(
+                *x as i32,
+                *y as i32,
+                (*x + size) as i32,
+                (*y + size) as i32,
+                *color,
+            );
+        }
+        present(back, cx as usize, cy as usize, cw as usize, ch as usize);
+    }
 }
 
 #[panic_handler]
