@@ -1,0 +1,16 @@
+[
+  {"at": 6.0, "shot": "initial"},
+  {"at": 7.0, "key": "down"},
+  {"at": 7.2, "key": "down"},
+  {"at": 7.4, "key": "right"},
+  {"at": 7.6, "key": "right"},
+  {"at": 7.8, "key": "right"},
+  {"at": 8.5, "shot": "moved"},
+  {"at": 9.5, "key": "pagedown"},
+  {"at": 9.7, "key": "pagedown"},
+  {"at": 9.9, "key": "pagedown"},
+  {"at": 10.5, "shot": "scrolled"},
+  {"at": 11.0, "key": "end"},
+  {"at": 11.6, "shot": "end"},
+  {"at": 12.6, "quit": true}
+]

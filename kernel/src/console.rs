@@ -143,11 +143,3 @@ pub fn _write_str(s: &str) {
 pub fn with_framebuffer<R>(f: impl FnOnce(&mut Framebuffer) -> R) -> Option<R> {
     CONSOLE.lock().as_mut().map(|console| f(&mut console.fb))
 }
-
-/// Move the text cursor back to the top-left without clearing the screen.
-pub fn reset_cursor() {
-    if let Some(console) = CONSOLE.lock().as_mut() {
-        console.pen_x = MARGIN;
-        console.baseline = font::ASCENDER.max(0) as usize;
-    }
-}

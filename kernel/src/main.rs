@@ -18,12 +18,13 @@ mod logging;
 mod mem;
 mod serial;
 mod skia;
+mod text;
+mod window;
 
 use bootloader_api::config::{BootloaderConfig, Mapping};
 use bootloader_api::info::Optional;
 use bootloader_api::{entry_point, BootInfo};
 use core::panic::PanicInfo;
-use core::sync::atomic::Ordering;
 use input::keyboard::Key;
 
 /// Request a full physical-memory mapping so the kernel can inspect and edit
@@ -74,18 +75,14 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     );
     alloc_demo();
 
-    // Graphics: render a tiny-skia scene and blit it, then label it with text
-    // drawn over the image (the console blends over existing pixels).
+    // Draw the tiny-skia background scene (retained for dirty-rect redraws).
     skia::render_demo();
-    console::reset_cursor();
-    println!("tiny-skia");
-    println!("anti-aliased 2D on the CPU, blitted to the framebuffer");
-    println!("{}x{} {:?}", info.width, info.height, info.pixel_format);
 
-    // Interrupts: PIC + PIT + PS/2 keyboard, then an echo loop driven by IRQs.
+    // Interrupts: PIC + PIT + PS/2 keyboard.
     arch::init();
     x86_64::instructions::interrupts::enable();
-    interactive();
+
+    window_demo();
 }
 
 fn boot_banner() {
@@ -121,35 +118,81 @@ fn alloc_demo() {
     println!("{}", message);
 }
 
-/// Keyboard echo loop, driven entirely by interrupts.
-fn interactive() -> ! {
-    println!();
-    println!("interrupts on - type; keys are echoed below (Esc/arrows too)");
-    let mut enters = 0u64;
+/// Interactive demo: a movable window with scrollable text.
+///
+/// Arrow keys move the window; Page Up / Page Down scroll a page; Home / End
+/// jump to the top / bottom. Only the window's footprint is repainted.
+fn window_demo() -> ! {
+    let (fbw, fbh) = console::with_framebuffer(|fb| (fb.width() as i32, fb.height() as i32))
+        .unwrap_or((1280, 720));
+
+    let mut win = match window::Window::new(140, 90, 560, 400) {
+        Some(win) => win,
+        None => halt(),
+    };
+    win.render();
+    serial_println!("LazyOS: window demo ready (arrows move, PgUp/PgDn scroll)");
+
+    let step = 16;
     loop {
-        match input::keyboard::read_key() {
-            Key::Char(c) => print!("{}", c),
-            Key::Space => print!(" "),
-            Key::Enter => {
-                enters += 1;
-                println!(
-                    "   [enter #{}, tick {}]",
-                    enters,
-                    arch::TICKS.load(Ordering::Relaxed)
-                );
+        let key = input::keyboard::read_key();
+        let old = (win.x, win.y, win.scroll);
+        let mut moved = false;
+
+        match key {
+            Key::Left => {
+                win.move_to(win.x - step, win.y, fbw, fbh);
+                moved = true;
             }
-            Key::Backspace => print!("\u{8}"),
-            Key::Tab => print!("    "),
-            Key::Escape => {
-                println!();
-                println!("   [esc]");
+            Key::Right => {
+                win.move_to(win.x + step, win.y, fbw, fbh);
+                moved = true;
             }
-            Key::Left => print!("<"),
-            Key::Right => print!(">"),
-            Key::Up => print!("^"),
-            Key::Down => print!("v"),
+            Key::Up => {
+                win.move_to(win.x, win.y - step, fbw, fbh);
+                moved = true;
+            }
+            Key::Down => {
+                win.move_to(win.x, win.y + step, fbw, fbh);
+                moved = true;
+            }
+            Key::PageUp => {
+                win.scroll_page(-1);
+            }
+            Key::PageDown => {
+                win.scroll_page(1);
+            }
+            Key::Home => {
+                win.scroll_to(0);
+            }
+            Key::End => {
+                win.scroll_to(usize::MAX);
+            }
+            _ => {}
+        }
+
+        if moved || win.scroll != old.2 {
+            // Repaint only the affected footprint: restore the old and new
+            // rectangles from the retained background, then redraw the window.
+            restore_footprint(old.0, old.1, win.w, win.h);
+            restore_footprint(win.x, win.y, win.w, win.h);
+            win.render();
         }
     }
+}
+
+/// Restore a screen rectangle from the retained tiny-skia background.
+fn restore_footprint(x: i32, y: i32, w: i32, h: i32) {
+    if x < 0 || y < 0 {
+        return;
+    }
+    console::with_framebuffer(|fb| {
+        let cw = (w as usize).min(fb.width().saturating_sub(x as usize));
+        let ch = (h as usize).min(fb.height().saturating_sub(y as usize));
+        if cw > 0 && ch > 0 {
+            skia::restore_region(fb, x as usize, y as usize, cw, ch);
+        }
+    });
 }
 
 #[panic_handler]
