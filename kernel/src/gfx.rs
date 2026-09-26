@@ -95,6 +95,40 @@ impl Framebuffer {
         }
     }
 
+    /// Fast path for presenting an opaque RGBA image (4 bytes/pixel, e.g. a
+    /// tiny-skia `Pixmap`) over the whole framebuffer. Writes are non-volatile
+    /// (the framebuffer is ordinary RAM on x86) and the pixel format is
+    /// resolved once, which is far faster than per-pixel `write_pixel`.
+    pub fn blit_rgba(&mut self, rgba: &[u8], width: usize, height: usize) {
+        let bpp = self.info.bytes_per_pixel;
+        let stride = self.info.stride;
+        let w = width.min(self.width());
+        let h = height.min(self.height());
+        let bgr = matches!(self.info.pixel_format, PixelFormat::Bgr);
+        let base = self.base as *mut u8;
+
+        for y in 0..h {
+            let src = &rgba[y * width * 4..];
+            // Safety: row y is within the framebuffer and `w` is clamped.
+            let row = unsafe { base.add(y * stride * bpp) };
+            for x in 0..w {
+                let i = x * 4;
+                let (r, g, b) = (src[i], src[i + 1], src[i + 2]);
+                let (b0, b1, b2) = if bgr { (b, g, r) } else { (r, g, b) };
+                let p = unsafe { row.add(x * bpp) };
+                // Safety: within the row, and bpp is 3 or 4.
+                unsafe {
+                    p.write(b0);
+                    p.add(1).write(b1);
+                    p.add(2).write(b2);
+                    if bpp == 4 {
+                        p.add(3).write(0xFF);
+                    }
+                }
+            }
+        }
+    }
+
     /// Alpha-blend `fg` over the existing pixel using 8-bit coverage.
     pub fn blend_pixel(&mut self, x: usize, y: usize, fg: Color, coverage: u8) {
         if coverage == 0 {

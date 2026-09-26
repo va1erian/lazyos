@@ -14,8 +14,8 @@ use x86_64::structures::paging::{
 use x86_64::VirtAddr;
 /// Virtual base of the kernel heap.
 pub const HEAP_START: u64 = 0x_4444_4444_0000;
-/// Size of the kernel heap (1 MiB).
-pub const HEAP_SIZE: u64 = 1024 * 1024;
+/// Size of the kernel heap (16 MiB): enough for a full-screen RGBA pixmap.
+pub const HEAP_SIZE: u64 = 16 * 1024 * 1024;
 
 /// Summary of memory initialisation, for logging.
 #[derive(Clone, Copy, Debug)]
