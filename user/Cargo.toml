@@ -1,0 +1,12 @@
+[package]
+name = "user"
+version = "0.1.0"
+edition = "2021"
+description = "LazyOS ring-3 user program"
+license = "MIT OR Apache-2.0"
+
+[[bin]]
+name = "hello"
+path = "src/main.rs"
+test = false
+bench = false

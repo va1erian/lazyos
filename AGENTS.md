@@ -62,13 +62,16 @@ python tools/run_demo.py
 Type commands and press Enter: `help`, `echo <text>`, `box` (static colour
 grid), `ball` (animated bouncing squares — any key stops), `bench` (renders the
 scene with tiny-skia and with our own rasterizer and reports cycle counts),
-`ls`/`dir` (list the disk), `cat <file>` (print a file), `clear`, `pos`. Arrow
-keys move the window; Page Up/Down scroll the output; Home/End jump. A mouse
-cursor sprite follows the PS/2 mouse.
+`ls`/`dir` (list the disk), `cat <file>` (print a file), `run <file>` (load and
+run a ring-3 ELF program, e.g. `run HELLO.ELF`), `clear`, `pos`. Arrow keys move
+the window; Page Up/Down scroll the output; Home/End jump. A mouse cursor sprite
+follows the PS/2 mouse.
 
 The boot disk is MBR + a **FAT16** partition. Files are added at build time in
-`build.rs` via `DiskImageBuilder::set_file_contents`; the kernel reads them with
-the ATA PIO driver (`block::ata`) and a read-only FAT16 reader (`fs`).
+`build.rs` via `DiskImageBuilder::set_file_contents` / `set_file`; the kernel
+reads them with the ATA PIO driver (`block::ata`) and a read-only FAT16 reader
+(`fs`). `HELLO.ELF` is a real ring-3 program (`user/`), loaded by `process` at
+`0x400000` and driven by `int 0x80` syscalls (`exit`, `write`, `read_char`).
 
 QEMU hardware acceleration (WHPX on Windows, KVM on Linux) is auto-detected and
 makes rendering several times faster than TCG; force it off with `--accel none`.

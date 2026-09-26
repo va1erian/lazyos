@@ -19,11 +19,19 @@ pub fn init() {
     idt.general_protection_fault
         .set_handler_fn(general_protection_fault_handler);
     idt.page_fault.set_handler_fn(page_fault_handler);
-    idt.double_fault.set_handler_fn(double_fault_handler);
+    unsafe {
+        idt.double_fault
+            .set_handler_fn(double_fault_handler)
+            .set_stack_index(crate::arch::gdt::DOUBLE_FAULT_IST);
+    }
     // PIC IRQ0 (timer), IRQ1 (keyboard) and IRQ12 (mouse) after remapping.
     idt[32].set_handler_fn(timer_handler);
     idt[33].set_handler_fn(keyboard_handler);
     idt[44].set_handler_fn(mouse_handler);
+    // int 0x80: user-mode syscall gate (DPL 3).
+    idt[0x80]
+        .set_handler_fn(crate::process::syscall_gate())
+        .set_privilege_level(x86_64::PrivilegeLevel::Ring3);
 
     // Leak so the table outlives this call; `load` needs a 'static reference.
     let idt: &'static InterruptDescriptorTable = Box::leak(Box::new(idt));

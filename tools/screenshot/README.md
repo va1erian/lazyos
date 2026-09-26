@@ -16,6 +16,7 @@ CI and an AI agent can *see* what LazyOS renders, without a physical display.
 | `examples/window_demo.json` | Session script exercising window move/scroll. |
 | `examples/cli_demo.json` | Session script for the CLI demos (help, box, ball). |
 | `examples/bench.json` | Session script that runs the `bench` command. |
+| `examples/user_demo.json` | Session script that runs the ring-3 `HELLO.ELF` program. |
 | `../run_demo.py` | Build and boot the interactive demo in QEMU with one command. |
 
 ### Why QMP instead of `-vnc`/`-nographic`

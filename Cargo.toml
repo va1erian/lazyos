@@ -6,13 +6,15 @@ description = "A small single-tasking x86_64 OS with a bitmap-font console"
 license = "MIT OR Apache-2.0"
 
 [workspace]
-members = ["kernel", "font-atlas"]
+members = ["kernel", "font-atlas", "user"]
 resolver = "2"
 
 [build-dependencies]
 # The kernel is built for the bare-metal target and handed to the bootloader
 # image builder (artifact dependencies; see .cargo/config.toml `bindeps`).
 kernel = { path = "kernel", artifact = "bin", target = "x86_64-unknown-none" }
+# The user program is built as a static ELF and added to the disk image.
+user = { path = "user", artifact = "bin", target = "x86_64-unknown-none" }
 bootloader = "0.11.17"
 
 [profile.dev]
