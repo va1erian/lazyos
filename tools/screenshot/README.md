@@ -13,7 +13,8 @@ CI and an AI agent can *see* what LazyOS renders, without a physical display.
 | `pngstats.py`  | Decode a PNG (stdlib only) and report/assert pixel statistics. |
 | `upload_image.py` | Upload PNGs to a public image host for PR comments. |
 | `examples/type_and_shot.json` | Example session script. |
-| `examples/window_demo.json` | Session script for the movable/scrollable window demo. |
+| `examples/window_demo.json` | Session script exercising window move/scroll. |
+| `examples/cli_demo.json` | Session script for the CLI demos (help, box, ball). |
 | `../run_demo.py` | Build and boot the interactive demo in QEMU with one command. |
 
 ### Why QMP instead of `-vnc`/`-nographic`
