@@ -74,25 +74,26 @@ and comments them onto the PR.
 ### Attaching images to a pull request
 
 GitHub renders external image URLs in comments, so CI uploads each PNG to a
-public image host and embeds the returned URL in the PR comment:
+public image host and embeds the returned URL in the PR comment. Hosts are tried
+in order (some block CI datacenter IPs, e.g. Catbox returns HTTP 412):
 
-- **Default:** anonymous [Catbox](https://catbox.moe) upload (no account needed).
-- **Optional:** set the repository secret `IMGUR_CLIENT_ID` to upload to Imgur
-  instead. The upload helper is `tools/screenshot/upload_image.py`; run it
-  locally too:
+1. **Imgur** — if the repository secret `IMGUR_CLIENT_ID` is set (most reliable)
+2. **Catbox** — anonymous
+3. **Litterbox** — Catbox temporary (72h)
+4. **Uguu**, **0x0.st**, **tmpfiles.org** — further fallbacks
 
-  ```bash
-  python tools/screenshot/upload_image.py shots/shot_10s.png
-  ```
+Run the helper locally too:
 
-If the external upload fails, the comment falls back to the raw URLs of the
-`screenshots` branch. The branch is force-pushed, so its CDN URLs can briefly be
-stale; the PR comment links the exact commit SHA of that run instead.
+```bash
+python tools/screenshot/upload_image.py shots/shot_10s.png
+```
 
-Stable image URL pattern:
+If every host fails, the comment falls back to the `screenshots` branch. CI
+appends each run under `runs/<run_id>/` (no force-push) so historical links stay
+reachable:
 
 ```
-https://raw.githubusercontent.com/<owner>/<repo>/screenshots/<file>.png
+https://raw.githubusercontent.com/<owner>/<repo>/screenshots/runs/<run_id>/<file>.png
 ```
 
 ## Adding graphic checks later
