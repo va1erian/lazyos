@@ -14,6 +14,7 @@ mod cli;
 mod console;
 mod font;
 mod gfx;
+mod gfxlib;
 mod input;
 mod logging;
 mod mem;

@@ -1,14 +1,22 @@
 #!/usr/bin/env python3
-"""Build LazyOS and boot the interactive window demo in QEMU — one command.
+"""Build LazyOS and boot the interactive CLI demo in QEMU — one command.
+
+By default uses the **dev** profile (kernel at O2, dependencies at O3). Measured
+in QEMU, that is the fastest configuration: the fully optimized **release**
+profile (O3 + fat LTO) is *slower* under QEMU's TCG emulation for the
+floating-point rasterizer, though it should win on real hardware. Pass
+``--release`` to build it anyway.
 
 Examples
 --------
-    python tools/run_demo.py                 # build (incremental) + boot windowed
+    python tools/run_demo.py                 # dev build (fast in QEMU) + boot
+    python tools/run_demo.py --release       # optimized build for real hardware
     python tools/run_demo.py --no-build      # boot the existing target/lazyos.img
     python tools/run_demo.py -- --cpu max    # pass extra args to QEMU
 
-In the demo: type `help`, `echo <text>`, `box`, `ball`, `clear`, `pos` and press
-Enter. Arrow keys move the window; Page Up / Page Down scroll; Home / End jump.
+In the demo: type `help`, `echo <text>`, `box`, `ball`, `bench`, `clear`, `pos`
+and press Enter. Arrow keys move the window; Page Up / Page Down scroll;
+Home / End jump.
 """
 
 from __future__ import annotations
@@ -19,7 +27,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "screenshot"))
-from qemu_qmp import find_qemu  # noqa: E402
+from qemu_qmp import accel_args, find_qemu  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_IMAGE = ROOT / "target" / "lazyos.img"
@@ -30,17 +38,28 @@ def main(argv: list[str]) -> int:
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument("--no-build", action="store_true", help="skip `cargo build`")
+    parser.add_argument("--release", action="store_true",
+                        help="build the optimized release profile (slower in QEMU)")
     parser.add_argument("--headless", action="store_true", help="no display window")
     parser.add_argument("--image", default=str(DEFAULT_IMAGE), help="disk image to boot")
     parser.add_argument("--qemu", help="path to qemu-system-x86_64")
     parser.add_argument("--memory", default="256M", help="guest RAM (default: 256M)")
+    parser.add_argument("--accel", default="auto",
+                        choices=["auto", "none", "tcg", "whpx", "kvm"],
+                        help="QEMU accelerator; auto uses whpx/kvm when available "
+                             "(many times faster than TCG)")
     parser.add_argument("qemu_args", nargs=argparse.REMAINDER,
                         help="extra QEMU args (after `--`)")
     args = parser.parse_args(argv)
 
     if not args.no_build:
-        print("building LazyOS (incremental)…", flush=True)
-        result = subprocess.run(["cargo", "build"], cwd=ROOT)
+        cargo = ["cargo", "build"]
+        profile = "dev (optimized deps; fastest in QEMU)"
+        if args.release:
+            cargo.append("--release")
+            profile = "release (optimized for real hardware)"
+        print(f"building LazyOS [{profile}]…", flush=True)
+        result = subprocess.run(cargo, cwd=ROOT)
         if result.returncode != 0:
             return result.returncode
 
@@ -57,6 +76,7 @@ def main(argv: list[str]) -> int:
         "-device", "isa-debug-exit,iobase=0xf4,iosize=0x04",
         "-serial", "mon:stdio",
     ]
+    command += accel_args(args.accel, qemu)
     if args.headless:
         command += ["-display", "none"]
 

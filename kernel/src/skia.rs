@@ -17,7 +17,7 @@ static BACKGROUND: Mutex<Option<Pixmap>> = Mutex::new(None);
 pub fn render_demo() {
     let _ = console::with_framebuffer(|fb| {
         crate::serial_println!("skia: rendering {}x{}", fb.width(), fb.height());
-        match draw(fb.width() as u32, fb.height() as u32) {
+        match build_scene(fb.width() as u32, fb.height() as u32) {
             Some(pixmap) => {
                 crate::serial_println!("skia: pixmap ready, blitting");
                 let t = ts();
@@ -54,7 +54,7 @@ pub fn background_blit_into(
     }
 }
 
-fn draw(w: u32, h: u32) -> Option<Pixmap> {
+pub(crate) fn build_scene(w: u32, h: u32) -> Option<Pixmap> {
     let mut pm = Pixmap::new(w, h)?;
     let (wf, hf) = (w as f32, h as f32);
     let t0 = ts();

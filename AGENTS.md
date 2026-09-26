@@ -60,8 +60,13 @@ python tools/run_demo.py
 ```
 
 Type commands and press Enter: `help`, `echo <text>`, `box` (static colour
-grid), `ball` (animated bouncing squares — any key stops), `clear`, `pos`.
-Arrow keys move the window; Page Up/Down scroll the output; Home/End jump.
+grid), `ball` (animated bouncing squares — any key stops), `bench` (renders the
+scene with tiny-skia and with our own rasterizer and reports cycle counts),
+`clear`, `pos`. Arrow keys move the window; Page Up/Down scroll the output;
+Home/End jump.
+
+QEMU hardware acceleration (WHPX on Windows, KVM on Linux) is auto-detected and
+makes rendering several times faster than TCG; force it off with `--accel none`.
 `run_demo.py` builds `target/lazyos.img` if needed (`--no-build`, `--headless`,
 `-- --cpu max` are supported). For scripted visual verification, capture the
 session script instead:

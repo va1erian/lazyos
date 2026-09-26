@@ -15,6 +15,7 @@ import json
 import os
 import shutil
 import socket
+import subprocess
 import time
 from pathlib import Path
 
@@ -46,6 +47,35 @@ def free_port() -> int:
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         return int(s.getsockname()[1])
+
+
+def detect_accel(qemu: str) -> str | None:
+    """Return the best hardware accelerator for this host, or None for TCG.
+
+    WHPX on Windows and KVM on Linux make the guest run many times faster than
+    TCG, which matters a lot for software rendering.
+    """
+    try:
+        proc = subprocess.run(
+            [qemu, "-accel", "help"], capture_output=True, text=True, timeout=10
+        )
+        available = (proc.stdout + proc.stderr).lower()
+    except Exception:
+        return None
+    if os.name == "nt" and "whpx" in available:
+        return "whpx"
+    if "kvm" in available and os.path.exists("/dev/kvm"):
+        return "kvm"
+    return None
+
+
+def accel_args(accel: str, qemu: str) -> list[str]:
+    """Resolve an ``--accel`` value into QEMU arguments (empty for TCG/none)."""
+    if accel == "auto":
+        accel = detect_accel(qemu) or "none"
+    if accel in ("none", "tcg", ""):
+        return []
+    return ["-accel", accel]
 
 
 def build_qemu_command(

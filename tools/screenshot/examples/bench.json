@@ -1,0 +1,7 @@
+[
+  {"at": 6.0, "shot": "prompt"},
+  {"at": 7.0, "type": "bench"},
+  {"at": 7.6, "key": "enter"},
+  {"at": 9.5, "shot": "bench"},
+  {"at": 10.5, "quit": true}
+]

@@ -26,7 +26,7 @@ import sys
 import time
 from pathlib import Path
 
-from qemu_qmp import Qmp, build_qemu_command, find_qemu, free_port
+from qemu_qmp import Qmp, accel_args, build_qemu_command, find_qemu, free_port
 
 
 def parse_times(raw: str) -> list[float]:
@@ -54,6 +54,9 @@ def main() -> int:
     parser.add_argument("--qemu", help="path to qemu-system-x86_64")
     parser.add_argument("--timeout", type=float, default=180.0, help="QMP/overall timeout in seconds")
     parser.add_argument("--memory", default="256M", help="guest RAM (default: 256M)")
+    parser.add_argument("--accel", default="auto",
+                        choices=["auto", "none", "tcg", "whpx", "kvm"],
+                        help="QEMU accelerator (auto: whpx/kvm if available)")
     parser.add_argument("--extra-arg", action="append", default=[], metavar="ARG",
                         help="extra QEMU argument; repeat for multiple")
     args = parser.parse_args()
@@ -72,7 +75,8 @@ def main() -> int:
         image = str(image_path)
 
     port = free_port()
-    command = build_qemu_command(qemu, image, port, serial_log, args.memory, args.extra_arg)
+    extra = list(args.extra_arg) + accel_args(args.accel, qemu)
+    command = build_qemu_command(qemu, image, port, serial_log, args.memory, extra)
     print(f"launching: {' '.join(command)}", flush=True)
     proc = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
 
