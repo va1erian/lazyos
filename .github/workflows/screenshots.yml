@@ -1,0 +1,173 @@
+name: screenshots
+
+# Boots LazyOS in headless QEMU, captures PNG screenshots, verifies they are
+# non-blank, publishes them to a force-pushed `screenshots` branch, and comments
+# them onto pull requests so an agent or reviewer can visually inspect output
+# without a display.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      image_path:
+        description: "Path to a disk image to boot (leave empty to auto-detect / smoke test)"
+        required: false
+        default: ""
+      capture_at:
+        description: "Comma-separated capture times in seconds"
+        required: false
+        default: "2,5,10"
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: screenshots-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  screenshots:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install QEMU
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-x86
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Build disk image (if the OS project exists)
+        id: build
+        shell: bash
+        run: |
+          set -euo pipefail
+          image=""
+          if [ -f Cargo.toml ]; then
+            echo "Cargo project detected; attempting build"
+            if command -v cargo >/dev/null 2>&1; then
+              cargo build || echo "::warning::cargo build failed; falling back to firmware smoke test"
+            fi
+          else
+            echo "No Cargo.toml yet; running firmware smoke test only"
+          fi
+          shopt -s nullglob
+          for candidate in target/lazyos.img target/bios.img target/*/bios.img target/*/*/bios.img; do
+            if [ -f "$candidate" ]; then image="$candidate"; break; fi
+          done
+          echo "image=$image" >> "$GITHUB_OUTPUT"
+          if [ -n "$image" ]; then
+            echo "Found image: $image"
+          else
+            echo "No disk image found; will boot firmware only to validate the capture pipeline"
+          fi
+
+      - name: Capture screenshots (headless QEMU)
+        shell: bash
+        run: |
+          set -euo pipefail
+          image="${{ inputs.image_path }}"
+          if [ -z "$image" ]; then image="${{ steps.build.outputs.image }}"; fi
+          at="${{ inputs.capture_at }}"
+          if [ -z "$at" ]; then at="2,5,10"; fi
+          if [ -n "$image" ] && [ -f "$image" ]; then
+            python tools/screenshot/qemu_shot.py --out shots --at "$at" --image "$image"
+          else
+            python tools/screenshot/qemu_shot.py --out shots --at "2,5"
+          fi
+
+      - name: Verify screenshots are non-blank
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          pngs=(shots/*.png)
+          if [ ${#pngs[@]} -eq 0 ]; then
+            echo "::error::no screenshots were captured"
+            exit 1
+          fi
+          python tools/screenshot/pngstats.py "${pngs[@]}" --min-nonblack 0.001
+
+      - name: Upload screenshots artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: qemu-screenshots
+          path: |
+            shots/*.png
+            shots/serial.log
+            shots/summary.json
+          if-no-files-found: error
+
+      - name: Publish screenshots to 'screenshots' branch
+        id: publish
+        if: >-
+          github.event_name != 'pull_request' ||
+          github.event.pull_request.head.repo.full_name == github.repository
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          rm -rf /tmp/shots-branch
+          mkdir -p /tmp/shots-branch
+          cp shots/*.png /tmp/shots-branch/ 2>/dev/null || true
+          pngs=(/tmp/shots-branch/*.png)
+          if [ ${#pngs[@]} -eq 0 ]; then
+            echo "no screenshots to publish"
+            exit 0
+          fi
+          cd /tmp/shots-branch
+          git init -q
+          git checkout -q -b screenshots
+          git add -A
+          git -c user.name=github-actions \
+              -c user.email=github-actions@users.noreply.github.com \
+              commit -qm "screenshots for ${GITHUB_SHA}"
+          git push -q -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" screenshots
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Comment screenshots on PR
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          sha="${{ steps.publish.outputs.sha }}"
+          ref="${sha:-screenshots}"
+          {
+            echo "### QEMU screenshots"
+            echo
+            echo "_commit \`${GITHUB_SHA:0:7}\` — run [${GITHUB_RUN_ID}](https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID})_"
+            echo
+            shopt -s nullglob
+            for png in shots/*.png; do
+              name=$(basename "$png")
+              echo "**${name}**"
+              echo
+              if [ -n "$sha" ]; then
+                echo "![${name}](https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${ref}/${name})"
+              else
+                echo "_screenshots published as a workflow artifact (fork PR)_"
+              fi
+              echo
+            done
+            if [ -f shots/serial.log ]; then
+              echo "<details><summary>serial.log (tail)</summary>"
+              echo
+              echo '```'
+              tail -n 60 shots/serial.log
+              echo '```'
+              echo
+              echo "</details>"
+            fi
+          } > comment.md
+          gh pr comment "${{ github.event.pull_request.number }}" \
+            --repo "${GITHUB_REPOSITORY}" --body-file comment.md
