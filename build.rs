@@ -10,7 +10,16 @@ fn main() {
         PathBuf::from(std::env::var_os("CARGO_BIN_FILE_KERNEL_kernel").expect("kernel artifact"));
 
     let bios_image = out_dir.join("bios.img");
-    bootloader::DiskImageBuilder::new(kernel)
+    let mut builder = bootloader::DiskImageBuilder::new(kernel);
+    builder.set_file_contents(
+        String::from("HELLO.TXT"),
+        b"Hello from LazyOS!\n\nThis file lives on the FAT16 disk image.\nYou are reading it through the ATA PIO driver and the FAT16 reader.\n".to_vec(),
+    );
+    builder.set_file_contents(
+        String::from("NOTES.TXT"),
+        b"LazyOS notes\n-----------\n- single-tasking x86_64 kernel\n- tiny-skia graphics\n- PS/2 keyboard + mouse\n- FAT16 read-only filesystem\n".to_vec(),
+    );
+    builder
         .create_bios_image(&bios_image)
         .expect("failed to create BIOS disk image");
 

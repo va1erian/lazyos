@@ -10,10 +10,12 @@ extern crate alloc;
 mod macros;
 
 mod arch;
+mod block;
 mod cli;
 mod console;
 mod cursor;
 mod font;
+mod fs;
 mod gfx;
 mod gfxlib;
 mod input;
@@ -79,6 +81,12 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         stats.frames_total
     );
     alloc_demo();
+
+    if fs::init() {
+        serial_println!("LazyOS: FAT16 filesystem mounted");
+    } else {
+        serial_println!("LazyOS: no filesystem found");
+    }
 
     // Draw the tiny-skia background scene (retained for dirty-rect redraws).
     skia::render_demo();
