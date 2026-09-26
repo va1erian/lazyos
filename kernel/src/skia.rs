@@ -30,10 +30,17 @@ pub fn render_demo() {
     });
 }
 
-/// Copy a rectangle of the retained background back onto the framebuffer.
-pub fn restore_region(fb: &mut Framebuffer, x: usize, y: usize, w: usize, h: usize) {
+/// Copy a rectangle of the retained background into a surface (e.g. a back
+/// buffer) so windows can be composited without flicker.
+pub fn background_blit_into(
+    surface: &mut impl crate::surface::Surface,
+    x: usize,
+    y: usize,
+    w: usize,
+    h: usize,
+) {
     if let Some(bg) = BACKGROUND.lock().as_ref() {
-        fb.blit_rgba_region(
+        surface.blit_rgba_region(
             bg.data(),
             bg.width() as usize,
             bg.height() as usize,

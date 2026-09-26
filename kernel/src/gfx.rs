@@ -163,41 +163,6 @@ impl Framebuffer {
         }
     }
 
-    /// Fill an axis-aligned rectangle with a solid colour (clamped to screen).
-    pub fn fill_rect(&mut self, x0: i32, y0: i32, x1: i32, y1: i32, color: Color) {
-        let (fw, fh) = (self.width() as i32, self.height() as i32);
-        let (x0, y0) = (x0.max(0), y0.max(0));
-        let (x1, y1) = (x1.min(fw), y1.min(fh));
-        if x0 >= x1 || y0 >= y1 {
-            return;
-        }
-        let bpp = self.info.bytes_per_pixel;
-        let stride = self.info.stride;
-        let bgr = matches!(self.info.pixel_format, PixelFormat::Bgr);
-        let (b0, b1, b2) = if bgr {
-            (color.b, color.g, color.r)
-        } else {
-            (color.r, color.g, color.b)
-        };
-        let base = self.base as *mut u8;
-        for y in y0..y1 {
-            // Safety: y is within the framebuffer.
-            let row = unsafe { base.add(y as usize * stride * bpp) };
-            for x in x0..x1 {
-                // Safety: x is within the row; bpp is 3 or 4.
-                let p = unsafe { row.add(x as usize * bpp) };
-                unsafe {
-                    p.write(b0);
-                    p.add(1).write(b1);
-                    p.add(2).write(b2);
-                    if bpp == 4 {
-                        p.add(3).write(0xFF);
-                    }
-                }
-            }
-        }
-    }
-
     /// Alpha-blend `fg` over the existing pixel using 8-bit coverage.
     pub fn blend_pixel(&mut self, x: usize, y: usize, fg: Color, coverage: u8) {
         if coverage == 0 {

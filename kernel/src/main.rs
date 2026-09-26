@@ -18,6 +18,7 @@ mod logging;
 mod mem;
 mod serial;
 mod skia;
+mod surface;
 mod text;
 mod window;
 
@@ -26,6 +27,7 @@ use bootloader_api::info::Optional;
 use bootloader_api::{entry_point, BootInfo};
 use core::panic::PanicInfo;
 use input::keyboard::Key;
+use surface::Surface;
 
 /// Request a full physical-memory mapping so the kernel can inspect and edit
 /// page tables.
@@ -121,41 +123,35 @@ fn alloc_demo() {
 /// Interactive demo: a movable window with scrollable text.
 ///
 /// Arrow keys move the window; Page Up / Page Down scroll a page; Home / End
-/// jump to the top / bottom. Only the window's footprint is repainted.
+/// jump to the top / bottom. Drawing happens off-screen and is presented in a
+/// single blit (double buffering) to avoid flicker.
 fn window_demo() -> ! {
-    let (fbw, fbh) = console::with_framebuffer(|fb| (fb.width() as i32, fb.height() as i32))
-        .unwrap_or((1280, 720));
+    let (fbw, fbh) =
+        console::with_framebuffer(|fb| (fb.width(), fb.height())).unwrap_or((1280, 720));
+
+    // Back buffer seeded with the static scene.
+    let mut back = surface::RgbaBuffer::new(fbw, fbh);
+    skia::background_blit_into(&mut back, 0, 0, fbw, fbh);
 
     let mut win = match window::Window::new(140, 90, 560, 400) {
         Some(win) => win,
         None => halt(),
     };
-    win.render();
+    win.render_into(&mut back);
+    present(&back, 0, 0, fbw, fbh);
     serial_println!("LazyOS: window demo ready (arrows move, PgUp/PgDn scroll)");
 
     let step = 16;
     loop {
         let key = input::keyboard::read_key();
-        let old = (win.x, win.y, win.scroll);
-        let mut moved = false;
+        let before = win.rect();
+        let scroll_before = win.scroll;
 
         match key {
-            Key::Left => {
-                win.move_to(win.x - step, win.y, fbw, fbh);
-                moved = true;
-            }
-            Key::Right => {
-                win.move_to(win.x + step, win.y, fbw, fbh);
-                moved = true;
-            }
-            Key::Up => {
-                win.move_to(win.x, win.y - step, fbw, fbh);
-                moved = true;
-            }
-            Key::Down => {
-                win.move_to(win.x, win.y + step, fbw, fbh);
-                moved = true;
-            }
+            Key::Left => win.move_to(win.x - step, win.y, fbw as i32, fbh as i32),
+            Key::Right => win.move_to(win.x + step, win.y, fbw as i32, fbh as i32),
+            Key::Up => win.move_to(win.x, win.y - step, fbw as i32, fbh as i32),
+            Key::Down => win.move_to(win.x, win.y + step, fbw as i32, fbh as i32),
             Key::PageUp => {
                 win.scroll_page(-1);
             }
@@ -171,28 +167,41 @@ fn window_demo() -> ! {
             _ => {}
         }
 
-        if moved || win.scroll != old.2 {
-            // Repaint only the affected footprint: restore the old and new
-            // rectangles from the retained background, then redraw the window.
-            restore_footprint(old.0, old.1, win.w, win.h);
-            restore_footprint(win.x, win.y, win.w, win.h);
-            win.render();
+        let after = win.rect();
+        if after != before || win.scroll != scroll_before {
+            // Compose the dirty union off-screen, then present it in one blit.
+            let (x, y, w, h) = union_rect(before, after, fbw, fbh);
+            skia::background_blit_into(&mut back, x, y, w, h);
+            win.render_into(&mut back);
+            present(&back, x, y, w, h);
         }
     }
 }
 
-/// Restore a screen rectangle from the retained tiny-skia background.
-fn restore_footprint(x: i32, y: i32, w: i32, h: i32) {
-    if x < 0 || y < 0 {
-        return;
-    }
+/// Present a rectangle of the back buffer to the live framebuffer in one pass.
+fn present(back: &surface::RgbaBuffer, x: usize, y: usize, w: usize, h: usize) {
     console::with_framebuffer(|fb| {
-        let cw = (w as usize).min(fb.width().saturating_sub(x as usize));
-        let ch = (h as usize).min(fb.height().saturating_sub(y as usize));
-        if cw > 0 && ch > 0 {
-            skia::restore_region(fb, x as usize, y as usize, cw, ch);
-        }
+        fb.blit_rgba_region(back.data(), back.width(), back.height(), x, y, x, y, w, h);
     });
+}
+
+/// Union of two screen rectangles, clamped to the screen.
+fn union_rect(
+    a: (i32, i32, i32, i32),
+    b: (i32, i32, i32, i32),
+    fw: usize,
+    fh: usize,
+) -> (usize, usize, usize, usize) {
+    let x0 = a.0.min(b.0).max(0);
+    let y0 = a.1.min(b.1).max(0);
+    let x1 = (a.0 + a.2).max(b.0 + b.2).min(fw as i32);
+    let y1 = (a.1 + a.3).max(b.1 + b.3).min(fh as i32);
+    (
+        x0 as usize,
+        y0 as usize,
+        (x1 - x0).max(0) as usize,
+        (y1 - y0).max(0) as usize,
+    )
 }
 
 #[panic_handler]
