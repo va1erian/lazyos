@@ -3,6 +3,8 @@
 #![no_std]
 #![no_main]
 
+extern crate alloc;
+
 #[macro_use]
 mod macros;
 
@@ -10,13 +12,23 @@ mod console;
 mod font;
 mod gfx;
 mod logging;
+mod mem;
 mod serial;
 
+use bootloader_api::config::{BootloaderConfig, Mapping};
 use bootloader_api::info::Optional;
 use bootloader_api::{entry_point, BootInfo};
 use core::panic::PanicInfo;
 
-entry_point!(kernel_main);
+/// Request a full physical-memory mapping so the kernel can inspect and edit
+/// page tables.
+const CONFIG: BootloaderConfig = {
+    let mut config = BootloaderConfig::new_default();
+    config.mappings.physical_memory = Some(Mapping::Dynamic);
+    config
+};
+
+entry_point!(kernel_main, config = &CONFIG);
 
 fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     serial::init();
@@ -46,6 +58,19 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     console::init(base, info);
     boot_banner();
 
+    let stats = mem::init(boot_info);
+    println!();
+    println!(
+        "memory: heap {} KiB, frames {}/{} used",
+        stats.heap_size / 1024,
+        stats.frames_allocated,
+        stats.frames_total
+    );
+    alloc_demo();
+
+    println!();
+    println!("console ready");
+    serial_println!("LazyOS: banner drawn; entering idle loop");
     halt();
 }
 
@@ -64,9 +89,29 @@ fn boot_banner() {
     for i in 1..=40 {
         println!("  line {0:02}  the quick brown fox 0123456789", i);
     }
-    println!();
-    println!("console ready");
-    serial_println!("LazyOS: banner drawn; entering idle loop");
+}
+
+/// Exercise the heap: allocate, grow, format, and drop.
+fn alloc_demo() {
+    use alloc::boxed::Box;
+    use alloc::format;
+    use alloc::string::String;
+    use alloc::vec::Vec;
+
+    let mut values: Vec<u32> = Vec::new();
+    for i in 0..1000 {
+        values.push(i);
+    }
+    let sum: u32 = values.iter().sum();
+
+    let boxed = Box::new(0xABCD_u32);
+    let message: String = format!(
+        "alloc: Vec<u32> len {} sum {}; Box {:#06x}",
+        values.len(),
+        sum,
+        *boxed
+    );
+    println!("{}", message);
 }
 
 #[panic_handler]
