@@ -18,7 +18,7 @@ on:
       capture_at:
         description: "Comma-separated capture times in seconds"
         required: false
-        default: "2,5,10"
+        default: "5,8,12"
 
 permissions:
   contents: write
@@ -75,7 +75,7 @@ jobs:
           image="${{ inputs.image_path }}"
           if [ -z "$image" ]; then image="${{ steps.build.outputs.image }}"; fi
           at="${{ inputs.capture_at }}"
-          if [ -z "$at" ]; then at="2,5,10"; fi
+          if [ -z "$at" ]; then at="5,8,12"; fi
           if [ -n "$image" ] && [ -f "$image" ]; then
             python tools/screenshot/qemu_shot.py --out shots --at "$at" --image "$image"
           else

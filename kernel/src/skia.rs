@@ -5,7 +5,7 @@
 //! so it runs in the kernel; it relies on the heap from the `mem` module.
 
 use crate::console;
-use crate::gfx::{Color, Framebuffer};
+use crate::gfx::Framebuffer;
 use tiny_skia::{FillRule, Paint, PathBuilder, Pixmap, Rect, Stroke, Transform};
 
 /// Render the demo scene and present it on the screen.
@@ -123,16 +123,5 @@ fn backdrop(pm: &mut Pixmap, w: f32, h: f32) -> Option<()> {
 
 /// Copy a premultiplied-RGBA pixmap onto the framebuffer (which may be BGR).
 fn blit(fb: &mut Framebuffer, pm: &Pixmap) {
-    let w = pm.width() as usize;
-    let h = pm.height() as usize;
-    let data = pm.data();
-    let (fw, fh) = (fb.width(), fb.height());
-    for y in 0..h.min(fh) {
-        let row = y * w * 4;
-        for x in 0..w.min(fw) {
-            let i = row + x * 4;
-            // The scene is fully opaque, so premultiplied == straight color.
-            fb.write_pixel(x, y, Color::rgb(data[i], data[i + 1], data[i + 2]));
-        }
-    }
+    fb.blit_rgba(pm.data(), pm.width() as usize, pm.height() as usize);
 }
