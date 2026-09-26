@@ -104,3 +104,9 @@ not meet the goal of "an interpreter based on Dyon" running in the OS.
 The single most valuable next step for *any* interpreter is **giving ring-3
 programs a heap**: a memory-growth syscall plus a tiny allocator. Everything
 else (Dyon-like or otherwise) builds on that.
+
+> **Update:** implemented. Syscall 4 (`sbrk`) grows the user heap, and
+> `user/src/heap.rs` is a bump allocator on top of it, so `SH.ELF` can use
+> `Vec`/`String`. The interpreter in `user/src/lang/` already covers `f64`
+> numbers, booleans, strings, arrays, `let`, `print`, `if`/`else`, arithmetic,
+> comparisons and indexing — a Dyon-inspired subset.

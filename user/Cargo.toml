@@ -2,8 +2,12 @@
 name = "user"
 version = "0.1.0"
 edition = "2021"
-description = "LazyOS ring-3 user program"
+description = "LazyOS ring-3 user runtime and programs"
 license = "MIT OR Apache-2.0"
+
+[lib]
+name = "user"
+path = "src/lib.rs"
 
 [[bin]]
 name = "hello"
