@@ -51,6 +51,24 @@ import `tools/screenshot/qemu_qmp.py` and call `type_text`, `press_key`,
 Input is delivered via QMP `input-send-event`, so it works headless; the guest
 only reacts once it has a keyboard/mouse driver (Phase 3+).
 
+## Running the demo
+
+Boot the interactive window demo (arrow keys move the window; Page Up/Down
+scroll the text; Home/End jump) with one command:
+
+```bash
+python tools/run_demo.py
+```
+
+It builds `target/lazyos.img` if needed and launches QEMU windowed
+(`--no-build`, `--headless`, `-- --cpu max` are supported). For scripted visual
+verification, capture the session script instead:
+
+```bash
+python tools/screenshot/qemu_session.py --image target/lazyos.img \
+    --out shots/demo --script tools/screenshot/examples/window_demo.json
+```
+
 ## Project conventions
 
 - The OS is `no_std`; target `x86_64-unknown-none`; built via the root crate's

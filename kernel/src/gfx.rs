@@ -100,23 +100,92 @@ impl Framebuffer {
     /// (the framebuffer is ordinary RAM on x86) and the pixel format is
     /// resolved once, which is far faster than per-pixel `write_pixel`.
     pub fn blit_rgba(&mut self, rgba: &[u8], width: usize, height: usize) {
+        self.blit_rgba_at(rgba, width, height, 0, 0);
+    }
+
+    /// Blit an RGBA image so its top-left lands at `(dx, dy)`.
+    pub fn blit_rgba_at(&mut self, rgba: &[u8], width: usize, height: usize, dx: usize, dy: usize) {
+        self.blit_rgba_region(rgba, width, height, 0, 0, dx, dy, width, height);
+    }
+
+    /// Blit a sub-rectangle of an RGBA image to the framebuffer.
+    ///
+    /// Copies `w * h` pixels from source `(sx, sy)` to destination `(dx, dy)`,
+    /// clamping against both the source and the framebuffer bounds.
+    #[allow(clippy::too_many_arguments)]
+    pub fn blit_rgba_region(
+        &mut self,
+        rgba: &[u8],
+        src_w: usize,
+        src_h: usize,
+        sx: usize,
+        sy: usize,
+        dx: usize,
+        dy: usize,
+        w: usize,
+        h: usize,
+    ) {
         let bpp = self.info.bytes_per_pixel;
         let stride = self.info.stride;
-        let w = width.min(self.width());
-        let h = height.min(self.height());
         let bgr = matches!(self.info.pixel_format, PixelFormat::Bgr);
         let base = self.base as *mut u8;
+        let (fbw, fbh) = (self.width(), self.height());
 
-        for y in 0..h {
-            let src = &rgba[y * width * 4..];
-            // Safety: row y is within the framebuffer and `w` is clamped.
-            let row = unsafe { base.add(y * stride * bpp) };
-            for x in 0..w {
-                let i = x * 4;
+        for row in 0..h {
+            let syy = sy + row;
+            let dyy = dy + row;
+            if syy >= src_h || dyy >= fbh {
+                break;
+            }
+            // Safety: syy is within the source image.
+            let src = &rgba[(syy * src_w + sx) * 4..];
+            let drow = unsafe { base.add(dyy * stride * bpp) };
+            for col in 0..w {
+                let sxx = sx + col;
+                let dxx = dx + col;
+                if sxx >= src_w || dxx >= fbw {
+                    break;
+                }
+                let i = col * 4;
                 let (r, g, b) = (src[i], src[i + 1], src[i + 2]);
                 let (b0, b1, b2) = if bgr { (b, g, r) } else { (r, g, b) };
-                let p = unsafe { row.add(x * bpp) };
-                // Safety: within the row, and bpp is 3 or 4.
+                let p = unsafe { drow.add(dxx * bpp) };
+                // Safety: within the framebuffer row; bpp is 3 or 4.
+                unsafe {
+                    p.write(b0);
+                    p.add(1).write(b1);
+                    p.add(2).write(b2);
+                    if bpp == 4 {
+                        p.add(3).write(0xFF);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Fill an axis-aligned rectangle with a solid colour (clamped to screen).
+    pub fn fill_rect(&mut self, x0: i32, y0: i32, x1: i32, y1: i32, color: Color) {
+        let (fw, fh) = (self.width() as i32, self.height() as i32);
+        let (x0, y0) = (x0.max(0), y0.max(0));
+        let (x1, y1) = (x1.min(fw), y1.min(fh));
+        if x0 >= x1 || y0 >= y1 {
+            return;
+        }
+        let bpp = self.info.bytes_per_pixel;
+        let stride = self.info.stride;
+        let bgr = matches!(self.info.pixel_format, PixelFormat::Bgr);
+        let (b0, b1, b2) = if bgr {
+            (color.b, color.g, color.r)
+        } else {
+            (color.r, color.g, color.b)
+        };
+        let base = self.base as *mut u8;
+        for y in y0..y1 {
+            // Safety: y is within the framebuffer.
+            let row = unsafe { base.add(y as usize * stride * bpp) };
+            for x in x0..x1 {
+                // Safety: x is within the row; bpp is 3 or 4.
+                let p = unsafe { row.add(x as usize * bpp) };
                 unsafe {
                     p.write(b0);
                     p.add(1).write(b1);

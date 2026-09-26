@@ -6,7 +6,12 @@
 
 use crate::console;
 use crate::gfx::Framebuffer;
-use tiny_skia::{FillRule, Paint, PathBuilder, Pixmap, Rect, Stroke, Transform};
+use spin::Mutex;
+use tiny_skia::{BlendMode, FillRule, Paint, PathBuilder, Pixmap, Rect, Stroke, Transform};
+
+/// The rendered background scene, retained so windows can restore regions of
+/// the screen underneath them (dirty-rectangle compositing).
+static BACKGROUND: Mutex<Option<Pixmap>> = Mutex::new(None);
 
 /// Render the demo scene and present it on the screen.
 pub fn render_demo() {
@@ -18,10 +23,28 @@ pub fn render_demo() {
                 let t = ts();
                 blit(fb, &pixmap);
                 crate::serial_println!("skia: blit done ({} cyc)", ts() - t);
+                *BACKGROUND.lock() = Some(pixmap);
             }
             None => crate::serial_println!("skia: draw returned None"),
         }
     });
+}
+
+/// Copy a rectangle of the retained background back onto the framebuffer.
+pub fn restore_region(fb: &mut Framebuffer, x: usize, y: usize, w: usize, h: usize) {
+    if let Some(bg) = BACKGROUND.lock().as_ref() {
+        fb.blit_rgba_region(
+            bg.data(),
+            bg.width() as usize,
+            bg.height() as usize,
+            x,
+            y,
+            x,
+            y,
+            w,
+            h,
+        );
+    }
 }
 
 fn draw(w: u32, h: u32) -> Option<Pixmap> {
@@ -99,6 +122,8 @@ fn backdrop(pm: &mut Pixmap, w: f32, h: f32) -> Option<()> {
     let bottom = (6u32, 42, 54);
     let mut paint = Paint::default();
     paint.anti_alias = false;
+    // Opaque bands: replace the destination instead of blending over it.
+    paint.blend_mode = BlendMode::Source;
     for i in 0..BANDS {
         let t = i as f32 / (BANDS - 1) as f32;
         // Two-segment colour ramp: top -> mid (t<0.5) -> bottom.

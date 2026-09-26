@@ -17,6 +17,10 @@ pub enum Key {
     Right,
     Up,
     Down,
+    PageUp,
+    PageDown,
+    Home,
+    End,
 }
 
 static QUEUE: Mutex<VecDeque<Key>> = Mutex::new(VecDeque::new());
@@ -76,6 +80,10 @@ fn decode_extended(code: u8) -> Option<Key> {
         0x50 => Key::Down,
         0x4B => Key::Left,
         0x4D => Key::Right,
+        0x49 => Key::PageUp,
+        0x51 => Key::PageDown,
+        0x47 => Key::Home,
+        0x4F => Key::End,
         0x1C => Key::Enter,
         _ => return None,
     })
