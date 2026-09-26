@@ -179,6 +179,8 @@ impl Cli {
                     "  box           draw a colour grid in the window",
                     "  ball          animate bouncing balls (any key to stop)",
                     "  bench         draw the scene with tiny-skia vs our own rasterizer",
+                    "  ls | dir      list files on the disk",
+                    "  cat <file>    print a file (e.g. cat HELLO.TXT)",
                     "  clear         clear the output",
                     "  pos           show the window position",
                     "  quit          (no-op; the shell is the demo)",
@@ -219,6 +221,33 @@ impl Cli {
                 self.show_scene = true;
             }
             "clear" => self.lines.clear(),
+            "ls" | "dir" => {
+                let entries = crate::fs::list();
+                if entries.is_empty() {
+                    self.push_line("(no files)".to_string());
+                }
+                for entry in entries {
+                    if entry.is_dir {
+                        self.push_line(format!("  <DIR>        {:<12} {}", entry.name, entry.size));
+                    } else {
+                        self.push_line(format!("  {:<8}  {:<12} {}", entry.size, entry.name, ""));
+                    }
+                }
+            }
+            "cat" | "type" => {
+                if arg.is_empty() {
+                    self.push_line("usage: cat <file>".to_string());
+                } else {
+                    match crate::fs::read_text(arg) {
+                        Some(text) => {
+                            for line in text.lines().take(200) {
+                                self.push_line(line.to_string());
+                            }
+                        }
+                        None => self.push_line(format!("not found: {arg}")),
+                    }
+                }
+            }
             "pos" => self.push_line(format!("window at ({}, {})", self.x, self.y)),
             other => self.push_line(format!("unknown command: {other}")),
         }
