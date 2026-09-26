@@ -71,14 +71,30 @@ screenshots headless, verifies they are non-blank, uploads them as an artifact,
 and (for same-repo PRs) publishes them to a force-pushed `screenshots` branch
 and comments them onto the PR.
 
-Stable image URL pattern:
+### Attaching images to a pull request
+
+GitHub renders external image URLs in comments, so CI uploads each PNG to a
+public image host and embeds the returned URL in the PR comment. Hosts are tried
+in order (some block CI datacenter IPs, e.g. Catbox returns HTTP 412):
+
+1. **Imgur** — if the repository secret `IMGUR_CLIENT_ID` is set (most reliable)
+2. **Catbox** — anonymous
+3. **Litterbox** — Catbox temporary (72h)
+4. **Uguu**, **0x0.st**, **tmpfiles.org** — further fallbacks
+
+Run the helper locally too:
+
+```bash
+python tools/screenshot/upload_image.py shots/shot_10s.png
+```
+
+If every host fails, the comment falls back to the `screenshots` branch. CI
+appends each run under `runs/<run_id>/` (no force-push) so historical links stay
+reachable:
 
 ```
-https://raw.githubusercontent.com/<owner>/<repo>/screenshots/<file>.png
+https://raw.githubusercontent.com/<owner>/<repo>/screenshots/runs/<run_id>/<file>.png
 ```
-
-Because the branch is force-pushed, the CDN can briefly serve a stale image;
-the PR comment links to the exact commit SHA of that run instead.
 
 ## Adding graphic checks later
 

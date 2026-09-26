@@ -104,6 +104,24 @@ jobs:
             shots/summary.json
           if-no-files-found: error
 
+      - name: Upload screenshots to image host
+        id: host
+        # External upload is best-effort; on failure we fall back to the
+        # `screenshots` branch raw URLs in the PR comment.
+        continue-on-error: true
+        shell: bash
+        env:
+          IMGUR_CLIENT_ID: ${{ secrets.IMGUR_CLIENT_ID }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          pngs=(shots/*.png)
+          if [ ${#pngs[@]} -eq 0 ]; then
+            echo "no screenshots to upload"
+            exit 0
+          fi
+          python tools/screenshot/upload_image.py "${pngs[@]}" | tee shots/urls.tsv
+
       - name: Publish screenshots to 'screenshots' branch
         id: publish
         if: >-
@@ -115,23 +133,33 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
-          rm -rf /tmp/shots-branch
-          mkdir -p /tmp/shots-branch
-          cp shots/*.png /tmp/shots-branch/ 2>/dev/null || true
-          pngs=(/tmp/shots-branch/*.png)
+          work=/tmp/shots-branch
+          remote="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          rm -rf "$work"
+          # Append to the existing branch so historical PR-comment links stay
+          # reachable (a force-push would orphan them).
+          if git clone -q --depth 1 --branch screenshots "$remote" "$work" 2>/dev/null; then
+            echo "appending to existing screenshots branch"
+          else
+            mkdir -p "$work"
+            git -C "$work" init -q
+            git -C "$work" checkout -q -b screenshots
+          fi
+          prefix="runs/${GITHUB_RUN_ID}"
+          mkdir -p "$work/$prefix"
+          cp shots/*.png "$work/$prefix/"
+          pngs=("$work/$prefix"/*.png)
           if [ ${#pngs[@]} -eq 0 ]; then
             echo "no screenshots to publish"
             exit 0
           fi
-          cd /tmp/shots-branch
-          git init -q
-          git checkout -q -b screenshots
-          git add -A
-          git -c user.name=github-actions \
+          git -C "$work" add -A
+          git -C "$work" -c user.name=github-actions \
               -c user.email=github-actions@users.noreply.github.com \
-              commit -qm "screenshots for ${GITHUB_SHA}"
-          git push -q -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" screenshots
-          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+              commit -qm "screenshots for ${GITHUB_SHA} (run ${GITHUB_RUN_ID})"
+          git -C "$work" push -q "$remote" screenshots
+          echo "sha=$(git -C "$work" rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
 
       - name: Comment screenshots on PR
         if: github.event_name == 'pull_request'
@@ -141,6 +169,7 @@ jobs:
         run: |
           set -euo pipefail
           sha="${{ steps.publish.outputs.sha }}"
+          prefix="${{ steps.publish.outputs.prefix }}"
           ref="${sha:-screenshots}"
           {
             echo "### QEMU screenshots"
@@ -152,10 +181,16 @@ jobs:
               name=$(basename "$png")
               echo "**${name}**"
               echo
-              if [ -n "$sha" ]; then
-                echo "![${name}](https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${ref}/${name})"
+              url=""
+              if [ -f shots/urls.tsv ]; then
+                url=$(awk -F'\t' -v n="$name" '$1==n {print $2; exit}' shots/urls.tsv || true)
+              fi
+              if [ -n "$url" ] && [ "${url:0:4}" = "http" ]; then
+                echo "![${name}](${url})"
+              elif [ -n "$sha" ]; then
+                echo "![${name}](https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${ref}/${prefix}/${name})"
               else
-                echo "_screenshots published as a workflow artifact (fork PR)_"
+                echo "_screenshot available as a workflow artifact_"
               fi
               echo
             done
