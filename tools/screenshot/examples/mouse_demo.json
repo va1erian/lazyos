@@ -1,0 +1,7 @@
+[
+  {"at": 6.0, "shot": "before"},
+  {"at": 7.0, "mouse_move": [220, 130]},
+  {"at": 7.4, "mouse_move": [180, 90]},
+  {"at": 8.2, "shot": "after"},
+  {"at": 9.0, "quit": true}
+]

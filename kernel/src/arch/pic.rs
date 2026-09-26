@@ -22,9 +22,10 @@ pub unsafe fn init() {
     // ICW4: 8086/88 mode.
     Port::<u8>::new(PIC1_DATA).write(0x01);
     Port::<u8>::new(PIC2_DATA).write(0x01);
-    // Masks: unmask IRQ0 + IRQ1 on the master, mask everything on the slave.
-    Port::<u8>::new(PIC1_DATA).write(0xFC);
-    Port::<u8>::new(PIC2_DATA).write(0xFF);
+    // Masks: unmask IRQ0 (timer), IRQ1 (keyboard) and IRQ2 (cascade) on the
+    // master; unmask IRQ12 (PS/2 mouse) on the slave.
+    Port::<u8>::new(PIC1_DATA).write(0xF8); // 1111_1000
+    Port::<u8>::new(PIC2_DATA).write(0xEF); // 1110_1111
 }
 
 /// Signal end-of-interrupt for `irq` (0-15).
