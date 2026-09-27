@@ -173,6 +173,11 @@ impl Fat16 {
     }
 
     /// List the root directory (short 8.3 entries; long-name entries skipped).
+    pub fn entries(&self) -> Vec<Entry> {
+        self.list()
+    }
+
+    /// List the root directory (short 8.3 entries; long-name entries skipped).
     pub fn list(&self) -> Vec<Entry> {
         let mut entries = Vec::new();
         let mut offset = 0u32;

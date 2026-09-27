@@ -180,7 +180,7 @@ fn sys_sbrk(increment: u64) -> u64 {
 /// syscall 0: terminate the current task.
 fn exit(_code: u32) -> ! {
     serial_println!("user: task exited");
-    task::finish_current();
+    task::finish_current(0);
     // Wait for the scheduler to switch to another task.
     loop {
         x86_64::instructions::interrupts::enable();

@@ -145,3 +145,21 @@ pub fn set_kernel_stack(top: u64) {
     // Safety: single CPU; called from the scheduler with the task held.
     unsafe { *addr_of_mut!(KERNEL_STACK) = top };
 }
+
+/// Rewrite the return context of the in-progress syscall. `execve` uses this to
+/// make `sysretq` resume at a fresh program's entry point instead of returning
+/// to the caller: the entry stub pushed `[user_rsp, rflags, rip]` just below the
+/// current kernel-stack top.
+pub fn set_user_return(rip: u64, rsp: u64, rflags: u64) {
+    // Safety: single CPU; we are inside the syscall on this task's stack.
+    unsafe {
+        let top = KERNEL_STACK as *mut u64;
+        *top.offset(-3) = rip;
+        *top.offset(-2) = rflags;
+        *top.offset(-1) = rsp;
+        let context = addr_of_mut!(USER_CONTEXT);
+        (*context).rip = rip;
+        (*context).rsp = rsp;
+        (*context).rflags = rflags;
+    }
+}
