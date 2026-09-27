@@ -1,0 +1,804 @@
+//! Channels: duplex bounded queues and synchronous transactions (issue #66).
+//!
+//! This is the transport half of `docs/messenger.md` sections 6 and 14: one
+//! channel has two endpoints ("sides"), each with a bounded inbox, plus a
+//! transaction table that matches a `call` to the `reply` that answers it.
+//!
+//! ```text
+//!   task A                     kernel                      task B
+//!   handle side 0  --->  [ side 1 inbox ]  --->  handle side 1
+//!                  <---  [ side 0 inbox ]  <---  reply(txn, parcel)
+//! ```
+//!
+//! Endpoints are named by `HandleKind::Channel` handles whose `object_id` packs
+//! `(channel_id << 1) | side`. The channel state itself lives in the `CHANNELS`
+//! registry, so handle numbers stay small integers and a channel dies only when
+//! both endpoints close.
+//!
+//! Blocking uses the generalized wait queues (issue #57) through one shared
+//! `MESSENGER` queue. Wakeups are advisory: every event wakes all waiters and
+//! each waiter re-checks its own inbox or transaction, so no per-channel queue
+//! object is needed. `call` is `begin_call` (register + enqueue + park)
+//! followed by `await_reply` (re-check until the outcome is terminal); the
+//! split is also what asynchronous completion will build on in #69.
+//!
+//! Locking: `CHANNELS` is held only for registry mutations and is always
+//! released before `MESSENGER` is notified, keeping the queue-then-task lock
+//! order documented in `task::wait`.
+
+use alloc::collections::VecDeque;
+use alloc::vec::Vec;
+use core::sync::atomic::{AtomicU64, Ordering};
+
+use spin::Mutex;
+
+use libmessenger::{flags, Parcel};
+
+use crate::ipc::handles::{self, rights, HandleKind};
+use crate::task::wait::WaitQueue;
+use crate::task::{self, WaitKind, WakeReason};
+
+/// Largest number of live channels.
+pub const MAX_CHANNELS: usize = 64;
+/// Largest number of messages parked in one endpoint's inbox.
+pub const MAX_QUEUE_DEPTH: usize = 64;
+/// Largest number of parcel bytes parked in one endpoint's inbox.
+pub const MAX_QUEUE_BYTES: usize = 1 << 20;
+/// Largest number of outstanding transactions on one channel.
+pub const MAX_OUTSTANDING: usize = 64;
+/// Largest number of outstanding transactions from one sender on one channel.
+pub const MAX_PENDING_PER_SENDER: u64 = 16;
+
+/// Global channel registry: small enough that a linear scan beats a map, and
+/// exactly the "pairs of bounded queues" shape of section 14.
+static CHANNELS: Mutex<Vec<Channel>> = Mutex::new(Vec::new());
+/// Channel ids start at 1 so no handle ever carries object id 0.
+static NEXT_CHANNEL_ID: AtomicU64 = AtomicU64::new(1);
+/// Transaction ids are global; replies are matched by id alone.
+static NEXT_TXN_ID: AtomicU64 = AtomicU64::new(1);
+
+/// Wait queue for every Messenger blocking operation.
+///
+/// `WaitKind::Sleep` is the closest existing kind (this issue keeps `task/**`
+/// frozen); adding a `WaitKind::Messenger` is a follow-up.
+static MESSENGER: WaitQueue = WaitQueue::new(WaitKind::Sleep);
+
+/// Why a channel operation failed. Messages are user-facing.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Error {
+    /// The handle is unused or out of range.
+    InvalidHandle,
+    /// The handle exists but does not name a channel endpoint.
+    WrongKind,
+    /// The handle lacks the right the operation needs.
+    MissingRight,
+    /// The process is holding the maximum number of handles.
+    NoFreeHandle,
+    /// No task exists in the current slot.
+    BadTask,
+    /// The parcel is malformed or exceeds the Messenger size limits.
+    BadParcel,
+    /// The kernel channel registry is full.
+    RegistryFull,
+    /// The peer's inbox is at its depth or byte limit.
+    QueueFull,
+    /// The channel already has [`MAX_OUTSTANDING`] pending transactions.
+    TooManyOutstanding,
+    /// This sender already has [`MAX_PENDING_PER_SENDER`] pending transactions.
+    Quota,
+    /// The call would form a synchronous cycle on this channel pair.
+    Deadlock,
+    /// No pending transaction has that id.
+    NoTransaction,
+    /// Only the task that started the transaction may cancel it.
+    NotCaller,
+    /// The deadline passed before a reply arrived.
+    TimedOut,
+    /// The caller canceled the transaction.
+    Canceled,
+    /// The endpoint on the other side was closed.
+    PeerDied,
+}
+
+impl Error {
+    /// A short, human-readable explanation (friendly-errors convention).
+    pub fn message(self) -> &'static str {
+        match self {
+            Error::InvalidHandle => "that Messenger handle does not exist",
+            Error::WrongKind => "that handle does not name a channel endpoint",
+            Error::MissingRight => "this handle does not grant the right to use the channel",
+            Error::NoFreeHandle => "the process is holding too many Messenger handles",
+            Error::BadTask => "no task exists in that slot",
+            Error::BadParcel => "the parcel is malformed or exceeds a Messenger size limit",
+            Error::RegistryFull => "the kernel channel registry is full",
+            Error::QueueFull => "the peer's message queue is full",
+            Error::TooManyOutstanding => "this channel has too many outstanding transactions",
+            Error::Quota => "this sender has too many outstanding transactions",
+            Error::Deadlock => {
+                "this call would deadlock: another transaction on this channel is still open"
+            }
+            Error::NoTransaction => "no transaction with that id is outstanding",
+            Error::NotCaller => "only the task that started a transaction may cancel it",
+            Error::TimedOut => "the deadline passed before a reply arrived",
+            Error::Canceled => "the caller canceled this transaction",
+            Error::PeerDied => "the endpoint on the other side was closed",
+        }
+    }
+}
+
+/// Translate a handle-table error into the channel vocabulary.
+fn from_handles(error: handles::Error) -> Error {
+    match error {
+        handles::Error::NoFreeHandle => Error::NoFreeHandle,
+        handles::Error::InvalidHandle => Error::InvalidHandle,
+        handles::Error::MissingRight => Error::MissingRight,
+        handles::Error::BadTask => Error::BadTask,
+    }
+}
+
+/// One queued message: the encoded parcel plus the kernel-side metadata a
+/// receiver needs to dispatch or answer it.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct Message {
+    /// Task slot that sent the message (kernel-stamped, never forgeable).
+    pub sender: usize,
+    /// Method id from the parcel header, copied out for dispatch.
+    pub method: u32,
+    /// Parcel header flags.
+    pub flags: u16,
+    /// The transaction to reply to for a request; `None` for one-way messages.
+    pub txn: Option<u64>,
+    /// Absolute PIT deadline of the transaction, for the callee's own timeout.
+    pub deadline: Option<u64>,
+    /// The encoded parcel, stored exactly as it was sent.
+    pub bytes: Vec<u8>,
+    /// Handles the parcel transfers. The bytes still carry them too; the
+    /// receiver-side rewrite into the target handle table is #67.
+    pub handles: Vec<u64>,
+}
+
+/// Cumulative counters plus live depths, for `msg_stats` and tests.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Stats {
+    /// Synchronous calls started.
+    pub calls: u64,
+    /// Replies delivered.
+    pub replies: u64,
+    /// Transactions that hit their deadline.
+    pub timeouts: u64,
+    /// Transactions canceled by their caller.
+    pub cancels: u64,
+    /// Messages refused or discarded (full queue, dead peer, late reply).
+    pub drops: u64,
+    /// Messages currently queued on the channel.
+    pub queued: u64,
+    /// Parcel bytes currently queued on the channel.
+    pub queued_bytes: u64,
+    /// Transactions currently awaiting a reply.
+    pub outstanding: u64,
+}
+
+/// Per-sender metering on one channel (section 6's anti-flood accounting).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SenderMeter {
+    /// Task slot of the sender.
+    pub slot: usize,
+    /// Messages (calls and one-way) this sender enqueued.
+    pub sent: u64,
+    /// Synchronous calls this sender started.
+    pub calls: u64,
+    /// Calls still awaiting a reply.
+    pub outstanding: u64,
+}
+
+/// How a transaction ended. Only [`TxnState::Pending`] accepts a reply.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum TxnState {
+    Pending,
+    Replied,
+    TimedOut,
+    Canceled,
+    PeerDied,
+}
+
+/// One outstanding synchronous transaction.
+struct Transaction {
+    id: u64,
+    /// Task slot waiting for the reply.
+    caller: usize,
+    /// Endpoint the caller used (the reply travels back to it).
+    caller_side: usize,
+    /// Endpoint the request was delivered to.
+    callee_side: usize,
+    deadline: Option<u64>,
+    state: TxnState,
+    /// Reply parcel bytes, valid while `state == Replied`.
+    reply: Vec<u8>,
+}
+
+/// One side of a channel: a bounded inbox that messages are delivered into.
+#[derive(Default)]
+struct Endpoint {
+    closed: bool,
+    inbox: VecDeque<Message>,
+    queued_bytes: usize,
+}
+
+/// A duplex channel: two endpoints, their transactions, and their meters.
+struct Channel {
+    id: u64,
+    endpoints: [Endpoint; 2],
+    txns: Vec<Transaction>,
+    senders: Vec<SenderMeter>,
+    calls: u64,
+    replies: u64,
+    timeouts: u64,
+    cancels: u64,
+    drops: u64,
+}
+
+/// Pack the endpoint name into a handle's `object_id`.
+fn object_id(channel_id: u64, side: usize) -> u64 {
+    (channel_id << 1) | side as u64
+}
+
+/// Unpack a handle's `object_id` into `(channel_id, side)`.
+fn split_object_id(object: u64) -> (u64, usize) {
+    (object >> 1, (object & 1) as usize)
+}
+
+/// Find a channel in the registry, or report a stale handle.
+fn find_channel(channels: &mut [Channel], id: u64) -> Result<&mut Channel, Error> {
+    channels
+        .iter_mut()
+        .find(|channel| channel.id == id)
+        .ok_or(Error::InvalidHandle)
+}
+
+/// Find a channel in the registry without mutating it.
+fn find_channel_ref(channels: &[Channel], id: u64) -> Result<&Channel, Error> {
+    channels
+        .iter()
+        .find(|channel| channel.id == id)
+        .ok_or(Error::InvalidHandle)
+}
+
+/// Borrow the meter for `slot`, creating it on first use.
+fn meter(channel: &mut Channel, slot: usize) -> &mut SenderMeter {
+    if let Some(index) = channel.senders.iter().position(|meter| meter.slot == slot) {
+        return &mut channel.senders[index];
+    }
+    channel.senders.push(SenderMeter {
+        slot,
+        sent: 0,
+        calls: 0,
+        outstanding: 0,
+    });
+    let last = channel.senders.len() - 1;
+    &mut channel.senders[last]
+}
+
+/// A pending transaction just left `Pending`: one fewer call is in flight.
+fn release_pending(channel: &mut Channel, caller: usize) {
+    if let Some(meter) = channel
+        .senders
+        .iter_mut()
+        .find(|meter| meter.slot == caller)
+    {
+        meter.outstanding = meter.outstanding.saturating_sub(1);
+    }
+}
+
+/// Validate a parcel at the kernel boundary. Decoding is the attack surface;
+/// this never panics and rejects anything over the wire limits.
+fn validate_parcel(bytes: &[u8]) -> Result<Parcel, Error> {
+    if bytes.len() > libmessenger::MAX_PARCEL_BYTES {
+        return Err(Error::BadParcel);
+    }
+    Parcel::decode(bytes).map_err(|_| Error::BadParcel)
+}
+
+/// Resolve a handle to `(channel_id, side)`, checking kind and rights.
+fn endpoint_of(handle: u64, required: u32) -> Result<(u64, usize), Error> {
+    let entry = handles::get(handle).map_err(from_handles)?;
+    if entry.kind != HandleKind::Channel {
+        return Err(Error::WrongKind);
+    }
+    if entry.rights & required != required {
+        return Err(Error::MissingRight);
+    }
+    Ok(split_object_id(entry.object_id))
+}
+
+/// Create a channel and open both endpoint handles in the calling task.
+///
+/// A future `msg_connect` (#67) will hand one of the two handles to a peer;
+/// today callers that drive both sides themselves (tests, bootstrap) can use
+/// the pair directly.
+pub fn create() -> Result<(u64, u64), Error> {
+    let channel_id = NEXT_CHANNEL_ID.fetch_add(1, Ordering::Relaxed);
+    {
+        let mut channels = CHANNELS.lock();
+        if channels.len() >= MAX_CHANNELS {
+            return Err(Error::RegistryFull);
+        }
+        channels.push(Channel {
+            id: channel_id,
+            endpoints: [Endpoint::default(), Endpoint::default()],
+            txns: Vec::new(),
+            senders: Vec::new(),
+            calls: 0,
+            replies: 0,
+            timeouts: 0,
+            cancels: 0,
+            drops: 0,
+        });
+    }
+    let first = match handles::open(HandleKind::Channel, rights::ALL, object_id(channel_id, 0)) {
+        Ok(handle) => handle,
+        Err(error) => {
+            CHANNELS.lock().retain(|channel| channel.id != channel_id);
+            return Err(from_handles(error));
+        }
+    };
+    match handles::open(HandleKind::Channel, rights::ALL, object_id(channel_id, 1)) {
+        Ok(second) => Ok((first, second)),
+        Err(error) => {
+            handles::close(first).ok();
+            CHANNELS.lock().retain(|channel| channel.id != channel_id);
+            Err(from_handles(error))
+        }
+    }
+}
+
+/// Send a one-way message (section 7.1): enqueue and return immediately.
+///
+/// Ordering is preserved per sender to this channel and delivery is at most
+/// once; a full queue is refused rather than blocking.
+pub fn send(handle: u64, parcel_bytes: &[u8]) -> Result<(), Error> {
+    let me = task::current();
+    let (channel_id, side) = endpoint_of(handle, rights::CALL)?;
+    let parcel = validate_parcel(parcel_bytes)?;
+    enqueue(
+        channel_id,
+        side,
+        Message {
+            sender: me,
+            method: parcel.header.method,
+            flags: parcel.header.flags,
+            txn: None,
+            deadline: None,
+            bytes: parcel_bytes.to_vec(),
+            handles: parcel.handles,
+        },
+    )?;
+    MESSENGER.notify_all();
+    Ok(())
+}
+
+/// Enqueue a message into the peer endpoint's inbox, metering the sender.
+fn enqueue(channel_id: u64, from_side: usize, message: Message) -> Result<(), Error> {
+    let peer = 1 - from_side;
+    let mut channels = CHANNELS.lock();
+    let channel = find_channel(&mut channels, channel_id)?;
+    if channel.endpoints[peer].closed {
+        return Err(Error::PeerDied);
+    }
+    let inbox = &channel.endpoints[peer];
+    if inbox.inbox.len() >= MAX_QUEUE_DEPTH
+        || inbox.queued_bytes.saturating_add(message.bytes.len()) > MAX_QUEUE_BYTES
+    {
+        channel.drops += 1;
+        return Err(Error::QueueFull);
+    }
+    let sender = message.sender;
+    let bytes = message.bytes.len();
+    let endpoint = &mut channel.endpoints[peer];
+    endpoint.inbox.push_back(message);
+    endpoint.queued_bytes += bytes;
+    meter(channel, sender).sent += 1;
+    Ok(())
+}
+
+/// Start a synchronous call (section 6): register a fresh `txn_id`, enqueue the
+/// request, and park the caller until the transaction ends.
+///
+/// Returns the transaction id; the caller completes it with [`await_reply`].
+/// A request that cannot even be queued (wrong handle, malformed parcel, full
+/// queue, dead peer, nested cycle) fails before the caller parks.
+pub fn begin_call(
+    handle: u64,
+    method: u32,
+    parcel_bytes: &[u8],
+    deadline: Option<u64>,
+) -> Result<u64, Error> {
+    let me = task::current();
+    let (channel_id, side) = endpoint_of(handle, rights::CALL)?;
+    let parcel = validate_parcel(parcel_bytes)?;
+    let peer = 1 - side;
+    let txn_id = NEXT_TXN_ID.fetch_add(1, Ordering::Relaxed);
+    {
+        let mut channels = CHANNELS.lock();
+        let channel = find_channel(&mut channels, channel_id)?;
+        if channel.endpoints[peer].closed {
+            return Err(Error::PeerDied);
+        }
+        if channel.endpoints[peer].inbox.len() >= MAX_QUEUE_DEPTH
+            || channel.endpoints[peer]
+                .queued_bytes
+                .saturating_add(parcel_bytes.len())
+                > MAX_QUEUE_BYTES
+        {
+            channel.drops += 1;
+            return Err(Error::QueueFull);
+        }
+        let outstanding = channel
+            .txns
+            .iter()
+            .filter(|txn| txn.state == TxnState::Pending)
+            .count();
+        if outstanding >= MAX_OUTSTANDING {
+            channel.drops += 1;
+            return Err(Error::TooManyOutstanding);
+        }
+        let sender_pending = channel
+            .senders
+            .iter()
+            .find(|meter| meter.slot == me)
+            .map(|meter| meter.outstanding)
+            .unwrap_or(0);
+        if sender_pending >= MAX_PENDING_PER_SENDER {
+            channel.drops += 1;
+            return Err(Error::Quota);
+        }
+        // Section 6: while a transaction is open, a second synchronous call on
+        // the same channel pair is either nesting or a callback cycle, and the
+        // default policy is ERR_DEADLOCK. ALLOW_NESTED opts out.
+        if outstanding > 0 && parcel.header.flags & flags::ALLOW_NESTED == 0 {
+            return Err(Error::Deadlock);
+        }
+        channel.txns.push(Transaction {
+            id: txn_id,
+            caller: me,
+            caller_side: side,
+            callee_side: peer,
+            deadline,
+            state: TxnState::Pending,
+            reply: Vec::new(),
+        });
+        let endpoint = &mut channel.endpoints[peer];
+        endpoint.inbox.push_back(Message {
+            sender: me,
+            method,
+            flags: parcel.header.flags,
+            txn: Some(txn_id),
+            deadline,
+            bytes: parcel_bytes.to_vec(),
+            handles: parcel.handles,
+        });
+        endpoint.queued_bytes += parcel_bytes.len();
+        channel.calls += 1;
+        let sender = meter(channel, me);
+        sender.sent += 1;
+        sender.calls += 1;
+        sender.outstanding += 1;
+    }
+    // The request is visible now, so park before returning: syscalls run with
+    // interrupts disabled, so no reply can slip in between registration and the
+    // first wait and no wakeup can be lost.
+    MESSENGER.park(me, deadline);
+    Ok(txn_id)
+}
+
+/// Block until `txn_id` ends, then return the reply or the failure.
+///
+/// Every wakeup is treated as advisory: the transaction is re-checked under
+/// the registry lock and the caller parks again if the outcome is not terminal
+/// yet. A `TimedOut` wake marks the transaction expired, so a reply arriving
+/// after the deadline is refused instead of delivered.
+pub fn await_reply(txn_id: u64) -> Result<Vec<u8>, Error> {
+    let me = task::current();
+    loop {
+        if let Some(outcome) = take_outcome(txn_id)? {
+            // The terminal transition already woke us (or the event arrived
+            // before the first wait); drop the reason so it cannot become a
+            // spurious wakeup for the next blocking call.
+            let _ = task::take_wake_reason(me);
+            return outcome;
+        }
+        let deadline = transaction_deadline(txn_id)?;
+        // `begin_call` already parked us; `wait` re-registers and the queue
+        // cleans the duplicate entry when the wake is consumed.
+        let reason = MESSENGER.wait(me, deadline);
+        if reason == WakeReason::TimedOut {
+            expire_transaction(txn_id);
+        }
+    }
+}
+
+/// Synchronous call convenience: [`begin_call`] plus [`await_reply`].
+pub fn call(
+    handle: u64,
+    method: u32,
+    parcel_bytes: &[u8],
+    deadline: Option<u64>,
+) -> Result<Vec<u8>, Error> {
+    let txn_id = begin_call(handle, method, parcel_bytes, deadline)?;
+    await_reply(txn_id)
+}
+
+/// Answer a pending transaction with a reply parcel.
+///
+/// Replies may arrive out of order (they match by id), and a reply to an
+/// expired, canceled, or dead transaction is refused and counted as a drop.
+/// Only the receiving endpoint's holder should call this; signing the reply
+/// with the callee handle is #67's job at the syscall edge.
+pub fn reply(txn_id: u64, parcel_bytes: &[u8]) -> Result<(), Error> {
+    validate_parcel(parcel_bytes)?;
+    let mut found = false;
+    {
+        let mut channels = CHANNELS.lock();
+        for channel in channels.iter_mut() {
+            let Some(index) = channel.txns.iter().position(|txn| txn.id == txn_id) else {
+                continue;
+            };
+            if channel.txns[index].state != TxnState::Pending {
+                channel.drops += 1;
+                return Err(Error::NoTransaction);
+            }
+            channel.txns[index].state = TxnState::Replied;
+            channel.txns[index].reply = parcel_bytes.to_vec();
+            channel.replies += 1;
+            let caller = channel.txns[index].caller;
+            release_pending(channel, caller);
+            found = true;
+            break;
+        }
+    }
+    if !found {
+        return Err(Error::NoTransaction);
+    }
+    MESSENGER.notify_all();
+    Ok(())
+}
+
+/// Cancel a pending transaction. Only its caller may cancel; the wait in
+/// [`await_reply`] ends with [`Error::Canceled`].
+pub fn cancel(txn_id: u64) -> Result<(), Error> {
+    let me = task::current();
+    let mut found = false;
+    {
+        let mut channels = CHANNELS.lock();
+        for channel in channels.iter_mut() {
+            let Some(index) = channel.txns.iter().position(|txn| txn.id == txn_id) else {
+                continue;
+            };
+            if channel.txns[index].caller != me {
+                return Err(Error::NotCaller);
+            }
+            if channel.txns[index].state != TxnState::Pending {
+                return Err(Error::NoTransaction);
+            }
+            channel.txns[index].state = TxnState::Canceled;
+            channel.cancels += 1;
+            let caller = channel.txns[index].caller;
+            release_pending(channel, caller);
+            found = true;
+            break;
+        }
+    }
+    if !found {
+        return Err(Error::NoTransaction);
+    }
+    MESSENGER.notify_all();
+    Ok(())
+}
+
+/// Close one endpoint: drop its handle, mark the side closed, and fail every
+/// transaction that still needs it with `PeerDied` (section 9's peer death).
+///
+/// Messages already queued for the surviving side stay deliverable; once that
+/// inbox drains, `recv`/`try_recv` report `PeerDied` too.
+pub fn close_endpoint(handle: u64) -> Result<(), Error> {
+    let (channel_id, side) = endpoint_of(handle, 0)?;
+    handles::close(handle).map_err(from_handles)?;
+    let mut remove = false;
+    {
+        let mut channels = CHANNELS.lock();
+        if let Some(index) = channels.iter().position(|channel| channel.id == channel_id) {
+            let channel = &mut channels[index];
+            channel.endpoints[side].closed = true;
+            // Anything still queued for the dead side will never be received.
+            channel.drops += channel.endpoints[side].inbox.len() as u64;
+            channel.endpoints[side].inbox.clear();
+            channel.endpoints[side].queued_bytes = 0;
+            let mut released = Vec::new();
+            for txn in channel.txns.iter_mut() {
+                if txn.state == TxnState::Pending
+                    && (txn.caller_side == side || txn.callee_side == side)
+                {
+                    txn.state = TxnState::PeerDied;
+                    released.push(txn.caller);
+                }
+            }
+            for caller in released {
+                release_pending(channel, caller);
+            }
+            remove = channel.endpoints[0].closed && channel.endpoints[1].closed;
+        }
+        if remove {
+            channels.retain(|channel| channel.id != channel_id);
+        }
+    }
+    MESSENGER.notify_all();
+    Ok(())
+}
+
+/// Receive the next message without blocking; `Ok(None)` means "try later".
+pub fn try_recv(handle: u64) -> Result<Option<Message>, Error> {
+    let (channel_id, side) = endpoint_of(handle, rights::CALL)?;
+    let mut channels = CHANNELS.lock();
+    let channel = find_channel(&mut channels, channel_id)?;
+    let endpoint = &mut channel.endpoints[side];
+    if let Some(message) = endpoint.inbox.pop_front() {
+        endpoint.queued_bytes = endpoint.queued_bytes.saturating_sub(message.bytes.len());
+        return Ok(Some(message));
+    }
+    if channel.endpoints[1 - side].closed {
+        return Err(Error::PeerDied);
+    }
+    Ok(None)
+}
+
+/// Receive the next message, parking until one arrives, the deadline passes, or
+/// the peer closes.
+pub fn recv(handle: u64, deadline: Option<u64>) -> Result<Message, Error> {
+    loop {
+        match try_recv(handle) {
+            Ok(Some(message)) => return Ok(message),
+            Ok(None) => {}
+            Err(error) => return Err(error),
+        }
+        let reason = MESSENGER.wait(task::current(), deadline);
+        if reason == WakeReason::TimedOut {
+            return Err(Error::TimedOut);
+        }
+    }
+}
+
+/// Sum a channel's counters and live depths into `stats`.
+fn accumulate(stats: &mut Stats, channel: &Channel) {
+    stats.calls += channel.calls;
+    stats.replies += channel.replies;
+    stats.timeouts += channel.timeouts;
+    stats.cancels += channel.cancels;
+    stats.drops += channel.drops;
+    for endpoint in &channel.endpoints {
+        stats.queued += endpoint.inbox.len() as u64;
+        stats.queued_bytes += endpoint.queued_bytes as u64;
+    }
+    stats.outstanding += channel
+        .txns
+        .iter()
+        .filter(|txn| txn.state == TxnState::Pending)
+        .count() as u64;
+}
+
+/// Aggregated counters and depths across every live channel.
+pub fn stats() -> Stats {
+    let channels = CHANNELS.lock();
+    let mut stats = Stats::default();
+    for channel in channels.iter() {
+        accumulate(&mut stats, channel);
+    }
+    stats
+}
+
+/// Counters and depths for the channel `handle` names.
+pub fn channel_stats(handle: u64) -> Result<Stats, Error> {
+    let (channel_id, _) = endpoint_of(handle, rights::CALL)?;
+    let channels = CHANNELS.lock();
+    let channel = find_channel_ref(&channels, channel_id)?;
+    let mut stats = Stats::default();
+    accumulate(&mut stats, channel);
+    Ok(stats)
+}
+
+/// Per-sender metering for the channel `handle` names.
+pub fn senders(handle: u64) -> Result<Vec<SenderMeter>, Error> {
+    let (channel_id, _) = endpoint_of(handle, rights::CALL)?;
+    let channels = CHANNELS.lock();
+    let channel = find_channel_ref(&channels, channel_id)?;
+    Ok(channel.senders.clone())
+}
+
+/// Drop every channel (process teardown, reboot, test isolation).
+///
+/// Waiters are woken so a task parked in `await_reply` observes
+/// [`Error::NoTransaction`] instead of hanging.
+pub fn reset() {
+    CHANNELS.lock().clear();
+    MESSENGER.notify_all();
+}
+
+/// The deadline recorded for a transaction, if it is still outstanding.
+fn transaction_deadline(txn_id: u64) -> Result<Option<u64>, Error> {
+    let channels = CHANNELS.lock();
+    for channel in channels.iter() {
+        if let Some(txn) = channel.txns.iter().find(|txn| txn.id == txn_id) {
+            return Ok(txn.deadline);
+        }
+    }
+    Err(Error::NoTransaction)
+}
+
+/// Remove and return a terminal transaction's outcome, or `Ok(None)` while it
+/// is still pending.
+fn take_outcome(txn_id: u64) -> Result<Option<Result<Vec<u8>, Error>>, Error> {
+    let mut channels = CHANNELS.lock();
+    for channel in channels.iter_mut() {
+        let Some(index) = channel.txns.iter().position(|txn| txn.id == txn_id) else {
+            continue;
+        };
+        if channel.txns[index].state == TxnState::Pending {
+            return Ok(None);
+        }
+        let txn = channel.txns.remove(index);
+        let outcome = match txn.state {
+            TxnState::Replied => Ok(txn.reply),
+            TxnState::TimedOut => Err(Error::TimedOut),
+            TxnState::Canceled => Err(Error::Canceled),
+            TxnState::PeerDied => Err(Error::PeerDied),
+            TxnState::Pending => Err(Error::NoTransaction),
+        };
+        return Ok(Some(outcome));
+    }
+    Err(Error::NoTransaction)
+}
+
+/// Mark a pending transaction expired. A no-op if it already has another
+/// terminal outcome, so a reply racing the deadline wins.
+fn expire_transaction(txn_id: u64) {
+    let mut channels = CHANNELS.lock();
+    for channel in channels.iter_mut() {
+        let Some(index) = channel.txns.iter().position(|txn| txn.id == txn_id) else {
+            continue;
+        };
+        if channel.txns[index].state != TxnState::Pending {
+            return;
+        }
+        channel.txns[index].state = TxnState::TimedOut;
+        channel.timeouts += 1;
+        let caller = channel.txns[index].caller;
+        release_pending(channel, caller);
+        return;
+    }
+}
+
+/// Test hook (issue #62 harness): run the timer's deadline sweep and mark every
+/// expired transaction `TimedOut`, exactly as the wait loop would after
+/// `WaitQueue::wait` returned `WakeReason::TimedOut`. Compiled only for the
+/// in-kernel suite.
+#[cfg(laZYOS_TESTS)]
+pub fn expire_deadlines(now: u64) {
+    task::harness::expire_deadlines(now);
+    let mut channels = CHANNELS.lock();
+    for channel in channels.iter_mut() {
+        let mut released = Vec::new();
+        for index in 0..channel.txns.len() {
+            let txn = &mut channel.txns[index];
+            if txn.state == TxnState::Pending
+                && txn.deadline.is_some_and(|deadline| deadline <= now)
+            {
+                txn.state = TxnState::TimedOut;
+                released.push(txn.caller);
+            }
+        }
+        channel.timeouts += released.len() as u64;
+        for caller in released {
+            release_pending(channel, caller);
+        }
+    }
+    drop(channels);
+    MESSENGER.notify_all();
+}
