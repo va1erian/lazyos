@@ -78,10 +78,16 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     arch::init();
     input::mouse::set_bounds(info.width as i32, info.height as i32);
 
-    // Register the kernel (multiplexer) task and spawn the demo programs, or —
-    // for the ABI conformance bench — the single injected Linux fixture.
+    // Register the kernel (multiplexer) task and spawn the demo programs, the
+    // injected Linux fixture, or a BusyBox shell.
     task::register_kernel();
-    if let Some(bytes) = fs::read("INIT.ELF") {
+    if let Some(bytes) = fs::read("BUSYBOX.ELF") {
+        serial_println!("LazyOS: launching busybox sh");
+        match task::spawn_linux("sh", &bytes) {
+            Ok(index) => serial_println!("LazyOS: spawned busybox as task {index}"),
+            Err(err) => serial_println!("LazyOS: spawn busybox failed: {err}"),
+        }
+    } else if let Some(bytes) = fs::read("INIT.ELF") {
         serial_println!("ABI:INIT:START");
         match task::spawn_linux("init", &bytes) {
             Ok(index) => serial_println!("LazyOS: spawned init as task {index}"),

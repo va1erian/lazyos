@@ -187,7 +187,7 @@ pub fn spawn_linux(name: &'static str, elf: &[u8]) -> Result<usize, &'static str
         .ok_or("no free task slot")?;
 
     let pml4 = mem::new_user_table().ok_or("out of memory")?;
-    let (entry, stack_top) = process::linux::load(pml4, elf)?;
+    let (entry, stack_top) = process::linux::load(pml4, elf, name)?;
 
     let top = kstack_top(index);
     let rsp = build_user_frame(top, entry, stack_top);
@@ -412,14 +412,37 @@ pub extern "C" fn schedule(current_rsp: u64) -> u64 {
     rsp
 }
 
-/// Append output to the current task's terminal.
+/// Append output to the current task's terminal, dropping ANSI escape sequences
+/// (our window renderer has no terminal emulation yet).
 pub fn write_output(bytes: &[u8]) {
     let mut tasks = TASKS.lock();
     if let Some(task) = tasks[current()].as_mut() {
-        task.output.extend_from_slice(bytes);
+        strip_ansi(bytes, &mut task.output);
     }
     drop(tasks);
     NEEDS_REDRAW.store(true, Ordering::Relaxed);
+}
+
+/// Copy `bytes` into `out`, skipping CSI escape sequences (`ESC [ ... final`).
+fn strip_ansi(bytes: &[u8], out: &mut Vec<u8>) {
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == 0x1b {
+            i += 1;
+            if i < bytes.len() && bytes[i] == b'[' {
+                i += 1;
+                while i < bytes.len() && !(0x40..=0x7e).contains(&bytes[i]) {
+                    i += 1;
+                }
+            }
+            i += 1; // skip the final byte
+            continue;
+        }
+        if bytes[i] != b'\r' {
+            out.push(bytes[i]);
+        }
+        i += 1;
+    }
 }
 
 /// Pop a key for the current task, if any.
@@ -441,6 +464,24 @@ pub fn on_key(key: Key) {
     if let Some(task) = tasks[focus].as_mut() {
         task.input.push_back(key);
     }
+}
+
+/// Inject bytes into the current task's input queue (e.g. a terminal reply).
+pub fn inject_input(bytes: &[u8]) {
+    let mut tasks = TASKS.lock();
+    if let Some(task) = tasks[current()].as_mut() {
+        for &byte in bytes {
+            task.input.push_back(Key::Char(byte as char));
+        }
+    }
+}
+
+/// Whether the current task has pending terminal input.
+pub fn input_available() -> bool {
+    TASKS.lock()[current()]
+        .as_ref()
+        .map(|task| !task.input.is_empty())
+        .unwrap_or(false)
 }
 
 fn cycle_focus() {
