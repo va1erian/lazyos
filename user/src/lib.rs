@@ -14,4 +14,6 @@ pub mod lang;
 
 pub mod messenger;
 
+pub mod messenger_async;
+
 mod heap;

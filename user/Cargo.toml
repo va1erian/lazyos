@@ -31,3 +31,18 @@ name = "messengerctl"
 path = "src/bin/messengerctl.rs"
 test = false
 bench = false
+
+# Async API examples (issue #91). Not wired into the demo image yet: the root
+# build script would need a `CARGO_BIN_FILE_USER_*` hook and a kernel spawn
+# line, which is a one-line follow-up noted in the PR.
+[[bin]]
+name = "async_echo"
+path = "src/bin/async_echo.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "async_service"
+path = "src/bin/async_service.rs"
+test = false
+bench = false

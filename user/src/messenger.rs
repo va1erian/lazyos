@@ -381,6 +381,15 @@ pub type Result<T> = core::result::Result<T, Error>;
 /// payloads (`docs/messenger.md` section 10).
 pub const DEFAULT_BUFFER: usize = 16 * 1024;
 
+/// Absolute PIT tick used to ask for an immediate `recv` answer (issue #91).
+///
+/// The native surface has no "peek" op, but a deadline at or below the current
+/// tick is already expired when `recv` parks: the timer gate sweeps it on the
+/// spot and reports `-ETIMEDOUT` instead of blocking for a message. Tick 1 is
+/// in the past after the first 10 ms of boot, so [`Endpoint::poll_recv`] is
+/// immediate from then on; before the first tick it waits at most one tick.
+pub const EXPIRED_DEADLINE: u64 = 1;
+
 /// One end of a Messenger channel.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Endpoint {
@@ -501,6 +510,22 @@ impl Endpoint {
             txn: (result.value != 0).then_some(result.value),
             parcel,
         })
+    }
+
+    /// Poll for a queued message without blocking (issue #91).
+    ///
+    /// `Ok(None)` means "nothing queued yet"; a dead peer still reports
+    /// `-EPIPE`. The kernel checks the inbox first, so a queued message is
+    /// returned immediately; otherwise the call parks with an already-expired
+    /// deadline ([`EXPIRED_DEADLINE`]) and wakes with `-ETIMEDOUT` on the first
+    /// timer gate. Before the PIT's first tick that wake can take up to 10 ms,
+    /// and a busy runnable peer may be scheduled before this task resumes.
+    pub fn poll_recv(&self) -> Result<Option<Message>> {
+        match self.recv(Some(EXPIRED_DEADLINE)) {
+            Ok(message) => Ok(Some(message)),
+            Err(Error::Errno(code)) if code == -errno::ETIMEDOUT => Ok(None),
+            Err(error) => Err(error),
+        }
     }
 
     /// Cancel a pending transaction started by this task.

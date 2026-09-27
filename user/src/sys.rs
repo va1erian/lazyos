@@ -2,6 +2,13 @@
 //!
 //! Register convention: `rax` = syscall number, args in `rdi`, `rsi`, `rdx`,
 //! result in `rax`.
+//!
+//! The kernel's `int 0x80` stub saves and restores
+//! `rdi`/`rsi`/`rdx`/`r8`/`r9`/`r10` around the Rust dispatcher, and `rax`
+//! carries the result. `rcx` and `r11` are not saved and the dispatcher call
+//! clobbers them, so every wrapper declares them as clobbers; otherwise the
+//! compiler may keep a live value in `rcx` across a syscall and corrupt it
+//! (issue #91 hit exactly that).
 
 use core::arch::asm;
 
@@ -31,6 +38,8 @@ pub fn write(bytes: &[u8]) {
             in("rdi") bytes.as_ptr() as u64,
             in("rsi") bytes.len() as u64,
             lateout("rax") _,
+            lateout("rcx") _,
+            lateout("r11") _,
             options(nostack),
         );
     }
@@ -46,7 +55,14 @@ pub fn read_char() -> u64 {
     let code: u64;
     // Safety: `int 0x80` with syscall 2; result in rax.
     unsafe {
-        asm!("int 0x80", in("rax") SYS_READ_CHAR, lateout("rax") code, options(nostack));
+        asm!(
+            "int 0x80",
+            in("rax") SYS_READ_CHAR,
+            lateout("rax") code,
+            lateout("rcx") _,
+            lateout("r11") _,
+            options(nostack),
+        );
     }
     code
 }
@@ -64,6 +80,8 @@ pub fn read_file(name_z: &[u8], buf: &mut [u8]) -> Option<usize> {
             in("rsi") buf.as_mut_ptr() as u64,
             in("rdx") buf.len() as u64,
             lateout("rax") count,
+            lateout("rcx") _,
+            lateout("r11") _,
             options(nostack),
         );
     }
@@ -80,7 +98,15 @@ pub fn sbrk(increment: u64) -> u64 {
     let previous: u64;
     // Safety: `int 0x80` with syscall 4.
     unsafe {
-        asm!("int 0x80", in("rax") SYS_SBRK, in("rdi") increment, lateout("rax") previous, options(nostack));
+        asm!(
+            "int 0x80",
+            in("rax") SYS_SBRK,
+            in("rdi") increment,
+            lateout("rax") previous,
+            lateout("rcx") _,
+            lateout("r11") _,
+            options(nostack),
+        );
     }
     previous
 }
@@ -100,6 +126,8 @@ pub fn messenger(op: u64, args: u64, result: u64) -> i64 {
             in("rsi") args,
             in("rdx") result,
             lateout("rax") code,
+            lateout("rcx") _,
+            lateout("r11") _,
             options(nostack),
         );
     }
