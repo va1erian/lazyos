@@ -79,6 +79,9 @@ fn render(back: &mut RgbaBuffer) {
             task::focus() == index,
         );
         slot += 1;
+        if slot == 2 {
+            break; // the layout has two columns
+        }
     }
 }
 

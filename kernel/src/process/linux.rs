@@ -5,6 +5,7 @@
 
 use alloc::string::String;
 use alloc::vec::Vec;
+use spin::Mutex;
 use x86_64::PhysAddr;
 use xmas_elf::program::Type as ProgramType;
 use xmas_elf::ElfFile;
@@ -36,7 +37,17 @@ const ENODEV: u64 = 19;
 const ENOTTY: u64 = 25;
 const ENOENT: u64 = 2;
 const EBADF: u64 = 9;
+const EAGAIN: u64 = 11;
 const ESPIPE: u64 = 29;
+
+// `clone` flags we honour (thread creation).
+const CLONE_VM: u64 = 0x0000_0100;
+const CLONE_SETTLS: u64 = 0x0008_0000;
+const CLONE_PARENT_SETTID: u64 = 0x0010_0000;
+const CLONE_CHILD_CLEARTID: u64 = 0x0020_0000;
+
+/// Tasks parked on a futex word: `(address, task slot)`.
+static FUTEX_WAITERS: Mutex<Vec<(u64, usize)>> = Mutex::new(Vec::new());
 
 /// `openat(AT_FDCWD, ...)` sentinel.
 const AT_FDCWD: u64 = (-100i64) as u64;
@@ -189,15 +200,7 @@ fn align_up(value: u64, align: u64) -> u64 {
 /// Syscall dispatch, called from `arch::linux` (Linux ABI: nr in `rax`, args in
 /// `rdi,rsi,rdx,r10,r8,r9`, result in `rax`).
 #[no_mangle]
-extern "C" fn linux_dispatch(
-    nr: u64,
-    a1: u64,
-    a2: u64,
-    a3: u64,
-    a4: u64,
-    _a5: u64,
-    _a6: u64,
-) -> u64 {
+extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u64, a6: u64) -> u64 {
     match nr {
         0 => sys_read(a1, a2, a3),
         1 => sys_write(a1, a2, a3),
@@ -213,11 +216,12 @@ extern "C" fn linux_dispatch(
         12 => sys_brk(a1),
         13 | 14 | 131 => 0, // rt_sigaction/procmask, sigaltstack
         16 => sys_ioctl(a1),
-        21 => sys_access(a1),               // access(path, mode)
-        28 => 0,                            // madvise
-        32 | 33 => sys_dup(nr, a1, a2),     // dup / dup2
-        35 => sys_nanosleep(a1),            // nanosleep(req, rem)
-        39 | 186 => task::current() as u64, // getpid/gettid (kernel task 0 is PID 0)
+        21 => sys_access(a1),                // access(path, mode)
+        28 => 0,                             // madvise
+        32 | 33 => sys_dup(nr, a1, a2),      // dup / dup2
+        35 => sys_nanosleep(a1),             // nanosleep(req, rem)
+        39 | 186 => task::current() as u64,  // getpid/gettid (kernel task 0 is PID 0)
+        56 => sys_clone(a1, a2, a3, a4, a5), // clone(flags, stack, ptid, ctid, tls)
         60 | 231 => sys_exit(),
         63 => sys_uname(a1),
         72 => sys_fcntl(a1, a2), // fcntl
@@ -226,9 +230,10 @@ extern "C" fn linux_dispatch(
         96 => sys_gettimeofday(a1), // gettimeofday(tv, tz)
         157 => 0,                   // prctl (accept)
         158 => sys_arch_prctl(a1, a2),
+        202 => sys_futex(a1, a2, a3), // futex(uaddr, op, val)
         204 => sys_sched_getaffinity(a2, a3),
-        217 => 0,                      // getdents64 (empty for now)
-        218 => task::current() as u64, // set_tid_address
+        217 => 0, // getdents64 (empty for now)
+        218 => sys_set_tid_address(a1),
         228 => sys_clock_gettime(a1, a2),
         229 => sys_clock_getres(a2),
         230 => sys_nanosleep(a3), // clock_nanosleep(clockid, flags, req, rem)
@@ -238,6 +243,7 @@ extern "C" fn linux_dispatch(
         318 => sys_getrandom(a1, a2),
         334 => err(ENOSYS), // rseq (musl falls back)
         _ => {
+            let _ = a6;
             crate::serial_println!("ENOSYS {} syscall_{}", nr, nr);
             err(ENOSYS)
         }
@@ -712,7 +718,80 @@ fn sys_newfstatat(_dirfd: u64, path: u64, buf: u64, _flags: u64) -> u64 {
     }
 }
 
+/// `clone(flags, stack, parent_tid, child_tid, tls)` — thread creation only.
+fn sys_clone(flags: u64, stack: u64, parent_tid: u64, child_tid: u64, tls: u64) -> u64 {
+    if flags & CLONE_VM == 0 {
+        return err(ENOSYS); // fork/process creation is a later phase
+    }
+    let fs_base = if flags & CLONE_SETTLS != 0 { tls } else { 0 };
+    let clear = if flags & CLONE_CHILD_CLEARTID != 0 {
+        child_tid
+    } else {
+        0
+    };
+    match task::spawn_thread("thread", stack, fs_base, clear) {
+        Ok(index) => {
+            if flags & CLONE_PARENT_SETTID != 0 && parent_tid != 0 {
+                write_u64(parent_tid, index as u64);
+            }
+            index as u64
+        }
+        Err(_) => err(ENOMEM),
+    }
+}
+
+fn sys_set_tid_address(tidptr: u64) -> u64 {
+    task::set_clear_child_tid(tidptr);
+    task::current() as u64
+}
+
+/// `futex(uaddr, op, val)` — only WAIT/WAKE (the mutex/join primitives).
+fn sys_futex(uaddr: u64, op: u64, val: u64) -> u64 {
+    match op & 0x7f {
+        0 | 9 => futex_wait(uaddr, val),  // FUTEX_WAIT / FUTEX_WAIT_BITSET
+        1 | 10 => futex_wake(uaddr, val), // FUTEX_WAKE / FUTEX_WAKE_BITSET
+        _ => 0,
+    }
+}
+
+fn futex_wait(uaddr: u64, val: u64) -> u64 {
+    // Safety: the futex word is a user 32-bit value.
+    let current = unsafe { core::ptr::read_volatile(uaddr as *const u32) };
+    if current != val as u32 {
+        return err(EAGAIN); // value changed: nothing to wait for
+    }
+    let me = task::current();
+    task::set_blocked(true);
+    // Interrupts are still masked here, so no wake can race this push.
+    FUTEX_WAITERS.lock().push((uaddr, me));
+    while task::blocked() {
+        x86_64::instructions::interrupts::enable();
+        x86_64::instructions::hlt();
+    }
+    0
+}
+
+fn futex_wake(uaddr: u64, count: u64) -> u64 {
+    let mut woken = 0u64;
+    FUTEX_WAITERS.lock().retain(|&(addr, index)| {
+        if addr == uaddr && woken < count {
+            woken += 1;
+            task::wake_task(index);
+            false
+        } else {
+            true
+        }
+    });
+    woken
+}
+
 fn sys_exit() -> u64 {
+    // Thread exit: clear the TID word and wake anyone joining on it.
+    let tid = task::clear_child_tid();
+    if tid != 0 {
+        write_u32(tid, 0);
+        futex_wake(tid, 1);
+    }
     task::finish_current();
     loop {
         x86_64::instructions::interrupts::enable();
