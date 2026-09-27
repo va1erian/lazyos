@@ -3,6 +3,7 @@
 use crate::arch::pic;
 use crate::input::{keyboard, mouse};
 use alloc::boxed::Box;
+use core::arch::global_asm;
 use core::sync::atomic::AtomicU64;
 use x86_64::instructions::port::Port;
 use x86_64::registers::control::Cr2;
@@ -31,7 +32,12 @@ pub fn init() {
     idt.simd_floating_point
         .set_handler_fn(simd_floating_point_handler);
     idt.alignment_check.set_handler_fn(alignment_check_handler);
-    idt.page_fault.set_handler_fn(page_fault_handler);
+    // Safety: `page_fault_isr` is a naked handler with the (error-code-pushing)
+    // layout #PF uses; it never returns a Rust value, only the frame pointer.
+    unsafe {
+        idt.page_fault
+            .set_handler_addr(x86_64::VirtAddr::new(page_fault_isr as *const () as u64));
+    }
     unsafe {
         idt.double_fault
             .set_handler_fn(double_fault_handler)
@@ -131,10 +137,66 @@ extern "x86-interrupt" fn general_protection_fault_handler(stack: InterruptStack
     crate::halt();
 }
 
-extern "x86-interrupt" fn page_fault_handler(
-    stack: InterruptStackFrame,
-    error: PageFaultErrorCode,
-) {
+// The page fault handler needs the interrupted general registers to build a
+// `SIGSEGV` frame, and the `x86-interrupt` ABI does not expose them, so #PF
+// uses a naked stub like the timer: push the registers, call into Rust with
+// the frame pointer, resume at the (possibly rewritten) frame.
+global_asm!(
+    r#"
+    .global page_fault_isr
+    page_fault_isr:
+        push rax
+        push rbx
+        push rcx
+        push rdx
+        push rsi
+        push rdi
+        push rbp
+        push r8
+        push r9
+        push r10
+        push r11
+        push r12
+        push r13
+        push r14
+        push r15
+
+        mov rdi, rsp
+        call page_fault_dispatch
+        mov rsp, rax
+
+        pop r15
+        pop r14
+        pop r13
+        pop r12
+        pop r11
+        pop r10
+        pop r9
+        pop r8
+        pop rbp
+        pop rdi
+        pop rsi
+        pop rdx
+        pop rcx
+        pop rbx
+        pop rax
+        add rsp, 8                  /* the CPU's page-fault error code */
+        iretq
+    "#
+);
+
+extern "C" {
+    fn page_fault_isr();
+}
+
+/// Resolve a page fault: COW copy, demand-zero page, or `SIGSEGV` into a
+/// handler. Returns the (possibly rewritten) frame pointer to resume; without
+/// a handler the diagnostic halt stays, exactly as before signals.
+#[no_mangle]
+extern "C" fn page_fault_dispatch(rsp: u64) -> u64 {
+    // Frame: 15 general registers, then the error code, RIP, CS, RFLAGS, RSP, SS.
+    let raw_error = unsafe { core::ptr::read_volatile((rsp + 15 * 8) as *const u64) };
+    let error = PageFaultErrorCode::from_bits_truncate(raw_error);
     let addr = Cr2::read();
     if let Ok(fault) = addr {
         let table = crate::mem::kernel_table();
@@ -144,19 +206,29 @@ extern "x86-interrupt" fn page_fault_handler(
         if error.contains(PageFaultErrorCode::CAUSED_BY_WRITE)
             && crate::mem::cow_fault(table, fault.as_u64())
         {
-            return;
+            return rsp;
         }
         // A not-present page inside an Anon/Heap VMA is demand-zero memory:
         // materialize it (if the VMA permits this access) and resume.
         if crate::mem::demand_fault(table, fault.as_u64(), error) {
-            return;
+            return rsp;
+        }
+        // Still a fault: a process with a `SIGSEGV` handler resumes there;
+        // everything else keeps the diagnostic halt.
+        if crate::task::signal::deliver_fault(
+            rsp,
+            crate::task::signal::FAULT_RIP_INDEX,
+            fault.as_u64(),
+            raw_error,
+        ) {
+            return rsp;
         }
     }
     serial_println!(
-        "EXCEPTION: page fault at {:?} ({:?})\n{:#?}",
+        "EXCEPTION: page fault at {:?} ({:?}), frame {:#x}",
         addr,
         error,
-        stack
+        rsp
     );
     crate::halt();
 }

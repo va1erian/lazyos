@@ -25,6 +25,7 @@ pub enum Key {
 
 static QUEUE: Mutex<VecDeque<Key>> = Mutex::new(VecDeque::new());
 static SHIFT: AtomicBool = AtomicBool::new(false);
+static CTRL: AtomicBool = AtomicBool::new(false);
 static EXTENDED: AtomicBool = AtomicBool::new(false);
 
 /// Feed a raw scancode from the i8042 (called from the IRQ1 handler).
@@ -41,10 +42,17 @@ pub fn push_scancode(scancode: u8) {
         if code == 0x2A || code == 0x36 {
             SHIFT.store(false, Ordering::SeqCst);
         }
+        if code == 0x1D {
+            CTRL.store(false, Ordering::SeqCst);
+        }
         return;
     }
     if !extended && (code == 0x2A || code == 0x36) {
         SHIFT.store(true, Ordering::SeqCst);
+        return;
+    }
+    if !extended && code == 0x1D {
+        CTRL.store(true, Ordering::SeqCst);
         return;
     }
 
@@ -160,7 +168,11 @@ fn shifted(shift: bool, normal: char, shifted: char) -> char {
 }
 
 fn letter(shift: bool, lower: char) -> Key {
-    if shift {
+    // Ctrl+letter is the corresponding C0 control character (Ctrl-C -> ETX),
+    // so the terminal layer (`task::on_key`) can tell it from a plain letter.
+    if CTRL.load(Ordering::SeqCst) {
+        Key::Char(((lower as u8) & 0x1f) as char)
+    } else if shift {
         Key::Char(lower.to_ascii_uppercase())
     } else {
         Key::Char(lower)

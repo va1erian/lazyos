@@ -15,6 +15,7 @@ use xmas_elf::ElfFile;
 use super::{load_segments, map_range_kind, page_phys};
 use crate::mem::vma::{Kind, Prot};
 use crate::task::process::GroupError;
+use crate::task::signal::{self, Disposition, SignalError};
 use crate::task::wait::WaitQueue;
 use crate::task::{self, Fd, FdKind, WaitKind, WakeReason};
 
@@ -84,6 +85,7 @@ fn syscall_name(nr: u64) -> &'static str {
         12 => "brk",
         13 => "rt_sigaction",
         14 => "rt_sigprocmask",
+        15 => "rt_sigreturn",
         16 => "ioctl",
         19 => "readv",
         20 => "writev",
@@ -146,7 +148,9 @@ fn syscall_name(nr: u64) -> &'static str {
         157 => "prctl",
         158 => "arch_prctl",
         186 => "gettid",
+        200 => "tkill",
         202 => "futex",
+        234 => "tgkill",
         204 => "sched_getaffinity",
         217 => "getdents64",
         218 => "set_tid_address",
@@ -373,7 +377,7 @@ fn align_up(value: u64, align: u64) -> u64 {
 #[no_mangle]
 extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u64, a6: u64) -> u64 {
     trace_syscall(nr);
-    match nr {
+    let result = match nr {
         0 => sys_read(a1, a2, a3),
         1 => sys_write(a1, a2, a3),
         2 => sys_openat(AT_FDCWD, a1, a2), // open
@@ -387,7 +391,9 @@ extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
         10 => sys_mprotect(a1, a2, a3),
         11 => sys_munmap(a1, a2),
         12 => sys_brk(a1),
-        13 | 14 | 131 => 0, // rt_sigaction/procmask, sigaltstack
+        13 => sys_rt_sigaction(a1, a2, a3, a4),
+        14 => sys_rt_sigprocmask(a1, a2, a3, a4),
+        15 => sys_rt_sigreturn(),
         16 => sys_ioctl(a1, a2, a3),
         19 => sys_readv(a1, a2, a3),
         20 => sys_writev(a1, a2, a3),
@@ -400,9 +406,8 @@ extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
         57 => sys_fork(),
         59 => sys_execve(a1, a2, a3), // execve(path, argv, envp)
         60 => sys_exit(a1),           // exit: this task (a thread)
-        231 => sys_exit_group(a1),    // exit_group: the whole process group
         61 => sys_wait4(a1, a2, a3),  // wait4(pid, status, options)
-        62 => 0,                      // kill (signals accepted, not delivered yet)
+        62 => sys_kill(a1, a2),       // kill(pid, sig)
         63 => sys_uname(a1),
         72 => sys_fcntl(a1, a2), // fcntl
         79 => sys_getcwd(a1, a2),
@@ -418,9 +423,11 @@ extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
         112 => sys_setsid(),            // setsid
         121 => sys_getpgid(a1),         // getpgid
         124 => sys_getsid(a1),          // getsid
-        157 => 0,                       // prctl (accept)
+        131 => sys_sigaltstack(a1, a2),
+        157 => 0, // prctl (accept)
         158 => sys_arch_prctl(a1, a2),
         169 => 0,                     // reboot (accept)
+        200 => sys_tkill(a1, a2),     // tkill(tid, sig)
         202 => sys_futex(a1, a2, a3), // futex(uaddr, op, val)
         204 => sys_sched_getaffinity(a2, a3),
         217 => sys_getdents64(a1, a2, a3), // getdents64
@@ -428,6 +435,8 @@ extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
         228 => sys_clock_gettime(a1, a2),
         229 => sys_clock_getres(a2),
         230 => sys_nanosleep(a3), // clock_nanosleep(clockid, flags, req, rem)
+        231 => sys_exit_group(a1),
+        234 => sys_tgkill(a1, a2, a3), // tgkill(tgid, tid, sig)
         257 => sys_openat(a1, a2, a3), // openat
         262 => sys_newfstatat(a1, a2, a3, a4),
         273 => 0, // set_robust_list
@@ -441,7 +450,12 @@ extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
             crate::serial_println!("ENOSYS {} {}", nr, syscall_name(nr));
             err(ENOSYS)
         }
-    }
+    };
+    // Deliver pending unblocked signals on the way back to ring 3. The result
+    // recorded in the signal frame is `rax` after `rt_sigreturn`, so an
+    // interrupted syscall resumes as `-EINTR`.
+    signal::deliver_linux(result);
+    result
 }
 
 /// `writev(fd, iov, iovcnt)`: `struct iovec { void *base; size_t len; }`.
@@ -1370,6 +1384,235 @@ fn futex_wake(uaddr: u64, count: u64) -> u64 {
     woken as u64
 }
 
+// ---------------------------------------------------------------------------
+// Signals (#60)
+// ---------------------------------------------------------------------------
+
+fn read_u64(addr: u64) -> u64 {
+    // Safety: caller ensures the address is valid user memory.
+    unsafe { core::ptr::read_volatile(addr as *const u64) }
+}
+
+fn read_u32(addr: u64) -> u32 {
+    // Safety: caller ensures the address is valid user memory.
+    unsafe { core::ptr::read_volatile(addr as *const u32) }
+}
+
+/// Map a signal-layer failure to its Linux errno.
+fn signal_err(error: SignalError) -> u64 {
+    match error {
+        SignalError::NoSuchProcess => err(ESRCH),
+        SignalError::NotPermitted => err(EPERM),
+        SignalError::Invalid => err(EINVAL),
+    }
+}
+
+/// Kernel `struct sigaction` <-> [`Disposition`]. The layout musl passes is
+/// `{ handler, flags, restorer, mask }` (32 bytes on x86_64).
+fn disposition_to_kernel(disposition: Disposition) -> (u64, u64, u64, u64) {
+    match disposition {
+        Disposition::Default => (signal::SIG_DFL, 0, 0, 0),
+        Disposition::Ignore => (signal::SIG_IGN, 0, 0, 0),
+        Disposition::Handler {
+            handler,
+            flags,
+            restorer,
+            mask,
+        } => (handler, flags, restorer, mask),
+    }
+}
+
+/// `rt_sigaction(sig, act, oldact, sigsetsize)`. `SIGKILL`/`SIGSTOP` are
+/// refused with `EINVAL`, like Linux: they cannot be caught or ignored.
+fn sys_rt_sigaction(sig: u64, act: u64, oldact: u64, sigsetsize: u64) -> u64 {
+    if sig == 0 || sig as usize >= signal::NSIG {
+        return err(EINVAL);
+    }
+    if sigsetsize != 0 && sigsetsize != 8 {
+        return err(EINVAL);
+    }
+    let me = task::current();
+    let sig = sig as u8;
+    if oldact != 0 {
+        let (handler, flags, restorer, mask) = disposition_to_kernel(signal::action(me, sig));
+        write_u64(oldact, handler);
+        write_u64(oldact + 8, flags);
+        write_u64(oldact + 16, restorer);
+        write_u64(oldact + 24, mask);
+    }
+    if act != 0 {
+        let handler = read_u64(act);
+        let flags = read_u64(act + 8);
+        let restorer = read_u64(act + 16);
+        let mask = read_u64(act + 24);
+        let disposition = match handler {
+            signal::SIG_DFL => Disposition::Default,
+            signal::SIG_IGN => Disposition::Ignore,
+            handler => Disposition::Handler {
+                handler,
+                flags,
+                restorer,
+                // `SIGKILL`/`SIGSTOP` are never blockable, so they can never
+                // be part of a handler mask either.
+                mask: mask & !(1 << signal::SIGKILL | 1 << signal::SIGSTOP),
+            },
+        };
+        if let Err(error) = signal::set_action(me, sig, disposition) {
+            return signal_err(error);
+        }
+    }
+    0
+}
+
+/// `rt_sigprocmask(how, set, oldset, sigsetsize)`. `SIGKILL`/`SIGSTOP` bits are
+/// silently discarded: POSIX says attempts to block them are ignored.
+fn sys_rt_sigprocmask(how: u64, set: u64, oldset: u64, sigsetsize: u64) -> u64 {
+    if sigsetsize != 0 && sigsetsize != 8 {
+        return err(EINVAL);
+    }
+    let me = task::current();
+    let current = signal::blocked(me);
+    if set == 0 {
+        if oldset != 0 {
+            write_u64(oldset, current);
+        }
+        return 0;
+    }
+    if how != signal::SIG_BLOCK && how != signal::SIG_UNBLOCK && how != signal::SIG_SETMASK {
+        return err(EINVAL);
+    }
+    if oldset != 0 {
+        write_u64(oldset, current);
+    }
+    let requested = read_u64(set);
+    let next = match how {
+        signal::SIG_BLOCK => current | requested,
+        signal::SIG_UNBLOCK => current & !requested,
+        signal::SIG_SETMASK => requested,
+        _ => return err(EINVAL),
+    };
+    signal::set_blocked(me, next);
+    0
+}
+
+/// `rt_sigreturn()`: the restorer (`__restore_rt`) issues this syscall with RSP
+/// just past the `pretcode` slot of the frame `deliver_linux` built. Restore
+/// the interrupted registers from the `ucontext_t` and make `sysretq` land
+/// there, returning the frame's `rax`.
+fn sys_rt_sigreturn() -> u64 {
+    let user_rsp = crate::arch::linux::saved_user_rsp();
+    let (regs, mask) = signal::parse_linux_frame(user_rsp);
+    signal::set_blocked(task::current(), mask);
+    crate::arch::linux::set_user_return(regs.rip, regs.rsp, regs.rflags);
+    let saved = [
+        (0usize, regs.r15),
+        (1, regs.r14),
+        (2, regs.r13),
+        (3, regs.r12),
+        (4, regs.rbp),
+        (5, regs.rbx),
+        (6, regs.rdi),
+        (7, regs.rsi),
+        (8, regs.rdx),
+        (9, regs.r8),
+        (10, regs.r9),
+        (11, regs.r10),
+    ];
+    for (slot, value) in saved {
+        crate::arch::linux::set_saved_register(slot, value);
+    }
+    // Keep the captured context in step so a nested delivery builds on the
+    // restored registers rather than the `rt_sigreturn` entry state.
+    let context = crate::arch::linux::UserContext {
+        rip: regs.rip,
+        rflags: regs.rflags,
+        rsp: regs.rsp,
+        rbx: regs.rbx,
+        rbp: regs.rbp,
+        r12: regs.r12,
+        r13: regs.r13,
+        r14: regs.r14,
+        r15: regs.r15,
+        rdi: regs.rdi,
+        rsi: regs.rsi,
+        rdx: regs.rdx,
+        r8: regs.r8,
+        r9: regs.r9,
+        r10: regs.r10,
+    };
+    crate::arch::linux::set_user_context(context);
+    regs.rax
+}
+
+/// `sigaltstack(ss, old_ss)`: install/disable/report the alternate signal
+/// stack. The frame lands there when the action carries `SA_ONSTACK`.
+fn sys_sigaltstack(ss: u64, old_ss: u64) -> u64 {
+    let me = task::current();
+    if old_ss != 0 {
+        let current = signal::altstack(me);
+        write_u64(old_ss, current.sp);
+        write_u32(
+            old_ss + 8,
+            if current.enabled {
+                0
+            } else {
+                signal::SS_DISABLE
+            },
+        );
+        write_u64(old_ss + 16, current.size);
+    }
+    if ss != 0 {
+        let sp = read_u64(ss);
+        let flags = read_u32(ss + 8);
+        let size = read_u64(ss + 16);
+        if flags & signal::SS_ONSTACK != 0 {
+            return err(EINVAL); // cannot set a stack marked as in use
+        }
+        let stack = if flags & signal::SS_DISABLE != 0 {
+            signal::AltStack::DISABLED
+        } else {
+            signal::AltStack {
+                sp,
+                size,
+                enabled: true,
+            }
+        };
+        if let Err(error) = signal::set_altstack(me, stack) {
+            return signal_err(error);
+        }
+    }
+    0
+}
+
+/// `kill(pid, sig)`: pid > 0 targets one process, 0 the caller's process
+/// group, -1 everyone but init, and pid < -1 the group `-pid`.
+fn sys_kill(pid: u64, sig: u64) -> u64 {
+    let me = task::current();
+    let info = signal::SigInfo::user(me, signal::SI_USER);
+    match signal::kill(me, pid as i64, sig as u8, info) {
+        Ok(()) => 0,
+        Err(error) => signal_err(error),
+    }
+}
+
+/// `tkill(tid, sig)`: send to one thread of the caller's process.
+fn sys_tkill(tid: u64, sig: u64) -> u64 {
+    let me = task::current();
+    let info = signal::SigInfo::user(me, signal::SI_TKILL);
+    match signal::send_tid(me, tid as usize, sig as u8, info) {
+        Ok(()) => 0,
+        Err(error) => signal_err(error),
+    }
+}
+
+/// `tgkill(tgid, tid, sig)`: like `tkill`, but the thread group must match.
+fn sys_tgkill(tgid: u64, tid: u64, sig: u64) -> u64 {
+    if signal::tgid_of(tid as usize) != tgid as usize {
+        return err(ESRCH);
+    }
+    sys_tkill(tid, sig)
+}
+
 /// Map a group/session error to its Linux errno.
 fn group_err(error: GroupError) -> u64 {
     match error {
@@ -1410,20 +1653,21 @@ fn sys_getsid(pid: u64) -> u64 {
     group_result(task::process::getsid(task::current(), pid as i64))
 }
 
-/// `exit_group(code)`: terminate the caller's whole process group.
+/// `exit_group(code)`: terminate the caller's *thread group* — every task that
+/// shares its address space — each with `code`.
 ///
-/// Linux's `exit_group` ends the *thread group*; LazyOS models process groups
-/// (#59), so the process group is the unit that dies here. This task gets
-/// `code`, the other members the group's kill status (128 + SIGKILL).
+/// This fixes the #59 deviation, where `exit_group` killed the process group
+/// (which would take forked children down with it): a process group is the job
+/// control unit, the thread group is the process. Every thread's
+/// `clear_child_tid` word is zeroed and futex-woken so joiners wake.
 fn sys_exit_group(code: u64) -> u64 {
-    // Thread exit: clear the TID word and wake anyone joining on it.
-    let tid = task::clear_child_tid();
-    if tid != 0 {
-        write_u32(tid, 0);
-        futex_wake(tid, 1);
+    let tids = task::exit_thread_group(code & 0xff);
+    for tid in tids {
+        if tid != 0 {
+            write_u32(tid, 0);
+            futex_wake(tid, 1);
+        }
     }
-    task::finish_current(code & 0xff);
-    task::kill_group(task::pgid());
     loop {
         x86_64::instructions::interrupts::enable();
         x86_64::instructions::hlt();

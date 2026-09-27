@@ -26,19 +26,26 @@
 //!   sessions is `EPERM`;
 //! * `setsid` fails while the caller is a group leader (`pgid == pid`).
 //!
-//! [`kill_group`] is the termination primitive the signal layer (#60) will
-//! drive: it marks every member `Done` (no signal delivery yet) and wakes
-//! parents parked in `wait4`.
+//! Every death funnels through [`finish`] (or its lock-held variant
+//! [`finish_locked`]), which is also where the signal layer (#60) hooks
+//! `SIGCHLD` in: the parent is notified on its own wait queue *and* gets the
+//! signal pending (a handler wakes it, a default-disposition parent is only
+//! recorded).
+//!
+//! [`kill_group`] remains the blunt group-termination primitive; the signal
+//! layer drives per-process termination instead.
 
 use alloc::vec::Vec;
 use core::sync::atomic::Ordering;
 
+use super::signal;
 use super::wait::CHILD_EXIT;
 use super::{Task, TaskState, KERNEL_TASK, MAX_TASKS, NEEDS_REDRAW, TASKS};
 
 /// Exit status recorded for a member terminated by [`kill_group`]: the
-/// conventional `128 + SIGKILL(9)`. Signals are #60; this only fixes what a
-/// parent sees from `wait4`.
+/// conventional `128 + SIGKILL(9)`. The signal layer terminates processes one
+/// group at a time now; the group primitive stays for the test harness.
+#[allow(dead_code)]
 pub const KILLED_STATUS: u64 = 137;
 
 /// Failures of the group/session syscalls, mapped to errno by `process::linux`.
@@ -154,64 +161,85 @@ pub fn process_list() -> Vec<ProcessInfo> {
 /// dies, so the tree update is atomic with the state change: a child can never
 /// observe a `Done` parent as its `ppid`.
 pub(crate) fn finish(slot: usize, status: u64) -> bool {
-    let reparented;
-    {
+    let parent = {
         let mut tasks = TASKS.lock();
-        {
-            let Some(task) = tasks[slot].as_mut() else {
-                return false;
-            };
-            if task.state == TaskState::Done {
-                return false;
-            }
-            task.state = TaskState::Done;
-            task.wake_reason = None;
-            task.exit_status = status;
+        finish_locked(&mut tasks, slot, status)
+    };
+    let Some(parent) = parent else {
+        return false;
+    };
+    NEEDS_REDRAW.store(true, Ordering::Relaxed);
+    // The child-exit event is both a `SIGCHLD` and a wait-queue notification:
+    // the signal is recorded/queued (and wakes a handler-armed parent), while
+    // every `wait4` sleeper is woken to re-check for a reapable child. Both run
+    // after dropping the task table, in queue-before-table order.
+    signal::post_sigchld(parent);
+    CHILD_EXIT.notify_all();
+    true
+}
+
+/// [`finish`] on a caller-held task table, returning the dead task's parent so
+/// the caller can post `SIGCHLD` after releasing the lock. The timer signal
+/// sweep (`task::signal::sweep`) needs this: it runs on the scheduler's lock
+/// and cannot re-enter `finish`.
+pub(crate) fn finish_locked(
+    tasks: &mut [Option<Task>; MAX_TASKS],
+    slot: usize,
+    status: u64,
+) -> Option<usize> {
+    let parent = {
+        let Some(task) = tasks[slot].as_mut() else {
+            return None;
+        };
+        if task.state == TaskState::Done {
+            return None;
         }
-        reparented = reparent_children_locked(&mut tasks, slot, KERNEL_TASK);
-    }
+        task.state = TaskState::Done;
+        task.wake_reason = None;
+        task.exit_status = status;
+        task.parent
+    };
+    let reparented = reparent_children_locked(tasks, slot, KERNEL_TASK);
     if reparented > 0 {
         serial_println!("proc: task {slot} died; re-parented {reparented} task(s) to init");
     }
-    NEEDS_REDRAW.store(true, Ordering::Relaxed);
-    // Wake parents parked in `wait4`. Notify after dropping the task table:
-    // notify takes the queue lock and then the task table, never the reverse.
-    CHILD_EXIT.notify_all();
-    true
+    Some(parent)
 }
 
 /// Terminate every task in process group `pgid`, returning how many were newly
 /// marked `Done`.
 ///
 /// The kernel/init task (slot 0) is exempt: init is not killable, matching the
-/// rule that only init terminates itself. Real signal delivery is #60; this
-/// only ends the members and wakes their parents so `wait4` can collect them.
+/// rule that only init terminates itself. Signal delivery (#60) uses
+/// `signal::terminate_process` instead; this blunt primitive remains for the
+/// test harness and for a future group-wide `SIGKILL` fast path.
+#[allow(dead_code)]
 pub fn kill_group(pgid: usize) -> usize {
-    let killed = {
+    let (killed, parents) = {
         let mut tasks = TASKS.lock();
-        let mut killed = 0;
-        for slot in 1..MAX_TASKS {
-            let member = tasks[slot]
-                .as_ref()
-                .is_some_and(|task| task.pgid == pgid && task.state != TaskState::Done);
-            if !member {
-                continue;
+        let members: Vec<usize> = (1..MAX_TASKS)
+            .filter(|&slot| {
+                tasks[slot]
+                    .as_ref()
+                    .is_some_and(|task| task.pgid == pgid && task.state != TaskState::Done)
+            })
+            .collect();
+        let mut parents = Vec::new();
+        for slot in members {
+            // A killed task can no longer raise its children, so
+            // `finish_locked` adopts them to init right away.
+            if let Some(parent) = finish_locked(&mut tasks, slot, KILLED_STATUS) {
+                parents.push(parent);
             }
-            if let Some(task) = tasks[slot].as_mut() {
-                task.state = TaskState::Done;
-                task.wake_reason = None;
-                task.exit_status = KILLED_STATUS;
-            }
-            // A killed task can no longer raise its children, so they are
-            // adopted by init right away.
-            reparent_children_locked(&mut tasks, slot, KERNEL_TASK);
-            killed += 1;
         }
-        killed
+        (parents.len(), parents)
     };
     if killed > 0 {
         NEEDS_REDRAW.store(true, Ordering::Relaxed);
         // See `finish`: queue before task table, and the table is now unlocked.
+        for parent in parents {
+            signal::post_sigchld(parent);
+        }
         CHILD_EXIT.notify_all();
     }
     killed
