@@ -330,7 +330,16 @@ pub fn spawn_fork() -> Result<usize, &'static str> {
     let context = crate::arch::linux::user_context();
     let fds = clone_fds(&parent.fds);
 
-    let child_table = mem::clone_user_table(PhysAddr::new(pml4)).ok_or("out of memory (fork)")?;
+    // `fork` is only valid inside a user address space: the kernel task's table
+    // holds low-half bootloader mappings (framebuffer, boot data) that are not
+    // ours to share or copy-on-write. Give the child a fresh table there (the
+    // test harness forks from the kernel task to exercise bookkeeping).
+    let child_table = if pml4 == mem::kernel_table().as_u64() {
+        mem::new_user_table()
+    } else {
+        mem::clone_user_table(PhysAddr::new(pml4))
+    }
+    .ok_or("out of memory (fork)")?;
     let top = kstack_top(index);
     let rsp = build_thread_frame(top, &context, context.rsp);
 
