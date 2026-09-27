@@ -3,13 +3,14 @@
 //! Only the subset `std`/musl need to reach `main` is implemented; everything
 //! else is logged as `ENOSYS` (see `tools/abi/coverage.py`).
 
+use alloc::string::String;
 use alloc::vec::Vec;
 use x86_64::PhysAddr;
 use xmas_elf::program::Type as ProgramType;
 use xmas_elf::ElfFile;
 
 use super::{load_segments, map_range, page_phys};
-use crate::task;
+use crate::task::{self, Fd, FdKind};
 
 // User memory layout for Linux tasks (kept clear of code and each other).
 /// `brk` region (grows up).
@@ -33,6 +34,17 @@ const ENOMEM: u64 = 12;
 const EINVAL: u64 = 22;
 const ENODEV: u64 = 19;
 const ENOTTY: u64 = 25;
+const ENOENT: u64 = 2;
+const EBADF: u64 = 9;
+const ESPIPE: u64 = 29;
+
+/// `openat(AT_FDCWD, ...)` sentinel.
+const AT_FDCWD: u64 = (-100i64) as u64;
+
+// `struct stat` file-type bits.
+const S_IFREG: u32 = 0o100000;
+const S_IFDIR: u32 = 0o040000;
+const S_IFCHR: u32 = 0o020000;
 
 fn err(e: u64) -> u64 {
     (e as i64).wrapping_neg() as u64
@@ -189,27 +201,37 @@ extern "C" fn linux_dispatch(
     match nr {
         0 => sys_read(a1, a2, a3),
         1 => sys_write(a1, a2, a3),
-        7 => sys_poll(a1, a2),       // poll
+        2 => sys_openat(AT_FDCWD, a1, a2), // open
+        3 => sys_close(a1),
+        4 => sys_stat_path(a1, a2), // stat(path, buf)
+        5 => sys_fstat(a1, a2),     // fstat(fd, buf)
+        7 => sys_poll(a1, a2),      // poll
+        8 => sys_lseek(a1, a2, a3), // lseek
         9 => sys_mmap(a1, a2, a3, a4),
         10 => 0, // mprotect (ignore)
         11 => 0, // munmap (ignore)
         12 => sys_brk(a1),
         13 | 14 | 131 => 0, // rt_sigaction/procmask, sigaltstack
         16 => sys_ioctl(a1),
+        21 => sys_access(a1),               // access(path, mode)
         28 => 0,                            // madvise
+        32 | 33 => sys_dup(nr, a1, a2),     // dup / dup2
         39 | 186 => task::current() as u64, // getpid/gettid (kernel task 0 is PID 0)
         60 | 231 => sys_exit(),
         63 => sys_uname(a1),
+        72 => sys_fcntl(a1, a2), // fcntl
         79 => sys_getcwd(a1, a2),
+        89 => err(EINVAL), // readlink (no links yet)
         158 => sys_arch_prctl(a1, a2),
         204 => sys_sched_getaffinity(a2, a3),
+        217 => 0,                      // getdents64 (empty for now)
         218 => task::current() as u64, // set_tid_address
         228 => sys_clock_gettime(a1, a2),
+        257 => sys_openat(a1, a2, a3), // openat
+        262 => sys_newfstatat(a1, a2, a3, a4),
         273 => 0, // set_robust_list
         318 => sys_getrandom(a1, a2),
-        334 => err(ENOSYS),   // rseq (musl falls back)
-        5 => sys_fstat(a2),   // fstat(fd, statbuf)
-        262 => sys_fstat(a3), // newfstatat(dirfd, path, statbuf, flags)
+        334 => err(ENOSYS), // rseq (musl falls back)
         _ => {
             crate::serial_println!("ENOSYS {} syscall_{}", nr, nr);
             err(ENOSYS)
@@ -230,7 +252,7 @@ fn sys_poll(fds: u64, nfds: u64) -> u64 {
 
 fn sys_write(fd: u64, ptr: u64, len: u64) -> u64 {
     if fd > 2 {
-        return err(ENOSYS);
+        return err(EBADF); // files are read-only for now
     }
     // Safety: the caller passes a valid user buffer.
     let bytes = unsafe { core::slice::from_raw_parts(ptr as *const u8, len as usize) };
@@ -240,9 +262,17 @@ fn sys_write(fd: u64, ptr: u64, len: u64) -> u64 {
 }
 
 fn sys_read(fd: u64, ptr: u64, len: u64) -> u64 {
-    if fd != 0 {
-        return err(ENOSYS);
+    match task::fd_kind(fd as usize) {
+        FdKind::Terminal => read_terminal(ptr, len),
+        FdKind::File => task::fd_read(fd as usize, ptr as *mut u8, len as usize)
+            .map(|n| n as u64)
+            .unwrap_or(0),
+        FdKind::Closed => err(EBADF),
     }
+}
+
+/// Block until a line is typed on the task's terminal.
+fn read_terminal(ptr: u64, len: u64) -> u64 {
     let mut written = 0u64;
     while written < len {
         if let Some(key) = task::take_key() {
@@ -417,17 +447,212 @@ fn sys_getrandom(buf: u64, len: u64) -> u64 {
     written
 }
 
-fn sys_fstat(buf: u64) -> u64 {
-    // Minimal `struct stat`: zero everything for now so callers (e.g. `stdout`
-    // detection) see a consistent, well-defined value.
-    const STAT_SIZE: usize = 144;
-    if buf != 0 {
-        // Safety: the caller passes a valid stat buffer.
-        unsafe {
-            core::ptr::write_bytes(buf as *mut u8, 0, STAT_SIZE);
+/// Read a NUL-terminated user string (bounded).
+fn read_cstr(ptr: u64) -> Option<String> {
+    if ptr == 0 {
+        return None;
+    }
+    let mut out = String::new();
+    for i in 0..4096u64 {
+        // Safety: user memory up to the NUL terminator.
+        let byte = unsafe { core::ptr::read_volatile((ptr + i) as *const u8) };
+        if byte == 0 {
+            break;
+        }
+        out.push(byte as char);
+    }
+    Some(out)
+}
+
+/// Allocate a descriptor, mapping failure to `-ENOMEM`.
+fn fd_result(slot: Option<usize>) -> u64 {
+    match slot {
+        Some(fd) => fd as u64,
+        None => err(ENOMEM),
+    }
+}
+
+/// Open a path: the root-only FAT volume plus a few synthetic device nodes.
+fn open_path(path: &str) -> u64 {
+    match path {
+        "/dev/tty" | "/dev/console" | "/dev/tty0" | "/dev/tty1" => {
+            fd_result(task::fd_open(Fd::Terminal))
+        }
+        "/dev/null" | "/dev/zero" | "/dev/full" => fd_result(task::fd_open(Fd::File {
+            data: Vec::new(),
+            offset: 0,
+        })),
+        // Synthetic directories (empty until `getdents64` exists).
+        "/" | "/dev" | "/proc" | "/etc" | "/tmp" => fd_result(task::fd_open(Fd::File {
+            data: Vec::new(),
+            offset: 0,
+        })),
+        _ => {
+            let name = path.trim_start_matches('/');
+            match crate::fs::stat(name) {
+                Some((_, true)) => fd_result(task::fd_open(Fd::File {
+                    data: Vec::new(),
+                    offset: 0,
+                })),
+                Some((_, false)) => match crate::fs::read(name) {
+                    Some(data) => fd_result(task::fd_open(Fd::File { data, offset: 0 })),
+                    None => err(ENOENT),
+                },
+                None => err(ENOENT),
+            }
         }
     }
-    0
+}
+
+fn sys_openat(_dirfd: u64, path: u64, _flags: u64) -> u64 {
+    match read_cstr(path) {
+        Some(path) => open_path(&path),
+        None => err(EINVAL),
+    }
+}
+
+fn sys_close(fd: u64) -> u64 {
+    if task::fd_close(fd as usize) {
+        0
+    } else {
+        err(EBADF)
+    }
+}
+
+fn sys_lseek(fd: u64, offset: u64, whence: u64) -> u64 {
+    match task::fd_kind(fd as usize) {
+        FdKind::File => match task::fd_seek(fd as usize, offset as i64, whence) {
+            Some(pos) => pos,
+            None => err(EINVAL),
+        },
+        FdKind::Terminal => err(ESPIPE),
+        FdKind::Closed => err(EBADF),
+    }
+}
+
+fn sys_access(path: u64) -> u64 {
+    let Some(path) = read_cstr(path) else {
+        return err(EINVAL);
+    };
+    let known = matches!(
+        path.as_str(),
+        "/" | "/dev"
+            | "/proc"
+            | "/etc"
+            | "/tmp"
+            | "/dev/tty"
+            | "/dev/console"
+            | "/dev/tty0"
+            | "/dev/tty1"
+            | "/dev/null"
+            | "/dev/zero"
+    );
+    if known || crate::fs::stat(path.trim_start_matches('/')).is_some() {
+        0
+    } else {
+        err(ENOENT)
+    }
+}
+
+fn sys_dup(nr: u64, a1: u64, a2: u64) -> u64 {
+    let slot = if nr == 32 {
+        task::fd_dup(a1 as usize)
+    } else {
+        task::fd_dup2(a1 as usize, a2 as usize)
+    };
+    match slot {
+        Some(fd) => fd as u64,
+        None => err(EBADF),
+    }
+}
+
+fn sys_fcntl(fd: u64, cmd: u64) -> u64 {
+    match cmd {
+        0 => match task::fd_dup(fd as usize) {
+            // F_DUPFD
+            Some(new) => new as u64,
+            None => err(EBADF),
+        },
+        _ => 0, // F_GETFD/SETFD/GETFL/SETFL: report defaults
+    }
+}
+
+/// Fill a `struct stat` (x86_64 layout) at `buf`.
+fn fill_stat(buf: u64, mode: u32, size: u64, ino: u64) {
+    if buf == 0 {
+        return;
+    }
+    // Safety: the caller passes a valid 144-byte stat buffer.
+    unsafe {
+        core::ptr::write_bytes(buf as *mut u8, 0, 144);
+    }
+    write_u64(buf + 8, ino);
+    write_u64(buf + 16, 1); // st_nlink
+    write_u32(buf + 24, mode); // st_mode
+    write_u64(buf + 48, size); // st_size
+    write_u64(buf + 56, 4096); // st_blksize
+    write_u64(buf + 64, size.div_ceil(512)); // st_blocks
+}
+
+fn write_u64(addr: u64, value: u64) {
+    // Safety: caller ensures the address is valid user memory.
+    unsafe { core::ptr::write_volatile(addr as *mut u64, value) };
+}
+
+fn write_u32(addr: u64, value: u32) {
+    // Safety: caller ensures the address is valid user memory.
+    unsafe { core::ptr::write_volatile(addr as *mut u32, value) };
+}
+
+fn sys_fstat(fd: u64, buf: u64) -> u64 {
+    if fd <= 2 {
+        fill_stat(buf, S_IFCHR | 0o620, 0, 0);
+        return 0;
+    }
+    match task::fd_kind(fd as usize) {
+        FdKind::File => {
+            let size = task::fd_size(fd as usize).unwrap_or(0);
+            fill_stat(buf, S_IFREG | 0o444, size, fd);
+            0
+        }
+        FdKind::Terminal => {
+            fill_stat(buf, S_IFCHR | 0o620, 0, 0);
+            0
+        }
+        FdKind::Closed => err(EBADF),
+    }
+}
+
+fn sys_stat_path(path: u64, buf: u64) -> u64 {
+    match read_cstr(path) {
+        Some(path) => stat_path(&path, buf),
+        None => err(EINVAL),
+    }
+}
+
+fn stat_path(path: &str, buf: u64) -> u64 {
+    if matches!(path, "/" | "/dev" | "/proc" | "/etc" | "/tmp") {
+        fill_stat(buf, S_IFDIR | 0o755, 0, 1);
+        return 0;
+    }
+    match crate::fs::stat(path.trim_start_matches('/')) {
+        Some((size, true)) => {
+            fill_stat(buf, S_IFDIR | 0o755, size as u64, 1);
+            0
+        }
+        Some((size, false)) => {
+            fill_stat(buf, S_IFREG | 0o444, size as u64, 2);
+            0
+        }
+        None => err(ENOENT),
+    }
+}
+
+fn sys_newfstatat(_dirfd: u64, path: u64, buf: u64, _flags: u64) -> u64 {
+    match read_cstr(path) {
+        Some(path) if !path.is_empty() => stat_path(&path, buf),
+        _ => err(ENOENT),
+    }
 }
 
 fn sys_exit() -> u64 {

@@ -45,6 +45,32 @@ pub enum Kind {
     Linux,
 }
 
+/// Number of file descriptors per task.
+pub const FD_COUNT: usize = 16;
+
+/// A Linux file descriptor slot.
+pub enum Fd {
+    /// Unused slot.
+    Closed,
+    /// stdin/stdout/stderr (and `/dev/tty`): the task's own terminal.
+    Terminal,
+    /// A regular file: contents read at open time plus the current offset.
+    File { data: Vec<u8>, offset: usize },
+}
+
+/// Cheap classification of a descriptor for syscall dispatch.
+#[derive(Clone, Copy, PartialEq)]
+pub enum FdKind {
+    Closed,
+    Terminal,
+    File,
+}
+
+fn new_fds() -> [Fd; FD_COUNT] {
+    // 0/1/2 are the standard streams.
+    core::array::from_fn(|i| if i < 3 { Fd::Terminal } else { Fd::Closed })
+}
+
 pub struct Task {
     pub name: &'static str,
     #[allow(dead_code)] // Kept for per-kind behaviour as the shim grows.
@@ -61,6 +87,8 @@ pub struct Task {
     pub mmap_next: u64,
     /// Linux thread pointer (`%fs` base).
     pub fs_base: u64,
+    /// Linux file descriptors.
+    pub fds: [Fd; FD_COUNT],
     pub output: Vec<u8>,
     pub input: VecDeque<Key>,
 }
@@ -87,6 +115,7 @@ pub fn register_kernel() {
         brk: 0,
         mmap_next: 0,
         fs_base: 0,
+        fds: new_fds(),
         output: Vec::new(),
         input: VecDeque::new(),
     });
@@ -115,6 +144,7 @@ pub fn spawn(name: &'static str, elf: &[u8]) -> Result<usize, &'static str> {
         brk: process::USER_HEAP_BASE,
         mmap_next: 0,
         fs_base: 0,
+        fds: new_fds(),
         output: Vec::new(),
         input: VecDeque::new(),
     });
@@ -145,6 +175,7 @@ pub fn spawn_linux(name: &'static str, elf: &[u8]) -> Result<usize, &'static str
         brk: process::linux::BRK_BASE,
         mmap_next: process::linux::MMAP_BASE,
         fs_base: 0,
+        fds: new_fds(),
         output: Vec::new(),
         input: VecDeque::new(),
     });
@@ -341,6 +372,142 @@ pub fn set_fs_base(value: u64) {
         task.fs_base = value;
     }
     crate::arch::msr::write(crate::arch::msr::IA32_FS_BASE, value);
+}
+
+/// Allocate the lowest free descriptor (>= 3) for `entry`.
+pub fn fd_open(entry: Fd) -> Option<usize> {
+    let mut tasks = TASKS.lock();
+    let task = tasks[current()].as_mut()?;
+    for index in 3..FD_COUNT {
+        if matches!(task.fds[index], Fd::Closed) {
+            task.fds[index] = entry;
+            return Some(index);
+        }
+    }
+    None
+}
+
+/// Close a descriptor.
+pub fn fd_close(fd: usize) -> bool {
+    let mut tasks = TASKS.lock();
+    match tasks[current()].as_mut() {
+        Some(task) if fd < FD_COUNT && !matches!(task.fds[fd], Fd::Closed) => {
+            task.fds[fd] = Fd::Closed;
+            true
+        }
+        _ => false,
+    }
+}
+
+/// Classify a descriptor.
+pub fn fd_kind(fd: usize) -> FdKind {
+    let tasks = TASKS.lock();
+    match tasks[current()].as_ref() {
+        Some(task) if fd < FD_COUNT => match task.fds[fd] {
+            Fd::Closed => FdKind::Closed,
+            Fd::Terminal => FdKind::Terminal,
+            Fd::File { .. } => FdKind::File,
+        },
+        _ => FdKind::Closed,
+    }
+}
+
+/// Read up to `count` bytes from a file descriptor into `dst`.
+pub fn fd_read(fd: usize, dst: *mut u8, count: usize) -> Option<usize> {
+    let mut tasks = TASKS.lock();
+    let task = tasks[current()].as_mut()?;
+    if fd >= FD_COUNT {
+        return None;
+    }
+    if let Fd::File { data, offset } = &mut task.fds[fd] {
+        let remaining = data.len().saturating_sub(*offset);
+        let n = remaining.min(count);
+        // Safety: the caller guarantees `dst` is writable for `n` bytes.
+        unsafe {
+            core::ptr::copy_nonoverlapping(data[*offset..*offset + n].as_ptr(), dst, n);
+        }
+        *offset += n;
+        Some(n)
+    } else {
+        None
+    }
+}
+
+/// File size for a file descriptor (none for terminals/closed).
+pub fn fd_size(fd: usize) -> Option<u64> {
+    let tasks = TASKS.lock();
+    match tasks[current()].as_ref() {
+        Some(task) if fd < FD_COUNT => match &task.fds[fd] {
+            Fd::File { data, .. } => Some(data.len() as u64),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// Reposition a file descriptor (`whence`: 0=SET, 1=CUR, 2=END).
+pub fn fd_seek(fd: usize, offset: i64, whence: u64) -> Option<u64> {
+    let mut tasks = TASKS.lock();
+    let task = tasks[current()].as_mut()?;
+    if fd >= FD_COUNT {
+        return None;
+    }
+    if let Fd::File { data, offset: pos } = &mut task.fds[fd] {
+        let base = match whence {
+            0 => 0i64,
+            1 => *pos as i64,
+            2 => data.len() as i64,
+            _ => return None,
+        };
+        let new = (base + offset).max(0) as usize;
+        *pos = new.min(data.len());
+        Some(*pos as u64)
+    } else {
+        None
+    }
+}
+
+/// Duplicate a descriptor into the lowest free slot.
+pub fn fd_dup(fd: usize) -> Option<usize> {
+    let mut tasks = TASKS.lock();
+    let task = tasks[current()].as_mut()?;
+    if fd >= FD_COUNT {
+        return None;
+    }
+    let entry = match &task.fds[fd] {
+        Fd::Closed => return None,
+        Fd::Terminal => Fd::Terminal,
+        Fd::File { data, offset } => Fd::File {
+            data: data.clone(),
+            offset: *offset,
+        },
+    };
+    for index in 3..FD_COUNT {
+        if matches!(task.fds[index], Fd::Closed) {
+            task.fds[index] = entry;
+            return Some(index);
+        }
+    }
+    None
+}
+
+/// Duplicate `old` into the specific descriptor `new` (closing it first).
+pub fn fd_dup2(old: usize, new: usize) -> Option<usize> {
+    let mut tasks = TASKS.lock();
+    let task = tasks[current()].as_mut()?;
+    if old >= FD_COUNT || new >= FD_COUNT {
+        return None;
+    }
+    let entry = match &task.fds[old] {
+        Fd::Closed => return None,
+        Fd::Terminal => Fd::Terminal,
+        Fd::File { data, offset } => Fd::File {
+            data: data.clone(),
+            offset: *offset,
+        },
+    };
+    task.fds[new] = entry;
+    Some(new)
 }
 
 /// Snapshot of a task's name, output and done flag, for rendering.
