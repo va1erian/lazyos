@@ -159,62 +159,109 @@ pub fn switch_to(table: PhysAddr) {
     }
 }
 
-/// Deep-copy the user half (PML4 entry 0) of `parent` into a fresh address
-/// space, used by `fork`. Returns the new PML4. All user VAs live below 512 GiB,
-/// so a single PML4 entry covers them; the kernel's higher-half entries are
-/// shared by `new_user_table`.
+// Copy-on-write: a software bit in the (otherwise unused) page-table entry flags
+// marking a shared, read-only user page. The first writer gets a private copy.
+const COW_BIT: u64 = 1 << 9;
+const PTE_PRESENT: u64 = 1 << 0;
+const PTE_WRITABLE: u64 = 1 << 1;
+const PTE_USER: u64 = 1 << 2;
+const PTE_HUGE: u64 = 1 << 7;
+const PTE_ADDR: u64 = 0x000F_FFFF_FFFF_F000;
+
+/// View a page table/frame as an array of raw 64-bit entries.
+///
+/// # Safety
+/// `phys` must be mapped and large enough for the accesses made.
+unsafe fn entry_table(phys: PhysAddr) -> *mut u64 {
+    phys_to_virt(phys).as_mut_ptr::<u64>()
+}
+
+/// Share the user half (PML4 entry 0) of `parent` with a fresh address space
+/// using copy-on-write: both keep the same frames, read-only; the first writer
+/// gets a private copy (see [`cow_fault`]). Flushes the parent's TLB. All user
+/// VAs live below 512 GiB, so PML4 entry 0 covers them; the kernel's higher-half
+/// entries are shared by `new_user_table`.
 pub fn clone_user_table(parent: PhysAddr) -> Option<PhysAddr> {
     let child = new_user_table()?;
-    let offset = physical_offset();
-    // Safety: both tables and every cloned frame are memory we own.
+    // Safety: we own both tables and every frame we touch.
     unsafe {
-        let src = table_mut(offset, parent);
-        let dst = table_mut(offset, child);
-        if !src[0].is_unused() {
-            let flags = src[0].flags();
-            let sub = clone_level(offset, src[0].addr(), 3)?;
-            dst[0].set_addr(PhysAddr::new(sub), flags);
+        let src = entry_table(parent);
+        let dst = entry_table(child);
+        let entry = *src.add(0);
+        if entry & PTE_PRESENT != 0 {
+            let sub = cow_clone_level(entry & PTE_ADDR, 3)?;
+            *dst.add(0) = sub | (entry & !PTE_ADDR);
         }
     }
+    // Our own leaves are now read-only; drop stale writable TLB entries.
+    switch_to(kernel_table());
     Some(child)
 }
 
-/// Borrow a page table frame we own.
-///
-/// # Safety
-/// `phys` must be a page-table frame and `offset` the physical-memory offset.
-unsafe fn table_mut(_offset: VirtAddr, phys: PhysAddr) -> &'static mut PageTable {
-    &mut *phys_to_virt(phys).as_mut_ptr::<PageTable>()
-}
-
-/// Recursively copy `level` (4=PML4 .. 1=PT); at the leaf, copy the 4 KiB frame.
+/// Share `level` (3=PDPT .. 1=PT) into new tables, marking leaves COW in both
+/// the source and the copy.
 ///
 /// # Safety
 /// `src_phys` must be a page table of `level`.
-unsafe fn clone_level(offset: VirtAddr, src_phys: PhysAddr, level: u8) -> Option<u64> {
+unsafe fn cow_clone_level(src_phys: u64, level: u8) -> Option<u64> {
     let new_phys = alloc_zeroed_frame()?;
-    let src = table_mut(offset, src_phys);
-    let dst = table_mut(offset, new_phys);
+    let src = entry_table(PhysAddr::new(src_phys));
+    let dst = entry_table(new_phys);
     for i in 0..512 {
-        if src[i].is_unused() {
+        let entry = *src.add(i);
+        if entry & PTE_PRESENT == 0 {
             continue;
         }
-        let flags = src[i].flags();
         if level == 1 {
-            // Leaf: allocate a new frame and copy the page contents.
-            let frame = alloc_zeroed_frame()?;
-            core::ptr::copy_nonoverlapping(
-                phys_to_virt(src[i].addr()).as_ptr::<u8>(),
-                phys_to_virt(frame).as_mut_ptr::<u8>(),
-                4096,
-            );
-            dst[i].set_addr(frame, flags | PageTableFlags::WRITABLE);
+            // Share the frame read-only and mark it copy-on-write in both.
+            *dst.add(i) = (entry & PTE_ADDR) | ((entry & !PTE_ADDR) & !PTE_WRITABLE) | COW_BIT;
+            *src.add(i) = (entry & !PTE_WRITABLE) | COW_BIT;
         } else {
-            let sub = clone_level(offset, src[i].addr(), level - 1)?;
-            dst[i].set_addr(PhysAddr::new(sub), flags);
+            let sub = cow_clone_level(entry & PTE_ADDR, level - 1)?;
+            *dst.add(i) = sub | (entry & !PTE_ADDR);
         }
     }
     Some(new_phys.as_u64())
+}
+
+/// Resolve a write fault on a COW page: copy the frame and map it writable.
+/// Returns true if the fault was handled (caller should resume).
+pub fn cow_fault(table: PhysAddr, va: u64) -> bool {
+    let index = |shift: u64| ((va >> shift) & 0x1ff) as usize;
+    // Safety: we walk the given PML4, whose entries we own.
+    unsafe {
+        let p4 = entry_table(table);
+        let e4 = *p4.add(index(39));
+        if e4 & PTE_PRESENT == 0 {
+            return false;
+        }
+        let p3 = entry_table(PhysAddr::new(e4 & PTE_ADDR));
+        let e3 = *p3.add(index(30));
+        if e3 & PTE_PRESENT == 0 || e3 & PTE_HUGE != 0 {
+            return false;
+        }
+        let p2 = entry_table(PhysAddr::new(e3 & PTE_ADDR));
+        let e2 = *p2.add(index(21));
+        if e2 & PTE_PRESENT == 0 || e2 & PTE_HUGE != 0 {
+            return false;
+        }
+        let p1 = entry_table(PhysAddr::new(e2 & PTE_ADDR));
+        let e1 = *p1.add(index(12));
+        if e1 & PTE_PRESENT == 0 || e1 & PTE_USER == 0 || e1 & COW_BIT == 0 {
+            return false;
+        }
+        let Some(frame) = alloc_zeroed_frame() else {
+            return false;
+        };
+        core::ptr::copy_nonoverlapping(
+            phys_to_virt(PhysAddr::new(e1 & PTE_ADDR)).as_ptr::<u8>(),
+            phys_to_virt(frame).as_mut_ptr::<u8>(),
+            4096,
+        );
+        *p1.add(index(12)) = frame.as_u64() | ((e1 & !PTE_ADDR) & !COW_BIT) | PTE_WRITABLE;
+    }
+    x86_64::instructions::tlb::flush(VirtAddr::new(va));
+    true
 }
 
 /// Initialise frame allocation and the kernel heap.
