@@ -24,7 +24,27 @@
 //!
 //! Locking: `CHANNELS` is held only for registry mutations and is always
 //! released before `MESSENGER` is notified, keeping the queue-then-task lock
-//! order documented in `task::wait`.
+//! order documented in `task::wait`. Transfer work (`shared`, handle table) is
+//! done either before the channel lock is taken or after it is dropped, so the
+//! only nesting is `CHANNELS` -> `REGISTRY`/handle table while a message is
+//! queued with its references taken.
+//!
+//! # Handle and buffer transfer (issue #67)
+//!
+//! A parcel's `handles` list **moves** each handle: the sender's handle is
+//! resolved and closed when the message is queued, and the receiver's table
+//! gains a new handle when it takes delivery (`try_recv`/`recv` rewrites the
+//! list to receiver-local numbers). A sender that still needs the handle must
+//! duplicate it before sending. Every moved handle needs `TRANSFER` rights.
+//!
+//! A parcel's `buffers` list **shares**: each `BufferDesc` takes one message
+//! reference to the buffer (the sender keeps its handle and mapping) and
+//! delivery installs a receiver-local buffer handle without copying a byte.
+//! The receiver maps it on demand with `ipc::shared::map`, which refuses
+//! `SHARE_ONLY` buffers for anyone but the creator.
+//!
+//! Replies carry no transfers yet: a reply parcel with handles or buffers is
+//! refused with [`Error::UnsupportedTransfer`].
 
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
@@ -32,9 +52,10 @@ use core::sync::atomic::{AtomicU64, Ordering};
 
 use spin::Mutex;
 
-use libmessenger::{flags, Parcel};
+use libmessenger::{flags, BufferDesc, Parcel};
 
 use crate::ipc::handles::{self, rights, HandleKind};
+use crate::ipc::shared;
 use crate::task::wait::WaitQueue;
 use crate::task::{self, WaitKind, WakeReason};
 
@@ -98,6 +119,11 @@ pub enum Error {
     Canceled,
     /// The endpoint on the other side was closed.
     PeerDied,
+    /// A transferred handle is missing, of the wrong kind, or lacks the right
+    /// to be moved.
+    BadTransfer,
+    /// Transfers are only carried by messages, not by replies (yet).
+    UnsupportedTransfer,
 }
 
 impl Error {
@@ -122,6 +148,10 @@ impl Error {
             Error::TimedOut => "the deadline passed before a reply arrived",
             Error::Canceled => "the caller canceled this transaction",
             Error::PeerDied => "the endpoint on the other side was closed",
+            Error::BadTransfer => {
+                "a transferred handle does not exist or does not grant the transfer right"
+            }
+            Error::UnsupportedTransfer => "replies cannot carry handles or buffers yet",
         }
     }
 }
@@ -136,8 +166,67 @@ fn from_handles(error: handles::Error) -> Error {
     }
 }
 
+/// Translate a shared-buffer error into the channel vocabulary.
+fn from_shared(error: shared::Error) -> Error {
+    match error {
+        shared::Error::InvalidHandle | shared::Error::NotFound => Error::InvalidHandle,
+        shared::Error::WrongKind => Error::WrongKind,
+        shared::Error::MissingRight => Error::MissingRight,
+        shared::Error::NoFreeHandle => Error::NoFreeHandle,
+        shared::Error::BadTask => Error::BadTask,
+        _ => Error::BadTransfer,
+    }
+}
+
+/// A handle resolved out of the sender's table when a parcel is queued. The
+/// number in the parcel is only meaningful to the sender; the kernel carries
+/// the object identity instead, and the receiver gets a fresh local number.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Transfer {
+    /// Kind of the object the handle names.
+    pub kind: HandleKind,
+    /// Rights the receiver's handle gets (equal to the sender's, which must
+    /// include `TRANSFER`).
+    pub rights: u32,
+    /// Kernel object the handle names (opaque to userspace).
+    pub object_id: u64,
+}
+
+/// A shared-buffer descriptor resolved out of the sender's table when a parcel
+/// is queued. Unlike [`Transfer`], the sender keeps its own handle and mapping;
+/// the message takes one reference and delivery installs a new handle.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct BufferTransfer {
+    /// Buffer registry id.
+    pub object_id: u64,
+    /// Byte range of the buffer the message refers to.
+    pub offset: u64,
+    pub len: u64,
+    /// Descriptor flags (metadata; the buffer's creation flags decide mapping).
+    pub flags: u32,
+    /// Rights the receiver's buffer handle gets.
+    pub rights: u32,
+}
+
 /// One queued message: the encoded parcel plus the kernel-side metadata a
-/// receiver needs to dispatch or answer it.
+/// receiver needs to dispatch or answer it. Transfers are still unresolved
+/// here: they become the receiver's handles in [`deliver`].
+#[derive(Clone, PartialEq, Eq, Debug)]
+struct Queued {
+    sender: usize,
+    method: u32,
+    flags: u16,
+    txn: Option<u64>,
+    deadline: Option<u64>,
+    bytes: Vec<u8>,
+    handles: Vec<Transfer>,
+    buffers: Vec<BufferTransfer>,
+}
+
+/// A delivered message: the encoded parcel header plus the handles and buffer
+/// descriptors the receiver now owns, as numbers in the receiving task's
+/// handle table. `bytes` still carries the sender's numbers (the wire form is
+/// immutable); `handles` and `buffers` are the ones to use.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Message {
     /// Task slot that sent the message (kernel-stamped, never forgeable).
@@ -152,9 +241,11 @@ pub struct Message {
     pub deadline: Option<u64>,
     /// The encoded parcel, stored exactly as it was sent.
     pub bytes: Vec<u8>,
-    /// Handles the parcel transfers. The bytes still carry them too; the
-    /// receiver-side rewrite into the target handle table is #67.
+    /// Handles transferred by the sender, rewritten to local numbers.
     pub handles: Vec<u64>,
+    /// Shared-buffer descriptors transferred by the sender, rewritten to
+    /// local buffer handles. Map them on demand with `ipc::shared::map`.
+    pub buffers: Vec<BufferDesc>,
 }
 
 /// Cumulative counters plus live depths, for `msg_stats` and tests.
@@ -220,7 +311,7 @@ struct Transaction {
 #[derive(Default)]
 struct Endpoint {
     closed: bool,
-    inbox: VecDeque<Message>,
+    inbox: VecDeque<Queued>,
     queued_bytes: usize,
 }
 
@@ -298,6 +389,107 @@ fn validate_parcel(bytes: &[u8]) -> Result<Parcel, Error> {
     Parcel::decode(bytes).map_err(|_| Error::BadParcel)
 }
 
+/// Resolve a parcel's `handles` and `buffers` against the sending task's
+/// table, validating kinds, rights and the per-message limits. No reference is
+/// taken here: [`retain_transfers`] runs once the message is accepted for
+/// queueing, so a refused send changes nothing.
+fn resolve_transfers(parcel: &Parcel) -> Result<(Vec<Transfer>, Vec<BufferTransfer>), Error> {
+    if parcel.handles.len() > libmessenger::MAX_HANDLES
+        || parcel.buffers.len() > libmessenger::MAX_BUFFERS
+    {
+        return Err(Error::BadParcel);
+    }
+    let mut transfers = Vec::with_capacity(parcel.handles.len());
+    for (index, &local) in parcel.handles.iter().enumerate() {
+        if parcel.handles[..index].contains(&local) {
+            // One handle, one move: a duplicate entry would install two
+            // receiver handles from a single reference.
+            return Err(Error::BadTransfer);
+        }
+        let entry = handles::get(local).map_err(from_handles)?;
+        if entry.rights & rights::TRANSFER == 0 {
+            return Err(Error::MissingRight);
+        }
+        transfers.push(Transfer {
+            kind: entry.kind,
+            rights: entry.rights,
+            object_id: entry.object_id,
+        });
+    }
+    let mut buffers = Vec::with_capacity(parcel.buffers.len());
+    for descriptor in &parcel.buffers {
+        let entry = handles::get(descriptor.handle).map_err(from_handles)?;
+        if entry.kind != HandleKind::Buffer {
+            return Err(Error::WrongKind);
+        }
+        if entry.rights & rights::TRANSFER == 0 {
+            return Err(Error::MissingRight);
+        }
+        buffers.push(BufferTransfer {
+            object_id: entry.object_id,
+            offset: descriptor.offset,
+            len: descriptor.len,
+            flags: descriptor.flags,
+            rights: entry.rights,
+        });
+    }
+    Ok((transfers, buffers))
+}
+
+/// Take one registry reference per buffer the message carries, releasing what
+/// was already taken if a later entry fails.
+fn retain_transfers(message: &Queued) -> Result<(), Error> {
+    let mut retained: Vec<u64> = Vec::new();
+    for transfer in &message.handles {
+        if transfer.kind != HandleKind::Buffer {
+            continue;
+        }
+        if let Err(error) = shared::retain(transfer.object_id) {
+            for object_id in &retained {
+                shared::release(*object_id);
+            }
+            return Err(from_shared(error));
+        }
+        retained.push(transfer.object_id);
+    }
+    for buffer in &message.buffers {
+        if let Err(error) = shared::retain_descriptor(buffer.object_id, buffer.offset, buffer.len) {
+            for object_id in &retained {
+                shared::release(*object_id);
+            }
+            return Err(from_shared(error));
+        }
+        retained.push(buffer.object_id);
+    }
+    Ok(())
+}
+
+/// Release every reference a queued message that will never be delivered holds
+/// (the receiving endpoint closed, the channel was dropped, or delivery failed
+/// before the handles were installed).
+fn release_queued(message: &Queued) {
+    for transfer in &message.handles {
+        if transfer.kind == HandleKind::Buffer {
+            shared::release(transfer.object_id);
+        }
+    }
+    for buffer in &message.buffers {
+        shared::release(buffer.object_id);
+    }
+}
+
+/// Finish a handle move: the sender's numbers were resolved into the message,
+/// so close the sender's handles now that the message is safely queued.
+fn close_moved_handles(numbers: &[u64], kinds: &[HandleKind]) {
+    for (local, kind) in numbers.iter().zip(kinds.iter()) {
+        if *kind == HandleKind::Buffer {
+            shared::close(*local).ok();
+        } else {
+            handles::close(*local).ok();
+        }
+    }
+}
+
 /// Resolve a handle to `(channel_id, side)`, checking kind and rights.
 fn endpoint_of(handle: u64, required: u32) -> Result<(u64, usize), Error> {
     let entry = handles::get(handle).map_err(from_handles)?;
@@ -312,9 +504,10 @@ fn endpoint_of(handle: u64, required: u32) -> Result<(u64, usize), Error> {
 
 /// Create a channel and open both endpoint handles in the calling task.
 ///
-/// A future `msg_connect` (#67) will hand one of the two handles to a peer;
-/// today callers that drive both sides themselves (tests, bootstrap) can use
-/// the pair directly.
+/// Hand one endpoint to a peer by duplicating its handle and sending the copy
+/// in a parcel's handle list (the transfer moves it; see the module docs).
+/// Callers that drive both sides themselves (tests, bootstrap) can use the
+/// pair directly.
 pub fn create() -> Result<(u64, u64), Error> {
     let channel_id = NEXT_CHANNEL_ID.fetch_add(1, Ordering::Relaxed);
     {
@@ -359,25 +552,32 @@ pub fn send(handle: u64, parcel_bytes: &[u8]) -> Result<(), Error> {
     let me = task::current();
     let (channel_id, side) = endpoint_of(handle, rights::CALL)?;
     let parcel = validate_parcel(parcel_bytes)?;
+    let (handles, buffers) = resolve_transfers(&parcel)?;
+    let numbers = parcel.handles.clone();
+    let kinds: Vec<HandleKind> = handles.iter().map(|transfer| transfer.kind).collect();
     enqueue(
         channel_id,
         side,
-        Message {
+        Queued {
             sender: me,
             method: parcel.header.method,
             flags: parcel.header.flags,
             txn: None,
             deadline: None,
             bytes: parcel_bytes.to_vec(),
-            handles: parcel.handles,
+            handles,
+            buffers,
         },
     )?;
+    // The message owns the moved references now; the sender's numbers are gone.
+    close_moved_handles(&numbers, &kinds);
     MESSENGER.notify_all();
     Ok(())
 }
 
-/// Enqueue a message into the peer endpoint's inbox, metering the sender.
-fn enqueue(channel_id: u64, from_side: usize, message: Message) -> Result<(), Error> {
+/// Enqueue a message into the peer endpoint's inbox, taking the buffer
+/// references it carries and metering the sender.
+fn enqueue(channel_id: u64, from_side: usize, message: Queued) -> Result<(), Error> {
     let peer = 1 - from_side;
     let mut channels = CHANNELS.lock();
     let channel = find_channel(&mut channels, channel_id)?;
@@ -390,6 +590,12 @@ fn enqueue(channel_id: u64, from_side: usize, message: Message) -> Result<(), Er
     {
         channel.drops += 1;
         return Err(Error::QueueFull);
+    }
+    // The queue has room: take the message's buffer references so a sender
+    // that closes its own handle cannot free frames an in-flight message needs.
+    if let Err(error) = retain_transfers(&message) {
+        channel.drops += 1;
+        return Err(error);
     }
     let sender = message.sender;
     let bytes = message.bytes.len();
@@ -415,6 +621,9 @@ pub fn begin_call(
     let me = task::current();
     let (channel_id, side) = endpoint_of(handle, rights::CALL)?;
     let parcel = validate_parcel(parcel_bytes)?;
+    let (handles, buffers) = resolve_transfers(&parcel)?;
+    let numbers = parcel.handles.clone();
+    let kinds: Vec<HandleKind> = handles.iter().map(|transfer| transfer.kind).collect();
     let peer = 1 - side;
     let txn_id = NEXT_TXN_ID.fetch_add(1, Ordering::Relaxed);
     {
@@ -457,6 +666,24 @@ pub fn begin_call(
         if outstanding > 0 && parcel.header.flags & flags::ALLOW_NESTED == 0 {
             return Err(Error::Deadlock);
         }
+        let queued = Queued {
+            sender: me,
+            method,
+            flags: parcel.header.flags,
+            txn: Some(txn_id),
+            deadline,
+            bytes: parcel_bytes.to_vec(),
+            handles,
+            buffers,
+        };
+        // Take the buffer references and finish the handle move before the
+        // request is visible, so a callee that runs immediately finds the
+        // transfers already installed in the message.
+        if let Err(error) = retain_transfers(&queued) {
+            channel.drops += 1;
+            return Err(error);
+        }
+        close_moved_handles(&numbers, &kinds);
         channel.txns.push(Transaction {
             id: txn_id,
             caller: me,
@@ -467,15 +694,7 @@ pub fn begin_call(
             reply: Vec::new(),
         });
         let endpoint = &mut channel.endpoints[peer];
-        endpoint.inbox.push_back(Message {
-            sender: me,
-            method,
-            flags: parcel.header.flags,
-            txn: Some(txn_id),
-            deadline,
-            bytes: parcel_bytes.to_vec(),
-            handles: parcel.handles,
-        });
+        endpoint.inbox.push_back(queued);
         endpoint.queued_bytes += parcel_bytes.len();
         channel.calls += 1;
         let sender = meter(channel, me);
@@ -532,9 +751,15 @@ pub fn call(
 /// Replies may arrive out of order (they match by id), and a reply to an
 /// expired, canceled, or dead transaction is refused and counted as a drop.
 /// Only the receiving endpoint's holder should call this; signing the reply
-/// with the callee handle is #67's job at the syscall edge.
+/// with the callee handle belongs to the syscall edge (#69).
 pub fn reply(txn_id: u64, parcel_bytes: &[u8]) -> Result<(), Error> {
-    validate_parcel(parcel_bytes)?;
+    let parcel = validate_parcel(parcel_bytes)?;
+    // Replies travel back through `await_reply`, which returns bytes only;
+    // installing reply-borne handles would need the caller's table at consume
+    // time, so replies refuse transfers until that path grows one.
+    if !parcel.handles.is_empty() || !parcel.buffers.is_empty() {
+        return Err(Error::UnsupportedTransfer);
+    }
     let mut found = false;
     {
         let mut channels = CHANNELS.lock();
@@ -608,10 +833,14 @@ pub fn close_endpoint(handle: u64) -> Result<(), Error> {
         if let Some(index) = channels.iter().position(|channel| channel.id == channel_id) {
             let channel = &mut channels[index];
             channel.endpoints[side].closed = true;
-            // Anything still queued for the dead side will never be received.
+            // Anything still queued for the dead side will never be received;
+            // release the buffer references those messages hold.
             channel.drops += channel.endpoints[side].inbox.len() as u64;
-            channel.endpoints[side].inbox.clear();
+            let dropped: Vec<Queued> = channel.endpoints[side].inbox.drain(..).collect();
             channel.endpoints[side].queued_bytes = 0;
+            for message in &dropped {
+                release_queued(message);
+            }
             let mut released = Vec::new();
             for txn in channel.txns.iter_mut() {
                 if txn.state == TxnState::Pending
@@ -625,6 +854,21 @@ pub fn close_endpoint(handle: u64) -> Result<(), Error> {
                 release_pending(channel, caller);
             }
             remove = channel.endpoints[0].closed && channel.endpoints[1].closed;
+            if remove {
+                // The last side closed: undelivered messages for the surviving
+                // side go away with the channel.
+                let mut extra_drops = 0u64;
+                let mut pending: Vec<Queued> = Vec::new();
+                for endpoint in channel.endpoints.iter_mut() {
+                    extra_drops += endpoint.inbox.len() as u64;
+                    pending.extend(endpoint.inbox.drain(..));
+                    endpoint.queued_bytes = 0;
+                }
+                channel.drops += extra_drops;
+                for message in &pending {
+                    release_queued(message);
+                }
+            }
         }
         if remove {
             channels.retain(|channel| channel.id != channel_id);
@@ -635,19 +879,112 @@ pub fn close_endpoint(handle: u64) -> Result<(), Error> {
 }
 
 /// Receive the next message without blocking; `Ok(None)` means "try later".
+///
+/// Delivery installs the message's transferred handles and buffers into the
+/// calling task's handle table and rewrites them to local numbers, so the
+/// returned [`Message`] is immediately usable.
 pub fn try_recv(handle: u64) -> Result<Option<Message>, Error> {
     let (channel_id, side) = endpoint_of(handle, rights::CALL)?;
-    let mut channels = CHANNELS.lock();
-    let channel = find_channel(&mut channels, channel_id)?;
-    let endpoint = &mut channel.endpoints[side];
-    if let Some(message) = endpoint.inbox.pop_front() {
-        endpoint.queued_bytes = endpoint.queued_bytes.saturating_sub(message.bytes.len());
-        return Ok(Some(message));
+    let queued = {
+        let mut channels = CHANNELS.lock();
+        let channel = find_channel(&mut channels, channel_id)?;
+        let endpoint = &mut channel.endpoints[side];
+        if let Some(message) = endpoint.inbox.pop_front() {
+            endpoint.queued_bytes = endpoint.queued_bytes.saturating_sub(message.bytes.len());
+            Some(message)
+        } else if channel.endpoints[1 - side].closed {
+            return Err(Error::PeerDied);
+        } else {
+            None
+        }
+    };
+    match queued {
+        Some(message) => Ok(Some(deliver(message)?)),
+        None => Ok(None),
     }
-    if channel.endpoints[1 - side].closed {
-        return Err(Error::PeerDied);
+}
+
+/// Install a queued message's transfers into the receiving task's handle table
+/// and rewrite them to local numbers.
+///
+/// On failure (the receiver is out of handles) everything installed is rolled
+/// back and the references of everything still pending are released, so a
+/// failed delivery cannot leak handles or frames.
+fn deliver(queued: Queued) -> Result<Message, Error> {
+    let mut handles_out: Vec<u64> = Vec::with_capacity(queued.handles.len());
+    let mut buffers_out: Vec<BufferDesc> = Vec::with_capacity(queued.buffers.len());
+    for (index, transfer) in queued.handles.iter().enumerate() {
+        let opened = if transfer.kind == HandleKind::Buffer {
+            shared::attach(transfer.object_id, transfer.rights).map_err(from_shared)
+        } else {
+            handles::open(transfer.kind, transfer.rights, transfer.object_id).map_err(from_handles)
+        };
+        match opened {
+            Ok(handle) => handles_out.push(handle),
+            Err(error) => {
+                rollback_delivery(&queued, index, &handles_out, &buffers_out);
+                return Err(error);
+            }
+        }
     }
-    Ok(None)
+    for buffer in queued.buffers.iter() {
+        match shared::attach(buffer.object_id, buffer.rights) {
+            Ok(handle) => buffers_out.push(BufferDesc {
+                handle,
+                offset: buffer.offset,
+                len: buffer.len,
+                flags: buffer.flags,
+            }),
+            Err(error) => {
+                rollback_delivery(&queued, queued.handles.len(), &handles_out, &buffers_out);
+                return Err(from_shared(error));
+            }
+        }
+    }
+    Ok(Message {
+        sender: queued.sender,
+        method: queued.method,
+        flags: queued.flags,
+        txn: queued.txn,
+        deadline: queued.deadline,
+        bytes: queued.bytes,
+        handles: handles_out,
+        buffers: buffers_out,
+    })
+}
+
+/// Undo a partial [`deliver`]: close the installed handles and release the
+/// message references of everything still pending.
+///
+/// Non-buffer objects have no kernel object refcount yet, so releasing a moved
+/// handle whose delivery failed drops the handle but not the object; that is
+/// the documented follow-up for when `HandleEntry` grows a refcount.
+fn rollback_delivery(
+    queued: &Queued,
+    installed: usize,
+    handles_out: &[u64],
+    buffers_out: &[BufferDesc],
+) {
+    for (transfer, &handle) in queued.handles[..installed].iter().zip(handles_out) {
+        if transfer.kind == HandleKind::Buffer {
+            shared::close(handle).ok();
+        } else {
+            handles::close(handle).ok();
+        }
+    }
+    for transfer in &queued.handles[installed..] {
+        if transfer.kind == HandleKind::Buffer {
+            shared::release(transfer.object_id);
+        }
+    }
+    for descriptor in buffers_out {
+        // Closing the receiver's buffer handle drops the reference `attach`
+        // converted from the message.
+        shared::close(descriptor.handle).ok();
+    }
+    for buffer in &queued.buffers[buffers_out.len()..] {
+        shared::release(buffer.object_id);
+    }
 }
 
 /// Receive the next message, parking until one arrives, the deadline passes, or
@@ -712,12 +1049,22 @@ pub fn senders(handle: u64) -> Result<Vec<SenderMeter>, Error> {
     Ok(channel.senders.clone())
 }
 
-/// Drop every channel (process teardown, reboot, test isolation).
+/// Drop every channel (process teardown, reboot, test isolation), releasing
+/// the buffer references held by undelivered messages.
 ///
 /// Waiters are woken so a task parked in `await_reply` observes
 /// [`Error::NoTransaction`] instead of hanging.
 pub fn reset() {
-    CHANNELS.lock().clear();
+    let mut channels = CHANNELS.lock();
+    for channel in channels.iter() {
+        for endpoint in &channel.endpoints {
+            for message in &endpoint.inbox {
+                release_queued(message);
+            }
+        }
+    }
+    channels.clear();
+    drop(channels);
     MESSENGER.notify_all();
 }
 

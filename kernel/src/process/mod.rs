@@ -83,8 +83,22 @@ extern "C" fn syscall_dispatch(regs: *mut Regs) {
         2 => sys_read_char(),
         3 => sys_read_file(regs.rdi, regs.rsi, regs.rdx),
         4 => sys_sbrk(regs.rdi),
+        // 5: the native Messenger surface (issue #69): `rdi` is the op code,
+        // `rsi` points at a `MsgArgs` block and `rdx` at a `MsgResult` block.
+        5 => crate::ipc::syscalls::dispatch(regs.rdi, regs.rsi, regs.rdx),
         _ => u64::MAX,
     };
+}
+
+/// Test-harness entry into the native syscall surface (issue #62 pattern):
+/// drive one syscall exactly as the `int 0x80` gate would, without the ring
+/// transition. Compiled only for the in-kernel suite.
+#[cfg(laZYOS_TESTS)]
+pub fn dispatch_for_test(nr: u64, a1: u64, a2: u64, a3: u64) -> u64 {
+    match nr {
+        5 => crate::ipc::syscalls::dispatch(a1, a2, a3),
+        _ => u64::MAX,
+    }
 }
 
 /// syscall 1: write bytes to the task's terminal (and the serial log).

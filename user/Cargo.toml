@@ -5,6 +5,11 @@ edition = "2021"
 description = "LazyOS ring-3 user runtime and programs"
 license = "MIT OR Apache-2.0"
 
+[dependencies]
+# The parcel codec, shared with the kernel, so client/server parcels round-trip
+# through one implementation (issue #69).
+libmessenger = { path = "../libs/messenger" }
+
 [lib]
 name = "user"
 path = "src/lib.rs"
