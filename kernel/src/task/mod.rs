@@ -1,9 +1,42 @@
-//! Preemptive round-robin scheduling and ring-3 tasks.
+//! Preemptive priority scheduling and ring-3 tasks.
 //!
 //! The timer ISR ([`switch::timer_isr`]) pushes the general-purpose registers,
 //! calls [`schedule`], and resumes whatever `schedule` returns. Each task has
 //! its own address space (PML4), kernel stack, and terminal (output buffer +
 //! input queue).
+//!
+//! # Priority classes and fair share (issue #58)
+//!
+//! Every task has a [`PriorityClass`] and a weight. A scheduling decision
+//! picks the highest class with a `Runnable` task (`Realtime` >
+//! `Interactive` > `Normal` > `Background`), then the member of that class
+//! with the smallest virtual pass. Running a quantum advances the pass by
+//! `STRIDE_UNIT / weight` — stride scheduling — so tasks in one class share
+//! the CPU in proportion to their weights, while equal passes (for example
+//! freshly spawned tasks) rotate in round-robin order after the current task.
+//!
+//! Starvation bounds:
+//!
+//! * classes are strict, so `Background` work can never delay an
+//!   `Interactive` task; a lower class only runs when no member of a higher
+//!   class is runnable. `Realtime` is meant for short, latency-critical
+//!   bursts: a runaway `Realtime` task can starve the classes below it, which
+//!   is the documented trade-off of strict priority.
+//! * within a class, between two selections of task `i` a peer `j` can be
+//!   selected at most `ceil(stride_i / stride_j) + 1` times. With weights
+//!   clamped to [`MIN_WEIGHT`]..=[`MAX_WEIGHT`] (1..=32) and at most
+//!   `MAX_TASKS - 1` peers, a task waits under 500 ticks — 5 seconds at the
+//!   100 Hz timer — in the worst case.
+//! * a task that slept while its peers ran rejoins at the current virtual
+//!   time ([`virtual_now`]) instead of claiming a backlog of catch-up quanta.
+//!
+//! The kernel task (slot 0, the multiplexer) is `Interactive` and competes
+//! like any other task; it cannot starve user work because `mux::run` parks it
+//! with [`idle`] between frames, so it is `Runnable` only for the quantum it
+//! needs to repaint. Linux `getpriority`/`setpriority` are not wired to
+//! [`set_priority`] yet: syscall dispatch lives in `crate::process::linux`,
+//! outside this module, and should map nice values onto these classes when it
+//! lands.
 
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
@@ -102,6 +135,109 @@ pub enum TaskState {
     Done,
 }
 
+// ---------------------------------------------------------------------------
+// Priority classes and stride scheduling (issue #58)
+// ---------------------------------------------------------------------------
+
+/// Scheduling class. Classes are strictly ordered, so a runnable task in a
+/// higher class always beats every task in a lower one; inside one class the
+/// stride scheduler shares the CPU by weight.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PriorityClass {
+    /// Batch work: runs only while nothing more important is runnable.
+    Background,
+    /// Default for Linux and native programs.
+    Normal,
+    /// Latency-sensitive work: shells, editors, and the kernel multiplexer.
+    Interactive,
+    /// Short, latency-critical bursts (audio, input). Strictly above
+    /// `Interactive`; see the module docs for the starvation trade-off.
+    Realtime,
+}
+
+impl PriorityClass {
+    /// Every class, lowest first (tools and tests iterate this).
+    pub const ALL: [PriorityClass; 4] = [
+        PriorityClass::Background,
+        PriorityClass::Normal,
+        PriorityClass::Interactive,
+        PriorityClass::Realtime,
+    ];
+
+    /// Position in the strict priority order (higher wins).
+    const fn rank(self) -> u8 {
+        match self {
+            PriorityClass::Background => 0,
+            PriorityClass::Normal => 1,
+            PriorityClass::Interactive => 2,
+            PriorityClass::Realtime => 3,
+        }
+    }
+
+    /// Default weight of a task in this class. Only ratios inside one class
+    /// matter (classes are strict), but the defaults grow with the class so a
+    /// promoted task is also the heaviest member of its new class.
+    pub const fn default_weight(self) -> u16 {
+        match self {
+            PriorityClass::Background => 1,
+            PriorityClass::Normal => 2,
+            PriorityClass::Interactive => 4,
+            PriorityClass::Realtime => 8,
+        }
+    }
+
+    /// Stable label for tools (`ps`, Task Manager, logs).
+    #[allow(dead_code)] // used by the in-kernel tests until a `ps` tool lands
+    pub const fn label(self) -> &'static str {
+        match self {
+            PriorityClass::Background => "background",
+            PriorityClass::Normal => "normal",
+            PriorityClass::Interactive => "interactive",
+            PriorityClass::Realtime => "realtime",
+        }
+    }
+}
+
+/// Smallest assignable per-task weight.
+pub const MIN_WEIGHT: u16 = 1;
+/// Largest assignable per-task weight.
+pub const MAX_WEIGHT: u16 = 32;
+/// Virtual-time unit: a task of weight `w` pays `STRIDE_UNIT / w` of virtual
+/// time per quantum, so selections follow the weight ratio.
+const STRIDE_UNIT: u64 = 1024;
+/// Passes are shifted back by their minimum once it reaches this mark (only
+/// ordering matters, and small passes stay far from `u64` overflow).
+const PASS_CEILING: u64 = 1 << 40;
+
+/// The virtual time one quantum costs a task: its stride.
+fn stride(weight: u16) -> u64 {
+    (STRIDE_UNIT / weight.clamp(MIN_WEIGHT, MAX_WEIGHT) as u64).max(1)
+}
+
+/// The smallest pass among runnable tasks: the scheduler's "now". A task that
+/// spawns or wakes here starts even with its peers instead of claiming a
+/// backlog of catch-up quanta.
+fn virtual_now(tasks: &[Option<Task>; MAX_TASKS]) -> u64 {
+    tasks
+        .iter()
+        .flatten()
+        .filter(|task| task.state == TaskState::Runnable)
+        .map(|task| task.pass)
+        .min()
+        .unwrap_or(0)
+}
+
+/// The smallest pass in the whole table, blocked tasks included (a blocked
+/// task's pass is its place in line when it wakes).
+fn min_pass(tasks: &[Option<Task>; MAX_TASKS]) -> u64 {
+    tasks
+        .iter()
+        .flatten()
+        .map(|task| task.pass)
+        .min()
+        .unwrap_or(0)
+}
+
 /// Number of file descriptors per task.
 pub const FD_COUNT: usize = 16;
 
@@ -149,6 +285,15 @@ pub struct Task {
     pub rsp: u64,
     /// Scheduler-visible state; see [`TaskState`].
     pub state: TaskState,
+    /// Scheduling class (issue #58); see [`set_priority`].
+    pub class: PriorityClass,
+    /// Weight inside [`Task::class`]; see [`set_weight`].
+    pub weight: u16,
+    /// Stride-scheduler virtual pass: selection takes the runnable task with
+    /// the smallest pass, which then advances by `stride(weight)`.
+    pub pass: u64,
+    /// CPU ticks (100 Hz PIT ticks) charged while this task was on the CPU.
+    pub cpu_ticks: u64,
     /// How the current/last wait ended. Set by the wake path, consumed by the
     /// task's wait loop when it resumes. `None` while not waiting.
     pub wake_reason: Option<WakeReason>,
@@ -239,6 +384,12 @@ pub fn register_kernel() {
         kstack_top: 0,
         rsp: 0,
         state: TaskState::Runnable,
+        // The multiplexer serves input and painting: an interactive workload.
+        // `mux::run` parks it between frames, which bounds its CPU share.
+        class: PriorityClass::Interactive,
+        weight: PriorityClass::Interactive.default_weight(),
+        pass: 0,
+        cpu_ticks: 0,
         wake_reason: None,
         clear_child_tid: 0,
         parent: 0,
@@ -271,6 +422,8 @@ pub fn spawn(name: &'static str, elf: &[u8]) -> Result<usize, &'static str> {
 
     let top = kstack_top(index);
     let rsp = build_user_frame(top, entry, user_process::USER_STACK_TOP - 16);
+    let class = PriorityClass::Normal;
+    let pass = virtual_now(&tasks);
 
     tasks[index] = Some(Task {
         name,
@@ -279,6 +432,10 @@ pub fn spawn(name: &'static str, elf: &[u8]) -> Result<usize, &'static str> {
         kstack_top: top,
         rsp,
         state: TaskState::Runnable,
+        class,
+        weight: class.default_weight(),
+        pass,
+        cpu_ticks: 0,
         wake_reason: None,
         clear_child_tid: 0,
         parent: 0,
@@ -315,6 +472,8 @@ pub fn spawn_linux(name: &'static str, elf: &[u8], argv0: &str) -> Result<usize,
 
     let top = kstack_top(index);
     let rsp = build_user_frame(top, entry, stack_top);
+    let class = PriorityClass::Normal;
+    let pass = virtual_now(&tasks);
 
     tasks[index] = Some(Task {
         name,
@@ -323,6 +482,10 @@ pub fn spawn_linux(name: &'static str, elf: &[u8], argv0: &str) -> Result<usize,
         kstack_top: top,
         rsp,
         state: TaskState::Runnable,
+        class,
+        weight: class.default_weight(),
+        pass,
+        cpu_ticks: 0,
         wake_reason: None,
         clear_child_tid: 0,
         parent: 0,
@@ -364,10 +527,14 @@ pub fn spawn_thread(
     // A thread stays in its process's group and session (#59: threads do not
     // get a new one), so only a process can create a group or session.
     let (pgid, sid) = (parent.pgid, parent.sid);
+    // Threads inherit their creator's scheduling class and weight, like
+    // Linux threads share a nice value.
+    let (class, weight) = (parent.class, parent.weight);
     let context = crate::arch::linux::user_context();
 
     let top = kstack_top(index);
     let rsp = build_thread_frame(top, &context, user_rsp);
+    let pass = virtual_now(&tasks);
 
     tasks[index] = Some(Task {
         name,
@@ -376,6 +543,10 @@ pub fn spawn_thread(
         kstack_top: top,
         rsp,
         state: TaskState::Runnable,
+        class,
+        weight,
+        pass,
+        cpu_ticks: 0,
         wake_reason: None,
         clear_child_tid,
         parent: 0,
@@ -411,9 +582,12 @@ pub fn spawn_fork() -> Result<usize, &'static str> {
     } else {
         (parent.pgid, parent.sid)
     };
+    // `fork` inherits the parent's scheduling class and weight, like Linux.
+    let (class, weight) = (parent.class, parent.weight);
     let (brk, mmap_next) = bump_for_pml4(pml4);
     let context = crate::arch::linux::user_context();
     let fds = clone_fds(&parent.fds);
+    let pass = virtual_now(&tasks);
 
     // `fork` is only valid inside a user address space: the kernel task's table
     // holds low-half bootloader mappings (framebuffer, boot data) that are not
@@ -440,6 +614,10 @@ pub fn spawn_fork() -> Result<usize, &'static str> {
         kstack_top: top,
         rsp,
         state: TaskState::Runnable,
+        class,
+        weight,
+        pass,
+        cpu_ticks: 0,
         wake_reason: None,
         clear_child_tid: 0,
         parent: parent_index,
@@ -694,10 +872,15 @@ pub(crate) fn block_task(index: usize, wait: WaitKind, deadline: Option<u64>) {
 /// task was actually blocked (a task that already timed out, or is `Done`, is
 /// left untouched so the scheduler never resurrects it).
 pub(crate) fn wake_task_with(index: usize, reason: WakeReason) -> bool {
-    if let Some(task) = TASKS.lock()[index].as_mut() {
+    let mut tasks = TASKS.lock();
+    // A task that slept while its peers ran rejoins at the current virtual
+    // time instead of being handed a burst of catch-up quanta (issue #58).
+    let now = virtual_now(&tasks);
+    if let Some(task) = tasks[index].as_mut() {
         if matches!(task.state, TaskState::Blocked { .. }) {
             task.state = TaskState::Runnable;
             task.wake_reason = Some(reason);
+            task.pass = task.pass.max(now);
             return true;
         }
     }
@@ -717,6 +900,95 @@ pub fn ticks() -> u64 {
     crate::arch::idt::TICKS.load(Ordering::Relaxed)
 }
 
+/// Set a task's scheduling class, resetting its weight to the class default.
+/// Returns whether the slot holds a task.
+///
+/// This is the native/Linux-neutral priority API used by the kernel and tools;
+/// Linux `nice`/`setpriority` are not routed here yet (see the module docs).
+#[allow(dead_code)] // tool/test API; callers arrive with the scheduler features
+pub fn set_priority(slot: usize, class: PriorityClass) -> bool {
+    let mut tasks = TASKS.lock();
+    match tasks.get_mut(slot).and_then(|task| task.as_mut()) {
+        Some(task) => {
+            task.class = class;
+            task.weight = class.default_weight();
+            true
+        }
+        None => false,
+    }
+}
+
+/// A task's scheduling class, or `None` for an empty or invalid slot.
+#[allow(dead_code)] // tool/test API; callers arrive with the scheduler features
+pub fn priority(slot: usize) -> Option<PriorityClass> {
+    TASKS.lock().get(slot)?.as_ref().map(|task| task.class)
+}
+
+/// Set a task's weight inside its class, clamped to
+/// [`MIN_WEIGHT`]..=[`MAX_WEIGHT`]. Returns whether the slot holds a task.
+#[allow(dead_code)] // tool/test API; callers arrive with the scheduler features
+pub fn set_weight(slot: usize, weight: u16) -> bool {
+    let mut tasks = TASKS.lock();
+    match tasks.get_mut(slot).and_then(|task| task.as_mut()) {
+        Some(task) => {
+            task.weight = weight.clamp(MIN_WEIGHT, MAX_WEIGHT);
+            true
+        }
+        None => false,
+    }
+}
+
+/// A task's weight, or `None` for an empty or invalid slot.
+#[allow(dead_code)] // tool/test API; callers arrive with the scheduler features
+pub fn weight(slot: usize) -> Option<u16> {
+    TASKS.lock().get(slot)?.as_ref().map(|task| task.weight)
+}
+
+/// One row of [`cpu_usage`]: a task's CPU accounting and scheduling class.
+#[allow(dead_code)] // tool/test API; callers arrive with the scheduler features
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CpuUsage {
+    pub slot: usize,
+    pub name: &'static str,
+    pub class: PriorityClass,
+    pub weight: u16,
+    pub state: TaskState,
+    /// CPU ticks (100 Hz) charged while this task was on the CPU.
+    pub ticks: u64,
+}
+
+/// Per-task CPU accounting, oldest slot first (the kernel task included).
+/// Feeds tools (`ps`, Task Manager) and future CPU quotas (issue #58).
+#[allow(dead_code)] // tool/test API; callers arrive with the scheduler features
+pub fn cpu_usage() -> Vec<CpuUsage> {
+    let tasks = TASKS.lock();
+    tasks
+        .iter()
+        .enumerate()
+        .filter_map(|(slot, task)| {
+            task.as_ref().map(|task| CpuUsage {
+                slot,
+                name: task.name,
+                class: task.class,
+                weight: task.weight,
+                state: task.state,
+                ticks: task.cpu_ticks,
+            })
+        })
+        .collect()
+}
+
+/// The CPU ticks charged to `slot` (0 for an empty or invalid slot).
+#[allow(dead_code)] // tool/test API; callers arrive with the scheduler features
+pub fn cpu_ticks(slot: usize) -> u64 {
+    TASKS
+        .lock()
+        .get(slot)
+        .and_then(|task| task.as_ref())
+        .map(|task| task.cpu_ticks)
+        .unwrap_or(0)
+}
+
 /// Park the current task until terminal input arrives.
 pub fn wait_terminal() -> WakeReason {
     wait::TERMINAL.wait(current(), None)
@@ -730,6 +1002,21 @@ pub fn wait_poll(deadline: Option<u64>) -> WakeReason {
 /// Park the current task until `deadline` (absolute PIT ticks) passes.
 pub fn wait_sleep(deadline: u64) -> WakeReason {
     wait::SLEEP.wait(current(), Some(deadline))
+}
+
+/// Park the current task until `deadline` (absolute PIT ticks), from a context
+/// with interrupts enabled: the multiplexer's between-frames idle primitive.
+///
+/// Unlike [`wait_sleep`] (called from syscalls that already run with
+/// interrupts disabled), this disables them around the register-then-park
+/// sequence itself and restores them before returning. Sleeping between
+/// frames is what bounds the mux's CPU share: an `Interactive` task that is
+/// only runnable one quantum in a handful cannot starve user work.
+pub fn idle(deadline: u64) -> WakeReason {
+    x86_64::instructions::interrupts::disable();
+    let reason = wait::SLEEP.wait(current(), Some(deadline));
+    x86_64::instructions::interrupts::enable();
+    reason
 }
 
 /// Park the current task until one of its children becomes reapable.
@@ -766,6 +1053,9 @@ pub extern "C" fn schedule(current_rsp: u64) -> u64 {
     let cur = CURRENT.load(Ordering::Relaxed);
     if let Some(task) = tasks[cur].as_mut() {
         task.rsp = current_rsp;
+        // Charge the tick to the task that consumed it, so `cpu_usage` reports
+        // real per-task CPU time even across ticks without a switch.
+        task.cpu_ticks = task.cpu_ticks.saturating_add(1);
     }
 
     // Time out waiters whose deadline has passed. Doing it here, on the
@@ -782,12 +1072,12 @@ pub extern "C" fn schedule(current_rsp: u64) -> u64 {
     // Safety: every `Task::rsp` is an interrupt frame saved by this ISR.
     let (sweep_finished, sweep_count) = unsafe { signal::sweep(&mut tasks) };
 
-    // Round-robin to the next runnable task. A task that is still blocked is
-    // never selected. `next_runnable` falls back to `cur` when nothing is
-    // runnable at all; the kernel task is always runnable, so that only covers
-    // the degenerate case where even the kernel is parked, and resuming `cur`
-    // there just re-enters its wait loop instead of stalling the CPU.
-    let next = next_runnable(&tasks, cur);
+    // Pick the highest class with a runnable task, then the fairest member
+    // within it. A task that is blocked or done is never selected.
+    // `select_next` falls back to `cur` when nothing is runnable at all;
+    // resuming `cur` there just re-enters its wait loop instead of stalling
+    // the CPU.
+    let next = select_next(&mut tasks, cur);
     if next == cur {
         drop(tasks);
         signal::finish_sweep(&sweep_finished[..sweep_count]);
@@ -816,6 +1106,9 @@ pub extern "C" fn schedule(current_rsp: u64) -> u64 {
 /// itself once it observes the reason, which keeps the queue and the task table
 /// updates on their respective locks in a fixed order.
 fn expire_deadlines(tasks: &mut [Option<Task>; MAX_TASKS], now: u64) {
+    // Waking sleepers rejoin at the current virtual time, like queue wakeups:
+    // a long sleep must not earn a burst of catch-up quanta (issue #58).
+    let now_pass = virtual_now(tasks);
     for task in tasks.iter_mut().flatten() {
         if let TaskState::Blocked {
             deadline: Some(deadline),
@@ -825,24 +1118,83 @@ fn expire_deadlines(tasks: &mut [Option<Task>; MAX_TASKS], now: u64) {
             if now >= deadline {
                 task.state = TaskState::Runnable;
                 task.wake_reason = Some(WakeReason::TimedOut);
+                task.pass = task.pass.max(now_pass);
             }
         }
     }
 }
 
-/// The first `Runnable` task after `cur` in round-robin order, or `cur` when
-/// no task is runnable at all.
-fn next_runnable(tasks: &[Option<Task>; MAX_TASKS], cur: usize) -> usize {
-    for step in 1..=MAX_TASKS {
-        let candidate = (cur + step) % MAX_TASKS;
-        if tasks[candidate]
-            .as_ref()
-            .is_some_and(|task| task.state == TaskState::Runnable)
-        {
-            return candidate;
+/// Whether `slot` is occupied and `Runnable` (blocked and done tasks are never
+/// selected).
+fn runnable(tasks: &[Option<Task>; MAX_TASKS], slot: usize) -> bool {
+    tasks[slot]
+        .as_ref()
+        .is_some_and(|task| task.state == TaskState::Runnable)
+}
+
+/// The runnable task the stride scheduler would pick: the highest occupied
+/// class, and inside it the smallest virtual pass. Ties (equal passes, e.g.
+/// freshly spawned tasks) break in round-robin order after `cur`, so
+/// equal-weight tasks rotate exactly like the old scheduler. Returns `None`
+/// when nothing can run.
+///
+/// The kernel task competes like any other task. It cannot starve user work
+/// because `mux::run` parks it with [`idle`] between frames: it is only
+/// `Runnable` for the one quantum it needs to repaint, not all the time.
+fn pick_next_best(tasks: &[Option<Task>; MAX_TASKS], cur: usize) -> Option<usize> {
+    for rank in (0..PriorityClass::ALL.len()).rev() {
+        let mut best: Option<(usize, u64)> = None;
+        for step in 1..=MAX_TASKS {
+            let slot = (cur + step) % MAX_TASKS;
+            let Some(task) = tasks[slot].as_ref() else {
+                continue;
+            };
+            if task.state != TaskState::Runnable || task.class.rank() as usize != rank {
+                continue;
+            }
+            if best.is_none_or(|(_, pass)| task.pass < pass) {
+                best = Some((slot, task.pass));
+            }
+        }
+        if let Some((slot, _)) = best {
+            return Some(slot);
         }
     }
-    cur
+    None
+}
+
+/// The scheduler's choice: [`pick_next_best`], or the interrupted task when
+/// nothing is runnable at all so it can re-enter its wait loop instead of
+/// stalling the CPU.
+fn pick_next(tasks: &[Option<Task>; MAX_TASKS], cur: usize) -> usize {
+    pick_next_best(tasks, cur).unwrap_or(cur)
+}
+
+/// [`pick_next`] plus stride accounting: the selected task pays one quantum
+/// (its stride) of virtual time. Only a runnable winner is charged, so a
+/// degenerate fallback to a parked `cur` does not advance its pass.
+fn select_next(tasks: &mut [Option<Task>; MAX_TASKS], cur: usize) -> usize {
+    let next = pick_next(tasks, cur);
+    if runnable(tasks, next) {
+        if let Some(task) = tasks[next].as_mut() {
+            task.pass = task.pass.saturating_add(stride(task.weight));
+        }
+        renormalize(tasks);
+    }
+    next
+}
+
+/// Shift every pass back by the table minimum once it reaches
+/// [`PASS_CEILING`]. Passes are only ever compared, so the shift is invisible
+/// to selection while keeping the virtual clock far from `u64` overflow.
+fn renormalize(tasks: &mut [Option<Task>; MAX_TASKS]) {
+    let min = min_pass(tasks);
+    if min < PASS_CEILING {
+        return;
+    }
+    for task in tasks.iter_mut().flatten() {
+        task.pass -= min;
+    }
 }
 
 /// Append output to the current process's terminal, dropping ANSI escape
@@ -1258,13 +1610,21 @@ pub fn snapshot(index: usize) -> Option<(&'static str, Vec<u8>, bool)> {
 /// the in-kernel suite drive task bookkeeping without a running scheduler.
 #[cfg(laZYOS_TESTS)]
 pub mod harness {
-    use super::{TaskState, WakeReason, TASKS};
+    use super::{select_next, PriorityClass, TaskState, WakeReason, KERNEL_TASK, TASKS};
 
-    /// Free every slot except the kernel task's.
+    /// Free every slot except the kernel task's and zero its scheduler
+    /// accounting, so tests do not inherit virtual-time or CPU ticks from an
+    /// earlier test.
     pub fn reset() {
         let mut tasks = TASKS.lock();
         for slot in tasks.iter_mut().skip(1) {
             *slot = None;
+        }
+        if let Some(task) = tasks[KERNEL_TASK].as_mut() {
+            task.pass = 0;
+            task.cpu_ticks = 0;
+            task.class = PriorityClass::Interactive;
+            task.weight = PriorityClass::Interactive.default_weight();
         }
     }
 
@@ -1286,10 +1646,26 @@ pub mod harness {
         TASKS.lock()[index].as_ref().map(|task| task.state)
     }
 
-    /// The slot the scheduler would pick next, without switching to it.
+    /// The slot the scheduler would pick next, without switching to it or
+    /// advancing any pass (a pure query, so it is deterministic).
     pub fn next_runnable() -> usize {
         let tasks = TASKS.lock();
-        super::next_runnable(&tasks, super::current())
+        super::pick_next(&tasks, super::current())
+    }
+
+    /// Run one scheduling decision exactly as a timer tick would, without a
+    /// context switch: charge the current task a CPU tick, run the stride
+    /// selection, point `current()` at the winner, and return it. Tests use
+    /// this to simulate N ticks in kernel time (issue #58).
+    pub fn simulate_tick() -> usize {
+        let mut tasks = TASKS.lock();
+        let cur = super::current();
+        if let Some(task) = tasks[cur].as_mut() {
+            task.cpu_ticks = task.cpu_ticks.saturating_add(1);
+        }
+        let next = select_next(&mut tasks, cur);
+        super::CURRENT.store(next, core::sync::atomic::Ordering::Relaxed);
+        next
     }
 
     /// Run the deadline sweep with an explicit `now`, as a timer tick would.
