@@ -1,6 +1,8 @@
-//! Memory management: physical frames, kernel paging, and the heap.
+//! Memory management: physical frames, kernel paging, the slab allocator, and
+//! the heap.
 
 mod heap;
+pub mod slab;
 pub mod vma;
 
 use bootloader_api::info::{MemoryRegionKind, Optional};
@@ -877,6 +879,9 @@ pub fn init(boot_info: &'static mut BootInfo) {
     }
     let boot = frames.stats();
     *FRAMES.lock() = Some(frames);
+    // The slab allocator needs only frames and the physical-memory mapping, so
+    // it is usable from this point on, before the heap below is mapped. Its
+    // oversized fallback is the only path that needs the heap.
     serial_println!(
         "mem: {} frames usable ({} MiB), {} reserved, {} free",
         boot.total,
