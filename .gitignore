@@ -13,6 +13,9 @@ shots/
 # Generated ABI conformance output (tools/abi); CI publishes it to the wiki
 docs/compat/
 
+# Generated kernel test report (tools/test)
+docs/test/
+
 # Python bytecode caches (tools)
 __pycache__/
 *.pyc

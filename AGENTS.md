@@ -119,6 +119,26 @@ It writes `docs/compat/matrix.md` (+ `compat.json`). CI
 coverage to the wiki, and comments them on PRs. See `tools/abi/README.md` and the
 wiki **Linux ABI Plan**.
 
+## Kernel test harness
+
+The in-kernel unit/soak suite (issue #62) runs instead of the normal boot when
+the image is built with `LAZYOS_TESTS=1`, and prints one machine-parseable line
+per test over serial (`TEST:<name>:PASS|FAIL:<detail>`, ending with
+`TEST:SUMMARY:PASS=<n> FAIL=<n>`). One command builds, boots headless, parses
+and reports:
+
+```bash
+python tools/test/run.py                 # build + run; writes docs/test/report.md
+python tools/test/run.py --accel none    # CI-style deterministic run
+python tools/test/run.py --no-build      # re-run the current image
+```
+
+The runner exits non-zero on any failure, a missing summary, or a stale
+non-test image. Normal boots are unaffected: without `LAZYOS_TESTS=1` the suite
+is not compiled. Test-only hooks live behind `cfg(laZYOS_TESTS)`; add new tests
+to `kernel/src/tests.rs` (`mem_suite` is where allocator-specific tests go). CI
+is `.github/workflows/kernel-tests.yml`; see `tools/test/README.md`.
+
 ## Project conventions
 
 - The OS is `no_std`; target `x86_64-unknown-none`; built via the root crate's
@@ -133,4 +153,5 @@ wiki **Linux ABI Plan**.
 ```bash
 python tools/screenshot/qemu_shot.py --out shots --at 2,5,10 --image <img>
 python tools/screenshot/pngstats.py shots/*.png --min-nonblack 0.01
+python tools/test/run.py --accel none
 ```

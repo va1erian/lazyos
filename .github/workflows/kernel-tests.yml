@@ -1,0 +1,57 @@
+name: kernel-tests
+
+# In-kernel unit/soak suite (issue #62): build the kernel with `LAZYOS_TESTS=1`,
+# boot it headless in QEMU, and classify the `TEST:` lines printed over serial.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kernel-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  kernel-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install QEMU
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-x86
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      # rust-toolchain.toml pins the nightly toolchain and target; rustup
+      # installs it on first use.
+      - name: Run the kernel test harness
+        run: python tools/test/run.py --accel none --out shots/kernel-tests
+
+      - name: Append report to the job summary
+        if: always()
+        shell: bash
+        run: |
+          if [ -f docs/test/report.md ]; then
+            cat docs/test/report.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "no report was generated" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload kernel test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-test-report
+          path: |
+            docs/test/**
+            shots/kernel-tests/**
+          if-no-files-found: warn

@@ -864,3 +864,27 @@ pub fn snapshot(index: usize) -> Option<(&'static str, Vec<u8>, bool)> {
         .as_ref()
         .map(|task| (task.name, task.output.clone(), task.done))
 }
+
+/// Test-harness hooks (issue #62), compiled only with `LAZYOS_TESTS=1`. They let
+/// the in-kernel suite drive task bookkeeping without a running scheduler.
+#[cfg(laZYOS_TESTS)]
+pub mod harness {
+    use super::TASKS;
+
+    /// Free every slot except the kernel task's.
+    pub fn reset() {
+        let mut tasks = TASKS.lock();
+        for slot in tasks.iter_mut().skip(1) {
+            *slot = None;
+        }
+    }
+
+    /// Mark `index` finished, as if it had called `exit`.
+    pub fn finish(index: usize, code: u64) {
+        if let Some(task) = TASKS.lock()[index].as_mut() {
+            task.done = true;
+            task.blocked = false;
+            task.exit_status = code;
+        }
+    }
+}
