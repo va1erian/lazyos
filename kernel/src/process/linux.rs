@@ -11,7 +11,8 @@ use x86_64::PhysAddr;
 use xmas_elf::program::Type as ProgramType;
 use xmas_elf::ElfFile;
 
-use super::{load_segments, map_range, page_phys};
+use super::{load_segments, map_range_kind, page_phys};
+use crate::mem::vma::{Kind, Prot};
 use crate::task::{self, Fd, FdKind};
 
 // User memory layout for Linux tasks (kept clear of code and each other).
@@ -198,7 +199,13 @@ const MAP_ANONYMOUS: u64 = 0x20;
 /// `(entry, stack_pointer)`.
 pub fn load(table: PhysAddr, elf_bytes: &[u8], argv0: &str) -> Result<(u64, u64), &'static str> {
     let entry = load_segments(table, elf_bytes)?;
-    let stack = map_range(table, STACK_TOP - STACK_SIZE, STACK_TOP)?;
+    let stack = map_range_kind(
+        table,
+        STACK_TOP - STACK_SIZE,
+        STACK_TOP,
+        Prot::READ | Prot::WRITE,
+        Kind::Stack,
+    )?;
 
     let phdr = program_header_addr(elf_bytes);
     let (phent, phnum) = phdr_size(elf_bytes);
@@ -367,8 +374,8 @@ extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
         7 => sys_poll(a1, a2, a3),  // poll
         8 => sys_lseek(a1, a2, a3), // lseek
         9 => sys_mmap(a1, a2, a3, a4),
-        10 => 0, // mprotect (ignore)
-        11 => 0, // munmap (ignore)
+        10 => sys_mprotect(a1, a2, a3),
+        11 => sys_munmap(a1, a2),
         12 => sys_brk(a1),
         13 | 14 | 131 => 0, // rt_sigaction/procmask, sigaltstack
         16 => sys_ioctl(a1, a2, a3),
@@ -542,9 +549,18 @@ fn key_to_byte(key: crate::input::keyboard::Key) -> u8 {
     }
 }
 
+/// `mmap(addr, len, prot, flags)`: anonymous private memory only.
+///
+/// The range is recorded as an `Anon` VMA and populated lazily (demand-zero):
+/// no frames are spent until a page is first touched, which matches Linux for
+/// a buffer that is allocated and never (fully) used. `MAP_FIXED` replaces
+/// whatever was mapped there before, VMAs and page tables alike.
 fn sys_mmap(addr: u64, len: u64, prot: u64, flags: u64) -> u64 {
     if flags & MAP_ANONYMOUS == 0 {
         return err(ENODEV); // file-backed mmap not supported yet
+    }
+    if len == 0 {
+        return err(EINVAL);
     }
     let len = align_up(len, PAGE);
     let base = if flags & MAP_FIXED != 0 {
@@ -552,23 +568,71 @@ fn sys_mmap(addr: u64, len: u64, prot: u64, flags: u64) -> u64 {
     } else {
         task::mmap_next().max(MMAP_BASE)
     };
-    let end = base + len;
+    let Some(end) = base.checked_add(len) else {
+        return err(ENOMEM);
+    };
     if end > MMAP_LIMIT {
         return err(ENOMEM);
     }
+    let prot = Prot((prot & 0x7) as u8);
     let table = crate::mem::kernel_table();
-    match map_range(table, base, end) {
-        Ok(_) => {
-            if flags & MAP_FIXED == 0 {
-                task::set_mmap_next(end);
-            }
-            let _ = prot;
-            base
-        }
-        Err(_) => err(ENOMEM),
+    if flags & MAP_FIXED != 0 {
+        crate::mem::vma::remove(table, base, end);
+        crate::mem::unmap_range(table, base, end);
     }
+    crate::mem::vma::insert(table, base, end, prot, Kind::Anon);
+    if flags & MAP_FIXED == 0 {
+        task::set_mmap_next(end);
+    }
+    base
 }
 
+/// `munmap(addr, len)`: drop the VMAs and release any resident pages. Linux
+/// accepts unmapping an unmapped range, so this always returns 0 for valid
+/// arguments. COW frames only lose this address space's reference.
+fn sys_munmap(addr: u64, len: u64) -> u64 {
+    if len == 0 {
+        return err(EINVAL);
+    }
+    let start = addr & !0xFFF;
+    let Some(end) = addr.checked_add(len).map(|end| align_up(end, PAGE)) else {
+        return err(EINVAL);
+    };
+    let table = crate::mem::kernel_table();
+    let removed = crate::mem::vma::remove(table, start, end);
+    if !removed.is_empty() {
+        crate::mem::unmap_range(table, start, end);
+    }
+    0
+}
+
+/// `mprotect(addr, len, prot)`: update the PTE flags for resident pages and
+/// the VMA for the whole range, so pages faulted in later honor the new access
+/// too. Resident COW pages are privatized first (their protection is per
+/// address space). A range with no VMA is a no-op: the old shim ignored it, and
+/// we have no signal to deliver an ENOMEM against anyway.
+fn sys_mprotect(addr: u64, len: u64, prot: u64) -> u64 {
+    if len == 0 {
+        return err(EINVAL);
+    }
+    let start = addr & !0xFFF;
+    let Some(end) = addr.checked_add(len).map(|end| align_up(end, PAGE)) else {
+        return err(EINVAL);
+    };
+    let prot = Prot((prot & 0x7) as u8);
+    let table = crate::mem::kernel_table();
+    if crate::mem::vma::find_range(table, start, end).is_empty() {
+        return 0;
+    }
+    if !crate::mem::protect_range(table, start, end, prot) {
+        return err(ENOMEM);
+    }
+    crate::mem::vma::protect(table, start, end, prot);
+    0
+}
+
+/// `brk(addr)`: move the heap break. Growth records a `Heap` VMA and defers
+/// the frames to first touch; shrinking unmaps what lies above the new break.
 fn sys_brk(addr: u64) -> u64 {
     let current = task::brk();
     if addr == 0 || addr < BRK_BASE {
@@ -578,11 +642,12 @@ fn sys_brk(addr: u64) -> u64 {
     if new > BRK_LIMIT {
         return current;
     }
+    let table = crate::mem::kernel_table();
     if new > current {
-        let table = crate::mem::kernel_table();
-        if map_range(table, current, new).is_err() {
-            return current;
-        }
+        crate::mem::vma::insert(table, current, new, Prot::READ | Prot::WRITE, Kind::Heap);
+    } else if new < current {
+        crate::mem::vma::remove(table, new, current);
+        crate::mem::unmap_range(table, new, current);
     }
     task::set_brk(new);
     new
@@ -1163,7 +1228,13 @@ fn sys_execve(path_ptr: u64, argv_ptr: u64, envp_ptr: u64) -> u64 {
         Ok(entry) => entry,
         Err(_) => return err(ENOEXEC),
     };
-    let stack = match map_range(table, STACK_TOP - STACK_SIZE, STACK_TOP) {
+    let stack = match map_range_kind(
+        table,
+        STACK_TOP - STACK_SIZE,
+        STACK_TOP,
+        Prot::READ | Prot::WRITE,
+        Kind::Stack,
+    ) {
         Ok(stack) => stack,
         Err(_) => return err(ENOMEM),
     };

@@ -136,12 +136,20 @@ extern "x86-interrupt" fn page_fault_handler(
     error: PageFaultErrorCode,
 ) {
     let addr = Cr2::read();
-    // A write to a copy-on-write user page is resolved by taking a private copy.
-    if error.contains(PageFaultErrorCode::CAUSED_BY_WRITE) {
-        if let Ok(fault) = addr {
-            if crate::mem::cow_fault(crate::mem::kernel_table(), fault.as_u64()) {
-                return;
-            }
+    if let Ok(fault) = addr {
+        let table = crate::mem::kernel_table();
+        // A write to a present copy-on-write user page takes a private copy.
+        // This must come first: such a page is present, so the demand-zero
+        // path below would never apply to it.
+        if error.contains(PageFaultErrorCode::CAUSED_BY_WRITE)
+            && crate::mem::cow_fault(table, fault.as_u64())
+        {
+            return;
+        }
+        // A not-present page inside an Anon/Heap VMA is demand-zero memory:
+        // materialize it (if the VMA permits this access) and resume.
+        if crate::mem::demand_fault(table, fault.as_u64(), error) {
+            return;
         }
     }
     serial_println!(

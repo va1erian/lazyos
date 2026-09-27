@@ -7,11 +7,11 @@
 use alloc::vec::Vec;
 use core::arch::global_asm;
 use x86_64::structures::idt::HandlerFunc;
-use x86_64::structures::paging::PageTableFlags;
 use x86_64::{PhysAddr, VirtAddr};
 use xmas_elf::program::{SegmentData, Type as ProgramType};
 use xmas_elf::ElfFile;
 
+use crate::mem::vma::{Kind, Prot};
 use crate::task;
 use crate::{fs, input::keyboard, mem};
 
@@ -23,11 +23,6 @@ pub const USER_HEAP_BASE: u64 = 0x60_0000;
 pub const USER_STACK_TOP: u64 = 0x80_0000;
 /// User stack size.
 pub const USER_STACK_SIZE: u64 = 0x2_0000;
-
-/// Page flags for user-accessible mappings.
-fn user_flags() -> PageTableFlags {
-    PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::USER_ACCESSIBLE
-}
 
 /// Saved general-purpose registers, laid out to match the syscall stub's pushes.
 #[repr(C)]
@@ -152,26 +147,35 @@ fn sys_read_file(name_ptr: u64, buf_ptr: u64, buf_len: u64) -> u64 {
 }
 
 /// syscall 4: grow this task's heap; returns the previous break or `u64::MAX`.
+///
+/// The new range is recorded as a `Heap` VMA and populated on first touch
+/// (demand-zero), so a large `sbrk` costs no frames until the program uses
+/// them. Shrinking releases the pages under the new break.
 fn sys_sbrk(increment: u64) -> u64 {
     let current = task::heap_break();
     if increment == 0 {
         return current;
     }
     let page = 4096u64;
-    let new_break = (current + increment + page - 1) & !(page - 1);
+    let Some(target) = current.checked_add(increment) else {
+        return u64::MAX;
+    };
+    let new_break = (target + page - 1) & !(page - 1);
     if new_break > USER_STACK_TOP - USER_STACK_SIZE {
         return u64::MAX;
     }
-    let mut va = current;
-    while va < new_break {
-        let Some(phys) = mem::alloc_zeroed_frame() else {
-            return u64::MAX;
-        };
-        // The active page table is this task's, so map_page targets it.
-        if !mem::map_page(VirtAddr::new(va), phys, user_flags()) {
-            return u64::MAX;
-        }
-        va += page;
+    let table = mem::kernel_table();
+    if new_break > current {
+        mem::vma::insert(
+            table,
+            current,
+            new_break,
+            Prot::READ | Prot::WRITE,
+            Kind::Heap,
+        );
+    } else if new_break < current {
+        mem::vma::remove(table, new_break, current);
+        mem::unmap_range(table, new_break, current);
     }
     task::set_heap_break(new_break);
     current
@@ -189,6 +193,12 @@ fn exit(_code: u32) -> ! {
 }
 
 /// Map a program's `PT_LOAD` segments into `table` and return its entry point.
+///
+/// Segments are mapped eagerly (their contents must exist before the program
+/// runs) with the protection the ELF header asks for: read always, write only
+/// for `PF_W`, execute only for `PF_X`. Each segment is recorded as a `File`
+/// VMA so `munmap`/`mprotect` and diagnostics see the same layout the hardware
+/// does.
 pub fn load_segments(table: PhysAddr, elf_bytes: &[u8]) -> Result<u64, &'static str> {
     let elf = ElfFile::new(elf_bytes).map_err(|_| "not a valid ELF")?;
     let entry = elf.header.pt2.entry_point();
@@ -203,11 +213,20 @@ pub fn load_segments(table: PhysAddr, elf_bytes: &[u8]) -> Result<u64, &'static 
         let start = vaddr & !0xFFF;
         let end = (vaddr + mem_size + 0xFFF) & !0xFFF;
 
+        let flags = program_header.flags();
+        let mut prot = Prot::READ;
+        if flags.is_write() {
+            prot = prot | Prot::WRITE;
+        }
+        if flags.is_execute() {
+            prot = prot | Prot::EXEC;
+        }
+
         let mut va = start;
         while va < end {
             if phys_for(&pages, va).is_none() {
                 let phys = mem::alloc_zeroed_frame().ok_or("out of memory")?;
-                if !mem::map_page_in(table, VirtAddr::new(va), phys, user_flags()) {
+                if !mem::map_page_in(table, VirtAddr::new(va), phys, mem::prot_flags(prot)) {
                     return Err("failed to map segment");
                 }
                 pages.push((va, phys.as_u64()));
@@ -228,6 +247,8 @@ pub fn load_segments(table: PhysAddr, elf_bytes: &[u8]) -> Result<u64, &'static 
                 }
             }
         }
+
+        mem::vma::insert(table, start, end, prot, Kind::File);
     }
 
     Ok(entry)
@@ -236,23 +257,44 @@ pub fn load_segments(table: PhysAddr, elf_bytes: &[u8]) -> Result<u64, &'static 
 /// Load a static ELF64 image and map the native user stack.
 pub fn load_image(table: PhysAddr, elf_bytes: &[u8]) -> Result<u64, &'static str> {
     let entry = load_segments(table, elf_bytes)?;
-    map_range(table, USER_STACK_TOP - USER_STACK_SIZE, USER_STACK_TOP)?;
+    map_range_kind(
+        table,
+        USER_STACK_TOP - USER_STACK_SIZE,
+        USER_STACK_TOP,
+        Prot::READ | Prot::WRITE,
+        Kind::Stack,
+    )?;
     Ok(entry)
 }
 
-/// Map `[start, end)` as zeroed user pages into `table`, returning the
-/// `(page_vaddr, phys)` pairs so callers can populate them.
+/// Map `[start, end)` as zeroed anonymous user pages into `table` (eager), for
+/// callers that must have the pages present immediately. Linux `mmap`/`brk`
+/// prefer the lazy VMA path; the kernel test suite uses this to build scratch
+/// address spaces.
+#[allow(dead_code)]
 pub fn map_range(table: PhysAddr, start: u64, end: u64) -> Result<Vec<(u64, u64)>, &'static str> {
+    map_range_kind(table, start, end, Prot::READ | Prot::WRITE, Kind::Anon)
+}
+
+/// [`map_range`] with an explicit protection and VMA kind.
+pub fn map_range_kind(
+    table: PhysAddr,
+    start: u64,
+    end: u64,
+    prot: Prot,
+    kind: Kind,
+) -> Result<Vec<(u64, u64)>, &'static str> {
     let mut pages = Vec::new();
     let mut va = start & !0xFFF;
     while va < end {
         let phys = mem::alloc_zeroed_frame().ok_or("out of memory")?;
-        if !mem::map_page_in(table, VirtAddr::new(va), phys, user_flags()) {
+        if !mem::map_page_in(table, VirtAddr::new(va), phys, mem::prot_flags(prot)) {
             return Err("failed to map user page");
         }
         pages.push((va, phys.as_u64()));
         va += 4096;
     }
+    mem::vma::insert(table, start, end, prot, kind);
     Ok(pages)
 }
 
