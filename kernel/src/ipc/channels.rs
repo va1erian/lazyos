@@ -255,6 +255,8 @@ pub struct Stats {
     pub calls: u64,
     /// Replies delivered.
     pub replies: u64,
+    /// One-way messages accepted (sent minus calls, from the sender meters).
+    pub one_way: u64,
     /// Transactions that hit their deadline.
     pub timeouts: u64,
     /// Transactions canceled by their caller.
@@ -267,6 +269,15 @@ pub struct Stats {
     pub queued_bytes: u64,
     /// Transactions currently awaiting a reply.
     pub outstanding: u64,
+}
+
+/// Live registry sizes, for the fabric snapshot (issue #70).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Counts {
+    /// Live channels in the registry.
+    pub channels: u64,
+    /// Live endpoints (two per channel until both sides close).
+    pub endpoints: u64,
 }
 
 /// Per-sender metering on one channel (section 6's anti-flood accounting).
@@ -1010,6 +1021,13 @@ fn accumulate(stats: &mut Stats, channel: &Channel) {
     stats.timeouts += channel.timeouts;
     stats.cancels += channel.cancels;
     stats.drops += channel.drops;
+    // Every accepted message is metered as `sent`; a synchronous call also
+    // meters `calls`, so the remainder is exactly the one-way traffic.
+    stats.one_way += channel
+        .senders
+        .iter()
+        .map(|meter| meter.sent.saturating_sub(meter.calls))
+        .sum::<u64>();
     for endpoint in &channel.endpoints {
         stats.queued += endpoint.inbox.len() as u64;
         stats.queued_bytes += endpoint.queued_bytes as u64;
@@ -1019,6 +1037,15 @@ fn accumulate(stats: &mut Stats, channel: &Channel) {
         .iter()
         .filter(|txn| txn.state == TxnState::Pending)
         .count() as u64;
+}
+
+/// Live channel and endpoint counts for the fabric snapshot (issue #70).
+pub fn counts() -> Counts {
+    let channels = CHANNELS.lock();
+    Counts {
+        channels: channels.len() as u64,
+        endpoints: channels.len() as u64 * 2,
+    }
 }
 
 /// Aggregated counters and depths across every live channel.

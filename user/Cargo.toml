@@ -25,3 +25,9 @@ name = "sh"
 path = "src/bin/sh.rs"
 test = false
 bench = false
+
+[[bin]]
+name = "messengerctl"
+path = "src/bin/messengerctl.rs"
+test = false
+bench = false

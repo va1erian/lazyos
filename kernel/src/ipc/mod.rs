@@ -6,7 +6,9 @@
 //! and synchronous transactions; the shared buffers and fences that make
 //! handoff copy-free (issue #67); and the security core: kernel-stamped
 //! credentials, the default-deny ACL hook, and the hash-chained audit ring
-//! (issue #68). Syscalls land in later issues.
+//! (issue #68). The native syscall surface lives in [`syscalls`], and [`stats`]
+//! aggregates every subsystem into the versioned observability snapshot
+//! (issue #70).
 
 pub mod acl;
 pub mod audit;
@@ -14,6 +16,7 @@ pub mod channels;
 pub mod credentials;
 pub mod handles;
 pub mod shared;
+pub mod stats;
 pub mod syscalls;
 
 /// The fabric's single policy choke point (issue #68).
