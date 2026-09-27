@@ -14,8 +14,12 @@ use x86_64::PhysAddr;
 use crate::arch::gdt;
 use crate::input::keyboard::Key;
 use crate::mem;
-use crate::process;
+// `process` in this module is the process tree (`task::process`); the ELF
+// loader and syscall shim live in `crate::process`, aliased here to keep the
+// two apart.
+use crate::process as user_process;
 
+pub mod process;
 pub mod switch;
 pub mod wait;
 
@@ -150,6 +154,10 @@ pub struct Task {
     pub clear_child_tid: u64,
     /// Slot of the parent process (0 = none: kernel and threads).
     pub parent: usize,
+    /// Process group id: the pid of the group leader (see [`process`]).
+    pub pgid: usize,
+    /// Session id: the pid of the session leader (see [`process`]).
+    pub sid: usize,
     /// Exit status, valid once `done`.
     pub exit_status: u64,
     /// Native `sbrk` heap break.
@@ -232,6 +240,8 @@ pub fn register_kernel() {
         wake_reason: None,
         clear_child_tid: 0,
         parent: 0,
+        pgid: KERNEL_TASK,
+        sid: KERNEL_TASK,
         exit_status: 0,
         heap_break: 0,
         fs_base: 0,
@@ -248,7 +258,7 @@ pub fn spawn(name: &'static str, elf: &[u8]) -> Result<usize, &'static str> {
         .ok_or("no free task slot")?;
 
     let pml4 = mem::new_user_table().ok_or("out of memory")?;
-    let entry = match process::load_image(pml4, elf) {
+    let entry = match user_process::load_image(pml4, elf) {
         Ok(entry) => entry,
         Err(err) => {
             // A partially loaded image still owns its frames: release them.
@@ -258,7 +268,7 @@ pub fn spawn(name: &'static str, elf: &[u8]) -> Result<usize, &'static str> {
     };
 
     let top = kstack_top(index);
-    let rsp = build_user_frame(top, entry, process::USER_STACK_TOP - 16);
+    let rsp = build_user_frame(top, entry, user_process::USER_STACK_TOP - 16);
 
     tasks[index] = Some(Task {
         name,
@@ -270,8 +280,12 @@ pub fn spawn(name: &'static str, elf: &[u8]) -> Result<usize, &'static str> {
         wake_reason: None,
         clear_child_tid: 0,
         parent: 0,
+        // A program started by the kernel/init leads its own group and session
+        // (pid == pgid == sid), exactly like `init` starting a service.
+        pgid: index,
+        sid: index,
         exit_status: 0,
-        heap_break: process::USER_HEAP_BASE,
+        heap_break: user_process::USER_HEAP_BASE,
         fs_base: 0,
         fds: new_fds(),
         output: Vec::new(),
@@ -288,7 +302,7 @@ pub fn spawn_linux(name: &'static str, elf: &[u8], argv0: &str) -> Result<usize,
         .ok_or("no free task slot")?;
 
     let pml4 = mem::new_user_table().ok_or("out of memory")?;
-    let (entry, stack_top) = match process::linux::load(pml4, elf, argv0) {
+    let (entry, stack_top) = match user_process::linux::load(pml4, elf, argv0) {
         Ok(loaded) => loaded,
         Err(err) => {
             // A partially loaded image still owns its frames: release them.
@@ -310,6 +324,9 @@ pub fn spawn_linux(name: &'static str, elf: &[u8], argv0: &str) -> Result<usize,
         wake_reason: None,
         clear_child_tid: 0,
         parent: 0,
+        // Top-level Linux programs are their own group and session leader.
+        pgid: index,
+        sid: index,
         exit_status: 0,
         heap_break: 0,
         fs_base: 0,
@@ -319,8 +336,8 @@ pub fn spawn_linux(name: &'static str, elf: &[u8], argv0: &str) -> Result<usize,
     });
     register_bumps(
         pml4.as_u64(),
-        process::linux::BRK_BASE,
-        process::linux::MMAP_BASE,
+        user_process::linux::BRK_BASE,
+        user_process::linux::MMAP_BASE,
     );
     Ok(index)
 }
@@ -342,6 +359,9 @@ pub fn spawn_thread(
         .ok_or("no free task slot")?;
     let parent = tasks[current()].as_ref().ok_or("no parent task")?;
     let pml4 = parent.pml4;
+    // A thread stays in its process's group and session (#59: threads do not
+    // get a new one), so only a process can create a group or session.
+    let (pgid, sid) = (parent.pgid, parent.sid);
     let context = crate::arch::linux::user_context();
 
     let top = kstack_top(index);
@@ -357,6 +377,8 @@ pub fn spawn_thread(
         wake_reason: None,
         clear_child_tid,
         parent: 0,
+        pgid,
+        sid,
         exit_status: 0,
         heap_break: 0,
         fs_base,
@@ -379,6 +401,14 @@ pub fn spawn_fork() -> Result<usize, &'static str> {
     let parent = tasks[parent_index].as_ref().ok_or("no parent task")?;
     let pml4 = parent.pml4;
     let fs_base = parent.fs_base;
+    // `fork` inherits the parent's process group and session. Forking *from
+    // the kernel task* (only the test harness does) starts a fresh leader:
+    // init has no session of its own to hand down.
+    let (pgid, sid) = if parent_index == KERNEL_TASK {
+        (index, index)
+    } else {
+        (parent.pgid, parent.sid)
+    };
     let (brk, mmap_next) = bump_for_pml4(pml4);
     let context = crate::arch::linux::user_context();
     let fds = clone_fds(&parent.fds);
@@ -406,6 +436,8 @@ pub fn spawn_fork() -> Result<usize, &'static str> {
         wake_reason: None,
         clear_child_tid: 0,
         parent: parent_index,
+        pgid,
+        sid,
         exit_status: 0,
         heap_break: 0,
         fs_base,
@@ -481,21 +513,26 @@ pub fn current() -> usize {
     CURRENT.load(Ordering::Relaxed)
 }
 
-/// Mark the current task finished with an exit status.
+/// Mark the current task finished with an exit status and re-parent its
+/// children to the kernel/init task (see [`process::finish`]).
 pub fn finish_current(code: u64) {
-    {
-        let mut tasks = TASKS.lock();
-        if let Some(task) = tasks[current()].as_mut() {
-            task.state = TaskState::Done;
-            task.wake_reason = None;
-            task.exit_status = code;
-        }
-    }
-    NEEDS_REDRAW.store(true, Ordering::Relaxed);
-    // A parent parked in `wait4` must learn about the exit now, not on the next
-    // tick. Notify after releasing the task table: notify takes the queue lock
-    // and then the task table, and the reverse order would deadlock.
-    wait::CHILD_EXIT.notify_all();
+    process::finish(current(), code);
+}
+
+/// The current task's process group id.
+pub fn pgid() -> usize {
+    process::pgid_of(current())
+}
+
+/// The current task's parent pid (0 = the kernel/init task).
+pub fn ppid() -> usize {
+    process::ppid_of(current())
+}
+
+/// Terminate every task in process group `pgid` (issue #59; real signal
+/// delivery is #60).
+pub fn kill_group(pgid: usize) -> usize {
+    process::kill_group(pgid)
 }
 
 /// Whether the current task has any children.
@@ -1158,17 +1195,17 @@ pub mod harness {
         }
     }
 
-    /// Mark `index` finished, as if it had called `exit`.
+    /// Mark `index` finished, as if it had called `exit` (re-parenting its
+    /// children, like the real path).
     pub fn finish(index: usize, code: u64) {
-        {
-            let mut tasks = TASKS.lock();
-            if let Some(task) = tasks[index].as_mut() {
-                task.state = TaskState::Done;
-                task.wake_reason = None;
-                task.exit_status = code;
-            }
-        }
-        super::wait::CHILD_EXIT.notify_all();
+        super::process::finish(index, code);
+    }
+
+    /// Point `current()` at `slot` without a context switch. The tests build
+    /// multi-level process trees with `spawn_fork`, which forks the current
+    /// task.
+    pub fn switch_current(slot: usize) {
+        super::CURRENT.store(slot, core::sync::atomic::Ordering::Relaxed);
     }
 
     /// The state of task `index`.
