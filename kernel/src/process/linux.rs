@@ -216,17 +216,22 @@ extern "C" fn linux_dispatch(
         21 => sys_access(a1),               // access(path, mode)
         28 => 0,                            // madvise
         32 | 33 => sys_dup(nr, a1, a2),     // dup / dup2
+        35 => sys_nanosleep(a1),            // nanosleep(req, rem)
         39 | 186 => task::current() as u64, // getpid/gettid (kernel task 0 is PID 0)
         60 | 231 => sys_exit(),
         63 => sys_uname(a1),
         72 => sys_fcntl(a1, a2), // fcntl
         79 => sys_getcwd(a1, a2),
-        89 => err(EINVAL), // readlink (no links yet)
+        89 => err(EINVAL),          // readlink (no links yet)
+        96 => sys_gettimeofday(a1), // gettimeofday(tv, tz)
+        157 => 0,                   // prctl (accept)
         158 => sys_arch_prctl(a1, a2),
         204 => sys_sched_getaffinity(a2, a3),
         217 => 0,                      // getdents64 (empty for now)
         218 => task::current() as u64, // set_tid_address
         228 => sys_clock_gettime(a1, a2),
+        229 => sys_clock_getres(a2),
+        230 => sys_nanosleep(a3), // clock_nanosleep(clockid, flags, req, rem)
         257 => sys_openat(a1, a2, a3), // openat
         262 => sys_newfstatat(a1, a2, a3, a4),
         273 => 0, // set_robust_list
@@ -418,16 +423,68 @@ fn sys_getcwd(buf: u64, size: u64) -> u64 {
     buf
 }
 
+/// Fixed realtime epoch (2026-01-01T00:00:00Z); the PIT provides monotonicity.
+const REALTIME_BASE: u64 = 1_767_225_600;
+
+/// Monotonic tick count from the PIT (100 Hz).
+fn now_ticks() -> u64 {
+    crate::arch::idt::TICKS.load(core::sync::atomic::Ordering::Relaxed)
+}
+
 fn sys_clock_gettime(clock: u64, out: u64) -> u64 {
-    let ticks = crate::arch::idt::TICKS.load(core::sync::atomic::Ordering::Relaxed);
-    let sec = (ticks / 100) as i64;
-    let nsec = ((ticks % 100) * 10_000_000) as i64;
-    let _ = clock;
-    // struct timespec { i64 tv_sec; i64 tv_nsec; }
-    // Safety: user buffer.
+    // CLOCK_MONOTONIC(1) counts from boot; everything else is anchored to epoch.
+    let ticks = now_ticks();
+    let seconds = if clock == 1 {
+        ticks / 100
+    } else {
+        REALTIME_BASE + ticks / 100
+    };
+    write_timespec(out, seconds, (ticks % 100) * 10_000_000);
+    0
+}
+
+fn write_timespec(out: u64, sec: u64, nsec: u64) {
+    // Safety: user buffer holds a `struct timespec`.
     unsafe {
-        core::ptr::write_volatile(out as *mut i64, sec);
-        core::ptr::write_volatile((out + 8) as *mut i64, nsec);
+        core::ptr::write_volatile(out as *mut i64, sec as i64);
+        core::ptr::write_volatile((out + 8) as *mut i64, nsec as i64);
+    }
+}
+
+fn sys_clock_getres(out: u64) -> u64 {
+    // 100 Hz PIT => 10 ms resolution.
+    write_timespec(out, 0, 10_000_000);
+    0
+}
+
+fn sys_gettimeofday(tv: u64) -> u64 {
+    let ticks = now_ticks();
+    // Safety: user buffer holds a `struct timeval`.
+    unsafe {
+        core::ptr::write_volatile(tv as *mut i64, (REALTIME_BASE + ticks / 100) as i64);
+        core::ptr::write_volatile((tv + 8) as *mut i64, ((ticks % 100) * 10_000) as i64);
+    }
+    0
+}
+
+/// Sleep for the `struct timespec` duration at `req` (nanosleep/clock_nanosleep).
+fn sys_nanosleep(req: u64) -> u64 {
+    // Safety: user buffer holds a `struct timespec`.
+    let (sec, nsec) = unsafe {
+        (
+            core::ptr::read_volatile(req as *const i64),
+            core::ptr::read_volatile((req + 8) as *const i64),
+        )
+    };
+    if sec < 0 || nsec < 0 {
+        return err(EINVAL);
+    }
+    let millis = sec as u64 * 1000 + (nsec as u64).div_ceil(1_000_000);
+    // 100 Hz timer: round up to whole ticks, at least one so time advances.
+    let target = now_ticks() + millis.div_ceil(10).max(1);
+    while now_ticks() < target {
+        x86_64::instructions::interrupts::enable();
+        x86_64::instructions::hlt();
     }
     0
 }
