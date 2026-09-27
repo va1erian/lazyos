@@ -16,8 +16,21 @@ pub fn init() {
     let mut idt = InterruptDescriptorTable::new();
     idt.divide_error.set_handler_fn(divide_error_handler);
     idt.breakpoint.set_handler_fn(breakpoint_handler);
+    idt.invalid_opcode.set_handler_fn(invalid_opcode_handler);
+    idt.device_not_available
+        .set_handler_fn(device_not_available_handler);
     idt.general_protection_fault
         .set_handler_fn(general_protection_fault_handler);
+    idt.stack_segment_fault
+        .set_handler_fn(stack_segment_fault_handler);
+    idt.segment_not_present
+        .set_handler_fn(segment_not_present_handler);
+    idt.invalid_tss.set_handler_fn(invalid_tss_handler);
+    idt.x87_floating_point
+        .set_handler_fn(x87_floating_point_handler);
+    idt.simd_floating_point
+        .set_handler_fn(simd_floating_point_handler);
+    idt.alignment_check.set_handler_fn(alignment_check_handler);
     idt.page_fault.set_handler_fn(page_fault_handler);
     unsafe {
         idt.double_fault
@@ -55,6 +68,58 @@ extern "x86-interrupt" fn divide_error_handler(stack: InterruptStackFrame) {
 
 extern "x86-interrupt" fn breakpoint_handler(stack: InterruptStackFrame) {
     serial_println!("EXCEPTION: breakpoint\n{:#?}", stack);
+}
+
+extern "x86-interrupt" fn invalid_opcode_handler(stack: InterruptStackFrame) {
+    serial_println!("EXCEPTION: invalid opcode\n{:#?}", stack);
+    crate::halt();
+}
+
+extern "x86-interrupt" fn device_not_available_handler(stack: InterruptStackFrame) {
+    serial_println!("EXCEPTION: device not available\n{:#?}", stack);
+    crate::halt();
+}
+
+extern "x86-interrupt" fn stack_segment_fault_handler(stack: InterruptStackFrame, error: u64) {
+    serial_println!(
+        "EXCEPTION: stack segment fault (error {:#x})\n{:#?}",
+        error,
+        stack
+    );
+    crate::halt();
+}
+
+extern "x86-interrupt" fn segment_not_present_handler(stack: InterruptStackFrame, error: u64) {
+    serial_println!(
+        "EXCEPTION: segment not present (error {:#x})\n{:#?}",
+        error,
+        stack
+    );
+    crate::halt();
+}
+
+extern "x86-interrupt" fn invalid_tss_handler(stack: InterruptStackFrame, error: u64) {
+    serial_println!("EXCEPTION: invalid TSS (error {:#x})\n{:#?}", error, stack);
+    crate::halt();
+}
+
+extern "x86-interrupt" fn x87_floating_point_handler(stack: InterruptStackFrame) {
+    serial_println!("EXCEPTION: x87 floating point\n{:#?}", stack);
+    crate::halt();
+}
+
+extern "x86-interrupt" fn simd_floating_point_handler(stack: InterruptStackFrame) {
+    serial_println!("EXCEPTION: SIMD floating point\n{:#?}", stack);
+    crate::halt();
+}
+
+extern "x86-interrupt" fn alignment_check_handler(stack: InterruptStackFrame, error: u64) {
+    serial_println!(
+        "EXCEPTION: alignment check (error {:#x})\n{:#?}",
+        error,
+        stack
+    );
+    crate::halt();
 }
 
 extern "x86-interrupt" fn general_protection_fault_handler(stack: InterruptStackFrame, error: u64) {

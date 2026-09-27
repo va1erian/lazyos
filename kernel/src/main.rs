@@ -81,8 +81,12 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     // Register the kernel (multiplexer) task and spawn the demo programs, or —
     // for the ABI conformance bench — the single injected Linux fixture.
     task::register_kernel();
-    if fs::exists("INIT.ELF") {
-        serial_println!("ABI:INIT:SKIP:no-linux-task");
+    if let Some(bytes) = fs::read("INIT.ELF") {
+        serial_println!("ABI:INIT:START");
+        match task::spawn_linux("init", &bytes) {
+            Ok(index) => serial_println!("LazyOS: spawned init as task {index}"),
+            Err(err) => serial_println!("ABI:INIT:FAIL:{err}"),
+        }
     } else {
         spawn_program("hello", "HELLO.ELF");
         spawn_program("sh", "SH.ELF");

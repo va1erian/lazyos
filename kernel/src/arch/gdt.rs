@@ -39,8 +39,10 @@ pub fn init() {
         let gdt = &mut *addr_of!(GDT).cast_mut();
         let kcode = gdt.append(Descriptor::kernel_code_segment());
         let kdata = gdt.append(Descriptor::kernel_data_segment());
-        let ucode = gdt.append(Descriptor::user_code_segment());
+        // Order matters for `sysret`: it loads CS = base+16 and SS = base+8, so
+        // user data (0x18) must precede user code (0x20) with base 0x10.
         let udata = gdt.append(Descriptor::user_data_segment());
+        let ucode = gdt.append(Descriptor::user_code_segment());
         let tss_selector = gdt.append(Descriptor::tss_segment(&*addr_of!(TSS)));
 
         let gdt: &'static GlobalDescriptorTable = &*addr_of!(GDT);
