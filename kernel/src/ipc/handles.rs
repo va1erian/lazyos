@@ -174,6 +174,33 @@ pub fn get(handle: u64) -> Result<HandleEntry, Error> {
     with_table(|table| table.entry(handle))?
 }
 
+/// Copy out an entry from a specific task slot's table.
+///
+/// Kernel-side only: the name registry uses it to record the endpoint a task
+/// published (`messengerd` forwards a client's handle number with the client's
+/// slot). Userspace still cannot name another process's handles.
+pub fn get_for_task(slot: usize, handle: u64) -> Result<HandleEntry, Error> {
+    let mut tables = TABLES.lock();
+    let table = tables.get_mut(slot).ok_or(Error::BadTask)?;
+    table.entry(handle)
+}
+
+/// Open a handle in a specific task slot's table.
+///
+/// This is the counterpart of [`get_for_task`]: `registry::resolve` opens the
+/// discovered endpoint in the *receiving* task's table, which is the caller for
+/// a direct resolve and the requesting client for the `messengerd` proxy.
+pub fn open_for_task(
+    slot: usize,
+    kind: HandleKind,
+    rights: u32,
+    object_id: u64,
+) -> Result<u64, Error> {
+    let mut tables = TABLES.lock();
+    let table = tables.get_mut(slot).ok_or(Error::BadTask)?;
+    table.open(kind, rights, object_id)
+}
+
 /// The rights of `handle`, if it exists.
 pub fn rights(handle: u64) -> Option<u32> {
     get(handle).ok().map(|entry| entry.rights)

@@ -100,6 +100,12 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         Ok(()) => serial_println!("msg: bootstrap channel ready"),
         Err(error) => serial_println!("msg: bootstrap channel failed: {error}"),
     }
+    // Issue #89: publish the bootstrap listener under the registry's
+    // well-known name, so any task can resolve the daemon endpoint.
+    match ipc::syscalls::bootstrap::publish("os.lazy.messenger.registry") {
+        Ok(()) => serial_println!("msg: registry name os.lazy.messenger.registry published"),
+        Err(error) => serial_println!("msg: registry name publish failed: {error}"),
+    }
     if let Some(bytes) = fs::read("BUSYBOX") {
         serial_println!("LazyOS: launching busybox sh");
         match task::spawn_linux("sh", &bytes, "sh") {
@@ -113,6 +119,13 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
             Err(err) => serial_println!("ABI:INIT:FAIL:{err}"),
         }
     } else {
+        // Issue #89: `LAZYOS_MESSENGERD=1` starts the registry daemon before
+        // the demo programs. It claims the bootstrap channel and serves name
+        // requests for the life of the system. The on-disk name is 8.3-safe
+        // (`MSGRD.ELF`: the kernel's FAT reader has no long-name support).
+        #[cfg(messengerd_service)]
+        spawn_program("messengerd", "MSGRD.ELF");
+
         // `LAZYOS_MESSENGERCTL=1` swaps the hello window for the fabric
         // snapshot tool (issue #70); the default demo is unchanged. The file
         // name is 8.3: the kernel FAT reader has no long-name support.
