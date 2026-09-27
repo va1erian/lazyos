@@ -19,6 +19,8 @@ mod gfx;
 #[allow(dead_code)]
 mod gfxlib;
 mod input;
+#[allow(dead_code)] // kernel-side fabric; syscalls and channels land in #66/#69.
+mod ipc;
 mod mem;
 mod mux;
 mod process;
