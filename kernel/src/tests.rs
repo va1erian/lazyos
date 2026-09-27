@@ -82,6 +82,18 @@ const SUITE: &[(&str, Test)] = &[
         "task_wait_queue_blocked_not_scheduled",
         task_suite::wait_queue_blocked_not_scheduled,
     ),
+    ("task_process_tree_fork", task_suite::process_tree_fork),
+    ("task_pgid_sid_inherit", task_suite::pgid_sid_inherit),
+    ("task_setsid_new_session", task_suite::setsid_new_session),
+    ("task_reparent_on_death", task_suite::reparent_on_death),
+    (
+        "task_kill_group_terminates",
+        task_suite::kill_group_terminates,
+    ),
+    (
+        "task_process_list_snapshot",
+        task_suite::process_list_snapshot,
+    ),
     ("ipc_open_distinct", ipc_suite::open_distinct),
     ("ipc_duplicate_rights", ipc_suite::duplicate_rights),
     ("ipc_close_frees", ipc_suite::close_frees),
@@ -765,6 +777,7 @@ mod heap_suite {
 
 mod task_suite {
     use super::*;
+    use crate::task::process::GroupError;
 
     /// Registering the kernel task sets the current slot and snapshot fields.
     pub fn kernel_registered() -> Result<(), String> {
@@ -1037,6 +1050,382 @@ mod task_suite {
         check!(task::reap_child().is_some(), "child was not reapable");
         task::harness::reset();
         Ok(())
+    }
+
+    /// Build `depth` nested `spawn_fork` children (`spawn_fork` forks the
+    /// current task, so the harness points `current()` at each new child) and
+    /// return their slots from root to leaf. Leaves `current()` at the leaf.
+    fn fork_chain(depth: usize) -> Result<Vec<usize>, String> {
+        task::harness::reset();
+        task::harness::switch_current(task::KERNEL_TASK);
+        let mut chain = Vec::new();
+        for level in 0..depth {
+            let slot = task::spawn_fork().map_err(|error| format!("level {level}: {error}"))?;
+            chain.push(slot);
+            task::harness::switch_current(slot);
+        }
+        Ok(chain)
+    }
+
+    /// Mark `slots` finished leaf-first (so each death re-parents its children)
+    /// and reap every one of them as init, then reset the table.
+    fn finish_and_reap_all(slots: &[usize]) -> Result<(), String> {
+        for &slot in slots.iter().rev() {
+            task::harness::finish(slot, 0);
+        }
+        task::harness::switch_current(task::KERNEL_TASK);
+        let mut reaped = 0;
+        while task::reap_child().is_some() {
+            reaped += 1;
+        }
+        check!(
+            reaped == slots.len(),
+            "reaped {reaped} of {} finished tasks",
+            slots.len()
+        );
+        task::harness::reset();
+        Ok(())
+    }
+
+    /// `spawn_fork` chains form a tree: parent links, children derivation and
+    /// the introspection rows all agree.
+    pub fn process_tree_fork() -> Result<(), String> {
+        let chain = fork_chain(3)?;
+        task::harness::switch_current(task::KERNEL_TASK);
+        let (root, child, leaf) = (chain[0], chain[1], chain[2]);
+
+        check!(
+            task::process::ppid_of(root) == 0,
+            "root ppid is {}, expected init",
+            task::process::ppid_of(root)
+        );
+        check!(
+            task::process::ppid_of(child) == root,
+            "child ppid is {}, expected {root}",
+            task::process::ppid_of(child)
+        );
+        check!(
+            task::process::ppid_of(leaf) == child,
+            "leaf ppid is {}, expected {child}",
+            task::process::ppid_of(leaf)
+        );
+        check!(
+            task::process::children_of(task::KERNEL_TASK) == [root],
+            "init children are {:?}, expected [{root}]",
+            task::process::children_of(task::KERNEL_TASK)
+        );
+        check!(
+            task::process::children_of(root) == [child],
+            "root children are {:?}, expected [{child}]",
+            task::process::children_of(root)
+        );
+        check!(
+            task::process::children_of(leaf).is_empty(),
+            "leaf unexpectedly has children: {:?}",
+            task::process::children_of(leaf)
+        );
+        check!(
+            task::process::find_by_pid(child) == Some(child),
+            "find_by_pid({child}) missed the live child"
+        );
+
+        // The same tree, seen through the introspection API.
+        let list = task::process::process_list();
+        check!(
+            list.len() == 4,
+            "process_list has {} rows, expected 4",
+            list.len()
+        );
+        let row = list
+            .iter()
+            .find(|row| row.pid == leaf)
+            .ok_or("leaf missing from process_list")?;
+        check!(
+            row.slot == leaf
+                && row.ppid == child
+                && row.pgid == root
+                && row.sid == root
+                && row.uid == 0
+                && row.state == task::TaskState::Runnable
+                && row.name == "fork",
+            "leaf row is {row:?}"
+        );
+        finish_and_reap_all(&chain)
+    }
+
+    /// `fork` inherits the parent's pgid/sid; a non-leader child can form its
+    /// own group, and the group/session errors match Linux.
+    pub fn pgid_sid_inherit() -> Result<(), String> {
+        let chain = fork_chain(3)?;
+        task::harness::switch_current(task::KERNEL_TASK);
+        let (root, child, leaf) = (chain[0], chain[1], chain[2]);
+
+        check!(
+            task::process::pgid_of(root) == root && task::process::sid_of(root) == root,
+            "root is not its own leader (pgid {}, sid {})",
+            task::process::pgid_of(root),
+            task::process::sid_of(root)
+        );
+        for slot in [child, leaf] {
+            check!(
+                task::process::pgid_of(slot) == root && task::process::sid_of(slot) == root,
+                "slot {slot} did not inherit the root group/session (pgid {}, sid {})",
+                task::process::pgid_of(slot),
+                task::process::sid_of(slot)
+            );
+        }
+
+        // A child (not a session leader) can form a new group in the session.
+        task::process::setpgid(root, child as i64, child as i64)
+            .map_err(|error| format!("setpgid(child, child): {error:?}"))?;
+        check!(
+            task::process::pgid_of(child) == child,
+            "child pgid is {}, expected {child}",
+            task::process::pgid_of(child)
+        );
+        check!(
+            task::process::sid_of(child) == root,
+            "forming a group changed the session: {}",
+            task::process::sid_of(child)
+        );
+
+        // Setting the group the target is already in is a successful no-op.
+        task::process::setpgid(child, 0, 0).map_err(|error| format!("setpgid(0, 0): {error:?}"))?;
+        check!(
+            task::process::pgid_of(child) == child,
+            "idempotent setpgid moved the child"
+        );
+
+        // A session leader cannot leave its group; a non-child cannot be moved;
+        // a group outside the session does not exist; a negative pgid is EINVAL.
+        check!(
+            task::process::setpgid(root, root as i64, child as i64)
+                == Err(GroupError::NotPermitted),
+            "moved a session leader into another group"
+        );
+        check!(
+            task::process::setpgid(child, root as i64, root as i64)
+                == Err(GroupError::NotPermitted),
+            "moved a process that is not the caller or its child"
+        );
+        check!(
+            task::process::setpgid(root, child as i64, 9999) == Err(GroupError::NoSuchProcess),
+            "joined a group that does not exist in the session"
+        );
+        check!(
+            task::process::setpgid(child, 0, -1) == Err(GroupError::Invalid),
+            "a negative pgid was accepted"
+        );
+        finish_and_reap_all(&chain)
+    }
+
+    /// `setsid` moves a non-leader into a fresh session and is `EPERM` for a
+    /// group leader (so it cannot be called twice).
+    pub fn setsid_new_session() -> Result<(), String> {
+        let chain = fork_chain(2)?;
+        task::harness::switch_current(task::KERNEL_TASK);
+        let (root, child) = (chain[0], chain[1]);
+
+        // Already a group leader: Linux returns EPERM and changes nothing.
+        check!(
+            task::process::setsid(root) == Err(GroupError::NotPermitted),
+            "setsid succeeded for a group leader"
+        );
+        check!(
+            task::process::sid_of(root) == root,
+            "a failed setsid changed the sid"
+        );
+
+        check!(
+            task::process::setsid(child) == Ok(child),
+            "setsid did not return the new sid {child}"
+        );
+        check!(
+            task::process::sid_of(child) == child,
+            "child sid is {}, expected {child}",
+            task::process::sid_of(child)
+        );
+        check!(
+            task::process::pgid_of(child) == child,
+            "child pgid is {}, expected {child}",
+            task::process::pgid_of(child)
+        );
+        check!(
+            task::process::sid_of(root) == root,
+            "the parent session changed"
+        );
+
+        // The new leader cannot call setsid again.
+        check!(
+            task::process::setsid(child) == Err(GroupError::NotPermitted),
+            "setsid succeeded twice"
+        );
+        finish_and_reap_all(&chain)
+    }
+
+    /// A dying task's children are adopted by the kernel/init task, and only
+    /// the old parent can reap the corpse.
+    pub fn reparent_on_death() -> Result<(), String> {
+        let chain = fork_chain(3)?;
+        task::harness::switch_current(task::KERNEL_TASK);
+        let (root, child, leaf) = (chain[0], chain[1], chain[2]);
+        check!(
+            task::process::ppid_of(leaf) == child,
+            "leaf ppid is {}, expected {child}",
+            task::process::ppid_of(leaf)
+        );
+
+        check!(
+            task::process::finish(child, 42),
+            "finish(child) was a no-op"
+        );
+        check!(
+            task::harness::state(child) == Some(task::TaskState::Done),
+            "finished child is not Done"
+        );
+        check!(
+            task::process::ppid_of(leaf) == 0,
+            "orphan ppid is {}, expected init",
+            task::process::ppid_of(leaf)
+        );
+        check!(
+            task::process::children_of(task::KERNEL_TASK).contains(&leaf),
+            "init's children do not include the orphan: {:?}",
+            task::process::children_of(task::KERNEL_TASK)
+        );
+
+        // The live grandparent reaps the corpse, but not the adopted orphan:
+        // that one is init's to collect.
+        task::harness::switch_current(root);
+        let (slot, status) = task::reap_child().ok_or("root could not reap its child")?;
+        check!(
+            slot == child && status == 42,
+            "reaped slot {slot} with status {status}, expected {child}/42"
+        );
+        check!(
+            task::reap_child().is_none(),
+            "root reaped a task that is not its child"
+        );
+        task::harness::switch_current(task::KERNEL_TASK);
+
+        check!(task::process::finish(leaf, 0), "finish(leaf) was a no-op");
+        check!(task::process::finish(root, 0), "finish(root) was a no-op");
+        let mut reaped = 0;
+        while task::reap_child().is_some() {
+            reaped += 1;
+        }
+        check!(reaped == 2, "init reaped {reaped} orphans, expected 2");
+        task::harness::reset();
+        Ok(())
+    }
+
+    /// `kill_group` marks every member `Done` (including blocked ones, which a
+    /// later wake must not resurrect), spares init and other groups, and makes
+    /// the corpses reapable by init.
+    pub fn kill_group_terminates() -> Result<(), String> {
+        let chain = fork_chain(3)?;
+        task::harness::switch_current(task::KERNEL_TASK);
+        let (root, child, leaf) = (chain[0], chain[1], chain[2]);
+
+        // A sibling in its own group must survive the kill.
+        task::harness::switch_current(root);
+        let outsider = task::spawn_fork().map_err(|error| format!("outsider: {error}"))?;
+        task::harness::switch_current(task::KERNEL_TASK);
+        task::process::setpgid(root, outsider as i64, outsider as i64)
+            .map_err(|error| format!("setpgid(outsider): {error:?}"))?;
+        check!(
+            task::process::pgid_of(outsider) == outsider,
+            "outsider did not leave the group"
+        );
+
+        // Park a member first: a killed sleeper must stay Done (#57).
+        let queue = task::wait::WaitQueue::new(task::WaitKind::Sleep);
+        queue.park(child, None);
+
+        let killed = task::kill_group(root);
+        check!(killed == 3, "kill_group killed {killed}, expected 3");
+        for slot in [root, child, leaf] {
+            check!(
+                task::harness::state(slot) == Some(task::TaskState::Done),
+                "group member {slot} survived: {:?}",
+                task::harness::state(slot)
+            );
+        }
+        check!(
+            task::harness::state(outsider) == Some(task::TaskState::Runnable),
+            "outsider was killed with the group"
+        );
+        check!(
+            queue.notify_one() == 0,
+            "a killed waiter was woken back to Runnable"
+        );
+        check!(
+            task::harness::state(child) == Some(task::TaskState::Done),
+            "a killed waiter was resurrected"
+        );
+
+        // init is exempt: only init terminates itself.
+        check!(
+            task::kill_group(task::KERNEL_TASK) == 0,
+            "kill_group(0) killed init"
+        );
+        check!(
+            task::harness::state(task::KERNEL_TASK) == Some(task::TaskState::Runnable),
+            "init is no longer runnable"
+        );
+
+        // Every corpse was adopted by init: all four tasks are reapable there.
+        task::harness::finish(outsider, 0);
+        let mut reaped = 0;
+        while task::reap_child().is_some() {
+            reaped += 1;
+        }
+        check!(reaped == 4, "init reaped {reaped}, expected 4");
+        task::harness::reset();
+        Ok(())
+    }
+
+    /// `process_list` reports the kernel as pid 0 and every live task with its
+    /// tree/group/session ids.
+    pub fn process_list_snapshot() -> Result<(), String> {
+        let chain = fork_chain(2)?;
+        task::harness::switch_current(task::KERNEL_TASK);
+        let (root, child) = (chain[0], chain[1]);
+
+        let list = task::process::process_list();
+        check!(
+            list.len() == 3,
+            "process_list has {} rows, expected 3 (init + 2)",
+            list.len()
+        );
+        let init = list
+            .iter()
+            .find(|row| row.pid == 0)
+            .ok_or("init is not listed")?;
+        check!(
+            init.slot == task::KERNEL_TASK
+                && init.ppid == 0
+                && init.pgid == 0
+                && init.sid == 0
+                && init.uid == 0
+                && init.state == task::TaskState::Runnable
+                && init.name == "kernel",
+            "init row is {init:?}"
+        );
+        let row = list
+            .iter()
+            .find(|row| row.pid == child)
+            .ok_or("forked child is not listed")?;
+        check!(
+            row.slot == child
+                && row.ppid == root
+                && row.pgid == root
+                && row.sid == root
+                && row.state == task::TaskState::Runnable
+                && row.name == "fork",
+            "child row is {row:?}"
+        );
+        finish_and_reap_all(&chain)
     }
 }
 
