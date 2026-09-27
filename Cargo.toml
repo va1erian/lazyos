@@ -6,7 +6,7 @@ description = "A small single-tasking x86_64 OS with a bitmap-font console"
 license = "MIT OR Apache-2.0"
 
 [workspace]
-members = ["kernel", "font-atlas", "user"]
+members = ["kernel", "font-atlas", "user", "libs/messenger"]
 resolver = "2"
 
 [build-dependencies]

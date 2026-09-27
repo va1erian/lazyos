@@ -8,6 +8,7 @@ license = "MIT OR Apache-2.0"
 [dependencies]
 bootloader_api = "0.11.17"
 libm = "0.2"
+libmessenger = { path = "../libs/messenger" }
 linked_list_allocator = "0.10"
 spin = "0.9"
 tiny-skia = { version = "0.12", default-features = false, features = ["no-std-float"] }
