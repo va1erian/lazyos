@@ -3,15 +3,17 @@
 //! This module owns the kernel-side objects the Messenger fabric is built on:
 //! the per-process handle table that gives every object reference an
 //! unforgeable, rights-carrying name; the channels that carry one-way messages
-//! and synchronous transactions; and the security core: kernel-stamped
+//! and synchronous transactions; the shared buffers and fences that make
+//! handoff copy-free (issue #67); and the security core: kernel-stamped
 //! credentials, the default-deny ACL hook, and the hash-chained audit ring
-//! (issue #68). Syscalls and shared buffers land in later issues.
+//! (issue #68). Syscalls land in later issues.
 
 pub mod acl;
 pub mod audit;
 pub mod channels;
 pub mod credentials;
 pub mod handles;
+pub mod shared;
 
 /// The fabric's single policy choke point (issue #68).
 ///
