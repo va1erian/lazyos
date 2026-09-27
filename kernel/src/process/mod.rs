@@ -15,6 +15,8 @@ use xmas_elf::ElfFile;
 use crate::task;
 use crate::{fs, input::keyboard, mem};
 
+pub mod linux;
+
 /// Base of the user heap (grows up toward the stack).
 pub const USER_HEAP_BASE: u64 = 0x60_0000;
 /// Top of the user stack (grows down).
@@ -186,10 +188,8 @@ fn exit(_code: u32) -> ! {
     }
 }
 
-/// Load a static ELF64 image into the address space `table`, returning its
-/// entry point. Segments are mapped once (they can share pages) and populated
-/// from the file; a user stack is mapped below `USER_STACK_TOP`.
-pub fn load_image(table: PhysAddr, elf_bytes: &[u8]) -> Result<u64, &'static str> {
+/// Map a program's `PT_LOAD` segments into `table` and return its entry point.
+pub fn load_segments(table: PhysAddr, elf_bytes: &[u8]) -> Result<u64, &'static str> {
     let elf = ElfFile::new(elf_bytes).map_err(|_| "not a valid ELF")?;
     let entry = elf.header.pt2.entry_point();
 
@@ -230,16 +230,35 @@ pub fn load_image(table: PhysAddr, elf_bytes: &[u8]) -> Result<u64, &'static str
         }
     }
 
-    let mut va = USER_STACK_TOP - USER_STACK_SIZE;
-    while va < USER_STACK_TOP {
-        let phys = mem::alloc_zeroed_frame().ok_or("out of memory (stack)")?;
+    Ok(entry)
+}
+
+/// Load a static ELF64 image and map the native user stack.
+pub fn load_image(table: PhysAddr, elf_bytes: &[u8]) -> Result<u64, &'static str> {
+    let entry = load_segments(table, elf_bytes)?;
+    map_range(table, USER_STACK_TOP - USER_STACK_SIZE, USER_STACK_TOP)?;
+    Ok(entry)
+}
+
+/// Map `[start, end)` as zeroed user pages into `table`, returning the
+/// `(page_vaddr, phys)` pairs so callers can populate them.
+pub fn map_range(table: PhysAddr, start: u64, end: u64) -> Result<Vec<(u64, u64)>, &'static str> {
+    let mut pages = Vec::new();
+    let mut va = start & !0xFFF;
+    while va < end {
+        let phys = mem::alloc_zeroed_frame().ok_or("out of memory")?;
         if !mem::map_page_in(table, VirtAddr::new(va), phys, user_flags()) {
-            return Err("failed to map stack");
+            return Err("failed to map user page");
         }
+        pages.push((va, phys.as_u64()));
         va += 4096;
     }
+    Ok(pages)
+}
 
-    Ok(entry)
+/// Physical frame backing a page recorded by [`map_range`].
+pub fn page_phys(pages: &[(u64, u64)], va: u64) -> Option<u64> {
+    phys_for(pages, va)
 }
 
 fn phys_for(mappings: &[(u64, u64)], va: u64) -> Option<u64> {

@@ -36,13 +36,31 @@ pub static NEEDS_REDRAW: AtomicBool = AtomicBool::new(true);
 /// True once the scheduler is running (changes how `exit` behaves).
 static SCHEDULING: AtomicBool = AtomicBool::new(false);
 
+/// Which syscall ABI a task uses.
+#[derive(Clone, Copy, PartialEq)]
+pub enum Kind {
+    /// LazyOS native `int 0x80` programs.
+    Native,
+    /// Linux `syscall`/`sysret` binaries.
+    Linux,
+}
+
 pub struct Task {
     pub name: &'static str,
+    #[allow(dead_code)] // Kept for per-kind behaviour as the shim grows.
+    pub kind: Kind,
     pub pml4: u64,
     pub kstack_top: u64,
     pub rsp: u64,
     pub done: bool,
+    /// Native `sbrk` heap break.
     pub heap_break: u64,
+    /// Linux `brk` program break.
+    pub brk: u64,
+    /// Linux anonymous `mmap` bump pointer.
+    pub mmap_next: u64,
+    /// Linux thread pointer (`%fs` base).
+    pub fs_base: u64,
     pub output: Vec<u8>,
     pub input: VecDeque<Key>,
 }
@@ -60,11 +78,15 @@ pub fn register_kernel() {
     let mut tasks = TASKS.lock();
     tasks[KERNEL_TASK] = Some(Task {
         name: "kernel",
+        kind: Kind::Native,
         pml4: mem::kernel_table().as_u64(),
         kstack_top: 0,
         rsp: 0,
         done: false,
         heap_break: 0,
+        brk: 0,
+        mmap_next: 0,
+        fs_base: 0,
         output: Vec::new(),
         input: VecDeque::new(),
     });
@@ -80,15 +102,49 @@ pub fn spawn(name: &'static str, elf: &[u8]) -> Result<usize, &'static str> {
     let entry = process::load_image(pml4, elf)?;
 
     let top = kstack_top(index);
-    let rsp = build_user_frame(top, entry);
+    let rsp = build_user_frame(top, entry, process::USER_STACK_TOP - 16);
 
     tasks[index] = Some(Task {
         name,
+        kind: Kind::Native,
         pml4: pml4.as_u64(),
         kstack_top: top,
         rsp,
         done: false,
         heap_break: process::USER_HEAP_BASE,
+        brk: process::USER_HEAP_BASE,
+        mmap_next: 0,
+        fs_base: 0,
+        output: Vec::new(),
+        input: VecDeque::new(),
+    });
+    Ok(index)
+}
+
+/// Create a Linux task from a static ELF image. Returns its slot index.
+pub fn spawn_linux(name: &'static str, elf: &[u8]) -> Result<usize, &'static str> {
+    let mut tasks = TASKS.lock();
+    let index = (1..MAX_TASKS)
+        .find(|&i| tasks[i].is_none())
+        .ok_or("no free task slot")?;
+
+    let pml4 = mem::new_user_table().ok_or("out of memory")?;
+    let (entry, stack_top) = process::linux::load(pml4, elf)?;
+
+    let top = kstack_top(index);
+    let rsp = build_user_frame(top, entry, stack_top);
+
+    tasks[index] = Some(Task {
+        name,
+        kind: Kind::Linux,
+        pml4: pml4.as_u64(),
+        kstack_top: top,
+        rsp,
+        done: false,
+        heap_break: 0,
+        brk: process::linux::BRK_BASE,
+        mmap_next: process::linux::MMAP_BASE,
+        fs_base: 0,
         output: Vec::new(),
         input: VecDeque::new(),
     });
@@ -99,7 +155,7 @@ pub fn spawn(name: &'static str, elf: &[u8]) -> Result<usize, &'static str> {
 ///
 /// Layout (low to high) matches `timer_isr`'s pop order: 15 general registers,
 /// then RIP, CS, RFLAGS, RSP, SS.
-fn build_user_frame(kstack_top: u64, entry: u64) -> u64 {
+fn build_user_frame(kstack_top: u64, entry: u64, user_rsp: u64) -> u64 {
     let selectors = gdt::selectors();
     let base = kstack_top - FRAME_WORDS * 8;
     // Safety: writing within this task's kernel stack.
@@ -111,7 +167,7 @@ fn build_user_frame(kstack_top: u64, entry: u64) -> u64 {
         core::ptr::write_volatile(frame.add(15), entry); // RIP
         core::ptr::write_volatile(frame.add(16), selectors.user_code as u64); // CS
         core::ptr::write_volatile(frame.add(17), 0x202); // RFLAGS (IF set)
-        core::ptr::write_volatile(frame.add(18), process::USER_STACK_TOP - 16); // RSP
+        core::ptr::write_volatile(frame.add(18), user_rsp); // RSP
         core::ptr::write_volatile(frame.add(19), selectors.user_data as u64); // SS
     }
     base
@@ -170,14 +226,17 @@ pub extern "C" fn schedule(current_rsp: u64) -> u64 {
 
     CURRENT.store(next, Ordering::Relaxed);
     let task = tasks[next].as_ref().unwrap();
-    let (pml4, kstack_top, rsp) = (task.pml4, task.kstack_top, task.rsp);
+    let (pml4, kstack_top, rsp, fs_base) = (task.pml4, task.kstack_top, task.rsp, task.fs_base);
     drop(tasks);
 
     // Switch address space and the ring0 stack used for the next user trap.
     mem::switch_to(PhysAddr::new(pml4));
     if kstack_top != 0 {
         gdt::set_kernel_stack(kstack_top);
+        crate::arch::linux::set_kernel_stack(kstack_top);
     }
+    // Restore this task's user thread pointer.
+    crate::arch::msr::write(crate::arch::msr::IA32_FS_BASE, fs_base);
     rsp
 }
 
@@ -247,6 +306,41 @@ pub fn set_heap_break(value: u64) {
     if let Some(task) = tasks[current()].as_mut() {
         task.heap_break = value;
     }
+}
+
+/// The current task's Linux `brk` break.
+pub fn brk() -> u64 {
+    TASKS.lock()[current()].as_ref().map(|t| t.brk).unwrap_or(0)
+}
+
+/// Set the current task's Linux `brk` break.
+pub fn set_brk(value: u64) {
+    if let Some(task) = TASKS.lock()[current()].as_mut() {
+        task.brk = value;
+    }
+}
+
+/// The current task's anonymous `mmap` bump pointer.
+pub fn mmap_next() -> u64 {
+    TASKS.lock()[current()]
+        .as_ref()
+        .map(|t| t.mmap_next)
+        .unwrap_or(0)
+}
+
+/// Set the current task's anonymous `mmap` bump pointer.
+pub fn set_mmap_next(value: u64) {
+    if let Some(task) = TASKS.lock()[current()].as_mut() {
+        task.mmap_next = value;
+    }
+}
+
+/// Set the current task's user thread pointer (`%fs` base), programming the CPU.
+pub fn set_fs_base(value: u64) {
+    if let Some(task) = TASKS.lock()[current()].as_mut() {
+        task.fs_base = value;
+    }
+    crate::arch::msr::write(crate::arch::msr::IA32_FS_BASE, value);
 }
 
 /// Snapshot of a task's name, output and done flag, for rendering.
