@@ -159,6 +159,64 @@ pub fn switch_to(table: PhysAddr) {
     }
 }
 
+/// Deep-copy the user half (PML4 entry 0) of `parent` into a fresh address
+/// space, used by `fork`. Returns the new PML4. All user VAs live below 512 GiB,
+/// so a single PML4 entry covers them; the kernel's higher-half entries are
+/// shared by `new_user_table`.
+pub fn clone_user_table(parent: PhysAddr) -> Option<PhysAddr> {
+    let child = new_user_table()?;
+    let offset = physical_offset();
+    // Safety: both tables and every cloned frame are memory we own.
+    unsafe {
+        let src = table_mut(offset, parent);
+        let dst = table_mut(offset, child);
+        if !src[0].is_unused() {
+            let flags = src[0].flags();
+            let sub = clone_level(offset, src[0].addr(), 3)?;
+            dst[0].set_addr(PhysAddr::new(sub), flags);
+        }
+    }
+    Some(child)
+}
+
+/// Borrow a page table frame we own.
+///
+/// # Safety
+/// `phys` must be a page-table frame and `offset` the physical-memory offset.
+unsafe fn table_mut(_offset: VirtAddr, phys: PhysAddr) -> &'static mut PageTable {
+    &mut *phys_to_virt(phys).as_mut_ptr::<PageTable>()
+}
+
+/// Recursively copy `level` (4=PML4 .. 1=PT); at the leaf, copy the 4 KiB frame.
+///
+/// # Safety
+/// `src_phys` must be a page table of `level`.
+unsafe fn clone_level(offset: VirtAddr, src_phys: PhysAddr, level: u8) -> Option<u64> {
+    let new_phys = alloc_zeroed_frame()?;
+    let src = table_mut(offset, src_phys);
+    let dst = table_mut(offset, new_phys);
+    for i in 0..512 {
+        if src[i].is_unused() {
+            continue;
+        }
+        let flags = src[i].flags();
+        if level == 1 {
+            // Leaf: allocate a new frame and copy the page contents.
+            let frame = alloc_zeroed_frame()?;
+            core::ptr::copy_nonoverlapping(
+                phys_to_virt(src[i].addr()).as_ptr::<u8>(),
+                phys_to_virt(frame).as_mut_ptr::<u8>(),
+                4096,
+            );
+            dst[i].set_addr(frame, flags | PageTableFlags::WRITABLE);
+        } else {
+            let sub = clone_level(offset, src[i].addr(), level - 1)?;
+            dst[i].set_addr(PhysAddr::new(sub), flags);
+        }
+    }
+    Some(new_phys.as_u64())
+}
+
 /// Initialise frame allocation and the kernel heap.
 pub fn init(boot_info: &'static mut BootInfo) {
     let offset = match boot_info.physical_memory_offset {

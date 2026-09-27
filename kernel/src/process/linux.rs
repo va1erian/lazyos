@@ -36,8 +36,11 @@ const EINVAL: u64 = 22;
 const ENODEV: u64 = 19;
 const ENOTTY: u64 = 25;
 const ENOENT: u64 = 2;
+const ECHILD: u64 = 10;
 const EBADF: u64 = 9;
 const EAGAIN: u64 = 11;
+const EFAULT: u64 = 14;
+const ENOEXEC: u64 = 8;
 const ESPIPE: u64 = 29;
 
 // `clone` flags we honour (thread creation).
@@ -72,7 +75,17 @@ pub fn load(table: PhysAddr, elf_bytes: &[u8], argv0: &str) -> Result<(u64, u64)
 
     let phdr = program_header_addr(elf_bytes);
     let (phent, phnum) = phdr_size(elf_bytes);
-    let rsp = build_start_stack(&stack, argv0, entry, phdr, phent, phnum);
+    let mut arg0 = Vec::from(argv0.as_bytes());
+    arg0.push(0);
+    let rsp = build_start_stack(
+        &stack,
+        core::slice::from_ref(&arg0),
+        &[],
+        entry,
+        phdr,
+        phent,
+        phnum,
+    );
     Ok((entry, rsp))
 }
 
@@ -103,9 +116,11 @@ fn phdr_size(elf_bytes: &[u8]) -> (u16, u16) {
 }
 
 /// Build the Linux process start stack: `argc/argv/envp/auxv` plus strings.
+/// `argv`/`envp` are NUL-terminated byte strings.
 fn build_start_stack(
     stack: &[(u64, u64)],
-    argv0: &str,
+    argv: &[Vec<u8>],
+    envp: &[Vec<u8>],
     entry: u64,
     phdr: u64,
     phent: u16,
@@ -116,24 +131,27 @@ fn build_start_stack(
     // Helper: write bytes just below `cursor`.
     let push_bytes = |bytes: &[u8], cursor: &mut u64| -> u64 {
         *cursor -= bytes.len() as u64;
-        write_user(&stack, *cursor, bytes);
+        write_user(stack, *cursor, bytes);
         *cursor
     };
 
-    // Strings.
-    let execfn = push_bytes(b"init\0", &mut cursor);
+    // Strings (any order; the arrays below hold their addresses).
     let mut random = [0u8; 16];
     fill_random(&mut random);
     let random_addr = push_bytes(&random, &mut cursor);
-    let mut arg0_bytes = Vec::from(argv0.as_bytes());
-    arg0_bytes.push(0);
-    let arg0 = push_bytes(&arg0_bytes, &mut cursor);
+    let execfn = argv
+        .first()
+        .map(|a| push_bytes(a, &mut cursor))
+        .unwrap_or(0);
+    let argv_ptrs: Vec<u64> = argv.iter().map(|a| push_bytes(a, &mut cursor)).collect();
+    let envp_ptrs: Vec<u64> = envp.iter().map(|e| push_bytes(e, &mut cursor)).collect();
 
-    // Word arrays (low to high): argc, argv[], NULL, envp NULL, auxv, AT_NULL.
+    // Word arrays (low to high): argc, argv[], NULL, envp[], NULL, auxv, AT_NULL.
     let mut words: Vec<u64> = Vec::new();
-    words.push(1); // argc
-    words.push(arg0);
+    words.push(argv.len() as u64);
+    words.extend_from_slice(&argv_ptrs);
     words.push(0); // argv NULL
+    words.extend_from_slice(&envp_ptrs);
     words.push(0); // envp NULL
     let auxv: [(u64, u64); 13] = [
         (AT_PHDR, phdr),
@@ -160,7 +178,7 @@ fn build_start_stack(
     cursor -= (words.len() as u64) * 8;
     cursor &= !0xF; // 16-byte aligned stack
     for (i, word) in words.iter().enumerate() {
-        write_user(&stack, cursor + (i as u64) * 8, &word.to_le_bytes());
+        write_user(stack, cursor + (i as u64) * 8, &word.to_le_bytes());
     }
     cursor
 }
@@ -217,6 +235,7 @@ extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
         3 => sys_close(a1),
         4 => sys_stat_path(a1, a2), // stat(path, buf)
         5 => sys_fstat(a1, a2),     // fstat(fd, buf)
+        6 => sys_stat_path(a1, a2), // lstat(path, buf)
         7 => sys_poll(a1, a2, a3),  // poll
         8 => sys_lseek(a1, a2, a3), // lseek
         9 => sys_mmap(a1, a2, a3, a4),
@@ -233,13 +252,16 @@ extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
         35 => sys_nanosleep(a1),             // nanosleep(req, rem)
         39 | 186 => task::current() as u64,  // getpid/gettid (kernel task 0 is PID 0)
         56 => sys_clone(a1, a2, a3, a4, a5), // clone(flags, stack, ptid, ctid, tls)
-        60 | 231 => sys_exit(),
-        62 => 0, // kill (signals accepted, not delivered yet)
+        57 => sys_fork(),
+        59 => sys_execve(a1, a2, a3), // execve(path, argv, envp)
+        60 | 231 => sys_exit(a1),
+        61 => sys_wait4(a1, a2, a3), // wait4(pid, status, options)
+        62 => 0,                     // kill (signals accepted, not delivered yet)
         63 => sys_uname(a1),
         72 => sys_fcntl(a1, a2), // fcntl
         79 => sys_getcwd(a1, a2),
         80 => 0,                                         // chdir (root-only)
-        89 => err(EINVAL),                               // readlink (no links yet)
+        89 => sys_readlink(a1, a2, a3),                  // readlink
         95 => 0,                                         // umask
         96 => sys_gettimeofday(a1),                      // gettimeofday(tv, tz)
         102 | 103 | 104 | 105 => 0,                      // getuid/getgid/geteuid/getegid
@@ -250,7 +272,7 @@ extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
         169 => 0,                     // reboot (accept)
         202 => sys_futex(a1, a2, a3), // futex(uaddr, op, val)
         204 => sys_sched_getaffinity(a2, a3),
-        217 => 0, // getdents64 (empty for now)
+        217 => sys_getdents64(a1, a2, a3), // getdents64
         218 => sys_set_tid_address(a1),
         228 => sys_clock_gettime(a1, a2),
         229 => sys_clock_getres(a2),
@@ -509,6 +531,25 @@ fn sys_uname(buf: u64) -> u64 {
     0
 }
 
+/// `readlink(path, buf, size)`: the only link we have is `/proc/self/exe`,
+/// which resolves to the BusyBox binary (so the shell can re-exec its applets).
+fn sys_readlink(path: u64, buf: u64, size: u64) -> u64 {
+    let target: &[u8] = match read_cstr(path).as_deref() {
+        Some("/proc/self/exe") => b"/busybox",
+        Some("/proc/self/cwd") => b"/",
+        _ => return err(ENOENT),
+    };
+    if size == 0 {
+        return err(EINVAL);
+    }
+    let n = (size as usize).min(target.len());
+    // Safety: user buffer of at least `n` bytes.
+    unsafe {
+        core::ptr::copy_nonoverlapping(target.as_ptr(), buf as *mut u8, n);
+    }
+    n as u64
+}
+
 fn sys_getcwd(buf: u64, size: u64) -> u64 {
     if size < 2 {
         return err(EINVAL);
@@ -627,6 +668,95 @@ fn fd_result(slot: Option<usize>) -> u64 {
     }
 }
 
+/// A bare applet name in a `bin` directory (or with no directory) that isn't a
+/// real FAT file aliases to the BusyBox binary.
+fn applet_name(path: &str) -> Option<&str> {
+    let trimmed = path.trim_start_matches('/');
+    let base = trimmed.rsplit('/').next().unwrap_or(trimmed);
+    let dir = &trimmed[..trimmed.len() - base.len()];
+    let plain = !base.is_empty()
+        && base.len() <= 12
+        && !base.contains('.')
+        && base
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-');
+    if plain && (dir.is_empty() || dir.contains("bin")) {
+        Some(base)
+    } else {
+        None
+    }
+}
+
+/// Look up a path (FAT root, synthetic dirs, or a BusyBox applet alias).
+fn lookup(path: &str) -> Option<(u32, bool)> {
+    if matches!(
+        path,
+        "/" | "/bin" | "/sbin" | "/usr" | "/dev" | "/proc" | "/etc" | "/tmp"
+    ) {
+        return Some((0, true));
+    }
+    if let Some(entry) = crate::fs::stat(path.trim_start_matches('/')) {
+        return Some(entry);
+    }
+    if applet_name(path).is_some() {
+        return crate::fs::stat("busybox").map(|(size, _)| (size, false));
+    }
+    None
+}
+
+/// Load a file's bytes (with the BusyBox applet alias).
+fn load_file(path: &str) -> Option<Vec<u8>> {
+    if let Some(data) = crate::fs::read(path.trim_start_matches('/')) {
+        return Some(data);
+    }
+    if applet_name(path).is_some() {
+        return crate::fs::read("busybox");
+    }
+    None
+}
+
+/// Build a `linux_dirent64` byte stream for the FAT root, so `getdents64` can
+/// read it like a file (we have no real directory fd yet).
+fn dir_data() -> Vec<u8> {
+    const DT_DIR: u8 = 4;
+    const DT_REG: u8 = 8;
+    let mut out = Vec::new();
+    push_dirent(&mut out, 1, DT_DIR, ".");
+    push_dirent(&mut out, 1, DT_DIR, "..");
+    for (name, is_dir, _) in crate::fs::list() {
+        let ino = name
+            .bytes()
+            .fold(0u64, |acc, b| acc.wrapping_mul(31) + b as u64)
+            | 2;
+        push_dirent(&mut out, ino, if is_dir { DT_DIR } else { DT_REG }, &name);
+    }
+    out
+}
+
+fn push_dirent(out: &mut Vec<u8>, ino: u64, d_type: u8, name: &str) {
+    let start = out.len();
+    out.extend_from_slice(&ino.to_le_bytes()); // d_ino
+    out.extend_from_slice(&0u64.to_le_bytes()); // d_off
+    out.extend_from_slice(&0u16.to_le_bytes()); // d_reclen (patched below)
+    out.push(d_type);
+    out.extend_from_slice(name.as_bytes());
+    out.push(0);
+    while (out.len() - start) % 8 != 0 {
+        out.push(0);
+    }
+    let reclen = (out.len() - start) as u16;
+    out[start + 16..start + 18].copy_from_slice(&reclen.to_le_bytes());
+}
+
+fn sys_getdents64(fd: u64, buf: u64, count: u64) -> u64 {
+    match task::fd_kind(fd as usize) {
+        FdKind::File => task::fd_read(fd as usize, buf as *mut u8, count as usize)
+            .map(|n| n as u64)
+            .unwrap_or(0),
+        _ => err(EBADF),
+    }
+}
+
 /// Open a path: the root-only FAT volume plus a few synthetic device nodes.
 fn open_path(path: &str) -> u64 {
     match path {
@@ -638,24 +768,23 @@ fn open_path(path: &str) -> u64 {
             offset: 0,
         })),
         // Synthetic directories (empty until `getdents64` exists).
-        "/" | "/dev" | "/proc" | "/etc" | "/tmp" => fd_result(task::fd_open(Fd::File {
-            data: Vec::new(),
-            offset: 0,
-        })),
-        _ => {
-            let name = path.trim_start_matches('/');
-            match crate::fs::stat(name) {
-                Some((_, true)) => fd_result(task::fd_open(Fd::File {
-                    data: Vec::new(),
-                    offset: 0,
-                })),
-                Some((_, false)) => match crate::fs::read(name) {
-                    Some(data) => fd_result(task::fd_open(Fd::File { data, offset: 0 })),
-                    None => err(ENOENT),
-                },
-                None => err(ENOENT),
-            }
+        "/" | "/bin" | "/sbin" | "/usr" | "/dev" | "/proc" | "/etc" | "/tmp" => {
+            fd_result(task::fd_open(Fd::File {
+                data: dir_data(),
+                offset: 0,
+            }))
         }
+        _ => match lookup(path) {
+            Some((_, true)) => fd_result(task::fd_open(Fd::File {
+                data: dir_data(),
+                offset: 0,
+            })),
+            Some((_, false)) => match load_file(path) {
+                Some(data) => fd_result(task::fd_open(Fd::File { data, offset: 0 })),
+                None => err(ENOENT),
+            },
+            None => err(ENOENT),
+        },
     }
 }
 
@@ -684,25 +813,11 @@ fn sys_lseek(fd: u64, offset: u64, whence: u64) -> u64 {
         FdKind::Closed => err(EBADF),
     }
 }
-
 fn sys_access(path: u64) -> u64 {
     let Some(path) = read_cstr(path) else {
         return err(EINVAL);
     };
-    let known = matches!(
-        path.as_str(),
-        "/" | "/dev"
-            | "/proc"
-            | "/etc"
-            | "/tmp"
-            | "/dev/tty"
-            | "/dev/console"
-            | "/dev/tty0"
-            | "/dev/tty1"
-            | "/dev/null"
-            | "/dev/zero"
-    );
-    if known || crate::fs::stat(path.trim_start_matches('/')).is_some() {
+    if lookup(&path).is_some() {
         0
     } else {
         err(ENOENT)
@@ -786,11 +901,7 @@ fn sys_stat_path(path: u64, buf: u64) -> u64 {
 }
 
 fn stat_path(path: &str, buf: u64) -> u64 {
-    if matches!(path, "/" | "/dev" | "/proc" | "/etc" | "/tmp") {
-        fill_stat(buf, S_IFDIR | 0o755, 0, 1);
-        return 0;
-    }
-    match crate::fs::stat(path.trim_start_matches('/')) {
+    match lookup(path) {
         Some((size, true)) => {
             fill_stat(buf, S_IFDIR | 0o755, size as u64, 1);
             0
@@ -837,6 +948,108 @@ fn sys_set_tid_address(tidptr: u64) -> u64 {
     task::current() as u64
 }
 
+/// Read a NUL-terminated user string as raw bytes (including the terminator).
+fn read_cstr_bytes(ptr: u64) -> Vec<u8> {
+    let mut out = Vec::new();
+    for i in 0..4096u64 {
+        // Safety: user memory up to the NUL terminator.
+        let byte = unsafe { core::ptr::read_volatile((ptr + i) as *const u8) };
+        out.push(byte);
+        if byte == 0 {
+            break;
+        }
+    }
+    out
+}
+
+/// Read a NULL-terminated array of user string pointers.
+fn read_str_ptr_array(arr: u64) -> Vec<Vec<u8>> {
+    let mut out = Vec::new();
+    if arr == 0 {
+        return out;
+    }
+    for i in 0..256u64 {
+        // Safety: user array of `char *`.
+        let ptr = unsafe { core::ptr::read_volatile((arr + i * 8) as *const u64) };
+        if ptr == 0 {
+            break;
+        }
+        out.push(read_cstr_bytes(ptr));
+    }
+    out
+}
+
+/// Map special process paths to a real FAT entry (`/proc/self/exe` -> busybox).
+fn resolve_exe(path: &str) -> &str {
+    match path {
+        "/proc/self/exe" => "busybox",
+        other => other.trim_start_matches('/'),
+    }
+}
+
+fn sys_fork() -> u64 {
+    match task::spawn_fork() {
+        Ok(index) => index as u64,
+        Err(_) => err(ENOMEM),
+    }
+}
+
+fn sys_wait4(_pid: u64, status: u64, _options: u64) -> u64 {
+    if !task::has_children() {
+        return err(ECHILD);
+    }
+    loop {
+        if let Some((slot, code)) = task::reap_child() {
+            if status != 0 {
+                write_u32(status, (code as u32) << 8);
+            }
+            return slot as u64;
+        }
+        x86_64::instructions::interrupts::enable();
+        x86_64::instructions::hlt();
+    }
+}
+
+/// `execve(path, argv, envp)`: replace the current image with `path`'s ELF and
+/// resume at its entry point.
+fn sys_execve(path_ptr: u64, argv_ptr: u64, envp_ptr: u64) -> u64 {
+    let Some(path) = read_cstr(path_ptr) else {
+        return err(EFAULT);
+    };
+    let mut argv = read_str_ptr_array(argv_ptr);
+    if argv.is_empty() {
+        argv.push(read_cstr_bytes(path_ptr));
+    }
+    let envp = read_str_ptr_array(envp_ptr);
+
+    let Some(elf) = load_file(resolve_exe(&path)) else {
+        return err(ENOENT);
+    };
+    let Some(table) = crate::mem::new_user_table() else {
+        return err(ENOMEM);
+    };
+    let entry = match load_segments(table, &elf) {
+        Ok(entry) => entry,
+        Err(_) => return err(ENOEXEC),
+    };
+    let stack = match map_range(table, STACK_TOP - STACK_SIZE, STACK_TOP) {
+        Ok(stack) => stack,
+        Err(_) => return err(ENOMEM),
+    };
+    let phdr = program_header_addr(&elf);
+    let (phent, phnum) = phdr_size(&elf);
+    let rsp = build_start_stack(&stack, &argv, &envp, entry, phdr, phent, phnum);
+
+    // Replace the process image: switch to the new table and make `sysretq`
+    // resume at the new entry.
+    crate::mem::switch_to(table);
+    task::set_pml4(table.as_u64());
+    task::set_fs_base(0);
+    task::register_bumps(table.as_u64(), BRK_BASE, MMAP_BASE);
+    crate::arch::linux::set_user_return(entry, rsp, 0x202);
+    0
+}
+
 /// `futex(uaddr, op, val)` — only WAIT/WAKE (the mutex/join primitives).
 fn sys_futex(uaddr: u64, op: u64, val: u64) -> u64 {
     match op & 0x7f {
@@ -877,14 +1090,14 @@ fn futex_wake(uaddr: u64, count: u64) -> u64 {
     woken
 }
 
-fn sys_exit() -> u64 {
+fn sys_exit(code: u64) -> u64 {
     // Thread exit: clear the TID word and wake anyone joining on it.
     let tid = task::clear_child_tid();
     if tid != 0 {
         write_u32(tid, 0);
         futex_wake(tid, 1);
     }
-    task::finish_current();
+    task::finish_current(code & 0xff);
     loop {
         x86_64::instructions::interrupts::enable();
         x86_64::instructions::hlt();

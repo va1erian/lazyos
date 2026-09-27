@@ -27,3 +27,15 @@ pub fn read(name: &str) -> Option<Vec<u8>> {
 pub fn stat(name: &str) -> Option<(u32, bool)> {
     FS.lock().as_ref().and_then(|fs| fs.stat(name))
 }
+
+/// List the root directory as `(name, is_dir, size)`.
+pub fn list() -> Vec<(alloc::string::String, bool, u32)> {
+    match FS.lock().as_ref() {
+        Some(fs) => fs
+            .entries()
+            .into_iter()
+            .map(|entry| (entry.name, entry.is_dir, entry.size))
+            .collect(),
+        None => Vec::new(),
+    }
+}

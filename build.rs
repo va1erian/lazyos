@@ -38,7 +38,8 @@ fn main() {
         }
     }
 
-    // BusyBox hook: embed a static `busybox` as `BUSYBOX.ELF` (run as `sh`).
+    // BusyBox hook: embed a static `busybox` as `BUSYBOX` (run as `sh`, and
+    // reachable by `execve("/busybox")` for its applets).
     println!("cargo:rerun-if-env-changed=LAZYOS_BUSYBOX");
     if let Some(busybox) = std::env::var_os("LAZYOS_BUSYBOX") {
         let busybox = PathBuf::from(busybox);
@@ -47,7 +48,7 @@ fn main() {
                 "cargo:warning=LAZYOS_BUSYBOX embedded: {}",
                 busybox.display()
             );
-            builder.set_file(String::from("BUSYBOX.ELF"), busybox);
+            builder.set_file(String::from("BUSYBOX"), busybox);
         } else {
             println!(
                 "cargo:warning=LAZYOS_BUSYBOX not found: {}",

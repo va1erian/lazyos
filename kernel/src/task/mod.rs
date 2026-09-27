@@ -71,6 +71,18 @@ fn new_fds() -> [Fd; FD_COUNT] {
     core::array::from_fn(|i| if i < 3 { Fd::Terminal } else { Fd::Closed })
 }
 
+/// Copy a descriptor table (for `fork`; file buffers are duplicated).
+fn clone_fds(fds: &[Fd; FD_COUNT]) -> [Fd; FD_COUNT] {
+    core::array::from_fn(|i| match &fds[i] {
+        Fd::Closed => Fd::Closed,
+        Fd::Terminal => Fd::Terminal,
+        Fd::File { data, offset } => Fd::File {
+            data: data.clone(),
+            offset: *offset,
+        },
+    })
+}
+
 pub struct Task {
     pub name: &'static str,
     #[allow(dead_code)] // Kept for per-kind behaviour as the shim grows.
@@ -83,6 +95,10 @@ pub struct Task {
     pub blocked: bool,
     /// Linux `clear_child_tid`: zeroed and futex-woken on thread exit.
     pub clear_child_tid: u64,
+    /// Slot of the parent process (0 = none: kernel and threads).
+    pub parent: usize,
+    /// Exit status, valid once `done`.
+    pub exit_status: u64,
     /// Native `sbrk` heap break.
     pub heap_break: u64,
     /// Linux thread pointer (`%fs` base).
@@ -124,6 +140,16 @@ fn with_bump<R>(f: impl FnOnce(&mut Bump) -> R) -> Option<R> {
     bumps.iter_mut().find(|bump| bump.pml4 == pml4).map(f)
 }
 
+/// The `(brk, mmap_next)` of a given address space.
+fn bump_for_pml4(pml4: u64) -> (u64, u64) {
+    BUMPS
+        .lock()
+        .iter()
+        .find(|bump| bump.pml4 == pml4)
+        .map(|bump| (bump.brk, bump.mmap_next))
+        .unwrap_or((0, 0))
+}
+
 fn kstack_top(index: usize) -> u64 {
     // Safety: fixed-size static array.
     unsafe { (core::ptr::addr_of!(KSTACKS[index]) as u64) + KSTACK_SIZE as u64 }
@@ -141,6 +167,8 @@ pub fn register_kernel() {
         done: false,
         blocked: false,
         clear_child_tid: 0,
+        parent: 0,
+        exit_status: 0,
         heap_break: 0,
         fs_base: 0,
         fds: new_fds(),
@@ -170,6 +198,8 @@ pub fn spawn(name: &'static str, elf: &[u8]) -> Result<usize, &'static str> {
         done: false,
         blocked: false,
         clear_child_tid: 0,
+        parent: 0,
+        exit_status: 0,
         heap_break: process::USER_HEAP_BASE,
         fs_base: 0,
         fds: new_fds(),
@@ -180,14 +210,14 @@ pub fn spawn(name: &'static str, elf: &[u8]) -> Result<usize, &'static str> {
 }
 
 /// Create a Linux task from a static ELF image. Returns its slot index.
-pub fn spawn_linux(name: &'static str, elf: &[u8]) -> Result<usize, &'static str> {
+pub fn spawn_linux(name: &'static str, elf: &[u8], argv0: &str) -> Result<usize, &'static str> {
     let mut tasks = TASKS.lock();
     let index = (1..MAX_TASKS)
         .find(|&i| tasks[i].is_none())
         .ok_or("no free task slot")?;
 
     let pml4 = mem::new_user_table().ok_or("out of memory")?;
-    let (entry, stack_top) = process::linux::load(pml4, elf, name)?;
+    let (entry, stack_top) = process::linux::load(pml4, elf, argv0)?;
 
     let top = kstack_top(index);
     let rsp = build_user_frame(top, entry, stack_top);
@@ -201,6 +231,8 @@ pub fn spawn_linux(name: &'static str, elf: &[u8]) -> Result<usize, &'static str
         done: false,
         blocked: false,
         clear_child_tid: 0,
+        parent: 0,
+        exit_status: 0,
         heap_break: 0,
         fs_base: 0,
         fds: new_fds(),
@@ -246,12 +278,57 @@ pub fn spawn_thread(
         done: false,
         blocked: false,
         clear_child_tid,
+        parent: 0,
+        exit_status: 0,
         heap_break: 0,
         fs_base,
         fds: new_fds(),
         output: Vec::new(),
         input: VecDeque::new(),
     });
+    Ok(index)
+}
+
+/// Fork the current Linux process: a new task with a deep copy of its address
+/// space. Returns the child's slot (the parent's `fork` result); the child's
+/// frame resumes at the parent's return address with `rax = 0`.
+pub fn spawn_fork() -> Result<usize, &'static str> {
+    let mut tasks = TASKS.lock();
+    let index = (1..MAX_TASKS)
+        .find(|&i| tasks[i].is_none())
+        .ok_or("no free task slot")?;
+    let parent_index = current();
+    let parent = tasks[parent_index].as_ref().ok_or("no parent task")?;
+    let pml4 = parent.pml4;
+    let fs_base = parent.fs_base;
+    let (brk, mmap_next) = bump_for_pml4(pml4);
+    let context = crate::arch::linux::user_context();
+    let fds = clone_fds(&parent.fds);
+
+    let child_table = mem::clone_user_table(PhysAddr::new(pml4)).ok_or("out of memory (fork)")?;
+    let top = kstack_top(index);
+    let rsp = build_thread_frame(top, &context, context.rsp);
+
+    tasks[index] = Some(Task {
+        name: "fork",
+        kind: Kind::Linux,
+        pml4: child_table.as_u64(),
+        kstack_top: top,
+        rsp,
+        done: false,
+        blocked: false,
+        clear_child_tid: 0,
+        parent: parent_index,
+        exit_status: 0,
+        heap_break: 0,
+        fs_base,
+        fds,
+        output: Vec::new(),
+        input: VecDeque::new(),
+    });
+    drop(tasks);
+
+    register_bumps(child_table.as_u64(), brk, mmap_next);
     Ok(index)
 }
 
@@ -317,15 +394,44 @@ pub fn current() -> usize {
     CURRENT.load(Ordering::Relaxed)
 }
 
-/// Mark the current task finished.
-pub fn finish_current() {
+/// Mark the current task finished with an exit status.
+pub fn finish_current(code: u64) {
     let mut tasks = TASKS.lock();
     if let Some(task) = tasks[current()].as_mut() {
         task.done = true;
         task.blocked = false;
+        task.exit_status = code;
     }
     drop(tasks);
     NEEDS_REDRAW.store(true, Ordering::Relaxed);
+}
+
+/// Whether the current task has any children.
+pub fn has_children() -> bool {
+    let tasks = TASKS.lock();
+    let me = current();
+    tasks
+        .iter()
+        .flatten()
+        .any(|task| task.parent == me && task.parent != 0)
+}
+
+/// Take a finished child of the current task, freeing its slot.
+pub fn reap_child() -> Option<(usize, u64)> {
+    let mut tasks = TASKS.lock();
+    let me = current();
+    for index in 1..MAX_TASKS {
+        let finished = tasks[index]
+            .as_ref()
+            .map(|task| task.parent == me && task.done)
+            .unwrap_or(false);
+        if finished {
+            let status = tasks[index].as_ref().unwrap().exit_status;
+            tasks[index] = None;
+            return Some((index, status));
+        }
+    }
+    None
 }
 
 /// Park the current task (skipped by the scheduler until woken).
@@ -412,45 +518,101 @@ pub extern "C" fn schedule(current_rsp: u64) -> u64 {
     rsp
 }
 
-/// Append output to the current task's terminal, dropping ANSI escape sequences
-/// (our window renderer has no terminal emulation yet).
+/// Append output to the current process's terminal, dropping ANSI escape
+/// sequences (our window renderer has no terminal emulation yet). Forked
+/// children write to their root ancestor's window.
 pub fn write_output(bytes: &[u8]) {
     let mut tasks = TASKS.lock();
-    if let Some(task) = tasks[current()].as_mut() {
+    let root = root_index(&tasks);
+    if let Some(task) = tasks[root].as_mut() {
         strip_ansi(bytes, &mut task.output);
     }
     drop(tasks);
     NEEDS_REDRAW.store(true, Ordering::Relaxed);
 }
 
-/// Copy `bytes` into `out`, skipping CSI escape sequences (`ESC [ ... final`).
+/// Walk the parent chain to the process leader (the task with no parent).
+fn root_index(tasks: &[Option<Task>; MAX_TASKS]) -> usize {
+    let mut index = current();
+    while let Some(task) = tasks[index].as_ref() {
+        if task.parent == 0 {
+            break;
+        }
+        index = task.parent;
+    }
+    index
+}
+
+/// Copy `bytes` into `out`, applying just enough terminal control for an
+/// interactive shell: `\r`, backspace, erase-to-end-of-line, cursor-left, and
+/// dropping other CSI sequences.
 fn strip_ansi(bytes: &[u8], out: &mut Vec<u8>) {
     let mut i = 0;
     while i < bytes.len() {
-        if bytes[i] == 0x1b {
-            i += 1;
-            if i < bytes.len() && bytes[i] == b'[' {
+        let byte = bytes[i];
+        if byte == 0x1b && i + 1 < bytes.len() && bytes[i + 1] == b'[' {
+            i += 2;
+            let start = i;
+            while i < bytes.len() && !(0x40..=0x7e).contains(&bytes[i]) {
                 i += 1;
-                while i < bytes.len() && !(0x40..=0x7e).contains(&bytes[i]) {
-                    i += 1;
-                }
             }
-            i += 1; // skip the final byte
+            if i < bytes.len() {
+                let count = parse_count(&bytes[start..i]);
+                match bytes[i] {
+                    b'K' => truncate_line(out),
+                    b'D' => {
+                        for _ in 0..count {
+                            out.pop();
+                        }
+                    }
+                    b'J' if count == 2 => out.clear(),
+                    _ => {}
+                }
+                i += 1; // final byte
+            }
             continue;
         }
-        if bytes[i] != b'\r' {
-            out.push(bytes[i]);
+        match byte {
+            b'\r' => truncate_line(out),
+            0x08 => {
+                out.pop();
+            }
+            _ => out.push(byte),
         }
         i += 1;
     }
 }
 
-/// Pop a key for the current task, if any.
+/// Parse a CSI parameter (defaults to 1 when empty).
+fn parse_count(digits: &[u8]) -> usize {
+    let mut value = 0usize;
+    let mut any = false;
+    for &d in digits {
+        if d.is_ascii_digit() {
+            value = value * 10 + (d - b'0') as usize;
+            any = true;
+        }
+    }
+    if any {
+        value
+    } else {
+        1
+    }
+}
+
+/// Discard the current (last) line's contents.
+fn truncate_line(out: &mut Vec<u8>) {
+    match out.iter().rposition(|&c| c == b'\n') {
+        Some(pos) => out.truncate(pos + 1),
+        None => out.clear(),
+    }
+}
+
+/// Pop a key for the current process (its root ancestor's queue).
 pub fn take_key() -> Option<Key> {
     let mut tasks = TASKS.lock();
-    tasks[current()]
-        .as_mut()
-        .and_then(|task| task.input.pop_front())
+    let root = root_index(&tasks);
+    tasks[root].as_mut().and_then(|task| task.input.pop_front())
 }
 
 /// Route a decoded key: Tab cycles focus, others go to the focused task.
@@ -466,19 +628,22 @@ pub fn on_key(key: Key) {
     }
 }
 
-/// Inject bytes into the current task's input queue (e.g. a terminal reply).
+/// Inject bytes into the current process's input queue (e.g. a terminal reply).
 pub fn inject_input(bytes: &[u8]) {
     let mut tasks = TASKS.lock();
-    if let Some(task) = tasks[current()].as_mut() {
+    let root = root_index(&tasks);
+    if let Some(task) = tasks[root].as_mut() {
         for &byte in bytes {
             task.input.push_back(Key::Char(byte as char));
         }
     }
 }
 
-/// Whether the current task has pending terminal input.
+/// Whether the current process has pending terminal input.
 pub fn input_available() -> bool {
-    TASKS.lock()[current()]
+    let tasks = TASKS.lock();
+    let root = root_index(&tasks);
+    tasks[root]
         .as_ref()
         .map(|task| !task.input.is_empty())
         .unwrap_or(false)
@@ -521,7 +686,14 @@ pub fn set_heap_break(value: u64) {
     }
 }
 
-/// The current task's Linux `brk` break.
+/// Set the current task's address space (used by `execve`).
+pub fn set_pml4(value: u64) {
+    if let Some(task) = TASKS.lock()[current()].as_mut() {
+        task.pml4 = value;
+    }
+}
+
+/// The current task's `brk` break.
 pub fn brk() -> u64 {
     with_bump(|bump| bump.brk).unwrap_or(0)
 }
