@@ -86,6 +86,32 @@ const SUITE: &[(&str, Test)] = &[
     ("ipc_duplicate_rights", ipc_suite::duplicate_rights),
     ("ipc_close_frees", ipc_suite::close_frees),
     ("ipc_quota", ipc_suite::quota),
+    (
+        "ipc_channel_echo_roundtrip",
+        ipc_channel_suite::echo_roundtrip,
+    ),
+    (
+        "ipc_channel_one_way_order_and_limits",
+        ipc_channel_suite::one_way_order_and_limits,
+    ),
+    (
+        "ipc_channel_deadline_timeout",
+        ipc_channel_suite::deadline_timeout,
+    ),
+    (
+        "ipc_channel_deadline_reply_race",
+        ipc_channel_suite::deadline_reply_race,
+    ),
+    (
+        "ipc_channel_call_deadline_zero",
+        ipc_channel_suite::call_deadline_zero,
+    ),
+    ("ipc_channel_cancel_wakes", ipc_channel_suite::cancel_wakes),
+    ("ipc_channel_peer_died", ipc_channel_suite::peer_died),
+    (
+        "ipc_channel_deadlock_refused",
+        ipc_channel_suite::deadlock_refused,
+    ),
 ];
 
 /// Run the suite, print the results, and halt.
@@ -1113,5 +1139,432 @@ mod ipc_suite {
             handles::count()
         );
         Ok(())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Messenger channels and transactions (#66)
+// ---------------------------------------------------------------------------
+
+mod ipc_channel_suite {
+    use super::*;
+    use crate::ipc::channels::{self, Error as ChannelError};
+    use crate::ipc::handles;
+    use crate::task::{TaskState, WaitKind, WakeReason};
+    use libmessenger::{flags, Decoder, Encoder, Header, Kind, Parcel, VERSION};
+
+    /// Each channel test starts from an empty task table, an empty handle
+    /// table, an empty channel registry, and a runnable kernel task with no
+    /// stale wake reason.
+    fn fresh() -> Result<(), String> {
+        task::register_kernel();
+        task::harness::reset();
+        handles::reset_for_task(task::current());
+        channels::reset();
+        let me = task::current();
+        let _ = task::harness::take_wake_reason(me);
+        check!(
+            task::harness::state(me) == Some(TaskState::Runnable),
+            "kernel task is not runnable after reset: {:?}",
+            task::harness::state(me)
+        );
+        Ok(())
+    }
+
+    /// Friendly-message adapter for `Result` plumbing.
+    fn reason(error: ChannelError) -> String {
+        error.message().into()
+    }
+
+    /// Encode a complete parcel whose body carries one string field.
+    fn parcel(method: u32, parcel_flags: u16, text: &str) -> Result<Vec<u8>, String> {
+        let mut body = Encoder::new();
+        body.string(1, text).map_err(|error| error.message())?;
+        let parcel = Parcel {
+            header: Header {
+                version: VERSION,
+                flags: parcel_flags,
+                interface_id: 0x1a2b_3c4d,
+                method,
+                txn_id: 0,
+                reply_to: 0,
+                deadline_ns: 0,
+            },
+            body: body.finish(),
+            handles: Vec::new(),
+            buffers: Vec::new(),
+        };
+        let mut bytes = Vec::new();
+        parcel.encode(&mut bytes).map_err(|error| error.message())?;
+        Ok(bytes)
+    }
+
+    /// Decode the first string field of a parcel body.
+    fn payload(bytes: &[u8]) -> Result<String, String> {
+        let parcel = Parcel::decode(bytes).map_err(|error| error.message())?;
+        let mut decoder = Decoder::new(&parcel.body);
+        while let Some(field) = decoder.next().map_err(|error| error.message())? {
+            if field.kind == Kind::String {
+                return Ok(field.as_str().map_err(|error| error.message())?.into());
+            }
+        }
+        Err("parcel body has no string field".into())
+    }
+
+    fn blocked_call(slot: usize, deadline: Option<u64>) -> bool {
+        matches!(
+            task::harness::state(slot),
+            Some(TaskState::Blocked {
+                wait: WaitKind::Sleep,
+                deadline: expected,
+            }) if expected == deadline
+        )
+    }
+
+    /// A synchronous call: the caller parks, the request keeps its bytes, the
+    /// reply wakes the caller, and the round trip returns the reply parcel.
+    pub fn echo_roundtrip() -> Result<(), String> {
+        fresh()?;
+        let (client, server) = channels::create().map_err(reason)?;
+        let request = parcel(7, flags::SYNC, "ping")?;
+        let start = unsafe { core::arch::x86_64::_rdtsc() };
+
+        let txn = channels::begin_call(client, 7, &request, None).map_err(reason)?;
+        let me = task::current();
+        check!(
+            blocked_call(me, None),
+            "begin_call did not park the caller: {:?}",
+            task::harness::state(me)
+        );
+
+        // The server side sees the request with its kernel metadata intact.
+        let message = channels::recv(server, None).map_err(reason)?;
+        check!(
+            message.sender == me,
+            "sender is {}, expected {me}",
+            message.sender
+        );
+        check!(message.method == 7, "method is {}", message.method);
+        check!(
+            message.txn == Some(txn),
+            "transaction id is {:?}",
+            message.txn
+        );
+        check!(message.bytes == request, "request bytes changed in flight");
+        check!(message.handles.is_empty(), "request transferred handles");
+        check!(
+            payload(&message.bytes)? == "ping",
+            "request payload changed"
+        );
+
+        // The reply is a fresh parcel, matched by transaction id.
+        let reply = parcel(8, 0, "pong")?;
+        channels::reply(txn, &reply).map_err(reason)?;
+        check!(
+            task::harness::state(me) == Some(TaskState::Runnable),
+            "reply did not wake the caller: {:?}",
+            task::harness::state(me)
+        );
+        check!(
+            task::harness::take_wake_reason(me) == Some(WakeReason::Woken),
+            "reply wake reason is not Woken"
+        );
+        let got = channels::await_reply(txn).map_err(reason)?;
+        check!(got == reply, "reply bytes changed on the way back");
+        check!(payload(&got)? == "pong", "reply payload changed");
+
+        let cycles = unsafe { core::arch::x86_64::_rdtsc() }.wrapping_sub(start);
+        serial_println!("TEST:ipc_channel_echo_roundtrip:INFO:cycles={cycles}");
+        let stats = channels::stats();
+        check!(
+            stats.calls == 1 && stats.replies == 1 && stats.timeouts == 0,
+            "counters after one echo: {stats:?}"
+        );
+        check!(
+            stats.queued == 0 && stats.queued_bytes == 0 && stats.outstanding == 0,
+            "channel not drained: {stats:?}"
+        );
+        let senders = channels::senders(client).map_err(reason)?;
+        check!(
+            senders.len() == 1
+                && senders[0].slot == me
+                && senders[0].calls == 1
+                && senders[0].sent == 1
+                && senders[0].outstanding == 0,
+            "sender metering is {senders:?}"
+        );
+        fresh()
+    }
+
+    /// One-way sends enqueue in order, never park the sender, and are refused
+    /// with a metered drop when the peer's bounded queue is full.
+    pub fn one_way_order_and_limits() -> Result<(), String> {
+        fresh()?;
+        let (client, server) = channels::create().map_err(reason)?;
+        for index in 0..3u32 {
+            let bytes = parcel(index, flags::ONE_WAY, &format!("m{index}"))?;
+            channels::send(client, &bytes).map_err(reason)?;
+        }
+        let me = task::current();
+        check!(
+            task::harness::state(me) == Some(TaskState::Runnable),
+            "send parked the sender: {:?}",
+            task::harness::state(me)
+        );
+        for index in 0..3u32 {
+            let message = channels::try_recv(server)
+                .map_err(reason)?
+                .ok_or("queued one-way message is missing")?;
+            check!(
+                message.txn.is_none(),
+                "one-way message carries a transaction: {:?}",
+                message.txn
+            );
+            check!(
+                message.method == index,
+                "order broken: method {}",
+                message.method
+            );
+            check!(
+                payload(&message.bytes)? == format!("m{index}"),
+                "payload order broken"
+            );
+        }
+        check!(
+            channels::try_recv(server).map_err(reason)?.is_none(),
+            "recv did not drain the queue"
+        );
+
+        // Fill the bounded queue, then observe the refusal and the drop meter.
+        let bytes = parcel(0, flags::ONE_WAY, "fill")?;
+        for _ in 0..channels::MAX_QUEUE_DEPTH {
+            channels::send(client, &bytes).map_err(reason)?;
+        }
+        check!(
+            channels::send(client, &bytes) == Err(ChannelError::QueueFull),
+            "an overfull queue accepted a message"
+        );
+        let stats = channels::channel_stats(client).map_err(reason)?;
+        check!(
+            stats.drops == 1,
+            "queue-full drop was not counted: {stats:?}"
+        );
+        check!(
+            stats.queued == channels::MAX_QUEUE_DEPTH as u64,
+            "queued depth is {}",
+            stats.queued
+        );
+        let senders = channels::senders(server).map_err(reason)?;
+        check!(
+            senders.len() == 1 && senders[0].sent == 3 + channels::MAX_QUEUE_DEPTH as u64,
+            "sender metering is {senders:?}"
+        );
+        fresh()
+    }
+
+    /// A call past its deadline wakes with `TimedOut`, and a late reply is
+    /// refused rather than delivered.
+    pub fn deadline_timeout() -> Result<(), String> {
+        fresh()?;
+        let (client, server) = channels::create().map_err(reason)?;
+        let request = parcel(7, flags::SYNC, "slow")?;
+        let me = task::current();
+        let deadline = task::ticks() + 10;
+        let txn = channels::begin_call(client, 7, &request, Some(deadline)).map_err(reason)?;
+        check!(
+            blocked_call(me, Some(deadline)),
+            "caller did not park with its deadline: {:?}",
+            task::harness::state(me)
+        );
+
+        channels::expire_deadlines(deadline);
+        check!(
+            task::harness::state(me) == Some(TaskState::Runnable),
+            "deadline sweep did not wake the caller: {:?}",
+            task::harness::state(me)
+        );
+        check!(
+            task::harness::take_wake_reason(me) == Some(WakeReason::TimedOut),
+            "deadline wake reason is not TimedOut"
+        );
+        let late = parcel(8, 0, "too late")?;
+        check!(
+            channels::reply(txn, &late) == Err(ChannelError::NoTransaction),
+            "a reply to an expired transaction was accepted"
+        );
+        check!(
+            channels::await_reply(txn) == Err(ChannelError::TimedOut),
+            "await_reply did not report TimedOut"
+        );
+        let stats = channels::stats();
+        check!(
+            stats.timeouts == 1 && stats.outstanding == 0,
+            "counters after a timeout: {stats:?}"
+        );
+        // The request stays queued for the (late) server to drain.
+        check!(
+            channels::try_recv(server).map_err(reason)?.is_some(),
+            "the expired request vanished from the server queue"
+        );
+        fresh()
+    }
+
+    /// A reply that lands before the deadline sweep wins the race: the
+    /// transaction completes normally and the timeout meter stays at zero.
+    pub fn deadline_reply_race() -> Result<(), String> {
+        fresh()?;
+        let (client, _server) = channels::create().map_err(reason)?;
+        let request = parcel(7, flags::SYNC, "fast")?;
+        let deadline = task::ticks() + 10;
+        let txn = channels::begin_call(client, 7, &request, Some(deadline)).map_err(reason)?;
+        let reply = parcel(8, 0, "quick")?;
+        channels::reply(txn, &reply).map_err(reason)?;
+        // The sweep runs after the reply; it must not overwrite the outcome.
+        channels::expire_deadlines(deadline);
+        let got = channels::await_reply(txn).map_err(reason)?;
+        check!(got == reply, "the racing reply was not returned");
+        check!(
+            channels::stats().timeouts == 0,
+            "a completed reply was counted as timed out"
+        );
+        fresh()
+    }
+
+    /// The production `call` path, end to end: with an already-expired
+    /// deadline the caller parks through the timer gate, the deadline sweep
+    /// wakes it, and `call` returns `TimedOut` without a server.
+    pub fn call_deadline_zero() -> Result<(), String> {
+        fresh()?;
+        let (client, _server) = channels::create().map_err(reason)?;
+        let request = parcel(7, flags::SYNC, "nobody home")?;
+        let start = unsafe { core::arch::x86_64::_rdtsc() };
+        let result = channels::call(client, 7, &request, Some(0));
+        let cycles = unsafe { core::arch::x86_64::_rdtsc() }.wrapping_sub(start);
+        check!(
+            result == Err(ChannelError::TimedOut),
+            "an already-expired call returned {result:?}"
+        );
+        serial_println!("TEST:ipc_channel_call_deadline_zero:INFO:cycles={cycles}");
+        let stats = channels::stats();
+        check!(
+            stats.timeouts == 1 && stats.outstanding == 0,
+            "counters after a timeout: {stats:?}"
+        );
+        check!(
+            task::harness::state(task::current()) == Some(TaskState::Runnable),
+            "the caller stayed parked after call returned"
+        );
+        fresh()
+    }
+
+    /// `cancel` wakes a parked caller with `Canceled`, and the transaction is
+    /// gone afterwards.
+    pub fn cancel_wakes() -> Result<(), String> {
+        fresh()?;
+        let (client, _server) = channels::create().map_err(reason)?;
+        let request = parcel(7, flags::SYNC, "wait")?;
+        let me = task::current();
+        let txn = channels::begin_call(client, 7, &request, None).map_err(reason)?;
+        check!(blocked_call(me, None), "caller not parked before cancel");
+        channels::cancel(txn).map_err(reason)?;
+        check!(
+            task::harness::state(me) == Some(TaskState::Runnable),
+            "cancel did not wake the caller: {:?}",
+            task::harness::state(me)
+        );
+        check!(
+            task::harness::take_wake_reason(me) == Some(WakeReason::Woken),
+            "cancel wake reason is not Woken"
+        );
+        check!(
+            channels::await_reply(txn) == Err(ChannelError::Canceled),
+            "await_reply did not report Canceled"
+        );
+        check!(
+            channels::cancel(txn) == Err(ChannelError::NoTransaction),
+            "double cancel succeeded"
+        );
+        check!(
+            channels::stats().cancels == 1,
+            "cancel counter is {}",
+            channels::stats().cancels
+        );
+        fresh()
+    }
+
+    /// Closing an endpoint wakes an outstanding caller with `PeerDied`, and the
+    /// surviving side sees `PeerDied` once its inbox is empty.
+    pub fn peer_died() -> Result<(), String> {
+        fresh()?;
+        let (client, server) = channels::create().map_err(reason)?;
+        let request = parcel(7, flags::SYNC, "hello?")?;
+        let me = task::current();
+        let txn = channels::begin_call(client, 7, &request, None).map_err(reason)?;
+        channels::close_endpoint(server).map_err(reason)?;
+        check!(
+            task::harness::state(me) == Some(TaskState::Runnable),
+            "close did not wake the caller: {:?}",
+            task::harness::state(me)
+        );
+        check!(
+            task::harness::take_wake_reason(me) == Some(WakeReason::Woken),
+            "close wake reason is not Woken"
+        );
+        check!(
+            channels::await_reply(txn) == Err(ChannelError::PeerDied),
+            "await_reply did not report PeerDied"
+        );
+        check!(
+            channels::recv(client, None) == Err(ChannelError::PeerDied),
+            "recv did not report PeerDied after the peer closed"
+        );
+        check!(
+            channels::stats().outstanding == 0,
+            "transaction stayed outstanding after the peer died"
+        );
+        fresh()
+    }
+
+    /// A synchronous call while another transaction is open on the channel is
+    /// a cycle and refused with `Deadlock`; `ALLOW_NESTED` opts out, and the
+    /// channel is usable again once the first transaction ends.
+    pub fn deadlock_refused() -> Result<(), String> {
+        fresh()?;
+        let (a, b) = channels::create().map_err(reason)?;
+        let request = parcel(7, flags::SYNC, "outer")?;
+        let outer = channels::begin_call(a, 7, &request, None).map_err(reason)?;
+
+        check!(
+            channels::begin_call(b, 7, &request, None) == Err(ChannelError::Deadlock),
+            "a nested call cycle was not refused"
+        );
+        let nested_bytes = parcel(7, flags::SYNC | flags::ALLOW_NESTED, "nested")?;
+        let nested = channels::begin_call(b, 7, &nested_bytes, None).map_err(reason)?;
+        check!(nested != outer, "the nested call reused the outer id");
+
+        channels::cancel(outer).map_err(reason)?;
+        channels::cancel(nested).map_err(reason)?;
+        check!(
+            channels::await_reply(outer) == Err(ChannelError::Canceled),
+            "outer outcome is not Canceled"
+        );
+        check!(
+            channels::await_reply(nested) == Err(ChannelError::Canceled),
+            "nested outcome is not Canceled"
+        );
+
+        // With the channel idle again, a plain call is allowed.
+        let again = channels::begin_call(a, 7, &request, None).map_err(reason)?;
+        channels::cancel(again).map_err(reason)?;
+        check!(
+            channels::await_reply(again) == Err(ChannelError::Canceled),
+            "reused channel outcome is not Canceled"
+        );
+        check!(
+            channels::stats().cancels == 3,
+            "cancel counter is {}",
+            channels::stats().cancels
+        );
+        fresh()
     }
 }
