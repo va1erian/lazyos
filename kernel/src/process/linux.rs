@@ -4,6 +4,7 @@
 //! else is logged as `ENOSYS` (see `tools/abi/coverage.py`).
 
 use alloc::string::String;
+use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::sync::atomic::{AtomicBool, Ordering};
 use spin::Mutex;
@@ -12,7 +13,8 @@ use xmas_elf::program::Type as ProgramType;
 use xmas_elf::ElfFile;
 
 use super::{load_segments, map_range, page_phys};
-use crate::task::{self, Fd, FdKind};
+use crate::task::wait::WaitQueue;
+use crate::task::{self, Fd, FdKind, WaitKind, WakeReason};
 
 // User memory layout for Linux tasks (kept clear of code and each other).
 /// `brk` region (grows up).
@@ -43,6 +45,8 @@ const EAGAIN: u64 = 11;
 const EFAULT: u64 = 14;
 const ENOEXEC: u64 = 8;
 const ESPIPE: u64 = 29;
+const EINTR: u64 = 4;
+const ETIMEDOUT: u64 = 110;
 
 // `clone` flags we honour (thread creation).
 const CLONE_VM: u64 = 0x0000_0100;
@@ -50,8 +54,10 @@ const CLONE_SETTLS: u64 = 0x0008_0000;
 const CLONE_PARENT_SETTID: u64 = 0x0010_0000;
 const CLONE_CHILD_CLEARTID: u64 = 0x0020_0000;
 
-/// Tasks parked on a futex word: `(address, task slot)`.
-static FUTEX_WAITERS: Mutex<Vec<(u64, usize)>> = Mutex::new(Vec::new());
+/// Futex word address -> wait queue. A waiter parks on the queue keyed by its
+/// word; `FUTEX_WAKE` notifies exactly that queue, so a wake cannot reach an
+/// unrelated futex. Queue entries are pruned once empty and unreferenced.
+static FUTEX_QUEUES: Mutex<Vec<(u64, Arc<WaitQueue>)>> = Mutex::new(Vec::new());
 
 /// Syscall numbers we have dispatched at least once (for the coverage report).
 static SYSCALL_SEEN: [AtomicBool; 512] = [const { AtomicBool::new(false) }; 512];
@@ -456,32 +462,57 @@ fn sys_readv(fd: u64, iov: u64, count: u64) -> u64 {
     total
 }
 
-/// `poll(fds, nfds, timeout)`. Only stdin is pollable; block until it has input
-/// (so an interactive shell waits rather than spinning).
+/// `poll(fds, nfds, timeout)`. Only stdin is pollable; park on the terminal
+/// wait queue until it has input or the deadline passes (no busy loop).
 fn sys_poll(fds: u64, nfds: u64, timeout: u64) -> u64 {
-    const POLLIN: u16 = 0x0001;
+    if timeout == 0 {
+        // Zero means "report readiness now" — never block.
+        return scan_poll(fds, nfds);
+    }
+    // The timeout is an i32 count of milliseconds; negative blocks forever.
+    let deadline = if (timeout as i64) < 0 {
+        None
+    } else {
+        Some(task::ticks() + millis_to_ticks(timeout))
+    };
     loop {
-        let mut ready = 0u64;
-        for i in 0..nfds {
-            // struct pollfd { i32 fd; i16 events; i16 revents; }
-            // Safety: user array of pollfd entries.
-            let fd = unsafe { core::ptr::read_volatile((fds + i * 8) as *const i32) };
-            let events = unsafe { core::ptr::read_volatile((fds + i * 8 + 4) as *const u16) };
-            let revents = if fd == 0 && events & POLLIN != 0 && task::input_available() {
-                ready += 1;
-                POLLIN
-            } else {
-                0
-            };
-            // Safety: user array of pollfd entries.
-            unsafe { core::ptr::write_volatile((fds + i * 8 + 6) as *mut u16, revents) };
-        }
-        if ready > 0 || timeout == 0 {
+        let ready = scan_poll(fds, nfds);
+        if ready > 0 {
             return ready;
         }
-        x86_64::instructions::interrupts::enable();
-        x86_64::instructions::hlt();
+        match task::wait_poll(deadline) {
+            WakeReason::Woken => {} // input arrived: rescan
+            WakeReason::TimedOut => return 0,
+            WakeReason::Interrupted => return err(EINTR),
+        }
     }
+}
+
+/// One non-blocking poll pass over the user's `pollfd` array.
+fn scan_poll(fds: u64, nfds: u64) -> u64 {
+    const POLLIN: u16 = 0x0001;
+    let mut ready = 0u64;
+    for i in 0..nfds {
+        // struct pollfd { i32 fd; i16 events; i16 revents; }
+        // Safety: user array of pollfd entries.
+        let fd = unsafe { core::ptr::read_volatile((fds + i * 8) as *const i32) };
+        let events = unsafe { core::ptr::read_volatile((fds + i * 8 + 4) as *const u16) };
+        let revents = if fd == 0 && events & POLLIN != 0 && task::input_available() {
+            ready += 1;
+            POLLIN
+        } else {
+            0
+        };
+        // Safety: user array of pollfd entries.
+        unsafe { core::ptr::write_volatile((fds + i * 8 + 6) as *mut u16, revents) };
+    }
+    ready
+}
+
+/// Milliseconds to 100 Hz PIT ticks, rounding up so a positive timeout never
+/// fires early.
+fn millis_to_ticks(millis: u64) -> u64 {
+    millis.div_ceil(10).max(1)
 }
 
 fn sys_write(fd: u64, ptr: u64, len: u64) -> u64 {
@@ -513,7 +544,8 @@ fn sys_read(fd: u64, ptr: u64, len: u64) -> u64 {
 }
 
 /// Read terminal input as a byte stream: return once at least one key is
-/// available (raw-mode programs read a byte at a time).
+/// available (raw-mode programs read a byte at a time). Between checks the
+/// task parks on the terminal wait queue, so an idle shell costs no CPU.
 fn read_terminal(ptr: u64, len: u64) -> u64 {
     if len == 0 {
         return 0;
@@ -524,8 +556,12 @@ fn read_terminal(ptr: u64, len: u64) -> u64 {
             unsafe { core::ptr::write_volatile(ptr as *mut u8, key_to_byte(key)) };
             return 1;
         }
-        x86_64::instructions::interrupts::enable();
-        x86_64::instructions::hlt();
+        // A key may have gone to another task's window; spurious wakeups just
+        // loop. `read` has no timeout, so only an interrupt can end the wait.
+        match task::wait_terminal() {
+            WakeReason::Woken | WakeReason::TimedOut => {}
+            WakeReason::Interrupted => return err(EINTR),
+        }
     }
 }
 
@@ -751,12 +787,14 @@ fn sys_nanosleep(req: u64) -> u64 {
     }
     let millis = sec as u64 * 1000 + (nsec as u64).div_ceil(1_000_000);
     // 100 Hz timer: round up to whole ticks, at least one so time advances.
-    let target = now_ticks() + millis.div_ceil(10).max(1);
-    while now_ticks() < target {
-        x86_64::instructions::interrupts::enable();
-        x86_64::instructions::hlt();
+    // The sleep queue is never notified; the timer's deadline sweep is what
+    // makes this return, exactly like a timeout.
+    let deadline = now_ticks() + millis_to_ticks(millis);
+    match task::wait_sleep(deadline) {
+        WakeReason::TimedOut => 0,
+        WakeReason::Interrupted => err(EINTR),
+        WakeReason::Woken => 0, // nothing notifies the sleep queue
     }
-    0
 }
 
 fn sys_getrandom(buf: u64, len: u64) -> u64 {
@@ -1125,7 +1163,8 @@ fn sys_fork() -> u64 {
     }
 }
 
-fn sys_wait4(_pid: u64, status: u64, _options: u64) -> u64 {
+fn sys_wait4(_pid: u64, status: u64, options: u64) -> u64 {
+    const WNOHANG: u64 = 1;
     if !task::has_children() {
         return err(ECHILD);
     }
@@ -1136,8 +1175,16 @@ fn sys_wait4(_pid: u64, status: u64, _options: u64) -> u64 {
             }
             return slot as u64;
         }
-        x86_64::instructions::interrupts::enable();
-        x86_64::instructions::hlt();
+        if options & WNOHANG != 0 {
+            return 0; // no child has exited, don't wait
+        }
+        // No child is reapable yet: park until one exits. `sys_exit` (via
+        // `finish_current`) notifies the queue, and the recheck above happens
+        // with interrupts disabled, so an exit cannot slip in between.
+        match task::wait_child_exit() {
+            WakeReason::Woken | WakeReason::TimedOut => {}
+            WakeReason::Interrupted => return err(EINTR),
+        }
     }
 }
 
@@ -1190,35 +1237,54 @@ fn sys_futex(uaddr: u64, op: u64, val: u64) -> u64 {
     }
 }
 
+/// The wait queue for a futex word, created on first use.
+fn futex_queue(uaddr: u64) -> Arc<WaitQueue> {
+    let mut queues = FUTEX_QUEUES.lock();
+    if let Some((_, queue)) = queues.iter().find(|(address, _)| *address == uaddr) {
+        return Arc::clone(queue);
+    }
+    let queue = Arc::new(WaitQueue::new(WaitKind::Futex));
+    queues.push((uaddr, Arc::clone(&queue)));
+    queue
+}
+
 fn futex_wait(uaddr: u64, val: u64) -> u64 {
     // Safety: the futex word is a user 32-bit value.
     let current = unsafe { core::ptr::read_volatile(uaddr as *const u32) };
     if current != val as u32 {
         return err(EAGAIN); // value changed: nothing to wait for
     }
-    let me = task::current();
-    task::set_blocked(true);
-    // Interrupts are still masked here, so no wake can race this push.
-    FUTEX_WAITERS.lock().push((uaddr, me));
-    while task::blocked() {
-        x86_64::instructions::interrupts::enable();
-        x86_64::instructions::hlt();
+    // The value check above and the park below are atomic with respect to
+    // wakers: interrupts are masked in the syscall gate, and the single CPU
+    // cannot run a `FUTEX_WAKE` between them.
+    let queue = futex_queue(uaddr);
+    match queue.wait(task::current(), None) {
+        WakeReason::Woken => 0,
+        WakeReason::TimedOut => err(ETIMEDOUT),
+        WakeReason::Interrupted => err(EINTR),
     }
-    0
 }
 
 fn futex_wake(uaddr: u64, count: u64) -> u64 {
-    let mut woken = 0u64;
-    FUTEX_WAITERS.lock().retain(|&(addr, index)| {
-        if addr == uaddr && woken < count {
-            woken += 1;
-            task::wake_task(index);
-            false
-        } else {
-            true
-        }
-    });
-    woken
+    let mut queues = FUTEX_QUEUES.lock();
+    let Some(position) = queues.iter().position(|(address, _)| *address == uaddr) else {
+        return 0;
+    };
+    let woken = if count == 1 {
+        queues[position].1.notify_one()
+    } else {
+        queues[position]
+            .1
+            .notify(count.min(task::MAX_TASKS as u64) as usize)
+    };
+    // Prune empty queues so dead word addresses do not accumulate. Waiters hold
+    // an `Arc` clone for as long as they are parked (and until their wait
+    // returns), so the strong count guard keeps a queue alive while a lookup or
+    // wake is still in flight.
+    if queues[position].1.is_empty() && Arc::strong_count(&queues[position].1) == 1 {
+        queues.remove(position);
+    }
+    woken as u64
 }
 
 fn sys_exit(code: u64) -> u64 {

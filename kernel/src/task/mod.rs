@@ -17,6 +17,7 @@ use crate::mem;
 use crate::process;
 
 pub mod switch;
+pub mod wait;
 
 /// Slots: 0 is the kernel (multiplexer), 1.. are user programs/threads.
 pub const MAX_TASKS: usize = 16;
@@ -43,6 +44,56 @@ pub enum Kind {
     Native,
     /// Linux `syscall`/`sysret` binaries.
     Linux,
+}
+
+/// Why a task is parked. Carried in [`TaskState::Blocked`] so a stuck task can
+/// be told apart from a merely idle one (debugging, future `wait_queue_stats`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WaitKind {
+    /// Waiting on a futex word.
+    Futex,
+    /// Waiting for terminal input.
+    Terminal,
+    /// Waiting for a child process to become reapable (`wait4`).
+    ChildExit,
+    /// Waiting for a `nanosleep` deadline (nothing notifies this queue).
+    Sleep,
+}
+
+/// How a blocked task's wait ended. The wake path records it, the wait loop
+/// consumes it, and blocking syscalls translate it to their ABI's error codes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WakeReason {
+    /// A wait queue was notified before the deadline.
+    Woken,
+    /// The PIT deadline passed before any notification.
+    TimedOut,
+    /// The task was interrupted.
+    ///
+    /// Reserved for signal delivery: the wait API can return it, but nothing
+    /// raises signals yet.
+    #[allow(dead_code)]
+    Interrupted,
+}
+
+/// What a task is doing between timer ticks.
+///
+/// Replaces the old `done`/`blocked` booleans: the scheduler only ever selects
+/// [`TaskState::Runnable`], so a task cannot run while it is still parked, and
+/// `Done` keeps the `wait4`/reap semantics (the slot is not freed until the
+/// parent collects it).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TaskState {
+    /// Eligible for the scheduler.
+    Runnable,
+    /// Parked on a wait queue until woken or until `deadline` (absolute PIT
+    /// ticks, 100 Hz) passes. `None` means no timeout.
+    Blocked {
+        wait: WaitKind,
+        deadline: Option<u64>,
+    },
+    /// Finished; kept until its parent reaps it or restarts the slot.
+    Done,
 }
 
 /// Number of file descriptors per task.
@@ -90,9 +141,11 @@ pub struct Task {
     pub pml4: u64,
     pub kstack_top: u64,
     pub rsp: u64,
-    pub done: bool,
-    /// Parked (e.g. in `futex`) until woken; skipped by the scheduler.
-    pub blocked: bool,
+    /// Scheduler-visible state; see [`TaskState`].
+    pub state: TaskState,
+    /// How the current/last wait ended. Set by the wake path, consumed by the
+    /// task's wait loop when it resumes. `None` while not waiting.
+    pub wake_reason: Option<WakeReason>,
     /// Linux `clear_child_tid`: zeroed and futex-woken on thread exit.
     pub clear_child_tid: u64,
     /// Slot of the parent process (0 = none: kernel and threads).
@@ -175,8 +228,8 @@ pub fn register_kernel() {
         pml4: mem::kernel_table().as_u64(),
         kstack_top: 0,
         rsp: 0,
-        done: false,
-        blocked: false,
+        state: TaskState::Runnable,
+        wake_reason: None,
         clear_child_tid: 0,
         parent: 0,
         exit_status: 0,
@@ -213,8 +266,8 @@ pub fn spawn(name: &'static str, elf: &[u8]) -> Result<usize, &'static str> {
         pml4: pml4.as_u64(),
         kstack_top: top,
         rsp,
-        done: false,
-        blocked: false,
+        state: TaskState::Runnable,
+        wake_reason: None,
         clear_child_tid: 0,
         parent: 0,
         exit_status: 0,
@@ -253,8 +306,8 @@ pub fn spawn_linux(name: &'static str, elf: &[u8], argv0: &str) -> Result<usize,
         pml4: pml4.as_u64(),
         kstack_top: top,
         rsp,
-        done: false,
-        blocked: false,
+        state: TaskState::Runnable,
+        wake_reason: None,
         clear_child_tid: 0,
         parent: 0,
         exit_status: 0,
@@ -300,8 +353,8 @@ pub fn spawn_thread(
         pml4,
         kstack_top: top,
         rsp,
-        done: false,
-        blocked: false,
+        state: TaskState::Runnable,
+        wake_reason: None,
         clear_child_tid,
         parent: 0,
         exit_status: 0,
@@ -349,8 +402,8 @@ pub fn spawn_fork() -> Result<usize, &'static str> {
         pml4: child_table.as_u64(),
         kstack_top: top,
         rsp,
-        done: false,
-        blocked: false,
+        state: TaskState::Runnable,
+        wake_reason: None,
         clear_child_tid: 0,
         parent: parent_index,
         exit_status: 0,
@@ -430,14 +483,19 @@ pub fn current() -> usize {
 
 /// Mark the current task finished with an exit status.
 pub fn finish_current(code: u64) {
-    let mut tasks = TASKS.lock();
-    if let Some(task) = tasks[current()].as_mut() {
-        task.done = true;
-        task.blocked = false;
-        task.exit_status = code;
+    {
+        let mut tasks = TASKS.lock();
+        if let Some(task) = tasks[current()].as_mut() {
+            task.state = TaskState::Done;
+            task.wake_reason = None;
+            task.exit_status = code;
+        }
     }
-    drop(tasks);
     NEEDS_REDRAW.store(true, Ordering::Relaxed);
+    // A parent parked in `wait4` must learn about the exit now, not on the next
+    // tick. Notify after releasing the task table: notify takes the queue lock
+    // and then the task table, and the reverse order would deadlock.
+    wait::CHILD_EXIT.notify_all();
 }
 
 /// Whether the current task has any children.
@@ -466,7 +524,7 @@ pub fn reap_child() -> Option<(usize, u64)> {
         for index in 1..MAX_TASKS {
             let finished = tasks[index]
                 .as_ref()
-                .map(|task| task.parent == me && task.done)
+                .map(|task| task.parent == me && task.state == TaskState::Done)
                 .unwrap_or(false);
             if finished {
                 let task = tasks[index].as_ref().unwrap();
@@ -497,25 +555,104 @@ pub fn reap_child() -> Option<(usize, u64)> {
 }
 
 /// Park the current task (skipped by the scheduler until woken).
+///
+/// Kept for the kernel test harness; real blocking goes through
+/// [`wait::WaitQueue`], which also records a wake reason and a deadline.
+#[allow(dead_code)]
 pub fn set_blocked(blocked: bool) {
     if let Some(task) = TASKS.lock()[current()].as_mut() {
-        task.blocked = blocked;
+        if task.state == TaskState::Done {
+            return;
+        }
+        task.state = if blocked {
+            TaskState::Blocked {
+                wait: WaitKind::Sleep,
+                deadline: None,
+            }
+        } else {
+            TaskState::Runnable
+        };
+        task.wake_reason = None;
     }
 }
 
-/// Whether the current task is parked.
+/// Whether the current task is parked on a wait queue.
+///
+/// Kept for the kernel test harness; see [`set_blocked`].
+#[allow(dead_code)]
 pub fn blocked() -> bool {
     TASKS.lock()[current()]
         .as_ref()
-        .map(|task| task.blocked)
-        .unwrap_or(false)
+        .is_some_and(|task| matches!(task.state, TaskState::Blocked { .. }))
 }
 
-/// Wake a parked task by slot index.
-pub fn wake_task(index: usize) {
+/// Wake a parked task by slot index, recording [`WakeReason::Woken`]. Returns
+/// whether the task was actually parked.
+///
+/// Kept for the kernel test harness; wait queues use [`wake_task_with`].
+#[allow(dead_code)]
+pub fn wake_task(index: usize) -> bool {
+    wake_task_with(index, WakeReason::Woken)
+}
+
+/// Mark task `index` blocked with a reason and an optional absolute deadline.
+///
+/// Callers park the task on a queue first and call this with interrupts
+/// disabled, so the timer ISR can never schedule a half-parked task.
+pub(crate) fn block_task(index: usize, wait: WaitKind, deadline: Option<u64>) {
     if let Some(task) = TASKS.lock()[index].as_mut() {
-        task.blocked = false;
+        if task.state != TaskState::Done {
+            task.state = TaskState::Blocked { wait, deadline };
+            task.wake_reason = None;
+        }
     }
+}
+
+/// Move a blocked task back to `Runnable` and record why. Returns whether the
+/// task was actually blocked (a task that already timed out, or is `Done`, is
+/// left untouched so the scheduler never resurrects it).
+pub(crate) fn wake_task_with(index: usize, reason: WakeReason) -> bool {
+    if let Some(task) = TASKS.lock()[index].as_mut() {
+        if matches!(task.state, TaskState::Blocked { .. }) {
+            task.state = TaskState::Runnable;
+            task.wake_reason = Some(reason);
+            return true;
+        }
+    }
+    false
+}
+
+/// Consume the wake reason recorded for `index`, if any. The wait loop calls
+/// this on resume; the reason is cleared so a later wait starts fresh.
+pub(crate) fn take_wake_reason(index: usize) -> Option<WakeReason> {
+    TASKS.lock()[index]
+        .as_mut()
+        .and_then(|task| task.wake_reason.take())
+}
+
+/// The PIT tick counter (100 Hz). Wait deadlines are absolute tick values.
+pub fn ticks() -> u64 {
+    crate::arch::idt::TICKS.load(Ordering::Relaxed)
+}
+
+/// Park the current task until terminal input arrives.
+pub fn wait_terminal() -> WakeReason {
+    wait::TERMINAL.wait(current(), None)
+}
+
+/// Park the current task until terminal input arrives or `deadline` passes.
+pub fn wait_poll(deadline: Option<u64>) -> WakeReason {
+    wait::TERMINAL.wait(current(), deadline)
+}
+
+/// Park the current task until `deadline` (absolute PIT ticks) passes.
+pub fn wait_sleep(deadline: u64) -> WakeReason {
+    wait::SLEEP.wait(current(), Some(deadline))
+}
+
+/// Park the current task until one of its children becomes reapable.
+pub fn wait_child_exit() -> WakeReason {
+    wait::CHILD_EXIT.wait(current(), None)
 }
 
 /// The current task's `clear_child_tid` address.
@@ -549,17 +686,18 @@ pub extern "C" fn schedule(current_rsp: u64) -> u64 {
         task.rsp = current_rsp;
     }
 
-    // Round-robin to the next runnable task.
-    let mut next = cur;
-    for step in 1..=MAX_TASKS {
-        let candidate = (cur + step) % MAX_TASKS;
-        if let Some(task) = tasks[candidate].as_ref() {
-            if !task.done && !task.blocked {
-                next = candidate;
-                break;
-            }
-        }
-    }
+    // Time out waiters whose deadline has passed. Doing it here, on the
+    // scheduler's lock, means a timed-out task is runnable before this tick's
+    // selection runs, and the wait path needs no separate timer callback.
+    let now = crate::arch::idt::TICKS.load(Ordering::Relaxed);
+    expire_deadlines(&mut tasks, now);
+
+    // Round-robin to the next runnable task. A task that is still blocked is
+    // never selected. `next_runnable` falls back to `cur` when nothing is
+    // runnable at all; the kernel task is always runnable, so that only covers
+    // the degenerate case where even the kernel is parked, and resuming `cur`
+    // there just re-enters its wait loop instead of stalling the CPU.
+    let next = next_runnable(&tasks, cur);
     if next == cur {
         return current_rsp;
     }
@@ -578,6 +716,40 @@ pub extern "C" fn schedule(current_rsp: u64) -> u64 {
     // Restore this task's user thread pointer.
     crate::arch::msr::write(crate::arch::msr::IA32_FS_BASE, fs_base);
     rsp
+}
+
+/// Wake every blocked task whose absolute deadline has passed at `now`, with
+/// [`WakeReason::TimedOut`]. The waiter is left enqueued: its wait loop removes
+/// itself once it observes the reason, which keeps the queue and the task table
+/// updates on their respective locks in a fixed order.
+fn expire_deadlines(tasks: &mut [Option<Task>; MAX_TASKS], now: u64) {
+    for task in tasks.iter_mut().flatten() {
+        if let TaskState::Blocked {
+            deadline: Some(deadline),
+            ..
+        } = task.state
+        {
+            if now >= deadline {
+                task.state = TaskState::Runnable;
+                task.wake_reason = Some(WakeReason::TimedOut);
+            }
+        }
+    }
+}
+
+/// The first `Runnable` task after `cur` in round-robin order, or `cur` when
+/// no task is runnable at all.
+fn next_runnable(tasks: &[Option<Task>; MAX_TASKS], cur: usize) -> usize {
+    for step in 1..=MAX_TASKS {
+        let candidate = (cur + step) % MAX_TASKS;
+        if tasks[candidate]
+            .as_ref()
+            .is_some_and(|task| task.state == TaskState::Runnable)
+        {
+            return candidate;
+        }
+    }
+    cur
 }
 
 /// Append output to the current process's terminal, dropping ANSI escape
@@ -684,21 +856,30 @@ pub fn on_key(key: Key) {
         return;
     }
     let focus = FOCUS.load(Ordering::Relaxed);
-    let mut tasks = TASKS.lock();
-    if let Some(task) = tasks[focus].as_mut() {
-        task.input.push_back(key);
+    {
+        let mut tasks = TASKS.lock();
+        if let Some(task) = tasks[focus].as_mut() {
+            task.input.push_back(key);
+        }
     }
+    // Wake blocked readers after releasing the task table: wait queues take the
+    // task table inside notify, so the lock order is always queue -> task.
+    // Readers that got no key just park again (spurious wakeup).
+    wait::TERMINAL.notify_all();
 }
 
 /// Inject bytes into the current process's input queue (e.g. a terminal reply).
 pub fn inject_input(bytes: &[u8]) {
-    let mut tasks = TASKS.lock();
-    let root = root_index(&tasks);
-    if let Some(task) = tasks[root].as_mut() {
-        for &byte in bytes {
-            task.input.push_back(Key::Char(byte as char));
+    {
+        let mut tasks = TASKS.lock();
+        let root = root_index(&tasks);
+        if let Some(task) = tasks[root].as_mut() {
+            for &byte in bytes {
+                task.input.push_back(Key::Char(byte as char));
+            }
         }
     }
+    wait::TERMINAL.notify_all();
 }
 
 /// Whether the current process has pending terminal input.
@@ -720,7 +901,7 @@ fn cycle_focus() {
             continue;
         }
         if let Some(task) = tasks[candidate].as_ref() {
-            if !task.done {
+            if task.state != TaskState::Done {
                 FOCUS.store(candidate, Ordering::Relaxed);
                 NEEDS_REDRAW.store(true, Ordering::Relaxed);
                 return;
@@ -954,16 +1135,20 @@ pub fn fd_dup2(old: usize, new: usize) -> Option<usize> {
 /// Snapshot of a task's name, output and done flag, for rendering.
 pub fn snapshot(index: usize) -> Option<(&'static str, Vec<u8>, bool)> {
     let tasks = TASKS.lock();
-    tasks[index]
-        .as_ref()
-        .map(|task| (task.name, task.output.clone(), task.done))
+    tasks[index].as_ref().map(|task| {
+        (
+            task.name,
+            task.output.clone(),
+            task.state == TaskState::Done,
+        )
+    })
 }
 
 /// Test-harness hooks (issue #62), compiled only with `LAZYOS_TESTS=1`. They let
 /// the in-kernel suite drive task bookkeeping without a running scheduler.
 #[cfg(laZYOS_TESTS)]
 pub mod harness {
-    use super::TASKS;
+    use super::{TaskState, WakeReason, TASKS};
 
     /// Free every slot except the kernel task's.
     pub fn reset() {
@@ -975,10 +1160,36 @@ pub mod harness {
 
     /// Mark `index` finished, as if it had called `exit`.
     pub fn finish(index: usize, code: u64) {
-        if let Some(task) = TASKS.lock()[index].as_mut() {
-            task.done = true;
-            task.blocked = false;
-            task.exit_status = code;
+        {
+            let mut tasks = TASKS.lock();
+            if let Some(task) = tasks[index].as_mut() {
+                task.state = TaskState::Done;
+                task.wake_reason = None;
+                task.exit_status = code;
+            }
         }
+        super::wait::CHILD_EXIT.notify_all();
+    }
+
+    /// The state of task `index`.
+    pub fn state(index: usize) -> Option<TaskState> {
+        TASKS.lock()[index].as_ref().map(|task| task.state)
+    }
+
+    /// The slot the scheduler would pick next, without switching to it.
+    pub fn next_runnable() -> usize {
+        let tasks = TASKS.lock();
+        super::next_runnable(&tasks, super::current())
+    }
+
+    /// Run the deadline sweep with an explicit `now`, as a timer tick would.
+    pub fn expire_deadlines(now: u64) {
+        let mut tasks = TASKS.lock();
+        super::expire_deadlines(&mut tasks, now);
+    }
+
+    /// Consume the recorded wake reason, as a wait loop does on resume.
+    pub fn take_wake_reason(index: usize) -> Option<WakeReason> {
+        super::take_wake_reason(index)
     }
 }
