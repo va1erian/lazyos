@@ -82,10 +82,48 @@ const SUITE: &[(&str, Test)] = &[
         "task_wait_queue_blocked_not_scheduled",
         task_suite::wait_queue_blocked_not_scheduled,
     ),
+    ("task_process_tree_fork", task_suite::process_tree_fork),
+    ("task_pgid_sid_inherit", task_suite::pgid_sid_inherit),
+    ("task_setsid_new_session", task_suite::setsid_new_session),
+    ("task_reparent_on_death", task_suite::reparent_on_death),
+    (
+        "task_kill_group_terminates",
+        task_suite::kill_group_terminates,
+    ),
+    (
+        "task_process_list_snapshot",
+        task_suite::process_list_snapshot,
+    ),
     ("ipc_open_distinct", ipc_suite::open_distinct),
     ("ipc_duplicate_rights", ipc_suite::duplicate_rights),
     ("ipc_close_frees", ipc_suite::close_frees),
     ("ipc_quota", ipc_suite::quota),
+    (
+        "ipc_channel_echo_roundtrip",
+        ipc_channel_suite::echo_roundtrip,
+    ),
+    (
+        "ipc_channel_one_way_order_and_limits",
+        ipc_channel_suite::one_way_order_and_limits,
+    ),
+    (
+        "ipc_channel_deadline_timeout",
+        ipc_channel_suite::deadline_timeout,
+    ),
+    (
+        "ipc_channel_deadline_reply_race",
+        ipc_channel_suite::deadline_reply_race,
+    ),
+    (
+        "ipc_channel_call_deadline_zero",
+        ipc_channel_suite::call_deadline_zero,
+    ),
+    ("ipc_channel_cancel_wakes", ipc_channel_suite::cancel_wakes),
+    ("ipc_channel_peer_died", ipc_channel_suite::peer_died),
+    (
+        "ipc_channel_deadlock_refused",
+        ipc_channel_suite::deadlock_refused,
+    ),
     ("ipc_acl_default_deny", acl_suite::acl_default_deny),
     ("ipc_acl_allow_rule", acl_suite::acl_allow_rule),
     ("ipc_acl_explicit_deny", acl_suite::acl_explicit_deny),
@@ -751,6 +789,7 @@ mod heap_suite {
 
 mod task_suite {
     use super::*;
+    use crate::task::process::GroupError;
 
     /// Registering the kernel task sets the current slot and snapshot fields.
     pub fn kernel_registered() -> Result<(), String> {
@@ -1024,6 +1063,382 @@ mod task_suite {
         task::harness::reset();
         Ok(())
     }
+
+    /// Build `depth` nested `spawn_fork` children (`spawn_fork` forks the
+    /// current task, so the harness points `current()` at each new child) and
+    /// return their slots from root to leaf. Leaves `current()` at the leaf.
+    fn fork_chain(depth: usize) -> Result<Vec<usize>, String> {
+        task::harness::reset();
+        task::harness::switch_current(task::KERNEL_TASK);
+        let mut chain = Vec::new();
+        for level in 0..depth {
+            let slot = task::spawn_fork().map_err(|error| format!("level {level}: {error}"))?;
+            chain.push(slot);
+            task::harness::switch_current(slot);
+        }
+        Ok(chain)
+    }
+
+    /// Mark `slots` finished leaf-first (so each death re-parents its children)
+    /// and reap every one of them as init, then reset the table.
+    fn finish_and_reap_all(slots: &[usize]) -> Result<(), String> {
+        for &slot in slots.iter().rev() {
+            task::harness::finish(slot, 0);
+        }
+        task::harness::switch_current(task::KERNEL_TASK);
+        let mut reaped = 0;
+        while task::reap_child().is_some() {
+            reaped += 1;
+        }
+        check!(
+            reaped == slots.len(),
+            "reaped {reaped} of {} finished tasks",
+            slots.len()
+        );
+        task::harness::reset();
+        Ok(())
+    }
+
+    /// `spawn_fork` chains form a tree: parent links, children derivation and
+    /// the introspection rows all agree.
+    pub fn process_tree_fork() -> Result<(), String> {
+        let chain = fork_chain(3)?;
+        task::harness::switch_current(task::KERNEL_TASK);
+        let (root, child, leaf) = (chain[0], chain[1], chain[2]);
+
+        check!(
+            task::process::ppid_of(root) == 0,
+            "root ppid is {}, expected init",
+            task::process::ppid_of(root)
+        );
+        check!(
+            task::process::ppid_of(child) == root,
+            "child ppid is {}, expected {root}",
+            task::process::ppid_of(child)
+        );
+        check!(
+            task::process::ppid_of(leaf) == child,
+            "leaf ppid is {}, expected {child}",
+            task::process::ppid_of(leaf)
+        );
+        check!(
+            task::process::children_of(task::KERNEL_TASK) == [root],
+            "init children are {:?}, expected [{root}]",
+            task::process::children_of(task::KERNEL_TASK)
+        );
+        check!(
+            task::process::children_of(root) == [child],
+            "root children are {:?}, expected [{child}]",
+            task::process::children_of(root)
+        );
+        check!(
+            task::process::children_of(leaf).is_empty(),
+            "leaf unexpectedly has children: {:?}",
+            task::process::children_of(leaf)
+        );
+        check!(
+            task::process::find_by_pid(child) == Some(child),
+            "find_by_pid({child}) missed the live child"
+        );
+
+        // The same tree, seen through the introspection API.
+        let list = task::process::process_list();
+        check!(
+            list.len() == 4,
+            "process_list has {} rows, expected 4",
+            list.len()
+        );
+        let row = list
+            .iter()
+            .find(|row| row.pid == leaf)
+            .ok_or("leaf missing from process_list")?;
+        check!(
+            row.slot == leaf
+                && row.ppid == child
+                && row.pgid == root
+                && row.sid == root
+                && row.uid == 0
+                && row.state == task::TaskState::Runnable
+                && row.name == "fork",
+            "leaf row is {row:?}"
+        );
+        finish_and_reap_all(&chain)
+    }
+
+    /// `fork` inherits the parent's pgid/sid; a non-leader child can form its
+    /// own group, and the group/session errors match Linux.
+    pub fn pgid_sid_inherit() -> Result<(), String> {
+        let chain = fork_chain(3)?;
+        task::harness::switch_current(task::KERNEL_TASK);
+        let (root, child, leaf) = (chain[0], chain[1], chain[2]);
+
+        check!(
+            task::process::pgid_of(root) == root && task::process::sid_of(root) == root,
+            "root is not its own leader (pgid {}, sid {})",
+            task::process::pgid_of(root),
+            task::process::sid_of(root)
+        );
+        for slot in [child, leaf] {
+            check!(
+                task::process::pgid_of(slot) == root && task::process::sid_of(slot) == root,
+                "slot {slot} did not inherit the root group/session (pgid {}, sid {})",
+                task::process::pgid_of(slot),
+                task::process::sid_of(slot)
+            );
+        }
+
+        // A child (not a session leader) can form a new group in the session.
+        task::process::setpgid(root, child as i64, child as i64)
+            .map_err(|error| format!("setpgid(child, child): {error:?}"))?;
+        check!(
+            task::process::pgid_of(child) == child,
+            "child pgid is {}, expected {child}",
+            task::process::pgid_of(child)
+        );
+        check!(
+            task::process::sid_of(child) == root,
+            "forming a group changed the session: {}",
+            task::process::sid_of(child)
+        );
+
+        // Setting the group the target is already in is a successful no-op.
+        task::process::setpgid(child, 0, 0).map_err(|error| format!("setpgid(0, 0): {error:?}"))?;
+        check!(
+            task::process::pgid_of(child) == child,
+            "idempotent setpgid moved the child"
+        );
+
+        // A session leader cannot leave its group; a non-child cannot be moved;
+        // a group outside the session does not exist; a negative pgid is EINVAL.
+        check!(
+            task::process::setpgid(root, root as i64, child as i64)
+                == Err(GroupError::NotPermitted),
+            "moved a session leader into another group"
+        );
+        check!(
+            task::process::setpgid(child, root as i64, root as i64)
+                == Err(GroupError::NotPermitted),
+            "moved a process that is not the caller or its child"
+        );
+        check!(
+            task::process::setpgid(root, child as i64, 9999) == Err(GroupError::NoSuchProcess),
+            "joined a group that does not exist in the session"
+        );
+        check!(
+            task::process::setpgid(child, 0, -1) == Err(GroupError::Invalid),
+            "a negative pgid was accepted"
+        );
+        finish_and_reap_all(&chain)
+    }
+
+    /// `setsid` moves a non-leader into a fresh session and is `EPERM` for a
+    /// group leader (so it cannot be called twice).
+    pub fn setsid_new_session() -> Result<(), String> {
+        let chain = fork_chain(2)?;
+        task::harness::switch_current(task::KERNEL_TASK);
+        let (root, child) = (chain[0], chain[1]);
+
+        // Already a group leader: Linux returns EPERM and changes nothing.
+        check!(
+            task::process::setsid(root) == Err(GroupError::NotPermitted),
+            "setsid succeeded for a group leader"
+        );
+        check!(
+            task::process::sid_of(root) == root,
+            "a failed setsid changed the sid"
+        );
+
+        check!(
+            task::process::setsid(child) == Ok(child),
+            "setsid did not return the new sid {child}"
+        );
+        check!(
+            task::process::sid_of(child) == child,
+            "child sid is {}, expected {child}",
+            task::process::sid_of(child)
+        );
+        check!(
+            task::process::pgid_of(child) == child,
+            "child pgid is {}, expected {child}",
+            task::process::pgid_of(child)
+        );
+        check!(
+            task::process::sid_of(root) == root,
+            "the parent session changed"
+        );
+
+        // The new leader cannot call setsid again.
+        check!(
+            task::process::setsid(child) == Err(GroupError::NotPermitted),
+            "setsid succeeded twice"
+        );
+        finish_and_reap_all(&chain)
+    }
+
+    /// A dying task's children are adopted by the kernel/init task, and only
+    /// the old parent can reap the corpse.
+    pub fn reparent_on_death() -> Result<(), String> {
+        let chain = fork_chain(3)?;
+        task::harness::switch_current(task::KERNEL_TASK);
+        let (root, child, leaf) = (chain[0], chain[1], chain[2]);
+        check!(
+            task::process::ppid_of(leaf) == child,
+            "leaf ppid is {}, expected {child}",
+            task::process::ppid_of(leaf)
+        );
+
+        check!(
+            task::process::finish(child, 42),
+            "finish(child) was a no-op"
+        );
+        check!(
+            task::harness::state(child) == Some(task::TaskState::Done),
+            "finished child is not Done"
+        );
+        check!(
+            task::process::ppid_of(leaf) == 0,
+            "orphan ppid is {}, expected init",
+            task::process::ppid_of(leaf)
+        );
+        check!(
+            task::process::children_of(task::KERNEL_TASK).contains(&leaf),
+            "init's children do not include the orphan: {:?}",
+            task::process::children_of(task::KERNEL_TASK)
+        );
+
+        // The live grandparent reaps the corpse, but not the adopted orphan:
+        // that one is init's to collect.
+        task::harness::switch_current(root);
+        let (slot, status) = task::reap_child().ok_or("root could not reap its child")?;
+        check!(
+            slot == child && status == 42,
+            "reaped slot {slot} with status {status}, expected {child}/42"
+        );
+        check!(
+            task::reap_child().is_none(),
+            "root reaped a task that is not its child"
+        );
+        task::harness::switch_current(task::KERNEL_TASK);
+
+        check!(task::process::finish(leaf, 0), "finish(leaf) was a no-op");
+        check!(task::process::finish(root, 0), "finish(root) was a no-op");
+        let mut reaped = 0;
+        while task::reap_child().is_some() {
+            reaped += 1;
+        }
+        check!(reaped == 2, "init reaped {reaped} orphans, expected 2");
+        task::harness::reset();
+        Ok(())
+    }
+
+    /// `kill_group` marks every member `Done` (including blocked ones, which a
+    /// later wake must not resurrect), spares init and other groups, and makes
+    /// the corpses reapable by init.
+    pub fn kill_group_terminates() -> Result<(), String> {
+        let chain = fork_chain(3)?;
+        task::harness::switch_current(task::KERNEL_TASK);
+        let (root, child, leaf) = (chain[0], chain[1], chain[2]);
+
+        // A sibling in its own group must survive the kill.
+        task::harness::switch_current(root);
+        let outsider = task::spawn_fork().map_err(|error| format!("outsider: {error}"))?;
+        task::harness::switch_current(task::KERNEL_TASK);
+        task::process::setpgid(root, outsider as i64, outsider as i64)
+            .map_err(|error| format!("setpgid(outsider): {error:?}"))?;
+        check!(
+            task::process::pgid_of(outsider) == outsider,
+            "outsider did not leave the group"
+        );
+
+        // Park a member first: a killed sleeper must stay Done (#57).
+        let queue = task::wait::WaitQueue::new(task::WaitKind::Sleep);
+        queue.park(child, None);
+
+        let killed = task::kill_group(root);
+        check!(killed == 3, "kill_group killed {killed}, expected 3");
+        for slot in [root, child, leaf] {
+            check!(
+                task::harness::state(slot) == Some(task::TaskState::Done),
+                "group member {slot} survived: {:?}",
+                task::harness::state(slot)
+            );
+        }
+        check!(
+            task::harness::state(outsider) == Some(task::TaskState::Runnable),
+            "outsider was killed with the group"
+        );
+        check!(
+            queue.notify_one() == 0,
+            "a killed waiter was woken back to Runnable"
+        );
+        check!(
+            task::harness::state(child) == Some(task::TaskState::Done),
+            "a killed waiter was resurrected"
+        );
+
+        // init is exempt: only init terminates itself.
+        check!(
+            task::kill_group(task::KERNEL_TASK) == 0,
+            "kill_group(0) killed init"
+        );
+        check!(
+            task::harness::state(task::KERNEL_TASK) == Some(task::TaskState::Runnable),
+            "init is no longer runnable"
+        );
+
+        // Every corpse was adopted by init: all four tasks are reapable there.
+        task::harness::finish(outsider, 0);
+        let mut reaped = 0;
+        while task::reap_child().is_some() {
+            reaped += 1;
+        }
+        check!(reaped == 4, "init reaped {reaped}, expected 4");
+        task::harness::reset();
+        Ok(())
+    }
+
+    /// `process_list` reports the kernel as pid 0 and every live task with its
+    /// tree/group/session ids.
+    pub fn process_list_snapshot() -> Result<(), String> {
+        let chain = fork_chain(2)?;
+        task::harness::switch_current(task::KERNEL_TASK);
+        let (root, child) = (chain[0], chain[1]);
+
+        let list = task::process::process_list();
+        check!(
+            list.len() == 3,
+            "process_list has {} rows, expected 3 (init + 2)",
+            list.len()
+        );
+        let init = list
+            .iter()
+            .find(|row| row.pid == 0)
+            .ok_or("init is not listed")?;
+        check!(
+            init.slot == task::KERNEL_TASK
+                && init.ppid == 0
+                && init.pgid == 0
+                && init.sid == 0
+                && init.uid == 0
+                && init.state == task::TaskState::Runnable
+                && init.name == "kernel",
+            "init row is {init:?}"
+        );
+        let row = list
+            .iter()
+            .find(|row| row.pid == child)
+            .ok_or("forked child is not listed")?;
+        check!(
+            row.slot == child
+                && row.ppid == root
+                && row.pgid == root
+                && row.sid == root
+                && row.state == task::TaskState::Runnable
+                && row.name == "fork",
+            "child row is {row:?}"
+        );
+        finish_and_reap_all(&chain)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1128,6 +1543,432 @@ mod ipc_suite {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Messenger channels and transactions (#66)
+// ---------------------------------------------------------------------------
+
+mod ipc_channel_suite {
+    use super::*;
+    use crate::ipc::channels::{self, Error as ChannelError};
+    use crate::ipc::handles;
+    use crate::task::{TaskState, WaitKind, WakeReason};
+    use libmessenger::{flags, Decoder, Encoder, Header, Kind, Parcel, VERSION};
+
+    /// Each channel test starts from an empty task table, an empty handle
+    /// table, an empty channel registry, and a runnable kernel task with no
+    /// stale wake reason.
+    fn fresh() -> Result<(), String> {
+        task::register_kernel();
+        task::harness::reset();
+        handles::reset_for_task(task::current());
+        channels::reset();
+        let me = task::current();
+        let _ = task::harness::take_wake_reason(me);
+        check!(
+            task::harness::state(me) == Some(TaskState::Runnable),
+            "kernel task is not runnable after reset: {:?}",
+            task::harness::state(me)
+        );
+        Ok(())
+    }
+
+    /// Friendly-message adapter for `Result` plumbing.
+    fn reason(error: ChannelError) -> String {
+        error.message().into()
+    }
+
+    /// Encode a complete parcel whose body carries one string field.
+    fn parcel(method: u32, parcel_flags: u16, text: &str) -> Result<Vec<u8>, String> {
+        let mut body = Encoder::new();
+        body.string(1, text).map_err(|error| error.message())?;
+        let parcel = Parcel {
+            header: Header {
+                version: VERSION,
+                flags: parcel_flags,
+                interface_id: 0x1a2b_3c4d,
+                method,
+                txn_id: 0,
+                reply_to: 0,
+                deadline_ns: 0,
+            },
+            body: body.finish(),
+            handles: Vec::new(),
+            buffers: Vec::new(),
+        };
+        let mut bytes = Vec::new();
+        parcel.encode(&mut bytes).map_err(|error| error.message())?;
+        Ok(bytes)
+    }
+
+    /// Decode the first string field of a parcel body.
+    fn payload(bytes: &[u8]) -> Result<String, String> {
+        let parcel = Parcel::decode(bytes).map_err(|error| error.message())?;
+        let mut decoder = Decoder::new(&parcel.body);
+        while let Some(field) = decoder.next().map_err(|error| error.message())? {
+            if field.kind == Kind::String {
+                return Ok(field.as_str().map_err(|error| error.message())?.into());
+            }
+        }
+        Err("parcel body has no string field".into())
+    }
+
+    fn blocked_call(slot: usize, deadline: Option<u64>) -> bool {
+        matches!(
+            task::harness::state(slot),
+            Some(TaskState::Blocked {
+                wait: WaitKind::Sleep,
+                deadline: expected,
+            }) if expected == deadline
+        )
+    }
+
+    /// A synchronous call: the caller parks, the request keeps its bytes, the
+    /// reply wakes the caller, and the round trip returns the reply parcel.
+    pub fn echo_roundtrip() -> Result<(), String> {
+        fresh()?;
+        let (client, server) = channels::create().map_err(reason)?;
+        let request = parcel(7, flags::SYNC, "ping")?;
+        let start = unsafe { core::arch::x86_64::_rdtsc() };
+
+        let txn = channels::begin_call(client, 7, &request, None).map_err(reason)?;
+        let me = task::current();
+        check!(
+            blocked_call(me, None),
+            "begin_call did not park the caller: {:?}",
+            task::harness::state(me)
+        );
+
+        // The server side sees the request with its kernel metadata intact.
+        let message = channels::recv(server, None).map_err(reason)?;
+        check!(
+            message.sender == me,
+            "sender is {}, expected {me}",
+            message.sender
+        );
+        check!(message.method == 7, "method is {}", message.method);
+        check!(
+            message.txn == Some(txn),
+            "transaction id is {:?}",
+            message.txn
+        );
+        check!(message.bytes == request, "request bytes changed in flight");
+        check!(message.handles.is_empty(), "request transferred handles");
+        check!(
+            payload(&message.bytes)? == "ping",
+            "request payload changed"
+        );
+
+        // The reply is a fresh parcel, matched by transaction id.
+        let reply = parcel(8, 0, "pong")?;
+        channels::reply(txn, &reply).map_err(reason)?;
+        check!(
+            task::harness::state(me) == Some(TaskState::Runnable),
+            "reply did not wake the caller: {:?}",
+            task::harness::state(me)
+        );
+        check!(
+            task::harness::take_wake_reason(me) == Some(WakeReason::Woken),
+            "reply wake reason is not Woken"
+        );
+        let got = channels::await_reply(txn).map_err(reason)?;
+        check!(got == reply, "reply bytes changed on the way back");
+        check!(payload(&got)? == "pong", "reply payload changed");
+
+        let cycles = unsafe { core::arch::x86_64::_rdtsc() }.wrapping_sub(start);
+        serial_println!("TEST:ipc_channel_echo_roundtrip:INFO:cycles={cycles}");
+        let stats = channels::stats();
+        check!(
+            stats.calls == 1 && stats.replies == 1 && stats.timeouts == 0,
+            "counters after one echo: {stats:?}"
+        );
+        check!(
+            stats.queued == 0 && stats.queued_bytes == 0 && stats.outstanding == 0,
+            "channel not drained: {stats:?}"
+        );
+        let senders = channels::senders(client).map_err(reason)?;
+        check!(
+            senders.len() == 1
+                && senders[0].slot == me
+                && senders[0].calls == 1
+                && senders[0].sent == 1
+                && senders[0].outstanding == 0,
+            "sender metering is {senders:?}"
+        );
+        fresh()
+    }
+
+    /// One-way sends enqueue in order, never park the sender, and are refused
+    /// with a metered drop when the peer's bounded queue is full.
+    pub fn one_way_order_and_limits() -> Result<(), String> {
+        fresh()?;
+        let (client, server) = channels::create().map_err(reason)?;
+        for index in 0..3u32 {
+            let bytes = parcel(index, flags::ONE_WAY, &format!("m{index}"))?;
+            channels::send(client, &bytes).map_err(reason)?;
+        }
+        let me = task::current();
+        check!(
+            task::harness::state(me) == Some(TaskState::Runnable),
+            "send parked the sender: {:?}",
+            task::harness::state(me)
+        );
+        for index in 0..3u32 {
+            let message = channels::try_recv(server)
+                .map_err(reason)?
+                .ok_or("queued one-way message is missing")?;
+            check!(
+                message.txn.is_none(),
+                "one-way message carries a transaction: {:?}",
+                message.txn
+            );
+            check!(
+                message.method == index,
+                "order broken: method {}",
+                message.method
+            );
+            check!(
+                payload(&message.bytes)? == format!("m{index}"),
+                "payload order broken"
+            );
+        }
+        check!(
+            channels::try_recv(server).map_err(reason)?.is_none(),
+            "recv did not drain the queue"
+        );
+
+        // Fill the bounded queue, then observe the refusal and the drop meter.
+        let bytes = parcel(0, flags::ONE_WAY, "fill")?;
+        for _ in 0..channels::MAX_QUEUE_DEPTH {
+            channels::send(client, &bytes).map_err(reason)?;
+        }
+        check!(
+            channels::send(client, &bytes) == Err(ChannelError::QueueFull),
+            "an overfull queue accepted a message"
+        );
+        let stats = channels::channel_stats(client).map_err(reason)?;
+        check!(
+            stats.drops == 1,
+            "queue-full drop was not counted: {stats:?}"
+        );
+        check!(
+            stats.queued == channels::MAX_QUEUE_DEPTH as u64,
+            "queued depth is {}",
+            stats.queued
+        );
+        let senders = channels::senders(server).map_err(reason)?;
+        check!(
+            senders.len() == 1 && senders[0].sent == 3 + channels::MAX_QUEUE_DEPTH as u64,
+            "sender metering is {senders:?}"
+        );
+        fresh()
+    }
+
+    /// A call past its deadline wakes with `TimedOut`, and a late reply is
+    /// refused rather than delivered.
+    pub fn deadline_timeout() -> Result<(), String> {
+        fresh()?;
+        let (client, server) = channels::create().map_err(reason)?;
+        let request = parcel(7, flags::SYNC, "slow")?;
+        let me = task::current();
+        let deadline = task::ticks() + 10;
+        let txn = channels::begin_call(client, 7, &request, Some(deadline)).map_err(reason)?;
+        check!(
+            blocked_call(me, Some(deadline)),
+            "caller did not park with its deadline: {:?}",
+            task::harness::state(me)
+        );
+
+        channels::expire_deadlines(deadline);
+        check!(
+            task::harness::state(me) == Some(TaskState::Runnable),
+            "deadline sweep did not wake the caller: {:?}",
+            task::harness::state(me)
+        );
+        check!(
+            task::harness::take_wake_reason(me) == Some(WakeReason::TimedOut),
+            "deadline wake reason is not TimedOut"
+        );
+        let late = parcel(8, 0, "too late")?;
+        check!(
+            channels::reply(txn, &late) == Err(ChannelError::NoTransaction),
+            "a reply to an expired transaction was accepted"
+        );
+        check!(
+            channels::await_reply(txn) == Err(ChannelError::TimedOut),
+            "await_reply did not report TimedOut"
+        );
+        let stats = channels::stats();
+        check!(
+            stats.timeouts == 1 && stats.outstanding == 0,
+            "counters after a timeout: {stats:?}"
+        );
+        // The request stays queued for the (late) server to drain.
+        check!(
+            channels::try_recv(server).map_err(reason)?.is_some(),
+            "the expired request vanished from the server queue"
+        );
+        fresh()
+    }
+
+    /// A reply that lands before the deadline sweep wins the race: the
+    /// transaction completes normally and the timeout meter stays at zero.
+    pub fn deadline_reply_race() -> Result<(), String> {
+        fresh()?;
+        let (client, _server) = channels::create().map_err(reason)?;
+        let request = parcel(7, flags::SYNC, "fast")?;
+        let deadline = task::ticks() + 10;
+        let txn = channels::begin_call(client, 7, &request, Some(deadline)).map_err(reason)?;
+        let reply = parcel(8, 0, "quick")?;
+        channels::reply(txn, &reply).map_err(reason)?;
+        // The sweep runs after the reply; it must not overwrite the outcome.
+        channels::expire_deadlines(deadline);
+        let got = channels::await_reply(txn).map_err(reason)?;
+        check!(got == reply, "the racing reply was not returned");
+        check!(
+            channels::stats().timeouts == 0,
+            "a completed reply was counted as timed out"
+        );
+        fresh()
+    }
+
+    /// The production `call` path, end to end: with an already-expired
+    /// deadline the caller parks through the timer gate, the deadline sweep
+    /// wakes it, and `call` returns `TimedOut` without a server.
+    pub fn call_deadline_zero() -> Result<(), String> {
+        fresh()?;
+        let (client, _server) = channels::create().map_err(reason)?;
+        let request = parcel(7, flags::SYNC, "nobody home")?;
+        let start = unsafe { core::arch::x86_64::_rdtsc() };
+        let result = channels::call(client, 7, &request, Some(0));
+        let cycles = unsafe { core::arch::x86_64::_rdtsc() }.wrapping_sub(start);
+        check!(
+            result == Err(ChannelError::TimedOut),
+            "an already-expired call returned {result:?}"
+        );
+        serial_println!("TEST:ipc_channel_call_deadline_zero:INFO:cycles={cycles}");
+        let stats = channels::stats();
+        check!(
+            stats.timeouts == 1 && stats.outstanding == 0,
+            "counters after a timeout: {stats:?}"
+        );
+        check!(
+            task::harness::state(task::current()) == Some(TaskState::Runnable),
+            "the caller stayed parked after call returned"
+        );
+        fresh()
+    }
+
+    /// `cancel` wakes a parked caller with `Canceled`, and the transaction is
+    /// gone afterwards.
+    pub fn cancel_wakes() -> Result<(), String> {
+        fresh()?;
+        let (client, _server) = channels::create().map_err(reason)?;
+        let request = parcel(7, flags::SYNC, "wait")?;
+        let me = task::current();
+        let txn = channels::begin_call(client, 7, &request, None).map_err(reason)?;
+        check!(blocked_call(me, None), "caller not parked before cancel");
+        channels::cancel(txn).map_err(reason)?;
+        check!(
+            task::harness::state(me) == Some(TaskState::Runnable),
+            "cancel did not wake the caller: {:?}",
+            task::harness::state(me)
+        );
+        check!(
+            task::harness::take_wake_reason(me) == Some(WakeReason::Woken),
+            "cancel wake reason is not Woken"
+        );
+        check!(
+            channels::await_reply(txn) == Err(ChannelError::Canceled),
+            "await_reply did not report Canceled"
+        );
+        check!(
+            channels::cancel(txn) == Err(ChannelError::NoTransaction),
+            "double cancel succeeded"
+        );
+        check!(
+            channels::stats().cancels == 1,
+            "cancel counter is {}",
+            channels::stats().cancels
+        );
+        fresh()
+    }
+
+    /// Closing an endpoint wakes an outstanding caller with `PeerDied`, and the
+    /// surviving side sees `PeerDied` once its inbox is empty.
+    pub fn peer_died() -> Result<(), String> {
+        fresh()?;
+        let (client, server) = channels::create().map_err(reason)?;
+        let request = parcel(7, flags::SYNC, "hello?")?;
+        let me = task::current();
+        let txn = channels::begin_call(client, 7, &request, None).map_err(reason)?;
+        channels::close_endpoint(server).map_err(reason)?;
+        check!(
+            task::harness::state(me) == Some(TaskState::Runnable),
+            "close did not wake the caller: {:?}",
+            task::harness::state(me)
+        );
+        check!(
+            task::harness::take_wake_reason(me) == Some(WakeReason::Woken),
+            "close wake reason is not Woken"
+        );
+        check!(
+            channels::await_reply(txn) == Err(ChannelError::PeerDied),
+            "await_reply did not report PeerDied"
+        );
+        check!(
+            channels::recv(client, None) == Err(ChannelError::PeerDied),
+            "recv did not report PeerDied after the peer closed"
+        );
+        check!(
+            channels::stats().outstanding == 0,
+            "transaction stayed outstanding after the peer died"
+        );
+        fresh()
+    }
+
+    /// A synchronous call while another transaction is open on the channel is
+    /// a cycle and refused with `Deadlock`; `ALLOW_NESTED` opts out, and the
+    /// channel is usable again once the first transaction ends.
+    pub fn deadlock_refused() -> Result<(), String> {
+        fresh()?;
+        let (a, b) = channels::create().map_err(reason)?;
+        let request = parcel(7, flags::SYNC, "outer")?;
+        let outer = channels::begin_call(a, 7, &request, None).map_err(reason)?;
+
+        check!(
+            channels::begin_call(b, 7, &request, None) == Err(ChannelError::Deadlock),
+            "a nested call cycle was not refused"
+        );
+        let nested_bytes = parcel(7, flags::SYNC | flags::ALLOW_NESTED, "nested")?;
+        let nested = channels::begin_call(b, 7, &nested_bytes, None).map_err(reason)?;
+        check!(nested != outer, "the nested call reused the outer id");
+
+        channels::cancel(outer).map_err(reason)?;
+        channels::cancel(nested).map_err(reason)?;
+        check!(
+            channels::await_reply(outer) == Err(ChannelError::Canceled),
+            "outer outcome is not Canceled"
+        );
+        check!(
+            channels::await_reply(nested) == Err(ChannelError::Canceled),
+            "nested outcome is not Canceled"
+        );
+
+        // With the channel idle again, a plain call is allowed.
+        let again = channels::begin_call(a, 7, &request, None).map_err(reason)?;
+        channels::cancel(again).map_err(reason)?;
+        check!(
+            channels::await_reply(again) == Err(ChannelError::Canceled),
+            "reused channel outcome is not Canceled"
+        );
+        check!(
+            channels::stats().cancels == 3,
+            "cancel counter is {}",
+            channels::stats().cancels
+        );
+        fresh()
+    }
+}
 // ---------------------------------------------------------------------------
 // Messenger credentials, ACL, and audit (issue #68)
 // ---------------------------------------------------------------------------

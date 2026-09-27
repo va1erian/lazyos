@@ -1,13 +1,15 @@
 //! Messenger kernel IPC core (issues #64+).
 //!
-//! This module owns the kernel-side objects the Messenger fabric is built on.
-//! Channels, syscalls, and shared buffers land in later issues; today it is the
-//! per-process handle table that gives every object reference an unforgeable,
-//! rights-carrying name, plus the security core: kernel-stamped credentials, the
-//! default-deny ACL hook, and the hash-chained audit ring (issue #68).
+//! This module owns the kernel-side objects the Messenger fabric is built on:
+//! the per-process handle table that gives every object reference an
+//! unforgeable, rights-carrying name; the channels that carry one-way messages
+//! and synchronous transactions; and the security core: kernel-stamped
+//! credentials, the default-deny ACL hook, and the hash-chained audit ring
+//! (issue #68). Syscalls and shared buffers land in later issues.
 
 pub mod acl;
 pub mod audit;
+pub mod channels;
 pub mod credentials;
 pub mod handles;
 
