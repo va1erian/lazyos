@@ -14,6 +14,10 @@ use crate::text;
 
 const TITLE_H: i32 = 26;
 const PAD: i32 = 8;
+/// Ticks the multiplexer sleeps between frames (100 Hz PIT): two ticks keep
+/// repaint and cursor latency at or below 20 ms while leaving the rest of the
+/// window to user tasks (issue #58).
+const IDLE_TICKS: u64 = 2;
 const BACKGROUND: Color = Color::rgb(10, 12, 20);
 const WINDOW_BG: Color = Color::rgb(16, 18, 30);
 const TITLE_BG: Color = Color::rgb(44, 50, 80);
@@ -48,7 +52,10 @@ pub fn run() -> ! {
             draw_cursor((x, y));
             mouse_prev = Some((x, y));
         }
-        x86_64::instructions::hlt();
+        // Park until the next frame slot. The mux is an `Interactive` task:
+        // sleeping between frames is what bounds its CPU share, so it cannot
+        // starve user tasks that busy-wait in `hlt` (native `read_char`).
+        task::idle(task::ticks() + IDLE_TICKS);
     }
 }
 

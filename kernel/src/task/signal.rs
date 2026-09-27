@@ -1566,6 +1566,7 @@ pub mod harness {
     }
 
     /// Number of process entries (leak check for tests).
+    #[allow(dead_code)] // kept for a future registry leak test
     pub fn registry_len() -> usize {
         super::SIGNALS.lock().len()
     }
