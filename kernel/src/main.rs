@@ -19,7 +19,7 @@ mod gfx;
 #[allow(dead_code)]
 mod gfxlib;
 mod input;
-#[allow(dead_code)] // kernel-side fabric; syscalls and channels land in #66/#69.
+#[allow(dead_code)] // Kernel-side fabric; the native syscall surface landed in #69.
 mod ipc;
 mod mem;
 mod mux;
@@ -92,6 +92,14 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     // Register the kernel (multiplexer) task and spawn the demo programs, the
     // injected Linux fixture, or a BusyBox shell.
     task::register_kernel();
+
+    // Issue #69: create the bootstrap Messenger channel pair. The service end
+    // stays kernel-side (the `messengerd` stub) and the first userspace task to
+    // call the `bootstrap` op claims the client end in its own handle table.
+    match ipc::syscalls::bootstrap::create() {
+        Ok(()) => serial_println!("msg: bootstrap channel ready"),
+        Err(error) => serial_println!("msg: bootstrap channel failed: {error}"),
+    }
     if let Some(bytes) = fs::read("BUSYBOX") {
         serial_println!("LazyOS: launching busybox sh");
         match task::spawn_linux("sh", &bytes, "sh") {

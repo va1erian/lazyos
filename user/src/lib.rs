@@ -12,4 +12,6 @@ pub mod sys;
 
 pub mod lang;
 
+pub mod messenger;
+
 mod heap;

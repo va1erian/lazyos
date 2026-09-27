@@ -12,6 +12,7 @@ pub mod audit;
 pub mod channels;
 pub mod credentials;
 pub mod handles;
+pub mod syscalls;
 
 /// The fabric's single policy choke point (issue #68).
 ///

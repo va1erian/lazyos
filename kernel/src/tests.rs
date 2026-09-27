@@ -136,6 +136,23 @@ const SUITE: &[(&str, Test)] = &[
         acl_suite::authorize_denial_audited,
     ),
     ("ipc_audit_ring_wraps", acl_suite::audit_ring_wraps),
+    ("ipc_messenger_syscall_echo", messenger_suite::syscall_echo),
+    (
+        "ipc_messenger_syscall_timeout",
+        messenger_suite::syscall_timeout,
+    ),
+    (
+        "ipc_messenger_syscall_denied",
+        messenger_suite::syscall_denied,
+    ),
+    (
+        "ipc_messenger_syscall_bad_pointer",
+        messenger_suite::syscall_bad_pointer,
+    ),
+    (
+        "ipc_messenger_bootstrap_claim",
+        messenger_suite::bootstrap_claim,
+    ),
 ];
 
 /// Run the suite, print the results, and halt.
@@ -2237,6 +2254,550 @@ mod acl_suite {
         check!(
             audit::recent(audit::AUDIT_CAPACITY + 10).len() == audit::AUDIT_CAPACITY,
             "recent returned more events than the ring holds"
+        );
+        Ok(())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Native Messenger syscalls and bootstrap (issue #69)
+// ---------------------------------------------------------------------------
+
+mod messenger_suite {
+    use super::*;
+    use crate::ipc::syscalls::{
+        self, errno, MsgArgs, MsgResult, MsgStats, OP_CALL, OP_CALL_AWAIT, OP_CALL_BEGIN,
+        OP_CANCEL, OP_CLOSE_ENDPOINT, OP_CREATE_PAIR, OP_RECV, OP_REPLY, OP_SEND, OP_STATS,
+    };
+    use crate::ipc::{acl, audit, channels, credentials, handles};
+    use crate::task::TaskState;
+    use libmessenger::{flags, Decoder, Encoder, Header, Kind, Parcel, VERSION};
+
+    const IFACE: u64 = 0x6969_6969_6969_6969;
+
+    /// Scratch user address space for the syscall tests. `dispatch` validates
+    /// pointers against the active CR3, so each test installs a fresh table and
+    /// restores the kernel's afterwards.
+    const SPACE: u64 = 0x0040_0000;
+    const SPACE_PAGES: u64 = 8;
+    /// Blocks inside the scratch space, one per page so page-crossing copies
+    /// are not a factor in these tests.
+    const ARGS: u64 = SPACE;
+    const RESULT: u64 = SPACE + 0x100;
+    const REQUEST: u64 = SPACE + 0x1000;
+    const RECV_BUF: u64 = SPACE + 0x2000;
+    const REPLY_BUF: u64 = SPACE + 0x3000;
+    const STATS_BUF: u64 = SPACE + 0x4000;
+
+    /// Each test starts from the bring-up state: kernel task current and
+    /// runnable, no handles, channels, policy, audit events, or bootstrap.
+    fn fresh() -> Result<(), String> {
+        task::register_kernel();
+        task::harness::reset();
+        task::harness::switch_current(task::KERNEL_TASK);
+        for slot in 0..task::MAX_TASKS {
+            handles::reset_for_task(slot);
+        }
+        channels::reset();
+        syscalls::bootstrap::reset();
+        credentials::reset_for_task(task::KERNEL_TASK);
+        acl::load(&[]);
+        audit::reset();
+        audit::set_trace(false);
+        // A failed earlier test can leave the kernel task parked; a stale wake
+        // reason must not leak into this one.
+        task::wake_task(task::KERNEL_TASK);
+        let _ = task::harness::take_wake_reason(task::KERNEL_TASK);
+        Ok(())
+    }
+
+    /// Friendly-message adapter for `Result` plumbing.
+    fn reason(error: channels::Error) -> String {
+        error.message().into()
+    }
+
+    /// Two's-complement `-errno` as the syscall returns it in `rax`.
+    fn failed(code: i64) -> u64 {
+        (code as u64).wrapping_neg()
+    }
+
+    /// Run `f` with [`SPACE`] mapped into a fresh address space installed as
+    /// CR3, exactly as a real syscall from a user task would find it.
+    fn in_space<R>(f: impl FnOnce() -> Result<R, String>) -> Result<R, String> {
+        let kernel = mem::kernel_table();
+        let table = mem::new_user_table().ok_or("new_user_table failed")?;
+        process::map_range(table, SPACE, SPACE + SPACE_PAGES * 4096).map_err(to_string)?;
+        mem::switch_to(table);
+        let outcome = f();
+        mem::switch_to(kernel);
+        mem::free_user_table(table);
+        outcome
+    }
+
+    /// Encode a parcel whose body carries one string field.
+    fn parcel(method: u32, parcel_flags: u16, text: &str) -> Result<Vec<u8>, String> {
+        let mut body = Encoder::new();
+        body.string(1, text).map_err(|error| error.message())?;
+        let parcel = Parcel {
+            header: Header {
+                version: VERSION,
+                flags: parcel_flags,
+                interface_id: IFACE,
+                method,
+                txn_id: 0,
+                reply_to: 0,
+                deadline_ns: 0,
+            },
+            body: body.finish(),
+            handles: Vec::new(),
+            buffers: Vec::new(),
+        };
+        let mut bytes = Vec::new();
+        parcel.encode(&mut bytes).map_err(|error| error.message())?;
+        Ok(bytes)
+    }
+
+    /// Decode the first string field of a parcel body.
+    fn string_field(bytes: &[u8]) -> Result<String, String> {
+        let parcel = Parcel::decode(bytes).map_err(|error| error.message())?;
+        let mut decoder = Decoder::new(&parcel.body);
+        while let Some(field) = decoder.next().map_err(|error| error.message())? {
+            if field.kind == Kind::String {
+                return Ok(field.as_str().map_err(|error| error.message())?.into());
+            }
+        }
+        Err("parcel body has no string field".into())
+    }
+
+    /// Write bytes into the installed scratch space.
+    fn write_bytes(va: u64, bytes: &[u8]) {
+        // Safety: the scratch pages are mapped writable while installed.
+        unsafe { core::ptr::copy_nonoverlapping(bytes.as_ptr(), va as *mut u8, bytes.len()) };
+    }
+
+    /// Read bytes from the installed scratch space.
+    fn read_bytes(va: u64, len: usize) -> Vec<u8> {
+        let mut out = Vec::new();
+        out.resize(len, 0);
+        // Safety: the scratch pages are mapped readable while installed.
+        unsafe { core::ptr::copy_nonoverlapping(va as *const u8, out.as_mut_ptr(), len) };
+        out
+    }
+
+    /// Run one op through the native gate with the args block at [`ARGS`] and
+    /// decode the result block.
+    fn syscall(op: u64, args: &MsgArgs) -> (u64, MsgResult) {
+        write_bytes(ARGS, &args.to_bytes());
+        let code = process::dispatch_for_test(5, op, ARGS, RESULT);
+        let result = MsgResult::from_bytes(&read_bytes(RESULT, 64))
+            .expect("the kernel wrote a malformed result block");
+        (code, result)
+    }
+
+    /// The full syscall path: a synchronous echo call and reply, byte for byte,
+    /// plus one-way send, cancel, stats, and close. Prints `MSG:ECHO:PASS` so
+    /// CI can grep the round trip.
+    pub fn syscall_echo() -> Result<(), String> {
+        fresh()?;
+        in_space(|| -> Result<(), String> {
+            // 1. Create the pair through the syscall; both handles land in the
+            //    calling (kernel) task's table.
+            let (code, created) = syscall(OP_CREATE_PAIR, &MsgArgs::default());
+            check!(code == 0 && created.status == 0, "create_pair -> {code:#x}");
+            let (client, server) = (created.value, created.aux);
+            check!(client != server, "create_pair reused handle {client}");
+
+            // 2. Begin a synchronous call with a "ping" request parcel.
+            let request = parcel(7, flags::SYNC, "ping")?;
+            write_bytes(REQUEST, &request);
+            let args = MsgArgs {
+                handle: client,
+                parcel_ptr: REQUEST,
+                parcel_len: request.len() as u64,
+                ..MsgArgs::default()
+            };
+            let (code, begun) = syscall(OP_CALL_BEGIN, &args);
+            check!(code == 0, "call_begin -> {code:#x}");
+            let txn = begun.value;
+            check!(txn != 0, "call_begin returned transaction 0");
+
+            // 3. The server receives exactly the request bytes.
+            let args = MsgArgs {
+                handle: server,
+                buf_ptr: RECV_BUF,
+                buf_cap: 4096,
+                ..MsgArgs::default()
+            };
+            let (code, received) = syscall(OP_RECV, &args);
+            check!(code == 0, "recv -> {code:#x}");
+            check!(
+                received.value == txn,
+                "recv transaction is {} (expected {txn})",
+                received.value
+            );
+            check!(
+                received.aux == task::current() as u64,
+                "recv sender is {} (expected {})",
+                received.aux,
+                task::current()
+            );
+            let got = read_bytes(RECV_BUF, received.bytes as usize);
+            check!(got == request, "request bytes changed in flight");
+            check!(string_field(&got)? == "ping", "request payload changed");
+
+            // 4. Reply with "pong"; the caller awaits the exact reply parcel.
+            let reply = parcel(8, 0, "pong")?;
+            write_bytes(REPLY_BUF, &reply);
+            let args = MsgArgs {
+                txn_id: txn,
+                parcel_ptr: REPLY_BUF,
+                parcel_len: reply.len() as u64,
+                ..MsgArgs::default()
+            };
+            let (code, _) = syscall(OP_REPLY, &args);
+            check!(code == 0, "reply -> {code:#x}");
+
+            let args = MsgArgs {
+                txn_id: txn,
+                buf_ptr: RECV_BUF,
+                buf_cap: 4096,
+                ..MsgArgs::default()
+            };
+            let (code, awaited) = syscall(OP_CALL_AWAIT, &args);
+            check!(code == 0, "call_await -> {code:#x}");
+            let got = read_bytes(RECV_BUF, awaited.bytes as usize);
+            check!(got == reply, "reply bytes changed on the way back");
+            check!(string_field(&got)? == "pong", "reply payload changed");
+
+            // 5. One-way send and receive: same bytes, no transaction id.
+            let note = parcel(11, flags::ONE_WAY, "note")?;
+            write_bytes(REQUEST, &note);
+            let args = MsgArgs {
+                handle: client,
+                parcel_ptr: REQUEST,
+                parcel_len: note.len() as u64,
+                ..MsgArgs::default()
+            };
+            let (code, _) = syscall(OP_SEND, &args);
+            check!(code == 0, "send -> {code:#x}");
+            let args = MsgArgs {
+                handle: server,
+                buf_ptr: RECV_BUF,
+                buf_cap: 4096,
+                ..MsgArgs::default()
+            };
+            let (code, received) = syscall(OP_RECV, &args);
+            check!(
+                code == 0 && received.value == 0,
+                "one-way recv -> {code:#x}"
+            );
+            check!(
+                read_bytes(RECV_BUF, received.bytes as usize) == note,
+                "one-way bytes changed in flight"
+            );
+
+            // 6. Counters agree with one call and one reply.
+            let args = MsgArgs {
+                buf_ptr: STATS_BUF,
+                buf_cap: MsgStats::SIZE as u64,
+                ..MsgArgs::default()
+            };
+            let (code, result) = syscall(OP_STATS, &args);
+            check!(
+                code == 0 && result.bytes as usize == MsgStats::SIZE,
+                "stats -> {code:#x}"
+            );
+            let stats = MsgStats::from_bytes(&read_bytes(STATS_BUF, MsgStats::SIZE))
+                .ok_or("bad stats block")?;
+            check!(
+                stats.calls == 1 && stats.replies == 1 && stats.outstanding == 0,
+                "counters after one echo: {stats:?}"
+            );
+            check!(stats.queued == 0, "channel not drained: {stats:?}");
+
+            serial_println!("MSG:ECHO:PASS");
+
+            // 7. Cancel a registered call; the await reports the cancellation.
+            let stuck = parcel(12, flags::SYNC, "stuck")?;
+            write_bytes(REQUEST, &stuck);
+            let args = MsgArgs {
+                handle: client,
+                parcel_ptr: REQUEST,
+                parcel_len: stuck.len() as u64,
+                ..MsgArgs::default()
+            };
+            let (code, begun) = syscall(OP_CALL_BEGIN, &args);
+            check!(code == 0, "begin(stuck) -> {code:#x}");
+            let args = MsgArgs {
+                txn_id: begun.value,
+                ..MsgArgs::default()
+            };
+            check!(syscall(OP_CANCEL, &args).0 == 0, "cancel failed");
+            let args = MsgArgs {
+                txn_id: begun.value,
+                buf_ptr: RECV_BUF,
+                buf_cap: 4096,
+                ..MsgArgs::default()
+            };
+            check!(
+                syscall(OP_CALL_AWAIT, &args).0 == failed(errno::ECANCELED),
+                "await after cancel was not -ECANCELED"
+            );
+
+            // 8. Closing both ends frees the handles.
+            let args = MsgArgs {
+                handle: client,
+                ..MsgArgs::default()
+            };
+            check!(
+                syscall(OP_CLOSE_ENDPOINT, &args).0 == 0,
+                "close(client) failed"
+            );
+            let args = MsgArgs {
+                handle: server,
+                ..MsgArgs::default()
+            };
+            check!(
+                syscall(OP_CLOSE_ENDPOINT, &args).0 == 0,
+                "close(server) failed"
+            );
+            Ok(())
+        })
+    }
+
+    /// The blocking `call` op parks through the timer gate and maps the
+    /// channel's timeout to `-ETIMEDOUT`.
+    pub fn syscall_timeout() -> Result<(), String> {
+        fresh()?;
+        in_space(|| -> Result<(), String> {
+            let (code, created) = syscall(OP_CREATE_PAIR, &MsgArgs::default());
+            check!(code == 0, "create_pair -> {code:#x}");
+            let request = parcel(7, flags::SYNC, "nobody home")?;
+            write_bytes(REQUEST, &request);
+            let args = MsgArgs {
+                handle: created.value,
+                parcel_ptr: REQUEST,
+                parcel_len: request.len() as u64,
+                buf_ptr: RECV_BUF,
+                buf_cap: 4096,
+                deadline: task::ticks() + 1,
+                ..MsgArgs::default()
+            };
+            let (code, result) = syscall(OP_CALL, &args);
+            check!(
+                code == failed(errno::ETIMEDOUT),
+                "call -> {code:#x}, expected -ETIMEDOUT"
+            );
+            check!(
+                result.status == -errno::ETIMEDOUT,
+                "timeout status is {}",
+                result.status
+            );
+            check!(
+                channels::stats().timeouts == 1,
+                "the timeout was not counted: {:?}",
+                channels::stats()
+            );
+            Ok(())
+        })
+    }
+
+    /// A parcel-bearing op goes through the ACL hook: with a non-empty policy
+    /// that does not cover the caller, the call is `-EACCES`, the channel is
+    /// untouched, and the denial is audited.
+    pub fn syscall_denied() -> Result<(), String> {
+        fresh()?;
+        acl::load(&[acl::Rule {
+            actor: 2000,
+            interface_id: IFACE,
+            method: 7,
+            allow: true,
+        }]);
+        credentials::set(
+            task::KERNEL_TASK,
+            credentials::Cred::new(1000, 100, 0, 0, 0),
+        );
+        in_space(|| -> Result<(), String> {
+            let (code, created) = syscall(OP_CREATE_PAIR, &MsgArgs::default());
+            check!(code == 0, "create_pair -> {code:#x}");
+            let request = parcel(7, flags::SYNC, "blocked")?;
+            write_bytes(REQUEST, &request);
+            let before = audit::count();
+            let args = MsgArgs {
+                handle: created.value,
+                parcel_ptr: REQUEST,
+                parcel_len: request.len() as u64,
+                ..MsgArgs::default()
+            };
+            let (code, result) = syscall(OP_CALL_BEGIN, &args);
+            check!(
+                code == failed(errno::EACCES),
+                "denied call_begin -> {code:#x}"
+            );
+            check!(
+                result.status == -errno::EACCES,
+                "denied status is {}",
+                result.status
+            );
+            let stats = channels::stats();
+            check!(
+                stats.calls == 0 && stats.queued == 0,
+                "a denied call touched the channel: {stats:?}"
+            );
+            check!(
+                audit::count() == before + 1,
+                "the denial was not audited: {} -> {}",
+                before,
+                audit::count()
+            );
+            let event = *audit::recent(1).first().ok_or("no audit event")?;
+            check!(
+                !event.allow && event.interface_id == IFACE && event.method == 7,
+                "the denial event is {event:?}"
+            );
+            check!(
+                event.reason_code == acl::reason::DEFAULT_DENY,
+                "the denial reason code is {}",
+                event.reason_code
+            );
+            Ok(())
+        })
+    }
+
+    /// Every malformed pointer or length returns an error and leaves the task
+    /// runnable: no kernel fault, no panic, no side effect.
+    pub fn syscall_bad_pointer() -> Result<(), String> {
+        fresh()?;
+        in_space(|| -> Result<(), String> {
+            let (code, created) = syscall(OP_CREATE_PAIR, &MsgArgs::default());
+            check!(code == 0, "create_pair -> {code:#x}");
+            let request = parcel(7, flags::SYNC, "x")?;
+            write_bytes(REQUEST, &request);
+
+            // 1. An unmapped parcel pointer fails cleanly and enqueues nothing.
+            let args = MsgArgs {
+                handle: created.value,
+                parcel_ptr: 0xdead_0000,
+                parcel_len: request.len() as u64,
+                ..MsgArgs::default()
+            };
+            let (code, result) = syscall(OP_CALL_BEGIN, &args);
+            check!(
+                code == failed(errno::EFAULT),
+                "unmapped parcel -> {code:#x}"
+            );
+            check!(
+                result.status == -errno::EFAULT,
+                "bad-pointer status is {}",
+                result.status
+            );
+            check!(
+                channels::stats().queued == 0,
+                "a bad pointer enqueued a message"
+            );
+
+            // 2. An unmapped args block: the result block cannot be trusted
+            //    either, so the return register is the only report.
+            let code = process::dispatch_for_test(5, OP_CREATE_PAIR, 0xdead_0000, RESULT);
+            check!(code == failed(errno::EFAULT), "unmapped args -> {code:#x}");
+
+            // 3. An unmapped result block is refused before the op runs.
+            let code = process::dispatch_for_test(5, OP_CREATE_PAIR, ARGS, 0xdead_0000);
+            check!(
+                code == failed(errno::EFAULT),
+                "unmapped result -> {code:#x}"
+            );
+
+            // 4. An oversized parcel length is refused before any copy.
+            let args = MsgArgs {
+                handle: created.value,
+                parcel_ptr: REQUEST,
+                parcel_len: (libmessenger::MAX_PARCEL_BYTES + 1) as u64,
+                ..MsgArgs::default()
+            };
+            let (code, _) = syscall(OP_CALL_BEGIN, &args);
+            check!(
+                code == failed(errno::E2BIG),
+                "oversized parcel -> {code:#x}"
+            );
+
+            // 5. A garbage parcel is caught by the codec, not the channel.
+            write_bytes(REQUEST, &[0u8; 48]);
+            let args = MsgArgs {
+                handle: created.value,
+                parcel_ptr: REQUEST,
+                parcel_len: 48,
+                ..MsgArgs::default()
+            };
+            let (code, _) = syscall(OP_CALL_BEGIN, &args);
+            check!(code == failed(errno::EINVAL), "garbage parcel -> {code:#x}");
+
+            check!(
+                task::harness::state(task::KERNEL_TASK) == Some(TaskState::Runnable),
+                "the task did not survive the bad pointers"
+            );
+            check!(
+                channels::stats().calls == 0,
+                "a refused call registered a transaction"
+            );
+            Ok(())
+        })
+    }
+
+    /// The bootstrap flow: one kernel-created pair, the client end claimed by
+    /// a userspace task exactly once, the service end served by the kernel
+    /// stub, and a reply that round-trips.
+    pub fn bootstrap_claim() -> Result<(), String> {
+        fresh()?;
+        syscalls::bootstrap::create().map_err(to_string)?;
+        check!(
+            syscalls::bootstrap::service_handle().is_some(),
+            "create left no service handle"
+        );
+
+        let child = task::spawn_fork().map_err(to_string)?;
+        task::harness::switch_current(child);
+        let client =
+            syscalls::bootstrap::claim_client().map_err(|code| format!("claim failed: {code}"))?;
+        check!(
+            handles::count_for_task(child) == 1,
+            "child holds {} handles, expected 1",
+            handles::count_for_task(child)
+        );
+        check!(
+            syscalls::bootstrap::claim_client() == Err(errno::EBUSY),
+            "the client end was claimed twice"
+        );
+
+        // The service end stays kernel-side; the stub echoes the client.
+        let request = parcel(1, flags::SYNC, "bootstrap")?;
+        channels::send(client, &request).map_err(reason)?;
+        task::harness::switch_current(task::KERNEL_TASK);
+        check!(
+            syscalls::bootstrap::claim_client() == Err(errno::EPERM),
+            "the kernel task claimed the client end"
+        );
+        check!(
+            syscalls::bootstrap::stub_serve().map_err(reason)?,
+            "the stub found no request"
+        );
+        check!(
+            !syscalls::bootstrap::stub_serve().map_err(reason)?,
+            "the stub served the same request twice"
+        );
+
+        task::harness::switch_current(child);
+        let reply = channels::recv(client, None).map_err(reason)?;
+        check!(
+            reply.bytes == request,
+            "the stub reply differs from the request"
+        );
+
+        task::harness::switch_current(task::KERNEL_TASK);
+        task::harness::finish(child, 0);
+        check!(
+            task::reap_child().is_some(),
+            "the bootstrap child was not reapable"
         );
         Ok(())
     }
