@@ -13,6 +13,15 @@ fn main() {
     println!("cargo:rerun-if-changed={}", font_path.display());
     println!("cargo:rerun-if-changed=build.rs");
 
+    // Kernel test harness switch (issue #62): `LAZYOS_TESTS=1` compiles the
+    // in-kernel suite and makes `kernel_main` run it before normal boot.
+    // `rerun-if-env-changed` forces a rebuild when the mode is toggled.
+    println!("cargo:rerun-if-env-changed=LAZYOS_TESTS");
+    println!("cargo:rustc-check-cfg=cfg(laZYOS_TESTS)");
+    if env::var_os("LAZYOS_TESTS").as_deref() == Some(std::ffi::OsStr::new("1")) {
+        println!("cargo:rustc-cfg=laZYOS_TESTS");
+    }
+
     let font_bytes = fs::read(&font_path).expect("read JetBrainsMono-Regular.ttf");
     let atlas = font_atlas::build(&font_bytes, 20.0);
 

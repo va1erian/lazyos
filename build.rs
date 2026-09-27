@@ -26,6 +26,10 @@ fn main() {
     let sh = std::env::var_os("CARGO_BIN_FILE_USER_sh").expect("user sh artifact not found");
     builder.set_file(String::from("SH.ELF"), PathBuf::from(sh));
 
+    // Rebuild the image when the kernel test switch flips (issue #62): the
+    // kernel's own build script turns `LAZYOS_TESTS=1` into `cfg(laZYOS_TESTS)`.
+    println!("cargo:rerun-if-env-changed=LAZYOS_TESTS");
+
     // ABI conformance bench hook: embed a Linux fixture as `INIT.ELF`.
     println!("cargo:rerun-if-env-changed=LAZYOS_INIT");
     if let Some(init) = std::env::var_os("LAZYOS_INIT") {

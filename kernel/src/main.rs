@@ -27,6 +27,8 @@ mod serial;
 mod skia;
 mod surface;
 mod task;
+#[cfg(laZYOS_TESTS)]
+mod tests;
 mod text;
 
 use bootloader_api::config::{BootloaderConfig, Mapping};
@@ -43,6 +45,8 @@ const CONFIG: BootloaderConfig = {
 
 entry_point!(kernel_main, config = &CONFIG);
 
+// In test builds `tests::run()` diverges before the normal boot path.
+#[cfg_attr(laZYOS_TESTS, allow(unreachable_code))]
 fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     serial::init();
     serial_println!("LazyOS: kernel entered");
@@ -67,6 +71,11 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     );
 
     mem::init(boot_info);
+
+    // Kernel test mode (issue #62): run the in-kernel suite and halt instead of
+    // booting the demo. Compiled in only with `LAZYOS_TESTS=1`.
+    #[cfg(laZYOS_TESTS)]
+    tests::run();
 
     if fs::init() {
         serial_println!("LazyOS: FAT16 filesystem mounted");
