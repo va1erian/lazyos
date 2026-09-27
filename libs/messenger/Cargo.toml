@@ -1,0 +1,8 @@
+[package]
+name = "libmessenger"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Messenger parcel codec (shared by the LazyOS kernel and userspace)"
+
+[dependencies]

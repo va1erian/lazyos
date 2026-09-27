@@ -1,0 +1,26 @@
+name: messenger
+
+# Parcel codec tests (issue #65). The crate is host-testable (no QEMU needed):
+# round-trips, limits, and the one-million-iteration decode fuzz.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: messenger-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  messenger-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run the parcel codec tests
+        run: cargo test -p libmessenger
