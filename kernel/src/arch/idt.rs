@@ -136,6 +136,14 @@ extern "x86-interrupt" fn page_fault_handler(
     error: PageFaultErrorCode,
 ) {
     let addr = Cr2::read();
+    // A write to a copy-on-write user page is resolved by taking a private copy.
+    if error.contains(PageFaultErrorCode::CAUSED_BY_WRITE) {
+        if let Ok(fault) = addr {
+            if crate::mem::cow_fault(crate::mem::kernel_table(), fault.as_u64()) {
+                return;
+            }
+        }
+    }
     serial_println!(
         "EXCEPTION: page fault at {:?} ({:?})\n{:#?}",
         addr,
