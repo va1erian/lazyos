@@ -25,10 +25,20 @@ fn main() {
     builder.set_file(String::from("HELLO.ELF"), PathBuf::from(hello));
     let sh = std::env::var_os("CARGO_BIN_FILE_USER_sh").expect("user sh artifact not found");
     builder.set_file(String::from("SH.ELF"), PathBuf::from(sh));
+    // The fabric observability tool (issue #70); boot it with
+    // `LAZYOS_MESSENGERCTL=1`. The on-disk name is 8.3 because the kernel's
+    // FAT reader only resolves short names (`MESSENGERCTL.ELF` would be stored
+    // as a long-name alias the kernel cannot see).
+    let messengerctl = std::env::var_os("CARGO_BIN_FILE_USER_messengerctl")
+        .expect("user messengerctl artifact not found");
+    builder.set_file(String::from("MSGCTL.ELF"), PathBuf::from(messengerctl));
 
     // Rebuild the image when the kernel test switch flips (issue #62): the
     // kernel's own build script turns `LAZYOS_TESTS=1` into `cfg(laZYOS_TESTS)`.
     println!("cargo:rerun-if-env-changed=LAZYOS_TESTS");
+    // Fabric observability demo switch (issue #70): the kernel boots the
+    // `messengerctl` tool (`MSGCTL.ELF`) in the hello window when this is set.
+    println!("cargo:rerun-if-env-changed=LAZYOS_MESSENGERCTL");
 
     // ABI conformance bench hook: embed a Linux fixture as `INIT.ELF`.
     println!("cargo:rerun-if-env-changed=LAZYOS_INIT");

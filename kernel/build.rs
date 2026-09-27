@@ -22,6 +22,15 @@ fn main() {
         println!("cargo:rustc-cfg=laZYOS_TESTS");
     }
 
+    // Fabric observability demo switch (issue #70): `LAZYOS_MESSENGERCTL=1`
+    // boots the `messengerctl` tool (`MSGCTL.ELF`) in the hello window
+    // instead of HELLO.ELF.
+    println!("cargo:rerun-if-env-changed=LAZYOS_MESSENGERCTL");
+    println!("cargo:rustc-check-cfg=cfg(messengerctl_demo)");
+    if env::var_os("LAZYOS_MESSENGERCTL").as_deref() == Some(std::ffi::OsStr::new("1")) {
+        println!("cargo:rustc-cfg=messengerctl_demo");
+    }
+
     let font_bytes = fs::read(&font_path).expect("read JetBrainsMono-Regular.ttf");
     let atlas = font_atlas::build(&font_bytes, 20.0);
 

@@ -87,7 +87,11 @@ pub const OP_CANCEL: u64 = 5;
 pub const OP_CLOSE_ENDPOINT: u64 = 6;
 /// Create a fresh channel pair; both handles open in the caller.
 pub const OP_CREATE_PAIR: u64 = 7;
-/// Read channel counters (`handle = 0` means every live channel).
+/// Read fabric statistics. When the caller offers a
+/// [`crate::ipc::stats::FabricStats::SIZE`]-byte buffer, the versioned
+/// [`crate::ipc::stats::FabricStats`] snapshot is written (ABI version 2);
+/// with a 64-byte buffer the legacy [`MsgStats`] shape is kept, and a
+/// non-zero `handle` still means per-channel [`MsgStats`].
 pub const OP_STATS: u64 = 8;
 /// Claim the boot-time client endpoint (first userspace task only).
 pub const OP_BOOTSTRAP: u64 = 9;
@@ -97,6 +101,10 @@ pub const OP_BOOTSTRAP: u64 = 9;
 pub const OP_CALL_BEGIN: u64 = 10;
 /// Wait for a [`OP_CALL_BEGIN`] transaction and return its reply.
 pub const OP_CALL_AWAIT: u64 = 11;
+/// Global message totals in the compact 64-byte [`MsgStats`] shape,
+/// independent of the buffer size (the stable "totals" path next to
+/// [`OP_STATS`]'s versioned snapshot).
+pub const OP_TOTALS: u64 = 12;
 
 /// Number of bytes in [`MsgArgs`], the first range the syscall validates.
 pub const ARGS_SIZE: usize = 64;
@@ -237,8 +245,10 @@ fn encode_words(words: &[u64; 8]) -> [u8; 64] {
     bytes
 }
 
-/// Channel counters, exactly the byte order [`OP_STATS`] writes into the
-/// caller's buffer. The layout is shared with `user/src/messenger.rs`.
+/// Compact channel counters (stats ABI version 1), exactly the byte order
+/// [`OP_STATS`] writes for a 64-byte buffer and [`OP_TOTALS`] always writes.
+/// The layout is shared with `user/src/messenger.rs`; the richer version 2
+/// block lives in [`crate::ipc::stats::FabricStats`].
 #[repr(C)]
 #[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
 pub struct MsgStats {
@@ -371,6 +381,7 @@ fn handle_op(op: u64, args: &MsgArgs) -> Result<MsgResult, i64> {
         OP_BOOTSTRAP => op_bootstrap(args),
         OP_CALL_BEGIN => op_call_begin(args),
         OP_CALL_AWAIT => op_call_await(args),
+        OP_TOTALS => op_totals(args),
         _ => Err(errno::EINVAL),
     }
 }
@@ -504,12 +515,35 @@ fn op_create_pair(_args: &MsgArgs) -> Result<MsgResult, i64> {
     })
 }
 
+/// The stats op: version 2 (`FabricStats`) when the caller offers a big enough
+/// buffer, version 1 (`MsgStats`) otherwise. `handle != 0` always selects the
+/// per-channel version 1 counters, because the snapshot is global.
 fn op_stats(args: &MsgArgs) -> Result<MsgResult, i64> {
+    use crate::ipc::stats::FabricStats;
+
+    if args.handle == 0 && args.buf_cap as usize >= FabricStats::SIZE {
+        let encoded = crate::ipc::stats::snapshot().to_bytes();
+        copy_out(args.buf_ptr, &encoded)?;
+        return Ok(MsgResult {
+            bytes: encoded.len() as u64,
+            ..MsgResult::default()
+        });
+    }
     let stats = if args.handle == 0 {
         channels::stats()
     } else {
         channels::channel_stats(args.handle).map_err(channel_errno)?
     };
+    write_msg_stats(args, stats)
+}
+
+/// The totals op: the aggregate [`MsgStats`] counters, always 64 bytes.
+fn op_totals(args: &MsgArgs) -> Result<MsgResult, i64> {
+    write_msg_stats(args, channels::stats())
+}
+
+/// Copy a version 1 [`MsgStats`] block into the caller's buffer.
+fn write_msg_stats(args: &MsgArgs, stats: channels::Stats) -> Result<MsgResult, i64> {
     let encoded = MsgStats::from(stats).to_bytes();
     if (args.buf_cap as usize) < encoded.len() {
         return Err(errno::E2BIG);

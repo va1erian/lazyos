@@ -46,6 +46,8 @@ pub mod op {
     pub const CALL_BEGIN: u64 = 10;
     /// Wait for a `CALL_BEGIN` transaction and return its reply.
     pub const CALL_AWAIT: u64 = 11;
+    /// Global message totals in the compact 64-byte [`Stats`] shape.
+    pub const TOTALS: u64 = 12;
 }
 
 /// Negative errno values the kernel returns; see the kernel's
@@ -117,8 +119,209 @@ pub struct Stats {
 }
 
 impl Stats {
-    /// Number of bytes the `stats` op writes.
+    /// Number of bytes the compact `stats` shape occupies.
     pub const SIZE: usize = 64;
+}
+
+/// Task slots in the [`FabricStats`] per-slot arrays; mirrors the kernel's
+/// `task::MAX_TASKS`.
+pub const FABRIC_TASKS: usize = 16;
+
+/// Per-slot usage row of a [`FabricStats`] snapshot.
+#[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
+pub struct TaskUsage {
+    /// `1` when a task occupies the slot.
+    pub live: u64,
+    /// Handles the task holds.
+    pub handles: u64,
+    /// Shared buffers the task created.
+    pub buffers: u64,
+    /// Buffer bytes charged to the task.
+    pub buffer_bytes: u64,
+}
+
+/// The versioned fabric snapshot (stats ABI version 2): channels, messages,
+/// buffers, handles, ACL/audit state, and per-slot usage in one block. Mirrors
+/// `kernel/src/ipc/stats.rs` field for field; [`FabricStats::from_bytes`]
+/// decodes the little-endian word stream the kernel writes.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct FabricStats {
+    /// ABI version; the kernel writes [`FabricStats::VERSION`].
+    pub version: u64,
+    /// Kernel-side services registered with the fabric.
+    pub services: u64,
+    /// Live channel endpoints (two per channel).
+    pub endpoints: u64,
+    /// Live channels.
+    pub channels: u64,
+    /// Messages currently queued.
+    pub queued: u64,
+    /// Parcel bytes currently queued.
+    pub queued_bytes: u64,
+    /// Transactions awaiting a reply.
+    pub outstanding: u64,
+    /// Synchronous calls started.
+    pub calls: u64,
+    /// Replies delivered.
+    pub replies: u64,
+    /// One-way messages accepted.
+    pub one_way: u64,
+    /// Transactions that hit their deadline.
+    pub timeouts: u64,
+    /// Transactions canceled by their caller.
+    pub cancels: u64,
+    /// Messages refused or discarded.
+    pub drops: u64,
+    /// Live shared buffers.
+    pub buffers: u64,
+    /// Bytes across live shared buffers.
+    pub buffer_bytes: u64,
+    /// Buffer mappings into task address spaces.
+    pub buffer_mappings: u64,
+    /// Cumulative fence submissions.
+    pub fences_submitted: u64,
+    /// Cumulative parked fence waits.
+    pub fence_waits: u64,
+    /// Fence waits that hit their deadline.
+    pub fence_timeouts: u64,
+    /// Submitted fence sequences not yet observed.
+    pub outstanding_fences: u64,
+    /// Zero-copy buffer handoffs.
+    pub handoffs: u64,
+    /// Handles held across every task.
+    pub handles: u64,
+    /// Handles held by each slot.
+    pub handles_per_task: [u64; FABRIC_TASKS],
+    /// ACL rules installed.
+    pub acl_rules: u64,
+    /// `1` when a non-empty ACL policy is installed.
+    pub acl_loaded: u64,
+    /// `1` when allowed calls are audited.
+    pub audit_trace: u64,
+    /// Denials recorded since boot.
+    pub audit_denies: u64,
+    /// Allows recorded since boot (while tracing).
+    pub audit_allows: u64,
+    /// Events retained in the audit ring.
+    pub audit_count: u64,
+    /// Events recorded since boot.
+    pub audit_total: u64,
+    /// Audit hash chain head.
+    pub audit_last_hash: u64,
+    /// Per-slot task usage.
+    pub tasks: [TaskUsage; FABRIC_TASKS],
+}
+
+impl Default for FabricStats {
+    fn default() -> Self {
+        FabricStats {
+            version: 0,
+            services: 0,
+            endpoints: 0,
+            channels: 0,
+            queued: 0,
+            queued_bytes: 0,
+            outstanding: 0,
+            calls: 0,
+            replies: 0,
+            one_way: 0,
+            timeouts: 0,
+            cancels: 0,
+            drops: 0,
+            buffers: 0,
+            buffer_bytes: 0,
+            buffer_mappings: 0,
+            fences_submitted: 0,
+            fence_waits: 0,
+            fence_timeouts: 0,
+            outstanding_fences: 0,
+            handoffs: 0,
+            handles: 0,
+            handles_per_task: [0; FABRIC_TASKS],
+            acl_rules: 0,
+            acl_loaded: 0,
+            audit_trace: 0,
+            audit_denies: 0,
+            audit_allows: 0,
+            audit_count: 0,
+            audit_total: 0,
+            audit_last_hash: 0,
+            tasks: [TaskUsage::default(); FABRIC_TASKS],
+        }
+    }
+}
+
+impl FabricStats {
+    /// The ABI version this mirror understands.
+    pub const VERSION: u64 = 2;
+    /// Number of bytes the kernel writes for a snapshot.
+    pub const SIZE: usize = (22 + FABRIC_TASKS + 8 + FABRIC_TASKS * 4) * 8;
+
+    /// Decode the little-endian word stream written by the `stats` op. `None`
+    /// when the length is not exactly [`FabricStats::SIZE`] or the version is
+    /// newer than this mirror.
+    pub fn from_bytes(bytes: &[u8]) -> Option<FabricStats> {
+        if bytes.len() != Self::SIZE {
+            return None;
+        }
+        let word = |index: usize| -> Option<u64> {
+            let at = index * 8;
+            Some(u64::from_le_bytes(bytes[at..at + 8].try_into().ok()?))
+        };
+        let mut handles_per_task = [0u64; FABRIC_TASKS];
+        for (index, value) in handles_per_task.iter_mut().enumerate() {
+            *value = word(22 + index)?;
+        }
+        let acl = 22 + FABRIC_TASKS;
+        let mut tasks = [TaskUsage::default(); FABRIC_TASKS];
+        for (index, usage) in tasks.iter_mut().enumerate() {
+            let base = acl + 8 + index * 4;
+            *usage = TaskUsage {
+                live: word(base)?,
+                handles: word(base + 1)?,
+                buffers: word(base + 2)?,
+                buffer_bytes: word(base + 3)?,
+            };
+        }
+        let stats = FabricStats {
+            version: word(0)?,
+            services: word(1)?,
+            endpoints: word(2)?,
+            channels: word(3)?,
+            queued: word(4)?,
+            queued_bytes: word(5)?,
+            outstanding: word(6)?,
+            calls: word(7)?,
+            replies: word(8)?,
+            one_way: word(9)?,
+            timeouts: word(10)?,
+            cancels: word(11)?,
+            drops: word(12)?,
+            buffers: word(13)?,
+            buffer_bytes: word(14)?,
+            buffer_mappings: word(15)?,
+            fences_submitted: word(16)?,
+            fence_waits: word(17)?,
+            fence_timeouts: word(18)?,
+            outstanding_fences: word(19)?,
+            handoffs: word(20)?,
+            handles: word(21)?,
+            handles_per_task,
+            acl_rules: word(acl)?,
+            acl_loaded: word(acl + 1)?,
+            audit_trace: word(acl + 2)?,
+            audit_denies: word(acl + 3)?,
+            audit_allows: word(acl + 4)?,
+            audit_count: word(acl + 5)?,
+            audit_total: word(acl + 6)?,
+            audit_last_hash: word(acl + 7)?,
+            tasks,
+        };
+        if stats.version > Self::VERSION {
+            return None;
+        }
+        Some(stats)
+    }
 }
 
 /// A Messenger or kernel error.
@@ -366,9 +569,43 @@ pub fn create_pair() -> Result<(Endpoint, Endpoint)> {
     ))
 }
 
-/// Aggregated counters across every live channel.
+/// Aggregated counters across every live channel (compact shape).
 pub fn global_stats() -> Result<Stats> {
     stats_call(0)
+}
+
+/// Global message totals through the dedicated `TOTALS` op.
+pub fn global_totals() -> Result<Stats> {
+    let mut stats = Stats::default();
+    let args = MsgArgs {
+        buf_ptr: &mut stats as *mut Stats as u64,
+        buf_cap: Stats::SIZE as u64,
+        ..MsgArgs::default()
+    };
+    let mut result = MsgResult::default();
+    syscall(op::TOTALS, &args, &mut result)?;
+    if result.bytes as usize != Stats::SIZE {
+        return Err(Error::Errno(-errno::E2BIG));
+    }
+    Ok(stats)
+}
+
+/// The versioned fabric snapshot (stats ABI v2): every subsystem in one block.
+/// The snapshot buffer is sized so the kernel always serves version 2.
+pub fn fabric_stats() -> Result<FabricStats> {
+    let mut buf = vec![0u8; FabricStats::SIZE];
+    let args = MsgArgs {
+        buf_ptr: buf.as_mut_ptr() as u64,
+        buf_cap: buf.len() as u64,
+        ..MsgArgs::default()
+    };
+    let mut result = MsgResult::default();
+    syscall(op::STATS, &args, &mut result)?;
+    let len = result.bytes as usize;
+    if len > buf.len() {
+        return Err(Error::Errno(-errno::E2BIG));
+    }
+    FabricStats::from_bytes(&buf[..len]).ok_or(Error::Errno(-errno::EINVAL))
 }
 
 /// A blocking request loop in the `Server::serve` shape.

@@ -332,6 +332,14 @@ All introspection is *itself* Messenger interfaces, subject to policy:
 | `os.lazy.health.v1` | service heartbeats, dependency health, last-error, restart count (also a retained topic) |
 | `os.lazy.audit.v1` | read the audit stream (policy-gated) |
 
+The first kernel-side slice of this surface is live: the native `messenger`
+syscall's `stats` op serves a versioned `FabricStats` snapshot (ABI v2)
+aggregating services/endpoints/channels, message counters, shared buffers and
+fences, handles, ACL/audit state and per-slot usage; the `totals` op keeps the
+compact v1 counters. The `messengerctl` tool (`MSGCTL.ELF`, 8.3 on the FAT
+image) renders the snapshot as a table (boot the demo with
+`LAZYOS_MESSENGERCTL=1`).
+
 `messengerctl` commands: `services`, `iface <name>`, `topics`, `subs`,
 `tail <topic>`, `trace <service>`, `stat`, `policy check`, `why <txn>`, `graph`.
 

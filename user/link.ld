@@ -6,6 +6,12 @@ SECTIONS
 
     .text : { *(.text .text.*) }
     .rodata : { *(.rodata .rodata.*) }
+
+    /* Start the writable segment on a fresh page. The kernel loader maps a
+       page once with the first segment's protection, so a read-only/writable
+       page shared with `.rodata` would stick read-only and the first write
+       (the heap bookkeeping in `.bss`) would fault. */
+    . = ALIGN(0x1000);
     .data : { *(.data .data.*) }
     .bss : { *(.bss .bss.*) *(COMMON) }
 

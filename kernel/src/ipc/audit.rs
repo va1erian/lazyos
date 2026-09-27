@@ -61,6 +61,10 @@ struct Ring {
     stored: usize,
     /// Total events recorded since boot (monotonic).
     total: u64,
+    /// Total denials recorded since boot (monotonic; independent of the ring).
+    denials: u64,
+    /// Total allows recorded since boot (monotonic; present while tracing).
+    allows: u64,
     /// Hash chain head over every event recorded since boot.
     hash: u64,
 }
@@ -72,6 +76,8 @@ impl Ring {
             next: 0,
             stored: 0,
             total: 0,
+            denials: 0,
+            allows: 0,
             hash: GENESIS_HASH,
         }
     }
@@ -84,6 +90,11 @@ impl Ring {
             self.stored += 1;
         }
         self.total = self.total.wrapping_add(1);
+        if event.allow {
+            self.allows = self.allows.wrapping_add(1);
+        } else {
+            self.denials = self.denials.wrapping_add(1);
+        }
     }
 }
 
@@ -144,6 +155,18 @@ pub fn count() -> usize {
 /// Total events recorded since boot (monotonic, unbounded).
 pub fn total() -> u64 {
     RING.lock().total
+}
+
+/// Total denials recorded since boot (monotonic, unbounded; unlike
+/// [`count`], this survives ring wraparound).
+pub fn denials() -> u64 {
+    RING.lock().denials
+}
+
+/// Total allows recorded since boot (monotonic, unbounded). Only advances
+/// while tracing is on ([`set_trace`]).
+pub fn allows() -> u64 {
+    RING.lock().allows
 }
 
 /// The hash chain head. The next record chains from here.

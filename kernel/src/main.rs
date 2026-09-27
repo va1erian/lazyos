@@ -113,6 +113,12 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
             Err(err) => serial_println!("ABI:INIT:FAIL:{err}"),
         }
     } else {
+        // `LAZYOS_MESSENGERCTL=1` swaps the hello window for the fabric
+        // snapshot tool (issue #70); the default demo is unchanged. The file
+        // name is 8.3: the kernel FAT reader has no long-name support.
+        #[cfg(messengerctl_demo)]
+        spawn_program("messengerctl", "MSGCTL.ELF");
+        #[cfg(not(messengerctl_demo))]
         spawn_program("hello", "HELLO.ELF");
         spawn_program("sh", "SH.ELF");
     }
