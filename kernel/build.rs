@@ -31,6 +31,15 @@ fn main() {
         println!("cargo:rustc-cfg=messengerctl_demo");
     }
 
+    // Registry daemon switch (issue #89): `LAZYOS_MESSENGERD=1` makes the
+    // normal demo boot `messengerd` (`MESSENGERD.ELF`), which claims the
+    // bootstrap channel and serves registry requests.
+    println!("cargo:rerun-if-env-changed=LAZYOS_MESSENGERD");
+    println!("cargo:rustc-check-cfg=cfg(messengerd_service)");
+    if env::var_os("LAZYOS_MESSENGERD").as_deref() == Some(std::ffi::OsStr::new("1")) {
+        println!("cargo:rustc-cfg=messengerd_service");
+    }
+
     let font_bytes = fs::read(&font_path).expect("read JetBrainsMono-Regular.ttf");
     let atlas = font_atlas::build(&font_bytes, 20.0);
 

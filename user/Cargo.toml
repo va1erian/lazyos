@@ -31,3 +31,9 @@ name = "messengerctl"
 path = "src/bin/messengerctl.rs"
 test = false
 bench = false
+
+[[bin]]
+name = "messengerd"
+path = "src/bin/messengerd.rs"
+test = false
+bench = false
