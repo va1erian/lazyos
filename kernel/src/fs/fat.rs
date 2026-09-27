@@ -195,6 +195,20 @@ impl Fat16 {
         entries
     }
 
+    /// Whether a file with this name exists (no data read).
+    pub fn exists(&self, name: &str) -> bool {
+        let wanted = normalize(name);
+        self.list().iter().any(|entry| {
+            if entry.is_dir {
+                return false;
+            }
+            match (&wanted, normalize(&entry.name)) {
+                (Some(want), Some(candidate)) => *want == candidate,
+                _ => entry.name.eq_ignore_ascii_case(name),
+            }
+        })
+    }
+
     /// Read a file by name (case-insensitive, `NAME.EXT` or `NAME`).
     pub fn read(&self, name: &str) -> Option<Vec<u8>> {
         let wanted = normalize(name);

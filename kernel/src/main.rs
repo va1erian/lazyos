@@ -78,10 +78,15 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     arch::init();
     input::mouse::set_bounds(info.width as i32, info.height as i32);
 
-    // Register the kernel (multiplexer) task and spawn two user programs.
+    // Register the kernel (multiplexer) task and spawn the demo programs, or —
+    // for the ABI conformance bench — the single injected Linux fixture.
     task::register_kernel();
-    spawn_program("hello", "HELLO.ELF");
-    spawn_program("sh", "SH.ELF");
+    if fs::exists("INIT.ELF") {
+        serial_println!("ABI:INIT:SKIP:no-linux-task");
+    } else {
+        spawn_program("hello", "HELLO.ELF");
+        spawn_program("sh", "SH.ELF");
+    }
 
     task::start();
     serial_println!("LazyOS: scheduler started (Tab switches focus)");

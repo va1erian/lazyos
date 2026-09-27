@@ -25,6 +25,18 @@ fn main() {
     builder.set_file(String::from("HELLO.ELF"), PathBuf::from(hello));
     let sh = std::env::var_os("CARGO_BIN_FILE_USER_sh").expect("user sh artifact not found");
     builder.set_file(String::from("SH.ELF"), PathBuf::from(sh));
+
+    // ABI conformance bench hook: embed a Linux fixture as `INIT.ELF`.
+    println!("cargo:rerun-if-env-changed=LAZYOS_INIT");
+    if let Some(init) = std::env::var_os("LAZYOS_INIT") {
+        let init = PathBuf::from(init);
+        if init.is_file() {
+            println!("cargo:warning=LAZYOS_INIT embedded: {}", init.display());
+            builder.set_file(String::from("INIT.ELF"), init);
+        } else {
+            println!("cargo:warning=LAZYOS_INIT not found: {}", init.display());
+        }
+    }
     builder
         .create_bios_image(&bios_image)
         .expect("failed to create BIOS disk image");

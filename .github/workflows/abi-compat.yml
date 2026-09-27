@@ -1,0 +1,90 @@
+name: abi-compat
+
+# Linux ABI conformance bench: build the static musl fixtures, run each in
+# headless LazyOS, and publish the compatibility matrix + syscall coverage.
+#
+# Until the Linux syscall dispatch exists the fixtures are recognised but not
+# run (`ABI:INIT:SKIP`), so the matrix is the tracking baseline.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: abi-compat-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install QEMU
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-x86
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      # build.py adds the musl target itself (nightly, per rust-toolchain.toml).
+      - name: Build fixtures (static musl)
+        run: python tools/abi/build.py
+
+      - name: Run the conformance bench
+        run: python tools/abi/run.py --at 8
+
+      - name: Syscall coverage
+        run: python tools/abi/coverage.py
+
+      - name: Upload ABI reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: abi-compat
+          path: |
+            docs/compat/**
+            shots/abi/**
+          if-no-files-found: warn
+
+      - name: Publish reports to the wiki (best effort)
+        continue-on-error: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          git clone -q --depth 1 \
+            "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.wiki.git" /tmp/wiki
+          cp docs/compat/matrix.md /tmp/wiki/Linux-ABI-Matrix.md
+          cp docs/compat/coverage.md /tmp/wiki/Linux-ABI-Coverage.md
+          cd /tmp/wiki
+          git add -A
+          git -c user.name=github-actions \
+              -c user.email=github-actions@users.noreply.github.com \
+              commit -qm "abi: update compatibility matrix and coverage"
+          git push -q origin HEAD:master
+
+      - name: Summarise on the pull request
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          {
+            echo "### Linux ABI conformance"
+            echo
+            cat docs/compat/matrix.md
+            echo
+            cat docs/compat/coverage.md
+          } > abi-comment.md
+          gh pr comment "${{ github.event.pull_request.number }}" \
+            --repo "${GITHUB_REPOSITORY}" --body-file abi-comment.md

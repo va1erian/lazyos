@@ -101,6 +101,24 @@ python tools/screenshot/qemu_session.py --image target/lazyos.img \
     --out shots/demo --script tools/screenshot/examples/multitask_demo.json
 ```
 
+## Linux ABI conformance bench
+
+Compatibility with Linux (`x86_64-unknown-linux-musl`) binaries is tracked by a
+bench that runs from day one, before any ABI support exists:
+
+```bash
+python tools/abi/build.py            # build the static musl fixtures
+python tools/abi/run.py --at 8       # run each fixture in headless QEMU, write the matrix
+python tools/abi/coverage.py         # summarise ENOSYS syscalls from the logs
+```
+
+`run.py` embeds one fixture as `INIT.ELF` (via `LAZYOS_INIT`), boots, and
+classifies it from the serial log (`ABI:<name>:PASS|FAIL`, or `ABI:INIT:SKIP`).
+It writes `docs/compat/matrix.md` (+ `compat.json`). CI
+(`.github/workflows/abi-compat.yml`) runs the bench, publishes the matrix and
+coverage to the wiki, and comments them on PRs. See `tools/abi/README.md` and the
+wiki **Linux ABI Plan**.
+
 ## Project conventions
 
 - The OS is `no_std`; target `x86_64-unknown-none`; built via the root crate's
