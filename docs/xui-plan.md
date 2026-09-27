@@ -1,0 +1,142 @@
+# Plan: run `xui` apps on LazyOS in the tiny-skia (canvas) renderer
+
+**Goal:** run an ordinary `xui` application (`xui-core` + a **tiny-skia software
+renderer**) inside a LazyOS window, with real input — **without** `winit`,
+`softbuffer`, `glutin`/`glow`, or any OS windowing system.
+
+This builds on `docs/linux-abi-plan.md` (Rust `std` via the Linux x86_64 ABI
+shim). `xui` is a `std` library (`Rc`, `Vec`, `format!`, `std::thread`), so
+"run an xui app" presupposes `std` works on LazyOS.
+
+## What "canvas renderer mode" is
+
+`xui-canvas` contains two things:
+
+1. **The software painter core** — `SkiaCanvas` (an impl of `xui_core`'s
+   `Canvas` trait using `tiny-skia`), plus node/clip/cull compositing and the
+   `TextShaper`. **This is portable** and is what we want.
+2. **The window hosts** — `WinitBackend` (`winit` + `softbuffer` + optional
+   `glow`/`glutin`) and `OffscreenBackend` (headless). The winit/GL parts need a
+   real OS windowing system; `OffscreenBackend` avoids it but lives inside the
+   same crate, which *unconditionally* depends on `winit`/`softbuffer`/`glutin`.
+
+So the plan has **two halves**: a small `xui`-side split to expose the painter
+core without windowing, and a LazyOS-side backend that presents pixels and feeds
+input.
+
+## The Counter target
+
+The milestone app is the README's `Counter` (a `Label` + `Button`, `App::update`
+on click). It exercises: `xui-core` runtime, painted widgets, layout, theming,
+text measurement, and mouse input — the whole spine without native controls.
+
+## Minimal OS surface required
+
+Beyond `std` (see the Linux-ABI plan), a canvas `xui` app needs:
+
+| Need | Minimal LazyOS surface |
+|---|---|
+| allocator | `mmap`/`brk` (from the std plan) |
+| present pixels | a **window surface** the task can write and have shown: `gfx_present(ptr, len)` blits an RGBA buffer to the task's window |
+| input | a per-task **event queue**: `input_poll(buf)` returns mouse move/click/scroll + key/char/enter/backspace, already translated from PS/2 |
+| clock | `clock_gettime` (std plan) — for `Instant`, timers, repaint throttling |
+| randomness | `getrandom` (std plan) — `HashMap` seeds inside xui |
+| font file | a bundled TTF read through `std::fs` (LazyOS already vendors JetBrains Mono; `fontdb`/`cosmic-text` can be pointed at it) |
+| DPI | fixed 96 (the window's scale factor is 1.0; `DpiChanged` deferred) |
+| resize | initially fixed size; a `Resize` event later |
+
+Design choice: **one implicit window per task.** LazyOS already gives each task a
+window in the multiplexer; the app addresses "its" window with no ids. This keeps
+the syscall surface to two calls (`gfx_present`, `input_poll`) plus `gfx_info`
+(width/height/format). Themes/multi-window can come later.
+
+## Minimal `xui`-side surface
+
+Add a **winit-free** path so a non-winit backend can reuse the painter core.
+Preferred shape: a small crate `xui-skia` (or a `xui-canvas` feature that turns
+`winit`/`softbuffer`/`glutin` off) exposing:
+
+- `SkiaCanvas` — the `xui_core::backend::Canvas` implementation (tiny-skia).
+- the **offscreen compositor** — the node/clip/cull logic that paints a window's
+  node set into an RGBA surface (as `OffscreenBackend` already does).
+- the **text shaper** (`cosmic-text`) behind `xui_core`'s `TextShaper`/
+  `TextLayout` seam, plus a way to load a specific font file.
+
+`WinitBackend` and `OffscreenBackend` then depend on `xui-skia`, and a new
+LazyOS backend does too. This is the only change needed in the xui tree; it is a
+refactor, not new rendering.
+
+## The LazyOS backend
+
+`LazyOSBackend` implements `xui_core::backend::Backend`, modelled directly on
+`OffscreenBackend` (both are "painted for everything", `ImplKind::Painted`), and
+adds a real window + event pump:
+
+- **lifecycle** — `run_with`: ask the kernel for the window (`gfx_info`), call
+  `on_ready` to build the app at DPI 96, then loop: `input_poll` → translate to
+  `Event` → deliver to the installed `WidgetHost` sink; on `invalidate`/`Paint`,
+  re-render via `xui-skia` and `gfx_present`.
+- **nodes** — `create`/`destroy`/`apply_moves`/`set_visible`/`set_painter`/
+  `invalidate` kept as an in-memory node table (exactly what OffscreenBackend
+  keeps); no OS handles.
+- **text** — `measure_text`/`text_shaper`/`layout_text` via the shaper; `dpi`
+  returns 96; `client_rect` from `gfx_info`.
+- **runtime** — `set_theme` stores the `Theme`; `set_timer` uses the std clock +
+  the event loop (or a kernel timer syscall later).
+- **unsupported** — `native_window` → `None`; `capture`/`run_modal` → the
+  defaults (`Unsupported`). No GL.
+
+Input translation (`input_poll` bytes → `xui_core::backend::Event`):
+
+| LazyOS | xui `Event` |
+|---|---|
+| mouse move | `MouseMove { pos }` |
+| press/release | `MouseDown` / `MouseUp { button }` |
+| key scancode → `Key` | `KeyDown { key, modifiers }` |
+| printable | `Char(c)` |
+| focus change | `Resize`/`DisplayChange` as available |
+
+## Milestones
+
+- **M0 — present a buffer.** A `std` program fills an RGBA buffer (solid/gradient)
+  and `gfx_present`s it in a LazyOS window. Proves the present syscall + window
+  ownership, no xui yet.
+- **M1 — xui paints headlessly.** Add `xui-core` + `xui-skia`; run the Counter with
+  a fixed input (synthetic events), render to an image, `gfx_present`. Proves the
+  painter core and text on LazyOS.
+- **M2 — real input.** Wire `input_poll` → xui `Event`s. The Counter's button
+  responds to real mouse clicks; a `Label`/`Edit` shows text. Focus follows the
+  multiplexer.
+- **M3 — polish.** Bundled font via `fontdb`, timers, resize, dark mode toggle,
+  and (if needed) `std::thread`/`proxy()` for a worker.
+
+## Dependencies (target)
+
+`xui-core`, `xui-skia` (new), `tiny-skia 0.11`, `cosmic-text 0.19` — and
+deliberately **not** `winit`, `softbuffer`, `glutin`, `glow`, `xui-gpu`.
+
+## Risks
+
+| Risk | Mitigation |
+|---|---|
+| `std` on LazyOS not ready | sequence after Linux-ABI L0–L2; M0 needs only the present syscall + a no_std demo |
+| `winit` leaks into the build via `xui-canvas` | do the `xui-skia` split first; verify the dependency graph has no winit |
+| `cosmic-text` weight / shaping | bundle one font and configure `fontdb` by path; fall back to a simple shaper for M1 |
+| text layer needs system font dirs | point `fontdb` at the bundled file; ship it on the FAT volume |
+| DPI/resize divergence | fix 96 dpi and a fixed window size first |
+| xui's `Rc`/single-thread event loop vs. our tasks | run the UI in one task; use `proxy()` only when `std::thread` lands |
+
+## Effort
+
+- `xui-skia` split: a refactor of `xui-canvas` — small.
+- M0 present syscall + window ownership: small, mostly kernel/mux work.
+- M1 painter core on LazyOS: medium (depends on `std` maturity).
+- M2 input mapping: medium.
+- M3 polish: ongoing.
+
+## Smallest first step
+
+Land **M0**: a `gfx_present` syscall so a task can own a LazyOS window and blit
+an RGBA buffer, plus `input_poll` for mouse events. That is the entire LazyOS
+surface an xui canvas backend needs; everything else is `std` (already planned)
+and an `xui-skia` split (a refactor upstream).
