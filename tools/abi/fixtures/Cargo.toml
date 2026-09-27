@@ -1,0 +1,33 @@
+[package]
+name = "abi-fixtures"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "LazyOS Linux-ABI conformance fixtures (built static for x86_64-unknown-linux-musl)"
+
+# Standalone workspace: these are Linux binaries, never part of the OS build.
+[workspace]
+
+[[bin]]
+name = "hello"
+path = "src/hello.rs"
+
+[[bin]]
+name = "alloc"
+path = "src/alloc.rs"
+
+[[bin]]
+name = "hashmap"
+path = "src/hashmap.rs"
+
+[[bin]]
+name = "file"
+path = "src/file.rs"
+
+[[bin]]
+name = "time"
+path = "src/time.rs"
+
+[[bin]]
+name = "thread"
+path = "src/thread.rs"

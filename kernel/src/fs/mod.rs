@@ -22,3 +22,8 @@ pub fn init() -> bool {
 pub fn read(name: &str) -> Option<Vec<u8>> {
     FS.lock().as_ref().and_then(|fs| fs.read(name))
 }
+
+/// Whether a file exists (without reading its contents).
+pub fn exists(name: &str) -> bool {
+    FS.lock().as_ref().map(|fs| fs.exists(name)).unwrap_or(false)
+}

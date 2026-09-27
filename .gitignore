@@ -10,6 +10,9 @@ target
 shots/
 *.ppm
 
+# Generated ABI conformance output (tools/abi); CI publishes it to the wiki
+docs/compat/
+
 # Python bytecode caches (tools)
 __pycache__/
 *.pyc
