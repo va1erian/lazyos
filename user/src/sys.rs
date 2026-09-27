@@ -15,6 +15,8 @@ pub const SYS_READ_CHAR: u64 = 2;
 pub const SYS_READ_FILE: u64 = 3;
 /// `sbrk(incr)` — grow the heap, returning the previous break.
 pub const SYS_SBRK: u64 = 4;
+/// `messenger(op, args, result)` — the native Messenger surface (issue #69).
+pub const SYS_MESSENGER: u64 = 5;
 
 /// Write raw bytes to the console.
 pub fn write(bytes: &[u8]) {
@@ -81,6 +83,27 @@ pub fn sbrk(increment: u64) -> u64 {
         asm!("int 0x80", in("rax") SYS_SBRK, in("rdi") increment, lateout("rax") previous, options(nostack));
     }
     previous
+}
+
+/// Invoke the native Messenger syscall: `op` selects the operation, `args`
+/// and `result` are user addresses of the fixed-size blocks defined in
+/// [`crate::messenger`]. Returns 0 on success or a negative errno.
+pub fn messenger(op: u64, args: u64, result: u64) -> i64 {
+    let code: u64;
+    // Safety: `int 0x80` with syscall 5; the kernel validates both pointers
+    // against this task's address space before touching them.
+    unsafe {
+        asm!(
+            "int 0x80",
+            in("rax") SYS_MESSENGER,
+            in("rdi") op,
+            in("rsi") args,
+            in("rdx") result,
+            lateout("rax") code,
+            options(nostack),
+        );
+    }
+    code as i64
 }
 
 /// Terminate the program; does not return.
