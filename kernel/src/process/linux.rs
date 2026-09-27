@@ -14,6 +14,7 @@ use xmas_elf::ElfFile;
 
 use super::{load_segments, map_range_kind, page_phys};
 use crate::mem::vma::{Kind, Prot};
+use crate::task::process::GroupError;
 use crate::task::wait::WaitQueue;
 use crate::task::{self, Fd, FdKind, WaitKind, WakeReason};
 
@@ -34,6 +35,8 @@ pub const STACK_SIZE: u64 = 0x0010_0000;
 const PAGE: u64 = 4096;
 
 // errno values (returned as negative values).
+const EPERM: u64 = 1;
+const ESRCH: u64 = 3;
 const ENOSYS: u64 = 38;
 const ENOMEM: u64 = 12;
 const EINVAL: u64 = 22;
@@ -129,6 +132,7 @@ fn syscall_name(nr: u64) -> &'static str {
         105 => "getegid",
         106 => "setuid",
         107 => "setgid",
+        109 => "setpgid",
         110 => "getppid",
         111 => "getpgrp",
         112 => "setsid",
@@ -391,24 +395,30 @@ extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
         28 => 0,                             // madvise
         32 | 33 => sys_dup(nr, a1, a2),      // dup / dup2
         35 => sys_nanosleep(a1),             // nanosleep(req, rem)
-        39 | 186 => task::current() as u64,  // getpid/gettid (kernel task 0 is PID 0)
+        39 | 186 => task::current() as u64,  // getpid/gettid: pid == slot (#59)
         56 => sys_clone(a1, a2, a3, a4, a5), // clone(flags, stack, ptid, ctid, tls)
         57 => sys_fork(),
         59 => sys_execve(a1, a2, a3), // execve(path, argv, envp)
-        60 | 231 => sys_exit(a1),
-        61 => sys_wait4(a1, a2, a3), // wait4(pid, status, options)
-        62 => 0,                     // kill (signals accepted, not delivered yet)
+        60 => sys_exit(a1),           // exit: this task (a thread)
+        231 => sys_exit_group(a1),    // exit_group: the whole process group
+        61 => sys_wait4(a1, a2, a3),  // wait4(pid, status, options)
+        62 => 0,                      // kill (signals accepted, not delivered yet)
         63 => sys_uname(a1),
         72 => sys_fcntl(a1, a2), // fcntl
         79 => sys_getcwd(a1, a2),
-        80 => 0,                                         // chdir (root-only)
-        89 => sys_readlink(a1, a2, a3),                  // readlink
-        95 => 0,                                         // umask
-        96 => sys_gettimeofday(a1),                      // gettimeofday(tv, tz)
-        102 | 103 | 104 | 105 => 0,                      // getuid/getgid/geteuid/getegid
-        106 | 107 | 108 | 109 | 112 | 113 => 0,          // set[re]uid/gid, setpgid/setsid
-        110 | 111 | 121 | 124 => task::current() as u64, // getppid/pgrp/pgid/sid
-        157 => 0,                                        // prctl (accept)
+        80 => 0,                        // chdir (root-only)
+        89 => sys_readlink(a1, a2, a3), // readlink
+        95 => 0,                        // umask
+        96 => sys_gettimeofday(a1),     // gettimeofday(tv, tz)
+        102 | 103 | 104 | 105 => 0,     // getuid/getgid/geteuid/getegid
+        106 | 107 | 108 | 113 => 0,     // set[re]uid/gid (root-only)
+        109 => sys_setpgid(a1, a2),     // setpgid
+        110 => task::ppid() as u64,     // getppid
+        111 => task::pgid() as u64,     // getpgrp
+        112 => sys_setsid(),            // setsid
+        121 => sys_getpgid(a1),         // getpgid
+        124 => sys_getsid(a1),          // getsid
+        157 => 0,                       // prctl (accept)
         158 => sys_arch_prctl(a1, a2),
         169 => 0,                     // reboot (accept)
         202 => sys_futex(a1, a2, a3), // futex(uaddr, op, val)
@@ -712,9 +722,11 @@ fn sys_ioctl(fd: u64, request: u64, arg: u64) -> u64 {
     match request {
         0x5401 => 0, // TCGETS: report a default (zeroed) termios
         0x540F => {
-            // TIOCGPGRP: report the foreground process group.
+            // TIOCGPGRP: report the foreground process group. There is no
+            // separate controlling-terminal group yet, so it is the caller's
+            // own group (which `getpgrp` reports too).
             // Safety: user `pid_t *`.
-            unsafe { core::ptr::write_volatile(arg as *mut u32, task::current() as u32) };
+            unsafe { core::ptr::write_volatile(arg as *mut u32, task::pgid() as u32) };
             0
         }
         0x5410 => 0, // TIOCSPGRP
@@ -1356,6 +1368,66 @@ fn futex_wake(uaddr: u64, count: u64) -> u64 {
         queues.remove(position);
     }
     woken as u64
+}
+
+/// Map a group/session error to its Linux errno.
+fn group_err(error: GroupError) -> u64 {
+    match error {
+        GroupError::NoSuchProcess => err(ESRCH),
+        GroupError::NotPermitted => err(EPERM),
+        GroupError::Invalid => err(EINVAL),
+    }
+}
+
+/// Unwrap a group/session syscall result, mapping errors to errno.
+fn group_result(result: Result<usize, GroupError>) -> u64 {
+    match result {
+        Ok(value) => value as u64,
+        Err(error) => group_err(error),
+    }
+}
+
+/// `setpgid(pid, pgid)`: change the caller's group, or a child's.
+fn sys_setpgid(pid: u64, pgid: u64) -> u64 {
+    match task::process::setpgid(task::current(), pid as i64, pgid as i64) {
+        Ok(()) => 0,
+        Err(error) => group_err(error),
+    }
+}
+
+/// `setsid()`: start a new session and group with the caller as leader.
+fn sys_setsid() -> u64 {
+    group_result(task::process::setsid(task::current()))
+}
+
+/// `getpgid(pid)`: the process group of `pid` (0 = the caller).
+fn sys_getpgid(pid: u64) -> u64 {
+    group_result(task::process::getpgid(task::current(), pid as i64))
+}
+
+/// `getsid(pid)`: the session of `pid` (0 = the caller).
+fn sys_getsid(pid: u64) -> u64 {
+    group_result(task::process::getsid(task::current(), pid as i64))
+}
+
+/// `exit_group(code)`: terminate the caller's whole process group.
+///
+/// Linux's `exit_group` ends the *thread group*; LazyOS models process groups
+/// (#59), so the process group is the unit that dies here. This task gets
+/// `code`, the other members the group's kill status (128 + SIGKILL).
+fn sys_exit_group(code: u64) -> u64 {
+    // Thread exit: clear the TID word and wake anyone joining on it.
+    let tid = task::clear_child_tid();
+    if tid != 0 {
+        write_u32(tid, 0);
+        futex_wake(tid, 1);
+    }
+    task::finish_current(code & 0xff);
+    task::kill_group(task::pgid());
+    loop {
+        x86_64::instructions::interrupts::enable();
+        x86_64::instructions::hlt();
+    }
 }
 
 fn sys_exit(code: u64) -> u64 {
