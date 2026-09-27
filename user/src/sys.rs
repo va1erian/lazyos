@@ -5,10 +5,9 @@
 //!
 //! The kernel's `int 0x80` stub saves and restores
 //! `rdi`/`rsi`/`rdx`/`r8`/`r9`/`r10` around the Rust dispatcher, and `rax`
-//! carries the result. `rcx` and `r11` are not saved and the dispatcher call
-//! clobbers them, so every wrapper declares them as clobbers; otherwise the
-//! compiler may keep a live value in `rcx` across a syscall and corrupt it
-//! (issue #91 hit exactly that).
+//! carries the result. `rcx` and `r11` are *not* preserved, so every wrapper
+//! declares `clobber_abi("sysv64")`; otherwise the compiler may keep a live
+//! value in them across the gate (issue #91 hit exactly that in `bootstrap()`).
 
 use core::arch::asm;
 
@@ -41,6 +40,7 @@ pub fn write(bytes: &[u8]) {
             lateout("rcx") _,
             lateout("r11") _,
             options(nostack),
+            clobber_abi("sysv64"),
         );
     }
 }
@@ -56,13 +56,12 @@ pub fn read_char() -> u64 {
     // Safety: `int 0x80` with syscall 2; result in rax.
     unsafe {
         asm!(
-            "int 0x80",
-            in("rax") SYS_READ_CHAR,
-            lateout("rax") code,
-            lateout("rcx") _,
-            lateout("r11") _,
-            options(nostack),
-        );
+                    "int 0x80",
+                    in("rax") SYS_READ_CHAR,
+                    lateout("rax") code,
+                    options(nostack),
+                    clobber_abi("sysv64"),
+                );
     }
     code
 }
@@ -83,6 +82,7 @@ pub fn read_file(name_z: &[u8], buf: &mut [u8]) -> Option<usize> {
             lateout("rcx") _,
             lateout("r11") _,
             options(nostack),
+            clobber_abi("sysv64"),
         );
     }
     if count == u64::MAX {
@@ -99,14 +99,13 @@ pub fn sbrk(increment: u64) -> u64 {
     // Safety: `int 0x80` with syscall 4.
     unsafe {
         asm!(
-            "int 0x80",
-            in("rax") SYS_SBRK,
-            in("rdi") increment,
-            lateout("rax") previous,
-            lateout("rcx") _,
-            lateout("r11") _,
-            options(nostack),
-        );
+                    "int 0x80",
+                    in("rax") SYS_SBRK,
+                    in("rdi") increment,
+                    lateout("rax") previous,
+                    options(nostack),
+                    clobber_abi("sysv64"),
+                );
     }
     previous
 }
@@ -129,6 +128,7 @@ pub fn messenger(op: u64, args: u64, result: u64) -> i64 {
             lateout("rcx") _,
             lateout("r11") _,
             options(nostack),
+            clobber_abi("sysv64"),
         );
     }
     code as i64
@@ -138,6 +138,12 @@ pub fn messenger(op: u64, args: u64, result: u64) -> i64 {
 pub fn exit(code: u32) -> ! {
     // Safety: `int 0x80` with syscall 0; does not return.
     unsafe {
-        asm!("int 0x80", in("rax") SYS_EXIT, in("rdi") code as u64, options(noreturn, nostack));
+        asm!(
+            "int 0x80",
+            in("rax") SYS_EXIT,
+            in("rdi") code as u64,
+            options(noreturn, nostack),
+            clobber_abi("sysv64"),
+        );
     }
 }

@@ -32,6 +32,13 @@ fn main() {
     let messengerctl = std::env::var_os("CARGO_BIN_FILE_USER_messengerctl")
         .expect("user messengerctl artifact not found");
     builder.set_file(String::from("MSGCTL.ELF"), PathBuf::from(messengerctl));
+    // The registry daemon (issue #89), started by `LAZYOS_MESSENGERD=1`. The
+    // on-disk name is 8.3-safe: the base is at most eight characters, because
+    // the kernel's FAT reader only resolves short names (`MESSENGERD.ELF` is
+    // ten and would only exist as a long-name alias the kernel cannot see).
+    let messengerd = std::env::var_os("CARGO_BIN_FILE_USER_messengerd")
+        .expect("user messengerd artifact not found");
+    builder.set_file(String::from("MSGRD.ELF"), PathBuf::from(messengerd));
 
     // Rebuild the image when the kernel test switch flips (issue #62): the
     // kernel's own build script turns `LAZYOS_TESTS=1` into `cfg(laZYOS_TESTS)`.
@@ -39,6 +46,9 @@ fn main() {
     // Fabric observability demo switch (issue #70): the kernel boots the
     // `messengerctl` tool (`MSGCTL.ELF`) in the hello window when this is set.
     println!("cargo:rerun-if-env-changed=LAZYOS_MESSENGERCTL");
+    // Registry daemon switch (issue #89): the kernel starts `messengerd`
+    // (`MESSENGERD.ELF`) when this is set.
+    println!("cargo:rerun-if-env-changed=LAZYOS_MESSENGERD");
 
     // ABI conformance bench hook: embed a Linux fixture as `INIT.ELF`.
     println!("cargo:rerun-if-env-changed=LAZYOS_INIT");

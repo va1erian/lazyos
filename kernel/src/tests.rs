@@ -222,6 +222,38 @@ const SUITE: &[(&str, Test)] = &[
         messenger_suite::bootstrap_claim,
     ),
     (
+        "ipc_registry_register_resolve_roundtrip",
+        registry_suite::register_resolve_roundtrip,
+    ),
+    (
+        "ipc_registry_unknown_name_friendly",
+        registry_suite::unknown_name_friendly,
+    ),
+    (
+        "ipc_registry_lease_expiry_prunes",
+        registry_suite::lease_expiry_prunes,
+    ),
+    (
+        "ipc_registry_owner_death_releases",
+        registry_suite::owner_death_releases,
+    ),
+    (
+        "ipc_registry_acl_denies_register",
+        registry_suite::acl_denies_register,
+    ),
+    (
+        "ipc_registry_list_reflects_state",
+        registry_suite::list_reflects_state,
+    ),
+    (
+        "ipc_registry_proxy_registers_for_client",
+        registry_suite::proxy_registers_for_client,
+    ),
+    (
+        "ipc_registry_syscall_roundtrip",
+        registry_suite::syscall_roundtrip,
+    ),
+    (
         "ipc_messenger_fabric_stats_abi",
         messenger_suite::syscall_fabric_stats,
     ),
@@ -4929,5 +4961,747 @@ mod stats_suite {
             "a denied call touched the channel counters"
         );
         Ok(())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Name registry (issue #89)
+// ---------------------------------------------------------------------------
+
+mod registry_suite {
+    use super::*;
+    use crate::ipc::registry::{self, Error as RegistryError};
+    use crate::ipc::syscalls::{
+        errno, MsgArgs, MsgResult, OP_LIST, OP_REGISTER, OP_RESOLVE, OP_UNREGISTER,
+    };
+    use crate::ipc::{acl, audit, channels, credentials, handles};
+    use crate::task::TaskState;
+    use libmessenger::{Decoder, Encoder, Header, Kind, Parcel, VERSION};
+
+    /// Friendly-message adapter for each error type the suite plumb through
+    /// `Result<_, String>`; a trait keeps `map_err` call sites terse and typed.
+    trait Friendly {
+        fn friendly(self) -> String;
+    }
+
+    impl Friendly for libmessenger::Error {
+        fn friendly(self) -> String {
+            self.message().into()
+        }
+    }
+
+    impl Friendly for channels::Error {
+        fn friendly(self) -> String {
+            self.message().into()
+        }
+    }
+
+    impl Friendly for handles::Error {
+        fn friendly(self) -> String {
+            self.message().into()
+        }
+    }
+
+    impl Friendly for RegistryError {
+        fn friendly(self) -> String {
+            self.message().into()
+        }
+    }
+
+    fn friendly<E: Friendly>(error: E) -> String {
+        error.friendly()
+    }
+
+    /// Scratch user address space for the syscall-level test, private per test
+    /// because `in_space` installs and frees a fresh table around it.
+    const SPACE: u64 = 0x0050_0000;
+    const SPACE_PAGES: u64 = 8;
+    const ARGS: u64 = SPACE;
+    const RESULT: u64 = SPACE + 0x100;
+    const REQUEST: u64 = SPACE + 0x1000;
+    const LIST_BUF: u64 = SPACE + 0x2000;
+
+    /// Every registry test starts from an empty fabric with the kernel task
+    /// current and runnable, so counts are deterministic.
+    fn fresh() -> Result<(), String> {
+        task::register_kernel();
+        task::harness::reset();
+        task::harness::switch_current(task::KERNEL_TASK);
+        for slot in 0..task::MAX_TASKS {
+            handles::reset_for_task(slot);
+        }
+        channels::reset();
+        registry::reset();
+        credentials::reset_for_task(task::KERNEL_TASK);
+        acl::load(&[]);
+        audit::reset();
+        audit::set_trace(false);
+        task::wake_task(task::KERNEL_TASK);
+        let _ = task::harness::take_wake_reason(task::KERNEL_TASK);
+        Ok(())
+    }
+
+    /// Friendly-message adapter for registry plumbing.
+    fn reason(error: RegistryError) -> String {
+        error.message().into()
+    }
+
+    /// Encode a registry request parcel whose body is already built.
+    fn encode_parcel(method: u32, body: Encoder) -> Result<Vec<u8>, String> {
+        let parcel = Parcel {
+            header: Header {
+                version: VERSION,
+                flags: 0,
+                interface_id: registry::INTERFACE,
+                method,
+                txn_id: 0,
+                reply_to: 0,
+                deadline_ns: 0,
+            },
+            body: body.finish(),
+            handles: Vec::new(),
+            buffers: Vec::new(),
+        };
+        let mut bytes = Vec::new();
+        parcel.encode(&mut bytes).map_err(friendly)?;
+        Ok(bytes)
+    }
+
+    /// A request body carrying one name field.
+    fn string_parcel(method: u32, text: &str) -> Result<Vec<u8>, String> {
+        let mut body = Encoder::new();
+        body.string(registry::field::NAME, text).map_err(friendly)?;
+        encode_parcel(method, body)
+    }
+
+    /// A register request: name, endpoint handle, interface array and lease.
+    fn register_parcel(
+        name: &str,
+        endpoint: u64,
+        interfaces: &[u64],
+        lease: u64,
+    ) -> Result<Vec<u8>, String> {
+        let mut body = Encoder::new();
+        body.string(registry::field::NAME, name).map_err(friendly)?;
+        body.u64(registry::field::ENDPOINT, endpoint)
+            .map_err(friendly)?;
+        let mut array = Encoder::new();
+        for interface in interfaces {
+            array
+                .u64(registry::field::INTERFACES, *interface)
+                .map_err(friendly)?;
+        }
+        body.array(registry::field::INTERFACES, &array)
+            .map_err(friendly)?;
+        body.u64(registry::field::LEASE_TICKS, lease)
+            .map_err(friendly)?;
+        encode_parcel(registry::method::REGISTER, body)
+    }
+
+    /// Run `f` with [`SPACE`] mapped into a fresh address space installed as
+    /// CR3, exactly as a real syscall from a user task would find it.
+    fn in_space<R>(f: impl FnOnce() -> Result<R, String>) -> Result<R, String> {
+        let kernel = mem::kernel_table();
+        let table = mem::new_user_table().ok_or("new_user_table failed")?;
+        process::map_range(table, SPACE, SPACE + SPACE_PAGES * 4096).map_err(to_string)?;
+        mem::switch_to(table);
+        let outcome = f();
+        mem::switch_to(kernel);
+        mem::free_user_table(table);
+        outcome
+    }
+
+    /// Two's-complement `-errno` as the syscall returns it in `rax`.
+    fn failed(code: i64) -> u64 {
+        (code as u64).wrapping_neg()
+    }
+
+    /// Write bytes into the installed scratch space.
+    fn write_bytes(va: u64, bytes: &[u8]) {
+        // Safety: the scratch pages are mapped writable while installed.
+        unsafe { core::ptr::copy_nonoverlapping(bytes.as_ptr(), va as *mut u8, bytes.len()) };
+    }
+
+    /// Read bytes from the installed scratch space.
+    fn read_bytes(va: u64, len: usize) -> Vec<u8> {
+        let mut out = Vec::new();
+        out.resize(len, 0);
+        // Safety: the scratch pages are mapped readable while installed.
+        unsafe { core::ptr::copy_nonoverlapping(va as *const u8, out.as_mut_ptr(), len) };
+        out
+    }
+
+    /// One op through the native gate with the args block at [`ARGS`].
+    fn dispatch(op: u64, args: &MsgArgs) -> (u64, MsgResult) {
+        write_bytes(ARGS, &args.to_bytes());
+        let code = process::dispatch_for_test(5, op, ARGS, RESULT);
+        let result = MsgResult::from_bytes(&read_bytes(RESULT, 64))
+            .expect("the kernel wrote a malformed result block");
+        (code, result)
+    }
+
+    /// Register/resolve round-trips a name and, more importantly, duplicates
+    /// the endpoint into the *resolver's* table: the child gets its own handle
+    /// to the object the owner published, and an echo call through that handle
+    /// reaches the owner's side. Owner death then releases the name.
+    pub fn register_resolve_roundtrip() -> Result<(), String> {
+        fresh()?;
+
+        // The child owns the service: it creates the channel, keeps the
+        // receiving side and publishes the callable side under the name.
+        let child = task::spawn_fork().map_err(to_string)?;
+        task::harness::switch_current(child);
+        let (service, callable) = channels::create().map_err(friendly)?;
+        let published = handles::get(callable).map_err(friendly)?;
+        registry::register(
+            child,
+            "os.example.echo",
+            published.kind,
+            published.rights,
+            published.object_id,
+            &[0xfeed],
+            0,
+        )
+        .map_err(reason)?;
+
+        // The kernel resolves the name; the handle is open in *its* table, not
+        // the owner's, and names the same object.
+        task::harness::switch_current(task::KERNEL_TASK);
+        let resolved = registry::resolve(task::KERNEL_TASK, "os.example.echo").map_err(reason)?;
+        check!(
+            resolved != callable,
+            "resolve handed back the owner's own handle {callable}"
+        );
+        let copy = handles::get(resolved).map_err(friendly)?;
+        check!(
+            copy.object_id == published.object_id && copy.kind == published.kind,
+            "the resolved handle names a different object"
+        );
+        check!(
+            handles::count_for_task(task::KERNEL_TASK) == 1,
+            "the resolver holds {} handles, expected 1",
+            handles::count_for_task(task::KERNEL_TASK)
+        );
+
+        // Echo through the resolved name: the kernel calls, the owner answers.
+        let request = string_parcel(7, "ping")?;
+        let txn = channels::begin_call(resolved, 7, &request, None).map_err(friendly)?;
+        check!(
+            matches!(
+                task::harness::state(task::KERNEL_TASK),
+                Some(TaskState::Blocked { .. })
+            ),
+            "begin_call did not park the caller"
+        );
+        task::harness::switch_current(child);
+        let message = channels::recv(service, None).map_err(friendly)?;
+        check!(
+            message.txn == Some(txn),
+            "the request arrived with transaction {:?}",
+            message.txn
+        );
+        check!(
+            message.sender == task::KERNEL_TASK,
+            "the sender is {}, expected {}",
+            message.sender,
+            task::KERNEL_TASK
+        );
+        channels::reply(txn, &request).map_err(friendly)?;
+        task::harness::switch_current(task::KERNEL_TASK);
+        let _ = task::harness::take_wake_reason(task::KERNEL_TASK);
+        let reply = channels::await_reply(txn).map_err(friendly)?;
+        check!(reply == request, "the echo reply changed in flight");
+
+        // Owner death: the slot is gone after the reap, so the name is too.
+        task::harness::finish(child, 0);
+        check!(task::reap_child().is_some(), "the owner was not reapable");
+        check!(
+            registry::resolve(task::KERNEL_TASK, "os.example.echo")
+                == Err(RegistryError::UnknownName),
+            "the name outlived its owner"
+        );
+        check!(registry::list().is_empty(), "list kept a dead owner's name");
+        Ok(())
+    }
+
+    /// An unknown name reports the dedicated, friendly error rather than a
+    /// generic lookup failure.
+    pub fn unknown_name_friendly() -> Result<(), String> {
+        fresh()?;
+        let error = registry::resolve(task::KERNEL_TASK, "no.such.service").unwrap_err();
+        check!(
+            error == RegistryError::UnknownName,
+            "resolve of an unknown name returned {error:?}"
+        );
+        check!(
+            error.message().contains("no service"),
+            "the message is not friendly: {:?}",
+            error.message()
+        );
+        check!(
+            registry::stats().entries == 0,
+            "a failed resolve left table entries"
+        );
+        Ok(())
+    }
+
+    /// A lease is a deadline: it survives before its tick and is pruned after
+    /// it, without any owner action.
+    pub fn lease_expiry_prunes() -> Result<(), String> {
+        fresh()?;
+        let (_service, callable) = channels::create().map_err(friendly)?;
+        let published = handles::get(callable).map_err(friendly)?;
+        let before = task::ticks();
+        registry::register(
+            task::KERNEL_TASK,
+            "os.example.lease",
+            published.kind,
+            published.rights,
+            published.object_id,
+            &[],
+            2,
+        )
+        .map_err(reason)?;
+        check!(registry::stats().leases == 1, "the lease was not recorded");
+        registry::prune_at(before);
+        check!(
+            registry::list().len() == 1,
+            "the lease expired before its deadline"
+        );
+        check!(
+            registry::prune_at(before + 100) == 1,
+            "prune did not remove the expired name"
+        );
+        check!(
+            registry::resolve(task::KERNEL_TASK, "os.example.lease")
+                == Err(RegistryError::UnknownName),
+            "the expired name still resolved"
+        );
+        check!(
+            registry::stats().expirations == 1,
+            "the expiration was not counted"
+        );
+        Ok(())
+    }
+
+    /// Owner death releases the name through both paths: the explicit
+    /// `release_owner` teardown hook, and lazy pruning when a task dies without
+    /// the hook running.
+    pub fn owner_death_releases() -> Result<(), String> {
+        fresh()?;
+        let child = task::spawn_fork().map_err(to_string)?;
+
+        // Path 1: the hook a task teardown calls.
+        task::harness::switch_current(child);
+        let (_service, callable) = channels::create().map_err(friendly)?;
+        let published = handles::get(callable).map_err(friendly)?;
+        registry::register(
+            child,
+            "os.example.hooked",
+            published.kind,
+            published.rights,
+            published.object_id,
+            &[1],
+            0,
+        )
+        .map_err(reason)?;
+        task::harness::switch_current(task::KERNEL_TASK);
+        check!(
+            registry::list().len() == 1,
+            "the child's registration is missing"
+        );
+        check!(
+            registry::release_owner(child) == 1,
+            "release_owner did not drop the child's name"
+        );
+        check!(
+            registry::resolve(task::KERNEL_TASK, "os.example.hooked")
+                == Err(RegistryError::UnknownName),
+            "the released name still resolved"
+        );
+
+        // Path 2: the owner dies without teardown; the next access prunes.
+        task::harness::switch_current(child);
+        let (_service2, callable2) = channels::create().map_err(friendly)?;
+        let published2 = handles::get(callable2).map_err(friendly)?;
+        registry::register(
+            child,
+            "os.example.crashed",
+            published2.kind,
+            published2.rights,
+            published2.object_id,
+            &[1],
+            0,
+        )
+        .map_err(reason)?;
+        task::harness::switch_current(task::KERNEL_TASK);
+        task::harness::finish(child, 0);
+        check!(
+            registry::list().is_empty(),
+            "prune kept a crashed owner's name"
+        );
+        check!(task::reap_child().is_some(), "the child was not reapable");
+        Ok(())
+    }
+
+    /// The ACL hook gates a registry op before the table is touched: a policy
+    /// that does not cover the caller denies the register and audits it.
+    pub fn acl_denies_register() -> Result<(), String> {
+        fresh()?;
+        acl::load(&[acl::Rule {
+            actor: 2000,
+            interface_id: registry::INTERFACE,
+            method: registry::method::REGISTER,
+            allow: true,
+        }]);
+        credentials::set(
+            task::KERNEL_TASK,
+            credentials::Cred::new(1000, 100, 0, 0, 0),
+        );
+        in_space(|| -> Result<(), String> {
+            let (_service, callable) = channels::create().map_err(friendly)?;
+            let request = register_parcel("os.example.denied", callable, &[9], 0)?;
+            write_bytes(REQUEST, &request);
+            let before = audit::count();
+            let args = MsgArgs {
+                parcel_ptr: REQUEST,
+                parcel_len: request.len() as u64,
+                ..MsgArgs::default()
+            };
+            let (code, result) = dispatch(OP_REGISTER, &args);
+            check!(
+                code == failed(errno::EACCES),
+                "denied register -> {code:#x}"
+            );
+            check!(
+                result.status == -errno::EACCES,
+                "the denial status is {}",
+                result.status
+            );
+            check!(
+                registry::list().is_empty(),
+                "a denied register touched the table"
+            );
+            check!(
+                audit::count() == before + 1,
+                "the denial was not audited: {} -> {}",
+                before,
+                audit::count()
+            );
+            let event = *audit::recent(1).first().ok_or("no audit event")?;
+            check!(
+                !event.allow
+                    && event.interface_id == registry::INTERFACE
+                    && event.method == registry::method::REGISTER,
+                "the audit event is {event:?}"
+            );
+            Ok(())
+        })
+    }
+
+    /// `list` reflects registrations, interfaces, owners and leases; a
+    /// different owner cannot take a taken name, and an unrelated task without
+    /// the admin capability cannot unregister it.
+    pub fn list_reflects_state() -> Result<(), String> {
+        fresh()?;
+        let (_a, endpoint_a) = channels::create().map_err(friendly)?;
+        let (_b, endpoint_b) = channels::create().map_err(friendly)?;
+        let entry_a = handles::get(endpoint_a).map_err(friendly)?;
+        let entry_b = handles::get(endpoint_b).map_err(friendly)?;
+        registry::register(
+            task::KERNEL_TASK,
+            "os.example.alpha",
+            entry_a.kind,
+            entry_a.rights,
+            entry_a.object_id,
+            &[1, 2],
+            100,
+        )
+        .map_err(reason)?;
+        registry::register(
+            task::KERNEL_TASK,
+            "os.example.beta",
+            entry_b.kind,
+            entry_b.rights,
+            entry_b.object_id,
+            &[3],
+            0,
+        )
+        .map_err(reason)?;
+
+        let entries = registry::list();
+        check!(entries.len() == 2, "list has {} entries", entries.len());
+        check!(
+            entries[0].name == "os.example.alpha" && entries[1].name == "os.example.beta",
+            "list order is {:?}",
+            entries.iter().map(|entry| &entry.name).collect::<Vec<_>>()
+        );
+        check!(
+            entries[0].interfaces == vec![1, 2] && entries[1].interfaces == vec![3],
+            "interfaces are {:?} / {:?}",
+            entries[0].interfaces,
+            entries[1].interfaces
+        );
+        check!(
+            entries[0].owner_slot == task::KERNEL_TASK,
+            "the owner is {}",
+            entries[0].owner_slot
+        );
+        check!(
+            entries[0].lease_remaining.is_some(),
+            "alpha lost its lease in the listing"
+        );
+        check!(
+            entries[1].lease_remaining.is_none(),
+            "beta gained a lease in the listing"
+        );
+        let stats = registry::stats();
+        check!(
+            stats.entries == 2 && stats.leases == 1 && stats.registrations == 2,
+            "registry stats are {stats:?}"
+        );
+
+        // A second owner cannot take the name; a stranger cannot withdraw it.
+        let child = task::spawn_fork().map_err(to_string)?;
+        credentials::set(child, credentials::Cred::new(1000, 100, 0, 0, 0));
+        check!(
+            registry::register(
+                child,
+                "os.example.alpha",
+                entry_a.kind,
+                entry_a.rights,
+                entry_a.object_id,
+                &[],
+                0,
+            ) == Err(RegistryError::NameTaken),
+            "a second owner took a registered name"
+        );
+        check!(
+            registry::unregister(child, task::KERNEL_TASK, "os.example.alpha")
+                == Err(RegistryError::NotOwner),
+            "a stranger unregistered a name"
+        );
+
+        // The owner withdraws one; state follows.
+        registry::unregister(task::KERNEL_TASK, task::KERNEL_TASK, "os.example.alpha")
+            .map_err(reason)?;
+        let entries = registry::list();
+        check!(
+            entries.len() == 1 && entries[0].name == "os.example.beta",
+            "list after unregister is {:?}",
+            entries.iter().map(|entry| &entry.name).collect::<Vec<_>>()
+        );
+        check!(
+            registry::stats().unregistrations == 1,
+            "the unregistration was not counted"
+        );
+        registry::unregister(task::KERNEL_TASK, task::KERNEL_TASK, "os.example.beta")
+            .map_err(reason)?;
+        check!(registry::list().is_empty(), "the table is not empty");
+        Ok(())
+    }
+
+    /// The `messengerd` proxy path: a task holding `CAP_IPC_CONTROL` names
+    /// another task's slot as the target, so the kernel reads the client's
+    /// endpoint handle from the client's table, records the client as owner,
+    /// and opens a resolved handle back into the client. Without the
+    /// capability the same request is refused.
+    pub fn proxy_registers_for_client() -> Result<(), String> {
+        fresh()?;
+        let client = task::spawn_fork().map_err(to_string)?;
+
+        // The client owns a channel and keeps the receiving side.
+        task::harness::switch_current(client);
+        let (_service, callable) = channels::create().map_err(friendly)?;
+        task::harness::switch_current(task::KERNEL_TASK);
+        let published = handles::get_for_task(client, callable).map_err(friendly)?;
+
+        in_space(|| -> Result<(), String> {
+            // Register with the client's slot as target: the proxy is the
+            // caller, but the name must belong to the client.
+            let request = register_parcel("os.example.proxy", callable, &[5], 0)?;
+            write_bytes(REQUEST, &request);
+            let args = MsgArgs {
+                txn_id: client as u64,
+                parcel_ptr: REQUEST,
+                parcel_len: request.len() as u64,
+                ..MsgArgs::default()
+            };
+            let (code, _) = dispatch(OP_REGISTER, &args);
+            check!(code == 0, "proxied register -> {code:#x}");
+            let entries = registry::list();
+            check!(
+                entries.len() == 1 && entries[0].owner_slot == client,
+                "the owner is not the client: {:?}",
+                entries
+            );
+
+            // Resolve with the client's slot as target: the handle must land in
+            // the *client's* table, not the proxy's.
+            let request = string_parcel(registry::method::RESOLVE, "os.example.proxy")?;
+            write_bytes(REQUEST, &request);
+            let args = MsgArgs {
+                txn_id: client as u64,
+                parcel_ptr: REQUEST,
+                parcel_len: request.len() as u64,
+                ..MsgArgs::default()
+            };
+            let (code, result) = dispatch(OP_RESOLVE, &args);
+            check!(code == 0, "proxied resolve -> {code:#x}");
+            let resolved = handles::get_for_task(client, result.value).map_err(friendly)?;
+            check!(
+                resolved.object_id == published.object_id,
+                "the proxied handle names a different object"
+            );
+            check!(
+                handles::count_for_task(client) == 3,
+                "the client holds {} handles, expected 3",
+                handles::count_for_task(client)
+            );
+
+            // Without the capability the same target is refused.
+            credentials::set(
+                task::KERNEL_TASK,
+                credentials::Cred::new(1000, 100, 0, 0, 0),
+            );
+            let request = string_parcel(registry::method::RESOLVE, "os.example.proxy")?;
+            write_bytes(REQUEST, &request);
+            let args = MsgArgs {
+                txn_id: client as u64,
+                parcel_ptr: REQUEST,
+                parcel_len: request.len() as u64,
+                ..MsgArgs::default()
+            };
+            let (code, _) = dispatch(OP_RESOLVE, &args);
+            check!(
+                code == failed(errno::EPERM),
+                "an unprivileged proxy -> {code:#x}"
+            );
+
+            // Unregister through the proxy: the capability authorises, but the
+            // name still belongs to the client, so the client's slot must stay
+            // the owner named by the request.
+            credentials::reset_for_task(task::KERNEL_TASK);
+            let request = string_parcel(registry::method::UNREGISTER, "os.example.proxy")?;
+            write_bytes(REQUEST, &request);
+            let args = MsgArgs {
+                txn_id: client as u64,
+                parcel_ptr: REQUEST,
+                parcel_len: request.len() as u64,
+                ..MsgArgs::default()
+            };
+            let (code, _) = dispatch(OP_UNREGISTER, &args);
+            check!(code == 0, "proxied unregister -> {code:#x}");
+            check!(registry::list().is_empty(), "the table is not empty");
+            Ok(())
+        })?;
+
+        task::harness::finish(client, 0);
+        check!(task::reap_child().is_some(), "the client was not reapable");
+        Ok(())
+    }
+
+    /// The ops over the native gate: register, resolve, list, unknown-name and
+    /// unregister all round-trip through the ABI blocks and the TLV bodies.
+    pub fn syscall_roundtrip() -> Result<(), String> {
+        fresh()?;
+        in_space(|| -> Result<(), String> {
+            let (_service, callable) = channels::create().map_err(friendly)?;
+            let published = handles::get(callable).map_err(friendly)?;
+
+            // Register through OP_REGISTER; the reply names the object.
+            let request = register_parcel("os.example.sys", callable, &[7, 8], 0)?;
+            write_bytes(REQUEST, &request);
+            let args = MsgArgs {
+                parcel_ptr: REQUEST,
+                parcel_len: request.len() as u64,
+                ..MsgArgs::default()
+            };
+            let (code, result) = dispatch(OP_REGISTER, &args);
+            check!(code == 0, "register -> {code:#x}");
+            check!(
+                result.value == published.object_id,
+                "register returned object {} (expected {})",
+                result.value,
+                published.object_id
+            );
+
+            // Resolve through OP_RESOLVE duplicates the handle for this task.
+            let request = string_parcel(registry::method::RESOLVE, "os.example.sys")?;
+            write_bytes(REQUEST, &request);
+            let args = MsgArgs {
+                parcel_ptr: REQUEST,
+                parcel_len: request.len() as u64,
+                ..MsgArgs::default()
+            };
+            let (code, result) = dispatch(OP_RESOLVE, &args);
+            check!(code == 0, "resolve -> {code:#x}");
+            check!(
+                result.value != callable,
+                "resolve reused the registered handle"
+            );
+            let copy = handles::get(result.value).map_err(friendly)?;
+            check!(
+                copy.object_id == published.object_id,
+                "the resolved handle names a different object"
+            );
+
+            // List through OP_LIST writes an encoded parcel of records.
+            let args = MsgArgs {
+                buf_ptr: LIST_BUF,
+                buf_cap: 4096,
+                ..MsgArgs::default()
+            };
+            let (code, result) = dispatch(OP_LIST, &args);
+            check!(code == 0, "list -> {code:#x}");
+            let bytes = read_bytes(LIST_BUF, result.bytes as usize);
+            let parcel = Parcel::decode(&bytes).map_err(friendly)?;
+            check!(
+                parcel.header.interface_id == registry::INTERFACE
+                    && parcel.header.method == registry::method::LIST,
+                "the list parcel header is {:?}",
+                parcel.header
+            );
+            let mut decoder = Decoder::new(&parcel.body);
+            let mut records = 0;
+            while let Some(field) = decoder.next().map_err(friendly)? {
+                if field.kind == Kind::Struct && field.id == registry::field::ENTRY {
+                    records += 1;
+                }
+            }
+            check!(records == 1, "the list body has {records} records");
+
+            // An unknown name is a friendly -ENOENT.
+            let request = string_parcel(registry::method::RESOLVE, "no.such.service")?;
+            write_bytes(REQUEST, &request);
+            let args = MsgArgs {
+                parcel_ptr: REQUEST,
+                parcel_len: request.len() as u64,
+                ..MsgArgs::default()
+            };
+            let (code, result) = dispatch(OP_RESOLVE, &args);
+            check!(
+                code == failed(errno::ENOENT),
+                "unknown resolve -> {code:#x}"
+            );
+            check!(
+                result.status == -errno::ENOENT,
+                "the unknown-name status is {}",
+                result.status
+            );
+
+            // Unregister through OP_UNREGISTER empties the table.
+            let request = string_parcel(registry::method::UNREGISTER, "os.example.sys")?;
+            write_bytes(REQUEST, &request);
+            let args = MsgArgs {
+                parcel_ptr: REQUEST,
+                parcel_len: request.len() as u64,
+                ..MsgArgs::default()
+            };
+            let (code, _) = dispatch(OP_UNREGISTER, &args);
+            check!(code == 0, "unregister -> {code:#x}");
+            check!(registry::list().is_empty(), "the table is not empty");
+            Ok(())
+        })
     }
 }

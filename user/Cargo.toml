@@ -32,6 +32,12 @@ path = "src/bin/messengerctl.rs"
 test = false
 bench = false
 
+[[bin]]
+name = "messengerd"
+path = "src/bin/messengerd.rs"
+test = false
+bench = false
+
 # Async API examples (issue #91). Not wired into the demo image yet: the root
 # build script would need a `CARGO_BIN_FILE_USER_*` hook and a kernel spawn
 # line, which is a one-line follow-up noted in the PR.
