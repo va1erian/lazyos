@@ -127,19 +127,30 @@ impl Fat16 {
         self.data_lba + (cluster as u32 - 2) * self.sectors_per_cluster as u32
     }
 
+    /// Read a little-endian 16-bit FAT entry that may straddle a sector edge.
+    fn read_fat_word(&self, sector: u32, index: usize) -> Option<u16> {
+        let buf = read_sector(sector)?;
+        let low = buf[index] as u16;
+        let high = if index + 1 < self.bytes_per_sector as usize {
+            buf[index + 1] as u16
+        } else {
+            read_sector(sector + 1)?[0] as u16
+        };
+        Some(low | (high << 8))
+    }
+
     /// Next cluster in a chain, following the FAT (12- or 16-bit entries).
     fn next_cluster(&self, cluster: u16) -> Option<u16> {
-        let (byte_offset, _) = match self.kind {
-            FatKind::Fat12 => ((cluster as u32 + cluster as u32 / 2), 0),
-            FatKind::Fat16 => (cluster as u32 * 2, 0),
+        let byte_offset = match self.kind {
+            FatKind::Fat12 => cluster as u32 + cluster as u32 / 2,
+            FatKind::Fat16 => cluster as u32 * 2,
         };
         let sector = self.fat_start + byte_offset / self.bytes_per_sector as u32;
         let index = (byte_offset % self.bytes_per_sector as u32) as usize;
-        let buf = read_sector(sector)?;
 
         let value = match self.kind {
             FatKind::Fat12 => {
-                let word = le16(&buf, index);
+                let word = self.read_fat_word(sector, index)?;
                 // 12-bit entries are packed; pick the low or high nibble pair.
                 if cluster % 2 == 0 {
                     word & 0x0FFF
@@ -147,7 +158,7 @@ impl Fat16 {
                     word >> 4
                 }
             }
-            FatKind::Fat16 => le16(&buf, index),
+            FatKind::Fat16 => self.read_fat_word(sector, index)?,
         };
 
         let end_of_chain = match self.kind {
