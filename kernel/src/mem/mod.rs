@@ -1,12 +1,14 @@
 //! Memory management: physical frames, kernel paging, and the heap.
 
 mod heap;
+pub mod vma;
 
 use bootloader_api::info::{MemoryRegionKind, Optional};
 use bootloader_api::BootInfo;
 use core::sync::atomic::{AtomicU64, Ordering};
 use spin::Mutex;
 use x86_64::registers::control::Cr3;
+use x86_64::structures::idt::PageFaultErrorCode;
 use x86_64::structures::paging::{
     FrameAllocator, Mapper, OffsetPageTable, Page, PageTable, PageTableFlags, PhysFrame, Size4KiB,
 };
@@ -331,6 +333,11 @@ unsafe fn active_level_4_table(offset: VirtAddr) -> &'static mut PageTable {
 }
 
 /// Map one page in the active page table. Returns false on failure.
+///
+/// Part of the public paging surface (issue #55 moved user mappings to
+/// [`map_page_in`] plus the VMA layer); kept for callers that own the active
+/// table, and used by tests.
+#[allow(dead_code)]
 pub fn map_page(virt: VirtAddr, phys: PhysAddr, flags: PageTableFlags) -> bool {
     map_page_in(kernel_table(), virt, phys, flags)
 }
@@ -354,6 +361,9 @@ pub fn new_user_table() -> Option<PhysAddr> {
             core::ptr::write_volatile(table.add(i), core::ptr::read_volatile(kernel.add(i)));
         }
     }
+    // The frame allocator may hand back a PML4 of a torn-down address space;
+    // `register` resets any stale VMA list keyed by that physical address.
+    vma::register(phys);
     Some(phys)
 }
 
@@ -401,6 +411,7 @@ const PTE_WRITABLE: u64 = 1 << 1;
 const PTE_USER: u64 = 1 << 2;
 const PTE_HUGE: u64 = 1 << 7;
 const PTE_ADDR: u64 = 0x000F_FFFF_FFFF_F000;
+const PTE_NX: u64 = 1 << 63;
 
 /// View a page table/frame as an array of raw 64-bit entries.
 ///
@@ -471,6 +482,9 @@ pub fn free_user_table(table: PhysAddr) -> usize {
     if release_frame(table) == Release::Pooled {
         released += 1;
     }
+    // The address space no longer exists: drop its VMA list so a recycled PML4
+    // frame cannot inherit it.
+    vma::forget(table);
     released
 }
 
@@ -532,6 +546,10 @@ pub fn clone_user_table(parent: PhysAddr) -> Option<PhysAddr> {
         // `cow_clone_level` already released the partial subtree; drop the
         // PML4 allocated by `new_user_table`.
         free_frame(child);
+    } else {
+        // Fork inherits the parent's layout: the child can demand-fault and
+        // `mprotect` exactly the same ranges.
+        vma::clone_space(parent, child);
     }
     // Our own leaves may now be read-only (or were restored by a failed
     // clone), so drop stale writable TLB entries either way.
@@ -579,47 +597,196 @@ unsafe fn cow_clone_level(src_phys: u64, level: u8) -> Option<u64> {
     Some(new_phys.as_u64())
 }
 
+/// Walk `table` to the 4 KiB leaf for `va`, returning a pointer to its entry.
+/// `None` means the path is absent or a huge page covers `va`; this never
+/// allocates, so callers that need a page mapped go through [`map_page_in`].
+///
+/// # Safety
+/// `table` must be a live PML4 whose lower levels are stable for the duration
+/// of the returned pointer's use (no concurrent address-space teardown).
+unsafe fn leaf_entry(table: PhysAddr, va: u64) -> Option<*mut u64> {
+    let index = |shift: u64| ((va >> shift) & 0x1ff) as usize;
+    let p4 = entry_table(table);
+    let e4 = *p4.add(index(39));
+    if e4 & PTE_PRESENT == 0 {
+        return None;
+    }
+    let p3 = entry_table(PhysAddr::new(e4 & PTE_ADDR));
+    let e3 = *p3.add(index(30));
+    if e3 & PTE_PRESENT == 0 || e3 & PTE_HUGE != 0 {
+        return None;
+    }
+    let p2 = entry_table(PhysAddr::new(e3 & PTE_ADDR));
+    let e2 = *p2.add(index(21));
+    if e2 & PTE_PRESENT == 0 || e2 & PTE_HUGE != 0 {
+        return None;
+    }
+    let p1 = entry_table(PhysAddr::new(e2 & PTE_ADDR));
+    let entry = p1.add(index(12));
+    if *entry & PTE_PRESENT == 0 {
+        return None;
+    }
+    Some(entry)
+}
+
 /// Resolve a write fault on a COW page: copy the frame and map it writable.
 /// Returns true if the fault was handled (caller should resume).
 pub fn cow_fault(table: PhysAddr, va: u64) -> bool {
-    let index = |shift: u64| ((va >> shift) & 0x1ff) as usize;
     // Safety: we walk the given PML4, whose entries we own.
-    unsafe {
-        let p4 = entry_table(table);
-        let e4 = *p4.add(index(39));
-        if e4 & PTE_PRESENT == 0 {
-            return false;
-        }
-        let p3 = entry_table(PhysAddr::new(e4 & PTE_ADDR));
-        let e3 = *p3.add(index(30));
-        if e3 & PTE_PRESENT == 0 || e3 & PTE_HUGE != 0 {
-            return false;
-        }
-        let p2 = entry_table(PhysAddr::new(e3 & PTE_ADDR));
-        let e2 = *p2.add(index(21));
-        if e2 & PTE_PRESENT == 0 || e2 & PTE_HUGE != 0 {
-            return false;
-        }
-        let p1 = entry_table(PhysAddr::new(e2 & PTE_ADDR));
-        let e1 = *p1.add(index(12));
-        if e1 & PTE_PRESENT == 0 || e1 & PTE_USER == 0 || e1 & COW_BIT == 0 {
-            return false;
-        }
-        let Some(frame) = alloc_zeroed_frame() else {
-            return false;
-        };
-        core::ptr::copy_nonoverlapping(
-            phys_to_virt(PhysAddr::new(e1 & PTE_ADDR)).as_ptr::<u8>(),
-            phys_to_virt(frame).as_mut_ptr::<u8>(),
-            4096,
-        );
-        *p1.add(index(12)) = frame.as_u64() | ((e1 & !PTE_ADDR) & !COW_BIT) | PTE_WRITABLE;
-        // The page now lives privately here: release our reference to the
-        // shared frame (which frees it if this was the last user).
-        free_frame(PhysAddr::new(e1 & PTE_ADDR));
+    let entry = unsafe { leaf_entry(table, va & !(FRAME_SIZE - 1)) };
+    let Some(entry) = entry else {
+        return false;
+    };
+    let old = unsafe { *entry };
+    if old & PTE_USER == 0 || old & COW_BIT == 0 {
+        return false;
     }
+    let Some(frame) = alloc_zeroed_frame() else {
+        return false;
+    };
+    copy_frame(PhysAddr::new(old & PTE_ADDR), frame);
+    unsafe { *entry = frame.as_u64() | ((old & !PTE_ADDR) & !COW_BIT) | PTE_WRITABLE };
+    // The page now lives privately here: release our reference to the shared
+    // frame (which frees it if this was the last user).
+    free_frame(PhysAddr::new(old & PTE_ADDR));
     x86_64::instructions::tlb::flush(VirtAddr::new(va));
     true
+}
+
+/// Drop `[start, end)` from `table`'s user mappings: clear each present leaf
+/// and return its frame to the allocator (shared COW frames just lose one
+/// reference). Page tables are left in place; [`free_user_table`] reaps them.
+/// Returns the number of leaves cleared.
+pub fn unmap_range(table: PhysAddr, start: u64, end: u64) -> usize {
+    let mut cleared = 0;
+    let mut va = start & !(FRAME_SIZE - 1);
+    while va < end {
+        // Safety: `table` is a live address space and we own its entries.
+        if let Some(entry) = unsafe { leaf_entry(table, va) } {
+            let value = unsafe { *entry };
+            if value & PTE_USER != 0 {
+                unsafe { *entry = 0 };
+                free_frame(PhysAddr::new(value & PTE_ADDR));
+                cleared += 1;
+                x86_64::instructions::tlb::flush(VirtAddr::new(va));
+            }
+        }
+        va += FRAME_SIZE;
+    }
+    cleared
+}
+
+/// Apply `prot` to the present user pages of `[start, end)` in `table`.
+/// A COW page is privatized first: its protection is per-address-space, so it
+/// must not keep sharing a frame after `mprotect`. Returns false when
+/// privatizing needed memory and none was available (pages updated before the
+/// failure keep their new protection).
+pub fn protect_range(table: PhysAddr, start: u64, end: u64, prot: vma::Prot) -> bool {
+    let mut va = start & !(FRAME_SIZE - 1);
+    while va < end {
+        // Safety: `table` is a live address space and we own its entries.
+        if let Some(entry) = unsafe { leaf_entry(table, va) } {
+            let old = unsafe { *entry };
+            if old & PTE_USER != 0 {
+                let new = if old & COW_BIT != 0 {
+                    // The page is shared read-only: copy it before changing the
+                    // protection, so this address space gets a private frame.
+                    let Some(frame) = alloc_zeroed_frame() else {
+                        return false;
+                    };
+                    copy_frame(PhysAddr::new(old & PTE_ADDR), frame);
+                    free_frame(PhysAddr::new(old & PTE_ADDR));
+                    frame.as_u64() | (old & !PTE_ADDR & !(PTE_WRITABLE | COW_BIT | PTE_NX))
+                } else {
+                    old
+                };
+                unsafe { *entry = apply_prot(new, prot) };
+                x86_64::instructions::tlb::flush(VirtAddr::new(va));
+            }
+        }
+        va += FRAME_SIZE;
+    }
+    true
+}
+
+/// Add the flags `prot` implies to an already present PTE value.
+fn apply_prot(mut entry: u64, prot: vma::Prot) -> u64 {
+    entry &= !(PTE_WRITABLE | PTE_NX);
+    if prot.has_write() {
+        entry |= PTE_WRITABLE;
+    }
+    if !prot.has_exec() {
+        entry |= PTE_NX;
+    }
+    entry
+}
+
+/// Copy one 4 KiB frame through the physical-memory mapping.
+fn copy_frame(source: PhysAddr, destination: PhysAddr) {
+    // Safety: both frames are mapped and exclusively owned by the caller.
+    unsafe {
+        core::ptr::copy_nonoverlapping(
+            phys_to_virt(source).as_ptr::<u8>(),
+            phys_to_virt(destination).as_mut_ptr::<u8>(),
+            4096,
+        );
+    }
+}
+
+/// Page-table flags for a VMA protection value. Absent `EXEC` maps as NX
+/// (`init` enables EFER.NXE), so stacks, heaps and anonymous memory default to
+/// non-executable.
+pub fn prot_flags(prot: vma::Prot) -> PageTableFlags {
+    let mut flags = PageTableFlags::PRESENT | PageTableFlags::USER_ACCESSIBLE;
+    if prot.has_write() {
+        flags |= PageTableFlags::WRITABLE;
+    }
+    if !prot.has_exec() {
+        flags |= PageTableFlags::NO_EXECUTE;
+    }
+    flags
+}
+
+/// Resolve a not-present page fault by materializing a zeroed page for an
+/// `Anon`/`Heap` VMA. Returns true if the fault was handled.
+///
+/// Only access the VMA permits is granted: a write fault in a read-only range
+/// (or any access to `PROT_NONE`) stays unresolved and falls through to the
+/// fatal path, where a future signal would be delivered. `File`/`Stack` VMAs
+/// are mapped eagerly and never demand-fault.
+pub fn demand_fault(table: PhysAddr, va: u64, error: PageFaultErrorCode) -> bool {
+    if error.contains(PageFaultErrorCode::PROTECTION_VIOLATION) {
+        return false; // present but forbidden: not a missing page
+    }
+    let Some(vma) = vma::find(table, va) else {
+        return false;
+    };
+    if !matches!(vma.kind, vma::Kind::Anon | vma::Kind::Heap) {
+        return false;
+    }
+    if !(vma.prot.has_read() || vma.prot.has_exec()) {
+        return false;
+    }
+    let Some(frame) = alloc_zeroed_frame() else {
+        return false;
+    };
+    let page = VirtAddr::new(va & !(FRAME_SIZE - 1));
+    if !map_page_in(table, page, frame, prot_flags(vma.prot)) {
+        free_frame(frame);
+        return false;
+    }
+    true
+}
+
+/// Per-address-space accounting: `(vsz_bytes, resident_pages)`.
+///
+/// VSZ is the summed VMA length (what the process has reserved); resident
+/// pages are the present 4 KiB user leaves (shared COW pages count once per
+/// address space). This is the hook tools/tests use to report VSZ/RSS.
+#[allow(dead_code)]
+pub fn vma_stats(table: PhysAddr) -> (u64, usize) {
+    let vsz = vma::list(table).iter().map(|vma| vma.len()).sum();
+    (vsz, user_table_frame_count(table))
 }
 
 /// Initialise frame allocation and the kernel heap.
@@ -629,6 +796,15 @@ pub fn init(boot_info: &'static mut BootInfo) {
         Optional::None => panic!("bootloader did not map physical memory"),
     };
     PHYS_OFFSET.store(offset.as_u64(), Ordering::Relaxed);
+
+    // Turn on EFER.NXE before building any VMA-derived mapping: `prot_flags`
+    // sets the NX bit for non-executable pages, and with NXE off that bit is
+    // reserved and would fault on every access. Long mode on every CPU we
+    // target (and QEMU) supports no-execute.
+    unsafe {
+        use x86_64::registers::model_specific::{Efer, EferFlags};
+        Efer::update(|flags| flags.insert(EferFlags::NO_EXECUTE_ENABLE));
+    }
 
     // Gather the usable regions, clamping away the low megabyte that holds
     // the kernel and the bootloader's metadata.
