@@ -70,6 +70,35 @@ pub fn user_context() -> UserContext {
     unsafe { core::ptr::read(addr_of_mut!(USER_CONTEXT)) }
 }
 
+/// Replace the captured context (after `rt_sigreturn` restores a frame, the
+/// next signal delivery must build on the restored registers, not the
+/// `rt_sigreturn` entry state).
+pub fn set_user_context(context: UserContext) {
+    // Safety: single CPU; called inside the syscall gate.
+    unsafe { *addr_of_mut!(USER_CONTEXT) = context };
+}
+
+/// The user RSP `linux_syscall_entry` saved for the in-progress syscall. Read
+/// from the task's own return stack, so a task that blocked inside the syscall
+/// cannot observe another task's snapshot.
+pub fn saved_user_rsp() -> u64 {
+    // Safety: single CPU; we are inside the syscall on this task's stack.
+    unsafe { *((KERNEL_STACK as *const u64).offset(-1)) }
+}
+
+/// Saved user registers `linux_syscall_entry` will reload before `sysretq`,
+/// by slot. The order mirrors the pushes: r15, r14, r13, r12, rbp, rbx, rdi,
+/// rsi, rdx, r8, r9, r10. `rt_sigreturn` writes every slot.
+pub fn set_saved_register(slot: usize, value: u64) {
+    debug_assert!(slot < 12);
+    // Safety: single CPU; the pushes sit at fixed offsets below the kernel
+    // stack top, and we are inside the syscall on this task's stack.
+    unsafe {
+        let top = KERNEL_STACK as *mut u64;
+        *top.offset(-4 - slot as isize) = value;
+    }
+}
+
 global_asm!(
     r#"
     .global linux_syscall_entry
@@ -96,6 +125,15 @@ global_asm!(
         push qword ptr [rip + SAVED_USER_RSP]
         push r11                        /* user RFLAGS */
         push rcx                        /* user RIP */
+        /* The callee-saved user registers are pushed too: `rt_sigreturn` must
+           be able to reload every register from the signal frame, and this is
+           the only place the return path reads them from. */
+        push r15
+        push r14
+        push r13
+        push r12
+        push rbp
+        push rbx
         push rdi
         push rsi
         push rdx
@@ -116,6 +154,12 @@ global_asm!(
         pop rdx
         pop rsi
         pop rdi
+        pop rbx
+        pop rbp
+        pop r12
+        pop r13
+        pop r14
+        pop r15
         pop rcx
         pop r11
         pop rsp                         /* rsp = user RSP (rax holds result) */

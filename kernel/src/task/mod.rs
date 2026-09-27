@@ -20,6 +20,7 @@ use crate::mem;
 use crate::process as user_process;
 
 pub mod process;
+pub mod signal;
 pub mod switch;
 pub mod wait;
 
@@ -62,6 +63,9 @@ pub enum WaitKind {
     ChildExit,
     /// Waiting for a `nanosleep` deadline (nothing notifies this queue).
     Sleep,
+    /// Parked by a stop signal (`SIGSTOP`/`SIGTSTP`/...). Only `SIGCONT`
+    /// wakes a task in this state; other signals leave it stopped.
+    Signal,
 }
 
 /// How a blocked task's wait ended. The wake path records it, the wait loop
@@ -72,11 +76,9 @@ pub enum WakeReason {
     Woken,
     /// The PIT deadline passed before any notification.
     TimedOut,
-    /// The task was interrupted.
-    ///
-    /// Reserved for signal delivery: the wait API can return it, but nothing
-    /// raises signals yet.
-    #[allow(dead_code)]
+    /// The task was interrupted by a deliverable signal (`task::signal`), so
+    /// the blocking syscall returns `EINTR` and the signal is delivered on the
+    /// way back to user mode.
     Interrupted,
 }
 
@@ -417,7 +419,12 @@ pub fn spawn_fork() -> Result<usize, &'static str> {
     // holds low-half bootloader mappings (framebuffer, boot data) that are not
     // ours to share or copy-on-write. Give the child a fresh table there (the
     // test harness forks from the kernel task to exercise bookkeeping).
-    let child_table = if pml4 == mem::kernel_table().as_u64() {
+    //
+    // The test must go through the *slot*, not `mem::kernel_table()`: that
+    // helper reports the active `CR3`, which inside the fork syscall is the
+    // parent's table, so comparing against it made every fork take the
+    // fresh-table path and left the child without the parent's pages.
+    let child_table = if parent_index == KERNEL_TASK {
         mem::new_user_table()
     } else {
         mem::clone_user_table(PhysAddr::new(pml4))
@@ -448,6 +455,9 @@ pub fn spawn_fork() -> Result<usize, &'static str> {
     drop(tasks);
 
     register_bumps(child_table.as_u64(), brk, mmap_next);
+    // POSIX `fork` inherits dispositions, the blocked mask and the alternate
+    // stack; pending signals do not cross the fork.
+    signal::fork_inherit(pml4, child_table.as_u64());
     Ok(index)
 }
 
@@ -519,6 +529,39 @@ pub fn finish_current(code: u64) {
     process::finish(current(), code);
 }
 
+/// Finish every task that shares the current address space: Linux's
+/// `exit_group`, which ends the *thread group* rather than one thread. Returns
+/// the `clear_child_tid` addresses of threads that had one so the caller can
+/// zero them and futex-wake any joiner (the Linux shim does that part).
+pub fn exit_thread_group(status: u64) -> Vec<u64> {
+    let pml4 = TASKS.lock()[current()].as_ref().map(|task| task.pml4);
+    let Some(pml4) = pml4 else {
+        return Vec::new();
+    };
+    let (slots, tids) = {
+        let tasks = TASKS.lock();
+        let mut slots = Vec::new();
+        let mut tids = Vec::new();
+        for (slot, task) in tasks.iter().enumerate() {
+            let Some(task) = task else {
+                continue;
+            };
+            if slot == KERNEL_TASK || task.pml4 != pml4 || task.state == TaskState::Done {
+                continue;
+            }
+            slots.push(slot);
+            if task.clear_child_tid != 0 {
+                tids.push(task.clear_child_tid);
+            }
+        }
+        (slots, tids)
+    };
+    for slot in slots {
+        process::finish(slot, status);
+    }
+    tids
+}
+
 /// The current task's process group id.
 pub fn pgid() -> usize {
     process::pgid_of(current())
@@ -529,8 +572,9 @@ pub fn ppid() -> usize {
     process::ppid_of(current())
 }
 
-/// Terminate every task in process group `pgid` (issue #59; real signal
-/// delivery is #60).
+/// Terminate every task in process group `pgid` (issue #59). Kept for the test
+/// harness; per-signal termination goes through `task::signal`.
+#[allow(dead_code)]
 pub fn kill_group(pgid: usize) -> usize {
     process::kill_group(pgid)
 }
@@ -579,6 +623,7 @@ pub fn reap_child() -> Option<(usize, u64)> {
     };
     if !shared {
         forget_bumps(pml4);
+        signal::forget(pml4);
         let pages = mem::user_table_frame_count(PhysAddr::new(pml4));
         let released = mem::free_user_table(PhysAddr::new(pml4));
         let stats = mem::frame_stats();
@@ -729,6 +774,14 @@ pub extern "C" fn schedule(current_rsp: u64) -> u64 {
     let now = crate::arch::idt::TICKS.load(Ordering::Relaxed);
     expire_deadlines(&mut tasks, now);
 
+    // Apply pending signals at the boundary back to user mode: a handler frame
+    // is written into the task's saved interrupt frame, a term/core default
+    // marks the thread group Done. This is what reaches native `int 0x80`
+    // programs, whose syscall stub is outside the signal layer. Terminations
+    // are post-processed once the table lock is dropped.
+    // Safety: every `Task::rsp` is an interrupt frame saved by this ISR.
+    let (sweep_finished, sweep_count) = unsafe { signal::sweep(&mut tasks) };
+
     // Round-robin to the next runnable task. A task that is still blocked is
     // never selected. `next_runnable` falls back to `cur` when nothing is
     // runnable at all; the kernel task is always runnable, so that only covers
@@ -736,6 +789,8 @@ pub extern "C" fn schedule(current_rsp: u64) -> u64 {
     // there just re-enters its wait loop instead of stalling the CPU.
     let next = next_runnable(&tasks, cur);
     if next == cur {
+        drop(tasks);
+        signal::finish_sweep(&sweep_finished[..sweep_count]);
         return current_rsp;
     }
 
@@ -743,6 +798,7 @@ pub extern "C" fn schedule(current_rsp: u64) -> u64 {
     let task = tasks[next].as_ref().unwrap();
     let (pml4, kstack_top, rsp, fs_base) = (task.pml4, task.kstack_top, task.rsp, task.fs_base);
     drop(tasks);
+    signal::finish_sweep(&sweep_finished[..sweep_count]);
 
     // Switch address space and the ring0 stack used for the next user trap.
     mem::switch_to(PhysAddr::new(pml4));
@@ -892,6 +948,20 @@ pub fn on_key(key: Key) {
         cycle_focus();
         return;
     }
+    // Emulate the terminal line discipline's INTR character. There is no tty
+    // layer to signal the foreground group, so Ctrl-C (ETX) is intercepted here
+    // and becomes SIGINT for the focused task's process group. This is what
+    // lets BusyBox `sh` interrupt a running child.
+    if key == Key::Char('\u{3}') {
+        let pgid = process::pgid_of(FOCUS.load(Ordering::Relaxed));
+        let _ = signal::kill(
+            KERNEL_TASK,
+            -(pgid as i64),
+            signal::SIGINT,
+            signal::SigInfo::kernel(),
+        );
+        return;
+    }
     let focus = FOCUS.load(Ordering::Relaxed);
     {
         let mut tasks = TASKS.lock();
@@ -995,6 +1065,9 @@ pub fn set_pml4(value: u64) {
             return;
         }
         forget_bumps(old);
+        // `execve` starts a fresh signal disposition table (Linux keeps SIG_IGN
+        // but resets handlers; a fresh table means ignored ones reset too).
+        signal::forget(old);
         let released = mem::free_user_table(PhysAddr::new(old));
         let stats = mem::frame_stats();
         serial_println!(
