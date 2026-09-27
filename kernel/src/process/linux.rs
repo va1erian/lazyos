@@ -66,13 +66,13 @@ const MAP_ANONYMOUS: u64 = 0x20;
 
 /// Load a Linux image into `table`, build its start stack, and return
 /// `(entry, stack_pointer)`.
-pub fn load(table: PhysAddr, elf_bytes: &[u8]) -> Result<(u64, u64), &'static str> {
+pub fn load(table: PhysAddr, elf_bytes: &[u8], argv0: &str) -> Result<(u64, u64), &'static str> {
     let entry = load_segments(table, elf_bytes)?;
     let stack = map_range(table, STACK_TOP - STACK_SIZE, STACK_TOP)?;
 
     let phdr = program_header_addr(elf_bytes);
     let (phent, phnum) = phdr_size(elf_bytes);
-    let rsp = build_start_stack(&stack, entry, phdr, phent, phnum);
+    let rsp = build_start_stack(&stack, argv0, entry, phdr, phent, phnum);
     Ok((entry, rsp))
 }
 
@@ -103,7 +103,14 @@ fn phdr_size(elf_bytes: &[u8]) -> (u16, u16) {
 }
 
 /// Build the Linux process start stack: `argc/argv/envp/auxv` plus strings.
-fn build_start_stack(stack: &[(u64, u64)], entry: u64, phdr: u64, phent: u16, phnum: u16) -> u64 {
+fn build_start_stack(
+    stack: &[(u64, u64)],
+    argv0: &str,
+    entry: u64,
+    phdr: u64,
+    phent: u16,
+    phnum: u16,
+) -> u64 {
     let mut cursor = STACK_TOP;
 
     // Helper: write bytes just below `cursor`.
@@ -118,7 +125,9 @@ fn build_start_stack(stack: &[(u64, u64)], entry: u64, phdr: u64, phent: u16, ph
     let mut random = [0u8; 16];
     fill_random(&mut random);
     let random_addr = push_bytes(&random, &mut cursor);
-    let arg0 = push_bytes(b"init\0", &mut cursor);
+    let mut arg0_bytes = Vec::from(argv0.as_bytes());
+    arg0_bytes.push(0);
+    let arg0 = push_bytes(&arg0_bytes, &mut cursor);
 
     // Word arrays (low to high): argc, argv[], NULL, envp NULL, auxv, AT_NULL.
     let mut words: Vec<u64> = Vec::new();
@@ -208,14 +217,16 @@ extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
         3 => sys_close(a1),
         4 => sys_stat_path(a1, a2), // stat(path, buf)
         5 => sys_fstat(a1, a2),     // fstat(fd, buf)
-        7 => sys_poll(a1, a2),      // poll
+        7 => sys_poll(a1, a2, a3),  // poll
         8 => sys_lseek(a1, a2, a3), // lseek
         9 => sys_mmap(a1, a2, a3, a4),
         10 => 0, // mprotect (ignore)
         11 => 0, // munmap (ignore)
         12 => sys_brk(a1),
         13 | 14 | 131 => 0, // rt_sigaction/procmask, sigaltstack
-        16 => sys_ioctl(a1),
+        16 => sys_ioctl(a1, a2, a3),
+        19 => sys_readv(a1, a2, a3),
+        20 => sys_writev(a1, a2, a3),
         21 => sys_access(a1),                // access(path, mode)
         28 => 0,                             // madvise
         32 | 33 => sys_dup(nr, a1, a2),      // dup / dup2
@@ -223,13 +234,20 @@ extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
         39 | 186 => task::current() as u64,  // getpid/gettid (kernel task 0 is PID 0)
         56 => sys_clone(a1, a2, a3, a4, a5), // clone(flags, stack, ptid, ctid, tls)
         60 | 231 => sys_exit(),
+        62 => 0, // kill (signals accepted, not delivered yet)
         63 => sys_uname(a1),
         72 => sys_fcntl(a1, a2), // fcntl
         79 => sys_getcwd(a1, a2),
-        89 => err(EINVAL),          // readlink (no links yet)
-        96 => sys_gettimeofday(a1), // gettimeofday(tv, tz)
-        157 => 0,                   // prctl (accept)
+        80 => 0,                                         // chdir (root-only)
+        89 => err(EINVAL),                               // readlink (no links yet)
+        95 => 0,                                         // umask
+        96 => sys_gettimeofday(a1),                      // gettimeofday(tv, tz)
+        102 | 103 | 104 | 105 => 0,                      // getuid/getgid/geteuid/getegid
+        106 | 107 | 108 | 109 | 112 | 113 => 0,          // set[re]uid/gid, setpgid/setsid
+        110 | 111 | 121 | 124 => task::current() as u64, // getppid/pgrp/pgid/sid
+        157 => 0,                                        // prctl (accept)
         158 => sys_arch_prctl(a1, a2),
+        169 => 0,                     // reboot (accept)
         202 => sys_futex(a1, a2, a3), // futex(uaddr, op, val)
         204 => sys_sched_getaffinity(a2, a3),
         217 => 0, // getdents64 (empty for now)
@@ -250,25 +268,84 @@ extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
     }
 }
 
-fn sys_poll(fds: u64, nfds: u64) -> u64 {
-    // struct pollfd { i32 fd; i16 events; i16 revents; } — report nothing ready.
-    for i in 0..nfds {
-        // Safety: user array of `nfds` pollfd entries.
-        unsafe {
-            core::ptr::write_volatile((fds + i * 8 + 6) as *mut u16, 0);
+/// `writev(fd, iov, iovcnt)`: `struct iovec { void *base; size_t len; }`.
+fn sys_writev(fd: u64, iov: u64, count: u64) -> u64 {
+    let mut total = 0u64;
+    for i in 0..count {
+        // Safety: user array of iovec entries.
+        let base = unsafe { core::ptr::read_volatile((iov + i * 16) as *const u64) };
+        let len = unsafe { core::ptr::read_volatile((iov + i * 16 + 8) as *const u64) };
+        let written = sys_write(fd, base, len);
+        if written > len {
+            return written; // error
+        }
+        total += written;
+    }
+    total
+}
+
+/// `readv(fd, iov, iovcnt)`.
+fn sys_readv(fd: u64, iov: u64, count: u64) -> u64 {
+    let mut total = 0u64;
+    for i in 0..count {
+        // Safety: user array of iovec entries.
+        let base = unsafe { core::ptr::read_volatile((iov + i * 16) as *const u64) };
+        let len = unsafe { core::ptr::read_volatile((iov + i * 16 + 8) as *const u64) };
+        let got = sys_read(fd, base, len);
+        if got > len {
+            return got; // error
+        }
+        total += got;
+        if got < len {
+            break; // short read: stop
         }
     }
-    0
+    total
+}
+
+/// `poll(fds, nfds, timeout)`. Only stdin is pollable; block until it has input
+/// (so an interactive shell waits rather than spinning).
+fn sys_poll(fds: u64, nfds: u64, timeout: u64) -> u64 {
+    const POLLIN: u16 = 0x0001;
+    loop {
+        let mut ready = 0u64;
+        for i in 0..nfds {
+            // struct pollfd { i32 fd; i16 events; i16 revents; }
+            // Safety: user array of pollfd entries.
+            let fd = unsafe { core::ptr::read_volatile((fds + i * 8) as *const i32) };
+            let events = unsafe { core::ptr::read_volatile((fds + i * 8 + 4) as *const u16) };
+            let revents = if fd == 0 && events & POLLIN != 0 && task::input_available() {
+                ready += 1;
+                POLLIN
+            } else {
+                0
+            };
+            // Safety: user array of pollfd entries.
+            unsafe { core::ptr::write_volatile((fds + i * 8 + 6) as *mut u16, revents) };
+        }
+        if ready > 0 || timeout == 0 {
+            return ready;
+        }
+        x86_64::instructions::interrupts::enable();
+        x86_64::instructions::hlt();
+    }
 }
 
 fn sys_write(fd: u64, ptr: u64, len: u64) -> u64 {
     if fd > 2 {
         return err(EBADF); // files are read-only for now
     }
+    if len == 0 {
+        return 0;
+    }
     // Safety: the caller passes a valid user buffer.
     let bytes = unsafe { core::slice::from_raw_parts(ptr as *const u8, len as usize) };
     task::write_output(bytes);
     crate::serial::write_bytes(bytes);
+    // Answer a cursor-position report request (busybox line editing asks for it).
+    if bytes.windows(4).any(|w| w == b"\x1b[6n") {
+        task::inject_input(b"\x1b[1;1R");
+    }
     len
 }
 
@@ -282,24 +359,21 @@ fn sys_read(fd: u64, ptr: u64, len: u64) -> u64 {
     }
 }
 
-/// Block until a line is typed on the task's terminal.
+/// Read terminal input as a byte stream: return once at least one key is
+/// available (raw-mode programs read a byte at a time).
 fn read_terminal(ptr: u64, len: u64) -> u64 {
-    let mut written = 0u64;
-    while written < len {
-        if let Some(key) = task::take_key() {
-            let byte = key_to_byte(key);
-            // Safety: destination within the user buffer.
-            unsafe { core::ptr::write_volatile((ptr + written) as *mut u8, byte) };
-            written += 1;
-            if byte == b'\n' {
-                break;
-            }
-        } else {
-            x86_64::instructions::interrupts::enable();
-            x86_64::instructions::hlt();
-        }
+    if len == 0 {
+        return 0;
     }
-    written
+    loop {
+        if let Some(key) = task::take_key() {
+            // Safety: destination within the user buffer.
+            unsafe { core::ptr::write_volatile(ptr as *mut u8, key_to_byte(key)) };
+            return 1;
+        }
+        x86_64::instructions::interrupts::enable();
+        x86_64::instructions::hlt();
+    }
 }
 
 fn key_to_byte(key: crate::input::keyboard::Key) -> u8 {
@@ -380,11 +454,29 @@ fn sys_arch_prctl(code: u64, addr: u64) -> u64 {
     }
 }
 
-fn sys_ioctl(fd: u64) -> u64 {
-    if fd <= 2 {
-        0 // pretend tty; TCGETS etc. succeed
-    } else {
-        err(ENOTTY)
+fn sys_ioctl(fd: u64, request: u64, arg: u64) -> u64 {
+    match request {
+        0x5401 => 0, // TCGETS: report a default (zeroed) termios
+        0x540F => {
+            // TIOCGPGRP: report the foreground process group.
+            // Safety: user `pid_t *`.
+            unsafe { core::ptr::write_volatile(arg as *mut u32, task::current() as u32) };
+            0
+        }
+        0x5410 => 0, // TIOCSPGRP
+        0x5413 => {
+            // TIOCGWINSZ: 24 rows x 80 columns.
+            // Safety: user `struct winsize`.
+            unsafe {
+                core::ptr::write_volatile(arg as *mut u16, 24);
+                core::ptr::write_volatile((arg + 2) as *mut u16, 80);
+                core::ptr::write_volatile((arg + 4) as *mut u16, 0);
+                core::ptr::write_volatile((arg + 6) as *mut u16, 0);
+            }
+            0
+        }
+        _ if fd <= 2 => 0,
+        _ => err(ENOTTY),
     }
 }
 

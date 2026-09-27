@@ -37,6 +37,24 @@ fn main() {
             println!("cargo:warning=LAZYOS_INIT not found: {}", init.display());
         }
     }
+
+    // BusyBox hook: embed a static `busybox` as `BUSYBOX.ELF` (run as `sh`).
+    println!("cargo:rerun-if-env-changed=LAZYOS_BUSYBOX");
+    if let Some(busybox) = std::env::var_os("LAZYOS_BUSYBOX") {
+        let busybox = PathBuf::from(busybox);
+        if busybox.is_file() {
+            println!(
+                "cargo:warning=LAZYOS_BUSYBOX embedded: {}",
+                busybox.display()
+            );
+            builder.set_file(String::from("BUSYBOX.ELF"), busybox);
+        } else {
+            println!(
+                "cargo:warning=LAZYOS_BUSYBOX not found: {}",
+                busybox.display()
+            );
+        }
+    }
     builder
         .create_bios_image(&bios_image)
         .expect("failed to create BIOS disk image");
