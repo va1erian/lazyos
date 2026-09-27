@@ -5,6 +5,7 @@
 
 use alloc::string::String;
 use alloc::vec::Vec;
+use core::sync::atomic::{AtomicBool, Ordering};
 use spin::Mutex;
 use x86_64::PhysAddr;
 use xmas_elf::program::Type as ProgramType;
@@ -51,6 +52,125 @@ const CLONE_CHILD_CLEARTID: u64 = 0x0020_0000;
 
 /// Tasks parked on a futex word: `(address, task slot)`.
 static FUTEX_WAITERS: Mutex<Vec<(u64, usize)>> = Mutex::new(Vec::new());
+
+/// Syscall numbers we have dispatched at least once (for the coverage report).
+static SYSCALL_SEEN: [AtomicBool; 512] = [const { AtomicBool::new(false) }; 512];
+
+/// x86_64 syscall names for the ones the shim is likely to meet.
+fn syscall_name(nr: u64) -> &'static str {
+    match nr {
+        0 => "read",
+        1 => "write",
+        2 => "open",
+        3 => "close",
+        4 => "stat",
+        5 => "fstat",
+        6 => "lstat",
+        7 => "poll",
+        8 => "lseek",
+        9 => "mmap",
+        10 => "mprotect",
+        11 => "munmap",
+        12 => "brk",
+        13 => "rt_sigaction",
+        14 => "rt_sigprocmask",
+        16 => "ioctl",
+        19 => "readv",
+        20 => "writev",
+        21 => "access",
+        22 => "pipe",
+        23 => "select",
+        24 => "sched_yield",
+        25 => "mremap",
+        28 => "madvise",
+        32 => "dup",
+        33 => "dup2",
+        35 => "nanosleep",
+        39 => "getpid",
+        43 => "accept",
+        44 => "sendto",
+        45 => "recvfrom",
+        49 => "bind",
+        56 => "clone",
+        57 => "fork",
+        58 => "vfork",
+        59 => "execve",
+        60 => "exit",
+        61 => "wait4",
+        62 => "kill",
+        63 => "uname",
+        72 => "fcntl",
+        73 => "flock",
+        78 => "getdents",
+        79 => "getcwd",
+        80 => "chdir",
+        82 => "rename",
+        83 => "mkdir",
+        84 => "rmdir",
+        86 => "link",
+        87 => "unlink",
+        89 => "readlink",
+        90 => "chmod",
+        92 => "chown",
+        95 => "umask",
+        96 => "gettimeofday",
+        97 => "getrlimit",
+        99 => "sysinfo",
+        102 => "getuid",
+        103 => "getgid",
+        104 => "geteuid",
+        105 => "getegid",
+        106 => "setuid",
+        107 => "setgid",
+        110 => "getppid",
+        111 => "getpgrp",
+        112 => "setsid",
+        113 => "setreuid",
+        114 => "setregid",
+        115 => "getgroups",
+        116 => "setgroups",
+        121 => "getpgid",
+        124 => "getsid",
+        131 => "sigaltstack",
+        157 => "prctl",
+        158 => "arch_prctl",
+        186 => "gettid",
+        202 => "futex",
+        204 => "sched_getaffinity",
+        217 => "getdents64",
+        218 => "set_tid_address",
+        228 => "clock_gettime",
+        229 => "clock_getres",
+        230 => "clock_nanosleep",
+        231 => "exit_group",
+        257 => "openat",
+        258 => "mkdirat",
+        259 => "mknodat",
+        260 => "fchownat",
+        262 => "newfstatat",
+        263 => "unlinkat",
+        264 => "renameat",
+        271 => "ppoll",
+        273 => "set_robust_list",
+        275 => "splice",
+        288 => "accept4",
+        293 => "pipe2",
+        302 => "prlimit64",
+        318 => "getrandom",
+        332 => "statx",
+        334 => "rseq",
+        _ => "unknown",
+    }
+}
+
+/// Announce each syscall number the first time it is dispatched, and any that
+/// are unimplemented, so `tools/abi/coverage.py` can report what was used.
+fn trace_syscall(nr: u64) {
+    let index = nr as usize;
+    if index < SYSCALL_SEEN.len() && !SYSCALL_SEEN[index].swap(true, Ordering::Relaxed) {
+        crate::serial_println!("SYSCALL_USED {} {}", nr, syscall_name(nr));
+    }
+}
 
 /// `openat(AT_FDCWD, ...)` sentinel.
 const AT_FDCWD: u64 = (-100i64) as u64;
@@ -228,6 +348,7 @@ fn align_up(value: u64, align: u64) -> u64 {
 /// `rdi,rsi,rdx,r10,r8,r9`, result in `rax`).
 #[no_mangle]
 extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u64, a6: u64) -> u64 {
+    trace_syscall(nr);
     match nr {
         0 => sys_read(a1, a2, a3),
         1 => sys_write(a1, a2, a3),
@@ -281,10 +402,13 @@ extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
         262 => sys_newfstatat(a1, a2, a3, a4),
         273 => 0, // set_robust_list
         318 => sys_getrandom(a1, a2),
-        334 => err(ENOSYS), // rseq (musl falls back)
+        334 => {
+            crate::serial_println!("ENOSYS 334 rseq");
+            err(ENOSYS) // musl falls back
+        }
         _ => {
             let _ = a6;
-            crate::serial_println!("ENOSYS {} syscall_{}", nr, nr);
+            crate::serial_println!("ENOSYS {} {}", nr, syscall_name(nr));
             err(ENOSYS)
         }
     }
