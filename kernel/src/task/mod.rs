@@ -121,16 +121,27 @@ struct Bump {
 
 static BUMPS: Mutex<Vec<Bump>> = Mutex::new(Vec::new());
 
-/// Register the shared bump state for a new address space.
+/// Register the shared bump state for a new address space. Updates an existing
+/// entry as well: freed PML4 frames are recycled, so a stale entry must not
+/// leak into the new address space.
 pub fn register_bumps(pml4: u64, brk: u64, mmap_next: u64) {
     let mut bumps = BUMPS.lock();
-    if !bumps.iter().any(|bump| bump.pml4 == pml4) {
-        bumps.push(Bump {
+    match bumps.iter_mut().find(|bump| bump.pml4 == pml4) {
+        Some(bump) => {
+            bump.brk = brk;
+            bump.mmap_next = mmap_next;
+        }
+        None => bumps.push(Bump {
             pml4,
             brk,
             mmap_next,
-        });
+        }),
     }
+}
+
+/// Drop the bump state of a torn-down address space.
+fn forget_bumps(pml4: u64) {
+    BUMPS.lock().retain(|bump| bump.pml4 != pml4);
 }
 
 /// Run `f` on the current address space's bump state.
@@ -184,7 +195,14 @@ pub fn spawn(name: &'static str, elf: &[u8]) -> Result<usize, &'static str> {
         .ok_or("no free task slot")?;
 
     let pml4 = mem::new_user_table().ok_or("out of memory")?;
-    let entry = process::load_image(pml4, elf)?;
+    let entry = match process::load_image(pml4, elf) {
+        Ok(entry) => entry,
+        Err(err) => {
+            // A partially loaded image still owns its frames: release them.
+            mem::free_user_table(pml4);
+            return Err(err);
+        }
+    };
 
     let top = kstack_top(index);
     let rsp = build_user_frame(top, entry, process::USER_STACK_TOP - 16);
@@ -217,7 +235,14 @@ pub fn spawn_linux(name: &'static str, elf: &[u8], argv0: &str) -> Result<usize,
         .ok_or("no free task slot")?;
 
     let pml4 = mem::new_user_table().ok_or("out of memory")?;
-    let (entry, stack_top) = process::linux::load(pml4, elf, argv0)?;
+    let (entry, stack_top) = match process::linux::load(pml4, elf, argv0) {
+        Ok(loaded) => loaded,
+        Err(err) => {
+            // A partially loaded image still owns its frames: release them.
+            mem::free_user_table(pml4);
+            return Err(err);
+        }
+    };
 
     let top = kstack_top(index);
     let rsp = build_user_frame(top, entry, stack_top);
@@ -416,22 +441,50 @@ pub fn has_children() -> bool {
         .any(|task| task.parent == me && task.parent != 0)
 }
 
-/// Take a finished child of the current task, freeing its slot.
+/// Take a finished child of the current task, freeing its slot and address
+/// space. The address space is torn down only when the reaped child is its
+/// last user: `clone(CLONE_VM)` threads share their creator's PML4 and would
+/// otherwise be left with freed page tables.
+///
+/// The teardown runs after dropping the task lock: it is slow (and can lock
+/// other state), while an interrupt here would otherwise self-deadlock on
+/// `TASKS`.
 pub fn reap_child() -> Option<(usize, u64)> {
-    let mut tasks = TASKS.lock();
     let me = current();
-    for index in 1..MAX_TASKS {
-        let finished = tasks[index]
-            .as_ref()
-            .map(|task| task.parent == me && task.done)
-            .unwrap_or(false);
-        if finished {
-            let status = tasks[index].as_ref().unwrap().exit_status;
-            tasks[index] = None;
-            return Some((index, status));
+    let (index, status, pml4, shared) = {
+        let mut tasks = TASKS.lock();
+        let mut found = None;
+        for index in 1..MAX_TASKS {
+            let finished = tasks[index]
+                .as_ref()
+                .map(|task| task.parent == me && task.done)
+                .unwrap_or(false);
+            if finished {
+                let task = tasks[index].as_ref().unwrap();
+                let status = task.exit_status;
+                let pml4 = task.pml4;
+                let shared = tasks.iter().enumerate().any(|(other, task)| {
+                    other != index && task.as_ref().is_some_and(|task| task.pml4 == pml4)
+                });
+                tasks[index] = None;
+                found = Some((index, status, pml4, shared));
+                break;
+            }
         }
+        found?
+    };
+    if !shared {
+        forget_bumps(pml4);
+        let pages = mem::user_table_frame_count(PhysAddr::new(pml4));
+        let released = mem::free_user_table(PhysAddr::new(pml4));
+        let stats = mem::frame_stats();
+        serial_println!(
+            "mem: reaped task {index}: {pages} pages, released {released} frames, {} free of {}",
+            stats.free,
+            stats.total
+        );
     }
-    None
+    Some((index, status))
 }
 
 /// Park the current task (skipped by the scheduler until woken).
@@ -687,9 +740,41 @@ pub fn set_heap_break(value: u64) {
 }
 
 /// Set the current task's address space (used by `execve`).
+///
+/// When no other task references the previous table it is torn down here,
+/// which closes the fork+exec leak. `execve` switches `CR3` before calling
+/// this, so the old table is inactive. Tables still shared with
+/// `clone(CLONE_VM)` threads are left alone; those threads currently have no
+/// teardown path of their own.
 pub fn set_pml4(value: u64) {
-    if let Some(task) = TASKS.lock()[current()].as_mut() {
+    let mut tasks = TASKS.lock();
+    let me = current();
+    let old = tasks[me].as_ref().map(|task| task.pml4);
+    if let Some(task) = tasks[me].as_mut() {
         task.pml4 = value;
+    }
+    let orphaned = old.filter(|old| {
+        *old != value
+            && !tasks.iter().enumerate().any(|(other, task)| {
+                other != me && task.as_ref().is_some_and(|task| task.pml4 == *old)
+            })
+    });
+    drop(tasks);
+    if let Some(old) = orphaned {
+        // Guard against freeing whatever `CR3` currently points at (only
+        // possible if `execve` were preempted between its switch and here).
+        if mem::kernel_table().as_u64() == old {
+            serial_println!("mem: not freeing active page table {old:#x}");
+            return;
+        }
+        forget_bumps(old);
+        let released = mem::free_user_table(PhysAddr::new(old));
+        let stats = mem::frame_stats();
+        serial_println!(
+            "mem: execve released {released} frames, {} free of {}",
+            stats.free,
+            stats.total
+        );
     }
 }
 

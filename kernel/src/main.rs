@@ -98,6 +98,16 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         spawn_program("sh", "SH.ELF");
     }
 
+    let stats = mem::frame_stats();
+    serial_println!(
+        "mem: live frames {} (allocated {} freed {}), {} free of {}",
+        stats.live(),
+        stats.allocated,
+        stats.freed,
+        stats.free,
+        stats.total
+    );
+
     task::start();
     serial_println!("LazyOS: scheduler started (Tab switches focus)");
     x86_64::instructions::interrupts::enable();
