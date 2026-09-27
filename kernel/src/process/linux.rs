@@ -189,6 +189,7 @@ extern "C" fn linux_dispatch(
     match nr {
         0 => sys_read(a1, a2, a3),
         1 => sys_write(a1, a2, a3),
+        7 => sys_poll(a1, a2),       // poll
         9 => sys_mmap(a1, a2, a3, a4),
         10 => 0, // mprotect (ignore)
         11 => 0, // munmap (ignore)
@@ -214,6 +215,17 @@ extern "C" fn linux_dispatch(
             err(ENOSYS)
         }
     }
+}
+
+fn sys_poll(fds: u64, nfds: u64) -> u64 {
+    // struct pollfd { i32 fd; i16 events; i16 revents; } — report nothing ready.
+    for i in 0..nfds {
+        // Safety: user array of `nfds` pollfd entries.
+        unsafe {
+            core::ptr::write_volatile((fds + i * 8 + 6) as *mut u16, 0);
+        }
+    }
+    0
 }
 
 fn sys_write(fd: u64, ptr: u64, len: u64) -> u64 {
