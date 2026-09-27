@@ -22,3 +22,8 @@ pub fn init() -> bool {
 pub fn read(name: &str) -> Option<Vec<u8>> {
     FS.lock().as_ref().and_then(|fs| fs.read(name))
 }
+
+/// Metadata for a root-directory entry: `(size, is_dir)`.
+pub fn stat(name: &str) -> Option<(u32, bool)> {
+    FS.lock().as_ref().and_then(|fs| fs.stat(name))
+}

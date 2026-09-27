@@ -206,23 +206,29 @@ impl Fat16 {
         entries
     }
 
+    /// Find a root-directory entry by name (case-insensitive).
+    pub fn find(&self, name: &str) -> Option<Entry> {
+        let wanted = normalize(name);
+        self.list()
+            .into_iter()
+            .find(|entry| match (&wanted, normalize(&entry.name)) {
+                (Some(want), Some(candidate)) => *want == candidate,
+                _ => entry.name.eq_ignore_ascii_case(name),
+            })
+    }
+
+    /// Metadata for an entry: `(size, is_dir)`.
+    pub fn stat(&self, name: &str) -> Option<(u32, bool)> {
+        self.find(name).map(|entry| (entry.size, entry.is_dir))
+    }
+
     /// Read a file by name (case-insensitive, `NAME.EXT` or `NAME`).
     pub fn read(&self, name: &str) -> Option<Vec<u8>> {
-        let wanted = normalize(name);
-        for entry in self.list() {
-            if entry.is_dir {
-                continue;
-            }
-            let candidate = normalize(&entry.name);
-            let matches = match (&wanted, &candidate) {
-                (Some(want), Some(candidate)) => want == candidate,
-                _ => entry.name.eq_ignore_ascii_case(name),
-            };
-            if matches {
-                return self.read_clusters(entry.cluster, entry.size);
-            }
+        let entry = self.find(name)?;
+        if entry.is_dir {
+            return None;
         }
-        None
+        self.read_clusters(entry.cluster, entry.size)
     }
 
     fn read_clusters(&self, start: u16, size: u32) -> Option<Vec<u8>> {
