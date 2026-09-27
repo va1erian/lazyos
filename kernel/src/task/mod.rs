@@ -18,8 +18,8 @@ use crate::process;
 
 pub mod switch;
 
-/// Slots: 0 is the kernel (multiplexer), 1.. are user programs.
-pub const MAX_TASKS: usize = 4;
+/// Slots: 0 is the kernel (multiplexer), 1.. are user programs/threads.
+pub const MAX_TASKS: usize = 16;
 /// Index of the kernel task.
 pub const KERNEL_TASK: usize = 0;
 /// Size of each task's kernel stack.
@@ -79,12 +79,12 @@ pub struct Task {
     pub kstack_top: u64,
     pub rsp: u64,
     pub done: bool,
+    /// Parked (e.g. in `futex`) until woken; skipped by the scheduler.
+    pub blocked: bool,
+    /// Linux `clear_child_tid`: zeroed and futex-woken on thread exit.
+    pub clear_child_tid: u64,
     /// Native `sbrk` heap break.
     pub heap_break: u64,
-    /// Linux `brk` program break.
-    pub brk: u64,
-    /// Linux anonymous `mmap` bump pointer.
-    pub mmap_next: u64,
     /// Linux thread pointer (`%fs` base).
     pub fs_base: u64,
     /// Linux file descriptors.
@@ -95,6 +95,34 @@ pub struct Task {
 
 static TASKS: Mutex<[Option<Task>; MAX_TASKS]> = Mutex::new([const { None }; MAX_TASKS]);
 static mut KSTACKS: [[u8; KSTACK_SIZE]; MAX_TASKS] = [[0; KSTACK_SIZE]; MAX_TASKS];
+
+/// Linux `brk`/`mmap` bump state, keyed by PML4 so threads share it.
+struct Bump {
+    pml4: u64,
+    brk: u64,
+    mmap_next: u64,
+}
+
+static BUMPS: Mutex<Vec<Bump>> = Mutex::new(Vec::new());
+
+/// Register the shared bump state for a new address space.
+pub fn register_bumps(pml4: u64, brk: u64, mmap_next: u64) {
+    let mut bumps = BUMPS.lock();
+    if !bumps.iter().any(|bump| bump.pml4 == pml4) {
+        bumps.push(Bump {
+            pml4,
+            brk,
+            mmap_next,
+        });
+    }
+}
+
+/// Run `f` on the current address space's bump state.
+fn with_bump<R>(f: impl FnOnce(&mut Bump) -> R) -> Option<R> {
+    let pml4 = TASKS.lock()[current()].as_ref()?.pml4;
+    let mut bumps = BUMPS.lock();
+    bumps.iter_mut().find(|bump| bump.pml4 == pml4).map(f)
+}
 
 fn kstack_top(index: usize) -> u64 {
     // Safety: fixed-size static array.
@@ -111,9 +139,9 @@ pub fn register_kernel() {
         kstack_top: 0,
         rsp: 0,
         done: false,
+        blocked: false,
+        clear_child_tid: 0,
         heap_break: 0,
-        brk: 0,
-        mmap_next: 0,
         fs_base: 0,
         fds: new_fds(),
         output: Vec::new(),
@@ -140,9 +168,9 @@ pub fn spawn(name: &'static str, elf: &[u8]) -> Result<usize, &'static str> {
         kstack_top: top,
         rsp,
         done: false,
+        blocked: false,
+        clear_child_tid: 0,
         heap_break: process::USER_HEAP_BASE,
-        brk: process::USER_HEAP_BASE,
-        mmap_next: 0,
         fs_base: 0,
         fds: new_fds(),
         output: Vec::new(),
@@ -171,15 +199,90 @@ pub fn spawn_linux(name: &'static str, elf: &[u8]) -> Result<usize, &'static str
         kstack_top: top,
         rsp,
         done: false,
+        blocked: false,
+        clear_child_tid: 0,
         heap_break: 0,
-        brk: process::linux::BRK_BASE,
-        mmap_next: process::linux::MMAP_BASE,
         fs_base: 0,
         fds: new_fds(),
         output: Vec::new(),
         input: VecDeque::new(),
     });
+    register_bumps(
+        pml4.as_u64(),
+        process::linux::BRK_BASE,
+        process::linux::MMAP_BASE,
+    );
     Ok(index)
+}
+
+/// Create a Linux thread that shares the current task's address space.
+///
+/// The child resumes at the caller's `syscall` return address with `rax = 0`,
+/// on its own user stack (`user_rsp`) and its own `%fs` TLS (`fs_base`), as
+/// `clone(CLONE_VM | ...)` requires.
+pub fn spawn_thread(
+    name: &'static str,
+    user_rsp: u64,
+    fs_base: u64,
+    clear_child_tid: u64,
+) -> Result<usize, &'static str> {
+    let mut tasks = TASKS.lock();
+    let index = (1..MAX_TASKS)
+        .find(|&i| tasks[i].is_none())
+        .ok_or("no free task slot")?;
+    let parent = tasks[current()].as_ref().ok_or("no parent task")?;
+    let pml4 = parent.pml4;
+    let context = crate::arch::linux::user_context();
+
+    let top = kstack_top(index);
+    let rsp = build_thread_frame(top, &context, user_rsp);
+
+    tasks[index] = Some(Task {
+        name,
+        kind: Kind::Linux,
+        pml4,
+        kstack_top: top,
+        rsp,
+        done: false,
+        blocked: false,
+        clear_child_tid,
+        heap_break: 0,
+        fs_base,
+        fds: new_fds(),
+        output: Vec::new(),
+        input: VecDeque::new(),
+    });
+    Ok(index)
+}
+
+/// Lay out a thread's first ring-3 frame from the parent's saved user context:
+/// same registers (but `rax = 0`, the child's return from `clone`), same RIP,
+/// and the child's own stack pointer.
+fn build_thread_frame(
+    kstack_top: u64,
+    ctx: &crate::arch::linux::UserContext,
+    user_rsp: u64,
+) -> u64 {
+    let selectors = gdt::selectors();
+    // Register order must match `timer_isr`'s pop order (r15 .. rax).
+    let regs = [
+        ctx.r15, ctx.r14, ctx.r13, ctx.r12, ctx.rflags, ctx.r10, ctx.r9, ctx.r8, ctx.rbp, ctx.rdi,
+        ctx.rsi, ctx.rdx, ctx.rip, ctx.rbx, 0, // rax: the child sees clone() return 0
+    ];
+    let base = kstack_top - FRAME_WORDS * 8;
+    // Safety: writing within this task's kernel stack.
+    unsafe {
+        let frame = base as *mut u64;
+        for (i, value) in regs.iter().enumerate() {
+            core::ptr::write_volatile(frame.add(i), *value);
+        }
+        core::ptr::write_volatile(frame.add(15), ctx.rip); // RIP (after syscall)
+        core::ptr::write_volatile(frame.add(16), selectors.user_code as u64); // CS
+        core::ptr::write_volatile(frame.add(17), ctx.rflags | 0x200); // RFLAGS (IF set)
+        core::ptr::write_volatile(frame.add(18), user_rsp); // RSP
+        core::ptr::write_volatile(frame.add(19), selectors.user_data as u64); // SS
+    }
+    base
 }
 
 /// Lay out a fresh ring-3 entry frame on a kernel stack and return its RSP.
@@ -219,9 +322,47 @@ pub fn finish_current() {
     let mut tasks = TASKS.lock();
     if let Some(task) = tasks[current()].as_mut() {
         task.done = true;
+        task.blocked = false;
     }
     drop(tasks);
     NEEDS_REDRAW.store(true, Ordering::Relaxed);
+}
+
+/// Park the current task (skipped by the scheduler until woken).
+pub fn set_blocked(blocked: bool) {
+    if let Some(task) = TASKS.lock()[current()].as_mut() {
+        task.blocked = blocked;
+    }
+}
+
+/// Whether the current task is parked.
+pub fn blocked() -> bool {
+    TASKS.lock()[current()]
+        .as_ref()
+        .map(|task| task.blocked)
+        .unwrap_or(false)
+}
+
+/// Wake a parked task by slot index.
+pub fn wake_task(index: usize) {
+    if let Some(task) = TASKS.lock()[index].as_mut() {
+        task.blocked = false;
+    }
+}
+
+/// The current task's `clear_child_tid` address.
+pub fn clear_child_tid() -> u64 {
+    TASKS.lock()[current()]
+        .as_ref()
+        .map(|task| task.clear_child_tid)
+        .unwrap_or(0)
+}
+
+/// Set the current task's `clear_child_tid` address.
+pub fn set_clear_child_tid(value: u64) {
+    if let Some(task) = TASKS.lock()[current()].as_mut() {
+        task.clear_child_tid = value;
+    }
 }
 
 /// Context switch: called from the timer ISR with the interrupted `rsp`.
@@ -245,7 +386,7 @@ pub extern "C" fn schedule(current_rsp: u64) -> u64 {
     for step in 1..=MAX_TASKS {
         let candidate = (cur + step) % MAX_TASKS;
         if let Some(task) = tasks[candidate].as_ref() {
-            if !task.done {
+            if !task.done && !task.blocked {
                 next = candidate;
                 break;
             }
@@ -341,29 +482,22 @@ pub fn set_heap_break(value: u64) {
 
 /// The current task's Linux `brk` break.
 pub fn brk() -> u64 {
-    TASKS.lock()[current()].as_ref().map(|t| t.brk).unwrap_or(0)
+    with_bump(|bump| bump.brk).unwrap_or(0)
 }
 
 /// Set the current task's Linux `brk` break.
 pub fn set_brk(value: u64) {
-    if let Some(task) = TASKS.lock()[current()].as_mut() {
-        task.brk = value;
-    }
+    let _ = with_bump(|bump| bump.brk = value);
 }
 
-/// The current task's anonymous `mmap` bump pointer.
+/// The current address space's anonymous `mmap` bump pointer.
 pub fn mmap_next() -> u64 {
-    TASKS.lock()[current()]
-        .as_ref()
-        .map(|t| t.mmap_next)
-        .unwrap_or(0)
+    with_bump(|bump| bump.mmap_next).unwrap_or(0)
 }
 
-/// Set the current task's anonymous `mmap` bump pointer.
+/// Set the current address space's anonymous `mmap` bump pointer.
 pub fn set_mmap_next(value: u64) {
-    if let Some(task) = TASKS.lock()[current()].as_mut() {
-        task.mmap_next = value;
-    }
+    let _ = with_bump(|bump| bump.mmap_next = value);
 }
 
 /// Set the current task's user thread pointer (`%fs` base), programming the CPU.

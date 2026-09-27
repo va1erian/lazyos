@@ -12,10 +12,6 @@ pub const IA32_LSTAR: u32 = 0xC000_0082;
 pub const IA32_FMASK: u32 = 0xC000_0084;
 /// `IA32_FS_BASE` — user thread pointer (`%fs`).
 pub const IA32_FS_BASE: u32 = 0xC000_0100;
-/// `IA32_GS_BASE` — kernel GS base.
-pub const IA32_GS_BASE: u32 = 0xC000_0101;
-/// `IA32_KERNEL_GS_BASE` — the GS base `swapgs` loads on entry.
-pub const IA32_KERNEL_GS_BASE: u32 = 0xC000_0102;
 
 /// Write an MSR.
 pub fn write(msr: u32, value: u64) {
