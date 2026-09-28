@@ -95,6 +95,26 @@ path = "src/bin/keyd.rs"
 test = false
 bench = false
 
+# The per-session clipboard service (issue #115): typed MIME offers, lazy
+# transfer through an owner `Serialize` callback, a retained changed topic per
+# session, and a `history=N` policy. `init` starts it from its manifest; the
+# on-disk name is `CLIPD.ELF` (8.3, like the other services).
+[[bin]]
+name = "clipboardd"
+path = "src/bin/clipboardd.rs"
+test = false
+bench = false
+
+# The clipboard demo pair (issue #115): `clipcopy` offers lazily and serves one
+# serialize callback, `clippaste` pastes the payload and proves a cross-session
+# paste is denied. `clipboardd` spawns both at services boot (`demo=1`) and they
+# print the `CLIP:*` evidence markers.
+[[bin]]
+name = "clipcopy"
+path = "src/bin/clipcopy.rs"
+test = false
+bench = false
+
 # `mimed` (issue #116) is the MIME database and open-with registry behind the
 # shell-integration verbs. `init` starts it from its manifest; clients reach it
 # through the `mime` module in `user/src/messenger.rs`. The on-disk name is
@@ -104,6 +124,7 @@ name = "mimed"
 path = "src/bin/mimed.rs"
 test = false
 bench = false
+
 # The display protocol stack (issue #113). `xuid` is the session compositor:
 # it binds the kernel's display device grant, implements `os.lazy.display.v1`
 # over Messenger, decorates and routes input to app surfaces. `xdemo` is the
@@ -112,6 +133,12 @@ bench = false
 [[bin]]
 name = "xuid"
 path = "src/bin/xuid.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "clippaste"
+path = "src/bin/clippaste.rs"
 test = false
 bench = false
 

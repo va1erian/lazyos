@@ -159,7 +159,17 @@ fn run() -> messenger::Result<()> {
                     }
                 };
                 if let Some(txn) = message.txn {
-                    server.reply(txn, &reply)?;
+                    // A caller whose deadline passed is a normal scheduling
+                    // race, not a service failure: the kernel expired the
+                    // transaction, and replying to it is `-ENOENT`. Keep
+                    // serving instead of taking the whole service down (a
+                    // restart would also collide with the supervisor's slot
+                    // reuse until registry teardown lands).
+                    if let Err(error) = server.reply(txn, &reply) {
+                        if error.errno() != Some(-messenger::errno::ENOENT) {
+                            return Err(error);
+                        }
+                    }
                 }
             }
             Err(Error::Errno(code)) if code == -messenger::errno::ETIMEDOUT => {}

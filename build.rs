@@ -63,6 +63,23 @@ fn main() {
     let keyd = std::env::var_os("CARGO_BIN_FILE_USER_keyd").expect("user keyd artifact not found");
     builder.set_file(String::from("KEYD.ELF"), PathBuf::from(keyd));
 
+    // The per-session clipboard service (issue #115). Like `keyd`, `init`
+    // starts it from its manifest when the image boots with
+    // `LAZYOS_SERVICES=1`; the 8.3 name is what the kernel's FAT reader sees.
+    let clipboardd = std::env::var_os("CARGO_BIN_FILE_USER_clipboardd")
+        .expect("user clipboardd artifact not found");
+    builder.set_file(String::from("CLIPD.ELF"), PathBuf::from(clipboardd));
+    // The clipboard demo pair (issue #115): a lazy owner and a paster.
+    // `clipboardd` spawns both at services boot (`demo=1`), so a headless
+    // `LAZYOS_SERVICES=1` run records the `CLIP:COPY`/`CLIP:PASTE`/
+    // `CLIP:DENIED` evidence markers.
+    let clipcopy =
+        std::env::var_os("CARGO_BIN_FILE_USER_clipcopy").expect("user clipcopy artifact not found");
+    builder.set_file(String::from("CLIPCP.ELF"), PathBuf::from(clipcopy));
+    let clippaste = std::env::var_os("CARGO_BIN_FILE_USER_clippaste")
+        .expect("user clippaste artifact not found");
+    builder.set_file(String::from("CLIPPS.ELF"), PathBuf::from(clippaste));
+
     // Accounts and console login (issue #101). `init` starts `accountsd` and
     // `logind` from its manifest; `accountsd` reads `PASSWD` when present. All
     // three are added only to the services image (`LAZYOS_SERVICES=1`): the

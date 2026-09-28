@@ -4977,3 +4977,624 @@ pub mod mime {
         Client::connect()?.register(mime, app, verb)
     }
 }
+// ---------------------------------------------------------------------------
+// clipboard: the per-session clipboard service (issue #115)
+// ---------------------------------------------------------------------------
+
+/// Client and wire shapes for `clipboardd`, the per-session clipboard service
+/// (`docs/platform-plan.md` section 4.5, `docs/messenger.md` section 19).
+///
+/// An interaction is a typed offer plus a request:
+///
+/// * [`Client::copy`] (or the lower-level [`offer_request`]) publishes one or
+///   more MIME payloads for the caller's session; the service answers with a
+///   **token**;
+/// * [`Client::paste`] / [`Client::paste_token`] request a payload by token
+///   and MIME. A **lazy** offer sends only its MIME list; when a paste finally
+///   happens the service calls the owner's [`method::SERIALIZE`] on the
+///   endpoint registered under the offer's sink and forwards the bytes, so the
+///   owning app materializes the data on demand;
+/// * every offer announces itself on the retained per-session topic
+///   `session/<id>/clipboard/changed`; [`Client::subscribe_changes`] attaches a
+///   subscriber so paste UIs refresh without polling.
+///
+/// # Buffer handle
+///
+/// There is no userspace shared-buffer syscall yet (the kernel object and its
+/// `SHARE_ONLY` rule live in `kernel/src/ipc/shared.rs`; `keyd` documents the
+/// same gap), so a paste's [`BufferHandle`] currently carries the bytes inside
+/// the reply parcel, bounded by the service's [`MAX_DATA`] on the eager path.
+/// The wire shape is what a mapped `SHARE_ONLY` buffer will carry once the op
+/// lands.
+///
+/// # Policy
+///
+/// `Offer` and `Request` parcels put the *pseudo-interface* ids
+/// [`WRITE_INTERFACE`] (`os.lazy.clipboard.write.v1`) and [`READ_INTERFACE`]
+/// (`os.lazy.clipboard.read.v1`) in their parcel header. The kernel's
+/// `ipc::authorize` hook derives `(interface_id, method)` from that header on
+/// every outbound call, so an ACL rule keyed on `clipboard.write` /
+/// `clipboard.read` gates offering and pasting, and a denial is recorded in the
+/// kernel audit ring before the service ever sees the parcel. On top of that
+/// the service enforces the **session scope**: a token offered by session A is
+/// refused (and logged) for session B.
+pub mod clipboard {
+    use alloc::format;
+    use alloc::string::String;
+    use alloc::vec::Vec;
+
+    use libmessenger::{Decoder, Encoder, Field, Header, Kind, Parcel, VERSION};
+
+    use super::{errno, registry, router, sys, Endpoint, Error, Result};
+
+    /// The service's registered name.
+    pub const NAME: &str = "os.lazy.clipboard";
+
+    /// Control interface id (`os.lazy.clipboard.v1`, the interim eight-byte ABI
+    /// id the other services use).
+    pub const INTERFACE: u64 = u64::from_le_bytes(*b"os.clip.");
+
+    /// Policy pseudo-interface an `Offer` call carries:
+    /// `fnv1a64("os.lazy.clipboard.write.v1")` (the topics convention).
+    pub const WRITE_INTERFACE: u64 = fnv1a64("os.lazy.clipboard.write.v1");
+
+    /// Policy pseudo-interface a `Request` call carries:
+    /// `fnv1a64("os.lazy.clipboard.read.v1")`.
+    pub const READ_INTERFACE: u64 = fnv1a64("os.lazy.clipboard.read.v1");
+
+    /// Interface the owner of a lazy offer serves for [`method::SERIALIZE`].
+    pub const OWNER_INTERFACE: u64 = u64::from_le_bytes(*b"os.owner");
+
+    /// FNV-1a 64, the `tools/midlc` interface-id hash, so policy can key the
+    /// two pseudo-interfaces on the same value the kernel checks.
+    const fn fnv1a64(text: &str) -> u64 {
+        let bytes = text.as_bytes();
+        let mut hash = 0xCBF2_9CE4_8422_2325u64;
+        let mut index = 0;
+        while index < bytes.len() {
+            hash = (hash ^ bytes[index] as u64).wrapping_mul(0x0000_0100_0000_01B3);
+            index += 1;
+        }
+        hash
+    }
+
+    /// Methods. `OFFER` travels on [`WRITE_INTERFACE`], `REQUEST` on
+    /// [`READ_INTERFACE`], `SERIALIZE` on [`OWNER_INTERFACE`]; `PING` and
+    /// `CURRENT` are the control interface.
+    pub mod method {
+        /// Write: publish typed payloads for the caller's session.
+        pub const OFFER: u32 = 1;
+        /// Read: fetch a payload by token and MIME.
+        pub const REQUEST: u32 = 1;
+        /// Owner: serialize one MIME of an offer on demand (lazy transfer).
+        pub const SERIALIZE: u32 = 1;
+        /// Control: liveness probe.
+        pub const PING: u32 = 2;
+        /// Control: current-offer metadata, never content.
+        pub const CURRENT: u32 = 3;
+    }
+
+    /// Protocol TLV field ids.
+    pub mod field {
+        /// Offer token.
+        pub const TOKEN: u16 = 1;
+        /// One MIME type.
+        pub const MIME: u16 = 2;
+        /// MIME type array.
+        pub const MIMES: u16 = 3;
+        /// Owner endpoint name for the lazy serialization callback.
+        pub const SINK: u16 = 4;
+        /// Inline `{MIME, BYTES}` payload records.
+        pub const DATA: u16 = 5;
+        /// Payload bytes.
+        pub const BYTES: u16 = 6;
+        /// Whether an offer is live (`Current` reply).
+        pub const FOUND: u16 = 7;
+        /// Session id an offer belongs to.
+        pub const SESSION: u16 = 8;
+        /// Human-readable owner label.
+        pub const OWNER: u16 = 9;
+        /// Whether the offer is lazy.
+        pub const LAZY: u16 = 10;
+        /// Tick the offer was made.
+        pub const TICK: u16 = 11;
+        /// One offer metadata record.
+        pub const OFFER: u16 = 12;
+        /// Structured error reply.
+        pub const ERROR: u16 = 13;
+    }
+
+    /// Longest MIME string the service accepts.
+    pub const MAX_MIME: usize = 64;
+    /// Most MIME types in one offer.
+    pub const MAX_MIMES: usize = 8;
+    /// Largest inline payload the service keeps for one offer.
+    pub const MAX_DATA: usize = 8 * 1024;
+    /// Longest owner label or sink name.
+    pub const MAX_TEXT: usize = 128;
+
+    /// Metadata for one live offer: identity and MIME types, never content.
+    #[derive(Clone, Debug, Default, PartialEq, Eq)]
+    pub struct OfferInfo {
+        /// Offer token clients pass back in a `Request`.
+        pub token: u64,
+        /// Human-readable owner label supplied at offer time.
+        pub owner: String,
+        /// Session the offer belongs to (kernel-stamped).
+        pub session: u64,
+        /// MIME types the offer carries.
+        pub mimes: Vec<String>,
+        /// Whether the payload is materialized lazily by the owner.
+        pub lazy: bool,
+        /// Tick the offer was made.
+        pub tick: u64,
+    }
+
+    /// The payload a `Request` yields. The kernel's `SHARE_ONLY` shared-buffer
+    /// object is the future home of `bytes`; until the userspace mapping
+    /// syscall lands the bytes ride in the reply parcel (see module docs).
+    #[derive(Clone, Debug, Default, PartialEq, Eq)]
+    pub struct BufferHandle {
+        /// Token of the offer that was read.
+        pub token: u64,
+        /// MIME type that was read.
+        pub mime: String,
+        /// Whether the bytes came from the owner's `Serialize` callback.
+        pub lazy: bool,
+        /// The payload bytes.
+        pub bytes: Vec<u8>,
+    }
+
+    /// A decoded `Offer` request (the service's view).
+    #[derive(Clone, Debug, Default, PartialEq, Eq)]
+    pub struct OfferRequest {
+        /// Human-readable owner label.
+        pub owner: String,
+        /// Owner callback endpoint name for a lazy offer.
+        pub sink: Option<String>,
+        /// MIME types offered.
+        pub mimes: Vec<String>,
+        /// Inline payloads for an eager offer.
+        pub data: Vec<(String, Vec<u8>)>,
+    }
+
+    /// The scoped retained topic a session's paste UIs watch
+    /// (`docs/messenger.md` section 19).
+    pub fn changes_topic(session: u64) -> String {
+        format!("session/{session}/clipboard/changed")
+    }
+
+    /// A header for a clipboard parcel on `interface_id`.
+    ///
+    /// `ALLOW_NESTED` is required: every client resolves the same service
+    /// endpoint, and a paste by one task can overlap an offer by another, so
+    /// the kernel's per-channel cycle check would otherwise refuse the second
+    /// call with `-EDEADLK`. The service answers each request before servicing
+    /// the next and only calls out on a *different* channel (the owner's
+    /// `Serialize`), so nesting cannot form a cycle here.
+    fn header(interface_id: u64, method: u32) -> Header {
+        Header {
+            version: VERSION,
+            flags: libmessenger::flags::ALLOW_NESTED,
+            interface_id,
+            method,
+            txn_id: 0,
+            reply_to: 0,
+            deadline_ns: 0,
+        }
+    }
+
+    /// Wrap an encoded body in a clipboard parcel.
+    fn parcel(interface_id: u64, method: u32, body: Encoder) -> Parcel {
+        Parcel {
+            header: header(interface_id, method),
+            body: body.finish(),
+            ..Parcel::default()
+        }
+    }
+
+    /// `Offer(owner, mime_types) -> token` for an eager offer: the payloads
+    /// ride along and the service keeps one bounded copy.
+    pub fn offer_request(owner: &str, offers: &[(&str, &[u8])]) -> Result<Parcel> {
+        let mut body = Encoder::new();
+        body.string(field::OWNER, owner).map_err(Error::Parcel)?;
+        let mut mimes = Encoder::new();
+        let mut data = Encoder::new();
+        for (mime, bytes) in offers {
+            mimes.string(field::MIMES, mime).map_err(Error::Parcel)?;
+            let mut record = Encoder::new();
+            record.string(field::MIME, mime).map_err(Error::Parcel)?;
+            record.bytes(field::BYTES, bytes).map_err(Error::Parcel)?;
+            data.record(field::DATA, &record).map_err(Error::Parcel)?;
+        }
+        body.array(field::MIMES, &mimes).map_err(Error::Parcel)?;
+        body.array(field::DATA, &data).map_err(Error::Parcel)?;
+        Ok(parcel(WRITE_INTERFACE, method::OFFER, body))
+    }
+
+    /// `Offer` for a lazy offer: only the MIME list crosses the wire. `sink`
+    /// names the registry entry where the owner serves [`method::SERIALIZE`]
+    /// when a paste actually happens.
+    pub fn offer_lazy_request(owner: &str, sink: &str, mimes: &[&str]) -> Result<Parcel> {
+        let mut body = Encoder::new();
+        body.string(field::OWNER, owner).map_err(Error::Parcel)?;
+        body.string(field::SINK, sink).map_err(Error::Parcel)?;
+        let mut array = Encoder::new();
+        for mime in mimes {
+            array.string(field::MIMES, mime).map_err(Error::Parcel)?;
+        }
+        body.array(field::MIMES, &array).map_err(Error::Parcel)?;
+        Ok(parcel(WRITE_INTERFACE, method::OFFER, body))
+    }
+
+    /// An `Offer` reply carrying the new token.
+    pub fn token_reply(token: u64) -> Result<Parcel> {
+        let mut body = Encoder::new();
+        body.u64(field::TOKEN, token).map_err(Error::Parcel)?;
+        Ok(parcel(WRITE_INTERFACE, method::OFFER, body))
+    }
+
+    /// `Request(token, mime)`; `token == 0` selects the newest offer in the
+    /// caller's session that lists `mime`.
+    pub fn request_request(token: u64, mime: &str) -> Result<Parcel> {
+        let mut body = Encoder::new();
+        body.u64(field::TOKEN, token).map_err(Error::Parcel)?;
+        body.string(field::MIME, mime).map_err(Error::Parcel)?;
+        Ok(parcel(READ_INTERFACE, method::REQUEST, body))
+    }
+
+    /// A `Request` reply carrying the payload (the `BufferHandle` shape).
+    pub fn request_reply(handle: &BufferHandle) -> Result<Parcel> {
+        let mut body = Encoder::new();
+        body.u64(field::TOKEN, handle.token)
+            .map_err(Error::Parcel)?;
+        body.string(field::MIME, &handle.mime)
+            .map_err(Error::Parcel)?;
+        body.bool(field::LAZY, handle.lazy).map_err(Error::Parcel)?;
+        body.bytes(field::BYTES, &handle.bytes)
+            .map_err(Error::Parcel)?;
+        Ok(parcel(READ_INTERFACE, method::REQUEST, body))
+    }
+
+    /// `Serialize(token, mime)`: the service calls this on a lazy offer's owner
+    /// endpoint when a paste happens.
+    pub fn serialize_request(token: u64, mime: &str) -> Result<Parcel> {
+        let mut body = Encoder::new();
+        body.u64(field::TOKEN, token).map_err(Error::Parcel)?;
+        body.string(field::MIME, mime).map_err(Error::Parcel)?;
+        Ok(parcel(OWNER_INTERFACE, method::SERIALIZE, body))
+    }
+
+    /// The owner's `Serialize` answer.
+    pub fn serialize_reply(bytes: &[u8]) -> Result<Parcel> {
+        let mut body = Encoder::new();
+        body.bytes(field::BYTES, bytes).map_err(Error::Parcel)?;
+        Ok(parcel(OWNER_INTERFACE, method::SERIALIZE, body))
+    }
+
+    /// A `Ping` request.
+    pub fn ping_request() -> Parcel {
+        parcel(INTERFACE, method::PING, Encoder::new())
+    }
+
+    /// A `Current` request (offer metadata only; never content).
+    pub fn current_request() -> Parcel {
+        parcel(INTERFACE, method::CURRENT, Encoder::new())
+    }
+
+    /// An empty successful reply on `interface_id`/`method`.
+    pub fn ok_reply(interface_id: u64, method: u32) -> Parcel {
+        parcel(interface_id, method, Encoder::new())
+    }
+
+    /// Encode `info` into a `Current` reply; `None` when no offer is live.
+    pub fn current_reply(info: Option<&OfferInfo>) -> Result<Parcel> {
+        let mut body = Encoder::new();
+        body.u64(field::FOUND, info.is_some() as u64)
+            .map_err(Error::Parcel)?;
+        if let Some(info) = info {
+            body.record(field::OFFER, &info_body(info)?)
+                .map_err(Error::Parcel)?;
+        }
+        Ok(parcel(INTERFACE, method::CURRENT, body))
+    }
+
+    /// Encode an offer's metadata as the retained `.../clipboard/changed`
+    /// event payload: a parcel with the `OFFER` record, never content.
+    pub fn changed_payload(info: &OfferInfo) -> Result<Vec<u8>> {
+        let mut body = Encoder::new();
+        body.record(field::OFFER, &info_body(info)?)
+            .map_err(Error::Parcel)?;
+        let mut bytes = Vec::new();
+        parcel(INTERFACE, method::CURRENT, body)
+            .encode(&mut bytes)
+            .map_err(Error::Parcel)?;
+        Ok(bytes)
+    }
+
+    /// The offer-metadata body shared by `Current` and the changed event.
+    fn info_body(info: &OfferInfo) -> Result<Encoder> {
+        let mut body = Encoder::new();
+        body.u64(field::TOKEN, info.token).map_err(Error::Parcel)?;
+        body.string(field::OWNER, &info.owner)
+            .map_err(Error::Parcel)?;
+        body.u64(field::SESSION, info.session)
+            .map_err(Error::Parcel)?;
+        body.bool(field::LAZY, info.lazy).map_err(Error::Parcel)?;
+        body.u64(field::TICK, info.tick).map_err(Error::Parcel)?;
+        let mut array = Encoder::new();
+        for mime in &info.mimes {
+            array.string(field::MIMES, mime).map_err(Error::Parcel)?;
+        }
+        body.array(field::MIMES, &array).map_err(Error::Parcel)?;
+        Ok(body)
+    }
+
+    /// The service's error answer: errno-style code plus friendly text.
+    pub fn error_reply(interface_id: u64, method: u32, error: Error) -> Parcel {
+        let code = error.errno().map(|code| -code).unwrap_or(errno::EINVAL);
+        let mut body = Encoder::new();
+        // A structured error field cannot overflow a fresh encoder here.
+        let _ = body.error(field::ERROR, code as u32, error.message());
+        parcel(interface_id, method, body)
+    }
+
+    /// The first structured error field, when the reply is a service failure.
+    fn error_field(parcel: &Parcel) -> Result<Option<i64>> {
+        let mut decoder = Decoder::new(&parcel.body);
+        while let Some(item) = decoder.next().map_err(Error::Parcel)? {
+            if item.kind == Kind::Error && item.id == field::ERROR {
+                let (code, _message) = item.error_parts().map_err(Error::Parcel)?;
+                return Ok(Some(code as i64));
+            }
+        }
+        Ok(None)
+    }
+
+    /// Decode an `Offer` request into its owner, sink, MIME list and payloads.
+    pub fn decode_offer(parcel: &Parcel) -> Result<OfferRequest> {
+        let mut request = OfferRequest::default();
+        let mut decoder = Decoder::new(&parcel.body);
+        while let Some(item) = decoder.next().map_err(Error::Parcel)? {
+            match (item.kind, item.id) {
+                (Kind::String, field::OWNER) => {
+                    request.owner = String::from(item.as_str().map_err(Error::Parcel)?);
+                }
+                (Kind::String, field::SINK) => {
+                    request.sink = Some(String::from(item.as_str().map_err(Error::Parcel)?));
+                }
+                (Kind::Array, field::MIMES) => {
+                    let mut nested = item.nested(0).map_err(Error::Parcel)?;
+                    while let Some(entry) = nested.next().map_err(Error::Parcel)? {
+                        if entry.kind == Kind::String {
+                            request
+                                .mimes
+                                .push(String::from(entry.as_str().map_err(Error::Parcel)?));
+                        }
+                    }
+                }
+                (Kind::Array, field::DATA) => {
+                    let mut nested = item.nested(0).map_err(Error::Parcel)?;
+                    while let Some(entry) = nested.next().map_err(Error::Parcel)? {
+                        if entry.kind != Kind::Struct {
+                            continue;
+                        }
+                        let mut record = entry.nested(0).map_err(Error::Parcel)?;
+                        let mut mime = String::new();
+                        let mut bytes = Vec::new();
+                        while let Some(part) = record.next().map_err(Error::Parcel)? {
+                            match (part.kind, part.id) {
+                                (Kind::String, field::MIME) => {
+                                    mime = String::from(part.as_str().map_err(Error::Parcel)?);
+                                }
+                                (Kind::Bytes, field::BYTES) => {
+                                    bytes = part.as_bytes().to_vec();
+                                }
+                                _ => {}
+                            }
+                        }
+                        request.data.push((mime, bytes));
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(request)
+    }
+
+    /// Decode a `Request` (or `Serialize`) into `(token, mime)`.
+    pub fn decode_request(parcel: &Parcel) -> Result<(u64, String)> {
+        let mut token = 0u64;
+        let mut mime = String::new();
+        let mut decoder = Decoder::new(&parcel.body);
+        while let Some(item) = decoder.next().map_err(Error::Parcel)? {
+            match (item.kind, item.id) {
+                (Kind::U64, field::TOKEN) => token = item.as_u64().map_err(Error::Parcel)?,
+                (Kind::String, field::MIME) => {
+                    mime = String::from(item.as_str().map_err(Error::Parcel)?);
+                }
+                _ => {}
+            }
+        }
+        Ok((token, mime))
+    }
+
+    /// Decode a `Serialize` into `(token, mime)`.
+    pub fn decode_serialize(parcel: &Parcel) -> Result<(u64, String)> {
+        decode_request(parcel)
+    }
+
+    /// Decode a `Request`/`Serialize` reply's payload bytes.
+    pub fn decode_bytes(parcel: &Parcel) -> Result<Vec<u8>> {
+        let mut decoder = Decoder::new(&parcel.body);
+        while let Some(item) = decoder.next().map_err(Error::Parcel)? {
+            if item.kind == Kind::Bytes && item.id == field::BYTES {
+                return Ok(item.as_bytes().to_vec());
+            }
+        }
+        Err(Error::Errno(-errno::EINVAL))
+    }
+
+    /// Decode an `Offer` reply's token.
+    pub fn decode_token(parcel: &Parcel) -> Result<u64> {
+        let mut decoder = Decoder::new(&parcel.body);
+        while let Some(item) = decoder.next().map_err(Error::Parcel)? {
+            if item.kind == Kind::U64 && item.id == field::TOKEN {
+                return item.as_u64().map_err(Error::Parcel);
+            }
+        }
+        Err(Error::Errno(-errno::EINVAL))
+    }
+
+    /// Decode a `Current` reply into the live offer's metadata.
+    pub fn decode_current(parcel: &Parcel) -> Result<Option<OfferInfo>> {
+        let mut found = false;
+        let mut info = OfferInfo::default();
+        let mut decoder = Decoder::new(&parcel.body);
+        while let Some(item) = decoder.next().map_err(Error::Parcel)? {
+            match (item.kind, item.id) {
+                (Kind::U64, field::FOUND) => found = item.as_u64().map_err(Error::Parcel)? != 0,
+                (Kind::Struct, field::OFFER) => info = decode_info_record(item)?,
+                _ => {}
+            }
+        }
+        Ok(found.then_some(info))
+    }
+
+    /// Decode a changed-event payload (the bytes the topic broker carries)
+    /// into the offer metadata.
+    pub fn decode_changed(event: &router::Event) -> Result<OfferInfo> {
+        let parcel = Parcel::decode(&event.payload).map_err(Error::Parcel)?;
+        let mut decoder = Decoder::new(&parcel.body);
+        while let Some(item) = decoder.next().map_err(Error::Parcel)? {
+            if item.kind == Kind::Struct && item.id == field::OFFER {
+                return decode_info_record(item);
+            }
+        }
+        Err(Error::Errno(-errno::EINVAL))
+    }
+
+    /// Decode one `OFFER` metadata record.
+    fn decode_info_record(record: Field<'_>) -> Result<OfferInfo> {
+        let mut info = OfferInfo::default();
+        let mut nested = record.nested(0).map_err(Error::Parcel)?;
+        while let Some(item) = nested.next().map_err(Error::Parcel)? {
+            match (item.kind, item.id) {
+                (Kind::U64, field::TOKEN) => info.token = item.as_u64().map_err(Error::Parcel)?,
+                (Kind::String, field::OWNER) => {
+                    info.owner = String::from(item.as_str().map_err(Error::Parcel)?);
+                }
+                (Kind::U64, field::SESSION) => {
+                    info.session = item.as_u64().map_err(Error::Parcel)?;
+                }
+                (Kind::Bool, field::LAZY) => info.lazy = item.as_bool().map_err(Error::Parcel)?,
+                (Kind::U64, field::TICK) => info.tick = item.as_u64().map_err(Error::Parcel)?,
+                (Kind::Array, field::MIMES) => {
+                    let mut mimes = item.nested(0).map_err(Error::Parcel)?;
+                    while let Some(entry) = mimes.next().map_err(Error::Parcel)? {
+                        if entry.kind == Kind::String {
+                            info.mimes
+                                .push(String::from(entry.as_str().map_err(Error::Parcel)?));
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(info)
+    }
+
+    /// A client of the clipboard service.
+    pub struct Client {
+        endpoint: Endpoint,
+        session: u64,
+    }
+
+    impl Client {
+        /// Resolve [`NAME`] and read the caller's session from the kernel.
+        pub fn connect() -> Result<Client> {
+            Client::from_endpoint(registry::resolve(NAME)?)
+        }
+
+        /// Wrap an already-resolved endpoint.
+        pub fn from_endpoint(endpoint: Endpoint) -> Result<Client> {
+            let mut cred = sys::Cred::default();
+            sys::cred_get(None, &mut cred).map_err(Error::Errno)?;
+            Ok(Client {
+                endpoint,
+                session: cred.session,
+            })
+        }
+
+        /// The underlying service endpoint (diagnostics).
+        pub fn endpoint(&self) -> Endpoint {
+            self.endpoint
+        }
+
+        /// The session id the client's requests are stamped with.
+        pub fn session(&self) -> u64 {
+            self.session
+        }
+
+        /// Run one request as a blocking call and fail on a service error
+        /// reply.
+        fn call(&self, request: &Parcel) -> Result<Parcel> {
+            let reply = self.endpoint.call(request, None)?;
+            if let Some(code) = error_field(&reply)? {
+                return Err(Error::Errno(-code));
+            }
+            Ok(reply)
+        }
+
+        /// `Offer(owner, mime_types) -> token`: publish the typed payloads for
+        /// this task's session (the eager path, bounded by the service's
+        /// [`MAX_DATA`]). [`Client::offer_lazy`] is the on-demand variant.
+        pub fn copy(&self, owner: &str, offers: &[(&str, &[u8])]) -> Result<u64> {
+            let reply = self.call(&offer_request(owner, offers)?)?;
+            decode_token(&reply)
+        }
+
+        /// `Offer(owner, mime_types) -> token` for a lazy offer: this task
+        /// keeps the data and serves [`method::SERIALIZE`] on the endpoint it
+        /// registers under `sink`.
+        pub fn offer_lazy(&self, owner: &str, sink: &str, mimes: &[&str]) -> Result<u64> {
+            let reply = self.call(&offer_lazy_request(owner, sink, mimes)?)?;
+            decode_token(&reply)
+        }
+
+        /// Paste the newest offer of this session that carries `mime`;
+        /// `Ok(None)` when no offer has it.
+        pub fn paste(&self, mime: &str) -> Result<Option<Vec<u8>>> {
+            match self.call(&request_request(0, mime)?) {
+                Ok(reply) => Ok(Some(decode_bytes(&reply)?)),
+                Err(Error::Errno(code)) if code == -errno::ENOENT => Ok(None),
+                Err(error) => Err(error),
+            }
+        }
+
+        /// Paste one exact offer by token; a foreign-session token is refused
+        /// with `-EACCES` and audited by the service.
+        pub fn paste_token(&self, token: u64, mime: &str) -> Result<Vec<u8>> {
+            let reply = self.call(&request_request(token, mime)?)?;
+            decode_bytes(&reply)
+        }
+
+        /// The current offer's metadata (never content).
+        pub fn current(&self) -> Result<Option<OfferInfo>> {
+            let reply = self.call(&current_request())?;
+            decode_current(&reply)
+        }
+
+        /// Attach to this session's retained
+        /// `session/<id>/clipboard/changed` topic.
+        pub fn subscribe_changes(&self) -> Result<router::Subscriber> {
+            router::Bus::connect(NAME)?.subscribe(&changes_topic(self.session))
+        }
+
+        /// Round-trip probe.
+        pub fn ping(&self) -> Result<()> {
+            self.call(&ping_request())?;
+            Ok(())
+        }
+    }
+}
