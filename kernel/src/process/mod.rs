@@ -58,6 +58,23 @@
 //! ```text
 //!   rax = 11  rdi -> [usage, limit] pairs in Resource order  -> 0 | -EFAULT
 //! ```
+//!
+//! # The display device grant (issue #113)
+//!
+//! Syscall 12 hands the framebuffer and the PS/2 input stream to a userspace
+//! compositor (`docs/platform-plan.md` S4.4). The op codes, the bind output
+//! block and the input event records live in [`crate::display`]; the gate here
+//! is one arm because the kernel-side state is one small module.
+//!
+//! ```text
+//!   rax = 12  rdi = op
+//!   op 0 (bind):          rsi -> [width, height, stride, bpp, buffer, va, size]
+//!   op 1 (unbind):        -
+//!   op 2 (input_poll):    rsi -> events, rdx = capacity  -> count
+//!   op 3 (present):       rsi = packed damage
+//!   op 4 (create_buffer): rsi = size, rdx -> [handle, va, size]
+//!   op 5 (map_buffer):    rsi = handle, rdx -> va
+//! ```
 
 use alloc::boxed::Box;
 use alloc::string::String;
@@ -155,6 +172,8 @@ extern "C" fn syscall_dispatch(regs: *mut Regs) {
         10 => sys_creds(regs.rdi, regs.rsi, regs.rdx),
         // 11: per-uid quota introspection (issue #103), read-only.
         11 => sys_quota(regs.rdi),
+        // 12: the display device grant (issue #113), see the module docs.
+        12 => crate::display::dispatch(regs.rdi, regs.rsi, regs.rdx),
         _ => u64::MAX,
     };
 }
@@ -172,6 +191,7 @@ pub fn dispatch_for_test(nr: u64, a1: u64, a2: u64, a3: u64) -> u64 {
         9 => sys_args(a1, a2),
         10 => sys_creds(a1, a2, a3),
         11 => sys_quota(a1),
+        12 => crate::display::dispatch(a1, a2, a3),
         _ => u64::MAX,
     }
 }

@@ -90,6 +90,19 @@ fn main() {
         );
     }
 
+    // The display protocol demo (issue #113): `LAZYOS_XUID=1` embeds the
+    // userspace compositor and its demo app. Both are gated out of the default
+    // demo image so its size and boot stay identical.
+    println!("cargo:rerun-if-env-changed=LAZYOS_XUID");
+    if std::env::var_os("LAZYOS_XUID").as_deref() == Some(std::ffi::OsStr::new("1")) {
+        let xuid =
+            std::env::var_os("CARGO_BIN_FILE_USER_xuid").expect("user xuid artifact not found");
+        builder.set_file(String::from("XUID.ELF"), PathBuf::from(xuid));
+        let xdemo =
+            std::env::var_os("CARGO_BIN_FILE_USER_xdemo").expect("user xdemo artifact not found");
+        builder.set_file(String::from("XDEMO.ELF"), PathBuf::from(xdemo));
+    }
+
     // Rebuild the image when the kernel test switch flips (issue #62): the
     // kernel's own build script turns `LAZYOS_TESTS=1` into `cfg(laZYOS_TESTS)`.
     println!("cargo:rerun-if-env-changed=LAZYOS_TESTS");
