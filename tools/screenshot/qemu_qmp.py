@@ -194,6 +194,26 @@ class Qmp:
         self.send_events(mouse_move_events(dx, dy), device)
 
     def mouse_click(self, button: str = "left", device: str | None = None) -> None:
+        """Press and release a mouse button.
+
+        ``input-send-event`` without an explicit device delivers to the first
+        input handler, which is the keyboard: relative motion still reaches the
+        mouse (only a pointer handles it), but a button press is accepted by
+        the keyboard and dropped. The default PS/2 mouse has no QOM name to
+        target, so the monitor's ``mouse_button`` command — which addresses the
+        pointer directly — is the reliable path, with the QMP event list as a
+        fallback for monitors without it.
+        """
+        mask = _BUTTON_MASKS.get(button)
+        if mask is not None and device is None:
+            try:
+                self.execute(
+                    "human-monitor-command", **{"command-line": f"mouse_button {mask}"}
+                )
+                self.execute("human-monitor-command", **{"command-line": "mouse_button 0"})
+                return
+            except RuntimeError:
+                pass
         self.send_events(mouse_click_events(button), device)
 
     def mouse_scroll(self, amount: int, device: str | None = None) -> None:
@@ -298,6 +318,8 @@ def named_key_events(name: str) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 _BUTTONS = {"left", "middle", "right", "side", "extra", "wheel-up", "wheel-down"}
+# The PS/2 button bitmask the monitor's `mouse_button` command takes.
+_BUTTON_MASKS = {"left": 1, "middle": 2, "right": 4}
 
 
 def mouse_move_events(dx: int, dy: int) -> list[dict]:

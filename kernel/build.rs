@@ -60,6 +60,18 @@ fn main() {
         println!("cargo:rustc-cfg=xuid_demo");
     }
 
+    // xui app switch (issue #114): with `LAZYOS_XUID=1` and a built app at
+    // `LAZYOS_XUI_APP`, the kernel boots the app instead of the `xuid` demo
+    // session. The app binds the display grant itself, so both cannot own the
+    // screen at once; the default `xuid` demo is unchanged without the hook.
+    println!("cargo:rerun-if-env-changed=LAZYOS_XUI_APP");
+    println!("cargo:rustc-check-cfg=cfg(xui_app)");
+    if env::var_os("LAZYOS_XUID").as_deref() == Some(std::ffi::OsStr::new("1"))
+        && env::var_os("LAZYOS_XUI_APP").is_some()
+    {
+        println!("cargo:rustc-cfg=xui_app");
+    }
+
     let font_bytes = fs::read(&font_path).expect("read JetBrainsMono-Regular.ttf");
     let atlas = font_atlas::build(&font_bytes, 20.0);
 
