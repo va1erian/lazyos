@@ -83,9 +83,15 @@ schema net.lazy.registry.schema.v1 "sys.net.iface" {
 
 ### 3.2 Keys, records, and generations
 
-- A **key** is a path (`sys/net/if/eth0`) plus a schema id. A key holds a
-  linked list of **generations**: `(gen: u64, writer: Credentials, ts, parent_gen,
-  record_bytes, comment)`.
+- A **key** is identified by its **path alone** (`sys/net/if/eth0`); a path
+  holds at most one key. Each generation carries its own `schema_id`, so a
+  key's schema can change across generations (e.g. migrating from
+  `sys.net.iface` to `sys.net.iface.v2` in place) without changing its
+  identity. A breaking schema change that must coexist with the old shape
+  during rollout uses a **different path** (or a versioned path segment,
+  e.g. `sys/net/if/eth0@v2`) rather than two schemas sharing one path.
+- A key holds a linked list of **generations**: `(gen: u64, schema_id,
+  writer: Credentials, ts, parent_gen, record_bytes, comment)`.
 - **Current** always points at the latest committed generation; reads default
   to current but can pin an explicit `gen`.
 - A generation is immutable once committed — "editing" a key creates
@@ -121,17 +127,19 @@ Interface `os.lazy.regd.v1`, exposed as one root object obtained from
 ```
 interface os.lazy.regd.v1 {
   // CRUD, schema-validated
-  Get(path, gen: optional<u64>) -> (record, gen, writer_cred, ts);
+  Get(path, gen: optional<u64>) -> (record, schema_id, gen, writer_cred, ts);
   Put(path, schema_id, record, expected_gen: optional<u64>, comment) -> (new_gen);
   Delete(path, expected_gen: optional<u64>) -> (tombstone_gen);
 
-  // Enumeration / query (ODM-style predicate query)
+  // Enumeration / query (ODM-style predicate query). Each stream is filtered
+  // to paths the caller holds READ on before being returned; a caller with
+  // READ on a parent path does NOT thereby see private descendants.
   List(path_prefix, recursive: bool) -> (stream of path);
   Query(path_prefix, schema_id, predicate) -> (stream of (path, record));
 
   // History
   History(path, limit) -> (stream of (gen, writer_cred, ts, comment));
-  Revert(path, to_gen) -> (new_gen);           // creates a new gen copying an old one
+  Revert(path, to_gen, expected_gen: optional<u64>) -> (new_gen); // creates a new gen copying an old one
 
   // Schema management
   RegisterSchema(schema_def) -> (schema_id);
@@ -148,9 +156,14 @@ interface os.lazy.regd.v1 {
 // payload: (path, old_gen, new_gen, writer_cred, ts)
 ```
 
-- `expected_gen` gives **optimistic concurrency** (compare-and-swap), so two
-  services racing to update `sys/net/if/eth0` don't silently clobber each
-  other — `Put` fails with `REGD_CONFLICT` and the caller re-reads.
+- `expected_gen` gives **optimistic concurrency** (compare-and-swap) on `Put`,
+  `Delete`, and `Revert`: when present, the call fails with `REGD_CONFLICT`
+  unless it matches the key's current generation, and the caller re-reads.
+  Omitting it means an unconditional (blind) write: `Put` creates the key if
+  absent or overwrites current otherwise; `Delete` removes whatever is
+  current; `Revert` always compares against current internally when
+  `expected_gen` is given, and otherwise reverts blindly. Callers that must
+  not race (most production writers) always pass `expected_gen`.
 - `Query` reuses Messenger's existing parcel/TLV machinery for the predicate
   (field == value, range, prefix match on string fields) — no new query
   language, just structured filters over typed fields, matching ODM's
@@ -176,7 +189,13 @@ Following `security-model.md`'s default-deny stance:
     `HKCU`).
   - `secrets/**` — **not stored in `regd` at all**; delegate to `keyd`
     (per `messenger.md` §1's "secrets never in the kernel [or general
-    config store]" stance) and store only a reference/handle in `regd`.
+    config store]" stance) and store only a **non-authorizing identifier**
+    (an opaque `keyd` key name, not a Messenger handle and not itself a
+    capability) in `regd`. Since `sys/**` is world-readable by default, this
+    identifier must not grant anything on its own: `keyd` re-checks the
+    caller's identity/ACL on every operation it serves, exactly like `regd`
+    does for its own paths, so reading the identifier out of `regd` gives no
+    more access than knowing a secret's name.
 - `regd` itself runs as an unprivileged service holding only the ext2
   subtree grant it needs — it has no more ambient power than any other
   service; its authority is entirely "the process that `messengerd` resolves
@@ -184,7 +203,16 @@ Following `security-model.md`'s default-deny stance:
 - All mutations are attributed (`writer_cred` on every generation) and
   streamed to `auditd` via the normal `regd/changed/#` topic — configuration
   changes become part of the system audit log automatically, not a
-  bolt-on.
+  bolt-on. This live topic is a *notification*, not the audit record itself:
+  it carries only the latest-generation summary and is best-effort like any
+  Messenger topic. The durable audit trail is `History`, which is retained
+  independently of the topic and of the compaction policy — a key's
+  generations are not eligible for compaction until `auditd` has
+  acknowledged consuming them (tracked as a low-water mark per subtree), and
+  `auditd` reconciles by diffing that mark against `History` on restart to
+  pick up anything missed while it was offline. This makes audit
+  completeness a property of `History` + the compaction low-water mark, not
+  of the pub/sub topic's delivery guarantees.
 
 ---
 
