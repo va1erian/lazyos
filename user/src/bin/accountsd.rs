@@ -200,13 +200,14 @@ fn verify_secret(account: &Account, secret: &str, keyd_seen: &mut bool) -> bool 
         // Fall through and ask anyway: keyd may already know this account from
         // an earlier successful provision, and the verdict is authoritative.
     }
-    if let Ok(matched) = client.verify(&account.record.name, secret) {
-        return matched;
-    }
-    // keyd could not answer at all (not just "wrong password"): fall through
-    // to the bring-up verifier so a keyd crash cannot lock every account out
-    // during S3 bring-up.
-    account.verifier == secret
+    // keyd is authoritative once it is reachable: an error from `verify` (a
+    // malformed request, an internal refusal, anything short of "wrong
+    // password") is a deny, never a reason to fall back to the plaintext
+    // bring-up verifier. Falling back here would let a caller who can force
+    // `verify` to error (e.g. an oversized secret) authenticate against the
+    // weaker plaintext comparison instead of Argon2id. The plaintext fallback
+    // exists only for the "keyd is not registered at all" case above.
+    client.verify(&account.record.name, secret).unwrap_or(false)
 }
 
 /// Whether the Messenger sender is an administrator (uid 0).
