@@ -927,6 +927,15 @@ fn is_timeout(error: messenger::Error) -> bool {
     matches!(error, messenger::Error::Errno(code) if code == -messenger::errno::ETIMEDOUT)
 }
 
+/// Close the endpoint handle that arrived with a request we are rejecting;
+/// otherwise every refused request leaks one slot in the compositor's
+/// (immortal) handle table.
+fn drop_rejected_handle(message: &Message) {
+    if message.handles != 0 {
+        let _ = Endpoint::from_raw(message.first_handle).close();
+    }
+}
+
 /// Whether `sender`'s kernel-stamped credentials authorize the compositor's
 /// administrative operations (issue #175): claiming the `"shell"` role,
 /// replacing the desktop, and listing every surface. Mirrors accountsd's
@@ -2002,11 +2011,13 @@ fn handle_request(
             let (max_w, max_h) = (screen.width().max(0) as u64, screen.height().max(0) as u64);
             if width == 0 || height == 0 || width > max_w || height > max_h || message.handles == 0
             {
+                drop_rejected_handle(&message);
                 return Some(error_reply(message.method(), messenger::errno::EINVAL));
             }
             if role == display::role::DESKTOP && !is_privileged(message.sender) {
                 // Only an authorized shell identity may own the desktop
                 // (issue #175); anyone else's claim is refused outright.
+                drop_rejected_handle(&message);
                 return Some(error_reply(message.method(), messenger::errno::EACCES));
             }
             let id = *next_id;
@@ -2334,12 +2345,14 @@ fn handle_request(
             let role =
                 string_field(&message.parcel, display::field::SUBSCRIBER_ROLE).unwrap_or_default();
             if message.handles == 0 || role.is_empty() || role.len() > display::MAX_ROLE {
+                drop_rejected_handle(&message);
                 return Some(error_reply(message.method(), messenger::errno::EINVAL));
             }
             if role == display::ROLE_SHELL && !is_privileged(message.sender) {
                 // Only an authorized shell identity may hide the fallback
                 // taskbar and receive every surface/focus event (issue
                 // #175); anyone else's claim is refused outright.
+                drop_rejected_handle(&message);
                 return Some(error_reply(message.method(), messenger::errno::EACCES));
             }
             // One subscriber at a time; a re-subscribe replaces the
