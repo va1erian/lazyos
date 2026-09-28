@@ -42,7 +42,8 @@ ISR that performs context switches.
 - Ties break round-robin after the current slot. Spawn/wake uses `virtual_now` so
   a newly runnable task does not claim catch-up quanta.
 - Starvation bound: within a class a peer is selected at most
-  `ceil(stride_i/stride_j)+1` times; worst case < 500 ticks (~5 s at 100 Hz).
+  `ceil(stride_i/stride_j)+1` times; worst case < 2100 ticks (~21 s at 100 Hz
+  with 63 peers; it was < 500 ticks at 16 slots).
 - `set_priority`/`set_weight` reset/clamp the fields; Linux `nice` is not wired
   to them yet (documented in `task/mod.rs`).
 
