@@ -296,6 +296,19 @@ pub fn protect(table: PhysAddr, start: u64, end: u64, prot: Prot) -> bool {
     covered
 }
 
+/// Split the VMA containing `address` (strictly inside it) in two, so its two
+/// sides can be treated as separate ranges. Returns whether a split happened.
+pub fn split(table: PhysAddr, address: u64) -> bool {
+    let address = align_down(address);
+    let mut spaces = SPACES.lock();
+    let Some(space) = find_space(&mut spaces, table) else {
+        return false;
+    };
+    let before = space.vmas.len();
+    split_at(&mut space.vmas, address);
+    space.vmas.len() != before
+}
+
 /// Split the VMA containing `address` (strictly inside it) into two.
 fn split_at(vmas: &mut Vec<Vma>, address: u64) {
     let Some(index) = vmas

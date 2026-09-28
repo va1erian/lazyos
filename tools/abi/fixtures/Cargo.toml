@@ -51,3 +51,11 @@ path = "src/procstress.rs"
 [[bin]]
 name = "sigstress"
 path = "src/sigstress.rs"
+
+[[bin]]
+name = "epollstress"
+path = "src/epollstress.rs"
+
+[[bin]]
+name = "unixstress"
+path = "src/unixstress.rs"

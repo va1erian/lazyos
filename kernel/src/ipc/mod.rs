@@ -17,6 +17,8 @@ pub mod acl;
 pub mod audit;
 pub mod channels;
 pub mod credentials;
+pub mod epoll;
+pub mod eventfd;
 pub mod handles;
 pub mod pipe;
 pub mod registry;
@@ -24,6 +26,7 @@ pub mod shared;
 pub mod stats;
 pub mod syscalls;
 pub mod topics;
+pub mod unix;
 
 /// The fabric's single policy choke point (issue #68).
 ///
