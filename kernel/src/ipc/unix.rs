@@ -10,7 +10,12 @@
 //!
 //! Accepted connections reuse [`SocketPair`](crate::ipc::pipe::SocketPair):
 //! `connect` creates the pair, queues the server side on the listener, and
-//! `accept` pops it into a descriptor. A full pending queue simply parks in
+//! `accept` pops it into a descriptor. The queued server side already holds
+//! its direction references, so — as on Linux — the connection is established
+//! at `connect` time and a client may write before the server accepts; the
+//! data buffers in the pair. `accept` adopts that reference, and a listener
+//! dropped with connections still pending releases them (the client then sees
+//! EOF/`-EPIPE`). A full pending queue simply parks in
 //! the accept path on the listener's wait queue.
 
 use alloc::collections::VecDeque;
@@ -19,7 +24,7 @@ use alloc::vec::Vec;
 use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use spin::Mutex;
 
-use crate::ipc::pipe::{SocketPair, POLLIN};
+use crate::ipc::pipe::{Side, SocketPair, POLLIN};
 use crate::task::wait::WaitQueue;
 use crate::task::{WaitKind, WakeReason};
 
@@ -33,6 +38,8 @@ pub struct Listener {
     /// `O_NONBLOCK` of the listening descriptor.
     nonblock: AtomicBool,
     /// Server-side pair halves delivered by `connect` and not yet accepted.
+    /// Each holds one [`Side::A`] reference, taken in [`connect`](Self::connect)
+    /// and handed to `accept` by [`take_pending`](Self::take_pending).
     pending: Mutex<VecDeque<Arc<SocketPair>>>,
     /// Accept callers parked while no connection is pending.
     accept_wq: WaitQueue,
@@ -72,15 +79,20 @@ impl Listener {
         self.nonblock.store(on, Ordering::Release);
     }
 
-    /// Deliver a client connection: queue the server side and wake an accepter.
+    /// Deliver a client connection: take the server side's reference (so the
+    /// client's writes buffer instead of failing with `-EPIPE` before
+    /// `accept`), queue it, and wake an accepter.
     pub fn connect(&self, pair: Arc<SocketPair>) {
+        pair.acquire(Side::A);
         self.pending.lock().push_back(pair);
         self.connects.fetch_add(1, Ordering::AcqRel);
         self.accept_wq.notify_all();
         crate::task::notify_poll();
     }
 
-    /// Take the oldest pending connection, if any.
+    /// Take the oldest pending connection, if any. The returned pair carries
+    /// the [`Side::A`] reference taken by [`connect`](Self::connect); the
+    /// caller owns it and must adopt it into a descriptor or `close` it.
     pub fn take_pending(&self) -> Option<Arc<SocketPair>> {
         self.pending.lock().pop_front()
     }
@@ -107,6 +119,15 @@ impl Listener {
     /// [`poll`](Listener::poll) plus the connect counter for `EPOLLET`.
     pub fn poll_gen(&self, events: u16) -> (u16, u64) {
         (self.poll(events), self.connects.load(Ordering::Acquire))
+    }
+}
+
+impl Drop for Listener {
+    /// Release the server-side reference of every connection never accepted.
+    fn drop(&mut self) {
+        for pair in self.pending.lock().drain(..) {
+            pair.close(Side::A);
+        }
     }
 }
 
@@ -144,7 +165,7 @@ pub fn lookup(name: &[u8]) -> Option<Arc<Listener>> {
 }
 
 /// Empty the registry (test isolation).
-#[cfg(laZYOS_TESTS)]
+#[cfg(lazyos_tests)]
 pub fn clear_for_test() {
     LISTENERS.lock().clear();
 }

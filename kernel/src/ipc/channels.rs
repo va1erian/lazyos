@@ -89,7 +89,7 @@ static MESSENGER: WaitQueue = WaitQueue::new(WaitKind::Sleep);
 /// Test-only hooks for the kernel suite (issue #62 pattern). The channel tests
 /// need to park a task exactly where `recv` parks it, without entering the
 /// scheduler (the suite runs with interrupts disabled).
-#[cfg(laZYOS_TESTS)]
+#[cfg(lazyos_tests)]
 pub mod harness {
     /// Park `slot` on the messenger wait queue without switching context.
     pub fn park(slot: usize, deadline: Option<u64>) {
@@ -1229,7 +1229,7 @@ fn expire_transaction(txn_id: u64) {
 /// expired transaction `TimedOut`, exactly as the wait loop would after
 /// `WaitQueue::wait` returned `WakeReason::TimedOut`. Compiled only for the
 /// in-kernel suite.
-#[cfg(laZYOS_TESTS)]
+#[cfg(lazyos_tests)]
 pub fn expire_deadlines(now: u64) {
     task::harness::expire_deadlines(now);
     let mut channels = CHANNELS.lock();

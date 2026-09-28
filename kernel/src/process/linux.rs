@@ -226,13 +226,13 @@ fn trace_syscall(nr: u64) {
 
 /// Test-harness entry into the syscall dispatcher (issue #62), compiled only
 /// with `LAZYOS_TESTS=1`.
-#[cfg(laZYOS_TESTS)]
+#[cfg(lazyos_tests)]
 pub fn dispatch_for_test(nr: u64, a1: u64, a2: u64, a3: u64) -> u64 {
     dispatch_args_for_test(nr, a1, a2, a3, 0)
 }
 
 /// [`dispatch_for_test`] with a fourth argument (`socketpair`'s `sv`).
-#[cfg(laZYOS_TESTS)]
+#[cfg(lazyos_tests)]
 pub fn dispatch_args_for_test(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64) -> u64 {
     dispatch_args5_for_test(nr, a1, a2, a3, a4, 0)
 }
@@ -252,7 +252,7 @@ pub fn dispatch_args_for_test(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64) -> u6
 /// function - without a gate to save and restore that state - would leave
 /// every later test preempted by a real, unexpected timer tick if we did not
 /// force it back off here.
-#[cfg(laZYOS_TESTS)]
+#[cfg(lazyos_tests)]
 pub fn dispatch_args5_for_test(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u64) -> u64 {
     x86_64::instructions::interrupts::disable();
     let result = linux_dispatch(nr, a1, a2, a3, a4, a5, 0);
@@ -2589,7 +2589,9 @@ fn sys_accept(fd: u64, addr: u64, addrlen: u64, flags: u64) -> u64 {
             WakeReason::Interrupted => return err(EINTR),
         }
     };
-    let Some(new_fd) = task::fd_open(Fd::socket_side(pair, Side::A)) else {
+    // The listener took this side's reference at `connect`; adopt it (a
+    // failed `fd_open` drops the `Fd`, which releases it).
+    let Some(new_fd) = task::fd_open(Fd::socket_side_adopt(pair, Side::A)) else {
         return err(EMFILE);
     };
     if flags & SOCK_CLOEXEC != 0 {
