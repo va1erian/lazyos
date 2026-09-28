@@ -35,6 +35,7 @@ mod task;
 #[cfg(laZYOS_TESTS)]
 mod tests;
 mod text;
+mod user_ptr;
 
 use bootloader_api::config::{BootloaderConfig, Mapping};
 use bootloader_api::info::Optional;

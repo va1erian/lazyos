@@ -90,6 +90,7 @@ use crate::ipc::credentials::{self, Cred, TransitionError};
 use crate::mem::vma::{Kind, Prot};
 use crate::quota::{self, Resource};
 use crate::task::{self, wait::CHILD_EXIT, WakeReason};
+use crate::user_ptr;
 use crate::{fs, input::keyboard, mem};
 
 pub mod linux;
@@ -198,8 +199,9 @@ pub fn dispatch_for_test(nr: u64, a1: u64, a2: u64, a3: u64) -> u64 {
 
 /// syscall 1: write bytes to the task's terminal (and the serial log).
 fn sys_write(ptr: u64, len: u64) -> u64 {
-    // Safety: syscalls only pass pointers into the (mapped) user address space.
-    let bytes = unsafe { core::slice::from_raw_parts(ptr as *const u8, len as usize) };
+    // Safety: syscalls only pass pointers into the (mapped) user address
+    // space (the syscall ABI's contract).
+    let bytes = unsafe { user_ptr::bytes(ptr, len as usize) };
     task::write_output(bytes);
     crate::serial::write_bytes(bytes);
     len
@@ -229,12 +231,13 @@ fn sys_read_char() -> u64 {
 /// Read a NUL-terminated string from user memory.
 fn user_cstr(ptr: u64) -> &'static str {
     let mut len = 0usize;
-    // Safety: the caller must pass a valid, NUL-terminated user pointer.
+    // Safety: the caller must pass a valid, NUL-terminated user pointer (the
+    // syscall ABI's contract).
     unsafe {
-        while len < 4096 && core::ptr::read_volatile((ptr as *const u8).add(len)) != 0 {
+        while len < 4096 && user_ptr::read_at::<u8>(ptr, len) != 0 {
             len += 1;
         }
-        let bytes = core::slice::from_raw_parts(ptr as *const u8, len);
+        let bytes = user_ptr::bytes(ptr, len);
         core::str::from_utf8(bytes).unwrap_or("")
     }
 }
@@ -245,10 +248,9 @@ fn sys_read_file(name_ptr: u64, buf_ptr: u64, buf_len: u64) -> u64 {
     match fs::read(name) {
         Some(bytes) => {
             let count = bytes.len().min(buf_len as usize);
-            // Safety: the destination is a valid user buffer of `buf_len` bytes.
-            unsafe {
-                core::ptr::copy_nonoverlapping(bytes.as_ptr(), buf_ptr as *mut u8, count);
-            }
+            // Safety: the destination is a valid user buffer of `buf_len`
+            // bytes (the syscall ABI's contract).
+            unsafe { user_ptr::copy_to(buf_ptr, &bytes[..count]) };
             count as u64
         }
         None => u64::MAX,
@@ -451,7 +453,7 @@ fn read_cred(ptr: u64) -> Option<Cred> {
     for (index, word) in words.iter_mut().enumerate() {
         // Safety: the caller must pass a mapped, writable user buffer eight
         // bytes per word; the native syscall ABI trusts user buffers today.
-        *word = unsafe { core::ptr::read_volatile((ptr as *const u64).add(index)) };
+        *word = unsafe { user_ptr::read_at::<u64>(ptr, index) };
     }
     Some(Cred::from_words(words))
 }
@@ -464,7 +466,7 @@ fn write_cred(ptr: u64, cred: Cred) -> bool {
     }
     for (index, word) in cred.to_words().iter().enumerate() {
         // Safety: as in [`read_cred`]; the address is the caller's buffer.
-        unsafe { core::ptr::write_volatile((ptr as *mut u64).add(index), *word) };
+        unsafe { user_ptr::write_at::<u64>(ptr, index, *word) };
     }
     true
 }
@@ -531,7 +533,7 @@ fn sys_quota(buf: u64) -> u64 {
         // Safety: the caller passes a writable user buffer of
         // `quota::STATS_WORDS` eight-byte words; the native syscall ABI trusts
         // user buffers today (see `read_cred`).
-        unsafe { core::ptr::write_volatile((buf as *mut u64).add(index), *word) };
+        unsafe { user_ptr::write_at::<u64>(buf, index, *word) };
     }
     0
 }
@@ -579,10 +581,9 @@ fn sys_args(buf_ptr: u64, buf_len: u64) -> u64 {
         .unwrap_or_default();
     let count = args.len().min(buf_len as usize);
     if count > 0 {
-        // Safety: the caller passes a buffer valid for `buf_len` bytes.
-        unsafe {
-            core::ptr::copy_nonoverlapping(args.as_ptr(), buf_ptr as *mut u8, count);
-        }
+        // Safety: the caller passes a buffer valid for `buf_len` bytes (the
+        // syscall ABI's contract).
+        unsafe { user_ptr::copy_to(buf_ptr, &args[..count]) };
     }
     args.len() as u64
 }
