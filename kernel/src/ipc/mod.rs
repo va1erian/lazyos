@@ -22,6 +22,7 @@ pub mod registry;
 pub mod shared;
 pub mod stats;
 pub mod syscalls;
+pub mod topics;
 
 /// The fabric's single policy choke point (issue #68).
 ///

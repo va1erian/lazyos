@@ -56,6 +56,9 @@ pub mod op {
     pub const UNREGISTER: u64 = 15;
     /// Snapshot the name table into the caller's buffer.
     pub const LIST: u64 = 16;
+    /// Ask the kernel policy engine about every segment of a topic or filter
+    /// (issue #92); the daemon uses this on behalf of a requesting client.
+    pub const AUTHORIZE_TOPIC: u64 = 17;
 }
 
 /// `MsgArgs::txn_id` marker for registry ops: act on the calling task. A
@@ -348,6 +351,9 @@ pub enum Error {
     /// The registry daemon refused the request with a positive errno-style
     /// code (`registry::serve_request` carries it across the channel).
     Registry(i64),
+    /// The topics broker refused the request with a positive errno-style code
+    /// (`topics` carries it in the reply's `ERROR` field).
+    Topics(i64),
     /// A parcel was malformed on encode or decode.
     Parcel(ParcelError),
 }
@@ -357,8 +363,9 @@ impl Error {
     pub fn errno(self) -> Option<i64> {
         match self {
             Error::Errno(code) => Some(code),
-            // Registry codes travel positive; normalise to the syscall shape.
-            Error::Registry(code) => Some(-code),
+            // Registry and broker codes travel positive; normalise to the
+            // syscall shape.
+            Error::Registry(code) | Error::Topics(code) => Some(-code),
             Error::Parcel(_) => None,
         }
     }
@@ -368,6 +375,7 @@ impl Error {
         match self {
             Error::Parcel(error) => error.message(),
             Error::Registry(code) => registry_message(code),
+            Error::Topics(code) => topics_message(code),
             // A match guard keeps the named constants readable; a bare
             // `-CONST` is not a valid pattern.
             Error::Errno(code) => match code {
@@ -415,6 +423,25 @@ fn registry_message(code: i64) -> &'static str {
         "this app is not allowed to use the name registry"
     } else {
         "the registry request is malformed"
+    }
+}
+
+/// Friendly text for a topics-broker error code crossing the daemon protocol.
+fn topics_message(code: i64) -> &'static str {
+    if code == errno::EACCES {
+        "this app is not allowed to use that topic segment"
+    } else if code == errno::ENOENT {
+        "no such topic subscription"
+    } else if code == errno::EINVAL {
+        "the topic name or filter is malformed"
+    } else if code == errno::EPERM {
+        "that subscription belongs to another task"
+    } else if code == errno::E2BIG {
+        "the event payload exceeds the topic broker's limit"
+    } else if code == errno::ENOMEM {
+        "the topic broker is out of subscription slots"
+    } else {
+        "the topic request failed"
     }
 }
 
@@ -537,6 +564,16 @@ impl Endpoint {
     /// Block until a message arrives (or the deadline passes).
     pub fn recv(&self, deadline: Option<u64>) -> Result<Message> {
         let mut buf = vec![0u8; DEFAULT_BUFFER];
+        self.recv_into(&mut buf, deadline)
+    }
+
+    /// [`Endpoint::recv`] into a caller-provided buffer.
+    ///
+    /// The userspace heap is a bump allocator that never frees, so a polling
+    /// loop can avoid a fresh [`DEFAULT_BUFFER`] per iteration by reusing one
+    /// scratch buffer here. A message larger than `buf` is refused with
+    /// `-E2BIG` after delivery, exactly like [`Endpoint::recv`].
+    pub fn recv_into(&self, buf: &mut [u8], deadline: Option<u64>) -> Result<Message> {
         let args = MsgArgs {
             handle: self.handle,
             buf_ptr: buf.as_mut_ptr() as u64,
@@ -821,10 +858,15 @@ pub mod registry {
     }
 
     /// A header for a registry parcel of `method`.
+    ///
+    /// `ALLOW_NESTED` is required on the shared bootstrap channel: a topic
+    /// subscriber may be parked in `next_event` (a pending transaction on the
+    /// same channel) while another task resolves a name, and the kernel's
+    /// per-channel cycle check would otherwise refuse the resolve.
     fn header(method: u32) -> Header {
         Header {
             version: VERSION,
-            flags: 0,
+            flags: libmessenger::flags::ALLOW_NESTED,
             interface_id: INTERFACE,
             method,
             txn_id: 0,
@@ -1213,6 +1255,806 @@ pub mod registry {
             let reply = self.call(method::LIST, Encoder::new())?;
             decode_entries(&reply)
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Pub/sub topics (issue #92)
+// ---------------------------------------------------------------------------
+
+/// Publish/subscribe topics (`docs/messenger.md` section 7.2).
+///
+/// ## Where the broker lives
+///
+/// Topics live in **userspace**, in `messengerd`, per the epic decision
+/// recorded in section 20: the kernel's job is policy and message transport,
+/// not naming, filters, QoS or retained state. The broker is addressed through
+/// the well-known name [`NAME`] on the same bootstrap endpoint as the service
+/// registry — the daemon dispatches on the parcel's interface id.
+///
+/// ## Delivery is pull-based, with kernel-mediated blocking
+///
+/// A subscription is a broker-side id, not a channel or a handle. The
+/// subscriber asks for the next event with [`Subscription::next_event`], a
+/// synchronous call to the broker:
+///
+/// * when an event is queued the broker replies immediately;
+/// * when the queue is empty the broker **parks the transaction** and answers
+///   it later, when a matching `Publish` arrives. The subscriber sleeps in the
+///   kernel's wait queue with a real deadline, so `next_event(Some(ticks))`
+///   times out cleanly and a slow subscriber never stalls the publisher.
+///
+/// This is why the broker's calls carry [`libmessenger::flags::ALLOW_NESTED`]:
+/// the bootstrap channel is shared by every client, and one subscribed task
+/// may be parked in `next_event` while another publishes on the same channel.
+/// The kernel's per-channel cycle check would otherwise refuse the second
+/// call as a deadlock.
+///
+/// ## QoS
+///
+/// [`Qos::Latest`] keeps one event (new replaces old), [`Qos::Buffered`] keeps
+/// `N` and drops the oldest on overflow, [`Qos::Conflate`] coalesces the latest
+/// event per publisher in its window, and [`Qos::Reliable`] keeps events until
+/// the subscriber [`Subscription::ack`]s them, redelivering the head on the
+/// next request. The broker counts every dropped event per subscriber;
+/// [`Subscription::stats`] exposes the counter. There are no timers in
+/// userspace yet, so `reliable` retirement is pull-driven (an event stays
+/// outstanding until acked or the subscriber dies) — best-effort after peer
+/// death is the documented limit.
+///
+/// ## Policy
+///
+/// Every publish and subscribe is checked segment by segment through the
+/// kernel (`op::AUTHORIZE_TOPIC`), so `ipc::authorize` and its audit ring stay
+/// the single policy choke point; the broker only maps `-EACCES` to its
+/// friendly denial reply.
+pub mod topics {
+    use alloc::string::String;
+    use alloc::vec::Vec;
+
+    use libmessenger::{flags, Decoder, Encoder, Header, Kind, Parcel, VERSION};
+
+    use super::{
+        encode, errno, op, registry, syscall, Endpoint, Error, MsgArgs, MsgResult, Result,
+        EXPIRED_DEADLINE,
+    };
+
+    /// Well-known broker name; `messengerd` registers it at startup.
+    pub const NAME: &str = "os.lazy.messenger.topics";
+
+    /// Topics interface id: `fnv1a64("os.lazy.messenger.topics.v1")`, the same
+    /// `tools/midlc` hash the kernel and broker use.
+    pub const INTERFACE: u64 = 0xc573_4f97_8fef_7231;
+
+    /// Broker method ids (`fnv1a32` of the method name, `tools/midlc` style).
+    pub mod method {
+        /// Publish one payload under a topic.
+        pub const PUBLISH: u32 = 1818372520;
+        /// Create a subscription for a filter.
+        pub const SUBSCRIBE: u32 = 6992035;
+        /// Drop a subscription.
+        pub const UNSUBSCRIBE: u32 = 2099666486;
+        /// Wait for (or poll) the next event of a subscription.
+        pub const NEXT_EVENT: u32 = 1278354512;
+        /// Retire an event delivered by a `reliable` subscription.
+        pub const ACK: u32 = 483717538;
+        /// List topics the broker has seen.
+        pub const LIST_TOPICS: u32 = 225427937;
+        /// Per-subscription queue and drop counters.
+        pub const STATS: u32 = 788260383;
+        /// Round-trip probe used to detect a live broker.
+        pub const PING: u32 = 2142761129;
+    }
+
+    /// TLV field ids of the broker protocol.
+    pub mod field {
+        /// Publish topic / event topic.
+        pub const TOPIC: u16 = 1;
+        /// Subscription filter.
+        pub const FILTER: u16 = 2;
+        /// Encoded payload parcel bytes.
+        pub const PAYLOAD: u16 = 3;
+        /// Whether a publish is the retained value.
+        pub const RETAINED: u16 = 4;
+        /// QoS code.
+        pub const QOS: u16 = 5;
+        /// Buffered depth.
+        pub const DEPTH: u16 = 6;
+        /// Subscription id.
+        pub const SUBSCRIPTION: u16 = 7;
+        /// Event sequence / ack sequence.
+        pub const SEQUENCE: u16 = 8;
+        /// Publisher task slot.
+        pub const PUBLISHER: u16 = 9;
+        /// Nested event record.
+        pub const EVENT: u16 = 10;
+        /// Subscribers a publish matched.
+        pub const MATCHED: u16 = 11;
+        /// Dropped events (subscription stats).
+        pub const DROPS: u16 = 12;
+        /// Queued events (subscription stats).
+        pub const QUEUED: u16 = 13;
+        /// Delivered events (subscription stats).
+        pub const DELIVERED: u16 = 14;
+        /// Subscribers matching a listed topic.
+        pub const SUBSCRIBERS: u16 = 15;
+        /// Nested topic record.
+        pub const ENTRY: u16 = 16;
+        /// Structured error reply.
+        pub const ERROR: u16 = 17;
+    }
+
+    /// TLV field ids of the kernel `authorize_topic` request; mirrors
+    /// `kernel/src/ipc/topics.rs`.
+    pub mod auth_field {
+        pub const NAME: u16 = 1;
+        pub const MODE: u16 = 2;
+        pub const TXN: u16 = 3;
+    }
+
+    /// Kernel mode code for a publish ACL check.
+    pub const MODE_PUBLISH: u32 = 0;
+    /// Kernel mode code for a subscribe ACL check.
+    pub const MODE_SUBSCRIBE: u32 = 1;
+
+    /// Payload bytes accepted by the broker in one event. Sized well below the
+    /// 16 KiB call buffer so a `NextEvent` reply always fits.
+    pub const MAX_PAYLOAD: usize = 8 * 1024;
+
+    /// PIT ticks [`Client::connect`] waits for the broker name to appear.
+    /// `messengerd` registers [`NAME`] during its own boot and is spawned
+    /// before its clients, so a handful of ticks is ample; a boot without a
+    /// broker should still reach the prompt promptly. Userspace has no clock
+    /// syscall yet, so each retry sleeps one tick by parking on a private
+    /// channel pair with an expired deadline.
+    const CONNECT_ATTEMPTS: usize = 8;
+
+    /// Delivery contract chosen at subscribe time; enforced by the broker.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    pub enum Qos {
+        /// Keep only the most recent event; a replacement overwrites.
+        Latest,
+        /// Keep up to `N` events; overflow drops the oldest.
+        Buffered(u32),
+        /// Coalesce to the latest event per publisher until consumed.
+        Conflate,
+        /// Keep events until the subscriber acks them; bounded retry.
+        Reliable,
+    }
+
+    impl Qos {
+        /// Largest accepted `Buffered` depth.
+        pub const MAX_DEPTH: u32 = 64;
+        /// Queue depth a `Reliable` subscription gets.
+        pub const RELIABLE_DEPTH: u32 = 8;
+        /// Distinct publishers a `Conflate` subscription coalesces across.
+        pub const CONFLATE_WINDOW: u32 = 4;
+
+        /// The wire code.
+        pub const fn code(self) -> u32 {
+            match self {
+                Qos::Latest => 0,
+                Qos::Buffered(_) => 1,
+                Qos::Conflate => 2,
+                Qos::Reliable => 3,
+            }
+        }
+
+        /// The effective queue depth (clamped to at least one).
+        pub const fn depth(self) -> u32 {
+            match self {
+                Qos::Buffered(depth) => {
+                    if depth == 0 {
+                        1
+                    } else if depth > Self::MAX_DEPTH {
+                        Self::MAX_DEPTH
+                    } else {
+                        depth
+                    }
+                }
+                Qos::Reliable => Self::RELIABLE_DEPTH,
+                Qos::Conflate => Self::CONFLATE_WINDOW,
+                Qos::Latest => 1,
+            }
+        }
+
+        /// Decode `(code, depth)` from the wire, or `None` for an unknown code.
+        pub fn from_parts(code: u32, depth: u32) -> Option<Qos> {
+            match code {
+                0 => Some(Qos::Latest),
+                1 => Some(Qos::Buffered(depth)),
+                2 => Some(Qos::Conflate),
+                3 => Some(Qos::Reliable),
+                _ => None,
+            }
+        }
+    }
+
+    /// One delivered event: broker metadata plus the publisher's opaque
+    /// payload parcel.
+    #[derive(Clone, PartialEq, Eq, Debug)]
+    pub struct Event {
+        /// Topic the event was published under.
+        pub topic: String,
+        /// Task slot of the publisher (kernel-stamped when the publish arrived).
+        pub publisher: u64,
+        /// Broker sequence number (monotonic per broker boot).
+        pub sequence: u64,
+        /// Whether this event is a retained value replay.
+        pub retained: bool,
+        /// The payload parcel, still encoded; decode with [`Event::parcel`].
+        pub payload: Vec<u8>,
+    }
+
+    impl Event {
+        /// Decode the stored payload into the parcel the publisher sent.
+        pub fn parcel(&self) -> Result<Parcel> {
+            Parcel::decode(&self.payload).map_err(Error::Parcel)
+        }
+    }
+
+    /// Per-subscription delivery counters.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+    pub struct SubscriptionStats {
+        /// QoS code the subscription was created with.
+        pub qos: u32,
+        /// Effective queue depth.
+        pub depth: u32,
+        /// Events currently queued (reliable: delivered but unacked included).
+        pub queued: u64,
+        /// Events handed to the subscriber.
+        pub delivered: u64,
+        /// Events the subscription's filter matched.
+        pub matched: u64,
+        /// Events dropped by the QoS policy or a full queue.
+        pub drops: u64,
+    }
+
+    /// One row of [`Client::list`].
+    #[derive(Clone, PartialEq, Eq, Debug)]
+    pub struct TopicInfo {
+        /// Topic name.
+        pub topic: String,
+        /// Live subscriptions whose filter matches it.
+        pub subscribers: u64,
+        /// Whether the broker holds a retained value for it.
+        pub retained: bool,
+    }
+
+    /// A header for a broker parcel of `method`.
+    ///
+    /// `ALLOW_NESTED` is required, not optional: every client shares the
+    /// daemon's bootstrap channel, so `next_event` may leave a transaction
+    /// open while another task publishes (see the module docs).
+    fn header(method: u32) -> Header {
+        Header {
+            version: VERSION,
+            flags: flags::SYNC | flags::ALLOW_NESTED,
+            interface_id: INTERFACE,
+            method,
+            txn_id: 0,
+            reply_to: 0,
+            deadline_ns: 0,
+        }
+    }
+
+    /// Wrap an encoded body in a broker parcel.
+    pub fn request_parcel(method: u32, body: Encoder) -> Parcel {
+        Parcel {
+            header: header(method),
+            body: body.finish(),
+            handles: Vec::new(),
+            buffers: Vec::new(),
+        }
+    }
+
+    /// An empty reply.
+    pub fn reply_ok(method: u32) -> Parcel {
+        request_parcel(method, Encoder::new())
+    }
+
+    /// A publish reply carrying the subscriber count the event reached.
+    pub fn reply_matched(matched: u64) -> Result<Parcel> {
+        let mut body = Encoder::new();
+        body.u64(field::MATCHED, matched).map_err(Error::Parcel)?;
+        Ok(request_parcel(method::PUBLISH, body))
+    }
+
+    /// A subscribe reply carrying the new subscription id.
+    pub fn reply_subscription(id: u64) -> Result<Parcel> {
+        let mut body = Encoder::new();
+        body.u64(field::SUBSCRIPTION, id).map_err(Error::Parcel)?;
+        Ok(request_parcel(method::SUBSCRIBE, body))
+    }
+
+    /// A `NextEvent` reply carrying one event.
+    pub fn reply_event(event: &Event) -> Result<Parcel> {
+        let mut record = Encoder::new();
+        record
+            .string(field::TOPIC, &event.topic)
+            .map_err(Error::Parcel)?;
+        record
+            .u64(field::PUBLISHER, event.publisher)
+            .map_err(Error::Parcel)?;
+        record
+            .u64(field::SEQUENCE, event.sequence)
+            .map_err(Error::Parcel)?;
+        record
+            .bool(field::RETAINED, event.retained)
+            .map_err(Error::Parcel)?;
+        record
+            .bytes(field::PAYLOAD, &event.payload)
+            .map_err(Error::Parcel)?;
+        let mut body = Encoder::new();
+        body.record(field::EVENT, &record).map_err(Error::Parcel)?;
+        Ok(request_parcel(method::NEXT_EVENT, body))
+    }
+
+    /// A stats reply.
+    pub fn reply_stats(stats: &SubscriptionStats) -> Result<Parcel> {
+        let mut body = Encoder::new();
+        body.u32(field::QOS, stats.qos).map_err(Error::Parcel)?;
+        body.u32(field::DEPTH, stats.depth).map_err(Error::Parcel)?;
+        body.u64(field::QUEUED, stats.queued)
+            .map_err(Error::Parcel)?;
+        body.u64(field::DELIVERED, stats.delivered)
+            .map_err(Error::Parcel)?;
+        body.u64(field::MATCHED, stats.matched)
+            .map_err(Error::Parcel)?;
+        body.u64(field::DROPS, stats.drops).map_err(Error::Parcel)?;
+        Ok(request_parcel(method::STATS, body))
+    }
+
+    /// A topic-list reply.
+    pub fn reply_topics(topics: &[TopicInfo]) -> Result<Parcel> {
+        let mut body = Encoder::new();
+        for info in topics {
+            let mut record = Encoder::new();
+            record
+                .string(field::TOPIC, &info.topic)
+                .map_err(Error::Parcel)?;
+            record
+                .u64(field::SUBSCRIBERS, info.subscribers)
+                .map_err(Error::Parcel)?;
+            record
+                .bool(field::RETAINED, info.retained)
+                .map_err(Error::Parcel)?;
+            body.record(field::ENTRY, &record).map_err(Error::Parcel)?;
+        }
+        Ok(request_parcel(method::LIST_TOPICS, body))
+    }
+
+    /// The broker's error answer: errno-style code plus friendly text.
+    pub fn error_reply(method: u32, error: Error) -> Parcel {
+        let code = error.errno().map(|code| -code).unwrap_or(errno::EINVAL);
+        let mut body = Encoder::new();
+        // A structured error field cannot overflow a fresh encoder here.
+        let _ = body.error(field::ERROR, code as u32, error.message());
+        request_parcel(method, body)
+    }
+
+    /// The first structured error field, when the reply is a broker failure.
+    fn error_field(parcel: &Parcel) -> Result<Option<i64>> {
+        let mut decoder = Decoder::new(&parcel.body);
+        while let Some(field) = decoder.next().map_err(Error::Parcel)? {
+            if field.kind == Kind::Error && field.id == field::ERROR {
+                let (code, _message) = field.error_parts().map_err(Error::Parcel)?;
+                return Ok(Some(code as i64));
+            }
+        }
+        Ok(None)
+    }
+
+    /// The first string field with `id`.
+    pub fn string_field(parcel: &Parcel, id: u16) -> Result<String> {
+        let mut decoder = Decoder::new(&parcel.body);
+        while let Some(field) = decoder.next().map_err(Error::Parcel)? {
+            if field.kind == Kind::String && field.id == id {
+                return Ok(String::from(field.as_str().map_err(Error::Parcel)?));
+            }
+        }
+        Err(Error::Errno(-errno::EINVAL))
+    }
+
+    /// The first `u64` field with `id`, if any.
+    pub fn u64_field(parcel: &Parcel, id: u16) -> Result<Option<u64>> {
+        let mut decoder = Decoder::new(&parcel.body);
+        while let Some(field) = decoder.next().map_err(Error::Parcel)? {
+            if field.kind == Kind::U64 && field.id == id {
+                return Ok(Some(field.as_u64().map_err(Error::Parcel)?));
+            }
+        }
+        Ok(None)
+    }
+
+    /// The first `u32` field with `id`, if any.
+    pub fn u32_field(parcel: &Parcel, id: u16) -> Result<Option<u32>> {
+        let mut decoder = Decoder::new(&parcel.body);
+        while let Some(field) = decoder.next().map_err(Error::Parcel)? {
+            if field.kind == Kind::U32 && field.id == id {
+                return Ok(Some(field.as_u32().map_err(Error::Parcel)?));
+            }
+        }
+        Ok(None)
+    }
+
+    /// The first `bool` field with `id` (default `false`).
+    pub fn bool_field(parcel: &Parcel, id: u16) -> Result<bool> {
+        let mut decoder = Decoder::new(&parcel.body);
+        while let Some(field) = decoder.next().map_err(Error::Parcel)? {
+            if field.kind == Kind::Bool && field.id == id {
+                return field.as_bool().map_err(Error::Parcel);
+            }
+        }
+        Ok(false)
+    }
+
+    /// The first `Bytes` field with `id`, if any.
+    pub fn bytes_field(parcel: &Parcel, id: u16) -> Result<Option<Vec<u8>>> {
+        let mut decoder = Decoder::new(&parcel.body);
+        while let Some(field) = decoder.next().map_err(Error::Parcel)? {
+            if field.kind == Kind::Bytes && field.id == id {
+                return Ok(Some(field.as_bytes().to_vec()));
+            }
+        }
+        Ok(None)
+    }
+
+    /// Decode the first nested `EVENT` record, if the reply carries one.
+    pub fn decode_event(parcel: &Parcel) -> Result<Option<Event>> {
+        let mut decoder = Decoder::new(&parcel.body);
+        while let Some(record) = decoder.next().map_err(Error::Parcel)? {
+            if record.kind != Kind::Struct || record.id != field::EVENT {
+                continue;
+            }
+            let mut nested = record.nested(0).map_err(Error::Parcel)?;
+            let mut event = Event {
+                topic: String::new(),
+                publisher: 0,
+                sequence: 0,
+                retained: false,
+                payload: Vec::new(),
+            };
+            while let Some(item) = nested.next().map_err(Error::Parcel)? {
+                match (item.kind, item.id) {
+                    (Kind::String, field::TOPIC) => {
+                        event.topic = String::from(item.as_str().map_err(Error::Parcel)?);
+                    }
+                    (Kind::U64, field::PUBLISHER) => {
+                        event.publisher = item.as_u64().map_err(Error::Parcel)?;
+                    }
+                    (Kind::U64, field::SEQUENCE) => {
+                        event.sequence = item.as_u64().map_err(Error::Parcel)?;
+                    }
+                    (Kind::Bool, field::RETAINED) => {
+                        event.retained = item.as_bool().map_err(Error::Parcel)?;
+                    }
+                    (Kind::Bytes, field::PAYLOAD) => {
+                        event.payload = item.as_bytes().to_vec();
+                    }
+                    _ => {}
+                }
+            }
+            return Ok(Some(event));
+        }
+        Ok(None)
+    }
+
+    /// Decode a stats reply.
+    pub fn decode_stats(parcel: &Parcel) -> Result<SubscriptionStats> {
+        Ok(SubscriptionStats {
+            qos: u32_field(parcel, field::QOS)?.unwrap_or(0),
+            depth: u32_field(parcel, field::DEPTH)?.unwrap_or(0),
+            queued: u64_field(parcel, field::QUEUED)?.unwrap_or(0),
+            delivered: u64_field(parcel, field::DELIVERED)?.unwrap_or(0),
+            matched: u64_field(parcel, field::MATCHED)?.unwrap_or(0),
+            drops: u64_field(parcel, field::DROPS)?.unwrap_or(0),
+        })
+    }
+
+    /// Decode a topic-list reply.
+    pub fn decode_topics(parcel: &Parcel) -> Result<Vec<TopicInfo>> {
+        let mut topics = Vec::new();
+        let mut decoder = Decoder::new(&parcel.body);
+        while let Some(record) = decoder.next().map_err(Error::Parcel)? {
+            if record.kind != Kind::Struct || record.id != field::ENTRY {
+                continue;
+            }
+            let mut nested = record.nested(0).map_err(Error::Parcel)?;
+            let mut info = TopicInfo {
+                topic: String::new(),
+                subscribers: 0,
+                retained: false,
+            };
+            while let Some(item) = nested.next().map_err(Error::Parcel)? {
+                match (item.kind, item.id) {
+                    (Kind::String, field::TOPIC) => {
+                        info.topic = String::from(item.as_str().map_err(Error::Parcel)?);
+                    }
+                    (Kind::U64, field::SUBSCRIBERS) => {
+                        info.subscribers = item.as_u64().map_err(Error::Parcel)?;
+                    }
+                    (Kind::Bool, field::RETAINED) => {
+                        info.retained = item.as_bool().map_err(Error::Parcel)?;
+                    }
+                    _ => {}
+                }
+            }
+            topics.push(info);
+        }
+        Ok(topics)
+    }
+
+    /// Encode a `Publish` request body.
+    fn publish_body(topic: &str, payload: &[u8], retained: bool) -> Result<Encoder> {
+        let mut body = Encoder::new();
+        body.string(field::TOPIC, topic).map_err(Error::Parcel)?;
+        body.bytes(field::PAYLOAD, payload).map_err(Error::Parcel)?;
+        body.bool(field::RETAINED, retained)
+            .map_err(Error::Parcel)?;
+        Ok(body)
+    }
+
+    /// Encode a `Subscribe` request body.
+    fn subscribe_body(filter: &str, qos: Qos) -> Result<Encoder> {
+        let mut body = Encoder::new();
+        body.string(field::FILTER, filter).map_err(Error::Parcel)?;
+        body.u32(field::QOS, qos.code()).map_err(Error::Parcel)?;
+        body.u32(field::DEPTH, qos.depth()).map_err(Error::Parcel)?;
+        Ok(body)
+    }
+
+    /// Encode a request body that names one subscription.
+    fn subscription_body(id: u64) -> Result<Encoder> {
+        let mut body = Encoder::new();
+        body.u64(field::SUBSCRIPTION, id).map_err(Error::Parcel)?;
+        Ok(body)
+    }
+
+    /// A client of the topics broker over the bootstrap channel.
+    pub struct Client {
+        endpoint: Endpoint,
+    }
+
+    impl Client {
+        /// Resolve [`NAME`] and wrap the broker endpoint. Retries briefly
+        /// while `messengerd` is still registering the name at boot.
+        pub fn connect() -> Result<Client> {
+            let first = match registry::resolve(NAME) {
+                Ok(endpoint) => return Ok(Client { endpoint }),
+                Err(error) => error,
+            };
+            if first.errno() != Some(-errno::ENOENT) {
+                return Err(first);
+            }
+            // Park one tick per retry on a private pair; `close` frees the
+            // pair when its last side goes (no channel is leaked). The probe
+            // recv reuses one stack buffer because the bump heap never frees.
+            let (probe, peer) = super::create_pair()?;
+            let mut scratch = [0u8; 64];
+            let mut client = Err(Error::Errno(-errno::ENOENT));
+            for _ in 0..CONNECT_ATTEMPTS {
+                let _ = probe.recv_into(&mut scratch, Some(EXPIRED_DEADLINE));
+                match registry::resolve(NAME) {
+                    Ok(endpoint) => {
+                        client = Ok(Client { endpoint });
+                        break;
+                    }
+                    Err(error) if error.errno() == Some(-errno::ENOENT) => {}
+                    Err(error) => {
+                        client = Err(error);
+                        break;
+                    }
+                }
+            }
+            let _ = probe.close();
+            let _ = peer.close();
+            client
+        }
+
+        /// Wrap an already-resolved broker endpoint.
+        pub fn from_endpoint(endpoint: Endpoint) -> Client {
+            Client { endpoint }
+        }
+
+        /// The underlying broker endpoint (diagnostics).
+        pub fn endpoint(&self) -> Endpoint {
+            self.endpoint
+        }
+
+        /// Run one request as a blocking call and fail on a broker error reply.
+        fn call(&self, method: u32, body: Encoder, deadline: Option<u64>) -> Result<Parcel> {
+            let reply = self
+                .endpoint
+                .call(&request_parcel(method, body), deadline)?;
+            if let Some(code) = error_field(&reply)? {
+                return Err(Error::Topics(code));
+            }
+            Ok(reply)
+        }
+
+        /// Publish an opaque payload parcel under `topic`; returns how many
+        /// subscriptions matched.
+        pub fn publish(&self, topic: &str, payload: &Parcel) -> Result<u64> {
+            self.publish_inner(topic, payload, false)
+        }
+
+        /// Publish `payload` and remember it as the topic's retained value
+        /// (`docs/messenger.md` section 7.2).
+        pub fn publish_retained(&self, topic: &str, payload: &Parcel) -> Result<u64> {
+            self.publish_inner(topic, payload, true)
+        }
+
+        fn publish_inner(&self, topic: &str, payload: &Parcel, retained: bool) -> Result<u64> {
+            let bytes = encode(payload)?;
+            if bytes.len() > MAX_PAYLOAD {
+                return Err(Error::Errno(-errno::E2BIG));
+            }
+            let reply = self.call(
+                method::PUBLISH,
+                publish_body(topic, &bytes, retained)?,
+                None,
+            )?;
+            Ok(u64_field(&reply, field::MATCHED)?.unwrap_or(0))
+        }
+
+        /// Subscribe to `filter` (literal, `+` or trailing `#`) with `qos`.
+        pub fn subscribe(&self, filter: &str, qos: Qos) -> Result<Subscription> {
+            let reply = self.call(method::SUBSCRIBE, subscribe_body(filter, qos)?, None)?;
+            let id = u64_field(&reply, field::SUBSCRIPTION)?.ok_or(Error::Errno(-errno::EINVAL))?;
+            Ok(Subscription {
+                endpoint: self.endpoint,
+                id,
+            })
+        }
+
+        /// Drop a subscription (same as [`Subscription::unsubscribe`]).
+        pub fn unsubscribe(&self, subscription: &Subscription) -> Result<()> {
+            self.call(
+                method::UNSUBSCRIBE,
+                subscription_body(subscription.id)?,
+                None,
+            )?;
+            Ok(())
+        }
+
+        /// List topics the broker has seen, with live subscriber counts.
+        pub fn list(&self) -> Result<Vec<TopicInfo>> {
+            let reply = self.call(method::LIST_TOPICS, Encoder::new(), None)?;
+            decode_topics(&reply)
+        }
+
+        /// Per-subscription counters (drops, queue depth, delivery).
+        pub fn stats(&self, subscription: &Subscription) -> Result<SubscriptionStats> {
+            let reply = self.call(method::STATS, subscription_body(subscription.id)?, None)?;
+            decode_stats(&reply)
+        }
+
+        /// Round-trip probe.
+        pub fn ping(&self) -> Result<()> {
+            self.call(method::PING, Encoder::new(), None)?;
+            Ok(())
+        }
+    }
+
+    /// A live subscription on the broker.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    pub struct Subscription {
+        endpoint: Endpoint,
+        id: u64,
+    }
+
+    impl Subscription {
+        /// The broker-side subscription id.
+        pub const fn id(self) -> u64 {
+            self.id
+        }
+
+        /// Wait for the next event; `Ok(None)` means the deadline passed.
+        ///
+        /// With `reliable` QoS the broker redelivers the head until it is
+        /// acked, so the same event can come back more than once; call
+        /// [`Subscription::ack`] once the payload is safely processed.
+        pub fn next_event(&self, deadline: Option<u64>) -> Result<Option<Event>> {
+            let reply = match self.endpoint.call(
+                &request_parcel(method::NEXT_EVENT, subscription_body(self.id)?),
+                deadline,
+            ) {
+                Ok(reply) => reply,
+                // The kernel deadline is the timeout signal; the broker simply
+                // discovers a dead pull when it later tries to answer it.
+                Err(Error::Errno(code)) if code == -errno::ETIMEDOUT => return Ok(None),
+                Err(error) => return Err(error),
+            };
+            if let Some(code) = error_field(&reply)? {
+                return Err(Error::Topics(code));
+            }
+            decode_event(&reply)
+        }
+
+        /// [`Subscription::next_event`] with an already-expired deadline: never
+        /// blocks, `Ok(None)` when nothing is queued.
+        pub fn poll_event(&self) -> Result<Option<Event>> {
+            self.next_event(Some(EXPIRED_DEADLINE))
+        }
+
+        /// Retire every event up to `sequence` (drives `reliable` queues).
+        pub fn ack(&self, sequence: u64) -> Result<()> {
+            let mut body = subscription_body(self.id)?;
+            body.u64(field::SEQUENCE, sequence).map_err(Error::Parcel)?;
+            let reply = self
+                .endpoint
+                .call(&request_parcel(method::ACK, body), None)?;
+            if let Some(code) = error_field(&reply)? {
+                return Err(Error::Topics(code));
+            }
+            Ok(())
+        }
+
+        /// Per-subscription counters.
+        pub fn stats(&self) -> Result<SubscriptionStats> {
+            let reply = self.endpoint.call(
+                &request_parcel(method::STATS, subscription_body(self.id)?),
+                None,
+            )?;
+            if let Some(code) = error_field(&reply)? {
+                return Err(Error::Topics(code));
+            }
+            decode_stats(&reply)
+        }
+
+        /// Drop this subscription; later publishes stop matching it.
+        pub fn unsubscribe(self) -> Result<()> {
+            let reply = self.endpoint.call(
+                &request_parcel(method::UNSUBSCRIBE, subscription_body(self.id)?),
+                None,
+            )?;
+            if let Some(code) = error_field(&reply)? {
+                return Err(Error::Topics(code));
+            }
+            Ok(())
+        }
+    }
+
+    /// Ask the kernel policy engine about `name` for the task in `actor`
+    /// (the `messengerd` proxy path). `mode` is [`MODE_PUBLISH`] or
+    /// [`MODE_SUBSCRIBE`]; `txn` is copied into denial audit records.
+    ///
+    /// `-EACCES` means policy refused a segment; the denial is already in the
+    /// audit ring.
+    pub fn authorize(actor: u64, mode: u32, name: &str, txn: u64) -> Result<()> {
+        let mut body = Encoder::new();
+        body.string(auth_field::NAME, name).map_err(Error::Parcel)?;
+        body.u32(auth_field::MODE, mode).map_err(Error::Parcel)?;
+        body.u64(auth_field::TXN, txn).map_err(Error::Parcel)?;
+        // The kernel op ignores the parcel header; the body carries the query.
+        let parcel = request_parcel(0, body);
+        let bytes = encode(&parcel)?;
+        let args = MsgArgs {
+            txn_id: actor,
+            parcel_ptr: bytes.as_ptr() as u64,
+            parcel_len: bytes.len() as u64,
+            ..MsgArgs::default()
+        };
+        let mut result = MsgResult::default();
+        syscall(op::AUTHORIZE_TOPIC, &args, &mut result)?;
+        Ok(())
+    }
+
+    /// Convenience: connect and publish. Reusing a [`Client`] is cheaper, but
+    /// this keeps one-shot callers short.
+    pub fn publish(topic: &str, payload: &Parcel) -> Result<u64> {
+        Client::connect()?.publish(topic, payload)
+    }
+
+    /// Convenience: connect and publish a retained value.
+    pub fn publish_retained(topic: &str, payload: &Parcel) -> Result<u64> {
+        Client::connect()?.publish_retained(topic, payload)
+    }
+
+    /// Convenience: connect and subscribe.
+    pub fn subscribe(filter: &str, qos: Qos) -> Result<Subscription> {
+        Client::connect()?.subscribe(filter, qos)
     }
 }
 

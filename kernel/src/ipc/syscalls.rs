@@ -48,7 +48,7 @@ use x86_64::PhysAddr;
 use libmessenger::{Decoder, Encoder, Header, Kind, Parcel, MAX_PARCEL_BYTES, VERSION};
 
 use crate::ipc::handles::HandleKind;
-use crate::ipc::{channels, credentials, handles, registry};
+use crate::ipc::{channels, credentials, handles, registry, topics};
 use crate::mem;
 use crate::task;
 
@@ -128,6 +128,16 @@ pub const OP_RESOLVE: u64 = 14;
 pub const OP_UNREGISTER: u64 = 15;
 /// Snapshot the name table into the caller's buffer as an encoded parcel.
 pub const OP_LIST: u64 = 16;
+/// Authorize a topic or subscription filter segment by segment (issue #92).
+///
+/// The request parcel's body carries the name (`NAME`), the mode (`MODE`, see
+/// [`crate::ipc::topics::MODE_PUBLISH`]) and an optional audit correlation id
+/// (`TXN`). `MsgArgs::txn_id` names the actor task: [`REGISTRY_TARGET_SELF`]
+/// (or the caller) evaluates the caller's own credentials, any other slot is
+/// the `messengerd` proxy path and requires `CAP_IPC_CONTROL`. The op returns
+/// the number of segments evaluated in `value`, or `-EACCES` when policy
+/// refused one of them (already audited by `ipc::authorize`).
+pub const OP_AUTHORIZE_TOPIC: u64 = 17;
 
 /// `MsgArgs::txn_id` marker for registry ops: act on the calling task.
 pub const REGISTRY_TARGET_SELF: u64 = u64::MAX;
@@ -412,6 +422,7 @@ fn handle_op(op: u64, args: &MsgArgs) -> Result<MsgResult, i64> {
         OP_RESOLVE => op_registry(args, crate::ipc::registry::method::RESOLVE),
         OP_UNREGISTER => op_registry(args, crate::ipc::registry::method::UNREGISTER),
         OP_LIST => op_registry(args, crate::ipc::registry::method::LIST),
+        OP_AUTHORIZE_TOPIC => op_authorize_topic(args),
         _ => Err(errno::EINVAL),
     }
 }
@@ -805,6 +816,43 @@ fn registry_list(args: &MsgArgs) -> Result<MsgResult, i64> {
     copy_out(args.buf_ptr, &encoded)?;
     Ok(MsgResult {
         bytes: encoded.len() as u64,
+        ..MsgResult::default()
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Topic ACL op (issue #92)
+// ---------------------------------------------------------------------------
+
+/// Find a `u32` field in a request body (missing means `None`).
+fn parcel_u32(parcel: &Parcel, id: u16) -> Option<u32> {
+    let mut decoder = Decoder::new(&parcel.body);
+    while let Ok(Some(field)) = decoder.next() {
+        if field.kind == Kind::U32 && field.id == id {
+            return field.as_u32().ok();
+        }
+    }
+    None
+}
+
+/// `OP_AUTHORIZE_TOPIC`: evaluate the kernel policy for every segment of a
+/// topic or filter on behalf of the task named by `args.txn_id` (self, or the
+/// privileged `messengerd` proxy path). Policy stays entirely kernel-side;
+/// the userspace broker only asks the question and maps `-EACCES` to its
+/// friendly denial reply.
+fn op_authorize_topic(args: &MsgArgs) -> Result<MsgResult, i64> {
+    let target = registry_target(args.txn_id)?;
+    let bytes = read_parcel(args)?;
+    let parcel = decode_parcel(&bytes)?;
+    let name = registry_name(&parcel)?;
+    let mode = parcel_u32(&parcel, topics::field::MODE).ok_or(errno::EINVAL)?;
+    let txn = registry_u64(&parcel, topics::field::TXN).unwrap_or(0);
+    let segments = topics::authorize(target, mode, &name, txn).map_err(|error| match error {
+        topics::Error::Denied => errno::EACCES,
+        topics::Error::BadName | topics::Error::BadMode => errno::EINVAL,
+    })?;
+    Ok(MsgResult {
+        value: segments as u64,
         ..MsgResult::default()
     })
 }

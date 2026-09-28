@@ -56,12 +56,12 @@ pub fn read_char() -> u64 {
     // Safety: `int 0x80` with syscall 2; result in rax.
     unsafe {
         asm!(
-                    "int 0x80",
-                    in("rax") SYS_READ_CHAR,
-                    lateout("rax") code,
-                    options(nostack),
-                    clobber_abi("sysv64"),
-                );
+            "int 0x80",
+            in("rax") SYS_READ_CHAR,
+            lateout("rax") code,
+            options(nostack),
+            clobber_abi("sysv64"),
+        );
     }
     code
 }
@@ -99,13 +99,13 @@ pub fn sbrk(increment: u64) -> u64 {
     // Safety: `int 0x80` with syscall 4.
     unsafe {
         asm!(
-                    "int 0x80",
-                    in("rax") SYS_SBRK,
-                    in("rdi") increment,
-                    lateout("rax") previous,
-                    options(nostack),
-                    clobber_abi("sysv64"),
-                );
+            "int 0x80",
+            in("rax") SYS_SBRK,
+            in("rdi") increment,
+            lateout("rax") previous,
+            options(nostack),
+            clobber_abi("sysv64"),
+        );
     }
     previous
 }
