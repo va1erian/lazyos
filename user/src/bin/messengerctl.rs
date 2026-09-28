@@ -8,8 +8,9 @@
 //! and prints it as a small table grouped by subsystem: services/channels,
 //! messages, buffers, audit, and per-slot usage. It then offers the registry
 //! commands `list` and `resolve <name>`, the supervisor commands `services`
-//! and `health`, `sessions` (the `logind` session table, issue #101), and the
-//! `log`/`log tail`/`log verify` commands, typed at the prompt (native
+//! and `health`, `sessions` (the `logind` session table, issue #101), the
+//! `log`/`log tail`/`log verify` commands, and the shell-integration commands
+//! `mime <path>` and `open <path>` (issue #116), typed at the prompt (native
 //! programs do not receive argv; the tool is interactive like `sh`).
 //!
 //! When a topics broker is reachable (boot the demo with both
@@ -35,13 +36,13 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::panic::PanicInfo;
 use libmessenger::{Decoder, Encoder, Header, Kind, Parcel, VERSION};
-use user::messenger::{self, keyd, logind, registry, services, topics_client, FabricStats};
+use user::messenger::{self, keyd, logind, mime, registry, services, topics_client, FabricStats};
 use user::sys;
 
 /// The interactive command set, printed at startup and by `help`.
 const HELP: &str = "commands: list | resolve <name> | services | health | sessions | \
                     log [tail [n]] | log verify | topics | tail <filter> [count] | \
-                    keys | stats | help | quit\n";
+                    mime <path> | open <path> [verb] | keys | stats | help | quit\n";
 
 #[no_mangle]
 pub extern "C" fn _start() -> ! {
@@ -86,8 +87,10 @@ fn commands() -> ! {
                 print_log(count)
             }
             _ if text.starts_with("tail ") => tail(text[5..].trim()),
+            _ if text.starts_with("mime ") => print_mime(text[5..].trim()),
+            _ if text.starts_with("open ") => open_path(text[5..].trim()),
             _ => report(
-                "unknown command; try list, resolve <name>, services, health, sessions, log, topics, tail, stats, help, quit",
+                "unknown command; try list, resolve <name>, services, health, sessions, log, topics, tail, mime, open, stats, help, quit",
             ),
         }
     }
@@ -398,6 +401,37 @@ fn print_keys() {
                     "  #{} {:<8} uses {:<3} last-use tick {}\n",
                     key.id, key.kind, key.uses, key.last_use
                 ));
+            }
+        }
+        Err(error) => report(error.message()),
+    }
+}
+
+/// `mime <path>`: the type `mimed`'s database guesses for a path (issue
+/// #116). Falls back to `application/octet-stream` when `mimed` is absent.
+fn print_mime(path: &str) {
+    if path.is_empty() {
+        return report("usage: mime <path>");
+    }
+    sys::write_str(&format!("{}: {}\n", path, mime::guess(path)));
+}
+
+/// `open <path> [verb]`: resolve the open-with app for the path and print the
+/// launch event `mimed` published (issue #116). The verb defaults to `open`.
+fn open_path(rest: &str) {
+    let mut parts = rest.split_whitespace();
+    let Some(path) = parts.next() else {
+        return report("usage: open <path> [verb]");
+    };
+    let verb = parts.next().unwrap_or(mime::DEFAULT_VERB);
+    match mime::open(path, verb) {
+        Ok(result) => {
+            sys::write_str(&format!(
+                "open {} -> {} ({}, topic {})\n",
+                path, result.app, result.mime, result.topic
+            ));
+            if !result.published {
+                sys::write_str("  (launch event not published; supervisor unreachable)\n");
             }
         }
         Err(error) => report(error.message()),

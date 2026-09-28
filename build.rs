@@ -77,6 +77,25 @@ fn main() {
             std::env::var_os("CARGO_BIN_FILE_USER_logind").expect("user logind artifact not found");
         builder.set_file(String::from("LOGIND.ELF"), PathBuf::from(logind));
 
+        // The MIME database and open-with registry (issue #116). `init`
+        // starts it from its manifest; `MIMED.ELF` is the 8.3-safe on-disk
+        // name. `MIME.TYP` is the `/etc/mime.types`-style override the
+        // service reads at boot; it must be 8.3 because the kernel's FAT
+        // reader only resolves short names (an ext2 boot volume can carry
+        // `/etc/mime.types` instead, which `mimed` tries first).
+        let mimed =
+            std::env::var_os("CARGO_BIN_FILE_USER_mimed").expect("user mimed artifact not found");
+        builder.set_file(String::from("MIMED.ELF"), PathBuf::from(mimed));
+        builder.set_file_contents(
+            String::from("MIME.TYP"),
+            b"# LazyOS MIME overrides, /etc/mime.types style: <mime> <ext>...\n\
+              # The boot image uses an 8.3 name because the FAT reader cannot\n\
+              # resolve long names; an ext2 boot volume uses /etc/mime.types.\n\
+              text/x-lazy-test lzt\n\
+              application/x-lazyos lazy\n"
+                .to_vec(),
+        );
+
         // The passwd-style account database (issue #101), `name:uid:gid:
         // secret:home:shell`. This branch has no writable store, so accountsd
         // reads this read-only fallback; the secret is plaintext *on purpose*

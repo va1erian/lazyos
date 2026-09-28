@@ -95,6 +95,16 @@ path = "src/bin/keyd.rs"
 test = false
 bench = false
 
+# `mimed` (issue #116) is the MIME database and open-with registry behind the
+# shell-integration verbs. `init` starts it from its manifest; clients reach it
+# through the `mime` module in `user/src/messenger.rs`. The on-disk name is
+# `MIMED.ELF` (8.3, like the other services).
+[[bin]]
+name = "mimed"
+path = "src/bin/mimed.rs"
+test = false
+bench = false
+
 # Async API examples (issue #91). Not wired into the demo image yet: the root
 # build script would need a `CARGO_BIN_FILE_USER_*` hook and a kernel spawn
 # line, which is a one-line follow-up noted in the PR.
