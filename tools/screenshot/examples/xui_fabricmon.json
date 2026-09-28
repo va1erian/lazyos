@@ -1,7 +1,11 @@
 [
-  {"at": 80.0, "shot": "fabricmon_initial"},
-  {"at": 95.0, "key": "r"},
-  {"at": 100.0, "shot": "fabricmon_refreshed"},
-  {"at": 110.0, "key": "q"},
-  {"at": 112.0, "quit": true}
+  {"wait_for": "FABMON:UP:PASS", "timeout": 240},
+  {"wait_for": "messengerd: serving", "timeout": 120},
+  {"wait": 11.0},
+  {"shot": "fabricmon_initial"},
+  {"key": "r", "until": "FABMON:REFRESH:PASS", "timeout": 60, "retries": 2},
+  {"wait": 2.0},
+  {"shot": "fabricmon_refreshed"},
+  {"key": "q", "until": "FABMON:QUIT:PASS", "timeout": 60, "retries": 2},
+  {"quit": true}
 ]

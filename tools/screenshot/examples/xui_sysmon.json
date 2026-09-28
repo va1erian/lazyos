@@ -1,7 +1,10 @@
 [
-  {"at": 80.0, "shot": "sysmon_initial"},
-  {"at": 95.0, "key": "r"},
-  {"at": 100.0, "shot": "sysmon_refreshed"},
-  {"at": 110.0, "key": "q"},
-  {"at": 112.0, "quit": true}
+  {"wait_for": "SYSMON:UP:PASS", "timeout": 240},
+  {"wait": 2.0},
+  {"shot": "sysmon_initial"},
+  {"key": "r", "until": "SYSMON:REFRESH:PASS", "timeout": 60, "retries": 2},
+  {"wait": 2.0},
+  {"shot": "sysmon_refreshed"},
+  {"key": "q", "until": "SYSMON:QUIT:PASS", "timeout": 60, "retries": 2},
+  {"quit": true}
 ]
