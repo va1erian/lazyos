@@ -149,7 +149,7 @@ impl Stats {
 
 /// Task slots in the [`FabricStats`] per-slot arrays; mirrors the kernel's
 /// `task::MAX_TASKS`.
-pub const FABRIC_TASKS: usize = 16;
+pub const FABRIC_TASKS: usize = 64;
 
 /// Per-slot usage row of a [`FabricStats`] snapshot.
 #[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
@@ -164,7 +164,7 @@ pub struct TaskUsage {
     pub buffer_bytes: u64,
 }
 
-/// The versioned fabric snapshot (stats ABI version 2): channels, messages,
+/// The versioned fabric snapshot (stats ABI version 3): channels, messages,
 /// buffers, handles, ACL/audit state, and per-slot usage in one block. Mirrors
 /// `kernel/src/ipc/stats.rs` field for field; [`FabricStats::from_bytes`]
 /// decodes the little-endian word stream the kernel writes.
@@ -276,8 +276,8 @@ impl Default for FabricStats {
 }
 
 impl FabricStats {
-    /// The ABI version this mirror understands.
-    pub const VERSION: u64 = 2;
+    /// The ABI version this mirror understands (3: 64 per-slot rows, #204).
+    pub const VERSION: u64 = 3;
     /// Number of bytes the kernel writes for a snapshot.
     pub const SIZE: usize = (22 + FABRIC_TASKS + 8 + FABRIC_TASKS * 4) * 8;
 
@@ -819,8 +819,8 @@ pub fn global_totals() -> Result<Stats> {
     Ok(stats)
 }
 
-/// The versioned fabric snapshot (stats ABI v2): every subsystem in one block.
-/// The snapshot buffer is sized so the kernel always serves version 2.
+/// The versioned fabric snapshot (stats ABI v3): every subsystem in one block.
+/// The snapshot buffer is sized so the kernel always serves the full block.
 ///
 /// Allocates the snapshot buffer per call; a polling loop should use
 /// [`fabric_stats_with`] and reuse one buffer.

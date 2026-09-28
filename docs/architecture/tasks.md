@@ -14,7 +14,7 @@ ISR that performs context switches.
 
 **Task table** (`task/mod.rs`)
 
-- `MAX_TASKS = 16`; slot 0 is the kernel task (`KERNEL_TASK`, the mux), 1.. are
+- `MAX_TASKS = 64` (16 until issue #204); slot 0 is the kernel task (`KERNEL_TASK`, the mux), 1.. are
   user programs/threads, each with a 32 KiB kernel stack (`KSTACKS`).
 - `Kind`: `Native` (`int 0x80`) or `Linux` (`syscall`/`sysret`). `TaskState`:
   `Runnable`, `Blocked { wait: WaitKind, deadline: Option<u64> }`, `Done` (kept
@@ -42,7 +42,8 @@ ISR that performs context switches.
 - Ties break round-robin after the current slot. Spawn/wake uses `virtual_now` so
   a newly runnable task does not claim catch-up quanta.
 - Starvation bound: within a class a peer is selected at most
-  `ceil(stride_i/stride_j)+1` times; worst case < 500 ticks (~5 s at 100 Hz).
+  `ceil(stride_i/stride_j)+1` times; worst case < 2100 ticks (~21 s at 100 Hz
+  with 63 peers; it was < 500 ticks at 16 slots).
 - `set_priority`/`set_weight` reset/clamp the fields; Linux `nice` is not wired
   to them yet (documented in `task/mod.rs`).
 

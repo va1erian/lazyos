@@ -40,7 +40,7 @@
 //! reserved at once (issue #177): each `Launch` call spawns a fresh row and
 //! only a `Stopped`/`Failed` row for the same app is ever superseded, so
 //! nothing else stopped an unprivileged caller from looping `launch` until
-//! the 16-slot task table (`kernel/src/task/mod.rs`'s `MAX_TASKS`) was full,
+//! the task table (`kernel/src/task/mod.rs`'s `MAX_TASKS`) was full,
 //! starving supervised restarts and new logins. A request over the cap is
 //! refused with `-EAGAIN` (`INIT:LAUNCH:CAP:PASS`) before anything spawns.
 //! The reservation counts `Running` rows and any row still cycling through
@@ -99,7 +99,7 @@ const LAUNCH_SELFTEST_RETRY: u64 = 25;
 /// Give up on the launch self-test after this many attempts.
 const LAUNCH_SELFTEST_ATTEMPTS: u64 = 40;
 /// Launched rows one session may hold reserved at once (issue #177). The
-/// boot manifest's own services already run the 16-slot task table
+/// boot manifest's own services already run the task table
 /// (`kernel/src/task/mod.rs`'s `MAX_TASKS`) close to full for the life of the
 /// boot, so the cap is a small fixed number rather than derived from the
 /// live table: it must hold room for supervised restarts and new logins even
