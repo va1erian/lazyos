@@ -62,6 +62,10 @@ fn run() -> messenger::Result<()> {
     // Drain the changed event: the owner watches its own session too.
     let mut changed_buffer = alloc::vec![0u8; messenger::DEFAULT_BUFFER];
     let _ = changes.recv_with(&mut changed_buffer, Some(sys::clock().saturating_add(50)));
+    // Release the broker-side subscription slot now that the notification is
+    // drained: this demo client is about to exit, but a leaked subscription
+    // would still fill the broker's bounded table on repeated runs.
+    let _ = changes.unsubscribe();
     serve_serialize(&server)
 }
 

@@ -36,7 +36,7 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::panic::PanicInfo;
 use user::central;
-use user::messenger::{self, registry, router, services, Error, Message, Parcel};
+use user::messenger::{self, registry, router, services, topics_client, Error, Message, Parcel};
 use user::sys;
 
 /// Newest records kept in the ring.
@@ -45,6 +45,14 @@ const RING_CAPACITY: usize = 64;
 const POLL_TICKS: u64 = 2;
 /// How often the fabric audit counters are sampled for denial records.
 const DENIAL_POLL_TICKS: u64 = 25;
+/// Queue depth for the central `system/events/#` audit feed. `Latest` (depth
+/// one) would let the broker silently overwrite an event that arrives before
+/// this loop's next poll; buffering gives the drain loop (`POLL_TICKS`
+/// apart) real headroom, with any overflow still counted and logged (see
+/// [`poll_central_overflow`]) rather than silently lost.
+const CENTRAL_QUEUE_DEPTH: u32 = topics_client::Qos::MAX_DEPTH;
+/// How often the central subscription's drop counter is sampled.
+const OVERFLOW_POLL_TICKS: u64 = 25;
 /// Cap on records echoed to serial, so a crash loop cannot flood the log.
 const PRINT_LIMIT: u64 = 24;
 /// See the module docs: no writable volume exists in this branch, so the ring
@@ -186,13 +194,16 @@ fn run() -> messenger::Result<()> {
     let mut central: Option<central::Bus> = None;
     let mut central_events: Option<central::Subscription> = None;
     let mut central_warned = false;
+    let mut central_drops = 0u64;
     let mut audit: Option<(u64, u64, u64)> = None;
     let mut next_denial_poll = 0u64;
+    let mut next_overflow_poll = 0u64;
     // Reused receive buffer: the user bump allocator never reclaims per-call
     // buffers, so the polling loop must not allocate one per message. The
     // audit snapshot buffer is reused for the same reason.
     let mut buffer = alloc::vec![0u8; messenger::DEFAULT_BUFFER];
     let mut stats_buffer = alloc::vec![0u8; messenger::FabricStats::SIZE];
+    let mut central_stats_buffer = alloc::vec![0u8; messenger::DEFAULT_BUFFER];
 
     loop {
         if events.is_none() {
@@ -225,9 +236,20 @@ fn run() -> messenger::Result<()> {
                 }
             }
             if let Some(bus) = &mut central {
-                match bus.subscribe("system/events/#") {
-                    Ok(subscription) => central_events = Some(subscription),
+                match bus.subscribe_with_qos(
+                    "system/events/#",
+                    topics_client::Qos::Buffered(CENTRAL_QUEUE_DEPTH),
+                ) {
+                    Ok(subscription) => {
+                        central_events = Some(subscription);
+                        central_drops = 0;
+                    }
                     Err(error) => {
+                        // The bus itself may be the reason the subscribe
+                        // failed (e.g. the broker restarted); drop it too so
+                        // the next loop resolves a fresh one instead of
+                        // retrying a dead handle forever.
+                        central = None;
                         if !central_warned {
                             central_warned = true;
                             sys::write_str("logd: central subscribe failed: ");
@@ -240,12 +262,28 @@ fn run() -> messenger::Result<()> {
         }
         drain(&mut ring, &events, &mut printed, &mut buffer);
         drain(&mut ring, &health, &mut printed, &mut buffer);
-        drain_central(&mut ring, &central_events, &mut printed, &mut buffer);
+        drain_central(
+            &mut ring,
+            &mut central,
+            &mut central_events,
+            &mut printed,
+            &mut buffer,
+        );
 
         let now = sys::clock();
         if now >= next_denial_poll {
             poll_denials(&mut ring, &mut audit, &mut printed, &mut stats_buffer);
             next_denial_poll = now + DENIAL_POLL_TICKS;
+        }
+        if now >= next_overflow_poll {
+            poll_central_overflow(
+                &mut ring,
+                &central_events,
+                &mut central_drops,
+                &mut printed,
+                &mut central_stats_buffer,
+            );
+            next_overflow_poll = now + OVERFLOW_POLL_TICKS;
         }
 
         match server.recv_with(&mut buffer, Some(sys::clock() + POLL_TICKS)) {
@@ -307,15 +345,16 @@ fn drain(
 /// so the record format is identical.
 fn drain_central(
     ring: &mut Ring,
-    subscriber: &Option<central::Subscription>,
+    bus: &mut Option<central::Bus>,
+    subscriber: &mut Option<central::Subscription>,
     printed: &mut u64,
     buffer: &mut [u8],
 ) {
-    let Some(subscriber) = subscriber else {
+    let Some(sub) = subscriber.as_ref() else {
         return;
     };
     loop {
-        match subscriber.recv_with(buffer, Some(messenger::EXPIRED_DEADLINE)) {
+        match sub.recv_with(buffer, Some(messenger::EXPIRED_DEADLINE)) {
             Ok(Some(event)) => {
                 let detail = core::str::from_utf8(&event.payload).unwrap_or("<binary>");
                 let record = ring.append(sys::clock(), &event.topic, detail);
@@ -328,9 +367,52 @@ fn drain_central(
                 }
             }
             Ok(None) => return,
-            // A feed error (e.g. the broker restarted) is retried next loop.
-            Err(_) => return,
+            Err(_) => {
+                // The feed died (e.g. the broker restarted): drop both the
+                // subscription and the bus, or the main loop's
+                // `central_events.is_none()` gate would never fire again and
+                // this dead handle would be retried forever.
+                *subscriber = None;
+                *bus = None;
+                return;
+            }
         }
+    }
+}
+
+/// Sample the central subscription's drop counter and append an overflow
+/// record when it advances, so a `Buffered`-QoS queue that still overran
+/// (a burst larger than [`CENTRAL_QUEUE_DEPTH`]) leaves its own trace in the
+/// log instead of silently vanishing.
+fn poll_central_overflow(
+    ring: &mut Ring,
+    subscriber: &Option<central::Subscription>,
+    drops: &mut u64,
+    printed: &mut u64,
+    buffer: &mut [u8],
+) {
+    let Some(subscriber) = subscriber else {
+        return;
+    };
+    let Ok(stats) = subscriber.stats_with(buffer) else {
+        return;
+    };
+    if stats.drops <= *drops {
+        return;
+    }
+    let delta = stats.drops - *drops;
+    *drops = stats.drops;
+    let detail = format!(
+        "dropped={delta} total_drops={} qos={} depth={} queued={}",
+        stats.drops, stats.qos, stats.depth, stats.queued
+    );
+    let record = ring.append(sys::clock(), "system/events/audit/overflow", &detail);
+    if *printed < PRINT_LIMIT {
+        sys::write_str(&format!(
+            "logd: record {} {} {}\n",
+            record.seq, record.topic, record.detail
+        ));
+        *printed += 1;
     }
 }
 

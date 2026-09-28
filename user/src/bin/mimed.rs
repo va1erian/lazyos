@@ -288,6 +288,19 @@ fn valid_token(text: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.' | b'+'))
 }
 
+/// Whether `text` is safe as the single `<app>` topic segment `open_path`
+/// publishes to (`system/events/open/<app>`). The central broker's publish
+/// validator (`messengerd`'s `valid_topic`, mirroring the kernel ACL gate)
+/// accepts the same charset as [`valid_token`] but always refuses `+` and `#`
+/// in a publish segment (they are subscribe-only wildcards), so `OPEN` would
+/// resolve the app and then report `published=false` after retrying a
+/// publish the broker can never accept. Registration is the point to catch
+/// that, once, rather than every `OPEN` paying for 32 failed publish
+/// attempts.
+fn valid_app_id(text: &str) -> bool {
+    valid_token(text) && !text.contains('+') && !text.contains('#')
+}
+
 /// A MIME type: `type/subtype`, no whitespace.
 fn valid_mime(text: &str) -> bool {
     !text.is_empty()
@@ -420,7 +433,7 @@ fn dispatch(
             let mime_type = mime::string_field(&message.parcel, mime::field::MIME)?;
             let app = mime::string_field(&message.parcel, mime::field::APP)?;
             let verb = mime::string_field(&message.parcel, mime::field::VERB)?;
-            if !valid_mime(&mime_type) || !valid_token(&app) || !valid_token(&verb) {
+            if !valid_mime(&mime_type) || !valid_app_id(&app) || !valid_token(&verb) {
                 return Err(Error::Errno(-errno::EINVAL));
             }
             apps.register(&mime_type, &app, &verb);

@@ -477,6 +477,11 @@ fn valid_topic(topic: &str) -> bool {
     count > 0
 }
 
+/// Whether `topic` falls under the platform's reserved `system/` root.
+fn is_system_topic(topic: &str) -> bool {
+    topic == "system" || topic.starts_with("system/")
+}
+
 /// One live subscription with its QoS queue and counters.
 struct Subscription {
     id: u64,
@@ -539,10 +544,23 @@ impl Broker {
         }
     }
 
-    /// Live `(topics, subscriptions)` counts, for the soak evidence markers
-    /// and the fabric views that read `ListTopics`.
+    /// Live `(topics, subscriptions)` counts under the platform's `system/`
+    /// root, for the soak evidence markers. Counting the whole table would
+    /// let the `messengerctl` self-test's own `topics/`, `selftest/` traffic
+    /// satisfy the soak's threshold without `sysmond`, `clipboardd` or
+    /// `mimed` ever publishing centrally.
     pub fn counts(&self) -> (usize, usize) {
-        (self.topics.len(), self.subscriptions.len())
+        let topics = self
+            .topics
+            .iter()
+            .filter(|row| is_system_topic(&row.topic))
+            .count();
+        let subs = self
+            .subscriptions
+            .iter()
+            .filter(|sub| sub.filter.segments.first().is_some_and(|s| s == "system"))
+            .count();
+        (topics, subs)
     }
 
     /// Serve one topics request from `sender` (kernel-stamped).
@@ -579,6 +597,21 @@ impl Broker {
                 // Policy first: a denied publish stores nothing and is audited.
                 topics_client::authorize(sender, MODE_PUBLISH, &topic, txn.unwrap_or(0))
                     .map_err(|_| messenger::Error::Topics(errno::EACCES))?;
+                // `system/` is the platform's own audited namespace (service
+                // status, clipboard/launch audit records, denial markers):
+                // `logd` treats every event under it as authentic. The kernel
+                // ACL above stays in its bootstrap-allow state until a policy
+                // is loaded, so without this check any task could forge audit
+                // records here. Every legitimate publisher (sysmond, clipboardd,
+                // mimed, init) runs as uid 0, so gate the namespace on that.
+                if is_system_topic(&topic) {
+                    let mut cred = sys::Cred::default();
+                    sys::cred_get(Some(sender), &mut cred)
+                        .map_err(|_| messenger::Error::Topics(errno::EACCES))?;
+                    if cred.uid != 0 {
+                        return Err(messenger::Error::Topics(errno::EACCES));
+                    }
+                }
                 let matched = self.publish(&topic, sender, payload, retained);
                 outcome.wakes = self.satisfy();
                 outcome.reply = Some(

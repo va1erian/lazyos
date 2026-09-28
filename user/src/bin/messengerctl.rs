@@ -50,6 +50,15 @@ const HELP: &str = "commands: list | resolve <name> | services | health | sessio
 
 #[no_mangle]
 pub extern "C" fn _start() -> ! {
+    // `TOPIC:SECURITY`'s negative test spawns this same binary under a
+    // demoted, non-root credential (see `selftest_security`): credentials
+    // cannot be restored once dropped, so the probe runs as a throwaway
+    // child rather than in this (normally uid-0) process. When invoked this
+    // way, run only the probe and exit; the demo/registry flow below never
+    // starts.
+    if service_arg_is("probe", "forbidden-publish") {
+        run_forbidden_publish_probe();
+    }
     sys::write_str("messengerctl: Messenger fabric snapshot\n");
     match messenger::fabric_stats() {
         Ok(stats) => print_report(&stats),
@@ -58,6 +67,15 @@ pub extern "C" fn _start() -> ! {
     topic_selftest();
     keyd_selftest();
     commands()
+}
+
+/// Whether this service's argument string carries `key=value`.
+fn service_arg_is(key: &str, value: &str) -> bool {
+    let mut buffer = [0u8; 128];
+    let len = sys::service_args(&mut buffer).min(buffer.len());
+    let text = core::str::from_utf8(&buffer[..len]).unwrap_or("");
+    text.split_whitespace()
+        .any(|part| part.strip_prefix(key).and_then(|rest| rest.strip_prefix('=')) == Some(value))
 }
 
 /// The registry command loop; `list` and `resolve <name>` print the name
@@ -678,6 +696,60 @@ fn topic_selftest() {
     marker("TOPIC:DROP", selftest_drop(&client));
     marker("TOPIC:QOS", selftest_qos(&client));
     marker("TOPIC:UNSUB", selftest_unsubscribe(&client));
+    marker("TOPIC:SECURITY", selftest_security());
+}
+
+/// PIT ticks [`selftest_security`] waits for its probe child to exit.
+const SECURITY_PROBE_TICKS: u64 = 200;
+
+/// Negative test (issue #180): a non-root task's publish under the broker's
+/// reserved `system/` root must be refused, or a compromised or malicious
+/// client could forge audit records under `logd`'s trusted `system/events/#`
+/// feed. This process is normally uid 0, and `sys::cred_set` cannot restore a
+/// dropped credential, so the probe runs in a throwaway child spawned with a
+/// demoted identity (`run_forbidden_publish_probe`) instead of in this one.
+fn selftest_security() -> Result<(), String> {
+    let mut command = String::from("MSGCTL.ELF probe=forbidden-publish").into_bytes();
+    command.push(0);
+    let cred = sys::Cred::new(4200, 4200, 0, 0, 0);
+    let pid = sys::spawn_as(&command, &cred).ok_or("spawn_as failed")?;
+    let deadline = sys::clock() + SECURITY_PROBE_TICKS;
+    loop {
+        match sys::wait(deadline) {
+            Some((child, status)) if child == pid => {
+                return if status == 0 {
+                    Ok(())
+                } else {
+                    Err(format!(
+                        "non-root publish under system/ was not refused (status {status})"
+                    ))
+                };
+            }
+            // A different child (unrelated to this probe): keep waiting.
+            Some(_) => continue,
+            None => return Err(String::from("probe child timed out")),
+        }
+    }
+}
+
+/// Child entry point for [`selftest_security`]'s probe, spawned under a
+/// demoted, non-root credential. Attempts one publish under the broker's
+/// reserved `system/` root and exits `0` when the broker refused it (the
+/// expected, secure outcome) or `1` otherwise (including any error that
+/// prevented running the check at all, which must not be mistaken for a
+/// pass). Never returns.
+fn run_forbidden_publish_probe() -> ! {
+    let denied = match topics_client::Client::connect() {
+        Ok(client) => match test_parcel("forbidden") {
+            Ok(payload) => matches!(
+                client.publish("system/events/selftest/forbidden", &payload),
+                Err(error) if error.errno() == Some(-messenger::errno::EACCES)
+            ),
+            Err(_) => false,
+        },
+        Err(_) => false,
+    };
+    sys::exit(if denied { 0 } else { 1 })
 }
 
 /// Print `TOPIC:<name>:PASS` or `TOPIC:<name>:FAIL:<detail>`.

@@ -110,12 +110,24 @@ impl Bus {
     /// Subscribe to `filter` with `latest` QoS; retained matching values are
     /// replayed by the broker.
     pub fn subscribe(&mut self, filter: &str) -> Result<Subscription> {
+        self.subscribe_with_qos(filter, topics_client::Qos::Latest)
+    }
+
+    /// Subscribe to `filter` with an explicit QoS. Callers that cannot afford
+    /// to lose events between polls (e.g. an audit feed) should use
+    /// [`topics_client::Qos::Buffered`] or [`topics_client::Qos::Reliable`]
+    /// instead of the default `latest` (one slot, overwritten on overflow).
+    pub fn subscribe_with_qos(
+        &mut self,
+        filter: &str,
+        qos: topics_client::Qos,
+    ) -> Result<Subscription> {
         let mut body = Encoder::new();
         body.string(topics_client::field::FILTER, filter)
             .map_err(Error::Parcel)?;
-        body.u32(topics_client::field::QOS, topics_client::Qos::Latest.code())
+        body.u32(topics_client::field::QOS, qos.code())
             .map_err(Error::Parcel)?;
-        body.u32(topics_client::field::DEPTH, 0)
+        body.u32(topics_client::field::DEPTH, qos.depth())
             .map_err(Error::Parcel)?;
         let request = topics_client::request_parcel(topics_client::method::SUBSCRIBE, body);
         let reply = self.endpoint.call_with(&request, &mut self.scratch, None)?;
@@ -127,10 +139,17 @@ impl Bus {
         let mut next = Encoder::new();
         next.u64(topics_client::field::SUBSCRIPTION, id)
             .map_err(Error::Parcel)?;
+        // Encoded once here and reused on every poll: `Endpoint::call_with`
+        // would otherwise re-encode this fixed request on every single
+        // `recv_with`, and the user bump allocator never reclaims it.
+        let mut request_bytes = Vec::new();
+        topics_client::request_parcel(topics_client::method::NEXT_EVENT, next)
+            .encode(&mut request_bytes)
+            .map_err(Error::Parcel)?;
         Ok(Subscription {
             endpoint: self.endpoint,
             id,
-            request: topics_client::request_parcel(topics_client::method::NEXT_EVENT, next),
+            request: request_bytes,
         })
     }
 
@@ -151,7 +170,7 @@ pub struct Subscription {
     endpoint: Endpoint,
     id: u64,
     /// Pre-encoded `NextEvent` request, reused on every poll.
-    request: Parcel,
+    request: Vec<u8>,
 }
 
 impl Subscription {
@@ -167,7 +186,7 @@ impl Subscription {
         buf: &mut [u8],
         deadline: Option<u64>,
     ) -> Result<Option<router::Event>> {
-        match self.endpoint.call_with(&self.request, buf, deadline) {
+        match self.endpoint.call_bytes_with(&self.request, buf, deadline) {
             Ok(reply) => {
                 if let Some(code) = error_code(&reply) {
                     return Err(Error::Topics(code));
@@ -180,6 +199,22 @@ impl Subscription {
             Err(Error::Errno(code)) if code == -errno::ETIMEDOUT => Ok(None),
             Err(error) => Err(error),
         }
+    }
+
+    /// Per-subscription delivery counters, including QoS overflow drops.
+    /// Takes a caller-owned reply buffer: a long-lived poll loop must reuse
+    /// one here too, or the user bump allocator (which never reclaims
+    /// per-call buffers) grows without bound.
+    pub fn stats_with(&self, buf: &mut [u8]) -> Result<topics_client::SubscriptionStats> {
+        let mut body = Encoder::new();
+        body.u64(topics_client::field::SUBSCRIPTION, self.id)
+            .map_err(Error::Parcel)?;
+        let request = topics_client::request_parcel(topics_client::method::STATS, body);
+        let reply = self.endpoint.call_with(&request, buf, None)?;
+        if let Some(code) = error_code(&reply) {
+            return Err(Error::Topics(code));
+        }
+        topics_client::decode_stats(&reply)
     }
 
     /// Drop this subscription; later publishes stop matching it.
@@ -223,33 +258,38 @@ fn wrap(payload: &[u8]) -> Result<Vec<u8>> {
     Ok(bytes)
 }
 
-/// Decode the wrapper and return the interim router shape.
+/// Decode the wrapper and return the interim router shape. Only a parcel
+/// stamped with [`WRAPPER_INTERFACE`] is treated as this module's wrapper; a
+/// publisher outside this module (e.g. `messengerctl`'s self-test parcels)
+/// may carry an unrelated field with the same id (`FIELD_TEXT` collides with
+/// arbitrary interface field 1), so its payload is handed through unchanged
+/// rather than misread as wrapper text.
 fn unwrap_event(event: topics_client::Event) -> Result<router::Event> {
     let parcel = Parcel::decode(&event.payload).map_err(Error::Parcel)?;
-    let mut decoder = Decoder::new(&parcel.body);
-    while let Some(field) = decoder.next().map_err(Error::Parcel)? {
-        match (field.kind, field.id) {
-            (Kind::String, FIELD_TEXT) => {
-                return Ok(router::Event {
-                    topic: event.topic,
-                    payload: field.as_str().map_err(Error::Parcel)?.as_bytes().to_vec(),
-                    retained: event.retained,
-                    seq: event.sequence,
-                });
+    if parcel.header.interface_id == WRAPPER_INTERFACE {
+        let mut decoder = Decoder::new(&parcel.body);
+        while let Some(field) = decoder.next().map_err(Error::Parcel)? {
+            match (field.kind, field.id) {
+                (Kind::String, FIELD_TEXT) => {
+                    return Ok(router::Event {
+                        topic: event.topic,
+                        payload: field.as_str().map_err(Error::Parcel)?.as_bytes().to_vec(),
+                        retained: event.retained,
+                        seq: event.sequence,
+                    });
+                }
+                (Kind::Bytes, FIELD_BYTES) => {
+                    return Ok(router::Event {
+                        topic: event.topic,
+                        payload: field.as_bytes().to_vec(),
+                        retained: event.retained,
+                        seq: event.sequence,
+                    });
+                }
+                _ => {}
             }
-            (Kind::Bytes, FIELD_BYTES) => {
-                return Ok(router::Event {
-                    topic: event.topic,
-                    payload: field.as_bytes().to_vec(),
-                    retained: event.retained,
-                    seq: event.sequence,
-                });
-            }
-            _ => {}
         }
     }
-    // A publisher outside this module (e.g. `messengerctl`'s self-test
-    // parcels, which carry a bare string field): hand the payload through.
     Ok(router::Event {
         topic: event.topic,
         payload: event.payload,

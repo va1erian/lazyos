@@ -143,21 +143,33 @@ fn publish_stats(central: &mut Option<central::Bus>) -> Result<u64, i64> {
         return Err(-errno::ENOENT);
     };
     let snapshot = sysinfo::snapshot()?;
-    bus.publish(
+    // On any failure below, the endpoint itself may be the cause (e.g. the
+    // broker restarted), so the cached bus is dropped rather than kept: the
+    // next call's `central.is_none()` check above then reconnects instead of
+    // retrying a dead handle forever.
+    if let Err(error) = bus.publish(
         "system/stats/memory",
         memory_payload(&snapshot).as_bytes(),
         true,
-    )
-    .map_err(|error| error.errno().unwrap_or(-errno::EINVAL))?;
-    bus.publish(
+    ) {
+        *central = None;
+        return Err(error.errno().unwrap_or(-errno::EINVAL));
+    }
+    if let Err(error) = bus.publish(
         "system/stats/tasks",
         tasks_payload(&snapshot).as_bytes(),
         true,
-    )
-    .map_err(|error| error.errno().unwrap_or(-errno::EINVAL))?;
-    let list = bus
-        .list()
-        .map_err(|error| error.errno().unwrap_or(-errno::EINVAL))?;
+    ) {
+        *central = None;
+        return Err(error.errno().unwrap_or(-errno::EINVAL));
+    }
+    let list = match bus.list() {
+        Ok(list) => list,
+        Err(error) => {
+            *central = None;
+            return Err(error.errno().unwrap_or(-errno::EINVAL));
+        }
+    };
     Ok(list
         .iter()
         .filter(|info| info.topic.starts_with("system/stats/"))

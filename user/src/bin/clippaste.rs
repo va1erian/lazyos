@@ -91,6 +91,11 @@ fn run() -> messenger::Result<()> {
         Ok(_) => fail("DENIED", "cross-session paste was allowed"),
         Err(error) => fail("DENIED", error.message()),
     }
+    // Release the broker-side subscription slot now that the paste and
+    // denial probe are done: this demo client is about to exit, but a leaked
+    // subscription would still fill the broker's bounded table on repeated
+    // runs.
+    let _ = changes.unsubscribe();
     Ok(())
 }
 
