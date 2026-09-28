@@ -139,6 +139,23 @@ fn main() {
         builder.set_file(String::from("XDEMO.ELF"), PathBuf::from(xdemo));
     }
 
+    // The xui app (issue #114): `LAZYOS_XUI_APP=<path>` embeds a static-musl
+    // binary built by `tools/xui/build.py` as `XAPP.ELF`. With `LAZYOS_XUID=1`
+    // the kernel boots it instead of the `xuid` + `xdemo` session, because the
+    // app binds the display grant itself (it is the session's compositor).
+    // Without `LAZYOS_XUID=1` the file is only embedded, never spawned.
+    println!("cargo:rerun-if-env-changed=LAZYOS_XUI_APP");
+    if let Some(app) = std::env::var_os("LAZYOS_XUI_APP") {
+        let app = PathBuf::from(app);
+        if app.is_file() {
+            println!("cargo:warning=LAZYOS_XUI_APP embedded: {}", app.display());
+            println!("cargo:rerun-if-changed={}", app.display());
+            builder.set_file(String::from("XAPP.ELF"), app);
+        } else {
+            println!("cargo:warning=LAZYOS_XUI_APP not found: {}", app.display());
+        }
+    }
+
     // Rebuild the image when the kernel test switch flips (issue #62): the
     // kernel's own build script turns `LAZYOS_TESTS=1` into `cfg(laZYOS_TESTS)`.
     println!("cargo:rerun-if-env-changed=LAZYOS_TESTS");

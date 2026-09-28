@@ -169,12 +169,20 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         // screen shows the composited windows instead; two clients prove the
         // protocol routes focus per surface. The default demo is untouched
         // without the flag.
-        #[cfg(xuid_demo)]
+        //
+        // Issue #114: with `LAZYOS_XUI_APP` set too, the app takes the place of
+        // the `xuid` session: it binds the display grant itself (the M0-M2
+        // milestones drive the kernel input queue and the screen buffer
+        // directly), so the two cannot run together. The `xuid` + `xdemo` demo
+        // is unchanged when only `LAZYOS_XUID=1` is set.
+        #[cfg(all(xuid_demo, not(xui_app)))]
         spawn_program("xuid", "XUID.ELF");
-        #[cfg(xuid_demo)]
+        #[cfg(all(xuid_demo, not(xui_app)))]
         spawn_program("xdemo", "XDEMO.ELF");
-        #[cfg(xuid_demo)]
+        #[cfg(all(xuid_demo, not(xui_app)))]
         spawn_program("xdemo", "XDEMO.ELF");
+        #[cfg(xui_app)]
+        spawn_linux_program("xapp", "XAPP.ELF");
     }
 
     let stats = mem::frame_stats();
@@ -199,6 +207,19 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
 fn spawn_program(name: &'static str, path: &str) {
     match fs::read(path) {
         Some(bytes) => match task::spawn(name, &bytes) {
+            Ok(index) => serial_println!("LazyOS: spawned {name} as task {index}"),
+            Err(err) => serial_println!("LazyOS: spawn {name} failed: {err}"),
+        },
+        None => serial_println!("LazyOS: {path} not found"),
+    }
+}
+
+/// Load a static Linux-ABI (musl) program and spawn it, if present. The xui
+/// app is a `std` binary, so it boots through the Linux path (`spawn_linux`).
+#[cfg(xui_app)]
+fn spawn_linux_program(name: &'static str, path: &str) {
+    match fs::read(path) {
+        Some(bytes) => match task::spawn_linux(name, &bytes, name) {
             Ok(index) => serial_println!("LazyOS: spawned {name} as task {index}"),
             Err(err) => serial_println!("LazyOS: spawn {name} failed: {err}"),
         },

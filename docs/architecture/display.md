@@ -17,6 +17,7 @@ compositor demo. Target toolkit design: [xui-plan.md](../xui-plan.md).
 | `kernel/src/display.rs` | Display device grant, syscall 12, input event queue |
 | `user/src/bin/xuid.rs`, `xdemo.rs` | Compositor and demo app (issue #113) |
 | `user/src/messenger.rs` (`display` module) | `os.lazy.display.v1` client/server helpers |
+| `xui-app/`, `tools/xui/build.py` | Ordinary xui app on the display grant (issue #114) |
 
 **Kernel mux** (`mux.rs`)
 
@@ -55,9 +56,14 @@ compositor demo. Target toolkit design: [xui-plan.md](../xui-plan.md).
 - `xuid` binds the grant and implements `os.lazy.display.v1` over Messenger:
   clients attach a shared surface buffer and an event endpoint, the compositor
   composites and routes input, `xdemo` is the smallest client.
-- The windowing/toolkit refactor is in flight (issue #114); this page describes
-  only the committed `xuid`/`xdemo` state. The retained-widget toolkit is not
-  implemented in this tree yet.
+- `xui-app/` (issue #114) runs an ordinary `xui-core` + `xui-canvas` app on
+  LazyOS for milestones M0-M2. It is built by `tools/xui/build.py` for
+  `x86_64-unknown-linux-musl` and embedded as `XAPP.ELF` when `LAZYOS_XUID=1`
+  and `LAZYOS_XUI_APP=<path>` are set; the kernel then boots it *instead of*
+  the `xuid` + `xdemo` session, because the app owns the display grant itself
+  (`bind`/`present`/`input_poll`) and paints full-screen. Default
+  `LAZYOS_XUID=1` is unchanged. Running the app as a `xuid` client over the
+  compositor protocol is the remaining step.
 
 **Invariants.** Mux is always the fallback: no compositor state is required to
 paint. The screen buffer handoff app-to-compositor is zero-copy (shared
@@ -66,5 +72,6 @@ events go only to the bound compositor; `push_event` drops the oldest event when
 the queue is full and is IRQ-safe (leaf lock).
 
 **Status.** Working: demo mux, display grant, xuid + xdemo in headless captures
-(`LAZYOS_XUID=1`). Open: zero-copy scanout, userspace XUI toolkit, multi-session
-compositors.
+(`LAZYOS_XUID=1`), and the xui app milestones M0-M2 (`XUIAPP:*:PASS` markers,
+screenshots in the `xui-app` workflow). Open: zero-copy scanout, running the
+xui app as a compositor client, multi-session compositors.

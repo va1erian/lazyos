@@ -134,6 +134,39 @@ deliberately **not** `winit`, `softbuffer`, `glutin`, `glow`, `xui-gpu`.
 - M2 input mapping: medium.
 - M3 polish: ongoing.
 
+## Status (issue #114)
+
+Landed in `xui-app/` (a standalone static-musl workspace built by
+`tools/xui/build.py`, embedded as `XAPP.ELF` with `LAZYOS_XUID=1` +
+`LAZYOS_XUI_APP=<path>`):
+
+- **M0** — `src/bin/m0.rs`: a `std` shim over syscall 12 (`bind`/`present`/
+  `input_poll`) paints a gradient and presents. Prints `XUIAPP:PRESENT:PASS`.
+- **M1** — `backend::LazyOSBackend`, modelled on `OffscreenBackend` (node
+  table, painters composited into a `Surface`, `render`), with a real event
+  loop for a display-owning task. The Counter (`src/bin/counter.rs`) paints and
+  presents; `XUIAPP:COUNTER:PASS` follows the first frame.
+- **M2** — `input_poll` records are translated to `xui` events (mouse
+  move/down/up, key/char) and routed to the node under the pointer; a real
+  left click increments the Counter and prints `XUIAPP:INPUT:PASS`.
+
+Text uses the bundled `JetBrainsMono-Regular.ttf` via `include_bytes!`.
+Upstream `xui-canvas` builds its shaper's font database from the system
+directories `fontdb` scans and memory-maps the files; LazyOS's Linux ABI has
+anonymous `mmap` only. `xui-app/vendor/xui-canvas` is the pinned upstream crate
+with one addition (`set_default_font`) that feeds the shaper in-memory, and
+`xui-app/Cargo.toml` patches the git dependency onto it, so `xui-core` still
+resolves from `va1erian/xui` at `rev = "2747818"`.
+
+`tools/screenshot/examples/xui_counter.json` scripts the M2 click;
+`.github/workflows/xui.yml` builds the app, boots both milestone images
+headlessly, and checks the serial markers and pixels.
+
+**Remaining** (the M3 list plus integration): running as a `xuid` client over
+`os.lazy.display.v1` (the milestones own the grant directly, so one app
+occupies the screen), timers, resize, keyboard focus routing, DPI changes, and
+`std::thread` workers via `proxy()`.
+
 ## Smallest first step
 
 Land **M0**: a `gfx_present` syscall so a task can own a LazyOS window and blit
