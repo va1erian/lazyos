@@ -313,6 +313,16 @@ const SUITE: &[(&str, Test)] = &[
         fs_suite::getdents64_ramfs_directory,
     ),
     (
+        "fs_ext2_create_write_read_rename_unlink",
+        ext2_suite::create_write_read_rename_unlink,
+    ),
+    ("fs_ext2_block_sizes", ext2_suite::block_sizes),
+    ("fs_ext2_rejects_corruption", ext2_suite::rejects_corruption),
+    (
+        "fs_ext2_mount_device_wiring",
+        ext2_suite::mount_device_wiring,
+    ),
+    (
         "ipc_topic_segment_methods_stable",
         topics_suite::segment_methods_stable,
     ),
@@ -6213,15 +6223,16 @@ mod block_suite {
 
     /// An in-memory [`BlockDevice`]: pins the trait's read/write/flush/bounds
     /// contract without hardware. Leaked so the registry can hold it forever.
-    struct FakeDisk {
+    /// The ext2 suite reuses it as the backing store for formatted images.
+    pub(super) struct FakeDisk {
         name: &'static str,
-        data: Mutex<Vec<u8>>,
+        pub(super) data: Mutex<Vec<u8>>,
         writes: AtomicU32,
-        flushes: AtomicU32,
+        pub(super) flushes: AtomicU32,
     }
 
     impl FakeDisk {
-        fn new(name: &'static str, sectors: usize) -> &'static FakeDisk {
+        pub(super) fn new(name: &'static str, sectors: usize) -> &'static FakeDisk {
             Box::leak(Box::new(FakeDisk {
                 name,
                 data: Mutex::new(vec![0u8; sectors * SECTOR_SIZE]),
@@ -7021,6 +7032,554 @@ mod fs_suite {
         Ok(())
     }
 }
+// ---------------------------------------------------------------------------
+// ext2 read/write filesystem (issue #99)
+// ---------------------------------------------------------------------------
+
+mod ext2_suite {
+    use super::block_suite::FakeDisk;
+    use super::*;
+    use crate::block::{self, SECTOR_SIZE};
+    use crate::fs::ext2::Ext2;
+    use crate::fs::vfs::{self, FileKind, FsError, Id, Vfs};
+    use alloc::sync::Arc;
+    use core::sync::atomic::Ordering;
+
+    /// Sectors in every test disk (512 KiB at 512 bytes per sector).
+    const DISK_SECTORS: usize = 1024;
+    /// Byte offset of the ext2 superblock (fixed by the format).
+    const SUPER: usize = 1024;
+
+    fn put16(image: &mut [u8], offset: usize, value: u16) {
+        image[offset..offset + 2].copy_from_slice(&value.to_le_bytes());
+    }
+
+    fn put32(image: &mut [u8], offset: usize, value: u32) {
+        image[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+    }
+
+    /// Friendly, debuggable conversion for `?` in tests.
+    fn fs_error(error: FsError) -> String {
+        format!("{} ({error:?})", error.message())
+    }
+
+    /// A miniature `mke2fs` for the tests: one block group, 64 inodes, and a
+    /// root directory holding only `.` and `..`. It lays out exactly the
+    /// structures `Ext2::open` validates, so the suite exercises the real
+    /// on-disk format with no disk image and no userspace tool. Returns the
+    /// raw image for `total_blocks` blocks of the requested size.
+    fn mkfs(block_size: u32, total_blocks: u32, inode_count: u32) -> Vec<u8> {
+        let mut image = vec![0u8; DISK_SECTORS * SECTOR_SIZE];
+        let bs = block_size as usize;
+        let inode_size = 128usize;
+        // Blocks 0..first_data hold the boot block; the superblock is at byte
+        // 1024, i.e. block 1 for 1K blocks and block 0 for 2K/4K blocks.
+        let first_data = if block_size == 1024 { 1 } else { 0 };
+        let gdt = first_data + 1;
+        let block_bitmap = gdt + 1;
+        let inode_bitmap = gdt + 2;
+        let inode_table = gdt + 3;
+        let table_blocks = (inode_count as usize * inode_size).div_ceil(bs) as u32;
+        let root_block = inode_table + table_blocks;
+        let used_end = root_block + 1;
+        let free_blocks = total_blocks - used_end;
+        // Inodes 1..10 are reserved (the root is inode 2 among them); the
+        // free count must not count them.
+        let free_inodes = inode_count - 10;
+
+        // Superblock.
+        put32(&mut image, SUPER + 0x00, inode_count);
+        put32(&mut image, SUPER + 0x04, total_blocks);
+        put32(&mut image, SUPER + 0x0C, free_blocks);
+        put32(&mut image, SUPER + 0x10, free_inodes);
+        put32(&mut image, SUPER + 0x14, first_data);
+        put32(&mut image, SUPER + 0x18, block_size.trailing_zeros() - 10);
+        put32(&mut image, SUPER + 0x1C, block_size.trailing_zeros() - 10);
+        put32(&mut image, SUPER + 0x20, block_size * 8);
+        put32(&mut image, SUPER + 0x24, block_size * 8);
+        put32(&mut image, SUPER + 0x28, inode_count);
+        put16(&mut image, SUPER + 0x38, 0xEF53);
+        put16(&mut image, SUPER + 0x3A, 1); // clean
+        put16(&mut image, SUPER + 0x3C, 1); // continue on errors
+        put32(&mut image, SUPER + 0x4C, 1); // revision 1
+        put32(&mut image, SUPER + 0x54, 11); // first non-reserved inode
+        put16(&mut image, SUPER + 0x58, inode_size as u16);
+        put32(&mut image, SUPER + 0x60, 0x2); // incompat: filetype
+        image[SUPER + 0x78..SUPER + 0x88].copy_from_slice(b"lazyos-ext2\0\0\0\0\0");
+
+        // Group descriptor 0.
+        let gd = gdt as usize * bs;
+        put32(&mut image, gd + 0x00, block_bitmap);
+        put32(&mut image, gd + 0x04, inode_bitmap);
+        put32(&mut image, gd + 0x08, inode_table);
+        put16(&mut image, gd + 0x0C, free_blocks as u16);
+        put16(&mut image, gd + 0x0E, free_inodes as u16);
+        put16(&mut image, gd + 0x10, 1); // the root is one directory
+
+        // Block bitmap: every metadata block plus the root block is used; the
+        // bits past the volume are padding (set, like mke2fs).
+        let bitmap = block_bitmap as usize * bs;
+        let bitmap_bits = block_size * 8; // blocks per group
+        for bit in 0..bitmap_bits {
+            let block = first_data + bit;
+            if block < used_end || block >= total_blocks {
+                image[bitmap + (bit / 8) as usize] |= 1 << (bit % 8);
+            }
+        }
+        // Inode bitmap: the reserved inodes 1..10 (including the root) are
+        // used, and the bits past `inode_count` are padding.
+        let ib = inode_bitmap as usize * bs;
+        for ino in 1..11.min(inode_count + 1) {
+            image[ib + ((ino - 1) / 8) as usize] |= 1 << ((ino - 1) % 8);
+        }
+        for bit in inode_count..(block_size * 8) {
+            image[ib + (bit / 8) as usize] |= 1 << (bit % 8);
+        }
+
+        // Root inode (number 2). `i_dtime` is a full 32-bit field, so gid,
+        // links, and i_blocks start at 0x18, 0x1A, and 0x1C.
+        let root_inode = inode_table as usize * bs + inode_size;
+        put16(&mut image, root_inode + 0x00, 0o040755);
+        put32(&mut image, root_inode + 0x04, block_size); // size
+        put32(&mut image, root_inode + 0x08, 1); // atime
+        put32(&mut image, root_inode + 0x0C, 1); // ctime
+        put32(&mut image, root_inode + 0x10, 1); // mtime
+        put16(&mut image, root_inode + 0x1A, 2); // links
+        put32(&mut image, root_inode + 0x1C, block_size / 512); // i_blocks
+        put32(&mut image, root_inode + 0x28, root_block);
+
+        // Root directory block: `.` then `..` filling the block.
+        let root = root_block as usize * bs;
+        put32(&mut image, root, 2);
+        put16(&mut image, root + 4, 12);
+        image[root + 6] = 1;
+        image[root + 7] = 2;
+        image[root + 8] = b'.';
+        put32(&mut image, root + 12, 2);
+        put16(&mut image, root + 16, (bs - 12) as u16);
+        image[root + 18] = 2;
+        image[root + 19] = 2;
+        image[root + 20] = b'.';
+        image[root + 21] = b'.';
+
+        image
+    }
+
+    /// Format a fresh fake disk, open it, and mount it as a private VFS root.
+    /// The disk comes back too, so tests can watch its write/flush counters.
+    fn mounted(
+        block_size: u32,
+        total_blocks: u32,
+    ) -> Result<(Arc<Ext2>, Vfs, &'static FakeDisk), String> {
+        let image = mkfs(block_size, total_blocks, 64);
+        let disk = FakeDisk::new("test-ext2", DISK_SECTORS);
+        disk.data.lock().copy_from_slice(&image);
+        let fs = Arc::new(Ext2::open(disk).map_err(fs_error)?);
+        let mut vfs = Vfs::new();
+        vfs.mount("/", fs.clone()).map_err(fs_error)?;
+        Ok((fs, vfs, disk))
+    }
+
+    /// Format, mount through the VFS, then run the whole op set: create,
+    /// write, read (offset, direct, and single-indirect), stat, mkdir,
+    /// readdir, rename (file and directory), unlink, sparse writes, and block
+    /// reuse after unlink.
+    pub fn create_write_read_rename_unlink() -> Result<(), String> {
+        task::register_kernel();
+        let (fs, mut vfs, disk) = mounted(1024, 512)?;
+        let root = Id::ROOT;
+
+        let meta = vfs.stat(root, "/").map_err(fs_error)?;
+        check!(
+            meta.kind == FileKind::Dir && meta.mode & vfs::S_IFMT == vfs::S_IFDIR,
+            "root meta is {meta:?}"
+        );
+
+        // A directory and a small file living in direct blocks.
+        vfs.mkdir(root, "/docs", 0o755).map_err(fs_error)?;
+        vfs.create(root, "/docs/note.txt", 0o644)
+            .map_err(fs_error)?;
+        let meta = vfs.stat(root, "/docs/note.txt").map_err(fs_error)?;
+        check!(
+            meta.kind == FileKind::File
+                && meta.size == 0
+                && meta.mode & vfs::S_IFMT == vfs::S_IFREG,
+            "file meta is {meta:?}"
+        );
+        check!(
+            vfs.write(root, "/docs/note.txt", 0, b"hello")
+                .map_err(fs_error)?
+                == 5,
+            "the first write was short"
+        );
+        vfs.write(root, "/docs/note.txt", 5, b" world")
+            .map_err(fs_error)?;
+        check!(
+            vfs.read_file(root, "/docs/note.txt").map_err(fs_error)? == b"hello world".to_vec(),
+            "the file contents are wrong"
+        );
+        let mut buf = [0u8; 4];
+        let read = vfs
+            .read(root, "/docs/note.txt", 6, &mut buf)
+            .map_err(fs_error)?;
+        check!(
+            read == 4 && &buf == b"worl",
+            "offset read got {read} {buf:?}"
+        );
+        check!(
+            vfs.read(root, "/docs/note.txt", 99, &mut buf)
+                .map_err(fs_error)?
+                == 0,
+            "a read past EOF did not return 0"
+        );
+        check!(
+            vfs.readdir(root, "/docs").map_err(fs_error)?.len() == 1,
+            "readdir did not see exactly note.txt"
+        );
+
+        // A file past the twelve direct slots: the single indirect block must
+        // appear, and an overwrite across the boundary must land correctly.
+        let mut big = vec![0u8; 40 * 1024];
+        for (index, byte) in big.iter_mut().enumerate() {
+            *byte = (index % 251) as u8;
+        }
+        vfs.create(root, "/big.bin", 0o644).map_err(fs_error)?;
+        vfs.write(root, "/big.bin", 0, &big).map_err(fs_error)?;
+        check!(
+            fs.mapped_block("/big.bin", 12).map_err(fs_error)? != 0,
+            "the single indirect block was not allocated"
+        );
+        check!(
+            vfs.read_file(root, "/big.bin").map_err(fs_error)? == big,
+            "the 40 KiB round trip differs"
+        );
+        let patch = 12 * 1024 - 8;
+        vfs.write(root, "/big.bin", patch as u64, &[0xAB; 32])
+            .map_err(fs_error)?;
+        big[patch..patch + 32].fill(0xAB);
+        check!(
+            vfs.read_file(root, "/big.bin").map_err(fs_error)? == big,
+            "the overwrite across the indirect boundary differs"
+        );
+
+        // A sparse write leaves a hole that reads back as zeros.
+        vfs.create(root, "/sparse", 0o644).map_err(fs_error)?;
+        vfs.write(root, "/sparse", 5000, b"tail")
+            .map_err(fs_error)?;
+        check!(
+            fs.mapped_block("/sparse", 0).map_err(fs_error)? == 0,
+            "the sparse write allocated its hole block"
+        );
+        let sparse = vfs.read_file(root, "/sparse").map_err(fs_error)?;
+        check!(
+            sparse.len() == 5004
+                && sparse[..5000].iter().all(|&byte| byte == 0)
+                && &sparse[5000..] == b"tail",
+            "the sparse read is wrong"
+        );
+
+        // Rename keeps contents; directories move with their subtrees.
+        vfs.rename(root, "/docs/note.txt", "/docs/memo.txt")
+            .map_err(fs_error)?;
+        check!(
+            vfs.stat(root, "/docs/note.txt").err() == Some(FsError::NotFound),
+            "rename left the source behind"
+        );
+        check!(
+            vfs.read_file(root, "/docs/memo.txt").map_err(fs_error)? == b"hello world".to_vec(),
+            "rename lost the contents"
+        );
+        vfs.mkdir(root, "/docs/sub", 0o755).map_err(fs_error)?;
+        vfs.create(root, "/docs/sub/inner", 0o644)
+            .map_err(fs_error)?;
+        let names: Vec<String> = vfs
+            .readdir(root, "/docs")
+            .map_err(fs_error)?
+            .into_iter()
+            .map(|entry| entry.name)
+            .collect();
+        check!(names == ["memo.txt", "sub"], "readdir is {names:?}");
+        vfs.rename(root, "/docs/sub", "/docs/moved")
+            .map_err(fs_error)?;
+        check!(
+            vfs.stat(root, "/docs/sub/inner").err() == Some(FsError::NotFound),
+            "the moved directory still resolves at the old path"
+        );
+        check!(
+            vfs.stat(root, "/docs/moved/inner").is_ok(),
+            "the moved directory's child is missing"
+        );
+        vfs.unlink(root, "/docs/moved/inner").map_err(fs_error)?;
+        vfs.unlink(root, "/docs/memo.txt").map_err(fs_error)?;
+        check!(
+            vfs.readdir(root, "/docs").map_err(fs_error)?.len() == 1,
+            "unlink left entries behind"
+        );
+
+        // Freeing a file returns its blocks to the bitmap, and the next file
+        // reuses them (first-fit allocation).
+        let baseline = fs.free_blocks().map_err(fs_error)?;
+        let baseline_inodes = fs.free_inodes().map_err(fs_error)?;
+        vfs.create(root, "/reuse.bin", 0o644).map_err(fs_error)?;
+        vfs.write(root, "/reuse.bin", 0, &[0x11; 8 * 1024])
+            .map_err(fs_error)?;
+        let first = fs.mapped_block("/reuse.bin", 0).map_err(fs_error)?;
+        let after = fs.free_blocks().map_err(fs_error)?;
+        check!(
+            after == baseline - 8,
+            "reuse.bin took {} blocks (baseline {baseline}, after {after}, first {first})",
+            baseline - after
+        );
+        check!(
+            fs.free_inodes().map_err(fs_error)? == baseline_inodes - 1,
+            "reuse.bin did not take an inode"
+        );
+        vfs.unlink(root, "/reuse.bin").map_err(fs_error)?;
+        check!(
+            fs.free_blocks().map_err(fs_error)? == baseline,
+            "unlink did not return the blocks"
+        );
+        check!(
+            fs.free_inodes().map_err(fs_error)? == baseline_inodes,
+            "unlink did not return the inode"
+        );
+        vfs.create(root, "/reuse2.bin", 0o644).map_err(fs_error)?;
+        vfs.write(root, "/reuse2.bin", 0, &[0x22; 8 * 1024])
+            .map_err(fs_error)?;
+        check!(
+            fs.mapped_block("/reuse2.bin", 0).map_err(fs_error)? == first,
+            "the freed block was not reused"
+        );
+        check!(
+            fs.free_blocks().map_err(fs_error)? == baseline - 8,
+            "reuse accounting is off"
+        );
+        vfs.unlink(root, "/reuse2.bin").map_err(fs_error)?;
+        check!(
+            fs.free_blocks().map_err(fs_error)? == baseline,
+            "the final free count is wrong"
+        );
+
+        // Error paths.
+        check!(
+            vfs.create(root, "/docs", 0o644).err() == Some(FsError::Exists),
+            "create replaced a directory"
+        );
+        check!(
+            vfs.write(root, "/docs", 0, b"x").err() == Some(FsError::IsDir),
+            "write succeeded on a directory"
+        );
+        check!(
+            vfs.unlink(root, "/docs").err() == Some(FsError::IsDir),
+            "unlink removed a directory"
+        );
+        check!(
+            vfs.rename(root, "/nope", "/docs/x").err() == Some(FsError::NotFound),
+            "rename found a ghost"
+        );
+        check!(
+            vfs.create(root, "/missing/file", 0o644).err() == Some(FsError::NotFound),
+            "create succeeded in a missing directory"
+        );
+        let long = "x".repeat(256);
+        check!(
+            vfs.create(root, &format!("/{long}"), 0o644).err() == Some(FsError::NameTooLong),
+            "an over-long name was accepted"
+        );
+
+        // flush reaches the device and stamps the superblock.
+        let before = disk.flushes.load(Ordering::Relaxed);
+        fs.flush().map_err(fs_error)?;
+        check!(
+            disk.flushes.load(Ordering::Relaxed) == before + 1,
+            "flush did not reach the block device"
+        );
+        Ok(())
+    }
+
+    /// 1K, 2K, and 4K blocks all mount and round-trip a file that spills into
+    /// the single-indirect map, so every block-size-dependent shift is used.
+    pub fn block_sizes() -> Result<(), String> {
+        task::register_kernel();
+        for block_size in [1024u32, 2048, 4096] {
+            let total_blocks = (DISK_SECTORS * SECTOR_SIZE) as u32 / block_size;
+            let (fs, mut vfs, _disk) = mounted(block_size, total_blocks)?;
+            check!(
+                fs.block_size() == block_size,
+                "open reported {} for a {block_size}-byte block",
+                fs.block_size()
+            );
+            let root = Id::ROOT;
+            vfs.mkdir(root, "/dir", 0o755).map_err(fs_error)?;
+            vfs.create(root, "/dir/file", 0o644).map_err(fs_error)?;
+            let payload: Vec<u8> = (0..60 * 1024).map(|index| (index % 253) as u8).collect();
+            vfs.write(root, "/dir/file", 0, &payload)
+                .map_err(fs_error)?;
+            check!(
+                fs.mapped_block("/dir/file", 12).map_err(fs_error)? != 0,
+                "{block_size}: the indirect block is missing"
+            );
+            check!(
+                vfs.read_file(root, "/dir/file").map_err(fs_error)? == payload,
+                "{block_size}: the round trip differs"
+            );
+            // Rewriting the tail in place (no new allocation) must preserve
+            // the leading blocks.
+            let tail = payload.len() - 5;
+            vfs.write(root, "/dir/file", tail as u64, b"12345")
+                .map_err(fs_error)?;
+            let mut expected = payload.clone();
+            expected[tail..].copy_from_slice(b"12345");
+            check!(
+                vfs.read_file(root, "/dir/file").map_err(fs_error)? == expected,
+                "{block_size}: the in-place rewrite differs"
+            );
+            vfs.unlink(root, "/dir/file").map_err(fs_error)?;
+        }
+        Ok(())
+    }
+
+    /// Malformed images answer friendly errors instead of panicking: bad
+    /// magic, unsupported geometry, impossible counts, unsupported features,
+    /// a truncated device, out-of-range group pointers, and a corrupt
+    /// directory record.
+    pub fn rejects_corruption() -> Result<(), String> {
+        task::register_kernel();
+        let good = mkfs(1024, 512, 64);
+        let disk = FakeDisk::new("test-ext2-bad", DISK_SECTORS);
+
+        // Swap an image into the shared disk and try to open it.
+        let open_err = |image: &[u8]| -> Option<FsError> {
+            disk.data.lock().copy_from_slice(image);
+            Ext2::open(disk).err()
+        };
+
+        let mut bad = good.clone();
+        bad[SUPER + 0x38] ^= 0xFF; // wrong magic
+        check!(
+            open_err(&bad) == Some(FsError::Invalid),
+            "bad magic accepted"
+        );
+
+        let mut bad = good.clone();
+        put32(&mut bad, SUPER + 0x18, 5); // log block size -> 32 KiB
+        check!(
+            open_err(&bad) == Some(FsError::Invalid),
+            "an over-large block size was accepted"
+        );
+
+        let mut bad = good.clone();
+        put16(&mut bad, SUPER + 0x58, 0); // zero inode size
+        check!(
+            open_err(&bad) == Some(FsError::Invalid),
+            "a zero inode size was accepted"
+        );
+
+        let mut bad = good.clone();
+        put32(&mut bad, SUPER + 0x60, 0x80); // incompat 64BIT
+        check!(
+            open_err(&bad) == Some(FsError::NotSupported),
+            "the 64BIT feature was accepted"
+        );
+
+        let mut bad = good.clone();
+        put32(&mut bad, SUPER + 0x64, 0x10); // ro-compat GDT_CSUM
+        check!(
+            open_err(&bad) == Some(FsError::NotSupported),
+            "an unknown ro-compat feature was accepted"
+        );
+
+        let mut bad = good.clone();
+        put32(&mut bad, SUPER + 0x04, 0xFFFF_FFFF); // block count past the device
+        check!(
+            open_err(&bad) == Some(FsError::Invalid),
+            "an impossible block count was accepted"
+        );
+
+        let mut bad = good.clone();
+        put32(&mut bad, SUPER + 0x10, 1000); // more free inodes than inodes
+        check!(
+            open_err(&bad) == Some(FsError::Invalid),
+            "free inodes above the total were accepted"
+        );
+
+        // A device too short to hold even the superblock.
+        let tiny = FakeDisk::new("test-ext2-tiny", 1);
+        check!(
+            Ext2::open(tiny).err() == Some(FsError::Invalid),
+            "a one-sector device was accepted"
+        );
+
+        // A valid superblock hiding a group descriptor whose bitmap pointer
+        // lies outside the volume: open succeeds, the first read refuses.
+        let mut bad = good.clone();
+        put32(&mut bad, 2 * 1024, 0xFFFF_FFFF); // group 0 block bitmap pointer
+        disk.data.lock().copy_from_slice(&bad);
+        let fs = Arc::new(Ext2::open(disk).map_err(fs_error)?);
+        let mut vfs = Vfs::new();
+        vfs.mount("/", fs).map_err(fs_error)?;
+        check!(
+            vfs.stat(Id::ROOT, "/").err() == Some(FsError::Invalid),
+            "an out-of-range group pointer was accepted"
+        );
+
+        // A valid superblock hiding a corrupt directory record: `readdir`
+        // must answer Invalid rather than loop or panic.
+        let mut bad = good.clone();
+        // For 1K blocks and the mkfs layout, root data block 13 is in the
+        // 512-block image (gdt 2, bitmaps 3/4, inode table 5..12, root 13).
+        put16(&mut bad, 13 * 1024 + 4, 3); // record length not a multiple of 4
+        disk.data.lock().copy_from_slice(&bad);
+        let fs = Arc::new(Ext2::open(disk).map_err(fs_error)?);
+        let mut vfs = Vfs::new();
+        vfs.mount("/", fs).map_err(fs_error)?;
+        check!(
+            vfs.readdir(Id::ROOT, "/").err() == Some(FsError::Invalid),
+            "a corrupt directory record was accepted"
+        );
+        Ok(())
+    }
+
+    /// The `mount <dev>` surface opens ext2 on any registered device (not
+    /// just the boot volume), and the mount is reachable through the global
+    /// VFS helpers.
+    pub fn mount_device_wiring() -> Result<(), String> {
+        task::register_kernel();
+        crate::fs::init();
+        let image = mkfs(1024, 512, 64);
+        let disk = FakeDisk::new("test-ext2-mount", DISK_SECTORS);
+        disk.data.lock().copy_from_slice(&image);
+        check!(
+            block::register(disk).is_ok(),
+            "registering the ext2 disk failed"
+        );
+        check!(
+            crate::fs::mount_device("/ext2", "test-ext2-mount").is_ok(),
+            "mount_device refused an ext2 volume"
+        );
+        check!(
+            crate::fs::mount_device("/ext2", "test-ext2-mount").err() == Some(FsError::Exists),
+            "a duplicate mount point was accepted"
+        );
+
+        let root = Id::ROOT;
+        check!(
+            crate::fs::vfs_stat(root, "/ext2").map_err(fs_error)?.kind == FileKind::Dir,
+            "/ext2 is not a directory"
+        );
+        crate::fs::vfs_mkdir(root, "/ext2/home", 0o755).map_err(fs_error)?;
+        crate::fs::vfs_create(root, "/ext2/home/file.txt", 0o644).map_err(fs_error)?;
+        crate::fs::vfs_write(root, "/ext2/home/file.txt", 0, b"mounted ext2").map_err(fs_error)?;
+        let data = crate::fs::vfs_read(root, "/ext2/home/file.txt").map_err(fs_error)?;
+        check!(
+            data == b"mounted ext2".to_vec(),
+            "the global VFS read returned {data:?}"
+        );
+        crate::fs::vfs_unlink(root, "/ext2/home/file.txt").map_err(fs_error)?;
+        Ok(())
+    }
+}
+
 /// Topic ACL hooks (issue #92): stable segment hashes, per-segment policy,
 /// wildcard filters, and the `authorize_topic` syscall gate. The broker itself
 /// is userspace; these tests pin the kernel half of the contract.
