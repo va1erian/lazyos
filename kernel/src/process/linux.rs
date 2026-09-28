@@ -2551,7 +2551,9 @@ fn sys_accept(fd: u64, addr: u64, addrlen: u64, flags: u64) -> u64 {
             WakeReason::Interrupted => return err(EINTR),
         }
     };
-    let Some(new_fd) = task::fd_open(Fd::socket_side(pair, Side::A)) else {
+    // The listener took this side's reference at `connect`; adopt it (a
+    // failed `fd_open` drops the `Fd`, which releases it).
+    let Some(new_fd) = task::fd_open(Fd::socket_side_adopt(pair, Side::A)) else {
         return err(EMFILE);
     };
     if flags & SOCK_CLOEXEC != 0 {

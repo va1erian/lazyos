@@ -225,6 +225,10 @@ const SUITE: &[(&str, Test)] = &[
         linux_suite::epoll_level_edge_hangup,
     ),
     (
+        "linux_epoll_edge_over_maxevents",
+        linux_suite::epoll_edge_over_maxevents,
+    ),
+    (
         "linux_epoll_soak_add_wait_cycles",
         linux_suite::epoll_soak_add_wait_cycles,
     ),
@@ -243,6 +247,10 @@ const SUITE: &[(&str, Test)] = &[
     (
         "linux_unix_pathname_bind_connect_accept",
         linux_suite::unix_pathname_bind_connect_accept,
+    ),
+    (
+        "linux_unix_write_before_accept",
+        linux_suite::unix_write_before_accept,
     ),
     ("linux_unix_pathname_soak", linux_suite::unix_pathname_soak),
     ("ipc_open_distinct", ipc_suite::open_distinct),
@@ -490,6 +498,10 @@ const SUITE: &[(&str, Test)] = &[
     (
         "sysinfo_snapshot_abi_contract",
         sysinfo_suite::snapshot_abi_contract,
+    ),
+    (
+        "sysinfo_snapshot_rejects_bad_destinations",
+        sysinfo_suite::snapshot_rejects_bad_destinations,
     ),
     (
         "sysinfo_snapshot_fields_sane",
@@ -4098,6 +4110,50 @@ mod linux_suite {
         Ok(())
     }
 
+    /// `EPOLLET` edges that are ready but beyond `maxevents` stay pending: each
+    /// later wait reports the next one instead of silently marking it seen.
+    pub fn epoll_edge_over_maxevents() -> Result<(), String> {
+        fresh()?;
+        let epfd = process::linux::dispatch_for_test(291, 0, 0, 0);
+        check!((epfd as i64) > 0, "epoll_create1 returned {epfd:#x}");
+        let mut ends: Vec<(u64, u64)> = Vec::new();
+        for tag in 1..=3u64 {
+            let mut fds = [0i32; 2];
+            check!(
+                process::linux::dispatch_for_test(22, fds.as_mut_ptr() as u64, 0, 0) == 0,
+                "pipe {tag} failed"
+            );
+            let (r, w) = (fds[0] as u64, fds[1] as u64);
+            let edge = epoll_event(EPOLLIN | EPOLLET, tag);
+            check!(epoll_ctl(epfd, EPOLL_CTL_ADD, r, &edge) == 0, "ADD {tag} failed");
+            check!(write_fd(w, b"x") == 1, "pipe {tag} write");
+            ends.push((r, w));
+        }
+        let mut one = [0u8; 12];
+        let mut seen: Vec<u64> = Vec::new();
+        for round in 0..3 {
+            check!(
+                epoll_wait0(epfd, &mut one) == 1,
+                "round {round}: a pending edge was lost past maxevents"
+            );
+            let (_, data) = unpack_event(&one);
+            check!(!seen.contains(&data), "round {round}: edge {data} reported twice");
+            seen.push(data);
+        }
+        check!(
+            epoll_wait0(epfd, &mut one) == 0,
+            "an edge repeated after every edge was reported"
+        );
+        for (r, w) in ends {
+            check!(task::fd_close(r as usize), "close read end failed");
+            check!(task::fd_close(w as usize), "close write end failed");
+        }
+        check!(task::fd_close(epfd as usize), "close epoll failed");
+        check!(fds_clean(), "epoll edge test left a descriptor");
+        check!(pipe::Pipe::live() == 0, "a pipe was not freed");
+        Ok(())
+    }
+
     /// Soak: thousands of `epoll_ctl` add/mod/del cycles over mixed targets,
     /// and a full interest set, with no descriptor, pipe or interest leak.
     pub fn epoll_soak_add_wait_cycles() -> Result<(), String> {
@@ -4347,6 +4403,61 @@ mod linux_suite {
         check!(fds_clean(), "pathname test left a descriptor");
         check!(unix::bound_count() == 0, "bound name survived its listener");
         check!(pipe::Pipe::live() == 0, "pathname test leaked a pipe");
+        Ok(())
+    }
+
+    /// As on Linux, a connection is established at `connect`: the client can
+    /// write before the server accepts and the data waits in the pair. A
+    /// listener closed with a connection still pending releases the server
+    /// side, so the client reads EOF and nothing leaks.
+    pub fn unix_write_before_accept() -> Result<(), String> {
+        fresh()?;
+        let name = b"/tmp/abi-early.sock";
+        let mut sockaddr = [0u8; 110];
+        sockaddr[..2].copy_from_slice(&(AF_UNIX as u16).to_le_bytes());
+        sockaddr[2..2 + name.len()].copy_from_slice(name);
+        let addr_ptr = sockaddr.as_ptr() as u64;
+        let addr_len = (2 + name.len()) as u64;
+        let listener = process::linux::dispatch_for_test(41, AF_UNIX, SOCK_STREAM, 0);
+        check!(
+            process::linux::dispatch_for_test(49, listener, addr_ptr, addr_len) == 0,
+            "bind failed"
+        );
+        check!(
+            process::linux::dispatch_for_test(50, listener, 4, 0) == 0,
+            "listen failed"
+        );
+
+        // 1. Write before accept buffers instead of failing with -EPIPE.
+        let client = process::linux::dispatch_for_test(41, AF_UNIX, SOCK_STREAM, 0);
+        check!(
+            process::linux::dispatch_for_test(42, client, addr_ptr, addr_len) == 0,
+            "connect failed"
+        );
+        let early = write_fd(client, b"early");
+        check!(early == 5, "write before accept returned {early:#x}");
+        let server = process::linux::dispatch_args_for_test(288, listener, 0, 0, 0);
+        check!((server as i64) > 0, "accept4 returned {server:#x}");
+        let mut buf = [0u8; 8];
+        check!(read_fd(server, &mut buf) == 5, "server read");
+        check!(&buf[..5] == b"early", "early data lost");
+
+        // 2. A pending connection is released when its listener closes.
+        let orphan = process::linux::dispatch_for_test(41, AF_UNIX, SOCK_STREAM, 0);
+        check!(
+            process::linux::dispatch_for_test(42, orphan, addr_ptr, addr_len) == 0,
+            "second connect failed"
+        );
+        check!(task::fd_close(listener as usize), "close listener failed");
+        let eof = read_fd(orphan, &mut buf);
+        check!(eof == 0, "orphaned client read returned {eof:#x}, expected EOF");
+
+        for fd in [client, server, orphan] {
+            check!(task::fd_close(fd as usize), "cleanup close failed");
+        }
+        check!(fds_clean(), "early-write test left a descriptor");
+        check!(unix::bound_count() == 0, "bound name survived its listener");
+        check!(pipe::Pipe::live() == 0, "a pending connection leaked a pipe");
         Ok(())
     }
 
@@ -11525,7 +11636,7 @@ mod display_suite {
 // System statistics snapshot (issue #144)
 // ---------------------------------------------------------------------------
 
-/// The fixed-layout read-only snapshot behind syscall 13: version/layout
+/// The fixed-layout read-only snapshot behind syscall 14: version/layout
 /// stability, the strict buffer contract, live counters and the task table.
 /// The soak drives snapshots through repeated fork/exit/reclaim generations,
 /// where a per-snapshot allocation or a translation leak would show as frame,
@@ -11546,17 +11657,37 @@ mod sysinfo_suite {
         task::harness::switch_current(task::KERNEL_TASK);
     }
 
+    /// Scratch user buffer for the snapshot. The syscall validates its
+    /// destination against the active CR3 as mapped, writable user memory, so
+    /// each call installs a fresh address space with this range mapped.
+    const SPACE: u64 = 0x0040_0000;
+    const SPACE_PAGES: u64 = (sysinfo::SIZE + 4095) / 4096;
+
+    /// Run `f` with [`SPACE`] mapped into a fresh user address space.
+    fn in_space<R>(f: impl FnOnce() -> Result<R, String>) -> Result<R, String> {
+        let kernel = mem::kernel_table();
+        let table = mem::new_user_table().ok_or("new_user_table failed")?;
+        process::map_range(table, SPACE, SPACE + SPACE_PAGES * 4096).map_err(to_string)?;
+        mem::switch_to(table);
+        let outcome = f();
+        mem::switch_to(kernel);
+        mem::free_user_table(table);
+        outcome
+    }
+
     /// A full snapshot through the syscall entry, decoded as raw words.
     fn snapshot() -> Result<[u64; sysinfo::WORDS], String> {
-        let mut words = [0u64; sysinfo::WORDS];
-        let code = process::dispatch_for_test(
-            14,
-            sysinfo::op::SNAPSHOT,
-            words.as_mut_ptr() as u64,
-            sysinfo::SIZE,
-        );
-        check!(code == sysinfo::SIZE, "snapshot -> {code:#x}");
-        Ok(words)
+        in_space(|| {
+            let code =
+                process::dispatch_for_test(14, sysinfo::op::SNAPSHOT, SPACE, sysinfo::SIZE);
+            check!(code == sysinfo::SIZE, "snapshot -> {code:#x}");
+            let mut words = [0u64; sysinfo::WORDS];
+            for (index, word) in words.iter_mut().enumerate() {
+                // Safety: the scratch pages are mapped readable while installed.
+                *word = unsafe { core::ptr::read_volatile((SPACE as *const u64).add(index)) };
+            }
+            Ok(words)
+        })
     }
 
     /// The size op reports the ABI block; a null or short buffer and an
@@ -11574,13 +11705,14 @@ mod sysinfo_suite {
             process::dispatch_for_test(14, sysinfo::op::SNAPSHOT, 0, 0) == failed(14),
             "a null snapshot buffer was not refused with -EFAULT"
         );
-        let mut words = [0u64; sysinfo::WORDS];
-        let short = process::dispatch_for_test(
-            14,
-            sysinfo::op::SNAPSHOT,
-            words.as_mut_ptr() as u64,
-            sysinfo::SIZE - 8,
-        );
+        let short = in_space(|| {
+            Ok(process::dispatch_for_test(
+                14,
+                sysinfo::op::SNAPSHOT,
+                SPACE,
+                sysinfo::SIZE - 8,
+            ))
+        })?;
         check!(
             short == failed(7),
             "a short buffer returned {short:#x}, expected -E2BIG"
@@ -11611,6 +11743,40 @@ mod sysinfo_suite {
             words[sysinfo::H_TASK_SLOTS],
             sysinfo::TASK_ROW_WORDS,
             task::MAX_TASKS
+        );
+        Ok(())
+    }
+
+    /// Both read-only monitor gates (13: task list, 14: system stats) are open
+    /// to every task, so a destination that is a kernel address, unmapped, or
+    /// runs off the end of the mapping must be refused with `-EFAULT` before a
+    /// byte is written — never turned into a kernel write.
+    pub fn snapshot_rejects_bad_destinations() -> Result<(), String> {
+        fresh();
+        let mut canary = [0x5a5a_5a5a_5a5a_5a5au64; sysinfo::WORDS];
+        let kernel_buf = canary.as_mut_ptr() as u64;
+        in_space(|| {
+            let tail = SPACE + SPACE_PAGES * 4096 - 8;
+            for (label, buf) in [
+                ("kernel address", kernel_buf),
+                ("unmapped", 0xdead_0000),
+                ("non-canonical", 0x0000_8000_0000_0000),
+                ("range past the mapping", tail),
+                ("wrapping range", u64::MAX - 8),
+            ] {
+                let code =
+                    process::dispatch_for_test(14, sysinfo::op::SNAPSHOT, buf, sysinfo::SIZE);
+                check!(code == failed(14), "sysinfo {label} -> {code:#x}, expected -EFAULT");
+                let code = process::dispatch_for_test(13, buf, 0, 0);
+                check!(code == failed(14), "sys_tasks {label} -> {code:#x}, expected -EFAULT");
+            }
+            let code = process::dispatch_for_test(13, SPACE, 0, 0);
+            check!(code == 0, "sys_tasks into a mapped buffer -> {code:#x}");
+            Ok(())
+        })?;
+        check!(
+            canary.iter().all(|&word| word == 0x5a5a_5a5a_5a5a_5a5a),
+            "a refused snapshot still wrote into the kernel buffer"
         );
         Ok(())
     }

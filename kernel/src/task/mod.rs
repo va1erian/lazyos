@@ -314,6 +314,13 @@ impl Fd {
         Fd::Socket { pair, side }
     }
 
+    /// A socket side whose reference the caller already holds (a pending
+    /// connection handed over by `Listener::take_pending`); nothing new is
+    /// acquired, and dropping the `Fd` releases it.
+    pub fn socket_side_adopt(pair: Arc<SocketPair>, side: Side) -> Fd {
+        Fd::Socket { pair, side }
+    }
+
     /// `poll` revents for this descriptor. `events` are `POLL*` bits; closed
     /// slots report nothing (callers map them to `POLLNVAL`).
     pub fn poll(&self, events: u16) -> u16 {

@@ -209,17 +209,21 @@ impl Epoll {
         let mut out: Vec<(u32, u64)> = Vec::new();
         for interest in &snapshot {
             let (revents, gen) = interest.target.poll_gen((interest.events & 0xffff) as u16);
-            scanned.push((interest.fd, revents, gen));
-            if out.len() == max {
-                continue;
-            }
             let reportable = (revents as u32) & (interest.events | REPORT_ALWAYS);
-            if reportable == 0 {
-                continue;
-            }
             let edge = interest.events & EPOLLET != 0;
             let fresh = gen != interest.last_gen || revents != interest.last_revents;
-            if !edge || fresh {
+            let wants_report = reportable != 0 && (!edge || fresh);
+            if wants_report && out.len() == max {
+                // Over the `maxevents` cap: a pending edge must stay pending,
+                // so its bookkeeping is left untouched for the next wait.
+                // (Level-triggered interests re-report regardless.)
+                if !edge {
+                    scanned.push((interest.fd, revents, gen));
+                }
+                continue;
+            }
+            scanned.push((interest.fd, revents, gen));
+            if wants_report {
                 out.push((reportable, interest.data));
             }
         }

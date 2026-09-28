@@ -78,13 +78,13 @@
 //!
 //! # The system-stats snapshot (issue #144)
 //!
-//! Syscall 13 is a read-only monitor surface: `sysmond` serves it over
+//! Syscall 14 is a read-only monitor surface: `sysmond` serves it over
 //! Messenger and `top` renders it. The fixed layout, version, buffer contract
 //! and the deliberate "readable by every task, no addresses or credentials"
 //! permission choice live in [`crate::sysinfo`].
 //!
 //! ```text
-//!   rax = 13  rdi = op
+//!   rax = 14  rdi = op
 //!   op 0 (snapshot): rsi -> buffer, rdx = capacity in bytes  -> size | -errno
 //!   op 1 (size):                                             -> size
 //! ```
@@ -589,10 +589,17 @@ fn sys_tasks(buf: u64) -> u64 {
         return syscall_error(EFAULT);
     }
     let words = task::introspect::snapshot_words();
-    if user_ptr::try_copy_words(buf, &words).is_err() {
-        return syscall_error(EFAULT);
+    let mut bytes = Vec::with_capacity(words.len() * 8);
+    for word in words.iter() {
+        bytes.extend_from_slice(&word.to_ne_bytes());
     }
-    0
+    // Validate the whole destination as writable user memory first; this
+    // gate is open to every task, so a raw write would be a kernel-write
+    // primitive.
+    match crate::ipc::syscalls::copy_out(buf, &bytes) {
+        Ok(()) => 0,
+        Err(code) => (code as u64).wrapping_neg(),
+    }
 }
 
 /// syscall 7: wait for a child exit and reap it.
