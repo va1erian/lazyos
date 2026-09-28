@@ -1,6 +1,6 @@
 //! `sysmond` (`SYSD.ELF`): the system monitor service (issue #144).
 //!
-//! `sysmond` wraps the kernel's read-only system-stats syscall (13) in the
+//! `sysmond` wraps the kernel's read-only system-stats syscall (14) in the
 //! Messenger fabric:
 //!
 //! * it registers [`services::SYSMOND_NAME`] and serves
@@ -39,11 +39,10 @@ use user::sysinfo::{self, Snapshot, TaskState};
 
 /// How often the retained stats topics are republished (PIT ticks, 100 Hz).
 ///
-/// Deliberately slow, like `healthd`'s supervision poll: every publish
-/// allocates a retained payload and the user runtime's bump allocator
-/// (`user/src/heap.rs`) never reclaims memory, so freshness is traded for a
-/// slow, constant growth rate. The `snapshot` method is the on-demand path
-/// for anything that needs a fresh value *now*.
+/// Every publish formats two payloads and re-encodes one event per
+/// subscriber; the user heap (`user/src/heap.rs`) recycles those same-sized
+/// blocks each tick, so the service's footprint stays flat. The `snapshot`
+/// method is the on-demand path for anything that needs a fresh value *now*.
 const PUBLISH_TICKS: u64 = 500;
 /// How long the service sleeps between message polls.
 const IDLE_TICKS: u64 = 5;
@@ -108,14 +107,13 @@ fn run() -> messenger::Result<()> {
             Ok(message) => {
                 let reply = match dispatch(&message) {
                     Ok(parcel) => parcel,
-                    // A malformed request still gets an answer, or its caller
-                    // would wait forever: the current snapshot when one can be
-                    // read, otherwise an empty reply the caller refuses.
-                    Err(_) => match sysinfo::snapshot() {
-                        Ok(snapshot) => services::sysinfo_reply(&snapshot)
-                            .unwrap_or_else(|_| services::sysinfo_request()),
-                        Err(_) => services::sysinfo_request(),
-                    },
+                    // A failed request still gets an answer, or its caller
+                    // would wait forever: a structured error for the request's
+                    // own interface and method, carrying the original errno,
+                    // so a failure is never mistaken for a success.
+                    Err(error) => {
+                        services::error_reply(message.interface_id(), message.method(), error)
+                    }
                 };
                 if let Some(txn) = message.txn {
                     // A caller whose deadline passed is a normal scheduling
