@@ -48,6 +48,7 @@ use crate::console;
 use crate::input::keyboard::Key;
 use crate::ipc::shared;
 use crate::task;
+use crate::user_ptr;
 
 /// Sentinel for "no compositor bound".
 const NO_OWNER: usize = usize::MAX;
@@ -323,7 +324,7 @@ fn write_info(ptr: u64) -> u64 {
     for (index, word) in words.iter().enumerate() {
         // Safety: the caller passes a writable user block of `INFO_WORDS`
         // eight-byte words (native syscall buffer convention).
-        unsafe { core::ptr::write_volatile((ptr as *mut u64).add(index), *word) };
+        unsafe { user_ptr::write_at::<u64>(ptr, index, *word) };
     }
     0
 }
@@ -369,10 +370,10 @@ fn input_poll(ptr: u64, capacity: u64) -> u64 {
         let base = ptr + (index * EVENT_BYTES) as u64;
         // Safety: the caller passes a buffer of `capacity` writable bytes.
         unsafe {
-            core::ptr::write_volatile(base as *mut u32, event.kind);
-            core::ptr::write_volatile((base + 4) as *mut i32, event.a);
-            core::ptr::write_volatile((base + 8) as *mut i32, event.b);
-            core::ptr::write_volatile((base + 12) as *mut u32, event.reserved);
+            user_ptr::write::<u32>(base, event.kind);
+            user_ptr::write::<i32>(base + 4, event.a);
+            user_ptr::write::<i32>(base + 8, event.b);
+            user_ptr::write::<u32>(base + 12, event.reserved);
         }
     }
     count as u64
@@ -443,7 +444,7 @@ fn create_buffer(size: u64, out_ptr: u64) -> u64 {
     let words = [handle, va, size];
     for (index, word) in words.iter().enumerate() {
         // Safety: the caller passes a writable user block of three u64 words.
-        unsafe { core::ptr::write_volatile((out_ptr as *mut u64).add(index), *word) };
+        unsafe { user_ptr::write_at::<u64>(out_ptr, index, *word) };
     }
     0
 }
@@ -456,7 +457,7 @@ fn map_buffer(handle: u64, out_ptr: u64) -> u64 {
     match shared::map(handle) {
         Ok(va) => {
             // Safety: the caller passes one writable u64 word.
-            unsafe { core::ptr::write_volatile(out_ptr as *mut u64, va) };
+            unsafe { user_ptr::write::<u64>(out_ptr, va) };
             0
         }
         Err(error) => shared_errno(error),
