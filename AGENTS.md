@@ -52,20 +52,19 @@ Input is delivered via QMP `input-send-event`, so it works headless.
 
 ## Running the demo
 
-LazyOS has moved well past its original single-tasking MVP (see the closed
-scope of tracking issue #10). It is now built around **Messenger**, a
-kernel-mediated, capability-based IPC/pub-sub fabric, with userspace system
-services (`messengerd`, `init`, `logd`, `healthd`, `keyd`, `accounts`,
-`clipboardd`, the `xuid` display compositor, and more) running over a
-preemptive multitasking kernel with a writable ext2 filesystem and a VFS. The
-authoritative description of the current architecture and the staged roadmap
-(S0–S9) is [`docs/platform-plan.md`](docs/platform-plan.md), with per-subsystem
-detail in [`docs/architecture/`](docs/architecture) (boot, memory, tasks,
-filesystem, IPC, processes, display, etc.) and focused plans for
+LazyOS is built around **Messenger**, a kernel-mediated, capability-based
+IPC/pub-sub fabric, with userspace system services (`messengerd`, `init`,
+`logd`, `healthd`, `keyd`, `accounts`, `clipboardd`, the `xuid` display
+compositor, and more) running over a preemptive multitasking kernel with a
+writable ext2 filesystem and a VFS. The authoritative description of the
+current architecture and the staged roadmap (S0–S9) is
+[`docs/platform-plan.md`](docs/platform-plan.md), with per-subsystem detail in
+[`docs/architecture/`](docs/architecture) (boot, memory, tasks, filesystem,
+IPC, processes, display, etc.) and focused plans for
 [`messenger.md`](docs/messenger.md), [`security-model.md`](docs/security-model.md),
 [`linux-abi-plan.md`](docs/linux-abi-plan.md), and [`xui-plan.md`](docs/xui-plan.md).
-Read those before assuming anything about kernel internals, syscall numbers,
-or window/task management from older comments or history.
+Read those for anything about kernel internals, syscall numbers, or
+window/task management rather than assuming from comments elsewhere.
 
 Boot it with one command:
 
