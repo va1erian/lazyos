@@ -137,8 +137,10 @@ interface os.lazy.regd.v1 {
   List(path_prefix, recursive: bool) -> (stream of path);
   Query(path_prefix, schema_id, predicate) -> (stream of (path, record));
 
-  // History
+  // History (per key) and audit replay (per subtree, MANAGE + WATCH required)
   History(path, limit) -> (stream of (gen, writer_cred, ts, comment));
+  AuditReplay(subtree, after_seq: u64, limit) ->
+      (stream of (path, gen, seq, writer_cred, ts, comment));
   Revert(path, to_gen, expected_gen: optional<u64>) -> (new_gen); // creates a new gen copying an old one
 
   // Schema management
@@ -163,7 +165,11 @@ interface os.lazy.regd.v1 {
   absent or overwrites current otherwise; `Delete` removes whatever is
   current; `Revert` always compares against current internally when
   `expected_gen` is given, and otherwise reverts blindly. Callers that must
-  not race (most production writers) always pass `expected_gen`.
+  not race (most production writers) always pass `expected_gen`. To create a
+  key only if it does not already exist, callers pass the reserved value
+  `expected_gen = 0` (no real generation is ever numbered 0; the first
+  committed generation is 1): `Put` then fails with `REGD_CONFLICT` if any
+  generation already exists, so two racing creators can't both "win".
 - `Query` reuses Messenger's existing parcel/TLV machinery for the predicate
   (field == value, range, prefix match on string fields) — no new query
   language, just structured filters over typed fields, matching ODM's
@@ -212,7 +218,17 @@ Following `security-model.md`'s default-deny stance:
   `auditd` reconciles by diffing that mark against `History` on restart to
   pick up anything missed while it was offline. This makes audit
   completeness a property of `History` + the compaction low-water mark, not
-  of the pub/sub topic's delivery guarantees.
+  of the pub/sub topic's delivery guarantees. The acknowledgment frontier is
+  a **per-subtree monotonic sequence number** (`regd` assigns every
+  committed generation, across all keys in that subtree, the next number in
+  one global-per-subtree counter — not a per-key `(path, gen)` vector, which
+  would need one cursor per key). `auditd` replays with
+  `AuditReplay(subtree, after_seq, limit)`, which returns the next `limit`
+  generations in sequence order starting after `after_seq`; it advances its
+  cursor to the highest `seq` returned and repeats until a page comes back
+  short, then acknowledges up to that point. This gives `auditd` a single
+  ordered cursor per subtree that can always resume exactly where it left
+  off, with no generation skipped or double-counted.
 
 ---
 
