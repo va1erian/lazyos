@@ -1712,13 +1712,15 @@ fn sys_rt_sigaction(sig: u64, act: u64, oldact: u64, sigsetsize: u64) -> u64 {
         write_u64(oldact, handler);
         write_u64(oldact + 8, flags);
         write_u64(oldact + 16, restorer);
-        write_u64(oldact + 24, mask);
+        // The kernel stores `sa_mask` in its internal bit order.
+        write_u64(oldact + 24, signal::kernel_to_linux_sigset(mask));
     }
     if act != 0 {
         let handler = read_u64(act);
         let flags = read_u64(act + 8);
         let restorer = read_u64(act + 16);
-        let mask = read_u64(act + 24);
+        // User space passes a Linux `sigset_t` (bit `sig - 1`).
+        let mask = signal::linux_sigset_to_kernel(read_u64(act + 24));
         let disposition = match handler {
             signal::SIG_DFL => Disposition::Default,
             signal::SIG_IGN => Disposition::Ignore,
@@ -1745,10 +1747,12 @@ fn sys_rt_sigprocmask(how: u64, set: u64, oldset: u64, sigsetsize: u64) -> u64 {
         return err(EINVAL);
     }
     let me = task::current();
+    // The kernel keeps its blocked set in internal bit order; user space
+    // passes and reads Linux `sigset_t` (bit `sig - 1`).
     let current = signal::blocked(me);
     if set == 0 {
         if oldset != 0 {
-            write_u64(oldset, current);
+            write_u64(oldset, signal::kernel_to_linux_sigset(current));
         }
         return 0;
     }
@@ -1756,9 +1760,9 @@ fn sys_rt_sigprocmask(how: u64, set: u64, oldset: u64, sigsetsize: u64) -> u64 {
         return err(EINVAL);
     }
     if oldset != 0 {
-        write_u64(oldset, current);
+        write_u64(oldset, signal::kernel_to_linux_sigset(current));
     }
-    let requested = read_u64(set);
+    let requested = signal::linux_sigset_to_kernel(read_u64(set));
     let next = match how {
         signal::SIG_BLOCK => current | requested,
         signal::SIG_UNBLOCK => current & !requested,

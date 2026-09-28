@@ -156,7 +156,8 @@ pub enum Disposition {
     /// Explicitly dropped (`SIG_IGN`).
     Ignore,
     /// A user handler: address, `sa_flags`, the restorer (musl's `__restore_rt`),
-    /// and the `sa_mask` applied while the handler runs.
+    /// and the `sa_mask` applied while the handler runs. The mask is stored in
+    /// the kernel's internal bit order (`1 << sig`), not Linux's `sigset_t`.
     Handler {
         handler: u64,
         flags: u64,
@@ -294,6 +295,27 @@ static SIGNALS: Mutex<Vec<Signals>> = Mutex::new(Vec::new());
 /// Bit for `sig` in a 64-bit set.
 const fn bit(sig: u8) -> u64 {
     1u64 << sig
+}
+
+/// Translate a Linux `sigset_t` into the kernel's internal mask.
+///
+/// Linux numbers the bit of signal `sig` as `1 << (sig - 1)`, while this
+/// module indexes its `u64` mask directly by signal number (`1 << sig`, see
+/// [`bit`]). Signal 64 (`SIGRTMAX`) would need bit 64, which does not fit in
+/// the `u64`: it is dropped rather than shifted out of range. Bits above the
+/// kernel's 1..=63 range likewise cannot be represented and vanish.
+pub const fn linux_sigset_to_kernel(linux: u64) -> u64 {
+    linux << 1
+}
+
+/// Translate the kernel's internal mask into a Linux `sigset_t` bit order.
+///
+/// The inverse of [`linux_sigset_to_kernel`]: kernel bit `sig` becomes Linux
+/// bit `sig - 1`. Bit 0 (signal 0, "no signal") has no Linux slot and is
+/// dropped; Linux bit 63 (`SIGRTMAX`) can never be produced because the
+/// kernel mask has no bit 64.
+pub const fn kernel_to_linux_sigset(kernel: u64) -> u64 {
+    kernel >> 1
 }
 
 /// All signals that can never be blocked or caught.
@@ -793,7 +815,7 @@ const RED_ZONE: u64 = 128;
 
 /// Offsets inside the Linux frame. `mcontext` is the kernel `struct sigcontext`
 /// musl also uses (`mcontext_t`).
-mod lf {
+pub(crate) mod lf {
     // ucontext_t starts after `pretcode`.
     pub const UC_FLAGS: u64 = 8;
     pub const UC_LINK: u64 = 16;
@@ -878,7 +900,9 @@ fn frame_base(stack_top: u64) -> u64 {
 /// restorer pointer, `ucontext_t` (with the interrupted registers and the
 /// pre-handler mask) and `siginfo_t`, and returns the handler's entry context.
 /// The action's `sa_mask` composition is done by the caller before it calls
-/// this: `saved_mask` is what `rt_sigreturn` will restore.
+/// this: `saved_mask` is what `rt_sigreturn` will restore. `mask` and
+/// `saved_mask` are in kernel bit order; both are translated to Linux
+/// `sigset_t` bit order as they are written into the frame.
 pub fn build_linux_frame(
     stack_top: u64,
     regs: &UserRegs,
@@ -925,10 +949,10 @@ pub fn build_linux_frame(
     write_u16(mc + lf::SS, selectors.user_data);
     write_u64(mc + lf::ERR, 0);
     write_u64(mc + lf::TRAPNO, 0);
-    write_u64(mc + lf::OLDMASK, mask);
+    write_u64(mc + lf::OLDMASK, kernel_to_linux_sigset(mask));
     write_u64(mc + lf::CR2, 0);
     write_u64(mc + lf::FPSTATE, 0);
-    write_u64(frame + lf::UC_SIGMASK, saved_mask);
+    write_u64(frame + lf::UC_SIGMASK, kernel_to_linux_sigset(saved_mask));
     // siginfo_t.
     let si = frame + lf::SIGINFO;
     write_i32(si, sig as i32);
@@ -954,7 +978,9 @@ pub fn build_linux_frame(
 }
 
 /// Parse a frame at `user_rsp` (the value `rt_sigreturn` was entered with, i.e.
-/// just above `pretcode`) back into the interrupted registers and mask.
+/// just above `pretcode`) back into the interrupted registers and the saved
+/// mask, the latter translated from Linux `sigset_t` bit order back to the
+/// kernel's internal order.
 pub fn parse_linux_frame(user_rsp: u64) -> (UserRegs, u64) {
     let frame = user_rsp.wrapping_sub(8);
     let mc = frame + lf::MCONTEXT;
@@ -978,7 +1004,10 @@ pub fn parse_linux_frame(user_rsp: u64) -> (UserRegs, u64) {
         rip: read_u64(mc + lf::RIP),
         rflags: read_u64(mc + lf::EFLAGS),
     };
-    (regs, read_u64(frame + lf::UC_SIGMASK))
+    (
+        regs,
+        linux_sigset_to_kernel(read_u64(frame + lf::UC_SIGMASK)),
+    )
 }
 
 /// Word layout of a native signal frame: return context first, then the
