@@ -67,6 +67,10 @@ class Runner:
     def _work(self, steps: list[dict], env: dict[str, str], cwd: str) -> None:
         """Worker body: launch each step, stream its output, stop on failure."""
         full = os.environ.copy()
+        # The GUI owns the LAZYOS_* build switches: drop any inherited values so
+        # an unchecked box cannot be overridden by the parent environment.
+        for key in [k for k in full if k.startswith("LAZYOS_")]:
+            del full[key]
         full.update(env)
         kwargs: dict = {}
         if os.name == "nt":

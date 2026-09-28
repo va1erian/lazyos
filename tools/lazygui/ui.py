@@ -387,24 +387,28 @@ class Launcher:
         self.log.configure(state="disabled")
 
     def _poll(self) -> None:
-        """Drain runner messages on the Tk thread, then reschedule."""
-        try:
-            while True:
+        """Drain a bounded batch of runner messages, then reschedule.
+
+        The batch cap keeps a step that out-produces this loop from starving the
+        Tk event loop, so Stop and window-close still get processed.
+        """
+        for _ in range(1000):
+            try:
                 msg = self.runner.q.get_nowait()
-                kind = msg[0]
-                if kind == "step":
-                    self._log(f"\n=== {msg[1]} ===\n", "cmd")
-                    self._log(msg[2] + "\n", "dim")
-                    self.status.configure(text=f"Running: {msg[1]}")
-                elif kind == "out":
-                    self._log(msg[1], "out")
-                elif kind == "exit":
-                    tag = "dim" if msg[1] == 0 else "fail"
-                    self._log(f"(exit code {msg[1]})\n", tag)
-                elif kind == "done":
-                    self._finish(msg[1])
-        except queue.Empty:
-            pass
+            except queue.Empty:
+                break
+            kind = msg[0]
+            if kind == "step":
+                self._log(f"\n=== {msg[1]} ===\n", "cmd")
+                self._log(msg[2] + "\n", "dim")
+                self.status.configure(text=f"Running: {msg[1]}")
+            elif kind == "out":
+                self._log(msg[1], "out")
+            elif kind == "exit":
+                tag = "dim" if msg[1] == 0 else "fail"
+                self._log(f"(exit code {msg[1]})\n", tag)
+            elif kind == "done":
+                self._finish(msg[1])
         self.root.after(100, self._poll)
 
     def _finish(self, code: int) -> None:
