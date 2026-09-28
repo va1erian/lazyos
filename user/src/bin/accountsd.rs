@@ -129,7 +129,7 @@ fn run() -> messenger::Result<()> {
             Err(_) => Parcel::default(),
         };
         if let Some(txn) = message.txn {
-            server.reply(txn, &reply)?;
+            server.reply_or_drop(txn, &reply)?;
         }
     }
 }
@@ -161,6 +161,29 @@ fn by_uid(table: &[Account], uid: u32) -> Option<&Account> {
     table.iter().find(|account| account.record.uid == uid)
 }
 
+/// Push every account's verifier into `keyd`, so its `Verify` answers for the
+/// whole database and not only for its built-in demo account. Without this the
+/// first delegated login was always `false` for `root` and `alice`: `keyd`
+/// verdicts are authoritative, and it had never heard of them.
+///
+/// Best effort per account: a refusal is logged and that account simply keeps
+/// failing through `keyd` (fail closed), never falling back to a plaintext
+/// comparison once `keyd` is in charge.
+fn provision_keyd(table: &[Account]) {
+    let Ok(client) = keyd::Client::connect() else {
+        return;
+    };
+    for account in table {
+        if let Err(error) = client.provision(&account.record.name, &account.verifier) {
+            sys::write_str(&alloc::format!(
+                "accountsd: keyd refused to provision {}: {}\n",
+                account.record.name,
+                error.message()
+            ));
+        }
+    }
+}
+
 /// Whether `secret` authenticates `account`.
 ///
 /// `keyd` is the real verifier (`docs/security-model.md` section 3): when the
@@ -169,6 +192,7 @@ fn by_uid(table: &[Account], uid: u32) -> Option<&Account> {
 /// plaintext verifier. It is a stand-in so the login path can be exercised; no
 /// real deployment may use it.
 fn verify_secret(
+    table: &[Account],
     account: &Account,
     secret: &str,
     keyd_endpoint: &mut Option<Endpoint>,
@@ -178,6 +202,7 @@ fn verify_secret(
         *keyd_checked = true;
         *keyd_endpoint = registry::resolve(keyd::NAME).ok();
         if keyd_endpoint.is_some() {
+            provision_keyd(table);
             sys::write_str("accountsd: password verification delegated to keyd\n");
         } else {
             sys::write_str(
@@ -235,7 +260,9 @@ fn dispatch(
         accounts::method::AUTHENTICATE => {
             let (name, secret) = accounts::decode_authenticate(&message.parcel)?;
             let matched = by_name(table, &name)
-                .map(|account| verify_secret(account, &secret, keyd_endpoint, keyd_checked))
+                .map(|account| {
+                    verify_secret(table, account, &secret, keyd_endpoint, keyd_checked)
+                })
                 .unwrap_or(false);
             accounts::auth_reply(matched)
         }
@@ -263,10 +290,15 @@ fn dispatch(
                 home: new_user.home.clone(),
                 shell: new_user.shell.clone(),
             };
-            table.push(Account {
+            let account = Account {
                 record,
                 verifier: new_user.secret,
-            });
+            };
+            // A user created after `keyd` took over must be known to it too.
+            if keyd_endpoint.is_some() {
+                provision_keyd(core::slice::from_ref(&account));
+            }
+            table.push(account);
             sys::write_str(&alloc::format!(
                 "accountsd: created {} (uid {})\n",
                 new_user.name,

@@ -175,6 +175,15 @@ fn now() -> u32 {
     (crate::task::ticks() / 100) as u32
 }
 
+/// Refuse an owner whose ids do not fit the 16-bit `i_uid`/`i_gid` fields.
+/// Truncating would hand a file created by uid 65536 to uid 0 (root).
+fn check_owner(owner: Id) -> Result<(), FsError> {
+    if owner.uid > u32::from(u16::MAX) || owner.gid > u32::from(u16::MAX) {
+        return Err(FsError::Invalid);
+    }
+    Ok(())
+}
+
 /// Stamp a change: both `ctime` and `mtime` move on content or tree changes.
 fn touch(inode: &mut [u8; INODE_CORE_SIZE], time: u32) {
     put32(inode, INO_CTIME, time);
@@ -1274,34 +1283,58 @@ impl Filesystem for Ext2 {
         if data.is_empty() {
             return Ok(0);
         }
-        let end = offset
+        offset
             .checked_add(data.len() as u64)
             .ok_or(FsError::NoSpace)?;
         let block_size = u64::from(self.block_size);
         let size_usize = self.block_size as usize;
         let mut done = 0usize;
+        let mut failure = None;
         while done < data.len() {
             let position = offset + done as u64;
             let index = (position / block_size) as u32;
             let inner = (position % block_size) as usize;
             let chunk = min(size_usize - inner, data.len() - done);
-            let (block, fresh) = self.ensure_block(&mut inode, index)?;
+            let (block, fresh) = match self.ensure_block(&mut inode, index) {
+                Ok(mapped) => mapped,
+                Err(error) => {
+                    failure = Some(error);
+                    break;
+                }
+            };
             let mut tmp = [0u8; MAX_BLOCK_SIZE];
             if !fresh {
-                self.read_block(u64::from(block), &mut tmp[..size_usize])?;
+                if let Err(error) = self.read_block(u64::from(block), &mut tmp[..size_usize]) {
+                    failure = Some(error);
+                    break;
+                }
             }
             // A fresh block is written from zeros, so a short write can never
             // expose stale bytes from the block's previous owner.
             tmp[inner..inner + chunk].copy_from_slice(&data[done..done + chunk]);
-            self.write_block(u64::from(block), &tmp[..size_usize])?;
+            if let Err(error) = self.write_block(u64::from(block), &tmp[..size_usize]) {
+                failure = Some(error);
+                break;
+            }
             done += chunk;
         }
-        if end > self.file_size(&inode) {
-            put32(&mut inode, INO_SIZE, end as u32);
+        // `ensure_block` allocated blocks and edited the in-memory inode as it
+        // went. Persist the inode whatever happened, or every block allocated
+        // before a failure (out of space, an I/O error) stays marked used in
+        // the bitmap while no inode owns it: a permanent leak, and the bytes
+        // already written vanish. The size covers exactly what landed.
+        let landed = offset + done as u64;
+        if done > 0 && landed > self.file_size(&inode) {
+            put32(&mut inode, INO_SIZE, landed as u32);
         }
         touch(&mut inode, now());
-        self.write_inode(ino, &inode)?;
-        Ok(data.len())
+        let persisted = self.write_inode(ino, &inode);
+        match failure {
+            // A short write reports the bytes that landed; the caller's next
+            // write sees the failure again with nothing written.
+            Some(error) if done == 0 => Err(error),
+            _ => persisted.map(|()| done),
+        }
     }
 
     fn create(&self, path: &str, mode: u16, owner: Id) -> Result<Meta, FsError> {
@@ -1315,6 +1348,7 @@ impl Filesystem for Ext2 {
         if self.find_entry(parent_ino, name).is_ok() {
             return Err(FsError::Exists);
         }
+        check_owner(owner)?;
         let ino = self.alloc_inode(false)?;
         let mut inode = [0u8; INODE_CORE_SIZE];
         put16(&mut inode, INO_MODE, S_IFREG | (mode & 0o7777));
@@ -1346,6 +1380,7 @@ impl Filesystem for Ext2 {
         if self.find_entry(parent_ino, name).is_ok() {
             return Err(FsError::Exists);
         }
+        check_owner(owner)?;
         let ino = self.alloc_inode(true)?;
         let block = match self.alloc_block() {
             Ok(block) => block,

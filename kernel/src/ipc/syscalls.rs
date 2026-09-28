@@ -931,7 +931,7 @@ fn entry_at(phys: u64, index: usize) -> u64 {
 /// Not-present pages inside an `Anon`/`Heap` VMA are materialized exactly as a
 /// page fault would. Fails fast with `-EFAULT`; allocates nothing for a range
 /// that is not the caller's.
-fn access_range(ptr: u64, len: usize, write: bool) -> Result<(), i64> {
+pub(crate) fn access_range(ptr: u64, len: usize, write: bool) -> Result<(), i64> {
     if len == 0 {
         return Ok(());
     }

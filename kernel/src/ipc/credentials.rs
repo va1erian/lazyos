@@ -28,9 +28,11 @@
 //!   [`AUDIT_INTERFACE`] and a [`reason`] code, so `auditd` sees logins and
 //!   elevation attempts even when they fail.
 //!
-//! A freshly created task starts as [`Cred::ROOT`]; `process` resets the slot at
-//! spawn time and then applies the validated request, so a re-used slot can
-//! never inherit a dead process's identity.
+//! A task created by another task (`fork`, `clone`, the native `spawn`) starts
+//! with a copy of its creator's credentials ([`inherit`]); only a program the
+//! kernel itself starts (no creator) begins as [`Cred::ROOT`]. Either way the
+//! slot is stamped at creation, so a re-used slot can never inherit a dead
+//! process's identity, and a child can never be more privileged than its parent.
 
 use spin::Mutex;
 
@@ -211,6 +213,18 @@ pub fn set_current(cred: Cred) {
 /// exits.
 pub fn reset_for_task(slot: usize) {
     set(slot, Cred::ROOT);
+}
+
+/// Give `child_slot` a copy of `parent_slot`'s credentials.
+///
+/// Every task-creation path calls this (or [`reset_for_task`] for a program
+/// the kernel itself starts), so a child is never more privileged than the task
+/// that made it and never inherits the stale identity of the dead task that
+/// used to own the slot. `fork`, `clone` and the native `spawn` all inherit;
+/// only the credential gate ([`transition`]) can then change the copy, and only
+/// downward.
+pub fn inherit(parent_slot: usize, child_slot: usize) {
+    set(child_slot, of(parent_slot));
 }
 
 /// Validate a transition without applying or auditing it.

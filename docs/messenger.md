@@ -149,7 +149,9 @@ amplification attacks.
 **Nested calls:** if a callee calls back into the caller while a transaction is
 open, the kernel detects the cycle. Default policy is `ERR_DEADLOCK` with a
 friendly hint unless `ALLOW_NESTED` is set; services that need callbacks use
-separate channels or async topics.
+separate channels or async topics. Only a call in the *opposite* direction of an
+open transaction is a cycle: several clients (or several parallel calls of one
+client) calling the same service side concurrently are ordinary requests.
 
 **Reentrancy:** each service should declare a concurrency model in its IDL
 (single-threaded mailbox, thread pool, or actor). The generated server runtime

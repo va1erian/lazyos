@@ -23,8 +23,11 @@ audit ring, and per-uid quotas. Spec: [security-model.md](../security-model.md).
 | `CAP_IPC_CONTROL` | manage other services' endpoints; registry proxy |
 | `CAP_SETUID` | use the credential transition gate |
 
-- `Cred { uid, gid, caps, label_id, session }`; every task starts as `Cred::ROOT`
-  (uid 0, all caps). State is keyed by task slot; userspace has no direct write.
+- `Cred { uid, gid, caps, label_id, session }`; a program the kernel starts is
+  `Cred::ROOT` (uid 0, all caps), and every task another task creates (`spawn`,
+  `fork`, `clone`) starts with a copy of its creator's credentials
+  (`credentials::inherit`), so a child is never more privileged than its
+  parent. State is keyed by task slot; userspace has no direct write.
 - `transition(actor, target, cred)` is the one audited path: the actor needs
   `CAP_SETUID`, the request may never widen privilege (uid 0 only by root, caps
   only downward), the target must be the actor or a live task, and the kernel
@@ -72,6 +75,21 @@ audit ring, and per-uid quotas. Spec: [security-model.md](../security-model.md).
 - `charge`/`charge_many` are atomic (all-or-nothing); `release` is saturating and
   counts accounting errors. Entries are created on first charge and remember peak
   usage. `QUOTAS` is a leaf lock (credentials -> quotas order).
+- `UserMemory` is also ledgered per address space (`SpaceCharge`): a release only
+  returns what that space charged, and `forget_address_space` gives the rest
+  back when the space is freed, so an exiting task cannot strand its uid's
+  quota.
+
+**Task teardown** (`ipc::teardown_task`)
+
+- `task::reap_child` and `task::reclaim_pending` call it for every slot they free,
+  *before* the address space is released: names owned by the slot are dropped,
+  each channel endpoint is closed (a side is only marked dead when no other
+  handle still names it, so one client exiting does not fail its siblings'
+  calls), each buffer handle is closed and its mapping unmapped from the still
+  live page table, transactions the slot started are forgotten, and the handle
+  table is emptied (returning the per-uid handle charge). The next task to reuse
+  the slot starts with nothing.
 
 **Status.** Working: stamped identity, audited transitions, default-deny policy,
 hash-chained audit, quotas on handles/buffers/queues/user memory. Open: policy

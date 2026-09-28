@@ -14,7 +14,7 @@ use xmas_elf::ElfFile;
 
 use super::{load_segments, map_range_kind, page_phys};
 use crate::fs::vfs::{self, FileKind, FsError, Id, Meta};
-use crate::ipc::epoll::Epoll;
+use crate::ipc::epoll::{Epoll, NestError};
 use crate::ipc::eventfd::EventFd;
 use crate::ipc::pipe::{self, End, Side, SocketPair};
 use crate::ipc::unix;
@@ -70,6 +70,7 @@ const ENOTCONN: u64 = 107;
 // Filesystem errnos (mapped from `FsError` by `fs_err`).
 const EACCES: u64 = 13;
 const EEXIST: u64 = 17;
+const ELOOP: u64 = 40;
 const ENOTDIR: u64 = 20;
 const EISDIR: u64 = 21;
 const ENOSPC: u64 = 28;
@@ -707,8 +708,9 @@ fn write_terminal(ptr: u64, len: u64) -> u64 {
     if len == 0 {
         return 0;
     }
-    // Safety: the caller passes a valid user buffer (the syscall ABI's contract).
-    let bytes = unsafe { user_ptr::bytes(ptr, len as usize) };
+    let Ok(bytes) = user_ptr::try_bytes(ptr, len as usize) else {
+        return err(EFAULT);
+    };
     task::write_output(bytes);
     crate::serial::write_bytes(bytes);
     // Answer a cursor-position report request (busybox line editing asks for it).
@@ -739,9 +741,10 @@ fn write_stream(fd: u64, ptr: u64, len: u64) -> u64 {
             return err(ENOMEM);
         }
         buf.resize(want, 0);
-        // Safety: the caller passes a valid user buffer of `len` bytes (the
-        // syscall ABI's contract).
-        buf.copy_from_slice(unsafe { user_ptr::bytes(ptr, want) });
+        match user_ptr::try_bytes(ptr, want) {
+            Ok(bytes) => buf.copy_from_slice(bytes),
+            Err(_) => return err(EFAULT),
+        }
         return match task::fd_stream_write(fd as usize, &buf) {
             Ok(n) => n as u64,
             Err(pipe::Error::WouldBlock) => err(EAGAIN),
@@ -754,9 +757,10 @@ fn write_stream(fd: u64, ptr: u64, len: u64) -> u64 {
     }
     let want = (len as usize).min(STREAM_CHUNK);
     let mut buf = [0u8; STREAM_CHUNK];
-    // Safety: the caller passes a valid user buffer of `len` bytes (the
-    // syscall ABI's contract).
-    buf[..want].copy_from_slice(unsafe { user_ptr::bytes(ptr, want) });
+    match user_ptr::try_bytes(ptr, want) {
+        Ok(bytes) => buf[..want].copy_from_slice(bytes),
+        Err(_) => return err(EFAULT),
+    }
     match task::fd_stream_write(fd as usize, &buf[..want]) {
         Ok(n) => n as u64,
         Err(pipe::Error::WouldBlock) => err(EAGAIN),
@@ -805,8 +809,9 @@ fn write_file(fd: u64, ptr: u64, len: u64) -> u64 {
     let Some(path) = meta.path else {
         return err(EBADF);
     };
-    // Safety: the caller passes a valid user buffer (the syscall ABI's contract).
-    let bytes = unsafe { user_ptr::bytes(ptr, len as usize) };
+    let Ok(bytes) = user_ptr::try_bytes(ptr, len as usize) else {
+        return err(EFAULT);
+    };
     let id = Id::current();
     let offset = if meta.append {
         match crate::fs::abi_stat(id, &path) {
@@ -831,14 +836,28 @@ fn write_file(fd: u64, ptr: u64, len: u64) -> u64 {
 fn sys_read(fd: u64, ptr: u64, len: u64) -> u64 {
     match task::fd_kind(fd as usize) {
         FdKind::Terminal => read_terminal(ptr, len),
-        FdKind::File => task::fd_read(fd as usize, ptr as *mut u8, len as usize)
-            .map(|n| n as u64)
-            .unwrap_or(0),
+        FdKind::File => read_file_bytes(fd, ptr, len),
         FdKind::Pipe | FdKind::Socket => read_stream(fd, ptr, len),
         FdKind::EventFd => read_eventfd(fd, ptr, len),
         FdKind::Unbound => err(ENOTCONN),
         FdKind::Closed | FdKind::Epoll | FdKind::Listener => err(EBADF),
     }
+}
+
+/// Read from a regular-file descriptor into the user buffer at `ptr`.
+///
+/// The bytes are staged in kernel memory, copied out through the validated
+/// path, and the descriptor's offset only advances once the copy succeeded, so
+/// a bad buffer is `-EFAULT` and loses nothing.
+fn read_file_bytes(fd: u64, ptr: u64, len: u64) -> u64 {
+    let Some(chunk) = task::fd_peek(fd as usize, len as usize) else {
+        return 0;
+    };
+    if user_ptr::try_copy_to(ptr, &chunk).is_err() {
+        return err(EFAULT);
+    }
+    task::fd_advance(fd as usize, chunk.len());
+    chunk.len() as u64
 }
 
 /// Pipe/socket read: block in the stream object until a chunk is available,
@@ -1427,9 +1446,7 @@ fn push_dirent(out: &mut Vec<u8>, ino: u64, d_type: u8, name: &str) {
 
 fn sys_getdents64(fd: u64, buf: u64, count: u64) -> u64 {
     match task::fd_kind(fd as usize) {
-        FdKind::File => task::fd_read(fd as usize, buf as *mut u8, count as usize)
-            .map(|n| n as u64)
-            .unwrap_or(0),
+        FdKind::File => read_file_bytes(fd, buf, count),
         _ => err(EBADF),
     }
 }
@@ -2289,6 +2306,15 @@ fn sys_epoll_ctl(epfd: u64, op: u64, fd: u64, event: u64) -> u64 {
             let Some(target) = task::fd_clone(fd as usize) else {
                 return err(EBADF);
             };
+            // An epoll may not watch itself, nor close a cycle of epolls, nor
+            // stack them past `MAX_NEST`: readiness recurses through nested
+            // instances, so any of those overflows the kernel stack.
+            match Epoll::check_nest(&epoll, &target) {
+                Ok(()) => {}
+                Err(NestError::Loop) if fd == epfd => return err(EINVAL),
+                Err(NestError::Loop) => return err(ELOOP),
+                Err(NestError::TooDeep) => return err(EINVAL),
+            }
             let (events, data) = read_epoll_event(event);
             match epoll.add(fd as usize, target, events, data) {
                 Ok(()) => {
@@ -2620,9 +2646,10 @@ fn fill_stat(buf: u64, mode: u32, size: u64, ino: u64) {
     if buf == 0 {
         return;
     }
-    // Safety: the caller passes a valid 144-byte stat buffer.
-    unsafe {
-        core::ptr::write_bytes(buf as *mut u8, 0, 144);
+    // Zero the whole struct through the validated path; a bad buffer writes
+    // nothing at all (the field writes below are validated too).
+    if user_ptr::try_copy_to(buf, &[0u8; 144]).is_err() {
+        return;
     }
     write_u64(buf + 8, ino);
     write_u64(buf + 16, 1); // st_nlink

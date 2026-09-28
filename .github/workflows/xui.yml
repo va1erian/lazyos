@@ -20,9 +20,13 @@ on:
       - ".github/workflows/xui.yml"
   workflow_dispatch:
 
+# Least privilege: the job that builds and runs code from the pull request gets a
+# read-only token and does not persist it. Publishing (which needs to push the
+# `screenshots` branch and comment on the pull request) is a separate job that
+# never checks out or executes anything from the pull request; it only handles
+# the images the first job uploaded as an artifact.
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 concurrency:
   group: xui-app-${{ github.ref }}
@@ -31,8 +35,12 @@ concurrency:
 jobs:
   xui:
     runs-on: ubuntu-latest
+    outputs:
+      has_shots: ${{ steps.app.outputs.counter != '' }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Install QEMU
         run: |
@@ -164,12 +172,26 @@ jobs:
             shots/fabmon/serial.log
           if-no-files-found: error
 
+  publish:
+    needs: xui
+    if: >-
+      needs.xui.outputs.has_shots == 'true' &&
+      (github.event_name != 'pull_request' ||
+       github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      # No checkout on purpose: nothing from the pull request runs here.
+      - name: Download screenshots
+        uses: actions/download-artifact@v4
+        with:
+          name: xui-app-screenshots
+          path: shots
+
       - name: Publish screenshots to 'screenshots' branch
         id: publish
-        if: >-
-          steps.app.outputs.counter != '' &&
-          (github.event_name != 'pull_request' ||
-           github.event.pull_request.head.repo.full_name == github.repository)
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

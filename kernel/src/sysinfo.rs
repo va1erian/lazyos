@@ -191,10 +191,8 @@ fn snapshot(buf: u64, capacity: u64) -> u64 {
         return negative(errno::E2BIG);
     }
     let words = snapshot_words();
-    for (index, word) in words.iter().enumerate() {
-        // Safety: the caller passes a writable user buffer of at least `SIZE`
-        // bytes (native syscall buffer convention; see `process::read_cred`).
-        unsafe { user_ptr::write_at::<u64>(buf, index, *word) };
+    if user_ptr::try_copy_words(buf, &words).is_err() {
+        return negative(errno::EFAULT);
     }
     SIZE
 }

@@ -207,6 +207,8 @@ extern "C" fn syscall_dispatch(regs: *mut Regs) {
 #[cfg(laZYOS_TESTS)]
 pub fn dispatch_for_test(nr: u64, a1: u64, a2: u64, a3: u64) -> u64 {
     match nr {
+        1 => sys_write(a1, a2),
+        3 => sys_read_file(a1, a2, a3),
         5 => crate::ipc::syscalls::dispatch(a1, a2, a3),
         6 => sys_spawn(a1),
         7 => sys_wait(a1),
@@ -221,11 +223,21 @@ pub fn dispatch_for_test(nr: u64, a1: u64, a2: u64, a3: u64) -> u64 {
     }
 }
 
+/// Test-harness view of [`intern_service_name`], so the suite can prove the
+/// intern table is bounded.
+#[cfg(laZYOS_TESTS)]
+pub fn intern_service_name_for_test(name: &str) -> &'static str {
+    intern_service_name(name)
+}
+
 /// syscall 1: write bytes to the task's terminal (and the serial log).
+///
+/// The buffer is validated against the caller's page tables; a bad range
+/// returns the `u64::MAX` failure code instead of touching kernel memory.
 fn sys_write(ptr: u64, len: u64) -> u64 {
-    // Safety: syscalls only pass pointers into the (mapped) user address
-    // space (the syscall ABI's contract).
-    let bytes = unsafe { user_ptr::bytes(ptr, len as usize) };
+    let Ok(bytes) = user_ptr::try_bytes(ptr, len as usize) else {
+        return u64::MAX;
+    };
     task::write_output(bytes);
     crate::serial::write_bytes(bytes);
     len
@@ -252,29 +264,28 @@ fn sys_read_char() -> u64 {
     }
 }
 
-/// Read a NUL-terminated string from user memory.
-fn user_cstr(ptr: u64) -> &'static str {
-    let mut len = 0usize;
-    // Safety: the caller must pass a valid, NUL-terminated user pointer (the
-    // syscall ABI's contract).
-    unsafe {
-        while len < 4096 && user_ptr::read_at::<u8>(ptr, len) != 0 {
-            len += 1;
-        }
-        let bytes = user_ptr::bytes(ptr, len);
-        core::str::from_utf8(bytes).unwrap_or("")
-    }
+/// Longest NUL-terminated string a native syscall reads from user memory.
+const USER_CSTR_MAX: usize = 4096;
+
+/// Read a NUL-terminated string (at most [`USER_CSTR_MAX`] bytes) from
+/// validated user memory. Invalid UTF-8 reads as the empty string, as it
+/// always has; an unmapped or kernel address is a [`user_ptr::Fault`].
+fn user_cstr(ptr: u64) -> Result<String, user_ptr::Fault> {
+    let bytes = user_ptr::try_cstr(ptr, USER_CSTR_MAX)?;
+    Ok(String::from_utf8(bytes).unwrap_or_default())
 }
 
 /// syscall 3: read a file into a user buffer. Returns the count, or `u64::MAX`.
 fn sys_read_file(name_ptr: u64, buf_ptr: u64, buf_len: u64) -> u64 {
-    let name = user_cstr(name_ptr);
-    match fs::read(name) {
+    let Ok(name) = user_cstr(name_ptr) else {
+        return u64::MAX;
+    };
+    match fs::read(&name) {
         Some(bytes) => {
             let count = bytes.len().min(buf_len as usize);
-            // Safety: the destination is a valid user buffer of `buf_len`
-            // bytes (the syscall ABI's contract).
-            unsafe { user_ptr::copy_to(buf_ptr, &bytes[..count]) };
+            if user_ptr::try_copy_to(buf_ptr, &bytes[..count]).is_err() {
+                return u64::MAX;
+            }
             count as u64
         }
         None => u64::MAX,
@@ -349,6 +360,13 @@ fn exit(code: u32) -> ! {
 static SERVICE_ARGS: Mutex<[Option<Vec<u8>>; task::MAX_TASKS]> =
     Mutex::new([const { None }; task::MAX_TASKS]);
 
+/// Distinct spellings [`intern_service_name`] will leak before it falls back to
+/// [`OVERFLOW_NAME`]; a real manifest has a few dozen services.
+const MAX_INTERNED_NAMES: usize = 64;
+/// The task name given to programs whose spelling arrives after the intern
+/// table is full.
+const OVERFLOW_NAME: &str = "service";
+
 /// Intern a userspace-provided service name into a `&'static str` for
 /// [`task::spawn_child`].
 ///
@@ -361,6 +379,13 @@ fn intern_service_name(name: &str) -> &'static str {
     let mut names = NAMES.lock();
     if let Some(known) = names.iter().find(|known| **known == name) {
         return known;
+    }
+    // The path is caller-supplied and the file system is case-insensitive
+    // (`A.ELF`, `a.elf`, `./A.ELF` name one file), so distinct spellings are
+    // not bounded by the manifest. Past the cap every new spelling shares one
+    // generic name instead of leaking another string.
+    if names.len() >= MAX_INTERNED_NAMES {
+        return OVERFLOW_NAME;
     }
     let leaked: &'static str = Box::leak(String::from(name).into_boxed_str());
     names.push(leaked);
@@ -385,14 +410,19 @@ fn sys_spawn(cmdline_ptr: u64) -> u64 {
 /// The shared body of syscalls 6 and 10 (`spawn` and the credentialed spawn).
 ///
 /// `cred` is `Some` only on the credential-gate path, where the caller has
-/// already validated the request with [`credentials::check`]. The slot's
-/// credentials are reset first, so a re-used slot can never inherit a dead
-/// task's identity, then the requested credential is stamped while interrupts
-/// are off in the `int 0x80` gate -- the child cannot run with the default
-/// root identity even for one instruction. Negative return values are errno
-/// codes; a positive value is the new child's pid.
+/// already validated the request with [`credentials::check`]. The child is
+/// created holding a copy of the *caller's* credentials (`task::spawn_child`
+/// stamps them), never the root default: a task can only start children that
+/// are no more privileged than itself. On the credential-gate path the
+/// requested credential is then stamped while interrupts are off in the
+/// `int 0x80` gate, so the child never runs with any identity but the one
+/// the gate approved. Negative return values are errno codes; a positive
+/// value is the new child's pid.
 fn spawn_program(cmdline_ptr: u64, cred: Option<Cred>) -> i64 {
-    let line = user_cstr(cmdline_ptr).trim();
+    let Ok(line) = user_cstr(cmdline_ptr) else {
+        return -EFAULT;
+    };
+    let line = line.trim();
     if line.is_empty() {
         return -EINVAL;
     }
@@ -408,11 +438,11 @@ fn spawn_program(cmdline_ptr: u64, cred: Option<Cred>) -> i64 {
         Ok(slot) => slot,
         Err(_) => return -ENOMEM,
     };
-    credentials::reset_for_task(slot);
     if let Some(cred) = cred {
         // `check` ran before the spawn, so this cannot fail; if it ever did,
-        // the child would keep the reset root default and the gate would still
-        // audit the refusal, which is the loudest signal available here.
+        // the child would keep the identity it inherited from the caller (no
+        // more privileged than the caller) and the gate would still audit the
+        // refusal, which is the loudest signal available here.
         let _ = credentials::transition(task::current(), slot, cred);
     }
     SERVICE_ARGS.lock()[slot] = Some(args.as_bytes().to_vec());
@@ -463,36 +493,25 @@ fn cred_target(pid: u64) -> usize {
     }
 }
 
-/// Read a 40-byte credential block from user memory.
-///
-/// The `int 0x80` stub runs on the caller's page table, so the block is
-/// directly readable; a malformed pointer faults inside the kernel exactly as
-/// it would for the older native syscalls (checked copies are the COW/MM
-/// follow-up noted in `docs/security-model.md` section 7).
+/// Read a 40-byte credential block from validated user memory; `None` for a
+/// null pointer or a range that is not readable user memory.
 fn read_cred(ptr: u64) -> Option<Cred> {
     if ptr == 0 {
         return None;
     }
+    let bytes = user_ptr::try_bytes(ptr, 5 * 8).ok()?;
     let mut words = [0u64; 5];
-    for (index, word) in words.iter_mut().enumerate() {
-        // Safety: the caller must pass a mapped, writable user buffer eight
-        // bytes per word; the native syscall ABI trusts user buffers today.
-        *word = unsafe { user_ptr::read_at::<u64>(ptr, index) };
+    for (word, chunk) in words.iter_mut().zip(bytes.chunks_exact(8)) {
+        // INVARIANT: `chunks_exact(8)` yields eight-byte slices.
+        *word = u64::from_le_bytes(chunk.try_into().unwrap());
     }
     Some(Cred::from_words(words))
 }
 
-/// Write a 40-byte credential block into user memory; `false` on a null
-/// pointer.
+/// Write a 40-byte credential block into validated user memory; `false` on a
+/// null pointer or a range that is not writable user memory.
 fn write_cred(ptr: u64, cred: Cred) -> bool {
-    if ptr == 0 {
-        return false;
-    }
-    for (index, word) in cred.to_words().iter().enumerate() {
-        // Safety: as in [`read_cred`]; the address is the caller's buffer.
-        unsafe { user_ptr::write_at::<u64>(ptr, index, *word) };
-    }
-    true
+    ptr != 0 && user_ptr::try_copy_words(ptr, &cred.to_words()).is_ok()
 }
 
 /// syscall 10: the audited credential gate (issue #101).
@@ -553,11 +572,8 @@ fn sys_quota(buf: u64) -> u64 {
     }
     let uid = credentials::of(task::current()).uid;
     let words = quota::stats_words(uid);
-    for (index, word) in words.iter().enumerate() {
-        // Safety: the caller passes a writable user buffer of
-        // `quota::STATS_WORDS` eight-byte words; the native syscall ABI trusts
-        // user buffers today (see `read_cred`).
-        unsafe { user_ptr::write_at::<u64>(buf, index, *word) };
+    if user_ptr::try_copy_words(buf, &words).is_err() {
+        return syscall_error(EFAULT);
     }
     0
 }
@@ -573,10 +589,8 @@ fn sys_tasks(buf: u64) -> u64 {
         return syscall_error(EFAULT);
     }
     let words = task::introspect::snapshot_words();
-    for (index, word) in words.iter().enumerate() {
-        // Safety: the caller passes a writable user buffer of
-        // `task::introspect::WORDS` eight-byte words; see `sys_quota`.
-        unsafe { user_ptr::write_at::<u64>(buf, index, *word) };
+    if user_ptr::try_copy_words(buf, &words).is_err() {
+        return syscall_error(EFAULT);
     }
     0
 }
@@ -623,10 +637,8 @@ fn sys_args(buf_ptr: u64, buf_len: u64) -> u64 {
         .clone()
         .unwrap_or_default();
     let count = args.len().min(buf_len as usize);
-    if count > 0 {
-        // Safety: the caller passes a buffer valid for `buf_len` bytes (the
-        // syscall ABI's contract).
-        unsafe { user_ptr::copy_to(buf_ptr, &args[..count]) };
+    if count > 0 && user_ptr::try_copy_to(buf_ptr, &args[..count]).is_err() {
+        return syscall_error(EFAULT);
     }
     args.len() as u64
 }

@@ -1,107 +1,230 @@
-//! Typed access to validated user-space addresses.
+//! Typed, validated access to user-space addresses.
 //!
-//! Syscall handlers across `process::linux`, `process`, and `ipc::syscalls`
-//! all receive a `u64` address that the syscall ABI promises points into the
-//! calling task's own memory, then read or write a primitive there (or at a
-//! byte offset from it). Before this module each call site independently
-//! cast the address and called `core::ptr::read_volatile`/`write_volatile`/
-//! `core::slice::from_raw_parts`, writing its own one-line safety comment
-//! that repeated the same "the syscall ABI promises this" contract — three
-//! files' worth of hand-rolled casts for the same three operations.
+//! Syscall handlers across `process::linux`, `process`, `display`, `sysinfo`
+//! and `ipc::syscalls` receive a `u64` address from ring 3 and read or write a
+//! primitive there (or at a byte offset from it). The address is attacker
+//! controlled: the `int 0x80`/`syscall` gate runs on the caller's page table
+//! with the kernel half mapped, so an unchecked read or write through a
+//! user-supplied pointer is an arbitrary kernel read/write primitive.
 //!
-//! This module does **not** validate that `addr` is actually mapped, owned
-//! by the calling task, or wide enough for `T` — that is a real gap in
-//! today's syscall gate (every syscall handler trusts its pointer
-//! arguments), not something this module papers over. What it does is the
-//! same thing `arch::io` did for port I/O: collapse the mechanical "cast and
-//! touch memory" primitive into one place, so that when address validation
-//! against the task's VMA list is added, it has exactly one choke point to
-//! instrument instead of ~40 scattered call sites.
+//! Every access in this module therefore goes through the same page-table
+//! walk `ipc::syscalls::{copy_in, copy_out}` use ([`access_range`]): the range
+//! must lie in the canonical lower half, every page must be present and
+//! `USER` (and writable for a write, privatising a COW page first), and
+//! not-present pages inside an `Anon`/`Heap` VMA are demand-materialised as a
+//! page fault would.
+//!
+//! Two API families sit on that check:
+//!
+//! * the **fallible** `try_*` functions return [`Fault`] for a bad range. Every
+//!   native syscall uses these and turns a [`Fault`] into `-EFAULT`.
+//! * the **legacy infallible** primitives ([`read`], [`write`], [`bytes`],
+//!   [`copy_to`], ...) keep their old signatures for the Linux ABI shim, whose
+//!   call sites have no error path. They validate too, and degrade to a safe
+//!   value on a bad range: a read yields zero, a write is dropped and a byte
+//!   view is empty. That closes the memory-safety hole for those sites; turning
+//!   each one into a proper `-EFAULT` is the follow-up tracked in the issue that
+//!   introduced the validation.
+//!
+//! The in-kernel test suite passes kernel-stack and heap buffers to the
+//! syscall surface, which a real user pointer never is. Under
+//! `cfg(laZYOS_TESTS)` validation is therefore off by default
+//! ([`set_trust_kernel_pointers`]) and the tests that exercise the checks turn
+//! it on.
 
+use alloc::vec::Vec;
 use core::mem::size_of;
 
+/// A user range that is not mapped, not user-accessible, not writable when a
+/// write was requested, or outside the canonical lower half.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Fault;
+
+/// Plain-old-data integers a user buffer may hold. Sealed: every implementor
+/// is valid for any bit pattern, so a byte copy from user memory can never
+/// forge an invalid value, and [`Pod::ZERO`] is the degraded read result.
+pub trait Pod: Copy + sealed::Sealed {
+    /// The all-zero value.
+    const ZERO: Self;
+}
+
+mod sealed {
+    pub trait Sealed {}
+}
+
+macro_rules! pod {
+    ($($t:ty),*) => {$(
+        impl sealed::Sealed for $t {}
+        impl Pod for $t { const ZERO: Self = 0; }
+    )*};
+}
+pod!(u8, u16, u32, u64, i32, i64);
+
+/// Whether the harness disables validation so tests can hand the syscall
+/// surface kernel buffers (see the module docs).
+#[cfg(laZYOS_TESTS)]
+static TRUST_KERNEL_POINTERS: core::sync::atomic::AtomicBool =
+    core::sync::atomic::AtomicBool::new(true);
+
+/// Test-harness switch: `true` skips validation (kernel buffers pass as user
+/// pointers), `false` enforces it. Returns the previous setting.
+#[cfg(laZYOS_TESTS)]
+pub fn set_trust_kernel_pointers(trust: bool) -> bool {
+    TRUST_KERNEL_POINTERS.swap(trust, core::sync::atomic::Ordering::Relaxed)
+}
+
+/// Validate `[addr, addr + len)` for the calling task.
+fn check(addr: u64, len: usize, write: bool) -> Result<(), Fault> {
+    #[cfg(laZYOS_TESTS)]
+    if TRUST_KERNEL_POINTERS.load(core::sync::atomic::Ordering::Relaxed) {
+        return Ok(());
+    }
+    crate::ipc::syscalls::access_range(addr, len, write).map_err(|_| Fault)
+}
+
 /// Read a `T` from `addr`.
-///
-/// # Safety
-/// `addr` must be non-null, aligned enough for a volatile access to
-/// typically not fault on this target, and point to `size_of::<T>()` bytes
-/// of memory the caller may read for the duration of this call (the syscall
-/// ABI's promise about its arguments).
-#[inline]
-pub unsafe fn read<T: Copy>(addr: u64) -> T {
-    (addr as *const T).read_volatile()
+pub fn try_read<T: Pod>(addr: u64) -> Result<T, Fault> {
+    check(addr, size_of::<T>(), false)?;
+    // Safety: `check` proved `addr..addr + size_of::<T>()` is a present, user
+    // readable range in the active address space, and `T: Pod` is valid for
+    // any bit pattern.
+    Ok(unsafe { (addr as *const T).read_unaligned() })
 }
 
 /// Write `value` to `addr`.
-///
-/// # Safety
-/// `addr` must point to `size_of::<T>()` bytes of memory the caller may
-/// write for the duration of this call (the syscall ABI's promise about its
-/// arguments).
-#[inline]
-pub unsafe fn write<T: Copy>(addr: u64, value: T) {
-    (addr as *mut T).write_volatile(value)
+pub fn try_write<T: Pod>(addr: u64, value: T) -> Result<(), Fault> {
+    check(addr, size_of::<T>(), true)?;
+    // Safety: `check` proved the range is present, user-accessible and
+    // writable (COW already privatised) in the active address space.
+    unsafe { (addr as *mut T).write_unaligned(value) };
+    Ok(())
 }
 
-/// Borrow `len` bytes starting at `addr` as a byte slice.
+/// Read the `T` at `addr + index * size_of::<T>()`; `addr` is an array base.
+pub fn try_read_at<T: Pod>(addr: u64, index: usize) -> Result<T, Fault> {
+    let offset = index.checked_mul(size_of::<T>()).ok_or(Fault)?;
+    try_read(addr.checked_add(offset as u64).ok_or(Fault)?)
+}
+
+/// Borrow `len` bytes at `addr` as a slice.
 ///
-/// # Safety
-/// `addr..addr + len` must be valid, readable memory for the lifetime `'a`
-/// the caller assigns to the returned slice, and must not be concurrently
-/// written during that lifetime (the syscall ABI's promise about its
-/// arguments).
-#[inline]
-pub unsafe fn bytes<'a>(addr: u64, len: usize) -> &'a [u8] {
-    core::slice::from_raw_parts(addr as *const u8, len)
+/// The slice aliases user memory for `'a`; the caller must not hold it across
+/// a point where the task's own threads could unmap the range (syscalls run to
+/// completion with interrupts off, so within one handler that cannot happen).
+pub fn try_bytes<'a>(addr: u64, len: usize) -> Result<&'a [u8], Fault> {
+    check(addr, len, false)?;
+    if len == 0 {
+        return Ok(&[]);
+    }
+    // Safety: `check` proved the whole range is present and readable in the
+    // active address space for the duration of the syscall.
+    Ok(unsafe { core::slice::from_raw_parts(addr as *const u8, len) })
 }
 
 /// Copy `src` to `addr`.
+pub fn try_copy_to(addr: u64, src: &[u8]) -> Result<(), Fault> {
+    check(addr, src.len(), true)?;
+    if src.is_empty() {
+        return Ok(());
+    }
+    // Safety: `check` proved `addr..addr + src.len()` is writable user memory
+    // in the active address space; `src` is kernel memory, so they cannot
+    // overlap.
+    unsafe { core::ptr::copy_nonoverlapping(src.as_ptr(), addr as *mut u8, src.len()) };
+    Ok(())
+}
+
+/// Copy little-endian `words` to `addr` in one validated write.
+pub fn try_copy_words(addr: u64, words: &[u64]) -> Result<(), Fault> {
+    let mut bytes = Vec::with_capacity(words.len() * 8);
+    for word in words {
+        bytes.extend_from_slice(&word.to_le_bytes());
+    }
+    try_copy_to(addr, &bytes)
+}
+
+/// Read a NUL-terminated string of at most `max` bytes (the NUL is not
+/// returned). A string that is not terminated within `max` bytes is truncated
+/// to `max`, the same as the old fixed-cap reader. The scan validates one page
+/// at a time, so a string that ends before an unmapped page is still readable.
+pub fn try_cstr(addr: u64, max: usize) -> Result<Vec<u8>, Fault> {
+    let mut out = Vec::new();
+    let mut at = addr;
+    while out.len() < max {
+        let room = 4096 - (at & 0xfff) as usize;
+        let take = room.min(max - out.len());
+        let chunk = try_bytes(at, take)?;
+        if let Some(end) = chunk.iter().position(|byte| *byte == 0) {
+            out.extend_from_slice(&chunk[..end]);
+            return Ok(out);
+        }
+        out.extend_from_slice(chunk);
+        at = at.checked_add(take as u64).ok_or(Fault)?;
+    }
+    Ok(out)
+}
+
+/// Read a `T` from `addr`; zero when the range is invalid.
 ///
 /// # Safety
-/// `addr..addr + src.len()` must be valid, writable memory the caller may
-/// write for the duration of this call (the syscall ABI's promise about its
-/// arguments), and must not overlap `src`.
+/// Kept `unsafe` for source compatibility with the pre-validation API; the
+/// access itself is validated, so an invalid `addr` degrades to zero rather
+/// than touching kernel memory.
+#[inline]
+pub unsafe fn read<T: Pod>(addr: u64) -> T {
+    try_read(addr).unwrap_or(T::ZERO)
+}
+
+/// Write `value` to `addr`; dropped when the range is invalid.
+///
+/// # Safety
+/// See [`read`].
+#[inline]
+pub unsafe fn write<T: Pod>(addr: u64, value: T) {
+    let _ = try_write(addr, value);
+}
+
+/// Borrow `len` bytes starting at `addr`; empty when the range is invalid.
+///
+/// # Safety
+/// See [`read`]. The slice must not be held past the syscall that produced it.
+#[inline]
+pub unsafe fn bytes<'a>(addr: u64, len: usize) -> &'a [u8] {
+    try_bytes(addr, len).unwrap_or(&[])
+}
+
+/// Copy `src` to `addr`; dropped when the range is invalid.
+///
+/// # Safety
+/// See [`read`].
 #[inline]
 pub unsafe fn copy_to(addr: u64, src: &[u8]) {
-    core::ptr::copy_nonoverlapping(src.as_ptr(), addr as *mut u8, src.len())
+    let _ = try_copy_to(addr, src);
 }
 
-/// Read the `T` at `addr + index * size_of::<T>()`, i.e. `addr` treated as
-/// the base of a `T` array.
+/// Read the `T` at `addr + index * size_of::<T>()`; zero when invalid.
 ///
 /// # Safety
-/// Same contract as [`read`], at `addr + index * size_of::<T>()`.
+/// See [`read`].
 #[inline]
-pub unsafe fn read_at<T: Copy>(addr: u64, index: usize) -> T {
-    read(addr + (index * size_of::<T>()) as u64)
+pub unsafe fn read_at<T: Pod>(addr: u64, index: usize) -> T {
+    try_read_at(addr, index).unwrap_or(T::ZERO)
 }
 
-/// Write `value` at `addr + index * size_of::<T>()`, i.e. `addr` treated as
-/// the base of a `T` array.
+/// Read a possibly unaligned `T` from `addr`; zero when invalid.
 ///
 /// # Safety
-/// Same contract as [`write`], at `addr + index * size_of::<T>()`.
+/// See [`read`].
 #[inline]
-pub unsafe fn write_at<T: Copy>(addr: u64, index: usize, value: T) {
-    write(addr + (index * size_of::<T>()) as u64, value)
+pub unsafe fn read_unaligned<T: Pod>(addr: u64) -> T {
+    try_read(addr).unwrap_or(T::ZERO)
 }
 
-/// Read a possibly unaligned `T` from `addr`.
+/// Write `value` to a possibly unaligned `addr`; dropped when invalid.
 ///
 /// # Safety
-/// `addr` must point to `size_of::<T>()` readable bytes for the duration of
-/// this call (the syscall ABI's promise about its arguments).
+/// See [`read`].
 #[inline]
-pub unsafe fn read_unaligned<T: Copy>(addr: u64) -> T {
-    (addr as *const T).read_unaligned()
-}
-
-/// Write `value` to a possibly unaligned `addr`.
-///
-/// # Safety
-/// `addr` must point to `size_of::<T>()` writable bytes for the duration of
-/// this call (the syscall ABI's promise about its arguments).
-#[inline]
-pub unsafe fn write_unaligned<T: Copy>(addr: u64, value: T) {
-    (addr as *mut T).write_unaligned(value)
+pub unsafe fn write_unaligned<T: Pod>(addr: u64, value: T) {
+    let _ = try_write(addr, value);
 }

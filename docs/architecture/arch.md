@@ -64,8 +64,12 @@ per-task thread pointer, restored on every context switch.
 - `syscall_dispatch(regs)` sees `rax` = syscall number; `0` exits, `1-12` are
   dispatched (see [processes.md](processes.md), [ipc-fabric.md](ipc-fabric.md),
   [display.md](display.md)); unknown numbers return `u64::MAX`.
-- The native ABI trusts user pointers (the gate runs on the caller's page
-  table); the Messenger surface is the exception and validates ranges.
+- Every user pointer, native or Linux, is validated against the caller's page
+  tables before the kernel touches it (`user_ptr::try_*`, backed by
+  `ipc::syscalls::access_range`): a kernel address, an unmapped range or a
+  read-only page is `-EFAULT`. Native syscalls report it; the Linux shim's
+  infallible call sites degrade safely (a read yields zero, a write is dropped)
+  and are being converted to `-EFAULT` one by one.
 
 **Status.** Working: preemptive demo boot, Linux `syscall` shim, native gate,
 page-fault COW/demand-zero/`SIGSEGV`. No SMP, no APIC (PIC only), no RTC.

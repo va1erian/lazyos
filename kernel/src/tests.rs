@@ -334,6 +334,10 @@ const SUITE: &[(&str, Test)] = &[
         messenger_suite::syscall_bad_pointer,
     ),
     (
+        "ipc_messenger_late_reply_is_enoent",
+        messenger_suite::late_reply_is_enoent,
+    ),
+    (
         "ipc_messenger_bootstrap_claim",
         messenger_suite::bootstrap_claim,
     ),
@@ -498,6 +502,76 @@ const SUITE: &[(&str, Test)] = &[
     (
         "sysinfo_soak_snapshot_task_churn",
         sysinfo_suite::soak_snapshot_task_churn,
+    ),
+    (
+        "hardening_native_syscalls_reject_kernel_pointers",
+        hardening_suite::native_syscalls_reject_kernel_pointers,
+    ),
+    (
+        "hardening_valid_user_buffers_still_work",
+        hardening_suite::valid_user_buffers_still_work,
+    ),
+    (
+        "hardening_linux_abi_kernel_pointers_are_refused",
+        hardening_suite::linux_abi_kernel_pointers_are_refused,
+    ),
+    (
+        "hardening_user_ptr_edge_cases",
+        hardening_suite::user_ptr_edge_cases,
+    ),
+    (
+        "hardening_soak_user_ptr_validation",
+        hardening_suite::soak_user_ptr_validation,
+    ),
+    (
+        "hardening_display_bad_pointers_leave_no_state",
+        hardening_suite::display_bad_pointers_leave_no_state,
+    ),
+    (
+        "hardening_display_bind_requires_capability",
+        hardening_suite::display_bind_requires_capability,
+    ),
+    (
+        "hardening_children_inherit_credentials",
+        hardening_suite::children_inherit_credentials,
+    ),
+    (
+        "hardening_teardown_releases_fabric_state",
+        hardening_suite::teardown_releases_fabric_state,
+    ),
+    (
+        "hardening_soak_teardown_generations",
+        hardening_suite::soak_teardown_generations,
+    ),
+    (
+        "hardening_user_memory_quota_released_on_exit",
+        hardening_suite::user_memory_quota_released_on_exit,
+    ),
+    (
+        "hardening_concurrent_clients_are_not_a_deadlock",
+        hardening_suite::concurrent_clients_are_not_a_deadlock,
+    ),
+    (
+        "hardening_intern_service_names_are_bounded",
+        hardening_suite::intern_service_names_are_bounded,
+    ),
+    (
+        "hardening_vfs_parent_directory_needs_search_bit",
+        hardening_suite::vfs_parent_directory_needs_search_bit,
+    ),
+    (
+        "hardening_ext2_short_write_persists_and_owner_is_checked",
+        hardening_suite::ext2_short_write_persists_and_owner_is_checked,
+    ),
+    (
+        "hardening_soak_ext2_short_writes_do_not_leak",
+        hardening_suite::soak_ext2_short_writes_do_not_leak,
+    ),
+    // Last: on the code as merged this one recurses until the kernel stack
+    // overflows, which would take the rest of the suite with it.
+    (
+        "hardening_epoll_rejects_self_and_cyclic_registration",
+        hardening_suite::epoll_rejects_self_and_cyclic_registration,
     ),
 ];
 
@@ -2392,7 +2466,9 @@ mod task_suite {
         );
 
         let mut buffer = [0u8; 8];
-        let read = task::fd_read(fd, buffer.as_mut_ptr(), buffer.len()).ok_or("fd_read failed")?;
+        let chunk = task::fd_read(fd, buffer.len()).ok_or("fd_read failed")?;
+        buffer[..chunk.len()].copy_from_slice(&chunk);
+        let read = chunk.len();
         check!(
             read == 5 && &buffer[..5] == b"hello",
             "fd_read got {read} bytes: {:?}",
@@ -7511,6 +7587,67 @@ mod messenger_suite {
         })
     }
 
+    /// A reply to a transaction whose caller timed out, canceled or died is
+    /// `-ENOENT` through the syscall. Every userspace service loop relies on
+    /// that exact code to tell "the caller hung up" (keep serving) from a real
+    /// failure; `Endpoint::reply_or_drop` swallows `-ENOENT` and nothing else.
+    pub fn late_reply_is_enoent() -> Result<(), String> {
+        fresh()?;
+        in_space(|| -> Result<(), String> {
+            let (code, created) = syscall(OP_CREATE_PAIR, &MsgArgs::default());
+            check!(code == 0, "create_pair -> {code:#x}");
+            let request = parcel(7, flags::SYNC, "slow")?;
+            let late = parcel(8, 0, "late")?;
+            write_bytes(REPLY_BUF, &late);
+            let reply_args = |txn: u64| MsgArgs {
+                txn_id: txn,
+                parcel_ptr: REPLY_BUF,
+                parcel_len: late.len() as u64,
+                ..MsgArgs::default()
+            };
+
+            // Expired: the deadline passed before the server answered.
+            let deadline = task::ticks() + 10;
+            let txn = channels::begin_call(created.value, 7, &request, Some(deadline))
+                .map_err(reason)?;
+            channels::expire_deadlines(deadline);
+            let (code, _) = syscall(OP_REPLY, &reply_args(txn));
+            check!(
+                code == failed(errno::ENOENT),
+                "a reply to an expired call -> {code:#x}"
+            );
+            check!(
+                channels::await_reply(txn) == Err(channels::Error::TimedOut),
+                "the expired call did not report TimedOut"
+            );
+
+            // Canceled: the caller gave up.
+            let txn = channels::begin_call(created.value, 7, &request, None).map_err(reason)?;
+            channels::cancel(txn).map_err(reason)?;
+            let (code, _) = syscall(OP_REPLY, &reply_args(txn));
+            check!(
+                code == failed(errno::ENOENT),
+                "a reply to a canceled call -> {code:#x}"
+            );
+            check!(
+                channels::await_reply(txn) == Err(channels::Error::Canceled),
+                "the canceled call did not report Canceled"
+            );
+
+            // Dead peer: the caller's endpoint closed while the call was open.
+            let txn = channels::begin_call(created.value, 7, &request, None).map_err(reason)?;
+            channels::close_endpoint(created.value).map_err(reason)?;
+            let (code, _) = syscall(OP_REPLY, &reply_args(txn));
+            check!(
+                code == failed(errno::ENOENT),
+                "a reply to a dead caller's call -> {code:#x}"
+            );
+            task::wake_task(task::KERNEL_TASK);
+            let _ = task::harness::take_wake_reason(task::KERNEL_TASK);
+            Ok(())
+        })
+    }
+
     /// The bootstrap flow: one kernel-created pair, the client end claimed by
     /// a userspace task exactly once, the service end served by the kernel
     /// stub, and a reply that round-trips.
@@ -10298,7 +10435,7 @@ mod ext2_suite {
 
     /// Format a fresh fake disk, open it, and mount it as a private VFS root.
     /// The disk comes back too, so tests can watch its write/flush counters.
-    fn mounted(
+    pub(super) fn mounted(
         block_size: u32,
         total_blocks: u32,
     ) -> Result<(Arc<Ext2>, Vfs, &'static FakeDisk), String> {
@@ -11255,6 +11392,10 @@ mod display_suite {
         task::register_kernel();
         task::harness::reset();
         task::harness::switch_current(task::KERNEL_TASK);
+        // A fork inherits its parent's credentials, and `bind` needs
+        // `CAP_SYS_ADMIN`: start from the root identity, not whatever an
+        // earlier suite stamped on the kernel task.
+        crate::ipc::credentials::reset_for_task(task::KERNEL_TASK);
         let slot = task::spawn_fork().map_err(to_string)?;
         task::harness::switch_current(slot);
         Ok(slot)
@@ -11675,6 +11816,986 @@ mod sysinfo_suite {
             "the kernel task vanished before the soak"
         );
         fresh();
+        Ok(())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Review hardening: user pointers, credential inheritance, task teardown,
+// display grant privilege, epoll nesting, ext2 short writes, VFS search bit
+// ---------------------------------------------------------------------------
+
+/// Regression tests for the findings of the review of the pull requests that
+/// merged without a CodeRabbit pass. Each test is written against the syscall
+/// or subsystem surface the bug was reachable through, so it fails on the code
+/// as it was merged.
+mod hardening_suite {
+    use super::*;
+    use crate::fs::ramfs::RamFs;
+    use crate::fs::vfs::{Filesystem, FsError, Id, Vfs};
+    use crate::ipc::credentials::{self, Cred};
+    use crate::ipc::{channels, handles, shared};
+    use crate::process::cred_op;
+    use crate::quota::{self, Resource};
+    use alloc::string::ToString;
+    use alloc::sync::Arc;
+    use libmessenger::{flags, Header, Parcel, VERSION};
+
+    /// Scratch user space for the tests that need real user mappings.
+    const SPACE: u64 = 0x0040_0000;
+    const SPACE_PAGES: u64 = 8;
+
+    const EPERM: i64 = 1;
+    const EFAULT: i64 = 14;
+
+    /// Two's-complement `-errno`, the syscall error encoding.
+    fn failed(code: i64) -> u64 {
+        (code as u64).wrapping_neg()
+    }
+
+    /// An unprivileged session user: no capabilities.
+    fn alice() -> Cred {
+        Cred::new(1000, 1000, 0, 0, 7)
+    }
+
+    /// Turns pointer validation on for the guard's lifetime. The suite's other
+    /// tests pass kernel buffers as "user" pointers, so validation is off by
+    /// default under `laZYOS_TESTS`.
+    struct Strict(bool);
+
+    impl Strict {
+        fn on() -> Strict {
+            Strict(crate::user_ptr::set_trust_kernel_pointers(false))
+        }
+    }
+
+    impl Drop for Strict {
+        fn drop(&mut self) {
+            crate::user_ptr::set_trust_kernel_pointers(self.0);
+        }
+    }
+
+    /// Bring-up state: kernel task current, root credentials everywhere, no
+    /// handles, channels, buffers, quotas or display grant.
+    fn fresh() -> Result<(), String> {
+        task::register_kernel();
+        task::harness::reset();
+        task::harness::switch_current(task::KERNEL_TASK);
+        crate::display::reset();
+        channels::reset();
+        shared::reset();
+        quota::reset();
+        for slot in 0..task::MAX_TASKS {
+            handles::reset_for_task(slot);
+            credentials::reset_for_task(slot);
+        }
+        Ok(())
+    }
+
+    /// Run `f` with [`SPACE`] mapped into a fresh address space installed as
+    /// CR3, exactly as a syscall from a user task would find it.
+    fn in_space<R>(f: impl FnOnce() -> Result<R, String>) -> Result<R, String> {
+        let kernel = mem::kernel_table();
+        let table = mem::new_user_table().ok_or("new_user_table failed")?;
+        process::map_range(table, SPACE, SPACE + SPACE_PAGES * 4096).map_err(to_string)?;
+        mem::switch_to(table);
+        let outcome = f();
+        mem::switch_to(kernel);
+        mem::free_user_table(table);
+        outcome
+    }
+
+    /// A kernel-heap buffer of `len` bytes filled with a canary.
+    fn canary(len: usize) -> Vec<u8> {
+        vec![0xA5u8; len]
+    }
+
+    fn untouched(buffer: &[u8], what: &str) -> Result<(), String> {
+        check!(
+            buffer.iter().all(|byte| *byte == 0xA5),
+            "{what} wrote through a kernel pointer"
+        );
+        Ok(())
+    }
+
+    /// Native syscalls that copy data out to a caller pointer refuse a kernel
+    /// address with `-EFAULT` and leave that memory alone. Before the fix every
+    /// one of them wrote through the pointer: an arbitrary kernel write from
+    /// ring 3.
+    pub fn native_syscalls_reject_kernel_pointers() -> Result<(), String> {
+        fresh()?;
+        let _strict = Strict::on();
+
+        let mut cred = canary(40);
+        let code =
+            process::dispatch_for_test(10, cred_op::GET, u64::MAX, cred.as_mut_ptr() as u64, );
+        check!(code == failed(EFAULT), "creds get -> {code:#x}");
+        untouched(&cred, "creds get")?;
+
+        // A credential block *read* from kernel memory is refused too: the
+        // caller must not be able to make the gate consume arbitrary kernel
+        // bytes as a credential.
+        let block = Cred::ROOT.to_words();
+        let code = process::dispatch_for_test(10, cred_op::SET, u64::MAX, block.as_ptr() as u64);
+        check!(code == failed(EFAULT), "creds set from kernel memory -> {code:#x}");
+
+        let mut stats = canary(quota::STATS_WORDS * 8);
+        let code = process::dispatch_for_test(11, stats.as_mut_ptr() as u64, 0, 0);
+        check!(code == failed(EFAULT), "quota -> {code:#x}");
+        untouched(&stats, "quota")?;
+
+        let mut tasks = canary(task::introspect::WORDS * 8);
+        let code = process::dispatch_for_test(13, tasks.as_mut_ptr() as u64, 0, 0);
+        check!(code == failed(EFAULT), "task snapshot -> {code:#x}");
+        untouched(&tasks, "task snapshot")?;
+
+        let mut sysinfo = canary(crate::sysinfo::SIZE as usize);
+        let code = process::dispatch_for_test(
+            14,
+            crate::sysinfo::op::SNAPSHOT,
+            sysinfo.as_mut_ptr() as u64,
+            crate::sysinfo::SIZE,
+        );
+        check!(code == failed(EFAULT), "sysinfo snapshot -> {code:#x}");
+        untouched(&sysinfo, "sysinfo snapshot")?;
+
+        // `write(1)` from a kernel address would print kernel memory.
+        let secret = canary(32);
+        let code = process::dispatch_for_test(1, secret.as_ptr() as u64, secret.len() as u64, 0);
+        check!(code == u64::MAX, "write from kernel memory -> {code:#x}");
+        Ok(())
+    }
+
+    /// The positive control: real user buffers (including one that straddles a
+    /// page boundary) still work through every validated syscall.
+    pub fn valid_user_buffers_still_work() -> Result<(), String> {
+        fresh()?;
+        let _strict = Strict::on();
+        in_space(|| -> Result<(), String> {
+            let block = SPACE + 0xFF8; // crosses the first page boundary
+            let code = process::dispatch_for_test(10, cred_op::GET, u64::MAX, block);
+            check!(code == 0, "creds get -> {code:#x}");
+            let mut words = [0u64; 5];
+            // Safety: the scratch pages are mapped readable while installed.
+            unsafe { core::ptr::copy_nonoverlapping(block as *const u64, words.as_mut_ptr(), 5) };
+            check!(
+                Cred::from_words(words) == Cred::ROOT,
+                "creds read back as {words:?}"
+            );
+            let code = process::dispatch_for_test(10, cred_op::SET, u64::MAX, block);
+            check!(code == 0, "creds set from user memory -> {code:#x}");
+
+            let code = process::dispatch_for_test(11, SPACE + 0x1000, 0, 0);
+            check!(code == 0, "quota -> {code:#x}");
+            let code = process::dispatch_for_test(13, SPACE + 0x2000, 0, 0);
+            check!(code == 0, "task snapshot -> {code:#x}");
+            let code = process::dispatch_for_test(
+                14,
+                crate::sysinfo::op::SNAPSHOT,
+                SPACE + 0x2000,
+                crate::sysinfo::SIZE,
+            );
+            check!(code == crate::sysinfo::SIZE, "sysinfo snapshot -> {code:#x}");
+            // Safety: mapped readable; the syscall just wrote the header word.
+            let version = unsafe { core::ptr::read((SPACE + 0x2000) as *const u64) };
+            check!(
+                version == crate::sysinfo::SYSTEM_STATS_VERSION,
+                "sysinfo version word is {version}"
+            );
+
+            // An unmapped and a non-canonical pointer are refused, not faulted.
+            for bad in [0xdead_0000u64, 0xffff_8000_0000_0000, u64::MAX - 7, 0] {
+                let code = process::dispatch_for_test(11, bad, 0, 0);
+                check!(code == failed(EFAULT), "quota into {bad:#x} -> {code:#x}");
+            }
+            Ok(())
+        })
+    }
+
+    /// The Linux ABI shim keeps its infallible call sites, but they validate:
+    /// a kernel buffer is neither written nor read, and the syscalls with an
+    /// error path report `-EFAULT`.
+    pub fn linux_abi_kernel_pointers_are_refused() -> Result<(), String> {
+        fresh()?;
+        let _strict = Strict::on();
+
+        // getcwd used to write "/" into the kernel buffer.
+        let mut cwd = canary(64);
+        let _ = process::linux::dispatch_for_test(79, cwd.as_mut_ptr() as u64, 64, 0);
+        untouched(&cwd, "getcwd")?;
+
+        // write(1, kernel_secret, n) used to copy kernel bytes to the console.
+        let secret = canary(48);
+        let code =
+            process::linux::dispatch_for_test(1, 1, secret.as_ptr() as u64, secret.len() as u64);
+        check!(
+            code == failed(EFAULT),
+            "write(1) from kernel memory -> {code:#x}"
+        );
+
+        // read(file, kernel_ptr, n) copied file contents to the kernel address
+        // (and `fd_read` did it under the task-table lock).
+        let fd = task::fd_open(task::Fd::File {
+            data: b"secret bytes".to_vec(),
+            offset: 0,
+        })
+        .ok_or("fd_open failed")?;
+        let mut sink = canary(16);
+        let code = process::linux::dispatch_for_test(
+            0,
+            fd as u64,
+            sink.as_mut_ptr() as u64,
+            sink.len() as u64,
+        );
+        check!(
+            code == failed(EFAULT),
+            "read(file) into kernel memory -> {code:#x}"
+        );
+        untouched(&sink, "read(file)")?;
+        check!(
+            task::fd_offset(fd) == Some(0),
+            "a refused read consumed the file: offset {:?}",
+            task::fd_offset(fd)
+        );
+        let _ = task::fd_close(fd);
+        Ok(())
+    }
+
+    /// Edge cases of the validated primitives themselves.
+    pub fn user_ptr_edge_cases() -> Result<(), String> {
+        fresh()?;
+        let _strict = Strict::on();
+        in_space(|| -> Result<(), String> {
+            use crate::user_ptr::{try_bytes, try_copy_to, try_cstr, try_read, try_write, Fault};
+            let end = SPACE + SPACE_PAGES * 4096;
+            check!(
+                try_write::<u64>(SPACE + 4092, 0x0102_0304_0506_0708).is_ok(),
+                "a write straddling two mapped pages failed"
+            );
+            check!(
+                try_read::<u64>(SPACE + 4092) == Ok(0x0102_0304_0506_0708),
+                "the straddling write did not read back"
+            );
+            check!(
+                try_write::<u64>(end - 4, 1) == Err(Fault),
+                "a write running off the end of the mapping was accepted"
+            );
+            check!(
+                try_copy_to(u64::MAX - 2, &[1, 2, 3, 4]) == Err(Fault),
+                "an address-space-wrapping copy was accepted"
+            );
+            check!(
+                try_bytes(0x0000_8000_0000_0000 - 4, 8) == Err(Fault),
+                "a range crossing the end of the user half was accepted"
+            );
+            check!(
+                try_bytes(SPACE, 0).is_ok(),
+                "an empty range must always validate"
+            );
+            // A NUL-terminated string that ends before an unmapped page is fine;
+            // one that runs into it is not.
+            let tail = end - 3;
+            check!(
+                try_copy_to(tail, b"ok\0").is_ok() && try_cstr(tail, 64) == Ok(b"ok".to_vec()),
+                "a string ending at the last mapped byte was refused"
+            );
+            check!(
+                try_copy_to(end - 2, b"ab").is_ok() && try_cstr(end - 2, 64) == Err(Fault),
+                "an unterminated string running off the mapping was accepted"
+            );
+            Ok(())
+        })
+    }
+
+    /// Soak: 20 000 validated copies over aligned, straddling and hostile
+    /// ranges. Nothing faults, the good ones land, the bad ones are refused,
+    /// and no frames leak (validation must not materialize stray pages).
+    pub fn soak_user_ptr_validation() -> Result<(), String> {
+        fresh()?;
+        let _strict = Strict::on();
+        in_space(|| -> Result<(), String> {
+            use crate::user_ptr::{try_bytes, try_copy_to};
+            let frames_before = mem::frame_stats().live();
+            let good = SPACE + 4096 - 6;
+            for round in 0..20_000u64 {
+                let payload = [round as u8; 12];
+                check!(
+                    try_copy_to(good, &payload).is_ok(),
+                    "round {round}: a valid straddling copy was refused"
+                );
+                check!(
+                    try_bytes(good, 12) == Ok(&payload[..]),
+                    "round {round}: the copy did not read back"
+                );
+                let hostile = match round % 4 {
+                    0 => 0xffff_8000_0000_0000 + round * 8,
+                    1 => u64::MAX - (round % 16),
+                    2 => 0x0000_7fff_ffff_f000 + (round % 4096),
+                    _ => 0,
+                };
+                check!(
+                    try_copy_to(hostile, &payload).is_err(),
+                    "round {round}: hostile address {hostile:#x} was accepted"
+                );
+            }
+            check!(
+                mem::frame_stats().live() == frames_before,
+                "validation leaked frames: {} -> {}",
+                frames_before,
+                mem::frame_stats().live()
+            );
+            Ok(())
+        })
+    }
+
+    /// A refused display request leaves no state behind and a bad event
+    /// buffer does not eat input.
+    pub fn display_bad_pointers_leave_no_state() -> Result<(), String> {
+        fresh()?;
+        let slot = task::spawn_fork().map_err(to_string)?;
+        task::harness::switch_current(slot);
+        let buffers_before = shared::stats().buffers;
+
+        {
+            let _strict = Strict::on();
+            let mut info = canary(crate::display::INFO_WORDS * 8);
+            let code = process::dispatch_for_test(
+                12,
+                crate::display::op::BIND,
+                info.as_mut_ptr() as u64,
+                0,
+            );
+            check!(code == failed(EFAULT), "bind into kernel memory -> {code:#x}");
+            untouched(&info, "bind")?;
+            check!(
+                !crate::display::bound(),
+                "a refused bind left the display bound"
+            );
+            check!(
+                shared::stats().buffers == buffers_before,
+                "a refused bind leaked the screen buffer"
+            );
+
+            let mut out = canary(24);
+            let code = process::dispatch_for_test(
+                12,
+                crate::display::op::CREATE_BUFFER,
+                4096,
+                out.as_mut_ptr() as u64,
+            );
+            check!(
+                code == failed(EFAULT),
+                "create_buffer into kernel memory -> {code:#x}"
+            );
+            untouched(&out, "create_buffer")?;
+            check!(
+                shared::stats().buffers == buffers_before,
+                "a refused create_buffer leaked the buffer"
+            );
+        }
+
+        // Bind properly (kernel buffers are trusted outside the guard).
+        let mut info = [0u64; crate::display::INFO_WORDS];
+        let code =
+            process::dispatch_for_test(12, crate::display::op::BIND, info.as_mut_ptr() as u64, 0);
+        check!(code == 0, "bind -> {code:#x}");
+        {
+            let _strict = Strict::on();
+            let mut events = canary(16);
+            let code = process::dispatch_for_test(
+                12,
+                crate::display::op::INPUT_POLL,
+                events.as_mut_ptr() as u64,
+                16,
+            );
+            check!(code == failed(EFAULT), "input_poll into kernel -> {code:#x}");
+            untouched(&events, "input_poll")?;
+        }
+        // The seeded pointer event survived the refused poll.
+        let mut drain = [0u8; 16];
+        let count = process::dispatch_for_test(
+            12,
+            crate::display::op::INPUT_POLL,
+            drain.as_mut_ptr() as u64,
+            16,
+        );
+        check!(count == 1, "the refused poll ate the queued event: {count}");
+        let code = process::dispatch_for_test(12, crate::display::op::UNBIND, 0, 0);
+        check!(code == 0, "unbind -> {code:#x}");
+        crate::display::reset();
+        shared::reset();
+        Ok(())
+    }
+
+    /// Binding the display hands over every pixel and keystroke, so it needs
+    /// `CAP_SYS_ADMIN`; the shared-buffer ops stay open to every task.
+    pub fn display_bind_requires_capability() -> Result<(), String> {
+        fresh()?;
+        let slot = task::spawn_fork().map_err(to_string)?;
+        task::harness::switch_current(slot);
+        credentials::set(slot, alice());
+
+        let mut info = [0u64; crate::display::INFO_WORDS];
+        let code =
+            process::dispatch_for_test(12, crate::display::op::BIND, info.as_mut_ptr() as u64, 0);
+        check!(
+            code == failed(EPERM),
+            "an unprivileged bind -> {code:#x} (expected -EPERM)"
+        );
+        check!(
+            !crate::display::bound(),
+            "an unprivileged task now owns the display"
+        );
+
+        let mut out = [0u64; 3];
+        let code = process::dispatch_for_test(
+            12,
+            crate::display::op::CREATE_BUFFER,
+            4096,
+            out.as_mut_ptr() as u64,
+        );
+        check!(code == 0, "create_buffer must stay open: {code:#x}");
+
+        credentials::set(
+            slot,
+            Cred::new(1000, 1000, credentials::CAP_SYS_ADMIN, 0, 7),
+        );
+        let code =
+            process::dispatch_for_test(12, crate::display::op::BIND, info.as_mut_ptr() as u64, 0);
+        check!(code == 0, "a CAP_SYS_ADMIN bind -> {code:#x}");
+        check!(crate::display::bound(), "the privileged bind did not bind");
+        process::dispatch_for_test(12, crate::display::op::UNBIND, 0, 0);
+        crate::display::reset();
+        shared::reset();
+        Ok(())
+    }
+
+    /// A child never holds more privilege than its creator, whichever path
+    /// made it, and a kernel-started program never inherits a dead task's
+    /// stale identity.
+    pub fn children_inherit_credentials() -> Result<(), String> {
+        fresh()?;
+        let parent = task::spawn_fork().map_err(to_string)?;
+        task::harness::switch_current(parent);
+        credentials::set(parent, alice());
+
+        let elf = service_suite::minimal_elf();
+        let native = task::spawn_child("kid", &elf).map_err(to_string)?;
+        check!(
+            credentials::of(native) == alice(),
+            "a native child of an unprivileged task holds {:?}",
+            credentials::of(native)
+        );
+        let forked = task::spawn_fork().map_err(to_string)?;
+        check!(
+            credentials::of(forked) == alice(),
+            "a forked child of an unprivileged task holds {:?}",
+            credentials::of(forked)
+        );
+
+        // A slot freed by a dead root task must not hand its identity to the
+        // next child of an unprivileged parent, nor a dead user's identity to a
+        // program the kernel starts.
+        task::harness::switch_current(task::KERNEL_TASK);
+        credentials::set(native, Cred::ROOT);
+        credentials::set(forked, alice());
+        task::harness::finish(native, 0);
+        task::harness::finish(forked, 0);
+        task::harness::switch_current(parent);
+        task::harness::finish(parent, 0);
+        task::harness::switch_current(task::KERNEL_TASK);
+        while task::reap_child().is_some() {}
+        credentials::set(native, Cred::ROOT);
+        let started = task::spawn("boot", &elf).map_err(to_string)?;
+        credentials::set(started, alice());
+        task::harness::finish(started, 0);
+        while task::reap_child().is_some() {}
+        let again = task::spawn("boot2", &elf).map_err(to_string)?;
+        check!(
+            credentials::of(again) == Cred::ROOT,
+            "a kernel-started program inherited a stale identity: {:?}",
+            credentials::of(again)
+        );
+        Ok(())
+    }
+
+    /// Reaping a task tears down its Messenger handles, channels and buffer
+    /// mappings while its address space still exists, so a peer sees
+    /// `PeerDied`, per-uid charges return, and the slot's next tenant starts
+    /// with an empty table.
+    pub fn teardown_releases_fabric_state() -> Result<(), String> {
+        fresh()?;
+        let frames_before = mem::frame_stats().live();
+        let fabric_before = crate::ipc::stats::snapshot();
+        let handles_before = quota::usage(0, Resource::Handles);
+        let kernel_mem_before = quota::usage(0, Resource::KernelMemory);
+        let kernel_table = mem::kernel_table();
+
+        let child = task::spawn_fork().map_err(to_string)?;
+        let child_table =
+            PhysAddr::new(task::harness::pml4(child).ok_or("the child has no address space")?);
+
+        // As the child: a channel pair and a mapped shared buffer, created
+        // inside the child's own address space.
+        task::harness::switch_current(child);
+        mem::switch_to(child_table);
+        let (a, _b) = channels::create().map_err(|e| e.message().to_string())?;
+        let buffer = shared::create(2 * 4096, shared::flags::READ | shared::flags::WRITE)
+            .map_err(|e| e.message().to_string())?;
+        shared::map(buffer).map_err(|e| e.message().to_string())?;
+        mem::switch_to(kernel_table);
+        task::harness::switch_current(task::KERNEL_TASK);
+
+        // The kernel task holds a second handle to side `a`, exactly as a
+        // registry resolve gives a client one, and can talk to the child.
+        let object = handles::get_for_task(child, a)
+            .map_err(|e| e.message().to_string())?
+            .object_id;
+        let mine = handles::open_for_task(
+            task::KERNEL_TASK,
+            handles::HandleKind::Channel,
+            handles::rights::ALL,
+            object,
+        )
+        .map_err(|e| e.message().to_string())?;
+        let hello = {
+            let parcel = Parcel {
+                header: Header {
+                    version: VERSION,
+                    flags: flags::ONE_WAY,
+                    interface_id: 0x77,
+                    method: 1,
+                    txn_id: 0,
+                    reply_to: 0,
+                    deadline_ns: 0,
+                },
+                body: Vec::new(),
+                handles: Vec::new(),
+                buffers: Vec::new(),
+            };
+            let mut bytes = Vec::new();
+            parcel.encode(&mut bytes).map_err(|e| e.message())?;
+            bytes
+        };
+        check!(
+            channels::send(mine, &hello).is_ok(),
+            "the live peer refused a message"
+        );
+
+        task::harness::finish(child, 0);
+        let reaped = task::reap_child().ok_or("the finished child was not reaped")?;
+        check!(reaped.0 == child, "reaped slot {} not {child}", reaped.0);
+
+        check!(
+            handles::count_for_task(child) == 0,
+            "the reaped slot still holds {} handles",
+            handles::count_for_task(child)
+        );
+        check!(
+            channels::send(mine, &hello) == Err(channels::Error::PeerDied),
+            "a peer that died never reported PeerDied"
+        );
+        let fabric = crate::ipc::stats::snapshot();
+        check!(
+            fabric.buffers == fabric_before.buffers
+                && fabric.buffer_mappings == fabric_before.buffer_mappings,
+            "buffers {} -> {}, mappings {} -> {}",
+            fabric_before.buffers,
+            fabric.buffers,
+            fabric_before.buffer_mappings,
+            fabric.buffer_mappings
+        );
+        check!(
+            quota::usage(0, Resource::KernelMemory) == kernel_mem_before,
+            "the child's buffer charge was not returned"
+        );
+        // The slot's next tenant starts empty.
+        let next = task::spawn_fork().map_err(to_string)?;
+        check!(
+            next == child && handles::get_for_task(next, a).is_err(),
+            "slot {next} inherited the dead task's handles"
+        );
+
+        // Drop the kernel's own handle and every remaining task.
+        handles::close(mine).map_err(|e| e.message().to_string())?;
+        task::harness::finish(next, 0);
+        while task::reap_child().is_some() {}
+        check!(
+            quota::usage(0, Resource::Handles) == handles_before,
+            "handle charge {} -> {}",
+            handles_before,
+            quota::usage(0, Resource::Handles)
+        );
+        check!(
+            mem::frame_stats().live() == frames_before,
+            "frames {} -> {}",
+            frames_before,
+            mem::frame_stats().live()
+        );
+        Ok(())
+    }
+
+    /// Soak: 48 generations of fork / build fabric state / exit / reap keep
+    /// every registry, quota and frame counter flat.
+    pub fn soak_teardown_generations() -> Result<(), String> {
+        fresh()?;
+        let frames_before = mem::frame_stats().live();
+        let fabric_before = crate::ipc::stats::snapshot();
+        let kernel_table = mem::kernel_table();
+        for round in 0..48u64 {
+            let child = task::spawn_fork().map_err(to_string)?;
+            let table = PhysAddr::new(task::harness::pml4(child).ok_or("no child table")?);
+            task::harness::switch_current(child);
+            mem::switch_to(table);
+            for _ in 0..3 {
+                channels::create().map_err(|e| e.message().to_string())?;
+            }
+            let buffer = shared::create(4096, shared::flags::READ | shared::flags::WRITE)
+                .map_err(|e| e.message().to_string())?;
+            shared::map(buffer).map_err(|e| e.message().to_string())?;
+            mem::switch_to(kernel_table);
+            task::harness::switch_current(task::KERNEL_TASK);
+            task::harness::finish(child, round);
+            check!(
+                task::reap_child().map(|reaped| reaped.0) == Some(child),
+                "round {round}: the child was not reaped"
+            );
+            let fabric = crate::ipc::stats::snapshot();
+            check!(
+                fabric.channels == fabric_before.channels
+                    && fabric.buffers == fabric_before.buffers
+                    && fabric.buffer_mappings == fabric_before.buffer_mappings,
+                "round {round}: channels {} buffers {} mappings {}",
+                fabric.channels,
+                fabric.buffers,
+                fabric.buffer_mappings
+            );
+            check!(
+                quota::usage(0, Resource::Handles) == 0
+                    && quota::usage(0, Resource::KernelMemory) == 0,
+                "round {round}: quota not returned"
+            );
+        }
+        check!(
+            mem::frame_stats().live() == frames_before,
+            "frame leak across 48 generations: {} -> {}",
+            frames_before,
+            mem::frame_stats().live()
+        );
+        Ok(())
+    }
+
+    /// A task that exits without unmapping gives its user-memory charge back,
+    /// and a release never takes more than its own address space charged.
+    pub fn user_memory_quota_released_on_exit() -> Result<(), String> {
+        fresh()?;
+        let kernel_table = mem::kernel_table();
+        const MIB: u64 = 1 << 20;
+
+        // Another address space of the same uid holds 5 MiB.
+        let bystander = task::spawn_fork().map_err(to_string)?;
+        credentials::set(bystander, alice());
+        quota::charge_for_slot(bystander, Resource::UserMemory, 5 * MIB)
+            .map_err(|e| e.to_string())?;
+
+        let child = task::spawn_fork().map_err(to_string)?;
+        credentials::set(child, alice());
+        let table = PhysAddr::new(task::harness::pml4(child).ok_or("no child table")?);
+        mem::switch_to(table);
+        let charged = quota::charge_for_slot(child, Resource::UserMemory, MIB);
+        // Over-releasing (ELF segments and stacks were never charged) must not
+        // eat into the bystander's 5 MiB.
+        quota::release_for_slot(child, Resource::UserMemory, 4 * MIB);
+        quota::charge_for_slot(child, Resource::UserMemory, 3 * MIB).map_err(|e| e.to_string())?;
+        mem::switch_to(kernel_table);
+        charged.map_err(|e| e.to_string())?;
+        check!(
+            quota::usage(1000, Resource::UserMemory) == 5 * MIB + 3 * MIB,
+            "over-release took bytes it never charged: usage is {}",
+            quota::usage(1000, Resource::UserMemory)
+        );
+
+        // The child exits without unmapping the 3 MiB it still holds.
+        task::harness::finish(child, 0);
+        task::reap_child().ok_or("the child was not reaped")?;
+        check!(
+            quota::usage(1000, Resource::UserMemory) == 5 * MIB,
+            "an exited task stranded {} bytes of its uid's quota",
+            quota::usage(1000, Resource::UserMemory) - 5 * MIB
+        );
+        quota::reset();
+        Ok(())
+    }
+
+    /// An epoll instance may not watch itself, close a cycle, or stack past
+    /// `EPOLL_MAX_NESTS`; readiness recurses through nested instances, so any of
+    /// those used to overflow the kernel stack (and leaked the cycle).
+    pub fn epoll_rejects_self_and_cyclic_registration() -> Result<(), String> {
+        const EPOLL_CTL_ADD: u64 = 1;
+        const EPOLLIN: u32 = 1;
+        const EINVAL_RET: u64 = (-22i64) as u64;
+        const ELOOP_RET: u64 = (-40i64) as u64;
+        fn event() -> [u8; 12] {
+            let mut buf = [0u8; 12];
+            buf[..4].copy_from_slice(&EPOLLIN.to_le_bytes());
+            buf
+        }
+        fn create() -> u64 {
+            process::linux::dispatch_for_test(291, 0, 0, 0)
+        }
+        fn add(epfd: u64, fd: u64) -> u64 {
+            process::linux::dispatch_args_for_test(233, epfd, EPOLL_CTL_ADD, fd, event().as_ptr() as u64)
+        }
+        fresh()?;
+        for fd in 3..task::FD_COUNT {
+            let _ = task::fd_close(fd);
+        }
+
+        let a = create();
+        let b = create();
+        check!((a as i64) > 0 && (b as i64) > 0, "epoll_create1 failed");
+        check!(
+            add(a, a) == EINVAL_RET,
+            "an epoll registered itself (kernel would recurse forever)"
+        );
+        check!(add(a, b) == 0, "nesting one epoll in another failed");
+        check!(
+            add(b, a) == ELOOP_RET,
+            "closing an epoll cycle was accepted"
+        );
+        // With the cycle refused, waiting terminates.
+        let mut out = [0u8; 12];
+        let ready = process::linux::dispatch_args_for_test(232, a, out.as_mut_ptr() as u64, 1, 0);
+        check!(ready == 0, "epoll_wait on the nested pair returned {ready:#x}");
+
+        // A chain of six is the limit; a seventh instance on top is refused.
+        let mut chain = Vec::new();
+        for _ in 0..7 {
+            let fd = create();
+            check!((fd as i64) > 0, "epoll_create1 failed");
+            chain.push(fd);
+        }
+        for pair in (0..5).rev() {
+            check!(
+                add(chain[pair], chain[pair + 1]) == 0,
+                "nesting level {pair} was refused too early"
+            );
+        }
+        check!(
+            add(chain[6], chain[0]) == EINVAL_RET,
+            "an epoll chain deeper than EPOLL_MAX_NESTS was accepted"
+        );
+        for fd in 3..task::FD_COUNT {
+            let _ = task::fd_close(fd);
+        }
+        Ok(())
+    }
+
+    /// Two clients calling one service at the same time are not a callback
+    /// cycle: only a call in the *opposite* direction of an open transaction is
+    /// `Deadlock`. The channel-wide check used to refuse every second
+    /// simultaneous client (`clippaste: fatal: the call would deadlock`).
+    pub fn concurrent_clients_are_not_a_deadlock() -> Result<(), String> {
+        fresh()?;
+        let (a, b) = channels::create().map_err(|e| e.message().to_string())?;
+        let request = {
+            let parcel = Parcel {
+                header: Header {
+                    version: VERSION,
+                    flags: flags::SYNC,
+                    interface_id: 0x77,
+                    method: 7,
+                    txn_id: 0,
+                    reply_to: 0,
+                    deadline_ns: 0,
+                },
+                body: Vec::new(),
+                handles: Vec::new(),
+                buffers: Vec::new(),
+            };
+            let mut bytes = Vec::new();
+            parcel.encode(&mut bytes).map_err(|e| e.message())?;
+            bytes
+        };
+        let object = handles::get_for_task(task::KERNEL_TASK, a)
+            .map_err(|e| e.message().to_string())?
+            .object_id;
+        let first = channels::begin_call(a, 7, &request, None)
+            .map_err(|e| format!("the first call failed: {}", e.message()))?;
+        task::wake_task(task::KERNEL_TASK);
+        let _ = task::harness::take_wake_reason(task::KERNEL_TASK);
+
+        // A second client resolved the same endpoint side.
+        let client = task::spawn_fork().map_err(to_string)?;
+        let same_side = handles::open_for_task(
+            client,
+            handles::HandleKind::Channel,
+            handles::rights::ALL,
+            object,
+        )
+        .map_err(|e| e.message().to_string())?;
+        task::harness::switch_current(client);
+        let second = channels::begin_call(same_side, 7, &request, None);
+        task::wake_task(client);
+        let _ = task::harness::take_wake_reason(client);
+        task::harness::switch_current(task::KERNEL_TASK);
+        check!(
+            second.is_ok(),
+            "a second concurrent client was refused: {:?}",
+            second.err().map(|e| e.message())
+        );
+
+        // The genuine cycle is still refused: the service calling back into a
+        // client whose call is open.
+        check!(
+            channels::begin_call(b, 7, &request, None) == Err(channels::Error::Deadlock),
+            "a callback cycle was not refused"
+        );
+        let _ = first;
+        fresh()
+    }
+
+    /// The service name intern table is bounded: distinct spellings of one file
+    /// name (`A.ELF`, `a.elf`, `./A.ELF`) must not leak a string each.
+    pub fn intern_service_names_are_bounded() -> Result<(), String> {
+        let mut leaked = 0usize;
+        let mut fallback = 0usize;
+        for i in 0..400 {
+            let name = format!("./spelling{i}.elf");
+            let interned = process::intern_service_name_for_test(&name);
+            if interned == name {
+                leaked += 1;
+            } else {
+                fallback += 1;
+                check!(
+                    interned == "service",
+                    "an overflow name was {interned:?}, not the shared fallback"
+                );
+            }
+        }
+        check!(
+            leaked <= 64 && fallback >= 400 - 64,
+            "{leaked} of 400 distinct names were leaked (cap is 64)"
+        );
+        Ok(())
+    }
+
+    /// Creating, removing or renaming an entry needs write *and* search
+    /// permission on the parent directory, as on Linux.
+    pub fn vfs_parent_directory_needs_search_bit() -> Result<(), String> {
+        let root = Id::ROOT;
+        let user = Id::new(1000, 1000);
+        let mut vfs = Vfs::new();
+        vfs.mount("/", Arc::new(RamFs::new()))
+            .map_err(|e| e.message())?;
+        vfs.set_umask(0);
+        // Others may write but not search `/wo`; they may do both in `/wx`.
+        vfs.mkdir(root, "/wo", 0o722).map_err(|e| e.message())?;
+        vfs.mkdir(root, "/wx", 0o733).map_err(|e| e.message())?;
+        vfs.create(root, "/wo/g", 0o666).map_err(|e| e.message())?;
+
+        check!(
+            matches!(vfs.create(user, "/wo/f", 0o644), Err(FsError::Access)),
+            "create in a write-only directory was allowed"
+        );
+        check!(
+            vfs.mkdir(user, "/wo/d", 0o755).is_err(),
+            "mkdir in a write-only directory was allowed"
+        );
+        check!(
+            vfs.unlink(user, "/wo/g") == Err(FsError::Access),
+            "unlink in a write-only directory was allowed"
+        );
+        check!(
+            vfs.rename(user, "/wo/g", "/wx/h") == Err(FsError::Access),
+            "rename out of a write-only directory was allowed"
+        );
+        check!(
+            vfs.create(user, "/wx/f", 0o644).is_ok(),
+            "create in a write+search directory was refused"
+        );
+        check!(
+            vfs.unlink(user, "/wx/f").is_ok(),
+            "unlink in a write+search directory was refused"
+        );
+        Ok(())
+    }
+
+    /// A write that runs out of mappable blocks part-way persists what landed
+    /// (the inode is written back) instead of leaking every block it allocated,
+    /// and an owner whose ids do not fit ext2's 16-bit fields is refused rather
+    /// than truncated (uid 65536 would become root).
+    pub fn ext2_short_write_persists_and_owner_is_checked() -> Result<(), String> {
+        task::register_kernel();
+        let (fs, mut vfs, _disk) = ext2_suite::mounted(1024, 512)?;
+        let root = Id::ROOT;
+        vfs.create(root, "/big", 0o644).map_err(|e| e.message())?;
+        let free_before = fs.free_blocks().map_err(|e| e.message())?;
+
+        // A single-indirect file maps 12 + 256 blocks (268 KiB at 1 KiB blocks).
+        let data = vec![0x5Au8; 300 * 1024];
+        let written = vfs
+            .write(root, "/big", 0, &data)
+            .map_err(|e| format!("a short write failed outright: {}", e.message()))?;
+        check!(
+            written == 268 * 1024,
+            "the write reported {written} bytes, expected the 268 KiB that fit"
+        );
+        let meta = vfs.stat(root, "/big").map_err(|e| e.message())?;
+        check!(
+            meta.size == written as u64,
+            "the inode size is {} after a {written}-byte write",
+            meta.size
+        );
+        let back = vfs.read_file(root, "/big").map_err(|e| e.message())?;
+        check!(
+            back.len() == written && back.iter().all(|byte| *byte == 0x5A),
+            "the persisted bytes do not read back"
+        );
+        check!(
+            vfs.write(root, "/big", written as u64, &data[..1024]) == Err(FsError::NoSpace),
+            "a write at the mapping limit did not report NoSpace"
+        );
+        vfs.unlink(root, "/big").map_err(|e| e.message())?;
+        let free_after = fs.free_blocks().map_err(|e| e.message())?;
+        check!(
+            free_after == free_before,
+            "blocks leaked across a short write: {free_before} -> {free_after}"
+        );
+
+        // 16-bit owner ids.
+        let owner = Id::new(65536, 100);
+        check!(
+            Filesystem::create(&*fs, "evil", 0o644, owner) == Err(FsError::Invalid),
+            "uid 65536 was truncated into uid 0"
+        );
+        check!(
+            Filesystem::mkdir(&*fs, "evildir", 0o755, Id::new(0, 70_000)) == Err(FsError::Invalid),
+            "gid 70000 was truncated"
+        );
+        Ok(())
+    }
+
+    /// Soak: 200 short writes / unlinks leave the block bitmap exactly as it
+    /// started.
+    pub fn soak_ext2_short_writes_do_not_leak() -> Result<(), String> {
+        task::register_kernel();
+        let (fs, mut vfs, _disk) = ext2_suite::mounted(1024, 512)?;
+        let root = Id::ROOT;
+        let free_before = fs.free_blocks().map_err(|e| e.message())?;
+        let data = vec![0xC3u8; 300 * 1024];
+        for round in 0..200 {
+            vfs.create(root, "/soak", 0o644)
+                .map_err(|e| format!("round {round}: create {}", e.message()))?;
+            let _ = vfs.write(root, "/soak", 0, &data);
+            vfs.unlink(root, "/soak")
+                .map_err(|e| format!("round {round}: unlink {}", e.message()))?;
+            let free = fs.free_blocks().map_err(|e| e.message())?;
+            check!(
+                free == free_before,
+                "round {round}: {free_before} free blocks became {free}"
+            );
+        }
         Ok(())
     }
 }

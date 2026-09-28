@@ -33,11 +33,14 @@
 //!   op 5 (map_buffer):    rsi = handle, rdx -> va
 //! ```
 //!
-//! All ops return 0 or `-errno`. Pointer arguments follow the native syscall
-//! convention: the `int 0x80` gate runs on the caller's page table and trusts
-//! user buffers (see `process::read_cred`), so a malformed pointer faults in the
-//! kernel rather than being validated byte by byte; the checked-copy rework is
-//! the same follow-up the rest of the native ABI notes.
+//! All ops return 0 or `-errno`. Every pointer argument is validated against the
+//! caller's page tables (`user_ptr::try_*`) before the kernel touches it, so a
+//! kernel address, an unmapped range or a read-only page is `-EFAULT`.
+//!
+//! `bind` is privileged: the display grant hands one task every pixel and every
+//! keystroke, so the caller must hold `CAP_SYS_ADMIN` (the "mounts and driver
+//! grants" capability). An unprivileged task gets `-EPERM`; ops 4 and 5 (shared
+//! surface buffers) stay open to every task.
 
 use alloc::collections::VecDeque;
 use core::sync::atomic::{AtomicUsize, Ordering};
@@ -46,7 +49,7 @@ use spin::Mutex;
 
 use crate::console;
 use crate::input::keyboard::Key;
-use crate::ipc::shared;
+use crate::ipc::{credentials, shared};
 use crate::task;
 use crate::user_ptr;
 
@@ -256,9 +259,19 @@ fn bind(info_ptr: u64) -> u64 {
     if me == task::KERNEL_TASK {
         return negative(errno::EPERM);
     }
+    // The grant is a driver grant: without this gate any uid could bind the
+    // display and capture every keystroke and pixel of every other session.
+    if !credentials::of(me).has_cap(credentials::CAP_SYS_ADMIN) {
+        return negative(errno::EPERM);
+    }
     let owner = OWNER.load(Ordering::Relaxed);
     if owner == me {
         return write_info(info_ptr);
+    }
+    // Refuse a bad info block *before* the grant exists, so a failed bind
+    // leaves no half-claimed display behind.
+    if user_ptr::try_copy_words(info_ptr, &[0u64; INFO_WORDS]).is_err() {
+        return negative(errno::EFAULT);
     }
     if owner != NO_OWNER && task::live(owner) {
         return negative(errno::EBUSY);
@@ -305,7 +318,7 @@ fn bind(info_ptr: u64) -> u64 {
     write_info(info_ptr)
 }
 
-/// Write the bind output block; callers have already validated `ptr`.
+/// Write the bind output block into validated user memory.
 fn write_info(ptr: u64) -> u64 {
     let screen = *SCREEN.lock();
     let grant = GRANT.lock();
@@ -321,10 +334,8 @@ fn write_info(ptr: u64) -> u64 {
     words[INFO_BUFFER] = handle;
     words[INFO_VA] = va;
     words[INFO_SIZE] = size;
-    for (index, word) in words.iter().enumerate() {
-        // Safety: the caller passes a writable user block of `INFO_WORDS`
-        // eight-byte words (native syscall buffer convention).
-        unsafe { user_ptr::write_at::<u64>(ptr, index, *word) };
+    if user_ptr::try_copy_words(ptr, &words).is_err() {
+        return negative(errno::EFAULT);
     }
     0
 }
@@ -360,22 +371,27 @@ fn input_poll(ptr: u64, capacity: u64) -> u64 {
         return negative(errno::EFAULT);
     }
     let slots = (capacity / EVENT_BYTES as u64) as usize;
-    let mut events = EVENTS.lock();
-    let count = events.len().min(slots);
-    for index in 0..count {
-        // INVARIANT: `count = events.len().min(slots)`, computed just above
-        // under the same `EVENTS` lock, so the queue has at least `count`
-        // items left for the whole loop.
-        let event = events.pop_front().unwrap();
-        let base = ptr + (index * EVENT_BYTES) as u64;
-        // Safety: the caller passes a buffer of `capacity` writable bytes.
-        unsafe {
-            user_ptr::write::<u32>(base, event.kind);
-            user_ptr::write::<i32>(base + 4, event.a);
-            user_ptr::write::<i32>(base + 8, event.b);
-            user_ptr::write::<u32>(base + 12, event.reserved);
+    // Encode without dequeuing, copy out through the validated path, and only
+    // then drop the delivered events: a bad buffer must not lose input, and
+    // the `EVENTS` lock is never held across a user-memory access.
+    let (count, encoded) = {
+        let events = EVENTS.lock();
+        let count = events.len().min(slots);
+        let mut encoded = alloc::vec::Vec::with_capacity(count * EVENT_BYTES);
+        for event in events.iter().take(count) {
+            encoded.extend_from_slice(&event.kind.to_le_bytes());
+            encoded.extend_from_slice(&event.a.to_le_bytes());
+            encoded.extend_from_slice(&event.b.to_le_bytes());
+            encoded.extend_from_slice(&event.reserved.to_le_bytes());
         }
+        (count, encoded)
+    };
+    if user_ptr::try_copy_to(ptr, &encoded).is_err() {
+        return negative(errno::EFAULT);
     }
+    let mut events = EVENTS.lock();
+    let delivered = count.min(events.len());
+    events.drain(..delivered);
     count as u64
 }
 
@@ -414,9 +430,12 @@ fn present(packed: u64) -> u64 {
     }
     let w = w.min(width - x);
     let h = h.min(height - y);
-    // Safety: the owner's screen buffer is mapped at `va` in the active
-    // (caller's) address space and is `size` bytes long.
-    let pixels = unsafe { core::slice::from_raw_parts(va as *const u8, size as usize) };
+    // The owner's screen buffer is mapped at `va` in the active (caller's)
+    // address space, but the owner can unmap it (a Linux compositor has
+    // `munmap`), so re-validate before the kernel reads it.
+    let Ok(pixels) = user_ptr::try_bytes(va, size as usize) else {
+        return negative(errno::EFAULT);
+    };
     console::with_framebuffer(|fb| fb.blit_rgba_region(pixels, width, height, x, y, x, y, w, h));
     0
 }
@@ -442,9 +461,11 @@ fn create_buffer(size: u64, out_ptr: u64) -> u64 {
         }
     };
     let words = [handle, va, size];
-    for (index, word) in words.iter().enumerate() {
-        // Safety: the caller passes a writable user block of three u64 words.
-        unsafe { user_ptr::write_at::<u64>(out_ptr, index, *word) };
+    if user_ptr::try_copy_words(out_ptr, &words).is_err() {
+        // The caller never learns the handle, so give the buffer back rather
+        // than leaking a mapping it cannot name.
+        shared::close(handle).ok();
+        return negative(errno::EFAULT);
     }
     0
 }
@@ -456,8 +477,9 @@ fn map_buffer(handle: u64, out_ptr: u64) -> u64 {
     }
     match shared::map(handle) {
         Ok(va) => {
-            // Safety: the caller passes one writable u64 word.
-            unsafe { user_ptr::write::<u64>(out_ptr, va) };
+            if user_ptr::try_write::<u64>(out_ptr, va).is_err() {
+                return negative(errno::EFAULT);
+            }
             0
         }
         Err(error) => shared_errno(error),

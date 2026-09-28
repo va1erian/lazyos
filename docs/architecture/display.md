@@ -41,8 +41,10 @@ compositor demo. Target toolkit design: [xui-plan.md](../xui-plan.md).
 | 4 | `create_buffer` | in: size; out: `[handle, va, size]` |
 | 5 | `map_buffer` | in: handle; out: `va` |
 
-- One owner at a time; the kernel task is refused; an owner re-binding gets its
-  geometry back. On bind the kernel creates a screen-sized RGBA8 shared buffer
+- One owner at a time; the kernel task is refused; `bind` needs `CAP_SYS_ADMIN`
+  (`-EPERM` otherwise: the owner sees every pixel and keystroke); every pointer
+  argument is validated (`-EFAULT`), and `input_poll` only dequeues events that
+  were actually copied out; an owner re-binding gets its geometry back. On bind the kernel creates a screen-sized RGBA8 shared buffer
   via `ipc::shared` and maps it in; `present` blits a clamped damage rectangle
   to the real framebuffer (`console::with_framebuffer`). Direct scanout is not
   used because the bootloader framebuffer frames live outside the allocator's

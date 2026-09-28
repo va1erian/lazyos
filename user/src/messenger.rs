@@ -588,6 +588,21 @@ impl Endpoint {
         syscall(op::REPLY, &args, &mut MsgResult::default())
     }
 
+    /// [`reply`](Endpoint::reply) for a service loop.
+    ///
+    /// A caller whose deadline passed, who canceled, or who exited has no
+    /// transaction left, and the kernel answers the late reply with `-ENOENT`.
+    /// That is an ordinary race that any client can trigger at will, not a fault
+    /// of the service: swallow it so one impatient (or hostile) client cannot
+    /// take the whole service down by hanging up before its answer. Every other
+    /// error still propagates.
+    pub fn reply_or_drop(&self, txn_id: u64, reply: &Parcel) -> Result<()> {
+        match self.reply(txn_id, reply) {
+            Err(error) if error.errno() == Some(-errno::ENOENT) => Ok(()),
+            other => other,
+        }
+    }
+
     /// Fire-and-forget send; returns once the message is queued.
     pub fn send(&self, parcel: &Parcel) -> Result<()> {
         let bytes = encode(parcel)?;
@@ -817,7 +832,7 @@ impl Server {
         let message = self.endpoint.recv(None)?;
         let reply = handler(&message)?;
         if let Some(txn) = message.txn {
-            self.endpoint.reply(txn, &reply)?;
+            self.endpoint.reply_or_drop(txn, &reply)?;
         }
         Ok(())
     }
@@ -3201,11 +3216,15 @@ pub mod keyd {
         pub const LIST: u32 = 7;
         /// Round-trip probe.
         pub const PING: u32 = 8;
+        /// Install (or replace) an account's password verifier. Root only:
+        /// the accounts service pushes its database here so `Verify` can
+        /// answer for every account, not just the built-in demo one.
+        pub const PROVISION: u32 = 9;
     }
 
     /// Protocol TLV field ids.
     pub mod field {
-        /// Account name for `Verify`.
+        /// Account name for `Verify` / `Provision`.
         pub const USER: u16 = 1;
         /// Plaintext secret for `Verify` (crosses the channel; the kernel
         /// stamps the sender so `keyd` can audit who asked).
@@ -3287,6 +3306,15 @@ pub mod keyd {
         body.string(field::USER, user).map_err(Error::Parcel)?;
         body.string(field::SECRET, secret).map_err(Error::Parcel)?;
         Ok(request_parcel(method::VERIFY, body))
+    }
+
+    /// `Provision(user, secret)`: root-only; `keyd` derives and stores the
+    /// Argon2id verifier, and the secret does not outlive the call.
+    pub fn provision_request(user: &str, secret: &str) -> Result<Parcel> {
+        let mut body = Encoder::new();
+        body.string(field::USER, user).map_err(Error::Parcel)?;
+        body.string(field::SECRET, secret).map_err(Error::Parcel)?;
+        Ok(request_parcel(method::PROVISION, body))
     }
 
     /// `Sign(key, digest)`.
@@ -3534,6 +3562,12 @@ pub mod keyd {
         pub fn verify(&self, user: &str, secret: &str) -> Result<bool> {
             let reply = self.call(&verify_request(user, secret)?)?;
             decode_bool(&reply)
+        }
+
+        /// Install (or replace) `user`'s password verifier inside `keyd`.
+        /// Refused with `-EPERM` unless the caller is uid 0.
+        pub fn provision(&self, user: &str, secret: &str) -> Result<()> {
+            self.call(&provision_request(user, secret)?).map(|_| ())
         }
 
         /// HMAC-SHA256 `digest` under the stored key; returns the tag.

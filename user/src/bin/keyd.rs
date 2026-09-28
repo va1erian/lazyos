@@ -34,12 +34,16 @@
 //!
 //! # Provisioning
 //!
-//! A real accounts service pushes verifiers into `keyd` at account creation.
-//! S3 has no accounts/login binaries yet, so `keyd` provisions one demo
-//! account in memory at boot (`lazyos`/`lazyos`) and the self-test checks it.
-//! The demo verifier is Argon2id under [`kdf::Params::INTERACTIVE`], the same
-//! shape an accounts call would use; swapping the source of accounts does not
-//! touch the protocol or the crypto.
+//! `accountsd` pushes its database into `keyd` with the root-only `Provision`
+//! method the first time it delegates a login, and again for every user created
+//! afterwards; `keyd`'s verdict is authoritative once it is registered, so an
+//! account `keyd` was never told about cannot log in. `keyd` also provisions one
+//! demo account in memory at boot (`lazyos`/`lazyos`) and the self-test checks
+//! it. Every verifier is Argon2id under [`kdf::Params::INTERACTIVE`].
+//!
+//! Keys are scoped to the uid that generated them (taken from the sender's
+//! kernel-stamped credentials): `Sign`, `Wrap`, `Unwrap` and `List` only see the
+//! caller's own keys.
 //!
 //! # Known follow-ups (out of this change's scope)
 //!
@@ -68,6 +72,9 @@ use user::sys;
 
 /// Live keys the service holds.
 const MAX_KEYS: usize = 32;
+/// Live keys one uid may hold, so a single client cannot fill the table and
+/// lock everyone else out of `GenerateKey`.
+const MAX_KEYS_PER_OWNER: usize = 8;
 /// Password accounts the service holds.
 const MAX_ACCOUNTS: usize = 16;
 /// Bytes in a generated symmetric key (256-bit).
@@ -83,6 +90,11 @@ const MAX_BYTES: usize = wire::MAX_BYTES;
 /// in this file ever reads it except the crypto operations themselves.
 struct KeyEntry {
     id: u64,
+    /// The uid that generated the key, from the Messenger sender's
+    /// kernel-stamped credentials. Only the owner may use or list the key;
+    /// key ids are small sequential integers, so without this check any client
+    /// could sign, wrap or unwrap with every other client's keys.
+    owner: u32,
     kind: &'static str,
     material: [u8; KEY_LEN],
     uses: u64,
@@ -135,16 +147,18 @@ impl Keyd {
         }
     }
 
-    /// Generate a fresh random key of `kind`; `None` for an unknown kind or a
-    /// full table. The material is drawn from the entropy pool and stored
-    /// locally.
-    fn generate(&mut self, kind: &str) -> Option<u64> {
+    /// Generate a fresh random key of `kind` for `owner`; `None` for an unknown
+    /// kind, a full table, or an owner at its per-uid cap. The material is drawn
+    /// from the entropy pool and stored locally.
+    fn generate(&mut self, kind: &str, owner: u32) -> Option<u64> {
         let kind = match kind {
             wire::KIND_HMAC => wire::KIND_HMAC,
             wire::KIND_WRAP => wire::KIND_WRAP,
             _ => return None,
         };
-        if self.keys.len() >= MAX_KEYS {
+        if self.keys.len() >= MAX_KEYS
+            || self.keys.iter().filter(|key| key.owner == owner).count() >= MAX_KEYS_PER_OWNER
+        {
             return None;
         }
         let mut material = [0u8; KEY_LEN];
@@ -154,6 +168,7 @@ impl Keyd {
         self.next_id += 1;
         self.keys.push(KeyEntry {
             id,
+            owner,
             kind,
             material,
             uses: 0,
@@ -162,9 +177,13 @@ impl Keyd {
         Some(id)
     }
 
-    /// The key named by `id`, if it exists.
-    fn key(&self, id: u64) -> Option<&KeyEntry> {
-        self.keys.iter().find(|key| key.id == id)
+    /// The key named by `id` if it exists *and belongs to `owner`*. A key that
+    /// exists but is someone else's answers exactly like a missing one, so the
+    /// id space is not an oracle for other users' keys.
+    fn key(&self, id: u64, owner: u32) -> Option<&KeyEntry> {
+        self.keys
+            .iter()
+            .find(|key| key.id == id && key.owner == owner)
     }
 
     /// Count one use of `id` (called after a successful operation).
@@ -193,6 +212,37 @@ impl Keyd {
             verifier,
         });
         true
+    }
+
+    /// Install (or replace) `user`'s verifier: Argon2id over a fresh salt.
+    /// The plaintext is only borrowed for the derivation.
+    fn provision(&mut self, user: &str, secret: &str) -> Result<(), Error> {
+        if user.is_empty() {
+            return Err(Error::Errno(-errno::EINVAL));
+        }
+        let known = self.accounts.iter().position(|account| account.user == user);
+        if known.is_none() && self.accounts.len() >= MAX_ACCOUNTS {
+            return Err(Error::Errno(-errno::ENOMEM));
+        }
+        let mut salt = [0u8; SALT_LEN];
+        self.entropy.try_rdrand();
+        self.entropy.fill(&mut salt);
+        let mut verifier = [0u8; kdf::VERIFIER_LEN];
+        self.kdf
+            .derive(secret.as_bytes(), &salt, &mut verifier)
+            .map_err(|_| Error::Errno(-errno::ENOMEM))?;
+        match known {
+            Some(index) => {
+                self.accounts[index].salt = salt;
+                self.accounts[index].verifier = verifier;
+            }
+            None => self.accounts.push(Account {
+                user: String::from(user),
+                salt,
+                verifier,
+            }),
+        }
+        Ok(())
     }
 
     /// Check a password against the stored verifier for `user`.
@@ -224,9 +274,9 @@ impl Keyd {
         constant_time_eq(&candidate, &verifier)
     }
 
-    /// Wrap `plaintext` under key `id`.
-    fn wrap(&mut self, id: u64, plaintext: &[u8]) -> Result<Vec<u8>, Error> {
-        let Some(key) = self.key(id) else {
+    /// Wrap `plaintext` under `owner`'s key `id`.
+    fn wrap(&mut self, id: u64, owner: u32, plaintext: &[u8]) -> Result<Vec<u8>, Error> {
+        let Some(key) = self.key(id, owner) else {
             return Err(Error::Errno(-errno::ENOENT));
         };
         let material = key.material;
@@ -241,9 +291,10 @@ impl Keyd {
         Ok(blob)
     }
 
-    /// Open a blob under key `id`; a wrong key or tampering is `EBADMSG`.
-    fn unwrap(&mut self, id: u64, blob: &[u8]) -> Result<Vec<u8>, Error> {
-        let Some(key) = self.key(id) else {
+    /// Open a blob under `owner`'s key `id`; a wrong key or tampering is
+    /// `EBADMSG`.
+    fn unwrap(&mut self, id: u64, owner: u32, blob: &[u8]) -> Result<Vec<u8>, Error> {
+        let Some(key) = self.key(id, owner) else {
             return Err(Error::Errno(-errno::ENOENT));
         };
         let material = key.material;
@@ -252,9 +303,9 @@ impl Keyd {
         Ok(plaintext)
     }
 
-    /// HMAC-SHA256 `digest` under key `id`; returns the 32-byte tag.
-    fn sign(&mut self, id: u64, digest: &[u8]) -> Result<[u8; hmac::TAG_LEN], Error> {
-        let Some(key) = self.key(id) else {
+    /// HMAC-SHA256 `digest` under `owner`'s key `id`; returns the 32-byte tag.
+    fn sign(&mut self, id: u64, owner: u32, digest: &[u8]) -> Result<[u8; hmac::TAG_LEN], Error> {
+        let Some(key) = self.key(id, owner) else {
             return Err(Error::Errno(-errno::ENOENT));
         };
         let material = key.material;
@@ -274,15 +325,16 @@ impl Keyd {
         Ok(bytes)
     }
 
-    /// The public key rows: ids, kinds and counters. This is the *only* shape
-    /// in which keys leave [`Keyd`].
+    /// The public key rows for `owner`: ids, kinds and counters. This is the
+    /// *only* shape in which keys leave [`Keyd`], and only the caller's own.
     ///
     /// When the shared-buffer syscall lands, the table moves into a
     /// `SHARE_ONLY` buffer created in this task; the kernel then refuses to map
     /// it anywhere else, so even a leaked handle cannot expose `material`.
-    fn keys(&self) -> Vec<wire::KeyInfo> {
+    fn keys(&self, owner: u32) -> Vec<wire::KeyInfo> {
         self.keys
             .iter()
+            .filter(|key| key.owner == owner)
             .map(|key| wire::KeyInfo {
                 id: key.id,
                 kind: key.kind.to_string(),
@@ -363,7 +415,7 @@ fn run() -> messenger::Result<()> {
             Err(error) => wire::error_reply(method, error),
         };
         if let Some(txn) = message.txn {
-            server.reply(txn, &reply)?;
+            server.reply_or_drop(txn, &reply)?;
         }
     }
 }
@@ -388,13 +440,13 @@ fn self_test(keyd: &mut Keyd) -> Result<(), String> {
 
     // A generated wrapping key round-trips, and a tampered blob is refused.
     let wrap_key = keyd
-        .generate(wire::KIND_WRAP)
+        .generate(wire::KIND_WRAP, SELF_TEST_OWNER)
         .ok_or_else(|| String::from("generate wrap key"))?;
     let blob = keyd
-        .wrap(wrap_key, b"selftest secret")
+        .wrap(wrap_key, SELF_TEST_OWNER, b"selftest secret")
         .map_err(|error| error.message())?;
     let opened = keyd
-        .unwrap(wrap_key, &blob)
+        .unwrap(wrap_key, SELF_TEST_OWNER, &blob)
         .map_err(|error| error.message())?;
     if opened != b"selftest secret" {
         return Err(String::from("wrap round-trip mismatch"));
@@ -402,8 +454,17 @@ fn self_test(keyd: &mut Keyd) -> Result<(), String> {
     let mut tampered = blob.clone();
     let last = tampered.len() - 1;
     tampered[last] ^= 1;
-    if keyd.unwrap(wrap_key, &tampered).is_ok() {
+    if keyd.unwrap(wrap_key, SELF_TEST_OWNER, &tampered).is_ok() {
         return Err(String::from("tampered blob unwrapped"));
+    }
+    // Another uid must not be able to use (or even see) the key.
+    let stranger = SELF_TEST_OWNER + 1;
+    if keyd.unwrap(wrap_key, stranger, &blob).is_ok()
+        || keyd.wrap(wrap_key, stranger, b"x").is_ok()
+        || keyd.sign(wrap_key, stranger, b"x").is_ok()
+        || !keyd.keys(stranger).is_empty()
+    {
+        return Err(String::from("a non-owner used or listed a key"));
     }
 
     // Argon2id password verification, both directions.
@@ -413,13 +474,21 @@ fn self_test(keyd: &mut Keyd) -> Result<(), String> {
     if keyd.verify("lazyos", "not-lazyos") {
         return Err(String::from("wrong password accepted"));
     }
+    // A provisioned account verifies, and re-provisioning replaces the secret.
+    keyd.provision("selftest-user", "first")
+        .map_err(|error| error.message())?;
+    keyd.provision("selftest-user", "second")
+        .map_err(|error| error.message())?;
+    if keyd.verify("selftest-user", "first") || !keyd.verify("selftest-user", "second") {
+        return Err(String::from("provisioned secret did not replace the old one"));
+    }
 
     // A signing key produces a tag and counts its use.
     let hmac_key = keyd
-        .generate(wire::KIND_HMAC)
+        .generate(wire::KIND_HMAC, SELF_TEST_OWNER)
         .ok_or_else(|| String::from("generate hmac key"))?;
     let tag = keyd
-        .sign(hmac_key, b"digest")
+        .sign(hmac_key, SELF_TEST_OWNER, b"digest")
         .map_err(|error| error.message())?;
     if tag == [0u8; hmac::TAG_LEN] {
         return Err(String::from("sign returned a zero tag"));
@@ -446,21 +515,24 @@ fn dispatch(keyd: &mut Keyd, message: &Message) -> messenger::Result<Parcel> {
             Ok(wire::bool_reply(method, keyd.verify(&user, &secret)))
         }
         wire::method::SIGN => {
+            let owner = caller_uid(message)?;
             let key = key_field(message)?;
             let digest = bytes_field(message, wire::field::DIGEST, 128)?;
-            let tag = keyd.sign(key, &digest)?;
+            let tag = keyd.sign(key, owner, &digest)?;
             wire::bytes_reply(method, &tag)
         }
         wire::method::WRAP => {
+            let owner = caller_uid(message)?;
             let key = key_field(message)?;
             let plaintext = bytes_field(message, wire::field::DATA, MAX_BYTES)?;
-            let blob = keyd.wrap(key, &plaintext)?;
+            let blob = keyd.wrap(key, owner, &plaintext)?;
             wire::bytes_reply(method, &blob)
         }
         wire::method::UNWRAP => {
+            let owner = caller_uid(message)?;
             let key = key_field(message)?;
             let blob = bytes_field(message, wire::field::DATA, MAX_BYTES)?;
-            let plaintext = keyd.unwrap(key, &blob)?;
+            let plaintext = keyd.unwrap(key, owner, &blob)?;
             wire::bytes_reply(method, &plaintext)
         }
         wire::method::RANDOM => {
@@ -469,15 +541,43 @@ fn dispatch(keyd: &mut Keyd, message: &Message) -> messenger::Result<Parcel> {
             let bytes = keyd.random(len as usize)?;
             wire::bytes_reply(method, &bytes)
         }
+        wire::method::PROVISION => {
+            // Only root may plant a verifier: whoever can provision an account
+            // can log in as it.
+            if caller_uid(message)? != 0 {
+                return Err(Error::Errno(-errno::EPERM));
+            }
+            let user = text_field(message, wire::field::USER)?;
+            let secret = text_field(message, wire::field::SECRET)?;
+            keyd.provision(&user, &secret)?;
+            Ok(wire::ok_reply(method))
+        }
         wire::method::GENERATE => {
+            let owner = caller_uid(message)?;
             let kind = text_field(message, wire::field::KIND)?;
-            let id = keyd.generate(&kind).ok_or(Error::Errno(-errno::EINVAL))?;
+            let id = keyd
+                .generate(&kind, owner)
+                .ok_or(Error::Errno(-errno::EINVAL))?;
             wire::id_reply(method, id)
         }
-        wire::method::LIST => wire::keys_reply(&keyd.keys()),
+        wire::method::LIST => wire::keys_reply(&keyd.keys(caller_uid(message)?)),
         wire::method::PING => Ok(wire::ok_reply(method)),
         _ => Err(Error::Errno(-errno::EINVAL)),
     }
+}
+
+/// The owner used by the boot self-test (root; no Messenger sender).
+const SELF_TEST_OWNER: u32 = 0;
+
+/// The uid of the Messenger sender, from its kernel-stamped credentials.
+///
+/// `keyd` holds `CAP_SETUID`, which is what lets it read another task's
+/// credential block. An unreadable block is refused rather than guessed: a key
+/// must never end up owned by (or usable by) the wrong uid.
+fn caller_uid(message: &Message) -> messenger::Result<u32> {
+    let mut cred = sys::Cred::default();
+    sys::cred_get(Some(message.sender), &mut cred).map_err(|_| Error::Errno(-errno::EACCES))?;
+    Ok(cred.uid)
 }
 
 /// The key id field of a request.

@@ -241,7 +241,7 @@ fn serve_queries(
             Parcel::default()
         };
         if let Some(txn) = message.txn {
-            server.reply(txn, &reply)?;
+            server.reply_or_drop(txn, &reply)?;
         }
     }
     Ok(())

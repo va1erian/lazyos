@@ -365,7 +365,10 @@ fn apply_supervision(
 /// A service's health derived from its supervision phase and dependencies.
 fn derive(name: &str, state: &str, pid: u64, restarts: u64, deps: &str) -> services::HealthRecord {
     let health = match state {
-        "running" => "ok",
+        // `stopped` is a clean exit under a no-restart policy (a one-shot
+        // program such as `top`): finished, not faulty. A crash without a
+        // restart policy is published as `failed`.
+        "running" | "stopped" => "ok",
         "restarting" | "pending" => "degraded",
         _ => "down",
     };

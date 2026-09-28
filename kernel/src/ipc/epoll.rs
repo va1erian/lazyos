@@ -35,6 +35,22 @@ pub const EPOLLET: u32 = 0x8000_0000;
 
 const REPORT_ALWAYS: u32 = EPOLLERR | EPOLLHUP;
 
+/// Deepest chain of epoll instances that watch other epoll instances (Linux's
+/// `EPOLL_MAX_NESTS`). Readiness of a nested instance is computed by polling
+/// it recursively, so an unbounded (or cyclic) chain would overflow the kernel
+/// stack.
+pub const MAX_NEST: usize = 5;
+
+/// Why an epoll descriptor cannot be added to another instance.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum NestError {
+    /// The instance would (transitively) watch itself: `-ELOOP`, or `-EINVAL`
+    /// for the direct self-registration.
+    Loop,
+    /// The chain of watching instances would exceed [`MAX_NEST`]: `-EINVAL`.
+    TooDeep,
+}
+
 /// One registered descriptor.
 #[derive(Clone)]
 struct Interest {
@@ -88,6 +104,64 @@ impl Epoll {
             last_revents: 0,
             last_gen: 0,
         });
+        Ok(())
+    }
+
+    /// Instances this one watches directly.
+    fn nested(&self) -> Vec<Arc<Epoll>> {
+        self.interests
+            .lock()
+            .iter()
+            .filter_map(|interest| match &interest.target {
+                Fd::Epoll { epoll } => Some(Arc::clone(epoll)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Whether `needle` is reachable from this instance through nested epoll
+    /// registrations, and how many levels lie below it.
+    fn reaches(&self, needle: &Epoll, level: usize) -> (bool, usize) {
+        if level > MAX_NEST {
+            return (false, level);
+        }
+        let mut deepest = level;
+        for child in self.nested() {
+            if core::ptr::eq(&*child, needle) {
+                return (true, level + 1);
+            }
+            let (found, depth) = child.reaches(needle, level + 1);
+            if found {
+                return (true, depth);
+            }
+            deepest = deepest.max(depth);
+        }
+        (false, deepest)
+    }
+
+    /// Check that registering `candidate` in `this` cannot loop or nest too
+    /// deeply. Non-epoll descriptors are always fine.
+    ///
+    /// Without this an `epoll_ctl(ADD)` of an epoll onto itself (or two epolls
+    /// onto each other) makes every `epoll_wait` recurse without bound and
+    /// leaks the cycle (each instance holds an `Arc` to the other).
+    pub fn check_nest(this: &Arc<Epoll>, candidate: &Fd) -> Result<(), NestError> {
+        let Fd::Epoll { epoll: inner } = candidate else {
+            return Ok(());
+        };
+        if Arc::ptr_eq(this, inner) {
+            return Err(NestError::Loop);
+        }
+        // Would `inner` (transitively) already watch `this`?
+        let (loops, below) = inner.reaches(this, 0);
+        if loops {
+            return Err(NestError::Loop);
+        }
+        // `this` sits on top of `inner`'s subtree: the deepest chain grows by
+        // one for the edge being added, plus whatever already watches `this`.
+        if below + 1 > MAX_NEST {
+            return Err(NestError::TooDeep);
+        }
         Ok(())
     }
 
