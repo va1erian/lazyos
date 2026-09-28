@@ -16,25 +16,41 @@ use alloc::sync::Arc;
 use alloc::vec::Vec;
 use spin::Mutex;
 
+use crate::block;
 use vfs::{DirEntry, FsError, Id, Meta, Vfs};
 
 /// The kernel's one VFS: mount table, caches, and whether the boot volume
 /// mounted. `None` until [`init`] runs.
 static FS: Mutex<Option<(Vfs, bool)>> = Mutex::new(None);
 
-/// Mount the boot volume at `/` and a fresh ramfs at `/tmp`. Returns whether a
-/// FAT volume was found (the ramfs mount always succeeds). Idempotent: a second
-/// call reports the first call's boot-volume result without remounting.
+/// Probe the block layer, mount the boot volume at `/`, and a fresh ramfs at
+/// `/tmp`. Returns whether a FAT volume was found (the ramfs mount always
+/// succeeds). Idempotent: a second call reports the first call's boot-volume
+/// result without remounting.
+///
+/// Device selection runs through the block registry (issue #100): every
+/// registered device is tried in order and the first one that opens as
+/// FAT12/16 becomes the boot device. The FAT reader reads through the active
+/// boot device, so the default ATA image keeps working while a QEMU
+/// `-drive if=virtio` disk is picked up automatically.
 pub fn init() -> bool {
     let mut global = FS.lock();
     if let Some((_, mounted)) = global.as_ref() {
         return *mounted;
     }
+    block::init();
     let mut vfs = Vfs::new();
-    let mounted = match fat::Fat16::open() {
-        Some(volume) => vfs.mount("/", Arc::new(volume)).is_ok(),
-        None => false,
-    };
+    let mut mounted = false;
+    for device in block::devices() {
+        block::set_boot_device(device);
+        if let Some(volume) = fat::Fat16::open() {
+            mounted = vfs.mount("/", Arc::new(volume)).is_ok();
+            break;
+        }
+    }
+    if !mounted {
+        serial_println!("fs: no FAT volume on any block device");
+    }
     // `/tmp` is the scratch filesystem: writable, in memory, and discarded on
     // reboot. Mounting it even when FAT is missing keeps the VFS usable.
     let _ = vfs.mount("/tmp", Arc::new(ramfs::RamFs::new()));
@@ -43,6 +59,22 @@ pub fn init() -> bool {
     }
     *global = Some((vfs, mounted));
     mounted
+}
+
+/// Mount the filesystem on a registered block device at `point`. This is the
+/// future `mount <dev>` surface (ext2 will build its filesystem from the
+/// device here); today only the read-only FAT reader exists, and it can only
+/// open the active boot device, so any other device answers
+/// [`FsError::NotSupported`].
+#[cfg_attr(not(laZYOS_TESTS), allow(dead_code))] // the `mount <dev>` surface
+pub fn mount_device(point: &str, device: &str) -> Result<(), FsError> {
+    let device = block::device(device).ok_or(FsError::NotFound)?;
+    let boot = block::boot_device().ok_or(FsError::NotFound)?;
+    if device.name() != boot.name() {
+        return Err(FsError::NotSupported);
+    }
+    let volume = fat::Fat16::open().ok_or(FsError::Invalid)?;
+    with(|vfs| vfs.mount(point, Arc::new(volume))).unwrap_or(Err(FsError::NotFound))
 }
 
 /// Run `f` against the global VFS, if it is mounted.
