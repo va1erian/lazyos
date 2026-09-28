@@ -36,13 +36,16 @@
 //! error). Root launching into a *different* session resolves the session's
 //! uid/gid from `logind`.
 //!
-//! A session may hold at most [`LAUNCH_CAP_PER_SESSION`] concurrently running
-//! launched rows (issue #177): each `Launch` call spawns a fresh row and only
-//! a `Stopped`/`Failed` row for the same app is ever superseded, so nothing
-//! else stopped an unprivileged caller from looping `launch` until the
-//! 16-slot task table (`kernel/src/task/mod.rs`'s `MAX_TASKS`) was full,
+//! A session may hold at most [`LAUNCH_CAP_PER_SESSION`] launched rows
+//! reserved at once (issue #177): each `Launch` call spawns a fresh row and
+//! only a `Stopped`/`Failed` row for the same app is ever superseded, so
+//! nothing else stopped an unprivileged caller from looping `launch` until
+//! the 16-slot task table (`kernel/src/task/mod.rs`'s `MAX_TASKS`) was full,
 //! starving supervised restarts and new logins. A request over the cap is
 //! refused with `-EAGAIN` (`INIT:LAUNCH:CAP:PASS`) before anything spawns.
+//! The reservation counts `Running` rows and any row still cycling through
+//! crash backoff (`Restarting`/`Pending`), since those respawn from the
+//! supervision loop without another cap check ([`running_in_session`]).
 //!
 //! Boot evidence: `INIT:APPS:PASS`, `INIT:LAUNCH:PASS` (the self-test launches
 //! `TOP.ELF`; the app's own `SYS:TOP:PASS` and exit prove it ran),
@@ -95,14 +98,17 @@ const LAUNCH_SELFTEST_DELAY: u64 = 30;
 const LAUNCH_SELFTEST_RETRY: u64 = 25;
 /// Give up on the launch self-test after this many attempts.
 const LAUNCH_SELFTEST_ATTEMPTS: u64 = 40;
-/// Concurrently *running* launched rows one session may hold at once (issue
-/// #177). The boot manifest's own services already run the 16-slot task
-/// table (`kernel/src/task/mod.rs`'s `MAX_TASKS`) close to full for the life
-/// of the boot, so the cap is a small fixed number rather than derived from
-/// the live table: it must hold room for supervised restarts and new logins
-/// even when nothing else has freed a slot yet. `Restarting` rows hold no
-/// task slot (their `pid` is 0 between backoff and the next spawn), so only
-/// `Running` rows count.
+/// Launched rows one session may hold reserved at once (issue #177). The
+/// boot manifest's own services already run the 16-slot task table
+/// (`kernel/src/task/mod.rs`'s `MAX_TASKS`) close to full for the life of the
+/// boot, so the cap is a small fixed number rather than derived from the
+/// live table: it must hold room for supervised restarts and new logins even
+/// when nothing else has freed a slot yet. A row still reserves its slot
+/// while `Restarting`: [`spawn_service`] respawns it from the main loop's
+/// backoff sweep, not through [`launch`], so a crashed row that stopped
+/// counting here could let a session accumulate more rows than the cap once
+/// they all came back up. [`running_in_session`] counts every phase that
+/// currently holds or will reclaim a slot without another cap check.
 const LAUNCH_CAP_PER_SESSION: usize = 2;
 
 /// What to do when a service exits.
@@ -935,8 +941,11 @@ fn authorize(caller: &SysCred, target_session: u64) -> messenger::Result<()> {
     }
 }
 
-/// The number of launched rows currently holding a task slot (`Running`) in
-/// `session`: what [`LAUNCH_CAP_PER_SESSION`] caps. A launched row's session
+/// The number of launched rows reserved against [`LAUNCH_CAP_PER_SESSION`]
+/// for `session`: `Running` (holding a slot now) plus `Restarting` and
+/// `Pending` (will reclaim one without going through [`launch`] again). A
+/// `Stopped`/`Failed` row holds nothing and does not count; `launch` already
+/// prunes those for the same app before this runs. A launched row's session
 /// lives in its stamped credentials (`cred`), since manifest rows (`cred:
 /// None`) never count.
 fn running_in_session(services: &[Service], session: u64) -> usize {
@@ -944,7 +953,10 @@ fn running_in_session(services: &[Service], session: u64) -> usize {
         .iter()
         .filter(|service| {
             service.launched
-                && service.phase == Phase::Running
+                && matches!(
+                    service.phase,
+                    Phase::Running | Phase::Restarting | Phase::Pending
+                )
                 && service.cred.map(|cred| cred.session) == Some(session)
         })
         .count()
@@ -985,9 +997,10 @@ fn lookup_session_uid(session: u64) -> messenger::Result<u32> {
 /// Launch an app as a supervised child of this task (issue #158).
 ///
 /// The checks run in order: the app id must be in [`APPS`]; the caller must
-/// pass [`authorize`] for the target session; the target session must be
-/// under [`LAUNCH_CAP_PER_SESSION`] concurrently running launched rows;
-/// the target session's credentials must resolve. The row then spawns
+/// pass [`authorize`] for the target session; the target session must have
+/// fewer than [`LAUNCH_CAP_PER_SESSION`] launched rows reserved (see
+/// [`running_in_session`]); the target session's credentials must resolve.
+/// The row then spawns
 /// immediately with `spawn_as`, and from there the ordinary supervision loop
 /// owns it: restart policy, backoff, health topic and service event.
 fn launch(
@@ -1085,22 +1098,30 @@ fn selftest_launch_policy() {
 }
 
 /// The launch-cap self-test: a session already holding
-/// [`LAUNCH_CAP_PER_SESSION`] `Running` launched rows gets `-EAGAIN` for one
+/// [`LAUNCH_CAP_PER_SESSION`] reserved launched rows gets `-EAGAIN` for one
 /// more, and the refused call leaves the supervision table unchanged (nothing
-/// was spawned). Exercises the real [`launch`] against a synthetic table, the
-/// same way [`selftest_launch_policy`] exercises [`authorize`] directly,
-/// so the boot self-test needs no timing-sensitive race against real
-/// processes exiting. Prints `INIT:LAUNCH:CAP:PASS`.
+/// was spawned). One row is `Running` and the other `Restarting` (mid crash
+/// backoff), so the test also covers a launched row that no longer holds a
+/// task slot but will reclaim one from the supervision loop's backoff sweep
+/// without another cap check ([`running_in_session`] must still count it).
+/// Exercises the real [`launch`] against a synthetic table, the same way
+/// [`selftest_launch_policy`] exercises [`authorize`] directly, so the boot
+/// self-test needs no timing-sensitive race against real processes exiting
+/// or crashing. Prints `INIT:LAUNCH:CAP:PASS`.
 fn selftest_launch_cap() {
     let Some(app) = find_app("top") else {
         return sys::write_str("INIT:LAUNCH:CAP:FAIL top is not registered\n");
     };
     const SESSION: u64 = 4243;
     let cred = SysCred::new(1000, 1000, 0, 0, SESSION);
-    let mut services: Vec<Service> = (0..LAUNCH_CAP_PER_SESSION)
-        .map(|_| {
+    let reserved_phases = [Phase::Running, Phase::Restarting];
+    let mut services: Vec<Service> = reserved_phases
+        .into_iter()
+        .cycle()
+        .take(LAUNCH_CAP_PER_SESSION)
+        .map(|phase| {
             let mut row = Service::from_app(app, "", cred);
-            row.phase = Phase::Running;
+            row.phase = phase;
             row
         })
         .collect();
