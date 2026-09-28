@@ -18,7 +18,7 @@
 //! until then. Interests are keyed by descriptor number, matching the task's
 //! descriptor table.
 
-use alloc::sync::Arc;
+use alloc::sync::{Arc, Weak};
 use alloc::vec::Vec;
 use core::sync::atomic::{AtomicBool, Ordering};
 use spin::Mutex;
@@ -68,6 +68,15 @@ struct Interest {
 pub struct Epoll {
     interests: Mutex<Vec<Interest>>,
     nonblock: AtomicBool,
+    /// Other epoll instances that currently have `self` registered as one of
+    /// their interests (`Weak`, so being watched cannot keep a watcher alive,
+    /// and a watcher's own `Epoll` can still be dropped once its last fd
+    /// closes). [`check_nest`] walks this upward to bound the *total* chain
+    /// length; without it, only the chain *below* a candidate was bounded, so
+    /// building a chain bottom-up (`add(E1, E2)`, then `add(E2, E3)`, ...)
+    /// never re-checked what was already stacked on top and grew without
+    /// limit.
+    watched_by: Mutex<Vec<Weak<Epoll>>>,
 }
 
 impl Epoll {
@@ -76,6 +85,7 @@ impl Epoll {
         Arc::new(Epoll {
             interests: Mutex::new(Vec::new()),
             nonblock: AtomicBool::new(false),
+            watched_by: Mutex::new(Vec::new()),
         })
     }
 
@@ -89,21 +99,33 @@ impl Epoll {
         self.nonblock.store(on, Ordering::Release);
     }
 
-    /// `EPOLL_CTL_ADD`: register `fd`/`target`. The caller already checked the
-    /// descriptor is open; a duplicate registration is rejected.
-    pub fn add(&self, fd: usize, target: Fd, events: u32, data: u64) -> Result<(), ()> {
-        let mut interests = self.interests.lock();
-        if interests.iter().any(|interest| interest.fd == fd) {
-            return Err(());
+    /// `EPOLL_CTL_ADD`: register `fd`/`target` in `this`. The caller already
+    /// checked the descriptor is open and passed [`check_nest`]; a duplicate
+    /// registration is rejected. Takes `this` (rather than a plain `&self`)
+    /// because a nested `target` needs a `Weak` back-reference to `this` for
+    /// [`depth_above`](Epoll::depth_above) to walk.
+    pub fn add(this: &Arc<Epoll>, fd: usize, target: Fd, events: u32, data: u64) -> Result<(), ()> {
+        let watched = match &target {
+            Fd::Epoll { epoll } => Some(Arc::clone(epoll)),
+            _ => None,
+        };
+        {
+            let mut interests = this.interests.lock();
+            if interests.iter().any(|interest| interest.fd == fd) {
+                return Err(());
+            }
+            interests.push(Interest {
+                fd,
+                target,
+                events,
+                data,
+                last_revents: 0,
+                last_gen: 0,
+            });
         }
-        interests.push(Interest {
-            fd,
-            target,
-            events,
-            data,
-            last_revents: 0,
-            last_gen: 0,
-        });
+        if let Some(watched) = watched {
+            watched.watched_by.lock().push(Arc::downgrade(this));
+        }
         Ok(())
     }
 
@@ -117,6 +139,14 @@ impl Epoll {
                 _ => None,
             })
             .collect()
+    }
+
+    /// Other epoll instances that currently watch this one directly, pruning
+    /// entries whose watcher has since been dropped.
+    fn watchers(&self) -> Vec<Arc<Epoll>> {
+        let mut watched_by = self.watched_by.lock();
+        watched_by.retain(|watcher| watcher.strong_count() > 0);
+        watched_by.iter().filter_map(Weak::upgrade).collect()
     }
 
     /// Whether `needle` is reachable from this instance through nested epoll
@@ -139,12 +169,31 @@ impl Epoll {
         (false, deepest)
     }
 
+    /// How many epoll levels are already stacked *above* this instance: 0 if
+    /// nothing watches it, 1 if something watches it and nothing watches that,
+    /// and so on. The counterpart of [`reaches`](Epoll::reaches)'s `below`,
+    /// walking [`watched_by`](Epoll::watched_by) instead of `interests`.
+    fn depth_above(&self, level: usize) -> usize {
+        if level > MAX_NEST {
+            return level;
+        }
+        self.watchers()
+            .iter()
+            .map(|watcher| watcher.depth_above(level + 1))
+            .max()
+            .unwrap_or(level)
+    }
+
     /// Check that registering `candidate` in `this` cannot loop or nest too
     /// deeply. Non-epoll descriptors are always fine.
     ///
     /// Without this an `epoll_ctl(ADD)` of an epoll onto itself (or two epolls
     /// onto each other) makes every `epoll_wait` recurse without bound and
-    /// leaks the cycle (each instance holds an `Arc` to the other).
+    /// leaks the cycle (each instance holds an `Arc` to the other). Checking
+    /// only the chain *below* `candidate` is not enough either: a chain built
+    /// bottom-up (`add(E1, E2)`, then `add(E2, E3)`, ...) always finds an empty
+    /// candidate, so it never re-examines what is already stacked on top of
+    /// `this` and grows without bound. `depth_above` closes that gap.
     pub fn check_nest(this: &Arc<Epoll>, candidate: &Fd) -> Result<(), NestError> {
         let Fd::Epoll { epoll: inner } = candidate else {
             return Ok(());
@@ -157,9 +206,10 @@ impl Epoll {
         if loops {
             return Err(NestError::Loop);
         }
-        // `this` sits on top of `inner`'s subtree: the deepest chain grows by
-        // one for the edge being added, plus whatever already watches `this`.
-        if below + 1 > MAX_NEST {
+        // The new edge joins whatever already watches `this` (`above`) to
+        // `inner`'s own subtree (`below`), plus the edge itself.
+        let above = this.depth_above(0);
+        if above + below + 1 > MAX_NEST {
             return Err(NestError::TooDeep);
         }
         Ok(())
@@ -179,22 +229,46 @@ impl Epoll {
         Ok(())
     }
 
-    /// `EPOLL_CTL_DEL`: drop a registered descriptor.
-    pub fn delete(&self, fd: usize) -> Result<(), ()> {
-        let mut interests = self.interests.lock();
-        let before = interests.len();
-        interests.retain(|interest| interest.fd != fd);
-        if interests.len() == before {
-            return Err(());
-        }
+    /// `EPOLL_CTL_DEL`: drop a registered descriptor from `this`.
+    pub fn delete(this: &Arc<Epoll>, fd: usize) -> Result<(), ()> {
+        let removed = {
+            let mut interests = this.interests.lock();
+            let Some(index) = interests.iter().position(|interest| interest.fd == fd) else {
+                return Err(());
+            };
+            interests.remove(index)
+        };
+        Self::unwatch(this, &removed.target);
         Ok(())
     }
 
-    /// Drop `fd`'s interest because the user closed the descriptor. Called by
-    /// `task::fd_close`, so a reused descriptor number cannot inherit a stale
-    /// registration.
-    pub fn drop_fd(&self, fd: usize) {
-        self.interests.lock().retain(|interest| interest.fd != fd);
+    /// Drop `fd`'s interest from `this` because the user closed the
+    /// descriptor. Called by `task::fd_close`, so a reused descriptor number
+    /// cannot inherit a stale registration.
+    pub fn drop_fd(this: &Arc<Epoll>, fd: usize) {
+        let removed = {
+            let mut interests = this.interests.lock();
+            let Some(index) = interests.iter().position(|interest| interest.fd == fd) else {
+                return;
+            };
+            interests.remove(index)
+        };
+        Self::unwatch(this, &removed.target);
+    }
+
+    /// Drop `this`'s back-reference from a removed interest's target, if it
+    /// named another epoll instance. Without this a removed (and later
+    /// re-added elsewhere) epoll interest would leave a stale `watched_by`
+    /// entry that could wrongly inflate [`depth_above`](Epoll::depth_above)
+    /// forever (the entry is a `Weak`, so it cannot leak the instance itself,
+    /// only overcount depth until the watcher is dropped).
+    fn unwatch(this: &Arc<Epoll>, target: &Fd) {
+        if let Fd::Epoll { epoll: watched } = target {
+            watched
+                .watched_by
+                .lock()
+                .retain(|watcher| !watcher.ptr_eq(&Arc::downgrade(this)));
+        }
     }
 
     /// One `epoll_wait` pass: at most `max` `(events, data)` pairs. Ready

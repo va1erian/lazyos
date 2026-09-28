@@ -464,17 +464,27 @@ struct SpaceCharge {
 
 static SPACES: Mutex<Vec<SpaceCharge>> = Mutex::new(Vec::new());
 
-/// The active address space, the key user-memory charges are recorded under.
-fn active_space() -> u64 {
-    crate::mem::kernel_table().as_u64()
+/// The address space charges against `slot` are recorded under: `slot`'s own
+/// PML4, not whatever table happens to be active on the CPU right now.
+///
+/// A syscall handler runs on its caller's table, so for the common case
+/// (`slot == task::current()`) the two agree; but `charge_for_slot`/
+/// `release_for_slot` take an explicit slot precisely so a caller (or a test)
+/// can act on a *different* task, and the active CR3 would then key the charge
+/// under the wrong address space -- `forget_address_space` could never release
+/// it when that space is freed, and a release could wrongly drain whatever
+/// space happened to be active. A slot with no task yet (a narrow window
+/// during spawn) falls back to the active table, matching the old behaviour.
+fn space_of(slot: usize) -> u64 {
+    crate::task::pml4_of(slot).unwrap_or_else(|| crate::mem::kernel_table().as_u64())
 }
 
 /// Charge `delta` bytes of user memory to `slot`'s uid and record it against
-/// the active address space.
+/// `slot`'s own address space.
 fn charge_user_memory(slot: usize, delta: u64) -> Result<(), QuotaError> {
     let uid = crate::ipc::credentials::of(slot).uid;
     charge(uid, Resource::UserMemory, delta)?;
-    let table = active_space();
+    let table = space_of(slot);
     let mut spaces = SPACES.lock();
     match spaces
         .iter_mut()
@@ -490,13 +500,13 @@ fn charge_user_memory(slot: usize, delta: u64) -> Result<(), QuotaError> {
     Ok(())
 }
 
-/// Release up to `delta` bytes of the active address space's user-memory
+/// Release up to `delta` bytes of `slot`'s address space's user-memory
 /// charge, preferring the caller's current uid. Bytes the space never charged
 /// (ELF segments and stacks are mapped before a uid exists) release nothing:
 /// they must not eat into another task's live usage.
 fn release_user_memory(slot: usize, delta: u64) {
     let current = crate::ipc::credentials::of(slot).uid;
-    let table = active_space();
+    let table = space_of(slot);
     let mut remaining = delta;
     let mut releases: Vec<(u32, u64)> = Vec::new();
     {

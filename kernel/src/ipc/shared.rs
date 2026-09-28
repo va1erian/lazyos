@@ -612,8 +612,10 @@ pub fn close(handle: u64) -> Result<(), Error> {
 ///
 /// `unmap` says whether the slot's mapping may be unmapped now. Task teardown
 /// passes `false` when another live task still shares the address space (a
-/// `CLONE_VM` sibling): the mapping stays installed and is removed by
-/// [`forget_task`] when the last user goes.
+/// `CLONE_VM` sibling): the mapping stays installed, and [`teardown_task`]
+/// removes it (without releasing any frame reference a second time -- this
+/// call already released the handle's own reference) once the last sharer
+/// goes.
 fn close_for(slot: usize, handle: u64, unmap: bool) -> Result<(), Error> {
     let entry = handles::get_for_task(slot, handle).map_err(from_handles)?;
     if entry.kind != HandleKind::Buffer {
@@ -662,9 +664,13 @@ pub fn teardown_task(slot: usize, table: u64, table_shared: bool) {
     if table_shared {
         return;
     }
-    // Last user of the address space: drop every remaining mapping in it (a
-    // buffer whose handle another task still holds keeps its frames, minus
-    // this mapping's references).
+    // Last user of the address space: remove every mapping still recorded
+    // against `table`. Its frame references were already released above, by
+    // the `close_for(slot, handle, false)` call that ran while this slot's own
+    // handles were still open (`unmap = false` deferred only the *mapping*
+    // removal, not the reference release), so `unmap_mapping` here only tears
+    // down the mapping itself and cannot double-release or leak a frame
+    // reference.
     for index in 0..registry.buffers.len() {
         let buffer = &mut registry.buffers[index];
         while let Some(at) = buffer.mappings.iter().position(|m| m.table == table) {

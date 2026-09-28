@@ -436,6 +436,21 @@ impl Ext2 {
             .map_err(io_error)
     }
 
+    /// Zero one filesystem block on disk.
+    ///
+    /// Every freshly allocated block is zeroed here before its pointer is
+    /// linked anywhere (the inode, or an indirect block already committed to
+    /// disk). Linking a pointer to an allocated-but-unwritten block would let
+    /// the block's previous owner's bytes (or, on a device that reads back
+    /// garbage, uninitialized bytes) surface where a hole should read as
+    /// zero -- a cross-file, potentially cross-user information leak
+    /// (CWE-200) if the write of the caller's actual data then fails.
+    fn zero_block(&self, block: u64) -> Result<(), FsError> {
+        let size = self.block_size as usize;
+        let zeroed = [0u8; MAX_BLOCK_SIZE];
+        self.write_block(block, &zeroed[..size])
+    }
+
     /// Write one filesystem block from `buf`.
     fn write_block(&self, block: u64, buf: &[u8]) -> Result<(), FsError> {
         let size = self.block_size as usize;
@@ -789,6 +804,10 @@ impl Ext2 {
                 return Ok((existing, false));
             }
             let fresh = self.alloc_block()?;
+            if let Err(error) = self.zero_block(u64::from(fresh)) {
+                let _ = self.free_block(fresh);
+                return Err(error);
+            }
             put32(inode, INO_BLOCK + index as usize * 4, fresh);
             self.add_inode_sectors(inode)?;
             return Ok((fresh, true));
@@ -815,6 +834,10 @@ impl Ext2 {
                 return Ok((existing, false));
             }
             let fresh = self.alloc_block()?;
+            if let Err(error) = self.zero_block(u64::from(fresh)) {
+                let _ = self.free_block(fresh);
+                return Err(error);
+            }
             put32(&mut table, slot, fresh);
             self.write_block(u64::from(indirect), &table[..size])?;
             self.add_inode_sectors(inode)?;

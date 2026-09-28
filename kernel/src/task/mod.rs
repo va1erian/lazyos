@@ -946,6 +946,17 @@ pub fn current() -> usize {
     CURRENT.load(Ordering::Relaxed)
 }
 
+/// The PML4 physical address of task `slot`'s address space, or `None` for an
+/// empty slot.
+///
+/// This is the *slot's own* table, independent of whichever table is active on
+/// the CPU right now: a syscall handler runs on its caller's table (so
+/// `slot == current()` and the active CR3 agree), but a caller that charges or
+/// releases another slot's resources must not assume that coincidence.
+pub fn pml4_of(slot: usize) -> Option<u64> {
+    TASKS.lock().get(slot)?.as_ref().map(|task| task.pml4)
+}
+
 /// Mark the current task finished with an exit status and re-parent its
 /// children to the kernel/init task (see [`process::finish`]).
 pub fn finish_current(code: u64) {
@@ -1939,8 +1950,8 @@ pub fn fd_close(fd: usize) -> bool {
             _ => (None, Vec::new()),
         }
     };
-    for epoll in epolls {
-        epoll.drop_fd(fd);
+    for epoll in &epolls {
+        Epoll::drop_fd(epoll, fd);
     }
     let closed = old.is_some();
     drop(old);

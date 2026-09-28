@@ -37,7 +37,7 @@ extern crate alloc;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::panic::PanicInfo;
-use user::messenger::{self, accounts, keyd, registry, Endpoint, Error, Message, Parcel};
+use user::messenger::{self, accounts, keyd, registry, Error, Message, Parcel};
 use user::sys;
 
 /// The passwd-style file read from the boot volume, if present.
@@ -111,8 +111,9 @@ fn run() -> messenger::Result<()> {
             "the built-in bring-up table"
         }
     ));
-    let mut keyd_endpoint: Option<Endpoint> = None;
-    let mut keyd_checked = false;
+    // Printed once, the first time a delegation to keyd is attempted (see
+    // `verify_secret`); purely informational, so it does not gate anything.
+    let mut keyd_seen = false;
     // Reused receive buffer: the user bump allocator never reclaims per-call
     // buffers, so the service loop must not allocate one per message.
     let mut buffer = alloc::vec![0u8; messenger::DEFAULT_BUFFER];
@@ -122,7 +123,7 @@ fn run() -> messenger::Result<()> {
             Ok(message) => message,
             Err(error) => return Err(error),
         };
-        let reply = match dispatch(&mut table, &mut keyd_endpoint, &mut keyd_checked, &message) {
+        let reply = match dispatch(&mut table, &mut keyd_seen, &message) {
             Ok(reply) => reply,
             // A malformed request still gets an answer, or its caller would
             // wait forever; an empty parcel fails the caller's decode.
@@ -161,27 +162,9 @@ fn by_uid(table: &[Account], uid: u32) -> Option<&Account> {
     table.iter().find(|account| account.record.uid == uid)
 }
 
-/// Push every account's verifier into `keyd`, so its `Verify` answers for the
-/// whole database and not only for its built-in demo account. Without this the
-/// first delegated login was always `false` for `root` and `alice`: `keyd`
-/// verdicts are authoritative, and it had never heard of them.
-///
-/// Best effort per account: a refusal is logged and that account simply keeps
-/// failing through `keyd` (fail closed), never falling back to a plaintext
-/// comparison once `keyd` is in charge.
-fn provision_keyd(table: &[Account]) {
-    let Ok(client) = keyd::Client::connect() else {
-        return;
-    };
-    for account in table {
-        if let Err(error) = client.provision(&account.record.name, &account.verifier) {
-            sys::write_str(&alloc::format!(
-                "accountsd: keyd refused to provision {}: {}\n",
-                account.record.name,
-                error.message()
-            ));
-        }
-    }
+/// Push `account`'s verifier into `keyd` over an already-resolved client.
+fn provision_one(client: &keyd::Client, account: &Account) -> messenger::Result<()> {
+    client.provision(&account.record.name, &account.verifier)
 }
 
 /// Whether `secret` authenticates `account`.
@@ -191,36 +174,44 @@ fn provision_keyd(table: &[Account]) {
 /// `keyd` exists this is the **bring-up fallback**: compare against the table's
 /// plaintext verifier. It is a stand-in so the login path can be exercised; no
 /// real deployment may use it.
-fn verify_secret(
-    table: &[Account],
-    account: &Account,
-    secret: &str,
-    keyd_endpoint: &mut Option<Endpoint>,
-    keyd_checked: &mut bool,
-) -> bool {
-    if !*keyd_checked {
-        *keyd_checked = true;
-        *keyd_endpoint = registry::resolve(keyd::NAME).ok();
-        if keyd_endpoint.is_some() {
-            provision_keyd(table);
-            sys::write_str("accountsd: password verification delegated to keyd\n");
-        } else {
+///
+/// Every call re-resolves `keyd` and re-provisions *this* account before
+/// asking it to verify, rather than caching "keyd is present" from the first
+/// call: caching it meant a `keyd` that registered after the first login
+/// attempt, or a `keyd` that crashed and restarted with an empty table, was
+/// never (re-)told about any account and every delegated login failed
+/// permanently. `provision` is a cheap upsert (`keyd` replaces the verifier by
+/// name), so re-provisioning on every login is correct, not just tolerated.
+fn verify_secret(account: &Account, secret: &str, keyd_seen: &mut bool) -> bool {
+    let Ok(client) = keyd::Client::connect() else {
+        if !*keyd_seen {
             sys::write_str(
                 "accountsd: keyd absent; bring-up verifier (see docs/security-model.md section 3)\n",
             );
         }
+        // A plain comparison is the fallback's whole definition; it is
+        // plaintext by construction and is documented as bring-up-only.
+        return account.verifier == secret;
+    };
+    if !*keyd_seen {
+        *keyd_seen = true;
+        sys::write_str("accountsd: password verification delegated to keyd\n");
     }
-    if keyd_endpoint.is_some() {
-        if let Ok(client) = keyd::Client::connect() {
-            if let Ok(matched) = client.verify(&account.record.name, secret) {
-                return matched;
-            }
-        }
-        // keyd could not answer: fall through to the bring-up verifier so a
-        // keyd crash cannot lock every account out during S3 bring-up.
+    if let Err(error) = provision_one(&client, account) {
+        sys::write_str(&alloc::format!(
+            "accountsd: keyd refused to provision {}: {}\n",
+            account.record.name,
+            error.message()
+        ));
+        // Fall through and ask anyway: keyd may already know this account from
+        // an earlier successful provision, and the verdict is authoritative.
     }
-    // A plain comparison is the fallback's whole definition; it is plaintext
-    // by construction and is documented as bring-up-only.
+    if let Ok(matched) = client.verify(&account.record.name, secret) {
+        return matched;
+    }
+    // keyd could not answer at all (not just "wrong password"): fall through
+    // to the bring-up verifier so a keyd crash cannot lock every account out
+    // during S3 bring-up.
     account.verifier == secret
 }
 
@@ -238,12 +229,7 @@ fn sender_is_admin(sender: u64) -> bool {
 }
 
 /// Answer one request.
-fn dispatch(
-    table: &mut Vec<Account>,
-    keyd_endpoint: &mut Option<Endpoint>,
-    keyd_checked: &mut bool,
-    message: &Message,
-) -> messenger::Result<Parcel> {
+fn dispatch(table: &mut Vec<Account>, keyd_seen: &mut bool, message: &Message) -> messenger::Result<Parcel> {
     if message.interface_id() != accounts::INTERFACE {
         return Err(Error::Errno(-messenger::errno::EINVAL));
     }
@@ -260,9 +246,7 @@ fn dispatch(
         accounts::method::AUTHENTICATE => {
             let (name, secret) = accounts::decode_authenticate(&message.parcel)?;
             let matched = by_name(table, &name)
-                .map(|account| {
-                    verify_secret(table, account, &secret, keyd_endpoint, keyd_checked)
-                })
+                .map(|account| verify_secret(account, &secret, keyd_seen))
                 .unwrap_or(false);
             accounts::auth_reply(matched)
         }
@@ -294,9 +278,24 @@ fn dispatch(
                 record,
                 verifier: new_user.secret,
             };
-            // A user created after `keyd` took over must be known to it too.
-            if keyd_endpoint.is_some() {
-                provision_keyd(core::slice::from_ref(&account));
+            // A user created while `keyd` is active must be known to it too,
+            // or `keyd`'s verdict (authoritative once it exists) would refuse
+            // every login for an account the table nonetheless claims exists.
+            // Reject creation rather than accept a permanently locked-out
+            // account: `keyd` being merely absent (not yet booted) is fine and
+            // falls through to the plaintext bring-up fallback as usual.
+            if let Ok(client) = keyd::Client::connect() {
+                if let Err(error) = provision_one(&client, &account) {
+                    sys::write_str(&alloc::format!(
+                        "accountsd: keyd refused to provision {}: {}; account not created\n",
+                        account.record.name,
+                        error.message()
+                    ));
+                    return accounts::create_reply(
+                        false,
+                        "keyd rejected the account's password; not created",
+                    );
+                }
             }
             table.push(account);
             sys::write_str(&alloc::format!(

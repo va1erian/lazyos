@@ -576,6 +576,10 @@ const SUITE: &[(&str, Test)] = &[
         hardening_suite::ext2_short_write_persists_and_owner_is_checked,
     ),
     (
+        "hardening_ext2_failed_write_does_not_expose_a_stale_block",
+        hardening_suite::ext2_failed_write_does_not_expose_a_stale_block,
+    ),
+    (
         "hardening_soak_ext2_short_writes_do_not_leak",
         hardening_suite::soak_ext2_short_writes_do_not_leak,
     ),
@@ -584,6 +588,12 @@ const SUITE: &[(&str, Test)] = &[
     (
         "hardening_epoll_rejects_self_and_cyclic_registration",
         hardening_suite::epoll_rejects_self_and_cyclic_registration,
+    ),
+    // Also crashes the kernel before this PR's `depth_above` fix: keep it
+    // last too, right after the sibling test above.
+    (
+        "hardening_epoll_rejects_bottom_up_growth",
+        hardening_suite::epoll_rejects_bottom_up_growth,
     ),
 ];
 
@@ -8951,6 +8961,11 @@ mod block_suite {
         pub(super) data: Mutex<Vec<u8>>,
         writes: AtomicU32,
         pub(super) flushes: AtomicU32,
+        /// Remaining writes before an injected failure, or `u32::MAX` (the
+        /// default) for "never fail". `1` fails the very next write, then
+        /// resets to "never" so the disk behaves normally again -- one write
+        /// failure is exactly what a real transient I/O error looks like.
+        fail_in: AtomicU32,
     }
 
     impl FakeDisk {
@@ -8960,7 +8975,16 @@ mod block_suite {
                 data: Mutex::new(vec![0u8; sectors * SECTOR_SIZE]),
                 writes: AtomicU32::new(0),
                 flushes: AtomicU32::new(0),
+                fail_in: AtomicU32::new(u32::MAX),
             }))
+        }
+
+        /// Fail the `n`th write from now (`n == 1` is the very next one), then
+        /// resume succeeding. Test-only fault injection for the ext2 short-write
+        /// suite; no production code path can trigger a device write failure on
+        /// demand.
+        pub(super) fn fail_nth_write(&self, n: u32) {
+            self.fail_in.store(n, Ordering::Relaxed);
         }
     }
 
@@ -8983,6 +9007,18 @@ mod block_suite {
 
         fn write_sectors(&self, lba: u64, buf: &[u8]) -> Result<(), BlockError> {
             self.check_range(lba, buf.len())?;
+            // Fault injection: consume one "countdown" tick per write attempt,
+            // regardless of outcome, so `fail_nth_write(n)` always means the
+            // n-th write call from when it was armed, not the n-th successful
+            // one.
+            let remaining = self.fail_in.load(Ordering::Relaxed);
+            if remaining != u32::MAX {
+                if remaining <= 1 {
+                    self.fail_in.store(u32::MAX, Ordering::Relaxed);
+                    return Err(BlockError::Io);
+                }
+                self.fail_in.store(remaining - 1, Ordering::Relaxed);
+            }
             let mut data = self.data.lock();
             let start = lba as usize * SECTOR_SIZE;
             data[start..start + buf.len()].copy_from_slice(buf);
@@ -12655,25 +12691,27 @@ mod hardening_suite {
     /// and a release never takes more than its own address space charged.
     pub fn user_memory_quota_released_on_exit() -> Result<(), String> {
         fresh()?;
-        let kernel_table = mem::kernel_table();
         const MIB: u64 = 1 << 20;
 
-        // Another address space of the same uid holds 5 MiB.
+        // Another address space of the same uid holds 5 MiB. Charged from the
+        // kernel task, i.e. *without* the kernel task's own CR3 naming
+        // `bystander`'s table: `charge_for_slot` must key the ledger by
+        // `bystander`'s own PML4, not by whatever table is active right now,
+        // or this charge would land nowhere `bystander`'s teardown can find.
         let bystander = task::spawn_fork().map_err(to_string)?;
         credentials::set(bystander, alice());
         quota::charge_for_slot(bystander, Resource::UserMemory, 5 * MIB)
             .map_err(|e| e.to_string())?;
 
+        // A second, unrelated address space of the same uid, again charged
+        // without ever switching to its table.
         let child = task::spawn_fork().map_err(to_string)?;
         credentials::set(child, alice());
-        let table = PhysAddr::new(task::harness::pml4(child).ok_or("no child table")?);
-        mem::switch_to(table);
         let charged = quota::charge_for_slot(child, Resource::UserMemory, MIB);
         // Over-releasing (ELF segments and stacks were never charged) must not
         // eat into the bystander's 5 MiB.
         quota::release_for_slot(child, Resource::UserMemory, 4 * MIB);
         quota::charge_for_slot(child, Resource::UserMemory, 3 * MIB).map_err(|e| e.to_string())?;
-        mem::switch_to(kernel_table);
         charged.map_err(|e| e.to_string())?;
         check!(
             quota::usage(1000, Resource::UserMemory) == 5 * MIB + 3 * MIB,
@@ -12688,6 +12726,17 @@ mod hardening_suite {
             quota::usage(1000, Resource::UserMemory) == 5 * MIB,
             "an exited task stranded {} bytes of its uid's quota",
             quota::usage(1000, Resource::UserMemory) - 5 * MIB
+        );
+
+        // The bystander's charge (recorded while a different table was active)
+        // is still keyed to its own space: reaping it releases exactly its
+        // 5 MiB, proving the ledger followed the slot, not the active CR3.
+        task::harness::finish(bystander, 0);
+        task::reap_child().ok_or("the bystander was not reaped")?;
+        check!(
+            quota::usage(1000, Resource::UserMemory) == 0,
+            "the bystander's charge did not release from its own space: {} left",
+            quota::usage(1000, Resource::UserMemory)
         );
         quota::reset();
         Ok(())
@@ -12751,6 +12800,65 @@ mod hardening_suite {
             add(chain[6], chain[0]) == EINVAL_RET,
             "an epoll chain deeper than EPOLL_MAX_NESTS was accepted"
         );
+        for fd in 3..task::FD_COUNT {
+            let _ = task::fd_close(fd);
+        }
+        Ok(())
+    }
+
+    /// The depth check must bound the *total* chain length, not just how far
+    /// it extends below the candidate being added: growing the chain by
+    /// always appending a fresh, empty instance at the tail
+    /// (`epoll_ctl(chain[i], ADD, chain[i+1])` for increasing `i`) presents
+    /// `check_nest` with an empty candidate every single time, so a check that
+    /// only walks downward from the candidate never sees how deep the chain
+    /// above it already is and never rejects the growth (CodeRabbit feedback
+    /// on this PR: unbounded kernel stack recursion, CWE-674).
+    pub fn epoll_rejects_bottom_up_growth() -> Result<(), String> {
+        const EPOLL_CTL_ADD: u64 = 1;
+        const EPOLLIN: u32 = 1;
+        const EINVAL_RET: u64 = (-22i64) as u64;
+        fn event() -> [u8; 12] {
+            let mut buf = [0u8; 12];
+            buf[..4].copy_from_slice(&EPOLLIN.to_le_bytes());
+            buf
+        }
+        fn create() -> u64 {
+            process::linux::dispatch_for_test(291, 0, 0, 0)
+        }
+        fn add(epfd: u64, fd: u64) -> u64 {
+            process::linux::dispatch_args_for_test(233, epfd, EPOLL_CTL_ADD, fd, event().as_ptr() as u64)
+        }
+        fresh()?;
+        for fd in 3..task::FD_COUNT {
+            let _ = task::fd_close(fd);
+        }
+
+        // chain[0] watches chain[1], chain[1] watches chain[2], ...: each
+        // `add` call is presented with a brand new, empty `fd` (nothing below
+        // it yet), exactly the shape that only checking "below" always allows.
+        let mut chain = Vec::new();
+        for _ in 0..7 {
+            let fd = create();
+            check!((fd as i64) > 0, "epoll_create1 failed");
+            chain.push(fd);
+        }
+        for i in 0..5 {
+            check!(
+                add(chain[i], chain[i + 1]) == 0,
+                "growing the chain to depth {} was refused too early",
+                i + 1
+            );
+        }
+        check!(
+            add(chain[5], chain[6]) == EINVAL_RET,
+            "a bottom-up chain grew past EPOLL_MAX_NESTS unchecked"
+        );
+        // With the growth refused, the existing (legal) 5-edge chain still
+        // terminates instead of recursing.
+        let mut out = [0u8; 12];
+        let ready = process::linux::dispatch_args_for_test(232, chain[0], out.as_mut_ptr() as u64, 1, 0);
+        check!(ready == 0, "epoll_wait on the legal chain returned {ready:#x}");
         for fd in 3..task::FD_COUNT {
             let _ = task::fd_close(fd);
         }
@@ -12938,6 +13046,71 @@ mod hardening_suite {
         check!(
             Filesystem::mkdir(&*fs, "evildir", 0o755, Id::new(0, 70_000)) == Err(FsError::Invalid),
             "gid 70000 was truncated"
+        );
+        Ok(())
+    }
+
+    /// A write-side I/O error on a freshly allocated block must not leave the
+    /// file able to read that block's *previous* owner's bytes as though it
+    /// were a still-unwritten hole (CWE-200: found while addressing CodeRabbit
+    /// feedback on this PR).
+    ///
+    /// Sequence: poison two blocks with a recognizable pattern, free them, then
+    /// have a fresh file reuse the same two blocks (ext2's allocator always
+    /// grabs the lowest free bit, so this is deterministic) across two writes:
+    /// the first spans both blocks and its second block's device write fails;
+    /// the second, independent write lands two blocks further out, which only
+    /// raises the file's declared size -- it does not revisit the first
+    /// write's failed block. Unfixed, that block's pointer was linked into the
+    /// inode before its data write was attempted, so once the size covers it,
+    /// reading it returns the poison pattern instead of zeros. Fixed
+    /// (`Ext2::ensure_block` zeroes a fresh block on disk before linking it,
+    /// and never links it at all if that zero-write fails), the block is never
+    /// linked, so it reads as a zero-filled hole like any other gap.
+    pub fn ext2_failed_write_does_not_expose_a_stale_block() -> Result<(), String> {
+        task::register_kernel();
+        let (fs, mut vfs, disk) = ext2_suite::mounted(1024, 512)?;
+        let root = Id::ROOT;
+
+        // Poison one block, then free it. ext2's allocator always grabs the
+        // lowest free bit, so /victim's first block deterministically reuses
+        // this exact (now poisoned) block.
+        vfs.create(root, "/poison", 0o644).map_err(|e| e.message())?;
+        vfs.write(root, "/poison", 0, &[0x77u8; 1024])
+            .map_err(|e| e.message())?;
+        vfs.unlink(root, "/poison").map_err(|e| e.message())?;
+
+        vfs.create(root, "/victim", 0o644).map_err(|e| e.message())?;
+
+        // `alloc_block` itself issues three writes (block bitmap, group
+        // descriptor, superblock) before the freshly allocated block is
+        // touched at all; the fourth write is the first one that names the
+        // block itself -- the (only) data write with no fix, the added
+        // zero-fill with the fix. Failing that one is what actually
+        // distinguishes the two builds: failing writes 1-3 instead fails
+        // allocation itself cleanly in both and proves nothing (an earlier
+        // version of this test did that, by mistake, and passed on both).
+        disk.fail_nth_write(4);
+        check!(
+            vfs.write(root, "/victim", 0, &[0xAAu8; 10]).is_err(),
+            "a write whose data write failed reported success"
+        );
+
+        // Second, independent write: one block further out. It only extends
+        // the file's declared size; it does not touch block 0 again.
+        vfs.write(root, "/victim", 2 * 1024, b"end").map_err(|e| e.message())?;
+
+        // Block 0's whole byte range must now read as zero: a hole, not the
+        // poison pattern left over from the block's previous owner. Unfixed,
+        // `ensure_block` had already linked the (untouched, still poisoned)
+        // block into the inode before the failed write ran, and `write_inode`
+        // persisted that link regardless of the failure.
+        let contents = vfs.read_file(root, "/victim").map_err(|e| e.message())?;
+        let hole = &contents[..1024];
+        check!(
+            hole.iter().all(|byte| *byte == 0),
+            "block 0 reads as {:?}.. instead of a zero hole",
+            &hole[..hole.len().min(8)]
         );
         Ok(())
     }

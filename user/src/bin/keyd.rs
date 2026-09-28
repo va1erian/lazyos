@@ -343,6 +343,23 @@ impl Keyd {
             })
             .collect()
     }
+
+    /// Drop every key owned by `owner`. Used once, right after the boot
+    /// self-test, to scrub the keys it generated (see [`run`]'s call site):
+    /// left in place they would count against `owner`'s
+    /// [`MAX_KEYS_PER_OWNER`] and appear in that uid's real `List` forever.
+    fn forget_keys_owned_by(&mut self, owner: u32) {
+        self.keys.retain(|key| key.owner != owner);
+    }
+
+    /// Drop `user`'s account, if any. Used once, right after the boot
+    /// self-test, to scrub the throwaway account it provisions to exercise
+    /// re-provisioning: left in place it would count against
+    /// [`MAX_ACCOUNTS`] and be a login-able account no session ever meant to
+    /// create.
+    fn forget_account(&mut self, user: &str) {
+        self.accounts.retain(|account| account.user != user);
+    }
 }
 
 /// Map a crypto failure onto the friendly errno the client sees.
@@ -398,6 +415,13 @@ fn run() -> messenger::Result<()> {
         // restart a service that exits, hiding the failure in a crash loop.
         Err(detail) => sys::write_str(&format!("KEYD:SELFTEST:FAIL:{detail}\n")),
     }
+    // Scrub the self-test's own keys and account before this instance starts
+    // taking real requests: they must not consume the serving instance's
+    // MAX_ACCOUNTS/MAX_KEYS_PER_OWNER capacity or be visible to a real client.
+    // Whatever the self-test reached (pass or fail), root has generated no
+    // keys but its own at this point, so this cannot remove anything else's.
+    keyd.forget_keys_owned_by(SELF_TEST_OWNER);
+    keyd.forget_account("selftest-user");
 
     let (published, server) = messenger::create_pair()?;
     registry::register(wire::NAME, &published, &[wire::INTERFACE], 0)?;

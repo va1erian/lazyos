@@ -2316,7 +2316,7 @@ fn sys_epoll_ctl(epfd: u64, op: u64, fd: u64, event: u64) -> u64 {
                 Err(NestError::TooDeep) => return err(EINVAL),
             }
             let (events, data) = read_epoll_event(event);
-            match epoll.add(fd as usize, target, events, data) {
+            match Epoll::add(&epoll, fd as usize, target, events, data) {
                 Ok(()) => {
                     task::notify_poll();
                     0
@@ -2334,7 +2334,7 @@ fn sys_epoll_ctl(epfd: u64, op: u64, fd: u64, event: u64) -> u64 {
                 Err(()) => err(ENOENT),
             }
         }
-        EPOLL_CTL_DEL => match epoll.delete(fd as usize) {
+        EPOLL_CTL_DEL => match Epoll::delete(&epoll, fd as usize) {
             Ok(()) => 0,
             Err(()) => err(ENOENT),
         },
