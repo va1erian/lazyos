@@ -7,7 +7,7 @@
 //! support yet; interrupts and MSI are equally out of scope because the
 //! drivers poll.
 
-use x86_64::instructions::port::Port;
+use crate::arch::io::{inl, outl};
 
 const CONFIG_ADDRESS: u16 = 0xCF8;
 const CONFIG_DATA: u16 = 0xCFC;
@@ -36,10 +36,11 @@ fn address(bus: u8, device: u8, function: u8, offset: u8) -> u32 {
 
 /// Read a 32-bit configuration register.
 pub fn read32(bus: u8, device: u8, function: u8, offset: u8) -> u32 {
-    // Safety: port I/O on the PCI configuration ports.
+    // Safety: the documented PCI configuration mechanism 1 sequence — write
+    // the address register, then read the data register it latches to.
     unsafe {
-        Port::<u32>::new(CONFIG_ADDRESS).write(address(bus, device, function, offset));
-        Port::<u32>::new(CONFIG_DATA).read()
+        outl(CONFIG_ADDRESS, address(bus, device, function, offset));
+        inl(CONFIG_DATA)
     }
 }
 

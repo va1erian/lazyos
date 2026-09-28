@@ -13,9 +13,9 @@
 //! device the block layer selected.
 
 use super::{BlockDevice, BlockError, SECTOR_SIZE};
+use crate::arch::io::{inb, inw, outb};
 use core::sync::atomic::{AtomicU64, Ordering};
 use spin::Mutex;
-use x86_64::instructions::port::Port;
 
 const DATA: u16 = 0x1F0;
 const SECTORS: u16 = 0x1F2;
@@ -44,14 +44,16 @@ static ATA: AtaPio = AtaPio;
 /// 400ns delay: reading the alternate status port four times.
 fn delay_400ns() {
     for _ in 0..4 {
-        // Safety: port I/O on the primary IDE channel's alternate status.
-        let _: u8 = unsafe { Port::<u8>::new(ALT_STATUS).read() };
+        // Safety: reading the alternate status register has no side effect
+        // the driver needs to guard against; it exists to be polled.
+        let _: u8 = unsafe { inb(ALT_STATUS) };
     }
 }
 
 fn status() -> u8 {
-    // Safety: port I/O on the primary IDE channel's status register.
-    unsafe { Port::<u8>::new(STATUS).read() }
+    // Safety: reading the status register has no side effect; it exists to
+    // be polled and this driver never treats it as read-to-clear.
+    unsafe { inb(STATUS) }
 }
 
 fn wait_not_busy() -> bool {
@@ -78,28 +80,30 @@ fn wait_for_data() -> bool {
 
 /// Read one 512-byte sector from the primary master (28-bit LBA).
 pub fn pio_read_sector(lba: u32, buf: &mut [u8; SECTOR_SIZE]) -> bool {
-    // Safety: port I/O on the primary IDE channel.
+    // Safety: this is the documented ATA PIO read protocol, in order:
+    // select the drive/LBA-high nibble, load the sector count and LBA, then
+    // issue the read command. No register here is read-to-clear.
     unsafe {
-        Port::<u8>::new(DRIVE).write(0xE0 | ((lba >> 24) & 0x0F) as u8);
+        outb(DRIVE, 0xE0 | ((lba >> 24) & 0x0F) as u8);
     }
     delay_400ns();
-    // Safety: port I/O.
+    // Safety: same protocol contract as above.
     unsafe {
-        Port::<u8>::new(SECTORS).write(1);
-        Port::<u8>::new(LBA_LO).write(lba as u8);
-        Port::<u8>::new(LBA_MID).write((lba >> 8) as u8);
-        Port::<u8>::new(LBA_HI).write((lba >> 16) as u8);
-        Port::<u8>::new(STATUS).write(COMMAND_READ);
+        outb(SECTORS, 1);
+        outb(LBA_LO, lba as u8);
+        outb(LBA_MID, (lba >> 8) as u8);
+        outb(LBA_HI, (lba >> 16) as u8);
+        outb(STATUS, COMMAND_READ);
     }
 
     if !wait_not_busy() || !wait_for_data() {
         return false;
     }
 
-    let mut data = Port::<u16>::new(DATA);
     for i in 0..SECTOR_SIZE / 2 {
-        // Safety: data port I/O within the sector.
-        let word: u16 = unsafe { data.read() };
+        // Safety: the data port is read-many within one sector transfer;
+        // `wait_for_data` above confirmed the device has a word ready.
+        let word: u16 = unsafe { inw(DATA) };
         buf[i * 2] = word as u8;
         buf[i * 2 + 1] = (word >> 8) as u8;
     }
@@ -112,32 +116,32 @@ fn identify() -> Option<u64> {
     let _guard = IO.lock();
     // Select the master; a missing drive leaves the bus floating, which QEMU
     // reports as status 0, so the probe can bail out before the full timeout.
-    // Safety: port I/O on the primary IDE channel.
+    // Safety: same ATA protocol contract as `pio_read_sector`.
     unsafe {
-        Port::<u8>::new(DRIVE).write(0xA0);
+        outb(DRIVE, 0xA0);
     }
     delay_400ns();
     if status() == 0 {
         return None;
     }
     // IDENTIFY takes no address and expects the count/LBA registers cleared.
-    // Safety: port I/O.
+    // Safety: same ATA protocol contract as `pio_read_sector`.
     unsafe {
-        Port::<u8>::new(SECTORS).write(0);
-        Port::<u8>::new(LBA_LO).write(0);
-        Port::<u8>::new(LBA_MID).write(0);
-        Port::<u8>::new(LBA_HI).write(0);
-        Port::<u8>::new(STATUS).write(COMMAND_IDENTIFY);
+        outb(SECTORS, 0);
+        outb(LBA_LO, 0);
+        outb(LBA_MID, 0);
+        outb(LBA_HI, 0);
+        outb(STATUS, COMMAND_IDENTIFY);
     }
     if !wait_not_busy() || !wait_for_data() {
         return None;
     }
 
-    let mut data = Port::<u16>::new(DATA);
     let mut words = [0u16; 256];
     for word in words.iter_mut() {
-        // Safety: data port I/O within the IDENTIFY block.
-        *word = unsafe { data.read() };
+        // Safety: the data port is read-many within one IDENTIFY transfer;
+        // `wait_for_data` above confirmed the device has a word ready.
+        *word = unsafe { inw(DATA) };
     }
     // Words 60/61: total addressable sectors in 28-bit LBA mode.
     let lba28 = (u64::from(words[61]) << 16) | u64::from(words[60]);

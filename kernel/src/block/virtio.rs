@@ -19,10 +19,10 @@
 //! requirement.
 
 use super::{pci, BlockDevice, BlockError, SECTOR_SIZE};
+use crate::arch::io::{inb, inl, inw, outb, outl, outw};
 use core::cell::UnsafeCell;
 use core::sync::atomic::{fence, Ordering};
 use spin::Mutex;
-use x86_64::instructions::port::Port;
 use x86_64::VirtAddr;
 
 /// Legacy virtqueue size: QEMU reports 256 descriptors for virtio-blk.
@@ -130,34 +130,39 @@ impl VirtioBlk {
 
 static VIRTIO_BLK: VirtioBlk = VirtioBlk::new();
 
+// The virtio legacy I/O window is plain memory-mapped-as-ports register
+// space: every offset is documented (virtio 0.9.5 spec) as either a status
+// register (safe to read repeatedly) or a control register this driver
+// writes in the documented order, so the raw `arch::io` ops apply directly.
+
 fn out8(port: u16, value: u8) {
-    // Safety: port I/O into the virtio legacy window.
-    unsafe { Port::<u8>::new(port).write(value) };
+    // Safety: see the module note above.
+    unsafe { outb(port, value) };
 }
 
 fn out16(port: u16, value: u16) {
-    // Safety: port I/O into the virtio legacy window.
-    unsafe { Port::<u16>::new(port).write(value) };
+    // Safety: see the module note above.
+    unsafe { outw(port, value) };
 }
 
 fn out32(port: u16, value: u32) {
-    // Safety: port I/O into the virtio legacy window.
-    unsafe { Port::<u32>::new(port).write(value) };
+    // Safety: see the module note above.
+    unsafe { outl(port, value) };
 }
 
 fn in8(port: u16) -> u8 {
-    // Safety: port I/O into the virtio legacy window.
-    unsafe { Port::<u8>::new(port).read() }
+    // Safety: see the module note above.
+    unsafe { inb(port) }
 }
 
 fn in16(port: u16) -> u16 {
-    // Safety: port I/O into the virtio legacy window.
-    unsafe { Port::<u16>::new(port).read() }
+    // Safety: see the module note above.
+    unsafe { inw(port) }
 }
 
 fn in32(port: u16) -> u32 {
-    // Safety: port I/O into the virtio legacy window.
-    unsafe { Port::<u32>::new(port).read() }
+    // Safety: see the module note above.
+    unsafe { inl(port) }
 }
 
 /// A 64-bit device register is two little-endian 32-bit halves.

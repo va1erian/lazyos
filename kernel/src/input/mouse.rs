@@ -1,7 +1,7 @@
 //! PS/2 mouse driver (i8042 auxiliary port, IRQ12).
 
+use crate::arch::io::{inb, outb};
 use spin::Mutex;
-use x86_64::instructions::port::Port;
 
 /// Current mouse state in screen pixels.
 #[derive(Clone, Copy)]
@@ -41,7 +41,9 @@ impl Packet {
 
 fn wait_write() {
     for _ in 0..100_000 {
-        let status: u8 = unsafe { Port::<u8>::new(0x64).read() };
+        // Safety: reading the i8042 status register has no side effect; it
+        // exists to be polled.
+        let status: u8 = unsafe { inb(0x64) };
         if status & 0x02 == 0 {
             return;
         }
@@ -50,7 +52,9 @@ fn wait_write() {
 
 fn wait_read() {
     for _ in 0..100_000 {
-        let status: u8 = unsafe { Port::<u8>::new(0x64).read() };
+        // Safety: reading the i8042 status register has no side effect; it
+        // exists to be polled.
+        let status: u8 = unsafe { inb(0x64) };
         if status & 0x01 != 0 {
             return;
         }
@@ -59,15 +63,19 @@ fn wait_read() {
 
 fn ctrl_write(command: u8) {
     wait_write();
-    unsafe { Port::<u8>::new(0x64).write(command) };
+    // Safety: `wait_write` above confirmed the i8042 input buffer is empty,
+    // which is the documented precondition for writing its command port.
+    unsafe { outb(0x64, command) };
 }
 
 fn mouse_write(byte: u8) {
     ctrl_write(0xD4); // next byte goes to the auxiliary device
     wait_write();
-    unsafe { Port::<u8>::new(0x60).write(byte) };
+    // Safety: `wait_write` above confirmed the input buffer is empty.
+    unsafe { outb(0x60, byte) };
     wait_read();
-    let _ack: u8 = unsafe { Port::<u8>::new(0x60).read() };
+    // Safety: `wait_read` above confirmed the output buffer holds the ack.
+    let _ack: u8 = unsafe { inb(0x60) };
 }
 
 /// Initialise the auxiliary device and start data reporting.
@@ -79,11 +87,14 @@ pub fn init() {
     // mouse clock.
     ctrl_write(0x20);
     wait_read();
-    let mut config: u8 = unsafe { Port::<u8>::new(0x60).read() };
+    // Safety: `wait_read` above confirmed the output buffer holds the
+    // requested controller command byte.
+    let mut config: u8 = unsafe { inb(0x60) };
     config = (config | 0x02) & !0x20;
     ctrl_write(0x60);
     wait_write();
-    unsafe { Port::<u8>::new(0x60).write(config) };
+    // Safety: `wait_write` above confirmed the input buffer is empty.
+    unsafe { outb(0x60, config) };
 
     // Defaults, then enable data reporting.
     mouse_write(0xF6);

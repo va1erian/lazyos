@@ -1,11 +1,11 @@
 //! Interrupt descriptor table and handlers.
 
+use crate::arch::io::inb;
 use crate::arch::pic;
 use crate::input::{keyboard, mouse};
 use alloc::boxed::Box;
 use core::arch::global_asm;
 use core::sync::atomic::AtomicU64;
-use x86_64::instructions::port::Port;
 use x86_64::registers::control::Cr2;
 use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode};
 
@@ -252,11 +252,11 @@ extern "x86-interrupt" fn keyboard_handler(_stack: InterruptStackFrame) {
     // Drain the i8042 output buffer, but only keyboard bytes (aux bit clear).
     loop {
         // Safety: reading the i8042 status/output ports is valid in IRQ1.
-        let status: u8 = unsafe { Port::<u8>::new(0x64).read() };
+        let status: u8 = unsafe { inb(0x64) };
         if status & 0x01 == 0 || status & 0x20 != 0 {
             break;
         }
-        let scancode: u8 = unsafe { Port::<u8>::new(0x60).read() };
+        let scancode: u8 = unsafe { inb(0x60) };
         keyboard::push_scancode(scancode);
     }
     // Safety: we are in the IRQ1 handler.
@@ -267,11 +267,11 @@ extern "x86-interrupt" fn mouse_handler(_stack: InterruptStackFrame) {
     // Read every pending byte that came from the auxiliary device.
     loop {
         // Safety: reading the i8042 status/output ports is valid in IRQ12.
-        let status: u8 = unsafe { Port::<u8>::new(0x64).read() };
+        let status: u8 = unsafe { inb(0x64) };
         if status & 0x01 == 0 || status & 0x20 == 0 {
             break;
         }
-        let byte: u8 = unsafe { Port::<u8>::new(0x60).read() };
+        let byte: u8 = unsafe { inb(0x60) };
         mouse::push_byte(byte);
     }
     // Safety: we are in the IRQ12 handler.
