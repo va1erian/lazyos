@@ -20,7 +20,7 @@ results.
 Usage
 -----
     python tools/test/run.py                     # build + run, default output
-    python tools/test/run.py --accel none        # CI-style deterministic run
+    python tools/test/run.py --accel none        # force TCG (deterministic, no KVM/WHPX)
     python tools/test/run.py --no-build          # re-run the current image
 """
 
@@ -250,7 +250,8 @@ def main() -> int:
     payload = parse_serial(text)
     payload["image"] = str(image)
     payload["qemu"] = qemu
-    payload["accel"] = args.accel
+    # Record the accelerator actually used (what `auto` resolved to).
+    payload["accel"] = extra[1] if extra else "none"
     payload["qemu_exit_code"] = proc.returncode
     payload["missing_summary"] = payload["reported"] is None
 

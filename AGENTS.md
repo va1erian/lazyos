@@ -112,7 +112,7 @@ and reports:
 
 ```bash
 python tools/test/run.py                 # build + run; writes docs/test/report.md
-python tools/test/run.py --accel none    # CI-style deterministic run
+python tools/test/run.py --accel none    # force TCG (CI uses auto: KVM when usable)
 python tools/test/run.py --no-build      # re-run the current image
 ```
 

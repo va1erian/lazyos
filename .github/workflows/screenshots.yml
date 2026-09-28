@@ -39,6 +39,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y qemu-system-x86
 
+      # Hosted runners expose /dev/kvm but not to the runner user; open it up
+      # so `--accel auto` picks KVM (it falls back to TCG if KVM is unusable).
+      - name: Enable KVM (best effort)
+        run: bash tools/ci/enable_kvm.sh
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.x"
@@ -77,9 +82,9 @@ jobs:
           at="${{ inputs.capture_at }}"
           if [ -z "$at" ]; then at="10,14,18"; fi
           if [ -n "$image" ] && [ -f "$image" ]; then
-            python tools/screenshot/qemu_shot.py --out shots --at "$at" --accel none --image "$image"
+            python tools/screenshot/qemu_shot.py --out shots --at "$at" --image "$image"
           else
-            python tools/screenshot/qemu_shot.py --out shots --at "2,5" --accel none
+            python tools/screenshot/qemu_shot.py --out shots --at "2,5"
           fi
 
       - name: Drive the guest (keyboard + mouse smoke test)
@@ -89,7 +94,7 @@ jobs:
           image="${{ inputs.image_path }}"
           if [ -z "$image" ]; then image="${{ steps.build.outputs.image }}"; fi
           if [ -n "$image" ] && [ -f "$image" ]; then
-            python tools/screenshot/qemu_session.py --image "$image" --out shots --accel none \
+            python tools/screenshot/qemu_session.py --image "$image" --out shots \
               --script tools/screenshot/examples/multitask_demo.json
           else
             echo "no disk image; skipping input smoke test"

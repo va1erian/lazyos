@@ -27,6 +27,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y qemu-system-x86
 
+      # Hosted runners expose /dev/kvm but not to the runner user; open it up
+      # so `--accel auto` picks KVM (it falls back to TCG if KVM is unusable).
+      - name: Enable KVM (best effort)
+        run: bash tools/ci/enable_kvm.sh
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.x"
@@ -34,7 +39,7 @@ jobs:
       # rust-toolchain.toml pins the nightly toolchain and target; rustup
       # installs it on first use.
       - name: Run the kernel test harness
-        run: python tools/test/run.py --accel none --out shots/kernel-tests
+        run: python tools/test/run.py --out shots/kernel-tests
 
       - name: Append report to the job summary
         if: always()

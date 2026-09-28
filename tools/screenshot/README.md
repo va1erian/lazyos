@@ -45,8 +45,15 @@ directory is not on `PATH`, either add it or pass `--qemu "C:\Program Files\qemu
 
 All QEMU tools accept `--accel auto|none|tcg|whpx|kvm` (default `auto`). Auto
 uses WHPX on Windows or KVM on Linux when available; this makes software
-rendering many times faster than pure TCG emulation. Use `--accel none` for
-deterministic CI behaviour.
+rendering many times faster than pure TCG emulation. KVM is only picked when
+`/dev/kvm` is read/writable *and* a paused probe start of QEMU with
+`-accel kvm` succeeds, so an unusable KVM falls back to TCG instead of failing.
+Use `--accel none` to force TCG (e.g. for timing-independent reproduction).
+
+CI runs with `auto`: GitHub-hosted `ubuntu-latest` runners have `/dev/kvm` but
+only for `root:kvm` (mode 0660), so each QEMU workflow first runs
+`tools/ci/enable_kvm.sh`, a best-effort udev rule that opens the device to the
+runner user. If that ever stops working the jobs silently fall back to TCG.
 
 ## `qemu_shot.py` options
 
