@@ -33,9 +33,10 @@
 //! The wire form is mirrored (and decoded) by `user/src/sysinfo.rs`, and each
 //! field/index pair is duplicated as a compile-time-checked constant there.
 
+use alloc::vec::Vec;
+
 use crate::mem;
 use crate::task::{self, PriorityClass, TaskState, WaitKind};
-use crate::user_ptr;
 
 /// ABI version of the block written by the `snapshot` op.
 pub const SYSTEM_STATS_VERSION: u64 = 1;
@@ -190,13 +191,18 @@ fn snapshot(buf: u64, capacity: u64) -> u64 {
     if capacity < SIZE {
         return negative(errno::E2BIG);
     }
+    // Validate the whole `[buf, buf + SIZE)` range as mapped, writable user
+    // memory before writing: a raw write would let any task aim the kernel at
+    // a kernel address (CWE-787).
     let words = snapshot_words();
-    for (index, word) in words.iter().enumerate() {
-        // Safety: the caller passes a writable user buffer of at least `SIZE`
-        // bytes (native syscall buffer convention; see `process::read_cred`).
-        unsafe { user_ptr::write_at::<u64>(buf, index, *word) };
+    let mut bytes = Vec::with_capacity(SIZE as usize);
+    for word in words.iter() {
+        bytes.extend_from_slice(&word.to_ne_bytes());
     }
-    SIZE
+    match crate::ipc::syscalls::copy_out(buf, &bytes) {
+        Ok(()) => SIZE,
+        Err(code) => (code as u64).wrapping_neg(),
+    }
 }
 
 /// Fill the fixed-layout snapshot. Takes each subsystem lock in turn (frames,

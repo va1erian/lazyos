@@ -1044,7 +1044,11 @@ fn copy_in(ptr: u64, len: usize) -> Result<Vec<u8>, i64> {
 }
 
 /// Copy `bytes` into a validated, writable user range.
-fn copy_out(ptr: u64, bytes: &[u8]) -> Result<(), i64> {
+///
+/// Shared with the read-only monitor syscalls (`sysinfo`, `sys_tasks`) so an
+/// unprivileged caller can never aim a kernel write at a kernel or unmapped
+/// address: the whole range is checked before a byte is written.
+pub(crate) fn copy_out(ptr: u64, bytes: &[u8]) -> Result<(), i64> {
     access_range(ptr, bytes.len(), true)?;
     let table = mem::kernel_table();
     let mut done = 0usize;

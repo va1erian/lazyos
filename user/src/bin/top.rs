@@ -1,6 +1,6 @@
 //! `top` (`TOP.ELF`): the native system monitor (issue #144).
 //!
-//! `top` reads the kernel's read-only system-stats syscall (13) through the
+//! `top` reads the kernel's read-only system-stats syscall (14) through the
 //! typed [`user::sysinfo`] client, renders a compact table — one memory line
 //! and the top tasks by CPU ticks — refreshes a few times, then prints the
 //! machine-parseable verdict `SYS:TOP:PASS` (or `SYS:TOP:FAIL:<reason>`) and
