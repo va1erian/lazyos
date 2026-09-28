@@ -14,6 +14,7 @@ use xmas_elf::ElfFile;
 
 use super::{load_segments, map_range_kind, page_phys};
 use crate::fs::vfs::{self, FileKind, FsError, Id, Meta};
+use crate::ipc::pipe::{self, End, Side};
 use crate::mem::vma::{Kind, Prot};
 use crate::quota::{self, Resource};
 use crate::task::process::GroupError;
@@ -53,8 +54,11 @@ const EAGAIN: u64 = 11;
 const EFAULT: u64 = 14;
 const ENOEXEC: u64 = 8;
 const ESPIPE: u64 = 29;
+const EPIPE: u64 = 32;
 const EINTR: u64 = 4;
 const ETIMEDOUT: u64 = 110;
+const EMFILE: u64 = 24;
+const ENOTSOCK: u64 = 88;
 // Filesystem errnos (mapped from `FsError` by `fs_err`).
 const EACCES: u64 = 13;
 const EEXIST: u64 = 17;
@@ -65,11 +69,13 @@ const EROFS: u64 = 30;
 const ENAMETOOLONG: u64 = 36;
 const ENOTEMPTY: u64 = 39;
 
-// `clone` flags we honour (thread creation).
+// `clone` flags we honour (thread creation, and the `CLONE_VM`-without-
+// `CLONE_THREAD` vfork child musl's `posix_spawn` uses).
 const CLONE_VM: u64 = 0x0000_0100;
 const CLONE_SETTLS: u64 = 0x0008_0000;
 const CLONE_PARENT_SETTID: u64 = 0x0010_0000;
 const CLONE_CHILD_CLEARTID: u64 = 0x0020_0000;
+const CLONE_THREAD: u64 = 0x0001_0000;
 
 /// Futex word address -> wait queue. A waiter parks on the queue keyed by its
 /// word; `FUTEX_WAKE` notifies exactly that queue, so a wake cannot reach an
@@ -204,7 +210,13 @@ fn trace_syscall(nr: u64) {
 /// with `LAZYOS_TESTS=1`.
 #[cfg(laZYOS_TESTS)]
 pub fn dispatch_for_test(nr: u64, a1: u64, a2: u64, a3: u64) -> u64 {
-    linux_dispatch(nr, a1, a2, a3, 0, 0, 0)
+    dispatch_args_for_test(nr, a1, a2, a3, 0)
+}
+
+/// [`dispatch_for_test`] with a fourth argument (`socketpair`'s `sv`).
+#[cfg(laZYOS_TESTS)]
+pub fn dispatch_args_for_test(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64) -> u64 {
+    linux_dispatch(nr, a1, a2, a3, a4, 0, 0)
 }
 
 /// `openat(AT_FDCWD, ...)` sentinel.
@@ -214,6 +226,28 @@ const AT_FDCWD: u64 = (-100i64) as u64;
 // synthetic entries need are spelled out here).
 const S_IFREG: u32 = 0o100000;
 const S_IFCHR: u32 = 0o020000;
+const S_IFIFO: u32 = 0o010000;
+const S_IFSOCK: u32 = 0o140000;
+
+// `pipe2`/`socketpair` creation flags and `fcntl` commands.
+const O_NONBLOCK: u64 = 0o4000;
+const O_CLOEXEC: u64 = 0o2000000;
+const AF_UNIX: u64 = 1;
+const SOCK_STREAM: u64 = 1;
+const SOCK_SEQPACKET: u64 = 5;
+const SOCK_NONBLOCK: u64 = 0o4000;
+const SOCK_CLOEXEC: u64 = 0o2000000;
+const F_DUPFD: u64 = 0;
+const F_GETFD: u64 = 1;
+const F_SETFD: u64 = 2;
+const F_GETFL: u64 = 3;
+const F_SETFL: u64 = 4;
+const F_DUPFD_CLOEXEC: u64 = 1030;
+const FD_CLOEXEC: u64 = 1;
+
+/// Bytes staged per `read`/`write` call through a pipe. A short transfer is
+/// legal on a pipe, so callers that want it all loop (as `write_all` does).
+const STREAM_CHUNK: usize = 4096;
 
 fn err(e: u64) -> u64 {
     (e as i64).wrapping_neg() as u64
@@ -406,11 +440,16 @@ fn align_up(value: u64, align: u64) -> u64 {
 /// `rdi,rsi,rdx,r10,r8,r9`, result in `rax`).
 #[no_mangle]
 extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u64, a6: u64) -> u64 {
+    // Finished parentless tasks (threads) were flagged by the scheduler and are
+    // reclaimed here, on entry to a syscall: the current task holds no heap
+    // lock, so dropping their buffers cannot deadlock (issue #133). Interrupts
+    // are off inside the gate.
+    task::reclaim_pending();
     trace_syscall(nr);
     let result = match nr {
         0 => sys_read(a1, a2, a3),
         1 => sys_write(a1, a2, a3),
-        2 => sys_openat(AT_FDCWD, a1, a2), // open
+        2 => sys_openat(AT_FDCWD, a1, a2, a3), // open
         3 => sys_close(a1),
         4 => sys_stat_path(a1, a2), // stat(path, buf)
         5 => sys_fstat(a1, a2),     // fstat(fd, buf)
@@ -427,21 +466,29 @@ extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
         16 => sys_ioctl(a1, a2, a3),
         19 => sys_readv(a1, a2, a3),
         20 => sys_writev(a1, a2, a3),
-        21 => sys_access(a1, a2),            // access(path, mode)
-        28 => 0,                             // madvise
-        32 | 33 => sys_dup(nr, a1, a2),      // dup / dup2
-        35 => sys_nanosleep(a1),             // nanosleep(req, rem)
-        39 | 186 => task::current() as u64,  // getpid/gettid: pid == slot (#59)
-        56 => sys_clone(a1, a2, a3, a4, a5), // clone(flags, stack, ptid, ctid, tls)
+        21 => sys_access(a1, a2),             // access(path, mode)
+        22 => sys_pipe(a1, 0),                // pipe(fds)
+        28 => 0,                              // madvise
+        32 | 33 => sys_dup(nr, a1, a2),       // dup / dup2
+        35 => sys_nanosleep(a1),              // nanosleep(req, rem)
+        39 | 186 => task::current() as u64,   // getpid/gettid: pid == slot (#59)
+        44 => sys_sendto(a1, a2, a3),         // sendto (musl's send)
+        45 => sys_recvfrom(a1, a2, a3),       // recvfrom (musl's recv)
+        53 => sys_socketpair(a1, a2, a3, a4), // socketpair(domain, type, proto, sv)
+        56 => sys_clone(a1, a2, a3, a4, a5),  // clone(flags, stack, ptid, ctid, tls)
         57 => sys_fork(),
         59 => sys_execve(a1, a2, a3), // execve(path, argv, envp)
         60 => sys_exit(a1),           // exit: this task (a thread)
         61 => sys_wait4(a1, a2, a3),  // wait4(pid, status, options)
         62 => sys_kill(a1, a2),       // kill(pid, sig)
         63 => sys_uname(a1),
-        72 => sys_fcntl(a1, a2), // fcntl
+        72 => sys_fcntl(a1, a2, a3), // fcntl(fd, cmd, arg)
         79 => sys_getcwd(a1, a2),
         80 => 0,                        // chdir (root-only)
+        82 => sys_rename(a1, a2),       // rename
+        83 => sys_mkdir(a1, a2),        // mkdir
+        84 => sys_rmdir(a1),            // rmdir
+        87 => sys_unlink(a1),           // unlink
         89 => sys_readlink(a1, a2, a3), // readlink
         95 => sys_umask(a1),            // umask(mask)
         96 => sys_gettimeofday(a1),     // gettimeofday(tv, tz)
@@ -466,10 +513,14 @@ extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
         229 => sys_clock_getres(a2),
         230 => sys_nanosleep(a3), // clock_nanosleep(clockid, flags, req, rem)
         231 => sys_exit_group(a1),
-        234 => sys_tgkill(a1, a2, a3), // tgkill(tgid, tid, sig)
-        257 => sys_openat(a1, a2, a3), // openat
+        234 => sys_tgkill(a1, a2, a3),     // tgkill(tgid, tid, sig)
+        257 => sys_openat(a1, a2, a3, a4), // openat
+        258 => sys_mkdirat(a1, a2, a3),    // mkdirat
         262 => sys_newfstatat(a1, a2, a3, a4),
-        273 => 0, // set_robust_list
+        263 => sys_unlinkat(a1, a2, a3),     // unlinkat
+        264 => sys_renameat(a1, a2, a3, a4), // renameat
+        273 => 0,                            // set_robust_list
+        293 => sys_pipe(a1, a2),             // pipe2(fds, flags)
         318 => sys_getrandom(a1, a2),
         334 => {
             crate::serial_println!("ENOSYS 334 rseq");
@@ -551,9 +602,11 @@ fn sys_poll(fds: u64, nfds: u64, timeout: u64) -> u64 {
     }
 }
 
-/// One non-blocking poll pass over the user's `pollfd` array.
+/// One non-blocking poll pass over the user's `pollfd` array. Every open
+/// descriptor kind is classified by the task layer, so pipes, sockets, files
+/// and the terminal all report `POLLIN`/`POLLOUT`/`POLLHUP`/`POLLERR`/`POLLNVAL`.
 fn scan_poll(fds: u64, nfds: u64) -> u64 {
-    const POLLIN: u16 = 0x0001;
+    const POLLNVAL: u16 = 0x0020;
     let mut ready = 0u64;
     for i in 0..nfds {
         // struct pollfd { i32 fd; i16 events; i16 revents; }
@@ -561,12 +614,14 @@ fn scan_poll(fds: u64, nfds: u64) -> u64 {
         let fd = unsafe { user_ptr::read::<i32>(fds + i * 8) };
         // Safety: same pollfd entry, adjacent field.
         let events = unsafe { user_ptr::read::<u16>(fds + i * 8 + 4) };
-        let revents = if fd == 0 && events & POLLIN != 0 && task::input_available() {
-            ready += 1;
-            POLLIN
-        } else {
+        let revents = if fd < 0 {
             0
+        } else {
+            task::fd_poll(fd as usize, events).unwrap_or(POLLNVAL)
         };
+        if revents != 0 {
+            ready += 1;
+        }
         // Safety: user array of pollfd entries (the syscall ABI's contract).
         unsafe { user_ptr::write::<u16>(fds + i * 8 + 6, revents) };
     }
@@ -580,9 +635,17 @@ fn millis_to_ticks(millis: u64) -> u64 {
 }
 
 fn sys_write(fd: u64, ptr: u64, len: u64) -> u64 {
-    if fd > 2 {
-        return err(EBADF); // files are read-only for now
+    match task::fd_kind(fd as usize) {
+        FdKind::Terminal => write_terminal(ptr, len),
+        FdKind::Pipe | FdKind::Socket => write_stream(fd, ptr, len),
+        FdKind::File => write_file(fd, ptr, len),
+        FdKind::Closed => err(EBADF),
     }
+}
+
+/// Terminal writes (`fd` 0/1/2 and `/dev/tty`): the task's console buffer and
+/// the serial log, with the busybox cursor-position reply.
+fn write_terminal(ptr: u64, len: u64) -> u64 {
     if len == 0 {
         return 0;
     }
@@ -597,13 +660,102 @@ fn sys_write(fd: u64, ptr: u64, len: u64) -> u64 {
     len
 }
 
+/// Pipe/socket write: stage a chunk of user bytes, then let the stream object
+/// block or report `-EPIPE`/`-EAGAIN`. A short count is legal; the caller
+/// (`write_all`, busybox's `full_write`) retries.
+fn write_stream(fd: u64, ptr: u64, len: u64) -> u64 {
+    if len == 0 {
+        return 0;
+    }
+    let want = (len as usize).min(STREAM_CHUNK);
+    let mut buf = [0u8; STREAM_CHUNK];
+    // Safety: the caller passes a valid user buffer of `len` bytes (the
+    // syscall ABI's contract).
+    buf[..want].copy_from_slice(unsafe { user_ptr::bytes(ptr, want) });
+    match task::fd_stream_write(fd as usize, &buf[..want]) {
+        Ok(n) => n as u64,
+        Err(pipe::Error::WouldBlock) => err(EAGAIN),
+        Err(pipe::Error::BrokenPipe) => err(EPIPE),
+        Err(pipe::Error::Interrupted) => err(EINTR),
+        Err(pipe::Error::BadEnd) => err(EBADF),
+    }
+}
+
+/// Write through a regular-file descriptor: the ABI VFS updates the backing
+/// file, then the fd's snapshot is patched so the same descriptor reads back
+/// its own writes. `O_APPEND` descriptors ignore the position and write at the
+/// current EOF.
+fn write_file(fd: u64, ptr: u64, len: u64) -> u64 {
+    if len == 0 {
+        return 0;
+    }
+    let Some(meta) = fd_meta_get(fd as usize) else {
+        return err(EBADF);
+    };
+    if meta.device {
+        return len; // /dev/null and friends discard the bytes
+    }
+    if !meta.writable {
+        return err(EBADF);
+    }
+    let Some(path) = meta.path else {
+        return err(EBADF);
+    };
+    // Safety: the caller passes a valid user buffer (the syscall ABI's contract).
+    let bytes = unsafe { user_ptr::bytes(ptr, len as usize) };
+    let id = Id::current();
+    let offset = if meta.append {
+        match crate::fs::abi_stat(id, &path) {
+            Ok(stat) => stat.size,
+            Err(error) => return fs_err(error),
+        }
+    } else {
+        task::fd_offset(fd as usize).unwrap_or(0) as u64
+    };
+    match crate::fs::abi_write(id, &path, offset, bytes) {
+        Ok(written) => {
+            if !task::fd_apply_write(fd as usize, offset as usize, &bytes[..written]) {
+                return err(EBADF);
+            }
+            fd_meta_sync_len(fd as usize);
+            written as u64
+        }
+        Err(error) => fs_err(error),
+    }
+}
+
 fn sys_read(fd: u64, ptr: u64, len: u64) -> u64 {
     match task::fd_kind(fd as usize) {
         FdKind::Terminal => read_terminal(ptr, len),
         FdKind::File => task::fd_read(fd as usize, ptr as *mut u8, len as usize)
             .map(|n| n as u64)
             .unwrap_or(0),
+        FdKind::Pipe | FdKind::Socket => read_stream(fd, ptr, len),
         FdKind::Closed => err(EBADF),
+    }
+}
+
+/// Pipe/socket read: block in the stream object until a chunk is available,
+/// then copy it to the user buffer. `Ok(0)` (EOF) copies nothing.
+fn read_stream(fd: u64, ptr: u64, len: u64) -> u64 {
+    if len == 0 {
+        return 0;
+    }
+    let want = (len as usize).min(STREAM_CHUNK);
+    let mut buf = [0u8; STREAM_CHUNK];
+    match task::fd_stream_read(fd as usize, &mut buf[..want]) {
+        Ok(n) => {
+            if n > 0 {
+                // Safety: the caller passes a valid user buffer of `len` bytes
+                // (the syscall ABI's contract).
+                unsafe { user_ptr::copy_to(ptr, &buf[..n]) };
+            }
+            n as u64
+        }
+        Err(pipe::Error::WouldBlock) => err(EAGAIN),
+        Err(pipe::Error::BrokenPipe) => err(EPIPE),
+        Err(pipe::Error::Interrupted) => err(EINTR),
+        Err(pipe::Error::BadEnd) => err(EBADF),
     }
 }
 
@@ -921,12 +1073,7 @@ fn sys_gettimeofday(tv: u64) -> u64 {
 /// Sleep for the `struct timespec` duration at `req` (nanosleep/clock_nanosleep).
 fn sys_nanosleep(req: u64) -> u64 {
     // Safety: user buffer holds a `struct timespec` (the syscall ABI's contract).
-    let (sec, nsec) = unsafe {
-        (
-            user_ptr::read::<i64>(req),
-            user_ptr::read::<i64>(req + 8),
-        )
-    };
+    let (sec, nsec) = unsafe { (user_ptr::read::<i64>(req), user_ptr::read::<i64>(req + 8)) };
     if sec < 0 || nsec < 0 {
         return err(EINVAL);
     }
@@ -1022,14 +1169,16 @@ fn synthetic_meta(path: &str) -> Option<Meta> {
         });
     }
     if applet_name(path).is_some() {
-        return crate::fs::stat("busybox").map(|(size, _)| Meta {
-            ino: 0,
-            mode: vfs::S_IFREG | 0o555,
-            uid: 0,
-            gid: 0,
-            size: size as u64,
-            kind: FileKind::File,
-        });
+        return crate::fs::abi_stat(Id::current(), "/busybox")
+            .ok()
+            .map(|meta| Meta {
+                ino: 0,
+                mode: vfs::S_IFREG | 0o555,
+                uid: 0,
+                gid: 0,
+                size: meta.size,
+                kind: FileKind::File,
+            });
     }
     None
 }
@@ -1040,12 +1189,12 @@ enum Target {
     Synthetic(Meta),
 }
 
-/// Resolve a path the way the Linux ABI sees it: VFS mounts first (so `/tmp`
-/// and future mounts work), then the synthetic directories and applet aliases.
-/// A permission error from the VFS is returned as-is; only a miss falls
-/// through to the fabricated entries.
+/// Resolve a path the way the Linux ABI sees it: the ABI VFS mounts first (a
+/// copy-up overlay at `/`, a shared ramfs at `/tmp`), then the synthetic
+/// directories and applet aliases. A permission error from the VFS is returned
+/// as-is; only a miss falls through to the fabricated entries.
 fn resolve(path: &str) -> Result<Target, FsError> {
-    match crate::fs::vfs_stat(Id::current(), path) {
+    match crate::fs::abi_stat(Id::current(), path) {
         Ok(meta) => return Ok(Target::Node(meta)),
         Err(FsError::NotFound) => {}
         Err(error) => return Err(error),
@@ -1055,12 +1204,37 @@ fn resolve(path: &str) -> Result<Target, FsError> {
         .ok_or(FsError::NotFound)
 }
 
-/// Load a file's bytes through the VFS, with the BusyBox applet alias.
+/// Load a file's bytes through the ABI VFS, with the BusyBox applet alias.
 fn load_file(path: &str) -> Result<Vec<u8>, FsError> {
-    match crate::fs::vfs_read(Id::current(), path) {
+    load_file_as(Id::current(), path)
+}
+
+/// [`load_file`] with an explicit caller identity (used by `open_path`).
+fn load_file_as(id: Id, path: &str) -> Result<Vec<u8>, FsError> {
+    match crate::fs::abi_read(id, path) {
         Ok(data) => Ok(data),
         Err(FsError::NotFound) if applet_name(path).is_some() => {
-            crate::fs::vfs_read(Id::current(), "/busybox").map_err(|_| FsError::NotFound)
+            crate::fs::abi_read(id, "/busybox").map_err(|_| FsError::NotFound)
+        }
+        Err(error) => Err(error),
+    }
+}
+
+/// Load an executable for `execve`: the path itself, or — when a `$PATH`
+/// lookup names one of the synthetic `bin` directories LazyOS does not back
+/// with files — the basename at the image root. The executable store is the
+/// flat FAT root, so this is what lets `execvp("INIT.ELF")` find `/INIT.ELF`
+/// after trying `/usr/local/bin`, `/bin` and `/usr/bin`.
+fn load_executable(path: &str) -> Result<Vec<u8>, FsError> {
+    match load_file(path) {
+        Ok(elf) => Ok(elf),
+        Err(FsError::NotFound) => {
+            let base = path.rsplit('/').next().unwrap_or(path);
+            if base != path && !base.is_empty() {
+                load_file(base)
+            } else {
+                Err(FsError::NotFound)
+            }
         }
         Err(error) => Err(error),
     }
@@ -1092,13 +1266,22 @@ fn sys_getdents64(fd: u64, buf: u64, count: u64) -> u64 {
 
 /// `openat(2)` access mode mask.
 const O_ACCMODE: u64 = 0o3;
+/// `openat(2)` flag bits (Linux x86_64 values).
+const O_CREAT: u64 = 0o100;
+const O_EXCL: u64 = 0o200;
+const O_TRUNC: u64 = 0o1000;
+const O_APPEND: u64 = 0o2000;
+const O_DIRECTORY: u64 = 0o200000;
+/// `unlinkat(2)` flag: remove a directory instead of a file.
+const AT_REMOVEDIR: u64 = 0x200;
 
 /// File descriptor metadata captured at open time. The task fd table
-/// (`task::Fd::File`) carries only bytes, so `fstat` reads mode/ino/size from
-/// this side table, keyed by `(task slot, fd)`; `close` clears the slot and
-/// `dup` copies it. Fds inherited by `fork` fall back to the plain 0o444
-/// answer until the fd table itself carries VFS handles.
-#[derive(Clone, Copy)]
+/// (`task::Fd::File`) carries only bytes, so `fstat` and `write` read
+/// mode/ino/size and the backing path from this side table, keyed by
+/// `(task slot, fd)`; `close` clears the slot and `dup` copies it. Fds
+/// inherited by `fork` fall back to the plain 0o444 answer until the fd table
+/// itself carries VFS handles.
+#[derive(Clone)]
 struct FdMeta {
     mode: u32,
     ino: u64,
@@ -1107,10 +1290,22 @@ struct FdMeta {
     /// different file (fork-inherited or a recycled task slot) reports no
     /// metadata instead of a stale mode.
     data_len: usize,
+    /// Absolute ABI path backing a real file or directory open; `None` for
+    /// the synthetic device descriptors.
+    path: Option<String>,
+    /// Whether the descriptor accepts `write(2)` (the open had an access
+    /// mode other than `O_RDONLY`).
+    writable: bool,
+    /// `O_APPEND`: writes ignore the descriptor position and land at EOF.
+    append: bool,
+    /// Synthetic nodes (`/dev/null`, `/dev/zero`, `/dev/full`): writes are
+    /// discarded and reads return the snapshot (empty).
+    device: bool,
 }
 
 const FD_META_SLOTS: usize = task::MAX_TASKS * task::FD_COUNT;
-static FD_META: Mutex<[Option<FdMeta>; FD_META_SLOTS]> = Mutex::new([None; FD_META_SLOTS]);
+static FD_META: Mutex<[Option<FdMeta>; FD_META_SLOTS]> =
+    Mutex::new([const { None }; FD_META_SLOTS]);
 
 /// This task's side-table slot for `fd`, if both are in range.
 fn fd_meta_slot(fd: usize) -> Option<usize> {
@@ -1130,7 +1325,7 @@ fn fd_meta_set(fd: usize, meta: FdMeta) {
 fn fd_meta_get(fd: usize) -> Option<FdMeta> {
     let slot = fd_meta_slot(fd)?;
     let mut table = FD_META.lock();
-    let meta = table[slot]?;
+    let meta = table[slot].clone()?;
     if task::fd_size(fd) != Some(meta.data_len as u64) {
         table[slot] = None; // the slot now holds a different file
         return None;
@@ -1149,27 +1344,68 @@ fn fd_meta_copy(from: usize, to: usize) {
         return;
     };
     let mut table = FD_META.lock();
-    table[to] = table[from];
+    table[to] = table[from].clone();
 }
 
-/// Open a read-only file snapshot and record its VFS metadata for `fstat`.
-fn open_file_fd(data: Vec<u8>, mode: u32, ino: u64, size: u64) -> u64 {
-    let data_len = data.len();
+/// Re-sync the cached snapshot length after a write extended the fd buffer.
+fn fd_meta_sync_len(fd: usize) {
+    let Some(slot) = fd_meta_slot(fd) else {
+        return;
+    };
+    let Some(size) = task::fd_size(fd) else {
+        return;
+    };
+    let mut table = FD_META.lock();
+    if let Some(meta) = table[slot].as_mut() {
+        meta.data_len = size as usize;
+        meta.size = size;
+    }
+}
+
+/// Allocate a descriptor for a snapshot (`data`) and record its side-table
+/// metadata. The snapshot length is patched into `meta` so callers do not
+/// repeat it.
+fn open_snapshot(data: Vec<u8>, mut meta: FdMeta) -> u64 {
+    meta.data_len = data.len();
     match task::fd_open(Fd::File { data, offset: 0 }) {
         Some(fd) => {
-            fd_meta_set(
-                fd,
-                FdMeta {
-                    mode,
-                    ino,
-                    size,
-                    data_len,
-                },
-            );
+            fd_meta_set(fd, meta);
             fd as u64
         }
         None => err(ENOMEM),
     }
+}
+
+/// [`FdMeta`] for a real file or directory open.
+fn file_meta(meta: Meta, path: String, writable: bool, append: bool) -> FdMeta {
+    FdMeta {
+        mode: meta.mode as u32,
+        ino: meta.ino,
+        size: meta.size,
+        data_len: 0,
+        path: Some(path),
+        writable,
+        append,
+        device: false,
+    }
+}
+
+/// Open a synthetic device node (`/dev/null`, `/dev/zero`, `/dev/full`):
+/// reads return an empty snapshot, writes are discarded.
+fn open_device_fd() -> u64 {
+    open_snapshot(
+        Vec::new(),
+        FdMeta {
+            mode: S_IFCHR | 0o666,
+            ino: 0,
+            size: 0,
+            data_len: 0,
+            path: None,
+            writable: true,
+            append: false,
+            device: true,
+        },
+    )
 }
 
 /// The `linux_dirent64` type byte for a VFS node kind.
@@ -1193,20 +1429,20 @@ fn empty_dir_stream() -> Vec<u8> {
 
 /// Build a `linux_dirent64` stream for a directory, so `getdents64` can read
 /// it like a file (the fd table stores byte snapshots, not directory handles).
-/// The VFS supplies the real entries; `.`/`..` are added here.
+/// The ABI VFS supplies the real entries; `.`/`..` are added here.
 fn dir_stream(path: &str) -> Result<Vec<u8>, FsError> {
     let mut out = empty_dir_stream();
-    for entry in crate::fs::vfs_readdir(Id::current(), path)? {
+    for entry in crate::fs::abi_readdir(Id::current(), path)? {
         push_dirent(&mut out, entry.ino, dtype_of(entry.kind), &entry.name);
     }
     Ok(out)
 }
 
-/// Refuse a write-mode open: check the mount's write permission first (so a
-/// denial is `EACCES`), then answer `EROFS` because the Linux fd table stores
-/// read-only snapshots until it carries VFS handles.
+/// Refuse a write-mode open of a fabricated entry (a synthetic directory or a
+/// BusyBox applet alias): check the mount's write permission first (so a
+/// denial is `EACCES`), then answer `EROFS` because there is no backing node.
 fn write_open_denied(path: &str) -> u64 {
-    match crate::fs::vfs_check(Id::current(), path, vfs::WRITE) {
+    match crate::fs::abi_check(Id::current(), path, vfs::WRITE) {
         Ok(_) | Err(FsError::NotFound) => {}
         Err(error) => return fs_err(error),
     }
@@ -1214,59 +1450,243 @@ fn write_open_denied(path: &str) -> u64 {
     err(EROFS)
 }
 
-/// Open a path: mounts (the FAT root and `/tmp` ramfs today) through the VFS,
-/// plus the synthetic device nodes and BusyBox applet aliases.
-fn open_path(path: &str, flags: u64) -> u64 {
+/// Open a directory as a snapshot of its `getdents64` stream.
+fn open_dir_fd(path: &str, meta: Meta) -> u64 {
+    match dir_stream(path) {
+        Ok(data) => open_snapshot(data, file_meta(meta, String::from(path), false, false)),
+        Err(error) => fs_err(error),
+    }
+}
+
+/// Snapshot a file and open it with the requested access mode. Writable
+/// descriptors record the backing path so `write(2)` reaches the ABI VFS.
+fn open_file_fd(id: Id, path: &str, meta: Meta, writable: bool, append: bool) -> u64 {
+    match load_file_as(id, path) {
+        Ok(data) => open_snapshot(data, file_meta(meta, String::from(path), writable, append)),
+        Err(error) => fs_err(error),
+    }
+}
+
+/// Open a path through the ABI VFS (the copy-up overlay root and the shared
+/// `/tmp` ramfs), plus the synthetic device nodes and BusyBox applet aliases.
+/// Honours `O_CREAT`, `O_EXCL`, `O_TRUNC`, `O_APPEND`, and `O_DIRECTORY`.
+fn open_path(path: &str, flags: u64, mode: u64) -> u64 {
     match path {
         "/dev/tty" | "/dev/console" | "/dev/tty0" | "/dev/tty1" => {
             return fd_result(task::fd_open(Fd::Terminal));
         }
         "/dev/null" | "/dev/zero" | "/dev/full" => {
-            return fd_result(task::fd_open(Fd::File {
-                data: Vec::new(),
-                offset: 0,
-            }));
+            return open_device_fd();
         }
         _ => {}
     }
 
+    let id = Id::current();
     let write_access = flags & O_ACCMODE != 0;
-    match resolve(path) {
-        Ok(Target::Node(meta)) if meta.kind == FileKind::Dir => match dir_stream(path) {
-            Ok(data) => open_file_fd(data, meta.mode as u32, meta.ino, meta.size),
-            Err(error) => fs_err(error),
-        },
-        Ok(Target::Node(meta)) => {
-            if write_access {
-                return write_open_denied(path);
-            }
-            match load_file(path) {
-                Ok(data) => open_file_fd(data, meta.mode as u32, meta.ino, meta.size),
-                Err(error) => fs_err(error),
-            }
-        }
-        Ok(Target::Synthetic(meta)) if meta.kind == FileKind::Dir => {
-            open_file_fd(empty_dir_stream(), meta.mode as u32, meta.ino, meta.size)
-        }
+    let create = flags & O_CREAT != 0;
+    let exclusive = flags & O_EXCL != 0;
+    let truncate = flags & O_TRUNC != 0;
+    let append = flags & O_APPEND != 0;
+    let directory = flags & O_DIRECTORY != 0;
+    // A missing mode argument (the legacy `open` dispatch and tests) defaults
+    // to the usual 0o666; musl passes the caller's mode through `openat`.
+    let mode = match (mode & 0o7777) as u16 {
+        0 => 0o666,
+        mode => mode,
+    };
+
+    let existing = match resolve(path) {
+        Ok(Target::Node(meta)) => Some(meta),
         Ok(Target::Synthetic(meta)) => {
-            if write_access {
+            // Fabricated entries cannot be created or written through.
+            if write_access || truncate || create {
                 return write_open_denied(path);
             }
-            match load_file(path) {
-                Ok(data) => open_file_fd(data, meta.mode as u32, meta.ino, meta.size),
-                Err(error) => fs_err(error),
+            return if meta.kind == FileKind::Dir {
+                open_dir_fd(path, meta)
+            } else {
+                open_file_fd(id, path, meta, false, false)
+            };
+        }
+        Err(FsError::NotFound) => None,
+        Err(error) => return fs_err(error),
+    };
+
+    if let Some(meta) = existing {
+        if create && exclusive {
+            return err(EEXIST);
+        }
+        if directory && meta.kind != FileKind::Dir {
+            return err(ENOTDIR);
+        }
+        if meta.kind == FileKind::Dir {
+            if write_access || truncate {
+                return err(EISDIR);
+            }
+            return open_dir_fd(path, meta);
+        }
+        if write_access {
+            if let Err(error) = crate::fs::abi_check(id, path, vfs::WRITE) {
+                return fs_err(error);
+            }
+            if truncate {
+                if let Err(error) = crate::fs::abi_truncate(id, path, 0) {
+                    return fs_err(error);
+                }
             }
         }
+        return open_file_fd(id, path, meta, write_access, append);
+    }
+
+    if !create {
+        return err(ENOENT);
+    }
+    let created = if directory {
+        crate::fs::abi_mkdir(id, path, mode)
+    } else {
+        crate::fs::abi_create(id, path, mode)
+    };
+    if let Err(error) = created {
+        return fs_err(error);
+    }
+    match resolve(path) {
+        Ok(Target::Node(meta)) => open_file_fd(id, path, meta, write_access, append),
+        _ => err(ENOENT),
+    }
+}
+
+fn sys_openat(dirfd: u64, path: u64, flags: u64, mode: u64) -> u64 {
+    match read_cstr(path) {
+        Some(path) => match resolve_at(dirfd, &path) {
+            Ok(path) => open_path(&path, flags, mode),
+            Err(error) => err(error),
+        },
+        None => err(EINVAL),
+    }
+}
+
+/// Resolve a `(dirfd, path)` pair into an absolute ABI path. Relative names
+/// with a real descriptor join that descriptor's recorded directory path, so
+/// `std`'s fd-relative `openat`/`unlinkat` walks work; `AT_FDCWD` roots at `/`.
+fn resolve_at(dirfd: u64, path: &str) -> Result<String, u64> {
+    if path.starts_with('/') {
+        return Ok(String::from(path));
+    }
+    if path.is_empty() {
+        return Ok(String::from("/"));
+    }
+    if dirfd == AT_FDCWD {
+        return Ok(alloc::format!("/{path}"));
+    }
+    let fd = dirfd as usize;
+    match fd_meta_get(fd).and_then(|meta| meta.path) {
+        Some(base) if task::fd_kind(fd) == FdKind::File => {
+            if base == "/" {
+                Ok(alloc::format!("/{path}"))
+            } else {
+                Ok(alloc::format!("{base}/{path}"))
+            }
+        }
+        _ => Err(EBADF),
+    }
+}
+
+/// `mkdir(path, mode)`.
+fn sys_mkdir(path: u64, mode: u64) -> u64 {
+    match read_cstr(path) {
+        Some(path) => mkdir_path(&path, mode),
+        None => err(EINVAL),
+    }
+}
+
+/// `mkdirat(dirfd, path, mode)`.
+fn sys_mkdirat(dirfd: u64, path: u64, mode: u64) -> u64 {
+    match read_cstr(path) {
+        Some(path) => match resolve_at(dirfd, &path) {
+            Ok(path) => mkdir_path(&path, mode),
+            Err(error) => err(error),
+        },
+        None => err(EINVAL),
+    }
+}
+
+fn mkdir_path(path: &str, mode: u64) -> u64 {
+    let mode = match (mode & 0o7777) as u16 {
+        0 => 0o777,
+        mode => mode,
+    };
+    match crate::fs::abi_mkdir(Id::current(), path, mode) {
+        Ok(_) => 0,
         Err(error) => fs_err(error),
     }
 }
 
-fn sys_openat(_dirfd: u64, path: u64, flags: u64) -> u64 {
-    // Only AT_FDCWD ("cwd" is always `/`) is supported; a real dirfd is
-    // ignored, exactly as before the VFS.
+/// `rmdir(path)`.
+fn sys_rmdir(path: u64) -> u64 {
     match read_cstr(path) {
-        Some(path) => open_path(&path, flags),
+        Some(path) => match crate::fs::abi_rmdir(Id::current(), &path) {
+            Ok(()) => 0,
+            Err(error) => fs_err(error),
+        },
         None => err(EINVAL),
+    }
+}
+
+/// `unlink(path)`.
+fn sys_unlink(path: u64) -> u64 {
+    match read_cstr(path) {
+        Some(path) => match crate::fs::abi_unlink(Id::current(), &path) {
+            Ok(()) => 0,
+            Err(error) => fs_err(error),
+        },
+        None => err(EINVAL),
+    }
+}
+
+/// `unlinkat(dirfd, path, flags)`: `AT_REMOVEDIR` selects `rmdir` semantics.
+fn sys_unlinkat(dirfd: u64, path: u64, flags: u64) -> u64 {
+    match read_cstr(path) {
+        Some(path) => match resolve_at(dirfd, &path) {
+            Ok(path) => {
+                let result = if flags & AT_REMOVEDIR != 0 {
+                    crate::fs::abi_rmdir(Id::current(), &path)
+                } else {
+                    crate::fs::abi_unlink(Id::current(), &path)
+                };
+                match result {
+                    Ok(()) => 0,
+                    Err(error) => fs_err(error),
+                }
+            }
+            Err(error) => err(error),
+        },
+        None => err(EINVAL),
+    }
+}
+
+/// `rename(oldpath, newpath)`.
+fn sys_rename(from: u64, to: u64) -> u64 {
+    match (read_cstr(from), read_cstr(to)) {
+        (Some(from), Some(to)) => rename_paths(&from, &to),
+        _ => err(EINVAL),
+    }
+}
+
+/// `renameat(olddirfd, oldpath, newdirfd, newpath)`.
+fn sys_renameat(from_dirfd: u64, from: u64, to_dirfd: u64, to: u64) -> u64 {
+    let (Some(from), Some(to)) = (read_cstr(from), read_cstr(to)) else {
+        return err(EINVAL);
+    };
+    match (resolve_at(from_dirfd, &from), resolve_at(to_dirfd, &to)) {
+        (Ok(from), Ok(to)) => rename_paths(&from, &to),
+        (Err(error), _) | (_, Err(error)) => err(error),
+    }
+}
+
+fn rename_paths(from: &str, to: &str) -> u64 {
+    match crate::fs::abi_rename(Id::current(), from, to) {
+        Ok(()) => 0,
+        Err(error) => fs_err(error),
     }
 }
 
@@ -1285,7 +1705,7 @@ fn sys_lseek(fd: u64, offset: u64, whence: u64) -> u64 {
             Some(pos) => pos,
             None => err(EINVAL),
         },
-        FdKind::Terminal => err(ESPIPE),
+        FdKind::Terminal | FdKind::Pipe | FdKind::Socket => err(ESPIPE),
         FdKind::Closed => err(EBADF),
     }
 }
@@ -1297,7 +1717,7 @@ fn sys_access(path: u64, mode: u64) -> u64 {
     };
     let id = Id::current();
     let mask = (mode & 0o7) as u8;
-    match crate::fs::vfs_check(id, &path, mask) {
+    match crate::fs::abi_check(id, &path, mask) {
         Ok(_) => 0,
         Err(FsError::NotFound) => match synthetic_meta(&path) {
             Some(meta) => match vfs::check_access(&meta, id, mask) {
@@ -1310,9 +1730,9 @@ fn sys_access(path: u64, mode: u64) -> u64 {
     }
 }
 
-/// `umask(mask)`: set the global creation mask, return the previous one.
+/// `umask(mask)`: set the ABI creation mask, return the previous one.
 fn sys_umask(mask: u64) -> u64 {
-    crate::fs::vfs_set_umask((mask & 0o777) as u16) as u64
+    crate::fs::abi_set_umask((mask & 0o777) as u16) as u64
 }
 
 fn sys_dup(nr: u64, a1: u64, a2: u64) -> u64 {
@@ -1330,18 +1750,148 @@ fn sys_dup(nr: u64, a1: u64, a2: u64) -> u64 {
     }
 }
 
-fn sys_fcntl(fd: u64, cmd: u64) -> u64 {
+/// `fcntl(fd, cmd, arg)`: the descriptor/status flag commands std needs, plus
+/// `F_DUPFD`/`F_DUPFD_CLOEXEC` (`O_NONBLOCK` state lives on the shared pipe or
+/// socket object, so `dup`/`fork` see the same setting).
+fn sys_fcntl(fd: u64, cmd: u64, arg: u64) -> u64 {
     match cmd {
-        0 => match task::fd_dup(fd as usize) {
-            // F_DUPFD
+        F_DUPFD | F_DUPFD_CLOEXEC => match task::fd_dup_min(fd as usize, arg as usize) {
             Some(new) => {
                 fd_meta_copy(fd as usize, new);
+                if cmd == F_DUPFD_CLOEXEC {
+                    task::fd_set_cloexec(new, true);
+                }
                 new as u64
             }
             None => err(EBADF),
         },
-        _ => 0, // F_GETFD/SETFD/GETFL/SETFL: report defaults
+        F_GETFD => match task::fd_kind(fd as usize) {
+            FdKind::Closed => err(EBADF),
+            _ => task::fd_cloexec(fd as usize) as u64,
+        },
+        F_SETFD => match task::fd_kind(fd as usize) {
+            FdKind::Closed => err(EBADF),
+            _ => {
+                task::fd_set_cloexec(fd as usize, arg & FD_CLOEXEC != 0);
+                0
+            }
+        },
+        F_GETFL => match task::fd_status(fd as usize) {
+            Some(flags) => flags,
+            None => err(EBADF),
+        },
+        F_SETFL => match task::fd_set_status(fd as usize, arg & O_NONBLOCK != 0) {
+            true => 0,
+            false => err(EBADF),
+        },
+        _ => err(EINVAL),
     }
+}
+
+/// `pipe(fds)` and `pipe2(fds, flags)`: a pair of descriptors onto one bounded
+/// byte pipe. `O_CLOEXEC` is set on both ends; `O_NONBLOCK` at creation is
+/// honored through the pipe's per-end status state.
+fn sys_pipe(fds: u64, flags: u64) -> u64 {
+    if fds == 0 {
+        return err(EFAULT);
+    }
+    let Some(pipe) = pipe::Pipe::new() else {
+        return err(EMFILE);
+    };
+    let Some(read_fd) = task::fd_open(Fd::pipe_end(Arc::clone(&pipe), End::Read)) else {
+        return err(EMFILE);
+    };
+    let Some(write_fd) = task::fd_open(Fd::pipe_end(Arc::clone(&pipe), End::Write)) else {
+        task::fd_close(read_fd);
+        return err(EMFILE);
+    };
+    if flags & O_CLOEXEC != 0 {
+        task::fd_set_cloexec(read_fd, true);
+        task::fd_set_cloexec(write_fd, true);
+    }
+    if flags & O_NONBLOCK != 0 {
+        pipe.set_nonblock(End::Read, true);
+        pipe.set_nonblock(End::Write, true);
+    }
+    // Safety: user array of two `int` descriptors (the syscall ABI's contract).
+    unsafe {
+        user_ptr::write::<i32>(fds, read_fd as i32);
+        user_ptr::write::<i32>(fds + 4, write_fd as i32);
+    }
+    0
+}
+
+/// `socketpair(AF_UNIX, SOCK_STREAM|SOCK_SEQPACKET, 0, sv)`: a new pair of
+/// byte-stream endpoints. `SOCK_SEQPACKET` is accepted but message boundaries
+/// are not preserved (std sends one fixed 8-byte record; see
+/// `crate::ipc::pipe::SocketPair`). `SOCK_CLOEXEC`/`SOCK_NONBLOCK` are honored.
+fn sys_socketpair(domain: u64, kind: u64, protocol: u64, sv: u64) -> u64 {
+    let base = kind & 0xf;
+    if domain != AF_UNIX || (base != SOCK_STREAM && base != SOCK_SEQPACKET) || protocol != 0 {
+        return err(EINVAL);
+    }
+    if sv == 0 {
+        return err(EFAULT);
+    }
+    let Some(pair) = pipe::SocketPair::new() else {
+        return err(EMFILE);
+    };
+    let Some(a) = task::fd_open(Fd::socket_side(Arc::clone(&pair), Side::A)) else {
+        return err(EMFILE);
+    };
+    let Some(b) = task::fd_open(Fd::socket_side(Arc::clone(&pair), Side::B)) else {
+        task::fd_close(a);
+        return err(EMFILE);
+    };
+    if kind & SOCK_CLOEXEC != 0 {
+        task::fd_set_cloexec(a, true);
+        task::fd_set_cloexec(b, true);
+    }
+    if kind & SOCK_NONBLOCK != 0 {
+        pair.set_nonblock(Side::A, true);
+        pair.set_nonblock(Side::B, true);
+    }
+    // Safety: user array of two `int` descriptors (the syscall ABI's contract).
+    unsafe {
+        user_ptr::write::<i32>(sv, a as i32);
+        user_ptr::write::<i32>(sv + 4, b as i32);
+    }
+    0
+}
+
+/// `sendto(fd, buf, len, flags, addr, addrlen)`: musl's `send`. The only
+/// sockets are connected `AF_UNIX` pairs, so the destination is ignored (std
+/// passes a null address) and this is a stream write; a non-socket fd is
+/// `-ENOTSOCK`, as Linux reports.
+fn sys_sendto(fd: u64, buf: u64, len: u64) -> u64 {
+    match task::fd_kind(fd as usize) {
+        FdKind::Socket => write_stream(fd, buf, len),
+        _ => err(ENOTSOCK),
+    }
+}
+
+/// `recvfrom(fd, buf, len, flags, addr, addrlen)`: musl's `recv`. Source
+/// addresses do not exist for connected pairs (std passes null), so this is a
+/// stream read; a non-socket fd is `-ENOTSOCK`.
+fn sys_recvfrom(fd: u64, buf: u64, len: u64) -> u64 {
+    match task::fd_kind(fd as usize) {
+        FdKind::Socket => read_stream(fd, buf, len),
+        _ => err(ENOTSOCK),
+    }
+}
+
+/// Close every `FD_CLOEXEC` descriptor: the `execve` step that drops std's
+/// pipe and socket pairs after they have been `dup2`-ed onto 0/1/2. Returns how
+/// many were closed (test-visible through `process::linux`).
+pub fn close_cloexec_fds() -> usize {
+    // The `(task, fd)` metadata side table is keyed by slot; clear the marked
+    // slots first so a closed file's mode/size cannot outlive the exec.
+    for fd in 0..task::FD_COUNT {
+        if task::fd_cloexec(fd) {
+            fd_meta_clear(fd);
+        }
+    }
+    task::fd_close_cloexec()
 }
 
 /// Fill a `struct stat` (x86_64 layout) at `buf`.
@@ -1395,6 +1945,14 @@ fn sys_fstat(fd: u64, buf: u64) -> u64 {
             fill_stat(buf, S_IFCHR | 0o620, 0, 0);
             0
         }
+        FdKind::Pipe => {
+            fill_stat(buf, S_IFIFO | 0o600, 0, fd);
+            0
+        }
+        FdKind::Socket => {
+            fill_stat(buf, S_IFSOCK | 0o600, 0, fd);
+            0
+        }
         FdKind::Closed => err(EBADF),
     }
 }
@@ -1423,21 +1981,52 @@ fn sys_newfstatat(_dirfd: u64, path: u64, buf: u64, _flags: u64) -> u64 {
     }
 }
 
-/// `clone(flags, stack, parent_tid, child_tid, tls)` — thread creation only.
+/// Free task slots at which a successful `clone` gives the scheduler a tick
+/// before returning, so a burst of thread creation cannot fill the table with
+/// threads that have not run yet.
+const CLONE_SLOT_RESERVE: usize = 4;
+
+/// `clone(flags, stack, parent_tid, child_tid, tls)`.
+///
+/// `CLONE_VM|CLONE_THREAD` is a thread ([`task::spawn_thread`]); `CLONE_VM`
+/// without `CLONE_THREAD` is musl `posix_spawn`'s vfork child
+/// ([`task::spawn_vfork`]): shared address space, copied descriptor table,
+/// inherited `%fs`. A plain `fork`-style clone (no `CLONE_VM`) is not modelled.
+///
+/// On a single CPU a parent can spawn threads faster than they run: a burst can
+/// fill the table with threads that have not had a first quantum, and a spawn
+/// that then fails would strand every one of them, because musl's
+/// `pthread_create` holds the thread-list lock across `clone` (they cannot exit
+/// until the call returns). So while the table is near capacity, a successful
+/// clone sleeps for one tick after leaving the new thread runnable. The
+/// scheduler then runs earlier threads, they exit, and their slots are
+/// reclaimed (issue #133); a genuinely exhausted table still fails with
+/// `ENOMEM` like Linux.
 fn sys_clone(flags: u64, stack: u64, parent_tid: u64, child_tid: u64, tls: u64) -> u64 {
     if flags & CLONE_VM == 0 {
         return err(ENOSYS); // fork/process creation is a later phase
     }
-    let fs_base = if flags & CLONE_SETTLS != 0 { tls } else { 0 };
-    let clear = if flags & CLONE_CHILD_CLEARTID != 0 {
-        child_tid
+    let spawned = if flags & CLONE_THREAD != 0 {
+        let fs_base = if flags & CLONE_SETTLS != 0 { tls } else { 0 };
+        let clear = if flags & CLONE_CHILD_CLEARTID != 0 {
+            child_tid
+        } else {
+            0
+        };
+        task::spawn_thread("thread", stack, fs_base, clear)
     } else {
-        0
+        task::spawn_vfork(stack)
     };
-    match task::spawn_thread("thread", stack, fs_base, clear) {
+    // Collect exits the scheduler already flagged before deciding the table is
+    // under pressure.
+    task::reclaim_pending();
+    match spawned {
         Ok(index) => {
             if flags & CLONE_PARENT_SETTID != 0 && parent_tid != 0 {
                 write_u64(parent_tid, index as u64);
+            }
+            if task::free_slots() <= CLONE_SLOT_RESERVE {
+                task::wait_slot(task::ticks() + 1);
             }
             index as u64
         }
@@ -1536,11 +2125,11 @@ fn sys_execve(path_ptr: u64, argv_ptr: u64, envp_ptr: u64) -> u64 {
     let target = resolve_exe(&path);
     // Executables need the execute bit. Applet aliases and paths with no VFS
     // node fall through to `load_file`; root bypasses the check as usual.
-    match crate::fs::vfs_check(Id::current(), target, vfs::EXECUTE) {
+    match crate::fs::abi_check(Id::current(), target, vfs::EXECUTE) {
         Ok(_) | Err(FsError::NotFound) => {}
         Err(error) => return fs_err(error),
     }
-    let elf = match load_file(target) {
+    let elf = match load_executable(target) {
         Ok(elf) => elf,
         Err(FsError::NotFound) => return err(ENOENT),
         Err(error) => return fs_err(error),
@@ -1565,6 +2154,10 @@ fn sys_execve(path_ptr: u64, argv_ptr: u64, envp_ptr: u64) -> u64 {
     let phdr = program_header_addr(&elf);
     let (phent, phnum) = phdr_size(&elf);
     let rsp = build_start_stack(&stack, &argv, &envp, entry, phdr, phent, phnum);
+
+    // The image is committed: close the descriptors std marked `O_CLOEXEC`
+    // (the child's copies of the inherit-only pipe ends) before resuming.
+    close_cloexec_fds();
 
     // Replace the process image: switch to the new table and make `sysretq`
     // resume at the new entry.
@@ -1691,13 +2284,15 @@ fn sys_rt_sigaction(sig: u64, act: u64, oldact: u64, sigsetsize: u64) -> u64 {
         write_u64(oldact, handler);
         write_u64(oldact + 8, flags);
         write_u64(oldact + 16, restorer);
-        write_u64(oldact + 24, mask);
+        // The kernel stores `sa_mask` in its internal bit order.
+        write_u64(oldact + 24, signal::kernel_to_linux_sigset(mask));
     }
     if act != 0 {
         let handler = read_u64(act);
         let flags = read_u64(act + 8);
         let restorer = read_u64(act + 16);
-        let mask = read_u64(act + 24);
+        // User space passes a Linux `sigset_t` (bit `sig - 1`).
+        let mask = signal::linux_sigset_to_kernel(read_u64(act + 24));
         let disposition = match handler {
             signal::SIG_DFL => Disposition::Default,
             signal::SIG_IGN => Disposition::Ignore,
@@ -1724,10 +2319,12 @@ fn sys_rt_sigprocmask(how: u64, set: u64, oldset: u64, sigsetsize: u64) -> u64 {
         return err(EINVAL);
     }
     let me = task::current();
+    // The kernel keeps its blocked set in internal bit order; user space
+    // passes and reads Linux `sigset_t` (bit `sig - 1`).
     let current = signal::blocked(me);
     if set == 0 {
         if oldset != 0 {
-            write_u64(oldset, current);
+            write_u64(oldset, signal::kernel_to_linux_sigset(current));
         }
         return 0;
     }
@@ -1735,9 +2332,9 @@ fn sys_rt_sigprocmask(how: u64, set: u64, oldset: u64, sigsetsize: u64) -> u64 {
         return err(EINVAL);
     }
     if oldset != 0 {
-        write_u64(oldset, current);
+        write_u64(oldset, signal::kernel_to_linux_sigset(current));
     }
-    let requested = read_u64(set);
+    let requested = signal::linux_sigset_to_kernel(read_u64(set));
     let next = match how {
         signal::SIG_BLOCK => current | requested,
         signal::SIG_UNBLOCK => current & !requested,

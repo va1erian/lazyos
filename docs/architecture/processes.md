@@ -11,6 +11,7 @@ syscall shim.
 | `kernel/src/task/process.rs` | Tree, groups, sessions, `finish`, `reap_child` |
 | `kernel/src/process/mod.rs` | Native gate dispatch, ELF loader, syscalls 6-11 |
 | `kernel/src/process/linux.rs` | Linux ELF loader + syscall dispatch, futex, clone |
+| `kernel/src/ipc/pipe.rs` | Pipes (`pipe`/`pipe2`) and `AF_UNIX` socket pairs |
 | `kernel/src/arch/linux.rs` | `syscall`/`sysret` entry (see [arch.md](arch.md)) |
 | `kernel/src/task/signal.rs` | `SIGCHLD`, group termination (see [wait-signals.md](wait-signals.md)) |
 
@@ -55,21 +56,40 @@ syscall shim.
 - `load` builds a Linux stack (argv/envp/auxv; `AT_CLKTCK = 100`) and returns
   `(entry, stack_top)`; `spawn_linux` registers the `brk`/`mmap` bumps.
 - `linux_dispatch` implements a growing subset: file I/O (`read`, `write`,
-  `openat`, `close`, `stat`/`fstat`, `getdents64`, `readv`/`writev`, `lseek`),
-  memory (`mmap`, `mprotect`, `munmap`, `brk`), signals (`rt_sigaction`,
-  `rt_sigprocmask`, `rt_sigreturn`, `sigaltstack`), process (`clone`, `fork`,
-  `execve`, `exit`, `exit_group`, `wait4`, `kill`, `tkill`, `tgkill`,
-  `set_tid_address`, `futex`), ids/groups (`getpid`/`gettid`, `getppid`,
-  `setpgid`, `setsid`, `getpgid`, `getsid`), time and misc (`nanosleep`,
-  `clock_gettime`, `gettimeofday`, `getrandom`, `uname`, `access`, `umask`,
-  `arch_prctl`, `sched_getaffinity`). Everything else logs `ENOSYS <nr> <name>`.
+  `openat`, `close`, `stat`/`fstat`, `getdents64`, `readv`/`writev`, `lseek`,
+  `mkdir`/`mkdirat`, `rmdir`, `rename`/`renameat`, `unlink`/`unlinkat` with
+  `AT_REMOVEDIR`), memory (`mmap`, `mprotect`, `munmap`, `brk`), signals
+  (`rt_sigaction`, `rt_sigprocmask`, `rt_sigreturn`, `sigaltstack`), process
+  (`clone`, `fork`, `execve`, `exit`, `exit_group`, `wait4`, `kill`, `tkill`,
+  `tgkill`, `set_tid_address`, `futex`), ids/groups (`getpid`/`gettid`,
+  `getppid`, `setpgid`, `setsid`, `getpgid`, `getsid`), pipes/sockets (`pipe`,
+  `pipe2`, `socketpair`, `sendto`/`recvfrom`, `poll`), and time/misc
+  (`nanosleep`, `clock_gettime`, `gettimeofday`, `getrandom`, `uname`, `access`,
+  `umask`, `arch_prctl`, `sched_getaffinity`). Everything else logs
+  `ENOSYS <nr> <name>`.
+- File I/O runs against the ABI's own mount table, whose root is the copy-up
+  overlay from [filesystem.md](filesystem.md), so `O_CREAT`, `O_TRUNC`,
+  `O_APPEND`, `O_EXCL`, and `O_DIRECTORY` open, `mkdir`/`rename`/`unlink`/
+  `rmdir`, and descriptor writes all succeed over the read-only FAT boot
+  volume. Relative `*at` calls join a real directory descriptor's recorded
+  path (which is how `std`'s `remove_dir_all` walk works); descriptors snapshot
+  file bytes at open and `write` patches the snapshot after updating the
+  backing file.
 - Honored `clone` flags: `CLONE_VM`, `CLONE_SETTLS`, `CLONE_PARENT_SETTID`,
-  `CLONE_CHILD_CLEARTID`. Futex words get one `WaitQueue` per address.
+  `CLONE_CHILD_CLEARTID`. `CLONE_VM` with `CLONE_THREAD` is a pthread; without
+  it, musl's `posix_spawn` vfork child (a copy-on-write process with the
+  parent's descriptor table). Futex words get one `WaitQueue` per address.
+- Pipes are bounded 64 KiB byte rings with reader/writer refcounts, blocking
+  waits on the task wait queues, EOF when the last writer closes and `-EPIPE`
+  when the last reader closes (no SIGPIPE; see the module docs). `F_GETFL`/
+  `F_SETFL` carry `O_NONBLOCK`, `F_GETFD`/`F_SETFD` carry `FD_CLOEXEC`, and
+  `execve` closes marked descriptors while `fork` inherits them.
 - `execve` replaces the image, resets the signal table, and tears down the old
   PML4 when it has no other users. The ABI bench injects `INIT.ELF` via
   `LAZYOS_INIT`; `BUSYBOX` runs BusyBox `sh` on the shim, and results are
   generated into `docs/compat/` (git-ignored) by `tools/abi/run.py`.
 
-**Status.** Working: BusyBox `sh`, static musl fixtures (matrix published by CI),
-native supervision loop (`init`). Gaps tracked in the Linux ABI plan: sockets,
-`poll` edge cases, full `SA_RESTART`, shared file tables.
+**Status.** Working: BusyBox `sh`, static musl fixtures including
+`std::process` with piped stdio (matrix published by CI), native supervision
+loop (`init`). Gaps tracked in the Linux ABI plan: `SOCK_SEQPACKET` message
+framing, `poll` edge cases, full `SA_RESTART`, shared file tables.

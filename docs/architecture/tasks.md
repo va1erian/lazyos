@@ -19,6 +19,12 @@ ISR that performs context switches.
 - `Kind`: `Native` (`int 0x80`) or `Linux` (`syscall`/`sysret`). `TaskState`:
   `Runnable`, `Blocked { wait: WaitKind, deadline: Option<u64> }`, `Done` (kept
   until reaped). `WakeReason`: `Woken`, `TimedOut`, `Interrupted`.
+- Parentless tasks (`parent == 0`: kernel-started programs and
+  `clone(CLONE_VM)` threads) have no `wait4` observer. The scheduler flags a
+  finished one and `reclaim_pending` — run from a syscall entry or the mux
+  loop, where the current task holds no heap lock — frees its slot, buffers
+  and, when it was the address space's last user, its pages (issue #133).
+  Children (`parent != 0`) stay zombies until their parent reaps them.
 - Per task: `pml4`, `kstack_top`/`rsp`, `class`/`weight`/`pass`, `cpu_ticks`,
   `parent`/`pgid`/`sid`, `heap_break`, `fs_base`, `fds[16]`, `output`, `input`.
 

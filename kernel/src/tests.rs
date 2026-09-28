@@ -102,6 +102,15 @@ const SUITE: &[(&str, Test)] = &[
         task_suite::block_wake_roundtrip,
     ),
     ("task_fork_reap_churn", task_suite::fork_reap_churn),
+    ("task_thread_exit_reclaim", task_suite::thread_exit_reclaim),
+    (
+        "task_thread_churn_generations",
+        task_suite::thread_churn_generations,
+    ),
+    (
+        "task_soak_thread_exit_generations",
+        task_suite::soak_thread_exit_generations,
+    ),
     ("task_futex_wait_mismatch", task_suite::futex_wait_mismatch),
     ("task_fd_table", task_suite::fd_table),
     (
@@ -176,7 +185,35 @@ const SUITE: &[(&str, Test)] = &[
         "task_signal_handler_frame_roundtrip",
         signal_suite::handler_frame_roundtrip,
     ),
+    (
+        "task_signal_linux_sigset_roundtrip",
+        signal_suite::linux_sigset_roundtrip,
+    ),
+    (
+        "task_signal_linux_sigprocmask_boundary",
+        signal_suite::linux_sigprocmask_sigset_boundary,
+    ),
+    (
+        "task_signal_linux_sigset_soak",
+        signal_suite::linux_sigset_translate_soak,
+    ),
     ("task_signal_stop_continue", signal_suite::stop_continue),
+    (
+        "pipe_syscalls_create_and_io",
+        pipe_suite::syscalls_create_and_io,
+    ),
+    ("pipe_ring_wrap_roundtrip", pipe_suite::ring_wrap_roundtrip),
+    (
+        "pipe_blocking_read_write_wake",
+        pipe_suite::blocking_read_write_wake,
+    ),
+    ("pipe_eof_epipe_nonblock", pipe_suite::eof_epipe_nonblock),
+    ("pipe_dup_fork_cloexec", pipe_suite::dup_fork_cloexec),
+    ("pipe_vfork_clone_child", pipe_suite::vfork_clone_child),
+    (
+        "pipe_soak_throughput_and_lifecycle",
+        pipe_suite::soak_throughput_and_lifecycle,
+    ),
     ("ipc_open_distinct", ipc_suite::open_distinct),
     ("ipc_duplicate_rights", ipc_suite::duplicate_rights),
     ("ipc_close_frees", ipc_suite::close_frees),
@@ -348,6 +385,22 @@ const SUITE: &[(&str, Test)] = &[
         "fs_getdents64_ramfs_directory",
         fs_suite::getdents64_ramfs_directory,
     ),
+    (
+        "fs_overlay_copy_up_read_write",
+        overlay_suite::copy_up_read_write,
+    ),
+    (
+        "fs_overlay_dir_create_remove",
+        overlay_suite::dir_create_remove,
+    ),
+    ("fs_overlay_rename_replace", overlay_suite::rename_replace),
+    ("fs_overlay_enospc_limits", overlay_suite::enospc_limits),
+    (
+        "fs_overlay_soak_generations",
+        overlay_suite::soak_generations,
+    ),
+    ("fs_abi_mkdir_rename_rmdir", overlay_suite::abi_syscalls),
+    ("fs_abi_unlink_while_open", overlay_suite::unlink_while_open),
     (
         "fs_ext2_create_write_read_rename_unlink",
         ext2_suite::create_write_read_rename_unlink,
@@ -1989,6 +2042,272 @@ mod task_suite {
         Ok(())
     }
 
+    /// An exited `clone(CLONE_VM)` thread (parentless) releases its slot once
+    /// the scheduler has switched away from it; a task with a parent stays a
+    /// waitable zombie until `wait4` reaps it (issue #133).
+    pub fn thread_exit_reclaim() -> Result<(), String> {
+        task::harness::reset();
+        task::harness::switch_current(task::KERNEL_TASK);
+        // A process to own the thread: forking from init gives it a table of
+        // its own, which the thread then shares.
+        let leader = task::spawn_fork().map_err(|error| format!("leader: {error}"))?;
+        let leader_pml4 = task::harness::pml4(leader).ok_or("the leader has no address space")?;
+        task::harness::switch_current(leader);
+        let thread = task::spawn_thread("thread", process::USER_STACK_TOP, 0, 0)
+            .map_err(|error| format!("thread: {error}"))?;
+        check!(
+            task::harness::pml4(thread) == Some(leader_pml4),
+            "the thread does not share the leader's address space"
+        );
+
+        // Exit the thread and run the tick that switches away from it. The
+        // slot is only freed after the scheduler flags it, so it must still be
+        // present until `reclaim_pending` runs.
+        task::harness::finish(thread, 0x33);
+        task::harness::switch_current(thread);
+        let next = task::harness::simulate_tick();
+        check!(next != thread, "the finished thread was selected again");
+        check!(
+            task::harness::state(thread) == Some(task::TaskState::Done),
+            "the thread was reclaimed while still on the scheduler stack"
+        );
+        task::reclaim_pending();
+        check!(
+            task::harness::state(thread).is_none(),
+            "the exited thread still holds its slot"
+        );
+        check!(
+            task::process::find_by_pid(thread).is_none(),
+            "a reclaimed thread is still findable by pid"
+        );
+        check!(
+            task::harness::pml4(leader) == Some(leader_pml4),
+            "reclaiming the thread tore down the shared address space"
+        );
+        check!(
+            task::signal::send_tid(
+                leader,
+                thread,
+                task::signal::SIGTERM,
+                task::signal::SigInfo::user(leader, 0)
+            ) == Err(task::signal::SignalError::NoSuchProcess),
+            "a reclaimed thread's tid still accepts signals"
+        );
+
+        // A task with a parent is not reclaimed: `wait4` must still collect it.
+        task::harness::switch_current(leader);
+        let child = task::spawn_fork().map_err(|error| format!("child: {error}"))?;
+        task::harness::finish(child, 0x44);
+        task::harness::switch_current(child);
+        let next = task::harness::simulate_tick();
+        check!(next != child, "the finished child was selected again");
+        task::reclaim_pending();
+        check!(
+            task::harness::state(child) == Some(task::TaskState::Done),
+            "a waitable child was reclaimed without wait4"
+        );
+        task::harness::switch_current(leader);
+        let (reaped, status) = task::reap_child().ok_or("the child is not reapable")?;
+        check!(
+            reaped == child && status == 0x44,
+            "wait4 collected {reaped}/{status:#x}, expected {child}/0x44"
+        );
+
+        // The parentless leader itself is reclaimed once it leaves the CPU.
+        task::harness::finish(leader, 0);
+        task::harness::switch_current(leader);
+        task::harness::simulate_tick();
+        task::reclaim_pending();
+        check!(
+            task::harness::state(leader).is_none(),
+            "the exited leader still holds its slot"
+        );
+        task::harness::reset();
+        Ok(())
+    }
+
+    /// 64 spawn/exit generations in one process: the freed slot is recycled
+    /// every round, past the ~14 raw spawns a 16-slot table allows.
+    pub fn thread_churn_generations() -> Result<(), String> {
+        const ROUNDS: usize = 64;
+        task::harness::reset();
+        task::harness::switch_current(task::KERNEL_TASK);
+        let leader = task::spawn_fork().map_err(|error| format!("leader: {error}"))?;
+        let mut slots = Vec::new();
+        for round in 0..ROUNDS {
+            task::harness::switch_current(leader);
+            let thread = task::spawn_thread("thread", process::USER_STACK_TOP, 0, 0)
+                .map_err(|error| format!("round {round}: spawn: {error}"))?;
+            slots.push(thread);
+            task::harness::finish(thread, 0);
+            task::harness::switch_current(thread);
+            let next = task::harness::simulate_tick();
+            check!(
+                next != thread,
+                "round {round}: finished thread was selected"
+            );
+            task::reclaim_pending();
+            check!(
+                task::harness::state(thread).is_none(),
+                "round {round}: slot {thread} was not reclaimed"
+            );
+        }
+        check!(
+            slots.iter().all(|&slot| slot == slots[0]),
+            "the thread slot was not recycled: {slots:?}"
+        );
+        task::harness::finish(leader, 0);
+        task::harness::switch_current(leader);
+        task::harness::simulate_tick();
+        task::reclaim_pending();
+        task::harness::reset();
+        Ok(())
+    }
+
+    /// Soak (issue #133): thousands of short-lived threads, plus repeated
+    /// whole thread-group teardowns with a mapped address space. Occupied slots
+    /// and frame accounting must return exactly to the baseline.
+    pub fn soak_thread_exit_generations() -> Result<(), String> {
+        const THREADS: usize = 4096;
+        const GROUPS: usize = 64;
+        /// A deliberately generous ceiling (roughly a minute of wall clock);
+        /// the loop is expected to take well under a second even under TCG.
+        const MAX_CYCLES: u64 = 400_000_000_000;
+
+        task::harness::reset();
+        task::harness::switch_current(task::KERNEL_TASK);
+        let baseline_frames = mem::frame_stats().live();
+        let baseline_slots = task::process::process_list().len();
+        let start = unsafe { core::arch::x86_64::_rdtsc() };
+
+        // One long-lived process whose threads churn: every exit must recycle
+        // the slot and drop the task's own buffers.
+        let leader = task::spawn_fork().map_err(|error| format!("leader: {error}"))?;
+        let leader_pml4 =
+            PhysAddr::new(task::harness::pml4(leader).ok_or("the leader has no address space")?);
+        process::map_range(leader_pml4, TEST_VA, TEST_VA + 4 * 4096)
+            .map_err(|error| format!("leader map: {error}"))?;
+        let steady_frames = mem::frame_stats().live();
+        let mut thread_slots = Vec::new();
+        for round in 0..THREADS {
+            task::harness::switch_current(leader);
+            let thread = task::spawn_thread("thread", process::USER_STACK_TOP, 0, 0)
+                .map_err(|error| format!("round {round}: spawn: {error}"))?;
+            thread_slots.push(thread);
+
+            // Give the thread task-owned heap state, so reclamation has real
+            // buffers to drop, not just an empty shell.
+            task::harness::switch_current(thread);
+            task::write_output(b"thread output\n");
+            task::fd_open(task::Fd::File {
+                data: alloc::vec![0x5a; 64],
+                offset: 0,
+            })
+            .ok_or_else(|| format!("round {round}: fd_open failed"))?;
+            task::harness::finish(thread, 0);
+            let next = task::harness::simulate_tick();
+            check!(
+                next != thread,
+                "round {round}: finished thread was selected"
+            );
+            task::reclaim_pending();
+            check!(
+                task::harness::state(thread).is_none(),
+                "round {round}: slot {thread} was not reclaimed"
+            );
+            if round % 1024 == 0 {
+                let live = mem::frame_stats().live();
+                check!(
+                    live == steady_frames,
+                    "round {round}: frames leaked ({} over baseline)",
+                    live.saturating_sub(steady_frames)
+                );
+                serial_println!(
+                    "TEST:task_soak_thread_exit_generations:PROGRESS:thread {round}/{THREADS}"
+                );
+            }
+        }
+        check!(
+            thread_slots.iter().all(|&slot| slot == thread_slots[0]),
+            "the churn did not recycle one slot"
+        );
+        check!(
+            task::process::process_list().len() == baseline_slots + 1,
+            "slots leaked during thread churn: {} rows",
+            task::process::process_list().len()
+        );
+
+        // Whole generations: each builds its own address space with a mapped
+        // page, spawns a thread in it, exits both, and must return the frames.
+        for round in 0..GROUPS {
+            task::harness::switch_current(task::KERNEL_TASK);
+            let group = task::spawn_fork().map_err(|error| format!("group {round}: {error}"))?;
+            let group_pml4 =
+                PhysAddr::new(task::harness::pml4(group).ok_or("the group has no address space")?);
+            process::map_range(group_pml4, TEST_VA, TEST_VA + 4096)
+                .map_err(|error| format!("group {round} map: {error}"))?;
+            task::harness::switch_current(group);
+            let thread = task::spawn_thread("thread", process::USER_STACK_TOP, 0, 0)
+                .map_err(|error| format!("group {round}: thread spawn: {error}"))?;
+            task::harness::finish(thread, 0);
+            task::harness::finish(group, 0);
+
+            // Switch away from the thread: its slot goes, the shared address
+            // space stays (the group still references it).
+            task::harness::switch_current(thread);
+            task::harness::simulate_tick();
+            task::reclaim_pending();
+            check!(
+                task::harness::state(thread).is_none(),
+                "group {round}: thread slot was not reclaimed"
+            );
+            // Switch away from the group: the last user is gone, so the whole
+            // address space is torn down.
+            task::harness::switch_current(group);
+            task::harness::simulate_tick();
+            task::reclaim_pending();
+            check!(
+                task::harness::state(group).is_none(),
+                "group {round}: group slot was not reclaimed"
+            );
+            let live = mem::frame_stats().live();
+            check!(
+                live == steady_frames,
+                "group {round}: address-space frames leaked ({} over baseline)",
+                live.saturating_sub(steady_frames)
+            );
+        }
+
+        // Reclaiming the long-lived leader must return everything to the
+        // pre-soak baseline.
+        task::harness::finish(leader, 0);
+        task::harness::switch_current(leader);
+        task::harness::simulate_tick();
+        task::reclaim_pending();
+        let after_frames = mem::frame_stats().live();
+        check!(
+            after_frames == baseline_frames,
+            "soak leaked {} frames",
+            after_frames.saturating_sub(baseline_frames)
+        );
+        let after_slots = task::process::process_list().len();
+        check!(
+            after_slots == baseline_slots,
+            "soak leaked {} task slots",
+            after_slots.saturating_sub(baseline_slots)
+        );
+        let cycles = unsafe { core::arch::x86_64::_rdtsc() }.wrapping_sub(start);
+        serial_println!(
+            "TEST:task_soak_thread_exit_generations:INFO:threads={THREADS} groups={GROUPS} cycles={cycles}"
+        );
+        check!(
+            cycles < MAX_CYCLES,
+            "soak used {cycles} cycles, over the {MAX_CYCLES} budget"
+        );
+        task::harness::reset();
+        Ok(())
+    }
+
     /// `futex(FUTEX_WAIT)` on a mismatched word returns EAGAIN without blocking;
     /// `FUTEX_WAKE` with no waiters returns 0.
     pub fn futex_wait_mismatch() -> Result<(), String> {
@@ -2686,6 +3005,589 @@ mod task_suite {
 }
 
 // ---------------------------------------------------------------------------
+// Pipes, pipe2 and socketpair (issue #135)
+// ---------------------------------------------------------------------------
+
+mod pipe_suite {
+    use super::*;
+    use crate::ipc::pipe::{self, End};
+
+    const O_NONBLOCK: u64 = 0o4000;
+    const O_CLOEXEC: u64 = 0o2000000;
+    const SOCK_STREAM: u64 = 1;
+    const SOCK_CLOEXEC: u64 = 0o2000000;
+    const F_GETFD: u64 = 1;
+    const F_GETFL: u64 = 3;
+    const F_SETFL: u64 = 4;
+    const F_DUPFD_CLOEXEC: u64 = 1030;
+    const EAGAIN: u64 = (-11i64) as u64;
+
+    /// Register the kernel task and close any descriptor an earlier test left
+    /// behind, so pipe-object accounting starts from a clean slate.
+    fn fresh() -> Result<(), String> {
+        task::register_kernel();
+        for fd in 3..task::FD_COUNT {
+            let _ = task::fd_close(fd);
+        }
+        check!(
+            pipe::Pipe::live() == 0,
+            "{} pipes leaked into this test",
+            pipe::Pipe::live()
+        );
+        Ok(())
+    }
+
+    /// Whether every descriptor of the current task from 3 up is closed.
+    fn fds_clean() -> bool {
+        (3..task::FD_COUNT).all(|fd| task::fd_kind(fd) == task::FdKind::Closed)
+    }
+
+    fn io_err(error: pipe::Error) -> String {
+        format!("pipe I/O: {error:?}")
+    }
+
+    /// `pipe`, `pipe2` and `socketpair` through the real syscall dispatch:
+    /// creation flags (`O_CLOEXEC`, `O_NONBLOCK`), `F_GETFL`/`F_SETFL`,
+    /// `F_GETFD`, data flow, EOF and close.
+    pub fn syscalls_create_and_io() -> Result<(), String> {
+        fresh()?;
+
+        // pipe(fds): no flags, blocking ends.
+        let mut fds = [0i32; 2];
+        let ret = process::linux::dispatch_for_test(22, fds.as_mut_ptr() as u64, 0, 0);
+        check!(ret == 0, "pipe returned {ret:#x}");
+        let (r, w) = (fds[0] as usize, fds[1] as usize);
+        check!(
+            task::fd_kind(r) == task::FdKind::Pipe && task::fd_kind(w) == task::FdKind::Pipe,
+            "pipe fds {r}/{w} have wrong kinds"
+        );
+        check!(
+            process::linux::dispatch_for_test(72, r as u64, F_GETFL, 0) == 0,
+            "F_GETFL on a plain read end is not O_RDONLY"
+        );
+        let msg = b"ping";
+        let n =
+            process::linux::dispatch_for_test(1, w as u64, msg.as_ptr() as u64, msg.len() as u64);
+        check!(n == msg.len() as u64, "pipe write returned {n:#x}");
+        let mut buf = [0u8; 16];
+        let n = process::linux::dispatch_for_test(
+            0,
+            r as u64,
+            buf.as_mut_ptr() as u64,
+            buf.len() as u64,
+        );
+        check!(n == 4 && &buf[..4] == b"ping", "pipe read returned {n}");
+        check!(task::fd_close(w), "closing the write end failed");
+        let n = process::linux::dispatch_for_test(
+            0,
+            r as u64,
+            buf.as_mut_ptr() as u64,
+            buf.len() as u64,
+        );
+        check!(
+            n == 0,
+            "read after last writer close returned {n:#x}, expected EOF"
+        );
+
+        // pipe2(fds, O_CLOEXEC | O_NONBLOCK).
+        let ret = process::linux::dispatch_for_test(
+            293,
+            fds.as_mut_ptr() as u64,
+            O_CLOEXEC | O_NONBLOCK,
+            0,
+        );
+        check!(ret == 0, "pipe2 returned {ret:#x}");
+        let (r2, w2) = (fds[0] as usize, fds[1] as usize);
+        check!(
+            task::fd_cloexec(r2) && task::fd_cloexec(w2),
+            "pipe2 ignored O_CLOEXEC"
+        );
+        check!(
+            process::linux::dispatch_for_test(72, r2 as u64, F_GETFL, 0) == O_NONBLOCK,
+            "F_GETFL does not report O_NONBLOCK"
+        );
+        check!(
+            process::linux::dispatch_for_test(72, r2 as u64, F_GETFD, 0) == 1,
+            "F_GETFD does not report FD_CLOEXEC"
+        );
+        let got = process::linux::dispatch_for_test(
+            0,
+            r2 as u64,
+            buf.as_mut_ptr() as u64,
+            buf.len() as u64,
+        );
+        check!(got == EAGAIN, "empty O_NONBLOCK read returned {got:#x}");
+        check!(
+            process::linux::dispatch_for_test(72, r2 as u64, F_SETFL, 0) == 0,
+            "F_SETFL(0) failed"
+        );
+        check!(
+            task::fd_status(r2) == Some(0),
+            "F_SETFL(0) did not clear O_NONBLOCK: {:?}",
+            task::fd_status(r2)
+        );
+        // F_DUPFD_CLOEXEC shares the pipe end and sets FD_CLOEXEC on the copy.
+        let dup = process::linux::dispatch_for_test(72, r2 as u64, F_DUPFD_CLOEXEC, 7);
+        let dup = dup as usize;
+        check!(
+            dup >= 7 && task::fd_kind(dup) == task::FdKind::Pipe && task::fd_cloexec(dup),
+            "F_DUPFD_CLOEXEC returned {dup}"
+        );
+        check!(
+            task::fd_close(dup),
+            "closing the F_DUPFD_CLOEXEC copy failed"
+        );
+
+        // socketpair: AF_UNIX + SOCK_STREAM, data crosses both ways.
+        let mut sv = [0i32; 2];
+        let ret = process::linux::dispatch_args_for_test(
+            53,
+            1,
+            SOCK_STREAM | SOCK_CLOEXEC,
+            0,
+            sv.as_mut_ptr() as u64,
+        );
+        check!(ret == 0, "socketpair returned {ret:#x}");
+        let (a, b) = (sv[0] as usize, sv[1] as usize);
+        check!(
+            task::fd_kind(a) == task::FdKind::Socket && task::fd_kind(b) == task::FdKind::Socket,
+            "socketpair fds {a}/{b} have wrong kinds"
+        );
+        check!(
+            task::fd_cloexec(a) && task::fd_cloexec(b),
+            "SOCK_CLOEXEC ignored"
+        );
+        let n =
+            process::linux::dispatch_for_test(1, a as u64, msg.as_ptr() as u64, msg.len() as u64);
+        check!(n == 4, "socketpair write returned {n:#x}");
+        let n = process::linux::dispatch_for_test(
+            0,
+            b as u64,
+            buf.as_mut_ptr() as u64,
+            buf.len() as u64,
+        );
+        check!(
+            n == 4 && &buf[..4] == b"ping",
+            "socketpair read returned {n}"
+        );
+        // musl implements send/recv with sendto/recvfrom: std's capture path
+        // reads the socket with `recvfrom`, so both must work (and pipes must
+        // answer -ENOTSOCK).
+        let n =
+            process::linux::dispatch_for_test(44, a as u64, msg.as_ptr() as u64, msg.len() as u64);
+        check!(n == 4, "sendto returned {n:#x}");
+        let n = process::linux::dispatch_for_test(
+            45,
+            b as u64,
+            buf.as_mut_ptr() as u64,
+            buf.len() as u64,
+        );
+        check!(n == 4 && &buf[..4] == b"ping", "recvfrom returned {n}");
+        let enotsock = (-88i64) as u64;
+        let n = process::linux::dispatch_for_test(
+            45,
+            r as u64,
+            buf.as_mut_ptr() as u64,
+            buf.len() as u64,
+        );
+        check!(n == enotsock, "recvfrom on a pipe returned {n:#x}");
+
+        check!(task::fd_close(a), "closing socket side A failed");
+        let n = process::linux::dispatch_for_test(
+            0,
+            b as u64,
+            buf.as_mut_ptr() as u64,
+            buf.len() as u64,
+        );
+        check!(n == 0, "socketpair read after peer close returned {n:#x}");
+
+        // Cleanup: closing every fd drops the live-pipe count back to zero.
+        for fd in [r, r2, w2, b] {
+            check!(task::fd_close(fd), "cleanup close of {fd} failed");
+        }
+        check!(fds_clean(), "a descriptor was left open");
+        check!(
+            pipe::Pipe::live() == 0,
+            "{} pipes survived the test",
+            pipe::Pipe::live()
+        );
+        Ok(())
+    }
+
+    /// A pipe whose tail wraps the ring returns exactly the bytes written, in
+    /// order, across the wrap.
+    pub fn ring_wrap_roundtrip() -> Result<(), String> {
+        fresh()?;
+        let pipe = pipe::Pipe::new().ok_or("Pipe::new failed")?;
+        pipe.acquire(End::Read);
+        pipe.acquire(End::Write);
+        let cap = pipe::CAPACITY;
+
+        let first: Vec<u8> = (0..cap - 4).map(|i| (i % 251) as u8).collect();
+        let n = pipe.write(&first, End::Write, true).map_err(io_err)?;
+        check!(
+            n == first.len(),
+            "first write accepted {n} of {}",
+            first.len()
+        );
+        let mut head = [0u8; 16];
+        let n = pipe.read(End::Read, &mut head, true).map_err(io_err)?;
+        check!(n == 16 && head == first[..16], "head read is wrong");
+
+        // This write lands where the head used to be, so the tail wraps. The
+        // ring has exactly 20 bytes free, so the non-blocking write is partial.
+        let tail: Vec<u8> = (0..20u8).map(|i| 0xA0u8.wrapping_add(i)).collect();
+        let n = pipe.write(&tail, End::Write, true).map_err(io_err)?;
+        check!(n == tail.len(), "wrap write accepted {n}");
+
+        let mut out = vec![0u8; first.len() - 16 + tail.len()];
+        let n = pipe.read(End::Read, &mut out, true).map_err(io_err)?;
+        check!(n == out.len(), "tail read returned {n} of {}", out.len());
+        check!(
+            &out[..first.len() - 16] == &first[16..],
+            "wrapped data mismatch"
+        );
+        check!(&out[first.len() - 16..] == &tail[..], "tail data mismatch");
+
+        pipe.release(End::Read);
+        pipe.release(End::Write);
+        drop(pipe);
+        check!(pipe::Pipe::live() == 0, "the wrapped pipe was not freed");
+        Ok(())
+    }
+
+    /// Parking on the pipe queues and triggering the event wakes the task
+    /// synchronously with `Woken` (the mechanism blocking I/O is built on).
+    pub fn blocking_read_write_wake() -> Result<(), String> {
+        fresh()?;
+        let pipe = pipe::Pipe::new().ok_or("Pipe::new failed")?;
+        pipe.acquire(End::Read);
+        pipe.acquire(End::Write);
+        let me = task::current();
+
+        // A reader parked on an empty pipe is woken by a write.
+        pipe.park_reader(me);
+        check!(
+            matches!(
+                task::harness::state(me),
+                Some(task::TaskState::Blocked { .. })
+            ),
+            "park_reader did not block the current task"
+        );
+        let n = pipe.write(b"x", End::Write, true).map_err(io_err)?;
+        check!(n == 1, "write accepted {n}");
+        check!(
+            task::harness::state(me) == Some(task::TaskState::Runnable),
+            "a write did not wake the parked reader: {:?}",
+            task::harness::state(me)
+        );
+        check!(
+            task::harness::take_wake_reason(me) == Some(task::WakeReason::Woken),
+            "reader wake reason is not Woken"
+        );
+        let mut one = [0u8; 1];
+        check!(
+            pipe.read(End::Read, &mut one, true).map_err(io_err)? == 1 && one[0] == b'x',
+            "the woken reader did not get the written byte"
+        );
+
+        // A writer parked on a full pipe is woken by a read.
+        let fill = vec![7u8; pipe::CAPACITY];
+        let n = pipe.write(&fill, End::Write, true).map_err(io_err)?;
+        check!(n == fill.len(), "fill write accepted {n}");
+        check!(
+            pipe.write(b"y", End::Write, true) == Err(pipe::Error::WouldBlock),
+            "a full non-blocking pipe accepted more bytes"
+        );
+        pipe.park_writer(me);
+        check!(
+            matches!(
+                task::harness::state(me),
+                Some(task::TaskState::Blocked { .. })
+            ),
+            "park_writer did not block the current task"
+        );
+        let mut byte = [0u8; 1];
+        check!(
+            pipe.read(End::Read, &mut byte, true).map_err(io_err)? == 1,
+            "the drain read did not return a byte"
+        );
+        check!(
+            task::harness::state(me) == Some(task::TaskState::Runnable),
+            "a read did not wake the parked writer: {:?}",
+            task::harness::state(me)
+        );
+        check!(
+            task::harness::take_wake_reason(me) == Some(task::WakeReason::Woken),
+            "writer wake reason is not Woken"
+        );
+        check!(
+            pipe.write(b"y", End::Write, true).map_err(io_err)? == 1,
+            "space freed by the read did not accept a byte"
+        );
+
+        pipe.release(End::Read);
+        pipe.release(End::Write);
+        drop(pipe);
+        check!(pipe::Pipe::live() == 0, "the pipe was not freed");
+        Ok(())
+    }
+
+    /// Empty reads are EOF after the last writer closes; writes to a pipe with
+    /// no readers are `BrokenPipe` (no SIGPIPE; see `ipc::pipe` docs); a
+    /// non-blocking end reports `WouldBlock` instead of parking.
+    pub fn eof_epipe_nonblock() -> Result<(), String> {
+        fresh()?;
+        let pipe = pipe::Pipe::new().ok_or("Pipe::new failed")?;
+        pipe.acquire(End::Read);
+        pipe.acquire(End::Write);
+        let mut buf = [0u8; 8];
+
+        check!(
+            pipe.read(End::Read, &mut buf, true) == Err(pipe::Error::WouldBlock),
+            "an empty non-blocking read did not report WouldBlock"
+        );
+        let fill = vec![0x5Au8; pipe::CAPACITY];
+        check!(
+            pipe.write(&fill, End::Write, true).map_err(io_err)? == pipe::CAPACITY,
+            "the pipe did not accept a full ring"
+        );
+        check!(
+            pipe.write(&fill, End::Write, true) == Err(pipe::Error::WouldBlock),
+            "a full non-blocking write did not report WouldBlock"
+        );
+        let mut full = vec![0u8; pipe::CAPACITY];
+        let drained = pipe.read(End::Read, &mut full, true).map_err(io_err)?;
+        check!(
+            drained == pipe::CAPACITY,
+            "drained {drained} of {}",
+            pipe::CAPACITY
+        );
+
+        // Last writer closes: reads return 0 (EOF), poll reports POLLHUP.
+        pipe.release(End::Write);
+        check!(
+            pipe.read(End::Read, &mut buf, true).map_err(io_err)? == 0,
+            "read after last writer close is not EOF"
+        );
+        check!(
+            pipe.poll(End::Read, pipe::POLLIN) & pipe::POLLHUP != 0,
+            "poll on an EOF read end did not report POLLHUP"
+        );
+
+        // Last reader closes: writes fail with -EPIPE, poll reports POLLERR.
+        pipe.release(End::Read);
+        check!(
+            pipe.write(&fill, End::Write, true) == Err(pipe::Error::BrokenPipe),
+            "write with no readers did not report BrokenPipe"
+        );
+        check!(
+            pipe.poll(End::Write, pipe::POLLOUT) & pipe::POLLERR != 0,
+            "poll on a readerless write end did not report POLLERR"
+        );
+
+        drop(pipe);
+        check!(pipe::Pipe::live() == 0, "the pipe was not freed");
+        Ok(())
+    }
+
+    /// `dup` shares the pipe's open file description, `fork` inherits the ends,
+    /// and `execve`'s `FD_CLOEXEC` sweep closes only the marked descriptors.
+    pub fn dup_fork_cloexec() -> Result<(), String> {
+        fresh()?;
+
+        // dup2 clears FD_CLOEXEC on the new descriptor; the exec sweep then
+        // closes the originals and keeps the copy.
+        let mut fds = [0i32; 2];
+        let ret = process::linux::dispatch_for_test(293, fds.as_mut_ptr() as u64, O_CLOEXEC, 0);
+        check!(ret == 0, "pipe2 returned {ret:#x}");
+        let (r, w) = (fds[0] as usize, fds[1] as usize);
+        let ret = process::linux::dispatch_for_test(33, r as u64, 9, 0);
+        check!(ret == 9, "dup2 returned {ret:#x}");
+        check!(
+            !task::fd_cloexec(9) && task::fd_kind(9) == task::FdKind::Pipe,
+            "dup2 did not clear FD_CLOEXEC on fd 9"
+        );
+        let closed = process::linux::close_cloexec_fds();
+        check!(
+            closed == 2,
+            "the exec sweep closed {closed} descriptors, expected 2"
+        );
+        check!(
+            task::fd_kind(r) == task::FdKind::Closed && task::fd_kind(w) == task::FdKind::Closed,
+            "the exec sweep kept an FD_CLOEXEC end"
+        );
+        check!(
+            task::fd_kind(9) == task::FdKind::Pipe,
+            "the exec sweep closed fd 9"
+        );
+        // fd 9 is the only reader left and no writers remain: EOF.
+        let mut buf = [0u8; 4];
+        let n = process::linux::dispatch_for_test(0, 9, buf.as_mut_ptr() as u64, buf.len() as u64);
+        check!(n == 0, "read on the duped, writerless end returned {n:#x}");
+        check!(task::fd_close(9), "closing fd 9 failed");
+
+        // fork inherits both ends; the child can read what the parent wrote.
+        let mut fds = [0i32; 2];
+        let ret = process::linux::dispatch_for_test(22, fds.as_mut_ptr() as u64, 0, 0);
+        check!(ret == 0, "pipe returned {ret:#x}");
+        let (r, w) = (fds[0] as usize, fds[1] as usize);
+        let child = task::spawn_fork().map_err(to_string)?;
+        check!(
+            task::harness::fd_kind_at(child, r) == task::FdKind::Pipe
+                && task::harness::fd_kind_at(child, w) == task::FdKind::Pipe,
+            "the forked child did not inherit the pipe ends"
+        );
+        let n = task::fd_stream_write(w, b"kid").map_err(io_err)?;
+        check!(n == 3, "parent write returned {n}");
+        task::harness::switch_current(child);
+        let mut got = [0u8; 4];
+        let n = task::fd_stream_read(r, &mut got).map_err(io_err)?;
+        check!(n == 3 && &got[..3] == b"kid", "child read returned {n}");
+        task::harness::switch_current(task::KERNEL_TASK);
+        check!(
+            task::fd_close(r) && task::fd_close(w),
+            "parent cleanup failed"
+        );
+        // Dropping the child's task closes its copies; the pipe is freed.
+        task::harness::reset();
+        check!(
+            pipe::Pipe::live() == 0,
+            "{} pipes survived the fork test",
+            pipe::Pipe::live()
+        );
+        check!(fds_clean(), "a descriptor was left open");
+        Ok(())
+    }
+
+    /// `clone` with `CLONE_VM` but without `CLONE_THREAD` (musl's posix_spawn
+    /// vfork child) creates a child that inherits a *copy* of the descriptor
+    /// table, is parented to the caller so `wait4`/reaping works, and does not
+    /// share the caller's address space (so its `exit_group` fallback cannot
+    /// kill the parent).
+    pub fn vfork_clone_child() -> Result<(), String> {
+        fresh()?;
+        let mut fds = [0i32; 2];
+        let ret = process::linux::dispatch_for_test(22, fds.as_mut_ptr() as u64, 0, 0);
+        check!(ret == 0, "pipe returned {ret:#x}");
+        let (r, w) = (fds[0] as usize, fds[1] as usize);
+
+        // CLONE_VM | CLONE_VFORK | SIGCHLD, as musl's posix_spawn passes.
+        const CLONE_VM: u64 = 0x0000_0100;
+        const CLONE_VFORK: u64 = 0x0000_4000;
+        const SIGCHLD: u64 = 17;
+        let child = process::linux::dispatch_args_for_test(
+            56,
+            CLONE_VM | CLONE_VFORK | SIGCHLD,
+            0x1fff_0000,
+            0,
+            0,
+        );
+        let child = child as usize;
+        check!(
+            (1..task::MAX_TASKS).contains(&child),
+            "vfork clone returned {child:#x}"
+        );
+        check!(
+            task::harness::fd_kind_at(child, r) == task::FdKind::Pipe
+                && task::harness::fd_kind_at(child, w) == task::FdKind::Pipe,
+            "the vfork child did not inherit the descriptor table"
+        );
+        check!(
+            task::harness::state(child) == Some(task::TaskState::Runnable),
+            "the vfork child is not runnable"
+        );
+
+        // The parent owns it: finish and reap like a fork child.
+        task::harness::finish(child, 0x21);
+        let (slot, status) = task::reap_child().ok_or("the vfork child is not reapable")?;
+        check!(
+            slot == child && status == 0x21,
+            "reaped slot {slot} status {status:#x}"
+        );
+        check!(task::fd_close(r) && task::fd_close(w), "cleanup failed");
+        check!(
+            pipe::Pipe::live() == 0,
+            "{} pipes survived the vfork test",
+            pipe::Pipe::live()
+        );
+        Ok(())
+    }
+
+    /// Soak: 4 MiB through one pipe, then thousands of pipe create/destroy
+    /// cycles. Asserts exact data, no pipe/fd leaks and a stable descriptor
+    /// table (a leak would trip the live-pipe cap or `fds_clean`).
+    pub fn soak_throughput_and_lifecycle() -> Result<(), String> {
+        fresh()?;
+        const TOTAL: usize = 4 * 1024 * 1024;
+        const CHUNK: usize = 4096;
+        let pipe = pipe::Pipe::new().ok_or("Pipe::new failed")?;
+        pipe.acquire(End::Read);
+        pipe.acquire(End::Write);
+
+        let payload: Vec<u8> = (0..CHUNK).map(|i| (i % 251) as u8).collect();
+        let mut out = [0u8; CHUNK];
+        let (mut written, mut read) = (0usize, 0usize);
+        while read < TOTAL {
+            if written < TOTAL {
+                match pipe.write(&payload, End::Write, true) {
+                    Ok(n) => written += n,
+                    Err(pipe::Error::WouldBlock) => {}
+                    Err(error) => return Err(io_err(error)),
+                }
+            }
+            match pipe.read(End::Read, &mut out, true) {
+                Ok(0) => return Err(String::from("soak pipe hit unexpected EOF")),
+                Ok(n) => {
+                    for (i, &byte) in out[..n].iter().enumerate() {
+                        // The stream is the payload repeated, so the expected
+                        // byte at stream offset `k` is `(k % CHUNK) % 251`.
+                        let expected = (((read + i) % CHUNK) % 251) as u8;
+                        check!(
+                            byte == expected,
+                            "soak mismatch at {read}+{i}: {byte} != {expected}"
+                        );
+                    }
+                    read += n;
+                }
+                Err(pipe::Error::WouldBlock) => {}
+                Err(error) => return Err(io_err(error)),
+            }
+        }
+        check!(written == TOTAL, "pipe accepted {written} of {TOTAL} bytes");
+        pipe.release(End::Read);
+        pipe.release(End::Write);
+        drop(pipe);
+        check!(pipe::Pipe::live() == 0, "the soaked pipe was not freed");
+
+        // Create/destroy churn through the descriptor table.
+        for round in 0..2000 {
+            let pipe =
+                pipe::Pipe::new().ok_or_else(|| format!("round {round}: Pipe::new failed"))?;
+            let r = task::fd_open(task::Fd::pipe_end(
+                alloc::sync::Arc::clone(&pipe),
+                End::Read,
+            ))
+            .ok_or_else(|| format!("round {round}: fd_open(read) failed"))?;
+            let w = task::fd_open(task::Fd::pipe_end(
+                alloc::sync::Arc::clone(&pipe),
+                End::Write,
+            ))
+            .ok_or_else(|| format!("round {round}: fd_open(write) failed"))?;
+            check!(task::fd_close(r), "round {round}: close(read) failed");
+            check!(task::fd_close(w), "round {round}: close(write) failed");
+        }
+        check!(
+            pipe::Pipe::live() == 0,
+            "{} pipes leaked after the create/destroy churn",
+            pipe::Pipe::live()
+        );
+        check!(fds_clean(), "the churn leaked a descriptor");
+        Ok(())
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Priority classes and fair-share scheduling (issue #58)
 // ---------------------------------------------------------------------------
 
@@ -3195,8 +4097,11 @@ mod signal_suite {
             "reported action is {old:?}"
         );
 
-        // SIGKILL/SIGSTOP bits are discarded by rt_sigprocmask.
-        let mask: u64 = (1 << signal::SIGKILL) | (1 << signal::SIGSTOP) | (1 << signal::SIGTERM);
+        // SIGKILL/SIGSTOP bits are discarded by rt_sigprocmask. The set is a
+        // Linux `sigset_t`, so the bit for `sig` is `1 << (sig - 1)`.
+        let mask: u64 = (1 << (signal::SIGKILL - 1))
+            | (1 << (signal::SIGSTOP - 1))
+            | (1 << (signal::SIGTERM - 1));
         let e = process::linux::dispatch_for_test(
             14,
             signal::SIG_BLOCK,
@@ -3277,6 +4182,9 @@ mod signal_suite {
             rsp: top - 0x80,
             rflags: 0x202,
         };
+        // Both masks are in kernel bit order when building the frame.
+        let sa_mask = 1u64 << signal::SIGUSR2;
+        let saved_mask = (1u64 << signal::SIGUSR1) | (1u64 << signal::SIGTERM);
         let info = SigInfo::fault(signal::SEGV_ACCERR, 0xdead_beef);
         let result = signal::build_linux_frame(
             top,
@@ -3285,8 +4193,8 @@ mod signal_suite {
             0x0040_2000,
             signal::SA_SIGINFO,
             0x0040_3000,
-            0x2,
-            0x0f,
+            sa_mask,
+            saved_mask,
             &info,
         );
         check!(
@@ -3299,8 +4207,29 @@ mod signal_suite {
         check!(pretcode == 0x0040_3000, "pretcode is {pretcode:#x}");
         let signo = unsafe { core::ptr::read_volatile(result.info as *const i32) };
         check!(signo == signal::SIGSEGV as i32, "siginfo signo is {signo}");
+        // The frame itself carries the masks in Linux `sigset_t` bit order.
+        // Safety: `build_linux_frame` just wrote `uc_sigmask` on this stack.
+        let raw = unsafe {
+            core::ptr::read_volatile((result.rsp + signal::lf::UC_SIGMASK) as *const u64)
+        };
+        check!(
+            raw == signal::kernel_to_linux_sigset(saved_mask),
+            "uc_sigmask is {raw:#x}, expected {:#x}",
+            signal::kernel_to_linux_sigset(saved_mask)
+        );
+        // Safety: same frame, just written, at a fixed `sigcontext` offset.
+        let raw_old = unsafe {
+            core::ptr::read_volatile(
+                (result.rsp + signal::lf::MCONTEXT + signal::lf::OLDMASK) as *const u64,
+            )
+        };
+        check!(
+            raw_old == signal::kernel_to_linux_sigset(sa_mask),
+            "sigcontext.oldmask is {raw_old:#x}, expected {:#x}",
+            signal::kernel_to_linux_sigset(sa_mask)
+        );
         let (restored, mask) = signal::parse_linux_frame(result.rsp + 8);
-        check!(mask == 0x0f, "saved mask is {mask:#x}");
+        check!(mask == saved_mask, "saved mask is {mask:#x}");
         check!(restored == regs, "restored registers differ: {restored:?}");
 
         let native = signal::build_native_frame(top, &regs, signal::SIGTERM);
@@ -3310,6 +4239,284 @@ mod signal_suite {
             "native frame signal is {native_sig}"
         );
         check!(native_regs == regs, "native frame lost registers");
+        signal::harness::reset();
+        Ok(())
+    }
+
+    /// The Linux `sigset_t` bit order (`1 << (sig - 1)`) round-trips through
+    /// the kernel's internal order (`1 << sig`) for every representable
+    /// signal; `SIGRTMAX` has no kernel bit and must not shift out of range.
+    pub fn linux_sigset_roundtrip() -> Result<(), String> {
+        fresh()?;
+
+        check!(
+            signal::linux_sigset_to_kernel(0) == 0 && signal::kernel_to_linux_sigset(0) == 0,
+            "the empty set did not translate to 0"
+        );
+        // Signal 1 is Linux bit 0 and kernel bit 1.
+        check!(
+            signal::linux_sigset_to_kernel(1) == 1 << signal::SIGHUP,
+            "SIGHUP translated to {:#x}",
+            signal::linux_sigset_to_kernel(1)
+        );
+        // Signal 32 is Linux bit 31 and kernel bit 32.
+        check!(
+            signal::linux_sigset_to_kernel(1 << 31) == 1 << 32,
+            "signal 32 translated to {:#x}",
+            signal::linux_sigset_to_kernel(1 << 31)
+        );
+        // Signal 64 (`SIGRTMAX`) is Linux bit 63: it has no kernel bit, so it
+        // is dropped rather than shifted out of range.
+        check!(
+            signal::linux_sigset_to_kernel(1 << 63) == 0,
+            "SIGRTMAX translated to {:#x}",
+            signal::linux_sigset_to_kernel(1 << 63)
+        );
+        // Kernel bit 0 is "no signal" and has no Linux bit.
+        check!(
+            signal::kernel_to_linux_sigset(1) == 0,
+            "the kernel's bit 0 leaked into a sigset"
+        );
+        // Every representable signal round-trips exactly.
+        for sig in 1..=63u8 {
+            let linux = 1u64 << (sig - 1);
+            let kernel = signal::linux_sigset_to_kernel(linux);
+            check!(
+                kernel == 1u64 << sig,
+                "signal {sig} translated to {kernel:#x}"
+            );
+            check!(
+                signal::kernel_to_linux_sigset(kernel) == linux,
+                "signal {sig} did not round-trip"
+            );
+        }
+        // Uncatchable bits still translate; the mask filter drops them later.
+        let uncatchable = (1u64 << (signal::SIGKILL - 1)) | (1u64 << (signal::SIGSTOP - 1));
+        check!(
+            signal::linux_sigset_to_kernel(uncatchable)
+                == (1u64 << signal::SIGKILL) | (1u64 << signal::SIGSTOP),
+            "the uncatchable pair translated to {:#x}",
+            signal::linux_sigset_to_kernel(uncatchable)
+        );
+        signal::harness::reset();
+        Ok(())
+    }
+
+    /// `rt_sigprocmask` and `rt_sigaction` cross the Linux ABI boundary with
+    /// translated masks: a Linux `sigset_t` goes in, the kernel's bit order is
+    /// stored, and a Linux `sigset_t` comes back out.
+    pub fn linux_sigprocmask_sigset_boundary() -> Result<(), String> {
+        fresh()?;
+        let me = task::current();
+
+        // SIGUSR2 = 12: Linux bit 11, kernel bit 12.
+        let block = 1u64 << (signal::SIGUSR2 - 1);
+        let e = process::linux::dispatch_for_test(
+            14,
+            signal::SIG_BLOCK,
+            core::ptr::addr_of!(block) as u64,
+            0,
+        );
+        check!(e == 0, "rt_sigprocmask(SIG_BLOCK) returned {e:#x}");
+        check!(
+            signal::blocked(me) == 1 << signal::SIGUSR2,
+            "kernel blocked mask is {:#x}",
+            signal::blocked(me)
+        );
+        let mut old = 0u64;
+        let e = process::linux::dispatch_for_test(14, 0, 0, core::ptr::addr_of_mut!(old) as u64);
+        check!(
+            e == 0 && old == block,
+            "oldset is {old:#x} (ret {e:#x}), expected {block:#x}"
+        );
+
+        // SIGKILL/SIGSTOP (Linux bits 8/18) are dropped, never stored raw.
+        let uncatchable = (1u64 << (signal::SIGKILL - 1)) | (1u64 << (signal::SIGSTOP - 1));
+        let e = process::linux::dispatch_for_test(
+            14,
+            signal::SIG_BLOCK,
+            core::ptr::addr_of!(uncatchable) as u64,
+            0,
+        );
+        check!(e == 0, "blocking SIGKILL/SIGSTOP returned {e:#x}");
+        check!(
+            signal::blocked(me) & ((1 << signal::SIGKILL) | (1 << signal::SIGSTOP)) == 0,
+            "uncatchable bits entered the kernel mask: {:#x}",
+            signal::blocked(me)
+        );
+
+        // Unblocking in Linux order clears exactly the requested bit.
+        let e = process::linux::dispatch_for_test(
+            14,
+            signal::SIG_UNBLOCK,
+            core::ptr::addr_of!(block) as u64,
+            0,
+        );
+        check!(e == 0, "rt_sigprocmask(SIG_UNBLOCK) returned {e:#x}");
+        check!(
+            signal::blocked(me) == 0,
+            "SIGUSR2 stayed blocked: {:#x}",
+            signal::blocked(me)
+        );
+
+        // SIG_SETMASK with SIGHUP and SIGRTMAX: only SIGHUP is representable.
+        let set = 1u64 | (1u64 << 63);
+        let e = process::linux::dispatch_for_test(
+            14,
+            signal::SIG_SETMASK,
+            core::ptr::addr_of!(set) as u64,
+            0,
+        );
+        check!(e == 0, "rt_sigprocmask(SIG_SETMASK) returned {e:#x}");
+        check!(
+            signal::blocked(me) == 1 << signal::SIGHUP,
+            "SIG_SETMASK stored {:#x}",
+            signal::blocked(me)
+        );
+
+        // `rt_sigaction`: `sa_mask` is stored in kernel order (uncatchable bits
+        // filtered) and reported back in Linux order.
+        let mut action = [0u64; 4];
+        action[0] = 0x40_1000;
+        action[2] = 0x40_2000;
+        action[3] = (1u64 << (signal::SIGUSR2 - 1)) | (1u64 << (signal::SIGKILL - 1));
+        let e = process::linux::dispatch_for_test(
+            13,
+            signal::SIGTERM as u64,
+            action.as_ptr() as u64,
+            0,
+        );
+        check!(e == 0, "rt_sigaction(SIGTERM) returned {e:#x}");
+        check!(
+            signal::action(me, signal::SIGTERM)
+                == Disposition::Handler {
+                    handler: 0x40_1000,
+                    flags: 0,
+                    restorer: 0x40_2000,
+                    mask: 1 << signal::SIGUSR2,
+                },
+            "stored action is {:?}",
+            signal::action(me, signal::SIGTERM)
+        );
+        let mut old = [0u64; 4];
+        let e = process::linux::dispatch_for_test(
+            13,
+            signal::SIGTERM as u64,
+            0,
+            old.as_mut_ptr() as u64,
+        );
+        check!(
+            e == 0 && old[3] == 1 << (signal::SIGUSR2 - 1),
+            "reported sa_mask is {:#x} (ret {e:#x})",
+            old[3]
+        );
+
+        signal::set_blocked(me, 0);
+        signal::harness::reset();
+        Ok(())
+    }
+
+    /// Soak: hundreds of thousands of Linux sets through the translation and
+    /// the `rt_sigprocmask` handler, then thousands through the frame builder
+    /// and parser, asserting after every cycle that no bit drifted.
+    pub fn linux_sigset_translate_soak() -> Result<(), String> {
+        fresh()?;
+        let me = task::current();
+        const ROUNDS: u32 = 500_000;
+        let mut seed: u64 = 0x243f_6a88_85a3_08d3;
+        let uncatchable = (1u64 << signal::SIGKILL) | (1u64 << signal::SIGSTOP);
+        for round in 0..ROUNDS {
+            seed = seed
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            let linux = seed;
+            let kernel = signal::linux_sigset_to_kernel(linux);
+            let back = signal::kernel_to_linux_sigset(kernel);
+            // Linux bit 63 (`SIGRTMAX`) has no kernel bit and is dropped.
+            let representable = linux & !(1u64 << 63);
+            if back != representable {
+                return Err(format!(
+                    "round {round}: {linux:#018x} -> {kernel:#018x} -> {back:#018x}, expected {representable:#018x}"
+                ));
+            }
+
+            // The same set through the syscall boundary: block, query back,
+            // then clear. The kernel mask must be exactly the translated set
+            // minus the uncatchable bits.
+            let set = linux;
+            let e = process::linux::dispatch_for_test(
+                14,
+                signal::SIG_BLOCK,
+                core::ptr::addr_of!(set) as u64,
+                0,
+            );
+            if e != 0 {
+                return Err(format!("round {round}: rt_sigprocmask returned {e:#x}"));
+            }
+            let expected = kernel & !uncatchable;
+            let observed = signal::blocked(me);
+            if observed != expected {
+                return Err(format!(
+                    "round {round}: kernel mask {observed:#018x}, expected {expected:#018x}"
+                ));
+            }
+            let mut old = 0u64;
+            let e =
+                process::linux::dispatch_for_test(14, 0, 0, core::ptr::addr_of_mut!(old) as u64);
+            if e != 0 || old != signal::kernel_to_linux_sigset(expected) {
+                return Err(format!(
+                    "round {round}: oldset {old:#018x}, expected {:#018x}",
+                    signal::kernel_to_linux_sigset(expected)
+                ));
+            }
+            let clear = 0u64;
+            let e = process::linux::dispatch_for_test(
+                14,
+                signal::SIG_SETMASK,
+                core::ptr::addr_of!(clear) as u64,
+                0,
+            );
+            if e != 0 || signal::blocked(me) != 0 {
+                return Err(format!(
+                    "round {round}: clear left {:#x}",
+                    signal::blocked(me)
+                ));
+            }
+        }
+
+        // The frame boundary round-trips the same masks without drift.
+        let mut stack = vec![0u8; 8192];
+        let top = stack.as_mut_ptr() as u64 + stack.len() as u64;
+        let regs = signal::UserRegs::default();
+        let info = SigInfo::user(0, signal::SI_USER);
+        for round in 0..4096u32 {
+            seed = seed
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            let saved = signal::linux_sigset_to_kernel(seed);
+            let result = signal::build_linux_frame(
+                top,
+                &regs,
+                signal::SIGUSR1,
+                0x0040_1000,
+                0,
+                0x0040_2000,
+                0,
+                saved,
+                &info,
+            );
+            let (_, parsed) = signal::parse_linux_frame(result.rsp + 8);
+            // Safety: `build_linux_frame` just wrote `uc_sigmask` on this stack.
+            let raw = unsafe {
+                core::ptr::read_volatile((result.rsp + signal::lf::UC_SIGMASK) as *const u64)
+            };
+            if parsed != saved || raw != signal::kernel_to_linux_sigset(saved) {
+                return Err(format!(
+                    "frame round {round}: saved {saved:#018x}, parsed {parsed:#018x}, uc_sigmask {raw:#018x}"
+                ));
+            }
+        }
+
         signal::harness::reset();
         Ok(())
     }
@@ -7559,6 +8766,663 @@ mod fs_suite {
         let result = process::linux::dispatch_for_test(3, fd, 0, 0);
         check!(result == 0, "close -> {result:#x}");
         crate::fs::vfs_unlink(root, "/tmp/vfs-getdents/entry.txt").map_err(fs_error)?;
+        Ok(())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Linux ABI copy-up overlay root (issue #136)
+// ---------------------------------------------------------------------------
+
+mod overlay_suite {
+    use super::*;
+    use crate::fs::overlay::Overlay;
+    use crate::fs::ramfs::RamFs;
+    use crate::fs::vfs::{self, FileKind, Filesystem, FsError, Id, Vfs};
+    use alloc::sync::Arc;
+
+    /// Friendly, debuggable conversion for `?` in tests.
+    fn fs_error(error: FsError) -> String {
+        format!("{} ({error:?})", error.message())
+    }
+
+    /// Lower-layer fixture standing in for the read-only FAT volume: the
+    /// overlay never calls a mutating method on it, so a ramfs works and lets
+    /// the tests prove the lower bytes stay untouched.
+    fn lower_fixture() -> Result<Arc<RamFs>, String> {
+        let lower = Arc::new(RamFs::new());
+        for (name, data) in [
+            ("HELLO.TXT", b"Hello from LazyOS".as_slice()),
+            ("LOWER.TXT", b"lower".as_slice()),
+        ] {
+            lower.create(name, 0o555, Id::ROOT).map_err(fs_error)?;
+            lower.write(name, 0, data).map_err(fs_error)?;
+        }
+        lower.mkdir("LDIR", 0o555, Id::ROOT).map_err(fs_error)?;
+        lower
+            .create("LDIR/INNER.TXT", 0o555, Id::ROOT)
+            .map_err(fs_error)?;
+        lower
+            .write("LDIR/INNER.TXT", 0, b"inner")
+            .map_err(fs_error)?;
+        Ok(lower)
+    }
+
+    /// An overlay-mounted VFS plus the handle to inspect its usage.
+    fn mounted_overlay(lower: Arc<RamFs>) -> Result<(Vfs, Arc<Overlay>), String> {
+        let overlay = Arc::new(Overlay::new(lower));
+        let mut vfs = Vfs::new();
+        vfs.mount("/", overlay.clone()).map_err(fs_error)?;
+        Ok((vfs, overlay))
+    }
+
+    /// Read a whole lower file directly, bypassing the overlay.
+    fn lower_bytes(lower: &RamFs, path: &str) -> Result<Vec<u8>, String> {
+        let meta = lower.lookup(path).map_err(fs_error)?;
+        let mut data = alloc::vec![0u8; meta.size as usize];
+        let read = lower.read(path, 0, &mut data).map_err(fs_error)?;
+        data.truncate(read);
+        Ok(data)
+    }
+
+    fn names(entries: &[vfs::DirEntry]) -> Vec<String> {
+        entries.iter().map(|entry| entry.name.clone()).collect()
+    }
+
+    fn has(entries: &[vfs::DirEntry], name: &str) -> bool {
+        entries.iter().any(|entry| entry.name == name)
+    }
+
+    /// Copy-up makes the first write land in the upper layer: reads fall
+    /// through, read-your-writes holds, metadata sizes track, and the lower
+    /// layer is byte-identical afterwards. Also covers `read_dir` union and
+    /// the unlink/whiteout cycle for lower and upper entries.
+    pub fn copy_up_read_write() -> Result<(), String> {
+        let lower = lower_fixture()?;
+        let (mut vfs, overlay) = mounted_overlay(lower.clone())?;
+        let root = Id::ROOT;
+
+        // Lower reads fall through unchanged.
+        let meta = vfs.stat(root, "/HELLO.TXT").map_err(fs_error)?;
+        check!(
+            meta.kind == FileKind::File && meta.size == 17,
+            "lower meta is {meta:?}"
+        );
+        check!(
+            vfs.read_file(root, "/HELLO.TXT").map_err(fs_error)? == b"Hello from LazyOS",
+            "lower read differs"
+        );
+        check!(
+            overlay.usage() == (0, 1),
+            "untouched overlay usage {:?}",
+            overlay.usage()
+        );
+
+        // The first write copies the file up and changes only the upper copy.
+        check!(
+            vfs.write(root, "/HELLO.TXT", 6, b"aBI ")
+                .map_err(fs_error)?
+                == 4,
+            "copy-up write was short"
+        );
+        check!(
+            vfs.read_file(root, "/HELLO.TXT").map_err(fs_error)? == b"Hello aBI  LazyOS",
+            "read-your-writes failed"
+        );
+        check!(
+            vfs.stat(root, "/HELLO.TXT").map_err(fs_error)?.size == 17,
+            "size after overwrite"
+        );
+        check!(
+            lower_bytes(&lower, "HELLO.TXT")? == b"Hello from LazyOS",
+            "copy-up modified the lower layer"
+        );
+        check!(
+            overlay.usage().0 == 17,
+            "copy-up usage {:?}",
+            overlay.usage()
+        );
+
+        // A write past EOF zero-fills and grows the reported size.
+        check!(
+            vfs.write(root, "/HELLO.TXT", 20, b"!").map_err(fs_error)? == 1,
+            "extending write was short"
+        );
+        check!(
+            vfs.stat(root, "/HELLO.TXT").map_err(fs_error)?.size == 21,
+            "extended size"
+        );
+        check!(
+            vfs.read_file(root, "/HELLO.TXT").map_err(fs_error)? == b"Hello aBI  LazyOS\0\0\0!",
+            "sparse extension bytes"
+        );
+
+        // Truncate shrinks the cached metadata and the data.
+        vfs.truncate(root, "/HELLO.TXT", 5).map_err(fs_error)?;
+        check!(
+            vfs.stat(root, "/HELLO.TXT").map_err(fs_error)?.size == 5
+                && vfs.read_file(root, "/HELLO.TXT").map_err(fs_error)? == b"Hello",
+            "truncate did not shrink"
+        );
+
+        // A write deep in a lower-only tree copies the ancestor dirs up too.
+        vfs.write(root, "/LDIR/INNER.TXT", 0, b"INNER")
+            .map_err(fs_error)?;
+        check!(
+            vfs.read_file(root, "/LDIR/INNER.TXT").map_err(fs_error)? == b"INNER",
+            "nested copy-up read"
+        );
+        check!(
+            lower_bytes(&lower, "LDIR/INNER.TXT")? == b"inner",
+            "nested copy-up modified the lower layer"
+        );
+
+        // create + write + read-back, then the union listing.
+        vfs.create(root, "/NEW.TXT", 0o644).map_err(fs_error)?;
+        vfs.write(root, "/NEW.TXT", 0, b"new").map_err(fs_error)?;
+        check!(
+            vfs.read_file(root, "/NEW.TXT").map_err(fs_error)? == b"new",
+            "new file round-trip"
+        );
+        let listing = vfs.readdir(root, "/").map_err(fs_error)?;
+        for expected in ["HELLO.TXT", "LOWER.TXT", "LDIR", "NEW.TXT"] {
+            check!(
+                has(&listing, expected),
+                "readdir union missing {expected}: {:?}",
+                names(&listing)
+            );
+        }
+
+        // Unlinking an upper file removes it and leaves no whiteout behind.
+        vfs.unlink(root, "/NEW.TXT").map_err(fs_error)?;
+        check!(
+            vfs.stat(root, "/NEW.TXT").err() == Some(FsError::NotFound),
+            "unlinked upper file still resolves"
+        );
+        check!(
+            !has(&vfs.readdir(root, "/").map_err(fs_error)?, "NEW.TXT"),
+            "readdir shows it"
+        );
+        let before = overlay.usage();
+
+        // Unlinking a lower-only file hides it without touching the lower.
+        vfs.unlink(root, "/LOWER.TXT").map_err(fs_error)?;
+        check!(
+            vfs.stat(root, "/LOWER.TXT").err() == Some(FsError::NotFound),
+            "whiteout did not hide the lower file"
+        );
+        check!(
+            !has(&vfs.readdir(root, "/").map_err(fs_error)?, "LOWER.TXT"),
+            "readdir still lists a whiteout"
+        );
+        check!(
+            lower_bytes(&lower, "LOWER.TXT")? == b"lower",
+            "whiteout modified the lower layer"
+        );
+        check!(
+            overlay.usage().1 == before.1 + 1,
+            "whiteout did not account a node: {:?} -> {:?}",
+            before,
+            overlay.usage()
+        );
+
+        // Re-creating the name clears the whiteout and shows the new bytes.
+        vfs.create(root, "/LOWER.TXT", 0o644).map_err(fs_error)?;
+        vfs.write(root, "/LOWER.TXT", 0, b"fresh")
+            .map_err(fs_error)?;
+        check!(
+            vfs.read_file(root, "/LOWER.TXT").map_err(fs_error)? == b"fresh",
+            "re-created file shows stale bytes"
+        );
+        check!(
+            has(&vfs.readdir(root, "/").map_err(fs_error)?, "LOWER.TXT"),
+            "re-created file missing from readdir"
+        );
+        Ok(())
+    }
+
+    /// Directory lifecycle: nested `mkdir`, `rmdir` emptiness rules, whiteouts
+    /// for lower-only directories, and the errors the VFS classifies.
+    pub fn dir_create_remove() -> Result<(), String> {
+        let lower = lower_fixture()?;
+        let (mut vfs, _) = mounted_overlay(lower.clone())?;
+        let root = Id::ROOT;
+
+        // The fixture's `create_dir_all("ABIDIR/SUB")` shape.
+        vfs.mkdir(root, "/ABIDIR", 0o755).map_err(fs_error)?;
+        vfs.mkdir(root, "/ABIDIR/SUB", 0o755).map_err(fs_error)?;
+        let sub = vfs.readdir(root, "/ABIDIR").map_err(fs_error)?;
+        check!(names(&sub) == ["SUB"], "ABIDIR is {:?}", names(&sub));
+        check!(
+            vfs.mkdir(root, "/ABIDIR", 0o755).err() == Some(FsError::Exists),
+            "mkdir over an existing dir"
+        );
+        check!(
+            vfs.rmdir(root, "/ABIDIR").err() == Some(FsError::NotEmpty),
+            "rmdir removed a non-empty dir"
+        );
+        vfs.create(root, "/ABIDIR/SUB/F.TXT", 0o644)
+            .map_err(fs_error)?;
+        check!(
+            vfs.unlink(root, "/ABIDIR/SUB").err() == Some(FsError::IsDir),
+            "unlink removed a dir"
+        );
+        check!(
+            vfs.rmdir(root, "/ABIDIR/SUB").err() == Some(FsError::NotEmpty),
+            "rmdir on the child dir"
+        );
+        vfs.unlink(root, "/ABIDIR/SUB/F.TXT").map_err(fs_error)?;
+        vfs.rmdir(root, "/ABIDIR/SUB").map_err(fs_error)?;
+        vfs.rmdir(root, "/ABIDIR").map_err(fs_error)?;
+        check!(
+            vfs.stat(root, "/ABIDIR").err() == Some(FsError::NotFound),
+            "removed dir still resolves"
+        );
+
+        // A lower-only directory is shadowed by a whiteout after its contents
+        // are removed, and the lower layer keeps both entries.
+        check!(
+            vfs.rmdir(root, "/LDIR").err() == Some(FsError::NotEmpty),
+            "rmdir of a lower dir with contents"
+        );
+        vfs.unlink(root, "/LDIR/INNER.TXT").map_err(fs_error)?;
+        check!(
+            vfs.rmdir(root, "/LDIR").map_err(fs_error).is_ok(),
+            "rmdir of a lower dir after removing its contents"
+        );
+        check!(
+            vfs.stat(root, "/LDIR").err() == Some(FsError::NotFound)
+                && vfs.stat(root, "/LDIR/INNER.TXT").err() == Some(FsError::NotFound),
+            "whiteouted lower dir still resolves"
+        );
+        check!(
+            lower.lookup("LDIR").is_ok() && lower.lookup("LDIR/INNER.TXT").is_ok(),
+            "whiteout modified the lower layer"
+        );
+        Ok(())
+    }
+
+    /// Rename semantics: move a lower file out and back, replace a lower file
+    /// with an upper one, and the file/dir type and emptiness errors.
+    pub fn rename_replace() -> Result<(), String> {
+        let lower = lower_fixture()?;
+        let (mut vfs, _) = mounted_overlay(lower.clone())?;
+        let root = Id::ROOT;
+
+        // The fixture's rename-out-and-back pattern.
+        vfs.rename(root, "/HELLO.TXT", "/ABIREN.TXT")
+            .map_err(fs_error)?;
+        check!(
+            vfs.stat(root, "/HELLO.TXT").err() == Some(FsError::NotFound),
+            "rename left the lower source visible"
+        );
+        check!(
+            vfs.read_file(root, "/ABIREN.TXT").map_err(fs_error)? == b"Hello from LazyOS",
+            "rename lost the contents"
+        );
+        check!(
+            !has(&vfs.readdir(root, "/").map_err(fs_error)?, "HELLO.TXT")
+                && has(&vfs.readdir(root, "/").map_err(fs_error)?, "ABIREN.TXT"),
+            "readdir disagrees with the rename"
+        );
+        vfs.rename(root, "/ABIREN.TXT", "/HELLO.TXT")
+            .map_err(fs_error)?;
+        check!(
+            vfs.read_file(root, "/HELLO.TXT").map_err(fs_error)? == b"Hello from LazyOS",
+            "rename back lost the contents"
+        );
+        check!(
+            lower_bytes(&lower, "HELLO.TXT")? == b"Hello from LazyOS",
+            "rename modified the lower layer"
+        );
+
+        // An upper file replaces a lower file at the destination.
+        vfs.create(root, "/TMP.TXT", 0o644).map_err(fs_error)?;
+        vfs.write(root, "/TMP.TXT", 0, b"replacement")
+            .map_err(fs_error)?;
+        vfs.rename(root, "/TMP.TXT", "/LOWER.TXT")
+            .map_err(fs_error)?;
+        check!(
+            vfs.read_file(root, "/LOWER.TXT").map_err(fs_error)? == b"replacement",
+            "replace rename kept stale bytes"
+        );
+        check!(
+            lower_bytes(&lower, "LOWER.TXT")? == b"lower",
+            "replace rename modified the lower layer"
+        );
+        check!(
+            vfs.readdir(root, "/")
+                .map_err(fs_error)?
+                .iter()
+                .filter(|entry| entry.name == "LOWER.TXT")
+                .count()
+                == 1,
+            "replace rename duplicated the destination"
+        );
+
+        // Type and emptiness rules.
+        vfs.mkdir(root, "/DIR", 0o755).map_err(fs_error)?;
+        vfs.create(root, "/FILE.TXT", 0o644).map_err(fs_error)?;
+        check!(
+            vfs.rename(root, "/FILE.TXT", "/DIR").err() == Some(FsError::IsDir),
+            "file replaced a directory"
+        );
+        check!(
+            vfs.rename(root, "/DIR", "/FILE.TXT").err() == Some(FsError::NotDir),
+            "directory replaced a file"
+        );
+        vfs.mkdir(root, "/DIR2", 0o755).map_err(fs_error)?;
+        vfs.create(root, "/DIR2/X.TXT", 0o644).map_err(fs_error)?;
+        check!(
+            vfs.rename(root, "/DIR", "/DIR2").err() == Some(FsError::NotEmpty),
+            "directory replaced a non-empty directory"
+        );
+        vfs.mkdir(root, "/EMPTY", 0o755).map_err(fs_error)?;
+        vfs.rename(root, "/EMPTY", "/DIR").map_err(fs_error)?;
+        check!(
+            vfs.stat(root, "/DIR").is_ok()
+                && vfs.stat(root, "/EMPTY").err() == Some(FsError::NotFound),
+            "empty-dir replace failed"
+        );
+        check!(
+            vfs.rename(root, "/DIR", "/DIR/SUB").err() == Some(FsError::Invalid),
+            "rename moved a directory into itself"
+        );
+        Ok(())
+    }
+
+    /// The upper layer is capped: byte and node growth past the limit answers
+    /// `NoSpace`, and removing everything returns usage to the baseline.
+    pub fn enospc_limits() -> Result<(), String> {
+        let lower = lower_fixture()?;
+        let overlay = Arc::new(Overlay::with_limits(lower, 8, 4));
+        let mut vfs = Vfs::new();
+        vfs.mount("/", overlay.clone()).map_err(fs_error)?;
+        let root = Id::ROOT;
+        let baseline = overlay.usage();
+
+        vfs.create(root, "/A.TXT", 0o644).map_err(fs_error)?;
+        vfs.write(root, "/A.TXT", 0, b"12345678")
+            .map_err(fs_error)?;
+        check!(
+            vfs.write(root, "/A.TXT", 8, b"9").err() == Some(FsError::NoSpace),
+            "byte cap was not enforced"
+        );
+        check!(
+            vfs.truncate(root, "/A.TXT", 9).err() == Some(FsError::NoSpace),
+            "truncate cap was not enforced"
+        );
+        check!(
+            vfs.read_file(root, "/A.TXT").map_err(fs_error)? == b"12345678",
+            "a refused write changed the file"
+        );
+
+        // Node cap: root + A occupy two, B and C fill the four, D is refused.
+        vfs.create(root, "/B.TXT", 0o644).map_err(fs_error)?;
+        vfs.create(root, "/C.TXT", 0o644).map_err(fs_error)?;
+        check!(
+            vfs.create(root, "/D.TXT", 0o644).err() == Some(FsError::NoSpace),
+            "node cap was not enforced"
+        );
+
+        // Cleanup returns to baseline exactly.
+        vfs.unlink(root, "/A.TXT").map_err(fs_error)?;
+        check!(
+            overlay.usage().0 == 0,
+            "unlink did not release the bytes: {:?}",
+            overlay.usage()
+        );
+        vfs.unlink(root, "/B.TXT").map_err(fs_error)?;
+        vfs.unlink(root, "/C.TXT").map_err(fs_error)?;
+        check!(
+            overlay.usage() == baseline,
+            "upper scratch did not return to baseline: {:?}",
+            overlay.usage()
+        );
+        Ok(())
+    }
+
+    /// Soak: many create/write/rename/unlink and mkdir/rmdir generations must
+    /// leave no upper bytes or nodes behind, and lower-file rename churn must
+    /// stay bounded (the copy-up persists exactly once).
+    pub fn soak_generations() -> Result<(), String> {
+        const GENERATIONS: usize = 128;
+        let lower = lower_fixture()?;
+        let (mut vfs, overlay) = mounted_overlay(lower.clone())?;
+        let root = Id::ROOT;
+        let baseline = overlay.usage();
+
+        for generation in 0..GENERATIONS {
+            let file = format!("/GEN{generation}.TXT");
+            let moved = format!("/MOVED{generation}.TXT");
+            let dir = format!("/GDIR{generation}");
+            let inner = format!("/GDIR{generation}/INNER.TXT");
+
+            vfs.create(root, &file, 0o644).map_err(fs_error)?;
+            vfs.write(root, &file, 0, b"payload").map_err(fs_error)?;
+            check!(
+                vfs.stat(root, &file).map_err(fs_error)?.size == 7,
+                "generation {generation}: size is stale"
+            );
+            vfs.rename(root, &file, &moved).map_err(fs_error)?;
+            check!(
+                vfs.read_file(root, &moved).map_err(fs_error)? == b"payload",
+                "generation {generation}: renamed bytes differ"
+            );
+            vfs.unlink(root, &moved).map_err(fs_error)?;
+
+            vfs.mkdir(root, &dir, 0o755).map_err(fs_error)?;
+            vfs.create(root, &inner, 0o644).map_err(fs_error)?;
+            vfs.write(root, &inner, 0, b"x").map_err(fs_error)?;
+            vfs.unlink(root, &inner).map_err(fs_error)?;
+            vfs.rmdir(root, &dir).map_err(fs_error)?;
+
+            check!(
+                overlay.usage() == baseline,
+                "generation {generation} leaked: {:?} -> {:?}",
+                baseline,
+                overlay.usage()
+            );
+        }
+
+        // Lower-file rename churn copies up once; usage must not grow per pass.
+        for _ in 0..32 {
+            vfs.rename(root, "/HELLO.TXT", "/ABIREN.TXT")
+                .map_err(fs_error)?;
+            vfs.rename(root, "/ABIREN.TXT", "/HELLO.TXT")
+                .map_err(fs_error)?;
+        }
+        let churn = overlay.usage();
+        check!(
+            churn.1 <= baseline.1 + 2 && churn.0 <= baseline.0 + 17,
+            "lower rename churn grew unbounded: {churn:?} from {baseline:?}"
+        );
+        check!(
+            vfs.read_file(root, "/HELLO.TXT").map_err(fs_error)? == b"Hello from LazyOS",
+            "rename churn lost the contents"
+        );
+        Ok(())
+    }
+
+    /// The Linux `*` syscalls reach the ABI overlay: mkdir/rename/unlink/rmdir,
+    /// fd-relative `openat`/`unlinkat` (the `remove_dir_all` walk), and the
+    /// native table staying read-only.
+    pub fn abi_syscalls() -> Result<(), String> {
+        const AT_FDCWD: u64 = (-100i64) as u64;
+        const O_WRONLY: u64 = 1;
+        const O_CREAT: u64 = 0o100;
+        const O_EXCL: u64 = 0o200;
+        const O_DIRECTORY: u64 = 0o200000;
+        const AT_REMOVEDIR: u64 = 0x200;
+
+        task::register_kernel();
+        check!(crate::fs::init(), "the boot volume did not mount");
+
+        let mounts = crate::fs::abi_mounts();
+        check!(
+            mounts
+                .iter()
+                .any(|(point, name)| point == "/" && *name == "overlay (abi rw)"),
+            "ABI root is not the overlay: {mounts:?}"
+        );
+        check!(
+            mounts
+                .iter()
+                .any(|(point, name)| point == "/tmp" && *name == "ramfs"),
+            "ABI /tmp is not ramfs: {mounts:?}"
+        );
+
+        let dir = b"/ABIDIR\0";
+        let sub = b"/ABIDIR/SUB\0";
+        let from = b"/ABIDIR/SUB\0";
+        let to = b"/ABIDIR/SUB2\0";
+        let eexist = (-17i64) as u64;
+
+        check!(
+            process::linux::dispatch_for_test(83, dir.as_ptr() as u64, 0o755, 0) == 0,
+            "mkdir failed"
+        );
+        check!(
+            process::linux::dispatch_for_test(83, dir.as_ptr() as u64, 0o755, 0) == eexist,
+            "mkdir over an existing directory did not answer EEXIST"
+        );
+        check!(
+            process::linux::dispatch_for_test(258, AT_FDCWD, sub.as_ptr() as u64, 0o755) == 0,
+            "mkdirat failed"
+        );
+
+        // fd-relative creation: open the directory, then create through it.
+        let dirfd =
+            process::linux::dispatch_for_test(257, AT_FDCWD, dir.as_ptr() as u64, O_DIRECTORY);
+        check!(
+            (3..task::FD_COUNT as u64).contains(&dirfd),
+            "dirfd is {dirfd:#x}"
+        );
+        let child = b"CHILD.TXT\0";
+        let childfd = process::linux::dispatch_for_test(
+            257,
+            dirfd,
+            child.as_ptr() as u64,
+            O_WRONLY | O_CREAT | O_EXCL,
+        );
+        check!(
+            (3..task::FD_COUNT as u64).contains(&childfd),
+            "fd-relative openat is {childfd:#x}"
+        );
+        check!(
+            process::linux::dispatch_for_test(3, childfd, 0, 0) == 0,
+            "close child failed"
+        );
+        check!(
+            process::linux::dispatch_for_test(263, dirfd, child.as_ptr() as u64, 0) == 0,
+            "fd-relative unlinkat failed"
+        );
+        check!(
+            process::linux::dispatch_for_test(3, dirfd, 0, 0) == 0,
+            "close dir failed"
+        );
+
+        // rename + rmdir through the plain syscalls.
+        check!(
+            process::linux::dispatch_for_test(82, from.as_ptr() as u64, to.as_ptr() as u64, 0) == 0,
+            "rename failed"
+        );
+        check!(
+            process::linux::dispatch_for_test(263, AT_FDCWD, to.as_ptr() as u64, AT_REMOVEDIR) == 0,
+            "unlinkat(AT_REMOVEDIR) failed"
+        );
+        check!(
+            process::linux::dispatch_for_test(84, dir.as_ptr() as u64, 0, 0) == 0,
+            "rmdir failed"
+        );
+
+        // The overlay-visible path is gone, and the native table never saw it.
+        check!(
+            crate::fs::abi_stat(Id::ROOT, "/ABIDIR").err() == Some(FsError::NotFound),
+            "ABIDIR still resolves through the ABI"
+        );
+        check!(
+            crate::fs::vfs_stat(Id::ROOT, "/ABIDIR").err() == Some(FsError::NotFound),
+            "ABIDIR leaked into the native table"
+        );
+        check!(
+            crate::fs::vfs_create(Id::ROOT, "/NATIVE.TXT", 0o644).err() == Some(FsError::ReadOnly),
+            "the native FAT root is no longer read-only"
+        );
+        Ok(())
+    }
+
+    /// `unlink` while a descriptor is open: the fd snapshot keeps reading, the
+    /// path stops resolving, and a later write through the orphan answers
+    /// ENOENT (the documented snapshot-model gap).
+    pub fn unlink_while_open() -> Result<(), String> {
+        const AT_FDCWD: u64 = (-100i64) as u64;
+        const O_WRONLY: u64 = 1;
+        const O_CREAT: u64 = 0o100;
+        const O_TRUNC: u64 = 0o1000;
+        let enoent = (-2i64) as u64;
+
+        task::register_kernel();
+        check!(crate::fs::init(), "the boot volume did not mount");
+        let path = b"/ABIOPEN.TXT\0";
+        let _ = crate::fs::abi_unlink(Id::ROOT, "/ABIOPEN.TXT");
+
+        let fd = process::linux::dispatch_for_test(
+            257,
+            AT_FDCWD,
+            path.as_ptr() as u64,
+            O_WRONLY | O_CREAT | O_TRUNC,
+        );
+        check!(
+            (3..task::FD_COUNT as u64).contains(&fd),
+            "openat is {fd:#x}"
+        );
+        let payload = b"still readable";
+        check!(
+            process::linux::dispatch_for_test(1, fd, payload.as_ptr() as u64, payload.len() as u64)
+                == payload.len() as u64,
+            "write failed"
+        );
+        let mut stat = [0u8; 144];
+        check!(
+            process::linux::dispatch_for_test(5, fd, stat.as_mut_ptr() as u64, 0) == 0,
+            "fstat failed"
+        );
+        check!(
+            u64::from_le_bytes(stat[48..56].try_into().unwrap()) == payload.len() as u64,
+            "fstat size is stale"
+        );
+
+        check!(
+            process::linux::dispatch_for_test(87, path.as_ptr() as u64, 0, 0) == 0,
+            "unlink failed"
+        );
+        check!(
+            crate::fs::abi_stat(Id::ROOT, "/ABIOPEN.TXT").err() == Some(FsError::NotFound),
+            "unlinked path still resolves"
+        );
+
+        // The open descriptor still reads its snapshot...
+        check!(
+            process::linux::dispatch_for_test(8, fd, 0, 0) == 0,
+            "lseek failed"
+        );
+        let mut buf = [0u8; 32];
+        let read =
+            process::linux::dispatch_for_test(0, fd, buf.as_mut_ptr() as u64, buf.len() as u64);
+        check!(
+            read == payload.len() as u64 && &buf[..payload.len()] == payload,
+            "the open fd lost its snapshot: read={read}"
+        );
+        // ...but a write through the orphan has no backing path.
+        check!(
+            process::linux::dispatch_for_test(1, fd, payload.as_ptr() as u64, 1) == enoent,
+            "writing through an unlinked fd did not answer ENOENT"
+        );
+        check!(
+            process::linux::dispatch_for_test(3, fd, 0, 0) == 0,
+            "close failed"
+        );
         Ok(())
     }
 }

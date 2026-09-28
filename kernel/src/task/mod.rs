@@ -39,13 +39,15 @@
 //! lands.
 
 use alloc::collections::VecDeque;
+use alloc::sync::Arc;
 use alloc::vec::Vec;
-use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use spin::Mutex;
 use x86_64::PhysAddr;
 
 use crate::arch::gdt;
 use crate::input::keyboard::Key;
+use crate::ipc::pipe::{self, End, Pipe, Side, SocketPair};
 use crate::mem;
 // `process` in this module is the process tree (`task::process`); the ELF
 // loader and syscall shim live in `crate::process`, aliased here to keep the
@@ -76,6 +78,13 @@ static FOCUS: AtomicUsize = AtomicUsize::new(1);
 pub static NEEDS_REDRAW: AtomicBool = AtomicBool::new(true);
 /// True once the scheduler is running (changes how `exit` behaves).
 static SCHEDULING: AtomicBool = AtomicBool::new(false);
+/// Slots of finished parentless tasks waiting to be reclaimed from task
+/// context (issue #133). The scheduler cannot free a task itself: a `Task` owns
+/// heap buffers whose drop takes the heap lock, and the interrupted task may
+/// hold that lock (the multiplexer clones window output with interrupts
+/// enabled). `schedule` only sets a bit; [`reclaim_pending`] does the freeing
+/// from a syscall entry or the mux loop, where the current task holds no lock.
+static PENDING_RECLAIM: AtomicU32 = AtomicU32::new(0);
 
 /// Which syscall ABI a task uses.
 #[derive(Clone, Copy, PartialEq)]
@@ -98,9 +107,15 @@ pub enum WaitKind {
     ChildExit,
     /// Waiting for a `nanosleep` deadline (nothing notifies this queue).
     Sleep,
+    /// Waiting on a pipe/socket event (data, space, EOF or `-EPIPE`).
+    Pipe,
+    /// Waiting for one of a `poll` set to become ready.
+    Poll,
     /// Parked by a stop signal (`SIGSTOP`/`SIGTSTP`/...). Only `SIGCONT`
     /// wakes a task in this state; other signals leave it stopped.
     Signal,
+    /// Waiting for a task slot to become free (`clone` under table pressure).
+    Slot,
 }
 
 /// How a blocked task's wait ended. The wake path records it, the wait loop
@@ -243,6 +258,9 @@ fn min_pass(tasks: &[Option<Task>; MAX_TASKS]) -> u64 {
 /// Number of file descriptors per task.
 pub const FD_COUNT: usize = 16;
 
+/// Per-descriptor `FD_CLOEXEC` bit in [`Task::fd_flags`].
+pub const FD_CLOEXEC: u16 = 1;
+
 /// A Linux file descriptor slot.
 pub enum Fd {
     /// Unused slot.
@@ -251,6 +269,57 @@ pub enum Fd {
     Terminal,
     /// A regular file: contents read at open time plus the current offset.
     File { data: Vec<u8>, offset: usize },
+    /// One end of an anonymous pipe (`pipe`/`pipe2`).
+    Pipe { pipe: Arc<Pipe>, end: End },
+    /// One side of an `AF_UNIX` socket pair (`socketpair`).
+    Socket { pair: Arc<SocketPair>, side: Side },
+}
+
+impl Fd {
+    /// A pipe end, taking the pipe's reader/writer reference.
+    pub fn pipe_end(pipe: Arc<Pipe>, end: End) -> Fd {
+        pipe.acquire(end);
+        Fd::Pipe { pipe, end }
+    }
+
+    /// A socket side, taking the side's reference (and its directions' on the
+    /// first open).
+    pub fn socket_side(pair: Arc<SocketPair>, side: Side) -> Fd {
+        pair.acquire(side);
+        Fd::Socket { pair, side }
+    }
+}
+
+/// Clone plus retain: `dup` and `fork` share the same pipe, so the reference
+/// counts must follow the new descriptor.
+impl Clone for Fd {
+    fn clone(&self) -> Self {
+        match self {
+            Fd::Closed => Fd::Closed,
+            Fd::Terminal => Fd::Terminal,
+            Fd::File { data, offset } => Fd::File {
+                data: data.clone(),
+                offset: *offset,
+            },
+            Fd::Pipe { pipe, end } => Fd::pipe_end(Arc::clone(pipe), *end),
+            Fd::Socket { pair, side } => Fd::socket_side(Arc::clone(pair), *side),
+        }
+    }
+}
+
+/// Releasing a descriptor drops its reference. This fires on `close`, on
+/// `dup2` replacing a slot, and when a reaped task's table is dropped; the
+/// drop must happen with the task table unlocked because the last reference
+/// wakes a wait queue (queue-before-table lock order). The fd helpers below
+/// take the old entry out under the lock and drop it after releasing it.
+impl Drop for Fd {
+    fn drop(&mut self) {
+        match self {
+            Fd::Pipe { pipe, end } => pipe.release(*end),
+            Fd::Socket { pair, side } => pair.close(*side),
+            _ => {}
+        }
+    }
 }
 
 /// Cheap classification of a descriptor for syscall dispatch.
@@ -259,6 +328,10 @@ pub enum FdKind {
     Closed,
     Terminal,
     File,
+    /// A pipe end (either direction).
+    Pipe,
+    /// A socket-pair side.
+    Socket,
 }
 
 fn new_fds() -> [Fd; FD_COUNT] {
@@ -266,16 +339,10 @@ fn new_fds() -> [Fd; FD_COUNT] {
     core::array::from_fn(|i| if i < 3 { Fd::Terminal } else { Fd::Closed })
 }
 
-/// Copy a descriptor table (for `fork`; file buffers are duplicated).
+/// Copy a descriptor table (for `fork`; file buffers are duplicated, pipe
+/// references retained).
 fn clone_fds(fds: &[Fd; FD_COUNT]) -> [Fd; FD_COUNT] {
-    core::array::from_fn(|i| match &fds[i] {
-        Fd::Closed => Fd::Closed,
-        Fd::Terminal => Fd::Terminal,
-        Fd::File { data, offset } => Fd::File {
-            data: data.clone(),
-            offset: *offset,
-        },
-    })
+    core::array::from_fn(|i| fds[i].clone())
 }
 
 pub struct Task {
@@ -315,6 +382,8 @@ pub struct Task {
     pub fs_base: u64,
     /// Linux file descriptors.
     pub fds: [Fd; FD_COUNT],
+    /// Per-descriptor flags ([`FD_CLOEXEC`]).
+    pub fd_flags: [u16; FD_COUNT],
     pub output: Vec<u8>,
     pub input: VecDeque<Key>,
 }
@@ -401,6 +470,7 @@ pub fn register_kernel() {
         heap_break: 0,
         fs_base: 0,
         fds: new_fds(),
+        fd_flags: [0; FD_COUNT],
         output: Vec::new(),
         input: VecDeque::new(),
     });
@@ -482,6 +552,7 @@ fn spawn_in_space(
         heap_break: user_process::USER_HEAP_BASE,
         fs_base: 0,
         fds: new_fds(),
+        fd_flags: [0; FD_COUNT],
         output: Vec::new(),
         input: VecDeque::new(),
     });
@@ -531,6 +602,7 @@ pub fn spawn_linux(name: &'static str, elf: &[u8], argv0: &str) -> Result<usize,
         heap_break: 0,
         fs_base: 0,
         fds: new_fds(),
+        fd_flags: [0; FD_COUNT],
         output: Vec::new(),
         input: VecDeque::new(),
     });
@@ -591,16 +663,38 @@ pub fn spawn_thread(
         heap_break: 0,
         fs_base,
         fds: new_fds(),
+        fd_flags: [0; FD_COUNT],
         output: Vec::new(),
         input: VecDeque::new(),
     });
     Ok(index)
 }
 
+/// Create a `clone(CLONE_VM)` child that is *not* a thread: the vfork child
+/// musl's `posix_spawn` builds (`CLONE_VM|CLONE_VFORK|SIGCHLD`). It resumes at
+/// the caller's `syscall` return address with `rax = 0` on `user_rsp`, after
+/// `dup2`-ing stdio and `execve`-ing.
+///
+/// The address space is a copy-on-write clone, not a true shared table (a
+/// vfork child on LazyOS would otherwise share the parent's `exit_group`
+/// thread group, so its `_exit` fallback would kill the parent). The
+/// posix_spawn child only reads the argument block before `execve`, and the
+/// parent synchronises through musl's status pipe, so a clone is semantically
+/// sufficient.
+pub fn spawn_vfork(user_rsp: u64) -> Result<usize, &'static str> {
+    spawn_fork_inner(Some(user_rsp))
+}
+
 /// Fork the current Linux process: a new task with a deep copy of its address
 /// space. Returns the child's slot (the parent's `fork` result); the child's
 /// frame resumes at the parent's return address with `rax = 0`.
 pub fn spawn_fork() -> Result<usize, &'static str> {
+    spawn_fork_inner(None)
+}
+
+/// Shared [`spawn_fork`]/[`spawn_vfork`] body. `user_rsp` overrides the
+/// child's resume stack (`clone` provides one); `None` resumes on the parent's.
+fn spawn_fork_inner(user_rsp: Option<u64>) -> Result<usize, &'static str> {
     let mut tasks = TASKS.lock();
     let index = (1..MAX_TASKS)
         .find(|&i| tasks[i].is_none())
@@ -622,6 +716,9 @@ pub fn spawn_fork() -> Result<usize, &'static str> {
     let (brk, mmap_next) = bump_for_pml4(pml4);
     let context = crate::arch::linux::user_context();
     let fds = clone_fds(&parent.fds);
+    // `fork` inherits the parent's `FD_CLOEXEC` flags (they are per-descriptor,
+    // and `execve` in the child closes whatever they mark).
+    let fd_flags = parent.fd_flags;
     let pass = virtual_now(&tasks);
 
     // `fork` is only valid inside a user address space: the kernel task's table
@@ -640,7 +737,7 @@ pub fn spawn_fork() -> Result<usize, &'static str> {
     }
     .ok_or("out of memory (fork)")?;
     let top = kstack_top(index);
-    let rsp = build_thread_frame(top, &context, context.rsp);
+    let rsp = build_thread_frame(top, &context, user_rsp.unwrap_or(context.rsp));
 
     tasks[index] = Some(Task {
         name: "fork",
@@ -662,6 +759,7 @@ pub fn spawn_fork() -> Result<usize, &'static str> {
         heap_break: 0,
         fs_base,
         fds,
+        fd_flags,
         output: Vec::new(),
         input: VecDeque::new(),
     });
@@ -802,6 +900,96 @@ pub fn has_children() -> bool {
         .any(|task| task.parent == me && task.parent != 0)
 }
 
+/// Drop an address space's non-task state and release its user pages, page
+/// tables and PML4 frame. The caller guarantees no live task references
+/// `pml4`.
+fn release_address_space(pml4: u64) -> usize {
+    forget_bumps(pml4);
+    signal::forget(pml4);
+    mem::free_user_table(PhysAddr::new(pml4))
+}
+
+/// Remove `slot` if it holds a finished task that no `wait4` can ever collect:
+/// a `clone(CLONE_VM)` thread or a kernel-started program has `parent == 0`,
+/// so it has no reaper. Returns whether a slot was removed, plus the address
+/// space that just lost its last user when this removal was its last reference
+/// (`None` while another task still shares it).
+fn take_finished(tasks: &mut [Option<Task>; MAX_TASKS], slot: usize) -> (bool, Option<u64>) {
+    let Some(task) = tasks[slot].as_ref() else {
+        return (false, None);
+    };
+    if task.state != TaskState::Done || task.parent != 0 {
+        return (false, None);
+    }
+    let pml4 = task.pml4;
+    // Dropping the task frees its fds and output/input buffers; the kernel
+    // stack is a static array reused with the slot, so it needs no freeing.
+    tasks[slot] = None;
+    let shared = tasks
+        .iter()
+        .enumerate()
+        .any(|(other, task)| other != slot && task.as_ref().is_some_and(|task| task.pml4 == pml4));
+    (true, (!shared).then_some(pml4))
+}
+
+/// Flag `slot` for task-context reclamation if it holds a finished parentless
+/// task. Called from the scheduler with the task table locked; the actual
+/// freeing is deferred to [`reclaim_pending`] (see [`PENDING_RECLAIM`]).
+fn mark_finished(tasks: &[Option<Task>; MAX_TASKS], slot: usize) {
+    let finished_parentless = tasks[slot]
+        .as_ref()
+        .is_some_and(|task| task.state == TaskState::Done && task.parent == 0);
+    if finished_parentless {
+        PENDING_RECLAIM.fetch_or(1u32 << slot, Ordering::Relaxed);
+    }
+}
+
+/// Reclaim the finished parentless tasks the scheduler flagged: free their
+/// slots, task-owned buffers and — when the removal leaves an address space
+/// with no users — its pages, page tables and PML4 frame.
+///
+/// Must run with interrupts disabled in task context (a syscall entry or the
+/// mux loop): dropping a dead task takes the heap lock, and unlike a preempted
+/// task the current task holds none inside a critical section there.
+pub fn reclaim_pending() {
+    let pending = PENDING_RECLAIM.swap(0, Ordering::Relaxed);
+    if pending == 0 {
+        return;
+    }
+    let mut tasks = TASKS.lock();
+    let mut orphans = [0u64; MAX_TASKS];
+    let mut orphan_count = 0;
+    let mut reclaimed = 0;
+    for slot in 1..MAX_TASKS {
+        if pending & (1u32 << slot) != 0 {
+            let (removed, orphan) = take_finished(&mut tasks, slot);
+            if removed {
+                reclaimed += 1;
+            }
+            if let Some(pml4) = orphan {
+                orphans[orphan_count] = pml4;
+                orphan_count += 1;
+            }
+        }
+    }
+    drop(tasks);
+    if reclaimed > 0 {
+        // A `clone` sleeping on table pressure can return early. Queue before
+        // task table order holds: the lock above is already released.
+        wait::SLOT.notify_all();
+    }
+    for &pml4 in &orphans[..orphan_count] {
+        let pages = mem::user_table_frame_count(PhysAddr::new(pml4));
+        let released = release_address_space(pml4);
+        let stats = mem::frame_stats();
+        serial_println!(
+            "mem: reclaimed address space {pml4:#x}: {pages} pages, released {released} frames, {} free of {}",
+            stats.free,
+            stats.total
+        );
+    }
+}
+
 /// Take a finished child of the current task, freeing its slot and address
 /// space. The address space is torn down only when the reaped child is its
 /// last user: `clone(CLONE_VM)` threads share their creator's PML4 and would
@@ -812,7 +1000,7 @@ pub fn has_children() -> bool {
 /// `TASKS`.
 pub fn reap_child() -> Option<(usize, u64)> {
     let me = current();
-    let (index, status, pml4, shared) = {
+    let (index, status, pml4, shared, dead) = {
         let mut tasks = TASKS.lock();
         let mut found = None;
         for index in 1..MAX_TASKS {
@@ -834,18 +1022,20 @@ pub fn reap_child() -> Option<(usize, u64)> {
                 let shared = tasks.iter().enumerate().any(|(other, task)| {
                     other != index && task.as_ref().is_some_and(|task| task.pml4 == pml4)
                 });
-                tasks[index] = None;
-                found = Some((index, status, pml4, shared));
+                let dead = tasks[index].take();
+                found = Some((index, status, pml4, shared, dead));
                 break;
             }
         }
         found?
     };
+    // Dropping the dead task closes its descriptors, which may wake a peer
+    // blocked on a pipe it held. Must happen with `TASKS` unlocked: pipe
+    // release takes the wait-queue lock and then the task table.
+    drop(dead);
     if !shared {
-        forget_bumps(pml4);
-        signal::forget(pml4);
         let pages = mem::user_table_frame_count(PhysAddr::new(pml4));
-        let released = mem::free_user_table(PhysAddr::new(pml4));
+        let released = release_address_space(pml4);
         let stats = mem::frame_stats();
         serial_println!(
             "mem: reaped task {index}: {pages} pages, released {released} frames, {} free of {}",
@@ -853,6 +1043,8 @@ pub fn reap_child() -> Option<(usize, u64)> {
             stats.total
         );
     }
+    // A freed slot releases a `clone` sleeping on table pressure early.
+    wait::SLOT.notify_all();
     Some((index, status))
 }
 
@@ -935,6 +1127,16 @@ pub(crate) fn take_wake_reason(index: usize) -> Option<WakeReason> {
     TASKS.lock()[index]
         .as_mut()
         .and_then(|task| task.wake_reason.take())
+}
+
+/// The number of free task slots (the kernel task's slot is never free).
+pub fn free_slots() -> usize {
+    TASKS
+        .lock()
+        .iter()
+        .skip(1)
+        .filter(|slot| slot.is_none())
+        .count()
 }
 
 /// The PIT tick counter (100 Hz). Wait deadlines are absolute tick values.
@@ -1036,9 +1238,17 @@ pub fn wait_terminal() -> WakeReason {
     wait::TERMINAL.wait(current(), None)
 }
 
-/// Park the current task until terminal input arrives or `deadline` passes.
+/// Park the current task until terminal input or a pipe event arrives, or
+/// `deadline` passes. The queue is advisory: the caller rescans its descriptors
+/// and parks again if nothing it watches changed.
 pub fn wait_poll(deadline: Option<u64>) -> WakeReason {
-    wait::TERMINAL.wait(current(), deadline)
+    wait::POLL.wait(current(), deadline)
+}
+
+/// Wake every `poll` waiter (pipe data, space, EOF, or `-EPIPE`). Pipe code and
+/// the input paths call this; wakeups are advisory.
+pub fn notify_poll() {
+    wait::POLL.notify_all();
 }
 
 /// Park the current task until `deadline` (absolute PIT ticks) passes.
@@ -1064,6 +1274,14 @@ pub fn idle(deadline: u64) -> WakeReason {
 /// Park the current task until one of its children becomes reapable.
 pub fn wait_child_exit() -> WakeReason {
     wait::CHILD_EXIT.wait(current(), None)
+}
+
+/// Park the current task until a task slot is freed or `deadline` passes. The
+/// Linux `clone` shim sleeps here after a spawn while the table is near
+/// capacity, so earlier threads get a quantum to run, exit and free their
+/// slots (which notifies the queue) before the next spawn needs one.
+pub fn wait_slot(deadline: u64) -> WakeReason {
+    wait::SLOT.wait(current(), Some(deadline))
 }
 
 /// The current task's `clear_child_tid` address.
@@ -1114,6 +1332,17 @@ pub extern "C" fn schedule(current_rsp: u64) -> u64 {
     // Safety: every `Task::rsp` is an interrupt frame saved by this ISR.
     let (sweep_finished, sweep_count) = unsafe { signal::sweep(&mut tasks) };
 
+    // Flag finished parentless tasks for reclamation: a thread or a
+    // kernel-started program has no parent to `wait4` it, so its slot and
+    // address space would otherwise leak (issue #133). The interrupted task is
+    // left for the tick that switches away from it; `reclaim_pending` frees
+    // the flagged slots from task context.
+    for slot in 1..MAX_TASKS {
+        if slot != cur {
+            mark_finished(&tasks, slot);
+        }
+    }
+
     // Pick the highest class with a runnable task, then the fairest member
     // within it. A task that is blocked or done is never selected.
     // `select_next` falls back to `cur` when nothing is runnable at all;
@@ -1126,6 +1355,9 @@ pub extern "C" fn schedule(current_rsp: u64) -> u64 {
         return current_rsp;
     }
 
+    // `cur` fully leaves the CPU on this tick: its finished slot can be
+    // reclaimed too (from task context, on a later syscall or mux iteration).
+    mark_finished(&tasks, cur);
     CURRENT.store(next, Ordering::Relaxed);
     // INVARIANT: `select_next` only ever returns an index whose slot is
     // `Some` (that is its definition of "runnable"), and `tasks` has been
@@ -1373,6 +1605,7 @@ pub fn on_key(key: Key) {
     // task table inside notify, so the lock order is always queue -> task.
     // Readers that got no key just park again (spurious wakeup).
     wait::TERMINAL.notify_all();
+    notify_poll();
 }
 
 /// Inject bytes into the current process's input queue (e.g. a terminal reply).
@@ -1387,6 +1620,7 @@ pub fn inject_input(bytes: &[u8]) {
         }
     }
     wait::TERMINAL.notify_all();
+    notify_poll();
 }
 
 /// Whether the current process has pending terminal input.
@@ -1513,22 +1747,30 @@ pub fn fd_open(entry: Fd) -> Option<usize> {
     for index in 3..FD_COUNT {
         if matches!(task.fds[index], Fd::Closed) {
             task.fds[index] = entry;
+            task.fd_flags[index] = 0;
             return Some(index);
         }
     }
     None
 }
 
-/// Close a descriptor.
+/// Close a descriptor. The old entry is dropped after the task table is
+/// unlocked: dropping a pipe end wakes its peer, and wait-queue notification
+/// takes the task table (queue-before-table lock order).
 pub fn fd_close(fd: usize) -> bool {
-    let mut tasks = TASKS.lock();
-    match tasks[current()].as_mut() {
-        Some(task) if fd < FD_COUNT && !matches!(task.fds[fd], Fd::Closed) => {
-            task.fds[fd] = Fd::Closed;
-            true
+    let old = {
+        let mut tasks = TASKS.lock();
+        match tasks[current()].as_mut() {
+            Some(task) if fd < FD_COUNT && !matches!(task.fds[fd], Fd::Closed) => {
+                task.fd_flags[fd] = 0;
+                Some(core::mem::replace(&mut task.fds[fd], Fd::Closed))
+            }
+            _ => None,
         }
-        _ => false,
-    }
+    };
+    let closed = old.is_some();
+    drop(old);
+    closed
 }
 
 /// Classify a descriptor.
@@ -1539,8 +1781,194 @@ pub fn fd_kind(fd: usize) -> FdKind {
             Fd::Closed => FdKind::Closed,
             Fd::Terminal => FdKind::Terminal,
             Fd::File { .. } => FdKind::File,
+            Fd::Pipe { .. } => FdKind::Pipe,
+            Fd::Socket { .. } => FdKind::Socket,
         },
         _ => FdKind::Closed,
+    }
+}
+
+/// Whether `fd` has `FD_CLOEXEC` set (false for a closed slot).
+pub fn fd_cloexec(fd: usize) -> bool {
+    let tasks = TASKS.lock();
+    match tasks[current()].as_ref() {
+        Some(task) if fd < FD_COUNT && !matches!(task.fds[fd], Fd::Closed) => {
+            task.fd_flags[fd] & FD_CLOEXEC != 0
+        }
+        _ => false,
+    }
+}
+
+/// Set or clear `FD_CLOEXEC` on `fd`; `false` for a closed slot.
+pub fn fd_set_cloexec(fd: usize, on: bool) -> bool {
+    let mut tasks = TASKS.lock();
+    match tasks[current()].as_mut() {
+        Some(task) if fd < FD_COUNT && !matches!(task.fds[fd], Fd::Closed) => {
+            if on {
+                task.fd_flags[fd] |= FD_CLOEXEC;
+            } else {
+                task.fd_flags[fd] &= !FD_CLOEXEC;
+            }
+            true
+        }
+        _ => false,
+    }
+}
+
+/// Close every descriptor marked `FD_CLOEXEC` (the `execve` step). Returns how
+/// many were closed.
+pub fn fd_close_cloexec() -> usize {
+    let mut closed = 0;
+    for fd in 0..FD_COUNT {
+        if fd_cloexec(fd) && fd_close(fd) {
+            closed += 1;
+        }
+    }
+    closed
+}
+
+/// Linux `O_NONBLOCK` (as `fd_status`/`fd_set_status` carry it).
+pub const O_NONBLOCK: u64 = 0o4000;
+
+/// The access-mode bits of `F_GETFL` for `fd`, or `None` for a closed slot.
+/// `O_NONBLOCK` is reported from the pipe/socket's open file description, so a
+/// `dup` or `fork` sees the same setting.
+pub fn fd_status(fd: usize) -> Option<u64> {
+    let tasks = TASKS.lock();
+    let task = tasks[current()].as_ref()?;
+    if fd >= FD_COUNT {
+        return None;
+    }
+    match &task.fds[fd] {
+        Fd::Closed => None,
+        Fd::Terminal | Fd::File { .. } => Some(0), // O_RDONLY
+        Fd::Pipe { pipe, end } => {
+            let access = match end {
+                End::Read => 0,
+                End::Write => 1, // O_WRONLY
+            };
+            Some(access | (u64::from(pipe.nonblock(*end)) * O_NONBLOCK))
+        }
+        Fd::Socket { pair, side } => {
+            Some(2 | (u64::from(pair.nonblock(*side)) * O_NONBLOCK)) // O_RDWR
+        }
+    }
+}
+
+/// Apply `F_SETFL`: only `O_NONBLOCK` is meaningful (pipes and sockets); other
+/// status flags are accepted and ignored. `false` for a closed slot.
+pub fn fd_set_status(fd: usize, nonblock: bool) -> bool {
+    let tasks = TASKS.lock();
+    let Some(task) = tasks[current()].as_ref() else {
+        return false;
+    };
+    if fd >= FD_COUNT {
+        return false;
+    }
+    match &task.fds[fd] {
+        Fd::Closed => false,
+        Fd::Terminal | Fd::File { .. } => true,
+        Fd::Pipe { pipe, end } => {
+            pipe.set_nonblock(*end, nonblock);
+            true
+        }
+        Fd::Socket { pair, side } => {
+            pair.set_nonblock(*side, nonblock);
+            true
+        }
+    }
+}
+
+/// Read from a pipe end or socket side into kernel memory. The fd wrapper
+/// resolves the shared object, drops the task-table lock, and then runs the
+/// blocking read (which may park this task).
+pub fn fd_stream_read(fd: usize, dst: &mut [u8]) -> Result<usize, pipe::Error> {
+    enum Source {
+        Pipe(Arc<Pipe>, End),
+        Socket(Arc<SocketPair>, Side),
+    }
+    let (source, nonblock) = {
+        let tasks = TASKS.lock();
+        let task = tasks[current()].as_ref().ok_or(pipe::Error::BadEnd)?;
+        if fd >= FD_COUNT {
+            return Err(pipe::Error::BadEnd);
+        }
+        match &task.fds[fd] {
+            Fd::Pipe { pipe, end } => (Source::Pipe(Arc::clone(pipe), *end), pipe.nonblock(*end)),
+            Fd::Socket { pair, side } => (
+                Source::Socket(Arc::clone(pair), *side),
+                pair.nonblock(*side),
+            ),
+            _ => return Err(pipe::Error::BadEnd),
+        }
+    };
+    match source {
+        Source::Pipe(pipe, end) => pipe.read(end, dst, nonblock),
+        Source::Socket(pair, side) => pair.read(side, dst, nonblock),
+    }
+}
+
+/// Write to a pipe end or socket side from kernel memory.
+pub fn fd_stream_write(fd: usize, src: &[u8]) -> Result<usize, pipe::Error> {
+    enum Sink {
+        Pipe(Arc<Pipe>, End),
+        Socket(Arc<SocketPair>, Side),
+    }
+    let (sink, nonblock) = {
+        let tasks = TASKS.lock();
+        let task = tasks[current()].as_ref().ok_or(pipe::Error::BadEnd)?;
+        if fd >= FD_COUNT {
+            return Err(pipe::Error::BadEnd);
+        }
+        match &task.fds[fd] {
+            Fd::Pipe { pipe, end } => (Sink::Pipe(Arc::clone(pipe), *end), pipe.nonblock(*end)),
+            Fd::Socket { pair, side } => {
+                (Sink::Socket(Arc::clone(pair), *side), pair.nonblock(*side))
+            }
+            _ => return Err(pipe::Error::BadEnd),
+        }
+    };
+    match sink {
+        Sink::Pipe(pipe, end) => pipe.write(src, end, nonblock),
+        Sink::Socket(pair, side) => pair.write(side, src, nonblock),
+    }
+}
+
+/// `poll` revents for a descriptor: `POLLIN`/`POLLOUT`/`POLLHUP` for streams,
+/// terminal input readiness for fd 0. `None` means the slot is not open
+/// (`POLLNVAL`).
+pub fn fd_poll(fd: usize, events: u16) -> Option<u16> {
+    // stdin's readiness comes from the input queue; `input_available` is the
+    // one predicate for it (no table lock held here, so it can take its own).
+    if fd == 0 && fd_kind(0) == FdKind::Terminal {
+        let mut revents = 0;
+        if events & pipe::POLLIN != 0 && input_available() {
+            revents |= pipe::POLLIN;
+        }
+        if events & pipe::POLLOUT != 0 {
+            revents |= pipe::POLLOUT;
+        }
+        return Some(revents);
+    }
+    let tasks = TASKS.lock();
+    let task = tasks[current()].as_ref()?;
+    if fd >= FD_COUNT {
+        return None;
+    }
+    match &task.fds[fd] {
+        Fd::Closed => None,
+        Fd::File { .. } => Some(if events & pipe::POLLIN != 0 {
+            pipe::POLLIN // snapshots are always readable
+        } else {
+            0
+        }),
+        Fd::Terminal => Some(if events & pipe::POLLOUT != 0 {
+            pipe::POLLOUT
+        } else {
+            0
+        }),
+        Fd::Pipe { pipe, end } => Some(pipe.poll(*end, events)),
+        Fd::Socket { pair, side } => Some(pair.poll(*side, events)),
     }
 }
 
@@ -1577,6 +2005,47 @@ pub fn fd_size(fd: usize) -> Option<u64> {
     }
 }
 
+/// The current read/write position of a file descriptor.
+pub fn fd_offset(fd: usize) -> Option<usize> {
+    let tasks = TASKS.lock();
+    match tasks[current()].as_ref() {
+        Some(task) if fd < FD_COUNT => match &task.fds[fd] {
+            Fd::File { offset, .. } => Some(*offset),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// Patch `data` into a file descriptor's snapshot at `offset`, extending (and
+/// zero-filling) as needed, and advance the descriptor past the write. Returns
+/// false unless the descriptor holds a regular file; the Linux ABI uses this
+/// to make a writable fd read back its own writes after the backing file was
+/// updated.
+pub fn fd_apply_write(fd: usize, offset: usize, data: &[u8]) -> bool {
+    let mut tasks = TASKS.lock();
+    let Some(task) = tasks[current()].as_mut() else {
+        return false;
+    };
+    if fd >= FD_COUNT {
+        return false;
+    }
+    let Fd::File {
+        data: buf,
+        offset: pos,
+    } = &mut task.fds[fd]
+    else {
+        return false;
+    };
+    let end = offset.saturating_add(data.len());
+    if end > buf.len() {
+        buf.resize(end, 0);
+    }
+    buf[offset..end].copy_from_slice(data);
+    *pos = end;
+    true
+}
+
 /// Reposition a file descriptor (`whence`: 0=SET, 1=CUR, 2=END).
 pub fn fd_seek(fd: usize, offset: i64, whence: u64) -> Option<u64> {
     let mut tasks = TASKS.lock();
@@ -1599,8 +2068,9 @@ pub fn fd_seek(fd: usize, offset: i64, whence: u64) -> Option<u64> {
     }
 }
 
-/// Duplicate a descriptor into the lowest free slot.
-pub fn fd_dup(fd: usize) -> Option<usize> {
+/// Duplicate a descriptor into the lowest free slot at or above `min`.
+/// `dup` uses `min = 3`; `F_DUPFD` passes the caller's argument.
+pub fn fd_dup_min(fd: usize, min: usize) -> Option<usize> {
     let mut tasks = TASKS.lock();
     let task = tasks[current()].as_mut()?;
     if fd >= FD_COUNT {
@@ -1608,37 +2078,50 @@ pub fn fd_dup(fd: usize) -> Option<usize> {
     }
     let entry = match &task.fds[fd] {
         Fd::Closed => return None,
-        Fd::Terminal => Fd::Terminal,
-        Fd::File { data, offset } => Fd::File {
-            data: data.clone(),
-            offset: *offset,
-        },
+        other => other.clone(),
     };
-    for index in 3..FD_COUNT {
+    for index in min.max(3)..FD_COUNT {
         if matches!(task.fds[index], Fd::Closed) {
             task.fds[index] = entry;
+            // `dup`/`F_DUPFD` produce a descriptor without `FD_CLOEXEC`.
+            task.fd_flags[index] = 0;
             return Some(index);
         }
     }
     None
 }
 
+/// Duplicate a descriptor into the lowest free slot (`dup(2)`).
+pub fn fd_dup(fd: usize) -> Option<usize> {
+    fd_dup_min(fd, 3)
+}
+
 /// Duplicate `old` into the specific descriptor `new` (closing it first).
+/// `FD_CLOEXEC` is cleared on the new descriptor, as POSIX requires; an
+/// `old == new` call is a no-op.
 pub fn fd_dup2(old: usize, new: usize) -> Option<usize> {
-    let mut tasks = TASKS.lock();
-    let task = tasks[current()].as_mut()?;
     if old >= FD_COUNT || new >= FD_COUNT {
         return None;
     }
-    let entry = match &task.fds[old] {
-        Fd::Closed => return None,
-        Fd::Terminal => Fd::Terminal,
-        Fd::File { data, offset } => Fd::File {
-            data: data.clone(),
-            offset: *offset,
-        },
+    if old == new {
+        // Validating only: a closed `old` fails, an open one is unchanged.
+        return match fd_kind(old) {
+            FdKind::Closed => None,
+            _ => Some(new),
+        };
+    }
+    let replaced = {
+        let mut tasks = TASKS.lock();
+        let task = tasks[current()].as_mut()?;
+        let entry = match &task.fds[old] {
+            Fd::Closed => return None,
+            other => other.clone(),
+        };
+        task.fd_flags[new] = 0;
+        core::mem::replace(&mut task.fds[new], entry)
     };
-    task.fds[new] = entry;
+    // The replaced descriptor may have been a pipe end; drop it unlocked.
+    drop(replaced);
     Some(new)
 }
 
@@ -1676,16 +2159,24 @@ pub mod harness {
     /// accounting, so tests do not inherit virtual-time or CPU ticks from an
     /// earlier test.
     pub fn reset() {
-        let mut tasks = TASKS.lock();
-        for slot in tasks.iter_mut().skip(1) {
-            *slot = None;
-        }
-        if let Some(task) = tasks[KERNEL_TASK].as_mut() {
-            task.pass = 0;
-            task.cpu_ticks = 0;
-            task.class = PriorityClass::Interactive;
-            task.weight = PriorityClass::Interactive.default_weight();
-        }
+        let removed: alloc::vec::Vec<super::Task> = {
+            let mut tasks = TASKS.lock();
+            let removed = tasks
+                .iter_mut()
+                .skip(1)
+                .filter_map(|slot| slot.take())
+                .collect();
+            if let Some(task) = tasks[KERNEL_TASK].as_mut() {
+                task.pass = 0;
+                task.cpu_ticks = 0;
+                task.class = PriorityClass::Interactive;
+                task.weight = PriorityClass::Interactive.default_weight();
+            }
+            removed
+        };
+        // Dropping removed tasks closes their pipe ends, which may notify a
+        // wait queue; do it with `TASKS` unlocked (queue-before-table order).
+        drop(removed);
     }
 
     /// Mark `index` finished, as if it had called `exit` (re-parenting its
@@ -1706,6 +2197,34 @@ pub mod harness {
         TASKS.lock()[index].as_ref().map(|task| task.state)
     }
 
+    /// Classify `fd` in another task's descriptor table, so a test can verify
+    /// `fork` inheritance without switching `current()`.
+    pub fn fd_kind_at(slot: usize, fd: usize) -> super::FdKind {
+        let tasks = TASKS.lock();
+        match tasks[slot].as_ref() {
+            Some(task) if fd < super::FD_COUNT => match task.fds[fd] {
+                super::Fd::Closed => super::FdKind::Closed,
+                super::Fd::Terminal => super::FdKind::Terminal,
+                super::Fd::File { .. } => super::FdKind::File,
+                super::Fd::Pipe { .. } => super::FdKind::Pipe,
+                super::Fd::Socket { .. } => super::FdKind::Socket,
+            },
+            _ => super::FdKind::Closed,
+        }
+    }
+
+    /// Whether `fd` in another task's table has `FD_CLOEXEC`.
+    pub fn fd_cloexec_at(slot: usize, fd: usize) -> bool {
+        let tasks = TASKS.lock();
+        match tasks[slot].as_ref() {
+            Some(task) if fd < super::FD_COUNT => {
+                !matches!(task.fds[fd], super::Fd::Closed)
+                    && task.fd_flags[fd] & super::FD_CLOEXEC != 0
+            }
+            _ => false,
+        }
+    }
+
     /// The slot the scheduler would pick next, without switching to it or
     /// advancing any pass (a pure query, so it is deterministic).
     pub fn next_runnable() -> usize {
@@ -1723,9 +2242,25 @@ pub mod harness {
         if let Some(task) = tasks[cur].as_mut() {
             task.cpu_ticks = task.cpu_ticks.saturating_add(1);
         }
+        // Same flagging the real tick does (issue #133): finished parentless
+        // tasks are handed to `reclaim_pending`, the current one only when the
+        // tick actually switches away from it.
+        for slot in 1..super::MAX_TASKS {
+            if slot != cur {
+                super::mark_finished(&tasks, slot);
+            }
+        }
         let next = select_next(&mut tasks, cur);
+        if next != cur {
+            super::mark_finished(&tasks, cur);
+        }
         super::CURRENT.store(next, core::sync::atomic::Ordering::Relaxed);
         next
+    }
+
+    /// The PML4 physical address of task `index`.
+    pub fn pml4(index: usize) -> Option<u64> {
+        TASKS.lock()[index].as_ref().map(|task| task.pml4)
     }
 
     /// Run the deadline sweep with an explicit `now`, as a timer tick would.

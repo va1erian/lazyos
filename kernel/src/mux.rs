@@ -36,6 +36,10 @@ pub fn run() -> ! {
     // mux can repaint from scratch when it takes the screen back (issue #113).
     let mut yielded = false;
     loop {
+        // Reclaim task slots the scheduler flagged (issue #133) before any
+        // window work: interrupts off, so the drop of a dead task's buffers
+        // cannot be preempted by the timer while it holds the task table.
+        without_interrupts(task::reclaim_pending);
         // A bound compositor owns the screen and input: stop painting entirely
         // and park like any idle task. The check also notices a compositor that
         // exited without unbinding, so this mux is always the fallback.
