@@ -23,11 +23,21 @@ pub enum Key {
     PageDown,
     Home,
     End,
+    /// Modifier press/release (issue #167): forwarded to a bound compositor,
+    /// which uses them for global hotkeys; the kernel terminal consumes them.
+    Shift,
+    Ctrl,
+    Alt,
+    Super,
+    /// Function keys are compositor-only for now (Alt+F4 closes a window).
+    F4,
 }
 
 static QUEUE: Mutex<VecDeque<Key>> = Mutex::new(VecDeque::new());
 static SHIFT: AtomicBool = AtomicBool::new(false);
 static CTRL: AtomicBool = AtomicBool::new(false);
+static ALT: AtomicBool = AtomicBool::new(false);
+static SUPER: AtomicBool = AtomicBool::new(false);
 static EXTENDED: AtomicBool = AtomicBool::new(false);
 
 /// Feed a raw scancode from the i8042 (called from the IRQ1 handler).
@@ -40,13 +50,19 @@ pub fn push_scancode(scancode: u8) {
     let released = scancode & 0x80 != 0;
     let code = scancode & 0x7F;
 
+    // Modifier keys update their tracked state and, while a compositor is
+    // bound, are forwarded as modifier key codes so it can implement global
+    // hotkeys (issue #167). They are never routed to a task: the kernel
+    // terminal consumes them exactly as before.
+    if let Some((state, key)) = modifier(code, extended) {
+        state.store(!released, Ordering::SeqCst);
+        if display::bound() {
+            display::push_key(key, !released);
+        }
+        return;
+    }
+
     if released {
-        if code == 0x2A || code == 0x36 {
-            SHIFT.store(false, Ordering::SeqCst);
-        }
-        if code == 0x1D {
-            CTRL.store(false, Ordering::SeqCst);
-        }
         // A bound compositor observes key releases too; the kernel terminal
         // only cares about presses, so this is display-only (issue #113).
         if display::bound() {
@@ -62,14 +78,6 @@ pub fn push_scancode(scancode: u8) {
         }
         return;
     }
-    if !extended && (code == 0x2A || code == 0x36) {
-        SHIFT.store(true, Ordering::SeqCst);
-        return;
-    }
-    if !extended && code == 0x1D {
-        CTRL.store(true, Ordering::SeqCst);
-        return;
-    }
 
     let shift = SHIFT.load(Ordering::SeqCst);
     let key = if extended {
@@ -79,13 +87,27 @@ pub fn push_scancode(scancode: u8) {
     };
     if let Some(key) = key {
         // A bound compositor receives the raw key; otherwise route it to the
-        // focused task (switching focus on Tab) as before.
+        // focused task (switching focus on Tab) as before. Function keys are
+        // compositor-only: the terminal mapping would turn them into a NUL.
         if display::bound() {
             display::push_key(key, true);
-        } else {
+        } else if key != Key::F4 {
             crate::task::on_key(key);
         }
     }
+}
+
+/// The modifier a scancode denotes, ignoring its release bit, plus the state
+/// flag it updates. Left/right shift, ctrl, alt, and the two Super keys all
+/// map onto one flag each.
+fn modifier(code: u8, extended: bool) -> Option<(&'static AtomicBool, Key)> {
+    Some(match (extended, code) {
+        (false, 0x2A) | (false, 0x36) => (&SHIFT, Key::Shift),
+        (false, 0x1D) | (true, 0x1D) => (&CTRL, Key::Ctrl),
+        (false, 0x38) | (true, 0x38) => (&ALT, Key::Alt),
+        (true, 0x5B) | (true, 0x5C) => (&SUPER, Key::Super),
+        _ => return None,
+    })
 }
 /// Non-blocking: return the next key if one is queued.
 pub fn try_read_key() -> Option<Key> {
@@ -125,6 +147,7 @@ fn decode(code: u8, shift: bool) -> Option<Key> {
         0x0F => Key::Tab,
         0x1C => Key::Enter,
         0x39 => Key::Space,
+        0x3E => Key::F4,
         // Digits 1..9, 0
         0x02 => Key::Char(shifted(shift, '1', '!')),
         0x03 => Key::Char(shifted(shift, '2', '@')),
@@ -197,4 +220,16 @@ fn letter(shift: bool, lower: char) -> Key {
     } else {
         Key::Char(lower)
     }
+}
+
+/// Test-harness hook: forget every held modifier and queued key so suites do
+/// not leak keyboard state into each other.
+#[cfg(laZYOS_TESTS)]
+pub fn reset() {
+    SHIFT.store(false, Ordering::SeqCst);
+    CTRL.store(false, Ordering::SeqCst);
+    ALT.store(false, Ordering::SeqCst);
+    SUPER.store(false, Ordering::SeqCst);
+    EXTENDED.store(false, Ordering::SeqCst);
+    QUEUE.lock().clear();
 }

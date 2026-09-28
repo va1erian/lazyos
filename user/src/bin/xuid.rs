@@ -40,7 +40,27 @@
 //! cancelled `DragEnded`. Escape cancels. See the "Drag & drop" section below
 //! and `docs/architecture/display.md`.
 //!
+//! Issue #167 adds the shell protocol (S5.0), append-only on top of the above:
+//!
+//! * a `DESKTOP` role on `CreateSurface`: the surface paints at the bottom of
+//!   the z-order, above the background colour and below every window, with no
+//!   chrome, focus, taskbar entry, or Alt+Tab entry; creating another desktop
+//!   replaces the current one;
+//! * `ListSurfaces` (one row per surface: id, title, geometry, minimized,
+//!   focused), `GetWorkArea` (the window rectangle above the fallback taskbar),
+//!   `GetTheme` (the chrome palette), and `Subscribe(role, events)` — the
+//!   subscriber receives one-way `SurfaceChanged`, `FocusChanged`, and
+//!   `StartMenu` events. A `"shell"` subscriber hides the built-in taskbar and
+//!   expands the work area to the whole screen, but the fallback bar (and the
+//!   old no-shell sessions) keep working;
+//! * global hotkeys: `Alt+Tab` opens a centered window overlay, repeated Tab
+//!   cycles the selection, releasing Alt commits; `Ctrl+Esc` and `Super` send
+//!   `StartMenu` to the shell; `Alt+F4` sends `WindowClose` to the focused
+//!   surface; `Escape` still cancels a drag & drop.
+//!
 //! Boot it with `LAZYOS_XUID=1`; the kernel starts this program and `xdemo`.
+//! The shell-probe evidence client (`shellprobe`) boots too when the
+//! `LAZYOS_SHELLPROBE=1` demo hook is set (`SHELLPRB.ELF`).
 //!
 //! The compositing model is deliberately simple: one screen-sized RGBA buffer
 //! and rectangle damage. `Commit` copies the app's damaged rectangle into the
@@ -109,11 +129,19 @@ const BUTTON_TEXT: Color = Color::rgb(24, 24, 32);
 const DRAG_ACCENT: Color = Color::rgb(245, 196, 84);
 /// The drag label's chip background.
 const DRAG_GHOST_BG: Color = Color::rgb(28, 24, 12);
+/// Alt+Tab overlay panel background and border (issue #167).
+const OVERLAY_BG: Color = Color::rgb(20, 24, 38);
+const OVERLAY_BORDER: Color = Color::rgb(122, 138, 196);
+/// Alt+Tab selected-entry highlight and its text.
+const OVERLAY_SELECTED: Color = Color::rgb(44, 112, 74);
+const OVERLAY_TEXT: Color = Color::rgb(220, 226, 240);
 
 /// The serial marker the evidence session greps for.
 const UP_MARKER: &str = "XUID:UP:PASS\n";
 /// The marker that says the window-management features came up.
 const WM_MARKER: &str = "XUID:WM:PASS\n";
+/// The marker that says the shell-protocol additions came up (issue #167).
+const SHELL_MARKER: &str = "XUID:SHELL:PASS\n";
 
 /// One composited window.
 struct Surface {
@@ -138,6 +166,9 @@ struct Surface {
     bytes: u64,
     /// Hidden by the minimize button; restorable from the taskbar.
     minimized: bool,
+    /// The bottom-layer desktop surface (issue #167): no chrome, never
+    /// focused, hit-tested, minimized, or listed on the taskbar.
+    desktop: bool,
 }
 
 impl Surface {
@@ -185,7 +216,132 @@ struct Drag {
     id: u64,
     /// Pointer offset from the window origin at grab time.
     grab_x: i32,
+    /// Pointer offset from the window origin at grab time.
     grab_y: i32,
+}
+
+// ---------------------------------------------------------------------------
+// Shell protocol (issue #167)
+//
+// LazyShell subscribes with Subscribe(role, events) and receives one-way
+// SurfaceChanged/FocusChanged/StartMenu events; `"shell"` hides the built-in
+// taskbar so the shell owns it. The desktop role is a CreateSurface flag. The
+// Alt+Tab overlay is compositor-owned; the shell only sees the resulting
+// FocusChanged/SurfaceChanged events.
+// ---------------------------------------------------------------------------
+
+/// A registered shell subscriber.
+struct ShellSub {
+    /// Role string from `Subscribe`; [`display::ROLE_SHELL`] hides the bar.
+    role: String,
+    /// Event endpoint handle in this task's table.
+    events: u64,
+}
+
+/// The modifier keys currently held, tracked from forwarded key codes.
+#[derive(Clone, Copy, Default)]
+struct Modifiers {
+    #[allow(dead_code)]
+    shift: bool,
+    ctrl: bool,
+    alt: bool,
+    #[allow(dead_code)]
+    super_key: bool,
+}
+
+/// The open Alt+Tab overlay: a snapshot of the window cycle and the current
+/// selection.
+struct AltTab {
+    /// Visible window ids in cycle order (creation order).
+    order: Vec<u64>,
+    /// Index into `order` of the highlighted entry.
+    selected: usize,
+}
+
+/// Whether the built-in taskbar paints: it stays the no-shell fallback and is
+/// hidden once a `"shell"` subscriber registers.
+fn taskbar_visible(shell: Option<&ShellSub>) -> bool {
+    shell
+        .map(|shell| shell.role != display::ROLE_SHELL)
+        .unwrap_or(true)
+}
+
+/// Send one shell event to the subscriber, ignoring a closed peer.
+fn notify_shell(
+    shell: Option<&ShellSub>,
+    scratch: &mut Vec<u8>,
+    method: u32,
+    fields: &[(u16, u64)],
+    text: Option<(u16, &str)>,
+) {
+    let Some(shell) = shell else {
+        return;
+    };
+    let _ = display::send_event_fields(
+        &Endpoint::from_raw(shell.events),
+        scratch,
+        method,
+        fields,
+        text,
+    );
+}
+
+/// Tell the shell a surface changed (created/destroyed/moved/minimized/
+/// restored). Created events carry the title; every row carries the composited
+/// geometry and flags.
+fn notify_surface(
+    shell: Option<&ShellSub>,
+    scratch: &mut Vec<u8>,
+    surface: &Surface,
+    focused: Option<u64>,
+    kind: u64,
+) {
+    let fields = [
+        (display::field::SURFACE, surface.id),
+        (display::field::A, kind),
+        (display::field::X, surface.x.max(0) as u64),
+        (display::field::Y, surface.y.max(0) as u64),
+        (display::field::W, surface.w.max(0) as u64),
+        (display::field::H, surface.h.max(0) as u64),
+        (display::field::MINIMIZED, surface.minimized as u64),
+        (
+            display::field::FOCUSED,
+            (focused == Some(surface.id)) as u64,
+        ),
+    ];
+    let text = (kind == display::change::CREATED)
+        .then_some((display::field::TITLE, surface.title.as_str()));
+    notify_shell(shell, scratch, method::SURFACE_CHANGED, &fields, text);
+}
+
+/// Tell the shell a surface is gone.
+fn notify_destroyed(shell: Option<&ShellSub>, scratch: &mut Vec<u8>, id: u64) {
+    notify_shell(
+        shell,
+        scratch,
+        method::SURFACE_CHANGED,
+        &[
+            (display::field::SURFACE, id),
+            (display::field::A, display::change::DESTROYED),
+        ],
+        None,
+    );
+}
+
+/// Tell the shell which surface is focused (`None` = none).
+fn notify_focus(shell: Option<&ShellSub>, scratch: &mut Vec<u8>, focused: Option<u64>) {
+    notify_shell(
+        shell,
+        scratch,
+        method::FOCUS_CHANGED,
+        &[(display::field::SURFACE, focused.unwrap_or(0))],
+        None,
+    );
+}
+
+/// Forward the global start-menu hotkey to the shell.
+fn notify_start_menu(shell: Option<&ShellSub>, scratch: &mut Vec<u8>) {
+    notify_shell(shell, scratch, method::START_MENU, &[], None);
 }
 
 // ---------------------------------------------------------------------------
@@ -217,13 +373,16 @@ fn surface_by_id(surfaces: &[Surface], id: u64) -> Option<&Surface> {
 }
 
 /// The topmost visible surface whose content contains `point`, ignoring
-/// `source`.
+/// `source` and the desktop.
 fn drag_target_at(surfaces: &[Surface], source: u64, point: (i32, i32)) -> Option<u64> {
     surfaces
         .iter()
         .rev()
         .find(|surface| {
-            !surface.minimized && surface.id != source && contains(surface.content(), point)
+            !surface.minimized
+                && !surface.desktop
+                && surface.id != source
+                && contains(surface.content(), point)
         })
         .map(|surface| surface.id)
 }
@@ -271,6 +430,8 @@ fn drag_begin(
     pointer: (i32, i32),
     focused: Option<u64>,
     scratch: &mut Vec<u8>,
+    taskbar: bool,
+    alt_tab: Option<&AltTab>,
     source: u64,
     token: u64,
     mime: String,
@@ -295,7 +456,16 @@ fn drag_begin(
     }
     let damage = cursor_rect(pointer).union(ghost_rect(&active.mime, pointer));
     *drag = Some(active);
-    repaint(screen, surfaces, pointer, focused, damage, drag.as_ref());
+    repaint(
+        screen,
+        surfaces,
+        pointer,
+        focused,
+        damage,
+        drag.as_ref(),
+        taskbar,
+        alt_tab,
+    );
 }
 
 /// Route a pointer move while a drag is live: the surface under the pointer
@@ -351,6 +521,7 @@ fn drag_move(
 
 /// Finish a drag at `pointer`: `Drop` the token on the surface under it, or
 /// send `DragLeave` and a cancelled `DragEnded`.
+#[allow(clippy::too_many_arguments)]
 fn drag_finish(
     drag: &mut Option<DragSession>,
     surfaces: &[Surface],
@@ -358,6 +529,8 @@ fn drag_finish(
     pointer: (i32, i32),
     focused: Option<u64>,
     scratch: &mut Vec<u8>,
+    taskbar: bool,
+    alt_tab: Option<&AltTab>,
 ) {
     let Some(active) = drag.take() else {
         return;
@@ -401,10 +574,20 @@ fn drag_finish(
     if let Some(surface) = surface_by_id(surfaces, active.source) {
         damage = damage.union(surface.window());
     }
-    repaint(screen, surfaces, pointer, focused, damage, drag.as_ref());
+    repaint(
+        screen,
+        surfaces,
+        pointer,
+        focused,
+        damage,
+        drag.as_ref(),
+        taskbar,
+        alt_tab,
+    );
 }
 
 /// Cancel a live drag (Escape, `DragCancel`, or the surface going away).
+#[allow(clippy::too_many_arguments)]
 fn drag_cancel(
     drag: &mut Option<DragSession>,
     surfaces: &[Surface],
@@ -412,6 +595,8 @@ fn drag_cancel(
     pointer: (i32, i32),
     focused: Option<u64>,
     scratch: &mut Vec<u8>,
+    taskbar: bool,
+    alt_tab: Option<&AltTab>,
 ) {
     let Some(active) = drag.take() else {
         return;
@@ -429,7 +614,16 @@ fn drag_cancel(
     if let Some(surface) = surface_by_id(surfaces, active.source) {
         damage = damage.union(surface.window());
     }
-    repaint(screen, surfaces, pointer, focused, damage, drag.as_ref());
+    repaint(
+        screen,
+        surfaces,
+        pointer,
+        focused,
+        damage,
+        drag.as_ref(),
+        taskbar,
+        alt_tab,
+    );
 }
 
 /// Notify a drag's current target that the drag left, growing `damage`.
@@ -554,6 +748,11 @@ fn run() -> ! {
     let mut drag_session: Option<DragSession> = None;
     let mut button_down = false;
     let mut next_id: u64 = 1;
+    // Issue #167: the registered shell subscriber, the held modifiers, and the
+    // open Alt+Tab overlay.
+    let mut shell: Option<ShellSub> = None;
+    let mut mods = Modifiers::default();
+    let mut alt_tab: Option<AltTab> = None;
     // One receive buffer and one event-encode buffer for the whole life of the
     // compositor: the user bump allocator never reclaims, so the loop reuses
     // both instead of allocating per message.
@@ -562,9 +761,19 @@ fn run() -> ! {
 
     // First frame: the previous mux pixels are still on screen, so paint the
     // desktop and present before announcing readiness.
-    repaint(&mut screen, &surfaces, pointer, focused, full, None);
+    repaint(
+        &mut screen,
+        &surfaces,
+        pointer,
+        focused,
+        full,
+        None,
+        taskbar_visible(shell.as_ref()),
+        alt_tab.as_ref(),
+    );
     sys::write_str(UP_MARKER);
     sys::write_str(WM_MARKER);
+    sys::write_str(SHELL_MARKER);
 
     loop {
         // 1. Input: drain the kernel queue, then repaint only what changed.
@@ -587,6 +796,9 @@ fn run() -> ! {
                             &mut drag_session,
                             &mut event_scratch,
                             &mut button_down,
+                            shell.as_ref(),
+                            &mut mods,
+                            &mut alt_tab,
                         );
                     }
                 }
@@ -611,6 +823,8 @@ fn run() -> ! {
                         &mut drag_session,
                         &mut event_scratch,
                         button_down,
+                        &mut shell,
+                        &mut alt_tab,
                     );
                     if let Some(reply) = reply {
                         let _ = server.reply(txn, &reply);
@@ -701,9 +915,13 @@ fn handle_event(
     drag_session: &mut Option<DragSession>,
     scratch: &mut Vec<u8>,
     button_down: &mut bool,
+    shell: Option<&ShellSub>,
+    mods: &mut Modifiers,
+    alt_tab: &mut Option<AltTab>,
 ) {
     let (screen_w, screen_h) = (screen.width(), screen.height());
     let full = Rect::new(0, 0, screen_w, screen_h);
+    let bar = taskbar_visible(shell);
     match event.kind {
         EventKind::PointerMove => {
             let new = (event.a as i32, event.b as i32);
@@ -721,6 +939,8 @@ fn handle_event(
                     *focused,
                     damage,
                     drag_session.as_ref(),
+                    bar,
+                    alt_tab.as_ref(),
                 );
                 return;
             }
@@ -752,6 +972,8 @@ fn handle_event(
                     *focused,
                     damage,
                     drag_session.as_ref(),
+                    bar,
+                    alt_tab.as_ref(),
                 );
                 return;
             }
@@ -770,6 +992,8 @@ fn handle_event(
                 *focused,
                 damage,
                 drag_session.as_ref(),
+                bar,
+                alt_tab.as_ref(),
             );
         }
         EventKind::PointerDown => {
@@ -780,24 +1004,48 @@ fn handle_event(
                 return;
             }
             let point = *pointer;
-            // The taskbar paints above every window, so it hit-tests first.
-            if let Some(id) = taskbar_hit(surfaces, screen_w, screen_h, point) {
-                restore(surfaces, focused, id);
-                repaint(
-                    screen,
-                    surfaces,
-                    *pointer,
-                    *focused,
-                    full,
-                    drag_session.as_ref(),
-                );
-                return;
+            // The fallback taskbar paints above every window, so it hit-tests
+            // first; with a shell registered it is hidden and not hit-tested.
+            if bar {
+                if let Some(id) = taskbar_hit(surfaces, screen_w, screen_h, point) {
+                    let before = *focused;
+                    let was_minimized =
+                        surface_by_id(surfaces, id).is_some_and(|surface| surface.minimized);
+                    restore(surfaces, focused, id);
+                    if was_minimized {
+                        if let Some(surface) = surface_by_id(surfaces, id) {
+                            notify_surface(
+                                shell,
+                                scratch,
+                                surface,
+                                *focused,
+                                display::change::RESTORED,
+                            );
+                        }
+                    }
+                    if *focused != before {
+                        notify_focus(shell, scratch, *focused);
+                    }
+                    repaint(
+                        screen,
+                        surfaces,
+                        *pointer,
+                        *focused,
+                        full,
+                        drag_session.as_ref(),
+                        bar,
+                        alt_tab.as_ref(),
+                    );
+                    return;
+                }
             }
             // A press outside every window is a desktop click: ignore it.
             let Some((id, origin, close, minimize, title)) = surfaces
                 .iter()
                 .rev()
-                .find(|surface| !surface.minimized && contains(surface.window(), point))
+                .find(|surface| {
+                    !surface.desktop && !surface.minimized && contains(surface.window(), point)
+                })
                 .map(|surface| {
                     (
                         surface.id,
@@ -810,8 +1058,12 @@ fn handle_event(
             else {
                 return;
             };
+            let before = *focused;
             raise(surfaces, id);
             *focused = Some(id);
+            if *focused != before {
+                notify_focus(shell, scratch, *focused);
+            }
             let left = event.a as u32 == display::button::LEFT;
             if left && contains(close, point) {
                 close_surface(
@@ -821,6 +1073,9 @@ fn handle_event(
                     focused,
                     scratch,
                     drag_session.as_ref(),
+                    shell,
+                    bar,
+                    alt_tab.as_ref(),
                     id,
                 );
                 return;
@@ -832,6 +1087,10 @@ fn handle_event(
                     *pointer,
                     focused,
                     drag_session.as_ref(),
+                    shell,
+                    scratch,
+                    bar,
+                    alt_tab.as_ref(),
                     id,
                 );
                 return;
@@ -853,6 +1112,8 @@ fn handle_event(
                     *focused,
                     full,
                     drag_session.as_ref(),
+                    bar,
+                    alt_tab.as_ref(),
                 );
                 return;
             }
@@ -864,6 +1125,8 @@ fn handle_event(
                 *focused,
                 full,
                 drag_session.as_ref(),
+                bar,
+                alt_tab.as_ref(),
             );
             let (x, y) = relative(surfaces, id, point);
             forward(surfaces, scratch, Some(id), method::POINTER_DOWN, x, y);
@@ -871,11 +1134,24 @@ fn handle_event(
         EventKind::PointerUp => {
             *button_down = false;
             if drag_session.is_some() {
-                drag_finish(drag_session, surfaces, screen, *pointer, *focused, scratch);
+                drag_finish(
+                    drag_session,
+                    surfaces,
+                    screen,
+                    *pointer,
+                    *focused,
+                    scratch,
+                    bar,
+                    alt_tab.as_ref(),
+                );
                 return;
             }
-            if drag.take().is_some() {
-                // The matching press was consumed by the title bar.
+            if let Some(active) = drag.take() {
+                // The matching press was consumed by the title bar; the drag
+                // is committed, so tell the shell the new geometry.
+                if let Some(surface) = surface_by_id(surfaces, active.id) {
+                    notify_surface(shell, scratch, surface, *focused, display::change::MOVED);
+                }
                 return;
             }
             let (x, y) = match *focused {
@@ -885,20 +1161,97 @@ fn handle_event(
             forward(surfaces, scratch, *focused, method::POINTER_UP, x, y);
         }
         EventKind::KeyDown => {
-            if drag_session.is_some() && event.a as u32 == display::key::ESCAPE {
-                drag_cancel(drag_session, surfaces, screen, *pointer, *focused, scratch);
+            let key = event.a as u32;
+            // Modifier keys are compositor-level (issue #167): track them and
+            // never forward them to a client.
+            if modifier_key(key) {
+                match key {
+                    display::key::SHIFT => mods.shift = true,
+                    display::key::CTRL => mods.ctrl = true,
+                    display::key::ALT => mods.alt = true,
+                    display::key::SUPER => {
+                        mods.super_key = true;
+                        notify_start_menu(shell, scratch);
+                    }
+                    _ => {}
+                }
                 return;
             }
-            if event.a as u32 == display::key::TAB {
-                cycle_focus(surfaces, focused);
-                repaint(
-                    screen,
-                    surfaces,
-                    *pointer,
-                    *focused,
-                    full,
-                    drag_session.as_ref(),
-                );
+            if key == display::key::ESCAPE {
+                // Escape closes the Alt+Tab overlay first...
+                if alt_tab.take().is_some() {
+                    repaint(
+                        screen,
+                        surfaces,
+                        *pointer,
+                        *focused,
+                        full,
+                        drag_session.as_ref(),
+                        bar,
+                        None,
+                    );
+                    return;
+                }
+                // ...then it is the Ctrl+Esc start-menu chord...
+                if mods.ctrl {
+                    notify_start_menu(shell, scratch);
+                    return;
+                }
+                // ...and otherwise it cancels a live drag & drop (issue #145).
+                if drag_session.is_some() {
+                    drag_cancel(
+                        drag_session,
+                        surfaces,
+                        screen,
+                        *pointer,
+                        *focused,
+                        scratch,
+                        bar,
+                        alt_tab.as_ref(),
+                    );
+                    return;
+                }
+            }
+            if key == display::key::TAB {
+                if mods.alt {
+                    // Alt+Tab: the compositor's own overlay, not a client key.
+                    alt_tab_open(alt_tab, surfaces, focused, screen, *pointer, bar);
+                } else {
+                    let before = *focused;
+                    cycle_focus(surfaces, focused);
+                    if *focused != before {
+                        notify_focus(shell, scratch, *focused);
+                    }
+                    repaint(
+                        screen,
+                        surfaces,
+                        *pointer,
+                        *focused,
+                        full,
+                        drag_session.as_ref(),
+                        bar,
+                        alt_tab.as_ref(),
+                    );
+                }
+                return;
+            }
+            if key == display::key::F4 && mods.alt {
+                // Alt+F4: ask the focused window to close, exactly like its X
+                // button.
+                if let Some(id) = *focused {
+                    close_surface(
+                        surfaces,
+                        screen,
+                        *pointer,
+                        focused,
+                        scratch,
+                        drag_session.as_ref(),
+                        shell,
+                        bar,
+                        alt_tab.as_ref(),
+                        id,
+                    );
+                }
                 return;
             }
             forward(
@@ -911,6 +1264,29 @@ fn handle_event(
             );
         }
         EventKind::KeyUp => {
+            let key = event.a as u32;
+            if modifier_key(key) {
+                match key {
+                    display::key::SHIFT => mods.shift = false,
+                    display::key::CTRL => mods.ctrl = false,
+                    display::key::ALT => {
+                        mods.alt = false;
+                        // Releasing Alt commits the Alt+Tab selection.
+                        if let Some(tab) = alt_tab.take() {
+                            alt_tab_commit(
+                                &tab, surfaces, focused, screen, *pointer, shell, scratch, bar,
+                            );
+                        }
+                    }
+                    display::key::SUPER => mods.super_key = false,
+                    _ => {}
+                }
+                return;
+            }
+            // The release half of the Ctrl+Esc chord is consumed as well.
+            if key == display::key::ESCAPE && mods.ctrl {
+                return;
+            }
             forward(
                 surfaces,
                 scratch,
@@ -921,6 +1297,94 @@ fn handle_event(
             );
         }
     }
+}
+
+/// Whether a key code is one of the modifier keys the compositor consumes.
+fn modifier_key(key: u32) -> bool {
+    matches!(
+        key,
+        display::key::SHIFT | display::key::CTRL | display::key::ALT | display::key::SUPER
+    )
+}
+
+/// Open (or advance) the Alt+Tab overlay. The first Tab snapshots the visible
+/// windows and selects the one after the current focus; repeated Tabs cycle.
+fn alt_tab_open(
+    alt_tab: &mut Option<AltTab>,
+    surfaces: &[Surface],
+    focused: &Option<u64>,
+    screen: &mut Canvas,
+    pointer: (i32, i32),
+    taskbar: bool,
+) {
+    match alt_tab {
+        Some(tab) if !tab.order.is_empty() => {
+            tab.selected = (tab.selected + 1) % tab.order.len();
+        }
+        _ => {
+            let order: Vec<u64> = surfaces
+                .iter()
+                .filter(|surface| !surface.desktop && !surface.minimized)
+                .map(|surface| surface.id)
+                .collect();
+            if order.is_empty() {
+                return;
+            }
+            let current = focused.and_then(|id| order.iter().position(|&entry| entry == id));
+            let selected = match current {
+                Some(index) => (index + 1) % order.len(),
+                None => 0,
+            };
+            *alt_tab = Some(AltTab { order, selected });
+        }
+    }
+    let full = Rect::new(0, 0, screen.width(), screen.height());
+    repaint(
+        screen,
+        surfaces,
+        pointer,
+        *focused,
+        full,
+        None,
+        taskbar,
+        alt_tab.as_ref(),
+    );
+}
+
+/// Commit the Alt+Tab selection: restore, raise, and focus it, and tell the
+/// shell about the resulting state changes.
+#[allow(clippy::too_many_arguments)]
+fn alt_tab_commit(
+    tab: &AltTab,
+    surfaces: &mut Vec<Surface>,
+    focused: &mut Option<u64>,
+    screen: &mut Canvas,
+    pointer: (i32, i32),
+    shell: Option<&ShellSub>,
+    scratch: &mut Vec<u8>,
+    taskbar: bool,
+) {
+    let Some(id) = tab.order.get(tab.selected).copied() else {
+        return;
+    };
+    if surface_by_id(surfaces, id).is_none() {
+        return;
+    }
+    let before = *focused;
+    let was_minimized = surface_by_id(surfaces, id).is_some_and(|surface| surface.minimized);
+    restore(surfaces, focused, id);
+    if was_minimized {
+        if let Some(surface) = surface_by_id(surfaces, id) {
+            notify_surface(shell, scratch, surface, *focused, display::change::RESTORED);
+        }
+    }
+    if *focused != before {
+        notify_focus(shell, scratch, *focused);
+    }
+    let full = Rect::new(0, 0, screen.width(), screen.height());
+    repaint(
+        screen, surfaces, pointer, *focused, full, None, taskbar, None,
+    );
 }
 
 /// Whether `rect` contains the point `(x, y)`.
@@ -949,12 +1413,12 @@ fn raise(surfaces: &mut Vec<Surface>, id: u64) {
     }
 }
 
-/// The topmost visible surface's id.
+/// The topmost visible window's id (desktops are never focusable).
 fn topmost_visible(surfaces: &[Surface]) -> Option<u64> {
     surfaces
         .iter()
         .rev()
-        .find(|surface| !surface.minimized)
+        .find(|surface| !surface.desktop && !surface.minimized)
         .map(|surface| surface.id)
 }
 
@@ -968,12 +1432,17 @@ fn restore(surfaces: &mut Vec<Surface>, focused: &mut Option<u64>, id: u64) {
 }
 
 /// Minimize a surface, moving focus to the next visible surface.
+#[allow(clippy::too_many_arguments)]
 fn minimize_surface(
     surfaces: &mut Vec<Surface>,
     screen: &mut Canvas,
     pointer: (i32, i32),
     focused: &mut Option<u64>,
     drag_session: Option<&DragSession>,
+    shell: Option<&ShellSub>,
+    scratch: &mut Vec<u8>,
+    taskbar: bool,
+    alt_tab: Option<&AltTab>,
     id: u64,
 ) {
     if let Some(surface) = surfaces.iter_mut().find(|surface| surface.id == id) {
@@ -981,13 +1450,35 @@ fn minimize_surface(
     }
     if *focused == Some(id) {
         *focused = topmost_visible(surfaces);
+        notify_focus(shell, scratch, *focused);
+    }
+    // The row carries the post-minimize focus flag, so send it after the focus
+    // recompute.
+    if let Some(surface) = surface_by_id(surfaces, id) {
+        notify_surface(
+            shell,
+            scratch,
+            surface,
+            *focused,
+            display::change::MINIMIZED,
+        );
     }
     let full = Rect::new(0, 0, screen.width(), screen.height());
-    repaint(screen, surfaces, pointer, *focused, full, drag_session);
+    repaint(
+        screen,
+        surfaces,
+        pointer,
+        *focused,
+        full,
+        drag_session,
+        taskbar,
+        alt_tab,
+    );
 }
 
 /// Close a surface: tell the client through a one-way `WindowClose` event and
 /// drop it; the full-screen repaint lets the windows below show through.
+#[allow(clippy::too_many_arguments)]
 fn close_surface(
     surfaces: &mut Vec<Surface>,
     screen: &mut Canvas,
@@ -995,6 +1486,9 @@ fn close_surface(
     focused: &mut Option<u64>,
     scratch: &mut Vec<u8>,
     drag_session: Option<&DragSession>,
+    shell: Option<&ShellSub>,
+    taskbar: bool,
+    alt_tab: Option<&AltTab>,
     id: u64,
 ) {
     if let Some(surface) = surfaces.iter().find(|surface| surface.id == id) {
@@ -1006,18 +1500,33 @@ fn close_surface(
             0,
         );
     }
+    notify_destroyed(shell, scratch, id);
     surfaces.retain(|surface| surface.id != id);
     if *focused == Some(id) {
         *focused = topmost_visible(surfaces);
+        notify_focus(shell, scratch, *focused);
     }
     let full = Rect::new(0, 0, screen.width(), screen.height());
-    repaint(screen, surfaces, pointer, *focused, full, drag_session);
+    repaint(
+        screen,
+        surfaces,
+        pointer,
+        *focused,
+        full,
+        drag_session,
+        taskbar,
+        alt_tab,
+    );
 }
 
-/// Move focus to the next visible surface, wrapping around and skipping
+/// Move focus to the next visible window, wrapping around and skipping
 /// minimized ones; the new focus is raised so its title bar is not covered.
 fn cycle_focus(surfaces: &mut Vec<Surface>, focused: &mut Option<u64>) {
-    if surfaces.iter().all(|surface| surface.minimized) {
+    if surfaces
+        .iter()
+        .filter(|surface| !surface.desktop)
+        .all(|surface| surface.minimized)
+    {
         *focused = None;
         return;
     }
@@ -1025,7 +1534,10 @@ fn cycle_focus(surfaces: &mut Vec<Surface>, focused: &mut Option<u64>) {
     if let Some(current) = current_id.and_then(|id| surfaces.iter().position(|s| s.id == id)) {
         for step in 1..=surfaces.len() {
             let index = (current + step) % surfaces.len();
-            if !surfaces[index].minimized && Some(surfaces[index].id) != current_id {
+            if !surfaces[index].desktop
+                && !surfaces[index].minimized
+                && Some(surfaces[index].id) != current_id
+            {
                 let id = surfaces[index].id;
                 raise(surfaces, id);
                 *focused = Some(id);
@@ -1036,7 +1548,7 @@ fn cycle_focus(surfaces: &mut Vec<Surface>, focused: &mut Option<u64>) {
     // No other visible surface: focus (and raise) the first visible one.
     if let Some(id) = surfaces
         .iter()
-        .find(|surface| !surface.minimized)
+        .find(|surface| !surface.desktop && !surface.minimized)
         .map(|surface| surface.id)
     {
         raise(surfaces, id);
@@ -1062,7 +1574,7 @@ fn for_each_entry(
     loop {
         let Some(surface) = surfaces
             .iter()
-            .filter(|surface| surface.id > last_id)
+            .filter(|surface| !surface.desktop && surface.id > last_id)
             .min_by_key(|surface| surface.id)
         else {
             break;
@@ -1119,9 +1631,11 @@ fn cursor_rect(point: (i32, i32)) -> Rect {
     Rect::new(point.0 - 1, point.1 - 1, 11, 11)
 }
 
-/// Compose `damage` from the background, every visible window in z-order, the
-/// taskbar, the active drag & drop session (if any), and the cursor, then
-/// present exactly that rectangle.
+/// Compose `damage` from the background, the desktop surface, every visible
+/// window in z-order, the fallback taskbar, the Alt+Tab overlay, the active
+/// drag & drop session (if any), and the cursor, then present exactly that
+/// rectangle.
+#[allow(clippy::too_many_arguments)]
 fn repaint(
     screen: &mut Canvas,
     surfaces: &[Surface],
@@ -1129,20 +1643,124 @@ fn repaint(
     focused: Option<u64>,
     damage: Rect,
     drag_session: Option<&DragSession>,
+    taskbar: bool,
+    alt_tab: Option<&AltTab>,
 ) {
     if damage.is_empty() {
         return;
     }
     screen.fill(damage, damage, BACKGROUND);
-    for surface in surfaces.iter().filter(|surface| !surface.minimized) {
+    // The desktop paints above the background and below every window.
+    if let Some(desktop) = surfaces.iter().find(|surface| surface.desktop) {
+        draw_desktop(screen, desktop, damage);
+    }
+    for surface in surfaces
+        .iter()
+        .filter(|surface| !surface.desktop && !surface.minimized)
+    {
         draw_surface(screen, surface, focused == Some(surface.id), damage);
     }
-    draw_taskbar(screen, surfaces, focused, damage);
+    if taskbar {
+        draw_taskbar(screen, surfaces, focused, damage);
+    }
     if let Some(session) = drag_session {
         draw_drag(screen, surfaces, session, pointer, damage);
     }
+    if let Some(tab) = alt_tab {
+        draw_alt_tab(screen, surfaces, tab, damage);
+    }
     screen.cursor(pointer.0, pointer.1, damage);
     let _ = sys::display_present(damage.x, damage.y, damage.w, damage.h);
+}
+
+/// Blit the desktop surface's pixels across its rectangle; no chrome, no
+/// fallback placeholder text (a desktop without pixels is just the background).
+fn draw_desktop(screen: &mut Canvas, surface: &Surface, clip: Rect) {
+    let area = Rect::new(surface.x, surface.y, surface.w, surface.h);
+    if area.intersect(clip).is_empty() {
+        return;
+    }
+    if surface.pixels != 0 && surface.bytes >= (surface.w * surface.h * 4) as u64 {
+        // Safety: the mapping was installed by `display_map_buffer` for this
+        // buffer and the surface's geometry describes it.
+        let pixels = unsafe {
+            core::slice::from_raw_parts(surface.pixels as *const u8, surface.bytes as usize)
+        };
+        screen.blit(pixels, surface.w, surface.h, area, clip);
+    }
+}
+
+/// Draw the Alt+Tab overlay centered on the screen: one row per window in the
+/// cycle, the selected row highlighted.
+fn draw_alt_tab(screen: &mut Canvas, surfaces: &[Surface], tab: &AltTab, clip: Rect) {
+    let (screen_w, screen_h) = (screen.width(), screen.height());
+    let rows = tab.order.len().min(12);
+    if rows == 0 {
+        return;
+    }
+    let title_w = tab
+        .order
+        .iter()
+        .filter_map(|id| surface_by_id(surfaces, *id))
+        .map(|surface| surface.title.chars().count() as i32 * display::font::ADVANCE)
+        .max()
+        .unwrap_or(0);
+    let panel_w = (title_w + 48).clamp(180, (screen_w - 40).max(180));
+    let row_h = 18;
+    let panel_h = 26 + rows as i32 * row_h;
+    let panel = Rect::new(
+        (screen_w - panel_w) / 2,
+        (screen_h - panel_h) / 2,
+        panel_w,
+        panel_h,
+    );
+    if panel.intersect(clip).is_empty() {
+        return;
+    }
+    screen.fill(panel, clip, OVERLAY_BG);
+    screen.fill(
+        Rect::new(panel.x, panel.y, panel.w, 2),
+        clip,
+        OVERLAY_BORDER,
+    );
+    screen.fill(
+        Rect::new(panel.x, panel.y + panel.h - 2, panel.w, 2),
+        clip,
+        OVERLAY_BORDER,
+    );
+    screen.fill(
+        Rect::new(panel.x, panel.y, 2, panel.h),
+        clip,
+        OVERLAY_BORDER,
+    );
+    screen.fill(
+        Rect::new(panel.x + panel.w - 2, panel.y, 2, panel.h),
+        clip,
+        OVERLAY_BORDER,
+    );
+    screen.text(panel.x + 10, panel.y + 8, "alt+tab", OVERLAY_TEXT, clip, 1);
+    // Highlight the selected row before its text, then paint the titles.
+    for (index, id) in tab.order.iter().take(rows).enumerate() {
+        let row = Rect::new(
+            panel.x + 6,
+            panel.y + 22 + index as i32 * row_h,
+            panel.w - 12,
+            row_h - 2,
+        );
+        if index == tab.selected {
+            screen.fill(row, clip, OVERLAY_SELECTED);
+        }
+        if let Some(surface) = surface_by_id(surfaces, *id) {
+            screen.text(
+                row.x + 8,
+                row.y + (row.h - display::font::H) / 2,
+                &surface.title,
+                OVERLAY_TEXT,
+                row.intersect(clip),
+                1,
+            );
+        }
+    }
 }
 
 /// Draw one decorated window, clipped to `clip`.
@@ -1282,28 +1900,79 @@ fn handle_request(
     drag_session: &mut Option<DragSession>,
     scratch: &mut Vec<u8>,
     button_down: bool,
+    shell: &mut Option<ShellSub>,
+    alt_tab: &mut Option<AltTab>,
 ) -> Option<Parcel> {
     if message.interface_id() != display::INTERFACE {
         return Some(empty_reply(message.method()));
     }
+    let bar = taskbar_visible(shell.as_ref());
     match message.method() {
         method::CREATE_SURFACE => {
             let width = u64_field(&message.parcel, display::field::WIDTH).unwrap_or(0);
             let height = u64_field(&message.parcel, display::field::HEIGHT).unwrap_or(0);
             let title = string_field(&message.parcel, display::field::TITLE)
                 .unwrap_or_else(|| String::from("app"));
+            let role =
+                u64_field(&message.parcel, display::field::ROLE).unwrap_or(display::role::WINDOW);
             if width == 0 || height == 0 || message.handles == 0 {
                 return Some(error_reply(message.method(), messenger::errno::EINVAL));
             }
             let id = *next_id;
             *next_id += 1;
+            let full = Rect::new(0, 0, screen.width(), screen.height());
+            if role == display::role::DESKTOP {
+                // The bottom layer: no chrome, no taskbar entry, never focused.
+                // A new desktop replaces the current one.
+                if let Some(index) = surfaces.iter().position(|surface| surface.desktop) {
+                    let old = surfaces.remove(index);
+                    notify_destroyed(shell.as_ref(), scratch, old.id);
+                }
+                surfaces.push(Surface {
+                    id,
+                    title,
+                    x: 0,
+                    y: 0,
+                    w: width as i32,
+                    h: height as i32,
+                    events: message.first_handle,
+                    owner: message.sender,
+                    pixels: 0,
+                    bytes: 0,
+                    minimized: false,
+                    desktop: true,
+                });
+                if let Some(surface) = surface_by_id(surfaces, id) {
+                    notify_surface(
+                        shell.as_ref(),
+                        scratch,
+                        surface,
+                        *focused,
+                        display::change::CREATED,
+                    );
+                }
+                repaint(
+                    screen,
+                    surfaces,
+                    pointer,
+                    *focused,
+                    full,
+                    drag_session.as_ref(),
+                    bar,
+                    alt_tab.as_ref(),
+                );
+                let mut body = Encoder::new();
+                let _ = body.u64(display::field::SURFACE, id);
+                return Some(reply_parcel(message.method(), body));
+            }
             // Lay windows out left to right at the top, cascading down when
             // the row is full, so every surface is visible at once. The right
             // edge comes from the rightmost window, not the top of the paint
             // order (raising reorders `surfaces`).
-            let count = surfaces.len() as i32;
+            let count = surfaces.iter().filter(|surface| !surface.desktop).count() as i32;
             let x = surfaces
                 .iter()
+                .filter(|surface| !surface.desktop)
                 .map(|surface| surface.x + surface.window().w + 16)
                 .max()
                 .unwrap_or(PAD);
@@ -1322,13 +1991,26 @@ fn handle_request(
                 pixels: 0,
                 bytes: 0,
                 minimized: false,
+                desktop: false,
             });
+            let before = *focused;
             if focused.is_none() {
                 *focused = Some(id);
             }
+            if *focused != before {
+                notify_focus(shell.as_ref(), scratch, *focused);
+            }
+            if let Some(surface) = surface_by_id(surfaces, id) {
+                notify_surface(
+                    shell.as_ref(),
+                    scratch,
+                    surface,
+                    *focused,
+                    display::change::CREATED,
+                );
+            }
             // A new surface changes the layout (and the taskbar), so repaint
             // the whole screen.
-            let full = Rect::new(0, 0, screen.width(), screen.height());
             repaint(
                 screen,
                 surfaces,
@@ -1336,6 +2018,8 @@ fn handle_request(
                 *focused,
                 full,
                 drag_session.as_ref(),
+                bar,
+                alt_tab.as_ref(),
             );
             let mut body = Encoder::new();
             let _ = body.u64(display::field::SURFACE, id);
@@ -1371,6 +2055,8 @@ fn handle_request(
                         *focused,
                         full,
                         drag_session.as_ref(),
+                        bar,
+                        alt_tab.as_ref(),
                     );
                     Some(empty_reply(message.method()))
                 }
@@ -1385,14 +2071,20 @@ fn handle_request(
                     // cleared the screen area. Only the buffer changed.
                     return Some(empty_reply(message.method()));
                 }
-                let content = surface.content();
+                // A window's damage is relative to its content origin; the
+                // desktop has no chrome, so its origin is the surface origin.
+                let area = if surface.desktop {
+                    Rect::new(surface.x, surface.y, surface.w, surface.h)
+                } else {
+                    surface.content()
+                };
                 let damage = Rect::new(
-                    content.x + u64_field(&message.parcel, display::field::X).unwrap_or(0) as i32,
-                    content.y + u64_field(&message.parcel, display::field::Y).unwrap_or(0) as i32,
+                    area.x + u64_field(&message.parcel, display::field::X).unwrap_or(0) as i32,
+                    area.y + u64_field(&message.parcel, display::field::Y).unwrap_or(0) as i32,
                     u64_field(&message.parcel, display::field::W).unwrap_or(0) as i32,
                     u64_field(&message.parcel, display::field::H).unwrap_or(0) as i32,
                 )
-                .intersect(content);
+                .intersect(area);
                 repaint(
                     screen,
                     surfaces,
@@ -1400,6 +2092,8 @@ fn handle_request(
                     *focused,
                     damage,
                     drag_session.as_ref(),
+                    bar,
+                    alt_tab.as_ref(),
                 );
             }
             Some(empty_reply(message.method()))
@@ -1418,11 +2112,31 @@ fn handle_request(
                 .as_ref()
                 .is_some_and(|active| active.source == id || active.target == Some(id));
             if stranding {
-                drag_cancel(drag_session, surfaces, screen, pointer, *focused, scratch);
+                drag_cancel(
+                    drag_session,
+                    surfaces,
+                    screen,
+                    pointer,
+                    *focused,
+                    scratch,
+                    bar,
+                    alt_tab.as_ref(),
+                );
+            }
+            notify_destroyed(shell.as_ref(), scratch, id);
+            if let Some(tab) = alt_tab.as_mut() {
+                // The Alt+Tab snapshot may not outlive the surface.
+                tab.order.retain(|&entry| entry != id);
+                if tab.order.is_empty() {
+                    *alt_tab = None;
+                } else if tab.selected >= tab.order.len() {
+                    tab.selected = 0;
+                }
             }
             surfaces.retain(|surface| surface.id != id);
             if *focused == Some(id) {
                 *focused = topmost_visible(surfaces);
+                notify_focus(shell.as_ref(), scratch, *focused);
             }
             let full = Rect::new(0, 0, screen.width(), screen.height());
             repaint(
@@ -1432,6 +2146,8 @@ fn handle_request(
                 *focused,
                 full,
                 drag_session.as_ref(),
+                bar,
+                alt_tab.as_ref(),
             );
             Some(empty_reply(message.method()))
         }
@@ -1460,6 +2176,8 @@ fn handle_request(
                 pointer,
                 *focused,
                 scratch,
+                bar,
+                alt_tab.as_ref(),
                 id,
                 token,
                 mime,
@@ -1473,12 +2191,93 @@ fn handle_request(
                 .is_some_and(|active| active.source == id)
                 && surface_by_id(surfaces, id).is_some_and(|s| s.owner == message.sender);
             if owns {
-                drag_cancel(drag_session, surfaces, screen, pointer, *focused, scratch);
+                drag_cancel(
+                    drag_session,
+                    surfaces,
+                    screen,
+                    pointer,
+                    *focused,
+                    scratch,
+                    bar,
+                    alt_tab.as_ref(),
+                );
             }
             Some(empty_reply(message.method()))
         }
+        method::SUBSCRIBE => {
+            let role =
+                string_field(&message.parcel, display::field::SUBSCRIBER_ROLE).unwrap_or_default();
+            if message.handles == 0 || role.is_empty() || role.len() > display::MAX_ROLE {
+                return Some(error_reply(message.method(), messenger::errno::EINVAL));
+            }
+            // One subscriber at a time; a re-subscribe replaces the endpoint.
+            *shell = Some(ShellSub {
+                role,
+                events: message.first_handle,
+            });
+            let full = Rect::new(0, 0, screen.width(), screen.height());
+            repaint(
+                screen,
+                surfaces,
+                pointer,
+                *focused,
+                full,
+                drag_session.as_ref(),
+                taskbar_visible(shell.as_ref()),
+                alt_tab.as_ref(),
+            );
+            Some(empty_reply(message.method()))
+        }
+        method::LIST_SURFACES => {
+            let mut body = Encoder::new();
+            // One row per surface, in z-order: `SURFACE` starts a row and the
+            // trailing fields describe it.
+            for surface in surfaces.iter() {
+                let _ = body.u64(display::field::SURFACE, surface.id);
+                let _ = body.string(display::field::TITLE, &surface.title);
+                let _ = body.u64(display::field::X, surface.x.max(0) as u64);
+                let _ = body.u64(display::field::Y, surface.y.max(0) as u64);
+                let _ = body.u64(display::field::W, surface.w.max(0) as u64);
+                let _ = body.u64(display::field::H, surface.h.max(0) as u64);
+                let _ = body.u64(display::field::MINIMIZED, surface.minimized as u64);
+                let _ = body.u64(
+                    display::field::FOCUSED,
+                    (*focused == Some(surface.id)) as u64,
+                );
+            }
+            Some(reply_parcel(message.method(), body))
+        }
+        method::GET_WORK_AREA => {
+            // With a shell registered the fallback bar is hidden, so windows
+            // may use the whole screen.
+            let height = if taskbar_visible(shell.as_ref()) {
+                (screen.height() - TASKBAR_H).max(0)
+            } else {
+                screen.height()
+            };
+            let mut body = Encoder::new();
+            let _ = body.u64(display::field::X, 0);
+            let _ = body.u64(display::field::Y, 0);
+            let _ = body.u64(display::field::W, screen.width().max(0) as u64);
+            let _ = body.u64(display::field::H, height as u64);
+            Some(reply_parcel(message.method(), body))
+        }
+        method::GET_THEME => {
+            let mut body = Encoder::new();
+            let _ = body.u64(display::field::TITLE_BG_ACTIVE, color_u64(TITLE_BG_FOCUS));
+            let _ = body.u64(display::field::TITLE_BG_INACTIVE, color_u64(TITLE_BG));
+            let _ = body.u64(display::field::BORDER, color_u64(BORDER_COLOR));
+            let _ = body.u64(display::field::TASKBAR, color_u64(TASKBAR_BG));
+            let _ = body.u64(display::field::TEXT, color_u64(TITLE_TEXT));
+            Some(reply_parcel(message.method(), body))
+        }
         _ => Some(error_reply(message.method(), messenger::errno::EINVAL)),
     }
+}
+
+/// Pack a colour into the `0xRRGGBB` form `GetTheme` reports.
+fn color_u64(color: Color) -> u64 {
+    ((color.r as u64) << 16) | ((color.g as u64) << 8) | color.b as u64
 }
 
 /// The protocol method ids. (The client mirror in `user::messenger::display`
@@ -1501,6 +2300,13 @@ mod method {
     pub const DRAG_LEAVE: u32 = 15;
     pub const DROP: u32 = 16;
     pub const DRAG_ENDED: u32 = 17;
+    pub const LIST_SURFACES: u32 = 18;
+    pub const GET_WORK_AREA: u32 = 19;
+    pub const SUBSCRIBE: u32 = 20;
+    pub const GET_THEME: u32 = 21;
+    pub const SURFACE_CHANGED: u32 = 22;
+    pub const FOCUS_CHANGED: u32 = 23;
+    pub const START_MENU: u32 = 24;
 }
 
 /// Find the first `u64` field with `id`.

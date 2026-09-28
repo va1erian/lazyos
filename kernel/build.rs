@@ -72,6 +72,18 @@ fn main() {
         println!("cargo:rustc-cfg=xui_app");
     }
 
+    // Shell-protocol evidence client (issue #167): with `LAZYOS_XUID=1` and
+    // the `LAZYOS_SHELLPROBE=1` demo hook, the kernel also boots `shellprobe`
+    // (`SHELLPRB.ELF`), which exercises the S5.0 display additions. The hook
+    // keeps the default compositor sessions byte-identical.
+    println!("cargo:rerun-if-env-changed=LAZYOS_SHELLPROBE");
+    println!("cargo:rustc-check-cfg=cfg(shellprobe_demo)");
+    if env::var_os("LAZYOS_XUID").as_deref() == Some(std::ffi::OsStr::new("1"))
+        && env::var_os("LAZYOS_SHELLPROBE").as_deref() == Some(std::ffi::OsStr::new("1"))
+    {
+        println!("cargo:rustc-cfg=shellprobe_demo");
+    }
+
     let font_bytes = fs::read(&font_path).expect("read JetBrainsMono-Regular.ttf");
     let atlas = font_atlas::build(&font_bytes, 20.0);
 

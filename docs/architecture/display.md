@@ -123,16 +123,63 @@ compositor never sees payload bytes:
   (the target re-tries its dropped token from another session and expects the
   clipboard's refusal).
 
+**Shell protocol (issue #167, S5.0)**
+
+LazyShell (S5) is an ordinary `os.lazy.display.v1` client, so `xuid` grows an
+append-only set of methods and one-way events; unknown fields and methods are
+ignored by older peers, and the no-shell sessions above are unchanged.
+
+| # | Method | Direction | Fields |
+|---|---|---|---|
+| 18 | `ListSurfaces` | shell → compositor | reply: one row per surface — `SURFACE`, `TITLE`, `X`/`Y`/`W`/`H`, `MINIMIZED`, `FOCUSED` |
+| 19 | `GetWorkArea` | shell → compositor | reply: `X`/`Y`/`W`/`H` available to windows |
+| 20 | `Subscribe` | shell → compositor | `SUBSCRIBER_ROLE` string + transferred event endpoint |
+| 21 | `GetTheme` | shell → compositor | reply: `TITLE_BG_ACTIVE`, `TITLE_BG_INACTIVE`, `BORDER`, `TASKBAR`, `TEXT` as `0xRRGGBB` |
+| 22 | `SurfaceChanged` | compositor → shell | `SURFACE`, `A` = created/destroyed/moved/minimized/restored/title, geometry + flags, `TITLE` on create |
+| 23 | `FocusChanged` | compositor → shell | `SURFACE` (0 = none) |
+| 24 | `StartMenu` | compositor → shell | – (the Ctrl+Esc/Super hotkey fired) |
+
+- **Desktop role.** `CreateSurface` gains a `ROLE` field (`0` window, the
+  default when absent; `1` desktop). A desktop surface paints at the bottom of
+  the z-order — above the background colour, below every window — with no
+  chrome, no taskbar or Alt+Tab entry, and it never takes focus or hit-tests.
+  Creating a new desktop replaces the previous one.
+- **Taskbar fallback.** The bottom taskbar stays xuid's no-shell fallback.
+  `Subscribe` with role `"shell"` hides it and expands `GetWorkArea` to the
+  whole screen; without a subscriber (or with any other role) the bar paints
+  and `GetWorkArea` excludes its strip. Existing WM and drag & drop sessions
+  run with no shell and are unaffected.
+- **Global hotkeys** are modifier-aware and compositor-owned: the kernel
+  forwards Shift/Ctrl/Alt/Super press/release plus F-keys to the bound
+  compositor (`display::key` 0x108-0x10B, 0x113), and `xuid` consumes them.
+  `Alt+Tab` opens a centered window-title overlay, repeated Tab cycles the
+  selection, releasing Alt restores/raises/focuses the selection and emits
+  `FocusChanged`; `Ctrl+Esc` and `Super` send `StartMenu`; `Alt+F4` sends
+  `WindowClose` to the focused surface exactly like its `X` button; `Escape`
+  still cancels a drag & drop.
+- `shellprobe` (`SHELLPRB.ELF`) is the evidence client: it registers as the
+  `"shell"` subscriber, creates a full-work-area desktop, reads back
+  `ListSurfaces`/`GetWorkArea`/`GetTheme`, creates one window, and logs
+  `SHELLPROBE:DESKTOP:PASS`, `SHELLPROBE:LIST:PASS`,
+  `SHELLPROBE:FOCUS:PASS` (first `FocusChanged`), and
+  `SHELLPROBE:HOTKEY:PASS` (first `StartMenu`). It boots only with
+  `LAZYOS_XUID=1` plus the `LAZYOS_SHELLPROBE=1` demo hook, so the default
+  compositor sessions keep their window layout.
+
 **Invariants.** Mux is always the fallback: no compositor state is required to
 paint. The screen buffer handoff app-to-compositor is zero-copy (shared
 buffers); only the final composite is a memcpy per damage rectangle. Input
 events go only to the bound compositor; `push_event` drops the oldest event when
-the queue is full and is IRQ-safe (leaf lock).
+the queue is full and is IRQ-safe (leaf lock). The shell is a pure observer of
+the surface table: the desktop role and `Subscribe` never hand the shell
+compositor state, and a shell that exits leaves the fallback compositor usable.
 
 **Status.** Working: demo mux, display grant, xuid + xdemo in headless captures
 (`LAZYOS_XUID=1`), xuid window management (drag, z-order, buttons, taskbar,
 focus cycling; `XUID:WM:PASS`), compositor-mediated drag & drop with a
-clipboard-token transfer (`dragdemo`; `DND:*:PASS`), the xui app milestones
+clipboard-token transfer (`dragdemo`; `DND:*:PASS`), the shell protocol
+(desktop role, surface list/work-area/theme read-backs, shell events, global
+Alt+Tab/Ctrl+Esc/Alt+F4 hotkeys; `SHELLPROBE:*:PASS`), the xui app milestones
 M0-M2 (`XUIAPP:*:PASS`) and the sysmon/fabricmon viewers (`SYSMON:*`/`FABMON:*`
 markers, screenshots in the `xui-app` workflow). Open: zero-copy scanout,
 running the xui app as a compositor client, userspace XUI toolkit, multi-session

@@ -156,6 +156,18 @@ fn main() {
         builder.set_file(String::from("DRAGDMO.ELF"), PathBuf::from(dragdemo));
     }
 
+    // The shell-protocol evidence client (issue #167): `LAZYOS_XUID=1` plus
+    // the `LAZYOS_SHELLPROBE=1` demo hook embeds and boots it, so the default
+    // compositor sessions (WM, drag & drop) keep their window layout.
+    println!("cargo:rerun-if-env-changed=LAZYOS_SHELLPROBE");
+    if std::env::var_os("LAZYOS_XUID").as_deref() == Some(std::ffi::OsStr::new("1"))
+        && std::env::var_os("LAZYOS_SHELLPROBE").as_deref() == Some(std::ffi::OsStr::new("1"))
+    {
+        let probe = std::env::var_os("CARGO_BIN_FILE_USER_shellprobe")
+            .expect("user shellprobe artifact not found");
+        builder.set_file(String::from("SHELLPRB.ELF"), PathBuf::from(probe));
+    }
+
     // The xui app (issue #114): `LAZYOS_XUI_APP=<path>` embeds a static-musl
     // binary built by `tools/xui/build.py` as `XAPP.ELF`. With `LAZYOS_XUID=1`
     // the kernel boots it instead of the `xuid` + `xdemo` session, because the

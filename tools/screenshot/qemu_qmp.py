@@ -190,6 +190,14 @@ class Qmp:
     def press_key(self, name: str, device: str | None = None) -> None:
         self.send_events(named_key_events(name), device)
 
+    def key_down(self, name: str, device: str | None = None) -> None:
+        """Press a named key and leave it held (chords: Alt+Tab, Ctrl+Esc)."""
+        self.send_events(named_key_down_events(name), device)
+
+    def key_up(self, name: str, device: str | None = None) -> None:
+        """Release a key held by :meth:`key_down`."""
+        self.send_events(named_key_up_events(name), device)
+
     def mouse_move(self, dx: int, dy: int, device: str | None = None) -> None:
         self.send_events(mouse_move_events(dx, dy), device)
 
@@ -276,6 +284,8 @@ _NAMED = {
     "pageup": "pgup", "pagedown": "pgdn",
     "up": "up", "down": "down", "left": "left", "right": "right",
     "shift": "shift", "ctrl": "ctrl", "control": "ctrl", "alt": "alt",
+    # The Super/Windows/GUI key is QEMU's left "meta" key.
+    "super": "meta_l", "meta": "meta_l", "win": "meta_l", "gui": "meta_l",
     "capslock": "caps_lock", "menu": "menu",
 }
 
@@ -324,6 +334,35 @@ def named_key_events(name: str) -> list[dict]:
     if lowered.startswith("f") and lowered[1:].isdigit() and 1 <= int(lowered[1:]) <= 12:
         return _key_seq(lowered, False)
     raise ValueError(f"unknown key name {name!r}")
+
+
+def named_key_down_events(name: str) -> list[dict]:
+    """One press, so the caller can hold the key across later steps."""
+    return [_key_event(_hold_qcode(name), True)]
+
+
+def named_key_up_events(name: str) -> list[dict]:
+    """Release half of :func:`named_key_down_events`."""
+    return [_key_event(_hold_qcode(name), False)]
+
+
+def _hold_qcode(name: str) -> str:
+    """Map a holdable key name to a QKeyCode.
+
+    Only named keys and unshifted characters are supported: a shifted symbol
+    would need the Shift modifier held too, which ``key_down``/``key_up`` do
+    not express.
+    """
+    lowered = name.lower()
+    if lowered in _NAMED:
+        return _NAMED[lowered]
+    if len(name) == 1 and ("a" <= name <= "z" or "0" <= name <= "9"):
+        return name
+    if name in _UNSHIFTED:
+        return _UNSHIFTED[name]
+    if lowered.startswith("f") and lowered[1:].isdigit() and 1 <= int(lowered[1:]) <= 12:
+        return lowered
+    raise ValueError(f"cannot hold key {name!r}")
 
 
 # ---------------------------------------------------------------------------

@@ -40,6 +40,8 @@ and ring-3 programs, packs them into an MBR + FAT boot disk, and launches QEMU.
 | `SUPER.ELF`, `LOGD.ELF`, `HEALTHD.ELF`, `FLAKY.ELF`, `KEYD.ELF`, `CLIPD.ELF`, `CLIPCP.ELF`, `CLIPPS.ELF` | services | always on disk; `init` starts them |
 | `ACCTD.ELF`, `LOGIND.ELF`, `MIMED.ELF`, `MIME.TYP`, `PASSWD` | accounts/login/MIME | only when `LAZYOS_SERVICES=1` |
 | `XUID.ELF`, `XDEMO.ELF` | compositor demo | only when `LAZYOS_XUID=1` |
+| `DRAGDMO.ELF` | drag & drop demo pair | only when `LAZYOS_XUID=1` |
+| `SHELLPRB.ELF` | shell-protocol evidence client | `LAZYOS_XUID=1` + `LAZYOS_SHELLPROBE=1` |
 | `INIT.ELF` | `$LAZYOS_INIT` | ABI bench hook |
 | `BUSYBOX` | `$LAZYOS_BUSYBOX` | Linux shim demo |
 
@@ -54,7 +56,8 @@ FAT names are 8.3 because the kernel FAT reader resolves short names only
 | `LAZYOS_MESSENGERCTL=1` | `messengerctl_demo` | hello window runs `messengerctl` |
 | `LAZYOS_MESSENGERD=1` | `messengerd_service` | kernel spawns `MSGRD.ELF` |
 | `LAZYOS_SERVICES=1` | `services_mode` | kernel spawns `SUPER.ELF` (`init`) |
-| `LAZYOS_XUID=1` | `xuid_demo` | spawns `XUID.ELF` + two `XDEMO.ELF` |
+| `LAZYOS_XUID=1` | `xuid_demo` | spawns `XUID.ELF` + two `XDEMO.ELF` + `DRAGDMO.ELF` |
+| `LAZYOS_SHELLPROBE=1` | `shellprobe_demo` | (with `LAZYOS_XUID=1`) spawns `SHELLPRB.ELF` |
 
 **Invariants / decisions**
 
