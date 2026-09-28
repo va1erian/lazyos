@@ -84,6 +84,17 @@ static NEXT_TXN_ID: AtomicU64 = AtomicU64::new(1);
 /// frozen); adding a `WaitKind::Messenger` is a follow-up.
 static MESSENGER: WaitQueue = WaitQueue::new(WaitKind::Sleep);
 
+/// Test-only hooks for the kernel suite (issue #62 pattern). The channel tests
+/// need to park a task exactly where `recv` parks it, without entering the
+/// scheduler (the suite runs with interrupts disabled).
+#[cfg(laZYOS_TESTS)]
+pub mod harness {
+    /// Park `slot` on the messenger wait queue without switching context.
+    pub fn park(slot: usize, deadline: Option<u64>) {
+        super::MESSENGER.park(slot, deadline);
+    }
+}
+
 /// Why a channel operation failed. Messages are user-facing.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Error {
@@ -713,6 +724,10 @@ pub fn begin_call(
         sender.calls += 1;
         sender.outstanding += 1;
     }
+    // Wake the callee: it may already be parked in `recv`, and nothing else
+    // notifies the messenger queue for this request. `send` does the same; the
+    // userspace `messengerd` round trip depends on it.
+    MESSENGER.notify_all();
     // The request is visible now, so park before returning: syscalls run with
     // interrupts disabled, so no reply can slip in between registration and the
     // first wait and no wakeup can be lost.
