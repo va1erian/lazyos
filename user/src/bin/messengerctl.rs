@@ -44,7 +44,8 @@ use user::sys;
 /// The interactive command set, printed at startup and by `help`.
 const HELP: &str = "commands: list | resolve <name> | services | health | sessions | \
                     log [tail [n]] | log verify | topics | tail <filter> [count] | \
-                    mime <path> | open <path> [verb] | keys | clipboard | stats | help | quit\n";
+                    mime <path> | open <path> [verb] | keys | clipboard | stats | stats-json | \
+                    help | quit\n";
 
 #[no_mangle]
 pub extern "C" fn _start() -> ! {
@@ -79,6 +80,10 @@ fn commands() -> ! {
             "log verify" => verify_log(),
             "stats" => match messenger::fabric_stats() {
                 Ok(stats) => print_report(&stats),
+                Err(error) => report(error.message()),
+            },
+            "stats-json" => match messenger::fabric_stats() {
+                Ok(stats) => print_report_json(&stats),
                 Err(error) => report(error.message()),
             },
             "topics" => print_topics(),
@@ -292,6 +297,72 @@ fn report(message: &str) {
     sys::write_str("error: ");
     sys::write_str(message);
     sys::write_str("\n");
+}
+
+/// Print the `FabricStats` snapshot as a single machine-parseable JSON line,
+/// prefixed `MCP:FABRIC_STATS:` so a host-side tool can find it in the
+/// serial log (`SYS_WRITE` mirrors console output to serial — see
+/// `kernel/src/process/mod.rs`'s `sys_write`) without scraping the
+/// human-oriented table `stats` prints. This is a debug/tooling aid for the
+/// prototype MCP debug bridge (see the `MCP Debug Bridge` wiki design doc);
+/// it is not part of the Messenger wire protocol.
+fn print_report_json(stats: &FabricStats) {
+    let mut tasks = String::from("[");
+    let mut first = true;
+    for (slot, task) in stats.tasks.iter().enumerate() {
+        if task.live == 0 {
+            continue;
+        }
+        if !first {
+            tasks.push(',');
+        }
+        first = false;
+        tasks.push_str(&format!(
+            "{{\"slot\":{slot},\"handles\":{},\"buffers\":{},\"buffer_bytes\":{}}}",
+            task.handles, task.buffers, task.buffer_bytes
+        ));
+    }
+    tasks.push(']');
+
+    sys::write_str(&format!(
+        "MCP:FABRIC_STATS:{{\"services\":{},\"endpoints\":{},\"channels\":{},\
+         \"queued\":{},\"queued_bytes\":{},\"outstanding\":{},\
+         \"calls\":{},\"replies\":{},\"one_way\":{},\
+         \"timeouts\":{},\"cancels\":{},\"drops\":{},\
+         \"buffers\":{},\"buffer_bytes\":{},\"buffer_mappings\":{},\
+         \"fences_submitted\":{},\"fence_waits\":{},\"fence_timeouts\":{},\
+         \"outstanding_fences\":{},\"handoffs\":{},\
+         \"acl_loaded\":{},\"acl_rules\":{},\"audit_trace\":{},\
+         \"audit_denies\":{},\"audit_allows\":{},\"audit_count\":{},\"audit_total\":{},\
+         \"tasks\":{tasks}}}\n",
+        stats.services,
+        stats.endpoints,
+        stats.channels,
+        stats.queued,
+        stats.queued_bytes,
+        stats.outstanding,
+        stats.calls,
+        stats.replies,
+        stats.one_way,
+        stats.timeouts,
+        stats.cancels,
+        stats.drops,
+        stats.buffers,
+        stats.buffer_bytes,
+        stats.buffer_mappings,
+        stats.fences_submitted,
+        stats.fence_waits,
+        stats.fence_timeouts,
+        stats.outstanding_fences,
+        stats.handoffs,
+        stats.acl_loaded,
+        stats.acl_rules,
+        stats.audit_trace,
+        stats.audit_denies,
+        stats.audit_allows,
+        stats.audit_count,
+        stats.audit_total,
+    ));
 }
 
 /// Print the snapshot grouped into services/channels, buffers, audit and
