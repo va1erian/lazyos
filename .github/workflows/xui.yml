@@ -2,10 +2,11 @@ name: xui-app
 
 # Issue #114: build the ordinary xui app (static musl) and boot LazyOS with it
 # as the session (`LAZYOS_XUID=1` + `LAZYOS_XUI_APP`). Captures screenshots for
-# each milestone, checks the `XUIAPP:*:PASS` markers in the serial log, and
-# comments the images on the pull request. Optional: if the musl target or
-# toolchain is unavailable the app build reports nothing and the visual steps
-# are skipped (`tools/xui/build.py` exits 0, like the ABI bench).
+# each milestone and viewer, checks the `XUIAPP:*:PASS`/`SYSMON:*`/`FABMON:*`
+# markers in the serial log, and comments the images on the pull request.
+# Optional: if the musl target or toolchain is unavailable the app build reports
+# nothing and the visual steps are skipped (`tools/xui/build.py` exits 0, like
+# the ABI bench).
 
 on:
   pull_request:
@@ -49,15 +50,20 @@ jobs:
           set -euo pipefail
           mkdir -p target/xui
           python tools/xui/build.py | tee target/xui/build.json
-          m0=""; counter=""
+          m0=""; counter=""; sysmon=""; fabricmon=""
           if python -c "import json,sys; sys.exit(0 if 'xui-m0' in json.load(open('target/xui/build.json')) else 1)"; then
             m0="$(pwd)/target/xui/xui-m0.elf"
             counter="$(pwd)/target/xui/xui-counter.elf"
+            sysmon="$(pwd)/target/xui/xui-sysmon.elf"
+            fabricmon="$(pwd)/target/xui/xui-fabricmon.elf"
           else
             echo "::warning::xui app unavailable; skipping the visual run"
           fi
           echo "m0=$m0" >> "$GITHUB_OUTPUT"
           echo "counter=$counter" >> "$GITHUB_OUTPUT"
+          echo "sysmon=$sysmon" >> "$GITHUB_OUTPUT"
+          echo "fabricmon=$fabricmon" >> "$GITHUB_OUTPUT"
+          ls -l target/xui/*.elf || true
 
       # M0: the gradient proves bind/present from a static musl program.
       - name: Capture M0 (gradient present)
@@ -91,13 +97,49 @@ jobs:
           grep -q "XUIAPP:COUNTER:PASS" shots/m2/serial.log
           grep -q "XUIAPP:INPUT:PASS" shots/m2/serial.log
 
+      # sysmon: the system-state dashboard (syscall 14) with a 1 s timer and
+      # the r/q keys driven by the session script.
+      - name: Capture sysmon (dashboard)
+        if: steps.app.outputs.sysmon != ''
+        shell: bash
+        env:
+          LAZYOS_XUID: "1"
+          LAZYOS_XUI_APP: ${{ steps.app.outputs.sysmon }}
+        run: |
+          set -euo pipefail
+          cargo build
+          python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/sysmon \
+            --accel none --timeout 300 --script tools/screenshot/examples/xui_sysmon.json
+          grep -q "SYSMON:UP:PASS" shots/sysmon/serial.log
+          grep -q "SYSMON:REFRESH:PASS" shots/sysmon/serial.log
+          grep -q "SYSMON:QUIT:PASS" shots/sysmon/serial.log
+
+      # fabricmon: the Messenger fabric panel (syscall 5). The image boots the
+      # full service session (`LAZYOS_SERVICES=1`), so the registry lists every
+      # registered service and `messengerd`'s topics broker answers live.
+      - name: Capture fabricmon (fabric panel)
+        if: steps.app.outputs.fabricmon != ''
+        shell: bash
+        env:
+          LAZYOS_XUID: "1"
+          LAZYOS_XUI_APP: ${{ steps.app.outputs.fabricmon }}
+          LAZYOS_SERVICES: "1"
+        run: |
+          set -euo pipefail
+          cargo build
+          python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/fabmon \
+            --accel none --timeout 300 --script tools/screenshot/examples/xui_fabricmon.json
+          grep -q "FABMON:UP:PASS" shots/fabmon/serial.log
+          grep -q "FABMON:REFRESH:PASS" shots/fabmon/serial.log
+          grep -q "FABMON:QUIT:PASS" shots/fabmon/serial.log
+
       - name: Verify screenshots are non-blank
         if: steps.app.outputs.counter != ''
         shell: bash
         run: |
           set -euo pipefail
           shopt -s nullglob
-          pngs=(shots/m0/*.png shots/m1/*.png shots/m2/*.png)
+          pngs=(shots/m0/*.png shots/m1/*.png shots/m2/*.png shots/sysmon/*.png shots/fabmon/*.png)
           if [ ${#pngs[@]} -eq 0 ]; then
             echo "::error::no screenshots were captured"
             exit 1
@@ -116,6 +158,10 @@ jobs:
             shots/m1/serial.log
             shots/m2/*.png
             shots/m2/serial.log
+            shots/sysmon/*.png
+            shots/sysmon/serial.log
+            shots/fabmon/*.png
+            shots/fabmon/serial.log
           if-no-files-found: error
 
       - name: Publish screenshots to 'screenshots' branch
@@ -142,7 +188,7 @@ jobs:
           prefix="runs/${GITHUB_RUN_ID}/xui"
           mkdir -p "$work/$prefix"
           shopt -s nullglob
-          for group in m0 m1 m2; do
+          for group in m0 m1 m2 sysmon fabmon; do
             for png in shots/$group/*.png; do
               cp "$png" "$work/$prefix/$group-$(basename "$png")"
             done
@@ -165,12 +211,12 @@ jobs:
           sha="${{ steps.publish.outputs.sha }}"
           prefix="${{ steps.publish.outputs.prefix }}"
           {
-            echo "### xui app on LazyOS (M0-M2)"
+            echo "### xui app on LazyOS (M0-M2 + viewers)"
             echo
             echo "_commit \`${GITHUB_SHA:0:7}\` — run [${GITHUB_RUN_ID}](https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID})_"
             echo
             shopt -s nullglob
-            for group in m0 m1 m2; do
+            for group in m0 m1 m2 sysmon fabmon; do
               for png in shots/$group/*.png; do
                 name="$group-$(basename "$png")"
                 echo "**${name}**"
@@ -179,12 +225,12 @@ jobs:
                 echo
               done
             done
-            for log in shots/m0/serial.log shots/m2/serial.log; do
+            for log in shots/m0/serial.log shots/m2/serial.log shots/sysmon/serial.log shots/fabmon/serial.log; do
               if [ -f "$log" ]; then
-                echo "<details><summary>${log} (xui markers)</summary>"
+                echo "<details><summary>${log} (xui/sysmon/fabricmon markers)</summary>"
                 echo
                 echo '```'
-                grep "XUIAPP" "$log" || true
+                grep -E "XUIAPP|SYSMON|FABMON" "$log" || true
                 echo '```'
                 echo
                 echo "</details>"

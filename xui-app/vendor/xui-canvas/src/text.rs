@@ -132,6 +132,14 @@ pub fn draw(pixmap: &mut Pixmap, text: &str, rect: Rect, style: &TextStyle, dpi:
             TextVAlign::Top => 0,
             TextVAlign::Middle => ((rect_h as f32 - total_height) / 2.0).max(0.0) as i32,
         };
+        // Horizontal alignment relative to the target rectangle's width. The
+        // shaper only aligns wrapped paragraphs, so a natural-width run (the
+        // common case here) needs the offset applied at draw time. One entry
+        // per line: (line top, line width).
+        let lines: Vec<(f32, f32)> = buffer
+            .layout_runs()
+            .map(|run| (run.line_top, run.line_w))
+            .collect();
 
         buffer.draw(
             &mut text_system.font_system,
@@ -142,9 +150,21 @@ pub fn draw(pixmap: &mut Pixmap, text: &str, rect: Rect, style: &TextStyle, dpi:
                 if alpha == 0 {
                     return;
                 }
+                let line_width = lines
+                    .iter()
+                    .rev()
+                    .find(|(top, _)| *top <= y as f32)
+                    .map_or(0.0, |(_, width)| *width);
+                let align_offset = match style.align {
+                    TextAlign::Start => 0.0,
+                    TextAlign::Center => (rect_w as f32 - line_width) / 2.0,
+                    TextAlign::End => rect_w as f32 - line_width,
+                }
+                .max(0.0)
+                .round() as i32;
                 blend(
                     pixmap,
-                    rect_left + x,
+                    rect_left + x + align_offset,
                     rect_top + top_offset + y,
                     w,
                     h,

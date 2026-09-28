@@ -17,7 +17,8 @@ Usage::
     python tools/xui/build.py
     python tools/xui/build.py --debug
 
-Output: target/xui/xui-m0.elf and target/xui/xui-counter.elf, plus a JSON map
+Output: target/xui/xui-m0.elf, target/xui/xui-counter.elf,
+target/xui/xui-sysmon.elf and target/xui/xui-fabricmon.elf, plus a JSON map
 on stdout. If the musl target or toolchain is unavailable the script reports
 what it could build and exits 0, so a CI job can skip the visual run.
 """
@@ -35,7 +36,12 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 APP = ROOT / "xui-app"
 TARGET = "x86_64-unknown-linux-musl"
 OUT_DIR = ROOT / "target" / "xui"
-BINS = {"xui-m0": "xui-m0.elf", "xui-counter": "xui-counter.elf"}
+BINS = {
+    "xui-m0": "xui-m0.elf",
+    "xui-counter": "xui-counter.elf",
+    "xui-sysmon": "xui-sysmon.elf",
+    "xui-fabricmon": "xui-fabricmon.elf",
+}
 
 
 def run(cmd: list[str], env: dict[str, str] | None = None) -> subprocess.CompletedProcess:

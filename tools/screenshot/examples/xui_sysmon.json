@@ -1,0 +1,7 @@
+[
+  {"at": 80.0, "shot": "sysmon_initial"},
+  {"at": 95.0, "key": "r"},
+  {"at": 100.0, "shot": "sysmon_refreshed"},
+  {"at": 110.0, "key": "q"},
+  {"at": 112.0, "quit": true}
+]
