@@ -199,20 +199,45 @@ slow subscriber cannot stall publishers.
 **Scope:** topics have owners (session topic, system topic). Policy decides who
 may publish/subscribe per segment, including wildcards.
 
-**Interim userspace router (S2, issue #93).** Until the kernel/`messengerd`
-topic path above lands, the supervisor services run a small userspace router
-over channels and the kernel name registry: a service embeds a broker on its
-endpoint; a subscriber asks the broker for a sink name, registers one end of its
-own channel pair under that name, and calls `Subscribe`; the broker resolves the
-name and pushes retained, wildcard-filtered events to it. The names stay the
-spec's: `system/events/service/<name>` carries a service's state and detail,
-`system/health/<name>` and `system/health/summary` are retained health rows, and
-`system/events/security/denial` is the interim denial signal (the fabric audit
-counters) until the kernel exposes audit records to userspace. `init` (the
-supervisor) publishes service state, `healthd` aggregates heartbeats and
-dependency health into the retained health rows, `logd` appends hash-chained
-records and serves queries, and `messengerctl services|health|log` reads them
-back. Only the transport changes when the kernel topic path lands.
+#### 7.2.1 Implementation note (issue #92)
+
+The first slice puts topics entirely in userspace, per the epic decision in
+section 20: `messengerd` owns the broker (parsing, filters, QoS queues,
+retained values and per-subscriber drop counters) and the kernel adds exactly
+one thing — a per-segment policy question. The broker registers itself as
+`os.lazy.messenger.topics`; every publish and subscribe first asks the kernel
+(`authorize_topic`, `kernel/src/ipc/topics.rs`) to evaluate `ipc::authorize`
+for each segment of the name or filter, with publish and subscribe as separate
+pseudo-interfaces and `+`/`#` hashed like literal segments, so policy can deny
+a wildcard explicitly. Denials land in the audit ring with the broker
+request's correlation id.
+
+Delivery is **pull-based with deferred replies**: `next_event` is a
+synchronous call to the broker; when a subscription's queue is empty the
+broker parks the transaction and answers it later, when a matching publish
+arrives. The caller sleeps in the kernel wait queue with a real deadline, so
+timeouts work and a slow subscriber cannot stall a publisher. `reliable` is
+ack-gated with pull-driven retry and bounded queues (no userspace timers yet)
+— best-effort after peer death, as section 7.2 allows. The `latest` /
+`conflate` replacement and `buffered(N)` overflow paths count drops, which
+`messengerctl topics` / `Subscription::stats` expose.
+
+Headless verification: boot with `LAZYOS_MESSENGERD=1 LAZYOS_MESSENGERCTL=1`;
+`messengerctl` runs a topic conformance self-test when the broker is reachable
+and prints `TOPIC:FANOUT:PASS`, `TOPIC:WILDCARD:PASS`, `TOPIC:RETAINED:PASS`,
+`TOPIC:DROP:PASS`, `TOPIC:QOS:PASS` and `TOPIC:UNSUB:PASS` on the serial log.
+`messengerctl topics` lists known topics and `tail <filter> [count]` streams
+(issue #92).
+
+**Supervision services (S2, issue #93).** The supervisor services run over the
+topic path above (with an interim userspace router while it was landing): the
+names stay the spec's — `system/events/service/<name>` carries a service's
+state and detail, `system/health/<name>` and `system/health/summary` are
+retained health rows, and `system/events/security/denial` is the denial signal
+from the fabric audit counters. `init` (the supervisor) publishes service
+state, `healthd` aggregates heartbeats and dependency health into the retained
+health rows, `logd` appends hash-chained records and serves queries, and
+`messengerctl services|health|log` reads them back.
 
 ---
 

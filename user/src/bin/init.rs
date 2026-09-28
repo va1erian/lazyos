@@ -5,7 +5,7 @@
 //! system from there:
 //!
 //! * it registers [`services::INIT_NAME`] and serves its supervision table
-//!   (`Services`) plus a [`topics::TopicBroker`] on the same endpoint;
+//!   (`Services`) plus a [`router::TopicBroker`] on the same endpoint;
 //! * it starts services from [`MANIFEST`] in dependency order, through the
 //!   native `spawn` syscall (syscall 6), which makes each service a child of
 //!   this task;
@@ -33,7 +33,7 @@ use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::panic::PanicInfo;
-use user::messenger::{self, registry, services, topics, Endpoint, Message, Parcel};
+use user::messenger::{self, registry, router, services, Endpoint, Message, Parcel};
 use user::sys;
 
 /// Serve subscriptions and due restarts at least this often (PIT ticks).
@@ -184,10 +184,10 @@ fn run() -> messenger::Result<()> {
     registry::register(
         services::INIT_NAME,
         &published,
-        &[services::INIT_INTERFACE, topics::INTERFACE],
+        &[services::INIT_INTERFACE, router::INTERFACE],
         0,
     )?;
-    let mut broker = topics::TopicBroker::new("os.lazy.events.sink");
+    let mut broker = router::TopicBroker::new("os.lazy.events.sink");
     let mut services: Vec<Service> = MANIFEST
         .iter()
         .map(|spec| Service {
@@ -266,7 +266,7 @@ impl StatusCache {
 /// Start every `Pending` service whose dependencies are `Running`, repeating
 /// until no more can start (a single pass suffices for an ordered manifest,
 /// but this is order-independent).
-fn start_ready(services: &mut [Service], broker: &mut topics::TopicBroker) {
+fn start_ready(services: &mut [Service], broker: &mut router::TopicBroker) {
     loop {
         let mut started = false;
         for index in 0..services.len() {
@@ -291,7 +291,7 @@ fn start_ready(services: &mut [Service], broker: &mut topics::TopicBroker) {
 }
 
 /// Start one service as a child of this task.
-fn spawn_service(services: &mut [Service], index: usize, broker: &mut topics::TopicBroker) {
+fn spawn_service(services: &mut [Service], index: usize, broker: &mut router::TopicBroker) {
     let spec = services[index].spec;
     let command = command_line(spec, services[index].restarts);
     match sys::spawn(&command) {
@@ -358,7 +358,7 @@ fn command_line(spec: &ServiceSpec, restarts: u64) -> Vec<u8> {
 }
 
 /// A service exited: apply its restart policy and publish the event.
-fn child_exited(services: &mut [Service], pid: u64, status: u64, broker: &mut topics::TopicBroker) {
+fn child_exited(services: &mut [Service], pid: u64, status: u64, broker: &mut router::TopicBroker) {
     let Some(index) = services
         .iter()
         .position(|service| service.pid == pid && service.phase == Phase::Running)
@@ -458,7 +458,7 @@ fn wake_deadline(services: &[Service], now: u64) -> u64 {
 /// `system/events/service/<name>` with a `key=value` payload that carries the
 /// detail `healthd` needs (pid, restart count) without a follow-up query.
 fn publish_state(
-    broker: &mut topics::TopicBroker,
+    broker: &mut router::TopicBroker,
     spec: &ServiceSpec,
     state: &str,
     pid: u64,
@@ -480,7 +480,7 @@ fn publish_state(
 /// Serve queued subscriptions and control calls without blocking.
 fn serve_pending(
     services: &mut [Service],
-    broker: &mut topics::TopicBroker,
+    broker: &mut router::TopicBroker,
     server: &Endpoint,
     buffer: &mut [u8],
     cache: &mut StatusCache,
@@ -502,12 +502,12 @@ fn serve_pending(
 /// Dispatch one inbound message to the broker or the supervision table.
 fn dispatch(
     services: &mut [Service],
-    broker: &mut topics::TopicBroker,
+    broker: &mut router::TopicBroker,
     message: &Message,
     cache: &mut StatusCache,
 ) -> messenger::Result<Parcel> {
     match message.interface_id() {
-        topics::INTERFACE => broker.handle(message),
+        router::INTERFACE => broker.handle(message),
         services::INIT_INTERFACE => match message.method() {
             services::init_method::SERVICES => cache.parcel(services),
             _ => Err(messenger::Error::Errno(-messenger::errno::EINVAL)),

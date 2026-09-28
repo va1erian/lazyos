@@ -270,6 +270,41 @@ const SUITE: &[(&str, Test)] = &[
         stats_suite::counters_follow_calls_and_denials,
     ),
     (
+        "fs_path_resolution_and_mounts",
+        fs_suite::path_resolution_and_mounts,
+    ),
+    (
+        "fs_ramfs_create_write_read_rename_unlink",
+        fs_suite::ramfs_create_write_read_rename_unlink,
+    ),
+    (
+        "fs_permission_matrix_owner_group_other",
+        fs_suite::permission_matrix_owner_group_other,
+    ),
+    (
+        "fs_traversal_and_sticky_bits",
+        fs_suite::traversal_and_sticky_bits,
+    ),
+    ("fs_cache_invalidation", fs_suite::cache_invalidation),
+    ("fs_fat_read_only_erofs", fs_suite::fat_read_only_erofs),
+    (
+        "fs_getdents64_ramfs_directory",
+        fs_suite::getdents64_ramfs_directory,
+    ),
+    (
+        "ipc_topic_segment_methods_stable",
+        topics_suite::segment_methods_stable,
+    ),
+    (
+        "ipc_topic_acl_segments_enforced",
+        topics_suite::acl_segments_enforced,
+    ),
+    (
+        "ipc_topic_acl_wildcard_filter",
+        topics_suite::acl_wildcard_filter,
+    ),
+    ("ipc_topic_acl_syscall_gate", topics_suite::syscall_gate),
+    (
         "service_spawn_child_parent_and_wait",
         service_suite::spawn_child_parent_and_wait,
     ),
@@ -5718,6 +5753,1005 @@ mod registry_suite {
     }
 }
 
+// ---------------------------------------------------------------------------
+// VFS core (issue #98)
+// ---------------------------------------------------------------------------
+
+mod fs_suite {
+    use super::*;
+    use crate::fs::ramfs::RamFs;
+    use crate::fs::vfs::{self, FileKind, FsError, Id, Meta, Path, Vfs};
+    use alloc::sync::Arc;
+
+    /// A fresh VFS with ramfs mounted at `/`.
+    fn ram_vfs() -> Vfs {
+        let mut vfs = Vfs::new();
+        vfs.mount("/", Arc::new(RamFs::new()))
+            .expect("mount ramfs at /");
+        vfs
+    }
+
+    /// Friendly, debuggable conversion for `?` in tests.
+    fn fs_error(error: FsError) -> String {
+        format!("{} ({error:?})", error.message())
+    }
+
+    /// `Path` folds `.`/`..` lexically (clamped at the root), collapses
+    /// slashes, and roots relative inputs; mounts resolve by longest prefix,
+    /// and `..` folds before mount lookup.
+    pub fn path_resolution_and_mounts() -> Result<(), String> {
+        for (raw, expected) in [
+            ("/", "/"),
+            (".", "/"),
+            ("/..", "/"),
+            ("/a/../..", "/"),
+            ("/a/./b/../c", "/a/c"),
+            ("//a//b/", "/a/b"),
+            ("a/b", "/a/b"),
+        ] {
+            let folded = Path::parse(raw).to_path_string();
+            check!(
+                folded == expected,
+                "{raw:?} folded to {folded:?}, expected {expected:?}"
+            );
+        }
+        check!(
+            Path::parse("/a").is_absolute() && !Path::parse("a").is_absolute(),
+            "absolute detection is wrong"
+        );
+        check!(
+            Path::parse("/a/b").name() == Some("b") && Path::parse("/").name().is_none(),
+            "the final component is wrong"
+        );
+
+        let root = Id::ROOT;
+        let mut vfs = Vfs::new();
+        vfs.mount("/", Arc::new(RamFs::new())).map_err(fs_error)?;
+        vfs.mount("/tmp", Arc::new(RamFs::new()))
+            .map_err(fs_error)?;
+
+        // A file written under /tmp lands in the /tmp filesystem, not the root.
+        vfs.create(root, "/tmp/scratch.txt", 0o644)
+            .map_err(fs_error)?;
+        vfs.create(root, "/hello.txt", 0o644).map_err(fs_error)?;
+        check!(
+            vfs.stat(root, "/tmp/scratch.txt").is_ok(),
+            "/tmp/scratch.txt is missing"
+        );
+        check!(
+            vfs.stat(root, "/hello.txt").is_ok(),
+            "/hello.txt is missing"
+        );
+        check!(
+            vfs.stat(root, "/scratch.txt").err() == Some(FsError::NotFound),
+            "/scratch.txt leaked out of the /tmp mount"
+        );
+
+        // The longest mount point wins: /tmp/nested is its own filesystem.
+        vfs.mount("/tmp/nested", Arc::new(RamFs::new()))
+            .map_err(fs_error)?;
+        vfs.create(root, "/tmp/nested/inner.txt", 0o644)
+            .map_err(fs_error)?;
+        check!(
+            vfs.stat(root, "/tmp/nested/inner.txt").is_ok(),
+            "the deepest mount did not receive the file"
+        );
+        check!(
+            vfs.stat(root, "/tmp/inner.txt").err() == Some(FsError::NotFound),
+            "the nested mount leaked into /tmp"
+        );
+
+        // `..` folds before mount resolution: /tmp/../hello.txt is the root fs.
+        check!(
+            vfs.stat(root, "/tmp/../hello.txt").is_ok(),
+            ".. did not fold to the root"
+        );
+        check!(
+            vfs.stat(root, "/tmp/../scratch.txt").err() == Some(FsError::NotFound),
+            ".. resolved inside the /tmp mount"
+        );
+
+        let mounts = vfs.mounts();
+        check!(
+            mounts
+                .iter()
+                .any(|(point, name)| point == "/tmp" && *name == "ramfs"),
+            "mount table is {mounts:?}"
+        );
+        Ok(())
+    }
+
+    /// ramfs: create/write (at offsets), read, stat, readdir, rename, unlink,
+    /// error cases, and the umask applied at creation.
+    pub fn ramfs_create_write_read_rename_unlink() -> Result<(), String> {
+        let root = Id::ROOT;
+        let mut vfs = ram_vfs();
+
+        vfs.mkdir(root, "/docs", 0o755).map_err(fs_error)?;
+        vfs.create(root, "/docs/note.txt", 0o644)
+            .map_err(fs_error)?;
+        let meta = vfs.stat(root, "/docs/note.txt").map_err(fs_error)?;
+        check!(
+            meta.kind == FileKind::File
+                && meta.size == 0
+                && meta.mode & vfs::S_IFMT == vfs::S_IFREG,
+            "fresh file metadata is {meta:?}"
+        );
+
+        check!(
+            vfs.write(root, "/docs/note.txt", 0, b"hello")
+                .map_err(fs_error)?
+                == 5,
+            "first write was short"
+        );
+        vfs.write(root, "/docs/note.txt", 5, b" world")
+            .map_err(fs_error)?;
+        let data = vfs.read_file(root, "/docs/note.txt").map_err(fs_error)?;
+        check!(data == b"hello world".to_vec(), "contents are {data:?}");
+        check!(
+            vfs.stat(root, "/docs/note.txt").map_err(fs_error)?.size == 11,
+            "stat did not see the appended bytes"
+        );
+
+        let mut buf = [0u8; 4];
+        let read = vfs
+            .read(root, "/docs/note.txt", 6, &mut buf)
+            .map_err(fs_error)?;
+        check!(
+            read == 4 && &buf == b"worl",
+            "offset read got {read} bytes {buf:?}"
+        );
+        check!(
+            vfs.read(root, "/docs/note.txt", 99, &mut buf)
+                .map_err(fs_error)?
+                == 0,
+            "read past EOF did not return 0"
+        );
+
+        let names: Vec<String> = vfs
+            .readdir(root, "/docs")
+            .map_err(fs_error)?
+            .into_iter()
+            .map(|entry| entry.name)
+            .collect();
+        check!(names == ["note.txt"], "readdir is {names:?}");
+
+        vfs.rename(root, "/docs/note.txt", "/docs/memo.txt")
+            .map_err(fs_error)?;
+        check!(
+            vfs.stat(root, "/docs/note.txt").err() == Some(FsError::NotFound),
+            "rename left the source behind"
+        );
+        check!(
+            vfs.read_file(root, "/docs/memo.txt").map_err(fs_error)? == b"hello world".to_vec(),
+            "rename lost the contents"
+        );
+
+        vfs.unlink(root, "/docs/memo.txt").map_err(fs_error)?;
+        check!(
+            vfs.stat(root, "/docs/memo.txt").err() == Some(FsError::NotFound),
+            "unlink left the file behind"
+        );
+        check!(
+            vfs.readdir(root, "/docs").map_err(fs_error)?.is_empty(),
+            "readdir still lists the unlinked file"
+        );
+
+        check!(
+            vfs.unlink(root, "/nope").err() == Some(FsError::NotFound),
+            "unlink found a ghost"
+        );
+        check!(
+            vfs.mkdir(root, "/docs", 0o755).err() == Some(FsError::Exists),
+            "mkdir overwrote a dir"
+        );
+        check!(
+            vfs.create(root, "/missing/file", 0o644).err() == Some(FsError::NotFound),
+            "create succeeded in a missing directory"
+        );
+        check!(
+            vfs.unlink(root, "/docs").err() == Some(FsError::IsDir),
+            "unlink removed a directory"
+        );
+        check!(
+            vfs.write(root, "/docs", 0, b"x").err() == Some(FsError::IsDir),
+            "write succeeded on a directory"
+        );
+
+        // The umask masks creation modes (`umask(2)` semantics).
+        let previous = vfs.set_umask(0o077);
+        check!(
+            previous == 0o022,
+            "default umask is {previous:o}, expected 022"
+        );
+        vfs.create(root, "/private.txt", 0o666).map_err(fs_error)?;
+        let meta = vfs.stat(root, "/private.txt").map_err(fs_error)?;
+        check!(
+            meta.mode & 0o777 == 0o600,
+            "umask left mode {:o}, expected 600",
+            meta.mode & 0o777
+        );
+        check!(vfs.umask() == 0o077, "umask readback is {:o}", vfs.umask());
+        Ok(())
+    }
+
+    /// The owner/group/other matrix against kernel-stamped ids, root bypass,
+    /// `F_OK`, and directory traversal through a real VFS.
+    pub fn permission_matrix_owner_group_other() -> Result<(), String> {
+        let file = Meta {
+            ino: 5,
+            mode: vfs::S_IFREG | 0o640,
+            uid: 1000,
+            gid: 100,
+            size: 0,
+            kind: FileKind::File,
+        };
+        let owner = Id::new(1000, 200);
+        let group = Id::new(2000, 100);
+        let other = Id::new(2000, 200);
+
+        check!(
+            vfs::check_access(&file, owner, vfs::READ | vfs::WRITE).is_ok(),
+            "the owner was denied rw"
+        );
+        check!(
+            vfs::check_access(&file, owner, vfs::EXECUTE).err() == Some(FsError::Access),
+            "the owner was allowed x"
+        );
+        check!(
+            vfs::check_access(&file, group, vfs::READ).is_ok(),
+            "the group was denied r"
+        );
+        check!(
+            vfs::check_access(&file, group, vfs::WRITE).err() == Some(FsError::Access),
+            "the group was allowed w"
+        );
+        check!(
+            vfs::check_access(&file, other, vfs::READ).err() == Some(FsError::Access),
+            "other was allowed r"
+        );
+        check!(
+            vfs::check_access(&file, Id::ROOT, vfs::READ | vfs::WRITE | vfs::EXECUTE).is_ok(),
+            "root did not bypass the mode bits"
+        );
+        check!(
+            vfs::check_access(&file, other, 0).is_ok(),
+            "an F_OK-style check failed"
+        );
+
+        // Through a VFS: a 0700 directory hides its contents from everyone but
+        // its owner (and root), even when the file inside is world-readable.
+        let mut vfs = ram_vfs();
+        vfs.mkdir(Id::ROOT, "/home", 0o700).map_err(fs_error)?;
+        vfs.create(Id::ROOT, "/home/secret", 0o644)
+            .map_err(fs_error)?;
+        check!(
+            vfs.stat(Id::ROOT, "/home/secret").is_ok(),
+            "root could not stat inside /home"
+        );
+        check!(
+            vfs.stat(group, "/home/secret").err() == Some(FsError::Access),
+            "the group traversed a 0700 directory"
+        );
+        check!(
+            vfs.stat(other, "/home/secret").err() == Some(FsError::Access),
+            "other traversed a 0700 directory"
+        );
+
+        // A world-readable file on a traversable path: read allowed, write not.
+        vfs.mkdir(Id::ROOT, "/public", 0o755).map_err(fs_error)?;
+        vfs.create(Id::ROOT, "/public/readme", 0o644)
+            .map_err(fs_error)?;
+        check!(
+            vfs.read_file(other, "/public/readme").is_ok(),
+            "the world could not read a 0644 file"
+        );
+        check!(
+            vfs.write(other, "/public/readme", 0, b"x").err() == Some(FsError::Access),
+            "the world could write a 0644 file"
+        );
+        Ok(())
+    }
+
+    /// The sticky bit on shared directories: entry owner, directory owner, or
+    /// root may unlink/rename; others cannot. Also the pure rule function.
+    pub fn traversal_and_sticky_bits() -> Result<(), String> {
+        let dir = Meta {
+            ino: 6,
+            mode: vfs::S_IFDIR | 0o1777,
+            uid: 3000,
+            gid: 300,
+            size: 0,
+            kind: FileKind::Dir,
+        };
+        let entry = Meta {
+            ino: 7,
+            mode: vfs::S_IFREG | 0o644,
+            uid: 1000,
+            gid: 100,
+            size: 0,
+            kind: FileKind::File,
+        };
+        check!(
+            vfs::check_sticky(&dir, &entry, Id::new(3000, 1)).is_ok(),
+            "the directory owner was denied"
+        );
+        check!(
+            vfs::check_sticky(&dir, &entry, Id::new(1000, 1)).is_ok(),
+            "the entry owner was denied"
+        );
+        check!(
+            vfs::check_sticky(&dir, &entry, Id::new(2000, 1)).err() == Some(FsError::Access),
+            "a stranger was allowed"
+        );
+        check!(
+            vfs::check_sticky(&dir, &entry, Id::ROOT).is_ok(),
+            "root was denied"
+        );
+        let normal = Meta {
+            mode: vfs::S_IFDIR | 0o777,
+            ..dir
+        };
+        check!(
+            vfs::check_sticky(&normal, &entry, Id::new(2000, 1)).is_ok(),
+            "a non-sticky directory restricted unlink"
+        );
+
+        // End to end: alice and bob share a sticky directory.
+        let mut vfs = ram_vfs();
+        // The default umask would clear the shared directory's world-write bit.
+        vfs.set_umask(0);
+        let alice = Id::new(1000, 100);
+        let bob = Id::new(2000, 200);
+        vfs.mkdir(Id::ROOT, "/shared", 0o1777).map_err(fs_error)?;
+        vfs.create(alice, "/shared/alice.txt", 0o644)
+            .map_err(fs_error)?;
+        check!(
+            vfs.unlink(bob, "/shared/alice.txt").err() == Some(FsError::Access),
+            "bob removed alice's sticky entry"
+        );
+        check!(
+            vfs.rename(bob, "/shared/alice.txt", "/shared/stolen.txt")
+                .err()
+                == Some(FsError::Access),
+            "bob renamed alice's sticky entry"
+        );
+        check!(
+            vfs.unlink(alice, "/shared/alice.txt").is_ok(),
+            "alice could not remove her own entry"
+        );
+        vfs.create(alice, "/shared/alice2.txt", 0o644)
+            .map_err(fs_error)?;
+        check!(
+            vfs.unlink(Id::ROOT, "/shared/alice2.txt").is_ok(),
+            "root was sticky-blocked"
+        );
+
+        // A sticky directory owned by alice: she may remove bob's entry.
+        vfs.mkdir(alice, "/shared/alice-dir", 0o1777)
+            .map_err(fs_error)?;
+        vfs.create(bob, "/shared/alice-dir/bob.txt", 0o644)
+            .map_err(fs_error)?;
+        check!(
+            vfs.unlink(alice, "/shared/alice-dir/bob.txt").is_ok(),
+            "the sticky directory owner could not remove an entry"
+        );
+        Ok(())
+    }
+
+    /// Caches serve repeated lookups, mutations refresh sizes, and unlink or
+    /// rename invalidates the entry (and a directory's cached descendants).
+    pub fn cache_invalidation() -> Result<(), String> {
+        let root = Id::ROOT;
+        let mut vfs = ram_vfs();
+        vfs.create(root, "/cache.txt", 0o644).map_err(fs_error)?;
+
+        let first = vfs.stat(root, "/cache.txt").map_err(fs_error)?;
+        let second = vfs.stat(root, "/cache.txt").map_err(fs_error)?;
+        check!(first == second, "the two stats disagree");
+        let stats = vfs.cache_stats();
+        check!(
+            stats.dentry_hits >= 1 && stats.inode_hits >= 1,
+            "the caches did not warm: {stats:?}"
+        );
+
+        vfs.write(root, "/cache.txt", 0, b"123456")
+            .map_err(fs_error)?;
+        check!(
+            vfs.stat(root, "/cache.txt").map_err(fs_error)?.size == 6,
+            "the cached size is stale after a write"
+        );
+
+        vfs.unlink(root, "/cache.txt").map_err(fs_error)?;
+        check!(
+            vfs.stat(root, "/cache.txt").err() == Some(FsError::NotFound),
+            "the unlinked entry is still cached"
+        );
+        check!(
+            vfs.cache_stats().invalidations >= 1,
+            "no invalidation was recorded"
+        );
+
+        // Renaming a directory drops its cached descendants: a stale path must
+        // not keep resolving.
+        vfs.mkdir(root, "/dir", 0o755).map_err(fs_error)?;
+        vfs.create(root, "/dir/file", 0o644).map_err(fs_error)?;
+        check!(
+            vfs.stat(root, "/dir/file").is_ok(),
+            "subtree did not resolve before rename"
+        );
+        vfs.rename(root, "/dir", "/dir2").map_err(fs_error)?;
+        check!(
+            vfs.stat(root, "/dir/file").err() == Some(FsError::NotFound),
+            "a stale descendant survived the rename"
+        );
+        check!(
+            vfs.stat(root, "/dir2/file").is_ok(),
+            "the renamed subtree is missing"
+        );
+
+        // invalidate() is the explicit escape hatch and the next lookup refills.
+        vfs.invalidate("/dir2/file");
+        check!(
+            vfs.stat(root, "/dir2/file").is_ok(),
+            "the refill after invalidate failed"
+        );
+        Ok(())
+    }
+
+    /// The FAT boot volume is mounted at `/` through the VFS: reads work, and
+    /// every mutating call answers EROFS with the friendly message.
+    pub fn fat_read_only_erofs() -> Result<(), String> {
+        task::register_kernel();
+        check!(
+            crate::fs::init(),
+            "the FAT boot volume did not mount (is the disk image attached?)"
+        );
+        let root = Id::ROOT;
+        let meta = crate::fs::vfs_stat(root, "/HELLO.TXT").map_err(fs_error)?;
+        check!(
+            meta.kind == FileKind::File && meta.size > 0,
+            "HELLO.TXT metadata is {meta:?}"
+        );
+        let data = crate::fs::vfs_read(root, "/HELLO.TXT").map_err(fs_error)?;
+        check!(
+            data.windows(17)
+                .any(|window| window == b"Hello from LazyOS"),
+            "HELLO.TXT contents are wrong"
+        );
+        let listing = crate::fs::list();
+        check!(
+            listing
+                .iter()
+                .any(|(name, is_dir, size)| name == "HELLO.TXT" && !is_dir && *size > 0),
+            "the root listing is {listing:?}"
+        );
+
+        // The global umask is readable back (the `umask(2)` surface).
+        let previous = crate::fs::vfs_set_umask(0o027);
+        check!(
+            crate::fs::vfs_umask() == 0o027,
+            "the global umask did not stick"
+        );
+        check!(
+            crate::fs::vfs_set_umask(previous) == 0o027,
+            "umask did not return the previous value"
+        );
+
+        check!(
+            crate::fs::vfs_write(root, "/HELLO.TXT", 0, b"x").err() == Some(FsError::ReadOnly),
+            "a FAT write was not EROFS"
+        );
+        check!(
+            crate::fs::vfs_create(root, "/NEW.TXT", 0o644).err() == Some(FsError::ReadOnly),
+            "a FAT create was not EROFS"
+        );
+        check!(
+            crate::fs::vfs_mkdir(root, "/newdir", 0o755).err() == Some(FsError::ReadOnly),
+            "a FAT mkdir was not EROFS"
+        );
+        check!(
+            crate::fs::vfs_unlink(root, "/HELLO.TXT").err() == Some(FsError::ReadOnly),
+            "a FAT unlink was not EROFS"
+        );
+        check!(
+            crate::fs::vfs_rename(root, "/HELLO.TXT", "/HI.TXT").err() == Some(FsError::ReadOnly),
+            "a FAT rename was not EROFS"
+        );
+        check!(
+            FsError::ReadOnly.message().contains("read-only"),
+            "the EROFS message is not friendly: {:?}",
+            FsError::ReadOnly.message()
+        );
+        Ok(())
+    }
+
+    /// The Linux fd layer routes `openat`/`getdents64`/`fstat`/`close` through
+    /// the VFS: a ramfs directory on `/tmp` lists its real entries.
+    pub fn getdents64_ramfs_directory() -> Result<(), String> {
+        task::register_kernel();
+        crate::fs::init();
+        let root = Id::ROOT;
+        let dir = "/tmp/vfs-getdents";
+        let _ = crate::fs::vfs_unlink(root, "/tmp/vfs-getdents/entry.txt");
+        crate::fs::vfs_mkdir(root, dir, 0o755).map_err(fs_error)?;
+        crate::fs::vfs_create(root, "/tmp/vfs-getdents/entry.txt", 0o644).map_err(fs_error)?;
+
+        let path = b"/tmp/vfs-getdents\0";
+        // dispatch_for_test(nr, a1, a2, a3): openat's a1 is `dirfd` (ignored)
+        // and a2 is the path.
+        let fd = process::linux::dispatch_for_test(257, 0, path.as_ptr() as u64, 0);
+        check!(
+            (3..task::FD_COUNT as u64).contains(&fd),
+            "openat returned {fd:#x}"
+        );
+
+        let mut buf = [0u8; 512];
+        let count =
+            process::linux::dispatch_for_test(217, fd, buf.as_mut_ptr() as u64, buf.len() as u64);
+        check!(
+            count > 0 && count as usize <= buf.len(),
+            "getdents64 returned {count}"
+        );
+
+        let mut names: Vec<String> = Vec::new();
+        let mut offset = 0usize;
+        while offset < count as usize {
+            let reclen = u16::from_le_bytes([buf[offset + 16], buf[offset + 17]]) as usize;
+            check!(
+                reclen >= 19 && offset + reclen <= count as usize,
+                "bad dirent record at offset {offset}"
+            );
+            let name = &buf[offset + 19..offset + reclen];
+            let end = name
+                .iter()
+                .position(|&byte| byte == 0)
+                .unwrap_or(name.len());
+            names.push(String::from_utf8_lossy(&name[..end]).into_owned());
+            offset += reclen;
+        }
+        check!(
+            names.iter().any(|name| name == "."),
+            "no `.` entry: {names:?}"
+        );
+        check!(
+            names.iter().any(|name| name == ".."),
+            "no `..` entry: {names:?}"
+        );
+        check!(
+            names.iter().any(|name| name == "entry.txt"),
+            "no entry.txt in the listing: {names:?}"
+        );
+
+        // fstat on the directory fd reports the VFS directory mode.
+        let mut stat = [0u8; 144];
+        let result = process::linux::dispatch_for_test(5, fd, stat.as_mut_ptr() as u64, 0);
+        check!(result == 0, "fstat -> {result:#x}");
+        let mode = u32::from_le_bytes([stat[24], stat[25], stat[26], stat[27]]);
+        check!(
+            mode & vfs::S_IFMT as u32 == 0o040000,
+            "fstat mode is {mode:#o}, expected a directory"
+        );
+
+        let result = process::linux::dispatch_for_test(3, fd, 0, 0);
+        check!(result == 0, "close -> {result:#x}");
+        crate::fs::vfs_unlink(root, "/tmp/vfs-getdents/entry.txt").map_err(fs_error)?;
+        Ok(())
+    }
+}
+/// Topic ACL hooks (issue #92): stable segment hashes, per-segment policy,
+/// wildcard filters, and the `authorize_topic` syscall gate. The broker itself
+/// is userspace; these tests pin the kernel half of the contract.
+mod topics_suite {
+    use super::*;
+    use crate::ipc::credentials::{self, Cred};
+    use crate::ipc::syscalls::{
+        errno, MsgArgs, MsgResult, OP_AUTHORIZE_TOPIC, REGISTRY_TARGET_SELF,
+    };
+    use crate::ipc::{acl, audit, topics};
+    use libmessenger::{Encoder, Header, Parcel, VERSION};
+
+    /// Scratch user address space for the syscall-level test: `dispatch`
+    /// validates pointers against the active CR3.
+    const SPACE: u64 = 0x0040_0000;
+    const SPACE_PAGES: u64 = 4;
+    const ARGS: u64 = SPACE;
+    const RESULT: u64 = SPACE + 0x100;
+    const REQUEST: u64 = SPACE + 0x1000;
+
+    /// Every topics test starts from the bring-up state: kernel task current,
+    /// root credentials, empty policy (the bootstrap window), empty audit ring.
+    fn fresh() -> Result<(), String> {
+        task::register_kernel();
+        task::harness::reset();
+        task::harness::switch_current(task::KERNEL_TASK);
+        credentials::reset_for_task(task::KERNEL_TASK);
+        acl::load(&[]);
+        audit::reset();
+        audit::set_trace(false);
+        task::wake_task(task::KERNEL_TASK);
+        let _ = task::harness::take_wake_reason(task::KERNEL_TASK);
+        Ok(())
+    }
+
+    /// Run `f` with [`SPACE`] mapped into a fresh address space installed as
+    /// CR3, exactly as a real syscall from a user task would find it.
+    fn in_space<R>(f: impl FnOnce() -> Result<R, String>) -> Result<R, String> {
+        let kernel = mem::kernel_table();
+        let table = mem::new_user_table().ok_or("new_user_table failed")?;
+        process::map_range(table, SPACE, SPACE + SPACE_PAGES * 4096).map_err(to_string)?;
+        mem::switch_to(table);
+        let outcome = f();
+        mem::switch_to(kernel);
+        mem::free_user_table(table);
+        outcome
+    }
+
+    fn write_bytes(va: u64, bytes: &[u8]) {
+        // Safety: the scratch pages are mapped writable while installed.
+        unsafe { core::ptr::copy_nonoverlapping(bytes.as_ptr(), va as *mut u8, bytes.len()) };
+    }
+
+    fn read_bytes(va: u64, len: usize) -> Vec<u8> {
+        let mut out = Vec::new();
+        out.resize(len, 0);
+        // Safety: the scratch pages are mapped readable while installed.
+        unsafe { core::ptr::copy_nonoverlapping(va as *const u8, out.as_mut_ptr(), len) };
+        out
+    }
+
+    /// Run one op through the native gate with the args block at [`ARGS`].
+    fn dispatch(op: u64, args: &MsgArgs) -> (u64, MsgResult) {
+        write_bytes(ARGS, &args.to_bytes());
+        let code = process::dispatch_for_test(5, op, ARGS, RESULT);
+        let result = MsgResult::from_bytes(&read_bytes(RESULT, 64))
+            .expect("the kernel wrote a malformed result block");
+        (code, result)
+    }
+
+    /// Two's-complement `-errno` as the syscall returns it in `rax`.
+    fn failed(code: i64) -> u64 {
+        (code as u64).wrapping_neg()
+    }
+
+    /// Encode an `authorize_topic` request parcel.
+    fn auth_parcel(name: &str, mode: u32, txn: u64) -> Result<Vec<u8>, String> {
+        let mut body = Encoder::new();
+        body.string(topics::field::NAME, name)
+            .map_err(|error| error.message())?;
+        body.u32(topics::field::MODE, mode)
+            .map_err(|error| error.message())?;
+        body.u64(topics::field::TXN, txn)
+            .map_err(|error| error.message())?;
+        let parcel = Parcel {
+            header: Header {
+                version: VERSION,
+                flags: 0,
+                interface_id: 0,
+                method: 0,
+                txn_id: 0,
+                reply_to: 0,
+                deadline_ns: 0,
+            },
+            body: body.finish(),
+            handles: Vec::new(),
+            buffers: Vec::new(),
+        };
+        let mut bytes = Vec::new();
+        parcel.encode(&mut bytes).map_err(|error| error.message())?;
+        Ok(bytes)
+    }
+
+    /// A policy that denies `method` on `interface` for uid 1000 ahead of an
+    /// allow-all rule, so neighbours and other actors stay allowed.
+    fn deny_rule(interface: u64, method: u32) -> [acl::Rule; 2] {
+        [
+            acl::Rule {
+                actor: 1000,
+                interface_id: interface,
+                method,
+                allow: false,
+            },
+            acl::Rule {
+                actor: acl::ANY_ACTOR,
+                interface_id: acl::ANY_INTERFACE,
+                method: acl::ANY_METHOD,
+                allow: true,
+            },
+        ]
+    }
+
+    /// The interface ids and segment methods are derived, not guessed: the
+    /// constants must keep matching the documented names, and the validation
+    /// rules must match the userspace broker.
+    pub fn segment_methods_stable() -> Result<(), String> {
+        check!(
+            topics::fnv1a64("os.lazy.messenger.topics.publish.v1") == topics::PUBLISH_INTERFACE,
+            "the publish interface constant drifted from its name"
+        );
+        check!(
+            topics::fnv1a64("os.lazy.messenger.topics.subscribe.v1") == topics::SUBSCRIBE_INTERFACE,
+            "the subscribe interface constant drifted from its name"
+        );
+        check!(
+            topics::segment_method("system") == 1_226_705_564,
+            "the segment hash for `system` changed: {}",
+            topics::segment_method("system")
+        );
+        check!(
+            topics::segment_method("+") != topics::segment_method("#")
+                && topics::segment_method("+") != 0,
+            "wildcard segment ids are not distinct"
+        );
+        check!(
+            topics::interface(topics::MODE_SUBSCRIBE) == Some(topics::SUBSCRIBE_INTERFACE)
+                && topics::interface(99).is_none(),
+            "the mode-to-interface map is wrong"
+        );
+
+        check!(
+            topics::validate("system/events/network/up", topics::MODE_PUBLISH) == Ok(4),
+            "a literal four-segment topic was rejected"
+        );
+        check!(
+            topics::validate("system/+", topics::MODE_PUBLISH) == Err(topics::Error::BadName),
+            "publish accepted a wildcard"
+        );
+        check!(
+            topics::validate("system/+", topics::MODE_SUBSCRIBE) == Ok(2),
+            "subscribe rejected a `+` segment"
+        );
+        check!(
+            topics::validate("system/#", topics::MODE_SUBSCRIBE) == Ok(2),
+            "subscribe rejected a trailing `#`"
+        );
+        check!(
+            topics::validate("system/#/up", topics::MODE_SUBSCRIBE) == Err(topics::Error::BadName),
+            "subscribe accepted a non-trailing `#`"
+        );
+        check!(
+            topics::validate("", topics::MODE_PUBLISH) == Err(topics::Error::BadName)
+                && topics::validate("a//b", topics::MODE_PUBLISH) == Err(topics::Error::BadName),
+            "empty segments were accepted"
+        );
+        check!(
+            topics::validate("a/b/c/d/e/f/g/h/i", topics::MODE_PUBLISH)
+                == Err(topics::Error::BadName),
+            "a nine-segment topic was accepted"
+        );
+        check!(
+            topics::validate("system events", topics::MODE_PUBLISH) == Err(topics::Error::BadName),
+            "a topic with a space was accepted"
+        );
+        Ok(())
+    }
+
+    /// Policy is evaluated per segment: one denied segment blocks the whole
+    /// name, its neighbours pass, and the denial lands in the audit ring with
+    /// the broker's correlation id.
+    pub fn acl_segments_enforced() -> Result<(), String> {
+        fresh()?;
+        let slot = task::current();
+        credentials::set(slot, Cred::new(1000, 100, 0, 0, 0));
+        acl::load(&deny_rule(
+            topics::PUBLISH_INTERFACE,
+            topics::segment_method("secret"),
+        ));
+
+        let allowed = topics::authorize(slot, topics::MODE_PUBLISH, "public/data", 0x11)
+            .map_err(|error| String::from(error.message()))?;
+        check!(
+            allowed == 2,
+            "the allowed topic reported {allowed} segments"
+        );
+
+        let count_before = audit::count();
+        let denied = topics::authorize(slot, topics::MODE_PUBLISH, "public/secret/data", 0xabc);
+        check!(
+            denied == Err(topics::Error::Denied),
+            "a denied middle segment was allowed: {denied:?}"
+        );
+        check!(
+            audit::count() == count_before + 1,
+            "the denial did not reach the audit ring"
+        );
+        let event = *audit::recent(1)
+            .first()
+            .ok_or("the denial left no audit event")?;
+        check!(
+            event.uid == 1000
+                && event.interface_id == topics::PUBLISH_INTERFACE
+                && event.method == topics::segment_method("secret")
+                && event.txn_id == 0xabc
+                && !event.allow,
+            "the audit event lost the topic segment or actor: {event:?}"
+        );
+
+        // A publish-mode rule must not leak into subscribe mode.
+        check!(
+            topics::authorize(slot, topics::MODE_SUBSCRIBE, "public/secret/data", 0).is_ok(),
+            "the publish deny leaked into subscribe"
+        );
+
+        // Bad names and modes never touch policy.
+        check!(
+            topics::authorize(slot, topics::MODE_PUBLISH, "public/+", 0)
+                == Err(topics::Error::BadName),
+            "a publish wildcard reached policy"
+        );
+        check!(
+            topics::authorize(slot, 9, "public/data", 0) == Err(topics::Error::BadMode),
+            "an unknown mode reached policy"
+        );
+        Ok(())
+    }
+
+    /// Wildcard subscription segments are policy-checked like literals, so a
+    /// filter cannot bypass a namespace rule.
+    pub fn acl_wildcard_filter() -> Result<(), String> {
+        fresh()?;
+        let slot = task::current();
+        credentials::set(slot, Cred::new(1000, 100, 0, 0, 0));
+        acl::load(&deny_rule(
+            topics::SUBSCRIBE_INTERFACE,
+            topics::segment_method("#"),
+        ));
+        check!(
+            topics::authorize(slot, topics::MODE_SUBSCRIBE, "system/#", 0)
+                == Err(topics::Error::Denied),
+            "a `#` filter bypassed the wildcard deny"
+        );
+        check!(
+            topics::authorize(slot, topics::MODE_SUBSCRIBE, "system/events", 0).is_ok(),
+            "the literal prefix was denied with the wildcard"
+        );
+
+        // `+` is a distinct method id and can be denied on its own.
+        acl::load(&deny_rule(
+            topics::SUBSCRIBE_INTERFACE,
+            topics::segment_method("+"),
+        ));
+        check!(
+            topics::authorize(slot, topics::MODE_SUBSCRIBE, "system/+/up", 0)
+                == Err(topics::Error::Denied),
+            "a `+` filter bypassed the wildcard deny"
+        );
+        check!(
+            topics::authorize(slot, topics::MODE_SUBSCRIBE, "system/up", 0).is_ok(),
+            "`+` denied a literal neighbour"
+        );
+        Ok(())
+    }
+
+    /// The syscall gate: allow returns the segment count, deny is `-EACCES`
+    /// with an audit record, proxy targets require `CAP_IPC_CONTROL`, and
+    /// malformed requests are `-EINVAL`.
+    pub fn syscall_gate() -> Result<(), String> {
+        fresh()?;
+        in_space(|| -> Result<(), String> {
+            // Empty policy (the bootstrap window): the whole topic is allowed
+            // and the op reports how many segments it checked.
+            let request = auth_parcel("system/events", topics::MODE_PUBLISH, 0x5)?;
+            write_bytes(REQUEST, &request);
+            let args = MsgArgs {
+                txn_id: REGISTRY_TARGET_SELF,
+                parcel_ptr: REQUEST,
+                parcel_len: request.len() as u64,
+                ..MsgArgs::default()
+            };
+            let (code, result) = dispatch(OP_AUTHORIZE_TOPIC, &args);
+            check!(code == 0, "authorize -> {code:#x}");
+            check!(
+                result.value == 2,
+                "the gate reported {} segments",
+                result.value
+            );
+
+            // A deny rule for one segment turns the whole request into -EACCES
+            // and records the denial (with the request's correlation id). The
+            // rule keys on uid 1000, so drop the caller's root identity.
+            credentials::set(task::current(), Cred::new(1000, 100, 0, 0, 0));
+            acl::load(&deny_rule(
+                topics::PUBLISH_INTERFACE,
+                topics::segment_method("secret"),
+            ));
+            let count_before = audit::count();
+            let request = auth_parcel("secret/data", topics::MODE_PUBLISH, 0x77)?;
+            write_bytes(REQUEST, &request);
+            let args = MsgArgs {
+                txn_id: REGISTRY_TARGET_SELF,
+                parcel_ptr: REQUEST,
+                parcel_len: request.len() as u64,
+                ..MsgArgs::default()
+            };
+            let (code, result) = dispatch(OP_AUTHORIZE_TOPIC, &args);
+            check!(
+                code == failed(errno::EACCES),
+                "denied authorize -> {code:#x}"
+            );
+            check!(
+                result.status == -errno::EACCES,
+                "the denial status is {}",
+                result.status
+            );
+            check!(
+                audit::count() == count_before + 1,
+                "the syscall denial was not audited"
+            );
+
+            // A proxy target needs CAP_IPC_CONTROL. The kernel task is root
+            // with every cap by default, so drop to an unprivileged identity.
+            credentials::set(task::current(), Cred::new(1000, 100, 0, 0, 0));
+            let request = auth_parcel("system/events", topics::MODE_PUBLISH, 0)?;
+            write_bytes(REQUEST, &request);
+            let args = MsgArgs {
+                txn_id: 1,
+                parcel_ptr: REQUEST,
+                parcel_len: request.len() as u64,
+                ..MsgArgs::default()
+            };
+            let (code, _) = dispatch(OP_AUTHORIZE_TOPIC, &args);
+            check!(
+                code == failed(errno::EPERM),
+                "proxy without cap -> {code:#x}"
+            );
+
+            // With the cap the same call evaluates the other actor (root, so
+            // the deny rule above does not match it).
+            credentials::set(
+                task::current(),
+                Cred::new(1000, 100, credentials::CAP_IPC_CONTROL, 0, 0),
+            );
+            let args = MsgArgs {
+                txn_id: 1,
+                parcel_ptr: REQUEST,
+                parcel_len: request.len() as u64,
+                ..MsgArgs::default()
+            };
+            let (code, result) = dispatch(OP_AUTHORIZE_TOPIC, &args);
+            check!(code == 0, "proxy with cap -> {code:#x}");
+            check!(
+                result.value == 2,
+                "the proxy checked {} segments",
+                result.value
+            );
+
+            // Malformed: publish wildcard, unknown mode, and an empty body.
+            let request = auth_parcel("system/+", topics::MODE_PUBLISH, 0)?;
+            write_bytes(REQUEST, &request);
+            let args = MsgArgs {
+                txn_id: REGISTRY_TARGET_SELF,
+                parcel_ptr: REQUEST,
+                parcel_len: request.len() as u64,
+                ..MsgArgs::default()
+            };
+            let (code, _) = dispatch(OP_AUTHORIZE_TOPIC, &args);
+            check!(
+                code == failed(errno::EINVAL),
+                "publish wildcard -> {code:#x}"
+            );
+
+            let request = auth_parcel("system/events", 9, 0)?;
+            write_bytes(REQUEST, &request);
+            let args = MsgArgs {
+                txn_id: REGISTRY_TARGET_SELF,
+                parcel_ptr: REQUEST,
+                parcel_len: request.len() as u64,
+                ..MsgArgs::default()
+            };
+            let (code, _) = dispatch(OP_AUTHORIZE_TOPIC, &args);
+            check!(code == failed(errno::EINVAL), "unknown mode -> {code:#x}");
+
+            let args = MsgArgs {
+                txn_id: REGISTRY_TARGET_SELF,
+                ..MsgArgs::default()
+            };
+            let (code, _) = dispatch(OP_AUTHORIZE_TOPIC, &args);
+            check!(code == failed(errno::E2BIG), "empty request -> {code:#x}");
+            Ok(())
+        })
+    }
+}
 // ---------------------------------------------------------------------------
 // Service supervision primitives (issue #93)
 // ---------------------------------------------------------------------------

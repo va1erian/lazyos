@@ -33,7 +33,7 @@ use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::panic::PanicInfo;
-use user::messenger::{self, registry, services, topics, Error, Message, Parcel};
+use user::messenger::{self, registry, router, services, Error, Message, Parcel};
 use user::sys;
 
 /// Newest records kept in the ring.
@@ -176,10 +176,10 @@ fn run() -> messenger::Result<()> {
     let mut printed = 0u64;
     // Feeds: a cached bus endpoint plus the attached sink, so a failed
     // subscribe retries without resolving a new handle every loop.
-    let mut events_bus: Option<topics::Bus> = None;
-    let mut events: Option<topics::Subscriber> = None;
-    let mut health_bus: Option<topics::Bus> = None;
-    let mut health: Option<topics::Subscriber> = None;
+    let mut events_bus: Option<router::Bus> = None;
+    let mut events: Option<router::Subscriber> = None;
+    let mut health_bus: Option<router::Bus> = None;
+    let mut health: Option<router::Subscriber> = None;
     let mut audit: Option<(u64, u64, u64)> = None;
     let mut next_denial_poll = 0u64;
     // Reused receive buffer: the user bump allocator never reclaims per-call
@@ -227,17 +227,17 @@ fn run() -> messenger::Result<()> {
 }
 
 /// Reuse a cached bus, or connect once when the service appears.
-fn connect_or_keep(bus: Option<topics::Bus>, name: &str) -> Option<topics::Bus> {
+fn connect_or_keep(bus: Option<router::Bus>, name: &str) -> Option<router::Bus> {
     match bus {
         Some(bus) => Some(bus),
-        None => topics::Bus::connect(name).ok(),
+        None => router::Bus::connect(name).ok(),
     }
 }
 
 /// Move every queued event from one subscriber into the ring.
 fn drain(
     ring: &mut Ring,
-    subscriber: &Option<topics::Subscriber>,
+    subscriber: &Option<router::Subscriber>,
     printed: &mut u64,
     buffer: &mut [u8],
 ) {

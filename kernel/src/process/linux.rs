@@ -13,6 +13,7 @@ use xmas_elf::program::Type as ProgramType;
 use xmas_elf::ElfFile;
 
 use super::{load_segments, map_range_kind, page_phys};
+use crate::fs::vfs::{self, FileKind, FsError, Id, Meta};
 use crate::mem::vma::{Kind, Prot};
 use crate::task::process::GroupError;
 use crate::task::signal::{self, Disposition, SignalError};
@@ -52,6 +53,15 @@ const ENOEXEC: u64 = 8;
 const ESPIPE: u64 = 29;
 const EINTR: u64 = 4;
 const ETIMEDOUT: u64 = 110;
+// Filesystem errnos (mapped from `FsError` by `fs_err`).
+const EACCES: u64 = 13;
+const EEXIST: u64 = 17;
+const ENOTDIR: u64 = 20;
+const EISDIR: u64 = 21;
+const ENOSPC: u64 = 28;
+const EROFS: u64 = 30;
+const ENAMETOOLONG: u64 = 36;
+const ENOTEMPTY: u64 = 39;
 
 // `clone` flags we honour (thread creation).
 const CLONE_VM: u64 = 0x0000_0100;
@@ -197,13 +207,30 @@ pub fn dispatch_for_test(nr: u64, a1: u64, a2: u64, a3: u64) -> u64 {
 /// `openat(AT_FDCWD, ...)` sentinel.
 const AT_FDCWD: u64 = (-100i64) as u64;
 
-// `struct stat` file-type bits.
+// `struct stat` file-type bits (the VFS carries full modes; only the bits the
+// synthetic entries need are spelled out here).
 const S_IFREG: u32 = 0o100000;
-const S_IFDIR: u32 = 0o040000;
 const S_IFCHR: u32 = 0o020000;
 
 fn err(e: u64) -> u64 {
     (e as i64).wrapping_neg() as u64
+}
+
+/// Map a VFS/filesystem failure to the errno the ABI returns.
+fn fs_err(error: FsError) -> u64 {
+    err(match error {
+        FsError::NotFound => ENOENT,
+        FsError::Exists => EEXIST,
+        FsError::NotDir => ENOTDIR,
+        FsError::IsDir => EISDIR,
+        FsError::NotEmpty => ENOTEMPTY,
+        FsError::Access => EACCES,
+        FsError::ReadOnly => EROFS,
+        FsError::Invalid => EINVAL,
+        FsError::NoSpace => ENOSPC,
+        FsError::NameTooLong => ENAMETOOLONG,
+        FsError::NotSupported => ENOSYS,
+    })
 }
 
 const MAP_FIXED: u64 = 0x10;
@@ -397,7 +424,7 @@ extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
         16 => sys_ioctl(a1, a2, a3),
         19 => sys_readv(a1, a2, a3),
         20 => sys_writev(a1, a2, a3),
-        21 => sys_access(a1),                // access(path, mode)
+        21 => sys_access(a1, a2),            // access(path, mode)
         28 => 0,                             // madvise
         32 | 33 => sys_dup(nr, a1, a2),      // dup / dup2
         35 => sys_nanosleep(a1),             // nanosleep(req, rem)
@@ -413,7 +440,7 @@ extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
         79 => sys_getcwd(a1, a2),
         80 => 0,                        // chdir (root-only)
         89 => sys_readlink(a1, a2, a3), // readlink
-        95 => 0,                        // umask
+        95 => sys_umask(a1),            // umask(mask)
         96 => sys_gettimeofday(a1),     // gettimeofday(tv, tz)
         102 | 103 | 104 | 105 => 0,     // getuid/getgid/geteuid/getegid
         106 | 107 | 108 | 113 => 0,     // set[re]uid/gid (root-only)
@@ -947,50 +974,71 @@ fn applet_name(path: &str) -> Option<&str> {
     }
 }
 
-/// Look up a path (FAT root, synthetic dirs, or a BusyBox applet alias).
-fn lookup(path: &str) -> Option<(u32, bool)> {
-    if matches!(
+/// The synthetic root directories that have no filesystem behind them yet
+/// (`/tmp` is a real ramfs mount and resolves through the VFS).
+fn synthetic_dir(path: &str) -> bool {
+    matches!(
         path,
-        "/" | "/bin" | "/sbin" | "/usr" | "/dev" | "/proc" | "/etc" | "/tmp"
-    ) {
-        return Some((0, true));
-    }
-    if let Some(entry) = crate::fs::stat(path.trim_start_matches('/')) {
-        return Some(entry);
+        "/" | "/bin" | "/sbin" | "/usr" | "/dev" | "/proc" | "/etc"
+    )
+}
+
+/// Metadata for a kernel-fabricated entry: a synthetic directory or a BusyBox
+/// applet alias. Only used when the VFS has no node at `path`.
+fn synthetic_meta(path: &str) -> Option<Meta> {
+    if synthetic_dir(path) {
+        return Some(Meta {
+            ino: 1,
+            mode: vfs::S_IFDIR | 0o755,
+            uid: 0,
+            gid: 0,
+            size: 0,
+            kind: FileKind::Dir,
+        });
     }
     if applet_name(path).is_some() {
-        return crate::fs::stat("busybox").map(|(size, _)| (size, false));
+        return crate::fs::stat("busybox").map(|(size, _)| Meta {
+            ino: 0,
+            mode: vfs::S_IFREG | 0o555,
+            uid: 0,
+            gid: 0,
+            size: size as u64,
+            kind: FileKind::File,
+        });
     }
     None
 }
 
-/// Load a file's bytes (with the BusyBox applet alias).
-fn load_file(path: &str) -> Option<Vec<u8>> {
-    if let Some(data) = crate::fs::read(path.trim_start_matches('/')) {
-        return Some(data);
-    }
-    if applet_name(path).is_some() {
-        return crate::fs::read("busybox");
-    }
-    None
+/// Where a Linux path leads: a node on a mount, or a kernel-fabricated entry.
+enum Target {
+    Node(Meta),
+    Synthetic(Meta),
 }
 
-/// Build a `linux_dirent64` byte stream for the FAT root, so `getdents64` can
-/// read it like a file (we have no real directory fd yet).
-fn dir_data() -> Vec<u8> {
-    const DT_DIR: u8 = 4;
-    const DT_REG: u8 = 8;
-    let mut out = Vec::new();
-    push_dirent(&mut out, 1, DT_DIR, ".");
-    push_dirent(&mut out, 1, DT_DIR, "..");
-    for (name, is_dir, _) in crate::fs::list() {
-        let ino = name
-            .bytes()
-            .fold(0u64, |acc, b| acc.wrapping_mul(31) + b as u64)
-            | 2;
-        push_dirent(&mut out, ino, if is_dir { DT_DIR } else { DT_REG }, &name);
+/// Resolve a path the way the Linux ABI sees it: VFS mounts first (so `/tmp`
+/// and future mounts work), then the synthetic directories and applet aliases.
+/// A permission error from the VFS is returned as-is; only a miss falls
+/// through to the fabricated entries.
+fn resolve(path: &str) -> Result<Target, FsError> {
+    match crate::fs::vfs_stat(Id::current(), path) {
+        Ok(meta) => return Ok(Target::Node(meta)),
+        Err(FsError::NotFound) => {}
+        Err(error) => return Err(error),
     }
-    out
+    synthetic_meta(path)
+        .map(Target::Synthetic)
+        .ok_or(FsError::NotFound)
+}
+
+/// Load a file's bytes through the VFS, with the BusyBox applet alias.
+fn load_file(path: &str) -> Result<Vec<u8>, FsError> {
+    match crate::fs::vfs_read(Id::current(), path) {
+        Ok(data) => Ok(data),
+        Err(FsError::NotFound) if applet_name(path).is_some() => {
+            crate::fs::vfs_read(Id::current(), "/busybox").map_err(|_| FsError::NotFound)
+        }
+        Err(error) => Err(error),
+    }
 }
 
 fn push_dirent(out: &mut Vec<u8>, ino: u64, d_type: u8, name: &str) {
@@ -1017,46 +1065,189 @@ fn sys_getdents64(fd: u64, buf: u64, count: u64) -> u64 {
     }
 }
 
-/// Open a path: the root-only FAT volume plus a few synthetic device nodes.
-fn open_path(path: &str) -> u64 {
-    match path {
-        "/dev/tty" | "/dev/console" | "/dev/tty0" | "/dev/tty1" => {
-            fd_result(task::fd_open(Fd::Terminal))
-        }
-        "/dev/null" | "/dev/zero" | "/dev/full" => fd_result(task::fd_open(Fd::File {
-            data: Vec::new(),
-            offset: 0,
-        })),
-        // Synthetic directories (empty until `getdents64` exists).
-        "/" | "/bin" | "/sbin" | "/usr" | "/dev" | "/proc" | "/etc" | "/tmp" => {
-            fd_result(task::fd_open(Fd::File {
-                data: dir_data(),
-                offset: 0,
-            }))
-        }
-        _ => match lookup(path) {
-            Some((_, true)) => fd_result(task::fd_open(Fd::File {
-                data: dir_data(),
-                offset: 0,
-            })),
-            Some((_, false)) => match load_file(path) {
-                Some(data) => fd_result(task::fd_open(Fd::File { data, offset: 0 })),
-                None => err(ENOENT),
-            },
-            None => err(ENOENT),
-        },
+/// `openat(2)` access mode mask.
+const O_ACCMODE: u64 = 0o3;
+
+/// File descriptor metadata captured at open time. The task fd table
+/// (`task::Fd::File`) carries only bytes, so `fstat` reads mode/ino/size from
+/// this side table, keyed by `(task slot, fd)`; `close` clears the slot and
+/// `dup` copies it. Fds inherited by `fork` fall back to the plain 0o444
+/// answer until the fd table itself carries VFS handles.
+#[derive(Clone, Copy)]
+struct FdMeta {
+    mode: u32,
+    ino: u64,
+    size: u64,
+    /// Byte length of the snapshot, checked on read so a slot reused by a
+    /// different file (fork-inherited or a recycled task slot) reports no
+    /// metadata instead of a stale mode.
+    data_len: usize,
+}
+
+const FD_META_SLOTS: usize = task::MAX_TASKS * task::FD_COUNT;
+static FD_META: Mutex<[Option<FdMeta>; FD_META_SLOTS]> = Mutex::new([None; FD_META_SLOTS]);
+
+/// This task's side-table slot for `fd`, if both are in range.
+fn fd_meta_slot(fd: usize) -> Option<usize> {
+    let slot = task::current();
+    if fd >= task::FD_COUNT || slot >= task::MAX_TASKS {
+        return None;
+    }
+    Some(slot * task::FD_COUNT + fd)
+}
+
+fn fd_meta_set(fd: usize, meta: FdMeta) {
+    if let Some(slot) = fd_meta_slot(fd) {
+        FD_META.lock()[slot] = Some(meta);
     }
 }
 
-fn sys_openat(_dirfd: u64, path: u64, _flags: u64) -> u64 {
+fn fd_meta_get(fd: usize) -> Option<FdMeta> {
+    let slot = fd_meta_slot(fd)?;
+    let mut table = FD_META.lock();
+    let meta = table[slot]?;
+    if task::fd_size(fd) != Some(meta.data_len as u64) {
+        table[slot] = None; // the slot now holds a different file
+        return None;
+    }
+    Some(meta)
+}
+
+fn fd_meta_clear(fd: usize) {
+    if let Some(slot) = fd_meta_slot(fd) {
+        FD_META.lock()[slot] = None;
+    }
+}
+
+fn fd_meta_copy(from: usize, to: usize) {
+    let (Some(from), Some(to)) = (fd_meta_slot(from), fd_meta_slot(to)) else {
+        return;
+    };
+    let mut table = FD_META.lock();
+    table[to] = table[from];
+}
+
+/// Open a read-only file snapshot and record its VFS metadata for `fstat`.
+fn open_file_fd(data: Vec<u8>, mode: u32, ino: u64, size: u64) -> u64 {
+    let data_len = data.len();
+    match task::fd_open(Fd::File { data, offset: 0 }) {
+        Some(fd) => {
+            fd_meta_set(
+                fd,
+                FdMeta {
+                    mode,
+                    ino,
+                    size,
+                    data_len,
+                },
+            );
+            fd as u64
+        }
+        None => err(ENOMEM),
+    }
+}
+
+/// The `linux_dirent64` type byte for a VFS node kind.
+fn dtype_of(kind: FileKind) -> u8 {
+    const DT_DIR: u8 = 4;
+    const DT_REG: u8 = 8;
+    match kind {
+        FileKind::Dir => DT_DIR,
+        FileKind::File => DT_REG,
+    }
+}
+
+/// The `.`/`..` prefix every directory stream starts with.
+fn empty_dir_stream() -> Vec<u8> {
+    const DT_DIR: u8 = 4;
+    let mut out = Vec::new();
+    push_dirent(&mut out, 1, DT_DIR, ".");
+    push_dirent(&mut out, 1, DT_DIR, "..");
+    out
+}
+
+/// Build a `linux_dirent64` stream for a directory, so `getdents64` can read
+/// it like a file (the fd table stores byte snapshots, not directory handles).
+/// The VFS supplies the real entries; `.`/`..` are added here.
+fn dir_stream(path: &str) -> Result<Vec<u8>, FsError> {
+    let mut out = empty_dir_stream();
+    for entry in crate::fs::vfs_readdir(Id::current(), path)? {
+        push_dirent(&mut out, entry.ino, dtype_of(entry.kind), &entry.name);
+    }
+    Ok(out)
+}
+
+/// Refuse a write-mode open: check the mount's write permission first (so a
+/// denial is `EACCES`), then answer `EROFS` because the Linux fd table stores
+/// read-only snapshots until it carries VFS handles.
+fn write_open_denied(path: &str) -> u64 {
+    match crate::fs::vfs_check(Id::current(), path, vfs::WRITE) {
+        Ok(_) | Err(FsError::NotFound) => {}
+        Err(error) => return fs_err(error),
+    }
+    crate::serial_println!("fs: {path}: {}", FsError::ReadOnly.message());
+    err(EROFS)
+}
+
+/// Open a path: mounts (the FAT root and `/tmp` ramfs today) through the VFS,
+/// plus the synthetic device nodes and BusyBox applet aliases.
+fn open_path(path: &str, flags: u64) -> u64 {
+    match path {
+        "/dev/tty" | "/dev/console" | "/dev/tty0" | "/dev/tty1" => {
+            return fd_result(task::fd_open(Fd::Terminal));
+        }
+        "/dev/null" | "/dev/zero" | "/dev/full" => {
+            return fd_result(task::fd_open(Fd::File {
+                data: Vec::new(),
+                offset: 0,
+            }));
+        }
+        _ => {}
+    }
+
+    let write_access = flags & O_ACCMODE != 0;
+    match resolve(path) {
+        Ok(Target::Node(meta)) if meta.kind == FileKind::Dir => match dir_stream(path) {
+            Ok(data) => open_file_fd(data, meta.mode as u32, meta.ino, meta.size),
+            Err(error) => fs_err(error),
+        },
+        Ok(Target::Node(meta)) => {
+            if write_access {
+                return write_open_denied(path);
+            }
+            match load_file(path) {
+                Ok(data) => open_file_fd(data, meta.mode as u32, meta.ino, meta.size),
+                Err(error) => fs_err(error),
+            }
+        }
+        Ok(Target::Synthetic(meta)) if meta.kind == FileKind::Dir => {
+            open_file_fd(empty_dir_stream(), meta.mode as u32, meta.ino, meta.size)
+        }
+        Ok(Target::Synthetic(meta)) => {
+            if write_access {
+                return write_open_denied(path);
+            }
+            match load_file(path) {
+                Ok(data) => open_file_fd(data, meta.mode as u32, meta.ino, meta.size),
+                Err(error) => fs_err(error),
+            }
+        }
+        Err(error) => fs_err(error),
+    }
+}
+
+fn sys_openat(_dirfd: u64, path: u64, flags: u64) -> u64 {
+    // Only AT_FDCWD ("cwd" is always `/`) is supported; a real dirfd is
+    // ignored, exactly as before the VFS.
     match read_cstr(path) {
-        Some(path) => open_path(&path),
+        Some(path) => open_path(&path, flags),
         None => err(EINVAL),
     }
 }
 
 fn sys_close(fd: u64) -> u64 {
     if task::fd_close(fd as usize) {
+        fd_meta_clear(fd as usize);
         0
     } else {
         err(EBADF)
@@ -1073,15 +1264,30 @@ fn sys_lseek(fd: u64, offset: u64, whence: u64) -> u64 {
         FdKind::Closed => err(EBADF),
     }
 }
-fn sys_access(path: u64) -> u64 {
+/// `access(path, mode)`: POSIX mode bits (`F_OK`=0, `X_OK`=1, `W_OK`=2,
+/// `R_OK`=4) line up with the VFS masks, so they pass straight through.
+fn sys_access(path: u64, mode: u64) -> u64 {
     let Some(path) = read_cstr(path) else {
         return err(EINVAL);
     };
-    if lookup(&path).is_some() {
-        0
-    } else {
-        err(ENOENT)
+    let id = Id::current();
+    let mask = (mode & 0o7) as u8;
+    match crate::fs::vfs_check(id, &path, mask) {
+        Ok(_) => 0,
+        Err(FsError::NotFound) => match synthetic_meta(&path) {
+            Some(meta) => match vfs::check_access(&meta, id, mask) {
+                Ok(()) => 0,
+                Err(error) => fs_err(error),
+            },
+            None => err(ENOENT),
+        },
+        Err(error) => fs_err(error),
     }
+}
+
+/// `umask(mask)`: set the global creation mask, return the previous one.
+fn sys_umask(mask: u64) -> u64 {
+    crate::fs::vfs_set_umask((mask & 0o777) as u16) as u64
 }
 
 fn sys_dup(nr: u64, a1: u64, a2: u64) -> u64 {
@@ -1091,7 +1297,10 @@ fn sys_dup(nr: u64, a1: u64, a2: u64) -> u64 {
         task::fd_dup2(a1 as usize, a2 as usize)
     };
     match slot {
-        Some(fd) => fd as u64,
+        Some(fd) => {
+            fd_meta_copy(a1 as usize, fd);
+            fd as u64
+        }
         None => err(EBADF),
     }
 }
@@ -1100,7 +1309,10 @@ fn sys_fcntl(fd: u64, cmd: u64) -> u64 {
     match cmd {
         0 => match task::fd_dup(fd as usize) {
             // F_DUPFD
-            Some(new) => new as u64,
+            Some(new) => {
+                fd_meta_copy(fd as usize, new);
+                new as u64
+            }
             None => err(EBADF),
         },
         _ => 0, // F_GETFD/SETFD/GETFL/SETFL: report defaults
@@ -1141,8 +1353,15 @@ fn sys_fstat(fd: u64, buf: u64) -> u64 {
     }
     match task::fd_kind(fd as usize) {
         FdKind::File => {
-            let size = task::fd_size(fd as usize).unwrap_or(0);
-            fill_stat(buf, S_IFREG | 0o444, size, fd);
+            match fd_meta_get(fd as usize) {
+                // The open recorded the VFS mode/ino/size; report those.
+                Some(meta) => fill_stat(buf, meta.mode, meta.size, meta.ino),
+                // Inherited fds (fork/exec) have no side-table entry yet.
+                None => {
+                    let size = task::fd_size(fd as usize).unwrap_or(0);
+                    fill_stat(buf, S_IFREG | 0o444, size, fd);
+                }
+            }
             0
         }
         FdKind::Terminal => {
@@ -1161,16 +1380,12 @@ fn sys_stat_path(path: u64, buf: u64) -> u64 {
 }
 
 fn stat_path(path: &str, buf: u64) -> u64 {
-    match lookup(path) {
-        Some((size, true)) => {
-            fill_stat(buf, S_IFDIR | 0o755, size as u64, 1);
+    match resolve(path) {
+        Ok(Target::Node(meta)) | Ok(Target::Synthetic(meta)) => {
+            fill_stat(buf, meta.mode as u32, meta.size, meta.ino);
             0
         }
-        Some((size, false)) => {
-            fill_stat(buf, S_IFREG | 0o444, size as u64, 2);
-            0
-        }
-        None => err(ENOENT),
+        Err(error) => fs_err(error),
     }
 }
 
@@ -1291,8 +1506,17 @@ fn sys_execve(path_ptr: u64, argv_ptr: u64, envp_ptr: u64) -> u64 {
     }
     let envp = read_str_ptr_array(envp_ptr);
 
-    let Some(elf) = load_file(resolve_exe(&path)) else {
-        return err(ENOENT);
+    let target = resolve_exe(&path);
+    // Executables need the execute bit. Applet aliases and paths with no VFS
+    // node fall through to `load_file`; root bypasses the check as usual.
+    match crate::fs::vfs_check(Id::current(), target, vfs::EXECUTE) {
+        Ok(_) | Err(FsError::NotFound) => {}
+        Err(error) => return fs_err(error),
+    }
+    let elf = match load_file(target) {
+        Ok(elf) => elf,
+        Err(FsError::NotFound) => return err(ENOENT),
+        Err(error) => return fs_err(error),
     };
     let Some(table) = crate::mem::new_user_table() else {
         return err(ENOMEM);

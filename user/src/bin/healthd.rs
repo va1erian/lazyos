@@ -11,7 +11,7 @@
 //!   restarting shows up here as `degraded` and a dependency that is not `ok`
 //!   degrades its dependents;
 //! * publishes every row retained on `system/health/<name>` through its
-//!   [`topics::TopicBroker`], and the aggregate on `system/health/summary`;
+//!   [`router::TopicBroker`], and the aggregate on `system/health/summary`;
 //! * prints one `HEALTH:SVC:PASS <name>` / `HEALTH:SVC:FAIL <name> (<status>)`
 //!   serial line per transition, which is the headless evidence that the
 //!   system came up and that the crash test recovered.
@@ -34,7 +34,7 @@ use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::panic::PanicInfo;
-use user::messenger::{self, registry, services, topics, Endpoint, Error, Message, Parcel};
+use user::messenger::{self, registry, router, services, Endpoint, Error, Message, Parcel};
 use user::sys;
 
 /// How often the supervisor table is reconciled (PIT ticks). Service events
@@ -99,14 +99,14 @@ fn run() -> messenger::Result<()> {
     registry::register(
         services::HEALTHD_NAME,
         &published,
-        &[services::HEALTHD_INTERFACE, topics::INTERFACE],
+        &[services::HEALTHD_INTERFACE, router::INTERFACE],
         0,
     )?;
-    let mut broker = topics::TopicBroker::new("os.lazy.health.sink");
+    let mut broker = router::TopicBroker::new("os.lazy.health.sink");
     let mut rows: Vec<HealthRow> = Vec::new();
     let mut init: Option<Endpoint> = None;
-    let mut bus: Option<topics::Bus> = None;
-    let mut events: Option<topics::Subscriber> = None;
+    let mut bus: Option<router::Bus> = None;
+    let mut events: Option<router::Subscriber> = None;
     let mut next_poll = 0u64;
     let mut summary_state: Option<(String, String)> = None;
     // Reused receive buffers: the user bump allocator never reclaims per-call
@@ -169,19 +169,19 @@ fn run() -> messenger::Result<()> {
 }
 
 /// Reuse a cached bus, or connect once when the service appears.
-fn connect_or_keep(bus: Option<topics::Bus>, name: &str) -> Option<topics::Bus> {
+fn connect_or_keep(bus: Option<router::Bus>, name: &str) -> Option<router::Bus> {
     match bus {
         Some(bus) => Some(bus),
-        None => topics::Bus::connect(name).ok(),
+        None => router::Bus::connect(name).ok(),
     }
 }
 
 /// Apply every queued `system/events/service/<name>` state event.
 fn drain_events(
-    events: &Option<topics::Subscriber>,
+    events: &Option<router::Subscriber>,
     buffer: &mut [u8],
     rows: &mut Vec<HealthRow>,
-    broker: &mut topics::TopicBroker,
+    broker: &mut router::TopicBroker,
     summary_state: &mut Option<(String, String)>,
 ) {
     let Some(events) = events else {
@@ -215,7 +215,7 @@ fn apply_state(
     rows: &mut Vec<HealthRow>,
     name: &str,
     payload: &str,
-    broker: &mut topics::TopicBroker,
+    broker: &mut router::TopicBroker,
     summary_state: &mut Option<(String, String)>,
 ) {
     let Some(state) = payload_field(payload, "state") else {
@@ -249,7 +249,7 @@ fn apply_state(
 fn refresh(
     rows: &mut Vec<HealthRow>,
     statuses: &[services::ServiceStatus],
-    broker: &mut topics::TopicBroker,
+    broker: &mut router::TopicBroker,
     summary_state: &mut Option<(String, String)>,
 ) {
     let mut any_change = false;
@@ -291,7 +291,7 @@ fn apply_supervision(
     pid: u64,
     restarts: u64,
     deps: Option<&str>,
-    broker: &mut topics::TopicBroker,
+    broker: &mut router::TopicBroker,
 ) -> bool {
     let now = sys::clock();
     let Some(row) = rows.iter_mut().find(|row| row.name == name) else {
@@ -385,7 +385,7 @@ fn rank(status: &str) -> u8 {
 /// [`REPORT_TTL`] ticks.
 fn report(
     rows: &mut Vec<HealthRow>,
-    broker: &mut topics::TopicBroker,
+    broker: &mut router::TopicBroker,
     name: &str,
     status: &str,
     detail: &str,
@@ -432,7 +432,7 @@ fn report(
 }
 
 /// Publish one row retained on `system/health/<name>`.
-fn publish_row(broker: &mut topics::TopicBroker, name: &str, row: &services::HealthRecord) {
+fn publish_row(broker: &mut router::TopicBroker, name: &str, row: &services::HealthRecord) {
     let topic = format!("system/health/{name}");
     let payload = format!("status={} detail={}", row.status, row.detail);
     broker.publish(&topic, payload.as_bytes(), true);
@@ -479,11 +479,11 @@ fn announce(name: &str, status: &str) {
 /// query.
 fn dispatch(
     rows: &mut Vec<HealthRow>,
-    broker: &mut topics::TopicBroker,
+    broker: &mut router::TopicBroker,
     message: &Message,
 ) -> messenger::Result<Parcel> {
     match message.interface_id() {
-        topics::INTERFACE => broker.handle(message),
+        router::INTERFACE => broker.handle(message),
         services::HEALTHD_INTERFACE => match message.method() {
             services::healthd_method::REPORT => {
                 let name = string_field(message, services::field::NAME)?;
