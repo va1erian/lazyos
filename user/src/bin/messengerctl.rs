@@ -40,12 +40,13 @@ use user::messenger::{
     self, clipboard, keyd, logind, mime, registry, services, topics_client, FabricStats,
 };
 use user::sys;
+use user::task_snapshot::{self, TaskSnapshot};
 
 /// The interactive command set, printed at startup and by `help`.
 const HELP: &str = "commands: list | resolve <name> | services | health | sessions | \
                     log [tail [n]] | log verify | topics | tail <filter> [count] | \
                     mime <path> | open <path> [verb] | keys | clipboard | stats | stats-json | \
-                    help | quit\n";
+                    tasks-json | help | quit\n";
 
 #[no_mangle]
 pub extern "C" fn _start() -> ! {
@@ -86,6 +87,10 @@ fn commands() -> ! {
                 Ok(stats) => print_report_json(&stats),
                 Err(error) => report(error.message()),
             },
+            "tasks-json" => match task_snapshot::task_snapshot() {
+                Ok(snapshot) => print_tasks_json(&snapshot),
+                Err(error) => report(error.message()),
+            },
             "topics" => print_topics(),
             "keys" => print_keys(),
             "clipboard" => print_clipboard(),
@@ -98,7 +103,7 @@ fn commands() -> ! {
             _ if text.starts_with("mime ") => print_mime(text[5..].trim()),
             _ if text.starts_with("open ") => open_path(text[5..].trim()),
             _ => report(
-                "unknown command; try list, resolve <name>, services, health, sessions, log, topics, tail, mime, open, keys, clipboard, stats, help, quit",
+                "unknown command; try list, resolve <name>, services, health, sessions, log, topics, tail, mime, open, keys, clipboard, stats, tasks-json, help, quit",
             ),
         }
     }
@@ -362,6 +367,57 @@ fn print_report_json(stats: &FabricStats) {
         stats.audit_allows,
         stats.audit_count,
         stats.audit_total,
+    ));
+}
+
+/// Escape a task name for embedding in a JSON string literal. Names come
+/// from static program names (`"sh"`, `"messengerd"`, ...), so this only
+/// needs to be defensive, not exhaustive.
+fn json_escape(name: &str) -> String {
+    let mut out = String::with_capacity(name.len());
+    for ch in name.chars() {
+        match ch {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            _ => out.push(ch),
+        }
+    }
+    out
+}
+
+/// Print the `TaskSnapshot` as a single machine-parseable JSON line, prefixed
+/// `MCP:TASK_SNAPSHOT:`, the scheduler counterpart of `stats-json`'s
+/// `MCP:FABRIC_STATS:` line. Same debug/tooling-only status: see
+/// `print_report_json`.
+fn print_tasks_json(snapshot: &TaskSnapshot) {
+    let mut rows = String::from("[");
+    let mut first = true;
+    for row in &snapshot.rows {
+        if !row.live {
+            continue;
+        }
+        if !first {
+            rows.push(',');
+        }
+        first = false;
+        rows.push_str(&format!(
+            "{{\"pid\":{},\"ppid\":{},\"pgid\":{},\"sid\":{},\"state\":{},\
+             \"class\":{},\"weight\":{},\"cpu_ticks\":{},\"name\":\"{}\"}}",
+            row.pid,
+            row.ppid,
+            row.pgid,
+            row.sid,
+            row.state,
+            row.class,
+            row.weight,
+            row.cpu_ticks,
+            json_escape(&row.name)
+        ));
+    }
+    rows.push(']');
+    sys::write_str(&format!(
+        "MCP:TASK_SNAPSHOT:{{\"version\":{},\"tasks\":{rows}}}\n",
+        snapshot.version
     ));
 }
 
