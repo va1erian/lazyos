@@ -1318,7 +1318,9 @@ fn sys_clock_nanosleep(clock: u64, flags: u64, req: u64, rem: u64) -> u64 {
 /// instant; a deadline already in the past saturates to tick 0, which
 /// `wait_sleep` resolves immediately since ticks only advance.
 fn clock_deadline_ticks(clock: u64, sec: u64, nsec: u64) -> u64 {
-    let ticks = sec.saturating_mul(100) + nsec.div_ceil(10_000_000);
+    let ticks = sec
+        .saturating_mul(100)
+        .saturating_add(nsec.div_ceil(10_000_000));
     if clock == CLOCK_MONOTONIC {
         ticks
     } else {
