@@ -112,6 +112,8 @@ class Qmp:
         deadline = time.time() + timeout
         last_err: Exception | None = None
         self.sock: socket.socket | None = None
+        # Buttons held through the monitor's `mouse_button` mask (drag & drop).
+        self._held_buttons = 0
         while time.time() < deadline:
             try:
                 self.sock = socket.create_connection((host, port), timeout=2)
@@ -193,12 +195,38 @@ class Qmp:
     def mouse_move(self, dx: int, dy: int, device: str | None = None) -> None:
         self.send_events(mouse_move_events(dx, dy), device)
 
+    def _monitor_buttons(self, mask: int) -> bool:
+        """Set the pointer's held-button mask with the monitor's
+        ``mouse_button`` command. Returns False when the monitor refuses it."""
+        try:
+            self.execute("human-monitor-command", **{"command-line": f"mouse_button {mask}"})
+            return True
+        except RuntimeError:
+            return False
+
     def mouse_down(self, button: str = "left", device: str | None = None) -> None:
-        """Press a button and hold it (drag & drop needs separate down/up)."""
+        """Press a button and hold it (drag & drop needs separate down/up).
+
+        Uses the monitor ``mouse_button`` path for the same reason as
+        :meth:`mouse_click`; falls back to the QMP event list when the button
+        has no mask, a device is named, or the monitor refuses the command.
+        """
+        mask = _BUTTON_MASKS.get(button)
+        if mask is not None and device is None:
+            held = self._held_buttons | mask
+            if self._monitor_buttons(held):
+                self._held_buttons = held
+                return
         self.send_events(mouse_button_events(button, True), device)
 
     def mouse_up(self, button: str = "left", device: str | None = None) -> None:
-        """Release a held button."""
+        """Release a held button (monitor path first, like :meth:`mouse_down`)."""
+        mask = _BUTTON_MASKS.get(button)
+        if mask is not None and device is None:
+            held = self._held_buttons & ~mask
+            if self._monitor_buttons(held):
+                self._held_buttons = held
+                return
         self.send_events(mouse_button_events(button, False), device)
 
     def mouse_click(self, button: str = "left", device: str | None = None) -> None:
@@ -214,20 +242,19 @@ class Qmp:
         """
         mask = _BUTTON_MASKS.get(button)
         if mask is not None and device is None:
-            try:
-                self.execute(
-                    "human-monitor-command", **{"command-line": f"mouse_button {mask}"}
-                )
-                self.execute("human-monitor-command", **{"command-line": "mouse_button 0"})
+            held = self._held_buttons
+            # Fall back only when the *press* fails: once it has landed, a
+            # failed release must not trigger a second press.
+            if self._monitor_buttons(held | mask):
+                if not self._monitor_buttons(held):
+                    self.send_events(mouse_button_events(button, False), device)
                 return
-            except RuntimeError:
-                pass
         # The two transitions must be separate QMP calls: QEMU applies every
         # event of one input-send-event list to the legacy PS/2 device before
         # the guest drains it, so a down+up pair sent together nets out to no
         # click. Sending them separately makes the press visible.
-        self.mouse_down(button, device)
-        self.mouse_up(button, device)
+        self.send_events(mouse_button_events(button, True), device)
+        self.send_events(mouse_button_events(button, False), device)
 
     def mouse_scroll(self, amount: int, device: str | None = None) -> None:
         self.send_events(mouse_scroll_events(amount), device)
