@@ -13,6 +13,9 @@
 | Screenshots | `tools/screenshot/qemu_shot.py`, `qemu_session.py`, `qemu_qmp.py`, `pngstats.py`, `tools/screenshot/examples/*.json` | Headless screenshot capture, scripted input injection (QMP `input-send-event`), programmatic PNG assertions | `.github/workflows/screenshots.yml` |
 | Parcel codec tests | `libs/messenger/src/lib.rs`, `libs/generated/tests/echo.rs` | Host cargo tests (round-trip, limits, fuzz; generated-stub round trips) | `.github/workflows/messenger.yml`, `midlc.yml` |
 | Demo runner | `tools/run_demo.py`, `src/main.rs` | One command to build and boot the image (`--headless`, `--no-build`, `--accel none`, `--cpu max`) | - |
+| xui app build | `tools/xui/build.py`, `xui-app/` | Build the static-musl xui binaries (`m0`, `counter`, `client`, `sysmon`, `fabricmon`) for `LAZYOS_XUI_APP` | `.github/workflows/xui.yml` |
+| MCP debug bridge | `tools/mcp/debug_bridge.py`, `test_debug_bridge.py` | Host MCP server that drives `messengerctl stats-json`/`tasks-json` over QMP + serial and parses the `MCP:<NAME>:` JSON lines ([design](../mcp-debug-bridge.md)) | `.github/workflows/mcp-bridge.yml` |
+| Service evidence | `tools/services/evidence.py` | Grep the `LAZYOS_SERVICES=1` serial log for the service/health/login markers | `screenshots.yml` |
 
 **Conventions**
 
@@ -36,6 +39,9 @@
 | `screenshots.yml` | Captures, verifies with `pngstats.py`, uploads artifacts, publishes to the `screenshots` branch, comments images on PRs |
 | `messenger.yml` | `cargo test -p libmessenger` |
 | `midlc.yml` | `test_midlc.py`, `midlc.py --check`, `cargo test -p messenger-generated` |
+| `clippy.yml` | `cargo clippy -p kernel` with `-D clippy::undocumented_unsafe_blocks` (issue #124 gate) |
+| `xui.yml` | Builds the xui apps, boots the owner (`m0`, `counter`, `sysmon`, `fabricmon` over `LAZYOS_SERVICES=1`) and client sessions headless, checks `XUIAPP:*`/`SYSMON:*`/`FABMON:*` markers and pixels |
+| `mcp-bridge.yml` | `tools/mcp/test_debug_bridge.py` (serial-line matcher; no QEMU) |
 
 **Invariants**
 
@@ -46,5 +52,5 @@
 - The ABI bench and kernel suite are regression gates for changes to memory,
   scheduling and the syscall surface.
 
-**Status.** All five workflows exist; `docs/test/` and `docs/compat/` are
+**Status.** All eight workflows exist; `docs/test/` and `docs/compat/` are
 generated, so only the tools and (in the repository) the scripts are tracked.

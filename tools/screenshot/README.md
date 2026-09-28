@@ -12,16 +12,7 @@ CI and an AI agent can *see* what LazyOS renders, without a physical display.
 | `qemu_session.py` | Drive the guest with a scripted timeline of input + captures. |
 | `pngstats.py`  | Decode a PNG (stdlib only) and report/assert pixel statistics. |
 | `upload_image.py` | Upload PNGs to a public image host for PR comments. |
-| `examples/type_and_shot.json` | Example session script. |
-| `examples/window_demo.json` | Session script exercising window move/scroll. |
-| `examples/xuid_wm.json` | Session script exercising xuid window management (drag, raise, taskbar, close). |
-| `examples/xuid_shell.json` | Session script exercising the shell protocol (desktop, Alt+F4, Alt+Tab overlay, Ctrl+Esc) on a `LAZYOS_XUID=1` + `LAZYOS_SHELLPROBE=1` image. |
-| `examples/xui_client.json` | Session script for the xui app as a xuid client (focus routing, key-driven counter, drag, minimize/restore, close). |
-| `examples/cli_demo.json` | Session script for the CLI demos (help, box, ball). |
-| `examples/bench.json` | Session script that runs the `bench` command. |
-| `examples/user_demo.json` | Session script that runs the ring-3 `HELLO.ELF` program. |
-| `examples/interp_demo.json` | Session script for the ring-3 `SH.ELF` interpreter. |
-| `examples/multitask_demo.json` | Session script: two windows, Tab focus, routed input. |
+| `examples/*.json` | Session scripts, one per demo. Plain image: `type_and_shot`, `window_demo`, `cli_demo`, `bench`, `mouse_demo`, `user_demo` (`HELLO.ELF`), `interp_demo` (`SH.ELF`), `multitask_demo` (two windows, Tab focus), `fs_demo`. `LAZYOS_SERVICES=1`: `services_demo`, `login_demo`, `apps_demo`. `LAZYOS_XUID=1`: `xuid_wm` (drag, raise, taskbar, close), `dnd_drop`/`dnd_cancel`, `xuid_shell` (+`LAZYOS_SHELLPROBE=1`: desktop, Alt+F4, Alt+Tab, Ctrl+Esc). xui apps (`LAZYOS_XUI_APP`): `xui_counter`, `xui_sysmon`, `xui_fabricmon`, `xui_client` (+`LAZYOS_XUI_CLIENT=1`). |
 | `../run_demo.py` | Build and boot the interactive demo in QEMU with one command. |
 
 ### Why QMP instead of `-vnc`/`-nographic`
@@ -114,8 +105,8 @@ and one action:
 
 Keyboard uses a US layout (Shift handled automatically for symbols/capitals).
 Mouse uses relative motion/buttons (PS/2) by default; pass `--tablet` to attach
-`usb-tablet` for absolute positioning. Guest-side handling requires a driver —
-the tooling is ready before then, and events are delivered via QMP regardless.
+`usb-tablet` for absolute positioning. The guest's PS/2 keyboard and mouse
+drivers consume the injected events, so a script drives the real OS input path.
 
 ## CI
 
@@ -150,9 +141,9 @@ reachable:
 https://raw.githubusercontent.com/<owner>/<repo>/screenshots/runs/<run_id>/<file>.png
 ```
 
-## Adding graphic checks later
+## Stronger graphic checks
 
-Once LazyOS draws known content, add assertions to the CI "Verify" step, e.g.
-`--min-nonblack 0.2 --min-colors 16 --expect-width 1280 --expect-height 720`.
-For richer verification, add a small reference-image comparison using the
-decoder in `pngstats.py`.
+Beyond the blank-screen assertions CI runs today, a session can add
+`--min-colors`, `--expect-width`/`--expect-height` or `--max-mean`. Golden
+reference-image comparison is not implemented; the decoder in `pngstats.py` is
+the place to build it.
