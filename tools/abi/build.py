@@ -32,6 +32,8 @@ NAMES = [
     "memstress",
     "procstress",
     "sigstress",
+    "epollstress",
+    "unixstress",
 ]
 
 

@@ -69,6 +69,7 @@ pub mod wait {
     pub const POLL: u64 = 6;
     pub const SIGNAL: u64 = 7;
     pub const SLOT: u64 = 8;
+    pub const UNIX_ACCEPT: u64 = 9;
 }
 
 /// Scheduling-class codes. The order matches [`PriorityClass::ALL`].
@@ -271,6 +272,7 @@ fn wait_code(state: TaskState) -> u64 {
             WaitKind::Poll => wait::POLL,
             WaitKind::Signal => wait::SIGNAL,
             WaitKind::Slot => wait::SLOT,
+            WaitKind::UnixAccept => wait::UNIX_ACCEPT,
         },
         _ => wait::NONE,
     }

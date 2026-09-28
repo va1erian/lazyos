@@ -85,3 +85,23 @@ pub unsafe fn read_at<T: Copy>(addr: u64, index: usize) -> T {
 pub unsafe fn write_at<T: Copy>(addr: u64, index: usize, value: T) {
     write(addr + (index * size_of::<T>()) as u64, value)
 }
+
+/// Read a possibly unaligned `T` from `addr`.
+///
+/// # Safety
+/// `addr` must point to `size_of::<T>()` readable bytes for the duration of
+/// this call (the syscall ABI's promise about its arguments).
+#[inline]
+pub unsafe fn read_unaligned<T: Copy>(addr: u64) -> T {
+    (addr as *const T).read_unaligned()
+}
+
+/// Write `value` to a possibly unaligned `addr`.
+///
+/// # Safety
+/// `addr` must point to `size_of::<T>()` writable bytes for the duration of
+/// this call (the syscall ABI's promise about its arguments).
+#[inline]
+pub unsafe fn write_unaligned<T: Copy>(addr: u64, value: T) {
+    (addr as *mut T).write_unaligned(value)
+}
