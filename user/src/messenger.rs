@@ -486,6 +486,8 @@ fn init_message(code: i64) -> &'static str {
         "the launch request is malformed"
     } else if code == errno::ENOMEM {
         "the supervisor has no free task slot"
+    } else if code == errno::EAGAIN {
+        "this session already has too many launched apps running; try again once one exits"
     } else {
         "the supervisor request failed"
     }

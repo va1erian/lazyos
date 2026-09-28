@@ -25,7 +25,12 @@
 //!
 //! With services running the boot self-test also exercises the app registry and
 //! launch path (issue #158): `MSGCTL:APPS:PASS`, `MSGCTL:LAUNCH:PASS` and the
-//! foreign-session `MSGCTL:LAUNCH:DENIED:PASS` probe.
+//! foreign-session `MSGCTL:LAUNCH:DENIED:PASS` probe. The probe runs in a
+//! short-lived child (`MSGCTL.ELF probe`, issue #177): the kernel never lets a
+//! task widen its own credentials back up, so if the console task dropped its
+//! own privilege to run the probe it could never regain it, and every command
+//! typed afterward would run as the probe's uid. A disposable child can drop
+//! to the probe identity and exit; the console keeps its own credentials.
 //!
 //! Boot it with `LAZYOS_MESSENGERCTL=1` (see the kernel build script): the
 //! demo then runs this program in the hello window. With `LAZYOS_SERVICES=1`
@@ -56,6 +61,9 @@ const HELP: &str = "commands: list | resolve <name> | services | health | sessio
 
 #[no_mangle]
 pub extern "C" fn _start() -> ! {
+    if is_probe_role() {
+        probe_role();
+    }
     sys::write_str("messengerctl: Messenger fabric snapshot\n");
     match messenger::fabric_stats() {
         Ok(stats) => print_report(&stats),
@@ -65,6 +73,14 @@ pub extern "C" fn _start() -> ! {
     keyd_selftest();
     app_selftest();
     commands()
+}
+
+/// Read this task's service argument (see [`probe_role`]): `true` for a
+/// `MSGCTL.ELF probe` child, `false` for the ordinary console tool.
+fn is_probe_role() -> bool {
+    let mut buffer = [0u8; 16];
+    let len = sys::service_args(&mut buffer).min(buffer.len());
+    core::str::from_utf8(&buffer[..len]).unwrap_or("").trim() == "probe"
 }
 
 /// The registry command loop; `list` and `resolve <name>` print the name
@@ -246,9 +262,14 @@ fn launch_app(rest: &str) {
 /// 2. launches `top` into this task's (session 0) session and prints
 ///    `MSGCTL:LAUNCH:PASS` (`init` prints its own `INIT:LAUNCH:PASS`, and the
 ///    app prints `SYS:TOP:PASS`);
-/// 3. restamps itself into a foreign session and asks `init` to launch into
-///    this task's original session: the supervisor must refuse with `-EPERM`
-///    (`INIT:LAUNCH:DENIED:PASS`, `MSGCTL:LAUNCH:DENIED:PASS`).
+/// 3. spawns a `MSGCTL.ELF probe` child ([`probe_role`]) that restamps
+///    *itself* into a foreign session and asks `init` to launch into this
+///    console's original session: the supervisor must refuse with `-EPERM`
+///    (`INIT:LAUNCH:DENIED:PASS`, `MSGCTL:LAUNCH:DENIED:PASS`). Running the
+///    probe in a child, not this task, matters: the kernel never lets a task
+///    widen its own credentials back up, so a probe that dropped this
+///    console's own privilege could never restore it, and `commands()` would
+///    serve the rest of the session as the probe's uid.
 fn app_selftest() {
     let Some(endpoint) = resolve_init() else {
         return;
@@ -280,22 +301,63 @@ fn app_selftest() {
         Err(error) => sys::write_str(&format!("MSGCTL:LAUNCH:FAIL:{}\n", error.message())),
     }
 
-    // The foreign-session probe: become uid 1000 in session 4242 (a
-    // self-transition the kernel audits; the dropped capability set means the
-    // launch call can no longer pass the supervisor's privilege check) and try
-    // to launch into the task's original session (0).
+    // The foreign-session probe runs in a short-lived child (see
+    // [`probe_role`]): a task that has dropped to uid 1000 cannot regain
+    // root, so this console task must not be the one that self-transitions.
+    match sys::spawn(b"MSGCTL.ELF probe\0") {
+        Some(pid) => reap_probe(pid),
+        None => sys::write_str("MSGCTL:LAUNCH:DENIED:FAIL could not spawn the probe\n"),
+    }
+}
+
+/// The `MSGCTL.ELF probe` child: become uid 1000 in session 4242 (a
+/// self-transition the kernel audits; the dropped capability set means the
+/// launch call can no longer pass the supervisor's privilege check), try to
+/// launch into the console's original session (0), print the
+/// `MSGCTL:LAUNCH:DENIED:*` evidence line, and exit. This never runs in the
+/// console task itself: see [`app_selftest`].
+fn probe_role() -> ! {
+    let endpoint = match resolve_init() {
+        Some(endpoint) => endpoint,
+        None => {
+            sys::write_str("MSGCTL:LAUNCH:DENIED:FAIL could not resolve init\n");
+            sys::exit(1);
+        }
+    };
     let probe = sys::Cred::new(1000, 1000, 0, 0, 4242);
     if sys::cred_set(None, &probe).is_err() {
         sys::write_str("MSGCTL:LAUNCH:DENIED:FAIL could not enter the probe session\n");
-        return;
+        sys::exit(1);
     }
     match services::launch(&endpoint, "top", "", 1) {
         Err(error) if error.errno() == Some(-messenger::errno::EPERM) => {
             sys::write_str("MSGCTL:LAUNCH:DENIED:PASS\n");
+            sys::exit(0);
         }
-        Ok(_) => sys::write_str("MSGCTL:LAUNCH:DENIED:FAIL foreign launch was allowed\n"),
-        Err(error) => sys::write_str(&format!("MSGCTL:LAUNCH:DENIED:FAIL:{}\n", error.message())),
+        Ok(_) => {
+            sys::write_str("MSGCTL:LAUNCH:DENIED:FAIL foreign launch was allowed\n");
+            sys::exit(1);
+        }
+        Err(error) => {
+            sys::write_str(&format!("MSGCTL:LAUNCH:DENIED:FAIL:{}\n", error.message()));
+            sys::exit(1);
+        }
     }
+}
+
+/// Reap the probe child, bounded so a spawn that never runs cannot hang the
+/// console forever; other exits (there should be none yet) are reaped and
+/// ignored until the probe's own pid turns up.
+fn reap_probe(pid: u64) {
+    const ATTEMPTS: usize = 200;
+    for _ in 0..ATTEMPTS {
+        match sys::wait(sys::clock() + 5) {
+            Some((exited, _status)) if exited == pid => return,
+            Some(_) => {}
+            None => {}
+        }
+    }
+    sys::write_str("MSGCTL:LAUNCH:DENIED:FAIL probe did not exit\n");
 }
 
 /// Resolve `init`, retrying while the supervisor's registration lands; `None`

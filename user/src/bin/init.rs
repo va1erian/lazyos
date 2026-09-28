@@ -36,9 +36,18 @@
 //! error). Root launching into a *different* session resolves the session's
 //! uid/gid from `logind`.
 //!
+//! A session may hold at most [`LAUNCH_CAP_PER_SESSION`] concurrently running
+//! launched rows (issue #177): each `Launch` call spawns a fresh row and only
+//! a `Stopped`/`Failed` row for the same app is ever superseded, so nothing
+//! else stopped an unprivileged caller from looping `launch` until the
+//! 16-slot task table (`kernel/src/task/mod.rs`'s `MAX_TASKS`) was full,
+//! starving supervised restarts and new logins. A request over the cap is
+//! refused with `-EAGAIN` (`INIT:LAUNCH:CAP:PASS`) before anything spawns.
+//!
 //! Boot evidence: `INIT:APPS:PASS`, `INIT:LAUNCH:PASS` (the self-test launches
-//! `TOP.ELF`; the app's own `SYS:TOP:PASS` and exit prove it ran) and
-//! `INIT:LAUNCH:DENIED:PASS` (the policy self-test); supervised restarts print
+//! `TOP.ELF`; the app's own `SYS:TOP:PASS` and exit prove it ran),
+//! `INIT:LAUNCH:DENIED:PASS` (the policy self-test) and `INIT:LAUNCH:CAP:PASS`
+//! (the concurrency-cap self-test); supervised restarts print
 //! `INIT:RESTART:PASS`.
 //!
 //! The manifest is a static Rust table today. Each row carries the fields the
@@ -86,6 +95,15 @@ const LAUNCH_SELFTEST_DELAY: u64 = 30;
 const LAUNCH_SELFTEST_RETRY: u64 = 25;
 /// Give up on the launch self-test after this many attempts.
 const LAUNCH_SELFTEST_ATTEMPTS: u64 = 40;
+/// Concurrently *running* launched rows one session may hold at once (issue
+/// #177). The boot manifest's own services already run the 16-slot task
+/// table (`kernel/src/task/mod.rs`'s `MAX_TASKS`) close to full for the life
+/// of the boot, so the cap is a small fixed number rather than derived from
+/// the live table: it must hold room for supervised restarts and new logins
+/// even when nothing else has freed a slot yet. `Restarting` rows hold no
+/// task slot (their `pid` is 0 between backoff and the next spawn), so only
+/// `Running` rows count.
+const LAUNCH_CAP_PER_SESSION: usize = 2;
 
 /// What to do when a service exits.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -472,6 +490,7 @@ fn run() -> messenger::Result<()> {
     sys::write_str(&format!("init: manifest: {} service(s)\n", services.len()));
     selftest_apps();
     selftest_launch_policy();
+    selftest_launch_cap();
     start_ready(&mut services, &mut broker);
     // One receive buffer for the whole life of the supervisor: the user bump
     // allocator never reclaims per-call buffers, so long-lived loops must not
@@ -870,15 +889,20 @@ fn dispatch(
                 match launch(services, broker, &request, &caller) {
                     Ok(result) => services::launch_reply(&result),
                     Err(error) => {
+                        let target = if request.session == 0 {
+                            caller.session
+                        } else {
+                            request.session
+                        };
                         if error.errno() == Some(-messenger::errno::EPERM) {
                             sys::write_str(&format!(
                                 "INIT:LAUNCH:DENIED:PASS app={} caller_uid={} caller_session={} target={}\n",
-                                request.app, caller.uid, caller.session,
-                                if request.session == 0 {
-                                    caller.session
-                                } else {
-                                    request.session
-                                }
+                                request.app, caller.uid, caller.session, target
+                            ));
+                        } else if error.errno() == Some(-messenger::errno::EAGAIN) {
+                            sys::write_str(&format!(
+                                "INIT:LAUNCH:CAP:PASS app={} session={} cap={}\n",
+                                request.app, target, LAUNCH_CAP_PER_SESSION
                             ));
                         }
                         Err(error)
@@ -909,6 +933,21 @@ fn authorize(caller: &SysCred, target_session: u64) -> messenger::Result<()> {
     } else {
         Err(messenger::Error::Errno(-messenger::errno::EPERM))
     }
+}
+
+/// The number of launched rows currently holding a task slot (`Running`) in
+/// `session`: what [`LAUNCH_CAP_PER_SESSION`] caps. A launched row's session
+/// lives in its stamped credentials (`cred`), since manifest rows (`cred:
+/// None`) never count.
+fn running_in_session(services: &[Service], session: u64) -> usize {
+    services
+        .iter()
+        .filter(|service| {
+            service.launched
+                && service.phase == Phase::Running
+                && service.cred.map(|cred| cred.session) == Some(session)
+        })
+        .count()
 }
 
 /// The credentials a launched child is stamped with: the target session's
@@ -946,10 +985,11 @@ fn lookup_session_uid(session: u64) -> messenger::Result<u32> {
 /// Launch an app as a supervised child of this task (issue #158).
 ///
 /// The checks run in order: the app id must be in [`APPS`]; the caller must
-/// pass [`authorize`] for the target session; the target session's credentials
-/// must resolve. The row then spawns immediately with `spawn_as`, and from
-/// there the ordinary supervision loop owns it: restart policy, backoff,
-/// health topic and service event.
+/// pass [`authorize`] for the target session; the target session must be
+/// under [`LAUNCH_CAP_PER_SESSION`] concurrently running launched rows;
+/// the target session's credentials must resolve. The row then spawns
+/// immediately with `spawn_as`, and from there the ordinary supervision loop
+/// owns it: restart policy, backoff, health topic and service event.
 fn launch(
     services: &mut Vec<Service>,
     broker: &mut router::TopicBroker,
@@ -963,6 +1003,9 @@ fn launch(
         request.session
     };
     authorize(caller, target_session)?;
+    if running_in_session(services, target_session) >= LAUNCH_CAP_PER_SESSION {
+        return Err(messenger::Error::Errno(-messenger::errno::EAGAIN));
+    }
     let cred = target_cred(caller, target_session)?;
     // A stopped or failed launched row for the same app is superseded: the
     // registry keeps the supervision table bounded (manifest rows stay).
@@ -1038,6 +1081,45 @@ fn selftest_launch_policy() {
         sys::write_str("INIT:LAUNCH:DENIED:PASS\n");
     } else {
         sys::write_str("INIT:LAUNCH:DENIED:FAIL policy check failed\n");
+    }
+}
+
+/// The launch-cap self-test: a session already holding
+/// [`LAUNCH_CAP_PER_SESSION`] `Running` launched rows gets `-EAGAIN` for one
+/// more, and the refused call leaves the supervision table unchanged (nothing
+/// was spawned). Exercises the real [`launch`] against a synthetic table, the
+/// same way [`selftest_launch_policy`] exercises [`authorize`] directly,
+/// so the boot self-test needs no timing-sensitive race against real
+/// processes exiting. Prints `INIT:LAUNCH:CAP:PASS`.
+fn selftest_launch_cap() {
+    let Some(app) = find_app("top") else {
+        return sys::write_str("INIT:LAUNCH:CAP:FAIL top is not registered\n");
+    };
+    const SESSION: u64 = 4243;
+    let cred = SysCred::new(1000, 1000, 0, 0, SESSION);
+    let mut services: Vec<Service> = (0..LAUNCH_CAP_PER_SESSION)
+        .map(|_| {
+            let mut row = Service::from_app(app, "", cred);
+            row.phase = Phase::Running;
+            row
+        })
+        .collect();
+    let mut broker = router::TopicBroker::new("os.lazy.selftest.sink");
+    let request = services::LaunchRequest {
+        app: String::from("top"),
+        args: String::new(),
+        session: SESSION,
+    };
+    let capped = matches!(
+        launch(&mut services, &mut broker, &request, &cred),
+        Err(messenger::Error::Errno(code)) if code == -messenger::errno::EAGAIN
+    );
+    if capped && services.len() == LAUNCH_CAP_PER_SESSION {
+        sys::write_str(&format!(
+            "INIT:LAUNCH:CAP:PASS session={SESSION} cap={LAUNCH_CAP_PER_SESSION}\n"
+        ));
+    } else {
+        sys::write_str("INIT:LAUNCH:CAP:FAIL cap did not hold\n");
     }
 }
 
