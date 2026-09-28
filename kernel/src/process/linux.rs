@@ -20,6 +20,7 @@ use crate::task::process::GroupError;
 use crate::task::signal::{self, Disposition, SignalError};
 use crate::task::wait::WaitQueue;
 use crate::task::{self, Fd, FdKind, WaitKind, WakeReason};
+use crate::user_ptr;
 
 // User memory layout for Linux tasks (kept clear of code and each other).
 /// `brk` region (grows up).
@@ -490,9 +491,9 @@ extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
 fn sys_writev(fd: u64, iov: u64, count: u64) -> u64 {
     let mut total = 0u64;
     for i in 0..count {
-        // Safety: user array of iovec entries.
-        let base = unsafe { core::ptr::read_volatile((iov + i * 16) as *const u64) };
-        let len = unsafe { core::ptr::read_volatile((iov + i * 16 + 8) as *const u64) };
+        // Safety: user array of iovec entries (the syscall ABI's contract).
+        let base = unsafe { user_ptr::read::<u64>(iov + i * 16) };
+        let len = unsafe { user_ptr::read::<u64>(iov + i * 16 + 8) };
         let written = sys_write(fd, base, len);
         if written > len {
             return written; // error
@@ -506,9 +507,9 @@ fn sys_writev(fd: u64, iov: u64, count: u64) -> u64 {
 fn sys_readv(fd: u64, iov: u64, count: u64) -> u64 {
     let mut total = 0u64;
     for i in 0..count {
-        // Safety: user array of iovec entries.
-        let base = unsafe { core::ptr::read_volatile((iov + i * 16) as *const u64) };
-        let len = unsafe { core::ptr::read_volatile((iov + i * 16 + 8) as *const u64) };
+        // Safety: user array of iovec entries (the syscall ABI's contract).
+        let base = unsafe { user_ptr::read::<u64>(iov + i * 16) };
+        let len = unsafe { user_ptr::read::<u64>(iov + i * 16 + 8) };
         let got = sys_read(fd, base, len);
         if got > len {
             return got; // error
@@ -553,17 +554,17 @@ fn scan_poll(fds: u64, nfds: u64) -> u64 {
     let mut ready = 0u64;
     for i in 0..nfds {
         // struct pollfd { i32 fd; i16 events; i16 revents; }
-        // Safety: user array of pollfd entries.
-        let fd = unsafe { core::ptr::read_volatile((fds + i * 8) as *const i32) };
-        let events = unsafe { core::ptr::read_volatile((fds + i * 8 + 4) as *const u16) };
+        // Safety: user array of pollfd entries (the syscall ABI's contract).
+        let fd = unsafe { user_ptr::read::<i32>(fds + i * 8) };
+        let events = unsafe { user_ptr::read::<u16>(fds + i * 8 + 4) };
         let revents = if fd == 0 && events & POLLIN != 0 && task::input_available() {
             ready += 1;
             POLLIN
         } else {
             0
         };
-        // Safety: user array of pollfd entries.
-        unsafe { core::ptr::write_volatile((fds + i * 8 + 6) as *mut u16, revents) };
+        // Safety: user array of pollfd entries (the syscall ABI's contract).
+        unsafe { user_ptr::write::<u16>(fds + i * 8 + 6, revents) };
     }
     ready
 }
@@ -581,8 +582,8 @@ fn sys_write(fd: u64, ptr: u64, len: u64) -> u64 {
     if len == 0 {
         return 0;
     }
-    // Safety: the caller passes a valid user buffer.
-    let bytes = unsafe { core::slice::from_raw_parts(ptr as *const u8, len as usize) };
+    // Safety: the caller passes a valid user buffer (the syscall ABI's contract).
+    let bytes = unsafe { user_ptr::bytes(ptr, len as usize) };
     task::write_output(bytes);
     crate::serial::write_bytes(bytes);
     // Answer a cursor-position report request (busybox line editing asks for it).
@@ -611,8 +612,8 @@ fn read_terminal(ptr: u64, len: u64) -> u64 {
     }
     loop {
         if let Some(key) = task::take_key() {
-            // Safety: destination within the user buffer.
-            unsafe { core::ptr::write_volatile(ptr as *mut u8, key_to_byte(key)) };
+            // Safety: destination within the user buffer (the syscall ABI's contract).
+            unsafe { user_ptr::write::<u8>(ptr, key_to_byte(key)) };
             return 1;
         }
         // A key may have gone to another task's window; spurious wakeups just
@@ -776,8 +777,8 @@ fn sys_arch_prctl(code: u64, addr: u64) -> u64 {
         }
         0x1003 | 0x1004 => {
             // GET_FS / GET_GS: write the base to *addr.
-            // Safety: user pointer.
-            unsafe { core::ptr::write_volatile(addr as *mut u64, 0) };
+            // Safety: user pointer (the syscall ABI's contract).
+            unsafe { user_ptr::write::<u64>(addr, 0) };
             0
         }
         _ => err(EINVAL),
@@ -791,19 +792,19 @@ fn sys_ioctl(fd: u64, request: u64, arg: u64) -> u64 {
             // TIOCGPGRP: report the foreground process group. There is no
             // separate controlling-terminal group yet, so it is the caller's
             // own group (which `getpgrp` reports too).
-            // Safety: user `pid_t *`.
-            unsafe { core::ptr::write_volatile(arg as *mut u32, task::pgid() as u32) };
+            // Safety: user `pid_t *` (the syscall ABI's contract).
+            unsafe { user_ptr::write::<u32>(arg, task::pgid() as u32) };
             0
         }
         0x5410 => 0, // TIOCSPGRP
         0x5413 => {
             // TIOCGWINSZ: 24 rows x 80 columns.
-            // Safety: user `struct winsize`.
+            // Safety: user `struct winsize` (the syscall ABI's contract).
             unsafe {
-                core::ptr::write_volatile(arg as *mut u16, 24);
-                core::ptr::write_volatile((arg + 2) as *mut u16, 80);
-                core::ptr::write_volatile((arg + 4) as *mut u16, 0);
-                core::ptr::write_volatile((arg + 6) as *mut u16, 0);
+                user_ptr::write::<u16>(arg, 24);
+                user_ptr::write::<u16>(arg + 2, 80);
+                user_ptr::write::<u16>(arg + 4, 0);
+                user_ptr::write::<u16>(arg + 6, 0);
             }
             0
         }
@@ -814,12 +815,12 @@ fn sys_ioctl(fd: u64, request: u64, arg: u64) -> u64 {
 
 fn sys_sched_getaffinity(mask: u64, len: u64) -> u64 {
     if len >= 8 {
-        // Safety: user buffer.
-        unsafe { core::ptr::write_volatile(mask as *mut u64, 1) };
+        // Safety: user buffer (the syscall ABI's contract).
+        unsafe { user_ptr::write::<u64>(mask, 1) };
         8
     } else if len > 0 {
-        // Safety: user buffer.
-        unsafe { core::ptr::write_volatile(mask as *mut u8, 1) };
+        // Safety: user buffer (the syscall ABI's contract).
+        unsafe { user_ptr::write::<u8>(mask, 1) };
         1
     } else {
         0
@@ -834,10 +835,9 @@ fn sys_uname(buf: u64) -> u64 {
         let bytes = field.as_bytes();
         data[i * 65..i * 65 + bytes.len()].copy_from_slice(bytes);
     }
-    // Safety: user buffer of at least 390 bytes (musl's utsname).
-    unsafe {
-        core::ptr::copy_nonoverlapping(data.as_ptr(), buf as *mut u8, data.len());
-    }
+    // Safety: user buffer of at least 390 bytes (musl's utsname, the
+    // syscall ABI's contract).
+    unsafe { user_ptr::copy_to(buf, &data) };
     0
 }
 
@@ -853,10 +853,8 @@ fn sys_readlink(path: u64, buf: u64, size: u64) -> u64 {
         return err(EINVAL);
     }
     let n = (size as usize).min(target.len());
-    // Safety: user buffer of at least `n` bytes.
-    unsafe {
-        core::ptr::copy_nonoverlapping(target.as_ptr(), buf as *mut u8, n);
-    }
+    // Safety: user buffer of at least `n` bytes (the syscall ABI's contract).
+    unsafe { user_ptr::copy_to(buf, &target[..n]) };
     n as u64
 }
 
@@ -864,10 +862,10 @@ fn sys_getcwd(buf: u64, size: u64) -> u64 {
     if size < 2 {
         return err(EINVAL);
     }
-    // Safety: user buffer.
+    // Safety: user buffer (the syscall ABI's contract).
     unsafe {
-        core::ptr::write_volatile(buf as *mut u8, b'/');
-        core::ptr::write_volatile((buf + 1) as *mut u8, 0);
+        user_ptr::write::<u8>(buf, b'/');
+        user_ptr::write::<u8>(buf + 1, 0);
     }
     buf
 }
@@ -893,10 +891,10 @@ fn sys_clock_gettime(clock: u64, out: u64) -> u64 {
 }
 
 fn write_timespec(out: u64, sec: u64, nsec: u64) {
-    // Safety: user buffer holds a `struct timespec`.
+    // Safety: user buffer holds a `struct timespec` (the syscall ABI's contract).
     unsafe {
-        core::ptr::write_volatile(out as *mut i64, sec as i64);
-        core::ptr::write_volatile((out + 8) as *mut i64, nsec as i64);
+        user_ptr::write::<i64>(out, sec as i64);
+        user_ptr::write::<i64>(out + 8, nsec as i64);
     }
 }
 
@@ -908,21 +906,21 @@ fn sys_clock_getres(out: u64) -> u64 {
 
 fn sys_gettimeofday(tv: u64) -> u64 {
     let ticks = now_ticks();
-    // Safety: user buffer holds a `struct timeval`.
+    // Safety: user buffer holds a `struct timeval` (the syscall ABI's contract).
     unsafe {
-        core::ptr::write_volatile(tv as *mut i64, (REALTIME_BASE + ticks / 100) as i64);
-        core::ptr::write_volatile((tv + 8) as *mut i64, ((ticks % 100) * 10_000) as i64);
+        user_ptr::write::<i64>(tv, (REALTIME_BASE + ticks / 100) as i64);
+        user_ptr::write::<i64>(tv + 8, ((ticks % 100) * 10_000) as i64);
     }
     0
 }
 
 /// Sleep for the `struct timespec` duration at `req` (nanosleep/clock_nanosleep).
 fn sys_nanosleep(req: u64) -> u64 {
-    // Safety: user buffer holds a `struct timespec`.
+    // Safety: user buffer holds a `struct timespec` (the syscall ABI's contract).
     let (sec, nsec) = unsafe {
         (
-            core::ptr::read_volatile(req as *const i64),
-            core::ptr::read_volatile((req + 8) as *const i64),
+            user_ptr::read::<i64>(req),
+            user_ptr::read::<i64>(req + 8),
         )
     };
     if sec < 0 || nsec < 0 {
@@ -946,10 +944,8 @@ fn sys_getrandom(buf: u64, len: u64) -> u64 {
     while written < len {
         let n = ((len - written) as usize).min(chunk.len());
         fill_random(&mut chunk[..n]);
-        // Safety: user buffer.
-        unsafe {
-            core::ptr::copy_nonoverlapping(chunk.as_ptr(), (buf + written) as *mut u8, n);
-        }
+        // Safety: user buffer (the syscall ABI's contract).
+        unsafe { user_ptr::copy_to(buf + written, &chunk[..n]) };
         written += n as u64;
     }
     written
@@ -962,8 +958,8 @@ fn read_cstr(ptr: u64) -> Option<String> {
     }
     let mut out = String::new();
     for i in 0..4096u64 {
-        // Safety: user memory up to the NUL terminator.
-        let byte = unsafe { core::ptr::read_volatile((ptr + i) as *const u8) };
+        // Safety: user memory up to the NUL terminator (the syscall ABI's contract).
+        let byte = unsafe { user_ptr::read::<u8>(ptr + i) };
         if byte == 0 {
             break;
         }
@@ -1362,13 +1358,15 @@ fn fill_stat(buf: u64, mode: u32, size: u64, ino: u64) {
 }
 
 fn write_u64(addr: u64, value: u64) {
-    // Safety: caller ensures the address is valid user memory.
-    unsafe { core::ptr::write_volatile(addr as *mut u64, value) };
+    // Safety: caller ensures the address is valid user memory (the syscall
+    // ABI's contract).
+    unsafe { user_ptr::write::<u64>(addr, value) };
 }
 
 fn write_u32(addr: u64, value: u32) {
-    // Safety: caller ensures the address is valid user memory.
-    unsafe { core::ptr::write_volatile(addr as *mut u32, value) };
+    // Safety: caller ensures the address is valid user memory (the syscall
+    // ABI's contract).
+    unsafe { user_ptr::write::<u32>(addr, value) };
 }
 
 fn sys_fstat(fd: u64, buf: u64) -> u64 {
@@ -1452,8 +1450,8 @@ fn sys_set_tid_address(tidptr: u64) -> u64 {
 fn read_cstr_bytes(ptr: u64) -> Vec<u8> {
     let mut out = Vec::new();
     for i in 0..4096u64 {
-        // Safety: user memory up to the NUL terminator.
-        let byte = unsafe { core::ptr::read_volatile((ptr + i) as *const u8) };
+        // Safety: user memory up to the NUL terminator (the syscall ABI's contract).
+        let byte = unsafe { user_ptr::read::<u8>(ptr + i) };
         out.push(byte);
         if byte == 0 {
             break;
@@ -1469,8 +1467,8 @@ fn read_str_ptr_array(arr: u64) -> Vec<Vec<u8>> {
         return out;
     }
     for i in 0..256u64 {
-        // Safety: user array of `char *`.
-        let ptr = unsafe { core::ptr::read_volatile((arr + i * 8) as *const u64) };
+        // Safety: user array of `char *` (the syscall ABI's contract).
+        let ptr = unsafe { user_ptr::read_at::<u64>(arr, i as usize) };
         if ptr == 0 {
             break;
         }
@@ -1595,8 +1593,8 @@ fn futex_queue(uaddr: u64) -> Arc<WaitQueue> {
 }
 
 fn futex_wait(uaddr: u64, val: u64) -> u64 {
-    // Safety: the futex word is a user 32-bit value.
-    let current = unsafe { core::ptr::read_volatile(uaddr as *const u32) };
+    // Safety: the futex word is a user 32-bit value (the syscall ABI's contract).
+    let current = unsafe { user_ptr::read::<u32>(uaddr) };
     if current != val as u32 {
         return err(EAGAIN); // value changed: nothing to wait for
     }
@@ -1638,13 +1636,15 @@ fn futex_wake(uaddr: u64, count: u64) -> u64 {
 // ---------------------------------------------------------------------------
 
 fn read_u64(addr: u64) -> u64 {
-    // Safety: caller ensures the address is valid user memory.
-    unsafe { core::ptr::read_volatile(addr as *const u64) }
+    // Safety: caller ensures the address is valid user memory (the syscall
+    // ABI's contract).
+    unsafe { user_ptr::read::<u64>(addr) }
 }
 
 fn read_u32(addr: u64) -> u32 {
-    // Safety: caller ensures the address is valid user memory.
-    unsafe { core::ptr::read_volatile(addr as *const u32) }
+    // Safety: caller ensures the address is valid user memory (the syscall
+    // ABI's contract).
+    unsafe { user_ptr::read::<u32>(addr) }
 }
 
 /// Map a signal-layer failure to its Linux errno.
