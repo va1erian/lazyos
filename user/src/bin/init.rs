@@ -163,6 +163,30 @@ const MANIFEST: &[ServiceSpec] = &[
         deps: &["healthd"],
         health_topic: "system/health/flaky",
     },
+    // The system monitor (issue #144): `sysmond` wraps the kernel's
+    // system-stats syscall as `os.lazy.system.v1` and republishes retained
+    // `system/stats/*` topics. It needs only the kernel name registry, like
+    // `mimed`.
+    ServiceSpec {
+        name: "sysmond",
+        path: "SYSD.ELF",
+        args: "",
+        restart: Restart::Always,
+        deps: &[],
+        health_topic: "system/health/sysmond",
+    },
+    // `top` is `sysmond`'s one-shot evidence client, supervised here like any
+    // other program so a headless boot records `SYS:TOP:PASS`. It exits 0, so
+    // `Once` leaves it stopped instead of restarting it (a monitor that
+    // always exits 0 is not a service).
+    ServiceSpec {
+        name: "top",
+        path: "TOP.ELF",
+        args: "",
+        restart: Restart::Once,
+        deps: &["sysmond"],
+        health_topic: "system/health/top",
+    },
 ];
 
 /// Runtime phase of a service; `label` is the word published in events and

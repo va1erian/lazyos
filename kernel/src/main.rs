@@ -35,6 +35,7 @@ mod serial;
 #[allow(dead_code)]
 mod skia;
 mod surface;
+mod sysinfo;
 mod task;
 #[cfg(laZYOS_TESTS)]
 mod tests;

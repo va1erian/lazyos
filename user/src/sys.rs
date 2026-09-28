@@ -504,6 +504,45 @@ pub fn display_map_buffer(handle: u64) -> Result<u64, i64> {
     }
 }
 
+// ---------------------------------------------------------------------------
+// System statistics snapshot (issue #144)
+// ---------------------------------------------------------------------------
+
+/// `system_stats(op, a1, a2)` — the read-only system monitor surface
+/// (syscall 13). See [`crate::sysinfo`] for the typed client.
+pub const SYS_SYSTEM_STATS: u64 = 13;
+
+/// System-stats op codes, mirroring `kernel/src/sysinfo.rs`.
+pub mod system_stats_op {
+    /// Write the fixed-layout snapshot into `a1` (capacity `a2` bytes).
+    pub const SNAPSHOT: u64 = 0;
+    /// Report the snapshot size in bytes.
+    pub const SIZE: u64 = 1;
+}
+
+/// Invoke the native system-stats syscall. Returns `SIZE` on a successful
+/// snapshot, or a negative errno.
+pub fn system_stats(op: u64, a1: u64, a2: u64) -> i64 {
+    let code: u64;
+    // Safety: `int 0x80` with syscall 13; the kernel copies the snapshot into
+    // the caller's buffer under the native syscall buffer convention.
+    unsafe {
+        asm!(
+            "int 0x80",
+            in("rax") SYS_SYSTEM_STATS,
+            in("rdi") op,
+            in("rsi") a1,
+            in("rdx") a2,
+            lateout("rax") code,
+            lateout("rcx") _,
+            lateout("r11") _,
+            options(nostack),
+            clobber_abi("sysv64"),
+        );
+    }
+    code as i64
+}
+
 /// Copy this service's manifest argument string into `buf`; returns its full
 /// length. A zero-length `buf` reports the length without copying.
 pub fn service_args(buf: &mut [u8]) -> usize {

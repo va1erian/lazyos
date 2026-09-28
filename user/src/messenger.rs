@@ -2638,6 +2638,8 @@ pub mod services {
     pub const HEALTHD_NAME: &str = "os.lazy.healthd";
     /// The structured event log's registered name.
     pub const LOGD_NAME: &str = "os.lazy.logd";
+    /// The system monitor's registered name (issue #144).
+    pub const SYSMOND_NAME: &str = "os.lazy.sysmond";
 
     /// `os.lazy.init.v1` (interim eight-byte ABI id, see [`super::topics`]).
     pub const INIT_INTERFACE: u64 = u64::from_le_bytes(*b"os.init.");
@@ -2645,6 +2647,8 @@ pub mod services {
     pub const HEALTHD_INTERFACE: u64 = u64::from_le_bytes(*b"os.healt");
     /// `os.lazy.logd.v1` (interim eight-byte ABI id).
     pub const LOGD_INTERFACE: u64 = u64::from_le_bytes(*b"os.logd.");
+    /// `os.lazy.system.v1` (interim eight-byte ABI id).
+    pub const SYSMOND_INTERFACE: u64 = u64::from_le_bytes(*b"os.sysmo");
 
     /// `init` methods.
     pub mod init_method {
@@ -2668,6 +2672,12 @@ pub mod services {
         pub const COUNT: u32 = 2;
         /// Recompute the hash chain and report `OK`/first bad `INDEX`.
         pub const VERIFY: u32 = 3;
+    }
+
+    /// `sysmond` methods (issue #144).
+    pub mod sysmond_method {
+        /// Return one live system-stats snapshot.
+        pub const SNAPSHOT: u32 = 1;
     }
 
     /// Shared TLV field ids.
@@ -2708,6 +2718,8 @@ pub mod services {
         pub const INDEX: u16 = 17;
         /// Aggregate health row.
         pub const SUMMARY: u16 = 18;
+        /// Fixed-layout `sysinfo` snapshot bytes (issue #144).
+        pub const SYSDATA: u16 = 20;
     }
 
     /// A header for a service parcel of `method` on `interface_id`.
@@ -2845,6 +2857,43 @@ pub mod services {
             .u64(field::TICK, record.tick)
             .map_err(Error::Parcel)?;
         Ok(encoder)
+    }
+
+    /// `sysmond`'s `Snapshot` request (issue #144).
+    pub fn sysinfo_request() -> Parcel {
+        Parcel {
+            header: header(SYSMOND_INTERFACE, sysmond_method::SNAPSHOT),
+            ..Parcel::default()
+        }
+    }
+
+    /// Encode `sysmond`'s `Snapshot` reply: the raw fixed-layout `sysinfo`
+    /// words as one bytes field.
+    pub fn sysinfo_reply(snapshot: &crate::sysinfo::Snapshot) -> Result<Parcel> {
+        let mut wire = [0u8; crate::sysinfo::SIZE];
+        if !snapshot.write_bytes(&mut wire) {
+            return Err(Error::Errno(-errno::E2BIG));
+        }
+        let mut body = Encoder::new();
+        body.bytes(field::SYSDATA, &wire).map_err(Error::Parcel)?;
+        Ok(Parcel {
+            header: header(SYSMOND_INTERFACE, sysmond_method::SNAPSHOT),
+            body: body.finish(),
+            ..Parcel::default()
+        })
+    }
+
+    /// Call `sysmond`'s `Snapshot` and decode the fixed-layout reply.
+    pub fn fetch_sysinfo(endpoint: &Endpoint) -> Result<crate::sysinfo::Snapshot> {
+        let reply = endpoint.call(&sysinfo_request(), None)?;
+        let mut decoder = Decoder::new(&reply.body);
+        while let Some(field) = decoder.next().map_err(Error::Parcel)? {
+            if field.kind == Kind::Bytes && field.id == field::SYSDATA {
+                return crate::sysinfo::decode_bytes(field.payload)
+                    .ok_or(Error::Errno(-errno::EINVAL));
+            }
+        }
+        Err(Error::Errno(-errno::EINVAL))
     }
 
     /// `logd`'s `Tail` request.

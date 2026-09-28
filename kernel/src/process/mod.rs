@@ -75,6 +75,19 @@
 //!   op 4 (create_buffer): rsi = size, rdx -> [handle, va, size]
 //!   op 5 (map_buffer):    rsi = handle, rdx -> va
 //! ```
+//!
+//! # The system-stats snapshot (issue #144)
+//!
+//! Syscall 13 is a read-only monitor surface: `sysmond` serves it over
+//! Messenger and `top` renders it. The fixed layout, version, buffer contract
+//! and the deliberate "readable by every task, no addresses or credentials"
+//! permission choice live in [`crate::sysinfo`].
+//!
+//! ```text
+//!   rax = 13  rdi = op
+//!   op 0 (snapshot): rsi -> buffer, rdx = capacity in bytes  -> size | -errno
+//!   op 1 (size):                                             -> size
+//! ```
 
 use alloc::boxed::Box;
 use alloc::string::String;
@@ -178,6 +191,9 @@ extern "C" fn syscall_dispatch(regs: *mut Regs) {
         11 => sys_quota(regs.rdi),
         // 12: the display device grant (issue #113), see the module docs.
         12 => crate::display::dispatch(regs.rdi, regs.rsi, regs.rdx),
+        // 13: the system-stats snapshot (issue #144), read-only and available
+        // to every task; see `crate::sysinfo` and the module docs.
+        13 => crate::sysinfo::dispatch(regs.rdi, regs.rsi, regs.rdx),
         _ => u64::MAX,
     };
 }
@@ -196,6 +212,7 @@ pub fn dispatch_for_test(nr: u64, a1: u64, a2: u64, a3: u64) -> u64 {
         10 => sys_creds(a1, a2, a3),
         11 => sys_quota(a1),
         12 => crate::display::dispatch(a1, a2, a3),
+        13 => crate::sysinfo::dispatch(a1, a2, a3),
         _ => u64::MAX,
     }
 }

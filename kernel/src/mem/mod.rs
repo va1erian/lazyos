@@ -328,6 +328,14 @@ pub fn frame_stats() -> FrameStats {
     }
 }
 
+pub use heap::HeapStats;
+
+/// Snapshot of the kernel heap's counters; see [`HeapStats`]. The system-stats
+/// syscall (issue #144) uses this for its `slab/heap usage` fields.
+pub fn heap_stats() -> HeapStats {
+    heap::stats()
+}
+
 /// Read the active level-4 page table through the physical-memory mapping.
 ///
 /// # Safety

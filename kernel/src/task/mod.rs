@@ -2148,6 +2148,78 @@ pub fn snapshot(index: usize) -> Option<(&'static str, Vec<u8>, bool)> {
     })
 }
 
+/// One row of [`stats_snapshot`] (issue #144): the task-table view the
+/// system-stats syscall copies into its fixed ABI layout. It carries no
+/// addresses or credentials, so it is safe to hand to any task.
+#[derive(Clone, Copy)]
+pub struct StatsRow {
+    /// Whether the slot is occupied (a `Done` zombie still counts).
+    pub present: bool,
+    /// Pid (the slot, see [`process`]).
+    pub pid: usize,
+    /// Parent pid; `0` is the kernel/init task.
+    pub ppid: usize,
+    /// Scheduler-visible state.
+    pub state: TaskState,
+    /// Scheduling class.
+    pub class: PriorityClass,
+    /// Weight inside the class.
+    pub weight: u16,
+    /// CPU ticks (100 Hz) charged to this task.
+    pub cpu_ticks: u64,
+    /// Task name (already interned to `'static`).
+    pub name: &'static str,
+}
+
+impl StatsRow {
+    /// Placeholder for an empty slot; `present` is false.
+    const EMPTY: StatsRow = StatsRow {
+        present: false,
+        pid: 0,
+        ppid: 0,
+        state: TaskState::Done,
+        class: PriorityClass::Normal,
+        weight: 0,
+        cpu_ticks: 0,
+        name: "",
+    };
+}
+
+/// A whole-table task snapshot for the system-stats syscall (issue #144).
+pub struct TaskStats {
+    /// One row per scheduler slot (empty slots are `present == false`).
+    pub rows: [StatsRow; MAX_TASKS],
+    /// Occupied slots whose state is not `Done`.
+    pub live: usize,
+}
+
+/// Snapshot the task table (one row per slot, no allocation). Takes only the
+/// task-table lock, so it can never nest inside another subsystem's lock.
+pub fn stats_snapshot() -> TaskStats {
+    let tasks = TASKS.lock();
+    let mut snapshot = TaskStats {
+        rows: [StatsRow::EMPTY; MAX_TASKS],
+        live: 0,
+    };
+    for (slot, task) in tasks.iter().enumerate() {
+        let Some(task) = task else { continue };
+        snapshot.rows[slot] = StatsRow {
+            present: true,
+            pid: slot,
+            ppid: task.parent,
+            state: task.state,
+            class: task.class,
+            weight: task.weight,
+            cpu_ticks: task.cpu_ticks,
+            name: task.name,
+        };
+        if task.state != TaskState::Done {
+            snapshot.live += 1;
+        }
+    }
+    snapshot
+}
+
 /// Test-harness hooks (issue #62), compiled only with `LAZYOS_TESTS=1`. They let
 /// the in-kernel suite drive task bookkeeping without a running scheduler.
 #[cfg(laZYOS_TESTS)]
