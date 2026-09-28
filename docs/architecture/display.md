@@ -65,8 +65,27 @@ compositor demo. Target toolkit design: [xui-plan.md](../xui-plan.md).
   and `LAZYOS_XUI_APP=<path>` are set; the kernel then boots it *instead of*
   the `xuid` + `xdemo` session, because the app owns the display grant itself
   (`bind`/`present`/`input_poll`) and paints full-screen. Default
-  `LAZYOS_XUID=1` is unchanged. Running the app as a `xuid` client over the
-  compositor protocol is the remaining step.
+  `LAZYOS_XUID=1` is unchanged.
+- **Client mode** (issue #168) adds `xui-client`
+  (`xui-app/src/bin/client.rs`): with `LAZYOS_XUI_CLIENT=1` as well, the
+  kernel boots `xuid` *and* the app, which never binds the grant.
+  `LazyOSBackend::new_client` resolves `os.lazy.display.v1` over the raw
+  syscall-5 shim, creates a surface, attaches a display shared buffer
+  (`create_buffer`), commits per-node damage rectangles, and consumes
+  `POINTER_*`, `KEY_*` and `WINDOW_CLOSE` events from its event endpoint. The
+  WM (drag, minimize, taskbar, close) runs in `xuid` and works on the app
+  window; the session is scripted in
+  `tools/screenshot/examples/xui_client.json` and captured by the workflow.
+  Two `xuid` protocol gaps are worked around in the client backend and worth
+  tightening later: `PointerDown`/`PointerUp` carry surface-relative
+  coordinates but no button id, and `PointerMove` carries screen-absolute
+  coordinates (the client recovers the surface origin from the last press).
+- **Keyboard focus routing** (issue #151) is mode-independent: a pointer press
+  on a focus stop moves the backend focus, `SetFocus`/`KillFocus` reach the
+  widgets, and `KeyDown`/`KeyUp`/`Char` target the focused node, not the node
+  under the pointer. `Tab` cycles focus when the app owns the display;
+  in client mode `xuid` reserves `Tab`, so `PageDown`/`PageUp` cycle instead
+  (the kernel's PS/2 driver decodes neither F-keys nor a distinct Ctrl+Tab).
 - Issue #153 adds the first windowed system-state viewers on that backend:
   `sysmon` renders the syscall-14 snapshot (frame/slab/heap gauges, uptime, the
   task table) and `fabricmon` renders the syscall-5 fabric (registry names with
@@ -182,7 +201,10 @@ focus cycling; `XUID:WM:PASS`), compositor-mediated drag & drop with a
 clipboard-token transfer (`dragdemo`; `DND:*:PASS`), the shell protocol
 (desktop role, surface list/work-area/theme read-backs, shell events, global
 Alt+Tab/Ctrl+Esc/Alt+F4 hotkeys; `SHELLPROBE:*:PASS`), the xui app milestones
-M0-M2 (`XUIAPP:*:PASS`) and the sysmon/fabricmon viewers (`SYSMON:*`/`FABMON:*`
-markers, screenshots in the `xui-app` workflow). Open: zero-copy scanout,
-running the xui app as a compositor client, userspace XUI toolkit, multi-session
-compositors, drag targets that can refuse a drop before release.
+M0-M2 (`XUIAPP:*:PASS`), the sysmon/fabricmon viewers (`SYSMON:*`/`FABMON:*`
+markers, screenshots in the `xui-app` workflow), compositor client mode
+(`xui-client` inside a `xuid` window; `XUIAPP:CLIENT:PASS`, `XUIAPP:KEY:PASS`,
+`XUIAPP:CLOSE:PASS`) and keyboard focus routing (click-focus, Tab /
+PageDown cycling, keys to the focused widget). Open: zero-copy scanout,
+tightening the pointer-event payloads noted above, userspace XUI toolkit,
+multi-session compositors, drag targets that can refuse a drop before release.

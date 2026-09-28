@@ -176,13 +176,23 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         // milestones drive the kernel input queue and the screen buffer
         // directly), so the two cannot run together. The `xuid` + `xdemo` demo
         // is unchanged when only `LAZYOS_XUID=1` is set.
+        //
+        // Issue #168: with `LAZYOS_XUI_CLIENT=1` as well, the app runs as a
+        // `xuid` client instead: the compositor owns the grant and the app
+        // gets a decorated window over `os.lazy.display.v1`. No `xdemo` is
+        // spawned, so the app is the first (and only) surface and is laid out
+        // at the top-left corner.
         #[cfg(all(xuid_demo, not(xui_app)))]
         spawn_program("xuid", "XUID.ELF");
         #[cfg(all(xuid_demo, not(xui_app)))]
         spawn_program("xdemo", "XDEMO.ELF");
         #[cfg(all(xuid_demo, not(xui_app)))]
         spawn_program("xdemo", "XDEMO.ELF");
-        #[cfg(xui_app)]
+        #[cfg(all(xui_app, not(xui_client)))]
+        spawn_linux_program("xapp", "XAPP.ELF");
+        #[cfg(xui_client)]
+        spawn_program("xuid", "XUID.ELF");
+        #[cfg(xui_client)]
         spawn_linux_program("xapp", "XAPP.ELF");
 
         // Issue #145: the drag & drop demo pair. `dragdemo` is a launcher that

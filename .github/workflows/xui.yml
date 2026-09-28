@@ -59,12 +59,13 @@ jobs:
           set -euo pipefail
           mkdir -p target/xui
           python tools/xui/build.py | tee target/xui/build.json
-          m0=""; counter=""; sysmon=""; fabricmon=""
+          m0=""; counter=""; sysmon=""; fabricmon=""; client=""
           if python -c "import json,sys; sys.exit(0 if 'xui-m0' in json.load(open('target/xui/build.json')) else 1)"; then
             m0="$(pwd)/target/xui/xui-m0.elf"
             counter="$(pwd)/target/xui/xui-counter.elf"
             sysmon="$(pwd)/target/xui/xui-sysmon.elf"
             fabricmon="$(pwd)/target/xui/xui-fabricmon.elf"
+            client="$(pwd)/target/xui/xui-client.elf"
           else
             echo "::warning::xui app unavailable; skipping the visual run"
           fi
@@ -72,6 +73,7 @@ jobs:
           echo "counter=$counter" >> "$GITHUB_OUTPUT"
           echo "sysmon=$sysmon" >> "$GITHUB_OUTPUT"
           echo "fabricmon=$fabricmon" >> "$GITHUB_OUTPUT"
+          echo "client=$client" >> "$GITHUB_OUTPUT"
           ls -l target/xui/*.elf || true
 
       # M0: the gradient proves bind/present from a static musl program.
@@ -142,13 +144,35 @@ jobs:
           grep -q "FABMON:REFRESH:PASS" shots/fabmon/serial.log
           grep -q "FABMON:QUIT:PASS" shots/fabmon/serial.log
 
+      # Client mode (issue #168): `xuid` runs the compositor and the app is a
+      # client in a decorated window. The session clicks the text field, types
+      # with the pointer away, focuses the counter by key cycling, drives it
+      # with Space, then exercises the WM (drag, minimize, taskbar restore,
+      # close).
+      - name: Capture client mode (window, focus routing, WM)
+        if: steps.app.outputs.client != ''
+        shell: bash
+        env:
+          LAZYOS_XUID: "1"
+          LAZYOS_XUI_CLIENT: "1"
+          LAZYOS_XUI_APP: ${{ steps.app.outputs.client }}
+        run: |
+          set -euo pipefail
+          cargo build
+          python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/client \
+            --accel none --timeout 300 --script tools/screenshot/examples/xui_client.json
+          grep -q "XUIAPP:CLIENT:PASS" shots/client/serial.log
+          grep -q "XUIAPP:KEY:PASS" shots/client/serial.log
+          grep -q "XUIAPP:COUNTER:1" shots/client/serial.log
+          grep -q "XUIAPP:CLOSE:PASS" shots/client/serial.log
+
       - name: Verify screenshots are non-blank
         if: steps.app.outputs.counter != ''
         shell: bash
         run: |
           set -euo pipefail
           shopt -s nullglob
-          pngs=(shots/m0/*.png shots/m1/*.png shots/m2/*.png shots/sysmon/*.png shots/fabmon/*.png)
+          pngs=(shots/m0/*.png shots/m1/*.png shots/m2/*.png shots/sysmon/*.png shots/fabmon/*.png shots/client/*.png)
           if [ ${#pngs[@]} -eq 0 ]; then
             echo "::error::no screenshots were captured"
             exit 1
@@ -171,6 +195,8 @@ jobs:
             shots/sysmon/serial.log
             shots/fabmon/*.png
             shots/fabmon/serial.log
+            shots/client/*.png
+            shots/client/serial.log
           if-no-files-found: error
 
   # Write-scoped job: no checkout of repository code, only the screenshots
@@ -212,7 +238,7 @@ jobs:
           prefix="runs/${GITHUB_RUN_ID}/xui"
           mkdir -p "$work/$prefix"
           shopt -s nullglob
-          for group in m0 m1 m2 sysmon fabmon; do
+          for group in m0 m1 m2 sysmon fabmon client; do
             for png in shots/$group/*.png; do
               cp "$png" "$work/$prefix/$group-$(basename "$png")"
             done
@@ -235,12 +261,12 @@ jobs:
           sha="${{ steps.publish.outputs.sha }}"
           prefix="${{ steps.publish.outputs.prefix }}"
           {
-            echo "### xui app on LazyOS (M0-M2 + viewers)"
+            echo "### xui app on LazyOS (M0-M2 + viewers + compositor client)"
             echo
             echo "_commit \`${GITHUB_SHA:0:7}\` — run [${GITHUB_RUN_ID}](https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID})_"
             echo
             shopt -s nullglob
-            for group in m0 m1 m2 sysmon fabmon; do
+            for group in m0 m1 m2 sysmon fabmon client; do
               for png in shots/$group/*.png; do
                 name="$group-$(basename "$png")"
                 echo "**${name}**"
@@ -249,9 +275,9 @@ jobs:
                 echo
               done
             done
-            for log in shots/m0/serial.log shots/m2/serial.log shots/sysmon/serial.log shots/fabmon/serial.log; do
+            for log in shots/m0/serial.log shots/m2/serial.log shots/sysmon/serial.log shots/fabmon/serial.log shots/client/serial.log; do
               if [ -f "$log" ]; then
-                echo "<details><summary>${log} (xui/sysmon/fabricmon markers)</summary>"
+                echo "<details><summary>${log} (xui/sysmon/fabricmon/client markers)</summary>"
                 echo
                 echo '```'
                 grep -E "XUIAPP|SYSMON|FABMON" "$log" || true

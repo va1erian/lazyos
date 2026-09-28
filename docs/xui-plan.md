@@ -134,7 +134,7 @@ deliberately **not** `winit`, `softbuffer`, `glutin`, `glow`, `xui-gpu`.
 - M2 input mapping: medium.
 - M3 polish: ongoing.
 
-## Status (issues #114, #153)
+## Status (issues #114, #153, #168)
 
 Landed in `xui-app/` (a standalone static-musl workspace built by
 `tools/xui/build.py`, embedded as `XAPP.ELF` with `LAZYOS_XUID=1` +
@@ -166,15 +166,41 @@ per-line horizontal alignment for natural-width runs, and `Surface::pixels`
 for a clone-free present), and `xui-app/Cargo.toml` patches the git dependency
 onto it, so `xui-core` still resolves from `va1erian/xui` at `rev = "2747818"`.
 
+**Compositor client (M3a, issue #168)** — `src/bin/client.rs` (`xui-client`)
+runs the same counter + an `Edit` text field as a `xuid` client:
+`LazyOSBackend::new_client` resolves `os.lazy.display.v1` through the raw
+syscall-5 shim, creates a surface, attaches a display shared buffer
+(`create_buffer` op 4), commits damage rectangles per invalidated node, and
+consumes pointer/key/`WINDOW_CLOSE` events from its event endpoint. The
+compositor chrome (drag, minimize, taskbar, close) is `xuid`'s, and a title-bar
+drag works on the app window. Build with `LAZYOS_XUID=1`, `LAZYOS_XUI_CLIENT=1`
+and `LAZYOS_XUI_APP=<xui-client.elf>`; the kernel then spawns `xuid` + the app
+and no `xdemo`, so the app is the first surface at the top-left. Owner mode
+(`LAZYOS_XUI_APP` without `LAZYOS_XUI_CLIENT`) is unchanged.
+
+**Keyboard focus routing (issue #151)** — the backend now tracks focus stops
+(the Tab-order nodes plus button-like controls), moves focus on a pointer press
+that lands on one, delivers `SetFocus`/`KillFocus`, and routes `KeyDown`,
+`KeyUp` and `Char` to the focused node rather than the node under the pointer.
+`Tab` cycles focus when no compositor reserves it; with `xuid` running (client
+mode) `PageDown`/`PageUp` do, because `xuid` consumes `Tab` for surface focus
+and the kernel's PS/2 driver does not decode function keys. The client session
+clicks the `Edit`, moves the pointer away and types (`XUIAPP:KEY:PASS`), cycles
+to the counter button and activates it with Space (`XUIAPP:COUNTER:1`), then
+cycles back and types again.
+
 `tools/screenshot/examples/xui_counter.json` scripts the M2 click;
 `tools/screenshot/examples/xui_sysmon.json` and `xui_fabricmon.json` script the
-viewers. `.github/workflows/xui.yml` builds the app, boots each image
-headlessly, and checks the serial markers and pixels.
+viewers, and `tools/screenshot/examples/xui_client.json` the client-mode
+session (focus routing, key-driven counter, drag, minimize/restore, close).
+`.github/workflows/xui.yml` builds the app, boots each image headlessly, and
+checks the serial markers and pixels.
 
-**Remaining** (the M3 list plus integration): running as a `xuid` client over
-`os.lazy.display.v1` (the milestones own the grant directly, so one app
-occupies the screen), resize, DPI changes, and `std::thread` workers via
-`proxy()`.
+**Remaining** (the M3 list): resize, DPI changes, zero-copy scanout, and
+`std::thread` workers via `proxy()`. Protocol gaps found while writing the
+client (documented in `docs/architecture/display.md`): `PointerDown`/`PointerUp`
+carry surface-relative coordinates but no button id, and `PointerMove` carries
+screen-absolute coordinates.
 
 ## Smallest first step
 

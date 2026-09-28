@@ -173,6 +173,9 @@ fn main() {
     // the kernel boots it instead of the `xuid` + `xdemo` session, because the
     // app binds the display grant itself (it is the session's compositor).
     // Without `LAZYOS_XUID=1` the file is only embedded, never spawned.
+    // Issue #168 adds `LAZYOS_XUI_CLIENT=1`: the app then runs *as a client*
+    // of `xuid`, which the kernel spawns alongside it.
+    println!("cargo:rerun-if-env-changed=LAZYOS_XUI_CLIENT");
     println!("cargo:rerun-if-env-changed=LAZYOS_XUI_APP");
     if let Some(app) = std::env::var_os("LAZYOS_XUI_APP") {
         let app = PathBuf::from(app);

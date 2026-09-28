@@ -16,6 +16,7 @@ CI and an AI agent can *see* what LazyOS renders, without a physical display.
 | `examples/window_demo.json` | Session script exercising window move/scroll. |
 | `examples/xuid_wm.json` | Session script exercising xuid window management (drag, raise, taskbar, close). |
 | `examples/xuid_shell.json` | Session script exercising the shell protocol (desktop, Alt+F4, Alt+Tab overlay, Ctrl+Esc) on a `LAZYOS_XUID=1` + `LAZYOS_SHELLPROBE=1` image. |
+| `examples/xui_client.json` | Session script for the xui app as a xuid client (focus routing, key-driven counter, drag, minimize/restore, close). |
 | `examples/cli_demo.json` | Session script for the CLI demos (help, box, ball). |
 | `examples/bench.json` | Session script that runs the `bench` command. |
 | `examples/user_demo.json` | Session script that runs the ring-3 `HELLO.ELF` program. |
