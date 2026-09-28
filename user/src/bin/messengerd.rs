@@ -678,23 +678,25 @@ impl Broker {
                 }
                 match peek(&self.subscriptions[index]) {
                     Some(event) => {
-                        let parcel = match topics_client::reply_event(&event) {
-                            Ok(parcel) => parcel,
+                        let sequence = event.sequence;
+                        let encoded = topics_client::reply_event(event);
+                        match encoded {
+                            Ok(parcel) => {
+                                outcome.reply = Some(parcel);
+                                outcome.delivery = Some(Delivery {
+                                    subscription: id,
+                                    sequence,
+                                });
+                            }
                             Err(_) => {
                                 // The event can't be encoded into a reply
                                 // (e.g. too large for the buffer): drop it so
                                 // a retry sees the next one instead of
                                 // hitting the same unencodable head forever.
-                                self.drop_undeliverable(id, event.sequence);
+                                self.drop_undeliverable(id, sequence);
                                 return Err(messenger::Error::Topics(errno::E2BIG));
                             }
-                        };
-                        self.subscriptions[index].delivered += 1;
-                        outcome.reply = Some(parcel);
-                        outcome.delivery = Some(Delivery {
-                            subscription: id,
-                            sequence: event.sequence,
-                        });
+                        }
                     }
                     None => {
                         let txn = txn.ok_or(messenger::Error::Topics(errno::EINVAL))?;
@@ -852,15 +854,16 @@ impl Broker {
             };
             match peek(&self.subscriptions[sub_index]) {
                 Some(event) => {
+                    let sequence = event.sequence;
+                    let encoded = topics_client::reply_event(event);
                     self.pending.remove(index);
-                    match topics_client::reply_event(&event) {
+                    match encoded {
                         Ok(parcel) => {
-                            self.subscriptions[sub_index].delivered += 1;
                             wakes.push(Wake {
                                 txn: pending.txn,
                                 parcel,
                                 subscription: pending.subscription,
-                                sequence: event.sequence,
+                                sequence,
                             });
                         }
                         Err(_) => {
@@ -870,7 +873,7 @@ impl Broker {
                             // unencodable head forever. This parked pull
                             // gets no reply from this round; the caller's
                             // own deadline (or its next poll) covers it.
-                            self.drop_undeliverable(pending.subscription, event.sequence);
+                            self.drop_undeliverable(pending.subscription, sequence);
                         }
                     }
                 }
@@ -917,10 +920,15 @@ impl Broker {
     /// Retire the event a successful reply carried. The head is checked by
     /// sequence, so a late commit cannot pop a newer event (`reliable`
     /// subscriptions do not pop at all; their events retire on [`ACK`]).
+    /// `delivered` is counted here rather than where the reply is built,
+    /// since only a reply that actually reached the subscriber (a `commit`)
+    /// is a real delivery; counting earlier risked a double count when the
+    /// reply failed and the same still-queued event was delivered again.
     fn commit(&mut self, id: u64, sequence: u64) {
         let Some(sub) = self.subscriptions.iter_mut().find(|sub| sub.id == id) else {
             return;
         };
+        sub.delivered += 1;
         match sub.qos {
             topics_client::Qos::Reliable => {}
             topics_client::Qos::Conflate => {
@@ -1055,13 +1063,14 @@ fn enqueue(sub: &mut Subscription, event: topics_client::Event) {
 
 /// The next event for a subscription, without consuming it: the pop happens
 /// in [`Broker::commit`] once the reply carrying the event has reached the
-/// subscriber.
-fn peek(sub: &Subscription) -> Option<topics_client::Event> {
+/// subscriber. Borrowed rather than cloned: `reply_event` only needs to read
+/// it, and cloning a payload-sized event on every poll is an avoidable copy.
+fn peek(sub: &Subscription) -> Option<&topics_client::Event> {
     match sub.qos {
-        topics_client::Qos::Conflate => sub.conflated.first().map(|(_, event)| event.clone()),
+        topics_client::Qos::Conflate => sub.conflated.first().map(|(_, event)| event),
         topics_client::Qos::Reliable
         | topics_client::Qos::Latest
-        | topics_client::Qos::Buffered(_) => sub.queue.front().cloned(),
+        | topics_client::Qos::Buffered(_) => sub.queue.front(),
     }
 }
 
