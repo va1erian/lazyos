@@ -1,4 +1,4 @@
-[package]
+﻿[package]
 name = "lazyos"
 version = "0.1.0"
 edition = "2021"
@@ -6,7 +6,7 @@ description = "A small single-tasking x86_64 OS with a bitmap-font console"
 license = "MIT OR Apache-2.0"
 
 [workspace]
-members = ["kernel", "font-atlas", "user", "libs/messenger"]
+members = ["kernel", "font-atlas", "user", "libs/messenger", "libs/generated"]
 resolver = "2"
 
 [build-dependencies]
@@ -40,3 +40,4 @@ lto = "fat"
 codegen-units = 1
 debug = false
 strip = "debuginfo"
+

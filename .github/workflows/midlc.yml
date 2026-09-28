@@ -1,0 +1,32 @@
+name: midlc
+
+# Messenger IDL compiler (issue #90): compiler unit tests, generated-code
+# drift check, and host round-trip tests for the generated stubs.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: midlc-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  midlc:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compiler tests
+        run: python tools/midlc/test_midlc.py
+
+      - name: Generated stubs are up to date
+        run: python tools/midlc/midlc.py --check --out libs/generated/src/lib.rs idl/echo.midl
+
+      - name: Generated stubs round-trip
+        run: cargo test -p messenger-generated
