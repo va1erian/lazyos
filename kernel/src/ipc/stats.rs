@@ -243,7 +243,7 @@ impl FabricStats {
     }
 
     /// Encode as little-endian words in field order (the syscall wire form).
-    pub fn to_bytes(&self) -> Vec<u8> {
+    pub fn to_bytes(self) -> Vec<u8> {
         let mut words: Vec<u64> = Vec::with_capacity(WORDS);
         words.push(self.version);
         words.push(self.services);

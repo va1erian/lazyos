@@ -20,8 +20,8 @@ fn echo_args_roundtrip() {
         text: "hello messenger".into(),
         count: 15,
     };
-    let body = encode_Echo_args(&args).unwrap();
-    assert_eq!(decode_Echo_args(&body).unwrap(), args);
+    let body = encode_echo_args(&args).unwrap();
+    assert_eq!(decode_echo_args(&body).unwrap(), args);
 }
 
 #[test]
@@ -29,15 +29,15 @@ fn echo_reply_roundtrip() {
     let reply = EchoReply {
         reply: "hello messenger".into(),
     };
-    let body = encode_Echo_reply(&reply).unwrap();
-    assert_eq!(decode_Echo_reply(&body).unwrap(), reply);
+    let body = encode_echo_reply(&reply).unwrap();
+    assert_eq!(decode_echo_reply(&body).unwrap(), reply);
 }
 
 #[test]
 fn ping_reply_roundtrip() {
     let reply = PingReply { alive: true };
-    let body = encode_Ping_reply(&reply).unwrap();
-    assert_eq!(decode_Ping_reply(&body).unwrap(), reply);
+    let body = encode_ping_reply(&reply).unwrap();
+    assert_eq!(decode_ping_reply(&body).unwrap(), reply);
 }
 
 #[test]
@@ -48,8 +48,8 @@ fn notify_carries_a_struct() {
             at: 42,
         },
     };
-    let body = encode_Notify_args(&args).unwrap();
-    assert_eq!(decode_Notify_args(&body).unwrap(), args);
+    let body = encode_notify_args(&args).unwrap();
+    assert_eq!(decode_notify_args(&body).unwrap(), args);
 }
 
 #[test]
@@ -59,11 +59,11 @@ fn unknown_fields_are_ignored() {
         text: "x".into(),
         count: 1,
     };
-    let mut body = encode_Echo_args(&args).unwrap();
+    let mut body = encode_echo_args(&args).unwrap();
     let mut extra = libmessenger::Encoder::new();
     extra.u32(99, 7).unwrap();
     body.extend_from_slice(extra.as_bytes());
-    assert_eq!(decode_Echo_args(&body).unwrap(), args);
+    assert_eq!(decode_echo_args(&body).unwrap(), args);
 }
 
 #[test]

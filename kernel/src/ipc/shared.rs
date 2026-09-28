@@ -296,7 +296,7 @@ pub struct BufferInfo {
 }
 
 /// Borrow (creating on first use) the accounting record for `slot`.
-fn use_of<'a>(registry: &'a mut Registry, slot: usize) -> &'a mut Use {
+fn use_of(registry: &mut Registry, slot: usize) -> &mut Use {
     if let Some(index) = registry.uses.iter().position(|used| used.slot == slot) {
         return &mut registry.uses[index];
     }
@@ -361,15 +361,13 @@ fn unmap_slot(buffer: &mut Buffer, slot: usize) {
 /// initial allocation in [`create`] already provides the first reference;
 /// mappings hold their own. Undoes a partial acquisition on failure.
 fn share_frames(frames: &[PhysAddr]) -> bool {
-    let mut shared = 0usize;
-    for frame in frames {
+    for (shared, frame) in frames.iter().enumerate() {
         if !mem::share_frame(*frame) {
             for previous in &frames[..shared] {
                 mem::free_frame(*previous);
             }
             return false;
         }
-        shared += 1;
     }
     true
 }
@@ -815,8 +813,10 @@ pub fn fence_wait(handle: u64, sequence: u64, deadline: Option<u64>) -> Result<(
 /// Aggregate counters across every live buffer.
 pub fn stats() -> Stats {
     let registry = REGISTRY.lock();
-    let mut stats = Stats::default();
-    stats.buffers = registry.buffers.len() as u64;
+    let mut stats = Stats {
+        buffers: registry.buffers.len() as u64,
+        ..Default::default()
+    };
     for buffer in &registry.buffers {
         stats.bytes += buffer.size;
         stats.mappings += buffer.mappings.len() as u64;

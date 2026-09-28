@@ -345,6 +345,12 @@ RUST_TYPE = {
 }
 
 
+def snake_case(name: str) -> str:
+    """PascalCase IDL name -> snake_case Rust identifier, for function names
+    built from a type/method name (the type itself stays PascalCase)."""
+    return re.sub(r"(?<!^)(?=[A-Z])", "_", name).lower()
+
+
 def rust_type(ty: Type) -> str:
     if ty.name in SCALARS:
         return SCALARS[ty.name][0]
@@ -357,16 +363,23 @@ def rust_type(ty: Type) -> str:
     return ty.name  # named struct
 
 
+def deref(value: str) -> str:
+    """Copy expression for a Copy scalar `value`: strip a literal leading `&`
+    (an owning field access, e.g. `&value.at` -> `value.at`) rather than
+    writing `*&value.at`, which is what a plain `*{value}` would produce."""
+    return value[1:] if value.startswith("&") else f"*{value}"
+
+
 def encode_lines(ty: Type, *, id: int, value: str, indent: str) -> list[str]:
     """Lines writing `value` into `target` as field `id`."""
     if ty.name in SCALARS:
-        return [f"{indent}target.{SCALARS[ty.name][1]}({id}, *{value})?;"]
+        return [f"{indent}target.{SCALARS[ty.name][1]}({id}, {deref(value)})?;"]
     if ty.name == "String":
         return [f"{indent}target.string({id}, {value})?;"]
     if ty.name == "Bytes":
         return [f"{indent}target.bytes({id}, {value})?;"]
     if ty.name == "Handle":
-        return [f"{indent}target.handle({id}, *{value})?;"]
+        return [f"{indent}target.handle({id}, {deref(value)})?;"]
     if ty.name == "Buffer":
         return [f"{indent}target.buffer({id}, {value})?;"]
     if ty.name == "Array":
@@ -385,7 +398,7 @@ def encode_lines(ty: Type, *, id: int, value: str, indent: str) -> list[str]:
         lines += [f"{indent}}}"]
         return lines
     # Named struct: encode as a nested record.
-    return [f"{indent}target.raw(Kind::Struct, {id}, &encode_{ty.name}({value})?)?;"]
+    return [f"{indent}target.raw(Kind::Struct, {id}, &encode_{snake_case(ty.name)}({value})?)?;"]
 
 
 DECODE_EXPR = {
@@ -428,12 +441,12 @@ def decode_block(ty: Type, *, target: str, indent: str) -> list[str]:
         if inner.name in ITEM_EXPR:
             lines.append(f"{indent}    {target}.push({ITEM_EXPR[inner.name]});")
         else:
-            lines.append(f"{indent}    {target}.push(decode_{inner.name}(item.payload)?);")
+            lines.append(f"{indent}    {target}.push(decode_{snake_case(inner.name)}(item.payload)?);")
         lines.append(f"{indent}}}")
         return lines
     if ty.name == "Option":
         inner = ty.args[0]
-        expr = ITEM_EXPR.get(inner.name, f"decode_{inner.name}(item.payload)?")
+        expr = ITEM_EXPR.get(inner.name, f"decode_{snake_case(inner.name)}(item.payload)?")
         return [
             f"{indent}if field.payload.is_empty() {{",
             f"{indent}    {target} = None;",
@@ -443,7 +456,27 @@ def decode_block(ty: Type, *, target: str, indent: str) -> list[str]:
             f"{indent}    {target} = Some({expr});",
             f"{indent}}}",
         ]
-    return [f"{indent}{target} = decode_{ty.name}(field.payload)?;"]
+    return [f"{indent}{target} = decode_{snake_case(ty.name)}(field.payload)?;"]
+
+
+def emit_field_dispatch(fields: list[Param], target_prefix: str, indent: str) -> list[str]:
+    """Decode loop body dispatching on `field.id`: one field is an `if` (a
+    `match` against a single value plus a wildcard arm is just an equality
+    check), more than one is a real `match`."""
+    if len(fields) == 1:
+        f = fields[0]
+        lines = [f"{indent}if field.id == 1 {{"]
+        lines += decode_block(f.ty, target=f"{target_prefix}.{f.name}", indent=indent + "    ")
+        lines.append(f"{indent}}}")
+        return lines
+    lines = [f"{indent}match field.id {{"]
+    for index, f in enumerate(fields, start=1):
+        lines.append(f"{indent}    {index} => {{")
+        lines += decode_block(f.ty, target=f"{target_prefix}.{f.name}", indent=indent + "        ")
+        lines.append(f"{indent}    }}")
+    lines.append(f"{indent}    _ => {{}}")
+    lines.append(f"{indent}}}")
+    return lines
 
 
 def emit_struct(name: str, fields: list[Param], doc: str) -> str:
@@ -456,24 +489,18 @@ def emit_struct(name: str, fields: list[Param], doc: str) -> str:
         lines.append(f"        pub {f.name}: {rust_type(f.ty)},")
     lines.append("    }")
     lines.append("")
-    lines.append(f"    pub fn encode_{name}(value: &{name}) -> Result<Vec<u8>, Error> {{")
+    lines.append(f"    pub fn encode_{snake_case(name)}(value: &{name}) -> Result<Vec<u8>, Error> {{")
     lines.append("        let mut target = Encoder::new();")
     for index, f in enumerate(fields, start=1):
         lines += encode_lines(f.ty, id=index, value=f"&value.{f.name}", indent="        ")
     lines.append("        Ok(target.finish())")
     lines.append("    }")
     lines.append("")
-    lines.append(f"    pub fn decode_{name}(body: &[u8]) -> Result<{name}, Error> {{")
+    lines.append(f"    pub fn decode_{snake_case(name)}(body: &[u8]) -> Result<{name}, Error> {{")
     lines.append(f"        let mut out = {name}::default();")
     lines.append("        let mut decoder = Decoder::new(body);")
     lines.append("        while let Some(field) = decoder.next()? {")
-    lines.append("            match field.id {")
-    for index, f in enumerate(fields, start=1):
-        lines.append(f"                {index} => {{")
-        lines += decode_block(f.ty, target=f"out.{f.name}", indent="                    ")
-        lines.append("                }")
-    lines.append("                _ => {}")
-    lines.append("            }")
+    lines += emit_field_dispatch(fields, "out", indent="            ")
     lines.append("        }")
     lines.append("        Ok(out)")
     lines.append("    }")
@@ -488,24 +515,18 @@ def emit_message(method_name: str, kind: str, params: list[Param]) -> str:
         lines.append(f"        pub {p.name}: {rust_type(p.ty)},")
     lines.append("    }")
     lines.append("")
-    lines.append(f"    pub fn encode_{method_name}_{kind}(value: &{struct_name}) -> Result<Vec<u8>, Error> {{")
+    lines.append(f"    pub fn encode_{snake_case(method_name)}_{kind}(value: &{struct_name}) -> Result<Vec<u8>, Error> {{")
     lines.append("        let mut target = Encoder::new();")
     for index, p in enumerate(params, start=1):
         lines += encode_lines(p.ty, id=index, value=f"&value.{p.name}", indent="        ")
     lines.append("        Ok(target.finish())")
     lines.append("    }")
     lines.append("")
-    lines.append(f"    pub fn decode_{method_name}_{kind}(body: &[u8]) -> Result<{struct_name}, Error> {{")
+    lines.append(f"    pub fn decode_{snake_case(method_name)}_{kind}(body: &[u8]) -> Result<{struct_name}, Error> {{")
     lines.append(f"        let mut out = {struct_name}::default();")
     lines.append("        let mut decoder = Decoder::new(body);")
     lines.append("        while let Some(field) = decoder.next()? {")
-    lines.append("            match field.id {")
-    for index, p in enumerate(params, start=1):
-        lines.append(f"                {index} => {{")
-        lines += decode_block(p.ty, target=f"out.{p.name}", indent="                    ")
-        lines.append("                }")
-    lines.append("                _ => {}")
-    lines.append("            }")
+    lines += emit_field_dispatch(params, "out", indent="            ")
     lines.append("        }")
     lines.append("        Ok(out)")
     lines.append("    }")

@@ -4094,7 +4094,10 @@ mod linux_suite {
             );
             let (r, w) = (fds[0] as u64, fds[1] as u64);
             let edge = epoll_event(EPOLLIN | EPOLLET, tag);
-            check!(epoll_ctl(epfd, EPOLL_CTL_ADD, r, &edge) == 0, "ADD {tag} failed");
+            check!(
+                epoll_ctl(epfd, EPOLL_CTL_ADD, r, &edge) == 0,
+                "ADD {tag} failed"
+            );
             check!(write_fd(w, b"x") == 1, "pipe {tag} write");
             ends.push((r, w));
         }
@@ -4106,7 +4109,10 @@ mod linux_suite {
                 "round {round}: a pending edge was lost past maxevents"
             );
             let (_, data) = unpack_event(&one);
-            check!(!seen.contains(&data), "round {round}: edge {data} reported twice");
+            check!(
+                !seen.contains(&data),
+                "round {round}: edge {data} reported twice"
+            );
             seen.push(data);
         }
         check!(
@@ -4139,7 +4145,10 @@ mod linux_suite {
             );
             let (r, w) = (fds[0] as u64, fds[1] as u64);
             let interest = epoll_event(events, tag);
-            check!(epoll_ctl(epfd, EPOLL_CTL_ADD, r, &interest) == 0, "ADD {tag} failed");
+            check!(
+                epoll_ctl(epfd, EPOLL_CTL_ADD, r, &interest) == 0,
+                "ADD {tag} failed"
+            );
             check!(write_fd(w, b"x") == 1, "pipe {tag} write");
             ends.push((r, w));
         }
@@ -4466,14 +4475,20 @@ mod linux_suite {
         );
         check!(task::fd_close(listener as usize), "close listener failed");
         let eof = read_fd(orphan, &mut buf);
-        check!(eof == 0, "orphaned client read returned {eof:#x}, expected EOF");
+        check!(
+            eof == 0,
+            "orphaned client read returned {eof:#x}, expected EOF"
+        );
 
         for fd in [client, server, orphan] {
             check!(task::fd_close(fd as usize), "cleanup close failed");
         }
         check!(fds_clean(), "early-write test left a descriptor");
         check!(unix::bound_count() == 0, "bound name survived its listener");
-        check!(pipe::Pipe::live() == 0, "a pending connection leaked a pipe");
+        check!(
+            pipe::Pipe::live() == 0,
+            "a pending connection leaked a pipe"
+        );
         Ok(())
     }
 
@@ -11965,8 +11980,7 @@ mod sysinfo_suite {
     /// A full snapshot through the syscall entry, decoded as raw words.
     fn snapshot() -> Result<[u64; sysinfo::WORDS], String> {
         in_space(|| {
-            let code =
-                process::dispatch_for_test(14, sysinfo::op::SNAPSHOT, SPACE, sysinfo::SIZE);
+            let code = process::dispatch_for_test(14, sysinfo::op::SNAPSHOT, SPACE, sysinfo::SIZE);
             check!(code == sysinfo::SIZE, "snapshot -> {code:#x}");
             let mut words = [0u64; sysinfo::WORDS];
             for (index, word) in words.iter_mut().enumerate() {
@@ -12053,9 +12067,15 @@ mod sysinfo_suite {
             ] {
                 let code =
                     process::dispatch_for_test(14, sysinfo::op::SNAPSHOT, buf, sysinfo::SIZE);
-                check!(code == failed(14), "sysinfo {label} -> {code:#x}, expected -EFAULT");
+                check!(
+                    code == failed(14),
+                    "sysinfo {label} -> {code:#x}, expected -EFAULT"
+                );
                 let code = process::dispatch_for_test(13, buf, 0, 0);
-                check!(code == failed(14), "sys_tasks {label} -> {code:#x}, expected -EFAULT");
+                check!(
+                    code == failed(14),
+                    "sys_tasks {label} -> {code:#x}, expected -EFAULT"
+                );
             }
             let code = process::dispatch_for_test(13, SPACE, 0, 0);
             check!(code == 0, "sys_tasks into a mapped buffer -> {code:#x}");

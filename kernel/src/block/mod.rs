@@ -64,7 +64,7 @@ pub fn check_range(
     lba: u64,
     bytes: usize,
 ) -> Result<usize, BlockError> {
-    if sector_size == 0 || bytes % sector_size != 0 {
+    if sector_size == 0 || !bytes.is_multiple_of(sector_size) {
         return Err(BlockError::Unsupported);
     }
     let sectors = (bytes / sector_size) as u64;
