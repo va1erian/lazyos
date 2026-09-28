@@ -125,6 +125,23 @@ path = "src/bin/mimed.rs"
 test = false
 bench = false
 
+# `sysmond` (issue #144) is the system monitor: it wraps the native
+# system-stats syscall (13) as `os.lazy.system.v1` and republishes retained
+# `system/stats/*` topics. `top` is its one-shot native text client. `init`
+# starts both from its manifest; the on-disk names are `SYSD.ELF` and
+# `TOP.ELF` (8.3, like the other services).
+[[bin]]
+name = "sysmond"
+path = "src/bin/sysmond.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "top"
+path = "src/bin/top.rs"
+test = false
+bench = false
+
 # The display protocol stack (issue #113). `xuid` is the session compositor:
 # it binds the kernel's display device grant, implements `os.lazy.display.v1`
 # over Messenger, decorates and routes input to app surfaces. `xdemo` is the

@@ -124,6 +124,18 @@ fn main() {
             String::from("PASSWD"),
             b"root:0:0:toor:/root:/SH.ELF\nalice:1000:1000:lazy:/home/alice:/SH.ELF\n".to_vec(),
         );
+
+        // The system monitor (issue #144). `init` starts `sysmond`
+        // (`SYSD.ELF`) from its manifest; the service wraps the native
+        // system-stats syscall (13) and republishes retained `system/stats/*`
+        // topics. `TOP.ELF` is its one-shot native text client, also started
+        // by the manifest so a headless services boot records `SYS:TOP:PASS`.
+        // Both names are 8.3-safe for the kernel's short-name FAT reader.
+        let sysmond = std::env::var_os("CARGO_BIN_FILE_USER_sysmond")
+            .expect("user sysmond artifact not found");
+        builder.set_file(String::from("SYSD.ELF"), PathBuf::from(sysmond));
+        let top = std::env::var_os("CARGO_BIN_FILE_USER_top").expect("user top artifact not found");
+        builder.set_file(String::from("TOP.ELF"), PathBuf::from(top));
     }
 
     // The display protocol demo (issue #113): `LAZYOS_XUID=1` embeds the
