@@ -2227,7 +2227,7 @@ pub fn fd_advance(fd: usize, n: usize) {
 }
 
 /// Read up to `count` bytes from a file descriptor and advance its offset.
-#[cfg_attr(not(laZYOS_TESTS), allow(dead_code))] // the tests read through it
+#[cfg_attr(not(lazyos_tests), allow(dead_code))] // the tests read through it
 pub fn fd_read(fd: usize, count: usize) -> Option<Vec<u8>> {
     let bytes = fd_peek(fd, count)?;
     fd_advance(fd, bytes.len());

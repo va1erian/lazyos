@@ -225,7 +225,7 @@ pub fn dispatch_for_test(nr: u64, a1: u64, a2: u64, a3: u64) -> u64 {
 
 /// Test-harness view of [`intern_service_name`], so the suite can prove the
 /// intern table is bounded.
-#[cfg(laZYOS_TESTS)]
+#[cfg(lazyos_tests)]
 pub fn intern_service_name_for_test(name: &str) -> &'static str {
     intern_service_name(name)
 }

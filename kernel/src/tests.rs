@@ -12510,7 +12510,7 @@ mod hardening_suite {
 
     /// Turns pointer validation on for the guard's lifetime. The suite's other
     /// tests pass kernel buffers as "user" pointers, so validation is off by
-    /// default under `laZYOS_TESTS`.
+    /// default under `lazyos_tests`.
     struct Strict(bool);
 
     impl Strict {
@@ -13517,7 +13517,7 @@ mod hardening_suite {
     /// linked, so it reads as a zero-filled hole like any other gap.
     pub fn ext2_failed_write_does_not_expose_a_stale_block() -> Result<(), String> {
         task::register_kernel();
-        let (fs, mut vfs, disk) = ext2_suite::mounted(1024, 512)?;
+        let (_fs, mut vfs, disk) = ext2_suite::mounted(1024, 512)?;
         let root = Id::ROOT;
 
         // Poison one block, then free it. ext2's allocator always grabs the

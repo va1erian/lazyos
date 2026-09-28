@@ -28,7 +28,7 @@
 //!
 //! The in-kernel test suite passes kernel-stack and heap buffers to the
 //! syscall surface, which a real user pointer never is. Under
-//! `cfg(laZYOS_TESTS)` validation is therefore off by default
+//! `cfg(lazyos_tests)` validation is therefore off by default
 //! ([`set_trust_kernel_pointers`]) and the tests that exercise the checks turn
 //! it on.
 
@@ -62,20 +62,20 @@ pod!(u8, u16, u32, u64, i32, i64);
 
 /// Whether the harness disables validation so tests can hand the syscall
 /// surface kernel buffers (see the module docs).
-#[cfg(laZYOS_TESTS)]
+#[cfg(lazyos_tests)]
 static TRUST_KERNEL_POINTERS: core::sync::atomic::AtomicBool =
     core::sync::atomic::AtomicBool::new(true);
 
 /// Test-harness switch: `true` skips validation (kernel buffers pass as user
 /// pointers), `false` enforces it. Returns the previous setting.
-#[cfg(laZYOS_TESTS)]
+#[cfg(lazyos_tests)]
 pub fn set_trust_kernel_pointers(trust: bool) -> bool {
     TRUST_KERNEL_POINTERS.swap(trust, core::sync::atomic::Ordering::Relaxed)
 }
 
 /// Validate `[addr, addr + len)` for the calling task.
 fn check(addr: u64, len: usize, write: bool) -> Result<(), Fault> {
-    #[cfg(laZYOS_TESTS)]
+    #[cfg(lazyos_tests)]
     if TRUST_KERNEL_POINTERS.load(core::sync::atomic::Ordering::Relaxed) {
         return Ok(());
     }
