@@ -137,7 +137,7 @@ impl Cred {
 
     /// The user ABI's 40-byte block: `uid, gid, caps, label_id, session`, each
     /// little-endian. `process::SYS_CREDS` and `user::sys` mirror this order.
-    pub const fn to_words(&self) -> [u64; 5] {
+    pub const fn to_words(self) -> [u64; 5] {
         [
             self.uid as u64,
             self.gid as u64,

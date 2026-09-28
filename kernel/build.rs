@@ -17,9 +17,9 @@ fn main() {
     // in-kernel suite and makes `kernel_main` run it before normal boot.
     // `rerun-if-env-changed` forces a rebuild when the mode is toggled.
     println!("cargo:rerun-if-env-changed=LAZYOS_TESTS");
-    println!("cargo:rustc-check-cfg=cfg(laZYOS_TESTS)");
+    println!("cargo:rustc-check-cfg=cfg(lazyos_tests)");
     if env::var_os("LAZYOS_TESTS").as_deref() == Some(std::ffi::OsStr::new("1")) {
-        println!("cargo:rustc-cfg=laZYOS_TESTS");
+        println!("cargo:rustc-cfg=lazyos_tests");
     }
 
     // Fabric observability demo switch (issue #70): `LAZYOS_MESSENGERCTL=1`

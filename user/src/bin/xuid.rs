@@ -730,17 +730,17 @@ fn draw_drag(
         clip,
         DRAG_GHOST_BG,
     );
-    screen.fill(
-        Rect::new(ghost.x + 14, ghost.y + 2, ghost.w - 14, 12),
-        clip,
-        DRAG_GHOST_BG,
-    );
+    let label = Rect::new(ghost.x + 14, ghost.y + 2, ghost.w - 14, 12);
+    screen.fill(label, clip, DRAG_GHOST_BG);
+    // `ghost_rect` reserves room for 24 characters but a MIME string may be
+    // up to `display::MAX_MIME`; clip the text to the label so glyphs past it
+    // (outside the drag's damage) cannot leave trails as the pointer moves.
     screen.text(
         ghost.x + 18,
         ghost.y + 4,
         &session.mime,
         DRAG_ACCENT,
-        clip,
+        clip.intersect(label),
         1,
     );
 }
@@ -797,6 +797,10 @@ fn run() -> ! {
     // button is held (`DragStart` requires it).
     let mut drag_session: Option<DragSession> = None;
     let mut button_down = false;
+    // Buttons whose press the compositor consumed (taskbar, window buttons,
+    // title bar, desktop): their release is swallowed too, so no surface sees
+    // an unmatched `POINTER_UP` even if focus moved in between.
+    let mut consumed: u32 = 0;
     let mut next_id: u64 = 1;
     // Issue #167: the registered shell subscriber, the held modifiers, and the
     // open Alt+Tab overlay.
@@ -849,6 +853,7 @@ fn run() -> ! {
                             shell.as_ref(),
                             &mut mods,
                             &mut alt_tab,
+                            &mut consumed,
                         );
                     }
                 }
@@ -1008,8 +1013,11 @@ fn handle_event(
     shell: Option<&ShellSub>,
     mods: &mut Modifiers,
     alt_tab: &mut Option<AltTab>,
+    consumed: &mut u32,
 ) {
     let (screen_w, screen_h) = (screen.width(), screen.height());
+    // `consumed` bit for the button in a press/release event.
+    let button_bit = 1u32 << (event.a as u32 & 31);
     let full = Rect::new(0, 0, screen_w, screen_h);
     let bar = taskbar_visible(shell);
     match event.kind {
@@ -1098,6 +1106,7 @@ fn handle_event(
             // first; with a shell registered it is hidden and not hit-tested.
             if bar {
                 if let Some(id) = taskbar_hit(surfaces, screen_w, screen_h, point) {
+                    *consumed |= button_bit;
                     let before = *focused;
                     let was_minimized =
                         surface_by_id(surfaces, id).is_some_and(|surface| surface.minimized);
@@ -1146,6 +1155,7 @@ fn handle_event(
                     )
                 })
             else {
+                *consumed |= button_bit;
                 return;
             };
             let before = *focused;
@@ -1156,6 +1166,7 @@ fn handle_event(
             }
             let left = event.a as u32 == display::button::LEFT;
             if left && contains(close, point) {
+                *consumed |= button_bit;
                 close_surface(
                     surfaces,
                     screen,
@@ -1171,6 +1182,7 @@ fn handle_event(
                 return;
             }
             if left && contains(minimize, point) {
+                *consumed |= button_bit;
                 minimize_surface(
                     surfaces,
                     screen,
@@ -1186,6 +1198,7 @@ fn handle_event(
                 return;
             }
             if contains(title, point) {
+                *consumed |= button_bit;
                 if left {
                     *drag = Some(Drag {
                         id,
@@ -1218,12 +1231,16 @@ fn handle_event(
                 bar,
                 alt_tab.as_ref(),
             );
+            // This press goes to the surface, so its release must too: drop a
+            // stale consumed bit left by a release the input queue dropped.
+            *consumed &= !button_bit;
             let (x, y) = relative(surfaces, id, point);
             forward(surfaces, scratch, Some(id), method::POINTER_DOWN, x, y);
         }
         EventKind::PointerUp => {
             *button_down = false;
             if drag_session.is_some() {
+                *consumed &= !button_bit;
                 drag_finish(
                     drag_session,
                     surfaces,
@@ -1236,11 +1253,24 @@ fn handle_event(
                 );
                 return;
             }
-            if let Some(active) = drag.take() {
-                // The matching press was consumed by the title bar; the drag
-                // is committed, so tell the shell the new geometry.
-                if let Some(surface) = surface_by_id(surfaces, active.id) {
-                    notify_surface(shell, scratch, surface, *focused, display::change::MOVED);
+            if *consumed & button_bit != 0 {
+                // The matching press was the compositor's (taskbar, window
+                // button, title bar or desktop): swallow its release, and end
+                // a title-bar drag it started.
+                *consumed &= !button_bit;
+                if event.a as u32 == display::button::LEFT {
+                    if let Some(active) = drag.take() {
+                        // The drag is committed, so tell the shell the new geometry.
+                        if let Some(surface) = surface_by_id(surfaces, active.id) {
+                            notify_surface(
+                                shell,
+                                scratch,
+                                surface,
+                                *focused,
+                                display::change::MOVED,
+                            );
+                        }
+                    }
                 }
                 return;
             }
@@ -1524,7 +1554,7 @@ fn restore(surfaces: &mut Vec<Surface>, focused: &mut Option<u64>, id: u64) {
 /// Minimize a surface, moving focus to the next visible surface.
 #[allow(clippy::too_many_arguments)]
 fn minimize_surface(
-    surfaces: &mut Vec<Surface>,
+    surfaces: &mut [Surface],
     screen: &mut Canvas,
     pointer: (i32, i32),
     focused: &mut Option<u64>,
@@ -1591,7 +1621,7 @@ fn close_surface(
         );
     }
     notify_destroyed(shell, scratch, id);
-    surfaces.retain(|surface| surface.id != id);
+    remove_surface(surfaces, id);
     if *focused == Some(id) {
         *focused = topmost_visible(surfaces);
         notify_focus(shell, scratch, *focused);
@@ -1609,7 +1639,19 @@ fn close_surface(
     );
 }
 
-/// Move focus to the next visible window, wrapping around and skipping
+/// Drop surface `id` and close its transferred event endpoint, so repeated
+/// create/destroy cycles cannot exhaust this task's handle table. Events
+/// already queued (e.g. `WindowClose`) stay deliverable after the close.
+fn remove_surface(surfaces: &mut Vec<Surface>, id: u64) {
+    if let Some(index) = surfaces.iter().position(|surface| surface.id == id) {
+        let surface = surfaces.remove(index);
+        if surface.events != 0 {
+            let _ = Endpoint::from_raw(surface.events).close();
+        }
+    }
+}
+
+/// Move focus to the next visible surface, wrapping around and skipping
 /// minimized ones; the new focus is raised so its title bar is not covered.
 fn cycle_focus(surfaces: &mut Vec<Surface>, focused: &mut Option<u64>) {
     if surfaces
@@ -1661,14 +1703,11 @@ fn for_each_entry(
     let mut x = ENTRY_MARGIN;
     let mut last_id = 0u64;
     let y = screen_h - TASKBAR_H + (TASKBAR_H - ENTRY_H) / 2;
-    loop {
-        let Some(surface) = surfaces
-            .iter()
-            .filter(|surface| !surface.desktop && surface.id > last_id)
-            .min_by_key(|surface| surface.id)
-        else {
-            break;
-        };
+    while let Some(surface) = surfaces
+        .iter()
+        .filter(|surface| !surface.desktop && surface.id > last_id)
+        .min_by_key(|surface| surface.id)
+    {
         last_id = surface.id;
         let width = entry_width(surface);
         if x + width > screen_w - ENTRY_MARGIN {
@@ -2270,7 +2309,7 @@ fn handle_request(
                     tab.selected = 0;
                 }
             }
-            surfaces.retain(|surface| surface.id != id);
+            remove_surface(surfaces, id);
             if *focused == Some(id) {
                 *focused = topmost_visible(surfaces);
                 notify_focus(shell.as_ref(), scratch, *focused);

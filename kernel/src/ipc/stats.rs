@@ -243,7 +243,7 @@ impl FabricStats {
     }
 
     /// Encode as little-endian words in field order (the syscall wire form).
-    pub fn to_bytes(&self) -> Vec<u8> {
+    pub fn to_bytes(self) -> Vec<u8> {
         let mut words: Vec<u64> = Vec::with_capacity(WORDS);
         words.push(self.version);
         words.push(self.services);
@@ -359,7 +359,7 @@ pub fn snapshot() -> FabricStats {
 
 /// Reset every fabric subsystem and its counters. `Test-harness only`: a
 /// running system must never lose its handles, buffers, or audit trail.
-#[cfg(laZYOS_TESTS)]
+#[cfg(lazyos_tests)]
 pub fn reset() {
     use super::{credentials, syscalls};
     channels::reset();

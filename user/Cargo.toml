@@ -3,7 +3,7 @@ name = "user"
 version = "0.1.0"
 edition = "2021"
 description = "LazyOS ring-3 user runtime and programs"
-license = "MIT OR Apache-2.0"
+license = "GPL-3.0-or-later"
 
 [dependencies]
 # The parcel codec, shared with the kernel, so client/server parcels round-trip
@@ -126,7 +126,7 @@ test = false
 bench = false
 
 # `sysmond` (issue #144) is the system monitor: it wraps the native
-# system-stats syscall (13) as `os.lazy.system.v1` and republishes retained
+# system-stats syscall (14) as `os.lazy.system.v1` and republishes retained
 # `system/stats/*` topics. `top` is its one-shot native text client. `init`
 # starts both from its manifest; the on-disk names are `SYSD.ELF` and
 # `TOP.ELF` (8.3, like the other services).

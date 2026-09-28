@@ -39,8 +39,12 @@ userspace never names another task's handles.
   `call`, `reply`, `cancel`, `close_endpoint`, `try_recv`/`recv`, `stats`.
 - Transactions carry a global `txn_id`, a deadline and the state machine
   `Pending`/`Replied`/`TimedOut`/`Canceled`/`PeerDied`; replies match by id and
-  may arrive out of order. A nested synchronous call on the same pair is
-  `Deadlock` unless the parcel sets `ALLOW_NESTED`. One shared `MESSENGER` wait
+  may arrive out of order. A synchronous call on the same pair is `Deadlock`
+  unless the parcel sets `ALLOW_NESTED` when it would nest (the caller already
+  has a call open there) or call back (a call toward the caller's side is
+  open). Concurrent calls from *different* tasks in the same direction are
+  allowed: resolved names alias one endpoint, so a service's independent
+  clients share its channel. One shared `MESSENGER` wait
   queue with advisory wakeups handles all blocking.
 - A parcel's handles **move** (sender holds `TRANSFER`; its handle closes once
   queued; delivery opens a receiver-local one); buffers **share** (the message

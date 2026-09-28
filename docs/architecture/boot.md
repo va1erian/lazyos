@@ -52,7 +52,7 @@ FAT names are 8.3 because the kernel FAT reader resolves short names only
 
 | Env | cfg | Effect |
 |---|---|---|
-| `LAZYOS_TESTS=1` | `laZYOS_TESTS` | In-kernel test suite instead of demo |
+| `LAZYOS_TESTS=1` | `lazyos_tests` | In-kernel test suite instead of demo |
 | `LAZYOS_MESSENGERCTL=1` | `messengerctl_demo` | hello window runs `messengerctl` |
 | `LAZYOS_MESSENGERD=1` | `messengerd_service` | kernel spawns `MSGRD.ELF` |
 | `LAZYOS_SERVICES=1` | `services_mode` | kernel spawns `SUPER.ELF` (`init`) |

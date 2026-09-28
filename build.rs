@@ -128,8 +128,8 @@ fn main() {
         // The system monitor (issue #144). `init` starts `sysmond`
         // (`SYSD.ELF`) from its manifest; the service wraps the native
         // system-stats syscall (13) and republishes retained `system/stats/*`
-        // topics. `TOP.ELF` is its one-shot native text client, also started
-        // by the manifest so a headless services boot records `SYS:TOP:PASS`.
+        // topics. `TOP.ELF` is its one-shot native text client, spawned by
+        // `sysmond` (`demo=1`) so a headless services boot records `SYS:TOP:PASS`.
         // Both names are 8.3-safe for the kernel's short-name FAT reader.
         let sysmond = std::env::var_os("CARGO_BIN_FILE_USER_sysmond")
             .expect("user sysmond artifact not found");
@@ -186,7 +186,7 @@ fn main() {
     }
 
     // Rebuild the image when the kernel test switch flips (issue #62): the
-    // kernel's own build script turns `LAZYOS_TESTS=1` into `cfg(laZYOS_TESTS)`.
+    // kernel's own build script turns `LAZYOS_TESTS=1` into `cfg(lazyos_tests)`.
     println!("cargo:rerun-if-env-changed=LAZYOS_TESTS");
     // Fabric observability demo switch (issue #70): the kernel boots the
     // `messengerctl` tool (`MSGCTL.ELF`) in the hello window when this is set.

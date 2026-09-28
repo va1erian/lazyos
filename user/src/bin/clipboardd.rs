@@ -46,9 +46,8 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::panic::PanicInfo;
-use user::messenger::{
-    self, clipboard as wire, errno, registry, router, services, Endpoint, Error, Message, Parcel,
-};
+use user::central;
+use user::messenger::{self, clipboard as wire, errno, registry, Endpoint, Error, Message, Parcel};
 use user::sys;
 
 /// Sessions the service keeps concurrently.
@@ -111,15 +110,16 @@ enum Reading {
     },
 }
 
-/// The clipboard state: the per-session tables, the changed-topic broker, and
-/// the counters the paste log reports.
+/// The clipboard state: the per-session tables, the central-broker connection
+/// the changed topic and audit events publish through, and the counters the
+/// paste log reports.
 struct Clipboard {
     sessions: Vec<SessionClip>,
     history: usize,
     next_token: u64,
-    broker: router::TopicBroker,
-    /// Cached `init` bus for audit publishing; `None` until connected.
-    audit: Option<router::Bus>,
+    /// Cached `messengerd` connection; `None` until connected (or after a
+    /// publish failure, when the next event reconnects).
+    central: Option<central::Bus>,
     pastes: u64,
     denies: u64,
 }
@@ -131,8 +131,7 @@ impl Clipboard {
             sessions: Vec::new(),
             history,
             next_token: 0,
-            broker: router::TopicBroker::new("os.lazy.clipboard.events"),
-            audit: None,
+            central: None,
             pastes: 0,
             denies: 0,
         }
@@ -206,7 +205,7 @@ impl Clipboard {
         }
         let topic = wire::changes_topic(session);
         let payload = wire::changed_payload(&info)?;
-        self.broker.publish(&topic, &payload, true);
+        self.publish_central(&topic, &payload, true);
         Ok(token)
     }
 
@@ -376,13 +375,23 @@ impl Clipboard {
         self.publish_event("system/events/security/clipboard", &detail);
     }
 
-    /// Best-effort audit record: connect to `init`'s broker once and publish.
+    /// Best-effort audit record: publish through `messengerd`'s central
+    /// broker, reconnecting on the next event when the broker is unreachable.
     fn publish_event(&mut self, topic: &str, detail: &str) {
-        if self.audit.is_none() {
-            self.audit = router::Bus::connect(services::INIT_NAME).ok();
+        self.publish_central(topic, detail.as_bytes(), false);
+    }
+
+    /// Publish raw bytes through the central broker, reusing one connection.
+    fn publish_central(&mut self, topic: &str, payload: &[u8], retained: bool) {
+        if self.central.is_none() {
+            self.central = central::Bus::connect_retry(4).ok();
         }
-        if let Some(bus) = &self.audit {
-            let _ = bus.publish(topic, detail.as_bytes(), false);
+        let ok = match &mut self.central {
+            Some(bus) => bus.publish(topic, payload, retained).is_ok(),
+            None => false,
+        };
+        if !ok {
+            self.central = None;
         }
     }
 }
@@ -445,12 +454,7 @@ pub extern "C" fn _start() -> ! {
 fn run() -> messenger::Result<()> {
     let history = history_from_args();
     let (published, server) = messenger::create_pair()?;
-    registry::register(
-        wire::NAME,
-        &published,
-        &[wire::INTERFACE, router::INTERFACE],
-        0,
-    )?;
+    registry::register(wire::NAME, &published, &[wire::INTERFACE], 0)?;
     let mut clipboard = Clipboard::new(history);
     sys::write_str(&format!("CLIPBOARD:HISTORY:{history}\n"));
     sys::write_str("CLIPBOARD:READY\n");
@@ -543,7 +547,6 @@ fn dispatch(clipboard: &mut Clipboard, message: &Message) -> messenger::Result<P
         (wire::INTERFACE, wire::method::PING) => {
             Ok(wire::ok_reply(wire::INTERFACE, wire::method::PING))
         }
-        (router::INTERFACE, _) => clipboard.broker.handle(message),
         _ => Err(Error::Errno(-errno::EINVAL)),
     }
 }

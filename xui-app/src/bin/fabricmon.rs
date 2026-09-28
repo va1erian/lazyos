@@ -91,7 +91,7 @@ impl State {
             Err(code) => self.registry_error = Some(code),
         }
         self.tick += 1;
-        if manual || self.tick % TOPICS_EVERY == 0 {
+        if manual || self.tick.is_multiple_of(TOPICS_EVERY) {
             self.topics = Some(self.broker.topics());
         }
     }

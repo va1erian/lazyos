@@ -6,7 +6,11 @@ name: xui-app
 # markers in the serial log, and comments the images on the pull request.
 # Optional: if the musl target or toolchain is unavailable the app build reports
 # nothing and the visual steps are skipped (`tools/xui/build.py` exits 0, like
-# the ABI bench).
+# the ABI bench); a real compile error fails the job.
+#
+# The build/boot job runs with a read-only token and no persisted git
+# credentials; only the separate `publish` job, which never runs repository
+# code, gets write access to push screenshots and comment.
 
 on:
   pull_request:
@@ -21,8 +25,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 concurrency:
   group: xui-app-${{ github.ref }}
@@ -31,8 +34,14 @@ concurrency:
 jobs:
   xui:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      captured: ${{ steps.app.outputs.counter != '' }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Install QEMU
         run: |
@@ -164,12 +173,27 @@ jobs:
             shots/fabmon/serial.log
           if-no-files-found: error
 
+  # Write-scoped job: no checkout of repository code, only the screenshots
+  # artifact the read-only job uploaded.
+  publish:
+    needs: xui
+    if: >-
+      needs.xui.outputs.captured == 'true' &&
+      (github.event_name != 'pull_request' ||
+       github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Download screenshots artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: xui-app-screenshots
+          path: shots
+
       - name: Publish screenshots to 'screenshots' branch
         id: publish
-        if: >-
-          steps.app.outputs.counter != '' &&
-          (github.event_name != 'pull_request' ||
-           github.event.pull_request.head.repo.full_name == github.repository)
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

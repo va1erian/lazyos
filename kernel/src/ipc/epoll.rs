@@ -20,7 +20,7 @@
 
 use alloc::sync::Arc;
 use alloc::vec::Vec;
-use core::sync::atomic::{AtomicBool, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use spin::Mutex;
 
 use crate::task::Fd;
@@ -52,6 +52,11 @@ struct Interest {
 pub struct Epoll {
     interests: Mutex<Vec<Interest>>,
     nonblock: AtomicBool,
+    /// Where the next `epoll_wait` scan starts: one past the last interest
+    /// reported, so a continuously ready interest cannot starve the ones after
+    /// it when `maxevents` is smaller than the ready set (Linux round-robins
+    /// ready descriptors the same way).
+    cursor: AtomicUsize,
 }
 
 impl Epoll {
@@ -59,6 +64,7 @@ impl Epoll {
     pub fn new() -> Arc<Epoll> {
         Arc::new(Epoll {
             interests: Mutex::new(Vec::new()),
+            cursor: AtomicUsize::new(0),
             nonblock: AtomicBool::new(false),
         })
     }
@@ -133,21 +139,38 @@ impl Epoll {
         // (fd, revents, freshness) after this scan.
         let mut scanned: Vec<(usize, u16, u64)> = Vec::with_capacity(snapshot.len());
         let mut out: Vec<(u32, u64)> = Vec::new();
-        for interest in &snapshot {
+        let len = snapshot.len();
+        let start = if len == 0 {
+            0
+        } else {
+            self.cursor.load(Ordering::Relaxed) % len
+        };
+        let mut last_reported = None;
+        for step in 0..len {
+            let position = (start + step) % len;
+            let interest = &snapshot[position];
             let (revents, gen) = interest.target.poll_gen((interest.events & 0xffff) as u16);
-            scanned.push((interest.fd, revents, gen));
-            if out.len() == max {
-                continue;
-            }
             let reportable = (revents as u32) & (interest.events | REPORT_ALWAYS);
-            if reportable == 0 {
-                continue;
-            }
             let edge = interest.events & EPOLLET != 0;
             let fresh = gen != interest.last_gen || revents != interest.last_revents;
-            if !edge || fresh {
-                out.push((reportable, interest.data));
+            let wants_report = reportable != 0 && (!edge || fresh);
+            if wants_report && out.len() == max {
+                // Over the `maxevents` cap: a pending edge must stay pending,
+                // so its bookkeeping is left untouched for the next wait.
+                // (Level-triggered interests re-report regardless.)
+                if !edge {
+                    scanned.push((interest.fd, revents, gen));
+                }
+                continue;
             }
+            scanned.push((interest.fd, revents, gen));
+            if wants_report {
+                out.push((reportable, interest.data));
+                last_reported = Some(position);
+            }
+        }
+        if let Some(position) = last_reported {
+            self.cursor.store(position + 1, Ordering::Relaxed);
         }
         {
             let mut interests = self.interests.lock();

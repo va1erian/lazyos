@@ -10,13 +10,14 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 /// The interpreter state: variable bindings.
+#[derive(Default)]
 pub struct Interp {
     vars: Vec<(String, Value)>,
 }
 
 impl Interp {
     pub fn new() -> Self {
-        Interp { vars: Vec::new() }
+        Self::default()
     }
 
     /// Execute a parsed program.

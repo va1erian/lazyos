@@ -419,7 +419,6 @@ fn current_info() -> Option<(usize, u64)> {
 /// `sigaltstack`). All of these resolve the slot to its process first, then
 /// touch only the signal registry: the lock order is always task table ->
 /// signal registry, never the reverse.
-
 pub fn action(slot: usize, sig: u8) -> Disposition {
     let Some((pml4, _)) = slot_info(slot) else {
         return Disposition::Default;
@@ -903,6 +902,7 @@ fn frame_base(stack_top: u64) -> u64 {
 /// this: `saved_mask` is what `rt_sigreturn` will restore. `mask` and
 /// `saved_mask` are in kernel bit order; both are translated to Linux
 /// `sigset_t` bit order as they are written into the frame.
+#[allow(clippy::too_many_arguments)] // each field is independently meaningful ABI-frame state
 pub fn build_linux_frame(
     stack_top: u64,
     regs: &UserRegs,
@@ -1346,10 +1346,7 @@ pub fn deliver_linux(result: u64) {
     }
     let mut regs = saved_regs_from_stack(result);
     let mut frame_written = false;
-    loop {
-        let Some((sig, disposition)) = next_deliverable(pml4) else {
-            break;
-        };
+    while let Some((sig, disposition)) = next_deliverable(pml4) {
         if default_action(sig) == DefaultAction::Stop && disposition == Disposition::Default {
             stop_process(pml4);
             wait_continued();
@@ -1455,10 +1452,7 @@ pub unsafe fn sweep(tasks: &mut [Option<Task>; MAX_TASKS]) -> ([SweepFinish; MAX
         if !frame_is_user(rsp, FRAME_RIP_INDEX) {
             continue;
         }
-        loop {
-            let Some((sig, disposition)) = next_deliverable(pml4) else {
-                break;
-            };
+        while let Some((sig, disposition)) = next_deliverable(pml4) {
             if disposition == Disposition::Ignore {
                 clear_pending(pml4, sig);
                 continue;
@@ -1591,7 +1585,7 @@ fn frame_is_user(rsp: u64, rip_index: usize) -> bool {
 }
 
 /// Test-harness hooks (issue #62): reset the registry between tests.
-#[cfg(laZYOS_TESTS)]
+#[cfg(lazyos_tests)]
 pub mod harness {
     /// Clear all process signal state.
     pub fn reset() {

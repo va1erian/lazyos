@@ -108,7 +108,7 @@ A thin Python MCP server (`tools/mcp/debug_bridge.py`) that:
 ### Build gating
 
 - New kernel code lives behind a Cargo feature (e.g. `debug-mcp`), analogous
-  to the existing `cfg(laZYOS_TESTS)` gating for the test harness.
+  to the existing `cfg(lazyos_tests)` gating for the test harness.
 - `build.rs`/CI never enables it for release artifacts; only
   `tools/mcp/debug_bridge.py`'s own launch path (or an explicit
   `--debug-mcp` flag on `run_demo.py`) builds with it.
