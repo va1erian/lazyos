@@ -2,6 +2,7 @@
 //! the heap.
 
 mod heap;
+pub mod pte;
 pub mod slab;
 pub mod vma;
 
@@ -410,19 +411,17 @@ pub fn switch_to(table: PhysAddr) {
 // Copy-on-write: a software bit in the (otherwise unused) page-table entry flags
 // marking a shared, read-only user page. The first writer gets a private copy.
 const COW_BIT: u64 = 1 << 9;
-const PTE_PRESENT: u64 = 1 << 0;
-const PTE_WRITABLE: u64 = 1 << 1;
-const PTE_USER: u64 = 1 << 2;
-const PTE_HUGE: u64 = 1 << 7;
-const PTE_ADDR: u64 = 0x000F_FFFF_FFFF_F000;
-const PTE_NX: u64 = 1 << 63;
+use pte::{
+    ADDR as PTE_ADDR, HUGE as PTE_HUGE, NX as PTE_NX, PRESENT as PTE_PRESENT, USER as PTE_USER,
+    WRITABLE as PTE_WRITABLE,
+};
 
 /// View a page table/frame as an array of raw 64-bit entries.
 ///
 /// # Safety
 /// `phys` must be mapped and large enough for the accesses made.
 unsafe fn entry_table(phys: PhysAddr) -> *mut u64 {
-    phys_to_virt(phys).as_mut_ptr::<u64>()
+    pte::table(phys)
 }
 
 /// Count the user data pages mapped in an address space: a diagnostic walk of

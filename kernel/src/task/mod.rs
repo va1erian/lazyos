@@ -55,6 +55,7 @@ use crate::process as user_process;
 pub mod process;
 pub mod signal;
 pub mod switch;
+pub mod sys;
 pub mod wait;
 
 /// Slots: 0 is the kernel (multiplexer), 1.. are user programs/threads.
