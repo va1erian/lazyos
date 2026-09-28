@@ -476,7 +476,7 @@ fn paint_footer(
         content.right,
         content.bottom,
     );
-    let status = "snapshot v1 via syscall 14";
+    let status = "snapshot v2 via syscall 14";
     let text = format!(
         "uptime {} · tick {} · {} refresh(es) · {status}",
         uptime(snapshot.ticks),
