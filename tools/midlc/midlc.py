@@ -309,6 +309,22 @@ class Parser:
 def validate(interface: Interface) -> None:
     named = {s.name for s in interface.structs} | {e.name for e in interface.enums}
     ids: dict[int, str] = {}
+    # snake_case identifier -> the declared name(s) it came from, so distinct
+    # names that fold to the same generated `encode_*`/`decode_*` function
+    # (e.g. structs `Foo` and `foo`) are rejected here rather than surfacing
+    # as a confusing duplicate-definition error out of the generated Rust.
+    codec_names: dict[str, str] = {}
+
+    def claim(identifier: str, origin: str) -> None:
+        if identifier in codec_names and codec_names[identifier] != origin:
+            raise MidlError(
+                f"{origin!r} and {codec_names[identifier]!r} both generate the "
+                f"codec name {identifier!r}; rename one"
+            )
+        codec_names[identifier] = origin
+
+    for struct in interface.structs:
+        claim(snake_case(struct.name), struct.name)
     for method in interface.methods:
         if method.method_id in ids:
             raise MidlError(
@@ -317,6 +333,10 @@ def validate(interface: Interface) -> None:
         ids[method.method_id] = method.name
         if method.oneway and method.returns:
             raise MidlError(f"oneway method {method.name!r} cannot return values")
+        if method.params:
+            claim(f"{snake_case(method.name)}_args", f"{method.name} (args)")
+        if method.returns:
+            claim(f"{snake_case(method.name)}_reply", f"{method.name} (reply)")
         for param in method.params + method.returns:
             check_type(param.ty, named)
     for struct in interface.structs:
