@@ -139,6 +139,8 @@ impl Framebuffer {
             }
             // Safety: syy is within the source image.
             let src = &rgba[(syy * src_w + sx) * 4..];
+            // Safety: `dyy < fbh` was just checked, so this row is within the
+            // mapped framebuffer.
             let drow = unsafe { base.add(dyy * stride * bpp) };
             for col in 0..w {
                 let sxx = sx + col;
@@ -149,6 +151,8 @@ impl Framebuffer {
                 let i = col * 4;
                 let (r, g, b) = (src[i], src[i + 1], src[i + 2]);
                 let (b0, b1, b2) = if bgr { (b, g, r) } else { (r, g, b) };
+                // Safety: `dxx < fbw` was just checked, so this pixel is
+                // within the mapped framebuffer row.
                 let p = unsafe { drow.add(dxx * bpp) };
                 // Safety: within the framebuffer row; bpp is 3 or 4.
                 unsafe {

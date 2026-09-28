@@ -27,6 +27,9 @@ static mut USER_DATA: u16 = 0;
 
 /// Install the GDT and TSS.
 pub fn init() {
+    // Safety: runs once at boot, before interrupts are enabled and before any
+    // other code touches these `static mut`s, so there is no concurrent
+    // access; every raw pointer below stays within its own static.
     unsafe {
         // Kernel stack used by the CPU on interrupts/syscalls from ring 3.
         let stack = addr_of!(KERNEL_STACK) as u64;
@@ -63,6 +66,8 @@ pub fn init() {
 
 /// User-mode `CS`/`SS` selectors (with RPL 3).
 pub fn selectors() -> Selectors {
+    // Safety: `USER_CODE`/`USER_DATA` are written once by `init` before any
+    // task runs and never written again; this is a read-only access after that.
     unsafe {
         Selectors {
             user_code: USER_CODE,

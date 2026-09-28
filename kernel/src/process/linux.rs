@@ -493,6 +493,7 @@ fn sys_writev(fd: u64, iov: u64, count: u64) -> u64 {
     for i in 0..count {
         // Safety: user array of iovec entries (the syscall ABI's contract).
         let base = unsafe { user_ptr::read::<u64>(iov + i * 16) };
+        // Safety: same iovec entry, adjacent field.
         let len = unsafe { user_ptr::read::<u64>(iov + i * 16 + 8) };
         let written = sys_write(fd, base, len);
         if written > len {
@@ -509,6 +510,7 @@ fn sys_readv(fd: u64, iov: u64, count: u64) -> u64 {
     for i in 0..count {
         // Safety: user array of iovec entries (the syscall ABI's contract).
         let base = unsafe { user_ptr::read::<u64>(iov + i * 16) };
+        // Safety: same iovec entry, adjacent field.
         let len = unsafe { user_ptr::read::<u64>(iov + i * 16 + 8) };
         let got = sys_read(fd, base, len);
         if got > len {
@@ -556,6 +558,7 @@ fn scan_poll(fds: u64, nfds: u64) -> u64 {
         // struct pollfd { i32 fd; i16 events; i16 revents; }
         // Safety: user array of pollfd entries (the syscall ABI's contract).
         let fd = unsafe { user_ptr::read::<i32>(fds + i * 8) };
+        // Safety: same pollfd entry, adjacent field.
         let events = unsafe { user_ptr::read::<u16>(fds + i * 8 + 4) };
         let revents = if fd == 0 && events & POLLIN != 0 && task::input_available() {
             ready += 1;
