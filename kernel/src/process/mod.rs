@@ -47,6 +47,17 @@
 //! `-errno`: `-EPERM` without the capability, `-EACCES` for a widening request,
 //! `-ESRCH` for an unknown target, `-EFAULT` for an invalid block, `-EINVAL`
 //! for an unknown op.
+//!
+//! # The quota gate (issue #103)
+//!
+//! Syscall 11 is the read side of the per-uid quota table
+//! ([`crate::quota`]): it copies the caller's usage and limits into a
+//! `2 * Resource::COUNT`-word block so a service can explain a refusal to its
+//! user. Setting limits is kernel policy, not a syscall.
+//!
+//! ```text
+//!   rax = 11  rdi -> [usage, limit] pairs in Resource order  -> 0 | -EFAULT
+//! ```
 
 use alloc::boxed::Box;
 use alloc::string::String;
@@ -60,6 +71,7 @@ use xmas_elf::ElfFile;
 
 use crate::ipc::credentials::{self, Cred, TransitionError};
 use crate::mem::vma::{Kind, Prot};
+use crate::quota::{self, Resource};
 use crate::task::{self, wait::CHILD_EXIT, WakeReason};
 use crate::{fs, input::keyboard, mem};
 
@@ -141,6 +153,8 @@ extern "C" fn syscall_dispatch(regs: *mut Regs) {
         9 => sys_args(regs.rdi, regs.rsi),
         // 10: the credential gate (issue #101), see the module docs.
         10 => sys_creds(regs.rdi, regs.rsi, regs.rdx),
+        // 11: per-uid quota introspection (issue #103), read-only.
+        11 => sys_quota(regs.rdi),
         _ => u64::MAX,
     };
 }
@@ -157,6 +171,7 @@ pub fn dispatch_for_test(nr: u64, a1: u64, a2: u64, a3: u64) -> u64 {
         8 => sys_clock(),
         9 => sys_args(a1, a2),
         10 => sys_creds(a1, a2, a3),
+        11 => sys_quota(a1),
         _ => u64::MAX,
     }
 }
@@ -240,6 +255,13 @@ fn sys_sbrk(increment: u64) -> u64 {
     }
     let table = mem::kernel_table();
     if new_break > current {
+        // Per-uid user-memory quota (issue #103): charge the growth before the
+        // VMA exists; a refusal returns the unchanged break like any other
+        // size failure.
+        let delta = new_break - current;
+        if quota::charge_for_slot(task::current(), Resource::UserMemory, delta).is_err() {
+            return u64::MAX;
+        }
         mem::vma::insert(
             table,
             current,
@@ -248,8 +270,10 @@ fn sys_sbrk(increment: u64) -> u64 {
             Kind::Heap,
         );
     } else if new_break < current {
+        let delta = current - new_break;
         mem::vma::remove(table, new_break, current);
         mem::unmap_range(table, new_break, current);
+        quota::release_for_slot(task::current(), Resource::UserMemory, delta);
     }
     task::set_heap_break(new_break);
     current
@@ -469,6 +493,27 @@ fn sys_creds(op: u64, a1: u64, a2: u64) -> u64 {
         }
         _ => syscall_error(EINVAL),
     }
+}
+
+/// syscall 11: copy the calling user's quota usage and limits (issue #103).
+///
+/// `buf` points at [`quota::STATS_WORDS`] `u64`s: for resource `i`, word `2*i`
+/// is the live usage and word `2*i + 1` the limit, in [`Resource::ALL`] order.
+/// A null buffer is `-EFAULT`; limits themselves are kernel policy
+/// ([`quota::set_limit`]), so this gate is read-only.
+fn sys_quota(buf: u64) -> u64 {
+    if buf == 0 {
+        return syscall_error(EFAULT);
+    }
+    let uid = credentials::of(task::current()).uid;
+    let words = quota::stats_words(uid);
+    for (index, word) in words.iter().enumerate() {
+        // Safety: the caller passes a writable user buffer of
+        // `quota::STATS_WORDS` eight-byte words; the native syscall ABI trusts
+        // user buffers today (see `read_cred`).
+        unsafe { core::ptr::write_volatile((buf as *mut u64).add(index), *word) };
+    }
+    0
 }
 
 /// syscall 7: wait for a child exit and reap it.

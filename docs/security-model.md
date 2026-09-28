@@ -128,6 +128,17 @@ Every process runs under a compiled **profile** combining:
 6. **Device grants.** Framebuffer, input devices, audio later — only via handles
    issued by the session/device services.
 
+The kernel side of item 5 is `kernel::quota` (issue #103): a per-uid table of
+limits and live usage for kernel memory (shared-buffer frames), user memory
+(`mmap`/`brk` growth), handles, fds, Messenger queue bytes/depth, and CPU ticks.
+Charges and releases happen at the choke points (`handles::open`, channel
+enqueue/dequeue, `shared::create`, `mmap`/`brk`), keyed by the task's stamped
+uid, so two processes of one user share one limit. A refusal is a friendly
+`ERR_QUOTA` carrying the resource name, current usage and limit. Defaults live
+in `quota::DEFAULT_LIMITS` (uid 0 stays uncapped until login stamps a real
+uid); policy sets limits with `quota::set_limit`, and native syscall 11 reads
+the caller's usage/limits read-only.
+
 Profiles are **compiled by `messengerd`/`init` from manifests + admin policy** and
 hot-loaded into the kernel. Human-readable source of truth is checked into the
 app bundle; the compiled form is hashed and audited.

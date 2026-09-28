@@ -15,6 +15,7 @@ use xmas_elf::ElfFile;
 use super::{load_segments, map_range_kind, page_phys};
 use crate::fs::vfs::{self, FileKind, FsError, Id, Meta};
 use crate::mem::vma::{Kind, Prot};
+use crate::quota::{self, Resource};
 use crate::task::process::GroupError;
 use crate::task::signal::{self, Disposition, SignalError};
 use crate::task::wait::WaitQueue;
@@ -663,13 +664,27 @@ fn sys_mmap(addr: u64, len: u64, prot: u64, flags: u64) -> u64 {
     }
     let prot = Prot((prot & 0x7) as u8);
     let table = crate::mem::kernel_table();
+    // Per-uid user-memory quota (issue #103), charged before any VMA or page
+    // table changes so a refusal leaves the address space untouched. The
+    // closest Linux errno for "over the user's memory quota" is ENOMEM.
+    if quota::charge_for_slot(task::current(), Resource::UserMemory, len).is_err() {
+        return err(ENOMEM);
+    }
+    let mut replaced = 0u64;
     if flags & MAP_FIXED != 0 {
-        crate::mem::vma::remove(table, base, end);
+        replaced = crate::mem::vma::remove(table, base, end)
+            .iter()
+            .map(|vma| vma.len())
+            .sum();
         crate::mem::unmap_range(table, base, end);
     }
     crate::mem::vma::insert(table, base, end, prot, Kind::Anon);
     if flags & MAP_FIXED == 0 {
         task::set_mmap_next(end);
+    }
+    // A fixed mapping that replaced live ranges gives their charge back.
+    if replaced > 0 {
+        quota::release_for_slot(task::current(), Resource::UserMemory, replaced);
     }
     base
 }
@@ -688,7 +703,10 @@ fn sys_munmap(addr: u64, len: u64) -> u64 {
     let table = crate::mem::kernel_table();
     let removed = crate::mem::vma::remove(table, start, end);
     if !removed.is_empty() {
+        let bytes: u64 = removed.iter().map(|vma| vma.len()).sum();
         crate::mem::unmap_range(table, start, end);
+        // Unmapping gives the user's quota back (issue #103).
+        quota::release_for_slot(task::current(), Resource::UserMemory, bytes);
     }
     0
 }
@@ -731,10 +749,17 @@ fn sys_brk(addr: u64) -> u64 {
     }
     let table = crate::mem::kernel_table();
     if new > current {
+        // Per-uid user-memory quota (issue #103): charge the growth before the
+        // VMA exists. A refusal reports the unchanged break, which is how a
+        // caller detects a failed brk.
+        if quota::charge_for_slot(task::current(), Resource::UserMemory, new - current).is_err() {
+            return current;
+        }
         crate::mem::vma::insert(table, current, new, Prot::READ | Prot::WRITE, Kind::Heap);
     } else if new < current {
         crate::mem::vma::remove(table, new, current);
         crate::mem::unmap_range(table, new, current);
+        quota::release_for_slot(task::current(), Resource::UserMemory, current - new);
     }
     task::set_brk(new);
     new

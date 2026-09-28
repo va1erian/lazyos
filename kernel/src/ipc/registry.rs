@@ -371,7 +371,7 @@ pub fn resolve(target_slot: usize, name: &str) -> Result<u64, Error> {
         handles::open_for_task(target_slot, opened.0, opened.1, opened.2).map_err(|error| {
             use handles::Error::*;
             match error {
-                NoFreeHandle => Error::NoResources,
+                NoFreeHandle | Quota => Error::NoResources,
                 BadTask => Error::BadTask,
                 InvalidHandle | MissingRight => Error::NoResources,
             }
