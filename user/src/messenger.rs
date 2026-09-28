@@ -18,7 +18,10 @@
 use alloc::vec;
 use alloc::vec::Vec;
 
-use libmessenger::{Error as ParcelError, Parcel};
+use libmessenger::Error as ParcelError;
+/// Re-export the wire message type: every service helper above returns or
+/// accepts parcels, so callers need the type by name.
+pub use libmessenger::Parcel;
 
 use crate::sys;
 
@@ -454,9 +457,24 @@ impl Endpoint {
     }
 
     /// Blocking call: encode `request`, wait for the reply, decode it.
+    ///
+    /// The reply buffer is allocated per call; a long-lived service loop must
+    /// use [`Endpoint::call_with`] instead, because the user runtime's bump
+    /// allocator never reclaims these buffers (see `user/src/heap.rs`).
     pub fn call(&self, request: &Parcel, deadline: Option<u64>) -> Result<Parcel> {
-        let bytes = encode(request)?;
         let mut buf = vec![0u8; DEFAULT_BUFFER];
+        self.call_with(request, &mut buf, deadline)
+    }
+
+    /// [`Endpoint::call`] with a caller-owned reply buffer, for loops that
+    /// cannot afford a fresh allocation per message.
+    pub fn call_with(
+        &self,
+        request: &Parcel,
+        buf: &mut [u8],
+        deadline: Option<u64>,
+    ) -> Result<Parcel> {
+        let bytes = encode(request)?;
         let args = MsgArgs {
             handle: self.handle,
             parcel_ptr: bytes.as_ptr() as u64,
@@ -535,8 +553,17 @@ impl Endpoint {
     }
 
     /// Block until a message arrives (or the deadline passes).
+    ///
+    /// Allocates the receive buffer per call; a service loop should use
+    /// [`Endpoint::recv_with`] and reuse one buffer.
     pub fn recv(&self, deadline: Option<u64>) -> Result<Message> {
         let mut buf = vec![0u8; DEFAULT_BUFFER];
+        self.recv_with(&mut buf, deadline)
+    }
+
+    /// [`Endpoint::recv`] with a caller-owned buffer, for loops that cannot
+    /// afford a fresh allocation per message.
+    pub fn recv_with(&self, buf: &mut [u8], deadline: Option<u64>) -> Result<Message> {
         let args = MsgArgs {
             handle: self.handle,
             buf_ptr: buf.as_mut_ptr() as u64,
@@ -567,7 +594,13 @@ impl Endpoint {
     /// timer gate. Before the PIT's first tick that wake can take up to 10 ms,
     /// and a busy runnable peer may be scheduled before this task resumes.
     pub fn poll_recv(&self) -> Result<Option<Message>> {
-        match self.recv(Some(EXPIRED_DEADLINE)) {
+        let mut buf = vec![0u8; DEFAULT_BUFFER];
+        self.poll_recv_with(&mut buf)
+    }
+
+    /// [`Endpoint::poll_recv`] with a caller-owned buffer.
+    pub fn poll_recv_with(&self, buf: &mut [u8]) -> Result<Option<Message>> {
+        match self.recv_with(buf, Some(EXPIRED_DEADLINE)) {
             Ok(message) => Ok(Some(message)),
             Err(Error::Errno(code)) if code == -errno::ETIMEDOUT => Ok(None),
             Err(error) => Err(error),
@@ -663,8 +696,17 @@ pub fn global_totals() -> Result<Stats> {
 
 /// The versioned fabric snapshot (stats ABI v2): every subsystem in one block.
 /// The snapshot buffer is sized so the kernel always serves version 2.
+///
+/// Allocates the snapshot buffer per call; a polling loop should use
+/// [`fabric_stats_with`] and reuse one buffer.
 pub fn fabric_stats() -> Result<FabricStats> {
     let mut buf = vec![0u8; FabricStats::SIZE];
+    fabric_stats_with(&mut buf)
+}
+
+/// [`fabric_stats`] with a caller-owned buffer of at least
+/// [`FabricStats::SIZE`] bytes.
+pub fn fabric_stats_with(buf: &mut [u8]) -> Result<FabricStats> {
     let args = MsgArgs {
         buf_ptr: buf.as_mut_ptr() as u64,
         buf_cap: buf.len() as u64,
@@ -1233,4 +1275,947 @@ fn stats_call(handle: u64) -> Result<Stats> {
         return Err(Error::Errno(-errno::E2BIG));
     }
     Ok(stats)
+}
+
+// ---------------------------------------------------------------------------
+// Topics: the userspace event router (issue #93)
+// ---------------------------------------------------------------------------
+
+/// The userspace topic router the S2 services share (issue #93).
+///
+/// `docs/messenger.md` section 7 puts topics in `messengerd`, moved by the
+/// kernel; that broker is still being built in `kernel/src/ipc` and the native
+/// receive op does not yet surface transferred handles. Until it lands, the
+/// supervisor services run this **interim router** over what the fabric does
+/// support today:
+///
+/// * a service embeds a [`TopicBroker`] on its endpoint and registers the
+///   endpoint's interface id in the kernel name registry;
+/// * a subscriber calls [`Bus::subscribe`]; the broker hands it a unique sink
+///   name (a counter with its prefix), the subscriber registers one end of its
+///   own channel pair under that name with [`crate::messenger::registry`], and
+///   the broker resolves the name (the kernel opens the endpoint straight into
+///   the broker's table) and pushes [`Event`] parcels to it;
+/// * topics are hierarchical with the spec's wildcards: `+` matches one
+///   segment, `#` zero or more trailing segments;
+/// * a broker retains the latest message per topic ([`TopicBroker::publish`]'s
+///   `retained` flag) and replays matching retained values to a new subscriber,
+///   which is what lets `logd` see service events that predate its start.
+///
+/// Service events use `system/events/<...>` (`system/events/service/<name>`
+/// carries a service's state) and health state uses `system/health/<service>`,
+/// as the platform plan names them. Only the transport changes when the
+/// kernel/`messengerd` topic path lands; the topic names and payloads stay.
+pub mod topics {
+    use alloc::format;
+    use alloc::string::{String, ToString};
+    use alloc::vec::Vec;
+
+    use libmessenger::{Decoder, Encoder, Header, Kind, Parcel, VERSION};
+
+    use super::{create_pair, errno, registry, Endpoint, Error, Message, Result};
+
+    /// Topic router interface id. The human interface is
+    /// `os.lazy.local.topics.v1`; this is its interim eight-byte ABI id (a
+    /// `midlc` hash replaces it when the idl compiler owns the surface).
+    pub const INTERFACE: u64 = u64::from_le_bytes(*b"os.topic");
+
+    /// Router methods.
+    pub mod method {
+        /// Allocate a unique sink name for a would-be subscriber.
+        pub const RESERVE: u32 = 1;
+        /// Attach a registered sink endpoint with a topic filter.
+        pub const SUBSCRIBE: u32 = 2;
+        /// Detach a sink endpoint.
+        pub const UNSUBSCRIBE: u32 = 3;
+        /// Publish a message on a topic (optionally retained).
+        pub const PUBLISH: u32 = 4;
+        /// Broker -> subscriber event delivery (one-way).
+        pub const EVENT: u32 = 5;
+    }
+
+    /// Router TLV field ids.
+    pub mod field {
+        pub const FILTER: u16 = 1;
+        pub const SINK: u16 = 2;
+        pub const TOPIC: u16 = 3;
+        pub const PAYLOAD: u16 = 4;
+        pub const RETAINED: u16 = 5;
+        pub const SEQ: u16 = 6;
+    }
+
+    /// Most recent retained messages a broker keeps (oldest dropped first).
+    pub const RETAIN_LIMIT: usize = 64;
+
+    /// A header for a topic-router parcel of `method`.
+    fn header(method: u32) -> Header {
+        Header {
+            version: VERSION,
+            flags: 0,
+            interface_id: INTERFACE,
+            method,
+            txn_id: 0,
+            reply_to: 0,
+            deadline_ns: 0,
+        }
+    }
+
+    /// Wrap an encoded body in a topic-router parcel.
+    pub fn parcel(method: u32, body: Encoder) -> Parcel {
+        Parcel {
+            header: header(method),
+            body: body.finish(),
+            handles: Vec::new(),
+            buffers: Vec::new(),
+        }
+    }
+
+    /// Whether `topic` matches subscription `filter`: `+` matches exactly one
+    /// segment, `#` matches zero or more trailing segments.
+    pub fn matches(filter: &str, topic: &str) -> bool {
+        let mut filter_segments = filter.split('/');
+        let mut topic_segments = topic.split('/');
+        loop {
+            match (filter_segments.next(), topic_segments.next()) {
+                (Some("#"), _) => return true,
+                (Some("+"), Some(_)) => {}
+                (Some(expected), Some(actual)) if expected == actual => {}
+                (None, None) => return true,
+                _ => return false,
+            }
+        }
+    }
+
+    /// A message a broker retains and replays to new subscribers.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub struct Retained {
+        /// Topic the message was published on.
+        pub topic: String,
+        /// Opaque publisher payload.
+        pub payload: Vec<u8>,
+        /// Publish sequence assigned by the broker.
+        pub seq: u64,
+    }
+
+    /// One event delivered to a subscriber.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub struct Event {
+        /// Topic the message was published on.
+        pub topic: String,
+        /// Opaque publisher payload.
+        pub payload: Vec<u8>,
+        /// Whether the event was retained by the broker.
+        pub retained: bool,
+        /// Broker publish sequence.
+        pub seq: u64,
+    }
+
+    impl Event {
+        /// Decode an `EVENT` parcel; other methods/interfaces are `EINVAL`.
+        pub fn from_message(message: &Message) -> Result<Event> {
+            if message.interface_id() != INTERFACE || message.method() != method::EVENT {
+                return Err(Error::Errno(-errno::EINVAL));
+            }
+            Ok(Event {
+                topic: string_field(&message.parcel, field::TOPIC)?,
+                payload: bytes_field(&message.parcel, field::PAYLOAD),
+                retained: u64_field(&message.parcel, field::RETAINED).unwrap_or(0) != 0,
+                seq: u64_field(&message.parcel, field::SEQ).unwrap_or(0),
+            })
+        }
+    }
+
+    /// One attached subscriber.
+    struct Subscription {
+        filter: String,
+        sink: String,
+        /// Cached endpoint; `None` until the sink resolves, or after a delivery
+        /// failed (the next publish retries the registry).
+        endpoint: Option<Endpoint>,
+    }
+
+    /// The broker half of the router: embed one in a service endpoint and call
+    /// [`TopicBroker::handle`] for every message on the router interface.
+    pub struct TopicBroker {
+        prefix: &'static str,
+        subscribers: Vec<Subscription>,
+        retained: Vec<Retained>,
+        next_sink: u64,
+        next_seq: u64,
+        /// Messages a publisher handed to the broker.
+        pub published: u64,
+        /// Events successfully pushed to subscribers.
+        pub delivered: u64,
+        /// Events refused because a subscriber was gone or its queue full.
+        pub dropped: u64,
+    }
+
+    impl TopicBroker {
+        /// A broker whose sink names are `<prefix>.<n>` (`prefix` must be a
+        /// valid registry name segment; services use their own name).
+        pub fn new(prefix: &'static str) -> TopicBroker {
+            TopicBroker {
+                prefix,
+                subscribers: Vec::new(),
+                retained: Vec::new(),
+                next_sink: 0,
+                next_seq: 0,
+                published: 0,
+                delivered: 0,
+                dropped: 0,
+            }
+        }
+
+        /// Serve one router request; the caller replies with the returned
+        /// parcel when the message carried a transaction.
+        pub fn handle(&mut self, message: &Message) -> Result<Parcel> {
+            if message.interface_id() != INTERFACE {
+                return Err(Error::Errno(-errno::EINVAL));
+            }
+            match message.method() {
+                method::RESERVE => {
+                    self.next_sink += 1;
+                    let sink = format!("{}.{}", self.prefix, self.next_sink);
+                    let mut body = Encoder::new();
+                    body.string(field::SINK, &sink).map_err(Error::Parcel)?;
+                    Ok(parcel(method::RESERVE, body))
+                }
+                method::SUBSCRIBE => {
+                    let sink = string_field(&message.parcel, field::SINK)?;
+                    let filter = string_field(&message.parcel, field::FILTER)?;
+                    self.attach(filter, sink)?;
+                    Ok(parcel(method::SUBSCRIBE, Encoder::new()))
+                }
+                method::UNSUBSCRIBE => {
+                    let sink = string_field(&message.parcel, field::SINK)?;
+                    self.subscribers
+                        .retain(|subscriber| subscriber.sink != sink);
+                    Ok(parcel(method::UNSUBSCRIBE, Encoder::new()))
+                }
+                method::PUBLISH => {
+                    let topic = string_field(&message.parcel, field::TOPIC)?;
+                    let payload = bytes_field(&message.parcel, field::PAYLOAD);
+                    let retained = u64_field(&message.parcel, field::RETAINED).unwrap_or(0) != 0;
+                    self.publish(&topic, &payload, retained);
+                    Ok(parcel(method::PUBLISH, Encoder::new()))
+                }
+                _ => Err(Error::Errno(-errno::EINVAL)),
+            }
+        }
+
+        /// Publish `payload` on `topic`, fanning out to matching subscribers;
+        /// `retained` also keeps it for subscribers that arrive later.
+        /// Returns the broker sequence number.
+        pub fn publish(&mut self, topic: &str, payload: &[u8], retained: bool) -> u64 {
+            self.next_seq = self.next_seq.wrapping_add(1);
+            let seq = self.next_seq;
+            self.published += 1;
+            if retained {
+                let entry = Retained {
+                    topic: topic.to_string(),
+                    payload: payload.to_vec(),
+                    seq,
+                };
+                match self.retained.iter_mut().find(|entry| entry.topic == topic) {
+                    Some(existing) => *existing = entry,
+                    None => {
+                        if self.retained.len() >= RETAIN_LIMIT {
+                            self.retained.remove(0);
+                        }
+                        self.retained.push(entry);
+                    }
+                }
+            }
+            for index in 0..self.subscribers.len() {
+                if !matches(&self.subscribers[index].filter, topic) {
+                    continue;
+                }
+                let Ok(event) = event_parcel(topic, payload, retained, seq) else {
+                    self.dropped += 1;
+                    continue;
+                };
+                self.deliver(index, &event);
+            }
+            seq
+        }
+
+        /// The retained values, oldest first (introspection and tests).
+        pub fn retained(&self) -> &[Retained] {
+            &self.retained
+        }
+
+        /// Attached subscribers (introspection and tests).
+        pub fn subscriber_count(&self) -> usize {
+            self.subscribers.len()
+        }
+
+        /// Resolve `sink`, record the subscription, and replay the retained
+        /// values `filter` already matches.
+        fn attach(&mut self, filter: String, sink: String) -> Result<()> {
+            if self
+                .subscribers
+                .iter()
+                .any(|subscriber| subscriber.sink == sink)
+            {
+                return Ok(());
+            }
+            let endpoint = registry::resolve(&sink)?;
+            let index = self.subscribers.len();
+            self.subscribers.push(Subscription {
+                filter,
+                sink,
+                endpoint: Some(endpoint),
+            });
+            let retained: Vec<(String, Vec<u8>, u64)> = self
+                .retained
+                .iter()
+                .filter(|entry| matches(&self.subscribers[index].filter, &entry.topic))
+                .map(|entry| (entry.topic.clone(), entry.payload.clone(), entry.seq))
+                .collect();
+            for (topic, payload, seq) in retained {
+                if let Ok(event) = event_parcel(&topic, &payload, true, seq) {
+                    self.deliver(index, &event);
+                }
+            }
+            Ok(())
+        }
+
+        /// Push one event to subscriber `index`, falling back to one registry
+        /// re-resolution when the cached endpoint is stale.
+        fn deliver(&mut self, index: usize, event: &Parcel) {
+            if let Some(endpoint) = self.subscribers[index].endpoint {
+                if endpoint.send(event).is_ok() {
+                    self.delivered += 1;
+                    return;
+                }
+            }
+            let resolved = registry::resolve(&self.subscribers[index].sink)
+                .and_then(|endpoint| endpoint.send(event).map(|()| endpoint));
+            match resolved {
+                Ok(endpoint) => {
+                    self.subscribers[index].endpoint = Some(endpoint);
+                    self.delivered += 1;
+                }
+                Err(_) => {
+                    self.subscribers[index].endpoint = None;
+                    self.dropped += 1;
+                }
+            }
+        }
+    }
+
+    /// Build an `EVENT` parcel for delivery to subscribers.
+    fn event_parcel(topic: &str, payload: &[u8], retained: bool, seq: u64) -> Result<Parcel> {
+        let mut body = Encoder::new();
+        body.string(field::TOPIC, topic).map_err(Error::Parcel)?;
+        body.bytes(field::PAYLOAD, payload).map_err(Error::Parcel)?;
+        body.u64(field::RETAINED, retained as u64)
+            .map_err(Error::Parcel)?;
+        body.u64(field::SEQ, seq).map_err(Error::Parcel)?;
+        Ok(parcel(method::EVENT, body))
+    }
+
+    /// The client half: connect to a service's broker, subscribe, publish.
+    pub struct Bus {
+        endpoint: Endpoint,
+    }
+
+    impl Bus {
+        /// Resolve `name` (a broker service, e.g. `os.lazy.healthd`).
+        pub fn connect(name: &str) -> Result<Bus> {
+            Ok(Bus {
+                endpoint: registry::resolve(name)?,
+            })
+        }
+
+        /// The underlying broker endpoint (diagnostics).
+        pub fn endpoint(&self) -> Endpoint {
+            self.endpoint
+        }
+
+        /// Subscribe to `filter`; returns a receiver already attached to the
+        /// broker. Retained matching values are queued by the broker.
+        pub fn subscribe(&self, filter: &str) -> Result<Subscriber> {
+            // One round trip reserves a unique sink name; the subscriber then
+            // registers its own endpoint under it, so no handle transfer is
+            // needed across processes.
+            let reply = self
+                .endpoint
+                .call(&parcel(method::RESERVE, Encoder::new()), None)?;
+            let sink = string_field(&reply, field::SINK)?;
+            let (published, received) = create_pair()?;
+            registry::register(&sink, &published, &[], 0)?;
+
+            let mut body = Encoder::new();
+            body.string(field::SINK, &sink).map_err(Error::Parcel)?;
+            body.string(field::FILTER, filter).map_err(Error::Parcel)?;
+            self.endpoint.call(&parcel(method::SUBSCRIBE, body), None)?;
+            Ok(Subscriber {
+                endpoint: received,
+                filter: String::from(filter),
+            })
+        }
+
+        /// Publish `payload` on `topic` through the broker.
+        pub fn publish(&self, topic: &str, payload: &[u8], retained: bool) -> Result<()> {
+            let mut body = Encoder::new();
+            body.string(field::TOPIC, topic).map_err(Error::Parcel)?;
+            body.bytes(field::PAYLOAD, payload).map_err(Error::Parcel)?;
+            body.u64(field::RETAINED, retained as u64)
+                .map_err(Error::Parcel)?;
+            self.endpoint.call(&parcel(method::PUBLISH, body), None)?;
+            Ok(())
+        }
+    }
+
+    /// A subscriber's receiving end.
+    pub struct Subscriber {
+        endpoint: Endpoint,
+        /// The filter this subscriber attached with.
+        pub filter: String,
+    }
+
+    impl Subscriber {
+        /// Receive the next event, or `None` when `deadline` passes first.
+        ///
+        /// Allocates the receive buffer per call; a polling loop should use
+        /// [`Subscriber::recv_with`] and reuse one buffer.
+        pub fn recv(&self, deadline: Option<u64>) -> Result<Option<Event>> {
+            let mut buf = alloc::vec![0u8; super::DEFAULT_BUFFER];
+            self.recv_with(&mut buf, deadline)
+        }
+
+        /// [`Subscriber::recv`] with a caller-owned buffer.
+        pub fn recv_with(&self, buf: &mut [u8], deadline: Option<u64>) -> Result<Option<Event>> {
+            match self.endpoint.recv_with(buf, deadline) {
+                Ok(message) => Ok(Some(Event::from_message(&message)?)),
+                Err(Error::Errno(code)) if code == -errno::ETIMEDOUT => Ok(None),
+                Err(error) => Err(error),
+            }
+        }
+    }
+
+    /// The first string field with `id`.
+    fn string_field(parcel: &Parcel, id: u16) -> Result<String> {
+        let mut decoder = Decoder::new(&parcel.body);
+        while let Some(field) = decoder.next().map_err(Error::Parcel)? {
+            if field.kind == Kind::String && field.id == id {
+                return Ok(String::from(field.as_str().map_err(Error::Parcel)?));
+            }
+        }
+        Err(Error::Errno(-errno::EINVAL))
+    }
+
+    /// The first `u64` field with `id`, if any.
+    fn u64_field(parcel: &Parcel, id: u16) -> Option<u64> {
+        let mut decoder = Decoder::new(&parcel.body);
+        while let Ok(Some(field)) = decoder.next() {
+            if field.kind == Kind::U64 && field.id == id {
+                return field.as_u64().ok();
+            }
+        }
+        None
+    }
+
+    /// The first `bytes` field with `id` (`Vec::new` when absent).
+    fn bytes_field(parcel: &Parcel, id: u16) -> Vec<u8> {
+        let mut decoder = Decoder::new(&parcel.body);
+        while let Ok(Some(field)) = decoder.next() {
+            if field.kind == Kind::Bytes && field.id == id {
+                return field.as_bytes().to_vec();
+            }
+        }
+        Vec::new()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// System service interfaces: init, healthd, logd (issue #93)
+// ---------------------------------------------------------------------------
+
+/// Wire shapes of the S2 system services (`init`, `healthd`, `logd`), shared by
+/// the services themselves and by `messengerctl`.
+///
+/// The topic names are the platform plan's:
+///
+/// * `system/events/service/<name>` — a service's state changed (payload:
+///   `state=... pid=... status=... restarts=...`);
+/// * `system/events/security/denial` — the audit counters advanced (the
+///   interim signal until the kernel exposes audit records to userspace);
+/// * `system/health/<name>` — retained health row published by `healthd`;
+/// * `system/health/summary` — retained aggregate (worst status wins).
+pub mod services {
+    use alloc::string::String;
+    use alloc::vec::Vec;
+
+    use libmessenger::{Decoder, Encoder, Header, Kind, Parcel, VERSION};
+
+    use super::{errno, registry, Endpoint, Error, Result};
+
+    /// The `init` supervisor's registered name.
+    pub const INIT_NAME: &str = "os.lazy.init";
+    /// The health aggregator's registered name.
+    pub const HEALTHD_NAME: &str = "os.lazy.healthd";
+    /// The structured event log's registered name.
+    pub const LOGD_NAME: &str = "os.lazy.logd";
+
+    /// `os.lazy.init.v1` (interim eight-byte ABI id, see [`super::topics`]).
+    pub const INIT_INTERFACE: u64 = u64::from_le_bytes(*b"os.init.");
+    /// `os.lazy.healthd.v1` (interim eight-byte ABI id).
+    pub const HEALTHD_INTERFACE: u64 = u64::from_le_bytes(*b"os.healt");
+    /// `os.lazy.logd.v1` (interim eight-byte ABI id).
+    pub const LOGD_INTERFACE: u64 = u64::from_le_bytes(*b"os.logd.");
+
+    /// `init` methods.
+    pub mod init_method {
+        /// Snapshot the supervision table.
+        pub const SERVICES: u32 = 1;
+    }
+
+    /// `healthd` methods.
+    pub mod healthd_method {
+        /// Publish `health/<name>` with status/detail.
+        pub const REPORT: u32 = 1;
+        /// Snapshot retained health rows plus the summary.
+        pub const STATUS: u32 = 2;
+    }
+
+    /// `logd` methods.
+    pub mod logd_method {
+        /// Return the newest `COUNT` records.
+        pub const TAIL: u32 = 1;
+        /// Return the number of records in the ring.
+        pub const COUNT: u32 = 2;
+        /// Recompute the hash chain and report `OK`/first bad `INDEX`.
+        pub const VERIFY: u32 = 3;
+    }
+
+    /// Shared TLV field ids.
+    pub mod field {
+        /// Service name.
+        pub const NAME: u16 = 1;
+        /// Service phase (`pending`/`running`/`restarting`/`stopped`/`failed`).
+        pub const STATE: u16 = 2;
+        /// Task slot the supervisor started, or 0.
+        pub const PID: u16 = 3;
+        /// Restart count.
+        pub const RESTARTS: u16 = 4;
+        /// Comma-separated dependency names.
+        pub const DEPS: u16 = 5;
+        /// One record (service status or health row).
+        pub const SERVICE: u16 = 6;
+        /// Last known health string for a service.
+        pub const HEALTH: u16 = 7;
+        /// Health status (`ok`/`degraded`/`down`).
+        pub const STATUS: u16 = 8;
+        /// Human-readable detail.
+        pub const DETAIL: u16 = 9;
+        /// Tick the row/record was produced.
+        pub const TICK: u16 = 10;
+        /// One log record.
+        pub const RECORD: u16 = 11;
+        /// Log sequence number.
+        pub const SEQ: u16 = 12;
+        /// Log topic.
+        pub const TOPIC: u16 = 13;
+        /// Log chain hash.
+        pub const HASH: u16 = 14;
+        /// Requested/returned count.
+        pub const COUNT: u16 = 15;
+        /// Verify verdict (1 = chain intact).
+        pub const OK: u16 = 16;
+        /// First mismatching log index on a broken chain.
+        pub const INDEX: u16 = 17;
+        /// Aggregate health row.
+        pub const SUMMARY: u16 = 18;
+    }
+
+    /// A header for a service parcel of `method` on `interface_id`.
+    fn header(interface_id: u64, method: u32) -> Header {
+        Header {
+            version: VERSION,
+            flags: 0,
+            interface_id,
+            method,
+            txn_id: 0,
+            reply_to: 0,
+            deadline_ns: 0,
+        }
+    }
+
+    /// One row of `init`'s supervision table.
+    #[derive(Clone, Debug, Default, PartialEq, Eq)]
+    pub struct ServiceStatus {
+        pub name: String,
+        pub state: String,
+        pub pid: u64,
+        pub restarts: u64,
+        pub deps: String,
+        pub health: String,
+    }
+
+    /// One retained health row (`healthd`).
+    #[derive(Clone, Debug, Default, PartialEq, Eq)]
+    pub struct HealthRecord {
+        pub name: String,
+        pub status: String,
+        pub detail: String,
+        pub tick: u64,
+    }
+
+    /// One `logd` record (the hash chains over the previous record's hash).
+    #[derive(Clone, Debug, Default, PartialEq, Eq)]
+    pub struct LogRecord {
+        pub seq: u64,
+        pub tick: u64,
+        pub topic: String,
+        pub detail: String,
+        pub hash: u64,
+    }
+
+    /// `init`'s `Services` request.
+    pub fn services_request() -> Parcel {
+        Parcel {
+            header: header(INIT_INTERFACE, init_method::SERVICES),
+            ..Parcel::default()
+        }
+    }
+
+    /// Encode `init`'s `Services` reply: one `SERVICE` record per row.
+    pub fn services_reply(statuses: &[ServiceStatus]) -> Result<Parcel> {
+        let mut body = Encoder::new();
+        for status in statuses {
+            let mut record = Encoder::new();
+            record
+                .string(field::NAME, &status.name)
+                .map_err(Error::Parcel)?;
+            record
+                .string(field::STATE, &status.state)
+                .map_err(Error::Parcel)?;
+            record.u64(field::PID, status.pid).map_err(Error::Parcel)?;
+            record
+                .u64(field::RESTARTS, status.restarts)
+                .map_err(Error::Parcel)?;
+            record
+                .string(field::DEPS, &status.deps)
+                .map_err(Error::Parcel)?;
+            record
+                .string(field::HEALTH, &status.health)
+                .map_err(Error::Parcel)?;
+            body.record(field::SERVICE, &record)
+                .map_err(Error::Parcel)?;
+        }
+        Ok(Parcel {
+            header: header(INIT_INTERFACE, init_method::SERVICES),
+            body: body.finish(),
+            ..Parcel::default()
+        })
+    }
+
+    /// `healthd`'s `Status` request.
+    pub fn health_request() -> Parcel {
+        Parcel {
+            header: header(HEALTHD_INTERFACE, healthd_method::STATUS),
+            ..Parcel::default()
+        }
+    }
+
+    /// `healthd`'s `Report` request: publish `health/<name>`.
+    pub fn health_report_request(name: &str, status: &str, detail: &str) -> Result<Parcel> {
+        let mut body = Encoder::new();
+        body.string(field::NAME, name).map_err(Error::Parcel)?;
+        body.string(field::STATUS, status).map_err(Error::Parcel)?;
+        body.string(field::DETAIL, detail).map_err(Error::Parcel)?;
+        Ok(Parcel {
+            header: header(HEALTHD_INTERFACE, healthd_method::REPORT),
+            body: body.finish(),
+            ..Parcel::default()
+        })
+    }
+
+    /// Encode `healthd`'s `Status` reply: a `SUMMARY` record, then one
+    /// `SERVICE` record per retained health row.
+    pub fn health_reply(summary: &HealthRecord, records: &[HealthRecord]) -> Result<Parcel> {
+        let mut body = Encoder::new();
+        body.record(field::SUMMARY, &health_record_encoder(summary)?)
+            .map_err(Error::Parcel)?;
+        for record in records {
+            body.record(field::SERVICE, &health_record_encoder(record)?)
+                .map_err(Error::Parcel)?;
+        }
+        Ok(Parcel {
+            header: header(HEALTHD_INTERFACE, healthd_method::STATUS),
+            body: body.finish(),
+            ..Parcel::default()
+        })
+    }
+
+    fn health_record_encoder(record: &HealthRecord) -> Result<Encoder> {
+        let mut encoder = Encoder::new();
+        encoder
+            .string(field::NAME, &record.name)
+            .map_err(Error::Parcel)?;
+        encoder
+            .string(field::STATUS, &record.status)
+            .map_err(Error::Parcel)?;
+        encoder
+            .string(field::DETAIL, &record.detail)
+            .map_err(Error::Parcel)?;
+        encoder
+            .u64(field::TICK, record.tick)
+            .map_err(Error::Parcel)?;
+        Ok(encoder)
+    }
+
+    /// `logd`'s `Tail` request.
+    pub fn log_tail_request(count: u64) -> Parcel {
+        let mut body = Encoder::new();
+        // The request cannot fail: a fresh encoder has room for one field.
+        let _ = body.u64(field::COUNT, count);
+        Parcel {
+            header: header(LOGD_INTERFACE, logd_method::TAIL),
+            body: body.finish(),
+            ..Parcel::default()
+        }
+    }
+
+    /// `logd`'s `Count` request.
+    pub fn log_count_request() -> Parcel {
+        Parcel {
+            header: header(LOGD_INTERFACE, logd_method::COUNT),
+            ..Parcel::default()
+        }
+    }
+
+    /// `logd`'s `Verify` request.
+    pub fn log_verify_request() -> Parcel {
+        Parcel {
+            header: header(LOGD_INTERFACE, logd_method::VERIFY),
+            ..Parcel::default()
+        }
+    }
+
+    /// Encode `logd`'s `Tail` reply.
+    pub fn log_records_reply(records: &[LogRecord]) -> Result<Parcel> {
+        let mut body = Encoder::new();
+        for record in records {
+            let mut nested = Encoder::new();
+            nested.u64(field::SEQ, record.seq).map_err(Error::Parcel)?;
+            nested
+                .u64(field::TICK, record.tick)
+                .map_err(Error::Parcel)?;
+            nested
+                .string(field::TOPIC, &record.topic)
+                .map_err(Error::Parcel)?;
+            nested
+                .string(field::DETAIL, &record.detail)
+                .map_err(Error::Parcel)?;
+            nested
+                .u64(field::HASH, record.hash)
+                .map_err(Error::Parcel)?;
+            body.record(field::RECORD, &nested).map_err(Error::Parcel)?;
+        }
+        Ok(Parcel {
+            header: header(LOGD_INTERFACE, logd_method::TAIL),
+            body: body.finish(),
+            ..Parcel::default()
+        })
+    }
+
+    /// Encode `logd`'s `Count` reply.
+    pub fn log_count_reply(count: u64) -> Result<Parcel> {
+        let mut body = Encoder::new();
+        body.u64(field::COUNT, count).map_err(Error::Parcel)?;
+        Ok(Parcel {
+            header: header(LOGD_INTERFACE, logd_method::COUNT),
+            body: body.finish(),
+            ..Parcel::default()
+        })
+    }
+
+    /// Encode `logd`'s `Verify` reply: `OK` (1/0) and the first bad `INDEX`
+    /// (the record count when the chain is intact).
+    pub fn log_verify_reply(ok: bool, index: u64) -> Result<Parcel> {
+        let mut body = Encoder::new();
+        body.u64(field::OK, ok as u64).map_err(Error::Parcel)?;
+        body.u64(field::INDEX, index).map_err(Error::Parcel)?;
+        Ok(Parcel {
+            header: header(LOGD_INTERFACE, logd_method::VERIFY),
+            body: body.finish(),
+            ..Parcel::default()
+        })
+    }
+
+    /// Resolve a service's registered name.
+    pub fn resolve_service(name: &str) -> Result<Endpoint> {
+        registry::resolve(name)
+    }
+
+    /// Call `init`'s `Services`.
+    ///
+    /// Allocates the reply buffer per call; a polling loop should use
+    /// [`fetch_services_with`] and reuse one buffer.
+    pub fn fetch_services(endpoint: &Endpoint) -> Result<Vec<ServiceStatus>> {
+        let mut buf = alloc::vec![0u8; super::DEFAULT_BUFFER];
+        fetch_services_with(endpoint, &mut buf)
+    }
+
+    /// [`fetch_services`] with a caller-owned reply buffer.
+    pub fn fetch_services_with(endpoint: &Endpoint, buf: &mut [u8]) -> Result<Vec<ServiceStatus>> {
+        let reply = endpoint.call_with(&services_request(), buf, None)?;
+        let mut statuses = Vec::new();
+        for_each_record(&reply, |mut nested| {
+            let mut status = ServiceStatus::default();
+            while let Ok(Some(field)) = nested.next() {
+                match (field.kind, field.id) {
+                    (Kind::String, field::NAME) => {
+                        status.name = String::from(field.as_str().map_err(Error::Parcel)?)
+                    }
+                    (Kind::String, field::STATE) => {
+                        status.state = String::from(field.as_str().map_err(Error::Parcel)?)
+                    }
+                    (Kind::U64, field::PID) => {
+                        status.pid = field.as_u64().map_err(Error::Parcel)?
+                    }
+                    (Kind::U64, field::RESTARTS) => {
+                        status.restarts = field.as_u64().map_err(Error::Parcel)?
+                    }
+                    (Kind::String, field::DEPS) => {
+                        status.deps = String::from(field.as_str().map_err(Error::Parcel)?)
+                    }
+                    (Kind::String, field::HEALTH) => {
+                        status.health = String::from(field.as_str().map_err(Error::Parcel)?)
+                    }
+                    _ => {}
+                }
+            }
+            statuses.push(status);
+            Ok(())
+        })?;
+        Ok(statuses)
+    }
+
+    /// Call `healthd`'s `Status`; returns the summary and the retained rows.
+    pub fn fetch_health(endpoint: &Endpoint) -> Result<(HealthRecord, Vec<HealthRecord>)> {
+        let reply = endpoint.call(&health_request(), None)?;
+        let mut summary = HealthRecord::default();
+        let mut records = Vec::new();
+        let mut decoder = Decoder::new(&reply.body);
+        while let Some(field) = decoder.next().map_err(Error::Parcel)? {
+            if field.kind != Kind::Struct {
+                continue;
+            }
+            let mut nested = field.nested(0).map_err(Error::Parcel)?;
+            let mut record = HealthRecord::default();
+            while let Some(item) = nested.next().map_err(Error::Parcel)? {
+                match (item.kind, item.id) {
+                    (Kind::String, field::NAME) => {
+                        record.name = String::from(item.as_str().map_err(Error::Parcel)?)
+                    }
+                    (Kind::String, field::STATUS) => {
+                        record.status = String::from(item.as_str().map_err(Error::Parcel)?)
+                    }
+                    (Kind::String, field::DETAIL) => {
+                        record.detail = String::from(item.as_str().map_err(Error::Parcel)?)
+                    }
+                    (Kind::U64, field::TICK) => {
+                        record.tick = item.as_u64().map_err(Error::Parcel)?
+                    }
+                    _ => {}
+                }
+            }
+            match field.id {
+                field::SUMMARY => summary = record,
+                field::SERVICE => records.push(record),
+                _ => {}
+            }
+        }
+        Ok((summary, records))
+    }
+
+    /// Call `logd`'s `Tail`.
+    pub fn fetch_log_tail(endpoint: &Endpoint, count: u64) -> Result<Vec<LogRecord>> {
+        let reply = endpoint.call(&log_tail_request(count), None)?;
+        decode_log_records(&reply)
+    }
+
+    /// Call `logd`'s `Count`.
+    pub fn fetch_log_count(endpoint: &Endpoint) -> Result<u64> {
+        let reply = endpoint.call(&log_count_request(), None)?;
+        first_u64(&reply).ok_or(Error::Errno(-errno::EINVAL))
+    }
+
+    /// Call `logd`'s `Verify`; returns `(intact, first bad index)`.
+    pub fn fetch_log_verify(endpoint: &Endpoint) -> Result<(bool, u64)> {
+        let reply = endpoint.call(&log_verify_request(), None)?;
+        let ok = first_u64(&reply).unwrap_or(0) != 0;
+        let index = all_u64(&reply).nth(1).unwrap_or(0);
+        Ok((ok, index))
+    }
+
+    /// Decode a `Tail` reply into records.
+    pub fn decode_log_records(parcel: &Parcel) -> Result<Vec<LogRecord>> {
+        let mut records = Vec::new();
+        for_each_record(parcel, |mut nested| {
+            let mut record = LogRecord::default();
+            while let Ok(Some(field)) = nested.next() {
+                match (field.kind, field.id) {
+                    (Kind::U64, field::SEQ) => {
+                        record.seq = field.as_u64().map_err(Error::Parcel)?
+                    }
+                    (Kind::U64, field::TICK) => {
+                        record.tick = field.as_u64().map_err(Error::Parcel)?
+                    }
+                    (Kind::String, field::TOPIC) => {
+                        record.topic = String::from(field.as_str().map_err(Error::Parcel)?)
+                    }
+                    (Kind::String, field::DETAIL) => {
+                        record.detail = String::from(field.as_str().map_err(Error::Parcel)?)
+                    }
+                    (Kind::U64, field::HASH) => {
+                        record.hash = field.as_u64().map_err(Error::Parcel)?
+                    }
+                    _ => {}
+                }
+            }
+            records.push(record);
+            Ok(())
+        })?;
+        Ok(records)
+    }
+
+    /// Iterate `SERVICE`/`RECORD` struct fields of a reply body.
+    fn for_each_record(
+        parcel: &Parcel,
+        mut body: impl FnMut(Decoder<'_>) -> Result<()>,
+    ) -> Result<()> {
+        let mut decoder = Decoder::new(&parcel.body);
+        while let Some(field) = decoder.next().map_err(Error::Parcel)? {
+            if field.kind != Kind::Struct {
+                continue;
+            }
+            body(field.nested(0).map_err(Error::Parcel)?)?;
+        }
+        Ok(())
+    }
+
+    /// The first top-level `u64` field (regardless of id).
+    fn first_u64(parcel: &Parcel) -> Option<u64> {
+        all_u64(parcel).next()
+    }
+
+    /// Every top-level `u64` field.
+    fn all_u64(parcel: &Parcel) -> impl Iterator<Item = u64> + '_ {
+        let mut decoder = Decoder::new(&parcel.body);
+        core::iter::from_fn(move || {
+            while let Ok(Some(field)) = decoder.next() {
+                if field.kind == Kind::U64 {
+                    if let Ok(value) = field.as_u64() {
+                        return Some(value);
+                    }
+                }
+            }
+            None
+        })
+    }
 }

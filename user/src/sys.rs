@@ -23,6 +23,17 @@ pub const SYS_READ_FILE: u64 = 3;
 pub const SYS_SBRK: u64 = 4;
 /// `messenger(op, args, result)` — the native Messenger surface (issue #69).
 pub const SYS_MESSENGER: u64 = 5;
+/// `spawn(cmdline)` — start an ELF as a child of the caller (issue #93).
+pub const SYS_SPAWN: u64 = 6;
+/// `wait(deadline)` — reap a child exit, packing `(pid << 32) | status`.
+pub const SYS_WAIT: u64 = 7;
+/// `clock()` — the PIT tick counter (100 Hz), absolute deadlines.
+pub const SYS_CLOCK: u64 = 8;
+/// `args(buf, len)` — copy this service's manifest argument string.
+pub const SYS_ARGS: u64 = 9;
+
+/// Value returned by the service syscalls on failure/timeout.
+pub const SERVICE_ERROR: u64 = u64::MAX;
 
 /// Write raw bytes to the console.
 pub fn write(bytes: &[u8]) {
@@ -56,12 +67,12 @@ pub fn read_char() -> u64 {
     // Safety: `int 0x80` with syscall 2; result in rax.
     unsafe {
         asm!(
-                    "int 0x80",
-                    in("rax") SYS_READ_CHAR,
-                    lateout("rax") code,
-                    options(nostack),
-                    clobber_abi("sysv64"),
-                );
+            "int 0x80",
+            in("rax") SYS_READ_CHAR,
+            lateout("rax") code,
+            options(nostack),
+            clobber_abi("sysv64"),
+        );
     }
     code
 }
@@ -99,13 +110,13 @@ pub fn sbrk(increment: u64) -> u64 {
     // Safety: `int 0x80` with syscall 4.
     unsafe {
         asm!(
-                    "int 0x80",
-                    in("rax") SYS_SBRK,
-                    in("rdi") increment,
-                    lateout("rax") previous,
-                    options(nostack),
-                    clobber_abi("sysv64"),
-                );
+            "int 0x80",
+            in("rax") SYS_SBRK,
+            in("rdi") increment,
+            lateout("rax") previous,
+            options(nostack),
+            clobber_abi("sysv64"),
+        );
     }
     previous
 }
@@ -146,4 +157,86 @@ pub fn exit(code: u32) -> ! {
             clobber_abi("sysv64"),
         );
     }
+}
+
+/// Start the program named by a **NUL-terminated** command line
+/// (`"PATH.ELF [args...]"`) as a child of the calling task. Returns the child's
+/// pid (its task slot), or `None` when the file is missing or no resource is
+/// free. The kernel remembers the argument string for [`service_args`].
+pub fn spawn(cmdline_z: &[u8]) -> Option<u64> {
+    let pid: u64;
+    // Safety: `int 0x80` with syscall 6 and a valid NUL-terminated buffer.
+    unsafe {
+        asm!(
+            "int 0x80",
+            in("rax") SYS_SPAWN,
+            in("rdi") cmdline_z.as_ptr() as u64,
+            lateout("rax") pid,
+            lateout("rcx") _,
+            lateout("r11") _,
+            options(nostack),
+            clobber_abi("sysv64"),
+        );
+    }
+    (pid != SERVICE_ERROR).then_some(pid)
+}
+
+/// Wait for a child exit and reap it, up to the absolute PIT `deadline`
+/// (`0` waits forever). Returns `Some((pid, status))`, or `None` on timeout.
+pub fn wait(deadline: u64) -> Option<(u64, u64)> {
+    let packed: u64;
+    // Safety: `int 0x80` with syscall 7; no pointers cross the gate.
+    unsafe {
+        asm!(
+            "int 0x80",
+            in("rax") SYS_WAIT,
+            in("rdi") deadline,
+            lateout("rax") packed,
+            lateout("rcx") _,
+            lateout("r11") _,
+            options(nostack),
+            clobber_abi("sysv64"),
+        );
+    }
+    (packed != SERVICE_ERROR).then_some((packed >> 32, packed & 0xffff_ffff))
+}
+
+/// The PIT tick counter (100 Hz), the supervisor's clock. Deadlines passed to
+/// [`wait`] and to the Messenger API are absolute values of this clock.
+pub fn clock() -> u64 {
+    let ticks: u64;
+    // Safety: `int 0x80` with syscall 8; no arguments.
+    unsafe {
+        asm!(
+            "int 0x80",
+            in("rax") SYS_CLOCK,
+            lateout("rax") ticks,
+            lateout("rcx") _,
+            lateout("r11") _,
+            options(nostack),
+            clobber_abi("sysv64"),
+        );
+    }
+    ticks
+}
+
+/// Copy this service's manifest argument string into `buf`; returns its full
+/// length. A zero-length `buf` reports the length without copying.
+pub fn service_args(buf: &mut [u8]) -> usize {
+    let length: u64;
+    // Safety: `int 0x80` with syscall 9; the buffer is valid for its length.
+    unsafe {
+        asm!(
+            "int 0x80",
+            in("rax") SYS_ARGS,
+            in("rdi") buf.as_mut_ptr() as u64,
+            in("rsi") buf.len() as u64,
+            lateout("rax") length,
+            lateout("rcx") _,
+            lateout("r11") _,
+            options(nostack),
+            clobber_abi("sysv64"),
+        );
+    }
+    length as usize
 }

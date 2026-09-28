@@ -199,6 +199,21 @@ slow subscriber cannot stall publishers.
 **Scope:** topics have owners (session topic, system topic). Policy decides who
 may publish/subscribe per segment, including wildcards.
 
+**Interim userspace router (S2, issue #93).** Until the kernel/`messengerd`
+topic path above lands, the supervisor services run a small userspace router
+over channels and the kernel name registry: a service embeds a broker on its
+endpoint; a subscriber asks the broker for a sink name, registers one end of its
+own channel pair under that name, and calls `Subscribe`; the broker resolves the
+name and pushes retained, wildcard-filtered events to it. The names stay the
+spec's: `system/events/service/<name>` carries a service's state and detail,
+`system/health/<name>` and `system/health/summary` are retained health rows, and
+`system/events/security/denial` is the interim denial signal (the fabric audit
+counters) until the kernel exposes audit records to userspace. `init` (the
+supervisor) publishes service state, `healthd` aggregates heartbeats and
+dependency health into the retained health rows, `logd` appends hash-chained
+records and serves queries, and `messengerctl services|health|log` reads them
+back. Only the transport changes when the kernel topic path lands.
+
 ---
 
 ## 8. Naming, discovery, and activation
@@ -370,6 +385,12 @@ stays cheap under load.
   `msg_endpoint`, `msg_connect`, `msg_register`, `msg_resolve`, `msg_call`,
   `msg_reply`, `msg_send`, `msg_cancel`, `msg_publish`, `msg_subscribe`,
   `msg_recv`, `msg_buffer_create`, `msg_fence`, `msg_stats`, `msg_acl_load`.
+- **Service supervision calls:** ahead of the Messenger family, the S2
+  supervisor adds four small native calls — `spawn` (start a FAT program as the
+  caller's child), `wait` (reap a child exit against a deadline), `clock` (PIT
+  ticks, for backoff and polls) and `args` (the service's manifest argument
+  string, since native programs have no `argv` yet). They are mechanism only:
+  restart policy, dependencies and health live in `init`.
 
 ---
 

@@ -119,20 +119,36 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
             Err(err) => serial_println!("ABI:INIT:FAIL:{err}"),
         }
     } else {
+        // Issue #93: `LAZYOS_SERVICES=1` boots the userspace supervisor
+        // (`SUPER.ELF`). `init` starts the platform services from its manifest
+        // (messengerd, logd, healthd, the crash-test service), so the kernel
+        // does not spawn them itself; `init` owns supervision, restart policy
+        // and the service event log from here on. `SUPER.ELF` (not `INIT.ELF`)
+        // keeps the ABI bench's fixture hook above untouched.
+        #[cfg(services_mode)]
+        spawn_program("init", "SUPER.ELF");
+
+        // With `LAZYOS_MESSENGERCTL=1` too, the fabric tool also boots, so a
+        // scripted session can query the new `services`/`health`/`log`
+        // commands against the running supervisor (issue #93).
+        #[cfg(all(services_mode, messengerctl_demo))]
+        spawn_program("messengerctl", "MSGCTL.ELF");
+
         // Issue #89: `LAZYOS_MESSENGERD=1` starts the registry daemon before
         // the demo programs. It claims the bootstrap channel and serves name
         // requests for the life of the system. The on-disk name is 8.3-safe
         // (`MSGRD.ELF`: the kernel's FAT reader has no long-name support).
-        #[cfg(messengerd_service)]
+        #[cfg(all(messengerd_service, not(services_mode)))]
         spawn_program("messengerd", "MSGRD.ELF");
 
         // `LAZYOS_MESSENGERCTL=1` swaps the hello window for the fabric
         // snapshot tool (issue #70); the default demo is unchanged. The file
         // name is 8.3: the kernel FAT reader has no long-name support.
-        #[cfg(messengerctl_demo)]
+        #[cfg(all(messengerctl_demo, not(services_mode)))]
         spawn_program("messengerctl", "MSGCTL.ELF");
-        #[cfg(not(messengerctl_demo))]
+        #[cfg(all(not(messengerctl_demo), not(services_mode)))]
         spawn_program("hello", "HELLO.ELF");
+        #[cfg(not(services_mode))]
         spawn_program("sh", "SH.ELF");
     }
 

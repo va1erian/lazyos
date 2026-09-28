@@ -1,16 +1,20 @@
 //! `messengerctl` (`MSGCTL.ELF`): render the Messenger fabric snapshot and
-//! browse the name registry (issues #70 and #89). The image name is 8.3
-//! because the kernel's FAT reader only resolves short names.
+//! browse the name registry, the service supervisor, health and the event log
+//! (issues #70, #89 and #93). The image name is 8.3 because the kernel's FAT
+//! reader only resolves short names.
 //!
 //! Calls the native `messenger` syscall's `stats` op with a snapshot-sized
 //! buffer, so the kernel returns the versioned `FabricStats` block (ABI v2),
 //! and prints it as a small table grouped by subsystem: services/channels,
 //! messages, buffers, audit, and per-slot usage. It then offers the registry
-//! commands `list` and `resolve <name>`, typed at the prompt (native programs
-//! do not receive argv; the tool is interactive like `sh`).
+//! commands `list` and `resolve <name>`, the supervisor commands `services`
+//! and `health`, and the `log`/`log tail`/`log verify` commands, typed at the
+//! prompt (native programs do not receive argv; the tool is interactive like
+//! `sh`).
 //!
 //! Boot it with `LAZYOS_MESSENGERCTL=1` (see the kernel build script): the
-//! demo then runs this program in the hello window.
+//! demo then runs this program in the hello window. With `LAZYOS_SERVICES=1`
+//! the supervisor's services provide targets for the new commands.
 
 #![no_std]
 #![no_main]
@@ -19,11 +23,12 @@ extern crate alloc;
 
 use alloc::format;
 use core::panic::PanicInfo;
-use user::messenger::{self, registry, FabricStats};
+use user::messenger::{self, registry, services, FabricStats};
 use user::sys;
 
 /// The interactive command set, printed at startup and by `help`.
-const HELP: &str = "commands: list | resolve <name> | stats | help | quit\n";
+const HELP: &str = "commands: list | resolve <name> | services | health | \
+                    log [tail [n]] | log verify | stats | help | quit\n";
 
 #[no_mangle]
 pub extern "C" fn _start() -> ! {
@@ -49,12 +54,20 @@ fn commands() -> ! {
             "quit" | "exit" => sys::exit(0),
             "help" => sys::write_str(HELP),
             "list" => print_registry(),
+            "services" => print_services(),
+            "health" => print_health(),
+            "log" => print_log(10),
+            "log verify" => verify_log(),
             "stats" => match messenger::fabric_stats() {
                 Ok(stats) => print_report(&stats),
                 Err(error) => report(error.message()),
             },
             _ if text.starts_with("resolve ") => resolve(text[8..].trim()),
-            _ => report("unknown command; try list, resolve <name>, stats, help, quit"),
+            _ if text.starts_with("log tail") => {
+                let count = text[8..].trim().parse().unwrap_or(10);
+                print_log(count)
+            }
+            _ => report("unknown command; try list, resolve <name>, services, health, log, stats, help, quit"),
         }
     }
 }
@@ -98,6 +111,93 @@ fn resolve(name: &str) {
             name,
             endpoint.handle()
         )),
+        Err(error) => report(error.message()),
+    }
+}
+
+/// `services`: the supervisor's supervision table (issue #93).
+fn print_services() {
+    let endpoint = match services::resolve_service(services::INIT_NAME) {
+        Ok(endpoint) => endpoint,
+        Err(error) => return report(error.message()),
+    };
+    match services::fetch_services(&endpoint) {
+        Ok(statuses) if statuses.is_empty() => {
+            sys::write_str("services: no services supervised\n");
+        }
+        Ok(statuses) => {
+            sys::write_str(&format!("services: {} supervised\n", statuses.len()));
+            for status in &statuses {
+                sys::write_str(&format!(
+                    "  {:<10} {:<10} pid {:<3} restarts {} health {}\n",
+                    status.name, status.state, status.pid, status.restarts, status.health
+                ));
+                if !status.deps.is_empty() {
+                    sys::write_str(&format!("    deps {}\n", status.deps));
+                }
+            }
+        }
+        Err(error) => report(error.message()),
+    }
+}
+
+/// `health`: the retained `system/health/*` rows and the aggregate.
+fn print_health() {
+    let endpoint = match services::resolve_service(services::HEALTHD_NAME) {
+        Ok(endpoint) => endpoint,
+        Err(error) => return report(error.message()),
+    };
+    match services::fetch_health(&endpoint) {
+        Ok((summary, records)) => {
+            sys::write_str(&format!(
+                "health: {} ({})\n",
+                summary.status, summary.detail
+            ));
+            for record in &records {
+                sys::write_str(&format!(
+                    "  {:<10} {:<9} {}\n",
+                    record.name, record.status, record.detail
+                ));
+            }
+        }
+        Err(error) => report(error.message()),
+    }
+}
+
+/// `log [tail [n]]`: the newest records from the structured event log.
+fn print_log(count: u64) {
+    let endpoint = match services::resolve_service(services::LOGD_NAME) {
+        Ok(endpoint) => endpoint,
+        Err(error) => return report(error.message()),
+    };
+    match services::fetch_log_tail(&endpoint, count) {
+        Ok(records) if records.is_empty() => sys::write_str("log: no records yet\n"),
+        Ok(records) => {
+            for record in &records {
+                sys::write_str(&format!(
+                    "  #{:<4} t{:<6} {:<32} {}\n",
+                    record.seq, record.tick, record.topic, record.detail
+                ));
+                sys::write_str(&format!("       hash 0x{:016x}\n", record.hash));
+            }
+        }
+        Err(error) => report(error.message()),
+    }
+}
+
+/// `log verify`: recompute the hash chain over the retained records.
+fn verify_log() {
+    let endpoint = match services::resolve_service(services::LOGD_NAME) {
+        Ok(endpoint) => endpoint,
+        Err(error) => return report(error.message()),
+    };
+    match services::fetch_log_verify(&endpoint) {
+        Ok((true, count)) => {
+            sys::write_str(&format!("log: chain intact over {count} record(s)\n"));
+        }
+        Ok((false, index)) => {
+            sys::write_str(&format!("log: CHAIN BROKEN at record {index}\n"));
+        }
         Err(error) => report(error.message()),
     }
 }
