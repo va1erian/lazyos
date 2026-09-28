@@ -144,6 +144,17 @@ const MANIFEST: &[ServiceSpec] = &[
         deps: &[],
         health_topic: "system/health/clipboardd",
     },
+    // `mimed` is the MIME database and open-with registry (issue #116). It
+    // depends only on the kernel name registry, which every task can use
+    // directly; it talks to `init`'s topic router to publish launch events.
+    ServiceSpec {
+        name: "mimed",
+        path: "MIMED.ELF",
+        args: "",
+        restart: Restart::Always,
+        deps: &[],
+        health_topic: "system/health/mimed",
+    },
     ServiceSpec {
         name: "flaky",
         path: "FLAKY.ELF",
