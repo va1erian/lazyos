@@ -5,7 +5,7 @@ Builds the test image (`LAZYOS_TESTS=1 cargo build`), boots it with a QMP
 socket, captures the serial log, parses the `TEST:` protocol, and writes
 `docs/test/report.md` + `docs/test/report.json`.
 
-Protocol (one line per test, emitted by `kernel/src/tests.rs`):
+Protocol (one line per test, emitted by `kernel/src/tests/mod.rs::run()`):
 
     TEST:<name>:PASS
     TEST:<name>:FAIL:<detail>
