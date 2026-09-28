@@ -2371,10 +2371,22 @@ pub fn fd_dup2(old: usize, new: usize) -> Option<usize> {
 /// The display grant uses this to tell a bound compositor apart from a dead
 /// one, so the kernel mux can take the screen back without a teardown hook
 /// (issue #113). Cheap: one table lock and no allocation.
+///
+/// Interrupts are disabled around the lock: the kernel mux calls this every
+/// frame with interrupts enabled (via `display::bound`), and the timer ISR's
+/// `schedule` (and the keyboard/mouse IRQ handlers, through
+/// `display::bound`) take this same lock. A timer tick landing inside the
+/// critical section would spin in the ISR forever on a single CPU. TCG
+/// only delivers interrupts at translation-block boundaries, which hid the
+/// window; under KVM it hung the xui sysmon boot within ~100 s.
 pub fn live(index: usize) -> bool {
-    TASKS.lock().get(index).is_some_and(|task| {
-        task.as_ref()
-            .is_some_and(|task| task.state != TaskState::Done)
+    x86_64::instructions::interrupts::without_interrupts(|| {
+        #[cfg(lazyos_tests)]
+        harness::note_critical_section();
+        TASKS.lock().get(index).is_some_and(|task| {
+            task.as_ref()
+                .is_some_and(|task| task.state != TaskState::Done)
+        })
     })
 }
 
@@ -2467,6 +2479,30 @@ pub fn stats_snapshot() -> TaskStats {
 #[cfg(lazyos_tests)]
 pub mod harness {
     use super::{select_next, PriorityClass, TaskState, WakeReason, KERNEL_TASK, TASKS};
+    use core::sync::atomic::{AtomicU64, Ordering};
+
+    /// Critical sections (of locks an IRQ handler also takes) that were
+    /// entered with interrupts enabled. Must stay 0.
+    static IRQS_ON_IN_CRITICAL: AtomicU64 = AtomicU64::new(0);
+    /// Critical sections checked by [`note_critical_section`].
+    static CRITICAL_CHECKS: AtomicU64 = AtomicU64::new(0);
+
+    /// Record whether interrupts are enabled at the start of an IRQ-shared
+    /// critical section (`task::live`, `mouse::take_moved`, ...).
+    pub fn note_critical_section() {
+        CRITICAL_CHECKS.fetch_add(1, Ordering::Relaxed);
+        if x86_64::instructions::interrupts::are_enabled() {
+            IRQS_ON_IN_CRITICAL.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    /// `(checks, entered_with_irqs_on)` since the last call; resets both.
+    pub fn take_critical_stats() -> (u64, u64) {
+        (
+            CRITICAL_CHECKS.swap(0, Ordering::Relaxed),
+            IRQS_ON_IN_CRITICAL.swap(0, Ordering::Relaxed),
+        )
+    }
 
     /// Free every slot except the kernel task's and zero its scheduler
     /// accounting, so tests do not inherit virtual-time or CPU ticks from an

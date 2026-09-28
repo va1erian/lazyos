@@ -105,11 +105,14 @@ pub fn init() {
 
 /// Set the screen bounds used to clamp the cursor.
 pub fn set_bounds(width: i32, height: i32) {
-    let mut bounds = BOUNDS.lock();
-    *bounds = (width.max(1), height.max(1));
-    let mut state = STATE.lock();
-    state.x = state.x.clamp(0, width - 1);
-    state.y = state.y.clamp(0, height - 1);
+    // `BOUNDS` and `STATE` are shared with the IRQ12 handler.
+    x86_64::instructions::interrupts::without_interrupts(|| {
+        let mut bounds = BOUNDS.lock();
+        *bounds = (width.max(1), height.max(1));
+        let mut state = STATE.lock();
+        state.x = state.x.clamp(0, width - 1);
+        state.y = state.y.clamp(0, height - 1);
+    })
 }
 
 /// Feed a byte from the auxiliary port (called from the IRQ12 handler).
@@ -168,16 +171,25 @@ pub fn push_byte(byte: u8) {
 /// A copy of the current mouse state (for the display grant's initial pointer
 /// seed and diagnostics).
 pub fn state() -> MouseState {
-    *STATE.lock()
+    x86_64::instructions::interrupts::without_interrupts(|| *STATE.lock())
 }
 
 /// Return the position if the mouse moved since the last call.
+///
+/// The kernel mux calls this every frame with interrupts enabled, and the
+/// IRQ12 handler (`push_byte`) takes the same `STATE` lock, so the lock is
+/// held with interrupts off: a mouse IRQ inside the critical section would
+/// otherwise spin forever on a single CPU.
 pub fn take_moved() -> Option<(i32, i32)> {
-    let mut state = STATE.lock();
-    if state.moved {
-        state.moved = false;
-        Some((state.x, state.y))
-    } else {
-        None
-    }
+    x86_64::instructions::interrupts::without_interrupts(|| {
+        #[cfg(lazyos_tests)]
+        crate::task::harness::note_critical_section();
+        let mut state = STATE.lock();
+        if state.moved {
+            state.moved = false;
+            Some((state.x, state.y))
+        } else {
+            None
+        }
+    })
 }

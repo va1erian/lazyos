@@ -64,6 +64,11 @@ const SUITE: &[(&str, Test)] = &[
         arch_suite::sysret_selectors_rpl3,
     ),
     (
+        "arch_irq_shared_locks_disable_interrupts",
+        arch_suite::irq_shared_locks_disable_interrupts,
+    ),
+    ("arch_soak_irq_shared_locks", arch_suite::soak_irq_shared_locks),
+    (
         "slab_alloc_distinct_aligned",
         slab_suite::alloc_distinct_aligned,
     ),
@@ -1288,6 +1293,91 @@ mod arch_suite {
             sysret_ss & 3 == 3 && sysret_cs & 3 == 3,
             "sysret selectors CS={sysret_cs:#x} SS={sysret_ss:#x} are not RPL 3"
         );
+        Ok(())
+    }
+
+    /// Run `f` with interrupts enabled but every PIC line masked, so the
+    /// IRQ-shared helpers see `IF=1` (as the kernel mux does) without any
+    /// interrupt actually firing into the scheduler-less harness.
+    fn with_irqs_on_masked<R>(f: impl FnOnce() -> R) -> R {
+        use crate::arch::io::{inb, outb};
+        // Safety: reading/writing the 8259 IMRs only changes which IRQ lines
+        // are masked; the harness runs with interrupts off, and the previous
+        // masks are restored below before interrupts are disabled again.
+        let (m1, m2) = unsafe { (inb(0x21), inb(0xA1)) };
+        // Safety: see above; masking every line keeps `sti` inert.
+        unsafe {
+            outb(0x21, 0xFF);
+            outb(0xA1, 0xFF);
+        }
+        x86_64::instructions::interrupts::enable();
+        let result = f();
+        x86_64::instructions::interrupts::disable();
+        // Safety: restores the masks read above.
+        unsafe {
+            outb(0x21, m1);
+            outb(0xA1, m2);
+        }
+        result
+    }
+
+    /// Locks that an IRQ handler also takes (`TASKS` via `task::live`, the
+    /// mouse `STATE`) must be held with interrupts off even when the caller
+    /// runs with them on: the kernel mux calls both every frame with `IF=1`,
+    /// and a timer/mouse IRQ inside the critical section deadlocked the xui
+    /// sysmon boot under KVM. The caller's `IF` must also be restored.
+    pub fn irq_shared_locks_disable_interrupts() -> Result<(), String> {
+        use crate::task::harness;
+        let _ = harness::take_critical_stats();
+        let restored = with_irqs_on_masked(|| {
+            let _ = crate::task::live(0);
+            let after_live = x86_64::instructions::interrupts::are_enabled();
+            let _ = crate::input::mouse::take_moved();
+            let after_mouse = x86_64::instructions::interrupts::are_enabled();
+            after_live && after_mouse
+        });
+        let (checks, irqs_on) = harness::take_critical_stats();
+        check!(checks >= 2, "only {checks} critical sections were observed");
+        check!(
+            irqs_on == 0,
+            "{irqs_on} of {checks} IRQ-shared critical sections ran with interrupts on"
+        );
+        check!(restored, "the caller's interrupt flag was not restored");
+        // With interrupts already off the helpers must leave them off.
+        let _ = crate::task::live(0);
+        check!(
+            !x86_64::instructions::interrupts::are_enabled(),
+            "task::live enabled interrupts for an IF=0 caller"
+        );
+        let _ = harness::take_critical_stats();
+        Ok(())
+    }
+
+    /// Soak: many mux-style polls with `IF=1`, every one of which must take
+    /// its lock with interrupts off and hand `IF=1` back.
+    pub fn soak_irq_shared_locks() -> Result<(), String> {
+        use crate::task::harness;
+        const ROUNDS: u64 = 200_000;
+        let _ = harness::take_critical_stats();
+        let lost_if = with_irqs_on_masked(|| {
+            let mut lost = 0u64;
+            for round in 0..ROUNDS {
+                let _ = crate::task::live((round as usize) % crate::task::MAX_TASKS);
+                let _ = crate::input::mouse::take_moved();
+                if !x86_64::instructions::interrupts::are_enabled() {
+                    lost += 1;
+                }
+            }
+            lost
+        });
+        let (checks, irqs_on) = harness::take_critical_stats();
+        check!(
+            checks == ROUNDS * 2,
+            "{checks} critical sections observed, expected {}",
+            ROUNDS * 2
+        );
+        check!(irqs_on == 0, "{irqs_on} critical sections ran with interrupts on");
+        check!(lost_if == 0, "{lost_if} rounds returned with interrupts off");
         Ok(())
     }
 }
