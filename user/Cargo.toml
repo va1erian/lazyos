@@ -38,6 +38,34 @@ path = "src/bin/messengerd.rs"
 test = false
 bench = false
 
+# Service supervision and observability (issue #93): `init` is the supervisor
+# the kernel boots with `LAZYOS_SERVICES=1`; it starts the others from its
+# manifest via the native spawn/wait syscalls. `flaky` crashes once on purpose
+# so a boot log proves restart-with-backoff.
+[[bin]]
+name = "init"
+path = "src/bin/init.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "logd"
+path = "src/bin/logd.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "healthd"
+path = "src/bin/healthd.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "flaky"
+path = "src/bin/flaky.rs"
+test = false
+bench = false
+
 # Async API examples (issue #91). Not wired into the demo image yet: the root
 # build script would need a `CARGO_BIN_FILE_USER_*` hook and a kernel spawn
 # line, which is a one-line follow-up noted in the PR.

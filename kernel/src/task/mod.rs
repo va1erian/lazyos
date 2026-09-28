@@ -404,7 +404,33 @@ pub fn register_kernel() {
     });
 }
 /// Create a user task from an ELF image. Returns its slot index.
+///
+/// The program is started by the kernel: it has no parent and leads its own
+/// process group and session.
 pub fn spawn(name: &'static str, elf: &[u8]) -> Result<usize, &'static str> {
+    spawn_in_space(name, elf, None)
+}
+
+/// Create a user task that is a child of the calling task. Returns its slot.
+///
+/// This is the supervision primitive the userspace `init` (issue #93) builds
+/// on: the child's `parent` names the supervisor, so its exit is reaped with
+/// [`reap_child`] and wakes a [`wait_child_exit`] sleeper. The child inherits
+/// the supervisor's process group and session (it is not a session leader),
+/// exactly as a service started by `init` should be.
+pub fn spawn_child(name: &'static str, elf: &[u8]) -> Result<usize, &'static str> {
+    spawn_in_space(name, elf, Some(current()))
+}
+
+/// Shared implementation of [`spawn`] and [`spawn_child`]: load a native ELF
+/// into a fresh address space and register it as a runnable task. `parent` is
+/// `None` for a kernel-started program (its own group/session leader) or the
+/// slot of the supervisor starting a child.
+fn spawn_in_space(
+    name: &'static str,
+    elf: &[u8],
+    parent: Option<usize>,
+) -> Result<usize, &'static str> {
     let mut tasks = TASKS.lock();
     let index = (1..MAX_TASKS)
         .find(|&i| tasks[i].is_none())
@@ -424,6 +450,15 @@ pub fn spawn(name: &'static str, elf: &[u8]) -> Result<usize, &'static str> {
     let rsp = build_user_frame(top, entry, user_process::USER_STACK_TOP - 16);
     let class = PriorityClass::Normal;
     let pass = virtual_now(&tasks);
+    let (parent_slot, pgid, sid) = match parent {
+        Some(parent) => {
+            let parent_task = tasks[parent].as_ref().ok_or("no parent task")?;
+            (parent, parent_task.pgid, parent_task.sid)
+        }
+        // A program started by the kernel leads its own group and session
+        // (pid == pgid == sid); a supervised child inherits its supervisor's.
+        None => (0, index, index),
+    };
 
     tasks[index] = Some(Task {
         name,
@@ -438,11 +473,9 @@ pub fn spawn(name: &'static str, elf: &[u8]) -> Result<usize, &'static str> {
         cpu_ticks: 0,
         wake_reason: None,
         clear_child_tid: 0,
-        parent: 0,
-        // A program started by the kernel/init leads its own group and session
-        // (pid == pgid == sid), exactly like `init` starting a service.
-        pgid: index,
-        sid: index,
+        parent: parent_slot,
+        pgid,
+        sid,
         exit_status: 0,
         heap_break: user_process::USER_HEAP_BASE,
         fs_base: 0,

@@ -62,7 +62,26 @@ unsafe impl GlobalAlloc for Allocator {
 }
 
 #[alloc_error_handler]
-fn out_of_memory(_layout: Layout) -> ! {
-    sys::write_str("user: out of memory\n");
+fn out_of_memory(layout: Layout) -> ! {
+    // Report the failing request without allocating (`format!` would need the
+    // allocator that just failed).
+    sys::write_str("user: out of memory (request ");
+    let mut digits = [0u8; 20];
+    let mut value = layout.size();
+    let mut len = 0;
+    loop {
+        digits[len] = b'0' + (value % 10) as u8;
+        len += 1;
+        value /= 10;
+        if value == 0 {
+            break;
+        }
+    }
+    let mut text = [0u8; 20];
+    for i in 0..len {
+        text[i] = digits[len - 1 - i];
+    }
+    sys::write(&text[..len]);
+    sys::write_str(" bytes)\n");
     sys::exit(1)
 }

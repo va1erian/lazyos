@@ -40,6 +40,17 @@ fn main() {
         println!("cargo:rustc-cfg=messengerd_service");
     }
 
+    // Service supervision mode (issue #93): `LAZYOS_SERVICES=1` boots the
+    // userspace `init` supervisor (`SUPER.ELF`) instead of the two-window
+    // demo. `init` then starts `messengerd`, `logd`, `healthd` and the
+    // crash-test service from its manifest, over the native spawn/wait
+    // syscalls.
+    println!("cargo:rerun-if-env-changed=LAZYOS_SERVICES");
+    println!("cargo:rustc-check-cfg=cfg(services_mode)");
+    if env::var_os("LAZYOS_SERVICES").as_deref() == Some(std::ffi::OsStr::new("1")) {
+        println!("cargo:rustc-cfg=services_mode");
+    }
+
     let font_bytes = fs::read(&font_path).expect("read JetBrainsMono-Regular.ttf");
     let atlas = font_atlas::build(&font_bytes, 20.0);
 

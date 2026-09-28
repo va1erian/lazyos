@@ -40,6 +40,24 @@ fn main() {
         .expect("user messengerd artifact not found");
     builder.set_file(String::from("MSGRD.ELF"), PathBuf::from(messengerd));
 
+    // System services (issue #93). `init` is the supervisor the kernel boots
+    // with `LAZYOS_SERVICES=1`; it starts the rest from its manifest. The
+    // on-disk name is `SUPER.ELF`, not `INIT.ELF`: the ABI bench hook below
+    // reserves `INIT.ELF` for a Linux fixture, and 8.3 is required by the
+    // kernel's short-name FAT reader.
+    let init = std::env::var_os("CARGO_BIN_FILE_USER_init").expect("user init artifact not found");
+    builder.set_file(String::from("SUPER.ELF"), PathBuf::from(init));
+    let logd = std::env::var_os("CARGO_BIN_FILE_USER_logd").expect("user logd artifact not found");
+    builder.set_file(String::from("LOGD.ELF"), PathBuf::from(logd));
+    let healthd =
+        std::env::var_os("CARGO_BIN_FILE_USER_healthd").expect("user healthd artifact not found");
+    builder.set_file(String::from("HEALTHD.ELF"), PathBuf::from(healthd));
+    // Deliberately-crashing service used to demonstrate supervision and
+    // restart-with-backoff in a boot log (issue #93).
+    let flaky =
+        std::env::var_os("CARGO_BIN_FILE_USER_flaky").expect("user flaky artifact not found");
+    builder.set_file(String::from("FLAKY.ELF"), PathBuf::from(flaky));
+
     // Rebuild the image when the kernel test switch flips (issue #62): the
     // kernel's own build script turns `LAZYOS_TESTS=1` into `cfg(laZYOS_TESTS)`.
     println!("cargo:rerun-if-env-changed=LAZYOS_TESTS");

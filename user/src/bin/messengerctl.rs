@@ -1,13 +1,16 @@
 //! `messengerctl` (`MSGCTL.ELF`): render the Messenger fabric snapshot and
-//! browse the name registry (issues #70 and #89). The image name is 8.3
-//! because the kernel's FAT reader only resolves short names.
+//! browse the name registry, the service supervisor, health and the event log
+//! (issues #70, #89 and #93). The image name is 8.3 because the kernel's FAT
+//! reader only resolves short names.
 //!
 //! Calls the native `messenger` syscall's `stats` op with a snapshot-sized
 //! buffer, so the kernel returns the versioned `FabricStats` block (ABI v2),
 //! and prints it as a small table grouped by subsystem: services/channels,
 //! messages, buffers, audit, and per-slot usage. It then offers the registry
-//! commands `list` and `resolve <name>`, typed at the prompt (native programs
-//! do not receive argv; the tool is interactive like `sh`).
+//! commands `list` and `resolve <name>`, the supervisor commands `services`
+//! and `health`, and the `log`/`log tail`/`log verify` commands, typed at the
+//! prompt (native programs do not receive argv; the tool is interactive like
+//! `sh`).
 //!
 //! When a topics broker is reachable (boot the demo with both
 //! `LAZYOS_MESSENGERD=1` and `LAZYOS_MESSENGERCTL=1`) the tool also runs a
@@ -19,7 +22,8 @@
 //! #92).
 //!
 //! Boot it with `LAZYOS_MESSENGERCTL=1` (see the kernel build script): the
-//! demo then runs this program in the hello window.
+//! demo then runs this program in the hello window. With `LAZYOS_SERVICES=1`
+//! the supervisor's services provide targets for the new commands.
 
 #![no_std]
 #![no_main]
@@ -31,12 +35,13 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::panic::PanicInfo;
 use libmessenger::{Decoder, Encoder, Header, Kind, Parcel, VERSION};
-use user::messenger::{self, registry, topics, FabricStats};
+use user::messenger::{self, registry, services, topics_client, FabricStats};
 use user::sys;
 
 /// The interactive command set, printed at startup and by `help`.
-const HELP: &str =
-    "commands: list | resolve <name> | topics | tail <filter> [count] | stats | help | quit\n";
+const HELP: &str = "commands: list | resolve <name> | services | health | \
+                    log [tail [n]] | log verify | topics | tail <filter> [count] | \
+                    stats | help | quit\n";
 
 #[no_mangle]
 pub extern "C" fn _start() -> ! {
@@ -63,16 +68,24 @@ fn commands() -> ! {
             "quit" | "exit" => sys::exit(0),
             "help" => sys::write_str(HELP),
             "list" => print_registry(),
+            "services" => print_services(),
+            "health" => print_health(),
+            "log" => print_log(10),
+            "log verify" => verify_log(),
             "stats" => match messenger::fabric_stats() {
                 Ok(stats) => print_report(&stats),
                 Err(error) => report(error.message()),
             },
             "topics" => print_topics(),
             _ if text.starts_with("resolve ") => resolve(text[8..].trim()),
-            _ if text.starts_with("tail ") => tail(text[5..].trim()),
-            _ => {
-                report("unknown command; try list, resolve <name>, topics, tail, stats, help, quit")
+            _ if text.starts_with("log tail") => {
+                let count = text[8..].trim().parse().unwrap_or(10);
+                print_log(count)
             }
+            _ if text.starts_with("tail ") => tail(text[5..].trim()),
+            _ => report(
+                "unknown command; try list, resolve <name>, services, health, log, topics, tail, stats, help, quit",
+            ),
         }
     }
 }
@@ -116,6 +129,93 @@ fn resolve(name: &str) {
             name,
             endpoint.handle()
         )),
+        Err(error) => report(error.message()),
+    }
+}
+
+/// `services`: the supervisor's supervision table (issue #93).
+fn print_services() {
+    let endpoint = match services::resolve_service(services::INIT_NAME) {
+        Ok(endpoint) => endpoint,
+        Err(error) => return report(error.message()),
+    };
+    match services::fetch_services(&endpoint) {
+        Ok(statuses) if statuses.is_empty() => {
+            sys::write_str("services: no services supervised\n");
+        }
+        Ok(statuses) => {
+            sys::write_str(&format!("services: {} supervised\n", statuses.len()));
+            for status in &statuses {
+                sys::write_str(&format!(
+                    "  {:<10} {:<10} pid {:<3} restarts {} health {}\n",
+                    status.name, status.state, status.pid, status.restarts, status.health
+                ));
+                if !status.deps.is_empty() {
+                    sys::write_str(&format!("    deps {}\n", status.deps));
+                }
+            }
+        }
+        Err(error) => report(error.message()),
+    }
+}
+
+/// `health`: the retained `system/health/*` rows and the aggregate.
+fn print_health() {
+    let endpoint = match services::resolve_service(services::HEALTHD_NAME) {
+        Ok(endpoint) => endpoint,
+        Err(error) => return report(error.message()),
+    };
+    match services::fetch_health(&endpoint) {
+        Ok((summary, records)) => {
+            sys::write_str(&format!(
+                "health: {} ({})\n",
+                summary.status, summary.detail
+            ));
+            for record in &records {
+                sys::write_str(&format!(
+                    "  {:<10} {:<9} {}\n",
+                    record.name, record.status, record.detail
+                ));
+            }
+        }
+        Err(error) => report(error.message()),
+    }
+}
+
+/// `log [tail [n]]`: the newest records from the structured event log.
+fn print_log(count: u64) {
+    let endpoint = match services::resolve_service(services::LOGD_NAME) {
+        Ok(endpoint) => endpoint,
+        Err(error) => return report(error.message()),
+    };
+    match services::fetch_log_tail(&endpoint, count) {
+        Ok(records) if records.is_empty() => sys::write_str("log: no records yet\n"),
+        Ok(records) => {
+            for record in &records {
+                sys::write_str(&format!(
+                    "  #{:<4} t{:<6} {:<32} {}\n",
+                    record.seq, record.tick, record.topic, record.detail
+                ));
+                sys::write_str(&format!("       hash 0x{:016x}\n", record.hash));
+            }
+        }
+        Err(error) => report(error.message()),
+    }
+}
+
+/// `log verify`: recompute the hash chain over the retained records.
+fn verify_log() {
+    let endpoint = match services::resolve_service(services::LOGD_NAME) {
+        Ok(endpoint) => endpoint,
+        Err(error) => return report(error.message()),
+    };
+    match services::fetch_log_verify(&endpoint) {
+        Ok((true, count)) => {
+            sys::write_str(&format!("log: chain intact over {count} record(s)\n"));
+        }
+        Ok((false, index)) => {
+            sys::write_str(&format!("log: CHAIN BROKEN at record {index}\n"));
+        }
         Err(error) => report(error.message()),
     }
 }
@@ -220,7 +320,7 @@ fn print_report(stats: &FabricStats) {
 /// `topics`: list the topics the broker has seen, with subscriber counts and
 /// whether a retained value is held.
 fn print_topics() {
-    let client = match topics::Client::connect() {
+    let client = match topics_client::Client::connect() {
         Ok(client) => client,
         Err(error) => return report(error.message()),
     };
@@ -259,11 +359,11 @@ fn tail(rest: &str) {
         },
         None => 5,
     };
-    let client = match topics::Client::connect() {
+    let client = match topics_client::Client::connect() {
         Ok(client) => client,
         Err(error) => return report(error.message()),
     };
-    let subscription = match client.subscribe(filter, topics::Qos::Latest) {
+    let subscription = match client.subscribe(filter, topics_client::Qos::Latest) {
         Ok(subscription) => subscription,
         Err(error) => return report(error.message()),
     };
@@ -297,7 +397,7 @@ fn tail(rest: &str) {
 
 /// A readable one-line summary of an event payload: the first string field of
 /// the publisher's parcel, or its size when the payload is not text.
-fn describe_payload(event: &topics::Event) -> String {
+fn describe_payload(event: &topics_client::Event) -> String {
     if let Ok(parcel) = event.parcel() {
         let mut decoder = Decoder::new(&parcel.body);
         while let Ok(Some(field)) = decoder.next() {
@@ -314,7 +414,7 @@ fn describe_payload(event: &topics::Event) -> String {
 /// The boot-time topic conformance markers (issue #92). Silent when no broker
 /// is reachable, so the plain `LAZYOS_MESSENGERCTL=1` demo is unchanged.
 fn topic_selftest() {
-    let client = match topics::Client::connect() {
+    let client = match topics_client::Client::connect() {
         Ok(client) => client,
         Err(_) => return,
     };
@@ -366,7 +466,7 @@ fn test_parcel(text: &str) -> Result<Parcel, String> {
 }
 
 /// The first string field of an event payload.
-fn payload_text(event: &topics::Event) -> Result<String, String> {
+fn payload_text(event: &topics_client::Event) -> Result<String, String> {
     let parcel = event.parcel().map_err(err_text)?;
     let mut decoder = Decoder::new(&parcel.body);
     while let Some(field) = decoder.next().map_err(parcel_err_text)? {
@@ -378,12 +478,12 @@ fn payload_text(event: &topics::Event) -> Result<String, String> {
 }
 
 /// Two subscriptions on one topic both receive the same event.
-fn selftest_fanout(client: &topics::Client) -> Result<(), String> {
+fn selftest_fanout(client: &topics_client::Client) -> Result<(), String> {
     let first = client
-        .subscribe("topics/fanout", topics::Qos::Latest)
+        .subscribe("topics/fanout", topics_client::Qos::Latest)
         .map_err(err_text)?;
     let second = client
-        .subscribe("topics/fanout", topics::Qos::Buffered(4))
+        .subscribe("topics/fanout", topics_client::Qos::Buffered(4))
         .map_err(err_text)?;
     let payload = test_parcel("fanout-1")?;
     let matched = client
@@ -412,12 +512,12 @@ fn selftest_fanout(client: &topics::Client) -> Result<(), String> {
 }
 
 /// `+` matches exactly one segment, trailing `#` matches zero or more.
-fn selftest_wildcard(client: &topics::Client) -> Result<(), String> {
+fn selftest_wildcard(client: &topics_client::Client) -> Result<(), String> {
     let one = client
-        .subscribe("system/+/up", topics::Qos::Latest)
+        .subscribe("system/+/up", topics_client::Qos::Latest)
         .map_err(err_text)?;
     let any = client
-        .subscribe("system/#", topics::Qos::Buffered(8))
+        .subscribe("system/#", topics_client::Qos::Buffered(8))
         .map_err(err_text)?;
 
     // Four segments: `system/+/up` must not match, `system/#` must.
@@ -477,7 +577,7 @@ fn selftest_wildcard(client: &topics::Client) -> Result<(), String> {
 }
 
 /// A retained publish is replayed to a later subscriber.
-fn selftest_retained(client: &topics::Client) -> Result<(), String> {
+fn selftest_retained(client: &topics_client::Client) -> Result<(), String> {
     let payload = test_parcel("netd-up")?;
     let matched = client
         .publish_retained("system/health/netd", &payload)
@@ -486,7 +586,7 @@ fn selftest_retained(client: &topics::Client) -> Result<(), String> {
         return Err(format!("retained publish matched {matched}, expected 0"));
     }
     let subscription = client
-        .subscribe("system/health/netd", topics::Qos::Latest)
+        .subscribe("system/health/netd", topics_client::Qos::Latest)
         .map_err(err_text)?;
     let event = subscription
         .next_event(None)
@@ -503,9 +603,9 @@ fn selftest_retained(client: &topics::Client) -> Result<(), String> {
 }
 
 /// `buffered(1)` drops the oldest event on overflow and counts it.
-fn selftest_drop(client: &topics::Client) -> Result<(), String> {
+fn selftest_drop(client: &topics_client::Client) -> Result<(), String> {
     let subscription = client
-        .subscribe("topics/drop", topics::Qos::Buffered(1))
+        .subscribe("topics/drop", topics_client::Qos::Buffered(1))
         .map_err(err_text)?;
     for text in ["drop-1", "drop-2", "drop-3"] {
         let payload = test_parcel(text)?;
@@ -534,9 +634,9 @@ fn selftest_drop(client: &topics::Client) -> Result<(), String> {
 
 /// `reliable` redelivers the unacked head and retires it on `ack`; `conflate`
 /// coalesces a publisher's pending events and counts the replacement.
-fn selftest_qos(client: &topics::Client) -> Result<(), String> {
+fn selftest_qos(client: &topics_client::Client) -> Result<(), String> {
     let reliable = client
-        .subscribe("topics/reliable", topics::Qos::Reliable)
+        .subscribe("topics/reliable", topics_client::Qos::Reliable)
         .map_err(err_text)?;
     for text in ["rel-1", "rel-2"] {
         let payload = test_parcel(text)?;
@@ -567,7 +667,7 @@ fn selftest_qos(client: &topics::Client) -> Result<(), String> {
     reliable.unsubscribe().map_err(err_text)?;
 
     let conflate = client
-        .subscribe("topics/conflate", topics::Qos::Conflate)
+        .subscribe("topics/conflate", topics_client::Qos::Conflate)
         .map_err(err_text)?;
     for text in ["conf-1", "conf-2"] {
         let payload = test_parcel(text)?;
@@ -591,9 +691,9 @@ fn selftest_qos(client: &topics::Client) -> Result<(), String> {
 }
 
 /// After `unsubscribe` later publishes no longer match.
-fn selftest_unsubscribe(client: &topics::Client) -> Result<(), String> {
+fn selftest_unsubscribe(client: &topics_client::Client) -> Result<(), String> {
     let subscription = client
-        .subscribe("topics/unsub", topics::Qos::Latest)
+        .subscribe("topics/unsub", topics_client::Qos::Latest)
         .map_err(err_text)?;
     subscription.unsubscribe().map_err(err_text)?;
     let payload = test_parcel("gone")?;

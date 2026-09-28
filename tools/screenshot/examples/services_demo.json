@@ -1,0 +1,15 @@
+[
+  {"at": 10.0, "shot": "services_boot"},
+  {"at": 10.6, "key": "tab"},
+  {"at": 11.2, "type": "services"},
+  {"at": 12.0, "key": "enter"},
+  {"at": 13.0, "type": "health"},
+  {"at": 13.8, "key": "enter"},
+  {"at": 14.8, "type": "log verify"},
+  {"at": 15.8, "key": "enter"},
+  {"at": 16.6, "shot": "services_queries"},
+  {"at": 17.5, "type": "log"},
+  {"at": 18.4, "key": "enter"},
+  {"at": 19.2, "shot": "services_log"},
+  {"at": 20.0, "quit": true}
+]

@@ -3,16 +3,40 @@
 //! The loader maps a program into a given address space ([`load_image`]); the
 //! scheduler (`crate::task`) then runs it in ring 3. Syscalls reach the kernel
 //! through the gate installed at vector `0x80`.
+//!
+//! # Service syscalls (issue #93)
+//!
+//! The userspace `init` supervisor needs three things the demo surface did not
+//! provide: to start a program as *its* child (`spawn = 6`), to wait for a
+//! child exit so a crash can be restarted (`wait = 7`), and absolute timer
+//! ticks to schedule backoff and polls (`clock = 8`). A fourth call
+//! (`args = 9`) hands a service the argument string its manifest entry
+//! declared, because native programs have no `argv` stack yet:
+//!
+//! ```text
+//!   rax = 6  rdi -> "PATH.ELF [args...]" (NUL-terminated)   -> pid | -1
+//!   rax = 7  rdi = absolute PIT deadline (0 = forever)       -> pid<<32 | status, or -1
+//!   rax = 8                                                  -> PIT ticks
+//!   rax = 9  rdi -> buffer, rsi = capacity                   -> argument length
+//! ```
+//!
+//! `spawn` reads the ELF from the FAT image, calls [`task::spawn_child`] and
+//! remembers the argument string by slot; the kernel intern table behind task
+//! names holds one leaked string per distinct service name, so a restart loop
+//! cannot grow it.
 
+use alloc::boxed::Box;
+use alloc::string::String;
 use alloc::vec::Vec;
 use core::arch::global_asm;
+use spin::Mutex;
 use x86_64::structures::idt::HandlerFunc;
 use x86_64::{PhysAddr, VirtAddr};
 use xmas_elf::program::{SegmentData, Type as ProgramType};
 use xmas_elf::ElfFile;
 
 use crate::mem::vma::{Kind, Prot};
-use crate::task;
+use crate::task::{self, wait::CHILD_EXIT, WakeReason};
 use crate::{fs, input::keyboard, mem};
 
 pub mod linux;
@@ -86,6 +110,11 @@ extern "C" fn syscall_dispatch(regs: *mut Regs) {
         // 5: the native Messenger surface (issue #69): `rdi` is the op code,
         // `rsi` points at a `MsgArgs` block and `rdx` at a `MsgResult` block.
         5 => crate::ipc::syscalls::dispatch(regs.rdi, regs.rsi, regs.rdx),
+        // 6..9: the service supervision surface (issue #93).
+        6 => sys_spawn(regs.rdi),
+        7 => sys_wait(regs.rdi),
+        8 => sys_clock(),
+        9 => sys_args(regs.rdi, regs.rsi),
         _ => u64::MAX,
     };
 }
@@ -97,6 +126,10 @@ extern "C" fn syscall_dispatch(regs: *mut Regs) {
 pub fn dispatch_for_test(nr: u64, a1: u64, a2: u64, a3: u64) -> u64 {
     match nr {
         5 => crate::ipc::syscalls::dispatch(a1, a2, a3),
+        6 => sys_spawn(a1),
+        7 => sys_wait(a1),
+        8 => sys_clock(),
+        9 => sys_args(a1, a2),
         _ => u64::MAX,
     }
 }
@@ -196,14 +229,123 @@ fn sys_sbrk(increment: u64) -> u64 {
 }
 
 /// syscall 0: terminate the current task.
-fn exit(_code: u32) -> ! {
-    serial_println!("user: task exited");
-    task::finish_current(0);
+///
+/// The exit status is recorded on the task so the supervisor's `wait` (syscall
+/// 7) can see *why* a service died and apply its restart policy.
+fn exit(code: u32) -> ! {
+    serial_println!("user: task exited with status {code}");
+    task::finish_current(code as u64);
     // Wait for the scheduler to switch to another task.
     loop {
         x86_64::instructions::interrupts::enable();
         x86_64::instructions::hlt();
     }
+}
+
+/// Service argument strings, keyed by task slot (issue #93).
+///
+/// Native programs receive no `argv`/`argc` stack, so `spawn` stores the
+/// manifest argument string here and syscall 9 (or `sys::service_args`) copies
+/// it out. The entry is overwritten on the slot's next state-changing spawn and
+/// only read by that slot, so a re-used slot cannot observe stale arguments of
+/// a *different* program (a plain kernel `spawn` clears the slot).
+static SERVICE_ARGS: Mutex<[Option<Vec<u8>>; task::MAX_TASKS]> =
+    Mutex::new([const { None }; task::MAX_TASKS]);
+
+/// Intern a userspace-provided service name into a `&'static str` for
+/// [`task::spawn_child`].
+///
+/// `Task::name` is `&'static str`, but the name comes from the supervisor's
+/// manifest at runtime. Leaking each *distinct* name once (bounded by the
+/// manifest, not by restart count) is the smallest way to satisfy that type
+/// without adding an allocation policy to the task table.
+fn intern_service_name(name: &str) -> &'static str {
+    static NAMES: Mutex<Vec<&'static str>> = Mutex::new(Vec::new());
+    let mut names = NAMES.lock();
+    if let Some(known) = names.iter().find(|known| **known == name) {
+        return known;
+    }
+    let leaked: &'static str = Box::leak(String::from(name).into_boxed_str());
+    names.push(leaked);
+    leaked
+}
+
+/// syscall 6: start `"PATH.ELF [args...]"` as a child of the calling task.
+///
+/// The command line is NUL-terminated. The first whitespace-separated token is
+/// the FAT file name, the remainder is stored for syscall 9. Returns the new
+/// task's pid (its slot), or `u64::MAX` when the file is missing, the ELF is
+/// invalid, or no slot/frame is free.
+fn sys_spawn(cmdline_ptr: u64) -> u64 {
+    let line = user_cstr(cmdline_ptr).trim();
+    if line.is_empty() {
+        return u64::MAX;
+    }
+    let (path, args) = match line.split_once(char::is_whitespace) {
+        Some((path, args)) => (path, args.trim()),
+        None => (line, ""),
+    };
+    let Some(elf) = fs::read(path) else {
+        return u64::MAX;
+    };
+    let name = intern_service_name(path);
+    let slot = match task::spawn_child(name, &elf) {
+        Ok(slot) => slot,
+        Err(_) => return u64::MAX,
+    };
+    SERVICE_ARGS.lock()[slot] = Some(args.as_bytes().to_vec());
+    slot as u64
+}
+
+/// syscall 7: wait for a child exit and reap it.
+///
+/// `deadline` is an absolute PIT tick, `0` waits forever. Returns the packed
+/// `(pid << 32) | status`, or `u64::MAX` on timeout. The syscall parks on the
+/// child-exit queue with interrupts disabled (the `int 0x80` gate), so no exit
+/// can slip between the reap check and the park.
+fn sys_wait(deadline: u64) -> u64 {
+    let me = task::current();
+    loop {
+        if let Some((slot, status)) = task::reap_child() {
+            return pack_exit(slot, status);
+        }
+        let timeout = CHILD_EXIT.wait(me, (deadline != 0).then_some(deadline));
+        if timeout == WakeReason::TimedOut {
+            // A child may have exited on the very tick the deadline passed.
+            return match task::reap_child() {
+                Some((slot, status)) => pack_exit(slot, status),
+                None => u64::MAX,
+            };
+        }
+    }
+}
+
+/// Pack a reaped child's slot and exit status into one register.
+fn pack_exit(slot: usize, status: u64) -> u64 {
+    (slot as u64) << 32 | (status & 0xffff_ffff)
+}
+
+/// syscall 8: the PIT tick counter (100 Hz), the supervisor's clock.
+fn sys_clock() -> u64 {
+    task::ticks()
+}
+
+/// syscall 9: copy this task's service argument string into `buf`.
+///
+/// Returns the full argument length; at most `buf_len` bytes are copied, so a
+/// caller can size the buffer from a first zero-capacity call.
+fn sys_args(buf_ptr: u64, buf_len: u64) -> u64 {
+    let args = SERVICE_ARGS.lock()[task::current()]
+        .clone()
+        .unwrap_or_default();
+    let count = args.len().min(buf_len as usize);
+    if count > 0 {
+        // Safety: the caller passes a buffer valid for `buf_len` bytes.
+        unsafe {
+            core::ptr::copy_nonoverlapping(args.as_ptr(), buf_ptr as *mut u8, count);
+        }
+    }
+    args.len() as u64
 }
 
 /// Map a program's `PT_LOAD` segments into `table` and return its entry point.

@@ -18,7 +18,7 @@
 //! literally: [`Broker`] owns hierarchical names, `+`/`#` filter matching,
 //! QoS queues, retained values and per-subscriber drop counters, while every
 //! publish and subscribe still asks the kernel's policy engine
-//! (`topics::authorize`) before a byte is stored. Delivery is pull-based with
+//! (`topics_client::authorize`) before a byte is stored. Delivery is pull-based with
 //! deferred replies: `NextEvent` is answered at once when an event is
 //! queued, or parked (the kernel keeps the caller asleep with a real
 //! deadline) until a matching publish arrives. That keeps the single-threaded
@@ -40,7 +40,7 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::panic::PanicInfo;
-use user::messenger::{self, errno, registry, topics};
+use user::messenger::{self, errno, registry, topics_client};
 use user::sys;
 
 /// Largest number of live subscriptions the broker keeps.
@@ -96,9 +96,14 @@ fn serve() -> messenger::Result<()> {
     // the object the new name must refer to (the same one the kernel
     // published).
     let service = registry::resolve(registry::NAME)?;
-    registry::register(topics::NAME, &service, &[topics::INTERFACE], 0)?;
+    registry::register(
+        topics_client::NAME,
+        &service,
+        &[topics_client::INTERFACE],
+        0,
+    )?;
     sys::write_str("messengerd: topics service registered as ");
-    sys::write_str(topics::NAME);
+    sys::write_str(topics_client::NAME);
     sys::write_str("\n");
 
     let mut broker = Broker::new();
@@ -106,7 +111,7 @@ fn serve() -> messenger::Result<()> {
 
     loop {
         let message = endpoint.recv(None)?;
-        if message.interface_id() == topics::INTERFACE {
+        if message.interface_id() == topics_client::INTERFACE {
             serve_topic(&endpoint, &mut broker, &message);
         } else {
             let reply = match registry::serve_request(&message.parcel, message.sender) {
@@ -148,7 +153,7 @@ fn serve_topic(endpoint: &messenger::Endpoint, broker: &mut Broker, message: &me
         }
         Err(error) => {
             if let Some(txn) = message.txn {
-                let reply = topics::error_reply(message.method(), error);
+                let reply = topics_client::error_reply(message.method(), error);
                 let _ = endpoint.reply(txn, &reply);
             }
         }
@@ -248,11 +253,11 @@ struct Subscription {
     /// Task slot the subscribing call came from (kernel-stamped).
     owner: u64,
     filter: Filter,
-    qos: topics::Qos,
+    qos: topics_client::Qos,
     /// Events ready for delivery (latest / buffered / reliable).
-    queue: VecDeque<topics::Event>,
+    queue: VecDeque<topics_client::Event>,
     /// Coalesced per-publisher slots (conflate only).
-    conflated: Vec<(u64, topics::Event)>,
+    conflated: Vec<(u64, topics_client::Event)>,
     drops: u64,
     delivered: u64,
     matched: u64,
@@ -284,7 +289,7 @@ struct TopicRow {
 pub struct Broker {
     subscriptions: Vec<Subscription>,
     /// Retained value per topic, most recent last.
-    retained: Vec<(String, topics::Event)>,
+    retained: Vec<(String, topics_client::Event)>,
     topics: Vec<TopicRow>,
     pending: Vec<Pending>,
     next_subscription: u64,
@@ -311,55 +316,60 @@ impl Broker {
         sender: u64,
         txn: Option<u64>,
     ) -> Result<Outcome, messenger::Error> {
-        use topics::{field, method, MODE_PUBLISH};
+        use topics_client::{field, method, MODE_PUBLISH};
 
         let mut outcome = Outcome::default();
         match request.header.method {
             method::PING => {
-                outcome.reply = Some(topics::reply_ok(request.header.method));
+                outcome.reply = Some(topics_client::reply_ok(request.header.method));
             }
             method::PUBLISH => {
-                let topic = topics::string_field(request, field::TOPIC)
+                let topic = topics_client::string_field(request, field::TOPIC)
                     .map_err(|_| messenger::Error::Topics(errno::EINVAL))?;
-                let payload = topics::bytes_field(request, field::PAYLOAD)
+                let payload = topics_client::bytes_field(request, field::PAYLOAD)
                     .map_err(|_| messenger::Error::Topics(errno::EINVAL))?
                     .ok_or(messenger::Error::Topics(errno::EINVAL))?;
                 if payload.is_empty() {
                     return Err(messenger::Error::Topics(errno::EINVAL));
                 }
-                if payload.len() > topics::MAX_PAYLOAD {
+                if payload.len() > topics_client::MAX_PAYLOAD {
                     return Err(messenger::Error::Topics(errno::E2BIG));
                 }
                 if !valid_topic(&topic) {
                     return Err(messenger::Error::Topics(errno::EINVAL));
                 }
-                let retained = topics::bool_field(request, field::RETAINED)
+                let retained = topics_client::bool_field(request, field::RETAINED)
                     .map_err(|_| messenger::Error::Topics(errno::EINVAL))?;
                 // Policy first: a denied publish stores nothing and is audited.
-                topics::authorize(sender, MODE_PUBLISH, &topic, txn.unwrap_or(0))
+                topics_client::authorize(sender, MODE_PUBLISH, &topic, txn.unwrap_or(0))
                     .map_err(|_| messenger::Error::Topics(errno::EACCES))?;
                 let matched = self.publish(&topic, sender, payload, retained);
                 outcome.wakes = self.satisfy();
                 outcome.reply = Some(
-                    topics::reply_matched(matched)
+                    topics_client::reply_matched(matched)
                         .map_err(|_| messenger::Error::Topics(errno::E2BIG))?,
                 );
             }
             method::SUBSCRIBE => {
-                let filter = topics::string_field(request, field::FILTER)
+                let filter = topics_client::string_field(request, field::FILTER)
                     .map_err(|_| messenger::Error::Topics(errno::EINVAL))?;
-                let qos_code = topics::u32_field(request, field::QOS)
+                let qos_code = topics_client::u32_field(request, field::QOS)
                     .map_err(|_| messenger::Error::Topics(errno::EINVAL))?
                     .ok_or(messenger::Error::Topics(errno::EINVAL))?;
-                let depth = topics::u32_field(request, field::DEPTH)
+                let depth = topics_client::u32_field(request, field::DEPTH)
                     .map_err(|_| messenger::Error::Topics(errno::EINVAL))?
                     .unwrap_or(0);
-                let qos = topics::Qos::from_parts(qos_code, depth)
+                let qos = topics_client::Qos::from_parts(qos_code, depth)
                     .ok_or(messenger::Error::Topics(errno::EINVAL))?;
                 let parsed =
                     Filter::parse(&filter).ok_or(messenger::Error::Topics(errno::EINVAL))?;
-                topics::authorize(sender, topics::MODE_SUBSCRIBE, &filter, txn.unwrap_or(0))
-                    .map_err(|_| messenger::Error::Topics(errno::EACCES))?;
+                topics_client::authorize(
+                    sender,
+                    topics_client::MODE_SUBSCRIBE,
+                    &filter,
+                    txn.unwrap_or(0),
+                )
+                .map_err(|_| messenger::Error::Topics(errno::EACCES))?;
                 if self.subscriptions.len() >= MAX_SUBSCRIPTIONS {
                     return Err(messenger::Error::Topics(errno::ENOMEM));
                 }
@@ -378,14 +388,14 @@ impl Broker {
                 });
                 self.replay_retained(self.subscriptions.len() - 1, id);
                 outcome.reply = Some(
-                    topics::reply_subscription(id)
+                    topics_client::reply_subscription(id)
                         .map_err(|_| messenger::Error::Topics(errno::E2BIG))?,
                 );
             }
             method::UNSUBSCRIBE => {
                 let id = subscription_id(request)?;
                 self.remove(id, sender)?;
-                outcome.reply = Some(topics::reply_ok(request.header.method));
+                outcome.reply = Some(topics_client::reply_ok(request.header.method));
             }
             method::NEXT_EVENT => {
                 let id = subscription_id(request)?;
@@ -401,7 +411,7 @@ impl Broker {
                     Some(event) => {
                         self.subscriptions[index].delivered += 1;
                         outcome.reply = Some(
-                            topics::reply_event(&event)
+                            topics_client::reply_event(&event)
                                 .map_err(|_| messenger::Error::Topics(errno::E2BIG))?,
                         );
                     }
@@ -426,7 +436,7 @@ impl Broker {
             }
             method::ACK => {
                 let id = subscription_id(request)?;
-                let sequence = topics::u64_field(request, field::SEQUENCE)
+                let sequence = topics_client::u64_field(request, field::SEQUENCE)
                     .map_err(|_| messenger::Error::Topics(errno::EINVAL))?
                     .ok_or(messenger::Error::Topics(errno::EINVAL))?;
                 let index = self
@@ -437,7 +447,7 @@ impl Broker {
                 if self.subscriptions[index].owner != sender {
                     return Err(messenger::Error::Topics(errno::EPERM));
                 }
-                if self.subscriptions[index].qos == topics::Qos::Reliable {
+                if self.subscriptions[index].qos == topics_client::Qos::Reliable {
                     let queue = &mut self.subscriptions[index].queue;
                     while let Some(front) = queue.front() {
                         if front.sequence > sequence {
@@ -446,12 +456,12 @@ impl Broker {
                         queue.pop_front();
                     }
                 }
-                outcome.reply = Some(topics::reply_ok(request.header.method));
+                outcome.reply = Some(topics_client::reply_ok(request.header.method));
             }
             method::LIST_TOPICS => {
                 let list = self.list();
                 outcome.reply = Some(
-                    topics::reply_topics(&list)
+                    topics_client::reply_topics(&list)
                         .map_err(|_| messenger::Error::Topics(errno::E2BIG))?,
                 );
             }
@@ -466,7 +476,7 @@ impl Broker {
                 if sub.owner != sender {
                     return Err(messenger::Error::Topics(errno::EPERM));
                 }
-                let stats = topics::SubscriptionStats {
+                let stats = topics_client::SubscriptionStats {
                     qos: sub.qos.code(),
                     depth: sub.qos.depth(),
                     queued: sub.queued(),
@@ -475,7 +485,7 @@ impl Broker {
                     drops: sub.drops,
                 };
                 outcome.reply = Some(
-                    topics::reply_stats(&stats)
+                    topics_client::reply_stats(&stats)
                         .map_err(|_| messenger::Error::Topics(errno::E2BIG))?,
                 );
             }
@@ -490,7 +500,7 @@ impl Broker {
     fn publish(&mut self, topic: &str, publisher: u64, payload: Vec<u8>, retained: bool) -> u64 {
         let sequence = self.next_sequence;
         self.next_sequence += 1;
-        let event = topics::Event {
+        let event = topics_client::Event {
             topic: String::from(topic),
             publisher,
             sequence,
@@ -513,7 +523,7 @@ impl Broker {
     }
 
     /// Remember (or replace) the retained value for a topic.
-    fn set_retained(&mut self, event: &topics::Event) {
+    fn set_retained(&mut self, event: &topics_client::Event) {
         if let Some(slot) = self
             .retained
             .iter_mut()
@@ -528,7 +538,7 @@ impl Broker {
     /// Hand the freshly created subscription any retained value its filter
     /// matches (`docs/messenger.md` 7.2: "new subscribers get it immediately").
     fn replay_retained(&mut self, index: usize, id: u64) {
-        let matches: Vec<topics::Event> = self
+        let matches: Vec<topics_client::Event> = self
             .retained
             .iter()
             .filter(|(topic, _)| self.subscriptions[index].filter.matches(topic))
@@ -561,7 +571,7 @@ impl Broker {
                 Some(event) => {
                     self.subscriptions[sub_index].delivered += 1;
                     self.pending.remove(index);
-                    if let Ok(parcel) = topics::reply_event(&event) {
+                    if let Ok(parcel) = topics_client::reply_event(&event) {
                         wakes.push((pending.txn, parcel));
                     }
                 }
@@ -602,10 +612,10 @@ impl Broker {
     }
 
     /// Snapshot the topic table with live subscriber counts.
-    fn list(&self) -> Vec<topics::TopicInfo> {
+    fn list(&self) -> Vec<topics_client::TopicInfo> {
         self.topics
             .iter()
-            .map(|row| topics::TopicInfo {
+            .map(|row| topics_client::TopicInfo {
                 topic: row.topic.clone(),
                 subscribers: self
                     .subscriptions
@@ -620,7 +630,7 @@ impl Broker {
 
 /// The first `SUBSCRIPTION` field of a request.
 fn subscription_id(request: &libmessenger::Parcel) -> Result<u64, messenger::Error> {
-    topics::u64_field(request, topics::field::SUBSCRIPTION)
+    topics_client::u64_field(request, topics_client::field::SUBSCRIPTION)
         .map_err(|_| messenger::Error::Topics(errno::EINVAL))?
         .ok_or(messenger::Error::Topics(errno::EINVAL))
 }
@@ -635,16 +645,16 @@ fn subscription_id(request: &libmessenger::Parcel) -> Result<u64, messenger::Err
 ///   `NextEvent` is the natural boundary.
 /// * `reliable`: like buffered, but delivery does not pop; [`take`] hands out
 ///   the head until the subscriber acks it.
-fn enqueue(sub: &mut Subscription, event: topics::Event) {
+fn enqueue(sub: &mut Subscription, event: topics_client::Event) {
     match sub.qos {
-        topics::Qos::Latest => {
+        topics_client::Qos::Latest => {
             if !sub.queue.is_empty() {
                 sub.queue.pop_front();
                 sub.drops += 1;
             }
             sub.queue.push_back(event);
         }
-        topics::Qos::Buffered(depth) => {
+        topics_client::Qos::Buffered(depth) => {
             let depth = depth.max(1) as usize;
             while sub.queue.len() >= depth {
                 sub.queue.pop_front();
@@ -652,15 +662,15 @@ fn enqueue(sub: &mut Subscription, event: topics::Event) {
             }
             sub.queue.push_back(event);
         }
-        topics::Qos::Reliable => {
-            let depth = topics::Qos::RELIABLE_DEPTH as usize;
+        topics_client::Qos::Reliable => {
+            let depth = topics_client::Qos::RELIABLE_DEPTH as usize;
             while sub.queue.len() >= depth {
                 sub.queue.pop_front();
                 sub.drops += 1;
             }
             sub.queue.push_back(event);
         }
-        topics::Qos::Conflate => {
+        topics_client::Qos::Conflate => {
             if let Some(slot) = sub
                 .conflated
                 .iter_mut()
@@ -669,7 +679,7 @@ fn enqueue(sub: &mut Subscription, event: topics::Event) {
                 *slot = (event.publisher, event);
                 sub.drops += 1;
             } else {
-                let window = topics::Qos::CONFLATE_WINDOW as usize;
+                let window = topics_client::Qos::CONFLATE_WINDOW as usize;
                 while sub.conflated.len() >= window {
                     sub.conflated.remove(0);
                     sub.drops += 1;
@@ -681,17 +691,17 @@ fn enqueue(sub: &mut Subscription, event: topics::Event) {
 }
 
 /// Deliver the next event for a subscription, applying the QoS pop rules.
-fn take(sub: &mut Subscription) -> Option<topics::Event> {
+fn take(sub: &mut Subscription) -> Option<topics_client::Event> {
     match sub.qos {
-        topics::Qos::Conflate => {
+        topics_client::Qos::Conflate => {
             if sub.conflated.is_empty() {
                 None
             } else {
                 Some(sub.conflated.remove(0).1)
             }
         }
-        topics::Qos::Reliable => sub.queue.front().cloned(),
-        topics::Qos::Latest | topics::Qos::Buffered(_) => sub.queue.pop_front(),
+        topics_client::Qos::Reliable => sub.queue.front().cloned(),
+        topics_client::Qos::Latest | topics_client::Qos::Buffered(_) => sub.queue.pop_front(),
     }
 }
 
