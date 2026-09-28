@@ -57,19 +57,19 @@ TEST:SUMMARY:PASS=<n> FAIL=<n>
 
 ## What the suite covers
 
-| Test | What it asserts |
-|------|-----------------|
-| `mem_frames_distinct_aligned` | `alloc_frame` returns distinct, 4 KiB-aligned frames outside low memory (public API only; #54 can add counter tests in `mem_suite`) |
-| `mem_zeroed_frame_clear` | `alloc_zeroed_frame` is really zeroed and round-trips through `phys_to_virt` |
-| `mem_user_table_shares_kernel_half` | `new_user_table` copies PML4 entries 1..512 and leaves entry 0 empty |
-| `mem_cow_clone_copies_on_write` | `clone_user_table` marks both sides COW read-only; `cow_fault` gives each side a private, intact copy |
-| `mem_soak_cow_fork_churn` | soak: 500 iterations of map/write/clone/fault-both-sides, with progress and a cycle-budget verdict (~8.8e9 cycles under `--accel none`) |
-| `heap_vec_integrity` | kernel heap allocation/free/reuse keeps data intact |
-| `task_kernel_registered` | kernel task slot, snapshot, no children, nothing to reap |
-| `task_block_wake_roundtrip` | the futex park/wake primitives (`set_blocked`/`wake_task`) |
-| `task_fork_reap_churn` | `spawn_fork` + exit + `reap_child` bookkeeping across rounds |
-| `task_futex_wait_mismatch` | `futex(FUTEX_WAIT)` returns EAGAIN on a mismatched word; `FUTEX_WAKE` with no waiters returns 0 |
-| `task_fd_table` | fd open/size/read/seek/dup/close bookkeeping |
+48 tests as of 2026-09-28, grouped by prefix (the authoritative list is `SUITE`
+in `kernel/src/tests.rs`; soak tests print `PROGRESS` lines and a cycle-budget
+verdict):
+
+| Prefix | Count | What it asserts |
+|------|------|-----------------|
+| `mem_*` | 3 | zeroed frames round-trip through `phys_to_virt`; COW clone + `mprotect` privatisation; `mem_soak_cow_fork_churn` (500 map/write/clone/fault rounds with bounded live frames) |
+| `heap_*`, `slab_*` | 6 | kernel heap integrity; slab reuse after free, live/peak stats, oversized fallback, per-owner accounting, bounded-live soak |
+| `task_*` | 10 | kernel task registration; fork + reap churn; thread-exit slot reclaim (#133); futex mismatch; fd table; process tree, pgid/sid inheritance, `setsid`, re-parenting on death; `SIGSTOP`/`SIGCONT` |
+| `pipe_*` | 4 | ring wrap round-trips; EOF/`EPIPE`/`O_NONBLOCK`; `dup` + fork + `FD_CLOEXEC`; vfork-style `clone` child |
+| `linux_*` | 3 | `mremap` soak; `eventfd` semantics; `AF_UNIX` pathname bind/connect soak |
+| `ipc_*` | 13 | handle open/duplicate/close and rights; per-uid handle and buffer quotas; channel cancel wakeups and peer death; ACL default-deny, allow and explicit-deny rules; audit ring wrap; the native `messenger` syscall echo; topic ACL through the syscall gate |
+| `block_*`, `fs_*` | 9 | ATA reads the FAT root; VFS cache invalidation; FAT `EROFS`; overlay rename/replace and `ENOSPC` limits; ABI `mkdir`/`rename`/`rmdir` and unlink-while-open; ext2 1/2/4 KiB block sizes over a `FakeDisk`; ext2 rejects corrupt images |
 
 Test-only hooks are behind `cfg(lazyos_tests)` (`task::harness`,
 `process::linux::dispatch_for_test`), so the production kernel carries none of
@@ -78,8 +78,9 @@ these APIs.
 ## Adding tests
 
 Add a `fn() -> Result<(), String>` to `kernel/src/tests.rs` and register it in
-`SUITE`. Keep the output protocol exact. Allocator-specific tests that only
-make sense after #54 belong in `mem_suite`, next to the existing names.
+`SUITE`. Keep the output protocol exact. Every kernel component needs both a
+correctness test and a stress/soak test (see `AGENTS.md`); put them next to the
+existing names of the same prefix.
 
 ## CI
 

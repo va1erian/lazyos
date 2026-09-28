@@ -1,5 +1,19 @@
 # Plan: Linux x86_64 ABI shim on LazyOS
 
+> **Status (2026-09-28): implemented.** Phases L0-L4 below all landed (issues
+> #32-#41, #120, #133-#136, #155, #179), and the five success criteria hold:
+> the 13 fixtures in `tools/abi/fixtures` pass in CI and BusyBox `sh` runs. The
+> shim now also covers `mremap`, epoll/eventfd, `AF_UNIX` stream and seqpacket
+> sockets and a copy-up writable root. The sections below are kept as the
+> design record; the current state of the code is described in
+> [`architecture/processes.md`](architecture/processes.md),
+> [`architecture/arch.md`](architecture/arch.md) and
+> [`architecture/virtual-memory.md`](architecture/virtual-memory.md). One
+> design point changed during implementation: the entry stub does **not** use
+> `swapgs`/per-CPU GS state; it switches to the task's kernel stack through a
+> global updated on every context switch (see `arch.md`, "Linux entry
+> decisions"). Remaining gaps are listed in the processes page.
+
 **Goal:** run ordinary, prebuilt **`x86_64-unknown-linux-musl` static binaries**
 (including Rust programs that link `std`) on LazyOS, by implementing enough of
 the Linux x86_64 ABI that musl's startup and `std`'s runtime are satisfied — no
