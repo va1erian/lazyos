@@ -678,11 +678,19 @@ impl Broker {
                 }
                 match peek(&self.subscriptions[index]) {
                     Some(event) => {
+                        let parcel = match topics_client::reply_event(&event) {
+                            Ok(parcel) => parcel,
+                            Err(_) => {
+                                // The event can't be encoded into a reply
+                                // (e.g. too large for the buffer): drop it so
+                                // a retry sees the next one instead of
+                                // hitting the same unencodable head forever.
+                                self.drop_undeliverable(id, event.sequence);
+                                return Err(messenger::Error::Topics(errno::E2BIG));
+                            }
+                        };
                         self.subscriptions[index].delivered += 1;
-                        outcome.reply = Some(
-                            topics_client::reply_event(&event)
-                                .map_err(|_| messenger::Error::Topics(errno::E2BIG))?,
-                        );
+                        outcome.reply = Some(parcel);
                         outcome.delivery = Some(Delivery {
                             subscription: id,
                             sequence: event.sequence,
@@ -844,21 +852,66 @@ impl Broker {
             };
             match peek(&self.subscriptions[sub_index]) {
                 Some(event) => {
-                    self.subscriptions[sub_index].delivered += 1;
                     self.pending.remove(index);
-                    if let Ok(parcel) = topics_client::reply_event(&event) {
-                        wakes.push(Wake {
-                            txn: pending.txn,
-                            parcel,
-                            subscription: pending.subscription,
-                            sequence: event.sequence,
-                        });
+                    match topics_client::reply_event(&event) {
+                        Ok(parcel) => {
+                            self.subscriptions[sub_index].delivered += 1;
+                            wakes.push(Wake {
+                                txn: pending.txn,
+                                parcel,
+                                subscription: pending.subscription,
+                                sequence: event.sequence,
+                            });
+                        }
+                        Err(_) => {
+                            // The event can't be encoded into a reply (e.g.
+                            // too large for the buffer): drop it so this
+                            // subscription doesn't stall on the same
+                            // unencodable head forever. This parked pull
+                            // gets no reply from this round; the caller's
+                            // own deadline (or its next poll) covers it.
+                            self.drop_undeliverable(pending.subscription, event.sequence);
+                        }
                     }
                 }
                 None => index += 1,
             }
         }
         wakes
+    }
+
+    /// Drop the head event of `id`'s queue unconditionally, including for
+    /// `Reliable` (which [`Broker::commit`] otherwise never pops without an
+    /// explicit `ack`), because it could not be encoded into a reply and
+    /// would otherwise stall the subscription on the same event forever.
+    /// Counts as a QoS drop.
+    fn drop_undeliverable(&mut self, id: u64, sequence: u64) {
+        let Some(sub) = self.subscriptions.iter_mut().find(|sub| sub.id == id) else {
+            return;
+        };
+        sub.drops += 1;
+        match sub.qos {
+            topics_client::Qos::Conflate => {
+                if sub
+                    .conflated
+                    .first()
+                    .is_some_and(|(_, event)| event.sequence == sequence)
+                {
+                    sub.conflated.remove(0);
+                }
+            }
+            topics_client::Qos::Reliable
+            | topics_client::Qos::Latest
+            | topics_client::Qos::Buffered(_) => {
+                if sub
+                    .queue
+                    .front()
+                    .is_some_and(|event| event.sequence == sequence)
+                {
+                    sub.queue.pop_front();
+                }
+            }
+        }
     }
 
     /// Retire the event a successful reply carried. The head is checked by

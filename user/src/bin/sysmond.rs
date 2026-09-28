@@ -88,7 +88,7 @@ fn run() -> messenger::Result<()> {
     loop {
         let now = sys::clock();
         if now >= next_publish {
-            match publish_stats(&mut central) {
+            match publish_stats(&mut central, announced) {
                 Ok(topics) if !announced => {
                     announced = true;
                     // The broker's own view of the `system/stats/*` topics is
@@ -132,8 +132,11 @@ fn run() -> messenger::Result<()> {
 }
 
 /// One `snapshot` call plus the two retained topic publishes; returns how many
-/// `system/stats/*` topics the central broker reports afterwards.
-fn publish_stats(central: &mut Option<central::Bus>) -> Result<u64, i64> {
+/// `system/stats/*` topics the central broker reports afterwards, or `0` once
+/// `announced` is true and the caller no longer looks at the count (skipping
+/// `list()` then saves a broker round trip and its decoded-reply allocation
+/// on every publish cycle for the rest of the service's life).
+fn publish_stats(central: &mut Option<central::Bus>, announced: bool) -> Result<u64, i64> {
     if central.is_none() {
         *central = central::Bus::connect_retry(4).ok();
     }
@@ -160,6 +163,9 @@ fn publish_stats(central: &mut Option<central::Bus>) -> Result<u64, i64> {
     ) {
         *central = None;
         return Err(error.errno().unwrap_or(-errno::EINVAL));
+    }
+    if announced {
+        return Ok(0);
     }
     let list = match bus.list() {
         Ok(list) => list,

@@ -136,20 +136,23 @@ impl Bus {
         }
         let id = topics_client::u64_field(&reply, topics_client::field::SUBSCRIPTION)?
             .ok_or(Error::Errno(-errno::EINVAL))?;
+        // Encoded once here and reused on every poll: `Endpoint::call_with`
+        // would otherwise re-encode these fixed requests on every single
+        // `recv_with`/`stats_with` call.
         let mut next = Encoder::new();
         next.u64(topics_client::field::SUBSCRIPTION, id)
             .map_err(Error::Parcel)?;
-        // Encoded once here and reused on every poll: `Endpoint::call_with`
-        // would otherwise re-encode this fixed request on every single
-        // `recv_with`, and the user bump allocator never reclaims it.
-        let mut request_bytes = Vec::new();
-        topics_client::request_parcel(topics_client::method::NEXT_EVENT, next)
-            .encode(&mut request_bytes)
+        let request = encode_request(topics_client::method::NEXT_EVENT, next)?;
+        let mut stats = Encoder::new();
+        stats
+            .u64(topics_client::field::SUBSCRIPTION, id)
             .map_err(Error::Parcel)?;
+        let stats_request = encode_request(topics_client::method::STATS, stats)?;
         Ok(Subscription {
             endpoint: self.endpoint,
             id,
-            request: request_bytes,
+            request,
+            stats_request,
         })
     }
 
@@ -171,6 +174,8 @@ pub struct Subscription {
     id: u64,
     /// Pre-encoded `NextEvent` request, reused on every poll.
     request: Vec<u8>,
+    /// Pre-encoded `Stats` request, reused on every [`Subscription::stats_with`] call.
+    stats_request: Vec<u8>,
 }
 
 impl Subscription {
@@ -203,14 +208,11 @@ impl Subscription {
 
     /// Per-subscription delivery counters, including QoS overflow drops.
     /// Takes a caller-owned reply buffer: a long-lived poll loop must reuse
-    /// one here too, or the user bump allocator (which never reclaims
-    /// per-call buffers) grows without bound.
+    /// one here too, or the user bump allocator grows to fit both this and
+    /// the (also fixed) request, which is why that is pre-encoded and reused
+    /// as well.
     pub fn stats_with(&self, buf: &mut [u8]) -> Result<topics_client::SubscriptionStats> {
-        let mut body = Encoder::new();
-        body.u64(topics_client::field::SUBSCRIPTION, self.id)
-            .map_err(Error::Parcel)?;
-        let request = topics_client::request_parcel(topics_client::method::STATS, body);
-        let reply = self.endpoint.call_with(&request, buf, None)?;
+        let reply = self.endpoint.call_bytes_with(&self.stats_request, buf, None)?;
         if let Some(code) = error_code(&reply) {
             return Err(Error::Topics(code));
         }
@@ -230,6 +232,17 @@ impl Subscription {
         }
         Ok(())
     }
+}
+
+/// Build and encode a broker request parcel once, for a caller that will
+/// reuse the bytes on every subsequent call instead of re-encoding a fixed
+/// request each time.
+fn encode_request(method: u32, body: Encoder) -> Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+    topics_client::request_parcel(method, body)
+        .encode(&mut bytes)
+        .map_err(Error::Parcel)?;
+    Ok(bytes)
 }
 
 /// Wrap raw payload bytes in the one-field parcel the broker stores.
