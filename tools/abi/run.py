@@ -42,6 +42,8 @@ ORDER = [
     "memstress",
     "procstress",
     "sigstress",
+    "epollstress",
+    "unixstress",
     "busybox",
 ]
 

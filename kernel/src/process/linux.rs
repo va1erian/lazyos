@@ -14,13 +14,16 @@ use xmas_elf::ElfFile;
 
 use super::{load_segments, map_range_kind, page_phys};
 use crate::fs::vfs::{self, FileKind, FsError, Id, Meta};
-use crate::ipc::pipe::{self, End, Side};
+use crate::ipc::epoll::Epoll;
+use crate::ipc::eventfd::EventFd;
+use crate::ipc::pipe::{self, End, Side, SocketPair};
+use crate::ipc::unix;
 use crate::mem::vma::{Kind, Prot};
 use crate::quota::{self, Resource};
 use crate::task::process::GroupError;
 use crate::task::signal::{self, Disposition, SignalError};
 use crate::task::wait::WaitQueue;
-use crate::task::{self, Fd, FdKind, WaitKind, WakeReason};
+use crate::task::{self, Fd, FdKind, SocketKind, WaitKind, WakeReason};
 use crate::user_ptr;
 
 // User memory layout for Linux tasks (kept clear of code and each other).
@@ -59,6 +62,11 @@ const EINTR: u64 = 4;
 const ETIMEDOUT: u64 = 110;
 const EMFILE: u64 = 24;
 const ENOTSOCK: u64 = 88;
+const EMSGSIZE: u64 = 90;
+const EAFNOSUPPORT: u64 = 97;
+const EADDRINUSE: u64 = 98;
+const ECONNREFUSED: u64 = 111;
+const ENOTCONN: u64 = 107;
 // Filesystem errnos (mapped from `FsError` by `fs_err`).
 const EACCES: u64 = 13;
 const EEXIST: u64 = 17;
@@ -117,10 +125,16 @@ fn syscall_name(nr: u64) -> &'static str {
         33 => "dup2",
         35 => "nanosleep",
         39 => "getpid",
+        41 => "socket",
+        42 => "connect",
         43 => "accept",
         44 => "sendto",
         45 => "recvfrom",
+        48 => "shutdown",
         49 => "bind",
+        50 => "listen",
+        51 => "getsockname",
+        52 => "getpeername",
         53 => "socketpair",
         56 => "clone",
         57 => "fork",
@@ -169,7 +183,6 @@ fn syscall_name(nr: u64) -> &'static str {
         186 => "gettid",
         200 => "tkill",
         202 => "futex",
-        234 => "tgkill",
         204 => "sched_getaffinity",
         217 => "getdents64",
         218 => "set_tid_address",
@@ -177,6 +190,9 @@ fn syscall_name(nr: u64) -> &'static str {
         229 => "clock_getres",
         230 => "clock_nanosleep",
         231 => "exit_group",
+        232 => "epoll_wait",
+        233 => "epoll_ctl",
+        234 => "tgkill",
         257 => "openat",
         258 => "mkdirat",
         259 => "mknodat",
@@ -188,6 +204,8 @@ fn syscall_name(nr: u64) -> &'static str {
         273 => "set_robust_list",
         275 => "splice",
         288 => "accept4",
+        290 => "eventfd2",
+        291 => "epoll_create1",
         293 => "pipe2",
         302 => "prlimit64",
         318 => "getrandom",
@@ -219,6 +237,12 @@ pub fn dispatch_args_for_test(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64) -> u6
     linux_dispatch(nr, a1, a2, a3, a4, 0, 0)
 }
 
+/// [`dispatch_for_test`] with five arguments (`mremap`'s `new_address`).
+#[cfg(laZYOS_TESTS)]
+pub fn dispatch_args5_for_test(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u64) -> u64 {
+    linux_dispatch(nr, a1, a2, a3, a4, a5, 0)
+}
+
 /// `openat(AT_FDCWD, ...)` sentinel.
 const AT_FDCWD: u64 = (-100i64) as u64;
 
@@ -244,6 +268,24 @@ const F_GETFL: u64 = 3;
 const F_SETFL: u64 = 4;
 const F_DUPFD_CLOEXEC: u64 = 1030;
 const FD_CLOEXEC: u64 = 1;
+
+// `mremap(2)` flags.
+const MREMAP_MAYMOVE: u64 = 1;
+const MREMAP_FIXED: u64 = 2;
+
+// `epoll_ctl(2)` operations and creation flags.
+const EPOLL_CTL_ADD: u64 = 1;
+const EPOLL_CTL_DEL: u64 = 2;
+const EPOLL_CTL_MOD: u64 = 3;
+const EPOLL_CLOEXEC: u64 = 0o2000000;
+
+// `eventfd2(2)` flags.
+const EFD_SEMAPHORE: u64 = 1;
+
+// `shutdown(2)` directions.
+const SHUT_RD: u64 = 0;
+const SHUT_WR: u64 = 1;
+const SHUT_RDWR: u64 = 2;
 
 /// Bytes staged per `read`/`write` call through a pipe. A short transfer is
 /// legal on a pipe, so callers that want it all loop (as `write_all` does).
@@ -468,12 +510,21 @@ extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
         20 => sys_writev(a1, a2, a3),
         21 => sys_access(a1, a2),             // access(path, mode)
         22 => sys_pipe(a1, 0),                // pipe(fds)
+        25 => sys_mremap(a1, a2, a3, a4, a5), // mremap(old, old_size, new_size, flags, new)
         28 => 0,                              // madvise
         32 | 33 => sys_dup(nr, a1, a2),       // dup / dup2
         35 => sys_nanosleep(a1),              // nanosleep(req, rem)
         39 | 186 => task::current() as u64,   // getpid/gettid: pid == slot (#59)
+        41 => sys_socket(a1, a2, a3),         // socket(domain, type, protocol)
+        42 => sys_connect(a1, a2, a3),        // connect(fd, addr, len)
+        43 => sys_accept(a1, a2, a3, 0),      // accept(fd, addr, addrlen)
         44 => sys_sendto(a1, a2, a3),         // sendto (musl's send)
         45 => sys_recvfrom(a1, a2, a3),       // recvfrom (musl's recv)
+        48 => sys_shutdown(a1, a2),           // shutdown(fd, how)
+        49 => sys_bind(a1, a2, a3),           // bind(fd, addr, len)
+        50 => sys_listen(a1, a2),             // listen(fd, backlog)
+        51 => sys_get_sockname(a1, a2, a3),   // getsockname
+        52 => sys_get_sockname(a1, a2, a3),   // getpeername (connected pair: same answer)
         53 => sys_socketpair(a1, a2, a3, a4), // socketpair(domain, type, proto, sv)
         56 => sys_clone(a1, a2, a3, a4, a5),  // clone(flags, stack, ptid, ctid, tls)
         57 => sys_fork(),
@@ -513,13 +564,18 @@ extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
         229 => sys_clock_getres(a2),
         230 => sys_nanosleep(a3), // clock_nanosleep(clockid, flags, req, rem)
         231 => sys_exit_group(a1),
-        234 => sys_tgkill(a1, a2, a3),     // tgkill(tgid, tid, sig)
-        257 => sys_openat(a1, a2, a3, a4), // openat
-        258 => sys_mkdirat(a1, a2, a3),    // mkdirat
+        232 => sys_epoll_wait(a1, a2, a3, a4), // epoll_wait(epfd, events, maxevents, timeout)
+        233 => sys_epoll_ctl(a1, a2, a3, a4),  // epoll_ctl(epfd, op, fd, event)
+        234 => sys_tgkill(a1, a2, a3),         // tgkill(tgid, tid, sig)
+        257 => sys_openat(a1, a2, a3, a4),     // openat
+        258 => sys_mkdirat(a1, a2, a3),        // mkdirat
         262 => sys_newfstatat(a1, a2, a3, a4),
         263 => sys_unlinkat(a1, a2, a3),     // unlinkat
         264 => sys_renameat(a1, a2, a3, a4), // renameat
         273 => 0,                            // set_robust_list
+        288 => sys_accept(a1, a2, a3, a4),   // accept4(fd, addr, addrlen, flags)
+        290 => sys_eventfd2(a1, a2),         // eventfd2(initval, flags)
+        291 => sys_epoll_create1(a1),        // epoll_create1(flags)
         293 => sys_pipe(a1, a2),             // pipe2(fds, flags)
         318 => sys_getrandom(a1, a2),
         334 => {
@@ -639,7 +695,9 @@ fn sys_write(fd: u64, ptr: u64, len: u64) -> u64 {
         FdKind::Terminal => write_terminal(ptr, len),
         FdKind::Pipe | FdKind::Socket => write_stream(fd, ptr, len),
         FdKind::File => write_file(fd, ptr, len),
-        FdKind::Closed => err(EBADF),
+        FdKind::EventFd => write_eventfd(fd, ptr, len),
+        FdKind::Unbound => err(ENOTCONN),
+        FdKind::Closed | FdKind::Epoll | FdKind::Listener => err(EBADF),
     }
 }
 
@@ -663,9 +721,36 @@ fn write_terminal(ptr: u64, len: u64) -> u64 {
 /// Pipe/socket write: stage a chunk of user bytes, then let the stream object
 /// block or report `-EPIPE`/`-EAGAIN`. A short count is legal; the caller
 /// (`write_all`, busybox's `full_write`) retries.
+///
+/// A `SOCK_SEQPACKET` socket sends the whole call as one message: the bytes are
+/// staged in one heap buffer (up to the pipe capacity, larger is `-EMSGSIZE`)
+/// so framing cannot be split.
 fn write_stream(fd: u64, ptr: u64, len: u64) -> u64 {
     if len == 0 {
         return 0;
+    }
+    if task::fd_kind(fd as usize) == FdKind::Socket && task::fd_seqpacket(fd as usize) {
+        if len > pipe::CAPACITY as u64 {
+            return err(EMSGSIZE);
+        }
+        let want = len as usize;
+        let mut buf = Vec::new();
+        if buf.try_reserve_exact(want).is_err() {
+            return err(ENOMEM);
+        }
+        buf.resize(want, 0);
+        // Safety: the caller passes a valid user buffer of `len` bytes (the
+        // syscall ABI's contract).
+        buf.copy_from_slice(unsafe { user_ptr::bytes(ptr, want) });
+        return match task::fd_stream_write(fd as usize, &buf) {
+            Ok(n) => n as u64,
+            Err(pipe::Error::WouldBlock) => err(EAGAIN),
+            Err(pipe::Error::BrokenPipe) => err(EPIPE),
+            Err(pipe::Error::Interrupted) => err(EINTR),
+            Err(pipe::Error::MessageTooLong) => err(EMSGSIZE),
+            Err(pipe::Error::Invalid) => err(EINVAL),
+            Err(pipe::Error::BadEnd) => err(EBADF),
+        };
     }
     let want = (len as usize).min(STREAM_CHUNK);
     let mut buf = [0u8; STREAM_CHUNK];
@@ -677,7 +762,26 @@ fn write_stream(fd: u64, ptr: u64, len: u64) -> u64 {
         Err(pipe::Error::WouldBlock) => err(EAGAIN),
         Err(pipe::Error::BrokenPipe) => err(EPIPE),
         Err(pipe::Error::Interrupted) => err(EINTR),
+        Err(pipe::Error::MessageTooLong) => err(EMSGSIZE),
+        Err(pipe::Error::Invalid) => err(EINVAL),
         Err(pipe::Error::BadEnd) => err(EBADF),
+    }
+}
+
+/// `eventfd` write: exactly one 8-byte little-endian value to add.
+fn write_eventfd(fd: u64, ptr: u64, len: u64) -> u64 {
+    if len != 8 {
+        return err(EINVAL);
+    }
+    // Safety: the caller passes an 8-byte user buffer (the syscall ABI's contract).
+    let value = unsafe { user_ptr::read::<u64>(ptr) };
+    match task::fd_eventfd_write(fd as usize, value) {
+        Ok(()) => 8,
+        Err(pipe::Error::WouldBlock) => err(EAGAIN),
+        Err(pipe::Error::Interrupted) => err(EINTR),
+        Err(pipe::Error::Invalid) => err(EINVAL),
+        Err(pipe::Error::BadEnd) => err(EBADF),
+        Err(pipe::Error::BrokenPipe | pipe::Error::MessageTooLong) => err(EINVAL),
     }
 }
 
@@ -731,19 +835,39 @@ fn sys_read(fd: u64, ptr: u64, len: u64) -> u64 {
             .map(|n| n as u64)
             .unwrap_or(0),
         FdKind::Pipe | FdKind::Socket => read_stream(fd, ptr, len),
-        FdKind::Closed => err(EBADF),
+        FdKind::EventFd => read_eventfd(fd, ptr, len),
+        FdKind::Unbound => err(ENOTCONN),
+        FdKind::Closed | FdKind::Epoll | FdKind::Listener => err(EBADF),
     }
 }
 
 /// Pipe/socket read: block in the stream object until a chunk is available,
 /// then copy it to the user buffer. `Ok(0)` (EOF) copies nothing.
+///
+/// A `SOCK_SEQPACKET` read stages only `min(len, capacity)` bytes, because the
+/// stream layer truncates and discards the rest of an oversized message.
 fn read_stream(fd: u64, ptr: u64, len: u64) -> u64 {
     if len == 0 {
         return 0;
     }
-    let want = (len as usize).min(STREAM_CHUNK);
-    let mut buf = [0u8; STREAM_CHUNK];
-    match task::fd_stream_read(fd as usize, &mut buf[..want]) {
+    let seqpacket = task::fd_kind(fd as usize) == FdKind::Socket && task::fd_seqpacket(fd as usize);
+    let want = if seqpacket {
+        (len as usize).min(pipe::CAPACITY)
+    } else {
+        (len as usize).min(STREAM_CHUNK)
+    };
+    let mut heap = Vec::new();
+    let mut stack = [0u8; STREAM_CHUNK];
+    let buf: &mut [u8] = if want > STREAM_CHUNK {
+        if heap.try_reserve_exact(want).is_err() {
+            return err(ENOMEM);
+        }
+        heap.resize(want, 0);
+        &mut heap
+    } else {
+        &mut stack[..want]
+    };
+    match task::fd_stream_read(fd as usize, buf) {
         Ok(n) => {
             if n > 0 {
                 // Safety: the caller passes a valid user buffer of `len` bytes
@@ -755,7 +879,31 @@ fn read_stream(fd: u64, ptr: u64, len: u64) -> u64 {
         Err(pipe::Error::WouldBlock) => err(EAGAIN),
         Err(pipe::Error::BrokenPipe) => err(EPIPE),
         Err(pipe::Error::Interrupted) => err(EINTR),
+        Err(pipe::Error::MessageTooLong) => err(EMSGSIZE),
+        Err(pipe::Error::Invalid) => err(EINVAL),
         Err(pipe::Error::BadEnd) => err(EBADF),
+    }
+}
+
+/// `eventfd` read: exactly one 8-byte little-endian value. A shorter count is
+/// `EINVAL`, as Linux reports.
+fn read_eventfd(fd: u64, ptr: u64, len: u64) -> u64 {
+    if len < 8 {
+        return err(EINVAL);
+    }
+    match task::fd_eventfd_read(fd as usize) {
+        Ok(value) => {
+            // Safety: the caller passes a user buffer of at least 8 bytes (the
+            // syscall ABI's contract).
+            unsafe { user_ptr::write::<u64>(ptr, value) };
+            8
+        }
+        Err(pipe::Error::WouldBlock) => err(EAGAIN),
+        Err(pipe::Error::Interrupted) => err(EINTR),
+        Err(pipe::Error::BadEnd) => err(EBADF),
+        Err(pipe::Error::Invalid | pipe::Error::BrokenPipe | pipe::Error::MessageTooLong) => {
+            err(EINVAL)
+        }
     }
 }
 
@@ -808,11 +956,34 @@ fn sys_mmap(addr: u64, len: u64, prot: u64, flags: u64) -> u64 {
         return err(EINVAL);
     }
     let len = align_up(len, PAGE);
-    let base = if flags & MAP_FIXED != 0 {
+    let table = crate::mem::kernel_table();
+    let mut base = if flags & MAP_FIXED != 0 {
         addr & !0xFFF
     } else {
         task::mmap_next().max(MMAP_BASE)
     };
+    if flags & MAP_FIXED == 0 {
+        // The bump pointer may point into a range another call grew (or a
+        // moved mapping left behind): find the first free hole, like Linux's
+        // unmapped-area search. Without this, a fresh `mmap` could silently
+        // replace part of a live mapping.
+        loop {
+            let Some(end) = base.checked_add(len) else {
+                return err(ENOMEM);
+            };
+            if end > MMAP_LIMIT {
+                return err(ENOMEM);
+            }
+            let occupied = crate::mem::vma::find_range(table, base, end);
+            if occupied.is_empty() {
+                break;
+            }
+            match occupied.iter().map(|vma| vma.end).max() {
+                Some(next) => base = align_up(next, PAGE),
+                None => break,
+            }
+        }
+    }
     let Some(end) = base.checked_add(len) else {
         return err(ENOMEM);
     };
@@ -820,7 +991,6 @@ fn sys_mmap(addr: u64, len: u64, prot: u64, flags: u64) -> u64 {
         return err(ENOMEM);
     }
     let prot = Prot((prot & 0x7) as u8);
-    let table = crate::mem::kernel_table();
     // Per-uid user-memory quota (issue #103), charged before any VMA or page
     // table changes so a refusal leaves the address space untouched. The
     // closest Linux errno for "over the user's memory quota" is ENOMEM.
@@ -1705,7 +1875,13 @@ fn sys_lseek(fd: u64, offset: u64, whence: u64) -> u64 {
             Some(pos) => pos,
             None => err(EINVAL),
         },
-        FdKind::Terminal | FdKind::Pipe | FdKind::Socket => err(ESPIPE),
+        FdKind::Terminal
+        | FdKind::Pipe
+        | FdKind::Socket
+        | FdKind::EventFd
+        | FdKind::Epoll
+        | FdKind::Listener
+        | FdKind::Unbound => err(ESPIPE),
         FdKind::Closed => err(EBADF),
     }
 }
@@ -1833,7 +2009,12 @@ fn sys_socketpair(domain: u64, kind: u64, protocol: u64, sv: u64) -> u64 {
     if sv == 0 {
         return err(EFAULT);
     }
-    let Some(pair) = pipe::SocketPair::new() else {
+    let pair = if base == SOCK_SEQPACKET {
+        pipe::SocketPair::new_seqpacket()
+    } else {
+        pipe::SocketPair::new()
+    };
+    let Some(pair) = pair else {
         return err(EMFILE);
     };
     let Some(a) = task::fd_open(Fd::socket_side(Arc::clone(&pair), Side::A)) else {
@@ -1859,6 +2040,547 @@ fn sys_socketpair(domain: u64, kind: u64, protocol: u64, sv: u64) -> u64 {
     0
 }
 
+/// `mremap(old_address, old_size, new_size, flags, new_address)`: grow, shrink
+/// or relocate an existing mapping.
+///
+/// The whole `[old_address, old_address + old_size)` range must be exactly one
+/// VMA. Shrinking and growing a heap/anonymous mapping in place just adjust the
+/// VMA (new pages stay demand-zero); anything else with `MREMAP_MAYMOVE`
+/// relocates the resident PTEs to a fresh range (`MREMAP_FIXED` places it
+/// exactly). Overlapping source and destination ranges are refused with
+/// `-EINVAL`; Linux supports them, but nothing here needs that yet.
+fn sys_mremap(old_addr: u64, old_size: u64, new_size: u64, flags: u64, new_addr: u64) -> u64 {
+    if old_addr & (PAGE - 1) != 0 || (flags & MREMAP_FIXED != 0 && new_addr & (PAGE - 1) != 0) {
+        return err(EINVAL);
+    }
+    if old_size == 0 || new_size == 0 || flags & !(MREMAP_MAYMOVE | MREMAP_FIXED) != 0 {
+        return err(EINVAL);
+    }
+    if flags & MREMAP_FIXED != 0 && flags & MREMAP_MAYMOVE == 0 {
+        return err(EINVAL);
+    }
+    let Some(old_end) = old_addr
+        .checked_add(old_size)
+        .map(|end| align_up(end, PAGE))
+    else {
+        return err(EINVAL);
+    };
+    let Some(new_len) = new_size
+        .checked_add(PAGE - 1)
+        .map(|size| size & !(PAGE - 1))
+    else {
+        return err(EINVAL);
+    };
+    let table = crate::mem::kernel_table();
+    let Some(vma) = crate::mem::vma::find(table, old_addr) else {
+        return err(EFAULT);
+    };
+    // The range may cover only part of a coalesced VMA (adjacent anonymous
+    // mappings merge): split at both boundaries so it is exactly one VMA.
+    if old_addr < vma.start || old_end > vma.end {
+        return err(EFAULT);
+    }
+    if vma.start < old_addr {
+        crate::mem::vma::split(table, old_addr);
+    }
+    if old_end < vma.end {
+        crate::mem::vma::split(table, old_end);
+    }
+    let Some(vma) = crate::mem::vma::find(table, old_addr) else {
+        return err(EFAULT);
+    };
+    let old_len = old_end - old_addr;
+    let fixed_elsewhere = flags & MREMAP_FIXED != 0 && new_addr != old_addr;
+
+    if !fixed_elsewhere {
+        // Shrinking (or the same size): keep the base address and drop the tail.
+        if new_len <= old_len {
+            let new_end = old_addr + new_len;
+            if new_end < old_end {
+                crate::mem::vma::remove(table, new_end, old_end);
+                crate::mem::unmap_range(table, new_end, old_end);
+                quota::release_for_slot(task::current(), Resource::UserMemory, old_end - new_end);
+            }
+            return old_addr;
+        }
+
+        // Growing: the pages above the old end are demand-zero (anonymous
+        // memory), so a free range above the VMA can be claimed by extending it.
+        let delta = new_len - old_len;
+        let free_above = crate::mem::vma::find_range(table, old_end, old_end + delta).is_empty();
+        if free_above && matches!(vma.kind, Kind::Anon | Kind::Heap) {
+            if quota::charge_for_slot(task::current(), Resource::UserMemory, delta).is_err() {
+                return err(ENOMEM);
+            }
+            crate::mem::vma::insert(table, old_addr, old_end + delta, vma.prot, vma.kind);
+            // Keep the bump past a mapping that grew in place, so the next
+            // `mmap` does not land on top of it.
+            if task::mmap_next() < old_end + delta {
+                task::set_mmap_next(old_end + delta);
+            }
+            return old_addr;
+        }
+    }
+    if flags & MREMAP_MAYMOVE == 0 {
+        return err(ENOMEM);
+    }
+    if new_len > old_len && !matches!(vma.kind, Kind::Anon | Kind::Heap) {
+        return err(EINVAL); // a stack/file mapping cannot grow by relocation
+    }
+
+    let dest = if fixed_elsewhere {
+        new_addr
+    } else {
+        match choose_mremap_dest(table, new_len) {
+            Some(dest) => dest,
+            None => return err(ENOMEM),
+        }
+    };
+    let Some(dest_end) = dest.checked_add(new_len) else {
+        return err(ENOMEM);
+    };
+    if dest_end > MMAP_LIMIT || (dest < old_end && old_addr < dest_end) {
+        return err(EINVAL);
+    }
+    let extra = new_len.saturating_sub(old_len);
+    if extra > 0 && quota::charge_for_slot(task::current(), Resource::UserMemory, extra).is_err() {
+        return err(ENOMEM);
+    }
+    // Replacing a live destination range returns its charge (MAP_FIXED rules).
+    let replaced: u64 = crate::mem::vma::remove(table, dest, dest_end)
+        .iter()
+        .map(|vma| vma.len())
+        .sum();
+    if replaced > 0 {
+        crate::mem::unmap_range(table, dest, dest_end);
+    }
+    // Only `min(old, new)` pages move; a shrinking move drops the old tail.
+    let keep = old_len.min(new_len);
+    let mut offset = 0;
+    while offset < keep {
+        if crate::mem::remap_page(table, old_addr + offset, dest + offset).is_err() {
+            // Roll the pages already moved back, then undo the charge. The
+            // destination was free (or replaced on request), so only the move
+            // needs undoing.
+            let mut back = 0;
+            while back < offset {
+                let _ = crate::mem::remap_page(table, dest + back, old_addr + back);
+                back += PAGE;
+            }
+            if extra > 0 {
+                quota::release_for_slot(task::current(), Resource::UserMemory, extra);
+            }
+            return err(ENOMEM);
+        }
+        offset += PAGE;
+    }
+    crate::mem::vma::remove(table, old_addr, old_end);
+    crate::mem::unmap_range(table, old_addr, old_end);
+    crate::mem::vma::insert(table, dest, dest_end, vma.prot, vma.kind);
+    if replaced > 0 {
+        quota::release_for_slot(task::current(), Resource::UserMemory, replaced);
+    }
+    if new_len < old_len {
+        quota::release_for_slot(task::current(), Resource::UserMemory, old_len - new_len);
+    }
+    if !fixed_elsewhere {
+        task::set_mmap_next(dest_end);
+    }
+    dest
+}
+
+/// First free address at or above the bump pointer that fits `len`.
+fn choose_mremap_dest(table: PhysAddr, len: u64) -> Option<u64> {
+    let mut candidate = task::mmap_next().max(MMAP_BASE);
+    loop {
+        let end = candidate.checked_add(len)?;
+        if end > MMAP_LIMIT {
+            return None;
+        }
+        let occupied = crate::mem::vma::find_range(table, candidate, end);
+        if occupied.is_empty() {
+            return Some(candidate);
+        }
+        candidate = align_up(occupied.iter().map(|vma| vma.end).max()?, PAGE);
+    }
+}
+
+/// `eventfd2(initval, flags)`: a counter descriptor.
+fn sys_eventfd2(init: u64, flags: u64) -> u64 {
+    let allowed = EFD_SEMAPHORE | O_NONBLOCK | O_CLOEXEC;
+    if flags & !allowed != 0 {
+        return err(EINVAL);
+    }
+    let event = EventFd::new(init & 0xFFFF_FFFF, flags & EFD_SEMAPHORE != 0);
+    if flags & O_NONBLOCK != 0 {
+        event.set_nonblock(true);
+    }
+    match task::fd_open(Fd::Event { event }) {
+        Some(fd) => {
+            if flags & O_CLOEXEC != 0 {
+                task::fd_set_cloexec(fd, true);
+            }
+            fd as u64
+        }
+        None => err(EMFILE),
+    }
+}
+
+/// `epoll_create1(flags)`: an empty epoll instance.
+fn sys_epoll_create1(flags: u64) -> u64 {
+    if flags & !EPOLL_CLOEXEC != 0 {
+        return err(EINVAL);
+    }
+    match task::fd_open(Fd::Epoll {
+        epoll: Epoll::new(),
+    }) {
+        Some(fd) => {
+            if flags & EPOLL_CLOEXEC != 0 {
+                task::fd_set_cloexec(fd, true);
+            }
+            fd as u64
+        }
+        None => err(EMFILE),
+    }
+}
+
+/// Resolve an epoll descriptor, distinguishing a closed slot (`EBADF`) from a
+/// descriptor that is not an epoll instance (`EINVAL`).
+fn epoll_instance(epfd: u64) -> Result<Arc<Epoll>, u64> {
+    match task::fd_clone(epfd as usize).as_ref() {
+        Some(Fd::Epoll { epoll }) => Ok(Arc::clone(epoll)),
+        Some(_) => Err(EINVAL),
+        None => Err(EBADF),
+    }
+}
+
+/// Read a user `struct epoll_event` (packed on x86_64: `u32 events`, `u64 data`
+/// at offset 4). The struct is packed, so both fields may be unaligned.
+fn read_epoll_event(ptr: u64) -> (u32, u64) {
+    // Safety: user `struct epoll_event` (the syscall ABI's contract).
+    let events = unsafe { user_ptr::read_unaligned::<u32>(ptr) };
+    // Safety: same struct, packed `data` field at offset 4.
+    let data = unsafe { user_ptr::read_unaligned::<u64>(ptr + 4) };
+    (events, data)
+}
+
+/// Write the ready list as packed `struct epoll_event`s, returning the count.
+fn write_epoll_events(ptr: u64, ready: &[(u32, u64)]) -> u64 {
+    for (index, (events, data)) in ready.iter().enumerate() {
+        let base = ptr + (index as u64) * 12;
+        // Safety: user `struct epoll_event` array (the syscall ABI's contract);
+        // the packed 12-byte stride leaves both fields unaligned.
+        unsafe {
+            user_ptr::write_unaligned::<u32>(base, *events);
+            user_ptr::write_unaligned::<u64>(base + 4, *data);
+        }
+    }
+    ready.len() as u64
+}
+
+/// `epoll_ctl(epfd, op, fd, event)`.
+fn sys_epoll_ctl(epfd: u64, op: u64, fd: u64, event: u64) -> u64 {
+    let epoll = match epoll_instance(epfd) {
+        Ok(epoll) => epoll,
+        Err(error) => return err(error),
+    };
+    match op {
+        EPOLL_CTL_ADD => {
+            let Some(target) = task::fd_clone(fd as usize) else {
+                return err(EBADF);
+            };
+            let (events, data) = read_epoll_event(event);
+            match epoll.add(fd as usize, target, events, data) {
+                Ok(()) => {
+                    task::notify_poll();
+                    0
+                }
+                Err(()) => err(EEXIST),
+            }
+        }
+        EPOLL_CTL_MOD => {
+            let (events, data) = read_epoll_event(event);
+            match epoll.modify(fd as usize, events, data) {
+                Ok(()) => {
+                    task::notify_poll();
+                    0
+                }
+                Err(()) => err(ENOENT),
+            }
+        }
+        EPOLL_CTL_DEL => match epoll.delete(fd as usize) {
+            Ok(()) => 0,
+            Err(()) => err(ENOENT),
+        },
+        _ => err(EINVAL),
+    }
+}
+
+/// `epoll_wait(epfd, events, maxevents, timeout)`: scan the interests, park on
+/// the poll queue while none is ready, and honour millisecond timeouts.
+fn sys_epoll_wait(epfd: u64, events: u64, maxevents: u64, timeout: u64) -> u64 {
+    if (maxevents as i64) <= 0 {
+        return err(EINVAL);
+    }
+    let max = maxevents as usize;
+    let epoll = match epoll_instance(epfd) {
+        Ok(epoll) => epoll,
+        Err(error) => return err(error),
+    };
+    let timeout = timeout as i64;
+    let deadline = if timeout < 0 {
+        None
+    } else if timeout == 0 {
+        return write_epoll_events(events, &epoll.ready(max));
+    } else {
+        Some(task::ticks() + millis_to_ticks(timeout as u64))
+    };
+    loop {
+        let ready = epoll.ready(max);
+        if !ready.is_empty() {
+            return write_epoll_events(events, &ready);
+        }
+        match task::wait_poll(deadline) {
+            WakeReason::Woken => {}
+            WakeReason::TimedOut => return 0,
+            WakeReason::Interrupted => return err(EINTR),
+        }
+    }
+}
+
+/// `socket(domain, type, protocol)`: only `AF_UNIX`; the descriptor stays
+/// unbound until `bind` or `connect`.
+fn sys_socket(domain: u64, kind: u64, protocol: u64) -> u64 {
+    if domain != AF_UNIX {
+        return err(EAFNOSUPPORT);
+    }
+    let base = kind & 0xf;
+    let socket_kind = match base {
+        SOCK_STREAM => SocketKind::Stream,
+        SOCK_SEQPACKET => SocketKind::Seqpacket,
+        _ => return err(EINVAL),
+    };
+    if protocol != 0 {
+        return err(EINVAL);
+    }
+    let nonblock = kind & SOCK_NONBLOCK != 0;
+    match task::fd_open(Fd::Unbound {
+        kind: socket_kind,
+        nonblock,
+    }) {
+        Some(fd) => {
+            if kind & SOCK_CLOEXEC != 0 {
+                task::fd_set_cloexec(fd, true);
+            }
+            fd as u64
+        }
+        None => err(EMFILE),
+    }
+}
+
+/// Parse a user `struct sockaddr_un` into a bound-name key. A filesystem path
+/// loses its NUL terminator; an abstract name keeps its leading NUL byte so it
+/// can never collide with a path.
+fn parse_unix_name(addr: u64, len: u64) -> Result<Vec<u8>, u64> {
+    if len < 3 {
+        return Err(EINVAL);
+    }
+    // Safety: user `struct sockaddr_un` (the syscall ABI's contract).
+    let family = unsafe { user_ptr::read::<u16>(addr) };
+    if family as u64 != AF_UNIX {
+        return Err(EAFNOSUPPORT);
+    }
+    let available = ((len - 2) as usize).min(108);
+    // Safety: same struct, `sun_path` follows `sun_family`.
+    let path = unsafe { user_ptr::bytes(addr + 2, available) };
+    if path.first() == Some(&0) {
+        Ok(path.to_vec())
+    } else {
+        let end = path
+            .iter()
+            .position(|&byte| byte == 0)
+            .unwrap_or(path.len());
+        if end == 0 {
+            return Err(EINVAL);
+        }
+        Ok(path[..end].to_vec())
+    }
+}
+
+/// Write a user `struct sockaddr_un` (and its length) for `name`.
+fn write_unix_name(addr: u64, addrlen: u64, name: &[u8]) {
+    let n = name.len().min(108);
+    let mut buf = [0u8; 110];
+    buf[..2].copy_from_slice(&(AF_UNIX as u16).to_le_bytes());
+    buf[2..2 + n].copy_from_slice(&name[..n]);
+    // Safety: user `struct sockaddr_un` and `socklen_t *` (the syscall ABI's
+    // contract).
+    unsafe {
+        user_ptr::copy_to(addr, &buf[..2 + n]);
+        if addrlen != 0 {
+            user_ptr::write::<u32>(addrlen, (2 + n) as u32);
+        }
+    }
+}
+
+/// `bind(fd, addr, len)`: attach the unbound socket to a name and turn it into
+/// a listener.
+fn sys_bind(fd: u64, addr: u64, len: u64) -> u64 {
+    let Some(target) = task::fd_clone(fd as usize) else {
+        return err(EBADF);
+    };
+    let Fd::Unbound { nonblock, .. } = target else {
+        return err(EINVAL);
+    };
+    let name = match parse_unix_name(addr, len) {
+        Ok(name) => name,
+        Err(error) => return err(error),
+    };
+    let listener = match unix::bind(name) {
+        Ok(listener) => listener,
+        Err(()) => return err(EADDRINUSE),
+    };
+    if nonblock {
+        listener.set_nonblock(true);
+    }
+    match task::fd_replace(fd as usize, Fd::UnixListener { listener }) {
+        Ok(old) => {
+            drop(old);
+            0
+        }
+        Err(()) => err(EBADF),
+    }
+}
+
+/// `listen(fd, backlog)`: mark a bound socket connectable (backlog ignored).
+fn sys_listen(fd: u64, _backlog: u64) -> u64 {
+    match task::fd_clone(fd as usize).as_ref() {
+        Some(Fd::UnixListener { listener }) => {
+            listener.listen();
+            0
+        }
+        Some(_) => err(EINVAL),
+        None => err(EBADF),
+    }
+}
+
+/// `connect(fd, addr, len)`: connect an unbound socket to a listening name.
+/// The connection is a fresh [`SocketPair`]; the server half waits in the
+/// listener for `accept`.
+fn sys_connect(fd: u64, addr: u64, len: u64) -> u64 {
+    let Some(target) = task::fd_clone(fd as usize) else {
+        return err(EBADF);
+    };
+    let Fd::Unbound { kind, nonblock } = target else {
+        return err(EINVAL);
+    };
+    let name = match parse_unix_name(addr, len) {
+        Ok(name) => name,
+        Err(error) => return err(error),
+    };
+    let Some(listener) = unix::lookup(&name) else {
+        return err(ENOENT);
+    };
+    if !listener.is_listening() {
+        return err(ECONNREFUSED);
+    }
+    let pair = match kind {
+        SocketKind::Stream => SocketPair::new(),
+        SocketKind::Seqpacket => SocketPair::new_seqpacket(),
+    };
+    let Some(pair) = pair else {
+        return err(EMFILE);
+    };
+    if nonblock {
+        pair.set_nonblock(Side::B, true);
+    }
+    listener.connect(Arc::clone(&pair));
+    match task::fd_replace(fd as usize, Fd::socket_side(pair, Side::B)) {
+        Ok(old) => {
+            drop(old);
+            0
+        }
+        Err(()) => err(EBADF),
+    }
+}
+
+/// `accept` (43) and `accept4` (288): take the next pending connection from a
+/// listener, parking while none is pending unless non-blocking.
+fn sys_accept(fd: u64, addr: u64, addrlen: u64, flags: u64) -> u64 {
+    let Some(target) = task::fd_clone(fd as usize) else {
+        return err(EBADF);
+    };
+    let Fd::UnixListener { listener } = &target else {
+        return err(EINVAL);
+    };
+    let pair = loop {
+        if let Some(pair) = listener.take_pending() {
+            break pair;
+        }
+        if listener.nonblock() {
+            return err(EAGAIN);
+        }
+        match listener.wait_connection() {
+            WakeReason::Woken | WakeReason::TimedOut => {}
+            WakeReason::Interrupted => return err(EINTR),
+        }
+    };
+    let Some(new_fd) = task::fd_open(Fd::socket_side(pair, Side::A)) else {
+        return err(EMFILE);
+    };
+    if flags & SOCK_CLOEXEC != 0 {
+        task::fd_set_cloexec(new_fd, true);
+    }
+    if flags & SOCK_NONBLOCK != 0 {
+        if let Some(Fd::Socket { pair, side }) = task::fd_clone(new_fd).as_ref() {
+            pair.set_nonblock(*side, true);
+        }
+    }
+    if addr != 0 {
+        write_unix_name(addr, addrlen, &[]);
+    }
+    new_fd as u64
+}
+
+/// `shutdown(fd, how)`: close one direction of a connected socket pair.
+fn sys_shutdown(fd: u64, how: u64) -> u64 {
+    if how != SHUT_RD && how != SHUT_WR && how != SHUT_RDWR {
+        return err(EINVAL);
+    }
+    match task::fd_clone(fd as usize).as_ref() {
+        Some(Fd::Socket { pair, side }) => {
+            pair.shutdown(*side, how);
+            0
+        }
+        Some(Fd::Unbound { .. }) => err(ENOTCONN),
+        Some(_) => err(ENOTSOCK),
+        None => err(EBADF),
+    }
+}
+
+/// `getsockname`/`getpeername`: a bound listener reports its name, a connected
+/// pair reports an empty path (peer names are not tracked).
+fn sys_get_sockname(fd: u64, addr: u64, addrlen: u64) -> u64 {
+    let Some(target) = task::fd_clone(fd as usize) else {
+        return err(EBADF);
+    };
+    match &target {
+        Fd::UnixListener { listener } => {
+            if addr != 0 {
+                write_unix_name(addr, addrlen, &listener.name);
+            }
+            0
+        }
+        Fd::Socket { .. } | Fd::Unbound { .. } => {
+            if addr != 0 {
+                write_unix_name(addr, addrlen, &[]);
+            }
+            0
+        }
+        _ => err(ENOTSOCK),
+    }
+}
+
 /// `sendto(fd, buf, len, flags, addr, addrlen)`: musl's `send`. The only
 /// sockets are connected `AF_UNIX` pairs, so the destination is ignored (std
 /// passes a null address) and this is a stream write; a non-socket fd is
@@ -1869,7 +2591,6 @@ fn sys_sendto(fd: u64, buf: u64, len: u64) -> u64 {
         _ => err(ENOTSOCK),
     }
 }
-
 /// `recvfrom(fd, buf, len, flags, addr, addrlen)`: musl's `recv`. Source
 /// addresses do not exist for connected pairs (std passes null), so this is a
 /// stream read; a non-socket fd is `-ENOTSOCK`.
@@ -1951,6 +2672,16 @@ fn sys_fstat(fd: u64, buf: u64) -> u64 {
         }
         FdKind::Socket => {
             fill_stat(buf, S_IFSOCK | 0o600, 0, fd);
+            0
+        }
+        FdKind::Listener | FdKind::Unbound => {
+            fill_stat(buf, S_IFSOCK | 0o600, 0, fd);
+            0
+        }
+        // eventfd/epoll fds are anonymous inodes; a regular-file mode is the
+        // closest the stat ABI gets.
+        FdKind::EventFd | FdKind::Epoll => {
+            fill_stat(buf, S_IFREG | 0o600, 0, fd);
             0
         }
         FdKind::Closed => err(EBADF),

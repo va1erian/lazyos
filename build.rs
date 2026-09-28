@@ -124,6 +124,18 @@ fn main() {
             String::from("PASSWD"),
             b"root:0:0:toor:/root:/SH.ELF\nalice:1000:1000:lazy:/home/alice:/SH.ELF\n".to_vec(),
         );
+
+        // The system monitor (issue #144). `init` starts `sysmond`
+        // (`SYSD.ELF`) from its manifest; the service wraps the native
+        // system-stats syscall (13) and republishes retained `system/stats/*`
+        // topics. `TOP.ELF` is its one-shot native text client, also started
+        // by the manifest so a headless services boot records `SYS:TOP:PASS`.
+        // Both names are 8.3-safe for the kernel's short-name FAT reader.
+        let sysmond = std::env::var_os("CARGO_BIN_FILE_USER_sysmond")
+            .expect("user sysmond artifact not found");
+        builder.set_file(String::from("SYSD.ELF"), PathBuf::from(sysmond));
+        let top = std::env::var_os("CARGO_BIN_FILE_USER_top").expect("user top artifact not found");
+        builder.set_file(String::from("TOP.ELF"), PathBuf::from(top));
     }
 
     // The display protocol demo (issue #113): `LAZYOS_XUID=1` embeds the
@@ -137,6 +149,28 @@ fn main() {
         let xdemo =
             std::env::var_os("CARGO_BIN_FILE_USER_xdemo").expect("user xdemo artifact not found");
         builder.set_file(String::from("XDEMO.ELF"), PathBuf::from(xdemo));
+        // The drag & drop demo pair (issue #145); the kernel starts its
+        // launcher, and 8.3 requires the `DRAGDMO.ELF` on-disk name.
+        let dragdemo = std::env::var_os("CARGO_BIN_FILE_USER_dragdemo")
+            .expect("user dragdemo artifact not found");
+        builder.set_file(String::from("DRAGDMO.ELF"), PathBuf::from(dragdemo));
+    }
+
+    // The xui app (issue #114): `LAZYOS_XUI_APP=<path>` embeds a static-musl
+    // binary built by `tools/xui/build.py` as `XAPP.ELF`. With `LAZYOS_XUID=1`
+    // the kernel boots it instead of the `xuid` + `xdemo` session, because the
+    // app binds the display grant itself (it is the session's compositor).
+    // Without `LAZYOS_XUID=1` the file is only embedded, never spawned.
+    println!("cargo:rerun-if-env-changed=LAZYOS_XUI_APP");
+    if let Some(app) = std::env::var_os("LAZYOS_XUI_APP") {
+        let app = PathBuf::from(app);
+        if app.is_file() {
+            println!("cargo:warning=LAZYOS_XUI_APP embedded: {}", app.display());
+            println!("cargo:rerun-if-changed={}", app.display());
+            builder.set_file(String::from("XAPP.ELF"), app);
+        } else {
+            println!("cargo:warning=LAZYOS_XUI_APP not found: {}", app.display());
+        }
     }
 
     // Rebuild the image when the kernel test switch flips (issue #62): the

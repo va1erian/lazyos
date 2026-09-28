@@ -214,6 +214,37 @@ const SUITE: &[(&str, Test)] = &[
         "pipe_soak_throughput_and_lifecycle",
         pipe_suite::soak_throughput_and_lifecycle,
     ),
+    (
+        "linux_mremap_grow_shrink_move",
+        linux_suite::mremap_grow_shrink_move,
+    ),
+    ("linux_mremap_soak_churn", linux_suite::mremap_soak_churn),
+    ("linux_eventfd_semantics", linux_suite::eventfd_semantics),
+    (
+        "linux_epoll_level_edge_hangup",
+        linux_suite::epoll_level_edge_hangup,
+    ),
+    (
+        "linux_epoll_soak_add_wait_cycles",
+        linux_suite::epoll_soak_add_wait_cycles,
+    ),
+    (
+        "linux_seqpacket_boundaries",
+        linux_suite::seqpacket_boundaries,
+    ),
+    (
+        "linux_seqpacket_soak_messages",
+        linux_suite::seqpacket_soak_messages,
+    ),
+    (
+        "linux_unix_pair_eof_shutdown",
+        linux_suite::unix_pair_eof_shutdown,
+    ),
+    (
+        "linux_unix_pathname_bind_connect_accept",
+        linux_suite::unix_pathname_bind_connect_accept,
+    ),
+    ("linux_unix_pathname_soak", linux_suite::unix_pathname_soak),
     ("ipc_open_distinct", ipc_suite::open_distinct),
     ("ipc_duplicate_rights", ipc_suite::duplicate_rights),
     ("ipc_close_frees", ipc_suite::close_frees),
@@ -451,6 +482,22 @@ const SUITE: &[(&str, Test)] = &[
     (
         "display_bind_input_present_roundtrip",
         display_suite::bind_input_present_roundtrip,
+    ),
+    (
+        "sysinfo_snapshot_abi_contract",
+        sysinfo_suite::snapshot_abi_contract,
+    ),
+    (
+        "sysinfo_snapshot_fields_sane",
+        sysinfo_suite::snapshot_fields_sane,
+    ),
+    (
+        "sysinfo_snapshot_reflects_spawned_task",
+        sysinfo_suite::snapshot_reflects_spawned_task,
+    ),
+    (
+        "sysinfo_soak_snapshot_task_churn",
+        sysinfo_suite::soak_snapshot_task_churn,
     ),
 ];
 
@@ -2938,7 +2985,10 @@ mod task_suite {
         // The root (a fresh fork) and its child both show up with the parent
         // link intact.
         let root_row = &snapshot.rows[root];
-        check!(root_row.live && root_row.ppid as usize != root, "root row is {root_row:?}");
+        check!(
+            root_row.live && root_row.ppid as usize != root,
+            "root row is {root_row:?}"
+        );
         let child_row = &snapshot.rows[child];
         check!(
             child_row.live && child_row.ppid as usize == root,
@@ -2953,7 +3003,8 @@ mod task_suite {
             bytes.len(),
             TaskSnapshot::SIZE
         );
-        let decoded = TaskSnapshot::from_bytes(&bytes).ok_or("from_bytes rejected a valid block")?;
+        let decoded =
+            TaskSnapshot::from_bytes(&bytes).ok_or("from_bytes rejected a valid block")?;
         check!(
             decoded.rows == snapshot.rows && decoded.version == snapshot.version,
             "decoded snapshot does not match the original"
@@ -2983,8 +3034,9 @@ mod task_suite {
                 processes.len()
             );
             let bytes = snapshot.to_bytes();
-            let decoded = TaskSnapshot::from_bytes(&bytes)
-                .ok_or_else(|| alloc::format!("iteration {iteration}: from_bytes rejected a valid block"))?;
+            let decoded = TaskSnapshot::from_bytes(&bytes).ok_or_else(|| {
+                alloc::format!("iteration {iteration}: from_bytes rejected a valid block")
+            })?;
             check!(
                 decoded.rows == snapshot.rows,
                 "iteration {iteration}: decoded snapshot does not match the original"
@@ -3583,6 +3635,691 @@ mod pipe_suite {
             pipe::Pipe::live()
         );
         check!(fds_clean(), "the churn leaked a descriptor");
+        Ok(())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Linux ABI round 2: mremap, epoll/eventfd, seqpacket, unix sockets
+// ---------------------------------------------------------------------------
+
+mod linux_suite {
+    use super::*;
+    use crate::ipc::pipe;
+    use crate::ipc::unix;
+
+    const PAGE: u64 = 4096;
+    const PROT_RW: u64 = 3;
+    const MAP_PRIVATE: u64 = 0x02;
+    const MAP_FIXED: u64 = 0x10;
+    const MAP_ANONYMOUS: u64 = 0x20;
+    const MREMAP_MAYMOVE: u64 = 1;
+    const MREMAP_FIXED: u64 = 2;
+
+    const AF_UNIX: u64 = 1;
+    const SOCK_STREAM: u64 = 1;
+    const SOCK_SEQPACKET: u64 = 5;
+    const SOCK_CLOEXEC: u64 = 0o2000000;
+
+    const EPOLL_CTL_ADD: u64 = 1;
+    const EPOLL_CTL_DEL: u64 = 2;
+    const EPOLL_CTL_MOD: u64 = 3;
+    const EPOLLIN: u32 = 0x0001;
+    const EPOLLHUP: u32 = 0x0010;
+    const EPOLLET: u32 = 0x8000_0000;
+
+    const O_NONBLOCK: u64 = 0o4000;
+    const EFD_SEMAPHORE: u64 = 1;
+
+    const EAGAIN: u64 = (-11i64) as u64;
+    const EEXIST: u64 = (-17i64) as u64;
+    const ENOENT: u64 = (-2i64) as u64;
+    const EINVAL: u64 = (-22i64) as u64;
+    const EMSGSIZE: u64 = (-90i64) as u64;
+
+    /// Register the kernel task with a bump region, close leftover
+    /// descriptors, and forget any bound socket names, so each test starts
+    /// from a clean ABI surface.
+    fn fresh() -> Result<(), String> {
+        task::register_kernel();
+        for fd in 3..task::FD_COUNT {
+            let _ = task::fd_close(fd);
+        }
+        unix::clear_for_test();
+        let table = crate::mem::kernel_table();
+        task::register_bumps(
+            table.as_u64(),
+            process::linux::BRK_BASE,
+            process::linux::MMAP_BASE,
+        );
+        Ok(())
+    }
+
+    fn fds_clean() -> bool {
+        (3..task::FD_COUNT).all(|fd| task::fd_kind(fd) == task::FdKind::Closed)
+    }
+
+    fn mmap_fixed(base: u64, len: u64) -> u64 {
+        process::linux::dispatch_args5_for_test(
+            9,
+            base,
+            len,
+            PROT_RW,
+            MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED,
+            0,
+        )
+    }
+
+    fn mremap(old: u64, old_size: u64, new_size: u64, flags: u64, new_addr: u64) -> u64 {
+        process::linux::dispatch_args5_for_test(25, old, old_size, new_size, flags, new_addr)
+    }
+
+    fn munmap(base: u64, len: u64) -> u64 {
+        process::linux::dispatch_for_test(11, base, len, 0)
+    }
+
+    /// Deterministic fill pattern, mirroring the pipe soak's.
+    fn fill(addr: u64, seed: u8, len: usize) {
+        for offset in 0..len {
+            let byte = seed ^ (offset as u8).wrapping_mul(31);
+            // Safety: the test maps this page range into the kernel's user half.
+            unsafe { (addr as *mut u8).add(offset).write_volatile(byte) };
+        }
+    }
+
+    fn matches(addr: u64, seed: u8, len: usize) -> bool {
+        (0..len).all(|offset| {
+            let byte = seed ^ (offset as u8).wrapping_mul(31);
+            // Safety: same mapped range as `fill`.
+            unsafe { (addr as *const u8).add(offset).read_volatile() == byte }
+        })
+    }
+
+    fn epoll_event(events: u32, data: u64) -> [u8; 12] {
+        let mut buf = [0u8; 12];
+        buf[..4].copy_from_slice(&events.to_le_bytes());
+        buf[4..].copy_from_slice(&data.to_le_bytes());
+        buf
+    }
+
+    /// Unpack one packed `struct epoll_event` from a ready array.
+    fn unpack_event(out: &[u8]) -> (u32, u64) {
+        let events = u32::from_le_bytes(out[..4].try_into().unwrap());
+        let data = u64::from_le_bytes(out[4..12].try_into().unwrap());
+        (events, data)
+    }
+
+    fn epoll_ctl(epfd: u64, op: u64, fd: u64, event: &[u8; 12]) -> u64 {
+        process::linux::dispatch_args_for_test(233, epfd, op, fd, event.as_ptr() as u64)
+    }
+
+    fn epoll_wait0(epfd: u64, out: &mut [u8]) -> u64 {
+        let max = (out.len() / 12) as u64;
+        process::linux::dispatch_args_for_test(232, epfd, out.as_ptr() as u64, max, 0)
+    }
+
+    fn read_fd(fd: u64, buf: &mut [u8]) -> u64 {
+        process::linux::dispatch_for_test(0, fd, buf.as_mut_ptr() as u64, buf.len() as u64)
+    }
+
+    fn write_fd(fd: u64, buf: &[u8]) -> u64 {
+        process::linux::dispatch_for_test(1, fd, buf.as_ptr() as u64, buf.len() as u64)
+    }
+
+    fn socketpair(kind: u64) -> Result<(u64, u64), String> {
+        let mut sv = [0i32; 2];
+        let ret =
+            process::linux::dispatch_args_for_test(53, AF_UNIX, kind, 0, sv.as_mut_ptr() as u64);
+        check!(ret == 0, "socketpair({kind:#x}) returned {ret:#x}");
+        Ok((sv[0] as u64, sv[1] as u64))
+    }
+
+    /// `mremap` grows and shrinks in place, then relocates with `MAYMOVE` and
+    /// `MREMAP_FIXED`, keeping the pages' contents throughout.
+    pub fn mremap_grow_shrink_move() -> Result<(), String> {
+        fresh()?;
+        let table = crate::mem::kernel_table();
+        let (vsz, frames) = crate::mem::vma_stats(table);
+        let base = process::linux::MMAP_BASE;
+        check!(
+            mmap_fixed(base, 2 * PAGE) == base,
+            "mmap did not land at {base:#x}"
+        );
+        fill(base, 0x11, 2 * PAGE as usize);
+
+        // Grow 2 -> 4 pages in place: the free range above is claimed.
+        check!(
+            mremap(base, 2 * PAGE, 4 * PAGE, 0, 0) == base,
+            "in-place grow moved the mapping"
+        );
+        check!(matches(base, 0x11, 2 * PAGE as usize), "grow lost data");
+        // Safety: the grown page is mapped into the kernel's user half.
+        check!(
+            unsafe { (base as *const u8).add(2 * PAGE as usize).read_volatile() } == 0,
+            "grown page is not demand-zero"
+        );
+
+        // Shrink 4 -> 1 page: the tail is gone, the head intact.
+        check!(
+            mremap(base, 4 * PAGE, PAGE, 0, 0) == base,
+            "in-place shrink moved the mapping"
+        );
+        check!(matches(base, 0x11, PAGE as usize), "shrink lost data");
+        check!(
+            crate::mem::vma::find(table, base + PAGE).is_none(),
+            "shrunk tail still has a VMA"
+        );
+
+        // Relocate 1 -> 2 pages with MAYMOVE; a blocker mapping above forces the
+        // move instead of an in-place grow.
+        check!(
+            mmap_fixed(base + PAGE, PAGE) == base + PAGE,
+            "blocker mmap failed"
+        );
+        let moved = mremap(base, PAGE, 2 * PAGE, MREMAP_MAYMOVE, 0);
+        check!(moved != 0 && (moved as i64) > 0, "move returned {moved:#x}");
+        check!(moved != base, "move kept the old address");
+        check!(matches(moved, 0x11, PAGE as usize), "move lost data");
+        check!(
+            crate::mem::vma::find(table, base).is_none(),
+            "old VMA survived the move"
+        );
+
+        // MREMAP_FIXED places the range exactly.
+        let dest = process::linux::MMAP_BASE + 0x40_0000;
+        check!(
+            mremap(
+                moved,
+                2 * PAGE,
+                2 * PAGE,
+                MREMAP_MAYMOVE | MREMAP_FIXED,
+                dest
+            ) == dest,
+            "fixed move did not land at {dest:#x}"
+        );
+        check!(matches(dest, 0x11, PAGE as usize), "fixed move lost data");
+
+        check!(munmap(dest, 2 * PAGE) == 0, "cleanup munmap failed");
+        check!(munmap(base + PAGE, PAGE) == 0, "blocker munmap failed");
+        let (vsz_after, frames_after) = crate::mem::vma_stats(table);
+        check!(
+            vsz_after == vsz,
+            "mremap leaked VMA bytes: {vsz_after} != {vsz}"
+        );
+        check!(
+            frames_after == frames,
+            "mremap leaked frames: {frames_after} != {frames}"
+        );
+        Ok(())
+    }
+
+    /// Soak: repeated map/grow/relocate/shrink/unmap generations must not leak
+    /// VMAs, frames or quota.
+    pub fn mremap_soak_churn() -> Result<(), String> {
+        fresh()?;
+        let table = crate::mem::kernel_table();
+        let (vsz, frames) = crate::mem::vma_stats(table);
+        for round in 0..1000u32 {
+            let base = process::linux::MMAP_BASE + 0x100_0000 + (round as u64 % 8) * 0x1_0000;
+            check!(
+                mmap_fixed(base, 2 * PAGE) == base,
+                "round {round}: mmap failed"
+            );
+            fill(base, round as u8, 2 * PAGE as usize);
+            let grown = mremap(base, 2 * PAGE, 3 * PAGE, MREMAP_MAYMOVE, 0);
+            check!(
+                grown != 0 && (grown as i64) > 0,
+                "round {round}: grow returned {grown:#x}"
+            );
+            check!(
+                matches(grown, round as u8, PAGE as usize),
+                "round {round}: relocated page lost data"
+            );
+            // Touch the newly grown page so a frame is actually resident.
+            // Safety: within the relocated mapping.
+            unsafe {
+                (grown as *mut u8)
+                    .add(2 * PAGE as usize)
+                    .write_volatile(0x5A)
+            };
+            let shrunk = mremap(grown, 3 * PAGE, PAGE, MREMAP_MAYMOVE, 0);
+            check!(
+                shrunk != 0 && (shrunk as i64) > 0,
+                "round {round}: shrink returned {shrunk:#x}"
+            );
+            check!(
+                matches(shrunk, round as u8, PAGE as usize),
+                "round {round}: shrunk page lost data"
+            );
+            check!(munmap(shrunk, PAGE) == 0, "round {round}: munmap failed");
+        }
+        let (vsz_after, frames_after) = crate::mem::vma_stats(table);
+        check!(
+            vsz_after == vsz,
+            "soak leaked VMA bytes: {vsz_after} != {vsz}"
+        );
+        check!(
+            frames_after == frames,
+            "soak leaked frames: {frames_after} != {frames}"
+        );
+        Ok(())
+    }
+
+    /// `eventfd` read/write semantics: drain-to-zero, non-blocking `EAGAIN`,
+    /// `EINVAL` on `u64::MAX`, and `EFD_SEMAPHORE` decrements.
+    pub fn eventfd_semantics() -> Result<(), String> {
+        fresh()?;
+        let efd = process::linux::dispatch_for_test(290, 5, O_NONBLOCK, 0);
+        check!((efd as i64) > 0, "eventfd2 returned {efd:#x}");
+        let mut value = [0u8; 8];
+        check!(read_fd(efd, &mut value) == 8, "eventfd read length");
+        check!(u64::from_le_bytes(value) == 5, "eventfd initial value");
+        check!(read_fd(efd, &mut value) == EAGAIN, "empty eventfd read");
+        let three = 3u64.to_le_bytes();
+        check!(write_fd(efd, &three) == 8, "eventfd write");
+        check!(
+            read_fd(efd, &mut value) == 8 && u64::from_le_bytes(value) == 3,
+            "add then drain"
+        );
+        let max = u64::MAX.to_le_bytes();
+        check!(write_fd(efd, &max) == EINVAL, "eventfd u64::MAX write");
+
+        let sem = process::linux::dispatch_for_test(290, 2, EFD_SEMAPHORE | O_NONBLOCK, 0);
+        check!((sem as i64) > 0, "semaphore eventfd returned {sem:#x}");
+        for expected in [1u64, 1] {
+            check!(read_fd(sem, &mut value) == 8, "semaphore read length");
+            check!(u64::from_le_bytes(value) == expected, "semaphore value");
+        }
+        check!(read_fd(sem, &mut value) == EAGAIN, "drained semaphore");
+
+        check!(task::fd_close(efd as usize), "close eventfd failed");
+        check!(task::fd_close(sem as usize), "close semaphore failed");
+        check!(fds_clean(), "eventfd test left a descriptor");
+        Ok(())
+    }
+
+    /// `epoll`: level trigger, zero timeout, `EPOLLET` edges, and `EPOLLHUP`.
+    pub fn epoll_level_edge_hangup() -> Result<(), String> {
+        fresh()?;
+        let mut fds = [0i32; 2];
+        let ret = process::linux::dispatch_for_test(22, fds.as_mut_ptr() as u64, 0, 0);
+        check!(ret == 0, "pipe returned {ret:#x}");
+        let (r, w) = (fds[0] as u64, fds[1] as u64);
+        let epfd = process::linux::dispatch_for_test(291, SOCK_CLOEXEC, 0, 0);
+        check!((epfd as i64) > 0, "epoll_create1 returned {epfd:#x}");
+
+        let interest = epoll_event(EPOLLIN, 0x1234);
+        check!(
+            epoll_ctl(epfd, EPOLL_CTL_ADD, r, &interest) == 0,
+            "ADD failed"
+        );
+        check!(
+            epoll_ctl(epfd, EPOLL_CTL_ADD, r, &interest) == EEXIST,
+            "duplicate ADD not rejected"
+        );
+        let mut out = [0u8; 24];
+        check!(epoll_wait0(epfd, &mut out) == 0, "idle epoll_wait woke");
+
+        check!(write_fd(w, b"a") == 1, "pipe write");
+        check!(
+            epoll_wait0(epfd, &mut out) == 1,
+            "readable pipe not reported"
+        );
+        let (events, data) = unpack_event(&out);
+        check!(events & EPOLLIN != 0, "missing EPOLLIN: {events:#x}");
+        check!(data == 0x1234, "user data lost: {data:#x}");
+        // Level trigger: still ready while the byte sits undrained.
+        check!(
+            epoll_wait0(epfd, &mut out) == 1,
+            "level trigger drained early"
+        );
+
+        // Edge trigger: one report, then silence until the stream changes.
+        let edge = epoll_event(EPOLLIN | EPOLLET, 0x9);
+        check!(epoll_ctl(epfd, EPOLL_CTL_MOD, r, &edge) == 0, "MOD failed");
+        check!(
+            epoll_wait0(epfd, &mut out) == 1,
+            "edge did not report on arm"
+        );
+        check!(
+            epoll_wait0(epfd, &mut out) == 0,
+            "edge repeated without a change"
+        );
+        let mut one = [0u8; 1];
+        check!(read_fd(r, &mut one) == 1, "drain read");
+        check!(write_fd(w, b"b") == 1, "second pipe write");
+        check!(
+            epoll_wait0(epfd, &mut out) == 1,
+            "new data did not re-arm the edge"
+        );
+
+        // Hangup: the write end closes, so the interest reports EPOLLHUP.
+        check!(task::fd_close(w as usize), "close write end failed");
+        let level = epoll_event(EPOLLIN, 0x77);
+        check!(
+            epoll_ctl(epfd, EPOLL_CTL_MOD, r, &level) == 0,
+            "MOD for HUP failed"
+        );
+        check!(epoll_wait0(epfd, &mut out) == 1, "hangup not reported");
+        let (events, data) = unpack_event(&out);
+        check!(events & EPOLLHUP != 0, "missing EPOLLHUP: {events:#x}");
+        check!(data == 0x77, "hangup data lost");
+
+        check!(epoll_ctl(epfd, EPOLL_CTL_DEL, r, &level) == 0, "DEL failed");
+        check!(
+            epoll_wait0(epfd, &mut out) == 0,
+            "deleted interest still ready"
+        );
+        check!(
+            epoll_ctl(epfd, EPOLL_CTL_DEL, r, &level) == ENOENT,
+            "duplicate DEL not rejected"
+        );
+
+        check!(task::fd_close(r as usize), "close read end failed");
+        check!(task::fd_close(epfd as usize), "close epoll failed");
+        check!(fds_clean(), "epoll test left a descriptor");
+        check!(pipe::Pipe::live() == 0, "the pipe was not freed");
+        Ok(())
+    }
+
+    /// Soak: thousands of `epoll_ctl` add/mod/del cycles over mixed targets,
+    /// and a full interest set, with no descriptor, pipe or interest leak.
+    pub fn epoll_soak_add_wait_cycles() -> Result<(), String> {
+        fresh()?;
+        let epfd = process::linux::dispatch_for_test(291, 0, 0, 0);
+        check!((epfd as i64) > 0, "epoll_create1 returned {epfd:#x}");
+        let efd = process::linux::dispatch_for_test(290, 0, O_NONBLOCK, 0);
+        check!((efd as i64) > 0, "eventfd2 returned {efd:#x}");
+        let mut fds = [0i32; 2];
+        check!(
+            process::linux::dispatch_for_test(22, fds.as_mut_ptr() as u64, 0, 0) == 0,
+            "pipe failed"
+        );
+        let (r, w) = (fds[0] as u64, fds[1] as u64);
+        let mut out = [0u8; 12];
+        let interest = epoll_event(EPOLLIN, 0);
+        for round in 0..20_000u64 {
+            let target = if round % 2 == 0 { efd } else { r };
+            check!(
+                epoll_ctl(epfd, EPOLL_CTL_ADD, target, &interest) == 0,
+                "round {round}: ADD failed"
+            );
+            let _ = epoll_wait0(epfd, &mut out);
+            let changed = epoll_event(EPOLLIN, round);
+            check!(
+                epoll_ctl(epfd, EPOLL_CTL_MOD, target, &changed) == 0,
+                "round {round}: MOD failed"
+            );
+            check!(
+                epoll_ctl(epfd, EPOLL_CTL_DEL, target, &interest) == 0,
+                "round {round}: DEL failed"
+            );
+        }
+
+        // A full interest set: eight eventfds, all made ready at once.
+        let mut events: Vec<u64> = Vec::new();
+        for value in 1..=8u64 {
+            let fd = process::linux::dispatch_for_test(290, value, O_NONBLOCK, 0);
+            check!((fd as i64) > 0, "eventfd {value} returned {fd:#x}");
+            let interest = epoll_event(EPOLLIN, value);
+            check!(
+                epoll_ctl(epfd, EPOLL_CTL_ADD, fd, &interest) == 0,
+                "ADD eventfd {value} failed"
+            );
+            events.push(fd);
+        }
+        for fd in &events {
+            let one = 1u64.to_le_bytes();
+            check!(write_fd(*fd, &one) == 8, "eventfd write failed");
+        }
+        let mut ready = [0u8; 12 * 8];
+        check!(
+            epoll_wait0(epfd, &mut ready) == 8,
+            "not all interests ready"
+        );
+        let mut seen = [false; 9];
+        for index in 0..8 {
+            let (bits, data) = unpack_event(&ready[index * 12..]);
+            check!(bits & EPOLLIN != 0, "ready event {index} lacks EPOLLIN");
+            seen[data as usize] = true;
+        }
+        check!(
+            (1..=8).all(|value| seen[value]),
+            "ready data values lost: {seen:?}"
+        );
+
+        // Closing a registered descriptor drops its interest.
+        check!(task::fd_close(events[0] as usize), "close eventfd failed");
+        check!(
+            epoll_ctl(epfd, EPOLL_CTL_DEL, events[0], &interest) == ENOENT,
+            "closed descriptor kept its interest"
+        );
+        for fd in events.iter().skip(1) {
+            check!(task::fd_close(*fd as usize), "close eventfd failed");
+            let _ = epoll_ctl(epfd, EPOLL_CTL_DEL, *fd, &interest);
+        }
+        check!(task::fd_close(efd as usize), "close eventfd failed");
+        check!(task::fd_close(epfd as usize), "close epoll failed");
+        for fd in [r, w] {
+            check!(task::fd_close(fd as usize), "close pipe fd failed");
+        }
+        check!(fds_clean(), "epoll soak leaked a descriptor");
+        check!(pipe::Pipe::live() == 0, "epoll soak leaked a pipe");
+        Ok(())
+    }
+
+    /// `SOCK_SEQPACKET`: one read per message, truncation discards the rest,
+    /// `-EMSGSIZE` over capacity, and EOF after the peer closes.
+    pub fn seqpacket_boundaries() -> Result<(), String> {
+        fresh()?;
+        let (a, b) = socketpair(AF_UNIX | SOCK_SEQPACKET)?;
+        check!(write_fd(a, b"hello") == 5, "seqpacket write");
+        let mut small = [0u8; 3];
+        check!(read_fd(b, &mut small) == 3, "truncated read length");
+        check!(&small == b"hel", "truncated read contents");
+        // The discarded tail must not leak into the next message.
+        check!(write_fd(a, b"xy") == 2, "second seqpacket write");
+        let mut big = [0u8; 8];
+        check!(read_fd(b, &mut big) == 2, "message after truncation");
+        check!(&big[..2] == b"xy", "message boundary lost after truncation");
+        // Back-to-back messages stay distinct.
+        check!(write_fd(a, b"one") == 3, "write one");
+        check!(write_fd(a, b"two") == 3, "write two");
+        check!(
+            read_fd(b, &mut big) == 3 && &big[..3] == b"one",
+            "first message"
+        );
+        check!(
+            read_fd(b, &mut big) == 3 && &big[..3] == b"two",
+            "second message"
+        );
+        // Over-capacity messages are refused whole.
+        let huge = vec![0u8; pipe::CAPACITY + 1];
+        check!(
+            write_fd(a, &huge) == EMSGSIZE,
+            "oversized seqpacket write was not EMSGSIZE"
+        );
+        check!(task::fd_close(a as usize), "close A failed");
+        check!(read_fd(b, &mut big) == 0, "seqpacket EOF");
+        check!(task::fd_close(b as usize), "close B failed");
+        check!(fds_clean(), "seqpacket test left a descriptor");
+        check!(pipe::Pipe::live() == 0, "seqpacket test leaked a pipe");
+        Ok(())
+    }
+
+    /// Soak: many seqpacket messages of varying length keep their boundaries.
+    pub fn seqpacket_soak_messages() -> Result<(), String> {
+        fresh()?;
+        let (a, b) = socketpair(AF_UNIX | SOCK_SEQPACKET)?;
+        let mut payload = [0u8; 64];
+        let mut out = [0u8; 128];
+        for round in 0..20_000u32 {
+            let len = (round as usize % 64) + 1;
+            for (index, byte) in payload[..len].iter_mut().enumerate() {
+                *byte = (round as u8) ^ (index as u8);
+            }
+            let sent = write_fd(a, &payload[..len]);
+            check!(sent == len as u64, "round {round}: write returned {sent}");
+            let got = read_fd(b, &mut out);
+            check!(got == len as u64, "round {round}: read returned {got}");
+            check!(
+                out[..len] == payload[..len],
+                "round {round}: message contents crossed"
+            );
+        }
+        check!(task::fd_close(a as usize), "close A failed");
+        check!(task::fd_close(b as usize), "close B failed");
+        check!(fds_clean(), "seqpacket soak leaked a descriptor");
+        check!(pipe::Pipe::live() == 0, "seqpacket soak leaked a pipe");
+        Ok(())
+    }
+
+    /// Stream `socketpair`: EOF on close and `shutdown(SHUT_WR)` half-close.
+    pub fn unix_pair_eof_shutdown() -> Result<(), String> {
+        fresh()?;
+        let (a, b) = socketpair(SOCK_STREAM | SOCK_CLOEXEC)?;
+        check!(write_fd(a, b"ping") == 4, "pair write");
+        let mut buf = [0u8; 8];
+        check!(
+            read_fd(b, &mut buf) == 4 && &buf[..4] == b"ping",
+            "pair read"
+        );
+        // Half-close: the peer sees EOF, this end still reads.
+        check!(
+            process::linux::dispatch_for_test(48, a, 1, 0) == 0,
+            "shutdown(SHUT_WR) failed"
+        );
+        check!(read_fd(b, &mut buf) == 0, "shutdown did not EOF the peer");
+        check!(write_fd(b, b"pong") == 4, "peer write after half-close");
+        check!(
+            read_fd(a, &mut buf) == 4 && &buf[..4] == b"pong",
+            "half-closed read"
+        );
+        check!(
+            process::linux::dispatch_for_test(48, a, 2, 0) == 0,
+            "shutdown(SHUT_RDWR) failed"
+        );
+        check!(read_fd(a, &mut buf) == 0, "SHUT_RDWR did not EOF us");
+
+        // A separate pair: closing one end reports EOF to the other.
+        let (c, d) = socketpair(SOCK_STREAM)?;
+        check!(write_fd(c, b"bye") == 3, "close-EOF write");
+        check!(task::fd_close(c as usize), "close C failed");
+        check!(read_fd(d, &mut buf) == 3, "close-EOF buffered read");
+        check!(read_fd(d, &mut buf) == 0, "close-EOF read");
+
+        for fd in [a, b, d] {
+            check!(task::fd_close(fd as usize), "cleanup close failed");
+        }
+        check!(fds_clean(), "unix pair test left a descriptor");
+        check!(pipe::Pipe::live() == 0, "unix pair test leaked a pipe");
+        Ok(())
+    }
+
+    /// Pathname `AF_UNIX`: `socket`/`bind`/`listen`/`connect`/`accept4` with
+    /// data exchange and a clean unregister on close.
+    pub fn unix_pathname_bind_connect_accept() -> Result<(), String> {
+        fresh()?;
+        let listener_fd = process::linux::dispatch_for_test(41, AF_UNIX, SOCK_STREAM, 0);
+        check!((listener_fd as i64) > 0, "socket returned {listener_fd:#x}");
+        let name = b"/tmp/abi-suite.sock";
+        let mut sockaddr = [0u8; 110];
+        sockaddr[..2].copy_from_slice(&(AF_UNIX as u16).to_le_bytes());
+        sockaddr[2..2 + name.len()].copy_from_slice(name);
+        let addr_ptr = sockaddr.as_ptr() as u64;
+        let addr_len = (2 + name.len()) as u64;
+        check!(
+            process::linux::dispatch_for_test(49, listener_fd, addr_ptr, addr_len) == 0,
+            "bind failed"
+        );
+        check!(
+            process::linux::dispatch_for_test(50, listener_fd, 8, 0) == 0,
+            "listen failed"
+        );
+        // Rebinding the same name is refused.
+        let other = process::linux::dispatch_for_test(41, AF_UNIX, SOCK_STREAM, 0);
+        let duplicate = process::linux::dispatch_for_test(49, other, addr_ptr, addr_len);
+        check!(
+            duplicate == (-98i64) as u64,
+            "duplicate bind returned {duplicate:#x}"
+        );
+        check!(task::fd_close(other as usize), "close other failed");
+
+        let client_fd = process::linux::dispatch_for_test(41, AF_UNIX, SOCK_STREAM, 0);
+        check!(
+            (client_fd as i64) > 0,
+            "client socket returned {client_fd:#x}"
+        );
+        check!(
+            process::linux::dispatch_for_test(42, client_fd, addr_ptr, addr_len) == 0,
+            "connect failed"
+        );
+        let server_fd =
+            process::linux::dispatch_args_for_test(288, listener_fd, 0, 0, SOCK_CLOEXEC);
+        check!((server_fd as i64) > 0, "accept4 returned {server_fd:#x}");
+        check!(write_fd(client_fd, b"hello") == 5, "client write");
+        let mut buf = [0u8; 8];
+        check!(read_fd(server_fd, &mut buf) == 5, "server read");
+        check!(&buf[..5] == b"hello", "server data");
+        check!(write_fd(server_fd, b"world") == 5, "server write");
+        check!(read_fd(client_fd, &mut buf) == 5, "client read");
+        check!(&buf[..5] == b"world", "client data");
+
+        for fd in [client_fd, server_fd, listener_fd] {
+            check!(task::fd_close(fd as usize), "cleanup close failed");
+        }
+        check!(fds_clean(), "pathname test left a descriptor");
+        check!(unix::bound_count() == 0, "bound name survived its listener");
+        check!(pipe::Pipe::live() == 0, "pathname test leaked a pipe");
+        Ok(())
+    }
+
+    /// Soak: repeated bind/connect/accept/exchange/close generations, with no
+    /// bound-name, descriptor or pipe leak.
+    pub fn unix_pathname_soak() -> Result<(), String> {
+        fresh()?;
+        for round in 0..200u64 {
+            let name = alloc::format!("/tmp/abi-soak-{round}.sock");
+            let name = name.as_bytes();
+            let mut sockaddr = [0u8; 110];
+            sockaddr[..2].copy_from_slice(&(AF_UNIX as u16).to_le_bytes());
+            sockaddr[2..2 + name.len()].copy_from_slice(name);
+            let addr_ptr = sockaddr.as_ptr() as u64;
+            let addr_len = (2 + name.len()) as u64;
+
+            let listener = process::linux::dispatch_for_test(41, AF_UNIX, SOCK_STREAM, 0);
+            check!(
+                process::linux::dispatch_for_test(49, listener, addr_ptr, addr_len) == 0,
+                "round {round}: bind failed"
+            );
+            check!(
+                process::linux::dispatch_for_test(50, listener, 1, 0) == 0,
+                "round {round}: listen failed"
+            );
+            let client = process::linux::dispatch_for_test(41, AF_UNIX, SOCK_STREAM, 0);
+            let connected = process::linux::dispatch_for_test(42, client, addr_ptr, addr_len);
+            check!(
+                connected == 0,
+                "round {round}: connect returned {connected:#x}"
+            );
+            let server = process::linux::dispatch_args_for_test(288, listener, 0, 0, 0);
+            check!((server as i64) > 0, "round {round}: accept failed");
+            check!(write_fd(client, b"x") == 1, "round {round}: write failed");
+            let mut byte = [0u8; 1];
+            check!(
+                read_fd(server, &mut byte) == 1,
+                "round {round}: read failed"
+            );
+            for fd in [client, server, listener] {
+                check!(task::fd_close(fd as usize), "round {round}: close failed");
+            }
+        }
+        check!(fds_clean(), "pathname soak leaked a descriptor");
+        check!(
+            unix::bound_count() == 0,
+            "pathname soak leaked a bound name"
+        );
+        check!(pipe::Pipe::live() == 0, "pathname soak leaked a pipe");
         Ok(())
     }
 }
@@ -10639,6 +11376,305 @@ mod display_suite {
         task::harness::switch_current(task::KERNEL_TASK);
         crate::display::reset();
         task::harness::reset();
+        Ok(())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// System statistics snapshot (issue #144)
+// ---------------------------------------------------------------------------
+
+/// The fixed-layout read-only snapshot behind syscall 13: version/layout
+/// stability, the strict buffer contract, live counters and the task table.
+/// The soak drives snapshots through repeated fork/exit/reclaim generations,
+/// where a per-snapshot allocation or a translation leak would show as frame,
+/// slab or task-row growth.
+mod sysinfo_suite {
+    use super::*;
+    use crate::sysinfo;
+
+    /// Two's-complement `-errno`, the syscall error encoding.
+    fn failed(code: i64) -> u64 {
+        (code as u64).wrapping_neg()
+    }
+
+    /// Register the kernel task and empty the table, as a normal boot starts.
+    fn fresh() {
+        task::register_kernel();
+        task::harness::reset();
+        task::harness::switch_current(task::KERNEL_TASK);
+    }
+
+    /// A full snapshot through the syscall entry, decoded as raw words.
+    fn snapshot() -> Result<[u64; sysinfo::WORDS], String> {
+        let mut words = [0u64; sysinfo::WORDS];
+        let code = process::dispatch_for_test(
+            14,
+            sysinfo::op::SNAPSHOT,
+            words.as_mut_ptr() as u64,
+            sysinfo::SIZE,
+        );
+        check!(code == sysinfo::SIZE, "snapshot -> {code:#x}");
+        Ok(words)
+    }
+
+    /// The size op reports the ABI block; a null or short buffer and an
+    /// unknown op are refused with the documented errno; a full buffer gets
+    /// exactly one versioned block.
+    pub fn snapshot_abi_contract() -> Result<(), String> {
+        fresh();
+        let size = process::dispatch_for_test(14, sysinfo::op::SIZE, 0, 0);
+        check!(
+            size == sysinfo::SIZE,
+            "size op reported {size:#x}, expected {:#x}",
+            sysinfo::SIZE
+        );
+        check!(
+            process::dispatch_for_test(14, sysinfo::op::SNAPSHOT, 0, 0) == failed(14),
+            "a null snapshot buffer was not refused with -EFAULT"
+        );
+        let mut words = [0u64; sysinfo::WORDS];
+        let short = process::dispatch_for_test(
+            14,
+            sysinfo::op::SNAPSHOT,
+            words.as_mut_ptr() as u64,
+            sysinfo::SIZE - 8,
+        );
+        check!(
+            short == failed(7),
+            "a short buffer returned {short:#x}, expected -E2BIG"
+        );
+        check!(
+            process::dispatch_for_test(14, 99, 0, 0) == failed(22),
+            "an unknown op was not refused with -EINVAL"
+        );
+
+        let words = snapshot()?;
+        check!(
+            words[sysinfo::H_VERSION] == sysinfo::SYSTEM_STATS_VERSION,
+            "header version is {}, expected {}",
+            words[sysinfo::H_VERSION],
+            sysinfo::SYSTEM_STATS_VERSION
+        );
+        check!(
+            words[sysinfo::H_WORDS] == sysinfo::WORDS as u64,
+            "header word count is {}, expected {}",
+            words[sysinfo::H_WORDS],
+            sysinfo::WORDS
+        );
+        check!(
+            words[sysinfo::H_TASK_ROW_WORDS] == sysinfo::TASK_ROW_WORDS as u64
+                && words[sysinfo::H_TASK_SLOTS] == task::MAX_TASKS as u64,
+            "row layout words are {} rows {} slots, expected {} and {}",
+            words[sysinfo::H_TASK_ROW_WORDS],
+            words[sysinfo::H_TASK_SLOTS],
+            sysinfo::TASK_ROW_WORDS,
+            task::MAX_TASKS
+        );
+        Ok(())
+    }
+
+    /// Every reported field is live and self-consistent, the kernel task's row
+    /// matches its scheduler state, and empty slots are all-zero.
+    pub fn snapshot_fields_sane() -> Result<(), String> {
+        fresh();
+        let words = snapshot()?;
+
+        check!(
+            words[sysinfo::H_TICKS] == task::ticks(),
+            "tick word {} is not the live clock {}",
+            words[sysinfo::H_TICKS],
+            task::ticks()
+        );
+        let total = words[sysinfo::H_FRAMES_TOTAL];
+        let live = words[sysinfo::H_FRAMES_LIVE];
+        let free = words[sysinfo::H_FRAMES_FREE];
+        check!(total > 0, "the allocator reports zero frames");
+        check!(
+            free + live == total,
+            "frame accounting is inconsistent: free {free} + live {live} != total {total}"
+        );
+        check!(
+            words[sysinfo::H_FRAMES_ALLOCATED] >= live
+                && words[sysinfo::H_FRAMES_FREED] <= words[sysinfo::H_FRAMES_ALLOCATED],
+            "frame counters are inconsistent: live {live} allocated {} freed {}",
+            words[sysinfo::H_FRAMES_ALLOCATED],
+            words[sysinfo::H_FRAMES_FREED]
+        );
+        check!(
+            words[sysinfo::H_SLAB_PEAK] >= words[sysinfo::H_SLAB_LIVE],
+            "slab peak {} is below live {}",
+            words[sysinfo::H_SLAB_PEAK],
+            words[sysinfo::H_SLAB_LIVE]
+        );
+        check!(
+            words[sysinfo::H_HEAP_USED] + words[sysinfo::H_HEAP_FREE]
+                == words[sysinfo::H_HEAP_TOTAL]
+                && words[sysinfo::H_HEAP_TOTAL] > 15 * 1024 * 1024
+                && words[sysinfo::H_HEAP_TOTAL] <= mem::HEAP_SIZE,
+            "heap words are inconsistent: used {} + free {} != total {}",
+            words[sysinfo::H_HEAP_USED],
+            words[sysinfo::H_HEAP_FREE],
+            words[sysinfo::H_HEAP_TOTAL]
+        );
+        check!(
+            words[sysinfo::H_TASKS_LIVE] == 1,
+            "live task count is {}, expected the kernel task only",
+            words[sysinfo::H_TASKS_LIVE]
+        );
+
+        // The kernel task's row: slot 0, pid 0, no parent, runnable, in the
+        // interactive class with its default weight, named `kernel`.
+        let base = sysinfo::HEADER_WORDS;
+        check!(
+            words[base + sysinfo::R_PRESENT] == 1
+                && words[base + sysinfo::R_PID] == 0
+                && words[base + sysinfo::R_PPID] == 0,
+            "the kernel row presence/pid/ppid words are wrong"
+        );
+        check!(
+            words[base + sysinfo::R_STATE] == sysinfo::state::RUNNABLE,
+            "the kernel row state is {}, expected runnable",
+            words[base + sysinfo::R_STATE]
+        );
+        check!(
+            words[base + sysinfo::R_CLASS] == sysinfo::class::INTERACTIVE
+                && words[base + sysinfo::R_WEIGHT] == 4,
+            "the kernel row class/weight words are {} and {}",
+            words[base + sysinfo::R_CLASS],
+            words[base + sysinfo::R_WEIGHT]
+        );
+        check!(
+            words[base + sysinfo::R_NAME8] == u64::from_le_bytes(*b"kernel\0\0"),
+            "the kernel row short name is {:#x}",
+            words[base + sysinfo::R_NAME8]
+        );
+        check!(
+            words[base + sysinfo::R_NAME_HASH] == sysinfo::fnv1a64(b"kernel"),
+            "the kernel row name hash is {:#x}",
+            words[base + sysinfo::R_NAME_HASH]
+        );
+
+        // An empty slot's whole row stays zero, so a reader can rely on
+        // presence alone.
+        let empty = sysinfo::HEADER_WORDS + sysinfo::TASK_ROW_WORDS;
+        check!(
+            words[empty..empty + sysinfo::TASK_ROW_WORDS]
+                .iter()
+                .all(|word| *word == 0),
+            "an empty task slot has non-zero row words"
+        );
+        Ok(())
+    }
+
+    /// A forked task shows up with its pid, ppid, name and CPU ticks, and the
+    /// live count follows the table.
+    pub fn snapshot_reflects_spawned_task() -> Result<(), String> {
+        fresh();
+        let slot = task::spawn_fork().map_err(to_string)?;
+        check!(
+            task::process::ppid_of(slot) == task::KERNEL_TASK,
+            "the fork's ppid is {}",
+            task::process::ppid_of(slot)
+        );
+        // Charge the child a CPU tick exactly as a timer tick would.
+        task::harness::switch_current(slot);
+        task::harness::simulate_tick();
+        task::harness::switch_current(task::KERNEL_TASK);
+
+        let words = snapshot()?;
+        check!(
+            words[sysinfo::H_TASKS_LIVE] == 2,
+            "live task count is {}, expected 2",
+            words[sysinfo::H_TASKS_LIVE]
+        );
+        let base = sysinfo::HEADER_WORDS + slot * sysinfo::TASK_ROW_WORDS;
+        check!(
+            words[base + sysinfo::R_PRESENT] == 1
+                && words[base + sysinfo::R_PID] == slot as u64
+                && words[base + sysinfo::R_PPID] == task::KERNEL_TASK as u64,
+            "the spawned row presence/pid/ppid words are wrong"
+        );
+        check!(
+            words[base + sysinfo::R_STATE] == sysinfo::state::RUNNABLE,
+            "the spawned row state is {}",
+            words[base + sysinfo::R_STATE]
+        );
+        check!(
+            words[base + sysinfo::R_CPU_TICKS] >= 1,
+            "the spawned row CPU ticks are {}",
+            words[base + sysinfo::R_CPU_TICKS]
+        );
+        check!(
+            words[base + sysinfo::R_NAME8] == u64::from_le_bytes(*b"fork\0\0\0\0")
+                && words[base + sysinfo::R_NAME_HASH] == sysinfo::fnv1a64(b"fork"),
+            "the spawned row name words are wrong"
+        );
+        task::harness::reset();
+        Ok(())
+    }
+
+    /// Many snapshots under fork/exit/reclaim churn: the layout stays stable
+    /// and neither the frame allocator nor the slab allocator grows.
+    pub fn soak_snapshot_task_churn() -> Result<(), String> {
+        fresh();
+        const ROUNDS: usize = 96;
+
+        // Warm up the address-space-derived tables (BUMPS, signal dispositions)
+        // once, so the baseline is measured after their one-time growth.
+        let warm = task::spawn_fork().map_err(to_string)?;
+        task::harness::switch_current(warm);
+        task::harness::simulate_tick();
+        task::harness::finish(warm, 0);
+        task::harness::switch_current(warm);
+        task::harness::simulate_tick();
+        task::reclaim_pending();
+        fresh();
+
+        let baseline = snapshot()?;
+        let frames_before = mem::frame_stats().live();
+        let slab_before = mem::slab::stats().live_bytes;
+        for round in 0..ROUNDS {
+            let slot =
+                task::spawn_fork().map_err(|error| format!("round {round}: fork: {error}"))?;
+            task::harness::switch_current(slot);
+            task::harness::simulate_tick();
+            task::harness::finish(slot, round as u64);
+            task::harness::switch_current(slot);
+            task::harness::simulate_tick();
+            task::reclaim_pending();
+
+            let words = snapshot()?;
+            check!(
+                words[sysinfo::H_VERSION] == sysinfo::SYSTEM_STATS_VERSION
+                    && words[sysinfo::H_WORDS] == sysinfo::WORDS as u64
+                    && words[sysinfo::H_TASK_ROW_WORDS] == sysinfo::TASK_ROW_WORDS as u64,
+                "round {round}: snapshot layout changed"
+            );
+            check!(
+                words[sysinfo::H_TASKS_LIVE] == 1,
+                "round {round}: {} live tasks after reclaim",
+                words[sysinfo::H_TASKS_LIVE]
+            );
+        }
+
+        // Every churned address space must be gone: no frame or slab growth
+        // across 96 fork/exit/reclaim generations.
+        let frames_after = mem::frame_stats().live();
+        check!(
+            frames_after == frames_before,
+            "frame leak across {ROUNDS} generations: {frames_before} -> {frames_after}"
+        );
+        let slab_after = mem::slab::stats().live_bytes;
+        check!(
+            slab_after == slab_before,
+            "slab leak across {ROUNDS} generations: {slab_before} -> {slab_after}"
+        );
+        check!(
+            baseline[sysinfo::H_TASKS_LIVE] == 1,
+            "the kernel task vanished before the soak"
+        );
+        fresh();
         Ok(())
     }
 }

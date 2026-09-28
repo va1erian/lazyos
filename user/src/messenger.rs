@@ -2638,6 +2638,8 @@ pub mod services {
     pub const HEALTHD_NAME: &str = "os.lazy.healthd";
     /// The structured event log's registered name.
     pub const LOGD_NAME: &str = "os.lazy.logd";
+    /// The system monitor's registered name (issue #144).
+    pub const SYSMOND_NAME: &str = "os.lazy.sysmond";
 
     /// `os.lazy.init.v1` (interim eight-byte ABI id, see [`super::topics`]).
     pub const INIT_INTERFACE: u64 = u64::from_le_bytes(*b"os.init.");
@@ -2645,6 +2647,8 @@ pub mod services {
     pub const HEALTHD_INTERFACE: u64 = u64::from_le_bytes(*b"os.healt");
     /// `os.lazy.logd.v1` (interim eight-byte ABI id).
     pub const LOGD_INTERFACE: u64 = u64::from_le_bytes(*b"os.logd.");
+    /// `os.lazy.system.v1` (interim eight-byte ABI id).
+    pub const SYSMOND_INTERFACE: u64 = u64::from_le_bytes(*b"os.sysmo");
 
     /// `init` methods.
     pub mod init_method {
@@ -2668,6 +2672,12 @@ pub mod services {
         pub const COUNT: u32 = 2;
         /// Recompute the hash chain and report `OK`/first bad `INDEX`.
         pub const VERIFY: u32 = 3;
+    }
+
+    /// `sysmond` methods (issue #144).
+    pub mod sysmond_method {
+        /// Return one live system-stats snapshot.
+        pub const SNAPSHOT: u32 = 1;
     }
 
     /// Shared TLV field ids.
@@ -2708,6 +2718,8 @@ pub mod services {
         pub const INDEX: u16 = 17;
         /// Aggregate health row.
         pub const SUMMARY: u16 = 18;
+        /// Fixed-layout `sysinfo` snapshot bytes (issue #144).
+        pub const SYSDATA: u16 = 20;
     }
 
     /// A header for a service parcel of `method` on `interface_id`.
@@ -2845,6 +2857,43 @@ pub mod services {
             .u64(field::TICK, record.tick)
             .map_err(Error::Parcel)?;
         Ok(encoder)
+    }
+
+    /// `sysmond`'s `Snapshot` request (issue #144).
+    pub fn sysinfo_request() -> Parcel {
+        Parcel {
+            header: header(SYSMOND_INTERFACE, sysmond_method::SNAPSHOT),
+            ..Parcel::default()
+        }
+    }
+
+    /// Encode `sysmond`'s `Snapshot` reply: the raw fixed-layout `sysinfo`
+    /// words as one bytes field.
+    pub fn sysinfo_reply(snapshot: &crate::sysinfo::Snapshot) -> Result<Parcel> {
+        let mut wire = [0u8; crate::sysinfo::SIZE];
+        if !snapshot.write_bytes(&mut wire) {
+            return Err(Error::Errno(-errno::E2BIG));
+        }
+        let mut body = Encoder::new();
+        body.bytes(field::SYSDATA, &wire).map_err(Error::Parcel)?;
+        Ok(Parcel {
+            header: header(SYSMOND_INTERFACE, sysmond_method::SNAPSHOT),
+            body: body.finish(),
+            ..Parcel::default()
+        })
+    }
+
+    /// Call `sysmond`'s `Snapshot` and decode the fixed-layout reply.
+    pub fn fetch_sysinfo(endpoint: &Endpoint) -> Result<crate::sysinfo::Snapshot> {
+        let reply = endpoint.call(&sysinfo_request(), None)?;
+        let mut decoder = Decoder::new(&reply.body);
+        while let Some(field) = decoder.next().map_err(Error::Parcel)? {
+            if field.kind == Kind::Bytes && field.id == field::SYSDATA {
+                return crate::sysinfo::decode_bytes(field.payload)
+                    .ok_or(Error::Errno(-errno::EINVAL));
+            }
+        }
+        Err(Error::Errno(-errno::EINVAL))
     }
 
     /// `logd`'s `Tail` request.
@@ -4003,6 +4052,7 @@ pub mod logind {
 /// in-kernel renderer cannot be linked from ring 3, which is why this path is a
 /// simple blitter; the XUI/tiny-skia toolkit is the S4 follow-up.
 pub mod display {
+    use alloc::string::String;
     use alloc::vec;
     use alloc::vec::Vec;
 
@@ -4038,6 +4088,27 @@ pub mod display {
         pub const KEY_DOWN: u32 = 8;
         /// Compositor to app: key released.
         pub const KEY_UP: u32 = 9;
+        /// Compositor to app: the window manager closed this surface (issue
+        /// #143). One-way; the app is expected to exit (or re-create).
+        pub const WINDOW_CLOSE: u32 = 10;
+        /// App to compositor: begin a compositor-mediated drag carrying a
+        /// clipboard token (issue #145).
+        pub const DRAG_START: u32 = 11;
+        /// App to compositor: cancel the drag that started at this surface.
+        pub const DRAG_CANCEL: u32 = 12;
+        /// Compositor to app: a drag entered this surface (`A`/`B` = local x/y).
+        pub const DRAG_ENTER: u32 = 13;
+        /// Compositor to app: a drag moved inside this surface (`A`/`B` = local
+        /// x/y).
+        pub const DRAG_OVER: u32 = 14;
+        /// Compositor to app: a drag left this surface.
+        pub const DRAG_LEAVE: u32 = 15;
+        /// Compositor to app: a drag was released over this surface; carries
+        /// `TOKEN` and `MIME`.
+        pub const DROP: u32 = 16;
+        /// Compositor to the source: the drag ended; `A` = 1 when dropped, 0
+        /// when cancelled.
+        pub const DRAG_ENDED: u32 = 17;
     }
 
     /// TLV field ids of the display protocol.
@@ -4064,7 +4135,14 @@ pub mod display {
         pub const B: u16 = 10;
         /// Structured error code in a failure reply.
         pub const ERROR: u16 = 11;
+        /// Clipboard token a drag carries (issue #145).
+        pub const TOKEN: u16 = 12;
+        /// MIME type string of a drag payload.
+        pub const MIME: u16 = 13;
     }
+
+    /// Longest MIME string the compositor accepts in a `DragStart`.
+    pub const MAX_MIME: usize = 64;
 
     /// Key codes for non-character keys; mirrors `kernel/src/display.rs`.
     pub mod key {
@@ -4228,6 +4306,60 @@ pub mod display {
             self.endpoint.call_with(&parcel, &mut buf, None)?;
             Ok(())
         }
+
+        /// `DragStart(surface, token, mime)`: hand `surface`'s in-progress
+        /// gesture to the compositor, which tracks the pointer and delivers a
+        /// `Drop` carrying `token`. The payload is offered to `clipboardd`
+        /// first (issue #145); the compositor never sees the bytes.
+        pub fn drag_start(&self, surface: u64, token: u64, mime: &str) -> Result<()> {
+            let mut body = Encoder::new();
+            body.u64(field::SURFACE, surface).map_err(Error::Parcel)?;
+            body.u64(field::TOKEN, token).map_err(Error::Parcel)?;
+            body.string(field::MIME, mime).map_err(Error::Parcel)?;
+            let parcel = Parcel {
+                header: header(method::DRAG_START),
+                body: body.finish(),
+                handles: Vec::new(),
+                buffers: Vec::new(),
+            };
+            let mut buf = [0u8; 64];
+            let reply = self.endpoint.call_with(&parcel, &mut buf, None)?;
+            match error_field(&reply) {
+                Some(code) => Err(Error::Errno(-code)),
+                None => Ok(()),
+            }
+        }
+
+        /// `DragCancel(surface)`: cancel the drag that started at `surface`.
+        pub fn drag_cancel(&self, surface: u64) -> Result<()> {
+            let mut body = Encoder::new();
+            body.u64(field::SURFACE, surface).map_err(Error::Parcel)?;
+            let parcel = Parcel {
+                header: header(method::DRAG_CANCEL),
+                body: body.finish(),
+                handles: Vec::new(),
+                buffers: Vec::new(),
+            };
+            let mut buf = [0u8; 64];
+            let reply = self.endpoint.call_with(&parcel, &mut buf, None)?;
+            match error_field(&reply) {
+                Some(code) => Err(Error::Errno(-code)),
+                None => Ok(()),
+            }
+        }
+    }
+
+    /// The structured error code in a reply, when the compositor refused a
+    /// call (a positive errno, as `xuid` stores it).
+    fn error_field(parcel: &Parcel) -> Option<i64> {
+        let mut decoder = Decoder::new(&parcel.body);
+        while let Ok(Some(field)) = decoder.next() {
+            if field.kind == Kind::Error && field.id == field::ERROR {
+                let (code, _message) = field.error_parts().ok()?;
+                return Some(code as i64);
+            }
+        }
+        None
     }
 
     /// An input event delivered to an app by the compositor.
@@ -4276,14 +4408,85 @@ pub mod display {
         Some(Event { kind, a, b })
     }
 
+    /// The kind of a drag event the compositor delivers (issue #145).
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    pub enum DragKind {
+        /// The drag entered this surface.
+        Enter,
+        /// The drag moved inside this surface.
+        Over,
+        /// The drag left this surface.
+        Leave,
+        /// The drag was released over this surface.
+        Drop,
+        /// (Source only) the drag ended: dropped or cancelled.
+        Ended,
+    }
+
+    /// One decoded drag event. `x`/`y` are surface-relative for enter, over and
+    /// drop; `token`/`mime` are set on a drop; `dropped` is set on an ended.
+    #[derive(Clone, PartialEq, Eq, Debug)]
+    pub struct DragEvent {
+        pub kind: DragKind,
+        pub x: i64,
+        pub y: i64,
+        pub token: u64,
+        pub mime: String,
+        pub dropped: bool,
+    }
+
+    /// Decode a drag event from a received message, or `None` when the message
+    /// is not one. [`decode_event`] still handles input events.
+    pub fn decode_drag_event(message: &Message) -> Option<DragEvent> {
+        let kind = match message.method() {
+            method::DRAG_ENTER => DragKind::Enter,
+            method::DRAG_OVER => DragKind::Over,
+            method::DRAG_LEAVE => DragKind::Leave,
+            method::DROP => DragKind::Drop,
+            method::DRAG_ENDED => DragKind::Ended,
+            _ => return None,
+        };
+        let mut event = DragEvent {
+            kind,
+            x: 0,
+            y: 0,
+            token: 0,
+            mime: String::new(),
+            dropped: false,
+        };
+        let mut decoder = Decoder::new(&message.parcel.body);
+        while let Ok(Some(field)) = decoder.next() {
+            match (field.kind, field.id) {
+                (Kind::U64, field::A) => event.x = field.as_u64().ok()? as i64,
+                (Kind::U64, field::B) => event.y = field.as_u64().ok()? as i64,
+                (Kind::U64, field::TOKEN) => event.token = field.as_u64().ok()?,
+                (Kind::String, field::MIME) => {
+                    event.mime = String::from(field.as_str().ok()?);
+                }
+                _ => {}
+            }
+        }
+        if event.kind == DragKind::Ended {
+            event.dropped = event.x != 0;
+        }
+        Some(event)
+    }
+
     /// Encode a one-way event parcel into `scratch`, replacing its contents.
     ///
     /// The compositor sends events at input rates into a task whose bump
     /// allocator never frees, so it cannot build a fresh `Parcel` per event.
-    /// The byte layout matches `libmessenger` exactly (header, two `u64` TLV
-    /// fields, no handles or buffers).
-    pub fn encode_event(scratch: &mut Vec<u8>, method: u32, a: u64, b: u64) {
+    /// The byte layout matches `libmessenger` exactly (header, `u64` TLV fields
+    /// in order, an optional string field, no handles or buffers).
+    pub fn encode_event_fields(
+        scratch: &mut Vec<u8>,
+        method: u32,
+        fields: &[(u16, u64)],
+        text: Option<(u16, &str)>,
+    ) {
         scratch.clear();
+        let text_len = text.map(|(_, value)| value.len()).unwrap_or(0);
+        let body_len = fields.len() * 16 + if text.is_some() { 8 + text_len } else { 0 };
         scratch.extend_from_slice(&VERSION.to_le_bytes());
         scratch.extend_from_slice(&flags::ONE_WAY.to_le_bytes());
         scratch.extend_from_slice(&INTERFACE.to_le_bytes());
@@ -4291,15 +4494,26 @@ pub mod display {
         scratch.extend_from_slice(&0u64.to_le_bytes()); // txn_id
         scratch.extend_from_slice(&0u64.to_le_bytes()); // reply_to
         scratch.extend_from_slice(&0u64.to_le_bytes()); // deadline_ns
-        scratch.extend_from_slice(&32u32.to_le_bytes()); // two u64 fields, 16 bytes each
+        scratch.extend_from_slice(&(body_len as u32).to_le_bytes());
         scratch.extend_from_slice(&0u16.to_le_bytes()); // handles
         scratch.extend_from_slice(&0u16.to_le_bytes()); // buffers
-        for (id, value) in [(field::A, a), (field::B, b)] {
+        for &(id, value) in fields {
             let tag = Kind::U64 as u32 | ((id as u32) << 8);
             scratch.extend_from_slice(&tag.to_le_bytes());
             scratch.extend_from_slice(&8u32.to_le_bytes());
             scratch.extend_from_slice(&value.to_le_bytes());
         }
+        if let Some((id, value)) = text {
+            let tag = Kind::String as u32 | ((id as u32) << 8);
+            scratch.extend_from_slice(&tag.to_le_bytes());
+            scratch.extend_from_slice(&(value.len() as u32).to_le_bytes());
+            scratch.extend_from_slice(value.as_bytes());
+        }
+    }
+
+    /// Encode an event with the two standard `A`/`B` fields.
+    pub fn encode_event(scratch: &mut Vec<u8>, method: u32, a: u64, b: u64) {
+        encode_event_fields(scratch, method, &[(field::A, a), (field::B, b)], None);
     }
 
     /// Send one input event to `endpoint` using a reusable encode buffer.
@@ -4311,6 +4525,23 @@ pub mod display {
         b: u64,
     ) -> Result<()> {
         encode_event(scratch, method, a, b);
+        send_encoded(endpoint, scratch)
+    }
+
+    /// Send one event built by [`encode_event_fields`] to `endpoint`.
+    pub fn send_event_fields(
+        endpoint: &Endpoint,
+        scratch: &mut Vec<u8>,
+        method: u32,
+        fields: &[(u16, u64)],
+        text: Option<(u16, &str)>,
+    ) -> Result<()> {
+        encode_event_fields(scratch, method, fields, text);
+        send_encoded(endpoint, scratch)
+    }
+
+    /// Send the parcel bytes already encoded in `scratch`.
+    fn send_encoded(endpoint: &Endpoint, scratch: &[u8]) -> Result<()> {
         let args = MsgArgs {
             handle: endpoint.handle(),
             parcel_ptr: scratch.as_ptr() as u64,

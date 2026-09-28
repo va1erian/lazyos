@@ -41,13 +41,16 @@
 use alloc::collections::VecDeque;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
-use core::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use spin::Mutex;
 use x86_64::PhysAddr;
 
 use crate::arch::gdt;
 use crate::input::keyboard::Key;
+use crate::ipc::epoll::Epoll;
+use crate::ipc::eventfd::EventFd;
 use crate::ipc::pipe::{self, End, Pipe, Side, SocketPair};
+use crate::ipc::unix::Listener;
 use crate::mem;
 // `process` in this module is the process tree (`task::process`); the ELF
 // loader and syscall shim live in `crate::process`, aliased here to keep the
@@ -76,6 +79,9 @@ static CURRENT: AtomicUsize = AtomicUsize::new(KERNEL_TASK);
 static FOCUS: AtomicUsize = AtomicUsize::new(1);
 /// Set when the screen needs repainting.
 pub static NEEDS_REDRAW: AtomicBool = AtomicBool::new(true);
+/// Bumped on every terminal input delivery; `epoll` edge-triggered interests
+/// use it to tell a fresh key from a still-pending one.
+static INPUT_GEN: AtomicU64 = AtomicU64::new(0);
 /// True once the scheduler is running (changes how `exit` behaves).
 static SCHEDULING: AtomicBool = AtomicBool::new(false);
 /// Slots of finished parentless tasks waiting to be reclaimed from task
@@ -109,6 +115,8 @@ pub enum WaitKind {
     Sleep,
     /// Waiting on a pipe/socket event (data, space, EOF or `-EPIPE`).
     Pipe,
+    /// Parked in `accept` on an `AF_UNIX` listener with no pending connection.
+    UnixAccept,
     /// Waiting for one of a `poll` set to become ready.
     Poll,
     /// Parked by a stop signal (`SIGSTOP`/`SIGTSTP`/...). Only `SIGCONT`
@@ -261,6 +269,13 @@ pub const FD_COUNT: usize = 16;
 /// Per-descriptor `FD_CLOEXEC` bit in [`Task::fd_flags`].
 pub const FD_CLOEXEC: u16 = 1;
 
+/// The socket type an unbound `socket(2)` descriptor carries to `connect`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum SocketKind {
+    Stream,
+    Seqpacket,
+}
+
 /// A Linux file descriptor slot.
 pub enum Fd {
     /// Unused slot.
@@ -271,8 +286,17 @@ pub enum Fd {
     File { data: Vec<u8>, offset: usize },
     /// One end of an anonymous pipe (`pipe`/`pipe2`).
     Pipe { pipe: Arc<Pipe>, end: End },
-    /// One side of an `AF_UNIX` socket pair (`socketpair`).
+    /// One side of an `AF_UNIX` socket pair (`socketpair` or an accepted
+    /// pathname connection).
     Socket { pair: Arc<SocketPair>, side: Side },
+    /// An `eventfd` counter.
+    Event { event: Arc<EventFd> },
+    /// An `epoll` instance.
+    Epoll { epoll: Arc<Epoll> },
+    /// A bound, listening `AF_UNIX` socket.
+    UnixListener { listener: Arc<Listener> },
+    /// A socket created by `socket(2)` but not yet bound or connected.
+    Unbound { kind: SocketKind, nonblock: bool },
 }
 
 impl Fd {
@@ -287,6 +311,51 @@ impl Fd {
     pub fn socket_side(pair: Arc<SocketPair>, side: Side) -> Fd {
         pair.acquire(side);
         Fd::Socket { pair, side }
+    }
+
+    /// `poll` revents for this descriptor. `events` are `POLL*` bits; closed
+    /// slots report nothing (callers map them to `POLLNVAL`).
+    pub fn poll(&self, events: u16) -> u16 {
+        self.poll_gen(events).0
+    }
+
+    /// [`poll`](Fd::poll) plus the handle's freshness counter, used by
+    /// edge-triggered `epoll` interests.
+    pub fn poll_gen(&self, events: u16) -> (u16, u64) {
+        match self {
+            Fd::Closed => (0, 0),
+            Fd::Terminal => {
+                // stdin's readiness is the shared input queue's; other
+                // terminal descriptors are output-only.
+                let mut revents = 0;
+                if events & pipe::POLLIN != 0 && input_available() {
+                    revents |= pipe::POLLIN;
+                }
+                if events & pipe::POLLOUT != 0 {
+                    revents |= pipe::POLLOUT;
+                }
+                (revents, crate::task::input_gen())
+            }
+            Fd::File { .. } => {
+                if events & pipe::POLLIN != 0 {
+                    (pipe::POLLIN, 0)
+                } else {
+                    (0, 0)
+                }
+            }
+            Fd::Pipe { pipe, end } => pipe.poll_gen(*end, events),
+            Fd::Socket { pair, side } => pair.poll_gen(*side, events),
+            Fd::Event { event } => event.poll_gen(events),
+            Fd::Epoll { epoll } => {
+                if events & pipe::POLLIN != 0 && epoll.has_ready() {
+                    (pipe::POLLIN, 0)
+                } else {
+                    (0, 0)
+                }
+            }
+            Fd::UnixListener { listener } => listener.poll_gen(events),
+            Fd::Unbound { .. } => (0, 0),
+        }
     }
 }
 
@@ -303,6 +372,19 @@ impl Clone for Fd {
             },
             Fd::Pipe { pipe, end } => Fd::pipe_end(Arc::clone(pipe), *end),
             Fd::Socket { pair, side } => Fd::socket_side(Arc::clone(pair), *side),
+            Fd::Event { event } => Fd::Event {
+                event: Arc::clone(event),
+            },
+            Fd::Epoll { epoll } => Fd::Epoll {
+                epoll: Arc::clone(epoll),
+            },
+            Fd::UnixListener { listener } => Fd::UnixListener {
+                listener: Arc::clone(listener),
+            },
+            Fd::Unbound { kind, nonblock } => Fd::Unbound {
+                kind: *kind,
+                nonblock: *nonblock,
+            },
         }
     }
 }
@@ -332,6 +414,14 @@ pub enum FdKind {
     Pipe,
     /// A socket-pair side.
     Socket,
+    /// An eventfd counter.
+    EventFd,
+    /// An epoll instance.
+    Epoll,
+    /// A bound `AF_UNIX` listener.
+    Listener,
+    /// A socket not yet bound or connected.
+    Unbound,
 }
 
 fn new_fds() -> [Fd; FD_COUNT] {
@@ -1604,6 +1694,7 @@ pub fn on_key(key: Key) {
     // Wake blocked readers after releasing the task table: wait queues take the
     // task table inside notify, so the lock order is always queue -> task.
     // Readers that got no key just park again (spurious wakeup).
+    INPUT_GEN.fetch_add(1, Ordering::AcqRel);
     wait::TERMINAL.notify_all();
     notify_poll();
 }
@@ -1619,6 +1710,7 @@ pub fn inject_input(bytes: &[u8]) {
             }
         }
     }
+    INPUT_GEN.fetch_add(1, Ordering::AcqRel);
     wait::TERMINAL.notify_all();
     notify_poll();
 }
@@ -1631,6 +1723,11 @@ pub fn input_available() -> bool {
         .as_ref()
         .map(|task| !task.input.is_empty())
         .unwrap_or(false)
+}
+
+/// Freshness counter for terminal input (see [`Fd::poll_gen`]).
+pub fn input_gen() -> u64 {
+    INPUT_GEN.load(Ordering::Acquire)
 }
 
 fn cycle_focus() {
@@ -1754,20 +1851,63 @@ pub fn fd_open(entry: Fd) -> Option<usize> {
     None
 }
 
+/// Replace an open descriptor's entry, returning false for a closed slot. The
+/// old entry is returned for unlocked dropping by the caller (`bind` upgrades
+/// an unbound socket, `connect` a connected one).
+pub fn fd_replace(fd: usize, entry: Fd) -> Result<Fd, ()> {
+    let mut tasks = TASKS.lock();
+    let Some(task) = tasks[current()].as_mut() else {
+        return Err(());
+    };
+    if fd >= FD_COUNT || matches!(task.fds[fd], Fd::Closed) {
+        return Err(());
+    }
+    Ok(core::mem::replace(&mut task.fds[fd], entry))
+}
+
+/// Clone an open descriptor's entry, or `None` for a closed slot.
+pub fn fd_clone(fd: usize) -> Option<Fd> {
+    let tasks = TASKS.lock();
+    let task = tasks[current()].as_ref()?;
+    if fd >= FD_COUNT {
+        return None;
+    }
+    match task.fds[fd] {
+        Fd::Closed => None,
+        _ => Some(task.fds[fd].clone()),
+    }
+}
+
 /// Close a descriptor. The old entry is dropped after the task table is
 /// unlocked: dropping a pipe end wakes its peer, and wait-queue notification
-/// takes the task table (queue-before-table lock order).
+/// takes the task table (queue-before-table lock order). Any epoll instance in
+/// this task that registered the descriptor drops the interest too, so a
+/// reused descriptor number cannot inherit a stale registration.
 pub fn fd_close(fd: usize) -> bool {
-    let old = {
+    let (old, epolls) = {
         let mut tasks = TASKS.lock();
         match tasks[current()].as_mut() {
             Some(task) if fd < FD_COUNT && !matches!(task.fds[fd], Fd::Closed) => {
                 task.fd_flags[fd] = 0;
-                Some(core::mem::replace(&mut task.fds[fd], Fd::Closed))
+                let epolls: Vec<Arc<Epoll>> = task
+                    .fds
+                    .iter()
+                    .filter_map(|entry| match entry {
+                        Fd::Epoll { epoll } => Some(Arc::clone(epoll)),
+                        _ => None,
+                    })
+                    .collect();
+                (
+                    Some(core::mem::replace(&mut task.fds[fd], Fd::Closed)),
+                    epolls,
+                )
             }
-            _ => None,
+            _ => (None, Vec::new()),
         }
     };
+    for epoll in epolls {
+        epoll.drop_fd(fd);
+    }
     let closed = old.is_some();
     drop(old);
     closed
@@ -1783,6 +1923,10 @@ pub fn fd_kind(fd: usize) -> FdKind {
             Fd::File { .. } => FdKind::File,
             Fd::Pipe { .. } => FdKind::Pipe,
             Fd::Socket { .. } => FdKind::Socket,
+            Fd::Event { .. } => FdKind::EventFd,
+            Fd::Epoll { .. } => FdKind::Epoll,
+            Fd::UnixListener { .. } => FdKind::Listener,
+            Fd::Unbound { .. } => FdKind::Unbound,
         },
         _ => FdKind::Closed,
     }
@@ -1852,20 +1996,25 @@ pub fn fd_status(fd: usize) -> Option<u64> {
         Fd::Socket { pair, side } => {
             Some(2 | (u64::from(pair.nonblock(*side)) * O_NONBLOCK)) // O_RDWR
         }
+        Fd::Event { event } => Some(2 | (u64::from(event.nonblock()) * O_NONBLOCK)),
+        Fd::Epoll { epoll } => Some(2 | (u64::from(epoll.nonblock()) * O_NONBLOCK)),
+        Fd::UnixListener { listener } => Some(2 | (u64::from(listener.nonblock()) * O_NONBLOCK)),
+        Fd::Unbound { nonblock: flag, .. } => Some(2 | (u64::from(*flag) * O_NONBLOCK)),
     }
 }
 
-/// Apply `F_SETFL`: only `O_NONBLOCK` is meaningful (pipes and sockets); other
-/// status flags are accepted and ignored. `false` for a closed slot.
+/// Apply `F_SETFL`: only `O_NONBLOCK` is meaningful (pipes, sockets, eventfds,
+/// epolls and listeners); other status flags are accepted and ignored. `false`
+/// for a closed slot.
 pub fn fd_set_status(fd: usize, nonblock: bool) -> bool {
-    let tasks = TASKS.lock();
-    let Some(task) = tasks[current()].as_ref() else {
+    let mut tasks = TASKS.lock();
+    let Some(task) = tasks[current()].as_mut() else {
         return false;
     };
     if fd >= FD_COUNT {
         return false;
     }
-    match &task.fds[fd] {
+    match &mut task.fds[fd] {
         Fd::Closed => false,
         Fd::Terminal | Fd::File { .. } => true,
         Fd::Pipe { pipe, end } => {
@@ -1874,6 +2023,22 @@ pub fn fd_set_status(fd: usize, nonblock: bool) -> bool {
         }
         Fd::Socket { pair, side } => {
             pair.set_nonblock(*side, nonblock);
+            true
+        }
+        Fd::Event { event } => {
+            event.set_nonblock(nonblock);
+            true
+        }
+        Fd::Epoll { epoll } => {
+            epoll.set_nonblock(nonblock);
+            true
+        }
+        Fd::UnixListener { listener } => {
+            listener.set_nonblock(nonblock);
+            true
+        }
+        Fd::Unbound { nonblock: flag, .. } => {
+            *flag = nonblock;
             true
         }
     }
@@ -1941,35 +2106,40 @@ pub fn fd_poll(fd: usize, events: u16) -> Option<u16> {
     // stdin's readiness comes from the input queue; `input_available` is the
     // one predicate for it (no table lock held here, so it can take its own).
     if fd == 0 && fd_kind(0) == FdKind::Terminal {
-        let mut revents = 0;
-        if events & pipe::POLLIN != 0 && input_available() {
-            revents |= pipe::POLLIN;
-        }
-        if events & pipe::POLLOUT != 0 {
-            revents |= pipe::POLLOUT;
-        }
-        return Some(revents);
+        return Some(Fd::Terminal.poll(events));
     }
+    let target = fd_clone(fd)?;
+    Some(target.poll(events))
+}
+
+/// Read the counter from an `eventfd` descriptor.
+pub fn fd_eventfd_read(fd: usize) -> Result<u64, pipe::Error> {
+    let target = fd_clone(fd).ok_or(pipe::Error::BadEnd)?;
+    match &target {
+        Fd::Event { event } => event.read(),
+        _ => Err(pipe::Error::BadEnd),
+    }
+}
+
+/// Add to an `eventfd` descriptor's counter.
+pub fn fd_eventfd_write(fd: usize, value: u64) -> Result<(), pipe::Error> {
+    let target = fd_clone(fd).ok_or(pipe::Error::BadEnd)?;
+    match &target {
+        Fd::Event { event } => event.write(value),
+        _ => Err(pipe::Error::BadEnd),
+    }
+}
+
+/// Whether a socket descriptor preserves message boundaries.
+pub fn fd_seqpacket(fd: usize) -> bool {
     let tasks = TASKS.lock();
-    let task = tasks[current()].as_ref()?;
+    let Some(task) = tasks[current()].as_ref() else {
+        return false;
+    };
     if fd >= FD_COUNT {
-        return None;
+        return false;
     }
-    match &task.fds[fd] {
-        Fd::Closed => None,
-        Fd::File { .. } => Some(if events & pipe::POLLIN != 0 {
-            pipe::POLLIN // snapshots are always readable
-        } else {
-            0
-        }),
-        Fd::Terminal => Some(if events & pipe::POLLOUT != 0 {
-            pipe::POLLOUT
-        } else {
-            0
-        }),
-        Fd::Pipe { pipe, end } => Some(pipe.poll(*end, events)),
-        Fd::Socket { pair, side } => Some(pair.poll(*side, events)),
-    }
+    matches!(&task.fds[fd], Fd::Socket { pair, .. } if pair.seqpacket())
 }
 
 /// Read up to `count` bytes from a file descriptor into `dst`.
@@ -2149,6 +2319,78 @@ pub fn snapshot(index: usize) -> Option<(&'static str, Vec<u8>, bool)> {
     })
 }
 
+/// One row of [`stats_snapshot`] (issue #144): the task-table view the
+/// system-stats syscall copies into its fixed ABI layout. It carries no
+/// addresses or credentials, so it is safe to hand to any task.
+#[derive(Clone, Copy)]
+pub struct StatsRow {
+    /// Whether the slot is occupied (a `Done` zombie still counts).
+    pub present: bool,
+    /// Pid (the slot, see [`process`]).
+    pub pid: usize,
+    /// Parent pid; `0` is the kernel/init task.
+    pub ppid: usize,
+    /// Scheduler-visible state.
+    pub state: TaskState,
+    /// Scheduling class.
+    pub class: PriorityClass,
+    /// Weight inside the class.
+    pub weight: u16,
+    /// CPU ticks (100 Hz) charged to this task.
+    pub cpu_ticks: u64,
+    /// Task name (already interned to `'static`).
+    pub name: &'static str,
+}
+
+impl StatsRow {
+    /// Placeholder for an empty slot; `present` is false.
+    const EMPTY: StatsRow = StatsRow {
+        present: false,
+        pid: 0,
+        ppid: 0,
+        state: TaskState::Done,
+        class: PriorityClass::Normal,
+        weight: 0,
+        cpu_ticks: 0,
+        name: "",
+    };
+}
+
+/// A whole-table task snapshot for the system-stats syscall (issue #144).
+pub struct TaskStats {
+    /// One row per scheduler slot (empty slots are `present == false`).
+    pub rows: [StatsRow; MAX_TASKS],
+    /// Occupied slots whose state is not `Done`.
+    pub live: usize,
+}
+
+/// Snapshot the task table (one row per slot, no allocation). Takes only the
+/// task-table lock, so it can never nest inside another subsystem's lock.
+pub fn stats_snapshot() -> TaskStats {
+    let tasks = TASKS.lock();
+    let mut snapshot = TaskStats {
+        rows: [StatsRow::EMPTY; MAX_TASKS],
+        live: 0,
+    };
+    for (slot, task) in tasks.iter().enumerate() {
+        let Some(task) = task else { continue };
+        snapshot.rows[slot] = StatsRow {
+            present: true,
+            pid: slot,
+            ppid: task.parent,
+            state: task.state,
+            class: task.class,
+            weight: task.weight,
+            cpu_ticks: task.cpu_ticks,
+            name: task.name,
+        };
+        if task.state != TaskState::Done {
+            snapshot.live += 1;
+        }
+    }
+    snapshot
+}
+
 /// Test-harness hooks (issue #62), compiled only with `LAZYOS_TESTS=1`. They let
 /// the in-kernel suite drive task bookkeeping without a running scheduler.
 #[cfg(laZYOS_TESTS)]
@@ -2208,6 +2450,10 @@ pub mod harness {
                 super::Fd::File { .. } => super::FdKind::File,
                 super::Fd::Pipe { .. } => super::FdKind::Pipe,
                 super::Fd::Socket { .. } => super::FdKind::Socket,
+                super::Fd::Event { .. } => super::FdKind::EventFd,
+                super::Fd::Epoll { .. } => super::FdKind::Epoll,
+                super::Fd::UnixListener { .. } => super::FdKind::Listener,
+                super::Fd::Unbound { .. } => super::FdKind::Unbound,
             },
             _ => super::FdKind::Closed,
         }

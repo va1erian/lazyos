@@ -328,6 +328,14 @@ pub fn frame_stats() -> FrameStats {
     }
 }
 
+pub use heap::HeapStats;
+
+/// Snapshot of the kernel heap's counters; see [`HeapStats`]. The system-stats
+/// syscall (issue #144) uses this for its `slab/heap usage` fields.
+pub fn heap_stats() -> HeapStats {
+    heap::stats()
+}
+
 /// Read the active level-4 page table through the physical-memory mapping.
 ///
 /// # Safety
@@ -689,6 +697,42 @@ pub fn unmap_range(table: PhysAddr, start: u64, end: u64) -> usize {
         va += FRAME_SIZE;
     }
     cleared
+}
+
+/// Move the mapping of `old_va` to `new_va` without copying the frame: the
+/// physical frame, COW bit and protection move with the PTE. Used by `mremap`
+/// to relocate a mapping (`new_va` must be unmapped). `Ok(false)` means the
+/// source page was not resident; `Err(())` means the destination page tables
+/// could not be allocated (the source was restored).
+pub fn remap_page(table: PhysAddr, old_va: u64, new_va: u64) -> Result<bool, ()> {
+    let old_page = old_va & !(FRAME_SIZE - 1);
+    let new_page = new_va & !(FRAME_SIZE - 1);
+    // Safety: `table` is a live address space and we own its entries.
+    let Some(old_entry) = (unsafe { leaf_entry(table, old_page) }) else {
+        return Ok(false);
+    };
+    // Safety: `old_entry` was just returned as a present leaf in this table.
+    let value = unsafe { *old_entry };
+    if value & PTE_USER == 0 {
+        return Ok(false);
+    }
+    // Safety: same entry, still valid; nothing else can have unmapped it in
+    // between (single-threaded remap).
+    unsafe { *old_entry = 0 };
+    x86_64::instructions::tlb::flush(VirtAddr::new(old_page));
+    let flags = PageTableFlags::from_bits_truncate(value & !PTE_ADDR);
+    if !map_page_in(
+        table,
+        VirtAddr::new(new_page),
+        PhysAddr::new(value & PTE_ADDR),
+        flags,
+    ) {
+        // Safety: the entry is still ours and was cleared just above.
+        unsafe { *old_entry = value };
+        x86_64::instructions::tlb::flush(VirtAddr::new(old_page));
+        return Err(());
+    }
+    Ok(true)
 }
 
 /// Apply `prot` to the present user pages of `[start, end)` in `table`.

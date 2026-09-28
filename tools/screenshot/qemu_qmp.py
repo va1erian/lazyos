@@ -193,8 +193,41 @@ class Qmp:
     def mouse_move(self, dx: int, dy: int, device: str | None = None) -> None:
         self.send_events(mouse_move_events(dx, dy), device)
 
+    def mouse_down(self, button: str = "left", device: str | None = None) -> None:
+        """Press a button and hold it (drag & drop needs separate down/up)."""
+        self.send_events(mouse_button_events(button, True), device)
+
+    def mouse_up(self, button: str = "left", device: str | None = None) -> None:
+        """Release a held button."""
+        self.send_events(mouse_button_events(button, False), device)
+
     def mouse_click(self, button: str = "left", device: str | None = None) -> None:
-        self.send_events(mouse_click_events(button), device)
+        """Press and release a mouse button.
+
+        ``input-send-event`` without an explicit device delivers to the first
+        input handler, which is the keyboard: relative motion still reaches the
+        mouse (only a pointer handles it), but a button press is accepted by
+        the keyboard and dropped. The default PS/2 mouse has no QOM name to
+        target, so the monitor's ``mouse_button`` command — which addresses the
+        pointer directly — is the reliable path, with the QMP event list as a
+        fallback for monitors without it.
+        """
+        mask = _BUTTON_MASKS.get(button)
+        if mask is not None and device is None:
+            try:
+                self.execute(
+                    "human-monitor-command", **{"command-line": f"mouse_button {mask}"}
+                )
+                self.execute("human-monitor-command", **{"command-line": "mouse_button 0"})
+                return
+            except RuntimeError:
+                pass
+        # The two transitions must be separate QMP calls: QEMU applies every
+        # event of one input-send-event list to the legacy PS/2 device before
+        # the guest drains it, so a down+up pair sent together nets out to no
+        # click. Sending them separately makes the press visible.
+        self.mouse_down(button, device)
+        self.mouse_up(button, device)
 
     def mouse_scroll(self, amount: int, device: str | None = None) -> None:
         self.send_events(mouse_scroll_events(amount), device)
@@ -298,6 +331,8 @@ def named_key_events(name: str) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 _BUTTONS = {"left", "middle", "right", "side", "extra", "wheel-up", "wheel-down"}
+# The PS/2 button bitmask the monitor's `mouse_button` command takes.
+_BUTTON_MASKS = {"left": 1, "middle": 2, "right": 4}
 
 
 def mouse_move_events(dx: int, dy: int) -> list[dict]:
@@ -309,13 +344,15 @@ def mouse_move_events(dx: int, dy: int) -> list[dict]:
     return events
 
 
-def mouse_click_events(button: str = "left") -> list[dict]:
+def mouse_button_events(button: str = "left", down: bool = True) -> list[dict]:
+    """One button transition, so a caller can hold a drag across moves."""
     if button not in _BUTTONS:
         raise ValueError(f"unknown mouse button {button!r}")
-    return [
-        {"type": "btn", "data": {"button": button, "down": True}},
-        {"type": "btn", "data": {"button": button, "down": False}},
-    ]
+    return [{"type": "btn", "data": {"button": button, "down": bool(down)}}]
+
+
+def mouse_click_events(button: str = "left") -> list[dict]:
+    return mouse_button_events(button, True) + mouse_button_events(button, False)
 
 
 def mouse_scroll_events(amount: int) -> list[dict]:

@@ -108,6 +108,12 @@ fn run() -> ! {
         let deadline = Some(sys::clock() + 1);
         match events.recv_with(&mut buf, deadline) {
             Ok(message) => {
+                // The compositor's title-bar close button asks the app to go
+                // away (issue #143); there is nothing to draw into any more.
+                if message.method() == display::method::WINDOW_CLOSE {
+                    sys::write_str("xdemo: closed by the window manager\n");
+                    sys::exit(0);
+                }
                 if let Some(event) = display::decode_event(&message) {
                     apply(&mut demo, event);
                     draw(&mut canvas, &demo, full);

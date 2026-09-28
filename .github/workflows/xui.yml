@@ -1,0 +1,241 @@
+name: xui-app
+
+# Issue #114: build the ordinary xui app (static musl) and boot LazyOS with it
+# as the session (`LAZYOS_XUID=1` + `LAZYOS_XUI_APP`). Captures screenshots for
+# each milestone and viewer, checks the `XUIAPP:*:PASS`/`SYSMON:*`/`FABMON:*`
+# markers in the serial log, and comments the images on the pull request.
+# Optional: if the musl target or toolchain is unavailable the app build reports
+# nothing and the visual steps are skipped (`tools/xui/build.py` exits 0, like
+# the ABI bench).
+
+on:
+  pull_request:
+    paths:
+      - "xui-app/**"
+      - "tools/xui/**"
+      - "tools/screenshot/**"
+      - "kernel/**"
+      - "build.rs"
+      - "Cargo.toml"
+      - ".github/workflows/xui.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: xui-app-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  xui:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install QEMU
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-x86
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Build the app (static musl)
+        id: app
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p target/xui
+          python tools/xui/build.py | tee target/xui/build.json
+          m0=""; counter=""; sysmon=""; fabricmon=""
+          if python -c "import json,sys; sys.exit(0 if 'xui-m0' in json.load(open('target/xui/build.json')) else 1)"; then
+            m0="$(pwd)/target/xui/xui-m0.elf"
+            counter="$(pwd)/target/xui/xui-counter.elf"
+            sysmon="$(pwd)/target/xui/xui-sysmon.elf"
+            fabricmon="$(pwd)/target/xui/xui-fabricmon.elf"
+          else
+            echo "::warning::xui app unavailable; skipping the visual run"
+          fi
+          echo "m0=$m0" >> "$GITHUB_OUTPUT"
+          echo "counter=$counter" >> "$GITHUB_OUTPUT"
+          echo "sysmon=$sysmon" >> "$GITHUB_OUTPUT"
+          echo "fabricmon=$fabricmon" >> "$GITHUB_OUTPUT"
+          ls -l target/xui/*.elf || true
+
+      # M0: the gradient proves bind/present from a static musl program.
+      - name: Capture M0 (gradient present)
+        if: steps.app.outputs.m0 != ''
+        shell: bash
+        env:
+          LAZYOS_XUID: "1"
+          LAZYOS_XUI_APP: ${{ steps.app.outputs.m0 }}
+        run: |
+          set -euo pipefail
+          cargo build
+          python tools/screenshot/qemu_shot.py --out shots/m0 --at 10,20 --image target/lazyos.img \
+            --accel none --timeout 240
+          grep -q "XUIAPP:PRESENT:PASS" shots/m0/serial.log
+
+      # M1 + M2: the Counter paints, then a scripted click increments it.
+      - name: Capture M1/M2 (counter, real input)
+        if: steps.app.outputs.counter != ''
+        shell: bash
+        env:
+          LAZYOS_XUID: "1"
+          LAZYOS_XUI_APP: ${{ steps.app.outputs.counter }}
+        run: |
+          set -euo pipefail
+          cargo build
+          python tools/screenshot/qemu_shot.py --out shots/m1 --at 80 --image target/lazyos.img \
+            --accel none --timeout 240
+          grep -q "XUIAPP:COUNTER:PASS" shots/m1/serial.log
+          python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/m2 \
+            --accel none --timeout 300 --script tools/screenshot/examples/xui_counter.json
+          grep -q "XUIAPP:COUNTER:PASS" shots/m2/serial.log
+          grep -q "XUIAPP:INPUT:PASS" shots/m2/serial.log
+
+      # sysmon: the system-state dashboard (syscall 14) with a 1 s timer and
+      # the r/q keys driven by the session script.
+      - name: Capture sysmon (dashboard)
+        if: steps.app.outputs.sysmon != ''
+        shell: bash
+        env:
+          LAZYOS_XUID: "1"
+          LAZYOS_XUI_APP: ${{ steps.app.outputs.sysmon }}
+        run: |
+          set -euo pipefail
+          cargo build
+          python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/sysmon \
+            --accel none --timeout 300 --script tools/screenshot/examples/xui_sysmon.json
+          grep -q "SYSMON:UP:PASS" shots/sysmon/serial.log
+          grep -q "SYSMON:REFRESH:PASS" shots/sysmon/serial.log
+          grep -q "SYSMON:QUIT:PASS" shots/sysmon/serial.log
+
+      # fabricmon: the Messenger fabric panel (syscall 5). The image boots the
+      # full service session (`LAZYOS_SERVICES=1`), so the registry lists every
+      # registered service and `messengerd`'s topics broker answers live.
+      - name: Capture fabricmon (fabric panel)
+        if: steps.app.outputs.fabricmon != ''
+        shell: bash
+        env:
+          LAZYOS_XUID: "1"
+          LAZYOS_XUI_APP: ${{ steps.app.outputs.fabricmon }}
+          LAZYOS_SERVICES: "1"
+        run: |
+          set -euo pipefail
+          cargo build
+          python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/fabmon \
+            --accel none --timeout 300 --script tools/screenshot/examples/xui_fabricmon.json
+          grep -q "FABMON:UP:PASS" shots/fabmon/serial.log
+          grep -q "FABMON:REFRESH:PASS" shots/fabmon/serial.log
+          grep -q "FABMON:QUIT:PASS" shots/fabmon/serial.log
+
+      - name: Verify screenshots are non-blank
+        if: steps.app.outputs.counter != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          pngs=(shots/m0/*.png shots/m1/*.png shots/m2/*.png shots/sysmon/*.png shots/fabmon/*.png)
+          if [ ${#pngs[@]} -eq 0 ]; then
+            echo "::error::no screenshots were captured"
+            exit 1
+          fi
+          python tools/screenshot/pngstats.py "${pngs[@]}" --min-nonblack 0.01 --min-colors 4
+
+      - name: Upload screenshots artifact
+        if: steps.app.outputs.counter != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: xui-app-screenshots
+          path: |
+            shots/m0/*.png
+            shots/m0/serial.log
+            shots/m1/*.png
+            shots/m1/serial.log
+            shots/m2/*.png
+            shots/m2/serial.log
+            shots/sysmon/*.png
+            shots/sysmon/serial.log
+            shots/fabmon/*.png
+            shots/fabmon/serial.log
+          if-no-files-found: error
+
+      - name: Publish screenshots to 'screenshots' branch
+        id: publish
+        if: >-
+          steps.app.outputs.counter != '' &&
+          (github.event_name != 'pull_request' ||
+           github.event.pull_request.head.repo.full_name == github.repository)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          work=/tmp/xui-shots
+          remote="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          rm -rf "$work"
+          if git clone -q --depth 1 --branch screenshots "$remote" "$work" 2>/dev/null; then
+            echo "appending to existing screenshots branch"
+          else
+            mkdir -p "$work"
+            git -C "$work" init -q
+            git -C "$work" checkout -q -b screenshots
+          fi
+          prefix="runs/${GITHUB_RUN_ID}/xui"
+          mkdir -p "$work/$prefix"
+          shopt -s nullglob
+          for group in m0 m1 m2 sysmon fabmon; do
+            for png in shots/$group/*.png; do
+              cp "$png" "$work/$prefix/$group-$(basename "$png")"
+            done
+          done
+          git -C "$work" add -A
+          git -C "$work" -c user.name=github-actions \
+              -c user.email=github-actions@users.noreply.github.com \
+              commit -qm "xui screenshots for ${GITHUB_SHA} (run ${GITHUB_RUN_ID})"
+          git -C "$work" push -q "$remote" screenshots
+          echo "sha=$(git -C "$work" rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
+
+      - name: Comment screenshots on PR
+        if: github.event_name == 'pull_request' && steps.publish.outputs.sha != ''
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          sha="${{ steps.publish.outputs.sha }}"
+          prefix="${{ steps.publish.outputs.prefix }}"
+          {
+            echo "### xui app on LazyOS (M0-M2 + viewers)"
+            echo
+            echo "_commit \`${GITHUB_SHA:0:7}\` — run [${GITHUB_RUN_ID}](https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID})_"
+            echo
+            shopt -s nullglob
+            for group in m0 m1 m2 sysmon fabmon; do
+              for png in shots/$group/*.png; do
+                name="$group-$(basename "$png")"
+                echo "**${name}**"
+                echo
+                echo "![${name}](https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${sha}/${prefix}/${name})"
+                echo
+              done
+            done
+            for log in shots/m0/serial.log shots/m2/serial.log shots/sysmon/serial.log shots/fabmon/serial.log; do
+              if [ -f "$log" ]; then
+                echo "<details><summary>${log} (xui/sysmon/fabricmon markers)</summary>"
+                echo
+                echo '```'
+                grep -E "XUIAPP|SYSMON|FABMON" "$log" || true
+                echo '```'
+                echo
+                echo "</details>"
+              fi
+            done
+          } > xui-comment.md
+          gh pr comment "${{ github.event.pull_request.number }}" \
+            --repo "${GITHUB_REPOSITORY}" --body-file xui-comment.md

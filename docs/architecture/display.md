@@ -16,7 +16,9 @@ compositor demo. Target toolkit design: [xui-plan.md](../xui-plan.md).
 | `kernel/src/mux.rs` | Terminal multiplexer: paints task windows, Tab focus |
 | `kernel/src/display.rs` | Display device grant, syscall 12, input event queue |
 | `user/src/bin/xuid.rs`, `xdemo.rs` | Compositor and demo app (issue #113) |
+| `user/src/bin/dragdemo.rs` | Drag & drop demo pair (issue #145) |
 | `user/src/messenger.rs` (`display` module) | `os.lazy.display.v1` client/server helpers |
+| `xui-app/`, `tools/xui/build.py` | Ordinary xui app on the display grant (issue #114) |
 
 **Kernel mux** (`mux.rs`)
 
@@ -55,9 +57,71 @@ compositor demo. Target toolkit design: [xui-plan.md](../xui-plan.md).
 - `xuid` binds the grant and implements `os.lazy.display.v1` over Messenger:
   clients attach a shared surface buffer and an event endpoint, the compositor
   composites and routes input, `xdemo` is the smallest client.
-- The windowing/toolkit refactor is in flight (issue #114); this page describes
-  only the committed `xuid`/`xdemo` state. The retained-widget toolkit is not
-  implemented in this tree yet.
+- `xui-app/` (issue #114) runs an ordinary `xui-core` + `xui-canvas` app on
+  LazyOS for milestones M0-M2. It is built by `tools/xui/build.py` for
+  `x86_64-unknown-linux-musl` and embedded as `XAPP.ELF` when `LAZYOS_XUID=1`
+  and `LAZYOS_XUI_APP=<path>` are set; the kernel then boots it *instead of*
+  the `xuid` + `xdemo` session, because the app owns the display grant itself
+  (`bind`/`present`/`input_poll`) and paints full-screen. Default
+  `LAZYOS_XUID=1` is unchanged. Running the app as a `xuid` client over the
+  compositor protocol is the remaining step.
+- Issue #153 adds the first windowed system-state viewers on that backend:
+  `sysmon` renders the syscall-14 snapshot (frame/slab/heap gauges, uptime, the
+  task table) and `fabricmon` renders the syscall-5 fabric (registry names with
+  owners/interfaces, topics-broker counts, buffers/fences/handles, per-task
+  usage). Each is one owner-drawn node with a one-second `ui` timer and `r`/`q`
+  keys, prints `SYSMON:*`/`FABMON:*` serial markers, and is captured in
+  `.github/workflows/xui.yml` as the display owner in turn (fabricmon over the
+  `LAZYOS_SERVICES=1` session, so the registry and broker are live).
+- Window management (issue #143) lives in `xuid`: the `surfaces` vector is the
+  z-order (tail paints last), a title-bar press drags the window (clamped to the
+  screen above the taskbar), the title bar carries close/minimize buttons, and a
+  bottom taskbar lists live surfaces with the focused entry highlighted.
+  Minimized surfaces are hidden and restored from the taskbar; `Tab` cycles
+  focus skipping minimized ones. The close button sends the client a one-way
+  `WindowClose` (method 10) event, which `xdemo` treats as "exit". Only
+  `Commit` uses per-surface damage; WM layout changes repaint the full screen
+  (a drag repaints the union of the old/new window rectangles).
+
+**Drag & drop (issue #145)**
+
+`os.lazy.display.v1` gains additive methods (11–17) that move a typed payload
+between surfaces through the compositor, while `clipboardd` stays the data
+broker. The wire fields reuse the clipboard's offer/token model, so the
+compositor never sees payload bytes:
+
+| # | Method | Direction | Fields |
+|---|---|---|---|
+| 11 | `DragStart` | app → compositor | `SURFACE`, `TOKEN`, `MIME` |
+| 12 | `DragCancel` | app → compositor | `SURFACE` |
+| 13 | `DragEnter` | compositor → app | `A`/`B` = surface-local x/y, `MIME` |
+| 14 | `DragOver` | compositor → app | `A`/`B` = surface-local x/y |
+| 15 | `DragLeave` | compositor → app | – |
+| 16 | `Drop` | compositor → app | `A`/`B` = surface-local x/y, `TOKEN`, `MIME` |
+| 17 | `DragEnded` | compositor → source | `A` = 1 dropped / 0 cancelled |
+
+- The source offers the payload to `clipboardd` first (`Offer`/`write` scope)
+  and calls `DragStart` with the returned token while a pointer button is held.
+  The compositor only accepts it from the task that created the surface
+  (`CreateSurface`'s sender), one drag at a time.
+- While the drag is live `xuid` owns the pointer: it hit-tests the topmost
+  surface under it (the source is never a target), sends
+  `DragEnter`/`DragLeave`/`DragOver` to that surface, frames it in the drag
+  accent colour, and draws a payload-label ghost at the cursor. The source
+  receives no pointer moves between `DragStart` and `DragEnded`.
+- Releasing over another surface sends `Drop` with the token; the target
+  pastes through `clipboardd` with its own credentials, so the service's
+  session scope still decides whether the transfer happens — a cross-session
+  drop is refused (`-EACCES`) and audited like any other paste. Releasing over
+  the source or the desktop, pressing `Escape`, calling `DragCancel`, or
+  destroying the source/target surface sends `DragLeave` plus a cancelled
+  `DragEnded(0)`.
+- `dragdemo` (`DRAGDMO.ELF`) is the evidence pair. The kernel boots it in the
+  `LAZYOS_XUID=1` path; with no manifest argument it is a launcher and starts a
+  `source` and a `target` child (one clipboard session). It logs
+  `DND:START:PASS`, `DND:DROP:PASS`, `DND:CANCEL:PASS` and `DND:DENIED:PASS`
+  (the target re-tries its dropped token from another session and expects the
+  clipboard's refusal).
 
 **Invariants.** Mux is always the fallback: no compositor state is required to
 paint. The screen buffer handoff app-to-compositor is zero-copy (shared
@@ -66,5 +130,10 @@ events go only to the bound compositor; `push_event` drops the oldest event when
 the queue is full and is IRQ-safe (leaf lock).
 
 **Status.** Working: demo mux, display grant, xuid + xdemo in headless captures
-(`LAZYOS_XUID=1`). Open: zero-copy scanout, userspace XUI toolkit, multi-session
-compositors.
+(`LAZYOS_XUID=1`), xuid window management (drag, z-order, buttons, taskbar,
+focus cycling; `XUID:WM:PASS`), compositor-mediated drag & drop with a
+clipboard-token transfer (`dragdemo`; `DND:*:PASS`), the xui app milestones
+M0-M2 (`XUIAPP:*:PASS`) and the sysmon/fabricmon viewers (`SYSMON:*`/`FABMON:*`
+markers, screenshots in the `xui-app` workflow). Open: zero-copy scanout,
+running the xui app as a compositor client, userspace XUI toolkit, multi-session
+compositors, drag targets that can refuse a drop before release.

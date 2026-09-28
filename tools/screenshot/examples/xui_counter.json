@@ -1,0 +1,6 @@
+[
+  {"at": 80.0, "shot": "counter_initial"},
+  {"at": 90.0, "mouse_click": "left"},
+  {"at": 95.0, "shot": "counter_clicked"},
+  {"at": 100.0, "quit": true}
+]

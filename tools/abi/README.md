@@ -13,6 +13,25 @@ Tooling that measures how far LazyOS is from running prebuilt
 | `run.py` | For each fixture: embeds it as `INIT.ELF`, boots headless QEMU, parses the serial log, writes `docs/compat/matrix.md` + `compat.json`. |
 | `coverage.py` | Scans the bench serial logs for `ENOSYS <nr> <name>` and writes `docs/compat/coverage.md` + `coverage.json`. |
 
+## Fixtures
+
+| Fixture | Contract |
+|---------|----------|
+| `hello` | Writing to stdout and exiting. |
+| `alloc` | Heap allocation and deallocation. |
+| `hashmap` | `std::collections` over the allocator. |
+| `file` | Open/read/write/stat/rename/unlink through the VFS. |
+| `time` | Clocks and `sleep`. |
+| `thread` | `std::thread` spawn/join. |
+| `syncstress` | Mutex/condvar/channel concurrency soak. |
+| `fsstress` | Filesystem create/read/write churn. |
+| `memstress` | Allocator growth, `brk`, `mmap`/`mprotect`/`munmap`, `mremap`. |
+| `procstress` | `std::process` spawn with pipes, exit status, environment. |
+| `sigstress` | Signal masks, handlers and delivery. |
+| `epollstress` | `eventfd` + `epoll` level/edge readiness, timeouts, add/mod/del. |
+| `unixstress` | `UnixStream` pair/EOF/shutdown, pathname bind/connect/accept, `SOCK_SEQPACKET` boundaries. |
+| `busybox` | Optional static BusyBox dropped at `tools/abi/busybox`. |
+
 ## Convention
 
 - A fixture prints `ABI:<name>:PASS` or `ABI:<name>:FAIL:<reason>` and exits

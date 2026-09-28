@@ -1,0 +1,18 @@
+# A vendored copy of `va1erian/xui`'s `crates/xui-canvas` at rev 2747818, with
+# one addition: `set_default_font`, so a platform whose fonts are not on a
+# filesystem the shaper can scan (LazyOS: file-backed mmap is not implemented)
+# can feed the bundled font straight from memory. Everything else is upstream
+# code; `xui-app/Cargo.toml` patches the git dependency onto this crate.
+[package]
+name = "xui-canvas"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Cross-platform software-rendered backend for xui (tiny-skia)"
+repository = "https://github.com/va1erian/xui"
+readme = "README.md"
+
+[dependencies]
+xui-core = { git = "https://github.com/va1erian/xui", rev = "2747818" }
+tiny-skia = "0.11"
+cosmic-text = "0.19"

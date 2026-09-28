@@ -30,9 +30,10 @@
 //! so the "check condition, register, block" sequence cannot race a notifier on
 //! the single CPU.
 
+use alloc::collections::VecDeque;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
-use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, AtomicUsize, Ordering};
 use spin::Mutex;
 
 use crate::task::wait::WaitQueue;
@@ -42,6 +43,17 @@ use crate::task::{WaitKind, WakeReason};
 pub const CAPACITY: usize = 64 * 1024;
 /// Maximum live one-way pipes; a `socketpair` holds two.
 pub const MAX_PIPES: usize = 64;
+/// Maximum number of messages a `SOCK_SEQPACKET` direction may queue. Bounds
+/// the framing bookkeeping when many zero-length messages are sent.
+pub const MAX_FRAMES: usize = 1024;
+
+/// Framing of a one-way stream: a byte stream, or discrete messages
+/// (`SOCK_SEQPACKET`, where each write is one record).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Mode {
+    Stream,
+    Seqpacket,
+}
 
 /// Live one-way pipes (the ring is allocated eagerly, so this bounds memory).
 static LIVE_PIPES: AtomicUsize = AtomicUsize::new(0);
@@ -71,6 +83,10 @@ pub enum Error {
     BadEnd,
     /// The waiting task was interrupted by a deliverable signal (`-EINTR`).
     Interrupted,
+    /// A `SOCK_SEQPACKET` message larger than the buffer (`-EMSGSIZE`).
+    MessageTooLong,
+    /// An argument the stream layer rejects (`-EINVAL`).
+    Invalid,
 }
 
 /// `POLL*` bits (Linux values).
@@ -80,16 +96,25 @@ pub const POLLERR: u16 = 0x0008;
 pub const POLLHUP: u16 = 0x0010;
 
 /// The byte ring. `len` bytes starting at `head` are valid; the free space is
-/// the rest, so the buffer wraps without a growable deque.
+/// the rest, so the buffer wraps without a growable deque. In seqpacket mode
+/// `frames` records the byte length of each queued message, oldest first.
 struct Ring {
     buf: Vec<u8>,
     head: usize,
     len: usize,
+    mode: Mode,
+    frames: VecDeque<usize>,
 }
 
 impl Ring {
     fn is_empty(&self) -> bool {
         self.len == 0
+    }
+
+    /// Whether a read would make progress: any bytes, or (seqpacket) any
+    /// message including a zero-length one.
+    fn has_data(&self) -> bool {
+        self.len > 0 || !self.frames.is_empty()
     }
 
     /// Copy the oldest `min(len, dst.len())` bytes out, advancing the head.
@@ -103,6 +128,13 @@ impl Ring {
         self.head = (self.head + n) % self.buf.len();
         self.len -= n;
         n
+    }
+
+    /// Drop `n` oldest bytes without copying them out (seqpacket truncation).
+    fn discard(&mut self, n: usize) {
+        debug_assert!(n <= self.len);
+        self.head = (self.head + n) % self.buf.len();
+        self.len -= n;
     }
 
     /// Copy `min(src.len(), free space)` bytes in after the current tail.
@@ -134,12 +166,28 @@ pub struct Pipe {
     read_nonblock: AtomicBool,
     /// `O_NONBLOCK` of the write end's open file description.
     write_nonblock: AtomicBool,
+    /// Events that made the read end fresh (a write, or the last writer
+    /// closing). `epoll` edge-triggered interests compare it between waits.
+    read_events: AtomicU64,
+    /// Events that made the write end fresh (a read, or the last reader
+    /// closing), mirroring [`read_events`](Pipe::read_events).
+    write_events: AtomicU64,
 }
 
 impl Pipe {
-    /// Allocate a pipe with a zeroed ring, or `None` at the live-pipe cap or on
-    /// kernel-heap exhaustion.
+    /// Allocate a byte-stream pipe with a zeroed ring, or `None` at the
+    /// live-pipe cap or on kernel-heap exhaustion.
     pub fn new() -> Option<Arc<Pipe>> {
+        Self::new_with(Mode::Stream)
+    }
+
+    /// Allocate a message-preserving (`SOCK_SEQPACKET`) pipe.
+    pub fn new_seqpacket() -> Option<Arc<Pipe>> {
+        Self::new_with(Mode::Seqpacket)
+    }
+
+    /// Allocate a pipe with the given framing.
+    pub fn new_with(mode: Mode) -> Option<Arc<Pipe>> {
         LIVE_PIPES
             .try_update(Ordering::AcqRel, Ordering::Acquire, |live| {
                 (live < MAX_PIPES).then_some(live + 1)
@@ -156,6 +204,8 @@ impl Pipe {
                 buf,
                 head: 0,
                 len: 0,
+                mode,
+                frames: VecDeque::new(),
             }),
             read_wq: WaitQueue::new(WaitKind::Pipe),
             write_wq: WaitQueue::new(WaitKind::Pipe),
@@ -163,12 +213,29 @@ impl Pipe {
             writers: AtomicUsize::new(0),
             read_nonblock: AtomicBool::new(false),
             write_nonblock: AtomicBool::new(false),
+            read_events: AtomicU64::new(0),
+            write_events: AtomicU64::new(0),
         }))
     }
 
     /// Number of live one-way pipes (test/soak observable).
     pub fn live() -> usize {
         LIVE_PIPES.load(Ordering::Acquire)
+    }
+
+    /// This pipe's framing.
+    pub fn mode(&self) -> Mode {
+        self.state.lock().mode
+    }
+
+    /// Count of read-readiness events (writes and last-writer closes).
+    pub fn read_events(&self) -> u64 {
+        self.read_events.load(Ordering::Acquire)
+    }
+
+    /// Count of write-readiness events (reads and last-reader closes).
+    pub fn write_events(&self) -> u64 {
+        self.write_events.load(Ordering::Acquire)
     }
 
     /// Take one reference on `end` (a new descriptor or a `dup`).
@@ -182,7 +249,7 @@ impl Pipe {
 
     /// Drop one reference on `end`. The last writer wakes readers with EOF;
     /// the last reader wakes writers with `-EPIPE`; either can make `poll` on
-    /// the other end newly interesting.
+    /// the other end newly interesting (and counts as an edge).
     pub fn release(&self, end: End) {
         let remaining = match end {
             End::Read => self.readers.fetch_sub(1, Ordering::AcqRel) - 1,
@@ -191,9 +258,11 @@ impl Pipe {
         if remaining == 0 {
             match end {
                 End::Read => {
+                    self.write_events.fetch_add(1, Ordering::AcqRel);
                     self.write_wq.notify_all();
                 }
                 End::Write => {
+                    self.read_events.fetch_add(1, Ordering::AcqRel);
                     self.read_wq.notify_all();
                 }
             }
@@ -214,13 +283,25 @@ impl Pipe {
     /// Whether the read end would make progress (data or EOF).
     pub fn readable(&self) -> bool {
         let ring = self.state.lock();
-        !ring.is_empty() || self.writers.load(Ordering::Acquire) == 0
+        ring.has_data() || self.writers.load(Ordering::Acquire) == 0
     }
 
     /// Whether the write end would make progress (space and a reader).
     pub fn writable(&self) -> bool {
         let ring = self.state.lock();
-        ring.len < ring.buf.len() && self.readers.load(Ordering::Acquire) > 0
+        self.space_for(&ring, 1) && self.readers.load(Ordering::Acquire) > 0
+    }
+
+    /// Whether `len` bytes fit in the ring (all-or-nothing in seqpacket mode).
+    fn space_for(&self, ring: &Ring, len: usize) -> bool {
+        match ring.mode {
+            Mode::Stream => ring.len < ring.buf.len(),
+            Mode::Seqpacket => {
+                ring.frames.len() < MAX_FRAMES
+                    && len <= ring.buf.len()
+                    && ring.len + len <= ring.buf.len()
+            }
+        }
     }
 
     /// `O_NONBLOCK` state of one end's open file description.
@@ -242,6 +323,10 @@ impl Pipe {
 
     /// Read up to `dst.len()` bytes. `Ok(0)` is end-of-file (all writers
     /// closed); a non-blocking empty pipe is [`Error::WouldBlock`].
+    ///
+    /// A seqpacket read returns at most one message. A message longer than
+    /// `dst` is truncated: the copied prefix is returned and the rest of the
+    /// message is discarded, matching Linux `recv` without `MSG_TRUNC`.
     pub fn read(&self, end: End, dst: &mut [u8], nonblock: bool) -> Result<usize, Error> {
         if end != End::Read {
             return Err(Error::BadEnd);
@@ -252,9 +337,24 @@ impl Pipe {
         loop {
             {
                 let mut ring = self.state.lock();
-                if !ring.is_empty() {
+                if ring.mode == Mode::Seqpacket {
+                    if let Some(&message) = ring.frames.front() {
+                        let n = message.min(dst.len());
+                        let copied = ring.drain_into(&mut dst[..n]);
+                        if message > copied {
+                            ring.discard(message - copied);
+                        }
+                        ring.frames.pop_front();
+                        drop(ring);
+                        self.write_events.fetch_add(1, Ordering::AcqRel);
+                        self.write_wq.notify_all();
+                        crate::task::notify_poll();
+                        return Ok(n);
+                    }
+                } else if !ring.is_empty() {
                     let n = ring.drain_into(dst);
                     drop(ring);
+                    self.write_events.fetch_add(1, Ordering::AcqRel);
                     self.write_wq.notify_all();
                     crate::task::notify_poll();
                     return Ok(n);
@@ -276,6 +376,10 @@ impl Pipe {
     /// Write `src`, returning how many bytes were accepted (a short write is
     /// legal on a pipe; callers that need all of it retry). Blocking waits for
     /// space; a writer with no readers is [`Error::BrokenPipe`].
+    ///
+    /// A seqpacket write is all-or-nothing: the whole call becomes one message,
+    /// or the call blocks/`-EAGAIN`s. A message larger than the ring is
+    /// [`Error::MessageTooLong`] (`-EMSGSIZE`).
     pub fn write(&self, src: &[u8], end: End, nonblock: bool) -> Result<usize, Error> {
         if end != End::Write {
             return Err(Error::BadEnd);
@@ -289,9 +393,16 @@ impl Pipe {
                 if self.readers.load(Ordering::Acquire) == 0 {
                     return Err(Error::BrokenPipe);
                 }
-                if ring.len < ring.buf.len() {
+                if ring.mode == Mode::Seqpacket && src.len() > ring.buf.len() {
+                    return Err(Error::MessageTooLong);
+                }
+                if self.space_for(&ring, src.len()) {
                     let n = ring.fill_from(src);
+                    if ring.mode == Mode::Seqpacket {
+                        ring.frames.push_back(n);
+                    }
                     drop(ring);
+                    self.read_events.fetch_add(1, Ordering::AcqRel);
                     self.read_wq.notify_all();
                     crate::task::notify_poll();
                     return Ok(n);
@@ -315,7 +426,7 @@ impl Pipe {
         let mut revents = 0;
         match end {
             End::Read => {
-                if events & POLLIN != 0 && !ring.is_empty() {
+                if events & POLLIN != 0 && ring.has_data() {
                     revents |= POLLIN;
                 }
                 if self.writers.load(Ordering::Acquire) == 0 {
@@ -324,7 +435,7 @@ impl Pipe {
             }
             End::Write => {
                 if events & POLLOUT != 0
-                    && ring.len < ring.buf.len()
+                    && self.space_for(&ring, 1)
                     && self.readers.load(Ordering::Acquire) > 0
                 {
                     revents |= POLLOUT;
@@ -335,6 +446,17 @@ impl Pipe {
             }
         }
         revents
+    }
+
+    /// [`poll`](Pipe::poll) plus the freshness counter for edge-triggered
+    /// `epoll` interests (read end: writes/EOF; write end: reads/`-EPIPE`).
+    pub fn poll_gen(&self, end: End, events: u16) -> (u16, u64) {
+        let revents = self.poll(end, events);
+        let gen = match end {
+            End::Read => self.read_events(),
+            End::Write => self.write_events(),
+        };
+        (revents, gen)
     }
 
     /// Park the current task on the reader queue (test hook). Production reads
@@ -359,11 +481,11 @@ impl Drop for Pipe {
 
 /// A pair of cross-connected pipes: each side reads what the other writes.
 ///
-/// Linux's `SOCK_SEQPACKET` preserves message boundaries; this byte-stream
-/// approximation does not, which is enough for the std shim (it sends one
-/// fixed-size 8-byte record and the parent reads exactly that). `SOCK_STREAM`
-/// callers cannot observe the difference. Documented in `docs/compat` terms:
-/// `recvmsg` message framing is not implemented.
+/// Both `SOCK_STREAM` (byte stream) and `SOCK_SEQPACKET` (message boundaries,
+/// truncation on small reads) pairs are built from the same structure; the
+/// direction pipes carry the framing. `shutdown` releases one direction while
+/// the descriptor stays open, and the per-side bits keep the later `close`
+/// from releasing it twice.
 pub struct SocketPair {
     /// Bytes written by side A, read by side B.
     ab: Arc<Pipe>,
@@ -374,19 +496,47 @@ pub struct SocketPair {
     open: [AtomicUsize; 2],
     /// `O_NONBLOCK` of each side's socket (one open file description per side).
     nonblock: [AtomicBool; 2],
+    /// Shut directions per side: bit 0 = `SHUT_RD`, bit 1 = `SHUT_WR`.
+    shut: [AtomicU8; 2],
 }
 
+/// `shutdown(2)` direction bits.
+const SHUT_RD: u8 = 1;
+const SHUT_WR: u8 = 2;
+
 impl SocketPair {
-    /// Build both directions, or `None` when the pipe cap is reached.
+    /// Build a byte-stream (`SOCK_STREAM`) pair.
     pub fn new() -> Option<Arc<SocketPair>> {
-        let ab = Pipe::new()?;
-        let ba = Pipe::new()?;
+        Self::new_with(Mode::Stream)
+    }
+
+    /// Build a message-preserving (`SOCK_SEQPACKET`) pair.
+    pub fn new_seqpacket() -> Option<Arc<SocketPair>> {
+        Self::new_with(Mode::Seqpacket)
+    }
+
+    /// Build both directions with the given framing, or `None` when the pipe
+    /// cap is reached.
+    pub fn new_with(mode: Mode) -> Option<Arc<SocketPair>> {
+        let ab = Pipe::new_with(mode)?;
+        let ba = Pipe::new_with(mode)?;
         Some(Arc::new(SocketPair {
             ab,
             ba,
             open: [AtomicUsize::new(0), AtomicUsize::new(0)],
             nonblock: [AtomicBool::new(false), AtomicBool::new(false)],
+            shut: [AtomicU8::new(0), AtomicU8::new(0)],
         }))
+    }
+
+    /// This pair's framing.
+    pub fn mode(&self) -> Mode {
+        self.ab.mode()
+    }
+
+    /// Whether this pair preserves message boundaries.
+    pub fn seqpacket(&self) -> bool {
+        self.mode() == Mode::Seqpacket
     }
 
     fn index(side: Side) -> usize {
@@ -416,14 +566,51 @@ impl SocketPair {
     }
 
     /// Drop one descriptor reference on `side`; the last one releases the
-    /// side's direction pipes (EOF/`-EPIPE` for the peer).
+    /// direction pipes not already shut down (EOF/`-EPIPE` for the peer).
     pub fn close(&self, side: Side) {
         let index = Self::index(side);
         if self.open[index].fetch_sub(1, Ordering::AcqRel) == 1 {
+            let shut = self.shut[index].load(Ordering::Acquire);
             let (read, write) = self.directions(side);
+            if shut & SHUT_RD == 0 {
+                read.release(End::Read);
+            }
+            if shut & SHUT_WR == 0 {
+                write.release(End::Write);
+            }
+        }
+    }
+
+    /// Apply `shutdown(fd, how)` to one side: `0` = read, `1` = write,
+    /// `2` = both. Returns false for an unknown direction. Each direction is
+    /// released at most once; `close` skips what shutdown already released.
+    pub fn shutdown(&self, side: Side, how: u64) -> bool {
+        let bits = match how {
+            0 => SHUT_RD,
+            1 => SHUT_WR,
+            2 => SHUT_RD | SHUT_WR,
+            _ => return false,
+        };
+        let index = Self::index(side);
+        let added = bits & !self.shut[index].fetch_or(bits, Ordering::AcqRel);
+        let (read, write) = self.directions(side);
+        if added & SHUT_RD != 0 {
             read.release(End::Read);
+        }
+        if added & SHUT_WR != 0 {
             write.release(End::Write);
         }
+        true
+    }
+
+    /// Whether one direction has been shut down (does not consume it).
+    pub fn is_shutdown(&self, side: Side, how: u64) -> bool {
+        let bit = match how {
+            0 => SHUT_RD,
+            1 => SHUT_WR,
+            _ => return false,
+        };
+        self.shut[Self::index(side)].load(Ordering::Acquire) & bit != 0
     }
 
     /// Open descriptor count of one side (observable for tests).
@@ -441,14 +628,21 @@ impl SocketPair {
         self.nonblock[Self::index(side)].store(on, Ordering::Release);
     }
 
-    /// Read bytes the peer wrote; `Ok(0)` once the peer side is fully closed.
+    /// Read bytes the peer wrote; `Ok(0)` once the peer side is fully closed
+    /// or this side has been `SHUT_RD`.
     pub fn read(&self, side: Side, dst: &mut [u8], nonblock: bool) -> Result<usize, Error> {
+        if self.is_shutdown(side, 0) {
+            return Ok(0);
+        }
         let (read, _) = self.directions(side);
         read.read(End::Read, dst, nonblock)
     }
 
-    /// Write bytes for the peer to read.
+    /// Write bytes for the peer to read; `SHUT_WR` makes this `BrokenPipe`.
     pub fn write(&self, side: Side, src: &[u8], nonblock: bool) -> Result<usize, Error> {
+        if self.is_shutdown(side, 1) {
+            return Err(Error::BrokenPipe);
+        }
         let (_, write) = self.directions(side);
         write.write(src, End::Write, nonblock)
     }
@@ -457,5 +651,15 @@ impl SocketPair {
     pub fn poll(&self, side: Side, events: u16) -> u16 {
         let (read, write) = self.directions(side);
         read.poll(End::Read, events) | write.poll(End::Write, events)
+    }
+
+    /// [`poll`](SocketPair::poll) plus a freshness counter for edge-triggered
+    /// `epoll` interests: the counter changes whenever either direction's
+    /// readiness could have changed (data, space, or a close).
+    pub fn poll_gen(&self, side: Side, events: u16) -> (u16, u64) {
+        let (read, write) = self.directions(side);
+        let revents = read.poll(End::Read, events) | write.poll(End::Write, events);
+        let gen = read.read_events() ^ write.write_events();
+        (revents, gen)
     }
 }

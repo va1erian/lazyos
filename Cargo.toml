@@ -17,6 +17,10 @@ members = [
     # vectors.
     "libs/crypto",
 ]
+# The xui app is an ordinary static-musl `std` program with its own workspace:
+# it is built by `tools/xui/build.py` and embedded in the image, never by the
+# OS workspace's `cargo build`.
+exclude = ["xui-app"]
 resolver = "2"
 
 [build-dependencies]
