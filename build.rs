@@ -149,6 +149,11 @@ fn main() {
         let xdemo =
             std::env::var_os("CARGO_BIN_FILE_USER_xdemo").expect("user xdemo artifact not found");
         builder.set_file(String::from("XDEMO.ELF"), PathBuf::from(xdemo));
+        // The drag & drop demo pair (issue #145); the kernel starts its
+        // launcher, and 8.3 requires the `DRAGDMO.ELF` on-disk name.
+        let dragdemo = std::env::var_os("CARGO_BIN_FILE_USER_dragdemo")
+            .expect("user dragdemo artifact not found");
+        builder.set_file(String::from("DRAGDMO.ELF"), PathBuf::from(dragdemo));
     }
 
     // The xui app (issue #114): `LAZYOS_XUI_APP=<path>` embeds a static-musl
