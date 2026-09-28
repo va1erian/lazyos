@@ -2954,7 +2954,10 @@ mod task_suite {
         // The root (a fresh fork) and its child both show up with the parent
         // link intact.
         let root_row = &snapshot.rows[root];
-        check!(root_row.live && root_row.ppid as usize != root, "root row is {root_row:?}");
+        check!(
+            root_row.live && root_row.ppid as usize != root,
+            "root row is {root_row:?}"
+        );
         let child_row = &snapshot.rows[child];
         check!(
             child_row.live && child_row.ppid as usize == root,
@@ -2969,7 +2972,8 @@ mod task_suite {
             bytes.len(),
             TaskSnapshot::SIZE
         );
-        let decoded = TaskSnapshot::from_bytes(&bytes).ok_or("from_bytes rejected a valid block")?;
+        let decoded =
+            TaskSnapshot::from_bytes(&bytes).ok_or("from_bytes rejected a valid block")?;
         check!(
             decoded.rows == snapshot.rows && decoded.version == snapshot.version,
             "decoded snapshot does not match the original"
@@ -2999,8 +3003,9 @@ mod task_suite {
                 processes.len()
             );
             let bytes = snapshot.to_bytes();
-            let decoded = TaskSnapshot::from_bytes(&bytes)
-                .ok_or_else(|| alloc::format!("iteration {iteration}: from_bytes rejected a valid block"))?;
+            let decoded = TaskSnapshot::from_bytes(&bytes).ok_or_else(|| {
+                alloc::format!("iteration {iteration}: from_bytes rejected a valid block")
+            })?;
             check!(
                 decoded.rows == snapshot.rows,
                 "iteration {iteration}: decoded snapshot does not match the original"
