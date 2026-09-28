@@ -298,7 +298,11 @@ class Launcher:
     def _run(self) -> None:
         if self.runner.busy:
             return
-        steps = build_plan(self.cfg())
+        try:
+            steps = build_plan(self.cfg())
+        except ValueError as exc:  # e.g. an unmatched quote in the QEMU args
+            self._log(f"(plan error: {exc})\n", "fail")
+            return
         if not steps:
             self._log("Nothing to run.\n", "fail")
             return

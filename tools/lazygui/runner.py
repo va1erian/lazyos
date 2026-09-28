@@ -85,11 +85,15 @@ class Runner:
                 self.busy = False
                 return
             self.proc = proc
+            # A stop may have arrived between Popen returning and self.proc
+            # being assigned; kill now, then keep draining until EOF so the
+            # pipe cannot fill and proc.wait() cannot hang.
+            if self.stop_requested:
+                kill_tree(proc)
             assert proc.stdout is not None
             for line in proc.stdout:
-                if self.stop_requested:
-                    break
-                self.q.put(("out", line))
+                if not self.stop_requested:
+                    self.q.put(("out", line))
             proc.wait()
             self.proc = None
             code = proc.returncode
