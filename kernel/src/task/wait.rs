@@ -41,6 +41,11 @@ pub static CHILD_EXIT: WaitQueue = WaitQueue::new(WaitKind::ChildExit);
 /// them with `TimedOut`, which is exactly a sleep.
 pub static SLEEP: WaitQueue = WaitQueue::new(WaitKind::Sleep);
 
+/// `clone` callers parked while the task table is near capacity. Slot
+/// reclamation and `reap_child` notify it so a spawner returns as soon as a
+/// slot is free.
+pub static SLOT: WaitQueue = WaitQueue::new(WaitKind::Slot);
+
 struct QueueState {
     /// Parked task slots, oldest first (FIFO wake order).
     waiters: Vec<usize>,

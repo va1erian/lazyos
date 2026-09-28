@@ -40,7 +40,7 @@
 
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
-use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use spin::Mutex;
 use x86_64::PhysAddr;
 
@@ -75,6 +75,13 @@ static FOCUS: AtomicUsize = AtomicUsize::new(1);
 pub static NEEDS_REDRAW: AtomicBool = AtomicBool::new(true);
 /// True once the scheduler is running (changes how `exit` behaves).
 static SCHEDULING: AtomicBool = AtomicBool::new(false);
+/// Slots of finished parentless tasks waiting to be reclaimed from task
+/// context (issue #133). The scheduler cannot free a task itself: a `Task` owns
+/// heap buffers whose drop takes the heap lock, and the interrupted task may
+/// hold that lock (the multiplexer clones window output with interrupts
+/// enabled). `schedule` only sets a bit; [`reclaim_pending`] does the freeing
+/// from a syscall entry or the mux loop, where the current task holds no lock.
+static PENDING_RECLAIM: AtomicU32 = AtomicU32::new(0);
 
 /// Which syscall ABI a task uses.
 #[derive(Clone, Copy, PartialEq)]
@@ -100,6 +107,8 @@ pub enum WaitKind {
     /// Parked by a stop signal (`SIGSTOP`/`SIGTSTP`/...). Only `SIGCONT`
     /// wakes a task in this state; other signals leave it stopped.
     Signal,
+    /// Waiting for a task slot to become free (`clone` under table pressure).
+    Slot,
 }
 
 /// How a blocked task's wait ended. The wake path records it, the wait loop
@@ -801,6 +810,96 @@ pub fn has_children() -> bool {
         .any(|task| task.parent == me && task.parent != 0)
 }
 
+/// Drop an address space's non-task state and release its user pages, page
+/// tables and PML4 frame. The caller guarantees no live task references
+/// `pml4`.
+fn release_address_space(pml4: u64) -> usize {
+    forget_bumps(pml4);
+    signal::forget(pml4);
+    mem::free_user_table(PhysAddr::new(pml4))
+}
+
+/// Remove `slot` if it holds a finished task that no `wait4` can ever collect:
+/// a `clone(CLONE_VM)` thread or a kernel-started program has `parent == 0`,
+/// so it has no reaper. Returns whether a slot was removed, plus the address
+/// space that just lost its last user when this removal was its last reference
+/// (`None` while another task still shares it).
+fn take_finished(tasks: &mut [Option<Task>; MAX_TASKS], slot: usize) -> (bool, Option<u64>) {
+    let Some(task) = tasks[slot].as_ref() else {
+        return (false, None);
+    };
+    if task.state != TaskState::Done || task.parent != 0 {
+        return (false, None);
+    }
+    let pml4 = task.pml4;
+    // Dropping the task frees its fds and output/input buffers; the kernel
+    // stack is a static array reused with the slot, so it needs no freeing.
+    tasks[slot] = None;
+    let shared = tasks
+        .iter()
+        .enumerate()
+        .any(|(other, task)| other != slot && task.as_ref().is_some_and(|task| task.pml4 == pml4));
+    (true, (!shared).then_some(pml4))
+}
+
+/// Flag `slot` for task-context reclamation if it holds a finished parentless
+/// task. Called from the scheduler with the task table locked; the actual
+/// freeing is deferred to [`reclaim_pending`] (see [`PENDING_RECLAIM`]).
+fn mark_finished(tasks: &[Option<Task>; MAX_TASKS], slot: usize) {
+    let finished_parentless = tasks[slot]
+        .as_ref()
+        .is_some_and(|task| task.state == TaskState::Done && task.parent == 0);
+    if finished_parentless {
+        PENDING_RECLAIM.fetch_or(1u32 << slot, Ordering::Relaxed);
+    }
+}
+
+/// Reclaim the finished parentless tasks the scheduler flagged: free their
+/// slots, task-owned buffers and — when the removal leaves an address space
+/// with no users — its pages, page tables and PML4 frame.
+///
+/// Must run with interrupts disabled in task context (a syscall entry or the
+/// mux loop): dropping a dead task takes the heap lock, and unlike a preempted
+/// task the current task holds none inside a critical section there.
+pub fn reclaim_pending() {
+    let pending = PENDING_RECLAIM.swap(0, Ordering::Relaxed);
+    if pending == 0 {
+        return;
+    }
+    let mut tasks = TASKS.lock();
+    let mut orphans = [0u64; MAX_TASKS];
+    let mut orphan_count = 0;
+    let mut reclaimed = 0;
+    for slot in 1..MAX_TASKS {
+        if pending & (1u32 << slot) != 0 {
+            let (removed, orphan) = take_finished(&mut tasks, slot);
+            if removed {
+                reclaimed += 1;
+            }
+            if let Some(pml4) = orphan {
+                orphans[orphan_count] = pml4;
+                orphan_count += 1;
+            }
+        }
+    }
+    drop(tasks);
+    if reclaimed > 0 {
+        // A `clone` sleeping on table pressure can return early. Queue before
+        // task table order holds: the lock above is already released.
+        wait::SLOT.notify_all();
+    }
+    for &pml4 in &orphans[..orphan_count] {
+        let pages = mem::user_table_frame_count(PhysAddr::new(pml4));
+        let released = release_address_space(pml4);
+        let stats = mem::frame_stats();
+        serial_println!(
+            "mem: reclaimed address space {pml4:#x}: {pages} pages, released {released} frames, {} free of {}",
+            stats.free,
+            stats.total
+        );
+    }
+}
+
 /// Take a finished child of the current task, freeing its slot and address
 /// space. The address space is torn down only when the reaped child is its
 /// last user: `clone(CLONE_VM)` threads share their creator's PML4 and would
@@ -841,10 +940,8 @@ pub fn reap_child() -> Option<(usize, u64)> {
         found?
     };
     if !shared {
-        forget_bumps(pml4);
-        signal::forget(pml4);
         let pages = mem::user_table_frame_count(PhysAddr::new(pml4));
-        let released = mem::free_user_table(PhysAddr::new(pml4));
+        let released = release_address_space(pml4);
         let stats = mem::frame_stats();
         serial_println!(
             "mem: reaped task {index}: {pages} pages, released {released} frames, {} free of {}",
@@ -852,6 +949,8 @@ pub fn reap_child() -> Option<(usize, u64)> {
             stats.total
         );
     }
+    // A freed slot releases a `clone` sleeping on table pressure early.
+    wait::SLOT.notify_all();
     Some((index, status))
 }
 
@@ -934,6 +1033,16 @@ pub(crate) fn take_wake_reason(index: usize) -> Option<WakeReason> {
     TASKS.lock()[index]
         .as_mut()
         .and_then(|task| task.wake_reason.take())
+}
+
+/// The number of free task slots (the kernel task's slot is never free).
+pub fn free_slots() -> usize {
+    TASKS
+        .lock()
+        .iter()
+        .skip(1)
+        .filter(|slot| slot.is_none())
+        .count()
 }
 
 /// The PIT tick counter (100 Hz). Wait deadlines are absolute tick values.
@@ -1065,6 +1174,14 @@ pub fn wait_child_exit() -> WakeReason {
     wait::CHILD_EXIT.wait(current(), None)
 }
 
+/// Park the current task until a task slot is freed or `deadline` passes. The
+/// Linux `clone` shim sleeps here after a spawn while the table is near
+/// capacity, so earlier threads get a quantum to run, exit and free their
+/// slots (which notifies the queue) before the next spawn needs one.
+pub fn wait_slot(deadline: u64) -> WakeReason {
+    wait::SLOT.wait(current(), Some(deadline))
+}
+
 /// The current task's `clear_child_tid` address.
 pub fn clear_child_tid() -> u64 {
     TASKS.lock()[current()]
@@ -1113,6 +1230,17 @@ pub extern "C" fn schedule(current_rsp: u64) -> u64 {
     // Safety: every `Task::rsp` is an interrupt frame saved by this ISR.
     let (sweep_finished, sweep_count) = unsafe { signal::sweep(&mut tasks) };
 
+    // Flag finished parentless tasks for reclamation: a thread or a
+    // kernel-started program has no parent to `wait4` it, so its slot and
+    // address space would otherwise leak (issue #133). The interrupted task is
+    // left for the tick that switches away from it; `reclaim_pending` frees
+    // the flagged slots from task context.
+    for slot in 1..MAX_TASKS {
+        if slot != cur {
+            mark_finished(&tasks, slot);
+        }
+    }
+
     // Pick the highest class with a runnable task, then the fairest member
     // within it. A task that is blocked or done is never selected.
     // `select_next` falls back to `cur` when nothing is runnable at all;
@@ -1125,6 +1253,9 @@ pub extern "C" fn schedule(current_rsp: u64) -> u64 {
         return current_rsp;
     }
 
+    // `cur` fully leaves the CPU on this tick: its finished slot can be
+    // reclaimed too (from task context, on a later syscall or mux iteration).
+    mark_finished(&tasks, cur);
     CURRENT.store(next, Ordering::Relaxed);
     // INVARIANT: `select_next` only ever returns an index whose slot is
     // `Some` (that is its definition of "runnable"), and `tasks` has been
@@ -1722,9 +1853,25 @@ pub mod harness {
         if let Some(task) = tasks[cur].as_mut() {
             task.cpu_ticks = task.cpu_ticks.saturating_add(1);
         }
+        // Same flagging the real tick does (issue #133): finished parentless
+        // tasks are handed to `reclaim_pending`, the current one only when the
+        // tick actually switches away from it.
+        for slot in 1..super::MAX_TASKS {
+            if slot != cur {
+                super::mark_finished(&tasks, slot);
+            }
+        }
         let next = select_next(&mut tasks, cur);
+        if next != cur {
+            super::mark_finished(&tasks, cur);
+        }
         super::CURRENT.store(next, core::sync::atomic::Ordering::Relaxed);
         next
+    }
+
+    /// The PML4 physical address of task `index`.
+    pub fn pml4(index: usize) -> Option<u64> {
+        TASKS.lock()[index].as_ref().map(|task| task.pml4)
     }
 
     /// Run the deadline sweep with an explicit `now`, as a timer tick would.

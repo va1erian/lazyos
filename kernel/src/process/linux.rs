@@ -406,6 +406,11 @@ fn align_up(value: u64, align: u64) -> u64 {
 /// `rdi,rsi,rdx,r10,r8,r9`, result in `rax`).
 #[no_mangle]
 extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u64, a6: u64) -> u64 {
+    // Finished parentless tasks (threads) were flagged by the scheduler and are
+    // reclaimed here, on entry to a syscall: the current task holds no heap
+    // lock, so dropping their buffers cannot deadlock (issue #133). Interrupts
+    // are off inside the gate.
+    task::reclaim_pending();
     trace_syscall(nr);
     let result = match nr {
         0 => sys_read(a1, a2, a3),
@@ -921,12 +926,7 @@ fn sys_gettimeofday(tv: u64) -> u64 {
 /// Sleep for the `struct timespec` duration at `req` (nanosleep/clock_nanosleep).
 fn sys_nanosleep(req: u64) -> u64 {
     // Safety: user buffer holds a `struct timespec` (the syscall ABI's contract).
-    let (sec, nsec) = unsafe {
-        (
-            user_ptr::read::<i64>(req),
-            user_ptr::read::<i64>(req + 8),
-        )
-    };
+    let (sec, nsec) = unsafe { (user_ptr::read::<i64>(req), user_ptr::read::<i64>(req + 8)) };
     if sec < 0 || nsec < 0 {
         return err(EINVAL);
     }
@@ -1423,7 +1423,22 @@ fn sys_newfstatat(_dirfd: u64, path: u64, buf: u64, _flags: u64) -> u64 {
     }
 }
 
+/// Free task slots at which a successful `clone` gives the scheduler a tick
+/// before returning, so a burst of thread creation cannot fill the table with
+/// threads that have not run yet.
+const CLONE_SLOT_RESERVE: usize = 4;
+
 /// `clone(flags, stack, parent_tid, child_tid, tls)` — thread creation only.
+///
+/// On a single CPU a parent can spawn threads faster than they run: a burst can
+/// fill the table with threads that have not had a first quantum, and a spawn
+/// that then fails would strand every one of them, because musl's
+/// `pthread_create` holds the thread-list lock across `clone` (they cannot exit
+/// until the call returns). So while the table is near capacity, a successful
+/// clone sleeps for one tick after leaving the new thread runnable. The
+/// scheduler then runs earlier threads, they exit, and their slots are
+/// reclaimed (issue #133); a genuinely exhausted table still fails with
+/// `ENOMEM` like Linux.
 fn sys_clone(flags: u64, stack: u64, parent_tid: u64, child_tid: u64, tls: u64) -> u64 {
     if flags & CLONE_VM == 0 {
         return err(ENOSYS); // fork/process creation is a later phase
@@ -1434,10 +1449,16 @@ fn sys_clone(flags: u64, stack: u64, parent_tid: u64, child_tid: u64, tls: u64) 
     } else {
         0
     };
+    // Collect exits the scheduler already flagged before deciding the table is
+    // under pressure.
+    task::reclaim_pending();
     match task::spawn_thread("thread", stack, fs_base, clear) {
         Ok(index) => {
             if flags & CLONE_PARENT_SETTID != 0 && parent_tid != 0 {
                 write_u64(parent_tid, index as u64);
+            }
+            if task::free_slots() <= CLONE_SLOT_RESERVE {
+                task::wait_slot(task::ticks() + 1);
             }
             index as u64
         }
