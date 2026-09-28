@@ -226,19 +226,19 @@ fn trace_syscall(nr: u64) {
 
 /// Test-harness entry into the syscall dispatcher (issue #62), compiled only
 /// with `LAZYOS_TESTS=1`.
-#[cfg(laZYOS_TESTS)]
+#[cfg(lazyos_tests)]
 pub fn dispatch_for_test(nr: u64, a1: u64, a2: u64, a3: u64) -> u64 {
     dispatch_args_for_test(nr, a1, a2, a3, 0)
 }
 
 /// [`dispatch_for_test`] with a fourth argument (`socketpair`'s `sv`).
-#[cfg(laZYOS_TESTS)]
+#[cfg(lazyos_tests)]
 pub fn dispatch_args_for_test(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64) -> u64 {
     linux_dispatch(nr, a1, a2, a3, a4, 0, 0)
 }
 
 /// [`dispatch_for_test`] with five arguments (`mremap`'s `new_address`).
-#[cfg(laZYOS_TESTS)]
+#[cfg(lazyos_tests)]
 pub fn dispatch_args5_for_test(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u64) -> u64 {
     linux_dispatch(nr, a1, a2, a3, a4, a5, 0)
 }

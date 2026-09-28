@@ -165,7 +165,7 @@ pub fn lookup(name: &[u8]) -> Option<Arc<Listener>> {
 }
 
 /// Empty the registry (test isolation).
-#[cfg(laZYOS_TESTS)]
+#[cfg(lazyos_tests)]
 pub fn clear_for_test() {
     LISTENERS.lock().clear();
 }

@@ -461,13 +461,13 @@ impl Pipe {
 
     /// Park the current task on the reader queue (test hook). Production reads
     /// go through [`Pipe::read`], which uses the same queue.
-    #[cfg(laZYOS_TESTS)]
+    #[cfg(lazyos_tests)]
     pub fn park_reader(&self, task: usize) {
         self.read_wq.park(task, None);
     }
 
     /// Park the current task on the writer queue (test hook).
-    #[cfg(laZYOS_TESTS)]
+    #[cfg(lazyos_tests)]
     pub fn park_writer(&self, task: usize) {
         self.write_wq.park(task, None);
     }

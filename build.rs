@@ -174,7 +174,7 @@ fn main() {
     }
 
     // Rebuild the image when the kernel test switch flips (issue #62): the
-    // kernel's own build script turns `LAZYOS_TESTS=1` into `cfg(laZYOS_TESTS)`.
+    // kernel's own build script turns `LAZYOS_TESTS=1` into `cfg(lazyos_tests)`.
     println!("cargo:rerun-if-env-changed=LAZYOS_TESTS");
     // Fabric observability demo switch (issue #70): the kernel boots the
     // `messengerctl` tool (`MSGCTL.ELF`) in the hello window when this is set.

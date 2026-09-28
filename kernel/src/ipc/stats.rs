@@ -359,7 +359,7 @@ pub fn snapshot() -> FabricStats {
 
 /// Reset every fabric subsystem and its counters. `Test-harness only`: a
 /// running system must never lose its handles, buffers, or audit trail.
-#[cfg(laZYOS_TESTS)]
+#[cfg(lazyos_tests)]
 pub fn reset() {
     use super::{credentials, syscalls};
     channels::reset();

@@ -3,7 +3,7 @@ name = "lazyos"
 version = "0.1.0"
 edition = "2021"
 description = "A small single-tasking x86_64 OS with a bitmap-font console"
-license = "MIT OR Apache-2.0"
+license = "GPL-3.0-or-later"
 
 [workspace]
 members = [
