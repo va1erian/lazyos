@@ -38,10 +38,11 @@ and ring-3 programs, packs them into an MBR + FAT boot disk, and launches QEMU.
 | `HELLO.ELF`, `SH.ELF` | `user` bins | always |
 | `MSGCTL.ELF`, `MSGRD.ELF` | `messengerctl`, `messengerd` | always on disk |
 | `SUPER.ELF`, `LOGD.ELF`, `HEALTHD.ELF`, `FLAKY.ELF`, `KEYD.ELF`, `CLIPD.ELF`, `CLIPCP.ELF`, `CLIPPS.ELF` | services | always on disk; `init` starts them |
-| `ACCTD.ELF`, `LOGIND.ELF`, `MIMED.ELF`, `MIME.TYP`, `PASSWD` | accounts/login/MIME | only when `LAZYOS_SERVICES=1` |
+| `ACCTD.ELF`, `LOGIND.ELF`, `MIMED.ELF`, `MIME.TYP`, `PASSWD`, `SYSD.ELF`, `TOP.ELF` | accounts/login/MIME/system stats | only when `LAZYOS_SERVICES=1` |
 | `XUID.ELF`, `XDEMO.ELF` | compositor demo | only when `LAZYOS_XUID=1` |
 | `DRAGDMO.ELF` | drag & drop demo pair | only when `LAZYOS_XUID=1` |
 | `SHELLPRB.ELF` | shell-protocol evidence client | `LAZYOS_XUID=1` + `LAZYOS_SHELLPROBE=1` |
+| `XAPP.ELF` | `$LAZYOS_XUI_APP` (static musl xui app from `tools/xui/build.py`) | embedded whenever set; spawned only with `LAZYOS_XUID=1` |
 | `INIT.ELF` | `$LAZYOS_INIT` | ABI bench hook |
 | `BUSYBOX` | `$LAZYOS_BUSYBOX` | Linux shim demo |
 
@@ -58,6 +59,8 @@ FAT names are 8.3 because the kernel FAT reader resolves short names only
 | `LAZYOS_SERVICES=1` | `services_mode` | kernel spawns `SUPER.ELF` (`init`) |
 | `LAZYOS_XUID=1` | `xuid_demo` | spawns `XUID.ELF` + two `XDEMO.ELF` + `DRAGDMO.ELF` |
 | `LAZYOS_SHELLPROBE=1` | `shellprobe_demo` | (with `LAZYOS_XUID=1`) spawns `SHELLPRB.ELF` |
+| `LAZYOS_XUI_APP=<path>` | `xui_app` | (with `LAZYOS_XUID=1`) boots `XAPP.ELF` as the display owner *instead of* `xuid`/`xdemo` |
+| `LAZYOS_XUI_CLIENT=1` | `xui_client` | (with the two above) boots `xuid` plus `XAPP.ELF` as a compositor client; no `xdemo` |
 
 **Invariants / decisions**
 
@@ -68,4 +71,7 @@ FAT names are 8.3 because the kernel FAT reader resolves short names only
 - Normal boots compile none of the test-only hooks.
 
 **Status.** Working: `python tools/run_demo.py` builds and boots the two-window
-demo; all switches above are exercised by the headless CI scripts.
+demo; the switches above are exercised by the headless CI workflows
+(`screenshots.yml`, `xui.yml`, `kernel-tests.yml`, `abi-compat.yml`). The
+default image carries a single FAT volume on ATA; no ext2 volume is attached by
+any launcher yet.

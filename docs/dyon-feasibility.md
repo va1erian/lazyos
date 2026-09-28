@@ -25,9 +25,14 @@ matrices; it supports functions, closures, loops, a lifetime/mutability checker,
 - **No `no_std` feature is advertised**, and the dependency set is
   std-oriented (`std::collections`, threads, time, I/O).
 
-## LazyOS constraints
+## LazyOS constraints (as of the assessment)
 
-Our ring-3 user programs today are deliberately minimal:
+> The constraints below are the pre-#25 runtime this assessment was written
+> against. Since then ring-3 programs have a heap (`sbrk`), a Messenger client
+> library, and `std` programs run through the Linux ABI shim; option C below
+> was taken (see the update at the end).
+
+Our ring-3 user programs at the time were deliberately minimal:
 
 - `#![no_std]`, `#![no_main]`, **no `std`, no allocator, no libc**.
 - Fixed memory: code at `0x400000`, a small user stack; no heap growth.

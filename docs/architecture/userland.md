@@ -8,8 +8,10 @@
 
 | Path | Role |
 |---|---|
-| `user/src/lib.rs` | Runtime modules: `sys`, `lang`, `messenger`, `messenger_async`, `heap` |
-| `user/src/sys.rs` | `int 0x80` wrappers, syscall numbers 0-12, `Cred`, display helpers |
+| `user/src/lib.rs` | Runtime modules: `sys`, `sysinfo`, `lang`, `messenger`, `central`, `messenger_async`, `task_snapshot`, `heap` |
+| `user/src/sys.rs` | `int 0x80` wrappers, syscall numbers 0-14, `Cred`, display helpers |
+| `user/src/sysinfo.rs`, `task_snapshot.rs` | Typed decoders for the syscall 14 system snapshot and the syscall 13 task snapshot |
+| `user/src/central.rs` | Topics client that routes service publishes through `messengerd`'s central broker (#169) |
 | `user/src/heap.rs` | Bump allocator over `sbrk` (see [allocators.md](allocators.md)) |
 | `user/src/lang/` | `lexer`, `parser`, `interp`, `value` for `SH.ELF` |
 | `user/src/messenger.rs` | Blocking Messenger client: endpoints, registry, topics, services |
@@ -20,8 +22,9 @@
 `rdi/rsi/rdx`, result in `rax`. `rcx`/`r11` are clobbered, so every wrapper
 declares `clobber_abi("sysv64")`. Numbers: 0 `exit`, 1 `write`, 2 `read_char`,
 3 `read_file`, 4 `sbrk`, 5 `messenger`, 6 `spawn`, 7 `wait`, 8 `clock`,
-9 `service_args`, 10 `cred_set`/`cred_get`/`spawn_as`, 12 `display_*` (11 is the
-kernel-only quota mirror). See [processes.md](processes.md) and [display.md](display.md).
+9 `service_args`, 10 `cred_set`/`cred_get`/`spawn_as`, 12 `display_*`,
+13 `tasks`, 14 `system_stats` (11, the quota read-back, has no wrapper yet).
+See [processes.md](processes.md) and [display.md](display.md).
 
 **Blocking Messenger client** (`messenger.rs`)
 
@@ -66,12 +69,17 @@ kernel-only quota mirror). See [processes.md](processes.md) and [display.md](dis
 | `keyd` / `accountsd` / `logind` | `KEYD` / `ACCTD` / `LOGIND.ELF` | Secrets and crypto (#102) / accounts (#101) / console login and credentialed spawn | `init` |
 | `clipboardd` / `mimed` / `flaky` | `CLIPD` / `MIMED` / `FLAKY.ELF` | Per-session clipboard (#115) / MIME and open-with (#116) / crash-test service (#93) | `init` |
 | `clipcopy` / `clippaste` / `messengerctl` | `CLIPCP` / `CLIPPS` / `MSGCTL.ELF` | Clipboard demo pair (#115) / fabric+services views (#70/#89/#93) | `clipboardd`, kernel flag |
+| `sysmond` / `top` | `SYSD` / `TOP.ELF` | System-stats service over syscall 14 with `system/stats/*` topics / one-shot text client (#144); services image only | `init` / `sysmond` (`demo=1`) or `init` `Launch` |
 | `sh` / `hello` / `xuid` / `xdemo` | `SH` / `HELLO` / `XUID` / `XDEMO.ELF` | Native interpreter / demo / compositor and display demo (#113) | kernel |
+| `dragdemo` / `shellprobe` | `DRAGDMO` / `SHELLPRB.ELF` | Drag & drop evidence pair (#145) / shell-protocol evidence client (#167); `LAZYOS_XUID=1` images | kernel |
+| `async_echo` / `async_service` | not on disk | `messenger_async` examples (#91) | - |
 
 The `init` manifest (`user/src/bin/init.rs`) declares dependencies and restart
 policy: `messengerd` is `Once` (bootstrap can be claimed once per boot), the
 rest `Always`, and rapid crashes back off up to `MAX_RESTARTS = 5`.
 
-**Status.** Working: all bins build; services boot under `LAZYOS_SERVICES=1`;
-sync and async Messenger APIs plus generated stubs have host tests. Open: async
-examples wiring, IDL coverage beyond the echo sample.
+**Status.** Working: all bins build; services boot under `LAZYOS_SERVICES=1`
+(the manifest fills the 16-slot task table, which is why the drag & drop and
+shell-probe demos only boot without it); sync and async Messenger APIs plus
+generated stubs have host tests. Open: async examples wiring, IDL coverage
+beyond the echo sample, `router` removal once every service is on `central`.

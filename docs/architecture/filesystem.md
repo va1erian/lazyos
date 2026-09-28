@@ -97,6 +97,8 @@ keeps the snapshot readable (a later write through the orphan answers ENOENT).
 
 **Status.** Working: FAT boot, ramfs `/tmp`, ext2 read/write, permissions,
 caches, `umask`, the Linux ABI copy-up overlay (`O_CREAT`/`mkdir`/`rename`/
-`unlink`/`rmdir`, fd writes). Open: symlinks, cross-mount rename, per-process
-cwd, page cache, a write test path in CI, and overlay persistence to the
-writable volume.
+`unlink`/`rmdir`, fd writes). ext2 is exercised only by the in-kernel suite
+(`fs_ext2_*` over a `FakeDisk` block device): no launcher or CI job attaches an
+ext2 volume to the demo image yet, so every shipped session runs FAT + ramfs.
+Open: an ext2 volume in the image, symlinks, cross-mount rename, per-process
+cwd, page cache, and overlay persistence to the writable volume.

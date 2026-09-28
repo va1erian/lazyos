@@ -1,7 +1,15 @@
 # Running Rust's `std` on LazyOS — what it takes
 
-_Assessment. Goal: `std`-linked Rust programs (not `#![no_std]`) running on
-LazyOS._
+_Assessment written 2026-09-27. Goal: `std`-linked Rust programs (not
+`#![no_std]`) running on LazyOS._
+
+> **Outcome:** Route B was chosen and implemented; see
+> [`linux-abi-plan.md`](linux-abi-plan.md) and
+> [`architecture/processes.md`](architecture/processes.md). The "Where LazyOS
+> stands today" section below describes the kernel *before* that work and is
+> kept only as the record of the decision; every item in its "missing" list has
+> since landed (`mmap`/`brk`, TLS via `arch_prctl`, futex with blocked tasks,
+> `clone` threads, clocks, `getrandom`, argv/envp).
 
 ## The core fact
 
