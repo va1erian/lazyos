@@ -14,6 +14,7 @@ use xmas_elf::ElfFile;
 
 use super::{load_segments, map_range_kind, page_phys};
 use crate::fs::vfs::{self, FileKind, FsError, Id, Meta};
+use crate::ipc::pipe::{self, End, Side};
 use crate::mem::vma::{Kind, Prot};
 use crate::quota::{self, Resource};
 use crate::task::process::GroupError;
@@ -53,8 +54,11 @@ const EAGAIN: u64 = 11;
 const EFAULT: u64 = 14;
 const ENOEXEC: u64 = 8;
 const ESPIPE: u64 = 29;
+const EPIPE: u64 = 32;
 const EINTR: u64 = 4;
 const ETIMEDOUT: u64 = 110;
+const EMFILE: u64 = 24;
+const ENOTSOCK: u64 = 88;
 // Filesystem errnos (mapped from `FsError` by `fs_err`).
 const EACCES: u64 = 13;
 const EEXIST: u64 = 17;
@@ -65,11 +69,13 @@ const EROFS: u64 = 30;
 const ENAMETOOLONG: u64 = 36;
 const ENOTEMPTY: u64 = 39;
 
-// `clone` flags we honour (thread creation).
+// `clone` flags we honour (thread creation, and the `CLONE_VM`-without-
+// `CLONE_THREAD` vfork child musl's `posix_spawn` uses).
 const CLONE_VM: u64 = 0x0000_0100;
 const CLONE_SETTLS: u64 = 0x0008_0000;
 const CLONE_PARENT_SETTID: u64 = 0x0010_0000;
 const CLONE_CHILD_CLEARTID: u64 = 0x0020_0000;
+const CLONE_THREAD: u64 = 0x0001_0000;
 
 /// Futex word address -> wait queue. A waiter parks on the queue keyed by its
 /// word; `FUTEX_WAKE` notifies exactly that queue, so a wake cannot reach an
@@ -204,7 +210,13 @@ fn trace_syscall(nr: u64) {
 /// with `LAZYOS_TESTS=1`.
 #[cfg(laZYOS_TESTS)]
 pub fn dispatch_for_test(nr: u64, a1: u64, a2: u64, a3: u64) -> u64 {
-    linux_dispatch(nr, a1, a2, a3, 0, 0, 0)
+    dispatch_args_for_test(nr, a1, a2, a3, 0)
+}
+
+/// [`dispatch_for_test`] with a fourth argument (`socketpair`'s `sv`).
+#[cfg(laZYOS_TESTS)]
+pub fn dispatch_args_for_test(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64) -> u64 {
+    linux_dispatch(nr, a1, a2, a3, a4, 0, 0)
 }
 
 /// `openat(AT_FDCWD, ...)` sentinel.
@@ -214,6 +226,28 @@ const AT_FDCWD: u64 = (-100i64) as u64;
 // synthetic entries need are spelled out here).
 const S_IFREG: u32 = 0o100000;
 const S_IFCHR: u32 = 0o020000;
+const S_IFIFO: u32 = 0o010000;
+const S_IFSOCK: u32 = 0o140000;
+
+// `pipe2`/`socketpair` creation flags and `fcntl` commands.
+const O_NONBLOCK: u64 = 0o4000;
+const O_CLOEXEC: u64 = 0o2000000;
+const AF_UNIX: u64 = 1;
+const SOCK_STREAM: u64 = 1;
+const SOCK_SEQPACKET: u64 = 5;
+const SOCK_NONBLOCK: u64 = 0o4000;
+const SOCK_CLOEXEC: u64 = 0o2000000;
+const F_DUPFD: u64 = 0;
+const F_GETFD: u64 = 1;
+const F_SETFD: u64 = 2;
+const F_GETFL: u64 = 3;
+const F_SETFL: u64 = 4;
+const F_DUPFD_CLOEXEC: u64 = 1030;
+const FD_CLOEXEC: u64 = 1;
+
+/// Bytes staged per `read`/`write` call through a pipe. A short transfer is
+/// legal on a pipe, so callers that want it all loop (as `write_all` does).
+const STREAM_CHUNK: usize = 4096;
 
 fn err(e: u64) -> u64 {
     (e as i64).wrapping_neg() as u64
@@ -427,19 +461,23 @@ extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
         16 => sys_ioctl(a1, a2, a3),
         19 => sys_readv(a1, a2, a3),
         20 => sys_writev(a1, a2, a3),
-        21 => sys_access(a1, a2),            // access(path, mode)
-        28 => 0,                             // madvise
-        32 | 33 => sys_dup(nr, a1, a2),      // dup / dup2
-        35 => sys_nanosleep(a1),             // nanosleep(req, rem)
-        39 | 186 => task::current() as u64,  // getpid/gettid: pid == slot (#59)
-        56 => sys_clone(a1, a2, a3, a4, a5), // clone(flags, stack, ptid, ctid, tls)
+        21 => sys_access(a1, a2),             // access(path, mode)
+        22 => sys_pipe(a1, 0),                // pipe(fds)
+        28 => 0,                              // madvise
+        32 | 33 => sys_dup(nr, a1, a2),       // dup / dup2
+        35 => sys_nanosleep(a1),              // nanosleep(req, rem)
+        39 | 186 => task::current() as u64,   // getpid/gettid: pid == slot (#59)
+        44 => sys_sendto(a1, a2, a3),         // sendto (musl's send)
+        45 => sys_recvfrom(a1, a2, a3),       // recvfrom (musl's recv)
+        53 => sys_socketpair(a1, a2, a3, a4), // socketpair(domain, type, proto, sv)
+        56 => sys_clone(a1, a2, a3, a4, a5),  // clone(flags, stack, ptid, ctid, tls)
         57 => sys_fork(),
         59 => sys_execve(a1, a2, a3), // execve(path, argv, envp)
         60 => sys_exit(a1),           // exit: this task (a thread)
         61 => sys_wait4(a1, a2, a3),  // wait4(pid, status, options)
         62 => sys_kill(a1, a2),       // kill(pid, sig)
         63 => sys_uname(a1),
-        72 => sys_fcntl(a1, a2), // fcntl
+        72 => sys_fcntl(a1, a2, a3), // fcntl(fd, cmd, arg)
         79 => sys_getcwd(a1, a2),
         80 => 0,                        // chdir (root-only)
         89 => sys_readlink(a1, a2, a3), // readlink
@@ -469,7 +507,8 @@ extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
         234 => sys_tgkill(a1, a2, a3), // tgkill(tgid, tid, sig)
         257 => sys_openat(a1, a2, a3), // openat
         262 => sys_newfstatat(a1, a2, a3, a4),
-        273 => 0, // set_robust_list
+        273 => 0,                // set_robust_list
+        293 => sys_pipe(a1, a2), // pipe2(fds, flags)
         318 => sys_getrandom(a1, a2),
         334 => {
             crate::serial_println!("ENOSYS 334 rseq");
@@ -551,9 +590,11 @@ fn sys_poll(fds: u64, nfds: u64, timeout: u64) -> u64 {
     }
 }
 
-/// One non-blocking poll pass over the user's `pollfd` array.
+/// One non-blocking poll pass over the user's `pollfd` array. Every open
+/// descriptor kind is classified by the task layer, so pipes, sockets, files
+/// and the terminal all report `POLLIN`/`POLLOUT`/`POLLHUP`/`POLLERR`/`POLLNVAL`.
 fn scan_poll(fds: u64, nfds: u64) -> u64 {
-    const POLLIN: u16 = 0x0001;
+    const POLLNVAL: u16 = 0x0020;
     let mut ready = 0u64;
     for i in 0..nfds {
         // struct pollfd { i32 fd; i16 events; i16 revents; }
@@ -561,12 +602,14 @@ fn scan_poll(fds: u64, nfds: u64) -> u64 {
         let fd = unsafe { user_ptr::read::<i32>(fds + i * 8) };
         // Safety: same pollfd entry, adjacent field.
         let events = unsafe { user_ptr::read::<u16>(fds + i * 8 + 4) };
-        let revents = if fd == 0 && events & POLLIN != 0 && task::input_available() {
-            ready += 1;
-            POLLIN
-        } else {
+        let revents = if fd < 0 {
             0
+        } else {
+            task::fd_poll(fd as usize, events).unwrap_or(POLLNVAL)
         };
+        if revents != 0 {
+            ready += 1;
+        }
         // Safety: user array of pollfd entries (the syscall ABI's contract).
         unsafe { user_ptr::write::<u16>(fds + i * 8 + 6, revents) };
     }
@@ -580,9 +623,16 @@ fn millis_to_ticks(millis: u64) -> u64 {
 }
 
 fn sys_write(fd: u64, ptr: u64, len: u64) -> u64 {
-    if fd > 2 {
-        return err(EBADF); // files are read-only for now
+    match task::fd_kind(fd as usize) {
+        FdKind::Terminal => write_terminal(ptr, len),
+        FdKind::Pipe | FdKind::Socket => write_stream(fd, ptr, len),
+        FdKind::File | FdKind::Closed => err(EBADF), // files are read-only for now
     }
+}
+
+/// Terminal writes (`fd` 0/1/2 and `/dev/tty`): the task's console buffer and
+/// the serial log, with the busybox cursor-position reply.
+fn write_terminal(ptr: u64, len: u64) -> u64 {
     if len == 0 {
         return 0;
     }
@@ -597,13 +647,59 @@ fn sys_write(fd: u64, ptr: u64, len: u64) -> u64 {
     len
 }
 
+/// Pipe/socket write: stage a chunk of user bytes, then let the stream object
+/// block or report `-EPIPE`/`-EAGAIN`. A short count is legal; the caller
+/// (`write_all`, busybox's `full_write`) retries.
+fn write_stream(fd: u64, ptr: u64, len: u64) -> u64 {
+    if len == 0 {
+        return 0;
+    }
+    let want = (len as usize).min(STREAM_CHUNK);
+    let mut buf = [0u8; STREAM_CHUNK];
+    // Safety: the caller passes a valid user buffer of `len` bytes (the
+    // syscall ABI's contract).
+    buf[..want].copy_from_slice(unsafe { user_ptr::bytes(ptr, want) });
+    match task::fd_stream_write(fd as usize, &buf[..want]) {
+        Ok(n) => n as u64,
+        Err(pipe::Error::WouldBlock) => err(EAGAIN),
+        Err(pipe::Error::BrokenPipe) => err(EPIPE),
+        Err(pipe::Error::Interrupted) => err(EINTR),
+        Err(pipe::Error::BadEnd) => err(EBADF),
+    }
+}
+
 fn sys_read(fd: u64, ptr: u64, len: u64) -> u64 {
     match task::fd_kind(fd as usize) {
         FdKind::Terminal => read_terminal(ptr, len),
         FdKind::File => task::fd_read(fd as usize, ptr as *mut u8, len as usize)
             .map(|n| n as u64)
             .unwrap_or(0),
+        FdKind::Pipe | FdKind::Socket => read_stream(fd, ptr, len),
         FdKind::Closed => err(EBADF),
+    }
+}
+
+/// Pipe/socket read: block in the stream object until a chunk is available,
+/// then copy it to the user buffer. `Ok(0)` (EOF) copies nothing.
+fn read_stream(fd: u64, ptr: u64, len: u64) -> u64 {
+    if len == 0 {
+        return 0;
+    }
+    let want = (len as usize).min(STREAM_CHUNK);
+    let mut buf = [0u8; STREAM_CHUNK];
+    match task::fd_stream_read(fd as usize, &mut buf[..want]) {
+        Ok(n) => {
+            if n > 0 {
+                // Safety: the caller passes a valid user buffer of `len` bytes
+                // (the syscall ABI's contract).
+                unsafe { user_ptr::copy_to(ptr, &buf[..n]) };
+            }
+            n as u64
+        }
+        Err(pipe::Error::WouldBlock) => err(EAGAIN),
+        Err(pipe::Error::BrokenPipe) => err(EPIPE),
+        Err(pipe::Error::Interrupted) => err(EINTR),
+        Err(pipe::Error::BadEnd) => err(EBADF),
     }
 }
 
@@ -921,12 +1017,7 @@ fn sys_gettimeofday(tv: u64) -> u64 {
 /// Sleep for the `struct timespec` duration at `req` (nanosleep/clock_nanosleep).
 fn sys_nanosleep(req: u64) -> u64 {
     // Safety: user buffer holds a `struct timespec` (the syscall ABI's contract).
-    let (sec, nsec) = unsafe {
-        (
-            user_ptr::read::<i64>(req),
-            user_ptr::read::<i64>(req + 8),
-        )
-    };
+    let (sec, nsec) = unsafe { (user_ptr::read::<i64>(req), user_ptr::read::<i64>(req + 8)) };
     if sec < 0 || nsec < 0 {
         return err(EINVAL);
     }
@@ -1061,6 +1152,26 @@ fn load_file(path: &str) -> Result<Vec<u8>, FsError> {
         Ok(data) => Ok(data),
         Err(FsError::NotFound) if applet_name(path).is_some() => {
             crate::fs::vfs_read(Id::current(), "/busybox").map_err(|_| FsError::NotFound)
+        }
+        Err(error) => Err(error),
+    }
+}
+
+/// Load an executable for `execve`: the path itself, or — when a `$PATH`
+/// lookup names one of the synthetic `bin` directories LazyOS does not back
+/// with files — the basename at the image root. The executable store is the
+/// flat FAT root, so this is what lets `execvp("INIT.ELF")` find `/INIT.ELF`
+/// after trying `/usr/local/bin`, `/bin` and `/usr/bin`.
+fn load_executable(path: &str) -> Result<Vec<u8>, FsError> {
+    match load_file(path) {
+        Ok(elf) => Ok(elf),
+        Err(FsError::NotFound) => {
+            let base = path.rsplit('/').next().unwrap_or(path);
+            if base != path && !base.is_empty() {
+                load_file(base)
+            } else {
+                Err(FsError::NotFound)
+            }
         }
         Err(error) => Err(error),
     }
@@ -1285,7 +1396,7 @@ fn sys_lseek(fd: u64, offset: u64, whence: u64) -> u64 {
             Some(pos) => pos,
             None => err(EINVAL),
         },
-        FdKind::Terminal => err(ESPIPE),
+        FdKind::Terminal | FdKind::Pipe | FdKind::Socket => err(ESPIPE),
         FdKind::Closed => err(EBADF),
     }
 }
@@ -1330,18 +1441,148 @@ fn sys_dup(nr: u64, a1: u64, a2: u64) -> u64 {
     }
 }
 
-fn sys_fcntl(fd: u64, cmd: u64) -> u64 {
+/// `fcntl(fd, cmd, arg)`: the descriptor/status flag commands std needs, plus
+/// `F_DUPFD`/`F_DUPFD_CLOEXEC` (`O_NONBLOCK` state lives on the shared pipe or
+/// socket object, so `dup`/`fork` see the same setting).
+fn sys_fcntl(fd: u64, cmd: u64, arg: u64) -> u64 {
     match cmd {
-        0 => match task::fd_dup(fd as usize) {
-            // F_DUPFD
+        F_DUPFD | F_DUPFD_CLOEXEC => match task::fd_dup_min(fd as usize, arg as usize) {
             Some(new) => {
                 fd_meta_copy(fd as usize, new);
+                if cmd == F_DUPFD_CLOEXEC {
+                    task::fd_set_cloexec(new, true);
+                }
                 new as u64
             }
             None => err(EBADF),
         },
-        _ => 0, // F_GETFD/SETFD/GETFL/SETFL: report defaults
+        F_GETFD => match task::fd_kind(fd as usize) {
+            FdKind::Closed => err(EBADF),
+            _ => task::fd_cloexec(fd as usize) as u64,
+        },
+        F_SETFD => match task::fd_kind(fd as usize) {
+            FdKind::Closed => err(EBADF),
+            _ => {
+                task::fd_set_cloexec(fd as usize, arg & FD_CLOEXEC != 0);
+                0
+            }
+        },
+        F_GETFL => match task::fd_status(fd as usize) {
+            Some(flags) => flags,
+            None => err(EBADF),
+        },
+        F_SETFL => match task::fd_set_status(fd as usize, arg & O_NONBLOCK != 0) {
+            true => 0,
+            false => err(EBADF),
+        },
+        _ => err(EINVAL),
     }
+}
+
+/// `pipe(fds)` and `pipe2(fds, flags)`: a pair of descriptors onto one bounded
+/// byte pipe. `O_CLOEXEC` is set on both ends; `O_NONBLOCK` at creation is
+/// honored through the pipe's per-end status state.
+fn sys_pipe(fds: u64, flags: u64) -> u64 {
+    if fds == 0 {
+        return err(EFAULT);
+    }
+    let Some(pipe) = pipe::Pipe::new() else {
+        return err(EMFILE);
+    };
+    let Some(read_fd) = task::fd_open(Fd::pipe_end(Arc::clone(&pipe), End::Read)) else {
+        return err(EMFILE);
+    };
+    let Some(write_fd) = task::fd_open(Fd::pipe_end(Arc::clone(&pipe), End::Write)) else {
+        task::fd_close(read_fd);
+        return err(EMFILE);
+    };
+    if flags & O_CLOEXEC != 0 {
+        task::fd_set_cloexec(read_fd, true);
+        task::fd_set_cloexec(write_fd, true);
+    }
+    if flags & O_NONBLOCK != 0 {
+        pipe.set_nonblock(End::Read, true);
+        pipe.set_nonblock(End::Write, true);
+    }
+    // Safety: user array of two `int` descriptors (the syscall ABI's contract).
+    unsafe {
+        user_ptr::write::<i32>(fds, read_fd as i32);
+        user_ptr::write::<i32>(fds + 4, write_fd as i32);
+    }
+    0
+}
+
+/// `socketpair(AF_UNIX, SOCK_STREAM|SOCK_SEQPACKET, 0, sv)`: a new pair of
+/// byte-stream endpoints. `SOCK_SEQPACKET` is accepted but message boundaries
+/// are not preserved (std sends one fixed 8-byte record; see
+/// `crate::ipc::pipe::SocketPair`). `SOCK_CLOEXEC`/`SOCK_NONBLOCK` are honored.
+fn sys_socketpair(domain: u64, kind: u64, protocol: u64, sv: u64) -> u64 {
+    let base = kind & 0xf;
+    if domain != AF_UNIX || (base != SOCK_STREAM && base != SOCK_SEQPACKET) || protocol != 0 {
+        return err(EINVAL);
+    }
+    if sv == 0 {
+        return err(EFAULT);
+    }
+    let Some(pair) = pipe::SocketPair::new() else {
+        return err(EMFILE);
+    };
+    let Some(a) = task::fd_open(Fd::socket_side(Arc::clone(&pair), Side::A)) else {
+        return err(EMFILE);
+    };
+    let Some(b) = task::fd_open(Fd::socket_side(Arc::clone(&pair), Side::B)) else {
+        task::fd_close(a);
+        return err(EMFILE);
+    };
+    if kind & SOCK_CLOEXEC != 0 {
+        task::fd_set_cloexec(a, true);
+        task::fd_set_cloexec(b, true);
+    }
+    if kind & SOCK_NONBLOCK != 0 {
+        pair.set_nonblock(Side::A, true);
+        pair.set_nonblock(Side::B, true);
+    }
+    // Safety: user array of two `int` descriptors (the syscall ABI's contract).
+    unsafe {
+        user_ptr::write::<i32>(sv, a as i32);
+        user_ptr::write::<i32>(sv + 4, b as i32);
+    }
+    0
+}
+
+/// `sendto(fd, buf, len, flags, addr, addrlen)`: musl's `send`. The only
+/// sockets are connected `AF_UNIX` pairs, so the destination is ignored (std
+/// passes a null address) and this is a stream write; a non-socket fd is
+/// `-ENOTSOCK`, as Linux reports.
+fn sys_sendto(fd: u64, buf: u64, len: u64) -> u64 {
+    match task::fd_kind(fd as usize) {
+        FdKind::Socket => write_stream(fd, buf, len),
+        _ => err(ENOTSOCK),
+    }
+}
+
+/// `recvfrom(fd, buf, len, flags, addr, addrlen)`: musl's `recv`. Source
+/// addresses do not exist for connected pairs (std passes null), so this is a
+/// stream read; a non-socket fd is `-ENOTSOCK`.
+fn sys_recvfrom(fd: u64, buf: u64, len: u64) -> u64 {
+    match task::fd_kind(fd as usize) {
+        FdKind::Socket => read_stream(fd, buf, len),
+        _ => err(ENOTSOCK),
+    }
+}
+
+/// Close every `FD_CLOEXEC` descriptor: the `execve` step that drops std's
+/// pipe and socket pairs after they have been `dup2`-ed onto 0/1/2. Returns how
+/// many were closed (test-visible through `process::linux`).
+pub fn close_cloexec_fds() -> usize {
+    // The `(task, fd)` metadata side table is keyed by slot; clear the marked
+    // slots first so a closed file's mode/size cannot outlive the exec.
+    for fd in 0..task::FD_COUNT {
+        if task::fd_cloexec(fd) {
+            fd_meta_clear(fd);
+        }
+    }
+    task::fd_close_cloexec()
 }
 
 /// Fill a `struct stat` (x86_64 layout) at `buf`.
@@ -1395,6 +1636,14 @@ fn sys_fstat(fd: u64, buf: u64) -> u64 {
             fill_stat(buf, S_IFCHR | 0o620, 0, 0);
             0
         }
+        FdKind::Pipe => {
+            fill_stat(buf, S_IFIFO | 0o600, 0, fd);
+            0
+        }
+        FdKind::Socket => {
+            fill_stat(buf, S_IFSOCK | 0o600, 0, fd);
+            0
+        }
         FdKind::Closed => err(EBADF),
     }
 }
@@ -1423,18 +1672,28 @@ fn sys_newfstatat(_dirfd: u64, path: u64, buf: u64, _flags: u64) -> u64 {
     }
 }
 
-/// `clone(flags, stack, parent_tid, child_tid, tls)` — thread creation only.
+/// `clone(flags, stack, parent_tid, child_tid, tls)`.
+///
+/// `CLONE_VM|CLONE_THREAD` is a thread ([`task::spawn_thread`]); `CLONE_VM`
+/// without `CLONE_THREAD` is musl `posix_spawn`'s vfork child
+/// ([`task::spawn_vfork`]): shared address space, copied descriptor table,
+/// inherited `%fs`. A plain `fork`-style clone (no `CLONE_VM`) is not modelled.
 fn sys_clone(flags: u64, stack: u64, parent_tid: u64, child_tid: u64, tls: u64) -> u64 {
     if flags & CLONE_VM == 0 {
         return err(ENOSYS); // fork/process creation is a later phase
     }
-    let fs_base = if flags & CLONE_SETTLS != 0 { tls } else { 0 };
-    let clear = if flags & CLONE_CHILD_CLEARTID != 0 {
-        child_tid
+    let spawned = if flags & CLONE_THREAD != 0 {
+        let fs_base = if flags & CLONE_SETTLS != 0 { tls } else { 0 };
+        let clear = if flags & CLONE_CHILD_CLEARTID != 0 {
+            child_tid
+        } else {
+            0
+        };
+        task::spawn_thread("thread", stack, fs_base, clear)
     } else {
-        0
+        task::spawn_vfork(stack)
     };
-    match task::spawn_thread("thread", stack, fs_base, clear) {
+    match spawned {
         Ok(index) => {
             if flags & CLONE_PARENT_SETTID != 0 && parent_tid != 0 {
                 write_u64(parent_tid, index as u64);
@@ -1540,7 +1799,7 @@ fn sys_execve(path_ptr: u64, argv_ptr: u64, envp_ptr: u64) -> u64 {
         Ok(_) | Err(FsError::NotFound) => {}
         Err(error) => return fs_err(error),
     }
-    let elf = match load_file(target) {
+    let elf = match load_executable(target) {
         Ok(elf) => elf,
         Err(FsError::NotFound) => return err(ENOENT),
         Err(error) => return fs_err(error),
@@ -1565,6 +1824,10 @@ fn sys_execve(path_ptr: u64, argv_ptr: u64, envp_ptr: u64) -> u64 {
     let phdr = program_header_addr(&elf);
     let (phent, phnum) = phdr_size(&elf);
     let rsp = build_start_stack(&stack, &argv, &envp, entry, phdr, phent, phnum);
+
+    // The image is committed: close the descriptors std marked `O_CLOEXEC`
+    // (the child's copies of the inherit-only pipe ends) before resuming.
+    close_cloexec_fds();
 
     // Replace the process image: switch to the new table and make `sysretq`
     // resume at the new entry.

@@ -41,6 +41,11 @@ pub static CHILD_EXIT: WaitQueue = WaitQueue::new(WaitKind::ChildExit);
 /// them with `TimedOut`, which is exactly a sleep.
 pub static SLEEP: WaitQueue = WaitQueue::new(WaitKind::Sleep);
 
+/// `poll` waiters over mixed descriptors. Terminal input and every pipe event
+/// notify it; wakeups are advisory, so a waiter rescans its own `pollfd` array
+/// and parks again if nothing it cares about changed.
+pub static POLL: WaitQueue = WaitQueue::new(WaitKind::Poll);
+
 struct QueueState {
     /// Parked task slots, oldest first (FIFO wake order).
     waiters: Vec<usize>,
