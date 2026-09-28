@@ -1591,7 +1591,7 @@ fn frame_is_user(rsp: u64, rip_index: usize) -> bool {
 }
 
 /// Test-harness hooks (issue #62): reset the registry between tests.
-#[cfg(laZYOS_TESTS)]
+#[cfg(lazyos_tests)]
 pub mod harness {
     /// Clear all process signal state.
     pub fn reset() {

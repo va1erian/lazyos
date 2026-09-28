@@ -878,6 +878,9 @@ fn handle_event(
                 full,
                 drag_session.as_ref(),
             );
+            // This press goes to the surface, so its release must too: drop a
+            // stale consumed bit left by a release the input queue dropped.
+            *consumed &= !button_bit;
             let (x, y) = relative(surfaces, id, point);
             forward(surfaces, scratch, Some(id), method::POINTER_DOWN, x, y);
         }
