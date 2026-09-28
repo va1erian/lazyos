@@ -322,6 +322,12 @@ impl Encoder {
         Ok(())
     }
 
+    /// Write a field whose payload was encoded elsewhere (e.g. a generated
+    /// nested record helper). `kind` must match the payload's encoding.
+    pub fn raw(&mut self, kind: Kind, id: u16, payload: &[u8]) -> Result<(), Error> {
+        self.push(kind, id, payload)
+    }
+
     pub fn bool(&mut self, id: u16, value: bool) -> Result<(), Error> {
         self.push(Kind::Bool, id, &[value as u8])
     }

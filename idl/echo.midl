@@ -1,0 +1,14 @@
+/// A tiny demo service: echo whatever you send (issue #90 sample IDL).
+interface os.lazy.echo.v1 {
+    /// Reply with `text` and the number of bytes received.
+    method Echo(text: String, count: U32) -> (reply: String);
+    /// Health probe.
+    method Ping() -> (alive: Bool);
+    /// Broadcast an event; no reply is expected.
+    method Notify(event: Event) -> () oneway;
+
+    /// A timestamped notice.
+    struct Event { topic: String, at: U64 }
+    /// Severity levels (reserved for future filters).
+    enum Level { Info, Warn, Error }
+}

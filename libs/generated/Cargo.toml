@@ -1,0 +1,9 @@
+[package]
+name = "messenger-generated"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Generated Messenger interface stubs (produced by tools/midlc)"
+
+[dependencies]
+libmessenger = { path = "../messenger" }
