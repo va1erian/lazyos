@@ -64,6 +64,14 @@ compositor demo. Target toolkit design: [xui-plan.md](../xui-plan.md).
   (`bind`/`present`/`input_poll`) and paints full-screen. Default
   `LAZYOS_XUID=1` is unchanged. Running the app as a `xuid` client over the
   compositor protocol is the remaining step.
+- Issue #153 adds the first windowed system-state viewers on that backend:
+  `sysmon` renders the syscall-14 snapshot (frame/slab/heap gauges, uptime, the
+  task table) and `fabricmon` renders the syscall-5 fabric (registry names with
+  owners/interfaces, topics-broker counts, buffers/fences/handles, per-task
+  usage). Each is one owner-drawn node with a one-second `ui` timer and `r`/`q`
+  keys, prints `SYSMON:*`/`FABMON:*` serial markers, and is captured in
+  `.github/workflows/xui.yml` as the display owner in turn (fabricmon over the
+  `LAZYOS_SERVICES=1` session, so the registry and broker are live).
 - Window management (issue #143) lives in `xuid`: the `surfaces` vector is the
   z-order (tail paints last), a title-bar press drags the window (clamped to the
   screen above the taskbar), the title bar carries close/minimize buttons, and a
@@ -82,7 +90,8 @@ the queue is full and is IRQ-safe (leaf lock).
 
 **Status.** Working: demo mux, display grant, xuid + xdemo in headless captures
 (`LAZYOS_XUID=1`), xuid window management (drag, z-order, buttons, taskbar,
-focus cycling; `XUID:WM:PASS`), and the xui app milestones M0-M2
-(`XUIAPP:*:PASS` markers, screenshots in the `xui-app` workflow). Open:
-zero-copy scanout, running the xui app as a compositor client, multi-session
-compositors.
+focus cycling; `XUID:WM:PASS`), the xui app milestones M0-M2
+(`XUIAPP:*:PASS` markers) and the sysmon/fabricmon viewers
+(`SYSMON:*`/`FABMON:*` markers, screenshots in the `xui-app` workflow).
+Open: zero-copy scanout, running the xui app as a compositor client,
+multi-session compositors.

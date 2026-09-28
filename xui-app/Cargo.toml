@@ -14,11 +14,17 @@ exclude = ["vendor/xui-canvas"]
 [dependencies]
 xui-core = { git = "https://github.com/va1erian/xui", rev = "2747818" }
 xui-canvas = { git = "https://github.com/va1erian/xui", rev = "2747818" }
+# The same parcel codec the kernel and native `user` programs use, so the
+# fabric panel reads registry replies and talks to the topics broker with one
+# shared wire implementation. `no_std` + `alloc`, so it links into this binary.
+libmessenger = { path = "../libs/messenger" }
 
 # Upstream `xui-canvas` builds its shaper's font database from the directories
 # `fontdb` scans and memory-maps the files it finds; LazyOS's Linux ABI has
 # anonymous `mmap` only. The vendored copy adds `set_default_font`, which feeds
-# the bundled TTF from memory, and is otherwise the pinned revision.
+# the bundled TTF from memory, applies `TextStyle`'s horizontal alignment for
+# natural-width (non-wrapped) runs, and exposes `Surface::pixels` for a
+# clone-free present; otherwise it is the pinned revision.
 [patch."https://github.com/va1erian/xui"]
 xui-canvas = { path = "vendor/xui-canvas" }
 
@@ -29,6 +35,14 @@ path = "src/bin/m0.rs"
 [[bin]]
 name = "xui-counter"
 path = "src/bin/counter.rs"
+
+[[bin]]
+name = "xui-sysmon"
+path = "src/bin/sysmon.rs"
+
+[[bin]]
+name = "xui-fabricmon"
+path = "src/bin/fabricmon.rs"
 
 [profile.release]
 opt-level = "z"

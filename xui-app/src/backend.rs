@@ -14,7 +14,7 @@ use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use xui_canvas::{RgbaImage, Surface};
+use xui_canvas::Surface;
 use xui_core::backend::{
     Backend, Event, ImplKind, NodeKind, NodeSpec, Painter, ParentRef, PlatformSpec,
     Result as BackendResult, TextMetrics, TextStyle, TimerId, Waker, WidgetId, WindowId,
@@ -49,10 +49,23 @@ pub struct LazyOSBackend {
     /// Pointer position in screen pixels, seeded by the kernel at bind and
     /// updated by move events; button records carry no coordinates.
     pointer: Cell<(i32, i32)>,
+    /// The node keyboard events go to; set by [`Backend::focus`]. Keys target
+    /// the focused node (or the window) instead of a hit-tested one.
+    focused: Cell<Option<WidgetId>>,
+    /// Repeating timers armed by [`Backend::set_timer`], in PIT ticks.
+    timers: RefCell<Vec<Timer>>,
+    next_timer: Cell<usize>,
     /// Frames presented so far.
     frames: Cell<u64>,
     /// A one-shot callback run after the first frame reached the screen.
     on_first_frame: RefCell<Option<Box<dyn FnOnce()>>>,
+}
+
+/// One repeating timer; `deadline` is an absolute PIT tick (100 Hz).
+struct Timer {
+    id: usize,
+    millis: u64,
+    deadline: u64,
 }
 
 struct Window {
@@ -97,6 +110,9 @@ impl LazyOSBackend {
             dirty: Arc::new(AtomicBool::new(false)),
             quit: Arc::new(AtomicBool::new(false)),
             pointer: Cell::new((0, 0)),
+            focused: Cell::new(None),
+            timers: RefCell::new(Vec::new()),
+            next_timer: Cell::new(1),
             frames: Cell::new(0),
             on_first_frame: RefCell::new(None),
         })
@@ -128,10 +144,13 @@ impl LazyOSBackend {
         id
     }
 
-    /// Composites `window`'s visible nodes, in creation order, into an image.
-    pub fn render(&self, window: WindowId) -> Option<RgbaImage> {
+    /// Composites `window`'s visible nodes, in creation order, into its
+    /// surface, ready for [`LazyOSBackend::present`] to copy.
+    fn composite(&self, window: WindowId) -> bool {
         let mut windows = self.windows.borrow_mut();
-        let entry = windows.get_mut(&window.raw())?;
+        let Some(entry) = windows.get_mut(&window.raw()) else {
+            return false;
+        };
         entry.surface.fill(entry.background);
         let dpi = entry.dpi;
         let paints: Vec<(Rect, Painter)> = self
@@ -146,26 +165,34 @@ impl LazyOSBackend {
                 .surface
                 .with_canvas_at(bounds, dpi, |canvas| painter(canvas));
         }
-        Some(entry.surface.to_image())
+        true
     }
 
     /// Render and blit the window through the display grant.
+    ///
+    /// The composite is copied straight from the window's persistent surface
+    /// into the screen buffer. Cloning it into a standalone image first would
+    /// allocate a second screen-sized buffer every frame, and LazyOS's native
+    /// `mmap` bumps its address space instead of reusing freed ranges, so that
+    /// per-frame clone exhausts the mapping window after a few hundred frames.
     fn present(&self, window: WindowId) -> bool {
-        let Some(image) = self.render(window) else {
-            return false;
-        };
-        let (width, height) = self.screen();
-        if image.width as i32 != width || image.height as i32 != height {
+        if !self.composite(window) {
             return false;
         }
+        let (width, height) = self.screen();
         let size = self.display.size as usize;
-        if image.pixels.len() != size {
+        let mut windows = self.windows.borrow_mut();
+        let Some(entry) = windows.get_mut(&window.raw()) else {
+            return false;
+        };
+        let pixels = entry.surface.pixels();
+        if pixels.len() != size {
             return false;
         }
         // Safety: `va`/`size` are the mapping the kernel installed for this
-        // task's screen buffer at bind; `image.pixels` is exactly `size` bytes.
+        // task's screen buffer at bind; `pixels` is exactly `size` bytes.
         unsafe {
-            core::ptr::copy_nonoverlapping(image.pixels.as_ptr(), self.display.va as *mut u8, size);
+            core::ptr::copy_nonoverlapping(pixels.as_ptr(), self.display.va as *mut u8, size);
         }
         if sys::display_present(0, 0, width, height).is_err() {
             return false;
@@ -205,6 +232,9 @@ impl LazyOSBackend {
     }
 
     /// Drain the kernel input queue, translate and route each record.
+    ///
+    /// Pointer events hit-test the node under the pointer; keyboard events go
+    /// to the focused node (the window itself when none is focused).
     fn pump_input(&self, window: WindowId) {
         let mut bytes = [0u8; EVENT_BYTES * INPUT_BATCH];
         while let Ok(count) = sys::display_input_poll(&mut bytes) {
@@ -218,10 +248,10 @@ impl LazyOSBackend {
                 let Some(event) = self.translate(raw) else {
                     continue;
                 };
-                let target = event
-                    .position()
-                    .and_then(|(x, y)| self.hit(window, x, y))
-                    .unwrap_or(WidgetId::NONE);
+                let target = match event.position() {
+                    Some((x, y)) => self.hit(window, x, y).unwrap_or(WidgetId::NONE),
+                    None => self.focused.get().unwrap_or(WidgetId::NONE),
+                };
                 self.deliver(window, target, &event);
                 if raw.kind == event::KEY_DOWN {
                     if let Some(character) = key_char(raw.a as u32) {
@@ -229,6 +259,21 @@ impl LazyOSBackend {
                     }
                 }
             }
+        }
+    }
+
+    /// Deliver every due timer's `Timer` event and re-arm it for its period.
+    fn fire_timers(&self, window: WindowId) {
+        let now = sys::clock_ticks();
+        let mut due = Vec::new();
+        for timer in self.timers.borrow_mut().iter_mut() {
+            if now >= timer.deadline {
+                due.push(timer.id);
+                timer.deadline = now.saturating_add(timer.millis.div_ceil(10));
+            }
+        }
+        for id in due {
+            self.deliver(window, WidgetId::NONE, &Event::Timer { id: TimerId(id) });
         }
     }
 
@@ -283,6 +328,10 @@ impl Backend for LazyOSBackend {
             // A wake drains the message queue; widget mappers enqueue while an
             // input record is being routed, so this runs after every batch.
             self.deliver(window, WidgetId::NONE, &Event::Wake);
+            self.fire_timers(window);
+            // Timer messages joined the queue after the wake above; drain them
+            // in the same pass so a refresh paints without a poll-period delay.
+            self.deliver(window, WidgetId::NONE, &Event::Wake);
             if self.dirty.swap(false, Ordering::Relaxed) {
                 self.present(window);
             }
@@ -332,6 +381,7 @@ impl Backend for LazyOSBackend {
         self.nodes
             .borrow_mut()
             .retain(|(_, node)| node.window != window);
+        self.focused.set(None);
     }
 
     fn create(&self, parent: ParentRef, spec: &NodeSpec) -> BackendResult<WidgetId> {
@@ -367,6 +417,9 @@ impl Backend for LazyOSBackend {
     fn destroy(&self, id: WidgetId) {
         let mut nodes = self.nodes.borrow_mut();
         nodes.retain(|(node_id, _)| *node_id != id);
+        if self.focused.get() == Some(id) {
+            self.focused.set(None);
+        }
         // Cascade: drop any node whose parent chain no longer exists.
         loop {
             let gone: Vec<WidgetId> = nodes
@@ -401,7 +454,9 @@ impl Backend for LazyOSBackend {
         self.with_node(id, |node| node.enabled = enabled);
     }
 
-    fn focus(&self, _id: WidgetId) {}
+    fn focus(&self, id: WidgetId) {
+        self.focused.set(Some(id));
+    }
 
     fn set_text(&self, id: WidgetId, text: &str) {
         self.with_node(id, |node| node.text = text.to_string());
@@ -462,11 +517,22 @@ impl Backend for LazyOSBackend {
         }
     }
 
-    fn set_timer(&self, _window: WindowId, _millis: u32) -> TimerId {
-        TimerId(0)
+    fn set_timer(&self, _window: WindowId, millis: u32) -> TimerId {
+        let id = self.next_timer.get();
+        self.next_timer.set(id + 1);
+        let millis = (millis as u64).max(1);
+        let deadline = sys::clock_ticks().saturating_add(millis.div_ceil(10));
+        self.timers.borrow_mut().push(Timer {
+            id,
+            millis,
+            deadline,
+        });
+        TimerId(id)
     }
 
-    fn kill_timer(&self, _window: WindowId, _id: TimerId) {}
+    fn kill_timer(&self, _window: WindowId, id: TimerId) {
+        self.timers.borrow_mut().retain(|timer| timer.id != id.0);
+    }
 
     fn supports(&self, _kind: NodeKind) -> ImplKind {
         ImplKind::Painted

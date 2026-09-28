@@ -88,6 +88,12 @@ impl Surface {
             pixels: self.pixmap.data().to_vec(),
         }
     }
+
+    /// The surface's top-down RGBA pixels (row-major, 4 bytes each), borrowed
+    /// so a caller that already has a destination avoids `to_image`'s clone.
+    pub fn pixels(&self) -> &[u8] {
+        self.pixmap.data()
+    }
 }
 
 /// Converts a core [`Color`] to a tiny-skia colour.
