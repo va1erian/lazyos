@@ -1,0 +1,21 @@
+[package]
+name = "lazyos-crypto"
+version = "0.1.0"
+edition = "2021"
+description = "Vetted no_std cryptography for LazyOS keyd (issue #102)"
+license = "MIT OR Apache-2.0"
+
+[lib]
+name = "lazyos_crypto"
+path = "src/lib.rs"
+
+# RustCrypto primitives (pure Rust, `no_std`). `sha2` is pinned to the
+# `force-soft` backend on purpose: the portable code path avoids the x86
+# CPU-feature dispatch, which currently trips the pinned nightly's LLVM on
+# `x86_64-unknown-none` (legalizer error in the SIMD/asm backends). See the
+# crate docs for the AEAD follow-up this implies for `wrap`.
+[dependencies]
+argon2 = { version = "=0.5.3", default-features = false, features = ["alloc"] }
+hkdf = { version = "=0.12.4", default-features = false }
+hmac = { version = "=0.12.1", default-features = false }
+sha2 = { version = "=0.10.8", default-features = false, features = ["force-soft"] }

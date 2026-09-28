@@ -35,13 +35,13 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::panic::PanicInfo;
 use libmessenger::{Decoder, Encoder, Header, Kind, Parcel, VERSION};
-use user::messenger::{self, registry, services, topics_client, FabricStats};
+use user::messenger::{self, keyd, registry, services, topics_client, FabricStats};
 use user::sys;
 
 /// The interactive command set, printed at startup and by `help`.
 const HELP: &str = "commands: list | resolve <name> | services | health | \
                     log [tail [n]] | log verify | topics | tail <filter> [count] | \
-                    stats | help | quit\n";
+                    keys | stats | help | quit\n";
 
 #[no_mangle]
 pub extern "C" fn _start() -> ! {
@@ -51,6 +51,7 @@ pub extern "C" fn _start() -> ! {
         Err(error) => report(error.message()),
     }
     topic_selftest();
+    keyd_selftest();
     commands()
 }
 
@@ -77,6 +78,7 @@ fn commands() -> ! {
                 Err(error) => report(error.message()),
             },
             "topics" => print_topics(),
+            "keys" => print_keys(),
             _ if text.starts_with("resolve ") => resolve(text[8..].trim()),
             _ if text.starts_with("log tail") => {
                 let count = text[8..].trim().parse().unwrap_or(10);
@@ -344,6 +346,29 @@ fn print_topics() {
     }
 }
 
+/// `keys`: list the `keyd` service's key ids and use counters (issue #102).
+/// Key material is never part of the protocol, so this command cannot and
+/// does not print any.
+fn print_keys() {
+    let client = match keyd::Client::connect() {
+        Ok(client) => client,
+        Err(error) => return report(error.message()),
+    };
+    match client.keys() {
+        Ok(keys) if keys.is_empty() => sys::write_str("keyd: no keys held\n"),
+        Ok(keys) => {
+            sys::write_str(&format!("keyd: {} key(s)\n", keys.len()));
+            for key in &keys {
+                sys::write_str(&format!(
+                    "  #{} {:<8} uses {:<3} last-use tick {}\n",
+                    key.id, key.kind, key.uses, key.last_use
+                ));
+            }
+        }
+        Err(error) => report(error.message()),
+    }
+}
+
 /// `tail <filter> [count]`: subscribe with `latest` QoS and print up to
 /// `count` events (default 5, capped at 64). The task blocks between events;
 /// another task's publishes wake it through the broker's deferred reply.
@@ -432,6 +457,41 @@ fn marker(name: &str, outcome: Result<(), String>) {
     match outcome {
         Ok(()) => sys::write_str(&format!("{name}:PASS\n")),
         Err(detail) => sys::write_str(&format!("{name}:FAIL:{detail}\n")),
+    }
+}
+
+/// The boot-time `keyd` reachability marker: list the service's keys and print
+/// `KEYD:KEYS:PASS <count>`. `init` starts `keyd` alongside this tool, so a
+/// short retry covers the registration race; a boot with no `keyd` is silent,
+/// exactly like [`topic_selftest`].
+fn keyd_selftest() {
+    // keyd's Argon2id self-test can take seconds under TCG, so the retry
+    // window is generous (~0.6 s of parked ticks); `KEYD:SELFTEST:PASS` from
+    // the service itself is the authoritative marker, this one is a bonus.
+    const ATTEMPTS: usize = 64;
+    for _ in 0..ATTEMPTS {
+        match keyd::Client::connect() {
+            Ok(client) => {
+                match client.keys() {
+                    Ok(keys) => sys::write_str(&format!("KEYD:KEYS:PASS {}\n", keys.len())),
+                    Err(error) => sys::write_str(&format!("KEYD:KEYS:FAIL:{}\n", error.message())),
+                }
+                return;
+            }
+            Err(_) => park_tick(),
+        }
+    }
+}
+
+/// Sleep one PIT tick by parking on a private channel pair with an expired
+/// deadline (userspace has no sleep syscall; the topics client uses the same
+/// trick). The pair is closed again so no channel leaks.
+fn park_tick() {
+    if let Ok((probe, peer)) = messenger::create_pair() {
+        let mut scratch = [0u8; 16];
+        let _ = probe.recv_into(&mut scratch, Some(messenger::EXPIRED_DEADLINE));
+        let _ = probe.close();
+        let _ = peer.close();
     }
 }
 

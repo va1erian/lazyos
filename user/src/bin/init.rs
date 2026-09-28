@@ -71,10 +71,10 @@ struct ServiceSpec {
 }
 
 /// The boot manifest. `messengerd` is first because it owns the bootstrap
-/// registry listener; `logd` and `healthd` depend on it; `flaky` depends on
-/// `healthd` so the crash test also proves dependency gating. `messengerd` is
-/// `Once` because the kernel's bootstrap channel can be claimed only once per
-/// boot, so restarting it could not re-listen.
+/// registry listener; `keyd`, `logd` and `healthd` depend on it; `flaky`
+/// depends on `healthd` so the crash test also proves dependency gating.
+/// `messengerd` is `Once` because the kernel's bootstrap channel can be
+/// claimed only once per boot, so restarting it could not re-listen.
 const MANIFEST: &[ServiceSpec] = &[
     ServiceSpec {
         name: "messengerd",
@@ -83,6 +83,14 @@ const MANIFEST: &[ServiceSpec] = &[
         restart: Restart::Once,
         deps: &[],
         health_topic: "system/health/messengerd",
+    },
+    ServiceSpec {
+        name: "keyd",
+        path: "KEYD.ELF",
+        args: "",
+        restart: Restart::Always,
+        deps: &["messengerd"],
+        health_topic: "system/health/keyd",
     },
     ServiceSpec {
         name: "logd",
