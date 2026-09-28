@@ -83,8 +83,12 @@ struct ServiceSpec {
 const MANIFEST: &[ServiceSpec] = &[
     ServiceSpec {
         name: "messengerd",
+        // `soak=4096` drives a boot-time request/reply self-test through the
+        // daemon's serve loop and prints `MSGRD:SOAK`/`MSGRD:TOPICS` evidence
+        // (issue #169); it costs a fraction of a second and doubles as a
+        // liveness check.
         path: "MSGRD.ELF",
-        args: "",
+        args: "soak=4096",
         restart: Restart::Once,
         deps: &[],
         health_topic: "system/health/messengerd",
