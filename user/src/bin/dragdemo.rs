@@ -71,7 +71,10 @@ enum Role {
     Source,
     Target,
     /// `probe <token> <mime>`: the target's one-shot denial-probe child.
-    Probe { token: u64, mime: String },
+    Probe {
+        token: u64,
+        mime: String,
+    },
 }
 
 /// Read this task's manifest argument (`""` for a kernel-spawned launcher,

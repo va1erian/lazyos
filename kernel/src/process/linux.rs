@@ -348,7 +348,7 @@ fn program_header_addr(elf_bytes: &[u8]) -> u64 {
     let Ok(elf) = ElfFile::new(elf_bytes) else {
         return 0;
     };
-    let phoff = u64::from(elf.header.pt2.ph_offset());
+    let phoff = elf.header.pt2.ph_offset();
     for ph in elf.program_iter() {
         if ph.get_type() != Ok(ProgramType::Load) {
             continue;
@@ -543,7 +543,7 @@ extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
         89 => sys_readlink(a1, a2, a3), // readlink
         95 => sys_umask(a1),            // umask(mask)
         96 => sys_gettimeofday(a1),     // gettimeofday(tv, tz)
-        102 | 103 | 104 | 105 => 0,     // getuid/getgid/geteuid/getegid
+        102..=105 => 0,                 // getuid/getgid/geteuid/getegid
         106 | 107 | 108 | 113 => 0,     // set[re]uid/gid (root-only)
         109 => sys_setpgid(a1, a2),     // setpgid
         110 => task::ppid() as u64,     // getppid
@@ -1418,7 +1418,7 @@ fn push_dirent(out: &mut Vec<u8>, ino: u64, d_type: u8, name: &str) {
     out.push(d_type);
     out.extend_from_slice(name.as_bytes());
     out.push(0);
-    while (out.len() - start) % 8 != 0 {
+    while !(out.len() - start).is_multiple_of(8) {
         out.push(0);
     }
     let reclen = (out.len() - start) as u16;

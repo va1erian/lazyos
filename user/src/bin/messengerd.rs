@@ -296,9 +296,9 @@ pub struct Broker {
     next_sequence: u64,
 }
 
-impl Broker {
+impl Default for Broker {
     /// An empty broker; ids start at 1 so 0 is never a valid handle.
-    pub fn new() -> Broker {
+    fn default() -> Broker {
         Broker {
             subscriptions: Vec::new(),
             retained: Vec::new(),
@@ -307,6 +307,12 @@ impl Broker {
             next_subscription: 1,
             next_sequence: 1,
         }
+    }
+}
+
+impl Broker {
+    pub fn new() -> Broker {
+        Self::default()
     }
 
     /// Serve one topics request from `sender` (kernel-stamped).

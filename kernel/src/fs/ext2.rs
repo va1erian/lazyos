@@ -306,7 +306,7 @@ impl Ext2 {
         }
         if inode_size < INODE_CORE_SIZE as u16
             || u32::from(inode_size) > block_size
-            || block_size % u32::from(inode_size) != 0
+            || !block_size.is_multiple_of(u32::from(inode_size))
         {
             return Err(FsError::Invalid);
         }
@@ -339,7 +339,7 @@ impl Ext2 {
             return Err(FsError::NotSupported);
         }
         let inodes_per_block = block_size / u32::from(inode_size);
-        if inodes_per_group % inodes_per_block != 0 {
+        if !inodes_per_group.is_multiple_of(inodes_per_block) {
             return Err(FsError::Invalid);
         }
 
@@ -909,7 +909,7 @@ impl Ext2 {
                 let rec_len = le16(&buf, offset + DE_REC_LEN) as usize;
                 let name_len = buf[offset + DE_NAME_LEN] as usize;
                 if rec_len < DE_HEADER
-                    || rec_len % 4 != 0
+                    || !rec_len.is_multiple_of(4)
                     || offset + rec_len > size
                     || name_len > rec_len - DE_HEADER
                 {
@@ -945,7 +945,7 @@ impl Ext2 {
                 let rec_len = le16(&buf, offset + DE_REC_LEN) as usize;
                 let name_len = buf[offset + DE_NAME_LEN] as usize;
                 if rec_len < DE_HEADER
-                    || rec_len % 4 != 0
+                    || !rec_len.is_multiple_of(4)
                     || offset + rec_len > size
                     || name_len > rec_len - DE_HEADER
                 {
@@ -1001,7 +1001,7 @@ impl Ext2 {
                 let rec_len = le16(&buf, offset + DE_REC_LEN) as usize;
                 let name_len = buf[offset + DE_NAME_LEN] as usize;
                 if rec_len < DE_HEADER
-                    || rec_len % 4 != 0
+                    || !rec_len.is_multiple_of(4)
                     || offset + rec_len > size
                     || name_len > rec_len - DE_HEADER
                 {
@@ -1093,7 +1093,7 @@ impl Ext2 {
                 let rec_len = le16(&buf, offset + DE_REC_LEN) as usize;
                 let name_len = buf[offset + DE_NAME_LEN] as usize;
                 if rec_len < DE_HEADER
-                    || rec_len % 4 != 0
+                    || !rec_len.is_multiple_of(4)
                     || offset + rec_len > size
                     || name_len > rec_len - DE_HEADER
                 {
@@ -1148,7 +1148,7 @@ impl Ext2 {
             let rec_len = le16(&buf, offset + DE_REC_LEN) as usize;
             let name_len = buf[offset + DE_NAME_LEN] as usize;
             if rec_len < DE_HEADER
-                || rec_len % 4 != 0
+                || !rec_len.is_multiple_of(4)
                 || offset + rec_len > size
                 || name_len > rec_len - DE_HEADER
             {
@@ -1548,7 +1548,7 @@ impl Filesystem for Ext2 {
                 let rec_len = le16(&buf, offset + DE_REC_LEN) as usize;
                 let name_len = buf[offset + DE_NAME_LEN] as usize;
                 if rec_len < DE_HEADER
-                    || rec_len % 4 != 0
+                    || !rec_len.is_multiple_of(4)
                     || offset + rec_len > size
                     || name_len > rec_len - DE_HEADER
                 {

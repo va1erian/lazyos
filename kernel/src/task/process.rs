@@ -188,9 +188,7 @@ pub(crate) fn finish_locked(
     status: u64,
 ) -> Option<usize> {
     let parent = {
-        let Some(task) = tasks[slot].as_mut() else {
-            return None;
-        };
+        let task = tasks[slot].as_mut()?;
         if task.state == TaskState::Done {
             return None;
         }

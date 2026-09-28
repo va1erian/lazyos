@@ -274,7 +274,7 @@ impl State {
     /// writes) and wait for the used ring to report it. The caller holds the
     /// driver lock, so exactly one request is outstanding.
     fn complete(&mut self, write: bool, lba: u64, bytes: usize) -> Result<(), BlockError> {
-        if bytes == 0 || bytes > REQUEST_BYTES || bytes % SECTOR_SIZE != 0 {
+        if bytes == 0 || bytes > REQUEST_BYTES || !bytes.is_multiple_of(SECTOR_SIZE) {
             return Err(BlockError::Unsupported);
         }
         // Header: request type, reserved, starting sector.

@@ -487,6 +487,11 @@ impl<'a> Decoder<'a> {
     }
 
     /// Next known field, or `None` at the end.
+    ///
+    /// Not `Iterator::next`: this is fallible (a malformed parcel is an
+    /// `Error`, not a panic or a silent stop), so it keeps its own name
+    /// rather than implementing the trait.
+    #[allow(clippy::should_implement_trait)]
     pub fn next(&mut self) -> Result<Option<Field<'a>>, Error> {
         loop {
             if self.pos == self.buf.len() {

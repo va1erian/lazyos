@@ -148,10 +148,8 @@ pub fn validate(name: &str, mode: u32) -> Result<usize, Error> {
         if segment.as_bytes().contains(&b'+') && mode != MODE_SUBSCRIBE {
             return Err(Error::BadName);
         }
-        if segment.as_bytes().contains(&b'#') {
-            if mode != MODE_SUBSCRIBE || !last {
-                return Err(Error::BadName);
-            }
+        if segment.as_bytes().contains(&b'#') && (mode != MODE_SUBSCRIBE || !last) {
+            return Err(Error::BadName);
         }
         segments += 1;
         if segments > MAX_SEGMENTS {

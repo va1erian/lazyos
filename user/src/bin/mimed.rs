@@ -190,9 +190,7 @@ impl MimeDb {
 /// The last path component (`/` and `\` both separate, so a Linux-style path
 /// works on the console too).
 fn file_name(path: &str) -> &str {
-    path.rsplit(|character| character == '/' || character == '\\')
-        .next()
-        .unwrap_or(path)
+    path.rsplit(['/', '\\']).next().unwrap_or(path)
 }
 
 /// The extension after the last dot of a file name, if it has one.

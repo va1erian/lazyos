@@ -235,8 +235,7 @@ impl Keyd {
         let mut nonce = [0u8; wrap::NONCE_LEN];
         self.entropy.try_rdrand();
         self.entropy.fill(&mut nonce);
-        let blob = wrap::wrap_with_nonce(&material, &nonce, plaintext)
-            .map_err(|error| crypto_error(error))?;
+        let blob = wrap::wrap_with_nonce(&material, &nonce, plaintext).map_err(crypto_error)?;
         self.touch(id);
         Ok(blob)
     }
@@ -247,7 +246,7 @@ impl Keyd {
             return Err(Error::Errno(-errno::ENOENT));
         };
         let material = key.material;
-        let plaintext = wrap::unwrap(&material, blob).map_err(|error| crypto_error(error))?;
+        let plaintext = wrap::unwrap(&material, blob).map_err(crypto_error)?;
         self.touch(id);
         Ok(plaintext)
     }

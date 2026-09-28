@@ -265,7 +265,7 @@ impl Entry {
 static QUOTAS: Mutex<Vec<Entry>> = Mutex::new(Vec::new());
 
 /// Borrow `uid`'s ledger, creating it with the default limits on first use.
-fn entry_for<'a>(quotas: &'a mut Vec<Entry>, uid: u32) -> &'a mut Entry {
+fn entry_for(quotas: &mut Vec<Entry>, uid: u32) -> &mut Entry {
     if let Some(index) = quotas.iter().position(|entry| entry.uid == uid) {
         return &mut quotas[index];
     }
