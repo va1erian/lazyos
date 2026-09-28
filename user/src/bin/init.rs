@@ -792,11 +792,11 @@ fn child_exited(services: &mut [Service], pid: u64, status: u64, broker: &mut ro
         services[index].phase = Phase::Failed;
         sys::write_str(&format!(
             "init: service {} exited (status {}); not restarting\n",
-            spec.name, status
+            name, status
         ));
         publish_state(
             broker,
-            spec,
+            &services[index],
             "failed",
             0,
             services[index].restarts,
