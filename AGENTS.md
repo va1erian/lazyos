@@ -56,7 +56,8 @@ LazyOS is built around **Messenger**, a kernel-mediated, capability-based
 IPC/pub-sub fabric, with userspace system services (`messengerd`, `init`,
 `logd`, `healthd`, `keyd`, `accounts`, `clipboardd`, the `xuid` display
 compositor, and more) running over a preemptive multitasking kernel with a
-writable ext2 filesystem and a VFS. The authoritative description of the
+VFS (FAT boot volume, ramfs `/tmp`, an ext2 read/write driver that only the
+kernel test suite exercises so far). The authoritative description of the
 current architecture and the staged roadmap (S0–S9) is
 [`docs/platform-plan.md`](docs/platform-plan.md), with per-subsystem detail in
 [`docs/architecture/`](docs/architecture) (boot, memory, tasks, filesystem,
