@@ -111,11 +111,11 @@ fn align_up(address: u64) -> u64 {
     address.saturating_add(PAGE - 1) & !(PAGE - 1)
 }
 
-fn find_space(spaces: &mut Vec<Space>, table: PhysAddr) -> Option<&mut Space> {
+fn find_space(spaces: &mut [Space], table: PhysAddr) -> Option<&mut Space> {
     spaces.iter_mut().find(|space| space.pml4 == table.as_u64())
 }
 
-fn ensure_space<'a>(spaces: &'a mut Vec<Space>, table: PhysAddr) -> &'a mut Space {
+fn ensure_space(spaces: &mut Vec<Space>, table: PhysAddr) -> &mut Space {
     let pml4 = table.as_u64();
     if spaces.iter().all(|space| space.pml4 != pml4) {
         spaces.push(Space {

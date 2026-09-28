@@ -204,7 +204,7 @@ extern "C" fn syscall_dispatch(regs: *mut Regs) {
 /// Test-harness entry into the native syscall surface (issue #62 pattern):
 /// drive one syscall exactly as the `int 0x80` gate would, without the ring
 /// transition. Compiled only for the in-kernel suite.
-#[cfg(laZYOS_TESTS)]
+#[cfg(lazyos_tests)]
 pub fn dispatch_for_test(nr: u64, a1: u64, a2: u64, a3: u64) -> u64 {
     match nr {
         1 => sys_write(a1, a2),

@@ -38,7 +38,7 @@ non-test image), or the summary disagrees with the parsed results.
 
 ## Test mode
 
-`kernel/build.rs` turns `LAZYOS_TESTS=1` into `cfg(laZYOS_TESTS)`. With the
+`kernel/build.rs` turns `LAZYOS_TESTS=1` into `cfg(lazyos_tests)`. With the
 switch on, `kernel_main` calls `kernel/src/tests.rs::run()` after memory setup
 and halts; the normal boot path is compiled out. Without the switch nothing in
 the suite is compiled, so normal boots are byte-for-byte unchanged.
@@ -71,7 +71,7 @@ TEST:SUMMARY:PASS=<n> FAIL=<n>
 | `task_futex_wait_mismatch` | `futex(FUTEX_WAIT)` returns EAGAIN on a mismatched word; `FUTEX_WAKE` with no waiters returns 0 |
 | `task_fd_table` | fd open/size/read/seek/dup/close bookkeeping |
 
-Test-only hooks are behind `cfg(laZYOS_TESTS)` (`task::harness`,
+Test-only hooks are behind `cfg(lazyos_tests)` (`task::harness`,
 `process::linux::dispatch_for_test`), so the production kernel carries none of
 these APIs.
 

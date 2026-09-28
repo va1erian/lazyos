@@ -40,6 +40,7 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::panic::PanicInfo;
+use libmessenger::Encoder;
 use user::messenger::{self, errno, registry, topics_client};
 use user::sys;
 
@@ -53,6 +54,23 @@ const MAX_PENDING: usize = 64;
 const MAX_NAME_BYTES: usize = 128;
 /// Deepest topic/filter, mirroring the kernel ACL gate.
 const MAX_SEGMENTS: usize = 8;
+/// Self-soak cycles when the manifest asks for `soak` without a count.
+const SOAK_DEFAULT_CYCLES: u64 = 4096;
+/// Largest accepted `soak=N`, so a typo cannot run for hours.
+const SOAK_MAX_CYCLES: u64 = 100_000;
+/// Heap growth budget per soak cycle. The fixed 16 KiB recv-buffer leak this
+/// guards against (issue #169) cost far more; the remaining ~100 bytes/cycle
+/// is the encoded request/reply of the self-call itself.
+const SOAK_BYTES_PER_CYCLE: u64 = 256;
+/// Fixed slack on the soak's heap-growth budget, across allocator chunk
+/// granularity and the other services' boot traffic during the soak.
+const SOAK_BYTES_SLACK: u64 = 512 * 1024;
+/// How often the daemon wakes to re-check the soak's finish conditions once
+/// its cycles are done (PIT ticks).
+const SOAK_IDLE_TICKS: u64 = 5;
+/// Absolute-tick cap on waiting for the service topics/subs to appear after
+/// the soak's cycles (PIT ticks, 100 Hz).
+const SOAK_TOPICS_TICKS: u64 = 3000;
 
 #[no_mangle]
 pub extern "C" fn _start() -> ! {
@@ -107,10 +125,51 @@ fn serve() -> messenger::Result<()> {
     sys::write_str("\n");
 
     let mut broker = Broker::new();
+    // Self-soak mode (`soak=N` from the supervisor's manifest): drive N
+    // request/reply cycles through this very loop and assert the daemon's bump
+    // heap did not grow across them (issue #169). Off unless asked for, so a
+    // plain boot serves at full speed.
+    let mut soak = soak_cycles().map(Soak::start);
+    if let Some(soak) = &soak {
+        sys::write_str(&format!("MSGRD:SOAK:START cycles={}\n", soak.cycles_total));
+    }
+    // One receive buffer for the life of the daemon. The user runtime's bump
+    // allocator never reclaims per-call buffers, so `Endpoint::recv`'s fresh
+    // `DEFAULT_BUFFER` per message would OOM the broker after a few hundred
+    // calls; `recv_with` reuses this one instead.
+    let mut recv_buffer = alloc::vec![0u8; messenger::DEFAULT_BUFFER];
     sys::write_str("messengerd: serving\n");
 
     loop {
-        let message = endpoint.recv(None)?;
+        // Queue the next self-soak call. It is an ordinary call on the
+        // bootstrap channel, answered by the dispatch below, so the soak
+        // exercises the same path a client's poll does.
+        if let Some(soak) = soak.as_mut() {
+            if soak.cycles_left > 0 && soak.txn.is_none() {
+                match service.begin_call(&soak.request, None) {
+                    Ok(txn) => soak.txn = Some(txn),
+                    Err(_) => soak.fail(),
+                }
+            }
+        }
+        let deadline = match soak.as_ref() {
+            Some(soak) if soak.cycles_left == 0 => Some(sys::clock() + SOAK_IDLE_TICKS),
+            _ => None,
+        };
+        let message = match endpoint.recv_with(&mut recv_buffer, deadline) {
+            Ok(message) => message,
+            // The idle wait after the soak's cycles: no message arrived, so
+            // re-check whether the soak can report. Every other timeout is a
+            // failure.
+            Err(messenger::Error::Errno(code)) if code == -errno::ETIMEDOUT && soak.is_some() => {
+                if soak.as_ref().is_some_and(|soak| soak.done(&broker)) {
+                    let soak = soak.take().expect("checked above");
+                    finish_soak(&broker, &soak);
+                }
+                continue;
+            }
+            Err(error) => return Err(error),
+        };
         if message.interface_id() == topics_client::INTERFACE {
             serve_topic(&endpoint, &mut broker, &message);
         } else {
@@ -129,7 +188,145 @@ fn serve() -> messenger::Result<()> {
                 }
             }
         }
+        // Consume a self-soak reply with a reused buffer: `await_reply` would
+        // allocate a fresh 16 KiB one per cycle, which is exactly what this
+        // soak exists to keep off the serve path. The reply is already queued.
+        if let Some(soak) = soak.as_mut() {
+            if message.txn.is_some() && message.txn == soak.txn {
+                let txn = soak.txn.take().expect("checked above");
+                if await_reply_with(txn, &mut soak.reply_buffer).is_err() {
+                    soak.fail();
+                }
+                soak.cycles_left = soak.cycles_left.saturating_sub(1);
+            }
+        }
+        if soak.as_ref().is_some_and(|soak| soak.done(&broker)) {
+            let soak = soak.take().expect("checked above");
+            finish_soak(&broker, &soak);
+        }
     }
+}
+
+/// The `soak=N` self-test state (issue #169): one request in flight at a
+/// time, each an ordinary call the main loop serves.
+struct Soak {
+    /// Pre-encoded `PING` request, reused every cycle.
+    request: libmessenger::Parcel,
+    /// Reused `CALL_AWAIT` buffer.
+    reply_buffer: Vec<u8>,
+    /// Cycles requested.
+    cycles_total: u64,
+    /// Cycles still to run.
+    cycles_left: u64,
+    /// Transaction of the self-call currently being served.
+    txn: Option<u64>,
+    /// Heap break before the soak began.
+    baseline: u64,
+    /// Do not wait past this tick for the real service topics to appear.
+    hard_tick: u64,
+    /// A cycle failed; report `FAIL` even if the heap stayed flat.
+    failed: bool,
+}
+
+impl Soak {
+    /// Start a soak of `cycles` request/reply cycles and record the baseline.
+    fn start(cycles: u64) -> Soak {
+        Soak {
+            request: topics_client::request_parcel(topics_client::method::PING, Encoder::new()),
+            reply_buffer: alloc::vec![0u8; messenger::DEFAULT_BUFFER],
+            cycles_total: cycles,
+            cycles_left: cycles,
+            txn: None,
+            baseline: sys::sbrk(0),
+            hard_tick: sys::clock() + SOAK_TOPICS_TICKS,
+            failed: false,
+        }
+    }
+
+    /// Abandon the soak (a failed cycle).
+    fn fail(&mut self) {
+        self.failed = true;
+        self.cycles_left = 0;
+        self.txn = None;
+    }
+
+    /// Whether the soak can report: its cycles are done (or failed) and either
+    /// the real service topics/subscriptions are visible or the wait cap
+    /// passed.
+    fn done(&self, broker: &Broker) -> bool {
+        if self.cycles_left > 0 {
+            return false;
+        }
+        if self.failed {
+            return true;
+        }
+        let (topics, subs) = broker.counts();
+        (topics >= 2 && subs >= 1) || sys::clock() >= self.hard_tick
+    }
+}
+
+/// Print the soak's memory verdict and the central broker's real counts.
+fn finish_soak(broker: &Broker, soak: &Soak) {
+    let growth = sys::sbrk(0).saturating_sub(soak.baseline);
+    let budget = soak
+        .cycles_total
+        .saturating_mul(SOAK_BYTES_PER_CYCLE)
+        .saturating_add(SOAK_BYTES_SLACK);
+    if !soak.failed && growth <= budget {
+        sys::write_str(&format!(
+            "MSGRD:SOAK:PASS cycles={} bytes={growth}\n",
+            soak.cycles_total
+        ));
+    } else {
+        sys::write_str(&format!(
+            "MSGRD:SOAK:FAIL cycles={} left={} bytes={growth} failed={}\n",
+            soak.cycles_total, soak.cycles_left, soak.failed as u8
+        ));
+    }
+    let (topics, subs) = broker.counts();
+    if topics >= 2 && subs >= 1 {
+        sys::write_str(&format!("MSGRD:TOPICS:PASS topics={topics} subs={subs}\n"));
+    } else {
+        sys::write_str(&format!("MSGRD:TOPICS:FAIL topics={topics} subs={subs}\n"));
+    }
+}
+
+/// The requested self-soak cycle count: `soak=N` in the service arguments, or
+/// `None` when the supervisor did not ask for one.
+fn soak_cycles() -> Option<u64> {
+    let mut buffer = [0u8; 128];
+    let len = sys::service_args(&mut buffer).min(buffer.len());
+    let text = core::str::from_utf8(&buffer[..len]).unwrap_or("");
+    for part in text.split_whitespace() {
+        let Some(value) = part.strip_prefix("soak=") else {
+            continue;
+        };
+        let cycles = value.parse::<u64>().unwrap_or(SOAK_DEFAULT_CYCLES);
+        return Some(cycles.clamp(1, SOAK_MAX_CYCLES));
+    }
+    None
+}
+
+/// `Endpoint::await_reply` with a caller-owned buffer. The public method
+/// allocates a fresh 16 KiB buffer per call, which long-lived loops must not
+/// do; the soak uses this one so the daemon's own cycles stay flat too.
+fn await_reply_with(txn: u64, buffer: &mut [u8]) -> messenger::Result<()> {
+    let args = messenger::MsgArgs {
+        txn_id: txn,
+        buf_ptr: buffer.as_mut_ptr() as u64,
+        buf_cap: buffer.len() as u64,
+        ..messenger::MsgArgs::default()
+    };
+    let mut result = messenger::MsgResult::default();
+    let code = sys::messenger(
+        messenger::op::CALL_AWAIT,
+        &args as *const messenger::MsgArgs as u64,
+        &mut result as *mut messenger::MsgResult as u64,
+    );
+    if code < 0 {
+        return Err(messenger::Error::Errno(code));
+    }
+    Ok(())
 }
 
 /// Handle one topics parcel: fresh events and parked-pull wakes go out first,
@@ -139,15 +336,28 @@ fn serve_topic(endpoint: &messenger::Endpoint, broker: &mut Broker, message: &me
         Ok(outcome) => {
             // Wakes first: a parked subscriber waiting on the event this
             // request just published wakes even if the request's own reply
-            // later fails.
-            for (txn, parcel) in outcome.wakes {
-                if endpoint.reply(txn, &parcel).is_err() {
-                    sys::write_str("messengerd: topic wake dropped (subscriber gone)\n");
+            // later fails. The event is popped from its queue only once the
+            // reply lands, so an abandoned pull (the subscriber's poll
+            // deadline expired while it waited) loses nothing: its next poll
+            // takes the same event.
+            for wake in outcome.wakes {
+                match endpoint.reply(wake.txn, &wake.parcel) {
+                    Ok(()) => broker.commit(wake.subscription, wake.sequence),
+                    Err(_) => {
+                        sys::write_str("messengerd: topic wake dropped (subscriber gone)\n");
+                    }
                 }
             }
             if let (Some(txn), Some(reply)) = (message.txn, outcome.reply) {
-                if endpoint.reply(txn, &reply).is_err() {
-                    sys::write_str("messengerd: topic reply dropped (caller gone)\n");
+                match endpoint.reply(txn, &reply) {
+                    Ok(()) => {
+                        if let Some(delivery) = outcome.delivery {
+                            broker.commit(delivery.subscription, delivery.sequence);
+                        }
+                    }
+                    Err(_) => {
+                        sys::write_str("messengerd: topic reply dropped (caller gone)\n");
+                    }
                 }
             }
         }
@@ -165,7 +375,27 @@ fn serve_topic(endpoint: &messenger::Endpoint, broker: &mut Broker, message: &me
 #[derive(Default)]
 pub struct Outcome {
     reply: Option<libmessenger::Parcel>,
-    wakes: Vec<(u64, libmessenger::Parcel)>,
+    wakes: Vec<Wake>,
+    /// An event handed out in the request's own `NextEvent` reply; it is
+    /// committed only when that reply reaches the caller.
+    delivery: Option<Delivery>,
+}
+
+/// A parked pull the broker can answer.
+pub struct Wake {
+    txn: u64,
+    parcel: libmessenger::Parcel,
+    subscription: u64,
+    sequence: u64,
+}
+
+/// One event handed to a subscriber; popped from its queue when the reply
+/// carrying it succeeds (a failed reply means the poll was abandoned, and the
+/// event must stay for the next one).
+#[derive(Clone, Copy)]
+struct Delivery {
+    subscription: u64,
+    sequence: u64,
 }
 
 /// A parsed subscription filter: literal segments plus `+` and `#` wildcards.
@@ -247,6 +477,11 @@ fn valid_topic(topic: &str) -> bool {
     count > 0
 }
 
+/// Whether `topic` falls under the platform's reserved `system/` root.
+fn is_system_topic(topic: &str) -> bool {
+    topic == "system" || topic.starts_with("system/")
+}
+
 /// One live subscription with its QoS queue and counters.
 struct Subscription {
     id: u64,
@@ -296,9 +531,9 @@ pub struct Broker {
     next_sequence: u64,
 }
 
-impl Broker {
+impl Default for Broker {
     /// An empty broker; ids start at 1 so 0 is never a valid handle.
-    pub fn new() -> Broker {
+    fn default() -> Broker {
         Broker {
             subscriptions: Vec::new(),
             retained: Vec::new(),
@@ -307,6 +542,31 @@ impl Broker {
             next_subscription: 1,
             next_sequence: 1,
         }
+    }
+}
+
+impl Broker {
+    pub fn new() -> Broker {
+        Self::default()
+    }
+
+    /// Live `(topics, subscriptions)` counts under the platform's `system/`
+    /// root, for the soak evidence markers. Counting the whole table would
+    /// let the `messengerctl` self-test's own `topics/`, `selftest/` traffic
+    /// satisfy the soak's threshold without `sysmond`, `clipboardd` or
+    /// `mimed` ever publishing centrally.
+    pub fn counts(&self) -> (usize, usize) {
+        let topics = self
+            .topics
+            .iter()
+            .filter(|row| is_system_topic(&row.topic))
+            .count();
+        let subs = self
+            .subscriptions
+            .iter()
+            .filter(|sub| sub.filter.segments.first().is_some_and(|s| s == "system"))
+            .count();
+        (topics, subs)
     }
 
     /// Serve one topics request from `sender` (kernel-stamped).
@@ -343,6 +603,21 @@ impl Broker {
                 // Policy first: a denied publish stores nothing and is audited.
                 topics_client::authorize(sender, MODE_PUBLISH, &topic, txn.unwrap_or(0))
                     .map_err(|_| messenger::Error::Topics(errno::EACCES))?;
+                // `system/` is the platform's own audited namespace (service
+                // status, clipboard/launch audit records, denial markers):
+                // `logd` treats every event under it as authentic. The kernel
+                // ACL above stays in its bootstrap-allow state until a policy
+                // is loaded, so without this check any task could forge audit
+                // records here. Every legitimate publisher (sysmond, clipboardd,
+                // mimed, init) runs as uid 0, so gate the namespace on that.
+                if is_system_topic(&topic) {
+                    let mut cred = sys::Cred::default();
+                    sys::cred_get(Some(sender), &mut cred)
+                        .map_err(|_| messenger::Error::Topics(errno::EACCES))?;
+                    if cred.uid != 0 {
+                        return Err(messenger::Error::Topics(errno::EACCES));
+                    }
+                }
                 let matched = self.publish(&topic, sender, payload, retained);
                 outcome.wakes = self.satisfy();
                 outcome.reply = Some(
@@ -407,13 +682,27 @@ impl Broker {
                 if self.subscriptions[index].owner != sender {
                     return Err(messenger::Error::Topics(errno::EPERM));
                 }
-                match take(&mut self.subscriptions[index]) {
+                match peek(&self.subscriptions[index]) {
                     Some(event) => {
-                        self.subscriptions[index].delivered += 1;
-                        outcome.reply = Some(
-                            topics_client::reply_event(&event)
-                                .map_err(|_| messenger::Error::Topics(errno::E2BIG))?,
-                        );
+                        let sequence = event.sequence;
+                        let encoded = topics_client::reply_event(event);
+                        match encoded {
+                            Ok(parcel) => {
+                                outcome.reply = Some(parcel);
+                                outcome.delivery = Some(Delivery {
+                                    subscription: id,
+                                    sequence,
+                                });
+                            }
+                            Err(_) => {
+                                // The event can't be encoded into a reply
+                                // (e.g. too large for the buffer): drop it so
+                                // a retry sees the next one instead of
+                                // hitting the same unencodable head forever.
+                                self.drop_undeliverable(id, sequence);
+                                return Err(messenger::Error::Topics(errno::E2BIG));
+                            }
+                        }
                     }
                     None => {
                         let txn = txn.ok_or(messenger::Error::Topics(errno::EINVAL))?;
@@ -552,8 +841,10 @@ impl Broker {
         debug_assert_eq!(sub.id, id);
     }
 
-    /// Answer every parked pull that now has a deliverable event.
-    fn satisfy(&mut self) -> Vec<(u64, libmessenger::Parcel)> {
+    /// Answer every parked pull that now has a deliverable event. Events are
+    /// peeked, not popped: the caller commits them once a reply reaches the
+    /// subscriber (see [`Broker::commit`]).
+    fn satisfy(&mut self) -> Vec<Wake> {
         let mut wakes = Vec::new();
         let mut index = 0;
         while index < self.pending.len() {
@@ -567,18 +858,104 @@ impl Broker {
                 self.pending.remove(index);
                 continue;
             };
-            match take(&mut self.subscriptions[sub_index]) {
+            match peek(&self.subscriptions[sub_index]) {
                 Some(event) => {
-                    self.subscriptions[sub_index].delivered += 1;
+                    let sequence = event.sequence;
+                    let encoded = topics_client::reply_event(event);
                     self.pending.remove(index);
-                    if let Ok(parcel) = topics_client::reply_event(&event) {
-                        wakes.push((pending.txn, parcel));
+                    match encoded {
+                        Ok(parcel) => {
+                            wakes.push(Wake {
+                                txn: pending.txn,
+                                parcel,
+                                subscription: pending.subscription,
+                                sequence,
+                            });
+                        }
+                        Err(_) => {
+                            // The event can't be encoded into a reply (e.g.
+                            // too large for the buffer): drop it so this
+                            // subscription doesn't stall on the same
+                            // unencodable head forever. This parked pull
+                            // gets no reply from this round; the caller's
+                            // own deadline (or its next poll) covers it.
+                            self.drop_undeliverable(pending.subscription, sequence);
+                        }
                     }
                 }
                 None => index += 1,
             }
         }
         wakes
+    }
+
+    /// Drop the head event of `id`'s queue unconditionally, including for
+    /// `Reliable` (which [`Broker::commit`] otherwise never pops without an
+    /// explicit `ack`), because it could not be encoded into a reply and
+    /// would otherwise stall the subscription on the same event forever.
+    /// Counts as a QoS drop.
+    fn drop_undeliverable(&mut self, id: u64, sequence: u64) {
+        let Some(sub) = self.subscriptions.iter_mut().find(|sub| sub.id == id) else {
+            return;
+        };
+        sub.drops += 1;
+        match sub.qos {
+            topics_client::Qos::Conflate => {
+                if sub
+                    .conflated
+                    .first()
+                    .is_some_and(|(_, event)| event.sequence == sequence)
+                {
+                    sub.conflated.remove(0);
+                }
+            }
+            topics_client::Qos::Reliable
+            | topics_client::Qos::Latest
+            | topics_client::Qos::Buffered(_) => {
+                if sub
+                    .queue
+                    .front()
+                    .is_some_and(|event| event.sequence == sequence)
+                {
+                    sub.queue.pop_front();
+                }
+            }
+        }
+    }
+
+    /// Retire the event a successful reply carried. The head is checked by
+    /// sequence, so a late commit cannot pop a newer event (`reliable`
+    /// subscriptions do not pop at all; their events retire on [`ACK`]).
+    /// `delivered` is counted here rather than where the reply is built,
+    /// since only a reply that actually reached the subscriber (a `commit`)
+    /// is a real delivery; counting earlier risked a double count when the
+    /// reply failed and the same still-queued event was delivered again.
+    fn commit(&mut self, id: u64, sequence: u64) {
+        let Some(sub) = self.subscriptions.iter_mut().find(|sub| sub.id == id) else {
+            return;
+        };
+        sub.delivered += 1;
+        match sub.qos {
+            topics_client::Qos::Reliable => {}
+            topics_client::Qos::Conflate => {
+                if sub
+                    .conflated
+                    .first()
+                    .is_some_and(|(_, event)| event.sequence == sequence)
+                {
+                    sub.conflated.remove(0);
+                }
+            }
+            topics_client::Qos::Latest | topics_client::Qos::Buffered(_) => {
+                if sub
+                    .queue
+                    .front()
+                    .is_some_and(|event| event.sequence == sequence)
+                {
+                    sub.queue.pop_front();
+                }
+            }
+        }
     }
 
     /// Drop a subscription, scoped to its owner.
@@ -690,18 +1067,16 @@ fn enqueue(sub: &mut Subscription, event: topics_client::Event) {
     }
 }
 
-/// Deliver the next event for a subscription, applying the QoS pop rules.
-fn take(sub: &mut Subscription) -> Option<topics_client::Event> {
+/// The next event for a subscription, without consuming it: the pop happens
+/// in [`Broker::commit`] once the reply carrying the event has reached the
+/// subscriber. Borrowed rather than cloned: `reply_event` only needs to read
+/// it, and cloning a payload-sized event on every poll is an avoidable copy.
+fn peek(sub: &Subscription) -> Option<&topics_client::Event> {
     match sub.qos {
-        topics_client::Qos::Conflate => {
-            if sub.conflated.is_empty() {
-                None
-            } else {
-                Some(sub.conflated.remove(0).1)
-            }
-        }
-        topics_client::Qos::Reliable => sub.queue.front().cloned(),
-        topics_client::Qos::Latest | topics_client::Qos::Buffered(_) => sub.queue.pop_front(),
+        topics_client::Qos::Conflate => sub.conflated.first().map(|(_, event)| event),
+        topics_client::Qos::Reliable
+        | topics_client::Qos::Latest
+        | topics_client::Qos::Buffered(_) => sub.queue.front(),
     }
 }
 

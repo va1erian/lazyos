@@ -523,10 +523,23 @@ impl Endpoint {
         deadline: Option<u64>,
     ) -> Result<Parcel> {
         let bytes = encode(request)?;
+        self.call_bytes_with(&bytes, buf, deadline)
+    }
+
+    /// [`Endpoint::call_with`] for a caller that already holds the encoded
+    /// request bytes, e.g. a poll loop that re-sends the same fixed request
+    /// every call: `call_with` would otherwise re-encode (and reallocate) it
+    /// every time, and the user runtime's bump allocator never reclaims that.
+    pub fn call_bytes_with(
+        &self,
+        request: &[u8],
+        buf: &mut [u8],
+        deadline: Option<u64>,
+    ) -> Result<Parcel> {
         let args = MsgArgs {
             handle: self.handle,
-            parcel_ptr: bytes.as_ptr() as u64,
-            parcel_len: bytes.len() as u64,
+            parcel_ptr: request.as_ptr() as u64,
+            parcel_len: request.len() as u64,
             buf_ptr: buf.as_mut_ptr() as u64,
             buf_cap: buf.len() as u64,
             deadline: deadline.unwrap_or(0),

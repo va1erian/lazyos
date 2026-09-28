@@ -119,16 +119,10 @@ fn run() -> messenger::Result<()> {
     let mut buffer = alloc::vec![0u8; messenger::DEFAULT_BUFFER];
 
     loop {
-        let message = match server.recv_with(&mut buffer, None) {
-            Ok(message) => message,
-            Err(error) => return Err(error),
-        };
-        let reply = match dispatch(&mut table, &mut keyd_seen, &message) {
-            Ok(reply) => reply,
-            // A malformed request still gets an answer, or its caller would
-            // wait forever; an empty parcel fails the caller's decode.
-            Err(_) => Parcel::default(),
-        };
+        let message = server.recv_with(&mut buffer, None)?;
+        // A malformed request still gets an answer, or its caller would wait
+        // forever; an empty parcel fails the caller's decode.
+        let reply = dispatch(&mut table, &mut keyd_seen, &message).unwrap_or_default();
         if let Some(txn) = message.txn {
             server.reply_or_drop(txn, &reply)?;
         }

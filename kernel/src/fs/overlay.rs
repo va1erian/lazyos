@@ -83,7 +83,7 @@ impl Overlay {
     }
 
     /// `(file data bytes, upper nodes + whiteouts)`; the cap inputs.
-    #[cfg_attr(not(laZYOS_TESTS), allow(dead_code))] // used by tests/diagnostics
+    #[cfg_attr(not(lazyos_tests), allow(dead_code))] // used by tests/diagnostics
     pub fn usage(&self) -> (usize, usize) {
         let (bytes, nodes) = self.upper.usage();
         (bytes, nodes + self.whiteouts.lock().len())

@@ -73,8 +73,10 @@ pub(crate) fn build_scene(w: u32, h: u32) -> Option<Pixmap> {
         let radius = hf * 0.28 * (i as f32 / 14.0);
         let alpha = (14 + (14 - i) * 12) as u8;
         let path = PathBuilder::from_circle(cx, cy, radius)?;
-        let mut sun = Paint::default();
-        sun.anti_alias = true;
+        let mut sun = Paint {
+            anti_alias: true,
+            ..Default::default()
+        };
         sun.set_color_rgba8(255, 196, 96, alpha);
         pm.fill_path(&path, &sun, FillRule::Winding, Transform::identity(), None);
     }
@@ -88,8 +90,10 @@ pub(crate) fn build_scene(w: u32, h: u32) -> Option<Pixmap> {
     ];
     for (fx, (r, g, b)) in dots {
         let path = PathBuilder::from_circle(wf * fx, hf * 0.72, hf * 0.15)?;
-        let mut dot = Paint::default();
-        dot.anti_alias = true;
+        let mut dot = Paint {
+            anti_alias: true,
+            ..Default::default()
+        };
         dot.set_color_rgba8(r, g, b, 210);
         pm.fill_path(&path, &dot, FillRule::Winding, Transform::identity(), None);
     }
@@ -106,11 +110,15 @@ pub(crate) fn build_scene(w: u32, h: u32) -> Option<Pixmap> {
     let zigzag = pb.finish()?;
     let t2 = ts();
     crate::serial_println!("skia: sun+dots {} cyc", t2 - t1);
-    let mut line_paint = Paint::default();
-    line_paint.anti_alias = true;
+    let mut line_paint = Paint {
+        anti_alias: true,
+        ..Default::default()
+    };
     line_paint.set_color_rgba8(236, 236, 255, 220);
-    let mut stroke = Stroke::default();
-    stroke.width = 4.0;
+    let stroke = Stroke {
+        width: 4.0,
+        ..Default::default()
+    };
     pm.stroke_path(&zigzag, &line_paint, &stroke, Transform::identity(), None);
     crate::serial_println!("skia: zigzag {} cyc", ts() - t2);
 
@@ -129,10 +137,12 @@ fn backdrop(pm: &mut Pixmap, w: f32, h: f32) -> Option<()> {
     let top = (9u32, 12, 34);
     let mid = (32u32, 16, 68);
     let bottom = (6u32, 42, 54);
-    let mut paint = Paint::default();
-    paint.anti_alias = false;
     // Opaque bands: replace the destination instead of blending over it.
-    paint.blend_mode = BlendMode::Source;
+    let mut paint = Paint {
+        anti_alias: false,
+        blend_mode: BlendMode::Source,
+        ..Default::default()
+    };
     for i in 0..BANDS {
         let t = i as f32 / (BANDS - 1) as f32;
         // Two-segment colour ramp: top -> mid (t<0.5) -> bottom.

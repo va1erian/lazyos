@@ -16,14 +16,14 @@ pub mod os_lazy_echo_v1 {
         pub at: u64,
     }
 
-    pub fn encode_Event(value: &Event) -> Result<Vec<u8>, Error> {
+    pub fn encode_event(value: &Event) -> Result<Vec<u8>, Error> {
         let mut target = Encoder::new();
         target.string(1, &value.topic)?;
-        target.u64(2, *&value.at)?;
+        target.u64(2, value.at)?;
         Ok(target.finish())
     }
 
-    pub fn decode_Event(body: &[u8]) -> Result<Event, Error> {
+    pub fn decode_event(body: &[u8]) -> Result<Event, Error> {
         let mut out = Event::default();
         let mut decoder = Decoder::new(body);
         while let Some(field) = decoder.next()? {
@@ -54,14 +54,14 @@ pub mod os_lazy_echo_v1 {
         pub count: u32,
     }
 
-    pub fn encode_Echo_args(value: &EchoArgs) -> Result<Vec<u8>, Error> {
+    pub fn encode_echo_args(value: &EchoArgs) -> Result<Vec<u8>, Error> {
         let mut target = Encoder::new();
         target.string(1, &value.text)?;
-        target.u32(2, *&value.count)?;
+        target.u32(2, value.count)?;
         Ok(target.finish())
     }
 
-    pub fn decode_Echo_args(body: &[u8]) -> Result<EchoArgs, Error> {
+    pub fn decode_echo_args(body: &[u8]) -> Result<EchoArgs, Error> {
         let mut out = EchoArgs::default();
         let mut decoder = Decoder::new(body);
         while let Some(field) = decoder.next()? {
@@ -83,21 +83,18 @@ pub mod os_lazy_echo_v1 {
         pub reply: alloc::string::String,
     }
 
-    pub fn encode_Echo_reply(value: &EchoReply) -> Result<Vec<u8>, Error> {
+    pub fn encode_echo_reply(value: &EchoReply) -> Result<Vec<u8>, Error> {
         let mut target = Encoder::new();
         target.string(1, &value.reply)?;
         Ok(target.finish())
     }
 
-    pub fn decode_Echo_reply(body: &[u8]) -> Result<EchoReply, Error> {
+    pub fn decode_echo_reply(body: &[u8]) -> Result<EchoReply, Error> {
         let mut out = EchoReply::default();
         let mut decoder = Decoder::new(body);
         while let Some(field) = decoder.next()? {
-            match field.id {
-                1 => {
-                    out.reply = field.as_str()?.into();
-                }
-                _ => {}
+            if field.id == 1 {
+                out.reply = field.as_str()?.into();
             }
         }
         Ok(out)
@@ -109,21 +106,18 @@ pub mod os_lazy_echo_v1 {
         pub alive: bool,
     }
 
-    pub fn encode_Ping_reply(value: &PingReply) -> Result<Vec<u8>, Error> {
+    pub fn encode_ping_reply(value: &PingReply) -> Result<Vec<u8>, Error> {
         let mut target = Encoder::new();
-        target.bool(1, *&value.alive)?;
+        target.bool(1, value.alive)?;
         Ok(target.finish())
     }
 
-    pub fn decode_Ping_reply(body: &[u8]) -> Result<PingReply, Error> {
+    pub fn decode_ping_reply(body: &[u8]) -> Result<PingReply, Error> {
         let mut out = PingReply::default();
         let mut decoder = Decoder::new(body);
         while let Some(field) = decoder.next()? {
-            match field.id {
-                1 => {
-                    out.alive = field.as_bool()?;
-                }
-                _ => {}
+            if field.id == 1 {
+                out.alive = field.as_bool()?;
             }
         }
         Ok(out)
@@ -135,21 +129,18 @@ pub mod os_lazy_echo_v1 {
         pub event: Event,
     }
 
-    pub fn encode_Notify_args(value: &NotifyArgs) -> Result<Vec<u8>, Error> {
+    pub fn encode_notify_args(value: &NotifyArgs) -> Result<Vec<u8>, Error> {
         let mut target = Encoder::new();
-        target.raw(Kind::Struct, 1, &encode_Event(&value.event)?)?;
+        target.raw(Kind::Struct, 1, &encode_event(&value.event)?)?;
         Ok(target.finish())
     }
 
-    pub fn decode_Notify_args(body: &[u8]) -> Result<NotifyArgs, Error> {
+    pub fn decode_notify_args(body: &[u8]) -> Result<NotifyArgs, Error> {
         let mut out = NotifyArgs::default();
         let mut decoder = Decoder::new(body);
         while let Some(field) = decoder.next()? {
-            match field.id {
-                1 => {
-                    out.event = decode_Event(field.payload)?;
-                }
-                _ => {}
+            if field.id == 1 {
+                out.event = decode_event(field.payload)?;
             }
         }
         Ok(out)

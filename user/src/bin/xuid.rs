@@ -878,6 +878,9 @@ fn handle_event(
                 full,
                 drag_session.as_ref(),
             );
+            // This press goes to the surface, so its release must too: drop a
+            // stale consumed bit left by a release the input queue dropped.
+            *consumed &= !button_bit;
             let (x, y) = relative(surfaces, id, point);
             forward(surfaces, scratch, Some(id), method::POINTER_DOWN, x, y);
         }
@@ -989,7 +992,7 @@ fn restore(surfaces: &mut Vec<Surface>, focused: &mut Option<u64>, id: u64) {
 
 /// Minimize a surface, moving focus to the next visible surface.
 fn minimize_surface(
-    surfaces: &mut Vec<Surface>,
+    surfaces: &mut [Surface],
     screen: &mut Canvas,
     pointer: (i32, i32),
     focused: &mut Option<u64>,
@@ -1091,14 +1094,11 @@ fn for_each_entry(
     let mut x = ENTRY_MARGIN;
     let mut last_id = 0u64;
     let y = screen_h - TASKBAR_H + (TASKBAR_H - ENTRY_H) / 2;
-    loop {
-        let Some(surface) = surfaces
-            .iter()
-            .filter(|surface| surface.id > last_id)
-            .min_by_key(|surface| surface.id)
-        else {
-            break;
-        };
+    while let Some(surface) = surfaces
+        .iter()
+        .filter(|surface| surface.id > last_id)
+        .min_by_key(|surface| surface.id)
+    {
         last_id = surface.id;
         let width = entry_width(surface);
         if x + width > screen_w - ENTRY_MARGIN {

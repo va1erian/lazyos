@@ -229,6 +229,10 @@ const SUITE: &[(&str, Test)] = &[
         linux_suite::epoll_edge_over_maxevents,
     ),
     (
+        "linux_epoll_level_does_not_starve",
+        linux_suite::epoll_level_does_not_starve,
+    ),
+    (
         "linux_epoll_soak_add_wait_cycles",
         linux_suite::epoll_soak_add_wait_cycles,
     ),
@@ -253,6 +257,26 @@ const SUITE: &[(&str, Test)] = &[
         linux_suite::unix_write_before_accept,
     ),
     ("linux_unix_pathname_soak", linux_suite::unix_pathname_soak),
+    (
+        "linux_nanosleep_relative_duration",
+        linux_suite::nanosleep_relative_duration,
+    ),
+    (
+        "linux_clock_nanosleep_absolute_past_returns_immediately",
+        linux_suite::clock_nanosleep_absolute_past_returns_immediately,
+    ),
+    (
+        "linux_clock_nanosleep_absolute_future_waits_until_deadline",
+        linux_suite::clock_nanosleep_absolute_future_waits_until_deadline,
+    ),
+    (
+        "linux_clock_nanosleep_bad_clock_and_flags",
+        linux_suite::clock_nanosleep_bad_clock_and_flags,
+    ),
+    (
+        "linux_clock_nanosleep_soak_absolute",
+        linux_suite::clock_nanosleep_soak_absolute,
+    ),
     ("ipc_open_distinct", ipc_suite::open_distinct),
     ("ipc_duplicate_rights", ipc_suite::duplicate_rights),
     ("ipc_close_frees", ipc_suite::close_frees),
@@ -282,6 +306,14 @@ const SUITE: &[(&str, Test)] = &[
     (
         "ipc_channel_deadlock_refused",
         ipc_channel_suite::deadlock_refused,
+    ),
+    (
+        "ipc_channel_concurrent_clients_allowed",
+        ipc_channel_suite::concurrent_clients_allowed,
+    ),
+    (
+        "ipc_channel_concurrent_clients_soak",
+        ipc_channel_suite::concurrent_clients_soak,
     ),
     ("ipc_acl_default_deny", acl_suite::acl_default_deny),
     ("ipc_acl_allow_rule", acl_suite::acl_allow_rule),
@@ -3775,11 +3807,24 @@ mod linux_suite {
     const EINVAL: u64 = (-22i64) as u64;
     const EMSGSIZE: u64 = (-90i64) as u64;
 
+    const CLOCK_REALTIME: u64 = 0;
+    const CLOCK_MONOTONIC: u64 = 1;
+    const TIMER_ABSTIME: u64 = 1;
+
     /// Register the kernel task with a bump region, close leftover
     /// descriptors, and forget any bound socket names, so each test starts
     /// from a clean ABI surface.
     fn fresh() -> Result<(), String> {
         task::register_kernel();
+        // A fork left behind by an earlier test (e.g. an unreaped
+        // `spawn_fork` peer) would otherwise sit in the table as a real
+        // `Runnable` competitor: harmless while the kernel task itself never
+        // blocks, but a genuine hijack risk for the tests below that call a
+        // blocking syscall (`nanosleep`/`clock_nanosleep`) for real, since
+        // `pick_next_best` would rather run any other `Runnable` slot than
+        // let the CPU idle.
+        task::harness::reset();
+        task::harness::switch_current(task::KERNEL_TASK);
         for fd in 3..task::FD_COUNT {
             let _ = task::fd_close(fd);
         }
@@ -4135,7 +4180,10 @@ mod linux_suite {
             );
             let (r, w) = (fds[0] as u64, fds[1] as u64);
             let edge = epoll_event(EPOLLIN | EPOLLET, tag);
-            check!(epoll_ctl(epfd, EPOLL_CTL_ADD, r, &edge) == 0, "ADD {tag} failed");
+            check!(
+                epoll_ctl(epfd, EPOLL_CTL_ADD, r, &edge) == 0,
+                "ADD {tag} failed"
+            );
             check!(write_fd(w, b"x") == 1, "pipe {tag} write");
             ends.push((r, w));
         }
@@ -4147,7 +4195,10 @@ mod linux_suite {
                 "round {round}: a pending edge was lost past maxevents"
             );
             let (_, data) = unpack_event(&one);
-            check!(!seen.contains(&data), "round {round}: edge {data} reported twice");
+            check!(
+                !seen.contains(&data),
+                "round {round}: edge {data} reported twice"
+            );
             seen.push(data);
         }
         check!(
@@ -4160,6 +4211,56 @@ mod linux_suite {
         }
         check!(task::fd_close(epfd as usize), "close epoll failed");
         check!(fds_clean(), "epoll edge test left a descriptor");
+        check!(pipe::Pipe::live() == 0, "a pipe was not freed");
+        Ok(())
+    }
+
+    /// With `maxevents = 1`, a level-triggered interest that stays ready must
+    /// not starve interests registered after it: successive waits rotate
+    /// through the ready set, as Linux does.
+    pub fn epoll_level_does_not_starve() -> Result<(), String> {
+        fresh()?;
+        let epfd = process::linux::dispatch_for_test(291, 0, 0, 0);
+        check!((epfd as i64) > 0, "epoll_create1 returned {epfd:#x}");
+        let mut ends: Vec<(u64, u64)> = Vec::new();
+        for (tag, events) in [(1u64, EPOLLIN), (2, EPOLLIN | EPOLLET), (3, EPOLLIN)] {
+            let mut fds = [0i32; 2];
+            check!(
+                process::linux::dispatch_for_test(22, fds.as_mut_ptr() as u64, 0, 0) == 0,
+                "pipe {tag} failed"
+            );
+            let (r, w) = (fds[0] as u64, fds[1] as u64);
+            let interest = epoll_event(events, tag);
+            check!(
+                epoll_ctl(epfd, EPOLL_CTL_ADD, r, &interest) == 0,
+                "ADD {tag} failed"
+            );
+            check!(write_fd(w, b"x") == 1, "pipe {tag} write");
+            ends.push((r, w));
+        }
+        let mut one = [0u8; 12];
+        let mut seen: Vec<u64> = Vec::new();
+        for round in 0..6 {
+            check!(
+                epoll_wait0(epfd, &mut one) == 1,
+                "round {round}: nothing reported"
+            );
+            let (_, data) = unpack_event(&one);
+            if !seen.contains(&data) {
+                seen.push(data);
+            }
+        }
+        seen.sort();
+        check!(
+            seen == [1, 2, 3],
+            "maxevents=1 waits starved an interest: saw {seen:?}"
+        );
+        for (r, w) in ends {
+            check!(task::fd_close(r as usize), "close read end failed");
+            check!(task::fd_close(w as usize), "close write end failed");
+        }
+        check!(task::fd_close(epfd as usize), "close epoll failed");
+        check!(fds_clean(), "epoll starvation test left a descriptor");
         check!(pipe::Pipe::live() == 0, "a pipe was not freed");
         Ok(())
     }
@@ -4460,14 +4561,20 @@ mod linux_suite {
         );
         check!(task::fd_close(listener as usize), "close listener failed");
         let eof = read_fd(orphan, &mut buf);
-        check!(eof == 0, "orphaned client read returned {eof:#x}, expected EOF");
+        check!(
+            eof == 0,
+            "orphaned client read returned {eof:#x}, expected EOF"
+        );
 
         for fd in [client, server, orphan] {
             check!(task::fd_close(fd as usize), "cleanup close failed");
         }
         check!(fds_clean(), "early-write test left a descriptor");
         check!(unix::bound_count() == 0, "bound name survived its listener");
-        check!(pipe::Pipe::live() == 0, "a pending connection leaked a pipe");
+        check!(
+            pipe::Pipe::live() == 0,
+            "a pending connection leaked a pipe"
+        );
         Ok(())
     }
 
@@ -4517,6 +4624,182 @@ mod linux_suite {
             "pathname soak leaked a bound name"
         );
         check!(pipe::Pipe::live() == 0, "pathname soak leaked a pipe");
+        Ok(())
+    }
+
+    /// `clock_gettime(clock, ..)`, returning `(sec, nsec)`.
+    fn clock_now(clock: u64) -> (i64, i64) {
+        let mut out = [0i64; 2];
+        process::linux::dispatch_for_test(228, clock, out.as_mut_ptr() as u64, 0);
+        (out[0], out[1])
+    }
+
+    /// `(sec, nsec)` normalized after adding `add_nsec` nanoseconds.
+    fn add_nanos(sec: i64, nsec: i64, add_nsec: i64) -> (i64, i64) {
+        let mut sec = sec;
+        let mut nsec = nsec + add_nsec;
+        while nsec >= 1_000_000_000 {
+            nsec -= 1_000_000_000;
+            sec += 1;
+        }
+        (sec, nsec)
+    }
+
+    /// `nanosleep(req, rem)` (syscall 35): always relative, no clock argument.
+    fn nanosleep(req: &[i64; 2], rem: &mut [i64; 2]) -> u64 {
+        process::linux::dispatch_for_test(35, req.as_ptr() as u64, rem.as_mut_ptr() as u64, 0)
+    }
+
+    /// `clock_nanosleep(clockid, flags, req, rem)` (syscall 230).
+    fn clock_nanosleep(clock: u64, flags: u64, req: &[i64; 2], rem: &mut [i64; 2]) -> u64 {
+        process::linux::dispatch_args_for_test(
+            230,
+            clock,
+            flags,
+            req.as_ptr() as u64,
+            rem.as_mut_ptr() as u64,
+        )
+    }
+
+    /// A relative `nanosleep` blocks for roughly the requested duration.
+    pub fn nanosleep_relative_duration() -> Result<(), String> {
+        fresh()?;
+        let before = task::ticks();
+        // 30ms => 3 ticks at 100 Hz.
+        let req = [0i64, 30_000_000];
+        let mut rem = [0i64; 2];
+        let ret = nanosleep(&req, &mut rem);
+        check!(ret == 0, "relative nanosleep returned {ret:#x}");
+        let elapsed = task::ticks() - before;
+        check!(
+            (3..=30).contains(&elapsed),
+            "relative nanosleep took an unexpected number of ticks: {elapsed}"
+        );
+        Ok(())
+    }
+
+    /// `clock_nanosleep` with `TIMER_ABSTIME` and a deadline already in the
+    /// past returns immediately, on both clocks `clock_gettime` reports.
+    pub fn clock_nanosleep_absolute_past_returns_immediately() -> Result<(), String> {
+        fresh()?;
+        for &clock in &[CLOCK_REALTIME, CLOCK_MONOTONIC] {
+            let before = task::ticks();
+            // (0, 0) is long before both the boot epoch and the fixed
+            // realtime base, so it is in the past on either clock.
+            let req = [0i64, 0i64];
+            let mut rem = [0i64; 2];
+            let ret = clock_nanosleep(clock, TIMER_ABSTIME, &req, &mut rem);
+            check!(
+                ret == 0,
+                "past absolute deadline on clock {clock} returned {ret:#x}"
+            );
+            let elapsed = task::ticks() - before;
+            check!(
+                elapsed <= 2,
+                "past absolute deadline on clock {clock} blocked for {elapsed} ticks"
+            );
+        }
+        Ok(())
+    }
+
+    /// A `TIMER_ABSTIME` deadline slightly in the future waits until that
+    /// instant, not for the deadline's raw value read as a duration.
+    ///
+    /// Deliberately uses `CLOCK_REALTIME`, not `CLOCK_MONOTONIC`: this early
+    /// in boot, monotonic "now" is itself only a few ticks past zero, so a
+    /// short relative delta and a monotonic absolute deadline are almost the
+    /// same bit pattern and the old bug (reading the deadline as a duration)
+    /// would go unnoticed. `CLOCK_REALTIME`'s fixed epoch base
+    /// (`REALTIME_BASE`, ~56 years) makes the two unmistakably different: the
+    /// old code, given a `CLOCK_REALTIME` deadline, would try to sleep for
+    /// about that many seconds (matching the issue's "roughly the whole
+    /// uptime" on `CLOCK_MONOTONIC`, just far more dramatic on this clock),
+    /// so a regression here fails by timeout, not by a fast assertion.
+    pub fn clock_nanosleep_absolute_future_waits_until_deadline() -> Result<(), String> {
+        fresh()?;
+        let (sec, nsec) = clock_now(CLOCK_REALTIME);
+        let (dsec, dnsec) = add_nanos(sec, nsec, 40_000_000); // 40ms ahead
+        let req = [dsec, dnsec];
+        let mut rem = [0i64; 2];
+        let before = task::ticks();
+        let ret = clock_nanosleep(CLOCK_REALTIME, TIMER_ABSTIME, &req, &mut rem);
+        check!(ret == 0, "future absolute deadline returned {ret:#x}");
+        let elapsed = task::ticks() - before;
+        check!(
+            elapsed >= 3,
+            "future absolute deadline returned too early: elapsed={elapsed} ticks"
+        );
+        check!(
+            elapsed <= 30,
+            "future absolute deadline waited far longer than requested \
+             (treated as a duration instead of a deadline?): elapsed={elapsed} ticks, \
+             uptime-before={before} ticks"
+        );
+        Ok(())
+    }
+
+    /// Unknown clocks and unknown flag bits are rejected with `-EINVAL`,
+    /// including when `TIMER_ABSTIME` is combined with an unknown bit; the
+    /// timespec validation (negative seconds/nanoseconds, and nanoseconds
+    /// outside `0..1_000_000_000`) still applies.
+    pub fn clock_nanosleep_bad_clock_and_flags() -> Result<(), String> {
+        fresh()?;
+        let req = [0i64, 0i64];
+        let mut rem = [0i64; 2];
+
+        let ret = clock_nanosleep(2, 0, &req, &mut rem);
+        check!(ret == EINVAL, "unknown clock accepted: {ret:#x}");
+
+        let ret = clock_nanosleep(CLOCK_MONOTONIC, 2, &req, &mut rem);
+        check!(ret == EINVAL, "unknown flag bit accepted: {ret:#x}");
+
+        let ret = clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME | 2, &req, &mut rem);
+        check!(
+            ret == EINVAL,
+            "TIMER_ABSTIME combined with an unknown bit accepted: {ret:#x}"
+        );
+
+        let bad_req = [-1i64, 0i64];
+        let ret = clock_nanosleep(CLOCK_MONOTONIC, 0, &bad_req, &mut rem);
+        check!(ret == EINVAL, "negative seconds accepted: {ret:#x}");
+
+        let bad_req = [0i64, -1i64];
+        let ret = clock_nanosleep(CLOCK_MONOTONIC, 0, &bad_req, &mut rem);
+        check!(ret == EINVAL, "negative nanoseconds accepted: {ret:#x}");
+
+        let bad_req = [0i64, 1_000_000_000i64];
+        let ret = clock_nanosleep(CLOCK_MONOTONIC, 0, &bad_req, &mut rem);
+        check!(ret == EINVAL, "nanoseconds >= 1s accepted: {ret:#x}");
+        Ok(())
+    }
+
+    /// Soak: many short `TIMER_ABSTIME` sleeps in a row, each one tick ahead
+    /// of the clock read just before it, catch leaks/races in the deadline
+    /// conversion and the wait-queue path under repeated use.
+    pub fn clock_nanosleep_soak_absolute() -> Result<(), String> {
+        fresh()?;
+        const ITERATIONS: usize = 40;
+        let mut rem = [0i64; 2];
+        let start = task::ticks();
+        for i in 0..ITERATIONS {
+            let (sec, nsec) = clock_now(CLOCK_MONOTONIC);
+            let (dsec, dnsec) = add_nanos(sec, nsec, 10_000_000); // 10ms = 1 tick ahead
+            let req = [dsec, dnsec];
+            let ret = clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &req, &mut rem);
+            check!(ret == 0, "soak iteration {i} returned {ret:#x}");
+        }
+        let elapsed = task::ticks() - start;
+        check!(
+            elapsed >= ITERATIONS as u64,
+            "soak sleeps finished faster than requested: elapsed={elapsed} ticks for {ITERATIONS} iterations"
+        );
+        check!(
+            elapsed <= (ITERATIONS as u64) * 5,
+            "soak sleeps took far longer than requested: elapsed={elapsed} ticks"
+        );
+        serial_println!(
+            "TEST:linux_clock_nanosleep_soak_absolute:INFO:iterations={ITERATIONS} elapsed_ticks={elapsed}"
+        );
         Ok(())
     }
 }
@@ -6007,6 +6290,166 @@ mod ipc_channel_suite {
             channels::stats().cancels == 3,
             "cancel counter is {}",
             channels::stats().cancels
+        );
+        fresh()
+    }
+
+    /// Spawn `count` client tasks, each holding its own handle to the callable
+    /// side `shared` of one channel, as `registry::resolve` hands every client
+    /// of a service an alias of the same endpoint. Returns `(slot, handle)`
+    /// pairs; `current()` is the kernel task again on return.
+    fn shared_clients(shared: u64, count: usize) -> Result<Vec<(usize, u64)>, String> {
+        let entry = handles::get(shared).map_err(|error| error.message())?;
+        let mut clients = Vec::new();
+        for index in 0..count {
+            task::harness::switch_current(task::KERNEL_TASK);
+            let slot = task::spawn_fork().map_err(|error| format!("client {index}: {error}"))?;
+            handles::reset_for_task(slot);
+            let handle = handles::open_for_task(slot, entry.kind, entry.rights, entry.object_id)
+                .map_err(|error| error.message())?;
+            clients.push((slot, handle));
+        }
+        task::harness::switch_current(task::KERNEL_TASK);
+        Ok(clients)
+    }
+
+    /// Independent clients calling one service over an aliased endpoint are
+    /// not a cycle (the clipboard demo pair hit a false `Deadlock` here): the
+    /// second client's call is queued behind the first. Nesting by the same
+    /// client and a callback from the service side stay refused while either
+    /// call is open, and the callback is allowed once both calls end.
+    pub fn concurrent_clients_allowed() -> Result<(), String> {
+        fresh()?;
+        let (shared, server) = channels::create().map_err(reason)?;
+        let clients = shared_clients(shared, 2)?;
+        let (first, first_handle) = clients[0];
+        let (second, second_handle) = clients[1];
+        let request = parcel(7, flags::SYNC, "hello")?;
+
+        task::harness::switch_current(first);
+        let first_txn = channels::begin_call(first_handle, 7, &request, None).map_err(reason)?;
+        task::harness::switch_current(second);
+        let second_txn = channels::begin_call(second_handle, 7, &request, None)
+            .map_err(|error| format!("second client refused: {}", error.message()))?;
+        check!(first_txn != second_txn, "the two clients share a txn id");
+
+        // Nesting: the first client already has a call open on this channel.
+        task::harness::switch_current(first);
+        check!(
+            channels::begin_call(first_handle, 7, &request, None) == Err(ChannelError::Deadlock),
+            "a nested call by the same client was not refused"
+        );
+        // Callback: the service calls toward the side whose callers are parked.
+        task::harness::switch_current(task::KERNEL_TASK);
+        check!(
+            channels::begin_call(server, 7, &request, None) == Err(ChannelError::Deadlock),
+            "a callback toward parked callers was not refused"
+        );
+
+        // The service answers both, in arrival order, by transaction id.
+        for (slot, txn) in [(first, first_txn), (second, second_txn)] {
+            let message = channels::recv(server, None).map_err(reason)?;
+            check!(
+                message.sender == slot && message.txn == Some(txn),
+                "request from {} txn {:?}, expected {slot} txn {txn}",
+                message.sender,
+                message.txn
+            );
+            channels::reply(txn, &parcel(8, 0, &format!("to {slot}"))?).map_err(reason)?;
+        }
+        for (slot, txn) in [(first, first_txn), (second, second_txn)] {
+            task::harness::switch_current(slot);
+            let got = channels::await_reply(txn).map_err(reason)?;
+            check!(
+                payload(&got)? == format!("to {slot}"),
+                "client {slot} got another client's reply"
+            );
+        }
+
+        // Idle again: the service may now call its clients' side.
+        task::harness::switch_current(task::KERNEL_TASK);
+        let back = channels::begin_call(server, 7, &request, None).map_err(reason)?;
+        channels::cancel(back).map_err(reason)?;
+        check!(
+            channels::await_reply(back) == Err(ChannelError::Canceled),
+            "callback outcome is not Canceled"
+        );
+        // Canceling does not dequeue: the callback request is still waiting in
+        // the clients' inbox.
+        let stats = channels::stats();
+        check!(
+            stats.calls == 3 && stats.replies == 2 && stats.outstanding == 0 && stats.queued == 1,
+            "counters after two clients and a callback: {stats:?}"
+        );
+        fresh()
+    }
+
+    /// Soak: 4 clients call one shared endpoint concurrently for 2000 rounds.
+    /// Every round the callback probe is refused, replies go back in reverse
+    /// order and each reaches its own caller; nothing is left outstanding,
+    /// queued or metered at the end.
+    pub fn concurrent_clients_soak() -> Result<(), String> {
+        const CLIENTS: usize = 4;
+        const ROUNDS: usize = 2000;
+        fresh()?;
+        let (shared, server) = channels::create().map_err(reason)?;
+        let clients = shared_clients(shared, CLIENTS)?;
+        let probe = parcel(7, flags::SYNC, "probe")?;
+        let start = unsafe { core::arch::x86_64::_rdtsc() };
+        for round in 0..ROUNDS {
+            let mut txns = Vec::with_capacity(CLIENTS);
+            for &(slot, handle) in &clients {
+                task::harness::switch_current(slot);
+                let request = parcel(7, flags::SYNC, &format!("{round}:{slot}"))?;
+                let txn = channels::begin_call(handle, 7, &request, None)
+                    .map_err(|error| format!("round {round} client {slot}: {}", error.message()))?;
+                txns.push(txn);
+            }
+            task::harness::switch_current(task::KERNEL_TASK);
+            check!(
+                channels::begin_call(server, 7, &probe, None) == Err(ChannelError::Deadlock),
+                "round {round}: a callback was allowed with calls open"
+            );
+            let mut inbound = Vec::with_capacity(CLIENTS);
+            for _ in 0..CLIENTS {
+                inbound.push(channels::recv(server, None).map_err(reason)?);
+            }
+            for message in inbound.iter().rev() {
+                let txn = message
+                    .txn
+                    .ok_or_else(|| format!("round {round}: a call arrived without a txn"))?;
+                let echo = payload(&message.bytes)?;
+                channels::reply(txn, &parcel(8, 0, &echo)?).map_err(reason)?;
+            }
+            for (index, &(slot, _)) in clients.iter().enumerate() {
+                task::harness::switch_current(slot);
+                let got = channels::await_reply(txns[index]).map_err(reason)?;
+                check!(
+                    payload(&got)? == format!("{round}:{slot}"),
+                    "round {round}: client {slot} got the wrong reply"
+                );
+            }
+        }
+        task::harness::switch_current(task::KERNEL_TASK);
+        let cycles = unsafe { core::arch::x86_64::_rdtsc() }.wrapping_sub(start);
+        serial_println!(
+            "TEST:ipc_channel_concurrent_clients_soak:INFO:clients={CLIENTS} rounds={ROUNDS} cycles={cycles}"
+        );
+        let stats = channels::stats();
+        let expected = (CLIENTS * ROUNDS) as u64;
+        check!(
+            stats.calls == expected
+                && stats.replies == expected
+                && stats.timeouts == 0
+                && stats.outstanding == 0
+                && stats.queued == 0
+                && stats.queued_bytes == 0,
+            "counters after the soak: {stats:?}"
+        );
+        let meters = channels::senders(server).map_err(reason)?;
+        check!(
+            meters.iter().all(|meter| meter.outstanding == 0),
+            "a sender meter still counts open calls: {meters:?}"
         );
         fresh()
     }
@@ -11714,8 +12157,7 @@ mod sysinfo_suite {
     /// A full snapshot through the syscall entry, decoded as raw words.
     fn snapshot() -> Result<[u64; sysinfo::WORDS], String> {
         in_space(|| {
-            let code =
-                process::dispatch_for_test(14, sysinfo::op::SNAPSHOT, SPACE, sysinfo::SIZE);
+            let code = process::dispatch_for_test(14, sysinfo::op::SNAPSHOT, SPACE, sysinfo::SIZE);
             check!(code == sysinfo::SIZE, "snapshot -> {code:#x}");
             let mut words = [0u64; sysinfo::WORDS];
             for (index, word) in words.iter_mut().enumerate() {
@@ -11802,9 +12244,15 @@ mod sysinfo_suite {
             ] {
                 let code =
                     process::dispatch_for_test(14, sysinfo::op::SNAPSHOT, buf, sysinfo::SIZE);
-                check!(code == failed(14), "sysinfo {label} -> {code:#x}, expected -EFAULT");
+                check!(
+                    code == failed(14),
+                    "sysinfo {label} -> {code:#x}, expected -EFAULT"
+                );
                 let code = process::dispatch_for_test(13, buf, 0, 0);
-                check!(code == failed(14), "sys_tasks {label} -> {code:#x}, expected -EFAULT");
+                check!(
+                    code == failed(14),
+                    "sys_tasks {label} -> {code:#x}, expected -EFAULT"
+                );
             }
             let code = process::dispatch_for_test(13, SPACE, 0, 0);
             check!(code == 0, "sys_tasks into a mapped buffer -> {code:#x}");

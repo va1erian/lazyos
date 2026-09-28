@@ -20,7 +20,7 @@
 
 use alloc::sync::{Arc, Weak};
 use alloc::vec::Vec;
-use core::sync::atomic::{AtomicBool, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use spin::Mutex;
 
 use crate::task::Fd;
@@ -68,6 +68,11 @@ struct Interest {
 pub struct Epoll {
     interests: Mutex<Vec<Interest>>,
     nonblock: AtomicBool,
+    /// Where the next `epoll_wait` scan starts: one past the last interest
+    /// reported, so a continuously ready interest cannot starve the ones after
+    /// it when `maxevents` is smaller than the ready set (Linux round-robins
+    /// ready descriptors the same way).
+    cursor: AtomicUsize,
     /// Other epoll instances that currently have `self` registered as one of
     /// their interests (`Weak`, so being watched cannot keep a watcher alive,
     /// and a watcher's own `Epoll` can still be dropped once its last fd
@@ -84,6 +89,7 @@ impl Epoll {
     pub fn new() -> Arc<Epoll> {
         Arc::new(Epoll {
             interests: Mutex::new(Vec::new()),
+            cursor: AtomicUsize::new(0),
             nonblock: AtomicBool::new(false),
             watched_by: Mutex::new(Vec::new()),
         })
@@ -281,7 +287,16 @@ impl Epoll {
         // (fd, revents, freshness) after this scan.
         let mut scanned: Vec<(usize, u16, u64)> = Vec::with_capacity(snapshot.len());
         let mut out: Vec<(u32, u64)> = Vec::new();
-        for interest in &snapshot {
+        let len = snapshot.len();
+        let start = if len == 0 {
+            0
+        } else {
+            self.cursor.load(Ordering::Relaxed) % len
+        };
+        let mut last_reported = None;
+        for step in 0..len {
+            let position = (start + step) % len;
+            let interest = &snapshot[position];
             let (revents, gen) = interest.target.poll_gen((interest.events & 0xffff) as u16);
             let reportable = (revents as u32) & (interest.events | REPORT_ALWAYS);
             let edge = interest.events & EPOLLET != 0;
@@ -299,7 +314,11 @@ impl Epoll {
             scanned.push((interest.fd, revents, gen));
             if wants_report {
                 out.push((reportable, interest.data));
+                last_reported = Some(position);
             }
+        }
+        if let Some(position) = last_reported {
+            self.cursor.store(position + 1, Ordering::Relaxed);
         }
         {
             let mut interests = self.interests.lock();

@@ -11,8 +11,8 @@
 //! `sysmond` service exposes the same snapshot over Messenger for dashboards.
 //!
 //! The on-disk name is `TOP.ELF` (8.3-safe: the kernel's FAT reader only
-//! resolves short names). `init` starts it once from its manifest, after
-//! `sysmond`.
+//! resolves short names). `sysmond` spawns it once (manifest argument
+//! `demo=1`) after its first snapshot is retained, and reaps it.
 
 #![no_std]
 #![no_main]
@@ -81,7 +81,7 @@ fn render(snapshot: &Snapshot, refresh: usize) {
     ));
     sys::write_str("  PID STATE  CLASS    CPU NAME\n");
     let mut tasks: Vec<TaskRow> = snapshot.live_tasks().copied().collect();
-    tasks.sort_by(|left, right| right.cpu_ticks.cmp(&left.cpu_ticks));
+    tasks.sort_by_key(|row| core::cmp::Reverse(row.cpu_ticks));
     for row in tasks.iter().take(TOP_N) {
         sys::write_str(&format!(
             "  {:>3} {:<6} {:<6} {:>4} {}\n",

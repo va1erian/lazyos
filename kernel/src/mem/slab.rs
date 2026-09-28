@@ -304,7 +304,7 @@ pub unsafe fn dealloc(class: usize, ptr: NonNull<u8>) {
         return;
     };
     debug_assert!(
-        ptr.as_ptr() as usize % size == 0,
+        (ptr.as_ptr() as usize).is_multiple_of(size),
         "slab: dealloc of misaligned pointer {:#x}",
         ptr.as_ptr() as usize
     );

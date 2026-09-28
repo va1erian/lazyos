@@ -315,7 +315,7 @@ impl Ext2 {
         }
         if inode_size < INODE_CORE_SIZE as u16
             || u32::from(inode_size) > block_size
-            || block_size % u32::from(inode_size) != 0
+            || !block_size.is_multiple_of(u32::from(inode_size))
         {
             return Err(FsError::Invalid);
         }
@@ -348,7 +348,7 @@ impl Ext2 {
             return Err(FsError::NotSupported);
         }
         let inodes_per_block = block_size / u32::from(inode_size);
-        if inodes_per_group % inodes_per_block != 0 {
+        if !inodes_per_group.is_multiple_of(inodes_per_block) {
             return Err(FsError::Invalid);
         }
 
@@ -375,13 +375,13 @@ impl Ext2 {
     }
 
     /// Bytes per filesystem block.
-    #[cfg_attr(not(laZYOS_TESTS), allow(dead_code))] // diagnostics/tests
+    #[cfg_attr(not(lazyos_tests), allow(dead_code))] // diagnostics/tests
     pub fn block_size(&self) -> u32 {
         self.block_size
     }
 
     /// The superblock's free-block counter (the future `statfs` surface).
-    #[cfg_attr(not(laZYOS_TESTS), allow(dead_code))]
+    #[cfg_attr(not(lazyos_tests), allow(dead_code))]
     pub fn free_blocks(&self) -> Result<u32, FsError> {
         let _guard = self.lock.lock();
         let mut raw = [0u8; 1024];
@@ -390,7 +390,7 @@ impl Ext2 {
     }
 
     /// The superblock's free-inode counter.
-    #[cfg_attr(not(laZYOS_TESTS), allow(dead_code))]
+    #[cfg_attr(not(lazyos_tests), allow(dead_code))]
     pub fn free_inodes(&self) -> Result<u32, FsError> {
         let _guard = self.lock.lock();
         let mut raw = [0u8; 1024];
@@ -400,7 +400,7 @@ impl Ext2 {
 
     /// The physical block backing logical `index` of `path` (`0` for a hole).
     /// This is the diagnostic surface the tests use to see allocation reuse.
-    #[cfg_attr(not(laZYOS_TESTS), allow(dead_code))]
+    #[cfg_attr(not(lazyos_tests), allow(dead_code))]
     pub fn mapped_block(&self, path: &str, index: u32) -> Result<u32, FsError> {
         let _guard = self.lock.lock();
         let ino = self.resolve(path)?;
@@ -413,7 +413,7 @@ impl Ext2 {
 
     /// Stamp `s_wtime` and hand the write cache to the device. ext2 keeps no
     /// journal, so this is the whole durability story for now.
-    #[cfg_attr(not(laZYOS_TESTS), allow(dead_code))] // the future umount surface
+    #[cfg_attr(not(lazyos_tests), allow(dead_code))] // the future umount surface
     pub fn flush(&self) -> Result<(), FsError> {
         let _guard = self.lock.lock();
         if !self.read_only {
@@ -941,7 +941,7 @@ impl Ext2 {
                 let rec_len = le16(&buf, offset + DE_REC_LEN) as usize;
                 let name_len = buf[offset + DE_NAME_LEN] as usize;
                 if rec_len < DE_HEADER
-                    || rec_len % 4 != 0
+                    || !rec_len.is_multiple_of(4)
                     || offset + rec_len > size
                     || name_len > rec_len - DE_HEADER
                 {
@@ -977,7 +977,7 @@ impl Ext2 {
                 let rec_len = le16(&buf, offset + DE_REC_LEN) as usize;
                 let name_len = buf[offset + DE_NAME_LEN] as usize;
                 if rec_len < DE_HEADER
-                    || rec_len % 4 != 0
+                    || !rec_len.is_multiple_of(4)
                     || offset + rec_len > size
                     || name_len > rec_len - DE_HEADER
                 {
@@ -1033,7 +1033,7 @@ impl Ext2 {
                 let rec_len = le16(&buf, offset + DE_REC_LEN) as usize;
                 let name_len = buf[offset + DE_NAME_LEN] as usize;
                 if rec_len < DE_HEADER
-                    || rec_len % 4 != 0
+                    || !rec_len.is_multiple_of(4)
                     || offset + rec_len > size
                     || name_len > rec_len - DE_HEADER
                 {
@@ -1125,7 +1125,7 @@ impl Ext2 {
                 let rec_len = le16(&buf, offset + DE_REC_LEN) as usize;
                 let name_len = buf[offset + DE_NAME_LEN] as usize;
                 if rec_len < DE_HEADER
-                    || rec_len % 4 != 0
+                    || !rec_len.is_multiple_of(4)
                     || offset + rec_len > size
                     || name_len > rec_len - DE_HEADER
                 {
@@ -1180,7 +1180,7 @@ impl Ext2 {
             let rec_len = le16(&buf, offset + DE_REC_LEN) as usize;
             let name_len = buf[offset + DE_NAME_LEN] as usize;
             if rec_len < DE_HEADER
-                || rec_len % 4 != 0
+                || !rec_len.is_multiple_of(4)
                 || offset + rec_len > size
                 || name_len > rec_len - DE_HEADER
             {
@@ -1606,7 +1606,7 @@ impl Filesystem for Ext2 {
                 let rec_len = le16(&buf, offset + DE_REC_LEN) as usize;
                 let name_len = buf[offset + DE_NAME_LEN] as usize;
                 if rec_len < DE_HEADER
-                    || rec_len % 4 != 0
+                    || !rec_len.is_multiple_of(4)
                     || offset + rec_len > size
                     || name_len > rec_len - DE_HEADER
                 {

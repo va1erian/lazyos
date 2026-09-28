@@ -154,7 +154,7 @@ impl Fat16 {
             FatKind::Fat12 => {
                 let word = self.read_fat_word(sector, index)?;
                 // 12-bit entries are packed; pick the low or high nibble pair.
-                if cluster % 2 == 0 {
+                if cluster.is_multiple_of(2) {
                     word & 0x0FFF
                 } else {
                     word >> 4
