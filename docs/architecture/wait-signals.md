@@ -59,6 +59,12 @@ delivery.
 
 - The blocked mask and pending set are process-wide, a documented simplification
   of Linux's per-thread model.
+- Kernel signal sets use bit `1 << sig`; Linux `sigset_t` uses bit `sig - 1`.
+  `linux_sigset_to_kernel`/`kernel_to_linux_sigset` translate at every Linux
+  ABI boundary (`rt_sigaction` `sa_mask`, `rt_sigprocmask` set/oldset, and the
+  `ucontext.uc_sigmask` of `build_linux_frame`/`parse_linux_frame`). Signal 64
+  (`SIGRTMAX`) has no kernel `u64` bit and is dropped safely; the native
+  (`int 0x80`) path never translates.
 - Signal paths run in IRQ/scheduler context and therefore do not allocate
   (`SlotList` is a fixed stack array).
 - Lock order is task table -> signal registry, always.

@@ -72,6 +72,11 @@ Syscalls: `openat`(257) `close`(3) `read`(0) `write`(1) `lseek`(8)
 `getcwd`(79) `clock_getres`(229) `nanosleep`(35). Map fds 0/1/2 to the task's
 terminal; map `open`/`read`/`getdents` onto the FAT reader (read-only first).
 
+Status (#136): the ABI root is a copy-up overlay over the read-only FAT volume
+(upper layer in ramfs, whiteouts for deletes), so `O_CREAT`/`mkdir`/`rename`/
+`unlink`/`rmdir` and descriptor writes work without a writable FAT driver; see
+[architecture/filesystem.md](architecture/filesystem.md).
+
 ### L3 — Threads and synchronization
 Syscalls: `clone`(56) `futex`(202, at least `WAIT`/`WAKE`/`REQUEUE`/`CMP_REQUEUE`)
 `sched_yield`(24) `set_tid_address`(218) `set_robust_list`(273) `madvise`(28)

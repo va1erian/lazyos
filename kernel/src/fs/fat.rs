@@ -365,6 +365,10 @@ impl Filesystem for Fat16 {
         Err(FsError::ReadOnly)
     }
 
+    fn truncate(&self, _path: &str, _size: u64) -> Result<(), FsError> {
+        Err(FsError::ReadOnly)
+    }
+
     fn create(&self, _path: &str, _mode: u16, _owner: Id) -> Result<Meta, FsError> {
         Err(FsError::ReadOnly)
     }
@@ -374,6 +378,10 @@ impl Filesystem for Fat16 {
     }
 
     fn unlink(&self, _path: &str) -> Result<(), FsError> {
+        Err(FsError::ReadOnly)
+    }
+
+    fn rmdir(&self, _path: &str) -> Result<(), FsError> {
         Err(FsError::ReadOnly)
     }
 

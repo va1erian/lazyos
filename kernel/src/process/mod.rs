@@ -153,6 +153,9 @@ pub fn syscall_gate() -> HandlerFunc {
 extern "C" fn syscall_dispatch(regs: *mut Regs) {
     // Safety: the stub passes a valid pointer to saved registers.
     let regs = unsafe { &mut *regs };
+    // Reclaim slots the scheduler flagged (issue #133): on a syscall entry the
+    // current task holds no heap lock, so dropping dead tasks is safe.
+    task::reclaim_pending();
     if regs.rax == 0 {
         exit(regs.rdi as u32);
     }
