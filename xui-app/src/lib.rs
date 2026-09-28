@@ -11,6 +11,7 @@
 //! for the windowed system-state viewers (`sysmon`, `fabricmon`).
 
 pub mod backend;
+pub mod client_window;
 pub mod dashboard;
 pub mod display;
 pub mod fabric;
