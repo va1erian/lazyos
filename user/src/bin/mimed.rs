@@ -13,18 +13,22 @@
 //!   shell verbs `open`, `edit` and `reveal` seeded for the built-in types and
 //!   `Register`/`Lookup`/`Verbs`/`Open` served over Messenger.
 //!
-//! ## Launch path (interim)
+//! ## Launch path
 //!
-//! The supervisor (`init`) has no launch interface yet: it only spawns its
-//! static manifest and watches exits. `Open` therefore resolves the app and
-//! publishes a fire-and-forget `system/events/open/<app>` event through
-//! `messengerd`'s central broker ([`user::central`]) - the broker `logd` and
-//! the fabric viewers see - with a `path=<path> mime=<mime> verb=<verb>`
-//! payload. An app id is the program's 8.3 stem in lowercase (`editor` is
-//! `EDITOR.ELF`), so when `init` grows a launch method (or an app registers
-//! for the topic) it can spawn `APP.ELF <path>` from the same event. Until
-//! then the event is the observable launch record: `messengerctl log` shows
-//! it.
+//! `Open` resolves the app and, when the supervisor (`init`) is reachable,
+//! additionally calls `os.lazy.init`'s `Launch(app, path, session)` (issue
+//! #158): the app id comes from the open-with registry, the argument is the
+//! opened path, and the session is the caller's kernel-stamped session (read
+//! through `sys::cred_get`, which the service's root identity permits). The
+//! call is best-effort and gated: when `init` is absent, the app id is unknown
+//! to its registry, or the program is not installed, `Open` falls back to the
+//! original publish-only behavior. Either way `Open` publishes a
+//! fire-and-forget `system/events/open/<app>` event on `messengerd`'s central
+//! broker ([`user::central`]) - the broker `logd` subscribes to - with a
+//! `path=<path> mime=<mime> verb=<verb>` payload. An app id is the program's
+//! 8.3 stem in lowercase (`editor` is `EDITOR.ELF`), the same ids `init`'s
+//! app registry serves (`ListApps`). `messengerctl log` still shows the event
+//! as the observable launch record.
 //!
 //! ## Boot evidence
 //!
@@ -32,7 +36,8 @@
 //! prints machine-parseable markers, so a headless boot proves the path:
 //! `MIME:GUESS:PASS <path> <mime>`, `MIME:REGISTER:PASS` and
 //! `MIME:OPEN:PASS <path> <app>` (with `MIME:...:FAIL` lines if a check
-//! breaks).
+//! breaks). The open walk attempts the `init` launch too; a not-yet-installed
+//! app (`EDITOR.ELF`) exercises the fallback and still prints `MIME:OPEN:PASS`.
 //!
 //! The on-disk name is `MIMED.ELF` (8.3-safe: the kernel's FAT reader only
 //! resolves short names). `init` starts the service from its manifest.
@@ -47,7 +52,7 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::panic::PanicInfo;
 use user::central;
-use user::messenger::{self, errno, mime, registry, Error, Message, Parcel};
+use user::messenger::{self, errno, mime, registry, services, Endpoint, Error, Message, Parcel};
 use user::sys;
 
 /// Boot-time MIME database: extension (lowercase, no dot) to type.
@@ -424,7 +429,8 @@ fn dispatch(
         mime::method::OPEN => {
             let path = mime::string_field(&message.parcel, mime::field::PATH)?;
             let verb = mime::string_field(&message.parcel, mime::field::VERB)?;
-            let result = open_path(db, apps, bus, &path, &verb)?;
+            let session = caller_session(message);
+            let result = open_path(db, apps, bus, &path, &verb, session)?;
             mime::open_reply(&result)
         }
         mime::method::REGISTER => {
@@ -441,14 +447,16 @@ fn dispatch(
     }
 }
 
-/// Guess the path, resolve the app (`verb`, then the default verb), and
-/// publish the launch event on the central broker.
+/// Guess the path, resolve the app (`verb`, then the default verb), ask `init`
+/// to launch it when the supervisor is reachable, and publish the launch event
+/// on the central broker.
 fn open_path(
     db: &MimeDb,
     apps: &AppRegistry,
     bus: &mut Option<central::Bus>,
     path: &str,
     verb: &str,
+    session: Option<u64>,
 ) -> messenger::Result<mime::OpenResult> {
     let mime_type = db.guess(path);
     let app = apps
@@ -456,6 +464,12 @@ fn open_path(
         .or_else(|| apps.lookup(&mime_type, mime::DEFAULT_VERB))
         .ok_or(Error::Errno(-errno::ENOENT))?
         .to_string();
+    // The gated `init` launch (issue #158): best-effort, so an absent
+    // supervisor, an app it does not know, or an app whose ELF is not
+    // installed all fall back to the publish-only behavior below.
+    let launched = session
+        .map(|session| launch_via_init(&app, path, session))
+        .unwrap_or(false);
     let topic = format!("system/events/open/{app}");
     let payload = format!("path={path} mime={mime_type} verb={verb}");
     let published = publish_event(bus, &topic, &payload);
@@ -464,9 +478,56 @@ fn open_path(
         mime: mime_type,
         topic,
         published,
+        launched,
     })
 }
 
+/// The caller's kernel-stamped session, when the credential block is readable.
+/// `mimed` runs as root, so `cred_get` may read the sender; a failure (no
+/// signal today) degrades to publish-only.
+fn caller_session(message: &Message) -> Option<u64> {
+    let mut cred = sys::Cred::default();
+    sys::cred_get(Some(message.sender), &mut cred).ok()?;
+    Some(cred.session)
+}
+
+/// Ask `init` to launch `app` for `path` in the caller's session. `false` on
+/// any failure: the caller still gets the `Open` event.
+///
+/// The kernel refuses a second synchronous call on a channel while another
+/// transaction is open (`-EDEADLK`), and `init`'s endpoint is shared by every
+/// client, so a boot-time open walk can race another task's query; retry that
+/// specific error, mirroring [`publish_event`].
+fn launch_via_init(app: &str, path: &str, session: u64) -> bool {
+    // The boot pass has several clients queueing on `init` at once
+    // (`logd`/`healthd` subscribing, `messengerctl`'s self-tests), so the
+    // retry window is generous: ~1.3 s of parked ticks.
+    const ATTEMPTS: usize = 128;
+    let mut endpoint: Option<Endpoint> = None;
+    for _ in 0..ATTEMPTS {
+        if endpoint.is_none() {
+            endpoint = services::resolve_service(services::INIT_NAME).ok();
+        }
+        let Some(active) = &endpoint else {
+            park_tick();
+            continue;
+        };
+        match services::launch(active, app, path, session) {
+            Ok(result) => {
+                sys::write_str(&format!(
+                    "mimed: launched {} pid {} (session {})\n",
+                    result.app, result.pid, result.session
+                ));
+                return true;
+            }
+            Err(Error::Errno(code)) if code == -errno::EDEADLK => park_tick(),
+            Err(_) => return false,
+        }
+    }
+    false
+}
+
+/// Publish a fire-and-forget launch event.
 /// Publish a fire-and-forget launch event through the central broker.
 ///
 /// `messengerd` is the supervisor's first service but its topics name can
@@ -549,7 +610,10 @@ fn selftest(db: &MimeDb, apps: &mut AppRegistry) {
         ("LOGO.PNG", "viewer"),
         ("SAMPLE.LZT", "lazytest"),
     ] {
-        match open_path(db, apps, &mut bus, path, mime::DEFAULT_VERB) {
+        // Session 0: the service's own (system) session. No open-with app is
+        // installed yet in this image, so the launch attempt exercises the
+        // gated fallback and the open walk still passes on the publish record.
+        match open_path(db, apps, &mut bus, path, mime::DEFAULT_VERB, Some(0)) {
             Ok(result) if result.app == expected => {
                 sys::write_str(&format!("MIME:OPEN:PASS {path} {}\n", result.app));
                 if !result.published {

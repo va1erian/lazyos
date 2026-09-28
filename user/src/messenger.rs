@@ -362,6 +362,9 @@ pub enum Error {
     /// The MIME service refused the request with a positive errno-style code
     /// (`mimed` carries it in the reply's `ERROR` field).
     Mime(i64),
+    /// The supervisor refused the request with a positive errno-style code
+    /// (`init` carries it in the reply's `ERROR` field).
+    Init(i64),
     /// A parcel was malformed on encode or decode.
     Parcel(ParcelError),
 }
@@ -373,7 +376,9 @@ impl Error {
             Error::Errno(code) => Some(code),
             // Registry and broker codes travel positive; normalise to the
             // syscall shape.
-            Error::Registry(code) | Error::Topics(code) | Error::Mime(code) => Some(-code),
+            Error::Registry(code) | Error::Topics(code) | Error::Mime(code) | Error::Init(code) => {
+                Some(-code)
+            }
             Error::Parcel(_) => None,
         }
     }
@@ -385,6 +390,7 @@ impl Error {
             Error::Registry(code) => registry_message(code),
             Error::Topics(code) => topics_message(code),
             Error::Mime(code) => mime_message(code),
+            Error::Init(code) => init_message(code),
             // A match guard keeps the named constants readable; a bare
             // `-CONST` is not a valid pattern.
             Error::Errno(code) => match code {
@@ -467,6 +473,23 @@ fn mime_message(code: i64) -> &'static str {
         "the MIME reply exceeds the Messenger buffer limit"
     } else {
         "the MIME request failed"
+    }
+}
+
+/// Friendly text for a supervisor (`init`) error code crossing the protocol.
+fn init_message(code: i64) -> &'static str {
+    if code == errno::EPERM {
+        "this task may not launch into that session"
+    } else if code == errno::ENOENT {
+        "no such app, session, or program"
+    } else if code == errno::EINVAL {
+        "the launch request is malformed"
+    } else if code == errno::ENOMEM {
+        "the supervisor has no free task slot"
+    } else if code == errno::EAGAIN {
+        "this session already has too many launched apps running; try again once one exits"
+    } else {
+        "the supervisor request failed"
     }
 }
 /// Result alias for the userspace API.
@@ -2666,6 +2689,10 @@ pub mod services {
     pub mod init_method {
         /// Snapshot the supervision table.
         pub const SERVICES: u32 = 1;
+        /// Launch an app as a session child (issue #158).
+        pub const LAUNCH: u32 = 2;
+        /// Enumerate the built-in app registry (issue #158).
+        pub const LIST_APPS: u32 = 3;
     }
 
     /// `healthd` methods.
@@ -2732,8 +2759,24 @@ pub mod services {
         pub const SUMMARY: u16 = 18;
         /// Fixed-layout `sysinfo` snapshot bytes (issue #144).
         pub const SYSDATA: u16 = 20;
-        /// Structured error (errno-style code plus text) in a failed reply.
-        pub const ERROR: u16 = 21;
+        /// App id (`LIST_APPS` row, `LAUNCH` request).
+        pub const APP: u16 = 21;
+        /// Display name (`LIST_APPS` row).
+        pub const APP_NAME: u16 = 22;
+        /// ELF path resolved from the app id (`LIST_APPS` row).
+        pub const APP_PATH: u16 = 23;
+        /// Default restart policy (`always`/`on-failure`/`once`).
+        pub const APP_RESTART: u16 = 24;
+        /// One MIME verb the app handles (repeated).
+        pub const APP_VERBS: u16 = 25;
+        /// Launch argument string (`LAUNCH` request).
+        pub const ARGS: u16 = 26;
+        /// Session to launch into (`LAUNCH`; 0 = the caller's own).
+        pub const SESSION: u16 = 27;
+        /// One app record (`LIST_APPS` reply).
+        pub const APP_INFO: u16 = 28;
+        /// Structured error (issue #158).
+        pub const ERROR: u16 = 29;
     }
 
     /// A header for a service parcel of `method` on `interface_id`.
@@ -2758,6 +2801,44 @@ pub mod services {
         pub restarts: u64,
         pub deps: String,
         pub health: String,
+    }
+
+    /// One row of `init`'s built-in app registry (issue #158): the S5 start
+    /// menu's enumeration unit and the resolution table `LAUNCH` uses.
+    #[derive(Clone, Debug, Default, PartialEq, Eq)]
+    pub struct AppInfo {
+        /// App id: the lowercase program stem (`top` -> `TOP.ELF`).
+        pub id: String,
+        /// Display name for menus.
+        pub name: String,
+        /// On-disk ELF path.
+        pub path: String,
+        /// Default restart policy (`always`/`on-failure`/`once`).
+        pub restart: String,
+        /// MIME verbs the app handles (`open`, `edit`, `reveal`).
+        pub verbs: Vec<String>,
+    }
+
+    /// The outcome of `init`'s `Launch`.
+    #[derive(Clone, Debug, Default, PartialEq, Eq)]
+    pub struct LaunchResult {
+        /// App id that was launched.
+        pub app: String,
+        /// Task slot of the spawned child.
+        pub pid: u64,
+        /// Session the child was stamped with.
+        pub session: u64,
+    }
+
+    /// A decoded `init` `Launch` request.
+    #[derive(Clone, Debug, Default, PartialEq, Eq)]
+    pub struct LaunchRequest {
+        /// App id from the registry.
+        pub app: String,
+        /// Argument string passed to the app (may be empty).
+        pub args: String,
+        /// Target session; `0` means the caller's own session.
+        pub session: u64,
     }
 
     /// One retained health row (`healthd`).
@@ -2816,6 +2897,219 @@ pub mod services {
             body: body.finish(),
             ..Parcel::default()
         })
+    }
+
+    /// `init`'s `ListApps` request (issue #158).
+    pub fn list_apps_request() -> Parcel {
+        Parcel {
+            header: header(INIT_INTERFACE, init_method::LIST_APPS),
+            ..Parcel::default()
+        }
+    }
+
+    /// Encode `init`'s `ListApps` reply: one `APP_INFO` record per app.
+    pub fn list_apps_reply(apps: &[AppInfo]) -> Result<Parcel> {
+        let mut body = Encoder::new();
+        for app in apps {
+            let mut record = Encoder::new();
+            record.string(field::APP, &app.id).map_err(Error::Parcel)?;
+            record
+                .string(field::APP_NAME, &app.name)
+                .map_err(Error::Parcel)?;
+            record
+                .string(field::APP_PATH, &app.path)
+                .map_err(Error::Parcel)?;
+            record
+                .string(field::APP_RESTART, &app.restart)
+                .map_err(Error::Parcel)?;
+            for verb in &app.verbs {
+                record
+                    .string(field::APP_VERBS, verb)
+                    .map_err(Error::Parcel)?;
+            }
+            body.record(field::APP_INFO, &record)
+                .map_err(Error::Parcel)?;
+        }
+        Ok(Parcel {
+            header: header(INIT_INTERFACE, init_method::LIST_APPS),
+            body: body.finish(),
+            ..Parcel::default()
+        })
+    }
+
+    /// `init`'s `Launch` request: `(app_id, args, session)`. `session` 0 means
+    /// the caller's own session; only the session's owner (or root) may launch
+    /// into it.
+    pub fn launch_request(app: &str, args: &str, session: u64) -> Result<Parcel> {
+        let mut body = Encoder::new();
+        body.string(field::APP, app).map_err(Error::Parcel)?;
+        if !args.is_empty() {
+            body.string(field::ARGS, args).map_err(Error::Parcel)?;
+        }
+        body.u64(field::SESSION, session).map_err(Error::Parcel)?;
+        Ok(Parcel {
+            header: header(INIT_INTERFACE, init_method::LAUNCH),
+            body: body.finish(),
+            ..Parcel::default()
+        })
+    }
+
+    /// Encode `init`'s `Launch` reply.
+    pub fn launch_reply(result: &LaunchResult) -> Result<Parcel> {
+        let mut body = Encoder::new();
+        body.string(field::APP, &result.app)
+            .map_err(Error::Parcel)?;
+        body.u64(field::PID, result.pid).map_err(Error::Parcel)?;
+        body.u64(field::SESSION, result.session)
+            .map_err(Error::Parcel)?;
+        Ok(Parcel {
+            header: header(INIT_INTERFACE, init_method::LAUNCH),
+            body: body.finish(),
+            ..Parcel::default()
+        })
+    }
+
+    /// Decode a `ListApps` reply.
+    pub fn decode_apps(parcel: &Parcel) -> Result<Vec<AppInfo>> {
+        let mut apps = Vec::new();
+        for_each_record(parcel, |mut nested| {
+            let mut app = AppInfo::default();
+            while let Ok(Some(field)) = nested.next() {
+                match (field.kind, field.id) {
+                    (Kind::String, field::APP) => {
+                        app.id = String::from(field.as_str().map_err(Error::Parcel)?)
+                    }
+                    (Kind::String, field::APP_NAME) => {
+                        app.name = String::from(field.as_str().map_err(Error::Parcel)?)
+                    }
+                    (Kind::String, field::APP_PATH) => {
+                        app.path = String::from(field.as_str().map_err(Error::Parcel)?)
+                    }
+                    (Kind::String, field::APP_RESTART) => {
+                        app.restart = String::from(field.as_str().map_err(Error::Parcel)?)
+                    }
+                    (Kind::String, field::APP_VERBS) => app
+                        .verbs
+                        .push(String::from(field.as_str().map_err(Error::Parcel)?)),
+                    _ => {}
+                }
+            }
+            apps.push(app);
+            Ok(())
+        })?;
+        Ok(apps)
+    }
+
+    /// Decode a `Launch` request.
+    pub fn decode_launch_request(parcel: &Parcel) -> Result<LaunchRequest> {
+        let mut request = LaunchRequest::default();
+        let mut decoder = Decoder::new(&parcel.body);
+        while let Some(field) = decoder.next().map_err(Error::Parcel)? {
+            match (field.kind, field.id) {
+                (Kind::String, field::APP) => {
+                    request.app = String::from(field.as_str().map_err(Error::Parcel)?)
+                }
+                (Kind::String, field::ARGS) => {
+                    request.args = String::from(field.as_str().map_err(Error::Parcel)?)
+                }
+                (Kind::U64, field::SESSION) => {
+                    request.session = field.as_u64().map_err(Error::Parcel)?
+                }
+                _ => {}
+            }
+        }
+        if request.app.is_empty() {
+            return Err(Error::Errno(-errno::EINVAL));
+        }
+        Ok(request)
+    }
+
+    /// Decode a `Launch` reply.
+    pub fn decode_launch(parcel: &Parcel) -> Result<LaunchResult> {
+        let mut result = LaunchResult::default();
+        let mut decoder = Decoder::new(&parcel.body);
+        while let Some(field) = decoder.next().map_err(Error::Parcel)? {
+            match (field.kind, field.id) {
+                (Kind::String, field::APP) => {
+                    result.app = String::from(field.as_str().map_err(Error::Parcel)?)
+                }
+                (Kind::U64, field::PID) => result.pid = field.as_u64().map_err(Error::Parcel)?,
+                (Kind::U64, field::SESSION) => {
+                    result.session = field.as_u64().map_err(Error::Parcel)?
+                }
+                _ => {}
+            }
+        }
+        if result.app.is_empty() {
+            return Err(Error::Errno(-errno::EINVAL));
+        }
+        Ok(result)
+    }
+
+    /// `init`'s error answer: errno-style code plus friendly text, the same
+    /// shape [`super::mime::error_reply`] uses. The client turns the code back
+    /// into [`Error::Init`].
+    pub fn init_error_reply(method: u32, error: Error) -> Parcel {
+        let code = error.errno().map(|code| -code).unwrap_or(errno::EINVAL);
+        let mut body = Encoder::new();
+        // A structured error field cannot overflow a fresh encoder here.
+        let _ = body.error(field::ERROR, code as u32, error.message());
+        Parcel {
+            header: header(INIT_INTERFACE, method),
+            body: body.finish(),
+            ..Parcel::default()
+        }
+    }
+
+    /// The first structured error field, when the reply is a service failure.
+    pub fn error_field(parcel: &Parcel) -> Result<Option<i64>> {
+        let mut decoder = Decoder::new(&parcel.body);
+        while let Some(field) = decoder.next().map_err(Error::Parcel)? {
+            if field.kind == Kind::Error && field.id == field::ERROR {
+                let (code, _message) = field.error_parts().map_err(Error::Parcel)?;
+                return Ok(Some(code as i64));
+            }
+        }
+        Ok(None)
+    }
+
+    /// Call `init`'s `ListApps`.
+    ///
+    /// Allocates the reply buffer per call; a polling loop should use
+    /// [`fetch_apps_with`] and reuse one buffer.
+    pub fn fetch_apps(endpoint: &Endpoint) -> Result<Vec<AppInfo>> {
+        let mut buf = alloc::vec![0u8; super::DEFAULT_BUFFER];
+        fetch_apps_with(endpoint, &mut buf)
+    }
+
+    /// [`fetch_apps`] with a caller-owned reply buffer.
+    pub fn fetch_apps_with(endpoint: &Endpoint, buf: &mut [u8]) -> Result<Vec<AppInfo>> {
+        let reply = endpoint.call_with(&list_apps_request(), buf, None)?;
+        if let Some(code) = error_field(&reply)? {
+            return Err(Error::Init(code));
+        }
+        decode_apps(&reply)
+    }
+
+    /// Call `init`'s `Launch` and fail on a supervisor error.
+    pub fn launch(
+        endpoint: &Endpoint,
+        app: &str,
+        args: &str,
+        session: u64,
+    ) -> Result<LaunchResult> {
+        let reply = endpoint.call(&launch_request(app, args, session)?, None)?;
+        if let Some(code) = error_field(&reply)? {
+            return Err(Error::Init(code));
+        }
+        decode_launch(&reply)
+    }
+
+    /// Resolve [`INIT_NAME`] and launch `app` (a convenience for CLI callers;
+    /// a polling loop should hold its own endpoint).
+    pub fn launch_app(app: &str, args: &str, session: u64) -> Result<LaunchResult> {
+        let endpoint = resolve_service(INIT_NAME)?;
+        launch(&endpoint, app, args, session)
     }
 
     /// `healthd`'s `Status` request.
@@ -5372,6 +5666,8 @@ pub mod mime {
         pub const TOPIC: u16 = 8;
         /// Structured error reply.
         pub const ERROR: u16 = 9;
+        /// Whether `init` launched the resolved app (issue #158).
+        pub const LAUNCHED: u16 = 10;
     }
 
     /// Type reported for a path the database has no entry for.
@@ -5393,6 +5689,8 @@ pub mod mime {
         pub topic: String,
         /// Whether the launch event went out.
         pub published: bool,
+        /// Whether `init` accepted the launch request for the app (#158).
+        pub launched: bool,
     }
 
     /// A header for a MIME parcel of `method`.
@@ -5495,6 +5793,8 @@ pub mod mime {
             .map_err(Error::Parcel)?;
         body.u64(field::PUBLISHED, result.published as u64)
             .map_err(Error::Parcel)?;
+        body.u64(field::LAUNCHED, result.launched as u64)
+            .map_err(Error::Parcel)?;
         Ok(parcel(method::OPEN, body))
     }
 
@@ -5593,6 +5893,7 @@ pub mod mime {
             mime: optional_string(parcel, field::MIME).unwrap_or_default(),
             topic: optional_string(parcel, field::TOPIC).unwrap_or_default(),
             published: u64_field(parcel, field::PUBLISHED).unwrap_or(0) != 0,
+            launched: u64_field(parcel, field::LAUNCHED).unwrap_or(0) != 0,
         })
     }
 

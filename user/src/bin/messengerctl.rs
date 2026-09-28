@@ -9,8 +9,9 @@
 //! messages, buffers, audit, and per-slot usage. It then offers the registry
 //! commands `list` and `resolve <name>`, the supervisor commands `services`
 //! and `health`, `sessions` (the `logind` session table, issue #101), the
-//! `log`/`log tail`/`log verify` commands, and the shell-integration commands
-//! `mime <path>` and `open <path>` (issue #116), typed at the prompt (native
+//! `log`/`log tail`/`log verify` commands, the shell-integration commands
+//! `mime <path>` and `open <path>` (issue #116), and the app commands
+//! `apps` and `launch <app> [args]` (issue #158), typed at the prompt (native
 //! programs do not receive argv; the tool is interactive like `sh`).
 //!
 //! When a topics broker is reachable (boot the demo with both
@@ -21,6 +22,15 @@
 //! `qemu_session.py` run proves the pub/sub path end to end. The interactive
 //! commands `topics` and `tail <filter> [count]` inspect and stream (issue
 //! #92).
+//!
+//! With services running the boot self-test also exercises the app registry and
+//! launch path (issue #158): `MSGCTL:APPS:PASS`, `MSGCTL:LAUNCH:PASS` and the
+//! foreign-session `MSGCTL:LAUNCH:DENIED:PASS` probe. The probe runs in a
+//! short-lived child (`MSGCTL.ELF probe`, issue #177): the kernel never lets a
+//! task widen its own credentials back up, so if the console task dropped its
+//! own privilege to run the probe it could never regain it, and every command
+//! typed afterward would run as the probe's uid. A disposable child can drop
+//! to the probe identity and exit; the console keeps its own credentials.
 //!
 //! Boot it with `LAZYOS_MESSENGERCTL=1` (see the kernel build script): the
 //! demo then runs this program in the hello window. With `LAZYOS_SERVICES=1`
@@ -44,12 +54,16 @@ use user::task_snapshot::{self, TaskSnapshot};
 
 /// The interactive command set, printed at startup and by `help`.
 const HELP: &str = "commands: list | resolve <name> | services | health | sessions | \
+                    apps | launch <app> [args] | \
                     log [tail [n]] | log verify | topics | tail <filter> [count] | \
                     mime <path> | open <path> [verb] | keys | clipboard | stats | stats-json | \
                     tasks-json | help | quit\n";
 
 #[no_mangle]
 pub extern "C" fn _start() -> ! {
+    if is_probe_role() {
+        probe_role();
+    }
     // `TOPIC:SECURITY`'s negative test spawns this same binary under a
     // demoted, non-root credential (see `selftest_security`): credentials
     // cannot be restored once dropped, so the probe runs as a throwaway
@@ -66,7 +80,16 @@ pub extern "C" fn _start() -> ! {
     }
     topic_selftest();
     keyd_selftest();
+    app_selftest();
     commands()
+}
+
+/// Read this task's service argument (see [`probe_role`]): `true` for a
+/// `MSGCTL.ELF probe` child, `false` for the ordinary console tool.
+fn is_probe_role() -> bool {
+    let mut buffer = [0u8; 16];
+    let len = sys::service_args(&mut buffer).min(buffer.len());
+    core::str::from_utf8(&buffer[..len]).unwrap_or("").trim() == "probe"
 }
 
 /// Whether this service's argument string carries `key=value`.
@@ -98,6 +121,7 @@ fn commands() -> ! {
             "services" => print_services(),
             "health" => print_health(),
             "sessions" => print_sessions(),
+            "apps" => print_apps(),
             "log" => print_log(10),
             "log verify" => verify_log(),
             "stats" => match messenger::fabric_stats() {
@@ -116,6 +140,7 @@ fn commands() -> ! {
             "keys" => print_keys(),
             "clipboard" => print_clipboard(),
             _ if text.starts_with("resolve ") => resolve(text[8..].trim()),
+            _ if text.starts_with("launch ") => launch_app(text[7..].trim()),
             _ if text.starts_with("log tail") => {
                 let count = text[8..].trim().parse().unwrap_or(10);
                 print_log(count)
@@ -124,7 +149,9 @@ fn commands() -> ! {
             _ if text.starts_with("mime ") => print_mime(text[5..].trim()),
             _ if text.starts_with("open ") => open_path(text[5..].trim()),
             _ => report(
-                "unknown command; try list, resolve <name>, services, health, sessions, log, topics, tail, mime, open, keys, clipboard, stats, tasks-json, help, quit",
+                "unknown command; try list, resolve <name>, services, health, sessions, \
+                 apps, launch <app>, log, topics, tail, mime, open, keys, clipboard, \
+                 stats, tasks-json, help, quit",
             ),
         }
     }
@@ -197,6 +224,174 @@ fn print_services() {
         }
         Err(error) => report(error.message()),
     }
+}
+
+/// `apps`: the supervisor's built-in app registry (issue #158), the table the
+/// S5 start menu enumerates and `launch` resolves against.
+fn print_apps() {
+    let endpoint = match services::resolve_service(services::INIT_NAME) {
+        Ok(endpoint) => endpoint,
+        Err(error) => return report(error.message()),
+    };
+    match services::fetch_apps(&endpoint) {
+        Ok(apps) if apps.is_empty() => {
+            sys::write_str("apps: registry is empty\n");
+        }
+        Ok(apps) => {
+            sys::write_str(&format!("apps: {} registered\n", apps.len()));
+            for app in &apps {
+                let verbs = if app.verbs.is_empty() {
+                    String::from("-")
+                } else {
+                    app.verbs.join(",")
+                };
+                sys::write_str(&format!(
+                    "  {:<14} {:<20} {:<12} {:<10} {}\n",
+                    app.id, app.name, app.path, app.restart, verbs
+                ));
+            }
+        }
+        Err(error) => report(error.message()),
+    }
+}
+
+/// `launch <app> [args]`: ask `init` to spawn the app in this task's session
+/// (issue #158) and print the child's pid. The app's own output and exit are
+/// the evidence that it ran.
+fn launch_app(rest: &str) {
+    let rest = rest.trim();
+    let (app, args) = match rest.find(char::is_whitespace) {
+        Some(index) => (&rest[..index], rest[index..].trim()),
+        None => (rest, ""),
+    };
+    if app.is_empty() {
+        return report("usage: launch <app> [args]");
+    }
+    match services::launch_app(app, args, 0) {
+        Ok(result) => sys::write_str(&format!(
+            "launch {} -> pid {} (session {})\n",
+            result.app, result.pid, result.session
+        )),
+        Err(error) => report(error.message()),
+    }
+}
+
+/// The boot-time app-registry and launch path self-test (issue #158). Silent
+/// when `init` is not reachable, like [`topic_selftest`]; otherwise it:
+///
+/// 1. lists the registry and checks the ids `mimed` registers are present;
+/// 2. launches `top` into this task's (session 0) session and prints
+///    `MSGCTL:LAUNCH:PASS` (`init` prints its own `INIT:LAUNCH:PASS`, and the
+///    app prints `SYS:TOP:PASS`);
+/// 3. spawns a `MSGCTL.ELF probe` child ([`probe_role`]) that restamps
+///    *itself* into a foreign session and asks `init` to launch into this
+///    console's original session: the supervisor must refuse with `-EPERM`
+///    (`INIT:LAUNCH:DENIED:PASS`, `MSGCTL:LAUNCH:DENIED:PASS`). Running the
+///    probe in a child, not this task, matters: the kernel never lets a task
+///    widen its own credentials back up, so a probe that dropped this
+///    console's own privilege could never restore it, and `commands()` would
+///    serve the rest of the session as the probe's uid.
+fn app_selftest() {
+    let Some(endpoint) = resolve_init() else {
+        return;
+    };
+    match services::fetch_apps(&endpoint) {
+        Ok(apps) => {
+            let has_editor = apps
+                .iter()
+                .find(|app| app.id == "editor")
+                .map(|app| app.verbs.iter().any(|verb| verb == "edit"))
+                .unwrap_or(false);
+            let has_top = apps
+                .iter()
+                .any(|app| app.id == "top" && app.path == "TOP.ELF");
+            if has_editor && has_top {
+                sys::write_str(&format!("MSGCTL:APPS:PASS count={}\n", apps.len()));
+            } else {
+                sys::write_str("MSGCTL:APPS:FAIL registry is missing editor/top\n");
+            }
+        }
+        Err(error) => sys::write_str(&format!("MSGCTL:APPS:FAIL:{}\n", error.message())),
+    }
+
+    match services::launch(&endpoint, "top", "", 0) {
+        Ok(result) => sys::write_str(&format!(
+            "MSGCTL:LAUNCH:PASS app={} pid={}\n",
+            result.app, result.pid
+        )),
+        Err(error) => sys::write_str(&format!("MSGCTL:LAUNCH:FAIL:{}\n", error.message())),
+    }
+
+    // The foreign-session probe runs in a short-lived child (see
+    // [`probe_role`]): a task that has dropped to uid 1000 cannot regain
+    // root, so this console task must not be the one that self-transitions.
+    match sys::spawn(b"MSGCTL.ELF probe\0") {
+        Some(pid) => reap_probe(pid),
+        None => sys::write_str("MSGCTL:LAUNCH:DENIED:FAIL could not spawn the probe\n"),
+    }
+}
+
+/// The `MSGCTL.ELF probe` child: become uid 1000 in session 4242 (a
+/// self-transition the kernel audits; the dropped capability set means the
+/// launch call can no longer pass the supervisor's privilege check), try to
+/// launch into the console's original session (0), print the
+/// `MSGCTL:LAUNCH:DENIED:*` evidence line, and exit. This never runs in the
+/// console task itself: see [`app_selftest`].
+fn probe_role() -> ! {
+    let endpoint = match resolve_init() {
+        Some(endpoint) => endpoint,
+        None => {
+            sys::write_str("MSGCTL:LAUNCH:DENIED:FAIL could not resolve init\n");
+            sys::exit(1);
+        }
+    };
+    let probe = sys::Cred::new(1000, 1000, 0, 0, 4242);
+    if sys::cred_set(None, &probe).is_err() {
+        sys::write_str("MSGCTL:LAUNCH:DENIED:FAIL could not enter the probe session\n");
+        sys::exit(1);
+    }
+    match services::launch(&endpoint, "top", "", 1) {
+        Err(error) if error.errno() == Some(-messenger::errno::EPERM) => {
+            sys::write_str("MSGCTL:LAUNCH:DENIED:PASS\n");
+            sys::exit(0);
+        }
+        Ok(_) => {
+            sys::write_str("MSGCTL:LAUNCH:DENIED:FAIL foreign launch was allowed\n");
+            sys::exit(1);
+        }
+        Err(error) => {
+            sys::write_str(&format!("MSGCTL:LAUNCH:DENIED:FAIL:{}\n", error.message()));
+            sys::exit(1);
+        }
+    }
+}
+
+/// Reap the probe child, bounded so a spawn that never runs cannot hang the
+/// console forever; other exits (there should be none yet) are reaped and
+/// ignored until the probe's own pid turns up.
+fn reap_probe(pid: u64) {
+    const ATTEMPTS: usize = 200;
+    for _ in 0..ATTEMPTS {
+        match sys::wait(sys::clock() + 5) {
+            Some((exited, _status)) if exited == pid => return,
+            Some(_) => {}
+            None => {}
+        }
+    }
+    sys::write_str("MSGCTL:LAUNCH:DENIED:FAIL probe did not exit\n");
+}
+
+/// Resolve `init`, retrying while the supervisor's registration lands; `None`
+/// when it never does.
+fn resolve_init() -> Option<user::messenger::Endpoint> {
+    const ATTEMPTS: usize = 64;
+    for _ in 0..ATTEMPTS {
+        if let Ok(endpoint) = services::resolve_service(services::INIT_NAME) {
+            return Some(endpoint);
+        }
+        park_tick();
+    }
+    None
 }
 
 /// `health`: the retained `system/health/*` rows and the aggregate.
@@ -610,6 +805,9 @@ fn open_path(rest: &str) {
                 "open {} -> {} ({}, topic {})\n",
                 path, result.app, result.mime, result.topic
             ));
+            if result.launched {
+                sys::write_str("  (launched through os.lazy.init)\n");
+            }
             if !result.published {
                 sys::write_str("  (launch event not published; supervisor unreachable)\n");
             }
