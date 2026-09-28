@@ -229,6 +229,10 @@ const SUITE: &[(&str, Test)] = &[
         linux_suite::epoll_edge_over_maxevents,
     ),
     (
+        "linux_epoll_level_does_not_starve",
+        linux_suite::epoll_level_does_not_starve,
+    ),
+    (
         "linux_epoll_soak_add_wait_cycles",
         linux_suite::epoll_soak_add_wait_cycles,
     ),
@@ -4074,6 +4078,53 @@ mod linux_suite {
         }
         check!(task::fd_close(epfd as usize), "close epoll failed");
         check!(fds_clean(), "epoll edge test left a descriptor");
+        check!(pipe::Pipe::live() == 0, "a pipe was not freed");
+        Ok(())
+    }
+
+    /// With `maxevents = 1`, a level-triggered interest that stays ready must
+    /// not starve interests registered after it: successive waits rotate
+    /// through the ready set, as Linux does.
+    pub fn epoll_level_does_not_starve() -> Result<(), String> {
+        fresh()?;
+        let epfd = process::linux::dispatch_for_test(291, 0, 0, 0);
+        check!((epfd as i64) > 0, "epoll_create1 returned {epfd:#x}");
+        let mut ends: Vec<(u64, u64)> = Vec::new();
+        for (tag, events) in [(1u64, EPOLLIN), (2, EPOLLIN | EPOLLET), (3, EPOLLIN)] {
+            let mut fds = [0i32; 2];
+            check!(
+                process::linux::dispatch_for_test(22, fds.as_mut_ptr() as u64, 0, 0) == 0,
+                "pipe {tag} failed"
+            );
+            let (r, w) = (fds[0] as u64, fds[1] as u64);
+            let interest = epoll_event(events, tag);
+            check!(epoll_ctl(epfd, EPOLL_CTL_ADD, r, &interest) == 0, "ADD {tag} failed");
+            check!(write_fd(w, b"x") == 1, "pipe {tag} write");
+            ends.push((r, w));
+        }
+        let mut one = [0u8; 12];
+        let mut seen: Vec<u64> = Vec::new();
+        for round in 0..6 {
+            check!(
+                epoll_wait0(epfd, &mut one) == 1,
+                "round {round}: nothing reported"
+            );
+            let (_, data) = unpack_event(&one);
+            if !seen.contains(&data) {
+                seen.push(data);
+            }
+        }
+        seen.sort();
+        check!(
+            seen == [1, 2, 3],
+            "maxevents=1 waits starved an interest: saw {seen:?}"
+        );
+        for (r, w) in ends {
+            check!(task::fd_close(r as usize), "close read end failed");
+            check!(task::fd_close(w as usize), "close write end failed");
+        }
+        check!(task::fd_close(epfd as usize), "close epoll failed");
+        check!(fds_clean(), "epoll starvation test left a descriptor");
         check!(pipe::Pipe::live() == 0, "a pipe was not freed");
         Ok(())
     }
