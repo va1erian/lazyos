@@ -358,6 +358,8 @@ fn alloc_oversized(bytes: usize) -> Option<NonNull<u8>> {
     let layout = heap_layout(bytes)?;
     // The global allocator is called outside the slab lock: it is a separate
     // allocator and holding two locks here would invite a deadlock later.
+    // Safety: `layout` has a non-zero size (checked by `heap_layout`'s caller
+    // contract: `bytes` is always > `MAX_SLAB_SIZE` > 0 here).
     let ptr = NonNull::new(unsafe { alloc_zeroed(layout) })?;
     let mut slab = SLAB.lock();
     slab.oversized_live += bytes;

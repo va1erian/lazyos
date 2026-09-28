@@ -1,0 +1,33 @@
+name: clippy
+
+# Issue #124: every unsafe block in the kernel must carry its own safety
+# comment (`clippy::undocumented_unsafe_blocks`). The audit that closed the
+# existing gap is only durable if CI stops the next undocumented block from
+# landing, so this gate denies the lint on the default (non-test) kernel build.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: clippy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  clippy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # rust-toolchain.toml pins the nightly toolchain, target, and the
+      # clippy component; rustup installs it on first use.
+      - name: Clippy (kernel, unsafe-comment lint denied)
+        run: |
+          cargo clippy -p kernel --target x86_64-unknown-none \
+            -Zbuild-std=core,alloc \
+            -- -D clippy::undocumented_unsafe_blocks

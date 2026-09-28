@@ -118,6 +118,8 @@ pub(crate) fn build_scene(w: u32, h: u32) -> Option<Pixmap> {
 }
 
 fn ts() -> u64 {
+    // Safety: `RDTSC` is available on every CPU this kernel targets and has
+    // no preconditions beyond that.
     unsafe { core::arch::x86_64::_rdtsc() }
 }
 

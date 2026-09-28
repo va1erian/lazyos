@@ -38,6 +38,8 @@ pub fn init() {
         idt.page_fault
             .set_handler_addr(x86_64::VirtAddr::new(page_fault_isr as *const () as u64));
     }
+    // Safety: `DOUBLE_FAULT_IST` names a valid TSS interrupt-stack-table slot
+    // that `gdt::init` already set up with its own dedicated stack.
     unsafe {
         idt.double_fault
             .set_handler_fn(double_fault_handler)
@@ -195,6 +197,8 @@ extern "C" {
 #[no_mangle]
 extern "C" fn page_fault_dispatch(rsp: u64) -> u64 {
     // Frame: 15 general registers, then the error code, RIP, CS, RFLAGS, RSP, SS.
+    // Safety: `rsp` points at the page-fault frame `page_fault_isr` saved,
+    // whose fixed layout puts the CPU-pushed error code at word 15.
     let raw_error = unsafe { core::ptr::read_volatile((rsp + 15 * 8) as *const u64) };
     let error = PageFaultErrorCode::from_bits_truncate(raw_error);
     let addr = Cr2::read();
@@ -256,6 +260,7 @@ extern "x86-interrupt" fn keyboard_handler(_stack: InterruptStackFrame) {
         if status & 0x01 == 0 || status & 0x20 != 0 {
             break;
         }
+        // Safety: `status` just confirmed the output buffer holds a byte.
         let scancode: u8 = unsafe { inb(0x60) };
         keyboard::push_scancode(scancode);
     }
@@ -271,6 +276,7 @@ extern "x86-interrupt" fn mouse_handler(_stack: InterruptStackFrame) {
         if status & 0x01 == 0 || status & 0x20 == 0 {
             break;
         }
+        // Safety: `status` just confirmed the output buffer holds a byte.
         let byte: u8 = unsafe { inb(0x60) };
         mouse::push_byte(byte);
     }

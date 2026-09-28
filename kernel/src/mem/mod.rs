@@ -241,6 +241,9 @@ impl Frames {
 /// Adapter so `map_to` can pull frames from the global allocator.
 struct GlobalFrames;
 
+// Safety: `allocate_frame` only ever returns frames from `alloc_frame`, which
+// hands out frames with a fresh refcount of one and never a frame still in
+// use elsewhere — the contract `FrameAllocator` requires.
 unsafe impl FrameAllocator<Size4KiB> for GlobalFrames {
     fn allocate_frame(&mut self) -> Option<PhysFrame<Size4KiB>> {
         alloc_frame().map(PhysFrame::containing_address)
@@ -378,6 +381,8 @@ pub fn map_page_in(table: PhysAddr, virt: VirtAddr, phys: PhysAddr, flags: PageT
     let table_virt = phys_to_virt(table);
     // Safety: `table` is a PML4 frame we own.
     let level_4 = unsafe { &mut *table_virt.as_mut_ptr::<PageTable>() };
+    // Safety: `offset` is the kernel's physical memory mapping offset, which
+    // covers every frame `level_4` and its descendants can name.
     let mut mapper = unsafe { OffsetPageTable::new(level_4, offset) };
     let mut frames = GlobalFrames;
     let page = Page::<Size4KiB>::containing_address(virt);
@@ -640,6 +645,8 @@ pub fn cow_fault(table: PhysAddr, va: u64) -> bool {
     let Some(entry) = entry else {
         return false;
     };
+    // Safety: `entry` was just returned by `leaf_entry` as a present leaf in
+    // this same table.
     let old = unsafe { *entry };
     if old & PTE_USER == 0 || old & COW_BIT == 0 {
         return false;
@@ -648,6 +655,8 @@ pub fn cow_fault(table: PhysAddr, va: u64) -> bool {
         return false;
     };
     copy_frame(PhysAddr::new(old & PTE_ADDR), frame);
+    // Safety: `entry` is the same present leaf read above; nothing else can
+    // have unmapped it in between (single-threaded fault handling).
     unsafe { *entry = frame.as_u64() | ((old & !PTE_ADDR) & !COW_BIT) | PTE_WRITABLE };
     // The page now lives privately here: release our reference to the shared
     // frame (which frees it if this was the last user).
@@ -666,8 +675,11 @@ pub fn unmap_range(table: PhysAddr, start: u64, end: u64) -> usize {
     while va < end {
         // Safety: `table` is a live address space and we own its entries.
         if let Some(entry) = unsafe { leaf_entry(table, va) } {
+            // Safety: `entry` was just returned as a present leaf in this table.
             let value = unsafe { *entry };
             if value & PTE_USER != 0 {
+                // Safety: same `entry`, still valid; nothing else can have
+                // unmapped it in between (single-threaded teardown).
                 unsafe { *entry = 0 };
                 free_frame(PhysAddr::new(value & PTE_ADDR));
                 cleared += 1;
@@ -689,6 +701,7 @@ pub fn protect_range(table: PhysAddr, start: u64, end: u64, prot: vma::Prot) -> 
     while va < end {
         // Safety: `table` is a live address space and we own its entries.
         if let Some(entry) = unsafe { leaf_entry(table, va) } {
+            // Safety: `entry` was just returned as a present leaf in this table.
             let old = unsafe { *entry };
             if old & PTE_USER != 0 {
                 let new = if old & COW_BIT != 0 {
@@ -703,6 +716,8 @@ pub fn protect_range(table: PhysAddr, start: u64, end: u64, prot: vma::Prot) -> 
                 } else {
                     old
                 };
+                // Safety: same `entry`, still valid; nothing else can have
+                // unmapped it in between (single-threaded `mprotect`).
                 unsafe { *entry = apply_prot(new, prot) };
                 x86_64::instructions::tlb::flush(VirtAddr::new(va));
             }
@@ -804,6 +819,7 @@ pub fn init(boot_info: &'static mut BootInfo) {
     // sets the NX bit for non-executable pages, and with NXE off that bit is
     // reserved and would fault on every access. Long mode on every CPU we
     // target (and QEMU) supports no-execute.
+    // Safety: runs once at boot before any other CPU state depends on EFER.
     unsafe {
         use x86_64::registers::model_specific::{Efer, EferFlags};
         Efer::update(|flags| flags.insert(EferFlags::NO_EXECUTE_ENABLE));
@@ -895,6 +911,8 @@ pub fn init(boot_info: &'static mut BootInfo) {
     );
 
     // Map the kernel heap.
+    // Safety: `offset` is the kernel's physical memory mapping offset, which
+    // covers every frame the active level-4 table and its descendants name.
     let mut mapper = unsafe { OffsetPageTable::new(active_level_4_table(offset), offset) };
     let mut frames = GlobalFrames;
     let start_page = Page::<Size4KiB>::containing_address(VirtAddr::new(HEAP_START));
