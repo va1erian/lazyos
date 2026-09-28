@@ -1,12 +1,15 @@
-//! Filesystem: the VFS core, a read-only FAT12/16 volume mounted from the boot
-//! disk, and a ramfs scratch mount at `/tmp` (issue #98).
+//! Filesystem: the VFS core, a read-only FAT12/16 volume on the boot disk, a
+//! read/write ext2 driver (issue #99), and a ramfs scratch mount at `/tmp`
+//! (issue #98).
 //!
-//! The FAT reader and the in-memory ramfs both implement [`vfs::Filesystem`];
-//! [`init`] mounts the FAT volume at `/` and ramfs at `/tmp`. The helpers below
+//! The FAT reader, ext2 (issue #99), and the in-memory ramfs all implement
+//! [`vfs::Filesystem`]; [`init`] mounts the boot volume at `/` (FAT first,
+//! then ext2 if the volume carries it) and ramfs at `/tmp`. The helpers below
 //! are the kernel-side entry points (the native loader and the Linux ABI fd
 //! layer); they stamp the current task's credentials through [`vfs::Id`], so
 //! permission checks apply to every read, not just the Linux syscalls.
 
+pub mod ext2;
 mod fat;
 pub mod ramfs;
 pub mod vfs;
@@ -24,15 +27,15 @@ use vfs::{DirEntry, FsError, Id, Meta, Vfs};
 static FS: Mutex<Option<(Vfs, bool)>> = Mutex::new(None);
 
 /// Probe the block layer, mount the boot volume at `/`, and a fresh ramfs at
-/// `/tmp`. Returns whether a FAT volume was found (the ramfs mount always
-/// succeeds). Idempotent: a second call reports the first call's boot-volume
-/// result without remounting.
+/// `/tmp`. Returns whether a filesystem volume was found (the ramfs mount
+/// always succeeds). Idempotent: a second call reports the first call's
+/// boot-volume result without remounting.
 ///
 /// Device selection runs through the block registry (issue #100): every
-/// registered device is tried in order and the first one that opens as
-/// FAT12/16 becomes the boot device. The FAT reader reads through the active
-/// boot device, so the default ATA image keeps working while a QEMU
-/// `-drive if=virtio` disk is picked up automatically.
+/// registered device is tried in order, first as FAT12/16 (the shipped boot
+/// format, read through the FAT reader's active boot device) and then as ext2
+/// (issue #99, which opens the device it is handed). The first open volume
+/// becomes `/`; the default ATA image keeps mounting as FAT.
 pub fn init() -> bool {
     let mut global = FS.lock();
     if let Some((_, mounted)) = global.as_ref() {
@@ -47,9 +50,13 @@ pub fn init() -> bool {
             mounted = vfs.mount("/", Arc::new(volume)).is_ok();
             break;
         }
+        if let Ok(volume) = ext2::Ext2::open(device) {
+            mounted = vfs.mount("/", Arc::new(volume)).is_ok();
+            break;
+        }
     }
     if !mounted {
-        serial_println!("fs: no FAT volume on any block device");
+        serial_println!("fs: no FAT or ext2 volume on any block device");
     }
     // `/tmp` is the scratch filesystem: writable, in memory, and discarded on
     // reboot. Mounting it even when FAT is missing keeps the VFS usable.
@@ -62,19 +69,26 @@ pub fn init() -> bool {
 }
 
 /// Mount the filesystem on a registered block device at `point`. This is the
-/// future `mount <dev>` surface (ext2 will build its filesystem from the
-/// device here); today only the read-only FAT reader exists, and it can only
-/// open the active boot device, so any other device answers
-/// [`FsError::NotSupported`].
+/// `mount <dev>` surface: the active boot device is tried as FAT first (the
+/// shipped read-only format) and then as ext2; every other device is probed
+/// as ext2, because that is the writable volume a caller mounts by name. A
+/// device carrying neither returns [`FsError::NotSupported`].
 #[cfg_attr(not(laZYOS_TESTS), allow(dead_code))] // the `mount <dev>` surface
 pub fn mount_device(point: &str, device: &str) -> Result<(), FsError> {
     let device = block::device(device).ok_or(FsError::NotFound)?;
-    let boot = block::boot_device().ok_or(FsError::NotFound)?;
-    if device.name() != boot.name() {
-        return Err(FsError::NotSupported);
+    let is_boot = block::boot_device().is_some_and(|boot| boot.name() == device.name());
+    if is_boot {
+        if let Some(volume) = fat::Fat16::open() {
+            return with(|vfs| vfs.mount(point, Arc::new(volume)))
+                .unwrap_or(Err(FsError::NotFound));
+        }
     }
-    let volume = fat::Fat16::open().ok_or(FsError::Invalid)?;
-    with(|vfs| vfs.mount(point, Arc::new(volume))).unwrap_or(Err(FsError::NotFound))
+    match ext2::Ext2::open(device) {
+        Ok(volume) => {
+            with(|vfs| vfs.mount(point, Arc::new(volume))).unwrap_or(Err(FsError::NotFound))
+        }
+        Err(_) => Err(FsError::NotSupported),
+    }
 }
 
 /// Run `f` against the global VFS, if it is mounted.
