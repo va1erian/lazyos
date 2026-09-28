@@ -76,6 +76,13 @@ struct ClientState {
     size: u64,
     /// The surface size in pixels.
     rect: (i32, i32),
+    /// Whether `open_window` already created this task's window. Handle
+    /// transfers move the handle (`kernel/src/ipc/channels.rs`), so
+    /// `events_peer` is consumed by the first `CreateSurface` call whether or
+    /// not it succeeds; client mode supports one window per task, and a
+    /// second `open_window` errors instead of reusing a handle it no longer
+    /// owns.
+    opened: bool,
 }
 
 /// A bound display, an open window, and a node table.
@@ -173,6 +180,7 @@ impl LazyOSBackend {
             va: 0,
             size: 0,
             rect: (0, 0),
+            opened: false,
         }))))
     }
 
@@ -730,14 +738,29 @@ impl Backend for LazyOSBackend {
         let height = spec.height.to_px(dpi).value().max(1) as u32;
         if let Mode::Client(state) = &self.mode {
             let mut state = state.borrow_mut();
+            if state.opened {
+                return Err(BackendError::Other(
+                    "client mode supports a single window per task".to_string(),
+                ));
+            }
+            // `events_peer` is moved to the compositor by the call below
+            // whether or not it succeeds; mark this task's one window as
+            // opened up front so a second `open_window` errors instead of
+            // resending a handle it no longer owns.
+            state.opened = true;
             state.rect = (width as i32, height as i32);
             let surface = state
                 .client
                 .create_surface(width as u64, height as u64, &spec.title, state.events_peer)
                 .map_err(|code| BackendError::Other(format!("create_surface: errno {code}")))?;
             let size = width as u64 * height as u64 * 4;
-            let (buffer, va, _) = sys::display_create_buffer(size)
-                .map_err(|code| BackendError::Other(format!("create_buffer: errno {code}")))?;
+            let (buffer, va, _) = match sys::display_create_buffer(size) {
+                Ok(value) => value,
+                Err(code) => {
+                    let _ = state.client.destroy_surface(surface);
+                    return Err(BackendError::Other(format!("create_buffer: errno {code}")));
+                }
+            };
             if let Err(code) = state.client.attach_buffer(surface, buffer, size) {
                 let _ = state.client.destroy_surface(surface);
                 return Err(BackendError::Other(format!("attach_buffer: errno {code}")));
