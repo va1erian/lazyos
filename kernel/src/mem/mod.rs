@@ -16,6 +16,8 @@ use x86_64::structures::paging::{
 };
 use x86_64::{PhysAddr, VirtAddr};
 
+use crate::error::{kstop, KError};
+
 /// Virtual base of the kernel heap.
 pub const HEAP_START: u64 = 0x_4444_4444_0000;
 /// Size of the kernel heap (16 MiB): enough for a full-screen RGBA pixmap.
@@ -837,8 +839,11 @@ pub fn init(boot_info: &'static mut BootInfo) {
     let table_entries = (highest / FRAME_SIZE) as usize;
     let table_bytes = table_entries * core::mem::size_of::<u32>();
     let table_frames = table_bytes.div_ceil(FRAME_SIZE as usize);
+    // No caller exists yet at this point in boot (the scheduler and every
+    // task come later), so a placement failure has nowhere to propagate to:
+    // this is a genuine kstop, not a Result the rest of the kernel could act on.
     let table_phys = place_table(&starts, &ends, count, table_frames)
-        .expect("mem: no room for the frame refcount table");
+        .unwrap_or_else(|| kstop(KError::OutOfMemory, "no room for the frame refcount table"));
 
     let mut frames = Frames {
         starts,
@@ -897,15 +902,18 @@ pub fn init(boot_info: &'static mut BootInfo) {
     let end_page = Page::containing_address(VirtAddr::new(HEAP_START + HEAP_SIZE - 1));
     let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE;
     for page in Page::range_inclusive(start_page, end_page) {
+        // Same reasoning as the refcount table above: this runs before the
+        // heap (and therefore before anything that could receive a Result)
+        // exists, so failure here has no caller to propagate to.
         let frame = frames
             .allocate_frame()
-            .expect("out of frames mapping the heap");
+            .unwrap_or_else(|| kstop(KError::OutOfMemory, "out of frames mapping the heap"));
         // Safety: the heap range is reserved and not otherwise mapped.
         unsafe {
-            mapper
-                .map_to(page, frame, flags, &mut frames)
-                .expect("failed to map heap page")
-                .flush();
+            match mapper.map_to(page, frame, flags, &mut frames) {
+                Ok(flush) => flush.flush(),
+                Err(_) => kstop(KError::Io, "failed to map heap page"),
+            }
         }
     }
     // Safety: the range was just mapped writable and is otherwise unused.

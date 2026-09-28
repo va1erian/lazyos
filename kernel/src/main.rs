@@ -14,6 +14,7 @@ mod block;
 mod console;
 mod cursor;
 mod display;
+mod error;
 mod font;
 mod fs;
 mod gfx;

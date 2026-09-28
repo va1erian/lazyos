@@ -155,6 +155,9 @@ impl RamFs {
                 children: Vec::new(),
             },
         );
+        // INVARIANT: `parent` was resolved by the caller under the same
+        // `inner` lock held here, and nothing else can remove it while we
+        // hold that lock (single-threaded access to `inner`).
         inner
             .nodes
             .get_mut(&parent)
@@ -207,6 +210,8 @@ impl Filesystem for RamFs {
         let Some(end) = offset.checked_add(data.len() as u64) else {
             return Err(FsError::NoSpace);
         };
+        // INVARIANT: `ino` was just resolved above under this same lock, and
+        // nothing else can remove it while we hold `inner`.
         let node = inner.nodes.get_mut(&ino).expect("resolved inode exists");
         let end = end as usize;
         if end > node.data.len() {
@@ -255,6 +260,8 @@ impl Filesystem for RamFs {
         if inner.nodes[&ino].kind == FileKind::Dir {
             return Err(FsError::IsDir); // no rmdir in this slice
         }
+        // INVARIANT: `parent` was resolved above under this same lock; see
+        // the note in `insert` for why it cannot have gone away since.
         inner
             .nodes
             .get_mut(&parent)
@@ -286,6 +293,9 @@ impl Filesystem for RamFs {
                 (FileKind::File, FileKind::Dir) => return Err(FsError::IsDir),
                 (FileKind::Dir, FileKind::File) => return Err(FsError::NotDir),
             }
+            // INVARIANT: `to_parent`/`existing` were resolved above under
+            // this same lock; see the note in `insert` for why they cannot
+            // have gone away since.
             inner
                 .nodes
                 .get_mut(&to_parent)
@@ -295,6 +305,9 @@ impl Filesystem for RamFs {
             inner.nodes.remove(&existing);
         }
 
+        // INVARIANT: `from_parent`/`source` were resolved above under this
+        // same lock; see the note in `insert` for why they cannot have gone
+        // away since.
         inner
             .nodes
             .get_mut(&from_parent)

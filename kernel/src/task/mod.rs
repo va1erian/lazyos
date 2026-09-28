@@ -819,6 +819,13 @@ pub fn reap_child() -> Option<(usize, u64)> {
                 .map(|task| task.parent == me && task.state == TaskState::Done)
                 .unwrap_or(false);
             if finished {
+                // INVARIANT: `finished` was just computed from this same
+                // `tasks[index]` under `TASKS.lock()`, held continuously
+                // since; on today's single-CPU scheduler nothing else can
+                // clear the slot in between. Revisit this unwrap if/when SMP
+                // (platform-plan.md S8) lets another core touch `TASKS`
+                // concurrently with a lock that isn't held for the whole
+                // read-then-use span.
                 let task = tasks[index].as_ref().unwrap();
                 let status = task.exit_status;
                 let pml4 = task.pml4;
@@ -1118,6 +1125,12 @@ pub extern "C" fn schedule(current_rsp: u64) -> u64 {
     }
 
     CURRENT.store(next, Ordering::Relaxed);
+    // INVARIANT: `select_next` only ever returns an index whose slot is
+    // `Some` (that is its definition of "runnable"), and `tasks` has been
+    // locked continuously since it was called, so the slot cannot have been
+    // cleared in between on today's single-CPU scheduler. Revisit if SMP
+    // (platform-plan.md S8) introduces a window where another core can clear
+    // a slot without holding this same lock across the whole span.
     let task = tasks[next].as_ref().unwrap();
     let (pml4, kstack_top, rsp, fs_base) = (task.pml4, task.kstack_top, task.rsp, task.fs_base);
     drop(tasks);

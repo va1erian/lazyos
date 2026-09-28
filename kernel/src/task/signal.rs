@@ -1442,6 +1442,11 @@ pub unsafe fn sweep(tasks: &mut [Option<Task>; MAX_TASKS]) -> ([SweepFinish; MAX
                         continue;
                     }
                     DefaultAction::Stop => {
+                        // INVARIANT: `tasks[slot]` was `Some` at the top of
+                        // this iteration (line above) and `tasks` is held
+                        // exclusively for the whole `sweep` call, so the slot
+                        // is still occupied here. Same single-CPU caveat as
+                        // the scheduler unwraps in `task/mod.rs`.
                         let task = tasks[slot].as_mut().unwrap();
                         task.state = TaskState::Blocked {
                             wait: WaitKind::Signal,

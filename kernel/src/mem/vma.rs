@@ -123,6 +123,9 @@ fn ensure_space<'a>(spaces: &'a mut Vec<Space>, table: PhysAddr) -> &'a mut Spac
             vmas: Vec::new(),
         });
     }
+    // INVARIANT: the branch above just pushed a `Space` with this exact
+    // `pml4`, and nothing between the push and this lookup can remove it
+    // (single-threaded, no reentrancy here), so the find always succeeds.
     find_space(spaces, table).expect("space was just inserted")
 }
 
