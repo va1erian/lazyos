@@ -57,6 +57,11 @@ fn main() {
     let flaky =
         std::env::var_os("CARGO_BIN_FILE_USER_flaky").expect("user flaky artifact not found");
     builder.set_file(String::from("FLAKY.ELF"), PathBuf::from(flaky));
+    // The secrets and crypto service (issue #102). `init` starts it from its
+    // manifest when the image boots with `LAZYOS_SERVICES=1`; the 8.3 name
+    // `KEYD.ELF` is what the kernel's short-name FAT reader resolves.
+    let keyd = std::env::var_os("CARGO_BIN_FILE_USER_keyd").expect("user keyd artifact not found");
+    builder.set_file(String::from("KEYD.ELF"), PathBuf::from(keyd));
 
     // Accounts and console login (issue #101). `init` starts `accountsd` and
     // `logind` from its manifest; `accountsd` reads `PASSWD` when present. All

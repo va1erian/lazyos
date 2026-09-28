@@ -282,6 +282,15 @@ const SUITE: &[(&str, Test)] = &[
         stats_suite::counters_follow_calls_and_denials,
     ),
     (
+        "block_fake_read_write_flush",
+        block_suite::fake_read_write_flush,
+    ),
+    (
+        "block_registry_register_lookup_duplicate",
+        block_suite::registry_register_lookup_duplicate,
+    ),
+    ("block_ata_reads_fat_root", block_suite::ata_reads_fat_root),
+    (
         "fs_path_resolution_and_mounts",
         fs_suite::path_resolution_and_mounts,
     ),
@@ -327,6 +336,14 @@ const SUITE: &[(&str, Test)] = &[
     (
         "service_spawn_unknown_file_fails",
         service_suite::spawn_unknown_file_fails,
+    ),
+    (
+        "keyd_sha256_hmac_known_answers",
+        crypto_suite::sha256_hmac_known_answers,
+    ),
+    (
+        "keyd_wrap_roundtrip_share_only",
+        crypto_suite::keyd_wrap_roundtrip_share_only,
     ),
 ];
 
@@ -3875,11 +3892,11 @@ mod ipc_shared_suite {
     use alloc::vec;
     use libmessenger::{flags, BufferDesc, Encoder, Header, Parcel, VERSION};
 
-    fn buffer_reason(error: BufferError) -> String {
+    pub(crate) fn buffer_reason(error: BufferError) -> String {
         error.message().into()
     }
 
-    fn channel_reason(error: ChannelError) -> String {
+    pub(crate) fn channel_reason(error: ChannelError) -> String {
         error.message().into()
     }
 
@@ -3890,7 +3907,7 @@ mod ipc_shared_suite {
     /// Every shared-buffer test starts from empty registries and a clean kernel
     /// task. `channels::reset` runs first so it can release the buffer
     /// references held by queued messages before the buffers go away.
-    fn fresh() -> Result<(), String> {
+    pub(crate) fn fresh() -> Result<(), String> {
         task::register_kernel();
         task::harness::reset();
         channels::reset();
@@ -3911,7 +3928,7 @@ mod ipc_shared_suite {
     /// cross-task open call yet, so the harness builds the receiver's half
     /// directly; the transfer under test is the buffer handle, not the
     /// endpoint.
-    fn channel_to(slot: usize) -> Result<(u64, u64), String> {
+    pub(crate) fn channel_to(slot: usize) -> Result<(u64, u64), String> {
         let (client, server) = channels::create().map_err(channel_reason)?;
         let entry = handles::get(server).map_err(handle_reason)?;
         let caller = task::current();
@@ -3923,7 +3940,7 @@ mod ipc_shared_suite {
     }
 
     /// Build a one-way parcel carrying `handles` and `buffers`.
-    fn parcel_with_transfers(
+    pub(crate) fn parcel_with_transfers(
         method: u32,
         text: &str,
         handles: Vec<u64>,
@@ -3951,7 +3968,7 @@ mod ipc_shared_suite {
     }
 
     /// Spawn a fork child with an empty handle table; the caller reaps it.
-    fn spawn_receiver() -> Result<usize, String> {
+    pub(crate) fn spawn_receiver() -> Result<usize, String> {
         let child = task::spawn_fork().map_err(|error| format!("spawn: {error}"))?;
         handles::reset_for_task(child);
         Ok(child)
@@ -3959,7 +3976,7 @@ mod ipc_shared_suite {
 
     /// Finish and reap `child`, returning to the kernel task and resetting the
     /// task table.
-    fn reap(child: usize) -> Result<(), String> {
+    pub(crate) fn reap(child: usize) -> Result<(), String> {
         task::harness::switch_current(task::KERNEL_TASK);
         task::harness::finish(child, 0);
         check!(
@@ -4381,6 +4398,148 @@ mod ipc_shared_suite {
         Ok(())
     }
 }
+
+// ---------------------------------------------------------------------------
+// keyd crypto and SHARE_ONLY key isolation (issue #102)
+// ---------------------------------------------------------------------------
+
+/// Runs the same primitives `keyd` links in ring 3 inside the kernel, plus the
+/// key-material isolation property: a `SHARE_ONLY` buffer is mapped for its
+/// creator and the kernel refuses every other task's `map`.
+mod crypto_suite {
+    use super::*;
+    use crate::ipc::channels;
+    use crate::ipc::handles::{self, Error as HandleError};
+    use crate::ipc::shared::{self, Error as BufferError};
+    use alloc::vec;
+    use lazyos_crypto::{hex, hmac, sha256, wrap};
+
+    /// Friendly text for a crypto failure.
+    fn crypto_reason(error: lazyos_crypto::Error) -> String {
+        error.message().into()
+    }
+
+    /// FIPS 180-4 and RFC 4231 vectors, run on the freestanding target so the
+    /// exact artifact `keyd` embeds is covered, not just the host build.
+    pub fn sha256_hmac_known_answers() -> Result<(), String> {
+        let digest = hex::encode(&sha256::sha256(b"abc"));
+        check!(
+            digest == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+            "sha256(abc) = {digest}"
+        );
+        let empty = hex::encode(&sha256::sha256(b""));
+        check!(
+            empty == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "sha256(\"\") = {empty}"
+        );
+        let tag = hex::encode(&hmac::hmac_sha256(&[0x0bu8; 20], b"Hi There"));
+        check!(
+            tag == "b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7",
+            "hmac(key, \"Hi There\") = {tag}"
+        );
+        check!(
+            hmac::hmac_sha256_verify(
+                &[0x0bu8; 20],
+                &[b"Hi There"],
+                &hmac::hmac_sha256(&[0x0bu8; 20], b"Hi There")
+            ),
+            "the constant-time tag check rejected a valid tag"
+        );
+        Ok(())
+    }
+
+    /// A wrap->unwrap round-trip in kernel context, then the same blob handed
+    /// to a client inside a `SHARE_ONLY` buffer: the service reads and unwraps
+    /// its own mapping first, and the client receives the handle afterwards but
+    /// cannot map it.
+    pub fn keyd_wrap_roundtrip_share_only() -> Result<(), String> {
+        // Part 1: the wrapper round-trips and refuses tampering.
+        let key = [0x42u8; 32];
+        let nonce = [0x24u8; wrap::NONCE_LEN];
+        let secret = b"launch codes: 0000";
+        let blob = wrap::wrap_with_nonce(&key, &nonce, secret).map_err(crypto_reason)?;
+        let opened = wrap::unwrap(&key, &blob).map_err(crypto_reason)?;
+        check!(opened == secret, "wrap round-trip mismatch");
+        let mut tampered = blob.clone();
+        let last = tampered.len() - 1;
+        tampered[last] ^= 1;
+        check!(
+            wrap::unwrap(&key, &tampered) == Err(lazyos_crypto::Error::BadTag),
+            "a tampered blob unwrapped"
+        );
+
+        // Part 2: the SHARE_ONLY handoff. `fresh` mirrors
+        // `buffer_share_only_not_mappable`: the registry starts empty.
+        ipc_shared_suite::fresh()?;
+        let creator = task::current();
+        let child = ipc_shared_suite::spawn_receiver()?;
+        let (client, child_server) = ipc_shared_suite::channel_to(child)?;
+        let handle = shared::create(
+            blob.len() as u64,
+            shared::flags::READ | shared::flags::WRITE | shared::flags::SHARE_ONLY,
+        )
+        .map_err(ipc_shared_suite::buffer_reason)?;
+        let creator_va = shared::map(handle).map_err(ipc_shared_suite::buffer_reason)?;
+        // The creator (standing in for `keyd`) writes the wrapped blob through
+        // its own mapping and can read it back: material at rest is visible
+        // only to the service.
+        for (offset, byte) in blob.iter().enumerate() {
+            // Safety: the creator's mapping is writable for the buffer size.
+            unsafe { (creator_va as *mut u8).add(offset).write_volatile(*byte) };
+        }
+        let mut readback = vec![0u8; blob.len()];
+        for (offset, slot) in readback.iter_mut().enumerate() {
+            // Safety: the creator's mapping is readable for the buffer size.
+            *slot = unsafe { (creator_va as *const u8).add(offset).read_volatile() };
+        }
+        check!(readback == blob, "the service's own mapping changed");
+        let opened = wrap::unwrap(&key, &readback).map_err(crypto_reason)?;
+        check!(
+            opened == secret,
+            "the service could not unwrap its own blob"
+        );
+
+        // Hand the handle to the client. The transfer moves the handle and its
+        // only mapping out of the creator; the client gets the handle but the
+        // kernel refuses to map it, so no client address space ever sees the
+        // blob.
+        let bytes =
+            ipc_shared_suite::parcel_with_transfers(1, "wrapped key", vec![handle], Vec::new())?;
+        channels::send(client, &bytes).map_err(ipc_shared_suite::channel_reason)?;
+        check!(
+            handles::get(handle) == Err(HandleError::InvalidHandle),
+            "the transfer did not move the sender's handle"
+        );
+        check!(
+            raw_entry(mem::kernel_table(), creator_va).is_none(),
+            "the creator's mapping outlived the handle transfer"
+        );
+
+        task::harness::switch_current(child);
+        let message = channels::try_recv(child_server)
+            .map_err(ipc_shared_suite::channel_reason)?
+            .ok_or("the transferred message is missing")?;
+        check!(
+            message.handles.len() == 1,
+            "delivered {} handles, expected 1",
+            message.handles.len()
+        );
+        check!(
+            shared::map(message.handles[0]) == Err(BufferError::ShareOnly),
+            "a client mapped a SHARE_ONLY key buffer"
+        );
+
+        // Cleanup in the same order as the other shared-buffer tests: the
+        // registries go first so the queued message's references are released.
+        shared::reset();
+        handles::reset_for_task(child);
+        task::harness::switch_current(creator);
+        channels::reset();
+        ipc_shared_suite::reap(child)?;
+        Ok(())
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Native Messenger syscalls and bootstrap (issue #69)
 // ---------------------------------------------------------------------------
@@ -6038,6 +6197,241 @@ mod registry_suite {
             check!(registry::list().is_empty(), "the table is not empty");
             Ok(())
         })
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Block devices (issue #100)
+// ---------------------------------------------------------------------------
+
+mod block_suite {
+    use super::*;
+    use crate::block::{self, BlockDevice, BlockError, SECTOR_SIZE};
+    use alloc::boxed::Box;
+    use core::sync::atomic::{AtomicU32, Ordering};
+    use spin::Mutex;
+
+    /// An in-memory [`BlockDevice`]: pins the trait's read/write/flush/bounds
+    /// contract without hardware. Leaked so the registry can hold it forever.
+    struct FakeDisk {
+        name: &'static str,
+        data: Mutex<Vec<u8>>,
+        writes: AtomicU32,
+        flushes: AtomicU32,
+    }
+
+    impl FakeDisk {
+        fn new(name: &'static str, sectors: usize) -> &'static FakeDisk {
+            Box::leak(Box::new(FakeDisk {
+                name,
+                data: Mutex::new(vec![0u8; sectors * SECTOR_SIZE]),
+                writes: AtomicU32::new(0),
+                flushes: AtomicU32::new(0),
+            }))
+        }
+    }
+
+    impl BlockDevice for FakeDisk {
+        fn name(&self) -> &'static str {
+            self.name
+        }
+
+        fn sector_count(&self) -> u64 {
+            (self.data.lock().len() / SECTOR_SIZE) as u64
+        }
+
+        fn read_sectors(&self, lba: u64, buf: &mut [u8]) -> Result<(), BlockError> {
+            self.check_range(lba, buf.len())?;
+            let data = self.data.lock();
+            let start = lba as usize * SECTOR_SIZE;
+            buf.copy_from_slice(&data[start..start + buf.len()]);
+            Ok(())
+        }
+
+        fn write_sectors(&self, lba: u64, buf: &[u8]) -> Result<(), BlockError> {
+            self.check_range(lba, buf.len())?;
+            let mut data = self.data.lock();
+            let start = lba as usize * SECTOR_SIZE;
+            data[start..start + buf.len()].copy_from_slice(buf);
+            self.writes.fetch_add(1, Ordering::Relaxed);
+            Ok(())
+        }
+
+        fn flush(&self) -> Result<(), BlockError> {
+            self.flushes.fetch_add(1, Ordering::Relaxed);
+            Ok(())
+        }
+
+        fn is_writable(&self) -> bool {
+            true
+        }
+    }
+
+    /// The trait's data path on a fake device: write, read back, flush, and
+    /// the bounds/misalignment errors.
+    pub fn fake_read_write_flush() -> Result<(), String> {
+        let disk = FakeDisk::new("test-fake0", 8);
+        check!(
+            block::register(disk).is_ok(),
+            "registering the fake disk failed"
+        );
+        check!(
+            disk.sector_size() == SECTOR_SIZE && disk.sector_count() == 8,
+            "fake geometry is {} sectors of {}, expected 8 of {SECTOR_SIZE}",
+            disk.sector_count(),
+            disk.sector_size()
+        );
+        check!(disk.is_writable(), "the fake disk claims to be read-only");
+
+        let mut sector = [0u8; SECTOR_SIZE];
+        for (index, byte) in sector.iter_mut().enumerate() {
+            *byte = (index as u8) ^ 0x5A;
+        }
+        disk.write_sectors(3, &sector)
+            .map_err(|error| format!("write failed: {error:?}"))?;
+        check!(
+            disk.writes.load(Ordering::Relaxed) == 1,
+            "the write counter did not move"
+        );
+        let mut readback = [0u8; SECTOR_SIZE];
+        disk.read_sectors(3, &mut readback)
+            .map_err(|error| format!("read failed: {error:?}"))?;
+        check!(
+            readback == sector,
+            "read back different bytes than were written"
+        );
+        disk.flush()
+            .map_err(|error| format!("flush failed: {error:?}"))?;
+        check!(
+            disk.flushes.load(Ordering::Relaxed) == 1,
+            "flush did not reach the device"
+        );
+
+        check!(
+            disk.read_sectors(8, &mut readback).err() == Some(BlockError::Bounds),
+            "reading past the last sector was not Bounds"
+        );
+        check!(
+            disk.read_sectors(7, &mut [0u8; 2 * SECTOR_SIZE]).err() == Some(BlockError::Bounds),
+            "a range straddling the end was not Bounds"
+        );
+        check!(
+            disk.write_sectors(0, &[0u8; 100]).err() == Some(BlockError::Unsupported),
+            "a partial sector was not Unsupported"
+        );
+        check!(
+            disk.read_sectors(0, &mut []).is_ok(),
+            "an empty transfer failed"
+        );
+        Ok(())
+    }
+
+    /// Registration, lookup by name, duplicate rejection, listing, and the
+    /// boot-device selection.
+    pub fn registry_register_lookup_duplicate() -> Result<(), String> {
+        let first = FakeDisk::new("test-registry-a", 4);
+        let second = FakeDisk::new("test-registry-b", 4);
+        check!(block::register(first).is_ok(), "registering a failed");
+        check!(block::register(second).is_ok(), "registering b failed");
+        check!(
+            block::register(first).err() == Some(BlockError::Exists),
+            "a duplicate device name was accepted"
+        );
+        check!(
+            block::device("test-registry-a").map(|dev| dev.name()) == Some("test-registry-a"),
+            "lookup by name failed"
+        );
+        check!(
+            block::device("test-registry-missing").is_none(),
+            "an unknown device name matched"
+        );
+        let names: Vec<&str> = block::devices().iter().map(|dev| dev.name()).collect();
+        check!(
+            names.contains(&"test-registry-a") && names.contains(&"test-registry-b"),
+            "devices() is {names:?}"
+        );
+        block::set_boot_device(first);
+        check!(
+            block::boot_device().map(|dev| dev.name()) == Some("test-registry-a"),
+            "set_boot_device did not stick"
+        );
+        Ok(())
+    }
+
+    /// The ATA path still reads the boot disk through the trait: sector 0
+    /// carries a valid MBR with a FAT partition, and that partition's boot
+    /// sector is a 512-byte-per-sector BPB. This is the acceptance for "the
+    /// default image boots from ATA through the block layer".
+    pub fn ata_reads_fat_root() -> Result<(), String> {
+        block::init();
+        let device = block::device("ata0").ok_or_else(|| String::from("ata0 is not registered"))?;
+        check!(device.sector_count() > 0, "ata0 reports an empty geometry");
+
+        let mut mbr = [0u8; SECTOR_SIZE];
+        device
+            .read_sectors(0, &mut mbr)
+            .map_err(|error| format!("MBR read failed: {error:?}"))?;
+        check!(
+            mbr[510] == 0x55 && mbr[511] == 0xAA,
+            "sector 0 has no MBR signature"
+        );
+
+        let mut fat_lba = None;
+        for index in 0..4 {
+            let base = 0x1BE + index * 16;
+            let kind = mbr[base + 4];
+            let start =
+                u32::from_le_bytes([mbr[base + 8], mbr[base + 9], mbr[base + 10], mbr[base + 11]]);
+            let sectors = u32::from_le_bytes([
+                mbr[base + 12],
+                mbr[base + 13],
+                mbr[base + 14],
+                mbr[base + 15],
+            ]);
+            let is_fat = matches!(kind, 0x01 | 0x04 | 0x06 | 0x0B | 0x0C);
+            if is_fat && sectors > 0 {
+                fat_lba = Some(start);
+                break;
+            }
+        }
+        let lba = fat_lba.ok_or_else(|| String::from("the MBR carries no FAT partition"))?;
+
+        let mut bpb = [0u8; SECTOR_SIZE];
+        device
+            .read_sectors(u64::from(lba), &mut bpb)
+            .map_err(|error| format!("BPB read failed: {error:?}"))?;
+        let bytes_per_sector = u16::from_le_bytes([bpb[11], bpb[12]]);
+        check!(
+            bytes_per_sector == SECTOR_SIZE as u16,
+            "the BPB says {bytes_per_sector} bytes per sector"
+        );
+
+        // The `mount <dev>` surface: the boot device can be mounted at a new
+        // point; duplicate points and non-boot devices are refused. This also
+        // proves the filesystem layer reached the disk through the registry.
+        check!(
+            crate::fs::init(),
+            "the FAT volume did not mount through the block layer"
+        );
+        check!(
+            crate::fs::mount_device("/mnt", "ata0").is_ok(),
+            "mounting ata0 at /mnt failed"
+        );
+        check!(
+            crate::fs::mount_device("/mnt", "ata0").err() == Some(crate::fs::vfs::FsError::Exists),
+            "a duplicate mount point was accepted"
+        );
+        check!(
+            crate::fs::mount_device("/mnt2", "test-registry-a").err()
+                == Some(crate::fs::vfs::FsError::NotSupported),
+            "a non-boot device was mounted"
+        );
+        check!(
+            crate::fs::mount_device("/mnt3", "no-such-device").err()
+                == Some(crate::fs::vfs::FsError::NotFound),
+            "an unknown device was mounted"
+        );
+        Ok(())
     }
 }
 

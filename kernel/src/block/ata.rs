@@ -1,5 +1,20 @@
-//! ATA PIO driver for the primary IDE channel (reads the QEMU disk image).
+//! ATA PIO driver for the primary IDE channel (issue #100: behind the block
+//! layer).
+//!
+//! The primary master is where QEMU puts a plain `-drive` image, and it stays
+//! the fallback boot device. The driver speaks 28-bit LBA programmed I/O, so
+//! it needs no DMA and no interrupt: every transfer polls status. `IDENTIFY
+//! DEVICE` both proves the drive exists and supplies the sector count the
+//! registry advertises.
+//!
+//! [`probe`] returns the driver singleton for registration; [`read_sector`] is
+//! the legacy one-sector entry point the FAT reader still calls, forwarded to
+//! [`super::read_sector`] so the FAT volume can be read through whichever
+//! device the block layer selected.
 
+use super::{BlockDevice, BlockError, SECTOR_SIZE};
+use core::sync::atomic::{AtomicU64, Ordering};
+use spin::Mutex;
 use x86_64::instructions::port::Port;
 
 const DATA: u16 = 0x1F0;
@@ -10,18 +25,38 @@ const LBA_HI: u16 = 0x1F5;
 const DRIVE: u16 = 0x1F6;
 const STATUS: u16 = 0x1F7;
 const ALT_STATUS: u16 = 0x3F6;
+const COMMAND_IDENTIFY: u8 = 0xEC;
+const COMMAND_READ: u8 = 0x20;
+
+/// Serialises PIO sequences: the scheduler can have several tasks reading the
+/// filesystem, and interleaving command bytes would corrupt a transfer.
+static IO: Mutex<()> = Mutex::new(());
+
+/// The primary master's size, discovered by `probe` with `IDENTIFY DEVICE`.
+static SECTORS_ON_DISK: AtomicU64 = AtomicU64::new(0);
+
+/// The driver singleton handed to the registry. Stateless: port numbers are
+/// constants and the discovered size lives in [`SECTORS_ON_DISK`].
+pub struct AtaPio;
+
+static ATA: AtaPio = AtaPio;
 
 /// 400ns delay: reading the alternate status port four times.
 fn delay_400ns() {
     for _ in 0..4 {
+        // Safety: port I/O on the primary IDE channel's alternate status.
         let _: u8 = unsafe { Port::<u8>::new(ALT_STATUS).read() };
     }
 }
 
+fn status() -> u8 {
+    // Safety: port I/O on the primary IDE channel's status register.
+    unsafe { Port::<u8>::new(STATUS).read() }
+}
+
 fn wait_not_busy() -> bool {
     for _ in 0..1_000_000 {
-        let status: u8 = unsafe { Port::<u8>::new(STATUS).read() };
-        if status & 0x80 == 0 {
+        if status() & 0x80 == 0 {
             return true;
         }
     }
@@ -30,7 +65,7 @@ fn wait_not_busy() -> bool {
 
 fn wait_for_data() -> bool {
     for _ in 0..1_000_000 {
-        let status: u8 = unsafe { Port::<u8>::new(STATUS).read() };
+        let status = status();
         if status & 0x08 != 0 {
             return true;
         }
@@ -41,8 +76,8 @@ fn wait_for_data() -> bool {
     false
 }
 
-/// Read one 512-byte sector from the primary master drive (28-bit LBA).
-pub fn read_sector(lba: u32, buf: &mut [u8; 512]) -> bool {
+/// Read one 512-byte sector from the primary master (28-bit LBA).
+pub fn pio_read_sector(lba: u32, buf: &mut [u8; SECTOR_SIZE]) -> bool {
     // Safety: port I/O on the primary IDE channel.
     unsafe {
         Port::<u8>::new(DRIVE).write(0xE0 | ((lba >> 24) & 0x0F) as u8);
@@ -54,7 +89,7 @@ pub fn read_sector(lba: u32, buf: &mut [u8; 512]) -> bool {
         Port::<u8>::new(LBA_LO).write(lba as u8);
         Port::<u8>::new(LBA_MID).write((lba >> 8) as u8);
         Port::<u8>::new(LBA_HI).write((lba >> 16) as u8);
-        Port::<u8>::new(STATUS).write(0x20); // READ SECTORS
+        Port::<u8>::new(STATUS).write(COMMAND_READ);
     }
 
     if !wait_not_busy() || !wait_for_data() {
@@ -62,11 +97,100 @@ pub fn read_sector(lba: u32, buf: &mut [u8; 512]) -> bool {
     }
 
     let mut data = Port::<u16>::new(DATA);
-    for i in 0..256 {
+    for i in 0..SECTOR_SIZE / 2 {
         // Safety: data port I/O within the sector.
         let word: u16 = unsafe { data.read() };
         buf[i * 2] = word as u8;
         buf[i * 2 + 1] = (word >> 8) as u8;
     }
     true
+}
+
+/// Ask the primary master for its identity. Returns the sector count, or
+/// `None` when no drive answers (QEMU's floating bus reads as status 0).
+fn identify() -> Option<u64> {
+    let _guard = IO.lock();
+    // Select the master; a missing drive leaves the bus floating, which QEMU
+    // reports as status 0, so the probe can bail out before the full timeout.
+    // Safety: port I/O on the primary IDE channel.
+    unsafe {
+        Port::<u8>::new(DRIVE).write(0xA0);
+    }
+    delay_400ns();
+    if status() == 0 {
+        return None;
+    }
+    // IDENTIFY takes no address and expects the count/LBA registers cleared.
+    // Safety: port I/O.
+    unsafe {
+        Port::<u8>::new(SECTORS).write(0);
+        Port::<u8>::new(LBA_LO).write(0);
+        Port::<u8>::new(LBA_MID).write(0);
+        Port::<u8>::new(LBA_HI).write(0);
+        Port::<u8>::new(STATUS).write(COMMAND_IDENTIFY);
+    }
+    if !wait_not_busy() || !wait_for_data() {
+        return None;
+    }
+
+    let mut data = Port::<u16>::new(DATA);
+    let mut words = [0u16; 256];
+    for word in words.iter_mut() {
+        // Safety: data port I/O within the IDENTIFY block.
+        *word = unsafe { data.read() };
+    }
+    // Words 60/61: total addressable sectors in 28-bit LBA mode.
+    let lba28 = (u64::from(words[61]) << 16) | u64::from(words[60]);
+    if lba28 == 0 {
+        None
+    } else {
+        Some(lba28)
+    }
+}
+
+/// Probe the primary master and return the driver singleton for registration.
+pub fn probe() -> Option<&'static dyn BlockDevice> {
+    let sectors = identify()?;
+    SECTORS_ON_DISK.store(sectors, Ordering::Relaxed);
+    Some(&ATA)
+}
+
+/// Legacy entry point used by the FAT reader. It forwards to the block layer,
+/// which routes to the active boot device, so the read-only FAT volume can be
+/// read from ATA or virtio-blk with no change in `crate::fs::fat`.
+pub fn read_sector(lba: u32, buf: &mut [u8; SECTOR_SIZE]) -> bool {
+    super::read_sector(lba, buf)
+}
+
+impl BlockDevice for AtaPio {
+    fn name(&self) -> &'static str {
+        "ata0"
+    }
+
+    fn sector_count(&self) -> u64 {
+        SECTORS_ON_DISK.load(Ordering::Relaxed)
+    }
+
+    fn read_sectors(&self, lba: u64, buf: &mut [u8]) -> Result<(), BlockError> {
+        self.check_range(lba, buf.len())?;
+        // 28-bit LBA limit: refuse rather than truncate.
+        let end = lba + (buf.len() / SECTOR_SIZE) as u64;
+        if end > 1 << 28 {
+            return Err(BlockError::Unsupported);
+        }
+        let _guard = IO.lock();
+        for (index, chunk) in buf.chunks_mut(SECTOR_SIZE).enumerate() {
+            let mut sector = [0u8; SECTOR_SIZE];
+            if !pio_read_sector(lba as u32 + index as u32, &mut sector) {
+                return Err(BlockError::Io);
+            }
+            chunk.copy_from_slice(&sector);
+        }
+        Ok(())
+    }
+
+    fn flush(&self) -> Result<(), BlockError> {
+        // PIO writes are posted synchronously; there is no cache to flush.
+        Ok(())
+    }
 }

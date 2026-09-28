@@ -71,15 +71,15 @@ struct ServiceSpec {
 }
 
 /// The boot manifest. `messengerd` is first because it owns the bootstrap
-/// registry listener; `accountsd` and `logind` only need the kernel's name
-/// registry (which every task can use directly), and `logind` declares its
-/// dependency on `accountsd` so the supervisor starts login once accounts are
-/// up. `logd` and `healthd` depend on `messengerd`; `flaky` depends on
-/// `healthd` so the crash test also proves dependency gating. `messengerd` is
-/// `Once` because the kernel's bootstrap channel can be claimed only once per
-/// boot, so restarting it could not re-listen. (`logind`'s console dialog shows
-/// in `init`'s window: the kernel routes a child's terminal to its root
-/// ancestor, so the supervisor's window carries the login prompt.)
+/// registry listener; `keyd`, `logd` and `healthd` depend on it. `accountsd`
+/// and `logind` only need the kernel's name registry (which every task can use
+/// directly), and `logind` declares its dependency on `accountsd` so the
+/// supervisor starts login once accounts are up. `flaky` depends on `healthd`
+/// so the crash test also proves dependency gating. `messengerd` is `Once`
+/// because the kernel's bootstrap channel can be claimed only once per boot, so
+/// restarting it could not re-listen. (`logind`'s console dialog shows in
+/// `init`'s window: the kernel routes a child's terminal to its root ancestor,
+/// so the supervisor's window carries the login prompt.)
 const MANIFEST: &[ServiceSpec] = &[
     ServiceSpec {
         name: "messengerd",
@@ -88,6 +88,14 @@ const MANIFEST: &[ServiceSpec] = &[
         restart: Restart::Once,
         deps: &[],
         health_topic: "system/health/messengerd",
+    },
+    ServiceSpec {
+        name: "keyd",
+        path: "KEYD.ELF",
+        args: "",
+        restart: Restart::Always,
+        deps: &["messengerd"],
+        health_topic: "system/health/keyd",
     },
     ServiceSpec {
         name: "accountsd",

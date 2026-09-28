@@ -185,9 +185,11 @@ fn verify_secret(
             );
         }
     }
-    if let Some(endpoint) = keyd_endpoint.as_ref() {
-        if let Ok(matched) = keyd::verify(endpoint, &account.record.name, secret) {
-            return matched;
+    if keyd_endpoint.is_some() {
+        if let Ok(client) = keyd::Client::connect() {
+            if let Ok(matched) = client.verify(&account.record.name, secret) {
+                return matched;
+            }
         }
         // keyd could not answer: fall through to the bring-up verifier so a
         // keyd crash cannot lock every account out during S3 bring-up.

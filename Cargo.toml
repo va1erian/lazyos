@@ -6,7 +6,17 @@ description = "A small single-tasking x86_64 OS with a bitmap-font console"
 license = "MIT OR Apache-2.0"
 
 [workspace]
-members = ["kernel", "font-atlas", "user", "libs/messenger", "libs/generated"]
+members = [
+    "kernel",
+    "font-atlas",
+    "user",
+    "libs/messenger",
+    "libs/generated",
+    # Vetted cryptography shared by `keyd` and the kernel test suite (#102):
+    # no_std for the freestanding targets plus host `cargo test` known-answer
+    # vectors.
+    "libs/crypto",
+]
 resolver = "2"
 
 [build-dependencies]

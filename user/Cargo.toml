@@ -9,6 +9,10 @@ license = "MIT OR Apache-2.0"
 # The parcel codec, shared with the kernel, so client/server parcels round-trip
 # through one implementation (issue #69).
 libmessenger = { path = "../libs/messenger" }
+# Vetted primitives for `keyd` (issue #102): SHA-256/HMAC/HKDF/Argon2id and the
+# entropy pool. Kernel tests import the same crate, so host KATs cover the code
+# that runs in ring 3.
+lazyos-crypto = { path = "../libs/crypto" }
 
 [lib]
 name = "user"
@@ -78,6 +82,16 @@ bench = false
 [[bin]]
 name = "logind"
 path = "src/bin/logind.rs"
+test = false
+bench = false
+
+# `keyd` (issue #102) is the secrets and crypto service: `init` starts it from
+# its manifest, and clients reach it through the Messenger client in
+# `user/src/messenger.rs`. The on-disk name is `KEYD.ELF` (8.3, like the other
+# services).
+[[bin]]
+name = "keyd"
+path = "src/bin/keyd.rs"
 test = false
 bench = false
 
