@@ -33,11 +33,52 @@ pub enum Key {
     F4,
 }
 
+/// A modifier tracked per physical key (issue #175): left/right Shift, Ctrl,
+/// Alt and the two Super keys each set their own flag, so releasing one of
+/// two held keys (e.g. right Alt while left Alt is still down) does not drop
+/// the aggregate state and forward a spurious key-up.
+struct ModifierPair {
+    left: AtomicBool,
+    right: AtomicBool,
+}
+
+impl ModifierPair {
+    const fn new() -> ModifierPair {
+        ModifierPair {
+            left: AtomicBool::new(false),
+            right: AtomicBool::new(false),
+        }
+    }
+
+    /// Whether either physical key is currently held.
+    fn held(&self) -> bool {
+        self.left.load(Ordering::SeqCst) || self.right.load(Ordering::SeqCst)
+    }
+
+    /// Record a physical press/release. Returns the new aggregate state only
+    /// when it actually changed, so a second press while the other side is
+    /// still down, or a re-sent auto-repeat make code, reports no transition.
+    fn set(&self, right: bool, pressed: bool) -> Option<bool> {
+        let before = self.held();
+        let side = if right { &self.right } else { &self.left };
+        side.store(pressed, Ordering::SeqCst);
+        let after = self.held();
+        (before != after).then_some(after)
+    }
+
+    /// Only the `#[cfg(laZYOS_TESTS)]` harness hook below calls this.
+    #[allow(dead_code)]
+    fn reset(&self) {
+        self.left.store(false, Ordering::SeqCst);
+        self.right.store(false, Ordering::SeqCst);
+    }
+}
+
 static QUEUE: Mutex<VecDeque<Key>> = Mutex::new(VecDeque::new());
-static SHIFT: AtomicBool = AtomicBool::new(false);
-static CTRL: AtomicBool = AtomicBool::new(false);
-static ALT: AtomicBool = AtomicBool::new(false);
-static SUPER: AtomicBool = AtomicBool::new(false);
+static SHIFT: ModifierPair = ModifierPair::new();
+static CTRL: ModifierPair = ModifierPair::new();
+static ALT: ModifierPair = ModifierPair::new();
+static SUPER: ModifierPair = ModifierPair::new();
 static EXTENDED: AtomicBool = AtomicBool::new(false);
 
 /// Feed a raw scancode from the i8042 (called from the IRQ1 handler).
@@ -50,14 +91,16 @@ pub fn push_scancode(scancode: u8) {
     let released = scancode & 0x80 != 0;
     let code = scancode & 0x7F;
 
-    // Modifier keys update their tracked state and, while a compositor is
-    // bound, are forwarded as modifier key codes so it can implement global
-    // hotkeys (issue #167). They are never routed to a task: the kernel
-    // terminal consumes them exactly as before.
-    if let Some((state, key)) = modifier(code, extended) {
-        state.store(!released, Ordering::SeqCst);
-        if display::bound() {
-            display::push_key(key, !released);
+    // Modifier keys update their tracked per-key state and, while a
+    // compositor is bound, are forwarded as modifier key codes only on a real
+    // aggregate transition (issue #175: two physical keys share one logical
+    // modifier, and auto-repeat must not re-send a key-down). They are never
+    // routed to a task: the kernel terminal consumes them exactly as before.
+    if let Some((pair, right, key)) = modifier(code, extended) {
+        if let Some(pressed) = pair.set(right, !released) {
+            if display::bound() {
+                display::push_key(key, pressed);
+            }
         }
         return;
     }
@@ -66,7 +109,7 @@ pub fn push_scancode(scancode: u8) {
         // A bound compositor observes key releases too; the kernel terminal
         // only cares about presses, so this is display-only (issue #113).
         if display::bound() {
-            let shift = SHIFT.load(Ordering::SeqCst);
+            let shift = SHIFT.held();
             let key = if extended {
                 decode_extended(code)
             } else {
@@ -79,7 +122,7 @@ pub fn push_scancode(scancode: u8) {
         return;
     }
 
-    let shift = SHIFT.load(Ordering::SeqCst);
+    let shift = SHIFT.held();
     let key = if extended {
         decode_extended(code)
     } else {
@@ -97,15 +140,20 @@ pub fn push_scancode(scancode: u8) {
     }
 }
 
-/// The modifier a scancode denotes, ignoring its release bit, plus the state
-/// flag it updates. Left/right shift, ctrl, alt, and the two Super keys all
-/// map onto one flag each.
-fn modifier(code: u8, extended: bool) -> Option<(&'static AtomicBool, Key)> {
+/// The modifier a scancode denotes, ignoring its release bit, plus which
+/// physical side it is (`true` = right) and the logical key it forwards.
+/// Left/right shift, ctrl, alt, and the two Super keys each track their own
+/// side of one pair (issue #175).
+fn modifier(code: u8, extended: bool) -> Option<(&'static ModifierPair, bool, Key)> {
     Some(match (extended, code) {
-        (false, 0x2A) | (false, 0x36) => (&SHIFT, Key::Shift),
-        (false, 0x1D) | (true, 0x1D) => (&CTRL, Key::Ctrl),
-        (false, 0x38) | (true, 0x38) => (&ALT, Key::Alt),
-        (true, 0x5B) | (true, 0x5C) => (&SUPER, Key::Super),
+        (false, 0x2A) => (&SHIFT, false, Key::Shift),
+        (false, 0x36) => (&SHIFT, true, Key::Shift),
+        (false, 0x1D) => (&CTRL, false, Key::Ctrl),
+        (true, 0x1D) => (&CTRL, true, Key::Ctrl),
+        (false, 0x38) => (&ALT, false, Key::Alt),
+        (true, 0x38) => (&ALT, true, Key::Alt),
+        (true, 0x5B) => (&SUPER, false, Key::Super),
+        (true, 0x5C) => (&SUPER, true, Key::Super),
         _ => return None,
     })
 }
@@ -213,7 +261,7 @@ fn shifted(shift: bool, normal: char, shifted: char) -> char {
 fn letter(shift: bool, lower: char) -> Key {
     // Ctrl+letter is the corresponding C0 control character (Ctrl-C -> ETX),
     // so the terminal layer (`task::on_key`) can tell it from a plain letter.
-    if CTRL.load(Ordering::SeqCst) {
+    if CTRL.held() {
         Key::Char(((lower as u8) & 0x1f) as char)
     } else if shift {
         Key::Char(lower.to_ascii_uppercase())
@@ -226,10 +274,10 @@ fn letter(shift: bool, lower: char) -> Key {
 /// not leak keyboard state into each other.
 #[cfg(laZYOS_TESTS)]
 pub fn reset() {
-    SHIFT.store(false, Ordering::SeqCst);
-    CTRL.store(false, Ordering::SeqCst);
-    ALT.store(false, Ordering::SeqCst);
-    SUPER.store(false, Ordering::SeqCst);
+    SHIFT.reset();
+    CTRL.reset();
+    ALT.reset();
+    SUPER.reset();
     EXTENDED.store(false, Ordering::SeqCst);
     QUEUE.lock().clear();
 }
