@@ -66,7 +66,7 @@ impl ModifierPair {
         (before != after).then_some(after)
     }
 
-    /// Only the `#[cfg(laZYOS_TESTS)]` harness hook below calls this.
+    /// Only the `#[cfg(lazyos_tests)]` harness hook below calls this.
     #[allow(dead_code)]
     fn reset(&self) {
         self.left.store(false, Ordering::SeqCst);
@@ -272,7 +272,7 @@ fn letter(shift: bool, lower: char) -> Key {
 
 /// Test-harness hook: forget every held modifier and queued key so suites do
 /// not leak keyboard state into each other.
-#[cfg(laZYOS_TESTS)]
+#[cfg(lazyos_tests)]
 pub fn reset() {
     SHIFT.reset();
     CTRL.reset();

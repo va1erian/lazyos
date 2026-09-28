@@ -212,7 +212,9 @@ impl Subscription {
     /// the (also fixed) request, which is why that is pre-encoded and reused
     /// as well.
     pub fn stats_with(&self, buf: &mut [u8]) -> Result<topics_client::SubscriptionStats> {
-        let reply = self.endpoint.call_bytes_with(&self.stats_request, buf, None)?;
+        let reply = self
+            .endpoint
+            .call_bytes_with(&self.stats_request, buf, None)?;
         if let Some(code) = error_code(&reply) {
             return Err(Error::Topics(code));
         }
