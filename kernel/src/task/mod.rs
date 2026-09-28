@@ -1576,6 +1576,47 @@ pub fn fd_size(fd: usize) -> Option<u64> {
     }
 }
 
+/// The current read/write position of a file descriptor.
+pub fn fd_offset(fd: usize) -> Option<usize> {
+    let tasks = TASKS.lock();
+    match tasks[current()].as_ref() {
+        Some(task) if fd < FD_COUNT => match &task.fds[fd] {
+            Fd::File { offset, .. } => Some(*offset),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// Patch `data` into a file descriptor's snapshot at `offset`, extending (and
+/// zero-filling) as needed, and advance the descriptor past the write. Returns
+/// false unless the descriptor holds a regular file; the Linux ABI uses this
+/// to make a writable fd read back its own writes after the backing file was
+/// updated.
+pub fn fd_apply_write(fd: usize, offset: usize, data: &[u8]) -> bool {
+    let mut tasks = TASKS.lock();
+    let Some(task) = tasks[current()].as_mut() else {
+        return false;
+    };
+    if fd >= FD_COUNT {
+        return false;
+    }
+    let Fd::File {
+        data: buf,
+        offset: pos,
+    } = &mut task.fds[fd]
+    else {
+        return false;
+    };
+    let end = offset.saturating_add(data.len());
+    if end > buf.len() {
+        buf.resize(end, 0);
+    }
+    buf[offset..end].copy_from_slice(data);
+    *pos = end;
+    true
+}
+
 /// Reposition a file descriptor (`whence`: 0=SET, 1=CUR, 2=END).
 pub fn fd_seek(fd: usize, offset: i64, whence: u64) -> Option<u64> {
     let mut tasks = TASKS.lock();

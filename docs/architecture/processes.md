@@ -55,14 +55,24 @@ syscall shim.
 - `load` builds a Linux stack (argv/envp/auxv; `AT_CLKTCK = 100`) and returns
   `(entry, stack_top)`; `spawn_linux` registers the `brk`/`mmap` bumps.
 - `linux_dispatch` implements a growing subset: file I/O (`read`, `write`,
-  `openat`, `close`, `stat`/`fstat`, `getdents64`, `readv`/`writev`, `lseek`),
-  memory (`mmap`, `mprotect`, `munmap`, `brk`), signals (`rt_sigaction`,
-  `rt_sigprocmask`, `rt_sigreturn`, `sigaltstack`), process (`clone`, `fork`,
-  `execve`, `exit`, `exit_group`, `wait4`, `kill`, `tkill`, `tgkill`,
-  `set_tid_address`, `futex`), ids/groups (`getpid`/`gettid`, `getppid`,
-  `setpgid`, `setsid`, `getpgid`, `getsid`), time and misc (`nanosleep`,
-  `clock_gettime`, `gettimeofday`, `getrandom`, `uname`, `access`, `umask`,
-  `arch_prctl`, `sched_getaffinity`). Everything else logs `ENOSYS <nr> <name>`.
+  `openat`, `close`, `stat`/`fstat`, `getdents64`, `readv`/`writev`, `lseek`,
+  `mkdir`/`mkdirat`, `rmdir`, `rename`/`renameat`, `unlink`/`unlinkat` with
+  `AT_REMOVEDIR`), memory (`mmap`, `mprotect`, `munmap`, `brk`), signals
+  (`rt_sigaction`, `rt_sigprocmask`, `rt_sigreturn`, `sigaltstack`), process
+  (`clone`, `fork`, `execve`, `exit`, `exit_group`, `wait4`, `kill`, `tkill`,
+  `tgkill`, `set_tid_address`, `futex`), ids/groups (`getpid`/`gettid`,
+  `getppid`, `setpgid`, `setsid`, `getpgid`, `getsid`), time and misc
+  (`nanosleep`, `clock_gettime`, `gettimeofday`, `getrandom`, `uname`,
+  `access`, `umask`, `arch_prctl`, `sched_getaffinity`). Everything else logs
+  `ENOSYS <nr> <name>`.
+- File I/O runs against the ABI's own mount table, whose root is the copy-up
+  overlay from [filesystem.md](filesystem.md), so `O_CREAT`, `O_TRUNC`,
+  `O_APPEND`, `O_EXCL`, and `O_DIRECTORY` open, `mkdir`/`rename`/`unlink`/
+  `rmdir`, and descriptor writes all succeed over the read-only FAT boot
+  volume. Relative `*at` calls join a real directory descriptor's recorded
+  path (which is how `std`'s `remove_dir_all` walk works); descriptors snapshot
+  file bytes at open and `write` patches the snapshot after updating the
+  backing file.
 - Honored `clone` flags: `CLONE_VM`, `CLONE_SETTLS`, `CLONE_PARENT_SETTID`,
   `CLONE_CHILD_CLEARTID`. Futex words get one `WaitQueue` per address.
 - `execve` replaces the image, resets the signal table, and tears down the old

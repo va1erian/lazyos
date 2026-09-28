@@ -331,15 +331,27 @@ pub trait Filesystem: Send + Sync {
     /// Write `data` at `offset`, extending the file; returns the count.
     fn write(&self, path: &str, offset: u64, data: &[u8]) -> Result<usize, FsError>;
 
+    /// Truncate (or zero-extend) a regular file to `size` bytes. Backends that
+    /// do not implement it answer [`FsError::NotSupported`].
+    fn truncate(&self, _path: &str, _size: u64) -> Result<(), FsError> {
+        Err(FsError::NotSupported)
+    }
+
     /// Create a regular file with `mode` (already masked by the umask).
     fn create(&self, path: &str, mode: u16, owner: Id) -> Result<Meta, FsError>;
 
     /// Create a directory with `mode` (already masked by the umask).
     fn mkdir(&self, path: &str, mode: u16, owner: Id) -> Result<Meta, FsError>;
 
-    /// Remove a regular file. Directories need `rmdir`, which is not part of
-    /// this slice's trait.
+    /// Remove a regular file.
     fn unlink(&self, path: &str) -> Result<(), FsError>;
+
+    /// Remove an empty directory. The default answers
+    /// [`FsError::NotSupported`]; the read-only FAT driver overrides it with
+    /// [`FsError::ReadOnly`], and ramfs/overlay implement it.
+    fn rmdir(&self, _path: &str) -> Result<(), FsError> {
+        Err(FsError::NotSupported)
+    }
 
     /// Rename/move a node within this filesystem.
     fn rename(&self, from: &str, to: &str) -> Result<(), FsError>;
@@ -541,6 +553,22 @@ impl Vfs {
         Ok(written)
     }
 
+    /// Truncate a regular file to `size` bytes, refreshing the cached size.
+    pub fn truncate(&mut self, id: Id, path: &str, size: u64) -> Result<(), FsError> {
+        let path = Path::parse(path);
+        let meta = self.check_path(id, &path, WRITE)?;
+        if meta.kind != FileKind::File {
+            return Err(FsError::IsDir);
+        }
+        let (mount, rel) = self.resolve_mount(&path)?;
+        let fs = Arc::clone(&self.mounts[mount].fs);
+        fs.truncate(&rel, size)?;
+        if let Ok(updated) = fs.stat(&rel) {
+            self.insert_cache(mount, &rel, updated);
+        }
+        Ok(())
+    }
+
     /// Create a regular file, stamping `owner` and applying the umask.
     pub fn create(&mut self, id: Id, path: &str, mode: u16) -> Result<Meta, FsError> {
         let path = Path::parse(path);
@@ -584,6 +612,25 @@ impl Vfs {
         check_sticky(&dir, &target, id)?;
         let (mount, rel) = self.resolve_mount(&path)?;
         self.mounts[mount].fs.unlink(&rel)?;
+        self.invalidate_mount_path(mount, &rel);
+        Ok(())
+    }
+
+    /// Remove an empty directory. The parent needs write permission and the
+    /// sticky bit protects entries in shared directories.
+    pub fn rmdir(&mut self, id: Id, path: &str) -> Result<(), FsError> {
+        let path = Path::parse(path);
+        if path.is_root() {
+            return Err(FsError::Access);
+        }
+        let dir = self.check_path(id, &path.parent(), WRITE)?;
+        let target = self.stat_path(&path)?;
+        if target.kind != FileKind::Dir {
+            return Err(FsError::NotDir);
+        }
+        check_sticky(&dir, &target, id)?;
+        let (mount, rel) = self.resolve_mount(&path)?;
+        self.mounts[mount].fs.rmdir(&rel)?;
         self.invalidate_mount_path(mount, &rel);
         Ok(())
     }
