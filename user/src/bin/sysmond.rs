@@ -8,9 +8,10 @@
 //!   [`user::sysinfo::Snapshot`] as raw bytes so a client decodes the same
 //!   block `top` reads directly from the kernel;
 //! * it republishes the snapshot as the retained topics
-//!   `system/stats/memory` and `system/stats/tasks` on its own
-//!   [`router::TopicBroker`], so a dashboard subscribes once and is handed
-//!   the latest values, then every update;
+//!   `system/stats/memory` and `system/stats/tasks` through `messengerd`'s
+//!   central broker ([`user::central`]), so a dashboard subscribes once and
+//!   is handed the latest values, then every update — and the hardware
+//!   fabric view sees the stats topics alongside every other service's;
 //! * it prints one machine-parseable line when it registers and one when the
 //!   first snapshot lands (`SYSMOND:REGISTER:PASS`, `SYSMOND:SNAPSHOT:PASS`),
 //!   which is the headless boot evidence.
@@ -31,7 +32,8 @@ extern crate alloc;
 use alloc::format;
 use alloc::string::String;
 use core::panic::PanicInfo;
-use user::messenger::{self, errno, registry, router, services, Error, Message, Parcel};
+use user::central;
+use user::messenger::{self, errno, registry, services, Error, Message, Parcel};
 use user::sys;
 use user::sysinfo::{self, Snapshot, TaskState};
 
@@ -64,7 +66,7 @@ fn run() -> messenger::Result<()> {
     registry::register(
         services::SYSMOND_NAME,
         &published,
-        &[services::SYSMOND_INTERFACE, router::INTERFACE],
+        &[services::SYSMOND_INTERFACE],
         0,
     )?;
     sys::write_str("sysmond: registered as ");
@@ -72,7 +74,10 @@ fn run() -> messenger::Result<()> {
     sys::write_str("\n");
     sys::write_str("SYSMOND:REGISTER:PASS\n");
 
-    let mut broker = router::TopicBroker::new("os.lazy.sysmond");
+    // The central broker connection appears when `messengerd` has finished
+    // registering its name (it is the supervisor's first service, but the two
+    // race at boot, so the first publishes may retry).
+    let mut central: Option<central::Bus> = None;
     // One receive buffer for the life of the service: the user bump allocator
     // never reclaims per-call buffers, so the loop must not allocate one per
     // message (the encoded reply still allocates; that is the Messenger API's
@@ -84,17 +89,14 @@ fn run() -> messenger::Result<()> {
     loop {
         let now = sys::clock();
         if now >= next_publish {
-            match publish_stats(&mut broker) {
-                Ok(()) if !announced => {
+            match publish_stats(&mut central) {
+                Ok(topics) if !announced => {
                     announced = true;
-                    // The retained count is the evidence that both
-                    // `system/stats/*` topics reached the broker.
-                    sys::write_str(&format!(
-                        "SYSMOND:SNAPSHOT:PASS topics={}\n",
-                        broker.retained().len()
-                    ));
+                    // The broker's own view of the `system/stats/*` topics is
+                    // the evidence that both reached the central broker.
+                    sys::write_str(&format!("SYSMOND:SNAPSHOT:PASS topics={topics}\n"));
                 }
-                Ok(()) => {}
+                Ok(_) => {}
                 Err(code) => {
                     sys::write_str(&format!("SYSMOND:SNAPSHOT:FAIL {code}\n"));
                 }
@@ -104,7 +106,7 @@ fn run() -> messenger::Result<()> {
 
         match server.recv_with(&mut buffer, Some(sys::clock() + IDLE_TICKS)) {
             Ok(message) => {
-                let reply = match dispatch(&mut broker, &message) {
+                let reply = match dispatch(&message) {
                     Ok(parcel) => parcel,
                     // A malformed request still gets an answer, or its caller
                     // would wait forever: the current snapshot when one can be
@@ -131,20 +133,35 @@ fn run() -> messenger::Result<()> {
     }
 }
 
-/// One `snapshot` call plus the two retained topic publishes.
-fn publish_stats(broker: &mut router::TopicBroker) -> Result<(), i64> {
+/// One `snapshot` call plus the two retained topic publishes; returns how many
+/// `system/stats/*` topics the central broker reports afterwards.
+fn publish_stats(central: &mut Option<central::Bus>) -> Result<u64, i64> {
+    if central.is_none() {
+        *central = central::Bus::connect_retry(4).ok();
+    }
+    let Some(bus) = central.as_mut() else {
+        return Err(-errno::ENOENT);
+    };
     let snapshot = sysinfo::snapshot()?;
-    broker.publish(
+    bus.publish(
         "system/stats/memory",
         memory_payload(&snapshot).as_bytes(),
         true,
-    );
-    broker.publish(
+    )
+    .map_err(|error| error.errno().unwrap_or(-errno::EINVAL))?;
+    bus.publish(
         "system/stats/tasks",
         tasks_payload(&snapshot).as_bytes(),
         true,
-    );
-    Ok(())
+    )
+    .map_err(|error| error.errno().unwrap_or(-errno::EINVAL))?;
+    let list = bus
+        .list()
+        .map_err(|error| error.errno().unwrap_or(-errno::EINVAL))?;
+    Ok(list
+        .iter()
+        .filter(|info| info.topic.starts_with("system/stats/"))
+        .count() as u64)
 }
 
 /// The `system/stats/memory` payload: one `key=value` line of counters.
@@ -186,10 +203,9 @@ fn tasks_payload(snapshot: &Snapshot) -> String {
     out
 }
 
-/// Dispatch one inbound message: the topic broker or a `snapshot` call.
-fn dispatch(broker: &mut router::TopicBroker, message: &Message) -> messenger::Result<Parcel> {
+/// Dispatch one inbound message: a `snapshot` call on the system interface.
+fn dispatch(message: &Message) -> messenger::Result<Parcel> {
     match message.interface_id() {
-        router::INTERFACE => broker.handle(message),
         services::SYSMOND_INTERFACE => match message.method() {
             services::sysmond_method::SNAPSHOT => {
                 let snapshot = sysinfo::snapshot().map_err(Error::Errno)?;

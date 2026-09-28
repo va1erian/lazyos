@@ -227,7 +227,21 @@ Headless verification: boot with `LAZYOS_MESSENGERD=1 LAZYOS_MESSENGERCTL=1`;
 and prints `TOPIC:FANOUT:PASS`, `TOPIC:WILDCARD:PASS`, `TOPIC:RETAINED:PASS`,
 `TOPIC:DROP:PASS`, `TOPIC:QOS:PASS` and `TOPIC:UNSUB:PASS` on the serial log.
 `messengerctl topics` lists known topics and `tail <filter> [count]` streams
-(issue #92).
+(issue #92). Under `LAZYOS_SERVICES=1`, `messengerd` runs a boot-time
+`soak=4096` request/reply self-test through its serve loop and prints
+`MSGRD:SOAK:PASS cycles=... bytes=...` (heap growth across the cycles) plus
+`MSGRD:TOPICS:PASS topics=... subs=...` (the broker's live counts), which
+keeps the receive-buffer reuse honest (issue #169).
+
+**Central routing (issue #169).** The platform services publish and subscribe
+through this broker, not per-service brokers: `sysmond` republishes
+`system/stats/*`, `clipboardd` publishes the per-session changed topic and its
+audit trail, and `mimed` publishes `system/events/open/<app>`, all through the
+`user::central` client; `logd` subscribes to `system/events/#` centrally next
+to its supervision/health feeds. `messengerctl topics` and the fabric viewers
+therefore show the real topics and subscriber counts. `init` and `healthd`
+still serve their local topic brokers for the supervision and health paths,
+and their consumers connect to those names unchanged.
 
 **Supervision services (S2, issue #93).** The supervisor services run over the
 topic path above (with an interim userspace router while it was landing): the

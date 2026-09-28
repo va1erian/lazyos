@@ -800,18 +800,22 @@ fn selftest_fanout(client: &topics_client::Client) -> Result<(), String> {
 }
 
 /// `+` matches exactly one segment, trailing `#` matches zero or more.
+///
+/// The checks run under a private `selftest/` root: the platform services
+/// publish real topics under `system/` and the broker is shared, so a
+/// `system/#` subscription would race their traffic (issue #169).
 fn selftest_wildcard(client: &topics_client::Client) -> Result<(), String> {
     let one = client
-        .subscribe("system/+/up", topics_client::Qos::Latest)
+        .subscribe("selftest/+/up", topics_client::Qos::Latest)
         .map_err(err_text)?;
     let any = client
-        .subscribe("system/#", topics_client::Qos::Buffered(8))
+        .subscribe("selftest/#", topics_client::Qos::Buffered(8))
         .map_err(err_text)?;
 
-    // Four segments: `system/+/up` must not match, `system/#` must.
+    // Four segments: `selftest/+/up` must not match, `selftest/#` must.
     let deep = test_parcel("network-up")?;
     let matched = client
-        .publish("system/events/network/up", &deep)
+        .publish("selftest/events/network/up", &deep)
         .map_err(err_text)?;
     if matched != 1 {
         return Err(format!("deep publish matched {matched}, expected 1"));
@@ -819,14 +823,14 @@ fn selftest_wildcard(client: &topics_client::Client) -> Result<(), String> {
     // Three segments: both filters match.
     let shallow = test_parcel("events-up")?;
     let matched = client
-        .publish("system/events/up", &shallow)
+        .publish("selftest/events/up", &shallow)
         .map_err(err_text)?;
     if matched != 2 {
         return Err(format!("shallow publish matched {matched}, expected 2"));
     }
-    // One segment: only `system/#` matches; `#` stands for zero segments too.
-    let root = test_parcel("system-up")?;
-    let matched = client.publish("system", &root).map_err(err_text)?;
+    // One segment: only `selftest/#` matches; `#` stands for zero segments too.
+    let root = test_parcel("selftest-up")?;
+    let matched = client.publish("selftest", &root).map_err(err_text)?;
     if matched != 1 {
         return Err(format!("root publish matched {matched}, expected 1"));
     }
@@ -834,27 +838,31 @@ fn selftest_wildcard(client: &topics_client::Client) -> Result<(), String> {
     let event = one
         .next_event(None)
         .map_err(err_text)?
-        .ok_or("`system/+/up` got no event")?;
-    if event.topic != "system/events/up" || payload_text(&event)? != "events-up" {
+        .ok_or("`selftest/+/up` got no event")?;
+    if event.topic != "selftest/events/up" || payload_text(&event)? != "events-up" {
         return Err(format!(
-            "`system/+/up` received {} ({})",
+            "`selftest/+/up` received {} ({})",
             event.topic,
             payload_text(&event)?
         ));
     }
     if one.poll_event().map_err(err_text)?.is_some() {
-        return Err(String::from("`system/+/up` matched a second event"));
+        return Err(String::from("`selftest/+/up` matched a second event"));
     }
 
-    let topics = ["system/events/network/up", "system/events/up", "system"];
+    let topics = [
+        "selftest/events/network/up",
+        "selftest/events/up",
+        "selftest",
+    ];
     for expected in topics {
         let event = any
             .next_event(None)
             .map_err(err_text)?
-            .ok_or("`system/#` queue ran dry")?;
+            .ok_or("`selftest/#` queue ran dry")?;
         if event.topic != expected {
             return Err(format!(
-                "`system/#` got {} expected {expected}",
+                "`selftest/#` got {} expected {expected}",
                 event.topic
             ));
         }
@@ -868,13 +876,13 @@ fn selftest_wildcard(client: &topics_client::Client) -> Result<(), String> {
 fn selftest_retained(client: &topics_client::Client) -> Result<(), String> {
     let payload = test_parcel("netd-up")?;
     let matched = client
-        .publish_retained("system/health/netd", &payload)
+        .publish_retained("selftest/health/netd", &payload)
         .map_err(err_text)?;
     if matched != 0 {
         return Err(format!("retained publish matched {matched}, expected 0"));
     }
     let subscription = client
-        .subscribe("system/health/netd", topics_client::Qos::Latest)
+        .subscribe("selftest/health/netd", topics_client::Qos::Latest)
         .map_err(err_text)?;
     let event = subscription
         .next_event(None)
@@ -883,7 +891,7 @@ fn selftest_retained(client: &topics_client::Client) -> Result<(), String> {
     if !event.retained {
         return Err(String::from("replayed event is not marked retained"));
     }
-    if event.topic != "system/health/netd" || payload_text(&event)? != "netd-up" {
+    if event.topic != "selftest/health/netd" || payload_text(&event)? != "netd-up" {
         return Err(String::from("retained value payload changed"));
     }
     subscription.unsubscribe().map_err(err_text)?;

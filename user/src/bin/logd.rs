@@ -5,9 +5,11 @@
 //!
 //! * registers [`services::LOGD_NAME`] and serves `Tail`/`Count`/`Verify` for
 //!   `messengerctl log`;
-//! * subscribes to the system topics through the userspace router:
-//!   `system/events/#` on `init` (service starts/stops/crashes) and
-//!   `system/health/#` on `healthd` (retained health rows);
+//! * subscribes to the system topics: `system/events/#` on `init` (service
+//!   starts/stops/crashes), `system/health/#` on `healthd` (retained health
+//!   rows), and `system/events/#` on `messengerd`'s central broker (the
+//!   events services publish centrally: `mimed`'s launch records, the
+//!   clipboard audit trail);
 //! * samples the fabric audit counters and appends a
 //!   `system/events/security/denial` record whenever they advance, which is
 //!   the interim signal until the kernel exposes audit records to userspace;
@@ -33,6 +35,7 @@ use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::panic::PanicInfo;
+use user::central;
 use user::messenger::{self, registry, router, services, Error, Message, Parcel};
 use user::sys;
 
@@ -180,6 +183,9 @@ fn run() -> messenger::Result<()> {
     let mut events: Option<router::Subscriber> = None;
     let mut health_bus: Option<router::Bus> = None;
     let mut health: Option<router::Subscriber> = None;
+    let mut central: Option<central::Bus> = None;
+    let mut central_events: Option<central::Subscription> = None;
+    let mut central_warned = false;
     let mut audit: Option<(u64, u64, u64)> = None;
     let mut next_denial_poll = 0u64;
     // Reused receive buffer: the user bump allocator never reclaims per-call
@@ -201,8 +207,40 @@ fn run() -> messenger::Result<()> {
                 health = bus.subscribe("system/health/#").ok();
             }
         }
+        // Centrally published service events (`mimed` launch records, the
+        // clipboard audit trail). The central broker isn't batch-subscribed
+        // by the router, so this is a separate client and sink.
+        if central_events.is_none() {
+            if central.is_none() {
+                match central::Bus::connect() {
+                    Ok(bus) => central = Some(bus),
+                    Err(error) => {
+                        if !central_warned {
+                            central_warned = true;
+                            sys::write_str("logd: central broker unavailable: ");
+                            sys::write_str(error.message());
+                            sys::write_str("\n");
+                        }
+                    }
+                }
+            }
+            if let Some(bus) = &mut central {
+                match bus.subscribe("system/events/#") {
+                    Ok(subscription) => central_events = Some(subscription),
+                    Err(error) => {
+                        if !central_warned {
+                            central_warned = true;
+                            sys::write_str("logd: central subscribe failed: ");
+                            sys::write_str(error.message());
+                            sys::write_str("\n");
+                        }
+                    }
+                }
+            }
+        }
         drain(&mut ring, &events, &mut printed, &mut buffer);
         drain(&mut ring, &health, &mut printed, &mut buffer);
+        drain_central(&mut ring, &central_events, &mut printed, &mut buffer);
 
         let now = sys::clock();
         if now >= next_denial_poll {
@@ -238,6 +276,38 @@ fn connect_or_keep(bus: Option<router::Bus>, name: &str) -> Option<router::Bus> 
 fn drain(
     ring: &mut Ring,
     subscriber: &Option<router::Subscriber>,
+    printed: &mut u64,
+    buffer: &mut [u8],
+) {
+    let Some(subscriber) = subscriber else {
+        return;
+    };
+    loop {
+        match subscriber.recv_with(buffer, Some(messenger::EXPIRED_DEADLINE)) {
+            Ok(Some(event)) => {
+                let detail = core::str::from_utf8(&event.payload).unwrap_or("<binary>");
+                let record = ring.append(sys::clock(), &event.topic, detail);
+                if *printed < PRINT_LIMIT {
+                    sys::write_str(&format!(
+                        "logd: record {} {} {}\n",
+                        record.seq, record.topic, record.detail
+                    ));
+                    *printed += 1;
+                }
+            }
+            Ok(None) => return,
+            // A feed error (e.g. the broker restarted) is retried next loop.
+            Err(_) => return,
+        }
+    }
+}
+
+/// Move every queued central-broker event into the ring. The central
+/// subscription hands back the same [`router::Event`] shape as the local one,
+/// so the record format is identical.
+fn drain_central(
+    ring: &mut Ring,
+    subscriber: &Option<central::Subscription>,
     printed: &mut u64,
     buffer: &mut [u8],
 ) {

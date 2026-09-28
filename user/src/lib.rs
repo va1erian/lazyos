@@ -16,6 +16,8 @@ pub mod lang;
 
 pub mod messenger;
 
+pub mod central;
+
 pub mod messenger_async;
 
 pub mod task_snapshot;

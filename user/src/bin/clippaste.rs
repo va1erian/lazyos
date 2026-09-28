@@ -21,6 +21,7 @@ extern crate alloc;
 
 use alloc::format;
 use core::panic::PanicInfo;
+use user::central;
 use user::messenger::{self, clipboard, errno, Error};
 use user::sys;
 
@@ -50,10 +51,15 @@ pub extern "C" fn _start() -> ! {
 /// Paste the demo offer, then prove the cross-session deny path.
 fn run() -> messenger::Result<()> {
     let client = connect()?;
-    // Watch the session's changed topic first: the offer is retained, so a
-    // late subscriber still sees it.
-    let changes = client.subscribe_changes()?;
-    let event = match changes.recv(Some(sys::clock().saturating_add(CHANGED_TICKS)))? {
+    // Watch the session's retained changed topic on the central broker first
+    // (issue #169); a late subscriber is handed the offer.
+    let mut changes_bus = central::Bus::connect_retry(64)?;
+    let changes = changes_bus.subscribe(&clipboard::changes_topic(client.session()))?;
+    let mut changed_buffer = alloc::vec![0u8; messenger::DEFAULT_BUFFER];
+    let event = match changes.recv_with(
+        &mut changed_buffer,
+        Some(sys::clock().saturating_add(CHANGED_TICKS)),
+    )? {
         Some(event) => event,
         None => fail("PASTE", "no changed event"),
     };

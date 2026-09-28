@@ -21,6 +21,7 @@ extern crate alloc;
 use alloc::format;
 use alloc::vec::Vec;
 use core::panic::PanicInfo;
+use user::central;
 use user::messenger::{self, clipboard, errno, registry, Endpoint, Error};
 use user::sys;
 
@@ -52,11 +53,15 @@ fn run() -> messenger::Result<()> {
     // it the moment a paste happens.
     let (published, server) = messenger::create_pair()?;
     registry::register(SINK, &published, &[clipboard::OWNER_INTERFACE], 0)?;
-    let changes = client.subscribe_changes()?;
+    // The changed topic lives on `messengerd`'s central broker (issue #169);
+    // the broker replays the retained offer to a late subscriber.
+    let mut changes_bus = central::Bus::connect_retry(64)?;
+    let changes = changes_bus.subscribe(&clipboard::changes_topic(client.session()))?;
     let token = client.offer_lazy("clipcopy", SINK, &[DEMO_MIME])?;
     sys::write_str(&format!("CLIP:COPY:PASS token={token}\n"));
     // Drain the changed event: the owner watches its own session too.
-    let _ = changes.recv(Some(sys::clock().saturating_add(50)));
+    let mut changed_buffer = alloc::vec![0u8; messenger::DEFAULT_BUFFER];
+    let _ = changes.recv_with(&mut changed_buffer, Some(sys::clock().saturating_add(50)));
     serve_serialize(&server)
 }
 
