@@ -4867,7 +4867,10 @@ pub mod display {
                 }],
             };
             let mut buf = [0u8; 256]; // an error reply carries a message
-            self.endpoint.call_with(&parcel, &mut buf, None)?;
+            let reply = self.endpoint.call_with(&parcel, &mut buf, None)?;
+            if let Some(code) = error_field(&reply) {
+                return Err(Error::Errno(-code));
+            }
             Ok(())
         }
 
@@ -4890,7 +4893,10 @@ pub mod display {
                 buffers: Vec::new(),
             };
             let mut buf = [0u8; 256]; // an error reply carries a message
-            self.endpoint.call_with(&parcel, &mut buf, None)?;
+            let reply = self.endpoint.call_with(&parcel, &mut buf, None)?;
+            if let Some(code) = error_field(&reply) {
+                return Err(Error::Errno(-code));
+            }
             Ok(())
         }
 
@@ -4905,7 +4911,10 @@ pub mod display {
                 buffers: Vec::new(),
             };
             let mut buf = [0u8; 256]; // an error reply carries a message
-            self.endpoint.call_with(&parcel, &mut buf, None)?;
+            let reply = self.endpoint.call_with(&parcel, &mut buf, None)?;
+            if let Some(code) = error_field(&reply) {
+                return Err(Error::Errno(-code));
+            }
             Ok(())
         }
 
