@@ -24,6 +24,29 @@
 //! remembers the argument string by slot; the kernel intern table behind task
 //! names holds one leaked string per distinct service name, so a restart loop
 //! cannot grow it.
+//!
+//! # The credential gate (issue #101)
+//!
+//! Accounts and login need one controlled way to stamp a task's
+//! `uid/gid/caps/label/session`. Syscall 10 is that gate: a single op code with
+//! a 40-byte credential block shared with `user::sys`, guarded by
+//! [`crate::ipc::credentials`]:
+//!
+//! ```text
+//!   rax = 10  rdi = op
+//!   op 0 (set):   rsi = target pid (u64::MAX = caller), rdx -> Cred block
+//!   op 1 (get):   rsi = target pid (u64::MAX = caller), rdx <- Cred block
+//!   op 2 (spawn): rsi -> "PATH.ELF [args...]" (NUL),       rdx -> Cred block
+//! ```
+//!
+//! Every request is validated by [`credentials::transition`] (only an actor
+//! holding `CAP_SETUID` may stamp, never toward more privilege) and audited.
+//! `spawn` stamps the child inside the same syscall, before the interrupt gate
+//! can schedule it, so a login shell never runs even briefly with the default
+//! root identity. Returns `0` (`set`/`get`), the new pid (`spawn`), or
+//! `-errno`: `-EPERM` without the capability, `-EACCES` for a widening request,
+//! `-ESRCH` for an unknown target, `-EFAULT` for an invalid block, `-EINVAL`
+//! for an unknown op.
 
 use alloc::boxed::Box;
 use alloc::string::String;
@@ -35,6 +58,7 @@ use x86_64::{PhysAddr, VirtAddr};
 use xmas_elf::program::{SegmentData, Type as ProgramType};
 use xmas_elf::ElfFile;
 
+use crate::ipc::credentials::{self, Cred, TransitionError};
 use crate::mem::vma::{Kind, Prot};
 use crate::task::{self, wait::CHILD_EXIT, WakeReason};
 use crate::{fs, input::keyboard, mem};
@@ -115,6 +139,8 @@ extern "C" fn syscall_dispatch(regs: *mut Regs) {
         7 => sys_wait(regs.rdi),
         8 => sys_clock(),
         9 => sys_args(regs.rdi, regs.rsi),
+        // 10: the credential gate (issue #101), see the module docs.
+        10 => sys_creds(regs.rdi, regs.rsi, regs.rdx),
         _ => u64::MAX,
     };
 }
@@ -130,6 +156,7 @@ pub fn dispatch_for_test(nr: u64, a1: u64, a2: u64, a3: u64) -> u64 {
         7 => sys_wait(a1),
         8 => sys_clock(),
         9 => sys_args(a1, a2),
+        10 => sys_creds(a1, a2, a3),
         _ => u64::MAX,
     }
 }
@@ -277,24 +304,171 @@ fn intern_service_name(name: &str) -> &'static str {
 /// task's pid (its slot), or `u64::MAX` when the file is missing, the ELF is
 /// invalid, or no slot/frame is free.
 fn sys_spawn(cmdline_ptr: u64) -> u64 {
+    let code = spawn_program(cmdline_ptr, None);
+    if code < 0 {
+        u64::MAX
+    } else {
+        code as u64
+    }
+}
+
+/// The shared body of syscalls 6 and 10 (`spawn` and the credentialed spawn).
+///
+/// `cred` is `Some` only on the credential-gate path, where the caller has
+/// already validated the request with [`credentials::check`]. The slot's
+/// credentials are reset first, so a re-used slot can never inherit a dead
+/// task's identity, then the requested credential is stamped while interrupts
+/// are off in the `int 0x80` gate -- the child cannot run with the default
+/// root identity even for one instruction. Negative return values are errno
+/// codes; a positive value is the new child's pid.
+fn spawn_program(cmdline_ptr: u64, cred: Option<Cred>) -> i64 {
     let line = user_cstr(cmdline_ptr).trim();
     if line.is_empty() {
-        return u64::MAX;
+        return -EINVAL;
     }
     let (path, args) = match line.split_once(char::is_whitespace) {
         Some((path, args)) => (path, args.trim()),
         None => (line, ""),
     };
     let Some(elf) = fs::read(path) else {
-        return u64::MAX;
+        return -ENOENT;
     };
     let name = intern_service_name(path);
     let slot = match task::spawn_child(name, &elf) {
         Ok(slot) => slot,
-        Err(_) => return u64::MAX,
+        Err(_) => return -ENOMEM,
     };
+    credentials::reset_for_task(slot);
+    if let Some(cred) = cred {
+        // `check` ran before the spawn, so this cannot fail; if it ever did,
+        // the child would keep the reset root default and the gate would still
+        // audit the refusal, which is the loudest signal available here.
+        let _ = credentials::transition(task::current(), slot, cred);
+    }
     SERVICE_ARGS.lock()[slot] = Some(args.as_bytes().to_vec());
-    slot as u64
+    slot as i64
+}
+
+/// Error values the credential gate returns; the same x86_64 Linux numbering
+/// the Messenger syscall uses, so userspace handling is uniform.
+const EPERM: i64 = 1;
+const ENOENT: i64 = 2;
+const ESRCH: i64 = 3;
+const ENOMEM: i64 = 12;
+const EACCES: i64 = 13;
+const EFAULT: i64 = 14;
+const EINVAL: i64 = 22;
+
+/// The credential-gate op codes (syscall 10), mirrored by `user::sys`.
+pub mod cred_op {
+    /// Stamp a task with a credential block.
+    pub const SET: u64 = 0;
+    /// Read a task's credential block.
+    pub const GET: u64 = 1;
+    /// Spawn an ELF with a credential block, stamped before it can run.
+    pub const SPAWN: u64 = 2;
+}
+
+/// Two's-complement `-errno` in the syscall return register.
+fn syscall_error(code: i64) -> u64 {
+    (code as u64).wrapping_neg()
+}
+
+/// Map a transition refusal to its errno value.
+fn transition_error(error: TransitionError) -> u64 {
+    syscall_error(match error {
+        TransitionError::NotPrivileged => EPERM,
+        TransitionError::Widening => EACCES,
+        TransitionError::BadTarget => ESRCH,
+    })
+}
+
+/// The task slot named by a `set`/`get` target: the caller for `u64::MAX`,
+/// otherwise the pid.
+fn cred_target(pid: u64) -> usize {
+    if pid == u64::MAX {
+        task::current()
+    } else {
+        usize::try_from(pid).unwrap_or(usize::MAX)
+    }
+}
+
+/// Read a 40-byte credential block from user memory.
+///
+/// The `int 0x80` stub runs on the caller's page table, so the block is
+/// directly readable; a malformed pointer faults inside the kernel exactly as
+/// it would for the older native syscalls (checked copies are the COW/MM
+/// follow-up noted in `docs/security-model.md` section 7).
+fn read_cred(ptr: u64) -> Option<Cred> {
+    if ptr == 0 {
+        return None;
+    }
+    let mut words = [0u64; 5];
+    for (index, word) in words.iter_mut().enumerate() {
+        // Safety: the caller must pass a mapped, writable user buffer eight
+        // bytes per word; the native syscall ABI trusts user buffers today.
+        *word = unsafe { core::ptr::read_volatile((ptr as *const u64).add(index)) };
+    }
+    Some(Cred::from_words(words))
+}
+
+/// Write a 40-byte credential block into user memory; `false` on a null
+/// pointer.
+fn write_cred(ptr: u64, cred: Cred) -> bool {
+    if ptr == 0 {
+        return false;
+    }
+    for (index, word) in cred.to_words().iter().enumerate() {
+        // Safety: as in [`read_cred`]; the address is the caller's buffer.
+        unsafe { core::ptr::write_volatile((ptr as *mut u64).add(index), *word) };
+    }
+    true
+}
+
+/// syscall 10: the audited credential gate (issue #101).
+///
+/// Every path funnels through [`credentials::transition`]/[`credentials::read`],
+/// so the capability check, the no-widening rule, and the audit record live in
+/// one place. See the module docs for the register ABI.
+fn sys_creds(op: u64, a1: u64, a2: u64) -> u64 {
+    match op {
+        cred_op::SET => {
+            let Some(cred) = read_cred(a2) else {
+                return syscall_error(EFAULT);
+            };
+            match credentials::transition(task::current(), cred_target(a1), cred) {
+                Ok(_) => 0,
+                Err(error) => transition_error(error),
+            }
+        }
+        cred_op::GET => match credentials::read(task::current(), cred_target(a1)) {
+            Ok(cred) => {
+                if write_cred(a2, cred) {
+                    0
+                } else {
+                    syscall_error(EFAULT)
+                }
+            }
+            Err(error) => transition_error(error),
+        },
+        cred_op::SPAWN => {
+            let Some(cred) = read_cred(a2) else {
+                return syscall_error(EFAULT);
+            };
+            // Validate before a task exists, then let `spawn_program` apply the
+            // same request.
+            if let Err(error) = credentials::check(task::current(), cred) {
+                return transition_error(error);
+            }
+            let code = spawn_program(a1, Some(cred));
+            if code < 0 {
+                syscall_error(-code)
+            } else {
+                code as u64
+            }
+        }
+        _ => syscall_error(EINVAL),
+    }
 }
 
 /// syscall 7: wait for a child exit and reap it.

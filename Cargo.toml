@@ -43,6 +43,12 @@ debug = false
 strip = "symbols"
 opt-level = "s"
 
+# The bootloader embeds the kernel file in the disk image too, so the same
+# trade-off applies: the guest never reads dwarf, but every BIOS/ATA boot pays
+# for it. Keep file/line tables for panic triage and drop the rest.
+[profile.dev.package.kernel]
+debug = "line-tables-only"
+
 [profile.release]
 panic = "abort"
 opt-level = 3

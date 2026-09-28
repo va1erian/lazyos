@@ -70,6 +70,21 @@ path = "src/bin/flaky.rs"
 test = false
 bench = false
 
+# Accounts and console login (issue #101). `accountsd` owns the user/group
+# database and the secret check; `logind` prompts on the console, creates the
+# session, and starts the user's shell with kernel-stamped credentials.
+[[bin]]
+name = "accountsd"
+path = "src/bin/accountsd.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "logind"
+path = "src/bin/logind.rs"
+test = false
+bench = false
+
 # `keyd` (issue #102) is the secrets and crypto service: `init` starts it from
 # its manifest, and clients reach it through the Messenger client in
 # `user/src/messenger.rs`. The on-disk name is `KEYD.ELF` (8.3, like the other

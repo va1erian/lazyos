@@ -63,6 +63,33 @@ fn main() {
     let keyd = std::env::var_os("CARGO_BIN_FILE_USER_keyd").expect("user keyd artifact not found");
     builder.set_file(String::from("KEYD.ELF"), PathBuf::from(keyd));
 
+    // Accounts and console login (issue #101). `init` starts `accountsd` and
+    // `logind` from its manifest; `accountsd` reads `PASSWD` when present. All
+    // three are added only to the services image (`LAZYOS_SERVICES=1`): the
+    // plain demo never starts them, and keeping them out of the ABI bench
+    // image preserves its baseline size and boot time.
+    println!("cargo:rerun-if-env-changed=LAZYOS_SERVICES");
+    if std::env::var_os("LAZYOS_SERVICES").as_deref() == Some(std::ffi::OsStr::new("1")) {
+        let accountsd = std::env::var_os("CARGO_BIN_FILE_USER_accountsd")
+            .expect("user accountsd artifact not found");
+        builder.set_file(String::from("ACCTD.ELF"), PathBuf::from(accountsd));
+        let logind =
+            std::env::var_os("CARGO_BIN_FILE_USER_logind").expect("user logind artifact not found");
+        builder.set_file(String::from("LOGIND.ELF"), PathBuf::from(logind));
+
+        // The passwd-style account database (issue #101), `name:uid:gid:
+        // secret:home:shell`. This branch has no writable store, so accountsd
+        // reads this read-only fallback; the secret is plaintext *on purpose*
+        // for bring-up and is replaced by keyd + Argon2id
+        // (`docs/security-model.md` section 3). `SH.ELF` is the native shell;
+        // `root` keeps the system identity for admin operations, `alice` is
+        // the unprivileged demo login a headless session uses.
+        builder.set_file_contents(
+            String::from("PASSWD"),
+            b"root:0:0:toor:/root:/SH.ELF\nalice:1000:1000:lazy:/home/alice:/SH.ELF\n".to_vec(),
+        );
+    }
+
     // Rebuild the image when the kernel test switch flips (issue #62): the
     // kernel's own build script turns `LAZYOS_TESTS=1` into `cfg(laZYOS_TESTS)`.
     println!("cargo:rerun-if-env-changed=LAZYOS_TESTS");
