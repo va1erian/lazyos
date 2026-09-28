@@ -19,15 +19,31 @@
 //! software cursor follows the pointer, since the kernel mux's cursor is gone
 //! while it is bound.
 //!
+//! Window management (issue #143) is built on the same model:
+//!
+//! * the `surfaces` vector *is* the z-order — its tail paints last, and a click
+//!   raises that surface to the tail and focuses it;
+//! * the title bar is a drag handle: a left press on it grabs the window and
+//!   subsequent pointer movement moves the origin, clamped to the screen (and
+//!   to the space above the taskbar);
+//! * the title bar carries close (`X`, asks the client to exit via a one-way
+//!   `WindowClose` event) and minimize (`-`, hides the surface) buttons;
+//! * a bottom taskbar strip lists every live surface by title in creation
+//!   order; clicking an entry focuses/raises it, and restores it when minimized.
+//!   The focused entry is highlighted;
+//! * `Tab` cycles focus across visible surfaces only, skipping minimized ones.
+//!
 //! Boot it with `LAZYOS_XUID=1`; the kernel starts this program and `xdemo`.
 //!
 //! The compositing model is deliberately simple: one screen-sized RGBA buffer
 //! and rectangle damage. `Commit` copies the app's damaged rectangle into the
-//! screen buffer and presents exactly that rectangle, and pointer/focus changes
-//! repaint the union of the old and new cursor or title rectangles. The app
-//! buffer handoff is already zero-copy (the compositor reads the same frames
-//! the app writes); fences and double buffering are the S8 follow-up that turns
-//! `Commit` into a tear-free pipeline.
+//! screen buffer and presents exactly that rectangle; window-management events
+//! are layout changes and repaint the full screen (a title-bar drag repaints
+//! the union of the old and new window rectangles, which redraws every surface
+//! in z-order inside that damage). The app buffer handoff is already zero-copy
+//! (the compositor reads the same frames the app writes); fences and double
+//! buffering are the S8 follow-up that turns `Commit` into a tear-free
+//! pipeline.
 
 #![no_std]
 #![no_main]
@@ -48,6 +64,24 @@ const TITLE_H: i32 = 22;
 const BORDER: i32 = 2;
 /// Where the first window's top-left sits.
 const PAD: i32 = 48;
+/// Taskbar height in pixels.
+const TASKBAR_H: i32 = 28;
+/// Taskbar entry height in pixels.
+const ENTRY_H: i32 = 20;
+/// Horizontal gap between taskbar entries.
+const ENTRY_GAP: i32 = 4;
+/// Taskbar margin before the first and after the last entry.
+const ENTRY_MARGIN: i32 = 6;
+/// Horizontal padding inside a taskbar entry, per side.
+const ENTRY_PAD: i32 = 8;
+/// Smallest taskbar entry width.
+const ENTRY_MIN_W: i32 = 48;
+/// Title-bar button size in pixels.
+const BUTTON: i32 = 16;
+/// Gap between the two title-bar buttons.
+const BUTTON_GAP: i32 = 2;
+/// Distance from the button group to the window's right edge.
+const BUTTON_MARGIN: i32 = 3;
 
 const BACKGROUND: Color = Color::rgb(18, 22, 36);
 const WINDOW_BG: Color = Color::rgb(30, 36, 54);
@@ -57,9 +91,18 @@ const TITLE_TEXT: Color = Color::rgb(228, 232, 245);
 const BORDER_COLOR: Color = Color::rgb(92, 106, 152);
 const BORDER_COLOR_FOCUS: Color = Color::rgb(140, 220, 160);
 const EMPTY_BG: Color = Color::rgb(16, 18, 28);
+const TASKBAR_BG: Color = Color::rgb(24, 28, 44);
+const TASKBAR_ENTRY: Color = Color::rgb(52, 60, 92);
+const TASKBAR_ENTRY_MIN: Color = Color::rgb(38, 44, 66);
+const TASKBAR_ENTRY_FOCUS: Color = Color::rgb(44, 112, 74);
+const CLOSE_BG: Color = Color::rgb(198, 76, 76);
+const MINIMIZE_BG: Color = Color::rgb(208, 168, 88);
+const BUTTON_TEXT: Color = Color::rgb(24, 24, 32);
 
 /// The serial marker the evidence session greps for.
 const UP_MARKER: &str = "XUID:UP:PASS\n";
+/// The marker that says the window-management features came up.
+const WM_MARKER: &str = "XUID:WM:PASS\n";
 
 /// One composited window.
 struct Surface {
@@ -79,6 +122,8 @@ struct Surface {
     pixels: u64,
     /// Length of the mapped pixel buffer.
     bytes: u64,
+    /// Hidden by the minimize button; restorable from the taskbar.
+    minimized: bool,
 }
 
 impl Surface {
@@ -101,6 +146,32 @@ impl Surface {
     fn content(&self) -> Rect {
         Rect::new(self.x + BORDER, self.y + TITLE_H, self.w, self.h)
     }
+
+    /// The close button, inset in the title bar's right end.
+    fn close_button(&self) -> Rect {
+        Rect::new(
+            self.x + self.w + BORDER * 2 - BUTTON_MARGIN - BUTTON,
+            self.y + (TITLE_H - BUTTON) / 2,
+            BUTTON,
+            BUTTON,
+        )
+    }
+
+    /// The minimize button, just left of the close button.
+    fn minimize_button(&self) -> Rect {
+        let close = self.close_button();
+        Rect::new(close.x - BUTTON - BUTTON_GAP, close.y, BUTTON, BUTTON)
+    }
+}
+
+/// An in-progress title-bar drag.
+#[derive(Clone, Copy)]
+struct Drag {
+    /// The surface being moved.
+    id: u64,
+    /// Pointer offset from the window origin at grab time.
+    grab_x: i32,
+    grab_y: i32,
 }
 
 #[no_mangle]
@@ -149,6 +220,7 @@ fn run() -> ! {
     let mut surfaces: Vec<Surface> = Vec::new();
     let mut pointer = (screen_w / 2, screen_h / 2);
     let mut focused: Option<u64> = None;
+    let mut drag: Option<Drag> = None;
     let mut next_id: u64 = 1;
     // One receive buffer and one event-encode buffer for the whole life of the
     // compositor: the user bump allocator never reclaims, so the loop reuses
@@ -160,6 +232,7 @@ fn run() -> ! {
     // desktop and present before announcing readiness.
     repaint(&mut screen, &surfaces, pointer, focused, full);
     sys::write_str(UP_MARKER);
+    sys::write_str(WM_MARKER);
 
     loop {
         // 1. Input: drain the kernel queue, then repaint only what changed.
@@ -178,6 +251,7 @@ fn run() -> ! {
                             &mut screen,
                             &mut pointer,
                             &mut focused,
+                            &mut drag,
                             &mut event_scratch,
                         );
                     }
@@ -198,6 +272,7 @@ fn run() -> ! {
                         &mut screen,
                         &mut next_id,
                         &mut focused,
+                        &mut drag,
                         pointer,
                     );
                     if let Some(reply) = reply {
@@ -273,22 +348,48 @@ mod raw_kind {
     pub const KEY_UP: u32 = 4;
 }
 
-/// Route one input event: update focus/cursor, then forward it to the focused
-/// surface's event endpoint.
+/// Route one input event: window-management actions first (taskbar, title-bar
+/// buttons, drag, raise), then focus/cursor updates, then forward the event to
+/// the focused surface's event endpoint.
 fn handle_event(
     event: Event,
     surfaces: &mut Vec<Surface>,
     screen: &mut Canvas,
     pointer: &mut (i32, i32),
     focused: &mut Option<u64>,
+    drag: &mut Option<Drag>,
     scratch: &mut Vec<u8>,
 ) {
+    let (screen_w, screen_h) = (screen.width(), screen.height());
+    let full = Rect::new(0, 0, screen_w, screen_h);
     match event.kind {
         EventKind::PointerMove => {
             let new = (event.a as i32, event.b as i32);
             let old = *pointer;
-            let damage = cursor_rect(old).union(cursor_rect(new));
+            let mut damage = cursor_rect(old).union(cursor_rect(new));
             *pointer = new;
+            if let Some(active) = *drag {
+                // A title-bar drag: place the window so the grabbed point
+                // stays under the pointer (exact even if events were
+                // coalesced), clamped to the screen and the space above the
+                // taskbar.
+                if let Some(index) = surfaces
+                    .iter()
+                    .position(|surface| surface.id == active.id && !surface.minimized)
+                {
+                    let window = surfaces[index].window();
+                    let target_x = new.0 - active.grab_x;
+                    let target_y = new.1 - active.grab_y;
+                    let surface = &mut surfaces[index];
+                    surface.x = target_x.clamp(0, (screen_w - window.w).max(0));
+                    surface.y = target_y.clamp(0, (screen_h - TASKBAR_H - window.h).max(0));
+                    damage = damage.union(window).union(surface.window());
+                }
+                // The matching press was consumed by the title bar, so the
+                // moves stay in the compositor: the app never saw the grab.
+                repaint(screen, surfaces, *pointer, *focused, damage);
+                return;
+            }
             forward(
                 surfaces,
                 scratch,
@@ -300,28 +401,64 @@ fn handle_event(
             repaint(screen, surfaces, *pointer, *focused, damage);
         }
         EventKind::PointerDown => {
-            // Hit-test topmost first (the vector's tail is the top window).
-            let hit = surfaces
+            let point = *pointer;
+            // The taskbar paints above every window, so it hit-tests first.
+            if let Some(id) = taskbar_hit(surfaces, screen_w, screen_h, point) {
+                restore(surfaces, focused, id);
+                repaint(screen, surfaces, *pointer, *focused, full);
+                return;
+            }
+            // A press outside every window is a desktop click: ignore it.
+            let Some((id, origin, close, minimize, title)) = surfaces
                 .iter()
                 .rev()
-                .find(|surface| contains(surface.window(), *pointer))
-                .map(|surface| surface.id);
-            if let Some(id) = hit {
-                let old_title = *focused;
-                *focused = Some(id);
-                let mut damage = Rect::default();
-                if let Some(surface) = surfaces.iter().find(|s| Some(s.id) == old_title) {
-                    damage = damage.union(surface.title_bar());
-                }
-                if let Some(surface) = surfaces.iter().find(|s| Some(s.id) == hit) {
-                    damage = damage.union(surface.title_bar());
-                }
-                repaint(screen, surfaces, *pointer, *focused, damage);
-                let (x, y) = relative(surfaces, id, *pointer);
-                forward(surfaces, scratch, Some(id), method::POINTER_DOWN, x, y);
+                .find(|surface| !surface.minimized && contains(surface.window(), point))
+                .map(|surface| {
+                    (
+                        surface.id,
+                        (surface.x, surface.y),
+                        surface.close_button(),
+                        surface.minimize_button(),
+                        surface.title_bar(),
+                    )
+                })
+            else {
+                return;
+            };
+            raise(surfaces, id);
+            *focused = Some(id);
+            let left = event.a as u32 == display::button::LEFT;
+            if left && contains(close, point) {
+                close_surface(surfaces, screen, *pointer, focused, scratch, id);
+                return;
             }
+            if left && contains(minimize, point) {
+                minimize_surface(surfaces, screen, *pointer, focused, id);
+                return;
+            }
+            if contains(title, point) {
+                if left {
+                    *drag = Some(Drag {
+                        id,
+                        grab_x: point.0 - origin.0,
+                        grab_y: point.1 - origin.1,
+                    });
+                }
+                // Title-bar presses (and a right-click that cannot drag) are
+                // the WM's; only the focus/raise repaint is needed.
+                repaint(screen, surfaces, *pointer, *focused, full);
+                return;
+            }
+            // Content: focus, raise, and forward the press surface-relative.
+            repaint(screen, surfaces, *pointer, *focused, full);
+            let (x, y) = relative(surfaces, id, point);
+            forward(surfaces, scratch, Some(id), method::POINTER_DOWN, x, y);
         }
         EventKind::PointerUp => {
+            if drag.take().is_some() {
+                // The matching press was consumed by the title bar.
+                return;
+            }
             let (x, y) = match *focused {
                 Some(id) => relative(surfaces, id, *pointer),
                 None => (0, 0),
@@ -331,11 +468,7 @@ fn handle_event(
         EventKind::KeyDown => {
             if event.a as u32 == display::key::TAB {
                 cycle_focus(surfaces, focused);
-                let damage = surfaces
-                    .iter()
-                    .map(|surface| surface.title_bar())
-                    .fold(Rect::default(), Rect::union);
-                repaint(screen, surfaces, *pointer, *focused, damage);
+                repaint(screen, surfaces, *pointer, *focused, full);
                 return;
             }
             forward(
@@ -376,16 +509,156 @@ fn relative(surfaces: &[Surface], id: u64, point: (i32, i32)) -> (i64, i64) {
     }
 }
 
-/// Move focus to the next surface after the current one.
-fn cycle_focus(surfaces: &[Surface], focused: &mut Option<u64>) {
-    if surfaces.is_empty() {
+/// Move a surface to the tail of `surfaces`, i.e. the top of the paint order.
+fn raise(surfaces: &mut Vec<Surface>, id: u64) {
+    if let Some(index) = surfaces.iter().position(|surface| surface.id == id) {
+        if index + 1 != surfaces.len() {
+            let surface = surfaces.remove(index);
+            surfaces.push(surface);
+        }
+    }
+}
+
+/// The topmost visible surface's id.
+fn topmost_visible(surfaces: &[Surface]) -> Option<u64> {
+    surfaces
+        .iter()
+        .rev()
+        .find(|surface| !surface.minimized)
+        .map(|surface| surface.id)
+}
+
+/// Focus a taskbar entry: restore it if minimized, raise it, and focus it.
+fn restore(surfaces: &mut Vec<Surface>, focused: &mut Option<u64>, id: u64) {
+    if let Some(surface) = surfaces.iter_mut().find(|surface| surface.id == id) {
+        surface.minimized = false;
+    }
+    raise(surfaces, id);
+    *focused = Some(id);
+}
+
+/// Minimize a surface, moving focus to the next visible surface.
+fn minimize_surface(
+    surfaces: &mut Vec<Surface>,
+    screen: &mut Canvas,
+    pointer: (i32, i32),
+    focused: &mut Option<u64>,
+    id: u64,
+) {
+    if let Some(surface) = surfaces.iter_mut().find(|surface| surface.id == id) {
+        surface.minimized = true;
+    }
+    if *focused == Some(id) {
+        *focused = topmost_visible(surfaces);
+    }
+    let full = Rect::new(0, 0, screen.width(), screen.height());
+    repaint(screen, surfaces, pointer, *focused, full);
+}
+
+/// Close a surface: tell the client through a one-way `WindowClose` event and
+/// drop it; the full-screen repaint lets the windows below show through.
+fn close_surface(
+    surfaces: &mut Vec<Surface>,
+    screen: &mut Canvas,
+    pointer: (i32, i32),
+    focused: &mut Option<u64>,
+    scratch: &mut Vec<u8>,
+    id: u64,
+) {
+    if let Some(surface) = surfaces.iter().find(|surface| surface.id == id) {
+        let _ = display::send_event(
+            &Endpoint::from_raw(surface.events),
+            scratch,
+            method::WINDOW_CLOSE,
+            0,
+            0,
+        );
+    }
+    surfaces.retain(|surface| surface.id != id);
+    if *focused == Some(id) {
+        *focused = topmost_visible(surfaces);
+    }
+    let full = Rect::new(0, 0, screen.width(), screen.height());
+    repaint(screen, surfaces, pointer, *focused, full);
+}
+
+/// Move focus to the next visible surface, wrapping around and skipping
+/// minimized ones; the new focus is raised so its title bar is not covered.
+fn cycle_focus(surfaces: &mut Vec<Surface>, focused: &mut Option<u64>) {
+    if surfaces.iter().all(|surface| surface.minimized) {
         *focused = None;
         return;
     }
-    let current = focused
-        .and_then(|id| surfaces.iter().position(|surface| surface.id == id))
-        .unwrap_or(0);
-    *focused = Some(surfaces[(current + 1) % surfaces.len()].id);
+    let current_id = *focused;
+    if let Some(current) = current_id.and_then(|id| surfaces.iter().position(|s| s.id == id)) {
+        for step in 1..=surfaces.len() {
+            let index = (current + step) % surfaces.len();
+            if !surfaces[index].minimized && Some(surfaces[index].id) != current_id {
+                let id = surfaces[index].id;
+                raise(surfaces, id);
+                *focused = Some(id);
+                return;
+            }
+        }
+    }
+    // No other visible surface: focus (and raise) the first visible one.
+    if let Some(id) = surfaces
+        .iter()
+        .find(|surface| !surface.minimized)
+        .map(|surface| surface.id)
+    {
+        raise(surfaces, id);
+        *focused = Some(id);
+    }
+}
+
+/// The width of a surface's taskbar entry: title width plus padding.
+fn entry_width(surface: &Surface) -> i32 {
+    (surface.title.chars().count() as i32 * display::font::ADVANCE + ENTRY_PAD * 2).max(ENTRY_MIN_W)
+}
+
+/// Visit every taskbar entry in stable creation (id) order, left to right.
+fn for_each_entry(
+    surfaces: &[Surface],
+    screen_w: i32,
+    screen_h: i32,
+    mut visit: impl FnMut(&Surface, Rect),
+) {
+    let mut x = ENTRY_MARGIN;
+    let mut last_id = 0u64;
+    let y = screen_h - TASKBAR_H + (TASKBAR_H - ENTRY_H) / 2;
+    loop {
+        let Some(surface) = surfaces
+            .iter()
+            .filter(|surface| surface.id > last_id)
+            .min_by_key(|surface| surface.id)
+        else {
+            break;
+        };
+        last_id = surface.id;
+        let width = entry_width(surface);
+        if x + width > screen_w - ENTRY_MARGIN {
+            break;
+        }
+        visit(surface, Rect::new(x, y, width, ENTRY_H));
+        x += width + ENTRY_GAP;
+    }
+}
+
+/// The taskbar entry under `point`, if any.
+fn taskbar_hit(
+    surfaces: &[Surface],
+    screen_w: i32,
+    screen_h: i32,
+    point: (i32, i32),
+) -> Option<u64> {
+    let mut hit = None;
+    for_each_entry(surfaces, screen_w, screen_h, |surface, rect| {
+        if hit.is_none() && contains(rect, point) {
+            hit = Some(surface.id);
+        }
+    });
+    hit
 }
 
 /// Send one event to a surface's endpoint, ignoring a closed peer.
@@ -414,8 +687,8 @@ fn cursor_rect(point: (i32, i32)) -> Rect {
     Rect::new(point.0 - 1, point.1 - 1, 11, 11)
 }
 
-/// Compose `damage` from the background, every intersecting window, and the
-/// cursor, then present exactly that rectangle.
+/// Compose `damage` from the background, every visible window in z-order, the
+/// taskbar, and the cursor, then present exactly that rectangle.
 fn repaint(
     screen: &mut Canvas,
     surfaces: &[Surface],
@@ -427,9 +700,10 @@ fn repaint(
         return;
     }
     screen.fill(damage, damage, BACKGROUND);
-    for surface in surfaces {
+    for surface in surfaces.iter().filter(|surface| !surface.minimized) {
         draw_surface(screen, surface, focused == Some(surface.id), damage);
     }
+    draw_taskbar(screen, surfaces, focused, damage);
     screen.cursor(pointer.0, pointer.1, damage);
     let _ = sys::display_present(damage.x, damage.y, damage.w, damage.h);
 }
@@ -470,14 +744,31 @@ fn draw_surface(screen: &mut Canvas, surface: &Surface, focused: bool, clip: Rec
         clip,
         border,
     );
+    // The title stops before the button group on the right.
+    let reserved = BUTTON * 2 + BUTTON_GAP + BUTTON_MARGIN + 6;
+    let title_clip = Rect::new(
+        window.x + 2,
+        surface.y,
+        (window.w - 2 - reserved).max(0),
+        TITLE_H,
+    )
+    .intersect(clip);
     screen.text(
         surface.x + 8,
         surface.y + 8,
         &surface.title,
         TITLE_TEXT,
-        clip,
+        title_clip,
         1,
     );
+    // Close and minimize buttons, painted over the title bar.
+    for (rect, background, glyph) in [
+        (surface.close_button(), CLOSE_BG, "X"),
+        (surface.minimize_button(), MINIMIZE_BG, "-"),
+    ] {
+        screen.fill(rect, clip, background);
+        screen.text(rect.x + 5, rect.y + 4, glyph, BUTTON_TEXT, clip, 1);
+    }
 
     // The app's pixels, or an explicit placeholder before AttachBuffer.
     let content = surface.content();
@@ -501,6 +792,46 @@ fn draw_surface(screen: &mut Canvas, surface: &Surface, focused: bool, clip: Rec
     }
 }
 
+/// Draw the bottom taskbar: one entry per live surface in creation order, with
+/// the focused entry highlighted and minimized ones dimmed.
+fn draw_taskbar(screen: &mut Canvas, surfaces: &[Surface], focused: Option<u64>, clip: Rect) {
+    let (screen_w, screen_h) = (screen.width(), screen.height());
+    let bar = Rect::new(0, screen_h - TASKBAR_H, screen_w, TASKBAR_H);
+    if bar.intersect(clip).is_empty() {
+        return;
+    }
+    screen.fill(bar, clip, TASKBAR_BG);
+    screen.fill(Rect::new(bar.x, bar.y, bar.w, 1), clip, BORDER_COLOR);
+    for_each_entry(surfaces, screen_w, screen_h, |surface, rect| {
+        let background = if focused == Some(surface.id) {
+            TASKBAR_ENTRY_FOCUS
+        } else if surface.minimized {
+            TASKBAR_ENTRY_MIN
+        } else {
+            TASKBAR_ENTRY
+        };
+        screen.fill(rect, clip, background);
+        let accent = if focused == Some(surface.id) {
+            BORDER_COLOR_FOCUS
+        } else {
+            BORDER_COLOR
+        };
+        screen.fill(
+            Rect::new(rect.x, rect.y + rect.h - 2, rect.w, 2),
+            clip,
+            accent,
+        );
+        screen.text(
+            rect.x + ENTRY_PAD,
+            rect.y + (ENTRY_H - display::font::H) / 2,
+            &surface.title,
+            TITLE_TEXT,
+            rect.intersect(clip),
+            1,
+        );
+    });
+}
+
 /// Handle one display request; returns the reply parcel for a synchronous call.
 fn handle_request(
     message: &Message,
@@ -508,6 +839,7 @@ fn handle_request(
     screen: &mut Canvas,
     next_id: &mut u64,
     focused: &mut Option<u64>,
+    drag: &mut Option<Drag>,
     pointer: (i32, i32),
 ) -> Option<Parcel> {
     if message.interface_id() != display::INTERFACE {
@@ -525,15 +857,18 @@ fn handle_request(
             let id = *next_id;
             *next_id += 1;
             // Lay windows out left to right at the top, cascading down when
-            // the row is full, so every surface is visible at once.
+            // the row is full, so every surface is visible at once. The right
+            // edge comes from the rightmost window, not the top of the paint
+            // order (raising reorders `surfaces`).
             let count = surfaces.len() as i32;
-            let x = match surfaces.last() {
-                Some(previous) => previous.x + previous.window().w + 16,
-                None => PAD,
-            };
+            let x = surfaces
+                .iter()
+                .map(|surface| surface.x + surface.window().w + 16)
+                .max()
+                .unwrap_or(PAD);
             let x = x.min((screen.width() - width as i32 - 32).max(0));
             let y = PAD + (count / 3) * (height as i32 + TITLE_H + 32);
-            let y = y.min((screen.height() - height as i32 - 64).max(0));
+            let y = y.min((screen.height() - height as i32 - TASKBAR_H - 32).max(0));
             surfaces.push(Surface {
                 id,
                 title,
@@ -544,15 +879,15 @@ fn handle_request(
                 events: message.first_handle,
                 pixels: 0,
                 bytes: 0,
+                minimized: false,
             });
             if focused.is_none() {
                 *focused = Some(id);
             }
-            let damage = surfaces
-                .last()
-                .map(|surface| surface.window())
-                .unwrap_or_default();
-            repaint(screen, surfaces, pointer, *focused, damage);
+            // A new surface changes the layout (and the taskbar), so repaint
+            // the whole screen.
+            let full = Rect::new(0, 0, screen.width(), screen.height());
+            repaint(screen, surfaces, pointer, *focused, full);
             let mut body = Encoder::new();
             let _ = body.u64(display::field::SURFACE, id);
             Some(reply_parcel(message.method(), body))
@@ -579,8 +914,8 @@ fn handle_request(
                 Ok(va) => {
                     surface.pixels = va;
                     surface.bytes = expected;
-                    let damage = surface.window();
-                    repaint(screen, surfaces, pointer, *focused, damage);
+                    let full = Rect::new(0, 0, screen.width(), screen.height());
+                    repaint(screen, surfaces, pointer, *focused, full);
                     Some(empty_reply(message.method()))
                 }
                 Err(code) => Some(error_reply(message.method(), -code)),
@@ -589,6 +924,11 @@ fn handle_request(
         method::COMMIT => {
             let id = u64_field(&message.parcel, display::field::SURFACE).unwrap_or(0);
             if let Some(surface) = surfaces.iter().find(|surface| surface.id == id) {
+                if surface.minimized {
+                    // The pixels are hidden; the minimize repaint already
+                    // cleared the screen area. Only the buffer changed.
+                    return Some(empty_reply(message.method()));
+                }
                 let content = surface.content();
                 let damage = Rect::new(
                     content.x + u64_field(&message.parcel, display::field::X).unwrap_or(0) as i32,
@@ -603,17 +943,17 @@ fn handle_request(
         }
         method::DESTROY_SURFACE => {
             let id = u64_field(&message.parcel, display::field::SURFACE).unwrap_or(0);
-            let damage = surfaces
-                .iter()
-                .find(|surface| surface.id == id)
-                .map(|surface| surface.window());
+            if let Some(active) = *drag {
+                if active.id == id {
+                    *drag = None;
+                }
+            }
             surfaces.retain(|surface| surface.id != id);
             if *focused == Some(id) {
-                *focused = surfaces.first().map(|surface| surface.id);
+                *focused = topmost_visible(surfaces);
             }
-            if let Some(damage) = damage {
-                repaint(screen, surfaces, pointer, *focused, damage);
-            }
+            let full = Rect::new(0, 0, screen.width(), screen.height());
+            repaint(screen, surfaces, pointer, *focused, full);
             Some(empty_reply(message.method()))
         }
         _ => Some(error_reply(message.method(), messenger::errno::EINVAL)),
@@ -632,6 +972,7 @@ mod method {
     pub const POINTER_UP: u32 = 7;
     pub const KEY_DOWN: u32 = 8;
     pub const KEY_UP: u32 = 9;
+    pub const WINDOW_CLOSE: u32 = 10;
 }
 
 /// Find the first `u64` field with `id`.

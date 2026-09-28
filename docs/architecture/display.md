@@ -55,9 +55,17 @@ compositor demo. Target toolkit design: [xui-plan.md](../xui-plan.md).
 - `xuid` binds the grant and implements `os.lazy.display.v1` over Messenger:
   clients attach a shared surface buffer and an event endpoint, the compositor
   composites and routes input, `xdemo` is the smallest client.
-- The windowing/toolkit refactor is in flight (issue #114); this page describes
-  only the committed `xuid`/`xdemo` state. The retained-widget toolkit is not
-  implemented in this tree yet.
+- Window management (issue #143) lives in `xuid`: the `surfaces` vector is the
+  z-order (tail paints last), a title-bar press drags the window (clamped to the
+  screen above the taskbar), the title bar carries close/minimize buttons, and a
+  bottom taskbar lists live surfaces with the focused entry highlighted.
+  Minimized surfaces are hidden and restored from the taskbar; `Tab` cycles
+  focus skipping minimized ones. The close button sends the client a one-way
+  `WindowClose` (method 10) event, which `xdemo` treats as "exit". Only
+  `Commit` uses per-surface damage; WM layout changes repaint the full screen
+  (a drag repaints the union of the old/new window rectangles).
+- The windowing/toolkit refactor is in flight (issue #114); the retained-widget
+  toolkit is not implemented in this tree yet.
 
 **Invariants.** Mux is always the fallback: no compositor state is required to
 paint. The screen buffer handoff app-to-compositor is zero-copy (shared
@@ -66,5 +74,6 @@ events go only to the bound compositor; `push_event` drops the oldest event when
 the queue is full and is IRQ-safe (leaf lock).
 
 **Status.** Working: demo mux, display grant, xuid + xdemo in headless captures
-(`LAZYOS_XUID=1`). Open: zero-copy scanout, userspace XUI toolkit, multi-session
-compositors.
+(`LAZYOS_XUID=1`), xuid window management (drag, z-order, buttons, taskbar,
+focus cycling; `XUID:WM:PASS`). Open: zero-copy scanout, userspace XUI toolkit,
+multi-session compositors.

@@ -193,8 +193,19 @@ class Qmp:
     def mouse_move(self, dx: int, dy: int, device: str | None = None) -> None:
         self.send_events(mouse_move_events(dx, dy), device)
 
+    def mouse_down(self, button: str = "left", device: str | None = None) -> None:
+        self.send_events(mouse_button_events(button, True), device)
+
+    def mouse_up(self, button: str = "left", device: str | None = None) -> None:
+        self.send_events(mouse_button_events(button, False), device)
+
     def mouse_click(self, button: str = "left", device: str | None = None) -> None:
-        self.send_events(mouse_click_events(button), device)
+        # The two transitions must be separate QMP calls: QEMU applies every
+        # event of one input-send-event list to the legacy PS/2 device before
+        # the guest drains it, so a down+up pair sent together nets out to no
+        # click. Sending them separately makes the press visible.
+        self.mouse_down(button, device)
+        self.mouse_up(button, device)
 
     def mouse_scroll(self, amount: int, device: str | None = None) -> None:
         self.send_events(mouse_scroll_events(amount), device)
@@ -309,13 +320,10 @@ def mouse_move_events(dx: int, dy: int) -> list[dict]:
     return events
 
 
-def mouse_click_events(button: str = "left") -> list[dict]:
+def mouse_button_events(button: str = "left", down: bool = True) -> list[dict]:
     if button not in _BUTTONS:
         raise ValueError(f"unknown mouse button {button!r}")
-    return [
-        {"type": "btn", "data": {"button": button, "down": True}},
-        {"type": "btn", "data": {"button": button, "down": False}},
-    ]
+    return [{"type": "btn", "data": {"button": button, "down": bool(down)}}]
 
 
 def mouse_scroll_events(amount: int) -> list[dict]:

@@ -4038,6 +4038,9 @@ pub mod display {
         pub const KEY_DOWN: u32 = 8;
         /// Compositor to app: key released.
         pub const KEY_UP: u32 = 9;
+        /// Compositor to app: the window manager closed this surface (issue
+        /// #143). One-way; the app is expected to exit (or re-create).
+        pub const WINDOW_CLOSE: u32 = 10;
     }
 
     /// TLV field ids of the display protocol.
