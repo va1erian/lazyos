@@ -114,6 +114,7 @@ fn syscall_name(nr: u64) -> &'static str {
         44 => "sendto",
         45 => "recvfrom",
         49 => "bind",
+        53 => "socketpair",
         56 => "clone",
         57 => "fork",
         58 => "vfork",
