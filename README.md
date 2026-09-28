@@ -96,7 +96,7 @@ python tools/abi/run.py --at 8          # Linux ABI conformance bench
 ```
 
 Every kernel component must ship both **correctness tests** and **stress/soak
-tests** in `kernel/src/tests.rs`; see [`AGENTS.md`](AGENTS.md) and
+tests** under `kernel/src/tests/`; see [`AGENTS.md`](AGENTS.md) and
 [`tools/test/README.md`](tools/test/README.md). Do not commit `shots/`.
 
 ## Code standards

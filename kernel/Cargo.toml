@@ -6,7 +6,7 @@ description = "LazyOS kernel (freestanding, x86_64)"
 license = "GPL-3.0-or-later"
 
 [lints.cargo]
-# lazyos-crypto is only referenced from kernel/src/tests.rs, which compiles
+# lazyos-crypto is only referenced from kernel/src/tests/crypto_suite.rs, which compiles
 # under cfg(lazyos_tests) (issue #62); a default (non-test) build looks
 # unused to this lint, which doesn't know about that cfg.
 unused_dependencies = "allow"

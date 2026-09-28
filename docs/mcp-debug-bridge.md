@@ -29,7 +29,7 @@ framebuffer console, not for an AI agent driving iteration:
   `sessions`, `log`/`log tail`, `topics`/`tail`, backed by the `messenger`
   syscall's `stats` op, which returns a versioned `FabricStats` ABI block
   (channels, queues, handles, buffers, services, audit counters).
-- The kernel test harness (`kernel/src/tests.rs`, `tools/test/run.py`) emits
+- The kernel test harness (`kernel/src/tests/`, `tools/test/run.py`) emits
   one-shot `TEST:<name>:PASS|FAIL:<detail>` lines over serial — a batch
   protocol, not a live query interface.
 - `tools/screenshot/qemu_qmp.py` drives QMP for screenshots and keyboard/mouse
@@ -145,8 +145,8 @@ A thin Python MCP server (`tools/mcp/debug_bridge.py`) that:
    `mem_suite` tests, just needs a live accessor).
 4. **Phase 4**: add `inspect_vfs_node` (VFS/ext2 walk).
 
-Each phase should ship with its own kernel-side correctness test in
-`kernel/src/tests.rs` per the repo's testing requirement, and a
+Each phase should ship with its own kernel-side correctness test under
+`kernel/src/tests/` per the repo's testing requirement, and a
 `tools/mcp/README.md` documenting the wire protocol and tool list.
 
 ## Open questions

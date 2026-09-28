@@ -1,0 +1,61 @@
+//! The kernel side of the userspace compositor: syscall 12 grants the
+//! screen to a task, queues input for it, and presents damage
+//! rectangles. These tests drive the same entry point the `int 0x80`
+//! gate uses (`dispatch_for_test`) on a scratch user task, so the whole
+//! path runs without a scheduler. Display device grant (issue #113).
+
+use super::*;
+use crate::input::keyboard::Key;
+
+/// Two's-complement `-errno`, the syscall error encoding.
+fn failed(code: i64) -> u64 {
+    (code as u64).wrapping_neg()
+}
+
+/// Slot of a scratch user task with its own handle table; `current()` is
+/// pointed at it so the grant's `task::current()` checks see a user.
+fn scratch_task() -> Result<usize, String> {
+    task::register_kernel();
+    task::harness::reset();
+    task::harness::switch_current(task::KERNEL_TASK);
+    // A fork inherits its parent's credentials, and `bind` needs
+    // `CAP_SYS_ADMIN`: start from the root identity, not whatever an
+    // earlier suite stamped on the kernel task.
+    crate::ipc::credentials::reset_for_task(task::KERNEL_TASK);
+    let slot = task::spawn_fork().map_err(to_string)?;
+    task::harness::switch_current(slot);
+    Ok(slot)
+}
+
+/// One drained event: `(kind, a)` from the 16-byte kernel record.
+fn event_at(events: &[u8], index: usize) -> (u32, i32) {
+    let base = index * 16;
+    (
+        u32::from_le_bytes(events[base..base + 4].try_into().unwrap()),
+        i32::from_le_bytes(events[base + 4..base + 8].try_into().unwrap()),
+    )
+}
+
+mod bind_and_input;
+mod modifiers;
+
+pub(super) use bind_and_input::*;
+pub(super) use modifiers::*;
+
+pub(super) const CASES: &[(&str, Test)] = &[
+    ("display_kernel_bind_refused", kernel_bind_refused),
+    (
+        "display_bind_input_present_roundtrip",
+        bind_input_present_roundtrip,
+    ),
+    (
+        "display_modifier_keys_reach_compositor",
+        modifier_keys_reach_compositor,
+    ),
+    ("display_modifier_hotkey_soak", modifier_hotkey_soak),
+    (
+        "display_modifier_per_key_transitions",
+        modifier_per_key_transitions,
+    ),
+    ("display_modifier_per_key_soak", modifier_per_key_soak),
+];
