@@ -16,6 +16,7 @@ compositor demo. Target toolkit design: [xui-plan.md](../xui-plan.md).
 | `kernel/src/mux.rs` | Terminal multiplexer: paints task windows, Tab focus |
 | `kernel/src/display.rs` | Display device grant, syscall 12, input event queue |
 | `user/src/bin/xuid.rs`, `xdemo.rs` | Compositor and demo app (issue #113) |
+| `user/src/bin/dragdemo.rs` | Drag & drop demo pair (issue #145) |
 | `user/src/messenger.rs` (`display` module) | `os.lazy.display.v1` client/server helpers |
 | `xui-app/`, `tools/xui/build.py` | Ordinary xui app on the display grant (issue #114) |
 
@@ -74,6 +75,46 @@ compositor demo. Target toolkit design: [xui-plan.md](../xui-plan.md).
   `Commit` uses per-surface damage; WM layout changes repaint the full screen
   (a drag repaints the union of the old/new window rectangles).
 
+**Drag & drop (issue #145)**
+
+`os.lazy.display.v1` gains additive methods (11–17) that move a typed payload
+between surfaces through the compositor, while `clipboardd` stays the data
+broker. The wire fields reuse the clipboard's offer/token model, so the
+compositor never sees payload bytes:
+
+| # | Method | Direction | Fields |
+|---|---|---|---|
+| 11 | `DragStart` | app → compositor | `SURFACE`, `TOKEN`, `MIME` |
+| 12 | `DragCancel` | app → compositor | `SURFACE` |
+| 13 | `DragEnter` | compositor → app | `A`/`B` = surface-local x/y, `MIME` |
+| 14 | `DragOver` | compositor → app | `A`/`B` = surface-local x/y |
+| 15 | `DragLeave` | compositor → app | – |
+| 16 | `Drop` | compositor → app | `A`/`B` = surface-local x/y, `TOKEN`, `MIME` |
+| 17 | `DragEnded` | compositor → source | `A` = 1 dropped / 0 cancelled |
+
+- The source offers the payload to `clipboardd` first (`Offer`/`write` scope)
+  and calls `DragStart` with the returned token while a pointer button is held.
+  The compositor only accepts it from the task that created the surface
+  (`CreateSurface`'s sender), one drag at a time.
+- While the drag is live `xuid` owns the pointer: it hit-tests the topmost
+  surface under it (the source is never a target), sends
+  `DragEnter`/`DragLeave`/`DragOver` to that surface, frames it in the drag
+  accent colour, and draws a payload-label ghost at the cursor. The source
+  receives no pointer moves between `DragStart` and `DragEnded`.
+- Releasing over another surface sends `Drop` with the token; the target
+  pastes through `clipboardd` with its own credentials, so the service's
+  session scope still decides whether the transfer happens — a cross-session
+  drop is refused (`-EACCES`) and audited like any other paste. Releasing over
+  the source or the desktop, pressing `Escape`, calling `DragCancel`, or
+  destroying the source/target surface sends `DragLeave` plus a cancelled
+  `DragEnded(0)`.
+- `dragdemo` (`DRAGDMO.ELF`) is the evidence pair. The kernel boots it in the
+  `LAZYOS_XUID=1` path; with no manifest argument it is a launcher and starts a
+  `source` and a `target` child (one clipboard session). It logs
+  `DND:START:PASS`, `DND:DROP:PASS`, `DND:CANCEL:PASS` and `DND:DENIED:PASS`
+  (the target re-tries its dropped token from another session and expects the
+  clipboard's refusal).
+
 **Invariants.** Mux is always the fallback: no compositor state is required to
 paint. The screen buffer handoff app-to-compositor is zero-copy (shared
 buffers); only the final composite is a memcpy per damage rectangle. Input
@@ -82,7 +123,9 @@ the queue is full and is IRQ-safe (leaf lock).
 
 **Status.** Working: demo mux, display grant, xuid + xdemo in headless captures
 (`LAZYOS_XUID=1`), xuid window management (drag, z-order, buttons, taskbar,
-focus cycling; `XUID:WM:PASS`), and the xui app milestones M0-M2
+focus cycling; `XUID:WM:PASS`), compositor-mediated drag & drop with a
+clipboard-token transfer (`dragdemo`), and the xui app milestones M0-M2
 (`XUIAPP:*:PASS` markers, screenshots in the `xui-app` workflow). Open:
-zero-copy scanout, running the xui app as a compositor client, multi-session
-compositors.
+zero-copy scanout, running the xui app as a compositor client, userspace XUI
+toolkit, multi-session compositors, drag targets that can refuse a drop before
+release.

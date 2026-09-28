@@ -29,8 +29,9 @@ one action. Steps without ``at`` run immediately after the previous one.
 
 Actions: ``shot`` (name), ``type`` (string), ``key`` (name), ``keys`` (list),
 ``mouse_move`` ([dx, dy]), ``mouse_click`` (left|middle|right),
-``mouse_down`` / ``mouse_up`` (left|middle|right; hold a button across steps,
-e.g. to drag), ``mouse_scroll`` (int), ``mouse_abs`` ([x, y]), ``wait``
+``mouse_down`` / ``mouse_up`` (left|middle|right; separate transitions, so a
+caller can hold a button across steps, e.g. through a drag & drop),
+``mouse_scroll`` (int), ``mouse_abs`` ([x, y]), ``wait``
 (seconds), ``quit``.
 
 Usage

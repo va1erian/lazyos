@@ -194,9 +194,11 @@ class Qmp:
         self.send_events(mouse_move_events(dx, dy), device)
 
     def mouse_down(self, button: str = "left", device: str | None = None) -> None:
+        """Press a button and hold it (drag & drop needs separate down/up)."""
         self.send_events(mouse_button_events(button, True), device)
 
     def mouse_up(self, button: str = "left", device: str | None = None) -> None:
+        """Release a held button."""
         self.send_events(mouse_button_events(button, False), device)
 
     def mouse_click(self, button: str = "left", device: str | None = None) -> None:
@@ -343,9 +345,14 @@ def mouse_move_events(dx: int, dy: int) -> list[dict]:
 
 
 def mouse_button_events(button: str = "left", down: bool = True) -> list[dict]:
+    """One button transition, so a caller can hold a drag across moves."""
     if button not in _BUTTONS:
         raise ValueError(f"unknown mouse button {button!r}")
     return [{"type": "btn", "data": {"button": button, "down": bool(down)}}]
+
+
+def mouse_click_events(button: str = "left") -> list[dict]:
+    return mouse_button_events(button, True) + mouse_button_events(button, False)
 
 
 def mouse_scroll_events(amount: int) -> list[dict]:
