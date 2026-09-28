@@ -1291,8 +1291,10 @@ fn sys_clock_nanosleep(clock: u64, flags: u64, req: u64, rem: u64) -> u64 {
     let deadline = if absolute {
         clock_deadline_ticks(clock, sec as u64, nsec as u64)
     } else {
-        let millis = sec as u64 * 1000 + (nsec as u64).div_ceil(1_000_000);
-        now_ticks() + millis_to_ticks(millis)
+        let millis = (sec as u64)
+            .saturating_mul(1000)
+            .saturating_add((nsec as u64).div_ceil(1_000_000));
+        now_ticks().saturating_add(millis_to_ticks(millis))
     };
     match task::wait_sleep(deadline) {
         WakeReason::TimedOut => 0,
