@@ -31,3 +31,23 @@ path = "src/time.rs"
 [[bin]]
 name = "thread"
 path = "src/thread.rs"
+
+[[bin]]
+name = "syncstress"
+path = "src/syncstress.rs"
+
+[[bin]]
+name = "fsstress"
+path = "src/fsstress.rs"
+
+[[bin]]
+name = "memstress"
+path = "src/memstress.rs"
+
+[[bin]]
+name = "procstress"
+path = "src/procstress.rs"
+
+[[bin]]
+name = "sigstress"
+path = "src/sigstress.rs"

@@ -30,7 +30,20 @@ SHOTS = ROOT / "shots" / "abi"
 COMPAT = ROOT / "docs" / "compat"
 IMAGE = ROOT / "target" / "lazyos.img"
 
-ORDER = ["hello", "alloc", "hashmap", "file", "time", "thread", "busybox"]
+ORDER = [
+    "hello",
+    "alloc",
+    "hashmap",
+    "file",
+    "time",
+    "thread",
+    "syncstress",
+    "fsstress",
+    "memstress",
+    "procstress",
+    "sigstress",
+    "busybox",
+]
 
 
 def build_image(fixture_path: Path) -> bool:
