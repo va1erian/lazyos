@@ -200,11 +200,10 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         // can drag a typed payload from one surface to the other (or cancel it
         // with Escape) and grep the `DND:*` evidence markers from serial. It
         // also starts `clipboardd` (`CLIPD.ELF`) when the supervisor is not
-        // running, since the token transfer needs the clipboard service.
-        // Services mode already exhausts the 16-task table, and the xui app
-        // owns the display grant, so this demo only boots in the plain
-        // `LAZYOS_XUID=1` configuration.
-        #[cfg(all(xuid_demo, not(xui_app), not(services_mode)))]
+        // running, since the token transfer needs the clipboard service. The
+        // xui app owns the display grant, so the demo skips that image; with
+        // 64 task slots (issue #204) it fits next to the services too.
+        #[cfg(all(xuid_demo, not(xui_app)))]
         spawn_program("dragdemo", "DRAGDMO.ELF");
 
         // Issue #167: the shell-protocol evidence client. The
@@ -212,7 +211,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         // untouched; when set it boots `shellprobe`, which creates the desktop
         // surface, subscribes to the shell events, and logs the
         // `SHELLPROBE:*:PASS` markers.
-        #[cfg(all(xuid_demo, shellprobe_demo, not(xui_app), not(services_mode)))]
+        #[cfg(all(xuid_demo, shellprobe_demo, not(xui_app)))]
         spawn_program("shellprobe", "SHELLPRB.ELF");
     }
 

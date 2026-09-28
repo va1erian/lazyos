@@ -14,7 +14,7 @@ ISR that performs context switches.
 
 **Task table** (`task/mod.rs`)
 
-- `MAX_TASKS = 16`; slot 0 is the kernel task (`KERNEL_TASK`, the mux), 1.. are
+- `MAX_TASKS = 64` (16 until issue #204); slot 0 is the kernel task (`KERNEL_TASK`, the mux), 1.. are
   user programs/threads, each with a 32 KiB kernel stack (`KSTACKS`).
 - `Kind`: `Native` (`int 0x80`) or `Linux` (`syscall`/`sysret`). `TaskState`:
   `Runnable`, `Blocked { wait: WaitKind, deadline: Option<u64> }`, `Done` (kept

@@ -17,15 +17,15 @@
 
 use crate::sys;
 
-/// ABI version this client understands.
-pub const VERSION: u64 = 1;
+/// ABI version this client understands (2: 64 task rows, issue #204).
+pub const VERSION: u64 = 2;
 
 /// Words in the header (mirrors `kernel::sysinfo::HEADER_WORDS`).
 pub const HEADER_WORDS: usize = 23;
 /// Words in one task row (mirrors `kernel::sysinfo::TASK_ROW_WORDS`).
 pub const TASK_ROW_WORDS: usize = 10;
 /// Scheduler slots in the task table (mirrors `kernel::task::MAX_TASKS`).
-pub const MAX_TASKS: usize = 16;
+pub const MAX_TASKS: usize = 64;
 /// Words in the whole block.
 pub const WORDS: usize = HEADER_WORDS + MAX_TASKS * TASK_ROW_WORDS;
 /// Bytes in the whole block.
