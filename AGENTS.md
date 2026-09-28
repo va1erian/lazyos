@@ -48,47 +48,30 @@ python tools/screenshot/qemu_session.py --image target/lazyos.img \
 Then Read the resulting `shots/session/shot_*.png`. For custom agent loops,
 import `tools/screenshot/qemu_qmp.py` and call `type_text`, `press_key`,
 `mouse_move`, `mouse_click`, `mouse_scroll`, `mouse_abs`, and `screenshot`.
-Input is delivered via QMP `input-send-event`, so it works headless; the guest
-only reacts once it has a keyboard/mouse driver (Phase 3+).
+Input is delivered via QMP `input-send-event`, so it works headless.
 
 ## Running the demo
 
-LazyOS is a preemptive, single-address-space-per-task kernel with a simple
-terminal multiplexer. Boot it with one command:
+LazyOS has moved well past its original single-tasking MVP (see the closed
+scope of tracking issue #10). It is now built around **Messenger**, a
+kernel-mediated, capability-based IPC/pub-sub fabric, with userspace system
+services (`messengerd`, `init`, `logd`, `healthd`, `keyd`, `accounts`,
+`clipboardd`, the `xuid` display compositor, and more) running over a
+preemptive multitasking kernel with a writable ext2 filesystem and a VFS. The
+authoritative description of the current architecture and the staged roadmap
+(S0–S9) is [`docs/platform-plan.md`](docs/platform-plan.md), with per-subsystem
+detail in [`docs/architecture/`](docs/architecture) (boot, memory, tasks,
+filesystem, IPC, processes, display, etc.) and focused plans for
+[`messenger.md`](docs/messenger.md), [`security-model.md`](docs/security-model.md),
+[`linux-abi-plan.md`](docs/linux-abi-plan.md), and [`xui-plan.md`](docs/xui-plan.md).
+Read those before assuming anything about kernel internals, syscall numbers,
+or window/task management from older comments or history.
+
+Boot it with one command:
 
 ```bash
 python tools/run_demo.py
 ```
-
-Two windows appear, each running a different ring-3 program concurrently
-(`hello` and the `sh` interpreter). **Tab** moves keyboard focus (the focused
-window has a green border); typed input goes to the focused program. A mouse
-cursor sprite follows the PS/2 mouse.
-
-The boot disk is MBR + a **FAT12/FAT16** partition. Files are added at build
-time in `build.rs` via `DiskImageBuilder::set_file_contents` / `set_file`; the
-kernel reads them with the ATA PIO driver (`block::ata`) and a read-only FAT
-reader (`fs`). `HELLO.ELF` and `SH.ELF` are real ring-3 programs (`user/`),
-loaded by `process::load_image` into each task's own address space at
-`0x400000`. `user/src/lib.rs` is the shared ring-3 runtime: `sys` (the
-`int 0x80` wrappers) and a bump heap allocator backed by the `sbrk` syscall
-(number 4), so user programs can use `alloc`. Syscalls: `exit` (0), `write` (1),
-`read_char` (2), `read_file` (3), `sbrk` (4). `SH.ELF` is a small Dyon-inspired
-interpreter (`user/src/lang/`: `lexer`, `parser`, `interp`, `value`) supporting
-`f64` numbers, booleans, strings, arrays, `let`, `print`, `if`/`else`,
-arithmetic, comparisons and indexing.
-
-### How multitasking works
-
-- `mem` can build a fresh address space (`new_user_table`) sharing the kernel's
-  higher-half mappings; each task has its own PML4, kernel stack, heap break,
-  terminal buffer and input queue.
-- `task` runs a round-robin scheduler. The timer ISR (`task::switch::timer_isr`,
-  a naked stub) saves the GP registers, calls `task::schedule`, and resumes the
-  returned stack — switching address space (`CR3`) and the ring0 stack (TSS
-  `RSP0`) as needed.
-- `mux` is the kernel task (slot 0): it repaints the windows when output or
-  focus changes. `Tab` is handled in the keyboard IRQ.
 
 QEMU hardware acceleration (WHPX on Windows, KVM on Linux) is auto-detected and
 makes rendering several times faster than TCG; force it off with `--accel none`.
@@ -138,6 +121,28 @@ non-test image. Normal boots are unaffected: without `LAZYOS_TESTS=1` the suite
 is not compiled. Test-only hooks live behind `cfg(laZYOS_TESTS)`; add new tests
 to `kernel/src/tests.rs` (`mem_suite` is where allocator-specific tests go). CI
 is `.github/workflows/kernel-tests.yml`; see `tools/test/README.md`.
+
+## Testing requirement for kernel components
+
+Every kernel component (scheduler, memory/allocators, IPC/Messenger, VFS/FS,
+drivers, signals, etc.) MUST ship with both:
+
+1. **Correctness tests** — unit tests in `kernel/src/tests.rs` (grouped into
+   per-subsystem suites, e.g. `mem_suite`) exercising normal behavior, edge
+   cases, and known-bad inputs, following the existing
+   `TEST:<name>:PASS|FAIL:<detail>` protocol.
+2. **Stress/soak tests** — tests that drive the component under sustained load
+   or many iterations/generations (e.g. millions of allocations/frees, many
+   `fork`/COW generations, repeated task spawn/exit, high-volume IPC
+   transactions) to catch leaks, races, and resource-exhaustion bugs that a
+   single-pass unit test won't surface. Add these alongside the correctness
+   tests in the relevant suite rather than as a separate ad-hoc mechanism.
+
+New kernel code (new subsystem, new syscall, new service-facing kernel
+surface) is not done until both kinds of coverage exist and
+`python tools/test/run.py --accel none` passes. Do not rely on the ABI bench
+or screenshot pipeline as a substitute — those catch integration/visual
+regressions, not kernel-internal correctness or resource leaks.
 
 ## Project conventions
 
