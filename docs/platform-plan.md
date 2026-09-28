@@ -37,23 +37,27 @@ This document is the master plan. The fabric is specified separately in
 
 ## 2. Where we are today (honest baseline)
 
+Snapshot as of 2026-09-28 (stages S0-S4 landed, S5 in progress; the
+per-element detail is in [`architecture.md`](architecture.md)).
+
 | Area | Today | Gap to target |
 |---|---|---|
-| CPU/arch | x86_64, single CPU, no SMP | SMP, per-CPU scheduling |
-| Tasks | RR scheduler, 16 slots, kernel stacks, `clone`/`fork`/`execve`/`wait4` | priorities, real wait queues, signals, process groups/trees |
-| Memory | bump frame allocator (no free), eager mapping, COW fork without refcounts | frame reclaim, refcounts, VMA list, demand paging, page cache, quotas |
-| IPC | none beyond `futex` and `clone` | Messenger core (handles, parcels, sync + pub/sub) |
-| FS | read-only FAT12/16, root-only, whole-file-at-open | writable FS (ext2), VFS, permissions, dirs/symlinks, page cache |
-| Users | none (all tasks are root) | accounts, login, sessions, permissions, audit |
-| GUI | kernel mux, 2 fixed windows, tiny-skia-like raster in kernel | userspace compositor, surfaces/shared buffers, XUI toolkit, multi-window |
-| Shell | native `sh` + BusyBox on the Linux shim | graphical shell, apps, clipboard, drag&drop |
-| Unix/ABI | Linux syscall shim (busybox `sh` works) | sockets/pipes/signals completion, keep as compatibility layer |
+| CPU/arch | x86_64, single CPU, PIC/PIT only, no SMP | APIC, SMP, per-CPU scheduling, RTC |
+| Tasks | 16 task slots, strict-class stride scheduler with weights and CPU accounting, generalized wait queues, process tree/groups/sessions, POSIX-ish signals with Linux `rt_sigframe` delivery | more slots (the table is exhausted by the services image), Linux `nice` mapping, job-control tty, `SA_RESTART` |
+| Memory | refcounted frames with free lists, per-space VMA list, demand-zero paging, COW fork with refcounts, `mmap`/`mprotect`/`munmap`/`mremap`, slab allocator with owner accounting, per-uid memory quotas | file-backed paging, page cache, shared mappings, frame reclaim/swap, kernel heap growth |
+| IPC | Messenger core: handle table with rights, channels, sync transactions with deadlines/cancel, one-way, shared buffers + fences, kernel-stamped credentials, default-deny ACL, hash-chained audit ring, name registry, topic policy hook, stats snapshot; `messengerd` registry + central topics broker; `midlc` IDL compiler; sync + async client libraries | per-connection channels, reply-borne handle transfers, userspace audit stream, policy compiler/hot reload, IDL coverage beyond the echo sample |
+| FS | VFS with mounts, permission checks, dentry/inode caches; ramfs at `/tmp`; read-only FAT12/16 boot volume; ext2 read/write driver (exercised by the in-kernel suite only: the shipped image boots FAT and no session attaches an ext2 volume); copy-up overlay root for the Linux ABI | ext2 volume in the demo image, symlinks, per-process cwd, page cache, persistence of ABI writes |
+| Users | `accountsd` + `logind` console login with Argon2id via `keyd`, kernel-audited credential transitions, per-uid quotas | service accounts (services still run as uid 0), session capability set (`SESSION_CAPS` is empty), elevation service |
+| GUI | display device grant (syscall 12), `xuid` compositor with window management, drag & drop, shell protocol (desktop role, window-list/focus events, global hotkeys), `clipboardd`, `mimed`, XUI apps on tiny-skia as display owner or `xuid` client | LazyShell itself, theming, resize/DPI, zero-copy scanout, multi-session compositors |
+| Shell | native `sh` + BusyBox on the Linux shim; `init` app registry + `Launch`; `top`, `messengerctl`, `sysmon`/`fabricmon` viewers | desktop shell, Files/Editor/Terminal/Settings, `lazyosctl` |
+| Unix/ABI | Linux syscall shim runs static musl `std` programs: threads, futex, `fork`/`execve`/`wait4`, pipes, `AF_UNIX` stream/seqpacket sockets, epoll/eventfd, signals, filesystem writes through the overlay | dynamic linking, `SA_RESTART`, shared file tables, more of the long tail (`tools/abi/coverage.py`) |
 | Net | none | loopback, virtio-net, IPv4/UDP/TCP, DNS |
-| Observability | serial logs, ABI matrix/coverage | introspection, metrics, tracing, health, event log |
-| Security | none | capabilities, sandbox, audit, secrets service |
+| Observability | serial logs, ABI matrix/coverage, kernel test report, `FabricStats` v2, syscall 13/14 task and system snapshots, `messengerctl` (`stats-json`/`tasks-json` for the MCP bridge), `logd`, `healthd`, `sysmond` | tracing, `auditd`, crash dumps, docs portal |
+| Security | kernel-stamped identity, default-deny Messenger ACL, audit ring, quotas, validated user pointers on every syscall, `CAP_SYS_ADMIN` for the display grant, every `unsafe` documented and gated in CI | sandbox profiles/syscall allowlists, manifests + consent, signed bundles, W^X/SMEP/SMAP, secrets sealing |
 
-The Linux ABI work (matrix 6/6 + BusyBox `sh`) is the **compatibility bridge**:
-prebuilt binaries run, while Messenger becomes the *native* architecture.
+The Linux ABI work (13 fixtures green in CI plus BusyBox `sh`) is the
+**compatibility bridge**: prebuilt binaries run, while Messenger is the
+*native* architecture.
 
 ---
 
@@ -222,7 +226,7 @@ service bundles, and friendly denials that explain themselves.
 
 ## 5. Stages (roadmap)
 
-Each stage is independently valuable and ends with a demo + benchmark recorded in
+Status per stage is tracked in section 11. Each stage is independently valuable and ends with a demo + benchmark recorded in
 CI. Sizes are rough (S/M/L/XL).
 
 ### S0 — Kernel foundations (L)
@@ -387,16 +391,33 @@ allowed/denied), and the full interface surface is enumerable and documented.
 
 ---
 
-## 11. Immediate next steps (first PRs)
+## 11. Where the roadmap stands
 
-1. **Plan adopted:** milestone **LazyOS Platform**, epic **#52**, stage **S0
-   #53** (tasks #54–#62), stage **S1 #63** (tasks #64–#70).
-2. **S1 spike (thin vertical slice):** `msg_call` echo between two user tasks —
-   handles (#64), parcels (#65), transactions (#66), syscalls + bootstrap +
-   `libmessenger` echo (#69). Proves the kernel surface on the existing ABI.
-3. **S0 groundwork in parallel:** refcounted frames + free (**#54**) unblocks COW
-   correctness and quotas. Soak/unit-test harness is **#62**.
-4. **Keep the Linux ABI bench green** as the regression gate for every stage.
+Stage status as of 2026-09-28 (issue numbers are the GitHub tracking issues):
+
+| Stage | Status | Evidence |
+|---|---|---|
+| S0 kernel foundations (#53) | landed | `python tools/test/run.py` (189 tests, 21 of them soaks) |
+| S1 Messenger core (#63) | landed | `ipc_*` kernel tests, `libs/messenger` fuzz |
+| S2 services, registry, pub/sub (#88) | landed | `LAZYOS_SERVICES=1` sessions, `midlc` CI |
+| S3 users, sessions, storage (#97) | landed, with gaps | login demo; ext2 only in the kernel suite; services still root |
+| S4 GUI stack (#112) | landed except the toolkit polish | `xuid` WM, drag & drop, xui client mode, clipboard, MIME |
+| S5 desktop shell (#156) | in progress | shell protocol (#167), `init` `Launch` (#158), xui client mode (#168) landed; LazyShell process itself (#157) not started |
+| S6 networking | not started | |
+| S7 sandboxing | not started (kernel hooks exist) | ACL/audit/quota in place, no profiles |
+| S8 SMP & performance | not started | |
+| S9 release engineering | partly (CI matrix exists) | no release images, crash dumps or docs portal |
+
+Immediate next steps:
+
+1. **Close the review findings** on the S5.0 PRs (#175, #177, #178, #180) and
+   the kernel hardening items (#123, #124, #194) before adding surface.
+2. **S5.0 LazyShell bring-up (#157):** the desktop/taskbar/start-menu process
+   over the shell protocol and `init.Launch`; session start from `logind`.
+3. **Storage honesty:** attach an ext2 volume to the demo image so the writable
+   filesystem is exercised outside the unit suite.
+4. **Keep the ABI bench and kernel suite green** as the regression gate for
+   every stage.
 
 ---
 

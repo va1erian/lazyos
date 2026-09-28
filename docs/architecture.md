@@ -13,9 +13,7 @@ status. Design rationale is not repeated here; the plan docs own it:
 - [rust-std](rust-std.md), [Dyon feasibility](dyon-feasibility.md) - supporting notes.
 
 Path references are relative to the repository root. `path:line` references are
-used only where the line is a stable anchor. The XUI/windowing refactor (issue
-#114) is in flight; [display.md](architecture/display.md) documents only the
-committed `xuid`/`xdemo` state.
+used only where the line is a stable anchor.
 
 | Element | Page | Key paths | Issue / stage |
 |---|---|---|---|
@@ -32,9 +30,9 @@ committed `xuid`/`xdemo` state.
 | Messenger fabric (registry/topics/stats/syscalls) | [ipc-fabric.md](architecture/ipc-fabric.md) | `kernel/src/ipc/{registry,topics,stats,syscalls}.rs` | #69, #70, #89, #92, S1/S2 |
 | Filesystem (VFS/ramfs/FAT/ext2) | [filesystem.md](architecture/filesystem.md) | `kernel/src/fs/{mod,vfs,ramfs,fat,ext2}.rs` | #98, #99, S3 |
 | Block devices (ATA/PCI/virtio) | [block-devices.md](architecture/block-devices.md) | `kernel/src/block/{mod,ata,pci,virtio}.rs` | #100, S3 |
-| Display, input & mux | [display.md](architecture/display.md) | `kernel/src/{display,mux,console,gfx,surface,text,cursor}.rs`, `user/src/bin/{xuid,xdemo}.rs` | #113, #114, S4 |
+| Display, input & mux | [display.md](architecture/display.md) | `kernel/src/{display,mux,console,gfx,surface,text,cursor}.rs`, `user/src/bin/{xuid,xdemo,dragdemo,shellprobe}.rs`, `xui-app/` | #113, #114, #143, #145, #167, #168, S4/S5 |
 | Userland runtime, shared libs & services | [userland.md](architecture/userland.md) | `user/src/*`, `libs/*`, `user/src/bin/*` | #69, #90-#93, #101-#116, S1-S3 |
-| Build, tools & CI | [build-tools.md](architecture/build-tools.md) | `tools/*`, `.github/workflows/*` | #62, #90, S9 |
+| Build, tools & CI | [build-tools.md](architecture/build-tools.md) | `tools/*`, `.github/workflows/*` | #62, #90, #124, S9 |
 
 ## Cross-cutting invariants
 

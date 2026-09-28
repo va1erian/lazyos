@@ -25,8 +25,8 @@
 //! * within a class, between two selections of task `i` a peer `j` can be
 //!   selected at most `ceil(stride_i / stride_j) + 1` times. With weights
 //!   clamped to [`MIN_WEIGHT`]..=[`MAX_WEIGHT`] (1..=32) and at most
-//!   `MAX_TASKS - 1` peers, a task waits under 500 ticks — 5 seconds at the
-//!   100 Hz timer — in the worst case.
+//!   `MAX_TASKS - 1` peers, a task waits under 2100 ticks — 21 seconds at the
+//!   100 Hz timer — in the worst case (63 peers × 33 selections).
 //! * a task that slept while its peers ran rejoins at the current virtual
 //!   time ([`virtual_now`]) instead of claiming a backlog of catch-up quanta.
 //!
@@ -41,7 +41,7 @@
 use alloc::collections::VecDeque;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
-use core::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use spin::Mutex;
 use x86_64::PhysAddr;
 
@@ -66,7 +66,16 @@ pub mod sys;
 pub mod wait;
 
 /// Slots: 0 is the kernel (multiplexer), 1.. are user programs/threads.
-pub const MAX_TASKS: usize = 16;
+///
+/// 64 is a plain constant, not a design: the table, the kernel stacks
+/// (`KSTACKS`, 2 MiB at this size) and every per-slot registry stay static
+/// arrays, and the snapshot ABIs (`ipc::stats`, `sysinfo`, `task::introspect`)
+/// carry one row per slot, so raising it bumps their versions (issue #204).
+pub const MAX_TASKS: usize = 64;
+const _: () = assert!(
+    MAX_TASKS <= u64::BITS as usize,
+    "PENDING_RECLAIM is a u64 slot mask"
+);
 /// Index of the kernel task.
 pub const KERNEL_TASK: usize = 0;
 /// Size of each task's kernel stack.
@@ -91,7 +100,7 @@ static SCHEDULING: AtomicBool = AtomicBool::new(false);
 /// hold that lock (the multiplexer clones window output with interrupts
 /// enabled). `schedule` only sets a bit; [`reclaim_pending`] does the freeing
 /// from a syscall entry or the mux loop, where the current task holds no lock.
-static PENDING_RECLAIM: AtomicU32 = AtomicU32::new(0);
+static PENDING_RECLAIM: AtomicU64 = AtomicU64::new(0);
 
 /// Which syscall ABI a task uses.
 #[derive(Clone, Copy, PartialEq)]
@@ -1063,7 +1072,7 @@ fn mark_finished(tasks: &[Option<Task>; MAX_TASKS], slot: usize) {
         .as_ref()
         .is_some_and(|task| task.state == TaskState::Done && task.parent == 0);
     if finished_parentless {
-        PENDING_RECLAIM.fetch_or(1u32 << slot, Ordering::Relaxed);
+        PENDING_RECLAIM.fetch_or(1u64 << slot, Ordering::Relaxed);
     }
 }
 
@@ -1086,7 +1095,7 @@ pub fn reclaim_pending() {
     let mut removed = [(0usize, 0u64, false); MAX_TASKS];
     let mut removed_count = 0;
     for slot in 1..MAX_TASKS {
-        if pending & (1u32 << slot) != 0 {
+        if pending & (1u64 << slot) != 0 {
             if let Some((pml4, shared)) = take_finished(&mut tasks, slot) {
                 removed[removed_count] = (slot, pml4, shared);
                 removed_count += 1;

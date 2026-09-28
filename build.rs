@@ -127,7 +127,7 @@ fn main() {
 
         // The system monitor (issue #144). `init` starts `sysmond`
         // (`SYSD.ELF`) from its manifest; the service wraps the native
-        // system-stats syscall (13) and republishes retained `system/stats/*`
+        // system-stats syscall (14) and republishes retained `system/stats/*`
         // topics. `TOP.ELF` is its one-shot native text client, spawned by
         // `sysmond` (`demo=1`) so a headless services boot records `SYS:TOP:PASS`.
         // Both names are 8.3-safe for the kernel's short-name FAT reader.

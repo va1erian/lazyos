@@ -13,11 +13,14 @@
 //! [`WORDS`] little-endian `u64`s are written in one fixed order: a
 //! [`HEADER_WORDS`]-word header (version, sizes, uptime, memory counters) and
 //! then one [`TASK_ROW_WORDS`]-word row per scheduler slot. [`SYSTEM_STATS_VERSION`]
-//! is `1`; a caller must reject a header version it does not know. A buffer
+//! is `2` (version 1 carried 16 rows; issue #204 raised the slot count to 64);
+//! a caller must reject a header version it does not know. A buffer
 //! smaller than [`SIZE`] is refused with `-E2BIG` (like the Messenger stats
 //! op), a null buffer with `-EFAULT`, an unknown op with `-EINVAL`. The
-//! `snapshot` op never allocates: it fills one stack array under the
-//! subsystem locks taken one at a time, so it cannot deadlock and cannot leak.
+//! `snapshot` op fills one stack array in place (never returned by value: at
+//! 64 slots the block is over 5 KiB, and copies of it would eat the 32 KiB
+//! kernel stack) under the subsystem locks taken one at a time, so it cannot
+//! deadlock and cannot leak.
 //!
 //! # Permission
 //!
@@ -39,7 +42,7 @@ use crate::mem;
 use crate::task::{self, PriorityClass, TaskState, WaitKind};
 
 /// ABI version of the block written by the `snapshot` op.
-pub const SYSTEM_STATS_VERSION: u64 = 1;
+pub const SYSTEM_STATS_VERSION: u64 = 2;
 
 /// Native system-stats ops (syscall 14).
 pub mod op {
@@ -194,7 +197,8 @@ fn snapshot(buf: u64, capacity: u64) -> u64 {
     // Validate the whole `[buf, buf + SIZE)` range as mapped, writable user
     // memory before writing: a raw write would let any task aim the kernel at
     // a kernel address (CWE-787).
-    let words = snapshot_words();
+    let mut words = [0u64; WORDS];
+    snapshot_words(&mut words);
     let mut bytes = Vec::with_capacity(SIZE as usize);
     for word in words.iter() {
         bytes.extend_from_slice(&word.to_ne_bytes());
@@ -205,15 +209,15 @@ fn snapshot(buf: u64, capacity: u64) -> u64 {
     }
 }
 
-/// Fill the fixed-layout snapshot. Takes each subsystem lock in turn (frames,
-/// slab, heap, then the task table) and never two at once.
-pub fn snapshot_words() -> [u64; WORDS] {
+/// Fill the fixed-layout snapshot into `words`. Takes each subsystem lock in
+/// turn (frames, slab, heap, then the task table) and never two at once.
+pub fn snapshot_words(words: &mut [u64; WORDS]) {
     let frames = mem::frame_stats();
     let slab = mem::slab::stats();
     let heap = mem::heap_stats();
     let tasks = task::stats_snapshot();
 
-    let mut words = [0u64; WORDS];
+    words.fill(0);
     words[H_VERSION] = SYSTEM_STATS_VERSION;
     words[H_WORDS] = WORDS as u64;
     words[H_TICKS] = task::ticks();
@@ -254,7 +258,6 @@ pub fn snapshot_words() -> [u64; WORDS] {
         words[base + R_NAME_HASH] = fnv1a64(row.name.as_bytes());
         words[base + R_NAME8] = u64::from_le_bytes(short_name(row.name));
     }
-    words
 }
 
 /// The [`state`] code of a task state.

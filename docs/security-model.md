@@ -8,6 +8,24 @@ The one-sentence model: **no ambient authority; every privileged action is a
 capability or a policy-checked Messenger call, performed by an authenticated
 identity, and explained if denied.**
 
+## 0. Implementation status
+
+This document is the target model. As of 2026-09-28 the kernel and services
+implement the following; everything else below is specification
+([`architecture/ipc-security.md`](architecture/ipc-security.md) has the detail):
+
+| Implemented | Specified only |
+|---|---|
+| Kernel-stamped credentials (`uid/gid/caps/label/session`) on every task and message; children inherit, only kernel-started programs are root; audited `CAP_SETUID` transitions that can never widen privilege (section 2) | Service accounts: every system service still runs as uid 0 (section 4.1 "system services do not run as root" is the goal, not the state) |
+| Console login through `logind` + `accountsd`, Argon2id verification inside `keyd`, hashes in `SHARE_ONLY` buffers; failed logins audited (section 3) | Rate limiting, key/2FA, per-user sealing of secrets, TLS in `keyd`; `keyd` key ids are not yet scoped to their owner (issue #187) |
+| VFS `rwx`/`umask`/sticky checks against kernel credentials, root bypass (4.1) | POSIX ACLs, mount namespaces / filesystem jails (5.3) |
+| Capability bits `CAP_NET_*`, `CAP_SYS_ADMIN`, `CAP_SYS_TIME`, `CAP_AUDIT_READ`, `CAP_IPC_CONTROL`, `CAP_SETUID`; `CAP_SYS_ADMIN` gates the display grant (4.2) | `CAP_DEV_*`, dropping capabilities on `execve` |
+| Handles with rights as the primary Messenger right; default-deny ordered ACL at the kernel call boundary; per-segment topic policy (4.3) | The policy language/compiler, profiles from manifests, hot reload, revocation of live handles (5.2, 6) |
+| Per-uid quotas on kernel memory, user memory, handles, queue bytes/depth (5.5); friendly `ERR_QUOTA` | Syscall allowlists (5.1), network policy (5.4), fd/CPU quota enforcement |
+| Validated user pointers on every native and Linux syscall, NX on user pages, length-checked parcels fuzzed in CI, every `unsafe` documented and gated by clippy (7) | W^X enforcement, SMEP/SMAP, stack canaries, signed kernel, crash dumps, watchdog |
+| 128-entry hash-chained kernel audit ring, denials always recorded (9) | `auditd`, on-disk log, `CAP_AUDIT_READ` query interface, "why was this denied" UI |
+| | Elevation service (10), signed bundles and updates (11), consent UX (12), the red-team CI suite (13) |
+
 ---
 
 ## 1. Goals and threat model
