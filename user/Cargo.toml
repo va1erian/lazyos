@@ -148,6 +148,16 @@ path = "src/bin/xdemo.rs"
 test = false
 bench = false
 
+# The compositor-mediated drag & drop demo pair (issue #145). The kernel boots
+# `dragdemo` (no args) as a launcher; it starts a `source` and a `target` child
+# of itself, so both display clients share one clipboard session. Embedded only
+# with `LAZYOS_XUID=1`; the on-disk name `DRAGDMO.ELF` is 8.3-safe.
+[[bin]]
+name = "dragdemo"
+path = "src/bin/dragdemo.rs"
+test = false
+bench = false
+
 # Async API examples (issue #91). Not wired into the demo image yet: the root
 # build script would need a `CARGO_BIN_FILE_USER_*` hook and a kernel spawn
 # line, which is a one-line follow-up noted in the PR.

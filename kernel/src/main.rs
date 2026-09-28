@@ -175,6 +175,16 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         spawn_program("xdemo", "XDEMO.ELF");
         #[cfg(xuid_demo)]
         spawn_program("xdemo", "XDEMO.ELF");
+        // Issue #145: the drag & drop demo pair. `dragdemo` is a launcher that
+        // starts a drag source and a drop target child, so a scripted session
+        // can drag a typed payload from one surface to the other (or cancel it
+        // with Escape) and grep the `DND:*` evidence markers from serial. It
+        // also starts `clipboardd` (`CLIPD.ELF`) when the supervisor is not
+        // running, since the token transfer needs the clipboard service.
+        // Services mode already exhausts the 16-task table, so this demo only
+        // boots in the plain `LAZYOS_XUID=1` configuration.
+        #[cfg(all(xuid_demo, not(services_mode)))]
+        spawn_program("dragdemo", "DRAGDMO.ELF");
     }
 
     let stats = mem::frame_stats();

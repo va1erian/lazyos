@@ -19,6 +19,13 @@
 //! software cursor follows the pointer, since the kernel mux's cursor is gone
 //! while it is bound.
 //!
+//! Issue #145 adds compositor-mediated drag & drop (methods 10–16): a source
+//! hands over a clipboard token with `DragStart`, the compositor owns the
+//! pointer while the button is held, and the surface under it receives
+//! `DragEnter`/`DragOver`/`DragLeave` and finally `Drop` (with the token) or a
+//! cancelled `DragEnded`. Escape cancels. See the "Drag & drop" section below
+//! and `docs/architecture/display.md`.
+//!
 //! Boot it with `LAZYOS_XUID=1`; the kernel starts this program and `xdemo`.
 //!
 //! The compositing model is deliberately simple: one screen-sized RGBA buffer
@@ -57,6 +64,10 @@ const TITLE_TEXT: Color = Color::rgb(228, 232, 245);
 const BORDER_COLOR: Color = Color::rgb(92, 106, 152);
 const BORDER_COLOR_FOCUS: Color = Color::rgb(140, 220, 160);
 const EMPTY_BG: Color = Color::rgb(16, 18, 28);
+/// Drop-target frame and drag-label accent (issue #145).
+const DRAG_ACCENT: Color = Color::rgb(245, 196, 84);
+/// The drag label's chip background.
+const DRAG_GHOST_BG: Color = Color::rgb(28, 24, 12);
 
 /// The serial marker the evidence session greps for.
 const UP_MARKER: &str = "XUID:UP:PASS\n";
@@ -75,6 +86,9 @@ struct Surface {
     h: i32,
     /// Event endpoint handle in this task's table.
     events: u64,
+    /// Task slot that created the surface; only it may start or cancel a drag
+    /// for this surface (issue #145).
+    owner: u64,
     /// App pixel buffer mapped into this task (`0` until attached).
     pixels: u64,
     /// Length of the mapped pixel buffer.
@@ -101,6 +115,309 @@ impl Surface {
     fn content(&self) -> Rect {
         Rect::new(self.x + BORDER, self.y + TITLE_H, self.w, self.h)
     }
+}
+
+// ---------------------------------------------------------------------------
+// Drag & drop (issue #145)
+//
+// The compositor owns the pointer while a drag is live: the source app hands
+// over a clipboard token with `DragStart`, the surface under the pointer gets
+// enter/leave/over notifications, and a release delivers `Drop` (with the
+// token) or a cancelled `DragEnded`. All transitions live in this section;
+// `handle_event`, `handle_request` and `repaint` only route into them, which
+// keeps the window-management paths separate.
+// ---------------------------------------------------------------------------
+
+/// An active drag started by a client's `DragStart`.
+struct Drag {
+    /// Surface whose client started the drag.
+    source: u64,
+    /// Clipboard token delivered to the drop target.
+    token: u64,
+    /// MIME type of the token's payload; drawn as the drag label.
+    mime: String,
+    /// Surface currently under the pointer, if any (never the source).
+    target: Option<u64>,
+}
+
+/// Find a surface by id.
+fn surface_by_id(surfaces: &[Surface], id: u64) -> Option<&Surface> {
+    surfaces.iter().find(|surface| surface.id == id)
+}
+
+/// The topmost surface whose content contains `point`, ignoring `source`.
+fn drag_target_at(surfaces: &[Surface], source: u64, point: (i32, i32)) -> Option<u64> {
+    surfaces
+        .iter()
+        .rev()
+        .find(|surface| surface.id != source && contains(surface.content(), point))
+        .map(|surface| surface.id)
+}
+
+/// The rectangle the drag ghost occupies around `point`.
+fn ghost_rect(mime: &str, point: (i32, i32)) -> Rect {
+    let label = (mime.len().min(24) as i32) * 6 + 8;
+    Rect::new(point.0 + 6, point.1 + 6, 14 + label, 16)
+}
+
+/// Send one drag event (u64 fields plus an optional string) to a surface.
+fn forward_drag(
+    surfaces: &[Surface],
+    scratch: &mut Vec<u8>,
+    id: Option<u64>,
+    method: u32,
+    fields: &[(u16, u64)],
+    text: Option<(u16, &str)>,
+) {
+    let Some(surface) = id.and_then(|id| surface_by_id(surfaces, id)) else {
+        return;
+    };
+    let _ = display::send_event_fields(
+        &Endpoint::from_raw(surface.events),
+        scratch,
+        method,
+        fields,
+        text,
+    );
+}
+
+/// The `DragEnter`/`DragOver` payload fields for `point` over `id`.
+fn drag_point_fields(surfaces: &[Surface], id: u64, point: (i32, i32)) -> [(u16, u64); 2] {
+    let (x, y) = relative(surfaces, id, point);
+    [(display::field::A, x as u64), (display::field::B, y as u64)]
+}
+
+/// Start a drag from `source`: adopt the token/mime, greet a surface already
+/// under the pointer, and draw the ghost.
+#[allow(clippy::too_many_arguments)]
+fn drag_begin(
+    drag: &mut Option<Drag>,
+    surfaces: &[Surface],
+    screen: &mut Canvas,
+    pointer: (i32, i32),
+    focused: Option<u64>,
+    scratch: &mut Vec<u8>,
+    source: u64,
+    token: u64,
+    mime: String,
+) {
+    let mut active = Drag {
+        source,
+        token,
+        mime,
+        target: None,
+    };
+    if let Some(id) = drag_target_at(surfaces, source, pointer) {
+        let fields = drag_point_fields(surfaces, id, pointer);
+        forward_drag(
+            surfaces,
+            scratch,
+            Some(id),
+            method::DRAG_ENTER,
+            &fields,
+            Some((display::field::MIME, &active.mime)),
+        );
+        active.target = Some(id);
+    }
+    let damage = cursor_rect(pointer).union(ghost_rect(&active.mime, pointer));
+    *drag = Some(active);
+    repaint(screen, surfaces, pointer, focused, damage, drag.as_ref());
+}
+
+/// Route a pointer move while a drag is live: the surface under the pointer
+/// gets enter/over/leave; the source gets nothing until the drag ends.
+/// Returns the damage the move needs.
+fn drag_move(
+    drag: &mut Drag,
+    surfaces: &[Surface],
+    pointer: (i32, i32),
+    old: (i32, i32),
+    scratch: &mut Vec<u8>,
+) -> Rect {
+    let mut damage = cursor_rect(old)
+        .union(cursor_rect(pointer))
+        .union(ghost_rect(&drag.mime, old))
+        .union(ghost_rect(&drag.mime, pointer));
+    let next = drag_target_at(surfaces, drag.source, pointer);
+    if next != drag.target {
+        if let Some(id) = drag.target {
+            forward_drag(surfaces, scratch, Some(id), method::DRAG_LEAVE, &[], None);
+            if let Some(surface) = surface_by_id(surfaces, id) {
+                damage = damage.union(surface.window());
+            }
+        }
+        drag.target = next;
+        if let Some(id) = next {
+            let fields = drag_point_fields(surfaces, id, pointer);
+            forward_drag(
+                surfaces,
+                scratch,
+                Some(id),
+                method::DRAG_ENTER,
+                &fields,
+                Some((display::field::MIME, &drag.mime)),
+            );
+            if let Some(surface) = surface_by_id(surfaces, id) {
+                damage = damage.union(surface.window());
+            }
+        }
+    } else if let Some(id) = next {
+        let fields = drag_point_fields(surfaces, id, pointer);
+        forward_drag(
+            surfaces,
+            scratch,
+            Some(id),
+            method::DRAG_OVER,
+            &fields,
+            None,
+        );
+    }
+    damage
+}
+
+/// Finish a drag at `pointer`: `Drop` the token on the surface under it, or
+/// send `DragLeave` and a cancelled `DragEnded`.
+fn drag_finish(
+    drag: &mut Option<Drag>,
+    surfaces: &[Surface],
+    screen: &mut Canvas,
+    pointer: (i32, i32),
+    focused: Option<u64>,
+    scratch: &mut Vec<u8>,
+) {
+    let Some(active) = drag.take() else {
+        return;
+    };
+    let mut damage = cursor_rect(pointer).union(ghost_rect(&active.mime, pointer));
+    match drag_target_at(surfaces, active.source, pointer) {
+        Some(id) => {
+            let fields = drag_point_fields(surfaces, id, pointer);
+            forward_drag(
+                surfaces,
+                scratch,
+                Some(id),
+                method::DROP,
+                &[fields[0], fields[1], (display::field::TOKEN, active.token)],
+                Some((display::field::MIME, &active.mime)),
+            );
+            forward_drag(
+                surfaces,
+                scratch,
+                Some(active.source),
+                method::DRAG_ENDED,
+                &[(display::field::A, 1)],
+                None,
+            );
+            if let Some(surface) = surface_by_id(surfaces, id) {
+                damage = damage.union(surface.window());
+            }
+        }
+        None => {
+            drag_leave_target(&active, surfaces, scratch, &mut damage);
+            forward_drag(
+                surfaces,
+                scratch,
+                Some(active.source),
+                method::DRAG_ENDED,
+                &[(display::field::A, 0)],
+                None,
+            );
+        }
+    }
+    if let Some(surface) = surface_by_id(surfaces, active.source) {
+        damage = damage.union(surface.window());
+    }
+    repaint(screen, surfaces, pointer, focused, damage, drag.as_ref());
+}
+
+/// Cancel a live drag (Escape, `DragCancel`, or the surface going away).
+fn drag_cancel(
+    drag: &mut Option<Drag>,
+    surfaces: &[Surface],
+    screen: &mut Canvas,
+    pointer: (i32, i32),
+    focused: Option<u64>,
+    scratch: &mut Vec<u8>,
+) {
+    let Some(active) = drag.take() else {
+        return;
+    };
+    let mut damage = cursor_rect(pointer).union(ghost_rect(&active.mime, pointer));
+    drag_leave_target(&active, surfaces, scratch, &mut damage);
+    forward_drag(
+        surfaces,
+        scratch,
+        Some(active.source),
+        method::DRAG_ENDED,
+        &[(display::field::A, 0)],
+        None,
+    );
+    if let Some(surface) = surface_by_id(surfaces, active.source) {
+        damage = damage.union(surface.window());
+    }
+    repaint(screen, surfaces, pointer, focused, damage, drag.as_ref());
+}
+
+/// Notify a drag's current target that the drag left, growing `damage`.
+fn drag_leave_target(
+    active: &Drag,
+    surfaces: &[Surface],
+    scratch: &mut Vec<u8>,
+    damage: &mut Rect,
+) {
+    if let Some(id) = active.target {
+        forward_drag(surfaces, scratch, Some(id), method::DRAG_LEAVE, &[], None);
+        if let Some(surface) = surface_by_id(surfaces, id) {
+            *damage = damage.union(surface.window());
+        }
+    }
+}
+
+/// Paint the active drag over the composited frame: a frame around the target
+/// surface and a payload ghost at the cursor.
+fn draw_drag(
+    screen: &mut Canvas,
+    surfaces: &[Surface],
+    drag: &Drag,
+    pointer: (i32, i32),
+    clip: Rect,
+) {
+    if let Some(surface) = drag.target.and_then(|id| surface_by_id(surfaces, id)) {
+        let content = surface.content();
+        screen.fill(
+            Rect::new(content.x, content.y, content.w, 3),
+            clip,
+            DRAG_ACCENT,
+        );
+        screen.fill(
+            Rect::new(content.x, content.y + content.h - 3, content.w, 3),
+            clip,
+            DRAG_ACCENT,
+        );
+        screen.fill(
+            Rect::new(content.x, content.y, 3, content.h),
+            clip,
+            DRAG_ACCENT,
+        );
+        screen.fill(
+            Rect::new(content.x + content.w - 3, content.y, 3, content.h),
+            clip,
+            DRAG_ACCENT,
+        );
+    }
+    let ghost = ghost_rect(&drag.mime, pointer);
+    screen.fill(Rect::new(ghost.x, ghost.y, 14, 14), clip, DRAG_ACCENT);
+    screen.fill(
+        Rect::new(ghost.x + 3, ghost.y + 3, 8, 8),
+        clip,
+        DRAG_GHOST_BG,
+    );
+    screen.fill(
+        Rect::new(ghost.x + 14, ghost.y + 2, ghost.w - 14, 12),
+        clip,
+        DRAG_GHOST_BG,
+    );
+    screen.text(ghost.x + 18, ghost.y + 4, &drag.mime, DRAG_ACCENT, clip, 1);
 }
 
 #[no_mangle]
@@ -150,6 +467,10 @@ fn run() -> ! {
     let mut pointer = (screen_w / 2, screen_h / 2);
     let mut focused: Option<u64> = None;
     let mut next_id: u64 = 1;
+    // Issue #145: the live drag, if any, and whether a pointer button is held
+    // (`DragStart` requires it).
+    let mut drag: Option<Drag> = None;
+    let mut button_down = false;
     // One receive buffer and one event-encode buffer for the whole life of the
     // compositor: the user bump allocator never reclaims, so the loop reuses
     // both instead of allocating per message.
@@ -158,7 +479,7 @@ fn run() -> ! {
 
     // First frame: the previous mux pixels are still on screen, so paint the
     // desktop and present before announcing readiness.
-    repaint(&mut screen, &surfaces, pointer, focused, full);
+    repaint(&mut screen, &surfaces, pointer, focused, full, None);
     sys::write_str(UP_MARKER);
 
     loop {
@@ -179,6 +500,8 @@ fn run() -> ! {
                             &mut pointer,
                             &mut focused,
                             &mut event_scratch,
+                            &mut drag,
+                            &mut button_down,
                         );
                     }
                 }
@@ -199,6 +522,9 @@ fn run() -> ! {
                         &mut next_id,
                         &mut focused,
                         pointer,
+                        &mut drag,
+                        &mut event_scratch,
+                        button_down,
                     );
                     if let Some(reply) = reply {
                         let _ = server.reply(txn, &reply);
@@ -274,7 +600,9 @@ mod raw_kind {
 }
 
 /// Route one input event: update focus/cursor, then forward it to the focused
-/// surface's event endpoint.
+/// surface's event endpoint. While a drag is live (issue #145) the compositor
+/// keeps the pointer and routes it through the drag section above instead.
+#[allow(clippy::too_many_arguments)]
 fn handle_event(
     event: Event,
     surfaces: &mut Vec<Surface>,
@@ -282,9 +610,23 @@ fn handle_event(
     pointer: &mut (i32, i32),
     focused: &mut Option<u64>,
     scratch: &mut Vec<u8>,
+    drag: &mut Option<Drag>,
+    button_down: &mut bool,
 ) {
     match event.kind {
         EventKind::PointerMove => {
+            if drag.is_some() {
+                let new = (event.a as i32, event.b as i32);
+                let old = *pointer;
+                *pointer = new;
+                let damage = if let Some(active) = drag.as_mut() {
+                    drag_move(active, surfaces, new, old, scratch)
+                } else {
+                    Rect::default()
+                };
+                repaint(screen, surfaces, *pointer, *focused, damage, drag.as_ref());
+                return;
+            }
             let new = (event.a as i32, event.b as i32);
             let old = *pointer;
             let damage = cursor_rect(old).union(cursor_rect(new));
@@ -297,9 +639,15 @@ fn handle_event(
                 event.a,
                 event.b,
             );
-            repaint(screen, surfaces, *pointer, *focused, damage);
+            repaint(screen, surfaces, *pointer, *focused, damage, drag.as_ref());
         }
         EventKind::PointerDown => {
+            *button_down = true;
+            if drag.is_some() {
+                // A second press while dragging is ignored; the drag ends on
+                // the first release.
+                return;
+            }
             // Hit-test topmost first (the vector's tail is the top window).
             let hit = surfaces
                 .iter()
@@ -316,12 +664,17 @@ fn handle_event(
                 if let Some(surface) = surfaces.iter().find(|s| Some(s.id) == hit) {
                     damage = damage.union(surface.title_bar());
                 }
-                repaint(screen, surfaces, *pointer, *focused, damage);
+                repaint(screen, surfaces, *pointer, *focused, damage, drag.as_ref());
                 let (x, y) = relative(surfaces, id, *pointer);
                 forward(surfaces, scratch, Some(id), method::POINTER_DOWN, x, y);
             }
         }
         EventKind::PointerUp => {
+            *button_down = false;
+            if drag.is_some() {
+                drag_finish(drag, surfaces, screen, *pointer, *focused, scratch);
+                return;
+            }
             let (x, y) = match *focused {
                 Some(id) => relative(surfaces, id, *pointer),
                 None => (0, 0),
@@ -329,13 +682,17 @@ fn handle_event(
             forward(surfaces, scratch, *focused, method::POINTER_UP, x, y);
         }
         EventKind::KeyDown => {
+            if drag.is_some() && event.a as u32 == display::key::ESCAPE {
+                drag_cancel(drag, surfaces, screen, *pointer, *focused, scratch);
+                return;
+            }
             if event.a as u32 == display::key::TAB {
                 cycle_focus(surfaces, focused);
                 let damage = surfaces
                     .iter()
                     .map(|surface| surface.title_bar())
                     .fold(Rect::default(), Rect::union);
-                repaint(screen, surfaces, *pointer, *focused, damage);
+                repaint(screen, surfaces, *pointer, *focused, damage, drag.as_ref());
                 return;
             }
             forward(
@@ -414,14 +771,15 @@ fn cursor_rect(point: (i32, i32)) -> Rect {
     Rect::new(point.0 - 1, point.1 - 1, 11, 11)
 }
 
-/// Compose `damage` from the background, every intersecting window, and the
-/// cursor, then present exactly that rectangle.
+/// Compose `damage` from the background, every intersecting window, the active
+/// drag (if any), and the cursor, then present exactly that rectangle.
 fn repaint(
     screen: &mut Canvas,
     surfaces: &[Surface],
     pointer: (i32, i32),
     focused: Option<u64>,
     damage: Rect,
+    drag: Option<&Drag>,
 ) {
     if damage.is_empty() {
         return;
@@ -429,6 +787,9 @@ fn repaint(
     screen.fill(damage, damage, BACKGROUND);
     for surface in surfaces {
         draw_surface(screen, surface, focused == Some(surface.id), damage);
+    }
+    if let Some(drag) = drag {
+        draw_drag(screen, surfaces, drag, pointer, damage);
     }
     screen.cursor(pointer.0, pointer.1, damage);
     let _ = sys::display_present(damage.x, damage.y, damage.w, damage.h);
@@ -502,6 +863,7 @@ fn draw_surface(screen: &mut Canvas, surface: &Surface, focused: bool, clip: Rec
 }
 
 /// Handle one display request; returns the reply parcel for a synchronous call.
+#[allow(clippy::too_many_arguments)]
 fn handle_request(
     message: &Message,
     surfaces: &mut Vec<Surface>,
@@ -509,6 +871,9 @@ fn handle_request(
     next_id: &mut u64,
     focused: &mut Option<u64>,
     pointer: (i32, i32),
+    drag: &mut Option<Drag>,
+    scratch: &mut Vec<u8>,
+    button_down: bool,
 ) -> Option<Parcel> {
     if message.interface_id() != display::INTERFACE {
         return Some(empty_reply(message.method()));
@@ -542,6 +907,7 @@ fn handle_request(
                 w: width as i32,
                 h: height as i32,
                 events: message.first_handle,
+                owner: message.sender,
                 pixels: 0,
                 bytes: 0,
             });
@@ -552,7 +918,7 @@ fn handle_request(
                 .last()
                 .map(|surface| surface.window())
                 .unwrap_or_default();
-            repaint(screen, surfaces, pointer, *focused, damage);
+            repaint(screen, surfaces, pointer, *focused, damage, drag.as_ref());
             let mut body = Encoder::new();
             let _ = body.u64(display::field::SURFACE, id);
             Some(reply_parcel(message.method(), body))
@@ -580,7 +946,7 @@ fn handle_request(
                     surface.pixels = va;
                     surface.bytes = expected;
                     let damage = surface.window();
-                    repaint(screen, surfaces, pointer, *focused, damage);
+                    repaint(screen, surfaces, pointer, *focused, damage, drag.as_ref());
                     Some(empty_reply(message.method()))
                 }
                 Err(code) => Some(error_reply(message.method(), -code)),
@@ -597,12 +963,19 @@ fn handle_request(
                     u64_field(&message.parcel, display::field::H).unwrap_or(0) as i32,
                 )
                 .intersect(content);
-                repaint(screen, surfaces, pointer, *focused, damage);
+                repaint(screen, surfaces, pointer, *focused, damage, drag.as_ref());
             }
             Some(empty_reply(message.method()))
         }
         method::DESTROY_SURFACE => {
             let id = u64_field(&message.parcel, display::field::SURFACE).unwrap_or(0);
+            // A drag whose source or hovered target goes away ends now.
+            let stranding = drag
+                .as_ref()
+                .is_some_and(|active| active.source == id || active.target == Some(id));
+            if stranding {
+                drag_cancel(drag, surfaces, screen, pointer, *focused, scratch);
+            }
             let damage = surfaces
                 .iter()
                 .find(|surface| surface.id == id)
@@ -612,7 +985,39 @@ fn handle_request(
                 *focused = surfaces.first().map(|surface| surface.id);
             }
             if let Some(damage) = damage {
-                repaint(screen, surfaces, pointer, *focused, damage);
+                repaint(screen, surfaces, pointer, *focused, damage, drag.as_ref());
+            }
+            Some(empty_reply(message.method()))
+        }
+        method::DRAG_START => {
+            let id = u64_field(&message.parcel, display::field::SURFACE).unwrap_or(0);
+            let token = u64_field(&message.parcel, display::field::TOKEN).unwrap_or(0);
+            let mime = string_field(&message.parcel, display::field::MIME).unwrap_or_default();
+            if drag.is_some() {
+                return Some(error_reply(message.method(), messenger::errno::EBUSY));
+            }
+            let Some(surface) = surface_by_id(surfaces, id) else {
+                return Some(error_reply(message.method(), messenger::errno::EINVAL));
+            };
+            // Only the surface's own client may drag from it, and only with a
+            // pointer button held: the gesture is what makes it a drag.
+            if surface.owner != message.sender {
+                return Some(error_reply(message.method(), messenger::errno::EACCES));
+            }
+            if token == 0 || mime.is_empty() || mime.len() > display::MAX_MIME || !button_down {
+                return Some(error_reply(message.method(), messenger::errno::EINVAL));
+            }
+            drag_begin(
+                drag, surfaces, screen, pointer, *focused, scratch, id, token, mime,
+            );
+            Some(empty_reply(message.method()))
+        }
+        method::DRAG_CANCEL => {
+            let id = u64_field(&message.parcel, display::field::SURFACE).unwrap_or(0);
+            let owns = drag.as_ref().is_some_and(|active| active.source == id)
+                && surface_by_id(surfaces, id).is_some_and(|s| s.owner == message.sender);
+            if owns {
+                drag_cancel(drag, surfaces, screen, pointer, *focused, scratch);
             }
             Some(empty_reply(message.method()))
         }
@@ -632,6 +1037,13 @@ mod method {
     pub const POINTER_UP: u32 = 7;
     pub const KEY_DOWN: u32 = 8;
     pub const KEY_UP: u32 = 9;
+    pub const DRAG_START: u32 = 10;
+    pub const DRAG_CANCEL: u32 = 11;
+    pub const DRAG_ENTER: u32 = 12;
+    pub const DRAG_OVER: u32 = 13;
+    pub const DRAG_LEAVE: u32 = 14;
+    pub const DROP: u32 = 15;
+    pub const DRAG_ENDED: u32 = 16;
 }
 
 /// Find the first `u64` field with `id`.

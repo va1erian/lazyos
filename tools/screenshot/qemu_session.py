@@ -29,7 +29,9 @@ one action. Steps without ``at`` run immediately after the previous one.
 
 Actions: ``shot`` (name), ``type`` (string), ``key`` (name), ``keys`` (list),
 ``mouse_move`` ([dx, dy]), ``mouse_click`` (left|middle|right),
-``mouse_scroll`` (int), ``mouse_abs`` ([x, y]), ``wait`` (seconds), ``quit``.
+``mouse_down`` / ``mouse_up`` (left|middle|right; separate transitions for
+drag & drop), ``mouse_scroll`` (int), ``mouse_abs`` ([x, y]), ``wait``
+(seconds), ``quit``.
 
 Usage
 -----
@@ -50,7 +52,7 @@ from qemu_qmp import Qmp, accel_args, build_qemu_command, find_qemu, free_port
 
 _ACTIONS = {
     "shot", "type", "key", "keys", "mouse_move", "mouse_click",
-    "mouse_scroll", "mouse_abs", "wait", "quit",
+    "mouse_down", "mouse_up", "mouse_scroll", "mouse_abs", "wait", "quit",
 }
 
 
@@ -82,6 +84,10 @@ def run_steps(qmp: Qmp, steps: list[dict], out_dir: Path, started: float) -> lis
             qmp.mouse_move(dx, dy)
         elif action == "mouse_click":
             qmp.mouse_click(step["mouse_click"])
+        elif action == "mouse_down":
+            qmp.mouse_down(step["mouse_down"])
+        elif action == "mouse_up":
+            qmp.mouse_up(step["mouse_up"])
         elif action == "mouse_scroll":
             qmp.mouse_scroll(step["mouse_scroll"])
         elif action == "mouse_abs":
