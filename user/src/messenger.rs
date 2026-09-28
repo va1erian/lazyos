@@ -546,10 +546,23 @@ impl Endpoint {
         deadline: Option<u64>,
     ) -> Result<Parcel> {
         let bytes = encode(request)?;
+        self.call_bytes_with(&bytes, buf, deadline)
+    }
+
+    /// [`Endpoint::call_with`] for a caller that already holds the encoded
+    /// request bytes, e.g. a poll loop that re-sends the same fixed request
+    /// every call: `call_with` would otherwise re-encode (and reallocate) it
+    /// every time, and the user runtime's bump allocator never reclaims that.
+    pub fn call_bytes_with(
+        &self,
+        request: &[u8],
+        buf: &mut [u8],
+        deadline: Option<u64>,
+    ) -> Result<Parcel> {
         let args = MsgArgs {
             handle: self.handle,
-            parcel_ptr: bytes.as_ptr() as u64,
-            parcel_len: bytes.len() as u64,
+            parcel_ptr: request.as_ptr() as u64,
+            parcel_len: request.len() as u64,
             buf_ptr: buf.as_mut_ptr() as u64,
             buf_cap: buf.len() as u64,
             deadline: deadline.unwrap_or(0),
@@ -634,9 +647,8 @@ impl Endpoint {
 
     /// [`Endpoint::recv`] into a caller-provided buffer.
     ///
-    /// The userspace heap is a bump allocator that never frees, so a polling
-    /// loop can avoid a fresh [`DEFAULT_BUFFER`] per iteration by reusing one
-    /// scratch buffer here. A message larger than `buf` is refused with
+    /// A polling loop can avoid a fresh [`DEFAULT_BUFFER`] allocation per
+    /// iteration by reusing one scratch buffer here. A message larger than `buf` is refused with
     /// `-E2BIG` after delivery, exactly like [`Endpoint::recv`].
     pub fn recv_into(&self, buf: &mut [u8], deadline: Option<u64>) -> Result<Message> {
         let args = MsgArgs {
@@ -3037,7 +3049,7 @@ pub mod services {
     /// `init`'s error answer: errno-style code plus friendly text, the same
     /// shape [`super::mime::error_reply`] uses. The client turns the code back
     /// into [`Error::Init`].
-    pub fn error_reply(method: u32, error: Error) -> Parcel {
+    pub fn init_error_reply(method: u32, error: Error) -> Parcel {
         let code = error.errno().map(|code| -code).unwrap_or(errno::EINVAL);
         let mut body = Encoder::new();
         // A structured error field cannot overflow a fresh encoder here.
@@ -3179,7 +3191,22 @@ pub mod services {
         })
     }
 
-    /// Call `sysmond`'s `Snapshot` and decode the fixed-layout reply.
+    /// A service's error answer for a request on `interface_id`/`method`: the
+    /// errno-style code plus friendly text in a structured [`field::ERROR`].
+    pub fn error_reply(interface_id: u64, method: u32, error: Error) -> Parcel {
+        let code = error.errno().map(|code| -code).unwrap_or(errno::EINVAL);
+        let mut body = Encoder::new();
+        // A structured error field cannot overflow a fresh encoder here.
+        let _ = body.error(field::ERROR, code as u32, error.message());
+        Parcel {
+            header: header(interface_id, method),
+            body: body.finish(),
+            ..Parcel::default()
+        }
+    }
+
+    /// Call `sysmond`'s `Snapshot` and decode the fixed-layout reply; a
+    /// service failure comes back as its original errno.
     pub fn fetch_sysinfo(endpoint: &Endpoint) -> Result<crate::sysinfo::Snapshot> {
         let reply = endpoint.call(&sysinfo_request(), None)?;
         let mut decoder = Decoder::new(&reply.body);
@@ -3187,6 +3214,10 @@ pub mod services {
             if field.kind == Kind::Bytes && field.id == field::SYSDATA {
                 return crate::sysinfo::decode_bytes(field.payload)
                     .ok_or(Error::Errno(-errno::EINVAL));
+            }
+            if field.kind == Kind::Error && field.id == field::ERROR {
+                let (code, _message) = field.error_parts().map_err(Error::Parcel)?;
+                return Err(Error::Errno(-(code as i64)));
             }
         }
         Err(Error::Errno(-errno::EINVAL))

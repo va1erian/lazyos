@@ -23,8 +23,8 @@
 //! call is best-effort and gated: when `init` is absent, the app id is unknown
 //! to its registry, or the program is not installed, `Open` falls back to the
 //! original publish-only behavior. Either way `Open` publishes a
-//! fire-and-forget `system/events/open/<app>` event on `init`'s topic router -
-//! the same broker `logd` subscribes to - with a
+//! fire-and-forget `system/events/open/<app>` event on `messengerd`'s central
+//! broker ([`user::central`]) - the broker `logd` subscribes to - with a
 //! `path=<path> mime=<mime> verb=<verb>` payload. An app id is the program's
 //! 8.3 stem in lowercase (`editor` is `EDITOR.ELF`), the same ids `init`'s
 //! app registry serves (`ListApps`). `messengerctl log` still shows the event
@@ -51,9 +51,8 @@ use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::panic::PanicInfo;
-use user::messenger::{
-    self, errno, mime, registry, router, services, Endpoint, Error, Message, Parcel,
-};
+use user::central;
+use user::messenger::{self, errno, mime, registry, services, Endpoint, Error, Message, Parcel};
 use user::sys;
 
 /// Boot-time MIME database: extension (lowercase, no dot) to type.
@@ -198,9 +197,7 @@ impl MimeDb {
 /// The last path component (`/` and `\` both separate, so a Linux-style path
 /// works on the console too).
 fn file_name(path: &str) -> &str {
-    path.rsplit(|character| character == '/' || character == '\\')
-        .next()
-        .unwrap_or(path)
+    path.rsplit(['/', '\\']).next().unwrap_or(path)
 }
 
 /// The extension after the last dot of a file name, if it has one.
@@ -294,6 +291,19 @@ fn valid_token(text: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.' | b'+'))
 }
 
+/// Whether `text` is safe as the single `<app>` topic segment `open_path`
+/// publishes to (`system/events/open/<app>`). The central broker's publish
+/// validator (`messengerd`'s `valid_topic`, mirroring the kernel ACL gate)
+/// accepts the same charset as [`valid_token`] but always refuses `+` and `#`
+/// in a publish segment (they are subscribe-only wildcards), so `OPEN` would
+/// resolve the app and then report `published=false` after retrying a
+/// publish the broker can never accept. Registration is the point to catch
+/// that, once, rather than every `OPEN` paying for 32 failed publish
+/// attempts.
+fn valid_app_id(text: &str) -> bool {
+    valid_token(text) && !text.contains('+') && !text.contains('#')
+}
+
 /// A MIME type: `type/subtype`, no whitespace.
 fn valid_mime(text: &str) -> bool {
     !text.is_empty()
@@ -363,7 +373,7 @@ fn run() -> messenger::Result<()> {
     selftest(&db, &mut apps);
     sys::write_str("mimed: serving\n");
 
-    let mut bus: Option<router::Bus> = None;
+    let mut bus: Option<central::Bus> = None;
     // One receive buffer for the life of the service: the user bump allocator
     // never reclaims memory, so the loop must not allocate one per request.
     let mut buffer = alloc::vec![0u8; messenger::DEFAULT_BUFFER];
@@ -396,7 +406,7 @@ fn seed_default_apps(apps: &mut AppRegistry) {
 fn dispatch(
     db: &MimeDb,
     apps: &mut AppRegistry,
-    bus: &mut Option<router::Bus>,
+    bus: &mut Option<central::Bus>,
     message: &Message,
 ) -> messenger::Result<Parcel> {
     if message.interface_id() != mime::INTERFACE {
@@ -427,7 +437,7 @@ fn dispatch(
             let mime_type = mime::string_field(&message.parcel, mime::field::MIME)?;
             let app = mime::string_field(&message.parcel, mime::field::APP)?;
             let verb = mime::string_field(&message.parcel, mime::field::VERB)?;
-            if !valid_mime(&mime_type) || !valid_token(&app) || !valid_token(&verb) {
+            if !valid_mime(&mime_type) || !valid_app_id(&app) || !valid_token(&verb) {
                 return Err(Error::Errno(-errno::EINVAL));
             }
             apps.register(&mime_type, &app, &verb);
@@ -439,11 +449,11 @@ fn dispatch(
 
 /// Guess the path, resolve the app (`verb`, then the default verb), ask `init`
 /// to launch it when the supervisor is reachable, and publish the launch event
-/// on `init`'s router.
+/// on the central broker.
 fn open_path(
     db: &MimeDb,
     apps: &AppRegistry,
-    bus: &mut Option<router::Bus>,
+    bus: &mut Option<central::Bus>,
     path: &str,
     verb: &str,
     session: Option<u64>,
@@ -518,27 +528,27 @@ fn launch_via_init(app: &str, path: &str, session: u64) -> bool {
 }
 
 /// Publish a fire-and-forget launch event.
+/// Publish a fire-and-forget launch event through the central broker.
 ///
-/// `init`'s topic router is shared by every client, and the kernel refuses a
-/// second synchronous call on a channel while another transaction is still
-/// open (`-EDEADLK`); at boot, `logd`/`healthd` are subscribing while this
-/// service starts, so a publish can race one of their calls. Retry that
-/// specific error (the pending call clears promptly), and give up when the
-/// router is unreachable.
-fn publish_event(bus: &mut Option<router::Bus>, topic: &str, payload: &str) -> bool {
+/// `messengerd` is the supervisor's first service but its topics name can
+/// still land a tick after this service starts, so retry while the broker is
+/// unreachable and reconnect when a cached connection goes stale.
+fn publish_event(bus: &mut Option<central::Bus>, topic: &str, payload: &str) -> bool {
     const ATTEMPTS: usize = 32;
     for _ in 0..ATTEMPTS {
         if bus.is_none() {
-            *bus = router::Bus::connect(services::INIT_NAME).ok();
+            *bus = central::Bus::connect().ok();
         }
         let Some(active) = bus else {
             park_tick();
             continue;
         };
         match active.publish(topic, payload.as_bytes(), false) {
-            Ok(()) => return true,
-            Err(Error::Errno(code)) if code == -errno::EDEADLK => park_tick(),
-            Err(_) => return false,
+            Ok(_) => return true,
+            Err(_) => {
+                *bus = None;
+                park_tick();
+            }
         }
     }
     false

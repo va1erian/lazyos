@@ -14,6 +14,10 @@
 //!   `clipboardd` — the same authorization path as any paste — then checks the
 //!   bytes and shows their type and length.
 //!
+//! The cross-session denial probe runs in a short-lived `probe` child of the
+//! target, so switching into the probe session never changes the target's own
+//! credentials: every later drop in the same boot still pastes normally.
+//!
 //! Evidence markers: `DND:START:PASS` (the compositor accepted the drag),
 //! `DND:DROP:PASS` (the target pasted the token), `DND:CANCEL:PASS` (Escape
 //! cancelled the drag) and `DND:DENIED:PASS` (a cross-session paste of the
@@ -42,6 +46,8 @@ const DEMO_MIME: &str = "text/x-dnd-demo";
 const PAYLOAD: &[u8] = b"dnd payload #42";
 /// Pointer travel (surface pixels) before a press becomes a drag.
 const DRAG_THRESHOLD: i64 = 6;
+/// PIT ticks the target waits for its denial-probe child to exit.
+const PROBE_TICKS: u64 = 500;
 /// PIT ticks `connect` retries while the compositor/services settle.
 const CONNECT_ATTEMPTS: usize = 200;
 /// The session the denial probe switches to (mirrors `clippaste`).
@@ -55,6 +61,7 @@ pub extern "C" fn _start() -> ! {
         Role::Launcher => launcher(),
         Role::Source => source(),
         Role::Target => target(),
+        Role::Probe { token, mime } => probe(token, &mime),
     }
 }
 
@@ -63,16 +70,29 @@ enum Role {
     Launcher,
     Source,
     Target,
+    /// `probe <token> <mime>`: the target's one-shot denial-probe child.
+    Probe {
+        token: u64,
+        mime: String,
+    },
 }
 
 /// Read this task's manifest argument (`""` for a kernel-spawned launcher,
-/// `source`/`target` for the children).
+/// `source`/`target` for the children, `probe <token> <mime>` for the
+/// target's denial-probe child).
 fn role() -> Role {
-    let mut buffer = [0u8; 32];
+    let mut buffer = [0u8; 32 + display::MAX_MIME];
     let len = sys::service_args(&mut buffer).min(buffer.len());
-    match core::str::from_utf8(&buffer[..len]).unwrap_or("") {
+    let args = core::str::from_utf8(&buffer[..len]).unwrap_or("");
+    let mut words = args.split(' ');
+    match words.next().unwrap_or("") {
         "source" => Role::Source,
         "target" => Role::Target,
+        "probe" => {
+            let token = words.next().and_then(|word| word.parse().ok()).unwrap_or(0);
+            let mime = String::from(words.next().unwrap_or(""));
+            Role::Probe { token, mime }
+        }
         _ => Role::Launcher,
     }
 }
@@ -497,24 +517,51 @@ fn receive_drop(
         }
     }
     app.redraw(&|canvas| target_draw(canvas, state));
-    denial_probe(client, event.token, &event.mime);
+    denial_probe(event.token, &event.mime);
 }
 
-/// A drop must not bypass the clipboard's session scope: enter another session
-/// and ask for the same token; the service must refuse it with `-EACCES`.
-fn denial_probe(client: &clipboard::Client, token: u64, mime: &str) {
+/// A drop must not bypass the clipboard's session scope. The probe switches
+/// credentials, which cannot be undone once privilege is dropped, so it runs in
+/// a short-lived child (same session, so it can resolve `clipboardd` first) and
+/// the target just reaps it.
+fn denial_probe(token: u64, mime: &str) {
+    let command = format!("DRAGDMO.ELF probe {token} {mime}\0");
+    let Some(pid) = sys::spawn(command.as_bytes()) else {
+        sys::write_str("DND:DENIED:FAIL:could not start the probe\n");
+        return;
+    };
+    let deadline = sys::clock() + PROBE_TICKS;
+    while sys::clock() < deadline {
+        if let Some((reaped, _)) = sys::wait(deadline) {
+            if reaped == pid {
+                return;
+            }
+        }
+    }
+    sys::write_str("DND:DENIED:FAIL:the probe did not exit\n");
+}
+
+/// The probe child: resolve `clipboardd`, enter another session and ask for the
+/// dropped token; the service must refuse it with `-EACCES`.
+fn probe(token: u64, mime: &str) -> ! {
+    let Some(client) = connect_clipboard() else {
+        sys::write_str("DND:DENIED:FAIL:no clipboardd\n");
+        sys::exit(1);
+    };
     let probe = sys::Cred::new(1000, 1000, 0, 0, PROBE_SESSION);
     if sys::cred_set(None, &probe).is_err() {
         sys::write_str("DND:DENIED:FAIL:could not enter the probe session\n");
-        return;
+        sys::exit(1);
     }
     match client.paste_token(token, mime) {
         Err(Error::Errno(code)) if code == -errno::EACCES => {
             sys::write_str("DND:DENIED:PASS\n");
+            sys::exit(0)
         }
         Ok(_) => sys::write_str("DND:DENIED:FAIL:cross-session paste was allowed\n"),
         Err(error) => sys::write_str(&format!("DND:DENIED:FAIL:{}\n", error.message())),
     }
+    sys::exit(1)
 }
 
 impl Default for TargetState {

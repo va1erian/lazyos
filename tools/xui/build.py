@@ -105,10 +105,12 @@ def main() -> int:
         command.append("--release")
     build = run(command, env=build_env())
     if build.returncode != 0:
-        print("warning: xui app build failed", file=sys.stderr)
+        # Only a missing toolchain/target is a skip (handled above); a real
+        # compile error must fail CI instead of silently skipping the run.
+        print("error: xui app build failed", file=sys.stderr)
         print(build.stderr[-2000:], file=sys.stderr)
         print(json.dumps(built))
-        return 0
+        return 1
 
     release = APP / "target" / TARGET / profile
     for name, disk_name in BINS.items():

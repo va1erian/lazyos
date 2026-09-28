@@ -3,7 +3,7 @@ name = "font-atlas"
 version = "0.1.0"
 edition = "2021"
 description = "Build-time rasterizer that turns a TTF into an anti-aliased monospace glyph atlas"
-license = "MIT OR Apache-2.0"
+license = "GPL-3.0-or-later"
 
 [dependencies]
 fontdue = "0.9"

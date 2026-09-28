@@ -78,13 +78,13 @@
 //!
 //! # The system-stats snapshot (issue #144)
 //!
-//! Syscall 13 is a read-only monitor surface: `sysmond` serves it over
+//! Syscall 14 is a read-only monitor surface: `sysmond` serves it over
 //! Messenger and `top` renders it. The fixed layout, version, buffer contract
 //! and the deliberate "readable by every task, no addresses or credentials"
 //! permission choice live in [`crate::sysinfo`].
 //!
 //! ```text
-//!   rax = 13  rdi = op
+//!   rax = 14  rdi = op
 //!   op 0 (snapshot): rsi -> buffer, rdx = capacity in bytes  -> size | -errno
 //!   op 1 (size):                                             -> size
 //! ```
@@ -204,7 +204,7 @@ extern "C" fn syscall_dispatch(regs: *mut Regs) {
 /// Test-harness entry into the native syscall surface (issue #62 pattern):
 /// drive one syscall exactly as the `int 0x80` gate would, without the ring
 /// transition. Compiled only for the in-kernel suite.
-#[cfg(laZYOS_TESTS)]
+#[cfg(lazyos_tests)]
 pub fn dispatch_for_test(nr: u64, a1: u64, a2: u64, a3: u64) -> u64 {
     match nr {
         5 => crate::ipc::syscalls::dispatch(a1, a2, a3),
@@ -573,12 +573,17 @@ fn sys_tasks(buf: u64) -> u64 {
         return syscall_error(EFAULT);
     }
     let words = task::introspect::snapshot_words();
-    for (index, word) in words.iter().enumerate() {
-        // Safety: the caller passes a writable user buffer of
-        // `task::introspect::WORDS` eight-byte words; see `sys_quota`.
-        unsafe { user_ptr::write_at::<u64>(buf, index, *word) };
+    let mut bytes = Vec::with_capacity(words.len() * 8);
+    for word in words.iter() {
+        bytes.extend_from_slice(&word.to_ne_bytes());
     }
-    0
+    // Validate the whole destination as writable user memory first; this
+    // gate is open to every task, so a raw write would be a kernel-write
+    // primitive.
+    match crate::ipc::syscalls::copy_out(buf, &bytes) {
+        Ok(()) => 0,
+        Err(code) => (code as u64).wrapping_neg(),
+    }
 }
 
 /// syscall 7: wait for a child exit and reap it.

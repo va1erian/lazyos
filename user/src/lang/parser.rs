@@ -136,11 +136,8 @@ impl Parser {
             _ => return Err(String::from("expected a variable name after 'let'")),
         };
         // Accept both `let x = ...` and Dyon's `let x := ...`.
-        if self.eat(&Tok::Colon) {
-            self.expect(Tok::Assign)?;
-        } else {
-            self.expect(Tok::Assign)?;
-        }
+        self.eat(&Tok::Colon);
+        self.expect(Tok::Assign)?;
         Ok(Stmt::Let(name, self.expr()?))
     }
 

@@ -45,7 +45,7 @@ use alloc::vec::Vec;
 use crate::ipc::credentials;
 
 /// Type and mode bits (Linux values); `mode` in [`Meta`] uses these.
-#[cfg_attr(not(laZYOS_TESTS), allow(dead_code))] // masked by tests/diagnostics
+#[cfg_attr(not(lazyos_tests), allow(dead_code))] // masked by tests/diagnostics
 pub const S_IFMT: u16 = 0o170000;
 /// Regular file.
 pub const S_IFREG: u16 = 0o100000;
@@ -105,10 +105,10 @@ pub struct Id {
 
 impl Id {
     /// The kernel/bring-up identity: uid 0, gid 0.
-    #[cfg_attr(not(laZYOS_TESTS), allow(dead_code))] // used by tests/diagnostics
+    #[cfg_attr(not(lazyos_tests), allow(dead_code))] // used by tests/diagnostics
     pub const ROOT: Id = Id { uid: 0, gid: 0 };
 
-    #[cfg_attr(not(laZYOS_TESTS), allow(dead_code))] // used by tests/diagnostics
+    #[cfg_attr(not(lazyos_tests), allow(dead_code))] // used by tests/diagnostics
     pub const fn new(uid: u32, gid: u32) -> Id {
         Id { uid, gid }
     }
@@ -236,7 +236,7 @@ impl Path {
 
     /// Whether the raw input was absolute. Both forms resolve from the root
     /// today, so this is informational (and tested).
-    #[cfg_attr(not(laZYOS_TESTS), allow(dead_code))] // used by tests/diagnostics
+    #[cfg_attr(not(lazyos_tests), allow(dead_code))] // used by tests/diagnostics
     pub fn is_absolute(&self) -> bool {
         self.absolute
     }
@@ -250,7 +250,7 @@ impl Path {
     }
 
     /// The final component, or `None` for the root.
-    #[cfg_attr(not(laZYOS_TESTS), allow(dead_code))] // used by tests/diagnostics
+    #[cfg_attr(not(lazyos_tests), allow(dead_code))] // used by tests/diagnostics
     pub fn name(&self) -> Option<&str> {
         self.parts.last().map(String::as_str)
     }
@@ -437,7 +437,7 @@ impl Vfs {
     }
 
     /// The current creation mask.
-    #[cfg_attr(not(laZYOS_TESTS), allow(dead_code))] // used by tests/diagnostics
+    #[cfg_attr(not(lazyos_tests), allow(dead_code))] // used by tests/diagnostics
     pub fn umask(&self) -> u16 {
         self.umask
     }
@@ -450,7 +450,7 @@ impl Vfs {
     }
 
     /// A snapshot of the cache counters.
-    #[cfg_attr(not(laZYOS_TESTS), allow(dead_code))] // used by tests/diagnostics
+    #[cfg_attr(not(lazyos_tests), allow(dead_code))] // used by tests/diagnostics
     pub fn cache_stats(&self) -> CacheStats {
         self.stats
     }
@@ -458,7 +458,7 @@ impl Vfs {
     /// Drop the cached metadata for `path` (and, for a directory, everything
     /// cached below it). Mutations call this internally; it is public so a
     /// filesystem that changed behind the VFS's back can be re-read.
-    #[cfg_attr(not(laZYOS_TESTS), allow(dead_code))] // used by tests/diagnostics
+    #[cfg_attr(not(lazyos_tests), allow(dead_code))] // used by tests/diagnostics
     pub fn invalidate(&mut self, path: &str) {
         let path = Path::parse(path);
         if let Ok((mount, rel)) = self.resolve_mount(&path) {
@@ -514,7 +514,7 @@ impl Vfs {
     }
 
     /// Read up to `buf.len()` bytes from `path` at `offset`.
-    #[cfg_attr(not(laZYOS_TESTS), allow(dead_code))] // used by tests/diagnostics
+    #[cfg_attr(not(lazyos_tests), allow(dead_code))] // used by tests/diagnostics
     pub fn read(
         &mut self,
         id: Id,

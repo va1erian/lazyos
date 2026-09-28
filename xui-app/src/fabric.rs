@@ -374,6 +374,12 @@ pub struct Broker {
     endpoint: Option<u64>,
 }
 
+impl Default for Broker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Broker {
     /// No endpoint resolved yet.
     pub const fn new() -> Broker {

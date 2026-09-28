@@ -65,6 +65,7 @@ fn pack_name(name: &str) -> (u64, u64) {
 
 /// Unpack [`pack_name`]'s two words back into a display string (lossy: bytes
 /// past the first invalid UTF-8 sequence, or past 16, are dropped).
+#[cfg_attr(not(lazyos_tests), allow(dead_code))] // exercised by TaskSnapshot::from_bytes tests
 fn unpack_name(word0: u64, word1: u64) -> alloc::string::String {
     let mut buf = [0u8; 16];
     buf[0..8].copy_from_slice(&word0.to_le_bytes());
@@ -178,6 +179,7 @@ impl TaskSnapshot {
 
     /// Decode the block [`TaskSnapshot::to_bytes`] produces. `None` when the
     /// length is not exactly [`TaskSnapshot::SIZE`].
+    #[cfg_attr(not(lazyos_tests), allow(dead_code))] // round-trip tested only
     pub fn from_bytes(bytes: &[u8]) -> Option<TaskSnapshot> {
         if bytes.len() != Self::SIZE {
             return None;
@@ -209,6 +211,7 @@ impl TaskSnapshot {
 }
 
 /// Take one snapshot of the task table, encoded as the syscall's wire words.
+#[allow(clippy::chunks_exact_to_as_chunks)] // as_chunks is unstable; chunks_exact is fine here
 pub fn snapshot_words() -> Vec<u64> {
     let bytes = TaskSnapshot::snapshot().to_bytes();
     bytes

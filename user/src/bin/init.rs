@@ -248,8 +248,12 @@ fn app_infos() -> Vec<services::AppInfo> {
 const MANIFEST: &[ServiceSpec] = &[
     ServiceSpec {
         name: "messengerd",
+        // `soak=4096` drives a boot-time request/reply self-test through the
+        // daemon's serve loop and prints `MSGRD:SOAK`/`MSGRD:TOPICS` evidence
+        // (issue #169); it costs a fraction of a second and doubles as a
+        // liveness check.
         path: "MSGRD.ELF",
-        args: "",
+        args: "soak=4096",
         restart: Restart::Once,
         deps: &[],
         health_topic: "system/health/messengerd",
@@ -331,26 +335,19 @@ const MANIFEST: &[ServiceSpec] = &[
     // The system monitor (issue #144): `sysmond` wraps the kernel's
     // system-stats syscall as `os.lazy.system.v1` and republishes retained
     // `system/stats/*` topics. It needs only the kernel name registry, like
-    // `mimed`.
+    // `mimed`. `demo=1` makes it spawn `top` (`TOP.ELF`), its one-shot
+    // evidence client, so a headless boot records `SYS:TOP:PASS`. `top` exits
+    // as soon as it has printed its verdict, so it is not a service: listed
+    // here it would sit `stopped` and `healthd` would report it `down`
+    // forever. `sysmond` spawns and reaps it instead, like `clipboardd`'s demo
+    // pair.
     ServiceSpec {
         name: "sysmond",
         path: "SYSD.ELF",
-        args: "",
+        args: "demo=1",
         restart: Restart::Always,
         deps: &[],
         health_topic: "system/health/sysmond",
-    },
-    // `top` is `sysmond`'s one-shot evidence client, supervised here like any
-    // other program so a headless boot records `SYS:TOP:PASS`. It exits 0, so
-    // `Once` leaves it stopped instead of restarting it (a monitor that
-    // always exits 0 is not a service).
-    ServiceSpec {
-        name: "top",
-        path: "TOP.ELF",
-        args: "",
-        restart: Restart::Once,
-        deps: &["sysmond"],
-        health_topic: "system/health/top",
     },
 ];
 
@@ -865,7 +862,7 @@ fn serve_pending(
             // wait forever. A structured error is the useful one on the
             // control interface; the topic router keeps an empty reply.
             Err(error) if interface == services::INIT_INTERFACE => {
-                services::error_reply(method, error)
+                services::init_error_reply(method, error)
             }
             Err(_) => Parcel::default(),
         };

@@ -486,17 +486,17 @@ fn draw_drag(
         clip,
         DRAG_GHOST_BG,
     );
-    screen.fill(
-        Rect::new(ghost.x + 14, ghost.y + 2, ghost.w - 14, 12),
-        clip,
-        DRAG_GHOST_BG,
-    );
+    let label = Rect::new(ghost.x + 14, ghost.y + 2, ghost.w - 14, 12);
+    screen.fill(label, clip, DRAG_GHOST_BG);
+    // `ghost_rect` reserves room for 24 characters but a MIME string may be
+    // up to `display::MAX_MIME`; clip the text to the label so glyphs past it
+    // (outside the drag's damage) cannot leave trails as the pointer moves.
     screen.text(
         ghost.x + 18,
         ghost.y + 4,
         &session.mime,
         DRAG_ACCENT,
-        clip,
+        clip.intersect(label),
         1,
     );
 }
@@ -553,6 +553,10 @@ fn run() -> ! {
     // button is held (`DragStart` requires it).
     let mut drag_session: Option<DragSession> = None;
     let mut button_down = false;
+    // Buttons whose press the compositor consumed (taskbar, window buttons,
+    // title bar, desktop): their release is swallowed too, so no surface sees
+    // an unmatched `POINTER_UP` even if focus moved in between.
+    let mut consumed: u32 = 0;
     let mut next_id: u64 = 1;
     // One receive buffer and one event-encode buffer for the whole life of the
     // compositor: the user bump allocator never reclaims, so the loop reuses
@@ -587,6 +591,7 @@ fn run() -> ! {
                             &mut drag_session,
                             &mut event_scratch,
                             &mut button_down,
+                            &mut consumed,
                         );
                     }
                 }
@@ -701,8 +706,11 @@ fn handle_event(
     drag_session: &mut Option<DragSession>,
     scratch: &mut Vec<u8>,
     button_down: &mut bool,
+    consumed: &mut u32,
 ) {
     let (screen_w, screen_h) = (screen.width(), screen.height());
+    // `consumed` bit for the button in a press/release event.
+    let button_bit = 1u32 << (event.a as u32 & 31);
     let full = Rect::new(0, 0, screen_w, screen_h);
     match event.kind {
         EventKind::PointerMove => {
@@ -782,6 +790,7 @@ fn handle_event(
             let point = *pointer;
             // The taskbar paints above every window, so it hit-tests first.
             if let Some(id) = taskbar_hit(surfaces, screen_w, screen_h, point) {
+                *consumed |= button_bit;
                 restore(surfaces, focused, id);
                 repaint(
                     screen,
@@ -808,12 +817,14 @@ fn handle_event(
                     )
                 })
             else {
+                *consumed |= button_bit;
                 return;
             };
             raise(surfaces, id);
             *focused = Some(id);
             let left = event.a as u32 == display::button::LEFT;
             if left && contains(close, point) {
+                *consumed |= button_bit;
                 close_surface(
                     surfaces,
                     screen,
@@ -826,6 +837,7 @@ fn handle_event(
                 return;
             }
             if left && contains(minimize, point) {
+                *consumed |= button_bit;
                 minimize_surface(
                     surfaces,
                     screen,
@@ -837,6 +849,7 @@ fn handle_event(
                 return;
             }
             if contains(title, point) {
+                *consumed |= button_bit;
                 if left {
                     *drag = Some(Drag {
                         id,
@@ -865,17 +878,27 @@ fn handle_event(
                 full,
                 drag_session.as_ref(),
             );
+            // This press goes to the surface, so its release must too: drop a
+            // stale consumed bit left by a release the input queue dropped.
+            *consumed &= !button_bit;
             let (x, y) = relative(surfaces, id, point);
             forward(surfaces, scratch, Some(id), method::POINTER_DOWN, x, y);
         }
         EventKind::PointerUp => {
             *button_down = false;
             if drag_session.is_some() {
+                *consumed &= !button_bit;
                 drag_finish(drag_session, surfaces, screen, *pointer, *focused, scratch);
                 return;
             }
-            if drag.take().is_some() {
-                // The matching press was consumed by the title bar.
+            if *consumed & button_bit != 0 {
+                // The matching press was the compositor's (taskbar, window
+                // button, title bar or desktop): swallow its release, and end
+                // a title-bar drag it started.
+                *consumed &= !button_bit;
+                if event.a as u32 == display::button::LEFT {
+                    *drag = None;
+                }
                 return;
             }
             let (x, y) = match *focused {
@@ -969,7 +992,7 @@ fn restore(surfaces: &mut Vec<Surface>, focused: &mut Option<u64>, id: u64) {
 
 /// Minimize a surface, moving focus to the next visible surface.
 fn minimize_surface(
-    surfaces: &mut Vec<Surface>,
+    surfaces: &mut [Surface],
     screen: &mut Canvas,
     pointer: (i32, i32),
     focused: &mut Option<u64>,
@@ -1006,12 +1029,24 @@ fn close_surface(
             0,
         );
     }
-    surfaces.retain(|surface| surface.id != id);
+    remove_surface(surfaces, id);
     if *focused == Some(id) {
         *focused = topmost_visible(surfaces);
     }
     let full = Rect::new(0, 0, screen.width(), screen.height());
     repaint(screen, surfaces, pointer, *focused, full, drag_session);
+}
+
+/// Drop surface `id` and close its transferred event endpoint, so repeated
+/// create/destroy cycles cannot exhaust this task's handle table. Events
+/// already queued (e.g. `WindowClose`) stay deliverable after the close.
+fn remove_surface(surfaces: &mut Vec<Surface>, id: u64) {
+    if let Some(index) = surfaces.iter().position(|surface| surface.id == id) {
+        let surface = surfaces.remove(index);
+        if surface.events != 0 {
+            let _ = Endpoint::from_raw(surface.events).close();
+        }
+    }
 }
 
 /// Move focus to the next visible surface, wrapping around and skipping
@@ -1059,14 +1094,11 @@ fn for_each_entry(
     let mut x = ENTRY_MARGIN;
     let mut last_id = 0u64;
     let y = screen_h - TASKBAR_H + (TASKBAR_H - ENTRY_H) / 2;
-    loop {
-        let Some(surface) = surfaces
-            .iter()
-            .filter(|surface| surface.id > last_id)
-            .min_by_key(|surface| surface.id)
-        else {
-            break;
-        };
+    while let Some(surface) = surfaces
+        .iter()
+        .filter(|surface| surface.id > last_id)
+        .min_by_key(|surface| surface.id)
+    {
         last_id = surface.id;
         let width = entry_width(surface);
         if x + width > screen_w - ENTRY_MARGIN {
@@ -1420,7 +1452,7 @@ fn handle_request(
             if stranding {
                 drag_cancel(drag_session, surfaces, screen, pointer, *focused, scratch);
             }
-            surfaces.retain(|surface| surface.id != id);
+            remove_surface(surfaces, id);
             if *focused == Some(id) {
                 *focused = topmost_visible(surfaces);
             }

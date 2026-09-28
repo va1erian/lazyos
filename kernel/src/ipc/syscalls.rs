@@ -204,7 +204,7 @@ impl MsgArgs {
     }
 
     /// Encode little-endian; the user library's mirror keeps the same order.
-    pub fn to_bytes(&self) -> [u8; ARGS_SIZE] {
+    pub fn to_bytes(self) -> [u8; ARGS_SIZE] {
         let words = [
             self.handle,
             self.txn_id,
@@ -259,7 +259,7 @@ impl MsgResult {
     }
 
     /// Encode little-endian; the user library's mirror keeps the same order.
-    pub fn to_bytes(&self) -> [u8; RESULT_SIZE] {
+    pub fn to_bytes(self) -> [u8; RESULT_SIZE] {
         let words = [
             self.status as u64,
             self.value,
@@ -1044,7 +1044,11 @@ fn copy_in(ptr: u64, len: usize) -> Result<Vec<u8>, i64> {
 }
 
 /// Copy `bytes` into a validated, writable user range.
-fn copy_out(ptr: u64, bytes: &[u8]) -> Result<(), i64> {
+///
+/// Shared with the read-only monitor syscalls (`sysinfo`, `sys_tasks`) so an
+/// unprivileged caller can never aim a kernel write at a kernel or unmapped
+/// address: the whole range is checked before a byte is written.
+pub(crate) fn copy_out(ptr: u64, bytes: &[u8]) -> Result<(), i64> {
     access_range(ptr, bytes.len(), true)?;
     let table = mem::kernel_table();
     let mut done = 0usize;
@@ -1067,16 +1071,15 @@ fn copy_out(ptr: u64, bytes: &[u8]) -> Result<(), i64> {
 // Bootstrap channel
 // ---------------------------------------------------------------------------
 
-/// The boot-time Messenger channel (issue #69).
-///
-/// `kernel_main` calls [`create`] once: it opens an endpoint pair in the
-/// kernel's handle table, keeps the service end for the `messengerd` stub, and
-/// records the client end's object id. The first userspace task to call the
-/// `bootstrap` op gets a fresh handle to that client end opened in its own
-/// table, so the capability transfer happens inside the kernel and the task
-/// never needs to name another process's handle.
 pub mod bootstrap {
-    //! Boot-time channel plumbing; see the module docs for the flow.
+    //! The boot-time Messenger channel (issue #69).
+    //!
+    //! `kernel_main` calls [`create`] once: it opens an endpoint pair in the
+    //! kernel's handle table, keeps the service end for the `messengerd` stub,
+    //! and records the client end's object id. The first userspace task to
+    //! call the `bootstrap` op gets a fresh handle to that client end opened
+    //! in its own table, so the capability transfer happens inside the kernel
+    //! and the task never needs to name another process's handle.
 
     use spin::Mutex;
 

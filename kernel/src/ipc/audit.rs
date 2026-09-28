@@ -188,7 +188,7 @@ pub fn trace() -> bool {
 
 /// Clear the ring and restart the chain. `Test-harness only`: a running system
 /// must never be able to erase the audit trail (`auditd` relies on it).
-#[cfg(laZYOS_TESTS)]
+#[cfg(lazyos_tests)]
 pub fn reset() {
     *RING.lock() = Ring::new();
 }
