@@ -199,10 +199,14 @@ class Qmp:
         """Set the pointer's held-button mask with the monitor's
         ``mouse_button`` command. Returns False when the monitor refuses it."""
         try:
-            self.execute("human-monitor-command", **{"command-line": f"mouse_button {mask}"})
-            return True
+            output = self.execute(
+                "human-monitor-command", **{"command-line": f"mouse_button {mask}"}
+            )
         except RuntimeError:
             return False
+        # HMP reports its own errors (e.g. an unknown command) as output text in
+        # a successful QMP reply; `mouse_button` prints nothing on success.
+        return not (isinstance(output, str) and output.strip())
 
     def mouse_down(self, button: str = "left", device: str | None = None) -> None:
         """Press a button and hold it (drag & drop needs separate down/up).
@@ -359,7 +363,9 @@ def named_key_events(name: str) -> list[dict]:
 
 _BUTTONS = {"left", "middle", "right", "side", "extra", "wheel-up", "wheel-down"}
 # The PS/2 button bitmask the monitor's `mouse_button` command takes.
-_BUTTON_MASKS = {"left": 1, "middle": 2, "right": 4}
+# HMP `mouse_button` state bits, QEMU's MOUSE_EVENT_* values: 1 = left,
+# 2 = right, 4 = middle.
+_BUTTON_MASKS = {"left": 1, "right": 2, "middle": 4}
 
 
 def mouse_move_events(dx: int, dy: int) -> list[dict]:
