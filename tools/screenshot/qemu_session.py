@@ -28,7 +28,9 @@ one action. Steps without ``at`` run immediately after the previous one.
     ]
 
 Actions: ``shot`` (name), ``type`` (string), ``key`` (name), ``keys`` (list),
-``mouse_move`` ([dx, dy]), ``mouse_click`` (left|middle|right),
+``key_down`` / ``key_up`` (name; separate transitions, so a caller can hold a
+modifier across steps, e.g. Alt+Tab or Ctrl+Esc), ``mouse_move`` ([dx, dy]),
+``mouse_click`` (left|middle|right),
 ``mouse_down`` / ``mouse_up`` (left|middle|right; separate transitions, so a
 caller can hold a button across steps, e.g. through a drag & drop),
 ``mouse_scroll`` (int), ``mouse_abs`` ([x, y]), ``wait``
@@ -52,8 +54,9 @@ from pathlib import Path
 from qemu_qmp import Qmp, accel_args, build_qemu_command, find_qemu, free_port
 
 _ACTIONS = {
-    "shot", "type", "key", "keys", "mouse_move", "mouse_click",
-    "mouse_down", "mouse_up", "mouse_scroll", "mouse_abs", "wait", "quit",
+    "shot", "type", "key", "keys", "key_down", "key_up", "mouse_move",
+    "mouse_click", "mouse_down", "mouse_up", "mouse_scroll", "mouse_abs",
+    "wait", "quit",
 }
 
 
@@ -80,6 +83,10 @@ def run_steps(qmp: Qmp, steps: list[dict], out_dir: Path, started: float) -> lis
         elif action == "keys":
             for name in step["keys"]:
                 qmp.press_key(name)
+        elif action == "key_down":
+            qmp.key_down(step["key_down"])
+        elif action == "key_up":
+            qmp.key_up(step["key_up"])
         elif action == "mouse_move":
             dx, dy = step["mouse_move"]
             qmp.mouse_move(dx, dy)

@@ -96,6 +96,11 @@ pub mod button {
 /// Key codes for keys that are not a plain character. Printable keys report
 /// their character value; Enter/Backspace/Tab/Escape report their control
 /// values (13/8/9/27) so a text editor can treat them as characters.
+///
+/// Modifier keys (0x108-0x10B) and function keys (0x110+) are forwarded to a
+/// bound compositor only: the kernel terminal consumes the modifiers, and a
+/// function key with no compositor never reaches a task (issue #167). The
+/// values are append-only and mirrored by `user::messenger::display::key`.
 pub mod key {
     pub const ENTER: u32 = 13;
     pub const BACKSPACE: u32 = 8;
@@ -110,6 +115,11 @@ pub mod key {
     pub const PAGE_DOWN: u32 = 0x105;
     pub const HOME: u32 = 0x106;
     pub const END: u32 = 0x107;
+    pub const SHIFT: u32 = 0x108;
+    pub const CTRL: u32 = 0x109;
+    pub const ALT: u32 = 0x10A;
+    pub const SUPER: u32 = 0x10B;
+    pub const F4: u32 = 0x113;
 }
 
 /// The bind op's output block: seven little-endian `u64` words.
@@ -533,6 +543,11 @@ fn key_code(key: Key) -> u32 {
         Key::PageDown => key::PAGE_DOWN,
         Key::Home => key::HOME,
         Key::End => key::END,
+        Key::Shift => key::SHIFT,
+        Key::Ctrl => key::CTRL,
+        Key::Alt => key::ALT,
+        Key::Super => key::SUPER,
+        Key::F4 => key::F4,
     }
 }
 

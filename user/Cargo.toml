@@ -175,6 +175,18 @@ path = "src/bin/dragdemo.rs"
 test = false
 bench = false
 
+# The shell-protocol evidence client (issue #167, S5.0): a stand-in for
+# LazyShell's display side that creates the desktop surface, subscribes to the
+# shell events, and logs the `SHELLPROBE:*:PASS` markers. Embedded with
+# `LAZYOS_XUID=1` plus the `LAZYOS_SHELLPROBE=1` demo hook, so the default
+# compositor sessions are untouched; the on-disk name `SHELLPRB.ELF` is
+# 8.3-safe.
+[[bin]]
+name = "shellprobe"
+path = "src/bin/shellprobe.rs"
+test = false
+bench = false
+
 # Async API examples (issue #91). Not wired into the demo image yet: the root
 # build script would need a `CARGO_BIN_FILE_USER_*` hook and a kernel spawn
 # line, which is a one-line follow-up noted in the PR.

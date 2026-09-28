@@ -1,0 +1,19 @@
+[
+  {"at": 10.0, "shot": "01_desktop"},
+  {"at": 10.6, "key_down": "alt"},
+  {"at": 10.8, "key": "f4"},
+  {"at": 11.0, "key_up": "alt"},
+  {"at": 11.6, "shot": "02_alt_f4_closed"},
+  {"at": 12.2, "key_down": "alt"},
+  {"at": 12.4, "key": "tab"},
+  {"at": 12.7, "shot": "03_alt_tab_overlay"},
+  {"at": 13.0, "key": "tab"},
+  {"at": 13.3, "shot": "04_alt_tab_cycle"},
+  {"at": 13.6, "key_up": "alt"},
+  {"at": 14.0, "shot": "05_alt_tab_committed"},
+  {"at": 14.6, "key_down": "ctrl"},
+  {"at": 14.8, "key": "esc"},
+  {"at": 15.0, "key_up": "ctrl"},
+  {"at": 15.5, "shot": "06_start_menu_hotkey"},
+  {"at": 16.0, "quit": true}
+]

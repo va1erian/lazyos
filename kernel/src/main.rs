@@ -196,6 +196,14 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         // `LAZYOS_XUID=1` configuration.
         #[cfg(all(xuid_demo, not(xui_app), not(services_mode)))]
         spawn_program("dragdemo", "DRAGDMO.ELF");
+
+        // Issue #167: the shell-protocol evidence client. The
+        // `LAZYOS_SHELLPROBE=1` demo hook keeps the default `xuid` sessions
+        // untouched; when set it boots `shellprobe`, which creates the desktop
+        // surface, subscribes to the shell events, and logs the
+        // `SHELLPROBE:*:PASS` markers.
+        #[cfg(all(xuid_demo, shellprobe_demo, not(xui_app), not(services_mode)))]
+        spawn_program("shellprobe", "SHELLPRB.ELF");
     }
 
     let stats = mem::frame_stats();

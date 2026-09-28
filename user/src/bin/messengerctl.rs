@@ -74,8 +74,11 @@ fn service_arg_is(key: &str, value: &str) -> bool {
     let mut buffer = [0u8; 128];
     let len = sys::service_args(&mut buffer).min(buffer.len());
     let text = core::str::from_utf8(&buffer[..len]).unwrap_or("");
-    text.split_whitespace()
-        .any(|part| part.strip_prefix(key).and_then(|rest| rest.strip_prefix('=')) == Some(value))
+    text.split_whitespace().any(|part| {
+        part.strip_prefix(key)
+            .and_then(|rest| rest.strip_prefix('='))
+            == Some(value)
+    })
 }
 
 /// The registry command loop; `list` and `resolve <name>` print the name

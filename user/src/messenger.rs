@@ -4084,6 +4084,32 @@ pub mod logind {
 /// memory copy from the app buffer into the screen buffer. The tiny-skia-like
 /// in-kernel renderer cannot be linked from ring 3, which is why this path is a
 /// simple blitter; the XUI/tiny-skia toolkit is the S4 follow-up.
+///
+/// ## Shell extensions (issue #167, S5.0)
+///
+/// LazyShell (S5) is one more display client, so the compositor gains an
+/// append-only set of methods and one-way events; older clients and older
+/// compositors keep working because unknown TLV fields and methods are ignored:
+///
+/// * `CreateSurface` gains a `ROLE` field: [`role::WINDOW`] (the default when
+///   the field is absent) or [`role::DESKTOP`]. A desktop surface paints at the
+///   bottom of the z-order, above the compositor background and below every
+///   window, with no chrome and no taskbar entry; creating a second one
+///   replaces the first.
+/// * `ListSurfaces` replies with one [`SurfaceInfo`] row per surface (id,
+///   title, geometry, minimized, focused); `GetWorkArea` replies with the
+///   rectangle available to windows (the fallback taskbar is excluded while it
+///   is visible), and `GetTheme` reports the chrome [`Theme`] so the shell can
+///   match xuid's palette.
+/// * `Subscribe(role, events)` transfers the shell's event endpoint. The
+///   compositor sends one-way [`ShellEvent`]s there: `SurfaceChanged` on
+///   create/destroy/move/minimize/restore/title, `FocusChanged`, and
+///   `StartMenu` when the global `Ctrl+Esc`/`Super` hotkey fires. The role
+///   `"shell"` also hides the built-in taskbar; the compositor stays usable
+///   with no shell attached.
+/// * The global hotkeys live in the compositor: `Alt+Tab` shows a centered
+///   overlay, cycles on repeated Tab, and commits on Alt release; `Alt+F4`
+///   sends `WindowClose` to the focused surface; `Escape` cancels a drag & drop.
 pub mod display {
     use alloc::string::String;
     use alloc::vec;
@@ -4142,6 +4168,24 @@ pub mod display {
         /// Compositor to the source: the drag ended; `A` = 1 when dropped, 0
         /// when cancelled.
         pub const DRAG_ENDED: u32 = 17;
+        /// List every surface; the reply is one row per surface (issue #167).
+        pub const LIST_SURFACES: u32 = 18;
+        /// The rectangle available to windows, above the fallback taskbar
+        /// (issue #167).
+        pub const GET_WORK_AREA: u32 = 19;
+        /// Register this task as the shell subscriber; the parcel transfers an
+        /// event endpoint (issue #167).
+        pub const SUBSCRIBE: u32 = 20;
+        /// The compositor's current chrome palette (issue #167).
+        pub const GET_THEME: u32 = 21;
+        /// Compositor to the shell: a surface was created, destroyed, moved,
+        /// minimized, restored, or retitled (issue #167).
+        pub const SURFACE_CHANGED: u32 = 22;
+        /// Compositor to the shell: the focused surface changed (issue #167).
+        pub const FOCUS_CHANGED: u32 = 23;
+        /// Compositor to the shell: the global start-menu hotkey (Ctrl+Esc or
+        /// Super) fired (issue #167).
+        pub const START_MENU: u32 = 24;
     }
 
     /// TLV field ids of the display protocol.
@@ -4172,10 +4216,56 @@ pub mod display {
         pub const TOKEN: u16 = 12;
         /// MIME type string of a drag payload.
         pub const MIME: u16 = 13;
+        /// Surface role in `CreateSurface` (issue #167): [`role::WINDOW`] or
+        /// [`role::DESKTOP`].
+        pub const ROLE: u16 = 14;
+        /// Surface minimized flag in list rows and change events (issue #167).
+        pub const MINIMIZED: u16 = 15;
+        /// Surface focused flag in list rows (issue #167).
+        pub const FOCUSED: u16 = 16;
+        /// Subscriber role string in `Subscribe` (issue #167).
+        pub const SUBSCRIBER_ROLE: u16 = 17;
+        /// Active title-bar colour in `GetTheme`, `0xRRGGBB` (issue #167).
+        pub const TITLE_BG_ACTIVE: u16 = 18;
+        /// Inactive title-bar colour in `GetTheme` (issue #167).
+        pub const TITLE_BG_INACTIVE: u16 = 19;
+        /// Window border colour in `GetTheme` (issue #167).
+        pub const BORDER: u16 = 20;
+        /// Taskbar colour in `GetTheme` (issue #167).
+        pub const TASKBAR: u16 = 21;
+        /// Chrome text colour in `GetTheme` (issue #167).
+        pub const TEXT: u16 = 22;
     }
+
+    /// Surface roles carried in the `CreateSurface` `ROLE` field (issue #167).
+    pub mod role {
+        /// A regular decorated window (the default when the field is absent).
+        pub const WINDOW: u64 = 0;
+        /// The full-screen desktop surface, painted above the background and
+        /// below every window; a new desktop replaces the current one.
+        pub const DESKTOP: u64 = 1;
+    }
+
+    /// The `SURFACE_CHANGED` event kinds (issue #167).
+    pub mod change {
+        pub const CREATED: u64 = 1;
+        pub const DESTROYED: u64 = 2;
+        pub const MOVED: u64 = 3;
+        pub const MINIMIZED: u64 = 4;
+        pub const RESTORED: u64 = 5;
+        /// The surface's title changed (reserved; xuid has no rename method yet).
+        pub const TITLE: u64 = 6;
+    }
+
+    /// The subscriber role that asks xuid to hide its built-in taskbar
+    /// (issue #167).
+    pub const ROLE_SHELL: &str = "shell";
 
     /// Longest MIME string the compositor accepts in a `DragStart`.
     pub const MAX_MIME: usize = 64;
+
+    /// Longest subscriber role string the compositor accepts in `Subscribe`.
+    pub const MAX_ROLE: usize = 32;
 
     /// Key codes for non-character keys; mirrors `kernel/src/display.rs`.
     pub mod key {
@@ -4192,6 +4282,15 @@ pub mod display {
         pub const PAGE_DOWN: u32 = 0x105;
         pub const HOME: u32 = 0x106;
         pub const END: u32 = 0x107;
+        /// Modifier keys (issue #167). The compositor consumes them for global
+        /// hotkeys and never forwards them to a client; clients that forward
+        /// raw input may still decode them defensively.
+        pub const SHIFT: u32 = 0x108;
+        pub const CTRL: u32 = 0x109;
+        pub const ALT: u32 = 0x10A;
+        pub const SUPER: u32 = 0x10B;
+        /// Function key 4, used for the compositor's Alt+F4 (issue #167).
+        pub const F4: u32 = 0x113;
     }
 
     /// Pointer buttons, as reported in pointer events.
@@ -4259,10 +4358,40 @@ pub mod display {
             title: &str,
             events: &Endpoint,
         ) -> Result<u64> {
+            self.create_surface_role(width, height, title, events, role::WINDOW)
+        }
+
+        /// A `CreateSurface` with [`role::DESKTOP`] (issue #167): the surface
+        /// paints at the bottom of the z-order, above the background colour and
+        /// below every window. It has no chrome, never takes focus and never
+        /// appears in the taskbar or the Alt+Tab cycle; creating a new desktop
+        /// replaces the previous one. The event endpoint is still transferred,
+        /// so a future desktop can receive input.
+        pub fn create_desktop_surface(
+            &self,
+            width: u64,
+            height: u64,
+            title: &str,
+            events: &Endpoint,
+        ) -> Result<u64> {
+            self.create_surface_role(width, height, title, events, role::DESKTOP)
+        }
+
+        /// The shared body of [`Client::create_surface`] and
+        /// [`Client::create_desktop_surface`].
+        fn create_surface_role(
+            &self,
+            width: u64,
+            height: u64,
+            title: &str,
+            events: &Endpoint,
+            role: u64,
+        ) -> Result<u64> {
             let mut body = Encoder::new();
             body.u64(field::WIDTH, width).map_err(Error::Parcel)?;
             body.u64(field::HEIGHT, height).map_err(Error::Parcel)?;
             body.string(field::TITLE, title).map_err(Error::Parcel)?;
+            body.u64(field::ROLE, role).map_err(Error::Parcel)?;
             let parcel = Parcel {
                 header: header(method::CREATE_SURFACE),
                 body: body.finish(),
@@ -4278,6 +4407,113 @@ pub mod display {
                 }
             }
             Err(Error::Errno(-errno::EINVAL))
+        }
+
+        /// `Subscribe(role, events)`: register this task as the shell
+        /// subscriber (issue #167). The event endpoint is moved to the
+        /// compositor, which sends one-way [`ShellEvent`]s there. The role
+        /// [`ROLE_SHELL`] also hides xuid's built-in taskbar; any other role
+        /// keeps the fallback chrome. Registering again replaces the endpoint.
+        pub fn subscribe(&self, role: &str, events: &Endpoint) -> Result<()> {
+            let mut body = Encoder::new();
+            body.string(field::SUBSCRIBER_ROLE, role)
+                .map_err(Error::Parcel)?;
+            let parcel = Parcel {
+                header: header(method::SUBSCRIBE),
+                body: body.finish(),
+                handles: vec![events.handle()],
+                buffers: Vec::new(),
+            };
+            let mut buf = [0u8; 64];
+            let reply = self.endpoint.call_with(&parcel, &mut buf, None)?;
+            match error_field(&reply) {
+                Some(code) => Err(Error::Errno(-code)),
+                None => Ok(()),
+            }
+        }
+
+        /// `ListSurfaces`: every surface the compositor knows, in its z-order
+        /// (bottom first). Desktop surfaces are included and their rows show
+        /// the composited geometry (issue #167).
+        pub fn list_surfaces(&self) -> Result<Vec<SurfaceInfo>> {
+            let parcel = Parcel {
+                header: header(method::LIST_SURFACES),
+                body: Encoder::new().finish(),
+                handles: Vec::new(),
+                buffers: Vec::new(),
+            };
+            let reply = self.endpoint.call(&parcel, None)?;
+            if let Some(code) = error_field(&reply) {
+                return Err(Error::Errno(-code));
+            }
+            decode_surface_list(&reply.body)
+        }
+
+        /// `GetWorkArea`: the rectangle windows may occupy. While the built-in
+        /// fallback taskbar is visible the bar's strip is excluded; with a
+        /// shell registered (`Subscribe("shell", ..)`) the bar is hidden and
+        /// the work area is the whole screen (issue #167).
+        pub fn get_work_area(&self) -> Result<Rect> {
+            let parcel = Parcel {
+                header: header(method::GET_WORK_AREA),
+                body: Encoder::new().finish(),
+                handles: Vec::new(),
+                buffers: Vec::new(),
+            };
+            let mut buf = [0u8; 256];
+            let reply = self.endpoint.call_with(&parcel, &mut buf, None)?;
+            if let Some(code) = error_field(&reply) {
+                return Err(Error::Errno(-code));
+            }
+            let (mut x, mut y, mut w, mut h) = (0i32, 0i32, 0i32, 0i32);
+            let mut decoder = Decoder::new(&reply.body);
+            while let Some(field) = decoder.next().map_err(Error::Parcel)? {
+                if field.kind != Kind::U64 {
+                    continue;
+                }
+                let value = field.as_u64().map_err(Error::Parcel)? as i32;
+                match field.id {
+                    field::X => x = value,
+                    field::Y => y = value,
+                    field::W => w = value,
+                    field::H => h = value,
+                    _ => {}
+                }
+            }
+            Ok(Rect::new(x, y, w, h))
+        }
+
+        /// `GetTheme`: xuid's current chrome palette, so the shell's own
+        /// surfaces can match it (issue #167).
+        pub fn get_theme(&self) -> Result<Theme> {
+            let parcel = Parcel {
+                header: header(method::GET_THEME),
+                body: Encoder::new().finish(),
+                handles: Vec::new(),
+                buffers: Vec::new(),
+            };
+            let mut buf = [0u8; 256];
+            let reply = self.endpoint.call_with(&parcel, &mut buf, None)?;
+            if let Some(code) = error_field(&reply) {
+                return Err(Error::Errno(-code));
+            }
+            let mut theme = Theme::default();
+            let mut decoder = Decoder::new(&reply.body);
+            while let Some(field) = decoder.next().map_err(Error::Parcel)? {
+                if field.kind != Kind::U64 {
+                    continue;
+                }
+                let color = color_from_u64(field.as_u64().map_err(Error::Parcel)?);
+                match field.id {
+                    field::TITLE_BG_ACTIVE => theme.title_bg_active = color,
+                    field::TITLE_BG_INACTIVE => theme.title_bg_inactive = color,
+                    field::BORDER => theme.border = color,
+                    field::TASKBAR => theme.taskbar = color,
+                    field::TEXT => theme.text = color,
+                    _ => {}
+                }
+            }
+            Ok(theme)
         }
 
         /// Share `buffer` (a handle from the `display` syscall's
@@ -4503,6 +4739,221 @@ pub mod display {
             event.dropped = event.x != 0;
         }
         Some(event)
+    }
+
+    /// One row of a `ListSurfaces` reply (issue #167).
+    #[derive(Clone, PartialEq, Eq, Debug)]
+    pub struct SurfaceInfo {
+        /// Protocol surface id.
+        pub id: u64,
+        /// Window title from `CreateSurface`.
+        pub title: String,
+        /// Window origin (the decorated window's top-left for a window; the
+        /// surface origin for a desktop).
+        pub x: i32,
+        pub y: i32,
+        /// Window content size in pixels.
+        pub w: i32,
+        pub h: i32,
+        /// Hidden by the minimize button.
+        pub minimized: bool,
+        /// The compositor's focused surface.
+        pub focused: bool,
+        /// One of [`role`] (issue #175): lets a shell tell the desktop from a
+        /// window.
+        pub role: u64,
+    }
+
+    /// Decode a `ListSurfaces` reply body into rows. Rows are delimited by the
+    /// `SURFACE` field, so unknown fields between rows are ignored and a newer
+    /// compositor can add fields without breaking this decoder.
+    pub fn decode_surface_list(body: &[u8]) -> Result<Vec<SurfaceInfo>> {
+        let mut rows: Vec<SurfaceInfo> = Vec::new();
+        let mut current: Option<SurfaceInfo> = None;
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next().map_err(Error::Parcel)? {
+            match (field.kind, field.id) {
+                (Kind::U64, field::SURFACE) => {
+                    if let Some(row) = current.take() {
+                        rows.push(row);
+                    }
+                    current = Some(SurfaceInfo {
+                        id: field.as_u64().map_err(Error::Parcel)?,
+                        title: String::new(),
+                        x: 0,
+                        y: 0,
+                        w: 0,
+                        h: 0,
+                        minimized: false,
+                        focused: false,
+                        role: role::WINDOW,
+                    });
+                }
+                (Kind::String, field::TITLE) => {
+                    if let Some(row) = current.as_mut() {
+                        row.title = String::from(field.as_str().map_err(Error::Parcel)?);
+                    }
+                }
+                (Kind::U64, field::X) => {
+                    if let Some(row) = current.as_mut() {
+                        row.x = field.as_u64().map_err(Error::Parcel)? as i32;
+                    }
+                }
+                (Kind::U64, field::Y) => {
+                    if let Some(row) = current.as_mut() {
+                        row.y = field.as_u64().map_err(Error::Parcel)? as i32;
+                    }
+                }
+                (Kind::U64, field::W) => {
+                    if let Some(row) = current.as_mut() {
+                        row.w = field.as_u64().map_err(Error::Parcel)? as i32;
+                    }
+                }
+                (Kind::U64, field::H) => {
+                    if let Some(row) = current.as_mut() {
+                        row.h = field.as_u64().map_err(Error::Parcel)? as i32;
+                    }
+                }
+                (Kind::U64, field::MINIMIZED) => {
+                    if let Some(row) = current.as_mut() {
+                        row.minimized = field.as_u64().map_err(Error::Parcel)? != 0;
+                    }
+                }
+                (Kind::U64, field::FOCUSED) => {
+                    if let Some(row) = current.as_mut() {
+                        row.focused = field.as_u64().map_err(Error::Parcel)? != 0;
+                    }
+                }
+                (Kind::U64, field::ROLE) => {
+                    if let Some(row) = current.as_mut() {
+                        row.role = field.as_u64().map_err(Error::Parcel)?;
+                    }
+                }
+                _ => {}
+            }
+        }
+        if let Some(row) = current.take() {
+            rows.push(row);
+        }
+        Ok(rows)
+    }
+
+    /// The compositor's chrome palette (`GetTheme`, issue #167).
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    pub struct Theme {
+        /// Title bar of the focused window.
+        pub title_bg_active: Color,
+        /// Title bar of every other window.
+        pub title_bg_inactive: Color,
+        /// Window border.
+        pub border: Color,
+        /// Fallback taskbar strip.
+        pub taskbar: Color,
+        /// Chrome text (titles and taskbar entries).
+        pub text: Color,
+    }
+
+    impl Default for Theme {
+        fn default() -> Theme {
+            Theme {
+                title_bg_active: Color::rgb(0, 0, 0),
+                title_bg_inactive: Color::rgb(0, 0, 0),
+                border: Color::rgb(0, 0, 0),
+                taskbar: Color::rgb(0, 0, 0),
+                text: Color::rgb(0, 0, 0),
+            }
+        }
+    }
+
+    /// Unpack a `0xRRGGBB` theme colour.
+    fn color_from_u64(value: u64) -> Color {
+        Color::rgb((value >> 16) as u8, (value >> 8) as u8, value as u8)
+    }
+
+    /// One `SurfaceChanged` event (issue #167).
+    #[derive(Clone, PartialEq, Eq, Debug)]
+    pub struct SurfaceChanged {
+        pub id: u64,
+        /// One of [`change`].
+        pub kind: u64,
+        pub x: i32,
+        pub y: i32,
+        pub w: i32,
+        pub h: i32,
+        pub minimized: bool,
+        pub focused: bool,
+        /// Set on `CREATED` (the title never changes today; the `TITLE` kind
+        /// carries it when a rename method lands).
+        pub title: String,
+        /// One of [`role`] (issue #175): lets a shell tell the desktop from a
+        /// window.
+        pub role: u64,
+    }
+
+    /// A one-way event for the shell subscriber (issue #167).
+    #[derive(Clone, PartialEq, Eq, Debug)]
+    pub enum ShellEvent {
+        /// A surface was created/destroyed/moved/minimized/restored.
+        SurfaceChanged(SurfaceChanged),
+        /// The focused surface changed; `None` when nothing is focused.
+        FocusChanged(Option<u64>),
+        /// The global start-menu hotkey (Ctrl+Esc or Super) fired.
+        StartMenu,
+    }
+
+    /// Decode a shell event from a received message, or `None` when the
+    /// message is not one.
+    pub fn decode_shell_event(message: &Message) -> Option<ShellEvent> {
+        match message.method() {
+            method::SURFACE_CHANGED => {
+                let mut event = SurfaceChanged {
+                    id: 0,
+                    kind: 0,
+                    x: 0,
+                    y: 0,
+                    w: 0,
+                    h: 0,
+                    minimized: false,
+                    focused: false,
+                    title: String::new(),
+                    role: role::WINDOW,
+                };
+                let mut decoder = Decoder::new(&message.parcel.body);
+                while let Ok(Some(field)) = decoder.next() {
+                    match (field.kind, field.id) {
+                        (Kind::U64, field::SURFACE) => event.id = field.as_u64().ok()?,
+                        (Kind::U64, field::A) => event.kind = field.as_u64().ok()?,
+                        (Kind::U64, field::X) => event.x = field.as_u64().ok()? as i32,
+                        (Kind::U64, field::Y) => event.y = field.as_u64().ok()? as i32,
+                        (Kind::U64, field::W) => event.w = field.as_u64().ok()? as i32,
+                        (Kind::U64, field::H) => event.h = field.as_u64().ok()? as i32,
+                        (Kind::U64, field::MINIMIZED) => {
+                            event.minimized = field.as_u64().ok()? != 0;
+                        }
+                        (Kind::U64, field::FOCUSED) => event.focused = field.as_u64().ok()? != 0,
+                        (Kind::U64, field::ROLE) => event.role = field.as_u64().ok()?,
+                        (Kind::String, field::TITLE) => {
+                            event.title = String::from(field.as_str().ok()?);
+                        }
+                        _ => {}
+                    }
+                }
+                Some(ShellEvent::SurfaceChanged(event))
+            }
+            method::FOCUS_CHANGED => {
+                let mut id = None;
+                let mut decoder = Decoder::new(&message.parcel.body);
+                while let Ok(Some(field)) = decoder.next() {
+                    if field.kind == Kind::U64 && field.id == field::SURFACE {
+                        let value = field.as_u64().ok()?;
+                        id = (value != 0).then_some(value);
+                    }
+                }
+                Some(ShellEvent::FocusChanged(id))
+            }
+            method::START_MENU => Some(ShellEvent::StartMenu),
+            _ => None,
+        }
     }
 
     /// Encode a one-way event parcel into `scratch`, replacing its contents.

@@ -51,6 +51,11 @@ pub mod cred_op {
 /// Value returned by the service syscalls on failure/timeout.
 pub const SERVICE_ERROR: u64 = u64::MAX;
 
+/// Mirrors `kernel::ipc::credentials::CAP_SETUID`: a service holding this in
+/// [`Cred::caps`] may act with root-equivalent authority for an
+/// administrative check without being uid 0 itself.
+pub const CAP_SETUID: u32 = 1 << 6;
+
 /// A task's kernel-stamped identity (issue #101), the userspace mirror of
 /// `kernel/src/ipc/credentials.rs::Cred`.
 ///
