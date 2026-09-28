@@ -119,7 +119,7 @@ python tools/test/run.py --no-build      # re-run the current image
 The runner exits non-zero on any failure, a missing summary, or a stale
 non-test image. Normal boots are unaffected: without `LAZYOS_TESTS=1` the suite
 is not compiled. Test-only hooks live behind `cfg(lazyos_tests)`; add new tests
-to `kernel/src/tests.rs` (`mem_suite` is where allocator-specific tests go). CI
+under `kernel/src/tests/` (`mem_suite` is where allocator-specific tests go). CI
 is `.github/workflows/kernel-tests.yml`; see `tools/test/README.md`.
 
 ## Testing requirement for kernel components
@@ -127,7 +127,7 @@ is `.github/workflows/kernel-tests.yml`; see `tools/test/README.md`.
 Every kernel component (scheduler, memory/allocators, IPC/Messenger, VFS/FS,
 drivers, signals, etc.) MUST ship with both:
 
-1. **Correctness tests** — unit tests in `kernel/src/tests.rs` (grouped into
+1. **Correctness tests** — unit tests under `kernel/src/tests/` (grouped into
    per-subsystem suites, e.g. `mem_suite`) exercising normal behavior, edge
    cases, and known-bad inputs, following the existing
    `TEST:<name>:PASS|FAIL:<detail>` protocol.

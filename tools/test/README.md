@@ -39,9 +39,10 @@ non-test image), or the summary disagrees with the parsed results.
 ## Test mode
 
 `kernel/build.rs` turns `LAZYOS_TESTS=1` into `cfg(lazyos_tests)`. With the
-switch on, `kernel_main` calls `kernel/src/tests.rs::run()` after memory setup
-and halts; the normal boot path is compiled out. Without the switch nothing in
-the suite is compiled, so normal boots are byte-for-byte unchanged.
+switch on, `kernel_main` calls `kernel::tests::run()` (`kernel/src/tests/mod.rs`)
+after memory setup and halts; the normal boot path is compiled out. Without the
+switch nothing in the suite is compiled, so normal boots are byte-for-byte
+unchanged.
 
 Each test prints one line over COM1:
 
@@ -58,8 +59,10 @@ TEST:SUMMARY:PASS=<n> FAIL=<n>
 ## What the suite covers
 
 189 tests as of 2026-09-28 (21 of them soak/stress tests), grouped by name
-prefix; the authoritative list is `SUITE` in `kernel/src/tests.rs`, and the
-runner's report (`docs/test/report.md`) lists every result:
+prefix; the authoritative list is `SUITE` in `kernel/src/tests/mod.rs`, which
+assembles each suite's own `CASES` table from `kernel/src/tests/<suite>.rs` (or
+`<suite>/` when a suite outgrew one file), and the runner's report
+(`docs/test/report.md`) lists every result:
 
 | Prefix | Count | Area |
 |------|------|-----------------|
@@ -78,10 +81,12 @@ these APIs.
 
 ## Adding tests
 
-Add a `fn() -> Result<(), String>` to `kernel/src/tests.rs` and register it in
-`SUITE`. Keep the output protocol exact. Every kernel component needs both a
-correctness test and a stress/soak test (see `AGENTS.md`); put them next to the
-existing names of the same prefix.
+Add a `fn() -> Result<(), String>` to the relevant suite file under
+`kernel/src/tests/` and register it in that suite's `CASES` table (it is picked
+up automatically through `SUITE` in `kernel/src/tests/mod.rs`). Keep the output
+protocol exact. Every kernel component needs both a correctness test and a
+stress/soak test (see `AGENTS.md`); put them next to the existing names of the
+same prefix.
 
 ## CI
 

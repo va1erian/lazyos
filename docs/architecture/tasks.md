@@ -10,7 +10,7 @@ ISR that performs context switches.
 | `kernel/src/task/mod.rs` | `Task`, task table, scheduler, spawn APIs, terminals, fds |
 | `kernel/src/task/switch.rs` | `timer_isr` naked stub (IDT vector 32) |
 | `kernel/src/arch/idt.rs` | installs the timer gate; `TICKS` counter |
-| `kernel/src/tests.rs` | scheduler/task test hooks (`task::harness`) |
+| `kernel/src/tests/task_suite/`, `kernel/src/tests/sched_suite.rs` | scheduler/task test hooks (`task::harness`) |
 
 **Task table** (`task/mod.rs`)
 

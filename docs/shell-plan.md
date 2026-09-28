@@ -188,7 +188,7 @@ and open-with).
 taskbar, clicks Start, launches an app, and captures both windows
 (`SHELL:DESKTOP:PASS`, `SHELL:LAUNCH:PASS`) with `pngstats.py`; kernel
 correctness + soak tests only if the display-grant surface changes (new
-`display.rs` ops in `kernel/src/tests.rs`).
+`display.rs` ops in `kernel/src/tests/display_suite/`).
 **Status (2026-09-28):** the protocol half landed: shell protocol + desktop
 role + hotkeys (#167, PR #170), `init` `Launch` and app registry (#158, PR
 #171), xui client mode and focus routing (#168, PR #172), each with an evidence
@@ -242,7 +242,7 @@ Same policy as `platform-plan.md` section 6 and `AGENTS.md`:
 
 | Layer | Method |
 |---|---|
-| Kernel | unit + soak tests in `kernel/src/tests.rs` for every kernel path S5 touches (display-grant ops, credential/session checks) |
+| Kernel | unit + soak tests under `kernel/src/tests/` for every kernel path S5 touches (display-grant ops, credential/session checks) |
 | Shell/services | headless `qemu_session.py` scripts that log in and drive the GUI by input injection, with parseable `SHELL:*`/`FILES:*`/`THEME:*` serial markers |
 | Visual | `qemu_shot`/`pngstats.py` on every capture; golden theme and desktop images; the existing screenshot workflow |
 | Security | session-denial assertions: an app without the session grant cannot attach a surface or read the clipboard, and the denial is audited |
