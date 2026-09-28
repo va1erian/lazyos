@@ -53,6 +53,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "screenshot"))
 from qemu_qmp import Qmp, accel_args, build_qemu_command, find_qemu, free_port  # noqa: E402
 
 
+def marker_pattern(marker: str) -> re.Pattern[str]:
+    """Regex for one `MCP:<marker>:{...}` serial line.
+
+    `re.MULTILINE` is required: the payload line is followed by the shell prompt
+    (and any other serial output) in the same buffer, and without it `$` only
+    matches at the very end of the buffer, so the line was found only when the
+    poll happened to land before anything else was printed.
+    """
+    return re.compile(rf"MCP:{re.escape(marker)}:(\{{.*\}})[ \t\r]*$", re.MULTILINE)
+
+
 class DebugBridgeSession:
     """Owns a headless QEMU guest and answers `messengerctl`-backed queries.
 
@@ -102,7 +113,7 @@ class DebugBridgeSession:
     def _query(self, command: str, marker: str, timeout: float = 5.0) -> dict:
         """Type `command` and return the JSON payload of the first
         `MCP:<marker>:{...}` line that appears on serial."""
-        pattern = re.compile(rf"MCP:{re.escape(marker)}:(\{{.*\}})\s*$")
+        pattern = marker_pattern(marker)
         self._new_serial_text()  # discard anything already buffered
         self.qmp.type_text(f"{command}\n")
         deadline = time.time() + timeout

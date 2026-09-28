@@ -603,9 +603,24 @@ pub fn map(handle: u64) -> Result<u64, Error> {
 /// frames when the last reference (another task's handle, or an in-flight
 /// message) goes away.
 pub fn close(handle: u64) -> Result<(), Error> {
-    let object_id = object_of(handle, 0)?;
-    handles::close(handle).map_err(from_handles)?;
-    let slot = task::current();
+    close_for(task::current(), handle, true)
+}
+
+/// [`close`] for a handle in `slot`'s table.
+///
+/// `unmap` says whether the slot's mapping may be unmapped now. Task teardown
+/// passes `false` when another live task still shares the address space (a
+/// `CLONE_VM` sibling): the mapping stays installed, and [`teardown_task`]
+/// removes it (without releasing any frame reference a second time -- this
+/// call already released the handle's own reference) once the last sharer
+/// goes.
+fn close_for(slot: usize, handle: u64, unmap: bool) -> Result<(), Error> {
+    let entry = handles::get_for_task(slot, handle).map_err(from_handles)?;
+    if entry.kind != HandleKind::Buffer {
+        return Err(Error::WrongKind);
+    }
+    let object_id = entry.object_id;
+    handles::close_for_task(slot, handle).map_err(from_handles)?;
     let mut registry = REGISTRY.lock();
     let Some(index) = registry
         .buffers
@@ -614,7 +629,9 @@ pub fn close(handle: u64) -> Result<(), Error> {
     else {
         return Ok(());
     };
-    unmap_slot(&mut registry.buffers[index], slot);
+    if unmap {
+        unmap_slot(&mut registry.buffers[index], slot);
+    }
     let buffer = &mut registry.buffers[index];
     // Drop this handle's references: its allocator reference per frame, then
     // its place in the registry count.
@@ -624,6 +641,41 @@ pub fn close(handle: u64) -> Result<(), Error> {
         destroy_buffer(&mut registry, index, false);
     }
     Ok(())
+}
+
+/// Close every buffer handle a reclaimed task slot still holds, then drop the
+/// mappings and accounting that belonged to its address space.
+///
+/// `table` is the slot's PML4 and `table_shared` says whether another live
+/// task still uses it. Called *before* the address space is freed: a mapping
+/// left in the registry would otherwise be unmapped later through a freed (and
+/// possibly reused) page-table frame, and the frames it references would be
+/// released twice.
+pub fn teardown_task(slot: usize, table: u64, table_shared: bool) {
+    for (handle, entry) in handles::entries_for_task(slot) {
+        if entry.kind == HandleKind::Buffer {
+            let _ = close_for(slot, handle, !table_shared);
+        }
+    }
+    let mut registry = REGISTRY.lock();
+    registry.uses.retain(|used| used.slot != slot);
+    if table_shared {
+        return;
+    }
+    // Last user of the address space: remove every mapping still recorded
+    // against `table`. Its frame references were already released above, by
+    // the `close_for(slot, handle, false)` call that ran while this slot's own
+    // handles were still open (`unmap = false` deferred only the *mapping*
+    // removal, not the reference release), so `unmap_mapping` here only tears
+    // down the mapping itself and cannot double-release or leak a frame
+    // reference.
+    for index in 0..registry.buffers.len() {
+        let buffer = &mut registry.buffers[index];
+        while let Some(at) = buffer.mappings.iter().position(|m| m.table == table) {
+            let mapping = buffer.mappings.remove(at);
+            unmap_mapping(&mapping, buffer.size);
+        }
+    }
 }
 
 /// Take the message reference for a buffer moved inside a parcel's handle

@@ -293,7 +293,7 @@ fn run() -> messenger::Result<()> {
                     Err(_) => services::log_count_reply(ring.total).unwrap_or_default(),
                 };
                 if let Some(txn) = message.txn {
-                    server.reply(txn, &reply)?;
+                    server.reply_or_drop(txn, &reply)?;
                 }
             }
             Err(Error::Errno(code)) if code == -messenger::errno::ETIMEDOUT => {}

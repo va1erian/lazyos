@@ -1,0 +1,36 @@
+name: mcp-bridge
+
+# MCP debug bridge (tools/mcp): unit tests for the parts that need no QEMU
+# (the serial-line matcher). Read-only: no token beyond `contents: read`.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "tools/mcp/**"
+      - "tools/screenshot/**"
+      - ".github/workflows/mcp-bridge.yml"
+  pull_request:
+    paths:
+      - "tools/mcp/**"
+      - "tools/screenshot/**"
+      - ".github/workflows/mcp-bridge.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mcp-bridge-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  mcp-bridge:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Debug bridge tests
+        run: python tools/mcp/test_debug_bridge.py

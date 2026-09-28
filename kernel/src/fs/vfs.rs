@@ -575,7 +575,7 @@ impl Vfs {
         if path.is_root() {
             return Err(FsError::IsDir);
         }
-        self.check_path(id, &path.parent(), WRITE)?;
+        self.check_path(id, &path.parent(), WRITE | EXECUTE)?;
         let mode = mode & !self.umask & 0o7777;
         let (mount, rel) = self.resolve_mount(&path)?;
         let meta = self.mounts[mount].fs.create(&rel, mode, id)?;
@@ -589,7 +589,7 @@ impl Vfs {
         if path.is_root() {
             return Err(FsError::Exists);
         }
-        self.check_path(id, &path.parent(), WRITE)?;
+        self.check_path(id, &path.parent(), WRITE | EXECUTE)?;
         let mode = mode & !self.umask & 0o7777;
         let (mount, rel) = self.resolve_mount(&path)?;
         let meta = self.mounts[mount].fs.mkdir(&rel, mode, id)?;
@@ -604,7 +604,7 @@ impl Vfs {
         if path.is_root() {
             return Err(FsError::Access);
         }
-        let dir = self.check_path(id, &path.parent(), WRITE)?;
+        let dir = self.check_path(id, &path.parent(), WRITE | EXECUTE)?;
         let target = self.stat_path(&path)?;
         if target.kind == FileKind::Dir {
             return Err(FsError::IsDir);
@@ -623,7 +623,7 @@ impl Vfs {
         if path.is_root() {
             return Err(FsError::Access);
         }
-        let dir = self.check_path(id, &path.parent(), WRITE)?;
+        let dir = self.check_path(id, &path.parent(), WRITE | EXECUTE)?;
         let target = self.stat_path(&path)?;
         if target.kind != FileKind::Dir {
             return Err(FsError::NotDir);
@@ -643,8 +643,8 @@ impl Vfs {
         if from.is_root() || to.is_root() {
             return Err(FsError::Access); // mount roots do not move
         }
-        let from_dir = self.check_path(id, &from.parent(), WRITE)?;
-        let to_dir = self.check_path(id, &to.parent(), WRITE)?;
+        let from_dir = self.check_path(id, &from.parent(), WRITE | EXECUTE)?;
+        let to_dir = self.check_path(id, &to.parent(), WRITE | EXECUTE)?;
         let target = self.stat_path(&from)?;
         check_sticky(&from_dir, &target, id)?;
         if let Ok(existing) = self.stat_path(&to) {

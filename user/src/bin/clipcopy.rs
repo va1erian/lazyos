@@ -84,7 +84,7 @@ fn serve_serialize(server: &Endpoint) -> messenger::Result<()> {
                 let (token, mime) = clipboard::decode_serialize(&message.parcel)?;
                 let bytes = payload(&mime);
                 if let Some(txn) = message.txn {
-                    server.reply(txn, &clipboard::serialize_reply(&bytes)?)?;
+                    server.reply_or_drop(txn, &clipboard::serialize_reply(&bytes)?)?;
                 }
                 sys::write_str(&format!(
                     "CLIP:LAZY:PASS token={token} mime={mime} bytes={}\n",

@@ -45,8 +45,11 @@ syscall shim.
 | 12 | `display(op, ...)` | display grant (see [display.md](display.md)) |
 
 - `spawn` reads the ELF from the FAT image, leaks one interned `&'static str`
-  per distinct service name, and resets the slot's credentials before the child
-  can run; `SERVICE_ARGS` is keyed by slot and cleared on reuse. `load_image`
+  per distinct service name (at most 64; later spellings share the name
+  `service`), and gives the child a copy of the *caller's* credentials before it
+  can run; `SERVICE_ARGS` is keyed by slot and cleared on reuse. `fork`, `clone`
+  and threads inherit the same way, and only a program the kernel itself starts
+  begins as root. `load_image`
   maps `PT_LOAD` segments (prot from `PF_W`/`PF_X`, `File` VMA) and the stack
   eagerly at `USER_HEAP_BASE = 0x60_0000` / `USER_STACK_TOP = 0x80_0000`
   (`USER_STACK_SIZE = 0x2_0000`).

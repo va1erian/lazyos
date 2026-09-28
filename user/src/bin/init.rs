@@ -786,6 +786,23 @@ fn child_exited(services: &mut [Service], pid: u64, status: u64, broker: &mut ro
             status,
             "",
         );
+    } else if status != 0 {
+        // No restart policy, but it did not exit cleanly: that is a failure,
+        // not a service that finished its work.
+        services[index].phase = Phase::Failed;
+        sys::write_str(&format!(
+            "init: service {} exited (status {}); not restarting\n",
+            spec.name, status
+        ));
+        publish_state(
+            broker,
+            spec,
+            "failed",
+            0,
+            services[index].restarts,
+            status,
+            "exited with an error and has no restart policy",
+        );
     } else {
         services[index].phase = Phase::Stopped;
         sys::write_str(&format!(
@@ -867,7 +884,7 @@ fn serve_pending(
             Err(_) => Parcel::default(),
         };
         if let Some(txn) = message.txn {
-            server.reply(txn, &reply)?;
+            server.reply_or_drop(txn, &reply)?;
         }
     }
     Ok(())

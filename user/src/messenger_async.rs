@@ -756,7 +756,7 @@ impl Mailbox {
             )?,
         };
         match message.txn {
-            Some(txn) => self.endpoint.reply(txn, &parcel),
+            Some(txn) => self.endpoint.reply_or_drop(txn, &parcel),
             None => Ok(()),
         }
     }

@@ -210,6 +210,57 @@ pub fn close(handle: u64) -> Result<(), Error> {
     result
 }
 
+/// Drop a handle from a specific task slot's table.
+///
+/// The counterpart of [`close`] for teardown: the caller is not the owner (the
+/// dead task's slot is being reclaimed), so the per-uid handle charge is
+/// released against the slot's own stamped uid.
+pub fn close_for_task(slot: usize, handle: u64) -> Result<(), Error> {
+    let result = {
+        let mut tables = TABLES.lock();
+        let table = tables.get_mut(slot).ok_or(Error::BadTask)?;
+        table.close(handle)
+    };
+    if result.is_ok() {
+        release_handle(slot, 1);
+    }
+    result
+}
+
+/// How many handles, across every task's table, still name `object_id`.
+///
+/// Endpoint handles are not reference counted by the channel registry: a name
+/// resolve opens a fresh handle to the *same* endpoint side in each client. Task
+/// teardown asks this before declaring a side dead, so one client exiting does
+/// not fail the in-flight calls of every other client of the same service.
+pub fn object_refs(kind: HandleKind, object_id: u64) -> usize {
+    let tables = TABLES.lock();
+    tables
+        .iter()
+        .flat_map(|table| table.slots.iter())
+        .filter(|slot| {
+            slot.is_some_and(|entry| entry.kind == kind && entry.object_id == object_id)
+        })
+        .count()
+}
+
+/// Every occupied handle in a task slot's table, as `(handle, entry)`.
+///
+/// Teardown walks this to close each object through its own subsystem (channel
+/// endpoints, shared buffers) before the table is dropped.
+pub fn entries_for_task(slot: usize) -> Vec<(u64, HandleEntry)> {
+    let tables = TABLES.lock();
+    match tables.get(slot) {
+        Some(table) => table
+            .slots
+            .iter()
+            .enumerate()
+            .filter_map(|(index, entry)| entry.map(|entry| (index as u64, entry)))
+            .collect(),
+        None => Vec::new(),
+    }
+}
+
 /// Copy out an entry (the fabric never hands out mutable references).
 pub fn get(handle: u64) -> Result<HandleEntry, Error> {
     with_table(|table| table.entry(handle))?

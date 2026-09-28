@@ -28,6 +28,38 @@ pub mod syscalls;
 pub mod topics;
 pub mod unix;
 
+/// Tear down everything a reclaimed task slot still holds in the fabric.
+///
+/// Called by the scheduler when it frees the slot of a finished task
+/// (`task::reap_child` / `task::reclaim_pending`), *before* the address space
+/// is released. `table` is the slot's PML4 and `table_shared` says whether
+/// another live task still uses it.
+///
+/// Without this a dead task's handle table stayed behind: the next task to reuse
+/// the slot inherited its channel endpoints and buffers (a capability leak), its
+/// peers never saw `PeerDied` and blocked forever, its per-uid handle and buffer
+/// charges were never released, and a shared-buffer mapping recorded against the
+/// dead PML4 was later unmapped through freed page-table memory.
+pub fn teardown_task(slot: usize, table: u64, table_shared: bool) {
+    registry::release_owner(slot);
+    for (handle, entry) in handles::entries_for_task(slot) {
+        match entry.kind {
+            handles::HandleKind::Channel => {
+                let _ = channels::close_endpoint_for(slot, handle, true);
+            }
+            // Buffers are closed (and unmapped) by `shared::teardown_task`.
+            handles::HandleKind::Buffer => {}
+            handles::HandleKind::Endpoint | handles::HandleKind::Object => {
+                let _ = handles::close_for_task(slot, handle);
+            }
+        }
+    }
+    shared::teardown_task(slot, table, table_shared);
+    channels::forget_task(slot);
+    // Anything a subsystem refused to close still must not outlive the slot.
+    handles::reset_for_task(slot);
+}
+
 /// The fabric's single policy choke point (issue #68).
 ///
 /// `channels` (#66) and the native syscall dispatch (#69) call this once per

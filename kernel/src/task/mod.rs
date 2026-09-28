@@ -47,6 +47,7 @@ use x86_64::PhysAddr;
 
 use crate::arch::gdt;
 use crate::input::keyboard::Key;
+use crate::ipc::credentials;
 use crate::ipc::epoll::Epoll;
 use crate::ipc::eventfd::EventFd;
 use crate::ipc::pipe::{self, End, Pipe, Side, SocketPair};
@@ -629,6 +630,13 @@ fn spawn_in_space(
         None => (0, index, index),
     };
 
+    // A supervised child starts with its supervisor's credentials (never the
+    // root default), a kernel-started program with the root default: the slot
+    // may still hold a dead task's identity.
+    match parent {
+        Some(parent) => credentials::inherit(parent, index),
+        None => credentials::reset_for_task(index),
+    }
     tasks[index] = Some(Task {
         name,
         kind: Kind::Native,
@@ -678,6 +686,8 @@ pub fn spawn_linux(name: &'static str, elf: &[u8], argv0: &str) -> Result<usize,
     let class = PriorityClass::Normal;
     let pass = virtual_now(&tasks);
 
+    // Started by the kernel: root, and never a dead task's stale identity.
+    credentials::reset_for_task(index);
     tasks[index] = Some(Task {
         name,
         kind: Kind::Linux,
@@ -740,6 +750,8 @@ pub fn spawn_thread(
     let rsp = build_thread_frame(top, &context, user_rsp);
     let pass = virtual_now(&tasks);
 
+    // A thread runs with its creator's credentials, not the slot's leftovers.
+    credentials::inherit(current(), index);
     tasks[index] = Some(Task {
         name,
         kind: Kind::Linux,
@@ -836,6 +848,9 @@ fn spawn_fork_inner(user_rsp: Option<u64>) -> Result<usize, &'static str> {
     let top = kstack_top(index);
     let rsp = build_thread_frame(top, &context, user_rsp.unwrap_or(context.rsp));
 
+    // `fork`/`vfork` children inherit the parent's credentials; the slot may
+    // still hold a dead task's (possibly root) identity.
+    credentials::inherit(parent_index, index);
     tasks[index] = Some(Task {
         name: "fork",
         kind: Kind::Linux,
@@ -931,6 +946,17 @@ pub fn current() -> usize {
     CURRENT.load(Ordering::Relaxed)
 }
 
+/// The PML4 physical address of task `slot`'s address space, or `None` for an
+/// empty slot.
+///
+/// This is the *slot's own* table, independent of whichever table is active on
+/// the CPU right now: a syscall handler runs on its caller's table (so
+/// `slot == current()` and the active CR3 agree), but a caller that charges or
+/// releases another slot's resources must not assume that coincidence.
+pub fn pml4_of(slot: usize) -> Option<u64> {
+    TASKS.lock().get(slot)?.as_ref().map(|task| task.pml4)
+}
+
 /// Mark the current task finished with an exit status and re-parent its
 /// children to the kernel/init task (see [`process::finish`]).
 pub fn finish_current(code: u64) {
@@ -1001,6 +1027,8 @@ pub fn has_children() -> bool {
 /// tables and PML4 frame. The caller guarantees no live task references
 /// `pml4`.
 fn release_address_space(pml4: u64) -> usize {
+    // Give the per-uid user-memory charge this address space still holds back.
+    crate::quota::forget_address_space(pml4);
     forget_bumps(pml4);
     signal::forget(pml4);
     mem::free_user_table(PhysAddr::new(pml4))
@@ -1008,15 +1036,13 @@ fn release_address_space(pml4: u64) -> usize {
 
 /// Remove `slot` if it holds a finished task that no `wait4` can ever collect:
 /// a `clone(CLONE_VM)` thread or a kernel-started program has `parent == 0`,
-/// so it has no reaper. Returns whether a slot was removed, plus the address
-/// space that just lost its last user when this removal was its last reference
-/// (`None` while another task still shares it).
-fn take_finished(tasks: &mut [Option<Task>; MAX_TASKS], slot: usize) -> (bool, Option<u64>) {
-    let Some(task) = tasks[slot].as_ref() else {
-        return (false, None);
-    };
+/// so it has no reaper. Returns the removed task's address space and whether
+/// another task still shares it (so the space must outlive this removal), or
+/// `None` when nothing was removed.
+fn take_finished(tasks: &mut [Option<Task>; MAX_TASKS], slot: usize) -> Option<(u64, bool)> {
+    let task = tasks[slot].as_ref()?;
     if task.state != TaskState::Done || task.parent != 0 {
-        return (false, None);
+        return None;
     }
     let pml4 = task.pml4;
     // Dropping the task frees its fds and output/input buffers; the kernel
@@ -1026,7 +1052,7 @@ fn take_finished(tasks: &mut [Option<Task>; MAX_TASKS], slot: usize) -> (bool, O
         .iter()
         .enumerate()
         .any(|(other, task)| other != slot && task.as_ref().is_some_and(|task| task.pml4 == pml4));
-    (true, (!shared).then_some(pml4))
+    Some((pml4, shared))
 }
 
 /// Flag `slot` for task-context reclamation if it holds a finished parentless
@@ -1056,21 +1082,30 @@ pub fn reclaim_pending() {
     let mut tasks = TASKS.lock();
     let mut orphans = [0u64; MAX_TASKS];
     let mut orphan_count = 0;
-    let mut reclaimed = 0;
+    // (slot, its PML4, whether another task still shares that PML4).
+    let mut removed = [(0usize, 0u64, false); MAX_TASKS];
+    let mut removed_count = 0;
     for slot in 1..MAX_TASKS {
         if pending & (1u32 << slot) != 0 {
-            let (removed, orphan) = take_finished(&mut tasks, slot);
-            if removed {
-                reclaimed += 1;
-            }
-            if let Some(pml4) = orphan {
-                orphans[orphan_count] = pml4;
-                orphan_count += 1;
+            if let Some((pml4, shared)) = take_finished(&mut tasks, slot) {
+                removed[removed_count] = (slot, pml4, shared);
+                removed_count += 1;
+                if !shared {
+                    orphans[orphan_count] = pml4;
+                    orphan_count += 1;
+                }
             }
         }
     }
     drop(tasks);
-    if reclaimed > 0 {
+    // Release what the dead tasks still hold in the Messenger fabric before
+    // their address spaces go away (`ipc::teardown_task` explains why the
+    // order matters). The task table is unlocked: closing an endpoint wakes
+    // waiters, which takes the wait-queue lock and then the table.
+    for &(slot, pml4, shared) in &removed[..removed_count] {
+        crate::ipc::teardown_task(slot, pml4, shared);
+    }
+    if removed_count > 0 {
         // A `clone` sleeping on table pressure can return early. Queue before
         // task table order holds: the lock above is already released.
         wait::SLOT.notify_all();
@@ -1130,6 +1165,9 @@ pub fn reap_child() -> Option<(usize, u64)> {
     // blocked on a pipe it held. Must happen with `TASKS` unlocked: pipe
     // release takes the wait-queue lock and then the task table.
     drop(dead);
+    // The dead task's Messenger handles, buffers and mappings go before its
+    // address space does.
+    crate::ipc::teardown_task(index, pml4, shared);
     if !shared {
         let pages = mem::user_table_frame_count(PhysAddr::new(pml4));
         let released = release_address_space(pml4);
@@ -1912,8 +1950,8 @@ pub fn fd_close(fd: usize) -> bool {
             _ => (None, Vec::new()),
         }
     };
-    for epoll in epolls {
-        epoll.drop_fd(fd);
+    for epoll in &epolls {
+        Epoll::drop_fd(epoll, fd);
     }
     let closed = old.is_some();
     drop(old);
@@ -2149,25 +2187,51 @@ pub fn fd_seqpacket(fd: usize) -> bool {
     matches!(&task.fds[fd], Fd::Socket { pair, .. } if pair.seqpacket())
 }
 
-/// Read up to `count` bytes from a file descriptor into `dst`.
-pub fn fd_read(fd: usize, dst: *mut u8, count: usize) -> Option<usize> {
-    let mut tasks = TASKS.lock();
-    let task = tasks[current()].as_mut()?;
+/// Most bytes one [`fd_peek`] hands back; a short read is legal, so a huge
+/// request is served in pieces instead of duplicating the whole file.
+const FD_READ_MAX: usize = 1 << 20;
+
+/// The next up-to-`count` bytes of a file descriptor, *without* advancing its
+/// offset. The bytes come back in a kernel buffer so the caller can copy them
+/// to user memory through the validated path and only then [`fd_advance`].
+///
+/// This used to take a raw destination pointer and `copy_nonoverlapping` into it
+/// while holding the task-table lock: a user-chosen kernel address was an
+/// arbitrary kernel write with file-controlled contents.
+pub fn fd_peek(fd: usize, count: usize) -> Option<Vec<u8>> {
+    let tasks = TASKS.lock();
+    let task = tasks[current()].as_ref()?;
     if fd >= FD_COUNT {
         return None;
     }
-    if let Fd::File { data, offset } = &mut task.fds[fd] {
+    if let Fd::File { data, offset } = &task.fds[fd] {
         let remaining = data.len().saturating_sub(*offset);
-        let n = remaining.min(count);
-        // Safety: the caller guarantees `dst` is writable for `n` bytes.
-        unsafe {
-            core::ptr::copy_nonoverlapping(data[*offset..*offset + n].as_ptr(), dst, n);
-        }
-        *offset += n;
-        Some(n)
+        let n = remaining.min(count).min(FD_READ_MAX);
+        Some(data[*offset..*offset + n].to_vec())
     } else {
         None
     }
+}
+
+/// Advance a file descriptor's offset by `n` bytes after a successful
+/// [`fd_peek`] and copy-out.
+pub fn fd_advance(fd: usize, n: usize) {
+    let mut tasks = TASKS.lock();
+    if let Some(task) = tasks[current()].as_mut() {
+        if fd < FD_COUNT {
+            if let Fd::File { data, offset } = &mut task.fds[fd] {
+                *offset = (*offset + n).min(data.len());
+            }
+        }
+    }
+}
+
+/// Read up to `count` bytes from a file descriptor and advance its offset.
+#[cfg_attr(not(lazyos_tests), allow(dead_code))] // the tests read through it
+pub fn fd_read(fd: usize, count: usize) -> Option<Vec<u8>> {
+    let bytes = fd_peek(fd, count)?;
+    fd_advance(fd, bytes.len());
+    Some(bytes)
 }
 
 /// File size for a file descriptor (none for terminals/closed).
