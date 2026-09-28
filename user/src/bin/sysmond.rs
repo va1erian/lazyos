@@ -22,7 +22,10 @@
 //! monitor is safe to expose to unprivileged clients.
 //!
 //! The on-disk name is `SYSD.ELF` (8.3-safe: the kernel's FAT reader only
-//! resolves short names). `init` starts the service from its manifest.
+//! resolves short names). `init` starts the service from its manifest. With
+//! `demo=1` in the manifest arguments it spawns `top` (`TOP.ELF`), its one-shot
+//! evidence client, and reaps it: `top` exits once it has printed its verdict,
+//! so it is not a supervised service.
 
 #![no_std]
 #![no_main]
@@ -46,6 +49,8 @@ use user::sysinfo::{self, Snapshot, TaskState};
 const PUBLISH_TICKS: u64 = 500;
 /// How long the service sleeps between message polls.
 const IDLE_TICKS: u64 = 5;
+/// The evidence program `demo=1` spawns once the first snapshot is retained.
+const DEMO_PROGRAM: &str = "TOP.ELF";
 
 #[no_mangle]
 pub extern "C" fn _start() -> ! {
@@ -84,6 +89,8 @@ fn run() -> messenger::Result<()> {
     let mut buffer = alloc::vec![0u8; messenger::DEFAULT_BUFFER];
     let mut next_publish = 0u64;
     let mut announced = false;
+    let mut demo_pending = demo_from_args();
+    let mut demo_running = false;
 
     loop {
         let now = sys::clock();
@@ -101,6 +108,12 @@ fn run() -> messenger::Result<()> {
                 }
             }
             next_publish = sys::clock() + PUBLISH_TICKS;
+        }
+        // Start `top` only once the retained topics exist, so its first
+        // snapshot already has something to show.
+        if demo_pending && announced {
+            demo_pending = false;
+            demo_running = spawn_demo();
         }
 
         match server.recv_with(&mut buffer, Some(sys::clock() + IDLE_TICKS)) {
@@ -127,6 +140,37 @@ fn run() -> messenger::Result<()> {
             }
             Err(Error::Errno(code)) if code == -errno::ETIMEDOUT => {}
             Err(error) => return Err(error),
+        }
+        // Non-blocking reap: an expired deadline returns after the next timer
+        // sweep, so the exited demo child does not linger as a zombie.
+        if demo_running && sys::wait(sys::clock()).is_some() {
+            demo_running = false;
+        }
+    }
+}
+
+/// Whether the manifest asked for the `top` demo (`demo=1`).
+fn demo_from_args() -> bool {
+    let mut buffer = [0u8; 128];
+    let len = sys::service_args(&mut buffer).min(buffer.len());
+    let text = core::str::from_utf8(&buffer[..len]).unwrap_or("");
+    text.split_whitespace().any(|part| part == "demo=1")
+}
+
+/// Spawn `top` as a child of this service; returns whether it started.
+fn spawn_demo() -> bool {
+    let mut command = DEMO_PROGRAM.as_bytes().to_vec();
+    command.push(0);
+    match sys::spawn(&command) {
+        Some(pid) => {
+            sys::write_str(&format!(
+                "sysmond: started demo {DEMO_PROGRAM} (pid {pid})\n"
+            ));
+            true
+        }
+        None => {
+            sys::write_str(&format!("sysmond: demo {DEMO_PROGRAM} spawn failed\n"));
+            false
         }
     }
 }

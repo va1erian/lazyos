@@ -11,8 +11,8 @@
 //! `sysmond` service exposes the same snapshot over Messenger for dashboards.
 //!
 //! The on-disk name is `TOP.ELF` (8.3-safe: the kernel's FAT reader only
-//! resolves short names). `init` starts it once from its manifest, after
-//! `sysmond`.
+//! resolves short names). `sysmond` spawns it once (manifest argument
+//! `demo=1`) after its first snapshot is retained, and reaps it.
 
 #![no_std]
 #![no_main]
