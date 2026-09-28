@@ -13,6 +13,7 @@ mod arch;
 mod block;
 mod console;
 mod cursor;
+mod display;
 mod font;
 mod fs;
 mod gfx;
@@ -72,6 +73,10 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         info.height,
         info.pixel_format
     );
+    // The display grant (issue #113) needs the framebuffer geometry to size a
+    // compositor's screen buffer; the mux itself keeps using the console. This
+    // is recorded before the test hook so the kernel suite sees it too.
+    display::init(info.width, info.height, info.stride, info.bytes_per_pixel);
 
     mem::init(boot_info);
 
@@ -151,6 +156,19 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         spawn_program("hello", "HELLO.ELF");
         #[cfg(not(services_mode))]
         spawn_program("sh", "SH.ELF");
+
+        // Issue #113: `LAZYOS_XUID=1` boots the userspace compositor (`XUID.ELF`)
+        // and two instances of the display-protocol demo app (`XDEMO.ELF`).
+        // `xuid` binds the display grant, so the mux stops painting and the
+        // screen shows the composited windows instead; two clients prove the
+        // protocol routes focus per surface. The default demo is untouched
+        // without the flag.
+        #[cfg(xuid_demo)]
+        spawn_program("xuid", "XUID.ELF");
+        #[cfg(xuid_demo)]
+        spawn_program("xdemo", "XDEMO.ELF");
+        #[cfg(xuid_demo)]
+        spawn_program("xdemo", "XDEMO.ELF");
     }
 
     let stats = mem::frame_stats();

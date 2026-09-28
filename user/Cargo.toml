@@ -1,4 +1,4 @@
-[package]
+﻿[package]
 name = "user"
 version = "0.1.0"
 edition = "2021"
@@ -104,6 +104,22 @@ name = "mimed"
 path = "src/bin/mimed.rs"
 test = false
 bench = false
+# The display protocol stack (issue #113). `xuid` is the session compositor:
+# it binds the kernel's display device grant, implements `os.lazy.display.v1`
+# over Messenger, decorates and routes input to app surfaces. `xdemo` is the
+# smallest display client: one surface, a painted pattern, input-driven updates.
+# Both are embedded only with `LAZYOS_XUID=1`.
+[[bin]]
+name = "xuid"
+path = "src/bin/xuid.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "xdemo"
+path = "src/bin/xdemo.rs"
+test = false
+bench = false
 
 # Async API examples (issue #91). Not wired into the demo image yet: the root
 # build script would need a `CARGO_BIN_FILE_USER_*` hook and a kernel spawn
@@ -119,3 +135,4 @@ name = "async_service"
 path = "src/bin/async_service.rs"
 test = false
 bench = false
+

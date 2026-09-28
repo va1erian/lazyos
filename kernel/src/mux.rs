@@ -32,7 +32,23 @@ pub fn run() -> ! {
     let mut back = RgbaBuffer::new(fbw, fbh);
 
     let mut mouse_prev: Option<(i32, i32)> = None;
+    // Whether a compositor owned the display on the previous iteration, so the
+    // mux can repaint from scratch when it takes the screen back (issue #113).
+    let mut yielded = false;
     loop {
+        // A bound compositor owns the screen and input: stop painting entirely
+        // and park like any idle task. The check also notices a compositor that
+        // exited without unbinding, so this mux is always the fallback.
+        if crate::display::bound() {
+            yielded = true;
+            task::idle(task::ticks() + IDLE_TICKS);
+            continue;
+        }
+        if yielded {
+            yielded = false;
+            mouse_prev = None;
+            task::NEEDS_REDRAW.store(true, Ordering::Relaxed);
+        }
         if task::NEEDS_REDRAW.swap(false, Ordering::Relaxed) {
             render(&mut back);
             present(&back, 0, 0, fbw, fbh);

@@ -51,6 +51,15 @@ fn main() {
         println!("cargo:rustc-cfg=services_mode");
     }
 
+    // Display protocol demo switch (issue #113): `LAZYOS_XUID=1` boots the
+    // userspace compositor (`XUID.ELF`) and its demo app (`XDEMO.ELF`), which
+    // claim the display device grant from the kernel mux.
+    println!("cargo:rerun-if-env-changed=LAZYOS_XUID");
+    println!("cargo:rustc-check-cfg=cfg(xuid_demo)");
+    if env::var_os("LAZYOS_XUID").as_deref() == Some(std::ffi::OsStr::new("1")) {
+        println!("cargo:rustc-cfg=xuid_demo");
+    }
+
     let font_bytes = fs::read(&font_path).expect("read JetBrainsMono-Regular.ttf");
     let atlas = font_atlas::build(&font_bytes, 20.0);
 

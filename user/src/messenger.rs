@@ -123,7 +123,8 @@ pub struct MsgResult {
     pub aux: u64,
     /// Bytes written to `buf_ptr` (call, await, recv, stats).
     pub bytes: u64,
-    /// Reserved; always zero today.
+    /// `recv` reports the delivered transfers here: `[first handle, handle
+    /// count, first buffer handle, buffer count]`; zero otherwise.
     pub reserved: [u64; 4],
 }
 
@@ -370,8 +371,8 @@ impl Error {
     pub fn errno(self) -> Option<i64> {
         match self {
             Error::Errno(code) => Some(code),
-            // Registry, broker and service codes travel positive; normalise to
-            // the syscall shape.
+            // Registry and broker codes travel positive; normalise to the
+            // syscall shape.
             Error::Registry(code) | Error::Topics(code) | Error::Mime(code) => Some(-code),
             Error::Parcel(_) => None,
         }
@@ -468,7 +469,6 @@ fn mime_message(code: i64) -> &'static str {
         "the MIME request failed"
     }
 }
-
 /// Result alias for the userspace API.
 pub type Result<T> = core::result::Result<T, Error>;
 
@@ -542,7 +542,7 @@ impl Endpoint {
     }
 
     /// Register a call and park the task; returns the transaction id. Complete
-    /// it with [`Endpoint::await_reply`] â€” the same split the kernel uses for
+    /// it with [`Endpoint::await_reply`] Ã¢â‚¬â€ the same split the kernel uses for
     /// asynchronous completion.
     pub fn begin_call(&self, request: &Parcel, deadline: Option<u64>) -> Result<u64> {
         let bytes = encode(request)?;
@@ -634,6 +634,10 @@ impl Endpoint {
             sender: result.aux,
             txn: (result.value != 0).then_some(result.value),
             parcel,
+            first_handle: result.reserved[0],
+            handles: result.reserved[1],
+            first_buffer: result.reserved[2],
+            buffers: result.reserved[3],
         })
     }
 
@@ -698,6 +702,20 @@ pub struct Message {
     pub txn: Option<u64>,
     /// The decoded parcel.
     pub parcel: Parcel,
+    /// First transferred handle installed by the delivery, as a number in this
+    /// task's table. Handle `0` is a valid number, so read [`Message::handles`]
+    /// to tell "none" from a real handle. The display protocol reads a client's
+    /// event endpoint here.
+    pub first_handle: u64,
+    /// Number of handles the delivery installed (`0` = the message transferred
+    /// none).
+    pub handles: u64,
+    /// First shared-buffer handle installed by the delivery, ready for
+    /// `crate::sys::display_map_buffer`. [`Message::buffers`] says whether it
+    /// is real. The display protocol reads a client's surface buffer here.
+    pub first_buffer: u64,
+    /// Number of shared-buffer handles the delivery installed.
+    pub buffers: u64,
 }
 
 impl Message {
@@ -1332,7 +1350,7 @@ pub mod registry {
 /// recorded in section 20: the kernel's job is policy and message transport,
 /// not naming, filters, QoS or retained state. The broker is addressed through
 /// the well-known name [`NAME`] on the same bootstrap endpoint as the service
-/// registry â€” the daemon dispatches on the parcel's interface id.
+/// registry Ã¢â‚¬â€ the daemon dispatches on the parcel's interface id.
 ///
 /// ## Delivery is pull-based, with kernel-mediated blocking
 ///
@@ -1361,7 +1379,7 @@ pub mod registry {
 /// next request. The broker counts every dropped event per subscriber;
 /// [`Subscription::stats`] exposes the counter. There are no timers in
 /// userspace yet, so `reliable` retirement is pull-driven (an event stays
-/// outstanding until acked or the subscriber dies) â€” best-effort after peer
+/// outstanding until acked or the subscriber dies) Ã¢â‚¬â€ best-effort after peer
 /// death is the documented limit.
 ///
 /// ## Policy
@@ -2600,12 +2618,12 @@ pub mod router {
 ///
 /// The topic names are the platform plan's:
 ///
-/// * `system/events/service/<name>` â€” a service's state changed (payload:
+/// * `system/events/service/<name>` Ã¢â‚¬â€ a service's state changed (payload:
 ///   `state=... pid=... status=... restarts=...`);
-/// * `system/events/security/denial` â€” the audit counters advanced (the
+/// * `system/events/security/denial` Ã¢â‚¬â€ the audit counters advanced (the
 ///   interim signal until the kernel exposes audit records to userspace);
-/// * `system/health/<name>` â€” retained health row published by `healthd`;
-/// * `system/health/summary` â€” retained aggregate (worst status wins).
+/// * `system/health/<name>` Ã¢â‚¬â€ retained health row published by `healthd`;
+/// * `system/health/summary` Ã¢â‚¬â€ retained aggregate (worst status wins).
 pub mod services {
     use alloc::string::String;
     use alloc::vec::Vec;
@@ -3954,17 +3972,632 @@ pub mod logind {
 }
 
 // ---------------------------------------------------------------------------
-// MIME database and open-with registry (issue #116)
+// Display protocol (issue #113)
 // ---------------------------------------------------------------------------
 
-/// Client and wire shapes for `mimed`, the MIME database and open-with
-/// registry (issue #116).
+/// The display protocol (`docs/platform-plan.md` S4.4, issue #113): the
+/// userspace compositor `xuid` owns the framebuffer through the kernel's device
+/// grant and implements one Messenger interface, `os.lazy.display.v1`.
 ///
-/// `mimed` owns two tables: a MIME database (`Guess`) and an open-with
-/// registry (`Register`/`Lookup`/`Verbs`). [`Client::open`] walks both - guess
-/// the type from the path, resolve the app for the verb, then ask `mimed` to
-/// publish the launch event - and the free functions below are the one-shot
-/// convenience shape `messengerctl` uses.
+/// ## Client and compositor
+///
+/// An app connects with [`display::Client::connect`], creates a surface (the
+/// parcel transfers its **event endpoint**, so the compositor can send input
+/// back), creates a shared pixel buffer with the `display` syscall, attaches it
+/// and draws into it. `Commit` after each change is the "pixels are ready"
+/// signal.
+///
+/// ## Input delivery
+///
+/// Input arrives as one-way messages on the event endpoint the app transferred:
+/// [`display::decode_event`] turns a received [`Message`] into an
+/// [`display::Event`]. The app polls that channel; the compositor forwards only
+/// events for the focused surface.
+///
+/// ## Rendering
+///
+/// [`display::Canvas`] is the userspace software blitter ([`display::font`] is
+/// a 5x7 bitmap font): apps and the compositor draw into the same shared-buffer
+/// mapping the kernel handed out, so compositing an app's window is a plain
+/// memory copy from the app buffer into the screen buffer. The tiny-skia-like
+/// in-kernel renderer cannot be linked from ring 3, which is why this path is a
+/// simple blitter; the XUI/tiny-skia toolkit is the S4 follow-up.
+pub mod display {
+    use alloc::vec;
+    use alloc::vec::Vec;
+
+    use libmessenger::{flags, BufferDesc, Decoder, Encoder, Header, Kind, Parcel, VERSION};
+
+    use super::{
+        errno, op, registry, syscall, Endpoint, Error, Message, MsgArgs, MsgResult, Result,
+    };
+
+    /// Well-known compositor name. The interface id is the first eight bytes of
+    /// the same string, matching the kernel registry convention.
+    pub const NAME: &str = "os.lazy.display.v1";
+    /// Interface id (`os.lazy.` prefix, like the registry's).
+    pub const INTERFACE: u64 = u64::from_le_bytes(*b"os.lazy.");
+
+    /// Display protocol methods.
+    pub mod method {
+        /// Create a surface; reply carries its id.
+        pub const CREATE_SURFACE: u32 = 1;
+        /// Attach (or replace) a surface's pixel buffer.
+        pub const ATTACH_BUFFER: u32 = 2;
+        /// Signal that a damage rectangle is ready to present.
+        pub const COMMIT: u32 = 3;
+        /// Drop a surface.
+        pub const DESTROY_SURFACE: u32 = 4;
+        /// Compositor to app: pointer moved.
+        pub const POINTER_MOVE: u32 = 5;
+        /// Compositor to app: pointer button pressed.
+        pub const POINTER_DOWN: u32 = 6;
+        /// Compositor to app: pointer button released.
+        pub const POINTER_UP: u32 = 7;
+        /// Compositor to app: key pressed.
+        pub const KEY_DOWN: u32 = 8;
+        /// Compositor to app: key released.
+        pub const KEY_UP: u32 = 9;
+    }
+
+    /// TLV field ids of the display protocol.
+    pub mod field {
+        /// Surface id.
+        pub const SURFACE: u16 = 1;
+        /// Surface width in pixels.
+        pub const WIDTH: u16 = 2;
+        /// Surface height in pixels.
+        pub const HEIGHT: u16 = 3;
+        /// Window title string.
+        pub const TITLE: u16 = 4;
+        /// Damage rectangle x.
+        pub const X: u16 = 5;
+        /// Damage rectangle y.
+        pub const Y: u16 = 6;
+        /// Damage rectangle width.
+        pub const W: u16 = 7;
+        /// Damage rectangle height.
+        pub const H: u16 = 8;
+        /// Event payload, first word (key code, pointer x, or button).
+        pub const A: u16 = 9;
+        /// Event payload, second word (pointer y).
+        pub const B: u16 = 10;
+        /// Structured error code in a failure reply.
+        pub const ERROR: u16 = 11;
+    }
+
+    /// Key codes for non-character keys; mirrors `kernel/src/display.rs`.
+    pub mod key {
+        pub const ENTER: u32 = 13;
+        pub const BACKSPACE: u32 = 8;
+        pub const TAB: u32 = 9;
+        pub const ESCAPE: u32 = 27;
+        pub const SPACE: u32 = 32;
+        pub const LEFT: u32 = 0x100;
+        pub const RIGHT: u32 = 0x101;
+        pub const UP: u32 = 0x102;
+        pub const DOWN: u32 = 0x103;
+        pub const PAGE_UP: u32 = 0x104;
+        pub const PAGE_DOWN: u32 = 0x105;
+        pub const HOME: u32 = 0x106;
+        pub const END: u32 = 0x107;
+    }
+
+    /// Pointer buttons, as reported in pointer events.
+    pub mod button {
+        pub const LEFT: u32 = 1;
+        pub const RIGHT: u32 = 2;
+        pub const MIDDLE: u32 = 3;
+    }
+
+    /// PIT ticks `Client::connect` waits for the compositor's name to appear.
+    /// The kernel spawns `xuid` before its demo client, but the compositor must
+    /// still bind the display and register the name, so a short retry window
+    /// keeps the app robust to that race.
+    const CONNECT_TICKS: u64 = 100;
+
+    /// A header for a display parcel of `method`. `ALLOW_NESTED` keeps an app's
+    /// event poll from tripping the kernel's per-channel cycle check while a
+    /// `Commit` call is in flight.
+    fn header(method: u32) -> Header {
+        Header {
+            version: VERSION,
+            flags: flags::ALLOW_NESTED,
+            interface_id: INTERFACE,
+            method,
+            txn_id: 0,
+            reply_to: 0,
+            deadline_ns: 0,
+        }
+    }
+
+    /// An app's connection to the compositor.
+    #[derive(Clone, Copy)]
+    pub struct Client {
+        endpoint: Endpoint,
+    }
+
+    impl Client {
+        /// Resolve [`NAME`] into this task, retrying briefly while the
+        /// compositor starts, and wrap the endpoint.
+        pub fn connect() -> Result<Client> {
+            let deadline = crate::sys::clock().saturating_add(CONNECT_TICKS);
+            loop {
+                match registry::resolve(NAME) {
+                    Ok(endpoint) => return Ok(Client { endpoint }),
+                    Err(error) => {
+                        if crate::sys::clock() >= deadline {
+                            return Err(error);
+                        }
+                        // Park one tick on the child-exit queue: no children
+                        // means this is a clean sleep (the "no clock yet"
+                        // pattern the other clients use).
+                        let _ = crate::sys::wait(crate::sys::clock() + 1);
+                    }
+                }
+            }
+        }
+
+        /// A `CreateSurface(width, height, title, events)` request. The event
+        /// endpoint is moved to the compositor, which sends input back on it.
+        /// Returns the new surface id.
+        pub fn create_surface(
+            &self,
+            width: u64,
+            height: u64,
+            title: &str,
+            events: &Endpoint,
+        ) -> Result<u64> {
+            let mut body = Encoder::new();
+            body.u64(field::WIDTH, width).map_err(Error::Parcel)?;
+            body.u64(field::HEIGHT, height).map_err(Error::Parcel)?;
+            body.string(field::TITLE, title).map_err(Error::Parcel)?;
+            let parcel = Parcel {
+                header: header(method::CREATE_SURFACE),
+                body: body.finish(),
+                handles: vec![events.handle()],
+                buffers: Vec::new(),
+            };
+            let mut buf = [0u8; 256];
+            let reply = self.endpoint.call_with(&parcel, &mut buf, None)?;
+            let mut decoder = Decoder::new(&reply.body);
+            while let Some(field) = decoder.next().map_err(Error::Parcel)? {
+                if field.kind == Kind::U64 && field.id == field::SURFACE {
+                    return field.as_u64().map_err(Error::Parcel);
+                }
+            }
+            Err(Error::Errno(-errno::EINVAL))
+        }
+
+        /// Share `buffer` (a handle from the `display` syscall's
+        /// `create_buffer`) with the compositor as `surface`'s pixels. The
+        /// sender keeps its handle and mapping; the compositor gains one.
+        pub fn attach_buffer(&self, surface: u64, buffer: u64, len: u64) -> Result<()> {
+            let mut body = Encoder::new();
+            body.u64(field::SURFACE, surface).map_err(Error::Parcel)?;
+            let parcel = Parcel {
+                header: header(method::ATTACH_BUFFER),
+                body: body.finish(),
+                handles: Vec::new(),
+                buffers: vec![BufferDesc {
+                    handle: buffer,
+                    offset: 0,
+                    len,
+                    flags: 0,
+                }],
+            };
+            let mut buf = [0u8; 64];
+            self.endpoint.call_with(&parcel, &mut buf, None)?;
+            Ok(())
+        }
+
+        /// Tell the compositor the `damage` rectangle of `surface` is ready.
+        pub fn commit(&self, surface: u64, damage: Rect) -> Result<()> {
+            let mut body = Encoder::new();
+            body.u64(field::SURFACE, surface).map_err(Error::Parcel)?;
+            body.u64(field::X, damage.x.max(0) as u64)
+                .map_err(Error::Parcel)?;
+            body.u64(field::Y, damage.y.max(0) as u64)
+                .map_err(Error::Parcel)?;
+            body.u64(field::W, damage.w.max(0) as u64)
+                .map_err(Error::Parcel)?;
+            body.u64(field::H, damage.h.max(0) as u64)
+                .map_err(Error::Parcel)?;
+            let parcel = Parcel {
+                header: header(method::COMMIT),
+                body: body.finish(),
+                handles: Vec::new(),
+                buffers: Vec::new(),
+            };
+            let mut buf = [0u8; 64];
+            self.endpoint.call_with(&parcel, &mut buf, None)?;
+            Ok(())
+        }
+
+        /// Drop `surface`; the compositor forgets it and repaints.
+        pub fn destroy_surface(&self, surface: u64) -> Result<()> {
+            let mut body = Encoder::new();
+            body.u64(field::SURFACE, surface).map_err(Error::Parcel)?;
+            let parcel = Parcel {
+                header: header(method::DESTROY_SURFACE),
+                body: body.finish(),
+                handles: Vec::new(),
+                buffers: Vec::new(),
+            };
+            let mut buf = [0u8; 64];
+            self.endpoint.call_with(&parcel, &mut buf, None)?;
+            Ok(())
+        }
+    }
+
+    /// An input event delivered to an app by the compositor.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    pub enum EventKind {
+        PointerMove,
+        PointerDown,
+        PointerUp,
+        KeyDown,
+        KeyUp,
+    }
+
+    /// One decoded input event. `a`/`b` carry: pointer `(x, y)`, button id, or
+    /// key code, depending on the kind.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    pub struct Event {
+        pub kind: EventKind,
+        pub a: i64,
+        pub b: i64,
+    }
+
+    /// Decode an input event from a received message, or `None` when the
+    /// message is not a display event.
+    pub fn decode_event(message: &Message) -> Option<Event> {
+        let kind = match message.method() {
+            method::POINTER_MOVE => EventKind::PointerMove,
+            method::POINTER_DOWN => EventKind::PointerDown,
+            method::POINTER_UP => EventKind::PointerUp,
+            method::KEY_DOWN => EventKind::KeyDown,
+            method::KEY_UP => EventKind::KeyUp,
+            _ => return None,
+        };
+        let mut a = 0i64;
+        let mut b = 0i64;
+        let mut decoder = Decoder::new(&message.parcel.body);
+        while let Ok(Some(field)) = decoder.next() {
+            if field.kind != Kind::U64 {
+                continue;
+            }
+            match field.id {
+                field::A => a = field.as_u64().ok()? as i64,
+                field::B => b = field.as_u64().ok()? as i64,
+                _ => {}
+            }
+        }
+        Some(Event { kind, a, b })
+    }
+
+    /// Encode a one-way event parcel into `scratch`, replacing its contents.
+    ///
+    /// The compositor sends events at input rates into a task whose bump
+    /// allocator never frees, so it cannot build a fresh `Parcel` per event.
+    /// The byte layout matches `libmessenger` exactly (header, two `u64` TLV
+    /// fields, no handles or buffers).
+    pub fn encode_event(scratch: &mut Vec<u8>, method: u32, a: u64, b: u64) {
+        scratch.clear();
+        scratch.extend_from_slice(&VERSION.to_le_bytes());
+        scratch.extend_from_slice(&flags::ONE_WAY.to_le_bytes());
+        scratch.extend_from_slice(&INTERFACE.to_le_bytes());
+        scratch.extend_from_slice(&method.to_le_bytes());
+        scratch.extend_from_slice(&0u64.to_le_bytes()); // txn_id
+        scratch.extend_from_slice(&0u64.to_le_bytes()); // reply_to
+        scratch.extend_from_slice(&0u64.to_le_bytes()); // deadline_ns
+        scratch.extend_from_slice(&32u32.to_le_bytes()); // two u64 fields, 16 bytes each
+        scratch.extend_from_slice(&0u16.to_le_bytes()); // handles
+        scratch.extend_from_slice(&0u16.to_le_bytes()); // buffers
+        for (id, value) in [(field::A, a), (field::B, b)] {
+            let tag = Kind::U64 as u32 | ((id as u32) << 8);
+            scratch.extend_from_slice(&tag.to_le_bytes());
+            scratch.extend_from_slice(&8u32.to_le_bytes());
+            scratch.extend_from_slice(&value.to_le_bytes());
+        }
+    }
+
+    /// Send one input event to `endpoint` using a reusable encode buffer.
+    pub fn send_event(
+        endpoint: &Endpoint,
+        scratch: &mut Vec<u8>,
+        method: u32,
+        a: u64,
+        b: u64,
+    ) -> Result<()> {
+        encode_event(scratch, method, a, b);
+        let args = MsgArgs {
+            handle: endpoint.handle(),
+            parcel_ptr: scratch.as_ptr() as u64,
+            parcel_len: scratch.len() as u64,
+            ..MsgArgs::default()
+        };
+        syscall(op::SEND, &args, &mut MsgResult::default())
+    }
+
+    /// An integer rectangle, used for damage and layout.
+    #[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
+    pub struct Rect {
+        pub x: i32,
+        pub y: i32,
+        pub w: i32,
+        pub h: i32,
+    }
+
+    impl Rect {
+        pub const fn new(x: i32, y: i32, w: i32, h: i32) -> Rect {
+            Rect { x, y, w, h }
+        }
+
+        /// Whether the rectangle covers no pixels.
+        pub const fn is_empty(self) -> bool {
+            self.w <= 0 || self.h <= 0
+        }
+
+        /// The overlapping rectangle, empty when the two do not intersect.
+        pub fn intersect(self, other: Rect) -> Rect {
+            let x0 = self.x.max(other.x);
+            let y0 = self.y.max(other.y);
+            let x1 = (self.x + self.w).min(other.x + other.w);
+            let y1 = (self.y + self.h).min(other.y + other.h);
+            Rect::new(x0, y0, (x1 - x0).max(0), (y1 - y0).max(0))
+        }
+
+        /// The smallest rectangle covering both.
+        pub fn union(self, other: Rect) -> Rect {
+            if self.is_empty() {
+                return other;
+            }
+            if other.is_empty() {
+                return self;
+            }
+            let x0 = self.x.min(other.x);
+            let y0 = self.y.min(other.y);
+            let x1 = (self.x + self.w).max(other.x + other.w);
+            let y1 = (self.y + self.h).max(other.y + other.h);
+            Rect::new(x0, y0, x1 - x0, y1 - y0)
+        }
+    }
+
+    /// An RGB colour for the software blitter.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    pub struct Color {
+        pub r: u8,
+        pub g: u8,
+        pub b: u8,
+    }
+
+    impl Color {
+        pub const fn rgb(r: u8, g: u8, b: u8) -> Color {
+            Color { r, g, b }
+        }
+    }
+
+    /// A software RGBA8 blitter over a mapped shared buffer.
+    ///
+    /// Every write is clipped to the rectangle being drawn and to the canvas
+    /// bounds, so a caller can pass an over-large damage rectangle safely.
+    pub struct Canvas {
+        base: *mut u8,
+        width: i32,
+        height: i32,
+    }
+
+    impl Canvas {
+        /// Wrap the address and geometry the `display` syscall reported.
+        ///
+        /// # Safety
+        /// `base` must be an RGBA8 mapping of at least `width * height * 4`
+        /// bytes in this task's address space (the value `create_buffer` or
+        /// `map_buffer` returned).
+        pub unsafe fn new(base: u64, width: i32, height: i32) -> Canvas {
+            Canvas {
+                base: base as *mut u8,
+                width,
+                height,
+            }
+        }
+
+        /// The canvas width in pixels.
+        pub fn width(&self) -> i32 {
+            self.width
+        }
+
+        /// The canvas height in pixels.
+        pub fn height(&self) -> i32 {
+            self.height
+        }
+
+        /// Write one pixel if it is inside the canvas and the clip rectangle.
+        fn pixel(&mut self, x: i32, y: i32, color: Color, clip: Rect) {
+            if x < clip.x
+                || y < clip.y
+                || x >= clip.x + clip.w
+                || y >= clip.y + clip.h
+                || x < 0
+                || y < 0
+                || x >= self.width
+                || y >= self.height
+            {
+                return;
+            }
+            let at = ((y * self.width + x) * 4) as usize;
+            // Safety: bounds were checked against the canvas geometry.
+            unsafe {
+                self.base.add(at).write(color.r);
+                self.base.add(at + 1).write(color.g);
+                self.base.add(at + 2).write(color.b);
+                self.base.add(at + 3).write(0xff);
+            }
+        }
+
+        /// Fill `rect` with `color`, clipped to `clip`.
+        pub fn fill(&mut self, rect: Rect, clip: Rect, color: Color) {
+            for y in rect.y..rect.y + rect.h {
+                for x in rect.x..rect.x + rect.w {
+                    self.pixel(x, y, color, clip);
+                }
+            }
+        }
+
+        /// Copy a tightly packed RGBA8 source image into `dst`, clipped to
+        /// `clip`. `src_w` is the source row length in pixels; rows and columns
+        /// past the source are ignored.
+        pub fn blit(&mut self, src: &[u8], src_w: i32, src_h: i32, dst: Rect, clip: Rect) {
+            for row in 0..dst.h {
+                if row >= src_h {
+                    break;
+                }
+                for col in 0..dst.w {
+                    if col >= src_w {
+                        break;
+                    }
+                    let at = ((row * src_w + col) * 4) as usize;
+                    if at + 3 >= src.len() {
+                        break;
+                    }
+                    let color = Color::rgb(src[at], src[at + 1], src[at + 2]);
+                    self.pixel(dst.x + col, dst.y + row, color, clip);
+                }
+            }
+        }
+
+        /// Draw `text` with the 5x7 font, uppercasing as needed. `scale` is the
+        /// pixel size of one font pixel (1 = 5x7, 2 = 10x14).
+        pub fn text(&mut self, x: i32, y: i32, text: &str, color: Color, clip: Rect, scale: i32) {
+            let scale = scale.max(1);
+            let mut pen = x;
+            for ch in text.chars() {
+                if ch == ' ' {
+                    pen += font::ADVANCE * scale;
+                    continue;
+                }
+                if let Some(glyph) = font::glyph(ch) {
+                    for (col, bits) in glyph.iter().enumerate() {
+                        for row in 0..font::H {
+                            if bits & (1 << row) != 0 {
+                                self.fill(
+                                    Rect::new(
+                                        pen + col as i32 * scale,
+                                        y + row * scale,
+                                        scale,
+                                        scale,
+                                    ),
+                                    clip,
+                                    color,
+                                );
+                            }
+                        }
+                    }
+                }
+                pen += font::ADVANCE * scale;
+            }
+        }
+
+        /// Draw the mouse cursor sprite with its top-left at `(x, y)`.
+        ///
+        /// A black outline is drawn first, then the white body, so the cursor
+        /// stays visible over both bright and dark pixels.
+        pub fn cursor(&mut self, x: i32, y: i32, clip: Rect) {
+            for row in 0..8i32 {
+                for col in 0..8i32 {
+                    if font::CURSOR[row as usize] & (0x80 >> col) == 0 {
+                        continue;
+                    }
+                    self.fill(
+                        Rect::new(x + col - 1, y + row - 1, 3, 3),
+                        clip,
+                        Color::rgb(0, 0, 0),
+                    );
+                }
+            }
+            for row in 0..8i32 {
+                for col in 0..8i32 {
+                    if font::CURSOR[row as usize] & (0x80 >> col) != 0 {
+                        self.fill(
+                            Rect::new(x + col, y + row, 1, 1),
+                            clip,
+                            Color::rgb(240, 240, 240),
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    /// The 5x7 bitmap font used for decorations and demo text.
+    ///
+    /// Each glyph is five columns; in a column byte, bit `n` is row `n` with
+    /// row zero at the top. Only the characters a window title or a demo label
+    /// needs are defined; anything else is skipped.
+    pub mod font {
+        /// Glyph height in pixels.
+        pub const H: i32 = 7;
+        /// Advance per character (five glyph columns plus one pixel gap).
+        pub const ADVANCE: i32 = 6;
+
+        /// The cursor sprite, one bit per pixel (MSB = leftmost).
+        pub const CURSOR: [u8; 8] = [0x80, 0xC0, 0xA0, 0x90, 0x88, 0x84, 0xFC, 0xC0];
+
+        /// Look up a glyph, upper-casing lower-case ASCII first.
+        pub fn glyph(ch: char) -> Option<&'static [u8; 5]> {
+            let ch = ch.to_ascii_uppercase();
+            Some(match ch {
+                ' ' => &[0x00, 0x00, 0x00, 0x00, 0x00],
+                '-' => &[0x00, 0x08, 0x08, 0x08, 0x00],
+                '.' => &[0x00, 0x00, 0x40, 0x00, 0x00],
+                ':' => &[0x00, 0x00, 0x24, 0x00, 0x00],
+                '/' => &[0x40, 0x30, 0x08, 0x06, 0x01],
+                '+' => &[0x00, 0x08, 0x1C, 0x08, 0x00],
+                '!' => &[0x00, 0x00, 0x5F, 0x00, 0x00],
+                '?' => &[0x02, 0x01, 0x51, 0x09, 0x06],
+                '0' => &[0x3E, 0x51, 0x49, 0x45, 0x3E],
+                '1' => &[0x00, 0x42, 0x7F, 0x40, 0x00],
+                '2' => &[0x42, 0x61, 0x51, 0x49, 0x46],
+                '3' => &[0x22, 0x41, 0x49, 0x49, 0x36],
+                '4' => &[0x18, 0x14, 0x12, 0x7F, 0x10],
+                '5' => &[0x27, 0x45, 0x45, 0x45, 0x39],
+                '6' => &[0x3C, 0x4A, 0x49, 0x49, 0x30],
+                '7' => &[0x01, 0x71, 0x09, 0x05, 0x03],
+                '8' => &[0x3E, 0x41, 0x49, 0x41, 0x3E],
+                '9' => &[0x0E, 0x49, 0x49, 0x29, 0x1E],
+                'A' => &[0x7E, 0x09, 0x09, 0x09, 0x7E],
+                'B' => &[0x7F, 0x49, 0x49, 0x49, 0x36],
+                'C' => &[0x3E, 0x41, 0x41, 0x41, 0x22],
+                'D' => &[0x7F, 0x41, 0x41, 0x41, 0x3E],
+                'E' => &[0x7F, 0x49, 0x49, 0x49, 0x41],
+                'F' => &[0x7F, 0x09, 0x09, 0x09, 0x01],
+                'G' => &[0x3E, 0x41, 0x49, 0x49, 0x7A],
+                'H' => &[0x7F, 0x08, 0x08, 0x08, 0x7F],
+                'I' => &[0x41, 0x41, 0x7F, 0x41, 0x41],
+                'J' => &[0x70, 0x70, 0x70, 0x7F, 0x0F],
+                'K' => &[0x7F, 0x08, 0x14, 0x22, 0x41],
+                'L' => &[0x7F, 0x40, 0x40, 0x40, 0x40],
+                'M' => &[0x7F, 0x02, 0x04, 0x02, 0x7F],
+                'N' => &[0x7F, 0x02, 0x04, 0x08, 0x7F],
+                'O' => &[0x3E, 0x41, 0x41, 0x41, 0x3E],
+                'P' => &[0x7F, 0x09, 0x09, 0x09, 0x06],
+                'Q' => &[0x3E, 0x41, 0x51, 0x61, 0x7E],
+                'R' => &[0x7F, 0x09, 0x19, 0x29, 0x46],
+                'S' => &[0x26, 0x49, 0x49, 0x49, 0x32],
+                'T' => &[0x01, 0x01, 0x7F, 0x01, 0x01],
+                'U' => &[0x3F, 0x40, 0x40, 0x40, 0x3F],
+                'V' => &[0x1F, 0x20, 0x40, 0x20, 0x1F],
+                'W' => &[0x7F, 0x20, 0x18, 0x20, 0x7F],
+                'X' => &[0x63, 0x14, 0x08, 0x14, 0x63],
+                'Y' => &[0x03, 0x04, 0x78, 0x04, 0x03],
+                'Z' => &[0x41, 0x61, 0x51, 0x49, 0x43],
+                _ => return None,
+            })
+        }
+    }
+}
+
 ///
 /// ## Launch path (interim)
 ///
