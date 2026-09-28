@@ -1,6 +1,9 @@
 [
-  {"at": 80.0, "shot": "counter_initial"},
-  {"at": 90.0, "mouse_click": "left"},
-  {"at": 95.0, "shot": "counter_clicked"},
-  {"at": 100.0, "quit": true}
+  {"wait_for": "XUIAPP:COUNTER:PASS", "timeout": 240},
+  {"wait": 2.0},
+  {"shot": "counter_initial"},
+  {"mouse_click": "left", "until": "XUIAPP:CLICK:", "timeout": 60, "retries": 2},
+  {"wait": 2.0},
+  {"shot": "counter_clicked"},
+  {"quit": true}
 ]

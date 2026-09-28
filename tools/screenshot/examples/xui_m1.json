@@ -1,0 +1,6 @@
+[
+  {"wait_for": "XUIAPP:COUNTER:PASS", "timeout": 240},
+  {"wait": 2.0},
+  {"shot": "counter"},
+  {"quit": true}
+]
