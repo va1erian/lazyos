@@ -47,21 +47,25 @@ class Runner:
     """Run steps on a worker thread; messages arrive on :attr:`q`."""
 
     def __init__(self) -> None:
+        """Create an idle runner with an empty message queue."""
         self.q: queue.Queue = queue.Queue()
         self.proc: subprocess.Popen | None = None
         self.stop_requested = False
         self.busy = False
 
     def start(self, steps: list[dict], env: dict[str, str], cwd: str) -> None:
+        """Run ``steps`` sequentially on a daemon thread, extra ``env`` applied."""
         self.stop_requested = False
         self.busy = True
         threading.Thread(target=self._work, args=(steps, env, cwd), daemon=True).start()
 
     def stop(self) -> None:
+        """Request cancellation and kill the current process tree."""
         self.stop_requested = True
         kill_tree(self.proc)
 
     def _work(self, steps: list[dict], env: dict[str, str], cwd: str) -> None:
+        """Worker body: launch each step, stream its output, stop on failure."""
         full = os.environ.copy()
         full.update(env)
         kwargs: dict = {}

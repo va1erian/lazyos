@@ -91,6 +91,7 @@ def build_env(cfg: dict) -> dict[str, str]:
 
 
 def cargo_step(cfg: dict) -> dict:
+    """The `cargo build` step that produces target/lazyos.img."""
     argv = [CARGO, "build"]
     if cfg["profile"] == "release":
         argv.append("--release")
@@ -98,6 +99,7 @@ def cargo_step(cfg: dict) -> dict:
 
 
 def _script(cfg: dict) -> tuple:
+    """The SCRIPTS entry selected by ``cfg["script"]``."""
     return SCRIPTS[cfg["script"]]
 
 
@@ -172,6 +174,7 @@ def build_plan(cfg: dict) -> list[dict]:
 
 
 def format_plan(steps: list[dict]) -> str:
+    """Render a plan as numbered, shell-quoted lines for the preview pane."""
     if not steps:
         return "(nothing to run)"
     lines = []

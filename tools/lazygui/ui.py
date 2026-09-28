@@ -14,7 +14,10 @@ from .runner import Runner, open_path
 
 
 class Launcher:
+    """The whole GUI: widgets, bound config variables, and the run loop."""
+
     def __init__(self, root: tk.Tk) -> None:
+        """Build the window on ``root`` and start the output poll timer."""
         self.root = root
         root.title("LazyOS Launcher")
         root.geometry("1020x760")
@@ -30,6 +33,7 @@ class Launcher:
 
     # ---------------------------------------------------------------- state
     def _make_vars(self) -> dict:
+        """Create every Tk variable backing the controls, with sensible defaults."""
         s = tk.StringVar
         b = tk.BooleanVar
         return {
@@ -61,6 +65,7 @@ class Launcher:
 
     @staticmethod
     def _find_qemu() -> str:
+        """Best-effort QEMU path: PATH first, then the usual Windows install."""
         found = shutil.which("qemu-system-x86_64")
         if found:
             return found
@@ -71,6 +76,7 @@ class Launcher:
         return ""
 
     def cfg(self) -> dict:
+        """Snapshot the controls into the plain dict catalog.build_plan expects."""
         names = [n for n in SCRIPTS if n[1] == self.v["script"].get()]
         return {
             "mode": self.v["mode"].get(),
@@ -101,6 +107,7 @@ class Launcher:
 
     # ------------------------------------------------------------------ ui
     def _build(self) -> None:
+        """Assemble the bottom bar and the scrollable-left / log-right split."""
         style = ttk.Style()
         if "clam" in style.theme_names():
             style.theme_use("clam")
@@ -115,6 +122,7 @@ class Launcher:
         self._build_right(right)
 
     def _build_left(self, parent: ttk.Frame) -> None:
+        """Mode, build switches, session script, and run-option groups."""
         g = self._group(parent, "Mode")
         self.cmb_mode = ttk.Combobox(g, textvariable=self.v["mode"], state="readonly",
                                      values=[m[0] for m in MODES])
@@ -174,6 +182,7 @@ class Launcher:
                         variable=self.v["abi_build"]).pack(side="left", padx=12)
 
     def _build_right(self, parent: ttk.Frame) -> None:
+        """The plan preview (top) and the scrollable output log (fills)."""
         ttk.Label(parent, text="Plan preview:").pack(anchor="w", padx=4)
         self.txt_plan = tk.Text(parent, height=5, wrap="none", font=("Consolas", 8),
                                 background="#f4f4f4", relief="solid", borderwidth=1)
@@ -199,6 +208,7 @@ class Launcher:
             self.log.tag_configure(tag, foreground=color)
 
     def _build_bottom(self) -> None:
+        """The Run/Build/Stop/Open/Clear button bar and the status label."""
         bar = ttk.Frame(self.root)
         bar.pack(side="bottom", fill="x")
         self.btn_run = ttk.Button(bar, text="Run", command=self._run)
@@ -214,6 +224,7 @@ class Launcher:
 
     # -------------------------------------------------------------- helpers
     def _scrollable(self, parent: ttk.Frame) -> ttk.Frame:
+        """Wrap ``parent`` in a vertically scrolling canvas; return the inner frame."""
         canvas = tk.Canvas(parent, borderwidth=0, highlightthickness=0, width=470)
         vsb = ttk.Scrollbar(parent, orient="vertical", command=canvas.yview)
         inner = ttk.Frame(canvas)
@@ -225,6 +236,7 @@ class Launcher:
         canvas.bind("<Configure>", lambda e: canvas.itemconfigure(win, width=e.width))
 
         def on_wheel(event: tk.Event) -> None:
+            """Scroll the canvas; X11 reports the wheel as Button-4/5."""
             if event.num == 4:
                 canvas.yview_scroll(-1, "units")
             elif event.num == 5:
@@ -239,14 +251,17 @@ class Launcher:
 
     @staticmethod
     def _group(parent: ttk.Frame, title: str) -> ttk.LabelFrame:
+        """A packed, full-width labeled group box."""
         g = ttk.LabelFrame(parent, text=title)
         g.pack(fill="x", padx=4, pady=4)
         return g
 
     def _check(self, parent: ttk.Frame, text: str, key: str) -> None:
+        """A checkbox bound to config variable ``key``."""
         ttk.Checkbutton(parent, text=text, variable=self.v[key]).pack(anchor="w", padx=6)
 
     def _field(self, parent: ttk.Frame, label: str, key: str, width: int, browse=None) -> None:
+        """A labeled entry bound to ``key``, with an optional browse button."""
         row = ttk.Frame(parent)
         row.pack(fill="x", padx=6, pady=2)
         ttk.Label(row, text=label, width=12).pack(side="left")
@@ -255,6 +270,7 @@ class Launcher:
             ttk.Button(row, text="...", width=3, command=browse).pack(side="left", padx=(4, 0))
 
     def _bind(self) -> None:
+        """Wire selection/trace callbacks and the polling timer."""
         self.cmb_mode.bind("<<ComboboxSelected>>", lambda e: self._on_mode())
         self.cmb_script.bind("<<ComboboxSelected>>", lambda e: self._on_script())
         for var in self.v.values():
@@ -264,6 +280,7 @@ class Launcher:
 
     # ------------------------------------------------------------ behaviour
     def _on_mode(self) -> None:
+        """Show the mode description and enable only its relevant controls."""
         mode = self.v["mode"].get()
         self.lbl_mode.configure(text=dict(MODES)[mode])
         session = mode == "Scripted session"
@@ -272,6 +289,7 @@ class Launcher:
         self._update_plan()
 
     def _on_script(self) -> None:
+        """Apply the build switches and xui app a session script requires."""
         match = [s for s in SCRIPTS if s[1] == self.v["script"].get()]
         if not match:
             return
@@ -286,6 +304,7 @@ class Launcher:
         self._update_plan()
 
     def _update_plan(self) -> None:
+        """Re-render the command preview; never let a plan error break tracing."""
         try:
             text = format_plan(build_plan(self.cfg()))
         except Exception as exc:  # never let a UI traceback break tracing
@@ -296,6 +315,7 @@ class Launcher:
         self.txt_plan.configure(state="disabled")
 
     def _run(self) -> None:
+        """Start the current plan, or report a malformed one without crashing."""
         if self.runner.busy:
             return
         try:
@@ -310,22 +330,26 @@ class Launcher:
         self.runner.start(steps, build_env(self.cfg()), ROOT)
 
     def _build_image(self) -> None:
+        """Build just target/lazyos.img with the current switches."""
         if self.runner.busy:
             return
         self._begin(1, "Build image")
         self.runner.start([cargo_step(self.cfg())], build_env(self.cfg()), ROOT)
 
     def _begin(self, count: int, title: str) -> None:
+        """Log a run banner and switch the buttons into the busy state."""
         self._log(f"\n######## {title} ({count} step(s)) ########\n", "head")
         self.btn_run.configure(state="disabled")
         self.btn_build.configure(state="disabled")
         self.btn_stop.configure(state="normal")
 
     def _stop(self) -> None:
+        """Cancel the run and kill its process tree."""
         self.runner.stop()
         self._log("\n(stopped by user)\n", "err")
 
     def _open_out(self) -> None:
+        """Reveal the output directory in the platform file manager."""
         path = self.v["out"].get().strip() or "shots"
         if not os.path.isabs(path):
             path = os.path.join(ROOT, path)
@@ -335,22 +359,26 @@ class Launcher:
             self._log(f"cannot open {path}: {exc}\n", "err")
 
     def _clear(self) -> None:
+        """Empty the log and reset the status line."""
         self.log.configure(state="normal")
         self.log.delete("1.0", "end")
         self.log.configure(state="disabled")
         self.status.configure(text="Ready.")
 
     def _browse_qemu(self) -> None:
+        """Pick the qemu-system-x86_64 executable."""
         path = filedialog.askopenfilename(title="Select qemu-system-x86_64")
         if path:
             self.v["qemu"].set(path)
 
     def _browse_out(self) -> None:
+        """Pick the output directory."""
         path = filedialog.askdirectory(title="Select output directory")
         if path:
             self.v["out"].set(path)
 
     def _log(self, text: str, tag: str = "out") -> None:
+        """Append ``text`` to the read-only log under the given color tag."""
         if not text:
             return
         self.log.configure(state="normal")
@@ -359,6 +387,7 @@ class Launcher:
         self.log.configure(state="disabled")
 
     def _poll(self) -> None:
+        """Drain runner messages on the Tk thread, then reschedule."""
         try:
             while True:
                 msg = self.runner.q.get_nowait()
@@ -379,6 +408,7 @@ class Launcher:
         self.root.after(100, self._poll)
 
     def _finish(self, code: int) -> None:
+        """Restore the buttons after a run and report the final status."""
         self.btn_run.configure(state="normal")
         self.btn_build.configure(state="normal")
         self.btn_stop.configure(state="disabled")
@@ -390,11 +420,13 @@ class Launcher:
             self.status.configure(text=f"Failed (exit {code}).")
 
     def _on_close(self) -> None:
+        """Kill any running child, then tear the window down."""
         self.runner.stop()
         self.root.destroy()
 
 
 def main() -> int:
+    """Open the launcher window and block until it is closed."""
     root = tk.Tk()
     Launcher(root)
     root.mainloop()
