@@ -14,6 +14,7 @@ CI and an AI agent can *see* what LazyOS renders, without a physical display.
 | `upload_image.py` | Upload PNGs to a public image host for PR comments. |
 | `examples/type_and_shot.json` | Example session script. |
 | `examples/window_demo.json` | Session script exercising window move/scroll. |
+| `examples/xuid_wm.json` | Session script exercising xuid window management (drag, raise, taskbar, close). |
 | `examples/cli_demo.json` | Session script for the CLI demos (help, box, ball). |
 | `examples/bench.json` | Session script that runs the `bench` command. |
 | `examples/user_demo.json` | Session script that runs the ring-3 `HELLO.ELF` program. |
@@ -102,6 +103,7 @@ and one action:
 | press a named key | `{"key": "enter"}` / `{"key": "f5"}` |
 | press several keys | `{"keys": ["up", "up", "enter"]}` |
 | move the mouse | `{"mouse_move": [dx, dy]}` |
+| hold a button | `{"mouse_down": "left"}` / `{"mouse_up": "left"}` |
 | click | `{"mouse_click": "left"}` |
 | scroll | `{"mouse_scroll": 3}` |
 | absolute pointer | `{"mouse_abs": [x, y]}` (needs `--tablet`) |

@@ -64,6 +64,15 @@ compositor demo. Target toolkit design: [xui-plan.md](../xui-plan.md).
   (`bind`/`present`/`input_poll`) and paints full-screen. Default
   `LAZYOS_XUID=1` is unchanged. Running the app as a `xuid` client over the
   compositor protocol is the remaining step.
+- Window management (issue #143) lives in `xuid`: the `surfaces` vector is the
+  z-order (tail paints last), a title-bar press drags the window (clamped to the
+  screen above the taskbar), the title bar carries close/minimize buttons, and a
+  bottom taskbar lists live surfaces with the focused entry highlighted.
+  Minimized surfaces are hidden and restored from the taskbar; `Tab` cycles
+  focus skipping minimized ones. The close button sends the client a one-way
+  `WindowClose` (method 10) event, which `xdemo` treats as "exit". Only
+  `Commit` uses per-surface damage; WM layout changes repaint the full screen
+  (a drag repaints the union of the old/new window rectangles).
 
 **Invariants.** Mux is always the fallback: no compositor state is required to
 paint. The screen buffer handoff app-to-compositor is zero-copy (shared
@@ -72,6 +81,8 @@ events go only to the bound compositor; `push_event` drops the oldest event when
 the queue is full and is IRQ-safe (leaf lock).
 
 **Status.** Working: demo mux, display grant, xuid + xdemo in headless captures
-(`LAZYOS_XUID=1`), and the xui app milestones M0-M2 (`XUIAPP:*:PASS` markers,
-screenshots in the `xui-app` workflow). Open: zero-copy scanout, running the
-xui app as a compositor client, multi-session compositors.
+(`LAZYOS_XUID=1`), xuid window management (drag, z-order, buttons, taskbar,
+focus cycling; `XUID:WM:PASS`), and the xui app milestones M0-M2
+(`XUIAPP:*:PASS` markers, screenshots in the `xui-app` workflow). Open:
+zero-copy scanout, running the xui app as a compositor client, multi-session
+compositors.
