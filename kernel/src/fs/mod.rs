@@ -111,7 +111,7 @@ pub fn init() -> bool {
 /// shipped read-only format) and then as ext2; every other device is probed
 /// as ext2, because that is the writable volume a caller mounts by name. A
 /// device carrying neither returns [`FsError::NotSupported`].
-#[cfg_attr(not(laZYOS_TESTS), allow(dead_code))] // the `mount <dev>` surface
+#[cfg_attr(not(lazyos_tests), allow(dead_code))] // the `mount <dev>` surface
 pub fn mount_device(point: &str, device: &str) -> Result<(), FsError> {
     let device = block::device(device).ok_or(FsError::NotFound)?;
     let is_boot = block::boot_device().is_some_and(|boot| boot.name() == device.name());
@@ -142,7 +142,7 @@ pub fn read(name: &str) -> Option<Vec<u8>> {
 
 /// List the root directory as `(name, is_dir, size)`. Only used by diagnostics
 /// today; the Linux layer lists directories through [`abi_readdir`].
-#[cfg_attr(not(laZYOS_TESTS), allow(dead_code))]
+#[cfg_attr(not(lazyos_tests), allow(dead_code))]
 pub fn list() -> Vec<(String, bool, u32)> {
     let id = Id::current();
     let entries = match with(|vfs| vfs.readdir(id, "/")) {
@@ -162,55 +162,55 @@ pub fn list() -> Vec<(String, bool, u32)> {
 
 /// Metadata through the native VFS (permission-checked; `__`-free results for
 /// callers to map to errno).
-#[cfg_attr(not(laZYOS_TESTS), allow(dead_code))] // used by tests/diagnostics
+#[cfg_attr(not(lazyos_tests), allow(dead_code))] // used by tests/diagnostics
 pub fn vfs_stat(id: Id, path: &str) -> Result<Meta, FsError> {
     with(|vfs| vfs.stat(id, path)).unwrap_or(Err(FsError::NotFound))
 }
 
 /// Read a whole file through the native VFS.
-#[cfg_attr(not(laZYOS_TESTS), allow(dead_code))] // used by tests/diagnostics
+#[cfg_attr(not(lazyos_tests), allow(dead_code))] // used by tests/diagnostics
 pub fn vfs_read(id: Id, path: &str) -> Result<Vec<u8>, FsError> {
     with(|vfs| vfs.read_file(id, path)).unwrap_or(Err(FsError::NotFound))
 }
 
 /// Write at an offset through the VFS (used by tests and future writers).
-#[cfg_attr(not(laZYOS_TESTS), allow(dead_code))]
+#[cfg_attr(not(lazyos_tests), allow(dead_code))]
 pub fn vfs_write(id: Id, path: &str, offset: u64, data: &[u8]) -> Result<usize, FsError> {
     with(|vfs| vfs.write(id, path, offset, data)).unwrap_or(Err(FsError::NotFound))
 }
 
 /// Create a regular file through the VFS.
-#[cfg_attr(not(laZYOS_TESTS), allow(dead_code))]
+#[cfg_attr(not(lazyos_tests), allow(dead_code))]
 pub fn vfs_create(id: Id, path: &str, mode: u16) -> Result<Meta, FsError> {
     with(|vfs| vfs.create(id, path, mode)).unwrap_or(Err(FsError::NotFound))
 }
 
 /// Create a directory through the VFS.
-#[cfg_attr(not(laZYOS_TESTS), allow(dead_code))]
+#[cfg_attr(not(lazyos_tests), allow(dead_code))]
 pub fn vfs_mkdir(id: Id, path: &str, mode: u16) -> Result<Meta, FsError> {
     with(|vfs| vfs.mkdir(id, path, mode)).unwrap_or(Err(FsError::NotFound))
 }
 
 /// Remove a regular file through the VFS.
-#[cfg_attr(not(laZYOS_TESTS), allow(dead_code))]
+#[cfg_attr(not(lazyos_tests), allow(dead_code))]
 pub fn vfs_unlink(id: Id, path: &str) -> Result<(), FsError> {
     with(|vfs| vfs.unlink(id, path)).unwrap_or(Err(FsError::NotFound))
 }
 
 /// Rename within one mount through the VFS.
-#[cfg_attr(not(laZYOS_TESTS), allow(dead_code))]
+#[cfg_attr(not(lazyos_tests), allow(dead_code))]
 pub fn vfs_rename(id: Id, from: &str, to: &str) -> Result<(), FsError> {
     with(|vfs| vfs.rename(id, from, to)).unwrap_or(Err(FsError::NotFound))
 }
 
 /// The global creation mask.
-#[cfg_attr(not(laZYOS_TESTS), allow(dead_code))] // read back by tests/diagnostics
+#[cfg_attr(not(lazyos_tests), allow(dead_code))] // read back by tests/diagnostics
 pub fn vfs_umask() -> u16 {
     with(|vfs| vfs.umask()).unwrap_or(0)
 }
 
 /// Set the global creation mask, returning the previous one (`umask(2)`).
-#[cfg_attr(not(laZYOS_TESTS), allow(dead_code))] // used by tests/diagnostics
+#[cfg_attr(not(lazyos_tests), allow(dead_code))] // used by tests/diagnostics
 pub fn vfs_set_umask(mask: u16) -> u16 {
     with(|vfs| vfs.set_umask(mask)).unwrap_or(0)
 }
@@ -229,7 +229,7 @@ fn abi_with<T>(f: impl FnOnce(&mut Vfs) -> T) -> Option<T> {
 }
 
 /// Mount points of the Linux ABI table, in mount order.
-#[cfg_attr(not(laZYOS_TESTS), allow(dead_code))] // used by tests/diagnostics
+#[cfg_attr(not(lazyos_tests), allow(dead_code))] // used by tests/diagnostics
 pub fn abi_mounts() -> Vec<(String, &'static str)> {
     abi_with(|vfs| vfs.mounts()).unwrap_or_default()
 }

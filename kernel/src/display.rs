@@ -538,7 +538,7 @@ fn key_code(key: Key) -> u32 {
 
 /// Test-harness hook: forget any grant and drop queued events. The suite runs
 /// without a scheduler, so there is nothing to close or wake.
-#[cfg(laZYOS_TESTS)]
+#[cfg(lazyos_tests)]
 pub fn reset() {
     *GRANT.lock() = None;
     OWNER.store(NO_OWNER, Ordering::Relaxed);

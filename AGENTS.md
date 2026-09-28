@@ -117,7 +117,7 @@ python tools/test/run.py --no-build      # re-run the current image
 
 The runner exits non-zero on any failure, a missing summary, or a stale
 non-test image. Normal boots are unaffected: without `LAZYOS_TESTS=1` the suite
-is not compiled. Test-only hooks live behind `cfg(laZYOS_TESTS)`; add new tests
+is not compiled. Test-only hooks live behind `cfg(lazyos_tests)`; add new tests
 to `kernel/src/tests.rs` (`mem_suite` is where allocator-specific tests go). CI
 is `.github/workflows/kernel-tests.yml`; see `tools/test/README.md`.
 
@@ -149,6 +149,13 @@ regressions, not kernel-internal correctness or resource leaks.
   `build.rs` + artifact dependency (see the roadmap issues).
 - Do not commit generated screenshots (`shots/` is git-ignored); CI publishes
   them to the dedicated `screenshots` branch.
+- Code quality bar: security first (validate all untrusted input, no ambient
+  authority, every `unsafe` block minimal with a `// SAFETY:` comment),
+  readable and elegant (small single-purpose functions, comments explain why).
+  See the "Code standards" section of `README.md`.
+- Keep source files **under 500 lines**; split by responsibility instead of
+  growing a file past it. Existing oversized files are tracked in issue #194;
+  never make one bigger, extract a module when touching it.
 - Prefer verifying with the existing scripts over ad-hoc commands so results are
   comparable across runs.
 

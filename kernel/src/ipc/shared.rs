@@ -868,7 +868,7 @@ pub fn reset() {
 }
 
 /// Test-harness hooks (issue #62), compiled only with `LAZYOS_TESTS=1`.
-#[cfg(laZYOS_TESTS)]
+#[cfg(lazyos_tests)]
 pub mod harness {
     use super::*;
 

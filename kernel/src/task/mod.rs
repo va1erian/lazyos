@@ -2393,7 +2393,7 @@ pub fn stats_snapshot() -> TaskStats {
 
 /// Test-harness hooks (issue #62), compiled only with `LAZYOS_TESTS=1`. They let
 /// the in-kernel suite drive task bookkeeping without a running scheduler.
-#[cfg(laZYOS_TESTS)]
+#[cfg(lazyos_tests)]
 pub mod harness {
     use super::{select_next, PriorityClass, TaskState, WakeReason, KERNEL_TASK, TASKS};
 

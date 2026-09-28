@@ -50,7 +50,7 @@ pub enum BlockError {
     /// Device-level I/O failure (no device, timeout, or an error status).
     Io,
     /// The device is read-only and the caller tried to write.
-    #[cfg_attr(not(laZYOS_TESTS), allow(dead_code))] // write path is tested only
+    #[cfg_attr(not(lazyos_tests), allow(dead_code))] // write path is tested only
     ReadOnly,
 }
 
@@ -101,7 +101,7 @@ pub trait BlockDevice: Send + Sync {
 
     /// Write whole sectors starting at `lba` from `buf`. Read-only devices
     /// (the default) answer [`BlockError::ReadOnly`].
-    #[cfg_attr(not(laZYOS_TESTS), allow(dead_code))] // no kernel writer yet
+    #[cfg_attr(not(lazyos_tests), allow(dead_code))] // no kernel writer yet
     fn write_sectors(&self, lba: u64, buf: &[u8]) -> Result<(), BlockError> {
         let _ = (lba, buf);
         Err(BlockError::ReadOnly)
@@ -109,13 +109,13 @@ pub trait BlockDevice: Send + Sync {
 
     /// Flush any write cache so earlier writes are durable. Devices without a
     /// cache complete immediately.
-    #[cfg_attr(not(laZYOS_TESTS), allow(dead_code))] // no kernel writer yet
+    #[cfg_attr(not(lazyos_tests), allow(dead_code))] // no kernel writer yet
     fn flush(&self) -> Result<(), BlockError> {
         Ok(())
     }
 
     /// Whether [`BlockDevice::write_sectors`] can succeed.
-    #[cfg_attr(not(laZYOS_TESTS), allow(dead_code))] // no kernel writer yet
+    #[cfg_attr(not(lazyos_tests), allow(dead_code))] // no kernel writer yet
     fn is_writable(&self) -> bool {
         false
     }
@@ -167,7 +167,7 @@ pub fn register(device: &'static dyn BlockDevice) -> Result<(), BlockError> {
 }
 
 /// Look a device up by its registry name.
-#[cfg_attr(not(laZYOS_TESTS), allow(dead_code))] // used by tests/mount_device
+#[cfg_attr(not(lazyos_tests), allow(dead_code))] // used by tests/mount_device
 pub fn device(name: &str) -> Option<&'static dyn BlockDevice> {
     REGISTRY
         .lock()
