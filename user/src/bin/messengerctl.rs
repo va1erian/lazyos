@@ -8,9 +8,9 @@
 //! and prints it as a small table grouped by subsystem: services/channels,
 //! messages, buffers, audit, and per-slot usage. It then offers the registry
 //! commands `list` and `resolve <name>`, the supervisor commands `services`
-//! and `health`, and the `log`/`log tail`/`log verify` commands, typed at the
-//! prompt (native programs do not receive argv; the tool is interactive like
-//! `sh`).
+//! and `health`, `sessions` (the `logind` session table, issue #101), and the
+//! `log`/`log tail`/`log verify` commands, typed at the prompt (native
+//! programs do not receive argv; the tool is interactive like `sh`).
 //!
 //! When a topics broker is reachable (boot the demo with both
 //! `LAZYOS_MESSENGERD=1` and `LAZYOS_MESSENGERCTL=1`) the tool also runs a
@@ -35,11 +35,11 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::panic::PanicInfo;
 use libmessenger::{Decoder, Encoder, Header, Kind, Parcel, VERSION};
-use user::messenger::{self, registry, services, topics_client, FabricStats};
+use user::messenger::{self, logind, registry, services, topics_client, FabricStats};
 use user::sys;
 
 /// The interactive command set, printed at startup and by `help`.
-const HELP: &str = "commands: list | resolve <name> | services | health | \
+const HELP: &str = "commands: list | resolve <name> | services | health | sessions | \
                     log [tail [n]] | log verify | topics | tail <filter> [count] | \
                     stats | help | quit\n";
 
@@ -70,6 +70,7 @@ fn commands() -> ! {
             "list" => print_registry(),
             "services" => print_services(),
             "health" => print_health(),
+            "sessions" => print_sessions(),
             "log" => print_log(10),
             "log verify" => verify_log(),
             "stats" => match messenger::fabric_stats() {
@@ -84,7 +85,7 @@ fn commands() -> ! {
             }
             _ if text.starts_with("tail ") => tail(text[5..].trim()),
             _ => report(
-                "unknown command; try list, resolve <name>, services, health, log, topics, tail, stats, help, quit",
+                "unknown command; try list, resolve <name>, services, health, sessions, log, topics, tail, stats, help, quit",
             ),
         }
     }
@@ -175,6 +176,40 @@ fn print_health() {
                 sys::write_str(&format!(
                     "  {:<10} {:<9} {}\n",
                     record.name, record.status, record.detail
+                ));
+            }
+        }
+        Err(error) => report(error.message()),
+    }
+}
+
+/// `sessions`: the `logind` session table (issue #101). Bounded wait: `logind`
+/// can be sitting at the console prompt, in which case it answers after the
+/// next key and this prints a friendly timeout instead of hanging.
+fn print_sessions() {
+    let endpoint = match services::resolve_service(logind::NAME) {
+        Ok(endpoint) => endpoint,
+        Err(error) => return report(error.message()),
+    };
+    match logind::fetch_sessions(&endpoint) {
+        Ok((_, sessions)) if sessions.is_empty() => {
+            sys::write_str("sessions: none yet\n");
+        }
+        Ok((active, sessions)) => {
+            sys::write_str(&format!(
+                "sessions: {} active, {} total\n",
+                active,
+                sessions.len()
+            ));
+            for session in &sessions {
+                sys::write_str(&format!(
+                    "  #{:<3} {:<10} uid {:<5} pid {:<3} {:<7} t{}\n",
+                    session.id,
+                    session.user,
+                    session.uid,
+                    session.pid,
+                    session.state,
+                    session.started
                 ));
             }
         }

@@ -1,0 +1,18 @@
+[
+  {"at": 10.0, "shot": "login_boot"},
+  {"at": 12.0, "type": "bob"},
+  {"at": 12.6, "key": "enter"},
+  {"at": 13.0, "type": "nope"},
+  {"at": 13.6, "key": "enter"},
+  {"at": 15.0, "shot": "login_denied"},
+  {"at": 15.6, "type": "alice"},
+  {"at": 16.2, "key": "enter"},
+  {"at": 16.6, "type": "lazy"},
+  {"at": 17.2, "key": "enter"},
+  {"at": 18.0, "shot": "login_ok"},
+  {"at": 19.0, "key": "tab"},
+  {"at": 20.0, "type": "sessions"},
+  {"at": 20.8, "key": "enter"},
+  {"at": 21.6, "shot": "sessions"},
+  {"at": 22.5, "quit": true}
+]

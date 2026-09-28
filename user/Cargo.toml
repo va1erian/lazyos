@@ -66,6 +66,21 @@ path = "src/bin/flaky.rs"
 test = false
 bench = false
 
+# Accounts and console login (issue #101). `accountsd` owns the user/group
+# database and the secret check; `logind` prompts on the console, creates the
+# session, and starts the user's shell with kernel-stamped credentials.
+[[bin]]
+name = "accountsd"
+path = "src/bin/accountsd.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "logind"
+path = "src/bin/logind.rs"
+test = false
+bench = false
+
 # Async API examples (issue #91). Not wired into the demo image yet: the root
 # build script would need a `CARGO_BIN_FILE_USER_*` hook and a kernel spawn
 # line, which is a one-line follow-up noted in the PR.
