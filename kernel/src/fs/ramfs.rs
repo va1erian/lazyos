@@ -48,6 +48,11 @@ impl Node {
 struct Inner {
     next_ino: u64,
     nodes: BTreeMap<u64, Node>,
+    /// Sum of every file's `data.len()`, so the overlay can enforce a byte cap
+    /// without walking the tree.
+    bytes: usize,
+    /// Number of live nodes (including the root), for the overlay's node cap.
+    live: usize,
 }
 
 /// An in-memory filesystem; see the module docs.
@@ -75,8 +80,18 @@ impl RamFs {
             inner: Mutex::new(Inner {
                 next_ino: ROOT_INO + 1,
                 nodes,
+                bytes: 0,
+                live: 1,
             }),
         }
+    }
+
+    /// Layer accounting: `(file data bytes, live nodes)`. Used by the copy-up
+    /// overlay to enforce its heap cap and by tests to prove resources return
+    /// to baseline.
+    pub fn usage(&self) -> (usize, usize) {
+        let inner = self.inner.lock();
+        (inner.bytes, inner.live)
     }
 
     /// Resolve a relative path to an inode, walking components from the root.
@@ -164,6 +179,7 @@ impl RamFs {
             .expect("parent exists")
             .children
             .push(ino);
+        inner.live += 1;
         inner.nodes[&ino].meta(ino)
     }
 }
@@ -210,15 +226,43 @@ impl Filesystem for RamFs {
         let Some(end) = offset.checked_add(data.len() as u64) else {
             return Err(FsError::NoSpace);
         };
+        let end = end as usize;
+        let old = inner.nodes[&ino].data.len();
+        if end > old {
+            inner.bytes += end - old;
+        }
         // INVARIANT: `ino` was just resolved above under this same lock, and
         // nothing else can remove it while we hold `inner`.
         let node = inner.nodes.get_mut(&ino).expect("resolved inode exists");
-        let end = end as usize;
         if end > node.data.len() {
             node.data.resize(end, 0); // sparse writes zero-fill the gap
         }
         node.data[offset as usize..end].copy_from_slice(data);
         Ok(data.len())
+    }
+
+    fn truncate(&self, path: &str, size: u64) -> Result<(), FsError> {
+        let mut inner = self.inner.lock();
+        let ino = Self::resolve(&inner, path)?;
+        if inner.nodes[&ino].kind != FileKind::File {
+            return Err(FsError::IsDir);
+        }
+        let size = usize::try_from(size).map_err(|_| FsError::NoSpace)?;
+        let old = inner.nodes[&ino].data.len();
+        if size >= old {
+            inner.bytes += size - old;
+        } else {
+            inner.bytes -= old - size;
+        }
+        // INVARIANT: `ino` was just resolved above under this same lock, and
+        // nothing else can remove it while we hold `inner`.
+        inner
+            .nodes
+            .get_mut(&ino)
+            .expect("resolved inode exists")
+            .data
+            .resize(size, 0);
+        Ok(())
     }
 
     fn create(&self, path: &str, mode: u16, owner: Id) -> Result<Meta, FsError> {
@@ -258,7 +302,31 @@ impl Filesystem for RamFs {
         let (parent, name) = Self::resolve_parent(&inner, path)?;
         let ino = Self::child(&inner, parent, &name).ok_or(FsError::NotFound)?;
         if inner.nodes[&ino].kind == FileKind::Dir {
-            return Err(FsError::IsDir); // no rmdir in this slice
+            return Err(FsError::IsDir); // directories need rmdir
+        }
+        // INVARIANT: `parent` was resolved above under this same lock; see
+        // the note in `insert` for why it cannot have gone away since.
+        inner
+            .nodes
+            .get_mut(&parent)
+            .expect("parent exists")
+            .children
+            .retain(|&child| child != ino);
+        let removed = inner.nodes.remove(&ino).expect("resolved inode exists");
+        inner.bytes -= removed.data.len();
+        inner.live -= 1;
+        Ok(())
+    }
+
+    fn rmdir(&self, path: &str) -> Result<(), FsError> {
+        let mut inner = self.inner.lock();
+        let (parent, name) = Self::resolve_parent(&inner, path)?;
+        let ino = Self::child(&inner, parent, &name).ok_or(FsError::NotFound)?;
+        if inner.nodes[&ino].kind != FileKind::Dir {
+            return Err(FsError::NotDir);
+        }
+        if !inner.nodes[&ino].children.is_empty() {
+            return Err(FsError::NotEmpty);
         }
         // INVARIANT: `parent` was resolved above under this same lock; see
         // the note in `insert` for why it cannot have gone away since.
@@ -269,6 +337,7 @@ impl Filesystem for RamFs {
             .children
             .retain(|&child| child != ino);
         inner.nodes.remove(&ino);
+        inner.live -= 1;
         Ok(())
     }
 
@@ -302,7 +371,12 @@ impl Filesystem for RamFs {
                 .expect("parent exists")
                 .children
                 .retain(|&child| child != existing);
-            inner.nodes.remove(&existing);
+            let removed = inner
+                .nodes
+                .remove(&existing)
+                .expect("resolved inode exists");
+            inner.bytes -= removed.data.len();
+            inner.live -= 1;
         }
 
         // INVARIANT: `from_parent`/`source` were resolved above under this
