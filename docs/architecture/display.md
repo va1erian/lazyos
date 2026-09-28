@@ -152,11 +152,11 @@ ignored by older peers, and the no-shell sessions above are unchanged.
 
 | # | Method | Direction | Fields |
 |---|---|---|---|
-| 18 | `ListSurfaces` | shell → compositor | reply: one row per surface — `SURFACE`, `TITLE`, `X`/`Y`/`W`/`H`, `MINIMIZED`, `FOCUSED` |
+| 18 | `ListSurfaces` | shell → compositor | reply: one row per surface — `SURFACE`, `TITLE`, `X`/`Y`/`W`/`H`, `MINIMIZED`, `FOCUSED`, `ROLE` (0 window, 1 desktop) |
 | 19 | `GetWorkArea` | shell → compositor | reply: `X`/`Y`/`W`/`H` available to windows |
 | 20 | `Subscribe` | shell → compositor | `SUBSCRIBER_ROLE` string + transferred event endpoint |
 | 21 | `GetTheme` | shell → compositor | reply: `TITLE_BG_ACTIVE`, `TITLE_BG_INACTIVE`, `BORDER`, `TASKBAR`, `TEXT` as `0xRRGGBB` |
-| 22 | `SurfaceChanged` | compositor → shell | `SURFACE`, `A` = created/destroyed/moved/minimized/restored/title, geometry + flags, `TITLE` on create |
+| 22 | `SurfaceChanged` | compositor → shell | `SURFACE`, `A` = created/destroyed/moved/minimized/restored/title, geometry + flags, `ROLE`, `TITLE` on create |
 | 23 | `FocusChanged` | compositor → shell | `SURFACE` (0 = none) |
 | 24 | `StartMenu` | compositor → shell | – (the Ctrl+Esc/Super hotkey fired) |
 
@@ -165,6 +165,12 @@ ignored by older peers, and the no-shell sessions above are unchanged.
   the z-order — above the background colour, below every window — with no
   chrome, no taskbar or Alt+Tab entry, and it never takes focus or hit-tests.
   Creating a new desktop replaces the previous one.
+- **Authorization.** Claiming the `"shell"` role, creating a desktop surface
+  and `ListSurfaces` are compositor-privileged: xuid reads the sender's
+  kernel-stamped credentials and requires uid 0 or `CAP_SETUID`; anyone else
+  gets `-EACCES` (a transferred handle is closed). A shell that dies (`EPIPE` on
+  an event) is dropped, the fallback taskbar returns and the screen repaints;
+  replacing a desktop or subscription closes the old endpoint.
 - **Taskbar fallback.** The bottom taskbar stays xuid's no-shell fallback.
   `Subscribe` with role `"shell"` hides it and expands `GetWorkArea` to the
   whole screen; without a subscriber (or with any other role) the bar paints
@@ -183,7 +189,9 @@ ignored by older peers, and the no-shell sessions above are unchanged.
   `ListSurfaces`/`GetWorkArea`/`GetTheme`, creates one window, and logs
   `SHELLPROBE:DESKTOP:PASS`, `SHELLPROBE:LIST:PASS`,
   `SHELLPROBE:FOCUS:PASS` (first `FocusChanged`), and
-  `SHELLPROBE:HOTKEY:PASS` (first `StartMenu`). It boots only with
+  `SHELLPROBE:HOTKEY:PASS` (first `StartMenu`). It also re-runs itself as an
+  unprivileged child (`SHELLPRB.ELF denied`) that must be refused the shell
+  role, a desktop and the list, logging `SHELLPROBE:DENIED:PASS`. It boots only with
   `LAZYOS_XUID=1` plus the `LAZYOS_SHELLPROBE=1` demo hook, so the default
   compositor sessions keep their window layout.
 
