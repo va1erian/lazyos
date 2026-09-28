@@ -1,12 +1,28 @@
-//! The LazyOS display backend: a single window that owns the display grant.
+//! The LazyOS display backend: an xui window that either owns the display
+//! grant or rides `xuid` as a compositor client.
 //!
 //! Modelled on `xui-canvas`'s `OffscreenBackend` (a node table, painters
-//! composited into a software [`Surface`]) with a real event loop: the kernel
-//! hands this task the whole framebuffer and its input stream, so
-//! [`Backend::run`] polls input, routes it to the widget under the pointer,
-//! re-renders on invalidation, and presents through syscall 12. DPI is fixed
-//! at 96 and the window is the screen; multi-window sessions arrive with the
-//! compositor protocol client (see `docs/xui-plan.md` M3).
+//! composited into a software [`Surface`]) with a real event loop:
+//!
+//! * **Owner mode** ([`LazyOSBackend::new`], the M0-M2 milestones): the kernel
+//!   hands this task the whole framebuffer and its input stream, so [`run`]
+//!   polls syscall 12, routes input, re-renders on invalidation, and presents
+//!   through the grant. DPI is fixed at 96 and the window is the screen.
+//! * **Client mode** ([`LazyOSBackend::new_client`], issue #168): the app
+//!   resolves `xuid`, creates a surface through `os.lazy.display.v1`, attaches
+//!   a shared pixel buffer, commits damage rectangles, and receives
+//!   pointer/key/close events on its event endpoint. The window manager (drag,
+//!   minimize, taskbar, close) runs in `xuid`; closing the surface ends the
+//!   loop.
+//!
+//! Keyboard routing (issue #151) is mode-independent: pointer presses move the
+//! backend focus to the node under them (when it is focusable), `Tab` (owner
+//! mode) and `PageUp`/`PageDown` (both modes; `xuid` reserves `Tab` for
+//! surface focus) cycle the focus across focus stops, `SetFocus`/`KillFocus`
+//! are delivered to the affected widgets, and key/char events go to the
+//! focused node rather than the node under the pointer.
+//!
+//! [`run`]: Backend::run
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
@@ -16,13 +32,14 @@ use std::sync::Arc;
 
 use xui_canvas::Surface;
 use xui_core::backend::{
-    Backend, Event, ImplKind, NodeKind, NodeSpec, Painter, ParentRef, PlatformSpec,
+    Backend, BackendError, Event, ImplKind, NodeKind, NodeSpec, Painter, ParentRef, PlatformSpec,
     Result as BackendResult, TextMetrics, TextStyle, TimerId, Waker, WidgetId, WindowId,
 };
 use xui_core::router::WidgetHost;
 use xui_core::{Color, Key, Modifiers, MouseButton, Point, Rect, Theme};
 
-use crate::sys::{self, button, event, key, DisplayInfo, EVENT_BYTES};
+use crate::display::{self, EventKind};
+use crate::sys::{self, button, errno, event, key, DisplayInfo, EVENT_BYTES};
 
 /// The only DPI the bring-up supports (see `docs/xui-plan.md`, risks).
 const DEFAULT_DPI: u32 = 96;
@@ -31,11 +48,47 @@ const DEFAULT_DPI: u32 = 96;
 const POLL_MILLIS: u64 = 5;
 /// Largest batch of kernel input records drained per poll.
 const INPUT_BATCH: usize = 64;
+/// Longest the client-mode event receive parks before the loop runs timers.
+const CLIENT_POLL_TICKS: u64 = 1;
+/// Receive buffer for one compositor event message.
+const CLIENT_INPUT_BYTES: usize = 4096;
+
+/// How a backend reaches the screen.
+enum Mode {
+    /// The task owns the display grant (syscall 12).
+    Owner { display: DisplayInfo },
+    /// The task is a `xuid` client over `os.lazy.display.v1`.
+    Client(RefCell<ClientState>),
+}
+
+/// The live compositor connection of a client-mode backend.
+struct ClientState {
+    /// The compositor endpoint (`Client::connect`).
+    client: display::Client,
+    /// This task's end of the event channel.
+    events: u64,
+    /// The peer event endpoint moved to the compositor in `CreateSurface`.
+    events_peer: u64,
+    /// The surface id from `CreateSurface` (0 until `open_window`).
+    surface: u64,
+    /// The shared pixel buffer mapping.
+    va: u64,
+    size: u64,
+    /// The surface size in pixels.
+    rect: (i32, i32),
+    /// Whether `open_window` already created this task's window. Handle
+    /// transfers move the handle (`kernel/src/ipc/channels.rs`), so
+    /// `events_peer` is consumed by the first `CreateSurface` call whether or
+    /// not it succeeds; client mode supports one window per task, and a
+    /// second `open_window` errors instead of reusing a handle it no longer
+    /// owns.
+    opened: bool,
+}
 
 /// A bound display, an open window, and a node table.
 pub struct LazyOSBackend {
-    /// Geometry and mapping of the screen buffer from [`sys::display_bind`].
-    display: DisplayInfo,
+    /// How this backend presents and receives input.
+    mode: Mode,
     windows: RefCell<HashMap<u64, Window>>,
     nodes: RefCell<Vec<(WidgetId, Node)>>,
     next_window: Cell<u64>,
@@ -44,13 +97,20 @@ pub struct LazyOSBackend {
     primary: Cell<Option<WindowId>>,
     /// Set whenever a node is invalidated; the loop repaints and clears it.
     dirty: Arc<AtomicBool>,
+    /// Client mode: the rectangles invalidated since the last commit.
+    damage: Cell<Option<Rect>>,
     /// Set by [`Backend::quit`].
     quit: Arc<AtomicBool>,
-    /// Pointer position in screen pixels, seeded by the kernel at bind and
-    /// updated by move events; button records carry no coordinates.
+    /// Pointer position in window pixels, updated by move events; kernel button
+    /// records carry no coordinates, so it is also used for presses.
     pointer: Cell<(i32, i32)>,
+    /// Client mode: the last screen-absolute pointer position, used to recover
+    /// the surface origin (see [`LazyOSBackend::route_client_event`]).
+    last_abs: Cell<Option<(i32, i32)>>,
+    /// Client mode: the surface origin derived from the last press.
+    origin: Cell<Option<(i32, i32)>>,
     /// The node keyboard events go to; set by [`Backend::focus`]. Keys target
-    /// the focused node (or the window) instead of a hit-tested one.
+    /// the focused node, not the node under the pointer.
     focused: Cell<Option<WidgetId>>,
     /// Repeating timers armed by [`Backend::set_timer`], in PIT ticks.
     timers: RefCell<Vec<Timer>>,
@@ -83,12 +143,14 @@ struct Node {
     bounds: Rect,
     visible: bool,
     enabled: bool,
+    /// Whether this node takes part in pointer click-focus and the focus cycle.
+    focus_stop: bool,
     text: String,
     painter: Option<Painter>,
 }
 
 impl LazyOSBackend {
-    /// Bind the display and install the bundled font.
+    /// Owner mode: bind the display and install the bundled font.
     ///
     /// The font is registered before any text is measured or drawn, because
     /// the shaper builds its database once per thread.
@@ -100,48 +162,97 @@ impl LazyOSBackend {
             let _ = sys::display_unbind();
             return Err(-ENOENT);
         }
-        Ok(LazyOSBackend {
-            display,
+        Ok(Self::with_mode(Mode::Owner { display }))
+    }
+
+    /// Client mode: resolve the compositor and open an event channel; the
+    /// surface itself is created in [`Backend::open_window`], once the app's
+    /// window spec is known.
+    pub fn new_client() -> Result<LazyOSBackend, i64> {
+        xui_canvas::set_default_font(crate::font::BYTES.to_vec());
+        let client = display::Client::connect()?;
+        let (events, events_peer) = sys::msg_create_pair()?;
+        Ok(Self::with_mode(Mode::Client(RefCell::new(ClientState {
+            client,
+            events,
+            events_peer,
+            surface: 0,
+            va: 0,
+            size: 0,
+            rect: (0, 0),
+            opened: false,
+        }))))
+    }
+
+    /// A backend with the shared empty state and `mode`.
+    fn with_mode(mode: Mode) -> LazyOSBackend {
+        LazyOSBackend {
+            mode,
             windows: RefCell::new(HashMap::new()),
             nodes: RefCell::new(Vec::new()),
             next_window: Cell::new(1),
             next_widget: Cell::new(1),
             primary: Cell::new(None),
             dirty: Arc::new(AtomicBool::new(false)),
+            damage: Cell::new(None),
             quit: Arc::new(AtomicBool::new(false)),
             pointer: Cell::new((0, 0)),
+            last_abs: Cell::new(None),
+            origin: Cell::new(None),
             focused: Cell::new(None),
             timers: RefCell::new(Vec::new()),
             next_timer: Cell::new(1),
             frames: Cell::new(0),
             on_first_frame: RefCell::new(None),
-        })
+        }
     }
 
-    /// The screen size in pixels, for sizing the app's window.
+    /// Whether this backend is a compositor client.
+    pub fn is_client(&self) -> bool {
+        matches!(self.mode, Mode::Client(_))
+    }
+
+    /// The window size in pixels, for sizing the app's window.
     pub fn screen(&self) -> (i32, i32) {
-        (self.display.width as i32, self.display.height as i32)
+        match &self.mode {
+            Mode::Owner { display } => (display.width as i32, display.height as i32),
+            Mode::Client(state) => state.borrow().rect,
+        }
     }
 
-    /// Registers a callback run once, after the first present.
+    /// Registers a callback run once, after the first present (owner mode) or
+    /// the first commit (client mode).
     pub fn on_first_frame(&self, callback: impl FnOnce() + 'static) {
         *self.on_first_frame.borrow_mut() = Some(Box::new(callback));
     }
 
-    /// Frames presented through the display grant.
+    /// Frames presented through the display grant, or committed to `xuid`.
     pub fn frames(&self) -> u64 {
         self.frames.get()
     }
 
-    /// Release the display; the kernel mux repaints.
+    /// Release the display (owner mode); the kernel mux repaints. A client
+    /// leaves its surface behind and the compositor keeps it until it is
+    /// destroyed or the task exits.
     pub fn unbind(&self) {
-        let _ = sys::display_unbind();
+        if matches!(self.mode, Mode::Owner { .. }) {
+            let _ = sys::display_unbind();
+        }
     }
 
     fn allocate(cell: &Cell<u64>) -> u64 {
         let id = cell.get();
         cell.set(id + 1);
         id
+    }
+
+    /// The window a node belongs to.
+    fn window_of(&self, id: WidgetId) -> Option<WindowId> {
+        self.nodes
+            .borrow()
+            .iter()
+            .find(|(node_id, _)| *node_id == id)
+            .map(|(_, node)| node.window)
     }
 
     /// Composites `window`'s visible nodes, in creation order, into its
@@ -168,34 +279,69 @@ impl LazyOSBackend {
         true
     }
 
-    /// Render and blit the window through the display grant.
-    ///
-    /// The composite is copied straight from the window's persistent surface
-    /// into the screen buffer. Cloning it into a standalone image first would
-    /// allocate a second screen-sized buffer every frame, and LazyOS's native
-    /// `mmap` bumps its address space instead of reusing freed ranges, so that
-    /// per-frame clone exhausts the mapping window after a few hundred frames.
+    /// Render and blit the window: a damage-rectangle present through the
+    /// display grant (owner mode), or a damage-rectangle commit to the
+    /// compositor (client mode).
     fn present(&self, window: WindowId) -> bool {
         if !self.composite(window) {
             return false;
         }
-        let (width, height) = self.screen();
-        let size = self.display.size as usize;
-        let mut windows = self.windows.borrow_mut();
-        let Some(entry) = windows.get_mut(&window.raw()) else {
-            return false;
-        };
-        let pixels = entry.surface.pixels();
-        if pixels.len() != size {
-            return false;
-        }
-        // Safety: `va`/`size` are the mapping the kernel installed for this
-        // task's screen buffer at bind; `pixels` is exactly `size` bytes.
-        unsafe {
-            core::ptr::copy_nonoverlapping(pixels.as_ptr(), self.display.va as *mut u8, size);
-        }
-        if sys::display_present(0, 0, width, height).is_err() {
-            return false;
+        match &self.mode {
+            Mode::Owner { display } => {
+                let (width, height) = self.screen();
+                let size = display.size as usize;
+                let mut windows = self.windows.borrow_mut();
+                let Some(entry) = windows.get_mut(&window.raw()) else {
+                    return false;
+                };
+                let pixels = entry.surface.pixels();
+                if pixels.len() != size {
+                    return false;
+                }
+                // Safety: `va`/`size` are the mapping the kernel installed for
+                // this task's screen buffer at bind; `pixels` is exactly
+                // `size` bytes.
+                unsafe {
+                    core::ptr::copy_nonoverlapping(pixels.as_ptr(), display.va as *mut u8, size);
+                }
+                if sys::display_present(0, 0, width, height).is_err() {
+                    return false;
+                }
+            }
+            Mode::Client(state) => {
+                let state = state.borrow();
+                let full = Rect::new(0, 0, state.rect.0, state.rect.1);
+                let damage = self.take_damage(full);
+                let mut windows = self.windows.borrow_mut();
+                let Some(entry) = windows.get_mut(&window.raw()) else {
+                    return false;
+                };
+                let pixels = entry.surface.pixels();
+                if state.va == 0 || pixels.len() > state.size as usize {
+                    return false;
+                }
+                // Safety: `va`/`size` describe the shared buffer
+                // `display_create_buffer` mapped into this task; `pixels` is
+                // the window-sized RGBA image and fits inside it.
+                unsafe {
+                    core::ptr::copy_nonoverlapping(
+                        pixels.as_ptr(),
+                        state.va as *mut u8,
+                        pixels.len(),
+                    );
+                }
+                drop(windows);
+                if state
+                    .client
+                    .commit(
+                        state.surface,
+                        (damage.left, damage.top, damage.width(), damage.height()),
+                    )
+                    .is_err()
+                {
+                    return false;
+                }
+            }
         }
         self.frames.set(self.frames.get() + 1);
         if self.frames.get() == 1 {
@@ -204,6 +350,38 @@ impl LazyOSBackend {
             }
         }
         true
+    }
+
+    /// The damage accumulated since the last commit, clamped to `full`.
+    fn take_damage(&self, full: Rect) -> Rect {
+        let Some(damage) = self.damage.take() else {
+            return full;
+        };
+        let clipped = Rect::new(
+            damage.left.max(full.left),
+            damage.top.max(full.top),
+            damage.right.min(full.right),
+            damage.bottom.min(full.bottom),
+        );
+        if clipped.is_empty() {
+            full
+        } else {
+            clipped
+        }
+    }
+
+    /// Grow the pending damage by `rect`.
+    fn add_damage(&self, rect: Rect) {
+        let merged = match self.damage.get() {
+            Some(existing) => Rect::new(
+                existing.left.min(rect.left),
+                existing.top.min(rect.top),
+                existing.right.max(rect.right),
+                existing.bottom.max(rect.bottom),
+            ),
+            None => rect,
+        };
+        self.damage.set(Some(merged));
     }
 
     /// The topmost enabled, visible node under `(x, y)`.
@@ -231,10 +409,145 @@ impl LazyOSBackend {
         sink.is_some_and(|sink| sink.deliver(target, event))
     }
 
-    /// Drain the kernel input queue, translate and route each record.
+    /// Give `id` the keyboard focus, notifying the widget that lost it.
+    fn set_focus(&self, id: WidgetId) {
+        let old = self.focused.replace(Some(id));
+        if old == Some(id) {
+            return;
+        }
+        let Some(window) = self.window_of(id) else {
+            return;
+        };
+        if let Some(old) = old {
+            if self.window_of(old) == Some(window) {
+                self.deliver(window, old, &Event::KillFocus);
+            }
+        }
+        self.deliver(window, id, &Event::SetFocus);
+    }
+
+    /// Whether `id` is a focus stop (a Tab-order control or a button-like one).
+    fn is_focus_stop(&self, id: WidgetId) -> bool {
+        self.nodes
+            .borrow()
+            .iter()
+            .find(|(node_id, _)| *node_id == id)
+            .is_some_and(|(_, node)| node.visible && node.enabled && node.focus_stop)
+    }
+
+    /// Move the keyboard focus to the next (or previous) focus stop.
+    fn cycle_focus(&self, window: WindowId, forward: bool) {
+        let stops: Vec<WidgetId> = self
+            .nodes
+            .borrow()
+            .iter()
+            .filter(|(_, node)| {
+                node.window == window && node.visible && node.enabled && node.focus_stop
+            })
+            .map(|(id, _)| *id)
+            .collect();
+        if stops.is_empty() {
+            return;
+        }
+        let current = self
+            .focused
+            .get()
+            .and_then(|id| stops.iter().position(|stop| *stop == id));
+        let next = match current {
+            Some(index) if forward => (index + 1) % stops.len(),
+            Some(index) => (index + stops.len() - 1) % stops.len(),
+            None if forward => 0,
+            None => stops.len() - 1,
+        };
+        self.set_focus(stops[next]);
+    }
+
+    /// Route one pointer move (window-relative coordinates).
+    fn pointer_move(&self, window: WindowId, x: i32, y: i32) {
+        self.pointer.set((x, y));
+        let target = self.hit(window, x, y).unwrap_or(WidgetId::NONE);
+        self.deliver(
+            window,
+            target,
+            &Event::MouseMove {
+                x,
+                y,
+                modifiers: Modifiers::NONE,
+            },
+        );
+    }
+
+    /// Route one pointer press: click-to-focus, then the press itself.
+    fn pointer_down(&self, window: WindowId, x: i32, y: i32, button: MouseButton) {
+        self.pointer.set((x, y));
+        let target = self.hit(window, x, y);
+        if let Some(id) = target {
+            if self.is_focus_stop(id) {
+                self.set_focus(id);
+            }
+        }
+        self.deliver(
+            window,
+            target.unwrap_or(WidgetId::NONE),
+            &Event::MouseDown {
+                x,
+                y,
+                button,
+                modifiers: Modifiers::NONE,
+            },
+        );
+    }
+
+    /// Route one pointer release.
+    fn pointer_up(&self, window: WindowId, x: i32, y: i32, button: MouseButton) {
+        self.pointer.set((x, y));
+        let target = self.hit(window, x, y).unwrap_or(WidgetId::NONE);
+        self.deliver(
+            window,
+            target,
+            &Event::MouseUp {
+                x,
+                y,
+                button,
+                modifiers: Modifiers::NONE,
+            },
+        );
+    }
+
+    /// Route one key press: focus navigation first, then the focused widget.
     ///
-    /// Pointer events hit-test the node under the pointer; keyboard events go
-    /// to the focused node (the window itself when none is focused).
+    /// `Tab` is the canonical cycle key; `PageDown`/`PageUp` are accepted too
+    /// because a compositor reserves `Tab` for surface focus and the kernel's
+    /// PS/2 driver does not decode function keys (issue #168).
+    fn key_down(&self, window: WindowId, code: u32) {
+        match code {
+            key::TAB | key::PAGE_DOWN => {
+                self.cycle_focus(window, true);
+            }
+            key::PAGE_UP => {
+                self.cycle_focus(window, false);
+            }
+            _ => {
+                let target = self.focused.get().unwrap_or(WidgetId::NONE);
+                if let Some(event) = key_event(code as i32, true) {
+                    self.deliver(window, target, &event);
+                }
+                if let Some(character) = key_char(code) {
+                    self.deliver(window, target, &Event::Char(character));
+                }
+            }
+        }
+    }
+
+    /// Route one key release to the focused widget.
+    fn key_up(&self, window: WindowId, code: u32) {
+        let target = self.focused.get().unwrap_or(WidgetId::NONE);
+        if let Some(event) = key_event(code as i32, false) {
+            self.deliver(window, target, &event);
+        }
+    }
+
+    /// Drain the kernel input queue (owner mode), translate and route records.
     fn pump_input(&self, window: WindowId) {
         let mut bytes = [0u8; EVENT_BYTES * INPUT_BATCH];
         while let Ok(count) = sys::display_input_poll(&mut bytes) {
@@ -245,20 +558,82 @@ impl LazyOSBackend {
                 let Some(raw) = sys::decode_event(&bytes, index) else {
                     continue;
                 };
-                let Some(event) = self.translate(raw) else {
-                    continue;
-                };
-                let target = match event.position() {
-                    Some((x, y)) => self.hit(window, x, y).unwrap_or(WidgetId::NONE),
-                    None => self.focused.get().unwrap_or(WidgetId::NONE),
-                };
-                self.deliver(window, target, &event);
-                if raw.kind == event::KEY_DOWN {
-                    if let Some(character) = key_char(raw.a as u32) {
-                        self.deliver(window, target, &Event::Char(character));
+                match raw.kind {
+                    event::POINTER_MOVE => self.pointer_move(window, raw.a, raw.b),
+                    event::POINTER_DOWN => {
+                        let (x, y) = self.pointer.get();
+                        self.pointer_down(window, x, y, mouse_button(raw.a));
                     }
+                    event::POINTER_UP => {
+                        let (x, y) = self.pointer.get();
+                        self.pointer_up(window, x, y, mouse_button(raw.a));
+                    }
+                    event::KEY_DOWN => self.key_down(window, raw.a as u32),
+                    event::KEY_UP => self.key_up(window, raw.a as u32),
+                    _ => {}
                 }
             }
+        }
+    }
+
+    /// Drain the event endpoint (client mode): compositor messages carry
+    /// pointer, key and window-close events.
+    fn pump_client_input(&self, window: WindowId, events: u64) {
+        let mut buf = [0u8; CLIENT_INPUT_BYTES];
+        loop {
+            let deadline = sys::clock_ticks().saturating_add(CLIENT_POLL_TICKS);
+            match sys::msg_recv(events, &mut buf, deadline) {
+                Ok(result) => {
+                    let len = result.bytes as usize;
+                    let Some(parcel) = display::decode_message(&buf[..len]) else {
+                        continue;
+                    };
+                    if parcel.header.method == display::method::WINDOW_CLOSE {
+                        self.quit.store(true, Ordering::Relaxed);
+                        self.deliver(window, WidgetId::NONE, &Event::Close);
+                        continue;
+                    }
+                    if let Some(event) = display::decode_event(&parcel) {
+                        self.route_client_event(window, event);
+                    }
+                }
+                Err(code) if code == -errno::ETIMEDOUT => break,
+                Err(code) if code == -errno::EPIPE => {
+                    // The compositor died; there is nothing to draw into.
+                    self.quit.store(true, Ordering::Relaxed);
+                    break;
+                }
+                Err(_) => break,
+            }
+        }
+    }
+
+    /// Route one decoded compositor event.
+    ///
+    /// `xuid` reports presses relative to the surface but moves in screen
+    /// coordinates, so the surface origin is recovered from each press and
+    /// applied to the moves that follow. Press events do not carry the button
+    /// id (a protocol gap, noted in the PR), so they read as the left button.
+    fn route_client_event(&self, window: WindowId, event: display::Event) {
+        match event.kind {
+            EventKind::PointerMove => {
+                self.last_abs.set(Some((event.a as i32, event.b as i32)));
+                if let Some((ox, oy)) = self.origin.get() {
+                    self.pointer_move(window, event.a as i32 - ox, event.b as i32 - oy);
+                }
+            }
+            EventKind::PointerDown => {
+                let (x, y) = (event.a as i32, event.b as i32);
+                if let Some((abs_x, abs_y)) = self.last_abs.get() {
+                    self.origin.set(Some((abs_x - x, abs_y - y)));
+                }
+                self.pointer_down(window, x, y, MouseButton::Left);
+            }
+            EventKind::PointerUp => {
+                self.pointer_up(window, event.a as i32, event.b as i32, MouseButton::Left);
+            }
+            EventKind::KeyDown => self.key_down(window, event.a as u32),
+            EventKind::KeyUp => self.key_up(window, event.a as u32),
         }
     }
 
@@ -277,34 +652,36 @@ impl LazyOSBackend {
         }
     }
 
-    /// Translate one kernel input record into an `xui` event; `None` for an
-    /// unknown kind.
-    fn translate(&self, raw: sys::RawEvent) -> Option<Event> {
-        let (x, y) = self.pointer.get();
-        match raw.kind {
-            event::POINTER_MOVE => {
-                self.pointer.set((raw.a, raw.b));
-                Some(Event::MouseMove {
-                    x: raw.a,
-                    y: raw.b,
-                    modifiers: Modifiers::NONE,
-                })
+    /// One event-loop iteration: drain input, flush widget messages, run due
+    /// timers, and repaint when something is dirty.
+    fn tick(&self, window: WindowId) {
+        match &self.mode {
+            Mode::Owner { .. } => self.pump_input(window),
+            Mode::Client(state) => {
+                let events = state.borrow().events;
+                self.pump_client_input(window, events);
             }
-            event::POINTER_DOWN => Some(Event::MouseDown {
-                x,
-                y,
-                button: mouse_button(raw.a),
-                modifiers: Modifiers::NONE,
-            }),
-            event::POINTER_UP => Some(Event::MouseUp {
-                x,
-                y,
-                button: mouse_button(raw.a),
-                modifiers: Modifiers::NONE,
-            }),
-            event::KEY_DOWN => key_event(raw.a, true),
-            event::KEY_UP => key_event(raw.a, false),
-            _ => None,
+        }
+        // A wake drains the message queue; widget mappers enqueue while an
+        // input record is being routed, so this runs after every batch.
+        self.deliver(window, WidgetId::NONE, &Event::Wake);
+        self.fire_timers(window);
+        // Timer messages joined the queue after the wake above; drain them in
+        // the same pass so a refresh paints without a poll-period delay.
+        self.deliver(window, WidgetId::NONE, &Event::Wake);
+        if self.dirty.swap(false, Ordering::Relaxed) {
+            self.present(window);
+        }
+    }
+
+    /// Destroy the client-mode surface, if one was created.
+    fn destroy_surface(&self) {
+        if let Mode::Client(state) = &self.mode {
+            let mut state = state.borrow_mut();
+            if state.surface != 0 {
+                let _ = state.client.destroy_surface(state.surface);
+                state.surface = 0;
+            }
         }
     }
 
@@ -324,16 +701,14 @@ impl Backend for LazyOSBackend {
         };
         self.present(window);
         while !self.quit.load(Ordering::Relaxed) {
-            self.pump_input(window);
-            // A wake drains the message queue; widget mappers enqueue while an
-            // input record is being routed, so this runs after every batch.
-            self.deliver(window, WidgetId::NONE, &Event::Wake);
-            self.fire_timers(window);
-            // Timer messages joined the queue after the wake above; drain them
-            // in the same pass so a refresh paints without a poll-period delay.
-            self.deliver(window, WidgetId::NONE, &Event::Wake);
-            if self.dirty.swap(false, Ordering::Relaxed) {
-                self.present(window);
+            self.tick(window);
+            if self.is_client() {
+                // The client event receive already parked this task for up to
+                // one tick; no extra sleep.
+                continue;
+            }
+            if self.quit.load(Ordering::Relaxed) {
+                break;
             }
             sys::sleep_millis(POLL_MILLIS);
         }
@@ -361,6 +736,39 @@ impl Backend for LazyOSBackend {
         let dpi = DEFAULT_DPI;
         let width = spec.width.to_px(dpi).value().max(1) as u32;
         let height = spec.height.to_px(dpi).value().max(1) as u32;
+        if let Mode::Client(state) = &self.mode {
+            let mut state = state.borrow_mut();
+            if state.opened {
+                return Err(BackendError::Other(
+                    "client mode supports a single window per task".to_string(),
+                ));
+            }
+            // `events_peer` is moved to the compositor by the call below
+            // whether or not it succeeds; mark this task's one window as
+            // opened up front so a second `open_window` errors instead of
+            // resending a handle it no longer owns.
+            state.opened = true;
+            state.rect = (width as i32, height as i32);
+            let surface = state
+                .client
+                .create_surface(width as u64, height as u64, &spec.title, state.events_peer)
+                .map_err(|code| BackendError::Other(format!("create_surface: errno {code}")))?;
+            let size = width as u64 * height as u64 * 4;
+            let (buffer, va, _) = match sys::display_create_buffer(size) {
+                Ok(value) => value,
+                Err(code) => {
+                    let _ = state.client.destroy_surface(surface);
+                    return Err(BackendError::Other(format!("create_buffer: errno {code}")));
+                }
+            };
+            if let Err(code) = state.client.attach_buffer(surface, buffer, size) {
+                let _ = state.client.destroy_surface(surface);
+                return Err(BackendError::Other(format!("attach_buffer: errno {code}")));
+            }
+            state.surface = surface;
+            state.va = va;
+            state.size = size;
+        }
         self.windows.borrow_mut().insert(
             id.raw(),
             Window {
@@ -382,6 +790,7 @@ impl Backend for LazyOSBackend {
             .borrow_mut()
             .retain(|(_, node)| node.window != window);
         self.focused.set(None);
+        self.destroy_surface();
     }
 
     fn create(&self, parent: ParentRef, spec: &NodeSpec) -> BackendResult<WidgetId> {
@@ -407,6 +816,7 @@ impl Backend for LazyOSBackend {
                 bounds: spec.bounds,
                 visible: spec.visible,
                 enabled: spec.enabled,
+                focus_stop: focus_stop(spec),
                 text: spec.text.clone(),
                 painter: None,
             },
@@ -441,12 +851,27 @@ impl Backend for LazyOSBackend {
         let mut nodes = self.nodes.borrow_mut();
         for (id, rect) in moves {
             if let Some((_, node)) = nodes.iter_mut().find(|(node_id, _)| node_id == id) {
+                if self.is_client() {
+                    self.add_damage(node.bounds);
+                    self.add_damage(*rect);
+                }
                 node.bounds = *rect;
             }
         }
     }
 
     fn set_visible(&self, id: WidgetId, visible: bool) {
+        if self.is_client() {
+            if let Some(bounds) = self
+                .nodes
+                .borrow()
+                .iter()
+                .find(|(node_id, _)| *node_id == id)
+                .map(|(_, node)| node.bounds)
+            {
+                self.add_damage(bounds);
+            }
+        }
         self.with_node(id, |node| node.visible = visible);
     }
 
@@ -455,7 +880,7 @@ impl Backend for LazyOSBackend {
     }
 
     fn focus(&self, id: WidgetId) {
-        self.focused.set(Some(id));
+        self.set_focus(id);
     }
 
     fn set_text(&self, id: WidgetId, text: &str) {
@@ -471,12 +896,34 @@ impl Backend for LazyOSBackend {
             .unwrap_or_default()
     }
 
-    fn invalidate(&self, _id: WidgetId) {
+    fn invalidate(&self, id: WidgetId) {
         self.dirty.store(true, Ordering::Relaxed);
+        if self.is_client() {
+            if let Some(bounds) = self
+                .nodes
+                .borrow()
+                .iter()
+                .find(|(node_id, _)| *node_id == id)
+                .map(|(_, node)| node.bounds)
+            {
+                self.add_damage(bounds);
+            }
+        }
     }
 
-    fn invalidate_rect(&self, _id: WidgetId, _rect: Rect) {
+    fn invalidate_rect(&self, id: WidgetId, _rect: Rect) {
         self.dirty.store(true, Ordering::Relaxed);
+        if self.is_client() {
+            if let Some(bounds) = self
+                .nodes
+                .borrow()
+                .iter()
+                .find(|(node_id, _)| *node_id == id)
+                .map(|(_, node)| node.bounds)
+            {
+                self.add_damage(bounds);
+            }
+        }
     }
 
     fn set_painter(&self, id: WidgetId, painter: Painter) {
@@ -542,6 +989,25 @@ impl Backend for LazyOSBackend {
 /// The Linux-style positive errno a failed bind reports; the kernel's own
 /// failure codes are negative and reach the user as the syscall result.
 const ENOENT: i64 = 2;
+
+/// Whether a node joins click-focus and the focus cycle: the explicit Tab
+/// order, plus the button-like controls xui marks as focusable at the platform
+/// layer but not as tab stops.
+fn focus_stop(spec: &NodeSpec) -> bool {
+    spec.tab_stop
+        || matches!(
+            spec.kind,
+            NodeKind::Button
+                | NodeKind::CheckBox
+                | NodeKind::Radio
+                | NodeKind::Slider
+                | NodeKind::ListView
+                | NodeKind::TreeView
+                | NodeKind::Toolbar
+                | NodeKind::Tabs
+                | NodeKind::ComboBox
+        )
+}
 
 fn mouse_button(code: i32) -> MouseButton {
     match code as u32 {

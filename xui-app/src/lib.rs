@@ -12,6 +12,7 @@
 
 pub mod backend;
 pub mod dashboard;
+pub mod display;
 pub mod fabric;
 pub mod font;
 pub mod format;

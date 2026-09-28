@@ -37,6 +37,10 @@ name = "xui-counter"
 path = "src/bin/counter.rs"
 
 [[bin]]
+name = "xui-client"
+path = "src/bin/client.rs"
+
+[[bin]]
 name = "xui-sysmon"
 path = "src/bin/sysmon.rs"
 

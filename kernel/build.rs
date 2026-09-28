@@ -84,6 +84,19 @@ fn main() {
         println!("cargo:rustc-cfg=shellprobe_demo");
     }
 
+    // xui client switch (issue #168): with `LAZYOS_XUID=1`,
+    // `LAZYOS_XUI_APP` and `LAZYOS_XUI_CLIENT=1`, the kernel boots `xuid`
+    // *and* the app, which runs as a compositor client in a decorated window
+    // (`xui-client`). Owner mode (no `LAZYOS_XUI_CLIENT`) is unchanged.
+    println!("cargo:rerun-if-env-changed=LAZYOS_XUI_CLIENT");
+    println!("cargo:rustc-check-cfg=cfg(xui_client)");
+    if env::var_os("LAZYOS_XUID").as_deref() == Some(std::ffi::OsStr::new("1"))
+        && env::var_os("LAZYOS_XUI_APP").is_some()
+        && env::var_os("LAZYOS_XUI_CLIENT").as_deref() == Some(std::ffi::OsStr::new("1"))
+    {
+        println!("cargo:rustc-cfg=xui_client");
+    }
+
     let font_bytes = fs::read(&font_path).expect("read JetBrainsMono-Regular.ttf");
     let atlas = font_atlas::build(&font_bytes, 20.0);
 
