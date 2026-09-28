@@ -54,8 +54,10 @@ use spin::Mutex;
 
 use libmessenger::{flags, BufferDesc, Parcel};
 
+use crate::ipc::credentials;
 use crate::ipc::handles::{self, rights, HandleKind};
 use crate::ipc::shared;
+use crate::quota::{self, Resource};
 use crate::task::wait::WaitQueue;
 use crate::task::{self, WaitKind, WakeReason};
 
@@ -118,6 +120,8 @@ pub enum Error {
     TooManyOutstanding,
     /// This sender already has [`MAX_PENDING_PER_SENDER`] pending transactions.
     Quota,
+    /// The sender's *user* is over its per-uid queue quota (issue #103).
+    QuotaExceeded,
     /// The call would form a synchronous cycle on this channel pair.
     Deadlock,
     /// No pending transaction has that id.
@@ -151,6 +155,7 @@ impl Error {
             Error::QueueFull => "the peer's message queue is full",
             Error::TooManyOutstanding => "this channel has too many outstanding transactions",
             Error::Quota => "this sender has too many outstanding transactions",
+            Error::QuotaExceeded => "this user is over its Messenger queue quota",
             Error::Deadlock => {
                 "this call would deadlock: another transaction on this channel is still open"
             }
@@ -174,6 +179,9 @@ fn from_handles(error: handles::Error) -> Error {
         handles::Error::InvalidHandle => Error::InvalidHandle,
         handles::Error::MissingRight => Error::MissingRight,
         handles::Error::BadTask => Error::BadTask,
+        // A per-uid handle-quota refusal is the same user-facing condition as
+        // the per-process cap (issue #103).
+        handles::Error::Quota => Error::NoFreeHandle,
     }
 }
 
@@ -225,6 +233,10 @@ pub struct BufferTransfer {
 #[derive(Clone, PartialEq, Eq, Debug)]
 struct Queued {
     sender: usize,
+    /// Sender's uid *at queue time* (issue #103): the per-uid queue charge is
+    /// released against this uid even if the sender transitions identity before
+    /// the message is delivered.
+    quota_uid: u32,
     method: u32,
     flags: u16,
     txn: Option<u64>,
@@ -486,6 +498,32 @@ fn retain_transfers(message: &Queued) -> Result<(), Error> {
     Ok(())
 }
 
+/// Charge one queued message to its sender's uid (issue #103): parcel bytes and
+/// one queue slot, applied atomically so a refusal leaves nothing behind.
+fn charge_queued(uid: u32, bytes: usize) -> Result<(), Error> {
+    quota::charge_many(
+        uid,
+        &[
+            (Resource::QueueBytes, bytes as u64),
+            (Resource::QueueDepth, 1),
+        ],
+    )
+    .map_err(|_| Error::QuotaExceeded)
+}
+
+/// Release the per-uid queue charge a message held, matched by
+/// [`Queued::quota_uid`] so a delivery after a credential transition still
+/// credits the user that was charged.
+fn release_queued_quota(uid: u32, bytes: usize) {
+    quota::release_many(
+        uid,
+        &[
+            (Resource::QueueBytes, bytes as u64),
+            (Resource::QueueDepth, 1),
+        ],
+    );
+}
+
 /// Release every reference a queued message that will never be delivered holds
 /// (the receiving endpoint closed, the channel was dropped, or delivery failed
 /// before the handles were installed).
@@ -582,6 +620,7 @@ pub fn send(handle: u64, parcel_bytes: &[u8]) -> Result<(), Error> {
         side,
         Queued {
             sender: me,
+            quota_uid: credentials::of(me).uid,
             method: parcel.header.method,
             flags: parcel.header.flags,
             txn: None,
@@ -613,9 +652,17 @@ fn enqueue(channel_id: u64, from_side: usize, message: Queued) -> Result<(), Err
         channel.drops += 1;
         return Err(Error::QueueFull);
     }
+    // Per-uid aggregate (issue #103): the endpoint's own depth/byte caps above
+    // remain the first line, and the sender's user must also have room. Charge
+    // before taking buffer references so a refusal has nothing to unwind.
+    if let Err(error) = charge_queued(message.quota_uid, message.bytes.len()) {
+        channel.drops += 1;
+        return Err(error);
+    }
     // The queue has room: take the message's buffer references so a sender
     // that closes its own handle cannot free frames an in-flight message needs.
     if let Err(error) = retain_transfers(&message) {
+        release_queued_quota(message.quota_uid, message.bytes.len());
         channel.drops += 1;
         return Err(error);
     }
@@ -690,6 +737,7 @@ pub fn begin_call(
         }
         let queued = Queued {
             sender: me,
+            quota_uid: credentials::of(me).uid,
             method,
             flags: parcel.header.flags,
             txn: Some(txn_id),
@@ -698,10 +746,15 @@ pub fn begin_call(
             handles,
             buffers,
         };
-        // Take the buffer references and finish the handle move before the
-        // request is visible, so a callee that runs immediately finds the
-        // transfers already installed in the message.
+        // Per-uid queue quota (issue #103), then take the buffer references and
+        // finish the handle move before the request is visible, so a callee that
+        // runs immediately finds the transfers already installed in the message.
+        if let Err(error) = charge_queued(queued.quota_uid, queued.bytes.len()) {
+            channel.drops += 1;
+            return Err(error);
+        }
         if let Err(error) = retain_transfers(&queued) {
+            release_queued_quota(queued.quota_uid, queued.bytes.len());
             channel.drops += 1;
             return Err(error);
         }
@@ -866,6 +919,7 @@ pub fn close_endpoint(handle: u64) -> Result<(), Error> {
             channel.endpoints[side].queued_bytes = 0;
             for message in &dropped {
                 release_queued(message);
+                release_queued_quota(message.quota_uid, message.bytes.len());
             }
             let mut released = Vec::new();
             for txn in channel.txns.iter_mut() {
@@ -893,6 +947,7 @@ pub fn close_endpoint(handle: u64) -> Result<(), Error> {
                 channel.drops += extra_drops;
                 for message in &pending {
                     release_queued(message);
+                    release_queued_quota(message.quota_uid, message.bytes.len());
                 }
             }
         }
@@ -925,7 +980,12 @@ pub fn try_recv(handle: u64) -> Result<Option<Message>, Error> {
         }
     };
     match queued {
-        Some(message) => Ok(Some(deliver(message)?)),
+        Some(message) => {
+            // Delivery takes the message out of the inbox, so the sender's
+            // user gets the queue charge back (issue #103).
+            release_queued_quota(message.quota_uid, message.bytes.len());
+            Ok(Some(deliver(message)?))
+        }
         None => Ok(None),
     }
 }
@@ -1102,6 +1162,7 @@ pub fn reset() {
         for endpoint in &channel.endpoints {
             for message in &endpoint.inbox {
                 release_queued(message);
+                release_queued_quota(message.quota_uid, message.bytes.len());
             }
         }
     }

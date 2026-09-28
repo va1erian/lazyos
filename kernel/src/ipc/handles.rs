@@ -10,6 +10,7 @@
 use alloc::vec::Vec;
 use spin::Mutex;
 
+use crate::quota::{self, Resource};
 use crate::task::MAX_TASKS;
 
 /// What a handle refers to.
@@ -65,6 +66,8 @@ pub enum Error {
     MissingRight,
     /// No task runs in the queried slot.
     BadTask,
+    /// The handle's user is over its per-uid handle quota (issue #103).
+    Quota,
 }
 
 impl Error {
@@ -75,6 +78,7 @@ impl Error {
             Error::InvalidHandle => "that Messenger handle does not exist",
             Error::MissingRight => "this handle does not grant the required right",
             Error::BadTask => "no task exists in that slot",
+            Error::Quota => "this user is holding too many Messenger handles",
         }
     }
 }
@@ -154,19 +158,56 @@ fn with_table<R>(f: impl FnOnce(&mut Table) -> R) -> Result<R, Error> {
     Ok(f(table))
 }
 
+/// Charge one handle to `slot`'s uid (issue #103), mapping a quota refusal
+/// onto the handle-table vocabulary.
+fn charge_handle(slot: usize) -> Result<(), Error> {
+    quota::charge_for_slot(slot, Resource::Handles, 1).map_err(|_| Error::Quota)
+}
+
+/// Give one handle back to `slot`'s uid. Saturating, so teardown of an
+/// unbalanced table cannot underflow.
+fn release_handle(slot: usize, count: u64) {
+    quota::release_for_slot(slot, Resource::Handles, count);
+}
+
 /// Allocate a handle to `object_id` with the given rights.
+///
+/// The per-process [`MAX_HANDLES`] check stays the first line inside the table;
+/// the per-uid aggregate (issue #103) is charged here, so two tasks of the same
+/// user share one limit.
 pub fn open(kind: HandleKind, rights: u32, object_id: u64) -> Result<u64, Error> {
-    with_table(|table| table.open(kind, rights, object_id))?
+    let slot = crate::task::current();
+    charge_handle(slot)?;
+    match with_table(|table| table.open(kind, rights, object_id))? {
+        Ok(handle) => Ok(handle),
+        Err(error) => {
+            release_handle(slot, 1);
+            Err(error)
+        }
+    }
 }
 
 /// Duplicate `handle` into a new handle with equal or narrower rights.
 pub fn duplicate(handle: u64, rights: u32) -> Result<u64, Error> {
-    with_table(|table| table.duplicate(handle, rights))?
+    let slot = crate::task::current();
+    charge_handle(slot)?;
+    match with_table(|table| table.duplicate(handle, rights))? {
+        Ok(copy) => Ok(copy),
+        Err(error) => {
+            release_handle(slot, 1);
+            Err(error)
+        }
+    }
 }
 
 /// Drop a handle. The object itself is released when its last handle closes.
 pub fn close(handle: u64) -> Result<(), Error> {
-    with_table(|table| table.close(handle))?
+    let slot = crate::task::current();
+    let result = with_table(|table| table.close(handle))?;
+    if result.is_ok() {
+        release_handle(slot, 1);
+    }
+    result
 }
 
 /// Copy out an entry (the fabric never hands out mutable references).
@@ -196,9 +237,21 @@ pub fn open_for_task(
     rights: u32,
     object_id: u64,
 ) -> Result<u64, Error> {
-    let mut tables = TABLES.lock();
-    let table = tables.get_mut(slot).ok_or(Error::BadTask)?;
-    table.open(kind, rights, object_id)
+    charge_handle(slot)?;
+    let opened = {
+        let mut tables = TABLES.lock();
+        match tables.get_mut(slot) {
+            Some(table) => table.open(kind, rights, object_id),
+            None => Err(Error::BadTask),
+        }
+    };
+    match opened {
+        Ok(handle) => Ok(handle),
+        Err(error) => {
+            release_handle(slot, 1);
+            Err(error)
+        }
+    }
 }
 
 /// The rights of `handle`, if it exists.
@@ -221,8 +274,22 @@ pub fn count_for_task(slot: usize) -> usize {
 }
 
 /// Drop every handle of a task (process teardown; wires into `Task` later).
+///
+/// The dropped handles are released from the slot's per-uid aggregate too, so
+/// teardown cannot strand a user above its handle quota.
 pub fn reset_for_task(slot: usize) {
-    if let Some(table) = TABLES.lock().get_mut(slot) {
-        *table = Table::new();
+    let dropped = {
+        let mut tables = TABLES.lock();
+        match tables.get_mut(slot) {
+            Some(table) => {
+                let count = table.count();
+                *table = Table::new();
+                count
+            }
+            None => 0,
+        }
+    };
+    if dropped > 0 {
+        release_handle(slot, dropped as u64);
     }
 }

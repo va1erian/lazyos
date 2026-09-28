@@ -41,9 +41,11 @@ use spin::Mutex;
 use x86_64::structures::paging::PageTableFlags;
 use x86_64::{PhysAddr, VirtAddr};
 
+use crate::ipc::credentials;
 use crate::ipc::handles::{self, rights, HandleKind};
 use crate::mem;
 use crate::mem::vma::Prot;
+use crate::quota::{self, Resource};
 use crate::task::wait::WaitQueue;
 use crate::task::{self, WaitKind, WakeReason};
 
@@ -108,6 +110,9 @@ pub enum Error {
     RegistryFull,
     /// The process is over its buffer byte or count quota.
     Quota,
+    /// The creator's *user* is over its per-uid kernel-memory quota (issue
+    /// #103).
+    UserQuota,
     /// No frames were available for the buffer.
     OutOfMemory,
     /// A page could not be mapped into the address space.
@@ -138,6 +143,7 @@ impl Error {
             Error::ExecutableDenied => "executable shared memory is denied by default",
             Error::RegistryFull => "the kernel shared-buffer registry is full",
             Error::Quota => "this process is over its shared-buffer quota",
+            Error::UserQuota => "this user is over its shared-buffer memory quota",
             Error::OutOfMemory => "there is not enough free memory for this buffer",
             Error::MapFailed => "the buffer could not be mapped into this address space",
             Error::ShareOnly => "this buffer is share-only and is not mapped into this process",
@@ -156,6 +162,9 @@ fn from_handles(error: handles::Error) -> Error {
         handles::Error::InvalidHandle => Error::InvalidHandle,
         handles::Error::MissingRight => Error::MissingRight,
         handles::Error::BadTask => Error::BadTask,
+        // A per-uid handle-quota refusal is the same user-facing condition as
+        // the per-process cap (issue #103).
+        handles::Error::Quota => Error::NoFreeHandle,
     }
 }
 
@@ -177,6 +186,10 @@ struct Buffer {
     object_id: u64,
     /// Slot that created the buffer and whose quota it is charged against.
     owner: usize,
+    /// Creator's uid *at creation time* (issue #103): the per-uid kernel-memory
+    /// charge is released against this uid even if the creator later
+    /// transitions identity.
+    owner_uid: u32,
     /// Page-rounded length in bytes.
     size: u64,
     flags: u32,
@@ -295,11 +308,13 @@ fn use_of<'a>(registry: &'a mut Registry, slot: usize) -> &'a mut Use {
     &mut registry.uses[last]
 }
 
-/// Release `bytes` from `slot`'s accounting (buffer destroy).
-fn release_quota(registry: &mut Registry, slot: usize, bytes: u64) {
+/// Release `bytes` from `slot`'s per-process accounting and `uid`'s per-uid
+/// kernel-memory quota (buffer destroy or a failed create).
+fn release_quota(registry: &mut Registry, slot: usize, uid: u32, bytes: u64) {
     let used = use_of(registry, slot);
     used.bytes = used.bytes.saturating_sub(bytes);
     used.buffers = used.buffers.saturating_sub(1);
+    quota::release(uid, Resource::KernelMemory, bytes);
 }
 
 /// Page rounded-up length, or `None` on overflow.
@@ -384,7 +399,7 @@ fn destroy_buffer(registry: &mut Registry, index: usize, with_refs: bool) {
             free_frames(&buffer.frames);
         }
     }
-    release_quota(registry, buffer.owner, buffer.size);
+    release_quota(registry, buffer.owner, buffer.owner_uid, buffer.size);
 }
 
 /// Allocate `pages` zeroed frames, releasing what was allocated on failure.
@@ -437,6 +452,7 @@ pub fn create(size: u64, flags: u32) -> Result<u64, Error> {
         return Err(Error::BadSize);
     };
     let slot = task::current();
+    let uid = credentials::of(slot).uid;
     let pages = size / PAGE;
 
     let mut registry = REGISTRY.lock();
@@ -450,12 +466,21 @@ pub fn create(size: u64, flags: u32) -> Result<u64, Error> {
         {
             return Err(Error::Quota);
         }
+    }
+    // Per-uid aggregate (issue #103): the frames are kernel memory charged to
+    // the creator's user. Charge before reserving so a refusal has nothing to
+    // unwind; every later failure path releases through `release_quota`.
+    if quota::charge(uid, Resource::KernelMemory, size).is_err() {
+        return Err(Error::UserQuota);
+    }
+    {
         // Reserve the quota before allocating so a failure cannot leak it.
+        let used = use_of(&mut registry, slot);
         used.bytes += size;
         used.buffers += 1;
     }
     let Some(frames) = alloc_frames(pages) else {
-        release_quota(&mut registry, slot, size);
+        release_quota(&mut registry, slot, uid, size);
         return Err(Error::OutOfMemory);
     };
 
@@ -475,7 +500,7 @@ pub fn create(size: u64, flags: u32) -> Result<u64, Error> {
             for remaining in &frames[index..] {
                 mem::free_frame(*remaining);
             }
-            release_quota(&mut registry, slot, size);
+            release_quota(&mut registry, slot, uid, size);
             return Err(Error::MapFailed);
         }
         if !mem::map_page_in(table, VirtAddr::new(at), *frame, map_flags(flags)) {
@@ -485,7 +510,7 @@ pub fn create(size: u64, flags: u32) -> Result<u64, Error> {
             for remaining in &frames[index + 1..] {
                 mem::free_frame(*remaining);
             }
-            release_quota(&mut registry, slot, size);
+            release_quota(&mut registry, slot, uid, size);
             return Err(Error::MapFailed);
         }
     }
@@ -505,13 +530,14 @@ pub fn create(size: u64, flags: u32) -> Result<u64, Error> {
                 unmap_mapping(mapping, size);
             }
             free_frames(&frames);
-            release_quota(&mut registry, slot, size);
+            release_quota(&mut registry, slot, uid, size);
             return Err(from_handles(error));
         }
     };
     registry.buffers.push(Buffer {
         object_id,
         owner: slot,
+        owner_uid: uid,
         size,
         flags,
         frames,

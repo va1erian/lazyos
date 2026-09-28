@@ -865,7 +865,7 @@ fn channel_errno(error: channels::Error) -> i64 {
         MissingRight => errno::EACCES,
         NoFreeHandle | RegistryFull => errno::ENOMEM,
         BadTask | BadParcel => errno::EINVAL,
-        QueueFull | TooManyOutstanding | Quota => errno::EAGAIN,
+        QueueFull | TooManyOutstanding | Quota | QuotaExceeded => errno::EAGAIN,
         Deadlock => errno::EDEADLK,
         NotCaller => errno::EPERM,
         TimedOut => errno::ETIMEDOUT,
@@ -879,7 +879,7 @@ fn channel_errno(error: channels::Error) -> i64 {
 fn handles_errno(error: handles::Error) -> i64 {
     use handles::Error::*;
     match error {
-        NoFreeHandle => errno::ENOMEM,
+        NoFreeHandle | Quota => errno::ENOMEM,
         InvalidHandle => errno::ENOENT,
         MissingRight => errno::EACCES,
         BadTask => errno::EINVAL,

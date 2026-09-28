@@ -24,6 +24,7 @@ mod ipc;
 mod mem;
 mod mux;
 mod process;
+mod quota;
 mod serial;
 #[allow(dead_code)]
 mod skia;
