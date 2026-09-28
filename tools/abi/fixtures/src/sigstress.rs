@@ -12,7 +12,7 @@ const SYS_KILL: u64 = 62;
 const SIGUSR1: usize = 10;
 const SIGUSR2: usize = 12;
 const SIG_BLOCK: usize = 0;
-const SIG_UNBLOCK: usize = 2;
+const SIG_UNBLOCK: usize = 1;
 
 /// x86_64 `SA_RESTORER`: the handler's return goes through `sa_restorer`.
 const SA_RESTORER: u64 = 0x0400_0000;
