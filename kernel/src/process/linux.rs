@@ -234,13 +234,30 @@ pub fn dispatch_for_test(nr: u64, a1: u64, a2: u64, a3: u64) -> u64 {
 /// [`dispatch_for_test`] with a fourth argument (`socketpair`'s `sv`).
 #[cfg(lazyos_tests)]
 pub fn dispatch_args_for_test(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64) -> u64 {
-    linux_dispatch(nr, a1, a2, a3, a4, 0, 0)
+    dispatch_args5_for_test(nr, a1, a2, a3, a4, 0)
 }
 
 /// [`dispatch_for_test`] with five arguments (`mremap`'s `new_address`).
+///
+/// The real `int 0x80` gate is an interrupt gate, so a syscall body always
+/// starts with interrupts disabled (`sys_read_char`'s and `exit`'s own
+/// `enable()` calls exist precisely because of that guarantee); a blocking
+/// body such as `sys_clock_nanosleep` relies on it too, to keep `park`'s
+/// register-then-block sequence atomic against the timer (see
+/// `task::wait::WaitQueue::wait`), and `enable_and_hlt` leaves interrupts
+/// enabled once it returns (real hardware restores the caller's flags via
+/// `iretq`, which this harness entry has no equivalent of). The rest of the
+/// kernel test suite runs with interrupts off between the narrow windows
+/// that explicitly enable them, so calling `linux_dispatch` as a plain
+/// function - without a gate to save and restore that state - would leave
+/// every later test preempted by a real, unexpected timer tick if we did not
+/// force it back off here.
 #[cfg(lazyos_tests)]
 pub fn dispatch_args5_for_test(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u64) -> u64 {
-    linux_dispatch(nr, a1, a2, a3, a4, a5, 0)
+    x86_64::instructions::interrupts::disable();
+    let result = linux_dispatch(nr, a1, a2, a3, a4, a5, 0);
+    x86_64::instructions::interrupts::disable();
+    result
 }
 
 /// `openat(AT_FDCWD, ...)` sentinel.
@@ -513,7 +530,8 @@ extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
         25 => sys_mremap(a1, a2, a3, a4, a5), // mremap(old, old_size, new_size, flags, new)
         28 => 0,                              // madvise
         32 | 33 => sys_dup(nr, a1, a2),       // dup / dup2
-        35 => sys_nanosleep(a1),              // nanosleep(req, rem)
+        // nanosleep(req, rem) is always relative, so the clock is irrelevant.
+        35 => sys_clock_nanosleep(CLOCK_MONOTONIC, 0, a1, a2),
         39 | 186 => task::current() as u64,   // getpid/gettid: pid == slot (#59)
         41 => sys_socket(a1, a2, a3),         // socket(domain, type, protocol)
         42 => sys_connect(a1, a2, a3),        // connect(fd, addr, len)
@@ -562,7 +580,7 @@ extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
         218 => sys_set_tid_address(a1),
         228 => sys_clock_gettime(a1, a2),
         229 => sys_clock_getres(a2),
-        230 => sys_nanosleep(a3), // clock_nanosleep(clockid, flags, req, rem)
+        230 => sys_clock_nanosleep(a1, a2, a3, a4), // clock_nanosleep(clockid, flags, req, rem)
         231 => sys_exit_group(a1),
         232 => sys_epoll_wait(a1, a2, a3, a4), // epoll_wait(epfd, events, maxevents, timeout)
         233 => sys_epoll_ctl(a1, a2, a3, a4),  // epoll_ctl(epfd, op, fd, event)
@@ -1199,15 +1217,18 @@ fn sys_getcwd(buf: u64, size: u64) -> u64 {
 /// Fixed realtime epoch (2026-01-01T00:00:00Z); the PIT provides monotonicity.
 const REALTIME_BASE: u64 = 1_767_225_600;
 
+const CLOCK_REALTIME: u64 = 0;
+const CLOCK_MONOTONIC: u64 = 1;
+
 /// Monotonic tick count from the PIT (100 Hz).
 fn now_ticks() -> u64 {
     crate::arch::idt::TICKS.load(core::sync::atomic::Ordering::Relaxed)
 }
 
 fn sys_clock_gettime(clock: u64, out: u64) -> u64 {
-    // CLOCK_MONOTONIC(1) counts from boot; everything else is anchored to epoch.
+    // CLOCK_MONOTONIC counts from boot; everything else is anchored to epoch.
     let ticks = now_ticks();
-    let seconds = if clock == 1 {
+    let seconds = if clock == CLOCK_MONOTONIC {
         ticks / 100
     } else {
         REALTIME_BASE + ticks / 100
@@ -1240,22 +1261,70 @@ fn sys_gettimeofday(tv: u64) -> u64 {
     0
 }
 
-/// Sleep for the `struct timespec` duration at `req` (nanosleep/clock_nanosleep).
-fn sys_nanosleep(req: u64) -> u64 {
-    // Safety: user buffer holds a `struct timespec` (the syscall ABI's contract).
-    let (sec, nsec) = unsafe { (user_ptr::read::<i64>(req), user_ptr::read::<i64>(req + 8)) };
-    if sec < 0 || nsec < 0 {
+/// `TIMER_ABSTIME`: `req` is an absolute deadline on `clock` rather than a
+/// duration.
+const TIMER_ABSTIME: u64 = 1;
+
+/// Sleep for the `struct timespec` at `req`, backing both `nanosleep` (always
+/// relative, clock-independent) and `clock_nanosleep` (relative or, with
+/// `TIMER_ABSTIME`, an absolute deadline on `clock`).
+///
+/// `clock` must be `CLOCK_REALTIME` or `CLOCK_MONOTONIC`, `flags` must
+/// contain no bits beyond `TIMER_ABSTIME`, and `req`'s nanoseconds must be a
+/// canonical `0..1_000_000_000` — matching Linux's `-EINVAL` for an unknown
+/// clock, unknown flags, or a malformed timespec.
+fn sys_clock_nanosleep(clock: u64, flags: u64, req: u64, rem: u64) -> u64 {
+    if clock != CLOCK_REALTIME && clock != CLOCK_MONOTONIC {
         return err(EINVAL);
     }
-    let millis = sec as u64 * 1000 + (nsec as u64).div_ceil(1_000_000);
+    if flags & !TIMER_ABSTIME != 0 {
+        return err(EINVAL);
+    }
+    let absolute = flags & TIMER_ABSTIME != 0;
+    // Safety: user buffer holds a `struct timespec` (the syscall ABI's contract).
+    let (sec, nsec) = unsafe { (user_ptr::read::<i64>(req), user_ptr::read::<i64>(req + 8)) };
+    if sec < 0 || !(0..1_000_000_000).contains(&nsec) {
+        return err(EINVAL);
+    }
     // 100 Hz timer: round up to whole ticks, at least one so time advances.
     // The sleep queue is never notified; the timer's deadline sweep is what
     // makes this return, exactly like a timeout.
-    let deadline = now_ticks() + millis_to_ticks(millis);
+    let deadline = if absolute {
+        clock_deadline_ticks(clock, sec as u64, nsec as u64)
+    } else {
+        let millis = (sec as u64)
+            .saturating_mul(1000)
+            .saturating_add((nsec as u64).div_ceil(1_000_000));
+        now_ticks().saturating_add(millis_to_ticks(millis))
+    };
     match task::wait_sleep(deadline) {
         WakeReason::TimedOut => 0,
-        WakeReason::Interrupted => err(EINTR),
+        WakeReason::Interrupted => {
+            // TIMER_ABSTIME sleeps never report a remainder (there's nothing
+            // to resume relative to); only a relative sleep does.
+            if !absolute && rem != 0 {
+                let remaining = deadline.saturating_sub(now_ticks());
+                write_timespec(rem, remaining / 100, (remaining % 100) * 10_000_000);
+            }
+            err(EINTR)
+        }
         WakeReason::Woken => 0, // nothing notifies the sleep queue
+    }
+}
+
+/// Convert an absolute `(sec, nsec)` deadline on `clock`, expressed exactly as
+/// `clock_gettime` reports that clock, into the PIT tick count `wait_sleep`
+/// compares against. Rounds up so a sleeper never wakes before the requested
+/// instant; a deadline already in the past saturates to tick 0, which
+/// `wait_sleep` resolves immediately since ticks only advance.
+fn clock_deadline_ticks(clock: u64, sec: u64, nsec: u64) -> u64 {
+    let ticks = sec
+        .saturating_mul(100)
+        .saturating_add(nsec.div_ceil(10_000_000));
+    if clock == CLOCK_MONOTONIC {
+        ticks
+    } else {
+        ticks.saturating_sub(REALTIME_BASE * 100)
     }
 }
 

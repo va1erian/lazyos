@@ -257,6 +257,26 @@ const SUITE: &[(&str, Test)] = &[
         linux_suite::unix_write_before_accept,
     ),
     ("linux_unix_pathname_soak", linux_suite::unix_pathname_soak),
+    (
+        "linux_nanosleep_relative_duration",
+        linux_suite::nanosleep_relative_duration,
+    ),
+    (
+        "linux_clock_nanosleep_absolute_past_returns_immediately",
+        linux_suite::clock_nanosleep_absolute_past_returns_immediately,
+    ),
+    (
+        "linux_clock_nanosleep_absolute_future_waits_until_deadline",
+        linux_suite::clock_nanosleep_absolute_future_waits_until_deadline,
+    ),
+    (
+        "linux_clock_nanosleep_bad_clock_and_flags",
+        linux_suite::clock_nanosleep_bad_clock_and_flags,
+    ),
+    (
+        "linux_clock_nanosleep_soak_absolute",
+        linux_suite::clock_nanosleep_soak_absolute,
+    ),
     ("ipc_open_distinct", ipc_suite::open_distinct),
     ("ipc_duplicate_rights", ipc_suite::duplicate_rights),
     ("ipc_close_frees", ipc_suite::close_frees),
@@ -3701,11 +3721,24 @@ mod linux_suite {
     const EINVAL: u64 = (-22i64) as u64;
     const EMSGSIZE: u64 = (-90i64) as u64;
 
+    const CLOCK_REALTIME: u64 = 0;
+    const CLOCK_MONOTONIC: u64 = 1;
+    const TIMER_ABSTIME: u64 = 1;
+
     /// Register the kernel task with a bump region, close leftover
     /// descriptors, and forget any bound socket names, so each test starts
     /// from a clean ABI surface.
     fn fresh() -> Result<(), String> {
         task::register_kernel();
+        // A fork left behind by an earlier test (e.g. an unreaped
+        // `spawn_fork` peer) would otherwise sit in the table as a real
+        // `Runnable` competitor: harmless while the kernel task itself never
+        // blocks, but a genuine hijack risk for the tests below that call a
+        // blocking syscall (`nanosleep`/`clock_nanosleep`) for real, since
+        // `pick_next_best` would rather run any other `Runnable` slot than
+        // let the CPU idle.
+        task::harness::reset();
+        task::harness::switch_current(task::KERNEL_TASK);
         for fd in 3..task::FD_COUNT {
             let _ = task::fd_close(fd);
         }
@@ -4490,6 +4523,182 @@ mod linux_suite {
             "pathname soak leaked a bound name"
         );
         check!(pipe::Pipe::live() == 0, "pathname soak leaked a pipe");
+        Ok(())
+    }
+
+    /// `clock_gettime(clock, ..)`, returning `(sec, nsec)`.
+    fn clock_now(clock: u64) -> (i64, i64) {
+        let mut out = [0i64; 2];
+        process::linux::dispatch_for_test(228, clock, out.as_mut_ptr() as u64, 0);
+        (out[0], out[1])
+    }
+
+    /// `(sec, nsec)` normalized after adding `add_nsec` nanoseconds.
+    fn add_nanos(sec: i64, nsec: i64, add_nsec: i64) -> (i64, i64) {
+        let mut sec = sec;
+        let mut nsec = nsec + add_nsec;
+        while nsec >= 1_000_000_000 {
+            nsec -= 1_000_000_000;
+            sec += 1;
+        }
+        (sec, nsec)
+    }
+
+    /// `nanosleep(req, rem)` (syscall 35): always relative, no clock argument.
+    fn nanosleep(req: &[i64; 2], rem: &mut [i64; 2]) -> u64 {
+        process::linux::dispatch_for_test(35, req.as_ptr() as u64, rem.as_mut_ptr() as u64, 0)
+    }
+
+    /// `clock_nanosleep(clockid, flags, req, rem)` (syscall 230).
+    fn clock_nanosleep(clock: u64, flags: u64, req: &[i64; 2], rem: &mut [i64; 2]) -> u64 {
+        process::linux::dispatch_args_for_test(
+            230,
+            clock,
+            flags,
+            req.as_ptr() as u64,
+            rem.as_mut_ptr() as u64,
+        )
+    }
+
+    /// A relative `nanosleep` blocks for roughly the requested duration.
+    pub fn nanosleep_relative_duration() -> Result<(), String> {
+        fresh()?;
+        let before = task::ticks();
+        // 30ms => 3 ticks at 100 Hz.
+        let req = [0i64, 30_000_000];
+        let mut rem = [0i64; 2];
+        let ret = nanosleep(&req, &mut rem);
+        check!(ret == 0, "relative nanosleep returned {ret:#x}");
+        let elapsed = task::ticks() - before;
+        check!(
+            (3..=30).contains(&elapsed),
+            "relative nanosleep took an unexpected number of ticks: {elapsed}"
+        );
+        Ok(())
+    }
+
+    /// `clock_nanosleep` with `TIMER_ABSTIME` and a deadline already in the
+    /// past returns immediately, on both clocks `clock_gettime` reports.
+    pub fn clock_nanosleep_absolute_past_returns_immediately() -> Result<(), String> {
+        fresh()?;
+        for &clock in &[CLOCK_REALTIME, CLOCK_MONOTONIC] {
+            let before = task::ticks();
+            // (0, 0) is long before both the boot epoch and the fixed
+            // realtime base, so it is in the past on either clock.
+            let req = [0i64, 0i64];
+            let mut rem = [0i64; 2];
+            let ret = clock_nanosleep(clock, TIMER_ABSTIME, &req, &mut rem);
+            check!(
+                ret == 0,
+                "past absolute deadline on clock {clock} returned {ret:#x}"
+            );
+            let elapsed = task::ticks() - before;
+            check!(
+                elapsed <= 2,
+                "past absolute deadline on clock {clock} blocked for {elapsed} ticks"
+            );
+        }
+        Ok(())
+    }
+
+    /// A `TIMER_ABSTIME` deadline slightly in the future waits until that
+    /// instant, not for the deadline's raw value read as a duration.
+    ///
+    /// Deliberately uses `CLOCK_REALTIME`, not `CLOCK_MONOTONIC`: this early
+    /// in boot, monotonic "now" is itself only a few ticks past zero, so a
+    /// short relative delta and a monotonic absolute deadline are almost the
+    /// same bit pattern and the old bug (reading the deadline as a duration)
+    /// would go unnoticed. `CLOCK_REALTIME`'s fixed epoch base
+    /// (`REALTIME_BASE`, ~56 years) makes the two unmistakably different: the
+    /// old code, given a `CLOCK_REALTIME` deadline, would try to sleep for
+    /// about that many seconds (matching the issue's "roughly the whole
+    /// uptime" on `CLOCK_MONOTONIC`, just far more dramatic on this clock),
+    /// so a regression here fails by timeout, not by a fast assertion.
+    pub fn clock_nanosleep_absolute_future_waits_until_deadline() -> Result<(), String> {
+        fresh()?;
+        let (sec, nsec) = clock_now(CLOCK_REALTIME);
+        let (dsec, dnsec) = add_nanos(sec, nsec, 40_000_000); // 40ms ahead
+        let req = [dsec, dnsec];
+        let mut rem = [0i64; 2];
+        let before = task::ticks();
+        let ret = clock_nanosleep(CLOCK_REALTIME, TIMER_ABSTIME, &req, &mut rem);
+        check!(ret == 0, "future absolute deadline returned {ret:#x}");
+        let elapsed = task::ticks() - before;
+        check!(
+            elapsed >= 3,
+            "future absolute deadline returned too early: elapsed={elapsed} ticks"
+        );
+        check!(
+            elapsed <= 30,
+            "future absolute deadline waited far longer than requested \
+             (treated as a duration instead of a deadline?): elapsed={elapsed} ticks, \
+             uptime-before={before} ticks"
+        );
+        Ok(())
+    }
+
+    /// Unknown clocks and unknown flag bits are rejected with `-EINVAL`,
+    /// including when `TIMER_ABSTIME` is combined with an unknown bit; the
+    /// timespec validation (negative seconds/nanoseconds, and nanoseconds
+    /// outside `0..1_000_000_000`) still applies.
+    pub fn clock_nanosleep_bad_clock_and_flags() -> Result<(), String> {
+        fresh()?;
+        let req = [0i64, 0i64];
+        let mut rem = [0i64; 2];
+
+        let ret = clock_nanosleep(2, 0, &req, &mut rem);
+        check!(ret == EINVAL, "unknown clock accepted: {ret:#x}");
+
+        let ret = clock_nanosleep(CLOCK_MONOTONIC, 2, &req, &mut rem);
+        check!(ret == EINVAL, "unknown flag bit accepted: {ret:#x}");
+
+        let ret = clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME | 2, &req, &mut rem);
+        check!(
+            ret == EINVAL,
+            "TIMER_ABSTIME combined with an unknown bit accepted: {ret:#x}"
+        );
+
+        let bad_req = [-1i64, 0i64];
+        let ret = clock_nanosleep(CLOCK_MONOTONIC, 0, &bad_req, &mut rem);
+        check!(ret == EINVAL, "negative seconds accepted: {ret:#x}");
+
+        let bad_req = [0i64, -1i64];
+        let ret = clock_nanosleep(CLOCK_MONOTONIC, 0, &bad_req, &mut rem);
+        check!(ret == EINVAL, "negative nanoseconds accepted: {ret:#x}");
+
+        let bad_req = [0i64, 1_000_000_000i64];
+        let ret = clock_nanosleep(CLOCK_MONOTONIC, 0, &bad_req, &mut rem);
+        check!(ret == EINVAL, "nanoseconds >= 1s accepted: {ret:#x}");
+        Ok(())
+    }
+
+    /// Soak: many short `TIMER_ABSTIME` sleeps in a row, each one tick ahead
+    /// of the clock read just before it, catch leaks/races in the deadline
+    /// conversion and the wait-queue path under repeated use.
+    pub fn clock_nanosleep_soak_absolute() -> Result<(), String> {
+        fresh()?;
+        const ITERATIONS: usize = 40;
+        let mut rem = [0i64; 2];
+        let start = task::ticks();
+        for i in 0..ITERATIONS {
+            let (sec, nsec) = clock_now(CLOCK_MONOTONIC);
+            let (dsec, dnsec) = add_nanos(sec, nsec, 10_000_000); // 10ms = 1 tick ahead
+            let req = [dsec, dnsec];
+            let ret = clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &req, &mut rem);
+            check!(ret == 0, "soak iteration {i} returned {ret:#x}");
+        }
+        let elapsed = task::ticks() - start;
+        check!(
+            elapsed >= ITERATIONS as u64,
+            "soak sleeps finished faster than requested: elapsed={elapsed} ticks for {ITERATIONS} iterations"
+        );
+        check!(
+            elapsed <= (ITERATIONS as u64) * 5,
+            "soak sleeps took far longer than requested: elapsed={elapsed} ticks"
+        );
+        serial_println!(
+            "TEST:linux_clock_nanosleep_soak_absolute:INFO:iterations={ITERATIONS} elapsed_ticks={elapsed}"
+        );
         Ok(())
     }
 }
