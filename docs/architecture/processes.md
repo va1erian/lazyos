@@ -19,7 +19,7 @@ syscall shim.
 
 - `pid == scheduler slot`; slots are recycled. `pgid` and `sid` hold the pid of
   the leader. The tree is derived by scanning for `parent == slot` (cheap at
-  `MAX_TASKS = 16`) rather than stored as child lists.
+  `MAX_TASKS = 64`) rather than stored as child lists.
 - `finish` is the single death path: marks `Done`, records `exit_status`,
   re-parents children to the kernel task (`KERNEL_TASK`, pid 0), posts
   `SIGCHLD` and notifies `CHILD_EXIT`.

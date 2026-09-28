@@ -12,7 +12,7 @@ CI and an AI agent can *see* what LazyOS renders, without a physical display.
 | `qemu_session.py` | Drive the guest with a scripted timeline of input + captures. |
 | `pngstats.py`  | Decode a PNG (stdlib only) and report/assert pixel statistics. |
 | `upload_image.py` | Upload PNGs to a public image host for PR comments. |
-| `examples/*.json` | Session scripts, one per demo. Plain image: `type_and_shot`, `window_demo`, `cli_demo`, `bench`, `mouse_demo`, `user_demo` (`HELLO.ELF`), `interp_demo` (`SH.ELF`), `multitask_demo` (two windows, Tab focus), `fs_demo`. `LAZYOS_SERVICES=1`: `services_demo`, `login_demo`, `apps_demo`. `LAZYOS_XUID=1`: `xuid_wm` (drag, raise, taskbar, close), `dnd_drop`/`dnd_cancel`, `xuid_shell` (+`LAZYOS_SHELLPROBE=1`: desktop, Alt+F4, Alt+Tab, Ctrl+Esc). xui apps (`LAZYOS_XUI_APP`): `xui_counter`, `xui_sysmon`, `xui_fabricmon`, `xui_client` (+`LAZYOS_XUI_CLIENT=1`). |
+| `examples/*.json` | Session scripts, one per demo. Plain image: `type_and_shot`, `window_demo`, `cli_demo`, `bench`, `mouse_demo`, `user_demo` (`HELLO.ELF`), `interp_demo` (`SH.ELF`), `multitask_demo` (two windows, Tab focus), `fs_demo`. `LAZYOS_SERVICES=1`: `services_demo`, `login_demo`, `apps_demo`. `LAZYOS_XUID=1`: `xuid_wm` (drag, raise, taskbar, close), `dnd_drop`/`dnd_cancel`, `xuid_shell` (+`LAZYOS_SHELLPROBE=1`: desktop, Alt+F4, Alt+Tab, Ctrl+Esc). xui apps (`LAZYOS_XUI_APP`): `xui_m0`, `xui_m1`, `xui_counter`, `xui_sysmon`, `xui_fabricmon`, `xui_client` (+`LAZYOS_XUI_CLIENT=1`) -- these six are readiness-gated (`wait_for`/`until`, see below) rather than fixed-timestamp, for the `xui-app` CI job (`.github/workflows/xui.yml`). |
 | `../run_demo.py` | Build and boot the interactive demo in QEMU with one command. |
 
 ### Why QMP instead of `-vnc`/`-nographic`
@@ -93,8 +93,8 @@ python tools/screenshot/qemu_session.py --image target/lazyos.img \
     --out shots/session --script tools/screenshot/examples/type_and_shot.json
 ```
 
-A script is a JSON list of steps; each has an optional `at` (seconds since boot)
-and one action:
+A script is a JSON list of steps; each has an optional `at` (seconds since boot,
+or since the latest `wait_for` gate) and one action:
 
 | Action | Example |
 |--------|---------|
@@ -109,6 +109,30 @@ and one action:
 | scroll | `{"mouse_scroll": 3}` |
 | absolute pointer | `{"mouse_abs": [x, y]}` (needs `--tablet`) |
 | wait / quit | `{"wait": 1.5}` / `{"quit": true}` |
+| wait for a serial marker | `{"wait_for": "SYSMON:UP:PASS", "timeout": 240}` |
+| confirm an input was handled | `{"key": "r", "until": "SYSMON:REFRESH:PASS", "timeout": 60, "retries": 2}` |
+
+### Readiness gating (prefer it to fixed `at` times)
+
+Boot time under TCG varies a lot between a desktop and a shared CI runner, so a
+script that fires input "at 95 s" is flaky: the app may not be listening yet,
+or the session may quit before the guest handles the input. Gate on what the
+guest prints instead:
+
+- `wait_for` blocks until the serial log contains the text (a substring, or a
+  regular expression with `"regex": true`) and fails the session after
+  `timeout` seconds (default `--wait-timeout`, 240).
+- `until` on any input action waits for a marker printed *after* the input was
+  sent, and re-sends the input up to `retries` times if it does not appear.
+- After a `wait_for`, later `at` values count from that gate, so a timed
+  choreography (relative mouse moves) starts only once the guest is ready.
+- `--fail-on REGEX` (repeatable) aborts as soon as the serial log matches, e.g.
+  `--fail-on "SYSMON:(BIND|UP|RUN):FAIL"`, rather than waiting out a gate.
+
+A failed gate captures `shot_failed.png`, prints the serial tail, and exits 1.
+`summary.json` records `ok`, `failure`, and a per-step `timeline` (seconds
+since QMP connected, plus when each gate or confirmation was seen), which
+shows how much headroom a run had.
 
 Keyboard uses a US layout (Shift handled automatically for symbols/capitals).
 Mouse uses relative motion/buttons (PS/2) by default; pass `--tablet` to attach

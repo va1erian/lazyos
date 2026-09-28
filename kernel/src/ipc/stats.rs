@@ -8,7 +8,8 @@
 //! ACL and audit rings, and the kernel services registered so far.
 //!
 //! [`FabricStats`] is also the versioned ABI block behind the native `stats`
-//! syscall op. [`FABRIC_STATS_VERSION`] is 2; version 1 was the compact 64-byte
+//! syscall op. [`FABRIC_STATS_VERSION`] is 3 (version 2 had 16 per-slot rows;
+//! issue #204 raised `MAX_TASKS` to 64); version 1 was the compact 64-byte
 //! `MsgStats`. [`crate::ipc::syscalls`] serves v2 whenever the caller offers a
 //! [`FabricStats::SIZE`]-byte buffer and keeps v1 for small buffers, so old
 //! callers stay green. The wire form is little-endian `u64` words in field
@@ -27,7 +28,7 @@ use crate::task::MAX_TASKS;
 ///
 /// * `1` — the compact 64-byte [`crate::ipc::syscalls::MsgStats`] counters.
 /// * `2` — this snapshot: every subsystem, per-slot usage included.
-pub const FABRIC_STATS_VERSION: u64 = 2;
+pub const FABRIC_STATS_VERSION: u64 = 3;
 
 /// Words in one per-slot task usage row (see [`TaskUsage`]).
 const TASK_USAGE_WORDS: usize = 4;

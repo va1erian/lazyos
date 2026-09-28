@@ -112,6 +112,8 @@ const SUITE: &[(&str, Test)] = &[
     ),
     ("task_fork_reap_churn", task_suite::fork_reap_churn),
     ("task_thread_exit_reclaim", task_suite::thread_exit_reclaim),
+    ("task_slots_fill_table", task_suite::slots_fill_table),
+    ("task_slots_soak_recycle", task_suite::slots_soak_recycle),
     (
         "task_thread_churn_generations",
         task_suite::thread_churn_generations,
@@ -2367,6 +2369,84 @@ mod task_suite {
                 "round {round}: exit status {status:#x}"
             );
         }
+        task::harness::reset();
+        Ok(())
+    }
+
+    /// Fork from the kernel task until `spawn_fork` refuses, then finish and
+    /// reap every child. Returns how many children fit.
+    fn fill_and_drain() -> Result<usize, String> {
+        let mut children = alloc::vec::Vec::new();
+        loop {
+            match task::spawn_fork() {
+                Ok(slot) => children.push(slot),
+                Err(_) => break,
+            }
+            check!(
+                children.len() < task::MAX_TASKS,
+                "spawn_fork handed out more slots than the table has"
+            );
+        }
+        let spawned = children.len();
+        for (index, slot) in children.iter().enumerate() {
+            task::harness::finish(*slot, index as u64);
+        }
+        for _ in 0..spawned {
+            task::reap_child().ok_or("a finished child is not reapable")?;
+        }
+        check!(
+            task::reap_child().is_none(),
+            "reap_child returned a child after the table was drained"
+        );
+        Ok(spawned)
+    }
+
+    /// Every slot but the kernel's can hold a task, and the table is empty
+    /// again once they are reaped (issue #204).
+    pub fn slots_fill_table() -> Result<(), String> {
+        task::harness::reset();
+        task::harness::switch_current(task::KERNEL_TASK);
+        let spawned = fill_and_drain()?;
+        check!(
+            spawned == task::MAX_TASKS - 1,
+            "filled {spawned} slots, expected {}",
+            task::MAX_TASKS - 1
+        );
+        check!(
+            task::process::process_list().len() == 1,
+            "tasks other than the kernel's survive the drain"
+        );
+        task::harness::reset();
+        Ok(())
+    }
+
+    /// Soak: fill and drain the whole table several times, so more tasks are
+    /// spawned than there are slots. Slots and frames must be recycled, not
+    /// leaked (issue #204).
+    pub fn slots_soak_recycle() -> Result<(), String> {
+        task::harness::reset();
+        task::harness::switch_current(task::KERNEL_TASK);
+        const ROUNDS: usize = 6;
+        let baseline = mem::frame_stats().live();
+        let mut total = 0;
+        for round in 0..ROUNDS {
+            let spawned = fill_and_drain().map_err(|error| format!("round {round}: {error}"))?;
+            check!(
+                spawned == task::MAX_TASKS - 1,
+                "round {round}: only {spawned} slots were free again"
+            );
+            total += spawned;
+            let live = mem::frame_stats().live();
+            check!(
+                live <= baseline,
+                "round {round}: {} frames leaked after the drain",
+                live - baseline
+            );
+        }
+        serial_println!(
+            "TEST:task_slots_soak_recycle:INFO:spawned={total} slots={}",
+            task::MAX_TASKS
+        );
         task::harness::reset();
         Ok(())
     }
@@ -12667,11 +12747,13 @@ mod sysinfo_suite {
     }
 
     /// A full snapshot through the syscall entry, decoded as raw words.
-    fn snapshot() -> Result<[u64; sysinfo::WORDS], String> {
+    /// Boxed: at 64 slots a block is over 5 KiB, and the soak below keeps two
+    /// of them live while the syscall path holds its own on the same stack.
+    fn snapshot() -> Result<alloc::boxed::Box<[u64; sysinfo::WORDS]>, String> {
         in_space(|| {
             let code = process::dispatch_for_test(14, sysinfo::op::SNAPSHOT, SPACE, sysinfo::SIZE);
             check!(code == sysinfo::SIZE, "snapshot -> {code:#x}");
-            let mut words = [0u64; sysinfo::WORDS];
+            let mut words = alloc::boxed::Box::new([0u64; sysinfo::WORDS]);
             for (index, word) in words.iter_mut().enumerate() {
                 // Safety: the scratch pages are mapped readable while installed.
                 *word = unsafe { core::ptr::read_volatile((SPACE as *const u64).add(index)) };

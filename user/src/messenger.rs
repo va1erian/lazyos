@@ -149,7 +149,7 @@ impl Stats {
 
 /// Task slots in the [`FabricStats`] per-slot arrays; mirrors the kernel's
 /// `task::MAX_TASKS`.
-pub const FABRIC_TASKS: usize = 16;
+pub const FABRIC_TASKS: usize = 64;
 
 /// Per-slot usage row of a [`FabricStats`] snapshot.
 #[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
@@ -164,7 +164,7 @@ pub struct TaskUsage {
     pub buffer_bytes: u64,
 }
 
-/// The versioned fabric snapshot (stats ABI version 2): channels, messages,
+/// The versioned fabric snapshot (stats ABI version 3): channels, messages,
 /// buffers, handles, ACL/audit state, and per-slot usage in one block. Mirrors
 /// `kernel/src/ipc/stats.rs` field for field; [`FabricStats::from_bytes`]
 /// decodes the little-endian word stream the kernel writes.
@@ -276,8 +276,8 @@ impl Default for FabricStats {
 }
 
 impl FabricStats {
-    /// The ABI version this mirror understands.
-    pub const VERSION: u64 = 2;
+    /// The ABI version this mirror understands (3: 64 per-slot rows, #204).
+    pub const VERSION: u64 = 3;
     /// Number of bytes the kernel writes for a snapshot.
     pub const SIZE: usize = (22 + FABRIC_TASKS + 8 + FABRIC_TASKS * 4) * 8;
 
@@ -819,8 +819,8 @@ pub fn global_totals() -> Result<Stats> {
     Ok(stats)
 }
 
-/// The versioned fabric snapshot (stats ABI v2): every subsystem in one block.
-/// The snapshot buffer is sized so the kernel always serves version 2.
+/// The versioned fabric snapshot (stats ABI v3): every subsystem in one block.
+/// The snapshot buffer is sized so the kernel always serves the full block.
 ///
 /// Allocates the snapshot buffer per call; a polling loop should use
 /// [`fabric_stats_with`] and reuse one buffer.
@@ -4728,6 +4728,11 @@ pub mod display {
             };
             let mut buf = [0u8; 256];
             let reply = self.endpoint.call_with(&parcel, &mut buf, None)?;
+            // A refusal (e.g. `-EACCES` for the desktop role) is a structured
+            // error reply, not a missing surface id.
+            if let Some(code) = error_field(&reply) {
+                return Err(Error::Errno(-code));
+            }
             let mut decoder = Decoder::new(&reply.body);
             while let Some(field) = decoder.next().map_err(Error::Parcel)? {
                 if field.kind == Kind::U64 && field.id == field::SURFACE {
@@ -4752,7 +4757,7 @@ pub mod display {
                 handles: vec![events.handle()],
                 buffers: Vec::new(),
             };
-            let mut buf = [0u8; 64];
+            let mut buf = [0u8; 256]; // an error reply carries a message
             let reply = self.endpoint.call_with(&parcel, &mut buf, None)?;
             match error_field(&reply) {
                 Some(code) => Err(Error::Errno(-code)),
@@ -4861,8 +4866,11 @@ pub mod display {
                     flags: 0,
                 }],
             };
-            let mut buf = [0u8; 64];
-            self.endpoint.call_with(&parcel, &mut buf, None)?;
+            let mut buf = [0u8; 256]; // an error reply carries a message
+            let reply = self.endpoint.call_with(&parcel, &mut buf, None)?;
+            if let Some(code) = error_field(&reply) {
+                return Err(Error::Errno(-code));
+            }
             Ok(())
         }
 
@@ -4884,8 +4892,11 @@ pub mod display {
                 handles: Vec::new(),
                 buffers: Vec::new(),
             };
-            let mut buf = [0u8; 64];
-            self.endpoint.call_with(&parcel, &mut buf, None)?;
+            let mut buf = [0u8; 256]; // an error reply carries a message
+            let reply = self.endpoint.call_with(&parcel, &mut buf, None)?;
+            if let Some(code) = error_field(&reply) {
+                return Err(Error::Errno(-code));
+            }
             Ok(())
         }
 
@@ -4899,8 +4910,11 @@ pub mod display {
                 handles: Vec::new(),
                 buffers: Vec::new(),
             };
-            let mut buf = [0u8; 64];
-            self.endpoint.call_with(&parcel, &mut buf, None)?;
+            let mut buf = [0u8; 256]; // an error reply carries a message
+            let reply = self.endpoint.call_with(&parcel, &mut buf, None)?;
+            if let Some(code) = error_field(&reply) {
+                return Err(Error::Errno(-code));
+            }
             Ok(())
         }
 
@@ -4919,7 +4933,7 @@ pub mod display {
                 handles: Vec::new(),
                 buffers: Vec::new(),
             };
-            let mut buf = [0u8; 64];
+            let mut buf = [0u8; 256]; // an error reply carries a message
             let reply = self.endpoint.call_with(&parcel, &mut buf, None)?;
             match error_field(&reply) {
                 Some(code) => Err(Error::Errno(-code)),
@@ -4937,7 +4951,7 @@ pub mod display {
                 handles: Vec::new(),
                 buffers: Vec::new(),
             };
-            let mut buf = [0u8; 64];
+            let mut buf = [0u8; 256]; // an error reply carries a message
             let reply = self.endpoint.call_with(&parcel, &mut buf, None)?;
             match error_field(&reply) {
                 Some(code) => Err(Error::Errno(-code)),

@@ -12,8 +12,9 @@ enumerate USB).
 
 Script format (JSON)
 --------------------
-A list of steps, each with an optional ``at`` (seconds since boot) and exactly
-one action. Steps without ``at`` run immediately after the previous one.
+A list of steps, each with an optional ``at`` (seconds since boot, or since
+the latest ``wait_for`` gate; see below) and exactly one action. Steps without
+``at`` run immediately after the previous one.
 
     [
       {"at": 2.0, "shot": "boot"},
@@ -34,7 +35,39 @@ modifier across steps, e.g. Alt+Tab or Ctrl+Esc), ``mouse_move`` ([dx, dy]),
 ``mouse_down`` / ``mouse_up`` (left|middle|right; separate transitions, so a
 caller can hold a button across steps, e.g. through a drag & drop),
 ``mouse_scroll`` (int), ``mouse_abs`` ([x, y]), ``wait``
-(seconds), ``quit``.
+(seconds), ``wait_for`` (serial marker), ``quit``.
+
+Readiness gating
+----------------
+Fixed ``at`` offsets are fragile: a guest under TCG on a busy CI runner can
+boot tens of seconds later than on a desktop with WHPX/KVM, so an input fired
+"at 95 s" may land before the app is listening, or be handled after the
+session has already quit. Gate on what the guest *reports* instead:
+
+    {"wait_for": "SYSMON:UP:PASS", "timeout": 240}
+
+blocks until the serial log contains that text (a plain substring; add
+``"regex": true`` for a regular expression) and fails the session if it does
+not appear within ``timeout`` seconds (default ``--wait-timeout``). Any input
+action can carry ``until`` to confirm the guest handled it, re-sending the
+input when it did not (a dropped keystroke or click under load):
+
+    {"key": "r", "until": "SYSMON:REFRESH:PASS", "timeout": 60, "retries": 2}
+
+``until`` looks only at serial output written *after* the input was sent, so a
+marker already printed by an earlier step does not count. ``timeout`` is per
+attempt; ``retries`` is the number of re-sends after the first (default 0).
+
+Once a ``wait_for`` gate is satisfied, later ``at`` values count from that
+moment instead of from boot, so a timed choreography (e.g. a sequence of
+relative mouse moves that cannot be retried piecemeal) keeps its internal
+spacing but starts only when the guest is ready.
+
+When a gate times out, or a ``--fail-on`` pattern shows up in the serial log,
+the session captures ``shot_failed.png``, prints the serial tail, records the
+failing step in ``summary.json`` and exits 1. ``summary.json`` also carries a
+``timeline`` (seconds since QMP connected for every step), which shows how
+close a run came to its timeouts.
 
 Usage
 -----
@@ -46,6 +79,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 import sys
 import time
@@ -56,51 +90,165 @@ from qemu_qmp import Qmp, accel_args, build_qemu_command, find_qemu, free_port
 _ACTIONS = {
     "shot", "type", "key", "keys", "key_down", "key_up", "mouse_move",
     "mouse_click", "mouse_down", "mouse_up", "mouse_scroll", "mouse_abs",
-    "wait", "quit",
+    "wait", "wait_for", "quit",
 }
+# Actions that send input and so may carry an `until` confirmation.
+_INPUT_ACTIONS = {
+    "type", "key", "keys", "key_down", "key_up", "mouse_move", "mouse_click",
+    "mouse_down", "mouse_up", "mouse_scroll", "mouse_abs",
+}
+_POLL_SECONDS = 0.25
 
 
-def run_steps(qmp: Qmp, steps: list[dict], out_dir: Path, started: float) -> list[str]:
+class StepFailed(Exception):
+    """A readiness gate timed out or a ``--fail-on`` pattern appeared."""
+
+
+class SerialLog:
+    """Incremental reader over QEMU's ``-serial file:`` output."""
+
+    def __init__(self, path: Path, fail_on: list[str]):
+        self.path = path
+        self.fail_on = [re.compile(pattern) for pattern in fail_on]
+
+    def text(self) -> str:
+        try:
+            return self.path.read_bytes().decode("utf-8", errors="replace")
+        except OSError:
+            return ""
+
+    def size(self) -> int:
+        return len(self.text())
+
+    def check_failures(self, text: str) -> None:
+        for pattern in self.fail_on:
+            match = pattern.search(text)
+            if match:
+                line = text[text.rfind("\n", 0, match.start()) + 1:].split("\n", 1)[0]
+                raise StepFailed(f"--fail-on {pattern.pattern!r} matched: {line.strip()}")
+
+    def wait_for(self, marker: str, timeout: float, regex: bool = False,
+                 since: int = 0) -> float:
+        """Block until ``marker`` appears at or after offset ``since``.
+
+        Returns the seconds waited; raises :class:`StepFailed` on timeout or
+        when a ``--fail-on`` pattern shows up first.
+        """
+        pattern = re.compile(marker if regex else re.escape(marker))
+        begun = time.time()
+        deadline = begun + timeout
+        while True:
+            text = self.text()
+            if pattern.search(text, since):
+                return time.time() - begun
+            self.check_failures(text)
+            if time.time() >= deadline:
+                raise StepFailed(
+                    f"timed out after {timeout:g}s waiting for {marker!r} on serial"
+                )
+            time.sleep(_POLL_SECONDS)
+
+    def tail(self, lines: int = 40) -> str:
+        return "\n".join(self.text().splitlines()[-lines:])
+
+
+def perform(qmp: Qmp, action: str, step: dict) -> None:
+    """Send one input action to the guest."""
+    if action == "type":
+        qmp.type_text(step["type"])
+    elif action == "key":
+        qmp.press_key(step["key"])
+    elif action == "keys":
+        for name in step["keys"]:
+            qmp.press_key(name)
+    elif action == "key_down":
+        qmp.key_down(step["key_down"])
+    elif action == "key_up":
+        qmp.key_up(step["key_up"])
+    elif action == "mouse_move":
+        dx, dy = step["mouse_move"]
+        qmp.mouse_move(dx, dy)
+    elif action == "mouse_down":
+        qmp.mouse_down(step["mouse_down"])
+    elif action == "mouse_up":
+        qmp.mouse_up(step["mouse_up"])
+    elif action == "mouse_click":
+        qmp.mouse_click(step["mouse_click"])
+    elif action == "mouse_scroll":
+        qmp.mouse_scroll(step["mouse_scroll"])
+    elif action == "mouse_abs":
+        x, y = step["mouse_abs"]
+        qmp.mouse_abs(x, y)
+
+
+def run_steps(qmp: Qmp, steps: list[dict], out_dir: Path, started: float,
+              serial: SerialLog | None = None, wait_timeout: float = 240.0,
+              timeline: list[dict] | None = None) -> list[str]:
     screenshots: list[str] = []
+    if serial is None:
+        serial = SerialLog(out_dir / "serial.log", [])
+    if timeline is None:
+        timeline = []
+    # `at` counts from boot until a `wait_for` gate is satisfied, then from the
+    # moment of the latest gate, so a timed choreography starts from readiness.
+    origin = started
     for index, step in enumerate(steps):
         if "at" in step:
-            remaining = float(step["at"]) - (time.time() - started)
+            remaining = float(step["at"]) - (time.time() - origin)
             if remaining > 0:
                 time.sleep(remaining)
 
         action = next((key for key in step if key in _ACTIONS), None)
         if action is None:
             raise SystemExit(f"step {index} has no recognised action: {step}")
+        if "until" in step and action not in _INPUT_ACTIONS:
+            raise SystemExit(f"step {index}: 'until' only applies to input actions: {step}")
 
-        if action == "shot":
+        # A --fail-on marker (an app's FAIL line, a kernel panic) ends the
+        # session now rather than after every remaining gate times out.
+        serial.check_failures(serial.text())
+        entry: dict = {"step": index, "action": action, "t": round(time.time() - started, 2)}
+        timeline.append(entry)
+        timeout = float(step.get("timeout", wait_timeout))
+
+        if action in _INPUT_ACTIONS:
+            until = step.get("until")
+            attempts = 1 + int(step.get("retries", 0)) if until else 1
+            for attempt in range(attempts):
+                since = serial.size()
+                perform(qmp, action, step)
+                if not until:
+                    break
+                try:
+                    serial.wait_for(until, timeout, bool(step.get("regex")), since)
+                except StepFailed as failure:
+                    if attempt + 1 == attempts or "--fail-on" in str(failure):
+                        raise StepFailed(
+                            f"step {index} ({action}): {failure} "
+                            f"after {attempts} attempt(s)"
+                        ) from None
+                    print(f"step {index}: {until!r} not seen, re-sending "
+                          f"({attempt + 2}/{attempts})", flush=True)
+                    continue
+                entry["attempts"] = attempt + 1
+                entry["confirmed"] = round(time.time() - started, 2)
+                print(f"[{entry['confirmed']:7.2f}s] {until} (after {action}, "
+                      f"attempt {attempt + 1})", flush=True)
+                break
+            continue
+
+        if action == "wait_for":
+            try:
+                serial.wait_for(step["wait_for"], timeout, bool(step.get("regex")))
+            except StepFailed as failure:
+                raise StepFailed(f"step {index} (wait_for): {failure}") from None
+            origin = time.time()
+            entry["seen"] = round(origin - started, 2)
+            print(f"[{entry['seen']:7.2f}s] {step['wait_for']}", flush=True)
+        elif action == "shot":
             shot = qmp.screenshot(out_dir / f"shot_{step['shot']}")
             screenshots.append(shot.name)
-            print(f"captured {shot}", flush=True)
-        elif action == "type":
-            qmp.type_text(step["type"])
-        elif action == "key":
-            qmp.press_key(step["key"])
-        elif action == "keys":
-            for name in step["keys"]:
-                qmp.press_key(name)
-        elif action == "key_down":
-            qmp.key_down(step["key_down"])
-        elif action == "key_up":
-            qmp.key_up(step["key_up"])
-        elif action == "mouse_move":
-            dx, dy = step["mouse_move"]
-            qmp.mouse_move(dx, dy)
-        elif action == "mouse_down":
-            qmp.mouse_down(step["mouse_down"])
-        elif action == "mouse_up":
-            qmp.mouse_up(step["mouse_up"])
-        elif action == "mouse_click":
-            qmp.mouse_click(step["mouse_click"])
-        elif action == "mouse_scroll":
-            qmp.mouse_scroll(step["mouse_scroll"])
-        elif action == "mouse_abs":
-            x, y = step["mouse_abs"]
-            qmp.mouse_abs(x, y)
+            print(f"[{entry['t']:7.2f}s] captured {shot}", flush=True)
         elif action == "wait":
             time.sleep(float(step["wait"]))
         elif action == "quit":
@@ -129,6 +277,11 @@ def main() -> int:
                         help="QEMU accelerator (auto: whpx/kvm if available)")
     parser.add_argument("--extra-arg", action="append", default=[], metavar="ARG",
                         help="extra QEMU argument; repeat for multiple")
+    parser.add_argument("--wait-timeout", type=float, default=240.0,
+                        help="default timeout for wait_for/until gates (seconds)")
+    parser.add_argument("--fail-on", action="append", default=[], metavar="REGEX",
+                        help="abort the session when the serial log matches REGEX; "
+                             "repeat for multiple")
     args = parser.parse_args()
 
     steps = json.loads(Path(args.script).read_text(encoding="utf-8"))
@@ -158,10 +311,27 @@ def main() -> int:
     proc = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
 
     screenshots: list[str] = []
+    timeline: list[dict] = []
+    failure: str | None = None
+    serial = SerialLog(serial_log, args.fail_on)
     qmp: Qmp | None = None
     try:
         qmp = Qmp("127.0.0.1", port, args.timeout)
-        screenshots = run_steps(qmp, steps, out_dir, time.time())
+        try:
+            screenshots = run_steps(qmp, steps, out_dir, time.time(), serial,
+                                    args.wait_timeout, timeline)
+        except StepFailed as exc:
+            failure = str(exc)
+            print(f"session FAILED: {failure}", file=sys.stderr, flush=True)
+            try:
+                shot = qmp.screenshot(out_dir / "shot_failed")
+                screenshots.append(shot.name)
+                print(f"captured {shot}", flush=True)
+            except Exception as shot_error:
+                print(f"(could not capture failure screenshot: {shot_error})",
+                      file=sys.stderr)
+            print("--- serial tail ---", file=sys.stderr)
+            print(serial.tail(), file=sys.stderr, flush=True)
         try:
             qmp.execute("quit")
         except Exception:
@@ -184,10 +354,13 @@ def main() -> int:
         "screenshots": screenshots,
         "serial_log": serial_log.name if serial_log.exists() else None,
         "exit_code": proc.returncode,
+        "ok": failure is None,
+        "failure": failure,
+        "timeline": timeline,
     }
     (out_dir / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
     print(json.dumps(summary, indent=2))
-    return 0
+    return 0 if failure is None else 1
 
 
 if __name__ == "__main__":

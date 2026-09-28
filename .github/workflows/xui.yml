@@ -8,6 +8,15 @@ name: xui-app
 # nothing and the visual steps are skipped (`tools/xui/build.py` exits 0, like
 # the ABI bench); a real compile error fails the job.
 #
+# Every capture is readiness-gated, not scheduled at fixed seconds after boot:
+# the session scripts wait for each app's serial marker (`wait_for`) before a
+# screenshot, and confirm each key/click was handled (`until`, re-sending it
+# if not). Boot under TCG on a shared runner varies by tens of seconds, which a
+# fixed timeline turns into flaky failures. A gate that times out, or a
+# `--fail-on` marker, fails the session itself, with `shot_failed.png`, the
+# serial tail and a step `timeline` in `summary.json`; the logs and shots are
+# uploaded even when the job fails so a red run can be diagnosed.
+#
 # The build/boot job runs with a read-only token and no persisted git
 # credentials; only the separate `publish` job, which never runs repository
 # code, gets write access to push screenshots and comment.
@@ -84,7 +93,7 @@ jobs:
 
       # M0: the gradient proves bind/present from a static musl program.
       - name: Capture M0 (gradient present)
-        if: steps.app.outputs.m0 != ''
+        if: ${{ !cancelled() && steps.app.outputs.m0 != '' }}
         shell: bash
         env:
           LAZYOS_XUID: "1"
@@ -92,13 +101,14 @@ jobs:
         run: |
           set -euo pipefail
           cargo build
-          python tools/screenshot/qemu_shot.py --out shots/m0 --at 10,20 --image target/lazyos.img \
-            --timeout 240
+          python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/m0 \
+            --timeout 300 --script tools/screenshot/examples/xui_m0.json \
+            --fail-on "XUIAPP:(BIND|PRESENT|RUN):FAIL"
           grep -q "XUIAPP:PRESENT:PASS" shots/m0/serial.log
 
       # M1 + M2: the Counter paints, then a scripted click increments it.
       - name: Capture M1/M2 (counter, real input)
-        if: steps.app.outputs.counter != ''
+        if: ${{ !cancelled() && steps.app.outputs.counter != '' }}
         shell: bash
         env:
           LAZYOS_XUID: "1"
@@ -106,18 +116,20 @@ jobs:
         run: |
           set -euo pipefail
           cargo build
-          python tools/screenshot/qemu_shot.py --out shots/m1 --at 80 --image target/lazyos.img \
-            --timeout 240
+          python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/m1 \
+            --timeout 300 --script tools/screenshot/examples/xui_m1.json \
+            --fail-on "XUIAPP:(BIND|PRESENT|RUN):FAIL"
           grep -q "XUIAPP:COUNTER:PASS" shots/m1/serial.log
           python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/m2 \
-            --timeout 300 --script tools/screenshot/examples/xui_counter.json
+            --timeout 300 --script tools/screenshot/examples/xui_counter.json \
+            --fail-on "XUIAPP:(BIND|PRESENT|RUN):FAIL"
           grep -q "XUIAPP:COUNTER:PASS" shots/m2/serial.log
           grep -q "XUIAPP:INPUT:PASS" shots/m2/serial.log
 
       # sysmon: the system-state dashboard (syscall 14) with a 1 s timer and
       # the r/q keys driven by the session script.
       - name: Capture sysmon (dashboard)
-        if: steps.app.outputs.sysmon != ''
+        if: ${{ !cancelled() && steps.app.outputs.sysmon != '' }}
         shell: bash
         env:
           LAZYOS_XUID: "1"
@@ -126,7 +138,8 @@ jobs:
           set -euo pipefail
           cargo build
           python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/sysmon \
-            --timeout 300 --script tools/screenshot/examples/xui_sysmon.json
+            --timeout 300 --script tools/screenshot/examples/xui_sysmon.json \
+            --fail-on "SYSMON:(BIND|UP|RUN):FAIL"
           grep -q "SYSMON:UP:PASS" shots/sysmon/serial.log
           grep -q "SYSMON:REFRESH:PASS" shots/sysmon/serial.log
           grep -q "SYSMON:QUIT:PASS" shots/sysmon/serial.log
@@ -135,7 +148,7 @@ jobs:
       # full service session (`LAZYOS_SERVICES=1`), so the registry lists every
       # registered service and `messengerd`'s topics broker answers live.
       - name: Capture fabricmon (fabric panel)
-        if: steps.app.outputs.fabricmon != ''
+        if: ${{ !cancelled() && steps.app.outputs.fabricmon != '' }}
         shell: bash
         env:
           LAZYOS_XUID: "1"
@@ -145,7 +158,8 @@ jobs:
           set -euo pipefail
           cargo build
           python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/fabmon \
-            --timeout 300 --script tools/screenshot/examples/xui_fabricmon.json
+            --timeout 300 --script tools/screenshot/examples/xui_fabricmon.json \
+            --fail-on "FABMON:(BIND|UP|RUN):FAIL"
           grep -q "FABMON:UP:PASS" shots/fabmon/serial.log
           grep -q "FABMON:REFRESH:PASS" shots/fabmon/serial.log
           grep -q "FABMON:QUIT:PASS" shots/fabmon/serial.log
@@ -156,7 +170,7 @@ jobs:
       # with Space, then exercises the WM (drag, minimize, taskbar restore,
       # close).
       - name: Capture client mode (window, focus routing, WM)
-        if: steps.app.outputs.client != ''
+        if: ${{ !cancelled() && steps.app.outputs.client != '' }}
         shell: bash
         env:
           LAZYOS_XUID: "1"
@@ -166,7 +180,8 @@ jobs:
           set -euo pipefail
           cargo build
           python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/client \
-            --timeout 300 --script tools/screenshot/examples/xui_client.json
+            --timeout 300 --script tools/screenshot/examples/xui_client.json \
+            --fail-on "XUIAPP:(CLIENT|RUN):FAIL"
           grep -q "XUIAPP:CLIENT:PASS" shots/client/serial.log
           grep -q "XUIAPP:KEY:PASS" shots/client/serial.log
           grep -q "XUIAPP:COUNTER:1" shots/client/serial.log
@@ -185,25 +200,55 @@ jobs:
           fi
           python tools/screenshot/pngstats.py "${pngs[@]}" --min-nonblack 0.01 --min-colors 4
 
+      # On a red run, show what each boot reached: the app markers, the session
+      # outcome (which gate failed and when) and the serial tail.
+      - name: Dump serial markers and session timelines
+        if: failure() && steps.app.outputs.counter != ''
+        shell: bash
+        run: |
+          shopt -s nullglob
+          for dir in shots/m0 shots/m1 shots/m2 shots/sysmon shots/fabmon shots/client; do
+            [ -d "$dir" ] || continue
+            echo "::group::$dir"
+            if [ -f "$dir/summary.json" ]; then
+              python -c "import json,sys; s=json.load(open(sys.argv[1])); print('ok:', s.get('ok'), '| failure:', s.get('failure')); [print(' ', e) for e in s.get('timeline', [])]" "$dir/summary.json" || true
+            fi
+            if [ -f "$dir/serial.log" ]; then
+              echo "--- markers ---"
+              grep -aE "XUIAPP|SYSMON|FABMON|panic|PANIC" "$dir/serial.log" || echo "(none)"
+              echo "--- serial tail ---"
+              tail -n 40 "$dir/serial.log"
+            fi
+            echo "::endgroup::"
+          done
+
+      # Uploaded on failure too (the publish job still needs a green run), so
+      # the shots, serial logs and timelines of a failing run can be inspected.
       - name: Upload screenshots artifact
-        if: steps.app.outputs.counter != ''
+        if: always() && steps.app.outputs.counter != ''
         uses: actions/upload-artifact@v4
         with:
           name: xui-app-screenshots
           path: |
             shots/m0/*.png
             shots/m0/serial.log
+            shots/m0/summary.json
             shots/m1/*.png
             shots/m1/serial.log
+            shots/m1/summary.json
             shots/m2/*.png
             shots/m2/serial.log
+            shots/m2/summary.json
             shots/sysmon/*.png
             shots/sysmon/serial.log
+            shots/sysmon/summary.json
             shots/fabmon/*.png
             shots/fabmon/serial.log
+            shots/fabmon/summary.json
             shots/client/*.png
             shots/client/serial.log
-          if-no-files-found: error
+            shots/client/summary.json
+          if-no-files-found: warn
 
   # Write-scoped job: no checkout of repository code, only the screenshots
   # artifact the read-only job uploaded.

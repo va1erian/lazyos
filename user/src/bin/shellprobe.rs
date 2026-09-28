@@ -31,10 +31,19 @@ const DESKTOP_MARKER: &str = "SHELLPROBE:DESKTOP:PASS\n";
 const LIST_MARKER: &str = "SHELLPROBE:LIST:PASS\n";
 const FOCUS_MARKER: &str = "SHELLPROBE:FOCUS:PASS\n";
 const HOTKEY_MARKER: &str = "SHELLPROBE:HOTKEY:PASS\n";
+const DENIED_MARKER: &str = "SHELLPROBE:DENIED:PASS\n";
+
+/// Session id the unprivileged probe child runs under.
+const PROBE_SESSION: u64 = 4243;
 
 #[no_mangle]
 pub extern "C" fn _start() -> ! {
     sys::write_str("shellprobe: shell-protocol evidence client starting (issue #167)\n");
+    let mut args = [0u8; 16];
+    let len = sys::service_args(&mut args).min(args.len());
+    if &args[..len] == b"denied" {
+        denied_probe()
+    }
     run()
 }
 
@@ -231,6 +240,12 @@ fn run() -> ! {
         }
     }
 
+    // Prove the administrative operations refuse an unprivileged client. The
+    // credential drop cannot be undone, so it runs in a short-lived child.
+    if sys::spawn(b"SHELLPRB.ELF denied\0").is_none() {
+        sys::write_str("SHELLPROBE:DENIED:FAIL:could not start the probe\n");
+    }
+
     // A borrowed lifetime is not available on the endpoints (`create_pair`
     // hands out owned values) and the compositor never closes its end, so the
     // shell channel is the blocking one and the window channel is polled.
@@ -271,6 +286,60 @@ fn run() -> ! {
             }
         }
     }
+}
+
+/// The unprivileged child (issue #175): after dropping to a plain user it must
+/// be refused the shell role, a desktop surface, and the surface list, each
+/// with `-EACCES`; only then does it log the pass marker.
+fn denied_probe() -> ! {
+    let plain = sys::Cred::new(1000, 1000, 0, 0, PROBE_SESSION);
+    if sys::cred_set(None, &plain).is_err() {
+        sys::write_str("SHELLPROBE:DENIED:FAIL:could not drop privilege\n");
+        sys::exit(1);
+    }
+    let refused = |what: &str, result: Result<(), messenger::Error>| -> bool {
+        match result {
+            Err(messenger::Error::Errno(code)) if code == -messenger::errno::EACCES => true,
+            other => {
+                sys::write_str(&alloc::format!(
+                    "SHELLPROBE:DENIED:FAIL:{what} was not refused ({:?})\n",
+                    other.err().and_then(|error| error.errno())
+                ));
+                false
+            }
+        }
+    };
+    let client = match Client::connect() {
+        Ok(client) => client,
+        Err(_) => {
+            sys::write_str("SHELLPROBE:DENIED:FAIL:connect\n");
+            sys::exit(1)
+        }
+    };
+    // A refused call still consumes the transferred endpoint, so each gets its
+    // own pair.
+    let (Ok((_shell_events, shell_end)), Ok((_desktop_events, desktop_end))) =
+        (messenger::create_pair(), messenger::create_pair())
+    else {
+        sys::write_str(
+            "SHELLPROBE:DENIED:FAIL:create_pair
+",
+        );
+        sys::exit(1)
+    };
+    let ok = refused(
+        "subscribe",
+        client.subscribe(display::ROLE_SHELL, &shell_end),
+    ) && refused(
+        "desktop",
+        client
+            .create_desktop_surface(64, 64, "evil", &desktop_end)
+            .map(|_| ()),
+    ) && refused("list", client.list_surfaces().map(|_| ()));
+    if ok {
+        sys::write_str(DENIED_MARKER);
+    }
+    sys::exit(if ok { 0 } else { 1 })
 }
 
 /// Paint the desktop wallpaper: a teal backdrop with a dotted grid and a

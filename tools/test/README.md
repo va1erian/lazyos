@@ -57,19 +57,20 @@ TEST:SUMMARY:PASS=<n> FAIL=<n>
 
 ## What the suite covers
 
-48 tests as of 2026-09-28, grouped by prefix (the authoritative list is `SUITE`
-in `kernel/src/tests.rs`; soak tests print `PROGRESS` lines and a cycle-budget
-verdict):
+189 tests as of 2026-09-28 (21 of them soak/stress tests), grouped by name
+prefix; the authoritative list is `SUITE` in `kernel/src/tests.rs`, and the
+runner's report (`docs/test/report.md`) lists every result:
 
-| Prefix | Count | What it asserts |
+| Prefix | Count | Area |
 |------|------|-----------------|
-| `mem_*` | 3 | zeroed frames round-trip through `phys_to_virt`; COW clone + `mprotect` privatisation; `mem_soak_cow_fork_churn` (500 map/write/clone/fault rounds with bounded live frames) |
-| `heap_*`, `slab_*` | 6 | kernel heap integrity; slab reuse after free, live/peak stats, oversized fallback, per-owner accounting, bounded-live soak |
-| `task_*` | 10 | kernel task registration; fork + reap churn; thread-exit slot reclaim (#133); futex mismatch; fd table; process tree, pgid/sid inheritance, `setsid`, re-parenting on death; `SIGSTOP`/`SIGCONT` |
-| `pipe_*` | 4 | ring wrap round-trips; EOF/`EPIPE`/`O_NONBLOCK`; `dup` + fork + `FD_CLOEXEC`; vfork-style `clone` child |
-| `linux_*` | 3 | `mremap` soak; `eventfd` semantics; `AF_UNIX` pathname bind/connect soak |
-| `ipc_*` | 13 | handle open/duplicate/close and rights; per-uid handle and buffer quotas; channel cancel wakeups and peer death; ACL default-deny, allow and explicit-deny rules; audit ring wrap; the native `messenger` syscall echo; topic ACL through the syscall gate |
-| `block_*`, `fs_*` | 9 | ATA reads the FAT root; VFS cache invalidation; FAT `EROFS`; overlay rename/replace and `ENOSPC` limits; ABI `mkdir`/`rename`/`rmdir` and unlink-while-open; ext2 1/2/4 KiB block sizes over a `FakeDisk`; ext2 rejects corrupt images |
+| `ipc_*` | 51 | handles and rights, channels, transactions, shared buffers and fences, ACL, audit ring, registry, topics, the `messenger` syscall surface |
+| `task_*` | 35 | task table, fork/reap and thread reclaim, futex, fd table, process tree and sessions, signals, scheduler classes, table fill and slot recycling (#204) |
+| `hardening_*` | 19 | user-pointer validation on every native and Linux syscall (#182) |
+| `linux_*`, `pipe_*` | 25 | Linux shim: `mremap`, epoll/eventfd, `AF_UNIX` sockets, pipes, `dup`/`FD_CLOEXEC`, vfork-style `clone` |
+| `fs_*`, `block_*` | 21 | VFS caches and permissions, FAT `EROFS`, overlay copy-up/whiteouts/limits, ext2 block sizes and corruption, ATA reads |
+| `mem_*`, `slab_*`, `heap_*` | 15 | frames, COW/VMA, `mprotect`, slab classes and owner accounting, kernel heap |
+| `quota_*` | 7 | per-uid charges at the handle, buffer, queue and memory choke points |
+| `display_*`, `sysinfo_*`, `service_*`, `keyd_*` | 16 | display grant and modifier tracking, syscall 14 snapshots, credential transitions, `SHARE_ONLY` buffers |
 
 Test-only hooks are behind `cfg(lazyos_tests)` (`task::harness`,
 `process::linux::dispatch_for_test`), so the production kernel carries none of

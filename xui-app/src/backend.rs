@@ -38,6 +38,7 @@ use xui_core::backend::{
 use xui_core::router::WidgetHost;
 use xui_core::{Color, Key, Modifiers, MouseButton, Point, Rect, Theme};
 
+use crate::client_window::ClientState;
 use crate::display::{self, EventKind};
 use crate::sys::{self, button, errno, event, key, DisplayInfo, EVENT_BYTES};
 
@@ -59,30 +60,6 @@ enum Mode {
     Owner { display: DisplayInfo },
     /// The task is a `xuid` client over `os.lazy.display.v1`.
     Client(RefCell<ClientState>),
-}
-
-/// The live compositor connection of a client-mode backend.
-struct ClientState {
-    /// The compositor endpoint (`Client::connect`).
-    client: display::Client,
-    /// This task's end of the event channel.
-    events: u64,
-    /// The peer event endpoint moved to the compositor in `CreateSurface`.
-    events_peer: u64,
-    /// The surface id from `CreateSurface` (0 until `open_window`).
-    surface: u64,
-    /// The shared pixel buffer mapping.
-    va: u64,
-    size: u64,
-    /// The surface size in pixels.
-    rect: (i32, i32),
-    /// Whether `open_window` already created this task's window. Handle
-    /// transfers move the handle (`kernel/src/ipc/channels.rs`), so
-    /// `events_peer` is consumed by the first `CreateSurface` call whether or
-    /// not it succeeds; client mode supports one window per task, and a
-    /// second `open_window` errors instead of reusing a handle it no longer
-    /// owns.
-    opened: bool,
 }
 
 /// A bound display, an open window, and a node table.
@@ -165,23 +142,15 @@ impl LazyOSBackend {
         Ok(Self::with_mode(Mode::Owner { display }))
     }
 
-    /// Client mode: resolve the compositor and open an event channel; the
-    /// surface itself is created in [`Backend::open_window`], once the app's
+    /// Client mode: resolve the compositor ; the surface and its event
+    /// channel is created in [`Backend::open_window`], once the app's
     /// window spec is known.
     pub fn new_client() -> Result<LazyOSBackend, i64> {
         xui_canvas::set_default_font(crate::font::BYTES.to_vec());
         let client = display::Client::connect()?;
-        let (events, events_peer) = sys::msg_create_pair()?;
-        Ok(Self::with_mode(Mode::Client(RefCell::new(ClientState {
-            client,
-            events,
-            events_peer,
-            surface: 0,
-            va: 0,
-            size: 0,
-            rect: (0, 0),
-            opened: false,
-        }))))
+        Ok(Self::with_mode(Mode::Client(RefCell::new(
+            ClientState::new(client),
+        ))))
     }
 
     /// A backend with the shared empty state and `mode`.
@@ -674,14 +643,10 @@ impl LazyOSBackend {
         }
     }
 
-    /// Destroy the client-mode surface, if one was created.
+    /// Destroy the client-mode surface and its event channel, if any.
     fn destroy_surface(&self) {
         if let Mode::Client(state) = &self.mode {
-            let mut state = state.borrow_mut();
-            if state.surface != 0 {
-                let _ = state.client.destroy_surface(state.surface);
-                state.surface = 0;
-            }
+            state.borrow_mut().close_surface();
         }
     }
 
@@ -738,36 +703,9 @@ impl Backend for LazyOSBackend {
         let height = spec.height.to_px(dpi).value().max(1) as u32;
         if let Mode::Client(state) = &self.mode {
             let mut state = state.borrow_mut();
-            if state.opened {
-                return Err(BackendError::Other(
-                    "client mode supports a single window per task".to_string(),
-                ));
-            }
-            // `events_peer` is moved to the compositor by the call below
-            // whether or not it succeeds; mark this task's one window as
-            // opened up front so a second `open_window` errors instead of
-            // resending a handle it no longer owns.
-            state.opened = true;
-            state.rect = (width as i32, height as i32);
-            let surface = state
-                .client
-                .create_surface(width as u64, height as u64, &spec.title, state.events_peer)
-                .map_err(|code| BackendError::Other(format!("create_surface: errno {code}")))?;
-            let size = width as u64 * height as u64 * 4;
-            let (buffer, va, _) = match sys::display_create_buffer(size) {
-                Ok(value) => value,
-                Err(code) => {
-                    let _ = state.client.destroy_surface(surface);
-                    return Err(BackendError::Other(format!("create_buffer: errno {code}")));
-                }
-            };
-            if let Err(code) = state.client.attach_buffer(surface, buffer, size) {
-                let _ = state.client.destroy_surface(surface);
-                return Err(BackendError::Other(format!("attach_buffer: errno {code}")));
-            }
-            state.surface = surface;
-            state.va = va;
-            state.size = size;
+            state
+                .open_surface(width, height, &spec.title)
+                .map_err(BackendError::Other)?;
         }
         self.windows.borrow_mut().insert(
             id.raw(),

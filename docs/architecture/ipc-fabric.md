@@ -10,7 +10,7 @@ syscall surface (including the bootstrap channel).
 |---|---|
 | `kernel/src/ipc/registry.rs` | Name table with owners, leases, pruning (issue #89) |
 | `kernel/src/ipc/topics.rs` | Per-segment publish/subscribe ACL hook (issue #92) |
-| `kernel/src/ipc/stats.rs` | `FabricStats` v2 snapshot (issue #70) |
+| `kernel/src/ipc/stats.rs` | `FabricStats` v3 snapshot (issue #70, #204) |
 | `kernel/src/ipc/syscalls.rs` | Native op dispatch, `MsgArgs`/`MsgResult`, bootstrap |
 
 **Name registry** (`registry.rs`)
@@ -45,8 +45,9 @@ syscall surface (including the bootstrap channel).
 
 **Fabric stats** (`stats.rs`)
 
-- `FABRIC_STATS_VERSION = 2`; `FabricStats::SIZE` is 22 scalar words, a 16-slot
-  handle table, 8 ACL/audit words, then 16 four-word per-slot rows. It aggregates
+- `FABRIC_STATS_VERSION = 3`; `FabricStats::SIZE` is 22 scalar words, a
+  `MAX_TASKS` (64) slot handle table, 8 ACL/audit words, then 64 four-word
+  per-slot rows (version 2 had 16 of each). It aggregates
   channels/endpoints/queues, message counters, buffers/fences, handles per slot,
   ACL state, and audit counters and chain head. `snapshot()` takes each subsystem
   lock in turn (never two at once); fields are little-endian `u64` in order.
@@ -54,7 +55,7 @@ syscall surface (including the bootstrap channel).
 **Native syscall surface** (`syscalls.rs`, syscall 5)
 
 Ops: 1-7 `CALL`, `REPLY`, `SEND`, `RECV`, `CANCEL`, `CLOSE_ENDPOINT`,
-`CREATE_PAIR`; 8-12 `STATS` (v2/v1), `BOOTSTRAP`, `CALL_BEGIN`, `CALL_AWAIT`,
+`CREATE_PAIR`; 8-12 `STATS` (v3/v1), `BOOTSTRAP`, `CALL_BEGIN`, `CALL_AWAIT`,
 `TOTALS` (v1); 13-17 `REGISTER`, `RESOLVE`, `UNREGISTER`, `LIST`,
 `AUTHORIZE_TOPIC`.
 
@@ -65,7 +66,7 @@ Ops: 1-7 `CALL`, `REPLY`, `SEND`, `RECV`, `CANCEL`, `CLOSE_ENDPOINT`,
   from the parcel header and pass `ipc::authorize`; the handle path uses
   `access_range`/`copy_in`/`copy_out`, which validate ranges against page tables
   (materializing demand-zero pages) instead of trusting pointers. `OP_STATS`
-  serves v2 for a big buffer, else the compact 64-byte v1 `MsgStats`.
+  serves v3 for a big buffer, else the compact 64-byte v1 `MsgStats`.
 - `kernel_main` calls `bootstrap::create()` and publishes
   `os.lazy.messenger.registry`; the first userspace task to call `OP_BOOTSTRAP`
   claims the client end (`EBUSY` on a second claim; the kernel task is refused).
@@ -73,5 +74,5 @@ Ops: 1-7 `CALL`, `REPLY`, `SEND`, `RECV`, `CANCEL`, `CLOSE_ENDPOINT`,
   stub used before `messengerd` claims it.
 
 **Status.** Working: register/resolve/list, leases and pruning, topic ACL,
-v1/v2 stats, bootstrap. Open: userspace audit stream (`os.lazy.audit.v1`) and
+v1/v3 stats, bootstrap. Open: userspace audit stream (`os.lazy.audit.v1`) and
 slot generation counters.

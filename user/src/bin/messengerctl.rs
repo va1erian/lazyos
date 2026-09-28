@@ -4,7 +4,7 @@
 //! reader only resolves short names.
 //!
 //! Calls the native `messenger` syscall's `stats` op with a snapshot-sized
-//! buffer, so the kernel returns the versioned `FabricStats` block (ABI v2),
+//! buffer, so the kernel returns the versioned `FabricStats` block (ABI v3),
 //! and prints it as a small table grouped by subsystem: services/channels,
 //! messages, buffers, audit, and per-slot usage. It then offers the registry
 //! commands `list` and `resolve <name>`, the supervisor commands `services`
