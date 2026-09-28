@@ -283,6 +283,14 @@ const SUITE: &[(&str, Test)] = &[
         "ipc_channel_deadlock_refused",
         ipc_channel_suite::deadlock_refused,
     ),
+    (
+        "ipc_channel_concurrent_clients_allowed",
+        ipc_channel_suite::concurrent_clients_allowed,
+    ),
+    (
+        "ipc_channel_concurrent_clients_soak",
+        ipc_channel_suite::concurrent_clients_soak,
+    ),
     ("ipc_acl_default_deny", acl_suite::acl_default_deny),
     ("ipc_acl_allow_rule", acl_suite::acl_allow_rule),
     ("ipc_acl_explicit_deny", acl_suite::acl_explicit_deny),
@@ -5921,6 +5929,166 @@ mod ipc_channel_suite {
             channels::stats().cancels == 3,
             "cancel counter is {}",
             channels::stats().cancels
+        );
+        fresh()
+    }
+
+    /// Spawn `count` client tasks, each holding its own handle to the callable
+    /// side `shared` of one channel, as `registry::resolve` hands every client
+    /// of a service an alias of the same endpoint. Returns `(slot, handle)`
+    /// pairs; `current()` is the kernel task again on return.
+    fn shared_clients(shared: u64, count: usize) -> Result<Vec<(usize, u64)>, String> {
+        let entry = handles::get(shared).map_err(|error| error.message())?;
+        let mut clients = Vec::new();
+        for index in 0..count {
+            task::harness::switch_current(task::KERNEL_TASK);
+            let slot = task::spawn_fork().map_err(|error| format!("client {index}: {error}"))?;
+            handles::reset_for_task(slot);
+            let handle = handles::open_for_task(slot, entry.kind, entry.rights, entry.object_id)
+                .map_err(|error| error.message())?;
+            clients.push((slot, handle));
+        }
+        task::harness::switch_current(task::KERNEL_TASK);
+        Ok(clients)
+    }
+
+    /// Independent clients calling one service over an aliased endpoint are
+    /// not a cycle (the clipboard demo pair hit a false `Deadlock` here): the
+    /// second client's call is queued behind the first. Nesting by the same
+    /// client and a callback from the service side stay refused while either
+    /// call is open, and the callback is allowed once both calls end.
+    pub fn concurrent_clients_allowed() -> Result<(), String> {
+        fresh()?;
+        let (shared, server) = channels::create().map_err(reason)?;
+        let clients = shared_clients(shared, 2)?;
+        let (first, first_handle) = clients[0];
+        let (second, second_handle) = clients[1];
+        let request = parcel(7, flags::SYNC, "hello")?;
+
+        task::harness::switch_current(first);
+        let first_txn = channels::begin_call(first_handle, 7, &request, None).map_err(reason)?;
+        task::harness::switch_current(second);
+        let second_txn = channels::begin_call(second_handle, 7, &request, None)
+            .map_err(|error| format!("second client refused: {}", error.message()))?;
+        check!(first_txn != second_txn, "the two clients share a txn id");
+
+        // Nesting: the first client already has a call open on this channel.
+        task::harness::switch_current(first);
+        check!(
+            channels::begin_call(first_handle, 7, &request, None) == Err(ChannelError::Deadlock),
+            "a nested call by the same client was not refused"
+        );
+        // Callback: the service calls toward the side whose callers are parked.
+        task::harness::switch_current(task::KERNEL_TASK);
+        check!(
+            channels::begin_call(server, 7, &request, None) == Err(ChannelError::Deadlock),
+            "a callback toward parked callers was not refused"
+        );
+
+        // The service answers both, in arrival order, by transaction id.
+        for (slot, txn) in [(first, first_txn), (second, second_txn)] {
+            let message = channels::recv(server, None).map_err(reason)?;
+            check!(
+                message.sender == slot && message.txn == Some(txn),
+                "request from {} txn {:?}, expected {slot} txn {txn}",
+                message.sender,
+                message.txn
+            );
+            channels::reply(txn, &parcel(8, 0, &format!("to {slot}"))?).map_err(reason)?;
+        }
+        for (slot, txn) in [(first, first_txn), (second, second_txn)] {
+            task::harness::switch_current(slot);
+            let got = channels::await_reply(txn).map_err(reason)?;
+            check!(
+                payload(&got)? == format!("to {slot}"),
+                "client {slot} got another client's reply"
+            );
+        }
+
+        // Idle again: the service may now call its clients' side.
+        task::harness::switch_current(task::KERNEL_TASK);
+        let back = channels::begin_call(server, 7, &request, None).map_err(reason)?;
+        channels::cancel(back).map_err(reason)?;
+        check!(
+            channels::await_reply(back) == Err(ChannelError::Canceled),
+            "callback outcome is not Canceled"
+        );
+        // Canceling does not dequeue: the callback request is still waiting in
+        // the clients' inbox.
+        let stats = channels::stats();
+        check!(
+            stats.calls == 3 && stats.replies == 2 && stats.outstanding == 0 && stats.queued == 1,
+            "counters after two clients and a callback: {stats:?}"
+        );
+        fresh()
+    }
+
+    /// Soak: 4 clients call one shared endpoint concurrently for 2000 rounds.
+    /// Every round the callback probe is refused, replies go back in reverse
+    /// order and each reaches its own caller; nothing is left outstanding,
+    /// queued or metered at the end.
+    pub fn concurrent_clients_soak() -> Result<(), String> {
+        const CLIENTS: usize = 4;
+        const ROUNDS: usize = 2000;
+        fresh()?;
+        let (shared, server) = channels::create().map_err(reason)?;
+        let clients = shared_clients(shared, CLIENTS)?;
+        let probe = parcel(7, flags::SYNC, "probe")?;
+        let start = unsafe { core::arch::x86_64::_rdtsc() };
+        for round in 0..ROUNDS {
+            let mut txns = Vec::with_capacity(CLIENTS);
+            for &(slot, handle) in &clients {
+                task::harness::switch_current(slot);
+                let request = parcel(7, flags::SYNC, &format!("{round}:{slot}"))?;
+                let txn = channels::begin_call(handle, 7, &request, None)
+                    .map_err(|error| format!("round {round} client {slot}: {}", error.message()))?;
+                txns.push(txn);
+            }
+            task::harness::switch_current(task::KERNEL_TASK);
+            check!(
+                channels::begin_call(server, 7, &probe, None) == Err(ChannelError::Deadlock),
+                "round {round}: a callback was allowed with calls open"
+            );
+            let mut inbound = Vec::with_capacity(CLIENTS);
+            for _ in 0..CLIENTS {
+                inbound.push(channels::recv(server, None).map_err(reason)?);
+            }
+            for message in inbound.iter().rev() {
+                let txn = message
+                    .txn
+                    .ok_or_else(|| format!("round {round}: a call arrived without a txn"))?;
+                let echo = payload(&message.bytes)?;
+                channels::reply(txn, &parcel(8, 0, &echo)?).map_err(reason)?;
+            }
+            for (index, &(slot, _)) in clients.iter().enumerate() {
+                task::harness::switch_current(slot);
+                let got = channels::await_reply(txns[index]).map_err(reason)?;
+                check!(
+                    payload(&got)? == format!("{round}:{slot}"),
+                    "round {round}: client {slot} got the wrong reply"
+                );
+            }
+        }
+        task::harness::switch_current(task::KERNEL_TASK);
+        let cycles = unsafe { core::arch::x86_64::_rdtsc() }.wrapping_sub(start);
+        serial_println!(
+            "TEST:ipc_channel_concurrent_clients_soak:INFO:clients={CLIENTS} rounds={ROUNDS} cycles={cycles}"
+        );
+        let stats = channels::stats();
+        let expected = (CLIENTS * ROUNDS) as u64;
+        check!(
+            stats.calls == expected
+                && stats.replies == expected
+                && stats.timeouts == 0
+                && stats.outstanding == 0
+                && stats.queued == 0
+                && stats.queued_bytes == 0,
+            "counters after the soak: {stats:?}"
+        );
+        let meters = channels::senders(server).map_err(reason)?;
+        check!(
+            meters.iter().all(|meter| meter.outstanding == 0),
+            "a sender meter still counts open calls: {meters:?}"
         );
         fresh()
     }

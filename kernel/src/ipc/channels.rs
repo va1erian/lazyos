@@ -729,10 +729,19 @@ pub fn begin_call(
             channel.drops += 1;
             return Err(Error::Quota);
         }
-        // Section 6: while a transaction is open, a second synchronous call on
-        // the same channel pair is either nesting or a callback cycle, and the
-        // default policy is ERR_DEADLOCK. ALLOW_NESTED opts out.
-        if outstanding > 0 && parcel.header.flags & flags::ALLOW_NESTED == 0 {
+        // Section 6: a synchronous call is a cycle, refused with ERR_DEADLOCK
+        // unless ALLOW_NESTED opts out, when it is either
+        // * nesting: this task already has a call open on the channel, or
+        // * a callback: a call is open *toward* this side, so its caller is
+        //   parked waiting for this side and cannot serve a call back.
+        // Calls already open in the same direction by *other* tasks are not a
+        // cycle: registry resolves alias one endpoint (`registry::resolve`),
+        // so independent clients of a service share this channel and must be
+        // able to call it concurrently; the service answers them in turn.
+        let cycle = channel.txns.iter().any(|txn| {
+            txn.state == TxnState::Pending && (txn.caller == me || txn.callee_side == side)
+        });
+        if cycle && parcel.header.flags & flags::ALLOW_NESTED == 0 {
             return Err(Error::Deadlock);
         }
         let queued = Queued {
