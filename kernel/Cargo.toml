@@ -7,6 +7,9 @@ license = "MIT OR Apache-2.0"
 
 [dependencies]
 bootloader_api = "0.11.17"
+# Issue #102: the in-kernel suite runs the crypto wrapper's round-trip and
+# SHARE_ONLY key-isolation checks against the same crate `keyd` links.
+lazyos-crypto = { path = "../libs/crypto" }
 libm = "0.2"
 libmessenger = { path = "../libs/messenger" }
 linked_list_allocator = "0.10"
