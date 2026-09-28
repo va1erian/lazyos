@@ -397,7 +397,7 @@ Stage status as of 2026-09-28 (issue numbers are the GitHub tracking issues):
 
 | Stage | Status | Evidence |
 |---|---|---|
-| S0 kernel foundations (#53) | landed | `python tools/test/run.py` (48 tests incl. soaks) |
+| S0 kernel foundations (#53) | landed | `python tools/test/run.py` (189 tests, 21 of them soaks) |
 | S1 Messenger core (#63) | landed | `ipc_*` kernel tests, `libs/messenger` fuzz |
 | S2 services, registry, pub/sub (#88) | landed | `LAZYOS_SERVICES=1` sessions, `midlc` CI |
 | S3 users, sessions, storage (#97) | landed, with gaps | login demo; ext2 only in the kernel suite; services still root |
