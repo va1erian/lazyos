@@ -4728,6 +4728,11 @@ pub mod display {
             };
             let mut buf = [0u8; 256];
             let reply = self.endpoint.call_with(&parcel, &mut buf, None)?;
+            // A refusal (e.g. `-EACCES` for the desktop role) is a structured
+            // error reply, not a missing surface id.
+            if let Some(code) = error_field(&reply) {
+                return Err(Error::Errno(-code));
+            }
             let mut decoder = Decoder::new(&reply.body);
             while let Some(field) = decoder.next().map_err(Error::Parcel)? {
                 if field.kind == Kind::U64 && field.id == field::SURFACE {
@@ -4752,7 +4757,7 @@ pub mod display {
                 handles: vec![events.handle()],
                 buffers: Vec::new(),
             };
-            let mut buf = [0u8; 64];
+            let mut buf = [0u8; 256]; // an error reply carries a message
             let reply = self.endpoint.call_with(&parcel, &mut buf, None)?;
             match error_field(&reply) {
                 Some(code) => Err(Error::Errno(-code)),
@@ -4861,7 +4866,7 @@ pub mod display {
                     flags: 0,
                 }],
             };
-            let mut buf = [0u8; 64];
+            let mut buf = [0u8; 256]; // an error reply carries a message
             self.endpoint.call_with(&parcel, &mut buf, None)?;
             Ok(())
         }
@@ -4884,7 +4889,7 @@ pub mod display {
                 handles: Vec::new(),
                 buffers: Vec::new(),
             };
-            let mut buf = [0u8; 64];
+            let mut buf = [0u8; 256]; // an error reply carries a message
             self.endpoint.call_with(&parcel, &mut buf, None)?;
             Ok(())
         }
@@ -4899,7 +4904,7 @@ pub mod display {
                 handles: Vec::new(),
                 buffers: Vec::new(),
             };
-            let mut buf = [0u8; 64];
+            let mut buf = [0u8; 256]; // an error reply carries a message
             self.endpoint.call_with(&parcel, &mut buf, None)?;
             Ok(())
         }
@@ -4919,7 +4924,7 @@ pub mod display {
                 handles: Vec::new(),
                 buffers: Vec::new(),
             };
-            let mut buf = [0u8; 64];
+            let mut buf = [0u8; 256]; // an error reply carries a message
             let reply = self.endpoint.call_with(&parcel, &mut buf, None)?;
             match error_field(&reply) {
                 Some(code) => Err(Error::Errno(-code)),
@@ -4937,7 +4942,7 @@ pub mod display {
                 handles: Vec::new(),
                 buffers: Vec::new(),
             };
-            let mut buf = [0u8; 64];
+            let mut buf = [0u8; 256]; // an error reply carries a message
             let reply = self.endpoint.call_with(&parcel, &mut buf, None)?;
             match error_field(&reply) {
                 Some(code) => Err(Error::Errno(-code)),
