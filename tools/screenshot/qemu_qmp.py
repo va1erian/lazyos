@@ -114,6 +114,13 @@ def accel_args(accel: str, qemu: str) -> list[str]:
         print(f"qemu accelerator: auto -> {accel}", file=sys.stderr, flush=True)
     if accel == "none":
         return []
+    if accel == "kvm":
+        # KVM's in-kernel PIT defaults to re-injecting ticks the guest did not
+        # acknowledge (e.g. while it ran with IF=0), delivering them in a
+        # burst once interrupts are back on: the tick counter then jumps by
+        # 100+ and tick-based sleeps look far too long. TCG's PIT drops such
+        # ticks; `discard` gives KVM the same semantics.
+        return ["-accel", "kvm", "-global", "kvm-pit.lost_tick_policy=discard"]
     return ["-accel", accel]
 
 
