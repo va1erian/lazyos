@@ -4631,8 +4631,8 @@ mod linux_suite {
 
     /// Unknown clocks and unknown flag bits are rejected with `-EINVAL`,
     /// including when `TIMER_ABSTIME` is combined with an unknown bit; the
-    /// existing timespec validation (negative seconds/nanoseconds) still
-    /// applies.
+    /// timespec validation (negative seconds/nanoseconds, and nanoseconds
+    /// outside `0..1_000_000_000`) still applies.
     pub fn clock_nanosleep_bad_clock_and_flags() -> Result<(), String> {
         fresh()?;
         let req = [0i64, 0i64];
@@ -4657,6 +4657,10 @@ mod linux_suite {
         let bad_req = [0i64, -1i64];
         let ret = clock_nanosleep(CLOCK_MONOTONIC, 0, &bad_req, &mut rem);
         check!(ret == EINVAL, "negative nanoseconds accepted: {ret:#x}");
+
+        let bad_req = [0i64, 1_000_000_000i64];
+        let ret = clock_nanosleep(CLOCK_MONOTONIC, 0, &bad_req, &mut rem);
+        check!(ret == EINVAL, "nanoseconds >= 1s accepted: {ret:#x}");
         Ok(())
     }
 

@@ -1269,9 +1269,10 @@ const TIMER_ABSTIME: u64 = 1;
 /// relative, clock-independent) and `clock_nanosleep` (relative or, with
 /// `TIMER_ABSTIME`, an absolute deadline on `clock`).
 ///
-/// `clock` must be `CLOCK_REALTIME` or `CLOCK_MONOTONIC` and `flags` must
-/// contain no bits beyond `TIMER_ABSTIME`, matching Linux's `-EINVAL` for an
-/// unknown clock or unknown flags.
+/// `clock` must be `CLOCK_REALTIME` or `CLOCK_MONOTONIC`, `flags` must
+/// contain no bits beyond `TIMER_ABSTIME`, and `req`'s nanoseconds must be a
+/// canonical `0..1_000_000_000` — matching Linux's `-EINVAL` for an unknown
+/// clock, unknown flags, or a malformed timespec.
 fn sys_clock_nanosleep(clock: u64, flags: u64, req: u64, rem: u64) -> u64 {
     if clock != CLOCK_REALTIME && clock != CLOCK_MONOTONIC {
         return err(EINVAL);
@@ -1282,7 +1283,7 @@ fn sys_clock_nanosleep(clock: u64, flags: u64, req: u64, rem: u64) -> u64 {
     let absolute = flags & TIMER_ABSTIME != 0;
     // Safety: user buffer holds a `struct timespec` (the syscall ABI's contract).
     let (sec, nsec) = unsafe { (user_ptr::read::<i64>(req), user_ptr::read::<i64>(req + 8)) };
-    if sec < 0 || nsec < 0 {
+    if sec < 0 || !(0..1_000_000_000).contains(&nsec) {
         return err(EINVAL);
     }
     // 100 Hz timer: round up to whole ticks, at least one so time advances.
