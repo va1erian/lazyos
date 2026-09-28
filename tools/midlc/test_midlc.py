@@ -64,6 +64,16 @@ class ParserTests(unittest.TestCase):
             self.parse(text)
         self.assertIn("used by", str(caught.exception))
 
+    def test_colliding_codec_names_are_rejected(self) -> None:
+        # "Point" and "point" both fold to the same generated `encode_point`.
+        bad = SAMPLE.replace(
+            "struct Point { x: I32, y: I32 }",
+            "struct Point { x: I32, y: I32 }\n    struct point { z: I32 }",
+        )
+        with self.assertRaises(midlc.MidlError) as caught:
+            self.parse(bad)
+        self.assertIn("codec name", str(caught.exception))
+
     def test_oneway_cannot_return(self) -> None:
         bad = SAMPLE.replace("-> () oneway", "-> (x: U32) oneway")
         with self.assertRaises(midlc.MidlError):
