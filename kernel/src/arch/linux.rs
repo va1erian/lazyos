@@ -171,10 +171,21 @@ extern "C" {
     fn linux_syscall_entry();
 }
 
+/// `IA32_STAR[63:48]`: the base `sysretq` derives the user selectors from
+/// (CS = base + 16, SS = base + 8). It carries RPL 3 because AMD CPUs load
+/// SS from it verbatim: with a bare `0x10`, `sysretq` on AMD leaves ring 3
+/// running with SS = 0x18 (RPL 0), and the next `iretq` back to that task
+/// (an `int 0x80` or a timer preemption) takes #GP(0x18). Intel and QEMU's
+/// TCG force RPL 3, which is why this only showed up under KVM on AMD hosts.
+/// Linux does the same (`__USER32_CS` has RPL 3).
+pub const STAR_SYSRET_BASE: u16 = 0x10 | 3;
+/// `IA32_STAR[47:32]`: `syscall` loads CS = base, SS = base + 8.
+pub const STAR_SYSCALL_BASE: u16 = 0x08;
+
 /// Program the MSRs for Linux syscalls.
 pub fn init() {
-    // STAR: SYSCALL CS=0x08/SS=0x10, SYSRET CS=0x20/SS=0x18 (see the GDT order).
-    let star = (0x10u64 << 48) | (0x08u64 << 32);
+    // STAR: SYSCALL CS=0x08/SS=0x10, SYSRET CS=0x23/SS=0x1b (see the GDT order).
+    let star = ((STAR_SYSRET_BASE as u64) << 48) | ((STAR_SYSCALL_BASE as u64) << 32);
     msr::write(msr::IA32_STAR, star);
     msr::write(msr::IA32_LSTAR, linux_syscall_entry as *const () as u64);
     // Clear IF/TF/DF on entry.

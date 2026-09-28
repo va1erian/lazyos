@@ -60,6 +60,10 @@ const SUITE: &[(&str, Test)] = &[
     ("mem_vma_cow_mprotect", mem_suite::vma_cow_mprotect),
     ("heap_vec_integrity", heap_suite::vec_integrity),
     (
+        "arch_sysret_selectors_rpl3",
+        arch_suite::sysret_selectors_rpl3,
+    ),
+    (
         "slab_alloc_distinct_aligned",
         slab_suite::alloc_distinct_aligned,
     ),
@@ -1243,6 +1247,50 @@ mod mem_suite {
 // ---------------------------------------------------------------------------
 // Kernel heap
 // ---------------------------------------------------------------------------
+
+mod arch_suite {
+    use super::*;
+
+    /// `sysretq` must land in ring 3 with exactly the GDT's user selectors,
+    /// RPL 3 included. AMD loads SS = STAR[63:48] + 8 without forcing RPL 3,
+    /// so a base of bare 0x10 left Linux-ABI tasks running with SS = 0x18 and
+    /// the next `iretq` back to them faulted with #GP(0x18) (only under KVM on
+    /// AMD; Intel and TCG force RPL 3 and hid it).
+    pub fn sysret_selectors_rpl3() -> Result<(), String> {
+        use crate::arch::{gdt, linux, msr};
+        let star = msr::read(msr::IA32_STAR);
+        let sysret_base = (star >> 48) as u16;
+        let syscall_base = ((star >> 32) & 0xffff) as u16;
+        check!(
+            sysret_base == linux::STAR_SYSRET_BASE,
+            "STAR[63:48] is {sysret_base:#x}, expected {:#x}",
+            linux::STAR_SYSRET_BASE
+        );
+        check!(
+            syscall_base == linux::STAR_SYSCALL_BASE,
+            "STAR[47:32] is {syscall_base:#x}, expected {:#x}",
+            linux::STAR_SYSCALL_BASE
+        );
+        let selectors = gdt::selectors();
+        let sysret_ss = sysret_base.wrapping_add(8);
+        let sysret_cs = sysret_base.wrapping_add(16);
+        check!(
+            sysret_ss == selectors.user_data,
+            "sysret SS would be {sysret_ss:#x} (as AMD loads it), GDT user data is {:#x}",
+            selectors.user_data
+        );
+        check!(
+            sysret_cs == selectors.user_code,
+            "sysret CS would be {sysret_cs:#x}, GDT user code is {:#x}",
+            selectors.user_code
+        );
+        check!(
+            sysret_ss & 3 == 3 && sysret_cs & 3 == 3,
+            "sysret selectors CS={sysret_cs:#x} SS={sysret_ss:#x} are not RPL 3"
+        );
+        Ok(())
+    }
+}
 
 mod heap_suite {
     use super::*;
