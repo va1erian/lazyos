@@ -171,7 +171,15 @@ jobs:
           git -C "$work" -c user.name=github-actions \
               -c user.email=github-actions@users.noreply.github.com \
               commit -qm "screenshots for ${GITHUB_SHA} (run ${GITHUB_RUN_ID})"
-          git -C "$work" push -q "$remote" screenshots
+          # Concurrent runs (other PRs, xui.yml) push to this shared branch, so
+          # a plain push loses the race. Each run only adds its own runs/<id>
+          # directory, so rebasing onto the new tip never conflicts.
+          for attempt in 1 2 3 4 5 6; do
+            git -C "$work" push -q "$remote" screenshots && break
+            [ "$attempt" -eq 6 ] && { echo "screenshots push kept losing the race" >&2; exit 1; }
+            sleep $((attempt * 2))
+            git -C "$work" -c user.name=github-actions                 -c user.email=github-actions@users.noreply.github.com                 pull -q --rebase "$remote" screenshots
+          done
           echo "sha=$(git -C "$work" rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
 
