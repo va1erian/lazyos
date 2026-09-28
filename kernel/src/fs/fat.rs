@@ -8,6 +8,8 @@ use crate::block::ata;
 use alloc::string::String;
 use alloc::vec::Vec;
 
+use super::vfs::{DirEntry, FileKind, Filesystem, FsError, Id, Meta, S_IFDIR, S_IFREG};
+
 /// Which FAT flavour the volume uses (determined by cluster count).
 #[derive(Clone, Copy, PartialEq)]
 enum FatKind {
@@ -173,11 +175,6 @@ impl Fat16 {
     }
 
     /// List the root directory (short 8.3 entries; long-name entries skipped).
-    pub fn entries(&self) -> Vec<Entry> {
-        self.list()
-    }
-
-    /// List the root directory (short 8.3 entries; long-name entries skipped).
     pub fn list(&self) -> Vec<Entry> {
         let mut entries = Vec::new();
         let mut offset = 0u32;
@@ -222,42 +219,42 @@ impl Fat16 {
             })
     }
 
-    /// Metadata for an entry: `(size, is_dir)`.
-    pub fn stat(&self, name: &str) -> Option<(u32, bool)> {
-        self.find(name).map(|entry| (entry.size, entry.is_dir))
-    }
-
-    /// Read a file by name (case-insensitive, `NAME.EXT` or `NAME`).
-    pub fn read(&self, name: &str) -> Option<Vec<u8>> {
-        let entry = self.find(name)?;
-        if entry.is_dir {
-            return None;
+    /// Read `buf.len()` bytes at `offset` without loading the whole chain: walk
+    /// to the first cluster, then read only the sectors the range touches.
+    fn read_at(&self, start: u16, size: u32, offset: u64, buf: &mut [u8]) -> Option<usize> {
+        if offset >= size as u64 || start < 2 {
+            return Some(0);
         }
-        self.read_clusters(entry.cluster, entry.size)
-    }
-
-    fn read_clusters(&self, start: u16, size: u32) -> Option<Vec<u8>> {
-        let mut data = Vec::with_capacity(size as usize);
-        if start < 2 {
-            return Some(data);
-        }
+        let cluster_bytes = self.sectors_per_cluster as u64 * self.bytes_per_sector as u64;
+        let sector_bytes = self.bytes_per_sector as usize;
         let mut cluster = start;
-        // Bounded so a corrupt chain cannot loop forever.
-        for _ in 0..0x10000 {
+        let mut skip = offset / cluster_bytes;
+        while skip > 0 {
+            cluster = self.next_cluster(cluster)?;
+            skip -= 1;
+        }
+
+        let mut inner = (offset % cluster_bytes) as usize;
+        let remaining = (size as u64 - offset).min(buf.len() as u64) as usize;
+        let mut written = 0usize;
+        while written < remaining {
             let lba = self.cluster_lba(cluster);
-            for sector in 0..self.sectors_per_cluster as u32 {
-                data.extend_from_slice(&read_sector(lba + sector)?);
+            let mut sector = (inner / sector_bytes) as u32;
+            let mut byte = inner % sector_bytes;
+            while sector < self.sectors_per_cluster as u32 && written < remaining {
+                let data = read_sector(lba + sector)?;
+                let take = (sector_bytes - byte).min(remaining - written);
+                buf[written..written + take].copy_from_slice(&data[byte..byte + take]);
+                written += take;
+                byte = 0;
+                sector += 1;
             }
-            if data.len() as u32 >= size {
-                data.truncate(size as usize);
-                break;
-            }
-            match self.next_cluster(cluster) {
-                Some(next) => cluster = next,
-                None => break,
+            if written < remaining {
+                cluster = self.next_cluster(cluster)?;
+                inner = 0;
             }
         }
-        Some(data)
+        Some(written)
     }
 }
 
@@ -294,4 +291,112 @@ fn normalize(name: &str) -> Option<String> {
         key.push_str(&ext.to_ascii_uppercase());
     }
     Some(key)
+}
+
+/// Stable pseudo-inode for a FAT name (FAT has no inode numbers). Bit 1 is
+/// forced, so no entry can collide with the root's inode 1 or with 0.
+fn ino_for(name: &str) -> u64 {
+    name.to_ascii_uppercase()
+        .bytes()
+        .fold(0u64, |acc, byte| acc.wrapping_mul(31) + byte as u64)
+        | 2
+}
+
+/// Metadata for a FAT entry. The volume has no owner, so nodes are
+/// root-owned; directories and files are readable/executable by everyone
+/// (`0555`, the vfat default), and nothing is writable.
+fn meta_for(entry: &Entry) -> Meta {
+    Meta {
+        ino: ino_for(&entry.name),
+        mode: if entry.is_dir {
+            S_IFDIR | 0o555
+        } else {
+            S_IFREG | 0o555
+        },
+        uid: 0,
+        gid: 0,
+        size: entry.size as u64,
+        kind: if entry.is_dir {
+            FileKind::Dir
+        } else {
+            FileKind::File
+        },
+    }
+}
+
+/// The read-only FAT volume behind the [`Filesystem`] trait.
+///
+/// This reader only resolves the root directory, so the mount point root is
+/// the whole volume and any nested path is simply not found. Every mutating
+/// method answers [`FsError::ReadOnly`]: the friendly `EROFS` the ABI layer
+/// reports when userspace tries to write.
+impl Filesystem for Fat16 {
+    fn name(&self) -> &'static str {
+        "fat16 (ro)"
+    }
+
+    fn lookup(&self, path: &str) -> Result<Meta, FsError> {
+        let name = path.trim_matches('/');
+        if name.is_empty() {
+            return Ok(Meta {
+                ino: 1,
+                mode: S_IFDIR | 0o555,
+                uid: 0,
+                gid: 0,
+                size: self.root_entries as u64 * 32,
+                kind: FileKind::Dir,
+            });
+        }
+        self.find(name)
+            .map(|entry| meta_for(&entry))
+            .ok_or(FsError::NotFound)
+    }
+
+    fn read(&self, path: &str, offset: u64, buf: &mut [u8]) -> Result<usize, FsError> {
+        let entry = self.find(path.trim_matches('/')).ok_or(FsError::NotFound)?;
+        if entry.is_dir {
+            return Err(FsError::IsDir);
+        }
+        self.read_at(entry.cluster, entry.size, offset, buf)
+            .ok_or(FsError::Invalid)
+    }
+
+    fn write(&self, _path: &str, _offset: u64, _data: &[u8]) -> Result<usize, FsError> {
+        Err(FsError::ReadOnly)
+    }
+
+    fn create(&self, _path: &str, _mode: u16, _owner: Id) -> Result<Meta, FsError> {
+        Err(FsError::ReadOnly)
+    }
+
+    fn mkdir(&self, _path: &str, _mode: u16, _owner: Id) -> Result<Meta, FsError> {
+        Err(FsError::ReadOnly)
+    }
+
+    fn unlink(&self, _path: &str) -> Result<(), FsError> {
+        Err(FsError::ReadOnly)
+    }
+
+    fn rename(&self, _from: &str, _to: &str) -> Result<(), FsError> {
+        Err(FsError::ReadOnly)
+    }
+
+    fn readdir(&self, path: &str) -> Result<Vec<DirEntry>, FsError> {
+        if !path.trim_matches('/').is_empty() {
+            return Err(FsError::NotDir); // root-only reader: no subdirectories
+        }
+        Ok(self
+            .list()
+            .into_iter()
+            .map(|entry| DirEntry {
+                ino: ino_for(&entry.name),
+                kind: if entry.is_dir {
+                    FileKind::Dir
+                } else {
+                    FileKind::File
+                },
+                name: entry.name,
+            })
+            .collect())
+    }
 }
