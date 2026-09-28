@@ -4,6 +4,8 @@ use alloc::collections::VecDeque;
 use core::sync::atomic::{AtomicBool, Ordering};
 use spin::Mutex;
 
+use crate::display;
+
 /// A decoded key event.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Key {
@@ -45,6 +47,19 @@ pub fn push_scancode(scancode: u8) {
         if code == 0x1D {
             CTRL.store(false, Ordering::SeqCst);
         }
+        // A bound compositor observes key releases too; the kernel terminal
+        // only cares about presses, so this is display-only (issue #113).
+        if display::bound() {
+            let shift = SHIFT.load(Ordering::SeqCst);
+            let key = if extended {
+                decode_extended(code)
+            } else {
+                decode(code, shift)
+            };
+            if let Some(key) = key {
+                display::push_key(key, false);
+            }
+        }
         return;
     }
     if !extended && (code == 0x2A || code == 0x36) {
@@ -63,8 +78,13 @@ pub fn push_scancode(scancode: u8) {
         decode(code, shift)
     };
     if let Some(key) = key {
-        // Route the key to the focused task (or switch focus on Tab).
-        crate::task::on_key(key);
+        // A bound compositor receives the raw key; otherwise route it to the
+        // focused task (switching focus on Tab) as before.
+        if display::bound() {
+            display::push_key(key, true);
+        } else {
+            crate::task::on_key(key);
+        }
     }
 }
 /// Non-blocking: return the next key if one is queued.

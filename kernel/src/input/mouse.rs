@@ -123,6 +123,7 @@ pub fn push_byte(byte: u8) {
 
     let (width, height) = *BOUNDS.lock();
     let mut state = STATE.lock();
+    let previous = (state.left, state.right, state.middle);
     // PS/2 Y is positive upwards; screen Y grows downwards.
     state.x = (state.x + dx).clamp(0, width - 1);
     state.y = (state.y - dy).clamp(0, height - 1);
@@ -130,6 +131,33 @@ pub fn push_byte(byte: u8) {
     state.right = flags & 0x02 != 0;
     state.middle = flags & 0x04 != 0;
     state.moved = true;
+    let position = (state.x, state.y);
+    let buttons = (state.left, state.right, state.middle);
+    drop(state);
+
+    // When a compositor owns the display, it gets every move and button
+    // transition as an input event; the multiplexer's cursor path is then
+    // dormant (it checks `display::bound` before consuming `moved`).
+    if crate::display::bound() {
+        if dx != 0 || dy != 0 {
+            crate::display::push_pointer_move(position.0, position.1);
+        }
+        for (was, now, button) in [
+            (previous.0, buttons.0, crate::display::button::LEFT),
+            (previous.1, buttons.1, crate::display::button::RIGHT),
+            (previous.2, buttons.2, crate::display::button::MIDDLE),
+        ] {
+            if was != now {
+                crate::display::push_pointer_button(button, now);
+            }
+        }
+    }
+}
+
+/// A copy of the current mouse state (for the display grant's initial pointer
+/// seed and diagnostics).
+pub fn state() -> MouseState {
+    *STATE.lock()
 }
 
 /// Return the position if the mouse moved since the last call.

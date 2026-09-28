@@ -1627,6 +1627,18 @@ pub fn fd_dup2(old: usize, new: usize) -> Option<usize> {
     Some(new)
 }
 
+/// Whether `index` holds a task that is alive (occupied and not finished).
+///
+/// The display grant uses this to tell a bound compositor apart from a dead
+/// one, so the kernel mux can take the screen back without a teardown hook
+/// (issue #113). Cheap: one table lock and no allocation.
+pub fn live(index: usize) -> bool {
+    TASKS.lock().get(index).is_some_and(|task| {
+        task.as_ref()
+            .is_some_and(|task| task.state != TaskState::Done)
+    })
+}
+
 /// Snapshot of a task's name, output and done flag, for rendering.
 pub fn snapshot(index: usize) -> Option<(&'static str, Vec<u8>, bool)> {
     let tasks = TASKS.lock();

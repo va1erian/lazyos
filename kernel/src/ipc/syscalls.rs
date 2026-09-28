@@ -232,7 +232,8 @@ pub struct MsgResult {
     pub aux: u64,
     /// Bytes written to `buf_ptr` (call, call_await, recv, stats).
     pub bytes: u64,
-    /// Reserved; always zero today.
+    /// `recv` reports the delivered transfers here: `[first handle, handle
+    /// count, first buffer handle, buffer count]`; zero otherwise.
     pub reserved: [u64; 4],
 }
 
@@ -533,6 +534,20 @@ fn op_recv(args: &MsgArgs) -> Result<MsgResult, i64> {
         value: message.txn.unwrap_or(0),
         aux: message.sender as u64,
         bytes: message.bytes.len() as u64,
+        // The delivered transfers, for protocols that receive a handle or a
+        // buffer (issue #113's display protocol attaches both). The counts
+        // distinguish "none" from a legitimately zero handle number: handle
+        // tables hand out 0 as their first slot.
+        reserved: [
+            message.handles.first().copied().unwrap_or(0),
+            message.handles.len() as u64,
+            message
+                .buffers
+                .first()
+                .map(|buffer| buffer.handle)
+                .unwrap_or(0),
+            message.buffers.len() as u64,
+        ],
         ..MsgResult::default()
     })
 }
