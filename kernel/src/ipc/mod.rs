@@ -18,6 +18,7 @@ pub mod audit;
 pub mod channels;
 pub mod credentials;
 pub mod handles;
+pub mod pipe;
 pub mod registry;
 pub mod shared;
 pub mod stats;
