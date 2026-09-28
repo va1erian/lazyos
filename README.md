@@ -6,9 +6,10 @@ no ambient authority, every privileged action is a capability or a
 policy-checked message, and denials are explained rather than silent.
 
 It boots under UEFI, renders to a framebuffer, and runs a preemptive
-multitasking kernel with a writable ext2 filesystem, a VFS, and a growing set of
-userspace services. It also has a Linux ABI bridge so static
-`x86_64-unknown-linux-musl` binaries can run.
+multitasking kernel with a VFS (read-only FAT boot volume, in-memory `/tmp`,
+and an ext2 read/write driver), and a growing set of userspace services. It
+also has a Linux ABI bridge so static `x86_64-unknown-linux-musl` binaries can
+run.
 
 ## Architecture
 
@@ -42,7 +43,7 @@ and shared buffers, and services are discovered and policy-checked through
 
 Where to read next:
 
-- [`docs/platform-plan.md`](docs/platform-plan.md): current architecture and the staged roadmap (S0-S9).
+- [`docs/platform-plan.md`](docs/platform-plan.md): current baseline, the staged roadmap (S0-S9) and where each stage stands.
 - [`docs/architecture.md`](docs/architecture.md): terse per-subsystem reference (boot, memory, tasks, filesystem, IPC, processes, display).
 - [`docs/messenger.md`](docs/messenger.md), [`docs/security-model.md`](docs/security-model.md), [`docs/linux-abi-plan.md`](docs/linux-abi-plan.md), [`docs/xui-plan.md`](docs/xui-plan.md).
 

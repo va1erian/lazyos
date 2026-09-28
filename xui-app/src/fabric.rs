@@ -4,7 +4,7 @@
 //! `os.lazy.messenger.topics` service).
 //!
 //! The block layouts mirror `user/src/messenger.rs` (which mirrors the kernel):
-//! [`FabricStats`] is stats ABI v2 in the fixed little-endian word stream, the
+//! [`FabricStats`] is stats ABI v3 in the fixed little-endian word stream, the
 //! registry reply is a `libmessenger` parcel whose body carries one `ENTRY`
 //! record per name, and the broker reply carries one `ENTRY` per topic.
 //!
@@ -17,10 +17,10 @@ use libmessenger::{flags, Decoder, Encoder, Header, Kind, Parcel, VERSION};
 use crate::sys::{self, msg_op, MsgArgs, MsgResult, REGISTRY_TARGET_SELF};
 
 /// Task slots in the per-slot arrays; mirrors `kernel::task::MAX_TASKS`.
-pub const FABRIC_TASKS: usize = 16;
+pub const FABRIC_TASKS: usize = 64;
 
-/// Bytes in the version-2 `FabricStats` block: 22 scalar words, 16 per-task
-/// handle words, 8 ACL/audit words, and 16 four-word task rows.
+/// Bytes in the version-3 `FabricStats` block: 22 scalar words, 64 per-task
+/// handle words, 8 ACL/audit words, and 64 four-word task rows.
 pub const FABRIC_STATS_SIZE: usize = (22 + FABRIC_TASKS + 8 + FABRIC_TASKS * 4) * 8;
 
 /// Per-slot usage row of a [`FabricStats`] snapshot.
@@ -36,11 +36,11 @@ pub struct TaskUsage {
     pub buffer_bytes: u64,
 }
 
-/// The versioned fabric snapshot (stats ABI v2): channels, messages, buffers,
+/// The versioned fabric snapshot (stats ABI v3): channels, messages, buffers,
 /// handles, fences, ACL/audit state, and per-slot usage in one block.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct FabricStats {
-    /// ABI version; the kernel writes version 2 for a big-enough buffer.
+    /// ABI version; the kernel writes version 3 for a big-enough buffer.
     pub version: u64,
     /// Kernel-side services registered with the fabric.
     pub services: u64,
@@ -137,8 +137,8 @@ impl Default for FabricStats {
 }
 
 impl FabricStats {
-    /// The ABI version this mirror understands.
-    pub const VERSION: u64 = 2;
+    /// The ABI version this mirror understands (3: 64 per-slot rows, #204).
+    pub const VERSION: u64 = 3;
 
     /// Decode the little-endian word stream written by the `stats` op. `None`
     /// when the length is wrong or the version is newer than this mirror.

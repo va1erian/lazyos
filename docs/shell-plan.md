@@ -32,12 +32,12 @@ sessions (S6); GPU acceleration (S8).
 
 | Area | Today | Gap to target |
 |---|---|---|
-| Compositor | `xuid` binds the display grant, composites client surfaces with rectangle damage, and paints chrome; WM #143 adds drag, z-order, close/minimize, a taskbar, and `Tab` focus (`user/src/bin/xuid.rs`) | desktop/background surface, hotkey grabs, per-session theme, window-list/focus events for a shell taskbar |
-| Display protocol | `os.lazy.display.v1`: `CreateSurface`/`AttachBuffer`/`Commit`/`DestroySurface`, `Pointer*`/`Key*` events, `WindowClose` (method 10) in `user/src/messenger.rs` (`display` module) | desktop role, surface/focus notifications, global hotkeys, a reported work area |
-| XUI apps | `xui-app/` M0-M2 run the Counter full-screen on the display grant (#114, PR #151); no winit/GL; no compositor-client mode yet | shell/apps as display clients, keyboard focus routing, timers/resize |
-| Session | `logind` console login spawns the user's shell with kernel-stamped uid/gid/session; `SESSION_CAPS` is empty; `os.lazy.logind` exposes the session table (`user/src/bin/logind.rs`) | per-session compositor/clipboard/topic grants, graphical session, session end reaping |
-| Services | `messengerd` (#89, #92), `init`/`logd`/`healthd` (#93), `keyd`/`accountsd`/`logind` (#101, #102), `clipboardd` (#115), `mimed` (#116), `sysmond` (#144) | app launch path: `init` has no launch method; `mimed.Open` only publishes `system/events/open/<app>` |
-| Shell/apps | native `sh` + BusyBox; the interim xuid taskbar; no desktop, start menu, Files, Settings | all of S5 |
+| Compositor | `xuid` binds the display grant, composites client surfaces with rectangle damage, and paints chrome; WM #143 adds drag, z-order, close/minimize, a taskbar, and `Tab` focus; #167 adds the desktop role, a shell subscriber, `GetWorkArea`/`GetTheme` and modifier-aware global hotkeys (Alt+Tab overlay, Ctrl+Esc/Super, Alt+F4) (`user/src/bin/xuid.rs`) | per-session theme, maximize/snap, a real shell consuming the events |
+| Display protocol | `os.lazy.display.v1` methods 1-24: surfaces/buffers/commit, `Pointer*`/`Key*`, `WindowClose` (10), drag & drop (11-17), shell protocol (18-24: `ListSurfaces`, `GetWorkArea`, `Subscribe`, `GetTheme`, `SurfaceChanged`, `FocusChanged`, `StartMenu`) in `user/src/messenger.rs` (`display` module) | theme *write* path, resize, pointer-event payload tightening (button id, coordinate space) |
+| XUI apps | `xui-app/` M0-M2 run the Counter on the display grant (#114); client mode runs xui apps in `xuid` windows with keyboard focus routing (#168, #151); `sysmon`/`fabricmon` viewers (#153) | LazyShell and the S5 apps themselves, timers/resize/DPI |
+| Session | `logind` console login spawns the user's shell with kernel-stamped uid/gid/session; `SESSION_CAPS` is empty; `os.lazy.logind` exposes the session table (`user/src/bin/logind.rs`) | per-session compositor/clipboard/topic grants, graphical session bundle, session end reaping |
+| Services | `messengerd` (#89, #92, #169 central broker), `init`/`logd`/`healthd` (#93), `keyd`/`accountsd`/`logind` (#101, #102), `clipboardd` (#115), `mimed` (#116), `sysmond` (#144); `init` app registry + `os.lazy.init.Launch` with session-owner check and supervision (#158) | `mimed.Open` still only publishes `system/events/open/<app>`; the task table (16 slots) is full under the services image |
+| Shell/apps | native `sh` + BusyBox; the xuid fallback taskbar; `shellprobe` proves the shell protocol; no desktop, start menu, Files, Settings | all of S5's user-visible surface |
 | Theme | xuid hard-codes its palette; the vendored XUI backend has a `set_theme` seam | one theme format, Win95 + dark, live selection |
 | Evidence | `qemu_shot`/`qemu_session` + `pngstats.py`; the kernel test harness | scripted desktop sessions, golden captures, theme pairs |
 
@@ -189,6 +189,12 @@ taskbar, clicks Start, launches an app, and captures both windows
 (`SHELL:DESKTOP:PASS`, `SHELL:LAUNCH:PASS`) with `pngstats.py`; kernel
 correctness + soak tests only if the display-grant surface changes (new
 `display.rs` ops in `kernel/src/tests.rs`).
+**Status (2026-09-28):** the protocol half landed: shell protocol + desktop
+role + hotkeys (#167, PR #170), `init` `Launch` and app registry (#158, PR
+#171), xui client mode and focus routing (#168, PR #172), each with an evidence
+client (`shellprobe`, `apps_demo.json`, `xui_client.json`). Not started: the
+LazyShell process (#157), the `logind` session bundle, and the CodeRabbit
+follow-ups #175/#177/#178.
 
 ### S5.1 — Files and start menu (M)
 **Goal:** browse and open files from the GUI.
@@ -248,8 +254,9 @@ Same policy as `platform-plan.md` section 6 and `AGENTS.md`:
 |---|---|
 | Shell and xuid both grow taskbar/chrome and drift | one owner per concern: chrome/z-order/focus in xuid, window list/start/tray in the shell; the xuid bar is fallback-only |
 | The shell needs surface events the protocol lacks | land the append-only display-protocol additions before the taskbar, and test both with and without a shell |
-| No app launch path (`init` has no launch method) | land `os.lazy.init.Launch` with the session-owner check before the launcher UI |
-| XUI keyboard focus gap (#151) | fix focus routing in S5.0 and prove it by typing into an edit under the scripted session |
+| No app launch path (`init` has no launch method) | resolved: `os.lazy.init.Launch` with the session-owner check landed (#158) |
+| XUI keyboard focus gap (#151) | resolved: focus routing landed with client mode (#168); the scripted session types into an `Edit` |
+| The 16-slot task table | the services image already fills it; LazyShell + `xuid` + apps need `MAX_TASKS` raised or a leaner manifest first |
 | Heavy `std`/xui binaries and slow TCG boot | keep LazyShell lean (no app code linked in), measure boot in CI, use late capture timestamps |
 | Session grants too broad or a session leak | default deny, an explicit tested session set, and a logout test that proves child reaping |
 | Theme/DPI divergence | one theme format, fixed 96 DPI in S5; scaling is best-effort in S5.3 |

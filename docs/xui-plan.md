@@ -4,6 +4,15 @@
 renderer**) inside a LazyOS window, with real input — **without** `winit`,
 `softbuffer`, `glutin`/`glow`, or any OS windowing system.
 
+> **Status:** M0-M2 and the compositor-client milestone are done; see the
+> "Status" section at the end. The design sections predate the display grant:
+> the "one implicit window per task" `gfx_present`/`input_poll` surface was
+> realised as native syscall 12 (`bind`/`present`/`input_poll`/`create_buffer`,
+> [`architecture/display.md`](architecture/display.md)) and, for windowed apps,
+> as the `os.lazy.display.v1` client mode inside `xuid`. The `xui-skia` split
+> was not needed: the vendored `xui-canvas` is patched instead
+> (`xui-app/vendor/xui-canvas`).
+
 This builds on `docs/linux-abi-plan.md` (Rust `std` via the Linux x86_64 ABI
 shim). `xui` is a `std` library (`Rc`, `Vec`, `format!`, `std::thread`), so
 "run an xui app" presupposes `std` works on LazyOS.

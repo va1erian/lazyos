@@ -1,7 +1,15 @@
 # MCP Debug Bridge (Debug-Build Only)
 
 ## Status
-Draft / proposal
+Prototype. Phases 1 (`fabric_stats`) and 2 (`list_tasks`) are implemented in
+`tools/mcp/debug_bridge.py` (see `tools/mcp/README.md`), but over a simpler
+transport than the one designed below: `messengerctl` prints `MCP:<NAME>:{json}`
+lines on the console, which the kernel mirrors to serial, and the host script
+tails the serial log through the existing QMP tooling. Phase 2 added native
+syscall 13 (`kernel/src/task/introspect.rs`). The virtio-serial responder and
+Cargo feature gate described in "Design" are not implemented; phases 3
+(`memory_stats`, partly covered by syscall 14) and 4 (`inspect_vfs_node`) are
+open. CI: `.github/workflows/mcp-bridge.yml`.
 
 ## Summary
 

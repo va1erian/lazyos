@@ -19,7 +19,7 @@ syscall shim.
 
 - `pid == scheduler slot`; slots are recycled. `pgid` and `sid` hold the pid of
   the leader. The tree is derived by scanning for `parent == slot` (cheap at
-  `MAX_TASKS = 16`) rather than stored as child lists.
+  `MAX_TASKS = 64`) rather than stored as child lists.
 - `finish` is the single death path: marks `Done`, records `exit_status`,
   re-parents children to the kernel task (`KERNEL_TASK`, pid 0), posts
   `SIGCHLD` and notifies `CHILD_EXIT`.
@@ -43,6 +43,8 @@ syscall shim.
 | 10 | `creds(op, a1, a2)` | audited credential gate (see [ipc-security.md](ipc-security.md)) |
 | 11 | `quota(buf)` | per-uid usage/limit block |
 | 12 | `display(op, ...)` | display grant (see [display.md](display.md)) |
+| 13 | `tasks(buf)` | read-only scheduler snapshot (`task/introspect.rs`; MCP bridge phase 2) |
+| 14 | `system_stats(op, buf, cap)` | uptime, frame/slab/heap counters and the task table for `top`/`sysmond` (`sysinfo.rs`, #144) |
 
 - `spawn` reads the ELF from the FAT image, leaks one interned `&'static str`
   per distinct service name (at most 64; later spellings share the name
@@ -59,17 +61,21 @@ syscall shim.
 - `load` builds a Linux stack (argv/envp/auxv; `AT_CLKTCK = 100`) and returns
   `(entry, stack_top)`; `spawn_linux` registers the `brk`/`mmap` bumps.
 - `linux_dispatch` implements a growing subset: file I/O (`read`, `write`,
-  `openat`, `close`, `stat`/`fstat`, `getdents64`, `readv`/`writev`, `lseek`,
+  `openat`, `close`, `stat`/`fstat`/`newfstatat`, `getdents64`, `readv`/`writev`,
+  `lseek`, `dup`/`dup2`, `fcntl`, `ioctl`, `readlink`, `getcwd`,
   `mkdir`/`mkdirat`, `rmdir`, `rename`/`renameat`, `unlink`/`unlinkat` with
-  `AT_REMOVEDIR`), memory (`mmap`, `mprotect`, `munmap`, `brk`), signals
-  (`rt_sigaction`, `rt_sigprocmask`, `rt_sigreturn`, `sigaltstack`), process
-  (`clone`, `fork`, `execve`, `exit`, `exit_group`, `wait4`, `kill`, `tkill`,
-  `tgkill`, `set_tid_address`, `futex`), ids/groups (`getpid`/`gettid`,
+  `AT_REMOVEDIR`), memory (`mmap`, `mprotect`, `munmap`, `mremap`, `brk`),
+  signals (`rt_sigaction`, `rt_sigprocmask`, `rt_sigreturn`, `sigaltstack`),
+  process (`clone`, `fork`, `execve`, `exit`, `exit_group`, `wait4`, `kill`,
+  `tkill`, `tgkill`, `set_tid_address`, `futex`), ids/groups (`getpid`/`gettid`,
   `getppid`, `setpgid`, `setsid`, `getpgid`, `getsid`), pipes/sockets (`pipe`,
-  `pipe2`, `socketpair`, `sendto`/`recvfrom`, `poll`), and time/misc
-  (`nanosleep`, `clock_gettime`, `gettimeofday`, `getrandom`, `uname`, `access`,
-  `umask`, `arch_prctl`, `sched_getaffinity`). Everything else logs
-  `ENOSYS <nr> <name>`.
+  `pipe2`, `socketpair`, `socket`/`bind`/`listen`/`accept`/`connect`/`shutdown`/
+  `getsockname` for `AF_UNIX` stream and seqpacket, `sendto`/`recvfrom`,
+  `poll`, `epoll_create1`/`epoll_ctl`/`epoll_wait`, `eventfd2`), and time/misc
+  (`nanosleep`, `clock_nanosleep`, `clock_gettime`/`clock_getres`,
+  `gettimeofday`, `getrandom`, `uname`, `access`, `umask`, `arch_prctl`,
+  `sched_getaffinity`). Everything else logs `ENOSYS <nr> <name>`; the bench's
+  `coverage.py` summarises what real programs still hit.
 - File I/O runs against the ABI's own mount table, whose root is the copy-up
   overlay from [filesystem.md](filesystem.md), so `O_CREAT`, `O_TRUNC`,
   `O_APPEND`, `O_EXCL`, and `O_DIRECTORY` open, `mkdir`/`rename`/`unlink`/
@@ -92,7 +98,9 @@ syscall shim.
   `LAZYOS_INIT`; `BUSYBOX` runs BusyBox `sh` on the shim, and results are
   generated into `docs/compat/` (git-ignored) by `tools/abi/run.py`.
 
-**Status.** Working: BusyBox `sh`, static musl fixtures including
-`std::process` with piped stdio (matrix published by CI), native supervision
-loop (`init`). Gaps tracked in the Linux ABI plan: `SOCK_SEQPACKET` message
-framing, `poll` edge cases, full `SA_RESTART`, shared file tables.
+**Status.** Working: BusyBox `sh`, the 13 static musl fixtures in
+`tools/abi/fixtures` (threads, `std::process` with piped stdio, `mremap`,
+epoll/eventfd, `UnixStream`/seqpacket; matrix published by CI), native
+supervision loop (`init`, app `Launch`). Gaps: `poll` edge cases, full
+`SA_RESTART`, shared file tables, per-process cwd (`chdir` is a no-op),
+dynamic linking.
