@@ -35,13 +35,15 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::panic::PanicInfo;
 use libmessenger::{Decoder, Encoder, Header, Kind, Parcel, VERSION};
-use user::messenger::{self, keyd, logind, registry, services, topics_client, FabricStats};
+use user::messenger::{
+    self, clipboard, keyd, logind, registry, services, topics_client, FabricStats,
+};
 use user::sys;
 
 /// The interactive command set, printed at startup and by `help`.
 const HELP: &str = "commands: list | resolve <name> | services | health | sessions | \
                     log [tail [n]] | log verify | topics | tail <filter> [count] | \
-                    keys | stats | help | quit\n";
+                    keys | clipboard | stats | help | quit\n";
 
 #[no_mangle]
 pub extern "C" fn _start() -> ! {
@@ -80,6 +82,7 @@ fn commands() -> ! {
             },
             "topics" => print_topics(),
             "keys" => print_keys(),
+            "clipboard" => print_clipboard(),
             _ if text.starts_with("resolve ") => resolve(text[8..].trim()),
             _ if text.starts_with("log tail") => {
                 let count = text[8..].trim().parse().unwrap_or(10);
@@ -87,7 +90,7 @@ fn commands() -> ! {
             }
             _ if text.starts_with("tail ") => tail(text[5..].trim()),
             _ => report(
-                "unknown command; try list, resolve <name>, services, health, sessions, log, topics, tail, stats, help, quit",
+                "unknown command; try list, resolve <name>, services, health, sessions, log, topics, tail, keys, clipboard, stats, help, quit",
             ),
         }
     }
@@ -398,6 +401,35 @@ fn print_keys() {
                     "  #{} {:<8} uses {:<3} last-use tick {}\n",
                     key.id, key.kind, key.uses, key.last_use
                 ));
+            }
+        }
+        Err(error) => report(error.message()),
+    }
+}
+
+/// `clipboard`: the current offer's MIME types and owner from `clipboardd`
+/// (issue #115). Metadata only: the `Current` method has no content field, so
+/// this command cannot and does not print any payload bytes.
+fn print_clipboard() {
+    let client = match clipboard::Client::connect() {
+        Ok(client) => client,
+        Err(error) => return report(error.message()),
+    };
+    match client.current() {
+        Ok(None) => sys::write_str("clipboard: no offer\n"),
+        Ok(Some(offer)) => {
+            sys::write_str(&format!(
+                "clipboard: token {}  owner {}  session {}\n",
+                offer.token, offer.owner, offer.session
+            ));
+            sys::write_str(&format!(
+                "  {}  {} mime(s)  tick {}\n",
+                if offer.lazy { "lazy" } else { "eager" },
+                offer.mimes.len(),
+                offer.tick
+            ));
+            for mime in &offer.mimes {
+                sys::write_str(&format!("    {mime}\n"));
             }
         }
         Err(error) => report(error.message()),

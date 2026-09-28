@@ -129,6 +129,21 @@ const MANIFEST: &[ServiceSpec] = &[
         deps: &["messengerd"],
         health_topic: "system/health/healthd",
     },
+    // The per-session clipboard service (issue #115). It only needs the
+    // kernel's name registry, so it depends on nothing. `history=1` is the
+    // default one-offer policy; `history=N` keeps up to the service's cap.
+    // `demo=1` makes it spawn the two clipboard demo clients (`CLIPCP.ELF`,
+    // `CLIPPS.ELF`) at startup; they are evidence programs, not supervised
+    // services, so they are spawned and reaped by `clipboardd` instead of
+    // adding two more ELF loads to this manifest's boot pass.
+    ServiceSpec {
+        name: "clipboardd",
+        path: "CLIPD.ELF",
+        args: "history=1 demo=1",
+        restart: Restart::Always,
+        deps: &[],
+        health_topic: "system/health/clipboardd",
+    },
     ServiceSpec {
         name: "flaky",
         path: "FLAKY.ELF",
@@ -377,6 +392,11 @@ fn spawn_service(services: &mut [Service], index: usize, broker: &mut router::To
 /// The NUL-terminated command line for a spawn: `PATH <args> attempt=<n>`.
 fn command_line(spec: &ServiceSpec, restarts: u64) -> Vec<u8> {
     let mut line = format!("{} {}", spec.path, spec.args);
+    // `format!` already leaves the separator for empty args; non-empty args
+    // need one before the supervisor marker or the two tokens run together.
+    if !spec.args.is_empty() {
+        line.push(' ');
+    }
     line.push_str(&format!("attempt={}", restarts + 1));
     let mut bytes = line.into_bytes();
     while bytes.last() == Some(&b' ') {

@@ -95,6 +95,32 @@ path = "src/bin/keyd.rs"
 test = false
 bench = false
 
+# The per-session clipboard service (issue #115): typed MIME offers, lazy
+# transfer through an owner `Serialize` callback, a retained changed topic per
+# session, and a `history=N` policy. `init` starts it from its manifest; the
+# on-disk name is `CLIPD.ELF` (8.3, like the other services).
+[[bin]]
+name = "clipboardd"
+path = "src/bin/clipboardd.rs"
+test = false
+bench = false
+
+# The clipboard demo pair (issue #115): `clipcopy` offers lazily and serves one
+# serialize callback, `clippaste` pastes the payload and proves a cross-session
+# paste is denied. `clipboardd` spawns both at services boot (`demo=1`) and they
+# print the `CLIP:*` evidence markers.
+[[bin]]
+name = "clipcopy"
+path = "src/bin/clipcopy.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "clippaste"
+path = "src/bin/clippaste.rs"
+test = false
+bench = false
+
 # Async API examples (issue #91). Not wired into the demo image yet: the root
 # build script would need a `CARGO_BIN_FILE_USER_*` hook and a kernel spawn
 # line, which is a one-line follow-up noted in the PR.
