@@ -362,6 +362,9 @@ fn input_poll(ptr: u64, capacity: u64) -> u64 {
     let mut events = EVENTS.lock();
     let count = events.len().min(slots);
     for index in 0..count {
+        // INVARIANT: `count = events.len().min(slots)`, computed just above
+        // under the same `EVENTS` lock, so the queue has at least `count`
+        // items left for the whole loop.
         let event = events.pop_front().unwrap();
         let base = ptr + (index * EVENT_BYTES) as u64;
         // Safety: the caller passes a buffer of `capacity` writable bytes.

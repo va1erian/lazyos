@@ -275,6 +275,9 @@ pub fn alloc(class: usize) -> Option<NonNull<u8>> {
     if state.free == 0 && !state.grow(class) {
         return None;
     }
+    // INVARIANT: `state.grow` either returned `false` above (and we already
+    // bailed out) or left at least one slot on the free list, so `pop` here
+    // always has one to hand back.
     let slot = state.pop().expect("a grown class always has a free slot");
     state.live += 1;
     state.allocations += 1;
