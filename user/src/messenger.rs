@@ -4410,6 +4410,9 @@ pub mod display {
                 buffers: Vec::new(),
             };
             let reply = self.endpoint.call(&parcel, None)?;
+            if let Some(code) = error_field(&reply) {
+                return Err(Error::Errno(-code));
+            }
             decode_surface_list(&reply.body)
         }
 
@@ -4426,6 +4429,9 @@ pub mod display {
             };
             let mut buf = [0u8; 256];
             let reply = self.endpoint.call_with(&parcel, &mut buf, None)?;
+            if let Some(code) = error_field(&reply) {
+                return Err(Error::Errno(-code));
+            }
             let (mut x, mut y, mut w, mut h) = (0i32, 0i32, 0i32, 0i32);
             let mut decoder = Decoder::new(&reply.body);
             while let Some(field) = decoder.next().map_err(Error::Parcel)? {
@@ -4455,6 +4461,9 @@ pub mod display {
             };
             let mut buf = [0u8; 256];
             let reply = self.endpoint.call_with(&parcel, &mut buf, None)?;
+            if let Some(code) = error_field(&reply) {
+                return Err(Error::Errno(-code));
+            }
             let mut theme = Theme::default();
             let mut decoder = Decoder::new(&reply.body);
             while let Some(field) = decoder.next().map_err(Error::Parcel)? {
@@ -4717,6 +4726,9 @@ pub mod display {
         pub minimized: bool,
         /// The compositor's focused surface.
         pub focused: bool,
+        /// One of [`role`] (issue #175): lets a shell tell the desktop from a
+        /// window.
+        pub role: u64,
     }
 
     /// Decode a `ListSurfaces` reply body into rows. Rows are delimited by the
@@ -4741,6 +4753,7 @@ pub mod display {
                         h: 0,
                         minimized: false,
                         focused: false,
+                        role: role::WINDOW,
                     });
                 }
                 (Kind::String, field::TITLE) => {
@@ -4776,6 +4789,11 @@ pub mod display {
                 (Kind::U64, field::FOCUSED) => {
                     if let Some(row) = current.as_mut() {
                         row.focused = field.as_u64().map_err(Error::Parcel)? != 0;
+                    }
+                }
+                (Kind::U64, field::ROLE) => {
+                    if let Some(row) = current.as_mut() {
+                        row.role = field.as_u64().map_err(Error::Parcel)?;
                     }
                 }
                 _ => {}
@@ -4834,6 +4852,9 @@ pub mod display {
         /// Set on `CREATED` (the title never changes today; the `TITLE` kind
         /// carries it when a rename method lands).
         pub title: String,
+        /// One of [`role`] (issue #175): lets a shell tell the desktop from a
+        /// window.
+        pub role: u64,
     }
 
     /// A one-way event for the shell subscriber (issue #167).
@@ -4862,6 +4883,7 @@ pub mod display {
                     minimized: false,
                     focused: false,
                     title: String::new(),
+                    role: role::WINDOW,
                 };
                 let mut decoder = Decoder::new(&message.parcel.body);
                 while let Ok(Some(field)) = decoder.next() {
@@ -4876,6 +4898,7 @@ pub mod display {
                             event.minimized = field.as_u64().ok()? != 0;
                         }
                         (Kind::U64, field::FOCUSED) => event.focused = field.as_u64().ok()? != 0,
+                        (Kind::U64, field::ROLE) => event.role = field.as_u64().ok()?,
                         (Kind::String, field::TITLE) => {
                             event.title = String::from(field.as_str().ok()?);
                         }

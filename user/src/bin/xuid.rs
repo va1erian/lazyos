@@ -80,6 +80,7 @@ extern crate alloc;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::panic::PanicInfo;
+use core::sync::atomic::{AtomicBool, Ordering};
 use libmessenger::{Decoder, Encoder, Kind, Parcel, VERSION};
 use user::messenger::display::{self, Canvas, Color, Event, EventKind, Rect};
 use user::messenger::{self, registry, Endpoint, Message};
@@ -266,7 +267,15 @@ fn taskbar_visible(shell: Option<&ShellSub>) -> bool {
         .unwrap_or(true)
 }
 
-/// Send one shell event to the subscriber, ignoring a closed peer.
+/// Set by [`notify_shell`] when the subscriber's event endpoint reports
+/// `EPIPE` (issue #175): the shell process died without unsubscribing. The
+/// main loop checks this after every event/request batch, drops the stale
+/// subscription and repaints so the fallback taskbar returns.
+static SHELL_DEAD: AtomicBool = AtomicBool::new(false);
+
+/// Send one shell event to the subscriber. A closed peer (`EPIPE`) is
+/// recorded in [`SHELL_DEAD`] instead of being silently ignored, so the
+/// caller can drop the subscription (issue #175).
 fn notify_shell(
     shell: Option<&ShellSub>,
     scratch: &mut Vec<u8>,
@@ -277,13 +286,18 @@ fn notify_shell(
     let Some(shell) = shell else {
         return;
     };
-    let _ = display::send_event_fields(
+    let result = display::send_event_fields(
         &Endpoint::from_raw(shell.events),
         scratch,
         method,
         fields,
         text,
     );
+    if let Err(messenger::Error::Errno(code)) = result {
+        if code == -messenger::errno::EPIPE {
+            SHELL_DEAD.store(true, Ordering::Relaxed);
+        }
+    }
 }
 
 /// Tell the shell a surface changed (created/destroyed/moved/minimized/
@@ -296,6 +310,11 @@ fn notify_surface(
     focused: Option<u64>,
     kind: u64,
 ) {
+    let role = if surface.desktop {
+        display::role::DESKTOP
+    } else {
+        display::role::WINDOW
+    };
     let fields = [
         (display::field::SURFACE, surface.id),
         (display::field::A, kind),
@@ -308,6 +327,7 @@ fn notify_surface(
             display::field::FOCUSED,
             (focused == Some(surface.id)) as u64,
         ),
+        (display::field::ROLE, role),
     ];
     let text = (kind == display::change::CREATED)
         .then_some((display::field::TITLE, surface.title.as_str()));
@@ -342,6 +362,36 @@ fn notify_focus(shell: Option<&ShellSub>, scratch: &mut Vec<u8>, focused: Option
 /// Forward the global start-menu hotkey to the shell.
 fn notify_start_menu(shell: Option<&ShellSub>, scratch: &mut Vec<u8>) {
     notify_shell(shell, scratch, method::START_MENU, &[], None);
+}
+
+/// If a notification since the last check found the shell subscriber's
+/// endpoint closed ([`SHELL_DEAD`]), drop the subscription and repaint the
+/// full screen so the fallback taskbar returns and `GetWorkArea` reports the
+/// full window rectangle again (issue #175).
+fn reap_dead_shell(
+    shell: &mut Option<ShellSub>,
+    surfaces: &[Surface],
+    screen: &mut Canvas,
+    pointer: (i32, i32),
+    focused: Option<u64>,
+    drag_session: Option<&DragSession>,
+    alt_tab: Option<&AltTab>,
+) {
+    if !SHELL_DEAD.swap(false, Ordering::Relaxed) || shell.take().is_none() {
+        return;
+    }
+    let full = Rect::new(0, 0, screen.width(), screen.height());
+    // The subscription is already gone, so the fallback taskbar is visible.
+    repaint(
+        screen,
+        surfaces,
+        pointer,
+        focused,
+        full,
+        drag_session,
+        true,
+        alt_tab,
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -805,6 +855,15 @@ fn run() -> ! {
                 Err(_) => break,
             }
         }
+        reap_dead_shell(
+            &mut shell,
+            &surfaces,
+            &mut screen,
+            pointer,
+            focused,
+            drag_session.as_ref(),
+            alt_tab.as_ref(),
+        );
 
         // 2. Requests: serve one, then loop (the deadline bounds the nap when
         //    nothing is pending, keeping input latency at a couple of ticks).
@@ -837,6 +896,15 @@ fn run() -> ! {
             }
             Err(_) => {}
         }
+        reap_dead_shell(
+            &mut shell,
+            &surfaces,
+            &mut screen,
+            pointer,
+            focused,
+            drag_session.as_ref(),
+            alt_tab.as_ref(),
+        );
     }
 }
 
@@ -857,6 +925,19 @@ fn errno_code(error: messenger::Error) -> i64 {
 /// Whether an error is the `recv` deadline firing.
 fn is_timeout(error: messenger::Error) -> bool {
     matches!(error, messenger::Error::Errno(code) if code == -messenger::errno::ETIMEDOUT)
+}
+
+/// Whether `sender`'s kernel-stamped credentials authorize the compositor's
+/// administrative operations (issue #175): claiming the `"shell"` role,
+/// replacing the desktop, and listing every surface. Mirrors accountsd's
+/// admin check: uid 0, or `CAP_SETUID` for a delegated system service. A
+/// refusal or a read error is "not authorized".
+fn is_privileged(sender: u64) -> bool {
+    let mut cred = sys::Cred::default();
+    match sys::cred_get(Some(sender), &mut cred) {
+        Ok(()) => cred.uid == 0 || cred.caps & sys::CAP_SETUID != 0,
+        Err(_) => false,
+    }
 }
 
 /// Decode the `index`-th 16-byte kernel event record.
@@ -1915,8 +1996,18 @@ fn handle_request(
                 .unwrap_or_else(|| String::from("app"));
             let role =
                 u64_field(&message.parcel, display::field::ROLE).unwrap_or(display::role::WINDOW);
-            if width == 0 || height == 0 || message.handles == 0 {
+            // A window can never exceed the screen anyway, and bounding it
+            // here keeps `width * height * 4` well inside `i32` downstream
+            // (issue #176: an unbounded claim let that multiplication wrap).
+            let (max_w, max_h) = (screen.width().max(0) as u64, screen.height().max(0) as u64);
+            if width == 0 || height == 0 || width > max_w || height > max_h || message.handles == 0
+            {
                 return Some(error_reply(message.method(), messenger::errno::EINVAL));
+            }
+            if role == display::role::DESKTOP && !is_privileged(message.sender) {
+                // Only an authorized shell identity may own the desktop
+                // (issue #175); anyone else's claim is refused outright.
+                return Some(error_reply(message.method(), messenger::errno::EACCES));
             }
             let id = *next_id;
             *next_id += 1;
@@ -1926,7 +2017,17 @@ fn handle_request(
                 // A new desktop replaces the current one.
                 if let Some(index) = surfaces.iter().position(|surface| surface.desktop) {
                     let old = surfaces.remove(index);
+                    // Tell the old owner and close the endpoint the
+                    // compositor held for it (issue #175: both were leaked).
+                    let _ = display::send_event(
+                        &Endpoint::from_raw(old.events),
+                        scratch,
+                        method::WINDOW_CLOSE,
+                        0,
+                        0,
+                    );
                     notify_destroyed(shell.as_ref(), scratch, old.id);
+                    let _ = Endpoint::from_raw(old.events).close();
                 }
                 surfaces.push(Surface {
                     id,
@@ -2030,10 +2131,24 @@ fn handle_request(
             let Some(surface) = surfaces.iter_mut().find(|surface| surface.id == id) else {
                 return Some(error_reply(message.method(), messenger::errno::EINVAL));
             };
+            if surface.owner != message.sender {
+                // Only the surface's own client may attach its pixels
+                // (issue #176: any caller that guessed the id could spoof
+                // another app's window).
+                return Some(error_reply(message.method(), messenger::errno::EACCES));
+            }
             // The descriptor's length is the sender's claim about how many
             // bytes the surface needs; never trust it to cover the geometry
-            // the compositor paints.
-            let expected = (surface.w * surface.h * 4) as u64;
+            // the compositor paints. Checked `u64` arithmetic avoids the
+            // wrap a pathological width/height could otherwise cause in the
+            // `i32` product (issue #176); `CREATE_SURFACE` also bounds both
+            // to the screen size, so this is defense in depth.
+            let Some(expected) = (surface.w.max(0) as u64)
+                .checked_mul(surface.h.max(0) as u64)
+                .and_then(|area| area.checked_mul(4))
+            else {
+                return Some(error_reply(message.method(), messenger::errno::EINVAL));
+            };
             let claimed = message
                 .parcel
                 .buffers
@@ -2066,6 +2181,11 @@ fn handle_request(
         method::COMMIT => {
             let id = u64_field(&message.parcel, display::field::SURFACE).unwrap_or(0);
             if let Some(surface) = surfaces.iter().find(|surface| surface.id == id) {
+                if surface.owner != message.sender {
+                    // Only the owner may commit damage (issue #176: any
+                    // caller that guessed the id could paint over it).
+                    return Some(error_reply(message.method(), messenger::errno::EACCES));
+                }
                 if surface.minimized {
                     // The pixels are hidden; the minimize repaint already
                     // cleared the screen area. Only the buffer changed.
@@ -2100,6 +2220,12 @@ fn handle_request(
         }
         method::DESTROY_SURFACE => {
             let id = u64_field(&message.parcel, display::field::SURFACE).unwrap_or(0);
+            if surface_by_id(surfaces, id).is_some_and(|surface| surface.owner != message.sender) {
+                // Only the owner may destroy its own surface (issue #176:
+                // any caller that guessed the id could close another app's
+                // window).
+                return Some(error_reply(message.method(), messenger::errno::EACCES));
+            }
             // A window-manager title-bar drag on the surface ends with it.
             if let Some(active) = *drag {
                 if active.id == id {
@@ -2210,11 +2336,22 @@ fn handle_request(
             if message.handles == 0 || role.is_empty() || role.len() > display::MAX_ROLE {
                 return Some(error_reply(message.method(), messenger::errno::EINVAL));
             }
-            // One subscriber at a time; a re-subscribe replaces the endpoint.
-            *shell = Some(ShellSub {
+            if role == display::ROLE_SHELL && !is_privileged(message.sender) {
+                // Only an authorized shell identity may hide the fallback
+                // taskbar and receive every surface/focus event (issue
+                // #175); anyone else's claim is refused outright.
+                return Some(error_reply(message.method(), messenger::errno::EACCES));
+            }
+            // One subscriber at a time; a re-subscribe replaces the
+            // endpoint, so close the one it replaces (issue #175: it was
+            // leaked).
+            let previous = shell.replace(ShellSub {
                 role,
                 events: message.first_handle,
             });
+            if let Some(previous) = previous {
+                let _ = Endpoint::from_raw(previous.events).close();
+            }
             let full = Rect::new(0, 0, screen.width(), screen.height());
             repaint(
                 screen,
@@ -2229,10 +2366,20 @@ fn handle_request(
             Some(empty_reply(message.method()))
         }
         method::LIST_SURFACES => {
+            if !is_privileged(message.sender) {
+                // Every window's title and geometry is compositor-privileged
+                // (issue #175); anyone else's request is refused outright.
+                return Some(error_reply(message.method(), messenger::errno::EACCES));
+            }
             let mut body = Encoder::new();
             // One row per surface, in z-order: `SURFACE` starts a row and the
             // trailing fields describe it.
             for surface in surfaces.iter() {
+                let role = if surface.desktop {
+                    display::role::DESKTOP
+                } else {
+                    display::role::WINDOW
+                };
                 let _ = body.u64(display::field::SURFACE, surface.id);
                 let _ = body.string(display::field::TITLE, &surface.title);
                 let _ = body.u64(display::field::X, surface.x.max(0) as u64);
@@ -2244,6 +2391,7 @@ fn handle_request(
                     display::field::FOCUSED,
                     (*focused == Some(surface.id)) as u64,
                 );
+                let _ = body.u64(display::field::ROLE, role);
             }
             Some(reply_parcel(message.method(), body))
         }
