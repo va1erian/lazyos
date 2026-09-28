@@ -50,6 +50,7 @@ use libmessenger::{Decoder, Encoder, Header, Kind, Parcel, MAX_PARCEL_BYTES, VER
 use crate::ipc::handles::HandleKind;
 use crate::ipc::{channels, credentials, handles, registry, topics};
 use crate::mem;
+use crate::mem::pte;
 use crate::task;
 
 /// Negative errno-style values returned in `rax` (x86_64 Linux numbering, so
@@ -905,13 +906,13 @@ fn handles_errno(error: handles::Error) -> i64 {
 // User pointer validation and copying
 // ---------------------------------------------------------------------------
 
-/// CPU-visible page-table entry bits (the same layout `mem` uses internally;
-/// duplicated here because this module only ever reads foreign tables).
-const PTE_PRESENT: u64 = 1 << 0;
-const PTE_WRITABLE: u64 = 1 << 1;
-const PTE_USER: u64 = 1 << 2;
-const PTE_HUGE: u64 = 1 << 7;
-const PTE_ADDR: u64 = 0x000F_FFFF_FFFF_F000;
+// Page-table entry bits and the raw entry reader now live in `mem::pte`,
+// shared with `mem`'s own table walker (frame/VMA teardown, COW) instead of
+// each keeping an independent copy of the same five constants.
+use pte::{
+    ADDR as PTE_ADDR, HUGE as PTE_HUGE, PRESENT as PTE_PRESENT, USER as PTE_USER,
+    WRITABLE as PTE_WRITABLE,
+};
 
 /// Highest address a user pointer may name: the canonical lower half. Anything
 /// above is kernel memory and never a valid syscall buffer.
@@ -919,10 +920,9 @@ const USER_MAX: u64 = 0x0000_8000_0000_0000;
 
 /// Read one 64-bit page-table entry at `phys`.
 fn entry_at(phys: u64, index: usize) -> u64 {
-    let ptr = mem::phys_to_virt(PhysAddr::new(phys)).as_ptr::<u64>();
     // Safety: `phys` names a live page table reachable through the physical
     // memory map, and `index` is masked to 9 bits by every caller.
-    unsafe { ptr.add(index).read_volatile() }
+    unsafe { pte::read(PhysAddr::new(phys), index) }
 }
 
 /// Validate that `[ptr, ptr + len)` is a user range the caller may access.

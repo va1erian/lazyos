@@ -39,6 +39,7 @@ use super::{
     current, process, wake_task_with, Kind, Task, TaskState, WaitKind, WakeReason, KERNEL_TASK,
     MAX_TASKS, NEEDS_REDRAW, TASKS,
 };
+use crate::user_ptr;
 
 // Signal numbers (x86_64 Linux). The table is complete on purpose: the
 // dispatcher must classify any number a Linux binary sends, even if no LazyOS
@@ -845,27 +846,27 @@ pub struct FrameResult {
 
 fn write_u64(addr: u64, value: u64) {
     // Safety: the caller works within a mapped user stack.
-    unsafe { core::ptr::write_volatile(addr as *mut u64, value) };
+    unsafe { user_ptr::write::<u64>(addr, value) };
 }
 
 fn write_u32(addr: u64, value: u32) {
     // Safety: the caller works within a mapped user stack.
-    unsafe { core::ptr::write_volatile(addr as *mut u32, value) };
+    unsafe { user_ptr::write::<u32>(addr, value) };
 }
 
 fn write_i32(addr: u64, value: i32) {
     // Safety: the caller works within a mapped user stack.
-    unsafe { core::ptr::write_volatile(addr as *mut i32, value) };
+    unsafe { user_ptr::write::<i32>(addr, value) };
 }
 
 fn write_u16(addr: u64, value: u16) {
     // Safety: the caller works within a mapped user stack.
-    unsafe { core::ptr::write_volatile(addr as *mut u16, value) };
+    unsafe { user_ptr::write::<u16>(addr, value) };
 }
 
 fn read_u64(addr: u64) -> u64 {
     // Safety: the caller works within a mapped user stack.
-    unsafe { core::ptr::read_volatile(addr as *const u64) }
+    unsafe { user_ptr::read::<u64>(addr) }
 }
 
 /// Line up the frame below `stack_top`, leaving the red zone free.
@@ -1199,9 +1200,7 @@ fn apply_linux_frame_syscall(regs: &UserRegs) {
 fn saved_regs_from_stack(rax: u64) -> UserRegs {
     // Safety: we are inside the current task's syscall; the entry stub pushed
     // these 15 words at fixed offsets below the kernel stack top.
-    let word = |slot: isize| unsafe {
-        core::ptr::read_volatile((crate::arch::linux::KERNEL_STACK as *const u64).offset(slot))
-    };
+    let word = |slot: isize| unsafe { super::sys::kernel_stack_word(slot) };
     let rsp = word(-1);
     let rflags = word(-2);
     let rip = word(-3);
@@ -1510,12 +1509,12 @@ pub fn finish_sweep(finished: &[SweepFinish]) {
 
 fn frame_word(rsp: u64, index: usize) -> u64 {
     // Safety: `rsp` points at an interrupt frame the kernel saved.
-    unsafe { core::ptr::read_volatile((rsp + index as u64 * 8) as *const u64) }
+    unsafe { super::sys::frame_word(rsp, index) }
 }
 
 fn put_frame_word(rsp: u64, index: usize, value: u64) {
     // Safety: `rsp` points at an interrupt frame the kernel saved.
-    unsafe { core::ptr::write_volatile((rsp + index as u64 * 8) as *mut u64, value) };
+    unsafe { super::sys::put_frame_word(rsp, index, value) };
 }
 
 /// Read a saved interrupt frame into a register context. `rip_index` is 15 for
