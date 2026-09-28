@@ -35,6 +35,8 @@ pub const SYS_ARGS: u64 = 9;
 pub const SYS_CREDS: u64 = 10;
 /// `display(op, a1, a2)` — the display device grant (issue #113).
 pub const SYS_DISPLAY: u64 = 12;
+/// `tasks(buf)` — scheduler task-list introspection (MCP debug bridge Phase 2).
+pub const SYS_TASKS: u64 = 13;
 
 /// Credential-gate op codes, mirroring the kernel's `process::cred_op`.
 pub mod cred_op {
@@ -264,6 +266,27 @@ pub fn sbrk(increment: u64) -> u64 {
         );
     }
     previous
+}
+
+/// Copy a [`crate::messenger::TaskSnapshot`] scheduler snapshot into `buf`,
+/// a writable buffer of at least `crate::messenger::TaskSnapshot::SIZE` bytes.
+/// Returns 0 on success or a negative errno (mirrors `sys_quota`'s shape).
+pub fn tasks(buf: u64) -> i64 {
+    let code: u64;
+    // Safety: `int 0x80` with syscall 13 and a valid writable buffer pointer.
+    unsafe {
+        asm!(
+            "int 0x80",
+            in("rax") SYS_TASKS,
+            in("rdi") buf,
+            lateout("rax") code,
+            lateout("rcx") _,
+            lateout("r11") _,
+            options(nostack),
+            clobber_abi("sysv64"),
+        );
+    }
+    code as i64
 }
 
 /// Invoke the native Messenger syscall: `op` selects the operation, `args`

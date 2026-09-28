@@ -178,6 +178,9 @@ extern "C" fn syscall_dispatch(regs: *mut Regs) {
         11 => sys_quota(regs.rdi),
         // 12: the display device grant (issue #113), see the module docs.
         12 => crate::display::dispatch(regs.rdi, regs.rsi, regs.rdx),
+        // 13: scheduler task-list introspection (MCP debug bridge Phase 2),
+        // read-only.
+        13 => sys_tasks(regs.rdi),
         _ => u64::MAX,
     };
 }
@@ -196,6 +199,7 @@ pub fn dispatch_for_test(nr: u64, a1: u64, a2: u64, a3: u64) -> u64 {
         10 => sys_creds(a1, a2, a3),
         11 => sys_quota(a1),
         12 => crate::display::dispatch(a1, a2, a3),
+        13 => sys_tasks(a1),
         _ => u64::MAX,
     }
 }
@@ -536,6 +540,25 @@ fn sys_quota(buf: u64) -> u64 {
         // Safety: the caller passes a writable user buffer of
         // `quota::STATS_WORDS` eight-byte words; the native syscall ABI trusts
         // user buffers today (see `read_cred`).
+        unsafe { user_ptr::write_at::<u64>(buf, index, *word) };
+    }
+    0
+}
+
+/// syscall 13: copy a [`task::introspect::TaskSnapshot`] scheduler snapshot
+/// into the caller's buffer (MCP debug bridge Phase 2, `docs/mcp-debug-bridge.md`).
+///
+/// `buf` points at [`task::introspect::WORDS`] `u64`s. A null buffer is
+/// `-EFAULT`; like [`sys_quota`], this gate is read-only and discloses no
+/// more than `messengerctl sessions` already does.
+fn sys_tasks(buf: u64) -> u64 {
+    if buf == 0 {
+        return syscall_error(EFAULT);
+    }
+    let words = task::introspect::snapshot_words();
+    for (index, word) in words.iter().enumerate() {
+        // Safety: the caller passes a writable user buffer of
+        // `task::introspect::WORDS` eight-byte words; see `sys_quota`.
         unsafe { user_ptr::write_at::<u64>(buf, index, *word) };
     }
     0

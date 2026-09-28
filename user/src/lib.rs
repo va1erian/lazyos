@@ -16,4 +16,6 @@ pub mod messenger;
 
 pub mod messenger_async;
 
+pub mod task_snapshot;
+
 mod heap;

@@ -54,6 +54,7 @@ use crate::mem;
 // two apart.
 use crate::process as user_process;
 
+pub mod introspect;
 pub mod process;
 pub mod signal;
 pub mod switch;

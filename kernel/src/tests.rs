@@ -142,6 +142,14 @@ const SUITE: &[(&str, Test)] = &[
         task_suite::process_list_snapshot,
     ),
     (
+        "task_snapshot_matches_process_list",
+        task_suite::task_snapshot_matches_process_list,
+    ),
+    (
+        "task_snapshot_soak_fork_churn",
+        task_suite::task_snapshot_soak_fork_churn,
+    ),
+    (
         "task_sched_strict_classes_no_starvation",
         sched_suite::strict_classes_no_starvation,
     ),
@@ -2884,6 +2892,115 @@ mod task_suite {
             "child row is {row:?}"
         );
         finish_and_reap_all(&chain)
+    }
+
+    /// `task::introspect::TaskSnapshot` (MCP debug bridge Phase 2,
+    /// `docs/mcp-debug-bridge.md`) agrees with `process_list` on every live
+    /// slot, and round-trips through its wire encoding byte for byte.
+    pub fn task_snapshot_matches_process_list() -> Result<(), String> {
+        use crate::task::introspect::TaskSnapshot;
+
+        let chain = fork_chain(2)?;
+        task::harness::switch_current(task::KERNEL_TASK);
+        let (root, child) = (chain[0], chain[1]);
+
+        let snapshot = TaskSnapshot::snapshot();
+        let processes = task::process::process_list();
+        check!(
+            snapshot.rows.len() == task::MAX_TASKS,
+            "snapshot has {} rows, expected MAX_TASKS ({})",
+            snapshot.rows.len(),
+            task::MAX_TASKS
+        );
+
+        for info in &processes {
+            let row = snapshot
+                .rows
+                .get(info.slot)
+                .ok_or_else(|| alloc::format!("slot {} missing from snapshot", info.slot))?;
+            check!(
+                row.live
+                    && row.pid as usize == info.pid
+                    && row.ppid as usize == info.ppid
+                    && row.pgid as usize == info.pgid
+                    && row.sid as usize == info.sid
+                    && row.name == info.name,
+                "snapshot row {row:?} does not match process_list row {info:?}"
+            );
+        }
+        let live_slots = processes.len();
+        let live_rows = snapshot.rows.iter().filter(|row| row.live).count();
+        check!(
+            live_rows == live_slots,
+            "snapshot has {live_rows} live rows, process_list has {live_slots}"
+        );
+
+        // The root (a fresh fork) and its child both show up with the parent
+        // link intact.
+        let root_row = &snapshot.rows[root];
+        check!(root_row.live && root_row.ppid as usize != root, "root row is {root_row:?}");
+        let child_row = &snapshot.rows[child];
+        check!(
+            child_row.live && child_row.ppid as usize == root,
+            "child row is {child_row:?}"
+        );
+
+        // Wire round trip: encode then decode must reproduce every row.
+        let bytes = snapshot.to_bytes();
+        check!(
+            bytes.len() == TaskSnapshot::SIZE,
+            "encoded {} bytes, expected {}",
+            bytes.len(),
+            TaskSnapshot::SIZE
+        );
+        let decoded = TaskSnapshot::from_bytes(&bytes).ok_or("from_bytes rejected a valid block")?;
+        check!(
+            decoded.rows == snapshot.rows && decoded.version == snapshot.version,
+            "decoded snapshot does not match the original"
+        );
+
+        finish_and_reap_all(&chain)
+    }
+
+    /// Soak: repeatedly fork/reap and snapshot the task table many times,
+    /// checking the snapshot is always internally consistent (live count
+    /// matches `process_list`, every live row round-trips) and that nothing
+    /// leaks a stale row once a task is reaped.
+    pub fn task_snapshot_soak_fork_churn() -> Result<(), String> {
+        use crate::task::introspect::TaskSnapshot;
+
+        const ITERATIONS: usize = 500;
+        for iteration in 0..ITERATIONS {
+            let chain = fork_chain(2)?;
+            task::harness::switch_current(task::KERNEL_TASK);
+
+            let snapshot = TaskSnapshot::snapshot();
+            let processes = task::process::process_list();
+            let live_rows = snapshot.rows.iter().filter(|row| row.live).count();
+            check!(
+                live_rows == processes.len(),
+                "iteration {iteration}: {live_rows} live rows, process_list has {}",
+                processes.len()
+            );
+            let bytes = snapshot.to_bytes();
+            let decoded = TaskSnapshot::from_bytes(&bytes)
+                .ok_or_else(|| alloc::format!("iteration {iteration}: from_bytes rejected a valid block"))?;
+            check!(
+                decoded.rows == snapshot.rows,
+                "iteration {iteration}: decoded snapshot does not match the original"
+            );
+
+            finish_and_reap_all(&chain)?;
+        }
+
+        // After the last reap, every forked slot is gone: only init remains.
+        let processes = task::process::process_list();
+        check!(
+            processes.len() == 1 && processes[0].pid == 0,
+            "leaked task rows after {ITERATIONS} fork/reap cycles: {processes:?}"
+        );
+        serial_println!("TEST:task_snapshot_soak_fork_churn:INFO:iterations={ITERATIONS}");
+        Ok(())
     }
 }
 
