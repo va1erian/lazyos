@@ -36,7 +36,7 @@ sessions (S6); GPU acceleration (S8).
 | Display protocol | `os.lazy.display.v1`: `CreateSurface`/`AttachBuffer`/`Commit`/`DestroySurface`, `Pointer*`/`Key*` events, `WindowClose` (method 10) in `user/src/messenger.rs` (`display` module) | desktop role, surface/focus notifications, global hotkeys, a reported work area |
 | XUI apps | `xui-app/` M0-M2 run the Counter full-screen on the display grant (#114, PR #151); no winit/GL; no compositor-client mode yet | shell/apps as display clients, keyboard focus routing, timers/resize |
 | Session | `logind` console login spawns the user's shell with kernel-stamped uid/gid/session; `SESSION_CAPS` is empty; `os.lazy.logind` exposes the session table (`user/src/bin/logind.rs`) | per-session compositor/clipboard/topic grants, graphical session, session end reaping |
-| Services | `messengerd`, `init`, `logd`, `healthd`, `keyd`, `accountsd`, `logind` (#89-#102), `clipboardd` (#115), `mimed` (#116), `sysmond` (#144) | app launch path: `init` has no launch method; `mimed.Open` only publishes `system/events/open/<app>` |
+| Services | `messengerd` (#89, #92), `init`/`logd`/`healthd` (#93), `keyd`/`accountsd`/`logind` (#101, #102), `clipboardd` (#115), `mimed` (#116), `sysmond` (#144) | app launch path: `init` has no launch method; `mimed.Open` only publishes `system/events/open/<app>` |
 | Shell/apps | native `sh` + BusyBox; the interim xuid taskbar; no desktop, start menu, Files, Settings | all of S5 |
 | Theme | xuid hard-codes its palette; the vendored XUI backend has a `set_theme` seam | one theme format, Win95 + dark, live selection |
 | Evidence | `qemu_shot`/`qemu_session` + `pngstats.py`; the kernel test harness | scripted desktop sessions, golden captures, theme pairs |
