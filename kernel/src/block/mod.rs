@@ -229,10 +229,22 @@ pub fn init() {
 /// the ATA primary master when no device was selected yet (early probe).
 /// `false` on any failure.
 pub fn read_sector(lba: u32, buf: &mut [u8; SECTOR_SIZE]) -> bool {
-    match boot_device() {
-        Some(device) => device.read_sectors(u64::from(lba), buf).is_ok(),
-        None => ata::pio_read_sector(lba, buf),
+    read_sectors(lba, buf)
+}
+
+/// Read `buf.len() / 512` consecutive sectors from the boot device in as few
+/// device commands as it allows (a run is one ATA command, not one per
+/// sector). `buf.len()` must be a whole number of sectors; `false` on any
+/// failure.
+pub fn read_sectors(lba: u32, buf: &mut [u8]) -> bool {
+    if let Some(device) = boot_device() {
+        return device.read_sectors(u64::from(lba), buf).is_ok();
     }
+    // Early probe, before a boot device is selected: one sector at a time.
+    buf.chunks_mut(SECTOR_SIZE).zip(lba..).all(|(chunk, lba)| {
+        <&mut [u8; SECTOR_SIZE]>::try_from(chunk)
+            .is_ok_and(|sector| ata::pio_read_sector(lba, sector))
+    })
 }
 
 /// Translate a kernel virtual address to its physical address by walking the

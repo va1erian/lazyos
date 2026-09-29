@@ -13,7 +13,7 @@
 //! device the block layer selected.
 
 use super::{BlockDevice, BlockError, SECTOR_SIZE};
-use crate::arch::io::{inb, inw, outb};
+use crate::arch::io::{inb, insw_bytes, inw, outb};
 use core::sync::atomic::{AtomicU64, Ordering};
 use spin::Mutex;
 
@@ -78,8 +78,25 @@ fn wait_for_data() -> bool {
     false
 }
 
+/// Most sectors one `READ SECTORS` command carries. The count register is 8
+/// bits (0 means 256); 128 keeps a run to 64 KiB and the maths obvious.
+pub const MAX_RUN: usize = 128;
+
 /// Read one 512-byte sector from the primary master (28-bit LBA).
 pub fn pio_read_sector(lba: u32, buf: &mut [u8; SECTOR_SIZE]) -> bool {
+    pio_read_run(lba, buf)
+}
+
+/// Read `buf.len() / 512` consecutive sectors (1..=[`MAX_RUN`]) with a single
+/// `READ SECTORS` command. One command per run instead of per sector saves
+/// the register setup and the 400ns delay, and the data goes straight into
+/// `buf` with `rep insw` (one VM exit per string instruction under a
+/// hypervisor rather than one per word). Callers hold [`IO`].
+fn pio_read_run(lba: u32, buf: &mut [u8]) -> bool {
+    let count = buf.len() / SECTOR_SIZE;
+    if count == 0 || count > MAX_RUN || !buf.len().is_multiple_of(SECTOR_SIZE) {
+        return false;
+    }
     // Safety: this is the documented ATA PIO read protocol, in order:
     // select the drive/LBA-high nibble, load the sector count and LBA, then
     // issue the read command. No register here is read-to-clear.
@@ -89,23 +106,22 @@ pub fn pio_read_sector(lba: u32, buf: &mut [u8; SECTOR_SIZE]) -> bool {
     delay_400ns();
     // Safety: same protocol contract as above.
     unsafe {
-        outb(SECTORS, 1);
+        outb(SECTORS, count as u8);
         outb(LBA_LO, lba as u8);
         outb(LBA_MID, (lba >> 8) as u8);
         outb(LBA_HI, (lba >> 16) as u8);
         outb(STATUS, COMMAND_READ);
     }
 
-    if !wait_not_busy() || !wait_for_data() {
-        return false;
-    }
-
-    for i in 0..SECTOR_SIZE / 2 {
+    for sector in buf.chunks_exact_mut(SECTOR_SIZE) {
+        // The device raises DRQ once per sector of the run.
+        if !wait_not_busy() || !wait_for_data() {
+            return false;
+        }
         // Safety: the data port is read-many within one sector transfer;
-        // `wait_for_data` above confirmed the device has a word ready.
-        let word: u16 = unsafe { inw(DATA) };
-        buf[i * 2] = word as u8;
-        buf[i * 2 + 1] = (word >> 8) as u8;
+        // `wait_for_data` above confirmed the device has a sector ready, and
+        // `sector` is exactly the 512 bytes it will supply.
+        unsafe { insw_bytes(DATA, sector) };
     }
     true
 }
@@ -183,12 +199,11 @@ impl BlockDevice for AtaPio {
             return Err(BlockError::Unsupported);
         }
         let _guard = IO.lock();
-        for (index, chunk) in buf.chunks_mut(SECTOR_SIZE).enumerate() {
-            let mut sector = [0u8; SECTOR_SIZE];
-            if !pio_read_sector(lba as u32 + index as u32, &mut sector) {
+        for (index, run) in buf.chunks_mut(MAX_RUN * SECTOR_SIZE).enumerate() {
+            let start = lba as u32 + (index * MAX_RUN) as u32;
+            if !pio_read_run(start, run) {
                 return Err(BlockError::Io);
             }
-            chunk.copy_from_slice(&sector);
         }
         Ok(())
     }

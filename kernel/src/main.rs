@@ -12,6 +12,8 @@ extern crate alloc;
 
 #[macro_use]
 mod macros;
+#[macro_use]
+mod boot_trace;
 
 mod arch;
 mod block;
@@ -61,6 +63,7 @@ entry_point!(kernel_main, config = &CONFIG);
 fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     serial::init();
     serial_println!("LazyOS: kernel entered");
+    boot_phase!("kernel_entered");
 
     let (base, info) = match &mut boot_info.framebuffer {
         Optional::Some(framebuffer) => {
@@ -85,7 +88,9 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     // is recorded before the test hook so the kernel suite sees it too.
     display::init(info.width, info.height, info.stride, info.bytes_per_pixel);
 
+    boot_phase!("console_ready");
     mem::init(boot_info);
+    boot_phase!("mem_ready");
 
     // Kernel test mode (issue #62): run the in-kernel suite and halt instead of
     // booting the demo. Compiled in only with `LAZYOS_TESTS=1`.
@@ -98,8 +103,10 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         serial_println!("LazyOS: no filesystem found");
     }
 
+    boot_phase!("fs_ready");
     // Descriptor tables, interrupts (PIC/PIT), and the PS/2 mouse.
     arch::init();
+    boot_phase!("arch_ready");
     input::mouse::set_bounds(info.width as i32, info.height as i32);
 
     // Register the kernel (multiplexer) task and spawn the demo programs, the
@@ -232,6 +239,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         stats.total
     );
 
+    boot_phase!("tasks_spawned");
     task::start();
     serial_println!("LazyOS: scheduler started (Tab switches focus)");
     x86_64::instructions::interrupts::enable();
@@ -242,9 +250,14 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
 
 /// Load a program from the FAT disk and spawn it as a task, if present.
 fn spawn_program(name: &'static str, path: &str) {
-    match fs::read(path) {
+    let bytes = fs::read(path);
+    boot_phase!("read_{name}");
+    match bytes {
         Some(bytes) => match task::spawn(name, &bytes) {
-            Ok(index) => serial_println!("LazyOS: spawned {name} as task {index}"),
+            Ok(index) => {
+                boot_phase!("spawn_{name}");
+                serial_println!("LazyOS: spawned {name} as task {index}")
+            }
             Err(err) => serial_println!("LazyOS: spawn {name} failed: {err}"),
         },
         None => serial_println!("LazyOS: {path} not found"),

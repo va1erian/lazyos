@@ -4,10 +4,20 @@
 
 use std::path::PathBuf;
 
+#[path = "build_support/elf_trim.rs"]
+mod elf_trim;
+
 fn main() {
     let out_dir = PathBuf::from(std::env::var_os("OUT_DIR").expect("OUT_DIR"));
-    let kernel =
+    let kernel_full =
         PathBuf::from(std::env::var_os("CARGO_BIN_FILE_KERNEL_kernel").expect("kernel artifact"));
+    // The bootloader reads the whole kernel file through BIOS calls, so the
+    // image carries only the loadable part; the full ELF stays in `target/`.
+    let kernel = out_dir.join("kernel.trimmed");
+    let full = std::fs::read(&kernel_full).expect("read kernel artifact");
+    let trimmed = elf_trim::trim_to_loadable(&full).unwrap_or(full);
+    std::fs::write(&kernel, trimmed).expect("write trimmed kernel");
+    println!("cargo:rerun-if-changed=build_support/elf_trim.rs");
 
     let bios_image = out_dir.join("bios.img");
     let mut builder = bootloader::DiskImageBuilder::new(kernel);

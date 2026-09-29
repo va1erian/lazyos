@@ -4,9 +4,10 @@
 //! and any files added at build time. Small images come out as FAT12 and larger
 //! ones as FAT16, so both are supported.
 
-use crate::block::ata;
+use crate::block::{self, ata};
 use alloc::string::String;
 use alloc::vec::Vec;
+use spin::Mutex;
 
 use super::vfs::{DirEntry, FileKind, Filesystem, FsError, Id, Meta, S_IFDIR, S_IFREG};
 
@@ -34,6 +35,10 @@ pub struct Fat16 {
     data_lba: u32,
     root_entries: u16,
     kind: FatKind,
+    /// The last FAT sector read. A chain walks its entries in cluster order,
+    /// so consecutive lookups almost always land in the same sector; the
+    /// volume is read-only, so the cache can never go stale.
+    fat_cache: Mutex<Option<(u32, [u8; 512])>>,
 }
 
 fn read_sector(lba: u32) -> Option<[u8; 512]> {
@@ -122,6 +127,7 @@ impl Fat16 {
             data_lba,
             root_entries,
             kind,
+            fat_cache: Mutex::new(None),
         })
     }
 
@@ -131,14 +137,27 @@ impl Fat16 {
 
     /// Read a little-endian 16-bit FAT entry that may straddle a sector edge.
     fn read_fat_word(&self, sector: u32, index: usize) -> Option<u16> {
-        let buf = read_sector(sector)?;
+        let buf = self.fat_sector(sector)?;
         let low = buf[index] as u16;
         let high = if index + 1 < self.bytes_per_sector as usize {
             buf[index + 1] as u16
         } else {
-            read_sector(sector + 1)?[0] as u16
+            self.fat_sector(sector + 1)?[0] as u16
         };
         Some(low | (high << 8))
+    }
+
+    /// A FAT sector through the one-entry cache.
+    fn fat_sector(&self, lba: u32) -> Option<[u8; 512]> {
+        let mut cache = self.fat_cache.lock();
+        if let Some((cached, data)) = cache.as_ref() {
+            if *cached == lba {
+                return Some(*data);
+            }
+        }
+        let data = read_sector(lba)?;
+        *cache = Some((lba, data));
+        Some(data)
     }
 
     /// Next cluster in a chain, following the FAT (12- or 16-bit entries).
@@ -178,9 +197,17 @@ impl Fat16 {
     pub fn list(&self) -> Vec<Entry> {
         let mut entries = Vec::new();
         let mut offset = 0u32;
+        // One sector holds 16 entries: read it once, not once per entry.
+        let mut loaded: Option<(u32, [u8; 512])> = None;
         while offset < self.root_entries as u32 {
             let sector = self.root_lba + offset / 16;
-            let Some(buf) = read_sector(sector) else {
+            if loaded.as_ref().is_none_or(|(lba, _)| *lba != sector) {
+                let Some(buf) = read_sector(sector) else {
+                    break;
+                };
+                loaded = Some((sector, buf));
+            }
+            let Some((_, buf)) = loaded.as_ref() else {
                 break;
             };
             let index = (offset % 16) as usize * 32;
@@ -226,7 +253,6 @@ impl Fat16 {
             return Some(0);
         }
         let cluster_bytes = self.sectors_per_cluster as u64 * self.bytes_per_sector as u64;
-        let sector_bytes = self.bytes_per_sector as usize;
         let mut cluster = start;
         let mut skip = offset / cluster_bytes;
         while skip > 0 {
@@ -238,23 +264,71 @@ impl Fat16 {
         let remaining = (size as u64 - offset).min(buf.len() as u64) as usize;
         let mut written = 0usize;
         while written < remaining {
-            let lba = self.cluster_lba(cluster);
-            let mut sector = (inner / sector_bytes) as u32;
-            let mut byte = inner % sector_bytes;
-            while sector < self.sectors_per_cluster as u32 && written < remaining {
-                let data = read_sector(lba + sector)?;
-                let take = (sector_bytes - byte).min(remaining - written);
-                buf[written..written + take].copy_from_slice(&data[byte..byte + take]);
-                written += take;
-                byte = 0;
-                sector += 1;
+            // Extend the run over clusters that follow on disk (the image
+            // builder lays files out contiguously), so one device command
+            // covers many clusters instead of one per cluster.
+            let want = remaining - written;
+            let mut span = cluster_bytes as usize - inner;
+            let mut last = cluster;
+            let mut following = None;
+            while span < want {
+                match self.next_cluster(last) {
+                    Some(next) if last.checked_add(1) == Some(next) => {
+                        last = next;
+                        span += cluster_bytes as usize;
+                    }
+                    other => {
+                        following = other;
+                        break;
+                    }
+                }
             }
+            let take = span.min(want);
+            self.read_span(
+                self.cluster_lba(cluster),
+                inner,
+                &mut buf[written..written + take],
+            )?;
+            written += take;
             if written < remaining {
-                cluster = self.next_cluster(cluster)?;
+                cluster = following?;
                 inner = 0;
             }
         }
         Some(written)
+    }
+
+    /// Fill `out` from the byte range starting `byte` bytes into the run of
+    /// sectors that begins at `lba`. Whole sectors go straight into `out` in
+    /// one command; only a partial head or tail sector goes through a bounce.
+    fn read_span(&self, lba: u32, byte: usize, out: &mut [u8]) -> Option<()> {
+        let sector_bytes = self.bytes_per_sector as usize;
+        let mut next = lba + (byte / sector_bytes) as u32;
+        let head = byte % sector_bytes;
+        let mut rest = out;
+        if head != 0 || rest.len() < sector_bytes {
+            let sector = read_sector(next)?;
+            let take = (sector_bytes - head).min(rest.len());
+            let (now, later) = rest.split_at_mut(take);
+            now.copy_from_slice(&sector[head..head + take]);
+            rest = later;
+            next += 1;
+        }
+        let whole = rest.len() / sector_bytes * sector_bytes;
+        if whole > 0 {
+            let (now, later) = rest.split_at_mut(whole);
+            if !block::read_sectors(next, now) {
+                return None;
+            }
+            rest = later;
+            next += (whole / sector_bytes) as u32;
+        }
+        if !rest.is_empty() {
+            let sector = read_sector(next)?;
+            let tail = rest.len();
+            rest.copy_from_slice(&sector[..tail]);
+        }
+        Some(())
     }
 }
 

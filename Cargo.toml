@@ -49,9 +49,9 @@ debug = false
 strip = "symbols"
 opt-level = "s"
 
-# The bootloader embeds the kernel file in the disk image too, so the same
-# trade-off applies: the guest never reads dwarf, but every BIOS/ATA boot pays
-# for it. Keep file/line tables for panic triage and drop the rest.
+# The full kernel ELF (with line tables) stays in `target/` for panic triage;
+# build.rs embeds only its loadable part in the disk image, because the
+# bootloader reads the whole file over slow BIOS disk calls at every boot.
 [profile.dev.package.kernel]
 debug = "line-tables-only"
 
