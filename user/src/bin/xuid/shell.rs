@@ -6,11 +6,10 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::sync::atomic::{AtomicBool, Ordering};
-use user::messenger::display::{self, Canvas, Rect};
+use user::messenger::display::{self, wire, Canvas, Rect};
 use user::messenger::{self, Endpoint};
 
 use super::drag::DragSession;
-use super::protocol::method;
 use super::render::repaint;
 use super::surface::Surface;
 use super::window::{restore, surface_by_id};
@@ -74,19 +73,12 @@ fn notify_shell(
     shell: Option<&ShellSub>,
     scratch: &mut Vec<u8>,
     method: u32,
-    fields: &[(u16, u64)],
-    text: Option<(u16, &str)>,
+    body: Result<Vec<u8>, libmessenger::Error>,
 ) {
     let Some(shell) = shell else {
         return;
     };
-    let result = display::send_event_fields(
-        &Endpoint::from_raw(shell.events),
-        scratch,
-        method,
-        fields,
-        text,
-    );
+    let result = display::send_event(&Endpoint::from_raw(shell.events), scratch, method, body);
     if let Err(messenger::Error::Errno(code)) = result {
         if code == -messenger::errno::EPIPE {
             SHELL_DEAD.store(true, Ordering::Relaxed);
@@ -95,67 +87,64 @@ fn notify_shell(
 }
 
 /// Tell the shell a surface changed (created/destroyed/moved/minimized/
-/// restored). Created events carry the title; every row carries the composited
-/// geometry and flags.
+/// restored; `kind` is a `wire::CHANGE_*`). Created events carry the title;
+/// every row carries the composited geometry and flags.
 pub(super) fn notify_surface(
     shell: Option<&ShellSub>,
     scratch: &mut Vec<u8>,
     surface: &Surface,
     focused: Option<u64>,
-    kind: u64,
+    kind: u32,
 ) {
-    let role = if surface.desktop {
-        display::role::DESKTOP
-    } else {
-        display::role::WINDOW
+    let args = wire::SurfaceChangedArgs {
+        surface: surface.id,
+        kind,
+        x: surface.x,
+        y: surface.y,
+        w: surface.w,
+        h: surface.h,
+        minimized: surface.minimized,
+        focused: focused == Some(surface.id),
+        title: (kind == wire::CHANGE_CREATED).then(|| surface.title.clone()),
+        role: surface.role(),
     };
-    let fields = [
-        (display::field::SURFACE, surface.id),
-        (display::field::A, kind),
-        (display::field::X, surface.x.max(0) as u64),
-        (display::field::Y, surface.y.max(0) as u64),
-        (display::field::W, surface.w.max(0) as u64),
-        (display::field::H, surface.h.max(0) as u64),
-        (display::field::MINIMIZED, surface.minimized as u64),
-        (
-            display::field::FOCUSED,
-            (focused == Some(surface.id)) as u64,
-        ),
-        (display::field::ROLE, role),
-    ];
-    let text = (kind == display::change::CREATED)
-        .then_some((display::field::TITLE, surface.title.as_str()));
-    notify_shell(shell, scratch, method::SURFACE_CHANGED, &fields, text);
+    notify_shell(
+        shell,
+        scratch,
+        wire::METHOD_SURFACECHANGED,
+        wire::encode_surface_changed_args(&args),
+    );
 }
 
 /// Tell the shell a surface is gone.
 pub(super) fn notify_destroyed(shell: Option<&ShellSub>, scratch: &mut Vec<u8>, id: u64) {
+    let args = wire::SurfaceChangedArgs {
+        surface: id,
+        kind: wire::CHANGE_DESTROYED,
+        ..wire::SurfaceChangedArgs::default()
+    };
     notify_shell(
         shell,
         scratch,
-        method::SURFACE_CHANGED,
-        &[
-            (display::field::SURFACE, id),
-            (display::field::A, display::change::DESTROYED),
-        ],
-        None,
+        wire::METHOD_SURFACECHANGED,
+        wire::encode_surface_changed_args(&args),
     );
 }
 
 /// Tell the shell which surface is focused (`None` = none).
 pub(super) fn notify_focus(shell: Option<&ShellSub>, scratch: &mut Vec<u8>, focused: Option<u64>) {
+    let args = wire::FocusChangedArgs { surface: focused };
     notify_shell(
         shell,
         scratch,
-        method::FOCUS_CHANGED,
-        &[(display::field::SURFACE, focused.unwrap_or(0))],
-        None,
+        wire::METHOD_FOCUSCHANGED,
+        wire::encode_focus_changed_args(&args),
     );
 }
 
 /// Forward the global start-menu hotkey to the shell.
 pub(super) fn notify_start_menu(shell: Option<&ShellSub>, scratch: &mut Vec<u8>) {
-    notify_shell(shell, scratch, method::START_MENU, &[], None);
+    notify_shell(shell, scratch, wire::METHOD_STARTMENU, Ok(Vec::new()));
 }
 
 /// If a notification since the last check found the shell subscriber's
@@ -263,7 +252,7 @@ pub(super) fn alt_tab_commit(
     restore(surfaces, focused, id);
     if was_minimized {
         if let Some(surface) = surface_by_id(surfaces, id) {
-            notify_surface(shell, scratch, surface, *focused, display::change::RESTORED);
+            notify_surface(shell, scratch, surface, *focused, wire::CHANGE_RESTORED);
         }
     }
     if *focused != before {

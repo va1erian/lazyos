@@ -1,60 +1,74 @@
-//! Input/drag/shell event decode and encode, plus [`Theme`] and
-//! [`SurfaceInfo`] (the `ListSurfaces`/`GetTheme` reply shapes).
+//! Input/drag/shell event decode and send over the generated
+//! `os.lazy.display.v1` stubs, plus [`Theme`] and [`SurfaceInfo`] (the
+//! `GetTheme`/`ListSurfaces` reply shapes).
 
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use libmessenger::{flags, Decoder, Kind, VERSION};
+use libmessenger::{flags, Parcel};
 
 use super::super::endpoint::syscall;
-use super::super::{op, Endpoint, Error, Message, MsgArgs, MsgResult, Result};
+use super::super::{op, Endpoint, Message, MsgArgs, MsgResult, Result};
 use super::canvas::Color;
-use super::{field, method, role, INTERFACE};
+use super::{wire, INTERFACE};
 
-/// The kind of an input event delivered to an app.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum EventKind {
-    PointerMove,
-    PointerDown,
-    PointerUp,
-    KeyDown,
-    KeyUp,
-}
+/// One row of a `ListSurfaces` reply (issue #167): id, title, geometry,
+/// minimized/focused flags and a [`wire::ROLE_WINDOW`]/[`wire::ROLE_DESKTOP`]
+/// role.
+pub use wire::SurfaceRow as SurfaceInfo;
 
-/// One decoded input event. `a`/`b` carry: pointer `(x, y)`, button id, or
-/// key code, depending on the kind.
+/// One decoded input event, in the surface's own coordinates.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct Event {
-    pub kind: EventKind,
-    pub a: i64,
-    pub b: i64,
+pub enum Event {
+    /// The pointer moved; `(x, y)` is relative to the surface content and may
+    /// lie outside it during a press-and-drag.
+    PointerMove { x: i32, y: i32 },
+    /// A pointer button went down; `button` is a [`super::button`] id.
+    PointerDown { x: i32, y: i32, button: u32 },
+    /// A pointer button went up.
+    PointerUp { x: i32, y: i32, button: u32 },
+    /// A key went down; `key` is a character or a [`super::key`] code.
+    KeyDown { key: u32 },
+    /// A key was released.
+    KeyUp { key: u32 },
 }
 
 /// Decode an input event from a received message, or `None` when the
-/// message is not a display event.
+/// message is not a (well-formed) display input event.
 pub fn decode_event(message: &Message) -> Option<Event> {
-    let kind = match message.method() {
-        method::POINTER_MOVE => EventKind::PointerMove,
-        method::POINTER_DOWN => EventKind::PointerDown,
-        method::POINTER_UP => EventKind::PointerUp,
-        method::KEY_DOWN => EventKind::KeyDown,
-        method::KEY_UP => EventKind::KeyUp,
+    let body = &message.parcel.body;
+    Some(match message.method() {
+        wire::METHOD_POINTERMOVE => {
+            let args = wire::decode_pointer_move_args(body).ok()?;
+            Event::PointerMove {
+                x: args.x,
+                y: args.y,
+            }
+        }
+        wire::METHOD_POINTERDOWN => {
+            let args = wire::decode_pointer_down_args(body).ok()?;
+            Event::PointerDown {
+                x: args.x,
+                y: args.y,
+                button: args.button,
+            }
+        }
+        wire::METHOD_POINTERUP => {
+            let args = wire::decode_pointer_up_args(body).ok()?;
+            Event::PointerUp {
+                x: args.x,
+                y: args.y,
+                button: args.button,
+            }
+        }
+        wire::METHOD_KEYDOWN => Event::KeyDown {
+            key: wire::decode_key_down_args(body).ok()?.key,
+        },
+        wire::METHOD_KEYUP => Event::KeyUp {
+            key: wire::decode_key_up_args(body).ok()?.key,
+        },
         _ => return None,
-    };
-    let mut a = 0i64;
-    let mut b = 0i64;
-    let mut decoder = Decoder::new(&message.parcel.body);
-    while let Ok(Some(field)) = decoder.next() {
-        if field.kind != Kind::U64 {
-            continue;
-        }
-        match field.id {
-            self::field::A => a = field.as_u64().ok()? as i64,
-            self::field::B => b = field.as_u64().ok()? as i64,
-            _ => {}
-        }
-    }
-    Some(Event { kind, a, b })
+    })
 }
 
 /// The kind of a drag event the compositor delivers (issue #145).
@@ -73,12 +87,13 @@ pub enum DragKind {
 }
 
 /// One decoded drag event. `x`/`y` are surface-relative for enter, over and
-/// drop; `token`/`mime` are set on a drop; `dropped` is set on an ended.
+/// drop; `mime` is set on enter and drop, `token` on a drop; `dropped` is set
+/// on an ended.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct DragEvent {
     pub kind: DragKind,
-    pub x: i64,
-    pub y: i64,
+    pub x: i32,
+    pub y: i32,
     pub token: u64,
     pub mime: String,
     pub dropped: bool,
@@ -87,135 +102,40 @@ pub struct DragEvent {
 /// Decode a drag event from a received message, or `None` when the message
 /// is not one. [`decode_event`] still handles input events.
 pub fn decode_drag_event(message: &Message) -> Option<DragEvent> {
-    let kind = match message.method() {
-        method::DRAG_ENTER => DragKind::Enter,
-        method::DRAG_OVER => DragKind::Over,
-        method::DRAG_LEAVE => DragKind::Leave,
-        method::DROP => DragKind::Drop,
-        method::DRAG_ENDED => DragKind::Ended,
-        _ => return None,
-    };
+    let body = &message.parcel.body;
     let mut event = DragEvent {
-        kind,
+        kind: DragKind::Leave,
         x: 0,
         y: 0,
         token: 0,
         mime: String::new(),
         dropped: false,
     };
-    let mut decoder = Decoder::new(&message.parcel.body);
-    while let Ok(Some(field)) = decoder.next() {
-        match (field.kind, field.id) {
-            (Kind::U64, self::field::A) => event.x = field.as_u64().ok()? as i64,
-            (Kind::U64, self::field::B) => event.y = field.as_u64().ok()? as i64,
-            (Kind::U64, self::field::TOKEN) => event.token = field.as_u64().ok()?,
-            (Kind::String, self::field::MIME) => {
-                event.mime = String::from(field.as_str().ok()?);
-            }
-            _ => {}
+    match message.method() {
+        wire::METHOD_DRAGENTER => {
+            let args = wire::decode_drag_enter_args(body).ok()?;
+            event.kind = DragKind::Enter;
+            (event.x, event.y, event.mime) = (args.x, args.y, args.mime);
         }
-    }
-    if event.kind == DragKind::Ended {
-        event.dropped = event.x != 0;
+        wire::METHOD_DRAGOVER => {
+            let args = wire::decode_drag_over_args(body).ok()?;
+            event.kind = DragKind::Over;
+            (event.x, event.y) = (args.x, args.y);
+        }
+        wire::METHOD_DRAGLEAVE => {}
+        wire::METHOD_DROP => {
+            let args = wire::decode_drop_args(body).ok()?;
+            event.kind = DragKind::Drop;
+            (event.x, event.y) = (args.x, args.y);
+            (event.token, event.mime) = (args.token, args.mime);
+        }
+        wire::METHOD_DRAGENDED => {
+            event.kind = DragKind::Ended;
+            event.dropped = wire::decode_drag_ended_args(body).ok()?.dropped;
+        }
+        _ => return None,
     }
     Some(event)
-}
-
-/// One row of a `ListSurfaces` reply (issue #167).
-#[derive(Clone, PartialEq, Eq, Debug)]
-pub struct SurfaceInfo {
-    /// Protocol surface id.
-    pub id: u64,
-    /// Window title from `CreateSurface`.
-    pub title: String,
-    /// Window origin (the decorated window's top-left for a window; the
-    /// surface origin for a desktop).
-    pub x: i32,
-    pub y: i32,
-    /// Window content size in pixels.
-    pub w: i32,
-    pub h: i32,
-    /// Hidden by the minimize button.
-    pub minimized: bool,
-    /// The compositor's focused surface.
-    pub focused: bool,
-    /// One of [`role`] (issue #175): lets a shell tell the desktop from a
-    /// window.
-    pub role: u64,
-}
-
-/// Decode a `ListSurfaces` reply body into rows. Rows are delimited by the
-/// `SURFACE` field, so unknown fields between rows are ignored and a newer
-/// compositor can add fields without breaking this decoder.
-pub fn decode_surface_list(body: &[u8]) -> Result<Vec<SurfaceInfo>> {
-    let mut rows: Vec<SurfaceInfo> = Vec::new();
-    let mut current: Option<SurfaceInfo> = None;
-    let mut decoder = Decoder::new(body);
-    while let Some(field) = decoder.next().map_err(Error::Parcel)? {
-        match (field.kind, field.id) {
-            (Kind::U64, self::field::SURFACE) => {
-                if let Some(row) = current.take() {
-                    rows.push(row);
-                }
-                current = Some(SurfaceInfo {
-                    id: field.as_u64().map_err(Error::Parcel)?,
-                    title: String::new(),
-                    x: 0,
-                    y: 0,
-                    w: 0,
-                    h: 0,
-                    minimized: false,
-                    focused: false,
-                    role: role::WINDOW,
-                });
-            }
-            (Kind::String, self::field::TITLE) => {
-                if let Some(row) = current.as_mut() {
-                    row.title = String::from(field.as_str().map_err(Error::Parcel)?);
-                }
-            }
-            (Kind::U64, self::field::X) => {
-                if let Some(row) = current.as_mut() {
-                    row.x = field.as_u64().map_err(Error::Parcel)? as i32;
-                }
-            }
-            (Kind::U64, self::field::Y) => {
-                if let Some(row) = current.as_mut() {
-                    row.y = field.as_u64().map_err(Error::Parcel)? as i32;
-                }
-            }
-            (Kind::U64, self::field::W) => {
-                if let Some(row) = current.as_mut() {
-                    row.w = field.as_u64().map_err(Error::Parcel)? as i32;
-                }
-            }
-            (Kind::U64, self::field::H) => {
-                if let Some(row) = current.as_mut() {
-                    row.h = field.as_u64().map_err(Error::Parcel)? as i32;
-                }
-            }
-            (Kind::U64, self::field::MINIMIZED) => {
-                if let Some(row) = current.as_mut() {
-                    row.minimized = field.as_u64().map_err(Error::Parcel)? != 0;
-                }
-            }
-            (Kind::U64, self::field::FOCUSED) => {
-                if let Some(row) = current.as_mut() {
-                    row.focused = field.as_u64().map_err(Error::Parcel)? != 0;
-                }
-            }
-            (Kind::U64, self::field::ROLE) => {
-                if let Some(row) = current.as_mut() {
-                    row.role = field.as_u64().map_err(Error::Parcel)?;
-                }
-            }
-            _ => {}
-        }
-    }
-    if let Some(row) = current.take() {
-        rows.push(row);
-    }
-    Ok(rows)
 }
 
 /// The compositor's chrome palette (`GetTheme`, issue #167).
@@ -233,47 +153,29 @@ pub struct Theme {
     pub text: Color,
 }
 
-impl Default for Theme {
-    fn default() -> Theme {
+impl Theme {
+    /// The palette a `GetTheme` reply describes.
+    pub(super) fn from_reply(reply: &wire::GetThemeReply) -> Theme {
         Theme {
-            title_bg_active: Color::rgb(0, 0, 0),
-            title_bg_inactive: Color::rgb(0, 0, 0),
-            border: Color::rgb(0, 0, 0),
-            taskbar: Color::rgb(0, 0, 0),
-            text: Color::rgb(0, 0, 0),
+            title_bg_active: color_from_u32(reply.title_bg_active),
+            title_bg_inactive: color_from_u32(reply.title_bg_inactive),
+            border: color_from_u32(reply.border),
+            taskbar: color_from_u32(reply.taskbar),
+            text: color_from_u32(reply.text),
         }
     }
 }
 
 /// Unpack a `0xRRGGBB` theme colour.
-///
-/// `pub(super)` so [`super::client`] can decode `GetTheme` replies.
-pub(super) fn color_from_u64(value: u64) -> Color {
+fn color_from_u32(value: u32) -> Color {
     Color::rgb((value >> 16) as u8, (value >> 8) as u8, value as u8)
 }
 
-/// One `SurfaceChanged` event (issue #167).
-#[derive(Clone, PartialEq, Eq, Debug)]
-pub struct SurfaceChanged {
-    pub id: u64,
-    /// One of [`super::change`].
-    pub kind: u64,
-    pub x: i32,
-    pub y: i32,
-    pub w: i32,
-    pub h: i32,
-    pub minimized: bool,
-    pub focused: bool,
-    /// Set on `CREATED` (the title never changes today; the `TITLE` kind
-    /// carries it when a rename method lands).
-    pub title: String,
-    /// One of [`role`] (issue #175): lets a shell tell the desktop from a
-    /// window.
-    pub role: u64,
-}
+/// One `SurfaceChanged` event (issue #167); `kind` is a `wire::CHANGE_*`.
+pub type SurfaceChanged = wire::SurfaceChangedArgs;
 
 /// A one-way event for the shell subscriber (issue #167).
-#[derive(Clone, PartialEq, Eq, Debug)]
+#[derive(Clone, PartialEq, Debug)]
 pub enum ShellEvent {
     /// A surface was created/destroyed/moved/minimized/restored.
     SurfaceChanged(SurfaceChanged),
@@ -286,128 +188,39 @@ pub enum ShellEvent {
 /// Decode a shell event from a received message, or `None` when the
 /// message is not one.
 pub fn decode_shell_event(message: &Message) -> Option<ShellEvent> {
+    let body = &message.parcel.body;
     match message.method() {
-        method::SURFACE_CHANGED => {
-            let mut event = SurfaceChanged {
-                id: 0,
-                kind: 0,
-                x: 0,
-                y: 0,
-                w: 0,
-                h: 0,
-                minimized: false,
-                focused: false,
-                title: String::new(),
-                role: role::WINDOW,
-            };
-            let mut decoder = Decoder::new(&message.parcel.body);
-            while let Ok(Some(field)) = decoder.next() {
-                match (field.kind, field.id) {
-                    (Kind::U64, self::field::SURFACE) => event.id = field.as_u64().ok()?,
-                    (Kind::U64, self::field::A) => event.kind = field.as_u64().ok()?,
-                    (Kind::U64, self::field::X) => event.x = field.as_u64().ok()? as i32,
-                    (Kind::U64, self::field::Y) => event.y = field.as_u64().ok()? as i32,
-                    (Kind::U64, self::field::W) => event.w = field.as_u64().ok()? as i32,
-                    (Kind::U64, self::field::H) => event.h = field.as_u64().ok()? as i32,
-                    (Kind::U64, self::field::MINIMIZED) => {
-                        event.minimized = field.as_u64().ok()? != 0;
-                    }
-                    (Kind::U64, self::field::FOCUSED) => event.focused = field.as_u64().ok()? != 0,
-                    (Kind::U64, self::field::ROLE) => event.role = field.as_u64().ok()?,
-                    (Kind::String, self::field::TITLE) => {
-                        event.title = String::from(field.as_str().ok()?);
-                    }
-                    _ => {}
-                }
-            }
-            Some(ShellEvent::SurfaceChanged(event))
+        wire::METHOD_SURFACECHANGED => Some(ShellEvent::SurfaceChanged(
+            wire::decode_surface_changed_args(body).ok()?,
+        )),
+        wire::METHOD_FOCUSCHANGED => {
+            let args = wire::decode_focus_changed_args(body).ok()?;
+            Some(ShellEvent::FocusChanged(args.surface))
         }
-        method::FOCUS_CHANGED => {
-            let mut id = None;
-            let mut decoder = Decoder::new(&message.parcel.body);
-            while let Ok(Some(field)) = decoder.next() {
-                if field.kind == Kind::U64 && field.id == self::field::SURFACE {
-                    let value = field.as_u64().ok()?;
-                    id = (value != 0).then_some(value);
-                }
-            }
-            Some(ShellEvent::FocusChanged(id))
-        }
-        method::START_MENU => Some(ShellEvent::StartMenu),
+        wire::METHOD_STARTMENU => Some(ShellEvent::StartMenu),
         _ => None,
     }
 }
 
-/// Encode a one-way event parcel into `scratch`, replacing its contents.
+/// Send one one-way event of `method` with the encoded `body` to `endpoint`.
 ///
-/// The compositor sends events at input rates into a task whose bump
-/// allocator never frees, so it cannot build a fresh `Parcel` per event.
-/// The byte layout matches `libmessenger` exactly (header, `u64` TLV fields
-/// in order, an optional string field, no handles or buffers).
-pub fn encode_event_fields(
-    scratch: &mut Vec<u8>,
-    method: u32,
-    fields: &[(u16, u64)],
-    text: Option<(u16, &str)>,
-) {
-    scratch.clear();
-    let text_len = text.map(|(_, value)| value.len()).unwrap_or(0);
-    let body_len = fields.len() * 16 + if text.is_some() { 8 + text_len } else { 0 };
-    scratch.extend_from_slice(&VERSION.to_le_bytes());
-    scratch.extend_from_slice(&flags::ONE_WAY.to_le_bytes());
-    scratch.extend_from_slice(&INTERFACE.to_le_bytes());
-    scratch.extend_from_slice(&method.to_le_bytes());
-    scratch.extend_from_slice(&0u64.to_le_bytes()); // txn_id
-    scratch.extend_from_slice(&0u64.to_le_bytes()); // reply_to
-    scratch.extend_from_slice(&0u64.to_le_bytes()); // deadline_ns
-    scratch.extend_from_slice(&(body_len as u32).to_le_bytes());
-    scratch.extend_from_slice(&0u16.to_le_bytes()); // handles
-    scratch.extend_from_slice(&0u16.to_le_bytes()); // buffers
-    for &(id, value) in fields {
-        let tag = Kind::U64 as u32 | ((id as u32) << 8);
-        scratch.extend_from_slice(&tag.to_le_bytes());
-        scratch.extend_from_slice(&8u32.to_le_bytes());
-        scratch.extend_from_slice(&value.to_le_bytes());
-    }
-    if let Some((id, value)) = text {
-        let tag = Kind::String as u32 | ((id as u32) << 8);
-        scratch.extend_from_slice(&tag.to_le_bytes());
-        scratch.extend_from_slice(&(value.len() as u32).to_le_bytes());
-        scratch.extend_from_slice(value.as_bytes());
-    }
-}
-
-/// Encode an event with the two standard `A`/`B` fields.
-pub fn encode_event(scratch: &mut Vec<u8>, method: u32, a: u64, b: u64) {
-    encode_event_fields(scratch, method, &[(field::A, a), (field::B, b)], None);
-}
-
-/// Send one input event to `endpoint` using a reusable encode buffer.
+/// `scratch` is the reusable parcel-encode buffer: the compositor sends
+/// events at input rates and keeps one buffer for all of them.
 pub fn send_event(
     endpoint: &Endpoint,
     scratch: &mut Vec<u8>,
     method: u32,
-    a: u64,
-    b: u64,
+    body: core::result::Result<Vec<u8>, libmessenger::Error>,
 ) -> Result<()> {
-    encode_event(scratch, method, a, b);
-    send_encoded(endpoint, scratch)
-}
-
-/// Send one event built by [`encode_event_fields`] to `endpoint`.
-pub fn send_event_fields(
-    endpoint: &Endpoint,
-    scratch: &mut Vec<u8>,
-    method: u32,
-    fields: &[(u16, u64)],
-    text: Option<(u16, &str)>,
-) -> Result<()> {
-    encode_event_fields(scratch, method, fields, text);
-    send_encoded(endpoint, scratch)
-}
-
-/// Send the parcel bytes already encoded in `scratch`.
-fn send_encoded(endpoint: &Endpoint, scratch: &[u8]) -> Result<()> {
+    let mut parcel = Parcel::default();
+    parcel.header.version = libmessenger::VERSION;
+    parcel.header.flags = flags::ONE_WAY;
+    parcel.header.interface_id = INTERFACE;
+    parcel.header.method = method;
+    parcel.body = body.map_err(super::super::Error::Parcel)?;
+    parcel
+        .encode(scratch)
+        .map_err(super::super::Error::Parcel)?;
     let args = MsgArgs {
         handle: endpoint.handle(),
         parcel_ptr: scratch.as_ptr() as u64,

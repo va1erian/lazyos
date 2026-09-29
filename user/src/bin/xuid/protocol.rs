@@ -1,11 +1,10 @@
-//! Display protocol wire helpers and event decoding (issue #194 split): the
-//! method ids, TLV field lookups, reply builders, the kernel event decoder and
-//! the privilege check, moved out of `xuid.rs` unchanged.
+//! Display protocol helpers and kernel event decoding (issue #194 split): the
+//! reply builders, the raw kernel input record decoder and the privilege
+//! check. The wire itself is the generated `display::wire` (issue #287).
 
-use alloc::string::String;
 use alloc::vec::Vec;
-use libmessenger::{Decoder, Encoder, Kind, Parcel, VERSION};
-use user::messenger::display::{self, Color, Event, EventKind};
+use libmessenger::Parcel;
+use user::messenger::display::{self, Color};
 use user::messenger::{Endpoint, Message};
 use user::sys;
 
@@ -30,6 +29,26 @@ pub(super) fn is_privileged(sender: u64) -> bool {
         Err(_) => false,
     }
 }
+/// The kind of a raw kernel input record.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(super) enum EventKind {
+    PointerMove,
+    PointerDown,
+    PointerUp,
+    KeyDown,
+    KeyUp,
+}
+
+/// One raw kernel input record: `a`/`b` carry the pointer `(x, y)`, the button
+/// id, or the key code depending on the kind. Screen-absolute; `xuid`
+/// translates to surface coordinates before forwarding.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(super) struct Event {
+    pub kind: EventKind,
+    pub a: i64,
+    pub b: i64,
+}
+
 /// Decode the `index`-th 16-byte kernel event record.
 pub(super) fn decode_event(bytes: &[u8], index: usize) -> Option<Event> {
     let base = index * 16;
@@ -70,88 +89,26 @@ mod raw_kind {
     pub const KEY_UP: u32 = 4;
 }
 /// Pack a colour into the `0xRRGGBB` form `GetTheme` reports.
-pub(super) fn color_u64(color: Color) -> u64 {
-    ((color.r as u64) << 16) | ((color.g as u64) << 8) | color.b as u64
-}
-
-/// The protocol method ids. (The client mirror in `user::messenger::display`
-/// has the same values; a compositor binary is not generic over them.)
-pub(super) mod method {
-    pub const CREATE_SURFACE: u32 = 1;
-    pub const ATTACH_BUFFER: u32 = 2;
-    pub const COMMIT: u32 = 3;
-    pub const DESTROY_SURFACE: u32 = 4;
-    pub const POINTER_MOVE: u32 = 5;
-    pub const POINTER_DOWN: u32 = 6;
-    pub const POINTER_UP: u32 = 7;
-    pub const KEY_DOWN: u32 = 8;
-    pub const KEY_UP: u32 = 9;
-    pub const WINDOW_CLOSE: u32 = 10;
-    pub const DRAG_START: u32 = 11;
-    pub const DRAG_CANCEL: u32 = 12;
-    pub const DRAG_ENTER: u32 = 13;
-    pub const DRAG_OVER: u32 = 14;
-    pub const DRAG_LEAVE: u32 = 15;
-    pub const DROP: u32 = 16;
-    pub const DRAG_ENDED: u32 = 17;
-    pub const LIST_SURFACES: u32 = 18;
-    pub const GET_WORK_AREA: u32 = 19;
-    pub const SUBSCRIBE: u32 = 20;
-    pub const GET_THEME: u32 = 21;
-    pub const SURFACE_CHANGED: u32 = 22;
-    pub const FOCUS_CHANGED: u32 = 23;
-    pub const START_MENU: u32 = 24;
-}
-
-/// Find the first `u64` field with `id`.
-pub(super) fn u64_field(parcel: &Parcel, id: u16) -> Option<u64> {
-    let mut decoder = Decoder::new(&parcel.body);
-    while let Ok(Some(field)) = decoder.next() {
-        if field.kind == Kind::U64 && field.id == id {
-            return field.as_u64().ok();
-        }
-    }
-    None
-}
-
-/// Find the first string field with `id`.
-pub(super) fn string_field(parcel: &Parcel, id: u16) -> Option<String> {
-    let mut decoder = Decoder::new(&parcel.body);
-    while let Ok(Some(field)) = decoder.next() {
-        if field.kind == Kind::String && field.id == id {
-            return field.as_str().ok().map(String::from);
-        }
-    }
-    None
+pub(super) fn color_u32(color: Color) -> u32 {
+    ((color.r as u32) << 16) | ((color.g as u32) << 8) | color.b as u32
 }
 
 /// An empty reply carrying only the header.
 pub(super) fn empty_reply(method: u32) -> Parcel {
-    reply_parcel(method, Encoder::new())
+    display::reply(method, Vec::new())
 }
 
 /// An error reply: an `Error` TLV with a positive code, as the daemon
 /// convention in this codebase uses.
 pub(super) fn error_reply(method: u32, code: i64) -> Parcel {
-    let mut body = Encoder::new();
-    let _ = body.error(display::field::ERROR, code as u32, "display request failed");
-    reply_parcel(method, body)
+    display::error_reply(method, code)
 }
 
-/// Build a reply parcel for `method`.
-pub(super) fn reply_parcel(method: u32, body: Encoder) -> Parcel {
-    Parcel {
-        header: libmessenger::Header {
-            version: VERSION,
-            flags: 0,
-            interface_id: display::INTERFACE,
-            method,
-            txn_id: 0,
-            reply_to: 0,
-            deadline_ns: 0,
-        },
-        body: body.finish(),
-        handles: Vec::new(),
-        buffers: Vec::new(),
+/// A success reply carrying an encoded generated `body`; an encode failure
+/// (an oversized body) is reported as `EINVAL` rather than a silent empty one.
+pub(super) fn typed_reply(method: u32, body: Result<Vec<u8>, libmessenger::Error>) -> Parcel {
+    match body {
+        Ok(body) => display::reply(method, body),
+        Err(_) => error_reply(method, user::messenger::errno::EINVAL),
     }
 }
