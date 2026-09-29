@@ -8,12 +8,11 @@
 
 | Path | Role |
 |---|---|
-| `user/src/lib.rs` | Runtime modules: `sys`, `sysinfo`, `lang`, `messenger`, `central`, `messenger_async`, `task_snapshot`, `heap` |
+| `user/src/lib.rs` | Runtime modules: `sys`, `files`, `sysinfo`, `messenger`, `central`, `messenger_async`, `task_snapshot`, `heap` |
 | `user/src/sys.rs` | `int 0x80` wrappers, syscall numbers 0-14, `Cred`, display helpers |
 | `user/src/sysinfo.rs`, `task_snapshot.rs` | Typed decoders for the syscall 14 system snapshot and the syscall 13 task snapshot |
 | `user/src/central.rs` | Topics client that routes service publishes through `messengerd`'s central broker (#169) |
 | `user/src/heap.rs` | Bump allocator over `sbrk` (see [allocators.md](allocators.md)) |
-| `libs/lang/` | `lexer`, `parser`, `interp`, `value`, `repl` (shell language shared by `SH.ELF` and the desktop Terminal) |
 | `user/src/messenger/` | Blocking Messenger client: endpoints, registry, topics, services |
 | `user/src/messenger_async.rs` | Futures, `Executor`/`block_on`, `Selector`, `service!` |
 | `user/src/bin/*` | Ring-3 programs; manifest in `user/Cargo.toml` |
@@ -70,8 +69,8 @@ See [processes.md](processes.md) and [display.md](display.md).
 | `clipboardd` / `mimed` / `flaky` | `CLIPD` / `MIMED` / `FLAKY.ELF` | Per-session clipboard (#115) / MIME and open-with (#116) / crash-test service (#93) | `init` |
 | `clipcopy` / `clippaste` / `messengerctl` | `CLIPCP` / `CLIPPS` / `MSGCTL.ELF` | Clipboard demo pair (#115) / fabric+services views (#70/#89/#93) | `clipboardd`, kernel flag |
 | `sysmond` / `top` | `SYSD` / `TOP.ELF` | System-stats service over syscall 14 with `system/stats/*` topics / one-shot text client (#144); services image only | `init` / `sysmond` (`demo=1`) or `init` `Launch` |
-| `sh` / `hello` / `xuid` / `xdemo` | `SH` / `HELLO` / `XUID` / `XDEMO.ELF` | Native interpreter with DOS-style commands (`dos.rs`: `dir cd type copy del ren mkdir exec mem reboot shutdown`, #6) / demo / compositor and display demo (#113) | kernel |
-| `faultprobe` | `FAULTPRB.ELF` | Deliberate ring-3 faults (`exec FAULTPRB.ELF null\|kernel\|priv\|div\|ud`, #7) | shell |
+| `hello` / `xuid` / `xdemo` | `HELLO` / `XUID` / `XDEMO.ELF` | demo / compositor and display demo (#113). The system shell is BusyBox `sh` (`BUSYBOX`, a Linux-ABI binary built by `tools/abi/busybox.py`, #254) | kernel |
+| `faultprobe` | `FAULTPRB.ELF` | Deliberate ring-3 faults (#7); embedded, but the retired native shell is what used to launch it | - |
 | `dragdemo` / `shellprobe` | `DRAGDMO` / `SHELLPRB.ELF` | Drag & drop evidence pair (#145) / shell-protocol evidence client (#167); `LAZYOS_XUID=1` images | kernel |
 | `async_echo` / `async_service` | not on disk | `messenger_async` examples (#91) | - |
 

@@ -106,7 +106,7 @@ python tools/screenshot/qemu_session.py --image target/lazyos.img \
     --out shots/demo --script tools/screenshot/examples/multitask_demo.json
 ```
 
-Ready-made scripts live in `tools/screenshot/examples/` (`cli_demo`,
+Ready-made scripts live in `tools/screenshot/examples/` (`fs_demo`,
 `services_demo`, `window_demo`, `xuid_wm`, `xui_sysmon`, `xui_fabricmon`, ...).
 See [`tools/screenshot/README.md`](tools/screenshot/README.md).
 
@@ -116,7 +116,7 @@ See [`tools/screenshot/README.md`](tools/screenshot/README.md).
 python tools/test/run.py --accel none   # in-kernel unit + stress/soak suite
 python tools/abi/run.py --at 8          # Linux ABI conformance bench
 python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/boot \
-    --script tools/screenshot/examples/dos_shell.json   # headless boot: shell + fault containment
+    --script tools/screenshot/examples/fs_demo.json   # headless boot: BusyBox sh
 ```
 
 Every kernel component must ship both **correctness tests** and **stress/soak

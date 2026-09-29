@@ -18,8 +18,9 @@ xui-canvas = { git = "https://github.com/va1erian/xui", rev = "2747818" }
 # fabric panel reads registry replies and talks to the topics broker with one
 # shared wire implementation. `no_std` + `alloc`, so it links into this binary.
 libmessenger = { path = "../libs/messenger" }
-# The shell language and REPL shared with the native `sh`, hosted by the Terminal.
-lazyos-lang = { path = "../libs/lang" }
+# The Terminal (issue #254) sends a process-group SIGINT on Ctrl-C. `libc` is
+# already in the dependency graph; a direct edge lets `term.rs` name `kill`.
+libc = "0.2"
 
 # Upstream `xui-canvas` builds its shaper's font database from the directories
 # `fontdb` scans and memory-maps the files it finds; LazyOS's Linux ABI has

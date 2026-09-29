@@ -46,7 +46,7 @@ const PASSWD_FILE: &[u8] = b"PASSWD\0";
 const PASSWD_MAX: usize = 1024;
 /// The built-in table when no file is present (the same content the image
 /// carries as `PASSWD`, so a boot without the file behaves the same).
-const BUILTIN: &str = "root:0:0:toor:/root:/SH.ELF\nalice:1000:1000:lazy:/home/alice:/SH.ELF\n";
+const BUILTIN: &str = "root:0:0:toor:/root:sh\nalice:1000:1000:lazy:/home/alice:sh\n";
 /// See the module docs: no writable volume exists in this branch, so updates
 /// stay in memory. Flipping this to `true` (S3) persists them.
 const WRITABLE_STORE: bool = false;
@@ -66,7 +66,7 @@ impl Account {
         let gid: u32 = fields.next()?.trim().parse().ok()?;
         let secret = fields.next()?.trim();
         let home = fields.next().unwrap_or("/").trim();
-        let shell = fields.next().unwrap_or("SH.ELF").trim();
+        let shell = fields.next().unwrap_or("sh").trim();
         if name.is_empty() {
             return None;
         }

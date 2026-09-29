@@ -6,8 +6,9 @@
 //!
 //! # Availability
 //!
-//! A row is [`Ship::Always`] when its ELF is part of every services image
-//! (`SH.ELF`, `MSGCTL.ELF`, `TOP.ELF`) and [`Ship::Manifest`] when it exists
+//! A row is [`Ship::Always`] when its ELF (or, for the shell, the `BUSYBOX`
+//! applet alias) is part of every services image (`sh`, `MSGCTL.ELF`,
+//! `TOP.ELF`) and [`Ship::Manifest`] when it exists
 //! only if the image builder embedded it. The builder lists what it embedded
 //! in `XAPPS.LST` (one 8.3 name per line, optionally followed by `autostart`);
 //! [`load_manifest`] reads it once at boot. A row whose ELF is not shipped is
@@ -95,6 +96,23 @@ const fn native_app(
     }
 }
 
+/// A Linux-ABI console program the services image always ships: BusyBox's
+/// `sh` (a bare applet name the kernel's Linux loader aliases to `BUSYBOX`,
+/// issue #254), which draws in `init`'s mux window. Unlike [`xui_app`] it is
+/// not a `xuid` client and takes no arguments.
+const fn linux_console_app(id: &'static str, name: &'static str, path: &'static str) -> AppSpec {
+    AppSpec {
+        id,
+        name,
+        path,
+        restart: Restart::OnFailure,
+        verbs: &["open"],
+        linux: true,
+        args: "",
+        ship: Ship::Always,
+    }
+}
+
 /// The built-in app registry. The first four ids are exactly the ones
 /// `mimed`'s open-with defaults register (`editor`, `files`, `viewer`,
 /// `runner`), so an `Open` resolution names an app the supervisor knows; no
@@ -138,17 +156,10 @@ pub static APPS: &[AppSpec] = &[
         Ship::Manifest,
     ),
     // The desktop Terminal hosts the shell in a `xuid` window; `shell` is the
-    // console `sh` (it draws in `init`'s mux window, so it is only useful in
-    // a console session).
+    // console shell (BusyBox `sh`; it draws in `init`'s mux window, so it is
+    // only useful in a console session).
     xui_app("terminal", "Terminal", "XTERM.ELF"),
-    native_app(
-        "shell",
-        "Console Shell",
-        "SH.ELF",
-        Restart::OnFailure,
-        &["open"],
-        Ship::Always,
-    ),
+    linux_console_app("shell", "Console Shell", "sh"),
     xui_app("sysmon", "System Monitor", "XSYSMON.ELF"),
     xui_app("fabricmon", "Fabric Monitor", "XFABMON.ELF"),
     xui_app("counter", "Counter", "XCOUNTR.ELF"),

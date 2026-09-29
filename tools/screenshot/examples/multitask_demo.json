@@ -1,14 +1,12 @@
 [
   {"at": 10.0, "shot": "initial"},
   {"at": 11.0, "key": "tab"},
-  {"at": 11.5, "type": "let x = 7*6"},
+  {"at": 11.5, "type": "echo 42"},
   {"at": 12.3, "key": "enter"},
-  {"at": 12.8, "type": "x + 1"},
-  {"at": 13.4, "key": "enter"},
-  {"at": 14.0, "shot": "sh_input"},
-  {"at": 14.6, "key": "tab"},
-  {"at": 15.0, "type": "hey"},
-  {"at": 15.6, "key": "enter"},
-  {"at": 16.2, "shot": "hello_input"},
-  {"at": 17.0, "quit": true}
+  {"at": 13.0, "shot": "sh_input"},
+  {"at": 13.6, "key": "tab"},
+  {"at": 14.0, "type": "hey"},
+  {"at": 14.6, "key": "enter"},
+  {"at": 15.2, "shot": "hello_input"},
+  {"at": 16.0, "quit": true}
 ]

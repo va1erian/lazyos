@@ -27,7 +27,7 @@ Also run whichever of these matches your change (see `AGENTS.md` for details):
 - graphics or input: `tools/screenshot/qemu_shot.py` / `qemu_session.py`, then
   look at the PNG and run `pngstats.py`;
 - Linux ABI: `python tools/abi/run.py --at 8`;
-- shell or fault handling: `tools/screenshot/examples/dos_shell.json`.
+- shell: `tools/screenshot/examples/fs_demo.json` (BusyBox `sh`).
 
 ## Kernel changes need tests
 

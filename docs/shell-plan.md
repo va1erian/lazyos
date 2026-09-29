@@ -214,8 +214,8 @@ client (`shellprobe`, `apps_demo.json`, `xui_client.json`). Not started: the
 LazyShell process (#157), the `logind` session bundle, and the CodeRabbit
 follow-ups #175/#177/#178. Update: a desktop boot now runs several apps side by
 side and can open a shell window (#215/#216): `LAZYOS_XUI_APPS` + `init`
-autostart, and the `xui-term` Terminal client (in-process `libs/lang` shell, no
-pty yet).
+autostart, and the `xui-term` Terminal client (a pipe-pair front end for
+BusyBox `sh`, issue #254).
 
 ### S5.1 — Files and start menu (M)
 **Goal:** browse and open files from the GUI.

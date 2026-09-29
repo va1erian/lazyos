@@ -1,5 +1,6 @@
 [
   {"at": 6.0, "shot": "prompt"},
+  {"at": 6.5, "key": "tab"},
   {"at": 7.0, "type": "ls"},
   {"at": 7.4, "key": "enter"},
   {"at": 8.4, "shot": "ls"},

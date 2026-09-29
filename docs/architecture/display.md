@@ -85,9 +85,11 @@ compositor demo. Target toolkit design: [xui-plan.md](../xui-plan.md).
   registry launches the `autostart` ones with `linux:PATH --client` (the kernel's
   `spawn` selects the Linux ABI from the `linux:` prefix,
   `kernel/src/process/spawn_line.rs`). The **Terminal** (`xui-term`) is a client
-  that runs the shell's language and REPL in-process (`libs/lang`, the crate
-  behind the native `sh`): there is no pty yet, so it links the interpreter
-  instead of spawning `sh`. Window placement (issue #250) tiles new windows in
+  that spawns BusyBox `sh` as a real child over a pipe pair and parses its
+  output (CR/LF/BS and the CSI sequences its line editor emits) into a character
+  grid (issue #254). There is no controlling tty yet, so it is a pipe-pair
+  terminal rather than a kernel pty. Window placement (issue #250) tiles new
+  windows in
   the first free grid cell and cascades with wraparound once the screen is
   full, so every window keeps at least its title bar visible; the taskbar and
   Alt+Tab switch between them.

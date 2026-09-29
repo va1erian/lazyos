@@ -191,7 +191,8 @@ and no `xdemo`, so the app is the first surface at the top-left. Owner mode
 and `init`'s app registry opens them as `xuid` clients (`XAPPS.LST` names what
 the image ships; a registered app whose ELF is absent is unavailable and never
 logged as a failed launch). `sysmon`/`fabricmon`/`counter` pick client mode via
-`LazyOSBackend::connect`; the new `xui-term` hosts the shell (`libs/lang`).
+`LazyOSBackend::connect`; the new `xui-term` hosts BusyBox `sh` over a pipe
+pair (issue #254).
 Captured by `tools/screenshot/examples/xui_desktop.json` in the `xui-app` job.
 
 **Keyboard focus routing (issue #151)** — the backend now tracks focus stops

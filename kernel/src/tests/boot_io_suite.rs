@@ -228,26 +228,26 @@ fn fat_boot_volume_whole_matches_windows() -> Result<(), String> {
     let volume =
         Fat16::open(boot).ok_or_else(|| String::from("the boot FAT volume did not open"))?;
     let meta = volume
-        .lookup("SH.ELF")
+        .lookup("HELLO.ELF")
         .map_err(|error| format!("lookup: {error:?}"))?;
     let size = meta.size as usize;
     check!(
         size > 8 * SECTOR_SIZE,
-        "SH.ELF is unexpectedly small ({size})"
+        "HELLO.ELF is unexpectedly small ({size})"
     );
     let mut whole = vec![0u8; size];
     check!(
-        volume.read("SH.ELF", 0, &mut whole) == Ok(size),
-        "whole read of SH.ELF came back short"
+        volume.read("HELLO.ELF", 0, &mut whole) == Ok(size),
+        "whole read of HELLO.ELF came back short"
     );
-    check!(&whole[..4] == b"\x7fELF", "SH.ELF lost its ELF magic");
+    check!(&whole[..4] == b"\x7fELF", "HELLO.ELF lost its ELF magic");
 
     let mut assembled = Vec::with_capacity(size);
     let mut window = [0u8; 300];
     let mut offset = 0usize;
     while offset < size {
         let got = volume
-            .read("SH.ELF", offset as u64, &mut window)
+            .read("HELLO.ELF", offset as u64, &mut window)
             .map_err(|error| format!("window at {offset}: {error:?}"))?;
         check!(got > 0, "a window read stalled at {offset}");
         assembled.extend_from_slice(&window[..got]);
@@ -255,7 +255,7 @@ fn fat_boot_volume_whole_matches_windows() -> Result<(), String> {
     }
     check!(
         assembled == whole,
-        "windowed and whole reads of SH.ELF differ"
+        "windowed and whole reads of HELLO.ELF differ"
     );
 
     // Soak: the whole file again and again, plus random ranges.
@@ -263,14 +263,14 @@ fn fat_boot_volume_whole_matches_windows() -> Result<(), String> {
     for round in 0..40 {
         let mut again = vec![0u8; size];
         check!(
-            volume.read("SH.ELF", 0, &mut again) == Ok(size) && again == whole,
+            volume.read("HELLO.ELF", 0, &mut again) == Ok(size) && again == whole,
             "whole re-read {round} differs"
         );
         let offset = (rng.next() as usize) % size;
         let len = 1 + (rng.next() as usize) % 20_000;
         let mut part = vec![0u8; len];
         let got = volume
-            .read("SH.ELF", offset as u64, &mut part)
+            .read("HELLO.ELF", offset as u64, &mut part)
             .map_err(|error| format!("range {round}: {error:?}"))?;
         let end = (offset + len).min(size);
         check!(

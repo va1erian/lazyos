@@ -48,6 +48,14 @@ pub use elf::load;
 #[allow(unused_imports)]
 pub use fd::close_cloexec_fds;
 
+/// Resolve an executable for a native `spawn` of a Linux program: the named FAT
+/// file, the FAT-root basename, or a BusyBox applet alias. `None` when no such
+/// entry exists. `process::spawn_line` uses this so a `linux:sh` command reaches
+/// the BusyBox multiplexer as `argv[0] = "sh"` (issue #254).
+pub fn load_executable(path: &str) -> Option<alloc::vec::Vec<u8>> {
+    path::load_executable(path).ok()
+}
+
 // User memory layout for Linux tasks (kept clear of code and each other).
 /// `brk` region (grows up).
 pub const BRK_BASE: u64 = 0x0100_0000;
@@ -100,6 +108,7 @@ fn syscall_name(nr: u64) -> &'static str {
         33 => "dup2",
         35 => "nanosleep",
         39 => "getpid",
+        40 => "sendfile",
         41 => "socket",
         42 => "connect",
         43 => "accept",
@@ -273,6 +282,7 @@ extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
         // nanosleep(req, rem) is always relative, so the clock is irrelevant.
         35 => time::sys_clock_nanosleep(time::CLOCK_MONOTONIC, 0, a1, a2),
         39 | 186 => task::current() as u64, // getpid/gettid: pid == slot (#59)
+        40 => io::sys_sendfile(a1, a2, a3, a4), // sendfile(out, in, offset, count)
         41 => socket::sys_socket(a1, a2, a3), // socket(domain, type, protocol)
         42 => socket::sys_connect(a1, a2, a3), // connect(fd, addr, len)
         43 => socket::sys_accept(a1, a2, a3, 0), // accept(fd, addr, addrlen)

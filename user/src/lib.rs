@@ -12,8 +12,6 @@ pub mod sys;
 
 pub mod files;
 
-pub mod dos;
-
 pub mod sysinfo;
 
 pub mod messenger;

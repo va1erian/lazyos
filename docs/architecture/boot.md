@@ -35,7 +35,8 @@ and ring-3 programs, packs them into an MBR + FAT boot disk, and launches QEMU.
 | File | Source | Condition |
 |---|---|---|
 | `HELLO.TXT`, `NOTES.TXT` | inline strings | always |
-| `HELLO.ELF`, `SH.ELF` | `user` bins | always |
+| `HELLO.ELF` | `user` bin | always |
+| `BUSYBOX` | `tools/abi/busybox.py` (`BUSYBOX`), the system shell | when built (else boot logs no shell; issue #254) |
 | `MSGCTL.ELF`, `MSGRD.ELF` | `messengerctl`, `messengerd` | always on disk |
 | `SUPER.ELF`, `LOGD.ELF`, `HEALTHD.ELF`, `FLAKY.ELF`, `KEYD.ELF`, `CLIPD.ELF`, `CLIPCP.ELF`, `CLIPPS.ELF` | services | always on disk; `init` starts them |
 | `ACCTD.ELF`, `LOGIND.ELF`, `MIMED.ELF`, `MIME.TYP`, `PASSWD`, `SYSD.ELF`, `TOP.ELF` | accounts/login/MIME/system stats | only when `LAZYOS_SERVICES=1` |
@@ -56,7 +57,7 @@ FAT names are 8.3 because the kernel FAT reader resolves short names only
 |---|---|---|
 | `LAZYOS_TESTS=1` | `lazyos_tests` | In-kernel test suite instead of demo |
 | `LAZYOS_MESSENGERCTL=1` | `messengerctl_demo` | hello window runs `messengerctl` |
-| `LAZYOS_CLI=1` | `cli_mode` | (without `LAZYOS_SERVICES=1`) spawns only `SH.ELF`: one terminal window, no `hello` window |
+| `LAZYOS_CLI=1` | `cli_mode` | (without `LAZYOS_SERVICES=1`) spawns only BusyBox `sh`: one terminal window, no `hello` window |
 | `LAZYOS_MESSENGERD=1` | `messengerd_service` | kernel spawns `MSGRD.ELF` |
 | `LAZYOS_SERVICES=1` | `services_mode` | kernel spawns `SUPER.ELF` (`init`) |
 | `LAZYOS_XUID=1` | `xuid_demo` | spawns `XUID.ELF` + two `XDEMO.ELF` + `DRAGDMO.ELF` |

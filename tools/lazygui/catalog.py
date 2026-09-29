@@ -44,11 +44,7 @@ MODES = [
 SCRIPTS = [
     ("type_and_shot.json", "Type & shot (input smoke test)", (), None),
     ("multitask_demo.json", "Multitask (two windows, Tab focus)", (), None),
-    ("cli_demo.json", "CLI demo (help / box / ball)", (), None),
     ("fs_demo.json", "Filesystem (ls / cat)", (), None),
-    ("user_demo.json", "Ring-3 HELLO.ELF", (), None),
-    ("interp_demo.json", "SH.ELF interpreter", (), None),
-    ("bench.json", "bench command", (), None),
     ("window_demo.json", "Window move / scroll", (), None),
     ("mouse_demo.json", "Mouse move", (), None),
     ("services_demo.json", "Services (health / log / registry)", ("services",), None),

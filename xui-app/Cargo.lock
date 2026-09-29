@@ -175,10 +175,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "lazyos-lang"
-version = "0.1.0"
-
-[[package]]
 name = "libc"
 version = "0.2.189"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -483,7 +479,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 name = "xui-app"
 version = "0.1.0"
 dependencies = [
- "lazyos-lang",
+ "libc",
  "libmessenger",
  "xui-canvas",
  "xui-core",

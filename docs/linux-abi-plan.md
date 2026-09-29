@@ -55,7 +55,9 @@ Two things are structural, not incremental:
 4. **Linux process bootstrap.** Build the Linux start stack (argc/argv/envp/auxv)
    and load a static ELF (segments + `PT_TLS`), passing `AT_PHDR`/`AT_ENTRY`.
    Static musl initialises TLS itself from `PT_TLS` + `mmap` + `arch_prctl`.
-5. **Two program kinds.** Keep the native LazyOS ABI for `SH.ELF`; add a
+5. **Two program kinds.** Keep the native LazyOS ABI (used by the services and
+   `HELLO.ELF`; the native shell was retired in issue #254 in favour of BusyBox
+   `sh`); add a
    "linux" kind with the `syscall` gate and Linux syscall table. The
    multiplexer can host one of each.
 

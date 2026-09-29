@@ -146,7 +146,12 @@ fn prompt_login(
     *next_session += 1;
     let id = *next_session;
     let cred = Cred::new(user.uid, user.gid, SESSION_CAPS, 0, id);
-    let mut command = format!("{} session={} user={}", user.shell, id, user.name).into_bytes();
+    // Start the login shell. The passwd shell field is the bare `sh`
+    // (issue #254): prefixing it with `linux:` selects the Linux ABI, and the
+    // kernel aliases `sh` to the shipped BusyBox. No arguments are passed (the
+    // session identity is already kernel-stamped, and BusyBox would treat a
+    // trailing word as a script name).
+    let mut command = format!("linux:{}", user.shell).into_bytes();
     command.push(0);
     let Some(pid) = sys::spawn_as(&command, &cred) else {
         deny(bus, &name, "spawn-failed");

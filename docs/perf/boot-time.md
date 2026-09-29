@@ -61,7 +61,7 @@ is ELF loading/spawn (0.13 s) and xuid's first composite (0.12 s).
 
 `boot_trace_suite` (TSC ring, soak) and `boot_io_suite` (ATA runs vs single
 reads, bounds, FAT over a hand-built fragmented volume plus whole-vs-windowed
-reads of the real `SH.ELF` with random-range soak, PCI enumeration/priority,
+reads of the real `HELLO.ELF` with random-range soak, PCI enumeration/priority,
 lazy frame cursor and a 3000-frame allocate/free soak). `python tools/test/run.py
 --accel none`: 204 pass, 0 fail.
 
