@@ -41,6 +41,12 @@ use super::{
 };
 use crate::user_ptr;
 
+pub mod harden;
+mod send;
+
+pub use harden::{die_with_segv, restore_frame};
+pub use send::{kill, send_tid};
+
 // Signal numbers (x86_64 Linux). The table is complete on purpose: the
 // dispatcher must classify any number a Linux binary sends, even if no LazyOS
 // code names that signal yet.
@@ -228,8 +234,8 @@ impl SigInfo {
 pub enum SignalError {
     /// No live process with that pid.
     NoSuchProcess,
-    /// The target exists but may not be signalled (init, or another session
-    /// under a stricter credential model; all tasks are root today).
+    /// The target exists but the sender's credentials do not allow signalling
+    /// it (different uid without `CAP_KILL`, or the kernel task).
     NotPermitted,
     /// Bad signal number or bad action.
     Invalid,
@@ -473,9 +479,13 @@ pub fn altstack(slot: usize) -> AltStack {
 
 /// Install an alternate stack. Returns [`SignalError::Invalid`] for a stack
 /// Linux would reject: `SS_DISABLE` is always fine, otherwise the range must be
-/// non-empty and at least [`MINSIGSTKSZ`] bytes.
+/// non-empty, at least [`MINSIGSTKSZ`] bytes, and lie wholly in user space.
 pub fn set_altstack(slot: usize, stack: AltStack) -> Result<(), SignalError> {
-    if stack.enabled && (stack.sp == 0 || stack.size < MINSIGSTKSZ) {
+    if stack.enabled
+        && (stack.sp == 0
+            || stack.size < MINSIGSTKSZ
+            || harden::altstack_top(stack.sp, stack.size).is_none())
+    {
         return Err(SignalError::Invalid);
     }
     let Some((pml4, _)) = slot_info(slot) else {
@@ -491,45 +501,6 @@ pub fn pending(slot: usize) -> u64 {
         return 0;
     };
     with_signals(pml4, |state| state.pending)
-}
-
-/// `kill(pid, sig)` with Linux's pid encoding: positive is a pid, 0 is the
-/// caller's process group, -1 is every process except init, and other negatives
-/// are a process group.
-pub fn kill(caller: usize, pid: i64, sig: u8, info: SigInfo) -> Result<(), SignalError> {
-    if sig as usize >= NSIG {
-        return Err(SignalError::Invalid);
-    }
-    match pid {
-        0 => kill_group(caller, process::pgid_of(caller), sig, info),
-        -1 => kill_all(caller, sig, info),
-        pid if pid < 0 => kill_group(caller, (-pid) as usize, sig, info),
-        pid => {
-            let target = pid as usize;
-            if target == KERNEL_TASK {
-                return if sig == 0 {
-                    Ok(())
-                } else {
-                    Err(SignalError::NotPermitted)
-                };
-            }
-            if slot_info(target).is_none() {
-                return Err(SignalError::NoSuchProcess);
-            }
-            send_to_slot(caller, target, sig, info)
-        }
-    }
-}
-
-/// `tkill(tid, sig)` / `tgkill(tgid, tid, sig)` after the shim validated `tgid`.
-pub fn send_tid(caller: usize, tid: usize, sig: u8, info: SigInfo) -> Result<(), SignalError> {
-    if sig as usize >= NSIG {
-        return Err(SignalError::Invalid);
-    }
-    if tid == KERNEL_TASK || slot_info(tid).is_none() {
-        return Err(SignalError::NoSuchProcess);
-    }
-    send_to_slot(caller, tid, sig, info)
 }
 
 /// The thread group id of a slot: Linux reports the leader's pid, and LazyOS
@@ -554,18 +525,20 @@ pub fn send_to_slot(
     sig: u8,
     info: SigInfo,
 ) -> Result<(), SignalError> {
-    if sig == 0 {
-        return match slot_info(target) {
-            Some(_) => Ok(()),
-            None => Err(SignalError::NoSuchProcess),
-        };
-    }
     if sig as usize >= NSIG {
         return Err(SignalError::Invalid);
     }
     let Some((pml4, _)) = slot_info(target) else {
         return Err(SignalError::NoSuchProcess);
     };
+    // Every sender funnels through here, so this is the one permission gate
+    // (issue #230). `sig == 0` probes existence *and* permission, like Linux.
+    if !send::may_signal(caller, target, sig) {
+        return Err(SignalError::NotPermitted);
+    }
+    if sig == 0 {
+        return Ok(());
+    }
     // A signal to a zombie is dropped, like Linux.
     {
         let tasks = TASKS.lock();
@@ -631,55 +604,6 @@ pub fn send_to_slot(
     // interrupt a blocking syscall. `SIGCHLD` with default ignore stays quiet.
     if !ignored {
         wake_blocked_threads(pml4);
-    }
-    Ok(())
-}
-
-/// `kill(-pgid, sig)`: every task in the group, including the caller's group.
-fn kill_group(caller: usize, pgid: usize, sig: u8, info: SigInfo) -> Result<(), SignalError> {
-    let mut targets = SlotList::new();
-    {
-        let tasks = TASKS.lock();
-        for slot in 1..MAX_TASKS {
-            if tasks[slot]
-                .as_ref()
-                .is_some_and(|task| task.pgid == pgid && task.state != TaskState::Done)
-            {
-                targets.push(slot);
-            }
-        }
-    }
-    if targets.len == 0 {
-        return Err(SignalError::NoSuchProcess);
-    }
-    let mut result = Ok(());
-    for target in targets.iter() {
-        if let Err(error) = send_to_slot(caller, target, sig, info) {
-            result = Err(error);
-        }
-    }
-    result
-}
-
-/// `kill(-1, sig)`: everything but init and the kernel.
-fn kill_all(caller: usize, sig: u8, info: SigInfo) -> Result<(), SignalError> {
-    let mut targets = SlotList::new();
-    {
-        let tasks = TASKS.lock();
-        for slot in 1..MAX_TASKS {
-            if tasks[slot]
-                .as_ref()
-                .is_some_and(|task| task.state != TaskState::Done)
-            {
-                targets.push(slot);
-            }
-        }
-    }
-    if targets.len == 0 {
-        return Err(SignalError::NoSuchProcess);
-    }
-    for target in targets.iter() {
-        let _ = send_to_slot(caller, target, sig, info);
     }
     Ok(())
 }
@@ -890,9 +814,10 @@ fn read_u64(addr: u64) -> u64 {
     unsafe { user_ptr::read::<u64>(addr) }
 }
 
-/// Line up the frame below `stack_top`, leaving the red zone free.
-fn frame_base(stack_top: u64) -> u64 {
-    (stack_top - RED_ZONE - LINUX_FRAME_SIZE) & !0xF
+/// Line up the frame below `stack_top`, leaving the red zone free. `None` when
+/// the stack cannot hold it (tiny `rsp`, or not a user address).
+fn frame_base(stack_top: u64) -> Option<u64> {
+    harden::frame_below(stack_top, RED_ZONE + LINUX_FRAME_SIZE)
 }
 
 /// Build the Linux `rt_sigframe` at the top of `stack_top`. Writes the
@@ -901,7 +826,8 @@ fn frame_base(stack_top: u64) -> u64 {
 /// The action's `sa_mask` composition is done by the caller before it calls
 /// this: `saved_mask` is what `rt_sigreturn` will restore. `mask` and
 /// `saved_mask` are in kernel bit order; both are translated to Linux
-/// `sigset_t` bit order as they are written into the frame.
+/// `sigset_t` bit order as they are written into the frame. `None` when the
+/// frame does not fit below `stack_top`.
 #[allow(clippy::too_many_arguments)] // each field is independently meaningful ABI-frame state
 pub fn build_linux_frame(
     stack_top: u64,
@@ -913,8 +839,8 @@ pub fn build_linux_frame(
     mask: u64,
     saved_mask: u64,
     info: &SigInfo,
-) -> FrameResult {
-    let frame = frame_base(stack_top);
+) -> Option<FrameResult> {
+    let frame = frame_base(stack_top)?;
     write_u64(frame, restorer);
     // ucontext_t.
     write_u64(frame + lf::UC_FLAGS, 0);
@@ -969,45 +895,12 @@ pub fn build_linux_frame(
     // SIG_DFL/SIG_IGN cannot be reached here (the shim replaces them with a
     // Default/Ignore disposition), so `handler` is a real user address.
     let _ = (flags, SIG_DFL, SIG_IGN);
-    FrameResult {
+    Some(FrameResult {
         rip: handler,
         rsp: frame,
         info: si,
         ucontext: frame + lf::UC_FLAGS,
-    }
-}
-
-/// Parse a frame at `user_rsp` (the value `rt_sigreturn` was entered with, i.e.
-/// just above `pretcode`) back into the interrupted registers and the saved
-/// mask, the latter translated from Linux `sigset_t` bit order back to the
-/// kernel's internal order.
-pub fn parse_linux_frame(user_rsp: u64) -> (UserRegs, u64) {
-    let frame = user_rsp.wrapping_sub(8);
-    let mc = frame + lf::MCONTEXT;
-    let regs = UserRegs {
-        r8: read_u64(mc + lf::R8),
-        r9: read_u64(mc + lf::R9),
-        r10: read_u64(mc + lf::R10),
-        r11: read_u64(mc + lf::R11),
-        r12: read_u64(mc + lf::R12),
-        r13: read_u64(mc + lf::R13),
-        r14: read_u64(mc + lf::R14),
-        r15: read_u64(mc + lf::R15),
-        rdi: read_u64(mc + lf::RDI),
-        rsi: read_u64(mc + lf::RSI),
-        rbp: read_u64(mc + lf::RBP),
-        rbx: read_u64(mc + lf::RBX),
-        rdx: read_u64(mc + lf::RDX),
-        rax: read_u64(mc + lf::RAX),
-        rcx: read_u64(mc + lf::RCX),
-        rsp: read_u64(mc + lf::RSP),
-        rip: read_u64(mc + lf::RIP),
-        rflags: read_u64(mc + lf::EFLAGS),
-    };
-    (
-        regs,
-        linux_sigset_to_kernel(read_u64(frame + lf::UC_SIGMASK)),
-    )
+    })
 }
 
 /// Word layout of a native signal frame: return context first, then the
@@ -1019,8 +912,8 @@ const NATIVE_FRAME_SIZE: u64 = NATIVE_FRAME_WORDS * 8;
 /// The handler starts with RSP pointing at `old_rip`, so a bare `ret` returns
 /// to the interrupted instruction (register state is not restored; native
 /// programs have no restorer yet).
-pub fn build_native_frame(stack_top: u64, regs: &UserRegs, sig: u8) -> FrameResult {
-    let frame = ((stack_top - RED_ZONE - NATIVE_FRAME_SIZE) & !0xF).max(RED_ZONE + 16);
+pub fn build_native_frame(stack_top: u64, regs: &UserRegs, sig: u8) -> Option<FrameResult> {
+    let frame = harden::frame_below(stack_top, RED_ZONE + NATIVE_FRAME_SIZE)?;
     write_u64(frame, regs.rip);
     write_u64(frame + 8, regs.rsp);
     write_u64(frame + 16, regs.rflags);
@@ -1032,12 +925,12 @@ pub fn build_native_frame(stack_top: u64, regs: &UserRegs, sig: u8) -> FrameResu
     for (i, value) in gp.iter().enumerate() {
         write_u64(frame + 32 + i as u64 * 8, *value);
     }
-    FrameResult {
+    Some(FrameResult {
         rip: 0, // filled by the caller with the handler address
         rsp: frame,
         info: 0,
         ucontext: 0,
-    }
+    })
 }
 
 /// Parse a native frame back, as a native sigreturn would. Used by the
@@ -1144,22 +1037,29 @@ fn arm_handler(pml4: u64, sig: u8) -> Option<Armed> {
 }
 
 /// Where a handler frame goes: the alternate stack when requested, otherwise
-/// the interrupted stack.
-fn handler_stack_top(regs: &UserRegs, armed: &Armed) -> u64 {
+/// the interrupted stack. `None` for an alternate stack that wraps or leaves
+/// user space (#223).
+fn handler_stack_top(regs: &UserRegs, armed: &Armed) -> Option<u64> {
     if armed.use_altstack {
-        armed.altstack.sp + armed.altstack.size
+        harden::altstack_top(armed.altstack.sp, armed.altstack.size)
     } else {
-        regs.rsp
+        Some(regs.rsp)
     }
 }
 
-/// Write a delivered signal's frame and return the handler entry context.
-fn prepare_handler(regs: &UserRegs, sig: u8, armed: &Armed, native: bool) -> FrameResult {
-    let stack_top = handler_stack_top(regs, armed);
+/// Write a delivered signal's frame and return the handler entry context, or
+/// `None` when no valid frame can be built (bad stack, non-user handler): the
+/// caller then force-terminates the task with `SIGSEGV`, like Linux.
+fn prepare_handler(regs: &UserRegs, sig: u8, armed: &Armed, native: bool) -> Option<FrameResult> {
+    let stack_top = handler_stack_top(regs, armed)?;
+    // A non-canonical entry point would fault `sysretq` in ring 0.
+    if !harden::is_user_addr(armed.handler) {
+        return None;
+    }
     if native {
-        let mut result = build_native_frame(stack_top, regs, sig);
+        let mut result = build_native_frame(stack_top, regs, sig)?;
         result.rip = armed.handler;
-        result
+        Some(result)
     } else {
         build_linux_frame(
             stack_top,
@@ -1176,9 +1076,11 @@ fn prepare_handler(regs: &UserRegs, sig: u8, armed: &Armed, native: bool) -> Fra
 }
 
 /// Copy a frame onto the syscall return path: `sysretq` will resume at
-/// `regs.rip` with the saved general registers reloaded.
-fn apply_linux_frame_syscall(regs: &UserRegs) {
-    crate::arch::linux::set_user_return(regs.rip, regs.rsp, regs.rflags);
+/// `regs.rip` with the saved general registers reloaded. The flags are
+/// sanitised here, the one sink both signal delivery and `rt_sigreturn` use.
+pub(crate) fn apply_linux_frame_syscall(regs: &UserRegs) {
+    let rflags = harden::sanitize_rflags(regs.rflags);
+    crate::arch::linux::set_user_return(regs.rip, regs.rsp, rflags);
     let saved = [
         (0usize, regs.r15),
         (1, regs.r14),
@@ -1200,7 +1102,7 @@ fn apply_linux_frame_syscall(regs: &UserRegs) {
     // the handler's entry state rather than the syscall's.
     let context = crate::arch::linux::UserContext {
         rip: regs.rip,
-        rflags: regs.rflags,
+        rflags,
         rsp: regs.rsp,
         rbx: regs.rbx,
         rbp: regs.rbp,
@@ -1298,7 +1200,9 @@ fn apply_action(pml4: u64, sig: u8, disposition: Disposition, regs: &mut UserReg
             let Some(armed) = arm_handler(pml4, sig) else {
                 return false;
             };
-            let result = prepare_handler(regs, sig, &armed, false);
+            let Some(result) = prepare_handler(regs, sig, &armed, false) else {
+                die_with_segv();
+            };
             regs.rip = result.rip;
             regs.rsp = result.rsp;
             regs.rdi = sig as u64;
@@ -1393,7 +1297,10 @@ pub fn deliver_fault(frame_rsp: u64, rip_index: usize, fault_addr: u64, error: u
     };
     // Safety: the caller passes the base of the exception frame it received.
     let mut regs = unsafe { regs_from_frame(frame_rsp, rip_index) };
-    let result = prepare_handler(&regs, SIGSEGV, &armed, native);
+    // No frame means no handler entry: fall back to the diagnostic halt.
+    let Some(result) = prepare_handler(&regs, SIGSEGV, &armed, native) else {
+        return false;
+    };
     regs.rip = result.rip;
     regs.rsp = result.rsp;
     regs.rdi = SIGSEGV as u64;
@@ -1496,7 +1403,20 @@ pub unsafe fn sweep(tasks: &mut [Option<Task>; MAX_TASKS]) -> ([SweepFinish; MAX
                 break;
             };
             let mut regs = regs_from_frame(rsp, FRAME_RIP_INDEX);
-            let result = prepare_handler(&regs, sig, &armed, kind != Kind::Linux);
+            let Some(result) = prepare_handler(&regs, sig, &armed, kind != Kind::Linux) else {
+                // No frame can be built: end the task like an unhandled
+                // `SIGSEGV`, under the table lock this function already holds.
+                let status = 128 + SIGSEGV as u64;
+                if let Some(parent) = process::finish_locked(tasks, slot, status) {
+                    finished[finished_len] = SweepFinish {
+                        slot,
+                        parent,
+                        status,
+                    };
+                    finished_len += 1;
+                }
+                break;
+            };
             regs.rip = result.rip;
             regs.rsp = result.rsp;
             regs.rdi = sig as u64;
