@@ -51,9 +51,10 @@ static ABI_FS: Mutex<Option<Vfs>> = Mutex::new(None);
 ///
 /// Device selection runs through the block registry (issue #100): every
 /// registered device is tried in order, first as FAT12/16 (the shipped boot
-/// format, read through the FAT reader's active boot device) and then as ext2
-/// (issue #99, which opens the device it is handed). The first open volume
-/// becomes `/`; the default ATA image keeps mounting as FAT.
+/// format) and then as ext2 (issue #99). Both readers open the device they are
+/// handed and keep that handle (issue #244), so a probe on one disk cannot
+/// read from another. The first open volume becomes `/`; the default ATA image
+/// keeps mounting as FAT.
 pub fn init() -> bool {
     let mut global = FS.lock();
     if let Some((_, mounted)) = global.as_ref() {
@@ -63,8 +64,7 @@ pub fn init() -> bool {
     let mut vfs = Vfs::new();
     let mut root: Option<Arc<dyn Filesystem>> = None;
     for device in block::devices() {
-        block::set_boot_device(device);
-        if let Some(volume) = fat::Fat16::open() {
+        if let Some(volume) = fat::Fat16::open(device) {
             root = Some(Arc::new(volume));
             break;
         }
@@ -108,19 +108,15 @@ pub fn init() -> bool {
 }
 
 /// Mount the filesystem on a registered block device at `point`. This is the
-/// `mount <dev>` surface: the active boot device is tried as FAT first (the
-/// shipped read-only format) and then as ext2; every other device is probed
-/// as ext2, because that is the writable volume a caller mounts by name. A
-/// device carrying neither returns [`FsError::NotSupported`].
+/// `mount <dev>` surface: every device is tried as FAT first (the shipped
+/// read-only format) and then as ext2. A device carrying neither returns [`FsError::NotSupported`].
 #[cfg_attr(not(lazyos_tests), allow(dead_code))] // the `mount <dev>` surface
 pub fn mount_device(point: &str, device: &str) -> Result<(), FsError> {
     let device = block::device(device).ok_or(FsError::NotFound)?;
-    let is_boot = block::boot_device().is_some_and(|boot| boot.name() == device.name());
-    if is_boot {
-        if let Some(volume) = fat::Fat16::open() {
-            return with(|vfs| vfs.mount(point, Arc::new(volume)))
-                .unwrap_or(Err(FsError::NotFound));
-        }
+    // A FAT volume is bound to the device it was opened from, so any device
+    // may carry one (issue #244); a non-FAT device fails the BPB checks.
+    if let Some(volume) = fat::Fat16::open(device) {
+        return with(|vfs| vfs.mount(point, Arc::new(volume))).unwrap_or(Err(FsError::NotFound));
     }
     match ext2::Ext2::open(device) {
         Ok(volume) => {
@@ -302,4 +298,16 @@ pub fn abi_rename(id: Id, from: &str, to: &str) -> Result<(), FsError> {
 /// Set the ABI creation mask, returning the previous one (`umask(2)`).
 pub fn abi_set_umask(mask: u16) -> u16 {
     abi_with(|vfs| vfs.set_umask(mask)).unwrap_or(0)
+}
+
+/// Install a fresh Linux ABI mount table backed entirely by ramfs (issue
+/// #229's leak test): the test suite boots without [`init`] having mounted a
+/// boot volume, so the ABI table would otherwise be `None` and no path could
+/// reach `execve`'s load path.
+#[cfg(lazyos_tests)]
+pub fn install_abi_ramfs_for_test() {
+    let mut abi = Vfs::new();
+    let _ = abi.mount("/", Arc::new(ramfs::RamFs::new()));
+    let _ = abi.mount("/tmp", Arc::new(ramfs::RamFs::new()));
+    *ABI_FS.lock() = Some(abi);
 }

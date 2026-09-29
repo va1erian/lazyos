@@ -69,6 +69,10 @@ pub mod sys;
 pub mod wait;
 pub use linux_spawn::{spawn_linux, spawn_linux_child};
 
+mod fs_base;
+
+pub use fs_base::{set_fs_base, valid_fs_base};
+
 /// Slots: 0 is the kernel (multiplexer), 1.. are user programs/threads.
 ///
 /// 64 is a plain constant, not a design: the table, the kernel stacks
@@ -621,14 +625,11 @@ fn spawn_in_space(
         .ok_or("no free task slot")?;
 
     let pml4 = mem::new_user_table().ok_or("out of memory")?;
-    let entry = match user_process::load_image(pml4, elf) {
-        Ok(entry) => entry,
-        Err(err) => {
-            // A partially loaded image still owns its frames: release them.
-            mem::free_user_table(pml4);
-            return Err(err);
-        }
-    };
+    // A load failure returns while the guard is live, releasing the whole
+    // partially built address space instead of leaking its frames.
+    let guard = mem::UserTableGuard::new(pml4);
+    let entry = user_process::load_image(guard.table(), elf)?;
+    guard.commit();
 
     let top = kstack_top(index);
     let rsp = build_user_frame(top, entry, user_process::USER_STACK_TOP - 16);
@@ -689,6 +690,12 @@ pub fn spawn_thread(
     fs_base: u64,
     clear_child_tid: u64,
 ) -> Result<usize, &'static str> {
+    // A non-canonical `%fs` base would fault on `wrmsr` in the context-switch
+    // path (task/mod.rs context switch), which cannot return an error; refuse
+    // it here so the infallible MSR write is safe by construction (issue #222).
+    if !valid_fs_base(fs_base) {
+        return Err("non-canonical user fs base");
+    }
     let mut tasks = TASKS.lock();
     let index = (1..MAX_TASKS)
         .find(|&i| tasks[i].is_none())
@@ -1829,14 +1836,6 @@ pub fn mmap_next() -> u64 {
 /// Set the current address space's anonymous `mmap` bump pointer.
 pub fn set_mmap_next(value: u64) {
     let _ = with_bump(|bump| bump.mmap_next = value);
-}
-
-/// Set the current task's user thread pointer (`%fs` base), programming the CPU.
-pub fn set_fs_base(value: u64) {
-    if let Some(task) = TASKS.lock()[current()].as_mut() {
-        task.fs_base = value;
-    }
-    crate::arch::msr::write(crate::arch::msr::IA32_FS_BASE, value);
 }
 
 /// Allocate the lowest free descriptor (>= 3) for `entry`.

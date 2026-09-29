@@ -18,9 +18,15 @@ use xmas_elf::ElfFile;
 use crate::mem;
 use crate::mem::vma::{Kind, Prot};
 
-/// First address past the user half of the address space; the upper half is
-/// shared with the kernel and must never receive a user mapping.
-pub const USER_LIMIT: u64 = 0x0000_8000_0000_0000;
+/// First address an image may not reach: 512 GiB, the span of PML4 entry 0.
+///
+/// Stricter than the canonical user half on purpose. `new_user_table` copies
+/// PML4 entries 1.. from the kernel, and `free_user_table` reclaims only entry
+/// 0, so a segment under any other entry would be mapped into tables the
+/// teardown never frees: a failed `execve` would leak them (issue #229), and a
+/// shared kernel entry there would be written through. Everything the kernel
+/// itself maps for a program (image, brk, mmap, stack) lives in entry 0.
+pub const USER_LIMIT: u64 = 1 << 39;
 /// Most 4 KiB pages one image may map eagerly (32 MiB).
 pub const MAX_LOAD_PAGES: u64 = 8192;
 /// Most `PT_LOAD` headers accepted; bounds the pairwise overlap check.
@@ -75,7 +81,7 @@ fn plan<'a>(elf_bytes: &'a [u8], reserved: &[(u64, u64)]) -> Result<Plan<'a>, &'
         // No lower bound: musl's static-PIE fixtures are linked at address 0
         // and relocate themselves, so page 0 is a legal load address here.
         if end > USER_LIMIT {
-            return Err("segment outside user address space");
+            return Err("segment outside the loadable range");
         }
         if reserved.iter().any(|&(lo, hi)| start < hi && lo < end) {
             return Err("segment overlaps reserved region");
