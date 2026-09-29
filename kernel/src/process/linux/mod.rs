@@ -22,6 +22,7 @@ use core::sync::atomic::{AtomicBool, Ordering};
 use crate::task;
 
 mod elf;
+mod creds;
 mod epoll;
 mod errno;
 mod fd;
@@ -300,8 +301,14 @@ extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
         89 => pathops::sys_readlink(a1, a2, a3), // readlink
         95 => pathops::sys_umask(a1),        // umask(mask)
         96 => time::sys_gettimeofday(a1),    // gettimeofday(tv, tz)
-        102..=105 => 0,                      // getuid/getgid/geteuid/getegid
-        106 | 107 | 108 | 113 => 0,          // set[re]uid/gid (root-only)
+        102 | 107 => creds::sys_getuid(),    // getuid/geteuid
+        104 | 108 => creds::sys_getgid(),    // getgid/getegid
+        105 => creds::sys_setuid(a1),        // setuid
+        106 => creds::sys_setgid(a1),        // setgid
+        113 => creds::sys_setres(a1, a2, u64::MAX, false), // setreuid
+        114 => creds::sys_setres(a1, a2, u64::MAX, true),  // setregid
+        117 => creds::sys_setres(a1, a2, a3, false),       // setresuid
+        119 => creds::sys_setres(a1, a2, a3, true),        // setresgid
         109 => procctl::sys_setpgid(a1, a2), // setpgid
         110 => task::ppid() as u64,          // getppid
         111 => task::pgid() as u64,          // getpgrp
