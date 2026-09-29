@@ -76,3 +76,26 @@ pub unsafe fn inl(port: u16) -> u32 {
 pub unsafe fn outl(port: u16, value: u32) {
     Port::new(port).write(value)
 }
+
+/// Read `buf.len() / 2` 16-bit words from `port` into `buf` with a single
+/// `rep insw`. Under a hypervisor every port access is a VM exit; a string
+/// instruction lets the emulator service the whole run per exit instead of
+/// one exit per word (a per-word `in` loop costs 256 exits per ATA sector).
+///
+/// # Safety
+/// Same contract as [`inb`], for every word read. `buf.len()` must be even.
+#[inline]
+pub unsafe fn insw_bytes(port: u16, buf: &mut [u8]) {
+    debug_assert!(buf.len().is_multiple_of(2));
+    // SAFETY: `rdi`/`rcx` describe exactly the caller's exclusive slice, and
+    // `rep insw` writes `rcx` words there and nothing else. The direction flag
+    // is clear on entry (the SysV ABI guarantees it), so `rdi` counts upward;
+    // the instruction touches no flags the compiler relies on.
+    core::arch::asm!(
+        "rep insw",
+        in("dx") port,
+        inout("rdi") buf.as_mut_ptr() => _,
+        inout("rcx") buf.len() / 2 => _,
+        options(nostack, preserves_flags),
+    );
+}

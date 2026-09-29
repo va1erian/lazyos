@@ -21,6 +21,7 @@ use core::sync::atomic::{AtomicBool, Ordering};
 
 use crate::task;
 
+mod creds;
 mod elf;
 mod epoll;
 mod errno;
@@ -292,22 +293,28 @@ extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
         63 => misc::sys_uname(a1),
         72 => fd::sys_fcntl(a1, a2, a3), // fcntl(fd, cmd, arg)
         79 => pathops::sys_getcwd(a1, a2),
-        80 => 0,                                 // chdir (root-only)
-        82 => pathops::sys_rename(a1, a2),       // rename
-        83 => pathops::sys_mkdir(a1, a2),        // mkdir
-        84 => pathops::sys_rmdir(a1),            // rmdir
-        87 => pathops::sys_unlink(a1),           // unlink
-        89 => pathops::sys_readlink(a1, a2, a3), // readlink
-        95 => pathops::sys_umask(a1),            // umask(mask)
-        96 => time::sys_gettimeofday(a1),        // gettimeofday(tv, tz)
-        102..=105 => 0,                          // getuid/getgid/geteuid/getegid
-        106 | 107 | 108 | 113 => 0,              // set[re]uid/gid (root-only)
-        109 => procctl::sys_setpgid(a1, a2),     // setpgid
-        110 => task::ppid() as u64,              // getppid
-        111 => task::pgid() as u64,              // getpgrp
-        112 => procctl::sys_setsid(),            // setsid
-        121 => procctl::sys_getpgid(a1),         // getpgid
-        124 => procctl::sys_getsid(a1),          // getsid
+        80 => 0,                                        // chdir (root-only)
+        82 => pathops::sys_rename(a1, a2),              // rename
+        83 => pathops::sys_mkdir(a1, a2),               // mkdir
+        84 => pathops::sys_rmdir(a1),                   // rmdir
+        87 => pathops::sys_unlink(a1),                  // unlink
+        89 => pathops::sys_readlink(a1, a2, a3),        // readlink
+        95 => pathops::sys_umask(a1),                   // umask(mask)
+        96 => time::sys_gettimeofday(a1),               // gettimeofday(tv, tz)
+        102 | 107 => creds::sys_getuid(),               // getuid/geteuid
+        104 | 108 => creds::sys_getgid(),               // getgid/getegid
+        105 => creds::sys_setuid(a1),                   // setuid
+        106 => creds::sys_setgid(a1),                   // setgid
+        113 => creds::sys_setres(&[a1, a2], false),     // setreuid
+        114 => creds::sys_setres(&[a1, a2], true),      // setregid
+        117 => creds::sys_setres(&[a1, a2, a3], false), // setresuid
+        119 => creds::sys_setres(&[a1, a2, a3], true),  // setresgid
+        109 => procctl::sys_setpgid(a1, a2),            // setpgid
+        110 => task::ppid() as u64,                     // getppid
+        111 => task::pgid() as u64,                     // getpgrp
+        112 => procctl::sys_setsid(),                   // setsid
+        121 => procctl::sys_getpgid(a1),                // getpgid
+        124 => procctl::sys_getsid(a1),                 // getsid
         131 => sig::sys_sigaltstack(a1, a2),
         157 => 0, // prctl (accept)
         158 => misc::sys_arch_prctl(a1, a2),

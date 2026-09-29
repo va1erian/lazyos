@@ -11,6 +11,7 @@
 use crate::block::{BlockDevice, SECTOR_SIZE};
 use alloc::string::String;
 use alloc::vec::Vec;
+use spin::Mutex;
 
 use super::vfs::{DirEntry, FileKind, Filesystem, FsError, Id, Meta, S_IFDIR, S_IFREG};
 
@@ -48,6 +49,10 @@ pub struct Fat16 {
     /// pointer and the cap on chain walks (issue #235).
     clusters: u32,
     kind: FatKind,
+    /// The last FAT sector read. A chain walks its entries in cluster order,
+    /// so consecutive lookups almost always land in the same sector; the
+    /// volume is read-only, so the cache can never go stale.
+    fat_cache: Mutex<Option<(u32, [u8; SECTOR_SIZE])>>,
 }
 
 fn le16(buf: &[u8], offset: usize) -> u16 {
@@ -176,6 +181,7 @@ impl Fat16 {
             root_entries,
             clusters: clusters as u32,
             kind,
+            fat_cache: Mutex::new(None),
         })
     }
 
@@ -183,9 +189,17 @@ impl Fat16 {
     pub fn list(&self) -> Vec<Entry> {
         let mut entries = Vec::new();
         let mut offset = 0u32;
+        // One sector holds 16 entries: read it once, not once per entry.
+        let mut loaded: Option<(u32, [u8; SECTOR_SIZE])> = None;
         while offset < self.root_entries as u32 {
             let sector = self.root_lba + offset / 16;
-            let Some(buf) = self.read_sector(sector) else {
+            if loaded.as_ref().is_none_or(|(lba, _)| *lba != sector) {
+                let Some(buf) = self.read_sector(sector) else {
+                    break;
+                };
+                loaded = Some((sector, buf));
+            }
+            let Some((_, buf)) = loaded.as_ref() else {
                 break;
             };
             let index = (offset % 16) as usize * 32;
