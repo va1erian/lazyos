@@ -10,7 +10,12 @@ the serial log, so the same run can be compared across commits.
 Usage
 -----
     python tools/services/evidence.py shots/serial.log
+    python tools/services/evidence.py shots/serial.log --desktop
     python tools/services/evidence.py shots/serial.log --require "MSGCTL:LAUNCH:PASS"
+
+A plain (`LAZYOS_SERVICES=1`) boot is checked for the full demo evidence; a
+`LAZYOS_DESKTOP=1` boot (``--desktop``) is checked only for the markers the
+desktop profile still emits, since it starts no evidence programs.
 """
 
 from __future__ import annotations
@@ -29,6 +34,17 @@ REQUIRED: list[tuple[str, str]] = [
     ("crash restart with backoff", r"^INIT:RESTART:PASS name=\S+ status=\d+ attempt=\d+ delay=\d+$"),
     ("launched app exited", r"^INIT:LAUNCH:EXIT app=\S+ status=\d+$"),
     ("launched app's own marker", r"^SYS:TOP:PASS$"),
+    ("open-with publish fallback", r"^MIME:OPEN:PASS"),
+]
+
+#: Markers a desktop-profile boot (`LAZYOS_DESKTOP=1`, issue #217) still
+#: emits. The profile deliberately leaves the demo/evidence programs out (the
+#: `flaky` crash service, the `top` launch self-test, the clipboard demo pair),
+#: so their markers are only required of a plain `LAZYOS_SERVICES=1` boot.
+DESKTOP: list[tuple[str, str]] = [
+    ("app registry served", r"^INIT:APPS:PASS count=\d+$"),
+    ("shipped apps counted (issue #216)", r"^INIT:APPS:SHIPPED count=\d+$"),
+    ("foreign-session launch denied", r"^INIT:LAUNCH:DENIED:PASS"),
     ("open-with publish fallback", r"^MIME:OPEN:PASS"),
 ]
 
@@ -77,6 +93,11 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("log", help="serial log captured from a services boot")
     parser.add_argument(
+        "--desktop",
+        action="store_true",
+        help="check the LAZYOS_DESKTOP=1 profile, which omits the evidence programs",
+    )
+    parser.add_argument(
         "--require-cli",
         action="store_true",
         help="also fail when the messengerctl boot markers are missing",
@@ -95,7 +116,7 @@ def main() -> int:
         sys.exit(f"serial log not found: {path}")
     text = path.read_text(encoding="utf-8", errors="replace")
 
-    required = list(REQUIRED)
+    required = list(DESKTOP if args.desktop else REQUIRED)
     for pattern in args.require:
         required.append((pattern, pattern))
 

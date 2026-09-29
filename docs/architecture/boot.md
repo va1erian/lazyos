@@ -37,13 +37,15 @@ and ring-3 programs, packs them into an MBR + FAT boot disk, and launches QEMU.
 | `HELLO.TXT`, `NOTES.TXT` | inline strings | always |
 | `HELLO.ELF`, `SH.ELF` | `user` bins | always |
 | `MSGCTL.ELF`, `MSGRD.ELF` | `messengerctl`, `messengerd` | always on disk |
-| `SUPER.ELF`, `LOGD.ELF`, `HEALTHD.ELF`, `FLAKY.ELF`, `KEYD.ELF`, `CLIPD.ELF`, `CLIPCP.ELF`, `CLIPPS.ELF` | services | always on disk; `init` starts them |
-| `ACCTD.ELF`, `LOGIND.ELF`, `MIMED.ELF`, `MIME.TYP`, `PASSWD`, `SYSD.ELF`, `TOP.ELF` | accounts/login/MIME/system stats | only when `LAZYOS_SERVICES=1` |
-| `XUID.ELF`, `XDEMO.ELF` | compositor demo | only when `LAZYOS_XUID=1` |
-| `DRAGDMO.ELF` | drag & drop demo pair | only when `LAZYOS_XUID=1` |
+| `SUPER.ELF`, `LOGD.ELF`, `HEALTHD.ELF`, `KEYD.ELF`, `CLIPD.ELF` | services | always on disk; `init` starts them |
+| `FLAKY.ELF`, `CLIPCP.ELF`, `CLIPPS.ELF` | crash/clipboard evidence programs | embedded, but `init` only starts them outside the desktop profile |
+| `ACCTD.ELF`, `LOGIND.ELF`, `MIMED.ELF`, `MIME.TYP`, `PASSWD`, `SYSD.ELF` | accounts/login/MIME/system stats | only when `LAZYOS_SERVICES=1` (or `LAZYOS_DESKTOP=1`) |
+| `TOP.ELF` | system-stats text client | `LAZYOS_SERVICES=1` only; the desktop profile leaves it out |
+| `XUID.ELF`, `XDEMO.ELF` | compositor demo | only when `LAZYOS_XUID=1` (or `LAZYOS_DESKTOP=1`); `XDEMO.ELF` is dropped in the desktop profile |
+| `DRAGDMO.ELF` | drag & drop demo pair | `LAZYOS_XUID=1`; dropped in the desktop profile |
 | `SHELLPRB.ELF` | shell-protocol evidence client | `LAZYOS_XUID=1` + `LAZYOS_SHELLPROBE=1` |
 | `XAPP.ELF` | `$LAZYOS_XUI_APP` (static musl xui app from `tools/xui/build.py`) | embedded whenever set; spawned only with `LAZYOS_XUID=1` |
-| `XTERM.ELF`, `XSYSMON.ELF`, `XFABMON.ELF`, `XCOUNTR.ELF`, `XAPPS.LST` | `$LAZYOS_XUI_APPS` (path list; `;` on Windows, `:` elsewhere) | each app under its 8.3 name; `XAPPS.LST` lists them (and which `autostart`) for `init`'s registry (#215/#216) |
+| `XTERM.ELF`, `XSYSMON.ELF`, `XFABMON.ELF`, `XCOUNTR.ELF`, `XAPPS.LST` | `$LAZYOS_XUI_APPS` (path list; `;` on Windows, `:` elsewhere), or the desktop default set when unset | each app under its 8.3 name; `XAPPS.LST` lists them (and which `autostart`) for `init`'s registry (#215/#216) |
 | `INIT.ELF` | `$LAZYOS_INIT` | ABI bench hook |
 | `BUSYBOX` | `$LAZYOS_BUSYBOX` | Linux shim demo |
 
@@ -64,6 +66,7 @@ FAT names are 8.3 because the kernel FAT reader resolves short names only
 | `LAZYOS_XUI_APP=<path>` | `xui_app` | (with `LAZYOS_XUID=1`) boots `XAPP.ELF` as the display owner *instead of* `xuid`/`xdemo` |
 | `LAZYOS_XUI_CLIENT=1` | `xui_client` | (with the two above) boots `xuid` plus `XAPP.ELF` as a compositor client; no `xdemo` |
 | `LAZYOS_XUI_APPS=<paths>` | `xui_desktop` | (with `LAZYOS_XUID=1` + `LAZYOS_XUI_CLIENT=1`) the desktop session: the kernel boots only `xuid`; `init` (`LAZYOS_SERVICES=1`) opens the embedded apps as clients, so several run side by side. `LAZYOS_XUI_AUTOSTART=term,sysmon` picks which (default all, `none` disables) |
+| `LAZYOS_DESKTOP=1` | `services_mode`, `xuid_demo`, `xui_desktop`, `lazyos_desktop` | The desktop profile (issue #217): one switch for the whole recipe. It implies `LAZYOS_SERVICES` + `LAZYOS_XUID`; the root build script embeds the default xui app set (`target/xui/xui-{term,sysmon,fabricmon,counter}.elf`, overridable with `LAZYOS_XUI_APPS`; a missing default app fails the build), and `init` starts only the real session — no `flaky`, clipboard demo pair or `top` launch self-test (`lazyos_desktop` drops their ELFs and manifest rows too) |
 
 **Invariants / decisions**
 

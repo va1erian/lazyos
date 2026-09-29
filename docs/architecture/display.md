@@ -84,7 +84,9 @@ compositor demo. Target toolkit design: [xui-plan.md](../xui-plan.md).
   apps (`XTERM/XSYSMON/XFABMON/XCOUNTR.ELF` + `XAPPS.LST`) and `init`'s app
   registry launches the `autostart` ones with `linux:PATH --client` (the kernel's
   `spawn` selects the Linux ABI from the `linux:` prefix,
-  `kernel/src/process/spawn_line.rs`). The **Terminal** (`xui-term`) is a client
+  `kernel/src/process/spawn_line.rs`). The whole recipe is the single
+  `LAZYOS_DESKTOP=1` switch (issue #217), which also drops the demo/evidence
+  programs. The **Terminal** (`xui-term`) is a client
   that runs the shell's language and REPL in-process (`libs/lang`, the crate
   behind the native `sh`): there is no pty yet, so it links the interpreter
   instead of spawning `sh`. Window placement (issue #250) tiles new windows in

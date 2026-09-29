@@ -67,9 +67,9 @@ See [processes.md](processes.md) and [display.md](display.md).
 | `init` / `messengerd` | `SUPER` / `MSGRD.ELF` | Supervisor (manifest, spawn/wait, restart backoff, app registry + `Launch`; `XAPPS.LST` decides which registered apps the image ships, and `autostart` rows open at boot as the desktop's apps, #215/#216) / bootstrap registry proxy and topics broker | kernel / `init` |
 | `logd` / `healthd` | `LOGD` / `HEALTHD.ELF` | Hash-chained event log / retained `system/health/*` aggregation | `init` |
 | `keyd` / `accountsd` / `logind` | `KEYD` / `ACCTD` / `LOGIND.ELF` | Secrets and crypto (#102) / accounts (#101) / console login and credentialed spawn | `init` |
-| `clipboardd` / `mimed` / `flaky` | `CLIPD` / `MIMED` / `FLAKY.ELF` | Per-session clipboard (#115) / MIME and open-with (#116) / crash-test service (#93) | `init` |
-| `clipcopy` / `clippaste` / `messengerctl` | `CLIPCP` / `CLIPPS` / `MSGCTL.ELF` | Clipboard demo pair (#115) / fabric+services views (#70/#89/#93) | `clipboardd`, kernel flag |
-| `sysmond` / `top` | `SYSD` / `TOP.ELF` | System-stats service over syscall 14 with `system/stats/*` topics / one-shot text client (#144); services image only | `init` / `sysmond` (`demo=1`) or `init` `Launch` |
+| `clipboardd` / `mimed` / `flaky` | `CLIPD` / `MIMED` / `FLAKY.ELF` | Per-session clipboard (#115) / MIME and open-with (#116) / crash-test service (#93, never started by `LAZYOS_DESKTOP=1`) | `init` |
+| `clipcopy` / `clippaste` / `messengerctl` | `CLIPCP` / `CLIPPS` / `MSGCTL.ELF` | Clipboard demo pair (#115, `demo=1` only) / fabric+services views (#70/#89/#93) | `clipboardd`, kernel flag |
+| `sysmond` / `top` | `SYSD` / `TOP.ELF` | System-stats service over syscall 14 with `system/stats/*` topics / one-shot text client (#144); services image only, `top` left out of `LAZYOS_DESKTOP=1` | `init` / `sysmond` (`demo=1`) or `init` `Launch` |
 | `sh` / `hello` / `xuid` / `xdemo` | `SH` / `HELLO` / `XUID` / `XDEMO.ELF` | Native interpreter with DOS-style commands (`dos.rs`: `dir cd type copy del ren mkdir exec mem reboot shutdown`, #6) / demo / compositor and display demo (#113) | kernel |
 | `faultprobe` | `FAULTPRB.ELF` | Deliberate ring-3 faults (`exec FAULTPRB.ELF null\|kernel\|priv\|div\|ud`, #7) | shell |
 | `dragdemo` / `shellprobe` | `DRAGDMO` / `SHELLPRB.ELF` | Drag & drop evidence pair (#145) / shell-protocol evidence client (#167); `LAZYOS_XUID=1` images | kernel |
@@ -81,6 +81,8 @@ rest `Always`, and rapid crashes back off up to `MAX_RESTARTS = 5`.
 
 **Status.** Working: all bins build; services boot under `LAZYOS_SERVICES=1`
 (the manifest fills the 16-slot task table, which is why the drag & drop and
-shell-probe demos only boot without it); sync and async Messenger APIs plus
+shell-probe demos only boot without it), and the `LAZYOS_DESKTOP=1` profile
+(#217) runs the same services plus the compositor and its apps while keeping the
+demo/evidence programs out; sync and async Messenger APIs plus
 generated stubs have host tests. Open: async examples wiring, IDL coverage
 beyond the echo sample, `router` removal once every service is on `central`.
