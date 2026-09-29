@@ -94,56 +94,66 @@ impl Canvas {
         self.height
     }
 
-    /// Write one pixel if it is inside the canvas and the clip rectangle.
-    fn pixel(&mut self, x: i32, y: i32, color: Color, clip: Rect) {
-        if x < clip.x
-            || y < clip.y
-            || x >= clip.x + clip.w
-            || y >= clip.y + clip.h
-            || x < 0
-            || y < 0
-            || x >= self.width
-            || y >= self.height
-        {
-            return;
+    /// `rect` clipped to `clip` and the canvas bounds; empty when nothing of
+    /// it is visible. Every drawing routine clips once through here, so the
+    /// per-row loops below never need a bounds check per pixel.
+    fn visible(&self, rect: Rect, clip: Rect) -> Rect {
+        let bounds = Rect::new(0, 0, self.width, self.height);
+        let r = clip_to(clip_to(rect, clip), bounds);
+        if r.is_empty() {
+            Rect::default()
+        } else {
+            r
         }
-        let at = ((y * self.width + x) * 4) as usize;
-        // Safety: bounds were checked against the canvas geometry.
-        unsafe {
-            self.base.add(at).write(color.r);
-            self.base.add(at + 1).write(color.g);
-            self.base.add(at + 2).write(color.b);
-            self.base.add(at + 3).write(0xff);
+    }
+
+    /// The bytes of `w` pixels starting at `(x, y)`, or an empty slice when
+    /// the span is not entirely inside the canvas. Callers pass spans from
+    /// [`Canvas::visible`], so the check is a backstop, not the fast path.
+    fn row_mut(&mut self, x: i32, y: i32, w: i32) -> &mut [u8] {
+        if w <= 0 || x < 0 || y < 0 || y >= self.height || x.saturating_add(w) > self.width {
+            return &mut [];
         }
+        let at = (y as usize * self.width as usize + x as usize) * 4;
+        // SAFETY: the span lies within row `y` of the `width * height * 4`
+        // byte mapping `new` was promised, and `&mut self` guarantees no
+        // other reference to it exists for the slice's lifetime.
+        unsafe { core::slice::from_raw_parts_mut(self.base.add(at), w as usize * 4) }
     }
 
     /// Fill `rect` with `color`, clipped to `clip`.
     pub fn fill(&mut self, rect: Rect, clip: Rect, color: Color) {
-        for y in rect.y..rect.y + rect.h {
-            for x in rect.x..rect.x + rect.w {
-                self.pixel(x, y, color, clip);
+        let r = self.visible(rect, clip);
+        let px = [color.r, color.g, color.b, 0xff];
+        for y in r.y..r.y + r.h {
+            for dst in self.row_mut(r.x, y, r.w).chunks_exact_mut(4) {
+                dst.copy_from_slice(&px);
             }
         }
     }
 
     /// Copy a tightly packed RGBA8 source image into `dst`, clipped to
     /// `clip`. `src_w` is the source row length in pixels; rows and columns
-    /// past the source are ignored.
+    /// past the source are ignored. The destination is always opaque.
     pub fn blit(&mut self, src: &[u8], src_w: i32, src_h: i32, dst: Rect, clip: Rect) {
-        for row in 0..dst.h {
-            if row >= src_h {
+        if src_w <= 0 || src_h <= 0 {
+            return;
+        }
+        // Only the part of `dst` the source can cover is drawn.
+        let covered = Rect::new(dst.x, dst.y, dst.w.min(src_w), dst.h.min(src_h));
+        let r = self.visible(covered, clip);
+        for y in r.y..r.y + r.h {
+            let start = ((y - dst.y) as usize * src_w as usize + (r.x - dst.x) as usize) * 4;
+            // A truncated source buffer ends the row early.
+            let avail = src.len().saturating_sub(start) / 4;
+            let n = (r.w as usize).min(avail);
+            if n == 0 {
                 break;
             }
-            for col in 0..dst.w {
-                if col >= src_w {
-                    break;
-                }
-                let at = ((row * src_w + col) * 4) as usize;
-                if at + 3 >= src.len() {
-                    break;
-                }
-                let color = Color::rgb(src[at], src[at + 1], src[at + 2]);
-                self.pixel(dst.x + col, dst.y + row, color, clip);
+            let row = self.row_mut(r.x, y, n as i32);
+            row.copy_from_slice(&src[start..start + n * 4]);
+            for px in row.chunks_exact_mut(4) {
+                px[3] = 0xff;
             }
         }
     }
@@ -152,58 +162,97 @@ impl Canvas {
     /// pixel size of one font pixel (1 = 5x7, 2 = 10x14).
     pub fn text(&mut self, x: i32, y: i32, text: &str, color: Color, clip: Rect, scale: i32) {
         let scale = scale.max(1);
+        let visible = self.visible(clip, clip);
         let mut pen = x;
         for ch in text.chars() {
-            if ch == ' ' {
-                pen += font::ADVANCE * scale;
-                continue;
-            }
-            if let Some(glyph) = font::glyph(ch) {
-                for (col, bits) in glyph.iter().enumerate() {
-                    for row in 0..font::H {
-                        if bits & (1 << row) != 0 {
-                            self.fill(
-                                Rect::new(pen + col as i32 * scale, y + row * scale, scale, scale),
-                                clip,
-                                color,
-                            );
-                        }
-                    }
+            let glyph_box = Rect::new(pen, y, 5 * scale, font::H * scale);
+            if !visible.intersect(glyph_box).is_empty() {
+                if let Some(glyph) = font::glyph(ch) {
+                    self.glyph(pen, y, glyph, color, clip, scale);
                 }
             }
             pen += font::ADVANCE * scale;
         }
     }
 
-    /// Draw the mouse cursor sprite with its top-left at `(x, y)`.
-    ///
-    /// A black outline is drawn first, then the white body, so the cursor
-    /// stays visible over both bright and dark pixels.
-    pub fn cursor(&mut self, x: i32, y: i32, clip: Rect) {
-        for row in 0..8i32 {
-            for col in 0..8i32 {
-                if font::CURSOR[row as usize] & (0x80 >> col) == 0 {
+    /// Draw one glyph as horizontal runs, one fill per run of set pixels in
+    /// a glyph row instead of one per pixel.
+    fn glyph(&mut self, x: i32, y: i32, glyph: &[u8; 5], color: Color, clip: Rect, scale: i32) {
+        for row in 0..font::H {
+            let mut col = 0usize;
+            while col < glyph.len() {
+                if glyph[col] & (1 << row) == 0 {
+                    col += 1;
                     continue;
                 }
-                self.fill(
-                    Rect::new(x + col - 1, y + row - 1, 3, 3),
-                    clip,
-                    Color::rgb(0, 0, 0),
+                let start = col;
+                while col < glyph.len() && glyph[col] & (1 << row) != 0 {
+                    col += 1;
+                }
+                let run = Rect::new(
+                    x + start as i32 * scale,
+                    y + row * scale,
+                    (col - start) as i32 * scale,
+                    scale,
                 );
+                self.fill(run, clip, color);
             }
         }
-        for row in 0..8i32 {
-            for col in 0..8i32 {
-                if font::CURSOR[row as usize] & (0x80 >> col) != 0 {
-                    self.fill(
-                        Rect::new(x + col, y + row, 1, 1),
-                        clip,
-                        Color::rgb(240, 240, 240),
-                    );
+    }
+
+    /// Draw the mouse cursor sprite with its top-left at `(x, y)`.
+    ///
+    /// A black outline surrounds the white body, so the cursor stays
+    /// visible over both bright and dark pixels. The 10x10 sprite (body
+    /// plus one pixel of outline on every side) is composed per row from bit
+    /// masks and written with a single clip.
+    pub fn cursor(&mut self, x: i32, y: i32, clip: Rect) {
+        const SIZE: i32 = 10;
+        let r = self.visible(Rect::new(x - 1, y - 1, SIZE, SIZE), clip);
+        for py in r.y..r.y + r.h {
+            let sy = (py - (y - 1)) as usize;
+            let (outline, body) = cursor_masks(sy);
+            let first = (r.x - (x - 1)) as usize;
+            let row = self.row_mut(r.x, py, r.w);
+            for (i, dst) in row.chunks_exact_mut(4).enumerate() {
+                let bit = 1u16 << (first + i);
+                if body & bit != 0 {
+                    dst.copy_from_slice(&[240, 240, 240, 0xff]);
+                } else if outline & bit != 0 {
+                    dst.copy_from_slice(&[0, 0, 0, 0xff]);
                 }
             }
         }
     }
+}
+
+/// `rect` intersected with `clip`, without overflowing on extreme extents.
+fn clip_to(rect: Rect, clip: Rect) -> Rect {
+    let x0 = rect.x.max(clip.x);
+    let y0 = rect.y.max(clip.y);
+    let x1 = rect.x.saturating_add(rect.w).min(clip.x.saturating_add(clip.w));
+    let y1 = rect.y.saturating_add(rect.h).min(clip.y.saturating_add(clip.h));
+    Rect::new(x0, y0, (x1 - x0).max(0), (y1 - y0).max(0))
+}
+
+/// The `(outline, body)` column masks of row `sy` (0..10) of the 10x10
+/// cursor sprite; bit `c` is sprite column `c`. The body is the 8x8
+/// [`font::CURSOR`] shifted one pixel in; the outline is that body dilated
+/// by one pixel in every direction.
+fn cursor_masks(sy: usize) -> (u16, u16) {
+    let body_row = |r: usize| -> u16 {
+        // Sprite column c (1..=8) holds CURSOR bit 0x80 >> (c - 1).
+        let bits = font::CURSOR[r] as u16;
+        (0..8).fold(0, |m, col| if bits & (0x80 >> col) != 0 { m | 1 << (col + 1) } else { m })
+    };
+    let body = if (1..=8).contains(&sy) { body_row(sy - 1) } else { 0 };
+    let mut outline = 0u16;
+    // Cursor row `r` spreads its outline over sprite rows r..=r+2.
+    for r in sy.saturating_sub(2)..=sy.min(7) {
+        let b = body_row(r);
+        outline |= b | (b << 1) | (b >> 1);
+    }
+    (outline, body)
 }
 
 /// The 5x7 bitmap font used for decorations and demo text.
