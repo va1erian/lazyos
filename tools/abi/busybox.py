@@ -43,6 +43,12 @@ MANUAL = ROOT / "tools" / "abi" / "busybox"
 # Container image for the Docker build. Alpine is musl-native, so a plain `gcc`
 # produces a static musl binary without `musl-gcc` or the Debian header dance.
 DOCKER_IMAGE = "alpine:3.20"
+# The image runs x86-64 guests, so an ARM host (Apple Silicon, Windows on Arm)
+# must not silently get the native ARM variant of the container.
+DOCKER_PLATFORM = "linux/amd64"
+# Upper bound for pull + `apk add` + compile; a stalled pull or a wedged build
+# must not block image provisioning forever.
+DOCKER_TIMEOUT_SECONDS = 1800
 
 # The host's kernel headers are not on musl's include path. These two Debian
 # locations supply `linux/*.h` and the `asm/*.h` it includes; a host without
@@ -197,22 +203,48 @@ _DOCKER_SCRIPT = (
 )
 
 
+def _is_x86_64_elf(path: Path) -> bool:
+    """Whether `path` is an ELF64 executable for x86-64 (`e_machine` 0x3e)."""
+    with path.open("rb") as handle:
+        header = handle.read(20)
+    return len(header) == 20 and header[:5] == b"\x7fELF\x02" and header[18:20] == b"\x3e\x00"
+
+
 def _docker_compile() -> bool:
     """Build the fetched source tree in an Alpine container (bind-mounted, so
     the binary lands in `SOURCE` on the host)."""
+    name = f"lazyos-busybox-{os.getpid()}"
     cmd = [
-        "docker", "run", "--rm",
+        "docker", "run", "--rm", "--name", name,
+        f"--platform={DOCKER_PLATFORM}",
         "-v", f"{SOURCE}:/src",
         "-w", "/src",
         DOCKER_IMAGE, "sh", "-c", _DOCKER_SCRIPT,
     ]
-    print(f"busybox: building in a {DOCKER_IMAGE} container", file=sys.stderr)
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    print(f"busybox: building in a {DOCKER_IMAGE} ({DOCKER_PLATFORM}) container", file=sys.stderr)
+    try:
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=DOCKER_TIMEOUT_SECONDS
+        )
+    except subprocess.TimeoutExpired:
+        # `run` kills the client, not the container: remove it so a retry can
+        # reuse the name and no build keeps running in the background.
+        subprocess.run(["docker", "rm", "-f", name], capture_output=True)
+        print(f"busybox: docker build timed out after {DOCKER_TIMEOUT_SECONDS}s", file=sys.stderr)
+        return False
     if result.returncode != 0:
         print("busybox: docker build failed", file=sys.stderr)
         print(result.stderr[-2000:], file=sys.stderr)
         return False
-    return (SOURCE / "busybox").is_file()
+    built = SOURCE / "busybox"
+    if not built.is_file():
+        return False
+    if not _is_x86_64_elf(built):
+        # Never cache a wrong-architecture binary for an x86-64 image.
+        print("busybox: docker produced a non-x86-64 binary; discarding", file=sys.stderr)
+        built.unlink()
+        return False
+    return True
 
 
 def _build_native() -> bool:
