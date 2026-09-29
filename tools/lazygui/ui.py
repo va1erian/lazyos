@@ -8,9 +8,11 @@ import shutil
 import tkinter as tk
 from tkinter import filedialog, ttk
 
-from .catalog import (ACCELS, CARGO, MODES, PY, ROOT, SCRIPTS, XUI_VIEWERS,
-                      build_env, build_plan, cargo_step, format_plan)
+from .catalog import (ACCELS, CARGO, MODES, PY, ROOT, SCRIPTS, SIMPLE_BUILDS,
+                      SIMPLE_INTERFACES, XUI_VIEWERS, build_env, build_plan,
+                      cargo_step, format_plan, simple_config)
 from .runner import Runner, open_path
+from .simple import build_simple_tab, simple_choice
 
 
 class Launcher:
@@ -29,7 +31,8 @@ class Launcher:
         self._on_mode()
         self._log("LazyOS Launcher ready.\n", "ok")
         self._log(f"root:   {ROOT}\npython: {PY}\ncargo:  {CARGO}\n", "dim")
-        self._log("Pick a mode, set the configuration, then press Run.\n", "dim")
+        self._log("Simple: pick Debug/Release and CLI/Desktop, then Start. "
+                  "Advanced: pick a mode, set the configuration, then press Run.\n", "dim")
 
     # ---------------------------------------------------------------- state
     def _make_vars(self) -> dict:
@@ -61,6 +64,8 @@ class Launcher:
             "xui_client": b(value=False),
             "xui_app": s(value="(none)"),
             "script": s(value=SCRIPTS[0][1]),
+            "simple_build": s(value=SIMPLE_BUILDS[0][0]),
+            "simple_iface": s(value=SIMPLE_INTERFACES[0][0]),
         }
 
     @staticmethod
@@ -76,7 +81,15 @@ class Launcher:
         return ""
 
     def cfg(self) -> dict:
-        """Snapshot the controls into the plain dict catalog.build_plan expects."""
+        """The configuration for the active tab (Simple choices or Advanced controls)."""
+        if self.notebook.select() == str(self.tab_simple):
+            profile, iface = simple_choice(self.v["simple_build"].get(),
+                                           self.v["simple_iface"].get())
+            return simple_config(self._advanced_cfg(), profile, iface)
+        return self._advanced_cfg()
+
+    def _advanced_cfg(self) -> dict:
+        """Snapshot the Advanced controls into the dict catalog.build_plan expects."""
         names = [n for n in SCRIPTS if n[1] == self.v["script"].get()]
         return {
             "mode": self.v["mode"].get(),
@@ -118,7 +131,15 @@ class Launcher:
         right = ttk.Frame(split)
         split.add(left, weight=0)
         split.add(right, weight=1)
-        self._build_left(self._scrollable(left))
+        self.notebook = ttk.Notebook(left)
+        self.notebook.pack(fill="both", expand=True)
+        self.tab_simple = ttk.Frame(self.notebook)
+        tab_adv = ttk.Frame(self.notebook)
+        self.notebook.add(self.tab_simple, text="Simple")
+        self.notebook.add(tab_adv, text="Advanced")
+        build_simple_tab(self.tab_simple, self.v["simple_build"],
+                         self.v["simple_iface"], self._run)
+        self._build_left(self._scrollable(tab_adv))
         self._build_right(right)
 
     def _build_left(self, parent: ttk.Frame) -> None:
@@ -273,6 +294,7 @@ class Launcher:
         """Wire selection/trace callbacks and the polling timer."""
         self.cmb_mode.bind("<<ComboboxSelected>>", lambda e: self._on_mode())
         self.cmb_script.bind("<<ComboboxSelected>>", lambda e: self._on_script())
+        self.notebook.bind("<<NotebookTabChanged>>", lambda e: self._update_plan())
         for var in self.v.values():
             var.trace_add("write", lambda *_: self._update_plan())
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)

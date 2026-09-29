@@ -194,6 +194,8 @@ fn main() {
     // Fabric observability demo switch (issue #70): the kernel boots the
     // `messengerctl` tool (`MSGCTL.ELF`) in the hello window when this is set.
     println!("cargo:rerun-if-env-changed=LAZYOS_MESSENGERCTL");
+    // CLI mode switch: the kernel boots only `sh` (no `hello` window).
+    println!("cargo:rerun-if-env-changed=LAZYOS_CLI");
     // Registry daemon switch (issue #89): the kernel starts `messengerd`
     // (`MESSENGERD.ELF`) when this is set.
     println!("cargo:rerun-if-env-changed=LAZYOS_MESSENGERD");

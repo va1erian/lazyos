@@ -159,7 +159,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         // name is 8.3: the kernel FAT reader has no long-name support.
         #[cfg(all(messengerctl_demo, not(services_mode)))]
         spawn_program("messengerctl", "MSGCTL.ELF");
-        #[cfg(all(not(messengerctl_demo), not(services_mode)))]
+        #[cfg(all(not(messengerctl_demo), not(services_mode), not(cli_mode)))]
         spawn_program("hello", "HELLO.ELF");
         #[cfg(not(services_mode))]
         spawn_program("sh", "SH.ELF");

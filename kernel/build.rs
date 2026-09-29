@@ -31,6 +31,15 @@ fn main() {
         println!("cargo:rustc-cfg=messengerctl_demo");
     }
 
+    // CLI mode switch: `LAZYOS_CLI=1` boots only the native shell (`SH.ELF`)
+    // in a single mux window, dropping the `hello` demo window.
+    // Ignored in services mode, where `init` owns the session.
+    println!("cargo:rerun-if-env-changed=LAZYOS_CLI");
+    println!("cargo:rustc-check-cfg=cfg(cli_mode)");
+    if env::var_os("LAZYOS_CLI").as_deref() == Some(std::ffi::OsStr::new("1")) {
+        println!("cargo:rustc-cfg=cli_mode");
+    }
+
     // Registry daemon switch (issue #89): `LAZYOS_MESSENGERD=1` makes the
     // normal demo boot `messengerd` (`MESSENGERD.ELF`), which claims the
     // bootstrap channel and serves registry requests.
