@@ -19,10 +19,12 @@ const AT_EMPTY_PATH: u64 = 0x1000;
 const AT_STATX_FORCE_SYNC: u64 = 0x2000;
 const AT_STATX_DONT_SYNC: u64 = 0x4000;
 
-/// The fields `statx` claims for every file: no timestamps.
-const STATX_CLAIMED: u32 = 0x1 | 0x2 | 0x4 | 0x8 | 0x10 | 0x100 | 0x200 | 0x400;
-/// `STATX_ATIME | STATX_BTIME | STATX_CTIME | STATX_MTIME`.
-const STATX_TIMES: u32 = 0x20 | 0x800 | 0x80 | 0x40;
+/// The fields `statx` claims for every file: everything but birth time (no
+/// backend records it).
+const STATX_CLAIMED: u32 =
+    0x1 | 0x2 | 0x4 | 0x8 | 0x10 | 0x20 | 0x40 | 0x80 | 0x100 | 0x200 | 0x400;
+/// `STATX_BTIME`, the one field that is never claimed.
+const STATX_BTIME: u32 = 0x800;
 const STATX_RESERVED: u64 = 0x8000_0000;
 
 /// A decoded `struct statx`.
@@ -65,6 +67,12 @@ impl Statx {
     fn blocks(&self) -> u64 {
         self.u64(48)
     }
+    /// `(atime, ctime, mtime)` seconds: `statx_timestamp` is {i64 sec, u32 nsec,
+    /// i32 pad} at 64, 96 and 112 (birth time is 80).
+    fn times(&self) -> (i64, i64, i64) {
+        let sec = |at| self.u64(at) as i64;
+        (sec(64), sec(96), sec(112))
+    }
 }
 
 /// `statx(dirfd, path, flags, mask)`: the decoded reply, or the raw error.
@@ -90,8 +98,21 @@ fn statx_path(path: &str) -> Result<Statx, u64> {
     statx(AT_FDCWD, &cstr(path), 0, 0x7ff)
 }
 
+/// `stat`'s `(st_atime, st_ctime, st_mtime)` seconds for `path`.
+fn stat_times(path: &str) -> Result<(i64, i64, i64), String> {
+    let stat = stat_bytes(path)?;
+    let sec = |at: usize| i64::from_le_bytes(stat[at..at + 8].try_into().unwrap());
+    Ok((sec(72), sec(104), sec(88)))
+}
+
 /// `stat`'s `st_ino` for `path`.
 fn stat_ino(path: &str) -> Result<u64, String> {
+    let stat = stat_bytes(path)?;
+    Ok(u64::from_le_bytes(stat[8..16].try_into().unwrap()))
+}
+
+/// The raw `struct stat` of `path`.
+fn stat_bytes(path: &str) -> Result<[u8; 144], String> {
     let mut stat = [0u8; 144];
     let ret = syscall(
         SYS_STAT,
@@ -101,17 +122,22 @@ fn stat_ino(path: &str) -> Result<u64, String> {
         0,
     );
     check!(ret == 0, "stat({path}) returned {ret:#x}");
-    Ok(u64::from_le_bytes(stat[8..16].try_into().unwrap()))
+    Ok(stat)
 }
 
 /// A regular file and a directory report what `stat` does, plus the fields
-/// `stat` has no room for, and claim no timestamps (birth time included).
+/// `stat` has no room for, and the three timestamps (birth time is not claimed).
 pub fn statx_reports_stat_fields() -> Result<(), String> {
     let data = Data::new(0)?;
     put("/data/s", b"hello world")?;
     let file = statx_path("/data/s").map_err(|code| format!("statx returned {code:#x}"))?;
     check!(file.mask() == STATX_CLAIMED, "mask {:#x}", file.mask());
-    check!(file.mask() & STATX_TIMES == 0, "a timestamp was claimed");
+    check!(file.mask() & STATX_BTIME == 0, "birth time was claimed");
+    check!(
+        file.times() == stat_times("/data/s")?,
+        "statx times {:?} differ from stat",
+        file.times()
+    );
     check!(file.mode() == S_IFREG | 0o644, "mode {:#o}", file.mode());
     check!(file.size() == 11, "size {}", file.size());
     check!(file.blocks() == 1, "blocks {}", file.blocks());
@@ -124,14 +150,19 @@ pub fn statx_reports_stat_fields() -> Result<(), String> {
     );
     check!(file.u32(4) == 4096, "blksize {}", file.u32(4));
     check!(file.ino() == stat_ino("/data/s")?, "ino differs from stat");
-    // Reserved and unclaimed space is zero: attributes, the four timestamps,
-    // device numbers and the alignment fields.
+    // Reserved and unclaimed space is zero: attributes, the birth time, the
+    // nanosecond and padding halves of the stamps, device numbers and the
+    // alignment fields.
     check!(
         file.0[8..16].iter().all(|b| *b == 0),
         "attributes are not zero"
     );
+    let claimed_seconds = [64..72, 96..104, 112..120];
+    let unclaimed = |at: usize| !claimed_seconds.iter().any(|range| range.contains(&at));
     check!(
-        file.0[56..256].iter().all(|b| *b == 0),
+        (56..256)
+            .filter(|at| unclaimed(*at))
+            .all(|at| file.0[at] == 0),
         "the tail is not zeroed"
     );
 
