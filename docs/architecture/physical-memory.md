@@ -7,11 +7,13 @@ surface used by every address space.
 
 | Path | Role |
 |---|---|
-| `kernel/src/mem/mod.rs` | `Frames` allocator, paging helpers, COW, teardown |
+| `kernel/src/mem/frames.rs` | `Frames` allocator and frame refcounts |
+| `kernel/src/mem/uspace.rs` | User tables, COW, teardown, `demand_fault`/`cow_fault` |
+| `kernel/src/mem/mod.rs` | Kernel tables, `init`, re-exports |
 | `kernel/src/mem/vma.rs` | Per-address-space VMA list (see [virtual-memory.md](virtual-memory.md)) |
 | `kernel/src/mem/heap.rs`, `slab.rs` | Kernel allocators (see [allocators.md](allocators.md)) |
 
-**Allocator model** (`Frames`, `mem/mod.rs:52`)
+**Allocator model** (`Frames`, `mem/frames.rs`)
 
 - A `u32` refcount side table, one entry per 4 KiB frame up to the highest usable
   address, plus an intrusive free list threaded through free frames themselves.
