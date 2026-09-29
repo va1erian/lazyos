@@ -136,7 +136,8 @@ fn plan<'a>(elf_bytes: &'a [u8], reserved: &[(u64, u64)]) -> Result<Plan<'a>, &'
 /// runs) with the protection the ELF header asks for: read always, write only
 /// for `PF_W`, execute only for `PF_X`. Each segment is recorded as a `File`
 /// VMA so `munmap`/`mprotect` and diagnostics see the same layout the hardware
-/// does. A page shared by two segments keeps the first one's protection.
+/// does. A page shared by two segments gets the union of their protections
+/// (PTE and VMA alike), so neither segment faults on its own accesses.
 ///
 /// On error `table` may hold a partial image; the caller owns it and frees it
 /// with [`mem::free_user_table`].
@@ -148,10 +149,21 @@ pub fn load_segments(
     let plan = plan(elf_bytes, reserved)?;
     // Page base -> backing frame; a map so per-page lookups stay logarithmic.
     let mut pages: BTreeMap<u64, u64> = BTreeMap::new();
+    // Current protection per page, and the pages two segments share.
+    let mut prots: BTreeMap<u64, Prot> = BTreeMap::new();
+    let mut shared: Vec<u64> = Vec::new();
 
     for segment in &plan.segments {
         for va in (segment.start..segment.end).step_by(PAGE as usize) {
-            if pages.contains_key(&va) {
+            if let Some(current) = prots.get_mut(&va) {
+                let union = *current | segment.prot;
+                if union != *current {
+                    if !mem::protect_range(table, va, va + PAGE, union) {
+                        return Err("failed to widen shared page");
+                    }
+                    *current = union;
+                }
+                shared.push(va);
                 continue;
             }
             let phys = mem::alloc_zeroed_frame().ok_or("out of memory")?;
@@ -165,9 +177,15 @@ pub fn load_segments(
                 return Err("failed to map segment");
             }
             pages.insert(va, phys.as_u64());
+            prots.insert(va, segment.prot);
         }
         copy_segment(&pages, segment);
         mem::vma::insert(table, segment.start, segment.end, segment.prot, Kind::File);
+    }
+    // Segment VMAs were inserted whole; restate the shared pages with the
+    // union the PTEs now carry.
+    for va in shared {
+        mem::vma::insert(table, va, va + PAGE, prots[&va], Kind::File);
     }
     Ok(plan.entry)
 }

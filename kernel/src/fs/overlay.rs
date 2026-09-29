@@ -75,7 +75,9 @@ impl Overlay {
     pub fn with_limits(lower: Arc<dyn Filesystem>, max_bytes: usize, max_nodes: usize) -> Overlay {
         Overlay {
             lower,
-            upper: RamFs::unbounded(),
+            // The upper layer enforces the byte/node cap itself, atomically under
+            // its own lock, so concurrent writers cannot race past the check.
+            upper: RamFs::with_limits(max_bytes, max_nodes),
             whiteouts: Mutex::new(BTreeSet::new()),
             max_bytes,
             max_nodes,

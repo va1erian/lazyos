@@ -253,6 +253,17 @@ pub fn loader_maps_valid_image_exactly() -> Result<(), String> {
             raw_entry(table, 0x40_5000).is_none(),
             "page past the image is mapped"
         );
+        // The page text and data share must carry both segments' rights, in
+        // the PTE and in the VMA.
+        let shared = raw_entry(table, 0x40_1000).ok_or("shared page unmapped")?;
+        check!(shared & PTE_WRITABLE != 0, "shared page is not writable");
+        check!(shared & (1 << 63) == 0, "shared page lost execute");
+        let vma = mem::vma::find(table, 0x40_1800).ok_or("no VMA on shared page")?;
+        check!(
+            vma.prot.has_write() && vma.prot.has_exec(),
+            "shared page VMA is {:?}",
+            vma.prot
+        );
         let vmas = mem::vma::list(table);
         check!(
             vmas.iter().any(|v| v.start == 0x40_0000),

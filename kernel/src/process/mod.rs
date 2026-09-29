@@ -111,8 +111,8 @@ pub mod loader;
 pub mod power;
 pub mod spawn_line;
 
-pub use loader::load_segments;
 use credio::{read_cred, write_cred};
+pub use loader::load_segments;
 
 /// Base of the user heap (grows up toward the stack).
 pub const USER_HEAP_BASE: u64 = 0x60_0000;

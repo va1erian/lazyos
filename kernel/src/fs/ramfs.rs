@@ -202,16 +202,23 @@ impl RamFs {
         Ok(())
     }
 
-    /// Whether `target` is `root` or lies anywhere below it.
-    fn is_within(inner: &Inner, root: u64, target: u64) -> bool {
-        let mut stack = alloc::vec![root];
+    /// Whether `target` is `root` or lies anywhere below it. The traversal
+    /// stack grows fallibly: a nearly full heap is `NoSpace`, not an abort.
+    fn is_within(inner: &Inner, root: u64, target: u64) -> Result<bool, FsError> {
+        let mut stack: Vec<u64> = Vec::new();
+        stack.try_reserve(1).map_err(|_| FsError::NoSpace)?;
+        stack.push(root);
         while let Some(ino) = stack.pop() {
             if ino == target {
-                return true;
+                return Ok(true);
             }
-            stack.extend_from_slice(&inner.nodes[&ino].children);
+            let children = &inner.nodes[&ino].children;
+            stack
+                .try_reserve(children.len())
+                .map_err(|_| FsError::NoSpace)?;
+            stack.extend_from_slice(children);
         }
-        false
+        Ok(false)
     }
 
     /// Create a node and link it into its parent.
@@ -406,7 +413,7 @@ impl Filesystem for RamFs {
         }
         // A directory cannot move beneath itself: that would detach the
         // subtree into a cycle unreachable from the root.
-        if inner.nodes[&source].kind == FileKind::Dir && Self::is_within(&inner, source, to_parent)
+        if inner.nodes[&source].kind == FileKind::Dir && Self::is_within(&inner, source, to_parent)?
         {
             return Err(FsError::Invalid);
         }
