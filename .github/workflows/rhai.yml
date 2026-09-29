@@ -89,33 +89,21 @@ jobs:
         if: steps.rhai.outputs.built == 'true'
         run: python tools/abi/busybox.py
 
-      # BusyBox `sh` on this kernel can still die at an idle prompt after
-      # several command lines (a wild jump in the shell, reproducible without
-      # rhai and unrelated to this job), so the console run gets fresh boots
-      # up to three times. A failed *marker* is never retried away: `--fail-on`
-      # ends a boot at once and the last attempt's failure fails the job.
+      # One boot, no retries: a shell that dies (`user: task N killed by`, the
+      # #375 wild jump that used to be retried away here) fails the job, and
+      # the kernel's fatal-fault report in serial.log says why. A failed
+      # marker ends the boot at once through `--fail-on`.
       - name: Guest run on the console (commands, pipelines, REPL)
         if: steps.rhai.outputs.built == 'true'
         shell: bash
         env:
           LAZYOS_CLI: "1"
         run: |
-          set -uo pipefail
+          set -euo pipefail
           cargo build
-          for attempt in 1 2 3; do
-            rm -rf shots/rhai
-            if python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/rhai \
-                 --timeout 300 --script tools/screenshot/examples/rhai_demo.json \
-                 --fail-on "RHAI:[a-z]+:FAIL" --fail-on "user: task [0-9]+ killed by"; then
-              break
-            fi
-            mkdir -p shots/failed && cp -r shots/rhai "shots/failed/attempt$attempt"
-            if grep -aq '^RHAI:[a-z]*:FAIL' shots/rhai/serial.log; then
-              echo "::error::a rhai check failed"; grep -a '^RHAI:' shots/rhai/serial.log; exit 1
-            fi
-            [ "$attempt" -eq 3 ] && { echo "::error::rhai console run failed 3 times"; exit 1; }
-            echo "::warning::attempt $attempt did not finish (shell died?); rebooting"
-          done
+          python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/rhai \
+            --timeout 300 --script tools/screenshot/examples/rhai_demo.json \
+            --fail-on "RHAI:[a-z]+:FAIL" --fail-on "user: task [0-9]+ killed by"
           grep -a "^RHAI:" shots/rhai/serial.log | sort -u
           # Every check must have reported PASS at least once.
           test "$(grep -ac '^RHAI:[a-z]*:PASS' shots/rhai/serial.log)" -ge 25
@@ -177,5 +165,4 @@ jobs:
             shots/rhai_desktop/*.png
             shots/rhai_desktop/serial.log
             shots/rhai_desktop/summary.json
-            shots/failed/**
           if-no-files-found: warn
