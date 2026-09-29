@@ -107,10 +107,14 @@ pub(super) fn for_each_entry(
         .min_by_key(|surface| surface.id)
     {
         last_id = surface.id;
-        let width = entry_width(surface);
-        if x + width > screen_w - ENTRY_MARGIN {
+        // A long title is truncated to the space left (its text is clipped to
+        // the entry) so later windows stay reachable; stop only when not even
+        // a minimum-width entry fits.
+        let room = screen_w - ENTRY_MARGIN - x;
+        if room < ENTRY_MIN_W {
             break;
         }
+        let width = entry_width(surface).min(room);
         visit(surface, Rect::new(x, y, width, ENTRY_H));
         x += width + ENTRY_GAP;
     }
