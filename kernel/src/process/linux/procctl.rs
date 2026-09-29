@@ -11,7 +11,7 @@ use crate::task::process::GroupError;
 use crate::task::{self, WakeReason};
 use crate::user_ptr;
 
-use super::elf::{build_start_stack, phdr_size, program_header_addr};
+use super::elf::{build_start_stack, phdr_size, program_header_addr, LOAD_RESERVED};
 use super::errno::{
     err, fs_err, ECHILD, EFAULT, EINTR, EINVAL, ENOENT, ENOEXEC, ENOMEM, ENOSYS, EPERM, ESRCH,
 };
@@ -185,9 +185,13 @@ pub(super) fn sys_execve(path_ptr: u64, argv_ptr: u64, envp_ptr: u64) -> u64 {
     let Some(table) = crate::mem::new_user_table() else {
         return err(ENOMEM);
     };
-    let entry = match load_segments(table, &elf) {
+    let entry = match load_segments(table, &elf, &LOAD_RESERVED) {
         Ok(entry) => entry,
-        Err(_) => return err(ENOEXEC),
+        Err(_) => {
+            // A partial image owns frames; the old image is still in place.
+            crate::mem::free_user_table(table);
+            return err(ENOEXEC);
+        }
     };
     let stack = match map_range_kind(
         table,
@@ -197,7 +201,10 @@ pub(super) fn sys_execve(path_ptr: u64, argv_ptr: u64, envp_ptr: u64) -> u64 {
         Kind::Stack,
     ) {
         Ok(stack) => stack,
-        Err(_) => return err(ENOMEM),
+        Err(_) => {
+            crate::mem::free_user_table(table);
+            return err(ENOMEM);
+        }
     };
     let phdr = program_header_addr(&elf);
     let (phent, phnum) = phdr_size(&elf);

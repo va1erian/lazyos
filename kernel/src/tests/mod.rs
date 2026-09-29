@@ -136,6 +136,7 @@ mod ipc_channel_suite;
 mod ipc_shared_suite;
 mod ipc_suite;
 mod linux_suite;
+mod loader_suite;
 mod mem_suite;
 mod messenger_suite;
 mod overlay_suite;
@@ -163,6 +164,7 @@ const SUITE: &[&[(&str, Test)]] = &[
     task_suite::CASES,
     pipe_suite::CASES,
     linux_suite::CASES,
+    loader_suite::CASES,
     sched_suite::CASES,
     signal_suite::CASES,
     fault_suite::CASES,

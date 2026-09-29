@@ -14,7 +14,7 @@ const EINVAL: i64 = 22;
 pub fn lseek_overflow_and_past_eof() -> Result<(), String> {
     fresh()?;
     let fd = task::fd_open(task::Fd::File {
-        data: b"hello".to_vec(),
+        data: alloc::sync::Arc::new(b"hello".to_vec()),
         offset: 0,
     })
     .ok_or("fd_open failed")?;

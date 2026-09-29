@@ -62,6 +62,8 @@ pub mod introspect;
 mod linux_spawn;
 pub mod process;
 pub mod signal;
+mod snapshot;
+pub use snapshot::prepare_fd_write;
 pub mod switch;
 pub mod sys;
 pub mod wait;
@@ -295,7 +297,8 @@ pub enum Fd {
     /// stdin/stdout/stderr (and `/dev/tty`): the task's own terminal.
     Terminal,
     /// A regular file: contents read at open time plus the current offset.
-    File { data: Vec<u8>, offset: usize },
+    /// The `Arc` snapshot is shared by `dup`/`fork` and copied on first write.
+    File { data: Arc<Vec<u8>>, offset: usize },
     /// One end of an anonymous pipe (`pipe`/`pipe2`).
     Pipe { pipe: Arc<Pipe>, end: End },
     /// One side of an `AF_UNIX` socket pair (`socketpair` or an accepted
@@ -2235,12 +2238,10 @@ pub fn fd_apply_write(fd: usize, offset: usize, data: &[u8]) -> bool {
     else {
         return false;
     };
-    let end = offset.saturating_add(data.len());
-    if end > buf.len() {
-        buf.resize(end, 0);
+    if !snapshot::write_at(buf, offset, data) {
+        return false;
     }
-    buf[offset..end].copy_from_slice(data);
-    *pos = end;
+    *pos = offset + data.len(); // cannot overflow: `write_at` checked it
     true
 }
 
