@@ -97,11 +97,13 @@ fn untouched(buffer: &[u8], what: &str) -> Result<(), String> {
 }
 
 mod epoll_and_fs;
+mod overflow_guards;
 mod pointer_validation;
 mod teardown_and_credentials;
 mod user_limits;
 
 pub(super) use epoll_and_fs::*;
+pub(super) use overflow_guards::*;
 pub(super) use pointer_validation::*;
 pub(super) use teardown_and_credentials::*;
 pub(super) use user_limits::*;
@@ -187,6 +189,14 @@ pub(super) const CASES: &[(&str, Test)] = &[
     (
         "hardening_soak_bounded_user_counts",
         soak_bounded_user_counts,
+    ),
+    (
+        "hardening_lseek_overflow_and_past_eof",
+        lseek_overflow_and_past_eof,
+    ),
+    (
+        "hardening_mmap_family_rejects_overflowing_lengths",
+        mmap_family_rejects_overflowing_lengths,
     ),
     // Last: on the code as merged this one recurses until the kernel stack
     // overflows, which would take the rest of the suite with it.

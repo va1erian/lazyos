@@ -935,11 +935,7 @@ pub fn close_endpoint(handle: u64) -> Result<(), Error> {
 /// With `last_holder_only` the side is only marked closed when no other handle
 /// in any table still names it: name resolution hands every client a handle to
 /// the same side, so a client that exits must not fail its siblings' calls.
-pub fn close_endpoint_for(
-    slot: usize,
-    handle: u64,
-    last_holder_only: bool,
-) -> Result<(), Error> {
+pub fn close_endpoint_for(slot: usize, handle: u64, last_holder_only: bool) -> Result<(), Error> {
     let entry = handles::get_for_task(slot, handle).map_err(from_handles)?;
     if entry.kind != HandleKind::Channel {
         return Err(Error::WrongKind);

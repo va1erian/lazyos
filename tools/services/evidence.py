@@ -23,12 +23,20 @@ from pathlib import Path
 #: Marker regexes that must appear at least once.
 REQUIRED: list[tuple[str, str]] = [
     ("app registry served", r"^INIT:APPS:PASS count=\d+$"),
+    ("shipped apps counted (issue #216)", r"^INIT:APPS:SHIPPED count=\d+$"),
     ("launch succeeded", r"^INIT:LAUNCH:PASS app=\S+ pid=\d+ session=\d+$"),
     ("foreign-session launch denied", r"^INIT:LAUNCH:DENIED:PASS"),
     ("crash restart with backoff", r"^INIT:RESTART:PASS name=\S+ status=\d+ attempt=\d+ delay=\d+$"),
     ("launched app exited", r"^INIT:LAUNCH:EXIT app=\S+ status=\d+$"),
     ("launched app's own marker", r"^SYS:TOP:PASS$"),
     ("open-with publish fallback", r"^MIME:OPEN:PASS"),
+]
+
+#: Lines that must NOT appear (issue #216): `init` refuses a registered app whose
+#: ELF the image does not ship quietly, so a boot never logs a launch failure
+#: for one (it used to print `init: launch editor failed: EDITOR.ELF`).
+FORBIDDEN: list[tuple[str, str]] = [
+    ("no launch failure for an unshipped app", r"^init: launch \S+ failed"),
 ]
 
 #: Interactive-CLI markers booted with `LAZYOS_MESSENGERCTL=1`. Each note is
@@ -51,6 +59,16 @@ def report(group: str, checks: list[tuple[str, str]], text: str) -> bool:
         count = find(text, pattern)
         status = "PASS" if count else "FAIL"
         ok &= count > 0
+        print(f"{status} {group}: {note} ({count} match(es))")
+    return ok
+
+
+def report_absent(group: str, checks: list[tuple[str, str]], text: str) -> bool:
+    ok = True
+    for note, pattern in checks:
+        count = find(text, pattern)
+        status = "PASS" if not count else "FAIL"
+        ok &= not count
         print(f"{status} {group}: {note} ({count} match(es))")
     return ok
 
@@ -82,6 +100,7 @@ def main() -> int:
         required.append((pattern, pattern))
 
     ok = report("services", required, text)
+    ok &= report_absent("services", FORBIDDEN, text)
     cli_ok = report("cli", CLI, text)
     if args.require_cli:
         ok &= cli_ok

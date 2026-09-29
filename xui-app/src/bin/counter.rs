@@ -18,8 +18,14 @@ use xui_core::{Button, Dip, HasText, Label, Rect};
 /// The kernel seeds the pointer at (400, 300) when the display is bound.
 const POINTER_SEED: (i32, i32) = (400, 300);
 
+/// The window size when a compositor lays the app out (issue #215); as the
+/// display owner it fills the screen instead.
+const WINDOW: (i32, i32) = (400, 260);
+
 enum Msg {
     Bump,
+    /// The compositor asked the window to close (client mode).
+    Close,
 }
 
 struct Counter {
@@ -33,8 +39,12 @@ struct Counter {
 impl App for Counter {
     type Msg = Msg;
 
-    fn update(&mut self, msg: Msg, _ui: &mut Ui<Msg>) {
+    fn update(&mut self, msg: Msg, ui: &mut Ui<Msg>) {
         match msg {
+            Msg::Close => {
+                println!("XUIAPP:CLOSE:PASS");
+                ui.quit();
+            }
             Msg::Bump => {
                 self.count += 1;
                 self.label.set_text(&format!("{} clicks", self.count));
@@ -48,21 +58,29 @@ impl App for Counter {
 }
 
 fn main() {
-    let backend = match LazyOSBackend::new() {
+    let backend = match LazyOSBackend::connect() {
         Ok(backend) => Rc::new(backend),
         Err(code) => {
             println!("XUIAPP:BIND:FAIL:{code}");
             std::process::exit(1);
         }
     };
-    let (width, height) = backend.screen();
+    let (width, height) = backend.window_size(WINDOW);
+    let is_client = backend.is_client();
     backend.on_first_frame(|| println!("XUIAPP:COUNTER:PASS"));
 
     let spec = PlatformSpec::new("xui counter").size(Dip(width as f32), Dip(height as f32));
     let outcome = run_app(Rc::clone(&backend) as Rc<dyn Backend>, spec, |ui| {
-        let client = ui.client_rect();
-        let cx = POINTER_SEED.0.min((client.width() - 8).max(0));
-        let cy = POINTER_SEED.1.min((client.height() - 8).max(0));
+        let area = ui.client_rect();
+        // Owner mode centres on the kernel's pointer seed so a headless click
+        // needs no movement; a client window centres on its own area.
+        let seed = if is_client {
+            (area.width() / 2, area.height() / 2)
+        } else {
+            POINTER_SEED
+        };
+        let cx = seed.0.min((area.width() - 8).max(0));
+        let cy = seed.1.min((area.height() - 8).max(0));
         let label = Label::new(
             ui,
             Rect::new(cx - 140, cy - 100, cx + 140, cy - 40),
@@ -76,6 +94,7 @@ fn main() {
         )
         .expect("button")
         .on_click(|| Some(Msg::Bump));
+        ui.on_close(|| Some(Msg::Close));
         Counter {
             label,
             count: 0,

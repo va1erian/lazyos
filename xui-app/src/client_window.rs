@@ -15,6 +15,8 @@ pub struct ClientState {
     pub events: u64,
     /// The surface id from `CreateSurface` (0 when no window is open).
     pub surface: u64,
+    /// The shared pixel buffer handle (0 when none); closed with the surface.
+    pub buffer: u64,
     /// The shared pixel buffer mapping.
     pub va: u64,
     pub size: u64,
@@ -29,6 +31,7 @@ impl ClientState {
             client,
             events: 0,
             surface: 0,
+            buffer: 0,
             va: 0,
             size: 0,
             rect: (0, 0),
@@ -62,8 +65,8 @@ impl ClientState {
             }
         };
         let size = width as u64 * height as u64 * 4;
-        let va = match self.attach_new_buffer(surface, size) {
-            Ok(va) => va,
+        let (buffer, va) = match self.attach_new_buffer(surface, size) {
+            Ok(pair) => pair,
             Err(message) => {
                 let _ = self.client.destroy_surface(surface);
                 let _ = display::close(events);
@@ -72,20 +75,24 @@ impl ClientState {
         };
         self.events = events;
         self.surface = surface;
+        self.buffer = buffer;
         self.va = va;
         self.size = size;
         self.rect = (width as i32, height as i32);
         Ok(())
     }
 
-    /// Allocate a shared buffer, attach it to `surface`, return its mapping.
-    fn attach_new_buffer(&self, surface: u64, size: u64) -> Result<u64, String> {
+    /// Allocate a shared buffer, attach it to `surface`, return its handle and
+    /// mapping. A failed attach closes the buffer again so it does not count
+    /// against the per-process quota until task exit.
+    fn attach_new_buffer(&self, surface: u64, size: u64) -> Result<(u64, u64), String> {
         let (buffer, va, _) = sys::display_create_buffer(size)
             .map_err(|code| format!("create_buffer: errno {code}"))?;
-        self.client
-            .attach_buffer(surface, buffer, size)
-            .map_err(|code| format!("attach_buffer: errno {code}"))?;
-        Ok(va)
+        if let Err(code) = self.client.attach_buffer(surface, buffer, size) {
+            let _ = sys::display_close_buffer(buffer);
+            return Err(format!("attach_buffer: errno {code}"));
+        }
+        Ok((buffer, va))
     }
 
     /// Destroy the surface and close its event channel, if a window is open.
@@ -97,6 +104,12 @@ impl ClientState {
         if self.events != 0 {
             let _ = display::close(self.events);
             self.events = 0;
+        }
+        if self.buffer != 0 {
+            // The compositor holds its own reference to the attached buffer,
+            // so this only releases the client's mapping and quota charge.
+            let _ = sys::display_close_buffer(self.buffer);
+            self.buffer = 0;
         }
         self.va = 0;
         self.size = 0;

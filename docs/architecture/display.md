@@ -14,7 +14,7 @@ compositor demo. Target toolkit design: [xui-plan.md](../xui-plan.md).
 | `kernel/src/cursor.rs` | Mouse cursor sprite overlay |
 | `kernel/src/input/{keyboard,mouse}.rs` | PS/2 drivers (IRQ1/IRQ12) |
 | `kernel/src/mux.rs` | Terminal multiplexer: paints task windows, Tab focus |
-| `kernel/src/display.rs` | Display device grant, syscall 12, input event queue |
+| `kernel/src/display.rs`, `display/buffers.rs` | Display device grant, syscall 12, input event queue; shared-buffer ops 4-6 |
 | `user/src/bin/xuid.rs`, `xdemo.rs` | Compositor and demo app (issue #113) |
 | `user/src/bin/dragdemo.rs` | Drag & drop demo pair (issue #145) |
 | `user/src/messenger/` (`display` module) | `os.lazy.display.v1` client/server helpers |
@@ -40,6 +40,7 @@ compositor demo. Target toolkit design: [xui-plan.md](../xui-plan.md).
 | 3 | `present` | packed damage `x \| y<<16 \| w<<32 \| h<<48` |
 | 4 | `create_buffer` | in: size; out: `[handle, va, size]` |
 | 5 | `map_buffer` | in: handle; out: `va` |
+| 6 | `close_buffer` | in: handle; unmaps and drops the reference (`-EBADF` if not held, `-EBUSY` for the bound compositor's screen buffer) |
 
 - One owner at a time; the kernel task is refused; `bind` needs `CAP_SYS_ADMIN`
   (`-EPERM` otherwise: the owner sees every pixel and keystroke); every pointer
@@ -76,6 +77,18 @@ compositor demo. Target toolkit design: [xui-plan.md](../xui-plan.md).
   WM (drag, minimize, taskbar, close) runs in `xuid` and works on the app
   window; the session is scripted in
   `tools/screenshot/examples/xui_client.json` and captured by the workflow.
+  Several apps can share one `xuid` session (issues #215/#216): `sysmon`,
+  `fabricmon` and `counter` call `LazyOSBackend::connect` (`xui-app/src/launch.rs`),
+  which is client mode with `--client` and otherwise tries the grant and falls
+  back to client mode when `xuid` holds it. `LAZYOS_XUI_APPS` embeds a list of
+  apps (`XTERM/XSYSMON/XFABMON/XCOUNTR.ELF` + `XAPPS.LST`) and `init`'s app
+  registry launches the `autostart` ones with `linux:PATH --client` (the kernel's
+  `spawn` selects the Linux ABI from the `linux:` prefix,
+  `kernel/src/process/spawn_line.rs`). The **Terminal** (`xui-term`) is a client
+  that runs the shell's language and REPL in-process (`libs/lang`, the crate
+  behind the native `sh`): there is no pty yet, so it links the interpreter
+  instead of spawning `sh`. Window placement is `xuid`'s left-to-right cascade,
+  so big windows overlap; the taskbar and Alt+Tab switch between them.
   Two `xuid` protocol gaps are worked around in the client backend and worth
   tightening later: `PointerDown`/`PointerUp` carry surface-relative
   coordinates but no button id, and `PointerMove` carries screen-absolute

@@ -75,7 +75,12 @@ impl Fat16 {
                 return Some(volume);
             }
         }
-        None
+        // No usable partition: a ramdisk is typically a bare FAT image whose
+        // sector 0 is the BPB itself (issue #5).
+        match read_sector(0) {
+            Some(boot) if boot[510] == 0x55 && boot[511] == 0xAA => Self::parse(0),
+            _ => None,
+        }
     }
 
     fn parse(lba: u32) -> Option<Fat16> {

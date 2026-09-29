@@ -124,8 +124,14 @@ pub fn soak_irq_shared_locks() -> Result<(), String> {
         "{checks} critical sections observed, expected {}",
         ROUNDS * 2
     );
-    check!(irqs_on == 0, "{irqs_on} critical sections ran with interrupts on");
-    check!(lost_if == 0, "{lost_if} rounds returned with interrupts off");
+    check!(
+        irqs_on == 0,
+        "{irqs_on} critical sections ran with interrupts on"
+    );
+    check!(
+        lost_if == 0,
+        "{lost_if} rounds returned with interrupts off"
+    );
     Ok(())
 }
 

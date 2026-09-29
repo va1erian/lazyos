@@ -31,6 +31,7 @@
 //!   op 3 (present):       rsi = packed damage (x | y<<16 | w<<32 | h<<48)
 //!   op 4 (create_buffer): rsi = size, rdx -> [handle, va, size]
 //!   op 5 (map_buffer):    rsi = handle, rdx -> va
+//!   op 6 (close_buffer):  rsi = handle (unmap; -EBADF when not held)
 //! ```
 //!
 //! All ops return 0 or `-errno`. Every pointer argument is validated against the
@@ -52,6 +53,8 @@ use crate::input::keyboard::Key;
 use crate::ipc::{credentials, shared};
 use crate::task;
 use crate::user_ptr;
+
+mod buffers;
 
 /// Sentinel for "no compositor bound".
 const NO_OWNER: usize = usize::MAX;
@@ -156,12 +159,15 @@ pub mod op {
     pub const CREATE_BUFFER: u64 = 4;
     /// Map an existing shared buffer; its address out.
     pub const MAP_BUFFER: u64 = 5;
+    /// Close a shared-buffer handle (unmap + drop the reference).
+    pub const CLOSE_BUFFER: u64 = 6;
 }
 
 /// Errno values, matching the Linux numbering the rest of the native ABI uses.
-mod errno {
+pub(crate) mod errno {
     pub const EPERM: i64 = 1;
     pub const ENOENT: i64 = 2;
+    pub const EBADF: i64 = 9;
     pub const ENOMEM: i64 = 12;
     pub const EFAULT: i64 = 14;
     pub const EBUSY: i64 = 16;
@@ -169,12 +175,12 @@ mod errno {
 }
 
 /// Two's-complement `-errno` in the syscall return register.
-fn negative(code: i64) -> u64 {
+pub(crate) fn negative(code: i64) -> u64 {
     (code as u64).wrapping_neg()
 }
 
 /// Map a shared-buffer failure onto the display vocabulary.
-fn shared_errno(error: shared::Error) -> u64 {
+pub(crate) fn shared_errno(error: shared::Error) -> u64 {
     use shared::Error::*;
     negative(match error {
         InvalidHandle | NotFound => errno::ENOENT,
@@ -240,6 +246,17 @@ pub fn bound() -> bool {
     owner != NO_OWNER && task::live(owner)
 }
 
+/// The screen-buffer handle `slot` holds as the bound compositor, if any.
+///
+/// `close_buffer` refuses it: closing it would leave the grant pointing at a
+/// freed mapping that `present` still blits from.
+pub(crate) fn grant_handle_of(slot: usize) -> Option<u64> {
+    if OWNER.load(Ordering::Relaxed) != slot {
+        return None;
+    }
+    GRANT.lock().as_ref().map(|grant| grant.handle)
+}
+
 /// The syscall entry point (syscall 12); returns 0 or `-errno`.
 pub fn dispatch(op: u64, a1: u64, a2: u64) -> u64 {
     match op {
@@ -247,8 +264,9 @@ pub fn dispatch(op: u64, a1: u64, a2: u64) -> u64 {
         op::UNBIND => unbind(),
         op::INPUT_POLL => input_poll(a1, a2),
         op::PRESENT => present(a1),
-        op::CREATE_BUFFER => create_buffer(a1, a2),
-        op::MAP_BUFFER => map_buffer(a1, a2),
+        op::CREATE_BUFFER => buffers::create_buffer(a1, a2),
+        op::MAP_BUFFER => buffers::map_buffer(a1, a2),
+        op::CLOSE_BUFFER => buffers::close_buffer(a1),
         _ => negative(errno::EINVAL),
     }
 }
@@ -448,52 +466,6 @@ fn present(packed: u64) -> u64 {
     };
     console::with_framebuffer(|fb| fb.blit_rgba_region(pixels, width, height, x, y, x, y, w, h));
     0
-}
-
-/// syscall 12 op 4: create a shared buffer, map it, and report its handle and
-/// address. Used by every app that wants a surface backing store.
-fn create_buffer(size: u64, out_ptr: u64) -> u64 {
-    if out_ptr == 0 {
-        return negative(errno::EFAULT);
-    }
-    if size == 0 {
-        return negative(errno::EINVAL);
-    }
-    let handle = match shared::create(size, shared::flags::READ | shared::flags::WRITE) {
-        Ok(handle) => handle,
-        Err(error) => return shared_errno(error),
-    };
-    let va = match shared::map(handle) {
-        Ok(va) => va,
-        Err(error) => {
-            shared::close(handle).ok();
-            return shared_errno(error);
-        }
-    };
-    let words = [handle, va, size];
-    if user_ptr::try_copy_words(out_ptr, &words).is_err() {
-        // The caller never learns the handle, so give the buffer back rather
-        // than leaking a mapping it cannot name.
-        shared::close(handle).ok();
-        return negative(errno::EFAULT);
-    }
-    0
-}
-
-/// syscall 12 op 5: map a received shared-buffer handle and return its address.
-fn map_buffer(handle: u64, out_ptr: u64) -> u64 {
-    if out_ptr == 0 {
-        return negative(errno::EFAULT);
-    }
-    match shared::map(handle) {
-        Ok(va) => {
-            if user_ptr::try_write::<u64>(out_ptr, va).is_err() {
-                return negative(errno::EFAULT);
-            }
-            0
-        }
-        Err(error) => shared_errno(error),
-    }
 }
 
 /// Queue one event; drops the oldest when the queue is full.

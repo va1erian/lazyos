@@ -220,7 +220,10 @@ impl Keyd {
         if user.is_empty() {
             return Err(Error::Errno(-errno::EINVAL));
         }
-        let known = self.accounts.iter().position(|account| account.user == user);
+        let known = self
+            .accounts
+            .iter()
+            .position(|account| account.user == user);
         if known.is_none() && self.accounts.len() >= MAX_ACCOUNTS {
             return Err(Error::Errno(-errno::ENOMEM));
         }
@@ -503,7 +506,9 @@ fn self_test(keyd: &mut Keyd) -> Result<(), String> {
     keyd.provision("selftest-user", "second")
         .map_err(|error| error.message())?;
     if keyd.verify("selftest-user", "first") || !keyd.verify("selftest-user", "second") {
-        return Err(String::from("provisioned secret did not replace the old one"));
+        return Err(String::from(
+            "provisioned secret did not replace the old one",
+        ));
     }
 
     // A signing key produces a tag and counts its use.
