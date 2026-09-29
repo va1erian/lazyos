@@ -52,10 +52,11 @@
 
 #![allow(dead_code)] // Enforcement call sites land incrementally; the suite exercises the full API today.
 
-use alloc::string::String;
 use alloc::vec::Vec;
-use core::fmt;
 use spin::Mutex;
+
+mod error;
+pub use error::QuotaError;
 
 /// Kinds of metered resource. The discriminant order is the wire order of the
 /// syscall-11 stats block, so append new resources at the end.
@@ -75,11 +76,13 @@ pub enum Resource {
     QueueDepth,
     /// CPU ticks.
     CpuTicks,
+    /// Device claims held by the uid (issue #240).
+    DeviceClaims,
 }
 
 impl Resource {
     /// Number of resources; sizes every per-resource array and the ABI block.
-    pub const COUNT: usize = 7;
+    pub const COUNT: usize = 8;
     /// Every resource, in discriminant order (the ABI order).
     pub const ALL: [Resource; Resource::COUNT] = [
         Resource::KernelMemory,
@@ -89,6 +92,7 @@ impl Resource {
         Resource::QueueBytes,
         Resource::QueueDepth,
         Resource::CpuTicks,
+        Resource::DeviceClaims,
     ];
 
     /// Index into the per-resource arrays.
@@ -106,6 +110,7 @@ impl Resource {
             Resource::QueueBytes => "queued Messenger bytes",
             Resource::QueueDepth => "queued Messenger messages",
             Resource::CpuTicks => "CPU",
+            Resource::DeviceClaims => "device claims",
         }
     }
 
@@ -117,6 +122,7 @@ impl Resource {
             Resource::Fds => "fds",
             Resource::QueueDepth => "messages",
             Resource::CpuTicks => "ticks",
+            Resource::DeviceClaims => "claims",
         }
     }
 }
@@ -134,6 +140,7 @@ pub const DEFAULT_LIMITS: [u64; Resource::COUNT] = [
     4 << 20,   // queued bytes
     1024,      // queued messages
     1 << 32,   // CPU ticks
+    8,         // device claims
 ];
 
 /// The limit table for uid 0. The kernel task and bring-up children run as root
@@ -148,52 +155,6 @@ const fn default_limits(uid: u32) -> [u64; Resource::COUNT] {
         ROOT_LIMITS
     } else {
         DEFAULT_LIMITS
-    }
-}
-
-/// A refused charge: which resource, whose, and how full it was. The friendly
-/// [`QuotaError::message`] carries the same numbers for userspace.
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub struct QuotaError {
-    /// User the charge was for.
-    pub uid: u32,
-    /// Resource that ran out.
-    pub resource: Resource,
-    /// Live usage before the refused charge.
-    pub usage: u64,
-    /// Configured limit.
-    pub limit: u64,
-}
-
-impl QuotaError {
-    /// The friendly, user-facing explanation: resource name plus current usage
-    /// and limit, matching the convention in `docs/security-model.md` (never a
-    /// bare `EPERM`/`ENOSPC`).
-    pub fn message(&self) -> String {
-        alloc::format!(
-            "uid {} is over its {} quota: {} of {} {} in use",
-            self.uid,
-            self.resource.name(),
-            self.usage,
-            self.limit,
-            self.resource.unit()
-        )
-    }
-}
-
-impl fmt::Debug for QuotaError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "QuotaError({}, {:?}, {}/{})",
-            self.uid, self.resource, self.usage, self.limit
-        )
-    }
-}
-
-impl fmt::Display for QuotaError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.message())
     }
 }
 

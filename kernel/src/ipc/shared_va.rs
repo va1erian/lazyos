@@ -25,20 +25,22 @@ struct Span {
     len: u64,
 }
 
-struct Allocator {
+/// A first-fit range allocator over one virtual region. The device core
+/// (issue #240) keeps a second instance for MMIO mappings.
+pub struct Allocator {
     next: u64,
     free: Vec<Span>,
 }
 
 impl Allocator {
-    const fn new() -> Self {
+    pub const fn new(base: u64) -> Self {
         Self {
-            next: BUFFER_VA_BASE,
+            next: base,
             free: Vec::new(),
         }
     }
 
-    fn alloc(&mut self, len: u64) -> u64 {
+    pub fn alloc(&mut self, len: u64) -> u64 {
         if let Some(index) = self.free.iter().position(|span| span.len >= len) {
             let span = &mut self.free[index];
             let start = span.start;
@@ -54,7 +56,7 @@ impl Allocator {
         start
     }
 
-    fn release(&mut self, start: u64, len: u64) {
+    pub fn release(&mut self, start: u64, len: u64) {
         let at = self.free.partition_point(|span| span.start < start);
         self.free.insert(at, Span { start, len });
         // Merge with the following, then the preceding, neighbour.
@@ -78,7 +80,7 @@ impl Allocator {
     }
 }
 
-static ALLOCATOR: Mutex<Allocator> = Mutex::new(Allocator::new());
+static ALLOCATOR: Mutex<Allocator> = Mutex::new(Allocator::new(BUFFER_VA_BASE));
 
 /// Hand out a virtual range for `pages` pages. Never overlaps a range that
 /// has not been released.

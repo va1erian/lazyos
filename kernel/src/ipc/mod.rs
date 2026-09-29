@@ -42,6 +42,10 @@ pub mod unix;
 /// charges were never released, and a shared-buffer mapping recorded against the
 /// dead PML4 was later unmapped through freed page-table memory.
 pub fn teardown_task(slot: usize, table: u64, table_shared: bool) {
+    // Quiesce and release every device the task claimed first (issue #240):
+    // mask its IRQs, stop DMA, unmap MMIO from the dying address space, and free
+    // the device for the next driver, before anything else can observe it.
+    crate::dev::teardown_task(slot, table);
     registry::release_owner(slot);
     for (handle, entry) in handles::entries_for_task(slot) {
         match entry.kind {
@@ -50,7 +54,11 @@ pub fn teardown_task(slot: usize, table: u64, table_shared: bool) {
             }
             // Buffers are closed (and unmapped) by `shared::teardown_task`.
             handles::HandleKind::Buffer => {}
-            handles::HandleKind::Endpoint | handles::HandleKind::Object => {
+            // `dev::teardown_task` already released the claim; this only drops
+            // the leftover handle entry.
+            handles::HandleKind::Endpoint
+            | handles::HandleKind::Object
+            | handles::HandleKind::Device => {
                 let _ = handles::close_for_task(slot, handle);
             }
         }
