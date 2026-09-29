@@ -244,5 +244,6 @@ pub(super) const CASES: &[(&str, Test)] = &[
         sync_all_flushes_every_mount,
     ),
     ("fs_ext2_data_volume_probe", data_volume_probe),
+    ("fs_root_prefers_fat_over_ext2", root_prefers_fat_over_ext2),
     ("fs_ext2_soak_state_generations", soak_state_generations),
 ];
