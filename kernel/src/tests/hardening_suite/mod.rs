@@ -121,6 +121,10 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ),
     ("hardening_user_ptr_edge_cases", user_ptr_edge_cases),
     (
+        "hardening_unterminated_path_is_refused",
+        unterminated_path_is_refused,
+    ),
+    (
         "hardening_soak_user_ptr_validation",
         soak_user_ptr_validation,
     ),

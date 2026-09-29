@@ -271,8 +271,8 @@ const USER_CSTR_MAX: usize = 4096;
 
 /// Read a NUL-terminated string (at most [`USER_CSTR_MAX`] bytes) from
 /// validated user memory. Invalid UTF-8 reads as the empty string, as it
-/// always has; an unmapped or kernel address is a [`user_ptr::Fault`].
-fn user_cstr(ptr: u64) -> Result<String, user_ptr::Fault> {
+/// always has; an unmapped/kernel address or an unterminated string is a Fault.
+pub(crate) fn user_cstr(ptr: u64) -> Result<String, user_ptr::Fault> {
     let bytes = user_ptr::try_cstr(ptr, USER_CSTR_MAX)?;
     Ok(String::from_utf8(bytes).unwrap_or_default())
 }
