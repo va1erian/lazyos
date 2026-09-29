@@ -135,8 +135,29 @@ pub(super) fn mounted(
     block_size: u32,
     total_blocks: u32,
 ) -> Result<(Arc<Ext2>, Vfs, &'static FakeDisk), String> {
+    mounted_in(0, block_size, total_blocks)
+}
+
+/// The suite's reusable test disks. The block layer wants `'static` devices,
+/// so a disk can only be leaked, and the kernel heap is 16 MiB: reformatting
+/// one of a few pooled 512 KiB disks per test keeps the whole suite (and its
+/// soaks) from leaking a disk per call.
+fn pooled_disk(slot: usize) -> &'static FakeDisk {
+    const NAMES: [&str; 3] = ["test-ext2", "test-ext2-b", "test-ext2-c"];
+    static POOL: spin::Mutex<[Option<&'static FakeDisk>; 3]> = spin::Mutex::new([None; 3]);
+    let disk = *POOL.lock()[slot].get_or_insert_with(|| FakeDisk::new(NAMES[slot], DISK_SECTORS));
+    disk.fail_nth_write(u32::MAX); // a failed test must not arm the next one
+    disk
+}
+
+/// [`mounted`] on pooled disk `slot`, for tests that need several volumes.
+pub(super) fn mounted_in(
+    slot: usize,
+    block_size: u32,
+    total_blocks: u32,
+) -> Result<(Arc<Ext2>, Vfs, &'static FakeDisk), String> {
     let image = mkfs(block_size, total_blocks, 64);
-    let disk = FakeDisk::new("test-ext2", DISK_SECTORS);
+    let disk = pooled_disk(slot);
     disk.data.lock().copy_from_slice(&image);
     let fs = Arc::new(Ext2::open(disk).map_err(fs_error)?);
     let mut vfs = Vfs::new();
@@ -144,13 +165,21 @@ pub(super) fn mounted(
     Ok((fs, vfs, disk))
 }
 
+mod fixtures;
 mod format_and_roundtrip;
 mod integrity;
+mod large_files;
 mod persistence;
+mod sync_state;
+mod truncate;
 
+use fixtures::*;
 pub(super) use format_and_roundtrip::*;
 pub(super) use integrity::*;
+pub(super) use large_files::*;
 pub(super) use persistence::*;
+pub(super) use sync_state::*;
+pub(super) use truncate::*;
 
 pub(super) const CASES: &[(&str, Test)] = &[
     (
@@ -174,4 +203,46 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("fs_ext2_mount_device_wiring", mount_device_wiring),
     ("fs_ext2_files_survive_remount", files_survive_remount),
     ("fs_ext2_soak_remount_generations", soak_remount_generations),
+    (
+        "fs_ext2_truncate_shrink_grow_zero",
+        truncate_shrink_grow_zero,
+    ),
+    ("fs_ext2_truncate_across_indirect", truncate_across_indirect),
+    ("fs_ext2_truncate_sparse_files", truncate_sparse_files),
+    ("fs_ext2_truncate_bad_inputs", truncate_bad_inputs),
+    (
+        "fs_ext2_truncate_survives_remount",
+        truncate_survives_remount,
+    ),
+    ("fs_ext2_truncate_crash_sweep", truncate_crash_sweep),
+    (
+        "fs_ext2_double_indirect_boundaries",
+        double_indirect_boundaries,
+    ),
+    (
+        "fs_ext2_double_indirect_contiguous_file",
+        double_indirect_contiguous_file,
+    ),
+    ("fs_ext2_size_cap_is_enforced", size_cap_is_enforced),
+    (
+        "fs_ext2_soak_write_truncate_unlink",
+        soak_write_truncate_unlink,
+    ),
+    ("fs_ext2_soak_fill_and_free_large", soak_fill_and_free_large),
+    ("fs_ext2_state_dirty_then_clean", state_dirty_then_clean),
+    (
+        "fs_ext2_state_unclean_mount_is_not_laundered",
+        state_unclean_mount_is_not_laundered,
+    ),
+    (
+        "fs_ext2_state_marker_write_failures",
+        state_marker_write_failures,
+    ),
+    (
+        "fs_ext2_sync_all_flushes_every_mount",
+        sync_all_flushes_every_mount,
+    ),
+    ("fs_ext2_data_volume_probe", data_volume_probe),
+    ("fs_root_prefers_fat_over_ext2", root_prefers_fat_over_ext2),
+    ("fs_ext2_soak_state_generations", soak_state_generations),
 ];

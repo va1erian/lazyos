@@ -44,7 +44,7 @@ mod time;
 mod uaccess;
 
 pub use elf::load;
-pub(crate) use native::write_redirected;
+pub(crate) use native::{read_redirected, write_redirected};
 // Only the `#[cfg(lazyos_tests)]` harness (`kernel/src/tests.rs`) reaches this
 // through the `process::linux::` path; a normal build never does, hence the
 // otherwise-unused-import warning this silences.
@@ -164,6 +164,7 @@ fn syscall_name(nr: u64) -> &'static str {
         116 => "setgroups",
         121 => "getpgid",
         124 => "getsid",
+        130 => "rt_sigsuspend",
         131 => "sigaltstack",
         157 => "prctl",
         158 => "arch_prctl",
@@ -328,6 +329,7 @@ extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
         112 => procctl::sys_setsid(),                   // setsid
         121 => procctl::sys_getpgid(a1),                // getpgid
         124 => procctl::sys_getsid(a1),                 // getsid
+        130 => sig::sys_rt_sigsuspend(a1, a2),          // rt_sigsuspend(mask, size)
         131 => sig::sys_sigaltstack(a1, a2),
         157 => 0, // prctl (accept)
         158 => misc::sys_arch_prctl(a1, a2),

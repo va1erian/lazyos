@@ -17,6 +17,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 PY = sys.executable
 CARGO = shutil.which("cargo") or "cargo"
 IMAGE = os.path.join(ROOT, "target", "lazyos.img")
+# The persistent ext2 data volume; `run_demo.py` creates it on first use.
+DATA_IMAGE = os.path.join(ROOT, "target", "data.img")
 
 MODES = [
     ("Interactive demo",
@@ -183,6 +185,12 @@ def build_plan(cfg: dict) -> list[dict]:
             argv.append("--headless")
         argv += ["--accel", cfg["accel"], "--memory", cfg["memory"],
                  "--disk", cfg.get("disk", "virtio")]
+        # Only the interactive demo persists state; the scripted modes stay
+        # hermetic unless a script asks for a volume itself.
+        if cfg.get("data_disk", True):
+            argv += ["--data-disk", cfg.get("data_path") or DATA_IMAGE]
+        else:
+            argv.append("--no-data-disk")
         if cfg["qemu"]:
             argv += ["--qemu", cfg["qemu"]]
         if cfg["extra"]:

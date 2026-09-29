@@ -208,11 +208,12 @@ pub fn create_write_read_rename_unlink() -> Result<(), String> {
         "an over-long name was accepted"
     );
 
-    // flush reaches the device and stamps the superblock.
+    // flush reaches the device (twice on a dirty volume: once for the data,
+    // once for the clean marker that must follow it).
     let before = disk.flushes.load(Ordering::Relaxed);
     fs.flush().map_err(fs_error)?;
     check!(
-        disk.flushes.load(Ordering::Relaxed) == before + 1,
+        disk.flushes.load(Ordering::Relaxed) == before + 2,
         "flush did not reach the block device"
     );
     Ok(())
@@ -255,7 +256,7 @@ pub fn rename_over_existing_replaces() -> Result<(), String> {
     let before = disk.flushes.load(Ordering::Relaxed);
     vfs.flush(root, "/store").map_err(fs_error)?;
     check!(
-        disk.flushes.load(Ordering::Relaxed) == before + 1,
+        disk.flushes.load(Ordering::Relaxed) == before + 2,
         "Vfs::flush did not reach the block device"
     );
     Ok(())

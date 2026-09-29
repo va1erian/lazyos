@@ -15,9 +15,11 @@ use crate::process::linux::native;
 
 mod lifecycle;
 mod soak;
+mod stdin;
 
 use lifecycle::*;
 use soak::*;
+use stdin::*;
 
 /// `-errno` as the syscall ABI returns it.
 fn failed(code: i64) -> u64 {
@@ -174,6 +176,14 @@ pub(super) const CASES: &[(&str, Test)] = &[
     (
         "native_exec_background_program_is_reaped_through_the_shell",
         background_program_is_reaped_through_the_shell,
+    ),
+    (
+        "native_exec_read_char_follows_redirected_stdin",
+        read_char_follows_redirected_stdin,
+    ),
+    (
+        "native_exec_read_char_leaves_seqpacket_messages_intact",
+        read_char_leaves_seqpacket_messages_intact,
     ),
     ("native_exec_soak_spawn_exit_cycles", soak_spawn_exit_cycles),
 ];

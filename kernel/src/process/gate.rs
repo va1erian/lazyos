@@ -117,6 +117,9 @@ extern "C" fn syscall_dispatch(regs: *mut Regs) {
 pub fn dispatch_for_test(nr: u64, a1: u64, a2: u64, a3: u64) -> u64 {
     match nr {
         1 => sys_write(a1, a2),
+        // Only safe to call when the task's stdin is redirected (a terminal
+        // stdin would park on the key queue, which the harness never feeds).
+        2 => sys_read_char(),
         3 => sys_read_file(a1, a2, a3),
         4 => sys_sbrk(a1),
         5 => crate::ipc::syscalls::dispatch(a1, a2, a3),

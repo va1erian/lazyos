@@ -124,6 +124,40 @@ def accel_args(accel: str, qemu: str) -> list[str]:
     return ["-accel", accel]
 
 
+def data_disk_args(path: str | Path) -> list[str]:
+    """QEMU arguments attaching the persistent data volume as virtio-blk.
+
+    It is always a *second*, separate device from the boot disk. QEMU's option
+    parser treats a comma as a separator, so a literal one in the path is
+    doubled.
+    """
+    file = Path(path).resolve().as_posix().replace(",", ",,")
+    return ["-drive", f"format=raw,file={file},if=none,id=data",
+            "-device", "virtio-blk-pci,drive=data"]
+
+
+def add_data_disk_option(parser) -> None:
+    """Add ``--data-disk PATH`` (off by default so CI runs stay hermetic)."""
+    parser.add_argument("--data-disk", metavar="PATH",
+                        help="attach this existing ext2 volume as a second virtio-blk "
+                             "device (create one with `python -m tools.mkdisk PATH`)")
+
+
+def existing_data_disk(value: str | None) -> Path | None:
+    """The ``--data-disk`` file, or exit with a hint if it does not exist.
+
+    The scripted tools never create it: a missing volume is more likely a typo
+    than a request to format a new one.
+    """
+    if not value:
+        return None
+    path = Path(value).resolve()
+    if not path.is_file():
+        raise SystemExit(f"--data-disk not found: {path}\n"
+                         f"Create it with: python -m tools.mkdisk {value}")
+    return path
+
+
 def build_qemu_command(
     qemu: str,
     image: str | None,
@@ -131,6 +165,7 @@ def build_qemu_command(
     serial_log: Path,
     memory: str = "256M",
     extra_args: list[str] | None = None,
+    data_disk: str | Path | None = None,
 ) -> list[str]:
     """Build a headless QEMU command line with a QMP socket and serial log."""
     command = [
@@ -143,6 +178,8 @@ def build_qemu_command(
     ]
     if image:
         command += ["-drive", f"format=raw,file={Path(image).resolve().as_posix()}"]
+    if data_disk:
+        command += data_disk_args(data_disk)
     command += extra_args or []
     return command
 

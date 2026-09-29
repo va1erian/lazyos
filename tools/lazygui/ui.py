@@ -8,8 +8,9 @@ import shutil
 import tkinter as tk
 from tkinter import filedialog, ttk
 
-from .catalog import (ACCELS, DISKS, CARGO, MODES, PY, ROOT, SCRIPTS, SIMPLE_BUILDS,
-                      SIMPLE_INTERFACES, XUI_VIEWERS, build_env, build_plan,
+from . import datavol
+from .catalog import (ACCELS, CARGO, DATA_IMAGE, DISKS, MODES, PY, ROOT, SCRIPTS,
+                      SIMPLE_BUILDS, SIMPLE_INTERFACES, XUI_VIEWERS, build_env, build_plan,
                       cargo_step, format_plan, simple_config)
 from .runner import Runner, open_path
 from .simple import build_simple_tab, simple_choice
@@ -29,6 +30,7 @@ class Launcher:
         self._build()
         self._bind()
         self._on_mode()
+        self._refresh_volume()
         self._log("LazyOS Launcher ready.\n", "ok")
         self._log(f"root:   {ROOT}\npython: {PY}\ncargo:  {CARGO}\n", "dim")
         self._log("Simple: pick Debug/Release and CLI/Desktop, then Start. "
@@ -44,6 +46,7 @@ class Launcher:
             "profile": s(value="dev"),
             "accel": s(value="auto"),
             "disk": s(value="virtio"),
+            "data_path": s(value=DATA_IMAGE),
             "memory": s(value="256M"),
             "times": s(value="10,14,18"),
             "timeout": s(value="180"),
@@ -57,6 +60,7 @@ class Launcher:
             "headless": b(value=False),
             "tablet": b(value=False),
             "abi_build": b(value=False),
+            "data_disk": b(value=True),
             "desktop": b(value=False),
             "services": b(value=False),
             "xuid": b(value=False),
@@ -98,6 +102,8 @@ class Launcher:
             "profile": self.v["profile"].get(),
             "accel": self.v["accel"].get(),
             "disk": self.v["disk"].get(),
+            "data_path": self.v["data_path"].get().strip(),
+            "data_disk": self.v["data_disk"].get(),
             "memory": self.v["memory"].get().strip(),
             "times": self.v["times"].get().strip(),
             "timeout": self.v["timeout"].get().strip(),
@@ -180,6 +186,10 @@ class Launcher:
         self.cmb_script.pack(fill="x", padx=6, pady=(4, 2))
         ttk.Label(self.g_test, text="Selecting a script applies the build switches it needs.",
                   foreground="#666").pack(fill="x", padx=6, pady=(0, 6))
+
+        g = self._group(parent, "Data volume (persistent ext2 disk)")
+        self.lbl_volume = datavol.build_group(g, self.v["data_path"], self.v["data_disk"],
+                                              self._reset_volume)
 
         g = self._group(parent, "Run options")
         row = ttk.Frame(g); row.pack(fill="x", padx=6, pady=2)
@@ -303,6 +313,7 @@ class Launcher:
         self.cmb_mode.bind("<<ComboboxSelected>>", lambda e: self._on_mode())
         self.cmb_script.bind("<<ComboboxSelected>>", lambda e: self._on_script())
         self.notebook.bind("<<NotebookTabChanged>>", lambda e: self._update_plan())
+        self.v["data_path"].trace_add("write", lambda *_: self._refresh_volume())
         for var in self.v.values():
             var.trace_add("write", lambda *_: self._update_plan())
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -373,6 +384,18 @@ class Launcher:
         self.btn_run.configure(state="disabled")
         self.btn_build.configure(state="disabled")
         self.btn_stop.configure(state="normal")
+
+    def _reset_volume(self) -> None:
+        """Format an empty data volume after confirmation, then refresh the label."""
+        outcome = datavol.reset(self.v["data_path"].get().strip(), self.runner.busy)
+        if outcome:
+            succeeded, message = outcome
+            self._log(message + "\n", "ok" if succeeded else "fail")
+        self._refresh_volume()
+
+    def _refresh_volume(self) -> None:
+        """Show the volume's path, size and existence under its entry."""
+        self.lbl_volume.configure(text=datavol.status_text(self.v["data_path"].get().strip()))
 
     def _stop(self) -> None:
         """Cancel the run and kill its process tree."""
