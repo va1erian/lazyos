@@ -257,3 +257,19 @@ markers, screenshots in the `xui-app` workflow), compositor client mode
 PageDown cycling, keys to the focused widget). Open: zero-copy scanout,
 userspace XUI toolkit,
 multi-session compositors, drag targets that can refuse a drop before release.
+
+**Pipelined present (issue #361)**
+
+Methods 25-28 add a tear-free, paced alternative to the blocking `Commit`
+(which keeps working unchanged). A surface has up to four buffer slots:
+`AttachBufferSlot(surface, slot)` (25) registers one (`EBUSY` if it is the
+current slot); the one-way `Present(surface, slot, seq, damage)` (26) makes a
+slot current and composites the clipped damage (empty or more than 16 rects =
+whole surface). The compositor only reads the current slot, so the others are
+safe to draw into. After compositing it sends `BufferRelease(surface, slot)`
+(27) for the slot it just stopped reading, then `FrameDone(surface, seq)` (28),
+on the surface's event endpoint; a refused present still gets its `FrameDone`,
+and a present from a non-owner is dropped. The rules live in
+`libs/surfbuf` (`SlotTable` for the compositor, `Swapchain` for the client),
+exercised by `display_slots_*` in the kernel suite; `xdemo` is the reference
+double-buffered client. The legacy `AttachBuffer` is "slot 0, current at once".

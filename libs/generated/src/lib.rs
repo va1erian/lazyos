@@ -1055,6 +1055,47 @@ pub mod os_lazy_display_v1 {
     /// `Change::Title` wire value.
     pub const CHANGE_TITLE: u32 = 6;
 
+    /// A damage rectangle relative to a surface's content origin.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct Rect {
+        pub x: u32,
+        pub y: u32,
+        pub w: u32,
+        pub h: u32,
+    }
+
+    pub fn encode_rect(value: &Rect) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.x)?;
+        target.u32(2, value.y)?;
+        target.u32(3, value.w)?;
+        target.u32(4, value.h)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_rect(body: &[u8]) -> Result<Rect, Error> {
+        let mut out = Rect::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.x = field.as_u32()?;
+                }
+                2 => {
+                    out.y = field.as_u32()?;
+                }
+                3 => {
+                    out.w = field.as_u32()?;
+                }
+                4 => {
+                    out.h = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
     /// One row of a `ListSurfaces` reply.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct SurfaceRow {
@@ -1169,6 +1210,14 @@ pub mod os_lazy_display_v1 {
     pub const METHOD_FOCUSCHANGED: u32 = 23;
     /// `StartMenu` method id.
     pub const METHOD_STARTMENU: u32 = 24;
+    /// `AttachBufferSlot` method id.
+    pub const METHOD_ATTACHBUFFERSLOT: u32 = 25;
+    /// `Present` method id.
+    pub const METHOD_PRESENT: u32 = 26;
+    /// `BufferRelease` method id.
+    pub const METHOD_BUFFERRELEASE: u32 = 27;
+    /// `FrameDone` method id.
+    pub const METHOD_FRAMEDONE: u32 = 28;
 
     /// Create a surface of `width` x `height` pixels titled `title`. `role` is
     /// a `Role` value: a decorated window (also the meaning of an absent
@@ -1239,7 +1288,9 @@ pub mod os_lazy_display_v1 {
     }
 
     /// Attach (or replace) `surface`'s pixel buffer with the parcel's shared
-    /// buffer. Only the surface's creator may attach.
+    /// buffer. Only the surface's creator may attach. Refused with `EBUSY`
+    /// once the surface has used `Present`, which owns slot ownership from
+    /// then on.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct AttachBufferArgs {
         pub surface: u64,
@@ -1942,6 +1993,163 @@ pub mod os_lazy_display_v1 {
                     let item = nested.next()?.ok_or(Error::BadValue)?;
                     out.surface = Some(item.as_u64()?);
                 }
+            }
+        }
+        Ok(out)
+    }
+
+    /// Register a pixel buffer (the parcel's `buffers[0]`, at least
+    /// `width * height * 4` bytes) as buffer slot `slot` (0-3) of `surface`.
+    /// The compositor only reads the *current* slot, so attaching to any
+    /// other slot is tear-free; attaching to the current slot fails with
+    /// `EBUSY`. Only the surface's creator may attach.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct AttachBufferSlotArgs {
+        pub surface: u64,
+        pub slot: u32,
+    }
+
+    pub fn encode_attach_buffer_slot_args(value: &AttachBufferSlotArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.surface)?;
+        target.u32(2, value.slot)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_attach_buffer_slot_args(body: &[u8]) -> Result<AttachBufferSlotArgs, Error> {
+        let mut out = AttachBufferSlotArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.surface = field.as_u64()?;
+                }
+                2 => {
+                    out.slot = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Pipelined present (no reply): make `slot` the surface's current buffer
+    /// and composite `damage` (content-relative, clipped to the content; an
+    /// empty list or more than 16 rects means the whole content). `seq` is
+    /// echoed in `FrameDone`. After compositing, the compositor sends
+    /// `BufferRelease` for the slot this present replaced (if it changed) and
+    /// then `FrameDone`. A minimized surface still swaps its slot (so the
+    /// newest frame shows on restore and the client gets its release) but is
+    /// not repainted. A refused present (unattached or out-of-range slot)
+    /// changes nothing: the compositor sends `BufferRelease` for the
+    /// submitted slot, since it never read it, and then `FrameDone`. A
+    /// present from a task that does not own `surface` is dropped silently.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct PresentArgs {
+        pub surface: u64,
+        pub slot: u32,
+        pub seq: u64,
+        pub damage: alloc::vec::Vec<Rect>,
+    }
+
+    pub fn encode_present_args(value: &PresentArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.surface)?;
+        target.u32(2, value.slot)?;
+        target.u64(3, value.seq)?;
+        let mut nested = Encoder::new();
+        for item in &value.damage {
+            nested.raw(Kind::Struct, 1, &encode_rect(item)?)?;
+        }
+        target.array(4, &nested)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_present_args(body: &[u8]) -> Result<PresentArgs, Error> {
+        let mut out = PresentArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.surface = field.as_u64()?;
+                }
+                2 => {
+                    out.slot = field.as_u32()?;
+                }
+                3 => {
+                    out.seq = field.as_u64()?;
+                }
+                4 => {
+                    let mut nested = field.nested(0)?;
+                    while let Some(item) = nested.next()? {
+                        out.damage.push(decode_rect(item.payload)?);
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Event: the compositor no longer reads `slot` of `surface`; the client
+    /// may write it again. Only sent to surfaces that use `Present`.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct BufferReleaseArgs {
+        pub surface: u64,
+        pub slot: u32,
+    }
+
+    pub fn encode_buffer_release_args(value: &BufferReleaseArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.surface)?;
+        target.u32(2, value.slot)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_buffer_release_args(body: &[u8]) -> Result<BufferReleaseArgs, Error> {
+        let mut out = BufferReleaseArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.surface = field.as_u64()?;
+                }
+                2 => {
+                    out.slot = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Event: the compositor consumed the `Present` numbered `seq`. Frames
+    /// complete in submission order.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct FrameDoneArgs {
+        pub surface: u64,
+        pub seq: u64,
+    }
+
+    pub fn encode_frame_done_args(value: &FrameDoneArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.surface)?;
+        target.u64(2, value.seq)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_frame_done_args(body: &[u8]) -> Result<FrameDoneArgs, Error> {
+        let mut out = FrameDoneArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.surface = field.as_u64()?;
+                }
+                2 => {
+                    out.seq = field.as_u64()?;
+                }
+                _ => {}
             }
         }
         Ok(out)

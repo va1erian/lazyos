@@ -94,6 +94,8 @@ mod keys;
 mod layout;
 #[path = "xuid/menu.rs"]
 mod menu;
+#[path = "xuid/present.rs"]
+mod present;
 #[path = "xuid/protocol.rs"]
 mod protocol;
 #[path = "xuid/region.rs"]
@@ -201,6 +203,13 @@ fn run() -> ! {
                 if let Some(txn) = message.txn {
                     let reply = comp.handle_request(&message);
                     let _ = server.reply(txn, &reply);
+                } else if message.interface_id() == display::INTERFACE
+                    && message.method() == display::wire::METHOD_PRESENT
+                {
+                    // `Present` (issue #361) is one-way: no reply, only the
+                    // `BufferRelease`/`FrameDone` events. Any other message
+                    // without a txn is dropped as before.
+                    comp.present(&message);
                 }
             }
             Err(error) if is_timeout(error) => {}

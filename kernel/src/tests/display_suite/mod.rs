@@ -40,11 +40,13 @@ mod bind_and_input;
 mod buffers;
 mod modifiers;
 mod present;
+mod slots;
 
 pub(super) use bind_and_input::*;
 pub(super) use buffers::*;
 pub(super) use modifiers::*;
 pub(super) use present::*;
+pub(super) use slots::*;
 
 pub(super) const CASES: &[(&str, Test)] = &[
     ("display_kernel_bind_refused", kernel_bind_refused),
@@ -75,4 +77,15 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("display_present_one_pixel", present_one_pixel),
     ("display_present_partial_unmap", present_partial_unmap),
     ("display_present_small_soak", present_small_soak),
+    ("display_slots_attach_rules", slots_attach_rules),
+    (
+        "display_slots_present_and_release",
+        slots_present_and_release,
+    ),
+    ("display_slots_damage_clipping", slots_damage_clipping),
+    (
+        "display_slots_double_buffer_ordering",
+        slots_double_buffer_ordering,
+    ),
+    ("display_slots_present_soak", slots_present_soak),
 ];

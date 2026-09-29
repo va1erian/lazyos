@@ -1,6 +1,6 @@
 # `os.lazy.confd.v1`
 
-Interface id: `0x9f706a3664b0394e`
+Interface id: `0xdf3c79dfb9f8f2e0`
 
 The hierarchical configuration registry (issue #260).
 

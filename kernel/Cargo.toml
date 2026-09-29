@@ -19,6 +19,9 @@ lazyos-crypto = { path = "../libs/crypto" }
 # Issue #260: the in-kernel suite drives the same `confd` service core the
 # userspace `confd` binary links, against an in-memory `StoreFs`.
 confd = { path = "../libs/confd" }
+# Issue #361: the in-kernel suite drives the display buffer-slot state machines
+# `xuid` and its clients link, including a present/release soak.
+surfbuf = { path = "../libs/surfbuf" }
 # Issues #299/#300: the topic ACL scope ids, the `authorize_topic` request layout
 # and the registry wire come from `midlc`-generated interfaces (`idl/*.midl`),
 # not hand-computed hashes or field ids.
