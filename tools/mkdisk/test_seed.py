@@ -14,6 +14,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
@@ -281,6 +282,27 @@ class E2fsckSeededTests(unittest.TestCase):
                 path.write_bytes(format_bytes(size, block_size, layout=demo_layout()))
                 done = subprocess.run(["e2fsck", "-fn", str(path)], capture_output=True, text=True)
                 self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+
+
+class RunDemoErrorTests(unittest.TestCase):
+    """`run_demo` must report a broken plan, not die with a traceback."""
+
+    def test_unplannable_reset_is_reported_and_leaves_the_volume(self) -> None:
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+        import run_demo  # noqa: E402
+
+        def unreadable(*_args, **_kwargs):
+            raise OSError("accounts source missing")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "data.img"
+            path.write_bytes(b"precious")
+            err = io.StringIO()
+            with mock.patch.object(run_demo.mkdisk, "seeded", unreadable), redirect_stderr(err):
+                ok = run_demo.prepare_data_disk(path, reset=True, assume_yes=True)
+            self.assertFalse(ok)
+            self.assertIn("accounts source missing", err.getvalue())
+            self.assertEqual(path.read_bytes(), b"precious")
 
 
 if __name__ == "__main__":

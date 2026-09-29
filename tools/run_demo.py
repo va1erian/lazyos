@@ -57,9 +57,21 @@ def confirm(question: str) -> bool:
 def prepare_data_disk(path: Path, reset: bool, assume_yes: bool) -> bool:
     """Make sure the data volume exists, resetting it only when asked to.
 
-    Returns ``False`` when the user declined an explicit reset. Never
-    regenerates an existing volume implicitly: that would destroy user data.
+    Returns ``False`` when the user declined an explicit reset or the volume
+    could not be planned or written (reported on stderr, so the demo exits
+    cleanly instead of with a traceback). Never regenerates an existing
+    volume implicitly: that would destroy user data.
     """
+    try:
+        return _prepare_data_disk(path, reset, assume_yes)
+    except (OSError, ValueError) as error:
+        # The plan reads the accounts source and the volume is a file on disk,
+        # so either can legitimately fail (missing source, unwritable target).
+        print(f"data disk {path}: {error}", file=sys.stderr)
+        return False
+
+
+def _prepare_data_disk(path: Path, reset: bool, assume_yes: bool) -> bool:
     if reset and path.exists():
         plan = mkdisk.seeded()
         question = (f"Erase {path} and format a fresh volume containing:\n"
