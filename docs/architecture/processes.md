@@ -117,7 +117,8 @@ runnable by hand from BusyBox `sh` (see "Native programs from `sh`" below).
   directory and the last close deletes it, `rename` retargets open files
   (including under a renamed directory), and renaming over an open file
   unlinks it the same way. A stop between unlink and last close leaves the
-  hidden entry, as an orphan inode would. Writes on a read-only device answer
+  hidden entry, as an orphan inode would; the next mount of an unclean `/data`
+  reclaims it, and user calls cannot create a `.unlinked-` name (`EINVAL`). Writes on a read-only device answer
   `EROFS` from the write, not from `open`.
 - `truncate`/`ftruncate` (any mount; the descriptor must be writable),
   `fsync`/`fdatasync` (flush the one mount holding the file), `syncfs`, and

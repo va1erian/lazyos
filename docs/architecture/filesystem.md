@@ -127,8 +127,28 @@ by path, the registry of open files keeps each one meaning "the file I opened":
 - `unlink` (`abi_unlink`) of an open file renames it to `<dir>/.unlinked-<n>`
   instead of freeing it, and the last close deletes that entry (all opens of one
   file share one registry entry, so the last one out is known). A stop in
-  between leaves the hidden entry behind, the equivalent of an orphan inode;
-  nothing reclaims it yet.
+  between leaves the hidden entry behind, the equivalent of an orphan inode.
+  The prefix is **reserved**: `open(O_CREAT)`, `mkdir` and `rename` onto a
+  `.unlinked-` name answer `EINVAL` (`fs/hidden.rs`), so only the kernel makes
+  one and reclaiming by name can never touch a user's file.
+- **Orphan reclaim** (`fs/ext2/orphans.rs`, issue #346): `mount_data_volume`
+  (and `mount_device`) call `Ext2::reclaim_orphans` before the volume is
+  visible, and log `fs: /data: reclaimed N orphaned files`. It runs only when
+  `s_state` says the volume was not cleanly unmounted, so a clean mount pays
+  nothing. The walk is bounded (4096 directories, depth 32), never enters a
+  reserved-name directory, and deletes only a regular file (checked from the
+  inode mode) whose name has the prefix. Deleting a reserved name runs
+  **name last** (free the blocks it reaches, clear the inode, free the inode,
+  then remove the entry, each step skipping what an earlier run finished), so a
+  stop anywhere, including inside the reclaim, leaves a name that the next
+  mount finishes. (Ordinary unlink drops the name first and can strand blocks
+  or an inode with no name to find them by.) Free counters can still lag the
+  bitmaps after a stop, as for any write; nothing recomputes them at mount. Known
+  gap: an orphan on a volume left flagged clean (a `sync` after the unlink, then
+  a power cut before another write) is skipped until the next unclean mount;
+  it costs space, not consistency. The kernel suite covers this with a cut at
+  every write of the last-close delete and of the reclaim
+  (`fs_ext2_orphan_*_crash_sweep`) and a random-cut soak.
 - open files run as root after `open`, which checked permissions once.
 
 `fsync` flushes only the mount holding the file (`Vfs::flush`); `sync` and the

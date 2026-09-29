@@ -15,6 +15,7 @@ use crate::ipc::credentials::{self, Cred};
 
 mod io;
 mod names;
+mod reserved;
 mod sizing;
 mod soak;
 
@@ -60,6 +61,10 @@ pub(in crate::tests) const CASES: &[(&str, Test)] = &[
         names::create_with_no_read_bit,
     ),
     ("linux_data_read_only_volume", names::read_only_volume),
+    (
+        "linux_data_reserved_prefix_is_refused",
+        reserved::reserved_prefix_is_refused,
+    ),
     (
         "linux_data_soak_create_write_unlink",
         soak::create_write_unlink,

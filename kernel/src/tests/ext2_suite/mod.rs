@@ -170,6 +170,8 @@ mod fixtures;
 mod format_and_roundtrip;
 mod integrity;
 mod large_files;
+mod orphan_crash;
+mod orphans;
 mod persistence;
 mod sync_state;
 mod truncate;
@@ -178,6 +180,8 @@ use fixtures::*;
 pub(super) use format_and_roundtrip::*;
 pub(super) use integrity::*;
 pub(super) use large_files::*;
+pub(super) use orphan_crash::*;
+pub(super) use orphans::*;
 pub(super) use persistence::*;
 pub(super) use sync_state::*;
 pub(super) use truncate::*;
@@ -246,4 +250,29 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("fs_ext2_data_volume_probe", data_volume_probe),
     ("fs_root_prefers_fat_over_ext2", root_prefers_fat_over_ext2),
     ("fs_ext2_soak_state_generations", soak_state_generations),
+    (
+        "fs_ext2_orphans_reclaimed_on_unclean_mount",
+        orphans_reclaimed_on_unclean_mount,
+    ),
+    (
+        "fs_ext2_clean_volume_is_not_scanned",
+        clean_volume_is_not_scanned,
+    ),
+    (
+        "fs_ext2_orphan_lookalikes_are_left_alone",
+        lookalikes_are_left_alone,
+    ),
+    (
+        "fs_ext2_data_mount_reclaims_before_exposure",
+        data_mount_reclaims_before_exposure,
+    ),
+    (
+        "fs_ext2_orphan_delete_crash_sweep",
+        orphan_delete_crash_sweep,
+    ),
+    (
+        "fs_ext2_orphan_reclaim_crash_sweep",
+        orphan_reclaim_crash_sweep,
+    ),
+    ("fs_ext2_soak_orphan_generations", soak_orphan_generations),
 ];
