@@ -164,8 +164,15 @@ raw physical or port address from userspace (no ambient authority).
   message has called `irq_ack` (a claimant that has not armed, has released, or
   died is not waited on). A claimant that does not ack within a bounded
   deadline is dropped from that delivery round: the kernel unmasks the line,
-  audits the laggard, and leaves its pending bit set, so a hung driver cannot
-  hold a shared line masked and starve its co-claimants. Devices that do not
+  audits the laggard, and leaves its pending bit set (it stays "owed" one
+  ack), so a hung driver cannot hold a shared line masked and starve its
+  co-claimants. **Recovery:** while a claim is owed, later interrupts on the
+  line are not posted to it; the kernel only records a `missed` bit, so its
+  queue stays bounded. A late `irq_ack` clears the pending bit, makes the
+  claim eligible for delivery again, and, if `missed` is set, immediately
+  posts one fresh message (level-triggered devices simply re-assert). A late
+  ack never unmasks the line for other claimants; that already happened when
+  the round timed out. Devices that do not
   opt in get exclusive lines; a second claim on an occupied exclusive line
   fails with `EBUSY`.
 - Kernel drivers register a plain `fn(line)` instead of a message.
