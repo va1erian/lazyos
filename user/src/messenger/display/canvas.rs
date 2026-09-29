@@ -129,29 +129,19 @@ impl Canvas {
             return;
         }
         if alpha == 0xff {
-            return self.pixel(x, y, color, clip);
+            return self.fill(Rect::new(x, y, 1, 1), clip, color);
         }
-        if x < clip.x
-            || y < clip.y
-            || x >= clip.x + clip.w
-            || y >= clip.y + clip.h
-            || x < 0
-            || y < 0
-            || x >= self.width
-            || y >= self.height
-        {
+        if self.visible(Rect::new(x, y, 1, 1), clip).is_empty() {
             return;
         }
-        let at = ((y * self.width + x) * 4) as usize;
         let a = alpha as u32;
         let mix = |src: u8, dst: u8| ((src as u32 * a + dst as u32 * (255 - a) + 127) / 255) as u8;
-        // Safety: bounds were checked against the canvas geometry.
-        unsafe {
-            for (i, src) in [color.r, color.g, color.b].into_iter().enumerate() {
-                let p = self.base.add(at + i);
-                p.write(mix(src, p.read()));
-            }
-            self.base.add(at + 3).write(0xff);
+        let px = self.row_mut(x, y, 1);
+        for (dst, src) in px.iter_mut().zip([color.r, color.g, color.b]) {
+            *dst = mix(src, *dst);
+        }
+        if let Some(alpha_byte) = px.get_mut(3) {
+            *alpha_byte = 0xff;
         }
     }
 
@@ -188,7 +178,7 @@ impl Canvas {
         let r = self.visible(rect, clip);
         let px = [color.r, color.g, color.b, 0xff];
         for y in r.y..r.y + r.h {
-            for dst in self.row_mut(r.x, y, r.w).chunks_exact_mut(4) {
+            for dst in self.row_mut(r.x, y, r.w).as_chunks_mut::<4>().0.iter_mut() {
                 dst.copy_from_slice(&px);
             }
         }
@@ -214,7 +204,7 @@ impl Canvas {
             }
             let row = self.row_mut(r.x, y, n as i32);
             row.copy_from_slice(&src[start..start + n * 4]);
-            for px in row.chunks_exact_mut(4) {
+            for px in row.as_chunks_mut::<4>().0.iter_mut() {
                 px[3] = 0xff;
             }
         }
@@ -276,7 +266,7 @@ impl Canvas {
             let (outline, body) = cursor_masks(sy);
             let first = (r.x - (x - 1)) as usize;
             let row = self.row_mut(r.x, py, r.w);
-            for (i, dst) in row.chunks_exact_mut(4).enumerate() {
+            for (i, dst) in row.as_chunks_mut::<4>().0.iter_mut().enumerate() {
                 let bit = 1u16 << (first + i);
                 if body & bit != 0 {
                     dst.copy_from_slice(&[240, 240, 240, 0xff]);
@@ -292,8 +282,14 @@ impl Canvas {
 fn clip_to(rect: Rect, clip: Rect) -> Rect {
     let x0 = rect.x.max(clip.x);
     let y0 = rect.y.max(clip.y);
-    let x1 = rect.x.saturating_add(rect.w).min(clip.x.saturating_add(clip.w));
-    let y1 = rect.y.saturating_add(rect.h).min(clip.y.saturating_add(clip.h));
+    let x1 = rect
+        .x
+        .saturating_add(rect.w)
+        .min(clip.x.saturating_add(clip.w));
+    let y1 = rect
+        .y
+        .saturating_add(rect.h)
+        .min(clip.y.saturating_add(clip.h));
     Rect::new(x0, y0, (x1 - x0).max(0), (y1 - y0).max(0))
 }
 
@@ -305,9 +301,19 @@ fn cursor_masks(sy: usize) -> (u16, u16) {
     let body_row = |r: usize| -> u16 {
         // Sprite column c (1..=8) holds CURSOR bit 0x80 >> (c - 1).
         let bits = font::CURSOR[r] as u16;
-        (0..8).fold(0, |m, col| if bits & (0x80 >> col) != 0 { m | 1 << (col + 1) } else { m })
+        (0..8).fold(0, |m, col| {
+            if bits & (0x80 >> col) != 0 {
+                m | 1 << (col + 1)
+            } else {
+                m
+            }
+        })
     };
-    let body = if (1..=8).contains(&sy) { body_row(sy - 1) } else { 0 };
+    let body = if (1..=8).contains(&sy) {
+        body_row(sy - 1)
+    } else {
+        0
+    };
     let mut outline = 0u16;
     // Cursor row `r` spreads its outline over sprite rows r..=r+2.
     for r in sy.saturating_sub(2)..=sy.min(7) {
