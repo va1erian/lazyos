@@ -55,9 +55,15 @@ pub fn device_info(function: Function) -> DeviceInfo {
             index += 1;
         }
     }
-    resources.set_irq(Irq {
-        line: pci::interrupt_line(address),
-    });
+    // Only a function that wires an INTx pin has an interrupt: bridges and
+    // pin-less functions carry whatever the firmware left in the Interrupt Line
+    // register (often 0, which is the timer), and it must not be mistaken for a
+    // wire.
+    if pci::interrupt_pin(address) != 0 {
+        resources.set_irq(Irq {
+            line: pci::interrupt_line(address),
+        });
+    }
     let (subsystem_vendor, subsystem_device) = pci::subsystem_id(address);
     DeviceInfo {
         id: DeviceId(0),

@@ -10,6 +10,8 @@ extern crate alloc;
 
 pub mod sys;
 
+pub mod dev;
+
 pub mod files;
 
 pub mod sysinfo;

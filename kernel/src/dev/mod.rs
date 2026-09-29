@@ -9,6 +9,10 @@
 //! - [`DeviceTable`], a fixed-capacity array with owner + generation;
 //! - [`Driver`] and the static [`DRIVERS`] table for in-kernel drivers.
 //!
+//! On top of that core, issue #240 adds the userspace tier: interrupt
+//! dispatch ([`irq`], [`intx`]), device claims ([`claims`], [`grant`]) and the
+//! `dev_*` syscall ([`syscall`], [`ops`], [`teardown`]).
+//!
 //! [`init`] seeds platform devices, enumerates PCI, runs the driver table and
 //! prints the `DEV:ENUM` boot line. With no heap on the hot path, enumeration
 //! is boot-time only and handles fail closed once a device is released.
@@ -21,16 +25,29 @@
 #![allow(unused_imports)]
 
 mod bus;
+pub mod claims;
+pub mod class;
 mod driver;
+pub mod errno;
+pub mod grant;
+pub mod intx;
+pub mod irq;
+pub mod ops;
 pub mod pci;
+pub mod report;
 mod resources;
+mod selfcheck;
+pub mod syscall;
 pub mod table;
+mod teardown;
 
 pub use bus::{Bus, PciBus};
 pub(crate) use driver::attach_all;
 pub use driver::{probe, Driver, DRIVERS};
 pub use resources::{Bar, BarKind, Irq, Resource, Resources, MAX_BARS};
+pub use selfcheck::selfcheck;
 pub use table::{DevError, DeviceHandle, DeviceTable, MAX_DEVICES};
+pub use teardown::teardown_task;
 
 use core::sync::atomic::{AtomicBool, Ordering};
 
@@ -130,6 +147,7 @@ pub fn init() {
         (table.len(), pci_count)
     };
     let attached = probe();
+    selfcheck::log_irq_routes();
     if pci_count > 0 {
         serial_println!(
             "DEV:ENUM:PASS:{} devices ({} PCI, {} drivers attached)",

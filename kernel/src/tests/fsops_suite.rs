@@ -231,8 +231,9 @@ pub fn errors_are_reported() -> Result<(), String> {
         stat("/tmp/huge") == Err(failed(ENOENT)),
         "an oversized write left a file"
     );
+    // 23 is the device syscall now (issue #240); 24 is the first free number.
     check!(
-        call(23, 0, 0, 0) == u64::MAX,
+        call(24, 0, 0, 0) == u64::MAX,
         "an unknown syscall number was accepted"
     );
     // A path with no terminator inside the limit is refused, not truncated.

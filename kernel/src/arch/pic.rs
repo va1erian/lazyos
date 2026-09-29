@@ -59,3 +59,111 @@ pub unsafe fn init_pit(frequency: u32) {
     outb(0x40, (divisor & 0xFF) as u8);
     outb(0x40, (divisor >> 8) as u8);
 }
+
+/// Data port of the PIC that owns `line` and the bit within its mask register.
+const fn mask_port(line: u8) -> (u16, u8) {
+    if line < 8 {
+        (PIC1_DATA, 1 << line)
+    } else {
+        (PIC2_DATA, 1 << (line - 8))
+    }
+}
+
+/// Mask (`true`) or unmask (`false`) one line (0-15) in the interrupt mask
+/// register. The read-modify-write runs with interrupts off: the device IRQ
+/// handler masks lines from interrupt context, and an interleaved handler would
+/// otherwise have its mask overwritten by our stale copy.
+///
+/// Unmasking a slave line (8-15) relies on the cascade (IRQ2), which [`init`]
+/// leaves unmasked.
+pub fn set_masked(line: u8, masked: bool) {
+    if line >= 16 {
+        return;
+    }
+    let (port, bit) = mask_port(line);
+    x86_64::instructions::interrupts::without_interrupts(|| {
+        // SAFETY: the IMR ports are owned by this module and the RMW is atomic
+        // with respect to interrupts on this single CPU.
+        unsafe {
+            let current = super::io::inb(port);
+            let next = if masked {
+                current | bit
+            } else {
+                current & !bit
+            };
+            super::io::outb(port, next);
+        }
+    });
+}
+
+/// Whether `line` is currently masked at the PIC. Lines outside 0-15 read as
+/// masked (they cannot be delivered).
+#[cfg_attr(not(lazyos_tests), allow(dead_code))] // the suite reads mask state
+pub fn is_masked(line: u8) -> bool {
+    if line >= 16 {
+        return true;
+    }
+    let (port, bit) = mask_port(line);
+    // SAFETY: reading the IMR has no side effects.
+    unsafe { super::io::inb(port) & bit != 0 }
+}
+
+/// Send a *specific* end-of-interrupt for `line`. Unlike the non-specific EOI
+/// this can never retire a different in-service interrupt, so it is safe for
+/// the generic device handlers (and harmless if `line` is not in service).
+///
+/// # Safety
+/// Call from the handler of `line`, once per interrupt.
+pub unsafe fn end_of_interrupt_specific(line: u8) {
+    if line >= 8 {
+        super::io::outb(PIC2_CMD, 0x60 | (line - 8));
+        // The slave is chained through master IRQ2.
+        super::io::outb(PIC1_CMD, 0x60 | 2);
+    } else {
+        super::io::outb(PIC1_CMD, 0x60 | line);
+    }
+}
+
+/// Whether `line` is genuinely in service according to the PIC's in-service
+/// register. Used to tell a real IRQ 7 / IRQ 15 from a spurious one (the PIC
+/// raises them when an interrupt is withdrawn between INTR and the acknowledge
+/// cycle).
+///
+/// # Safety
+/// Must run from the handler of `line`: OCW3 selects the ISR for the next read.
+pub unsafe fn in_service(line: u8) -> bool {
+    let (cmd, bit) = if line >= 8 {
+        (PIC2_CMD, 1 << (line - 8))
+    } else {
+        (PIC1_CMD, 1 << line)
+    };
+    super::io::outb(cmd, 0x0B); // OCW3: next read returns the ISR
+    let in_service = super::io::inb(cmd) & bit != 0;
+    super::io::outb(cmd, 0x0A); // back to the default: reads return the IRR
+    in_service
+}
+
+/// Whether a device is asserting `line` into the PIC right now, according to
+/// the interrupt request register. Works while the line is masked, which is
+/// how the suite proves a PCI function is wired to the PIC line its
+/// Interrupt Line register names without taking the interrupt.
+#[cfg_attr(not(lazyos_tests), allow(dead_code))] // only the suite probes the IRR
+pub fn requested(line: u8) -> bool {
+    if line >= 16 {
+        return false;
+    }
+    let (cmd, bit) = if line >= 8 {
+        (PIC2_CMD, 1 << (line - 8))
+    } else {
+        (PIC1_CMD, 1 << line)
+    };
+    x86_64::instructions::interrupts::without_interrupts(|| {
+        // SAFETY: OCW3 read-IRR commands and the following read touch only the
+        // PIC's command port and change no interrupt state; interrupts are off
+        // so a handler cannot re-select the ISR between the two accesses.
+        unsafe {
+            super::io::outb(cmd, 0x0A);
+            super::io::inb(cmd) & bit != 0
+        }
+    })
+}
