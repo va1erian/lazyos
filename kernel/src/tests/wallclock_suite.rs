@@ -248,6 +248,11 @@ pub fn clock_settime_contract() -> Result<(), String> {
         "monotonic was settable"
     );
     check!(
+        settime(CLOCK_REALTIME, wallclock::MAX_SET_SECS, 0) == EINVAL
+            && settime(CLOCK_REALTIME, i64::MAX, 0) == EINVAL,
+        "seconds past the RTC range accepted"
+    );
+    check!(
         settime(CLOCK_REALTIME, -1, 0) == EINVAL,
         "negative seconds accepted"
     );

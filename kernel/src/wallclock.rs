@@ -18,6 +18,10 @@ use crate::arch::rtc;
 /// (2026-01-01T00:00:00Z), so timestamps are still sane and monotonic.
 pub const FALLBACK_BASE: i64 = 1_767_225_600;
 
+/// First second `set` refuses (2200-01-01T00:00:00Z): the RTC century
+/// register only decodes 19xx-21xx, and it bounds the offset arithmetic.
+pub const MAX_SET_SECS: i64 = 7_258_118_400;
+
 /// Ticks per second of the PIT the uptime is counted in.
 const HZ: i64 = 100;
 
