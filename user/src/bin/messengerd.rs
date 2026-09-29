@@ -40,7 +40,6 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::panic::PanicInfo;
-use libmessenger::Encoder;
 use user::messenger::{self, errno, registry, topics_client};
 use user::sys;
 
@@ -232,7 +231,7 @@ impl Soak {
     /// Start a soak of `cycles` request/reply cycles and record the baseline.
     fn start(cycles: u64) -> Soak {
         Soak {
-            request: topics_client::request_parcel(topics_client::method::PING, Encoder::new()),
+            request: topics_client::ping_request(),
             reply_buffer: alloc::vec![0u8; messenger::DEFAULT_BUFFER],
             cycles_total: cycles,
             cycles_left: cycles,
@@ -576,7 +575,8 @@ impl Broker {
         sender: u64,
         txn: Option<u64>,
     ) -> Result<Outcome, messenger::Error> {
-        use topics_client::{field, method, MODE_PUBLISH};
+        use topics_client::{method, MODE_PUBLISH};
+        let invalid = |_| messenger::Error::Topics(errno::EINVAL);
 
         let mut outcome = Outcome::default();
         match request.header.method {
@@ -584,11 +584,8 @@ impl Broker {
                 outcome.reply = Some(topics_client::reply_ok(request.header.method));
             }
             method::PUBLISH => {
-                let topic = topics_client::string_field(request, field::TOPIC)
-                    .map_err(|_| messenger::Error::Topics(errno::EINVAL))?;
-                let payload = topics_client::bytes_field(request, field::PAYLOAD)
-                    .map_err(|_| messenger::Error::Topics(errno::EINVAL))?
-                    .ok_or(messenger::Error::Topics(errno::EINVAL))?;
+                let args = topics_client::decode_publish_args(&request.body).map_err(invalid)?;
+                let (topic, payload, retained) = (args.topic, args.payload, args.retained);
                 if payload.is_empty() {
                     return Err(messenger::Error::Topics(errno::EINVAL));
                 }
@@ -598,8 +595,6 @@ impl Broker {
                 if !valid_topic(&topic) {
                     return Err(messenger::Error::Topics(errno::EINVAL));
                 }
-                let retained = topics_client::bool_field(request, field::RETAINED)
-                    .map_err(|_| messenger::Error::Topics(errno::EINVAL))?;
                 // Policy first: a denied publish stores nothing and is audited.
                 topics_client::authorize(sender, MODE_PUBLISH, &topic, txn.unwrap_or(0))
                     .map_err(|_| messenger::Error::Topics(errno::EACCES))?;
@@ -626,15 +621,9 @@ impl Broker {
                 );
             }
             method::SUBSCRIBE => {
-                let filter = topics_client::string_field(request, field::FILTER)
-                    .map_err(|_| messenger::Error::Topics(errno::EINVAL))?;
-                let qos_code = topics_client::u32_field(request, field::QOS)
-                    .map_err(|_| messenger::Error::Topics(errno::EINVAL))?
-                    .ok_or(messenger::Error::Topics(errno::EINVAL))?;
-                let depth = topics_client::u32_field(request, field::DEPTH)
-                    .map_err(|_| messenger::Error::Topics(errno::EINVAL))?
-                    .unwrap_or(0);
-                let qos = topics_client::Qos::from_parts(qos_code, depth)
+                let args = topics_client::decode_subscribe_args(&request.body).map_err(invalid)?;
+                let filter = args.filter;
+                let qos = topics_client::Qos::from_parts(args.qos, args.depth)
                     .ok_or(messenger::Error::Topics(errno::EINVAL))?;
                 let parsed =
                     Filter::parse(&filter).ok_or(messenger::Error::Topics(errno::EINVAL))?;
@@ -725,9 +714,9 @@ impl Broker {
             }
             method::ACK => {
                 let id = subscription_id(request)?;
-                let sequence = topics_client::u64_field(request, field::SEQUENCE)
-                    .map_err(|_| messenger::Error::Topics(errno::EINVAL))?
-                    .ok_or(messenger::Error::Topics(errno::EINVAL))?;
+                let sequence = topics_client::decode_ack_args(&request.body)
+                    .map_err(invalid)?
+                    .sequence;
                 let index = self
                     .subscriptions
                     .iter()
@@ -1005,11 +994,11 @@ impl Broker {
     }
 }
 
-/// The first `SUBSCRIPTION` field of a request.
+/// The subscription a request names. Every subscription-addressed method
+/// (`Unsubscribe`, `NextEvent`, `Ack`, `Stats`) puts it in field 1.
 fn subscription_id(request: &libmessenger::Parcel) -> Result<u64, messenger::Error> {
-    topics_client::u64_field(request, topics_client::field::SUBSCRIPTION)
-        .map_err(|_| messenger::Error::Topics(errno::EINVAL))?
-        .ok_or(messenger::Error::Topics(errno::EINVAL))
+    topics_client::decode_subscription_args(request)
+        .map_err(|_| messenger::Error::Topics(errno::EINVAL))
 }
 
 /// Queue one event under a subscription's QoS policy.

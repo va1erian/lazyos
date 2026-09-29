@@ -1,18 +1,35 @@
-//! Parcel encode/decode helpers for the topics broker protocol.
+//! Parcel framing for the topics broker protocol.
+//!
+//! The wire shapes are the `midlc`-generated `os.lazy.messenger.topics.v1`
+//! stubs ([`generated`], from `idl/topics.midl`); this module frames them in
+//! parcels on the broker interface and converts to the module's plain Rust
+//! types. Only the structured error field is hand-written: it is a convention
+//! every service shares, not part of the interface.
 
 use alloc::string::String;
 use alloc::vec::Vec;
 
 use libmessenger::{Decoder, Encoder, Kind, Parcel};
+use messenger_generated::os_lazy_messenger_topics_v1 as generated;
 
 use super::super::{errno, Error, Result};
-use super::{field, header, method, Event, Qos, SubscriptionStats, TopicInfo};
+use super::{header, Event, Qos, SubscriptionStats, TopicInfo};
+
+pub use generated::{
+    decode_ack_args, decode_publish_args, decode_subscribe_args, METHOD_ACK, METHOD_LISTTOPICS,
+    METHOD_NEXTEVENT, METHOD_PING, METHOD_PUBLISH, METHOD_STATS, METHOD_SUBSCRIBE,
+    METHOD_UNSUBSCRIBE,
+};
+
+/// Structured error field id in a reply body. The generated reply fields all
+/// use id 1, so it can never collide with a success payload.
+const ERROR_FIELD: u16 = 15;
 
 /// Wrap an encoded body in a broker parcel.
-pub fn request_parcel(method: u32, body: Encoder) -> Parcel {
+pub fn request_parcel(method: u32, body: Vec<u8>) -> Parcel {
     Parcel {
         header: header(method),
-        body: body.finish(),
+        body,
         handles: Vec::new(),
         buffers: Vec::new(),
     }
@@ -20,97 +37,169 @@ pub fn request_parcel(method: u32, body: Encoder) -> Parcel {
 
 /// An empty reply.
 pub fn reply_ok(method: u32) -> Parcel {
-    request_parcel(method, Encoder::new())
+    request_parcel(method, Vec::new())
 }
+
+fn wire<T>(result: core::result::Result<T, libmessenger::Error>) -> Result<T> {
+    result.map_err(Error::Parcel)
+}
+
+// -- Requests ---------------------------------------------------------------
+
+/// A `Publish` request; `payload` is the publisher's encoded parcel.
+pub fn publish_request(topic: &str, payload: &[u8], retained: bool) -> Result<Parcel> {
+    let args = generated::PublishArgs {
+        topic: String::from(topic),
+        payload: payload.to_vec(),
+        retained,
+    };
+    Ok(request_parcel(
+        METHOD_PUBLISH,
+        wire(generated::encode_publish_args(&args))?,
+    ))
+}
+
+/// A `Subscribe` request for `filter` under `qos`.
+pub fn subscribe_request(filter: &str, qos: Qos) -> Result<Parcel> {
+    let args = generated::SubscribeArgs {
+        filter: String::from(filter),
+        qos: qos.code(),
+        depth: qos.depth(),
+    };
+    Ok(request_parcel(
+        METHOD_SUBSCRIBE,
+        wire(generated::encode_subscribe_args(&args))?,
+    ))
+}
+
+/// A request that names one subscription: `Unsubscribe`, `NextEvent` or
+/// `Stats` (`method`); the three argument layouts are identical.
+pub fn subscription_request(method: u32, id: u64) -> Result<Parcel> {
+    let args = generated::UnsubscribeArgs { subscription: id };
+    Ok(request_parcel(
+        method,
+        wire(generated::encode_unsubscribe_args(&args))?,
+    ))
+}
+
+/// The subscription id a `NextEvent`/`Unsubscribe`/`Stats` request names.
+pub fn decode_subscription_args(parcel: &Parcel) -> Result<u64> {
+    Ok(wire(generated::decode_unsubscribe_args(&parcel.body))?.subscription)
+}
+
+/// An `Ack` request retiring every event up to `sequence`.
+pub fn ack_request(id: u64, sequence: u64) -> Result<Parcel> {
+    let args = generated::AckArgs {
+        subscription: id,
+        sequence,
+    };
+    Ok(request_parcel(
+        METHOD_ACK,
+        wire(generated::encode_ack_args(&args))?,
+    ))
+}
+
+/// A `ListTopics` request.
+pub fn list_request() -> Parcel {
+    reply_ok(METHOD_LISTTOPICS)
+}
+
+/// A `Ping` request.
+pub fn ping_request() -> Parcel {
+    reply_ok(METHOD_PING)
+}
+
+// -- Replies (built by the broker) -----------------------------------------
 
 /// A publish reply carrying the subscriber count the event reached.
 pub fn reply_matched(matched: u64) -> Result<Parcel> {
-    let mut body = Encoder::new();
-    body.u64(field::MATCHED, matched).map_err(Error::Parcel)?;
-    Ok(request_parcel(method::PUBLISH, body))
+    let reply = generated::PublishReply { matched };
+    Ok(request_parcel(
+        METHOD_PUBLISH,
+        wire(generated::encode_publish_reply(&reply))?,
+    ))
 }
 
 /// A subscribe reply carrying the new subscription id.
 pub fn reply_subscription(id: u64) -> Result<Parcel> {
-    let mut body = Encoder::new();
-    body.u64(field::SUBSCRIPTION, id).map_err(Error::Parcel)?;
-    Ok(request_parcel(method::SUBSCRIBE, body))
+    let reply = generated::SubscribeReply { subscription: id };
+    Ok(request_parcel(
+        METHOD_SUBSCRIBE,
+        wire(generated::encode_subscribe_reply(&reply))?,
+    ))
 }
 
 /// A `NextEvent` reply carrying one event.
 pub fn reply_event(event: &Event) -> Result<Parcel> {
-    let mut record = Encoder::new();
-    record
-        .string(field::TOPIC, &event.topic)
-        .map_err(Error::Parcel)?;
-    record
-        .u64(field::PUBLISHER, event.publisher)
-        .map_err(Error::Parcel)?;
-    record
-        .u64(field::SEQUENCE, event.sequence)
-        .map_err(Error::Parcel)?;
-    record
-        .bool(field::RETAINED, event.retained)
-        .map_err(Error::Parcel)?;
-    record
-        .bytes(field::PAYLOAD, &event.payload)
-        .map_err(Error::Parcel)?;
-    let mut body = Encoder::new();
-    body.record(field::EVENT, &record).map_err(Error::Parcel)?;
-    Ok(request_parcel(method::NEXT_EVENT, body))
+    let reply = generated::NextEventReply {
+        event: generated::Event {
+            topic: event.topic.clone(),
+            publisher: event.publisher,
+            sequence: event.sequence,
+            retained: event.retained,
+            payload: event.payload.clone(),
+        },
+    };
+    Ok(request_parcel(
+        METHOD_NEXTEVENT,
+        wire(generated::encode_next_event_reply(&reply))?,
+    ))
 }
 
 /// A stats reply.
 pub fn reply_stats(stats: &SubscriptionStats) -> Result<Parcel> {
-    let mut body = Encoder::new();
-    body.u32(field::QOS, stats.qos).map_err(Error::Parcel)?;
-    body.u32(field::DEPTH, stats.depth).map_err(Error::Parcel)?;
-    body.u64(field::QUEUED, stats.queued)
-        .map_err(Error::Parcel)?;
-    body.u64(field::DELIVERED, stats.delivered)
-        .map_err(Error::Parcel)?;
-    body.u64(field::MATCHED, stats.matched)
-        .map_err(Error::Parcel)?;
-    body.u64(field::DROPS, stats.drops).map_err(Error::Parcel)?;
-    Ok(request_parcel(method::STATS, body))
+    let reply = generated::StatsReply {
+        stats: generated::Stats {
+            qos: stats.qos,
+            depth: stats.depth,
+            queued: stats.queued,
+            delivered: stats.delivered,
+            matched: stats.matched,
+            drops: stats.drops,
+        },
+    };
+    Ok(request_parcel(
+        METHOD_STATS,
+        wire(generated::encode_stats_reply(&reply))?,
+    ))
 }
 
 /// A topic-list reply.
 pub fn reply_topics(topics: &[TopicInfo]) -> Result<Parcel> {
-    let mut body = Encoder::new();
-    for info in topics {
-        let mut record = Encoder::new();
-        record
-            .string(field::TOPIC, &info.topic)
-            .map_err(Error::Parcel)?;
-        record
-            .u64(field::SUBSCRIBERS, info.subscribers)
-            .map_err(Error::Parcel)?;
-        record
-            .bool(field::RETAINED, info.retained)
-            .map_err(Error::Parcel)?;
-        body.record(field::ENTRY, &record).map_err(Error::Parcel)?;
-    }
-    Ok(request_parcel(method::LIST_TOPICS, body))
+    let reply = generated::ListTopicsReply {
+        topics: topics
+            .iter()
+            .map(|info| generated::TopicInfo {
+                topic: info.topic.clone(),
+                subscribers: info.subscribers,
+                retained: info.retained,
+            })
+            .collect(),
+    };
+    Ok(request_parcel(
+        METHOD_LISTTOPICS,
+        wire(generated::encode_list_topics_reply(&reply))?,
+    ))
 }
 
-/// The broker's error answer: errno-style code plus friendly text.
+/// The broker error answer: errno-style code plus friendly text.
 pub fn error_reply(method: u32, error: Error) -> Parcel {
     let code = error.errno().map(|code| -code).unwrap_or(errno::EINVAL);
     let mut body = Encoder::new();
     // A structured error field cannot overflow a fresh encoder here.
-    let _ = body.error(field::ERROR, code as u32, error.message());
-    request_parcel(method, body)
+    let _ = body.error(ERROR_FIELD, code as u32, error.message());
+    request_parcel(method, body.finish())
 }
+
+// -- Reply decoding (client side) ------------------------------------------
 
 /// The first structured error field, when the reply is a broker failure.
 ///
-/// `pub(super)` so [`super::client`] can check every reply for a daemon
-/// failure without re-decoding the parcel.
-pub(super) fn error_field(parcel: &Parcel) -> Result<Option<i64>> {
+/// Every client checks each reply for a daemon failure before decoding it.
+pub fn error_field(parcel: &Parcel) -> Result<Option<i64>> {
     let mut decoder = Decoder::new(&parcel.body);
     while let Some(field) = decoder.next().map_err(Error::Parcel)? {
-        if field.kind == Kind::Error && field.id == field::ERROR {
+        if field.kind == Kind::Error && field.id == ERROR_FIELD {
             let (code, _message) = field.error_parts().map_err(Error::Parcel)?;
             return Ok(Some(code as i64));
         }
@@ -118,171 +207,60 @@ pub(super) fn error_field(parcel: &Parcel) -> Result<Option<i64>> {
     Ok(None)
 }
 
-/// The first string field with `id`.
-pub fn string_field(parcel: &Parcel, id: u16) -> Result<String> {
-    let mut decoder = Decoder::new(&parcel.body);
-    while let Some(field) = decoder.next().map_err(Error::Parcel)? {
-        if field.kind == Kind::String && field.id == id {
-            return Ok(String::from(field.as_str().map_err(Error::Parcel)?));
-        }
-    }
-    Err(Error::Errno(-errno::EINVAL))
+/// The subscriber count of a publish reply (zero when the field is absent).
+pub fn decode_matched(parcel: &Parcel) -> Result<u64> {
+    Ok(wire(generated::decode_publish_reply(&parcel.body))?.matched)
 }
 
-/// The first `u64` field with `id`, if any.
-pub fn u64_field(parcel: &Parcel, id: u16) -> Result<Option<u64>> {
-    let mut decoder = Decoder::new(&parcel.body);
-    while let Some(field) = decoder.next().map_err(Error::Parcel)? {
-        if field.kind == Kind::U64 && field.id == id {
-            return Ok(Some(field.as_u64().map_err(Error::Parcel)?));
-        }
+/// The subscription id of a subscribe reply; a reply without one is
+/// malformed.
+pub fn decode_subscription(parcel: &Parcel) -> Result<u64> {
+    let id = wire(generated::decode_subscribe_reply(&parcel.body))?.subscription;
+    // Subscription ids start at 1, so zero is the absent-field default.
+    if id == 0 {
+        return Err(Error::Errno(-errno::EINVAL));
     }
-    Ok(None)
+    Ok(id)
 }
 
-/// The first `u32` field with `id`, if any.
-pub fn u32_field(parcel: &Parcel, id: u16) -> Result<Option<u32>> {
-    let mut decoder = Decoder::new(&parcel.body);
-    while let Some(field) = decoder.next().map_err(Error::Parcel)? {
-        if field.kind == Kind::U32 && field.id == id {
-            return Ok(Some(field.as_u32().map_err(Error::Parcel)?));
-        }
-    }
-    Ok(None)
-}
-
-/// The first `bool` field with `id` (default `false`).
-pub fn bool_field(parcel: &Parcel, id: u16) -> Result<bool> {
-    let mut decoder = Decoder::new(&parcel.body);
-    while let Some(field) = decoder.next().map_err(Error::Parcel)? {
-        if field.kind == Kind::Bool && field.id == id {
-            return field.as_bool().map_err(Error::Parcel);
-        }
-    }
-    Ok(false)
-}
-
-/// The first `Bytes` field with `id`, if any.
-pub fn bytes_field(parcel: &Parcel, id: u16) -> Result<Option<Vec<u8>>> {
-    let mut decoder = Decoder::new(&parcel.body);
-    while let Some(field) = decoder.next().map_err(Error::Parcel)? {
-        if field.kind == Kind::Bytes && field.id == id {
-            return Ok(Some(field.as_bytes().to_vec()));
-        }
-    }
-    Ok(None)
-}
-
-/// Decode the first nested `EVENT` record, if the reply carries one.
+/// Decode the event of a `NextEvent` reply; `None` when the reply is empty.
 pub fn decode_event(parcel: &Parcel) -> Result<Option<Event>> {
-    let mut decoder = Decoder::new(&parcel.body);
-    while let Some(record) = decoder.next().map_err(Error::Parcel)? {
-        if record.kind != Kind::Struct || record.id != field::EVENT {
-            continue;
-        }
-        let mut nested = record.nested(0).map_err(Error::Parcel)?;
-        let mut event = Event {
-            topic: String::new(),
-            publisher: 0,
-            sequence: 0,
-            retained: false,
-            payload: Vec::new(),
-        };
-        while let Some(item) = nested.next().map_err(Error::Parcel)? {
-            match (item.kind, item.id) {
-                (Kind::String, field::TOPIC) => {
-                    event.topic = String::from(item.as_str().map_err(Error::Parcel)?);
-                }
-                (Kind::U64, field::PUBLISHER) => {
-                    event.publisher = item.as_u64().map_err(Error::Parcel)?;
-                }
-                (Kind::U64, field::SEQUENCE) => {
-                    event.sequence = item.as_u64().map_err(Error::Parcel)?;
-                }
-                (Kind::Bool, field::RETAINED) => {
-                    event.retained = item.as_bool().map_err(Error::Parcel)?;
-                }
-                (Kind::Bytes, field::PAYLOAD) => {
-                    event.payload = item.as_bytes().to_vec();
-                }
-                _ => {}
-            }
-        }
-        return Ok(Some(event));
+    if parcel.body.is_empty() {
+        return Ok(None);
     }
-    Ok(None)
+    let event = wire(generated::decode_next_event_reply(&parcel.body))?.event;
+    Ok(Some(Event {
+        topic: event.topic,
+        publisher: event.publisher,
+        sequence: event.sequence,
+        retained: event.retained,
+        payload: event.payload,
+    }))
 }
 
 /// Decode a stats reply.
 pub fn decode_stats(parcel: &Parcel) -> Result<SubscriptionStats> {
+    let stats = wire(generated::decode_stats_reply(&parcel.body))?.stats;
     Ok(SubscriptionStats {
-        qos: u32_field(parcel, field::QOS)?.unwrap_or(0),
-        depth: u32_field(parcel, field::DEPTH)?.unwrap_or(0),
-        queued: u64_field(parcel, field::QUEUED)?.unwrap_or(0),
-        delivered: u64_field(parcel, field::DELIVERED)?.unwrap_or(0),
-        matched: u64_field(parcel, field::MATCHED)?.unwrap_or(0),
-        drops: u64_field(parcel, field::DROPS)?.unwrap_or(0),
+        qos: stats.qos,
+        depth: stats.depth,
+        queued: stats.queued,
+        delivered: stats.delivered,
+        matched: stats.matched,
+        drops: stats.drops,
     })
 }
 
 /// Decode a topic-list reply.
 pub fn decode_topics(parcel: &Parcel) -> Result<Vec<TopicInfo>> {
-    let mut topics = Vec::new();
-    let mut decoder = Decoder::new(&parcel.body);
-    while let Some(record) = decoder.next().map_err(Error::Parcel)? {
-        if record.kind != Kind::Struct || record.id != field::ENTRY {
-            continue;
-        }
-        let mut nested = record.nested(0).map_err(Error::Parcel)?;
-        let mut info = TopicInfo {
-            topic: String::new(),
-            subscribers: 0,
-            retained: false,
-        };
-        while let Some(item) = nested.next().map_err(Error::Parcel)? {
-            match (item.kind, item.id) {
-                (Kind::String, field::TOPIC) => {
-                    info.topic = String::from(item.as_str().map_err(Error::Parcel)?);
-                }
-                (Kind::U64, field::SUBSCRIBERS) => {
-                    info.subscribers = item.as_u64().map_err(Error::Parcel)?;
-                }
-                (Kind::Bool, field::RETAINED) => {
-                    info.retained = item.as_bool().map_err(Error::Parcel)?;
-                }
-                _ => {}
-            }
-        }
-        topics.push(info);
-    }
-    Ok(topics)
-}
-
-/// Encode a `Publish` request body.
-///
-/// `pub(super)` so [`super::client`] can build the request without
-/// duplicating the field layout.
-pub(super) fn publish_body(topic: &str, payload: &[u8], retained: bool) -> Result<Encoder> {
-    let mut body = Encoder::new();
-    body.string(field::TOPIC, topic).map_err(Error::Parcel)?;
-    body.bytes(field::PAYLOAD, payload).map_err(Error::Parcel)?;
-    body.bool(field::RETAINED, retained)
-        .map_err(Error::Parcel)?;
-    Ok(body)
-}
-
-/// Encode a `Subscribe` request body.
-pub(super) fn subscribe_body(filter: &str, qos: Qos) -> Result<Encoder> {
-    let mut body = Encoder::new();
-    body.string(field::FILTER, filter).map_err(Error::Parcel)?;
-    body.u32(field::QOS, qos.code()).map_err(Error::Parcel)?;
-    body.u32(field::DEPTH, qos.depth()).map_err(Error::Parcel)?;
-    Ok(body)
-}
-
-/// Encode a request body that names one subscription.
-pub(super) fn subscription_body(id: u64) -> Result<Encoder> {
-    let mut body = Encoder::new();
-    body.u64(field::SUBSCRIPTION, id).map_err(Error::Parcel)?;
-    Ok(body)
+    let reply = wire(generated::decode_list_topics_reply(&parcel.body))?;
+    Ok(reply
+        .topics
+        .into_iter()
+        .map(|info| TopicInfo {
+            topic: info.topic,
+            subscribers: info.subscribers,
+            retained: info.retained,
+        })
+        .collect())
 }

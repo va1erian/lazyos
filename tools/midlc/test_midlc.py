@@ -165,6 +165,47 @@ class CodegenTests(unittest.TestCase):
         self.assertIn("/// Set doc.\n    #[derive", rust)
 
 
+class MultiInterfaceTests(unittest.TestCase):
+    TWO = """
+    /// First.
+    interface os.lazy.one.v1 {
+        method A() -> ();
+        enum Mode { Publish, Subscribe }
+    }
+    /// Second.
+    interface os.lazy.one.sub.v1 {
+        method A() -> ();
+    }
+    """
+
+    def test_one_file_may_hold_several_interfaces(self) -> None:
+        found = midlc.Parser(midlc.lex(self.TWO)).parse_interfaces()
+        self.assertEqual([i.name for i in found], ["os.lazy.one.v1", "os.lazy.one.sub.v1"])
+        self.assertEqual([i.docs for i in found], ["First.", "Second."])
+        self.assertNotEqual(found[0].id, found[1].id)
+
+    def test_single_interface_file_still_parses(self) -> None:
+        found = midlc.Parser(midlc.lex(SAMPLE)).parse_interfaces()
+        self.assertEqual(len(found), 1)
+
+    def test_garbage_after_an_interface_is_rejected(self) -> None:
+        with self.assertRaises(midlc.MidlError):
+            midlc.Parser(midlc.lex(SAMPLE + " struct Stray { x: U32 }")).parse_interfaces()
+
+    def test_enum_variants_become_u32_constants(self) -> None:
+        interface = midlc.Parser(midlc.lex(self.TWO)).parse_interfaces()[0]
+        rust = midlc.emit_rust(interface)
+        self.assertIn("pub const MODE_PUBLISH: u32 = 0;", rust)
+        self.assertIn("pub const MODE_SUBSCRIBE: u32 = 1;", rust)
+
+    def test_multiword_enum_names_snake_case_into_constants(self) -> None:
+        text = "interface os.lazy.e.v1 { enum QosLevel { BestEffort, Reliable } }"
+        interface = midlc.Parser(midlc.lex(text)).parse_interface()
+        rust = midlc.emit_rust(interface)
+        self.assertIn("pub const QOS_LEVEL_BEST_EFFORT: u32 = 0;", rust)
+        self.assertIn("pub const QOS_LEVEL_RELIABLE: u32 = 1;", rust)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
 

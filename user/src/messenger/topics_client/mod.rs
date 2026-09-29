@@ -9,6 +9,8 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use libmessenger::{flags, Header, Parcel, VERSION};
+use messenger_generated::os_lazy_messenger_topics_publish_v1 as publish_scope;
+use messenger_generated::os_lazy_messenger_topics_v1 as generated;
 
 use super::{Error, Result};
 
@@ -21,80 +23,36 @@ pub use wire::*;
 /// Well-known broker name; `messengerd` registers it at startup.
 pub const NAME: &str = "os.lazy.messenger.topics";
 
-/// Topics interface id: `fnv1a64("os.lazy.messenger.topics.v1")`, the same
-/// `tools/midlc` hash the kernel and broker use.
-pub const INTERFACE: u64 = 0xc573_4f97_8fef_7231;
+/// Topics interface id (`os.lazy.messenger.topics.v1`), generated from
+/// `idl/topics.midl`.
+pub const INTERFACE: u64 = generated::INTERFACE_ID;
 
-/// Broker method ids (`fnv1a32` of the method name, `tools/midlc` style).
+/// Broker method ids, generated from `idl/topics.midl`.
 pub mod method {
+    use super::generated;
+
     /// Publish one payload under a topic.
-    pub const PUBLISH: u32 = 1818372520;
+    pub const PUBLISH: u32 = generated::METHOD_PUBLISH;
     /// Create a subscription for a filter.
-    pub const SUBSCRIBE: u32 = 6992035;
+    pub const SUBSCRIBE: u32 = generated::METHOD_SUBSCRIBE;
     /// Drop a subscription.
-    pub const UNSUBSCRIBE: u32 = 2099666486;
+    pub const UNSUBSCRIBE: u32 = generated::METHOD_UNSUBSCRIBE;
     /// Wait for (or poll) the next event of a subscription.
-    pub const NEXT_EVENT: u32 = 1278354512;
+    pub const NEXT_EVENT: u32 = generated::METHOD_NEXTEVENT;
     /// Retire an event delivered by a `reliable` subscription.
-    pub const ACK: u32 = 483717538;
+    pub const ACK: u32 = generated::METHOD_ACK;
     /// List topics the broker has seen.
-    pub const LIST_TOPICS: u32 = 225427937;
+    pub const LIST_TOPICS: u32 = generated::METHOD_LISTTOPICS;
     /// Per-subscription queue and drop counters.
-    pub const STATS: u32 = 788260383;
+    pub const STATS: u32 = generated::METHOD_STATS;
     /// Round-trip probe used to detect a live broker.
-    pub const PING: u32 = 2142761129;
+    pub const PING: u32 = generated::METHOD_PING;
 }
 
-/// TLV field ids of the broker protocol.
-pub mod field {
-    /// Publish topic / event topic.
-    pub const TOPIC: u16 = 1;
-    /// Subscription filter.
-    pub const FILTER: u16 = 2;
-    /// Encoded payload parcel bytes.
-    pub const PAYLOAD: u16 = 3;
-    /// Whether a publish is the retained value.
-    pub const RETAINED: u16 = 4;
-    /// QoS code.
-    pub const QOS: u16 = 5;
-    /// Buffered depth.
-    pub const DEPTH: u16 = 6;
-    /// Subscription id.
-    pub const SUBSCRIPTION: u16 = 7;
-    /// Event sequence / ack sequence.
-    pub const SEQUENCE: u16 = 8;
-    /// Publisher task slot.
-    pub const PUBLISHER: u16 = 9;
-    /// Nested event record.
-    pub const EVENT: u16 = 10;
-    /// Subscribers a publish matched.
-    pub const MATCHED: u16 = 11;
-    /// Dropped events (subscription stats).
-    pub const DROPS: u16 = 12;
-    /// Queued events (subscription stats).
-    pub const QUEUED: u16 = 13;
-    /// Delivered events (subscription stats).
-    pub const DELIVERED: u16 = 14;
-    /// Subscribers matching a listed topic.
-    pub const SUBSCRIBERS: u16 = 15;
-    /// Nested topic record.
-    pub const ENTRY: u16 = 16;
-    /// Structured error reply.
-    pub const ERROR: u16 = 17;
-}
-
-/// TLV field ids of the kernel `authorize_topic` request; mirrors
-/// `kernel/src/ipc/topics.rs`.
-pub mod auth_field {
-    pub const NAME: u16 = 1;
-    pub const MODE: u16 = 2;
-    pub const TXN: u16 = 3;
-}
-
-/// Kernel mode code for a publish ACL check.
-pub const MODE_PUBLISH: u32 = 0;
-/// Kernel mode code for a subscribe ACL check.
-pub const MODE_SUBSCRIBE: u32 = 1;
+/// Kernel mode code for a publish ACL check (`Mode::Publish`).
+pub const MODE_PUBLISH: u32 = publish_scope::MODE_PUBLISH;
+/// Kernel mode code for a subscribe ACL check (`Mode::Subscribe`).
+pub const MODE_SUBSCRIBE: u32 = publish_scope::MODE_SUBSCRIBE;
 
 /// Payload bytes accepted by the broker in one event. Sized well below the
 /// 16 KiB call buffer so a `NextEvent` reply always fits.
@@ -132,10 +90,10 @@ impl Qos {
     /// The wire code.
     pub const fn code(self) -> u32 {
         match self {
-            Qos::Latest => 0,
-            Qos::Buffered(_) => 1,
-            Qos::Conflate => 2,
-            Qos::Reliable => 3,
+            Qos::Latest => generated::QOS_LATEST,
+            Qos::Buffered(_) => generated::QOS_BUFFERED,
+            Qos::Conflate => generated::QOS_CONFLATE,
+            Qos::Reliable => generated::QOS_RELIABLE,
         }
     }
 
@@ -160,10 +118,10 @@ impl Qos {
     /// Decode `(code, depth)` from the wire, or `None` for an unknown code.
     pub fn from_parts(code: u32, depth: u32) -> Option<Qos> {
         match code {
-            0 => Some(Qos::Latest),
-            1 => Some(Qos::Buffered(depth)),
-            2 => Some(Qos::Conflate),
-            3 => Some(Qos::Reliable),
+            generated::QOS_LATEST => Some(Qos::Latest),
+            generated::QOS_BUFFERED => Some(Qos::Buffered(depth)),
+            generated::QOS_CONFLATE => Some(Qos::Conflate),
+            generated::QOS_RELIABLE => Some(Qos::Reliable),
             _ => None,
         }
     }

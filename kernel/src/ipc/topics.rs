@@ -47,37 +47,42 @@ pub const fn fnv1a32(text: &str) -> u32 {
     hash & 0x7FFF_FFFF
 }
 
-/// Policy interface used for `Publish` authorization.
-///
-/// `fnv1a64("os.lazy.messenger.topics.publish.v1")`; the name mirrors the
-/// interface convention so a policy compiler can derive it from the IDL-style
-/// name.
-pub const PUBLISH_INTERFACE: u64 = 0x7ffc_19b0_3e94_1e16;
-/// Policy interface used for `Subscribe`/`Unsubscribe` authorization:
-/// `fnv1a64("os.lazy.messenger.topics.subscribe.v1")`.
-pub const SUBSCRIBE_INTERFACE: u64 = 0xefbc_15f1_4c9d_4bef;
+/// The generated ACL scope interfaces (`idl/topics.midl`): their ids and the
+/// `authorize_topic` request layout are the single source of truth.
+pub use messenger_generated::os_lazy_messenger_topics_publish_v1 as publish_scope;
+pub use messenger_generated::os_lazy_messenger_topics_subscribe_v1 as subscribe_scope;
 
-/// Publish-mode code shared with `user/src/messenger/`.
-pub const MODE_PUBLISH: u32 = 0;
-/// Subscribe-mode code shared with `user/src/messenger/`.
-pub const MODE_SUBSCRIBE: u32 = 1;
+/// Policy interface used for `Publish` authorization
+/// (`os.lazy.messenger.topics.publish.v1`).
+pub const PUBLISH_INTERFACE: u64 = publish_scope::INTERFACE_ID;
+/// Policy interface used for `Subscribe`/`Unsubscribe` authorization
+/// (`os.lazy.messenger.topics.subscribe.v1`).
+pub const SUBSCRIBE_INTERFACE: u64 = subscribe_scope::INTERFACE_ID;
+
+// The generated ids are the FNV-1a hashes of the interface names; re-derive
+// them here so a change to either the hash or the IDL cannot pass silently.
+const _: () = {
+    assert!(fnv1a64("os.lazy.messenger.topics.publish.v1") == PUBLISH_INTERFACE);
+    assert!(fnv1a64("os.lazy.messenger.topics.subscribe.v1") == SUBSCRIBE_INTERFACE);
+    // Both scopes share one request layout, so one decoder serves both.
+    assert!(publish_scope::METHOD_AUTHORIZETOPIC == subscribe_scope::METHOD_AUTHORIZETOPIC);
+    assert!(publish_scope::MODE_PUBLISH == subscribe_scope::MODE_PUBLISH);
+    assert!(publish_scope::MODE_SUBSCRIBE == subscribe_scope::MODE_SUBSCRIBE);
+};
+
+/// Publish-mode code (`Mode::Publish` in the IDL).
+pub const MODE_PUBLISH: u32 = publish_scope::MODE_PUBLISH;
+/// Subscribe-mode code (`Mode::Subscribe` in the IDL).
+pub const MODE_SUBSCRIBE: u32 = publish_scope::MODE_SUBSCRIBE;
+
+/// Decode the `authorize_topic` request body (`name`, `mode`, audit `txn`).
+pub use publish_scope::decode_authorize_topic_args as decode_request;
 
 /// Longest topic/filter accepted by the ACL gate, mirroring the registry's
 /// name limit.
 pub const MAX_NAME_BYTES: usize = 128;
 /// Deepest topic accepted by the ACL gate, mirroring the broker's limit.
 pub const MAX_SEGMENTS: usize = 8;
-
-/// TLV field ids of the `authorize_topic` request parcel, mirrored by
-/// `user/src/messenger/` (`topics::auth_field`).
-pub mod field {
-    /// The topic or filter name.
-    pub const NAME: u16 = 1;
-    /// The mode code ([`MODE_PUBLISH`] or [`MODE_SUBSCRIBE`]).
-    pub const MODE: u16 = 2;
-    /// Optional audit correlation id (the broker request's transaction).
-    pub const TXN: u16 = 3;
-}
 
 /// Why [`authorize`] refused to even evaluate a name.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

@@ -287,6 +287,13 @@ class Parser:
         self.expect("}")
         return Enum(name.text, variants)
 
+    def parse_interfaces(self) -> list[Interface]:
+        """Every interface in the file (one or more, in source order)."""
+        interfaces = [self.parse_interface()]
+        while any(t.kind != "doc" for t in self.tokens[self.pos :]):
+            interfaces.append(self.parse_interface())
+        return interfaces
+
     def parse_interface(self) -> Interface:
         self.expect("interface")
         name = self.next()
@@ -580,6 +587,13 @@ def emit_rust(interface: Interface) -> str:
         f"    pub const INTERFACE_ID: u64 = {interface.id:#x};",
         "",
     ]
+    # Enums travel as `U32` on the wire; the variant indices are emitted as
+    # constants so callers never hand-type a discriminant.
+    for enum in interface.enums:
+        for index, variant in enumerate(enum.variants):
+            lines.append(f"    /// `{enum.name}::{variant}` wire value.")
+            lines.append(f"    pub const {snake_case(enum.name).upper()}_{snake_case(variant).upper()}: u32 = {index};")
+        lines.append("")
     for struct in interface.structs:
         lines += emit_struct(struct.name, struct.fields, struct.doc).splitlines()
         lines.append("")
@@ -641,7 +655,7 @@ HEADER = (
 def generate(inputs: list[Path]) -> tuple[str, list[dict], dict[str, str]]:
     interfaces = []
     for path in inputs:
-        interfaces.append(Parser(lex(path.read_text(encoding="utf-8"))).parse_interface())
+        interfaces += Parser(lex(path.read_text(encoding="utf-8"))).parse_interfaces()
     rust = HEADER + "\n\n".join(emit_rust(i) for i in interfaces) + "\n"
     return rust, [emit_manifest(i) for i in interfaces], {i.name: emit_markdown(i) for i in interfaces}
 

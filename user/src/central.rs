@@ -92,19 +92,12 @@ impl Bus {
     /// matched. `retained` keeps the value for later subscribers.
     pub fn publish(&mut self, topic: &str, payload: &[u8], retained: bool) -> Result<u64> {
         let wrapped = wrap(payload)?;
-        let mut body = Encoder::new();
-        body.string(topics_client::field::TOPIC, topic)
-            .map_err(Error::Parcel)?;
-        body.bytes(topics_client::field::PAYLOAD, &wrapped)
-            .map_err(Error::Parcel)?;
-        body.bool(topics_client::field::RETAINED, retained)
-            .map_err(Error::Parcel)?;
-        let request = topics_client::request_parcel(topics_client::method::PUBLISH, body);
+        let request = topics_client::publish_request(topic, &wrapped, retained)?;
         let reply = self.endpoint.call_with(&request, &mut self.scratch, None)?;
         if let Some(code) = error_code(&reply) {
             return Err(Error::Topics(code));
         }
-        Ok(topics_client::u64_field(&reply, topics_client::field::MATCHED)?.unwrap_or(0))
+        topics_client::decode_matched(&reply)
     }
 
     /// Subscribe to `filter` with `latest` QoS; retained matching values are
@@ -122,32 +115,23 @@ impl Bus {
         filter: &str,
         qos: topics_client::Qos,
     ) -> Result<Subscription> {
-        let mut body = Encoder::new();
-        body.string(topics_client::field::FILTER, filter)
-            .map_err(Error::Parcel)?;
-        body.u32(topics_client::field::QOS, qos.code())
-            .map_err(Error::Parcel)?;
-        body.u32(topics_client::field::DEPTH, qos.depth())
-            .map_err(Error::Parcel)?;
-        let request = topics_client::request_parcel(topics_client::method::SUBSCRIBE, body);
+        let request = topics_client::subscribe_request(filter, qos)?;
         let reply = self.endpoint.call_with(&request, &mut self.scratch, None)?;
         if let Some(code) = error_code(&reply) {
             return Err(Error::Topics(code));
         }
-        let id = topics_client::u64_field(&reply, topics_client::field::SUBSCRIPTION)?
-            .ok_or(Error::Errno(-errno::EINVAL))?;
+        let id = topics_client::decode_subscription(&reply)?;
         // Encoded once here and reused on every poll: `Endpoint::call_with`
         // would otherwise re-encode these fixed requests on every single
         // `recv_with`/`stats_with` call.
-        let mut next = Encoder::new();
-        next.u64(topics_client::field::SUBSCRIPTION, id)
-            .map_err(Error::Parcel)?;
-        let request = encode_request(topics_client::method::NEXT_EVENT, next)?;
-        let mut stats = Encoder::new();
-        stats
-            .u64(topics_client::field::SUBSCRIPTION, id)
-            .map_err(Error::Parcel)?;
-        let stats_request = encode_request(topics_client::method::STATS, stats)?;
+        let request = encode_request(topics_client::subscription_request(
+            topics_client::method::NEXT_EVENT,
+            id,
+        )?)?;
+        let stats_request = encode_request(topics_client::subscription_request(
+            topics_client::method::STATS,
+            id,
+        )?)?;
         Ok(Subscription {
             endpoint: self.endpoint,
             id,
@@ -158,8 +142,7 @@ impl Bus {
 
     /// List the topics the broker has seen, with live subscriber counts.
     pub fn list(&mut self) -> Result<Vec<topics_client::TopicInfo>> {
-        let request =
-            topics_client::request_parcel(topics_client::method::LIST_TOPICS, Encoder::new());
+        let request = topics_client::list_request();
         let reply = self.endpoint.call_with(&request, &mut self.scratch, None)?;
         if let Some(code) = error_code(&reply) {
             return Err(Error::Topics(code));
@@ -223,10 +206,8 @@ impl Subscription {
 
     /// Drop this subscription; later publishes stop matching it.
     pub fn unsubscribe(self) -> Result<()> {
-        let mut body = Encoder::new();
-        body.u64(topics_client::field::SUBSCRIPTION, self.id)
-            .map_err(Error::Parcel)?;
-        let request = topics_client::request_parcel(topics_client::method::UNSUBSCRIBE, body);
+        let request =
+            topics_client::subscription_request(topics_client::method::UNSUBSCRIBE, self.id)?;
         let mut scratch = alloc::vec![0u8; DEFAULT_BUFFER];
         let reply = self.endpoint.call_with(&request, &mut scratch, None)?;
         if let Some(code) = error_code(&reply) {
@@ -239,11 +220,9 @@ impl Subscription {
 /// Build and encode a broker request parcel once, for a caller that will
 /// reuse the bytes on every subsequent call instead of re-encoding a fixed
 /// request each time.
-fn encode_request(method: u32, body: Encoder) -> Result<Vec<u8>> {
+fn encode_request(request: Parcel) -> Result<Vec<u8>> {
     let mut bytes = Vec::new();
-    topics_client::request_parcel(method, body)
-        .encode(&mut bytes)
-        .map_err(Error::Parcel)?;
+    request.encode(&mut bytes).map_err(Error::Parcel)?;
     Ok(bytes)
 }
 
@@ -315,15 +294,7 @@ fn unwrap_event(event: topics_client::Event) -> Result<router::Event> {
 
 /// The positive errno of a structured broker error reply, if any.
 fn error_code(parcel: &Parcel) -> Option<i64> {
-    let mut decoder = Decoder::new(&parcel.body);
-    while let Ok(Some(field)) = decoder.next() {
-        if field.kind == Kind::Error && field.id == topics_client::field::ERROR {
-            if let Ok((code, _)) = field.error_parts() {
-                return Some(code as i64);
-            }
-        }
-    }
-    None
+    topics_client::error_field(parcel).ok().flatten()
 }
 
 /// Sleep one PIT tick by parking on a private channel pair with an expired

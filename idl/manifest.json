@@ -190,5 +190,73 @@
         "oneway": false
       }
     ]
+  },
+  {
+    "interface": "os.lazy.messenger.topics.v1",
+    "interface_id": "0xc5734f978fef7231",
+    "methods": [
+      {
+        "name": "Publish",
+        "id": 1818372520,
+        "oneway": false
+      },
+      {
+        "name": "Subscribe",
+        "id": 6992035,
+        "oneway": false
+      },
+      {
+        "name": "Unsubscribe",
+        "id": 2099666486,
+        "oneway": false
+      },
+      {
+        "name": "NextEvent",
+        "id": 1278354512,
+        "oneway": false
+      },
+      {
+        "name": "Ack",
+        "id": 483717538,
+        "oneway": false
+      },
+      {
+        "name": "ListTopics",
+        "id": 225427937,
+        "oneway": false
+      },
+      {
+        "name": "Stats",
+        "id": 267161228,
+        "oneway": false
+      },
+      {
+        "name": "Ping",
+        "id": 2142761129,
+        "oneway": false
+      }
+    ]
+  },
+  {
+    "interface": "os.lazy.messenger.topics.publish.v1",
+    "interface_id": "0x7ffc19b03e941e16",
+    "methods": [
+      {
+        "name": "AuthorizeTopic",
+        "id": 727248511,
+        "oneway": false
+      }
+    ]
+  },
+  {
+    "interface": "os.lazy.messenger.topics.subscribe.v1",
+    "interface_id": "0xefbc15f14c9d4bef",
+    "methods": [
+      {
+        "name": "AuthorizeTopic",
+        "id": 727248511,
+        "oneway": false
+      }
+    ]
   }
 ]
