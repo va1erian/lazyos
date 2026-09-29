@@ -1,0 +1,135 @@
+//! Blocking, waking and the `wait_*` helpers.
+
+use super::*;
+
+/// Park the current task (skipped by the scheduler until woken).
+///
+/// Kept for the kernel test harness; real blocking goes through
+/// [`wait::WaitQueue`], which also records a wake reason and a deadline.
+#[allow(dead_code)]
+pub fn set_blocked(blocked: bool) {
+    if let Some(task) = TASKS.lock()[current()].as_mut() {
+        if task.state == TaskState::Done {
+            return;
+        }
+        task.state = if blocked {
+            TaskState::Blocked {
+                wait: WaitKind::Sleep,
+                deadline: None,
+            }
+        } else {
+            TaskState::Runnable
+        };
+        task.wake_reason = None;
+    }
+}
+
+/// Whether the current task is parked on a wait queue.
+///
+/// Kept for the kernel test harness; see [`set_blocked`].
+#[allow(dead_code)]
+pub fn blocked() -> bool {
+    TASKS.lock()[current()]
+        .as_ref()
+        .is_some_and(|task| matches!(task.state, TaskState::Blocked { .. }))
+}
+
+/// Wake a parked task by slot index, recording [`WakeReason::Woken`]. Returns
+/// whether the task was actually parked.
+///
+/// Kept for the kernel test harness; wait queues use [`wake_task_with`].
+#[allow(dead_code)]
+pub fn wake_task(index: usize) -> bool {
+    wake_task_with(index, WakeReason::Woken)
+}
+
+/// Mark task `index` blocked with a reason and an optional absolute deadline.
+///
+/// Callers park the task on a queue first and call this with interrupts
+/// disabled, so the timer ISR can never schedule a half-parked task.
+pub(crate) fn block_task(index: usize, wait: WaitKind, deadline: Option<u64>) {
+    if let Some(task) = TASKS.lock()[index].as_mut() {
+        if task.state != TaskState::Done {
+            task.state = TaskState::Blocked { wait, deadline };
+            task.wake_reason = None;
+        }
+    }
+}
+
+/// Move a blocked task back to `Runnable` and record why. Returns whether the
+/// task was actually blocked (a task that already timed out, or is `Done`, is
+/// left untouched so the scheduler never resurrects it).
+pub(crate) fn wake_task_with(index: usize, reason: WakeReason) -> bool {
+    let mut tasks = TASKS.lock();
+    // A task that slept while its peers ran rejoins at the current virtual
+    // time instead of being handed a burst of catch-up quanta (issue #58).
+    let now = virtual_now(&tasks);
+    if let Some(task) = tasks[index].as_mut() {
+        if matches!(task.state, TaskState::Blocked { .. }) {
+            task.state = TaskState::Runnable;
+            task.wake_reason = Some(reason);
+            task.pass = task.pass.max(now);
+            return true;
+        }
+    }
+    false
+}
+
+/// Consume the wake reason recorded for `index`, if any. The wait loop calls
+/// this on resume; the reason is cleared so a later wait starts fresh.
+pub(crate) fn take_wake_reason(index: usize) -> Option<WakeReason> {
+    TASKS.lock()[index]
+        .as_mut()
+        .and_then(|task| task.wake_reason.take())
+}
+
+/// Park the current task until terminal input arrives.
+pub fn wait_terminal() -> WakeReason {
+    wait::TERMINAL.wait(current(), None)
+}
+
+/// Park the current task until terminal input or a pipe event arrives, or
+/// `deadline` passes. The queue is advisory: the caller rescans its descriptors
+/// and parks again if nothing it watches changed.
+pub fn wait_poll(deadline: Option<u64>) -> WakeReason {
+    wait::POLL.wait(current(), deadline)
+}
+
+/// Wake every `poll` waiter (pipe data, space, EOF, or `-EPIPE`). Pipe code and
+/// the input paths call this; wakeups are advisory.
+pub fn notify_poll() {
+    wait::POLL.notify_all();
+}
+
+/// Park the current task until `deadline` (absolute PIT ticks) passes.
+pub fn wait_sleep(deadline: u64) -> WakeReason {
+    wait::SLEEP.wait(current(), Some(deadline))
+}
+
+/// Park the current task until `deadline` (absolute PIT ticks), from a context
+/// with interrupts enabled: the multiplexer's between-frames idle primitive.
+///
+/// Unlike [`wait_sleep`] (called from syscalls that already run with
+/// interrupts disabled), this disables them around the register-then-park
+/// sequence itself and restores them before returning. Sleeping between
+/// frames is what bounds the mux's CPU share: an `Interactive` task that is
+/// only runnable one quantum in a handful cannot starve user work.
+pub fn idle(deadline: u64) -> WakeReason {
+    x86_64::instructions::interrupts::disable();
+    let reason = wait::SLEEP.wait(current(), Some(deadline));
+    x86_64::instructions::interrupts::enable();
+    reason
+}
+
+/// Park the current task until one of its children becomes reapable.
+pub fn wait_child_exit() -> WakeReason {
+    wait::CHILD_EXIT.wait(current(), None)
+}
+
+/// Park the current task until a task slot is freed or `deadline` passes. The
+/// Linux `clone` shim sleeps here after a spawn while the table is near
+/// capacity, so earlier threads get a quantum to run, exit and free their
+/// slots (which notifies the queue) before the next spawn needs one.
+pub fn wait_slot(deadline: u64) -> WakeReason {
+    wait::SLOT.wait(current(), Some(deadline))
+}
