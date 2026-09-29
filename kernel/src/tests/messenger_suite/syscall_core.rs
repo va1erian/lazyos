@@ -174,10 +174,15 @@ pub fn syscall_echo() -> Result<(), String> {
     })
 }
 
-/// The blocking `call` op parks through the timer gate and maps the
-/// channel's timeout to `-ETIMEDOUT`.
+/// The blocking `call` op parks through the voluntary scheduler gate and
+/// maps the channel's timeout to `-ETIMEDOUT`.
 pub fn syscall_timeout() -> Result<(), String> {
     fresh()?;
+    // A park no longer advances the clock (issue #338) and the suite runs
+    // with the PIT masked by `cli`, so use a deadline that has already
+    // arrived: the park's own scheduler entry expires it. (0 means "none".)
+    crate::arch::idt::TICKS.fetch_max(1, core::sync::atomic::Ordering::Relaxed);
+    let deadline = task::ticks();
     in_space(|| -> Result<(), String> {
         let (code, created) = syscall(OP_CREATE_PAIR, &MsgArgs::default());
         check!(code == 0, "create_pair -> {code:#x}");
@@ -189,7 +194,7 @@ pub fn syscall_timeout() -> Result<(), String> {
             parcel_len: request.len() as u64,
             buf_ptr: RECV_BUF,
             buf_cap: 4096,
-            deadline: task::ticks() + 1,
+            deadline,
             ..MsgArgs::default()
         };
         let (code, result) = syscall(OP_CALL, &args);

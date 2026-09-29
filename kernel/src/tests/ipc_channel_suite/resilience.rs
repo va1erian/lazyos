@@ -3,24 +3,26 @@
 
 use super::*;
 
-/// `cancel` wakes a parked caller with `Canceled`, and the transaction is
-/// gone afterwards.
+/// `cancel` (issued by the running caller between `begin_call` and
+/// `await_reply`) ends the transaction with `Canceled`, leaves the caller
+/// runnable with no stray wake reason, and the transaction is gone afterwards.
 pub fn cancel_wakes() -> Result<(), String> {
     fresh()?;
     let (client, _server) = channels::create().map_err(reason)?;
     let request = parcel(7, flags::SYNC, "wait")?;
     let me = task::current();
     let txn = channels::begin_call(client, 7, &request, None).map_err(reason)?;
-    check!(blocked_call(me, None), "caller not parked before cancel");
-    channels::cancel(txn).map_err(reason)?;
     check!(
         task::harness::state(me) == Some(TaskState::Runnable),
-        "cancel did not wake the caller: {:?}",
+        "begin_call parked the caller: {:?}",
         task::harness::state(me)
     );
+    channels::cancel(txn).map_err(reason)?;
     check!(
-        task::harness::take_wake_reason(me) == Some(WakeReason::Woken),
-        "cancel wake reason is not Woken"
+        task::harness::state(me) == Some(TaskState::Runnable)
+            && task::harness::take_wake_reason(me).is_none(),
+        "cancel blocked the caller or left a wake reason: {:?}",
+        task::harness::state(me)
     );
     check!(
         channels::await_reply(txn) == Err(ChannelError::Canceled),
@@ -46,6 +48,8 @@ pub fn peer_died() -> Result<(), String> {
     let request = parcel(7, flags::SYNC, "hello?")?;
     let me = task::current();
     let txn = channels::begin_call(client, 7, &request, None).map_err(reason)?;
+    // Parked as `await_reply` would be, so the close has a caller to wake.
+    channels::harness::park(me, None);
     channels::close_endpoint(server).map_err(reason)?;
     check!(
         task::harness::state(me) == Some(TaskState::Runnable),

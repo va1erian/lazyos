@@ -11,6 +11,11 @@ pub fn forget_task(slot: usize) {
     for channel in channels.iter_mut() {
         channel.txns.retain(|txn| txn.caller != slot);
         channel.senders.retain(|meter| meter.slot != slot);
+        // A task that died parked in `recv` never unregistered itself; the
+        // slot may be reused, so drop the stale entry.
+        for endpoint in channel.endpoints.iter_mut() {
+            endpoint.waiters.retain(|&waiter| waiter != slot);
+        }
     }
 }
 
@@ -41,11 +46,17 @@ pub fn close_endpoint_for(slot: usize, handle: u64, last_holder_only: bool) -> R
         return Ok(());
     }
     let mut remove = false;
+    let mut woken: Vec<usize> = Vec::new();
     {
         let mut channels = CHANNELS.lock();
         if let Some(index) = channels.iter().position(|channel| channel.id == channel_id) {
             let channel = &mut channels[index];
             channel.endpoints[side].closed = true;
+            // The surviving side's receivers must observe `PeerDied`, and any
+            // other holder parked on the closed side must stop waiting.
+            for endpoint in channel.endpoints.iter_mut() {
+                woken.append(&mut endpoint.waiters);
+            }
             // Anything still queued for the dead side will never be received;
             // release the buffer references those messages hold.
             channel.drops += channel.endpoints[side].inbox.len() as u64;
@@ -64,9 +75,10 @@ pub fn close_endpoint_for(slot: usize, handle: u64, last_holder_only: bool) -> R
                     released.push(txn.caller);
                 }
             }
-            for caller in released {
+            for &caller in &released {
                 release_pending(channel, caller);
             }
+            woken.extend(released);
             remove = channel.endpoints[0].closed && channel.endpoints[1].closed;
             if remove {
                 // The last side closed: undelivered messages for the surviving
@@ -89,6 +101,6 @@ pub fn close_endpoint_for(slot: usize, handle: u64, last_holder_only: bool) -> R
             channels.retain(|channel| channel.id != channel_id);
         }
     }
-    MESSENGER.notify_all();
+    wake(&woken);
     Ok(())
 }
