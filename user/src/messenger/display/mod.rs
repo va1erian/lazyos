@@ -18,6 +18,8 @@ mod events;
 pub use canvas::*;
 pub use client::*;
 pub use events::*;
+/// The client-side swapchain for `Present` (issue #361).
+pub use surfbuf::{Swapchain, MAX_DAMAGE, MAX_SLOTS};
 
 /// The generated `os.lazy.display.v1` stubs (see `idl/display.midl`): method
 /// ids, argument/reply records and their codecs.

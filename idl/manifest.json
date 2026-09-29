@@ -52,6 +52,32 @@
     ]
   },
   {
+    "interface": "os.lazy.confd.v1",
+    "interface_id": "0xdf3c79dfb9f8f2e0",
+    "methods": [
+      {
+        "name": "Get",
+        "id": 915881719,
+        "oneway": false
+      },
+      {
+        "name": "Set",
+        "id": 682729123,
+        "oneway": false
+      },
+      {
+        "name": "Delete",
+        "id": 1469573738,
+        "oneway": false
+      },
+      {
+        "name": "List",
+        "id": 220805025,
+        "oneway": false
+      }
+    ]
+  },
+  {
     "interface": "os.lazy.display.v1",
     "interface_id": "0x5ef41f254d43c2b4",
     "methods": [
@@ -173,6 +199,26 @@
       {
         "name": "StartMenu",
         "id": 24,
+        "oneway": true
+      },
+      {
+        "name": "AttachBufferSlot",
+        "id": 25,
+        "oneway": false
+      },
+      {
+        "name": "Present",
+        "id": 26,
+        "oneway": true
+      },
+      {
+        "name": "BufferRelease",
+        "id": 27,
+        "oneway": true
+      },
+      {
+        "name": "FrameDone",
+        "id": 28,
         "oneway": true
       }
     ]
@@ -345,32 +391,6 @@
       {
         "name": "Register",
         "id": 658098656,
-        "oneway": false
-      }
-    ]
-  },
-  {
-    "interface": "os.lazy.confd.v1",
-    "interface_id": "0x9f706a3664b0394e",
-    "methods": [
-      {
-        "name": "Get",
-        "id": 915881719,
-        "oneway": false
-      },
-      {
-        "name": "Set",
-        "id": 682729123,
-        "oneway": false
-      },
-      {
-        "name": "Delete",
-        "id": 1469573738,
-        "oneway": false
-      },
-      {
-        "name": "List",
-        "id": 220805025,
         "oneway": false
       }
     ]

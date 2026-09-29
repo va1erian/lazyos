@@ -59,6 +59,17 @@ fields, which never use that id.
 | SurfaceChanged | 22 | oneway | `(surface: U64, kind: U32, x: I32, y: I32, w: I32, h: I32, minimized: Bool, focused: Bool, title: Option<String>, role: U32) -> ()` |
 | FocusChanged | 23 | oneway | `(surface: Option<U64>) -> ()` |
 | StartMenu | 24 | oneway | `() -> ()` |
+| AttachBufferSlot | 25 | sync | `(surface: U64, slot: U32) -> ()` |
+| Present | 26 | oneway | `(surface: U64, slot: U32, seq: U64, damage: Array<Rect>) -> ()` |
+| BufferRelease | 27 | oneway | `(surface: U64, slot: U32) -> ()` |
+| FrameDone | 28 | oneway | `(surface: U64, seq: U64) -> ()` |
+
+## struct `Rect`
+
+- `x: U32`
+- `y: U32`
+- `w: U32`
+- `h: U32`
 
 ## struct `SurfaceRow`
 

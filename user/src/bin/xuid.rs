@@ -85,6 +85,8 @@ mod event;
 mod layout;
 #[path = "xuid/menu.rs"]
 mod menu;
+#[path = "xuid/present.rs"]
+mod present;
 #[path = "xuid/protocol.rs"]
 mod protocol;
 #[path = "xuid/render.rs"]
@@ -242,7 +244,10 @@ fn run() -> ! {
         let deadline = Some(sys::clock() + 2);
         match server.recv_with(&mut request_buf, deadline) {
             Ok(message) => {
-                if let Some(txn) = message.txn {
+                // Only `Present` (issue #361) is one-way: it has no txn and
+                // gets no reply, but is served like any request. Any other
+                // message without a txn is dropped as before.
+                if message.txn.is_some() || message.method() == display::wire::METHOD_PRESENT {
                     let reply = handle_request(
                         &message,
                         &mut surfaces,
@@ -257,7 +262,7 @@ fn run() -> ! {
                         &mut shell,
                         &mut alt_tab,
                     );
-                    if let Some(reply) = reply {
+                    if let (Some(txn), Some(reply)) = (message.txn, reply) {
                         let _ = server.reply(txn, &reply);
                     }
                 }

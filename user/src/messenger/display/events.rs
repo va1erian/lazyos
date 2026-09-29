@@ -71,6 +71,38 @@ pub fn decode_event(message: &Message) -> Option<Event> {
     })
 }
 
+/// A frame-pacing event for a surface that uses `Present` (issue #361).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum FrameEvent {
+    /// The compositor no longer reads `slot`; the client may draw into it.
+    BufferRelease { surface: u64, slot: u32 },
+    /// The compositor consumed the `Present` numbered `seq`.
+    FrameDone { surface: u64, seq: u64 },
+}
+
+/// Decode a [`FrameEvent`] from a received message, or `None` when the
+/// message is not one. [`decode_event`] still handles input events.
+pub fn decode_frame_event(message: &Message) -> Option<FrameEvent> {
+    let body = &message.parcel.body;
+    match message.method() {
+        wire::METHOD_BUFFERRELEASE => {
+            let args = wire::decode_buffer_release_args(body).ok()?;
+            Some(FrameEvent::BufferRelease {
+                surface: args.surface,
+                slot: args.slot,
+            })
+        }
+        wire::METHOD_FRAMEDONE => {
+            let args = wire::decode_frame_done_args(body).ok()?;
+            Some(FrameEvent::FrameDone {
+                surface: args.surface,
+                seq: args.seq,
+            })
+        }
+        _ => None,
+    }
+}
+
 /// The kind of a drag event the compositor delivers (issue #145).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum DragKind {

@@ -1,8 +1,10 @@
 //! `xdemo`: the display protocol demo app (issue #113).
 //!
 //! The smallest real client of `xuid`'s `os.lazy.display.v1`: it creates one
-//! surface, asks the display syscall for a shared pixel buffer, paints a
-//! recognizable colour grid and a status line, attaches the buffer and commits.
+//! surface, asks the display syscall for two shared pixel buffers, paints a
+//! recognizable colour grid and a status line into whichever is free, and
+//! `Present`s it (issue #361: pipelined present, `BufferRelease`/`FrameDone`
+//! pacing, double buffering).
 //! Input forwarded by the compositor updates the picture: a click advances the
 //! palette, a key press bumps the key counter and the last key code, and the
 //! pointer leaves a marker square.
@@ -16,7 +18,7 @@ extern crate alloc;
 
 use core::panic::PanicInfo;
 use user::messenger;
-use user::messenger::display::{self, Canvas, Client, Color, Event, Rect};
+use user::messenger::display::{self, Canvas, Client, Color, Event, FrameEvent, Rect, Swapchain};
 use user::sys;
 
 /// Surface content size in pixels.
@@ -80,31 +82,45 @@ fn run() -> ! {
         Err(error) => fail("create_surface", error.errno().unwrap_or(0)),
     };
 
+    // Two buffers: the compositor reads the one last presented while the app
+    // draws into the other, so a frame can never tear (issue #361).
     let bytes = (W * H * 4) as u64;
-    let (buffer, va) = match sys::display_create_buffer(bytes) {
-        Ok(buffer) => buffer,
-        Err(code) => fail("create_buffer", code),
-    };
-    // Safety: `va` is the mapping of the buffer just created, `W * H * 4`
-    // bytes long.
-    let mut canvas = unsafe { Canvas::new(va, W, H) };
+    let mut canvases = [None, None];
+    for (slot, canvas) in canvases.iter_mut().enumerate() {
+        let (buffer, va) = match sys::display_create_buffer(bytes) {
+            Ok(pair) => pair,
+            Err(code) => fail("create_buffer", code),
+        };
+        if let Err(error) = client.attach_slot(surface, slot as u32, buffer, bytes) {
+            fail("attach_slot", error.errno().unwrap_or(0));
+        }
+        // Safety: `va` is the mapping of the buffer just created, `W * H * 4`
+        // bytes long, and stays mapped for the life of the app.
+        *canvas = Some(unsafe { Canvas::new(va, W, H) });
+    }
+    let mut canvases = canvases.map(|canvas| canvas.expect("both slots created"));
     let full = Rect::new(0, 0, W, H);
+    let mut chain = Swapchain::new(canvases.len());
     let mut demo = Demo::new();
-    draw(&mut canvas, &demo, full);
+    // A frame is owed whenever the state changed and no buffer was free.
+    let mut dirty = true;
+    let mut frames_done = 0u64;
 
-    if let Err(error) = client.attach_buffer(surface, buffer, bytes) {
-        fail("attach_buffer", error.errno().unwrap_or(0));
-    }
-    if let Err(error) = client.commit(surface, full) {
-        fail("commit", error.errno().unwrap_or(0));
-    }
-    sys::write_str("XDEMO:UP:PASS\n");
-
-    // One receive buffer for the whole life of the loop: the user bump
-    // allocator never reclaims, and a service loop must not allocate per
-    // message.
+    // One receive buffer for the whole life of the loop: a service loop must
+    // not allocate per message.
     let mut buf = alloc::vec![0u8; 4096];
     loop {
+        if dirty {
+            if let Some(slot) = chain.acquire() {
+                draw(&mut canvases[slot as usize], &demo, full);
+                if let Some(seq) = chain.submit(slot) {
+                    if let Err(error) = client.present(surface, slot, seq, &[full]) {
+                        fail("present", error.errno().unwrap_or(0));
+                    }
+                    dirty = false;
+                }
+            }
+        }
         let deadline = Some(sys::clock() + 1);
         match events.recv_with(&mut buf, deadline) {
             Ok(message) => {
@@ -114,10 +130,23 @@ fn run() -> ! {
                     sys::write_str("xdemo: closed by the window manager\n");
                     sys::exit(0);
                 }
-                if let Some(event) = display::decode_event(&message) {
+                if let Some(frame) = display::decode_frame_event(&message) {
+                    match frame {
+                        FrameEvent::BufferRelease { slot, .. } => {
+                            chain.released(slot);
+                        }
+                        FrameEvent::FrameDone { seq, .. } => {
+                            if chain.frame_done(seq) {
+                                frames_done += 1;
+                                if frames_done == 1 {
+                                    sys::write_str("XDEMO:UP:PASS\n");
+                                }
+                            }
+                        }
+                    }
+                } else if let Some(event) = display::decode_event(&message) {
                     apply(&mut demo, event);
-                    draw(&mut canvas, &demo, full);
-                    let _ = client.commit(surface, full);
+                    dirty = true;
                 }
             }
             Err(error) if is_timeout(error) => {}

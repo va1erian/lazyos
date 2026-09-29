@@ -5,10 +5,10 @@ use alloc::vec::Vec;
 use libmessenger::Parcel;
 use user::messenger::display::{self, wire, Canvas, Rect};
 use user::messenger::{self, Endpoint, Message};
-use user::sys;
 
 use super::drag::{drag_begin, drag_cancel, DragSession};
 use super::layout::place_window;
+use super::present::{attach, handle_present};
 use super::protocol::{
     color_u32, drop_rejected_handle, empty_reply, error_reply, is_privileged, typed_reply,
 };
@@ -77,7 +77,8 @@ pub(super) fn handle_request(
                 // The bottom layer: no chrome, no taskbar entry, never focused.
                 // A new desktop replaces the current one.
                 if let Some(index) = surfaces.iter().position(|surface| surface.desktop) {
-                    let old = surfaces.remove(index);
+                    let mut old = surfaces.remove(index);
+                    old.release_buffers();
                     // Tell the old owner and close the endpoint the
                     // compositor held for it (issue #175: both were leaked).
                     let _ = display::send_event(
@@ -102,6 +103,7 @@ pub(super) fn handle_request(
                     bytes: 0,
                     minimized: false,
                     desktop: true,
+                    slots: Default::default(),
                 });
                 if let Some(surface) = surface_by_id(surfaces, id) {
                     notify_surface(
@@ -146,6 +148,7 @@ pub(super) fn handle_request(
                 bytes: 0,
                 minimized: false,
                 desktop: false,
+                slots: Default::default(),
             });
             let before = *focused;
             if focused.is_none() {
@@ -184,40 +187,8 @@ pub(super) fn handle_request(
             let id = wire::decode_attach_buffer_args(body)
                 .unwrap_or_default()
                 .surface;
-            let Some(surface) = surfaces.iter_mut().find(|surface| surface.id == id) else {
-                return Some(error_reply(message.method(), messenger::errno::EINVAL));
-            };
-            if surface.owner != message.sender {
-                // Only the surface's own client may attach its pixels
-                // (issue #176: any caller that guessed the id could spoof
-                // another app's window).
-                return Some(error_reply(message.method(), messenger::errno::EACCES));
-            }
-            // The descriptor's length is the sender's claim about how many
-            // bytes the surface needs; never trust it to cover the geometry
-            // the compositor paints. Checked `u64` arithmetic avoids the
-            // wrap a pathological width/height could otherwise cause in the
-            // `i32` product (issue #176); `CREATE_SURFACE` also bounds both
-            // to the screen size, so this is defense in depth.
-            let Some(expected) = (surface.w.max(0) as u64)
-                .checked_mul(surface.h.max(0) as u64)
-                .and_then(|area| area.checked_mul(4))
-            else {
-                return Some(error_reply(message.method(), messenger::errno::EINVAL));
-            };
-            let claimed = message
-                .parcel
-                .buffers
-                .first()
-                .map(|buffer| buffer.len)
-                .unwrap_or(0);
-            if message.buffers == 0 || claimed < expected {
-                return Some(error_reply(message.method(), messenger::errno::EINVAL));
-            }
-            match sys::display_map_buffer(message.first_buffer) {
-                Ok(va) => {
-                    surface.pixels = va;
-                    surface.bytes = expected;
+            match attach(message, surfaces, id, None) {
+                Ok(()) => {
                     let full = Rect::new(0, 0, screen.width(), screen.height());
                     repaint(
                         screen,
@@ -231,8 +202,31 @@ pub(super) fn handle_request(
                     );
                     Some(empty_reply(message.method()))
                 }
-                Err(code) => Some(error_reply(message.method(), -code)),
+                Err(code) => Some(error_reply(message.method(), code)),
             }
+        }
+        wire::METHOD_ATTACHBUFFERSLOT => {
+            let args = wire::decode_attach_buffer_slot_args(body).unwrap_or_default();
+            // Not the current slot, so nothing on screen changes.
+            match attach(message, surfaces, args.surface, Some(args.slot)) {
+                Ok(()) => Some(empty_reply(message.method())),
+                Err(code) => Some(error_reply(message.method(), code)),
+            }
+        }
+        wire::METHOD_PRESENT => {
+            // One-way: the caller gets no reply, only events.
+            handle_present(
+                message,
+                surfaces,
+                screen,
+                pointer,
+                *focused,
+                drag_session.as_ref(),
+                bar,
+                alt_tab.as_ref(),
+                scratch,
+            );
+            None
         }
         wire::METHOD_COMMIT => {
             let args = wire::decode_commit_args(body).unwrap_or_default();

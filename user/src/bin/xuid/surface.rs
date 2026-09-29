@@ -2,7 +2,10 @@
 //! the title-bar [`Drag`] session, split out of `xuid.rs` unchanged.
 
 use alloc::string::String;
+use surfbuf::SlotTable;
 use user::messenger::display::{wire, Rect};
+
+use super::present::Mapping;
 
 use super::theme::{BORDER, BUTTON, BUTTON_GAP, BUTTON_MARGIN, TITLE_H};
 
@@ -23,10 +26,13 @@ pub(super) struct Surface {
     /// Task slot that created the surface; only it may start or cancel a drag
     /// for this surface (issue #145).
     pub(super) owner: u64,
-    /// App pixel buffer mapped into this task (`0` until attached).
+    /// App pixel buffer mapped into this task (`0` until attached): always
+    /// the *current* slot of `slots` (issue #361).
     pub(super) pixels: u64,
     /// Length of the mapped pixel buffer.
     pub(super) bytes: u64,
+    /// Attached buffer slots and which one the compositor reads.
+    pub(super) slots: SlotTable<Mapping>,
     /// Hidden by the minimize button; restorable from the taskbar.
     pub(super) minimized: bool,
     /// The bottom-layer desktop surface (issue #167): no chrome, never
