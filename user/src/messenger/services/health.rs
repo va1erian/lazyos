@@ -115,8 +115,7 @@ pub fn fetch_sysinfo(endpoint: &Endpoint) -> Result<crate::sysinfo::Snapshot> {
     let mut decoder = Decoder::new(&reply.body);
     while let Some(field) = decoder.next().map_err(Error::Parcel)? {
         if field.kind == Kind::Bytes && field.id == self::field::SYSDATA {
-            return crate::sysinfo::decode_bytes(field.payload)
-                .ok_or(Error::Errno(-errno::EINVAL));
+            return crate::sysinfo::decode_bytes(field.payload).ok_or(Error::Errno(-errno::EINVAL));
         }
         if field.kind == Kind::Error && field.id == self::field::ERROR {
             let (code, _message) = field.error_parts().map_err(Error::Parcel)?;

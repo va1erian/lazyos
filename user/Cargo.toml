@@ -32,6 +32,14 @@ path = "src/bin/sh.rs"
 test = false
 bench = false
 
+# Deliberate user-mode faults (issue #7), run from the shell as
+# `exec FAULTPRB.ELF <mode>`; always on the image (8.3-safe name).
+[[bin]]
+name = "faultprobe"
+path = "src/bin/faultprobe.rs"
+test = false
+bench = false
+
 [[bin]]
 name = "messengerctl"
 path = "src/bin/messengerctl.rs"
