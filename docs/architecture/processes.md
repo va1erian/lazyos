@@ -9,7 +9,7 @@ syscall shim.
 | Path | Role |
 |---|---|
 | `kernel/src/task/process.rs` | Tree, groups, sessions, `finish`, `reap_child` |
-| `kernel/src/process/mod.rs` | Native gate dispatch, ELF loader, syscalls 6-11 |
+| `kernel/src/process/mod.rs` (+ `creds.rs`, `spawn.rs`) | Native gate dispatch, ELF loader, syscalls 6-11 (creds/quota/tasks in `creds.rs`, spawn in `spawn.rs`) |
 | `kernel/src/process/linux/` | Linux ELF loader + syscall dispatch, futex, clone (split by syscall family; see its `mod.rs` doc comment) |
 | `kernel/src/ipc/pipe.rs` | Pipes (`pipe`/`pipe2`) and `AF_UNIX` socket pairs |
 | `kernel/src/arch/linux.rs` | `syscall`/`sysret` entry (see [arch.md](arch.md)) |
