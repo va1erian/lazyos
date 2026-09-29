@@ -101,6 +101,26 @@ jobs:
             --fail-on "PANIC"
           python tools/services/evidence.py shots/services/serial.log
 
+      # Issue #315: native LazyOS programs run from BusyBox `sh`. `sh` reaches
+      # them through `fork` + `execve`; the kernel spawns the native ELF as a
+      # child of the forked task, waits for it and forwards its exit status.
+      # The session logs in on the console and checks the exit statuses
+      # (`top` 0, `regctl` 1, an unknown command 127, a faulting `faultprobe`
+      # 139), a piped native program, and a background job (`top &`, then
+      # `wait`).
+      - name: Run native programs from the shell
+        run: |
+          python tools/screenshot/qemu_session.py --image target/lazyos.img \
+            --out shots/native --script tools/screenshot/examples/native_exec.json \
+            --fail-on "PANIC" --fail-on "EXCEPTION:"
+          grep -q "^status=0" shots/native/serial.log
+          grep -q "^status=1$" shots/native/serial.log
+          grep -q "^status=127" shots/native/serial.log
+          grep -q "^fault=139" shots/native/serial.log
+          grep -q "^PIPED-USAGE: regctl" shots/native/serial.log
+          grep -q "^waited=0" shots/native/serial.log
+          python tools/screenshot/pngstats.py shots/native/*.png --min-nonblack 0.01
+
       - name: Upload boot evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -110,4 +130,5 @@ jobs:
             shots/boot/**
             shots/regd/**
             shots/services/**
+            shots/native/**
           if-no-files-found: warn

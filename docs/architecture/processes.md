@@ -67,9 +67,8 @@ ring-3 fault (bad pointer, privileged instruction, #DE, #UD, ...) terminates the
 faulting process (all threads of its address space) with status `128 + signal`
 (#PF/#GP -> SIGSEGV 11, #DE -> SIGFPE 8, #UD -> SIGILL 4), posts `SIGCHLD`, and
 the scheduler moves on. A `SIGSEGV` handler still gets the first chance for #PF.
-Evidence: the `fault_*` kernel tests (the `faultprobe` binary, `FAULTPRB.ELF`,
-remains embedded for manual runs, but the retired native shell is what used to
-launch it).
+Evidence: the `fault_*` kernel tests; `faultprobe` (`FAULTPRB.ELF`) is also
+runnable by hand from BusyBox `sh` (see "Native programs from `sh`" below).
 
 **Linux shim** (`process/linux/`, issues #55-#60; plan: [linux-abi-plan.md](../linux-abi-plan.md))
 
@@ -112,6 +111,65 @@ launch it).
   PML4 when it has no other users. The ABI bench injects `INIT.ELF` via
   `LAZYOS_INIT`; `BUSYBOX` runs BusyBox `sh` on the shim, and results are
   generated into `docs/compat/` (git-ignored) by `tools/abi/run.py`.
+
+**Native programs from `sh`** (`process/linux/native.rs`, issue #315)
+
+How the kernel tells the two ABIs apart: it does not look at the image. Both a
+native LazyOS program and a static musl program are x86_64 ET_EXEC files at the
+same base, so a task's personality (`task::Kind::Native` vs `Kind::Linux`) is
+fixed by *how it was started*: `spawn`/`spawn_child` build a native task,
+`spawn_linux*` (the `linux:` prefix) and `fork`/`clone` build Linux ones. A
+native task talks through `int 0x80` and prints with syscall 1 (`write`), which
+the kernel appends to the terminal buffer of the task's root ancestor (and to
+serial); it has no `argv` (only the string syscall 9 returns) and reads keys
+with syscall 2.
+
+BusyBox `sh` runs a command with `fork` + `execve`, so `execve` has to start a
+native program without loading it over the Linux image. `sys_execve` first asks
+`native::lookup(path)`: a small table (`top`, `regctl`, `msgctl`/`messengerctl`,
+`faultprobe`) maps the name a user types (`top`, `/bin/top`, found through the
+synthetic `/bin` that `$PATH` searches, only while no real file has that path)
+or the boot-volume name (`/TOP.ELF`) to the 8.3 `.ELF` file. On a match the
+calling task, which is `sh`'s expendable fork child:
+
+1. checks the execute bit, reads the ELF from the boot volume (`ENOENT` if the
+   image does not ship it, e.g. `top` in the `LAZYOS_DESKTOP=1` image) and joins
+   `argv[1..]` into the string syscall 9 hands the program (`E2BIG` past 4 KiB);
+2. spawns it as a native child (`task::spawn_child_inheriting_fds`), which copies
+   the caller's descriptor table except `FD_CLOEXEC` entries (`EAGAIN` when no
+   task slot is free, `ENOMEM`, `ENOEXEC` for an image that will not load, all
+   without leaking the slot or the half-built address space);
+3. parks on the child-exit queue until *that* child exits (`reap_child_slot`)
+   and calls `exit_group` with its status, so `sh`'s `wait4` sees the program's
+   exit code (`128 + signal` if it faulted) exactly as for a Linux command.
+
+Output: native `write` follows descriptor 1 when it is not the terminal
+(`native::write_redirected`), so `cmd > file`, `cmd | grep x` and `cmd >/dev/null`
+work for native *output*, both at the console and in the desktop Terminal (whose
+stdout is a pipe). Limits, all by design of the minimum viable version:
+
+- native *input* is still the terminal key queue (`read_char`): a native program
+  cannot read a pipe or file on stdin, and there is no stderr (everything is
+  descriptor 1);
+- arguments are one whitespace-split string, so an argument that contains spaces
+  is split; there is no environment;
+- there is no controlling tty and no job control, so `^C` is not delivered to
+  the foreground job (a Linux `sleep` in the desktop Terminal has the same
+  limit), a background job (`top &`) is not stopped by `SIGTTIN` when it reads
+  the terminal, and its output interleaves with the prompt. Backgrounding
+  otherwise works: the fork child does the spawn and the wait, the prompt
+  returns at once, `wait`/`jobs` report the program's status. If the fork child
+  is killed while it waits, the native program is orphaned to the kernel task
+  and runs on until it exits (its slot is reclaimed then); a handled signal
+  delivered to a *waiting* fork child kills the program;
+- a program that is not in the table cannot be launched from `sh`; add a row to
+  `PROGRAMS` for a new command-line tool.
+
+Tests: `kernel/src/tests/native_exec_suite.rs` (name lookup and shadowing, the
+argument line, descriptor/argument inheritance and redirected output, exit-status
+propagation and reaping, `ENOEXEC`/`ENOENT`/`EAGAIN` without leaks, the `&`
+lifecycle, and a 384-cycle spawn/exit soak that checks slots and frames) and the
+`tools/screenshot/examples/native_exec.json` console session in `ci.yml`.
 
 **Status.** Working: BusyBox `sh`, the 13 static musl fixtures in
 `tools/abi/fixtures` (threads, `std::process` with piped stdio, `mremap`,

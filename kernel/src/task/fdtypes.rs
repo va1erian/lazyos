@@ -181,3 +181,15 @@ pub(super) fn new_fds() -> [Fd; FD_COUNT] {
 pub(super) fn clone_fds(fds: &[Fd; FD_COUNT]) -> [Fd; FD_COUNT] {
     core::array::from_fn(|i| fds[i].clone())
 }
+
+/// The descriptor table an `execve`d program starts with: a copy of the
+/// caller's, except that entries marked `FD_CLOEXEC` are left closed.
+pub(super) fn clone_fds_exec(fds: &[Fd; FD_COUNT], flags: &[u16; FD_COUNT]) -> [Fd; FD_COUNT] {
+    core::array::from_fn(|i| {
+        if flags[i] & FD_CLOEXEC != 0 {
+            Fd::Closed
+        } else {
+            fds[i].clone()
+        }
+    })
+}

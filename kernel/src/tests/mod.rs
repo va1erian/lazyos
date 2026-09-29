@@ -140,6 +140,7 @@ mod linux_suite;
 mod loader_suite;
 mod mem_suite;
 mod messenger_suite;
+mod native_exec_suite;
 mod overlay_suite;
 mod pipe_suite;
 mod quota_suite;
@@ -203,6 +204,7 @@ const SUITE: &[&[(&str, Test)]] = &[
     topics_suite::CASES,
     topics_gate_suite::CASES,
     service_suite::CASES,
+    native_exec_suite::CASES,
     display_suite::CASES,
     sysinfo_suite::CASES,
     hardening_suite::CASES,
