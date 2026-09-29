@@ -281,7 +281,7 @@ const USER_CSTR_MAX: usize = 4096;
 /// validated user memory. Invalid UTF-8 reads as the empty string, as it
 /// always has; an unmapped/kernel address or an unterminated string is a Fault.
 pub(crate) fn user_cstr(ptr: u64) -> Result<String, user_ptr::Fault> {
-    let bytes = user_ptr::try_cstr(ptr, USER_CSTR_MAX)?;
+    let bytes = user_ptr::try_cstr(ptr, USER_CSTR_MAX).map_err(|_| user_ptr::Fault)?;
     Ok(String::from_utf8(bytes).unwrap_or_default())
 }
 

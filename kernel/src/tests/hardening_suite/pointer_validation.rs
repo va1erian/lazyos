@@ -156,7 +156,9 @@ pub fn user_ptr_edge_cases() -> Result<(), String> {
     fresh()?;
     let _strict = Strict::on();
     in_space(|| -> Result<(), String> {
-        use crate::user_ptr::{try_bytes, try_copy_to, try_cstr, try_read, try_write, Fault};
+        use crate::user_ptr::{
+            try_bytes, try_copy_to, try_cstr, try_read, try_write, CStrError, Fault,
+        };
         let end = SPACE + SPACE_PAGES * 4096;
         check!(
             try_write::<u64>(SPACE + 4092, 0x0102_0304_0506_0708).is_ok(),
@@ -190,13 +192,15 @@ pub fn user_ptr_edge_cases() -> Result<(), String> {
             "a string ending at the last mapped byte was refused"
         );
         check!(
-            try_copy_to(end - 2, b"ab").is_ok() && try_cstr(end - 2, 64) == Err(Fault),
+            try_copy_to(end - 2, b"ab").is_ok() && try_cstr(end - 2, 64) == Err(CStrError::Fault),
             "an unterminated string running off the mapping was accepted"
         );
         // A string with no NUL within `max` is refused, not silently
-        // truncated: a caller would otherwise act on a prefix path.
+        // truncated: a caller would otherwise act on a prefix path. It is
+        // reported as Unterminated so a path syscall can say ENAMETOOLONG.
         check!(
-            try_copy_to(SPACE, &[b'x'; 64]).is_ok() && try_cstr(SPACE, 64) == Err(Fault),
+            try_copy_to(SPACE, &[b'x'; 64]).is_ok()
+                && try_cstr(SPACE, 64) == Err(CStrError::Unterminated),
             "an unterminated string was truncated instead of refused"
         );
         // A NUL exactly at the `max` bound terminates; one just past it does
@@ -204,7 +208,7 @@ pub fn user_ptr_edge_cases() -> Result<(), String> {
         check!(
             try_copy_to(SPACE, b"abc\0").is_ok()
                 && try_cstr(SPACE, 4) == Ok(b"abc".to_vec())
-                && try_cstr(SPACE, 3) == Err(Fault),
+                && try_cstr(SPACE, 3) == Err(CStrError::Unterminated),
             "the max-length termination bound is off by one"
         );
         Ok(())
