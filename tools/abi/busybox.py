@@ -45,6 +45,14 @@ MANUAL = ROOT / "tools" / "abi" / "busybox"
 EXTRA_CFLAGS = "-idirafter /usr/include -idirafter /usr/include/x86_64-linux-gnu"
 
 
+HINT = """busybox: no static BusyBox is available, so the image will have no /busybox
+and the desktop Terminal / console shell report TERM:SPAWN:FAIL. To fix it, either
+  * build it on Linux (or WSL) with musl-gcc + linux-libc-dev: python tools/abi/busybox.py
+    (downloads the pinned release tarball from busybox.net and verifies its SHA-256), or
+  * copy any static x86_64-unknown-linux-musl busybox to tools/abi/busybox, or
+    point LAZYOS_BUSYBOX at it, then re-run `cargo build`."""
+
+
 def _cached() -> Path | None:
     for candidate in (MANUAL, OUTPUT):
         if candidate.is_file():
@@ -184,5 +192,6 @@ if __name__ == "__main__":
     path = ensure_busybox()
     if path is None:
         print("unavailable")
+        print(HINT, file=sys.stderr)
         raise SystemExit(1)
     print(path)

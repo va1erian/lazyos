@@ -105,18 +105,29 @@ pub(crate) fn app_selftest() {
     };
     match services::fetch_apps(&endpoint) {
         Ok(apps) => {
-            let has_editor = apps
+            // `ListApps` returns only the apps this image ships. No image ships
+            // `EDITOR.ELF` (the mimed-registered rows are placeholders until
+            // one does), so `editor` must be *absent* here, while the
+            // always-shipped `top` and `messengerctl` rows must be present
+            // with the path/verb the registry declares.
+            let has_top = apps.iter().any(|app| {
+                app.id == "top" && app.path == "TOP.ELF" && app.verbs.iter().any(|v| v == "open")
+            });
+            let has_self = apps
                 .iter()
-                .find(|app| app.id == "editor")
-                .map(|app| app.verbs.iter().any(|verb| verb == "edit"))
-                .unwrap_or(false);
-            let has_top = apps
-                .iter()
-                .any(|app| app.id == "top" && app.path == "TOP.ELF");
-            if has_editor && has_top {
-                sys::write_str(&format!("MSGCTL:APPS:PASS count={}\n", apps.len()));
+                .any(|app| app.id == "messengerctl" && app.path == "MSGCTL.ELF");
+            let hides_unshipped = !apps.iter().any(|app| app.id == "editor");
+            if has_top && has_self && hides_unshipped {
+                sys::write_str(&format!(
+                    "MSGCTL:APPS:PASS count={}
+",
+                    apps.len()
+                ));
             } else {
-                sys::write_str("MSGCTL:APPS:FAIL registry is missing editor/top\n");
+                sys::write_str(
+                    "MSGCTL:APPS:FAIL registry lacks top/messengerctl or lists an unshipped app
+",
+                );
             }
         }
         Err(error) => sys::write_str(&format!("MSGCTL:APPS:FAIL:{}\n", error.message())),

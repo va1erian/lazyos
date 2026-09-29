@@ -129,6 +129,15 @@ guest prints instead:
 - `--fail-on REGEX` (repeatable) aborts as soon as the serial log matches, e.g.
   `--fail-on "SYSMON:(BIND|UP|RUN):FAIL"`, rather than waiting out a gate.
 
+`xui_desktop.json` types into the Terminal's BusyBox `sh`, so the image needs
+`/busybox` (`build.rs` embeds it when present). Without it the Terminal prints
+`TERM:SPAWN:FAIL: No such file or directory` and `TERM:UP:PASS` never comes;
+run it with `--fail-on "TERM:SPAWN:FAIL"` to fail at once instead of after the
+gate timeout. `python tools/abi/busybox.py` builds the pinned BusyBox on Linux/WSL
+(needs `musl-gcc`; it downloads the tarball and verifies its SHA-256) and, when it
+cannot, prints how to supply one by hand (`tools/abi/busybox` or `LAZYOS_BUSYBOX`).
+Re-run `cargo build` afterwards so the image embeds it.
+
 A failed gate captures `shot_failed.png`, prints the serial tail, and exits 1.
 `summary.json` records `ok`, `failure`, and a per-step `timeline` (seconds
 since QMP connected, plus when each gate or confirmation was seen), which

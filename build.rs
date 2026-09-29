@@ -307,7 +307,7 @@ fn main() {
         }
         None => println!(
             "cargo:warning=LAZYOS_BUSYBOX unavailable; the image will have no console shell \
-             (build it with tools/abi/build.py on a musl host)"
+             (run tools/abi/busybox.py for build/supply instructions)"
         ),
     }
     builder
