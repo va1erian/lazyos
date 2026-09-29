@@ -1,0 +1,51 @@
+/// The secrets and crypto service (issue #102).
+///
+/// `keyd` owns every long-term secret; no method returns key material. Keys
+/// are scoped to the uid that generated them (the kernel-stamped sender), so
+/// `Sign`, `Wrap`, `Unwrap` and `List` only see the caller's own keys.
+/// Payloads of `Bytes` are capped at 8 KiB so a reply always fits the call
+/// buffer. Failures are returned as a structured error field (errno-style
+/// code, friendly text), not as a typed reply.
+///
+/// Key tables are meant to live in `SHARE_ONLY` shared buffers once a
+/// userspace syscall for them exists; the wire has no buffer or handle
+/// parameters today, so nothing here needs `Buffer`/`Handle` yet.
+interface os.lazy.keyd.v1 {
+    /// Check a username/password pair against the stored Argon2id verifier.
+    /// The plaintext `secret` crosses the channel; the kernel stamps the
+    /// sender so `keyd` can audit who asked.
+    method Verify(user: String, secret: String) -> (ok: Bool);
+    /// HMAC-SHA256 `digest` under the caller's stored key `key`; returns the tag.
+    method Sign(key: U64, digest: Bytes) -> (tag: Bytes);
+    /// Seal `plaintext` under the caller's stored key `key`; returns an
+    /// authenticated blob.
+    method Wrap(key: U64, plaintext: Bytes) -> (blob: Bytes);
+    /// Open a `blob` produced by `Wrap` under `key`; returns the plaintext.
+    method Unwrap(key: U64, blob: Bytes) -> (plaintext: Bytes);
+    /// `len` cryptographically strong random bytes.
+    method Random(len: U64) -> (bytes: Bytes);
+    /// Create a fresh random key of type `kind` (`hmac` or `wrap`); returns
+    /// its opaque id.
+    method Generate(kind: String) -> (id: U64);
+    /// The caller's key ids, types and use counters; never material.
+    method List() -> (keys: Array<KeyInfo>);
+    /// Round-trip probe.
+    method Ping() -> ();
+    /// Install or replace an account's password verifier. Root only: the
+    /// accounts service pushes its database here so `Verify` can answer for
+    /// every account. `keyd` derives and stores the Argon2id verifier and the
+    /// secret does not outlive the call.
+    method Provision(user: String, secret: String) -> ();
+
+    /// One row of the key list: identity and counters only, never material.
+    struct KeyInfo {
+        /// Opaque key id clients pass back in `Sign`/`Wrap`/`Unwrap`.
+        id: U64,
+        /// Key type name.
+        kind: String,
+        /// Operations this key has served.
+        uses: U64,
+        /// PIT tick of the last use (`0` before the first).
+        last_use: U64
+    }
+}

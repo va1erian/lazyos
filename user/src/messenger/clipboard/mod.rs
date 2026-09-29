@@ -9,7 +9,7 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use libmessenger::{Encoder, Header, Parcel, VERSION};
+use libmessenger::{Header, Parcel, VERSION};
 
 mod client;
 mod protocol;
@@ -20,12 +20,16 @@ pub use protocol::*;
 /// The service's registered name.
 pub const NAME: &str = "os.lazy.clipboard";
 
-/// Control interface id (`os.lazy.clipboard.v1`, the interim eight-byte ABI
-/// id the other services use).
-pub const INTERFACE: u64 = u64::from_le_bytes(*b"os.clip.");
+/// The generated `os.lazy.clipboard.v1` stubs (`idl/clipboard.midl`).
+pub use messenger_generated::os_lazy_clipboard_v1 as wire;
 
-/// Policy pseudo-interface an `Offer` call carries:
-/// `fnv1a64("os.lazy.clipboard.write.v1")` (the topics convention).
+/// Control interface id (`os.lazy.clipboard.v1`, from the IDL): carries
+/// `Ping` and `Current`.
+pub const INTERFACE: u64 = wire::INTERFACE_ID;
+
+/// ACL scope interface an `Offer` call carries:
+/// `fnv1a64("os.lazy.clipboard.write.v1")` (the topics convention). A scope
+/// is a capability name, not a wire field, so it is not in the IDL.
 pub const WRITE_INTERFACE: u64 = fnv1a64("os.lazy.clipboard.write.v1");
 
 /// Policy pseudo-interface a `Request` call carries:
@@ -48,50 +52,22 @@ const fn fnv1a64(text: &str) -> u64 {
     hash
 }
 
-/// Methods. `OFFER` travels on [`WRITE_INTERFACE`], `REQUEST` on
-/// [`READ_INTERFACE`], `SERIALIZE` on [`OWNER_INTERFACE`]; `PING` and
-/// `CURRENT` are the control interface.
+/// Method ids, aliased from the generated stubs. `OFFER` travels on
+/// [`WRITE_INTERFACE`], `REQUEST` on [`READ_INTERFACE`], `SERIALIZE` on
+/// [`OWNER_INTERFACE`]; `PING` and `CURRENT` are the control interface.
 pub mod method {
-    /// Write: publish typed payloads for the caller's session.
-    pub const OFFER: u32 = 1;
-    /// Read: fetch a payload by token and MIME.
-    pub const REQUEST: u32 = 1;
-    /// Owner: serialize one MIME of an offer on demand (lazy transfer).
-    pub const SERIALIZE: u32 = 1;
-    /// Control: liveness probe.
-    pub const PING: u32 = 2;
-    /// Control: current-offer metadata, never content.
-    pub const CURRENT: u32 = 3;
-}
+    use super::wire;
 
-/// Protocol TLV field ids.
-pub mod field {
-    /// Offer token.
-    pub const TOKEN: u16 = 1;
-    /// One MIME type.
-    pub const MIME: u16 = 2;
-    /// MIME type array.
-    pub const MIMES: u16 = 3;
-    /// Owner endpoint name for the lazy serialization callback.
-    pub const SINK: u16 = 4;
-    /// Inline `{MIME, BYTES}` payload records.
-    pub const DATA: u16 = 5;
-    /// Payload bytes.
-    pub const BYTES: u16 = 6;
-    /// Whether an offer is live (`Current` reply).
-    pub const FOUND: u16 = 7;
-    /// Session id an offer belongs to.
-    pub const SESSION: u16 = 8;
-    /// Human-readable owner label.
-    pub const OWNER: u16 = 9;
-    /// Whether the offer is lazy.
-    pub const LAZY: u16 = 10;
-    /// Tick the offer was made.
-    pub const TICK: u16 = 11;
-    /// One offer metadata record.
-    pub const OFFER: u16 = 12;
-    /// Structured error reply.
-    pub const ERROR: u16 = 13;
+    /// Write: publish typed payloads for the caller's session.
+    pub const OFFER: u32 = wire::METHOD_OFFER;
+    /// Read: fetch a payload by token and MIME.
+    pub const REQUEST: u32 = wire::METHOD_REQUEST;
+    /// Owner: serialize one MIME of an offer on demand (lazy transfer).
+    pub const SERIALIZE: u32 = wire::METHOD_SERIALIZE;
+    /// Control: liveness probe.
+    pub const PING: u32 = wire::METHOD_PING;
+    /// Control: current-offer metadata, never content.
+    pub const CURRENT: u32 = wire::METHOD_CURRENT;
 }
 
 /// Longest MIME string the service accepts.
@@ -175,10 +151,10 @@ fn header(interface_id: u64, method: u32) -> Header {
 }
 
 /// Wrap an encoded body in a clipboard parcel.
-fn parcel(interface_id: u64, method: u32, body: Encoder) -> Parcel {
+fn parcel(interface_id: u64, method: u32, body: Vec<u8>) -> Parcel {
     Parcel {
         header: header(interface_id, method),
-        body: body.finish(),
+        body,
         ..Parcel::default()
     }
 }

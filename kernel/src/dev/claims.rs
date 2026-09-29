@@ -1,0 +1,183 @@
+//! Userspace device claims (issue #240).
+//!
+//! The device table (`dev::table`) records *who owns* a device and its
+//! generation. This module holds the rest of a userspace claim: the rights it
+//! was granted, the `Device` handle number, the interrupt endpoint and its
+//! delivery state, and the BAR mappings that must be undone on release. One
+//! claim per device, so the device id doubles as the claim's index and as its
+//! bit in the per-line delivery masks.
+//!
+//! Everything here is protected by the single [`CLAIMS`] lock and is only ever
+//! touched from task context. The interrupt handler never looks at it (see
+//! `dev::irq`): it must not take a lock the interrupted code may hold.
+//! Lock order: `CLAIMS` is never held across a call into another subsystem
+//! (channels, handles, quota, audit, the frame allocator); callers copy what
+//! they need out, drop the guard, then call.
+
+use spin::Mutex;
+
+use super::class::Class;
+use super::resources::MAX_BARS;
+use super::table::MAX_DEVICES;
+use super::DeviceId;
+
+const _: () = assert!(MAX_DEVICES <= 32, "claim bitmasks are u32");
+
+/// Legacy PIC interrupt lines.
+pub const LINES: usize = 16;
+
+/// One BAR mapped into a claimant's address space.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Mapping {
+    /// The PML4 the mapping lives in (the claimant's address space).
+    pub table: u64,
+    /// User virtual address of the first page.
+    pub va: u64,
+    /// Physical base of the BAR.
+    pub phys: u64,
+    /// Length in 4 KiB pages.
+    pub pages: u64,
+}
+
+/// Where a claim's interrupt notifications go: the inbox of `side` of
+/// `channel`, which is the channel the claimant named at `claim`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct IrqBinding {
+    pub channel: u64,
+    pub side: usize,
+    /// The claimant opted in to sharing its interrupt line.
+    pub shared: bool,
+}
+
+/// One live claim.
+#[derive(Clone, Copy)]
+pub struct Claim {
+    /// Task slot of the owner.
+    pub owner: usize,
+    /// The owner's uid at claim time: quota is released against it.
+    pub uid: u32,
+    pub class: &'static Class,
+    /// Table generation this claim was minted at.
+    pub generation: u32,
+    /// Rights fixed at claim time (a `Device` handle can only narrow them).
+    pub rights: u32,
+    /// The `Device` handle number in the owner's table.
+    pub handle: u64,
+    /// The PIC line the device's interrupt can be delivered on, if routable.
+    pub line: Option<u8>,
+    pub irq: Option<IrqBinding>,
+    /// `irq_enable` was called: the claim takes part in delivery rounds.
+    pub armed: bool,
+    /// One notification was sent and not yet acknowledged (the claim is "owed"
+    /// an ack; no further message is posted until it arrives).
+    pub pending: bool,
+    /// An interrupt arrived while `pending`: post one fresh message once the
+    /// late ack comes in.
+    pub missed: bool,
+    pub maps: [Option<Mapping>; MAX_BARS],
+}
+
+/// One delivery round on a shared line: the claimants that were sent a message
+/// and have not yet acked, and the tick after which they are dropped.
+#[derive(Clone, Copy)]
+pub struct Round {
+    pub waiting: u32,
+    pub deadline: u64,
+}
+
+/// Why [`Claims::install`] refused a claim.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum InstallError {
+    /// The slot is already occupied (a bug: the device table gates this).
+    Occupied,
+    /// The interrupt line is held exclusively, or the claim asked for
+    /// exclusive use of a line another claim already listens on.
+    LineBusy,
+}
+
+/// All live claims plus the per-line delivery rounds.
+pub struct Claims {
+    pub(super) slots: [Option<Claim>; MAX_DEVICES],
+    pub(super) rounds: [Round; LINES],
+}
+
+impl Claims {
+    pub const fn new() -> Claims {
+        Claims {
+            slots: [None; MAX_DEVICES],
+            rounds: [Round {
+                waiting: 0,
+                deadline: 0,
+            }; LINES],
+        }
+    }
+
+    pub fn get(&self, id: DeviceId) -> Option<&Claim> {
+        self.slots.get(usize::from(id.0))?.as_ref()
+    }
+
+    pub fn get_mut(&mut self, id: DeviceId) -> Option<&mut Claim> {
+        self.slots.get_mut(usize::from(id.0))?.as_mut()
+    }
+
+    /// Number of live claims.
+    pub fn len(&self) -> usize {
+        self.slots.iter().flatten().count()
+    }
+
+    /// Ids of every claim owned by task `slot`.
+    pub fn owned_by(&self, slot: usize) -> ([Option<DeviceId>; MAX_DEVICES], usize) {
+        let mut ids = [None; MAX_DEVICES];
+        let mut count = 0;
+        for (index, claim) in self.slots.iter().enumerate() {
+            if claim.is_some_and(|claim| claim.owner == slot) {
+                ids[count] = Some(DeviceId(index as u16));
+                count += 1;
+            }
+        }
+        (ids, count)
+    }
+
+    /// Record `claim` for `id`, enforcing the interrupt-line contract: a line
+    /// several claims listen on must have been opted into sharing by every one
+    /// of them, so a claim that did not opt in gets the line exclusively.
+    pub fn install(&mut self, id: DeviceId, claim: Claim) -> Result<(), InstallError> {
+        let index = usize::from(id.0);
+        if self.slots.get(index).is_none_or(|slot| slot.is_some()) {
+            return Err(InstallError::Occupied);
+        }
+        if let (Some(line), Some(binding)) = (claim.line, claim.irq) {
+            let conflict = self.slots.iter().flatten().any(|other| {
+                other.line == Some(line)
+                    && other
+                        .irq
+                        .is_some_and(|theirs| !theirs.shared || !binding.shared)
+            });
+            if conflict {
+                return Err(InstallError::LineBusy);
+            }
+        }
+        self.slots[index] = Some(claim);
+        Ok(())
+    }
+}
+
+impl Default for Claims {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// The claim table. Task context only; see the module docs.
+pub static CLAIMS: Mutex<Claims> = Mutex::new(Claims::new());
+
+/// The kernel-side object id a `Device` handle carries: the claim generation
+/// and the device id, so a handle can never be confused with a later claim.
+pub fn object_id(id: DeviceId, generation: u32) -> u64 {
+    (u64::from(generation) << 16) | u64::from(id.0)
+}
+
+/// Split [`object_id`] back into `(device, generation)`.
+pub fn split_object_id(object: u64) -> (DeviceId, u32) {
+    (DeviceId((object & 0xFFFF) as u16), (object >> 16) as u32)
+}

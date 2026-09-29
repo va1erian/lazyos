@@ -26,7 +26,7 @@ Related: [platform-plan.md](platform-plan.md) §4.2 ("Driver model"),
   (page-aligned frames mapped into several spaces, fences), kernel-stamped
   credentials, a default-deny ACL with audit, per-uid quotas, and
   `teardown_task` cleanup. `CAP_SYS_ADMIN` is documented as "driver grants";
-  `CAP_DEV_*` is reserved but not implemented.
+  `CAP_DEV_CLAIM` (issue #240) is the one device capability.
 - `init` supervises userspace services from a static manifest with restart and
   health topics.
 
@@ -76,13 +76,16 @@ only be narrowed afterwards, never widened.
 
 ### D4. Interrupts arrive as Messenger messages
 
-The kernel ISR masks the line, sets a pending flag, and posts a one-way
-message **from the kernel identity** to the endpoint the driver registered.
-The driver receives it in the same `Selector`/`recv` loop as its client
-requests and calls `irq_ack` after servicing (which unmasks). At most one
-message is outstanding per (claim, IRQ) (§3.3 covers shared lines), so an interrupt storm cannot fill a queue or
-burn the driver's `QueueDepth` quota. This is the "interrupt → event delivery
-through Messenger" line from the platform plan.
+The kernel ISR masks the line, sets an atomic "raised" bit and sends EOI; it
+takes no lock and allocates nothing, because on one CPU whatever it interrupted
+may hold the heap or a channel lock. A task-context bottom half (run at every
+syscall entry and from the mux loop) then posts a one-way message **from the
+kernel identity** to the endpoint the driver registered. The driver receives it
+in the same `Selector`/`recv` loop as its client requests and calls `irq_ack`
+after servicing (which unmasks). At most one message is outstanding per
+(claim, IRQ) (§3.3 covers shared lines), so an interrupt storm cannot fill a
+queue or burn the driver's `QueueDepth` quota. This is the "interrupt → event
+delivery through Messenger" line from the platform plan.
 
 ### D5. Be honest about DMA
 
@@ -105,7 +108,7 @@ physical).
                    │ driver task  │   e.g. netd-virtio, sndd-virtio
                    └──────┬───────┘
       Device handle: MMIO map · port IO · IRQ msgs · DMA buffers · config
-   ═══════════ syscall 15: dev_* ═══════════════════════════════════════
+   ═══════════ syscall 23: dev_* ═══════════════════════════════════════
    ┌──────────────────────── kernel device core ─────────────────────────┐
    │ bus enumeration (PCI) → Device table → claim/ACL/audit → resources │
    └─────────────────────────────────────────────────────────────────────┘
@@ -131,30 +134,41 @@ physical).
   I/O space, bus master), capability-list walk, interrupt-line read. MMCONFIG
   and MSI/MSI-X are deferred but the `Irq` resource type leaves room.
 
-### 3.2 Userspace surface: syscall 15 `dev_*`
+### 3.2 Userspace surface: syscall 23 `dev_*`
 
-Same multiplexed style as syscalls 5/12/14 (op in `rdi`).
+Syscall numbers 15-22 are the filesystem, `power` and `fsync` calls
+(`process/fsops.rs`), so the device syscall is **23**. Same multiplexed style
+as syscalls 5/12/14 (op in `rdi`, arguments in `rsi`, `rdx`, `r10`, `r8`;
+result or `-errno` in `rax`). Implemented in `kernel/src/dev/syscall.rs`; the
+user wrappers are `user/src/dev.rs`.
 
 | Op | Effect | Checks |
 |---|---|---|
-| `list(buf)` | copy `DeviceInfo` rows the caller may see | `CAP_DEV_CLAIM` (devd) |
-| `claim(id, irq_endpoint)` | returns a `Device` handle; sets owner | `authorize(actor, "os.kernel.dev.<class>", claim)` with the resolved device class (§3.5), rights per the grant rule (§2 D3), device unowned, quota |
-| `map_bar(dev, bar)` | maps MMIO uncached into caller | handle right `MMIO`, mapping charged to `UserMemory` |
-| `pio(dev, bar, off, width, val?)` | port in/out inside the device's I/O BAR only | handle right `PIO`, offset < len |
-| `cfg_read/cfg_write(dev, off)` | PCI config, write masked (no BAR/bus-master bits from userspace directly) | right `CONFIG` |
-| `irq_enable(dev, n)` / `irq_ack(dev, n)` | arm / unmask | right `IRQ` |
-| `dma_alloc(dev, len)` | physically contiguous frames as a **Buffer handle** + bus address | right `DMA`, quota `DmaMemory` |
+| `list(buf, rows)` | copy device rows (ids, class, BAR sizes/kinds, `owned`, `generation`; never physical BAR bases) | `CAP_DEV_CLAIM` (devd), `os.kernel.dev` `list` |
+| `claim(id, irq_endpoint, flags)` | returns a `Device` handle; sets owner; `flags` bit 0 opts in to a shared interrupt line | `CAP_DEV_CLAIM`; `authorize(actor, "os.kernel.dev.<class>", claim)` with the resolved device class (§3.5), rights per the grant rule (§2 D3), device unowned, `DeviceClaims` quota |
+| `map_bar(dev, bar)` | maps a memory BAR uncached, no-exec, into the caller's private user range | handle right `MMIO`; BAR at least a page, at most 64 MiB, not overlapping RAM; charged to `UserMemory` by uid |
+| `pio(dev, bar, off, width\|write\|val)` | port in/out inside the device's I/O BAR only | handle right `PIO`; offset+width < len; never below port 0x100 or in 0xCF8-0xCFF |
+| `cfg_read/cfg_write(dev, off, width, val)` | PCI config; the only writable register is the command register, masked | right `CONFIG`; bus-master needs `DMA`; no BAR programming |
+| `irq_enable(dev, 0)` / `irq_ack(dev, 0)` | arm / acknowledge (unmask) | right `IRQ`; `ENOSYS` when the line is not PIC-routable |
+| `dma_alloc(dev, len)` | physically contiguous frames as a **Buffer handle** + bus address (issue #241; returns `ENOSYS` until then) | right `DMA`, quota `DmaMemory` |
 | `release(dev)` | quiesce + free | owner |
 
-Everything is bounds-checked against the device's own resources; no op takes a
-raw physical or port address from userspace (no ambient authority).
+Every op re-checks the handle against the device table and the claim table
+(owner, generation), so a handle from another task, an earlier claim or a
+released device fails with `EBADF`. Everything is bounds-checked against the
+device's own resources; no op takes a raw physical or port address from
+userspace (no ambient authority).
 
 ### 3.3 Interrupt path
 
 - Replace fixed handlers with **vector stubs 32–47** that call
-  `dev::irq::dispatch(line)`: if a device claim owns the line → mask, mark
-  pending, post the kernel→driver one-way message; else existing handlers
-  (timer/keyboard/mouse) run unchanged.
+  `dev::irq::dispatch(line)`: if the line is not the kernel's own (timer,
+  keyboard, cascade, mouse keep their handlers) and no kernel driver owns it
+  → mask the line, set an atomic raised bit, EOI. A spurious IRQ 7/15 is
+  recognised from the PIC in-service register and dropped. The **bottom half**
+  (`dev::intx::service`, task context) turns the raised bit into the
+  kernel→driver one-way message and runs the ack-deadline sweep; the message is
+  still posted from the kernel identity, just not from the ISR itself.
 - **Shared INTx contract.** A line may be shared only by claimants that
   opted in at `claim` time (each supplies its own `irq_endpoint`) and armed the
   line with `irq_enable`. On an interrupt the kernel masks the line once and
@@ -163,9 +177,9 @@ raw physical or port address from userspace (no ambient authority).
   not per line. The line is unmasked only when every claimant that was sent a
   message has called `irq_ack` (a claimant that has not armed, has released, or
   died is not waited on). A claimant that does not ack within a bounded
-  deadline is dropped from that delivery round: the kernel unmasks the line,
-  audits the laggard, and leaves its pending bit set (it stays "owed" one
-  ack), so a hung driver cannot hold a shared line masked and starve its
+  deadline (100 ticks) is dropped from that delivery round: the kernel unmasks
+  the line, audits the laggard, and leaves its pending bit set (it stays "owed"
+  one ack), so a hung driver cannot hold a shared line masked and starve its
   co-claimants. **Recovery:** while a claim is owed, later interrupts on the
   line are not posted to it; the kernel only records a `missed` bit, so its
   queue stays bounded. A late `irq_ack` clears the pending bit, makes the
@@ -174,13 +188,17 @@ raw physical or port address from userspace (no ambient authority).
   ack never unmasks the line for other claimants; that already happened when
   the round timed out. Devices that do not
   opt in get exclusive lines; a second claim on an occupied exclusive line
-  fails with `EBUSY`.
+  fails with `EBUSY`. In-kernel drivers only poll and disable their function's
+  INTx, so they never assert a line a userspace claimant shares.
 - Kernel drivers register a plain `fn(line)` instead of a message.
 - APIC/IOAPIC and MSI are out of scope; the `Irq` resource kind and the
-  dispatch table are the seam. **Risk**: on `q35` the PCI *Interrupt Line*
-  register may not be pre-programmed to a PIC-routable IRQ. Step 2 verifies
-  this; the fallback is a polling mode (`irq_enable` returns `ENOSYS`, driver
-  uses a timer tick), which is also the CI-safe default.
+  dispatch table are the seam. **Verified on QEMU** (see
+  [`architecture/devices.md`](architecture/devices.md)): the firmware programs a
+  PIC-routable Interrupt Line on both `pc` (i440fx) and `q35`, and a real
+  virtio-net interrupt travels to a userspace claimant end to end on both. A
+  function whose INTx pin is 0 carries no `Irq` resource, and a line that is
+  reserved or out of range falls back to polling (`irq_enable` returns
+  `ENOSYS`), which is also the CI-safe default.
 
 ### 3.4 DMA buffers
 
@@ -204,18 +222,25 @@ lengths.
   that verdict allows. A generic "may claim" rule therefore cannot authorize
   claiming a class the policy did not name: "label `net-driver` may claim
   class net" says nothing about audio or storage. Default deny once policy is
-  loaded; the bootstrap window is allow, as elsewhere (unchanged).
+  loaded; the bootstrap window is allow, as elsewhere (unchanged). `claim` is
+  the gate and yields `CONFIG|IRQ`; the `map` and `dma` methods on the same
+  class id are consulted (without an audit record) to add `MMIO|PIO` and
+  `DMA`, so policy can withhold a family the device has.
 - **Credentials**: drivers run as dedicated system uids (`_net`, `_snd`) with
   only `CAP_DEV_CLAIM` (+ the per-class ACL rule), launched by init via
   `spawn_as`. They can never `CAP_SETUID` or reach uid 0.
 - **Audit**: every claim/release/denial is a record with device id, class and
   reason code, in the existing hash-chained ring.
-- **Quotas**: add `Resource::DmaMemory` and `Resource::DeviceClaims` to
-  `quota.rs`.
+- **Quotas**: `Resource::DeviceClaims` (default 8 per uid, landed in #240) and
+  `Resource::DmaMemory` (issue #241) in `quota.rs`. BAR mappings are charged to
+  `UserMemory` by uid, not through the per-address-space ledger.
 - **Teardown**: `ipc::teardown_task` gains "release all claims": mask IRQs,
-  clear PCI bus-master and memory/IO enable, function-level-reset when
-  supported, unmap MMIO, free DMA frames, clear `owner`, bump generation,
-  publish `system/events/device/<id>` so `devd` can respawn a driver.
+  clear PCI bus-master and memory/IO enable and set INTx-disable, unmap MMIO,
+  free DMA frames (issue #241), clear `owner`, bump generation, drop the task
+  from shared-line rounds. There is no function-level reset yet. The kernel
+  cannot publish `system/events/device/<id>` (topics are a userspace service),
+  so `list` rows carry `owned` and `generation` and `devd` polls or reacts to
+  the driver's exit to respawn it.
 - **Names/topics**: driver services register `os.lazy.<class>.<vendor>` names
   under the existing registry policy; clients discover by class through
   `devd`, not by knowing the driver.
@@ -230,7 +255,13 @@ asks `init` to launch the driver, and publishes retained topics
 `system/health/<driver>`. It never touches device memory itself. Hot-plug is
 explicitly not built, but the topic shape supports it.
 
-### 3.7 Class interfaces (Messenger IDL, `docs/idl/`)
+### 3.7 Configuration
+
+Driver and device preferences (irq mode, buffer sizes, MAC override, default
+audio format, enable/disable policy) live in the `regd` registry; the kernel
+never reads it. See [driver-config-plan.md](driver-config-plan.md).
+
+### 3.8 Class interfaces (Messenger IDL, `docs/idl/`)
 
 Kept minimal and versioned; each is a *control* interface plus a shared-buffer
 data plane.
@@ -296,18 +327,20 @@ Tests: enumeration of QEMU q35 devices, BAR size probe vs known devices,
 claim/unclaim/double-claim, generation invalidation, 1M claim/release cycles
 with no leak. Boot line: `DEV:ENUM:PASS`.
 
-**Stage D2 — Interrupts.** Vector stubs and dispatch table, mask/ack, shared
-INTx, kernel→driver one-way message with coalescing. Verify q35 interrupt-line
-routing (or land the polling fallback). Tests: raise/ack ordering, storm
-coalescing (100k IRQs, queue depth stays 1), unclaimed-line safety, spurious
-IRQ 7/15 handling.
+**Stage D2 — Interrupts (done, #240).** Vector stubs and dispatch, mask/ack,
+shared INTx, kernel→driver one-way message with a task-context bottom half
+(one outstanding per claim). Verified q35 and i440fx interrupt-line routing.
+Tests: raise/ack ordering, storm (100k IRQs, queue depth stays 1),
+unclaimed-line safety, spurious IRQ 7/15, shared-line rounds and deadlines.
+Boot line: `DEV:IRQ:PASS`.
 
-**Stage D3 — Userspace access syscall (15).** `claim`, `map_bar`, `pio`,
-`cfg_*`, `irq_*`, `release`, ACL interface `os.kernel.dev`, audit records,
-`DeviceClaims` quota, teardown hook. Tests: every op with hostile input
-(out-of-range BAR/offset, foreign handle, stale generation, no right, no
-CAP), teardown-while-mapped, driver-crash-then-reclaim soak (spawn/kill 10k
-times), audit chain still verifies.
+**Stage D3 — Userspace access syscall (23) (done, #240).** `claim`,
+`map_bar`, `pio`, `cfg_*`, `irq_*`, `release`, ACL interface `os.kernel.dev`
+and per-class ids, audit records, `DeviceClaims` quota, teardown hook. Tests:
+every op with hostile input (out-of-range BAR/offset, foreign handle, stale
+generation, no right, no CAP), teardown-while-mapped, driver-crash-then-reclaim
+soak (spawn/kill 10k times), audit chain still verifies. Boot line:
+`DEV:SYSCALL:PASS`.
 
 **Stage D4 — DMA.** Contiguous-run allocator, `dma_alloc` → Buffer handle +
 bus address, `DmaMemory` quota, bus-master off at teardown. Tests:
@@ -341,7 +374,8 @@ and the plan revised. Then: modern-virtio block on the transport, fuzz the
 
 ## 7. Risks and open questions
 
-1. **q35 INTx routing / interrupt-line value** — verify in D2, else polling.
+1. **INTx routing / interrupt-line value** — verified in D2 on `pc` and `q35`
+   (`architecture/devices.md`); polling remains the fallback for unroutable lines.
 2. **Contiguous DMA memory fragmentation** — reserve a DMA pool at boot
    (fixed size) rather than searching the general pool.
 3. **Userspace latency for audio** — use large periods and ring positions

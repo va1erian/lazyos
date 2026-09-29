@@ -40,6 +40,9 @@ pub fn run() -> ! {
         // window work: interrupts off, so the drop of a dead task's buffers
         // cannot be preempted by the timer while it holds the task table.
         without_interrupts(task::reclaim_pending);
+        // Post interrupt messages for claimed device lines and expire ack
+        // deadlines (issue #240); the ISR only records that a line fired.
+        crate::dev::intx::service();
         // A bound compositor owns the screen and input: stop painting entirely
         // and park like any idle task. The check also notices a compositor that
         // exited without unbinding, so this mux is always the fallback.

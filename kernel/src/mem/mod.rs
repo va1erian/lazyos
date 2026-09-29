@@ -1,8 +1,10 @@
 //! Memory management: physical frames, kernel paging, the slab allocator, and
 //! the heap.
 
+mod cow;
 mod frames;
 mod heap;
+pub mod mmio;
 pub mod pte;
 mod reclaim;
 pub use reclaim::reclaim_empty_tables;
@@ -11,7 +13,7 @@ mod table_guard;
 pub mod untouched;
 mod uspace;
 pub mod vma;
-
+pub use cow::clone_user_table;
 pub use frames::*;
 pub use table_guard::UserTableGuard;
 pub use uspace::*;

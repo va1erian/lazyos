@@ -62,7 +62,7 @@ pub fn switch_to(table: PhysAddr) {
 // Copy-on-write: a software bit in the (otherwise unused) page-table entry flags
 // marking a shared, read-only user page. The first writer gets a private copy.
 pub(super) const COW_BIT: u64 = 1 << 9;
-use pte::{
+pub(super) use pte::{
     ADDR as PTE_ADDR, HUGE as PTE_HUGE, NX as PTE_NX, PRESENT as PTE_PRESENT, USER as PTE_USER,
     WRITABLE as PTE_WRITABLE,
 };
@@ -160,6 +160,7 @@ pub(super) unsafe fn free_table(phys: u64, level: u8) -> usize {
             // A leaf: drop one reference. Non-user leaves are kernel aliases
             // and must not be touched.
             if entry & PTE_USER != 0
+                && entry & pte::MMIO == 0
                 && release_frame(PhysAddr::new(entry & PTE_ADDR)) == Release::Pooled
             {
                 released += 1;
@@ -174,81 +175,6 @@ pub(super) unsafe fn free_table(phys: u64, level: u8) -> usize {
         released += 1;
     }
     released
-}
-
-/// Share the user half (PML4 entry 0) of `parent` with a fresh address space
-/// using copy-on-write: both keep the same frames with an extra reference,
-/// read-only; the first writer gets a private copy (see [`cow_fault`]). Flushes
-/// the parent's TLB. All user VAs live below 512 GiB, so PML4 entry 0 covers
-/// them; the kernel's higher-half entries are shared by `new_user_table`.
-pub fn clone_user_table(parent: PhysAddr) -> Option<PhysAddr> {
-    let child = new_user_table()?;
-    let mut failed = false;
-    // Safety: we own both tables and every frame we touch.
-    unsafe {
-        let src = entry_table(parent);
-        let dst = entry_table(child);
-        let entry = *src.add(0);
-        if entry & PTE_PRESENT != 0 {
-            match cow_clone_level(entry & PTE_ADDR, 3) {
-                Some(sub) => *dst.add(0) = sub | (entry & !PTE_ADDR),
-                None => failed = true,
-            }
-        }
-    }
-    if failed {
-        // `cow_clone_level` already released the partial subtree; drop the
-        // PML4 allocated by `new_user_table`.
-        free_frame(child);
-    } else {
-        // Fork inherits the parent's layout: the child can demand-fault and
-        // `mprotect` exactly the same ranges.
-        vma::clone_space(parent, child);
-    }
-    // Our own leaves may now be read-only (or were restored by a failed
-    // clone), so drop stale writable TLB entries either way.
-    switch_to(kernel_table());
-    if failed {
-        None
-    } else {
-        Some(child)
-    }
-}
-
-/// Share `level` (3=PDPT .. 1=PT) into new tables, marking leaves COW in both
-/// the source and the copy. On failure the partial copy is released, so a
-/// failed fork leaks nothing.
-///
-/// # Safety
-/// `src_phys` must be a page table of `level`.
-pub(super) unsafe fn cow_clone_level(src_phys: u64, level: u8) -> Option<u64> {
-    let new_phys = alloc_zeroed_frame()?;
-    let src = entry_table(PhysAddr::new(src_phys));
-    let dst = entry_table(new_phys);
-    for i in 0..512 {
-        let entry = *src.add(i);
-        if entry & PTE_PRESENT == 0 {
-            continue;
-        }
-        if level == 1 {
-            // Share the frame read-only and mark it copy-on-write in both.
-            if !share_frame(PhysAddr::new(entry & PTE_ADDR)) {
-                free_table(new_phys.as_u64(), level);
-                return None;
-            }
-            *dst.add(i) = (entry & PTE_ADDR) | ((entry & !PTE_ADDR) & !PTE_WRITABLE) | COW_BIT;
-            *src.add(i) = (entry & !PTE_WRITABLE) | COW_BIT;
-        } else {
-            match cow_clone_level(entry & PTE_ADDR, level - 1) {
-                Some(sub) => *dst.add(i) = sub | (entry & !PTE_ADDR),
-                None => {
-                    free_table(new_phys.as_u64(), level);
-                    return None;
-                }
-            }
-        }
-    }
-    Some(new_phys.as_u64())
 }
 
 /// Walk `table` to the 4 KiB leaf for `va`, returning a pointer to its entry.

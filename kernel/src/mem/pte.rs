@@ -34,6 +34,10 @@ pub const USER: u64 = 1 << 2;
 pub const HUGE: u64 = 1 << 7;
 /// Mask for the physical address (frame or next-level table) an entry names.
 pub const ADDR: u64 = 0x000F_FFFF_FFFF_F000;
+/// Software-defined bit (bit 10, ignored by the CPU) marking a leaf that maps
+/// device MMIO rather than an allocator frame (issue #240). Teardown, fork and
+/// `unmap_range` skip the frame accounting for such a leaf; see `mem::mmio`.
+pub const MMIO: u64 = 1 << 10;
 /// No-execute bit (requires `EFER.NXE`, which `mem::init` enables at boot).
 pub const NX: u64 = 1 << 63;
 

@@ -165,6 +165,21 @@ impl DeviceTable {
         Ok(())
     }
 
+    /// [`release`](Self::release) for a caller that tracks `(id, generation)`
+    /// itself, as the userspace claim table does.
+    pub fn release_generation(&mut self, id: DeviceId, generation: u32) -> Result<(), DevError> {
+        self.release(DeviceHandle { id, generation })
+    }
+
+    /// Test-only: drop every device from index `len` on, undoing synthetic
+    /// devices a test appended to the global table.
+    #[cfg(lazyos_tests)]
+    pub fn truncate_for_test(&mut self, len: usize) {
+        for slot in self.entries.iter_mut().skip(len) {
+            *slot = None;
+        }
+    }
+
     fn entry(&self, id: DeviceId) -> Option<&Entry> {
         self.entries.get(id.0 as usize)?.as_ref()
     }

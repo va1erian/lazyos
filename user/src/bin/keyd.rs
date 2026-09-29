@@ -66,6 +66,7 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::panic::PanicInfo;
+use user::messenger::keyd::wire as api;
 use user::messenger::{self, errno, keyd as wire, registry, Error, Message, Parcel};
 use user::sys;
 
@@ -141,63 +142,96 @@ fn dispatch(keyd: &mut Keyd, message: &Message) -> messenger::Result<Parcel> {
     if message.interface_id() != wire::INTERFACE {
         return Err(Error::Errno(-errno::EINVAL));
     }
-    let method = message.method();
-    match method {
-        wire::method::VERIFY => {
-            let user = text_field(message, wire::field::USER)?;
-            let secret = text_field(message, wire::field::SECRET)?;
-            Ok(wire::bool_reply(method, keyd.verify(&user, &secret)))
+    let body = &message.parcel.body;
+    let parse = Error::Parcel;
+    match message.method() {
+        api::METHOD_VERIFY => {
+            let args = api::decode_verify_args(body).map_err(parse)?;
+            let user = bounded_text(args.user)?;
+            let secret = bounded_text(args.secret)?;
+            let ok = keyd.verify(&user, &secret);
+            reply(
+                api::METHOD_VERIFY,
+                api::encode_verify_reply(&api::VerifyReply { ok }),
+            )
         }
-        wire::method::SIGN => {
+        api::METHOD_SIGN => {
             let owner = caller_uid(message)?;
-            let key = key_field(message)?;
-            let digest = bytes_field(message, wire::field::DIGEST, 128)?;
-            let tag = keyd.sign(key, owner, &digest)?;
-            wire::bytes_reply(method, &tag)
+            let args = api::decode_sign_args(body).map_err(parse)?;
+            let digest = bounded_bytes(args.digest, 128)?;
+            let tag = keyd.sign(args.key, owner, &digest)?;
+            reply(
+                api::METHOD_SIGN,
+                api::encode_sign_reply(&api::SignReply { tag: tag.to_vec() }),
+            )
         }
-        wire::method::WRAP => {
+        api::METHOD_WRAP => {
             let owner = caller_uid(message)?;
-            let key = key_field(message)?;
-            let plaintext = bytes_field(message, wire::field::DATA, MAX_BYTES)?;
-            let blob = keyd.wrap(key, owner, &plaintext)?;
-            wire::bytes_reply(method, &blob)
+            let args = api::decode_wrap_args(body).map_err(parse)?;
+            let plaintext = bounded_bytes(args.plaintext, MAX_BYTES)?;
+            let blob = keyd.wrap(args.key, owner, &plaintext)?;
+            reply(
+                api::METHOD_WRAP,
+                api::encode_wrap_reply(&api::WrapReply { blob }),
+            )
         }
-        wire::method::UNWRAP => {
+        api::METHOD_UNWRAP => {
             let owner = caller_uid(message)?;
-            let key = key_field(message)?;
-            let blob = bytes_field(message, wire::field::DATA, MAX_BYTES)?;
-            let plaintext = keyd.unwrap(key, owner, &blob)?;
-            wire::bytes_reply(method, &plaintext)
+            let args = api::decode_unwrap_args(body).map_err(parse)?;
+            let blob = bounded_bytes(args.blob, MAX_BYTES)?;
+            let plaintext = keyd.unwrap(args.key, owner, &blob)?;
+            reply(
+                api::METHOD_UNWRAP,
+                api::encode_unwrap_reply(&api::UnwrapReply { plaintext }),
+            )
         }
-        wire::method::RANDOM => {
-            let len = wire::u64_field(&message.parcel, wire::field::LEN)?
-                .ok_or(Error::Errno(-errno::EINVAL))?;
-            let bytes = keyd.random(len as usize)?;
-            wire::bytes_reply(method, &bytes)
+        api::METHOD_RANDOM => {
+            let args = api::decode_random_args(body).map_err(parse)?;
+            let bytes = keyd.random(args.len as usize)?;
+            reply(
+                api::METHOD_RANDOM,
+                api::encode_random_reply(&api::RandomReply { bytes }),
+            )
         }
-        wire::method::PROVISION => {
+        api::METHOD_PROVISION => {
             // Only root may plant a verifier: whoever can provision an account
             // can log in as it.
             if caller_uid(message)? != 0 {
                 return Err(Error::Errno(-errno::EPERM));
             }
-            let user = text_field(message, wire::field::USER)?;
-            let secret = text_field(message, wire::field::SECRET)?;
+            let args = api::decode_provision_args(body).map_err(parse)?;
+            let user = bounded_text(args.user)?;
+            let secret = bounded_text(args.secret)?;
             keyd.provision(&user, &secret)?;
-            Ok(wire::ok_reply(method))
+            Ok(wire::ok_reply(api::METHOD_PROVISION))
         }
-        wire::method::GENERATE => {
+        api::METHOD_GENERATE => {
             let owner = caller_uid(message)?;
-            let kind = text_field(message, wire::field::KIND)?;
+            let args = api::decode_generate_args(body).map_err(parse)?;
+            let kind = bounded_text(args.kind)?;
             let id = keyd
                 .generate(&kind, owner)
                 .ok_or(Error::Errno(-errno::EINVAL))?;
-            wire::id_reply(method, id)
+            reply(
+                api::METHOD_GENERATE,
+                api::encode_generate_reply(&api::GenerateReply { id }),
+            )
         }
-        wire::method::LIST => wire::keys_reply(&keyd.keys(caller_uid(message)?)),
-        wire::method::PING => Ok(wire::ok_reply(method)),
+        api::METHOD_LIST => {
+            let keys = keyd.keys(caller_uid(message)?);
+            reply(
+                api::METHOD_LIST,
+                api::encode_list_reply(&api::ListReply { keys }),
+            )
+        }
+        api::METHOD_PING => Ok(wire::ok_reply(api::METHOD_PING)),
         _ => Err(Error::Errno(-errno::EINVAL)),
     }
+}
+
+/// Frame an encoded reply body as a `keyd` parcel of `method`.
+fn reply(method: u32, body: Result<Vec<u8>, libmessenger::Error>) -> messenger::Result<Parcel> {
+    Ok(wire::parcel(method, body.map_err(Error::Parcel)?))
 }
 
 /// The uid of the Messenger sender, from its kernel-stamped credentials.
@@ -211,23 +245,16 @@ fn caller_uid(message: &Message) -> messenger::Result<u32> {
     Ok(cred.uid)
 }
 
-/// The key id field of a request.
-fn key_field(message: &Message) -> messenger::Result<u64> {
-    wire::u64_field(&message.parcel, wire::field::KEY)?.ok_or(Error::Errno(-errno::EINVAL))
-}
-
-/// A bounded `String` field with `id`.
-fn text_field(message: &Message, id: u16) -> messenger::Result<String> {
-    let text = wire::string_field(&message.parcel, id)?.ok_or(Error::Errno(-errno::EINVAL))?;
+/// A text field within the accepted length.
+fn bounded_text(text: String) -> messenger::Result<String> {
     if text.len() > MAX_TEXT {
         return Err(Error::Errno(-errno::E2BIG));
     }
     Ok(text)
 }
 
-/// A bounded `Bytes` field with `id`.
-fn bytes_field(message: &Message, id: u16, max: usize) -> messenger::Result<Vec<u8>> {
-    let bytes = wire::bytes_field(&message.parcel, id)?.ok_or(Error::Errno(-errno::EINVAL))?;
+/// A bytes field within `max`.
+fn bounded_bytes(bytes: Vec<u8>, max: usize) -> messenger::Result<Vec<u8>> {
     if bytes.len() > max {
         return Err(Error::Errno(-errno::E2BIG));
     }

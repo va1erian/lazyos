@@ -15,7 +15,8 @@ Usage
 
 A plain (`LAZYOS_SERVICES=1`) boot is checked for the full demo evidence; a
 `LAZYOS_DESKTOP=1` boot (``--desktop``) is checked only for the markers the
-desktop profile still emits, since it starts no evidence programs.
+desktop profile still emits, and the excluded programs' startup markers are
+asserted absent, since it starts no evidence programs.
 """
 
 from __future__ import annotations
@@ -53,6 +54,17 @@ DESKTOP: list[tuple[str, str]] = [
 #: for one (it used to print `init: launch editor failed: EDITOR.ELF`).
 FORBIDDEN: list[tuple[str, str]] = [
     ("no launch failure for an unshipped app", r"^init: launch \S+ failed"),
+]
+
+#: Markers of the demo/evidence programs the desktop profile excludes (issue
+#: #217). They are asserted absent only under ``--desktop``, so a regression
+#: that re-enables one fails the desktop job instead of passing silently.
+DESKTOP_FORBIDDEN: list[tuple[str, str]] = [
+    ("no flaky crash service", r"^flaky: starting"),
+    ("no clipboard demo pair", r"^clipboardd: started demo CLIP"),
+    ("no top text client", r"^(?:sysmond: started demo TOP\.ELF|SYS:TOP:PASS|top: LazyOS)"),
+    ("no xdemo client", r"^(?:xdemo: |XDEMO:UP:PASS)"),
+    ("no dragdemo launcher", r"^dragdemo: "),
 ]
 
 #: Interactive-CLI markers booted with `LAZYOS_MESSENGERCTL=1`. Each note is
@@ -121,7 +133,8 @@ def main() -> int:
         required.append((pattern, pattern))
 
     ok = report("services", required, text)
-    ok &= report_absent("services", FORBIDDEN, text)
+    forbidden = FORBIDDEN + (DESKTOP_FORBIDDEN if args.desktop else [])
+    ok &= report_absent("services", forbidden, text)
     cli_ok = report("cli", CLI, text)
     if args.require_cli:
         ok &= cli_ok

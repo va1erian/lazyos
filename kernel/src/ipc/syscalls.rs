@@ -906,9 +906,7 @@ fn handles_errno(error: handles::Error) -> i64 {
 // User pointer validation and copying
 // ---------------------------------------------------------------------------
 
-// Page-table entry bits and the raw entry reader now live in `mem::pte`,
-// shared with `mem`'s own table walker (frame/VMA teardown, COW) instead of
-// each keeping an independent copy of the same five constants.
+// Page-table entry bits and the raw entry reader live in `mem::pte`.
 use pte::{
     ADDR as PTE_ADDR, HUGE as PTE_HUGE, PRESENT as PTE_PRESENT, USER as PTE_USER,
     WRITABLE as PTE_WRITABLE,
@@ -989,7 +987,8 @@ fn translate(table: PhysAddr, va: u64, write: bool) -> Result<u64, i64> {
     if l1 & PTE_PRESENT == 0 {
         return materialize(table, va, write);
     }
-    if l1 & PTE_USER == 0 {
+    // Device MMIO is never a syscall buffer: it is not RAM (issue #240).
+    if l1 & PTE_USER == 0 || l1 & pte::MMIO != 0 {
         return Err(errno::EFAULT);
     }
     if write && l1 & PTE_WRITABLE == 0 {

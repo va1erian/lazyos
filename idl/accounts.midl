@@ -1,0 +1,41 @@
+/// The account database service. Lookups are open to any caller; creating a
+/// user is restricted to uid 0 by the kernel-stamped sender identity.
+interface os.lazy.accounts.v1 {
+    /// Find a user by `name` or, when `name` is absent, by `uid`.
+    /// `found` is false (and `user` empty) when no account matches.
+    method Lookup(name: Option<String>, uid: Option<U32>) -> (found: Bool, user: Option<User>);
+    /// Verify `secret` against the stored verifier of `name`.
+    method Authenticate(name: String, secret: String) -> (ok: Bool);
+    /// Create a user (admin only). `detail` explains a refusal.
+    method Create(user: NewUser) -> (ok: Bool, detail: String);
+
+    /// One account record as a lookup returns it (never the secret).
+    struct User {
+        /// Account name.
+        name: String,
+        /// Numeric user id (`0` = root).
+        uid: U32,
+        /// Primary group id.
+        gid: U32,
+        /// Home directory.
+        home: String,
+        /// Login shell path.
+        shell: String
+    }
+
+    /// A create request's full payload, including the initial secret.
+    struct NewUser {
+        /// Account name.
+        name: String,
+        /// Numeric user id.
+        uid: U32,
+        /// Primary group id.
+        gid: U32,
+        /// The new user's initial secret.
+        secret: String,
+        /// Home directory.
+        home: String,
+        /// Login shell path.
+        shell: String
+    }
+}
