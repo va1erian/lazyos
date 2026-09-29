@@ -31,6 +31,7 @@ mod futex;
 mod io;
 mod mem;
 mod misc;
+pub(crate) mod native;
 mod path;
 mod pathops;
 mod pipes;
@@ -43,6 +44,7 @@ mod time;
 mod uaccess;
 
 pub use elf::load;
+pub(crate) use native::write_redirected;
 // Only the `#[cfg(lazyos_tests)]` harness (`kernel/src/tests.rs`) reaches this
 // through the `process::linux::` path; a normal build never does, hence the
 // otherwise-unused-import warning this silences.

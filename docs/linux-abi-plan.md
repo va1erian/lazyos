@@ -57,7 +57,8 @@ Two things are structural, not incremental:
    Static musl initialises TLS itself from `PT_TLS` + `mmap` + `arch_prctl`.
 5. **Two program kinds.** Keep the native LazyOS ABI (used by the services and
    `HELLO.ELF`; the native shell was retired in issue #254 in favour of BusyBox
-   `sh`); add a
+   `sh`, which runs those programs through `execve`, see
+   `docs/architecture/processes.md`); add a
    "linux" kind with the `syscall` gate and Linux syscall table. The
    multiplexer can host one of each.
 

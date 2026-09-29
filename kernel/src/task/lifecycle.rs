@@ -179,6 +179,28 @@ pub fn reclaim_pending() {
 /// other state), while an interrupt here would otherwise self-deadlock on
 /// `TASKS`.
 pub fn reap_child() -> Option<(usize, u64)> {
+    reap_matching(|_| true)
+}
+
+/// [`reap_child`] restricted to the child in `slot`: `None` while it still
+/// runs (or is not a child of the caller). `execve` of a native program waits
+/// on exactly the program it started, whatever else the caller has forked.
+pub fn reap_child_slot(slot: usize) -> Option<u64> {
+    reap_matching(|index| index == slot).map(|(_, status)| status)
+}
+
+/// Whether `slot` holds a not-yet-reaped child of the current task.
+pub fn is_child(slot: usize) -> bool {
+    let me = current();
+    TASKS
+        .lock()
+        .get(slot)
+        .and_then(|task| task.as_ref())
+        .is_some_and(|task| task.parent == me && slot != me)
+}
+
+/// The reaping body: take the first finished child whose slot `wanted` accepts.
+fn reap_matching(wanted: impl Fn(usize) -> bool) -> Option<(usize, u64)> {
     let me = current();
     let (index, status, pml4, shared, dead) = {
         let mut tasks = TASKS.lock();
@@ -186,7 +208,7 @@ pub fn reap_child() -> Option<(usize, u64)> {
         for index in 1..MAX_TASKS {
             let finished = tasks[index]
                 .as_ref()
-                .map(|task| task.parent == me && task.state == TaskState::Done)
+                .map(|task| task.parent == me && task.state == TaskState::Done && wanted(index))
                 .unwrap_or(false);
             if finished {
                 // INVARIANT: `finished` was just computed from this same

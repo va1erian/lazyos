@@ -138,6 +138,12 @@ pub const USER_STACK_TOP: u64 = 0x80_0000;
 /// User stack size.
 pub const USER_STACK_SIZE: u64 = 0x2_0000;
 
+/// Record the argument string syscall 9 hands to the task in `slot` (the
+/// Linux `execve` path for native programs, `process::linux::native`).
+pub(crate) fn set_service_args(slot: usize, args: &[u8]) {
+    SERVICE_ARGS.lock()[slot] = Some(args.to_vec());
+}
+
 /// Test-harness view of [`intern_service_name`], so the suite can prove the
 /// intern table is bounded.
 #[cfg(lazyos_tests)]
@@ -150,6 +156,12 @@ pub fn intern_service_name_for_test(name: &str) -> &'static str {
 /// The buffer is validated against the caller's page tables; a bad range
 /// returns the `u64::MAX` failure code instead of touching kernel memory.
 fn sys_write(ptr: u64, len: u64) -> u64 {
+    // A program a shell `execve`d inherits the shell's descriptors, so its
+    // output follows a redirection or pipe on fd 1 (issue #315); every other
+    // native task has the terminal there and takes the path below.
+    if let Some(written) = linux::write_redirected(ptr, len) {
+        return written;
+    }
     let Ok(bytes) = user_ptr::try_bytes(ptr, len as usize) else {
         return u64::MAX;
     };

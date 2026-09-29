@@ -72,9 +72,15 @@ See [processes.md](processes.md) and [display.md](display.md).
 | `clipcopy` / `clippaste` / `messengerctl` | `CLIPCP` / `CLIPPS` / `MSGCTL.ELF` | Clipboard demo pair (#115, `demo=1` only) / fabric+services views (#70/#89/#93) | `clipboardd`, kernel flag |
 | `sysmond` / `top` | `SYSD` / `TOP.ELF` | System-stats service over syscall 14 with `system/stats/*` topics / one-shot text client (#144); services image only, `top` left out of `LAZYOS_DESKTOP=1` | `init` / `sysmond` (`demo=1`) or `init` `Launch` |
 | `hello` / `xuid` / `xdemo` | `HELLO` / `XUID` / `XDEMO.ELF` | demo / compositor and display demo (#113). The system shell is BusyBox `sh` (`BUSYBOX`, a Linux-ABI binary built by `tools/abi/busybox.py`, #254) | kernel |
-| `faultprobe` | `FAULTPRB.ELF` | Deliberate ring-3 faults (#7); embedded, but the retired native shell is what used to launch it | - |
+| `faultprobe` | `FAULTPRB.ELF` | Deliberate ring-3 faults (#7); run by hand from `sh` (`faultprobe null`, `kernel`, `priv`, `div`, `ud`) | - |
 | `dragdemo` / `shellprobe` | `DRAGDMO` / `SHELLPRB.ELF` | Drag & drop evidence pair (#145) / shell-protocol evidence client (#167); `LAZYOS_XUID=1` images | kernel |
 | `async_echo` / `async_service` | not on disk | `messenger_async` examples (#91) | - |
+
+**Running native programs from `sh`** (#315): `top`, `regctl`, `msgctl`
+(`messengerctl`) and `faultprobe` are reachable by name from BusyBox `sh` (console
+and desktop Terminal); the kernel's `execve` runs them as a native child of the
+shell's fork child. `top` is not shipped in the `LAZYOS_DESKTOP=1` image (`not
+found` there). Details and limits: [processes.md](processes.md).
 
 The `init` manifest (`user/src/bin/init/state.rs`) declares dependencies and restart
 policy: `messengerd` is `Once` (bootstrap can be claimed once per boot), the

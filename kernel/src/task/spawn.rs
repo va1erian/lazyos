@@ -51,6 +51,53 @@ pub fn spawn_child(name: &'static str, elf: &[u8]) -> Result<usize, &'static str
     spawn_in_space(name, elf, Some(current()))
 }
 
+/// Why a native spawn failed, so callers can pick the errno that matches
+/// (`EAGAIN` for a full table, `ENOMEM`, `ENOEXEC` for an image that will not
+/// load) instead of collapsing every failure into one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SpawnError {
+    /// Every task slot is in use.
+    NoSlot,
+    /// No frame for the address space or its pages.
+    NoMemory,
+    /// The calling task is not in the table.
+    NoParent,
+    /// The ELF image is malformed or asks for an unloadable layout.
+    BadImage(&'static str),
+}
+
+impl SpawnError {
+    /// A short human-readable reason (the string the untyped spawns return).
+    pub fn message(self) -> &'static str {
+        match self {
+            SpawnError::NoSlot => "no free task slot",
+            SpawnError::NoMemory => "out of memory",
+            SpawnError::NoParent => "no parent task",
+            SpawnError::BadImage(reason) => reason,
+        }
+    }
+}
+
+/// Where a spawned native task's standard streams come from.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum Stdio {
+    /// The kernel terminal (the historical behaviour of `spawn`).
+    Terminal,
+    /// A copy of the parent's descriptor table, minus `FD_CLOEXEC` entries:
+    /// what `execve` of a native program from a shell needs so the program's
+    /// output follows the shell's redirections and pipes.
+    InheritFrom(usize),
+}
+
+/// Create a native child of the calling task that inherits its descriptors
+/// (see [`Stdio::InheritFrom`]). This is the Linux `execve` path for native
+/// programs (issue #315): the shell's fork child spawns the program, waits for
+/// it and exits with its status.
+pub fn spawn_child_inheriting_fds(name: &'static str, elf: &[u8]) -> Result<usize, SpawnError> {
+    let parent = current();
+    spawn_native(name, elf, Some(parent), Stdio::InheritFrom(parent))
+}
+
 /// Shared implementation of [`spawn`] and [`spawn_child`]: load a native ELF
 /// into a fresh address space and register it as a runnable task. `parent` is
 /// `None` for a kernel-started program (its own group/session leader) or the
@@ -60,31 +107,52 @@ pub(super) fn spawn_in_space(
     elf: &[u8],
     parent: Option<usize>,
 ) -> Result<usize, &'static str> {
+    spawn_native(name, elf, parent, Stdio::Terminal).map_err(SpawnError::message)
+}
+
+/// Classify a loader failure: frame exhaustion is `NoMemory`, anything else
+/// means the image itself is unloadable.
+fn load_error(reason: &'static str) -> SpawnError {
+    if reason.contains("out of memory") || reason.starts_with("failed to") {
+        SpawnError::NoMemory
+    } else {
+        SpawnError::BadImage(reason)
+    }
+}
+
+/// The body behind every native spawn; see [`spawn_in_space`].
+pub(super) fn spawn_native(
+    name: &'static str,
+    elf: &[u8],
+    parent: Option<usize>,
+    stdio: Stdio,
+) -> Result<usize, SpawnError> {
     let mut tasks = TASKS.lock();
     let index = (1..MAX_TASKS)
         .find(|&i| tasks[i].is_none())
-        .ok_or("no free task slot")?;
+        .ok_or(SpawnError::NoSlot)?;
 
-    let pml4 = mem::new_user_table().ok_or("out of memory")?;
+    let pml4 = mem::new_user_table().ok_or(SpawnError::NoMemory)?;
     // A load failure returns while the guard is live, releasing the whole
     // partially built address space instead of leaking its frames.
     let guard = mem::UserTableGuard::new(pml4);
-    let entry = user_process::load_image(guard.table(), elf)?;
-    guard.commit();
-
-    let top = kstack_top(index);
-    let rsp = build_user_frame(top, entry, user_process::USER_STACK_TOP - 16);
-    let class = PriorityClass::Normal;
-    let pass = virtual_now(&tasks);
+    let entry = user_process::load_image(guard.table(), elf).map_err(load_error)?;
     let (parent_slot, pgid, sid) = match parent {
         Some(parent) => {
-            let parent_task = tasks[parent].as_ref().ok_or("no parent task")?;
+            let parent_task = tasks[parent].as_ref().ok_or(SpawnError::NoParent)?;
             (parent, parent_task.pgid, parent_task.sid)
         }
         // A program started by the kernel leads its own group and session
         // (pid == pgid == sid); a supervised child inherits its supervisor's.
         None => (0, index, index),
     };
+    // Every fallible step is behind us: keep the address space.
+    guard.commit();
+
+    let top = kstack_top(index);
+    let rsp = build_user_frame(top, entry, user_process::USER_STACK_TOP - 16);
+    let class = PriorityClass::Normal;
+    let pass = virtual_now(&tasks);
 
     // A supervised child starts with its supervisor's credentials (never the
     // root default), a kernel-started program with the root default: the slot
@@ -93,6 +161,15 @@ pub(super) fn spawn_in_space(
         Some(parent) => credentials::inherit(parent, index),
         None => credentials::reset_for_task(index),
     }
+    // Cloned only now, after the last error return: dropping a cloned pipe end
+    // on a failure path would take a wait-queue lock under `TASKS`.
+    let fds = match stdio {
+        Stdio::Terminal => new_fds(),
+        Stdio::InheritFrom(from) => tasks[from]
+            .as_ref()
+            .map(|source| clone_fds_exec(&source.fds, &source.fd_flags))
+            .unwrap_or_else(new_fds),
+    };
     tasks[index] = Some(Task {
         name,
         kind: Kind::Native,
@@ -112,7 +189,7 @@ pub(super) fn spawn_in_space(
         exit_status: 0,
         heap_break: user_process::USER_HEAP_BASE,
         fs_base: 0,
-        fds: new_fds(),
+        fds,
         fd_flags: [0; FD_COUNT],
         output: Vec::new(),
         input: VecDeque::new(),
