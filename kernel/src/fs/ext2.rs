@@ -242,6 +242,15 @@ impl Ext2 {
         Ok(le32(&raw, SB_FREE_INODES))
     }
 
+    /// The on-disk link count of `path`'s inode; the diagnostic the tests use
+    /// to check directory bookkeeping (`.`/`..` links) after renames.
+    #[cfg_attr(not(lazyos_tests), allow(dead_code))]
+    pub fn link_count(&self, path: &str) -> Result<u16, FsError> {
+        let _guard = self.lock.lock();
+        let ino = self.resolve(path)?;
+        Ok(le16(&self.read_inode(ino)?, INO_LINKS))
+    }
+
     /// The physical block backing logical `index` of `path` (`0` for a hole).
     /// This is the diagnostic surface the tests use to see allocation reuse.
     #[cfg_attr(not(lazyos_tests), allow(dead_code))]

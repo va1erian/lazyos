@@ -260,3 +260,109 @@ pub fn rename_over_existing_replaces() -> Result<(), String> {
     );
     Ok(())
 }
+
+/// A directory renamed over an *empty* directory must release the victim's
+/// inode and block, and the victim's `..` link on its parent (issue #298).
+/// An empty directory has two links (`.` and its parent's entry), so the old
+/// "free only at one link" rule kept it allocated and leaked both.
+pub fn rename_dir_over_empty_dir_frees_victim() -> Result<(), String> {
+    task::register_kernel();
+    let (fs, mut vfs, _disk) = mounted(1024, 256)?;
+    let root = Id::ROOT;
+
+    // Same parent: /a replaces the empty /b.
+    vfs.mkdir(root, "/a", 0o755).map_err(fs_error)?;
+    vfs.mkdir(root, "/b", 0o755).map_err(fs_error)?;
+    let blocks = fs.free_blocks().map_err(fs_error)?;
+    let inodes = fs.free_inodes().map_err(fs_error)?;
+    check!(
+        fs.link_count("/").map_err(fs_error)? == 4,
+        "root links before"
+    );
+    vfs.rename(root, "/a", "/b").map_err(fs_error)?;
+    check!(
+        fs.free_blocks().map_err(fs_error)? == blocks + 1,
+        "the replaced directory's block leaked"
+    );
+    check!(
+        fs.free_inodes().map_err(fs_error)? == inodes + 1,
+        "the replaced directory's inode leaked"
+    );
+    check!(
+        fs.link_count("/").map_err(fs_error)? == 3,
+        "the parent kept the replaced directory's `..` link"
+    );
+    check!(
+        vfs.stat(root, "/a").err() == Some(FsError::NotFound),
+        "the source name survived"
+    );
+    check!(
+        vfs.stat(root, "/b").map_err(fs_error)?.kind == FileKind::Dir,
+        "the destination is not a directory"
+    );
+
+    // Across parents: /p/x replaces the empty /q/y.
+    vfs.mkdir(root, "/p", 0o755).map_err(fs_error)?;
+    vfs.mkdir(root, "/q", 0o755).map_err(fs_error)?;
+    vfs.mkdir(root, "/p/x", 0o755).map_err(fs_error)?;
+    vfs.mkdir(root, "/q/y", 0o755).map_err(fs_error)?;
+    let blocks = fs.free_blocks().map_err(fs_error)?;
+    let inodes = fs.free_inodes().map_err(fs_error)?;
+    vfs.rename(root, "/p/x", "/q/y").map_err(fs_error)?;
+    check!(
+        fs.free_blocks().map_err(fs_error)? == blocks + 1
+            && fs.free_inodes().map_err(fs_error)? == inodes + 1,
+        "cross-parent rename leaked the replaced directory"
+    );
+    check!(
+        fs.link_count("/p").map_err(fs_error)? == 2,
+        "the old parent kept the moved directory's link"
+    );
+    check!(
+        fs.link_count("/q").map_err(fs_error)? == 3,
+        "the new parent's link count is wrong (victim `..` not dropped, or moved `..` not added)"
+    );
+
+    // Unchanged rules: a non-empty victim is refused and nothing moves.
+    vfs.mkdir(root, "/q/y/inner", 0o755).map_err(fs_error)?;
+    vfs.mkdir(root, "/z", 0o755).map_err(fs_error)?;
+    check!(
+        vfs.rename(root, "/z", "/q/y").err() == Some(FsError::NotEmpty),
+        "renaming over a non-empty directory was not refused"
+    );
+    check!(vfs.stat(root, "/z").is_ok(), "the refused source vanished");
+    Ok(())
+}
+
+/// Soak for the same leak: each round creates a directory and renames it over
+/// an existing empty one. The 64-inode test disk exhausts long before the
+/// loop ends if any round leaks an inode or a block.
+pub fn soak_rename_dir_over_empty_dir() -> Result<(), String> {
+    task::register_kernel();
+    let (fs, mut vfs, _disk) = mounted(1024, 256)?;
+    let root = Id::ROOT;
+
+    vfs.mkdir(root, "/dst", 0o755).map_err(fs_error)?;
+    let blocks = fs.free_blocks().map_err(fs_error)?;
+    let inodes = fs.free_inodes().map_err(fs_error)?;
+    let links = fs.link_count("/").map_err(fs_error)?;
+    for round in 0..300 {
+        vfs.mkdir(root, "/src", 0o755)
+            .map_err(|e| format!("round {round}: mkdir: {}", fs_error(e)))?;
+        vfs.rename(root, "/src", "/dst")
+            .map_err(|e| format!("round {round}: rename: {}", fs_error(e)))?;
+    }
+    check!(
+        fs.free_blocks().map_err(fs_error)? == blocks,
+        "blocks leaked over the soak"
+    );
+    check!(
+        fs.free_inodes().map_err(fs_error)? == inodes,
+        "inodes leaked over the soak"
+    );
+    check!(
+        fs.link_count("/").map_err(fs_error)? == links,
+        "root link count drifted over the soak"
+    );
+    Ok(())
+}
