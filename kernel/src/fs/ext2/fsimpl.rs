@@ -231,6 +231,10 @@ impl Filesystem for Ext2 {
         if kind_from_mode(le16(&child, INO_MODE)) != Some(FileKind::File) {
             return Err(FsError::IsDir);
         }
+        if crate::fs::hidden::is_reserved(name) && le16(&child, INO_LINKS) <= 1 {
+            // A parked orphan is deleted inode-first so a stop can be resumed.
+            return self.discard_orphan(parent_ino, &mut parent, name, child_ino, &mut child);
+        }
         self.remove_entry(parent_ino, &mut parent, name)?;
         let links = le16(&child, INO_LINKS);
         if links <= 1 {
