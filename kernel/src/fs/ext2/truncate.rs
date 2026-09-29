@@ -232,16 +232,18 @@ impl Ext2 {
         let mut raw = fallible::zeroed(u64::from(self.block_size))?;
         self.read_block(u64::from(block), &mut raw)?;
         Ok(raw
-            .chunks_exact(4)
-            .map(|word| u32::from_le_bytes([word[0], word[1], word[2], word[3]]))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|word| u32::from_le_bytes(*word))
             .collect())
     }
 
     /// Write a pointer table back.
     fn write_table(&self, block: u32, table: &[u32]) -> Result<(), FsError> {
         let mut raw = fallible::zeroed(u64::from(self.block_size))?;
-        for (word, pointer) in raw.chunks_exact_mut(4).zip(table) {
-            word.copy_from_slice(&pointer.to_le_bytes());
+        for (word, pointer) in raw.as_chunks_mut::<4>().0.iter_mut().zip(table) {
+            *word = pointer.to_le_bytes();
         }
         self.write_block(u64::from(block), &raw)
     }
