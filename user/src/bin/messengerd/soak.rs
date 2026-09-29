@@ -3,7 +3,6 @@
 
 use alloc::format;
 use alloc::vec::Vec;
-use libmessenger::Encoder;
 use user::messenger::{self, topics_client};
 use user::sys;
 
@@ -52,7 +51,7 @@ impl Soak {
     /// Start a soak of `cycles` request/reply cycles and record the baseline.
     pub(super) fn start(cycles: u64) -> Soak {
         Soak {
-            request: topics_client::request_parcel(topics_client::method::PING, Encoder::new()),
+            request: topics_client::ping_request(),
             reply_buffer: alloc::vec![0u8; messenger::DEFAULT_BUFFER],
             cycles_total: cycles,
             cycles_left: cycles,

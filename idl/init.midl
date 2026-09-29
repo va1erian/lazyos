@@ -1,0 +1,49 @@
+/// The userspace service supervisor (issues #93, #158): the supervision table,
+/// the built-in app registry and the app-launch path.
+///
+/// `init` serves a `router` topic broker on the same endpoint; those topic
+/// payloads are not part of this interface. Failures are returned as a
+/// structured error field (errno-style code, friendly text), not as a typed
+/// reply, so the error field is hand-written next to these stubs.
+interface os.lazy.init.v1 {
+    /// Snapshot the supervision table.
+    method Services() -> (services: Array<ServiceStatus>);
+
+    /// Launch an app as a session child. `session` 0 means the caller's own
+    /// session; only the session's owner (or root) may launch into it.
+    method Launch(app: String, args: String, session: U64) -> (app: String, pid: U64, session: U64);
+
+    /// Enumerate the built-in app registry.
+    method ListApps() -> (apps: Array<AppInfo>);
+
+    /// One row of `init`'s supervision table.
+    struct ServiceStatus {
+        /// Service name.
+        name: String,
+        /// Service phase (`pending`/`running`/`restarting`/`stopped`/`failed`).
+        state: String,
+        /// Task slot the supervisor started, or 0.
+        pid: U64,
+        /// Restart count.
+        restarts: U64,
+        /// Comma-separated dependency names.
+        deps: String,
+        /// Last known health string for the service.
+        health: String
+    }
+
+    /// One row of `init`'s built-in app registry (issue #158): the S5 start
+    /// menu's enumeration unit and the resolution table `Launch` uses.
+    struct AppInfo {
+        /// App id: the lowercase program stem (`top` -> `TOP.ELF`).
+        id: String,
+        /// Display name for menus.
+        name: String,
+        /// On-disk ELF path.
+        path: String,
+        /// Default restart policy (`always`/`on-failure`/`once`).
+        restart: String,
+        /// MIME verbs the app handles, in registration order.
+        verbs: Array<String>
+    }
+}

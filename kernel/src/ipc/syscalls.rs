@@ -45,7 +45,7 @@ use alloc::vec::Vec;
 use x86_64::structures::idt::PageFaultErrorCode;
 use x86_64::PhysAddr;
 
-use libmessenger::{Decoder, Encoder, Header, Kind, Parcel, MAX_PARCEL_BYTES, VERSION};
+use libmessenger::{Header, Parcel, MAX_PARCEL_BYTES, VERSION};
 
 use crate::ipc::handles::HandleKind;
 use crate::ipc::{channels, credentials, handles, registry, topics};
@@ -59,7 +59,7 @@ mod regops;
 mod usermem;
 
 pub use abi::*;
-use regops::{op_registry, registry_name, registry_target, registry_u64};
+use regops::{op_registry, registry_target};
 pub(crate) use usermem::*;
 
 /// The `messenger` syscall entry point: validate, execute, report.
@@ -328,17 +328,6 @@ fn op_bootstrap(_args: &MsgArgs) -> Result<MsgResult, i64> {
 // Topic ACL op (issue #92)
 // ---------------------------------------------------------------------------
 
-/// Find a `u32` field in a request body (missing means `None`).
-fn parcel_u32(parcel: &Parcel, id: u16) -> Option<u32> {
-    let mut decoder = Decoder::new(&parcel.body);
-    while let Ok(Some(field)) = decoder.next() {
-        if field.kind == Kind::U32 && field.id == id {
-            return field.as_u32().ok();
-        }
-    }
-    None
-}
-
 /// `OP_AUTHORIZE_TOPIC`: evaluate the kernel policy for every segment of a
 /// topic or filter on behalf of the task named by `args.txn_id` (self, or the
 /// privileged `messengerd` proxy path). Policy stays entirely kernel-side;
@@ -348,13 +337,14 @@ fn op_authorize_topic(args: &MsgArgs) -> Result<MsgResult, i64> {
     let target = registry_target(args.txn_id)?;
     let bytes = read_parcel(args)?;
     let parcel = decode_parcel(&bytes)?;
-    let name = registry_name(&parcel)?;
-    let mode = parcel_u32(&parcel, topics::field::MODE).ok_or(errno::EINVAL)?;
-    let txn = registry_u64(&parcel, topics::field::TXN).unwrap_or(0);
-    let segments = topics::authorize(target, mode, &name, txn).map_err(|error| match error {
-        topics::Error::Denied => errno::EACCES,
-        topics::Error::BadName | topics::Error::BadMode => errno::EINVAL,
-    })?;
+    let request = topics::decode_request(&parcel.body).map_err(|_| errno::EINVAL)?;
+    let segments =
+        topics::authorize(target, request.mode, &request.name, request.txn).map_err(|error| {
+            match error {
+                topics::Error::Denied => errno::EACCES,
+                topics::Error::BadName | topics::Error::BadMode => errno::EINVAL,
+            }
+        })?;
     Ok(MsgResult {
         value: segments as u64,
         ..MsgResult::default()

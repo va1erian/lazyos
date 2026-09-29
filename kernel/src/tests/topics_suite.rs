@@ -23,7 +23,7 @@ const REQUEST: u64 = SPACE + 0x1000;
 
 /// Every topics test starts from the bring-up state: kernel task current,
 /// root credentials, empty policy (the bootstrap window), empty audit ring.
-fn fresh() -> Result<(), String> {
+pub(super) fn fresh() -> Result<(), String> {
     task::register_kernel();
     task::harness::reset();
     task::harness::switch_current(task::KERNEL_TASK);
@@ -38,7 +38,7 @@ fn fresh() -> Result<(), String> {
 
 /// Run `f` with [`SPACE`] mapped into a fresh address space installed as
 /// CR3, exactly as a real syscall from a user task would find it.
-fn in_space<R>(f: impl FnOnce() -> Result<R, String>) -> Result<R, String> {
+pub(super) fn in_space<R>(f: impl FnOnce() -> Result<R, String>) -> Result<R, String> {
     let kernel = mem::kernel_table();
     let table = mem::new_user_table().ok_or("new_user_table failed")?;
     process::map_range(table, SPACE, SPACE + SPACE_PAGES * 4096).map_err(to_string)?;
@@ -72,19 +72,12 @@ fn dispatch(op: u64, args: &MsgArgs) -> (u64, MsgResult) {
 }
 
 /// Two's-complement `-errno` as the syscall returns it in `rax`.
-fn failed(code: i64) -> u64 {
+pub(super) fn failed(code: i64) -> u64 {
     (code as u64).wrapping_neg()
 }
 
-/// Encode an `authorize_topic` request parcel.
-fn auth_parcel(name: &str, mode: u32, txn: u64) -> Result<Vec<u8>, String> {
-    let mut body = Encoder::new();
-    body.string(topics::field::NAME, name)
-        .map_err(|error| error.message())?;
-    body.u32(topics::field::MODE, mode)
-        .map_err(|error| error.message())?;
-    body.u64(topics::field::TXN, txn)
-        .map_err(|error| error.message())?;
+/// Wrap an encoded `authorize_topic` body in a parcel and serialize it.
+pub(super) fn wrap_body(body: Vec<u8>) -> Result<Vec<u8>, String> {
     let parcel = Parcel {
         header: Header {
             version: VERSION,
@@ -95,7 +88,7 @@ fn auth_parcel(name: &str, mode: u32, txn: u64) -> Result<Vec<u8>, String> {
             reply_to: 0,
             deadline_ns: 0,
         },
-        body: body.finish(),
+        body,
         handles: Vec::new(),
         buffers: Vec::new(),
     };
@@ -104,9 +97,33 @@ fn auth_parcel(name: &str, mode: u32, txn: u64) -> Result<Vec<u8>, String> {
     Ok(bytes)
 }
 
+/// Encode an `authorize_topic` request parcel with the generated codec.
+pub(super) fn auth_parcel(name: &str, mode: u32, txn: u64) -> Result<Vec<u8>, String> {
+    let request = topics::publish_scope::AuthorizeTopicArgs {
+        name: String::from(name),
+        mode,
+        txn,
+    };
+    let body = topics::publish_scope::encode_authorize_topic_args(&request)
+        .map_err(|error| error.message())?;
+    wrap_body(body)
+}
+
+/// Run `authorize_topic` on the caller itself with `request` (a whole parcel).
+pub(super) fn authorize_raw(request: &[u8]) -> (u64, MsgResult) {
+    write_bytes(REQUEST, request);
+    let args = MsgArgs {
+        txn_id: REGISTRY_TARGET_SELF,
+        parcel_ptr: REQUEST,
+        parcel_len: request.len() as u64,
+        ..MsgArgs::default()
+    };
+    dispatch(OP_AUTHORIZE_TOPIC, &args)
+}
+
 /// A policy that denies `method` on `interface` for uid 1000 ahead of an
 /// allow-all rule, so neighbours and other actors stay allowed.
-fn deny_rule(interface: u64, method: u32) -> [acl::Rule; 2] {
+pub(super) fn deny_rule(interface: u64, method: u32) -> [acl::Rule; 2] {
     [
         acl::Rule {
             actor: 1000,
@@ -134,6 +151,16 @@ pub fn segment_methods_stable() -> Result<(), String> {
     check!(
         topics::fnv1a64("os.lazy.messenger.topics.subscribe.v1") == topics::SUBSCRIBE_INTERFACE,
         "the subscribe interface constant drifted from its name"
+    );
+    check!(
+        topics::PUBLISH_INTERFACE == topics::publish_scope::INTERFACE_ID
+            && topics::SUBSCRIBE_INTERFACE == topics::subscribe_scope::INTERFACE_ID
+            && topics::PUBLISH_INTERFACE != topics::SUBSCRIBE_INTERFACE,
+        "the scope ids are not the generated interface ids"
+    );
+    check!(
+        topics::MODE_PUBLISH == 0 && topics::MODE_SUBSCRIBE == 1,
+        "the mode codes drifted from the IDL enum"
     );
     check!(
         topics::segment_method("system") == 1_226_705_564,

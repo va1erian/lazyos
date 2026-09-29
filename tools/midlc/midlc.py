@@ -85,7 +85,7 @@ HEADER = (
 def generate(inputs: list[Path]) -> tuple[str, list[dict], dict[str, str]]:
     interfaces = []
     for path in inputs:
-        interfaces.append(Parser(lex(path.read_text(encoding="utf-8"))).parse_interface())
+        interfaces += Parser(lex(path.read_text(encoding="utf-8"))).parse_interfaces()
     rust = HEADER + "\n\n".join(emit_rust(i) for i in interfaces) + "\n"
     return rust, [emit_manifest(i) for i in interfaces], {i.name: emit_markdown(i) for i in interfaces}
 

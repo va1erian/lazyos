@@ -60,70 +60,36 @@ pub(super) fn op_registry(args: &MsgArgs, method: u32) -> Result<MsgResult, i64>
     }
 }
 
-/// Find a string field in a registry request body.
-pub(super) fn registry_name(parcel: &Parcel) -> Result<alloc::string::String, i64> {
-    let mut decoder = Decoder::new(&parcel.body);
-    while let Some(field) = decoder.next().map_err(|_| errno::EINVAL)? {
-        if field.kind == Kind::String && field.id == registry::field::NAME {
-            return Ok(alloc::string::String::from(
-                field.as_str().map_err(|_| errno::EINVAL)?,
-            ));
-        }
-    }
-    Err(errno::EINVAL)
+/// Decode a registry request parcel and its generated argument body; a
+/// malformed parcel or body is `EINVAL`.
+fn registry_args<T>(
+    bytes: &[u8],
+    decode: fn(&[u8]) -> Result<T, libmessenger::Error>,
+) -> Result<T, i64> {
+    let parcel = decode_parcel(bytes)?;
+    decode(&parcel.body).map_err(|_| errno::EINVAL)
 }
 
-/// Find the interface id array of a registry request body (missing means none).
-pub(super) fn registry_interfaces(parcel: &Parcel) -> Result<Vec<u64>, i64> {
-    let mut decoder = Decoder::new(&parcel.body);
-    while let Some(field) = decoder.next().map_err(|_| errno::EINVAL)? {
-        if field.kind == Kind::Array && field.id == registry::field::INTERFACES {
-            let mut nested = field.nested(0).map_err(|_| errno::EINVAL)?;
-            let mut interfaces = Vec::new();
-            while let Some(item) = nested.next().map_err(|_| errno::EINVAL)? {
-                if item.kind == Kind::U64 {
-                    interfaces.push(item.as_u64().map_err(|_| errno::EINVAL)?);
-                }
-            }
-            return Ok(interfaces);
-        }
-    }
-    Ok(Vec::new())
-}
-
-/// Find a `u64` field in a registry request body.
-pub(super) fn registry_u64(parcel: &Parcel, id: u16) -> Option<u64> {
-    let mut decoder = Decoder::new(&parcel.body);
-    while let Ok(Some(field)) = decoder.next() {
-        if field.kind == Kind::U64 && field.id == id {
-            return field.as_u64().ok();
-        }
-    }
-    None
-}
-
-/// `OP_REGISTER`: publish the endpoint named by the request body's `ENDPOINT`
-/// field under `NAME`, with `INTERFACES` and an optional `LEASE_TICKS`. The
+/// `OP_REGISTER`: publish the endpoint named by the request's `endpoint`
+/// argument under `name`, with `interfaces` and an optional `lease_ticks`. The
 /// handle is read from `target`'s table, so the recorded owner is that task.
 pub(super) fn registry_register(args: &MsgArgs, target: usize) -> Result<MsgResult, i64> {
     let bytes = read_parcel(args)?;
-    let parcel = decode_parcel(&bytes)?;
-    let handle = registry_u64(&parcel, registry::field::ENDPOINT).ok_or(errno::EINVAL)?;
-    let entry = handles::get_for_task(target, handle).map_err(handles_errno)?;
+    let args = registry_args(&bytes, registry::wire::decode_register_args)?;
+    // Handle `0` is a valid slot, so an absent endpoint must not decode as it.
+    let endpoint = args.endpoint.ok_or(errno::EINVAL)?;
+    let entry = handles::get_for_task(target, endpoint).map_err(handles_errno)?;
     if !matches!(entry.kind, HandleKind::Channel | HandleKind::Endpoint) {
         return Err(errno::EINVAL);
     }
-    let name = registry_name(&parcel)?;
-    let interfaces = registry_interfaces(&parcel)?;
-    let lease = registry_u64(&parcel, registry::field::LEASE_TICKS).unwrap_or(0);
     registry::register(
         target,
-        &name,
+        &args.name,
         entry.kind,
         entry.rights,
         entry.object_id,
-        &interfaces,
-        lease,
+        &args.interfaces,
+        args.lease_ticks,
     )
     .map_err(registry_errno)?;
     Ok(MsgResult {
@@ -132,62 +98,41 @@ pub(super) fn registry_register(args: &MsgArgs, target: usize) -> Result<MsgResu
     })
 }
 
-/// `OP_RESOLVE`: look up `NAME` and open its endpoint in `target`'s table.
+/// `OP_RESOLVE`: look up `name` and open its endpoint in `target`'s table.
 pub(super) fn registry_resolve(args: &MsgArgs, target: usize) -> Result<MsgResult, i64> {
     let bytes = read_parcel(args)?;
-    let parcel = decode_parcel(&bytes)?;
-    let name = registry_name(&parcel)?;
-    let handle = registry::resolve(target, &name).map_err(registry_errno)?;
+    let args = registry_args(&bytes, registry::wire::decode_resolve_args)?;
+    let handle = registry::resolve(target, &args.name).map_err(registry_errno)?;
     Ok(MsgResult {
         value: handle,
         ..MsgResult::default()
     })
 }
 
-/// `OP_UNREGISTER`: withdraw `NAME` on behalf of `target`'s task.
+/// `OP_UNREGISTER`: withdraw `name` on behalf of `target`'s task.
 pub(super) fn registry_unregister(args: &MsgArgs, target: usize) -> Result<MsgResult, i64> {
     let bytes = read_parcel(args)?;
-    let parcel = decode_parcel(&bytes)?;
-    let name = registry_name(&parcel)?;
-    registry::unregister(task::current(), target, &name).map_err(registry_errno)?;
+    let args = registry_args(&bytes, registry::wire::decode_unregister_args)?;
+    registry::unregister(task::current(), target, &args.name).map_err(registry_errno)?;
     Ok(MsgResult::default())
 }
 
-/// `OP_LIST`: encode the table as a parcel whose body has one `ENTRY` record
+/// `OP_LIST`: encode the table as a parcel whose body has one `Entry`
 /// per name, then copy it into the caller's buffer. The wire shape is shared
 /// with `user/src/messenger/`, which always offers a large enough buffer.
 pub(super) fn registry_list(args: &MsgArgs) -> Result<MsgResult, i64> {
-    let entries = registry::list();
-    let mut body = Encoder::new();
-    for entry in &entries {
-        let mut record = Encoder::new();
-        record
-            .string(registry::field::NAME, &entry.name)
-            .map_err(|_| errno::E2BIG)?;
-        record
-            .u64(registry::field::OBJECT, entry.object_id)
-            .map_err(|_| errno::E2BIG)?;
-        record
-            .u64(registry::field::OWNER, entry.owner_slot as u64)
-            .map_err(|_| errno::E2BIG)?;
-        let mut interfaces = Encoder::new();
-        for interface in &entry.interfaces {
-            interfaces
-                .u64(registry::field::INTERFACES, *interface)
-                .map_err(|_| errno::E2BIG)?;
-        }
-        record
-            .array(registry::field::INTERFACES, &interfaces)
-            .map_err(|_| errno::E2BIG)?;
-        record
-            .u64(
-                registry::field::LEASE_REMAINING,
-                entry.lease_remaining.unwrap_or(0),
-            )
-            .map_err(|_| errno::E2BIG)?;
-        body.record(registry::field::ENTRY, &record)
-            .map_err(|_| errno::E2BIG)?;
-    }
+    let entries = registry::list()
+        .into_iter()
+        .map(|entry| registry::wire::Entry {
+            name: entry.name,
+            object: entry.object_id,
+            owner: entry.owner_slot as u64,
+            interfaces: entry.interfaces,
+            lease_remaining: entry.lease_remaining.unwrap_or(0),
+        })
+        .collect();
+    let body = registry::wire::encode_list_reply(&registry::wire::ListReply { entries })
+        .map_err(|_| errno::E2BIG)?;
     let parcel = Parcel {
         header: Header {
             version: VERSION,
@@ -198,7 +143,7 @@ pub(super) fn registry_list(args: &MsgArgs) -> Result<MsgResult, i64> {
             reply_to: 0,
             deadline_ns: 0,
         },
-        body: body.finish(),
+        body,
         handles: Vec::new(),
         buffers: Vec::new(),
     };

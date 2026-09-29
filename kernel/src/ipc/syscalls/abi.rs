@@ -80,9 +80,10 @@ pub const OP_UNREGISTER: u64 = 15;
 pub const OP_LIST: u64 = 16;
 /// Authorize a topic or subscription filter segment by segment (issue #92).
 ///
-/// The request parcel's body carries the name (`NAME`), the mode (`MODE`, see
-/// [`crate::ipc::topics::MODE_PUBLISH`]) and an optional audit correlation id
-/// (`TXN`). `MsgArgs::txn_id` names the actor task: [`REGISTRY_TARGET_SELF`]
+/// The request parcel's body is the generated `AuthorizeTopicArgs`
+/// (`idl/topics.midl`): the name, the mode (see
+/// [`crate::ipc::topics::MODE_PUBLISH`]) and an optional audit correlation id.
+/// `MsgArgs::txn_id` names the actor task: [`REGISTRY_TARGET_SELF`]
 /// (or the caller) evaluates the caller's own credentials, any other slot is
 /// the `messengerd` proxy path and requires `CAP_IPC_CONTROL`. The op returns
 /// the number of segments evaluated in `value`, or `-EACCES` when policy

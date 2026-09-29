@@ -73,6 +73,43 @@
     ]
   },
   {
+    "interface": "os.lazy.healthd.v1",
+    "interface_id": "0xd022082ef0aaed78",
+    "methods": [
+      {
+        "name": "Report",
+        "id": 1182923275,
+        "oneway": false
+      },
+      {
+        "name": "Status",
+        "id": 6222351,
+        "oneway": false
+      }
+    ]
+  },
+  {
+    "interface": "os.lazy.init.v1",
+    "interface_id": "0xa549dce4687b08e",
+    "methods": [
+      {
+        "name": "Services",
+        "id": 1672675413,
+        "oneway": false
+      },
+      {
+        "name": "Launch",
+        "id": 936096390,
+        "oneway": false
+      },
+      {
+        "name": "ListApps",
+        "id": 1009359625,
+        "oneway": false
+      }
+    ]
+  },
+  {
     "interface": "os.lazy.keyd.v1",
     "interface_id": "0xd948c3355ba590bf",
     "methods": [
@@ -119,6 +156,27 @@
       {
         "name": "Provision",
         "id": 1596114784,
+        "oneway": false
+      }
+    ]
+  },
+  {
+    "interface": "os.lazy.logd.v1",
+    "interface_id": "0x9c5197a46ce8a872",
+    "methods": [
+      {
+        "name": "Tail",
+        "id": 299916675,
+        "oneway": false
+      },
+      {
+        "name": "Count",
+        "id": 1642576020,
+        "oneway": false
+      },
+      {
+        "name": "Verify",
+        "id": 761007172,
         "oneway": false
       }
     ]
@@ -187,6 +245,111 @@
       {
         "name": "List",
         "id": 220805025,
+        "oneway": false
+      }
+    ]
+  },
+  {
+    "interface": "os.lazy.messenger.registry.v1",
+    "interface_id": "0x51d501afec09806c",
+    "methods": [
+      {
+        "name": "Register",
+        "id": 658098656,
+        "oneway": false
+      },
+      {
+        "name": "Resolve",
+        "id": 1645633795,
+        "oneway": false
+      },
+      {
+        "name": "Unregister",
+        "id": 1480320227,
+        "oneway": false
+      },
+      {
+        "name": "List",
+        "id": 220805025,
+        "oneway": false
+      }
+    ]
+  },
+  {
+    "interface": "os.lazy.sysmond.v1",
+    "interface_id": "0x5cd4605eb47c3d8f",
+    "methods": [
+      {
+        "name": "Snapshot",
+        "id": 1312231341,
+        "oneway": false
+      }
+    ]
+  },
+  {
+    "interface": "os.lazy.messenger.topics.v1",
+    "interface_id": "0xc5734f978fef7231",
+    "methods": [
+      {
+        "name": "Publish",
+        "id": 1818372520,
+        "oneway": false
+      },
+      {
+        "name": "Subscribe",
+        "id": 6992035,
+        "oneway": false
+      },
+      {
+        "name": "Unsubscribe",
+        "id": 2099666486,
+        "oneway": false
+      },
+      {
+        "name": "NextEvent",
+        "id": 1278354512,
+        "oneway": false
+      },
+      {
+        "name": "Ack",
+        "id": 483717538,
+        "oneway": false
+      },
+      {
+        "name": "ListTopics",
+        "id": 225427937,
+        "oneway": false
+      },
+      {
+        "name": "Stats",
+        "id": 267161228,
+        "oneway": false
+      },
+      {
+        "name": "Ping",
+        "id": 2142761129,
+        "oneway": false
+      }
+    ]
+  },
+  {
+    "interface": "os.lazy.messenger.topics.publish.v1",
+    "interface_id": "0x7ffc19b03e941e16",
+    "methods": [
+      {
+        "name": "AuthorizeTopic",
+        "id": 727248511,
+        "oneway": false
+      }
+    ]
+  },
+  {
+    "interface": "os.lazy.messenger.topics.subscribe.v1",
+    "interface_id": "0xefbc15f14c9d4bef",
+    "methods": [
+      {
+        "name": "AuthorizeTopic",
+        "id": 727248511,
         "oneway": false
       }
     ]

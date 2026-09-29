@@ -721,6 +721,13 @@ pub mod os_lazy_echo_v1 {
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0xcc4ac1057e84db93;
 
+    /// `Level::Info` wire value.
+    pub const LEVEL_INFO: u32 = 0;
+    /// `Level::Warn` wire value.
+    pub const LEVEL_WARN: u32 = 1;
+    /// `Level::Error` wire value.
+    pub const LEVEL_ERROR: u32 = 2;
+
     /// A timestamped notice.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct Event {
@@ -853,6 +860,435 @@ pub mod os_lazy_echo_v1 {
         while let Some(field) = decoder.next()? {
             if field.id == 1 {
                 out.event = decode_event(field.payload)?;
+            }
+        }
+        Ok(out)
+    }
+}
+
+/// `os.lazy.healthd.v1` (interface id `0xd022082ef0aaed78`).
+pub mod os_lazy_healthd_v1 {
+    use alloc::vec::Vec;
+    // Not every interface needs every codec item (`Kind` is only used by nested values).
+    #[allow(unused_imports)]
+    use libmessenger::{Decoder, Encoder, Error, Kind};
+
+    /// The interface id: the FNV-1a hash of the `.vN` interface name.
+    pub const INTERFACE_ID: u64 = 0xd022082ef0aaed78;
+
+    /// One retained health row.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct HealthRecord {
+        pub name: alloc::string::String,
+        pub status: alloc::string::String,
+        pub detail: alloc::string::String,
+        pub tick: u64,
+    }
+
+    pub fn encode_health_record(value: &HealthRecord) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.name)?;
+        target.string(2, &value.status)?;
+        target.string(3, &value.detail)?;
+        target.u64(4, value.tick)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_health_record(body: &[u8]) -> Result<HealthRecord, Error> {
+        let mut out = HealthRecord::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.name = field.as_str()?.into();
+                }
+                2 => {
+                    out.status = field.as_str()?.into();
+                }
+                3 => {
+                    out.detail = field.as_str()?.into();
+                }
+                4 => {
+                    out.tick = field.as_u64()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// `Report` method id.
+    pub const METHOD_REPORT: u32 = 1182923275;
+    /// `Status` method id.
+    pub const METHOD_STATUS: u32 = 6222351;
+
+    /// Publish `health/<name>` with `status`/`detail`.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ReportArgs {
+        pub name: alloc::string::String,
+        pub status: alloc::string::String,
+        pub detail: alloc::string::String,
+    }
+
+    pub fn encode_report_args(value: &ReportArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.name)?;
+        target.string(2, &value.status)?;
+        target.string(3, &value.detail)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_report_args(body: &[u8]) -> Result<ReportArgs, Error> {
+        let mut out = ReportArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.name = field.as_str()?.into();
+                }
+                2 => {
+                    out.status = field.as_str()?.into();
+                }
+                3 => {
+                    out.detail = field.as_str()?.into();
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ReportReply {
+        pub summary: HealthRecord,
+        pub records: alloc::vec::Vec<HealthRecord>,
+    }
+
+    pub fn encode_report_reply(value: &ReportReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.raw(Kind::Struct, 1, &encode_health_record(&value.summary)?)?;
+        let mut nested = Encoder::new();
+        for item in &value.records {
+            nested.raw(Kind::Struct, 1, &encode_health_record(item)?)?;
+        }
+        target.array(2, &nested)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_report_reply(body: &[u8]) -> Result<ReportReply, Error> {
+        let mut out = ReportReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.summary = decode_health_record(field.payload)?;
+                }
+                2 => {
+                    let mut nested = field.nested(0)?;
+                    while let Some(item) = nested.next()? {
+                        out.records.push(decode_health_record(item.payload)?);
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Snapshot retained health rows plus the aggregate.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct StatusReply {
+        pub summary: HealthRecord,
+        pub records: alloc::vec::Vec<HealthRecord>,
+    }
+
+    pub fn encode_status_reply(value: &StatusReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.raw(Kind::Struct, 1, &encode_health_record(&value.summary)?)?;
+        let mut nested = Encoder::new();
+        for item in &value.records {
+            nested.raw(Kind::Struct, 1, &encode_health_record(item)?)?;
+        }
+        target.array(2, &nested)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_status_reply(body: &[u8]) -> Result<StatusReply, Error> {
+        let mut out = StatusReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.summary = decode_health_record(field.payload)?;
+                }
+                2 => {
+                    let mut nested = field.nested(0)?;
+                    while let Some(item) = nested.next()? {
+                        out.records.push(decode_health_record(item.payload)?);
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+}
+
+/// `os.lazy.init.v1` (interface id `0xa549dce4687b08e`).
+pub mod os_lazy_init_v1 {
+    use alloc::vec::Vec;
+    // Not every interface needs every codec item (`Kind` is only used by nested values).
+    #[allow(unused_imports)]
+    use libmessenger::{Decoder, Encoder, Error, Kind};
+
+    /// The interface id: the FNV-1a hash of the `.vN` interface name.
+    pub const INTERFACE_ID: u64 = 0xa549dce4687b08e;
+
+    /// One row of `init`'s supervision table.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ServiceStatus {
+        pub name: alloc::string::String,
+        pub state: alloc::string::String,
+        pub pid: u64,
+        pub restarts: u64,
+        pub deps: alloc::string::String,
+        pub health: alloc::string::String,
+    }
+
+    pub fn encode_service_status(value: &ServiceStatus) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.name)?;
+        target.string(2, &value.state)?;
+        target.u64(3, value.pid)?;
+        target.u64(4, value.restarts)?;
+        target.string(5, &value.deps)?;
+        target.string(6, &value.health)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_service_status(body: &[u8]) -> Result<ServiceStatus, Error> {
+        let mut out = ServiceStatus::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.name = field.as_str()?.into();
+                }
+                2 => {
+                    out.state = field.as_str()?.into();
+                }
+                3 => {
+                    out.pid = field.as_u64()?;
+                }
+                4 => {
+                    out.restarts = field.as_u64()?;
+                }
+                5 => {
+                    out.deps = field.as_str()?.into();
+                }
+                6 => {
+                    out.health = field.as_str()?.into();
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Service name.
+    /// Service phase (`pending`/`running`/`restarting`/`stopped`/`failed`).
+    /// Task slot the supervisor started, or 0.
+    /// Restart count.
+    /// Comma-separated dependency names.
+    /// Last known health string for the service.
+    /// One row of `init`'s built-in app registry (issue #158): the S5 start
+    /// menu's enumeration unit and the resolution table `Launch` uses.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct AppInfo {
+        pub id: alloc::string::String,
+        pub name: alloc::string::String,
+        pub path: alloc::string::String,
+        pub restart: alloc::string::String,
+        pub verbs: alloc::vec::Vec<alloc::string::String>,
+    }
+
+    pub fn encode_app_info(value: &AppInfo) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.id)?;
+        target.string(2, &value.name)?;
+        target.string(3, &value.path)?;
+        target.string(4, &value.restart)?;
+        let mut nested = Encoder::new();
+        for item in &value.verbs {
+            nested.string(1, item)?;
+        }
+        target.array(5, &nested)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_app_info(body: &[u8]) -> Result<AppInfo, Error> {
+        let mut out = AppInfo::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.id = field.as_str()?.into();
+                }
+                2 => {
+                    out.name = field.as_str()?.into();
+                }
+                3 => {
+                    out.path = field.as_str()?.into();
+                }
+                4 => {
+                    out.restart = field.as_str()?.into();
+                }
+                5 => {
+                    let mut nested = field.nested(0)?;
+                    while let Some(item) = nested.next()? {
+                        out.verbs.push(item.as_str()?.into());
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// `Services` method id.
+    pub const METHOD_SERVICES: u32 = 1672675413;
+    /// `Launch` method id.
+    pub const METHOD_LAUNCH: u32 = 936096390;
+    /// `ListApps` method id.
+    pub const METHOD_LISTAPPS: u32 = 1009359625;
+
+    /// Snapshot the supervision table.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ServicesReply {
+        pub services: alloc::vec::Vec<ServiceStatus>,
+    }
+
+    pub fn encode_services_reply(value: &ServicesReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        let mut nested = Encoder::new();
+        for item in &value.services {
+            nested.raw(Kind::Struct, 1, &encode_service_status(item)?)?;
+        }
+        target.array(1, &nested)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_services_reply(body: &[u8]) -> Result<ServicesReply, Error> {
+        let mut out = ServicesReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                let mut nested = field.nested(0)?;
+                while let Some(item) = nested.next()? {
+                    out.services.push(decode_service_status(item.payload)?);
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// Launch an app as a session child. `session` 0 means the caller's own
+    /// session; only the session's owner (or root) may launch into it.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct LaunchArgs {
+        pub app: alloc::string::String,
+        pub args: alloc::string::String,
+        pub session: u64,
+    }
+
+    pub fn encode_launch_args(value: &LaunchArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.app)?;
+        target.string(2, &value.args)?;
+        target.u64(3, value.session)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_launch_args(body: &[u8]) -> Result<LaunchArgs, Error> {
+        let mut out = LaunchArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.app = field.as_str()?.into();
+                }
+                2 => {
+                    out.args = field.as_str()?.into();
+                }
+                3 => {
+                    out.session = field.as_u64()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct LaunchReply {
+        pub app: alloc::string::String,
+        pub pid: u64,
+        pub session: u64,
+    }
+
+    pub fn encode_launch_reply(value: &LaunchReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.app)?;
+        target.u64(2, value.pid)?;
+        target.u64(3, value.session)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_launch_reply(body: &[u8]) -> Result<LaunchReply, Error> {
+        let mut out = LaunchReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.app = field.as_str()?.into();
+                }
+                2 => {
+                    out.pid = field.as_u64()?;
+                }
+                3 => {
+                    out.session = field.as_u64()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Enumerate the built-in app registry.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ListAppsReply {
+        pub apps: alloc::vec::Vec<AppInfo>,
+    }
+
+    pub fn encode_list_apps_reply(value: &ListAppsReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        let mut nested = Encoder::new();
+        for item in &value.apps {
+            nested.raw(Kind::Struct, 1, &encode_app_info(item)?)?;
+        }
+        target.array(1, &nested)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_list_apps_reply(body: &[u8]) -> Result<ListAppsReply, Error> {
+        let mut out = ListAppsReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                let mut nested = field.nested(0)?;
+                while let Some(item) = nested.next()? {
+                    out.apps.push(decode_app_info(item.payload)?);
+                }
             }
         }
         Ok(out)
@@ -1292,6 +1728,192 @@ pub mod os_lazy_keyd_v1 {
                 }
                 2 => {
                     out.secret = field.as_str()?.into();
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+}
+
+/// `os.lazy.logd.v1` (interface id `0x9c5197a46ce8a872`).
+pub mod os_lazy_logd_v1 {
+    use alloc::vec::Vec;
+    // Not every interface needs every codec item (`Kind` is only used by nested values).
+    #[allow(unused_imports)]
+    use libmessenger::{Decoder, Encoder, Error, Kind};
+
+    /// The interface id: the FNV-1a hash of the `.vN` interface name.
+    pub const INTERFACE_ID: u64 = 0x9c5197a46ce8a872;
+
+    /// One hash-chained log record.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct LogRecord {
+        pub seq: u64,
+        pub tick: u64,
+        pub topic: alloc::string::String,
+        pub detail: alloc::string::String,
+        pub hash: u64,
+    }
+
+    pub fn encode_log_record(value: &LogRecord) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.seq)?;
+        target.u64(2, value.tick)?;
+        target.string(3, &value.topic)?;
+        target.string(4, &value.detail)?;
+        target.u64(5, value.hash)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_log_record(body: &[u8]) -> Result<LogRecord, Error> {
+        let mut out = LogRecord::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.seq = field.as_u64()?;
+                }
+                2 => {
+                    out.tick = field.as_u64()?;
+                }
+                3 => {
+                    out.topic = field.as_str()?.into();
+                }
+                4 => {
+                    out.detail = field.as_str()?.into();
+                }
+                5 => {
+                    out.hash = field.as_u64()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// `Tail` method id.
+    pub const METHOD_TAIL: u32 = 299916675;
+    /// `Count` method id.
+    pub const METHOD_COUNT: u32 = 1642576020;
+    /// `Verify` method id.
+    pub const METHOD_VERIFY: u32 = 761007172;
+
+    /// Return the newest `count` records; an absent `count` means `10`.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct TailArgs {
+        pub count: core::option::Option<u64>,
+    }
+
+    pub fn encode_tail_args(value: &TailArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        match &value.count {
+            Some(item) => {
+                let mut nested = Encoder::new();
+                nested.u64(1, *item)?;
+                target.option(1, Some(&nested))?;
+            }
+            None => {
+                target.option(1, None)?;
+            }
+        }
+        Ok(target.finish())
+    }
+
+    pub fn decode_tail_args(body: &[u8]) -> Result<TailArgs, Error> {
+        let mut out = TailArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                if field.payload.is_empty() {
+                    out.count = None;
+                } else {
+                    let mut nested = field.nested(0)?;
+                    let item = nested.next()?.ok_or(Error::BadValue)?;
+                    out.count = Some(item.as_u64()?);
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct TailReply {
+        pub records: alloc::vec::Vec<LogRecord>,
+    }
+
+    pub fn encode_tail_reply(value: &TailReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        let mut nested = Encoder::new();
+        for item in &value.records {
+            nested.raw(Kind::Struct, 1, &encode_log_record(item)?)?;
+        }
+        target.array(1, &nested)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_tail_reply(body: &[u8]) -> Result<TailReply, Error> {
+        let mut out = TailReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                let mut nested = field.nested(0)?;
+                while let Some(item) = nested.next()? {
+                    out.records.push(decode_log_record(item.payload)?);
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// Return the number of records appended since boot.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct CountReply {
+        pub count: u64,
+    }
+
+    pub fn encode_count_reply(value: &CountReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.count)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_count_reply(body: &[u8]) -> Result<CountReply, Error> {
+        let mut out = CountReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.count = field.as_u64()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Recompute the hash chain and report `ok`/first bad `index` (the record
+    /// count when the chain is intact).
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct VerifyReply {
+        pub ok: bool,
+        pub index: u64,
+    }
+
+    pub fn encode_verify_reply(value: &VerifyReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.bool(1, value.ok)?;
+        target.u64(2, value.index)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_verify_reply(body: &[u8]) -> Result<VerifyReply, Error> {
+        let mut out = VerifyReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.ok = field.as_bool()?;
+                }
+                2 => {
+                    out.index = field.as_u64()?;
                 }
                 _ => {}
             }
@@ -2016,6 +2638,859 @@ pub mod os_lazy_regd_v1 {
                 while let Some(item) = nested.next()? {
                     out.paths.push(item.as_str()?.into());
                 }
+            }
+        }
+        Ok(out)
+    }
+}
+
+/// `os.lazy.messenger.registry.v1` (interface id `0x51d501afec09806c`).
+pub mod os_lazy_messenger_registry_v1 {
+    use alloc::vec::Vec;
+    // Not every interface needs every codec item (`Kind` is only used by nested values).
+    #[allow(unused_imports)]
+    use libmessenger::{Decoder, Encoder, Error, Kind};
+
+    /// The interface id: the FNV-1a hash of the `.vN` interface name.
+    pub const INTERFACE_ID: u64 = 0x51d501afec09806c;
+
+    /// One registered name.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct Entry {
+        pub name: alloc::string::String,
+        pub object: u64,
+        pub owner: u64,
+        pub interfaces: alloc::vec::Vec<u64>,
+        pub lease_remaining: u64,
+    }
+
+    pub fn encode_entry(value: &Entry) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.name)?;
+        target.u64(2, value.object)?;
+        target.u64(3, value.owner)?;
+        let mut nested = Encoder::new();
+        for item in &value.interfaces {
+            nested.u64(1, *item)?;
+        }
+        target.array(4, &nested)?;
+        target.u64(5, value.lease_remaining)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_entry(body: &[u8]) -> Result<Entry, Error> {
+        let mut out = Entry::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.name = field.as_str()?.into();
+                }
+                2 => {
+                    out.object = field.as_u64()?;
+                }
+                3 => {
+                    out.owner = field.as_u64()?;
+                }
+                4 => {
+                    let mut nested = field.nested(0)?;
+                    while let Some(item) = nested.next()? {
+                        out.interfaces.push(item.as_u64()?);
+                    }
+                }
+                5 => {
+                    out.lease_remaining = field.as_u64()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// `Register` method id.
+    pub const METHOD_REGISTER: u32 = 658098656;
+    /// `Resolve` method id.
+    pub const METHOD_RESOLVE: u32 = 1645633795;
+    /// `Unregister` method id.
+    pub const METHOD_UNREGISTER: u32 = 1480320227;
+    /// `List` method id.
+    pub const METHOD_LIST: u32 = 220805025;
+
+    /// Publish `endpoint` (a handle in the owner's table) under `name`. The
+    /// owner becomes the registering task. A `lease_ticks` of `0` registers a
+    /// permanent name; otherwise the name expires after that many ticks.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct RegisterArgs {
+        pub name: alloc::string::String,
+        pub endpoint: core::option::Option<u64>,
+        pub interfaces: alloc::vec::Vec<u64>,
+        pub lease_ticks: u64,
+    }
+
+    pub fn encode_register_args(value: &RegisterArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.name)?;
+        match &value.endpoint {
+            Some(item) => {
+                let mut nested = Encoder::new();
+                nested.u64(1, *item)?;
+                target.option(2, Some(&nested))?;
+            }
+            None => {
+                target.option(2, None)?;
+            }
+        }
+        let mut nested = Encoder::new();
+        for item in &value.interfaces {
+            nested.u64(1, *item)?;
+        }
+        target.array(3, &nested)?;
+        target.u64(4, value.lease_ticks)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_register_args(body: &[u8]) -> Result<RegisterArgs, Error> {
+        let mut out = RegisterArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.name = field.as_str()?.into();
+                }
+                2 => {
+                    if field.payload.is_empty() {
+                        out.endpoint = None;
+                    } else {
+                        let mut nested = field.nested(0)?;
+                        let item = nested.next()?.ok_or(Error::BadValue)?;
+                        out.endpoint = Some(item.as_u64()?);
+                    }
+                }
+                3 => {
+                    let mut nested = field.nested(0)?;
+                    while let Some(item) = nested.next()? {
+                        out.interfaces.push(item.as_u64()?);
+                    }
+                }
+                4 => {
+                    out.lease_ticks = field.as_u64()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Look `name` up. Over the gate the new handle is the call's return value;
+    /// over the daemon it is `handle`, already open in the caller's table.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ResolveArgs {
+        pub name: alloc::string::String,
+    }
+
+    pub fn encode_resolve_args(value: &ResolveArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.name)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_resolve_args(body: &[u8]) -> Result<ResolveArgs, Error> {
+        let mut out = ResolveArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.name = field.as_str()?.into();
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ResolveReply {
+        pub handle: u64,
+    }
+
+    pub fn encode_resolve_reply(value: &ResolveReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.handle)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_resolve_reply(body: &[u8]) -> Result<ResolveReply, Error> {
+        let mut out = ResolveReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.handle = field.as_u64()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Withdraw `name`. Only its owner (or an administrator) may.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct UnregisterArgs {
+        pub name: alloc::string::String,
+    }
+
+    pub fn encode_unregister_args(value: &UnregisterArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.name)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_unregister_args(body: &[u8]) -> Result<UnregisterArgs, Error> {
+        let mut out = UnregisterArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.name = field.as_str()?.into();
+            }
+        }
+        Ok(out)
+    }
+
+    /// Snapshot the name table.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ListReply {
+        pub entries: alloc::vec::Vec<Entry>,
+    }
+
+    pub fn encode_list_reply(value: &ListReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        let mut nested = Encoder::new();
+        for item in &value.entries {
+            nested.raw(Kind::Struct, 1, &encode_entry(item)?)?;
+        }
+        target.array(1, &nested)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_list_reply(body: &[u8]) -> Result<ListReply, Error> {
+        let mut out = ListReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                let mut nested = field.nested(0)?;
+                while let Some(item) = nested.next()? {
+                    out.entries.push(decode_entry(item.payload)?);
+                }
+            }
+        }
+        Ok(out)
+    }
+}
+
+/// `os.lazy.sysmond.v1` (interface id `0x5cd4605eb47c3d8f`).
+pub mod os_lazy_sysmond_v1 {
+    use alloc::vec::Vec;
+    // Not every interface needs every codec item (`Kind` is only used by nested values).
+    #[allow(unused_imports)]
+    use libmessenger::{Decoder, Encoder, Error, Kind};
+
+    /// The interface id: the FNV-1a hash of the `.vN` interface name.
+    pub const INTERFACE_ID: u64 = 0x5cd4605eb47c3d8f;
+
+    /// `Snapshot` method id.
+    pub const METHOD_SNAPSHOT: u32 = 1312231341;
+
+    /// Return one live system-stats snapshot.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct SnapshotReply {
+        pub data: alloc::vec::Vec<u8>,
+    }
+
+    pub fn encode_snapshot_reply(value: &SnapshotReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.bytes(1, &value.data)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_snapshot_reply(body: &[u8]) -> Result<SnapshotReply, Error> {
+        let mut out = SnapshotReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.data = field.as_bytes().to_vec();
+            }
+        }
+        Ok(out)
+    }
+}
+
+/// `os.lazy.messenger.topics.v1` (interface id `0xc5734f978fef7231`).
+pub mod os_lazy_messenger_topics_v1 {
+    use alloc::vec::Vec;
+    // Not every interface needs every codec item (`Kind` is only used by nested values).
+    #[allow(unused_imports)]
+    use libmessenger::{Decoder, Encoder, Error, Kind};
+
+    /// The interface id: the FNV-1a hash of the `.vN` interface name.
+    pub const INTERFACE_ID: u64 = 0xc5734f978fef7231;
+
+    /// `Qos::Latest` wire value.
+    pub const QOS_LATEST: u32 = 0;
+    /// `Qos::Buffered` wire value.
+    pub const QOS_BUFFERED: u32 = 1;
+    /// `Qos::Conflate` wire value.
+    pub const QOS_CONFLATE: u32 = 2;
+    /// `Qos::Reliable` wire value.
+    pub const QOS_RELIABLE: u32 = 3;
+
+    /// One delivered event: broker metadata plus the publisher's opaque payload
+    /// parcel (still encoded).
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct Event {
+        pub topic: alloc::string::String,
+        pub publisher: u64,
+        pub sequence: u64,
+        pub retained: bool,
+        pub payload: alloc::vec::Vec<u8>,
+    }
+
+    pub fn encode_event(value: &Event) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.topic)?;
+        target.u64(2, value.publisher)?;
+        target.u64(3, value.sequence)?;
+        target.bool(4, value.retained)?;
+        target.bytes(5, &value.payload)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_event(body: &[u8]) -> Result<Event, Error> {
+        let mut out = Event::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.topic = field.as_str()?.into();
+                }
+                2 => {
+                    out.publisher = field.as_u64()?;
+                }
+                3 => {
+                    out.sequence = field.as_u64()?;
+                }
+                4 => {
+                    out.retained = field.as_bool()?;
+                }
+                5 => {
+                    out.payload = field.as_bytes().to_vec();
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// One row of the topic list.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct TopicInfo {
+        pub topic: alloc::string::String,
+        pub subscribers: u64,
+        pub retained: bool,
+    }
+
+    pub fn encode_topic_info(value: &TopicInfo) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.topic)?;
+        target.u64(2, value.subscribers)?;
+        target.bool(3, value.retained)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_topic_info(body: &[u8]) -> Result<TopicInfo, Error> {
+        let mut out = TopicInfo::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.topic = field.as_str()?.into();
+                }
+                2 => {
+                    out.subscribers = field.as_u64()?;
+                }
+                3 => {
+                    out.retained = field.as_bool()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Per-subscription delivery counters.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct Stats {
+        pub qos: u32,
+        pub depth: u32,
+        pub queued: u64,
+        pub delivered: u64,
+        pub matched: u64,
+        pub drops: u64,
+    }
+
+    pub fn encode_stats(value: &Stats) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.qos)?;
+        target.u32(2, value.depth)?;
+        target.u64(3, value.queued)?;
+        target.u64(4, value.delivered)?;
+        target.u64(5, value.matched)?;
+        target.u64(6, value.drops)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_stats(body: &[u8]) -> Result<Stats, Error> {
+        let mut out = Stats::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.qos = field.as_u32()?;
+                }
+                2 => {
+                    out.depth = field.as_u32()?;
+                }
+                3 => {
+                    out.queued = field.as_u64()?;
+                }
+                4 => {
+                    out.delivered = field.as_u64()?;
+                }
+                5 => {
+                    out.matched = field.as_u64()?;
+                }
+                6 => {
+                    out.drops = field.as_u64()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// `Publish` method id.
+    pub const METHOD_PUBLISH: u32 = 1818372520;
+    /// `Subscribe` method id.
+    pub const METHOD_SUBSCRIBE: u32 = 6992035;
+    /// `Unsubscribe` method id.
+    pub const METHOD_UNSUBSCRIBE: u32 = 2099666486;
+    /// `NextEvent` method id.
+    pub const METHOD_NEXTEVENT: u32 = 1278354512;
+    /// `Ack` method id.
+    pub const METHOD_ACK: u32 = 483717538;
+    /// `ListTopics` method id.
+    pub const METHOD_LISTTOPICS: u32 = 225427937;
+    /// `Stats` method id.
+    pub const METHOD_STATS: u32 = 267161228;
+    /// `Ping` method id.
+    pub const METHOD_PING: u32 = 2142761129;
+
+    /// Publish `payload` under the literal `topic`; `retained` also remembers
+    /// it as the topic's retained value. Returns how many subscriptions the
+    /// event reached.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct PublishArgs {
+        pub topic: alloc::string::String,
+        pub payload: alloc::vec::Vec<u8>,
+        pub retained: bool,
+    }
+
+    pub fn encode_publish_args(value: &PublishArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.topic)?;
+        target.bytes(2, &value.payload)?;
+        target.bool(3, value.retained)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_publish_args(body: &[u8]) -> Result<PublishArgs, Error> {
+        let mut out = PublishArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.topic = field.as_str()?.into();
+                }
+                2 => {
+                    out.payload = field.as_bytes().to_vec();
+                }
+                3 => {
+                    out.retained = field.as_bool()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct PublishReply {
+        pub matched: u64,
+    }
+
+    pub fn encode_publish_reply(value: &PublishReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.matched)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_publish_reply(body: &[u8]) -> Result<PublishReply, Error> {
+        let mut out = PublishReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.matched = field.as_u64()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Create a subscription for `filter`. `qos` is a `Qos` value; `depth` is
+    /// the queue depth for `Buffered` (clamped to 1..=64) and ignored by the
+    /// other policies, which use fixed depths. Retained values are replayed.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct SubscribeArgs {
+        pub filter: alloc::string::String,
+        pub qos: u32,
+        pub depth: u32,
+    }
+
+    pub fn encode_subscribe_args(value: &SubscribeArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.filter)?;
+        target.u32(2, value.qos)?;
+        target.u32(3, value.depth)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_subscribe_args(body: &[u8]) -> Result<SubscribeArgs, Error> {
+        let mut out = SubscribeArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.filter = field.as_str()?.into();
+                }
+                2 => {
+                    out.qos = field.as_u32()?;
+                }
+                3 => {
+                    out.depth = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct SubscribeReply {
+        pub subscription: u64,
+    }
+
+    pub fn encode_subscribe_reply(value: &SubscribeReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.subscription)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_subscribe_reply(body: &[u8]) -> Result<SubscribeReply, Error> {
+        let mut out = SubscribeReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.subscription = field.as_u64()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Drop a subscription; later publishes stop matching it.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct UnsubscribeArgs {
+        pub subscription: u64,
+    }
+
+    pub fn encode_unsubscribe_args(value: &UnsubscribeArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.subscription)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_unsubscribe_args(body: &[u8]) -> Result<UnsubscribeArgs, Error> {
+        let mut out = UnsubscribeArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.subscription = field.as_u64()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Wait for (or, with an expired deadline, poll) the next event of a
+    /// subscription. A `Reliable` subscription redelivers its head until acked.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct NextEventArgs {
+        pub subscription: u64,
+    }
+
+    pub fn encode_next_event_args(value: &NextEventArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.subscription)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_next_event_args(body: &[u8]) -> Result<NextEventArgs, Error> {
+        let mut out = NextEventArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.subscription = field.as_u64()?;
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct NextEventReply {
+        pub event: Event,
+    }
+
+    pub fn encode_next_event_reply(value: &NextEventReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.raw(Kind::Struct, 1, &encode_event(&value.event)?)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_next_event_reply(body: &[u8]) -> Result<NextEventReply, Error> {
+        let mut out = NextEventReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.event = decode_event(field.payload)?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Retire every event up to `sequence` on a `Reliable` subscription.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct AckArgs {
+        pub subscription: u64,
+        pub sequence: u64,
+    }
+
+    pub fn encode_ack_args(value: &AckArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.subscription)?;
+        target.u64(2, value.sequence)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_ack_args(body: &[u8]) -> Result<AckArgs, Error> {
+        let mut out = AckArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.subscription = field.as_u64()?;
+                }
+                2 => {
+                    out.sequence = field.as_u64()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Topics the broker has seen, with live subscriber counts.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ListTopicsReply {
+        pub topics: alloc::vec::Vec<TopicInfo>,
+    }
+
+    pub fn encode_list_topics_reply(value: &ListTopicsReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        let mut nested = Encoder::new();
+        for item in &value.topics {
+            nested.raw(Kind::Struct, 1, &encode_topic_info(item)?)?;
+        }
+        target.array(1, &nested)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_list_topics_reply(body: &[u8]) -> Result<ListTopicsReply, Error> {
+        let mut out = ListTopicsReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                let mut nested = field.nested(0)?;
+                while let Some(item) = nested.next()? {
+                    out.topics.push(decode_topic_info(item.payload)?);
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// Queue and drop counters of one subscription.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct StatsArgs {
+        pub subscription: u64,
+    }
+
+    pub fn encode_stats_args(value: &StatsArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.subscription)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_stats_args(body: &[u8]) -> Result<StatsArgs, Error> {
+        let mut out = StatsArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.subscription = field.as_u64()?;
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct StatsReply {
+        pub stats: Stats,
+    }
+
+    pub fn encode_stats_reply(value: &StatsReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.raw(Kind::Struct, 1, &encode_stats(&value.stats)?)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_stats_reply(body: &[u8]) -> Result<StatsReply, Error> {
+        let mut out = StatsReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.stats = decode_stats(field.payload)?;
+            }
+        }
+        Ok(out)
+    }
+}
+
+/// `os.lazy.messenger.topics.publish.v1` (interface id `0x7ffc19b03e941e16`).
+pub mod os_lazy_messenger_topics_publish_v1 {
+    use alloc::vec::Vec;
+    // Not every interface needs every codec item (`Kind` is only used by nested values).
+    #[allow(unused_imports)]
+    use libmessenger::{Decoder, Encoder, Error, Kind};
+
+    /// The interface id: the FNV-1a hash of the `.vN` interface name.
+    pub const INTERFACE_ID: u64 = 0x7ffc19b03e941e16;
+
+    /// `Mode::Publish` wire value.
+    pub const MODE_PUBLISH: u32 = 0;
+    /// `Mode::Subscribe` wire value.
+    pub const MODE_SUBSCRIBE: u32 = 1;
+
+    /// `AuthorizeTopic` method id.
+    pub const METHOD_AUTHORIZETOPIC: u32 = 727248511;
+
+    /// Check `name` (a literal topic) for the actor named by the syscall's
+    /// `txn_id` argument. `mode` must be `0` (publish); `txn` is copied into
+    /// denial audit records. Fails with `EACCES` when policy refuses a segment.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct AuthorizeTopicArgs {
+        pub name: alloc::string::String,
+        pub mode: u32,
+        pub txn: u64,
+    }
+
+    pub fn encode_authorize_topic_args(value: &AuthorizeTopicArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.name)?;
+        target.u32(2, value.mode)?;
+        target.u64(3, value.txn)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_authorize_topic_args(body: &[u8]) -> Result<AuthorizeTopicArgs, Error> {
+        let mut out = AuthorizeTopicArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.name = field.as_str()?.into();
+                }
+                2 => {
+                    out.mode = field.as_u32()?;
+                }
+                3 => {
+                    out.txn = field.as_u64()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+}
+
+/// `os.lazy.messenger.topics.subscribe.v1` (interface id `0xefbc15f14c9d4bef`).
+pub mod os_lazy_messenger_topics_subscribe_v1 {
+    use alloc::vec::Vec;
+    // Not every interface needs every codec item (`Kind` is only used by nested values).
+    #[allow(unused_imports)]
+    use libmessenger::{Decoder, Encoder, Error, Kind};
+
+    /// The interface id: the FNV-1a hash of the `.vN` interface name.
+    pub const INTERFACE_ID: u64 = 0xefbc15f14c9d4bef;
+
+    /// `Mode::Publish` wire value.
+    pub const MODE_PUBLISH: u32 = 0;
+    /// `Mode::Subscribe` wire value.
+    pub const MODE_SUBSCRIBE: u32 = 1;
+
+    /// `AuthorizeTopic` method id.
+    pub const METHOD_AUTHORIZETOPIC: u32 = 727248511;
+
+    /// Check `name` (a filter, possibly with `+`/trailing `#`) for the actor;
+    /// see `os.lazy.messenger.topics.publish.v1`.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct AuthorizeTopicArgs {
+        pub name: alloc::string::String,
+        pub mode: u32,
+        pub txn: u64,
+    }
+
+    pub fn encode_authorize_topic_args(value: &AuthorizeTopicArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.name)?;
+        target.u32(2, value.mode)?;
+        target.u64(3, value.txn)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_authorize_topic_args(body: &[u8]) -> Result<AuthorizeTopicArgs, Error> {
+        let mut out = AuthorizeTopicArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.name = field.as_str()?.into();
+                }
+                2 => {
+                    out.mode = field.as_u32()?;
+                }
+                3 => {
+                    out.txn = field.as_u64()?;
+                }
+                _ => {}
             }
         }
         Ok(out)

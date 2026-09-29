@@ -3,19 +3,20 @@
 
 use alloc::vec::Vec;
 
-use libmessenger::{Encoder, Parcel};
+use libmessenger::Parcel;
+use messenger_generated::os_lazy_messenger_topics_publish_v1 as publish_scope;
 
 use super::super::endpoint::syscall;
 use super::super::{
     create_pair, errno, op, registry, Endpoint, Error, MsgArgs, MsgResult, Result, EXPIRED_DEADLINE,
 };
 use super::wire::{
-    decode_event, decode_stats, decode_topics, error_field, publish_body, request_parcel,
-    subscribe_body, subscription_body, u64_field,
+    ack_request, decode_event, decode_matched, decode_stats, decode_subscription, decode_topics,
+    error_field, list_request, ping_request, publish_request, request_parcel, subscribe_request,
+    subscription_request,
 };
 use super::{
-    auth_field, field, method, Event, Qos, SubscriptionStats, TopicInfo, CONNECT_ATTEMPTS,
-    MAX_PAYLOAD, NAME,
+    method, Event, Qos, SubscriptionStats, TopicInfo, CONNECT_ATTEMPTS, MAX_PAYLOAD, NAME,
 };
 
 /// A client of the topics broker over the bootstrap channel.
@@ -70,10 +71,8 @@ impl Client {
     }
 
     /// Run one request as a blocking call and fail on a broker error reply.
-    fn call(&self, method: u32, body: Encoder, deadline: Option<u64>) -> Result<Parcel> {
-        let reply = self
-            .endpoint
-            .call(&request_parcel(method, body), deadline)?;
+    fn call(&self, request: Parcel, deadline: Option<u64>) -> Result<Parcel> {
+        let reply = self.endpoint.call(&request, deadline)?;
         if let Some(code) = error_field(&reply)? {
             return Err(Error::Topics(code));
         }
@@ -97,18 +96,14 @@ impl Client {
         if bytes.len() > MAX_PAYLOAD {
             return Err(Error::Errno(-errno::E2BIG));
         }
-        let reply = self.call(
-            method::PUBLISH,
-            publish_body(topic, &bytes, retained)?,
-            None,
-        )?;
-        Ok(u64_field(&reply, field::MATCHED)?.unwrap_or(0))
+        let reply = self.call(publish_request(topic, &bytes, retained)?, None)?;
+        decode_matched(&reply)
     }
 
     /// Subscribe to `filter` (literal, `+` or trailing `#`) with `qos`.
     pub fn subscribe(&self, filter: &str, qos: Qos) -> Result<Subscription> {
-        let reply = self.call(method::SUBSCRIBE, subscribe_body(filter, qos)?, None)?;
-        let id = u64_field(&reply, field::SUBSCRIPTION)?.ok_or(Error::Errno(-errno::EINVAL))?;
+        let reply = self.call(subscribe_request(filter, qos)?, None)?;
+        let id = decode_subscription(&reply)?;
         Ok(Subscription {
             endpoint: self.endpoint,
             id,
@@ -118,8 +113,7 @@ impl Client {
     /// Drop a subscription (same as [`Subscription::unsubscribe`]).
     pub fn unsubscribe(&self, subscription: &Subscription) -> Result<()> {
         self.call(
-            method::UNSUBSCRIBE,
-            subscription_body(subscription.id)?,
+            subscription_request(method::UNSUBSCRIBE, subscription.id)?,
             None,
         )?;
         Ok(())
@@ -127,19 +121,19 @@ impl Client {
 
     /// List topics the broker has seen, with live subscriber counts.
     pub fn list(&self) -> Result<Vec<TopicInfo>> {
-        let reply = self.call(method::LIST_TOPICS, Encoder::new(), None)?;
+        let reply = self.call(list_request(), None)?;
         decode_topics(&reply)
     }
 
     /// Per-subscription counters (drops, queue depth, delivery).
     pub fn stats(&self, subscription: &Subscription) -> Result<SubscriptionStats> {
-        let reply = self.call(method::STATS, subscription_body(subscription.id)?, None)?;
+        let reply = self.call(subscription_request(method::STATS, subscription.id)?, None)?;
         decode_stats(&reply)
     }
 
     /// Round-trip probe.
     pub fn ping(&self) -> Result<()> {
-        self.call(method::PING, Encoder::new(), None)?;
+        self.call(ping_request(), None)?;
         Ok(())
     }
 }
@@ -164,7 +158,7 @@ impl Subscription {
     /// [`Subscription::ack`] once the payload is safely processed.
     pub fn next_event(&self, deadline: Option<u64>) -> Result<Option<Event>> {
         let reply = match self.endpoint.call(
-            &request_parcel(method::NEXT_EVENT, subscription_body(self.id)?),
+            &subscription_request(method::NEXT_EVENT, self.id)?,
             deadline,
         ) {
             Ok(reply) => reply,
@@ -187,11 +181,7 @@ impl Subscription {
 
     /// Retire every event up to `sequence` (drives `reliable` queues).
     pub fn ack(&self, sequence: u64) -> Result<()> {
-        let mut body = subscription_body(self.id)?;
-        body.u64(field::SEQUENCE, sequence).map_err(Error::Parcel)?;
-        let reply = self
-            .endpoint
-            .call(&request_parcel(method::ACK, body), None)?;
+        let reply = self.endpoint.call(&ack_request(self.id, sequence)?, None)?;
         if let Some(code) = error_field(&reply)? {
             return Err(Error::Topics(code));
         }
@@ -200,10 +190,9 @@ impl Subscription {
 
     /// Per-subscription counters.
     pub fn stats(&self) -> Result<SubscriptionStats> {
-        let reply = self.endpoint.call(
-            &request_parcel(method::STATS, subscription_body(self.id)?),
-            None,
-        )?;
+        let reply = self
+            .endpoint
+            .call(&subscription_request(method::STATS, self.id)?, None)?;
         if let Some(code) = error_field(&reply)? {
             return Err(Error::Topics(code));
         }
@@ -212,10 +201,9 @@ impl Subscription {
 
     /// Drop this subscription; later publishes stop matching it.
     pub fn unsubscribe(self) -> Result<()> {
-        let reply = self.endpoint.call(
-            &request_parcel(method::UNSUBSCRIBE, subscription_body(self.id)?),
-            None,
-        )?;
+        let reply = self
+            .endpoint
+            .call(&subscription_request(method::UNSUBSCRIBE, self.id)?, None)?;
         if let Some(code) = error_field(&reply)? {
             return Err(Error::Topics(code));
         }
@@ -230,10 +218,12 @@ impl Subscription {
 /// `-EACCES` means policy refused a segment; the denial is already in the
 /// audit ring.
 pub fn authorize(actor: u64, mode: u32, name: &str, txn: u64) -> Result<()> {
-    let mut body = Encoder::new();
-    body.string(auth_field::NAME, name).map_err(Error::Parcel)?;
-    body.u32(auth_field::MODE, mode).map_err(Error::Parcel)?;
-    body.u64(auth_field::TXN, txn).map_err(Error::Parcel)?;
+    let args = publish_scope::AuthorizeTopicArgs {
+        name: alloc::string::String::from(name),
+        mode,
+        txn,
+    };
+    let body = publish_scope::encode_authorize_topic_args(&args).map_err(Error::Parcel)?;
     // The kernel op ignores the parcel header; the body carries the query.
     let parcel = request_parcel(0, body);
     let bytes = super::super::endpoint::encode(&parcel)?;

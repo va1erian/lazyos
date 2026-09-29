@@ -7,7 +7,7 @@ use crate::ipc::syscalls::{
 };
 use crate::ipc::{acl, audit, channels, credentials, handles};
 use crate::task::TaskState;
-use libmessenger::{Decoder, Encoder, Header, Kind, Parcel, VERSION};
+use libmessenger::{Header, Parcel, VERSION};
 
 /// Friendly-message adapter for each error type the suite plumb through
 /// `Result<_, String>`; a trait keeps `map_err` call sites terse and typed.
@@ -83,7 +83,7 @@ fn reason(error: RegistryError) -> String {
 }
 
 /// Encode a registry request parcel whose body is already built.
-fn encode_parcel(method: u32, body: Encoder) -> Result<Vec<u8>, String> {
+fn encode_parcel(method: u32, body: Vec<u8>) -> Result<Vec<u8>, String> {
     let parcel = Parcel {
         header: Header {
             version: VERSION,
@@ -94,7 +94,7 @@ fn encode_parcel(method: u32, body: Encoder) -> Result<Vec<u8>, String> {
             reply_to: 0,
             deadline_ns: 0,
         },
-        body: body.finish(),
+        body,
         handles: Vec::new(),
         buffers: Vec::new(),
     };
@@ -103,10 +103,12 @@ fn encode_parcel(method: u32, body: Encoder) -> Result<Vec<u8>, String> {
     Ok(bytes)
 }
 
-/// A request body carrying one name field.
+/// A request carrying one name (`Resolve` and `Unregister` share the shape,
+/// and the generated stubs encode both identically).
 fn string_parcel(method: u32, text: &str) -> Result<Vec<u8>, String> {
-    let mut body = Encoder::new();
-    body.string(registry::field::NAME, text).map_err(friendly)?;
+    let body =
+        registry::wire::encode_resolve_args(&registry::wire::ResolveArgs { name: text.into() })
+            .map_err(friendly)?;
     encode_parcel(method, body)
 }
 
@@ -117,20 +119,13 @@ fn register_parcel(
     interfaces: &[u64],
     lease: u64,
 ) -> Result<Vec<u8>, String> {
-    let mut body = Encoder::new();
-    body.string(registry::field::NAME, name).map_err(friendly)?;
-    body.u64(registry::field::ENDPOINT, endpoint)
-        .map_err(friendly)?;
-    let mut array = Encoder::new();
-    for interface in interfaces {
-        array
-            .u64(registry::field::INTERFACES, *interface)
-            .map_err(friendly)?;
-    }
-    body.array(registry::field::INTERFACES, &array)
-        .map_err(friendly)?;
-    body.u64(registry::field::LEASE_TICKS, lease)
-        .map_err(friendly)?;
+    let body = registry::wire::encode_register_args(&registry::wire::RegisterArgs {
+        name: name.into(),
+        endpoint: Some(endpoint),
+        interfaces: interfaces.to_vec(),
+        lease_ticks: lease,
+    })
+    .map_err(friendly)?;
     encode_parcel(registry::method::REGISTER, body)
 }
 

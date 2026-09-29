@@ -19,6 +19,10 @@ lazyos-crypto = { path = "../libs/crypto" }
 # Issue #260: the in-kernel suite drives the same `regd` service core the
 # userspace `regd` binary links, against an in-memory `StoreFs`.
 regd = { path = "../libs/regd" }
+# Issues #299/#300: the topic ACL scope ids, the `authorize_topic` request layout
+# and the registry wire come from `midlc`-generated interfaces (`idl/*.midl`),
+# not hand-computed hashes or field ids.
+messenger-generated = { path = "../libs/generated" }
 libm = "0.2"
 libmessenger = { path = "../libs/messenger" }
 linked_list_allocator = "0.10"

@@ -227,6 +227,13 @@ def emit_rust(interface: Interface) -> str:
         f"    pub const INTERFACE_ID: u64 = {interface.id:#x};",
         "",
     ]
+    # Enums travel as `U32` on the wire; the variant indices are emitted as
+    # constants so callers never hand-type a discriminant.
+    for enum in interface.enums:
+        for index, variant in enumerate(enum.variants):
+            lines.append(f"    /// `{enum.name}::{variant}` wire value.")
+            lines.append(f"    pub const {snake_case(enum.name).upper()}_{snake_case(variant).upper()}: u32 = {index};")
+        lines.append("")
     for struct in interface.structs:
         lines += emit_struct(struct.name, struct.fields, struct.doc).splitlines()
         lines.append("")

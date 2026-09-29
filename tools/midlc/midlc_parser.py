@@ -156,6 +156,13 @@ class Parser:
         self.expect("}")
         return Enum(name.text, variants)
 
+    def parse_interfaces(self) -> list[Interface]:
+        """Every interface in the file (one or more, in source order)."""
+        interfaces = [self.parse_interface()]
+        while any(t.kind != "doc" for t in self.tokens[self.pos :]):
+            interfaces.append(self.parse_interface())
+        return interfaces
+
     def parse_interface(self) -> Interface:
         self.expect("interface")
         name = self.next()
@@ -197,6 +204,15 @@ def validate(interface: Interface) -> None:
 
     for struct in interface.structs:
         claim(snake_case(struct.name), struct.name)
+    # Enum variants become `{ENUM}_{VARIANT}` constants; two enums whose
+    # folded names meet (`Qos`/`LevelHigh` vs `QosLevel`/`High`) would emit a
+    # duplicate `const`, so reject that here.
+    for enum in interface.enums:
+        for variant in enum.variants:
+            claim(
+                f"{snake_case(enum.name)}_{snake_case(variant)}".upper(),
+                f"{enum.name}::{variant}",
+            )
     for method in interface.methods:
         if method.method_id in ids:
             raise MidlError(

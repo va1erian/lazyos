@@ -1,92 +1,100 @@
 //! `init`: the supervisor's `Services` snapshot, and `Launch`/`ListApps`
 //! (issue #158).
+//!
+//! The wire shapes are the `midlc`-generated `os.lazy.init.v1` stubs
+//! (`idl/init.midl`). Only the structured error field is hand-written.
 
-use alloc::string::String;
 use alloc::vec::Vec;
 
 use libmessenger::{Decoder, Encoder, Kind, Parcel};
 
-use crate::messenger::{errno, Endpoint, Error, Result};
+use crate::messenger::{Endpoint, Error, Result};
 
-use super::field;
-use super::{
-    for_each_record, header, init_method, resolve_service, AppInfo, LaunchRequest, LaunchResult,
-    ServiceStatus, INIT_INTERFACE, INIT_NAME,
-};
+use super::{header, resolve_service, ERROR_FIELD, INIT_NAME};
+
+/// The generated `os.lazy.init.v1` stubs (`idl/init.midl`).
+pub use messenger_generated::os_lazy_init_v1 as wire;
+
+/// The interface id every `init` parcel carries.
+pub const INTERFACE: u64 = wire::INTERFACE_ID;
+
+/// The generated method ids.
+pub use wire::{METHOD_LAUNCH, METHOD_LISTAPPS, METHOD_SERVICES};
+
+/// One row of `init`'s supervision table (the generated `ServiceStatus`).
+pub use wire::ServiceStatus;
+
+/// One row of `init`'s built-in app registry (the generated `AppInfo`).
+pub use wire::AppInfo;
+
+/// A decoded `Launch` request (the generated `LaunchArgs`).
+pub use wire::LaunchArgs as LaunchRequest;
+
+/// The outcome of `init`'s `Launch` (the generated `LaunchReply`).
+pub use wire::LaunchReply as LaunchResult;
 
 /// `init`'s `Services` request.
 pub fn services_request() -> Parcel {
     Parcel {
-        header: header(INIT_INTERFACE, init_method::SERVICES),
+        header: header(INTERFACE, wire::METHOD_SERVICES),
         ..Parcel::default()
     }
 }
 
-/// Encode `init`'s `Services` reply: one `SERVICE` record per row.
+/// Encode `init`'s `Services` reply: one row per supervised service.
 pub fn services_reply(statuses: &[ServiceStatus]) -> Result<Parcel> {
-    let mut body = Encoder::new();
-    for status in statuses {
-        let mut record = Encoder::new();
-        record
-            .string(field::NAME, &status.name)
-            .map_err(Error::Parcel)?;
-        record
-            .string(field::STATE, &status.state)
-            .map_err(Error::Parcel)?;
-        record.u64(field::PID, status.pid).map_err(Error::Parcel)?;
-        record
-            .u64(field::RESTARTS, status.restarts)
-            .map_err(Error::Parcel)?;
-        record
-            .string(field::DEPS, &status.deps)
-            .map_err(Error::Parcel)?;
-        record
-            .string(field::HEALTH, &status.health)
-            .map_err(Error::Parcel)?;
-        body.record(field::SERVICE, &record)
-            .map_err(Error::Parcel)?;
-    }
+    let body = wire::encode_services_reply(&wire::ServicesReply {
+        services: statuses.to_vec(),
+    })
+    .map_err(Error::Parcel)?;
     Ok(Parcel {
-        header: header(INIT_INTERFACE, init_method::SERVICES),
-        body: body.finish(),
+        header: header(INTERFACE, wire::METHOD_SERVICES),
+        body,
         ..Parcel::default()
     })
+}
+
+/// Decode an `init` `Services` reply.
+pub fn decode_services(parcel: &Parcel) -> Result<Vec<ServiceStatus>> {
+    let reply = wire::decode_services_reply(&parcel.body).map_err(Error::Parcel)?;
+    Ok(reply.services)
+}
+
+/// Call `init`'s `Services`.
+///
+/// Allocates the reply buffer per call; a polling loop should use
+/// [`fetch_services_with`] and reuse one buffer.
+pub fn fetch_services(endpoint: &Endpoint) -> Result<Vec<ServiceStatus>> {
+    let mut buf = alloc::vec![0u8; crate::messenger::DEFAULT_BUFFER];
+    fetch_services_with(endpoint, &mut buf)
+}
+
+/// [`fetch_services`] with a caller-owned reply buffer.
+pub fn fetch_services_with(endpoint: &Endpoint, buf: &mut [u8]) -> Result<Vec<ServiceStatus>> {
+    let reply = endpoint.call_with(&services_request(), buf, None)?;
+    if let Some(code) = error_field(&reply)? {
+        return Err(Error::Init(code));
+    }
+    decode_services(&reply)
 }
 
 /// `init`'s `ListApps` request (issue #158).
 pub fn list_apps_request() -> Parcel {
     Parcel {
-        header: header(INIT_INTERFACE, init_method::LIST_APPS),
+        header: header(INTERFACE, wire::METHOD_LISTAPPS),
         ..Parcel::default()
     }
 }
 
-/// Encode `init`'s `ListApps` reply: one `APP_INFO` record per app.
+/// Encode `init`'s `ListApps` reply: one record per registered app.
 pub fn list_apps_reply(apps: &[AppInfo]) -> Result<Parcel> {
-    let mut body = Encoder::new();
-    for app in apps {
-        let mut record = Encoder::new();
-        record.string(field::APP, &app.id).map_err(Error::Parcel)?;
-        record
-            .string(field::APP_NAME, &app.name)
-            .map_err(Error::Parcel)?;
-        record
-            .string(field::APP_PATH, &app.path)
-            .map_err(Error::Parcel)?;
-        record
-            .string(field::APP_RESTART, &app.restart)
-            .map_err(Error::Parcel)?;
-        for verb in &app.verbs {
-            record
-                .string(field::APP_VERBS, verb)
-                .map_err(Error::Parcel)?;
-        }
-        body.record(field::APP_INFO, &record)
-            .map_err(Error::Parcel)?;
-    }
+    let body = wire::encode_list_apps_reply(&wire::ListAppsReply {
+        apps: apps.to_vec(),
+    })
+    .map_err(Error::Parcel)?;
     Ok(Parcel {
-        header: header(INIT_INTERFACE, init_method::LIST_APPS),
-        body: body.finish(),
+        header: header(INTERFACE, wire::METHOD_LISTAPPS),
+        body,
         ..Parcel::default()
     })
 }
@@ -95,121 +103,73 @@ pub fn list_apps_reply(apps: &[AppInfo]) -> Result<Parcel> {
 /// the caller's own session; only the session's owner (or root) may launch
 /// into it.
 pub fn launch_request(app: &str, args: &str, session: u64) -> Result<Parcel> {
-    let mut body = Encoder::new();
-    body.string(field::APP, app).map_err(Error::Parcel)?;
-    if !args.is_empty() {
-        body.string(field::ARGS, args).map_err(Error::Parcel)?;
-    }
-    body.u64(field::SESSION, session).map_err(Error::Parcel)?;
+    let body = wire::encode_launch_args(&wire::LaunchArgs {
+        app: alloc::string::String::from(app),
+        args: alloc::string::String::from(args),
+        session,
+    })
+    .map_err(Error::Parcel)?;
     Ok(Parcel {
-        header: header(INIT_INTERFACE, init_method::LAUNCH),
-        body: body.finish(),
+        header: header(INTERFACE, wire::METHOD_LAUNCH),
+        body,
         ..Parcel::default()
     })
 }
 
 /// Encode `init`'s `Launch` reply.
 pub fn launch_reply(result: &LaunchResult) -> Result<Parcel> {
-    let mut body = Encoder::new();
-    body.string(field::APP, &result.app)
-        .map_err(Error::Parcel)?;
-    body.u64(field::PID, result.pid).map_err(Error::Parcel)?;
-    body.u64(field::SESSION, result.session)
-        .map_err(Error::Parcel)?;
+    let body = wire::encode_launch_reply(result).map_err(Error::Parcel)?;
     Ok(Parcel {
-        header: header(INIT_INTERFACE, init_method::LAUNCH),
-        body: body.finish(),
+        header: header(INTERFACE, wire::METHOD_LAUNCH),
+        body,
         ..Parcel::default()
     })
 }
 
 /// Decode a `ListApps` reply.
 pub fn decode_apps(parcel: &Parcel) -> Result<Vec<AppInfo>> {
-    let mut apps = Vec::new();
-    for_each_record(parcel, |mut nested| {
-        let mut app = AppInfo::default();
-        while let Ok(Some(field)) = nested.next() {
-            match (field.kind, field.id) {
-                (Kind::String, self::field::APP) => {
-                    app.id = String::from(field.as_str().map_err(Error::Parcel)?)
-                }
-                (Kind::String, self::field::APP_NAME) => {
-                    app.name = String::from(field.as_str().map_err(Error::Parcel)?)
-                }
-                (Kind::String, self::field::APP_PATH) => {
-                    app.path = String::from(field.as_str().map_err(Error::Parcel)?)
-                }
-                (Kind::String, self::field::APP_RESTART) => {
-                    app.restart = String::from(field.as_str().map_err(Error::Parcel)?)
-                }
-                (Kind::String, self::field::APP_VERBS) => app
-                    .verbs
-                    .push(String::from(field.as_str().map_err(Error::Parcel)?)),
-                _ => {}
-            }
-        }
-        apps.push(app);
-        Ok(())
-    })?;
-    Ok(apps)
+    let reply = wire::decode_list_apps_reply(&parcel.body).map_err(Error::Parcel)?;
+    Ok(reply.apps)
 }
 
 /// Decode a `Launch` request.
+///
+/// The generated decoder defaults a missing `app` to the empty string, but
+/// the supervisor requires an app id, so keep the explicit check the old
+/// hand-written decoder made.
 pub fn decode_launch_request(parcel: &Parcel) -> Result<LaunchRequest> {
-    let mut request = LaunchRequest::default();
-    let mut decoder = Decoder::new(&parcel.body);
-    while let Some(field) = decoder.next().map_err(Error::Parcel)? {
-        match (field.kind, field.id) {
-            (Kind::String, self::field::APP) => {
-                request.app = String::from(field.as_str().map_err(Error::Parcel)?)
-            }
-            (Kind::String, self::field::ARGS) => {
-                request.args = String::from(field.as_str().map_err(Error::Parcel)?)
-            }
-            (Kind::U64, self::field::SESSION) => {
-                request.session = field.as_u64().map_err(Error::Parcel)?
-            }
-            _ => {}
-        }
-    }
+    let request = wire::decode_launch_args(&parcel.body).map_err(Error::Parcel)?;
     if request.app.is_empty() {
-        return Err(Error::Errno(-errno::EINVAL));
+        return Err(Error::Errno(-crate::messenger::errno::EINVAL));
     }
     Ok(request)
 }
 
 /// Decode a `Launch` reply.
+///
+/// As in [`decode_launch_request`], an empty `app` is rejected explicitly
+/// rather than accepted as the generated default.
 pub fn decode_launch(parcel: &Parcel) -> Result<LaunchResult> {
-    let mut result = LaunchResult::default();
-    let mut decoder = Decoder::new(&parcel.body);
-    while let Some(field) = decoder.next().map_err(Error::Parcel)? {
-        match (field.kind, field.id) {
-            (Kind::String, self::field::APP) => {
-                result.app = String::from(field.as_str().map_err(Error::Parcel)?)
-            }
-            (Kind::U64, self::field::PID) => result.pid = field.as_u64().map_err(Error::Parcel)?,
-            (Kind::U64, self::field::SESSION) => {
-                result.session = field.as_u64().map_err(Error::Parcel)?
-            }
-            _ => {}
-        }
-    }
+    let result = wire::decode_launch_reply(&parcel.body).map_err(Error::Parcel)?;
     if result.app.is_empty() {
-        return Err(Error::Errno(-errno::EINVAL));
+        return Err(Error::Errno(-crate::messenger::errno::EINVAL));
     }
     Ok(result)
 }
 
-/// `init`'s error answer: errno-style code plus friendly text, the same
-/// shape [`super::super::mime::error_reply`] uses. The client turns the code
-/// back into [`Error::Init`].
+/// `init`'s error answer: errno-style code plus friendly text, the same shape
+/// [`super::error_reply`] uses. The client turns the code back into
+/// [`Error::Init`].
 pub fn init_error_reply(method: u32, error: Error) -> Parcel {
-    let code = error.errno().map(|code| -code).unwrap_or(errno::EINVAL);
+    let code = error
+        .errno()
+        .map(|code| -code)
+        .unwrap_or(crate::messenger::errno::EINVAL);
     let mut body = Encoder::new();
     // A structured error field cannot overflow a fresh encoder here.
-    let _ = body.error(field::ERROR, code as u32, error.message());
+    let _ = body.error(ERROR_FIELD, code as u32, error.message());
     Parcel {
-        header: header(INIT_INTERFACE, method),
+        header: header(INTERFACE, method),
         body: body.finish(),
         ..Parcel::default()
     }
@@ -219,7 +179,7 @@ pub fn init_error_reply(method: u32, error: Error) -> Parcel {
 pub fn error_field(parcel: &Parcel) -> Result<Option<i64>> {
     let mut decoder = Decoder::new(&parcel.body);
     while let Some(field) = decoder.next().map_err(Error::Parcel)? {
-        if field.kind == Kind::Error && field.id == self::field::ERROR {
+        if field.kind == Kind::Error && field.id == ERROR_FIELD {
             let (code, _message) = field.error_parts().map_err(Error::Parcel)?;
             return Ok(Some(code as i64));
         }

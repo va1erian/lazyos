@@ -1,0 +1,39 @@
+/// The Messenger service name registry (issues #89, #300).
+///
+/// Names are published by tasks and resolved into endpoint handles. Two paths
+/// reach the same kernel table: the native `register`/`resolve`/`unregister`/
+/// `list` gate ops (which take these parcels as their request and, for `List`,
+/// fill the reply into the caller's buffer) and the `messengerd` daemon, which
+/// forwards a client's request on its behalf over the bootstrap channel. The
+/// kernel publishes `os.lazy.messenger.registry` itself at boot, so it is the
+/// one name every task can resolve.
+///
+/// A daemon failure is answered with a hand-written structured `ERROR` field
+/// (id 15, outside the generated field range) instead of a typed reply; the
+/// kernel gate reports failures as negative errno values.
+interface os.lazy.messenger.registry.v1 {
+    /// Publish `endpoint` (a handle in the owner's table) under `name`. The
+    /// owner becomes the registering task. A `lease_ticks` of `0` registers a
+    /// permanent name; otherwise the name expires after that many ticks.
+    method Register(name: String, endpoint: Option<U64>, interfaces: Array<U64>, lease_ticks: U64) -> ();
+    /// Look `name` up. Over the gate the new handle is the call's return value;
+    /// over the daemon it is `handle`, already open in the caller's table.
+    method Resolve(name: String) -> (handle: U64);
+    /// Withdraw `name`. Only its owner (or an administrator) may.
+    method Unregister(name: String) -> ();
+    /// Snapshot the name table.
+    method List() -> (entries: Array<Entry>);
+
+    /// One registered name.
+    struct Entry {
+        name: String,
+        /// Kernel object the name refers to (diagnostic).
+        object: U64,
+        /// Task slot that owns the name.
+        owner: U64,
+        /// Interface ids the service implements.
+        interfaces: Array<U64>,
+        /// Remaining lease ticks; `0` when permanent.
+        lease_remaining: U64
+    }
+}
