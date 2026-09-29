@@ -13,7 +13,9 @@ The grammar and versioning rules are described in
 an explicit `= 7` wins, otherwise a deterministic hash of the method name is
 used, and adding a method never renumbers existing ones.
 
-A file may hold several interfaces (e.g. a service and its ACL scope interfaces, see
+The real interfaces live in `idl/` (registry, topics, echo, keyd, ...); all
+Rust consumers, including the separate static-musl `xui-app` workspace, depend
+on `messenger-generated` instead of copying ids or field numbers. A file may hold several interfaces (e.g. a service and its ACL scope interfaces, see
 `idl/topics.midl`). Enums travel as `U32`; each variant is emitted as a
 `{ENUM}_{VARIANT}` constant (`QOS_RELIABLE`), so callers never hand-type a discriminant.
 

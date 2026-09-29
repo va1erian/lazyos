@@ -173,6 +173,16 @@ receiver channel; no reply.
 
 ### 7.2 Topics
 
+The wire contract of the broker (`publish`, `subscribe`, `unsubscribe`,
+`next_event`, `ack`, `list_topics`, `stats`, `ping`, plus the kernel ACL scope
+interfaces) is defined in [`idl/topics.midl`](../idl/topics.midl); `midlc`
+generates the stubs every client and `messengerd` link (`os_lazy_messenger_topics_v1`
+in `libs/generated`) and the reference in
+[`docs/idl/os.lazy.messenger.topics.v1.md`](idl/os.lazy.messenger.topics.v1.md).
+No client hand-copies interface ids, method ids or field numbers; the static-musl
+`xui-app` fabric panel consumes the same generated crate. The sketch below is
+the conceptual shape.
+
 ```
 publish(topic, parcel, qos)          -> topic_handle? (retained only)
 subscribe(topic_filter, qos, filter) -> subscription_handle
@@ -313,7 +323,13 @@ Rights accompany a handle at creation/duplication time:
 ## 11. IDL, code generation, versioning
 
 Interfaces are authored in `.midl` files; `midlc` generates Rust stubs, server
-dispatch, documentation, and a conformance manifest.
+dispatch, documentation, and a conformance manifest. The real definitions live
+in [`idl/`](../idl) (for example `topics.midl` and `registry.midl`, the two
+interfaces the fabric viewers speak) with generated references in
+[`docs/idl/`](idl); the example below is illustrative only. Any interface
+published on Messenger is defined there and consumed through the generated
+`messenger-generated` crate (kernel, native `user` programs and the static-musl
+`xui-app` alike) rather than by hand-copied constants or encoders.
 
 ```idl
 // interfaces/os.lazy.notify.midl
