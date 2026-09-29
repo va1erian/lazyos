@@ -59,12 +59,6 @@ pub const MAX_BUFFERS: usize = 256;
 pub const MAX_BUFFER_BYTES_PER_PROCESS: u64 = 8 << 20;
 /// Per-process live-buffer quota.
 pub const MAX_BUFFERS_PER_PROCESS: u64 = 64;
-/// Base of the virtual range buffer mappings are handed out from. It sits in
-/// the lower (user) canonical half, above the kernel heap and far above every
-/// program segment, stack and `mmap` bump, so a fresh mapping never collides
-/// with an existing one. Mappings are never reused; a closed buffer leaks only
-/// its address range, and the quota keeps that bounded.
-pub const BUFFER_VA_BASE: u64 = 0x0000_5000_0000_0000;
 
 /// Creation flags (section 10). The numeric values are kernel-internal; a
 /// syscall ABI maps its own constants onto them.
@@ -236,8 +230,6 @@ static REGISTRY: Mutex<Registry> = Mutex::new(Registry {
 });
 /// Buffer ids start at 1 so no handle ever carries object id 0.
 static NEXT_BUFFER_ID: AtomicU64 = AtomicU64::new(1);
-/// Next free virtual address for a buffer mapping.
-static NEXT_VA: AtomicU64 = AtomicU64::new(BUFFER_VA_BASE);
 /// Producers wake fence waiters through this queue; wakeups are advisory, so
 /// every waiter re-checks its own buffer's counter.
 static FENCES: WaitQueue = WaitQueue::new(WaitKind::Sleep);
@@ -338,15 +330,23 @@ fn map_flags(flags: u32) -> PageTableFlags {
     mem::prot_flags(prot)
 }
 
-/// Hand out a fresh virtual range for `pages` pages. Never reuses an address,
-/// so a mapping cannot collide with a live one in any address space.
-fn fresh_va(pages: u64) -> u64 {
-    NEXT_VA.fetch_add(pages * PAGE, Ordering::Relaxed)
+/// Undo a (possibly partial) mapping of `[va, va + pages)` in `table`: drop
+/// the mapped leaves, reclaim the page tables they leave empty, and recycle the
+/// virtual range. `mapped_end` is the end of what was actually mapped.
+fn discard_range(table: PhysAddr, va: u64, mapped_end: u64, pages: u64) {
+    mem::unmap_range(table, va, mapped_end);
+    mem::reclaim_empty_tables(table, va, va + pages * PAGE);
+    super::shared_va::release(va, pages);
 }
 
 /// Unmap every page of `mapping`; each 4 KiB leaf loses its frame reference.
 fn unmap_mapping(mapping: &Mapping, size: u64) {
-    mem::unmap_range(PhysAddr::new(mapping.table), mapping.va, mapping.va + size);
+    discard_range(
+        PhysAddr::new(mapping.table),
+        mapping.va,
+        mapping.va + size,
+        size / PAGE,
+    );
 }
 
 /// Drop the calling task's mapping for `buffer`, if it has one.
@@ -488,13 +488,13 @@ pub fn create(size: u64, flags: u32) -> Result<u64, Error> {
     // `refs + mappings`.
     let table = mem::kernel_table();
     let mut mappings = Vec::new();
-    let va = fresh_va(pages);
+    let va = super::shared_va::alloc(pages);
     for (index, frame) in frames.iter().enumerate() {
         let at = va + index as u64 * PAGE;
         if !mem::share_frame(*frame) {
             // Undo the mapped prefix; the never-shared tail keeps only its
             // allocation reference and is freed directly.
-            mem::unmap_range(table, va, at);
+            discard_range(table, va, at, pages);
             for remaining in &frames[index..] {
                 mem::free_frame(*remaining);
             }
@@ -504,7 +504,7 @@ pub fn create(size: u64, flags: u32) -> Result<u64, Error> {
         if !mem::map_page_in(table, VirtAddr::new(at), *frame, map_flags(flags)) {
             // Undo this share, the mapped prefix, and the unshared tail.
             mem::free_frame(*frame);
-            mem::unmap_range(table, va, at);
+            discard_range(table, va, at, pages);
             for remaining in &frames[index + 1..] {
                 mem::free_frame(*remaining);
             }
@@ -572,18 +572,18 @@ pub fn map(handle: u64) -> Result<u64, Error> {
         return Err(Error::ShareOnly);
     }
     let table = mem::kernel_table();
-    let va = fresh_va(buffer.size / PAGE);
+    let va = super::shared_va::alloc(buffer.size / PAGE);
     let mut mapped = 0u64;
     for (index, frame) in buffer.frames.iter().enumerate() {
         let at = va + index as u64 * PAGE;
         if !mem::share_frame(*frame) {
-            mem::unmap_range(table, va, at);
+            discard_range(table, va, at, buffer.size / PAGE);
             return Err(Error::MapFailed);
         }
         if !mem::map_page_in(table, VirtAddr::new(at), *frame, map_flags(buffer.flags)) {
             // Undo this frame's share and the pages mapped before it.
             mem::free_frame(*frame);
-            mem::unmap_range(table, va, at);
+            discard_range(table, va, at, buffer.size / PAGE);
             return Err(Error::MapFailed);
         }
         mapped += 1;

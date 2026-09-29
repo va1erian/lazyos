@@ -41,8 +41,11 @@ use super::{
 };
 use crate::user_ptr;
 
+mod fault;
 pub mod harden;
 mod send;
+
+pub use fault::{deliver_exception, deliver_fault, Exception};
 
 pub use harden::{die_with_segv, restore_frame};
 pub use send::{kill, send_tid};
@@ -126,6 +129,17 @@ pub const SI_TKILL: i32 = -6;
 pub const SI_KERNEL: i32 = 0x80;
 pub const SEGV_MAPERR: i32 = 1;
 pub const SEGV_ACCERR: i32 = 2;
+/// `si_code` of a #UD: illegal opcode.
+pub const ILL_ILLOPC: i32 = 1;
+/// `si_code` of a #DE: integer divide by zero.
+pub const FPE_INTDIV: i32 = 1;
+
+/// Whether `code` for `sig` is a fault code whose `siginfo_t` carries
+/// `si_addr` (rather than the sender's pid/uid). Positive codes below
+/// `SI_KERNEL` are the per-signal fault codes.
+fn is_fault_info(sig: u8, code: i32) -> bool {
+    matches!(sig, SIGSEGV | SIGILL | SIGFPE | SIGBUS) && (1..SI_KERNEL).contains(&code)
+}
 
 /// The standard action a signal takes with the default disposition.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -885,7 +899,7 @@ pub fn build_linux_frame(
     write_i32(si + 4, 0);
     write_i32(si + 8, info.code);
     write_u32(si + 12, 0);
-    if info.code == SEGV_MAPERR || info.code == SEGV_ACCERR {
+    if is_fault_info(sig, info.code) {
         write_u64(si + 16, info.addr);
     } else {
         write_u32(si + 16, info.pid as u32);
@@ -1262,55 +1276,6 @@ pub fn deliver_linux(result: u64) {
     if frame_written {
         apply_linux_frame_syscall(&regs);
     }
-}
-
-/// Deliver `SIGSEGV` for a page fault that COW/demand-zero could not resolve.
-/// Returns true when a handler was entered: the caller resumes the faulting
-/// task at the handler instead of halting the machine. Without a handler
-/// (ignore, and every default flavour) the caller keeps today's diagnostic
-/// halt.
-pub fn deliver_fault(frame_rsp: u64, rip_index: usize, fault_addr: u64, error: u64) -> bool {
-    let Some((slot, pml4)) = current_info() else {
-        return false;
-    };
-    let disposition = with_signals(pml4, |state| state.actions[SIGSEGV as usize]);
-    let Disposition::Handler { .. } = disposition else {
-        return false;
-    };
-    let info = SigInfo::fault(
-        if error & 0b10 != 0 {
-            SEGV_ACCERR
-        } else {
-            SEGV_MAPERR
-        },
-        fault_addr,
-    );
-    with_signals(pml4, |state| state.infos[SIGSEGV as usize] = info);
-    let Some(armed) = arm_handler(pml4, SIGSEGV) else {
-        return false;
-    };
-    let native = {
-        let tasks = TASKS.lock();
-        tasks[slot]
-            .as_ref()
-            .is_some_and(|task| task.kind == Kind::Native || task.kstack_top == 0)
-    };
-    // Safety: the caller passes the base of the exception frame it received.
-    let mut regs = unsafe { regs_from_frame(frame_rsp, rip_index) };
-    // No frame means no handler entry: fall back to the diagnostic halt.
-    let Some(result) = prepare_handler(&regs, SIGSEGV, &armed, native) else {
-        return false;
-    };
-    regs.rip = result.rip;
-    regs.rsp = result.rsp;
-    regs.rdi = SIGSEGV as u64;
-    if !native && armed.flags & SA_SIGINFO != 0 {
-        regs.rsi = result.info;
-        regs.rdx = result.ucontext;
-    }
-    // Safety: same frame, now rewritten in place.
-    unsafe { apply_regs_to_frame(frame_rsp, &regs, rip_index) };
-    true
 }
 
 /// One task the timer sweep ended, to be finished with its side effects after

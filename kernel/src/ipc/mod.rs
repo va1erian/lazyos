@@ -23,6 +23,7 @@ pub mod handles;
 pub mod pipe;
 pub mod registry;
 pub mod shared;
+pub mod shared_va;
 pub mod stats;
 pub mod syscalls;
 pub mod topics;

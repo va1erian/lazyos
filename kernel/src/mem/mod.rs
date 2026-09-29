@@ -3,6 +3,8 @@
 
 mod heap;
 pub mod pte;
+mod reclaim;
+pub use reclaim::reclaim_empty_tables;
 pub mod slab;
 mod table_guard;
 pub mod untouched;

@@ -89,11 +89,10 @@ pub fn close_buffer_refuses_screen() -> Result<(), String> {
     Ok(())
 }
 
-/// Hundreds of create/close cycles with a bounded live set: no quota or
-/// registry growth, and the 64-buffer cap is never hit. The round count stays
-/// modest because `shared::fresh_va` is a bump cursor that never reuses
-/// address space, so a longer run keeps allocating (never-freed) page-table
-/// frames and trips the frame-leak check of the hardening soak that follows.
+/// Thousands of create/close cycles with a bounded live set: no quota or
+/// registry growth, and the 64-buffer cap is never hit. Mapping ranges are
+/// recycled and empty page tables reclaimed (issue #237), so the run leaves
+/// the frame-leak check of the hardening soak that follows undisturbed.
 pub fn close_buffer_soak() -> Result<(), String> {
     use crate::ipc::shared;
     crate::display::reset();
@@ -102,7 +101,7 @@ pub fn close_buffer_soak() -> Result<(), String> {
     let registry = shared::stats().buffers;
     // Handle numbers start at 0, so an empty slot is `None`, not 0.
     let mut live = [None::<u64>; 8];
-    for round in 0..600usize {
+    for round in 0..3000usize {
         let slot = round % live.len();
         if let Some(old) = live[slot] {
             check!(close(old) == 0, "close failed at round {round}");

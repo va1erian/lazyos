@@ -174,7 +174,183 @@ pub fn soak_fault_generations() -> Result<(), String> {
     Ok(())
 }
 
+const HANDLER: u64 = 0x0040_2000;
+const RESTORER: u64 = 0x0040_3000;
+
+/// A synthetic saved-register frame for `exception` on a fresh user stack:
+/// 15 registers, an error code when the class has one, then RIP, CS, RFLAGS,
+/// RSP and SS. Returns the frame and the stack that must outlive it.
+fn exception_frame(exception: signal::Exception) -> (Vec<u64>, Vec<u8>) {
+    let mut stack = alloc::vec![0u8; 8192];
+    let top = stack.as_mut_ptr() as u64 + stack.len() as u64;
+    let rip = exception.rip_index();
+    let mut frame = alloc::vec![0u64; rip + 5];
+    frame[9] = 0xd1d1; // rdi
+    frame[rip] = 0x0040_1234;
+    frame[rip + 1] = 0x23;
+    frame[rip + 2] = 0x202;
+    frame[rip + 3] = top - 0x100;
+    frame[rip + 4] = 0x1b;
+    (frame, stack)
+}
+
+fn install_handler(sig: u8) -> Result<(), String> {
+    signal::set_action(
+        task::current(),
+        sig,
+        signal::Disposition::Handler {
+            handler: HANDLER,
+            flags: 0,
+            restorer: RESTORER,
+            mask: 0,
+        },
+    )
+    .map_err(|e| format!("set_action({sig}): {e:?}"))
+}
+
+const EXCEPTIONS: [signal::Exception; 3] = [
+    signal::Exception::DivideError,
+    signal::Exception::InvalidOpcode,
+    signal::Exception::GeneralProtection,
+];
+
+/// #DE/#UD/#GP enter a registered handler with the right signal number, and
+/// the resumed frame is a user frame on the handler's stack (issue #246).
+pub fn exception_enters_handler() -> Result<(), String> {
+    for exception in EXCEPTIONS {
+        fresh()?;
+        let sig = exception.signal();
+        install_handler(sig)?;
+        let (mut frame, stack) = exception_frame(exception);
+        let rip = exception.rip_index();
+        let old_rsp = frame[rip + 3];
+        check!(
+            signal::deliver_exception(frame.as_mut_ptr() as u64, exception),
+            "{exception:?} with a handler was not delivered"
+        );
+        check!(frame[rip] == HANDLER, "rip is {:#x}", frame[rip]);
+        check!(frame[9] == sig as u64, "rdi is {:#x}, not {sig}", frame[9]);
+        check!(
+            frame[rip + 3] < old_rsp && frame[rip + 3] > stack.as_ptr() as u64,
+            "handler rsp {:#x} is outside the user stack",
+            frame[rip + 3]
+        );
+        check!(
+            frame[rip + 1] == 0x23,
+            "cs was rewritten: {:#x}",
+            frame[rip + 1]
+        );
+        check!(
+            signal::blocked(task::current()) & (1 << sig) != 0,
+            "{sig} is not blocked while its handler runs"
+        );
+    }
+    Ok(())
+}
+
+/// Without a deliverable handler the fault is not consumed: default, ignore,
+/// and a signal blocked by an earlier fault (which would loop) all fall
+/// through to the kill path and leave the frame untouched.
+pub fn exception_without_handler_falls_through() -> Result<(), String> {
+    for exception in EXCEPTIONS {
+        fresh()?;
+        let sig = exception.signal();
+        let (mut frame, _stack) = exception_frame(exception);
+        let before = frame.clone();
+        let at = frame.as_mut_ptr() as u64;
+        check!(
+            !signal::deliver_exception(at, exception),
+            "{exception:?} delivered with the default action"
+        );
+        signal::set_action(task::current(), sig, signal::Disposition::Ignore)
+            .map_err(|e| format!("ignore {sig}: {e:?}"))?;
+        check!(
+            !signal::deliver_exception(at, exception),
+            "{exception:?} delivered while ignored"
+        );
+        install_handler(sig)?;
+        check!(signal::deliver_exception(at, exception), "first delivery");
+        let entered = frame.clone();
+        frame.copy_from_slice(&before);
+        check!(
+            !signal::deliver_exception(at, exception),
+            "{exception:?} re-delivered while blocked: a handler that faults would loop"
+        );
+        check!(frame == before, "a refused delivery rewrote the frame");
+        check!(entered != before, "the first delivery changed nothing");
+    }
+    Ok(())
+}
+
+/// `si_addr` is filled in for `SIGILL`/`SIGFPE` faults, not just `SIGSEGV`.
+pub fn fault_siginfo_carries_address() -> Result<(), String> {
+    fresh()?;
+    let mut stack = alloc::vec![0u8; 8192];
+    let top = stack.as_mut_ptr() as u64 + stack.len() as u64;
+    let regs = signal::UserRegs {
+        rsp: top - 0x100,
+        rip: 0x0040_1000,
+        rflags: 0x202,
+        ..Default::default()
+    };
+    for (sig, code) in [
+        (signal::SIGILL, signal::ILL_ILLOPC),
+        (signal::SIGFPE, signal::FPE_INTDIV),
+    ] {
+        let info = signal::SigInfo::fault(code, 0x0040_1000);
+        let result = signal::build_linux_frame(
+            top,
+            &regs,
+            sig,
+            HANDLER,
+            signal::SA_SIGINFO,
+            RESTORER,
+            0,
+            0,
+            &info,
+        )
+        .ok_or("frame does not fit")?;
+        // Safety: `build_linux_frame` just wrote this siginfo on the stack.
+        let addr = unsafe { core::ptr::read_volatile((result.info + 16) as *const u64) };
+        check!(addr == 0x0040_1000, "si_addr for signal {sig} is {addr:#x}");
+    }
+    Ok(())
+}
+
+/// Soak: thousands of deliveries, each on a fresh frame, all enter the handler
+/// and none leaks blocked-mask or action state between rounds.
+pub fn soak_exception_delivery() -> Result<(), String> {
+    fresh()?;
+    for round in 0..3000usize {
+        let exception = EXCEPTIONS[round % EXCEPTIONS.len()];
+        let sig = exception.signal();
+        install_handler(sig)?;
+        let (mut frame, _stack) = exception_frame(exception);
+        check!(
+            signal::deliver_exception(frame.as_mut_ptr() as u64, exception),
+            "round {round}: {exception:?} was not delivered"
+        );
+        check!(
+            frame[exception.rip_index()] == HANDLER,
+            "round {round}: rip"
+        );
+        signal::set_blocked(task::current(), 0);
+    }
+    signal::harness::reset();
+    Ok(())
+}
+
 pub(super) const CASES: &[(&str, Test)] = &[
+    ("fault_exception_enters_handler", exception_enters_handler),
+    (
+        "fault_exception_without_handler_falls_through",
+        exception_without_handler_falls_through,
+    ),
+    (
+        "fault_siginfo_carries_address",
+        fault_siginfo_carries_address,
+    ),
+    ("fault_soak_exception_delivery", soak_exception_delivery),
     ("fault_ring_classification", ring_classification),
     ("fault_signal_mapping", signal_mapping),
     (
