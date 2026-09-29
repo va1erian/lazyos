@@ -48,45 +48,28 @@ use crate::ipc::handles::{self, HandleKind};
 use crate::task::process::{self, ProcessInfo};
 use crate::task::{self, TaskState};
 
-/// Registry interface id: the first eight bytes of the spec name
-/// `os.lazy.messenger.registry.v1` (`docs/messenger.md` section 13), read as a
-/// little-endian word so the constant is self-documenting.
-pub const INTERFACE: u64 = u64::from_le_bytes(*b"os.lazy.");
+/// The generated `os.lazy.messenger.registry.v1` wire stubs (`idl/registry.midl`).
+///
+/// The kernel is both the bootstrap root and the server of the native gate ops,
+/// so it links the same generated codec userspace does: there is no second,
+/// hand-mirrored copy of the field ids to drift.
+pub use messenger_generated::os_lazy_messenger_registry_v1 as wire;
+
+/// Registry interface id (the FNV-1a hash of `os.lazy.messenger.registry.v1`).
+pub const INTERFACE: u64 = wire::INTERFACE_ID;
 
 /// Registry methods, matching the native op codes' documentation.
 pub mod method {
-    /// Publish a name for an endpoint.
-    pub const REGISTER: u32 = 1;
-    /// Look a name up; the caller receives a handle to its endpoint.
-    pub const RESOLVE: u32 = 2;
-    /// Withdraw a name (owner, or `CAP_IPC_CONTROL`).
-    pub const UNREGISTER: u32 = 3;
-    /// Snapshot the table.
-    pub const LIST: u32 = 4;
-}
+    use super::wire;
 
-/// Field ids of the registry request/reply TLV bodies. The userspace mirror in
-/// `user/src/messenger/` keeps the same numbers.
-pub mod field {
-    /// Request and list-record: the service name (string).
-    pub const NAME: u16 = 1;
-    /// Request and list-record: interfaces the service implements (an array
-    /// whose nested items are `u64` fields carrying this same id).
-    pub const INTERFACES: u16 = 2;
-    /// Request: lease length in ticks; `0` means permanent.
-    pub const LEASE_TICKS: u16 = 3;
-    /// Request: the endpoint handle to publish (a number in the owner's table).
-    pub const ENDPOINT: u16 = 4;
-    /// List-record: the entry's kernel object id (diagnostic).
-    pub const OBJECT: u16 = 5;
-    /// List-record: the owner task slot.
-    pub const OWNER: u16 = 6;
-    /// List-record: remaining lease ticks (`0` when permanent).
-    pub const LEASE_REMAINING: u16 = 7;
-    /// List body: one record per entry.
-    pub const ENTRY: u16 = 8;
-    /// Register/resolve reply: the handle now open in the caller's table.
-    pub const HANDLE: u16 = 9;
+    /// Publish a name for an endpoint.
+    pub const REGISTER: u32 = wire::METHOD_REGISTER;
+    /// Look a name up; the caller receives a handle to its endpoint.
+    pub const RESOLVE: u32 = wire::METHOD_RESOLVE;
+    /// Withdraw a name (owner, or `CAP_IPC_CONTROL`).
+    pub const UNREGISTER: u32 = wire::METHOD_UNREGISTER;
+    /// Snapshot the table.
+    pub const LIST: u32 = wire::METHOD_LIST;
 }
 
 /// Largest name the registry accepts, in bytes.

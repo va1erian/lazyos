@@ -322,13 +322,8 @@ pub fn syscall_roundtrip() -> Result<(), String> {
             "the list parcel header is {:?}",
             parcel.header
         );
-        let mut decoder = Decoder::new(&parcel.body);
-        let mut records = 0;
-        while let Some(field) = decoder.next().map_err(friendly)? {
-            if field.kind == Kind::Struct && field.id == registry::field::ENTRY {
-                records += 1;
-            }
-        }
+        let listed = registry::wire::decode_list_reply(&parcel.body).map_err(friendly)?;
+        let records = listed.entries.len();
         check!(records == 1, "the list body has {records} records");
 
         // An unknown name is a friendly -ENOENT.

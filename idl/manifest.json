@@ -192,6 +192,32 @@
     ]
   },
   {
+    "interface": "os.lazy.messenger.registry.v1",
+    "interface_id": "0x51d501afec09806c",
+    "methods": [
+      {
+        "name": "Register",
+        "id": 658098656,
+        "oneway": false
+      },
+      {
+        "name": "Resolve",
+        "id": 1645633795,
+        "oneway": false
+      },
+      {
+        "name": "Unregister",
+        "id": 1480320227,
+        "oneway": false
+      },
+      {
+        "name": "List",
+        "id": 220805025,
+        "oneway": false
+      }
+    ]
+  },
+  {
     "interface": "os.lazy.messenger.topics.v1",
     "interface_id": "0xc5734f978fef7231",
     "methods": [
