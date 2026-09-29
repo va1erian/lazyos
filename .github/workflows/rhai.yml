@@ -1,0 +1,181 @@
+name: rhai
+
+# Issue #319 (step R0 of the Rhai plan): the `rhai` command. Host-tests the
+# bindings crate (`libs/rhai-lazy`, mock filesystem/environment) and the thin
+# musl host (`rhai-host`), builds the static-musl program, embeds it in the
+# image as `RHAI.ELF`, and boots LazyOS twice: on the console (BusyBox `sh`
+# runs `rhai -e`, script files, pipelines and the REPL) and in the desktop
+# Terminal (the pipe-pair terminal without a pty).
+#
+# The console run asserts the serial markers `RHAI:<name>:PASS|FAIL` printed by
+# the commands themselves (the marker text is assembled from `$m` so the typed,
+# echoed command line can never satisfy a gate). Every gate is readiness-based
+# (`until`), not a fixed timeline. Optional like the other guest jobs: if the
+# musl target is unavailable the build step reports nothing and the guest steps
+# are skipped (`tools/rhai/build.py` exits 0); a real compile error fails.
+
+on:
+  pull_request:
+    paths:
+      - "rhai-host/**"
+      - "libs/rhai-lazy/**"
+      - "tools/rhai/**"
+      - "tools/screenshot/**"
+      - "build_support/**"
+      - "build.rs"
+      - "kernel/src/process/linux/**"
+      - ".github/workflows/rhai.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rhai-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rhai:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Install QEMU and musl
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-x86 musl-tools
+
+      - name: Enable KVM (best effort)
+        run: bash tools/ci/enable_kvm.sh
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      # The two crates are standalone workspaces (excluded from the OS
+      # workspace), so each is tested and linted on its own.
+      - name: Host tests and clippy (libs/rhai-lazy)
+        run: |
+          cargo test --manifest-path libs/rhai-lazy/Cargo.toml
+          cargo clippy --manifest-path libs/rhai-lazy/Cargo.toml --all-targets -- -D warnings
+          cargo check --manifest-path libs/rhai-lazy/Cargo.toml --no-default-features --features no_std
+
+      - name: Host tests and clippy (rhai-host)
+        run: |
+          cargo test --manifest-path rhai-host/Cargo.toml
+          cargo clippy --manifest-path rhai-host/Cargo.toml --all-targets -- -D warnings
+
+      - name: Build rhai (static musl)
+        id: rhai
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p target
+          python tools/rhai/build.py | tee target/rhai-build.json
+          if python -c "import json,sys; sys.exit(0 if 'rhai' in json.load(open('target/rhai-build.json')) else 1)"; then
+            echo "built=true" >> "$GITHUB_OUTPUT"
+            ls -l target/rhai/rhai.elf
+          else
+            echo "::warning::rhai unavailable; skipping the guest runs"
+            echo "built=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # BusyBox is the system shell the console and Terminal run.
+      - name: Build BusyBox (system shell)
+        if: steps.rhai.outputs.built == 'true'
+        run: python tools/abi/busybox.py
+
+      # BusyBox `sh` on this kernel can still die at an idle prompt after
+      # several command lines (a wild jump in the shell, reproducible without
+      # rhai and unrelated to this job), so the console run gets fresh boots
+      # up to three times. A failed *marker* is never retried away: `--fail-on`
+      # ends a boot at once and the last attempt's failure fails the job.
+      - name: Guest run on the console (commands, pipelines, REPL)
+        if: steps.rhai.outputs.built == 'true'
+        shell: bash
+        env:
+          LAZYOS_CLI: "1"
+        run: |
+          set -uo pipefail
+          cargo build
+          for attempt in 1 2 3; do
+            rm -rf shots/rhai
+            if python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/rhai \
+                 --timeout 300 --script tools/screenshot/examples/rhai_demo.json \
+                 --fail-on "RHAI:[a-z]+:FAIL" --fail-on "user: task [0-9]+ killed by"; then
+              break
+            fi
+            mkdir -p shots/failed && cp -r shots/rhai "shots/failed/attempt$attempt"
+            if grep -aq '^RHAI:[a-z]*:FAIL' shots/rhai/serial.log; then
+              echo "::error::a rhai check failed"; grep -a '^RHAI:' shots/rhai/serial.log; exit 1
+            fi
+            [ "$attempt" -eq 3 ] && { echo "::error::rhai console run failed 3 times"; exit 1; }
+            echo "::warning::attempt $attempt did not finish (shell died?); rebooting"
+          done
+          grep -a "^RHAI:" shots/rhai/serial.log | sort -u
+          # Every check must have reported PASS at least once.
+          test "$(grep -ac '^RHAI:[a-z]*:PASS' shots/rhai/serial.log)" -ge 25
+          grep -aq '^RHAI:repl:PASS' shots/rhai/serial.log
+
+      - name: Build the xui apps (desktop Terminal)
+        if: steps.rhai.outputs.built == 'true'
+        id: xui
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p target
+          python tools/xui/build.py | tee target/xui-build.json
+          if python -c "import json,sys; sys.exit(0 if 'xui-term' in json.load(open('target/xui-build.json')) else 1)"; then
+            echo "built=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::xui apps unavailable; skipping the desktop run"
+            echo "built=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Only the Terminal is autostarted so its window is never covered.
+      - name: Guest run in the desktop Terminal
+        if: steps.rhai.outputs.built == 'true' && steps.xui.outputs.built == 'true'
+        shell: bash
+        env:
+          LAZYOS_DESKTOP: "1"
+          LAZYOS_XUI_AUTOSTART: term
+        run: |
+          set -euo pipefail
+          cargo build
+          python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/rhai_desktop \
+            --timeout 300 --script tools/screenshot/examples/rhai_desktop.json \
+            --fail-on "TERM:(BIND|RUN|SPAWN|PANIC)"
+          grep -aq "TERM:OUT:42" shots/rhai_desktop/serial.log
+          grep -aq "TERM:OUT:HI" shots/rhai_desktop/serial.log
+          grep -aq "TERM:OUT:123" shots/rhai_desktop/serial.log
+          grep -aq "TERM:OUT:144" shots/rhai_desktop/serial.log
+          grep -aq "TERM:OUT:RHAI:desktop:42" shots/rhai_desktop/serial.log
+
+      - name: Verify screenshots are non-blank
+        if: steps.rhai.outputs.built == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          pngs=(shots/rhai/*.png shots/rhai_desktop/*.png)
+          [ ${#pngs[@]} -gt 0 ] || { echo "::error::no screenshots captured"; exit 1; }
+          python tools/screenshot/pngstats.py "${pngs[@]}" --min-nonblack 0.01 --min-colors 4
+
+      - name: Upload screenshots and serial logs
+        if: always() && steps.rhai.outputs.built == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: rhai-guest
+          path: |
+            shots/rhai/*.png
+            shots/rhai/serial.log
+            shots/rhai/summary.json
+            shots/rhai_desktop/*.png
+            shots/rhai_desktop/serial.log
+            shots/rhai_desktop/summary.json
+            shots/failed/**
+          if-no-files-found: warn

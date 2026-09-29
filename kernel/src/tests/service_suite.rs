@@ -231,6 +231,107 @@ pub fn linux_load_executable_resolves_applets() -> Result<(), String> {
     Ok(())
 }
 
+/// Install `/busybox` and the given `(path, bytes)` files on a fresh ABI ramfs.
+fn install_exec_files(files: &[(&str, &[u8])]) -> Result<(), String> {
+    crate::fs::install_abi_ramfs_for_test();
+    let id = crate::fs::vfs::Id::ROOT;
+    for (path, bytes) in files {
+        crate::fs::abi_create(id, path, 0o755).map_err(|e| e.message())?;
+        crate::fs::abi_write(id, path, 0, bytes).map_err(|e| e.message())?;
+    }
+    Ok(())
+}
+
+/// A program shipped at the image root (`/RHAI.ELF`, issue #319) is what
+/// `rhai`, `/bin/rhai` and `/usr/local/bin/rhai` load — ahead of the BusyBox
+/// alias that claims every plain `bin` name — while data files without the
+/// `.ELF` suffix never shadow an applet and a real file at the path wins.
+pub fn linux_load_executable_prefers_root_elf() -> Result<(), String> {
+    fresh();
+    let busybox = minimal_elf();
+    install_exec_files(&[
+        ("/busybox", &busybox),
+        ("/RHAI.ELF", b"rhai-program"),
+        ("/PASSWD", b"root:0:0"),
+        ("/rhai2", b"exact-file"),
+        ("/TOOLONGNAME.ELF", b"too-long"),
+    ])?;
+    for name in ["rhai", "/bin/rhai", "/usr/local/bin/rhai", "/usr/bin/RHAI"] {
+        check!(
+            process::linux::load_executable(name) == Some(b"rhai-program".to_vec()),
+            "`{name}` did not resolve to /RHAI.ELF"
+        );
+    }
+    check!(
+        process::linux::load_executable("/RHAI.ELF") == Some(b"rhai-program".to_vec()),
+        "the exact image-root path did not load"
+    );
+    // The applet of the same name as a data file is untouched.
+    check!(
+        process::linux::load_executable("passwd") == Some(busybox.clone()),
+        "PASSWD shadowed the `passwd` applet"
+    );
+    check!(
+        process::linux::load_executable("ls") == Some(busybox.clone()),
+        "`ls` did not fall back to BusyBox"
+    );
+    check!(
+        process::linux::load_executable("/rhai2") == Some(b"exact-file".to_vec()),
+        "a real file at the exact path lost to the alias"
+    );
+    // Names longer than 8.3 cannot be FAT root files, so they never probe.
+    check!(
+        process::linux::load_executable("toolongname") == Some(busybox.clone()),
+        "a name longer than 8 characters was resolved at the image root"
+    );
+    // Misses: no ELF and no BusyBox means nothing to run.
+    install_exec_files(&[("/PASSWD", b"root:0:0")])?;
+    check!(
+        process::linux::load_executable("rhai").is_none(),
+        "`rhai` resolved with neither /RHAI.ELF nor BusyBox present"
+    );
+    check!(
+        process::linux::load_executable("/bin/passwd").is_none(),
+        "a data file was executed as an applet"
+    );
+    Ok(())
+}
+
+/// Soak: repeated resolution of root programs, applets and misses stays
+/// correct and leaks nothing (every `execvp` walks the whole `$PATH`).
+pub fn soak_linux_load_executable_repeated() -> Result<(), String> {
+    fresh();
+    let busybox = minimal_elf();
+    install_exec_files(&[("/busybox", &busybox), ("/RHAI.ELF", b"rhai-program")])?;
+    let path_dirs = ["/usr/local/bin", "/bin", "/usr/bin", "/sbin"];
+    // Warm-up absorbs one-time allocations so the steady state is compared.
+    let _ = process::linux::load_executable("rhai");
+    let frames_before = mem::frame_stats().live();
+    for round in 0..2000u32 {
+        let dir = path_dirs[round as usize % path_dirs.len()];
+        let rhai = alloc::format!("{dir}/rhai");
+        check!(
+            process::linux::load_executable(&rhai) == Some(b"rhai-program".to_vec()),
+            "round {round}: {rhai} did not resolve to /RHAI.ELF"
+        );
+        let ls = alloc::format!("{dir}/ls");
+        check!(
+            process::linux::load_executable(&ls) == Some(busybox.clone()),
+            "round {round}: {ls} did not resolve to BusyBox"
+        );
+        check!(
+            process::linux::load_executable("no.such").is_none(),
+            "round {round}: a dotted miss resolved"
+        );
+    }
+    let frames_after = mem::frame_stats().live();
+    check!(
+        frames_after <= frames_before,
+        "live frames grew from {frames_before} to {frames_after} over 2000 rounds"
+    );
+    Ok(())
+}
+
 /// Soak: many supervised Linux children spawn, exit and are reaped without
 /// leaking frames or task slots (a desktop session restarts its apps).
 pub fn soak_spawn_linux_child_generations() -> Result<(), String> {
@@ -289,6 +390,14 @@ pub(super) const CASES: &[(&str, Test)] = &[
     (
         "service_linux_load_executable_resolves_applets",
         linux_load_executable_resolves_applets,
+    ),
+    (
+        "service_linux_load_executable_prefers_root_elf",
+        linux_load_executable_prefers_root_elf,
+    ),
+    (
+        "service_soak_linux_load_executable_repeated",
+        soak_linux_load_executable_repeated,
     ),
     (
         "service_soak_spawn_linux_child_generations",

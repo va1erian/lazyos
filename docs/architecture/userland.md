@@ -82,6 +82,68 @@ and desktop Terminal); the kernel's `execve` runs them as a native child of the
 shell's fork child. `top` is not shipped in the `LAZYOS_DESKTOP=1` image (`not
 found` there). Details and limits: [processes.md](processes.md).
 
+**The `rhai` command** (issue #319, step R0 of the
+[Rhai plan](https://github.com/va1erian/lazyos/wiki/Rhai-in-LazyOS)). An
+ordinary static `x86_64-unknown-linux-musl` `std` program, not part of the OS
+workspace: `rhai-host/` (thin wrapper: argv, stdio, files, clock) around
+`libs/rhai-lazy/` (`no_std` + `alloc`, host-tested bindings against a mock
+filesystem/environment). `python tools/rhai/build.py` builds it (rust-lld
+self-contained on Windows, no C compiler; it reports "unavailable" and exits 0
+when the musl target cannot be installed) to `target/rhai/rhai.elf`; the root
+`build.rs` (`build_support/rhai_embed.rs`) embeds it as `RHAI.ELF` when present
+(`LAZYOS_RHAI` overrides; the ABI bench's `LAZYOS_INIT` skips it).
+
+- **Usage.** `rhai -e 'expr'` (prints the value unless `()`), `rhai script.rhai
+  [args]` (a `#!` first line is ignored), `rhai - [args]` (script from stdin),
+  bare `rhai` (REPL). Exit status: the script's `exit(n)`, else 0, or 1 on any
+  compile/runtime/I/O error, 2 on misuse. It reads stdin and writes
+  stdout/stderr, so `echo hi | rhai -e 'print(stdin_text())' | grep HI` works.
+  Kernel gaps that limit its use from `sh` today (all independent of `rhai`,
+  reproduced with BusyBox applets): a script cannot run through a `#!/bin/rhai`
+  line (`execve` has no shebang support, `chmod` is `ENOSYS`); command
+  substitution `$(...)` never returns; an external program's stdout redirected
+  to a file (`rhai -e ... > f`, `ls > f`) writes nothing (`os::write` and the
+  shell's own redirections work); and the interactive `sh` can die at an idle
+  prompt after several command lines. Use pipelines and `rhai script.rhai`.
+- **`os` module** (Rust-registered, also available as plain globals):
+  `args()`, `env(k)` / `env()`, `exit([n])` (not catchable), `clock()` (seconds
+  since start), `sleep(ms)`, `read(path)`, `write(path, text)`,
+  `ls(path)` -> `[#{name, size, kind}]`, `stdin_text()`. Failures are catchable
+  Rhai errors (`os::read: /x: No such file or directory (os error 2)`), never
+  panics. Every host-backed function is registered impure/volatile so the
+  optimizer never folds a call at compile time.
+- **Limits, on by default, flags `--max-*`:** 10 M operations, 32 nested calls
+  (flag ceiling 64; measured safe on the guest's 1 MiB main-thread stack), depth
+  64 / 32 expression levels, 4 MiB strings, 100 000 array/map entries, 4 MiB
+  per read (files, stdin, `ls` entries are capped *while* reading), `sleep` at
+  most one hour. `--sandbox` disables `eval` and `import`. A closed stdout
+  (`| head -1`) stops the script quietly. Rhai 1.26.1 does not attach a
+  position to built-in arithmetic errors (`1 / 0`); syntax errors and most other
+  runtime errors carry `(line, position)`.
+- **REPL.** LazyOS terminals are raw (the console returns one key per `read`
+  with no echo; the desktop Terminal writes into a pipe pair), so bare `rhai`
+  prompts and edits its own line (echo, Backspace, Ctrl-U, Ctrl-C, Ctrl-D,
+  Enter as `\n` or `\r`). Multi-line input continues while Rhai reports the text
+  as incomplete; `:history`, `!!` and `!N` give in-session history, `:reset`,
+  `:cancel`, `:help`, `:quit`. `rhai -q` is the plain-text form for pipes and
+  scripted runs (no banner, prompts or echo). `isatty` is not usable to pick
+  the mode: the shim reports every stdio fd as a terminal.
+- **Resolution.** `rhai` typed at `sh` (or `/usr/local/bin/rhai`, `/bin/rhai`)
+  is loaded from the image root `RHAI.ELF`: `load_executable`
+  (`kernel/src/process/linux/path.rs`) tries the exact path, then the
+  `<NAME>.ELF` of an applet-shaped name (at most 8 characters, mandatory
+  `.ELF`, so a data file such as `PASSWD` never shadows the `passwd` applet),
+  then the BusyBox alias. The `linux:` spawn path uses the same function.
+- **Feature set.** `rhai =1.26.1`, `default-features = false` (no `ahash`
+  runtime RNG, so no `getrandom`), `sync` off, no `no_*` language feature; no
+  `libc` dependency. Tests: `cargo test` in `libs/rhai-lazy` (bindings, limits,
+  REPL, failure paths) and `rhai-host` (CLI, line editor, REPL loops, bounded
+  reads); the guest run is `tools/screenshot/examples/rhai_demo.json` (serial
+  markers `RHAI:<name>:PASS|FAIL`, CI in `.github/workflows/rhai.yml`).
+  Release ELF: see the PR description for the stripped size and the image
+  delta. Out of scope here: Messenger bindings, the `Cmd` pipeline type, xui
+  bindings, and Rhai as login shell.
+
 The `init` manifest (`user/src/bin/init/state.rs`) declares dependencies and restart
 policy: `messengerd` is `Once` (bootstrap can be claimed once per boot), the
 rest `Always`, and rapid crashes back off up to `MAX_RESTARTS = 5`.

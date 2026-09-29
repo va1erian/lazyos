@@ -1,0 +1,30 @@
+[package]
+name = "rhai-host"
+version = "0.1.0"
+edition = "2021"
+publish = false
+license = "GPL-3.0-or-later"
+description = "The `rhai` command for LazyOS: a static-musl std host around libs/rhai-lazy (issue #319)"
+
+# A standalone workspace, like `xui-app`: the program builds for
+# x86_64-unknown-linux-musl via `tools/rhai/build.py` and is embedded in the
+# image as RHAI.ELF, so the OS workspace never resolves Rhai.
+[workspace]
+resolver = "2"
+
+[dependencies]
+rhai-lazy = { path = "../libs/rhai-lazy" }
+# No `libc`: everything the command needs is in `std` (files, stdio, clock,
+# sleep), which keeps the Linux-ABI surface it touches small and audited.
+
+[[bin]]
+name = "rhai"
+path = "src/main.rs"
+
+# Embedded in the disk image and read over slow boot-time ATA: size first.
+[profile.release]
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"

@@ -124,12 +124,42 @@ fn load_file_as(id: Id, path: &str) -> Result<Vec<u8>, FsError> {
     }
 }
 
-/// Load an executable for `execve`: the path itself, or — when a `$PATH`
-/// lookup names one of the synthetic `bin` directories LazyOS does not back
-/// with files — the basename at the image root. The executable store is the
-/// flat FAT root, so this is what lets `execvp("INIT.ELF")` find `/INIT.ELF`
-/// after trying `/usr/local/bin`, `/bin` and `/usr/bin`.
+/// The image-root program an applet-shaped name stands for: `rhai`,
+/// `/usr/local/bin/rhai` and `/bin/rhai` all mean `/RHAI.ELF` (issue #319).
+/// The FAT root only holds 8.3 names, so longer names never match, and the
+/// mandatory `.ELF` keeps data files (`PASSWD`, `HELLO.TXT`) from shadowing a
+/// BusyBox applet of the same name.
+fn root_elf_path(path: &str) -> Option<String> {
+    let base = applet_name(path)?;
+    (base.len() <= 8).then(|| format!("/{}.ELF", base.to_ascii_uppercase()))
+}
+
+/// Load an executable for `execve`. In order:
+///
+/// 1. the file at `path` itself;
+/// 2. for an applet-shaped name (`rhai`, `/bin/rhai`), the program of that
+///    name at the image root ([`root_elf_path`]) — this must precede the
+///    BusyBox alias, which would otherwise claim every plain name in a `bin`
+///    directory;
+/// 3. the BusyBox applet alias, and — when a `$PATH` lookup names one of the
+///    synthetic `bin` directories LazyOS does not back with files — the
+///    basename at the image root. The executable store is the flat FAT root,
+///    so this is what lets `execvp("INIT.ELF")` find `/INIT.ELF` after trying
+///    `/usr/local/bin`, `/bin` and `/usr/bin`.
 pub(super) fn load_executable(path: &str) -> Result<Vec<u8>, FsError> {
+    let id = Id::current();
+    match crate::fs::abi_read(id, path) {
+        Ok(elf) => return Ok(elf),
+        Err(FsError::NotFound) => {}
+        Err(error) => return Err(error),
+    }
+    if let Some(root) = root_elf_path(path) {
+        match crate::fs::abi_read(id, &root) {
+            Ok(elf) => return Ok(elf),
+            Err(FsError::NotFound) => {}
+            Err(error) => return Err(error),
+        }
+    }
     match load_file(path) {
         Ok(elf) => Ok(elf),
         Err(FsError::NotFound) => {

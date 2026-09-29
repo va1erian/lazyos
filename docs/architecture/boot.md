@@ -37,6 +37,7 @@ and ring-3 programs, packs them into an MBR + FAT boot disk, and launches QEMU.
 | `HELLO.TXT`, `NOTES.TXT` | inline strings | always |
 | `HELLO.ELF` | `user` bin | always |
 | `BUSYBOX` | `tools/abi/busybox.py` (`BUSYBOX`), the system shell | when built (else boot logs no shell; issue #254) |
+| `RHAI.ELF` | `tools/rhai/build.py` (`target/rhai/rhai.elf`), the `rhai` command; `sh` resolves `rhai` to it (issue #319) | when built (`$LAZYOS_RHAI` overrides); skipped by the ABI bench (`LAZYOS_INIT`) |
 | `MSGCTL.ELF`, `MSGRD.ELF` | `messengerctl`, `messengerd` | always on disk |
 | `SUPER.ELF`, `LOGD.ELF`, `HEALTHD.ELF`, `KEYD.ELF`, `CLIPD.ELF` | services | always on disk; `init` starts them |
 | `FLAKY.ELF`, `CLIPCP.ELF`, `CLIPPS.ELF` | crash/clipboard evidence programs | embedded, but `init` only starts them outside the desktop profile |
@@ -49,6 +50,7 @@ and ring-3 programs, packs them into an MBR + FAT boot disk, and launches QEMU.
 | `XTERM.ELF`, `XSYSMON.ELF`, `XFABMON.ELF`, `XCOUNTR.ELF`, `XAPPS.LST` | `$LAZYOS_XUI_APPS` (path list; `;` on Windows, `:` elsewhere), or the desktop default set when unset | each app under its 8.3 name; `XAPPS.LST` lists them (and which `autostart`) for `init`'s registry (#215/#216) |
 | `INIT.ELF` | `$LAZYOS_INIT` | ABI bench hook |
 | `BUSYBOX` | `$LAZYOS_BUSYBOX` | Linux shim demo |
+| `RHAI.ELF` | `$LAZYOS_RHAI` | the `rhai` command (auto-embedded from `target/rhai/rhai.elf`) |
 
 FAT names are 8.3 because the kernel FAT reader resolves short names only
 (`kernel/src/fs/fat.rs`).
