@@ -1,300 +1,212 @@
-# LazyOS Configuration Registry — a Messenger-native ODM/registry plan
+# LazyOS Configuration Registry — `regd` (v1: simple, v2: deferred features)
 
-**One line:** a single, schema-typed, versioned configuration and object
-database — `regd` — reachable only through Messenger, that plays the role the
-Windows Registry plays for Win32 and the ODM plays for AIX: the one place
-system services, drivers, and apps store structured settings and discover
-each other's configuration, with transactional writes, history, and
-capability-checked access instead of ambient files.
+**One line:** `regd` is a small userspace service that stores typed
+key/value configuration in a hierarchical path tree, reachable only through
+Messenger, and tells subscribers when a value changes. It is the Windows
+Registry / ODM idea reduced to what LazyOS needs today.
 
-This is a focused plan alongside [`messenger.md`](messenger.md),
-[`security-model.md`](security-model.md), and the relevant stage in
-[`platform-plan.md`](platform-plan.md). It assumes Messenger's sync/async
-fabric and the writable ext2 + VFS already described there.
+Companion to [`messenger.md`](messenger.md),
+[`security-model.md`](security-model.md), and
+[`platform-plan.md`](platform-plan.md). It assumes Messenger sync calls and
+the writable ext2 + VFS already exist.
 
----
-
-## 1. Why LazyOS needs this (and what "comparable to ODM/Registry" means)
-
-Both prior art points solve the same problem: **many independent components
-need typed, structured, queryable configuration, with a stable API, instead of
-each one inventing its own text file and parsing convention.**
-
-| System | Storage model | Access | Versioning |
-|---|---|---|---|
-| Windows Registry | hierarchical hive of keys/values, typed (`REG_DWORD`, `REG_SZ`, `REG_BINARY`, ...) | Win32 `Reg*` API, ACLs per key | none built-in; apps roll their own |
-| AIX ODM | flat-file "object classes" (schema'd C-struct-like records) queried like a tiny relational store | `odmget`/`odmadd`/liboodm C API | none built-in |
-| **LazyOS `regd` (this plan)** | hierarchical **paths** of typed, schema-validated **records**, backed by an object store on ext2 | **Messenger interface only** — sync calls + pub/sub change topics | **built-in**: every write is a new generation, readable by generation or "current" |
-
-What we take from each:
-
-- From the **Registry**: hierarchical namespace (`HKLM`-style trees), typed
-  values, per-key ACLs, "watch this key for changes" semantics.
-- From **ODM**: schema'd records (not just scalar values) queried by
-  predicate, and a clean separation between the *object classes* (schema) and
-  the *objects* (data) so services can define their own schemas without
-  kernel/daemon changes.
-- New, because LazyOS starts from a capability system instead of decades of
-  ambient-trust compatibility: **no ambient filesystem access to config at
-  all** — everything is mediated by Messenger calls against handles, and every
-  mutation is versioned so `regd` itself becomes the audit log.
+**Scope split.** §1–§5 describe **v1**, which is deliberately minimal. Every
+feature we considered and cut is collected in **§6 (v2)** so nothing is lost;
+v1 must not grow into it.
 
 ---
 
-## 2. Design stance
+## 1. v1 goals and non-goals
 
-| Concern | Choice | Why |
-|---|---|---|
-| Mediation point | **Userspace service (`regd`) over Messenger, backed by ext2** | Keeps the kernel mechanism-only (per platform-plan §1.6); `regd` can evolve schemas/compaction without kernel changes. |
-| Namespace | **Hierarchical paths**, e.g. `sys/net/if/eth0`, `user/<uid>/shell/prefs` | Familiar (Registry-like), sorts/prefixes naturally for ACLs and enumeration. |
-| Data model | **Schema'd records** (named, typed fields), not raw blobs | ODM-style: self-describing, diffable, validated on write. |
-| Versioning | **Append-only generations per key**, current pointer + history | Every write is atomic and reversible; matches "versioned" requirement directly. |
-| Durability | **Write-ahead log + snapshot on ext2**, fsync on commit | Config loss on crash is unacceptable; small enough dataset that WAL is cheap. |
-| Access | **Messenger interface only** (`os.lazy.regd.v1`), no direct file access | Matches "reachable using Messenger"; lets the kernel/`messengerd` stamp identity and enforce ACLs per path. |
-| Change notification | **Pub/sub topics** mirroring the path tree | Services react to config changes (Registry has no native equivalent; this is closer to `gconf`/`dconf`/systemd `PropertiesChanged`, adapted to Messenger). |
-| Security | **Per-path ACLs + kernel-stamped identity**, default-deny like the rest of Messenger | Consistent with `security-model.md`; a sandboxed app cannot read another app's or another user's subtree unless granted. |
+Goals:
 
----
+- One place for services and apps to keep structured settings instead of each
+  inventing a text file and parser.
+- Reachable only via Messenger (no direct file access to the store).
+- Survives reboots and crashes without corrupting the store.
+- Services can react to changes (pub/sub).
 
-## 3. Data model
-
-### 3.1 Schemas ("object classes", ODM-style)
-
-A schema declares a record type once; `regd` validates every write against it.
-
-```
-schema net.lazy.registry.schema.v1 "sys.net.iface" {
-  1: string   name;          // "eth0"
-  2: bool     dhcp;
-  3: bytes4   static_addr;   // optional, present if !dhcp
-  4: u32      mtu = 1500;    // default
-  5: string   driver;
-}
-```
-
-- Schemas are themselves records under `sys/regd/schema/<name>` — self-hosting,
-  like ODM's `PdAt`/`PdDv` predefined classes, but introspectable through the
-  same API used for data.
-- Field IDs are stable and append-only (mirrors Messenger's method-id rule in
-  `messenger.md` §3), so old readers can skip unknown fields and schemas can
-  gain fields without breaking existing records.
-- A schema can mark fields `required`, give a `default`, and reference an enum
-  (backed by Messenger's existing TLV primitive types).
-
-### 3.2 Keys, records, and generations
-
-- A **key** is identified by its **path alone** (`sys/net/if/eth0`); a path
-  holds at most one key. Each generation carries its own `schema_id`, so a
-  key's schema can change across generations (e.g. migrating from
-  `sys.net.iface` to `sys.net.iface.v2` in place) without changing its
-  identity. A breaking schema change that must coexist with the old shape
-  during rollout uses a **different path** (or a versioned path segment,
-  e.g. `sys/net/if/eth0@v2`) rather than two schemas sharing one path.
-- A key holds a linked list of **generations**: `(gen: u64, schema_id,
-  writer: Credentials, ts, parent_gen, record_bytes, comment)`.
-- **Current** always points at the latest committed generation; reads default
-  to current but can pin an explicit `gen`.
-- A generation is immutable once committed — "editing" a key creates
-  `gen+1`; this gives versioning for free and makes `regd` double as the
-  config audit trail required by `security-model.md`'s auditing goals.
-- **Compaction**: a background policy (configurable per subtree, e.g.
-  "keep last 32 generations or 30 days") folds old generations into a
-  snapshot so history doesn't grow unbounded; compaction itself is a logged
-  operation, never silent data loss of the *current* value.
-
-### 3.3 Storage layout on ext2
-
-```
-/system/regd/
-  wal/                 -- write-ahead log segments, replayed on boot
-  objects/<hash2>/<key-hash>.rec   -- one file per key, log of generations (append-only)
-  schema/<name>.schema             -- compiled schema blobs
-  snapshot.idx                     -- path -> object file + current-gen index, rebuilt from WAL if stale
-```
-
-`regd` owns this directory exclusively; nothing else is granted a handle to
-it, so the *only* way to reach configuration is the Messenger interface —
-enforced the same way `xuid` is the only process with grants to the display
-hardware.
+Non-goals for v1 (all moved to §6): schemas, versioning/history, CAS,
+per-path ACLs, audit trail, compaction, queries, quotas, `keyd` delegation.
 
 ---
 
-## 4. Messenger interface
+## 2. Design
 
-Interface `os.lazy.regd.v1`, exposed as one root object obtained from
-`messengerd` by service name `os.lazy.regd`.
+| Concern | v1 choice |
+|---|---|
+| Mediation | Userspace service `regd` over Messenger; kernel stays mechanism-only. |
+| Namespace | Hierarchical paths: `sys/net/eth0/mtu`, `user/1000/shell/theme`. |
+| Data model | One **value** per path: `bool`, `i64`, `u64`, `string`, or `bytes`. No records, no schemas. Structure comes from the path tree (`.../eth0/dhcp`, `.../eth0/mtu`). |
+| Persistence | The whole tree in memory; on every write, serialize to `/system/regd/store.tmp`, fsync, rename over `/system/regd/store`. Rename is atomic, so a crash leaves the old or the new store, never a torn one. Config is small; this is fast enough. |
+| Access | Messenger interface `os.lazy.regd.v1` only. `regd` alone holds a handle to `/system/regd`. |
+| Notification | One Messenger topic per changed path. |
+| Access control | Two fixed rules using the kernel-stamped `uid` (see §4). |
+
+---
+
+## 3. Messenger interface
+
+`os.lazy.regd.v1`, root object resolved from `messengerd` as `os.lazy.regd`.
 
 ```
 interface os.lazy.regd.v1 {
-  // CRUD, schema-validated
-  Get(path, gen: optional<u64>) -> (record, schema_id, gen, writer_cred, ts);
-  Put(path, schema_id, record, expected_gen: optional<u64>, comment) -> (new_gen);
-  Delete(path, expected_gen: optional<u64>) -> (tombstone_gen);
-
-  // Enumeration / query (ODM-style predicate query). Each stream is filtered
-  // to paths the caller holds READ on before being returned; a caller with
-  // READ on a parent path does NOT thereby see private descendants.
-  List(path_prefix, recursive: bool) -> (stream of path);
-  Query(path_prefix, schema_id, predicate) -> (stream of (path, record));
-
-  // History (per key) and audit replay (per subtree, MANAGE + WATCH required)
-  History(path, limit) -> (stream of (gen, writer_cred, ts, comment));
-  AuditReplay(subtree, after_seq: u64, limit) ->
-      (stream of (path, gen, seq, writer_cred, ts, comment));
-  Revert(path, to_gen, expected_gen: optional<u64>) -> (new_gen); // creates a new gen copying an old one
-
-  // Schema management
-  RegisterSchema(schema_def) -> (schema_id);
-  GetSchema(schema_id | name) -> (schema_def);
-
-  // ACL management (delegated, not ambient)
-  SetAcl(path, acl) -> ();     // caller must hold MANAGE right on path
-  GetAcl(path) -> (acl);
+  Get(path)              -> (value);          // NOT_FOUND if absent
+  Set(path, value)       -> ();               // creates or overwrites
+  Delete(path)           -> ();               // deleting an absent path is OK
+  List(path_prefix)      -> (stream of path); // all paths under the prefix
 }
 
-// Pub/sub, mirrors the path tree as Messenger topics:
-//   topic "regd/changed/<path>"            -- retained, latest generation summary
-//   topic "regd/changed/<subtree>/#"       -- wildcard subscribe to a whole subtree
-// payload: (path, old_gen, new_gen, writer_cred, ts)
+// Pub/sub
+//   topic "regd/changed/<path>"   payload: (path, new_value | deleted)
+//   topic "regd/changed/<subtree>/#"   wildcard for a whole subtree
 ```
 
-- `expected_gen` gives **optimistic concurrency** (compare-and-swap) on `Put`,
-  `Delete`, and `Revert`: when present, the call fails with `REGD_CONFLICT`
-  unless it matches the key's current generation, and the caller re-reads.
-  Omitting it means an unconditional (blind) write: `Put` creates the key if
-  absent or overwrites current otherwise; `Delete` removes whatever is
-  current; `Revert` always compares against current internally when
-  `expected_gen` is given, and otherwise reverts blindly. Callers that must
-  not race (most production writers) always pass `expected_gen`. To create a
-  key only if it does not already exist, callers pass the reserved value
-  `expected_gen = 0` (no real generation is ever numbered 0; the first
-  committed generation is 1): `Put` then fails with `REGD_CONFLICT` if any
-  generation already exists, so two racing creators can't both "win".
-- `Query` reuses Messenger's existing parcel/TLV machinery for the predicate
-  (field == value, range, prefix match on string fields) — no new query
-  language, just structured filters over typed fields, matching ODM's
-  `SQL`-lite `odmget -q` without inventing SQL.
-- Everything is a normal Messenger transaction, so it inherits deadlines,
-  cancellation, and the existing introspection (`ListServices`,
-  `GetInterface`) for free — a `regctl` CLI is just another Messenger client.
+- `Set` and `Delete` are applied and persisted before the call returns; the
+  change topic is published after the persist succeeds.
+- `List` returns only paths the caller is allowed to read (§4).
+- Limits, to keep `regd` bounded: path ≤ 256 bytes, value ≤ 4 KiB, total
+  store ≤ 1 MiB. Exceeding a limit returns `REGD_TOO_LARGE`.
+- Path validation: segments are `[a-z0-9_.-]+`, separated by `/`, no empty
+  segments, no `..`. Anything else returns `REGD_BAD_PATH`.
+- Writes are last-writer-wins. Callers that need read-modify-write must
+  tolerate that in v1 (see §6 for CAS).
+
+A `regctl` CLI (`get`, `set`, `delete`, `list`, `watch`) is just another
+Messenger client.
 
 ---
 
-## 5. Security model integration
+## 4. Access control (v1)
 
-Following `security-model.md`'s default-deny stance:
+Just two rules, checked against the `uid` Messenger already stamps on each
+call:
 
-- Every path carries an **ACL**: `{owner, group, world} x {READ, WRITE,
-  MANAGE, WATCH}`, checked against the kernel-stamped `uid/gid/label` on each
-  call — the same credential struct Messenger already stamps, no new identity
-  mechanism.
-- Well-known subtrees get fixed default ACLs at first boot (seeded by
-  `regd`'s own schema, so the policy is inspectable, not hardcoded logic):
-  - `sys/**` — root-writable, world-readable (device/driver/network config).
-  - `user/<uid>/**` — that user read/write, root read (per-user prefs, like
-    `HKCU`).
-  - `secrets/**` — **not stored in `regd` at all**; delegate to `keyd`
-    (per `messenger.md` §1's "secrets never in the kernel [or general
-    config store]" stance) and store only a **non-authorizing identifier**
-    (an opaque `keyd` key name, not a Messenger handle and not itself a
-    capability) in `regd`. Since `sys/**` is world-readable by default, this
-    identifier must not grant anything on its own: `keyd` re-checks the
-    caller's identity/ACL on every operation it serves, exactly like `regd`
-    does for its own paths, so reading the identifier out of `regd` gives no
-    more access than knowing a secret's name.
-- `regd` itself runs as an unprivileged service holding only the ext2
-  subtree grant it needs — it has no more ambient power than any other
-  service; its authority is entirely "the process that `messengerd` resolves
-  `os.lazy.regd` to."
-- All mutations are attributed (`writer_cred` on every generation) and
-  streamed to `auditd` via the normal `regd/changed/#` topic — configuration
-  changes become part of the system audit log automatically, not a
-  bolt-on. This live topic is a *notification*, not the audit record itself:
-  it carries only the latest-generation summary and is best-effort like any
-  Messenger topic. The durable audit trail is `History`, which is retained
-  independently of the topic and of the compaction policy — a key's
-  generations are not eligible for compaction until `auditd` has
-  acknowledged consuming them (tracked as a low-water mark per subtree), and
-  `auditd` reconciles by diffing that mark against `History` on restart to
-  pick up anything missed while it was offline. This makes audit
-  completeness a property of `History` + the compaction low-water mark, not
-  of the pub/sub topic's delivery guarantees. The acknowledgment frontier is
-  a **per-subtree monotonic sequence number** (`regd` assigns every
-  committed generation, across all keys in that subtree, the next number in
-  one global-per-subtree counter — not a per-key `(path, gen)` vector, which
-  would need one cursor per key). `auditd` replays with
-  `AuditReplay(subtree, after_seq, limit)`, which returns the next `limit`
-  generations in sequence order starting after `after_seq`; it advances its
-  cursor to the highest `seq` returned and repeats until a page comes back
-  short, then acknowledges up to that point. This gives `auditd` a single
-  ordered cursor per subtree that can always resume exactly where it left
-  off, with no generation skipped or double-counted.
+- `sys/**` — anyone can read, only uid 0 can write.
+- `user/<uid>/**` — only that user (and uid 0) can read or write.
+- Any other top-level path is rejected (`REGD_BAD_PATH`).
+
+`regd` runs unprivileged with only the `/system/regd` grant. Secrets do not go
+in `regd` in v1; use `keyd` directly.
 
 ---
 
-## 6. Failure modes and guarantees
+## 5. Failure modes, rollout, testing
 
-- **Crash during write:** WAL replay on `regd` startup either completes or
-  discards the in-flight write; `Get` never observes a torn record — same
-  durability bar as the ext2 journal work in `platform-plan.md`.
-- **Two writers race:** resolved via `expected_gen` CAS; no lost updates.
-- **Schema evolution:** additive-only at the wire level (new optional fields);
-  a breaking change ships as a new schema name/version (`sys.net.iface.v2`)
-  and `regd` can host both while services migrate — mirrors how Messenger
-  interfaces are versioned (`messenger.md` §3).
-- **regd itself crashes/restarts:** stateless from the client's point of view
-  — handles are Messenger handles, not regd-internal state; a client just
-  reconnects and re-resolves `os.lazy.regd` via `messengerd`, exactly like
-  any other service restart.
+**Failure modes**
+
+- *Crash during write:* atomic rename (§2) means the store is always either
+  the previous or the new complete version. A leftover `store.tmp` is deleted
+  on startup.
+- *regd restarts:* clients reconnect and re-resolve `os.lazy.regd` like any
+  other service; there is no per-client state. Subscribers should re-`Get`
+  after reconnecting, since change topics are best-effort.
+- *Corrupt store file:* `regd` starts empty, logs to `logd`, and keeps the bad
+  file as `store.corrupt` for inspection.
+
+**Rollout**
+
+1. `regd` in-memory with `Get`/`Set`/`Delete`/`List` and change topics.
+2. Persistence (atomic-rename store) and the uid rules from §4.
+3. `regctl` CLI, then migrate existing ad hoc config (network, xuid/display,
+   accounts prefs) onto `regd`.
+
+**Testing** (per AGENTS.md, even though `regd` is userspace): correctness
+tests for path validation, limits, permission rules, and persist/reload;
+a soak test with many rapid `Set`s and induced crashes between write and
+rename to confirm the store never tears.
 
 ---
 
-## 7. Staged rollout
+## 6. v2 and later (deferred from v1)
 
-Fits after Messenger core + writable ext2/VFS land (see `platform-plan.md`
-§5 stages); proposed as its own stage, call it **S-regd**, sequenced once a
-sync Messenger call and a writable filesystem both exist:
+Everything below was in the earlier draft of this plan and is intentionally
+**not** in v1. Ordering is roughly by expected value; each item is
+independent unless noted.
 
-1. **Bootstrap:** `regd` skeleton service, in-memory only, `Get`/`Put`/`List`
-   over Messenger, no persistence, no ACLs (dev-mode). Proves the interface
-   shape.
-2. **Persistence:** WAL + object files on ext2, generations, `History`/
-   `Revert`. Kernel test suite gains a `regd`-adjacent correctness + soak
-   suite per AGENTS.md's testing requirement (many rapid `Put`s/generations,
-   crash-and-replay simulation, concurrent CAS races).
-3. **Schemas:** `RegisterSchema`/`GetSchema`, validation on `Put`, `Query`
-   predicates.
-4. **ACLs + audit:** per-path ACLs, kernel-credential enforcement, `auditd`
-   topic wiring, secrets delegation to `keyd`.
-5. **Migration:** move existing ad hoc config (network config, xuid/display
-   settings, accounts prefs) from whatever flat files they use today onto
-   `regd`, seeding default schemas/ACLs; add `regctl` CLI for interactive
-   inspection (`regctl get`, `regctl history`, `regctl watch`).
-6. **Compaction + quotas:** background generation pruning policy, per-user
-   storage quotas, `regd` health/metrics exposed the same way `healthd`
-   expects (per `platform-plan.md` §4's observability pillar).
+### 6.1 Schemas (ODM-style object classes)
 
-Steps 2–4 each need both correctness and stress tests before being called
-done, per AGENTS.md's kernel-component testing requirement, even though
-`regd` is a userspace service — the same soak-testing discipline (many
-generations, concurrent writers, WAL replay under induced crashes) applies
+- Typed, named-field records validated on write, instead of scalar values.
+  Field IDs are stable and append-only (like Messenger method IDs) so schemas
+  can gain fields without breaking old records; fields can be `required`,
+  have defaults, or reference enums.
+- Schemas are themselves records under `sys/regd/schema/<name>`
+  (self-hosting, introspectable via the same API); `RegisterSchema` /
+  `GetSchema` calls. Open question: bootstrap of the schema-of-schemas vs.
+  compiling schemas into services at build time.
+- Each generation (6.2) would carry its own `schema_id`; a key is identified
+  by path alone, and a breaking schema change that must coexist with the old
+  shape uses a different path (or versioned segment like `eth0@v2`).
+
+### 6.2 Versioning and history
+
+- Append-only **generations** per key: `(gen, schema_id, writer, ts,
+  parent_gen, record, comment)`; current pointer plus history; reads can pin a
+  `gen`. Generations are immutable.
+- `History(path, limit)` and `Revert(path, to_gen)` (revert creates a new
+  generation copying an old one).
+- Storage: write-ahead log plus per-key object files and an index snapshot,
+  replacing v1's single-file atomic rename.
+- **Compaction:** per-subtree retention policy (e.g. last 32 generations or
+  30 days); compaction is itself logged and never drops the current value.
+
+### 6.3 Optimistic concurrency (CAS)
+
+- `expected_gen` on `Put`/`Delete`/`Revert`: fails with `REGD_CONFLICT` if it
+  doesn't match the current generation. Omitted means blind write.
+- `expected_gen = 0` means create-only-if-absent (the first real generation
+  is 1), so racing creators can't both win.
+- Requires 6.2.
+
+### 6.4 Per-path ACLs
+
+- ACL per path: `{owner, group, world} x {READ, WRITE, MANAGE, WATCH}`,
+  checked against the kernel-stamped `uid/gid/label`; `SetAcl`/`GetAcl` (needs
+  MANAGE).
+- Default ACLs for well-known subtrees seeded from `regd`'s own data so
+  policy is inspectable: `sys/**` root-writable/world-readable, `user/<uid>/**`
+  owner rw + root r.
+- `List`/`Query` filter results per path; READ on a parent does not reveal
+  private descendants.
+
+### 6.5 Audit trail
+
+- Every generation records `writer_cred`; changes are streamed to `auditd`
+  via `regd/changed/#`, but that topic is only a best-effort notification.
+- The durable record is `History`. Generations are not compactable until
+  `auditd` acknowledges them, tracked as a **per-subtree monotonic sequence
+  number** assigned to every committed generation.
+- `AuditReplay(subtree, after_seq, limit)` returns the next generations in
+  order; `auditd` advances its cursor to the highest `seq` returned, repeats
+  until a page comes back short, then acknowledges. Gives one resumable
+  cursor per subtree with nothing skipped or double-counted, including after
+  an `auditd` restart. Needs MANAGE + WATCH.
+- Requires 6.2 and 6.4.
+
+### 6.6 Secrets delegation to `keyd`
+
+- Store in `regd` only an opaque, **non-authorizing** `keyd` key name. Because
+  `sys/**` is world-readable, the identifier must grant nothing by itself:
+  `keyd` re-checks the caller's identity/ACL on every operation, so reading
+  the name out of `regd` gives no more access than knowing a secret's name.
+
+### 6.7 Query
+
+- `Query(path_prefix, schema_id, predicate)`: structured filters over typed
+  fields (equality, range, string prefix) reusing Messenger's parcel/TLV
+  machinery; no SQL. No cross-subtree joins (open question; leaning no).
+- Requires 6.1.
+
+### 6.8 Quotas, health, and storage layout
+
+- Per-user storage quotas; `regd` health/metrics exposed the way `healthd`
+  expects.
+- Open question: a separate store file per top-level subtree (`sys`,
+  `user/<uid>`) for independent backup/restore (leaning yes) vs. one global
+  store.
+
+### 6.9 v2 testing note
+
+Once versioning, WAL, and CAS land, add the heavier soak suite: many rapid
+`Put`s/generations, crash-and-replay simulation, and concurrent CAS races,
 because config corruption is a whole-system failure.
-
----
-
-## 8. Open questions
-
-- Should `List`/`Query` support cross-subtree joins (ODM's multi-class
-  queries), or is a single-subtree predicate scan enough for LazyOS's scale?
-  Leaning toward **no joins** initially — keep `regd` simple and let callers
-  compose.
-- Do per-user hives get a separate object store file (for cheap per-user
-  backup/restore, closer to how Windows hives are separate files) or share
-  one global object store keyed by path? Leaning toward **separate store
-  per top-level subtree** (`sys`, `user/<uid>`, ...) so a user's hive can be
-  backed up/restored independently.
-- Should schema definitions live in `regd` itself (self-hosting, as drafted
-  above) or be compiled into services at build time like Messenger
-  interfaces are? Self-hosting wins for runtime introspection (`regctl
-  schema sys.net.iface`) but needs care that `regd` can bootstrap its own
-  schema-of-schemas before any service registers one.
