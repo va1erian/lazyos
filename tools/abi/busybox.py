@@ -8,7 +8,9 @@ committed blob. `ensure_busybox()` returns a path to a static
 1. `tools/abi/busybox` — a binary dropped by hand (or by CI) for an offline run;
 2. `target/abi/busybox/busybox` — a cached build from a previous run;
 3. a fresh build from the pinned source tarball, when the host is Linux with
-   `musl-gcc` (and the Debian/Ubuntu `linux-libc-dev` headers) available.
+   `musl-gcc` (and the Debian/Ubuntu `linux-libc-dev` headers) available;
+4. the same build inside an Alpine container (Alpine's `gcc` is natively musl),
+   when Docker is running — this is what makes a Windows or macOS host work.
 
 The build is `defconfig` + `CONFIG_STATIC=y`, with the `tc` applet disabled (its
 kernel headers conflict on modern distros). If any step is unavailable the
@@ -38,11 +40,29 @@ BUILD_ROOT = ROOT / "target" / "abi" / "busybox"
 SOURCE = BUILD_ROOT / f"busybox-{VERSION}"
 OUTPUT = BUILD_ROOT / "busybox"
 MANUAL = ROOT / "tools" / "abi" / "busybox"
+# Container image for the Docker build. Alpine is musl-native, so a plain `gcc`
+# produces a static musl binary without `musl-gcc` or the Debian header dance.
+DOCKER_IMAGE = "alpine:3.20"
+# The image runs x86-64 guests, so an ARM host (Apple Silicon, Windows on Arm)
+# must not silently get the native ARM variant of the container.
+DOCKER_PLATFORM = "linux/amd64"
+# Upper bound for pull + `apk add` + compile; a stalled pull or a wedged build
+# must not block image provisioning forever.
+DOCKER_TIMEOUT_SECONDS = 1800
 
 # The host's kernel headers are not on musl's include path. These two Debian
 # locations supply `linux/*.h` and the `asm/*.h` it includes; a host without
 # them simply fails the build and reports BusyBox unavailable.
 EXTRA_CFLAGS = "-idirafter /usr/include -idirafter /usr/include/x86_64-linux-gnu"
+
+
+HINT = """busybox: no static BusyBox is available, so the image will have no /busybox
+and the desktop Terminal / console shell report TERM:SPAWN:FAIL. To fix it, either
+  * start Docker and re-run `python tools/abi/busybox.py` (builds the pinned release
+    tarball from busybox.net, verified by SHA-256, inside an Alpine container), or
+  * build it on Linux (or WSL) with musl-gcc + linux-libc-dev: python tools/abi/busybox.py, or
+  * copy any static x86_64-unknown-linux-musl busybox to tools/abi/busybox, or
+    point LAZYOS_BUSYBOX at it, then re-run `cargo build`."""
 
 
 def _cached() -> Path | None:
@@ -158,18 +178,98 @@ def _compile() -> bool:
     return (SOURCE / "busybox").is_file()
 
 
+def _docker_ready() -> bool:
+    """Whether a Docker engine is installed *and* answering (Docker Desktop can
+    be installed with its engine stopped)."""
+    if shutil.which("docker") is None:
+        return False
+    try:
+        return subprocess.run(
+            ["docker", "info"], capture_output=True, timeout=30
+        ).returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
+# Run inside the container: same recipe as `_configure`/`_compile`, with the
+# patches applied by `sed` because the host may have no `make` at all.
+_DOCKER_SCRIPT = (
+    "set -e; "
+    "apk add --no-cache build-base linux-headers perl >/dev/null; "
+    "make defconfig >/dev/null; "
+    "sed -i -e 's/^# CONFIG_STATIC is not set$/CONFIG_STATIC=y/' "
+    "-e 's/^CONFIG_TC=y$/# CONFIG_TC is not set/' .config; "
+    "make -j\"$(nproc)\" CC=gcc HOSTCC=gcc >/dev/null"
+)
+
+
+def _is_x86_64_elf(path: Path) -> bool:
+    """Whether `path` is an ELF64 executable for x86-64 (`e_machine` 0x3e)."""
+    with path.open("rb") as handle:
+        header = handle.read(20)
+    return len(header) == 20 and header[:5] == b"\x7fELF\x02" and header[18:20] == b"\x3e\x00"
+
+
+def _docker_compile() -> bool:
+    """Build the fetched source tree in an Alpine container (bind-mounted, so
+    the binary lands in `SOURCE` on the host)."""
+    name = f"lazyos-busybox-{os.getpid()}"
+    cmd = [
+        "docker", "run", "--rm", "--name", name,
+        f"--platform={DOCKER_PLATFORM}",
+        "-v", f"{SOURCE}:/src",
+        "-w", "/src",
+        DOCKER_IMAGE, "sh", "-c", _DOCKER_SCRIPT,
+    ]
+    print(f"busybox: building in a {DOCKER_IMAGE} ({DOCKER_PLATFORM}) container", file=sys.stderr)
+    try:
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=DOCKER_TIMEOUT_SECONDS
+        )
+    except subprocess.TimeoutExpired:
+        # `run` kills the client, not the container: remove it so a retry can
+        # reuse the name and no build keeps running in the background.
+        subprocess.run(["docker", "rm", "-f", name], capture_output=True)
+        print(f"busybox: docker build timed out after {DOCKER_TIMEOUT_SECONDS}s", file=sys.stderr)
+        return False
+    if result.returncode != 0:
+        print("busybox: docker build failed", file=sys.stderr)
+        print(result.stderr[-2000:], file=sys.stderr)
+        return False
+    built = SOURCE / "busybox"
+    if not built.is_file():
+        return False
+    if not _is_x86_64_elf(built):
+        # Never cache a wrong-architecture binary for an x86-64 image.
+        print("busybox: docker produced a non-x86-64 binary; discarding", file=sys.stderr)
+        built.unlink()
+        return False
+    return True
+
+
+def _build_native() -> bool:
+    return _fetch() and _configure() and _compile()
+
+
+def _build_docker() -> bool:
+    return _fetch() and _docker_compile()
+
+
 def ensure_busybox() -> Path | None:
     """Return a path to a static BusyBox, building it if the host allows."""
     cached = _cached()
     if cached is not None:
         return cached
-    if sys.platform != "linux":
-        return None
-    if shutil.which("musl-gcc") is None:
-        print("busybox: musl-gcc not found; reporting unavailable", file=sys.stderr)
+    native = sys.platform == "linux" and shutil.which("musl-gcc") is not None
+    if native:
+        build = _build_native
+    elif _docker_ready():
+        build = _build_docker
+    else:
+        print("busybox: no musl-gcc and no running Docker engine", file=sys.stderr)
         return None
     try:
-        if not _fetch() or not _configure() or not _compile():
+        if not build():
             return None
     except Exception as error:  # noqa: BLE001 - any tool failure is "unavailable"
         print(f"busybox: build unavailable: {error}", file=sys.stderr)
@@ -184,5 +284,6 @@ if __name__ == "__main__":
     path = ensure_busybox()
     if path is None:
         print("unavailable")
+        print(HINT, file=sys.stderr)
         raise SystemExit(1)
     print(path)

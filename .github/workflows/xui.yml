@@ -236,7 +236,7 @@ jobs:
           cargo build
           python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/desktop \
             --timeout 300 --script tools/screenshot/examples/xui_desktop.json \
-            --fail-on "(TERM|SYSMON|FABMON):(BIND|UP|RUN):FAIL" --fail-on "INIT:AUTOSTART:FAIL"
+            --fail-on "(TERM|SYSMON|FABMON):(BIND|UP|RUN):FAIL" --fail-on "TERM:SPAWN:FAIL" --fail-on "INIT:AUTOSTART:FAIL"
           for app in terminal sysmon fabricmon counter; do
             grep -q "INIT:AUTOSTART:PASS app=$app" shots/desktop/serial.log
           done

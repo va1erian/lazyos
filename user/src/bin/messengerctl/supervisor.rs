@@ -105,18 +105,21 @@ pub(crate) fn app_selftest() {
     };
     match services::fetch_apps(&endpoint) {
         Ok(apps) => {
-            let has_editor = apps
+            // `ListApps` returns only the apps this image ships, so assert the
+            // always-shipped rows (`top`, and this tool) with the path/verb the
+            // registry declares. `editor` and the other manifest rows are
+            // listed only when an image ships their ELF, so they are not
+            // required here.
+            let has_top = apps.iter().any(|app| {
+                app.id == "top" && app.path == "TOP.ELF" && app.verbs.iter().any(|v| v == "open")
+            });
+            let has_self = apps
                 .iter()
-                .find(|app| app.id == "editor")
-                .map(|app| app.verbs.iter().any(|verb| verb == "edit"))
-                .unwrap_or(false);
-            let has_top = apps
-                .iter()
-                .any(|app| app.id == "top" && app.path == "TOP.ELF");
-            if has_editor && has_top {
+                .any(|app| app.id == "messengerctl" && app.path == "MSGCTL.ELF");
+            if has_top && has_self {
                 sys::write_str(&format!("MSGCTL:APPS:PASS count={}\n", apps.len()));
             } else {
-                sys::write_str("MSGCTL:APPS:FAIL registry is missing editor/top\n");
+                sys::write_str("MSGCTL:APPS:FAIL registry is missing top/messengerctl\n");
             }
         }
         Err(error) => sys::write_str(&format!("MSGCTL:APPS:FAIL:{}\n", error.message())),
