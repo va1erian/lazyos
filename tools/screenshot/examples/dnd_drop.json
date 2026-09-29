@@ -12,5 +12,5 @@
   {"at": 15.3, "shot": "dragging"},
   {"at": 15.9, "mouse_up": "left"},
   {"at": 16.4, "shot": "dropped"},
-  {"at": 17.0, "quit": true}
+  {"at": 30.0, "quit": true}
 ]

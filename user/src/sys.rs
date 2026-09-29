@@ -411,6 +411,8 @@ pub mod display_op {
     pub const CREATE_BUFFER: u64 = 4;
     /// Map an existing shared buffer.
     pub const MAP_BUFFER: u64 = 5;
+    /// Close a shared buffer handle (unmaps it).
+    pub const CLOSE_BUFFER: u64 = 6;
 }
 
 /// The [`display_op::BIND`] output block, mirroring the kernel's seven words.
@@ -515,6 +517,18 @@ pub fn display_create_buffer(size: u64) -> Result<(u64, u64), i64> {
     let code = display_syscall(display_op::CREATE_BUFFER, size, words.as_mut_ptr() as u64);
     if code == 0 {
         Ok((words[0], words[1]))
+    } else {
+        Err(code)
+    }
+}
+
+/// Close a shared buffer created with [`display_create_buffer`]: unmaps it
+/// and releases the per-process buffer quota. The compositor's own reference
+/// keeps an attached surface's pixels alive until it detaches.
+pub fn display_close_buffer(handle: u64) -> Result<(), i64> {
+    let code = display_syscall(display_op::CLOSE_BUFFER, handle, 0);
+    if code == 0 {
+        Ok(())
     } else {
         Err(code)
     }
