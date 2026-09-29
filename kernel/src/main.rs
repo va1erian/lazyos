@@ -182,12 +182,19 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         // gets a decorated window over `os.lazy.display.v1`. No `xdemo` is
         // spawned, so the app is the first (and only) surface and is laid out
         // at the top-left corner.
-        #[cfg(all(xuid_demo, not(xui_app)))]
+        //
+        // Issues #215/#216: with `LAZYOS_XUI_APPS` too (`xui_desktop`), only
+        // `xuid` boots here; `init` launches the embedded apps from its
+        // registry, so a desktop session runs several of them (Terminal,
+        // System Monitor, ...) side by side.
+        #[cfg(all(xuid_demo, not(xui_app), not(xui_desktop)))]
         spawn_program("xuid", "XUID.ELF");
-        #[cfg(all(xuid_demo, not(xui_app)))]
+        #[cfg(all(xuid_demo, not(xui_app), not(xui_desktop)))]
         spawn_program("xdemo", "XDEMO.ELF");
-        #[cfg(all(xuid_demo, not(xui_app)))]
+        #[cfg(all(xuid_demo, not(xui_app), not(xui_desktop)))]
         spawn_program("xdemo", "XDEMO.ELF");
+        #[cfg(all(xuid_demo, xui_desktop, not(xui_app)))]
+        spawn_program("xuid", "XUID.ELF");
         #[cfg(all(xui_app, not(xui_client)))]
         spawn_linux_program("xapp", "XAPP.ELF");
         #[cfg(xui_client)]
@@ -203,7 +210,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         // running, since the token transfer needs the clipboard service. The
         // xui app owns the display grant, so the demo skips that image; with
         // 64 task slots (issue #204) it fits next to the services too.
-        #[cfg(all(xuid_demo, not(xui_app)))]
+        #[cfg(all(xuid_demo, not(xui_app), not(xui_desktop)))]
         spawn_program("dragdemo", "DRAGDMO.ELF");
 
         // Issue #167: the shell-protocol evidence client. The
@@ -211,7 +218,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         // untouched; when set it boots `shellprobe`, which creates the desktop
         // surface, subscribes to the shell events, and logs the
         // `SHELLPROBE:*:PASS` markers.
-        #[cfg(all(xuid_demo, shellprobe_demo, not(xui_app)))]
+        #[cfg(all(xuid_demo, shellprobe_demo, not(xui_app), not(xui_desktop)))]
         spawn_program("shellprobe", "SHELLPRB.ELF");
     }
 

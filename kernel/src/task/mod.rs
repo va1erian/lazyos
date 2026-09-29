@@ -58,12 +58,14 @@ use crate::mem;
 // two apart.
 use crate::process as user_process;
 
+mod linux_spawn;
 pub mod introspect;
 pub mod process;
 pub mod signal;
 pub mod switch;
 pub mod sys;
 pub mod wait;
+pub use linux_spawn::{spawn_linux, spawn_linux_child};
 
 /// Slots: 0 is the kernel (multiplexer), 1.. are user programs/threads.
 ///
@@ -670,63 +672,6 @@ fn spawn_in_space(
         output: Vec::new(),
         input: VecDeque::new(),
     });
-    Ok(index)
-}
-
-/// Create a Linux task from a static ELF image. Returns its slot index.
-pub fn spawn_linux(name: &'static str, elf: &[u8], argv0: &str) -> Result<usize, &'static str> {
-    let mut tasks = TASKS.lock();
-    let index = (1..MAX_TASKS)
-        .find(|&i| tasks[i].is_none())
-        .ok_or("no free task slot")?;
-
-    let pml4 = mem::new_user_table().ok_or("out of memory")?;
-    let (entry, stack_top) = match user_process::linux::load(pml4, elf, argv0) {
-        Ok(loaded) => loaded,
-        Err(err) => {
-            // A partially loaded image still owns its frames: release them.
-            mem::free_user_table(pml4);
-            return Err(err);
-        }
-    };
-
-    let top = kstack_top(index);
-    let rsp = build_user_frame(top, entry, stack_top);
-    let class = PriorityClass::Normal;
-    let pass = virtual_now(&tasks);
-
-    // Started by the kernel: root, and never a dead task's stale identity.
-    credentials::reset_for_task(index);
-    tasks[index] = Some(Task {
-        name,
-        kind: Kind::Linux,
-        pml4: pml4.as_u64(),
-        kstack_top: top,
-        rsp,
-        state: TaskState::Runnable,
-        class,
-        weight: class.default_weight(),
-        pass,
-        cpu_ticks: 0,
-        wake_reason: None,
-        clear_child_tid: 0,
-        parent: 0,
-        // Top-level Linux programs are their own group and session leader.
-        pgid: index,
-        sid: index,
-        exit_status: 0,
-        heap_break: 0,
-        fs_base: 0,
-        fds: new_fds(),
-        fd_flags: [0; FD_COUNT],
-        output: Vec::new(),
-        input: VecDeque::new(),
-    });
-    register_bumps(
-        pml4.as_u64(),
-        user_process::linux::BRK_BASE,
-        user_process::linux::MMAP_BASE,
-    );
     Ok(index)
 }
 

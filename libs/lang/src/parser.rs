@@ -2,7 +2,7 @@
 //!
 //! Precedence (low to high): `||`, `&&`, comparisons, `+ -`, `* / %`.
 
-use super::lexer::Tok;
+use crate::lexer::Tok;
 use alloc::boxed::Box;
 use alloc::format;
 use alloc::string::String;

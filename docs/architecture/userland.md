@@ -13,7 +13,7 @@
 | `user/src/sysinfo.rs`, `task_snapshot.rs` | Typed decoders for the syscall 14 system snapshot and the syscall 13 task snapshot |
 | `user/src/central.rs` | Topics client that routes service publishes through `messengerd`'s central broker (#169) |
 | `user/src/heap.rs` | Bump allocator over `sbrk` (see [allocators.md](allocators.md)) |
-| `user/src/lang/` | `lexer`, `parser`, `interp`, `value` for `SH.ELF` |
+| `libs/lang/` | `lexer`, `parser`, `interp`, `value`, `repl` (shell language shared by `SH.ELF` and the desktop Terminal) |
 | `user/src/messenger/` | Blocking Messenger client: endpoints, registry, topics, services |
 | `user/src/messenger_async.rs` | Futures, `Executor`/`block_on`, `Selector`, `service!` |
 | `user/src/bin/*` | Ring-3 programs; manifest in `user/Cargo.toml` |
@@ -64,7 +64,7 @@ See [processes.md](processes.md) and [display.md](display.md).
 
 | Binary | Image | Role | Started by |
 |---|---|---|---|
-| `init` / `messengerd` | `SUPER` / `MSGRD.ELF` | Supervisor (manifest, spawn/wait, restart backoff, app registry + `Launch`) / bootstrap registry proxy and topics broker | kernel / `init` |
+| `init` / `messengerd` | `SUPER` / `MSGRD.ELF` | Supervisor (manifest, spawn/wait, restart backoff, app registry + `Launch`; `XAPPS.LST` decides which registered apps the image ships, and `autostart` rows open at boot as the desktop's apps, #215/#216) / bootstrap registry proxy and topics broker | kernel / `init` |
 | `logd` / `healthd` | `LOGD` / `HEALTHD.ELF` | Hash-chained event log / retained `system/health/*` aggregation | `init` |
 | `keyd` / `accountsd` / `logind` | `KEYD` / `ACCTD` / `LOGIND.ELF` | Secrets and crypto (#102) / accounts (#101) / console login and credentialed spawn | `init` |
 | `clipboardd` / `mimed` / `flaky` | `CLIPD` / `MIMED` / `FLAKY.ELF` | Per-session clipboard (#115) / MIME and open-with (#116) / crash-test service (#93) | `init` |
