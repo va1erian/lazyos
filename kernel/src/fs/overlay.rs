@@ -75,7 +75,7 @@ impl Overlay {
     pub fn with_limits(lower: Arc<dyn Filesystem>, max_bytes: usize, max_nodes: usize) -> Overlay {
         Overlay {
             lower,
-            upper: RamFs::new(),
+            upper: RamFs::unbounded(),
             whiteouts: Mutex::new(BTreeSet::new()),
             max_bytes,
             max_nodes,

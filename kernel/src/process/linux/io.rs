@@ -9,7 +9,9 @@ use crate::ipc::pipe;
 use crate::task::{self, FdKind, WakeReason};
 use crate::user_ptr;
 
-use super::errno::{err, fs_err, EAGAIN, EBADF, EFAULT, EINTR, EINVAL, EMSGSIZE, ENOMEM, ENOTCONN, EPIPE};
+use super::errno::{
+    err, fs_err, EAGAIN, EBADF, EFAULT, EINTR, EINVAL, EMSGSIZE, ENOMEM, ENOTCONN, EPIPE,
+};
 use super::fd::{fd_meta_get, fd_meta_sync_len};
 use super::time::millis_to_ticks;
 
@@ -239,7 +241,7 @@ fn write_file(fd: u64, ptr: u64, len: u64) -> u64 {
     match crate::fs::abi_write(id, &path, offset, bytes) {
         Ok(written) => {
             if !task::fd_apply_write(fd as usize, offset as usize, &bytes[..written]) {
-                return err(EBADF);
+                return err(ENOMEM);
             }
             fd_meta_sync_len(fd as usize);
             written as u64

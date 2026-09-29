@@ -96,8 +96,6 @@ use core::arch::global_asm;
 use spin::Mutex;
 use x86_64::structures::idt::HandlerFunc;
 use x86_64::{PhysAddr, VirtAddr};
-use xmas_elf::program::{SegmentData, Type as ProgramType};
-use xmas_elf::ElfFile;
 
 use crate::ipc::credentials::{self, Cred, TransitionError};
 use crate::mem::vma::{Kind, Prot};
@@ -107,6 +105,9 @@ use crate::user_ptr;
 use crate::{fs, input::keyboard, mem};
 
 pub mod linux;
+pub mod loader;
+
+pub use loader::load_segments;
 
 /// Base of the user heap (grows up toward the stack).
 pub const USER_HEAP_BASE: u64 = 0x60_0000;
@@ -650,71 +651,9 @@ fn sys_args(buf_ptr: u64, buf_len: u64) -> u64 {
     args.len() as u64
 }
 
-/// Map a program's `PT_LOAD` segments into `table` and return its entry point.
-///
-/// Segments are mapped eagerly (their contents must exist before the program
-/// runs) with the protection the ELF header asks for: read always, write only
-/// for `PF_W`, execute only for `PF_X`. Each segment is recorded as a `File`
-/// VMA so `munmap`/`mprotect` and diagnostics see the same layout the hardware
-/// does.
-pub fn load_segments(table: PhysAddr, elf_bytes: &[u8]) -> Result<u64, &'static str> {
-    let elf = ElfFile::new(elf_bytes).map_err(|_| "not a valid ELF")?;
-    let entry = elf.header.pt2.entry_point();
-
-    let mut pages: Vec<(u64, u64)> = Vec::new();
-    for program_header in elf.program_iter() {
-        if program_header.get_type() != Ok(ProgramType::Load) {
-            continue;
-        }
-        let vaddr = program_header.virtual_addr();
-        let mem_size = program_header.mem_size();
-        let start = vaddr & !0xFFF;
-        let end = (vaddr + mem_size + 0xFFF) & !0xFFF;
-
-        let flags = program_header.flags();
-        let mut prot = Prot::READ;
-        if flags.is_write() {
-            prot = prot | Prot::WRITE;
-        }
-        if flags.is_execute() {
-            prot = prot | Prot::EXEC;
-        }
-
-        let mut va = start;
-        while va < end {
-            if phys_for(&pages, va).is_none() {
-                let phys = mem::alloc_zeroed_frame().ok_or("out of memory")?;
-                if !mem::map_page_in(table, VirtAddr::new(va), phys, mem::prot_flags(prot)) {
-                    return Err("failed to map segment");
-                }
-                pages.push((va, phys.as_u64()));
-            }
-            va += 4096;
-        }
-
-        let data = program_header
-            .get_data(&elf)
-            .map_err(|_| "bad segment data")?;
-        if let SegmentData::Undefined(file_bytes) = data {
-            for (i, &byte) in file_bytes.iter().enumerate() {
-                let va = vaddr + i as u64;
-                if let Some(phys) = phys_for(&pages, va) {
-                    let dst = mem::phys_to_virt(PhysAddr::new(phys)) + (va & 0xFFF);
-                    // Safety: within the freshly-mapped user page.
-                    unsafe { core::ptr::write_volatile(dst.as_mut_ptr::<u8>(), byte) };
-                }
-            }
-        }
-
-        mem::vma::insert(table, start, end, prot, Kind::File);
-    }
-
-    Ok(entry)
-}
-
 /// Load a static ELF64 image and map the native user stack.
 pub fn load_image(table: PhysAddr, elf_bytes: &[u8]) -> Result<u64, &'static str> {
-    let entry = load_segments(table, elf_bytes)?;
+    let entry = load_segments(table, elf_bytes, &[(USER_HEAP_BASE, USER_STACK_TOP)])?;
     map_range_kind(
         table,
         USER_STACK_TOP - USER_STACK_SIZE,

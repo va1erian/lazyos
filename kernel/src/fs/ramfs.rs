@@ -16,6 +16,13 @@ use super::vfs::{DirEntry, FileKind, Filesystem, FsError, Id, Meta, S_IFDIR, S_I
 /// The root directory's inode. Inodes are allocated upward from here.
 const ROOT_INO: u64 = 1;
 
+/// Default cap on the file bytes one ramfs holds (4 MiB of the 16 MiB kernel
+/// heap). `/tmp` is shared by every user and backed by that heap, so without a
+/// cap one process could exhaust it and abort the kernel.
+pub const DEFAULT_MAX_BYTES: usize = 4 * 1024 * 1024;
+/// Default cap on live nodes (files, directories and the root).
+pub const DEFAULT_MAX_NODES: usize = 4096;
+
 /// One node: a file with contents, or a directory with children.
 struct Node {
     name: String,
@@ -53,6 +60,8 @@ struct Inner {
     bytes: usize,
     /// Number of live nodes (including the root), for the overlay's node cap.
     live: usize,
+    max_bytes: usize,
+    max_nodes: usize,
 }
 
 /// An in-memory filesystem; see the module docs.
@@ -61,8 +70,21 @@ pub struct RamFs {
 }
 
 impl RamFs {
-    /// A fresh filesystem with only the root directory (`0755 root:root`).
+    /// A fresh filesystem with only the root directory (`0755 root:root`) and
+    /// the default caps ([`DEFAULT_MAX_BYTES`], [`DEFAULT_MAX_NODES`]).
     pub fn new() -> RamFs {
+        RamFs::with_limits(DEFAULT_MAX_BYTES, DEFAULT_MAX_NODES)
+    }
+
+    /// A ramfs that enforces no cap of its own, for a layer (the overlay's
+    /// upper) whose owner does the accounting.
+    pub fn unbounded() -> RamFs {
+        RamFs::with_limits(usize::MAX, usize::MAX)
+    }
+
+    /// A ramfs with explicit caps; writes and creations past them fail with
+    /// [`FsError::NoSpace`]. Tests use tiny values.
+    pub fn with_limits(max_bytes: usize, max_nodes: usize) -> RamFs {
         let mut nodes = BTreeMap::new();
         nodes.insert(
             ROOT_INO,
@@ -82,6 +104,8 @@ impl RamFs {
                 nodes,
                 bytes: 0,
                 live: 1,
+                max_bytes,
+                max_nodes,
             }),
         }
     }
@@ -145,6 +169,49 @@ impl RamFs {
             .iter()
             .find(|&&child| inner.nodes[&child].name == name)
             .copied()
+    }
+
+    /// Whether one more node fits under the cap.
+    fn check_node_room(inner: &Inner) -> Result<(), FsError> {
+        if inner.live >= inner.max_nodes {
+            return Err(FsError::NoSpace);
+        }
+        Ok(())
+    }
+
+    /// Resize file `ino` to `new_len` bytes, charging the difference against
+    /// the byte cap first and reserving with `try_reserve_exact`, so running
+    /// out of heap is `ENOSPC` rather than an allocation-failure abort. The
+    /// accounting only moves once the allocation succeeded.
+    fn resize_file(inner: &mut Inner, ino: u64, new_len: usize) -> Result<(), FsError> {
+        let old_len = inner.nodes[&ino].data.len();
+        let total = inner.bytes - old_len;
+        match total.checked_add(new_len) {
+            Some(next) if next <= inner.max_bytes => {}
+            _ => return Err(FsError::NoSpace),
+        }
+        // INVARIANT: callers resolved `ino` under the same lock held here.
+        let node = inner.nodes.get_mut(&ino).expect("resolved inode exists");
+        if new_len > old_len {
+            node.data
+                .try_reserve_exact(new_len - old_len)
+                .map_err(|_| FsError::NoSpace)?;
+        }
+        node.data.resize(new_len, 0); // zero-fills a sparse gap
+        inner.bytes = total + new_len;
+        Ok(())
+    }
+
+    /// Whether `target` is `root` or lies anywhere below it.
+    fn is_within(inner: &Inner, root: u64, target: u64) -> bool {
+        let mut stack = alloc::vec![root];
+        while let Some(ino) = stack.pop() {
+            if ino == target {
+                return true;
+            }
+            stack.extend_from_slice(&inner.nodes[&ino].children);
+        }
+        false
     }
 
     /// Create a node and link it into its parent.
@@ -223,20 +290,16 @@ impl Filesystem for RamFs {
         if inner.nodes[&ino].kind != FileKind::File {
             return Err(FsError::IsDir);
         }
-        let Some(end) = offset.checked_add(data.len() as u64) else {
-            return Err(FsError::NoSpace);
-        };
-        let end = end as usize;
-        let old = inner.nodes[&ino].data.len();
-        if end > old {
-            inner.bytes += end - old;
+        let end = offset
+            .checked_add(data.len() as u64)
+            .and_then(|end| usize::try_from(end).ok())
+            .ok_or(FsError::NoSpace)?;
+        if end > inner.nodes[&ino].data.len() {
+            Self::resize_file(&mut inner, ino, end)?;
         }
         // INVARIANT: `ino` was just resolved above under this same lock, and
         // nothing else can remove it while we hold `inner`.
         let node = inner.nodes.get_mut(&ino).expect("resolved inode exists");
-        if end > node.data.len() {
-            node.data.resize(end, 0); // sparse writes zero-fill the gap
-        }
         node.data[offset as usize..end].copy_from_slice(data);
         Ok(data.len())
     }
@@ -248,21 +311,7 @@ impl Filesystem for RamFs {
             return Err(FsError::IsDir);
         }
         let size = usize::try_from(size).map_err(|_| FsError::NoSpace)?;
-        let old = inner.nodes[&ino].data.len();
-        if size >= old {
-            inner.bytes += size - old;
-        } else {
-            inner.bytes -= old - size;
-        }
-        // INVARIANT: `ino` was just resolved above under this same lock, and
-        // nothing else can remove it while we hold `inner`.
-        inner
-            .nodes
-            .get_mut(&ino)
-            .expect("resolved inode exists")
-            .data
-            .resize(size, 0);
-        Ok(())
+        Self::resize_file(&mut inner, ino, size)
     }
 
     fn create(&self, path: &str, mode: u16, owner: Id) -> Result<Meta, FsError> {
@@ -271,6 +320,7 @@ impl Filesystem for RamFs {
         if Self::child(&inner, parent, &name).is_some() {
             return Err(FsError::Exists);
         }
+        Self::check_node_room(&inner)?;
         Ok(Self::insert(
             &mut inner,
             parent,
@@ -287,6 +337,7 @@ impl Filesystem for RamFs {
         if Self::child(&inner, parent, &name).is_some() {
             return Err(FsError::Exists);
         }
+        Self::check_node_room(&inner)?;
         Ok(Self::insert(
             &mut inner,
             parent,
@@ -346,6 +397,19 @@ impl Filesystem for RamFs {
         let (from_parent, from_name) = Self::resolve_parent(&inner, from)?;
         let source = Self::child(&inner, from_parent, &from_name).ok_or(FsError::NotFound)?;
         let (to_parent, to_name) = Self::resolve_parent(&inner, to)?;
+
+        // Renaming a node onto itself (any two spellings of one path) is a
+        // no-op, not a replace: removing the "existing" node would remove the
+        // source.
+        if Self::child(&inner, to_parent, &to_name) == Some(source) {
+            return Ok(());
+        }
+        // A directory cannot move beneath itself: that would detach the
+        // subtree into a cycle unreachable from the root.
+        if inner.nodes[&source].kind == FileKind::Dir && Self::is_within(&inner, source, to_parent)
+        {
+            return Err(FsError::Invalid);
+        }
 
         // The destination may exist: a file replaces a file, a directory may
         // replace only an empty directory (POSIX would allow exactly this set).
