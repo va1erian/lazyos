@@ -8,7 +8,7 @@ present, plus the Linux `mmap`/`brk`/`mprotect`/`munmap` paths built on it.
 | Path | Role |
 |---|---|
 | `kernel/src/mem/vma.rs` | `Vma`, `Prot`, `Kind`, global per-PML4 registry, list ops |
-| `kernel/src/mem/mod.rs` | `demand_fault`, `cow_fault`, `unmap_range`, `protect_range` |
+| `kernel/src/mem/uspace.rs` | `demand_fault`, `cow_fault`, `unmap_range`, `protect_range` |
 | `kernel/src/arch/idt.rs:196` | `page_fault_dispatch`: COW -> demand-zero -> `SIGSEGV` |
 | `kernel/src/process/linux/mem.rs` | `sys_mmap`, `sys_munmap`, `sys_mprotect`, `sys_brk` |
 | `kernel/src/process/mod.rs:263` | Native `sbrk` (syscall 4) and VMA recording |
@@ -37,7 +37,7 @@ present, plus the Linux `mmap`/`brk`/`mprotect`/`munmap` paths built on it.
 | `protect` | splits at boundaries, sets `prot` on covered pieces, re-merges |
 | `list` | snapshot for diagnostics/tests (a future `/proc/self/maps`) |
 
-**Fault resolution** (`mem/mod.rs`)
+**Fault resolution** (`mem/uspace.rs`)
 
 - Page tables are the source of truth for what is present; the VMA list for what
   may become present. `demand_fault` consults it and only materializes
