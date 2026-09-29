@@ -29,11 +29,13 @@ mod delivery;
 mod hardening;
 mod linux_abi;
 mod suspend;
+mod sweep_space;
 
 pub(super) use delivery::*;
 pub(super) use hardening::*;
 pub(super) use linux_abi::*;
 pub(super) use suspend::*;
+pub(super) use sweep_space::*;
 
 pub(super) const CASES: &[(&str, Test)] = &[
     ("task_signal_block_unblock", block_unblock_pending),
@@ -79,4 +81,12 @@ pub(super) const CASES: &[(&str, Test)] = &[
         suspend_ignores_ignored_signals_and_is_per_task,
     ),
     ("task_signal_soak_suspend_cycles", soak_suspend_cycles),
+    (
+        "task_signal_sweep_frame_in_target_space",
+        sweep_frame_in_target_space,
+    ),
+    (
+        "task_signal_soak_sweep_space_isolation",
+        soak_sweep_space_isolation,
+    ),
 ];

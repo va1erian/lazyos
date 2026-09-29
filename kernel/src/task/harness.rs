@@ -168,3 +168,45 @@ pub fn expire_deadlines(now: u64) {
 pub fn take_wake_reason(index: usize) -> Option<WakeReason> {
     super::take_wake_reason(index)
 }
+
+/// Make `slot`'s saved frame look like a task preempted in user mode at
+/// `rip` with stack pointer `user_rsp` (the frame's `CS` already says ring 3
+/// for a spawned task). Returns whether the slot holds a task.
+pub fn set_user_frame(slot: usize, rip: u64, user_rsp: u64) -> bool {
+    let Some(frame) = frame_of(slot) else {
+        return false;
+    };
+    // SAFETY: `frame` is the interrupt frame `spawn_fork` built on the slot's
+    // own kernel stack; RIP and RSP sit at the timer-frame indices.
+    unsafe {
+        super::sys::put_frame_word(frame, super::signal::FRAME_RIP_INDEX, rip);
+        super::sys::put_frame_word(frame, super::signal::FRAME_RIP_INDEX + 3, user_rsp);
+    }
+    true
+}
+
+/// The registers `slot` would resume with, read from its saved frame.
+pub fn frame_regs(slot: usize) -> Option<super::signal::UserRegs> {
+    let frame = frame_of(slot)?;
+    // SAFETY: `frame` is an interrupt frame the kernel saved (see
+    // `set_user_frame`), so it has the timer-frame layout.
+    Some(unsafe { super::signal::regs_from_frame(frame, super::signal::FRAME_RIP_INDEX) })
+}
+
+/// The saved-frame pointer of `slot`.
+fn frame_of(slot: usize) -> Option<u64> {
+    TASKS.lock()[slot].as_ref().map(|task| task.rsp)
+}
+
+/// Run the scheduler's signal sweep once, exactly as a timer tick does:
+/// default actions and handler frames for every runnable task with a user
+/// frame, then the post-lock side effects (`SIGCHLD`, `wait4` wakeups).
+pub fn run_sweep() {
+    let (finished, count) = {
+        let mut tasks = TASKS.lock();
+        // SAFETY: `tasks` is the live table and every `Task::rsp` in it is a
+        // frame the kernel built (`spawn_*`) or saved (the scheduler ISRs).
+        unsafe { super::signal::sweep(&mut tasks) }
+    };
+    super::signal::finish_sweep(&finished[..count]);
+}
