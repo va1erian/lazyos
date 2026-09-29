@@ -165,6 +165,7 @@ pub(super) fn mounted_in(
     Ok((fs, vfs, disk))
 }
 
+pub(super) mod data_fds;
 mod fixtures;
 mod format_and_roundtrip;
 mod integrity;

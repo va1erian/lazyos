@@ -18,18 +18,46 @@ use crate::task::{self, Fd, FdKind};
 use super::errno::{err, fs_err, EBADF, EEXIST, EINVAL, EISDIR, ENOENT, ENOTDIR, EROFS};
 use super::fd::{fd_meta_get, file_meta, open_device_fd, open_snapshot};
 use super::uaccess::read_cstr;
+use super::vfsfd::open_vfs_fd;
 
 /// `openat(AT_FDCWD, ...)` sentinel.
 pub(super) const AT_FDCWD: u64 = (-100i64) as u64;
 
 /// `openat(2)` access mode mask.
 const O_ACCMODE: u64 = 0o3;
+const O_WRONLY: u64 = 0o1;
 /// `openat(2)` flag bits (Linux x86_64 values).
 const O_CREAT: u64 = 0o100;
 const O_EXCL: u64 = 0o200;
 const O_TRUNC: u64 = 0o1000;
 const O_APPEND: u64 = 0o2000;
 const O_DIRECTORY: u64 = 0o200000;
+
+/// How an `open` asked to use the file: the access mode plus `O_APPEND`.
+#[derive(Clone, Copy)]
+struct Access {
+    read: bool,
+    write: bool,
+    append: bool,
+}
+
+impl Access {
+    /// Decode `O_ACCMODE` (`O_RDONLY`=0, `O_WRONLY`=1, `O_RDWR`=2) and `O_APPEND`.
+    fn from_flags(flags: u64) -> Access {
+        Access {
+            read: flags & O_ACCMODE != O_WRONLY,
+            write: flags & O_ACCMODE != 0,
+            append: flags & O_APPEND != 0,
+        }
+    }
+
+    /// Read-only, as for a fabricated entry.
+    const READ_ONLY: Access = Access {
+        read: true,
+        write: false,
+        append: false,
+    };
+}
 
 /// A bare applet name in a `bin` directory (or with no directory) that isn't a
 /// real FAT file aliases to the BusyBox binary.
@@ -211,7 +239,20 @@ fn open_dir_fd(path: &str, meta: Meta) -> u64 {
 
 /// Snapshot a file and open it with the requested access mode. Writable
 /// descriptors record the backing path so `write(2)` reaches the ABI VFS.
-fn open_file_fd(id: Id, path: &str, meta: Meta, writable: bool, append: bool) -> u64 {
+fn open_file_fd(id: Id, path: &str, meta: Meta, mode: Access) -> u64 {
+    if crate::fs::abi_persistent(path) {
+        // The durable volume is read and written in place, never snapshotted.
+        // Nothing reads the file here, so the read permission a snapshot open
+        // gets for free from loading it has to be checked explicitly (write
+        // permission already was, by the caller).
+        if mode.read {
+            if let Err(error) = crate::fs::abi_check(id, path, vfs::READ) {
+                return fs_err(error);
+            }
+        }
+        return open_vfs_fd(path, mode.read, mode.write, mode.append);
+    }
+    let (writable, append) = (mode.write, mode.append);
     match load_file_as(id, path) {
         Ok(data) => open_snapshot(data, file_meta(meta, String::from(path), writable, append)),
         Err(error) => fs_err(error),
@@ -237,7 +278,7 @@ fn open_path(path: &str, flags: u64, mode: u64) -> u64 {
     let create = flags & O_CREAT != 0;
     let exclusive = flags & O_EXCL != 0;
     let truncate = flags & O_TRUNC != 0;
-    let append = flags & O_APPEND != 0;
+    let access = Access::from_flags(flags);
     let directory = flags & O_DIRECTORY != 0;
     // A missing mode argument (the legacy `open` dispatch and tests) defaults
     // to the usual 0o666; musl passes the caller's mode through `openat`.
@@ -256,7 +297,7 @@ fn open_path(path: &str, flags: u64, mode: u64) -> u64 {
             return if meta.kind == FileKind::Dir {
                 open_dir_fd(path, meta)
             } else {
-                open_file_fd(id, path, meta, false, false)
+                open_file_fd(id, path, meta, Access::READ_ONLY)
             };
         }
         Err(FsError::NotFound) => None,
@@ -286,7 +327,7 @@ fn open_path(path: &str, flags: u64, mode: u64) -> u64 {
                 }
             }
         }
-        return open_file_fd(id, path, meta, write_access, append);
+        return open_file_fd(id, path, meta, access);
     }
 
     if !create {
@@ -301,7 +342,7 @@ fn open_path(path: &str, flags: u64, mode: u64) -> u64 {
         return fs_err(error);
     }
     match resolve(path) {
-        Ok(Target::Node(meta)) => open_file_fd(id, path, meta, write_access, append),
+        Ok(Target::Node(meta)) => open_file_fd(id, path, meta, access),
         _ => err(ENOENT),
     }
 }

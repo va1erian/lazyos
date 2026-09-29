@@ -63,7 +63,7 @@ mod linux_spawn;
 pub mod process;
 pub mod signal;
 mod snapshot;
-pub use snapshot::prepare_fd_write;
+pub use snapshot::{fd_set_len, prepare_fd_write};
 pub mod switch;
 pub mod sys;
 pub mod wait;

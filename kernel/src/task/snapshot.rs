@@ -75,3 +75,19 @@ pub fn prepare_fd_write(fd: usize, offset: usize, len: usize) -> bool {
         _ => false,
     }
 }
+
+/// Set descriptor `fd`'s snapshot to exactly `len` bytes (zero-filling growth),
+/// mirroring an `ftruncate` the backing file has already accepted. The caller
+/// first ran [`prepare_fd_write`] for `len`, so the snapshot is unshared and the
+/// capacity is reserved: this cannot fail.
+pub fn fd_set_len(fd: usize, len: usize) {
+    let mut tasks = TASKS.lock();
+    let Some(task) = tasks[current()].as_mut() else {
+        return;
+    };
+    if let Some(Fd::File { data, .. }) = task.fds.get_mut(fd) {
+        if let Some(bytes) = Arc::get_mut(data) {
+            bytes.resize(len, 0);
+        }
+    }
+}

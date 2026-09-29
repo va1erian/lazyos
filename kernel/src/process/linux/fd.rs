@@ -17,9 +17,9 @@ use spin::Mutex;
 use crate::fs::vfs::Meta;
 use crate::task::{self, Fd, FdKind};
 
-use super::errno::{err, EBADF, EINVAL, ENOMEM, ESPIPE};
+use super::errno::{err, EBADF, EINVAL, ENOMEM, ENOTDIR, ESPIPE};
+use super::filerw::read_file_bytes;
 use super::flags::{O_NONBLOCK, S_IFCHR};
-use super::io::read_file_bytes;
 
 /// `fcntl` commands and the `dup`/`dup2` descriptor-flag bit this module
 /// needs (`O_NONBLOCK` is [`super::flags::O_NONBLOCK`]; that one is shared
@@ -179,6 +179,7 @@ pub(super) fn open_device_fd() -> u64 {
 pub(super) fn sys_getdents64(fd: u64, buf: u64, count: u64) -> u64 {
     match task::fd_kind(fd as usize) {
         FdKind::File => read_file_bytes(fd, buf, count),
+        FdKind::Vfs => err(ENOTDIR), // a regular file has no directory stream
         _ => err(EBADF),
     }
 }
@@ -198,6 +199,9 @@ pub(super) fn sys_lseek(fd: u64, offset: u64, whence: u64) -> u64 {
             Some(pos) => pos,
             None => err(EINVAL),
         },
+        FdKind::Vfs => {
+            super::vfsfd::with_file(fd, |file| super::vfsfd::seek(file, offset as i64, whence))
+        }
         FdKind::Terminal
         | FdKind::Pipe
         | FdKind::Socket

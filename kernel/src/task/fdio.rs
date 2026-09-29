@@ -124,21 +124,26 @@ pub(super) const FD_READ_MAX: usize = 1 << 20;
 /// while holding the task-table lock: a user-chosen kernel address was an
 /// arbitrary kernel write with file-controlled contents.
 pub fn fd_peek(fd: usize, count: usize) -> Option<Vec<u8>> {
+    let offset = fd_offset(fd)?;
+    fd_peek_at(fd, offset, count)
+}
+
+/// Like [`fd_peek`] but from an explicit `offset` (`pread(2)`), which the
+/// descriptor's own position takes no part in.
+pub fn fd_peek_at(fd: usize, offset: usize, count: usize) -> Option<Vec<u8>> {
     let tasks = TASKS.lock();
     let task = tasks[current()].as_ref()?;
     if fd >= FD_COUNT {
         return None;
     }
-    if let Fd::File { data, offset } = &task.fds[fd] {
-        if *offset >= data.len() {
-            return Some(Vec::new()); // read at or past EOF
-        }
-        let remaining = data.len() - *offset;
-        let n = remaining.min(count).min(FD_READ_MAX);
-        Some(data[*offset..*offset + n].to_vec())
-    } else {
-        None
+    let Fd::File { data, .. } = &task.fds[fd] else {
+        return None;
+    };
+    if offset >= data.len() {
+        return Some(Vec::new()); // read at or past EOF
     }
+    let n = (data.len() - offset).min(count).min(FD_READ_MAX);
+    Some(data[offset..offset + n].to_vec())
 }
 
 /// Advance a file descriptor's offset by `n` bytes after a successful

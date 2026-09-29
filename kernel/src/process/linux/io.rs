@@ -4,16 +4,14 @@
 
 use alloc::vec::Vec;
 
-use crate::fs::vfs::Id;
 use crate::ipc::pipe;
 use crate::task::{self, FdKind, WakeReason};
 use crate::user_ptr;
 
-use super::errno::{
-    err, fs_err, EAGAIN, EBADF, EFAULT, EINTR, EINVAL, EMSGSIZE, ENOMEM, ENOTCONN, EPIPE,
-};
-use super::fd::{fd_meta_get, fd_meta_sync_len};
+use super::errno::{err, EAGAIN, EBADF, EFAULT, EINTR, EINVAL, EMSGSIZE, ENOMEM, ENOTCONN, EPIPE};
+use super::filerw::{read_file_bytes, write_file};
 use super::time::millis_to_ticks;
+use super::vfsfd;
 
 /// Bytes staged per `read`/`write` call through a pipe. A short transfer is
 /// legal on a pipe, so callers that want it all loop (as `write_all` does).
@@ -183,7 +181,8 @@ pub(super) fn sys_write(fd: u64, ptr: u64, len: u64) -> u64 {
     match task::fd_kind(fd as usize) {
         FdKind::Terminal => write_terminal(ptr, len),
         FdKind::Pipe | FdKind::Socket => write_stream(fd, ptr, len),
-        FdKind::File => write_file(fd, ptr, len),
+        FdKind::File => write_file(fd, ptr, len, None),
+        FdKind::Vfs => vfsfd::with_file(fd, |file| vfsfd::write(file, ptr, len)),
         FdKind::EventFd => write_eventfd(fd, ptr, len),
         FdKind::Unbound => err(ENOTCONN),
         FdKind::Closed | FdKind::Epoll | FdKind::Listener => err(EBADF),
@@ -277,80 +276,16 @@ fn write_eventfd(fd: u64, ptr: u64, len: u64) -> u64 {
     }
 }
 
-/// Write through a regular-file descriptor: the ABI VFS updates the backing
-/// file, then the fd's snapshot is patched so the same descriptor reads back
-/// its own writes. `O_APPEND` descriptors ignore the position and write at the
-/// current EOF.
-fn write_file(fd: u64, ptr: u64, len: u64) -> u64 {
-    if len == 0 {
-        return 0;
-    }
-    let Some(meta) = fd_meta_get(fd as usize) else {
-        return err(EBADF);
-    };
-    if meta.device {
-        return len; // /dev/null and friends discard the bytes
-    }
-    if !meta.writable {
-        return err(EBADF);
-    }
-    let Some(path) = meta.path else {
-        return err(EBADF);
-    };
-    let Ok(bytes) = user_ptr::try_bytes(ptr, len as usize) else {
-        return err(EFAULT);
-    };
-    let id = Id::current();
-    let offset = if meta.append {
-        match crate::fs::abi_stat(id, &path) {
-            Ok(stat) => stat.size,
-            Err(error) => return fs_err(error),
-        }
-    } else {
-        task::fd_offset(fd as usize).unwrap_or(0) as u64
-    };
-    // Get the descriptor's snapshot ready first: once the backing file has
-    // accepted the bytes, mirroring them must not be able to fail.
-    if !task::prepare_fd_write(fd as usize, offset as usize, bytes.len()) {
-        return err(ENOMEM);
-    }
-    match crate::fs::abi_write(id, &path, offset, bytes) {
-        Ok(written) => {
-            if !task::fd_apply_write(fd as usize, offset as usize, &bytes[..written]) {
-                return err(ENOMEM);
-            }
-            fd_meta_sync_len(fd as usize);
-            written as u64
-        }
-        Err(error) => fs_err(error),
-    }
-}
-
 pub(super) fn sys_read(fd: u64, ptr: u64, len: u64) -> u64 {
     match task::fd_kind(fd as usize) {
         FdKind::Terminal => read_terminal(ptr, len),
         FdKind::File => read_file_bytes(fd, ptr, len),
+        FdKind::Vfs => vfsfd::with_file(fd, |file| vfsfd::read(file, ptr, len)),
         FdKind::Pipe | FdKind::Socket => read_stream(fd, ptr, len),
         FdKind::EventFd => read_eventfd(fd, ptr, len),
         FdKind::Unbound => err(ENOTCONN),
         FdKind::Closed | FdKind::Epoll | FdKind::Listener => err(EBADF),
     }
-}
-
-/// Read from a regular-file descriptor into the user buffer at `ptr`.
-///
-/// The bytes are staged in kernel memory, copied out through the validated
-/// path, and the descriptor's offset only advances once the copy succeeded, so
-/// a bad buffer is `-EFAULT` and loses nothing.
-pub(super) fn read_file_bytes(fd: u64, ptr: u64, len: u64) -> u64 {
-    let Some(chunk) = task::fd_peek(fd as usize, len as usize) else {
-        return 0;
-    };
-    if user_ptr::try_copy_to(ptr, &chunk).is_err() {
-        return err(EFAULT);
-    }
-    task::fd_advance(fd as usize, chunk.len());
-    chunk.len() as u64
 }
 
 /// Pipe/socket read: block in the stream object until a chunk is available,

@@ -47,6 +47,13 @@ pub(super) fn sys_fstat(fd: u64, buf: u64) -> u64 {
             }
             0
         }
+        FdKind::Vfs => super::vfsfd::with_file(fd, |file| match file.stat() {
+            Ok(meta) => {
+                fill_stat(buf, meta.mode as u32, meta.size, meta.ino);
+                0
+            }
+            Err(error) => fs_err(error),
+        }),
         FdKind::Terminal => {
             fill_stat(buf, S_IFCHR | 0o620, 0, 0);
             0
