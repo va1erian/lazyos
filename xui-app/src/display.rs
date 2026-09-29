@@ -1,134 +1,88 @@
 //! The `os.lazy.display.v1` client: an app's side of the userspace compositor.
 //!
-//! This mirrors `user::messenger::display` (the native client library) for the
-//! static-musl xui app, built on the raw syscall-5 shim in [`crate::sys`] and
-//! the shared `libmessenger` parcel codec. In client mode
-//! ([`crate::backend::LazyOSBackend::new_client`]) an app never binds the
-//! display grant; it resolves `xuid`, creates a surface with its event
-//! endpoint, attaches a shared pixel buffer created through the display
-//! syscall, and commits damage rectangles. Input arrives as one-way messages
-//! on the event endpoint.
-//!
-//! Coordinate note: `xuid` reports `PointerDown`/`PointerUp` relative to the
-//! surface content, but `PointerMove` currently carries screen-absolute
-//! coordinates. The backend treats moves as a hint and hit-tests presses.
+//! This is the static-musl xui app's counterpart of `user::messenger::display`
+//! (the native client library), built on the raw syscall-5 shim in
+//! [`crate::sys`] and the generated `os.lazy.display.v1` stubs
+//! (`idl/display.midl`, consumed through `messenger-generated`) instead of a
+//! copy of the wire. In client mode ([`crate::backend::LazyOSBackend::new_client`])
+//! an app never binds the display grant; it resolves `xuid`, creates a surface
+//! with its event endpoint, attaches a shared pixel buffer created through the
+//! display syscall, and commits damage rectangles. Input arrives as one-way
+//! messages on the event endpoint; pointer coordinates are surface-relative and
+//! presses carry the button id.
 
-use libmessenger::{Decoder, Encoder, Header, Kind, Parcel, VERSION};
+use libmessenger::{BufferDesc, Decoder, Header, Kind, Parcel, VERSION};
+use messenger_generated::os_lazy_display_v1 as wire;
 
 use crate::sys::{self, errno, msg_op, MsgArgs, MsgResult};
 
 /// Well-known compositor name.
 pub const NAME: &str = "os.lazy.display.v1";
-/// Interface id (the `os.lazy.` prefix, like the registry's).
-pub const INTERFACE: u64 = u64::from_le_bytes(*b"os.lazy.");
+/// Interface id every display parcel carries.
+pub const INTERFACE: u64 = wire::INTERFACE_ID;
+/// Method id of the one-way `WindowClose` event.
+pub const METHOD_WINDOW_CLOSE: u32 = wire::METHOD_WINDOWCLOSE;
 
-/// Display protocol methods; mirrors `user/src/messenger/` and `xuid`.
-pub mod method {
-    /// Create a surface; the reply carries its id.
-    pub const CREATE_SURFACE: u32 = 1;
-    /// Attach (or replace) a surface's pixel buffer.
-    pub const ATTACH_BUFFER: u32 = 2;
-    /// Signal that a damage rectangle is ready to present.
-    pub const COMMIT: u32 = 3;
-    /// Drop a surface.
-    pub const DESTROY_SURFACE: u32 = 4;
-    /// Compositor to app: pointer moved.
-    pub const POINTER_MOVE: u32 = 5;
-    /// Compositor to app: pointer button pressed.
-    pub const POINTER_DOWN: u32 = 6;
-    /// Compositor to app: pointer button released.
-    pub const POINTER_UP: u32 = 7;
-    /// Compositor to app: key pressed.
-    pub const KEY_DOWN: u32 = 8;
-    /// Compositor to app: key released.
-    pub const KEY_UP: u32 = 9;
-    /// Compositor to app: the window manager closed this surface.
-    pub const WINDOW_CLOSE: u32 = 10;
-}
-
-/// TLV field ids of the display protocol.
-pub mod field {
-    /// Surface id.
-    pub const SURFACE: u16 = 1;
-    /// Surface width in pixels.
-    pub const WIDTH: u16 = 2;
-    /// Surface height in pixels.
-    pub const HEIGHT: u16 = 3;
-    /// Window title string.
-    pub const TITLE: u16 = 4;
-    /// Damage rectangle x.
-    pub const X: u16 = 5;
-    /// Damage rectangle y.
-    pub const Y: u16 = 6;
-    /// Damage rectangle width.
-    pub const W: u16 = 7;
-    /// Damage rectangle height.
-    pub const H: u16 = 8;
-    /// Event payload, first word (key code, button, or pointer x).
-    pub const A: u16 = 9;
-    /// Event payload, second word (pointer y).
-    pub const B: u16 = 10;
-    /// Structured error code in a failure reply.
-    pub const ERROR: u16 = 11;
-}
+/// Structured error field id in a failure reply (outside the generated range).
+const ERROR_FIELD: u16 = 15;
 
 /// PIT ticks [`Client::connect`] waits for the compositor's name to appear.
 /// `xuid` is spawned before the app, but a slow FAT load of the 2.6 MiB binary
 /// makes the race one-sided; the retry keeps a manual boot robust.
 const CONNECT_TICKS: u64 = 600;
 
-/// One input event delivered to an app by the compositor.
+/// One input event delivered to an app by the compositor, in surface
+/// coordinates.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum EventKind {
-    /// The pointer moved (screen-absolute coordinates in `xuid` today).
-    PointerMove,
-    /// A pointer button went down (surface-relative).
-    PointerDown,
-    /// A pointer button went up (surface-relative).
-    PointerUp,
-    /// A key went down; `a` is the kernel key code.
-    KeyDown,
-    /// A key was released; `a` is the kernel key code.
-    KeyUp,
-}
-
-/// One decoded input event. `a`/`b` carry pointer `(x, y)` or a key/button code
-/// depending on the kind.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct Event {
-    /// What happened.
-    pub kind: EventKind,
-    /// First payload word.
-    pub a: i64,
-    /// Second payload word.
-    pub b: i64,
+pub enum Event {
+    /// The pointer moved (relative to the surface; outside it mid-drag).
+    PointerMove { x: i32, y: i32 },
+    /// A pointer button went down; `button` is a kernel button id.
+    PointerDown { x: i32, y: i32, button: u32 },
+    /// A pointer button went up.
+    PointerUp { x: i32, y: i32, button: u32 },
+    /// A key went down; `key` is the kernel key code.
+    KeyDown { key: u32 },
+    /// A key was released.
+    KeyUp { key: u32 },
 }
 
 /// Decode an input event from a received parcel, or `None` when the message is
-/// not one.
+/// not a well-formed one.
 pub fn decode_event(parcel: &Parcel) -> Option<Event> {
-    let kind = match parcel.header.method {
-        method::POINTER_MOVE => EventKind::PointerMove,
-        method::POINTER_DOWN => EventKind::PointerDown,
-        method::POINTER_UP => EventKind::PointerUp,
-        method::KEY_DOWN => EventKind::KeyDown,
-        method::KEY_UP => EventKind::KeyUp,
+    let body = &parcel.body;
+    Some(match parcel.header.method {
+        wire::METHOD_POINTERMOVE => {
+            let args = wire::decode_pointer_move_args(body).ok()?;
+            Event::PointerMove {
+                x: args.x,
+                y: args.y,
+            }
+        }
+        wire::METHOD_POINTERDOWN => {
+            let args = wire::decode_pointer_down_args(body).ok()?;
+            Event::PointerDown {
+                x: args.x,
+                y: args.y,
+                button: args.button,
+            }
+        }
+        wire::METHOD_POINTERUP => {
+            let args = wire::decode_pointer_up_args(body).ok()?;
+            Event::PointerUp {
+                x: args.x,
+                y: args.y,
+                button: args.button,
+            }
+        }
+        wire::METHOD_KEYDOWN => Event::KeyDown {
+            key: wire::decode_key_down_args(body).ok()?.key,
+        },
+        wire::METHOD_KEYUP => Event::KeyUp {
+            key: wire::decode_key_up_args(body).ok()?.key,
+        },
         _ => return None,
-    };
-    let mut a = 0i64;
-    let mut b = 0i64;
-    let mut decoder = Decoder::new(&parcel.body);
-    while let Ok(Some(field)) = decoder.next() {
-        if field.kind != Kind::U64 {
-            continue;
-        }
-        match field.id {
-            field::A => a = field.as_u64().ok()? as i64,
-            field::B => b = field.as_u64().ok()? as i64,
-            _ => {}
-        }
-    }
-    Some(Event { kind, a, b })
+    })
 }
 
 /// An app's connection to `xuid`.
@@ -170,117 +124,87 @@ impl Client {
         title: &str,
         events: u64,
     ) -> Result<u64, i64> {
-        let mut body = Encoder::new();
-        body.u64(field::WIDTH, width).map_err(|_| -errno::EINVAL)?;
-        body.u64(field::HEIGHT, height)
-            .map_err(|_| -errno::EINVAL)?;
-        body.string(field::TITLE, title)
-            .map_err(|_| -errno::EINVAL)?;
-        let parcel = Parcel {
-            header: header(method::CREATE_SURFACE),
-            body: body.finish(),
-            handles: vec![events],
-            buffers: Vec::new(),
-        };
-        let mut buf = [0u8; 256];
-        let reply = self.call(&parcel, &mut buf)?;
-        let mut decoder = Decoder::new(&reply.body);
-        while let Ok(Some(field)) = decoder.next() {
-            if field.kind == Kind::U64 && field.id == field::SURFACE {
-                return field.as_u64().map_err(|_| -errno::EINVAL);
-            }
+        let body = wire::encode_create_surface_args(&wire::CreateSurfaceArgs {
+            width: u32::try_from(width).unwrap_or(u32::MAX),
+            height: u32::try_from(height).unwrap_or(u32::MAX),
+            title: title.into(),
+            role: wire::ROLE_WINDOW,
+        })
+        .map_err(|_| -errno::EINVAL)?;
+        let parcel = request(wire::METHOD_CREATESURFACE, body, vec![events], Vec::new());
+        let reply = self.call(&parcel)?;
+        match wire::decode_create_surface_reply(&reply.body) {
+            // Surface ids start at 1; zero is a missing field.
+            Ok(reply) if reply.surface != 0 => Ok(reply.surface),
+            _ => Err(-errno::EINVAL),
         }
-        Err(error_field(&reply).unwrap_or(-errno::EINVAL))
     }
 
     /// Attach `buffer` (a handle from the display syscall's `create_buffer`)
     /// as `surface`'s pixels; the sender keeps its handle and mapping.
     pub fn attach_buffer(&self, surface: u64, buffer: u64, len: u64) -> Result<(), i64> {
-        let mut body = Encoder::new();
-        body.u64(field::SURFACE, surface)
+        let body = wire::encode_attach_buffer_args(&wire::AttachBufferArgs { surface })
             .map_err(|_| -errno::EINVAL)?;
-        let parcel = Parcel {
-            header: header(method::ATTACH_BUFFER),
-            body: body.finish(),
-            handles: Vec::new(),
-            buffers: vec![libmessenger::BufferDesc {
-                handle: buffer,
-                offset: 0,
-                len,
-                flags: 0,
-            }],
-        };
-        let mut buf = [0u8; 64];
-        let reply = self.call(&parcel, &mut buf)?;
-        match error_field(&reply) {
-            Some(code) => Err(code),
-            None => Ok(()),
-        }
+        let buffers = vec![BufferDesc {
+            handle: buffer,
+            offset: 0,
+            len,
+            flags: 0,
+        }];
+        let parcel = request(wire::METHOD_ATTACHBUFFER, body, Vec::new(), buffers);
+        self.call(&parcel).map(|_| ())
     }
 
     /// Tell the compositor the `damage` rectangle of `surface` is ready.
     pub fn commit(&self, surface: u64, damage: (i32, i32, i32, i32)) -> Result<(), i64> {
-        let mut body = Encoder::new();
-        body.u64(field::SURFACE, surface)
-            .map_err(|_| -errno::EINVAL)?;
-        body.u64(field::X, damage.0.max(0) as u64)
-            .map_err(|_| -errno::EINVAL)?;
-        body.u64(field::Y, damage.1.max(0) as u64)
-            .map_err(|_| -errno::EINVAL)?;
-        body.u64(field::W, damage.2.max(0) as u64)
-            .map_err(|_| -errno::EINVAL)?;
-        body.u64(field::H, damage.3.max(0) as u64)
-            .map_err(|_| -errno::EINVAL)?;
-        let parcel = Parcel {
-            header: header(method::COMMIT),
-            body: body.finish(),
-            handles: Vec::new(),
-            buffers: Vec::new(),
-        };
-        let mut buf = [0u8; 64];
-        let reply = self.call(&parcel, &mut buf)?;
-        match error_field(&reply) {
-            Some(code) => Err(code),
-            None => Ok(()),
-        }
+        let body = wire::encode_commit_args(&wire::CommitArgs {
+            surface,
+            x: damage.0.max(0) as u32,
+            y: damage.1.max(0) as u32,
+            w: damage.2.max(0) as u32,
+            h: damage.3.max(0) as u32,
+        })
+        .map_err(|_| -errno::EINVAL)?;
+        let parcel = request(wire::METHOD_COMMIT, body, Vec::new(), Vec::new());
+        self.call(&parcel).map(|_| ())
     }
 
     /// Drop `surface`; the compositor forgets it and repaints.
     pub fn destroy_surface(&self, surface: u64) -> Result<(), i64> {
-        let mut body = Encoder::new();
-        body.u64(field::SURFACE, surface)
+        let body = wire::encode_destroy_surface_args(&wire::DestroySurfaceArgs { surface })
             .map_err(|_| -errno::EINVAL)?;
-        let parcel = Parcel {
-            header: header(method::DESTROY_SURFACE),
-            body: body.finish(),
-            handles: Vec::new(),
-            buffers: Vec::new(),
-        };
-        let mut buf = [0u8; 64];
-        let reply = self.call(&parcel, &mut buf)?;
-        match error_field(&reply) {
-            Some(code) => Err(code),
-            None => Ok(()),
-        }
+        let parcel = request(wire::METHOD_DESTROYSURFACE, body, Vec::new(), Vec::new());
+        self.call(&parcel).map(|_| ())
     }
 
-    /// One synchronous call on the compositor endpoint.
-    fn call(&self, parcel: &Parcel, buf: &mut [u8]) -> Result<Parcel, i64> {
-        sys::msg_call(self.endpoint, parcel, buf, 0)
+    /// One synchronous call on the compositor endpoint; a structured error
+    /// reply becomes its negative errno.
+    fn call(&self, parcel: &Parcel) -> Result<Parcel, i64> {
+        let mut buf = [0u8; 256];
+        let reply = sys::msg_call(self.endpoint, parcel, &mut buf, 0)?;
+        match error_field(&reply) {
+            Some(code) => Err(code),
+            None => Ok(reply),
+        }
     }
 }
 
-/// A request header; `ALLOW_NESTED` keeps the app's event receive from tripping
-/// the kernel's per-channel cycle check while a call is in flight.
-fn header(method: u32) -> Header {
-    Header {
-        version: VERSION,
-        flags: libmessenger::flags::ALLOW_NESTED,
-        interface_id: INTERFACE,
-        method,
-        txn_id: 0,
-        reply_to: 0,
-        deadline_ns: 0,
+/// A request parcel; `ALLOW_NESTED` keeps the app's event receive from
+/// tripping the kernel's per-channel cycle check while a call is in flight.
+fn request(method: u32, body: Vec<u8>, handles: Vec<u64>, buffers: Vec<BufferDesc>) -> Parcel {
+    Parcel {
+        header: Header {
+            version: VERSION,
+            flags: libmessenger::flags::ALLOW_NESTED,
+            interface_id: INTERFACE,
+            method,
+            txn_id: 0,
+            reply_to: 0,
+            deadline_ns: 0,
+        },
+        body,
+        handles,
+        buffers,
     }
 }
 
@@ -288,7 +212,7 @@ fn header(method: u32) -> Header {
 fn error_field(parcel: &Parcel) -> Option<i64> {
     let mut decoder = Decoder::new(&parcel.body);
     while let Ok(Some(field)) = decoder.next() {
-        if field.kind == Kind::Error && field.id == field::ERROR {
+        if field.kind == Kind::Error && field.id == ERROR_FIELD {
             let (code, _message) = field.error_parts().ok()?;
             return Some(-(code as i64));
         }
