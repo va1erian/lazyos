@@ -19,9 +19,9 @@ pub mod sysmond;
 pub use health::{fetch_health, health_reply, health_report_request, health_request, HealthRecord};
 pub use init::{
     decode_apps, decode_launch, decode_launch_request, error_field, fetch_apps, fetch_apps_with,
-    fetch_services, fetch_services_with, init_error_reply, launch, launch_app, launch_reply,
-    launch_request, list_apps_reply, list_apps_request, services_reply, services_request, AppInfo,
-    LaunchRequest, LaunchResult, ServiceStatus,
+    fetch_services, fetch_services_with, init_error_reply, launch, launch_app, launch_by,
+    launch_reply, launch_request, list_apps_reply, list_apps_request, services_reply,
+    services_request, AppInfo, LaunchRequest, LaunchResult, ServiceStatus,
 };
 pub use logd::{
     decode_log_records, fetch_log_count, fetch_log_tail, fetch_log_verify, log_count_reply,

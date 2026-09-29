@@ -83,6 +83,8 @@ mod drag;
 mod event;
 #[path = "xuid/layout.rs"]
 mod layout;
+#[path = "xuid/menu.rs"]
+mod menu;
 #[path = "xuid/protocol.rs"]
 mod protocol;
 #[path = "xuid/render.rs"]

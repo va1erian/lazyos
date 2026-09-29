@@ -215,6 +215,13 @@ older peers, and the no-shell sessions above are unchanged.
   `FocusChanged`; `Ctrl+Esc` and `Super` send `StartMenu`; `Alt+F4` sends
   `WindowClose` to the focused surface exactly like its `X` button; `Escape`
   still cancels a drag & drop.
+- Desktop context menu (issue #323, `xuid/menu.rs`): a right press on the bare
+  desktop (not a window, not the fallback taskbar) opens a compositor-owned
+  popup with hardcoded entries (Terminal, System Monitor, Fabric Monitor,
+  Counter). A left click on an entry calls `os.lazy.init` `Launch(app, "", 0)`
+  (bounded by a deadline) and logs `XUID:MENU:LAUNCH:<app>`; any other press or
+  `Escape` dismisses it, and the press that dismissed it still acts normally.
+  Session: `tools/screenshot/examples/xui_context_menu.json` (`LAZYOS_DESKTOP=1`).
 - `shellprobe` (`SHELLPRB.ELF`) is the evidence client: it registers as the
   `"shell"` subscriber, creates a full-work-area desktop, reads back
   `ListSurfaces`/`GetWorkArea`/`GetTheme`, creates one window, and logs

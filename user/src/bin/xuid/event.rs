@@ -7,6 +7,7 @@ use user::messenger::display::{self, wire, Canvas, Rect};
 
 use super::drag::{drag_cancel, drag_finish, drag_move, DragSession};
 use super::layout::{cursor_rect, taskbar_hit};
+use super::menu;
 use super::protocol::{Event, EventKind};
 use super::render::repaint;
 use super::shell::{
@@ -50,6 +51,11 @@ pub(super) fn handle_event(
         EventKind::PointerMove => {
             let new = (event.a as i32, event.b as i32);
             let old = *pointer;
+            if menu::is_open() && drag_session.is_none() {
+                *pointer = new;
+                menu::pointer_moved(screen, surfaces, old, new, *focused, bar, alt_tab);
+                return;
+            }
             // A drag & drop session owns the pointer (issue #145): the surface
             // under it gets enter/over/leave, and the source hears nothing
             // until the session ends.
@@ -127,6 +133,18 @@ pub(super) fn handle_event(
                 return;
             }
             let point = *pointer;
+            if menu::press(
+                screen,
+                surfaces,
+                point,
+                event.a as u32,
+                *focused,
+                bar,
+                alt_tab,
+            ) {
+                *consumed |= button_bit;
+                return;
+            }
             // The fallback taskbar paints above every window, so it hit-tests
             // first; with a shell registered it is hidden and not hit-tested.
             if bar {
@@ -181,6 +199,10 @@ pub(super) fn handle_event(
                 })
             else {
                 *consumed |= button_bit;
+                let over_bar = bar && point.1 >= screen_h - TASKBAR_H;
+                if event.a as u32 == display::button::RIGHT && !over_bar {
+                    menu::open_at(screen, surfaces, point, *focused, bar, alt_tab);
+                }
                 return;
             };
             let before = *focused;
@@ -320,6 +342,9 @@ pub(super) fn handle_event(
                 return;
             }
             if key == display::key::ESCAPE {
+                if menu::escape(screen, surfaces, *pointer, *focused, bar, alt_tab) {
+                    return;
+                }
                 // Escape closes the Alt+Tab overlay first...
                 if alt_tab.take().is_some() {
                     repaint(

@@ -55,6 +55,7 @@ pub(super) fn repaint(
     if let Some(tab) = alt_tab {
         draw_alt_tab(screen, surfaces, tab, damage);
     }
+    super::menu::draw(screen, damage);
     screen.cursor(pointer.0, pointer.1, damage);
     let _ = sys::display_present(damage.x, damage.y, damage.w, damage.h);
 }
