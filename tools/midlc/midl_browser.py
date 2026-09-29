@@ -99,6 +99,11 @@ def signature(method: midlc.Method) -> str:
     return f"({args}) -> ({rets})"
 
 
+def kind_of(method: midlc.Method) -> str:
+    """A oneway method is an event (fire-and-forget); the rest are calls."""
+    return "event" if method.oneway else "method"
+
+
 def _matches(query: str, *texts: str) -> bool:
     if not query:
         return True
@@ -168,6 +173,7 @@ class MidlBrowser:
             ("interface", "#0a58ca"),
             ("group", "#6c757d"),
             ("method", "#1b7f3b"),
+            ("event", "#0f766e"),
             ("struct", "#8a5a00"),
             ("enum", "#7a2f8a"),
             ("error", "#b00020"),
@@ -177,6 +183,7 @@ class MidlBrowser:
         self.detail.tag_configure("title", font=("TkDefaultFont", 15, "bold"))
         self.detail.tag_configure("section", font=("TkDefaultFont", 11, "bold"), spacing3=2)
         self.detail.tag_configure("method", foreground="#1b7f3b", font=("TkDefaultFont", 10, "bold"))
+        self.detail.tag_configure("event", foreground="#0f766e", font=("TkDefaultFont", 10, "bold"))
         self.detail.tag_configure("struct", foreground="#8a5a00", font=("TkDefaultFont", 10, "bold"))
         self.detail.tag_configure("enum", foreground="#7a2f8a", font=("TkDefaultFont", 10, "bold"))
         self.detail.tag_configure("meta", foreground="#6c757d")
@@ -234,14 +241,10 @@ class MidlBrowser:
         iface_iid = self._add(file_iid, f"{interface.name}", "interface")
         self.nodes[iface_iid] = Node("interface", loaded, loaded.path)
 
-        if shown.methods:
-            group = self._add(iface_iid, f"Methods ({len(shown.methods)})", "group")
-            self.nodes[group] = Node("group", loaded, loaded.path)
-            for method in shown.methods:
-                tag = "method"
-                text = f"{method.name}   id {method.method_id}"
-                iid = self._add(group, text, tag)
-                self.nodes[iid] = Node("method", method, loaded.path)
+        calls = [m for m in shown.methods if not m.oneway]
+        events = [m for m in shown.methods if m.oneway]
+        self._add_method_group(iface_iid, loaded, "Methods", calls)
+        self._add_method_group(iface_iid, loaded, "Events", events)
         if shown.structs:
             group = self._add(iface_iid, f"Structs ({len(shown.structs)})", "group")
             self.nodes[group] = Node("group", loaded, loaded.path)
@@ -254,6 +257,16 @@ class MidlBrowser:
             for enum in shown.enums:
                 iid = self._add(group, enum.name, "enum")
                 self.nodes[iid] = Node("enum", enum, loaded.path)
+
+    def _add_method_group(self, parent: str, loaded: Loaded, title: str, methods: list[midlc.Method]) -> None:
+        if not methods:
+            return
+        group = self._add(parent, f"{title} ({len(methods)})", "group")
+        self.nodes[group] = Node("group", loaded, loaded.path)
+        for method in methods:
+            text = f"{method.name}   id {method.method_id}"
+            iid = self._add(group, text, kind_of(method))
+            self.nodes[iid] = Node("method", method, loaded.path)
 
     def _add(self, parent: str, text: str, tag: str) -> str:
         iid = f"n{next(self._ids)}"
@@ -309,14 +322,10 @@ class MidlBrowser:
         if interface.docs:
             self._put(f"\n{interface.docs}\n", "doc")
 
-        self._put(f"\nMethods ({len(interface.methods)})\n", "section")
-        for method in interface.methods:
-            kind = "oneway" if method.oneway else "sync"
-            self._put(f"  {method.name}", "method")
-            self._put(f"   id {method.method_id} ({method.method_id:#x})  {kind}\n", "meta")
-            self._put(f"      {signature(method)}\n", "code")
-            if method.doc:
-                self._put(f"      {method.doc}\n", "doc")
+        calls = [m for m in interface.methods if not m.oneway]
+        events = [m for m in interface.methods if m.oneway]
+        self._render_method_list(calls, "Methods")
+        self._render_method_list(events, "Events")
 
         if interface.structs:
             self._put(f"\nStructs ({len(interface.structs)})\n", "section")
@@ -333,11 +342,23 @@ class MidlBrowser:
                 self._put(f"  {enum.name}\n", "enum")
                 self._put(f"      {', '.join(enum.variants)}\n", "code")
 
+    def _render_method_list(self, methods: list[midlc.Method], title: str) -> None:
+        if not methods:
+            return
+        self._put(f"\n{title} ({len(methods)})\n", "section")
+        for method in methods:
+            kind = kind_of(method)
+            self._put(f"  {method.name}", kind)
+            self._put(f"   id {method.method_id} ({method.method_id:#x})  {kind}\n", "meta")
+            self._put(f"      {signature(method)}\n", "code")
+            if method.doc:
+                self._put(f"      {method.doc}\n", "doc")
+
     def _render_method(self, node: Node) -> None:
         method: midlc.Method = node.payload  # type: ignore[assignment]
-        self._put(f"{method.name}\n", "title")
-        kind = "oneway" if method.oneway else "sync"
-        self._put(f"method id  {method.method_id} ({method.method_id:#x})  {kind}\n", "meta")
+        kind = kind_of(method)
+        self._put(f"{kind} {method.name}\n", kind)
+        self._put(f"{kind} id  {method.method_id} ({method.method_id:#x})\n", "meta")
         self._put(f"signature  {signature(method)}\n", "code")
         if method.doc:
             self._put(f"\n{method.doc}\n", "doc")
