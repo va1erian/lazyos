@@ -29,6 +29,7 @@
 pub mod ext2;
 pub mod fallible;
 pub mod fat;
+pub mod openfile;
 pub mod overlay;
 pub mod ramfs;
 pub mod vfs;
@@ -341,9 +342,51 @@ pub fn abi_mkdir(id: Id, path: &str, mode: u16) -> Result<Meta, FsError> {
     abi_with(|vfs| vfs.mkdir(id, path, mode)).unwrap_or(Err(FsError::NotFound))
 }
 
-/// Remove a regular file through the Linux ABI VFS.
+/// Read up to `buf.len()` bytes at `offset` through the Linux ABI VFS.
+pub fn abi_read_at(id: Id, path: &str, offset: u64, buf: &mut [u8]) -> Result<usize, FsError> {
+    abi_with(|vfs| vfs.read(id, path, offset, buf)).unwrap_or(Err(FsError::NotFound))
+}
+
+/// Remove a regular file through the Linux ABI VFS. A file that a descriptor
+/// still has open loses its name but keeps its data until the last close
+/// ([`openfile`]).
 pub fn abi_unlink(id: Id, path: &str) -> Result<(), FsError> {
+    if openfile::unlink_open(id, path)? {
+        return Ok(());
+    }
+    abi_unlink_raw(id, path)
+}
+
+/// Delete a name outright, with no regard for open descriptors (the hidden
+/// entry of an unlinked file is deleted this way when its last one closes).
+fn abi_unlink_raw(id: Id, path: &str) -> Result<(), FsError> {
     abi_with(|vfs| vfs.unlink(id, path)).unwrap_or(Err(FsError::NotFound))
+}
+
+/// Flush the filesystem holding `path` (`fsync`/`fdatasync`/`syncfs`).
+pub fn abi_flush(id: Id, path: &str) -> Result<(), FsError> {
+    abi_with(|vfs| vfs.flush(id, path)).unwrap_or(Err(FsError::NotFound))
+}
+
+/// Flush every mount of the Linux ABI table (`sync`). The `/tmp` ramfs is the
+/// same instance in both tables and the overlay has nothing to flush, so this
+/// is the durability of the data volume; one failing mount does not stop the
+/// others.
+pub fn abi_sync_all() -> Result<(), FsError> {
+    abi_with(|vfs| vfs.sync_all()).unwrap_or(Ok(()))
+}
+
+/// Capacity of the filesystem holding `path` (`statfs`).
+pub fn abi_statfs(id: Id, path: &str) -> Result<vfs::StatFs, FsError> {
+    abi_with(|vfs| vfs.statfs(id, path)).unwrap_or(Err(FsError::NotFound))
+}
+
+/// Whether `path` lives on the durable data volume, whose files a Linux
+/// descriptor reads and writes in place ([`openfile::OpenFile`]) instead of
+/// through a snapshot. False when no data volume is mounted: `/data` is then
+/// an ordinary directory of the copy-up root.
+pub fn abi_persistent(path: &str) -> bool {
+    abi_with(|vfs| vfs.mount_point(path)).flatten().as_deref() == Some(DATA_MOUNT)
 }
 
 /// Remove an empty directory through the Linux ABI VFS.
@@ -351,8 +394,32 @@ pub fn abi_rmdir(id: Id, path: &str) -> Result<(), FsError> {
     abi_with(|vfs| vfs.rmdir(id, path)).unwrap_or(Err(FsError::NotFound))
 }
 
-/// Rename within one mount through the Linux ABI VFS.
+/// Rename within one mount through the Linux ABI VFS. Open files follow their
+/// name, and one that the rename replaces is unlinked, not destroyed
+/// ([`openfile`]).
 pub fn abi_rename(id: Id, from: &str, to: &str) -> Result<(), FsError> {
+    let same = vfs::Path::parse(from) == vfs::Path::parse(to);
+    let displaced = if same {
+        None
+    } else {
+        openfile::displace(id, to)?
+    };
+    match abi_rename_raw(id, from, to) {
+        Ok(()) => {
+            openfile::retarget(from, to);
+            Ok(())
+        }
+        Err(error) => {
+            if let Some(displaced) = displaced {
+                displaced.restore();
+            }
+            Err(error)
+        }
+    }
+}
+
+/// Rename a name with no regard for open descriptors.
+fn abi_rename_raw(id: Id, from: &str, to: &str) -> Result<(), FsError> {
     abi_with(|vfs| vfs.rename(id, from, to)).unwrap_or(Err(FsError::NotFound))
 }
 
@@ -371,4 +438,23 @@ pub fn install_abi_ramfs_for_test() {
     let _ = abi.mount("/", Arc::new(ramfs::RamFs::new()));
     let _ = abi.mount("/tmp", Arc::new(ramfs::RamFs::new()));
     *ABI_FS.lock() = Some(abi);
+}
+
+/// Swap in a Linux ABI table whose `/data` is `volume` (over a ramfs root and
+/// `/tmp`), returning the table it replaced so a test can put it back with
+/// [`restore_abi_for_test`]. This is what a boot with a data disk builds,
+/// without needing a second block device.
+#[cfg(lazyos_tests)]
+pub fn install_abi_data_for_test(volume: Arc<dyn Filesystem>) -> Option<Vfs> {
+    let mut abi = Vfs::new();
+    let _ = abi.mount("/", Arc::new(ramfs::RamFs::new()));
+    let _ = abi.mount("/tmp", Arc::new(ramfs::RamFs::new()));
+    let _ = abi.mount(DATA_MOUNT, volume);
+    ABI_FS.lock().replace(abi)
+}
+
+/// Put back the table [`install_abi_data_for_test`] returned.
+#[cfg(lazyos_tests)]
+pub fn restore_abi_for_test(previous: Option<Vfs>) {
+    *ABI_FS.lock() = previous;
 }

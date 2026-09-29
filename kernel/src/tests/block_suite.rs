@@ -3,7 +3,7 @@
 use super::*;
 use crate::block::{self, BlockDevice, BlockError, SECTOR_SIZE};
 use alloc::boxed::Box;
-use core::sync::atomic::{AtomicU32, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use spin::Mutex;
 
 /// An in-memory [`BlockDevice`]: pins the trait's read/write/flush/bounds
@@ -19,6 +19,8 @@ pub(super) struct FakeDisk {
     /// resets to "never" so the disk behaves normally again -- one write
     /// failure is exactly what a real transient I/O error looks like.
     fail_in: AtomicU32,
+    /// Report the device as unwritable, as a read-only attach would.
+    read_only: AtomicBool,
 }
 
 impl FakeDisk {
@@ -29,7 +31,14 @@ impl FakeDisk {
             writes: AtomicU32::new(0),
             flushes: AtomicU32::new(0),
             fail_in: AtomicU32::new(u32::MAX),
+            read_only: AtomicBool::new(false),
         }))
+    }
+
+    /// Make the device claim it cannot be written (or writable again), so a
+    /// filesystem opened next mounts read-only.
+    pub(super) fn set_read_only(&self, read_only: bool) {
+        self.read_only.store(read_only, Ordering::Relaxed);
     }
 
     /// Fail the `n`th write from now (`n == 1` is the very next one), then
@@ -85,7 +94,7 @@ impl BlockDevice for FakeDisk {
     }
 
     fn is_writable(&self) -> bool {
-        true
+        !self.read_only.load(Ordering::Relaxed)
     }
 }
 

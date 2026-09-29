@@ -11,7 +11,9 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use spin::Mutex;
 
-use super::vfs::{DirEntry, FileKind, Filesystem, FsError, Id, Meta, S_IFDIR, S_IFREG};
+use super::vfs::{DirEntry, FileKind, Filesystem, FsError, Id, Meta, StatFs, S_IFDIR, S_IFREG};
+
+mod capacity;
 
 /// The root directory's inode. Inodes are allocated upward from here.
 const ROOT_INO: u64 = 1;
@@ -261,6 +263,10 @@ impl Default for RamFs {
 impl Filesystem for RamFs {
     fn name(&self) -> &'static str {
         "ramfs"
+    }
+
+    fn statfs(&self) -> Result<StatFs, FsError> {
+        Ok(self.capacity())
     }
 
     fn lookup(&self, path: &str) -> Result<Meta, FsError> {

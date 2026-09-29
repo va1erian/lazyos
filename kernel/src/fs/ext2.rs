@@ -53,6 +53,7 @@ use super::vfs::{DirEntry, FileKind, Filesystem, FsError, Id, Meta, S_IFDIR, S_I
 use crate::block::{BlockDevice, BlockError, SECTOR_SIZE};
 
 mod blocks;
+mod capacity;
 mod dir;
 mod fsimpl;
 mod indirect;

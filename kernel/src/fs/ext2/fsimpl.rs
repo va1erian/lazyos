@@ -362,6 +362,10 @@ impl Filesystem for Ext2 {
         self.sync_volume()
     }
 
+    fn statfs(&self) -> Result<crate::fs::vfs::StatFs, FsError> {
+        self.capacity()
+    }
+
     fn readdir(&self, path: &str) -> Result<Vec<DirEntry>, FsError> {
         let _guard = self.lock.lock();
         let ino = self.resolve(path)?;
