@@ -1,0 +1,25 @@
+/// The MIME database and open-with registry (issues #116, #158).
+///
+/// `mimed` guesses a MIME type from a path, resolves which app handles a type
+/// and verb, and turns "open this file" into a launch request for `init` plus
+/// a `system/events/open/<app>` event on the central broker. Failures are
+/// returned as a structured error field (errno-style code, friendly text), not
+/// as a typed reply.
+interface os.lazy.mimed.v1 {
+    /// MIME type for `path` from the database; a path the database has no
+    /// entry for reports `application/octet-stream`.
+    method Guess(path: String) -> (mime: String);
+    /// The app registered for `mime` and `verb`; an empty `app` means none is.
+    method Lookup(mime: String, verb: String) -> (app: Option<String>);
+    /// Verbs registered for `mime` (`open`, `edit`, `reveal`, ...), in
+    /// registration order.
+    method Verbs(mime: String) -> (verbs: Array<String>);
+    /// Guess the type of `path`, resolve the app for `verb` (falling back to
+    /// `open`), ask `init` to launch it and publish the launch event.
+    /// `published` reports whether the event went out, `launched` whether
+    /// `init` accepted the launch request.
+    method Open(path: String, verb: String) -> (app: String, mime: String, topic: String, published: Bool, launched: Bool);
+    /// Add or replace the app registered for `mime` and `verb`; the registry
+    /// keeps the latest registration for each pair.
+    method Register(mime: String, app: String, verb: String) -> ();
+}
