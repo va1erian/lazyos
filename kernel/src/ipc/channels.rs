@@ -235,12 +235,13 @@ fn enqueue(channel_id: u64, from_side: usize, message: Queued) -> Result<Vec<usi
     Ok(receivers)
 }
 
-/// Start a synchronous call (section 6): register a fresh `txn_id`, enqueue the
-/// request, and park the caller until the transaction ends.
+/// Start a synchronous call (section 6): register a fresh `txn_id` and enqueue
+/// the request. The caller stays runnable; [`await_reply`] is the half that
+/// blocks until the transaction ends.
 ///
 /// Returns the transaction id; the caller completes it with [`await_reply`].
 /// A request that cannot even be queued (wrong handle, malformed parcel, full
-/// queue, dead peer, nested cycle) fails before the caller parks.
+/// queue, dead peer, nested cycle) fails before the transaction is created.
 pub fn begin_call(
     handle: u64,
     method: u32,
@@ -379,8 +380,8 @@ pub fn await_reply(txn_id: u64) -> Result<Vec<u8>, Error> {
             return outcome;
         }
         let deadline = transaction_deadline(txn_id)?;
-        // `begin_call` already parked us; `wait` re-registers and the queue
-        // cleans the duplicate entry when the wake is consumed.
+        // This is the only park of a call: `begin_call` left us runnable, and
+        // the queue drops our entry when the wake is consumed.
         let reason = MESSENGER.wait(me, deadline);
         if reason == WakeReason::TimedOut {
             expire_transaction(txn_id);
