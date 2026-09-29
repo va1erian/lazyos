@@ -203,8 +203,9 @@ extern "C" fn syscall_dispatch(regs: *mut Regs) {
         // 14: the system-stats snapshot (issue #144), read-only and available
         // to every task; see `crate::sysinfo` and the module docs.
         14 => crate::sysinfo::dispatch(regs.rdi, regs.rsi, regs.rdx),
-        // 15..21: the shell's filesystem calls and `power` (issue #6).
-        15..=21 => fsops::dispatch(regs.rax, regs.rdi, regs.rsi, regs.rdx),
+        // 15..22: the shell's filesystem calls, `power`, and `fsync` (issue
+        // #6, #260).
+        15..=22 => fsops::dispatch(regs.rax, regs.rdi, regs.rsi, regs.rdx),
         _ => u64::MAX,
     };
 }
@@ -228,7 +229,7 @@ pub fn dispatch_for_test(nr: u64, a1: u64, a2: u64, a3: u64) -> u64 {
         12 => crate::display::dispatch(a1, a2, a3),
         13 => sys_tasks(a1),
         14 => crate::sysinfo::dispatch(a1, a2, a3),
-        15..=21 => fsops::dispatch(nr, a1, a2, a3),
+        15..=22 => fsops::dispatch(nr, a1, a2, a3),
         _ => u64::MAX,
     }
 }

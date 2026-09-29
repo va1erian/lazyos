@@ -107,6 +107,29 @@ class CodegenTests(unittest.TestCase):
         self.assertTrue(manifest["interface_id"].startswith("0x"))
         self.assertEqual(len(manifest["methods"]), 2)
 
+    def test_emit_rust_includes_interface_id(self) -> None:
+        interface = midlc.Parser(midlc.lex(SAMPLE)).parse_interface()
+        self.assertIn(f"pub const INTERFACE_ID: u64 = {interface.id:#x};", midlc.emit_rust(interface))
+
+    def test_array_and_option_encode_into_nested_encoder(self) -> None:
+        # Regression: the element of an Array/Option must be written into the
+        # freshly-created `nested` encoder. Writing it into `target` emitted a
+        # field at the wrong depth (and could collide with a sibling id), so
+        # the encoded parcel could not be decoded.
+        text = """
+        interface os.lazy.nested.v1 {
+            method M(items: Array<String>, note: Option<U32>) -> (reply: Array<String>);
+        }
+        """
+        interface = midlc.Parser(midlc.lex(text)).parse_interface()
+        rust = midlc.emit_rust(interface)
+        self.assertIn("nested.string(1, item)", rust)
+        self.assertIn("target.array(1, &nested)", rust)
+        self.assertIn("nested.u32(1, *item)", rust)
+        self.assertIn("target.option(2, Some(&nested))", rust)
+        # `Option` must resolve to `core`, not `alloc`.
+        self.assertIn("core::option::Option<u32>", rust)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

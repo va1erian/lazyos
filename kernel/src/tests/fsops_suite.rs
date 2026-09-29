@@ -232,7 +232,7 @@ pub fn errors_are_reported() -> Result<(), String> {
         "an oversized write left a file"
     );
     check!(
-        call(22, 0, 0, 0) == u64::MAX,
+        call(23, 0, 0, 0) == u64::MAX,
         "an unknown syscall number was accepted"
     );
     // A path with no terminator inside the limit is refused, not truncated.

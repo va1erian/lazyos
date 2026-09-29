@@ -1,0 +1,28 @@
+/// The hierarchical configuration registry (issue #260).
+///
+/// The store is a tree of one typed value per path; reachable only through
+/// Messenger, and every call is checked against the kernel-stamped caller uid.
+/// Change notifications are best-effort: a subscriber observes
+/// `(path, deleted)` and must re-read the value.
+interface os.lazy.regd.v1 {
+    /// Read the value at `path`. An absent path has an empty `value`.
+    /// A path the caller may not read fails with `REGD_DENIED`.
+    method Get(path: String) -> (value: Option<Value>);
+    /// Create or overwrite `path`; the change is persisted before the reply.
+    method Set(path: String, value: Value) -> ();
+    /// Remove `path`; deleting an absent path succeeds.
+    method Delete(path: String) -> ();
+    /// Every path the caller may read under `prefix`, in sorted order.
+    method List(prefix: String) -> (paths: Array<String>);
+
+    /// One typed value. `kind` selects which optional payload field is set:
+    /// `0` bool, `1` i64, `2` u64, `3` string, `4` bytes.
+    struct Value {
+        kind: U32,
+        bool_value: Option<Bool>,
+        i64_value: Option<I64>,
+        u64_value: Option<U64>,
+        str_value: Option<String>,
+        bytes_value: Option<Bytes>
+    }
+}

@@ -19,5 +19,31 @@
         "oneway": true
       }
     ]
+  },
+  {
+    "interface": "os.lazy.regd.v1",
+    "interface_id": "0x9f706a3664b0394e",
+    "methods": [
+      {
+        "name": "Get",
+        "id": 915881719,
+        "oneway": false
+      },
+      {
+        "name": "Set",
+        "id": 682729123,
+        "oneway": false
+      },
+      {
+        "name": "Delete",
+        "id": 1469573738,
+        "oneway": false
+      },
+      {
+        "name": "List",
+        "id": 220805025,
+        "oneway": false
+      }
+    ]
   }
 ]

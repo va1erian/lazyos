@@ -9,6 +9,9 @@ pub mod os_lazy_echo_v1 {
     use alloc::vec::Vec;
     use libmessenger::{Decoder, Encoder, Error, Kind};
 
+    /// The interface id: the FNV-1a hash of the `.vN` interface name.
+    pub const INTERFACE_ID: u64 = 0xcc4ac1057e84db93;
+
     /// A timestamped notice.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct Event {
@@ -141,6 +144,316 @@ pub mod os_lazy_echo_v1 {
         while let Some(field) = decoder.next()? {
             if field.id == 1 {
                 out.event = decode_event(field.payload)?;
+            }
+        }
+        Ok(out)
+    }
+}
+
+/// `os.lazy.regd.v1` (interface id `0x9f706a3664b0394e`).
+pub mod os_lazy_regd_v1 {
+    use alloc::vec::Vec;
+    use libmessenger::{Decoder, Encoder, Error, Kind};
+
+    /// The interface id: the FNV-1a hash of the `.vN` interface name.
+    pub const INTERFACE_ID: u64 = 0x9f706a3664b0394e;
+
+    /// `0` bool, `1` i64, `2` u64, `3` string, `4` bytes.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct Value {
+        pub kind: u32,
+        pub bool_value: core::option::Option<bool>,
+        pub i64_value: core::option::Option<i64>,
+        pub u64_value: core::option::Option<u64>,
+        pub str_value: core::option::Option<alloc::string::String>,
+        pub bytes_value: core::option::Option<alloc::vec::Vec<u8>>,
+    }
+
+    pub fn encode_value(value: &Value) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.kind)?;
+        match &value.bool_value {
+            Some(item) => {
+                let mut nested = Encoder::new();
+                nested.bool(1, *item)?;
+                target.option(2, Some(&nested))?;
+            }
+            None => {
+                target.option(2, None)?;
+            }
+        }
+        match &value.i64_value {
+            Some(item) => {
+                let mut nested = Encoder::new();
+                nested.i64(1, *item)?;
+                target.option(3, Some(&nested))?;
+            }
+            None => {
+                target.option(3, None)?;
+            }
+        }
+        match &value.u64_value {
+            Some(item) => {
+                let mut nested = Encoder::new();
+                nested.u64(1, *item)?;
+                target.option(4, Some(&nested))?;
+            }
+            None => {
+                target.option(4, None)?;
+            }
+        }
+        match &value.str_value {
+            Some(item) => {
+                let mut nested = Encoder::new();
+                nested.string(1, item)?;
+                target.option(5, Some(&nested))?;
+            }
+            None => {
+                target.option(5, None)?;
+            }
+        }
+        match &value.bytes_value {
+            Some(item) => {
+                let mut nested = Encoder::new();
+                nested.bytes(1, item)?;
+                target.option(6, Some(&nested))?;
+            }
+            None => {
+                target.option(6, None)?;
+            }
+        }
+        Ok(target.finish())
+    }
+
+    pub fn decode_value(body: &[u8]) -> Result<Value, Error> {
+        let mut out = Value::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.kind = field.as_u32()?;
+                }
+                2 => {
+                    if field.payload.is_empty() {
+                        out.bool_value = None;
+                    } else {
+                        let mut nested = field.nested(0)?;
+                        let item = nested.next()?.ok_or(Error::BadValue)?;
+                        out.bool_value = Some(item.as_bool()?);
+                    }
+                }
+                3 => {
+                    if field.payload.is_empty() {
+                        out.i64_value = None;
+                    } else {
+                        let mut nested = field.nested(0)?;
+                        let item = nested.next()?.ok_or(Error::BadValue)?;
+                        out.i64_value = Some(item.as_i64()?);
+                    }
+                }
+                4 => {
+                    if field.payload.is_empty() {
+                        out.u64_value = None;
+                    } else {
+                        let mut nested = field.nested(0)?;
+                        let item = nested.next()?.ok_or(Error::BadValue)?;
+                        out.u64_value = Some(item.as_u64()?);
+                    }
+                }
+                5 => {
+                    if field.payload.is_empty() {
+                        out.str_value = None;
+                    } else {
+                        let mut nested = field.nested(0)?;
+                        let item = nested.next()?.ok_or(Error::BadValue)?;
+                        out.str_value = Some(item.as_str()?.into());
+                    }
+                }
+                6 => {
+                    if field.payload.is_empty() {
+                        out.bytes_value = None;
+                    } else {
+                        let mut nested = field.nested(0)?;
+                        let item = nested.next()?.ok_or(Error::BadValue)?;
+                        out.bytes_value = Some(item.as_bytes().to_vec());
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// `Get` method id.
+    pub const METHOD_GET: u32 = 915881719;
+    /// `Set` method id.
+    pub const METHOD_SET: u32 = 682729123;
+    /// `Delete` method id.
+    pub const METHOD_DELETE: u32 = 1469573738;
+    /// `List` method id.
+    pub const METHOD_LIST: u32 = 220805025;
+
+    /// A path the caller may not read fails with `REGD_DENIED`.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct GetArgs {
+        pub path: alloc::string::String,
+    }
+
+    pub fn encode_get_args(value: &GetArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.path)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_get_args(body: &[u8]) -> Result<GetArgs, Error> {
+        let mut out = GetArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.path = field.as_str()?.into();
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct GetReply {
+        pub value: core::option::Option<Value>,
+    }
+
+    pub fn encode_get_reply(value: &GetReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        match &value.value {
+            Some(item) => {
+                let mut nested = Encoder::new();
+                nested.raw(Kind::Struct, 1, &encode_value(item)?)?;
+                target.option(1, Some(&nested))?;
+            }
+            None => {
+                target.option(1, None)?;
+            }
+        }
+        Ok(target.finish())
+    }
+
+    pub fn decode_get_reply(body: &[u8]) -> Result<GetReply, Error> {
+        let mut out = GetReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                if field.payload.is_empty() {
+                    out.value = None;
+                } else {
+                    let mut nested = field.nested(0)?;
+                    let item = nested.next()?.ok_or(Error::BadValue)?;
+                    out.value = Some(decode_value(item.payload)?);
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// Create or overwrite `path`; the change is persisted before the reply.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct SetArgs {
+        pub path: alloc::string::String,
+        pub value: Value,
+    }
+
+    pub fn encode_set_args(value: &SetArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.path)?;
+        target.raw(Kind::Struct, 2, &encode_value(&value.value)?)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_set_args(body: &[u8]) -> Result<SetArgs, Error> {
+        let mut out = SetArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.path = field.as_str()?.into();
+                }
+                2 => {
+                    out.value = decode_value(field.payload)?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Remove `path`; deleting an absent path succeeds.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct DeleteArgs {
+        pub path: alloc::string::String,
+    }
+
+    pub fn encode_delete_args(value: &DeleteArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.path)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_delete_args(body: &[u8]) -> Result<DeleteArgs, Error> {
+        let mut out = DeleteArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.path = field.as_str()?.into();
+            }
+        }
+        Ok(out)
+    }
+
+    /// Every path the caller may read under `prefix`, in sorted order.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ListArgs {
+        pub prefix: alloc::string::String,
+    }
+
+    pub fn encode_list_args(value: &ListArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.prefix)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_list_args(body: &[u8]) -> Result<ListArgs, Error> {
+        let mut out = ListArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.prefix = field.as_str()?.into();
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ListReply {
+        pub paths: alloc::vec::Vec<alloc::string::String>,
+    }
+
+    pub fn encode_list_reply(value: &ListReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        let mut nested = Encoder::new();
+        for item in &value.paths {
+            nested.string(1, item)?;
+        }
+        target.array(1, &nested)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_list_reply(body: &[u8]) -> Result<ListReply, Error> {
+        let mut out = ListReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                let mut nested = field.nested(0)?;
+                while let Some(item) = nested.next()? {
+                    out.paths.push(item.as_str()?.into());
+                }
             }
         }
         Ok(out)

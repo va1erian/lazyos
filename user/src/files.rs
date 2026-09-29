@@ -1,4 +1,4 @@
-//! Ring-3 wrappers for the native filesystem syscalls 15-21 (issue #6).
+//! Ring-3 wrappers for the native filesystem syscalls 15-22 (issue #6).
 //!
 //! Paths are absolute strings; the kernel checks permissions and reports
 //! failures as `-errno`, which these wrappers hand back as `Err(errno)`.
@@ -15,6 +15,7 @@ const SYS_MKDIR: u64 = 18;
 const SYS_UNLINK: u64 = 19;
 const SYS_RENAME: u64 = 20;
 const SYS_POWER: u64 = 21;
+const SYS_FSYNC: u64 = 22;
 
 /// Largest file `write_file` accepts (mirrors the kernel's `MAX_WRITE`).
 pub const MAX_FILE: usize = 1 << 20;
@@ -171,6 +172,16 @@ pub fn rename(from: &str, to: &str) -> Result<(), i64> {
         0,
     ))
     .map(|_| ())
+}
+
+/// Flush the filesystem holding `path` to stable storage (`fsync(2)`).
+///
+/// The native VFS is per-mount, so this flushes every pending write on the
+/// volume, not just `path`'s. `regd` calls it on its `store.tmp` before the
+/// atomic rename, so the new bytes are durable before they become visible.
+pub fn fsync(path: &str) -> Result<(), i64> {
+    let path = nul_terminated(path);
+    check(syscall(SYS_FSYNC, path.as_ptr() as u64, 0, 0)).map(|_| ())
 }
 
 /// Reboot or shut down; returns only when refused (`Err(EPERM)` without

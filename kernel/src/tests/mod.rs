@@ -144,6 +144,7 @@ mod overlay_suite;
 mod pipe_suite;
 mod quota_suite;
 mod ramdisk_suite;
+mod regd_suite;
 mod registry_suite;
 mod sched_suite;
 mod service_suite;
@@ -178,6 +179,7 @@ const SUITE: &[&[(&str, Test)]] = &[
     messenger_suite::CASES,
     stats_suite::CASES,
     registry_suite::CASES,
+    regd_suite::CASES,
     block_suite::CASES,
     boot_trace_suite::CASES,
     boot_io_suite::CASES,

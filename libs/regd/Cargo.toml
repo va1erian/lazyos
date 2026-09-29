@@ -1,0 +1,11 @@
+[package]
+name = "regd"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Configuration store logic for the LazyOS regd service (issue #259)"
+license = "GPL-3.0-or-later"
+
+[lib]
+name = "regd"
+path = "src/lib.rs"

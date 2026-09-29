@@ -39,5 +39,5 @@ jobs:
       - name: Clippy (host libraries, all targets)
         run: |
           cargo clippy \
-            -p libmessenger -p messenger-generated -p lazyos-crypto -p font-atlas \
+            -p libmessenger -p messenger-generated -p lazyos-crypto -p font-atlas -p regd \
             --all-targets -- -D warnings

@@ -1,0 +1,23 @@
+# `os.lazy.regd.v1`
+
+Interface id: `0x9f706a3664b0394e`
+
+`(path, deleted)` and must re-read the value.
+
+## Methods
+
+| Method | Id | Kind | Signature |
+|---|---|---|---|
+| Get | 915881719 | sync | `(path: String) -> (value: Option<Value>)` |
+| Set | 682729123 | sync | `(path: String, value: Value) -> ()` |
+| Delete | 1469573738 | sync | `(path: String) -> ()` |
+| List | 220805025 | sync | `(prefix: String) -> (paths: Array<String>)` |
+
+## struct `Value`
+
+- `kind: U32`
+- `bool_value: Option<Bool>`
+- `i64_value: Option<I64>`
+- `u64_value: Option<U64>`
+- `str_value: Option<String>`
+- `bytes_value: Option<Bytes>`
