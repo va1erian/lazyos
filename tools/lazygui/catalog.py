@@ -64,6 +64,16 @@ SCRIPTS = [
     ("xui_client.json", "XUI app: compositor client (window/focus)", ("xuid", "xui_client"), "client"),
 ]
 
+# Simple mode: (label, cargo profile) and (label, description) choices.
+SIMPLE_BUILDS = [("Debug", "dev"), ("Release", "release")]
+SIMPLE_INTERFACES = [
+    ("CLI",
+     "A basic terminal screen with the native shell (sh) connected to it."),
+    ("Desktop",
+     "The full services suite (init, messengerd, logd, healthd, keyd, accounts, "
+     "clipboardd, ...) plus the xuid compositor and an XUI app window."),
+]
+
 XUI_VIEWERS = ["(none)", "m0", "counter", "sysmon", "fabricmon", "client"]
 ACCELS = ["auto", "none", "tcg", "whpx", "kvm"]
 
@@ -87,7 +97,44 @@ def build_env(cfg: dict) -> dict[str, str]:
         env["LAZYOS_XUI_APP"] = os.path.join(ROOT, "target", "xui", f"xui-{cfg['xui_app']}.elf")
     if cfg["busybox"]:
         env["LAZYOS_BUSYBOX"] = cfg["busybox"]
+    if cfg.get("cli"):
+        env["LAZYOS_CLI"] = "1"
     return env
+
+
+def simple_config(base: dict, build: str, interface: str) -> dict:
+    """The full configuration for a Simple-mode choice.
+
+    ``build`` is a cargo profile (``dev``/``release``) and ``interface`` is
+    ``CLI`` or ``Desktop``. Machine settings (accelerator, memory, QEMU path)
+    come from ``base``; every image switch is decided here so stale Advanced
+    checkboxes cannot leak into a Simple boot.
+    """
+    if build not in dict(SIMPLE_BUILDS).values():
+        raise ValueError(f"unknown build profile: {build!r}")
+    if interface not in dict(SIMPLE_INTERFACES):
+        raise ValueError(f"unknown interface: {interface!r}")
+    desktop = interface == "Desktop"
+    cfg = dict(base)
+    cfg.update({
+        "mode": "Interactive demo",
+        "profile": build,
+        "skip_build": False,
+        "headless": False,
+        "extra": base.get("extra", ""),
+        "busybox": "",
+        "cli": not desktop,
+        # Desktop = services suite + compositor + one XUI app as its client.
+        "services": desktop,
+        "xuid": desktop,
+        "shellprobe": False,
+        "msgctl": False,
+        "msgrd": False,
+        "xui_client": desktop,
+        "xui_app": "client" if desktop else "(none)",
+        "prebuild_xui": desktop,
+    })
+    return cfg
 
 
 def cargo_step(cfg: dict) -> dict:
@@ -109,6 +156,9 @@ def build_plan(cfg: dict) -> list[dict]:
     steps: list[dict] = []
 
     if mode == "Interactive demo":
+        if cfg.get("prebuild_xui"):
+            steps.append({"label": "Build xui apps (static musl)",
+                          "argv": [PY, "tools/xui/build.py"]})
         argv = [PY, "tools/run_demo.py"]
         if cfg["profile"] == "release":
             argv.append("--release")
