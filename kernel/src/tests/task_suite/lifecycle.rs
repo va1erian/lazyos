@@ -274,7 +274,7 @@ pub fn soak_thread_exit_generations() -> Result<(), String> {
         task::harness::switch_current(thread);
         task::write_output(b"thread output\n");
         task::fd_open(task::Fd::File {
-            data: alloc::vec![0x5a; 64],
+            data: alloc::sync::Arc::new(alloc::vec![0x5a; 64]),
             offset: 0,
         })
         .ok_or_else(|| format!("round {round}: fd_open failed"))?;
@@ -403,7 +403,7 @@ pub fn futex_wait_mismatch() -> Result<(), String> {
 pub fn fd_table() -> Result<(), String> {
     task::register_kernel();
     let fd = task::fd_open(task::Fd::File {
-        data: b"hello".to_vec(),
+        data: alloc::sync::Arc::new(b"hello".to_vec()),
         offset: 0,
     })
     .ok_or("fd_open failed")?;

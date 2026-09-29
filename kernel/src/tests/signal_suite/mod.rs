@@ -26,9 +26,11 @@ fn send(target: usize, sig: u8) -> Result<(), String> {
 }
 
 mod delivery;
+mod hardening;
 mod linux_abi;
 
 pub(super) use delivery::*;
+pub(super) use hardening::*;
 pub(super) use linux_abi::*;
 
 pub(super) const CASES: &[(&str, Test)] = &[
@@ -47,4 +49,23 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ),
     ("task_signal_linux_sigset_soak", linux_sigset_translate_soak),
     ("task_signal_stop_continue", stop_continue),
+    (
+        "task_signal_sigreturn_frame_is_sanitised",
+        sigreturn_frame_is_sanitised,
+    ),
+    (
+        "task_signal_frame_arithmetic_is_checked",
+        frame_arithmetic_is_checked,
+    ),
+    ("task_signal_soak_frame_validation", soak_frame_validation),
+    (
+        "task_signal_kill_needs_uid_or_capability",
+        kill_needs_matching_uid_or_capability,
+    ),
+    ("task_signal_sigcont_within_session", sigcont_within_session),
+    (
+        "task_signal_kill_all_spares_init",
+        kill_all_spares_init_and_respects_permissions,
+    ),
+    ("task_signal_soak_kill_permissions", soak_kill_permissions),
 ];

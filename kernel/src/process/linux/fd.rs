@@ -132,7 +132,10 @@ pub(super) fn fd_meta_sync_len(fd: usize) {
 /// repeat it.
 pub(super) fn open_snapshot(data: Vec<u8>, mut meta: FdMeta) -> u64 {
     meta.data_len = data.len();
-    match task::fd_open(Fd::File { data, offset: 0 }) {
+    match task::fd_open(Fd::File {
+        data: alloc::sync::Arc::new(data),
+        offset: 0,
+    }) {
         Some(fd) => {
             fd_meta_set(fd, meta);
             fd as u64

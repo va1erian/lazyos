@@ -115,49 +115,16 @@ pub(super) fn sys_rt_sigprocmask(how: u64, set: u64, oldset: u64, sigsetsize: u6
 /// `rt_sigreturn()`: the restorer (`__restore_rt`) issues this syscall with RSP
 /// just past the `pretcode` slot of the frame `deliver_linux` built. Restore
 /// the interrupted registers from the `ucontext_t` and make `sysretq` land
-/// there, returning the frame's `rax`.
+/// there, returning the frame's `rax`. The frame is user-controlled, so a
+/// forged one (non-user `rip`/`rsp`) kills the task with `SIGSEGV` instead of
+/// reaching `sysretq` (#221); the flags are sanitised on the way out.
 pub(super) fn sys_rt_sigreturn() -> u64 {
     let user_rsp = crate::arch::linux::saved_user_rsp();
-    let (regs, mask) = signal::parse_linux_frame(user_rsp);
-    signal::set_blocked(task::current(), mask);
-    crate::arch::linux::set_user_return(regs.rip, regs.rsp, regs.rflags);
-    let saved = [
-        (0usize, regs.r15),
-        (1, regs.r14),
-        (2, regs.r13),
-        (3, regs.r12),
-        (4, regs.rbp),
-        (5, regs.rbx),
-        (6, regs.rdi),
-        (7, regs.rsi),
-        (8, regs.rdx),
-        (9, regs.r8),
-        (10, regs.r9),
-        (11, regs.r10),
-    ];
-    for (slot, value) in saved {
-        crate::arch::linux::set_saved_register(slot, value);
-    }
-    // Keep the captured context in step so a nested delivery builds on the
-    // restored registers rather than the `rt_sigreturn` entry state.
-    let context = crate::arch::linux::UserContext {
-        rip: regs.rip,
-        rflags: regs.rflags,
-        rsp: regs.rsp,
-        rbx: regs.rbx,
-        rbp: regs.rbp,
-        r12: regs.r12,
-        r13: regs.r13,
-        r14: regs.r14,
-        r15: regs.r15,
-        rdi: regs.rdi,
-        rsi: regs.rsi,
-        rdx: regs.rdx,
-        r8: regs.r8,
-        r9: regs.r9,
-        r10: regs.r10,
+    let Some((regs, mask)) = signal::restore_frame(user_rsp) else {
+        signal::die_with_segv();
     };
-    crate::arch::linux::set_user_context(context);
+    signal::set_blocked(task::current(), mask);
+    signal::apply_linux_frame_syscall(&regs);
     regs.rax
 }
 

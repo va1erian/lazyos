@@ -20,10 +20,12 @@ fn fs_error(error: FsError) -> String {
 
 mod fat_corruption;
 mod ramfs_and_permissions;
+mod ramfs_limits;
 mod traversal_and_cache;
 
 pub(super) use fat_corruption::*;
 pub(super) use ramfs_and_permissions::*;
+pub(super) use ramfs_limits::*;
 pub(super) use traversal_and_cache::*;
 
 pub(super) const CASES: &[(&str, Test)] = &[
@@ -60,4 +62,12 @@ pub(super) const CASES: &[(&str, Test)] = &[
         "fs_fat_volume_uses_its_own_device",
         fat_volume_uses_its_own_device,
     ),
+    (
+        "fs_ramfs_rename_same_path_and_cycles",
+        ramfs_rename_same_path_and_cycles,
+    ),
+    ("fs_ramfs_byte_cap_enospc", ramfs_byte_cap_enospc),
+    ("fs_ramfs_node_cap_enospc", ramfs_node_cap_enospc),
+    ("fs_ramfs_soak_fill_and_drain", ramfs_soak_fill_and_drain),
+    ("fs_fd_snapshot_shared_and_cow", fd_snapshot_shared_and_cow),
 ];
