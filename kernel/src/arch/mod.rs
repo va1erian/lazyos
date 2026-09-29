@@ -9,6 +9,7 @@ pub mod irq_stubs;
 pub mod linux;
 pub mod msr;
 pub mod pic;
+pub mod rtc;
 
 /// Initialise interrupt hardware and load the IDT.
 pub fn init() {

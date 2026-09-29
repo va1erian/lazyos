@@ -20,8 +20,7 @@
 //! * block allocation from the group bitmaps with per-group accounting;
 //! * reads and writes through the direct, single-, double- and triple-indirect
 //!   block maps, with sparse holes, and `truncate` (grow and shrink);
-//! * timestamps stamped from the VFS clock (PIT uptime until an RTC driver
-//!   lands), and `setattr` for `chmod`/`chown`/`utimensat` (`attr.rs`);
+//! * timestamps stamped from the VFS clock (UTC wall time), and `setattr` for `chmod`/`chown`/`utimensat` (`attr.rs`);
 //! * a clean/dirty superblock state (`s_state`) and [`Ext2::flush`], which
 //!   flushes the device and then marks the volume clean (see `state.rs`).
 //!

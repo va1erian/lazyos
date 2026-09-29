@@ -6,11 +6,10 @@
 use crate::task::{self, WakeReason};
 use crate::user_ptr;
 
-use super::errno::{err, EFAULT, EINTR, EINVAL};
-use super::uaccess::fill_random;
+use crate::ipc::credentials::{self, CAP_SYS_TIME};
 
-/// Fixed realtime epoch (2026-01-01T00:00:00Z); the PIT provides monotonicity.
-const REALTIME_BASE: u64 = 1_767_225_600;
+use super::errno::{err, EFAULT, EINTR, EINVAL, EPERM};
+use super::uaccess::fill_random;
 
 const CLOCK_REALTIME: u64 = 0;
 pub(super) const CLOCK_MONOTONIC: u64 = 1;
@@ -31,14 +30,14 @@ fn now_ticks() -> u64 {
 }
 
 pub(super) fn sys_clock_gettime(clock: u64, out: u64) -> u64 {
-    // CLOCK_MONOTONIC counts from boot; everything else is anchored to epoch.
-    let ticks = now_ticks();
-    let seconds = if clock == CLOCK_MONOTONIC {
-        ticks / 100
+    // CLOCK_MONOTONIC counts from boot; everything else is wall time.
+    let (seconds, centis) = if clock == CLOCK_MONOTONIC {
+        let ticks = now_ticks();
+        ((ticks / 100) as i64, (ticks % 100) as u32)
     } else {
-        REALTIME_BASE + ticks / 100
+        crate::wallclock::now()
     };
-    write_timespec(out, seconds, (ticks % 100) * 10_000_000);
+    write_timespec(out, seconds as u64, u64::from(centis) * 10_000_000);
     0
 }
 
@@ -57,12 +56,32 @@ pub(super) fn sys_clock_getres(out: u64) -> u64 {
 }
 
 pub(super) fn sys_gettimeofday(tv: u64) -> u64 {
-    let ticks = now_ticks();
+    let (seconds, centis) = crate::wallclock::now();
     // Safety: user buffer holds a `struct timeval` (the syscall ABI's contract).
     unsafe {
-        user_ptr::write::<i64>(tv, (REALTIME_BASE + ticks / 100) as i64);
-        user_ptr::write::<i64>(tv + 8, ((ticks % 100) * 10_000) as i64);
+        user_ptr::write::<i64>(tv, seconds);
+        user_ptr::write::<i64>(tv + 8, i64::from(centis) * 10_000);
     }
+    0
+}
+
+/// `clock_settime(clock, ts)`: step `CLOCK_REALTIME`. Needs `CAP_SYS_TIME`;
+/// `CLOCK_MONOTONIC` cannot be set, and a malformed or pre-epoch timespec is
+/// `-EINVAL`. The capability is checked first so an unprivileged caller
+/// learns nothing about which arguments would have been valid.
+pub(super) fn sys_clock_settime(clock: u64, ts: u64) -> u64 {
+    if !credentials::of(task::current()).has_cap(CAP_SYS_TIME) {
+        return err(EPERM);
+    }
+    if clock != CLOCK_REALTIME {
+        return err(EINVAL);
+    }
+    // Safety: user buffer holds a `struct timespec` (the syscall ABI's contract).
+    let (sec, nsec) = unsafe { (user_ptr::read::<i64>(ts), user_ptr::read::<i64>(ts + 8)) };
+    if sec < 0 || !(0..1_000_000_000).contains(&nsec) {
+        return err(EINVAL);
+    }
+    crate::wallclock::set(sec, (nsec / 10_000_000) as u32);
     0
 }
 
@@ -119,13 +138,11 @@ pub(super) fn sys_clock_nanosleep(clock: u64, flags: u64, req: u64, rem: u64) ->
 /// instant; a deadline already in the past saturates to tick 0, which
 /// `wait_sleep` resolves immediately since ticks only advance.
 fn clock_deadline_ticks(clock: u64, sec: u64, nsec: u64) -> u64 {
-    let ticks = sec
-        .saturating_mul(100)
-        .saturating_add(nsec.div_ceil(10_000_000));
+    let centis = nsec.div_ceil(10_000_000);
     if clock == CLOCK_MONOTONIC {
-        ticks
+        sec.saturating_mul(100).saturating_add(centis)
     } else {
-        ticks.saturating_sub(REALTIME_BASE * 100)
+        crate::wallclock::wall_to_ticks(sec, centis)
     }
 }
 

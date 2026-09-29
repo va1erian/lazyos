@@ -28,12 +28,11 @@ impl Times {
     }
 }
 
-/// The filesystem clock: seconds since boot from the 100 Hz PIT
-/// (`arch::pic` programs that rate), until an RTC driver gives wall time.
-/// Every backend stamps from here and `UTIME_NOW` resolves here, so a
+/// The filesystem clock: UTC seconds since the Unix epoch from the wall clock
+/// (RTC at boot plus PIT uptime, see [`crate::wallclock`]). Every backend stamps from here and `UTIME_NOW` resolves here, so a
 /// `touch` and a write agree on what "now" is.
 pub fn now() -> i64 {
-    (crate::task::ticks() / 100) as i64
+    crate::wallclock::unix_secs()
 }
 
 /// One attribute change as a backend applies it. The `Option`s are the

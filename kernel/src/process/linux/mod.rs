@@ -196,6 +196,7 @@ fn syscall_name(nr: u64) -> &'static str {
         204 => "sched_getaffinity",
         217 => "getdents64",
         218 => "set_tid_address",
+        227 => "clock_settime",
         228 => "clock_gettime",
         229 => "clock_getres",
         230 => "clock_nanosleep",
@@ -391,6 +392,7 @@ extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
         204 => misc::sys_sched_getaffinity(a2, a3),
         217 => dents::sys_getdents64(a1, a2, a3), // getdents64
         218 => procctl::sys_set_tid_address(a1),
+        227 => time::sys_clock_settime(a1, a2),
         228 => time::sys_clock_gettime(a1, a2),
         229 => time::sys_clock_getres(a2),
         230 => time::sys_clock_nanosleep(a1, a2, a3, a4), // clock_nanosleep(clockid, flags, req, rem)

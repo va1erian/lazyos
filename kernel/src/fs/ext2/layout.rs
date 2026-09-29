@@ -136,8 +136,7 @@ pub(super) fn kind_from_mode(mode: u16) -> Option<FileKind> {
 }
 
 /// The current time as an inode field holds it: the VFS clock
-/// ([`crate::fs::vfs::now`], uptime until an RTC driver lands, so fresh
-/// timestamps restart at zero on every boot), shared with every other backend
+/// ([`crate::fs::vfs::now`], UTC wall time from the RTC), shared with every other backend
 /// so a write and a `touch` agree.
 pub(super) fn now() -> u32 {
     super::attr::disk_time(crate::fs::vfs::now())
