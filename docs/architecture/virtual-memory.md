@@ -12,7 +12,7 @@ present, plus the Linux `mmap`/`brk`/`mprotect`/`munmap` paths built on it.
 | `kernel/src/arch/idt.rs:196` | `page_fault_dispatch`: COW -> demand-zero -> `SIGSEGV` |
 | `kernel/src/process/linux/mem.rs` | `sys_mmap`, `sys_munmap`, `sys_mprotect`, `sys_brk` |
 | `kernel/src/process/mod.rs:263` | Native `sbrk` (syscall 4) and VMA recording |
-| `kernel/src/task/mod.rs:324` | `Bump` state: per-PML4 `brk` and `mmap_next` |
+| `kernel/src/task/mod.rs` | `Bump` state (`task/mod.rs`): per-PML4 `brk` and `mmap_next` |
 
 **Types** (`vma.rs`)
 
