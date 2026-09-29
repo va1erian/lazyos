@@ -100,9 +100,20 @@ fn main() {
     let stdout = child.stdout.take().expect("piped stdout");
     let (lines, received) = mpsc::channel();
     thread::spawn(move || {
-        for line in BufReader::new(stdout).lines().map_while(Result::ok) {
-            if lines.send(line).is_err() {
-                break;
+        // Read raw bytes and decode lossily: a stray non-UTF-8 byte from the
+        // guest must not end the reader and hide the rest of the serial log.
+        let mut reader = BufReader::new(stdout);
+        let mut raw = Vec::new();
+        loop {
+            raw.clear();
+            match reader.read_until(b'\n', &mut raw) {
+                Ok(0) | Err(_) => break,
+                Ok(_) => {
+                    let line = String::from_utf8_lossy(&raw).trim_end().to_string();
+                    if lines.send(line).is_err() {
+                        break;
+                    }
+                }
             }
         }
     });
@@ -118,7 +129,14 @@ fn main() {
                 serial.push_str(&line);
                 serial.push('\n');
             }
-            Err(mpsc::RecvTimeoutError::Disconnected) => break,
+            // The reader ended (EOF or an I/O error): keep honouring the
+            // deadline until the guest exits, so `wait()` below cannot hang.
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                if child.try_wait().ok().flatten().is_some() {
+                    break;
+                }
+                thread::sleep(Duration::from_millis(200));
+            }
             Err(mpsc::RecvTimeoutError::Timeout) => {}
         }
         // Stop early once every expectation is met and the guest is idle.
