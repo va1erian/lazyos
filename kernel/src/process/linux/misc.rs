@@ -10,12 +10,15 @@ use super::errno::{err, EINVAL, ENOTTY};
 
 pub(super) fn sys_arch_prctl(code: u64, addr: u64) -> u64 {
     match code {
-        0x1001 | 0x1002 => {
-            // SET_GS / SET_FS. Only FS is used by musl.
-            if code == 0x1002 {
-                task::set_fs_base(addr);
+        0x1001 => 0, // SET_GS: not used by musl; the kernel programs no GS base.
+        0x1002 => {
+            // SET_FS. Reject a non-canonical base before it reaches the MSR:
+            // `wrmsr IA32_FS_BASE` would raise #GP in ring 0 (issue #222).
+            if task::set_fs_base(addr) {
+                0
+            } else {
+                err(EINVAL)
             }
-            0
         }
         0x1003 | 0x1004 => {
             // GET_FS / GET_GS: write the base to *addr.

@@ -658,7 +658,7 @@ fn authorize_registry(actor_slot: usize, method: u32) -> Result<(), i64> {
 fn registry_errno(error: registry::Error) -> i64 {
     use registry::Error::*;
     match error {
-        BadName | BadEndpoint | TooManyInterfaces | BadTask => errno::EINVAL,
+        BadName | BadEndpoint | TooManyInterfaces | BadTask | BadLease => errno::EINVAL,
         NameTaken => errno::EEXIST,
         UnknownName => errno::ENOENT,
         NotOwner => errno::EPERM,
