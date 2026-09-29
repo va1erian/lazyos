@@ -157,6 +157,13 @@ regressions, not kernel-internal correctness or resource leaks.
 - Keep source files **under 500 lines**; split by responsibility instead of
   growing a file past it. Existing oversized files are tracked in issue #194;
   never make one bigger, extract a module when touching it.
+- **Every interface published on Messenger MUST be defined in a `.midl` file
+  under `idl/`** and its client/server code generated with `midlc` (see
+  `docs/messenger.md` §11 and `idl/regd.midl` as the model). This is
+  non-negotiable: no new hand-written method/field constants or TLV encoders
+  for a service, topic, or capability interface, and no copying a protocol into
+  another crate by hand. Touching a legacy hand-rolled protocol means migrating
+  it to MIDL, or at minimum not extending it by hand.
 - Prefer verifying with the existing scripts over ad-hoc commands so results are
   comparable across runs.
 

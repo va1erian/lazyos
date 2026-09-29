@@ -156,7 +156,7 @@ impl Clipboard {
                     &wire::serialize_request(token, mime.as_str())?,
                     Some(deadline),
                 )?;
-                let bytes = wire::decode_bytes(&reply)?;
+                let bytes = wire::decode_serialized(&reply)?;
                 Ok(wire::BufferHandle {
                     token,
                     mime,

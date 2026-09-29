@@ -219,6 +219,8 @@ def emit_rust(interface: Interface) -> str:
         f"/// `{interface.name}` (interface id `{interface.id:#x}`).",
         f"pub mod {interface.module} {{",
         "    use alloc::vec::Vec;",
+        "    // Not every interface needs every codec item (`Kind` is only used by nested values).",
+        "    #[allow(unused_imports)]",
         "    use libmessenger::{Decoder, Encoder, Error, Kind};",
         "",
         "    /// The interface id: the FNV-1a hash of the `.vN` interface name.",
@@ -233,7 +235,10 @@ def emit_rust(interface: Interface) -> str:
         lines.append(f"    pub const METHOD_{method.name.upper()}: u32 = {method.method_id};")
     lines.append("")
     for method in interface.methods:
-        lines += emit_doc_lines(method.doc, indent="    ")
+        # A method with neither arguments nor results emits no item, so its
+        # doc comment must not be left dangling onto the next method's item.
+        if method.params or method.returns:
+            lines += emit_doc_lines(method.doc, indent="    ")
         if method.params:
             lines += emit_message(method.name, "args", method.params).splitlines()
             lines.append("")

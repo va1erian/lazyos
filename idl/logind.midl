@@ -1,0 +1,22 @@
+/// The console login service (issue #101): owns the session table and
+/// answers the query `messengerctl sessions` renders.
+interface os.lazy.logind.v1 {
+    /// Snapshot the session table, oldest session first.
+    method Sessions() -> (active: U64, sessions: Array<Session>);
+
+    /// One login session.
+    struct Session {
+        /// Session id minted by `logind`.
+        id: U64,
+        /// Account name.
+        user: String,
+        /// User id stamped on the session.
+        uid: U32,
+        /// Task slot of the session's shell (`0` until spawned).
+        pid: U64,
+        /// `active` while the shell runs, `exited` after it is reaped.
+        state: String,
+        /// Tick the session started.
+        started: U64
+    }
+}
