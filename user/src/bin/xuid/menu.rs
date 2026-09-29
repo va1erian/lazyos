@@ -11,9 +11,7 @@ use user::messenger::display::{self, Canvas, Face, Rect};
 use user::messenger::services::{self, INIT_NAME};
 use user::sys;
 
-use super::render::repaint;
-use super::shell::AltTab;
-use super::surface::Surface;
+use super::compositor::Compositor;
 use super::theme::{OVERLAY_BG, OVERLAY_BORDER, OVERLAY_SELECTED, OVERLAY_TEXT, TASKBAR_H};
 use super::window::contains;
 
@@ -175,95 +173,49 @@ pub(super) fn draw(screen: &mut Canvas, clip: Rect) {
     }
 }
 
-/// Repaint `damage` with the ambient compositor state (no drag session).
-fn refresh(
-    screen: &mut Canvas,
-    surfaces: &[Surface],
-    pointer: (i32, i32),
-    focused: Option<u64>,
-    damage: Rect,
-    taskbar: bool,
-    alt_tab: &Option<AltTab>,
-) {
-    repaint(
-        screen,
-        surfaces,
-        pointer,
-        focused,
-        damage,
-        None,
-        taskbar,
-        alt_tab.as_ref(),
-    );
-}
-
-/// Open the menu at a right press on the bare desktop and paint it.
-pub(super) fn open_at(
-    screen: &mut Canvas,
-    surfaces: &[Surface],
-    at: (i32, i32),
-    focused: Option<u64>,
-    taskbar: bool,
-    alt_tab: &Option<AltTab>,
-) {
-    let damage = open(at, (screen.width(), screen.height()));
-    refresh(screen, surfaces, at, focused, damage, taskbar, alt_tab);
-}
-
-/// A pointer move while the menu is open: move the cursor, update the highlight.
-pub(super) fn pointer_moved(
-    screen: &mut Canvas,
-    surfaces: &[Surface],
-    old: (i32, i32),
-    new: (i32, i32),
-    focused: Option<u64>,
-    taskbar: bool,
-    alt_tab: &Option<AltTab>,
-) {
-    let damage = super::layout::cursor_rect(old)
-        .union(super::layout::cursor_rect(new))
-        .union(hover(new, (screen.width(), screen.height())));
-    refresh(screen, surfaces, new, focused, damage, taskbar, alt_tab);
-}
-
-/// A button press while the menu may be open. A left press on an item
-/// launches it; any press dismisses the menu. Returns `true` when the press
-/// landed on the menu (consumed); a press elsewhere carries on normally.
-pub(super) fn press(
-    screen: &mut Canvas,
-    surfaces: &[Surface],
-    point: (i32, i32),
-    button: u32,
-    focused: Option<u64>,
-    taskbar: bool,
-    alt_tab: &Option<AltTab>,
-) -> bool {
-    if !is_open() {
-        return false;
+impl Compositor {
+    /// Open the menu at a right press on the bare desktop (`at` is the pointer)
+    /// and paint it.
+    pub(super) fn menu_open_at(&mut self, at: (i32, i32)) {
+        let damage = open(at, (self.screen.width(), self.screen.height()));
+        self.repaint(damage);
     }
-    let dims = (screen.width(), screen.height());
-    let on_menu = hit(point, dims);
-    if on_menu && button == display::button::LEFT {
-        activate(point, dims);
-    }
-    let damage = close(dims);
-    refresh(screen, surfaces, point, focused, damage, taskbar, alt_tab);
-    on_menu
-}
 
-/// Escape closes an open menu; returns whether it did.
-pub(super) fn escape(
-    screen: &mut Canvas,
-    surfaces: &[Surface],
-    pointer: (i32, i32),
-    focused: Option<u64>,
-    taskbar: bool,
-    alt_tab: &Option<AltTab>,
-) -> bool {
-    if !is_open() {
-        return false;
+    /// A pointer move while the menu is open: move the cursor, update the
+    /// highlight. The caller has already stored the new pointer position.
+    pub(super) fn menu_pointer_moved(&mut self, old: (i32, i32)) {
+        let new = self.pointer;
+        let damage = super::layout::cursor_rect(old)
+            .union(super::layout::cursor_rect(new))
+            .union(hover(new, (self.screen.width(), self.screen.height())));
+        self.repaint(damage);
     }
-    let damage = close((screen.width(), screen.height()));
-    refresh(screen, surfaces, pointer, focused, damage, taskbar, alt_tab);
-    true
+
+    /// A button press while the menu may be open. A left press on an item
+    /// launches it; any press dismisses the menu. Returns `true` when the
+    /// press landed on the menu (consumed); a press elsewhere carries on
+    /// normally.
+    pub(super) fn menu_press(&mut self, point: (i32, i32), button: u32) -> bool {
+        if !is_open() {
+            return false;
+        }
+        let dims = (self.screen.width(), self.screen.height());
+        let on_menu = hit(point, dims);
+        if on_menu && button == display::button::LEFT {
+            activate(point, dims);
+        }
+        let damage = close(dims);
+        self.repaint(damage);
+        on_menu
+    }
+
+    /// Escape closes an open menu; returns whether it did.
+    pub(super) fn menu_escape(&mut self) -> bool {
+        if !is_open() {
+            return false;
+        }
+        let damage = close((self.screen.width(), self.screen.height()));
+        self.repaint(damage);
+        true
+    }
 }

@@ -1,12 +1,14 @@
-//! Frame composition and chrome painting (issue #194 split): the full-screen
-//! [`repaint`] pass and the desktop/window/taskbar/overlay drawing, moved out
-//! of `xuid.rs` unchanged.
+//! Frame composition and chrome painting (issue #194 split): the
+//! occlusion-aware [`Compositor::repaint`] pass and the
+//! desktop/window/taskbar/overlay drawing.
 
 use user::messenger::display::{Canvas, Face, Rect};
 use user::sys;
 
-use super::drag::{draw_drag, DragSession};
+use super::compositor::Compositor;
+use super::drag::draw_drag;
 use super::layout::for_each_entry;
+use super::region::Region;
 use super::shell::AltTab;
 use super::surface::Surface;
 use super::theme::{
@@ -17,47 +19,125 @@ use super::theme::{
 };
 use super::window::surface_by_id;
 
-/// Compose `damage` from the background, the desktop surface, every visible
-/// window in z-order, the fallback taskbar, the Alt+Tab overlay, the active
-/// drag & drop session (if any), and the cursor, then present exactly that
-/// rectangle.
-#[allow(clippy::too_many_arguments)]
-pub(super) fn repaint(
-    screen: &mut Canvas,
-    surfaces: &[Surface],
-    pointer: (i32, i32),
-    focused: Option<u64>,
-    damage: Rect,
-    drag_session: Option<&DragSession>,
-    taskbar: bool,
-    alt_tab: Option<&AltTab>,
-) {
-    if damage.is_empty() {
-        return;
+impl Compositor {
+    /// Compose `damage` from the background, the desktop surface, every
+    /// visible window in z-order, the fallback taskbar, the Alt+Tab overlay,
+    /// the active drag & drop session (if any), and the cursor, then present
+    /// exactly that rectangle.
+    ///
+    /// Only pixels a later layer would not overwrite are painted (issue #360):
+    /// the taskbar, Alt+Tab panel, context menu and each window are opaque, so
+    /// each layer draws only where nothing opaque lies above it inside the
+    /// damage. The result is pixel-identical to painting every layer in full.
+    pub(super) fn repaint(&mut self, damage: Rect) {
+        if damage.is_empty() {
+            return;
+        }
+        let taskbar = self.taskbar();
+        let screen = &mut self.screen;
+        let surfaces = &self.surfaces;
+        let focused = self.focused;
+        let dims = (screen.width(), screen.height());
+
+        // Opaque layers above every window.
+        let mut overlays = [Rect::new(0, 0, 0, 0); 3];
+        let mut overlay_count = 0;
+        let mut push_overlay = |rect: Rect| {
+            overlays[overlay_count] = rect;
+            overlay_count += 1;
+        };
+        if taskbar {
+            push_overlay(taskbar_rect(dims));
+        }
+        if let Some(panel) = self
+            .alt_tab
+            .as_ref()
+            .and_then(|tab| alt_tab_panel(dims, surfaces, tab))
+        {
+            push_overlay(panel);
+        }
+        if super::menu::is_open() {
+            push_overlay(super::menu::rect(dims));
+        }
+        let overlays = &overlays[..overlay_count];
+        let windows = || {
+            surfaces
+                .iter()
+                .filter(|surface| !surface.desktop && !surface.minimized)
+        };
+        let desktop = surfaces.iter().find(|surface| surface.desktop);
+        // The desktop hides the background only where it really has pixels.
+        let desktop_area = desktop
+            .filter(|surface| has_pixels(surface))
+            .map(|surface| Rect::new(surface.x, surface.y, surface.w, surface.h));
+
+        // Background: only where no desktop, window or overlay lies on top.
+        let mut visible = Region::new(damage);
+        subtract_all(&mut visible, overlays);
+        for window in windows() {
+            visible.subtract(window.window());
+        }
+        if let Some(area) = desktop_area {
+            visible.subtract(area);
+        }
+        for piece in visible.rects() {
+            screen.fill(*piece, *piece, BACKGROUND);
+        }
+        // The desktop paints above the background and below every window.
+        if let Some(desktop) = desktop {
+            let mut visible = Region::new(
+                Rect::new(desktop.x, desktop.y, desktop.w, desktop.h).intersect(damage),
+            );
+            subtract_all(&mut visible, overlays);
+            for window in windows() {
+                visible.subtract(window.window());
+            }
+            for piece in visible.rects() {
+                draw_desktop(screen, desktop, *piece);
+            }
+        }
+        // Windows bottom-up, each clipped to what the windows and overlays
+        // above it leave visible.
+        for (index, surface) in windows().enumerate() {
+            let mut visible = Region::new(surface.window().intersect(damage));
+            subtract_all(&mut visible, overlays);
+            for above in windows().skip(index + 1) {
+                visible.subtract(above.window());
+            }
+            for piece in visible.rects() {
+                draw_surface(screen, surface, focused == Some(surface.id), *piece);
+            }
+        }
+        if taskbar {
+            draw_taskbar(screen, surfaces, focused, damage);
+        }
+        if let Some(session) = self.drag_session.as_ref() {
+            draw_drag(screen, surfaces, session, self.pointer, damage);
+        }
+        if let Some(tab) = self.alt_tab.as_ref() {
+            draw_alt_tab(screen, surfaces, tab, damage);
+        }
+        super::menu::draw(screen, damage);
+        screen.cursor(self.pointer.0, self.pointer.1, damage);
+        let _ = sys::display_present(damage.x, damage.y, damage.w, damage.h);
     }
-    screen.fill(damage, damage, BACKGROUND);
-    // The desktop paints above the background and below every window.
-    if let Some(desktop) = surfaces.iter().find(|surface| surface.desktop) {
-        draw_desktop(screen, desktop, damage);
+}
+
+/// Remove every rectangle in `covers` from `region`.
+fn subtract_all(region: &mut Region, covers: &[Rect]) {
+    for cover in covers {
+        region.subtract(*cover);
     }
-    for surface in surfaces
-        .iter()
-        .filter(|surface| !surface.desktop && !surface.minimized)
-    {
-        draw_surface(screen, surface, focused == Some(surface.id), damage);
-    }
-    if taskbar {
-        draw_taskbar(screen, surfaces, focused, damage);
-    }
-    if let Some(session) = drag_session {
-        draw_drag(screen, surfaces, session, pointer, damage);
-    }
-    if let Some(tab) = alt_tab {
-        draw_alt_tab(screen, surfaces, tab, damage);
-    }
-    super::menu::draw(screen, damage);
-    screen.cursor(pointer.0, pointer.1, damage);
-    let _ = sys::display_present(damage.x, damage.y, damage.w, damage.h);
+}
+
+/// The fallback taskbar's rectangle on a screen of `dims`.
+fn taskbar_rect(dims: (i32, i32)) -> Rect {
+    Rect::new(0, dims.1 - TASKBAR_H, dims.0, TASKBAR_H)
+}
+
+/// Whether the surface has a mapped buffer big enough for its geometry.
+fn has_pixels(surface: &Surface) -> bool {
+    surface.pixels != 0 && surface.bytes >= (surface.w * surface.h * 4) as u64
 }
 
 /// Blit the desktop surface's pixels across its rectangle; no chrome, no
@@ -67,7 +147,7 @@ fn draw_desktop(screen: &mut Canvas, surface: &Surface, clip: Rect) {
     if area.intersect(clip).is_empty() {
         return;
     }
-    if surface.pixels != 0 && surface.bytes >= (surface.w * surface.h * 4) as u64 {
+    if has_pixels(surface) {
         // Safety: the mapping was installed by `display_map_buffer` for this
         // buffer and the surface's geometry describes it.
         let pixels = unsafe {
@@ -77,13 +157,13 @@ fn draw_desktop(screen: &mut Canvas, surface: &Surface, clip: Rect) {
     }
 }
 
-/// Draw the Alt+Tab overlay centered on the screen: one row per window in the
-/// cycle, the selected row highlighted.
-fn draw_alt_tab(screen: &mut Canvas, surfaces: &[Surface], tab: &AltTab, clip: Rect) {
-    let (screen_w, screen_h) = (screen.width(), screen.height());
+/// The Alt+Tab panel rectangle centered on a screen of `dims`, or `None` when
+/// the cycle is empty (nothing is drawn).
+fn alt_tab_panel(dims: (i32, i32), surfaces: &[Surface], tab: &AltTab) -> Option<Rect> {
+    let (screen_w, screen_h) = dims;
     let rows = tab.order.len().min(12);
     if rows == 0 {
-        return;
+        return None;
     }
     let title_w = tab
         .order
@@ -93,14 +173,27 @@ fn draw_alt_tab(screen: &mut Canvas, surfaces: &[Surface], tab: &AltTab, clip: R
         .max()
         .unwrap_or(0);
     let panel_w = (title_w + 48).clamp(180, (screen_w - 40).max(180));
-    let row_h = 18;
-    let panel_h = 26 + rows as i32 * row_h;
-    let panel = Rect::new(
+    let panel_h = 26 + rows as i32 * ALT_TAB_ROW_H;
+    Some(Rect::new(
         (screen_w - panel_w) / 2,
         (screen_h - panel_h) / 2,
         panel_w,
         panel_h,
-    );
+    ))
+}
+
+/// Height of one Alt+Tab row.
+const ALT_TAB_ROW_H: i32 = 18;
+
+/// Draw the Alt+Tab overlay centered on the screen: one row per window in the
+/// cycle, the selected row highlighted.
+fn draw_alt_tab(screen: &mut Canvas, surfaces: &[Surface], tab: &AltTab, clip: Rect) {
+    let dims = (screen.width(), screen.height());
+    let Some(panel) = alt_tab_panel(dims, surfaces, tab) else {
+        return;
+    };
+    let rows = tab.order.len().min(12);
+    let row_h = ALT_TAB_ROW_H;
     if panel.intersect(clip).is_empty() {
         return;
     }
@@ -223,7 +316,7 @@ fn draw_surface(screen: &mut Canvas, surface: &Surface, focused: bool, clip: Rec
 
     // The app's pixels, or an explicit placeholder before AttachBuffer.
     let content = surface.content();
-    if surface.pixels != 0 && surface.bytes >= (surface.w * surface.h * 4) as u64 {
+    if has_pixels(surface) {
         // Safety: the mapping was installed by `display_map_buffer` for this
         // buffer and the surface's geometry describes it.
         let pixels = unsafe {
