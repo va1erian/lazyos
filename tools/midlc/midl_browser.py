@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import itertools
+import os
 import sys
 import tkinter as tk
 from dataclasses import dataclass
@@ -57,9 +58,16 @@ def discover(roots: list[Path]) -> list[Path]:
     for root in roots:
         root = Path(root)
         if root.is_file() and root.suffix == ".midl":
-            found.append(root)
+            if not any(part in SKIP_DIRS for part in root.parts):
+                found.append(root)
         elif root.is_dir():
-            found.extend(sorted(root.rglob("*.midl")))
+            chunk: list[Path] = []
+            for current, dirs, files in os.walk(root):
+                dirs[:] = sorted(d for d in dirs if d not in SKIP_DIRS)
+                for name in sorted(files):
+                    if name.endswith(".midl"):
+                        chunk.append(Path(current) / name)
+            found.extend(sorted(chunk))
     seen: set[Path] = set()
     unique: list[Path] = []
     for path in found:
