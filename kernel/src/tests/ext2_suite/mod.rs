@@ -158,6 +158,10 @@ pub(super) const CASES: &[(&str, Test)] = &[
         create_write_read_rename_unlink,
     ),
     ("fs_ext2_block_sizes", block_sizes),
+    (
+        "fs_ext2_rename_over_existing_replaces",
+        rename_over_existing_replaces,
+    ),
     ("fs_ext2_rejects_corruption", rejects_corruption),
     ("fs_ext2_mount_device_wiring", mount_device_wiring),
     ("fs_ext2_files_survive_remount", files_survive_remount),

@@ -356,6 +356,15 @@ pub trait Filesystem: Send + Sync {
     /// Rename/move a node within this filesystem.
     fn rename(&self, from: &str, to: &str) -> Result<(), FsError>;
 
+    /// Flush this filesystem's pending writes to stable storage.
+    ///
+    /// The default is a no-op for in-memory backends (ramfs, the overlay);
+    /// ext2 hands its device cache to the block layer. `regd`'s passthrough
+    /// `fsync` reaches this through [`Vfs::flush`].
+    fn flush(&self) -> Result<(), FsError> {
+        Ok(())
+    }
+
     /// List a directory's entries (without `.`/`..`, which the ABI layer adds).
     fn readdir(&self, path: &str) -> Result<Vec<DirEntry>, FsError>;
 }
@@ -665,6 +674,18 @@ impl Vfs {
         self.invalidate_mount_path(from_mount, &from_rel);
         self.invalidate_mount_path(from_mount, &to_rel);
         Ok(())
+    }
+
+    /// Flush the filesystem holding `path` to stable storage (`fsync(2)`).
+    ///
+    /// The path must resolve (search permission on every ancestor, as with any
+    /// other VFS call) but needs no read or write bit: flushing is not reading
+    /// or writing the file's data.
+    pub fn flush(&mut self, id: Id, path: &str) -> Result<(), FsError> {
+        let path = Path::parse(path);
+        self.check_path(id, &path, 0)?;
+        let (mount, _) = self.resolve_mount(&path)?;
+        self.mounts[mount].fs.flush()
     }
 
     /// List a directory's entries (`.`/`..` are the ABI layer's job).

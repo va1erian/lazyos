@@ -187,6 +187,19 @@ const MANIFEST: &[ServiceSpec] = &[
         deps: &["messengerd"],
         health_topic: "system/health/keyd",
     },
+    // The configuration registry (issue #260). It needs `messengerd` for the
+    // change-topic broker; the store lives on the kernel VFS, so no service
+    // dependency. Started before config consumers; `demo=1` spawns one
+    // `regctl` self-test that proves the set/get/list/delete path over the
+    // real Messenger transport and prints `REGCTL:SELFTEST:PASS`.
+    ServiceSpec {
+        name: "regd",
+        path: "REGD.ELF",
+        args: "demo=1",
+        restart: Restart::Always,
+        deps: &["messengerd"],
+        health_topic: "system/health/regd",
+    },
     ServiceSpec {
         name: "accountsd",
         path: "ACCTD.ELF",

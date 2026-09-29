@@ -213,6 +213,11 @@ pub fn vfs_rename(id: Id, from: &str, to: &str) -> Result<(), FsError> {
     with(|vfs| vfs.rename(id, from, to)).unwrap_or(Err(FsError::NotFound))
 }
 
+/// Flush the filesystem holding `path` to stable storage (`fsync(2)`).
+pub fn vfs_flush(id: Id, path: &str) -> Result<(), FsError> {
+    with(|vfs| vfs.flush(id, path)).unwrap_or(Err(FsError::NotFound))
+}
+
 /// The global creation mask.
 #[cfg_attr(not(lazyos_tests), allow(dead_code))] // read back by tests/diagnostics
 pub fn vfs_umask() -> u16 {

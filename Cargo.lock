@@ -391,6 +391,7 @@ dependencies = [
  "libm",
  "libmessenger",
  "linked_list_allocator",
+ "regd",
  "spin",
  "tiny-skia",
  "uart_16550",
@@ -821,6 +822,8 @@ dependencies = [
  "lazyos-crypto",
  "lazyos-lang",
  "libmessenger",
+ "messenger-generated",
+ "regd",
 ]
 
 [[package]]

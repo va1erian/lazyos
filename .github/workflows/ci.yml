@@ -35,7 +35,7 @@ jobs:
           cargo clippy -p kernel -p user --target x86_64-unknown-none \
             -Zbuild-std=core,alloc -- -D warnings
       - name: Clippy (host libraries)
-        run: cargo clippy -p libmessenger -p messenger-generated -p lazyos-crypto -p font-atlas -- -D warnings
+        run: cargo clippy -p libmessenger -p messenger-generated -p lazyos-crypto -p font-atlas -p regd -- -D warnings
 
   build-and-boot:
     runs-on: ubuntu-latest

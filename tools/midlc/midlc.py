@@ -379,7 +379,9 @@ def rust_type(ty: Type) -> str:
     if ty.name == "Array":
         return f"alloc::vec::Vec<{rust_type(ty.args[0])}>"
     if ty.name == "Option":
-        return f"alloc::option::Option<{rust_type(ty.args[0])}>"
+        # `Option` lives in `core`, not `alloc`; the generated module only
+        # imports `alloc::vec::Vec`.
+        return f"core::option::Option<{rust_type(ty.args[0])}>"
     return ty.name  # named struct
 
 
@@ -390,35 +392,40 @@ def deref(value: str) -> str:
     return value[1:] if value.startswith("&") else f"*{value}"
 
 
-def encode_lines(ty: Type, *, id: int, value: str, indent: str) -> list[str]:
-    """Lines writing `value` into `target` as field `id`."""
+def encode_lines(ty: Type, *, id: int, value: str, indent: str, target: str = "target") -> list[str]:
+    """Lines writing `value` into encoder `target` as field `id`.
+
+    `target` is parameterised because an `Array`/`Option` encodes its element
+    into a fresh `nested` encoder: writing the element into the outer encoder
+    would emit a field at the wrong depth (and, for a struct's first field,
+    collide with an earlier sibling id)."""
     if ty.name in SCALARS:
-        return [f"{indent}target.{SCALARS[ty.name][1]}({id}, {deref(value)})?;"]
+        return [f"{indent}{target}.{SCALARS[ty.name][1]}({id}, {deref(value)})?;"]
     if ty.name == "String":
-        return [f"{indent}target.string({id}, {value})?;"]
+        return [f"{indent}{target}.string({id}, {value})?;"]
     if ty.name == "Bytes":
-        return [f"{indent}target.bytes({id}, {value})?;"]
+        return [f"{indent}{target}.bytes({id}, {value})?;"]
     if ty.name == "Handle":
-        return [f"{indent}target.handle({id}, {deref(value)})?;"]
+        return [f"{indent}{target}.handle({id}, {deref(value)})?;"]
     if ty.name == "Buffer":
-        return [f"{indent}target.buffer({id}, {value})?;"]
+        return [f"{indent}{target}.buffer({id}, {value})?;"]
     if ty.name == "Array":
         inner = ty.args[0]
         lines = [f"{indent}let mut nested = Encoder::new();", f"{indent}for item in {value} {{"]
-        lines += encode_lines(inner, id=1, value="item", indent=indent + "    ")
-        lines += [f"{indent}}}", f"{indent}target.array({id}, &nested)?;"]
+        lines += encode_lines(inner, id=1, value="item", indent=indent + "    ", target="nested")
+        lines += [f"{indent}}}", f"{indent}{target}.array({id}, &nested)?;"]
         return lines
     if ty.name == "Option":
         inner = ty.args[0]
         lines = [f"{indent}match {value} {{", f"{indent}    Some(item) => {{"]
         lines += [f"{indent}        let mut nested = Encoder::new();"]
-        lines += encode_lines(inner, id=1, value="item", indent=indent + "        ")
-        lines += [f"{indent}        target.option({id}, Some(&nested))?;", f"{indent}    }}"]
-        lines += [f"{indent}    None => {{", f"{indent}        target.option({id}, None)?;", f"{indent}    }}"]
+        lines += encode_lines(inner, id=1, value="item", indent=indent + "        ", target="nested")
+        lines += [f"{indent}        {target}.option({id}, Some(&nested))?;", f"{indent}    }}"]
+        lines += [f"{indent}    None => {{", f"{indent}        {target}.option({id}, None)?;", f"{indent}    }}"]
         lines += [f"{indent}}}"]
         return lines
     # Named struct: encode as a nested record.
-    return [f"{indent}target.raw(Kind::Struct, {id}, &encode_{snake_case(ty.name)}({value})?)?;"]
+    return [f"{indent}{target}.raw(Kind::Struct, {id}, &encode_{snake_case(ty.name)}({value})?)?;"]
 
 
 DECODE_EXPR = {
@@ -559,6 +566,9 @@ def emit_rust(interface: Interface) -> str:
         f"pub mod {interface.module} {{",
         "    use alloc::vec::Vec;",
         "    use libmessenger::{Decoder, Encoder, Error, Kind};",
+        "",
+        "    /// The interface id: the FNV-1a hash of the `.vN` interface name.",
+        f"    pub const INTERFACE_ID: u64 = {interface.id:#x};",
         "",
     ]
     for struct in interface.structs:

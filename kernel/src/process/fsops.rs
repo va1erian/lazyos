@@ -1,4 +1,4 @@
-//! Native filesystem syscalls 15-20 (and 21, `power`) (issue #6): the small, path-based surface
+//! Native filesystem syscalls 15-22 (and 21, `power`) (issue #6): the small, path-based surface
 //! the ring-3 shell needs for `dir`, `copy`, `del`, `ren` and `mkdir`.
 //!
 //! | nr | call | `rdi` | `rsi` | `rdx` | result |
@@ -10,6 +10,7 @@
 //! | 19 | `unlink` | path | - | - | 0 |
 //! | 20 | `rename` | from | to | - | 0 |
 //! | 21 | `power` | op | - | - | (see [`super::power`]) |
+//! | 22 | `fsync` | path | - | - | 0 |
 //!
 //! Every call goes through the native VFS as the calling task, so the
 //! permission checks, the read-only FAT boot volume (`-EROFS`) and the writable
@@ -83,7 +84,7 @@ fn path_arg(ptr: u64) -> Result<String, u64> {
     Ok(path)
 }
 
-/// Dispatch native syscall `nr` (15-20).
+/// Dispatch native syscall `nr` (15-22).
 pub fn dispatch(nr: u64, a1: u64, a2: u64, a3: u64) -> u64 {
     let outcome = match nr {
         15 => stat(a1, a2),
@@ -95,6 +96,7 @@ pub fn dispatch(nr: u64, a1: u64, a2: u64, a3: u64) -> u64 {
             .and_then(|from| Ok((from, path_arg(a2)?)))
             .and_then(|(from, to)| rename(&from, &to)),
         21 => return super::power::dispatch(a1),
+        22 => path_arg(a1).and_then(|path| fsync(&path)),
         _ => return u64::MAX,
     };
     outcome.unwrap_or_else(|code| code)
@@ -178,6 +180,15 @@ fn unlink(path: &str) -> Result<u64, u64> {
 
 fn rename(from: &str, to: &str) -> Result<u64, u64> {
     fs::vfs_rename(Id::current(), from, to)
+        .map(|_| 0)
+        .map_err(|e| failed(errno_of(e)))
+}
+
+/// Flush the filesystem holding `path` to stable storage. The path must
+/// resolve; the flush is per-mount, so `regd` fsyncs its temporary file before
+/// renaming it over the committed store.
+fn fsync(path: &str) -> Result<u64, u64> {
+    fs::vfs_flush(Id::current(), path)
         .map(|_| 0)
         .map_err(|e| failed(errno_of(e)))
 }

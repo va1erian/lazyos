@@ -74,6 +74,15 @@ fn main() {
     let keyd = std::env::var_os("CARGO_BIN_FILE_USER_keyd").expect("user keyd artifact not found");
     builder.set_file(String::from("KEYD.ELF"), PathBuf::from(keyd));
 
+    // The configuration registry (issue #260). `init` starts `regd`
+    // (`REGD.ELF`) from its manifest; `regctl` is its shell command line,
+    // run as `run REGCTL.ELF ...`. Both names are 8.3-safe for the FAT reader.
+    let regd = std::env::var_os("CARGO_BIN_FILE_USER_regd").expect("user regd artifact not found");
+    builder.set_file(String::from("REGD.ELF"), PathBuf::from(regd));
+    let regctl =
+        std::env::var_os("CARGO_BIN_FILE_USER_regctl").expect("user regctl artifact not found");
+    builder.set_file(String::from("REGCTL.ELF"), PathBuf::from(regctl));
+
     // The per-session clipboard service (issue #115). Like `keyd`, `init`
     // starts it from its manifest when the image boots with
     // `LAZYOS_SERVICES=1`; the 8.3 name is what the kernel's FAT reader sees.
