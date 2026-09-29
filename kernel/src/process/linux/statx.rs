@@ -1,9 +1,9 @@
 //! `statx(2)`: the extensible `stat`, mapped onto the attributes the plain
 //! stat family already gathers ([`super::stat`]).
 //!
-//! LazyOS keeps no timestamps and has no symlinks, automounts or cached
-//! attributes, so the reply says exactly that through `stx_mask`: the time
-//! fields (birth time included) are not claimed, `AT_SYMLINK_NOFOLLOW` and
+//! LazyOS has no symlinks, automounts or cached attributes, so the reply says
+//! exactly what it has through `stx_mask`: access, modify and change times are
+//! claimed, birth time is not (no backend records it), `AT_SYMLINK_NOFOLLOW` and
 //! `AT_NO_AUTOMOUNT` change nothing, and the `AT_STATX_*` sync hints are
 //! accepted and ignored because every answer is already current.
 
@@ -29,6 +29,9 @@ const STATX_MODE: u32 = 0x2;
 const STATX_NLINK: u32 = 0x4;
 const STATX_UID: u32 = 0x8;
 const STATX_GID: u32 = 0x10;
+const STATX_ATIME: u32 = 0x20;
+const STATX_MTIME: u32 = 0x40;
+const STATX_CTIME: u32 = 0x80;
 const STATX_INO: u32 = 0x100;
 const STATX_SIZE: u32 = 0x200;
 const STATX_BLOCKS: u32 = 0x400;
@@ -41,6 +44,9 @@ const STATX_SUPPORTED: u32 = STATX_TYPE
     | STATX_NLINK
     | STATX_UID
     | STATX_GID
+    | STATX_ATIME
+    | STATX_MTIME
+    | STATX_CTIME
     | STATX_INO
     | STATX_SIZE
     | STATX_BLOCKS;
@@ -114,5 +120,9 @@ fn encode(attrs: &Attrs) -> [u8; STATX_SIZE_BYTES] {
     put(32, &attrs.ino.to_le_bytes()); // stx_ino
     put(40, &attrs.size.to_le_bytes()); // stx_size
     put(48, &attrs.size.div_ceil(512).to_le_bytes()); // stx_blocks
+                                                      // `struct statx_timestamp` is {i64 sec, u32 nsec, i32 pad}; nsec stays zero.
+    put(64, &attrs.times.atime.to_le_bytes()); // stx_atime
+    put(96, &attrs.times.ctime.to_le_bytes()); // stx_ctime
+    put(112, &attrs.times.mtime.to_le_bytes()); // stx_mtime
     out
 }

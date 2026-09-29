@@ -184,4 +184,22 @@ impl Ext2 {
         buf[offset..end].copy_from_slice(inode);
         self.write_block(block, &buf[..size])
     }
+
+    /// Whether bit `index` of a bitmap is set.
+    fn bitmap_test(buf: &[u8], index: u32) -> bool {
+        buf[(index / 8) as usize] & (1 << (index % 8)) != 0
+    }
+
+    fn bitmap_set(buf: &mut [u8], index: u32) {
+        buf[(index / 8) as usize] |= 1 << (index % 8);
+    }
+
+    fn bitmap_clear(buf: &mut [u8], index: u32) {
+        buf[(index / 8) as usize] &= !(1 << (index % 8));
+    }
+
+    /// The first clear bit in `start..bits`, scanning in allocation order.
+    fn bitmap_find_zero(buf: &[u8], start: u32, bits: u32) -> Option<u32> {
+        (start..bits).find(|&index| !Self::bitmap_test(buf, index))
+    }
 }

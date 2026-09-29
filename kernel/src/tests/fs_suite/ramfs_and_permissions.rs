@@ -210,6 +210,7 @@ pub fn permission_matrix_owner_group_other() -> Result<(), String> {
         gid: 100,
         size: 0,
         kind: FileKind::File,
+        times: vfs::Times::default(),
     };
     let owner = Id::new(1000, 200);
     let group = Id::new(2000, 100);

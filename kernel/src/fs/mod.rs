@@ -26,6 +26,7 @@
 //! tables ([`mount_data_volume`]); it is the durable store. [`sync_all`] is the
 //! shutdown hook that makes it consistent on disk.
 
+mod abi_attr;
 pub mod ext2;
 pub mod fallible;
 pub mod fat;
@@ -40,6 +41,7 @@ use alloc::vec::Vec;
 use spin::Mutex;
 
 use crate::block;
+pub use abi_attr::{abi_setattr, abi_setattr_open};
 use vfs::{DirEntry, Filesystem, FsError, Id, Meta, Vfs};
 
 /// The native kernel VFS: mount table, caches, and whether the boot volume

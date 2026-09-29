@@ -3,24 +3,26 @@
 //! ([`fd_attrs`] or [`path_attrs`], which [`super::statx`] reuses) and write
 //! the x86_64 `struct stat` layout the ABI needs with [`fill_stat`].
 
-use crate::fs::vfs::Meta;
+use crate::fs::vfs::{Id, Meta, Times};
 use crate::task::{self, FdKind};
 use crate::user_ptr;
 
 use super::errno::{err, fs_err, EBADF, EINVAL, ENOENT};
-use super::fd::fd_meta_get;
+use super::fd::{fd_meta_get, FdMeta};
 use super::flags::{S_IFCHR, S_IFIFO, S_IFREG, S_IFSOCK};
 use super::path::{resolve, Target};
 use super::uaccess::{read_cstr, write_u32, write_u64};
 
-/// What the stat-family calls report about a file. LazyOS keeps no
-/// timestamps, so there are none here.
+/// What the stat-family calls report about a file: type and mode, size, inode,
+/// owner and the three timestamps (whole seconds; nodes with no backing file
+/// report zero).
 pub(super) struct Attrs {
     pub(super) mode: u32,
     pub(super) size: u64,
     pub(super) ino: u64,
     pub(super) uid: u32,
     pub(super) gid: u32,
+    pub(super) times: Times,
 }
 
 impl Attrs {
@@ -32,6 +34,7 @@ impl Attrs {
             ino,
             uid: 0,
             gid: 0,
+            times: Times::default(),
         }
     }
 
@@ -42,6 +45,7 @@ impl Attrs {
             ino: meta.ino,
             uid: meta.uid,
             gid: meta.gid,
+            times: meta.times,
         }
     }
 }
@@ -64,6 +68,20 @@ fn fill_stat(buf: u64, attrs: &Attrs) {
     write_u64(buf + 48, attrs.size); // st_size
     write_u64(buf + 56, 4096); // st_blksize
     write_u64(buf + 64, attrs.size.div_ceil(512)); // st_blocks
+    write_u64(buf + 72, attrs.times.atime as u64); // st_atime (`_nsec` stays zero)
+    write_u64(buf + 88, attrs.times.mtime as u64); // st_mtime
+    write_u64(buf + 104, attrs.times.ctime as u64); // st_ctime
+}
+
+/// The current metadata of a snapshot descriptor's file, so `fstat` sees a
+/// later `chmod` or write. Only while the path still names the same inode the
+/// descriptor opened: after an unlink or a replacing rename, the snapshot's
+/// own record is the truth.
+fn live_meta(opened: &FdMeta) -> Option<Meta> {
+    let path = opened.path.as_deref()?;
+    crate::fs::abi_stat(Id::ROOT, path)
+        .ok()
+        .filter(|meta| meta.ino == opened.ino)
 }
 
 /// The attributes of an open descriptor (`fstat`, and `statx` with
@@ -74,13 +92,17 @@ pub(super) fn fd_attrs(fd: u64) -> Result<Attrs, u64> {
     }
     match task::fd_kind(fd as usize) {
         FdKind::File => Ok(match fd_meta_get(fd as usize) {
-            // The open recorded the VFS mode/ino/size/owner; report those.
-            Some(meta) => Attrs {
-                mode: meta.mode,
-                size: meta.size,
-                ino: meta.ino,
-                uid: meta.uid,
-                gid: meta.gid,
+            Some(opened) => match live_meta(&opened) {
+                Some(meta) => Attrs::of(&meta),
+                // The open recorded the VFS mode/ino/size/owner; report those.
+                None => Attrs {
+                    mode: opened.mode,
+                    size: opened.size,
+                    ino: opened.ino,
+                    uid: opened.uid,
+                    gid: opened.gid,
+                    times: Times::default(),
+                },
             },
             // Inherited fds (fork/exec) have no side-table entry yet.
             None => {

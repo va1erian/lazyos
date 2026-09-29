@@ -13,12 +13,14 @@ use super::fixtures::{check_volume, pattern_bytes, raw_state};
 use super::*;
 use crate::ipc::credentials::{self, Cred};
 
+mod attrs;
 mod inspect;
 mod io;
 mod names;
 mod sizing;
 mod soak;
 mod statx;
+mod times;
 mod vectored;
 
 pub(in crate::tests) const CASES: &[(&str, Test)] = &[
@@ -127,6 +129,16 @@ pub(in crate::tests) const CASES: &[(&str, Test)] = &[
     ),
     ("linux_vectored_snapshot_io", vectored::snapshot_vectored_io),
     ("linux_vectored_soak", vectored::soak_vectored_io),
+    ("linux_data_chmod_matrix", attrs::chmod_matrix),
+    ("linux_data_attr_descriptor_forms", attrs::descriptor_forms),
+    ("linux_data_chown_rules", attrs::chown_rules),
+    ("linux_data_utimes_rules", times::utimes_rules),
+    ("linux_data_attrs_read_only", attrs::read_only_attrs),
+    (
+        "linux_data_attrs_survive_remount",
+        attrs::attrs_survive_remount,
+    ),
+    ("linux_data_soak_attr_churn", soak::attr_churn),
 ];
 
 // Linux numbers and flags the tests spell out.

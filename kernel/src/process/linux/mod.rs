@@ -7,7 +7,8 @@
 //! the initial image and start stack, [`io`] is `read`/`write`/`poll`,
 //! [`mem`] the `mmap` family, [`fd`] the descriptor table and its metadata,
 //! [`path`] and [`pathops`] path resolution and the naming syscalls (`open`,
-//! `mkdir`, `rename`, ...), [`stat`] the `stat` family, [`time`] clocks and
+//! `mkdir`, `rename`, ...), [`attr`] `chmod`/`chown`/`utimensat` and their
+//! variants, [`stat`] the `stat` family, [`time`] clocks and
 //! sleeping, [`misc`] odds and ends (`ioctl`, `arch_prctl`, `uname`, ...),
 //! [`pipes`] and [`socket`] IPC endpoints, [`epoll`] readiness polling and
 //! `eventfd`, [`futex`] the wait/wake primitive, [`sig`] signals, and
@@ -21,6 +22,7 @@ use core::sync::atomic::{AtomicBool, Ordering};
 
 use crate::task;
 
+mod attr;
 mod creds;
 mod dents;
 mod elf;
@@ -156,7 +158,10 @@ fn syscall_name(nr: u64) -> &'static str {
         87 => "unlink",
         89 => "readlink",
         90 => "chmod",
+        91 => "fchmod",
         92 => "chown",
+        93 => "fchown",
+        94 => "lchown",
         95 => "umask",
         96 => "gettimeofday",
         97 => "getrlimit",
@@ -179,6 +184,7 @@ fn syscall_name(nr: u64) -> &'static str {
         124 => "getsid",
         130 => "rt_sigsuspend",
         131 => "sigaltstack",
+        132 => "utime",
         137 => "statfs",
         138 => "fstatfs",
         162 => "sync",
@@ -197,16 +203,20 @@ fn syscall_name(nr: u64) -> &'static str {
         232 => "epoll_wait",
         233 => "epoll_ctl",
         234 => "tgkill",
+        235 => "utimes",
         257 => "openat",
         258 => "mkdirat",
         259 => "mknodat",
         260 => "fchownat",
+        261 => "futimesat",
         262 => "newfstatat",
         263 => "unlinkat",
         264 => "renameat",
+        268 => "fchmodat",
         271 => "ppoll",
         273 => "set_robust_list",
         275 => "splice",
+        280 => "utimensat",
         288 => "accept4",
         290 => "eventfd2",
         291 => "epoll_create1",
@@ -347,6 +357,10 @@ extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
         84 => pathops::sys_rmdir(a1),                   // rmdir
         87 => pathops::sys_unlink(a1),                  // unlink
         89 => pathops::sys_readlink(a1, a2, a3),        // readlink
+        90 => attr::sys_chmod(a1, a2),                  // chmod(path, mode)
+        91 => attr::sys_fchmod(a1, a2),                 // fchmod(fd, mode)
+        92 | 94 => attr::sys_chown(a1, a2, a3),         // chown/lchown(path, uid, gid)
+        93 => attr::sys_fchown(a1, a2, a3),             // fchown(fd, uid, gid)
         95 => pathops::sys_umask(a1),                   // umask(mask)
         96 => time::sys_gettimeofday(a1),               // gettimeofday(tv, tz)
         102 | 107 => creds::sys_getuid(),               // getuid/geteuid
@@ -365,6 +379,7 @@ extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
         124 => procctl::sys_getsid(a1),                 // getsid
         130 => sig::sys_rt_sigsuspend(a1, a2),          // rt_sigsuspend(mask, size)
         131 => sig::sys_sigaltstack(a1, a2),
+        132 => attr::sys_utime(a1, a2),      // utime(path, times)
         137 => filesys::sys_statfs(a1, a2),  // statfs(path, buf)
         138 => filesys::sys_fstatfs(a1, a2), // fstatfs(fd, buf)
         157 => 0,                            // prctl (accept)
@@ -383,12 +398,17 @@ extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
         232 => epoll::sys_epoll_wait(a1, a2, a3, a4), // epoll_wait(epfd, events, maxevents, timeout)
         233 => epoll::sys_epoll_ctl(a1, a2, a3, a4),  // epoll_ctl(epfd, op, fd, event)
         234 => sig::sys_tgkill(a1, a2, a3),           // tgkill(tgid, tid, sig)
+        235 => attr::sys_utimes(a1, a2),              // utimes(path, times)
         257 => path::sys_openat(a1, a2, a3, a4),      // openat
         258 => pathops::sys_mkdirat(a1, a2, a3),      // mkdirat
+        260 => attr::sys_fchownat(a1, a2, a3, a4, a5), // fchownat(dirfd, path, uid, gid, flags)
+        261 => attr::sys_futimesat(a1, a2, a3),       // futimesat(dirfd, path, times)
         262 => stat::sys_newfstatat(a1, a2, a3, a4),
         263 => pathops::sys_unlinkat(a1, a2, a3), // unlinkat
         264 => pathops::sys_renameat(a1, a2, a3, a4), // renameat
+        268 => attr::sys_fchmodat(a1, a2, a3),    // fchmodat(dirfd, path, mode)
         273 => 0,                                 // set_robust_list
+        280 => attr::sys_utimensat(a1, a2, a3, a4), // utimensat(dirfd, path, times, flags)
         288 => socket::sys_accept(a1, a2, a3, a4), // accept4(fd, addr, addrlen, flags)
         290 => epoll::sys_eventfd2(a1, a2),       // eventfd2(initval, flags)
         291 => epoll::sys_epoll_create1(a1),      // epoll_create1(flags)

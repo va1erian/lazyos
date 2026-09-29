@@ -13,6 +13,7 @@ pub fn traversal_and_sticky_bits() -> Result<(), String> {
         gid: 300,
         size: 0,
         kind: FileKind::Dir,
+        times: vfs::Times::default(),
     };
     let entry = Meta {
         ino: 7,
@@ -21,6 +22,7 @@ pub fn traversal_and_sticky_bits() -> Result<(), String> {
         gid: 100,
         size: 0,
         kind: FileKind::File,
+        times: vfs::Times::default(),
     };
     check!(
         vfs::check_sticky(&dir, &entry, Id::new(3000, 1)).is_ok(),

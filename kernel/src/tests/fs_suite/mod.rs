@@ -18,11 +18,13 @@ fn fs_error(error: FsError) -> String {
     format!("{} ({error:?})", error.message())
 }
 
+mod attrs;
 mod fat_corruption;
 mod ramfs_and_permissions;
 mod ramfs_limits;
 mod traversal_and_cache;
 
+pub(super) use attrs::*;
 pub(super) use fat_corruption::*;
 pub(super) use ramfs_and_permissions::*;
 pub(super) use ramfs_limits::*;
@@ -70,4 +72,10 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("fs_ramfs_node_cap_enospc", ramfs_node_cap_enospc),
     ("fs_ramfs_soak_fill_and_drain", ramfs_soak_fill_and_drain),
     ("fs_fd_snapshot_shared_and_cow", fd_snapshot_shared_and_cow),
+    ("fs_setattr_rule_table", setattr_rule_table),
+    (
+        "fs_setattr_through_vfs_and_cache",
+        setattr_through_vfs_and_cache,
+    ),
+    ("fs_ramfs_timestamps", ramfs_timestamps),
 ];

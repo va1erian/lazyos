@@ -56,6 +56,7 @@ pub(super) fn fs_err(error: FsError) -> u64 {
         FsError::IsDir => EISDIR,
         FsError::NotEmpty => ENOTEMPTY,
         FsError::Access => EACCES,
+        FsError::NotPermitted => EPERM,
         FsError::ReadOnly => EROFS,
         FsError::Invalid => EINVAL,
         FsError::NoSpace => ENOSPC,

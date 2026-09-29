@@ -158,5 +158,7 @@ pub(super) fn meta(path: &str) -> Option<Meta> {
         gid: 0,
         size,
         kind: FileKind::File,
+        // Generated on open, so there is no time to report.
+        times: vfs::Times::default(),
     })
 }
