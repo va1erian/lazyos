@@ -8,7 +8,8 @@
 
 | Path | Role |
 |---|---|
-| `user/src/lib.rs` | Runtime modules: `sys`, `sysinfo`, `lang`, `messenger`, `central`, `messenger_async`, `task_snapshot`, `heap` |
+| `user/src/lib.rs` | Runtime modules: `sys`, `dev`, `sysinfo`, `lang`, `messenger`, `central`, `messenger_async`, `task_snapshot`, `heap` |
+| `user/src/dev.rs` | Wrappers for the device syscall (23): `list`, `claim`, `map_bar`, `pio_*`, `cfg_*`, `irq_enable`/`irq_ack`, `release`, and `parse_irq` for the kernel's interrupt message (#240) |
 | `user/src/sys.rs` | `int 0x80` wrappers, syscall numbers 0-14, `Cred`, display helpers |
 | `user/src/sysinfo.rs`, `task_snapshot.rs` | Typed decoders for the syscall 14 system snapshot and the syscall 13 task snapshot |
 | `user/src/central.rs` | Topics client that routes service publishes through `messengerd`'s central broker (#169) |
@@ -23,7 +24,7 @@
 declares `clobber_abi("sysv64")`. Numbers: 0 `exit`, 1 `write`, 2 `read_char`,
 3 `read_file`, 4 `sbrk`, 5 `messenger`, 6 `spawn`, 7 `wait`, 8 `clock`,
 9 `service_args`, 10 `cred_set`/`cred_get`/`spawn_as`, 12 `display_*`,
-13 `tasks`, 14 `system_stats`, 15-21 filesystem and `power` (`files.rs`; 11, the quota read-back, has no wrapper yet).
+13 `tasks`, 14 `system_stats`, 15-21 filesystem and `power` (`files.rs`; 11, the quota read-back, has no wrapper yet), 23 `dev_*` (`dev.rs`; it also passes arguments in `r10` and `r8`).
 See [processes.md](processes.md) and [display.md](display.md).
 
 **Blocking Messenger client** (`messenger/`)
