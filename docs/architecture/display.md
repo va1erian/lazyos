@@ -116,8 +116,55 @@ compositor demo. Target toolkit design: [xui-plan.md](../xui-plan.md).
   on a focus stop moves the backend focus, `SetFocus`/`KillFocus` reach the
   widgets, and `KeyDown`/`KeyUp`/`Char` target the focused node, not the node
   under the pointer. `Tab` cycles focus when the app owns the display;
-  in client mode `xuid` reserves `Tab`, so `PageDown`/`PageUp` cycle instead
-  (the kernel's PS/2 driver decodes neither F-keys nor a distinct Ctrl+Tab).
+  in client mode `xuid` used to reserve `Tab`, so `PageDown`/`PageUp` cycled
+  instead; `Tab` now reaches the client (see *Key codes clients receive*), and
+  the compositor takes only Alt+Tab, Ctrl+Tab (cycle windows) and an unfocused
+  Tab.
+- **Key codes clients receive** (`KeyDown(key)` / `KeyUp(key)`, method 8/9 of
+  `os.lazy.display.v1`). `key` is a `u32`: the **code** in the low 24 bits
+  (`key & 0x00FF_FFFF`) plus **modifier bits** in bits 24-27, added by `xuid`
+  from the modifiers it tracks. Modifier keys themselves are never forwarded.
+  A client that ignores the modifier bits still sees the codes it always did
+  (only Ctrl/Alt chords and Shift+non-printable differ). Held keys repeat as
+  repeated `KeyDown` with no `KeyUp` (PS/2 typematic).
+
+  | Code | Key |
+  |---|---|
+  | `0x20`-`0x7E`, `0xA0`-`0xFF` | printable character, layout and Shift applied (`'A'`, `'!'`, `'e'`-acute) |
+  | 8 / 9 / 13 / 27 / 32 | Backspace / Tab / Enter (also keypad Enter) / Escape / Space |
+  | `0x100` `0x101` `0x102` `0x103` | Left, Right, Up, Down |
+  | `0x104` `0x105` | PageUp, PageDown |
+  | `0x106` `0x107` | Home, End |
+  | `0x10C` `0x10D` | Delete, Insert |
+  | `0x110` + (n-1) | F1..F12 (`0x110`..`0x11B`; F4 is `0x113`) |
+  | (`0x108`-`0x10B`) | Shift/Ctrl/Alt/Super: compositor-only, never sent to clients |
+
+  | Bit | Mask | Meaning |
+  |---|---|---|
+  | 24 | `0x0100_0000` | Shift held |
+  | 25 | `0x0200_0000` | Ctrl held |
+  | 26 | `0x0400_0000` | Alt held |
+  | 27 | `0x0800_0000` | Super held |
+
+  Rules: (1) Shift is set for every non-printable code (arrows, Home, F-keys,
+  Enter, Tab, Delete...) and omitted for a printable character because its
+  case/symbol already reflects Shift, **unless Ctrl or Alt is also held**.
+  (2) **Ctrl+letter is the lowercase letter plus the Ctrl bit** (`'c'|CTRL`),
+  never a C0 control code, so Ctrl+H/I/M are distinct from Backspace/Tab/Enter
+  (which are `8`/`9`/`13`, with the Ctrl bit if Ctrl is held: Ctrl+Backspace is
+  `8|CTRL`). Ctrl+Shift+Z is `'z'|CTRL|SHIFT`. Letters use the *physical* key
+  under the active layout (AZERTY: the key labelled `a` gives `'a'`). Ctrl with
+  digits/symbols is the character plus the Ctrl bit. (3) Alt+letter is the
+  letter plus the Alt bit. (4) F-keys, Delete and Insert are compositor-bound
+  only; with no compositor they are dropped (the kernel terminal never sees
+  them). (5) A client wanting the character for text input uses
+  `code` when `is_printable(code)` and no Ctrl/Alt bit is set; `Enter`/`Tab`/
+  `Backspace` are text characters `
+`/`	`/`` by convention. Keys the
+  compositor keeps: Alt+Tab, Ctrl+Tab (cycle windows; a plain Tab now goes to
+  the focused client), Ctrl+Esc/Super (start menu), Alt+F4 (close window),
+  Escape while a menu/Alt+Tab/drag is active. `user::messenger::display::key`
+  mirrors every constant plus `with_modifiers`/`CODE_MASK`.
 - Issue #153 adds the first windowed system-state viewers on that backend:
   `sysmon` renders the syscall-14 snapshot (frame/slab/heap gauges, uptime, the
   task table) and `fabricmon` renders the syscall-5 fabric (registry names with
