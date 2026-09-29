@@ -11,6 +11,7 @@ compositor demo. Target toolkit design: [xui-plan.md](../xui-plan.md).
 | `kernel/src/console.rs` | Framebuffer text console (anti-aliased glyphs) |
 | `kernel/src/gfx.rs`, `surface.rs` | Framebuffer access; `RgbaBuffer`/`Surface` double buffering |
 | `kernel/src/text.rs`, `font.rs`, `font-atlas/` | Positioned text draws; build-time glyph atlas |
+| `user/src/messenger/display/typeface.rs`, `user/build.rs` | `display::Face` (Droid Sans / Serif) proportional anti-aliased text for `xuid` chrome; atlases built from `assets/fonts/` |
 | `kernel/src/cursor.rs` | Mouse cursor sprite overlay |
 | `kernel/src/input/{keyboard,mouse}.rs` | PS/2 drivers (IRQ1/IRQ12) |
 | `kernel/src/mux.rs` | Terminal multiplexer: paints task windows, Tab focus |

@@ -9,16 +9,19 @@
 use std::cell::RefCell;
 use std::sync::Arc;
 
-use cosmic_text::{Align, Attrs, Buffer, Color, FontSystem, Metrics, Shaping, SwashCache};
+use cosmic_text::{Align, Attrs, Buffer, Color, Family, FontSystem, Metrics, Shaping, SwashCache};
 use tiny_skia::{Pixmap, PremultipliedColorU8};
 
 use xui_core::backend::{TextAlign, TextMetrics, TextStyle, TextVAlign};
 use xui_core::geometry::Rect;
 
 thread_local! {
-    /// A font file registered with [`set_default_font`] before the shaper is
-    /// first used on this thread.
-    static PENDING_FONT: RefCell<Option<Vec<u8>>> = const { RefCell::new(None) };
+    /// Font files registered with [`set_default_font`] / [`add_font`] before the
+    /// shaper is first used on this thread.
+    static PENDING_FONTS: RefCell<Vec<Vec<u8>>> = const { RefCell::new(Vec::new()) };
+    /// The family every run uses, set with [`set_default_family`]; `None`
+    /// leaves the shaper's sans-serif default.
+    static FAMILY: RefCell<Option<String>> = const { RefCell::new(None) };
     static TEXT: RefCell<TextSystem> = RefCell::new(TextSystem::new());
 }
 
@@ -30,7 +33,28 @@ thread_local! {
 /// ignored. The bytes are owned until then, so a caller can hand over a
 /// `include_bytes!` slice via `to_vec`.
 pub fn set_default_font(data: Vec<u8>) {
-    PENDING_FONT.with(|slot| *slot.borrow_mut() = Some(data));
+    add_font(data);
+}
+
+/// Registers a further font file, with the same timing rule as
+/// [`set_default_font`]. Pair it with [`set_default_family`] to make an app
+/// (the Terminal's monospace face) use a face other than the default.
+pub fn add_font(data: Vec<u8>) {
+    PENDING_FONTS.with(|fonts| fonts.borrow_mut().push(data));
+}
+
+/// Makes every run on this thread use the family named `family` (as the font
+/// file declares it, e.g. `"JetBrains Mono"`) instead of the default sans-serif.
+pub fn set_default_family(family: &str) {
+    FAMILY.with(|slot| *slot.borrow_mut() = Some(family.to_owned()));
+}
+
+/// The attributes for a run: the default family, if one was set.
+fn attrs(family: &Option<String>) -> Attrs<'_> {
+    match family {
+        Some(name) => Attrs::new().family(Family::Name(name)),
+        None => Attrs::new(),
+    }
 }
 
 struct TextSystem {
@@ -40,14 +64,17 @@ struct TextSystem {
 
 impl TextSystem {
     fn new() -> TextSystem {
-        let pending = PENDING_FONT.with(|slot| slot.borrow_mut().take());
-        let font_system = match pending {
+        let pending = PENDING_FONTS.with(|fonts| std::mem::take(&mut *fonts.borrow_mut()));
+        let font_system = if pending.is_empty() {
+            FontSystem::new()
+        } else {
             // `new_with_fonts` still scans the system directories first, but
-            // the explicit source is what supplies the glyphs where none exist.
-            Some(data) => FontSystem::new_with_fonts([cosmic_text::fontdb::Source::Binary(
-                Arc::new(data) as Arc<dyn AsRef<[u8]> + Send + Sync>,
-            )]),
-            None => FontSystem::new(),
+            // the explicit sources are what supply the glyphs where none exist.
+            FontSystem::new_with_fonts(pending.into_iter().map(|data| {
+                cosmic_text::fontdb::Source::Binary(
+                    Arc::new(data) as Arc<dyn AsRef<[u8]> + Send + Sync>
+                )
+            }))
         };
         TextSystem {
             font_system,
@@ -84,6 +111,7 @@ pub fn measure(text: &str, style: &TextStyle, dpi: u32, max_width: i32) -> TextM
     let size = style.size.to_px(dpi).value() as f32;
     let mut height = 0.0f32;
     let mut width = 0.0f32;
+    let family = FAMILY.with(|slot| slot.borrow().clone());
     TEXT.with(|text_system| {
         let text_system = &mut *text_system.borrow_mut();
         let mut buffer = Buffer::new(
@@ -92,7 +120,7 @@ pub fn measure(text: &str, style: &TextStyle, dpi: u32, max_width: i32) -> TextM
         );
         let wrap = style.wrap.then_some(max_width.max(1) as f32);
         buffer.set_size(wrap, None);
-        buffer.set_text(text, &Attrs::new(), Shaping::Advanced, align_of(style));
+        buffer.set_text(text, &attrs(&family), Shaping::Advanced, align_of(style));
         buffer.shape_until_scroll(&mut text_system.font_system, false);
         for run in buffer.layout_runs() {
             width = width.max(run.line_w);
@@ -117,6 +145,7 @@ pub fn draw(pixmap: &mut Pixmap, text: &str, rect: Rect, style: &TextStyle, dpi:
     let size = style.size.to_px(dpi).value() as f32;
     let (color_r, color_g, color_b) = (style.color.r, style.color.g, style.color.b);
     let (rect_left, rect_top, rect_w, rect_h) = (rect.left, rect.top, rect.width(), rect.height());
+    let family = FAMILY.with(|slot| slot.borrow().clone());
 
     TEXT.with(|text_system| {
         let text_system = &mut *text_system.borrow_mut();
@@ -124,7 +153,7 @@ pub fn draw(pixmap: &mut Pixmap, text: &str, rect: Rect, style: &TextStyle, dpi:
         let mut buffer = Buffer::new(&mut text_system.font_system, metrics);
         let wrap = style.wrap.then_some(rect_w.max(1) as f32);
         buffer.set_size(wrap, None);
-        buffer.set_text(text, &Attrs::new(), Shaping::Advanced, align_of(style));
+        buffer.set_text(text, &attrs(&family), Shaping::Advanced, align_of(style));
         buffer.shape_until_scroll(&mut text_system.font_system, false);
 
         let total_height: f32 = buffer.layout_runs().map(|run| run.line_height).sum();

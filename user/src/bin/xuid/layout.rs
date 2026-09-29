@@ -2,7 +2,7 @@
 //! on-screen clamping, the taskbar entry layout and the cursor sprite rect,
 //! moved out of `xuid.rs` unchanged.
 
-use user::messenger::display::{self, Rect};
+use user::messenger::display::{Face, Rect};
 
 use super::surface::Surface;
 use super::theme::{
@@ -88,16 +88,24 @@ fn clamp_on_screen(origin: i32, extent: i32, limit: i32, reserved: i32, visible:
 }
 /// The width of a surface's taskbar entry: title width plus padding.
 fn entry_width(surface: &Surface) -> i32 {
-    (surface.title.chars().count() as i32 * display::font::ADVANCE + ENTRY_PAD * 2).max(ENTRY_MIN_W)
+    (Face::Sans.width(&surface.title) + ENTRY_PAD * 2).max(ENTRY_MIN_W)
 }
 
 /// Visit every taskbar entry in stable creation (id) order, left to right.
+///
+/// Entries are as wide as their title, but never wider than an equal share of
+/// the bar, so one long title cannot push later windows (minimized ones
+/// included) off it; the title text is clipped to its entry. Entries stop only
+/// when not even a minimum-width one fits.
 pub(super) fn for_each_entry(
     surfaces: &[Surface],
     screen_w: i32,
     screen_h: i32,
     mut visit: impl FnMut(&Surface, Rect),
 ) {
+    let count = surfaces.iter().filter(|surface| !surface.desktop).count() as i32;
+    let usable = screen_w - ENTRY_MARGIN * 2 - ENTRY_GAP * (count - 1).max(0);
+    let share = (usable / count.max(1)).max(ENTRY_MIN_W);
     let mut x = ENTRY_MARGIN;
     let mut last_id = 0u64;
     let y = screen_h - TASKBAR_H + (TASKBAR_H - ENTRY_H) / 2;
@@ -107,10 +115,11 @@ pub(super) fn for_each_entry(
         .min_by_key(|surface| surface.id)
     {
         last_id = surface.id;
-        let width = entry_width(surface);
-        if x + width > screen_w - ENTRY_MARGIN {
+        let room = screen_w - ENTRY_MARGIN - x;
+        if room < ENTRY_MIN_W {
             break;
         }
+        let width = entry_width(surface).min(share).min(room);
         visit(surface, Rect::new(x, y, width, ENTRY_H));
         x += width + ENTRY_GAP;
     }

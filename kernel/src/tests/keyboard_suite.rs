@@ -62,6 +62,9 @@ fn french_altgr_layer() -> Result<(), String> {
         expect(0x05, false, Key::Char('{'))?;
         expect(0x0C, false, Key::Char(']'))?;
         expect(0x09, false, Key::Char('\\'))?;
+        // No AltGr entry: nothing, not the US table's `[`.
+        let unassigned = keyboard::decode_for_test(0x1A, false);
+        check!(unassigned.is_none(), "AltGr+0x1A produced {unassigned:?}");
         press_altgr(false);
         expect(0x0B, false, Key::Char('à'))
     })

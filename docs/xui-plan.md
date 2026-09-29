@@ -168,11 +168,11 @@ Landed in `xui-app/` (a standalone static-musl workspace built by
   keyboard path, print `SYSMON:UP:PASS` / `FABMON:UP:PASS` (plus refresh and
   quit markers), and are captured by `.github/workflows/xui.yml`.
 
-Text uses the bundled `JetBrainsMono-Regular.ttf` via `include_bytes!`.
+Text uses the bundled `DroidSans.ttf` (Apache-2.0, see `assets/fonts/README.md`) via `include_bytes!` (the Terminal alone switches to JetBrains Mono for its fixed grid).
 Upstream `xui-canvas` builds its shaper's font database from the system
 directories `fontdb` scans and memory-maps the files; LazyOS's Linux ABI has
 anonymous `mmap` only. `xui-app/vendor/xui-canvas` is the pinned upstream crate
-with three additions (`set_default_font` feeding the shaper in-memory,
+with three additions (`set_default_font`/`add_font`/`set_default_family` feeding the shaper in-memory,
 per-line horizontal alignment for natural-width runs, and `Surface::pixels`
 for a clone-free present), and `xui-app/Cargo.toml` patches the git dependency
 onto it, so `xui-core` still resolves from `va1erian/xui` at `rev = "2747818"`.
