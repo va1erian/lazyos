@@ -11,11 +11,18 @@ pub(super) const SUPER_OFFSET: u64 = 1024;
 pub(super) const ROOT_INO: u32 = 2;
 /// Inodes below `first_ino` are reserved (bad-blocks inode, root, ...).
 pub(super) const DEFAULT_FIRST_INO: u32 = 11;
-/// Twelve direct block slots; slot 12 is the single indirect.
+/// Twelve direct block slots; slot 12 is the single indirect, 13 the double,
+/// and 14 the triple. Indirect slot `12 + n - 1` is a tree `n` tables deep.
 pub(super) const DIRECT_BLOCKS: u32 = 12;
 pub(super) const SINGLE_INDIRECT_SLOT: u32 = 12;
-pub(super) const DOUBLE_INDIRECT_SLOT: u32 = 13;
-pub(super) const TRIPLE_INDIRECT_SLOT: u32 = 14;
+/// Every inode has fifteen block slots.
+pub(super) const BLOCK_SLOTS: u32 = 15;
+/// The deepest indirect tree an inode can hold (the triple-indirect slot).
+pub(super) const MAX_DEPTH: usize = 3;
+/// Largest file this driver will grow: 2 GiB - 1. Sizes stay in the 32-bit
+/// `i_size`, so no length needs the large-file high word, and a signed-size
+/// reader never sees a negative length.
+pub(super) const MAX_FILE_SIZE: u64 = 0x7FFF_FFFF;
 /// The revision-1 core inode is 128 bytes; larger inode tails are preserved by
 /// the read-modify-write in [`Ext2::write_inode`].
 pub(super) const INODE_CORE_SIZE: usize = 128;
@@ -52,11 +59,16 @@ pub(super) const SB_BLOCKS_PER_GROUP: usize = 0x20;
 pub(super) const SB_INODES_PER_GROUP: usize = 0x28;
 pub(super) const SB_WTIME: usize = 0x30;
 pub(super) const SB_MAGIC: usize = 0x38;
+pub(super) const SB_STATE: usize = 0x3A;
 pub(super) const SB_REV_LEVEL: usize = 0x4C;
 pub(super) const SB_FIRST_INO: usize = 0x54;
 pub(super) const SB_INODE_SIZE: usize = 0x58;
 pub(super) const SB_FEATURE_INCOMPAT: usize = 0x60;
 pub(super) const SB_FEATURE_RO_COMPAT: usize = 0x64;
+
+/// `s_state` bits: the volume was cleanly unmounted / errors were recorded.
+pub(super) const STATE_VALID: u16 = 0x0001;
+pub(super) const STATE_ERROR: u16 = 0x0002;
 
 // Inode byte offsets (the first 128 bytes of every inode). `i_dtime` is a
 // full 32-bit field, so `i_gid` starts at 0x18, not 0x16.

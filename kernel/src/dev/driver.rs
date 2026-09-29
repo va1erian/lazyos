@@ -52,8 +52,9 @@ impl Driver for AtaDriver {
     }
 }
 
-/// Legacy (0.9.5 / transitional) virtio-blk. Modern-only functions match too,
-/// but their attach is the documented `None` until the modern transport lands.
+/// Legacy (0.9.5 / transitional) virtio-blk, one block device per function.
+/// Modern-only functions match too, but their attach is the documented `None`
+/// until the modern transport lands.
 struct VirtioBlkDriver;
 
 impl Driver for VirtioBlkDriver {
@@ -67,22 +68,26 @@ impl Driver for VirtioBlkDriver {
             && matches!(info.device, 0x1001 | 0x1042)
     }
 
-    fn attach(&self, _handle: DeviceHandle) -> Result<(), DevError> {
-        // The block layer drives exactly one virtio-blk (its `probe` finds the
-        // first function itself), so a second matching function must not
-        // re-initialise the live queue; it stays unattached and claimable.
-        if VIRTIO_ATTACHED.swap(true, Ordering::SeqCst) {
-            return Err(DevError::Busy);
-        }
-        crate::block::install_virtio().map(|_| ()).ok_or_else(|| {
-            VIRTIO_ATTACHED.store(false, Ordering::SeqCst);
-            DevError::NoDriver
-        })
+    fn attach(&self, handle: DeviceHandle) -> Result<(), DevError> {
+        // Each matching function gets its own block device; the table entry
+        // says which function this handle is.
+        let info = super::table()
+            .lock()
+            .get(handle.id())
+            .ok_or(DevError::NoDriver)?;
+        let BusId::Pci(address) = info.bus else {
+            return Err(DevError::NoDriver);
+        };
+        let function = super::pci::Function {
+            address,
+            vendor: info.vendor,
+            id: info.device,
+        };
+        crate::block::install_virtio(function)
+            .map(|_| ())
+            .ok_or(DevError::NoDriver)
     }
 }
-
-/// Set once a virtio-blk function has attached (see [`VirtioBlkDriver`]).
-static VIRTIO_ATTACHED: AtomicBool = AtomicBool::new(false);
 
 /// The static in-kernel driver table. Order matters only for which driver wins
 /// a device both accept; drivers do not overlap today.

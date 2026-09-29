@@ -126,6 +126,12 @@ pub fn wait_child_exit() -> WakeReason {
     wait::CHILD_EXIT.wait(current(), None)
 }
 
+/// Park the current task until a signal interrupts it (no deadline): the
+/// `rt_sigsuspend` wait.
+pub fn wait_signal() -> WakeReason {
+    wait::SLEEP.wait(current(), None)
+}
+
 /// Park the current task until a task slot is freed or `deadline` passes. The
 /// Linux `clone` shim sleeps here after a spawn while the table is near
 /// capacity, so earlier threads get a quantum to run, exit and free their

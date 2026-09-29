@@ -369,6 +369,19 @@ impl Vfs {
         self.mounts[mount].fs.flush()
     }
 
+    /// Flush every mounted filesystem (`sync(2)`, and the shutdown path).
+    /// One filesystem failing does not stop the rest from being flushed; the
+    /// first error is reported.
+    pub fn sync_all(&self) -> Result<(), FsError> {
+        let mut first = Ok(());
+        for mount in &self.mounts {
+            if let Err(error) = mount.fs.flush() {
+                first = first.and(Err(error));
+            }
+        }
+        first
+    }
+
     /// List a directory's entries (`.`/`..` are the ABI layer's job).
     pub fn readdir(&mut self, id: Id, path: &str) -> Result<Vec<DirEntry>, FsError> {
         let path = Path::parse(path);

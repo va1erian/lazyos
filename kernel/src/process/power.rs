@@ -50,9 +50,22 @@ pub fn dispatch(op: u64) -> u64 {
     }
 }
 
+/// Flush every filesystem before the machine stops, so a clean shutdown leaves
+/// a consistent volume (the ext2 data volume is marked clean here). Runs with
+/// interrupts still on: the block drivers and the mount lock expect to be
+/// scheduled normally. A failure is logged, never fatal -- the stop proceeds.
+#[cfg_attr(lazyos_tests, allow(dead_code))] // the suite proves the gate only
+fn sync_filesystems() {
+    match crate::fs::sync_all() {
+        Ok(()) => crate::serial_println!("power: filesystems synced"),
+        Err(error) => crate::serial_println!("power: sync failed: {}", error.message()),
+    }
+}
+
 #[cfg_attr(lazyos_tests, allow(dead_code))] // the suite proves the gate only
 fn reboot() -> ! {
     crate::serial_println!("power: reboot requested");
+    sync_filesystems();
     x86_64::instructions::interrupts::disable();
     // SAFETY: 0xFE to the 8042 command port pulses the CPU reset line. It is
     // the standard PC reset and only reached by a CAP_SYS_ADMIN caller.
@@ -63,6 +76,7 @@ fn reboot() -> ! {
 #[cfg_attr(lazyos_tests, allow(dead_code))] // the suite proves the gate only
 fn shutdown() -> ! {
     crate::serial_println!("power: shutdown requested");
+    sync_filesystems();
     x86_64::instructions::interrupts::disable();
     // SAFETY: these ports only exist on virtual machines: 0x604 is QEMU's ACPI
     // PM1a control (SLP_TYP=S5|SLP_EN) and 0xB004 the older Bochs/QEMU one; on

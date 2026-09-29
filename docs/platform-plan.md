@@ -46,7 +46,7 @@ per-element detail is in [`architecture.md`](architecture.md)).
 | Tasks | 16 task slots, strict-class stride scheduler with weights and CPU accounting, generalized wait queues, process tree/groups/sessions, POSIX-ish signals with Linux `rt_sigframe` delivery | more slots (the table is exhausted by the services image), Linux `nice` mapping, job-control tty, `SA_RESTART` |
 | Memory | refcounted frames with free lists, per-space VMA list, demand-zero paging, COW fork with refcounts, `mmap`/`mprotect`/`munmap`/`mremap`, slab allocator with owner accounting, per-uid memory quotas | file-backed paging, page cache, shared mappings, frame reclaim/swap, kernel heap growth |
 | IPC | Messenger core: handle table with rights, channels, sync transactions with deadlines/cancel, one-way, shared buffers + fences, kernel-stamped credentials, default-deny ACL, hash-chained audit ring, name registry, topic policy hook, stats snapshot; `messengerd` registry + central topics broker; `midlc` IDL compiler; sync + async client libraries | per-connection channels, reply-borne handle transfers, userspace audit stream, policy compiler/hot reload, IDL coverage beyond the echo sample |
-| FS | VFS with mounts, permission checks, dentry/inode caches; ramfs at `/tmp`; read-only FAT12/16 boot volume; ext2 read/write driver (exercised by the in-kernel suite only: the shipped image boots FAT and no session attaches an ext2 volume); copy-up overlay root for the Linux ABI | ext2 volume in the demo image, symlinks, per-process cwd, page cache, persistence of ABI writes |
+| FS | VFS with mounts, permission checks, dentry/inode caches; ramfs at `/tmp`; read-only FAT12/16 boot volume; ext2 read/write driver (double-indirect, truncate, clean/dirty state); a second block device carrying ext2 mounts at `/data` and is synced on shutdown; copy-up overlay root for the Linux ABI | image/launcher flags that attach the data disk (#332), symlinks, per-process cwd, page cache, persistence of ABI writes to the root |
 | Users | `accountsd` + `logind` console login with Argon2id via `keyd`, kernel-audited credential transitions, per-uid quotas | service accounts (services still run as uid 0), session capability set (`SESSION_CAPS` is empty), elevation service |
 | GUI | display device grant (syscall 12), `xuid` compositor with window management, drag & drop, shell protocol (desktop role, window-list/focus events, global hotkeys), `clipboardd`, `mimed`, XUI apps on tiny-skia as display owner or `xuid` client | LazyShell itself, theming, resize/DPI, zero-copy scanout, multi-session compositors |
 | Shell | native `sh` + BusyBox on the Linux shim; `init` app registry + `Launch`; `top`, `messengerctl`, `sysmon`/`fabricmon` viewers | desktop shell, Files/Editor/Terminal/Settings, `lazyosctl` |
@@ -405,7 +405,7 @@ Stage status as of 2026-09-28 (issue numbers are the GitHub tracking issues):
 | S0 kernel foundations (#53) | landed | `python tools/test/run.py` (189 tests, 21 of them soaks) |
 | S1 Messenger core (#63) | landed | `ipc_*` kernel tests, `libs/messenger` fuzz |
 | S2 services, registry, pub/sub (#88) | landed | `LAZYOS_SERVICES=1` sessions, `midlc` CI |
-| S3 users, sessions, storage (#97) | landed, with gaps | login demo; ext2 only in the kernel suite; services still root |
+| S3 users, sessions, storage (#97) | landed, with gaps | login demo; ext2 `/data` mounts when a data disk is attached (#333); services still root |
 | S4 GUI stack (#112) | landed except the toolkit polish | `xuid` WM, drag & drop, xui client mode, clipboard, MIME |
 | S5 desktop shell (#156) | in progress | shell protocol (#167), `init` `Launch` (#158), xui client mode (#168) landed; LazyShell process itself (#157) not started |
 | S6 networking | not started | |
@@ -419,8 +419,9 @@ Immediate next steps:
    the kernel hardening items (#123, #124, #194) before adding surface.
 2. **S5.0 LazyShell bring-up (#157):** the desktop/taskbar/start-menu process
    over the shell protocol and `init.Launch`; session start from `logind`.
-3. **Storage honesty:** attach an ext2 volume to the demo image so the writable
-   filesystem is exercised outside the unit suite.
+3. **Storage honesty:** the kernel now mounts a second ext2 device at `/data`
+   and syncs it on shutdown (#333); remaining is attaching a data disk by default
+   in the launchers/CI (#332) and moving service state (`regd`, logs) onto it.
 4. **Keep the ABI bench and kernel suite green** as the regression gate for
    every stage.
 
