@@ -136,6 +136,11 @@ pub fn sigreturn_frame_is_sanitised() -> Result<(), String> {
             "frame at rsp {entry_rsp:#x} was accepted"
         );
     }
+    // A frame in unmapped memory must not read back as zeroed registers.
+    let previous = crate::user_ptr::set_trust_kernel_pointers(false);
+    let unmapped = harden::restore_frame(0xdead_0000);
+    crate::user_ptr::set_trust_kernel_pointers(previous);
+    check!(unmapped.is_none(), "an unreadable frame was accepted");
     signal::harness::reset();
     Ok(())
 }

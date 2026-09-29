@@ -36,7 +36,22 @@ fn iovec_at(iov: u64, index: u64) -> Result<(u64, u64), u64> {
     let base = user_ptr::try_read::<u64>(entry).map_err(|_| err(EFAULT))?;
     let len_at = entry.checked_add(8).ok_or(err(EFAULT))?;
     let len = user_ptr::try_read::<u64>(len_at).map_err(|_| err(EFAULT))?;
+    // A length past `isize::MAX` is `-EINVAL` (as on Linux); it also keeps a
+    // byte count distinguishable from an encoded `-errno` below.
+    if len > i64::MAX as u64 {
+        return Err(err(EINVAL));
+    }
     Ok((base, len))
+}
+
+/// The result of a vectored transfer that failed with `code` after `total`
+/// bytes moved: report the bytes done so a retry cannot repeat them.
+fn partial_or(total: u64, code: u64) -> u64 {
+    if total > 0 {
+        total
+    } else {
+        code
+    }
 }
 
 /// Add a segment length to a running `readv`/`writev` total; a total that
@@ -57,11 +72,11 @@ pub(super) fn sys_writev(fd: u64, iov: u64, count: u64) -> u64 {
     for i in 0..count {
         let (base, len) = match iovec_at(iov, i) {
             Ok(entry) => entry,
-            Err(code) => return code,
+            Err(code) => return partial_or(total, code),
         };
         let written = sys_write(fd, base, len);
         if written > len {
-            return written; // error
+            return partial_or(total, written); // error
         }
         total = match add_iov_total(total, written) {
             Ok(sum) => sum,
@@ -80,11 +95,11 @@ pub(super) fn sys_readv(fd: u64, iov: u64, count: u64) -> u64 {
     for i in 0..count {
         let (base, len) = match iovec_at(iov, i) {
             Ok(entry) => entry,
-            Err(code) => return code,
+            Err(code) => return partial_or(total, code),
         };
         let got = sys_read(fd, base, len);
         if got > len {
-            return got; // error
+            return partial_or(total, got); // error
         }
         total = match add_iov_total(total, got) {
             Ok(sum) => sum,

@@ -143,6 +143,19 @@ pub fn vectored_io_within_limits_still_works() -> Result<(), String> {
         let code = call(SYS_WRITEV, 1, SPACE, 1024);
         check!(code == 0, "writev with 1024 empty segments -> {code:#x}");
 
+        // A later unreadable entry reports the bytes already written, so a
+        // retry cannot repeat them; an oversized length never reaches I/O.
+        let edge = SPACE + SPACE_PAGES * 4096 - 16;
+        set_iovec(edge, 0, SPACE + 0x4000, 3);
+        let code = call(SYS_WRITEV, 1, edge, 2);
+        check!(code == 3, "writev with a later bad entry -> {code:#x}");
+        set_iovec(SPACE, 0, SPACE + 0x4000, u64::MAX);
+        let code = call(SYS_WRITEV, 99, SPACE, 1);
+        check!(
+            code == failed(EINVAL),
+            "writev of a u64::MAX segment -> {code:#x}"
+        );
+
         // 1024 `pollfd`s with negative descriptors are ignored: zero ready.
         for index in 0..1024u64 {
             let entry = (SPACE + 0x4000 + index * 8) as *mut i32;

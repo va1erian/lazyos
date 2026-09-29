@@ -12,8 +12,8 @@
 //! cannot build or restore a frame.
 
 use super::{
-    current, halt_forever, lf, linux_sigset_to_kernel, read_u64, slot_info, terminate_process,
-    UserRegs, LINUX_FRAME_SIZE, SIGSEGV,
+    current, halt_forever, lf, linux_sigset_to_kernel, slot_info, terminate_process, UserRegs,
+    LINUX_FRAME_SIZE, SIGSEGV,
 };
 
 /// First address above user space: the canonical lower half ends here.
@@ -75,39 +75,45 @@ pub fn sanitize_regs(regs: &mut UserRegs) -> bool {
     is_user_addr(regs.rip) && is_user_addr(regs.rsp)
 }
 
+/// One word of the frame, or `None` if that user memory is unreadable: an
+/// unmapped frame must not read as zeros and pass for a valid context.
+fn read_word(addr: u64) -> Option<u64> {
+    crate::user_ptr::try_read::<u64>(addr).ok()
+}
+
 /// Read the interrupted context out of the `rt_sigframe` a `rt_sigreturn` was
 /// entered with (`user_rsp` sits just past `pretcode`). `None` when the frame
-/// address itself is not a user range; the values are *not* yet trusted, see
+/// address is not a user range or any word of it is unreadable; the values are *not* yet trusted, see
 /// [`sanitize_regs`].
 pub fn parse_frame(user_rsp: u64) -> Option<(UserRegs, u64)> {
     let frame = user_rsp.checked_sub(8)?;
-    if frame.checked_add(LINUX_FRAME_SIZE)? > USER_MAX {
+    if frame < MIN_FRAME_ADDR || frame.checked_add(LINUX_FRAME_SIZE)? > USER_MAX {
         return None;
     }
     let mc = frame + lf::MCONTEXT;
     let regs = UserRegs {
-        r8: read_u64(mc + lf::R8),
-        r9: read_u64(mc + lf::R9),
-        r10: read_u64(mc + lf::R10),
-        r11: read_u64(mc + lf::R11),
-        r12: read_u64(mc + lf::R12),
-        r13: read_u64(mc + lf::R13),
-        r14: read_u64(mc + lf::R14),
-        r15: read_u64(mc + lf::R15),
-        rdi: read_u64(mc + lf::RDI),
-        rsi: read_u64(mc + lf::RSI),
-        rbp: read_u64(mc + lf::RBP),
-        rbx: read_u64(mc + lf::RBX),
-        rdx: read_u64(mc + lf::RDX),
-        rax: read_u64(mc + lf::RAX),
-        rcx: read_u64(mc + lf::RCX),
-        rsp: read_u64(mc + lf::RSP),
-        rip: read_u64(mc + lf::RIP),
-        rflags: read_u64(mc + lf::EFLAGS),
+        r8: read_word(mc + lf::R8)?,
+        r9: read_word(mc + lf::R9)?,
+        r10: read_word(mc + lf::R10)?,
+        r11: read_word(mc + lf::R11)?,
+        r12: read_word(mc + lf::R12)?,
+        r13: read_word(mc + lf::R13)?,
+        r14: read_word(mc + lf::R14)?,
+        r15: read_word(mc + lf::R15)?,
+        rdi: read_word(mc + lf::RDI)?,
+        rsi: read_word(mc + lf::RSI)?,
+        rbp: read_word(mc + lf::RBP)?,
+        rbx: read_word(mc + lf::RBX)?,
+        rdx: read_word(mc + lf::RDX)?,
+        rax: read_word(mc + lf::RAX)?,
+        rcx: read_word(mc + lf::RCX)?,
+        rsp: read_word(mc + lf::RSP)?,
+        rip: read_word(mc + lf::RIP)?,
+        rflags: read_word(mc + lf::EFLAGS)?,
     };
     Some((
         regs,
-        linux_sigset_to_kernel(read_u64(frame + lf::UC_SIGMASK)),
+        linux_sigset_to_kernel(read_word(frame + lf::UC_SIGMASK)?),
     ))
 }
 
