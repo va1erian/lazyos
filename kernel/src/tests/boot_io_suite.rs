@@ -169,7 +169,8 @@ fn fat_fragmented_chain_reads() -> Result<(), String> {
 }
 
 fn fragmented_reads(disk: &'static FakeDisk) -> Result<(), String> {
-    let volume = Fat16::open(disk).ok_or_else(|| String::from("the fake FAT volume did not open"))?;
+    let volume =
+        Fat16::open(disk).ok_or_else(|| String::from("the fake FAT volume did not open"))?;
     let want = expected_file();
 
     let mut whole = vec![0u8; FILE_SIZE + 64];
@@ -224,7 +225,8 @@ fn fragmented_reads(disk: &'static FakeDisk) -> Result<(), String> {
 fn fat_boot_volume_whole_matches_windows() -> Result<(), String> {
     block::init();
     let boot = block::boot_device().ok_or("no boot device")?;
-    let volume = Fat16::open(boot).ok_or_else(|| String::from("the boot FAT volume did not open"))?;
+    let volume =
+        Fat16::open(boot).ok_or_else(|| String::from("the boot FAT volume did not open"))?;
     let meta = volume
         .lookup("SH.ELF")
         .map_err(|error| format!("lookup: {error:?}"))?;
