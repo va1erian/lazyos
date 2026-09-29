@@ -166,8 +166,8 @@ user string (`EFAULT`/`ENAMETOOLONG`).
   longer exists; `chdir` to an absolute path recovers. Because the cwd is a
   path rather than an inode, a directory re-created under the same name is the
   cwd again, and `chdir("..")` from a removed directory goes to the lexical
-  parent (Linux answers `ENOENT`). Today only `/tmp` and the overlay root can
-  lose a directory: ext2 has no `rmdir` yet (`ENOSYS`).
+  parent (Linux answers `ENOENT`). `/tmp`, the overlay root and, since
+  the ext2 `rmdir` (`fs/ext2/rmdir.rs`), `/data` can lose a directory.
 - Lexical folding means `a/..` never checks that `a` exists or is a directory
   (there are no symlinks, so this differs from POSIX only for that case).
 - A directory descriptor inherited across `fork` has no side-table entry yet

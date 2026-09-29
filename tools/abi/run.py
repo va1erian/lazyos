@@ -47,6 +47,7 @@ ORDER = [
     "persist",
     "statxio",
     "cwd",
+    "fsops",
     "busybox",
 ]
 
@@ -57,7 +58,7 @@ TWO_BOOT = {"persist": "WROTE"}
 
 # Fixtures that want a data disk in a single boot, and the directories they
 # must report having worked in (`ABI:<name>:ROUND:<dir>`) when one is attached.
-ONE_BOOT_WITH_DATA = {"cwd": ("/tmp", "/data")}
+ONE_BOOT_WITH_DATA = {"cwd": ("/tmp", "/data"), "fsops": ("/tmp", "/", "/data")}
 
 
 def build_image(fixture_path: Path, busybox: bool = False) -> bool:
@@ -176,7 +177,10 @@ def run_with_data_disk(name: str, at: str, accel: str) -> tuple[str, str]:
     status, detail = classify(name, serial)
     if status != "pass":
         return status, detail
-    wanted = ONE_BOOT_WITH_DATA[name] if disk else ONE_BOOT_WITH_DATA[name][:1]
+    wanted = ONE_BOOT_WITH_DATA[name]
+    if not disk:
+        # `/data` is the last directory and needs the disk; the rest do not.
+        wanted = tuple(d for d in wanted if d != "/data")
     for directory in wanted:
         if f"ABI:{name}:ROUND:{directory}" not in serial:
             return "fail", f"never worked in {directory}"
