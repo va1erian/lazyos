@@ -144,3 +144,20 @@ pub(super) fn taskbar_hit(
 pub(super) fn cursor_rect(point: (i32, i32)) -> Rect {
     Rect::new(point.0 - 1, point.1 - 1, 11, 11)
 }
+
+/// Where surface `id` iconifies to: its taskbar entry, or a bottom-left slot
+/// when the entry does not fit (or a shell hides the bar).
+pub(super) fn icon_rect(surfaces: &[Surface], screen_w: i32, screen_h: i32, id: u64) -> Rect {
+    let mut found = None;
+    for_each_entry(surfaces, screen_w, screen_h, |surface, rect| {
+        if surface.id == id {
+            found = Some(rect);
+        }
+    });
+    found.unwrap_or(Rect::new(
+        ENTRY_MARGIN,
+        screen_h - TASKBAR_H + (TASKBAR_H - ENTRY_H) / 2,
+        ENTRY_MIN_W,
+        ENTRY_H,
+    ))
+}

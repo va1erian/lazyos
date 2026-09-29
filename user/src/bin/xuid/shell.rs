@@ -157,6 +157,9 @@ impl Compositor {
         let before = self.focused;
         let was_minimized =
             surface_by_id(&self.surfaces, id).is_some_and(|surface| surface.minimized);
+        if was_minimized {
+            self.deiconify(id);
+        }
         restore(&mut self.surfaces, &mut self.focused, id);
         if was_minimized {
             self.notify_surface(id, wire::CHANGE_RESTORED);

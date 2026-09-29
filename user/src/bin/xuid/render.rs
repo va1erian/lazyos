@@ -33,6 +33,13 @@ impl Compositor {
         if damage.is_empty() {
             return;
         }
+        self.compose(damage);
+        let _ = sys::display_present(damage.x, damage.y, damage.w, damage.h);
+    }
+
+    /// [`Compositor::repaint`] without the present, so a caller can draw over
+    /// the composed frame (the window-zoom wireframe) and present once.
+    pub(super) fn compose(&mut self, damage: Rect) {
         let taskbar = self.taskbar();
         let screen = &mut self.screen;
         let surfaces = &self.surfaces;
@@ -119,7 +126,6 @@ impl Compositor {
         }
         super::menu::draw(screen, damage);
         screen.cursor(self.pointer.0, self.pointer.1, damage);
-        let _ = sys::display_present(damage.x, damage.y, damage.w, damage.h);
     }
 }
 
