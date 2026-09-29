@@ -102,7 +102,7 @@ fn deliver(frame_rsp: u64, rip_index: usize, sig: u8, info: SigInfo) -> bool {
         return false;
     }
     with_signals(pml4, |state| state.infos[sig as usize] = info);
-    let Some(armed) = arm_handler(pml4, sig) else {
+    let Some(armed) = arm_handler(pml4, slot, sig) else {
         return false;
     };
     let native = {
