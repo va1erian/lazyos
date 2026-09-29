@@ -23,7 +23,7 @@
 declares `clobber_abi("sysv64")`. Numbers: 0 `exit`, 1 `write`, 2 `read_char`,
 3 `read_file`, 4 `sbrk`, 5 `messenger`, 6 `spawn`, 7 `wait`, 8 `clock`,
 9 `service_args`, 10 `cred_set`/`cred_get`/`spawn_as`, 12 `display_*`,
-13 `tasks`, 14 `system_stats` (11, the quota read-back, has no wrapper yet).
+13 `tasks`, 14 `system_stats`, 15-21 filesystem and `power` (`files.rs`; 11, the quota read-back, has no wrapper yet).
 See [processes.md](processes.md) and [display.md](display.md).
 
 **Blocking Messenger client** (`messenger/`)
@@ -70,7 +70,8 @@ See [processes.md](processes.md) and [display.md](display.md).
 | `clipboardd` / `mimed` / `flaky` | `CLIPD` / `MIMED` / `FLAKY.ELF` | Per-session clipboard (#115) / MIME and open-with (#116) / crash-test service (#93) | `init` |
 | `clipcopy` / `clippaste` / `messengerctl` | `CLIPCP` / `CLIPPS` / `MSGCTL.ELF` | Clipboard demo pair (#115) / fabric+services views (#70/#89/#93) | `clipboardd`, kernel flag |
 | `sysmond` / `top` | `SYSD` / `TOP.ELF` | System-stats service over syscall 14 with `system/stats/*` topics / one-shot text client (#144); services image only | `init` / `sysmond` (`demo=1`) or `init` `Launch` |
-| `sh` / `hello` / `xuid` / `xdemo` | `SH` / `HELLO` / `XUID` / `XDEMO.ELF` | Native interpreter / demo / compositor and display demo (#113) | kernel |
+| `sh` / `hello` / `xuid` / `xdemo` | `SH` / `HELLO` / `XUID` / `XDEMO.ELF` | Native interpreter with DOS-style commands (`dos.rs`: `dir cd type copy del ren mkdir exec mem reboot shutdown`, #6) / demo / compositor and display demo (#113) | kernel |
+| `faultprobe` | `FAULTPRB.ELF` | Deliberate ring-3 faults (`exec FAULTPRB.ELF null\|kernel\|priv\|div\|ud`, #7) | shell |
 | `dragdemo` / `shellprobe` | `DRAGDMO` / `SHELLPRB.ELF` | Drag & drop evidence pair (#145) / shell-protocol evidence client (#167); `LAZYOS_XUID=1` images | kernel |
 | `async_echo` / `async_service` | not on disk | `messenger_async` examples (#91) | - |
 

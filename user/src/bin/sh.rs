@@ -2,6 +2,9 @@
 //!
 //! Dyon-inspired subset: `f64` numbers, booleans, strings, arrays, `let`,
 //! `print`, `if`/`else`, arithmetic, comparisons, indexing and `&&`/`||`.
+//! A line whose first word is a DOS-style command (`dir`, `cd`, `type`,
+//! `copy`, `del`, `ren`, `mkdir`, `exec`, `mem`, `help`, ...) runs that
+//! command instead (see `user::dos`).
 //!
 //! The language and the command layer (`help`, `quit`, `cat`) live in the
 //! shared `lazyos-lang` crate, so the desktop Terminal app (`xui-term`, a
@@ -16,18 +19,24 @@ extern crate alloc;
 use alloc::vec::Vec;
 use core::panic::PanicInfo;
 use lazyos_lang::repl::{Flow, Shell, BANNER, CAT_LIMIT};
+use user::dos::Shell as Dos;
 use user::sys;
 
 #[no_mangle]
 pub extern "C" fn _start() -> ! {
     let mut shell = Shell::new();
+    let mut dos = Dos::new();
     sys::write_str(BANNER);
 
     let mut line = [0u8; 512];
     loop {
-        sys::write_str("> ");
+        sys::write_str(&dos.prompt());
         let len = read_line(&mut line);
         let text = core::str::from_utf8(&line[..len]).unwrap_or("");
+        // DOS-style commands first; anything else goes to the interpreter.
+        if !matches!(text.trim(), "quit" | "exit") && dos.run(text.trim()) {
+            continue;
+        }
         let flow = shell.exec_line(text, &mut read_file, &mut |chunk| sys::write_str(chunk));
         if flow == Flow::Exit {
             sys::exit(0);

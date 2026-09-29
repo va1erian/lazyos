@@ -193,6 +193,48 @@ pub fn user_ptr_edge_cases() -> Result<(), String> {
             try_copy_to(end - 2, b"ab").is_ok() && try_cstr(end - 2, 64) == Err(Fault),
             "an unterminated string running off the mapping was accepted"
         );
+        // A string with no NUL within `max` is refused, not silently
+        // truncated: a caller would otherwise act on a prefix path.
+        check!(
+            try_copy_to(SPACE, &[b'x'; 64]).is_ok() && try_cstr(SPACE, 64) == Err(Fault),
+            "an unterminated string was truncated instead of refused"
+        );
+        // A NUL exactly at the `max` bound terminates; one just past it does
+        // not.
+        check!(
+            try_copy_to(SPACE, b"abc\0").is_ok()
+                && try_cstr(SPACE, 4) == Ok(b"abc".to_vec())
+                && try_cstr(SPACE, 3) == Err(Fault),
+            "the max-length termination bound is off by one"
+        );
+        Ok(())
+    })
+}
+
+/// An unterminated path that reaches the native-string cap is refused by
+/// [`process::user_cstr`], the helper `sys_read_file`/`sys_spawn` read their
+/// path through. Before the fix it returned the truncated prefix, which the
+/// syscalls then resolved as a different path.
+pub fn unterminated_path_is_refused() -> Result<(), String> {
+    use crate::user_ptr::Fault;
+    fresh()?;
+    let _strict = Strict::on();
+    in_space(|| -> Result<(), String> {
+        // 4096 non-NUL bytes fill the whole native-string cap.
+        check!(
+            crate::user_ptr::try_copy_to(SPACE, &[b'A'; 4096]).is_ok(),
+            "failed to seed the unterminated path"
+        );
+        check!(
+            process::user_cstr(SPACE) == Err(Fault),
+            "an unterminated path was read as a truncated string"
+        );
+        // A terminated path still reads back unchanged.
+        check!(
+            crate::user_ptr::try_copy_to(SPACE, b"HELLO.TXT\0").is_ok()
+                && process::user_cstr(SPACE) == Ok(String::from("HELLO.TXT")),
+            "a terminated path was refused"
+        );
         Ok(())
     })
 }

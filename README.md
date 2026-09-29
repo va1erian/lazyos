@@ -54,6 +54,28 @@ Where to read next:
 - QEMU (`qemu-system-x86_64`). On Windows, put `C:\Program Files\qemu` on `PATH`
   or pass `--qemu "C:\Program Files\qemu\qemu-system-x86_64.exe"`.
 
+## From a fresh clone
+
+Clone the repository, then from its root:
+
+```bash
+cargo build                # builds the kernel, user programs and target/lazyos.img
+cargo run                  # boots the image in QEMU (serial on stdio)
+cargo run -- --headless    # no window, serial only (QEMU=/path/to/qemu-system-x86_64 overrides the binary)
+```
+
+`rustup` installs the pinned nightly toolchain, target and components from
+`rust-toolchain.toml` on first use, so nothing else needs configuring. The
+runner maps the guest's `isa-debug-exit` value to the process exit code. In the
+guest, the `sh` window is a DOS-style shell: `help` lists `dir`, `cd`, `type`,
+`copy`, `del`, `ren`, `mkdir`, `exec`, `mem`, `reboot` and `shutdown`. The boot
+volume is read-only; write under `/tmp`.
+
+Before opening a pull request run `cargo fmt --all` and the checks in
+[`CONTRIBUTING.md`](CONTRIBUTING.md); CI (`.github/workflows/ci.yml`) enforces
+formatting, `clippy -D warnings`, a build, and a headless boot with serial
+assertions.
+
 ## Running the demos
 
 Boot the interactive desktop demo with one command:
@@ -93,6 +115,8 @@ See [`tools/screenshot/README.md`](tools/screenshot/README.md).
 ```bash
 python tools/test/run.py --accel none   # in-kernel unit + stress/soak suite
 python tools/abi/run.py --at 8          # Linux ABI conformance bench
+python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/boot \
+    --script tools/screenshot/examples/dos_shell.json   # headless boot: shell + fault containment
 ```
 
 Every kernel component must ship both **correctness tests** and **stress/soak

@@ -21,6 +21,13 @@ fn main() {
 
     let bios_image = out_dir.join("bios.img");
     let mut builder = bootloader::DiskImageBuilder::new(kernel);
+    // Issue #5: `LAZYOS_RAMDISK=<path>` also loads a FAT image as the
+    // bootloader ramdisk, which the kernel registers as the `ram0` fallback
+    // block device.
+    println!("cargo:rerun-if-env-changed=LAZYOS_RAMDISK");
+    if let Some(ramdisk) = std::env::var_os("LAZYOS_RAMDISK") {
+        builder.set_ramdisk(PathBuf::from(ramdisk));
+    }
     builder.set_file_contents(
         String::from("HELLO.TXT"),
         b"Hello from LazyOS!\n\nThis file lives on the FAT16 disk image.\nYou are reading it through the ATA PIO driver and the FAT16 reader.\n".to_vec(),
@@ -35,6 +42,10 @@ fn main() {
     builder.set_file(String::from("HELLO.ELF"), PathBuf::from(hello));
     let sh = std::env::var_os("CARGO_BIN_FILE_USER_sh").expect("user sh artifact not found");
     builder.set_file(String::from("SH.ELF"), PathBuf::from(sh));
+    // Deliberate ring-3 faults (issue #7): `exec FAULTPRB.ELF null|kernel|priv|div|ud`.
+    let faultprobe = std::env::var_os("CARGO_BIN_FILE_USER_faultprobe")
+        .expect("user faultprobe artifact not found");
+    builder.set_file(String::from("FAULTPRB.ELF"), PathBuf::from(faultprobe));
     // The fabric observability tool (issue #70); boot it with
     // `LAZYOS_MESSENGERCTL=1`. The on-disk name is 8.3 because the kernel's
     // FAT reader only resolves short names (`MESSENGERCTL.ELF` would be stored

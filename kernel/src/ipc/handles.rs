@@ -238,9 +238,7 @@ pub fn object_refs(kind: HandleKind, object_id: u64) -> usize {
     tables
         .iter()
         .flat_map(|table| table.slots.iter())
-        .filter(|slot| {
-            slot.is_some_and(|entry| entry.kind == kind && entry.object_id == object_id)
-        })
+        .filter(|slot| slot.is_some_and(|entry| entry.kind == kind && entry.object_id == object_id))
         .count()
 }
 

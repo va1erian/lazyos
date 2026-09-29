@@ -30,8 +30,8 @@ mod endpoint;
 mod types;
 
 pub use endpoint::{
-    bootstrap, create_pair, fabric_stats, fabric_stats_with, global_stats, global_totals,
-    Endpoint, Message, Server,
+    bootstrap, create_pair, fabric_stats, fabric_stats_with, global_stats, global_totals, Endpoint,
+    Message, Server,
 };
 pub use types::{
     Error, FabricStats, MsgArgs, MsgResult, Result, Stats, TaskUsage, DEFAULT_BUFFER,

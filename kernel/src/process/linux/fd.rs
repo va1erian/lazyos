@@ -18,7 +18,7 @@ use crate::fs::vfs::Meta;
 use crate::task::{self, Fd, FdKind};
 
 use super::errno::{err, EBADF, EINVAL, ENOMEM, ESPIPE};
-use super::flags::{S_IFCHR, O_NONBLOCK};
+use super::flags::{O_NONBLOCK, S_IFCHR};
 use super::io::read_file_bytes;
 
 /// `fcntl` commands and the `dup`/`dup2` descriptor-flag bit this module

@@ -165,6 +165,9 @@ def run_once(qemu: str, image: Path, accel: str, args, scratch: Path) -> dict:
         # Give the tail a beat to flush lines that landed after the last poll.
         time.sleep(0.05)
         result["t"].update(milestones_from(list(tail.lines)))
+    except (RuntimeError, OSError) as exc:
+        # QMP never came up (or dropped): record a failed run, keep benchmarking.
+        result["error"] = str(exc)
     finally:
         tail.stop()
         if qmp is not None:

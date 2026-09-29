@@ -89,6 +89,8 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     display::init(info.width, info.height, info.stride, info.bytes_per_pixel);
 
     boot_phase!("console_ready");
+    // `mem::init` keeps the boot info borrowed, so read the ramdisk hand-off first.
+    let (ramdisk_addr, ramdisk_len) = (boot_info.ramdisk_addr, boot_info.ramdisk_len);
     mem::init(boot_info);
     boot_phase!("mem_ready");
 
@@ -96,6 +98,16 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     // booting the demo. Compiled in only with `LAZYOS_TESTS=1`.
     #[cfg(lazyos_tests)]
     tests::run();
+
+    // Issue #5: a bootloader ramdisk (a FAT image) is a fallback block device,
+    // so the OS still boots with no ATA/virtio disk attached. Probing the real
+    // disks first keeps them ahead of it in the mount order.
+    if let Optional::Some(addr) = ramdisk_addr {
+        block::init();
+        if block::mem::register_ramdisk(addr, ramdisk_len) {
+            serial_println!("block: ramdisk registered ({} bytes)", ramdisk_len);
+        }
+    }
 
     if fs::init() {
         serial_println!("LazyOS: FAT16 filesystem mounted");
