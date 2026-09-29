@@ -13,12 +13,15 @@ use crate::mem::vma::{Kind, Prot};
 use crate::process::{load_segments, map_range_kind, page_phys};
 
 use super::uaccess::fill_random;
-use super::{PAGE, STACK_SIZE, STACK_TOP};
+use super::{BRK_BASE, MMAP_LIMIT, PAGE, STACK_SIZE, STACK_TOP};
+
+/// Windows an image may not occupy: the stack, `brk` and `mmap` regions.
+pub(super) const LOAD_RESERVED: [(u64, u64); 1] = [(BRK_BASE, MMAP_LIMIT)];
 
 /// Load a Linux image into `table`, build its start stack with `argv`, and
 /// return `(entry, stack_pointer)`.
 pub fn load(table: PhysAddr, elf_bytes: &[u8], argv: &[&str]) -> Result<(u64, u64), &'static str> {
-    let entry = load_segments(table, elf_bytes)?;
+    let entry = load_segments(table, elf_bytes, &LOAD_RESERVED)?;
     let stack = map_range_kind(
         table,
         STACK_TOP - STACK_SIZE,

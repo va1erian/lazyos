@@ -45,7 +45,8 @@ pub fn handler_frame_roundtrip() -> Result<(), String> {
         sa_mask,
         saved_mask,
         &info,
-    );
+    )
+    .ok_or("frame does not fit the stack")?;
     check!(
         result.rip == 0x0040_2000,
         "handler rip is {:#x}",
@@ -76,11 +77,12 @@ pub fn handler_frame_roundtrip() -> Result<(), String> {
         "sigcontext.oldmask is {raw_old:#x}, expected {:#x}",
         signal::kernel_to_linux_sigset(sa_mask)
     );
-    let (restored, mask) = signal::parse_linux_frame(result.rsp + 8);
+    let (restored, mask) = signal::harden::parse_frame(result.rsp + 8).ok_or("frame unreadable")?;
     check!(mask == saved_mask, "saved mask is {mask:#x}");
     check!(restored == regs, "restored registers differ: {restored:?}");
 
-    let native = signal::build_native_frame(top, &regs, signal::SIGTERM);
+    let native = signal::build_native_frame(top, &regs, signal::SIGTERM)
+        .ok_or("native frame does not fit")?;
     let (native_regs, native_sig) = signal::parse_native_frame(native.rsp);
     check!(
         native_sig == signal::SIGTERM,
@@ -343,8 +345,9 @@ pub fn linux_sigset_translate_soak() -> Result<(), String> {
             0,
             saved,
             &info,
-        );
-        let (_, parsed) = signal::parse_linux_frame(result.rsp + 8);
+        )
+        .ok_or("frame does not fit the stack")?;
+        let (_, parsed) = signal::harden::parse_frame(result.rsp + 8).ok_or("frame unreadable")?;
         // Safety: `build_linux_frame` just wrote `uc_sigmask` on this stack.
         let raw = unsafe {
             core::ptr::read_volatile((result.rsp + signal::lf::UC_SIGMASK) as *const u64)

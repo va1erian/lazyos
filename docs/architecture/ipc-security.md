@@ -22,6 +22,7 @@ audit ring, and per-uid quotas. Spec: [security-model.md](../security-model.md).
 | `CAP_SYS_ADMIN`, `CAP_SYS_TIME`, `CAP_AUDIT_READ` | mounts/driver grants, clock, audit stream |
 | `CAP_IPC_CONTROL` | manage other services' endpoints; registry proxy |
 | `CAP_SETUID` | use the credential transition gate |
+| `CAP_KILL` | signal tasks of another uid (`kill`/`tkill`/`tgkill`); otherwise only same-uid targets (and `SIGCONT` within a session) |
 
 - `Cred { uid, gid, caps, label_id, session }`; a program the kernel starts is
   `Cred::ROOT` (uid 0, all caps), and every task another task creates (`spawn`,

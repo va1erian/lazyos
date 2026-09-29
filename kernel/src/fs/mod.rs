@@ -21,6 +21,7 @@
 //! mounted in both tables, so scratch files are visible to both.
 
 pub mod ext2;
+pub mod fallible;
 mod fat;
 pub mod overlay;
 pub mod ramfs;

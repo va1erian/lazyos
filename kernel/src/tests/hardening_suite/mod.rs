@@ -100,11 +100,13 @@ mod epoll_and_fs;
 mod overflow_guards;
 mod pointer_validation;
 mod teardown_and_credentials;
+mod user_limits;
 
 pub(super) use epoll_and_fs::*;
 pub(super) use overflow_guards::*;
 pub(super) use pointer_validation::*;
 pub(super) use teardown_and_credentials::*;
+pub(super) use user_limits::*;
 
 pub(super) const CASES: &[(&str, Test)] = &[
     (
@@ -120,6 +122,10 @@ pub(super) const CASES: &[(&str, Test)] = &[
         linux_abi_kernel_pointers_are_refused,
     ),
     ("hardening_user_ptr_edge_cases", user_ptr_edge_cases),
+    (
+        "hardening_unterminated_path_is_refused",
+        unterminated_path_is_refused,
+    ),
     (
         "hardening_soak_user_ptr_validation",
         soak_user_ptr_validation,
@@ -171,6 +177,22 @@ pub(super) const CASES: &[(&str, Test)] = &[
     (
         "hardening_soak_ext2_short_writes_do_not_leak",
         soak_ext2_short_writes_do_not_leak,
+    ),
+    (
+        "hardening_vectored_io_and_poll_reject_hostile_counts",
+        vectored_io_and_poll_reject_hostile_counts,
+    ),
+    (
+        "hardening_getrandom_is_bounded_and_checks_the_buffer",
+        getrandom_is_bounded_and_checks_the_buffer,
+    ),
+    (
+        "hardening_vectored_io_within_limits_still_works",
+        vectored_io_within_limits_still_works,
+    ),
+    (
+        "hardening_soak_bounded_user_counts",
+        soak_bounded_user_counts,
     ),
     (
         "hardening_lseek_overflow_and_past_eof",

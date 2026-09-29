@@ -492,7 +492,7 @@ impl Vfs {
         // One call for the whole file: a filesystem that has to walk a chain
         // (FAT) reads sequentially instead of re-seeking per chunk. If it
         // returns short, keep reading at the new EOF until the size is met.
-        let mut data = alloc::vec![0u8; meta.size as usize];
+        let mut data = super::fallible::zeroed(meta.size)?;
         let mut filled = fs.read(&rel, 0, &mut data)?;
         let mut chunk = [0u8; 4096];
         while (filled as u64) < meta.size {
@@ -646,6 +646,12 @@ impl Vfs {
         let from_dir = self.check_path(id, &from.parent(), WRITE | EXECUTE)?;
         let to_dir = self.check_path(id, &to.parent(), WRITE | EXECUTE)?;
         let target = self.stat_path(&from)?;
+        if from.parts == to.parts {
+            return Ok(()); // POSIX: onto itself is a no-op
+        }
+        if to.starts_with(&from) {
+            return Err(FsError::Invalid); // would orphan the subtree
+        }
         check_sticky(&from_dir, &target, id)?;
         if let Ok(existing) = self.stat_path(&to) {
             check_sticky(&to_dir, &existing, id)?;
