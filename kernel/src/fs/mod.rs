@@ -26,9 +26,11 @@
 //! tables ([`mount_data_volume`]); it is the durable store. [`sync_all`] is the
 //! shutdown hook that makes it consistent on disk.
 
+mod abi_attr;
 pub mod ext2;
 pub mod fallible;
 pub mod fat;
+pub mod hidden;
 pub mod openfile;
 pub mod overlay;
 pub mod ramfs;
@@ -40,6 +42,7 @@ use alloc::vec::Vec;
 use spin::Mutex;
 
 use crate::block;
+pub use abi_attr::{abi_setattr, abi_setattr_open};
 use vfs::{DirEntry, Filesystem, FsError, Id, Meta, Vfs};
 
 /// The native kernel VFS: mount table, caches, and whether the boot volume
@@ -149,6 +152,8 @@ pub(crate) fn mount_data_volume(
         let Ok(volume) = ext2::Ext2::open(*device) else {
             continue;
         };
+        // Before the volume is visible: finish what an unclean stop left.
+        reclaim_orphans(&volume, DATA_MOUNT);
         let volume: Arc<dyn Filesystem> = Arc::new(volume);
         if vfs.mount(DATA_MOUNT, Arc::clone(&volume)).is_err() {
             return None;
@@ -160,6 +165,15 @@ pub(crate) fn mount_data_volume(
         return Some(volume);
     }
     None
+}
+
+/// Delete the orphaned `.unlinked-*` files an unclean stop left on `volume`
+/// (it does nothing on a cleanly unmounted one) and say how many there were.
+fn reclaim_orphans(volume: &ext2::Ext2, point: &str) {
+    let reclaimed = volume.reclaim_orphans();
+    if reclaimed > 0 {
+        crate::serial_println!("fs: {point}: reclaimed {reclaimed} orphaned files");
+    }
 }
 
 /// Where the durable ext2 data volume lives.
@@ -185,6 +199,7 @@ pub fn mount_device(point: &str, device: &str) -> Result<(), FsError> {
     }
     match ext2::Ext2::open(device) {
         Ok(volume) => {
+            reclaim_orphans(&volume, point);
             with(|vfs| vfs.mount(point, Arc::new(volume))).unwrap_or(Err(FsError::NotFound))
         }
         Err(_) => Err(FsError::NotSupported),
@@ -241,11 +256,13 @@ pub fn vfs_write(id: Id, path: &str, offset: u64, data: &[u8]) -> Result<usize, 
 
 /// Create a regular file through the VFS.
 pub fn vfs_create(id: Id, path: &str, mode: u16) -> Result<Meta, FsError> {
+    hidden::refuse_reserved(path)?;
     with(|vfs| vfs.create(id, path, mode)).unwrap_or(Err(FsError::NotFound))
 }
 
 /// Create a directory through the VFS.
 pub fn vfs_mkdir(id: Id, path: &str, mode: u16) -> Result<Meta, FsError> {
+    hidden::refuse_reserved(path)?;
     with(|vfs| vfs.mkdir(id, path, mode)).unwrap_or(Err(FsError::NotFound))
 }
 
@@ -271,6 +288,7 @@ pub fn vfs_unlink(id: Id, path: &str) -> Result<(), FsError> {
 
 /// Rename within one mount through the VFS.
 pub fn vfs_rename(id: Id, from: &str, to: &str) -> Result<(), FsError> {
+    hidden::refuse_reserved(to)?;
     with(|vfs| vfs.rename(id, from, to)).unwrap_or(Err(FsError::NotFound))
 }
 
@@ -342,11 +360,13 @@ pub fn abi_truncate(id: Id, path: &str, size: u64) -> Result<(), FsError> {
 
 /// Create a regular file through the Linux ABI VFS.
 pub fn abi_create(id: Id, path: &str, mode: u16) -> Result<Meta, FsError> {
+    hidden::refuse_reserved(path)?;
     abi_with(|vfs| vfs.create(id, path, mode)).unwrap_or(Err(FsError::NotFound))
 }
 
 /// Create a directory through the Linux ABI VFS.
 pub fn abi_mkdir(id: Id, path: &str, mode: u16) -> Result<Meta, FsError> {
+    hidden::refuse_reserved(path)?;
     abi_with(|vfs| vfs.mkdir(id, path, mode)).unwrap_or(Err(FsError::NotFound))
 }
 
@@ -406,6 +426,7 @@ pub fn abi_rmdir(id: Id, path: &str) -> Result<(), FsError> {
 /// name, and one that the rename replaces is unlinked, not destroyed
 /// ([`openfile`]).
 pub fn abi_rename(id: Id, from: &str, to: &str) -> Result<(), FsError> {
+    hidden::refuse_reserved(to)?;
     let same = vfs::Path::parse(from) == vfs::Path::parse(to);
     let displaced = if same {
         None

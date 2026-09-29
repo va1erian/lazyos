@@ -57,9 +57,9 @@ pub const OP_CREATE_PAIR: u64 = 7;
 pub const OP_STATS: u64 = 8;
 /// Claim the boot-time client endpoint (first userspace task only).
 pub const OP_BOOTSTRAP: u64 = 9;
-/// Register a call and park, but return the transaction id instead of waiting:
-/// the asynchronous completion `channels` split `begin_call` for. Finish it
-/// with [`OP_CALL_AWAIT`].
+/// Register a call and return the transaction id instead of waiting (the
+/// caller stays runnable): the asynchronous completion `channels` split
+/// `begin_call` for. Finish it with [`OP_CALL_AWAIT`].
 pub const OP_CALL_BEGIN: u64 = 10;
 /// Wait for a [`OP_CALL_BEGIN`] transaction and return its reply.
 pub const OP_CALL_AWAIT: u64 = 11;

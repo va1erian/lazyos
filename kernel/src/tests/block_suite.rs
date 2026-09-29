@@ -21,6 +21,11 @@ pub(super) struct FakeDisk {
     fail_in: AtomicU32,
     /// Report the device as unwritable, as a read-only attach would.
     read_only: AtomicBool,
+    /// The injected failure is a power cut: once it fires, every later write
+    /// fails too (see [`FakeDisk::cut_power_at`]).
+    sticky: AtomicBool,
+    /// A sticky failure has fired; the disk accepts no more writes.
+    dead: AtomicBool,
 }
 
 impl FakeDisk {
@@ -32,6 +37,8 @@ impl FakeDisk {
             flushes: AtomicU32::new(0),
             fail_in: AtomicU32::new(u32::MAX),
             read_only: AtomicBool::new(false),
+            sticky: AtomicBool::new(false),
+            dead: AtomicBool::new(false),
         }))
     }
 
@@ -46,7 +53,17 @@ impl FakeDisk {
     /// suite; no production code path can trigger a device write failure on
     /// demand.
     pub(super) fn fail_nth_write(&self, n: u32) {
+        self.sticky.store(false, Ordering::Relaxed);
+        self.dead.store(false, Ordering::Relaxed);
         self.fail_in.store(n, Ordering::Relaxed);
+    }
+
+    /// Cut power at the `n`th write from now: that write and every later one
+    /// fail, as after a real power loss, until [`FakeDisk::fail_nth_write`]
+    /// re-arms (or disarms, with `u32::MAX`) the disk.
+    pub(super) fn cut_power_at(&self, n: u32) {
+        self.fail_nth_write(n);
+        self.sticky.store(true, Ordering::Relaxed);
     }
 }
 
@@ -73,10 +90,15 @@ impl BlockDevice for FakeDisk {
         // regardless of outcome, so `fail_nth_write(n)` always means the
         // n-th write call from when it was armed, not the n-th successful
         // one.
+        if self.dead.load(Ordering::Relaxed) {
+            return Err(BlockError::Io);
+        }
         let remaining = self.fail_in.load(Ordering::Relaxed);
         if remaining != u32::MAX {
             if remaining <= 1 {
                 self.fail_in.store(u32::MAX, Ordering::Relaxed);
+                self.dead
+                    .store(self.sticky.load(Ordering::Relaxed), Ordering::Relaxed);
                 return Err(BlockError::Io);
             }
             self.fail_in.store(remaining - 1, Ordering::Relaxed);

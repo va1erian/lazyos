@@ -228,7 +228,7 @@ impl Ext2 {
 
     /// Read a pointer table into host order. Heap-backed: the recursion above
     /// would otherwise stack up a 4 KiB buffer per level on a 32 KiB stack.
-    fn read_table(&self, block: u32) -> Result<Vec<u32>, FsError> {
+    pub(super) fn read_table(&self, block: u32) -> Result<Vec<u32>, FsError> {
         let mut raw = fallible::zeroed(u64::from(self.block_size))?;
         self.read_block(u64::from(block), &mut raw)?;
         Ok(raw

@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from . import ext2
+from . import layout as layouts
 from .geometry import DEFAULT_BLOCK_SIZE, plan
 
 ROOT = Path(__file__).resolve().parent.parent.parent
@@ -40,15 +41,21 @@ def format_size(size: int) -> str:
 
 
 def format_image(path: Path, size: int = DEFAULT_SIZE, label: str = DEFAULT_LABEL,
-                 block_size: int = DEFAULT_BLOCK_SIZE) -> int:
-    """Write a fresh empty ext2 volume to ``path`` (replacing any file there).
+                 block_size: int = DEFAULT_BLOCK_SIZE,
+                 layout: layouts.Layout | None = None) -> int:
+    """Write a fresh ext2 volume to ``path`` (replacing any file there).
+
+    ``layout`` says which directories exist and who owns them; the default is
+    the seeded demo layout (:func:`mkdisk.layout.seeded`), pass
+    :data:`mkdisk.layout.EMPTY` for a bare volume.
 
     The file is built beside the target and renamed into place, so a failure
     (or a QEMU still holding the old file open) never leaves a half-written
     volume behind. Returns the volume size in bytes.
     """
     geometry = plan(size, block_size)
-    extents = ext2.build_extents(geometry, label)
+    seed = layouts.seeded() if layout is None else layout
+    extents = ext2.build_extents(geometry, label, layout=seed)
     length = geometry.blocks_count * geometry.block_size
     path.parent.mkdir(parents=True, exist_ok=True)
     partial = path.with_name(path.name + ".partial")

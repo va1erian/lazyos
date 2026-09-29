@@ -371,6 +371,7 @@ impl Ext2 {
             gid: u32::from(le16(&inode, INO_GID)),
             size,
             kind,
+            times: attr::times_of(&inode),
         })
     }
 }

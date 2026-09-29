@@ -1,6 +1,6 @@
 //! The [`Filesystem`] trait mounted filesystems implement.
 
-use super::{DirEntry, FsError, Id, Meta, StatFs};
+use super::{DirEntry, FsError, Id, Meta, SetAttr, StatFs};
 use alloc::vec::Vec;
 
 /// The filesystem implementations the VFS can mount. Methods take paths
@@ -32,6 +32,15 @@ pub trait Filesystem: Send + Sync {
     /// Truncate (or zero-extend) a regular file to `size` bytes. Backends that
     /// do not implement it answer [`FsError::NotSupported`].
     fn truncate(&self, _path: &str, _size: u64) -> Result<(), FsError> {
+        Err(FsError::NotSupported)
+    }
+
+    /// Apply an attribute change (`chmod`, `chown`, `utimensat`) and return the
+    /// node's metadata afterwards. `attr` is already authorized by the VFS;
+    /// the backend applies every selected field or, on failure, none. The
+    /// default answers [`FsError::NotSupported`]; FAT answers
+    /// [`FsError::ReadOnly`], and ext2, ramfs and the overlay implement it.
+    fn setattr(&self, _path: &str, _attr: &SetAttr) -> Result<Meta, FsError> {
         Err(FsError::NotSupported)
     }
 

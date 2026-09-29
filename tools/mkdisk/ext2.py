@@ -12,10 +12,9 @@ import struct
 import time
 import uuid as uuidlib
 
-from .geometry import (FIRST_INO, GD_SIZE, INODE_SIZE, LOST_FOUND_INO, ROOT_INO,
-                       Geometry, GroupLayout)
-
-Extent = tuple[int, bytes]
+from .geometry import FIRST_INO, INODE_SIZE, LOST_FOUND_INO, ROOT_INO, Geometry, GroupLayout
+from .layout import EMPTY, Layout
+from .tree import DOT_REC_LEN, Extent, dirent, inode, plan_tree, tree_extents
 
 EXT2_MAGIC = 0xEF53
 SUPER_OFFSET = 1024
@@ -31,52 +30,51 @@ FEATURE_INCOMPAT_FILETYPE = 0x0002
 FEATURE_RO_SPARSE_SUPER = 0x0001
 FEATURE_RO_LARGE_FILE = 0x0002
 
-S_IFDIR = 0o040000
-FT_DIRECTORY = 2
-DE_HEADER = 8
-# `.` and `..` need a 12-byte record (8-byte header + name padded to 4).
-DOT_REC_LEN = 12
-
 
 def build_extents(geometry: Geometry, label: str = "", volume_uuid: bytes | None = None,
-                  now: int | None = None) -> list[Extent]:
-    """Every non-zero byte range of an empty volume with a ``lost+found``."""
+                  now: int | None = None, layout: Layout = EMPTY) -> list[Extent]:
+    """Every non-zero byte range of a volume: ``lost+found`` plus ``layout``'s directories."""
     stamp = int(time.time()) if now is None else now
     ident = volume_uuid if volume_uuid is not None else uuidlib.uuid4().bytes
     if len(ident) != 16:
         raise ValueError("uuid must be 16 bytes")
     name = encode_label(label)
 
-    layouts = [geometry.group(g) for g in range(geometry.groups)]
-    root_block = layouts[0].first_free
+    groups = [geometry.group(g) for g in range(geometry.groups)]
+    root_block = groups[0].first_free
     lost_found = [root_block + 1 + i for i in range(geometry.lost_found_blocks)]
-    used = [layout.metadata_blocks for layout in layouts]
-    used[0] += 1 + len(lost_found)  # root directory block + lost+found
-    free_blocks = [layout.blocks - count for layout, count in zip(layouts, used)]
-    if free_blocks[0] < 0:
-        raise ValueError("volume too small for its own metadata")
+    seeded = len(layout.dirs)  # each takes one block and one inode, all in group 0
+    used = [group.metadata_blocks for group in groups]
+    used[0] += 1 + len(lost_found) + seeded  # root directory block + lost+found + seeded
+    free_blocks = [group.blocks - count for group, count in zip(groups, used)]
+    used_inodes = FIRST_INO + seeded  # inodes 1..11 are reserved / in use, then the seeded ones
     free_inodes = [geometry.inodes_per_group] * geometry.groups
-    free_inodes[0] -= FIRST_INO  # inodes 1..11 are reserved / in use
+    free_inodes[0] -= used_inodes
+    if free_blocks[0] < 0 or free_inodes[0] < 0:
+        raise ValueError("volume too small for its own metadata and layout")
 
     descriptors = b"".join(
-        group_descriptor(layout, free_blocks[i], free_inodes[i], 2 if i == 0 else 0)
-        for i, layout in enumerate(layouts))
+        group_descriptor(group, free_blocks[i], free_inodes[i], 2 + seeded if i == 0 else 0)
+        for i, group in enumerate(groups))
     descriptors += bytes(-len(descriptors) % geometry.block_size)  # pad to whole blocks
 
     bs = geometry.block_size
     extents: list[Extent] = []
-    for index, layout in enumerate(layouts):
+    for index, group in enumerate(groups):
         sb = superblock(geometry, name, ident, stamp, index, sum(free_blocks), sum(free_inodes))
         if index == 0:
             extents.append((SUPER_OFFSET, sb))
             extents.append(((geometry.first_data_block + 1) * bs, descriptors))
-        elif layout.has_backup:
-            extents.append((layout.start * bs, sb))
-            extents.append(((layout.start + 1) * bs, descriptors))
-        extents.append((layout.block_bitmap * bs, block_bitmap(geometry, layout, used[index])))
-        extents.append((layout.inode_bitmap * bs, inode_bitmap(geometry, index)))
+        elif group.has_backup:
+            extents.append((group.start * bs, sb))
+            extents.append(((group.start + 1) * bs, descriptors))
+        extents.append((group.block_bitmap * bs, block_bitmap(geometry, group, used[index])))
+        extents.append((group.inode_bitmap * bs,
+                        inode_bitmap(geometry, index, used_inodes if index == 0 else 0)))
 
-    extents += root_and_lost_found(geometry, layouts[0], root_block, lost_found, stamp)
+    dirs = plan_tree(layout, root_block, root_block + 1 + len(lost_found))
+    extents += tree_extents(dirs, groups[0], bs, stamp)
+    extents += lost_found_extents(geometry, groups[0], lost_found, stamp)
     return extents
 
 
@@ -128,11 +126,10 @@ def block_bitmap(geometry: Geometry, layout: GroupLayout, used: int) -> bytes:
     return bytes(bitmap)
 
 
-def inode_bitmap(geometry: Geometry, group: int) -> bytes:
-    """Group 0 starts with inodes 1..11 in use; padding bits are set."""
+def inode_bitmap(geometry: Geometry, group: int, used: int) -> bytes:
+    """The first ``used`` inodes are taken (inodes are allocated in order); padding is set."""
     bitmap = bytearray(geometry.block_size)
-    if group == 0:
-        set_bits(bitmap, 0, FIRST_INO)
+    set_bits(bitmap, 0, used)
     set_bits(bitmap, geometry.inodes_per_group,
              geometry.block_size * 8 - geometry.inodes_per_group)
     return bytes(bitmap)
@@ -144,41 +141,18 @@ def set_bits(bitmap: bytearray, start: int, count: int) -> None:
         bitmap[bit >> 3] |= 1 << (bit & 7)
 
 
-def inode(mode: int, size: int, links: int, blocks: list[int], block_size: int,
-          stamp: int) -> bytes:
-    """A 128-byte directory inode whose data lives in direct ``blocks``."""
-    raw = bytearray(INODE_SIZE)
-    # i_dtime is a full 32-bit field, so gid/links/i_blocks start at 0x18/0x1A/0x1C.
-    struct.pack_into("<HHIIIII", raw, 0x00, mode, 0, size, stamp, stamp, stamp, 0)
-    struct.pack_into("<HHI", raw, 0x18, 0, links, len(blocks) * block_size // 512)
-    struct.pack_into(f"<{len(blocks)}I", raw, 0x28, *blocks)
-    return bytes(raw)
-
-
-def dirent(ino: int, rec_len: int, name: bytes, file_type: int = FT_DIRECTORY) -> bytes:
-    """A directory entry padded out to ``rec_len``."""
-    header = struct.pack("<IHBB", ino, rec_len, len(name), file_type)
-    return (header + name).ljust(rec_len, b"\0")
-
-
-def root_and_lost_found(geometry: Geometry, group0: GroupLayout, root_block: int,
-                        lost_found: list[int], stamp: int) -> list[Extent]:
-    """Inodes 2 and 11 plus the directory blocks they own."""
+def lost_found_extents(geometry: Geometry, group0: GroupLayout, lost_found: list[int],
+                       stamp: int) -> list[Extent]:
+    """Inode 11 and its directory blocks (the root itself is :mod:`mkdisk.tree`'s)."""
     bs = geometry.block_size
-    table = group0.inode_table * bs
     # `lost+found` is one 16 KiB directory: `.`/`..` first, then empty blocks
     # (inode 0, spanning the whole block) that fsck can fill later.
-    lf_first = (dirent(LOST_FOUND_INO, DOT_REC_LEN, b".")
-                + dirent(ROOT_INO, bs - DOT_REC_LEN, b".."))
+    first = (dirent(LOST_FOUND_INO, DOT_REC_LEN, b".")
+             + dirent(ROOT_INO, bs - DOT_REC_LEN, b".."))
+    raw = inode(0o700, 0, 0, len(lost_found) * bs, 2, lost_found, bs, stamp)
     extents: list[Extent] = [
-        (table + (ROOT_INO - 1) * INODE_SIZE,
-         inode(S_IFDIR | 0o755, bs, 3, [root_block], bs, stamp)),  # ., .., lost+found/..
-        (table + (LOST_FOUND_INO - 1) * INODE_SIZE,
-         inode(S_IFDIR | 0o700, len(lost_found) * bs, 2, lost_found, bs, stamp)),
-        (root_block * bs,
-         dirent(ROOT_INO, DOT_REC_LEN, b".") + dirent(ROOT_INO, DOT_REC_LEN, b"..")
-         + dirent(LOST_FOUND_INO, bs - 2 * DOT_REC_LEN, b"lost+found")),
-        (lost_found[0] * bs, lf_first),
+        (group0.inode_table * bs + (LOST_FOUND_INO - 1) * INODE_SIZE, raw),
+        (lost_found[0] * bs, first),
     ]
     extents += [(block * bs, dirent(0, bs, b"", 0)) for block in lost_found[1:]]
     return extents

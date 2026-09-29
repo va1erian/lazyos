@@ -64,6 +64,25 @@ pub(super) fn check_volume(disk: &FakeDisk, total_blocks: u32) -> Result<(), Str
     Ok(())
 }
 
+/// `(free blocks, free inodes)` counted from the bitmaps alone, straight from
+/// the raw image. After a power cut the superblock and group counters can lag
+/// the bitmaps (nothing recomputes them at mount), so a leak test must judge by
+/// what the bitmaps say is allocated, not by the counters.
+pub(super) fn bitmap_free(disk: &FakeDisk, total_blocks: u32) -> (u32, u32) {
+    let block_size = 1024usize << raw32(disk, SUPER + 0x18);
+    let first_data = raw32(disk, SUPER + 0x14) as usize;
+    let inodes = raw32(disk, SUPER + 0x00) as usize;
+    let gd = (first_data + 1) * block_size;
+    let blocks = clear_bits(
+        disk,
+        raw32(disk, gd) as usize,
+        block_size,
+        total_blocks as usize - first_data,
+    );
+    let inodes = clear_bits(disk, raw32(disk, gd + 4) as usize, block_size, inodes);
+    (blocks, inodes)
+}
+
 /// Whether `block` is marked used in the (single) group's block bitmap, read
 /// straight from the raw image: the crash tests use it to prove that nothing
 /// an inode still points at has been handed back to the allocator.

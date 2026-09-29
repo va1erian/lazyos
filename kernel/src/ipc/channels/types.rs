@@ -177,6 +177,12 @@ pub(super) struct Endpoint {
     pub(super) closed: bool,
     pub(super) inbox: VecDeque<Queued>,
     pub(super) queued_bytes: usize,
+    /// Task slots parked in `recv` on this side (issue #338): a delivery or
+    /// a close wakes exactly these instead of every Messenger waiter. Each
+    /// park registers under the registry lock, a wake takes the whole list,
+    /// and a waiter that returns (message, timeout, error) unregisters, so
+    /// the list only ever holds tasks currently inside `recv`.
+    pub(super) waiters: Vec<usize>,
 }
 
 /// A duplex channel: two endpoints, their transactions, and their meters.

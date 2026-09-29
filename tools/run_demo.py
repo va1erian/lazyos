@@ -18,7 +18,9 @@ Examples
 
 A persistent ext2 data disk (default ``target/data.img``, 64 MiB) is attached as
 a second virtio-blk device. It is created on first use and never regenerated
-unless you pass ``--reset-data``.
+unless you pass ``--reset-data``. A fresh volume is seeded with ``/data/home/<user>``
+for the demo accounts (owned by them) and a sticky ``/data/tmp``; everything else
+under ``/data`` is root-only, so log in as ``alice`` to write to your own home.
 
 In the demo: two windows run concurrently (a demo program and the `sh`
 interpreter). Press Tab to move focus (green border); typed input goes to the
@@ -55,14 +57,29 @@ def confirm(question: str) -> bool:
 def prepare_data_disk(path: Path, reset: bool, assume_yes: bool) -> bool:
     """Make sure the data volume exists, resetting it only when asked to.
 
-    Returns ``False`` when the user declined an explicit reset. Never
-    regenerates an existing volume implicitly: that would destroy user data.
+    Returns ``False`` when the user declined an explicit reset or the volume
+    could not be planned or written (reported on stderr, so the demo exits
+    cleanly instead of with a traceback). Never regenerates an existing
+    volume implicitly: that would destroy user data.
     """
+    try:
+        return _prepare_data_disk(path, reset, assume_yes)
+    except (OSError, ValueError) as error:
+        # The plan reads the accounts source and the volume is a file on disk,
+        # so either can legitimately fail (missing source, unwritable target).
+        print(f"data disk {path}: {error}", file=sys.stderr)
+        return False
+
+
+def _prepare_data_disk(path: Path, reset: bool, assume_yes: bool) -> bool:
     if reset and path.exists():
-        if not assume_yes and not confirm(f"Erase {path} and format an empty volume?"):
+        plan = mkdisk.seeded()
+        question = (f"Erase {path} and format a fresh volume containing:\n"
+                    f"{mkdisk.describe(plan)}\nProceed?")
+        if not assume_yes and not confirm(question):
             print("data disk left untouched; aborting.", file=sys.stderr)
             return False
-        mkdisk.format_image(path)
+        mkdisk.format_image(path, layout=plan)
         print(f"reset data disk: {mkdisk.status(path).describe()}", flush=True)
     elif mkdisk.ensure_volume(path):
         print(f"created data disk: {mkdisk.status(path).describe()}", flush=True)
@@ -92,7 +109,8 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--no-data-disk", action="store_true",
                         help="do not attach a data volume")
     parser.add_argument("--reset-data", action="store_true",
-                        help="regenerate the data volume empty (asks first unless --yes)")
+                        help="regenerate the data volume with the seeded layout "
+                             "(asks first unless --yes)")
     parser.add_argument("--yes", "-y", action="store_true",
                         help="answer yes to the --reset-data confirmation")
     parser.add_argument("qemu_args", nargs=argparse.REMAINDER,

@@ -78,7 +78,8 @@ runnable by hand from BusyBox `sh` (see "Native programs from `sh`" below).
   `openat`, `close`, `stat`/`fstat`/`newfstatat`, `getdents64`, `readv`/`writev`,
   `lseek`, `pread64`/`pwrite64`, `truncate`/`ftruncate`, `fsync`/`fdatasync`/
   `syncfs`/`sync`, `statfs`/`fstatfs`, `dup`/`dup2`, `fcntl`, `ioctl`,
-  `readlink`, `getcwd`,
+  `readlink`, `getcwd`, `chmod`/`fchmod`/`fchmodat`, `chown`/`fchown`/`lchown`/
+  `fchownat`, `utimensat`/`utime`/`utimes`/`futimesat`,
   `mkdir`/`mkdirat`, `rmdir`, `rename`/`renameat`, `unlink`/`unlinkat` with
   `AT_REMOVEDIR`), memory (`mmap`, `mprotect`, `munmap`, `mremap`, `brk`),
   signals (`rt_sigaction`, `rt_sigprocmask`, `rt_sigreturn`, `sigaltstack`),
@@ -117,8 +118,27 @@ runnable by hand from BusyBox `sh` (see "Native programs from `sh`" below).
   directory and the last close deletes it, `rename` retargets open files
   (including under a renamed directory), and renaming over an open file
   unlinks it the same way. A stop between unlink and last close leaves the
-  hidden entry, as an orphan inode would. Writes on a read-only device answer
+  hidden entry, as an orphan inode would; the next mount of an unclean `/data`
+  reclaims it, and user calls cannot create a `.unlinked-` name (`EINVAL`). Writes on a read-only device answer
   `EROFS` from the write, not from `open`.
+- **Attributes** (`process/linux/attr.rs`, issue #345). The eleven
+  `chmod`/`chown`/`utime` shapes decode into one `AttrRequest` on a path or a
+  descriptor; the rules (owner/root, setuid clearing, `UTIME_NOW`'s
+  write-permission fallback, `EPERM` vs `EACCES`) are the VFS's
+  ([filesystem.md](filesystem.md), "Attributes"), so every shape answers the
+  same. The descriptor forms (`fchmod`, `fchown`, `utimensat` with a `NULL`
+  path, `AT_EMPTY_PATH`) work on `/data` descriptors and on snapshot
+  descriptors that record a path, check ownership at call time without
+  re-searching the path, and answer `EINVAL` for a pipe, socket or device
+  node. `-1` ids leave an id alone; `UTIME_OMIT` keeps a stamp; a `tv_nsec`
+  outside `0..1e9` (other than the two sentinels) or a `tv_usec` outside
+  `0..1e6` is `EINVAL`; unknown `*at` flags are `EINVAL`. There are no symlinks
+  yet, so `lchown` is `chown` and `AT_SYMLINK_NOFOLLOW` is accepted and changes
+  nothing. A fabricated entry (`/bin`, `/dev`, an applet alias) answers `EROFS`.
+  `stat`/`fstat`/`newfstatat` report `st_uid`, `st_gid` and the three times of
+  a real node (whole seconds), and `fstat` of a snapshot descriptor re-reads
+  its file while the path still names the inode it opened, so a later `chmod`
+  shows.
 - `truncate`/`ftruncate` (any mount; the descriptor must be writable),
   `fsync`/`fdatasync` (flush the one mount holding the file), `syncfs`, and
   `sync` (every mount) reach `Filesystem::flush`; `statfs`/`fstatfs` report the
@@ -204,7 +224,7 @@ lifecycle, and a 384-cycle spawn/exit soak that checks slots and frames) and the
 epoll/eventfd, `UnixStream`/seqpacket; matrix published by CI), native
 supervision loop (`init`, app `Launch`). Gaps: `poll` edge cases, full
 `SA_RESTART`, shared file tables, per-process cwd (`chdir` is a no-op),
-dynamic linking. Still `ENOSYS` on the filesystem side: `chmod`/`fchmod`,
-`chown`, `utimensat` (the `Filesystem` trait has no attribute setter),
-`link`/`symlink`, `getdents` (78, musl uses `getdents64`), `statx`,
-`preadv`/`pwritev`.
+dynamic linking. Still `ENOSYS` on the filesystem side: `link`/`symlink`,
+`getdents` (78, musl uses `getdents64`), `statx`, `preadv`/`pwritev`. The
+`persist` fixture also sets and re-checks mode, owner and times across its two
+boots.

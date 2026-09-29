@@ -52,12 +52,11 @@ pub fn register_resolve_roundtrip() -> Result<(), String> {
     let request = string_parcel(7, "ping")?;
     let txn = channels::begin_call(resolved, 7, &request, None).map_err(friendly)?;
     check!(
-        matches!(
-            task::harness::state(task::KERNEL_TASK),
-            Some(TaskState::Blocked { .. })
-        ),
-        "begin_call did not park the caller"
+        task::harness::state(task::KERNEL_TASK) == Some(TaskState::Runnable),
+        "begin_call parked the caller"
     );
+    // Park as `await_reply` would, so the owner's reply has a caller to wake.
+    channels::harness::park(task::KERNEL_TASK, None);
     task::harness::switch_current(child);
     let message = channels::recv(service, None).map_err(friendly)?;
     check!(

@@ -114,6 +114,10 @@ impl Filesystem for Ext2 {
         self.truncate_file(path, size)
     }
 
+    fn setattr(&self, path: &str, attr: &crate::fs::vfs::SetAttr) -> Result<Meta, FsError> {
+        self.set_attributes(path, attr)
+    }
+
     fn create(&self, path: &str, mode: u16, owner: Id) -> Result<Meta, FsError> {
         let _guard = self.lock.lock();
         let (parent_path, name) = split_parent(path)?;
@@ -226,6 +230,10 @@ impl Filesystem for Ext2 {
         let mut child = self.read_inode(child_ino)?;
         if kind_from_mode(le16(&child, INO_MODE)) != Some(FileKind::File) {
             return Err(FsError::IsDir);
+        }
+        if crate::fs::hidden::is_reserved(name) && le16(&child, INO_LINKS) <= 1 {
+            // A parked orphan is deleted inode-first so a stop can be resumed.
+            return self.discard_orphan(parent_ino, &mut parent, name, child_ino, &mut child);
         }
         self.remove_entry(parent_ino, &mut parent, name)?;
         let links = le16(&child, INO_LINKS);

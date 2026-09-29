@@ -26,6 +26,7 @@ use alloc::vec::Vec;
 use crate::fs::vfs::{FileKind, FsError, Id};
 use crate::{fs, user_ptr};
 
+const EPERM: i64 = 1;
 const ENOENT: i64 = 2;
 const EFAULT: i64 = 14;
 const EACCES: i64 = 13;
@@ -60,6 +61,7 @@ fn errno_of(error: FsError) -> i64 {
         FsError::IsDir => EISDIR,
         FsError::NotEmpty => ENOTEMPTY,
         FsError::Access => EACCES,
+        FsError::NotPermitted => EPERM,
         FsError::ReadOnly => EROFS,
         FsError::Invalid => EINVAL,
         FsError::NoSpace => ENOSPC,

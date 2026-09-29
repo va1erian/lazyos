@@ -8,11 +8,12 @@ an in-memory ramfs mounted at `/tmp`.
 
 | Path | Role |
 |---|---|
-| `kernel/src/fs/mod.rs` | Init/mount, kernel-side `read`/`abi_*` entry points |
-| `kernel/src/fs/vfs.rs` (+ `vfs/{filesystem,meta,path}.rs`) | `Vfs`, caches; `Filesystem` trait, `Path`, `Id`, permissions in the submodules |
-| `kernel/src/fs/ramfs.rs` | In-memory tree; root inode 1 (issue #98) |
+| `kernel/src/fs/mod.rs` (+ `abi_attr.rs`) | Init/mount, kernel-side `read`/`abi_*` entry points (`abi_setattr*` in `abi_attr.rs`) |
+| `kernel/src/fs/vfs.rs` (+ `vfs/{filesystem,meta,path,cache}.rs`) | `Vfs`, resolution; `Filesystem` trait, `Path`, `Id`, permissions and the dentry/inode caches in the submodules |
+| `kernel/src/fs/vfs/{attr,setattr}.rs` | Timestamps, the filesystem clock, `SetAttr`; the `chmod`/`chown`/`utimensat` rules (issue #345) |
+| `kernel/src/fs/ramfs.rs` (+ `ramfs/{node,capacity}.rs`) | In-memory tree; root inode 1 (issue #98); a node and its attributes in `node.rs` |
 | `kernel/src/fs/fat.rs` | Read-only FAT12/16 on the boot volume |
-| `kernel/src/fs/ext2.rs` (+ `ext2/{layout,blocks,indirect,truncate,state,dir,fsimpl}.rs`) | Read/write ext2 rev 0/1 (issues #99, #333) |
+| `kernel/src/fs/ext2.rs` (+ `ext2/{layout,blocks,indirect,truncate,state,dir,attr,fsimpl}.rs`) | Read/write ext2 rev 0/1 (issues #99, #333, #345) |
 | `kernel/src/fs/overlay.rs` | Copy-up overlay for the Linux ABI root (issue #136) |
 | `kernel/src/fs/openfile.rs` | Open files on `/data` for Linux descriptors: in-place I/O, follow renames, unlink-while-open (issue #334) |
 | `kernel/src/fs/vfs/mountops.rs` | Whole-mount operations: `flush`, `sync_all`, `statfs`, `mount_point` |
@@ -33,12 +34,58 @@ an in-memory ramfs mounted at `/tmp`.
   map; mutations invalidate the path, its inode, and cached descendants.
   `cache_stats()` exposes hits/misses for tests.
 - `Filesystem` trait: `name`, `lookup`/`stat`, `read`, `write`, `truncate`,
-  `create`, `mkdir`, `unlink`, `rmdir`, `rename`, `readdir`, `flush`, `statfs`
-  (`StatFs`: magic, block size, block/inode totals and free; default
-  `NotSupported`, implemented by ext2, ramfs and the overlay). The VFS checks
-  permissions before calling in, so a backend only enforces what is intrinsic
-  (e.g. FAT returns `ReadOnly`). `FsError` variants map to errno in the Linux
-  layer.
+  `setattr`, `create`, `mkdir`, `unlink`, `rmdir`, `rename`, `readdir`,
+  `flush`, `statfs` (`StatFs`: magic, block size, block/inode totals and free;
+  default `NotSupported`, implemented by ext2, ramfs and the overlay). The VFS
+  checks permissions before calling in, so a backend only enforces what is
+  intrinsic (e.g. FAT returns `ReadOnly`). `FsError` variants map to errno in
+  the Linux layer (`NotPermitted` is `EPERM`, a missing ownership; `Access` is
+  `EACCES`, a missing permission bit).
+
+**Attributes** (`vfs/{attr,setattr}.rs`, issue #345)
+
+`Meta` carries `times: Times` (`atime`, `mtime`, `ctime`, whole seconds as
+`time_t`). Every backend stamps from one clock, `vfs::now()` (PIT uptime until
+an RTC driver lands), so a write and a `touch` agree; reads never move `atime`
+(every mount behaves as `noatime`). FAT and the fabricated ABI entries report
+zero.
+
+Mode, owner and times change through **one** trait operation,
+`Filesystem::setattr(path, &SetAttr)`. `SetAttr` is the change set: each field
+is an `Option`, and `Some` means "in the set", so a value can never be present
+without being selected (the set-mask and the values are one thing). The VFS
+entry points take an `AttrRequest` (`Mode`, `Owner { uid, gid }`, `Times {
+atime, mtime }` with `Stamp::Now`/`Stamp::At`) and turn it into an authorized
+`SetAttr` before any backend is called (`vfs::authorize`):
+
+- `chmod`: owner or root, else `NotPermitted`. A caller outside the file's
+  group has setgid dropped silently (Linux does the same).
+- `chown`: only root changes the uid (the owner may "set" it to itself); the
+  owner may set the gid to their own group (no supplementary groups yet) or
+  keep it. A regular file loses setuid *and* setgid, root's chown included;
+  a directory keeps them. `chown(-1, -1)` changes nothing.
+- `utimensat`: both stamps "now" (`touch`) needs ownership or write
+  permission; an explicit time, or touching one stamp only, needs ownership.
+  Both `UTIME_OMIT` changes nothing.
+- every change also sets `ctime` to now.
+
+`Vfs::setattr` needs search on the ancestors like any lookup;
+`Vfs::setattr_open` (`fchmod`, `fchown`, `futimens`) skips that walk because the
+descriptor was already opened, and applies only the request's own rule.
+Afterwards the path and everything cached below it are invalidated (even on
+failure: the overlay may have copied a subtree up, renumbering it) and the
+backend's fresh `Meta` is cached.
+
+Backends: ramfs stores the fields as given (a write or truncate moves `mtime`
+and `ctime`); the overlay copies the node up first, a directory with its
+subtree as for any write, and a copy-up keeps the lower node's mode, owner and
+times; FAT answers `ReadOnly`; ext2 (`ext2/attr.rs`) validates the whole change
+(ids must fit the 16-bit `i_uid`/`i_gid`, else `Invalid`), then rewrites the
+one inode through `write_inode`, so the volume is marked dirty before the
+inode reaches the disk and a stop leaves the old or the new attributes, never
+a torn inode behind a clean flag. ext2 times are 32-bit: values outside
+`0..=i32::MAX` (1970 to 2038) are clamped, as Linux clamps a time a filesystem
+cannot hold.
 
 **Mounting** (`mod.rs`)
 
@@ -127,8 +174,28 @@ by path, the registry of open files keeps each one meaning "the file I opened":
 - `unlink` (`abi_unlink`) of an open file renames it to `<dir>/.unlinked-<n>`
   instead of freeing it, and the last close deletes that entry (all opens of one
   file share one registry entry, so the last one out is known). A stop in
-  between leaves the hidden entry behind, the equivalent of an orphan inode;
-  nothing reclaims it yet.
+  between leaves the hidden entry behind, the equivalent of an orphan inode.
+  The prefix is **reserved**: `open(O_CREAT)`, `mkdir` and `rename` onto a
+  `.unlinked-` name answer `EINVAL` (`fs/hidden.rs`), so only the kernel makes
+  one and reclaiming by name can never touch a user's file.
+- **Orphan reclaim** (`fs/ext2/orphans.rs`, issue #346): `mount_data_volume`
+  (and `mount_device`) call `Ext2::reclaim_orphans` before the volume is
+  visible, and log `fs: /data: reclaimed N orphaned files`. It runs only when
+  `s_state` says the volume was not cleanly unmounted, so a clean mount pays
+  nothing. The walk is bounded (4096 directories, depth 32), never enters a
+  reserved-name directory, and deletes only a regular file (checked from the
+  inode mode) whose name has the prefix. Deleting a reserved name runs
+  **name last** (free the blocks it reaches, clear the inode, free the inode,
+  then remove the entry, each step skipping what an earlier run finished), so a
+  stop anywhere, including inside the reclaim, leaves a name that the next
+  mount finishes. (Ordinary unlink drops the name first and can strand blocks
+  or an inode with no name to find them by.) Free counters can still lag the
+  bitmaps after a stop, as for any write; nothing recomputes them at mount. Known
+  gap: an orphan on a volume left flagged clean (a `sync` after the unlink, then
+  a power cut before another write) is skipped until the next unclean mount;
+  it costs space, not consistency. The kernel suite covers this with a cut at
+  every write of the last-close delete and of the reclaim
+  (`fs_ext2_orphan_*_crash_sweep`) and a random-cut soak.
 - open files run as root after `open`, which checked permissions once.
 
 `fsync` flushes only the mount holding the file (`Vfs::flush`); `sync` and the
@@ -164,20 +231,38 @@ block, inode, descriptor and registry entry.
 ext2 image (4 KiB blocks, revision 1, `lost+found`, sparse-super backups) that
 survives across QEMU runs. `tools/mkdisk/` formats it in pure Python (Windows
 has no `mkfs.ext2`): `python -m tools.mkdisk [PATH] [--size 64M] [--label NAME]
-[--block-size N] [--force]`. Its layout is checked against `Ext2::open`'s
-validation and by a miniature fsck in `tools/mkdisk/test_mkdisk.py`; CI also
-runs `e2fsck -fn` over it. `tools/run_demo.py` creates it on first use and
-attaches it as a **second** `virtio-blk-pci` device (`-drive
+[--block-size N] [--root-mode M] [--root-uid U] [--root-gid G] [--no-seed]
+[--force]`. Its layout is checked against `Ext2::open`'s validation and by a
+miniature fsck in `tools/mkdisk/test_mkdisk.py`/`test_seed.py`; CI also runs
+`e2fsck -fn` over it. `tools/run_demo.py` creates it on first use and attaches it
+as a **second** `virtio-blk-pci` device (`-drive
 format=raw,file=target/data.img,if=none,id=data`); flags are `--data-disk
 PATH`, `--no-data-disk`, and `--reset-data` (confirmation prompt unless
-`--yes`). An existing volume is never regenerated implicitly. The launcher GUI
-has a matching "Data volume" group (path/size/existence, attach toggle, Reset
-button), and `qemu_shot.py`/`qemu_session.py` accept `--data-disk PATH` (off by
-default so CI stays hermetic). The kernel mounting it is tracked separately
-(#333).
+`--yes`). The launcher GUI has a matching "Data volume" group (path/size/
+existence, attach toggle, Reset button that lists what it will create), and
+`qemu_shot.py`/`qemu_session.py` accept `--data-disk PATH` (off by default so CI
+stays hermetic).
+
+*Seeded layout and ownership.* There is no `chown` yet, so ownership is set at
+format time. The `/data` root stays `root:root 0755` (non-root users cannot add
+top-level entries); the formatter also creates `/data/home` (`root 0755`), one
+`/data/home/<user>` (`0755`, owned by that account's uid/gid) for every demo
+account homed under `/home`, and `/data/tmp` (`1777`, sticky). The accounts are
+read from `accountsd`'s built-in passwd table (`user/src/bin/accountsd.rs`) by
+`tools/mkdisk/accounts.py`, and a test fails if that table drifts from the
+`PASSWD` file `build.rs` embeds. `--root-mode/--root-uid/--root-gid` adjust the
+root itself; `--no-seed` leaves only `lost+found`. Ids are limited to 16 bits,
+the width the driver stores (`check_owner`). Once VFS attributes (`chown`) land
+this layout can shrink to a bare root.
+
+*Persistence rule.* The volume survives runs: launchers create it only when it
+is missing and never regenerate it implicitly. Reset (`--reset-data`, or the
+GUI's Reset button) is explicit and confirmed, erases everything and rewrites
+the seeded layout.
 
 **Status.** Working: FAT boot, ramfs `/tmp`, ext2 read/write, permissions,
-caches, `umask`, the Linux ABI copy-up overlay (`O_CREAT`/`mkdir`/`rename`/
+caches, `umask`, `chmod`/`chown`/`utimensat` on every writable backend, the
+Linux ABI copy-up overlay (`O_CREAT`/`mkdir`/`rename`/
 `unlink`/`rmdir`, fd writes), an ext2 `/data` volume with truncate and large
 files, synced on shutdown, and Linux descriptors that read and write it in place
 (`pread64`/`pwrite64`/`ftruncate`/`fsync`/`sync`/`statfs`). The in-kernel suite

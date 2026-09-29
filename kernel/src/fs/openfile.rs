@@ -19,7 +19,9 @@
 //!   `.unlinked-<n>` entry in its directory instead of being freed
 //!   ([`unlink_open`]), and that entry is deleted when the last descriptor
 //!   goes ([`Drop`]). A stop between the two leaves the hidden entry behind, as
-//!   an orphaned inode would on Linux: harmless, reclaimed by deleting it.
+//!   an orphaned inode would on Linux; the next mount of an unclean volume
+//!   deletes it (`Ext2::reclaim_orphans`). The name is reserved
+//!   ([`hidden`](super::hidden)), so only this module ever creates one.
 //! * Renaming *over* an open file is an implicit unlink of it ([`displace`]).
 //!
 //! All open descriptions of one file share one [`Inode`], so a rename or unlink
@@ -219,7 +221,7 @@ fn find(path: &str) -> Option<Arc<Inode>> {
 fn hidden_name(path: &str) -> String {
     let dir = path.rsplit_once('/').map_or("", |(dir, _)| dir);
     let n = NEXT_ORPHAN.fetch_add(1, Ordering::Relaxed);
-    alloc::format!("{dir}/.unlinked-{n}")
+    alloc::format!("{dir}/{}{n}", super::hidden::PREFIX)
 }
 
 /// Take `inode`'s name away without freeing it: move it to a hidden entry.

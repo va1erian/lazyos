@@ -32,6 +32,11 @@ libc = "0.2"
 # the bundled TTF from memory, applies `TextStyle`'s horizontal alignment for
 # natural-width (non-wrapped) runs, and exposes `Surface::pixels` for a
 # clone-free present; otherwise it is the pinned revision.
+#
+# `xui-core` is not vendored (~350 KB): `tools/xui/build.py` applies
+# `patches/xui-core.patch` (issue #339: buttons stop repainting on every
+# pointer move) to a copy of the pinned checkout and passes the matching
+# `[patch]` with `--config`, so a plain `cargo build` here is unpatched.
 [patch."https://github.com/va1erian/xui"]
 xui-canvas = { path = "vendor/xui-canvas" }
 
