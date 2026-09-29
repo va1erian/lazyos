@@ -20,8 +20,9 @@
 //! records the tasks parked in `recv` on it, a delivery or close wakes only
 //! those, and a reply/cancel/peer death wakes only the transaction's caller.
 //! Wakeups stay advisory: a woken task re-checks its own inbox or
-//! transaction, so no per-channel queue object is needed. `call` is `begin_call` (register + enqueue + park)
-//! followed by `await_reply` (re-check until the outcome is terminal); the
+//! transaction, so no per-channel queue object is needed. `call` is `begin_call` (register + enqueue; the
+//! caller stays runnable) followed by `await_reply` (park and re-check until
+//! the outcome is terminal); the
 //! split is also what asynchronous completion will build on in #69.
 //!
 //! Locking: `CHANNELS` is held only for registry mutations and is always
@@ -351,10 +352,13 @@ pub fn begin_call(
     // wakes it for this request. `send` does the same; the userspace
     // `messengerd` round trip depends on it.
     wake(&receivers);
-    // The request is visible now, so park before returning: syscalls run with
-    // interrupts disabled, so no reply can slip in between registration and the
-    // first wait and no wakeup can be lost.
-    MESSENGER.park(me, deadline);
+    // The caller stays runnable: `call` parks in `await_reply` (in the same
+    // interrupts-off syscall, so no reply can slip in before the first wait),
+    // and the two-step syscall form (`OP_CALL_BEGIN`, `OP_CALL_AWAIT`) must
+    // return to user mode runnable. Parking here left a task that begins a
+    // call and then serves its own request (messengerd's self-soak) marked
+    // blocked in user mode; with targeted wakeups nothing else ever woke it,
+    // so a timer tick in that window stranded it forever (issue #338).
     Ok(txn_id)
 }
 
@@ -464,8 +468,7 @@ pub fn cancel(txn_id: u64) -> Result<(), Error> {
     if !found {
         return Err(Error::NoTransaction);
     }
-    // The canceller is the caller: `begin_call` left it parked, so make it
-    // runnable again (it re-checks the transaction in `await_reply`).
-    wake(&[me]);
+    // The canceller is the caller, which is running; `await_reply` sees the
+    // Canceled outcome on its next check without any wake.
     Ok(())
 }

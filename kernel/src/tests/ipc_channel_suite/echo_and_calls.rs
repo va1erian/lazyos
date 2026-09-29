@@ -14,8 +14,8 @@ pub fn echo_roundtrip() -> Result<(), String> {
     let txn = channels::begin_call(client, 7, &request, None).map_err(reason)?;
     let me = task::current();
     check!(
-        blocked_call(me, None),
-        "begin_call did not park the caller: {:?}",
+        task::harness::state(me) == Some(TaskState::Runnable),
+        "begin_call parked the caller: {:?}",
         task::harness::state(me)
     );
 
@@ -39,7 +39,9 @@ pub fn echo_roundtrip() -> Result<(), String> {
         "request payload changed"
     );
 
-    // The reply is a fresh parcel, matched by transaction id.
+    // The reply is a fresh parcel, matched by transaction id. Park the caller
+    // the way `await_reply` does, so the reply has a waiter to wake.
+    channels::harness::park(me, None);
     let reply = parcel(8, 0, "pong")?;
     channels::reply(txn, &reply).map_err(reason)?;
     check!(
@@ -153,22 +155,15 @@ pub fn deadline_timeout() -> Result<(), String> {
     let me = task::current();
     let deadline = task::ticks() + 10;
     let txn = channels::begin_call(client, 7, &request, Some(deadline)).map_err(reason)?;
+    // The caller stays runnable until `await_reply` parks it with the
+    // transaction's deadline; the sweep expires the transaction itself.
     check!(
-        blocked_call(me, Some(deadline)),
-        "caller did not park with its deadline: {:?}",
+        task::harness::state(me) == Some(TaskState::Runnable),
+        "begin_call parked the caller: {:?}",
         task::harness::state(me)
     );
 
     channels::expire_deadlines(deadline);
-    check!(
-        task::harness::state(me) == Some(TaskState::Runnable),
-        "deadline sweep did not wake the caller: {:?}",
-        task::harness::state(me)
-    );
-    check!(
-        task::harness::take_wake_reason(me) == Some(WakeReason::TimedOut),
-        "deadline wake reason is not TimedOut"
-    );
     let late = parcel(8, 0, "too late")?;
     check!(
         channels::reply(txn, &late) == Err(ChannelError::NoTransaction),

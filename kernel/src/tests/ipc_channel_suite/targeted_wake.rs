@@ -100,7 +100,11 @@ pub fn reply_wakes_only_caller() -> Result<(), String> {
     let txn =
         channels::begin_call(client, 7, &parcel(7, flags::SYNC, "q")?, None).map_err(reason)?;
     only_woken(&set, Some(callee), "begin_call")?;
-    check!(blocked_call(me, None), "begin_call did not park the caller");
+    check!(runnable(me), "begin_call parked the caller");
+    // Park the caller the way `await_reply` does, so the reply has someone
+    // to wake.
+    chan::park(me, None);
+    check!(blocked_call(me, None), "the caller did not park");
 
     let request = channels::try_recv(server)
         .map_err(reason)?
@@ -199,4 +203,64 @@ pub fn targeted_wake_soak() -> Result<(), String> {
         chan::queued_waiters()
     );
     teardown(set.iter().map(|&(_, _, slot)| slot))
+}
+
+/// A task that begins a call and then serves that request itself (the shape
+/// of `messengerd`'s self-soak over the bootstrap channel) never leaves
+/// `begin_call` blocked: it stays runnable through the receive and the reply,
+/// and `await_reply` returns the answer. With the caller parked by
+/// `begin_call`, a timer tick between the begin and the reply stranded the
+/// task in user mode, since only its own reply could wake it (issue #338).
+pub fn self_call_stays_runnable() -> Result<(), String> {
+    fresh()?;
+    let (client, server) = channels::create().map_err(reason)?;
+    let me = task::current();
+    let txn =
+        channels::begin_call(client, 7, &parcel(7, flags::SYNC, "soak")?, None).map_err(reason)?;
+    check!(
+        runnable(me),
+        "begin_call parked the caller: {:?}",
+        task::harness::state(me)
+    );
+    let request = channels::try_recv(server)
+        .map_err(reason)?
+        .ok_or("the caller could not receive its own request")?;
+    check!(runnable(me), "recv of the own request blocked the caller");
+    channels::reply(request.txn.ok_or("no txn")?, &parcel(8, 0, "ok")?).map_err(reason)?;
+    check!(
+        runnable(me) && task::harness::take_wake_reason(me).is_none(),
+        "a self-reply left a wake reason or a blocked state: {:?}",
+        task::harness::state(me)
+    );
+    let got = channels::await_reply(txn).map_err(reason)?;
+    check!(payload(&got)? == "ok", "wrong self-call reply");
+    fresh()
+}
+
+/// Soak: 5000 self-calls in a row, checking the caller is runnable after
+/// every begin and that no transaction or wait-queue entry leaks.
+pub fn self_call_soak() -> Result<(), String> {
+    fresh()?;
+    let (client, server) = channels::create().map_err(reason)?;
+    let me = task::current();
+    let request = parcel(7, flags::SYNC, "soak")?;
+    let answer = parcel(8, 0, "ok")?;
+    for round in 0..5000u32 {
+        let txn = channels::begin_call(client, 7, &request, None).map_err(reason)?;
+        check!(runnable(me), "round {round}: begin_call parked the caller");
+        let message = channels::try_recv(server)
+            .map_err(reason)?
+            .ok_or("round lost its request")?;
+        channels::reply(message.txn.ok_or("no txn")?, &answer).map_err(reason)?;
+        let got = channels::await_reply(txn).map_err(reason)?;
+        check!(payload(&got)? == "ok", "round {round}: wrong reply");
+    }
+    let stats = channels::stats();
+    check!(stats.outstanding == 0, "transactions leaked: {stats:?}");
+    check!(
+        chan::queued_waiters() == 0,
+        "wait-queue entries leaked: {}",
+        chan::queued_waiters()
+    );
+    fresh()
 }

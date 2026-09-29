@@ -134,4 +134,9 @@ pub(super) const CASES: &[(&str, Test)] = &[
         peer_close_wakes_peer_waiter,
     ),
     ("ipc_channel_targeted_wake_soak", targeted_wake_soak),
+    (
+        "ipc_channel_self_call_stays_runnable",
+        self_call_stays_runnable,
+    ),
+    ("ipc_channel_self_call_soak", self_call_soak),
 ];
