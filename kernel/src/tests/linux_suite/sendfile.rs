@@ -78,6 +78,33 @@ pub(super) fn sendfile_rejects_positional_and_bad_descriptors() -> Result<(), St
     Ok(())
 }
 
+/// A non-blocking stream destination is refused before any source byte is
+/// consumed, so nothing is lost mid-chunk (the caller falls back to read/write).
+pub(super) fn sendfile_refuses_nonblocking_stream_destination() -> Result<(), String> {
+    fresh()?;
+    let (src_r, src_w) = pipe_pair()?;
+    let mut fds = [0i32; 2];
+    let ret = process::linux::dispatch_for_test(293, fds.as_mut_ptr() as u64, O_NONBLOCK, 0);
+    check!(ret == 0, "pipe2(O_NONBLOCK) returned {ret:#x}");
+    let (dst_r, dst_w) = (fds[0] as u64, fds[1] as u64);
+
+    let msg = b"keep me";
+    let wrote = write_fd(src_w, msg);
+    check!(wrote == msg.len() as u64, "pipe write returned {wrote}");
+    let refused = sendfile(dst_w, src_r, 0, 64);
+    check!(refused == EINVAL, "non-blocking sink returned {refused:#x}");
+
+    // The source still holds every byte: nothing was consumed by the refusal.
+    let mut back = [0u8; 16];
+    let n = read_fd(src_r, &mut back[..msg.len()]);
+    check!(
+        n == msg.len() as u64 && &back[..msg.len()] == msg,
+        "source lost bytes on refusal: read {n}"
+    );
+    let _ = dst_r;
+    Ok(())
+}
+
 pub(super) fn sendfile_soak_cycles_no_leaks() -> Result<(), String> {
     fresh()?;
     for round in 0..64u32 {

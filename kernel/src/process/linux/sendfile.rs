@@ -12,7 +12,7 @@ use super::io::{add_iov_total, partial_or, STREAM_CHUNK};
 /// BusyBox `cat` uses the offset-less form (a NULL `offset` pointer), so a
 /// non-NULL offset is `-EINVAL` rather than a silent misread. The source may be
 /// a regular file or a pipe/socket; the destination must be a terminal or a
-/// stream, because a regular-file destination needs the copy-up write path and
+/// blocking stream (a non-blocking one is `-EINVAL`, see below), because a regular-file destination needs the copy-up write path and
 /// is not something `cat` asks for. A short read at EOF ends the transfer early; a short
 /// write is retried until the whole chunk is delivered, and a destination that
 /// errors or accepts nothing ends it with the byte count done so far.
@@ -34,6 +34,13 @@ pub(super) fn sys_sendfile(out_fd: u64, in_fd: u64, offset: u64, count: u64) -> 
         task::fd_kind(out_fd as usize),
         FdKind::Terminal | FdKind::Pipe | FdKind::Socket
     ) {
+        return err(EINVAL);
+    }
+    // A source byte, once read, cannot be pushed back, and a non-blocking
+    // stream can refuse the tail of a chunk mid-copy, which would lose it. Such
+    // a destination is refused up front (`EINVAL`), so the caller (BusyBox
+    // `cat`) falls back to its own read/write loop, which handles `EAGAIN`.
+    if task::fd_stream_nonblock(out_fd as usize) == Some(true) {
         return err(EINVAL);
     }
     let mut buf = [0u8; STREAM_CHUNK];

@@ -291,6 +291,10 @@ pub(super) const CASES: &[(&str, Test)] = &[
         sendfile_rejects_positional_and_bad_descriptors,
     ),
     (
+        "linux_sendfile_refuses_nonblocking_stream_destination",
+        sendfile_refuses_nonblocking_stream_destination,
+    ),
+    (
         "linux_sendfile_soak_cycles_no_leaks",
         sendfile_soak_cycles_no_leaks,
     ),

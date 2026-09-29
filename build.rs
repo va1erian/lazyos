@@ -290,6 +290,12 @@ fn main() {
         if std::env::var_os("LAZYOS_INIT").is_some() {
             None
         } else {
+            // Watch every candidate, not just the one picked: a BusyBox built
+            // or dropped in later (or one that outranks the cached pick) must
+            // trigger a rebuild of the image.
+            for path in busybox_candidates(&manifest_dir) {
+                println!("cargo:rerun-if-changed={}", path.display());
+            }
             find_busybox(&manifest_dir)
         }
     });
@@ -326,6 +332,13 @@ fn main() {
 /// (`target/abi/busybox/busybox`). Returns `None` when the host could not build
 /// one, which makes the image boot without a console shell.
 fn find_busybox(manifest_dir: &std::path::Path) -> Option<PathBuf> {
+    busybox_candidates(manifest_dir)
+        .into_iter()
+        .find(|path| path.is_file())
+}
+
+/// Where a BusyBox may appear, highest priority first.
+fn busybox_candidates(manifest_dir: &std::path::Path) -> Vec<PathBuf> {
     [
         "tools/abi/busybox",
         "target/abi/busybox/busybox",
@@ -333,7 +346,7 @@ fn find_busybox(manifest_dir: &std::path::Path) -> Option<PathBuf> {
     ]
     .iter()
     .map(|relative| manifest_dir.join(relative))
-    .find(|path| path.is_file())
+    .collect()
 }
 
 /// The 8.3 on-disk name for an xui app binary (`xui-sysmon.elf` ->

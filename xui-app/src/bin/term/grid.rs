@@ -141,7 +141,8 @@ impl Grid {
                 self.line_feed();
             }
             '\u{8}' => self.col = self.col.saturating_sub(1),
-            '\t' => self.col = ((self.col / 8) + 1) * 8,
+            // Clamp to the last column so a later erase never slices past `COLS`.
+            '\t' => self.col = (((self.col / 8) + 1) * 8).min(COLS),
             '\u{1b}' => self.parse = Parse::Esc,
             c if c.is_control() => {}
             c => {
@@ -167,7 +168,6 @@ impl Grid {
         self.col = 0;
     }
 
-    /// The first numeric CSI parameter, `default` when absent.
     /// The `index`-th `;`-separated CSI parameter, or `default` when absent.
     fn csi_param_at(&self, index: usize, default: usize) -> usize {
         self.csi
@@ -217,4 +217,24 @@ impl Grid {
 /// Whether a completed grid line is only a shell prompt (`# `, `$ `).
 pub fn is_prompt(line: &str) -> bool {
     line.chars().all(|c| matches!(c, '#' | '$' | '>' | ' '))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tab_in_last_column_then_erase_does_not_panic() {
+        let mut grid = Grid::new();
+        grid.feed("x".repeat(COLS).as_bytes());
+        grid.feed(b"\t\x1b[K\x1b[J");
+        assert!(grid.col <= COLS);
+    }
+
+    #[test]
+    fn cursor_position_uses_both_parameters() {
+        let mut grid = Grid::new();
+        grid.feed(b"\x1b[5;10H");
+        assert_eq!((grid.row, grid.col), (4, 9));
+    }
 }
