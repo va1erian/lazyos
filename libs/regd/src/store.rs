@@ -197,6 +197,11 @@ impl Store {
     /// `total_bytes` in sync. Returns `false` when the path already exists,
     /// so the caller can reject duplicate entries instead of silently
     /// overwriting.
+    ///
+    /// `decode` is the only caller and has already rejected the store if the
+    /// running sum would pass [`MAX_STORE_BYTES`]; the saturating add only
+    /// stops a future misuse from wrapping, and the debug assertion catches
+    /// one in tests.
     pub(crate) fn insert_decoded(&mut self, path: String, value: Value) -> bool {
         if self.entries.contains_key(&path) {
             return false;

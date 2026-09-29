@@ -12,9 +12,10 @@
 //!   [`MAX_PATH_LEN`] bytes, segments `[a-z0-9_.-]+`.
 //! * One [`Value`] per path, at most [`MAX_VALUE_LEN`] bytes; the sum over
 //!   all entries of `path.len() + value size` is at most [`MAX_STORE_BYTES`].
-//! * [`Store::get`]/[`Store::list`] deny paths the caller cannot read and
-//!   [`Store::set`]/[`Store::delete`] deny paths it cannot write. A denial is
-//!   distinct from absence, so callers cannot probe other users' subtrees.
+//! * [`Store::get`]/[`Store::set`]/[`Store::delete`] return a denial for
+//!   paths the caller cannot read or write, which is distinct from absence, so
+//!   callers cannot probe other users' subtrees. [`Store::list`] instead
+//!   filters unreadable paths out of its result.
 //! * [`encode`]/[`decode`] use a strict length-prefixed format with a magic
 //!   header and a CRC-32 trailer; `decode` re-validates every path and limit
 //!   and never panics, over-allocates or accepts trailing bytes.

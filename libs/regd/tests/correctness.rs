@@ -175,6 +175,23 @@ fn user_subtrees_are_owner_or_root_only() {
 }
 
 #[test]
+fn access_is_checked_before_size() {
+    let mut store = Store::new();
+    let too_large = Value::Str("x".repeat(MAX_VALUE_LEN + 1));
+    // Alice cannot write sys at all, so she sees Denied, not TooLarge.
+    assert_eq!(store.set("sys/a", too_large, ALICE), Err(Error::Denied));
+}
+
+#[test]
+fn owner_segment_is_parsed_as_a_number() {
+    let mut store = Store::new();
+    store.set("user/1000/a", Value::Bool(true), ALICE).unwrap();
+    // A differently spelled owner is a different key owned by the same uid.
+    assert_eq!(store.get("user/01000/a", ALICE).unwrap(), None);
+    assert_eq!(store.get("user/01000/a", BOB), Err(Error::Denied));
+}
+
+#[test]
 fn denial_is_not_absence() {
     let mut store = Store::new();
     store.set("user/1001/notes", text("private"), BOB).unwrap();
