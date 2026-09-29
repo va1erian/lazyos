@@ -62,14 +62,30 @@ pub fn slots_attach_rules() -> Result<(), String> {
     );
     // The legacy attach replaces slot 0 immediately and is not pipelined.
     let mut legacy = SlotTable::new();
-    check!(legacy.attach_legacy(1u32).is_none(), "legacy first attach");
     check!(
-        legacy.attach_legacy(2) == Some(1),
+        legacy.attach_legacy(1u32) == Ok(None),
+        "legacy first attach"
+    );
+    check!(
+        legacy.attach_legacy(2) == Ok(Some(1)),
         "legacy replace returns the old mapping"
     );
     check!(
         legacy.current() == Some(&2) && !legacy.is_pipelined(),
         "legacy stays unpipelined"
+    );
+    // Once a surface has presented, a legacy attach is refused and leaves the
+    // client's slot ownership alone.
+    let mut piped = SlotTable::new();
+    piped.attach(1, 7u32).map_err(|_| "attach slot 1")?;
+    piped.present(1).map_err(|_| "present slot 1")?;
+    check!(
+        piped.attach_legacy(9) == Err(AttachError::Busy),
+        "legacy attach refused after Present"
+    );
+    check!(
+        piped.current_slot() == Some(1),
+        "the refused legacy attach kept slot 1 current"
     );
     Ok(())
 }

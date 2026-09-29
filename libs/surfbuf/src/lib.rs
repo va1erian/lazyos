@@ -82,9 +82,16 @@ impl<T> SlotTable<T> {
     /// The legacy `AttachBuffer`: `value` replaces slot 0 and becomes current
     /// at once, even if the compositor was reading the old one (the tear-prone
     /// behaviour the slot API exists to avoid). Returns the payload to unmap.
-    pub fn attach_legacy(&mut self, value: T) -> Option<T> {
+    ///
+    /// Refused with [`AttachError::Busy`] once the surface has used
+    /// `Present`: the client then owns slots by `BufferRelease`, and taking
+    /// slot 0 back behind its swapchain would strand or tear a slot.
+    pub fn attach_legacy(&mut self, value: T) -> Result<Option<T>, AttachError> {
+        if self.pipelined {
+            return Err(AttachError::Busy);
+        }
         self.current = Some(0);
-        self.slots[0].replace(value)
+        Ok(self.slots[0].replace(value))
     }
 
     /// Make `slot` current. On success returns the slot the compositor just
@@ -192,10 +199,13 @@ pub struct Swapchain {
 }
 
 impl Swapchain {
-    /// A swapchain of `count` slots (clamped to `1..=MAX_SLOTS`), all free.
+    /// A swapchain of `count` slots (clamped to `2..=MAX_SLOTS`), all free.
+    /// One slot is not enough: the compositor releases a slot only when a
+    /// different one replaces it, so a single-slot chain would never get its
+    /// buffer back after the first present.
     pub fn new(count: usize) -> Swapchain {
         Swapchain {
-            count: count.clamp(1, MAX_SLOTS),
+            count: count.clamp(2, MAX_SLOTS),
             owner: [Owner::Client; MAX_SLOTS],
             submitted: 0,
             done: 0,
@@ -297,10 +307,20 @@ mod tests {
     #[test]
     fn legacy_attach_replaces_slot_zero_and_is_current() {
         let mut table = SlotTable::new();
-        assert_eq!(table.attach_legacy(1), None);
-        assert_eq!(table.attach_legacy(2), Some(1));
+        assert_eq!(table.attach_legacy(1), Ok(None));
+        assert_eq!(table.attach_legacy(2), Ok(Some(1)));
         assert_eq!(table.current(), Some(&2));
         assert!(!table.is_pipelined());
+    }
+
+    #[test]
+    fn legacy_attach_is_refused_once_pipelined() {
+        let mut table = SlotTable::new();
+        table.attach(1, 5).unwrap();
+        table.present(1).unwrap();
+        assert_eq!(table.attach_legacy(9), Err(AttachError::Busy));
+        assert_eq!(table.current_slot(), Some(1));
+        assert_eq!(table.current(), Some(&5));
     }
 
     #[test]
@@ -381,6 +401,7 @@ mod tests {
         chain.submit(0).unwrap();
         assert_eq!(chain.submit(0), None);
         assert!(!chain.released(7));
-        assert_eq!(Swapchain::new(0).count(), 1);
+        assert_eq!(Swapchain::new(0).count(), 2);
+        assert_eq!(Swapchain::new(1).count(), 2);
     }
 }

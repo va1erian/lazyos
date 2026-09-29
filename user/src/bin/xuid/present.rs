@@ -107,16 +107,14 @@ fn try_attach(
         bytes: expected,
         handle: message.first_buffer,
     };
-    let replaced = match slot {
-        Some(slot) => surface
-            .slots
-            .attach(slot, mapping)
-            .map_err(|error| match error {
-                surfbuf::AttachError::BadSlot => messenger::errno::EINVAL,
-                surfbuf::AttachError::Busy => messenger::errno::EBUSY,
-            })?,
+    let attached = match slot {
+        Some(slot) => surface.slots.attach(slot, mapping),
         None => surface.slots.attach_legacy(mapping),
     };
+    let replaced = attached.map_err(|error| match error {
+        surfbuf::AttachError::BadSlot => messenger::errno::EINVAL,
+        surfbuf::AttachError::Busy => messenger::errno::EBUSY,
+    })?;
     if let Some(old) = replaced {
         old.unmap();
     }
@@ -130,9 +128,10 @@ impl Compositor {
     /// `FrameDone`.
     ///
     /// There is no reply path, so a request the sender does not own or that
-    /// does not decode is dropped silently; a refused slot changes nothing
-    /// but still gets its `FrameDone`, so a client pacing on it cannot
-    /// deadlock.
+    /// does not decode is dropped silently. A refused slot (unattached or out
+    /// of range) changes nothing but is handed straight back with a
+    /// `BufferRelease` (the compositor never read it) before its `FrameDone`,
+    /// so a client pacing on either cannot stall.
     pub(super) fn present(&mut self, message: &Message) {
         let Ok(args) = wire::decode_present_args(&message.parcel.body) else {
             return;
@@ -185,14 +184,20 @@ impl Compositor {
                 area.h as i32,
             ));
         }
-        if let Ok(Some(old)) = outcome {
+        // The slot to hand back: the one this present replaced, or, for a
+        // refused present, the slot the client just submitted.
+        let released = match outcome {
+            Ok(replaced) => replaced,
+            Err(_) => Some(args.slot),
+        };
+        if let Some(slot) = released {
             let _ = display::send_event(
                 &events,
                 &mut self.scratch,
                 wire::METHOD_BUFFERRELEASE,
                 wire::encode_buffer_release_args(&wire::BufferReleaseArgs {
                     surface: args.surface,
-                    slot: old,
+                    slot,
                 }),
             );
         }
