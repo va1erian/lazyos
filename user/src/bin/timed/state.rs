@@ -69,13 +69,23 @@ impl State {
         }
         match self.read_zone() {
             Ok(zone) => {
-                self.synced = true;
+                self.drop_watch();
                 self.watch = self.confd.as_ref().and_then(|c| c.watch(ZONE_CHANGED).ok());
-                sys::write_str(if self.watch.is_some() {
-                    "TIMED:CONFD:SYNC watching\n"
+                if self.watch.is_some() {
+                    self.synced = true;
+                    sys::write_str(
+                        "TIMED:CONFD:SYNC watching
+",
+                    );
                 } else {
-                    "TIMED:CONFD:SYNC not watching\n"
-                });
+                    // Without a subscription changes would go unnoticed: stay
+                    // unsynced so the whole sync is retried shortly.
+                    self.next_sync_try = sys::clock() + RETRY_TICKS;
+                    sys::write_str(
+                        "TIMED:CONFD:SYNC not watching
+",
+                    );
+                }
                 self.adopt(zone)
             }
             Err(_) => {
@@ -92,17 +102,21 @@ impl State {
             return false;
         };
         let mut changed = false;
+        let mut lost = false;
         loop {
             match watch.recv_with(&mut self.buffer, Some(EXPIRED_DEADLINE)) {
                 Ok(Some(_)) => changed = true,
                 Ok(None) => break,
                 Err(_) => {
                     // The broker went away: resubscribe on the next sync.
-                    self.watch = None;
-                    self.synced = false;
+                    lost = true;
                     break;
                 }
             }
+        }
+        if lost {
+            self.drop_watch();
+            self.synced = false;
         }
         if !changed {
             return false;
@@ -110,10 +124,18 @@ impl State {
         match self.read_zone() {
             Ok(zone) => self.adopt(zone),
             Err(_) => {
+                self.drop_watch();
                 self.confd = None;
                 self.synced = false;
                 false
             }
+        }
+    }
+
+    /// Release the change subscription at the broker, if any.
+    fn drop_watch(&mut self) {
+        if let Some(watch) = self.watch.take() {
+            let _ = watch.unsubscribe();
         }
     }
 
