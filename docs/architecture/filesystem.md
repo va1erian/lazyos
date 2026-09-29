@@ -211,17 +211,34 @@ block, inode, descriptor and registry entry.
 ext2 image (4 KiB blocks, revision 1, `lost+found`, sparse-super backups) that
 survives across QEMU runs. `tools/mkdisk/` formats it in pure Python (Windows
 has no `mkfs.ext2`): `python -m tools.mkdisk [PATH] [--size 64M] [--label NAME]
-[--block-size N] [--force]`. Its layout is checked against `Ext2::open`'s
-validation and by a miniature fsck in `tools/mkdisk/test_mkdisk.py`; CI also
-runs `e2fsck -fn` over it. `tools/run_demo.py` creates it on first use and
-attaches it as a **second** `virtio-blk-pci` device (`-drive
+[--block-size N] [--root-mode M] [--root-uid U] [--root-gid G] [--no-seed]
+[--force]`. Its layout is checked against `Ext2::open`'s validation and by a
+miniature fsck in `tools/mkdisk/test_mkdisk.py`/`test_seed.py`; CI also runs
+`e2fsck -fn` over it. `tools/run_demo.py` creates it on first use and attaches it
+as a **second** `virtio-blk-pci` device (`-drive
 format=raw,file=target/data.img,if=none,id=data`); flags are `--data-disk
 PATH`, `--no-data-disk`, and `--reset-data` (confirmation prompt unless
-`--yes`). An existing volume is never regenerated implicitly. The launcher GUI
-has a matching "Data volume" group (path/size/existence, attach toggle, Reset
-button), and `qemu_shot.py`/`qemu_session.py` accept `--data-disk PATH` (off by
-default so CI stays hermetic). The kernel mounting it is tracked separately
-(#333).
+`--yes`). The launcher GUI has a matching "Data volume" group (path/size/
+existence, attach toggle, Reset button that lists what it will create), and
+`qemu_shot.py`/`qemu_session.py` accept `--data-disk PATH` (off by default so CI
+stays hermetic).
+
+*Seeded layout and ownership.* There is no `chown` yet, so ownership is set at
+format time. The `/data` root stays `root:root 0755` (non-root users cannot add
+top-level entries); the formatter also creates `/data/home` (`root 0755`), one
+`/data/home/<user>` (`0755`, owned by that account's uid/gid) for every demo
+account homed under `/home`, and `/data/tmp` (`1777`, sticky). The accounts are
+read from `accountsd`'s built-in passwd table (`user/src/bin/accountsd.rs`) by
+`tools/mkdisk/accounts.py`, and a test fails if that table drifts from the
+`PASSWD` file `build.rs` embeds. `--root-mode/--root-uid/--root-gid` adjust the
+root itself; `--no-seed` leaves only `lost+found`. Ids are limited to 16 bits,
+the width the driver stores (`check_owner`). Once VFS attributes (`chown`) land
+this layout can shrink to a bare root.
+
+*Persistence rule.* The volume survives runs: launchers create it only when it
+is missing and never regenerate it implicitly. Reset (`--reset-data`, or the
+GUI's Reset button) is explicit and confirmed, erases everything and rewrites
+the seeded layout.
 
 **Status.** Working: FAT boot, ramfs `/tmp`, ext2 read/write, permissions,
 caches, `umask`, `chmod`/`chown`/`utimensat` on every writable backend, the
