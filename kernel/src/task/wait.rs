@@ -131,6 +131,34 @@ impl WaitQueue {
         woken
     }
 
+    /// Wake `task` only, if it is parked on this queue (issue #338's targeted
+    /// wakeups). Every entry for `task` is removed, like the wait loop does
+    /// on return. Returns whether the task actually moved to `Runnable`: a
+    /// task that is not enqueued here (already woken, timed out, or blocked
+    /// on another queue) is left untouched.
+    pub fn notify_task(&self, task: usize) -> bool {
+        let mut state = self.state.lock();
+        let before = state.waiters.len();
+        state.waiters.retain(|&waiter| waiter != task);
+        if state.waiters.len() == before {
+            return false;
+        }
+        wake_task_with(task, WakeReason::Woken)
+    }
+
+    /// Whether `task` is enqueued here (test and diagnostics hook).
+    #[allow(dead_code)]
+    pub fn contains(&self, task: usize) -> bool {
+        self.state.lock().waiters.contains(&task)
+    }
+
+    /// Number of queued entries, duplicates included (test hook: a leak shows
+    /// up as a length that never returns to zero).
+    #[allow(dead_code)]
+    pub fn len(&self) -> usize {
+        self.state.lock().waiters.len()
+    }
+
     /// Wake a single waiter (the oldest one), if any.
     pub fn notify_one(&self) -> usize {
         self.notify(1)

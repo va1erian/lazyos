@@ -95,9 +95,11 @@ fn shared_clients(shared: u64, count: usize) -> Result<Vec<(usize, u64)>, String
 
 mod echo_and_calls;
 mod resilience;
+mod targeted_wake;
 
 pub(super) use echo_and_calls::*;
 pub(super) use resilience::*;
+pub(super) use targeted_wake::*;
 
 pub(super) const CASES: &[(&str, Test)] = &[
     ("ipc_channel_echo_roundtrip", echo_roundtrip),
@@ -119,4 +121,17 @@ pub(super) const CASES: &[(&str, Test)] = &[
         "ipc_channel_concurrent_clients_soak",
         concurrent_clients_soak,
     ),
+    (
+        "ipc_channel_send_wakes_only_destination",
+        send_wakes_only_destination,
+    ),
+    (
+        "ipc_channel_reply_wakes_only_caller",
+        reply_wakes_only_caller,
+    ),
+    (
+        "ipc_channel_peer_close_wakes_peer_waiter",
+        peer_close_wakes_peer_waiter,
+    ),
+    ("ipc_channel_targeted_wake_soak", targeted_wake_soak),
 ];

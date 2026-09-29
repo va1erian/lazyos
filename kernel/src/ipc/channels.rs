@@ -16,9 +16,11 @@
 //! both endpoints close.
 //!
 //! Blocking uses the generalized wait queues (issue #57) through one shared
-//! `MESSENGER` queue. Wakeups are advisory: every event wakes all waiters and
-//! each waiter re-checks its own inbox or transaction, so no per-channel queue
-//! object is needed. `call` is `begin_call` (register + enqueue + park)
+//! `MESSENGER` queue, but wakeups are targeted (issue #338): each endpoint
+//! records the tasks parked in `recv` on it, a delivery or close wakes only
+//! those, and a reply/cancel/peer death wakes only the transaction's caller.
+//! Wakeups stay advisory: a woken task re-checks its own inbox or
+//! transaction, so no per-channel queue object is needed. `call` is `begin_call` (register + enqueue + park)
 //! followed by `await_reply` (re-check until the outcome is terminal); the
 //! split is also what asynchronous completion will build on in #69.
 //!
@@ -111,16 +113,9 @@ static NEXT_TXN_ID: AtomicU64 = AtomicU64::new(1);
 /// frozen); adding a `WaitKind::Messenger` is a follow-up.
 static MESSENGER: WaitQueue = WaitQueue::new(WaitKind::Sleep);
 
-/// Test-only hooks for the kernel suite (issue #62 pattern). The channel tests
-/// need to park a task exactly where `recv` parks it, without entering the
-/// scheduler (the suite runs with interrupts disabled).
+/// Test-only hooks for the kernel suite (issue #62 pattern).
 #[cfg(lazyos_tests)]
-pub mod harness {
-    /// Park `slot` on the messenger wait queue without switching context.
-    pub fn park(slot: usize, deadline: Option<u64>) {
-        super::MESSENGER.park(slot, deadline);
-    }
-}
+pub mod harness;
 
 /// Create a channel and open both endpoint handles in the calling task.
 ///
@@ -175,7 +170,7 @@ pub fn send(handle: u64, parcel_bytes: &[u8]) -> Result<(), Error> {
     let (handles, buffers) = resolve_transfers(&parcel)?;
     let numbers = parcel.handles.clone();
     let kinds: Vec<HandleKind> = handles.iter().map(|transfer| transfer.kind).collect();
-    enqueue(
+    let receivers = enqueue(
         channel_id,
         side,
         Queued {
@@ -192,13 +187,16 @@ pub fn send(handle: u64, parcel_bytes: &[u8]) -> Result<(), Error> {
     )?;
     // The message owns the moved references now; the sender's numbers are gone.
     close_moved_handles(&numbers, &kinds);
-    MESSENGER.notify_all();
+    wake(&receivers);
     Ok(())
 }
 
 /// Enqueue a message into the peer endpoint's inbox, taking the buffer
 /// references it carries and metering the sender.
-fn enqueue(channel_id: u64, from_side: usize, message: Queued) -> Result<(), Error> {
+///
+/// Returns the tasks parked in `recv` on that inbox (taken off the endpoint);
+/// the caller wakes them with [`wake`] once the registry lock is released.
+fn enqueue(channel_id: u64, from_side: usize, message: Queued) -> Result<Vec<usize>, Error> {
     let peer = 1 - from_side;
     let mut channels = CHANNELS.lock();
     let channel = find_channel(&mut channels, channel_id)?;
@@ -231,8 +229,9 @@ fn enqueue(channel_id: u64, from_side: usize, message: Queued) -> Result<(), Err
     let endpoint = &mut channel.endpoints[peer];
     endpoint.inbox.push_back(message);
     endpoint.queued_bytes += bytes;
+    let receivers = core::mem::take(&mut endpoint.waiters);
     meter(channel, sender).sent += 1;
-    Ok(())
+    Ok(receivers)
 }
 
 /// Start a synchronous call (section 6): register a fresh `txn_id`, enqueue the
@@ -255,7 +254,7 @@ pub fn begin_call(
     let kinds: Vec<HandleKind> = handles.iter().map(|transfer| transfer.kind).collect();
     let peer = 1 - side;
     let txn_id = NEXT_TXN_ID.fetch_add(1, Ordering::Relaxed);
-    {
+    let receivers = {
         let mut channels = CHANNELS.lock();
         let channel = find_channel(&mut channels, channel_id)?;
         if channel.endpoints[peer].closed {
@@ -340,16 +339,18 @@ pub fn begin_call(
         let endpoint = &mut channel.endpoints[peer];
         endpoint.inbox.push_back(queued);
         endpoint.queued_bytes += parcel_bytes.len();
+        let receivers = core::mem::take(&mut endpoint.waiters);
         channel.calls += 1;
         let sender = meter(channel, me);
         sender.sent += 1;
         sender.calls += 1;
         sender.outstanding += 1;
-    }
+        receivers
+    };
     // Wake the callee: it may already be parked in `recv`, and nothing else
-    // notifies the messenger queue for this request. `send` does the same; the
-    // userspace `messengerd` round trip depends on it.
-    MESSENGER.notify_all();
+    // wakes it for this request. `send` does the same; the userspace
+    // `messengerd` round trip depends on it.
+    wake(&receivers);
     // The request is visible now, so park before returning: syscalls run with
     // interrupts disabled, so no reply can slip in between registration and the
     // first wait and no wakeup can be lost.
@@ -408,7 +409,7 @@ pub fn reply(txn_id: u64, parcel_bytes: &[u8]) -> Result<(), Error> {
     if !parcel.handles.is_empty() || !parcel.buffers.is_empty() {
         return Err(Error::UnsupportedTransfer);
     }
-    let mut found = false;
+    let mut found = None;
     {
         let mut channels = CHANNELS.lock();
         for channel in channels.iter_mut() {
@@ -424,14 +425,14 @@ pub fn reply(txn_id: u64, parcel_bytes: &[u8]) -> Result<(), Error> {
             channel.replies += 1;
             let caller = channel.txns[index].caller;
             release_pending(channel, caller);
-            found = true;
+            found = Some(caller);
             break;
         }
     }
-    if !found {
-        return Err(Error::NoTransaction);
-    }
-    MESSENGER.notify_all();
+    // Only the caller waits for this outcome (in `await_reply`, or still
+    // parked by `begin_call`).
+    let caller = found.ok_or(Error::NoTransaction)?;
+    wake(&[caller]);
     Ok(())
 }
 
@@ -463,6 +464,8 @@ pub fn cancel(txn_id: u64) -> Result<(), Error> {
     if !found {
         return Err(Error::NoTransaction);
     }
-    MESSENGER.notify_all();
+    // The canceller is the caller: `begin_call` left it parked, so make it
+    // runnable again (it re-checks the transaction in `await_reply`).
+    wake(&[me]);
     Ok(())
 }

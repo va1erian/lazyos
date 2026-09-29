@@ -12,7 +12,7 @@
 
 use alloc::vec::Vec;
 
-use super::{enqueue, handles, split_object_id, Error, HandleKind, Queued, MESSENGER};
+use super::{enqueue, handles, split_object_id, wake, Error, HandleKind, Queued};
 
 /// The channel side a handle in `slot`'s table names, as `(channel_id, side)`.
 ///
@@ -29,7 +29,7 @@ pub fn endpoint_of_task(slot: usize, handle: u64) -> Result<(u64, usize), Error>
 }
 
 /// Enqueue `parcel_bytes` into the inbox of `side` of `channel_id` as a one-way
-/// message from the kernel task, then wake receivers.
+/// message from the kernel task, then wake the tasks parked on it.
 ///
 /// The parcel is validated exactly like a userspace send would be.
 pub fn post_from_kernel(channel_id: u64, side: usize, parcel_bytes: &[u8]) -> Result<(), Error> {
@@ -47,7 +47,7 @@ pub fn post_from_kernel(channel_id: u64, side: usize, parcel_bytes: &[u8]) -> Re
     };
     // `enqueue` names the *sending* side and delivers to its peer, so name the
     // opposite side of the inbox we want to fill.
-    enqueue(channel_id, (side & 1) ^ 1, queued)?;
-    MESSENGER.notify_all();
+    let receivers = enqueue(channel_id, (side & 1) ^ 1, queued)?;
+    wake(&receivers);
     Ok(())
 }
