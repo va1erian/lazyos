@@ -6,8 +6,10 @@ pub mod pte;
 mod reclaim;
 pub use reclaim::reclaim_empty_tables;
 pub mod slab;
+mod table_guard;
 pub mod untouched;
 pub mod vma;
+pub use table_guard::UserTableGuard;
 
 use bootloader_api::info::{MemoryRegionKind, Optional};
 use bootloader_api::BootInfo;
