@@ -46,7 +46,8 @@ fn apply(uid: Option<u32>, gid: Option<u32>) -> u64 {
     let mut requested = now;
     if let Some(uid) = uid {
         requested.uid = uid;
-        if uid != 0 {
+        // Only the root -> non-root transition sheds capabilities.
+        if now.uid == 0 && uid != 0 {
             requested.caps = 0;
         }
     }
@@ -83,25 +84,23 @@ pub(super) fn sys_setgid(gid: u64) -> u64 {
     set_one(gid, true)
 }
 
-/// `setre[ug]id`/`setres[ug]id`: every named id must agree (see the module
-/// docs). `group` selects the gid variant.
-pub(super) fn sys_setres(a: u64, b: u64, c: u64, group: bool) -> u64 {
+/// `setre[ug]id`/`setres[ug]id`: `args` are the ids the syscall names (two
+/// for `setre*id`, three for `setres*id`). Unless nothing would change, every
+/// id must be specified and equal: a `-1` next to a real change means "keep the
+/// old value of that id", which needs split ids (see the module docs).
+pub(super) fn sys_setres(args: &[u64], group: bool) -> u64 {
     let have = if group { current().gid } else { current().uid };
-    let mut target: Option<u32> = None;
-    for raw in [a, b, c] {
-        let id = raw as u32;
-        if id == UNCHANGED {
-            continue;
-        }
-        match target {
-            Some(seen) if seen != id => return err(EPERM),
-            _ => target = Some(id),
-        }
+    let ids = args.iter().map(|&raw| raw as u32);
+    if ids.clone().all(|id| id == UNCHANGED || id == have) {
+        return 0;
     }
-    match target {
-        None => 0,
-        Some(id) if id == have => 0,
-        Some(id) if group => apply(None, Some(id)),
-        Some(id) => apply(Some(id), None),
+    let first = args[0] as u32;
+    if first == UNCHANGED || ids.clone().any(|id| id != first) {
+        return err(EPERM);
+    }
+    if group {
+        apply(None, Some(first))
+    } else {
+        apply(Some(first), None)
     }
 }

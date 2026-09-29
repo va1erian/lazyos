@@ -225,6 +225,10 @@ pub(super) const CASES: &[(&str, Test)] = &[
         "linux_setuid_privileged_drop_is_irreversible",
         setuid_privileged_drop_is_irreversible,
     ),
+    (
+        "linux_setres_partial_and_unchanged",
+        setres_partial_and_unchanged,
+    ),
     ("linux_setuid_soak_never_widens", setuid_soak_never_widens),
     ("linux_chacha20_rfc8439_block", chacha20_rfc8439_block),
     (

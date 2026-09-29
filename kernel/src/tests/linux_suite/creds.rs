@@ -138,6 +138,30 @@ pub fn setuid_privileged_drop_is_irreversible() -> Result<(), String> {
     Ok(())
 }
 
+/// Partial changes need split real/effective/saved ids: refused for root too,
+/// and an unchanged nonzero uid keeps its capabilities.
+pub fn setres_partial_and_unchanged() -> Result<(), String> {
+    become_task(Cred::ROOT)?;
+    for (nr, a1, a2, a3) in [
+        (SYS_SETRESUID, NONE, 1000, NONE),
+        (SYS_SETRESUID, 1000, 1000, NONE),
+        (SYS_SETREUID, NONE, 1000, 0),
+        (SYS_SETRESGID, NONE, 5, NONE),
+    ] {
+        let got = call(nr, a1, a2, a3);
+        check!(
+            got == eperm(),
+            "partial {nr}({a1:#x},{a2},{a3:#x}) = {got:#x}"
+        );
+        check!(now() == Cred::ROOT, "partial {nr} changed {:?}", now());
+    }
+    let keeper = Cred::new(1000, 100, credentials::CAP_SETUID, 0, 0);
+    credentials::set(task::current(), keeper);
+    check!(call(SYS_SETUID, 1000, 0, 0) == 0, "same-uid setuid failed");
+    check!(now() == keeper, "same-uid setuid changed {:?}", now());
+    Ok(())
+}
+
 /// Soak: an unprivileged task hammering every setter with pseudo-random ids
 /// never changes its credentials and never gets a false success.
 pub fn setuid_soak_never_widens() -> Result<(), String> {

@@ -124,20 +124,23 @@ fn has_rdseed() -> bool {
 /// reporting failure over a bounded number of retries.
 fn hardware_word(rdseed: bool, rdrand: bool) -> Option<u64> {
     let mut value = 0u64;
-    for _ in 0..10 {
-        // SAFETY: each intrinsic is only reached after CPUID reported the
-        // feature; both write one word through a valid `&mut u64`.
-        let ok = unsafe {
-            if rdseed {
-                core::arch::x86_64::_rdseed64_step(&mut value)
-            } else if rdrand {
-                core::arch::x86_64::_rdrand64_step(&mut value)
-            } else {
-                return None;
+    if rdseed {
+        for _ in 0..10 {
+            // SAFETY: CPUID reported RDSEED; the intrinsic writes one word
+            // through a valid `&mut u64`.
+            if unsafe { core::arch::x86_64::_rdseed64_step(&mut value) } == 1 {
+                return Some(value);
             }
-        };
-        if ok == 1 {
-            return Some(value);
+        }
+    }
+    // RDSEED can fail transiently under contention; RDRAND is the fallback.
+    if rdrand {
+        for _ in 0..10 {
+            // SAFETY: CPUID reported RDRAND; the intrinsic writes one word
+            // through a valid `&mut u64`.
+            if unsafe { core::arch::x86_64::_rdrand64_step(&mut value) } == 1 {
+                return Some(value);
+            }
         }
     }
     None
