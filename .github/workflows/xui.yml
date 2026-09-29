@@ -77,6 +77,7 @@ jobs:
           mkdir -p target/xui
           python tools/xui/build.py | tee target/xui/build.json
           m0=""; counter=""; sysmon=""; fabricmon=""; client=""; term=""
+          editor=""; paint=""; files=""
           if python -c "import json,sys; sys.exit(0 if 'xui-m0' in json.load(open('target/xui/build.json')) else 1)"; then
             m0="$(pwd)/target/xui/xui-m0.elf"
             counter="$(pwd)/target/xui/xui-counter.elf"
@@ -84,6 +85,13 @@ jobs:
             fabricmon="$(pwd)/target/xui/xui-fabricmon.elf"
             client="$(pwd)/target/xui/xui-client.elf"
             term="$(pwd)/target/xui/xui-term.elf"
+            # The document apps (Editor, Paint, Files) are built by the same
+            # script; a build without them just skips their sessions.
+            for app in editor paint files; do
+              if python -c "import json,sys; sys.exit(0 if 'xui-$app' in json.load(open('target/xui/build.json')) else 1)"; then
+                printf -v "$app" '%s' "$(pwd)/target/xui/xui-$app.elf"
+              fi
+            done
           else
             echo "::warning::xui app unavailable; skipping the visual run"
           fi
@@ -93,6 +101,9 @@ jobs:
           echo "fabricmon=$fabricmon" >> "$GITHUB_OUTPUT"
           echo "client=$client" >> "$GITHUB_OUTPUT"
           echo "term=$term" >> "$GITHUB_OUTPUT"
+          echo "editor=$editor" >> "$GITHUB_OUTPUT"
+          echo "paint=$paint" >> "$GITHUB_OUTPUT"
+          echo "files=$files" >> "$GITHUB_OUTPUT"
           ls -l target/xui/*.elf || true
 
       # The Terminal hosts BusyBox `sh` (issue #254); build the pinned static
@@ -249,13 +260,66 @@ jobs:
           python tools/services/evidence.py shots/desktop/serial.log --desktop
           ! grep -q "^init: launch .* failed" shots/desktop/serial.log
 
+      # The document apps (Editor, Paint, Files). Each session boots the
+      # desktop profile with just that app (an explicit `LAZYOS_XUI_APPS` list,
+      # so it does not depend on the default desktop set) autostarted, then
+      # drives it with real keys and pointer input and waits on the app's own
+      # serial markers. `/tmp` is ramfs, so saves land there.
+      - name: Capture Editor (type, edit, save)
+        if: ${{ !cancelled() && steps.app.outputs.editor != '' }}
+        shell: bash
+        env:
+          LAZYOS_DESKTOP: "1"
+          LAZYOS_XUI_APPS: ${{ steps.app.outputs.editor }}
+          LAZYOS_XUI_AUTOSTART: editor
+        run: |
+          set -euo pipefail
+          cargo build
+          python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/editor             --timeout 300 --script tools/screenshot/examples/xui_editor.json             --fail-on "EDITOR:[A-Z]+:FAIL" --fail-on "INIT:AUTOSTART:FAIL"
+          for marker in EDITOR:UP:PASS EDITOR:SAVE:PASS; do
+            grep -q "$marker" shots/editor/serial.log
+          done
+          ! grep -q "^init: launch .* failed" shots/editor/serial.log
+
+      - name: Capture Paint (draw, undo, save PNG)
+        if: ${{ !cancelled() && steps.app.outputs.paint != '' }}
+        shell: bash
+        env:
+          LAZYOS_DESKTOP: "1"
+          LAZYOS_XUI_APPS: ${{ steps.app.outputs.paint }}
+          LAZYOS_XUI_AUTOSTART: paint
+        run: |
+          set -euo pipefail
+          cargo build
+          python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/paint             --timeout 300 --script tools/screenshot/examples/xui_paint.json             --fail-on "PAINT:[A-Z]+:FAIL" --fail-on "INIT:AUTOSTART:FAIL"
+          for marker in PAINT:UP:PASS PAINT:SAVE:PASS; do
+            grep -q "$marker" shots/paint/serial.log
+          done
+          ! grep -q "^init: launch .* failed" shots/paint/serial.log
+
+      - name: Capture Files (browse, open)
+        if: ${{ !cancelled() && steps.app.outputs.files != '' }}
+        shell: bash
+        env:
+          LAZYOS_DESKTOP: "1"
+          LAZYOS_XUI_APPS: ${{ steps.app.outputs.files }}:${{ steps.app.outputs.editor }}
+          LAZYOS_XUI_AUTOSTART: files
+        run: |
+          set -euo pipefail
+          cargo build
+          python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/files             --timeout 300 --script tools/screenshot/examples/xui_files.json             --fail-on "FILES:[A-Z]+:FAIL" --fail-on "INIT:AUTOSTART:FAIL"
+          for marker in FILES:UP:PASS FILES:OPEN:PASS; do
+            grep -q "$marker" shots/files/serial.log
+          done
+          ! grep -q "^init: launch .* failed" shots/files/serial.log
+
       - name: Verify screenshots are non-blank
         if: steps.app.outputs.counter != ''
         shell: bash
         run: |
           set -euo pipefail
           shopt -s nullglob
-          pngs=(shots/m0/*.png shots/m1/*.png shots/m2/*.png shots/sysmon/*.png shots/fabmon/*.png shots/client/*.png shots/sysclient/*.png shots/desktop/*.png)
+          pngs=(shots/m0/*.png shots/m1/*.png shots/m2/*.png shots/sysmon/*.png shots/fabmon/*.png shots/client/*.png shots/sysclient/*.png shots/desktop/*.png shots/editor/*.png shots/paint/*.png shots/files/*.png)
           if [ ${#pngs[@]} -eq 0 ]; then
             echo "::error::no screenshots were captured"
             exit 1
@@ -269,7 +333,7 @@ jobs:
         shell: bash
         run: |
           shopt -s nullglob
-          for dir in shots/m0 shots/m1 shots/m2 shots/sysmon shots/fabmon shots/client shots/sysclient shots/desktop; do
+          for dir in shots/m0 shots/m1 shots/m2 shots/sysmon shots/fabmon shots/client shots/sysclient shots/desktop shots/editor shots/paint shots/files; do
             [ -d "$dir" ] || continue
             echo "::group::$dir"
             if [ -f "$dir/summary.json" ]; then
@@ -277,7 +341,7 @@ jobs:
             fi
             if [ -f "$dir/serial.log" ]; then
               echo "--- markers ---"
-              grep -aE "XUIAPP|SYSMON|FABMON|TERM:|INIT:AUTOSTART|panic|PANIC" "$dir/serial.log" || echo "(none)"
+              grep -aE "XUIAPP|SYSMON|FABMON|TERM:|EDITOR:|PAINT:|FILES:|INIT:AUTOSTART|panic|PANIC" "$dir/serial.log" || echo "(none)"
               echo "--- serial tail ---"
               tail -n 40 "$dir/serial.log"
             fi
@@ -316,6 +380,15 @@ jobs:
             shots/desktop/*.png
             shots/desktop/serial.log
             shots/desktop/summary.json
+            shots/editor/*.png
+            shots/editor/serial.log
+            shots/editor/summary.json
+            shots/paint/*.png
+            shots/paint/serial.log
+            shots/paint/summary.json
+            shots/files/*.png
+            shots/files/serial.log
+            shots/files/summary.json
           if-no-files-found: warn
 
   # Write-scoped job: no checkout of repository code, only the screenshots
@@ -357,7 +430,7 @@ jobs:
           prefix="runs/${GITHUB_RUN_ID}/xui"
           mkdir -p "$work/$prefix"
           shopt -s nullglob
-          for group in m0 m1 m2 sysmon fabmon client sysclient desktop; do
+          for group in m0 m1 m2 sysmon fabmon client sysclient desktop editor paint files; do
             for png in shots/$group/*.png; do
               cp "$png" "$work/$prefix/$group-$(basename "$png")"
             done
@@ -404,12 +477,12 @@ jobs:
                 echo
               done
             done
-            for log in shots/m0/serial.log shots/m2/serial.log shots/sysmon/serial.log shots/fabmon/serial.log shots/client/serial.log shots/sysclient/serial.log shots/desktop/serial.log; do
+            for log in shots/m0/serial.log shots/m2/serial.log shots/sysmon/serial.log shots/fabmon/serial.log shots/client/serial.log shots/sysclient/serial.log shots/desktop/serial.log shots/editor/serial.log shots/paint/serial.log shots/files/serial.log; do
               if [ -f "$log" ]; then
                 echo "<details><summary>${log} (xui/sysmon/fabricmon/client markers)</summary>"
                 echo
                 echo '```'
-                grep -E "XUIAPP|SYSMON|FABMON|TERM:|INIT:AUTOSTART" "$log" || true
+                grep -E "XUIAPP|SYSMON|FABMON|TERM:|EDITOR:|PAINT:|FILES:|INIT:AUTOSTART" "$log" || true
                 echo '```'
                 echo
                 echo "</details>"

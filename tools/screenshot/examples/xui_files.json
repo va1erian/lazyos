@@ -1,0 +1,15 @@
+[
+  {"wait_for": "FILES:UP:PASS", "timeout": 240},
+  {"at": 2.0, "shot": "01_files_home"},
+  {"at": 3.0, "key": "down"},
+  {"at": 3.3, "key": "down"},
+  {"at": 3.6, "key": "up"},
+  {"at": 4.0, "shot": "02_files_selected"},
+  {"at": 5.0, "key": "end"},
+  {"at": 5.3, "key": "home"},
+  {"at": 6.0, "key": "enter", "until": "FILES:OPEN:PASS", "timeout": 60, "retries": 2},
+  {"at": 7.5, "shot": "03_files_opened"},
+  {"at": 8.5, "key": "backspace"},
+  {"at": 9.5, "shot": "04_files_parent"},
+  {"at": 10.5, "quit": true}
+]
