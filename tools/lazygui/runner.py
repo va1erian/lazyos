@@ -13,6 +13,7 @@ import signal
 import subprocess
 import sys
 import threading
+import time
 
 
 def kill_tree(proc: subprocess.Popen | None) -> None:
@@ -99,9 +100,12 @@ class Runner:
             if self.stop_requested:
                 kill_tree(proc)
             assert proc.stdout is not None
+            # Host wall-clock stamp per line (seconds since the step began): the
+            # guest's own tick counter drifts when QEMU delivers timer IRQs late.
+            began = time.monotonic()
             for line in proc.stdout:
                 if not self.stop_requested:
-                    self.q.put(("out", line))
+                    self.q.put(("out", f"[+{time.monotonic() - began:8.3f}s] {line}"))
             proc.wait()
             self.proc = None
             code = proc.returncode

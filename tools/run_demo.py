@@ -71,7 +71,10 @@ def main(argv: list[str]) -> int:
     qemu = find_qemu(args.qemu)
     command = [
         qemu,
-        "-drive", f"format=raw,file={image}",
+        # virtio-blk is DMA-based; the IDE/PIO path costs a VM exit per 16 bits read,
+        # which made loading the ~2.7 MB desktop ELFs take tens of seconds.
+        "-drive", f"format=raw,file={image},if=none,id=boot",
+        "-device", "virtio-blk-pci,drive=boot",
         "-m", args.memory,
         "-device", "isa-debug-exit,iobase=0xf4,iosize=0x04",
         "-serial", "mon:stdio",
