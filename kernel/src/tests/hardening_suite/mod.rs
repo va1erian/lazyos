@@ -99,10 +99,12 @@ fn untouched(buffer: &[u8], what: &str) -> Result<(), String> {
 mod epoll_and_fs;
 mod pointer_validation;
 mod teardown_and_credentials;
+mod user_limits;
 
 pub(super) use epoll_and_fs::*;
 pub(super) use pointer_validation::*;
 pub(super) use teardown_and_credentials::*;
+pub(super) use user_limits::*;
 
 pub(super) const CASES: &[(&str, Test)] = &[
     (
@@ -169,6 +171,22 @@ pub(super) const CASES: &[(&str, Test)] = &[
     (
         "hardening_soak_ext2_short_writes_do_not_leak",
         soak_ext2_short_writes_do_not_leak,
+    ),
+    (
+        "hardening_vectored_io_and_poll_reject_hostile_counts",
+        vectored_io_and_poll_reject_hostile_counts,
+    ),
+    (
+        "hardening_getrandom_is_bounded_and_checks_the_buffer",
+        getrandom_is_bounded_and_checks_the_buffer,
+    ),
+    (
+        "hardening_vectored_io_within_limits_still_works",
+        vectored_io_within_limits_still_works,
+    ),
+    (
+        "hardening_soak_bounded_user_counts",
+        soak_bounded_user_counts,
     ),
     // Last: on the code as merged this one recurses until the kernel stack
     // overflows, which would take the rest of the suite with it.

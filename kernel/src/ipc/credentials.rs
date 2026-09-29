@@ -58,6 +58,9 @@ pub const CAP_IPC_CONTROL: u32 = 1 << 5;
 /// privilege the actor does not hold, so a compromised login service cannot
 /// mint root or capabilities it lacks.
 pub const CAP_SETUID: u32 = 1 << 6;
+/// Send signals to tasks running under a different uid (`kill`/`tkill`/
+/// `tgkill`); without it a sender may only signal its own uid's tasks.
+pub const CAP_KILL: u32 = 1 << 7;
 /// Every capability bit defined today.
 pub const CAP_ALL: u32 = CAP_NET_BIND
     | CAP_NET_RAW
@@ -65,7 +68,8 @@ pub const CAP_ALL: u32 = CAP_NET_BIND
     | CAP_SYS_TIME
     | CAP_AUDIT_READ
     | CAP_IPC_CONTROL
-    | CAP_SETUID;
+    | CAP_SETUID
+    | CAP_KILL;
 
 /// Audit interface id for credential transitions (issue #101). The ring keys on
 /// this so `auditd` can separate login/elevation records from Messenger policy
