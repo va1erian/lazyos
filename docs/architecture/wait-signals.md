@@ -9,7 +9,7 @@ delivery.
 | Path | Role |
 |---|---|
 | `kernel/src/task/wait.rs` | `WaitQueue`, `TERMINAL`, `CHILD_EXIT`, `SLEEP` |
-| `kernel/src/task/signal.rs` | Signal state, delivery, frames, `SIGSEGV` hook |
+| `kernel/src/task/signal.rs` (+ `signal/*.rs`) | Signal state, delivery, frames, `SIGSEGV` hook; constants, types, control, frames, delivery in submodules |
 | `kernel/src/ipc/channels.rs` | `MESSENGER` queue over the same primitive |
 | `kernel/src/ipc/shared.rs` | `FENCES` queue for fence waits |
 | `kernel/src/process/linux/sig.rs` | `rt_sigaction` family |
@@ -44,9 +44,9 @@ delivery.
 
 | Boundary | Path | Covers |
 |---|---|---|
-| Linux syscall return | `deliver_linux` (`signal.rs:1306`) | any Linux task; result recorded as `rax` in the frame |
-| Timer sweep | `sweep` (`signal.rs:1412`) | native `int 0x80` tasks and Linux tasks preempted in user mode |
-| Page fault | `deliver_fault` (`signal.rs:1343`) | `SIGSEGV` with `SEGV_MAPERR`/`SEGV_ACCERR` |
+| Linux syscall return | `deliver_linux` (`signal/deliver.rs`) | any Linux task; result recorded as `rax` in the frame |
+| Timer sweep | `sweep` (`signal/deliver.rs`) | native `int 0x80` tasks and Linux tasks preempted in user mode |
+| Page fault | `deliver_fault` (`signal/fault.rs`) | `SIGSEGV` with `SEGV_MAPERR`/`SEGV_ACCERR` |
 
 - Linux frames follow `struct rt_sigframe`: restorer pointer, `ucontext_t`
   (with `sigcontext`), `siginfo_t`; `parse_linux_frame` reverses it for
