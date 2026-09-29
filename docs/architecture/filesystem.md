@@ -116,7 +116,8 @@ default so CI stays hermetic). The kernel mounting it is tracked separately
 **Status.** Working: FAT boot, ramfs `/tmp`, ext2 read/write, permissions,
 caches, `umask`, the Linux ABI copy-up overlay (`O_CREAT`/`mkdir`/`rename`/
 `unlink`/`rmdir`, fd writes). ext2 is exercised only by the in-kernel suite
-(`fs_ext2_*` over a `FakeDisk` block device): no launcher or CI job attaches an
-ext2 volume to the demo image yet, so every shipped session runs FAT + ramfs.
-Open: an ext2 volume in the image, symlinks, cross-mount rename, per-process
+(`fs_ext2_*` over a `FakeDisk` block device): the host tooling now attaches
+`target/data.img` as a second virtio-blk disk, but the kernel does not mount it
+yet (#333), so every shipped session still runs FAT + ramfs.
+Open: mounting the data volume, symlinks, cross-mount rename, per-process
 cwd, page cache, and overlay persistence to the writable volume.

@@ -22,8 +22,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Ensure e2fsprogs
-        run: command -v e2fsck || sudo apt-get install -y e2fsprogs
+      # tkinter: lazygui's package __init__ imports the Tk UI even for the
+      # catalog tests, and the runner image ships without it.
+      - name: Install e2fsprogs and tkinter
+        run: sudo apt-get install -y e2fsprogs python3-tk
 
       - name: Formatter and launcher tests
         run: |
