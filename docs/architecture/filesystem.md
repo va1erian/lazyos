@@ -12,7 +12,7 @@ an in-memory ramfs mounted at `/tmp`.
 | `kernel/src/fs/vfs.rs` (+ `vfs/{filesystem,meta,path}.rs`) | `Vfs`, caches; `Filesystem` trait, `Path`, `Id`, permissions in the submodules |
 | `kernel/src/fs/ramfs.rs` | In-memory tree; root inode 1 (issue #98) |
 | `kernel/src/fs/fat.rs` | Read-only FAT12/16 on the boot volume |
-| `kernel/src/fs/ext2.rs` (+ `ext2/{layout,blocks,dir,fsimpl}.rs`) | Read/write ext2 rev 0/1 (issue #99) |
+| `kernel/src/fs/ext2.rs` (+ `ext2/{layout,blocks,indirect,truncate,state,dir,fsimpl}.rs`) | Read/write ext2 rev 0/1 (issues #99, #333) |
 | `kernel/src/fs/overlay.rs` | Copy-up overlay for the Linux ABI root (issue #136) |
 
 **VFS semantics** (`vfs.rs`, issue #98)
@@ -45,7 +45,42 @@ an in-memory ramfs mounted at `/tmp`.
 2. The first volume becomes `/`; `mounted` reports whether a volume was found.
 3. A fresh `RamFs` is always mounted at `/tmp`, so the VFS is usable even with
    no disk volume.
-4. `mount_device(point, device)` is the named-device mount surface.
+4. `mount_data_volume` then probes the *remaining* devices (never the root
+   device, and never assuming which bus the data disk is on) and mounts the first
+   ext2 one read/write at `/data`, in both the native and the Linux ABI table,
+   logging `fs: mounted <dev> at /data`. No such device is not an error. This is
+   the one place it is mounted; there is no mount syscall.
+5. `mount_device(point, device)` is the named-device mount surface (tests).
+
+**Durability** (`fs::sync_all`, `ext2/state.rs`)
+
+`fs::sync_all()` flushes every mounted filesystem (`Vfs::sync_all`; one failing
+mount does not stop the rest). The power path (`process/power.rs`) calls it for
+both `shutdown` and `reboot` before the ACPI poke/reset. Native `fsync` (syscall
+22) flushes the mount holding its path through the same `Filesystem::flush`.
+
+ext2 keeps no journal, so `s_state` says whether the last stop was clean:
+
+- *dirty first*: the first write of a mount clears the valid bit and flushes
+  before anything else is written (if that fails, the change is refused);
+- *clean last*: `flush` flushes the device, writes the state saved at mount
+  back (valid), and flushes again, so "clean" is never durable ahead of the data;
+- a volume mounted unclean (or with the error bit) is logged
+  (`ext2: <dev> was not cleanly unmounted`) and stays that way: a clean sync
+  restores the mount-time state rather than blessing it. There is no fsck here.
+
+**Truncate and large files** (`ext2/truncate.rs`, `ext2/indirect.rs`)
+
+`Filesystem::truncate` grows sparsely (no allocation) and shrinks by *detach,
+then free*: the inode (or parent table) is rewritten without the pointers before
+the blocks go back to the bitmaps, and the bytes about to be cut inside a kept
+block are zeroed first. A stop in between leaks blocks (the dirty flag lets an
+fsck reclaim them) but never leaves a block both free and reachable; the kernel
+suite sweeps every write of a truncate and an unlink to prove it. The block map
+covers direct, single, double and triple indirect blocks with one generic path
+walk; files are capped at 2 GiB - 1 (32-bit `i_size`), a write straddling the cap
+is short and one past it answers `NoSpace`. Directories still use only direct and
+single-indirect blocks.
 
 **Two mount tables** (`mod.rs`, issue #136)
 
@@ -79,12 +114,12 @@ keeps the snapshot readable (a later write through the orphan answers ENOENT).
 |---|---|---|
 | `ramfs` | read/write | `BTreeMap` of nodes, ordered children, owner/mode stamped by VFS |
 | `fat` | read-only | FAT12/16, MBR partition, sector reads via the block layer; 8.3 short names only |
-| `ext2` | read/write | 1/2/4 KiB blocks, group bitmaps, direct + single indirect; rejects unknown incompat features and htree directories; no journal/symlinks/device nodes |
+| `ext2` | read/write | 1/2/4 KiB blocks, group bitmaps, direct + single/double/triple indirect, truncate, clean/dirty state; rejects unknown incompat features and htree directories; no journal/symlinks/device nodes |
 | `overlay` | read/write (copy-up) | Linux ABI root only; lower is any read-only backend, upper is ramfs |
 
 - ext2 keeps free counters in sync, stamps timestamps from PIT ticks (best
-  effort until an RTC driver), and `flush()` writes the superblock and flushes
-  the device. Only one block-sized buffer is live per helper and every loop is
+  effort until an RTC driver), and `flush()` flushes the device and marks the
+  volume clean (see Durability). Only one block-sized buffer is live per helper and every loop is
   geometry-bounded, so a malformed image cannot hang the kernel.
 
 **Invariants / decisions**
@@ -115,9 +150,9 @@ default so CI stays hermetic). The kernel mounting it is tracked separately
 
 **Status.** Working: FAT boot, ramfs `/tmp`, ext2 read/write, permissions,
 caches, `umask`, the Linux ABI copy-up overlay (`O_CREAT`/`mkdir`/`rename`/
-`unlink`/`rmdir`, fd writes). ext2 is exercised only by the in-kernel suite
-(`fs_ext2_*` over a `FakeDisk` block device): the host tooling now attaches
-`target/data.img` as a second virtio-blk disk, but the kernel does not mount it
-yet (#333), so every shipped session still runs FAT + ramfs.
-Open: mounting the data volume, symlinks, cross-mount rename, per-process
+`unlink`/`rmdir`, fd writes), an ext2 `/data` volume with truncate and large
+files, synced on shutdown. The in-kernel suite (`fs_ext2_*` over a `FakeDisk`)
+holds the correctness, crash-ordering and soak coverage; a session has `/data`
+when a second block device carries ext2, which `tools/run_demo.py` attaches by
+default (`target/data.img`, see the data volume section above). Open: symlinks, cross-mount rename, per-process
 cwd, page cache, and overlay persistence to the writable volume.
