@@ -8,7 +8,7 @@
 use crate::task;
 use crate::task::signal::{self, Disposition, SignalError};
 
-use super::errno::{err, EINVAL, EPERM, ESRCH};
+use super::errno::{err, EINTR, EINVAL, EPERM, ESRCH};
 use super::uaccess::{read_u32, read_u64, write_u32, write_u64};
 
 /// Map a signal-layer failure to its Linux errno.
@@ -110,6 +110,29 @@ pub(super) fn sys_rt_sigprocmask(how: u64, set: u64, oldset: u64, sigsetsize: u6
     };
     signal::set_blocked(me, next);
     0
+}
+
+/// `rt_sigsuspend(mask, sigsetsize)`: install `mask` as the blocked set, park
+/// until a signal it lets through arrives, and fail with `-EINTR` once that
+/// signal has been delivered. The mask that was in force is restored when the
+/// handler returns (`rt_sigreturn`), or immediately when no handler runs.
+/// BusyBox `sh`'s `wait` builtin uses this to sleep until `SIGCHLD`.
+pub(super) fn sys_rt_sigsuspend(set: u64, sigsetsize: u64) -> u64 {
+    if sigsetsize != 8 {
+        return err(EINVAL);
+    }
+    let me = task::current();
+    let temp = signal::linux_sigset_to_kernel(read_u64(set));
+    signal::suspend_begin(me, temp);
+    // The syscall runs with interrupts off, so a signal cannot slip in between
+    // this check and the park: a pending one is seen here, a later one wakes
+    // the park with `Interrupted`.
+    while !signal::deliverable_pending(me) {
+        if task::wait_signal() == task::WakeReason::Interrupted {
+            break;
+        }
+    }
+    err(EINTR)
 }
 
 /// `rt_sigreturn()`: the restorer (`__restore_rt`) issues this syscall with RSP

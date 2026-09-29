@@ -44,8 +44,10 @@ pub(super) fn arm_handler(pml4: u64, sig: u8) -> Option<Armed> {
         else {
             return None;
         };
-        let saved_mask = state.blocked;
-        let mut next = saved_mask | mask;
+        // After `rt_sigsuspend` the frame must restore the mask the suspend
+        // replaced, not the temporary one the handler runs under.
+        let saved_mask = state.suspend_restore.take().unwrap_or(state.blocked);
+        let mut next = state.blocked | mask;
         if flags & SA_NODEFER == 0 {
             next |= bit(sig);
         }
@@ -308,6 +310,9 @@ pub fn deliver_linux(result: u64) {
     if frame_written {
         apply_linux_frame_syscall(&regs);
     }
+    // `rt_sigsuspend` woke without a handler frame consuming its saved mask (the
+    // signal's action ignored it): the original mask comes back now.
+    suspend_end_for(pml4);
 }
 
 /// One task the timer sweep ended, to be finished with its side effects after

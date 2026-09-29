@@ -72,6 +72,10 @@ struct Signals {
     /// True while a handler delivered with `SA_ONSTACK` runs, so a nested
     /// signal reuses the current stack instead of re-entering the alt stack.
     on_altstack: bool,
+    /// The mask `rt_sigsuspend` replaced: restored when the handler it woke for
+    /// returns (it becomes that frame's saved mask), or at once when no handler
+    /// ran.
+    suspend_restore: Option<u64>,
 }
 
 impl Signals {
@@ -84,6 +88,7 @@ impl Signals {
             infos: [SigInfo::user(0, SI_USER); NSIG],
             altstack: AltStack::DISABLED,
             on_altstack: false,
+            suspend_restore: None,
         }
     }
 }
@@ -263,6 +268,49 @@ pub fn set_blocked(slot: usize, mask: u64) {
         return;
     };
     with_signals(pml4, |state| state.blocked = clean_mask(mask));
+}
+
+/// Start an `rt_sigsuspend`: remember the current mask (restored after the
+/// handler it wakes for) and install `temp` in its place.
+pub fn suspend_begin(slot: usize, temp: u64) {
+    let Some((pml4, _)) = slot_info(slot) else {
+        return;
+    };
+    with_signals(pml4, |state| {
+        // A nested suspend keeps the outermost mask.
+        if state.suspend_restore.is_none() {
+            state.suspend_restore = Some(state.blocked);
+        }
+        state.blocked = clean_mask(temp);
+    });
+}
+
+/// End a suspend that no handler frame consumed: put the replaced mask back.
+/// A no-op when none is outstanding. (The syscall path uses
+/// [`suspend_end_for`] from `deliver_linux`; this slot-keyed form is the tests'.)
+#[cfg(lazyos_tests)]
+pub fn suspend_end(slot: usize) {
+    let Some((pml4, _)) = slot_info(slot) else {
+        return;
+    };
+    suspend_end_for(pml4);
+}
+
+/// [`suspend_end`] for a process already identified by its address space.
+pub(super) fn suspend_end_for(pml4: u64) {
+    with_signals(pml4, |state| {
+        if let Some(mask) = state.suspend_restore.take() {
+            state.blocked = clean_mask(mask);
+        }
+    });
+}
+
+/// Whether a signal the task's current mask lets through is pending.
+pub fn deliverable_pending(slot: usize) -> bool {
+    let Some((pml4, _)) = slot_info(slot) else {
+        return false;
+    };
+    with_signals(pml4, |state| state.pending & !state.blocked != 0)
 }
 
 pub fn altstack(slot: usize) -> AltStack {
