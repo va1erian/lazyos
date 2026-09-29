@@ -62,6 +62,8 @@ pub fn init() {
     idt[32].set_handler_fn(timer_gate());
     idt[33].set_handler_fn(keyboard_handler);
     idt[44].set_handler_fn(mouse_handler);
+    // Every other PIC line reaches the device core (issue #240).
+    super::irq_stubs::install(&mut idt);
     // int 0x80: user-mode syscall gate (DPL 3).
     idt[0x80]
         .set_handler_fn(crate::process::syscall_gate())
