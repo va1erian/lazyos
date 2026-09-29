@@ -2,6 +2,11 @@
 
 Interface id: `0x9f706a3664b0394e`
 
+The hierarchical configuration registry (issue #260).
+
+The store is a tree of one typed value per path; reachable only through
+Messenger, and every call is checked against the kernel-stamped caller uid.
+Change notifications are best-effort: a subscriber observes
 `(path, deleted)` and must re-read the value.
 
 ## Methods

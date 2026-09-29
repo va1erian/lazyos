@@ -174,7 +174,10 @@ class Parser:
             raise MidlError("unexpected end of input")
         self.pos += 1
         if token.kind == "doc":
-            self.pending_doc = token.text.lstrip("/").strip()
+            # Consecutive `///` lines are one doc comment; append (not
+            # replace) so a multi-line comment keeps every line, in order.
+            line = token.text.lstrip("/").strip()
+            self.pending_doc = f"{self.pending_doc}\n{line}" if self.pending_doc else line
             return self.next()
         return token
 
@@ -506,10 +509,14 @@ def emit_field_dispatch(fields: list[Param], target_prefix: str, indent: str) ->
     return lines
 
 
+def emit_doc_lines(doc: str, indent: str) -> list[str]:
+    """One `///` line per line of a (possibly multi-line) doc comment."""
+    return [f"{indent}/// {line}" for line in doc.splitlines()] if doc else []
+
+
 def emit_struct(name: str, fields: list[Param], doc: str) -> str:
     lines = []
-    if doc:
-        lines.append(f"    /// {doc}")
+    lines += emit_doc_lines(doc, indent="    ")
     lines.append("    #[derive(Clone, Debug, Default, PartialEq)]")
     lines.append(f"    pub struct {name} {{")
     for f in fields:
@@ -579,9 +586,7 @@ def emit_rust(interface: Interface) -> str:
         lines.append(f"    pub const METHOD_{method.name.upper()}: u32 = {method.method_id};")
     lines.append("")
     for method in interface.methods:
-        doc = f"    /// {method.doc}" if method.doc else None
-        if doc:
-            lines.append(doc)
+        lines += emit_doc_lines(method.doc, indent="    ")
         if method.params:
             lines += emit_message(method.name, "args", method.params).splitlines()
             lines.append("")

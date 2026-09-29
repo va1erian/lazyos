@@ -107,6 +107,24 @@ class CodegenTests(unittest.TestCase):
         self.assertTrue(manifest["interface_id"].startswith("0x"))
         self.assertEqual(len(manifest["methods"]), 2)
 
+    def test_multiline_doc_comment_is_preserved(self) -> None:
+        # Regression: consecutive `///` lines are one comment; dropping all but
+        # the last line truncated the generated docs.
+        text = """
+        /// First line.
+        /// Second line.
+        interface os.lazy.docs.v1 {
+            /// A struct.
+            /// With two lines.
+            struct Point { x: I32, y: I32 }
+        }
+        """
+        interface = midlc.Parser(midlc.lex(text)).parse_interface()
+        self.assertEqual(interface.docs, "First line.\nSecond line.")
+        self.assertEqual(interface.structs[0].doc, "A struct.\nWith two lines.")
+        rust = midlc.emit_rust(interface)
+        self.assertIn("/// A struct.\n    /// With two lines.", rust)
+
     def test_emit_rust_includes_interface_id(self) -> None:
         interface = midlc.Parser(midlc.lex(SAMPLE)).parse_interface()
         self.assertIn(f"pub const INTERFACE_ID: u64 = {interface.id:#x};", midlc.emit_rust(interface))

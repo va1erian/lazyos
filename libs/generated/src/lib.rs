@@ -158,6 +158,7 @@ pub mod os_lazy_regd_v1 {
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0x9f706a3664b0394e;
 
+    /// One typed value. `kind` selects which optional payload field is set:
     /// `0` bool, `1` i64, `2` u64, `3` string, `4` bytes.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct Value {
@@ -293,6 +294,7 @@ pub mod os_lazy_regd_v1 {
     /// `List` method id.
     pub const METHOD_LIST: u32 = 220805025;
 
+    /// Read the value at `path`. An absent path has an empty `value`.
     /// A path the caller may not read fails with `REGD_DENIED`.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct GetArgs {
