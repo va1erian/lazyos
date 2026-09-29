@@ -41,7 +41,11 @@ pub fn init() -> bool {
         OFFSET_CS.store(base * HZ - ticks(), Ordering::Relaxed);
         crate::serial_println!(
             "wallclock: {} unix={base}",
-            if from_rtc { "rtc" } else { "fallback (rtc invalid)" }
+            if from_rtc {
+                "rtc"
+            } else {
+                "fallback (rtc invalid)"
+            }
         );
         from_rtc
     })

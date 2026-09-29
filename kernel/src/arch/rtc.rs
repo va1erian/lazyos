@@ -78,10 +78,9 @@ pub fn decode(raw: Raw) -> Option<i64> {
     let (second, minute) = (field(raw.second)?, field(raw.minute)?);
     let (day, month, year) = (field(raw.day)?, field(raw.month)?, field(raw.year)?);
     // A missing/garbage century register means "20xx", the only plausible one.
-    let century = match field(raw.century) {
-        Some(c @ 19..=21) => c,
-        _ => 20,
-    };
+    let century = field(raw.century)
+        .filter(|c| (19..=21).contains(c))
+        .unwrap_or(20);
     let full_year = i64::from(century) * 100 + i64::from(year);
     if second > 59 || minute > 59 || hour > 23 || year > 99 {
         return None;

@@ -33,7 +33,12 @@ fn become_root() -> Result<(), String> {
 
 fn realtime() -> (i64, i64) {
     let mut out = [0i64; 2];
-    process::linux::dispatch_for_test(SYS_CLOCK_GETTIME, CLOCK_REALTIME, out.as_mut_ptr() as u64, 0);
+    process::linux::dispatch_for_test(
+        SYS_CLOCK_GETTIME,
+        CLOCK_REALTIME,
+        out.as_mut_ptr() as u64,
+        0,
+    );
     (out[0], out[1])
 }
 
@@ -61,7 +66,10 @@ fn raw_bcd(y: u8, mo: u8, d: u8, h: u8, mi: u8, s: u8) -> Raw {
 
 /// Known epoch anchors, leap-year rules, and a full day-by-day round trip.
 pub fn civil_known_dates_and_leap_rules() -> Result<(), String> {
-    check!(wallclock::days_from_civil(1970, 1, 1) == 0, "epoch is not day 0");
+    check!(
+        wallclock::days_from_civil(1970, 1, 1) == 0,
+        "epoch is not day 0"
+    );
     check!(
         wallclock::days_from_civil(2026, 1, 1) * 86_400 == Y2026,
         "2026-01-01 is {}",
@@ -130,11 +138,17 @@ pub fn rtc_decode_modes() -> Result<(), String> {
     check!(rtc::decode(pm) == Some(want), "1 PM decode wrong");
     let mut midnight = raw_bcd(26, 1, 1, 12, 0, 0);
     midnight.status_b = BCD_12H;
-    check!(rtc::decode(midnight) == Some(Y2026), "12 AM is not midnight");
+    check!(
+        rtc::decode(midnight) == Some(Y2026),
+        "12 AM is not midnight"
+    );
     let mut noon = raw_bcd(26, 1, 1, 12, 0, 0);
     noon.status_b = BCD_12H;
     noon.hour |= 0x80;
-    check!(rtc::decode(noon) == Some(Y2026 + 12 * 3600), "12 PM is not noon");
+    check!(
+        rtc::decode(noon) == Some(Y2026 + 12 * 3600),
+        "12 PM is not noon"
+    );
     Ok(())
 }
 
@@ -145,16 +159,34 @@ pub fn rtc_decode_rejects_garbage() -> Result<(), String> {
         ("month 13", raw_bcd(26, 13, 1, 0, 0, 0)),
         ("month 0", raw_bcd(26, 0, 1, 0, 0, 0)),
         ("Feb 30", raw_bcd(26, 2, 30, 0, 0, 0)),
-        ("Feb 29 2100", Raw { century: bcd(21), ..raw_bcd(0, 2, 29, 0, 0, 0) }),
+        (
+            "Feb 29 2100",
+            Raw {
+                century: bcd(21),
+                ..raw_bcd(0, 2, 29, 0, 0, 0)
+            },
+        ),
         ("second 60", raw_bcd(26, 1, 1, 0, 0, 60)),
         ("hour 24", raw_bcd(26, 1, 1, 24, 0, 0)),
-        ("bad BCD digit", Raw { minute: 0x1A, ..raw_bcd(26, 1, 1, 0, 0, 0) }),
+        (
+            "bad BCD digit",
+            Raw {
+                minute: 0x1A,
+                ..raw_bcd(26, 1, 1, 0, 0, 0)
+            },
+        ),
     ];
     for (name, raw) in cases {
         check!(rtc::decode(raw).is_none(), "{name} was accepted");
     }
-    let odd_century = Raw { century: 0xFF, ..raw_bcd(26, 1, 1, 0, 0, 0) };
-    check!(rtc::decode(odd_century) == Some(Y2026), "garbage century not treated as 20xx");
+    let odd_century = Raw {
+        century: 0xFF,
+        ..raw_bcd(26, 1, 1, 0, 0, 0)
+    };
+    check!(
+        rtc::decode(odd_century) == Some(Y2026),
+        "garbage century not treated as 20xx"
+    );
     Ok(())
 }
 
@@ -168,7 +200,10 @@ pub fn rtc_encode_decode_roundtrip() -> Result<(), String> {
     while t <= end {
         for mode in [BCD_24H, BIN_24H, BCD_12H, 0b100] {
             let back = rtc::decode(rtc::encode(t, mode));
-            check!(back == Some(t), "mode {mode:#b}: {t} round-tripped to {back:?}");
+            check!(
+                back == Some(t),
+                "mode {mode:#b}: {t} round-tripped to {back:?}"
+            );
         }
         t += 86_399 * 7 + 13;
     }
@@ -181,8 +216,14 @@ pub fn wallclock_reads_sane_time() -> Result<(), String> {
     become_root()?;
     let (sec, nsec) = realtime();
     check!(sec >= Y2026 - 366 * 86_400, "realtime {sec} predates 2025");
-    check!((0..1_000_000_000).contains(&nsec), "nsec {nsec} out of range");
-    check!(wallclock::unix_secs() >= sec, "wallclock::unix_secs went backwards");
+    check!(
+        (0..1_000_000_000).contains(&nsec),
+        "nsec {nsec} out of range"
+    );
+    check!(
+        wallclock::unix_secs() >= sec,
+        "wallclock::unix_secs went backwards"
+    );
     Ok(())
 }
 
@@ -193,25 +234,46 @@ pub fn clock_settime_contract() -> Result<(), String> {
     let (orig, _) = realtime();
     let target = Y2026 + 400 * 86_400;
 
-    check!(settime(CLOCK_REALTIME, target, 0) == 0, "root settime refused");
+    check!(
+        settime(CLOCK_REALTIME, target, 0) == 0,
+        "root settime refused"
+    );
     let (after, _) = realtime();
     check!(
         (target..target + 5).contains(&after),
         "realtime {after} after setting {target}"
     );
-    check!(settime(CLOCK_MONOTONIC, target, 0) == EINVAL, "monotonic was settable");
-    check!(settime(CLOCK_REALTIME, -1, 0) == EINVAL, "negative seconds accepted");
-    check!(settime(CLOCK_REALTIME, 5, 1_000_000_000) == EINVAL, "nsec overflow accepted");
-    check!(settime(CLOCK_REALTIME, 5, -1) == EINVAL, "negative nsec accepted");
+    check!(
+        settime(CLOCK_MONOTONIC, target, 0) == EINVAL,
+        "monotonic was settable"
+    );
+    check!(
+        settime(CLOCK_REALTIME, -1, 0) == EINVAL,
+        "negative seconds accepted"
+    );
+    check!(
+        settime(CLOCK_REALTIME, 5, 1_000_000_000) == EINVAL,
+        "nsec overflow accepted"
+    );
+    check!(
+        settime(CLOCK_REALTIME, 5, -1) == EINVAL,
+        "negative nsec accepted"
+    );
 
     credentials::set(task::current(), Cred::new(1000, 100, 0, 0, 0));
-    check!(settime(CLOCK_REALTIME, orig, 0) == EPERM, "unprivileged settime allowed");
+    check!(
+        settime(CLOCK_REALTIME, orig, 0) == EPERM,
+        "unprivileged settime allowed"
+    );
     check!(
         settime(CLOCK_MONOTONIC, orig, 0) == EPERM,
         "capability check must precede argument checks"
     );
     credentials::set(task::current(), Cred::ROOT);
-    check!(settime(CLOCK_REALTIME, orig, 0) == 0, "restoring the clock failed");
+    check!(
+        settime(CLOCK_REALTIME, orig, 0) == 0,
+        "restoring the clock failed"
+    );
     Ok(())
 }
 
@@ -223,26 +285,47 @@ pub fn soak_clock_monotone_and_settable() -> Result<(), String> {
     let mut last = (0i64, 0i64);
     for i in 0..100_000 {
         let now = realtime();
-        check!(now >= last, "realtime went back at read {i}: {last:?} -> {now:?}");
+        check!(
+            now >= last,
+            "realtime went back at read {i}: {last:?} -> {now:?}"
+        );
         last = now;
     }
     for i in 0..500i64 {
         let target = Y2026 + i * 7919;
-        check!(settime(CLOCK_REALTIME, target, 0) == 0, "settime {i} refused");
+        check!(
+            settime(CLOCK_REALTIME, target, 0) == 0,
+            "settime {i} refused"
+        );
         let (got, _) = realtime();
-        check!((target..target + 5).contains(&got), "cycle {i}: {got} vs {target}");
+        check!(
+            (target..target + 5).contains(&got),
+            "cycle {i}: {got} vs {target}"
+        );
     }
     check!(settime(CLOCK_REALTIME, orig, 0) == 0, "restore failed");
     Ok(())
 }
 
 pub(super) const CASES: &[(&str, Test)] = &[
-    ("wallclock_civil_known_dates", civil_known_dates_and_leap_rules),
+    (
+        "wallclock_civil_known_dates",
+        civil_known_dates_and_leap_rules,
+    ),
     ("wallclock_soak_civil_roundtrip", civil_roundtrip_every_day),
     ("wallclock_rtc_decode_modes", rtc_decode_modes),
-    ("wallclock_rtc_decode_rejects_garbage", rtc_decode_rejects_garbage),
-    ("wallclock_soak_rtc_encode_decode", rtc_encode_decode_roundtrip),
+    (
+        "wallclock_rtc_decode_rejects_garbage",
+        rtc_decode_rejects_garbage,
+    ),
+    (
+        "wallclock_soak_rtc_encode_decode",
+        rtc_encode_decode_roundtrip,
+    ),
     ("wallclock_reads_sane_time", wallclock_reads_sane_time),
     ("wallclock_clock_settime_contract", clock_settime_contract),
-    ("wallclock_soak_monotone_and_settable", soak_clock_monotone_and_settable),
+    (
+        "wallclock_soak_monotone_and_settable",
+        soak_clock_monotone_and_settable,
+    ),
 ];
