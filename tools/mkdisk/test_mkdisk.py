@@ -67,8 +67,10 @@ class Volume:
         group, index = divmod(ino - 1, self.ipg)
         table = self.descriptor(group)["inode_table"]
         raw = self.image[table * self.block_size + index * self.inode_size:][:128]
-        mode, _, size, _, _, _, dtime, _, links, i_blocks = struct.unpack_from("<HHIIIIIHHI", raw)
-        return dict(mode=mode, size=size, links=links, i_blocks=i_blocks, dtime=dtime,
+        mode, uid, size, _, _, _, dtime, gid, links, i_blocks = struct.unpack_from(
+            "<HHIIIIIHHI", raw)
+        return dict(mode=mode, uid=uid, gid=gid, size=size, links=links, i_blocks=i_blocks,
+                    dtime=dtime,
                     blocks=list(struct.unpack_from("<15I", raw, 0x28)))
 
     def entries(self, ino: int) -> list[tuple[int, int, bytes, int]]:

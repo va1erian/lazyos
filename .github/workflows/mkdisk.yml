@@ -30,9 +30,23 @@ jobs:
       - name: Formatter and launcher tests
         run: |
           python tools/mkdisk/test_mkdisk.py -v
+          python tools/mkdisk/test_seed.py -v
           python tools/lazygui/test_catalog.py
 
-      - name: Default volume is fsck-clean
+      # The default image carries the seeded /home/<user> and sticky /tmp
+      # (issue #347); the variants cover the root flags, a bare volume and
+      # several block sizes, including multi-group sizes.
+      - name: Seeded volumes are fsck-clean
         run: |
           python -m tools.mkdisk /tmp/data.img
           e2fsck -fn /tmp/data.img
+          debugfs -R "stat /tmp" /tmp/data.img | grep -E "Mode: +01777"
+          debugfs -R "stat /home/alice" /tmp/data.img | grep -E "User: +1000 "
+          python -m tools.mkdisk /tmp/root.img --root-mode 1777 --root-uid 1000 --root-gid 1000
+          e2fsck -fn /tmp/root.img
+          python -m tools.mkdisk /tmp/bare.img --no-seed --size 8M
+          e2fsck -fn /tmp/bare.img
+          python -m tools.mkdisk /tmp/k1.img --block-size 1024 --size 40M
+          e2fsck -fn /tmp/k1.img
+          python -m tools.mkdisk /tmp/big.img --size 200M
+          e2fsck -fn /tmp/big.img
