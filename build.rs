@@ -363,7 +363,13 @@ const DESKTOP_XUI_APPS: &[&str] = &[
 fn embed_xui_apps(builder: &mut bootloader::DiskImageBuilder, desktop: bool) {
     println!("cargo:rerun-if-env-changed=LAZYOS_XUI_APPS");
     println!("cargo:rerun-if-env-changed=LAZYOS_XUI_AUTOSTART");
-    let apps: Vec<PathBuf> = match std::env::var_os("LAZYOS_XUI_APPS") {
+    let explicit = std::env::var_os("LAZYOS_XUI_APPS");
+    // The default set is part of the `LAZYOS_DESKTOP=1` profile: a desktop with
+    // one of its apps missing is a broken profile, not a smaller one, so a
+    // missing default fails the build. An explicit `LAZYOS_XUI_APPS` list only
+    // warns, since it may name apps the caller knows are optional.
+    let default_desktop_apps = desktop && explicit.is_none();
+    let apps: Vec<PathBuf> = match explicit {
         Some(list) => std::env::split_paths(&list).collect(),
         None if desktop => {
             let dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("manifest dir"))
@@ -385,6 +391,14 @@ fn embed_xui_apps(builder: &mut bootloader::DiskImageBuilder, desktop: bool) {
         // exist, so an app built later is picked up without changing the env.
         println!("cargo:rerun-if-changed={}", app.display());
         if !app.is_file() {
+            if default_desktop_apps {
+                panic!(
+                    "LAZYOS_DESKTOP=1 is missing its default xui app {}; \
+                     run `python tools/xui/build.py`, or set LAZYOS_XUI_APPS \
+                     to the apps you built",
+                    app.display()
+                );
+            }
             println!(
                 "cargo:warning=LAZYOS_XUI_APPS entry not found: {}",
                 app.display()
