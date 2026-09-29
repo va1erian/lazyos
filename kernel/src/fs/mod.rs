@@ -22,7 +22,7 @@
 
 pub mod ext2;
 pub mod fallible;
-mod fat;
+pub mod fat;
 pub mod overlay;
 pub mod ramfs;
 pub mod vfs;

@@ -287,6 +287,7 @@ signed bundles; accessibility basics (keyboard nav, scaling).
 **Acceptance:** a user logs in and, using only the GUI, edits a file, copies it
 between apps, browses the filesystem, and inspects running services.
 **Depends on:** S3–S4.
+**Detail:** [`shell-plan.md`](shell-plan.md) (stages S5.0–S5.3, issues #156–#162).
 
 ### S6 — Networking (XL)
 **Goal:** local-first connectivity, then LAN.

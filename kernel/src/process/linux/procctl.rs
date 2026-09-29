@@ -210,7 +210,14 @@ pub(super) fn sys_execve(path_ptr: u64, argv_ptr: u64, envp_ptr: u64) -> u64 {
     };
     let phdr = program_header_addr(&elf);
     let (phent, phnum) = phdr_size(&elf);
-    let rsp = build_start_stack(&stack, &argv, &envp, entry, phdr, phent, phnum);
+    let rsp = build_start_stack(
+        &stack,
+        &argv,
+        &envp,
+        entry,
+        (phdr, phent, phnum),
+        super::creds::ids(),
+    );
 
     // The image is committed: close the descriptors std marked `O_CLOEXEC`
     // (the child's copies of the inherit-only pipe ends) before resuming.
