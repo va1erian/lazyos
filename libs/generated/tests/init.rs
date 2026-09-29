@@ -5,7 +5,12 @@ use messenger_generated::os_lazy_init_v1::*;
 fn status(i: u64) -> ServiceStatus {
     ServiceStatus {
         name: format!("svc{i}"),
-        state: if i % 2 == 0 { "running" } else { "restarting" }.into(),
+        state: if i.is_multiple_of(2) {
+            "running"
+        } else {
+            "restarting"
+        }
+        .into(),
         pid: 100 + i,
         restarts: i,
         deps: if i == 0 {
@@ -23,7 +28,7 @@ fn app(i: u64) -> AppInfo {
         name: format!("App {i}"),
         path: format!("APP{i}.ELF"),
         restart: "always".into(),
-        verbs: if i % 2 == 0 {
+        verbs: if i.is_multiple_of(2) {
             vec!["open".into(), "edit".into()]
         } else {
             Vec::new()

@@ -5,7 +5,12 @@ use messenger_generated::os_lazy_healthd_v1::*;
 fn record(i: u64) -> HealthRecord {
     HealthRecord {
         name: format!("svc{i}"),
-        status: if i % 3 == 0 { "ok" } else { "degraded" }.into(),
+        status: if i.is_multiple_of(3) {
+            "ok"
+        } else {
+            "degraded"
+        }
+        .into(),
         detail: format!("pid={i} restarts=0"),
         tick: i * 7,
     }
