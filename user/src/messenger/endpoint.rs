@@ -15,7 +15,9 @@ use libmessenger::Parcel;
 
 use crate::sys;
 
-use super::types::{Error, FabricStats, MsgArgs, MsgResult, Result, Stats, DEFAULT_BUFFER, EXPIRED_DEADLINE};
+use super::types::{
+    Error, FabricStats, MsgArgs, MsgResult, Result, Stats, DEFAULT_BUFFER, EXPIRED_DEADLINE,
+};
 use super::{errno, op};
 
 /// One end of a Messenger channel.

@@ -6,12 +6,17 @@ use alloc::vec::Vec;
 use libmessenger::{Encoder, Parcel};
 
 use super::super::endpoint::syscall;
-use super::super::{create_pair, errno, op, registry, Endpoint, Error, MsgArgs, MsgResult, Result, EXPIRED_DEADLINE};
+use super::super::{
+    create_pair, errno, op, registry, Endpoint, Error, MsgArgs, MsgResult, Result, EXPIRED_DEADLINE,
+};
 use super::wire::{
     decode_event, decode_stats, decode_topics, error_field, publish_body, request_parcel,
     subscribe_body, subscription_body, u64_field,
 };
-use super::{auth_field, field, method, Event, Qos, SubscriptionStats, TopicInfo, CONNECT_ATTEMPTS, MAX_PAYLOAD, NAME};
+use super::{
+    auth_field, field, method, Event, Qos, SubscriptionStats, TopicInfo, CONNECT_ATTEMPTS,
+    MAX_PAYLOAD, NAME,
+};
 
 /// A client of the topics broker over the bootstrap channel.
 pub struct Client {
