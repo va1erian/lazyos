@@ -2,6 +2,8 @@
 //! name error, and lease expiry / owner-death release.
 
 use super::*;
+use crate::arch::idt::TICKS;
+use core::sync::atomic::Ordering;
 
 /// Register/resolve round-trips a name and, more importantly, duplicates
 /// the endpoint into the *resolver's* table: the child gets its own handle
@@ -143,6 +145,77 @@ pub fn lease_expiry_prunes() -> Result<(), String> {
         "the expiration was not counted"
     );
     Ok(())
+}
+
+/// A lease whose deadline would overflow the tick clock (`u64::MAX`) is
+/// refused with `-EINVAL` instead of panicking under the dev profile's
+/// overflow checks (or wrapping into the past and silently expiring). The
+/// check runs before the table is touched, so re-registering an existing
+/// name with an impossible lease leaves the old entry in place, and the
+/// native syscall surface reports the same `EINVAL`.
+pub fn lease_overflow_is_rejected() -> Result<(), String> {
+    fresh()?;
+    // The test harness runs with timer interrupts off, so the clock sits at
+    // tick 0, where even `u64::MAX` fits. Move it forward by hand (restored on
+    // every exit path) so the deadline really overflows.
+    let saved = TICKS.load(Ordering::Relaxed);
+    TICKS.store(saved.max(1), Ordering::Relaxed);
+    let result = lease_overflow_body();
+    TICKS.store(saved, Ordering::Relaxed);
+    result
+}
+
+fn lease_overflow_body() -> Result<(), String> {
+    let (_service, callable) = channels::create().map_err(friendly)?;
+    let published = handles::get(callable).map_err(friendly)?;
+    let register = |lease| {
+        registry::register(
+            task::KERNEL_TASK,
+            "os.example.big-lease",
+            published.kind,
+            published.rights,
+            published.object_id,
+            &[],
+            lease,
+        )
+    };
+    register(0).map_err(reason)?;
+
+    check!(
+        register(u64::MAX) == Err(RegistryError::BadLease),
+        "a u64::MAX lease was accepted"
+    );
+    check!(
+        registry::resolve(task::KERNEL_TASK, "os.example.big-lease").is_ok(),
+        "a refused lease dropped the existing name"
+    );
+
+    in_space(|| -> Result<(), String> {
+        let (_s, endpoint) = channels::create().map_err(friendly)?;
+        let request = register_parcel("os.example.sys.big-lease", endpoint, &[], u64::MAX)?;
+        write_bytes(REQUEST, &request);
+        let args = MsgArgs {
+            parcel_ptr: REQUEST,
+            parcel_len: request.len() as u64,
+            ..MsgArgs::default()
+        };
+        let (code, result) = dispatch(OP_REGISTER, &args);
+        check!(
+            code == failed(errno::EINVAL),
+            "overflowing lease -> {code:#x}, expected -EINVAL"
+        );
+        check!(
+            result.status == -errno::EINVAL,
+            "the overflowing-lease status is {}",
+            result.status
+        );
+        check!(
+            registry::resolve(task::KERNEL_TASK, "os.example.sys.big-lease")
+                == Err(RegistryError::UnknownName),
+            "a refused lease left an entry behind"
+        );
+        Ok(())
+    })
 }
 
 /// Owner death releases the name through both paths: the explicit

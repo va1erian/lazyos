@@ -111,6 +111,8 @@ pub enum Error {
     NotOwner,
     /// More interfaces than [`MAX_INTERFACES`].
     TooManyInterfaces,
+    /// The lease length is so large its deadline would overflow the tick clock.
+    BadLease,
     /// The registry is full.
     RegistryFull,
     /// The target task slot holds no live task.
@@ -129,6 +131,7 @@ impl Error {
             Error::UnknownName => "no service is registered under that name",
             Error::NotOwner => "only the owner (or an administrator) may unregister that name",
             Error::TooManyInterfaces => "the registration declares too many interfaces",
+            Error::BadLease => "that lease is too long for the tick clock to represent",
             Error::RegistryFull => "the kernel name registry is full",
             Error::BadTask => "no task exists in that slot",
             Error::NoResources => "the target process is out of Messenger handles",
@@ -308,6 +311,16 @@ pub fn register(
         return Err(Error::TooManyInterfaces);
     }
     let now = task::ticks();
+    // A lease is a deadline, so it must fit the tick clock: `now + lease_ticks`
+    // with the user-supplied `u64::MAX` would overflow (a kernel panic with the
+    // dev profile's checks) or wrap into the past and prune the name at once.
+    // Reject instead of saturating, so a caller that asks for an impossible
+    // lease gets `EINVAL` rather than a silently-permanent name.
+    let lease_deadline = if lease_ticks == 0 {
+        None
+    } else {
+        Some(now.checked_add(lease_ticks).ok_or(Error::BadLease)?)
+    };
     let live = live_slots();
     let mut registry = REGISTRY.lock();
     prune_locked(&mut registry, &live, now);
@@ -320,7 +333,6 @@ pub fn register(
     } else if registry.entries.len() >= MAX_ENTRIES {
         return Err(Error::RegistryFull);
     }
-    let lease_deadline = (lease_ticks != 0).then(|| now + lease_ticks);
     registry.entries.push(Entry {
         name: String::from(name),
         kind,
