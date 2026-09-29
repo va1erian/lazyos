@@ -146,8 +146,8 @@ pub fn modifier_keys_reach_compositor() -> Result<(), String> {
     check!(seeded == 1, "bind seeded {seeded} events, expected 1");
 
     // Alt down/up, Tab down/up, F4 down/up, and the extended Super and
-    // right-Ctrl sequences. Ctrl+A must still decode as ETX (0x01): the
-    // terminal translation is unchanged by the new forwarding.
+    // right-Ctrl sequences. Ctrl+A reaches the compositor as the letter
+    // `a` (the compositor adds the Ctrl bit); the terminal still gets ETX.
     for scancode in [
         0x38u8, // left Alt down
         0x0F,   // Tab down
@@ -158,8 +158,8 @@ pub fn modifier_keys_reach_compositor() -> Result<(), String> {
         0xE0, 0xDB, // left Super up
         0xB8, // left Alt up
         0xE0, 0x1D, // right Ctrl down
-        0x1E, // 'a' down (Ctrl held -> ETX)
-        0x9E, // 'a' up (still ETX)
+        0x1E, // 'a' down (Ctrl held)
+        0x9E, // 'a' up
         0xE0, 0x9D, // right Ctrl up
     ] {
         crate::input::keyboard::push_scancode(scancode);
@@ -181,8 +181,8 @@ pub fn modifier_keys_reach_compositor() -> Result<(), String> {
         (4, crate::display::key::SUPER as i32),
         (4, crate::display::key::ALT as i32),
         (3, crate::display::key::CTRL as i32),
-        (3, 0x01), // Ctrl+A stays the terminal's ETX
-        (4, 0x01),
+        (3, 0x61), // Ctrl+A is reported as the letter
+        (4, 0x61),
         (4, crate::display::key::CTRL as i32),
     ];
     check!(

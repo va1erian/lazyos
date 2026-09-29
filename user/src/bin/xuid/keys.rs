@@ -29,7 +29,10 @@ impl Compositor {
         if key == display::key::ESCAPE && self.escape_pressed() {
             return;
         }
-        if key == display::key::TAB {
+        // Tab belongs to the focused client (widget focus, tab characters);
+        // the compositor only takes it as Alt+Tab, as Ctrl+Tab, or when no
+        // window has focus to give it to.
+        if key == display::key::TAB && (self.mods.alt || self.mods.ctrl || self.focused.is_none()) {
             if self.mods.alt {
                 // Alt+Tab: the compositor's own overlay, not a client key.
                 self.alt_tab_open();
@@ -51,6 +54,7 @@ impl Compositor {
             }
             return;
         }
+        let key = self.client_key(key);
         let body = wire::encode_key_down_args(&wire::KeyDownArgs { key });
         forward(
             &self.surfaces,
@@ -86,6 +90,12 @@ impl Compositor {
         false
     }
 
+    /// `key` with the held modifiers OR-ed in, as clients receive it.
+    fn client_key(&self, key: u32) -> u32 {
+        let mods = &self.mods;
+        display::key::with_modifiers(key, mods.shift, mods.ctrl, mods.alt, mods.super_key)
+    }
+
     /// A key went up.
     pub(super) fn key_up(&mut self, key: u32) {
         if modifier_key(key) {
@@ -108,6 +118,7 @@ impl Compositor {
         if key == display::key::ESCAPE && self.mods.ctrl {
             return;
         }
+        let key = self.client_key(key);
         let body = wire::encode_key_up_args(&wire::KeyUpArgs { key });
         forward(
             &self.surfaces,

@@ -351,10 +351,21 @@ pub fn push_pointer_button(button: u32, down: bool) {
     });
 }
 
+/// The display code of a character key. Ctrl+letter arrives from the PS/2
+/// decoder as a C0 control (Ctrl+H is 8, Ctrl+I is 9, Ctrl+M is 13), which a
+/// client could not tell from Backspace/Tab/Enter; report the letter itself
+/// and let the compositor add the Ctrl modifier bit.
+fn char_code(c: char) -> u32 {
+    match c as u32 {
+        code @ 1..=26 => code + 0x60,
+        code => code,
+    }
+}
+
 /// Translate a decoded terminal key into its display key code.
 fn key_code(key: Key) -> u32 {
     match key {
-        Key::Char(c) => c as u32,
+        Key::Char(c) => char_code(c),
         Key::Enter => key::ENTER,
         Key::Backspace => key::BACKSPACE,
         Key::Tab => key::TAB,
@@ -372,7 +383,9 @@ fn key_code(key: Key) -> u32 {
         Key::Ctrl => key::CTRL,
         Key::Alt => key::ALT,
         Key::Super => key::SUPER,
-        Key::F4 => key::F4,
+        Key::Delete => key::DELETE,
+        Key::Insert => key::INSERT,
+        Key::F(n) => key::F1 + u32::from(n.clamp(1, 12)) - 1,
     }
 }
 
