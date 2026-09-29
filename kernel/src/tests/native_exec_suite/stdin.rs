@@ -63,3 +63,32 @@ pub fn read_char_follows_redirected_stdin() -> Result<(), String> {
     );
     Ok(())
 }
+
+/// A `SOCK_SEQPACKET` stdin is treated as ended input and the queued message is
+/// left intact: a one-byte stream read would truncate it and drop the rest.
+pub fn read_char_leaves_seqpacket_messages_intact() -> Result<(), String> {
+    fresh();
+    shell()?;
+    let mut sv = [0i32; 2];
+    let ret = process::linux::dispatch_args_for_test(53, 1, 5, 0, sv.as_mut_ptr() as u64);
+    check!(ret == 0, "socketpair(SEQPACKET) returned {ret:#x}");
+    let (a, b) = (sv[0] as u64, sv[1] as u64);
+    let ret = process::linux::dispatch_for_test(SYS_DUP2, a, 0, 0);
+    check!(ret == 0, "dup2 returned {ret:#x}");
+    let msg = b"whole message";
+    let sent = process::linux::dispatch_for_test(1, b, msg.as_ptr() as u64, msg.len() as u64);
+    check!(sent == msg.len() as u64, "seqpacket send returned {sent}");
+
+    let got = process::dispatch_for_test(SYS_READ_CHAR, 0, 0, 0);
+    check!(
+        got == u64::from(b'\n'),
+        "seqpacket stdin gave {got:#x}, wanted the end-of-input newline"
+    );
+    let mut back = [0u8; 32];
+    let n = process::linux::dispatch_for_test(0, 0, back.as_mut_ptr() as u64, back.len() as u64);
+    check!(
+        n == msg.len() as u64 && &back[..msg.len()] == msg,
+        "the queued message was consumed or truncated: read {n}"
+    );
+    Ok(())
+}

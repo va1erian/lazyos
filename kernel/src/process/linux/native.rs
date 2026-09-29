@@ -234,6 +234,9 @@ const EOF_CHAR: u64 = b'\n' as u64;
 pub(crate) fn read_redirected() -> Option<u64> {
     match task::fd_kind(0) {
         FdKind::Terminal => None,
+        // A `SOCK_SEQPACKET` read of one byte would truncate the message and
+        // discard the rest, so message sockets are treated as ended input.
+        FdKind::Socket if task::fd_seqpacket(0) => Some(EOF_CHAR),
         FdKind::Pipe | FdKind::Socket => {
             let mut byte = [0u8; 1];
             loop {

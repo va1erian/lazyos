@@ -181,5 +181,9 @@ pub(super) const CASES: &[(&str, Test)] = &[
         "native_exec_read_char_follows_redirected_stdin",
         read_char_follows_redirected_stdin,
     ),
+    (
+        "native_exec_read_char_leaves_seqpacket_messages_intact",
+        read_char_leaves_seqpacket_messages_intact,
+    ),
     ("native_exec_soak_spawn_exit_cycles", soak_spawn_exit_cycles),
 ];
