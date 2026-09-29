@@ -286,12 +286,31 @@ impl Filesystem for Ext2 {
             }
             self.remove_entry(to_parent_ino, &mut to_parent, to_name)?;
             let links = le16(&victim, INO_LINKS);
-            if links <= 1 {
+            // An empty directory holds two links (`.` and its parent's entry),
+            // so removing the parent's entry drops its last reference; only a
+            // file with further hard links survives the replacement.
+            let last_reference = victim_kind == FileKind::Dir || links <= 1;
+            if last_reference {
                 self.free_inode_blocks(&victim)?;
                 put16(&mut victim, INO_LINKS, 0);
                 put32(&mut victim, INO_DTIME, now());
                 self.write_inode(existing, &victim)?;
                 self.free_inode(existing, victim_kind == FileKind::Dir)?;
+                if victim_kind == FileKind::Dir {
+                    // The victim's `..` pointed at `to_parent`; that link goes
+                    // with it. Persist it now, not via the `add_entry` at the
+                    // end: a later step can fail, and the victim is already
+                    // gone, so the on-disk count must not keep its link.
+                    let parent_links = le16(&to_parent, INO_LINKS).saturating_sub(1);
+                    put16(&mut to_parent, INO_LINKS, parent_links);
+                    self.write_inode(to_parent_ino, &to_parent)?;
+                    if from_parent_ino == to_parent_ino {
+                        // Two in-memory copies of one inode: refresh the other
+                        // so its later writes (and the rollback) carry the new
+                        // count instead of overwriting it with a stale one.
+                        from_parent = self.read_inode(from_parent_ino)?;
+                    }
+                }
             } else {
                 put16(&mut victim, INO_LINKS, links - 1);
                 touch(&mut victim, now());
