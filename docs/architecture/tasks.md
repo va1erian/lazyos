@@ -51,10 +51,14 @@ ISR that performs context switches.
 
 1. PIT tick -> `timer_isr` pushes 15 GP registers, calls `schedule(rsp)`.
 2. `schedule` acknowledges the PIC, bumps `TICKS`, saves `rsp`, charges
-   `cpu_ticks`, expires deadlines, sweeps signals, then picks the next task.
+   `cpu_ticks`, expires deadlines, sweeps signals (`signal::sweep`, handler
+   frames only through the installed table), then picks the next task.
 3. On a real switch: `mem::switch_to(pml4)`, sets TSS `RSP0` and
-   `arch::linux::KERNEL_STACK`, restores `IA32_FS_BASE`, returns the new `rsp`;
-   `timer_isr` pops the frame and `iretq`s into it. `mux::run` parks the kernel
+   `arch::linux::KERNEL_STACK`, restores `IA32_FS_BASE`, then delivers the
+   resumed task's pending handler signals through its now-installed table
+   (`signal::deliver_on_resume`, #375; if that ends the task, another is
+   picked) and returns the new `rsp`; `timer_isr` pops the frame and
+   `iretq`s into it. `mux::run` parks the kernel
    task with `task::idle(now + 2)`, so the mux cannot starve user tasks.
 
 **Spawn APIs**

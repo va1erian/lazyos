@@ -161,27 +161,48 @@ fn cleanup(victims: &[Victim]) -> Result<(), String> {
 }
 
 /// A tick that interrupts B while A also has a handler signal pending: A's
-/// frame must be in A's page (or A left pending), never in B's.
+/// frame must be in A's page, never in B's. The sweep can only write through
+/// B's table, so it enters B and leaves A pending; A is entered when the
+/// scheduler resumes it with its own table installed.
 pub fn sweep_frame_in_target_space() -> Result<(), String> {
     fresh()?;
     let a = victim(STACK_TOP - 0x100)?;
     let b = victim(STACK_TOP - 0x500)?;
 
     sweep_with_active(&b);
-    check_frame(&a, "A")?;
+    check!(
+        !check_frame(&a, "A")?,
+        "A was entered by a sweep that could not write through its table"
+    );
     check!(
         check_frame(&b, "B")?,
         "B, whose table was active, was not entered"
     );
 
-    // Now the tick interrupts A: A's own table is active, so A is entered
+    // The scheduler switches to A: its table is installed, so A is entered
     // with its frame where it can run, and B's frame stays as it was.
-    sweep_with_active(&a);
+    check!(
+        !task::harness::resume_delivery(a.slot),
+        "resuming A ended it"
+    );
     check!(
         check_frame(&a, "A")?,
-        "A was not entered from its own space"
+        "A was not entered when resumed in its own space"
     );
     check!(check_frame(&b, "B")?, "B lost its frame");
+
+    // A tick that interrupts A itself still delivers to A in place: with the
+    // mask restored (as `rt_sigreturn` would), a second signal gets a second
+    // frame below the first, in A's own page.
+    signal::set_blocked(a.slot, 0);
+    send(a.slot, signal::SIGUSR1)?;
+    sweep_with_active(&a);
+    check!(
+        signal::pending(a.slot) & (1 << signal::SIGUSR1) == 0 && frames_in(a.page) == 2,
+        "a tick in A's own space did not deliver to A: pending={:#x}, {} frames in its page",
+        signal::pending(a.slot),
+        frames_in(a.page)
+    );
 
     cleanup(&[a, b])?;
     task::harness::reset();
@@ -190,8 +211,9 @@ pub fn sweep_frame_in_target_space() -> Result<(), String> {
 }
 
 /// Soak: many generations of paired victims, alternating which table the
-/// tick finds active, never put a frame in the wrong page and leak neither
-/// frames nor signal registry entries.
+/// tick finds active and resuming the other task afterwards, never put a
+/// frame in the wrong page and leak neither frames nor signal registry
+/// entries.
 pub fn soak_sweep_space_isolation() -> Result<(), String> {
     const ROUNDS: u32 = 200;
     fresh()?;
@@ -203,12 +225,15 @@ pub fn soak_sweep_space_isolation() -> Result<(), String> {
         sweep_with_active(first);
         check_frame(&a, "A").map_err(|e| format!("round {round}, first sweep: {e}"))?;
         check_frame(&b, "B").map_err(|e| format!("round {round}, first sweep: {e}"))?;
-        sweep_with_active(second);
+        check!(
+            !task::harness::resume_delivery(second.slot),
+            "round {round}: resuming the second task ended it"
+        );
         let entered_a = check_frame(&a, "A").map_err(|e| format!("round {round}: {e}"))?;
         let entered_b = check_frame(&b, "B").map_err(|e| format!("round {round}: {e}"))?;
         check!(
             entered_a && entered_b,
-            "round {round}: after a tick in each space, A entered={entered_a} B entered={entered_b}"
+            "round {round}: after a tick in one space and a resume of the other, A entered={entered_a} B entered={entered_b}"
         );
         cleanup(&[a, b]).map_err(|e| format!("round {round}: {e}"))?;
 

@@ -45,7 +45,8 @@ delivery.
 | Boundary | Path | Covers |
 |---|---|---|
 | Linux syscall return | `deliver_linux` (`signal/deliver.rs`) | any Linux task; result recorded as `rax` in the frame |
-| Timer sweep | `sweep` (`signal/deliver.rs`) | native `int 0x80` tasks and Linux tasks preempted in user mode |
+| Scheduler sweep | `sweep` (`signal/sweep.rs`) | native `int 0x80` tasks and Linux tasks preempted in user mode: default actions for all of them, handler frames only for the interrupted task's own process (the installed page table is the only one the frame can be written through) |
+| Scheduler resume | `deliver_on_resume` (`signal/sweep.rs`) | the task the scheduler switches to, once its table is installed: handler frames the sweep had to leave pending (#375) |
 | Page fault | `deliver_fault` (`signal/fault.rs`) | `SIGSEGV` with `SEGV_MAPERR`/`SEGV_ACCERR` |
 
 - Linux frames follow `struct rt_sigframe`: restorer pointer, `ucontext_t`
