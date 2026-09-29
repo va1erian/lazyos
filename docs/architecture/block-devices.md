@@ -10,7 +10,7 @@ trait, a fixed registry with a selected boot device, and three drivers.
 | `kernel/src/block/mod.rs` | `BlockDevice`, registry, boot device, probe order, `virt_to_phys` |
 | `kernel/src/block/ata.rs` | ATA PIO primary-master driver (read path) |
 | `kernel/src/block/mem.rs` | `MemDisk` over a memory region; the bootloader ramdisk registers as `ram0` (#5) |
-| `kernel/src/block/pci.rs` | Legacy PCI config-space access (0xCF8/0xCFC) |
+| `kernel/src/dev/pci.rs` | PCI config-space access (0xCF8/0xCFC); moved here from `block/pci.rs` by the device core (#239) |
 | `kernel/src/block/virtio.rs` | Legacy virtio-blk (0.9.5) driver, read/write |
 
 **`BlockDevice` trait** (`mod.rs:86`)
@@ -37,7 +37,7 @@ trait, a fixed registry with a selected boot device, and three drivers.
 |---|---|---|---|---|
 | `ata` | PIO, ports 0x1F0-0x1F7 | yes | no (default `ReadOnly`) | 28-bit LBA, polled, `IDENTIFY DEVICE` for geometry; `IO` mutex serializes |
 | `virtio` | legacy PCI, BAR0 I/O window | yes | yes | queue 0 split virtqueue in static memory, one request at a time, 4 KiB bounce page, `is_writable` = device present |
-| `pci` | config mechanism 1 | - | - | enumerate bus/device/function, match vendor/device, read BARs; no MMCONFIG/MSI |
+| `pci` | config mechanism 1 (`kernel/src/dev/pci.rs`) | - | - | enumerate bus/device/function, match vendor/device, decode + size BARs (32/64-bit), command register, capability walk, interrupt line; no MMCONFIG/MSI |
 
 - ATA is read-only because the write path was not needed for the FAT boot image;
   ext2 write traffic requires virtio-blk (`-drive if=virtio`).
@@ -61,6 +61,15 @@ falls through to `ram0` when no disk has a volume. `Fat16::open` accepts a bare
   (boot device only) then ext2, and mounts the first success at `/`.
 - Bench/test doubles register through the same `register()` API (tests use a
   fake device name pattern).
+
+**Drivers as device-core drivers (#239).** ATA and legacy virtio-blk are also
+registered in the kernel device core's static `Driver` table
+([`devices.md`](devices.md)): `dev::init` seeds the ISA ATA controller as a
+platform device, enumerates PCI, then runs the table, which calls the same
+`ata::probe`/`virtio::probe` and registers them through the block registry
+exactly as before. `block::init` is now a thin idempotent wrapper over
+`dev::init`, so all probe paths (boot, `fs::init`, kernel tests) behave the
+same.
 
 **Status.** Working: ATA reads (default QEMU image), virtio-blk reads/writes,
 PCI enumeration. Open: modern virtio (memory BAR), AHCI/NVMe, ATA writes, DMA

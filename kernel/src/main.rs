@@ -19,6 +19,7 @@ mod arch;
 mod block;
 mod console;
 mod cursor;
+mod dev;
 mod display;
 mod entropy;
 mod error;
@@ -94,6 +95,11 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     let (ramdisk_addr, ramdisk_len) = (boot_info.ramdisk_addr, boot_info.ramdisk_len);
     mem::init(boot_info);
     boot_phase!("mem_ready");
+
+    // Device core (issue #239): enumerate platform + PCI devices, attach the
+    // in-kernel drivers (ATA, legacy virtio-blk) and print the `DEV:ENUM` line.
+    // Idempotent, so `fs::init`'s later block probe is a no-op.
+    dev::init();
 
     // Kernel test mode (issue #62): run the in-kernel suite and halt instead of
     // booting the demo. Compiled in only with `LAZYOS_TESTS=1`.

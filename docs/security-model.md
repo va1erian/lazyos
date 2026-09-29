@@ -19,7 +19,7 @@ implement the following; everything else below is specification
 | Kernel-stamped credentials (`uid/gid/caps/label/session`) on every task and message; children inherit, only kernel-started programs are root; audited `CAP_SETUID` transitions that can never widen privilege (section 2) | Service accounts: every system service still runs as uid 0 (section 4.1 "system services do not run as root" is the goal, not the state) |
 | Console login through `logind` + `accountsd`, Argon2id verification inside `keyd`, hashes in `SHARE_ONLY` buffers; failed logins audited (section 3) | Rate limiting, key/2FA, per-user sealing of secrets, TLS in `keyd`; `keyd` key ids are not yet scoped to their owner (issue #187) |
 | VFS `rwx`/`umask`/sticky checks against kernel credentials, root bypass (4.1) | POSIX ACLs, mount namespaces / filesystem jails (5.3) |
-| Capability bits `CAP_NET_*`, `CAP_SYS_ADMIN`, `CAP_SYS_TIME`, `CAP_AUDIT_READ`, `CAP_IPC_CONTROL`, `CAP_SETUID`, `CAP_KILL` (cross-uid signals); `CAP_SYS_ADMIN` gates the display grant (4.2) | `CAP_DEV_*`, dropping capabilities on `execve` |
+| Capability bits `CAP_NET_*`, `CAP_SYS_ADMIN`, `CAP_SYS_TIME`, `CAP_AUDIT_READ`, `CAP_IPC_CONTROL`, `CAP_SETUID`, `CAP_KILL` (cross-uid signals); `CAP_SYS_ADMIN` gates the display grant (4.2) | `CAP_DEV_CLAIM` (the device-claim gate; D0/D1 documented in 4.2), dropping capabilities on `execve` |
 | Handles with rights as the primary Messenger right; default-deny ordered ACL at the kernel call boundary; per-segment topic policy (4.3) | The policy language/compiler, profiles from manifests, hot reload, revocation of live handles (5.2, 6) |
 | Per-uid quotas on kernel memory, user memory, handles, queue bytes/depth (5.5); friendly `ERR_QUOTA` | Syscall allowlists (5.1), network policy (5.4), fd/CPU quota enforcement |
 | Validated user pointers on every native and Linux syscall, NX on user pages, length-checked parcels fuzzed in CI, every `unsafe` documented and gated by clippy (7) | W^X enforcement, SMEP/SMAP, stack canaries, signed kernel, crash dumps, watchdog |
@@ -107,7 +107,20 @@ Fine-grained kernel privileges, granted per profile, never ambient:
 | `CAP_SYS_TIME` | set the clock |
 | `CAP_AUDIT_READ` | read the audit stream |
 | `CAP_IPC_CONTROL` | manage other services' endpoints |
-| `CAP_DEV_*` | specific device grants (framebuffer, input, storage) |
+| `CAP_DEV_CLAIM` | attempt to claim a discovered device at all |
+
+`CAP_DEV_CLAIM` is deliberately **coarse**: it is the single gate that lets an
+actor call the device core's `claim` in the first place. It is *not* a
+per-device or per-class grant — authority over a specific device is the
+`Device` handle returned by `claim`, whose rights (`MMIO`, `PIO`, `IRQ`, `DMA`,
+`CONFIG`) are fixed by that device's actual resources and by a class-specific
+ACL rule (`os.kernel.dev.<class>`), and can only be narrowed afterwards.
+`claim` fails with `EPERM` before any owner is recorded when either the
+capability or the class rule is absent, so an app without `CAP_DEV_CLAIM`
+cannot even attempt to probe the device table. Drivers run as their own system
+uids (`_net`, `_snd`) holding `CAP_DEV_CLAIM` plus their one class rule, never
+uid 0. The gate is specified here; the kernel enforcement lands with the
+`dev_*` syscall (driver-plan stage D3).
 
 Capabilities are in the task struct, shown in `ps`, and dropped on `execve`
 unless the profile is privileged.

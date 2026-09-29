@@ -131,6 +131,10 @@ Full spec in [`messenger.md`](messenger.md). Summary:
   queues.
 - **Driver model:** device enumeration (ACPI/PCI), IPC to userspace drivers,
   DMA-safe shared buffers, interrupt → event delivery through Messenger.
+  Landed in D0/D1 (#239): [`architecture/devices.md`](architecture/devices.md),
+  the PCI upgrade and the in-kernel device core with typed resources,
+  claim/generation ownership and a static `Driver` table; interrupts (`D2`) and
+  the userspace `dev_*` surface (`D3`) follow.
 - **SMP:** AP bring-up, spinlocks per subsystem, IPIs; designed now, enabled
   later.
 
