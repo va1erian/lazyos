@@ -12,7 +12,7 @@ resolver = "2"
 exclude = ["vendor/xui-canvas"]
 
 [dependencies]
-xui-core = { git = "https://github.com/va1erian/xui", rev = "2747818" }
+xui-core = { git = "https://github.com/va1erian/xui", rev = "14b138c" }
 xui-canvas = { git = "https://github.com/va1erian/xui", rev = "2747818" }
 # The same parcel codec the kernel and native `user` programs use, so the
 # fabric panel reads registry replies and talks to the topics broker with one
@@ -32,11 +32,6 @@ libc = "0.2"
 # the bundled TTF from memory, applies `TextStyle`'s horizontal alignment for
 # natural-width (non-wrapped) runs, and exposes `Surface::pixels` for a
 # clone-free present; otherwise it is the pinned revision.
-#
-# `xui-core` is not vendored (~350 KB): `tools/xui/build.py` applies
-# `patches/xui-core.patch` (issue #339: buttons stop repainting on every
-# pointer move) to a copy of the pinned checkout and passes the matching
-# `[patch]` with `--config`, so a plain `cargo build` here is unpatched.
 [patch."https://github.com/va1erian/xui"]
 xui-canvas = { path = "vendor/xui-canvas" }
 
