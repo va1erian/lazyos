@@ -11,7 +11,7 @@ a suite in kernel context and classifies the result from serial output.
 # Build the test image (LAZYOS_TESTS=1), boot it headless, parse the results
 python tools/test/run.py
 
-# Deterministic CI-style run (no hardware acceleration)
+# Force TCG (no hardware acceleration)
 python tools/test/run.py --accel none
 
 # Re-run an image that was already built in test mode
@@ -90,7 +90,8 @@ same prefix.
 
 ## CI
 
-`.github/workflows/kernel-tests.yml` installs QEMU, runs
-`python tools/test/run.py --accel none`, appends `docs/test/report.md` to the
+`.github/workflows/kernel-tests.yml` installs QEMU, enables KVM on the runner
+(`tools/ci/enable_kvm.sh`, best effort), runs `python tools/test/run.py`
+(`--accel auto`: KVM when usable, else TCG), appends `docs/test/report.md` to the
 job summary, and uploads `docs/test/**` + `shots/kernel-tests/**` as an
 artifact.

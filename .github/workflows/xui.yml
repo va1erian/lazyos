@@ -27,6 +27,7 @@ on:
       - "xui-app/**"
       - "tools/xui/**"
       - "tools/screenshot/**"
+      - "tools/ci/**"
       - "kernel/**"
       - "build.rs"
       - "Cargo.toml"
@@ -56,6 +57,11 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y qemu-system-x86
+
+      # Hosted runners expose /dev/kvm but not to the runner user; open it up
+      # so `--accel auto` picks KVM (it falls back to TCG if KVM is unusable).
+      - name: Enable KVM (best effort)
+        run: bash tools/ci/enable_kvm.sh
 
       - uses: actions/setup-python@v5
         with:
@@ -96,7 +102,7 @@ jobs:
           set -euo pipefail
           cargo build
           python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/m0 \
-            --accel none --timeout 300 --script tools/screenshot/examples/xui_m0.json \
+            --timeout 300 --script tools/screenshot/examples/xui_m0.json \
             --fail-on "XUIAPP:(BIND|PRESENT|RUN):FAIL"
           grep -q "XUIAPP:PRESENT:PASS" shots/m0/serial.log
 
@@ -111,11 +117,11 @@ jobs:
           set -euo pipefail
           cargo build
           python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/m1 \
-            --accel none --timeout 300 --script tools/screenshot/examples/xui_m1.json \
+            --timeout 300 --script tools/screenshot/examples/xui_m1.json \
             --fail-on "XUIAPP:(BIND|PRESENT|RUN):FAIL"
           grep -q "XUIAPP:COUNTER:PASS" shots/m1/serial.log
           python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/m2 \
-            --accel none --timeout 300 --script tools/screenshot/examples/xui_counter.json \
+            --timeout 300 --script tools/screenshot/examples/xui_counter.json \
             --fail-on "XUIAPP:(BIND|PRESENT|RUN):FAIL"
           grep -q "XUIAPP:COUNTER:PASS" shots/m2/serial.log
           grep -q "XUIAPP:INPUT:PASS" shots/m2/serial.log
@@ -132,7 +138,7 @@ jobs:
           set -euo pipefail
           cargo build
           python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/sysmon \
-            --accel none --timeout 300 --script tools/screenshot/examples/xui_sysmon.json \
+            --timeout 300 --script tools/screenshot/examples/xui_sysmon.json \
             --fail-on "SYSMON:(BIND|UP|RUN):FAIL"
           grep -q "SYSMON:UP:PASS" shots/sysmon/serial.log
           grep -q "SYSMON:REFRESH:PASS" shots/sysmon/serial.log
@@ -152,7 +158,7 @@ jobs:
           set -euo pipefail
           cargo build
           python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/fabmon \
-            --accel none --timeout 300 --script tools/screenshot/examples/xui_fabricmon.json \
+            --timeout 300 --script tools/screenshot/examples/xui_fabricmon.json \
             --fail-on "FABMON:(BIND|UP|RUN):FAIL"
           grep -q "FABMON:UP:PASS" shots/fabmon/serial.log
           grep -q "FABMON:REFRESH:PASS" shots/fabmon/serial.log
@@ -174,7 +180,7 @@ jobs:
           set -euo pipefail
           cargo build
           python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/client \
-            --accel none --timeout 300 --script tools/screenshot/examples/xui_client.json \
+            --timeout 300 --script tools/screenshot/examples/xui_client.json \
             --fail-on "XUIAPP:(CLIENT|RUN):FAIL"
           grep -q "XUIAPP:CLIENT:PASS" shots/client/serial.log
           grep -q "XUIAPP:KEY:PASS" shots/client/serial.log

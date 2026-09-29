@@ -119,6 +119,7 @@ fn to_string(error: &'static str) -> String {
 }
 
 mod acl_suite;
+mod arch_suite;
 mod block_suite;
 mod credentials_suite;
 mod crypto_suite;
@@ -151,6 +152,7 @@ mod topics_suite;
 const SUITE: &[&[(&str, Test)]] = &[
     mem_suite::CASES,
     heap_suite::CASES,
+    arch_suite::CASES,
     slab_suite::CASES,
     quota_suite::CASES,
     task_suite::CASES,

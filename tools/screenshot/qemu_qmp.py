@@ -16,6 +16,7 @@ import os
 import shutil
 import socket
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -49,11 +50,35 @@ def free_port() -> int:
         return int(s.getsockname()[1])
 
 
+def _kvm_works(qemu: str) -> bool:
+    """Start a paused QEMU with ``-accel kvm`` and ask it over QMP whether KVM
+    is enabled, then quit. Catches hosts where ``/dev/kvm`` exists and is
+    accessible but KVM still cannot initialise (e.g. no nested virtualization).
+    """
+    script = (
+        '{"execute":"qmp_capabilities"}\n'
+        '{"execute":"query-kvm"}\n'
+        '{"execute":"quit"}\n'
+    )
+    try:
+        proc = subprocess.run(
+            [qemu, "-accel", "kvm", "-machine", "q35", "-display", "none",
+             "-nodefaults", "-S", "-qmp", "stdio"],
+            input=script, capture_output=True, text=True, timeout=20,
+        )
+    except Exception:
+        return False
+    return proc.returncode == 0 and '"enabled": true' in proc.stdout
+
+
 def detect_accel(qemu: str) -> str | None:
     """Return the best hardware accelerator for this host, or None for TCG.
 
     WHPX on Windows and KVM on Linux make the guest run many times faster than
-    TCG, which matters a lot for software rendering.
+    TCG, which matters a lot for software rendering. KVM is only chosen if
+    ``/dev/kvm`` is accessible *and* a real QEMU start with it succeeds, so an
+    unusable KVM (missing, permission denied, no nested virt) falls back to TCG
+    instead of failing the run.
     """
     try:
         proc = subprocess.run(
@@ -68,17 +93,34 @@ def detect_accel(qemu: str) -> str | None:
         "kvm" in available
         and os.path.exists("/dev/kvm")
         and os.access("/dev/kvm", os.R_OK | os.W_OK)
+        and _kvm_works(qemu)
     ):
         return "kvm"
     return None
 
 
-def accel_args(accel: str, qemu: str) -> list[str]:
-    """Resolve an ``--accel`` value into QEMU arguments (empty for TCG/none)."""
+def resolve_accel(accel: str, qemu: str) -> str:
+    """Resolve ``auto`` to a concrete accelerator name (``none`` for TCG)."""
     if accel == "auto":
         accel = detect_accel(qemu) or "none"
-    if accel in ("none", "tcg", ""):
+    return "none" if accel in ("tcg", "") else accel
+
+
+def accel_args(accel: str, qemu: str) -> list[str]:
+    """Resolve an ``--accel`` value into QEMU arguments (empty for TCG/none)."""
+    requested = accel
+    accel = resolve_accel(accel, qemu)
+    if requested == "auto":
+        print(f"qemu accelerator: auto -> {accel}", file=sys.stderr, flush=True)
+    if accel == "none":
         return []
+    if accel == "kvm":
+        # KVM's in-kernel PIT defaults to re-injecting ticks the guest did not
+        # acknowledge (e.g. while it ran with IF=0), delivering them in a
+        # burst once interrupts are back on: the tick counter then jumps by
+        # 100+ and tick-based sleeps look far too long. TCG's PIT drops such
+        # ticks; `discard` gives KVM the same semantics.
+        return ["-accel", "kvm", "-global", "kvm-pit.lost_tick_policy=discard"]
     return ["-accel", accel]
 
 

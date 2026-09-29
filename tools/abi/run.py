@@ -57,7 +57,7 @@ def build_image(fixture_path: Path) -> bool:
     return result.returncode == 0
 
 
-def capture(name: str, at: str) -> str:
+def capture(name: str, at: str, accel: str = "auto") -> str:
     out = SHOTS / name
     subprocess.run(
         [
@@ -68,7 +68,7 @@ def capture(name: str, at: str) -> str:
             "--at",
             at,
             "--accel",
-            "none",
+            accel,
             "--image",
             str(IMAGE),
         ],
@@ -96,6 +96,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--at", default="8", help="capture time in seconds (default 8)")
     parser.add_argument("--only", help="comma-separated fixture names to run")
+    parser.add_argument("--accel", default="auto",
+                        help="QEMU accelerator: auto (kvm/whpx if usable, else TCG), kvm, whpx, none")
     args = parser.parse_args()
 
     COMPAT.mkdir(parents=True, exist_ok=True)
@@ -114,7 +116,7 @@ def main() -> int:
         if not build_image(fixture):
             results.append({"fixture": name, "status": "fail", "detail": "image build failed"})
             continue
-        status, detail = classify(name, capture(name, args.at))
+        status, detail = classify(name, capture(name, args.at, args.accel))
         results.append({"fixture": name, "status": status, "detail": detail})
         print(f"{name}: {status} {detail}".rstrip())
 

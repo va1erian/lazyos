@@ -34,7 +34,7 @@
 
 | Workflow | Jobs |
 |---|---|
-| `kernel-tests.yml` | `tools/test/run.py --accel none`; appends the report to the job summary; uploads `docs/test/**`, `shots/kernel-tests/**` |
+| `kernel-tests.yml` | `tools/test/run.py` (KVM when usable); appends the report to the job summary; uploads `docs/test/**`, `shots/kernel-tests/**` |
 | `abi-compat.yml` | Builds fixtures, runs the bench, uploads `docs/compat/**` + `shots/abi/**`, publishes the matrix/coverage to the wiki, comments on PRs |
 | `screenshots.yml` | Captures, verifies with `pngstats.py`, uploads artifacts, publishes to the `screenshots` branch, comments images on PRs |
 | `messenger.yml` | `cargo test -p libmessenger` |
@@ -45,8 +45,11 @@
 
 **Invariants**
 
-- Deterministic runs use `--accel none` so a CI result is reproducible and does
-  not depend on host virtualization.
+- CI boots QEMU with `--accel auto`: every QEMU workflow runs
+  `tools/ci/enable_kvm.sh` (opens the hosted runner's `root:kvm` `/dev/kvm` to
+  the runner user), and `auto` picks KVM only if a probe start succeeds,
+  otherwise TCG. `--accel none` still forces TCG for reproduction that must not
+  depend on host virtualization.
 - Tools are Python 3 with no third-party hard requirement except where noted in
   their READMEs (`tools/*/README.md`).
 - The ABI bench and kernel suite are regression gates for changes to memory,

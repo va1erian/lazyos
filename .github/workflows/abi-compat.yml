@@ -31,6 +31,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y qemu-system-x86
 
+      # Hosted runners expose /dev/kvm but not to the runner user; open it up
+      # so `--accel auto` picks KVM (it falls back to TCG if KVM is unusable).
+      - name: Enable KVM (best effort)
+        run: bash tools/ci/enable_kvm.sh
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.x"
