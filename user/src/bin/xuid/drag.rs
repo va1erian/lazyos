@@ -4,7 +4,7 @@
 
 use alloc::string::String;
 use alloc::vec::Vec;
-use user::messenger::display::{wire, Canvas, Rect};
+use user::messenger::display::{wire, Canvas, Face, Rect};
 
 use super::layout::cursor_rect;
 use super::render::repaint;
@@ -52,7 +52,11 @@ fn drag_target_at(surfaces: &[Surface], source: u64, point: (i32, i32)) -> Optio
 
 /// The rectangle the drag ghost occupies around `point`.
 fn ghost_rect(mime: &str, point: (i32, i32)) -> Rect {
-    let label = (mime.len().min(24) as i32) * 6 + 8;
+    let shown = mime
+        .char_indices()
+        .nth(24)
+        .map_or(mime, |(end, _)| &mime[..end]);
+    let label = Face::Sans.width(shown) + 8;
     Rect::new(point.0 + 6, point.1 + 6, 14 + label, 16)
 }
 
@@ -313,12 +317,12 @@ pub(super) fn draw_drag(
     // `ghost_rect` reserves room for 24 characters but a MIME string may be
     // up to `display::MAX_MIME`; clip the text to the label so glyphs past it
     // (outside the drag's damage) cannot leave trails as the pointer moves.
-    screen.text(
+    screen.text_face(
         ghost.x + 18,
-        ghost.y + 4,
+        ghost.y + (16 - Face::Sans.height()) / 2,
         &session.mime,
+        Face::Sans,
         DRAG_ACCENT,
         clip.intersect(label),
-        1,
     );
 }

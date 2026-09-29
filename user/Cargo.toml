@@ -19,6 +19,11 @@ lazyos-crypto = { path = "../libs/crypto" }
 confd = { path = "../libs/confd" }
 messenger-generated = { path = "../libs/generated" }
 
+# Build-time only: rasterizes the bundled Droid Sans / Droid Serif into the
+# proportional glyph atlases `xuid` draws its chrome text with.
+[build-dependencies]
+font-atlas = { path = "../font-atlas" }
+
 [lib]
 name = "user"
 path = "src/lib.rs"

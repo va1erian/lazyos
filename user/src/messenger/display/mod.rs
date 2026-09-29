@@ -14,10 +14,12 @@ use libmessenger::{flags, BufferDesc, Decoder, Encoder, Header, Kind, Parcel, VE
 mod canvas;
 mod client;
 mod events;
+mod typeface;
 
 pub use canvas::*;
 pub use client::*;
 pub use events::*;
+pub use typeface::Face;
 
 /// The generated `os.lazy.display.v1` stubs (see `idl/display.midl`): method
 /// ids, argument/reply records and their codecs.

@@ -211,6 +211,10 @@ impl App for Terminal {
 
 fn main() {
     std::panic::set_hook(Box::new(|info| println!("TERM:PANIC:{info}")));
+    // The Terminal is a fixed character grid, so it alone uses the monospace
+    // face; this must precede the backend, which builds the shaper lazily.
+    xui_canvas::add_font(xui_app::font::MONO_BYTES.to_vec());
+    xui_canvas::set_default_family(xui_app::font::MONO_FAMILY);
     let backend = match LazyOSBackend::connect() {
         Ok(backend) => Rc::new(backend),
         Err(code) => {
