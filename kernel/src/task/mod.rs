@@ -2214,7 +2214,10 @@ pub fn fd_peek(fd: usize, count: usize) -> Option<Vec<u8>> {
         return None;
     }
     if let Fd::File { data, offset } = &task.fds[fd] {
-        let remaining = data.len().saturating_sub(*offset);
+        if *offset >= data.len() {
+            return Some(Vec::new()); // read at or past EOF
+        }
+        let remaining = data.len() - *offset;
         let n = remaining.min(count).min(FD_READ_MAX);
         Some(data[*offset..*offset + n].to_vec())
     } else {
@@ -2228,8 +2231,8 @@ pub fn fd_advance(fd: usize, n: usize) {
     let mut tasks = TASKS.lock();
     if let Some(task) = tasks[current()].as_mut() {
         if fd < FD_COUNT {
-            if let Fd::File { data, offset } = &mut task.fds[fd] {
-                *offset = (*offset + n).min(data.len());
+            if let Fd::File { offset, .. } = &mut task.fds[fd] {
+                *offset = offset.saturating_add(n);
             }
         }
     }
@@ -2297,6 +2300,11 @@ pub fn fd_apply_write(fd: usize, offset: usize, data: &[u8]) -> bool {
 }
 
 /// Reposition a file descriptor (`whence`: 0=SET, 1=CUR, 2=END).
+///
+/// Returns `None` for an unknown `whence` or a signed position that would
+/// overflow `i64` or be negative (Linux answers `-EINVAL` for both). The new
+/// position may lie past end-of-file, as Linux allows for sparse writes; reads
+/// there return zero bytes.
 pub fn fd_seek(fd: usize, offset: i64, whence: u64) -> Option<u64> {
     let mut tasks = TASKS.lock();
     let task = tasks[current()].as_mut()?;
@@ -2306,13 +2314,16 @@ pub fn fd_seek(fd: usize, offset: i64, whence: u64) -> Option<u64> {
     if let Fd::File { data, offset: pos } = &mut task.fds[fd] {
         let base = match whence {
             0 => 0i64,
-            1 => *pos as i64,
-            2 => data.len() as i64,
+            1 => i64::try_from(*pos).ok()?,
+            2 => i64::try_from(data.len()).ok()?,
             _ => return None,
         };
-        let new = (base + offset).max(0) as usize;
-        *pos = new.min(data.len());
-        Some(*pos as u64)
+        let new = base.checked_add(offset)?;
+        if new < 0 {
+            return None;
+        }
+        *pos = new as usize;
+        Some(new as u64)
     } else {
         None
     }
