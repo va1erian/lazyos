@@ -79,6 +79,24 @@ pub(super) fn decode_event(bytes: &[u8], index: usize) -> Option<Event> {
     })
 }
 
+/// Append `event` to an input batch, collapsing a run of pointer moves into
+/// its last record. Moves carry the absolute pointer position, so only the
+/// final one of a run matters: every move `xuid` handles costs a forwarded
+/// message to the focused surface plus a cursor repaint (issue #339). A
+/// press, release or key between two moves ends the run, so it still sees
+/// the position that preceded it.
+pub(super) fn push_coalesced(batch: &mut Vec<Event>, event: Event) {
+    if event.kind == EventKind::PointerMove {
+        if let Some(last) = batch.last_mut() {
+            if last.kind == EventKind::PointerMove {
+                *last = event;
+                return;
+            }
+        }
+    }
+    batch.push(event);
+}
+
 /// The kernel's event kind constants; the user mirror exposes the protocol
 /// methods, not these raw codes, so they are repeated here.
 mod raw_kind {

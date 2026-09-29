@@ -352,30 +352,30 @@ pub fn set_clear_child_tid(value: u64) {
     }
 }
 
-/// Context switch: called from the timer ISR with the interrupted `rsp`.
+/// Context switch: called from the scheduler ISRs with the interrupted `rsp`.
+///
+/// `tick` is 1 from the PIT gate and 0 from the voluntary-reschedule gate
+/// ([`switch::yield_now`]). Only a real tick advances the clock, acknowledges
+/// IRQ0 and charges CPU time (issue #338); deadline expiry and selection run
+/// on both paths.
 ///
 /// Returns the `rsp` to resume (the next task's saved context).
 #[no_mangle]
-pub extern "C" fn schedule(current_rsp: u64) -> u64 {
-    // Acknowledge the timer IRQ and keep a tick counter.
-    crate::arch::idt::TICKS.fetch_add(1, Ordering::Relaxed);
-    // Safety: we are in the timer IRQ handler.
-    unsafe { crate::arch::pic::end_of_interrupt(0) };
+pub extern "C" fn schedule(current_rsp: u64, tick: u32) -> u64 {
+    let tick = tick != 0;
+    if tick {
+        crate::arch::idt::TICKS.fetch_add(1, Ordering::Relaxed);
+        // SAFETY: `tick` is set only by `timer_isr`, i.e. we are in the
+        // IRQ0 handler and the PIC has IRQ0 in service.
+        unsafe { crate::arch::pic::end_of_interrupt(0) };
+    }
 
     let mut tasks = TASKS.lock();
     let cur = CURRENT.load(Ordering::Relaxed);
     if let Some(task) = tasks[cur].as_mut() {
         task.rsp = current_rsp;
-        // Charge the tick to the task that consumed it, so `cpu_usage` reports
-        // real per-task CPU time even across ticks without a switch.
-        task.cpu_ticks = task.cpu_ticks.saturating_add(1);
     }
-
-    // Time out waiters whose deadline has passed. Doing it here, on the
-    // scheduler's lock, means a timed-out task is runnable before this tick's
-    // selection runs, and the wait path needs no separate timer callback.
-    let now = crate::arch::idt::TICKS.load(Ordering::Relaxed);
-    expire_deadlines(&mut tasks, now);
+    on_entry(&mut tasks, cur, tick);
 
     // Apply pending signals at the boundary back to user mode: a handler frame
     // is written into the task's saved interrupt frame, a term/core default
@@ -432,4 +432,25 @@ pub extern "C" fn schedule(current_rsp: u64) -> u64 {
     // Restore this task's user thread pointer.
     crate::arch::msr::write(crate::arch::msr::IA32_FS_BASE, fs_base);
     rsp
+}
+
+/// Per-entry bookkeeping shared by both scheduler gates (and the test
+/// harness): charge a real tick to the task that consumed it, then time out
+/// waiters whose deadline has passed.
+///
+/// Expiry runs here, on the scheduler's lock, so a timed-out task is runnable
+/// before this entry's selection runs and the wait path needs no separate
+/// timer callback. It also runs on voluntary entries: a deadline that passed
+/// while the CPU was busy is honoured at the next scheduling decision.
+pub(crate) fn on_entry(tasks: &mut [Option<Task>; MAX_TASKS], cur: usize, tick: bool) {
+    if tick {
+        if let Some(task) = tasks[cur].as_mut() {
+            // Charge the tick to the task that consumed it, so `cpu_usage`
+            // reports real per-task CPU time even across ticks without a
+            // switch. Voluntary entries consume no timer period.
+            task.cpu_ticks = task.cpu_ticks.saturating_add(1);
+        }
+    }
+    let now = crate::arch::idt::TICKS.load(Ordering::Relaxed);
+    expire_deadlines(tasks, now);
 }

@@ -22,6 +22,10 @@ target/xui/xui-sysmon.elf, target/xui/xui-fabricmon.elf,
 target/xui/xui-client.elf and target/xui/xui-term.elf, plus a JSON map on stdout. If the musl target or
 toolchain is unavailable the script reports what it could build and exits 0,
 so a CI job can skip the visual run.
+
+The pinned upstream ``xui-core`` is built with ``xui-app/patches/xui-core.patch``
+applied (see ``patch_core.py``); a plain ``cargo build`` of the app does not
+apply it.
 """
 
 from __future__ import annotations
@@ -32,6 +36,9 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import patch_core  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 APP = ROOT / "xui-app"
@@ -106,7 +113,15 @@ def main() -> int:
     ]
     if not args.debug:
         command.append("--release")
-    build = run(command, env=build_env())
+    with patch_core.preserve_lock(APP):
+        try:
+            core = patch_core.prepare(ROOT, APP)
+        except patch_core.PatchError as error:
+            print(f"error: {error}", file=sys.stderr)
+            print(json.dumps(built))
+            return 1
+        command += ["--config", patch_core.config_arg(core)]
+        build = run(command, env=build_env())
     if build.returncode != 0:
         # Only a missing toolchain/target is a skip (handled above); a real
         # compile error must fail CI instead of silently skipping the run.

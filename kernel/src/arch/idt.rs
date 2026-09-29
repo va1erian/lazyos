@@ -59,7 +59,12 @@ pub fn init() {
             .set_stack_index(crate::arch::gdt::DOUBLE_FAULT_IST);
     }
     // PIC IRQ0 (timer) drives preemption via the naked ISR in `task::switch`.
-    idt[32].set_handler_fn(timer_gate());
+    idt[32].set_handler_fn(naked_gate(crate::task::switch::timer_isr as *const ()));
+    // Voluntary reschedules (a task parking) use their own vector so they
+    // never count as a PIT tick or send a spurious EOI (issue #338). DPL 0:
+    // ring 3 cannot raise it.
+    idt[crate::task::switch::YIELD_VECTOR]
+        .set_handler_fn(naked_gate(crate::task::switch::yield_isr as *const ()));
     idt[33].set_handler_fn(keyboard_handler);
     idt[44].set_handler_fn(mouse_handler);
     // Every other PIC line reaches the device core (issue #240).
@@ -362,14 +367,12 @@ extern "x86-interrupt" fn double_fault_handler(stack: InterruptStackFrame, error
     crate::halt();
 }
 
-/// Handler for the naked timer ISR (it switches tasks itself).
-fn timer_gate() -> x86_64::structures::idt::HandlerFunc {
-    // Safety: `timer_isr` is a naked ISR with a compatible (no ABI) signature.
-    unsafe {
-        core::mem::transmute::<*const (), x86_64::structures::idt::HandlerFunc>(
-            crate::task::switch::timer_isr as *const (),
-        )
-    }
+/// Handler for one of the naked scheduler ISRs in `task::switch` (they save
+/// the frame and switch tasks themselves).
+fn naked_gate(isr: *const ()) -> x86_64::structures::idt::HandlerFunc {
+    // SAFETY: callers pass only `timer_isr`/`yield_isr`, naked ISRs with a
+    // compatible (no ABI) signature that end in `iretq`.
+    unsafe { core::mem::transmute::<*const (), x86_64::structures::idt::HandlerFunc>(isr) }
 }
 
 extern "x86-interrupt" fn keyboard_handler(_stack: InterruptStackFrame) {

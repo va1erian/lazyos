@@ -108,7 +108,7 @@ use user::sys;
 
 use drag::DragSession;
 use event::handle_event;
-use protocol::decode_event;
+use protocol::{decode_event, push_coalesced, Event};
 use render::repaint;
 use request::handle_request;
 use shell::{reap_dead_shell, taskbar_visible, AltTab, Modifiers, ShellSub};
@@ -188,6 +188,7 @@ fn run() -> ! {
     // both instead of allocating per message.
     let mut request_buf = alloc::vec![0u8; messenger::DEFAULT_BUFFER];
     let mut event_scratch = Vec::with_capacity(64);
+    let mut input: Vec<Event> = Vec::with_capacity(MAX_INPUT);
 
     // First frame: the previous mux pixels are still on screen, so paint the
     // desktop and present before announcing readiness.
@@ -206,35 +207,25 @@ fn run() -> ! {
     sys::write_str(SHELL_MARKER);
 
     loop {
-        // 1. Input: drain the kernel queue, then repaint only what changed.
-        let mut events = [0u8; 16 * 32];
-        loop {
-            match sys::display_input_poll(&mut events) {
-                Ok(0) => break,
-                Ok(count) => {
-                    for index in 0..count {
-                        let Some(event) = decode_event(&events, index) else {
-                            continue;
-                        };
-                        handle_event(
-                            event,
-                            &mut surfaces,
-                            &mut screen,
-                            &mut pointer,
-                            &mut focused,
-                            &mut drag,
-                            &mut drag_session,
-                            &mut event_scratch,
-                            &mut button_down,
-                            shell.as_ref(),
-                            &mut mods,
-                            &mut alt_tab,
-                            &mut consumed,
-                        );
-                    }
-                }
-                Err(_) => break,
-            }
+        // 1. Input: drain the whole kernel queue first so pointer moves
+        //    coalesce across poll calls, then handle what is left in order.
+        drain_input(&mut input);
+        for event in input.drain(..) {
+            handle_event(
+                event,
+                &mut surfaces,
+                &mut screen,
+                &mut pointer,
+                &mut focused,
+                &mut drag,
+                &mut drag_session,
+                &mut event_scratch,
+                &mut button_down,
+                shell.as_ref(),
+                &mut mods,
+                &mut alt_tab,
+                &mut consumed,
+            );
         }
         reap_dead_shell(
             &mut shell,
@@ -286,6 +277,41 @@ fn run() -> ! {
             drag_session.as_ref(),
             alt_tab.as_ref(),
         );
+    }
+}
+
+/// Kernel input records fetched per `display_input_poll` call.
+const INPUT_BATCH: usize = 32;
+/// The size of one kernel input record.
+const EVENT_BYTES: usize = 16;
+/// The most kernel records one drain reads before `xuid` handles them (the
+/// kernel's own queue bound). The bound counts records read, not events kept:
+/// coalescing keeps a run of pointer moves at one entry, so a pointer moving
+/// as fast as the queue is drained cannot keep this loop from returning to
+/// dispatch input and serve requests. The batch is allocated once, since the
+/// user bump allocator never reclaims.
+const MAX_INPUT: usize = 256;
+
+/// Drain the kernel input queue into `batch`, collapsing each run of pointer
+/// moves into its last record (issue #339). Draining before handling adds no
+/// latency and lets a run split across two poll calls still collapse;
+/// [`MAX_INPUT`] records bound one drain.
+fn drain_input(batch: &mut Vec<Event>) {
+    let mut records = [0u8; EVENT_BYTES * INPUT_BATCH];
+    let mut read = 0;
+    while read + INPUT_BATCH <= MAX_INPUT {
+        let Ok(count) = sys::display_input_poll(&mut records) else {
+            break;
+        };
+        if count == 0 {
+            break;
+        }
+        read += count;
+        for index in 0..count {
+            if let Some(event) = decode_event(&records, index) {
+                push_coalesced(batch, event);
+            }
+        }
     }
 }
 
