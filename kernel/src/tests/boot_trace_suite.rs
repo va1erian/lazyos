@@ -37,7 +37,10 @@ fn stale_stamps_fall_out_of_the_ring() -> Result<(), String> {
         "a stamp older than the ring must not alias a newer slot"
     );
     let newest = boot_trace::count() - 1;
-    check!(boot_trace::stamp(newest) == Some(1063), "newest stamp wrong");
+    check!(
+        boot_trace::stamp(newest) == Some(1063),
+        "newest stamp wrong"
+    );
     Ok(())
 }
 
@@ -78,8 +81,14 @@ fn ring_soak() -> Result<(), String> {
 
 pub(super) const CASES: &[(&str, Test)] = &[
     ("boot_trace_tsc_monotonic", tsc_is_monotonic),
-    ("boot_trace_record_sequence", record_returns_sequence_numbers),
-    ("boot_trace_ring_evicts_stale", stale_stamps_fall_out_of_the_ring),
+    (
+        "boot_trace_record_sequence",
+        record_returns_sequence_numbers,
+    ),
+    (
+        "boot_trace_ring_evicts_stale",
+        stale_stamps_fall_out_of_the_ring,
+    ),
     ("boot_trace_mark_counts", mark_counts_and_stays_monotonic),
     ("boot_trace_ring_soak", ring_soak),
 ];

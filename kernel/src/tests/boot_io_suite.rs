@@ -33,7 +33,15 @@ fn ata() -> Result<&'static dyn BlockDevice, String> {
 /// around the 128-sector command limit.
 fn ata_runs_match_single_sector_reads() -> Result<(), String> {
     let device = ata()?;
-    for (lba, count) in [(0u64, 1usize), (1, 2), (3, 7), (0, 127), (5, 128), (2, 129), (0, 300)] {
+    for (lba, count) in [
+        (0u64, 1usize),
+        (1, 2),
+        (3, 7),
+        (0, 127),
+        (5, 128),
+        (2, 129),
+        (0, 300),
+    ] {
         let mut run = vec![0u8; count * SECTOR_SIZE];
         device
             .read_sectors(lba, &mut run)
@@ -116,9 +124,13 @@ fn fragmented_image() -> Vec<u8> {
     put16(&mut image, bpb + 17, 512); // root entries
     put16(&mut image, bpb + 19, (IMAGE_SECTORS - 1) as u16);
     put16(&mut image, bpb + 22, 18); // sectors per FAT
-    // The chain, in the FAT.
+                                     // The chain, in the FAT.
     for pair in CHAIN.windows(2) {
-        put16(&mut image, FAT_LBA * SECTOR_SIZE + pair[0] as usize * 2, pair[1]);
+        put16(
+            &mut image,
+            FAT_LBA * SECTOR_SIZE + pair[0] as usize * 2,
+            pair[1],
+        );
     }
     put16(
         &mut image,
@@ -222,7 +234,10 @@ fn fat_boot_volume_whole_matches_windows() -> Result<(), String> {
         .lookup("SH.ELF")
         .map_err(|error| format!("lookup: {error:?}"))?;
     let size = meta.size as usize;
-    check!(size > 8 * SECTOR_SIZE, "SH.ELF is unexpectedly small ({size})");
+    check!(
+        size > 8 * SECTOR_SIZE,
+        "SH.ELF is unexpectedly small ({size})"
+    );
     let mut whole = vec![0u8; size];
     check!(
         volume.read("SH.ELF", 0, &mut whole) == Ok(size),
@@ -241,7 +256,10 @@ fn fat_boot_volume_whole_matches_windows() -> Result<(), String> {
         assembled.extend_from_slice(&window[..got]);
         offset += got;
     }
-    check!(assembled == whole, "windowed and whole reads of SH.ELF differ");
+    check!(
+        assembled == whole,
+        "windowed and whole reads of SH.ELF differ"
+    );
 
     // Soak: the whole file again and again, plus random ranges.
     let mut rng = Rng(0xD1B5_4A32_D192_ED03);
@@ -334,10 +352,22 @@ fn untouched_walks_regions_in_order() -> Result<(), String> {
         got == [0x10_0000, 0x10_1000, 0x10_2000, 0x40_0000],
         "frames handed out: {got:x?}"
     );
-    check!(cursor.next(&ends, 2).is_none(), "the cursor must stay exhausted");
-    check!(Untouched::frames_in(0x10_0000, 0x10_0000 + 3 * 4096) == 3, "frames_in");
-    check!(Untouched::frames_in(0x40_0000, 0x40_0000 + 4196) == 1, "frames_in tail");
-    check!(Untouched::frames_in(10, 5) == 0, "frames_in must not underflow");
+    check!(
+        cursor.next(&ends, 2).is_none(),
+        "the cursor must stay exhausted"
+    );
+    check!(
+        Untouched::frames_in(0x10_0000, 0x10_0000 + 3 * 4096) == 3,
+        "frames_in"
+    );
+    check!(
+        Untouched::frames_in(0x40_0000, 0x40_0000 + 4196) == 1,
+        "frames_in tail"
+    );
+    check!(
+        Untouched::frames_in(10, 5) == 0,
+        "frames_in must not underflow"
+    );
     Ok(())
 }
 
@@ -347,12 +377,19 @@ fn frame_allocator_lazy_soak() -> Result<(), String> {
     let before = mem::frame_stats();
     let mut held = Vec::new();
     for _ in 0..3000 {
-        held.push(mem::alloc_frame().ok_or_else(|| String::from("out of frames"))?.as_u64());
+        held.push(
+            mem::alloc_frame()
+                .ok_or_else(|| String::from("out of frames"))?
+                .as_u64(),
+        );
     }
     let mut sorted = held.clone();
     sorted.sort_unstable();
     sorted.dedup();
-    check!(sorted.len() == held.len(), "the allocator handed out a frame twice");
+    check!(
+        sorted.len() == held.len(),
+        "the allocator handed out a frame twice"
+    );
     check!(
         mem::frame_stats().live() == before.live() + 3000,
         "live frame count off after allocating"
@@ -361,7 +398,11 @@ fn frame_allocator_lazy_soak() -> Result<(), String> {
         mem::free_frame(x86_64::PhysAddr::new(frame));
     }
     let after = mem::frame_stats();
-    check!(after.live() == before.live(), "frames leaked: {}", after.live() as i64 - before.live() as i64);
+    check!(
+        after.live() == before.live(),
+        "frames leaked: {}",
+        after.live() as i64 - before.live() as i64
+    );
     check!(
         after.free + after.live() == after.total,
         "free + live != total after the soak"
@@ -374,11 +415,26 @@ fn frame_allocator_lazy_soak() -> Result<(), String> {
 }
 
 pub(super) const CASES: &[(&str, Test)] = &[
-    ("boot_io_ata_runs_match_single_reads", ata_runs_match_single_sector_reads),
+    (
+        "boot_io_ata_runs_match_single_reads",
+        ata_runs_match_single_sector_reads,
+    ),
     ("boot_io_ata_run_bounds", ata_run_bounds),
-    ("boot_io_fat_fragmented_chain_reads", fat_fragmented_chain_reads),
-    ("boot_io_fat_boot_volume_whole_vs_windows", fat_boot_volume_whole_matches_windows),
-    ("boot_io_pci_enumeration", pci_enumeration_is_stable_and_ranked),
+    (
+        "boot_io_fat_fragmented_chain_reads",
+        fat_fragmented_chain_reads,
+    ),
+    (
+        "boot_io_fat_boot_volume_whole_vs_windows",
+        fat_boot_volume_whole_matches_windows,
+    ),
+    (
+        "boot_io_pci_enumeration",
+        pci_enumeration_is_stable_and_ranked,
+    ),
     ("boot_io_untouched_cursor", untouched_walks_regions_in_order),
-    ("boot_io_frame_allocator_lazy_soak", frame_allocator_lazy_soak),
+    (
+        "boot_io_frame_allocator_lazy_soak",
+        frame_allocator_lazy_soak,
+    ),
 ];

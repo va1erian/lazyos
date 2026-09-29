@@ -113,7 +113,7 @@ fn pio_read_run(lba: u32, buf: &mut [u8]) -> bool {
         outb(STATUS, COMMAND_READ);
     }
 
-    for sector in buf.chunks_exact_mut(SECTOR_SIZE) {
+    for sector in buf.as_chunks_mut::<SECTOR_SIZE>().0 {
         // The device raises DRQ once per sector of the run.
         if !wait_not_busy() || !wait_for_data() {
             return false;
@@ -121,7 +121,7 @@ fn pio_read_run(lba: u32, buf: &mut [u8]) -> bool {
         // Safety: the data port is read-many within one sector transfer;
         // `wait_for_data` above confirmed the device has a sector ready, and
         // `sector` is exactly the 512 bytes it will supply.
-        unsafe { insw_bytes(DATA, sector) };
+        unsafe { insw_bytes(DATA, &mut sector[..]) };
     }
     true
 }
