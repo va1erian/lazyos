@@ -52,7 +52,10 @@ fn drag_target_at(surfaces: &[Surface], source: u64, point: (i32, i32)) -> Optio
 
 /// The rectangle the drag ghost occupies around `point`.
 fn ghost_rect(mime: &str, point: (i32, i32)) -> Rect {
-    let shown = mime.char_indices().nth(24).map_or(mime, |(end, _)| &mime[..end]);
+    let shown = mime
+        .char_indices()
+        .nth(24)
+        .map_or(mime, |(end, _)| &mime[..end]);
     let label = Face::Sans.width(shown) + 8;
     Rect::new(point.0 + 6, point.1 + 6, 14 + label, 16)
 }

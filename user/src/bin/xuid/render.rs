@@ -125,7 +125,14 @@ fn draw_alt_tab(screen: &mut Canvas, surfaces: &[Surface], tab: &AltTab, clip: R
         clip,
         OVERLAY_BORDER,
     );
-    screen.text_face(panel.x + 10, panel.y + 4, "Alt+Tab", Face::Serif, OVERLAY_TEXT, clip);
+    screen.text_face(
+        panel.x + 10,
+        panel.y + 4,
+        "Alt+Tab",
+        Face::Serif,
+        OVERLAY_TEXT,
+        clip,
+    );
     // Highlight the selected row before its text, then paint the titles.
     for (index, id) in tab.order.iter().take(rows).enumerate() {
         let row = Rect::new(
