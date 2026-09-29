@@ -81,11 +81,6 @@ fn wait_for_data() -> bool {
 /// bits (0 means 256); 128 keeps a run to 64 KiB and the maths obvious.
 pub const MAX_RUN: usize = 128;
 
-/// Read one 512-byte sector from the primary master (28-bit LBA).
-pub fn pio_read_sector(lba: u32, buf: &mut [u8; SECTOR_SIZE]) -> bool {
-    pio_read_run(lba, buf)
-}
-
 /// Read `buf.len() / 512` consecutive sectors (1..=[`MAX_RUN`]) with a single
 /// `READ SECTORS` command. One command per run instead of per sector saves
 /// the register setup and the 400ns delay, and the data goes straight into
@@ -131,7 +126,7 @@ fn identify() -> Option<u64> {
     let _guard = IO.lock();
     // Select the master; a missing drive leaves the bus floating, which QEMU
     // reports as status 0, so the probe can bail out before the full timeout.
-    // Safety: same ATA protocol contract as `pio_read_sector`.
+    // Safety: same ATA protocol contract as `pio_read_run`.
     unsafe {
         outb(DRIVE, 0xA0);
     }
@@ -140,7 +135,7 @@ fn identify() -> Option<u64> {
         return None;
     }
     // IDENTIFY takes no address and expects the count/LBA registers cleared.
-    // Safety: same ATA protocol contract as `pio_read_sector`.
+    // Safety: same ATA protocol contract as `pio_read_run`.
     unsafe {
         outb(SECTORS, 0);
         outb(LBA_LO, 0);
