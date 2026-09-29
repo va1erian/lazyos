@@ -126,6 +126,8 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     // Descriptor tables, interrupts (PIC/PIT), and the PS/2 mouse.
     arch::init();
     boot_phase!("arch_ready");
+    // Interrupt vectors and the device syscall are live: print their evidence.
+    dev::selfcheck();
     input::mouse::set_bounds(info.width as i32, info.height as i32);
 
     // Register the kernel (multiplexer) task and spawn the demo programs, the

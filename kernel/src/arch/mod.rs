@@ -5,6 +5,7 @@ pub mod fault;
 pub mod gdt;
 pub mod idt;
 pub mod io;
+pub mod irq_stubs;
 pub mod linux;
 pub mod msr;
 pub mod pic;

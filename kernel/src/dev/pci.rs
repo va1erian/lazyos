@@ -27,11 +27,14 @@ const REG_BAR0: u8 = 0x10;
 const REG_SUBSYSTEM: u8 = 0x2C;
 const REG_CAP_PTR: u8 = 0x34;
 const REG_INTERRUPT_LINE: u8 = 0x3C;
+const REG_INTERRUPT_PIN: u8 = 0x3D;
 
 /// Command-register bits this core manipulates.
 pub const COMMAND_IO: u16 = 1 << 0;
 pub const COMMAND_MEMORY: u16 = 1 << 1;
 pub const COMMAND_BUS_MASTER: u16 = 1 << 2;
+/// Command bit that stops the function asserting its INTx line.
+pub const COMMAND_INTX_DISABLE: u16 = 1 << 10;
 
 /// Status-register bit announcing a capability list.
 const STATUS_CAPABILITIES: u16 = 1 << 4;
@@ -148,9 +151,9 @@ pub(crate) fn io_mask(mask: u32) -> u32 {
 /// decodes a bogus window.
 fn with_decode_off<T>(address: Address, sizing: impl FnOnce() -> T) -> T {
     let saved = command(address);
-    write16(address, REG_COMMAND, saved & !(COMMAND_IO | COMMAND_MEMORY));
+    write_command(address, saved & !(COMMAND_IO | COMMAND_MEMORY));
     let result = sizing();
-    write16(address, REG_COMMAND, saved);
+    write_command(address, saved);
     result
 }
 
@@ -239,14 +242,21 @@ pub fn command(address: Address) -> u16 {
     read16(address, REG_COMMAND)
 }
 
+/// Write the command register alone. The status half of the dword goes out as
+/// zero: status bits are write-1-to-clear, so echoing back what a
+/// read-modify-write just read would silently clear pending error bits.
+pub fn write_command(address: Address, value: u16) {
+    write32(address, REG_COMMAND, u32::from(value));
+}
+
 /// Set `bits` in the command register.
 pub fn set_command(address: Address, bits: u16) {
-    write16(address, REG_COMMAND, command(address) | bits);
+    write_command(address, command(address) | bits);
 }
 
 /// Clear `bits` in the command register.
 pub fn clear_command(address: Address, bits: u16) {
-    write16(address, REG_COMMAND, command(address) & !bits);
+    write_command(address, command(address) & !bits);
 }
 
 pub fn enable_memory(address: Address) {
@@ -305,6 +315,12 @@ pub fn for_each_capability(address: Address, mut visit: impl FnMut(Capability)) 
 /// routed). The device core records it as the function's [`super::Irq`].
 pub fn interrupt_line(address: Address) -> u8 {
     read8(address, REG_INTERRUPT_LINE)
+}
+
+/// The INTx pin the function uses: 0 none, 1-4 for INTA#-INTD#. A function with
+/// no pin never raises a legacy interrupt whatever its Interrupt Line says.
+pub fn interrupt_pin(address: Address) -> u8 {
+    read8(address, REG_INTERRUPT_PIN)
 }
 
 /// Identity/class fields read straight from config space, for [`Function`]s

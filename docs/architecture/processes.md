@@ -9,7 +9,8 @@ syscall shim.
 | Path | Role |
 |---|---|
 | `kernel/src/task/process.rs` | Tree, groups, sessions, `finish`, `reap_child` |
-| `kernel/src/process/mod.rs` | Native gate dispatch, ELF loader, syscalls 6-11 |
+| `kernel/src/process/mod.rs` (+ `creds.rs`, `spawn.rs`) | ELF loader, syscalls 6-11 (creds/quota/tasks in `creds.rs`, spawn in `spawn.rs`) |
+| `kernel/src/process/gate.rs` | The `int 0x80` gate: register-save stub and the syscall routing table (native dispatch) |
 | `kernel/src/process/linux/` | Linux ELF loader + syscall dispatch, futex, clone (split by syscall family; see its `mod.rs` doc comment) |
 | `kernel/src/ipc/pipe.rs` | Pipes (`pipe`/`pipe2`) and `AF_UNIX` socket pairs |
 | `kernel/src/arch/linux.rs` | `syscall`/`sysret` entry (see [arch.md](arch.md)) |
@@ -47,6 +48,8 @@ syscall shim.
 | 14 | `system_stats(op, buf, cap)` | uptime, frame/slab/heap counters and the task table for `top`/`sysmond` (`sysinfo.rs`, #144) |
 | 15-20 | `stat`, `readdir`, `write_file`, `mkdir`, `unlink`, `rename` (path args) | path-based native VFS calls for the shell (`process/fsops.rs`, #6); FAT is read-only (`-EROFS`), `/tmp` is writable; `-errno` on failure |
 | 21 | `power(op)` | `reboot`/`shutdown`, `CAP_SYS_ADMIN` only (`process/power.rs`, #6) |
+| 22 | `fsync(path)` | flush the mount holding the file to its block device (`process/fsops.rs`, #260) |
+| 23 | `dev(op, a1, a2, a3, a4)` | userspace driver access: list, claim, map_bar, pio, cfg, irq, release; `CAP_DEV_CLAIM` (`dev/syscall.rs`, #240; see [devices.md](devices.md)) |
 
 - `spawn` reads the ELF from the FAT image, leaks one interned `&'static str`
   per distinct service name (at most 64; later spellings share the name

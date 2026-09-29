@@ -111,6 +111,7 @@ pub(crate) fn attach_all(table: &Mutex<DeviceTable>, drivers: &[&dyn Driver]) ->
         match driver.attach(handle) {
             Ok(()) => {
                 attached += 1;
+                silence_intx(&info);
                 serial_println!(
                     "dev: {} attached device {} (vendor {:04x}:{:04x})",
                     driver.name(),
@@ -125,6 +126,16 @@ pub(crate) fn attach_all(table: &Mutex<DeviceTable>, drivers: &[&dyn Driver]) ->
         }
     }
     attached
+}
+
+/// Every in-kernel driver polls, so a PCI function it owns must never assert
+/// its INTx line: on a line shared with a userspace claimant (QEMU has four
+/// PIRQs for everything) a level-asserted, never-serviced interrupt would look
+/// like the claimant's own and keep its line busy.
+fn silence_intx(info: &DeviceInfo) {
+    if let BusId::Pci(address) = info.bus {
+        super::pci::set_command(address, super::pci::COMMAND_INTX_DISABLE);
+    }
 }
 
 /// Offer every enumerated device to the driver table. Idempotent; returns how

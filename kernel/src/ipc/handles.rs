@@ -24,6 +24,9 @@ pub enum HandleKind {
     Object,
     /// A shared buffer.
     Buffer,
+    /// A claimed device (issue #240). Never transferable or duplicable: the
+    /// claim belongs to the task that made it.
+    Device,
 }
 
 /// Capability rights carried by a handle.
@@ -40,6 +43,22 @@ pub mod rights {
     pub const CONTROL: u32 = 1 << 4;
     /// Every right.
     pub const ALL: u32 = CALL | DUPLICATE | TRANSFER | MONITOR | CONTROL;
+
+    /// `Device` handle rights (issue #240), one bit per resource family. They
+    /// share the bit space with the messenger rights above but are only ever
+    /// combined with `HandleKind::Device`, which carries none of those.
+    /// Map a memory BAR.
+    pub const DEV_MMIO: u32 = 1 << 8;
+    /// Port I/O inside the device's I/O BARs.
+    pub const DEV_PIO: u32 = 1 << 9;
+    /// Arm and acknowledge the device's interrupt.
+    pub const DEV_IRQ: u32 = 1 << 10;
+    /// Bus-master DMA. Defined now; `dma_alloc` lands with issue #241.
+    pub const DEV_DMA: u32 = 1 << 11;
+    /// PCI configuration space.
+    pub const DEV_CONFIG: u32 = 1 << 12;
+    /// Every device right.
+    pub const DEV_ALL: u32 = DEV_MMIO | DEV_PIO | DEV_IRQ | DEV_DMA | DEV_CONFIG;
 }
 
 /// Kernel handles per process. A quota keeps a malicious sender from exhausting

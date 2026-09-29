@@ -5,8 +5,10 @@
 //! Split out of `mimed.rs`, which is past the file-size budget.
 
 use alloc::format;
-use alloc::string::ToString;
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
 use user::central;
+use user::messenger::mime::wire;
 use user::messenger::{self, errno, mime, services, Endpoint, Error, Message, Parcel};
 use user::sys;
 
@@ -24,39 +26,54 @@ pub(crate) fn dispatch(
     if message.interface_id() != mime::INTERFACE {
         return Err(Error::Errno(-errno::EINVAL));
     }
+    let body = &message.parcel.body;
+    let parse = Error::Parcel;
     match message.method() {
-        mime::method::GUESS => {
-            let path = mime::string_field(&message.parcel, mime::field::PATH)?;
-            mime::guess_reply(&db.guess(&path))
+        wire::METHOD_GUESS => {
+            let args = wire::decode_guess_args(body).map_err(parse)?;
+            let mime = db.guess(&args.path);
+            reply(
+                wire::METHOD_GUESS,
+                wire::encode_guess_reply(&wire::GuessReply { mime }),
+            )
         }
-        mime::method::LOOKUP => {
-            let mime_type = mime::string_field(&message.parcel, mime::field::MIME)?;
-            let verb = mime::string_field(&message.parcel, mime::field::VERB)?;
-            mime::lookup_reply(apps.lookup(&mime_type, &verb))
+        wire::METHOD_LOOKUP => {
+            let args = wire::decode_lookup_args(body).map_err(parse)?;
+            let app = apps.lookup(&args.mime, &args.verb).map(String::from);
+            reply(
+                wire::METHOD_LOOKUP,
+                wire::encode_lookup_reply(&wire::LookupReply { app }),
+            )
         }
-        mime::method::VERBS => {
-            let mime_type = mime::string_field(&message.parcel, mime::field::MIME)?;
-            mime::verbs_reply(&apps.verbs(&mime_type))
+        wire::METHOD_VERBS => {
+            let args = wire::decode_verbs_args(body).map_err(parse)?;
+            let verbs = apps.verbs(&args.mime);
+            reply(
+                wire::METHOD_VERBS,
+                wire::encode_verbs_reply(&wire::VerbsReply { verbs }),
+            )
         }
-        mime::method::OPEN => {
-            let path = mime::string_field(&message.parcel, mime::field::PATH)?;
-            let verb = mime::string_field(&message.parcel, mime::field::VERB)?;
+        wire::METHOD_OPEN => {
+            let args = wire::decode_open_args(body).map_err(parse)?;
             let session = caller_session(message);
-            let result = open_path(db, apps, bus, &path, &verb, session)?;
-            mime::open_reply(&result)
+            let result = open_path(db, apps, bus, &args.path, &args.verb, session)?;
+            reply(wire::METHOD_OPEN, wire::encode_open_reply(&result))
         }
-        mime::method::REGISTER => {
-            let mime_type = mime::string_field(&message.parcel, mime::field::MIME)?;
-            let app = mime::string_field(&message.parcel, mime::field::APP)?;
-            let verb = mime::string_field(&message.parcel, mime::field::VERB)?;
-            if !valid_mime(&mime_type) || !valid_app_id(&app) || !valid_token(&verb) {
+        wire::METHOD_REGISTER => {
+            let args = wire::decode_register_args(body).map_err(parse)?;
+            if !valid_mime(&args.mime) || !valid_app_id(&args.app) || !valid_token(&args.verb) {
                 return Err(Error::Errno(-errno::EINVAL));
             }
-            apps.register(&mime_type, &app, &verb);
-            Ok(mime::ok_reply(mime::method::REGISTER))
+            apps.register(&args.mime, &args.app, &args.verb);
+            Ok(mime::ok_reply(wire::METHOD_REGISTER))
         }
         _ => Err(Error::Errno(-errno::EINVAL)),
     }
+}
+
+/// Frame an encoded reply body as a parcel of `method`.
+fn reply(method: u32, body: Result<Vec<u8>, libmessenger::Error>) -> messenger::Result<Parcel> {
+    Ok(mime::parcel(method, body.map_err(Error::Parcel)?))
 }
 
 /// Guess the path, resolve the app (`verb`, then the default verb), ask `init`

@@ -1,151 +1,164 @@
-//! Parcel encode/decode helpers for the clipboard protocol.
+//! Parcel helpers for the clipboard protocol.
+//!
+//! The wire shapes are the `midlc`-generated `os.lazy.clipboard.v1` stubs
+//! ([`super::wire`]); this module frames them in parcels on the right scope
+//! interface and converts to the module's plain Rust types. Only the
+//! structured error field is hand-written (it is a convention every service
+//! shares, not part of the interface).
 
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use libmessenger::{Decoder, Encoder, Field, Kind, Parcel};
+use libmessenger::{Decoder, Encoder, Kind, Parcel};
 
 use super::super::{errno, router, Error, Result};
 use super::{
-    field, method, parcel, BufferHandle, OfferInfo, OfferRequest, INTERFACE, OWNER_INTERFACE,
+    parcel, wire, BufferHandle, OfferInfo, OfferRequest, INTERFACE, OWNER_INTERFACE,
     READ_INTERFACE, WRITE_INTERFACE,
 };
+
+/// Structured error field id in a reply body; the generated reply fields
+/// use ids 1-4, so it can never collide with a success payload.
+const ERROR_FIELD: u16 = 13;
 
 /// `Offer(owner, mime_types) -> token` for an eager offer: the payloads
 /// ride along and the service keeps one bounded copy.
 pub fn offer_request(owner: &str, offers: &[(&str, &[u8])]) -> Result<Parcel> {
-    let mut body = Encoder::new();
-    body.string(field::OWNER, owner).map_err(Error::Parcel)?;
-    let mut mimes = Encoder::new();
-    let mut data = Encoder::new();
-    for (mime, bytes) in offers {
-        mimes.string(field::MIMES, mime).map_err(Error::Parcel)?;
-        let mut record = Encoder::new();
-        record.string(field::MIME, mime).map_err(Error::Parcel)?;
-        record.bytes(field::BYTES, bytes).map_err(Error::Parcel)?;
-        data.record(field::DATA, &record).map_err(Error::Parcel)?;
-    }
-    body.array(field::MIMES, &mimes).map_err(Error::Parcel)?;
-    body.array(field::DATA, &data).map_err(Error::Parcel)?;
-    Ok(parcel(WRITE_INTERFACE, method::OFFER, body))
+    let args = wire::OfferArgs {
+        owner: String::from(owner),
+        sink: None,
+        mimes: offers.iter().map(|(mime, _)| String::from(*mime)).collect(),
+        data: offers
+            .iter()
+            .map(|(mime, bytes)| wire::Payload {
+                mime: String::from(*mime),
+                bytes: bytes.to_vec(),
+            })
+            .collect(),
+    };
+    let body = wire::encode_offer_args(&args).map_err(Error::Parcel)?;
+    Ok(parcel(WRITE_INTERFACE, wire::METHOD_OFFER, body))
 }
 
 /// `Offer` for a lazy offer: only the MIME list crosses the wire. `sink`
-/// names the registry entry where the owner serves [`method::SERIALIZE`]
+/// names the registry entry where the owner serves [`super::method::SERIALIZE`]
 /// when a paste actually happens.
 pub fn offer_lazy_request(owner: &str, sink: &str, mimes: &[&str]) -> Result<Parcel> {
-    let mut body = Encoder::new();
-    body.string(field::OWNER, owner).map_err(Error::Parcel)?;
-    body.string(field::SINK, sink).map_err(Error::Parcel)?;
-    let mut array = Encoder::new();
-    for mime in mimes {
-        array.string(field::MIMES, mime).map_err(Error::Parcel)?;
-    }
-    body.array(field::MIMES, &array).map_err(Error::Parcel)?;
-    Ok(parcel(WRITE_INTERFACE, method::OFFER, body))
+    let args = wire::OfferArgs {
+        owner: String::from(owner),
+        sink: Some(String::from(sink)),
+        mimes: mimes.iter().map(|mime| String::from(*mime)).collect(),
+        data: Vec::new(),
+    };
+    let body = wire::encode_offer_args(&args).map_err(Error::Parcel)?;
+    Ok(parcel(WRITE_INTERFACE, wire::METHOD_OFFER, body))
 }
 
 /// An `Offer` reply carrying the new token.
 pub fn token_reply(token: u64) -> Result<Parcel> {
-    let mut body = Encoder::new();
-    body.u64(field::TOKEN, token).map_err(Error::Parcel)?;
-    Ok(parcel(WRITE_INTERFACE, method::OFFER, body))
+    let body = wire::encode_offer_reply(&wire::OfferReply { token }).map_err(Error::Parcel)?;
+    Ok(parcel(WRITE_INTERFACE, wire::METHOD_OFFER, body))
 }
 
 /// `Request(token, mime)`; `token == 0` selects the newest offer in the
 /// caller's session that lists `mime`.
 pub fn request_request(token: u64, mime: &str) -> Result<Parcel> {
-    let mut body = Encoder::new();
-    body.u64(field::TOKEN, token).map_err(Error::Parcel)?;
-    body.string(field::MIME, mime).map_err(Error::Parcel)?;
-    Ok(parcel(READ_INTERFACE, method::REQUEST, body))
+    let args = wire::RequestArgs {
+        token,
+        mime: String::from(mime),
+    };
+    let body = wire::encode_request_args(&args).map_err(Error::Parcel)?;
+    Ok(parcel(READ_INTERFACE, wire::METHOD_REQUEST, body))
 }
 
 /// A `Request` reply carrying the payload (the `BufferHandle` shape).
 pub fn request_reply(handle: &BufferHandle) -> Result<Parcel> {
-    let mut body = Encoder::new();
-    body.u64(field::TOKEN, handle.token)
-        .map_err(Error::Parcel)?;
-    body.string(field::MIME, &handle.mime)
-        .map_err(Error::Parcel)?;
-    body.bool(field::LAZY, handle.lazy).map_err(Error::Parcel)?;
-    body.bytes(field::BYTES, &handle.bytes)
-        .map_err(Error::Parcel)?;
-    Ok(parcel(READ_INTERFACE, method::REQUEST, body))
+    let reply = wire::RequestReply {
+        token: handle.token,
+        mime: handle.mime.clone(),
+        lazy: handle.lazy,
+        bytes: handle.bytes.clone(),
+    };
+    let body = wire::encode_request_reply(&reply).map_err(Error::Parcel)?;
+    Ok(parcel(READ_INTERFACE, wire::METHOD_REQUEST, body))
 }
 
 /// `Serialize(token, mime)`: the service calls this on a lazy offer's owner
 /// endpoint when a paste happens.
 pub fn serialize_request(token: u64, mime: &str) -> Result<Parcel> {
-    let mut body = Encoder::new();
-    body.u64(field::TOKEN, token).map_err(Error::Parcel)?;
-    body.string(field::MIME, mime).map_err(Error::Parcel)?;
-    Ok(parcel(OWNER_INTERFACE, method::SERIALIZE, body))
+    let args = wire::SerializeArgs {
+        token,
+        mime: String::from(mime),
+    };
+    let body = wire::encode_serialize_args(&args).map_err(Error::Parcel)?;
+    Ok(parcel(OWNER_INTERFACE, wire::METHOD_SERIALIZE, body))
 }
 
 /// The owner's `Serialize` answer.
 pub fn serialize_reply(bytes: &[u8]) -> Result<Parcel> {
-    let mut body = Encoder::new();
-    body.bytes(field::BYTES, bytes).map_err(Error::Parcel)?;
-    Ok(parcel(OWNER_INTERFACE, method::SERIALIZE, body))
+    let reply = wire::SerializeReply {
+        bytes: bytes.to_vec(),
+    };
+    let body = wire::encode_serialize_reply(&reply).map_err(Error::Parcel)?;
+    Ok(parcel(OWNER_INTERFACE, wire::METHOD_SERIALIZE, body))
 }
 
 /// A `Ping` request.
 pub fn ping_request() -> Parcel {
-    parcel(INTERFACE, method::PING, Encoder::new())
+    ok_reply(INTERFACE, wire::METHOD_PING)
 }
 
 /// A `Current` request (offer metadata only; never content).
 pub fn current_request() -> Parcel {
-    parcel(INTERFACE, method::CURRENT, Encoder::new())
+    ok_reply(INTERFACE, wire::METHOD_CURRENT)
 }
 
 /// An empty successful reply on `interface_id`/`method`.
 pub fn ok_reply(interface_id: u64, method: u32) -> Parcel {
-    parcel(interface_id, method, Encoder::new())
+    parcel(interface_id, method, Vec::new())
+}
+
+/// The generated metadata record for `info`.
+fn meta(info: &OfferInfo) -> wire::OfferMeta {
+    wire::OfferMeta {
+        token: info.token,
+        owner: info.owner.clone(),
+        session: info.session,
+        mimes: info.mimes.clone(),
+        lazy: info.lazy,
+        tick: info.tick,
+    }
+}
+
+/// The plain-Rust view of a generated metadata record.
+fn info(meta: wire::OfferMeta) -> OfferInfo {
+    OfferInfo {
+        token: meta.token,
+        owner: meta.owner,
+        session: meta.session,
+        mimes: meta.mimes,
+        lazy: meta.lazy,
+        tick: meta.tick,
+    }
 }
 
 /// Encode `info` into a `Current` reply; `None` when no offer is live.
 pub fn current_reply(info: Option<&OfferInfo>) -> Result<Parcel> {
-    let mut body = Encoder::new();
-    body.u64(field::FOUND, info.is_some() as u64)
-        .map_err(Error::Parcel)?;
-    if let Some(info) = info {
-        body.record(field::OFFER, &info_body(info)?)
-            .map_err(Error::Parcel)?;
-    }
-    Ok(parcel(INTERFACE, method::CURRENT, body))
+    let reply = wire::CurrentReply {
+        offer: info.map(meta),
+    };
+    let body = wire::encode_current_reply(&reply).map_err(Error::Parcel)?;
+    Ok(parcel(INTERFACE, wire::METHOD_CURRENT, body))
 }
 
 /// Encode an offer's metadata as the retained `.../clipboard/changed`
-/// event payload: a parcel with the `OFFER` record, never content.
+/// event payload: a `Current` reply parcel, never content.
 pub fn changed_payload(info: &OfferInfo) -> Result<Vec<u8>> {
-    let mut body = Encoder::new();
-    body.record(field::OFFER, &info_body(info)?)
-        .map_err(Error::Parcel)?;
     let mut bytes = Vec::new();
-    parcel(INTERFACE, method::CURRENT, body)
+    current_reply(Some(info))?
         .encode(&mut bytes)
         .map_err(Error::Parcel)?;
     Ok(bytes)
-}
-
-/// The offer-metadata body shared by `Current` and the changed event.
-fn info_body(info: &OfferInfo) -> Result<Encoder> {
-    let mut body = Encoder::new();
-    body.u64(field::TOKEN, info.token).map_err(Error::Parcel)?;
-    body.string(field::OWNER, &info.owner)
-        .map_err(Error::Parcel)?;
-    body.u64(field::SESSION, info.session)
-        .map_err(Error::Parcel)?;
-    body.bool(field::LAZY, info.lazy).map_err(Error::Parcel)?;
-    body.u64(field::TICK, info.tick).map_err(Error::Parcel)?;
-    let mut array = Encoder::new();
-    for mime in &info.mimes {
-        array.string(field::MIMES, mime).map_err(Error::Parcel)?;
-    }
-    body.array(field::MIMES, &array).map_err(Error::Parcel)?;
-    Ok(body)
 }
 
 /// The service's error answer: errno-style code plus friendly text.
@@ -153,8 +166,8 @@ pub fn error_reply(interface_id: u64, method: u32, error: Error) -> Parcel {
     let code = error.errno().map(|code| -code).unwrap_or(errno::EINVAL);
     let mut body = Encoder::new();
     // A structured error field cannot overflow a fresh encoder here.
-    let _ = body.error(field::ERROR, code as u32, error.message());
-    parcel(interface_id, method, body)
+    let _ = body.error(ERROR_FIELD, code as u32, error.message());
+    parcel(interface_id, method, body.finish())
 }
 
 /// The first structured error field, when the reply is a service failure.
@@ -164,7 +177,7 @@ pub fn error_reply(interface_id: u64, method: u32, error: Error) -> Parcel {
 pub(super) fn error_field(parcel: &Parcel) -> Result<Option<i64>> {
     let mut decoder = Decoder::new(&parcel.body);
     while let Some(item) = decoder.next().map_err(Error::Parcel)? {
-        if item.kind == Kind::Error && item.id == field::ERROR {
+        if item.kind == Kind::Error && item.id == ERROR_FIELD {
             let (code, _message) = item.error_parts().map_err(Error::Parcel)?;
             return Ok(Some(code as i64));
         }
@@ -174,153 +187,58 @@ pub(super) fn error_field(parcel: &Parcel) -> Result<Option<i64>> {
 
 /// Decode an `Offer` request into its owner, sink, MIME list and payloads.
 pub fn decode_offer(parcel: &Parcel) -> Result<OfferRequest> {
-    let mut request = OfferRequest::default();
-    let mut decoder = Decoder::new(&parcel.body);
-    while let Some(item) = decoder.next().map_err(Error::Parcel)? {
-        match (item.kind, item.id) {
-            (Kind::String, field::OWNER) => {
-                request.owner = String::from(item.as_str().map_err(Error::Parcel)?);
-            }
-            (Kind::String, field::SINK) => {
-                request.sink = Some(String::from(item.as_str().map_err(Error::Parcel)?));
-            }
-            (Kind::Array, field::MIMES) => {
-                let mut nested = item.nested(0).map_err(Error::Parcel)?;
-                while let Some(entry) = nested.next().map_err(Error::Parcel)? {
-                    if entry.kind == Kind::String {
-                        request
-                            .mimes
-                            .push(String::from(entry.as_str().map_err(Error::Parcel)?));
-                    }
-                }
-            }
-            (Kind::Array, field::DATA) => {
-                let mut nested = item.nested(0).map_err(Error::Parcel)?;
-                while let Some(entry) = nested.next().map_err(Error::Parcel)? {
-                    if entry.kind != Kind::Struct {
-                        continue;
-                    }
-                    let mut record = entry.nested(0).map_err(Error::Parcel)?;
-                    let mut mime = String::new();
-                    let mut bytes = Vec::new();
-                    while let Some(part) = record.next().map_err(Error::Parcel)? {
-                        match (part.kind, part.id) {
-                            (Kind::String, field::MIME) => {
-                                mime = String::from(part.as_str().map_err(Error::Parcel)?);
-                            }
-                            (Kind::Bytes, field::BYTES) => {
-                                bytes = part.as_bytes().to_vec();
-                            }
-                            _ => {}
-                        }
-                    }
-                    request.data.push((mime, bytes));
-                }
-            }
-            _ => {}
-        }
-    }
-    Ok(request)
+    let args = wire::decode_offer_args(&parcel.body).map_err(Error::Parcel)?;
+    Ok(OfferRequest {
+        owner: args.owner,
+        sink: args.sink,
+        mimes: args.mimes,
+        data: args
+            .data
+            .into_iter()
+            .map(|payload| (payload.mime, payload.bytes))
+            .collect(),
+    })
 }
 
-/// Decode a `Request` (or `Serialize`) into `(token, mime)`.
+/// Decode a `Request` into `(token, mime)`.
 pub fn decode_request(parcel: &Parcel) -> Result<(u64, String)> {
-    let mut token = 0u64;
-    let mut mime = String::new();
-    let mut decoder = Decoder::new(&parcel.body);
-    while let Some(item) = decoder.next().map_err(Error::Parcel)? {
-        match (item.kind, item.id) {
-            (Kind::U64, field::TOKEN) => token = item.as_u64().map_err(Error::Parcel)?,
-            (Kind::String, field::MIME) => {
-                mime = String::from(item.as_str().map_err(Error::Parcel)?);
-            }
-            _ => {}
-        }
-    }
-    Ok((token, mime))
+    let args = wire::decode_request_args(&parcel.body).map_err(Error::Parcel)?;
+    Ok((args.token, args.mime))
 }
 
 /// Decode a `Serialize` into `(token, mime)`.
 pub fn decode_serialize(parcel: &Parcel) -> Result<(u64, String)> {
-    decode_request(parcel)
+    let args = wire::decode_serialize_args(&parcel.body).map_err(Error::Parcel)?;
+    Ok((args.token, args.mime))
 }
 
-/// Decode a `Request`/`Serialize` reply's payload bytes.
+/// Decode a `Request` reply's payload bytes.
 pub fn decode_bytes(parcel: &Parcel) -> Result<Vec<u8>> {
-    let mut decoder = Decoder::new(&parcel.body);
-    while let Some(item) = decoder.next().map_err(Error::Parcel)? {
-        if item.kind == Kind::Bytes && item.id == field::BYTES {
-            return Ok(item.as_bytes().to_vec());
-        }
-    }
-    Err(Error::Errno(-errno::EINVAL))
+    let reply = wire::decode_request_reply(&parcel.body).map_err(Error::Parcel)?;
+    Ok(reply.bytes)
+}
+
+/// Decode a `Serialize` reply's payload bytes.
+pub fn decode_serialized(parcel: &Parcel) -> Result<Vec<u8>> {
+    let reply = wire::decode_serialize_reply(&parcel.body).map_err(Error::Parcel)?;
+    Ok(reply.bytes)
 }
 
 /// Decode an `Offer` reply's token.
 pub fn decode_token(parcel: &Parcel) -> Result<u64> {
-    let mut decoder = Decoder::new(&parcel.body);
-    while let Some(item) = decoder.next().map_err(Error::Parcel)? {
-        if item.kind == Kind::U64 && item.id == field::TOKEN {
-            return item.as_u64().map_err(Error::Parcel);
-        }
-    }
-    Err(Error::Errno(-errno::EINVAL))
+    let reply = wire::decode_offer_reply(&parcel.body).map_err(Error::Parcel)?;
+    Ok(reply.token)
 }
 
 /// Decode a `Current` reply into the live offer's metadata.
 pub fn decode_current(parcel: &Parcel) -> Result<Option<OfferInfo>> {
-    let mut found = false;
-    let mut info = OfferInfo::default();
-    let mut decoder = Decoder::new(&parcel.body);
-    while let Some(item) = decoder.next().map_err(Error::Parcel)? {
-        match (item.kind, item.id) {
-            (Kind::U64, field::FOUND) => found = item.as_u64().map_err(Error::Parcel)? != 0,
-            (Kind::Struct, field::OFFER) => info = decode_info_record(item)?,
-            _ => {}
-        }
-    }
-    Ok(found.then_some(info))
+    let reply = wire::decode_current_reply(&parcel.body).map_err(Error::Parcel)?;
+    Ok(reply.offer.map(info))
 }
 
 /// Decode a changed-event payload (the bytes the topic broker carries)
 /// into the offer metadata.
 pub fn decode_changed(event: &router::Event) -> Result<OfferInfo> {
     let parcel = Parcel::decode(&event.payload).map_err(Error::Parcel)?;
-    let mut decoder = Decoder::new(&parcel.body);
-    while let Some(item) = decoder.next().map_err(Error::Parcel)? {
-        if item.kind == Kind::Struct && item.id == field::OFFER {
-            return decode_info_record(item);
-        }
-    }
-    Err(Error::Errno(-errno::EINVAL))
-}
-
-/// Decode one `OFFER` metadata record.
-fn decode_info_record(record: Field<'_>) -> Result<OfferInfo> {
-    let mut info = OfferInfo::default();
-    let mut nested = record.nested(0).map_err(Error::Parcel)?;
-    while let Some(item) = nested.next().map_err(Error::Parcel)? {
-        match (item.kind, item.id) {
-            (Kind::U64, field::TOKEN) => info.token = item.as_u64().map_err(Error::Parcel)?,
-            (Kind::String, field::OWNER) => {
-                info.owner = String::from(item.as_str().map_err(Error::Parcel)?);
-            }
-            (Kind::U64, field::SESSION) => {
-                info.session = item.as_u64().map_err(Error::Parcel)?;
-            }
-            (Kind::Bool, field::LAZY) => info.lazy = item.as_bool().map_err(Error::Parcel)?,
-            (Kind::U64, field::TICK) => info.tick = item.as_u64().map_err(Error::Parcel)?,
-            (Kind::Array, field::MIMES) => {
-                let mut mimes = item.nested(0).map_err(Error::Parcel)?;
-                while let Some(entry) = mimes.next().map_err(Error::Parcel)? {
-                    if entry.kind == Kind::String {
-                        info.mimes
-                            .push(String::from(entry.as_str().map_err(Error::Parcel)?));
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-    Ok(info)
+    decode_current(&parcel)?.ok_or(Error::Errno(-errno::EINVAL))
 }
