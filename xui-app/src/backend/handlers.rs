@@ -12,25 +12,37 @@ use xui_core::backend::{
 use xui_core::router::WidgetHost;
 use xui_core::{Rect, Theme};
 
+use crate::client_window::ClientWindow;
 use crate::sys;
 
 use super::{LazyOSBackend, Mode, Node, Timer, Window, DEFAULT_DPI, POLL_MILLIS};
 
 impl Backend for LazyOSBackend {
     fn run(&self) -> i32 {
-        let Some(window) = self.primary.get() else {
+        let Some(primary) = self.primary.get() else {
             return 1;
         };
-        self.present(window);
+        self.present(primary);
         while !self.quit.load(Ordering::Relaxed) {
-            self.tick(window);
-            if self.is_client() {
-                // The client event receive already parked this task for up to
-                // one tick; no extra sleep.
-                continue;
+            // Snapshot the open windows: an app may open or close one (the
+            // Files explorer opens a window per folder) while a tick runs.
+            let windows: Vec<u64> = self.windows.borrow().keys().copied().collect();
+            if windows.is_empty() {
+                break;
+            }
+            for raw in windows {
+                self.tick(xui_core::backend::WindowId::from_raw(raw));
+                if self.quit.load(Ordering::Relaxed) {
+                    break;
+                }
             }
             if self.quit.load(Ordering::Relaxed) {
                 break;
+            }
+            if self.is_client() {
+                // Each client window's event receive already parked this task
+                // for up to one tick; no extra sleep.
+                continue;
             }
             sys::sleep_millis(POLL_MILLIS);
         }
@@ -58,12 +70,15 @@ impl Backend for LazyOSBackend {
         let dpi = DEFAULT_DPI;
         let width = spec.width.to_px(dpi).value().max(1) as u32;
         let height = spec.height.to_px(dpi).value().max(1) as u32;
-        if let Mode::Client(state) = &self.mode {
-            let mut state = state.borrow_mut();
-            state
-                .open_surface(width, height, &spec.title)
-                .map_err(BackendError::Other)?;
-        }
+        // A client opens one surface per window, so the Files explorer's
+        // one-window-per-folder model works; the connection is shared.
+        let client = match &self.mode {
+            Mode::Client(state) => Some(
+                ClientWindow::open(state.borrow().client, width, height, &spec.title)
+                    .map_err(BackendError::Other)?,
+            ),
+            Mode::Owner { .. } => None,
+        };
         self.windows.borrow_mut().insert(
             id.raw(),
             Window {
@@ -73,19 +88,32 @@ impl Backend for LazyOSBackend {
                 dpi,
                 width: width as i32,
                 height: height as i32,
+                client,
             },
         );
-        self.primary.set(Some(id));
+        if self.primary.get().is_none() {
+            self.primary.set(Some(id));
+        }
         Ok(id)
     }
 
     fn close_window(&self, window: WindowId) {
-        self.windows.borrow_mut().remove(&window.raw());
+        let removed = self.windows.borrow_mut().remove(&window.raw());
+        if let (Some(surface), Mode::Client(state)) = (removed.and_then(|w| w.client), &self.mode) {
+            surface.close(state.borrow().client);
+        }
         self.nodes
             .borrow_mut()
             .retain(|(_, node)| node.window != window);
+        // Drop any pending damage and timers for the closed window.
+        self.damage.borrow_mut().remove(&window.raw());
+        self.timers
+            .borrow_mut()
+            .retain(|timer| timer.window != window.raw());
+        if self.primary.get() == Some(window) {
+            self.primary.set(None);
+        }
         self.focused.set(None);
-        self.destroy_surface();
     }
 
     fn create(&self, parent: ParentRef, spec: &NodeSpec) -> BackendResult<WidgetId> {
@@ -142,13 +170,13 @@ impl Backend for LazyOSBackend {
         }
     }
 
-    fn apply_moves(&self, _window: WindowId, moves: &[(WidgetId, Rect)]) {
+    fn apply_moves(&self, window: WindowId, moves: &[(WidgetId, Rect)]) {
         let mut nodes = self.nodes.borrow_mut();
         for (id, rect) in moves {
             if let Some((_, node)) = nodes.iter_mut().find(|(node_id, _)| node_id == id) {
                 if self.is_client() {
-                    self.add_damage(node.bounds);
-                    self.add_damage(*rect);
+                    self.add_damage(window, node.bounds);
+                    self.add_damage(window, *rect);
                 }
                 node.bounds = *rect;
             }
@@ -157,14 +185,14 @@ impl Backend for LazyOSBackend {
 
     fn set_visible(&self, id: WidgetId, visible: bool) {
         if self.is_client() {
-            if let Some(bounds) = self
+            if let Some((window, bounds)) = self
                 .nodes
                 .borrow()
                 .iter()
                 .find(|(node_id, _)| *node_id == id)
-                .map(|(_, node)| node.bounds)
+                .map(|(_, node)| (node.window, node.bounds))
             {
-                self.add_damage(bounds);
+                self.add_damage(window, bounds);
             }
         }
         self.with_node(id, |node| node.visible = visible);
@@ -194,14 +222,14 @@ impl Backend for LazyOSBackend {
     fn invalidate(&self, id: WidgetId) {
         self.dirty.store(true, Ordering::Relaxed);
         if self.is_client() {
-            if let Some(bounds) = self
+            if let Some((window, bounds)) = self
                 .nodes
                 .borrow()
                 .iter()
                 .find(|(node_id, _)| *node_id == id)
-                .map(|(_, node)| node.bounds)
+                .map(|(_, node)| (node.window, node.bounds))
             {
-                self.add_damage(bounds);
+                self.add_damage(window, bounds);
             }
         }
     }
@@ -209,14 +237,14 @@ impl Backend for LazyOSBackend {
     fn invalidate_rect(&self, id: WidgetId, _rect: Rect) {
         self.dirty.store(true, Ordering::Relaxed);
         if self.is_client() {
-            if let Some(bounds) = self
+            if let Some((window, bounds)) = self
                 .nodes
                 .borrow()
                 .iter()
                 .find(|(node_id, _)| *node_id == id)
-                .map(|(_, node)| node.bounds)
+                .map(|(_, node)| (node.window, node.bounds))
             {
-                self.add_damage(bounds);
+                self.add_damage(window, bounds);
             }
         }
     }
@@ -259,13 +287,14 @@ impl Backend for LazyOSBackend {
         }
     }
 
-    fn set_timer(&self, _window: WindowId, millis: u32) -> TimerId {
+    fn set_timer(&self, window: WindowId, millis: u32) -> TimerId {
         let id = self.next_timer.get();
         self.next_timer.set(id + 1);
         let millis = (millis as u64).max(1);
         let deadline = sys::clock_ticks().saturating_add(millis.div_ceil(10));
         self.timers.borrow_mut().push(Timer {
             id,
+            window: window.raw(),
             millis,
             deadline,
         });
@@ -278,6 +307,18 @@ impl Backend for LazyOSBackend {
 
     fn supports(&self, _kind: NodeKind) -> ImplKind {
         ImplKind::Painted
+    }
+
+    /// The session clipboard, via `clipboardd` (issue #115), so Copy in one app
+    /// and Paste in another share text. `clipboardd`'s absence falls back to an
+    /// in-process store, and the call never waits for the service, so a console
+    /// image is unaffected.
+    fn clipboard_text(&self) -> Option<String> {
+        crate::platform::clipboard::text()
+    }
+
+    fn set_clipboard_text(&self, text: &str) {
+        crate::platform::clipboard::set_text(text);
     }
 }
 

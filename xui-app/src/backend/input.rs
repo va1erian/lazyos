@@ -70,31 +70,56 @@ impl LazyOSBackend {
     /// because a compositor reserves `Tab` for surface focus and the kernel's
     /// PS/2 driver does not decode function keys (issue #168).
     fn key_down(&self, window: WindowId, code: u32) {
-        match code {
-            key::TAB | key::PAGE_DOWN => {
-                self.cycle_focus(window, true);
-            }
-            key::PAGE_UP => {
-                self.cycle_focus(window, false);
-            }
-            _ => {
-                let target = self.focused.get().unwrap_or(WidgetId::NONE);
-                if let Some(event) = key_event(code as i32, true) {
-                    self.deliver(window, target, &event);
+        let modifier = self.update_modifiers(code, true);
+        if !modifier {
+            match code {
+                key::TAB | key::PAGE_DOWN => {
+                    self.cycle_focus(window, true);
+                    return;
                 }
-                if let Some(character) = key_char(code) {
-                    self.deliver(window, target, &Event::Char(character));
+                key::PAGE_UP => {
+                    self.cycle_focus(window, false);
+                    return;
                 }
+                _ => {}
+            }
+        }
+        let target = self.focused.get().unwrap_or(WidgetId::NONE);
+        if let Some(event) = key_event(code, true, self.modifiers.get()) {
+            self.deliver(window, target, &event);
+        }
+        if !modifier {
+            if let Some(character) = key_char(code) {
+                self.deliver(window, target, &Event::Char(character));
             }
         }
     }
 
     /// Route one key release to the focused widget.
     fn key_up(&self, window: WindowId, code: u32) {
+        self.update_modifiers(code, false);
         let target = self.focused.get().unwrap_or(WidgetId::NONE);
-        if let Some(event) = key_event(code as i32, false) {
+        if let Some(event) = key_event(code, false, self.modifiers.get()) {
             self.deliver(window, target, &event);
         }
+    }
+
+    /// Track a `Shift`/`Ctrl`/`Alt`/`Super` press or release; return whether
+    /// `code` is a modifier key.
+    ///
+    /// The kernel forwards one code per modifier regardless of side, so a single
+    /// flag per family is enough here (the kernel already merges both sides).
+    fn update_modifiers(&self, code: u32, down: bool) -> bool {
+        let mut modifiers = self.modifiers.get();
+        match code {
+            key::SHIFT => modifiers.shift = down,
+            key::CTRL => modifiers.ctrl = down,
+            key::ALT => modifiers.alt = down,
+            key::SUPER => modifiers.win = down,
+            _ => return false,
+        }
+        self.modifiers.set(modifiers);
+        true
     }
 
     /// Drain the kernel input queue (owner mode), translate and route records.
@@ -139,7 +164,10 @@ impl LazyOSBackend {
                         continue;
                     };
                     if parcel.header.method == display::METHOD_WINDOW_CLOSE {
-                        self.quit.store(true, Ordering::Relaxed);
+                        // Close only *this* window: the app (xui-core's
+                        // runtime) decides whether that ends the loop, so the
+                        // Files explorer's extra folder windows close one at a
+                        // time rather than taking the whole process down.
                         self.deliver(window, WidgetId::NONE, &Event::Close);
                         continue;
                     }
@@ -185,17 +213,17 @@ fn mouse_button(code: u32) -> MouseButton {
 
 /// One key record into the `KeyDown`/`KeyUp` vocabulary. A printable key also
 /// produces a separate [`Event::Char`] (see [`key_char`]).
-fn key_event(code: i32, down: bool) -> Option<Event> {
+fn key_event(code: u32, down: bool, modifiers: Modifiers) -> Option<Event> {
     if !down {
         return Some(Event::KeyUp {
-            key: key_of(code as u32),
-            modifiers: Modifiers::NONE,
+            key: key_of(code),
+            modifiers,
             system: false,
         });
     }
     Some(Event::KeyDown {
-        key: key_of(code as u32),
-        modifiers: Modifiers::NONE,
+        key: key_of(code),
+        modifiers,
         repeat: 1,
         system: false,
     })
@@ -217,6 +245,12 @@ fn key_of(code: u32) -> Key {
         key::PAGE_DOWN => Key::PAGE_DOWN,
         key::HOME => Key::HOME,
         key::END => Key::END,
+        key::SHIFT => Key::SHIFT,
+        key::CTRL => Key::CONTROL,
+        key::ALT => Key::MENU,
+        // No named `WIN`; the VK_LWIN code, so an app can name the key.
+        key::SUPER => Key::from_code(0x5B),
+        key::F4 => Key::F4,
         // The kernel reports letters lowercase; the virtual-key codes are
         // uppercase, matching the Windows ABI `xui` mirrors.
         other if (b'a' as u32..=b'z' as u32).contains(&other) => {

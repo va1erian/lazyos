@@ -9,20 +9,31 @@
 use std::cell::RefCell;
 use std::sync::Arc;
 
-use cosmic_text::{Align, Attrs, Buffer, Color, Family, FontSystem, Metrics, Shaping, SwashCache};
-use tiny_skia::{Pixmap, PremultipliedColorU8};
+use cosmic_text::{
+    Align, Attrs, Buffer, Color, Family, FontSystem, Metrics, Shaping, Style, SwashCache, Weight,
+    Wrap,
+};
+use tiny_skia::{Mask, Pixmap, PremultipliedColorU8};
 
-use xui_core::backend::{TextAlign, TextMetrics, TextStyle, TextVAlign};
-use xui_core::geometry::Rect;
+use xui_core::backend::{TextAlign, TextMetrics, TextStyle, TextVAlign, TextWeight};
+use xui_core::geometry::{Point, Rect};
+
+/// The active clip for a glyph blit: the device-space bounds every glyph is
+/// clamped to, and the rounded-clip coverage mask when one is active.
+#[derive(Clone, Copy)]
+pub(crate) struct GlyphClip<'a> {
+    pub(crate) bounds: Option<Rect>,
+    pub(crate) mask: Option<&'a Mask>,
+}
 
 thread_local! {
+    static TEXT: RefCell<TextSystem> = RefCell::new(TextSystem::new());
     /// Font files registered with [`set_default_font`] / [`add_font`] before the
     /// shaper is first used on this thread.
     static PENDING_FONTS: RefCell<Vec<Vec<u8>>> = const { RefCell::new(Vec::new()) };
-    /// The family every run uses, set with [`set_default_family`]; `None`
-    /// leaves the shaper's sans-serif default.
+    /// The family every run uses when its [`TextStyle`] names none, set with
+    /// [`set_default_family`]; `None` leaves the shaper's default.
     static FAMILY: RefCell<Option<String>> = const { RefCell::new(None) };
-    static TEXT: RefCell<TextSystem> = RefCell::new(TextSystem::new());
 }
 
 /// Registers the font file this thread's shaper loads, alongside whatever
@@ -44,26 +55,19 @@ pub fn add_font(data: Vec<u8>) {
 }
 
 /// Makes every run on this thread use the family named `family` (as the font
-/// file declares it, e.g. `"JetBrains Mono"`) instead of the default sans-serif.
+/// file declares it, e.g. `"JetBrains Mono"`) when its [`TextStyle`] names
+/// none, instead of the shaper's default.
 pub fn set_default_family(family: &str) {
     FAMILY.with(|slot| *slot.borrow_mut() = Some(family.to_owned()));
 }
 
-/// The attributes for a run: the default family, if one was set.
-fn attrs(family: &Option<String>) -> Attrs<'_> {
-    match family {
-        Some(name) => Attrs::new().family(Family::Name(name)),
-        None => Attrs::new(),
-    }
-}
-
-struct TextSystem {
-    font_system: FontSystem,
-    cache: SwashCache,
+pub(crate) struct TextSystem {
+    pub(crate) font_system: FontSystem,
+    pub(crate) cache: SwashCache,
 }
 
 impl TextSystem {
-    fn new() -> TextSystem {
+    pub(crate) fn new() -> TextSystem {
         let pending = PENDING_FONTS.with(|fonts| std::mem::take(&mut *fonts.borrow_mut()));
         let font_system = if pending.is_empty() {
             FontSystem::new()
@@ -84,8 +88,34 @@ impl TextSystem {
 }
 
 /// The line height for a font size, matching the widgets' design convention.
-fn line_height(size_px: f32) -> f32 {
+pub(crate) fn line_height(size_px: f32) -> f32 {
     size_px * 1.25
+}
+
+/// The shaping attributes for a family, weight and slant, so the measured
+/// glyph advances are the ones that get painted.
+pub(crate) fn attrs_for<'a>(
+    family: Option<&'a str>,
+    weight: TextWeight,
+    italic: bool,
+) -> Attrs<'a> {
+    let mut attrs = Attrs::new();
+    if let Some(family) = family {
+        // The generic name asks the font system for its monospace face, so a
+        // host need not name a platform font.
+        attrs = attrs.family(if family.eq_ignore_ascii_case("monospace") {
+            Family::Monospace
+        } else {
+            Family::Name(family)
+        });
+    }
+    if weight.value() != 400 {
+        attrs = attrs.weight(Weight(weight.value()));
+    }
+    if italic {
+        attrs = attrs.style(Style::Italic);
+    }
+    attrs
 }
 
 fn align_of(style: &TextStyle) -> Option<Align> {
@@ -94,6 +124,19 @@ fn align_of(style: &TextStyle) -> Option<Align> {
         TextAlign::Center => Some(Align::Center),
         TextAlign::End => Some(Align::Right),
     }
+}
+
+/// The shaping attributes for `style`: its family (or `fallback`, the thread's
+/// [`set_default_family`]), weight and slant, so the measured glyph advances
+/// are the ones that get painted.
+fn attrs<'a>(style: &'a TextStyle, fallback: Option<&'a str>) -> Attrs<'a> {
+    attrs_for(style.family.as_deref().or(fallback), style.weight, style.italic)
+}
+
+/// The family set with [`set_default_family`], if any, cloned so a caller can
+/// borrow it for the duration of a shaping call.
+pub(crate) fn default_family() -> Option<String> {
+    FAMILY.with(|slot| slot.borrow().clone())
 }
 
 /// Measures `text` for `style` at `dpi`, wrapping to `max_width` when the style
@@ -111,16 +154,28 @@ pub fn measure(text: &str, style: &TextStyle, dpi: u32, max_width: i32) -> TextM
     let size = style.size.to_px(dpi).value() as f32;
     let mut height = 0.0f32;
     let mut width = 0.0f32;
-    let family = FAMILY.with(|slot| slot.borrow().clone());
     TEXT.with(|text_system| {
         let text_system = &mut *text_system.borrow_mut();
         let mut buffer = Buffer::new(
             &mut text_system.font_system,
             Metrics::new(size, line_height(size)),
         );
-        let wrap = style.wrap.then_some(max_width.max(1) as f32);
-        buffer.set_size(wrap, None);
-        buffer.set_text(text, &attrs(&family), Shaping::Advanced, align_of(style));
+        // Size to `max_width` even without wrapping: alignment corrects against
+        // the buffer width, while `Wrap::None` keeps a non-wrapping run on one
+        // line. `run.line_w` stays the run's own advance either way.
+        buffer.set_size(Some(max_width.max(1) as f32), None);
+        buffer.set_wrap(if style.wrap {
+            Wrap::WordOrGlyph
+        } else {
+            Wrap::None
+        });
+        let family = default_family();
+        buffer.set_text(
+            text,
+            &attrs(style, family.as_deref()),
+            Shaping::Advanced,
+            align_of(style),
+        );
         buffer.shape_until_scroll(&mut text_system.font_system, false);
         for run in buffer.layout_runs() {
             width = width.max(run.line_w);
@@ -137,23 +192,41 @@ pub fn measure(text: &str, style: &TextStyle, dpi: u32, max_width: i32) -> TextM
 }
 
 /// Draws `text` inside `rect` on `pixmap`, blending the glyph coverage of
-/// `style` over what is already there.
-pub fn draw(pixmap: &mut Pixmap, text: &str, rect: Rect, style: &TextStyle, dpi: u32) {
+/// `style` over what is already there and clamping each glyph block to `clip`.
+pub fn draw(
+    pixmap: &mut Pixmap,
+    text: &str,
+    rect: Rect,
+    style: &TextStyle,
+    dpi: u32,
+    clip: GlyphClip<'_>,
+) {
     if text.is_empty() || rect.is_empty() {
         return;
     }
     let size = style.size.to_px(dpi).value() as f32;
     let (color_r, color_g, color_b) = (style.color.r, style.color.g, style.color.b);
     let (rect_left, rect_top, rect_w, rect_h) = (rect.left, rect.top, rect.width(), rect.height());
-    let family = FAMILY.with(|slot| slot.borrow().clone());
 
     TEXT.with(|text_system| {
         let text_system = &mut *text_system.borrow_mut();
         let metrics = Metrics::new(size, line_height(size));
         let mut buffer = Buffer::new(&mut text_system.font_system, metrics);
-        let wrap = style.wrap.then_some(rect_w.max(1) as f32);
-        buffer.set_size(wrap, None);
-        buffer.set_text(text, &attrs(&family), Shaping::Advanced, align_of(style));
+        // Size to the target rect even without wrapping so alignment corrects
+        // against it; only `style.wrap` lets the run break across lines.
+        buffer.set_size(Some(rect_w.max(1) as f32), None);
+        buffer.set_wrap(if style.wrap {
+            Wrap::WordOrGlyph
+        } else {
+            Wrap::None
+        });
+        let family = default_family();
+        buffer.set_text(
+            text,
+            &attrs(style, family.as_deref()),
+            Shaping::Advanced,
+            align_of(style),
+        );
         buffer.shape_until_scroll(&mut text_system.font_system, false);
 
         let total_height: f32 = buffer.layout_runs().map(|run| run.line_height).sum();
@@ -193,12 +266,12 @@ pub fn draw(pixmap: &mut Pixmap, text: &str, rect: Rect, style: &TextStyle, dpi:
                 .round() as i32;
                 blend(
                     pixmap,
-                    rect_left + x + align_offset,
-                    rect_top + top_offset + y,
+                    Point::new(rect_left + x + align_offset, rect_top + top_offset + y),
                     w,
                     h,
                     [color_r, color_g, color_b],
                     alpha,
+                    clip,
                 );
             },
         );
@@ -206,10 +279,27 @@ pub fn draw(pixmap: &mut Pixmap, text: &str, rect: Rect, style: &TextStyle, dpi:
 }
 
 /// Blends `color` with coverage `alpha` (0..=255) over a `w` x `h` glyph block
-/// at `(left, top)`, clipped to the pixmap.
-fn blend(pixmap: &mut Pixmap, left: i32, top: i32, w: u32, h: u32, color: [u8; 3], alpha: u32) {
+/// at `origin`, clipped to the pixmap and to `clip`.
+pub(crate) fn blend(
+    pixmap: &mut Pixmap,
+    origin: Point,
+    w: u32,
+    h: u32,
+    color: [u8; 3],
+    alpha: u32,
+    clip: GlyphClip<'_>,
+) {
+    let (left, top) = (origin.x, origin.y);
     let (pw, ph) = (pixmap.width() as i32, pixmap.height() as i32);
-    let a = alpha as f32 / 255.0;
+    // A whole block beyond the clip rectangle needs no per-pixel work.
+    if let Some(bounds) = clip.bounds
+        && (left + w as i32 <= bounds.left
+            || top + h as i32 <= bounds.top
+            || left >= bounds.right
+            || top >= bounds.bottom)
+    {
+        return;
+    }
     let pixels = pixmap.pixels_mut();
     for gy in 0..h as i32 {
         for gx in 0..w as i32 {
@@ -217,7 +307,19 @@ fn blend(pixmap: &mut Pixmap, left: i32, top: i32, w: u32, h: u32, color: [u8; 3
             if x < 0 || y < 0 || x >= pw || y >= ph {
                 continue;
             }
+            if let Some(bounds) = clip.bounds
+                && (x < bounds.left || y < bounds.top || x >= bounds.right || y >= bounds.bottom)
+            {
+                continue;
+            }
             let at = (y * pw + x) as usize;
+            let coverage = clip
+                .mask
+                .map_or(255, |mask| mask.data().get(at).copied().unwrap_or(0));
+            if coverage == 0 {
+                continue;
+            }
+            let a = (alpha * coverage as u32) as f32 / 65025.0;
             let dst = pixels[at];
             let mix = |index: usize, channel: u8| {
                 let source = channel as f32 * a;

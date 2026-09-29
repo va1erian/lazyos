@@ -183,6 +183,18 @@ pub mod key {
     pub const HOME: u32 = 0x106;
     /// End.
     pub const END: u32 = 0x107;
+    /// Left/right Shift (one code; the kernel tracks both).
+    pub const SHIFT: u32 = 0x108;
+    /// Left/right Ctrl.
+    pub const CTRL: u32 = 0x109;
+    /// Left/right Alt.
+    pub const ALT: u32 = 0x10A;
+    /// Left/right Super (the Windows/Cmd key).
+    pub const SUPER: u32 = 0x10B;
+    /// The one function key the kernel's PS/2 decoder currently maps (it closes
+    /// the focused surface); the rest need a kernel/keyd change (see
+    /// `docs/xui-apps-migration-status.md`).
+    pub const F4: u32 = 0x113;
 }
 
 /// Bytes per encoded input event.

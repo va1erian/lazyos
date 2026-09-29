@@ -1,15 +1,23 @@
-#![forbid(unsafe_code)]
+#![warn(missing_docs)]
 
 //! The cross-platform, software-rendered backend for xui.
 //!
 //! It rasterises the portable widgets with `tiny-skia` into an RGBA buffer, so
 //! the same widget code that runs on the Win32 backend draws here without any
-//! platform UI toolkit. This crate currently provides the drawing surface and
-//! an offscreen renderer; the windowing shell and event loop build on it.
+//! platform UI toolkit. The LazyOS vendored copy keeps the portable
+//! [`SkiaCanvas`]/[`Surface`] and an [`OffscreenBackend`] that renders the
+//! widgets headlessly into a surface; the upstream `winit`/GL/clipboard window
+//! backend is dropped, because LazyOS drives its own display protocol and its
+//! Linux ABI cannot host `winit` (anonymous `mmap` only). See README.md.
 
 mod canvas;
+mod geometry;
+mod image_cache;
 mod offscreen;
+mod paint;
+pub mod snapshot;
 mod text;
+mod text_layout;
 
 pub use canvas::SkiaCanvas;
 pub use offscreen::OffscreenBackend;
@@ -45,9 +53,12 @@ impl RgbaImage {
 }
 
 /// A software surface: a rectangle being painted, filled from a background and
-/// then drawn into with a [`SkiaCanvas`].
+/// then drawn into with a [`SkiaCanvas`]. The surface also carries the decoded
+/// images its painters draw, so an image uploads once and every repaint
+/// reuses it.
 pub struct Surface {
     pixmap: Pixmap,
+    images: image_cache::ImageCache,
 }
 
 impl Surface {
@@ -55,7 +66,10 @@ impl Surface {
     pub fn new(width: u32, height: u32) -> Surface {
         let mut pixmap = Pixmap::new(width.max(1), height.max(1)).expect("pixmap");
         pixmap.fill(tiny_skia::Color::TRANSPARENT);
-        Surface { pixmap }
+        Surface {
+            pixmap,
+            images: image_cache::ImageCache::new(),
+        }
     }
 
     /// Fills the whole surface with `color`.
@@ -71,7 +85,7 @@ impl Surface {
         dpi: u32,
         draw: impl FnOnce(&mut SkiaCanvas) -> R,
     ) -> R {
-        let mut canvas = SkiaCanvas::new(&mut self.pixmap, bounds, dpi);
+        let mut canvas = SkiaCanvas::new(&mut self.pixmap, &mut self.images, bounds, dpi);
         draw(&mut canvas)
     }
 
@@ -101,5 +115,17 @@ pub(crate) fn to_skia(color: Color) -> tiny_skia::Color {
     tiny_skia::Color::from_rgba8(color.r, color.g, color.b, 255)
 }
 
+/// Converts a portable [`Rgba`](xui_core::backend::Rgba) to a tiny-skia colour,
+/// alpha included.
+pub(crate) fn to_skia_rgba(color: xui_core::backend::Rgba) -> tiny_skia::Color {
+    tiny_skia::Color::from_rgba8(color.r, color.g, color.b, color.a)
+}
+
+#[cfg(test)]
+mod clip_tests;
+#[cfg(test)]
+mod path_tests;
+#[cfg(test)]
+mod styled_tests;
 #[cfg(test)]
 mod tests;

@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+<style>.o{stroke:#0b0822;stroke-width:1.5;stroke-linejoin:round;stroke-linecap:round}
+.c{fill:#f1e3bd}.t{fill:#19b5a5}.m{fill:#e2366f}.a{fill:#f4a81d}
+.b{fill:#4162e0}.r{fill:#d4562f}.g{fill:#9a93d0}.k{fill:#0b0822}
+.s{fill:#1b1552}.l{fill:#9fe6dd}
+.h{fill:none;stroke:#fff6dc;stroke-width:1.2;stroke-linecap:round;opacity:.85}
+.h2{fill:none;stroke:#0b0822;stroke-width:1;stroke-linecap:round}
+.zz{fill:none;stroke:#e2366f;stroke-width:1.6}
+.zt{fill:none;stroke:#19b5a5;stroke-width:1.6}
+.zc{fill:none;stroke:#f1e3bd;stroke-width:1.6}
+.n{fill:none}</style>
+<rect class="o r" x="22" y="6" width="4" height="8"/><rect class="o c" x="6" y="15" width="20" height="13"/><path class="o m" d="M2 16L16 4l14 12z"/><rect class="o b" x="13" y="20" width="6" height="8"/><rect class="o t" x="8.5" y="18" width="3" height="3"/>
+</svg>

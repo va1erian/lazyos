@@ -1,6 +1,7 @@
 //! Compositing a window's node table and presenting the result, either through
 //! the display grant (owner mode) or as a damage commit to `xuid` (client).
 
+use xui_canvas::Surface;
 use xui_core::backend::{Painter, WindowId};
 use xui_core::Rect;
 
@@ -11,13 +12,25 @@ use super::{LazyOSBackend, Mode};
 impl LazyOSBackend {
     /// Composites `window`'s visible nodes, in creation order, into its
     /// surface, ready for [`LazyOSBackend::present`] to copy.
+    ///
+    /// The surface is taken out of the window table before the painters run and
+    /// put back afterwards: a painter can call back into the backend (the
+    /// explorer queries `dpi`/`client_rect` while painting), which would panic
+    /// on an already-borrowed `windows`. The window itself stays in the map, so
+    /// those re-entrant reads still see its live size, DPI and theme.
     fn composite(&self, window: WindowId) -> bool {
-        let mut windows = self.windows.borrow_mut();
-        let Some(entry) = windows.get_mut(&window.raw()) else {
-            return false;
+        let (dpi, background, mut surface) = {
+            let mut windows = self.windows.borrow_mut();
+            let Some(entry) = windows.get_mut(&window.raw()) else {
+                return false;
+            };
+            (
+                entry.dpi,
+                entry.background,
+                std::mem::replace(&mut entry.surface, Surface::new(1, 1)),
+            )
         };
-        entry.surface.fill(entry.background);
-        let dpi = entry.dpi;
+        surface.fill(background);
         let paints: Vec<(Rect, Painter)> = self
             .nodes
             .borrow()
@@ -26,9 +39,12 @@ impl LazyOSBackend {
             .filter_map(|(_, node)| node.painter.clone().map(|painter| (node.bounds, painter)))
             .collect();
         for (bounds, painter) in paints {
-            entry
-                .surface
-                .with_canvas_at(bounds, dpi, |canvas| painter(canvas));
+            surface.with_canvas_at(bounds, dpi, |canvas| painter(canvas));
+        }
+        // Put the real surface back; a painter that closed this window leaves
+        // no entry, so the surface simply drops.
+        if let Some(entry) = self.windows.borrow_mut().get_mut(&window.raw()) {
+            entry.surface = surface;
         }
         true
     }
@@ -63,15 +79,18 @@ impl LazyOSBackend {
                 }
             }
             Mode::Client(state) => {
-                let state = state.borrow();
-                let full = Rect::new(0, 0, state.rect.0, state.rect.1);
-                let damage = self.take_damage(full);
+                let client = state.borrow().client;
                 let mut windows = self.windows.borrow_mut();
                 let Some(entry) = windows.get_mut(&window.raw()) else {
                     return false;
                 };
+                let Some(surface) = entry.client.as_ref() else {
+                    return false;
+                };
+                let full = Rect::new(0, 0, surface.rect.0, surface.rect.1);
+                let damage = self.take_damage(window, full);
                 let pixels = entry.surface.pixels();
-                if state.va == 0 || pixels.len() > state.size as usize {
+                if surface.va == 0 || pixels.len() > surface.size as usize {
                     return false;
                 }
                 // Safety: `va`/`size` describe the shared buffer
@@ -80,15 +99,15 @@ impl LazyOSBackend {
                 unsafe {
                     core::ptr::copy_nonoverlapping(
                         pixels.as_ptr(),
-                        state.va as *mut u8,
+                        surface.va as *mut u8,
                         pixels.len(),
                     );
                 }
+                let surface_id = surface.surface;
                 drop(windows);
-                if state
-                    .client
+                if client
                     .commit(
-                        state.surface,
+                        surface_id,
                         (damage.left, damage.top, damage.width(), damage.height()),
                     )
                     .is_err()
@@ -106,9 +125,9 @@ impl LazyOSBackend {
         true
     }
 
-    /// The damage accumulated since the last commit, clamped to `full`.
-    fn take_damage(&self, full: Rect) -> Rect {
-        let Some(damage) = self.damage.take() else {
+    /// The damage `window` accumulated since the last commit, clamped to `full`.
+    fn take_damage(&self, window: WindowId, full: Rect) -> Rect {
+        let Some(damage) = self.damage.borrow_mut().remove(&window.raw()) else {
             return full;
         };
         let clipped = Rect::new(
@@ -124,9 +143,10 @@ impl LazyOSBackend {
         }
     }
 
-    /// Grow the pending damage by `rect`.
-    pub(super) fn add_damage(&self, rect: Rect) {
-        let merged = match self.damage.get() {
+    /// Grow `window`'s pending damage by `rect`.
+    pub(super) fn add_damage(&self, window: WindowId, rect: Rect) {
+        let mut damage = self.damage.borrow_mut();
+        let merged = match damage.get(&window.raw()) {
             Some(existing) => Rect::new(
                 existing.left.min(rect.left),
                 existing.top.min(rect.top),
@@ -135,6 +155,6 @@ impl LazyOSBackend {
             ),
             None => rect,
         };
-        self.damage.set(Some(merged));
+        damage.insert(window.raw(), merged);
     }
 }

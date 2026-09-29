@@ -1,0 +1,59 @@
+//! `xui-editor`: the text editor, migrated from xui's notepad example.
+//!
+//! A `xuid` desktop client (or the display owner, for a headless CI session).
+//! The widget tree, commands and find/replace session live in `editor/`; this
+//! file supplies the LazyOS platform: the backend, a file named on the command
+//! line, and the serial evidence markers the screenshot sessions grep for.
+//!
+//! Serial evidence: `EDITOR:UP:PASS` after the first frame, `EDITOR:OPEN:PASS`
+//! after a file loads, `EDITOR:SAVE:PASS` after a successful save,
+//! `EDITOR:OPEN:FAIL:<path>` / `EDITOR:SAVE:FAIL:<path>` on failure.
+
+// A binary crate root in `src/bin/editor.rs` resolves `mod app;` under
+// `src/bin/`, so the notepad's submodules are named explicitly.
+#[path = "editor/app.rs"]
+mod app;
+#[path = "editor/commands/mod.rs"]
+mod commands;
+#[path = "editor/ui.rs"]
+mod ui;
+
+use std::rc::Rc;
+
+use xui_app::backend::LazyOSBackend;
+use xui_core::app::run_app;
+use xui_core::backend::{Backend, PlatformSpec};
+use xui_core::units::Dip;
+
+/// Window size a compositor lays the editor out at.
+const WINDOW: (i32, i32) = (900, 640);
+
+fn main() -> std::process::ExitCode {
+    let path = xui_app::platform::argv::file_arg(std::env::args_os());
+    let backend = match LazyOSBackend::connect() {
+        Ok(backend) => Rc::new(backend),
+        Err(code) => {
+            println!("EDITOR:BIND:FAIL:{code}");
+            return std::process::ExitCode::FAILURE;
+        }
+    };
+    let (width, height) = backend.window_size(WINDOW);
+    backend.on_first_frame(|| println!("EDITOR:UP:PASS"));
+
+    let spec = PlatformSpec::new("Editor").size(Dip(width as f32), Dip(height as f32));
+    let outcome = run_app(Rc::clone(&backend) as Rc<dyn Backend>, spec, move |ui| {
+        let mut notepad = ui::build(ui).expect("the notepad's widgets built");
+        if let Some(path) = path {
+            commands::open_path(&mut notepad, ui, path);
+        }
+        notepad
+    });
+    backend.unbind();
+    match outcome {
+        Ok(()) => std::process::ExitCode::SUCCESS,
+        Err(error) => {
+            println!("EDITOR:RUN:FAIL:{error}");
+            std::process::ExitCode::FAILURE
+        }
+    }
+}

@@ -40,9 +40,9 @@ use std::sync::Arc;
 use xui_canvas::Surface;
 use xui_core::backend::{Painter, ParentRef, WidgetId, WindowId};
 use xui_core::router::WidgetHost;
-use xui_core::{Color, Rect};
+use xui_core::{Color, Modifiers, Rect};
 
-use crate::client_window::ClientState;
+use crate::client_window::{ClientState, ClientWindow};
 use crate::display;
 use crate::sys::{self, DisplayInfo};
 
@@ -78,8 +78,9 @@ pub struct LazyOSBackend {
     primary: Cell<Option<WindowId>>,
     /// Set whenever a node is invalidated; the loop repaints and clears it.
     dirty: Arc<AtomicBool>,
-    /// Client mode: the rectangles invalidated since the last commit.
-    damage: Cell<Option<Rect>>,
+    /// Client mode: the rectangles invalidated since the last commit, one per
+    /// window (the compositor commits a damage rectangle per surface).
+    damage: RefCell<HashMap<u64, Rect>>,
     /// Set by [`Backend::quit`].
     quit: Arc<AtomicBool>,
     /// Pointer position in window pixels, updated by move events; kernel button
@@ -88,6 +89,10 @@ pub struct LazyOSBackend {
     /// The node keyboard events go to; set by [`Backend::focus`]. Keys target
     /// the focused node, not the node under the pointer.
     focused: Cell<Option<WidgetId>>,
+    /// The modifier keys currently held, from the `Shift`/`Ctrl`/`Alt`/`Super`
+    /// key records the kernel forwards to a bound compositor. Attached to every
+    /// `KeyDown`/`KeyUp` so an app sees Ctrl+key chords.
+    modifiers: Cell<Modifiers>,
     /// Repeating timers armed by [`Backend::set_timer`], in PIT ticks.
     timers: RefCell<Vec<Timer>>,
     next_timer: Cell<usize>,
@@ -100,6 +105,9 @@ pub struct LazyOSBackend {
 /// One repeating timer; `deadline` is an absolute PIT tick (100 Hz).
 struct Timer {
     id: usize,
+    /// The window the timer belongs to, so its `Timer` event reaches that
+    /// window and not whichever one the loop ticks first.
+    window: u64,
     millis: u64,
     deadline: u64,
 }
@@ -111,6 +119,8 @@ struct Window {
     dpi: u32,
     width: i32,
     height: i32,
+    /// Client mode: this window's compositor surface, or `None` in owner mode.
+    client: Option<ClientWindow>,
 }
 
 struct Node {
@@ -162,10 +172,11 @@ impl LazyOSBackend {
             next_widget: Cell::new(1),
             primary: Cell::new(None),
             dirty: Arc::new(AtomicBool::new(false)),
-            damage: Cell::new(None),
+            damage: RefCell::new(HashMap::new()),
             quit: Arc::new(AtomicBool::new(false)),
             pointer: Cell::new((0, 0)),
             focused: Cell::new(None),
+            modifiers: Cell::new(Modifiers::NONE),
             timers: RefCell::new(Vec::new()),
             next_timer: Cell::new(1),
             frames: Cell::new(0),
@@ -179,10 +190,15 @@ impl LazyOSBackend {
     }
 
     /// The window size in pixels, for sizing the app's window.
+    ///
+    /// A client's surface size is decided per window in [`Backend::open_window`]
+    /// (and [`LazyOSBackend::window_size`](crate::launch::LazyOSBackend::window_size)
+    /// reports the app's preferred size before that), so before any window opens
+    /// a client reports `(0, 0)` rather than a stale screen size.
     pub fn screen(&self) -> (i32, i32) {
         match &self.mode {
             Mode::Owner { display } => (display.width as i32, display.height as i32),
-            Mode::Client(state) => state.borrow().rect,
+            Mode::Client(_) => (0, 0),
         }
     }
 
@@ -207,10 +223,15 @@ impl LazyOSBackend {
         }
     }
 
-    /// Destroy the client-mode surface and its event channel, if any.
+    /// Destroy every client-mode surface and its event channel, if any.
     pub(super) fn destroy_surface(&self) {
         if let Mode::Client(state) = &self.mode {
-            state.borrow_mut().close_surface();
+            let client = state.borrow().client;
+            for window in self.windows.borrow().values() {
+                if let Some(surface) = &window.client {
+                    surface.close(client);
+                }
+            }
         }
     }
 }
