@@ -58,6 +58,8 @@ pub mod op {
     pub const CREATE_BUFFER: u64 = 4;
     /// Map a shared buffer received from another task; its address out.
     pub const MAP_BUFFER: u64 = 5;
+    /// Close a shared buffer handle (unmaps it, frees its quota charge).
+    pub const CLOSE_BUFFER: u64 = 6;
 }
 
 /// Input event kinds, mirroring `kernel/src/display.rs::event`.
@@ -430,6 +432,18 @@ pub fn display_create_buffer(size: u64) -> Result<(u64, u64, u64), i64> {
     let code = display_syscall(op::CREATE_BUFFER, size, words.as_mut_ptr() as u64);
     if code == 0 {
         Ok((words[0], words[1], words[2]))
+    } else {
+        Err(code)
+    }
+}
+
+/// Close a buffer from [`display_create_buffer`]: unmaps it and releases the
+/// per-process buffer quota. A surface it was attached to keeps its pixels
+/// through the compositor's own reference until the surface is destroyed.
+pub fn display_close_buffer(handle: u64) -> Result<(), i64> {
+    let code = display_syscall(op::CLOSE_BUFFER, handle, 0);
+    if code == 0 {
+        Ok(())
     } else {
         Err(code)
     }
