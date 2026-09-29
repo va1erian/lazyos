@@ -37,7 +37,7 @@ jobs:
       - name: Install QEMU
         run: |
           sudo apt-get update
-          sudo apt-get install -y qemu-system-x86
+          sudo apt-get install -y qemu-system-x86 musl-tools
 
       # Hosted runners expose /dev/kvm but not to the runner user; open it up
       # so `--accel auto` picks KVM (it falls back to TCG if KVM is unusable).
@@ -47,6 +47,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.x"
+
+      # The console shell is BusyBox `sh` (issue #254); without it the image
+      # boots to a blank console. Build the pinned static musl binary first.
+      - name: Build BusyBox (system shell)
+        run: python tools/abi/busybox.py
 
       - name: Build disk image (if the OS project exists)
         id: build
