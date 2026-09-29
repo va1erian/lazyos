@@ -7,15 +7,16 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 /// Open-with defaults seeded at boot: `(mime, app, verbs)`. The app ids are
-/// program stems (`editor` -> `EDITOR.ELF`); the apps themselves are S4/S5
-/// work, so the launch event is the observable outcome for now.
+/// registry ids (`editor` -> `XEDITOR.ELF`, `paint`, `files`); an app the image
+/// does not ship falls back to the launch event alone.
 const DEFAULT_APPS: &[(&str, &str, &[&str])] = &[
     ("text/plain", "editor", &["open", "edit"]),
     ("text/plain", "files", &["reveal"]),
     ("text/markdown", "editor", &["open", "edit"]),
     ("text/x-rust", "editor", &["open", "edit"]),
     ("text/x-shellscript", "editor", &["open", "edit"]),
-    ("image/png", "viewer", &["open", "reveal"]),
+    ("image/png", "paint", &["open", "edit"]),
+    ("image/png", "files", &["reveal"]),
     ("application/x-elf", "runner", &["open"]),
     ("application/octet-stream", "files", &["reveal"]),
 ];

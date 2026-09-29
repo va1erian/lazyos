@@ -379,6 +379,9 @@ fn xui_disk_name(path: &std::path::Path) -> (String, String) {
         "fabricmon" => "XFABMON".to_string(),
         "counter" => "XCOUNTR".to_string(),
         "term" => "XTERM".to_string(),
+        "editor" => "XEDITOR".to_string(),
+        "paint" => "XPAINT".to_string(),
+        "files" => "XFILES".to_string(),
         "client" => "XCLIENT".to_string(),
         other => {
             let short: String = other
@@ -402,6 +405,21 @@ const DESKTOP_XUI_APPS: &[&str] = &[
     "xui-fabricmon.elf",
     "xui-counter.elf",
 ];
+
+/// The document apps (Editor, Paint, Files): always-shipped desktop apps once
+/// their ELFs exist. INTEGRATION SWITCH: keep `false` until
+/// `python tools/xui/build.py` produces all three under `target/xui/` (a missing
+/// default fails the desktop build); the lead flips it to `true` when Track A's
+/// bins land. See `docs/xui-apps-track-b.md`.
+const SHIP_DOCUMENT_APPS: bool = false;
+
+/// The document apps' binaries, appended to [`DESKTOP_XUI_APPS`] when
+/// [`SHIP_DOCUMENT_APPS`] is on.
+const DOCUMENT_XUI_APPS: &[&str] = &["xui-editor.elf", "xui-files.elf", "xui-paint.elf"];
+
+/// Stems that are launched on demand (Files, an open-with) and never at boot,
+/// even under the default "autostart every embedded app" rule.
+const ON_DEMAND_XUI_STEMS: &[&str] = &["editor", "files", "paint"];
 
 /// Embed the desktop's xui apps (issues #215/#216).
 ///
@@ -429,13 +447,22 @@ fn embed_xui_apps(builder: &mut bootloader::DiskImageBuilder, desktop: bool) {
             let dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("manifest dir"))
                 .join("target")
                 .join("xui");
-            DESKTOP_XUI_APPS.iter().map(|name| dir.join(name)).collect()
+            let document: &[&str] = if SHIP_DOCUMENT_APPS {
+                DOCUMENT_XUI_APPS
+            } else {
+                &[]
+            };
+            DESKTOP_XUI_APPS
+                .iter()
+                .chain(document)
+                .map(|name| dir.join(name))
+                .collect()
         }
         None => return,
     };
     let autostart = std::env::var("LAZYOS_XUI_AUTOSTART").ok();
     let wanted = |stem: &str| match autostart.as_deref() {
-        None => true,
+        None => !ON_DEMAND_XUI_STEMS.contains(&stem),
         Some("none") => false,
         Some(list) => list.split(',').any(|item| item.trim() == stem),
     };

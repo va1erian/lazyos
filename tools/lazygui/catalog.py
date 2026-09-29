@@ -60,6 +60,9 @@ SCRIPTS = [
     ("xui_sysmon.json", "XUI app: sysmon dashboard", ("xuid",), "sysmon"),
     ("xui_fabricmon.json", "XUI app: fabricmon (services)", ("xuid", "services"), "fabricmon"),
     ("xui_client.json", "XUI app: compositor client (window/focus)", ("xuid", "xui_client"), "client"),
+    ("xui_editor.json", "XUI app: Editor (type, save)", ("xuid", "services"), "editor"),
+    ("xui_paint.json", "XUI app: Paint (draw, save PNG)", ("xuid", "services"), "paint"),
+    ("xui_files.json", "XUI app: Files (browse, open)", ("xuid", "services"), "files"),
 ]
 
 # Simple mode: (label, cargo profile) and (label, description) choices.
@@ -72,10 +75,14 @@ SIMPLE_INTERFACES = [
      "clipboardd, ...) plus the xuid compositor and an XUI app window."),
 ]
 
-XUI_VIEWERS = ["(none)", "m0", "counter", "sysmon", "fabricmon", "client", "term"]
+XUI_VIEWERS = ["(none)", "m0", "counter", "sysmon", "fabricmon", "client", "term",
+               "editor", "paint", "files"]
 # The desktop session's apps (issues #215/#216): embedded side by side, opened
 # by `init` as `xuid` clients. The Terminal comes first so it takes the focus.
 DESKTOP_APPS = ("term", "sysmon", "fabricmon", "counter")
+# The document apps join the default set when `build.rs` `SHIP_DOCUMENT_APPS`
+# is on (see docs/xui-apps-track-b.md); they open on demand, never at boot.
+DOCUMENT_APPS = ("editor", "files", "paint")
 ACCELS = ["auto", "none", "tcg", "whpx", "kvm"]
 DISKS = ["virtio", "ata"]
 

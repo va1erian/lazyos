@@ -75,6 +75,19 @@ const fn xui_app(id: &'static str, name: &'static str, path: &'static str) -> Ap
     }
 }
 
+/// An [`xui_app`] with its own MIME verbs (the document apps `mimed` opens).
+const fn xui_app_verbs(
+    id: &'static str,
+    name: &'static str,
+    path: &'static str,
+    verbs: &'static [&'static str],
+) -> AppSpec {
+    AppSpec {
+        verbs,
+        ..xui_app(id, name, path)
+    }
+}
+
 /// A native program the image may ship (`Manifest`) or always ships.
 const fn native_app(
     id: &'static str,
@@ -113,32 +126,20 @@ const fn linux_console_app(id: &'static str, name: &'static str, path: &'static 
     }
 }
 
-/// The built-in app registry. The first four ids are exactly the ones
-/// `mimed`'s open-with defaults register (`editor`, `files`, `viewer`,
-/// `runner`), so an `Open` resolution names an app the supervisor knows; no
-/// image ships their ELFs yet, so they are unavailable until one does. The
+/// The built-in app registry. `editor`, `files`, `paint`, `viewer` and
+/// `runner` are the ids `mimed`'s open-with defaults register, so an `Open`
+/// resolution names an app the supervisor knows; `editor`, `files` and `paint`
+/// are xui desktop apps (shipped with the desktop image, launched on demand),
+/// `viewer` and `runner` have no ELF yet and stay unavailable. The
 /// rest are launchable system programs (`top` proves the path end to end in a
 /// headless boot) and the desktop's xui apps.
 ///
 /// A `static`, not a `const`: [`is_available`] identifies a row by address, so
 /// the table must have one stable storage location.
 pub static APPS: &[AppSpec] = &[
-    native_app(
-        "editor",
-        "Editor",
-        "EDITOR.ELF",
-        Restart::OnFailure,
-        &["open", "edit"],
-        Ship::Manifest,
-    ),
-    native_app(
-        "files",
-        "Files",
-        "FILES.ELF",
-        Restart::OnFailure,
-        &["open", "reveal"],
-        Ship::Manifest,
-    ),
+    xui_app_verbs("editor", "Editor", "XEDITOR.ELF", &["open", "edit"]),
+    xui_app_verbs("files", "Files", "XFILES.ELF", &["open", "reveal"]),
+    xui_app_verbs("paint", "Paint", "XPAINT.ELF", &["open", "edit"]),
     native_app(
         "viewer",
         "Image Viewer",

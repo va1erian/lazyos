@@ -65,7 +65,7 @@ pub(crate) fn selftest(db: &MimeDb, apps: &mut AppRegistry) {
     let mut bus = None;
     for (path, expected) in [
         ("NOTES.TXT", "editor"),
-        ("LOGO.PNG", "viewer"),
+        ("LOGO.PNG", "paint"),
         ("SAMPLE.LZT", "lazytest"),
     ] {
         // Session 0: the service's own (system) session. No open-with app is
