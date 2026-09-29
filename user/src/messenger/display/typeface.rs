@@ -16,7 +16,7 @@ pub struct Glyph {
     pub advance_x16: u32,
 }
 
-/// One rasterized face: line metrics plus glyphs for `' '..='~'`.
+/// One rasterized face: line metrics plus glyphs for ASCII and Latin-1.
 pub struct FaceData {
     pub ascender: i32,
     pub descender: i32,
@@ -28,7 +28,8 @@ pub struct FaceData {
 include!(concat!(env!("OUT_DIR"), "/typeface_data.rs"));
 
 const FIRST: u32 = 0x20;
-const LAST: u32 = 0x7E;
+/// Matches `font_atlas::LAST_CHAR`: the atlas covers ASCII and Latin-1.
+const LAST: u32 = 0xFF;
 
 /// A bundled typeface.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -47,8 +48,8 @@ impl Face {
         }
     }
 
-    /// The glyph for `ch` and its coverage; characters outside printable
-    /// ASCII draw as `?`.
+    /// The glyph for `ch` and its coverage; characters outside the atlas
+    /// (ASCII and Latin-1) draw as `?`.
     pub(super) fn glyph(self, ch: char) -> (&'static Glyph, &'static [u8]) {
         let data = self.data();
         let code = ch as u32;
