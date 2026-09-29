@@ -23,6 +23,7 @@ audit ring, and per-uid quotas. Spec: [security-model.md](../security-model.md).
 | `CAP_IPC_CONTROL` | manage other services' endpoints; registry proxy |
 | `CAP_SETUID` | use the credential transition gate |
 | `CAP_KILL` | signal tasks of another uid (`kill`/`tkill`/`tgkill`); otherwise only same-uid targets (and `SIGCONT` within a session) |
+| `CAP_DEV_CLAIM` | list and claim devices through syscall 23 (the coarse gate; the class ACL rule `os.kernel.dev.<class>` and the `Device` handle rights bound what a claim can do) |
 
 - `Cred { uid, gid, caps, label_id, session }`; a program the kernel starts is
   `Cred::ROOT` (uid 0, all caps), and every task another task creates (`spawn`,
@@ -95,3 +96,13 @@ audit ring, and per-uid quotas. Spec: [security-model.md](../security-model.md).
 **Status.** Working: stamped identity, audited transitions, default-deny policy,
 hash-chained audit, quotas on handles/buffers/queues/user memory. Open: policy
 compiler/hot reload, fd/CPU quota call sites, withholding uid 0 by default.
+
+**Device claims** (`kernel/src/dev/`, issue #240). `dev_*` authorizes `claim`
+against the class-specific id `os.kernel.dev.<class>` (`dev/class.rs`), so a
+rule for one class never covers another. Every claim, release, denial,
+DMA-enable attempt and interrupt-ack timeout is one audit record whose
+`interface_id` is the class id, `method` says what happened, `txn_id` is
+`1 << 40 | device id` (`dev/report.rs`), and `reason_code` uses codes from 0x10
+up (a granted claim carries the rights in bits 8 and up). `Device` handles are
+never duplicable or transferable, and `ipc::teardown_task` releases every claim
+the dying task holds before it touches the handle table.

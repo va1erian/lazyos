@@ -61,6 +61,15 @@ use crate::quota::{self, Resource};
 use crate::task::wait::WaitQueue;
 use crate::task::{self, WaitKind, WakeReason};
 
+// Split out to keep this file from growing (issue #194): the error type, and
+// the kernel-originated posts the device core uses (issue #240).
+#[path = "channels_error.rs"]
+mod error;
+pub use error::Error;
+#[path = "channels_kernel.rs"]
+mod kernel_post;
+pub use kernel_post::{endpoint_of_task, post_from_kernel};
+
 mod close;
 mod recv;
 mod stats;

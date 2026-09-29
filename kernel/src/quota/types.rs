@@ -21,11 +21,13 @@ pub enum Resource {
     QueueDepth,
     /// CPU ticks.
     CpuTicks,
+    /// Device claims held by the uid (issue #240).
+    DeviceClaims,
 }
 
 impl Resource {
     /// Number of resources; sizes every per-resource array and the ABI block.
-    pub const COUNT: usize = 7;
+    pub const COUNT: usize = 8;
     /// Every resource, in discriminant order (the ABI order).
     pub const ALL: [Resource; Resource::COUNT] = [
         Resource::KernelMemory,
@@ -35,6 +37,7 @@ impl Resource {
         Resource::QueueBytes,
         Resource::QueueDepth,
         Resource::CpuTicks,
+        Resource::DeviceClaims,
     ];
 
     /// Index into the per-resource arrays.
@@ -52,6 +55,7 @@ impl Resource {
             Resource::QueueBytes => "queued Messenger bytes",
             Resource::QueueDepth => "queued Messenger messages",
             Resource::CpuTicks => "CPU",
+            Resource::DeviceClaims => "device claims",
         }
     }
 
@@ -63,6 +67,7 @@ impl Resource {
             Resource::Fds => "fds",
             Resource::QueueDepth => "messages",
             Resource::CpuTicks => "ticks",
+            Resource::DeviceClaims => "claims",
         }
     }
 }
@@ -80,6 +85,7 @@ pub const DEFAULT_LIMITS: [u64; Resource::COUNT] = [
     4 << 20,   // queued bytes
     1024,      // queued messages
     1 << 32,   // CPU ticks
+    8,         // device claims
 ];
 
 /// The limit table for uid 0. The kernel task and bring-up children run as root

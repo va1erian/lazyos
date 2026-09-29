@@ -230,7 +230,7 @@ fn serve_queries(
 ) -> messenger::Result<()> {
     while let Some(message) = server.poll_recv_with(buffer)? {
         let reply = if message.interface_id() == logind::INTERFACE
-            && message.method() == logind::method::SESSIONS
+            && message.method() == logind::wire::METHOD_SESSIONS
         {
             let active = sessions
                 .iter()

@@ -2,10 +2,11 @@
 
 **What it is.** The shared kernel-side foundation under every driver: typed
 device resources, a bus-enumeration seam, a fixed-capacity device table with
-ownership and a generation counter, and a static in-kernel `Driver` table. It
-knows buses, resources and IRQs — never what a "NIC" or "sound card" is. Class
-semantics live in each driver's Messenger interface (see
-[`docs/driver-plan.md`](../driver-plan.md)).
+ownership and a generation counter, a static in-kernel `Driver` table, and
+(issue #240) the interrupt path and the `dev_*` syscall that let an unprivileged
+userspace driver claim a device. It knows buses, resources and IRQs — never what
+a "NIC" or "sound card" is. Class semantics live in each driver's Messenger
+interface (see [`docs/driver-plan.md`](../driver-plan.md)).
 
 **Key files**
 
@@ -17,6 +18,16 @@ semantics live in each driver's Messenger interface (see
 | `kernel/src/dev/bus.rs` | `Bus` trait + `PciBus`, builds `DeviceInfo` rows from bus enumeration |
 | `kernel/src/dev/table.rs` | fixed `MAX_DEVICES = 32` table; `owner: Option<TaskSlot>` + `generation` |
 | `kernel/src/dev/driver.rs` | `Driver` trait (`matches` / `attach` / `detach`) and the static `DRIVERS` table |
+| `kernel/src/dev/irq.rs` | ISR-side `dispatch(line)` (lock-free), kernel `fn(line)` handlers, which lines are routable |
+| `kernel/src/dev/intx.rs` | Task-context bottom half and the shared-INTx contract: rounds, ack deadline, `missed` recovery |
+| `kernel/src/dev/claims.rs` | Userspace claims: rights, `Device` handle, interrupt binding and state, BAR mappings |
+| `kernel/src/dev/grant.rs`, `class.rs` | The grant rule; PCI class to `os.kernel.dev.<class>` ids and method ids |
+| `kernel/src/dev/syscall.rs`, `ops.rs` | Syscall 23: `list`/`claim`/`release`/`irq_*`; `map_bar`/`pio`/`cfg_*` |
+| `kernel/src/dev/teardown.rs`, `report.rs`, `selfcheck.rs` | Release on exit; audit records; the `DEV:IRQ`/`DEV:SYSCALL` boot lines and routing log |
+| `kernel/src/arch/irq_stubs.rs`, `arch/pic.rs` | IDT stubs for the PIC lines; mask/EOI/in-service/IRR helpers |
+| `kernel/src/mem/mmio.rs`, `mem/cow.rs` | Uncached MMIO mappings tagged with a software PTE bit; fork split out of `mem/mod.rs` |
+| `kernel/src/ipc/channels_kernel.rs` | `post_from_kernel`: one-way messages from the kernel identity |
+| `user/src/dev.rs` | Userspace wrappers for syscall 23 |
 
 **Ownership and generations.** Each table slot carries an `owner` and a
 `generation`. `claim` fails with `Busy` when a device is already owned; it
@@ -47,12 +58,82 @@ The legacy block drivers (ATA PIO, legacy virtio-blk) are registered this way
 with no behavior change; their `attach` still calls the same probe code, so the
 block registry, boot-device selection and logs are identical.
 
+**Interrupts (D2).** PIC lines 3-11 and 13-15 (and the cascade) have IDT stubs
+(`arch/irq_stubs.rs`); the timer, keyboard and mouse keep their own handlers and
+can never be claimed. `irq::dispatch(line)` runs in interrupt context on one CPU,
+so it takes no lock and allocates nothing: it recognises a spurious IRQ 7/15
+(in-service register), runs a kernel driver's `fn(line)` if one is registered,
+and otherwise masks the line, sets an atomic raised bit and sends a *specific*
+EOI (an unclaimed line is masked and counted, so it cannot storm). The bottom
+half, `intx::service`, runs from every native syscall entry and each mux frame:
+it posts one one-way message per armed claimant from the kernel identity
+(`ipc::channels::post_from_kernel`, sender slot 0) and expires ack deadlines.
+The message is interface `os.kernel.dev`, method `irq`, body `u32` device id,
+`u32` irq index (0), `u32` claim generation. The shared-line contract (opt-in
+sharing, one outstanding message per (claim, line), unmask after the last ack,
+100-tick deadline, `missed`-bit recovery, exclusive lines fail `EBUSY`) is
+`docs/driver-plan.md` section 3.3, implemented in `intx.rs`.
+
+**The `dev_*` syscall (D3).** Syscall 23 (see the table in
+`docs/driver-plan.md` 3.2 and the header of `dev/syscall.rs`). `claim` checks
+`CAP_DEV_CLAIM`, resolves the device, authorizes `os.kernel.dev.<class>`,
+derives rights = device resources AND class policy (`EPERM` before any owner is
+recorded when empty), then takes ownership, the `DeviceClaims` charge and the
+handle, undoing each on failure, and finally quiesces the PCI function (decode
+and bus-master off, INTx disabled). Every later op resolves the handle against
+the device table (owner, generation) and the claim table. MMIO maps into
+`0x30_0000_0000..0x38_0000_0000`, inside PML4 entry 0, so a mapping exists only
+in the claimant's own page tables (the shared-buffer range is one page-table
+subtree shared by every address space); its leaves carry software PTE bit 10
+(`pte::MMIO`), which `unmap_range`, `free_user_table` and `fork` honour, so a
+device frame is never freed, shared or inherited. `ipc::teardown_task`
+releases every claim first: interrupts masked and the claimant dropped from
+rounds, decode/bus-master cleared with INTx disabled, MMIO unmapped and
+uncharged, generation bumped, one audit record.
+
+**IRQ routing on QEMU (observed).** The boot log prints one
+`dev: irq route ...` line per PCI function (pin, Interrupt Line, verdict). A
+function with INTx pin 0 has no `Irq` resource. Firmware (SeaBIOS) programmed a
+PIC-routable line on both machine types:
+
+| Machine | Function | Pin | Line |
+|---|---|---|---|
+| `pc` (i440fx) | PIIX4 power management `8086:7113` | 1 | 9 |
+| `pc` | e1000 `8086:100e` / virtio-net `1af4:1000` (00:03.0), virtio-blk `1af4:1001` | 1 | 11 |
+| `pc` | host bridge, PIIX3 ISA and IDE, std VGA | 0 | none |
+| `q35` | virtio-blk `1af4:1001` (00:02.0), virtio-net `1af4:1000` (00:03.0) | 1 | 11 |
+| `q35` | ICH9 AHCI (00:1f.2), SMBus (00:1f.3) | 1 | 10 |
+| `q35` | host bridge, VGA, ICH9 LPC | 0 | none |
+
+The four PIRQs are shared, so virtio-blk (polled by the kernel) and any userspace
+NIC share line 11; in-kernel drivers therefore disable their function's INTx at
+attach. The test `dev_irq_real_device_end_to_end` proves the wiring end to end
+whenever the VM has a legacy virtio-net: a userspace "driver" claims it, kicks
+a TX descriptor with `pio` only, and checks that the PIC latches line 11, the
+real ISR runs, one message reaches its endpoint from the kernel, and `irq_ack`
+unmasks the line. It passed on both machines (the CI image has no such
+function and only logs the routing). Reproduce with
+`qemu-system-x86_64 ... -netdev user,id=n0 -device virtio-net-pci,netdev=n0,disable-modern=on`
+(add `-machine q35` and a virtio-blk disk, since q35 has no IDE). A line that
+is reserved or out of range (or a function with no pin) is not routable: the
+claim succeeds and `irq_enable` returns `ENOSYS`, the polling fallback; the
+suite covers it with the reserved mouse line and a `0xFF` line.
+
 **Boot line.** On a successful enumeration the kernel prints
 `DEV:ENUM:PASS:<n> devices (<pci> PCI, <drivers> attached)`; an enumeration that
 found no PCI function prints `DEV:ENUM:FAIL:no PCI devices enumerated`.
 
-**Status.** Working (D1): platform + PCI enumeration, BAR sizing (32/64-bit),
-command-register helpers, capability walk, interrupt-line read, claim/release
-with generations, ATA/virtio-blk registered as in-kernel drivers. Open (later
-stages): userspace `dev_*` syscall (D3), IRQ dispatch (D2), DMA (D4), MMCONFIG,
-MSI/MSI-X, ACPI/platform enumeration beyond the single ATA seed.
+Two more boot lines come from `dev::selfcheck` after the IDT is loaded:
+`DEV:IRQ:PASS:16 vectors installed, <r>/<w> INTx-wired PCI functions on routable
+lines` (each of the 16 PIC vectors has a present gate) and
+`DEV:SYSCALL:PASS:syscall 23 gates refuse, 0 claims` (unknown op, kernel-task
+claim, bad handle and the reserved `dma_alloc` all refuse cleanly).
+
+**Status.** Working: platform + PCI enumeration, BAR sizing (32/64-bit),
+command-register helpers (status bits are never written back), capability walk,
+claim/release with generations, ATA/virtio-blk as in-kernel drivers (D1);
+interrupt dispatch and the shared-INTx contract (D2); the `dev_*` syscall, MMIO
+mappings, grant rule, class ACL, audit, quota and teardown (D3). Not done: DMA
+and `dma_alloc` (D4, #241), function-level reset (teardown clears the command
+register enables instead), MMCONFIG, MSI/MSI-X, IOAPIC, ACPI/platform
+enumeration beyond the single ATA seed.
