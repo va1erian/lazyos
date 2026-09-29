@@ -6,7 +6,8 @@
 //! The syscall surface is split by family into sibling modules: [`elf`] loads
 //! the initial image and start stack, [`io`] is `read`/`write`/`poll`,
 //! [`mem`] the `mmap` family, [`fd`] the descriptor table and its metadata,
-//! [`path`] and [`pathops`] path resolution and the naming syscalls (`open`,
+//! [`cwd`] the working directory and the one path resolver, [`path`] and
+//! [`pathops`] the VFS lookup and the naming syscalls (`open`,
 //! `mkdir`, `rename`, ...), [`attr`] `chmod`/`chown`/`utimensat` and their
 //! variants, [`stat`] the `stat` family, [`time`] clocks and
 //! sleeping, [`misc`] odds and ends (`ioctl`, `arch_prctl`, `uname`, ...),
@@ -24,6 +25,7 @@ use crate::task;
 
 mod attr;
 mod creds;
+mod cwd;
 mod dents;
 mod elf;
 mod epoll;
@@ -151,6 +153,7 @@ fn syscall_name(nr: u64) -> &'static str {
         78 => "getdents",
         79 => "getcwd",
         80 => "chdir",
+        81 => "fchdir",
         82 => "rename",
         83 => "mkdir",
         84 => "rmdir",
@@ -300,7 +303,7 @@ extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
     let result = match nr {
         0 => io::sys_read(a1, a2, a3),
         1 => io::sys_write(a1, a2, a3),
-        2 => path::sys_openat(path::AT_FDCWD, a1, a2, a3), // open
+        2 => path::sys_openat(cwd::AT_FDCWD, a1, a2, a3), // open
         3 => fd::sys_close(a1),
         4 => stat::sys_stat_path(a1, a2), // stat(path, buf)
         5 => stat::sys_fstat(a1, a2),     // fstat(fd, buf)
@@ -351,8 +354,9 @@ extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
         76 => filesys::sys_truncate(a1, a2),   // truncate(path, length)
         77 => filesys::sys_ftruncate(a1, a2),  // ftruncate(fd, length)
         78 => dents::sys_getdents(a1, a2, a3), // getdents
-        79 => pathops::sys_getcwd(a1, a2),
-        80 => 0,                                        // chdir (root-only)
+        79 => cwd::sys_getcwd(a1, a2),
+        80 => cwd::sys_chdir(a1),                       // chdir
+        81 => cwd::sys_fchdir(a1),                      // fchdir
         82 => pathops::sys_rename(a1, a2),              // rename
         83 => pathops::sys_mkdir(a1, a2),               // mkdir
         84 => pathops::sys_rmdir(a1),                   // rmdir

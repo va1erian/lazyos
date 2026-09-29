@@ -131,7 +131,8 @@ impl Compositor {
 /// already queued (e.g. `WindowClose`) stay deliverable after the close.
 pub(super) fn remove_surface(surfaces: &mut Vec<Surface>, id: u64) {
     if let Some(index) = surfaces.iter().position(|surface| surface.id == id) {
-        let surface = surfaces.remove(index);
+        let mut surface = surfaces.remove(index);
+        surface.release_buffers();
         if surface.events != 0 {
             let _ = Endpoint::from_raw(surface.events).close();
         }

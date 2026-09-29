@@ -79,7 +79,8 @@ runnable by hand from BusyBox `sh` (see "Native programs from `sh`" below).
   `readv`/`writev`, `preadv`/`pwritev` (and the `*2` forms),
   `lseek`, `pread64`/`pwrite64`, `truncate`/`ftruncate`, `fsync`/`fdatasync`/
   `syncfs`/`sync`, `statfs`/`fstatfs`, `dup`/`dup2`, `fcntl`, `ioctl`,
-  `readlink`, `getcwd`, `chmod`/`fchmod`/`fchmodat`, `chown`/`fchown`/`lchown`/
+  `readlink`, `getcwd`/`chdir`/`fchdir` (per-task working directory, see
+  [filesystem.md](filesystem.md)), `chmod`/`fchmod`/`fchmodat`, `chown`/`fchown`/`lchown`/
   `fchownat`, `utimensat`/`utime`/`utimes`/`futimesat`,
   `mkdir`/`mkdirat`, `rmdir`, `rename`/`renameat`, `unlink`/`unlinkat` with
   `AT_REMOVEDIR`), memory (`mmap`, `mprotect`, `munmap`, `mremap`, `brk`),
@@ -238,7 +239,7 @@ lifecycle, and a 384-cycle spawn/exit soak that checks slots and frames) and the
 `tools/abi/fixtures` (`persist` boots twice on one data disk; threads, `std::process` with piped stdio, `mremap`,
 epoll/eventfd, `UnixStream`/seqpacket; matrix published by CI), native
 supervision loop (`init`, app `Launch`). Gaps: `poll` edge cases, full
-`SA_RESTART`, shared file tables, per-process cwd (`chdir` is a no-op),
-dynamic linking. Still `ENOSYS` on the filesystem side: `link`/`symlink`. The
+`SA_RESTART`, shared file tables (and `CLONE_FS`: a thread's `chdir` does not move its
+siblings), dynamic linking. Still `ENOSYS` on the filesystem side: `link`/`symlink`. The
 `persist` fixture also sets and re-checks mode, owner and times across its two
 boots.

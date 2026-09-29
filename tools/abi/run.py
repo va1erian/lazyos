@@ -46,6 +46,7 @@ ORDER = [
     "unixstress",
     "persist",
     "statxio",
+    "cwd",
     "busybox",
 ]
 
@@ -53,6 +54,10 @@ ORDER = [
 # boot writes and prints `ABI:<name>:<marker>`; the second, on the same disk,
 # verifies what survived and prints `ABI:<name>:PASS`.
 TWO_BOOT = {"persist": "WROTE"}
+
+# Fixtures that want a data disk in a single boot, and the directories they
+# must report having worked in (`ABI:<name>:ROUND:<dir>`) when one is attached.
+ONE_BOOT_WITH_DATA = {"cwd": ("/tmp", "/data")}
 
 
 def build_image(fixture_path: Path, busybox: bool = False) -> bool:
@@ -156,6 +161,28 @@ def run_two_boots(name: str, at: str, accel: str) -> tuple[str, str]:
     return status, f"boot 2: {detail}" if detail else ""
 
 
+def run_with_data_disk(name: str, at: str, accel: str) -> tuple[str, str]:
+    """A single-boot row that also exercises `/data` when the tooling exists.
+
+    Without the data-disk tooling only the always-available directories count;
+    with it, the fixture must have worked on every directory it lists.
+    """
+    disk = None
+    if data_disk_tooling():
+        disk = new_data_disk(name)
+        if disk is None:
+            return "fail", "could not format the data disk"
+    serial = capture(name, at, accel, disk)
+    status, detail = classify(name, serial)
+    if status != "pass":
+        return status, detail
+    wanted = ONE_BOOT_WITH_DATA[name] if disk else ONE_BOOT_WITH_DATA[name][:1]
+    for directory in wanted:
+        if f"ABI:{name}:ROUND:{directory}" not in serial:
+            return "fail", f"never worked in {directory}"
+    return "pass", ""
+
+
 def run_busybox(at: str, accel: str) -> tuple[str, str]:
     """The BusyBox row: `sh` runs, and `df` and `mount` list the `/data` volume.
 
@@ -178,6 +205,33 @@ def run_busybox(at: str, accel: str) -> tuple[str, str]:
         return "fail", "df does not list /data"
     if not re.search(r"\bon /data type ext2 \(rw", serial):
         return "fail", "mount does not list /data as ext2 (rw)"
+    return check_busybox_cwd(serial)
+
+
+def check_busybox_cwd(serial: str) -> tuple[str, str]:
+    """`cd /data` must move the kernel's cwd, not just the shell's prompt (#365).
+
+    The script prints `pwd -P` (which asks the kernel via `getcwd`) and `ls`
+    (a forked and exec'd applet, so the directory must survive `execve`) after
+    `cd /data`, then again after `cd ..`, each under its own marker line.
+    """
+    # `ls` colours its output because the serial console looks like a terminal.
+    text = re.sub(r"\x1b?\[[0-9;]*m", "", serial)
+
+    def section(start: str, end: str) -> str:
+        pattern = rf"^ABI:busybox:{start}\r?\n(.*?)^ABI:busybox:{end}"
+        found = re.search(pattern, text, re.M | re.S)
+        return found.group(1) if found else ""
+
+    if "/data" not in [line.strip() for line in section("CWD", "LS").splitlines()]:
+        return "fail", "pwd -P after cd /data is not /data"
+    if "cwdprobe" not in section("LS", "CWD2").split():
+        return "fail", "ls after cd /data does not list the file echo wrote there"
+    if "/" not in [line.strip() for line in section("CWD2", "LS2").splitlines()]:
+        return "fail", "pwd -P after cd .. is not /"
+    root = section("LS2", "END").split()
+    if "cwdprobe" in root or "HELLO.TXT" not in root:
+        return "fail", "ls after cd .. does not list the boot volume"
     return "pass", ""
 
 
@@ -207,6 +261,8 @@ def main() -> int:
             continue
         if name in TWO_BOOT:
             status, detail = run_two_boots(name, args.at, args.accel)
+        elif name in ONE_BOOT_WITH_DATA:
+            status, detail = run_with_data_disk(name, args.at, args.accel)
         elif name == "busybox":
             status, detail = run_busybox(args.at, args.accel)
         else:

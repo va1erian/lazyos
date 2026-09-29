@@ -11,14 +11,15 @@ use crate::task::process::GroupError;
 use crate::task::{self, WakeReason};
 use crate::user_ptr;
 
+use super::cwd::{read_path, resolve_at, AT_FDCWD};
 use super::elf::{build_start_stack, phdr_size, program_header_addr, LOAD_RESERVED};
 use super::errno::{
-    err, fs_err, ECHILD, EFAULT, EINTR, EINVAL, ENOENT, ENOEXEC, ENOMEM, ENOSYS, EPERM, ESRCH,
+    err, fs_err, ECHILD, EINTR, EINVAL, ENOENT, ENOEXEC, ENOMEM, ENOSYS, EPERM, ESRCH,
 };
 use super::fd::close_cloexec_fds;
 use super::futex::futex_wake;
 use super::path::load_executable;
-use super::uaccess::{read_cstr, write_u32, write_u64};
+use super::uaccess::{write_u32, write_u64};
 use super::{BRK_BASE, MMAP_BASE, STACK_SIZE, STACK_TOP};
 
 /// Free task slots at which a successful `clone` gives the scheduler a tick
@@ -167,8 +168,15 @@ pub(super) fn sys_wait4(_pid: u64, status: u64, options: u64) -> u64 {
 /// `execve(path, argv, envp)`: replace the current image with `path`'s ELF and
 /// resume at its entry point.
 pub(super) fn sys_execve(path_ptr: u64, argv_ptr: u64, envp_ptr: u64) -> u64 {
-    let Some(path) = read_cstr(path_ptr) else {
-        return err(EFAULT);
+    let raw = match read_path(path_ptr) {
+        Ok(raw) => raw,
+        Err(code) => return code,
+    };
+    // A relative program path is relative to the caller's working directory;
+    // the cwd itself carries over into the new image.
+    let path = match resolve_at(AT_FDCWD, &raw) {
+        Ok(path) => path,
+        Err(code) => return code,
     };
     let mut argv = read_str_ptr_array(argv_ptr);
     if argv.is_empty() {

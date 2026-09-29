@@ -67,3 +67,7 @@ path = "src/persist.rs"
 [[bin]]
 name = "statxio"
 path = "src/statxio.rs"
+
+[[bin]]
+name = "cwd"
+path = "src/cwd.rs"

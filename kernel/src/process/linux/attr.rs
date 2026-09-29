@@ -19,10 +19,10 @@ use crate::fs::vfs::{AttrRequest, FsError, Id, Stamp};
 use crate::task::{self, FdKind};
 use crate::user_ptr;
 
+use super::cwd::{read_path, resolve_at, AT_FDCWD};
 use super::errno::{err, fs_err, EBADF, EFAULT, EINVAL, ENOENT, EROFS};
 use super::fd::fd_meta_get;
-use super::path::{resolve_at, synthetic_meta, AT_FDCWD};
-use super::uaccess::read_cstr;
+use super::path::synthetic_meta;
 use super::vfsfd;
 
 /// `*at` flags this family accepts.
@@ -132,15 +132,15 @@ fn node_at(dirfd: u64, path: u64, flags: u64) -> Result<Node, u64> {
     if flags & !(AT_SYMLINK_NOFOLLOW | AT_EMPTY_PATH) != 0 {
         return Err(err(EINVAL));
     }
-    let path = read_cstr(path).ok_or(err(EFAULT))?;
+    let path = read_path(path)?;
     if path.is_empty() {
         return match (flags & AT_EMPTY_PATH != 0, dirfd == AT_FDCWD) {
             (false, _) => Err(err(ENOENT)),
-            (true, true) => Ok(Node::Path(String::from("/"))), // the cwd
+            (true, true) => resolve_at(AT_FDCWD, "").map(Node::Path), // the cwd
             (true, false) => Ok(Node::Fd(dirfd)),
         };
     }
-    resolve_at(dirfd, &path).map(Node::Path).map_err(err)
+    resolve_at(dirfd, &path).map(Node::Path)
 }
 
 /// Apply `request` to `node` as the calling task; `0` or `-errno`.

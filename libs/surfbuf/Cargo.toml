@@ -1,0 +1,11 @@
+[package]
+name = "surfbuf"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Buffer-slot state machines for the display v1 pipelined present (issue #361)"
+license = "GPL-3.0-or-later"
+
+[lib]
+name = "surfbuf"
+path = "src/lib.rs"

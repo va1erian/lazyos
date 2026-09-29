@@ -35,7 +35,9 @@ interface os.lazy.display.v1 {
     /// parcel transfers the event endpoint the compositor sends input on.
     method CreateSurface(width: U32, height: U32, title: String, role: U32) -> (surface: U64) = 1;
     /// Attach (or replace) `surface`'s pixel buffer with the parcel's shared
-    /// buffer. Only the surface's creator may attach.
+    /// buffer. Only the surface's creator may attach. Refused with `EBUSY`
+    /// once the surface has used `Present`, which owns slot ownership from
+    /// then on.
     method AttachBuffer(surface: U64) -> () = 2;
     /// Signal that the damage rectangle of `surface` (content-relative) is
     /// ready to present.
@@ -95,6 +97,30 @@ interface os.lazy.display.v1 {
     method FocusChanged(surface: Option<U64>) -> () = 23 oneway;
     /// Shell event: the global start-menu hotkey (Ctrl+Esc or Super) fired.
     method StartMenu() -> () = 24 oneway;
+    /// Register a pixel buffer (the parcel's `buffers[0]`, at least
+    /// `width * height * 4` bytes) as buffer slot `slot` (0-3) of `surface`.
+    /// The compositor only reads the *current* slot, so attaching to any
+    /// other slot is tear-free; attaching to the current slot fails with
+    /// `EBUSY`. Only the surface's creator may attach.
+    method AttachBufferSlot(surface: U64, slot: U32) -> () = 25;
+    /// Pipelined present (no reply): make `slot` the surface's current buffer
+    /// and composite `damage` (content-relative, clipped to the content; an
+    /// empty list or more than 16 rects means the whole content). `seq` is
+    /// echoed in `FrameDone`. After compositing, the compositor sends
+    /// `BufferRelease` for the slot this present replaced (if it changed) and
+    /// then `FrameDone`. A minimized surface still swaps its slot (so the
+    /// newest frame shows on restore and the client gets its release) but is
+    /// not repainted. A refused present (unattached or out-of-range slot)
+    /// changes nothing: the compositor sends `BufferRelease` for the
+    /// submitted slot, since it never read it, and then `FrameDone`. A
+    /// present from a task that does not own `surface` is dropped silently.
+    method Present(surface: U64, slot: U32, seq: U64, damage: Array<Rect>) -> () = 26 oneway;
+    /// Event: the compositor no longer reads `slot` of `surface`; the client
+    /// may write it again. Only sent to surfaces that use `Present`.
+    method BufferRelease(surface: U64, slot: U32) -> () = 27 oneway;
+    /// Event: the compositor consumed the `Present` numbered `seq`. Frames
+    /// complete in submission order.
+    method FrameDone(surface: U64, seq: U64) -> () = 28 oneway;
 
     /// What a surface is. Numeric values are the wire values.
     enum Role { Window, Desktop }
@@ -102,6 +128,14 @@ interface os.lazy.display.v1 {
     /// The `SurfaceChanged` event kinds. `Unspecified` (0) is what a missing
     /// field decodes to, so a malformed event never reads as `Created`.
     enum Change { Unspecified, Created, Destroyed, Moved, Minimized, Restored, Title }
+
+    /// A damage rectangle relative to a surface's content origin.
+    struct Rect {
+        x: U32,
+        y: U32,
+        w: U32,
+        h: U32
+    }
 
     /// One row of a `ListSurfaces` reply.
     struct SurfaceRow {

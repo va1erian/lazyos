@@ -13,15 +13,12 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use crate::fs::vfs::{self, FileKind, FsError, Id, Meta};
-use crate::task::{self, Fd, FdKind};
+use crate::task::{self, Fd};
 
-use super::errno::{err, fs_err, EBADF, EEXIST, EINVAL, EISDIR, ENOENT, ENOTDIR, EROFS};
-use super::fd::{fd_meta_get, file_meta, open_device_fd, open_snapshot};
-use super::uaccess::read_cstr;
+use super::cwd::user_path;
+use super::errno::{err, fs_err, EEXIST, EISDIR, ENOENT, ENOTDIR, EROFS};
+use super::fd::{file_meta, open_device_fd, open_snapshot};
 use super::vfsfd::open_vfs_fd;
-
-/// `openat(AT_FDCWD, ...)` sentinel.
-pub(super) const AT_FDCWD: u64 = (-100i64) as u64;
 
 /// `openat(2)` access mode mask.
 const O_ACCMODE: u64 = 0o3;
@@ -387,40 +384,12 @@ fn open_path(path: &str, flags: u64, mode: u64) -> u64 {
 }
 
 pub(super) fn sys_openat(dirfd: u64, path: u64, flags: u64, mode: u64) -> u64 {
-    match read_cstr(path) {
-        Some(path) => match resolve_at(dirfd, &path) {
-            Ok(path) => open_path(&path, flags, mode),
-            Err(error) => err(error),
-        },
-        None => err(EINVAL),
+    match user_path(dirfd, path) {
+        Ok(path) => open_path(&path, flags, mode),
+        Err(code) => code,
     }
 }
 
-/// Resolve a `(dirfd, path)` pair into an absolute ABI path. Relative names
-/// with a real descriptor join that descriptor's recorded directory path, so
-/// `std`'s fd-relative `openat`/`unlinkat` walks work; `AT_FDCWD` roots at `/`.
-pub(super) fn resolve_at(dirfd: u64, path: &str) -> Result<String, u64> {
-    if path.starts_with('/') {
-        return Ok(String::from(path));
-    }
-    if path.is_empty() {
-        return Ok(String::from("/"));
-    }
-    if dirfd == AT_FDCWD {
-        return Ok(format!("/{path}"));
-    }
-    let fd = dirfd as usize;
-    match fd_meta_get(fd).and_then(|meta| meta.path) {
-        Some(base) if task::fd_kind(fd) == FdKind::File => {
-            if base == "/" {
-                Ok(format!("/{path}"))
-            } else {
-                Ok(format!("{base}/{path}"))
-            }
-        }
-        _ => Err(EBADF),
-    }
-}
-
-// `mkdir`/`rmdir`/`unlink`/`rename`/`access`/`umask`/`readlink`/`getcwd` live
-// in `pathops`, split out purely to stay under the file size limit.
+// `mkdir`/`rmdir`/`unlink`/`rename`/`access`/`umask`/`readlink` live in
+// `pathops`, split out purely to stay under the file size limit; relative
+// paths are resolved by `cwd::resolve_at` before any of them see a name.

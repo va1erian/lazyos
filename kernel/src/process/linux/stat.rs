@@ -7,11 +7,12 @@ use crate::fs::vfs::{Id, Meta, Times};
 use crate::task::{self, FdKind};
 use crate::user_ptr;
 
-use super::errno::{err, fs_err, EBADF, EINVAL, ENOENT};
+use super::cwd::{user_path, AT_FDCWD};
+use super::errno::{err, fs_err, EBADF};
 use super::fd::{fd_meta_get, FdMeta};
 use super::flags::{S_IFCHR, S_IFIFO, S_IFREG, S_IFSOCK};
 use super::path::{resolve, Target};
-use super::uaccess::{read_cstr, write_u32, write_u64};
+use super::uaccess::{write_u32, write_u64};
 
 /// What the stat-family calls report about a file: type and mode, size, inode,
 /// owner and the three timestamps (whole seconds; nodes with no backing file
@@ -147,15 +148,15 @@ pub(super) fn sys_fstat(fd: u64, buf: u64) -> u64 {
 }
 
 pub(super) fn sys_stat_path(path: u64, buf: u64) -> u64 {
-    match read_cstr(path) {
-        Some(path) => reply(path_attrs(&path), buf),
-        None => err(EINVAL),
+    match user_path(AT_FDCWD, path) {
+        Ok(path) => reply(path_attrs(&path), buf),
+        Err(code) => code,
     }
 }
 
-pub(super) fn sys_newfstatat(_dirfd: u64, path: u64, buf: u64, _flags: u64) -> u64 {
-    match read_cstr(path) {
-        Some(path) if !path.is_empty() => reply(path_attrs(&path), buf),
-        _ => err(ENOENT),
-    }
+/// `newfstatat(dirfd, path, buf, flags)`: `stat` relative to `dirfd`, or to the
+/// descriptor itself for an empty path with `AT_EMPTY_PATH`. Shares its lookup
+/// with `statx`, so the two agree on every path form.
+pub(super) fn sys_newfstatat(dirfd: u64, path: u64, buf: u64, flags: u64) -> u64 {
+    reply(super::statx::lookup(dirfd, path, flags), buf)
 }

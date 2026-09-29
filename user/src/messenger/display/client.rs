@@ -4,7 +4,7 @@
 use alloc::vec;
 use alloc::vec::Vec;
 
-use libmessenger::{BufferDesc, Parcel};
+use libmessenger::{flags, BufferDesc, Parcel};
 
 use super::super::{errno, registry, Endpoint, Error, Result};
 use super::canvas::Rect;
@@ -206,6 +206,56 @@ impl Client {
         .map_err(Error::Parcel)?;
         self.call(request(wire::METHOD_COMMIT, body, Vec::new(), Vec::new()))
             .map(|_| ())
+    }
+
+    /// `AttachBufferSlot`: share `buffer` with the compositor as buffer slot
+    /// `slot` (`0..surfbuf::MAX_SLOTS`) of `surface` (issue #361). Fails with
+    /// `EBUSY` while `slot` is the surface's current buffer.
+    pub fn attach_slot(&self, surface: u64, slot: u32, buffer: u64, len: u64) -> Result<()> {
+        let body =
+            wire::encode_attach_buffer_slot_args(&wire::AttachBufferSlotArgs { surface, slot })
+                .map_err(Error::Parcel)?;
+        let buffers = vec![BufferDesc {
+            handle: buffer,
+            offset: 0,
+            len,
+            flags: 0,
+        }];
+        self.call(request(
+            wire::METHOD_ATTACHBUFFERSLOT,
+            body,
+            Vec::new(),
+            buffers,
+        ))
+        .map(|_| ())
+    }
+
+    /// `Present` (issue #361): a one-way, pipelined commit. Makes `slot` the
+    /// surface's current buffer and composites `damage` (an empty slice or
+    /// more than [`surfbuf::MAX_DAMAGE`] rectangles means the whole surface).
+    /// The compositor answers with [`super::FrameEvent`]s on the surface's
+    /// event endpoint: `BufferRelease` for the slot this replaced, then
+    /// `FrameDone(seq)`.
+    pub fn present(&self, surface: u64, slot: u32, seq: u64, damage: &[Rect]) -> Result<()> {
+        let damage = damage
+            .iter()
+            .map(|rect| wire::Rect {
+                x: rect.x.max(0) as u32,
+                y: rect.y.max(0) as u32,
+                w: rect.w.max(0) as u32,
+                h: rect.h.max(0) as u32,
+            })
+            .collect();
+        let body = wire::encode_present_args(&wire::PresentArgs {
+            surface,
+            slot,
+            seq,
+            damage,
+        })
+        .map_err(Error::Parcel)?;
+        let mut parcel = request(wire::METHOD_PRESENT, body, Vec::new(), Vec::new());
+        parcel.header.flags |= flags::ONE_WAY;
+        self.endpoint.send(&parcel)
     }
 
     /// Drop `surface`; the compositor forgets it and repaints.

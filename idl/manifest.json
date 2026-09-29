@@ -200,6 +200,26 @@
         "name": "StartMenu",
         "id": 24,
         "oneway": true
+      },
+      {
+        "name": "AttachBufferSlot",
+        "id": 25,
+        "oneway": false
+      },
+      {
+        "name": "Present",
+        "id": 26,
+        "oneway": true
+      },
+      {
+        "name": "BufferRelease",
+        "id": 27,
+        "oneway": true
+      },
+      {
+        "name": "FrameDone",
+        "id": 28,
+        "oneway": true
       }
     ]
   },

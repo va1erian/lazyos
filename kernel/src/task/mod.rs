@@ -70,6 +70,7 @@ pub mod wait;
 pub use linux_spawn::{spawn_linux, spawn_linux_args, spawn_linux_child};
 
 mod console;
+mod cwd;
 mod fdio;
 mod fdops;
 mod fdtypes;
@@ -84,6 +85,7 @@ mod stats;
 mod waiting;
 
 pub use console::*;
+pub use cwd::{cwd, set_cwd};
 pub use fdio::*;
 pub use fdops::*;
 pub use fdtypes::*;
@@ -240,6 +242,11 @@ pub struct Task {
     pub fds: [Fd; FD_COUNT],
     /// Per-descriptor flags ([`FD_CLOEXEC`]).
     pub fd_flags: [u16; FD_COUNT],
+    /// Absolute, normalized working directory of the Linux ABI (see [`cwd`]);
+    /// `None` is the root, so a task that never `chdir`s costs no allocation.
+    /// Shared by `Arc` so `fork` is a reference-count bump, and freed with
+    /// the task, so no exit path has anything extra to release.
+    pub cwd: Option<Arc<str>>,
     pub output: Vec<u8>,
     pub input: VecDeque<Key>,
 }

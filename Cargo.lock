@@ -398,6 +398,7 @@ dependencies = [
  "linked_list_allocator",
  "messenger-generated",
  "spin",
+ "surfbuf",
  "tiny-skia",
  "uart_16550",
  "x86_64",
@@ -694,6 +695,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
+name = "surfbuf"
+version = "0.1.0"
+
+[[package]]
 name = "syn"
 version = "2.0.119"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -828,6 +833,7 @@ dependencies = [
  "lazyos-crypto",
  "libmessenger",
  "messenger-generated",
+ "surfbuf",
 ]
 
 [[package]]

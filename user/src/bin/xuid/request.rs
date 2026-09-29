@@ -7,10 +7,10 @@ use alloc::vec::Vec;
 use libmessenger::Parcel;
 use user::messenger::display::{self, wire, Rect};
 use user::messenger::{self, Endpoint, Message};
-use user::sys;
 
 use super::compositor::Compositor;
 use super::layout::place_window;
+use super::present::attach;
 use super::protocol::{drop_rejected_handle, empty_reply, error_reply, is_privileged, typed_reply};
 use super::surface::Surface;
 use super::window::surface_by_id;
@@ -26,6 +26,7 @@ impl Compositor {
         match message.method() {
             wire::METHOD_CREATESURFACE => self.create_surface(message, body),
             wire::METHOD_ATTACHBUFFER => self.attach_buffer(message, body),
+            wire::METHOD_ATTACHBUFFERSLOT => self.attach_buffer_slot(message, body),
             wire::METHOD_COMMIT => self.commit(message, body),
             wire::METHOD_DESTROYSURFACE => self.destroy_surface(message, body),
             wire::METHOD_DRAGSTART => self.drag_start(message, body),
@@ -118,7 +119,8 @@ impl Compositor {
         let Some(index) = self.surfaces.iter().position(|surface| surface.desktop) else {
             return;
         };
-        let old = self.surfaces.remove(index);
+        let mut old = self.surfaces.remove(index);
+        old.release_buffers();
         let _ = display::send_event(
             &Endpoint::from_raw(old.events),
             &mut self.scratch,
@@ -129,49 +131,27 @@ impl Compositor {
         let _ = Endpoint::from_raw(old.events).close();
     }
 
-    /// `AttachBuffer`: map the client's pixel buffer for its surface.
+    /// `AttachBuffer`: map the client's pixel buffer as slot 0 and show it.
     fn attach_buffer(&mut self, message: &Message, body: &[u8]) -> Parcel {
         let id = wire::decode_attach_buffer_args(body)
             .unwrap_or_default()
             .surface;
-        let Some(surface) = self.surfaces.iter_mut().find(|surface| surface.id == id) else {
-            return error_reply(message.method(), messenger::errno::EINVAL);
-        };
-        if surface.owner != message.sender {
-            // Only the surface's own client may attach its pixels (issue
-            // #176: any caller that guessed the id could spoof another app's
-            // window).
-            return error_reply(message.method(), messenger::errno::EACCES);
-        }
-        // The descriptor's length is the sender's claim about how many bytes
-        // the surface needs; never trust it to cover the geometry the
-        // compositor paints. Checked `u64` arithmetic avoids the wrap a
-        // pathological width/height could otherwise cause in the `i32`
-        // product (issue #176); `CREATE_SURFACE` also bounds both to the
-        // screen size, so this is defense in depth.
-        let Some(expected) = (surface.w.max(0) as u64)
-            .checked_mul(surface.h.max(0) as u64)
-            .and_then(|area| area.checked_mul(4))
-        else {
-            return error_reply(message.method(), messenger::errno::EINVAL);
-        };
-        let claimed = message
-            .parcel
-            .buffers
-            .first()
-            .map(|buffer| buffer.len)
-            .unwrap_or(0);
-        if message.buffers == 0 || claimed < expected {
-            return error_reply(message.method(), messenger::errno::EINVAL);
-        }
-        match sys::display_map_buffer(message.first_buffer) {
-            Ok(va) => {
-                surface.pixels = va;
-                surface.bytes = expected;
+        match attach(message, &mut self.surfaces, id, None) {
+            Ok(()) => {
                 self.repaint_full();
                 empty_reply(message.method())
             }
-            Err(code) => error_reply(message.method(), -code),
+            Err(code) => error_reply(message.method(), code),
+        }
+    }
+
+    /// `AttachBufferSlot` (issue #361): register one buffer slot. It is not
+    /// the current slot, so nothing on screen changes.
+    fn attach_buffer_slot(&mut self, message: &Message, body: &[u8]) -> Parcel {
+        let args = wire::decode_attach_buffer_slot_args(body).unwrap_or_default();
+        match attach(message, &mut self.surfaces, args.surface, Some(args.slot)) {
+            Ok(()) => empty_reply(message.method()),
+            Err(code) => error_reply(message.method(), code),
         }
     }
 
@@ -249,5 +229,6 @@ fn new_surface(
         bytes: 0,
         minimized: false,
         desktop,
+        slots: Default::default(),
     }
 }
