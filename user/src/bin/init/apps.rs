@@ -270,6 +270,13 @@ pub fn app_infos() -> Vec<services::AppInfo> {
         .collect()
 }
 
+/// The console shell row: a bare BusyBox applet name (no `.ELF` suffix) that
+/// the Linux loader resolves, drawn in `init`'s mux window rather than a
+/// `xuid` client window.
+fn is_console_alias(app: &AppSpec) -> bool {
+    app.linux && app.ship == Ship::Always && !app.path.contains('.')
+}
+
 /// The registry self-test: every row is well formed and the ids `mimed`
 /// registers are present. Prints `INIT:APPS:PASS` (the count is the whole
 /// registry) and, once the manifest is applied, `INIT:APPS:SHIPPED` with the
@@ -280,7 +287,7 @@ pub fn selftest_apps() -> String {
         let verbs = app.verbs.len();
         ok &= !app.id.is_empty()
             && !app.name.is_empty()
-            && app.path.ends_with(".ELF")
+            && (app.path.ends_with(".ELF") || is_console_alias(app))
             && (verbs == 0 || verbs <= 4);
     }
     let has_editor = APPS
@@ -294,7 +301,7 @@ pub fn selftest_apps() -> String {
     // The desktop rows must be launchable as `xuid` clients.
     let desktop_ok = APPS
         .iter()
-        .filter(|app| app.linux)
+        .filter(|app| app.linux && !is_console_alias(app))
         .all(|app| app.args == "--client" && app.ship == Ship::Manifest);
     ok &= has_editor && has_top && desktop_ok;
     let shipped = APPS.iter().filter(|app| is_available(app)).count();
