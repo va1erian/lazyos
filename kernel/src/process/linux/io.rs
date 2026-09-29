@@ -309,10 +309,15 @@ fn write_file(fd: u64, ptr: u64, len: u64) -> u64 {
     } else {
         task::fd_offset(fd as usize).unwrap_or(0) as u64
     };
+    // Get the descriptor's snapshot ready first: once the backing file has
+    // accepted the bytes, mirroring them must not be able to fail.
+    if !task::prepare_fd_write(fd as usize, offset as usize, bytes.len()) {
+        return err(ENOMEM);
+    }
     match crate::fs::abi_write(id, &path, offset, bytes) {
         Ok(written) => {
             if !task::fd_apply_write(fd as usize, offset as usize, &bytes[..written]) {
-                return err(EBADF);
+                return err(ENOMEM);
             }
             fd_meta_sync_len(fd as usize);
             written as u64

@@ -19,9 +19,11 @@ fn fs_error(error: FsError) -> String {
 }
 
 mod ramfs_and_permissions;
+mod ramfs_limits;
 mod traversal_and_cache;
 
 pub(super) use ramfs_and_permissions::*;
+pub(super) use ramfs_limits::*;
 pub(super) use traversal_and_cache::*;
 
 pub(super) const CASES: &[(&str, Test)] = &[
@@ -38,4 +40,12 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("fs_cache_invalidation", cache_invalidation),
     ("fs_fat_read_only_erofs", fat_read_only_erofs),
     ("fs_getdents64_ramfs_directory", getdents64_ramfs_directory),
+    (
+        "fs_ramfs_rename_same_path_and_cycles",
+        ramfs_rename_same_path_and_cycles,
+    ),
+    ("fs_ramfs_byte_cap_enospc", ramfs_byte_cap_enospc),
+    ("fs_ramfs_node_cap_enospc", ramfs_node_cap_enospc),
+    ("fs_ramfs_soak_fill_and_drain", ramfs_soak_fill_and_drain),
+    ("fs_fd_snapshot_shared_and_cow", fd_snapshot_shared_and_cow),
 ];

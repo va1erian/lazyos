@@ -126,7 +126,7 @@ pub fn linux_abi_kernel_pointers_are_refused() -> Result<(), String> {
     // read(file, kernel_ptr, n) copied file contents to the kernel address
     // (and `fd_read` did it under the task-table lock).
     let fd = task::fd_open(task::Fd::File {
-        data: b"secret bytes".to_vec(),
+        data: alloc::sync::Arc::new(b"secret bytes".to_vec()),
         offset: 0,
     })
     .ok_or("fd_open failed")?;
