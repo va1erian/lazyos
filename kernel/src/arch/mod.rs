@@ -1,6 +1,7 @@
 //! Architecture-specific setup: interrupts, PIC, PIT.
 
 pub mod cpu;
+pub mod fault;
 pub mod gdt;
 pub mod idt;
 pub mod io;

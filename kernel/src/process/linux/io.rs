@@ -9,7 +9,9 @@ use crate::ipc::pipe;
 use crate::task::{self, FdKind, WakeReason};
 use crate::user_ptr;
 
-use super::errno::{err, fs_err, EAGAIN, EBADF, EFAULT, EINTR, EINVAL, EMSGSIZE, ENOMEM, ENOTCONN, EPIPE};
+use super::errno::{
+    err, fs_err, EAGAIN, EBADF, EFAULT, EINTR, EINVAL, EMSGSIZE, ENOMEM, ENOTCONN, EPIPE,
+};
 use super::fd::{fd_meta_get, fd_meta_sync_len};
 use super::time::millis_to_ticks;
 

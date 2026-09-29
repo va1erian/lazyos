@@ -20,6 +20,7 @@
 //! device is the active boot device.
 
 pub mod ata;
+pub mod mem;
 pub mod pci;
 pub mod virtio;
 

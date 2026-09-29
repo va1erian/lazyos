@@ -106,8 +106,13 @@ use crate::task::{self, wait::CHILD_EXIT, WakeReason};
 use crate::user_ptr;
 use crate::{fs, input::keyboard, mem};
 
+mod credio;
+pub mod fsops;
 pub mod linux;
+pub mod power;
 pub mod spawn_line;
+
+use credio::{read_cred, write_cred};
 
 /// Base of the user heap (grows up toward the stack).
 pub const USER_HEAP_BASE: u64 = 0x60_0000;
@@ -198,6 +203,8 @@ extern "C" fn syscall_dispatch(regs: *mut Regs) {
         // 14: the system-stats snapshot (issue #144), read-only and available
         // to every task; see `crate::sysinfo` and the module docs.
         14 => crate::sysinfo::dispatch(regs.rdi, regs.rsi, regs.rdx),
+        // 15..21: the shell's filesystem calls and `power` (issue #6).
+        15..=21 => fsops::dispatch(regs.rax, regs.rdi, regs.rsi, regs.rdx),
         _ => u64::MAX,
     };
 }
@@ -221,6 +228,7 @@ pub fn dispatch_for_test(nr: u64, a1: u64, a2: u64, a3: u64) -> u64 {
         12 => crate::display::dispatch(a1, a2, a3),
         13 => sys_tasks(a1),
         14 => crate::sysinfo::dispatch(a1, a2, a3),
+        15..=21 => fsops::dispatch(nr, a1, a2, a3),
         _ => u64::MAX,
     }
 }
@@ -271,8 +279,8 @@ const USER_CSTR_MAX: usize = 4096;
 
 /// Read a NUL-terminated string (at most [`USER_CSTR_MAX`] bytes) from
 /// validated user memory. Invalid UTF-8 reads as the empty string, as it
-/// always has; an unmapped or kernel address is a [`user_ptr::Fault`].
-fn user_cstr(ptr: u64) -> Result<String, user_ptr::Fault> {
+/// always has; an unmapped/kernel address or an unterminated string is a Fault.
+pub(crate) fn user_cstr(ptr: u64) -> Result<String, user_ptr::Fault> {
     let bytes = user_ptr::try_cstr(ptr, USER_CSTR_MAX)?;
     Ok(String::from_utf8(bytes).unwrap_or_default())
 }
@@ -500,27 +508,6 @@ fn cred_target(pid: u64) -> usize {
     } else {
         usize::try_from(pid).unwrap_or(usize::MAX)
     }
-}
-
-/// Read a 40-byte credential block from validated user memory; `None` for a
-/// null pointer or a range that is not readable user memory.
-fn read_cred(ptr: u64) -> Option<Cred> {
-    if ptr == 0 {
-        return None;
-    }
-    let bytes = user_ptr::try_bytes(ptr, 5 * 8).ok()?;
-    let mut words = [0u64; 5];
-    for (word, chunk) in words.iter_mut().zip(bytes.chunks_exact(8)) {
-        // INVARIANT: `chunks_exact(8)` yields eight-byte slices.
-        *word = u64::from_le_bytes(chunk.try_into().unwrap());
-    }
-    Some(Cred::from_words(words))
-}
-
-/// Write a 40-byte credential block into validated user memory; `false` on a
-/// null pointer or a range that is not writable user memory.
-fn write_cred(ptr: u64, cred: Cred) -> bool {
-    ptr != 0 && user_ptr::try_copy_words(ptr, &cred.to_words()).is_ok()
 }
 
 /// syscall 10: the audited credential gate (issue #101).

@@ -8,11 +8,11 @@ use libmessenger::{Decoder, Encoder, Kind, Parcel};
 
 use crate::messenger::{errno, Endpoint, Error, Result};
 
+use super::field;
 use super::{
     for_each_record, header, init_method, resolve_service, AppInfo, LaunchRequest, LaunchResult,
     ServiceStatus, INIT_INTERFACE, INIT_NAME,
 };
-use super::field;
 
 /// `init`'s `Services` request.
 pub fn services_request() -> Parcel {

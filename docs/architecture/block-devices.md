@@ -9,6 +9,7 @@ trait, a fixed registry with a selected boot device, and three drivers.
 |---|---|
 | `kernel/src/block/mod.rs` | `BlockDevice`, registry, boot device, probe order, `virt_to_phys` |
 | `kernel/src/block/ata.rs` | ATA PIO primary-master driver (read path) |
+| `kernel/src/block/mem.rs` | `MemDisk` over a memory region; the bootloader ramdisk registers as `ram0` (#5) |
 | `kernel/src/block/pci.rs` | Legacy PCI config-space access (0xCF8/0xCFC) |
 | `kernel/src/block/virtio.rs` | Legacy virtio-blk (0.9.5) driver, read/write |
 
@@ -46,6 +47,13 @@ trait, a fixed registry with a selected boot device, and three drivers.
 - DMA buffers must be physically contiguous: virtio copies through a `'static`
   4 KiB bounce page because the kernel heap maps scattered frames; ATA PIO has
   no such constraint.
+
+**Ramdisk fallback (#5).** With `LAZYOS_RAMDISK=<fat image>` the build hands
+the image to the bootloader; `kernel_main` registers `BootInfo.ramdisk_*` as
+`ram0` *after* probing ATA/virtio, so a real disk keeps priority and `fs::init`
+falls through to `ram0` when no disk has a volume. `Fat16::open` accepts a bare
+(MBR-less) image whose sector 0 is the BPB. Tests: `block_memdisk_*`,
+`block_ramdisk_*` in `tests/ramdisk_suite.rs`.
 
 **Boot device and mount interaction**
 

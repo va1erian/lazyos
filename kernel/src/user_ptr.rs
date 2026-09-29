@@ -144,9 +144,11 @@ pub fn try_copy_words(addr: u64, words: &[u64]) -> Result<(), Fault> {
 }
 
 /// Read a NUL-terminated string of at most `max` bytes (the NUL is not
-/// returned). A string that is not terminated within `max` bytes is truncated
-/// to `max`, the same as the old fixed-cap reader. The scan validates one page
-/// at a time, so a string that ends before an unmapped page is still readable.
+/// returned). A string that is not terminated within `max` bytes is a
+/// [`Fault`]: callers operate on the returned path, so silently returning a
+/// truncated prefix could resolve to an unintended file. The scan validates one
+/// page at a time, so a string that ends before an unmapped page is still
+/// readable.
 pub fn try_cstr(addr: u64, max: usize) -> Result<Vec<u8>, Fault> {
     let mut out = Vec::new();
     let mut at = addr;
@@ -161,7 +163,7 @@ pub fn try_cstr(addr: u64, max: usize) -> Result<Vec<u8>, Fault> {
         out.extend_from_slice(chunk);
         at = at.checked_add(take as u64).ok_or(Fault)?;
     }
-    Ok(out)
+    Err(Fault)
 }
 
 /// Read a `T` from `addr`; zero when the range is invalid.
