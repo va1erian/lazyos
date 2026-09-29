@@ -68,7 +68,10 @@ pub mod key {
     pub const INSERT: u32 = 0x10D;
     /// `F1`; function key `n` (1..=12) is `F1 + n - 1` (so `F4` is 0x113).
     pub const F1: u32 = 0x110;
+    /// Documented ABI values; only the test suite names them.
+    #[allow(dead_code)]
     pub const F4: u32 = 0x113;
+    #[allow(dead_code)]
     pub const F12: u32 = 0x11B;
 }
 
