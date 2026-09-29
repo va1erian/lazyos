@@ -97,6 +97,22 @@ keeps the snapshot readable (a later write through the orphan answers ENOENT).
 - ATA is read-only in practice, so ext2 write traffic needs virtio-blk; the
   default QEMU image uses ATA + FAT.
 
+**The data volume (host tooling).** `target/data.img` is a persistent 64 MiB
+ext2 image (4 KiB blocks, revision 1, `lost+found`, sparse-super backups) that
+survives across QEMU runs. `tools/mkdisk/` formats it in pure Python (Windows
+has no `mkfs.ext2`): `python -m tools.mkdisk [PATH] [--size 64M] [--label NAME]
+[--block-size N] [--force]`. Its layout is checked against `Ext2::open`'s
+validation and by a miniature fsck in `tools/mkdisk/test_mkdisk.py`; CI also
+runs `e2fsck -fn` over it. `tools/run_demo.py` creates it on first use and
+attaches it as a **second** `virtio-blk-pci` device (`-drive
+format=raw,file=target/data.img,if=none,id=data`); flags are `--data-disk
+PATH`, `--no-data-disk`, and `--reset-data` (confirmation prompt unless
+`--yes`). An existing volume is never regenerated implicitly. The launcher GUI
+has a matching "Data volume" group (path/size/existence, attach toggle, Reset
+button), and `qemu_shot.py`/`qemu_session.py` accept `--data-disk PATH` (off by
+default so CI stays hermetic). The kernel mounting it is tracked separately
+(#333).
+
 **Status.** Working: FAT boot, ramfs `/tmp`, ext2 read/write, permissions,
 caches, `umask`, the Linux ABI copy-up overlay (`O_CREAT`/`mkdir`/`rename`/
 `unlink`/`rmdir`, fd writes). ext2 is exercised only by the in-kernel suite
