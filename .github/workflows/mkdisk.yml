@@ -1,0 +1,38 @@
+name: mkdisk
+
+# Pure-Python ext2 formatter for the persistent data volume (issue #332):
+# unit tests, plus `e2fsck -n` over the generated images on a host that has it.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mkdisk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  mkdisk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # tkinter: lazygui's package __init__ imports the Tk UI even for the
+      # catalog tests, and the runner image ships without it.
+      - name: Install e2fsprogs and tkinter
+        run: sudo apt-get install -y e2fsprogs python3-tk
+
+      - name: Formatter and launcher tests
+        run: |
+          python tools/mkdisk/test_mkdisk.py -v
+          python tools/lazygui/test_catalog.py
+
+      - name: Default volume is fsck-clean
+        run: |
+          python -m tools.mkdisk /tmp/data.img
+          e2fsck -fn /tmp/data.img

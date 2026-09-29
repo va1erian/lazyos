@@ -248,6 +248,38 @@ pub fn data_volume_probe() -> Result<(), String> {
     Ok(())
 }
 
+/// `/` is the FAT boot volume whatever the enumeration order: an ext2 disk
+/// listed ahead of it must not become the root, and with no FAT volume the
+/// first ext2 one is used.
+pub fn root_prefers_fat_over_ext2() -> Result<(), String> {
+    task::register_kernel();
+    let ext2_disk = pooled_disk(0);
+    format(ext2_disk);
+    let fat_disk = FakeDisk::new("test-root-fat", crate::tests::boot_io_suite::IMAGE_SECTORS);
+    fat_disk
+        .data
+        .lock()
+        .copy_from_slice(&crate::tests::boot_io_suite::fragmented_image());
+
+    let ext2_first: [&'static dyn BlockDevice; 2] = [ext2_disk, fat_disk];
+    let picked = crate::fs::select_root(&ext2_first).map(|(fs, name)| (fs.name(), name));
+    check!(
+        picked == Some(("fat16 (ro)", fat_disk.name())),
+        "an ext2 disk listed first took `/` from the FAT volume: {picked:?}"
+    );
+
+    let picked = crate::fs::select_root(&ext2_first[..1]).map(|(fs, name)| (fs.name(), name));
+    check!(
+        picked == Some(("ext2 (rw)", ext2_disk.name())),
+        "with no FAT volume the ext2 disk was not chosen: {picked:?}"
+    );
+    check!(
+        crate::fs::select_root(&[]).is_none(),
+        "an empty device list produced a root"
+    );
+    Ok(())
+}
+
 /// Soak: 200 generations of change, an optional sync, and a remount. The
 /// on-disk state always matches what was last done (an unsynced stop is seen as
 /// unclean by the next mount), and the file survives every hop.

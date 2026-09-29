@@ -132,11 +132,27 @@ keeps the snapshot readable (a later write through the orphan answers ENOENT).
 - ATA is read-only in practice, so ext2 write traffic needs virtio-blk; the
   default QEMU image uses ATA + FAT.
 
+**The data volume (host tooling).** `target/data.img` is a persistent 64 MiB
+ext2 image (4 KiB blocks, revision 1, `lost+found`, sparse-super backups) that
+survives across QEMU runs. `tools/mkdisk/` formats it in pure Python (Windows
+has no `mkfs.ext2`): `python -m tools.mkdisk [PATH] [--size 64M] [--label NAME]
+[--block-size N] [--force]`. Its layout is checked against `Ext2::open`'s
+validation and by a miniature fsck in `tools/mkdisk/test_mkdisk.py`; CI also
+runs `e2fsck -fn` over it. `tools/run_demo.py` creates it on first use and
+attaches it as a **second** `virtio-blk-pci` device (`-drive
+format=raw,file=target/data.img,if=none,id=data`); flags are `--data-disk
+PATH`, `--no-data-disk`, and `--reset-data` (confirmation prompt unless
+`--yes`). An existing volume is never regenerated implicitly. The launcher GUI
+has a matching "Data volume" group (path/size/existence, attach toggle, Reset
+button), and `qemu_shot.py`/`qemu_session.py` accept `--data-disk PATH` (off by
+default so CI stays hermetic). The kernel mounting it is tracked separately
+(#333).
+
 **Status.** Working: FAT boot, ramfs `/tmp`, ext2 read/write, permissions,
 caches, `umask`, the Linux ABI copy-up overlay (`O_CREAT`/`mkdir`/`rename`/
 `unlink`/`rmdir`, fd writes), an ext2 `/data` volume with truncate and large
 files, synced on shutdown. The in-kernel suite (`fs_ext2_*` over a `FakeDisk`)
-holds the correctness, crash-ordering and soak coverage; a session only has
-`/data` when a second block device carries ext2 (the host formatter and launcher
-flags are #332). Open: symlinks, cross-mount rename, per-process
+holds the correctness, crash-ordering and soak coverage; a session has `/data`
+when a second block device carries ext2, which `tools/run_demo.py` attaches by
+default (`target/data.img`, see the data volume section above). Open: symlinks, cross-mount rename, per-process
 cwd, page cache, and overlay persistence to the writable volume.

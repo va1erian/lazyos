@@ -86,7 +86,7 @@ fn ata_run_bounds() -> Result<(), String> {
 // FAT: a hand-built volume with a fragmented file
 // ---------------------------------------------------------------------------
 
-const IMAGE_SECTORS: usize = 4400;
+pub(crate) const IMAGE_SECTORS: usize = 4400;
 const FAT_LBA: usize = 2;
 const ROOT_LBA: usize = 20;
 const DATA_LBA: usize = 52;
@@ -107,7 +107,7 @@ fn put32(image: &mut [u8], at: usize, value: u32) {
 }
 
 /// A one-partition FAT16 image (1 sector per cluster) holding `FRAG.BIN`.
-fn fragmented_image() -> Vec<u8> {
+pub(crate) fn fragmented_image() -> Vec<u8> {
     let mut image = vec![0u8; IMAGE_SECTORS * SECTOR_SIZE];
     // MBR: one FAT16 partition starting at sector 1.
     image[0x1BE + 4] = 0x06;

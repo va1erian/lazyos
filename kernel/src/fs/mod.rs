@@ -50,17 +50,35 @@ static FS: Mutex<Option<(Vfs, bool)>> = Mutex::new(None);
 /// [`init`]; `None` until the boot volumes are mounted.
 static ABI_FS: Mutex<Option<Vfs>> = Mutex::new(None);
 
+/// Pick the volume that becomes `/`: the first FAT12/16 volume on any device,
+/// and only when there is none, the first ext2 one (issue #99). FAT is the
+/// shipped boot format, so it wins regardless of enumeration order; otherwise
+/// an ext2 data disk enumerated ahead of the boot disk (an IDE data disk before
+/// a virtio boot disk, say) would take `/` and leave the boot volume unmounted.
+pub(crate) fn select_root(
+    devices: &[&'static dyn block::BlockDevice],
+) -> Option<(Arc<dyn Filesystem>, &'static str)> {
+    let fat = devices.iter().find_map(|device| {
+        let volume = fat::Fat16::open(*device)?;
+        Some((Arc::new(volume) as Arc<dyn Filesystem>, device.name()))
+    });
+    fat.or_else(|| {
+        devices.iter().find_map(|device| {
+            let volume = ext2::Ext2::open(*device).ok()?;
+            Some((Arc::new(volume) as Arc<dyn Filesystem>, device.name()))
+        })
+    })
+}
+
 /// Probe the block layer, mount the boot volume at `/`, and a fresh ramfs at
 /// `/tmp`. Returns whether a filesystem volume was found (the ramfs mount
 /// always succeeds). Idempotent: a second call reports the first call's
 /// boot-volume result without remounting.
 ///
-/// Device selection runs through the block registry (issue #100): every
-/// registered device is tried in order, first as FAT12/16 (the shipped boot
-/// format) and then as ext2 (issue #99). Both readers open the device they are
+/// Device selection runs through the block registry (issue #100); see
+/// [`select_root`] for how `/` is chosen. Both readers open the device they are
 /// handed and keep that handle (issue #244), so a probe on one disk cannot
-/// read from another. The first open volume becomes `/`; the default ATA image
-/// keeps mounting as FAT.
+/// read from another.
 pub fn init() -> bool {
     let mut global = FS.lock();
     if let Some((_, mounted)) = global.as_ref() {
@@ -68,21 +86,11 @@ pub fn init() -> bool {
     }
     block::init();
     let mut vfs = Vfs::new();
-    let mut root: Option<Arc<dyn Filesystem>> = None;
-    let mut root_device = None;
     let devices = block::devices();
-    for device in &devices {
-        if let Some(volume) = fat::Fat16::open(*device) {
-            root = Some(Arc::new(volume));
-            root_device = Some(device.name());
-            break;
-        }
-        if let Ok(volume) = ext2::Ext2::open(*device) {
-            root = Some(Arc::new(volume));
-            root_device = Some(device.name());
-            break;
-        }
-    }
+    let (root, root_device) = match select_root(&devices) {
+        Some((volume, name)) => (Some(volume), Some(name)),
+        None => (None, None),
+    };
     let mounted = root.is_some();
     if let Some(volume) = &root {
         let _ = vfs.mount("/", Arc::clone(volume));

@@ -85,7 +85,8 @@ import sys
 import time
 from pathlib import Path
 
-from qemu_qmp import Qmp, accel_args, build_qemu_command, find_qemu, free_port
+from qemu_qmp import (Qmp, accel_args, add_data_disk_option, build_qemu_command,
+                      existing_data_disk, find_qemu, free_port)
 
 _ACTIONS = {
     "shot", "type", "key", "keys", "key_down", "key_up", "mouse_move",
@@ -282,7 +283,9 @@ def main() -> int:
     parser.add_argument("--fail-on", action="append", default=[], metavar="REGEX",
                         help="abort the session when the serial log matches REGEX; "
                              "repeat for multiple")
+    add_data_disk_option(parser)
     args = parser.parse_args()
+    data_disk = existing_data_disk(args.data_disk)
 
     steps = json.loads(Path(args.script).read_text(encoding="utf-8"))
     if not isinstance(steps, list):
@@ -306,7 +309,8 @@ def main() -> int:
     extra += accel_args(args.accel, qemu)
 
     port = free_port()
-    command = build_qemu_command(qemu, image, port, serial_log, args.memory, extra)
+    command = build_qemu_command(qemu, image, port, serial_log, args.memory, extra,
+                                 data_disk)
     print(f"launching: {' '.join(command)}", flush=True)
     proc = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
 
