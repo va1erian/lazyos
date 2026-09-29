@@ -165,17 +165,19 @@ fn main() {
     if !missing.is_empty() || timed_out {
         exit(1);
     }
-    exit(final_code(killed, verdict(status.code())));
+    exit(final_code(killed, status.code()));
 }
 
-/// Exit code once expectations held: a guest the runner killed itself has no
-/// meaningful status (success), but one that ended on its own keeps its verdict,
-/// so a `GUEST_FAILURE` after the marker still fails the run.
-fn final_code(killed: bool, verdict: i32) -> i32 {
-    if killed {
-        0
-    } else {
-        verdict
+/// Exit code once expectations held. A status the guest itself reported via
+/// `isa-debug-exit` always counts, even if the runner's kill raced it: a
+/// `GUEST_FAILURE` fails the run. Any other status of a guest the runner killed
+/// (a signal, or a code the kill caused) is not meaningful and counts as
+/// success; a guest that ended on its own keeps its verdict.
+fn final_code(killed: bool, status: Option<i32>) -> i32 {
+    match (status, killed) {
+        (Some(GUEST_FAILURE), _) => 1,
+        (_, true) => 0,
+        (code, false) => verdict(code),
     }
 }
 
@@ -185,9 +187,16 @@ mod tests {
 
     #[test]
     fn guest_failure_survives_met_expectations() {
-        assert_eq!(final_code(false, verdict(Some(GUEST_FAILURE))), 1);
-        assert_eq!(final_code(false, verdict(Some(GUEST_SUCCESS))), 0);
-        assert_eq!(final_code(false, verdict(Some(7))), 2);
-        assert_eq!(final_code(true, verdict(None)), 0);
+        assert_eq!(final_code(false, Some(GUEST_FAILURE)), 1);
+        assert_eq!(final_code(false, Some(GUEST_SUCCESS)), 0);
+        assert_eq!(final_code(false, Some(7)), 2);
+        assert_eq!(final_code(true, None), 0);
+    }
+
+    #[test]
+    fn guest_failure_wins_a_race_with_the_kill() {
+        assert_eq!(final_code(true, Some(GUEST_FAILURE)), 1);
+        assert_eq!(final_code(true, Some(GUEST_SUCCESS)), 0);
+        assert_eq!(final_code(true, Some(1)), 0);
     }
 }
