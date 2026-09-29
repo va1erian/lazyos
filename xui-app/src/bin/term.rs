@@ -30,6 +30,10 @@ use xui_core::app::{run_app, App, Ui};
 use xui_core::backend::{Backend, Event, NodeKind, NodeSpec, PlatformSpec};
 use xui_core::{Canvas, Color, Control, Dip, Key, Rect, TextStyle};
 
+#[path = "term/grid.rs"]
+mod grid;
+use grid::{is_prompt, Grid, COLS, ROWS};
+
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -44,10 +48,6 @@ const FONT: f32 = 15.0;
 const CELL_W: f32 = FONT * 0.6;
 const LINE_H: i32 = 20;
 const PAD: i32 = 10;
-/// The terminal geometry BusyBox sees through `TIOCGWINSZ` (the kernel reports
-/// a fixed 80x24), so the grid matches it exactly.
-const COLS: usize = 80;
-const ROWS: usize = 24;
 /// How often the app drains the child's output. The drain only repaints when
 /// bytes actually arrived, so an idle terminal costs no frames.
 const POLL_MILLIS: u32 = 100;
@@ -65,222 +65,6 @@ enum Msg {
     /// A non-text key (Enter/Backspace via the key path).
     Key(Key),
     Close,
-}
-
-/// Decodes a byte stream into characters, holding back an incomplete UTF-8
-/// sequence until the next feed so a split multi-byte character never becomes
-/// two replacement characters (or a panic).
-#[derive(Default)]
-struct Utf8 {
-    pending: Vec<u8>,
-}
-
-impl Utf8 {
-    fn decode(&mut self, bytes: &[u8]) -> Vec<char> {
-        let mut data = std::mem::take(&mut self.pending);
-        data.extend_from_slice(bytes);
-        let mut out = Vec::new();
-        let mut index = 0;
-        while index < data.len() {
-            match std::str::from_utf8(&data[index..]) {
-                Ok(text) => {
-                    out.extend(text.chars());
-                    index = data.len();
-                }
-                Err(error) => {
-                    let valid = error.valid_up_to();
-                    if valid > 0 {
-                        // Safety: `valid_up_to` guarantees this prefix is UTF-8.
-                        out.extend(
-                            std::str::from_utf8(&data[index..index + valid])
-                                .unwrap()
-                                .chars(),
-                        );
-                        index += valid;
-                    }
-                    match error.error_len() {
-                        Some(len) => {
-                            out.push('\u{FFFD}');
-                            index += len;
-                        }
-                        None => break, // incomplete tail: keep it for the next call
-                    }
-                }
-            }
-        }
-        self.pending = data[index..].to_vec();
-        out
-    }
-}
-
-/// Where the byte-feed parser is (escape sequences can span feeds).
-#[derive(Clone, Copy, PartialEq)]
-enum Parse {
-    Normal,
-    Esc,
-    Csi,
-    Osc,
-}
-
-/// A fixed character grid with a cursor, fed by the child's output bytes.
-struct Grid {
-    cells: Vec<Vec<char>>,
-    row: usize,
-    col: usize,
-    utf8: Utf8,
-    parse: Parse,
-    csi: String,
-}
-
-impl Grid {
-    fn new() -> Grid {
-        Grid {
-            cells: vec![vec![' '; COLS]; ROWS],
-            row: 0,
-            col: 0,
-            utf8: Utf8::default(),
-            parse: Parse::Normal,
-            csi: String::new(),
-        }
-    }
-
-    /// The characters of grid row `row`, right-trimmed.
-    fn row_text(&self, row: usize) -> String {
-        let mut text: String = self.cells[row].iter().collect();
-        while text.ends_with(' ') {
-            text.pop();
-        }
-        text
-    }
-
-    /// Feed output `bytes`, returning the lines completed (a `\n` was seen).
-    fn feed(&mut self, bytes: &[u8]) -> Vec<String> {
-        let chars = self.utf8.decode(bytes);
-        let mut completed = Vec::new();
-        for ch in chars {
-            match self.parse {
-                Parse::Normal => self.normal(ch, &mut completed),
-                Parse::Esc => {
-                    if ch == '[' {
-                        self.parse = Parse::Csi;
-                        self.csi.clear();
-                    } else if ch == ']' {
-                        self.parse = Parse::Osc;
-                    } else {
-                        self.parse = Parse::Normal;
-                    }
-                }
-                Parse::Csi => {
-                    if ch.is_ascii_digit() || ch == ';' || ch == '?' || ch == '>' {
-                        if self.csi.len() < 16 {
-                            self.csi.push(ch);
-                        }
-                    } else {
-                        self.apply_csi(ch);
-                        self.parse = Parse::Normal;
-                    }
-                }
-                Parse::Osc => {
-                    if ch == '\u{7}' || ch == '\u{1b}' {
-                        self.parse = Parse::Normal;
-                    }
-                }
-            }
-        }
-        completed
-    }
-
-    fn normal(&mut self, ch: char, completed: &mut Vec<String>) {
-        match ch {
-            '\r' => self.col = 0,
-            '\n' => {
-                let text = self.row_text(self.row);
-                if !text.is_empty() {
-                    completed.push(text);
-                }
-                self.line_feed();
-            }
-            '\u{8}' => self.col = self.col.saturating_sub(1),
-            '\t' => self.col = ((self.col / 8) + 1) * 8,
-            '\u{1b}' => self.parse = Parse::Esc,
-            c if c.is_control() => {}
-            c => {
-                if self.col >= COLS {
-                    self.col = 0;
-                    self.line_feed();
-                }
-                self.cells[self.row][self.col] = c;
-                self.col += 1;
-            }
-        }
-    }
-
-    fn line_feed(&mut self) {
-        self.row += 1;
-        if self.row >= ROWS {
-            self.cells.remove(0);
-            self.cells.push(vec![' '; COLS]);
-            self.row = ROWS - 1;
-        }
-        // A real tty maps `\n` to `\r\n` (ONLCR); BusyBox relies on that, so do
-        // the same here or each line walks diagonally to the right.
-        self.col = 0;
-    }
-
-    /// The first numeric CSI parameter, `default` when absent.
-    /// The `index`-th `;`-separated CSI parameter, or `default` when absent.
-    fn csi_param_at(&self, index: usize, default: usize) -> usize {
-        self.csi
-            .trim_start_matches('?')
-            .split(';')
-            .nth(index)
-            .and_then(|value| value.parse().ok())
-            .unwrap_or(default)
-    }
-
-    fn csi_param(&self, default: usize) -> usize {
-        self.csi_param_at(0, default)
-    }
-
-    fn apply_csi(&mut self, final_byte: char) {
-        match final_byte {
-            'A' => self.row = self.row.saturating_sub(self.csi_param(1)),
-            'B' => self.row = (self.row + self.csi_param(1)).min(ROWS - 1),
-            'C' => self.col = (self.col + self.csi_param(1)).min(COLS - 1),
-            'D' => self.col = self.col.saturating_sub(self.csi_param(1)),
-            'H' | 'f' => {
-                self.row = self.csi_param_at(0, 1).saturating_sub(1).min(ROWS - 1);
-                self.col = self.csi_param_at(1, 1).saturating_sub(1).min(COLS - 1);
-            }
-            // `CSI n G` / `CSI n d`: absolute column / row (what BusyBox's
-            // line editor uses to redraw the prompt and typed text).
-            'G' => self.col = self.csi_param(1).saturating_sub(1).min(COLS - 1),
-            'd' => self.row = self.csi_param(1).saturating_sub(1).min(ROWS - 1),
-            'J' => {
-                if self.csi_param(0) == 2 {
-                    self.cells = vec![vec![' '; COLS]; ROWS];
-                    self.row = 0;
-                    self.col = 0;
-                } else if self.csi_param(0) == 0 {
-                    for col in self.col..COLS {
-                        self.cells[self.row][col] = ' ';
-                    }
-                }
-            }
-            'K' => {
-                let start = if self.csi_param(0) == 2 { 0 } else { self.col };
-                for col in start..COLS {
-                    self.cells[self.row][col] = ' ';
-                }
-            }
-            _ => {}
-        }
-    }
-}
-
-/// Whether a completed grid line is only a shell prompt (`# `, `$ `).
-fn is_prompt(line: &str) -> bool {
-    line.chars().all(|c| matches!(c, '#' | '$' | '>' | ' '))
 }
 
 /// Put a descriptor into non-blocking mode so the poll timer's read never
@@ -357,7 +141,7 @@ impl Terminal {
             }
             '\u{3}' => {
                 self.send(b"\x03"); // ^C
-                // Safety: `kill` with a pid we own; a non-negative pid names the child.
+                                    // Safety: `kill` with a pid we own; a non-negative pid names the child.
                 unsafe { libc::kill(self.child.id() as i32, libc::SIGINT) };
             }
             '\u{4}' => self.send(b"\x04"), // ^D
@@ -508,7 +292,7 @@ fn paint(canvas: &mut dyn Canvas, grid: &Grid) {
     let visible = (((bounds.height() - 2 * PAD) / LINE_H).max(1) as usize).min(ROWS);
     // Show the top of the grid while it is not full, then scroll with the
     // cursor so the newest line stays visible.
-    let first = if grid.row + 1 <= visible {
+    let first = if grid.row < visible {
         0
     } else {
         (grid.row + 1 - visible).min(ROWS - visible)

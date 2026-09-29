@@ -35,6 +35,7 @@ mod path;
 mod pathops;
 mod pipes;
 mod procctl;
+mod sendfile;
 mod sig;
 mod socket;
 mod stat;
@@ -282,7 +283,7 @@ extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
         // nanosleep(req, rem) is always relative, so the clock is irrelevant.
         35 => time::sys_clock_nanosleep(time::CLOCK_MONOTONIC, 0, a1, a2),
         39 | 186 => task::current() as u64, // getpid/gettid: pid == slot (#59)
-        40 => io::sys_sendfile(a1, a2, a3, a4), // sendfile(out, in, offset, count)
+        40 => sendfile::sys_sendfile(a1, a2, a3, a4), // sendfile(out, in, offset, count)
         41 => socket::sys_socket(a1, a2, a3), // socket(domain, type, protocol)
         42 => socket::sys_connect(a1, a2, a3), // connect(fd, addr, len)
         43 => socket::sys_accept(a1, a2, a3, 0), // accept(fd, addr, addrlen)
