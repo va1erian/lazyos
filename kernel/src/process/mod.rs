@@ -106,7 +106,13 @@ use crate::task::{self, wait::CHILD_EXIT, WakeReason};
 use crate::user_ptr;
 use crate::{fs, input::keyboard, mem};
 
+mod credio;
+pub mod fsops;
 pub mod linux;
+pub mod power;
+pub mod spawn_line;
+
+use credio::{read_cred, write_cred};
 
 /// Base of the user heap (grows up toward the stack).
 pub const USER_HEAP_BASE: u64 = 0x60_0000;
@@ -197,6 +203,8 @@ extern "C" fn syscall_dispatch(regs: *mut Regs) {
         // 14: the system-stats snapshot (issue #144), read-only and available
         // to every task; see `crate::sysinfo` and the module docs.
         14 => crate::sysinfo::dispatch(regs.rdi, regs.rsi, regs.rdx),
+        // 15..21: the shell's filesystem calls and `power` (issue #6).
+        15..=21 => fsops::dispatch(regs.rax, regs.rdi, regs.rsi, regs.rdx),
         _ => u64::MAX,
     };
 }
@@ -209,6 +217,7 @@ pub fn dispatch_for_test(nr: u64, a1: u64, a2: u64, a3: u64) -> u64 {
     match nr {
         1 => sys_write(a1, a2),
         3 => sys_read_file(a1, a2, a3),
+        4 => sys_sbrk(a1),
         5 => crate::ipc::syscalls::dispatch(a1, a2, a3),
         6 => sys_spawn(a1),
         7 => sys_wait(a1),
@@ -219,6 +228,7 @@ pub fn dispatch_for_test(nr: u64, a1: u64, a2: u64, a3: u64) -> u64 {
         12 => crate::display::dispatch(a1, a2, a3),
         13 => sys_tasks(a1),
         14 => crate::sysinfo::dispatch(a1, a2, a3),
+        15..=21 => fsops::dispatch(nr, a1, a2, a3),
         _ => u64::MAX,
     }
 }
@@ -306,7 +316,10 @@ fn sys_sbrk(increment: u64) -> u64 {
     let Some(target) = current.checked_add(increment) else {
         return u64::MAX;
     };
-    let new_break = (target + page - 1) & !(page - 1);
+    let new_break = match target.checked_add(page - 1) {
+        Some(value) => value & !(page - 1),
+        None => return u64::MAX,
+    };
     if new_break > USER_STACK_TOP - USER_STACK_SIZE {
         return u64::MAX;
     }
@@ -422,19 +435,23 @@ fn spawn_program(cmdline_ptr: u64, cred: Option<Cred>) -> i64 {
     let Ok(line) = user_cstr(cmdline_ptr) else {
         return -EFAULT;
     };
-    let line = line.trim();
-    if line.is_empty() {
+    let Some(spawn_line::SpawnLine { linux, path, args }) = spawn_line::parse(&line) else {
         return -EINVAL;
-    }
-    let (path, args) = match line.split_once(char::is_whitespace) {
-        Some((path, args)) => (path, args.trim()),
-        None => (line, ""),
     };
     let Some(elf) = fs::read(path) else {
         return -ENOENT;
     };
     let name = intern_service_name(path);
-    let slot = match task::spawn_child(name, &elf) {
+    let started = if linux {
+        // argv[0] is the program name; the rest are the whitespace-split args.
+        let argv: Vec<&str> = core::iter::once(path)
+            .chain(args.split_whitespace())
+            .collect();
+        task::spawn_linux_child(name, &elf, &argv)
+    } else {
+        task::spawn_child(name, &elf)
+    };
+    let slot = match started {
         Ok(slot) => slot,
         Err(_) => return -ENOMEM,
     };
@@ -491,27 +508,6 @@ fn cred_target(pid: u64) -> usize {
     } else {
         usize::try_from(pid).unwrap_or(usize::MAX)
     }
-}
-
-/// Read a 40-byte credential block from validated user memory; `None` for a
-/// null pointer or a range that is not readable user memory.
-fn read_cred(ptr: u64) -> Option<Cred> {
-    if ptr == 0 {
-        return None;
-    }
-    let bytes = user_ptr::try_bytes(ptr, 5 * 8).ok()?;
-    let mut words = [0u64; 5];
-    for (word, chunk) in words.iter_mut().zip(bytes.chunks_exact(8)) {
-        // INVARIANT: `chunks_exact(8)` yields eight-byte slices.
-        *word = u64::from_le_bytes(chunk.try_into().unwrap());
-    }
-    Some(Cred::from_words(words))
-}
-
-/// Write a 40-byte credential block into validated user memory; `false` on a
-/// null pointer or a range that is not writable user memory.
-fn write_cred(ptr: u64, cred: Cred) -> bool {
-    ptr != 0 && user_ptr::try_copy_words(ptr, &cred.to_words()).is_ok()
 }
 
 /// syscall 10: the audited credential gate (issue #101).

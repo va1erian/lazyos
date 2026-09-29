@@ -18,8 +18,8 @@ Usage::
     python tools/xui/build.py --debug
 
 Output: target/xui/xui-m0.elf, target/xui/xui-counter.elf,
-target/xui/xui-sysmon.elf, target/xui/xui-fabricmon.elf and
-target/xui/xui-client.elf, plus a JSON map on stdout. If the musl target or
+target/xui/xui-sysmon.elf, target/xui/xui-fabricmon.elf,
+target/xui/xui-client.elf and target/xui/xui-term.elf, plus a JSON map on stdout. If the musl target or
 toolchain is unavailable the script reports what it could build and exits 0,
 so a CI job can skip the visual run.
 """
@@ -43,6 +43,7 @@ BINS = {
     "xui-sysmon": "xui-sysmon.elf",
     "xui-fabricmon": "xui-fabricmon.elf",
     "xui-client": "xui-client.elf",
+    "xui-term": "xui-term.elf",
 }
 
 

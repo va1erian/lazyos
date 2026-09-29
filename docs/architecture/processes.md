@@ -45,6 +45,8 @@ syscall shim.
 | 12 | `display(op, ...)` | display grant (see [display.md](display.md)) |
 | 13 | `tasks(buf)` | read-only scheduler snapshot (`task/introspect.rs`; MCP bridge phase 2) |
 | 14 | `system_stats(op, buf, cap)` | uptime, frame/slab/heap counters and the task table for `top`/`sysmond` (`sysinfo.rs`, #144) |
+| 15-20 | `stat`, `readdir`, `write_file`, `mkdir`, `unlink`, `rename` (path args) | path-based native VFS calls for the shell (`process/fsops.rs`, #6); FAT is read-only (`-EROFS`), `/tmp` is writable; `-errno` on failure |
+| 21 | `power(op)` | `reboot`/`shutdown`, `CAP_SYS_ADMIN` only (`process/power.rs`, #6) |
 
 - `spawn` reads the ELF from the FAT image, leaks one interned `&'static str`
   per distinct service name (at most 64; later spellings share the name
@@ -55,6 +57,15 @@ syscall shim.
   maps `PT_LOAD` segments (prot from `PF_W`/`PF_X`, `File` VMA) and the stack
   eagerly at `USER_HEAP_BASE = 0x60_0000` / `USER_STACK_TOP = 0x80_0000`
   (`USER_STACK_SIZE = 0x2_0000`).
+
+**User faults** (`arch/fault.rs`, `arch/idt.rs`, #7). Every CPU exception is
+classified by the saved CS: a ring-0 fault still halts with a diagnostic, but a
+ring-3 fault (bad pointer, privileged instruction, #DE, #UD, ...) terminates the
+faulting process (all threads of its address space) with status `128 + signal`
+(#PF/#GP -> SIGSEGV 11, #DE -> SIGFPE 8, #UD -> SIGILL 4), posts `SIGCHLD`, and
+the scheduler moves on. A `SIGSEGV` handler still gets the first chance for #PF.
+Evidence: `fault_*` kernel tests and `faultprobe` (`FAULTPRB.ELF`) driven by
+`tools/screenshot/examples/dos_shell.json`.
 
 **Linux shim** (`process/linux/`, issues #55-#60; plan: [linux-abi-plan.md](../linux-abi-plan.md))
 

@@ -4,13 +4,13 @@ use alloc::vec::Vec;
 
 use libmessenger::Parcel;
 
-use crate::sys;
 use super::super::{errno, registry, router, Endpoint, Error, Result};
 use super::protocol::{
     current_request, decode_bytes, decode_current, decode_token, error_field, offer_lazy_request,
     offer_request, ping_request, request_request,
 };
 use super::{changes_topic, OfferInfo, NAME};
+use crate::sys;
 
 /// A client of the clipboard service.
 pub struct Client {

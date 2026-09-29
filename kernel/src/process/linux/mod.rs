@@ -21,8 +21,8 @@ use core::sync::atomic::{AtomicBool, Ordering};
 
 use crate::task;
 
-mod elf;
 mod creds;
+mod elf;
 mod epoll;
 mod errno;
 mod fd;
@@ -265,11 +265,11 @@ extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
         16 => misc::sys_ioctl(a1, a2, a3),
         19 => io::sys_readv(a1, a2, a3),
         20 => io::sys_writev(a1, a2, a3),
-        21 => pathops::sys_access(a1, a2),      // access(path, mode)
-        22 => pipes::sys_pipe(a1, 0),           // pipe(fds)
+        21 => pathops::sys_access(a1, a2), // access(path, mode)
+        22 => pipes::sys_pipe(a1, 0),      // pipe(fds)
         25 => mem::sys_mremap(a1, a2, a3, a4, a5), // mremap(old, old_size, new_size, flags, new)
-        28 => 0,                                // madvise
-        32 | 33 => fd::sys_dup(nr, a1, a2),     // dup / dup2
+        28 => 0,                           // madvise
+        32 | 33 => fd::sys_dup(nr, a1, a2), // dup / dup2
         // nanosleep(req, rem) is always relative, so the clock is irrelevant.
         35 => time::sys_clock_nanosleep(time::CLOCK_MONOTONIC, 0, a1, a2),
         39 | 186 => task::current() as u64, // getpid/gettid: pid == slot (#59)
@@ -278,9 +278,9 @@ extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
         43 => socket::sys_accept(a1, a2, a3, 0), // accept(fd, addr, addrlen)
         44 => socket::sys_sendto(a1, a2, a3), // sendto (musl's send)
         45 => socket::sys_recvfrom(a1, a2, a3), // recvfrom (musl's recv)
-        48 => socket::sys_shutdown(a1, a2),   // shutdown(fd, how)
-        49 => socket::sys_bind(a1, a2, a3),   // bind(fd, addr, len)
-        50 => socket::sys_listen(a1, a2),     // listen(fd, backlog)
+        48 => socket::sys_shutdown(a1, a2), // shutdown(fd, how)
+        49 => socket::sys_bind(a1, a2, a3), // bind(fd, addr, len)
+        50 => socket::sys_listen(a1, a2),   // listen(fd, backlog)
         51 => socket::sys_get_sockname(a1, a2, a3), // getsockname
         52 => socket::sys_get_sockname(a1, a2, a3), // getpeername (connected pair: same answer)
         53 => pipes::sys_socketpair(a1, a2, a3, a4), // socketpair(domain, type, proto, sv)
@@ -293,34 +293,34 @@ extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
         63 => misc::sys_uname(a1),
         72 => fd::sys_fcntl(a1, a2, a3), // fcntl(fd, cmd, arg)
         79 => pathops::sys_getcwd(a1, a2),
-        80 => 0,                             // chdir (root-only)
-        82 => pathops::sys_rename(a1, a2),   // rename
-        83 => pathops::sys_mkdir(a1, a2),    // mkdir
-        84 => pathops::sys_rmdir(a1),        // rmdir
-        87 => pathops::sys_unlink(a1),       // unlink
-        89 => pathops::sys_readlink(a1, a2, a3), // readlink
-        95 => pathops::sys_umask(a1),        // umask(mask)
-        96 => time::sys_gettimeofday(a1),    // gettimeofday(tv, tz)
-        102 | 107 => creds::sys_getuid(),    // getuid/geteuid
-        104 | 108 => creds::sys_getgid(),    // getgid/getegid
-        105 => creds::sys_setuid(a1),        // setuid
-        106 => creds::sys_setgid(a1),        // setgid
+        80 => 0,                                           // chdir (root-only)
+        82 => pathops::sys_rename(a1, a2),                 // rename
+        83 => pathops::sys_mkdir(a1, a2),                  // mkdir
+        84 => pathops::sys_rmdir(a1),                      // rmdir
+        87 => pathops::sys_unlink(a1),                     // unlink
+        89 => pathops::sys_readlink(a1, a2, a3),           // readlink
+        95 => pathops::sys_umask(a1),                      // umask(mask)
+        96 => time::sys_gettimeofday(a1),                  // gettimeofday(tv, tz)
+        102 | 107 => creds::sys_getuid(),                  // getuid/geteuid
+        104 | 108 => creds::sys_getgid(),                  // getgid/getegid
+        105 => creds::sys_setuid(a1),                      // setuid
+        106 => creds::sys_setgid(a1),                      // setgid
         113 => creds::sys_setres(a1, a2, u64::MAX, false), // setreuid
         114 => creds::sys_setres(a1, a2, u64::MAX, true),  // setregid
         117 => creds::sys_setres(a1, a2, a3, false),       // setresuid
         119 => creds::sys_setres(a1, a2, a3, true),        // setresgid
-        109 => procctl::sys_setpgid(a1, a2), // setpgid
-        110 => task::ppid() as u64,          // getppid
-        111 => task::pgid() as u64,          // getpgrp
-        112 => procctl::sys_setsid(),        // setsid
-        121 => procctl::sys_getpgid(a1),     // getpgid
-        124 => procctl::sys_getsid(a1),      // getsid
+        109 => procctl::sys_setpgid(a1, a2),               // setpgid
+        110 => task::ppid() as u64,                        // getppid
+        111 => task::pgid() as u64,                        // getpgrp
+        112 => procctl::sys_setsid(),                      // setsid
+        121 => procctl::sys_getpgid(a1),                   // getpgid
+        124 => procctl::sys_getsid(a1),                    // getsid
         131 => sig::sys_sigaltstack(a1, a2),
         157 => 0, // prctl (accept)
         158 => misc::sys_arch_prctl(a1, a2),
-        169 => 0,                              // reboot (accept)
-        200 => sig::sys_tkill(a1, a2),         // tkill(tid, sig)
-        202 => futex::sys_futex(a1, a2, a3),   // futex(uaddr, op, val)
+        169 => 0,                            // reboot (accept)
+        200 => sig::sys_tkill(a1, a2),       // tkill(tid, sig)
+        202 => futex::sys_futex(a1, a2, a3), // futex(uaddr, op, val)
         204 => misc::sys_sched_getaffinity(a2, a3),
         217 => fd::sys_getdents64(a1, a2, a3), // getdents64
         218 => procctl::sys_set_tid_address(a1),
@@ -334,13 +334,13 @@ extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
         257 => path::sys_openat(a1, a2, a3, a4),      // openat
         258 => pathops::sys_mkdirat(a1, a2, a3),      // mkdirat
         262 => stat::sys_newfstatat(a1, a2, a3, a4),
-        263 => pathops::sys_unlinkat(a1, a2, a3),     // unlinkat
+        263 => pathops::sys_unlinkat(a1, a2, a3), // unlinkat
         264 => pathops::sys_renameat(a1, a2, a3, a4), // renameat
-        273 => 0,                                     // set_robust_list
-        288 => socket::sys_accept(a1, a2, a3, a4),    // accept4(fd, addr, addrlen, flags)
-        290 => epoll::sys_eventfd2(a1, a2),           // eventfd2(initval, flags)
-        291 => epoll::sys_epoll_create1(a1),          // epoll_create1(flags)
-        293 => pipes::sys_pipe(a1, a2),               // pipe2(fds, flags)
+        273 => 0,                                 // set_robust_list
+        288 => socket::sys_accept(a1, a2, a3, a4), // accept4(fd, addr, addrlen, flags)
+        290 => epoll::sys_eventfd2(a1, a2),       // eventfd2(initval, flags)
+        291 => epoll::sys_epoll_create1(a1),      // epoll_create1(flags)
+        293 => pipes::sys_pipe(a1, a2),           // pipe2(fds, flags)
         318 => time::sys_getrandom(a1, a2),
         334 => {
             crate::serial_println!("ENOSYS 334 rseq");

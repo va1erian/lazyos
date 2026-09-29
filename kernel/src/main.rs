@@ -86,12 +86,24 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     // is recorded before the test hook so the kernel suite sees it too.
     display::init(info.width, info.height, info.stride, info.bytes_per_pixel);
 
+    // `mem::init` keeps the boot info borrowed, so read the ramdisk hand-off first.
+    let (ramdisk_addr, ramdisk_len) = (boot_info.ramdisk_addr, boot_info.ramdisk_len);
     mem::init(boot_info);
 
     // Kernel test mode (issue #62): run the in-kernel suite and halt instead of
     // booting the demo. Compiled in only with `LAZYOS_TESTS=1`.
     #[cfg(lazyos_tests)]
     tests::run();
+
+    // Issue #5: a bootloader ramdisk (a FAT image) is a fallback block device,
+    // so the OS still boots with no ATA/virtio disk attached. Probing the real
+    // disks first keeps them ahead of it in the mount order.
+    if let Optional::Some(addr) = ramdisk_addr {
+        block::init();
+        if block::mem::register_ramdisk(addr, ramdisk_len) {
+            serial_println!("block: ramdisk registered ({} bytes)", ramdisk_len);
+        }
+    }
 
     if fs::init() {
         serial_println!("LazyOS: FAT16 filesystem mounted");
@@ -183,12 +195,19 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         // gets a decorated window over `os.lazy.display.v1`. No `xdemo` is
         // spawned, so the app is the first (and only) surface and is laid out
         // at the top-left corner.
-        #[cfg(all(xuid_demo, not(xui_app)))]
+        //
+        // Issues #215/#216: with `LAZYOS_XUI_APPS` too (`xui_desktop`), only
+        // `xuid` boots here; `init` launches the embedded apps from its
+        // registry, so a desktop session runs several of them (Terminal,
+        // System Monitor, ...) side by side.
+        #[cfg(all(xuid_demo, not(xui_app), not(xui_desktop)))]
         spawn_program("xuid", "XUID.ELF");
-        #[cfg(all(xuid_demo, not(xui_app)))]
+        #[cfg(all(xuid_demo, not(xui_app), not(xui_desktop)))]
         spawn_program("xdemo", "XDEMO.ELF");
-        #[cfg(all(xuid_demo, not(xui_app)))]
+        #[cfg(all(xuid_demo, not(xui_app), not(xui_desktop)))]
         spawn_program("xdemo", "XDEMO.ELF");
+        #[cfg(all(xuid_demo, xui_desktop, not(xui_app)))]
+        spawn_program("xuid", "XUID.ELF");
         #[cfg(all(xui_app, not(xui_client)))]
         spawn_linux_program("xapp", "XAPP.ELF");
         #[cfg(xui_client)]
@@ -204,7 +223,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         // running, since the token transfer needs the clipboard service. The
         // xui app owns the display grant, so the demo skips that image; with
         // 64 task slots (issue #204) it fits next to the services too.
-        #[cfg(all(xuid_demo, not(xui_app)))]
+        #[cfg(all(xuid_demo, not(xui_app), not(xui_desktop)))]
         spawn_program("dragdemo", "DRAGDMO.ELF");
 
         // Issue #167: the shell-protocol evidence client. The
@@ -212,7 +231,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         // untouched; when set it boots `shellprobe`, which creates the desktop
         // surface, subscribes to the shell events, and logs the
         // `SHELLPROBE:*:PASS` markers.
-        #[cfg(all(xuid_demo, shellprobe_demo, not(xui_app)))]
+        #[cfg(all(xuid_demo, shellprobe_demo, not(xui_app), not(xui_desktop)))]
         spawn_program("shellprobe", "SHELLPRB.ELF");
     }
 

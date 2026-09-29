@@ -9,7 +9,7 @@
 //!
 //! Serial evidence: `SYSMON:UP:PASS` after the first frame (or
 //! `SYSMON:UP:FAIL:<errno>` when the snapshot is unreadable),
-//! `SYSMON:REFRESH:PASS` on `r`, `SYSMON:QUIT:PASS` on `q`, and a
+//! `SYSMON:REFRESH:PASS` on `r`, `SYSMON:QUIT:PASS` on `q` (or the window close button), and a
 //! `SYSMON:DATA:...` line with the headline counters.
 
 use std::cell::RefCell;
@@ -22,6 +22,10 @@ use xui_app::sysinfo::{self, Snapshot, MAX_TASKS};
 use xui_core::app::{run_app, App, Ui};
 use xui_core::backend::{Backend, Event, NodeKind, NodeSpec, PlatformSpec};
 use xui_core::{Canvas, Color, Control, Point, Rect, Theme};
+
+/// The window size when a compositor lays the app out (issue #215); as the
+/// display owner it fills the screen instead.
+const WINDOW: (i32, i32) = (860, 600);
 
 /// How often the snapshot refreshes.
 const REFRESH_MILLIS: u32 = 1000;
@@ -102,14 +106,14 @@ impl App for Sysmon {
 }
 
 fn main() {
-    let backend = match LazyOSBackend::new() {
+    let backend = match LazyOSBackend::connect() {
         Ok(backend) => Rc::new(backend),
         Err(code) => {
             println!("SYSMON:BIND:FAIL:{code}");
             std::process::exit(1);
         }
     };
-    let (width, height) = backend.screen();
+    let (width, height) = backend.window_size(WINDOW);
     let state = Rc::new(RefCell::new(State::load()));
 
     {
@@ -149,6 +153,7 @@ fn main() {
         });
         root.focus();
         ui.on_timer(|_| Some(Msg::Tick));
+        ui.on_close(|| Some(Msg::Quit));
         ui.set_timer(REFRESH_MILLIS);
         Sysmon { state, root }
     });

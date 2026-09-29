@@ -66,12 +66,17 @@
 
 extern crate alloc;
 
+#[path = "init/apps.rs"]
+mod apps;
+
 use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::panic::PanicInfo;
 use user::messenger::{self, logind, registry, router, services, Endpoint, Message, Parcel};
 use user::sys::{self, Cred as SysCred};
+
+use apps::{app_infos, autostart_ids, find_app, is_available, AppSpec};
 
 /// Serve subscriptions and due restarts at least this often (PIT ticks).
 const POLL_TICKS: u64 = 5;
@@ -98,6 +103,13 @@ const LAUNCH_SELFTEST_DELAY: u64 = 30;
 const LAUNCH_SELFTEST_RETRY: u64 = 25;
 /// Give up on the launch self-test after this many attempts.
 const LAUNCH_SELFTEST_ATTEMPTS: u64 = 40;
+/// Ticks after boot before the first autostart app opens (`xuid` is up by
+/// then; an app that is early just waits in `Client::connect`).
+const AUTOSTART_DELAY: u64 = 50;
+/// Ticks between two autostart launches.
+const AUTOSTART_STAGGER: u64 = 40;
+/// Autostart retries per app while the task table is full.
+const AUTOSTART_ATTEMPTS: u64 = 40;
 /// Launched rows one session may hold reserved at once (issue #177). The
 /// boot manifest's own services already run the task table
 /// (`kernel/src/task/mod.rs`'s `MAX_TASKS`) close to full for the life of the
@@ -142,97 +154,6 @@ struct ServiceSpec {
     restart: Restart,
     deps: &'static [&'static str],
     health_topic: &'static str,
-}
-
-/// One app-registry row (issue #158): what the start menu enumerates and what
-/// `Launch` resolves an app id to.
-struct AppSpec {
-    /// Lowercase program stem (`top`, `editor`); `mimed` registers these ids.
-    id: &'static str,
-    /// Display name for menus.
-    name: &'static str,
-    /// On-disk ELF path (8.3 on the FAT boot image).
-    path: &'static str,
-    /// Default restart policy for launches.
-    restart: Restart,
-    /// MIME verbs the app handles.
-    verbs: &'static [&'static str],
-}
-
-/// The built-in app registry. The first four ids are exactly the ones
-/// `mimed`'s open-with defaults register (`editor`, `files`, `viewer`,
-/// `runner`), so an `Open` resolution names an app the supervisor knows; the
-/// rest are launchable system programs (`top` proves the path end to end in a
-/// headless boot).
-const APPS: &[AppSpec] = &[
-    AppSpec {
-        id: "editor",
-        name: "Editor",
-        path: "EDITOR.ELF",
-        restart: Restart::OnFailure,
-        verbs: &["open", "edit"],
-    },
-    AppSpec {
-        id: "files",
-        name: "Files",
-        path: "FILES.ELF",
-        restart: Restart::OnFailure,
-        verbs: &["open", "reveal"],
-    },
-    AppSpec {
-        id: "viewer",
-        name: "Image Viewer",
-        path: "VIEW.ELF",
-        restart: Restart::OnFailure,
-        verbs: &["open", "reveal"],
-    },
-    AppSpec {
-        id: "runner",
-        name: "Program Runner",
-        path: "RUNNER.ELF",
-        restart: Restart::Once,
-        verbs: &["open"],
-    },
-    AppSpec {
-        id: "terminal",
-        name: "Terminal",
-        path: "SH.ELF",
-        restart: Restart::OnFailure,
-        verbs: &["open"],
-    },
-    AppSpec {
-        id: "top",
-        name: "System Monitor",
-        path: "TOP.ELF",
-        restart: Restart::Once,
-        verbs: &["open"],
-    },
-    AppSpec {
-        id: "messengerctl",
-        name: "Messenger Console",
-        path: "MSGCTL.ELF",
-        restart: Restart::OnFailure,
-        verbs: &[],
-    },
-];
-
-/// The app registry row for `id` (case-insensitive), if any.
-fn find_app(id: &str) -> Option<&'static AppSpec> {
-    APPS.iter()
-        .find(|app| app.id.eq_ignore_ascii_case(id.trim()))
-}
-
-/// The registry as wire rows for `ListApps`.
-fn app_infos() -> Vec<services::AppInfo> {
-    APPS.iter()
-        .map(|app| services::AppInfo {
-            id: app.id.to_string(),
-            name: app.name.to_string(),
-            path: app.path.to_string(),
-            restart: app.restart.label().to_string(),
-            verbs: app.verbs.iter().map(|verb| verb.to_string()).collect(),
-        })
-        .collect()
 }
 
 /// The boot manifest. `messengerd` is first because it owns the bootstrap
@@ -409,6 +330,11 @@ struct Service {
     cred: Option<SysCred>,
     /// Whether the row came from `Launch` (vs the boot manifest).
     launched: bool,
+    /// Whether the program is a Linux-ABI binary (spawned with `linux:`).
+    linux: bool,
+    /// Whether `init` itself opened the row at boot (the desktop's apps); it
+    /// does not count against the session's launch cap.
+    autostart: bool,
     phase: Phase,
     /// Task slot of the running child; `0` between runs.
     pid: u64,
@@ -434,6 +360,8 @@ impl Service {
             health_topic: spec.health_topic.to_string(),
             cred: None,
             launched: false,
+            linux: false,
+            autostart: false,
             phase: Phase::Pending,
             pid: 0,
             restarts: 0,
@@ -444,16 +372,26 @@ impl Service {
     }
 
     /// A row for one app launch, stamped with the target session's credentials.
+    /// The registry's default arguments come first, then the request's.
     fn from_app(app: &'static AppSpec, args: &str, cred: SysCred) -> Service {
+        let mut all_args = String::from(app.args);
+        if !args.is_empty() {
+            if !all_args.is_empty() {
+                all_args.push(' ');
+            }
+            all_args.push_str(args);
+        }
         Service {
             name: app.id,
             path: app.path,
-            args: args.to_string(),
+            args: all_args,
             restart: app.restart,
             deps: &[],
             health_topic: format!("system/health/{}", app.id),
             cred: Some(cred),
             launched: true,
+            linux: app.linux,
+            autostart: false,
             phase: Phase::Pending,
             pid: 0,
             restarts: 0,
@@ -491,7 +429,8 @@ fn run() -> messenger::Result<()> {
     let mut broker = router::TopicBroker::new("os.lazy.events.sink");
     let mut services: Vec<Service> = MANIFEST.iter().map(Service::from_manifest).collect();
     sys::write_str(&format!("init: manifest: {} service(s)\n", services.len()));
-    selftest_apps();
+    apps::load_manifest();
+    sys::write_str(&apps::selftest_apps());
     selftest_launch_policy();
     selftest_launch_cap();
     start_ready(&mut services, &mut broker);
@@ -501,6 +440,7 @@ fn run() -> messenger::Result<()> {
     let mut buffer = alloc::vec![0u8; messenger::DEFAULT_BUFFER];
     let mut cache = StatusCache::default();
     let mut selftest = LaunchSelftest::new();
+    let mut autostart = Autostart::new();
 
     loop {
         // A restart whose backoff elapsed.
@@ -514,6 +454,8 @@ fn run() -> messenger::Result<()> {
         // path once a task slot is free (the manifest's one-shot `top` exits
         // around here), proving `Launch` end to end in a headless boot.
         selftest.step(&mut services, &mut broker, now);
+        // The desktop's apps (issue #215): open the shipped `autostart` rows.
+        autostart.step(&mut services, &mut broker, now);
         // Reap one exit (or time out to serve requests).
         if let Some((pid, status)) = sys::wait(wake_deadline(&services, now)) {
             child_exited(&mut services, pid, status, &mut broker);
@@ -521,6 +463,62 @@ fn run() -> messenger::Result<()> {
             start_ready(&mut services, &mut broker);
         }
         serve_pending(&mut services, &mut broker, &server, &mut buffer, &mut cache)?;
+    }
+}
+
+/// Opens the image's `autostart` apps (the desktop session, issue #215), one
+/// per [`AUTOSTART_STAGGER`] ticks so their start-up (each is a `std` program
+/// that maps a window buffer) does not all land at once, retrying while the
+/// task table is full. Each launch is `--client`, so the app connects to
+/// `xuid` (which retries until the compositor is up) instead of racing it for
+/// the display grant. Prints `INIT:AUTOSTART:PASS app=<id>` per app.
+struct Autostart {
+    pending: Vec<&'static str>,
+    due: u64,
+    attempts: u64,
+}
+
+impl Autostart {
+    fn new() -> Autostart {
+        Autostart {
+            pending: autostart_ids(),
+            due: sys::clock() + AUTOSTART_DELAY,
+            attempts: 0,
+        }
+    }
+
+    /// One launch when due; a refusal retries later and gives up after
+    /// [`AUTOSTART_ATTEMPTS`] tries so one broken app cannot block the rest.
+    fn step(&mut self, services: &mut Vec<Service>, broker: &mut router::TopicBroker, now: u64) {
+        let Some(&id) = self.pending.first() else {
+            return;
+        };
+        if now < self.due {
+            return;
+        }
+        let caller = SysCred::new(0, 0, CAP_SETUID, 0, 0);
+        let request = services::LaunchRequest {
+            app: String::from(id),
+            args: String::new(),
+            session: 0,
+        };
+        match launch_row(services, broker, &request, &caller, true) {
+            Ok(_) => {
+                sys::write_str(&format!("INIT:AUTOSTART:PASS app={id}\n"));
+                self.pending.remove(0);
+                self.attempts = 0;
+                self.due = now + AUTOSTART_STAGGER;
+            }
+            Err(_) if self.attempts + 1 >= AUTOSTART_ATTEMPTS => {
+                sys::write_str(&format!("INIT:AUTOSTART:FAIL app={id}\n"));
+                self.pending.remove(0);
+                self.attempts = 0;
+            }
+            Err(_) => {
+                self.attempts += 1;
+                self.due = now + LAUNCH_SELFTEST_RETRY;
+            }
+        }
     }
 }
 
@@ -695,7 +693,9 @@ fn spawn_service(services: &mut [Service], index: usize, broker: &mut router::To
 
 /// The NUL-terminated command line for a spawn: `PATH <args> attempt=<n>`.
 fn command_line(service: &Service, restarts: u64) -> Vec<u8> {
-    let mut line = String::from(service.path);
+    // The kernel's spawn picks the Linux ABI personality from this prefix.
+    let mut line = String::from(if service.linux { "linux:" } else { "" });
+    line.push_str(service.path);
     if !service.args.is_empty() {
         line.push(' ');
         line.push_str(&service.args);
@@ -967,6 +967,7 @@ fn running_in_session(services: &[Service], session: u64) -> usize {
         .iter()
         .filter(|service| {
             service.launched
+                && !service.autostart
                 && matches!(
                     service.phase,
                     Phase::Running | Phase::Restarting | Phase::Pending
@@ -1023,14 +1024,32 @@ fn launch(
     request: &services::LaunchRequest,
     caller: &SysCred,
 ) -> messenger::Result<services::LaunchResult> {
+    launch_row(services, broker, request, caller, false)
+}
+
+/// [`launch`], for either a client request or `init`'s own autostart. An
+/// `autostart` row is opened by the supervisor itself, so it is exempt from
+/// the per-session cap and does not count against it afterwards. An app whose
+/// ELF this image does not ship is refused with `-ENOENT` *before* anything
+/// is spawned or logged: the registry lists it, the image just lacks it.
+fn launch_row(
+    services: &mut Vec<Service>,
+    broker: &mut router::TopicBroker,
+    request: &services::LaunchRequest,
+    caller: &SysCred,
+    autostart: bool,
+) -> messenger::Result<services::LaunchResult> {
     let app = find_app(&request.app).ok_or(messenger::Error::Errno(-messenger::errno::ENOENT))?;
+    if !is_available(app) {
+        return Err(messenger::Error::Errno(-messenger::errno::ENOENT));
+    }
     let target_session = if request.session == 0 {
         caller.session
     } else {
         request.session
     };
     authorize(caller, target_session)?;
-    if running_in_session(services, target_session) >= LAUNCH_CAP_PER_SESSION {
+    if !autostart && running_in_session(services, target_session) >= LAUNCH_CAP_PER_SESSION {
         return Err(messenger::Error::Errno(-messenger::errno::EAGAIN));
     }
     let cred = target_cred(caller, target_session)?;
@@ -1042,6 +1061,7 @@ fn launch(
             && matches!(service.phase, Phase::Stopped | Phase::Failed))
     });
     let mut row = Service::from_app(app, &request.args, cred);
+    row.autostart = autostart;
     let command = command_line(&row, 0);
     let Some(pid) = sys::spawn_as(&command, &cred) else {
         sys::write_str(&format!(
@@ -1065,33 +1085,6 @@ fn launch(
         pid,
         session: target_session,
     })
-}
-
-/// The registry self-test: every row is well formed and the ids `mimed`
-/// registers are present. Prints `INIT:APPS:PASS`.
-fn selftest_apps() {
-    let mut ok = !APPS.is_empty();
-    for app in APPS {
-        let verbs = app.verbs.len();
-        ok &= !app.id.is_empty()
-            && !app.name.is_empty()
-            && app.path.ends_with(".ELF")
-            && (verbs == 0 || verbs <= 4);
-    }
-    let has_editor = APPS
-        .iter()
-        .find(|app| app.id == "editor")
-        .map(|app| app.verbs.contains(&"open") && app.verbs.contains(&"edit"))
-        .unwrap_or(false);
-    let has_top = APPS
-        .iter()
-        .any(|app| app.id == "top" && app.path == "TOP.ELF");
-    ok &= has_editor && has_top;
-    if ok {
-        sys::write_str(&format!("INIT:APPS:PASS count={}\n", APPS.len()));
-    } else {
-        sys::write_str("INIT:APPS:FAIL registry is malformed\n");
-    }
 }
 
 /// The launch-policy self-test: a synthetic session owner may launch into its
