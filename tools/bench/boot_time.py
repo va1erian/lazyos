@@ -144,6 +144,7 @@ def run_once(qemu: str, image: Path, accel: str, args, scratch: Path) -> dict:
         result["t"]["qmp_ready"] = time.perf_counter() - t0
         need = {"desktop_ready"} | ({"clients_ready"} if args.clients else set())
         need |= set() if args.no_frames else {"first_frame"}
+        result["need"] = sorted(need)
         while time.perf_counter() - t0 < args.timeout:
             result["t"].update(milestones_from(list(tail.lines)))
             if need <= result["t"].keys():
@@ -282,7 +283,7 @@ def main() -> int:
                 print(f"  [{accel}] {tag}: ok={r['ok']} desktop_ready="
                       f"{'%.2fs' % d if d else 'n/a'}", file=sys.stderr, flush=True)
                 if not r["ok"]:
-                    print("    missing:", sorted(set(["desktop_ready", "first_frame"]) - r["t"].keys()),
+                    print("    missing:", sorted(set(r.get("need", [])) - r["t"].keys()),
                           "serial tail:", r.get("serial_tail"), file=sys.stderr, flush=True)
                 if i >= args.warmup:
                     runs.append(r)

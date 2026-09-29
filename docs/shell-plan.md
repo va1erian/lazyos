@@ -6,7 +6,7 @@ the desktop, taskbar, start menu, and bundled apps while the compositor keeps
 ownership of window chrome, z-order, and focus.
 
 Tracking: stage issue **#156** (under epic #52, milestone "LazyOS Platform"),
-tasks **#157-#162** plus the split-out protocol work **#167**; the stage-to-task
+tasks **#157-#162** plus the split-out S5.0 work **#158**, **#167** and **#168**; the stage-to-task
 map is in section 10.
 
 This is the focused plan for stage **S5** of
@@ -178,10 +178,14 @@ Each stage ends with evidence in CI; sizes are rough (S/M/L).
 
 | Stage | Task issue(s) | Evidence markers | State |
 |---|---|---|---|
-| S5.0 bring-up | #157 (LazyShell), #167 (display protocol, done), #158 (`init` `Launch`, done) | `SHELL:DESKTOP`, `SHELL:LAUNCH`, `XUID:SHELL` | protocol half landed; process not started |
+| S5.0 bring-up | #157 (LazyShell), #167 (display protocol, done), #158 (`init` `Launch`, done), #168 (xui client mode and focus routing, done) | `SHELL:DESKTOP`, `SHELL:LAUNCH`, `XUID:SHELL` | protocol half landed; process not started |
 | S5.1 Files + start menu | #159 | `FILES:*` | not started |
 | S5.2 session/Settings/themes | #160 | `THEME:*`, session-grant assertions | not started |
 | S5.3 polish + core apps | #161 (icons, notifications, window affordances), #162 (Editor, Terminal, Paint, Task Manager, Help) | `APP:*`, one session per affordance | not started |
+
+The split follows the task issues as filed (#159 Files, #160 session/themes,
+#161/#162 polish and apps), which is why Files precedes session/themes and apps
+land last; #154's original wording listed the order differently.
 
 The stage acceptance is the platform-plan S5 acceptance: a user logs in and,
 using only the GUI, edits a file, copies it between apps, browses the
