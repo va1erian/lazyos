@@ -360,7 +360,11 @@ impl Service {
             name: spec.name,
             path: spec.path,
             // `soak=`/`demo=` only drive boot evidence; release boots skip them.
-            args: if BOOT_SELFTESTS { spec.args.to_string() } else { String::new() },
+            args: if BOOT_SELFTESTS {
+                spec.args.to_string()
+            } else {
+                String::new()
+            },
             restart: spec.restart,
             deps: spec.deps,
             health_topic: spec.health_topic.to_string(),
