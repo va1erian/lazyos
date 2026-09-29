@@ -124,7 +124,10 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ),
     ("ipc_buffer_fence_submit_wait", buffer_fence_submit_wait),
     ("ipc_buffer_zero_copy_handoff", buffer_zero_copy_handoff),
-    ("ipc_buffer_va_reused_after_close", buffer_va_reused_after_close),
+    (
+        "ipc_buffer_va_reused_after_close",
+        buffer_va_reused_after_close,
+    ),
     (
         "ipc_buffer_va_no_overlap_and_coalesce",
         buffer_va_no_overlap_and_coalesce,
