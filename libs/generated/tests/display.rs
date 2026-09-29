@@ -196,7 +196,7 @@ fn row(id: u64) -> SurfaceRow {
         y: 40,
         w: 320,
         h: 200,
-        minimized: id % 2 == 0,
+        minimized: id.is_multiple_of(2),
         focused: id == 1,
         role: if id == 0 { ROLE_DESKTOP } else { ROLE_WINDOW },
     }
