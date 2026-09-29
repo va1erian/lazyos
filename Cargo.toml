@@ -11,8 +11,6 @@ members = [
     "font-atlas",
     "user",
     "libs/messenger",
-    # The shell language shared by `sh` and the Terminal xui app (issue #216).
-    "libs/lang",
     "libs/generated",
     # Vetted cryptography shared by `keyd` and the kernel test suite (#102):
     # no_std for the freestanding targets plus host `cargo test` known-answer

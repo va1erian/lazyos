@@ -193,7 +193,7 @@ embedded side by side (`XAPPS.LST` names what the image ships; a registered app
 whose ELF is absent is unavailable and never logged as a failed launch).
 `init`'s app registry opens the `autostart` rows as `xuid` clients.
 `sysmon`/`fabricmon`/`counter` pick client mode via `LazyOSBackend::connect`;
-the new `xui-term` hosts the shell (`libs/lang`). The desktop profile starts no
+the new `xui-term` hosts BusyBox `sh` over a pipe pair (issue #254). The desktop profile starts no
 demo/evidence programs (no `flaky`, `top` launch self-test or clipboard demo
 pair). Captured by `tools/screenshot/examples/xui_desktop.json` in the `xui-app`
 job.

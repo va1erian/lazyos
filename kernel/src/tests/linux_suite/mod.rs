@@ -203,6 +203,7 @@ mod epoll;
 mod mremap_eventfd;
 mod nanosleep_clock;
 mod random;
+mod sendfile;
 mod seqpacket_unix;
 
 pub(super) use creds::*;
@@ -210,6 +211,7 @@ pub(super) use epoll::*;
 pub(super) use mremap_eventfd::*;
 pub(super) use nanosleep_clock::*;
 pub(super) use random::*;
+pub(super) use sendfile::*;
 pub(super) use seqpacket_unix::*;
 
 pub(super) const CASES: &[(&str, Test)] = &[
@@ -279,5 +281,21 @@ pub(super) const CASES: &[(&str, Test)] = &[
     (
         "linux_clock_nanosleep_soak_absolute",
         clock_nanosleep_soak_absolute,
+    ),
+    (
+        "linux_sendfile_pipe_to_pipe_copies_and_accounts",
+        sendfile_pipe_to_pipe_copies_and_accounts,
+    ),
+    (
+        "linux_sendfile_rejects_positional_and_bad_descriptors",
+        sendfile_rejects_positional_and_bad_descriptors,
+    ),
+    (
+        "linux_sendfile_refuses_nonblocking_stream_destination",
+        sendfile_refuses_nonblocking_stream_destination,
+    ),
+    (
+        "linux_sendfile_soak_cycles_no_leaks",
+        sendfile_soak_cycles_no_leaks,
     ),
 ];

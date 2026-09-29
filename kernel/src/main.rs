@@ -147,13 +147,25 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         Ok(()) => serial_println!("msg: registry name os.lazy.messenger.registry published"),
         Err(error) => serial_println!("msg: registry name publish failed: {error}"),
     }
-    if let Some(bytes) = fs::read("BUSYBOX") {
-        serial_println!("LazyOS: launching busybox sh");
-        match task::spawn_linux("sh", &bytes, "sh") {
-            Ok(index) => serial_println!("LazyOS: spawned busybox as task {index}"),
-            Err(err) => serial_println!("LazyOS: spawn busybox failed: {err}"),
+    // The ABI bench's BusyBox row (`LAZYOS_BUSYBOX_TEST=1`) runs one command
+    // and prints the marker, so the bench can classify it from serial. Every
+    // other image boots its normal profile; BusyBox is embedded so the profiles
+    // can host it (the console shell, `logind`, the desktop Terminal), not to
+    // replace the whole session.
+    if cfg!(busybox_test) {
+        match fs::read("BUSYBOX") {
+            Some(bytes) => {
+                serial_println!("LazyOS: launching busybox sh (bench)");
+                match task::spawn_linux_args("sh", &bytes, &["sh", "-c", "echo ABI:busybox:PASS"]) {
+                    Ok(index) => serial_println!("LazyOS: spawned busybox as task {index}"),
+                    Err(err) => serial_println!("ABI:busybox:FAIL:{err}"),
+                }
+            }
+            None => serial_println!("ABI:busybox:FAIL:no BUSYBOX on image"),
         }
     } else if let Some(bytes) = fs::read("INIT.ELF") {
+        // The ABI bench's injected fixture owns the boot. Checked before the
+        // demo profile so a stray `BUSYBOX` on an image cannot shadow a fixture.
         serial_println!("ABI:INIT:START");
         match task::spawn_linux("init", &bytes, "init") {
             Ok(index) => serial_println!("LazyOS: spawned init as task {index}"),
@@ -190,7 +202,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         #[cfg(all(not(messengerctl_demo), not(services_mode), not(cli_mode)))]
         spawn_program("hello", "HELLO.ELF");
         #[cfg(not(services_mode))]
-        spawn_program("sh", "SH.ELF");
+        spawn_console_shell();
 
         // Issue #113: `LAZYOS_XUID=1` boots the userspace compositor (`XUID.ELF`)
         // and two instances of the display-protocol demo app (`XDEMO.ELF`).
@@ -295,6 +307,27 @@ fn spawn_linux_program(name: &'static str, path: &str) {
             Err(err) => serial_println!("LazyOS: spawn {name} failed: {err}"),
         },
         None => serial_println!("LazyOS: {path} not found"),
+    }
+}
+
+/// Spawn the console shell (issue #254): BusyBox `sh`. Used by the CLI and demo
+/// profiles; `logind` starts the login shell the same way (through the
+/// `linux:sh` passwd field). With no `BUSYBOX` on the image there is no shell
+/// (the ad hoc interpreter was retired), so this logs clearly and boots without
+/// one rather than crashing.
+#[cfg(not(services_mode))]
+fn spawn_console_shell() {
+    match fs::read("BUSYBOX") {
+        Some(bytes) => {
+            serial_println!("LazyOS: launching busybox sh");
+            match task::spawn_linux_args("sh", &bytes, &["sh"]) {
+                Ok(index) => serial_println!("LazyOS: spawned busybox as task {index}"),
+                Err(err) => serial_println!("LazyOS: spawn busybox failed: {err}"),
+            }
+        }
+        None => serial_println!(
+            "LazyOS: no BUSYBOX on the image; no console shell (build it with tools/abi/build.py)"
+        ),
     }
 }
 

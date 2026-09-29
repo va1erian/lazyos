@@ -419,10 +419,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "lazyos-lang"
-version = "0.1.0"
-
-[[package]]
 name = "libc"
 version = "0.2.189"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -820,7 +816,6 @@ name = "user"
 version = "0.1.0"
 dependencies = [
  "lazyos-crypto",
- "lazyos-lang",
  "libmessenger",
  "messenger-generated",
  "regd",

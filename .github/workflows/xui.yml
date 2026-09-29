@@ -58,7 +58,7 @@ jobs:
       - name: Install QEMU
         run: |
           sudo apt-get update
-          sudo apt-get install -y qemu-system-x86
+          sudo apt-get install -y qemu-system-x86 musl-tools
 
       # Hosted runners expose /dev/kvm but not to the runner user; open it up
       # so `--accel auto` picks KVM (it falls back to TCG if KVM is unusable).
@@ -94,6 +94,12 @@ jobs:
           echo "client=$client" >> "$GITHUB_OUTPUT"
           echo "term=$term" >> "$GITHUB_OUTPUT"
           ls -l target/xui/*.elf || true
+
+      # The Terminal hosts BusyBox `sh` (issue #254); build the pinned static
+      # musl binary so `build.rs` embeds it in the desktop image.
+      - name: Build BusyBox (system shell)
+        shell: bash
+        run: python tools/abi/busybox.py
 
       # M0: the gradient proves bind/present from a static musl program.
       - name: Capture M0 (gradient present)
@@ -234,8 +240,8 @@ jobs:
           for app in terminal sysmon fabricmon counter; do
             grep -q "INIT:AUTOSTART:PASS app=$app" shots/desktop/serial.log
           done
-          grep -q "TERM:CMD:let x = 6\*7" shots/desktop/serial.log
-          grep -q "TERM:OUT:84" shots/desktop/serial.log
+          grep -q "TERM:CMD:echo \$((6\*7))" shots/desktop/serial.log
+          grep -q "TERM:OUT:42" shots/desktop/serial.log
           grep -q "TERM:OUT:Hello from LazyOS!" shots/desktop/serial.log
           python tools/services/evidence.py shots/desktop/serial.log --desktop
           ! grep -q "^init: launch .* failed" shots/desktop/serial.log

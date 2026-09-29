@@ -67,7 +67,7 @@ pub use snapshot::prepare_fd_write;
 pub mod switch;
 pub mod sys;
 pub mod wait;
-pub use linux_spawn::{spawn_linux, spawn_linux_child};
+pub use linux_spawn::{spawn_linux, spawn_linux_args, spawn_linux_child};
 
 mod console;
 mod fdio;

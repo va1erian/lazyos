@@ -48,8 +48,19 @@ ORDER = [
 ]
 
 
-def build_image(fixture_path: Path) -> bool:
-    env = dict(os.environ, LAZYOS_INIT=str(fixture_path))
+def build_image(fixture_path: Path, busybox: bool = False) -> bool:
+    env = dict(os.environ)
+    # Never let a caller's exports leak between rows: a `BUSYBOX` embedded for
+    # another fixture would shadow its `INIT.ELF`, and vice versa.
+    for key in ("LAZYOS_INIT", "LAZYOS_BUSYBOX", "LAZYOS_BUSYBOX_TEST"):
+        env.pop(key, None)
+    if busybox:
+        # The BusyBox row embeds it as the system shell and makes the kernel run
+        # `sh -c "echo ABI:busybox:PASS"` (the `busybox_test` cfg), then exit.
+        env["LAZYOS_BUSYBOX"] = str(fixture_path)
+        env["LAZYOS_BUSYBOX_TEST"] = "1"
+    else:
+        env["LAZYOS_INIT"] = str(fixture_path)
     result = subprocess.run(["cargo", "build"], cwd=ROOT, env=env, capture_output=True, text=True)
     if result.returncode != 0:
         print(f"warning: image build failed for {fixture_path.name}", file=sys.stderr)
@@ -113,7 +124,7 @@ def main() -> int:
         if not fixture.is_file():
             results.append({"fixture": name, "status": "unavailable", "detail": "fixture not built"})
             continue
-        if not build_image(fixture):
+        if not build_image(fixture, busybox=(name == "busybox")):
             results.append({"fixture": name, "status": "fail", "detail": "image build failed"})
             continue
         status, detail = classify(name, capture(name, args.at, args.accel))

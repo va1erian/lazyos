@@ -197,6 +197,40 @@ pub fn spawn_linux_unknown_file_fails() -> Result<(), String> {
     Ok(())
 }
 
+/// The Linux spawn loader resolves a bare applet name (`sh`, `/bin/ls`) to the
+/// `BUSYBOX` file — how `logind` starts the user's shell — while a real path
+/// still reads its own bytes and a non-applet miss stays missing (issue #254).
+pub fn linux_load_executable_resolves_applets() -> Result<(), String> {
+    fresh();
+    crate::fs::install_abi_ramfs_for_test();
+    // Install as root (the image builder owns the boot volume); the lookup
+    // under test reads with the running identity.
+    let id = crate::fs::vfs::Id::ROOT;
+    let elf = minimal_elf();
+    crate::fs::abi_create(id, "/busybox", 0o755).map_err(|e| e.message())?;
+    crate::fs::abi_write(id, "/busybox", 0, &elf).map_err(|e| e.message())?;
+    crate::fs::abi_create(id, "/ref", 0o644).map_err(|e| e.message())?;
+    crate::fs::abi_write(id, "/ref", 0, b"ref-bytes").map_err(|e| e.message())?;
+
+    check!(
+        process::linux::load_executable("sh") == Some(elf.clone()),
+        "`sh` did not resolve to the BUSYBOX applet alias"
+    );
+    check!(
+        process::linux::load_executable("/bin/ls") == Some(elf.clone()),
+        "/bin/ls did not resolve to the BUSYBOX applet alias"
+    );
+    check!(
+        process::linux::load_executable("/ref") == Some(b"ref-bytes".to_vec()),
+        "a real file did not resolve to its own bytes"
+    );
+    check!(
+        process::linux::load_executable("no.such").is_none(),
+        "a dotted non-applet name resolved to something"
+    );
+    Ok(())
+}
+
 /// Soak: many supervised Linux children spawn, exit and are reaped without
 /// leaking frames or task slots (a desktop session restarts its apps).
 pub fn soak_spawn_linux_child_generations() -> Result<(), String> {
@@ -251,6 +285,10 @@ pub(super) const CASES: &[(&str, Test)] = &[
     (
         "service_spawn_linux_unknown_file_fails",
         spawn_linux_unknown_file_fails,
+    ),
+    (
+        "service_linux_load_executable_resolves_applets",
+        linux_load_executable_resolves_applets,
     ),
     (
         "service_soak_spawn_linux_child_generations",

@@ -46,13 +46,23 @@ fn main() {
         println!("cargo:rustc-cfg=messengerctl_demo");
     }
 
-    // CLI mode switch: `LAZYOS_CLI=1` boots only the native shell (`SH.ELF`)
-    // in a single mux window, dropping the `hello` demo window.
+    // CLI mode switch: `LAZYOS_CLI=1` boots only the system shell (BusyBox
+    // `sh`) in a single mux window, dropping the `hello` demo window.
     // Ignored in services mode, where `init` owns the session.
     println!("cargo:rerun-if-env-changed=LAZYOS_CLI");
     println!("cargo:rustc-check-cfg=cfg(cli_mode)");
     if env::var_os("LAZYOS_CLI").as_deref() == Some(std::ffi::OsStr::new("1")) {
         println!("cargo:rustc-cfg=cli_mode");
+    }
+
+    // BusyBox bench switch (issue #254): `LAZYOS_BUSYBOX_TEST=1` makes the
+    // kernel boot the embedded BusyBox with `sh -c "echo ABI:busybox:PASS"`
+    // (instead of an interactive shell), so `tools/abi/run.py` can classify
+    // the BusyBox row from the serial log.
+    println!("cargo:rerun-if-env-changed=LAZYOS_BUSYBOX_TEST");
+    println!("cargo:rustc-check-cfg=cfg(busybox_test)");
+    if env::var_os("LAZYOS_BUSYBOX_TEST").as_deref() == Some(std::ffi::OsStr::new("1")) {
+        println!("cargo:rustc-cfg=busybox_test");
     }
 
     // Registry daemon switch (issue #89): `LAZYOS_MESSENGERD=1` makes the

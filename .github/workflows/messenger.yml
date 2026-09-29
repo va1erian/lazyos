@@ -25,6 +25,7 @@ jobs:
       - name: Run the parcel codec tests
         run: cargo test -p libmessenger
 
-      # The shell language shared by `sh` and the desktop Terminal (issue #216).
-      - name: Run the shell language tests
-        run: cargo test -p lazyos-lang
+      # The shell language was retired (issue #254): BusyBox `sh` is the system
+      # shell now, and the fabricated `midlc` stubs keep their own tests.
+      - name: Run the generated-stub tests
+        run: cargo test -p messenger-generated

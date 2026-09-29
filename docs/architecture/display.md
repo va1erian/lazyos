@@ -87,9 +87,11 @@ compositor demo. Target toolkit design: [xui-plan.md](../xui-plan.md).
   `kernel/src/process/spawn_line.rs`). The whole recipe is the single
   `LAZYOS_DESKTOP=1` switch (issue #217), which also drops the demo/evidence
   programs. The **Terminal** (`xui-term`) is a client
-  that runs the shell's language and REPL in-process (`libs/lang`, the crate
-  behind the native `sh`): there is no pty yet, so it links the interpreter
-  instead of spawning `sh`. Window placement (issue #250) tiles new windows in
+  that spawns BusyBox `sh` as a real child over a pipe pair and parses its
+  output (CR/LF/BS and the CSI sequences its line editor emits) into a character
+  grid (issue #254). There is no controlling tty yet, so it is a pipe-pair
+  terminal rather than a kernel pty. Window placement (issue #250) tiles new
+  windows in
   the first free grid cell and cascades with wraparound once the screen is
   full, so every window keeps at least its title bar visible; the taskbar and
   Alt+Tab switch between them.

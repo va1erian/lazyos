@@ -30,7 +30,7 @@ Tooling that measures how far LazyOS is from running prebuilt
 | `sigstress` | Signal masks, handlers and delivery. |
 | `epollstress` | `eventfd` + `epoll` level/edge readiness, timeouts, add/mod/del. |
 | `unixstress` | `UnixStream` pair/EOF/shutdown, pathname bind/connect/accept, `SOCK_SEQPACKET` boundaries. |
-| `busybox` | Optional static BusyBox dropped at `tools/abi/busybox`. |
+| `busybox` | Pinned static BusyBox (`tools/abi/busybox.py`), the system shell: the kernel boots it with `sh -c "echo ABI:busybox:PASS"`. |
 
 ## Convention
 
@@ -51,10 +51,14 @@ runner isolates one fixture per boot.
 ## Local use
 
 ```bash
-python tools/abi/build.py                 # build fixtures (skips if no musl cc)
+python tools/abi/build.py                 # build fixtures + fetch/build BusyBox (skips if no musl cc)
 python tools/abi/run.py --only hello --at 8
 python tools/abi/coverage.py
 ```
+
+`build.py` fetches and builds a pinned static-musl BusyBox (issue #254) when
+`musl-gcc` is available, or copies a binary dropped at `tools/abi/busybox`.
+On a host that can do neither it reports BusyBox unavailable and still exits 0.
 
 On Windows the fixtures may not link (`cc` missing); the bench then reports them
 `unavailable`. CI (Linux) builds and runs them.

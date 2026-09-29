@@ -16,6 +16,16 @@ pub fn spawn_linux(name: &'static str, elf: &[u8], argv0: &str) -> Result<usize,
     spawn_linux_in(name, elf, &[argv0], None)
 }
 
+/// Create a kernel-started Linux task with a full `argv` (BusyBox's `sh -c`,
+/// used by the ABI bench to run one command and print its result).
+pub fn spawn_linux_args(
+    name: &'static str,
+    elf: &[u8],
+    argv: &[&str],
+) -> Result<usize, &'static str> {
+    spawn_linux_in(name, elf, argv, None)
+}
+
 /// Create a Linux task that is a child of the calling task, with `argv`.
 ///
 /// This is how the userspace `init` supervises a musl program (a desktop app):

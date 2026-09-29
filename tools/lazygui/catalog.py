@@ -44,11 +44,7 @@ MODES = [
 SCRIPTS = [
     ("type_and_shot.json", "Type & shot (input smoke test)", (), None),
     ("multitask_demo.json", "Multitask (two windows, Tab focus)", (), None),
-    ("cli_demo.json", "CLI demo (help / box / ball)", (), None),
     ("fs_demo.json", "Filesystem (ls / cat)", (), None),
-    ("user_demo.json", "Ring-3 HELLO.ELF", (), None),
-    ("interp_demo.json", "SH.ELF interpreter", (), None),
-    ("bench.json", "bench command", (), None),
     ("window_demo.json", "Window move / scroll", (), None),
     ("mouse_demo.json", "Mouse move", (), None),
     ("services_demo.json", "Services (health / log / registry)", ("services",), None),
@@ -68,7 +64,7 @@ SCRIPTS = [
 SIMPLE_BUILDS = [("Debug", "dev"), ("Release", "release")]
 SIMPLE_INTERFACES = [
     ("CLI",
-     "A basic terminal screen with the native shell (sh) connected to it."),
+     "A basic terminal screen with the system shell (busybox sh) connected to it."),
     ("Desktop",
      "The full services suite (init, messengerd, logd, healthd, keyd, accounts, "
      "clipboardd, ...) plus the xuid compositor and an XUI app window."),

@@ -9,8 +9,6 @@ license = "GPL-3.0-or-later"
 # The parcel codec, shared with the kernel, so client/server parcels round-trip
 # through one implementation (issue #69).
 libmessenger = { path = "../libs/messenger" }
-# The shell language (lexer/parser/interpreter/REPL), shared with the Terminal xui app.
-lazyos-lang = { path = "../libs/lang" }
 # Vetted primitives for `keyd` (issue #102): SHA-256/HMAC/HKDF/Argon2id and the
 # entropy pool. Kernel tests import the same crate, so host KATs cover the code
 # that runs in ring 3.
@@ -28,12 +26,6 @@ path = "src/lib.rs"
 [[bin]]
 name = "hello"
 path = "src/main.rs"
-test = false
-bench = false
-
-[[bin]]
-name = "sh"
-path = "src/bin/sh.rs"
 test = false
 bench = false
 

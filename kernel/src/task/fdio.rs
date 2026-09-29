@@ -31,6 +31,18 @@ pub fn fd_stream_read(fd: usize, dst: &mut [u8]) -> Result<usize, pipe::Error> {
     }
 }
 
+/// Whether a pipe or socket descriptor is in `O_NONBLOCK` mode; `None` when it
+/// is not an open stream descriptor.
+pub fn fd_stream_nonblock(fd: usize) -> Option<bool> {
+    let tasks = TASKS.lock();
+    let task = tasks[current()].as_ref()?;
+    match task.fds.get(fd)? {
+        Fd::Pipe { pipe, end } => Some(pipe.nonblock(*end)),
+        Fd::Socket { pair, side } => Some(pair.nonblock(*side)),
+        _ => None,
+    }
+}
+
 /// Write to a pipe end or socket side from kernel memory.
 pub fn fd_stream_write(fd: usize, src: &[u8]) -> Result<usize, pipe::Error> {
     enum Sink {

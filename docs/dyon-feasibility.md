@@ -96,7 +96,8 @@ not meet the goal of "an interpreter based on Dyon" running in the OS.
 
 ## Recommendation
 
-- **Short term:** extend `SH.ELF` toward a Dyon-like subset (option C), starting
+- **Short term:** extend the native shell (since retired in favour of BusyBox
+  `sh`, issue #254) toward a Dyon-like subset (option C), starting
   with a user-space heap + `sbrk`-style memory syscall. This is the enabling
   step for any real language.
 - **Medium term:** if Dyon semantics are wanted specifically, consider vendoring
@@ -111,7 +112,7 @@ programs a heap**: a memory-growth syscall plus a tiny allocator. Everything
 else (Dyon-like or otherwise) builds on that.
 
 > **Update:** implemented. Syscall 4 (`sbrk`) grows the user heap, and
-> `user/src/heap.rs` is a bump allocator on top of it, so `SH.ELF` can use
-> `Vec`/`String`. The interpreter in `libs/lang/` already covers `f64`
+> `user/src/heap.rs` is a bump allocator on top of it, so native ring-3 programs
+> can use `Vec`/`String`. The interpreter retired in issue #254 already covered `f64`
 > numbers, booleans, strings, arrays, `let`, `print`, `if`/`else`, arithmetic,
 > comparisons and indexing — a Dyon-inspired subset.

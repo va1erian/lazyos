@@ -29,7 +29,7 @@ jobs:
       - name: Install QEMU
         run: |
           sudo apt-get update
-          sudo apt-get install -y qemu-system-x86
+          sudo apt-get install -y qemu-system-x86 musl-tools
 
       # Hosted runners expose /dev/kvm but not to the runner user; open it up
       # so `--accel auto` picks KVM (it falls back to TCG if KVM is unusable).

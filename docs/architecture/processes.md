@@ -67,8 +67,9 @@ ring-3 fault (bad pointer, privileged instruction, #DE, #UD, ...) terminates the
 faulting process (all threads of its address space) with status `128 + signal`
 (#PF/#GP -> SIGSEGV 11, #DE -> SIGFPE 8, #UD -> SIGILL 4), posts `SIGCHLD`, and
 the scheduler moves on. A `SIGSEGV` handler still gets the first chance for #PF.
-Evidence: `fault_*` kernel tests and `faultprobe` (`FAULTPRB.ELF`) driven by
-`tools/screenshot/examples/dos_shell.json`.
+Evidence: the `fault_*` kernel tests (the `faultprobe` binary, `FAULTPRB.ELF`,
+remains embedded for manual runs, but the retired native shell is what used to
+launch it).
 
 **Linux shim** (`process/linux/`, issues #55-#60; plan: [linux-abi-plan.md](../linux-abi-plan.md))
 

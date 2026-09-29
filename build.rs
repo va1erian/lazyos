@@ -9,6 +9,7 @@ mod elf_trim;
 
 fn main() {
     let out_dir = PathBuf::from(std::env::var_os("OUT_DIR").expect("OUT_DIR"));
+    let manifest_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("manifest dir"));
     let kernel_full =
         PathBuf::from(std::env::var_os("CARGO_BIN_FILE_KERNEL_kernel").expect("kernel artifact"));
     // The bootloader reads the whole kernel file through BIOS calls, so the
@@ -36,12 +37,11 @@ fn main() {
         String::from("NOTES.TXT"),
         b"LazyOS notes\n-----------\n- single-tasking x86_64 kernel\n- tiny-skia graphics\n- PS/2 keyboard + mouse\n- FAT16 read-only filesystem\n".to_vec(),
     );
-    // The ring-3 demo programs, loaded and run by `run HELLO.ELF` / `run SH.ELF`.
+    // The ring-3 demo program, loaded and run by `run HELLO.ELF`. The system
+    // shell is BusyBox `sh` (issue #254), embedded separately below.
     let hello =
         std::env::var_os("CARGO_BIN_FILE_USER_hello").expect("user hello artifact not found");
     builder.set_file(String::from("HELLO.ELF"), PathBuf::from(hello));
-    let sh = std::env::var_os("CARGO_BIN_FILE_USER_sh").expect("user sh artifact not found");
-    builder.set_file(String::from("SH.ELF"), PathBuf::from(sh));
     // Deliberate ring-3 faults (issue #7): `exec FAULTPRB.ELF null|kernel|priv|div|ud`.
     let faultprobe = std::env::var_os("CARGO_BIN_FILE_USER_faultprobe")
         .expect("user faultprobe artifact not found");
@@ -133,10 +133,9 @@ fn main() {
         builder.set_file(String::from("LOGIND.ELF"), PathBuf::from(logind));
 
         // The configuration registry (issue #260). `init` starts `regd`
-        // (`REGD.ELF`) from its manifest; `regctl` is its command line, run
-        // from the login shell as `run REGCTL.ELF ...`. Both are gated behind
-        // `LAZYOS_SERVICES=1`, like the other services, so the plain demo
-        // image (and its `dos_shell` file-count evidence) is unchanged.
+        // (`REGD.ELF`) from its manifest; `regctl` is its native command line.
+        // Both are gated behind `LAZYOS_SERVICES=1`, like the other services,
+        // so the plain demo image is unchanged.
         let regd =
             std::env::var_os("CARGO_BIN_FILE_USER_regd").expect("user regd artifact not found");
         builder.set_file(String::from("REGD.ELF"), PathBuf::from(regd));
@@ -167,12 +166,14 @@ fn main() {
         // secret:home:shell`. This branch has no writable store, so accountsd
         // reads this read-only fallback; the secret is plaintext *on purpose*
         // for bring-up and is replaced by keyd + Argon2id
-        // (`docs/security-model.md` section 3). `SH.ELF` is the native shell;
-        // `root` keeps the system identity for admin operations, `alice` is
-        // the unprivileged demo login a headless session uses.
+        // (`docs/security-model.md` section 3). The shell is BusyBox `sh` (the
+        // `sh` applet alias the kernel's Linux loader resolves to `BUSYBOX`,
+        // issue #254); `logind` prefixes it with `linux:` when it spawns the
+        // login shell. `root` keeps the system identity for admin operations,
+        // `alice` is the unprivileged demo login a headless session uses.
         builder.set_file_contents(
             String::from("PASSWD"),
-            b"root:0:0:toor:/root:/SH.ELF\nalice:1000:1000:lazy:/home/alice:/SH.ELF\n".to_vec(),
+            b"root:0:0:toor:/root:sh\nalice:1000:1000:lazy:/home/alice:sh\n".to_vec(),
         );
 
         // The system monitor (issue #144). `init` starts `sysmond`
@@ -273,30 +274,47 @@ fn main() {
         }
     }
 
-    // BusyBox hook: embed a static `busybox` as `BUSYBOX` (run as `sh`, and
-    // reachable by `execve("/busybox")` for its applets).
+    // BusyBox is the system shell (issue #254). It is a fetched/built artifact
+    // (see `tools/abi/busybox.py`), so embed it automatically whenever it is
+    // available — `LAZYOS_BUSYBOX` overrides the search. The ABI bench embeds a
+    // fixture as `INIT.ELF` instead (`LAZYOS_INIT`); skipping BusyBox then
+    // keeps those images small and lets the fixture own the boot. Without a
+    // BusyBox the image still boots, just without a console shell,
+    // and this warns so the reason is visible in the build log.
     println!("cargo:rerun-if-env-changed=LAZYOS_BUSYBOX");
-    if let Some(busybox) = std::env::var_os("LAZYOS_BUSYBOX") {
-        let busybox = PathBuf::from(busybox);
-        if busybox.is_file() {
-            println!(
-                "cargo:warning=LAZYOS_BUSYBOX embedded: {}",
-                busybox.display()
-            );
-            builder.set_file(String::from("BUSYBOX"), busybox);
+    println!("cargo:rerun-if-env-changed=LAZYOS_BUSYBOX_TEST");
+    let explicit = std::env::var_os("LAZYOS_BUSYBOX")
+        .map(PathBuf::from)
+        .filter(|path| path.is_file());
+    let busybox = explicit.or_else(|| {
+        if std::env::var_os("LAZYOS_INIT").is_some() {
+            None
         } else {
-            println!(
-                "cargo:warning=LAZYOS_BUSYBOX not found: {}",
-                busybox.display()
-            );
+            // Watch every candidate, not just the one picked: a BusyBox built
+            // or dropped in later (or one that outranks the cached pick) must
+            // trigger a rebuild of the image.
+            for path in busybox_candidates(&manifest_dir) {
+                println!("cargo:rerun-if-changed={}", path.display());
+            }
+            find_busybox(&manifest_dir)
         }
+    });
+    match busybox {
+        Some(path) => {
+            println!("cargo:warning=LAZYOS_BUSYBOX embedded: {}", path.display());
+            println!("cargo:rerun-if-changed={}", path.display());
+            builder.set_file(String::from("BUSYBOX"), path);
+        }
+        None => println!(
+            "cargo:warning=LAZYOS_BUSYBOX unavailable; the image will have no console shell \
+             (build it with tools/abi/build.py on a musl host)"
+        ),
     }
     builder
         .create_bios_image(&bios_image)
         .expect("failed to create BIOS disk image");
 
     // Also expose a stable path for tooling (CI screenshot job, scripts).
-    let manifest_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("manifest dir"));
     let stable_image = manifest_dir.join("target").join("lazyos.img");
     if let Some(parent) = stable_image.parent() {
         std::fs::create_dir_all(parent).expect("create target dir");
@@ -307,6 +325,28 @@ fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=kernel/src");
     println!("cargo:rerun-if-changed=assets/fonts/JetBrainsMono-Regular.ttf");
+}
+
+/// Locate a BusyBox built by `tools/abi/busybox.py`, whether it was dropped by
+/// hand (`tools/abi/busybox`) or built into the ABI cache
+/// (`target/abi/busybox/busybox`). Returns `None` when the host could not build
+/// one, which makes the image boot without a console shell.
+fn find_busybox(manifest_dir: &std::path::Path) -> Option<PathBuf> {
+    busybox_candidates(manifest_dir)
+        .into_iter()
+        .find(|path| path.is_file())
+}
+
+/// Where a BusyBox may appear, highest priority first.
+fn busybox_candidates(manifest_dir: &std::path::Path) -> Vec<PathBuf> {
+    [
+        "tools/abi/busybox",
+        "target/abi/busybox/busybox",
+        "target/abi/fixtures/busybox.elf",
+    ]
+    .iter()
+    .map(|relative| manifest_dir.join(relative))
+    .collect()
 }
 
 /// The 8.3 on-disk name for an xui app binary (`xui-sysmon.elf` ->

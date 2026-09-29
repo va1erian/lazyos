@@ -78,7 +78,15 @@ pub(super) fn spawn_program(cmdline_ptr: u64, cred: Option<Cred>) -> i64 {
     let Some(spawn_line::SpawnLine { linux, path, args }) = spawn_line::parse(&line) else {
         return -EINVAL;
     };
-    let Some(elf) = fs::read(path) else {
+    // A Linux program may be a BusyBox applet alias (`sh`, `/bin/ls`), which the
+    // Linux loader resolves to the `BUSYBOX` file; a native program is always a
+    // real FAT entry.
+    let elf = if linux {
+        linux::load_executable(path).or_else(|| fs::read(path))
+    } else {
+        fs::read(path)
+    };
+    let Some(elf) = elf else {
         return -ENOENT;
     };
     let name = intern_service_name(path);

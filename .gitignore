@@ -13,6 +13,10 @@ shots/
 # Generated ABI conformance output (tools/abi); CI publishes it to the wiki
 docs/compat/
 
+# A static BusyBox binary is a fetched/built artifact (issue #254), never
+# committed; `tools/abi/busybox.py` rebuilds it, the image embeds it.
+tools/abi/busybox
+
 # Generated kernel test report (tools/test)
 docs/test/
 

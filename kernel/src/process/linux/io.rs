@@ -17,7 +17,7 @@ use super::time::millis_to_ticks;
 
 /// Bytes staged per `read`/`write` call through a pipe. A short transfer is
 /// legal on a pipe, so callers that want it all loop (as `write_all` does).
-const STREAM_CHUNK: usize = 4096;
+pub(super) const STREAM_CHUNK: usize = 4096;
 
 /// Most `iovec` entries one `readv`/`writev` may name (Linux `UIO_MAXIOV`).
 /// Syscalls run with interrupts off, so an unbounded user count would freeze
@@ -46,7 +46,7 @@ fn iovec_at(iov: u64, index: u64) -> Result<(u64, u64), u64> {
 
 /// The result of a vectored transfer that failed with `code` after `total`
 /// bytes moved: report the bytes done so a retry cannot repeat them.
-fn partial_or(total: u64, code: u64) -> u64 {
+pub(super) fn partial_or(total: u64, code: u64) -> u64 {
     if total > 0 {
         total
     } else {
@@ -56,7 +56,7 @@ fn partial_or(total: u64, code: u64) -> u64 {
 
 /// Add a segment length to a running `readv`/`writev` total; a total that
 /// overflows `isize` is `-EINVAL`, as on Linux.
-fn add_iov_total(total: u64, part: u64) -> Result<u64, u64> {
+pub(super) fn add_iov_total(total: u64, part: u64) -> Result<u64, u64> {
     match total.checked_add(part) {
         Some(sum) if sum <= i64::MAX as u64 => Ok(sum),
         _ => Err(err(EINVAL)),
