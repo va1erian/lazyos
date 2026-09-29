@@ -1,0 +1,94 @@
+name: ci
+
+# Hardening gates (issue #9): formatting, lints, a plain `cargo build`, and a
+# headless boot that asserts on serial output. The heavier suites live in their
+# own workflows: kernel-tests (in-kernel unit/soak), abi-compat (Linux ABI),
+# screenshots (framebuffer pixels), clippy (`unsafe` documentation).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fmt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # rust-toolchain.toml pins the nightly toolchain (with rustfmt/clippy).
+      - run: cargo fmt --all -- --check
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Clippy (kernel and user programs, no_std target)
+        run: |
+          cargo clippy -p kernel -p user --target x86_64-unknown-none \
+            -Zbuild-std=core,alloc -- -D warnings
+      - name: Clippy (host libraries)
+        run: cargo clippy -p libmessenger -p messenger-generated -p lazyos-crypto -p font-atlas -p regd -- -D warnings
+
+  build-and-boot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install QEMU
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-x86
+
+      - name: Enable KVM (best effort)
+        run: bash tools/ci/enable_kvm.sh
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      # Builds the BIOS disk image and copies it to target/lazyos.img.
+      - name: Build
+        run: cargo build
+
+      # Boots headless and drives the ring-3 shell: the serial log must show the
+      # FAT volume listing, file commands on /tmp, and that a program which
+      # faults in ring 3 (bad pointer, privileged instruction, #DE, #UD) is
+      # killed with `128 + signal` while the shell keeps running. Every step
+      # waits on a serial marker, so a hang or a wrong result fails the job.
+      - name: Boot and assert on serial output
+        run: |
+          python tools/screenshot/qemu_session.py --image target/lazyos.img \
+            --out shots/boot --script tools/screenshot/examples/dos_shell.json \
+            --fail-on "EXCEPTION:" --fail-on "PANIC"
+          python tools/screenshot/pngstats.py shots/boot/*.png --min-nonblack 0.01
+
+      # Issue #260: the services image starts `regd`, which spawns one
+      # `regctl` self-test at boot. The session gates on `REGD:READY` and
+      # `REGCTL:SELFTEST:PASS`, so the store, the VFS `StoreFs` (write tmp ->
+      # fsync -> rename) and the change publisher are exercised over the real
+      # Messenger transport, not just in the unit suite.
+      - name: Build services image and assert regd evidence
+        run: |
+          LAZYOS_SERVICES=1 cargo build
+          python tools/screenshot/qemu_session.py --image target/lazyos.img \
+            --out shots/regd --script tools/screenshot/examples/regd_demo.json \
+            --fail-on "PANIC" --fail-on "REGCTL:SELFTEST:FAIL"
+          python tools/screenshot/pngstats.py shots/regd/*.png --min-nonblack 0.01
+
+      - name: Upload boot evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: boot-evidence
+          path: |
+            shots/boot/**
+            shots/regd/**
+          if-no-files-found: warn

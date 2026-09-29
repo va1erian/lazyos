@@ -217,3 +217,46 @@ pub fn create_write_read_rename_unlink() -> Result<(), String> {
     );
     Ok(())
 }
+
+/// The `regd` persist shape: a complete temporary file renamed over an
+/// existing file. The destination must read back as the new contents only
+/// (never a mix), the temporary name must be gone, and the `Vfs::flush`
+/// passthrough `regd` uses must reach the block device.
+///
+/// This pins the property `libs/regd::persist` relies on. ext2 has no journal,
+/// so a power loss *during* the rename is still only guaranteed to leave the
+/// old or the new directory entry, not a torn file; the in-memory ramfs (the
+/// fallback `regd` uses on this image) replaces under one lock and is crash
+/// atomic within the boot.
+pub fn rename_over_existing_replaces() -> Result<(), String> {
+    task::register_kernel();
+    let (fs, mut vfs, disk) = mounted(1024, 256)?;
+    let root = Id::ROOT;
+
+    vfs.create(root, "/store", 0o644).map_err(fs_error)?;
+    vfs.write(root, "/store", 0, b"old store bytes")
+        .map_err(fs_error)?;
+    vfs.create(root, "/store.tmp", 0o644).map_err(fs_error)?;
+    vfs.write(root, "/store.tmp", 0, b"new store bytes")
+        .map_err(fs_error)?;
+    fs.flush().map_err(fs_error)?;
+
+    vfs.rename(root, "/store.tmp", "/store").map_err(fs_error)?;
+
+    check!(
+        vfs.read_file(root, "/store").map_err(fs_error)? == b"new store bytes".to_vec(),
+        "rename did not replace the destination"
+    );
+    check!(
+        vfs.stat(root, "/store.tmp").err() == Some(FsError::NotFound),
+        "the temporary name survived the rename"
+    );
+
+    let before = disk.flushes.load(Ordering::Relaxed);
+    vfs.flush(root, "/store").map_err(fs_error)?;
+    check!(
+        disk.flushes.load(Ordering::Relaxed) == before + 1,
+        "Vfs::flush did not reach the block device"
+    );
+    Ok(())
+}

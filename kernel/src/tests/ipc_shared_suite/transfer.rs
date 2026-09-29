@@ -198,10 +198,8 @@ pub fn buffer_zero_copy_handoff() -> Result<(), String> {
         message.handles.len()
     );
     let receiver_va = shared::map(message.handles[0]).map_err(buffer_reason)?;
-    check!(
-        receiver_va != creator_va,
-        "the receiver reused the creator's virtual address"
-    );
+    // The creator's mapping went with the transferred handle, so its virtual
+    // range may be recycled for the receiver; what matters is the frames.
     for (page, expected) in creator_frames.iter().enumerate() {
         let actual = frame_of(mem::kernel_table(), receiver_va + page as u64 * 4096)
             .map_err(|error| format!("receiver page {page}: {error}"))?;

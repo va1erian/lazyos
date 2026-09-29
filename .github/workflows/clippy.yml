@@ -4,6 +4,9 @@ name: clippy
 # comment (`clippy::undocumented_unsafe_blocks`). The audit that closed the
 # existing gap is only durable if CI stops the next undocumented block from
 # landing, so this gate denies the lint on the default (non-test) kernel build.
+#
+# Issue #247: the host-shared libraries are linted with `--all-targets` too, so
+# test code is held to the same `-D warnings` bar as the shipped crate.
 
 on:
   push:
@@ -31,3 +34,10 @@ jobs:
           cargo clippy -p kernel --target x86_64-unknown-none \
             -Zbuild-std=core,alloc \
             -- -D clippy::undocumented_unsafe_blocks
+      # Test targets are included so `#[cfg(test)]` code cannot drift past the
+      # lint gate (issue #247).
+      - name: Clippy (host libraries, all targets)
+        run: |
+          cargo clippy \
+            -p libmessenger -p messenger-generated -p lazyos-crypto -p font-atlas -p regd \
+            --all-targets -- -D warnings

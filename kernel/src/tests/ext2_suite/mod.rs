@@ -146,9 +146,11 @@ pub(super) fn mounted(
 
 mod format_and_roundtrip;
 mod integrity;
+mod persistence;
 
 pub(super) use format_and_roundtrip::*;
 pub(super) use integrity::*;
+pub(super) use persistence::*;
 
 pub(super) const CASES: &[(&str, Test)] = &[
     (
@@ -156,6 +158,12 @@ pub(super) const CASES: &[(&str, Test)] = &[
         create_write_read_rename_unlink,
     ),
     ("fs_ext2_block_sizes", block_sizes),
+    (
+        "fs_ext2_rename_over_existing_replaces",
+        rename_over_existing_replaces,
+    ),
     ("fs_ext2_rejects_corruption", rejects_corruption),
     ("fs_ext2_mount_device_wiring", mount_device_wiring),
+    ("fs_ext2_files_survive_remount", files_survive_remount),
+    ("fs_ext2_soak_remount_generations", soak_remount_generations),
 ];

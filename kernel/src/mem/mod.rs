@@ -3,8 +3,13 @@
 
 mod heap;
 pub mod pte;
+mod reclaim;
+pub use reclaim::reclaim_empty_tables;
 pub mod slab;
+mod table_guard;
+pub mod untouched;
 pub mod vma;
+pub use table_guard::UserTableGuard;
 
 use bootloader_api::info::{MemoryRegionKind, Optional};
 use bootloader_api::BootInfo;
@@ -28,7 +33,7 @@ pub const HEAP_SIZE: u64 = 16 * 1024 * 1024;
 /// metadata in the first megabyte.
 const LOWEST_FRAME: u64 = 0x10_0000;
 /// Maximum usable memory regions we track (no heap needed to bootstrap).
-const MAX_REGIONS: usize = 32;
+pub const MAX_REGIONS: usize = 32;
 /// Physical frame size; the unit of allocation and refcounting.
 const FRAME_SIZE: u64 = 4096;
 /// Refcount value for frames the allocator owns itself and must never hand out
@@ -45,8 +50,9 @@ static PHYS_OFFSET: AtomicU64 = AtomicU64::new(0);
 ///
 /// The allocator cannot keep its metadata on the kernel heap: the heap is
 /// mapped *using* frames during [`init`]. So `init` carves the refcount table
-/// out of the first usable region, marks those frames [`RESERVED`], and links
-/// every other usable frame into the free list. Both are reached through the
+/// out of the first usable region and marks those frames [`RESERVED`]. Other
+/// frames are handed out lazily in address order (`untouched`), and only
+/// returned frames are linked into the free list. Both are reached through the
 /// bootloader's physical-memory mapping ([`phys_to_virt`]).
 ///
 /// Refcount values: `0` = free, `1..` = live, [`RESERVED`] = allocator
@@ -61,6 +67,8 @@ struct Frames {
     refcounts: u64,
     /// Physical address of the first free frame ([`FREE_LIST_END`] if none).
     free_head: u64,
+    /// Frames never handed out, consumed lazily after the free list runs dry.
+    untouched: untouched::Untouched,
     /// Frames the allocator can hand out (excludes reserved metadata frames).
     total: usize,
     /// Cumulative successful allocations.
@@ -159,10 +167,16 @@ impl Frames {
         self.free_head = phys;
     }
 
-    /// Unlink and return the head of the free list.
+    /// Unlink and return the head of the free list, else the next frame that
+    /// was never handed out (skipping the allocator's own reserved frames).
     fn pop_free(&mut self) -> Option<u64> {
         if self.free_head == FREE_LIST_END {
-            return None;
+            loop {
+                let phys = self.untouched.next(&self.ends, self.count)?;
+                if self.refcount(Self::index(phys)) != RESERVED {
+                    return Some(phys);
+                }
+            }
         }
         let phys = self.free_head;
         // Safety: the free list only links free usable frames.
@@ -898,9 +912,7 @@ pub fn init(boot_info: &'static mut BootInfo) {
     let table_entries = (highest / FRAME_SIZE) as usize;
     let table_bytes = table_entries * core::mem::size_of::<u32>();
     let table_frames = table_bytes.div_ceil(FRAME_SIZE as usize);
-    // No caller exists yet at this point in boot (the scheduler and every
-    // task come later), so a placement failure has nowhere to propagate to:
-    // this is a genuine kstop, not a Result the rest of the kernel could act on.
+    // Boot has no caller to propagate a placement failure to: a genuine kstop.
     let table_phys = place_table(&starts, &ends, count, table_frames)
         .unwrap_or_else(|| kstop(KError::OutOfMemory, "no room for the frame refcount table"));
 
@@ -910,6 +922,7 @@ pub fn init(boot_info: &'static mut BootInfo) {
         count,
         refcounts: table_phys,
         free_head: FREE_LIST_END,
+        untouched: untouched::Untouched::new(&starts),
         total: 0,
         allocated: 0,
         freed: 0,
@@ -917,10 +930,8 @@ pub fn init(boot_info: &'static mut BootInfo) {
         double_frees: 0,
         invalid_frees: 0,
     };
-    // Zero the table, reserve its frames, and link everything else into the
-    // free list. The table is initialized before the first frame is pushed,
-    // and `RESERVED` entries keep the table's own frames out of the list.
-    // Safety: the table is a reserved contiguous run in usable memory.
+    // Zero the table and reserve its frames; `RESERVED` entries keep them out
+    // of circulation. Safety: the table is a reserved contiguous run.
     unsafe {
         core::ptr::write_bytes(
             phys_to_virt(PhysAddr::new(table_phys)).as_mut_ptr::<u8>(),
@@ -931,16 +942,11 @@ pub fn init(boot_info: &'static mut BootInfo) {
     for i in 0..table_frames as u64 {
         frames.set_refcount(Frames::index(table_phys + i * FRAME_SIZE), RESERVED);
     }
-    for i in 0..count {
-        let mut phys = starts[i];
-        while phys + FRAME_SIZE <= ends[i] {
-            if frames.refcount(Frames::index(phys)) != RESERVED {
-                frames.push_free(phys);
-                frames.total += 1;
-            }
-            phys += FRAME_SIZE;
-        }
-    }
+    // Frames are not linked yet: `untouched` hands them out on demand.
+    let in_regions: usize = (0..count)
+        .map(|i| untouched::Untouched::frames_in(starts[i], ends[i]))
+        .sum();
+    frames.total = in_regions - table_frames;
     let boot = frames.stats();
     *FRAMES.lock() = Some(frames);
     // The slab allocator needs only frames and the physical-memory mapping, so
@@ -963,9 +969,7 @@ pub fn init(boot_info: &'static mut BootInfo) {
     let end_page = Page::containing_address(VirtAddr::new(HEAP_START + HEAP_SIZE - 1));
     let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE;
     for page in Page::range_inclusive(start_page, end_page) {
-        // Same reasoning as the refcount table above: this runs before the
-        // heap (and therefore before anything that could receive a Result)
-        // exists, so failure here has no caller to propagate to.
+        // As above: no caller exists yet to receive a Result.
         let frame = frames
             .allocate_frame()
             .unwrap_or_else(|| kstop(KError::OutOfMemory, "out of frames mapping the heap"));

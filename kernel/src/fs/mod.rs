@@ -21,7 +21,8 @@
 //! mounted in both tables, so scratch files are visible to both.
 
 pub mod ext2;
-mod fat;
+pub mod fallible;
+pub mod fat;
 pub mod overlay;
 pub mod ramfs;
 pub mod vfs;
@@ -50,9 +51,10 @@ static ABI_FS: Mutex<Option<Vfs>> = Mutex::new(None);
 ///
 /// Device selection runs through the block registry (issue #100): every
 /// registered device is tried in order, first as FAT12/16 (the shipped boot
-/// format, read through the FAT reader's active boot device) and then as ext2
-/// (issue #99, which opens the device it is handed). The first open volume
-/// becomes `/`; the default ATA image keeps mounting as FAT.
+/// format) and then as ext2 (issue #99). Both readers open the device they are
+/// handed and keep that handle (issue #244), so a probe on one disk cannot
+/// read from another. The first open volume becomes `/`; the default ATA image
+/// keeps mounting as FAT.
 pub fn init() -> bool {
     let mut global = FS.lock();
     if let Some((_, mounted)) = global.as_ref() {
@@ -62,8 +64,7 @@ pub fn init() -> bool {
     let mut vfs = Vfs::new();
     let mut root: Option<Arc<dyn Filesystem>> = None;
     for device in block::devices() {
-        block::set_boot_device(device);
-        if let Some(volume) = fat::Fat16::open() {
+        if let Some(volume) = fat::Fat16::open(device) {
             root = Some(Arc::new(volume));
             break;
         }
@@ -107,19 +108,15 @@ pub fn init() -> bool {
 }
 
 /// Mount the filesystem on a registered block device at `point`. This is the
-/// `mount <dev>` surface: the active boot device is tried as FAT first (the
-/// shipped read-only format) and then as ext2; every other device is probed
-/// as ext2, because that is the writable volume a caller mounts by name. A
-/// device carrying neither returns [`FsError::NotSupported`].
+/// `mount <dev>` surface: every device is tried as FAT first (the shipped
+/// read-only format) and then as ext2. A device carrying neither returns [`FsError::NotSupported`].
 #[cfg_attr(not(lazyos_tests), allow(dead_code))] // the `mount <dev>` surface
 pub fn mount_device(point: &str, device: &str) -> Result<(), FsError> {
     let device = block::device(device).ok_or(FsError::NotFound)?;
-    let is_boot = block::boot_device().is_some_and(|boot| boot.name() == device.name());
-    if is_boot {
-        if let Some(volume) = fat::Fat16::open() {
-            return with(|vfs| vfs.mount(point, Arc::new(volume)))
-                .unwrap_or(Err(FsError::NotFound));
-        }
+    // A FAT volume is bound to the device it was opened from, so any device
+    // may carry one (issue #244); a non-FAT device fails the BPB checks.
+    if let Some(volume) = fat::Fat16::open(device) {
+        return with(|vfs| vfs.mount(point, Arc::new(volume))).unwrap_or(Err(FsError::NotFound));
     }
     match ext2::Ext2::open(device) {
         Ok(volume) => {
@@ -162,7 +159,6 @@ pub fn list() -> Vec<(String, bool, u32)> {
 
 /// Metadata through the native VFS (permission-checked; `__`-free results for
 /// callers to map to errno).
-#[cfg_attr(not(lazyos_tests), allow(dead_code))] // used by tests/diagnostics
 pub fn vfs_stat(id: Id, path: &str) -> Result<Meta, FsError> {
     with(|vfs| vfs.stat(id, path)).unwrap_or(Err(FsError::NotFound))
 }
@@ -174,33 +170,48 @@ pub fn vfs_read(id: Id, path: &str) -> Result<Vec<u8>, FsError> {
 }
 
 /// Write at an offset through the VFS (used by tests and future writers).
-#[cfg_attr(not(lazyos_tests), allow(dead_code))]
 pub fn vfs_write(id: Id, path: &str, offset: u64, data: &[u8]) -> Result<usize, FsError> {
     with(|vfs| vfs.write(id, path, offset, data)).unwrap_or(Err(FsError::NotFound))
 }
 
 /// Create a regular file through the VFS.
-#[cfg_attr(not(lazyos_tests), allow(dead_code))]
 pub fn vfs_create(id: Id, path: &str, mode: u16) -> Result<Meta, FsError> {
     with(|vfs| vfs.create(id, path, mode)).unwrap_or(Err(FsError::NotFound))
 }
 
 /// Create a directory through the VFS.
-#[cfg_attr(not(lazyos_tests), allow(dead_code))]
 pub fn vfs_mkdir(id: Id, path: &str, mode: u16) -> Result<Meta, FsError> {
     with(|vfs| vfs.mkdir(id, path, mode)).unwrap_or(Err(FsError::NotFound))
 }
 
+/// Truncate or extend a regular file through the VFS.
+pub fn vfs_truncate(id: Id, path: &str, size: u64) -> Result<(), FsError> {
+    with(|vfs| vfs.truncate(id, path, size)).unwrap_or(Err(FsError::NotFound))
+}
+
+/// List a directory through the native VFS (permission-checked).
+pub fn vfs_readdir(id: Id, path: &str) -> Result<Vec<DirEntry>, FsError> {
+    with(|vfs| vfs.readdir(id, path)).unwrap_or(Err(FsError::NotFound))
+}
+
+/// Remove an empty directory through the native VFS.
+pub fn vfs_rmdir(id: Id, path: &str) -> Result<(), FsError> {
+    with(|vfs| vfs.rmdir(id, path)).unwrap_or(Err(FsError::NotFound))
+}
+
 /// Remove a regular file through the VFS.
-#[cfg_attr(not(lazyos_tests), allow(dead_code))]
 pub fn vfs_unlink(id: Id, path: &str) -> Result<(), FsError> {
     with(|vfs| vfs.unlink(id, path)).unwrap_or(Err(FsError::NotFound))
 }
 
 /// Rename within one mount through the VFS.
-#[cfg_attr(not(lazyos_tests), allow(dead_code))]
 pub fn vfs_rename(id: Id, from: &str, to: &str) -> Result<(), FsError> {
     with(|vfs| vfs.rename(id, from, to)).unwrap_or(Err(FsError::NotFound))
+}
+
+/// Flush the filesystem holding `path` to stable storage (`fsync(2)`).
+pub fn vfs_flush(id: Id, path: &str) -> Result<(), FsError> {
+    with(|vfs| vfs.flush(id, path)).unwrap_or(Err(FsError::NotFound))
 }
 
 /// The global creation mask.
@@ -292,4 +303,16 @@ pub fn abi_rename(id: Id, from: &str, to: &str) -> Result<(), FsError> {
 /// Set the ABI creation mask, returning the previous one (`umask(2)`).
 pub fn abi_set_umask(mask: u16) -> u16 {
     abi_with(|vfs| vfs.set_umask(mask)).unwrap_or(0)
+}
+
+/// Install a fresh Linux ABI mount table backed entirely by ramfs (issue
+/// #229's leak test): the test suite boots without [`init`] having mounted a
+/// boot volume, so the ABI table would otherwise be `None` and no path could
+/// reach `execve`'s load path.
+#[cfg(lazyos_tests)]
+pub fn install_abi_ramfs_for_test() {
+    let mut abi = Vfs::new();
+    let _ = abi.mount("/", Arc::new(ramfs::RamFs::new()));
+    let _ = abi.mount("/tmp", Arc::new(ramfs::RamFs::new()));
+    *ABI_FS.lock() = Some(abi);
 }

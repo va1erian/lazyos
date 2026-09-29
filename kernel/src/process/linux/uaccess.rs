@@ -3,7 +3,7 @@
 //! `struct` (`fill_stat` and friends validate and write whole structs
 //! themselves; this is for the one-word cases). [`fill_random`] lives here
 //! too since both the ELF start-stack (`AT_RANDOM`) and `getrandom(2)` need
-//! the same weak PRNG.
+//! the kernel CSPRNG.
 
 use alloc::string::String;
 
@@ -50,16 +50,8 @@ pub(super) fn read_u32(addr: u64) -> u32 {
     unsafe { user_ptr::read::<u32>(addr) }
 }
 
-/// Fill `buffer` with weak pseudo-randomness seeded from the tick counter.
-/// Not cryptographically secure; good enough for `AT_RANDOM` and
-/// `getrandom(2)` on a hobby kernel with no entropy source.
+/// Fill `buffer` from the kernel CSPRNG ([`crate::entropy`]): `AT_RANDOM`
+/// (stack canaries) and `getrandom(2)` share it.
 pub(super) fn fill_random(buffer: &mut [u8]) {
-    let mut state =
-        crate::arch::idt::TICKS.load(core::sync::atomic::Ordering::Relaxed) ^ 0x9E37_79B9_7F4A_7C15;
-    for byte in buffer.iter_mut() {
-        state ^= state << 13;
-        state ^= state >> 7;
-        state ^= state << 17;
-        *byte = state as u8;
-    }
+    crate::entropy::fill(buffer);
 }

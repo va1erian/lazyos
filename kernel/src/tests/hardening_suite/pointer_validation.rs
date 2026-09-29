@@ -126,7 +126,7 @@ pub fn linux_abi_kernel_pointers_are_refused() -> Result<(), String> {
     // read(file, kernel_ptr, n) copied file contents to the kernel address
     // (and `fd_read` did it under the task-table lock).
     let fd = task::fd_open(task::Fd::File {
-        data: b"secret bytes".to_vec(),
+        data: alloc::sync::Arc::new(b"secret bytes".to_vec()),
         offset: 0,
     })
     .ok_or("fd_open failed")?;
@@ -156,7 +156,9 @@ pub fn user_ptr_edge_cases() -> Result<(), String> {
     fresh()?;
     let _strict = Strict::on();
     in_space(|| -> Result<(), String> {
-        use crate::user_ptr::{try_bytes, try_copy_to, try_cstr, try_read, try_write, Fault};
+        use crate::user_ptr::{
+            try_bytes, try_copy_to, try_cstr, try_read, try_write, CStrError, Fault,
+        };
         let end = SPACE + SPACE_PAGES * 4096;
         check!(
             try_write::<u64>(SPACE + 4092, 0x0102_0304_0506_0708).is_ok(),
@@ -190,8 +192,52 @@ pub fn user_ptr_edge_cases() -> Result<(), String> {
             "a string ending at the last mapped byte was refused"
         );
         check!(
-            try_copy_to(end - 2, b"ab").is_ok() && try_cstr(end - 2, 64) == Err(Fault),
+            try_copy_to(end - 2, b"ab").is_ok() && try_cstr(end - 2, 64) == Err(CStrError::Fault),
             "an unterminated string running off the mapping was accepted"
+        );
+        // A string with no NUL within `max` is refused, not silently
+        // truncated: a caller would otherwise act on a prefix path. It is
+        // reported as Unterminated so a path syscall can say ENAMETOOLONG.
+        check!(
+            try_copy_to(SPACE, &[b'x'; 64]).is_ok()
+                && try_cstr(SPACE, 64) == Err(CStrError::Unterminated),
+            "an unterminated string was truncated instead of refused"
+        );
+        // A NUL exactly at the `max` bound terminates; one just past it does
+        // not.
+        check!(
+            try_copy_to(SPACE, b"abc\0").is_ok()
+                && try_cstr(SPACE, 4) == Ok(b"abc".to_vec())
+                && try_cstr(SPACE, 3) == Err(CStrError::Unterminated),
+            "the max-length termination bound is off by one"
+        );
+        Ok(())
+    })
+}
+
+/// An unterminated path that reaches the native-string cap is refused by
+/// [`process::user_cstr`], the helper `sys_read_file`/`sys_spawn` read their
+/// path through. Before the fix it returned the truncated prefix, which the
+/// syscalls then resolved as a different path.
+pub fn unterminated_path_is_refused() -> Result<(), String> {
+    use crate::user_ptr::Fault;
+    fresh()?;
+    let _strict = Strict::on();
+    in_space(|| -> Result<(), String> {
+        // 4096 non-NUL bytes fill the whole native-string cap.
+        check!(
+            crate::user_ptr::try_copy_to(SPACE, &[b'A'; 4096]).is_ok(),
+            "failed to seed the unterminated path"
+        );
+        check!(
+            process::user_cstr(SPACE) == Err(Fault),
+            "an unterminated path was read as a truncated string"
+        );
+        // A terminated path still reads back unchanged.
+        check!(
+            crate::user_ptr::try_copy_to(SPACE, b"HELLO.TXT\0").is_ok()
+                && process::user_cstr(SPACE) == Ok(String::from("HELLO.TXT")),
+            "a terminated path was refused"
         );
         Ok(())
     })

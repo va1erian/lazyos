@@ -1,0 +1,23 @@
+[
+  {"wait_for": "TERM:UP:PASS", "timeout": 240},
+  {"wait_for": "SYSMON:UP:PASS", "timeout": 120},
+  {"wait_for": "FABMON:UP:PASS", "timeout": 120},
+  {"wait_for": "XUIAPP:COUNTER:PASS", "timeout": 120},
+  {"at": 2.0, "shot": "01_desktop_apps"},
+  {"at": 3.0, "type": "let x = 6*7"},
+  {"at": 3.5, "key": "enter", "until": "TERM:CMD:let x = 6*7", "timeout": 30, "retries": 2},
+  {"at": 4.5, "type": "x*2"},
+  {"at": 5.0, "key": "enter", "until": "TERM:OUT:84", "timeout": 30, "retries": 2},
+  {"at": 6.0, "type": "cat HELLO.TXT"},
+  {"at": 6.5, "key": "enter", "until": "TERM:CMD:cat HELLO.TXT", "timeout": 30, "retries": 2},
+  {"at": 8.0, "shot": "02_terminal_shell"},
+  {"at": 9.0, "key_down": "alt"},
+  {"at": 9.2, "key": "tab"},
+  {"at": 9.5, "key_up": "alt"},
+  {"at": 10.5, "shot": "03_alt_tab_next"},
+  {"at": 11.0, "key_down": "alt"},
+  {"at": 11.2, "key": "tab"},
+  {"at": 11.5, "key_up": "alt"},
+  {"at": 12.5, "shot": "04_alt_tab_next2"},
+  {"at": 13.5, "quit": true}
+]

@@ -224,7 +224,11 @@ fn sender_is_admin(sender: u64) -> bool {
 }
 
 /// Answer one request.
-fn dispatch(table: &mut Vec<Account>, keyd_seen: &mut bool, message: &Message) -> messenger::Result<Parcel> {
+fn dispatch(
+    table: &mut Vec<Account>,
+    keyd_seen: &mut bool,
+    message: &Message,
+) -> messenger::Result<Parcel> {
     if message.interface_id() != accounts::INTERFACE {
         return Err(Error::Errno(-messenger::errno::EINVAL));
     }

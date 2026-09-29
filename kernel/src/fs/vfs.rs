@@ -356,6 +356,15 @@ pub trait Filesystem: Send + Sync {
     /// Rename/move a node within this filesystem.
     fn rename(&self, from: &str, to: &str) -> Result<(), FsError>;
 
+    /// Flush this filesystem's pending writes to stable storage.
+    ///
+    /// The default is a no-op for in-memory backends (ramfs, the overlay);
+    /// ext2 hands its device cache to the block layer. `regd`'s passthrough
+    /// `fsync` reaches this through [`Vfs::flush`].
+    fn flush(&self) -> Result<(), FsError> {
+        Ok(())
+    }
+
     /// List a directory's entries (without `.`/`..`, which the ABI layer adds).
     fn readdir(&self, path: &str) -> Result<Vec<DirEntry>, FsError>;
 }
@@ -492,7 +501,7 @@ impl Vfs {
         // One call for the whole file: a filesystem that has to walk a chain
         // (FAT) reads sequentially instead of re-seeking per chunk. If it
         // returns short, keep reading at the new EOF until the size is met.
-        let mut data = alloc::vec![0u8; meta.size as usize];
+        let mut data = super::fallible::zeroed(meta.size)?;
         let mut filled = fs.read(&rel, 0, &mut data)?;
         let mut chunk = [0u8; 4096];
         while (filled as u64) < meta.size {
@@ -646,6 +655,12 @@ impl Vfs {
         let from_dir = self.check_path(id, &from.parent(), WRITE | EXECUTE)?;
         let to_dir = self.check_path(id, &to.parent(), WRITE | EXECUTE)?;
         let target = self.stat_path(&from)?;
+        if from.parts == to.parts {
+            return Ok(()); // POSIX: onto itself is a no-op
+        }
+        if to.starts_with(&from) {
+            return Err(FsError::Invalid); // would orphan the subtree
+        }
         check_sticky(&from_dir, &target, id)?;
         if let Ok(existing) = self.stat_path(&to) {
             check_sticky(&to_dir, &existing, id)?;
@@ -659,6 +674,18 @@ impl Vfs {
         self.invalidate_mount_path(from_mount, &from_rel);
         self.invalidate_mount_path(from_mount, &to_rel);
         Ok(())
+    }
+
+    /// Flush the filesystem holding `path` to stable storage (`fsync(2)`).
+    ///
+    /// The path must resolve (search permission on every ancestor, as with any
+    /// other VFS call) but needs no read or write bit: flushing is not reading
+    /// or writing the file's data.
+    pub fn flush(&mut self, id: Id, path: &str) -> Result<(), FsError> {
+        let path = Path::parse(path);
+        self.check_path(id, &path, 0)?;
+        let (mount, _) = self.resolve_mount(&path)?;
+        self.mounts[mount].fs.flush()
     }
 
     /// List a directory's entries (`.`/`..` are the ABI layer's job).

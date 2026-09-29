@@ -9,7 +9,7 @@
 //!
 //! Serial evidence: `SYSMON:UP:PASS` after the first frame (or
 //! `SYSMON:UP:FAIL:<errno>` when the snapshot is unreadable),
-//! `SYSMON:REFRESH:PASS` on `r`, `SYSMON:QUIT:PASS` on `q`, and a
+//! `SYSMON:REFRESH:PASS` on `r`, `SYSMON:QUIT:PASS` on `q` (or the window close button), and a
 //! `SYSMON:DATA:...` line with the headline counters.
 
 use std::cell::RefCell;
@@ -22,6 +22,21 @@ use xui_app::sysinfo::{self, Snapshot, MAX_TASKS};
 use xui_core::app::{run_app, App, Ui};
 use xui_core::backend::{Backend, Event, NodeKind, NodeSpec, PlatformSpec};
 use xui_core::{Canvas, Color, Control, Point, Rect, Theme};
+
+/// The window size when a compositor lays the app out (issue #215); as the
+/// display owner it fills the screen instead.
+const WINDOW: (i32, i32) = (860, 600);
+
+/// The memory-card height when the window is tall enough: four value lines.
+const CARD_H: i32 = 164;
+/// The smallest the cards shrink to before their value lines would clip.
+const CARD_MIN_H: i32 = 158;
+/// Horizontal gap between the three memory cards.
+const CARD_GAP: i32 = 16;
+/// Vertical gap between the memory cards and the task table.
+const TABLE_GAP: i32 = 20;
+/// Height reserved for the footer line.
+const FOOTER_H: i32 = 26;
 
 /// How often the snapshot refreshes.
 const REFRESH_MILLIS: u32 = 1000;
@@ -102,14 +117,14 @@ impl App for Sysmon {
 }
 
 fn main() {
-    let backend = match LazyOSBackend::new() {
+    let backend = match LazyOSBackend::connect() {
         Ok(backend) => Rc::new(backend),
         Err(code) => {
             println!("SYSMON:BIND:FAIL:{code}");
             std::process::exit(1);
         }
     };
-    let (width, height) = backend.screen();
+    let (width, height) = backend.window_size(WINDOW);
     let state = Rc::new(RefCell::new(State::load()));
 
     {
@@ -149,6 +164,7 @@ fn main() {
         });
         root.focus();
         ui.on_timer(|_| Some(Msg::Tick));
+        ui.on_close(|| Some(Msg::Quit));
         ui.set_timer(REFRESH_MILLIS);
         Sysmon { state, root }
     });
@@ -179,17 +195,49 @@ fn paint(canvas: &mut dyn Canvas, state: &State) {
         return;
     };
 
-    paint_memory(canvas, theme, content, snapshot);
-    let table_top = content.top + 168;
-    paint_tasks(canvas, theme, content, table_top, snapshot);
+    // Budget the vertical space from the window height so a short client
+    // window cannot let the footer overdraw the task rows or the cards
+    // (issue #251).
+    let cards_h = card_height(content);
+    if cards_h > 0 {
+        paint_memory(canvas, theme, content, cards_h, snapshot);
+    }
+    let table_top = content.top + if cards_h > 0 { cards_h + TABLE_GAP } else { 0 };
+    paint_tasks(
+        canvas,
+        theme,
+        content,
+        table_top,
+        content.bottom - FOOTER_H,
+        snapshot,
+    );
     paint_footer(canvas, theme, content, state, snapshot);
 }
 
+/// The memory-card height for `content`: between [`CARD_MIN_H`] and
+/// [`CARD_H`] when the window fits the cards, a section heading, the table header, four
+/// task rows and the footer; `0` otherwise, when the table instead uses the whole body.
+/// Keeping both in the budget stops the sections overdrawing each other in a
+/// short window (issue #251).
+fn card_height(content: Rect) -> i32 {
+    // Heading (28), the table header row and four task rows, the gap, footer.
+    let reserved = 28 + dash::ROW * 5 + TABLE_GAP + FOOTER_H;
+    match content.height() - reserved {
+        room if room >= CARD_MIN_H => room.min(CARD_H),
+        _ => 0,
+    }
+}
+
 /// The three memory gauges.
-fn paint_memory(canvas: &mut dyn Canvas, theme: Theme, content: Rect, snapshot: &Snapshot) {
-    let gap = 16;
+fn paint_memory(
+    canvas: &mut dyn Canvas,
+    theme: Theme,
+    content: Rect,
+    card_height: i32,
+    snapshot: &Snapshot,
+) {
+    let gap = CARD_GAP;
     let card_width = (content.width() - gap * 2) / 3;
-    let card_height = 148;
     let cards = [
         Rect::new(
             content.left,
@@ -290,13 +338,12 @@ fn paint_frames_card(canvas: &mut dyn Canvas, theme: Theme, rect: Rect, snapshot
                 ),
             ),
             ("free", format!("{}", snapshot.frames_free)),
+            ("reserved", format!("{}", snapshot.frames_reserved)),
             (
-                "reserved",
+                "double frees",
                 format!(
-                    "{} · double frees {} · invalid {}",
-                    snapshot.frames_reserved,
-                    snapshot.frames_double_frees,
-                    snapshot.frames_invalid_frees
+                    "{} · invalid {}",
+                    snapshot.frames_double_frees, snapshot.frames_invalid_frees
                 ),
             ),
         ],
@@ -361,14 +408,20 @@ fn paint_heap_card(canvas: &mut dyn Canvas, theme: Theme, rect: Rect, snapshot: 
     );
 }
 
-/// The task table: pid, state, class, CPU ticks, name.
+/// The task table: pid, state, class, CPU ticks, name. Rows are limited to
+/// what fits between `top` and `bottom` so the footer below never overlaps
+/// them (issue #251).
 fn paint_tasks(
     canvas: &mut dyn Canvas,
     theme: Theme,
     content: Rect,
     top: i32,
+    bottom: i32,
     snapshot: &Snapshot,
 ) {
+    if bottom <= top {
+        return;
+    }
     dash::section(
         canvas,
         theme,
@@ -383,8 +436,12 @@ fn paint_tasks(
     let header = dash::table_header_rect(content, header_top);
     draw_task_header(canvas, theme, header);
 
-    let mut y = header_top + dash::ROW;
-    for row in snapshot.live_tasks().take(MAX_TASKS) {
+    let rows_top = header_top + dash::ROW;
+    let capacity = ((bottom - rows_top) / dash::ROW).max(0) as usize;
+    let live = snapshot.live_tasks().count();
+    let shown = live.min(capacity);
+    let mut y = rows_top;
+    for row in snapshot.live_tasks().take(shown) {
         let rect = Rect::new(content.left, y, content.right, y + dash::ROW);
         let color = match row.state {
             sysinfo::TaskState::Runnable => theme.text,
@@ -433,6 +490,13 @@ fn paint_tasks(
             1.0,
         );
         y += dash::ROW;
+    }
+    if shown < live {
+        canvas.draw_text(
+            &format!("… {} more below", live - shown),
+            Rect::new(content.left, top, content.right, top + 24),
+            &dash::heading_end(theme.text_secondary, dash::SECTION),
+        );
     }
 }
 

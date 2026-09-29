@@ -13,12 +13,15 @@ use crate::mem::vma::{Kind, Prot};
 use crate::process::{load_segments, map_range_kind, page_phys};
 
 use super::uaccess::fill_random;
-use super::{PAGE, STACK_SIZE, STACK_TOP};
+use super::{BRK_BASE, MMAP_LIMIT, PAGE, STACK_SIZE, STACK_TOP};
 
-/// Load a Linux image into `table`, build its start stack, and return
-/// `(entry, stack_pointer)`.
-pub fn load(table: PhysAddr, elf_bytes: &[u8], argv0: &str) -> Result<(u64, u64), &'static str> {
-    let entry = load_segments(table, elf_bytes)?;
+/// Windows an image may not occupy: the stack, `brk` and `mmap` regions.
+pub(super) const LOAD_RESERVED: [(u64, u64); 1] = [(BRK_BASE, MMAP_LIMIT)];
+
+/// Load a Linux image into `table`, build its start stack with `argv`, and
+/// return `(entry, stack_pointer)`.
+pub fn load(table: PhysAddr, elf_bytes: &[u8], argv: &[&str]) -> Result<(u64, u64), &'static str> {
+    let entry = load_segments(table, elf_bytes, &LOAD_RESERVED)?;
     let stack = map_range_kind(
         table,
         STACK_TOP - STACK_SIZE,
@@ -29,16 +32,22 @@ pub fn load(table: PhysAddr, elf_bytes: &[u8], argv0: &str) -> Result<(u64, u64)
 
     let phdr = program_header_addr(elf_bytes);
     let (phent, phnum) = phdr_size(elf_bytes);
-    let mut arg0 = Vec::from(argv0.as_bytes());
-    arg0.push(0);
+    let argv: Vec<Vec<u8>> = argv
+        .iter()
+        .map(|arg| {
+            let mut bytes = Vec::from(arg.as_bytes());
+            bytes.push(0);
+            bytes
+        })
+        .collect();
     let rsp = build_start_stack(
         &stack,
-        core::slice::from_ref(&arg0),
+        &argv,
         &[],
         entry,
-        phdr,
-        phent,
-        phnum,
+        (phdr, phent, phnum),
+        // A kernel-started program is root (see `task::spawn_linux`).
+        (0, 0),
     );
     Ok((entry, rsp))
 }
@@ -70,15 +79,15 @@ pub(super) fn phdr_size(elf_bytes: &[u8]) -> (u16, u16) {
 }
 
 /// Build the Linux process start stack: `argc/argv/envp/auxv` plus strings.
-/// `argv`/`envp` are NUL-terminated byte strings.
+/// `argv`/`envp` are NUL-terminated byte strings; `ids` is the `(uid, gid)`
+/// reported through `AT_UID`/`AT_EUID`/`AT_GID`/`AT_EGID`.
 pub(super) fn build_start_stack(
     stack: &[(u64, u64)],
     argv: &[Vec<u8>],
     envp: &[Vec<u8>],
     entry: u64,
-    phdr: u64,
-    phent: u16,
-    phnum: u16,
+    (phdr, phent, phnum): (u64, u16, u16),
+    (uid, gid): (u32, u32),
 ) -> u64 {
     let mut cursor = STACK_TOP;
 
@@ -114,10 +123,10 @@ pub(super) fn build_start_stack(
         (AT_PAGESZ, PAGE),
         (AT_BASE, 0),
         (AT_ENTRY, entry),
-        (AT_UID, 0),
-        (AT_EUID, 0),
-        (AT_GID, 0),
-        (AT_EGID, 0),
+        (AT_UID, uid as u64),
+        (AT_EUID, uid as u64),
+        (AT_GID, gid as u64),
+        (AT_EGID, gid as u64),
         (AT_CLKTCK, 100),
         (AT_RANDOM, random_addr),
         (AT_EXECFN, execfn),

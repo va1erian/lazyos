@@ -415,6 +415,12 @@ impl Ext2 {
     /// journal, so this is the whole durability story for now.
     #[cfg_attr(not(lazyos_tests), allow(dead_code))] // the future umount surface
     pub fn flush(&self) -> Result<(), FsError> {
+        self.flush_device()
+    }
+
+    /// Shared body of the inherent and [`Filesystem`] `flush`, kept separate so
+    /// the trait impl can reach it without a same-name method-resolution cycle.
+    fn flush_device(&self) -> Result<(), FsError> {
         let _guard = self.lock.lock();
         if !self.read_only {
             let mut raw = [0u8; 1024];
@@ -1585,6 +1591,10 @@ impl Filesystem for Ext2 {
             return Err(error);
         }
         Ok(())
+    }
+
+    fn flush(&self) -> Result<(), FsError> {
+        self.flush_device()
     }
 
     fn readdir(&self, path: &str) -> Result<Vec<DirEntry>, FsError> {

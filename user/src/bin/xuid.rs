@@ -94,6 +94,14 @@ const BORDER: i32 = 2;
 const PAD: i32 = 48;
 /// Taskbar height in pixels.
 const TASKBAR_H: i32 = 28;
+/// Gap between tiled windows (issue #250).
+const WINDOW_GAP: i32 = 16;
+/// Offset added per full grid of windows when placement must cascade (issue
+/// #250).
+const CASCADE_STEP: i32 = 32;
+/// The width of a cascaded window kept on screen: enough to show its title
+/// bar and grab it, even when the window itself is past the right edge.
+const CASCADE_VISIBLE_W: i32 = 240;
 /// Taskbar entry height in pixels.
 const ENTRY_H: i32 = 20;
 /// Horizontal gap between taskbar entries.
@@ -420,6 +428,77 @@ struct DragSession {
 /// Find a surface by id.
 fn surface_by_id(surfaces: &[Surface], id: u64) -> Option<&Surface> {
     surfaces.iter().find(|surface| surface.id == id)
+}
+
+/// Place a new window of content size `width`×`height` (issue #250).
+///
+/// Candidate cells form a grid of `columns`×`rows` sized to this window so
+/// that cells never overlap; the window takes the first cell (left to right,
+/// top to bottom) that no existing window covers. Occupancy comes from the
+/// real window rectangles, not from a surface count, so a cell freed by a
+/// closed window is reused and windows of different sizes cannot be covered.
+/// When every cell is taken, placement cascades from the top-left by
+/// [`CASCADE_STEP`] per window, keeping the whole window (and so its
+/// controls) on screen when it fits, and only its title bar when it cannot.
+fn place_window(screen: (i32, i32), surfaces: &[Surface], width: i32, height: i32) -> (i32, i32) {
+    let win_w = width + BORDER * 2;
+    let win_h = height + TITLE_H + BORDER;
+    let others = || {
+        surfaces
+            .iter()
+            .filter(|surface| !surface.desktop && !surface.minimized)
+    };
+
+    let area_w = (screen.0 - PAD * 2).max(0);
+    let area_h = (screen.1 - PAD - TASKBAR_H - PAD).max(0);
+    let step_x = win_w + WINDOW_GAP;
+    let step_y = win_h + WINDOW_GAP;
+    let columns = ((area_w + WINDOW_GAP) / step_x).max(1);
+    let rows = ((area_h + WINDOW_GAP) / step_y).max(1);
+
+    for cell in 0..columns * rows {
+        let x = clamp_on_screen(
+            PAD + (cell % columns) * step_x,
+            win_w,
+            screen.0,
+            0,
+            CASCADE_VISIBLE_W,
+        );
+        let y = clamp_on_screen(
+            PAD + (cell / columns) * step_y,
+            win_h,
+            screen.1,
+            TASKBAR_H,
+            TITLE_H + BORDER,
+        );
+        let candidate = Rect::new(x, y, win_w, win_h);
+        if others().all(|surface| surface.window().intersect(candidate).is_empty()) {
+            return (x, y);
+        }
+    }
+
+    // Every cell is covered: cascade by how many windows are open, wrapping
+    // once the offset would run off the screen so it never sticks at one spot.
+    let count = others().count() as i32;
+    let steps = ((screen.0.min(screen.1) - PAD * 2) / CASCADE_STEP).max(1);
+    let step = (count % steps + 1) * CASCADE_STEP;
+    (
+        clamp_on_screen(PAD + step, win_w, screen.0, 0, CASCADE_VISIBLE_W),
+        clamp_on_screen(PAD + step, win_h, screen.1, TASKBAR_H, TITLE_H + BORDER),
+    )
+}
+
+/// Clamp a window origin along one axis of size `extent` so the window stays
+/// wholly inside `limit` (minus `reserved` for the taskbar). A window that
+/// cannot fit keeps `visible` pixels of itself (its title bar) reachable
+/// instead.
+fn clamp_on_screen(origin: i32, extent: i32, limit: i32, reserved: i32, visible: i32) -> i32 {
+    let room = limit - reserved;
+    if extent <= room {
+        origin.min(room - extent).max(0)
+    } else {
+        origin.min((room - visible.min(extent)).max(0))
+    }
 }
 
 /// The topmost visible surface whose content contains `point`, ignoring
@@ -2050,13 +2129,13 @@ fn handle_request(
             let (max_w, max_h) = (screen.width().max(0) as u64, screen.height().max(0) as u64);
             if width == 0 || height == 0 || width > max_w || height > max_h || message.handles == 0
             {
-                drop_rejected_handle(&message);
+                drop_rejected_handle(message);
                 return Some(error_reply(message.method(), messenger::errno::EINVAL));
             }
             if role == display::role::DESKTOP && !is_privileged(message.sender) {
                 // Only an authorized shell identity may own the desktop
                 // (issue #175); anyone else's claim is refused outright.
-                drop_rejected_handle(&message);
+                drop_rejected_handle(message);
                 return Some(error_reply(message.method(), messenger::errno::EACCES));
             }
             let id = *next_id;
@@ -2116,20 +2195,12 @@ fn handle_request(
                 let _ = body.u64(display::field::SURFACE, id);
                 return Some(reply_parcel(message.method(), body));
             }
-            // Lay windows out left to right at the top, cascading down when
-            // the row is full, so every surface is visible at once. The right
-            // edge comes from the rightmost window, not the top of the paint
-            // order (raising reorders `surfaces`).
-            let count = surfaces.iter().filter(|surface| !surface.desktop).count() as i32;
-            let x = surfaces
-                .iter()
-                .filter(|surface| !surface.desktop)
-                .map(|surface| surface.x + surface.window().w + 16)
-                .max()
-                .unwrap_or(PAD);
-            let x = x.min((screen.width() - width as i32 - 32).max(0));
-            let y = PAD + (count / 3) * (height as i32 + TITLE_H + 32);
-            let y = y.min((screen.height() - height as i32 - TASKBAR_H - 32).max(0));
+            let (x, y) = place_window(
+                (screen.width(), screen.height()),
+                surfaces,
+                width as i32,
+                height as i32,
+            );
             surfaces.push(Surface {
                 id,
                 title,
@@ -2384,14 +2455,14 @@ fn handle_request(
             let role =
                 string_field(&message.parcel, display::field::SUBSCRIBER_ROLE).unwrap_or_default();
             if message.handles == 0 || role.is_empty() || role.len() > display::MAX_ROLE {
-                drop_rejected_handle(&message);
+                drop_rejected_handle(message);
                 return Some(error_reply(message.method(), messenger::errno::EINVAL));
             }
             if role == display::ROLE_SHELL && !is_privileged(message.sender) {
                 // Only an authorized shell identity may hide the fallback
                 // taskbar and receive every surface/focus event (issue
                 // #175); anyone else's claim is refused outright.
-                drop_rejected_handle(&message);
+                drop_rejected_handle(message);
                 return Some(error_reply(message.method(), messenger::errno::EACCES));
             }
             // One subscriber at a time; a re-subscribe replaces the

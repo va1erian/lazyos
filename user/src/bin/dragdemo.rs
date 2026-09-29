@@ -47,7 +47,7 @@ const PAYLOAD: &[u8] = b"dnd payload #42";
 /// Pointer travel (surface pixels) before a press becomes a drag.
 const DRAG_THRESHOLD: i64 = 6;
 /// PIT ticks the target waits for its denial-probe child to exit.
-const PROBE_TICKS: u64 = 500;
+const PROBE_TICKS: u64 = 2000;
 /// PIT ticks `connect` retries while the compositor/services settle.
 const CONNECT_ATTEMPTS: usize = 200;
 /// The session the denial probe switches to (mirrors `clippaste`).

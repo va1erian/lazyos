@@ -4,13 +4,30 @@
 
 use std::path::PathBuf;
 
+#[path = "build_support/elf_trim.rs"]
+mod elf_trim;
+
 fn main() {
     let out_dir = PathBuf::from(std::env::var_os("OUT_DIR").expect("OUT_DIR"));
-    let kernel =
+    let kernel_full =
         PathBuf::from(std::env::var_os("CARGO_BIN_FILE_KERNEL_kernel").expect("kernel artifact"));
+    // The bootloader reads the whole kernel file through BIOS calls, so the
+    // image carries only the loadable part; the full ELF stays in `target/`.
+    let kernel = out_dir.join("kernel.trimmed");
+    let full = std::fs::read(&kernel_full).expect("read kernel artifact");
+    let trimmed = elf_trim::trim_to_loadable(&full).unwrap_or(full);
+    std::fs::write(&kernel, trimmed).expect("write trimmed kernel");
+    println!("cargo:rerun-if-changed=build_support/elf_trim.rs");
 
     let bios_image = out_dir.join("bios.img");
     let mut builder = bootloader::DiskImageBuilder::new(kernel);
+    // Issue #5: `LAZYOS_RAMDISK=<path>` also loads a FAT image as the
+    // bootloader ramdisk, which the kernel registers as the `ram0` fallback
+    // block device.
+    println!("cargo:rerun-if-env-changed=LAZYOS_RAMDISK");
+    if let Some(ramdisk) = std::env::var_os("LAZYOS_RAMDISK") {
+        builder.set_ramdisk(PathBuf::from(ramdisk));
+    }
     builder.set_file_contents(
         String::from("HELLO.TXT"),
         b"Hello from LazyOS!\n\nThis file lives on the FAT16 disk image.\nYou are reading it through the ATA PIO driver and the FAT16 reader.\n".to_vec(),
@@ -25,6 +42,10 @@ fn main() {
     builder.set_file(String::from("HELLO.ELF"), PathBuf::from(hello));
     let sh = std::env::var_os("CARGO_BIN_FILE_USER_sh").expect("user sh artifact not found");
     builder.set_file(String::from("SH.ELF"), PathBuf::from(sh));
+    // Deliberate ring-3 faults (issue #7): `exec FAULTPRB.ELF null|kernel|priv|div|ud`.
+    let faultprobe = std::env::var_os("CARGO_BIN_FILE_USER_faultprobe")
+        .expect("user faultprobe artifact not found");
+    builder.set_file(String::from("FAULTPRB.ELF"), PathBuf::from(faultprobe));
     // The fabric observability tool (issue #70); boot it with
     // `LAZYOS_MESSENGERCTL=1`. The on-disk name is 8.3 because the kernel's
     // FAT reader only resolves short names (`MESSENGERCTL.ELF` would be stored
@@ -93,6 +114,18 @@ fn main() {
         let logind =
             std::env::var_os("CARGO_BIN_FILE_USER_logind").expect("user logind artifact not found");
         builder.set_file(String::from("LOGIND.ELF"), PathBuf::from(logind));
+
+        // The configuration registry (issue #260). `init` starts `regd`
+        // (`REGD.ELF`) from its manifest; `regctl` is its command line, run
+        // from the login shell as `run REGCTL.ELF ...`. Both are gated behind
+        // `LAZYOS_SERVICES=1`, like the other services, so the plain demo
+        // image (and its `dos_shell` file-count evidence) is unchanged.
+        let regd =
+            std::env::var_os("CARGO_BIN_FILE_USER_regd").expect("user regd artifact not found");
+        builder.set_file(String::from("REGD.ELF"), PathBuf::from(regd));
+        let regctl =
+            std::env::var_os("CARGO_BIN_FILE_USER_regctl").expect("user regctl artifact not found");
+        builder.set_file(String::from("REGCTL.ELF"), PathBuf::from(regctl));
 
         // The MIME database and open-with registry (issue #116). `init`
         // starts it from its manifest; `MIMED.ELF` is the 8.3-safe on-disk
@@ -188,6 +221,8 @@ fn main() {
         }
     }
 
+    embed_xui_apps(&mut builder);
+
     // Rebuild the image when the kernel test switch flips (issue #62): the
     // kernel's own build script turns `LAZYOS_TESTS=1` into `cfg(lazyos_tests)`.
     println!("cargo:rerun-if-env-changed=LAZYOS_TESTS");
@@ -246,4 +281,78 @@ fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=kernel/src");
     println!("cargo:rerun-if-changed=assets/fonts/JetBrainsMono-Regular.ttf");
+}
+
+/// The 8.3 on-disk name for an xui app binary (`xui-sysmon.elf` ->
+/// `XSYSMON.ELF`): the kernel's FAT reader only resolves short names, and
+/// `init`'s app registry (`user/src/bin/init/apps.rs`) refers to these names.
+/// Returns `(stem, disk_name)`.
+fn xui_disk_name(path: &std::path::Path) -> (String, String) {
+    let stem = path
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or("app")
+        .to_ascii_lowercase();
+    let stem = stem.strip_prefix("xui-").unwrap_or(&stem).to_string();
+    let base = match stem.as_str() {
+        "sysmon" => "XSYSMON".to_string(),
+        "fabricmon" => "XFABMON".to_string(),
+        "counter" => "XCOUNTR".to_string(),
+        "term" => "XTERM".to_string(),
+        "client" => "XCLIENT".to_string(),
+        other => {
+            let short: String = other
+                .chars()
+                .filter(char::is_ascii_alphanumeric)
+                .take(7)
+                .collect();
+            format!("X{}", short.to_ascii_uppercase())
+        }
+    };
+    (stem, format!("{base}.ELF"))
+}
+
+/// Embed the desktop's xui apps (issues #215/#216).
+///
+/// `LAZYOS_XUI_APPS` is a platform path list (`;` on Windows, `:` elsewhere)
+/// of binaries built by `tools/xui/build.py`. Each is stored under its 8.3
+/// name, and `XAPPS.LST` lists the shipped ones so `init` marks every other
+/// registry row unavailable instead of failing to launch it. Rows named in
+/// `LAZYOS_XUI_AUTOSTART` (comma-separated stems such as `term,sysmon`; the
+/// default is every embedded app, `none` disables it) are tagged `autostart`,
+/// and `init` launches them at boot as `xuid` clients.
+fn embed_xui_apps(builder: &mut bootloader::DiskImageBuilder) {
+    println!("cargo:rerun-if-env-changed=LAZYOS_XUI_APPS");
+    println!("cargo:rerun-if-env-changed=LAZYOS_XUI_AUTOSTART");
+    let Some(apps) = std::env::var_os("LAZYOS_XUI_APPS") else {
+        return;
+    };
+    let autostart = std::env::var("LAZYOS_XUI_AUTOSTART").ok();
+    let wanted = |stem: &str| match autostart.as_deref() {
+        None => true,
+        Some("none") => false,
+        Some(list) => list.split(',').any(|item| item.trim() == stem),
+    };
+    let mut manifest = String::new();
+    for app in std::env::split_paths(&apps) {
+        // Tracked even when missing: Cargo reruns while a listed path does not
+        // exist, so an app built later is picked up without changing the env.
+        println!("cargo:rerun-if-changed={}", app.display());
+        if !app.is_file() {
+            println!(
+                "cargo:warning=LAZYOS_XUI_APPS entry not found: {}",
+                app.display()
+            );
+            continue;
+        }
+        let (stem, disk) = xui_disk_name(&app);
+        println!(
+            "cargo:warning=LAZYOS_XUI_APPS embedded: {} as {disk}",
+            app.display()
+        );
+        let suffix = if wanted(&stem) { " autostart" } else { "" };
+        manifest.push_str(&format!("{disk}{suffix}\n"));
+        builder.set_file(disk, app);
+    }
+    builder.set_file_contents(String::from("XAPPS.LST"), manifest.into_bytes());
 }

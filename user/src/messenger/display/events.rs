@@ -312,9 +312,7 @@ pub fn decode_shell_event(message: &Message) -> Option<ShellEvent> {
                     (Kind::U64, self::field::MINIMIZED) => {
                         event.minimized = field.as_u64().ok()? != 0;
                     }
-                    (Kind::U64, self::field::FOCUSED) => {
-                        event.focused = field.as_u64().ok()? != 0
-                    }
+                    (Kind::U64, self::field::FOCUSED) => event.focused = field.as_u64().ok()? != 0,
                     (Kind::U64, self::field::ROLE) => event.role = field.as_u64().ok()?,
                     (Kind::String, self::field::TITLE) => {
                         event.title = String::from(field.as_str().ok()?);

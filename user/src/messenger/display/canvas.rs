@@ -163,12 +163,7 @@ impl Canvas {
                     for row in 0..font::H {
                         if bits & (1 << row) != 0 {
                             self.fill(
-                                Rect::new(
-                                    pen + col as i32 * scale,
-                                    y + row * scale,
-                                    scale,
-                                    scale,
-                                ),
+                                Rect::new(pen + col as i32 * scale, y + row * scale, scale, scale),
                                 clip,
                                 color,
                             );

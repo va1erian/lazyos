@@ -22,6 +22,10 @@ use xui_core::app::{run_app, App, Ui};
 use xui_core::backend::{Backend, Event, NodeKind, NodeSpec, PlatformSpec};
 use xui_core::{Canvas, Control, Rect, Theme};
 
+/// The window size when a compositor lays the app out (issue #215); as the
+/// display owner it fills the screen instead.
+const WINDOW: (i32, i32) = (900, 600);
+
 /// How often the fabric snapshot refreshes.
 const REFRESH_MILLIS: u32 = 1000;
 
@@ -127,14 +131,14 @@ impl App for Fabricmon {
 }
 
 fn main() {
-    let backend = match LazyOSBackend::new() {
+    let backend = match LazyOSBackend::connect() {
         Ok(backend) => Rc::new(backend),
         Err(code) => {
             println!("FABMON:BIND:FAIL:{code}");
             std::process::exit(1);
         }
     };
-    let (width, height) = backend.screen();
+    let (width, height) = backend.window_size(WINDOW);
     let state = Rc::new(RefCell::new(State::load()));
 
     {
@@ -180,6 +184,7 @@ fn main() {
         });
         root.focus();
         ui.on_timer(|_| Some(Msg::Tick));
+        ui.on_close(|| Some(Msg::Quit));
         ui.set_timer(REFRESH_MILLIS);
         Fabricmon { state, root }
     });

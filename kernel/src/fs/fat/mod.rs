@@ -1,14 +1,21 @@
-//! A read-only FAT12/FAT16 driver over the ATA block device.
+//! A read-only FAT12/FAT16 driver over a block device.
 //!
 //! The bootloader builds the disk as MBR + a FAT partition holding the kernel
 //! and any files added at build time. Small images come out as FAT12 and larger
 //! ones as FAT16, so both are supported.
+//!
+//! A volume is opened against a named device and keeps that handle for its
+//! lifetime (#244); the geometry parser and cluster-chain reader in
+//! [`chain`] treat the on-disk bytes as untrusted (#235).
 
-use crate::block::ata;
+use crate::block::{BlockDevice, SECTOR_SIZE};
 use alloc::string::String;
 use alloc::vec::Vec;
+use spin::Mutex;
 
 use super::vfs::{DirEntry, FileKind, Filesystem, FsError, Id, Meta, S_IFDIR, S_IFREG};
+
+mod chain;
 
 /// Which FAT flavour the volume uses (determined by cluster count).
 #[derive(Clone, Copy, PartialEq)]
@@ -26,23 +33,26 @@ pub struct Entry {
 }
 
 /// A mounted FAT12/FAT16 volume.
+///
+/// The volume keeps the device it was opened from, so a second volume no
+/// longer follows whatever device the block layer last selected as boot
+/// (issue #244). Every read below goes through this handle.
 pub struct Fat16 {
+    device: &'static dyn BlockDevice,
     bytes_per_sector: u16,
     sectors_per_cluster: u8,
     fat_start: u32,
     root_lba: u32,
     data_lba: u32,
     root_entries: u16,
+    /// Data clusters the geometry implies; the upper bound for any chain
+    /// pointer and the cap on chain walks (issue #235).
+    clusters: u32,
     kind: FatKind,
-}
-
-fn read_sector(lba: u32) -> Option<[u8; 512]> {
-    let mut buf = [0u8; 512];
-    if ata::read_sector(lba, &mut buf) {
-        Some(buf)
-    } else {
-        None
-    }
+    /// The last FAT sector read. A chain walks its entries in cluster order,
+    /// so consecutive lookups almost always land in the same sector; the
+    /// volume is read-only, so the cache can never go stale.
+    fat_cache: Mutex<Option<(u32, [u8; SECTOR_SIZE])>>,
 }
 
 fn le16(buf: &[u8], offset: usize) -> u16 {
@@ -58,10 +68,23 @@ fn le32(buf: &[u8], offset: usize) -> u32 {
     ])
 }
 
+/// Read one 512-byte sector straight from a device (used before a volume
+/// exists, while locating the partition).
+fn read_device_sector(device: &'static dyn BlockDevice, lba: u32) -> Option<[u8; SECTOR_SIZE]> {
+    let mut buf = [0u8; SECTOR_SIZE];
+    device.read_sectors(u64::from(lba), &mut buf).ok()?;
+    Some(buf)
+}
+
 impl Fat16 {
-    /// Locate and parse the FAT volume on the primary disk.
-    pub fn open() -> Option<Fat16> {
-        let mbr = read_sector(0)?;
+    /// Locate and parse the FAT volume on `device`.
+    ///
+    /// The device is named explicitly rather than taken from the block layer's
+    /// active boot device, so a second volume cannot be read from the wrong
+    /// disk (issue #244). A partition whose extents run past the device is
+    /// skipped instead of trusted (issue #235).
+    pub fn open(device: &'static dyn BlockDevice) -> Option<Fat16> {
+        let mbr = read_device_sector(device, 0)?;
         for i in 0..4 {
             let base = 0x1BE + i * 16;
             let kind = mbr[base + 4];
@@ -71,41 +94,69 @@ impl Fat16 {
             if !is_fat || sectors == 0 {
                 continue;
             }
-            if let Some(volume) = Self::parse(lba) {
+            // The partition must lie wholly inside the device; overflow or an
+            // out-of-range end means the MBR is lying, so skip it.
+            let end = match u64::from(lba).checked_add(u64::from(sectors)) {
+                Some(end) => end,
+                None => continue,
+            };
+            if end > device.sector_count() {
+                continue;
+            }
+            if let Some(volume) = Self::parse(device, lba) {
                 return Some(volume);
             }
         }
-        None
+        // No usable partition: a ramdisk is typically a bare FAT image whose
+        // sector 0 is the BPB itself (issue #5).
+        match read_device_sector(device, 0) {
+            Some(boot) if boot[510] == 0x55 && boot[511] == 0xAA => Self::parse(device, 0),
+            _ => None,
+        }
     }
 
-    fn parse(lba: u32) -> Option<Fat16> {
-        let bpb = read_sector(lba)?;
+    fn parse(device: &'static dyn BlockDevice, lba: u32) -> Option<Fat16> {
+        let bpb = read_device_sector(device, lba)?;
         let bytes_per_sector = le16(&bpb, 11);
-        let sectors_per_cluster = bpb[13];
-        let reserved = le16(&bpb, 14) as u32;
-        let fats = bpb[16] as u32;
+        let sectors_per_cluster = u32::from(bpb[13]);
+        let reserved = u64::from(le16(&bpb, 14));
+        let fats = u64::from(bpb[16]);
         let root_entries = le16(&bpb, 17);
         // FAT12/16 use 16-bit sector counts and FAT sizes; FAT32 uses 32-bit.
         let total_sectors = if le16(&bpb, 19) != 0 {
-            le16(&bpb, 19) as u32
+            u64::from(le16(&bpb, 19))
         } else {
-            le32(&bpb, 32)
+            u64::from(le32(&bpb, 32))
         };
         let fat_size = if le16(&bpb, 22) != 0 {
-            le16(&bpb, 22) as u32
+            u64::from(le16(&bpb, 22))
         } else {
-            le32(&bpb, 36)
+            u64::from(le32(&bpb, 36))
         };
-        if bytes_per_sector != 512 || sectors_per_cluster == 0 || fat_size == 0 {
+        if bytes_per_sector != SECTOR_SIZE as u16
+            || sectors_per_cluster == 0
+            || sectors_per_cluster > 128
+            || fats == 0
+            || fat_size == 0
+        {
             return None;
         }
 
-        let root_dir_sectors = (root_entries as u32 * 32).div_ceil(bytes_per_sector as u32);
-        let root_lba = lba + reserved + fats * fat_size;
-        let data_lba = root_lba + root_dir_sectors;
-        let data_sectors =
-            total_sectors.saturating_sub(reserved + fats * fat_size + root_dir_sectors);
-        let clusters = data_sectors / sectors_per_cluster as u32;
+        // All geometry in u64 with checked adds: on-disk fields are attacker
+        // controlled and must never overflow `u32` (issue #235).
+        let root_dir_sectors = (u64::from(root_entries) * 32).div_ceil(u64::from(bytes_per_sector));
+        let fat_sectors = fats.checked_mul(fat_size)?;
+        let lba = u64::from(lba);
+        let overhead = reserved
+            .checked_add(fat_sectors)?
+            .checked_add(root_dir_sectors)?;
+        if total_sectors <= overhead {
+            return None; // no data cluster is possible
+        }
+        let root_lba = lba.checked_add(reserved)?.checked_add(fat_sectors)?;
+        let data_lba = root_lba.checked_add(root_dir_sectors)?;
+        let data_sectors = total_sectors - overhead;
+        let clusters = data_sectors / u64::from(sectors_per_cluster);
         let kind = if clusters < 4085 {
             FatKind::Fat12
         } else if clusters < 65525 {
@@ -113,74 +164,42 @@ impl Fat16 {
         } else {
             return None; // FAT32 not supported
         };
+        // The whole volume (data end included) must fit the device.
+        let data_end =
+            data_lba.checked_add(clusters.checked_mul(u64::from(sectors_per_cluster))?)?;
+        if data_end > device.sector_count() {
+            return None;
+        }
 
         Some(Fat16 {
+            device,
             bytes_per_sector,
-            sectors_per_cluster,
-            fat_start: lba + reserved,
-            root_lba,
-            data_lba,
+            sectors_per_cluster: sectors_per_cluster as u8,
+            fat_start: u32::try_from(lba.checked_add(reserved)?).ok()?,
+            root_lba: u32::try_from(root_lba).ok()?,
+            data_lba: u32::try_from(data_lba).ok()?,
             root_entries,
+            clusters: clusters as u32,
             kind,
+            fat_cache: Mutex::new(None),
         })
-    }
-
-    fn cluster_lba(&self, cluster: u16) -> u32 {
-        self.data_lba + (cluster as u32 - 2) * self.sectors_per_cluster as u32
-    }
-
-    /// Read a little-endian 16-bit FAT entry that may straddle a sector edge.
-    fn read_fat_word(&self, sector: u32, index: usize) -> Option<u16> {
-        let buf = read_sector(sector)?;
-        let low = buf[index] as u16;
-        let high = if index + 1 < self.bytes_per_sector as usize {
-            buf[index + 1] as u16
-        } else {
-            read_sector(sector + 1)?[0] as u16
-        };
-        Some(low | (high << 8))
-    }
-
-    /// Next cluster in a chain, following the FAT (12- or 16-bit entries).
-    fn next_cluster(&self, cluster: u16) -> Option<u16> {
-        let byte_offset = match self.kind {
-            FatKind::Fat12 => cluster as u32 + cluster as u32 / 2,
-            FatKind::Fat16 => cluster as u32 * 2,
-        };
-        let sector = self.fat_start + byte_offset / self.bytes_per_sector as u32;
-        let index = (byte_offset % self.bytes_per_sector as u32) as usize;
-
-        let value = match self.kind {
-            FatKind::Fat12 => {
-                let word = self.read_fat_word(sector, index)?;
-                // 12-bit entries are packed; pick the low or high nibble pair.
-                if cluster.is_multiple_of(2) {
-                    word & 0x0FFF
-                } else {
-                    word >> 4
-                }
-            }
-            FatKind::Fat16 => self.read_fat_word(sector, index)?,
-        };
-
-        let end_of_chain = match self.kind {
-            FatKind::Fat12 => value >= 0xFF8,
-            FatKind::Fat16 => value >= 0xFFF8,
-        };
-        if end_of_chain || value == 0 {
-            None
-        } else {
-            Some(value)
-        }
     }
 
     /// List the root directory (short 8.3 entries; long-name entries skipped).
     pub fn list(&self) -> Vec<Entry> {
         let mut entries = Vec::new();
         let mut offset = 0u32;
+        // One sector holds 16 entries: read it once, not once per entry.
+        let mut loaded: Option<(u32, [u8; SECTOR_SIZE])> = None;
         while offset < self.root_entries as u32 {
             let sector = self.root_lba + offset / 16;
-            let Some(buf) = read_sector(sector) else {
+            if loaded.as_ref().is_none_or(|(lba, _)| *lba != sector) {
+                let Some(buf) = self.read_sector(sector) else {
+                    break;
+                };
+                loaded = Some((sector, buf));
+            }
+            let Some((_, buf)) = loaded.as_ref() else {
                 break;
             };
             let index = (offset % 16) as usize * 32;
@@ -217,44 +236,6 @@ impl Fat16 {
                 (Some(want), Some(candidate)) => *want == candidate,
                 _ => entry.name.eq_ignore_ascii_case(name),
             })
-    }
-
-    /// Read `buf.len()` bytes at `offset` without loading the whole chain: walk
-    /// to the first cluster, then read only the sectors the range touches.
-    fn read_at(&self, start: u16, size: u32, offset: u64, buf: &mut [u8]) -> Option<usize> {
-        if offset >= size as u64 || start < 2 {
-            return Some(0);
-        }
-        let cluster_bytes = self.sectors_per_cluster as u64 * self.bytes_per_sector as u64;
-        let sector_bytes = self.bytes_per_sector as usize;
-        let mut cluster = start;
-        let mut skip = offset / cluster_bytes;
-        while skip > 0 {
-            cluster = self.next_cluster(cluster)?;
-            skip -= 1;
-        }
-
-        let mut inner = (offset % cluster_bytes) as usize;
-        let remaining = (size as u64 - offset).min(buf.len() as u64) as usize;
-        let mut written = 0usize;
-        while written < remaining {
-            let lba = self.cluster_lba(cluster);
-            let mut sector = (inner / sector_bytes) as u32;
-            let mut byte = inner % sector_bytes;
-            while sector < self.sectors_per_cluster as u32 && written < remaining {
-                let data = read_sector(lba + sector)?;
-                let take = (sector_bytes - byte).min(remaining - written);
-                buf[written..written + take].copy_from_slice(&data[byte..byte + take]);
-                written += take;
-                byte = 0;
-                sector += 1;
-            }
-            if written < remaining {
-                cluster = self.next_cluster(cluster)?;
-                inner = 0;
-            }
-        }
-        Some(written)
     }
 }
 
@@ -347,15 +328,27 @@ impl Filesystem for Fat16 {
                 kind: FileKind::Dir,
             });
         }
-        self.find(name)
-            .map(|entry| meta_for(&entry))
-            .ok_or(FsError::NotFound)
+        let entry = self.find(name).ok_or(FsError::NotFound)?;
+        // A directory entry claiming more bytes than the volume can hold is
+        // corrupt; refuse it before a caller sizes an allocation from it.
+        if entry.size as u64 > self.capacity_bytes() {
+            return Err(FsError::Invalid);
+        }
+        Ok(meta_for(&entry))
     }
 
     fn read(&self, path: &str, offset: u64, buf: &mut [u8]) -> Result<usize, FsError> {
         let entry = self.find(path.trim_matches('/')).ok_or(FsError::NotFound)?;
         if entry.is_dir {
             return Err(FsError::IsDir);
+        }
+        if entry.size as u64 > self.capacity_bytes() {
+            return Err(FsError::Invalid);
+        }
+        // A non-empty file must start at a real data cluster; 0/1 and values
+        // past the volume are the same corruption `next_cluster` rejects.
+        if entry.size > 0 && (entry.cluster < 2 || u32::from(entry.cluster) > self.clusters + 1) {
+            return Err(FsError::Invalid);
         }
         self.read_at(entry.cluster, entry.size, offset, buf)
             .ok_or(FsError::Invalid)

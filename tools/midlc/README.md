@@ -30,4 +30,20 @@ python tools/midlc/test_midlc.py
 cargo test -p messenger-generated
 ```
 
+## Browsing definitions
+
+`midl_browser.py` is a stdlib-only Tk GUI that scans the repository for
+`*.midl` files, parses them with the compiler's own parser, and shows a
+navigable tree of interfaces, methods, structs and enums with method ids,
+signatures, the interface hash and doc comments:
+
+```bash
+python tools/midlc/midl_browser.py                 # scan the repo
+python tools/midlc/midl_browser.py idl             # scan a directory
+python tools/midlc/midl_browser.py idl/echo.midl   # scan one file
+```
+
+Use the filter box to search across interface, method, struct and enum names;
+`Copy` places the current detail pane on the clipboard.
+
 CI runs all of the above in `.github/workflows/midlc.yml`.

@@ -174,7 +174,10 @@ class Parser:
             raise MidlError("unexpected end of input")
         self.pos += 1
         if token.kind == "doc":
-            self.pending_doc = token.text.lstrip("/").strip()
+            # Consecutive `///` lines are one doc comment; append (not
+            # replace) so a multi-line comment keeps every line, in order.
+            line = token.text.lstrip("/").strip()
+            self.pending_doc = f"{self.pending_doc}\n{line}" if self.pending_doc else line
             return self.next()
         return token
 
@@ -379,7 +382,9 @@ def rust_type(ty: Type) -> str:
     if ty.name == "Array":
         return f"alloc::vec::Vec<{rust_type(ty.args[0])}>"
     if ty.name == "Option":
-        return f"alloc::option::Option<{rust_type(ty.args[0])}>"
+        # `Option` lives in `core`, not `alloc`; the generated module only
+        # imports `alloc::vec::Vec`.
+        return f"core::option::Option<{rust_type(ty.args[0])}>"
     return ty.name  # named struct
 
 
@@ -390,35 +395,40 @@ def deref(value: str) -> str:
     return value[1:] if value.startswith("&") else f"*{value}"
 
 
-def encode_lines(ty: Type, *, id: int, value: str, indent: str) -> list[str]:
-    """Lines writing `value` into `target` as field `id`."""
+def encode_lines(ty: Type, *, id: int, value: str, indent: str, target: str = "target") -> list[str]:
+    """Lines writing `value` into encoder `target` as field `id`.
+
+    `target` is parameterised because an `Array`/`Option` encodes its element
+    into a fresh `nested` encoder: writing the element into the outer encoder
+    would emit a field at the wrong depth (and, for a struct's first field,
+    collide with an earlier sibling id)."""
     if ty.name in SCALARS:
-        return [f"{indent}target.{SCALARS[ty.name][1]}({id}, {deref(value)})?;"]
+        return [f"{indent}{target}.{SCALARS[ty.name][1]}({id}, {deref(value)})?;"]
     if ty.name == "String":
-        return [f"{indent}target.string({id}, {value})?;"]
+        return [f"{indent}{target}.string({id}, {value})?;"]
     if ty.name == "Bytes":
-        return [f"{indent}target.bytes({id}, {value})?;"]
+        return [f"{indent}{target}.bytes({id}, {value})?;"]
     if ty.name == "Handle":
-        return [f"{indent}target.handle({id}, {deref(value)})?;"]
+        return [f"{indent}{target}.handle({id}, {deref(value)})?;"]
     if ty.name == "Buffer":
-        return [f"{indent}target.buffer({id}, {value})?;"]
+        return [f"{indent}{target}.buffer({id}, {value})?;"]
     if ty.name == "Array":
         inner = ty.args[0]
         lines = [f"{indent}let mut nested = Encoder::new();", f"{indent}for item in {value} {{"]
-        lines += encode_lines(inner, id=1, value="item", indent=indent + "    ")
-        lines += [f"{indent}}}", f"{indent}target.array({id}, &nested)?;"]
+        lines += encode_lines(inner, id=1, value="item", indent=indent + "    ", target="nested")
+        lines += [f"{indent}}}", f"{indent}{target}.array({id}, &nested)?;"]
         return lines
     if ty.name == "Option":
         inner = ty.args[0]
         lines = [f"{indent}match {value} {{", f"{indent}    Some(item) => {{"]
         lines += [f"{indent}        let mut nested = Encoder::new();"]
-        lines += encode_lines(inner, id=1, value="item", indent=indent + "        ")
-        lines += [f"{indent}        target.option({id}, Some(&nested))?;", f"{indent}    }}"]
-        lines += [f"{indent}    None => {{", f"{indent}        target.option({id}, None)?;", f"{indent}    }}"]
+        lines += encode_lines(inner, id=1, value="item", indent=indent + "        ", target="nested")
+        lines += [f"{indent}        {target}.option({id}, Some(&nested))?;", f"{indent}    }}"]
+        lines += [f"{indent}    None => {{", f"{indent}        {target}.option({id}, None)?;", f"{indent}    }}"]
         lines += [f"{indent}}}"]
         return lines
     # Named struct: encode as a nested record.
-    return [f"{indent}target.raw(Kind::Struct, {id}, &encode_{snake_case(ty.name)}({value})?)?;"]
+    return [f"{indent}{target}.raw(Kind::Struct, {id}, &encode_{snake_case(ty.name)}({value})?)?;"]
 
 
 DECODE_EXPR = {
@@ -499,10 +509,14 @@ def emit_field_dispatch(fields: list[Param], target_prefix: str, indent: str) ->
     return lines
 
 
+def emit_doc_lines(doc: str, indent: str) -> list[str]:
+    """One `///` line per line of a (possibly multi-line) doc comment."""
+    return [f"{indent}/// {line}" for line in doc.splitlines()] if doc else []
+
+
 def emit_struct(name: str, fields: list[Param], doc: str) -> str:
     lines = []
-    if doc:
-        lines.append(f"    /// {doc}")
+    lines += emit_doc_lines(doc, indent="    ")
     lines.append("    #[derive(Clone, Debug, Default, PartialEq)]")
     lines.append(f"    pub struct {name} {{")
     for f in fields:
@@ -560,6 +574,9 @@ def emit_rust(interface: Interface) -> str:
         "    use alloc::vec::Vec;",
         "    use libmessenger::{Decoder, Encoder, Error, Kind};",
         "",
+        "    /// The interface id: the FNV-1a hash of the `.vN` interface name.",
+        f"    pub const INTERFACE_ID: u64 = {interface.id:#x};",
+        "",
     ]
     for struct in interface.structs:
         lines += emit_struct(struct.name, struct.fields, struct.doc).splitlines()
@@ -569,9 +586,7 @@ def emit_rust(interface: Interface) -> str:
         lines.append(f"    pub const METHOD_{method.name.upper()}: u32 = {method.method_id};")
     lines.append("")
     for method in interface.methods:
-        doc = f"    /// {method.doc}" if method.doc else None
-        if doc:
-            lines.append(doc)
+        lines += emit_doc_lines(method.doc, indent="    ")
         if method.params:
             lines += emit_message(method.name, "args", method.params).splitlines()
             lines.append("")

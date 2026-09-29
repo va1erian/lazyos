@@ -121,22 +121,30 @@ fn to_string(error: &'static str) -> String {
 mod acl_suite;
 mod arch_suite;
 mod block_suite;
+mod boot_io_suite;
+mod boot_trace_suite;
 mod credentials_suite;
 mod crypto_suite;
+mod dev_suite;
 mod display_suite;
 mod ext2_suite;
+mod fault_suite;
 mod fs_suite;
+mod fsops_suite;
 mod hardening_suite;
 mod heap_suite;
 mod ipc_channel_suite;
 mod ipc_shared_suite;
 mod ipc_suite;
 mod linux_suite;
+mod loader_suite;
 mod mem_suite;
 mod messenger_suite;
 mod overlay_suite;
 mod pipe_suite;
 mod quota_suite;
+mod ramdisk_suite;
+mod regd_suite;
 mod registry_suite;
 mod sched_suite;
 mod service_suite;
@@ -158,8 +166,10 @@ const SUITE: &[&[(&str, Test)]] = &[
     task_suite::CASES,
     pipe_suite::CASES,
     linux_suite::CASES,
+    loader_suite::CASES,
     sched_suite::CASES,
     signal_suite::CASES,
+    fault_suite::CASES,
     ipc_suite::CASES,
     ipc_channel_suite::CASES,
     acl_suite::CASES,
@@ -169,8 +179,14 @@ const SUITE: &[&[(&str, Test)]] = &[
     messenger_suite::CASES,
     stats_suite::CASES,
     registry_suite::CASES,
+    regd_suite::CASES,
     block_suite::CASES,
+    boot_trace_suite::CASES,
+    boot_io_suite::CASES,
+    ramdisk_suite::CASES,
+    dev_suite::CASES,
     fs_suite::CASES,
+    fsops_suite::CASES,
     overlay_suite::CASES,
     ext2_suite::CASES,
     topics_suite::CASES,
@@ -204,5 +220,19 @@ pub fn run() -> ! {
         }
     }
     serial_println!("TEST:SUMMARY:PASS={pass} FAIL={fail}");
+    debug_exit(fail == 0);
     crate::halt();
+}
+
+/// Ask QEMU to exit through `isa-debug-exit` (issue #9): `cargo run --
+/// --headless` then ends with the suite's verdict as its exit status (0x10 is
+/// success, 0x11 failure; QEMU reports `(value << 1) | 1`). Without that
+/// device attached (the tools/ runners) the write is ignored and the caller
+/// halts as before.
+fn debug_exit(success: bool) {
+    const ISA_DEBUG_EXIT_PORT: u16 = 0xf4;
+    let code: u32 = if success { 0x10 } else { 0x11 };
+    // SAFETY: port 0xf4 is the isa-debug-exit device's register when present
+    // and unclaimed otherwise; writing to it has no effect beyond ending the VM.
+    unsafe { crate::arch::io::outl(ISA_DEBUG_EXIT_PORT, code) };
 }

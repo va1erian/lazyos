@@ -1,0 +1,7 @@
+[
+  {"wait_for": "REGD:READY", "timeout": 360},
+  {"wait_for": "REGCTL:SELFTEST:PASS", "timeout": 120},
+  {"wait_for": "REGD:CTL:EXIT", "timeout": 60},
+  {"shot": "regd"},
+  {"quit": true}
+]

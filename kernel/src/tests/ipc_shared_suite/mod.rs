@@ -105,9 +105,11 @@ pub(crate) fn reap(child: usize) -> Result<(), String> {
 
 mod basic;
 mod transfer;
+mod va_reuse;
 
 pub(super) use basic::*;
 pub(super) use transfer::*;
+pub(super) use va_reuse::*;
 
 pub(super) const CASES: &[(&str, Test)] = &[
     ("ipc_buffer_create_write_read", buffer_create_write_read),
@@ -122,4 +124,13 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ),
     ("ipc_buffer_fence_submit_wait", buffer_fence_submit_wait),
     ("ipc_buffer_zero_copy_handoff", buffer_zero_copy_handoff),
+    (
+        "ipc_buffer_va_reused_after_close",
+        buffer_va_reused_after_close,
+    ),
+    (
+        "ipc_buffer_va_no_overlap_and_coalesce",
+        buffer_va_no_overlap_and_coalesce,
+    ),
+    ("ipc_buffer_va_soak_bounded", buffer_va_soak_bounded),
 ];

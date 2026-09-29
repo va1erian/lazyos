@@ -11,7 +11,7 @@ use crate::task::process::GroupError;
 use crate::task::{self, WakeReason};
 use crate::user_ptr;
 
-use super::elf::{build_start_stack, phdr_size, program_header_addr};
+use super::elf::{build_start_stack, phdr_size, program_header_addr, LOAD_RESERVED};
 use super::errno::{
     err, fs_err, ECHILD, EFAULT, EINTR, EINVAL, ENOENT, ENOEXEC, ENOMEM, ENOSYS, EPERM, ESRCH,
 };
@@ -56,6 +56,12 @@ pub(super) fn sys_clone(flags: u64, stack: u64, parent_tid: u64, child_tid: u64,
     }
     let spawned = if flags & CLONE_THREAD != 0 {
         let fs_base = if flags & CLONE_SETTLS != 0 { tls } else { 0 };
+        // `spawn_thread` also enforces this, but it reports `ENOMEM`; a bad
+        // TLS pointer is the caller's error, so return `EINVAL` here (issue
+        // #222). Reject before touching the task table.
+        if !task::valid_fs_base(fs_base) {
+            return err(EINVAL);
+        }
         let clear = if flags & CLONE_CHILD_CLEARTID != 0 {
             child_tid
         } else {
@@ -185,12 +191,15 @@ pub(super) fn sys_execve(path_ptr: u64, argv_ptr: u64, envp_ptr: u64) -> u64 {
     let Some(table) = crate::mem::new_user_table() else {
         return err(ENOMEM);
     };
-    let entry = match load_segments(table, &elf) {
+    // Every error below returns while this guard is live, so a partially
+    // loaded image cannot leak its address space and frames (issue #229).
+    let guard = crate::mem::UserTableGuard::new(table);
+    let entry = match load_segments(guard.table(), &elf, &LOAD_RESERVED) {
         Ok(entry) => entry,
         Err(_) => return err(ENOEXEC),
     };
     let stack = match map_range_kind(
-        table,
+        guard.table(),
         STACK_TOP - STACK_SIZE,
         STACK_TOP,
         Prot::READ | Prot::WRITE,
@@ -201,19 +210,28 @@ pub(super) fn sys_execve(path_ptr: u64, argv_ptr: u64, envp_ptr: u64) -> u64 {
     };
     let phdr = program_header_addr(&elf);
     let (phent, phnum) = phdr_size(&elf);
-    let rsp = build_start_stack(&stack, &argv, &envp, entry, phdr, phent, phnum);
+    let rsp = build_start_stack(
+        &stack,
+        &argv,
+        &envp,
+        entry,
+        (phdr, phent, phnum),
+        super::creds::ids(),
+    );
 
     // The image is committed: close the descriptors std marked `O_CLOEXEC`
     // (the child's copies of the inherit-only pipe ends) before resuming.
     close_cloexec_fds();
 
     // Replace the process image: switch to the new table and make `sysretq`
-    // resume at the new entry.
+    // resume at the new entry. Only now does the table outlive this call, so
+    // disarm the guard after installing it.
     crate::mem::switch_to(table);
     task::set_pml4(table.as_u64());
     task::set_fs_base(0);
     task::register_bumps(table.as_u64(), BRK_BASE, MMAP_BASE);
     crate::arch::linux::set_user_return(entry, rsp, 0x202);
+    guard.commit();
     0
 }
 

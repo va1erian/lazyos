@@ -30,8 +30,8 @@ mod endpoint;
 mod types;
 
 pub use endpoint::{
-    bootstrap, create_pair, fabric_stats, fabric_stats_with, global_stats, global_totals,
-    Endpoint, Message, Server,
+    bootstrap, create_pair, fabric_stats, fabric_stats_with, global_stats, global_totals, Endpoint,
+    Message, Server,
 };
 pub use types::{
     Error, FabricStats, MsgArgs, MsgResult, Result, Stats, TaskUsage, DEFAULT_BUFFER,
@@ -91,6 +91,7 @@ pub const REGISTRY_TARGET_SELF: u64 = u64::MAX;
 pub mod errno {
     pub const EPERM: i64 = 1;
     pub const ENOENT: i64 = 2;
+    pub const EIO: i64 = 5;
     pub const E2BIG: i64 = 7;
     pub const EAGAIN: i64 = 11;
     pub const ENOMEM: i64 = 12;
@@ -369,3 +370,21 @@ pub mod mime;
 /// the service enforces the **session scope**: a token offered by session A is
 /// refused (and logged) for session B.
 pub mod clipboard;
+
+// ---------------------------------------------------------------------------
+// regd: the configuration registry (issue #260)
+// ---------------------------------------------------------------------------
+
+/// Client and wire shapes for `regd`, the configuration registry
+/// (`docs/config-registry-plan.md` v1).
+///
+/// The interface is generated from [`idl/regd.midl`](../../idl/regd.midl) into
+/// `messenger-generated`; this module wraps it with a typed [`regd::Value`]
+/// conversion, a [`Client`] that resolves-and-retries at boot, and the
+/// `system/regd/changed/<path>` change-payload codec.
+///
+/// Only `sys/` paths are announced: the kernel topic policy cannot express the
+/// "`user/<uid>` is owner-only" rule, so publishing user changes would leak
+/// them to every subscriber (issue #260's follow-up). A subscriber therefore
+/// re-reads after a change and must not assume every write produces an event.
+pub mod regd;

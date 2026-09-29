@@ -9,10 +9,17 @@ license = "GPL-3.0-or-later"
 # The parcel codec, shared with the kernel, so client/server parcels round-trip
 # through one implementation (issue #69).
 libmessenger = { path = "../libs/messenger" }
+# The shell language (lexer/parser/interpreter/REPL), shared with the Terminal xui app.
+lazyos-lang = { path = "../libs/lang" }
 # Vetted primitives for `keyd` (issue #102): SHA-256/HMAC/HKDF/Argon2id and the
 # entropy pool. Kernel tests import the same crate, so host KATs cover the code
 # that runs in ring 3.
 lazyos-crypto = { path = "../libs/crypto" }
+# The configuration-registry store logic (issue #259) and its `midlc`-generated
+# `os.lazy.regd.v1` stubs (issue #260): the `regd` service and `regctl` drive
+# the same store the kernel test suite exercises.
+regd = { path = "../libs/regd" }
+messenger-generated = { path = "../libs/generated" }
 
 [lib]
 name = "user"
@@ -27,6 +34,14 @@ bench = false
 [[bin]]
 name = "sh"
 path = "src/bin/sh.rs"
+test = false
+bench = false
+
+# Deliberate user-mode faults (issue #7), run from the shell as
+# `exec FAULTPRB.ELF <mode>`; always on the image (8.3-safe name).
+[[bin]]
+name = "faultprobe"
+path = "src/bin/faultprobe.rs"
 test = false
 bench = false
 
@@ -92,6 +107,22 @@ bench = false
 [[bin]]
 name = "keyd"
 path = "src/bin/keyd.rs"
+test = false
+bench = false
+
+# `regd` (issue #260) is the configuration registry service: it owns the
+# `/system/regd` store through `libs/regd` and serves `os.lazy.regd.v1` over
+# Messenger. `init` starts it from its manifest, before config consumers, and
+# the on-disk name is `REGD.ELF` (8.3). `regctl` is its shell command line.
+[[bin]]
+name = "regd"
+path = "src/bin/regd.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "regctl"
+path = "src/bin/regctl.rs"
 test = false
 bench = false
 

@@ -201,11 +201,12 @@ impl LazyOSBackend {
     }
 
     /// Release the display (owner mode); the kernel mux repaints. A client
-    /// leaves its surface behind and the compositor keeps it until it is
-    /// destroyed or the task exits.
+    /// destroys its surface: several clients share one compositor (#215).
     pub fn unbind(&self) {
         if matches!(self.mode, Mode::Owner { .. }) {
             let _ = sys::display_unbind();
+        } else {
+            self.destroy_surface();
         }
     }
 

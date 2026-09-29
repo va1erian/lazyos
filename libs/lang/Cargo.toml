@@ -1,0 +1,9 @@
+[package]
+name = "lazyos-lang"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "The LazyOS shell language: lexer, parser, interpreter and line REPL (no_std + alloc)"
+license = "GPL-3.0-or-later"
+
+[dependencies]

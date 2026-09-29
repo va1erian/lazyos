@@ -29,6 +29,8 @@ on:
       - "tools/screenshot/**"
       - "tools/ci/**"
       - "kernel/**"
+      - "libs/**"
+      - "user/**"
       - "build.rs"
       - "Cargo.toml"
       - ".github/workflows/xui.yml"
@@ -74,13 +76,14 @@ jobs:
           set -euo pipefail
           mkdir -p target/xui
           python tools/xui/build.py | tee target/xui/build.json
-          m0=""; counter=""; sysmon=""; fabricmon=""; client=""
+          m0=""; counter=""; sysmon=""; fabricmon=""; client=""; term=""
           if python -c "import json,sys; sys.exit(0 if 'xui-m0' in json.load(open('target/xui/build.json')) else 1)"; then
             m0="$(pwd)/target/xui/xui-m0.elf"
             counter="$(pwd)/target/xui/xui-counter.elf"
             sysmon="$(pwd)/target/xui/xui-sysmon.elf"
             fabricmon="$(pwd)/target/xui/xui-fabricmon.elf"
             client="$(pwd)/target/xui/xui-client.elf"
+            term="$(pwd)/target/xui/xui-term.elf"
           else
             echo "::warning::xui app unavailable; skipping the visual run"
           fi
@@ -89,6 +92,7 @@ jobs:
           echo "sysmon=$sysmon" >> "$GITHUB_OUTPUT"
           echo "fabricmon=$fabricmon" >> "$GITHUB_OUTPUT"
           echo "client=$client" >> "$GITHUB_OUTPUT"
+          echo "term=$term" >> "$GITHUB_OUTPUT"
           ls -l target/xui/*.elf || true
 
       # M0: the gradient proves bind/present from a static musl program.
@@ -187,13 +191,67 @@ jobs:
           grep -q "XUIAPP:COUNTER:1" shots/client/serial.log
           grep -q "XUIAPP:CLOSE:PASS" shots/client/serial.log
 
+      # Issue #215: sysmon (owner-mode by design) falls back to client mode when
+      # `xuid` already holds the display grant, so the same binary runs in a
+      # desktop window. The session drives it with the r/q keys through xuid.
+      - name: Capture sysmon as a xuid client (owner-mode fallback)
+        if: ${{ !cancelled() && steps.app.outputs.sysmon != '' }}
+        shell: bash
+        env:
+          LAZYOS_XUID: "1"
+          LAZYOS_XUI_CLIENT: "1"
+          LAZYOS_XUI_APP: ${{ steps.app.outputs.sysmon }}
+        run: |
+          set -euo pipefail
+          cargo build
+          python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/sysclient \
+            --timeout 300 --script tools/screenshot/examples/xui_sysmon.json \
+            --fail-on "SYSMON:(BIND|UP|RUN):FAIL"
+          grep -q "XUID:UP:PASS" shots/sysclient/serial.log
+          grep -q "SYSMON:UP:PASS" shots/sysclient/serial.log
+          grep -q "SYSMON:REFRESH:PASS" shots/sysclient/serial.log
+          grep -q "SYSMON:QUIT:PASS" shots/sysclient/serial.log
+
+      # Issues #215/#216: the desktop session. Services + `xuid` + several xui
+      # apps embedded side by side (`LAZYOS_XUI_APPS`); `init`'s app registry
+      # opens them as clients (Terminal, sysmon, fabricmon, counter). The
+      # session types into the Terminal window (it hosts the shell), then
+      # cycles focus with Alt+Tab. No registered-but-unshipped app may log a
+      # launch failure.
+      - name: Capture desktop session (multi-app + Terminal)
+        if: ${{ !cancelled() && steps.app.outputs.term != '' }}
+        shell: bash
+        env:
+          LAZYOS_SERVICES: "1"
+          LAZYOS_XUID: "1"
+          LAZYOS_XUI_CLIENT: "1"
+          XUI_TERM: ${{ steps.app.outputs.term }}
+          XUI_SYSMON: ${{ steps.app.outputs.sysmon }}
+          XUI_FABMON: ${{ steps.app.outputs.fabricmon }}
+          XUI_COUNTER: ${{ steps.app.outputs.counter }}
+        run: |
+          set -euo pipefail
+          export LAZYOS_XUI_APPS="$XUI_TERM:$XUI_SYSMON:$XUI_FABMON:$XUI_COUNTER"
+          cargo build
+          python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/desktop \
+            --timeout 300 --script tools/screenshot/examples/xui_desktop.json \
+            --fail-on "(TERM|SYSMON|FABMON):(BIND|UP|RUN):FAIL" --fail-on "INIT:AUTOSTART:FAIL"
+          for app in terminal sysmon fabricmon counter; do
+            grep -q "INIT:AUTOSTART:PASS app=$app" shots/desktop/serial.log
+          done
+          grep -q "TERM:CMD:let x = 6\*7" shots/desktop/serial.log
+          grep -q "TERM:OUT:84" shots/desktop/serial.log
+          grep -q "TERM:OUT:Hello from LazyOS!" shots/desktop/serial.log
+          python tools/services/evidence.py shots/desktop/serial.log
+          ! grep -q "^init: launch .* failed" shots/desktop/serial.log
+
       - name: Verify screenshots are non-blank
         if: steps.app.outputs.counter != ''
         shell: bash
         run: |
           set -euo pipefail
           shopt -s nullglob
-          pngs=(shots/m0/*.png shots/m1/*.png shots/m2/*.png shots/sysmon/*.png shots/fabmon/*.png shots/client/*.png)
+          pngs=(shots/m0/*.png shots/m1/*.png shots/m2/*.png shots/sysmon/*.png shots/fabmon/*.png shots/client/*.png shots/sysclient/*.png shots/desktop/*.png)
           if [ ${#pngs[@]} -eq 0 ]; then
             echo "::error::no screenshots were captured"
             exit 1
@@ -207,7 +265,7 @@ jobs:
         shell: bash
         run: |
           shopt -s nullglob
-          for dir in shots/m0 shots/m1 shots/m2 shots/sysmon shots/fabmon shots/client; do
+          for dir in shots/m0 shots/m1 shots/m2 shots/sysmon shots/fabmon shots/client shots/sysclient shots/desktop; do
             [ -d "$dir" ] || continue
             echo "::group::$dir"
             if [ -f "$dir/summary.json" ]; then
@@ -215,7 +273,7 @@ jobs:
             fi
             if [ -f "$dir/serial.log" ]; then
               echo "--- markers ---"
-              grep -aE "XUIAPP|SYSMON|FABMON|panic|PANIC" "$dir/serial.log" || echo "(none)"
+              grep -aE "XUIAPP|SYSMON|FABMON|TERM:|INIT:AUTOSTART|panic|PANIC" "$dir/serial.log" || echo "(none)"
               echo "--- serial tail ---"
               tail -n 40 "$dir/serial.log"
             fi
@@ -248,6 +306,12 @@ jobs:
             shots/client/*.png
             shots/client/serial.log
             shots/client/summary.json
+            shots/sysclient/*.png
+            shots/sysclient/serial.log
+            shots/sysclient/summary.json
+            shots/desktop/*.png
+            shots/desktop/serial.log
+            shots/desktop/summary.json
           if-no-files-found: warn
 
   # Write-scoped job: no checkout of repository code, only the screenshots
@@ -289,7 +353,7 @@ jobs:
           prefix="runs/${GITHUB_RUN_ID}/xui"
           mkdir -p "$work/$prefix"
           shopt -s nullglob
-          for group in m0 m1 m2 sysmon fabmon client; do
+          for group in m0 m1 m2 sysmon fabmon client sysclient desktop; do
             for png in shots/$group/*.png; do
               cp "$png" "$work/$prefix/$group-$(basename "$png")"
             done
@@ -320,26 +384,28 @@ jobs:
           sha="${{ steps.publish.outputs.sha }}"
           prefix="${{ steps.publish.outputs.prefix }}"
           {
-            echo "### xui app on LazyOS (M0-M2 + viewers + compositor client)"
+            echo "### xui app on LazyOS (M0-M2 + viewers + compositor client + desktop session)"
             echo
             echo "_commit \`${GITHUB_SHA:0:7}\` — run [${GITHUB_RUN_ID}](https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID})_"
             echo
             shopt -s nullglob
-            for group in m0 m1 m2 sysmon fabmon client; do
+            for group in m0 m1 m2 sysmon fabmon client sysclient desktop; do
               for png in shots/$group/*.png; do
                 name="$group-$(basename "$png")"
-                echo "**${name}**"
+                echo "<details><summary>${name}</summary>"
                 echo
                 echo "![${name}](https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${sha}/${prefix}/${name})"
                 echo
+                echo "</details>"
+                echo
               done
             done
-            for log in shots/m0/serial.log shots/m2/serial.log shots/sysmon/serial.log shots/fabmon/serial.log shots/client/serial.log; do
+            for log in shots/m0/serial.log shots/m2/serial.log shots/sysmon/serial.log shots/fabmon/serial.log shots/client/serial.log shots/sysclient/serial.log shots/desktop/serial.log; do
               if [ -f "$log" ]; then
                 echo "<details><summary>${log} (xui/sysmon/fabricmon/client markers)</summary>"
                 echo
                 echo '```'
-                grep -E "XUIAPP|SYSMON|FABMON" "$log" || true
+                grep -E "XUIAPP|SYSMON|FABMON|TERM:|INIT:AUTOSTART" "$log" || true
                 echo '```'
                 echo
                 echo "</details>"

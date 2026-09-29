@@ -206,7 +206,7 @@ jobs:
             shopt -s nullglob
             for png in shots/*.png; do
               name=$(basename "$png")
-              echo "**${name}**"
+              echo "<details><summary>${name}</summary>"
               echo
               url=""
               if [ -f shots/urls.tsv ]; then
@@ -219,6 +219,8 @@ jobs:
               else
                 echo "_screenshot available as a workflow artifact_"
               fi
+              echo
+              echo "</details>"
               echo
             done
             if [ -f shots/serial.log ]; then

@@ -1,8 +1,10 @@
 //! Interrupt descriptor table and handlers.
 
+use crate::arch::fault::{contain, Fault};
 use crate::arch::io::inb;
 use crate::arch::pic;
 use crate::input::{keyboard, mouse};
+use crate::task::signal::Exception;
 use alloc::boxed::Box;
 use core::arch::global_asm;
 use core::sync::atomic::AtomicU64;
@@ -15,13 +17,9 @@ pub static TICKS: AtomicU64 = AtomicU64::new(0);
 /// Build and load the IDT.
 pub fn init() {
     let mut idt = InterruptDescriptorTable::new();
-    idt.divide_error.set_handler_fn(divide_error_handler);
     idt.breakpoint.set_handler_fn(breakpoint_handler);
-    idt.invalid_opcode.set_handler_fn(invalid_opcode_handler);
     idt.device_not_available
         .set_handler_fn(device_not_available_handler);
-    idt.general_protection_fault
-        .set_handler_fn(general_protection_fault_handler);
     idt.stack_segment_fault
         .set_handler_fn(stack_segment_fault_handler);
     idt.segment_not_present
@@ -32,6 +30,21 @@ pub fn init() {
     idt.simd_floating_point
         .set_handler_fn(simd_floating_point_handler);
     idt.alignment_check.set_handler_fn(alignment_check_handler);
+    // Safety: the naked `*_isr` stubs below match each exception's frame
+    // layout (`divide_error_isr`/`invalid_opcode_isr` push no error code,
+    // `general_protection_isr` and `page_fault_isr` do) and never return a Rust
+    // value, only the frame pointer to resume.
+    unsafe {
+        idt.divide_error
+            .set_handler_addr(x86_64::VirtAddr::new(divide_error_isr as *const () as u64));
+        idt.invalid_opcode.set_handler_addr(x86_64::VirtAddr::new(
+            invalid_opcode_isr as *const () as u64,
+        ));
+        idt.general_protection_fault
+            .set_handler_addr(x86_64::VirtAddr::new(
+                general_protection_isr as *const () as u64,
+            ));
+    }
     // Safety: `page_fault_isr` is a naked handler with the (error-code-pushing)
     // layout #PF uses; it never returns a Rust value, only the frame pointer.
     unsafe {
@@ -69,26 +82,28 @@ pub fn init_hardware() {
     init();
 }
 
-extern "x86-interrupt" fn divide_error_handler(stack: InterruptStackFrame) {
-    serial_println!("EXCEPTION: divide error\n{:#?}", stack);
-    crate::halt();
+/// A fault from ring 3 ends only the faulting process and never returns; a
+/// ring-0 fault falls through to the caller's diagnostic halt (issue #7).
+fn user_fault(stack: &InterruptStackFrame, fault: Fault) {
+    contain(
+        stack.code_segment.0 as u64,
+        fault,
+        format_args!("rip {:#x}", stack.instruction_pointer.as_u64()),
+    );
 }
 
 extern "x86-interrupt" fn breakpoint_handler(stack: InterruptStackFrame) {
     serial_println!("EXCEPTION: breakpoint\n{:#?}", stack);
 }
 
-extern "x86-interrupt" fn invalid_opcode_handler(stack: InterruptStackFrame) {
-    serial_println!("EXCEPTION: invalid opcode\n{:#?}", stack);
-    crate::halt();
-}
-
 extern "x86-interrupt" fn device_not_available_handler(stack: InterruptStackFrame) {
+    user_fault(&stack, Fault::DeviceNotAvailable);
     serial_println!("EXCEPTION: device not available\n{:#?}", stack);
     crate::halt();
 }
 
 extern "x86-interrupt" fn stack_segment_fault_handler(stack: InterruptStackFrame, error: u64) {
+    user_fault(&stack, Fault::StackSegment);
     serial_println!(
         "EXCEPTION: stack segment fault (error {:#x})\n{:#?}",
         error,
@@ -98,6 +113,7 @@ extern "x86-interrupt" fn stack_segment_fault_handler(stack: InterruptStackFrame
 }
 
 extern "x86-interrupt" fn segment_not_present_handler(stack: InterruptStackFrame, error: u64) {
+    user_fault(&stack, Fault::SegmentNotPresent);
     serial_println!(
         "EXCEPTION: segment not present (error {:#x})\n{:#?}",
         error,
@@ -107,21 +123,25 @@ extern "x86-interrupt" fn segment_not_present_handler(stack: InterruptStackFrame
 }
 
 extern "x86-interrupt" fn invalid_tss_handler(stack: InterruptStackFrame, error: u64) {
+    user_fault(&stack, Fault::InvalidTss);
     serial_println!("EXCEPTION: invalid TSS (error {:#x})\n{:#?}", error, stack);
     crate::halt();
 }
 
 extern "x86-interrupt" fn x87_floating_point_handler(stack: InterruptStackFrame) {
+    user_fault(&stack, Fault::FloatingPoint);
     serial_println!("EXCEPTION: x87 floating point\n{:#?}", stack);
     crate::halt();
 }
 
 extern "x86-interrupt" fn simd_floating_point_handler(stack: InterruptStackFrame) {
+    user_fault(&stack, Fault::FloatingPoint);
     serial_println!("EXCEPTION: SIMD floating point\n{:#?}", stack);
     crate::halt();
 }
 
 extern "x86-interrupt" fn alignment_check_handler(stack: InterruptStackFrame, error: u64) {
+    user_fault(&stack, Fault::AlignmentCheck);
     serial_println!(
         "EXCEPTION: alignment check (error {:#x})\n{:#?}",
         error,
@@ -130,19 +150,66 @@ extern "x86-interrupt" fn alignment_check_handler(stack: InterruptStackFrame, er
     crate::halt();
 }
 
-extern "x86-interrupt" fn general_protection_fault_handler(stack: InterruptStackFrame, error: u64) {
-    serial_println!(
-        "EXCEPTION: general protection fault (error {:#x})\n{:#?}",
-        error,
-        stack
-    );
-    crate::halt();
-}
-
 // The page fault handler needs the interrupted general registers to build a
 // `SIGSEGV` frame, and the `x86-interrupt` ABI does not expose them, so #PF
-// uses a naked stub like the timer: push the registers, call into Rust with
-// the frame pointer, resume at the (possibly rewritten) frame.
+// (and #DE/#UD/#GP, issue #246) use naked stubs like the timer: push the
+// registers, call into Rust with the frame pointer, resume at the (possibly
+// rewritten) frame.
+global_asm!(
+    r#"
+    .macro exception_isr name, vector, has_error
+    .global \name
+    \name:
+        push rax
+        push rbx
+        push rcx
+        push rdx
+        push rsi
+        push rdi
+        push rbp
+        push r8
+        push r9
+        push r10
+        push r11
+        push r12
+        push r13
+        push r14
+        push r15
+
+        mov rdi, rsp
+        mov rsi, \vector
+        /* the CPU aligns RSP only before its own push: force the ABI's 16 */
+        and rsp, -16
+        call exception_dispatch
+        mov rsp, rax
+
+        pop r15
+        pop r14
+        pop r13
+        pop r12
+        pop r11
+        pop r10
+        pop r9
+        pop r8
+        pop rbp
+        pop rdi
+        pop rsi
+        pop rdx
+        pop rcx
+        pop rbx
+        pop rax
+        .if \has_error
+        add rsp, 8                  /* the CPU's error code */
+        .endif
+        iretq
+    .endm
+
+    exception_isr divide_error_isr, 0, 0
+    exception_isr invalid_opcode_isr, 6, 0
+    exception_isr general_protection_isr, 13, 1
+    "#
+);
+
 global_asm!(
     r#"
     .global page_fault_isr
@@ -189,6 +256,44 @@ global_asm!(
 
 extern "C" {
     fn page_fault_isr();
+    fn divide_error_isr();
+    fn invalid_opcode_isr();
+    fn general_protection_isr();
+}
+
+/// Resolve `#DE`/`#UD`/`#GP`: a ring-3 fault enters the process's signal
+/// handler when it has one and otherwise ends the process; a ring-0 fault
+/// halts with a diagnostic. Returns the frame pointer to resume.
+#[no_mangle]
+extern "C" fn exception_dispatch(rsp: u64, vector: u64) -> u64 {
+    let (exception, fault, name) = match vector {
+        0 => (Exception::DivideError, Fault::DivideError, "divide error"),
+        6 => (
+            Exception::InvalidOpcode,
+            Fault::InvalidOpcode,
+            "invalid opcode",
+        ),
+        _ => (
+            Exception::GeneralProtection,
+            Fault::GeneralProtection,
+            "general protection fault",
+        ),
+    };
+    let rip_index = exception.rip_index();
+    // SAFETY: `rsp` is the frame `exception_isr` saved: 15 registers, an
+    // optional error code, then RIP and CS at `rip_index` and `rip_index + 1`.
+    let (rip, cs) = unsafe {
+        (
+            core::ptr::read_volatile((rsp + rip_index as u64 * 8) as *const u64),
+            core::ptr::read_volatile((rsp + (rip_index as u64 + 1) * 8) as *const u64),
+        )
+    };
+    if crate::arch::fault::from_user(cs) && crate::task::signal::deliver_exception(rsp, exception) {
+        return rsp;
+    }
+    contain(cs, fault, format_args!("rip {rip:#x}"));
+    serial_println!("EXCEPTION: {name} at {rip:#x}");
+    crate::halt();
 }
 
 /// Resolve a page fault: COW copy, demand-zero page, or `SIGSEGV` into a
@@ -202,6 +307,9 @@ extern "C" fn page_fault_dispatch(rsp: u64) -> u64 {
     let raw_error = unsafe { core::ptr::read_volatile((rsp + 15 * 8) as *const u64) };
     let error = PageFaultErrorCode::from_bits_truncate(raw_error);
     let addr = Cr2::read();
+    // SAFETY: `rsp` is the frame `page_fault_isr` saved; CS is word 17 (after
+    // the 15 registers, the error code and RIP).
+    let saved_cs = unsafe { core::ptr::read_volatile((rsp + 17 * 8) as *const u64) };
     if let Ok(fault) = addr {
         let table = crate::mem::kernel_table();
         // A write to a present copy-on-write user page takes a private copy.
@@ -217,17 +325,27 @@ extern "C" fn page_fault_dispatch(rsp: u64) -> u64 {
         if crate::mem::demand_fault(table, fault.as_u64(), error) {
             return rsp;
         }
-        // Still a fault: a process with a `SIGSEGV` handler resumes there;
-        // everything else keeps the diagnostic halt.
-        if crate::task::signal::deliver_fault(
-            rsp,
-            crate::task::signal::FAULT_RIP_INDEX,
-            fault.as_u64(),
-            raw_error,
-        ) {
+        // Still a fault: a ring-3 process with a `SIGSEGV` handler resumes
+        // there (a kernel-mode fault must never have its frame rewritten to
+        // jump into user code); everything else is contained below.
+        if crate::arch::fault::from_user(saved_cs)
+            && crate::task::signal::deliver_fault(
+                rsp,
+                crate::task::signal::FAULT_RIP_INDEX,
+                fault.as_u64(),
+                raw_error,
+            )
+        {
             return rsp;
         }
     }
+    // SAFETY: as above; RIP is word 16, just before CS.
+    let rip = unsafe { core::ptr::read_volatile((rsp + 16 * 8) as *const u64) };
+    contain(
+        saved_cs,
+        Fault::BadAccess,
+        format_args!("address {addr:?} ({error:?}), rip {rip:#x}"),
+    );
     serial_println!(
         "EXCEPTION: page fault at {:?} ({:?}), frame {:#x}",
         addr,

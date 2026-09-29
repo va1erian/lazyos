@@ -12,12 +12,16 @@ extern crate alloc;
 
 #[macro_use]
 mod macros;
+#[macro_use]
+mod boot_trace;
 
 mod arch;
 mod block;
 mod console;
 mod cursor;
+mod dev;
 mod display;
+mod entropy;
 mod error;
 mod font;
 mod fs;
@@ -61,6 +65,7 @@ entry_point!(kernel_main, config = &CONFIG);
 fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     serial::init();
     serial_println!("LazyOS: kernel entered");
+    boot_phase!("kernel_entered");
 
     let (base, info) = match &mut boot_info.framebuffer {
         Optional::Some(framebuffer) => {
@@ -85,12 +90,31 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     // is recorded before the test hook so the kernel suite sees it too.
     display::init(info.width, info.height, info.stride, info.bytes_per_pixel);
 
+    boot_phase!("console_ready");
+    // `mem::init` keeps the boot info borrowed, so read the ramdisk hand-off first.
+    let (ramdisk_addr, ramdisk_len) = (boot_info.ramdisk_addr, boot_info.ramdisk_len);
     mem::init(boot_info);
+    boot_phase!("mem_ready");
+
+    // Device core (issue #239): enumerate platform + PCI devices, attach the
+    // in-kernel drivers (ATA, legacy virtio-blk) and print the `DEV:ENUM` line.
+    // Idempotent, so `fs::init`'s later block probe is a no-op.
+    dev::init();
 
     // Kernel test mode (issue #62): run the in-kernel suite and halt instead of
     // booting the demo. Compiled in only with `LAZYOS_TESTS=1`.
     #[cfg(lazyos_tests)]
     tests::run();
+
+    // Issue #5: a bootloader ramdisk (a FAT image) is a fallback block device,
+    // so the OS still boots with no ATA/virtio disk attached. Probing the real
+    // disks first keeps them ahead of it in the mount order.
+    if let Optional::Some(addr) = ramdisk_addr {
+        block::init();
+        if block::mem::register_ramdisk(addr, ramdisk_len) {
+            serial_println!("block: ramdisk registered ({} bytes)", ramdisk_len);
+        }
+    }
 
     if fs::init() {
         serial_println!("LazyOS: FAT16 filesystem mounted");
@@ -98,8 +122,10 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         serial_println!("LazyOS: no filesystem found");
     }
 
+    boot_phase!("fs_ready");
     // Descriptor tables, interrupts (PIC/PIT), and the PS/2 mouse.
     arch::init();
+    boot_phase!("arch_ready");
     input::mouse::set_bounds(info.width as i32, info.height as i32);
 
     // Register the kernel (multiplexer) task and spawn the demo programs, the
@@ -182,12 +208,19 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         // gets a decorated window over `os.lazy.display.v1`. No `xdemo` is
         // spawned, so the app is the first (and only) surface and is laid out
         // at the top-left corner.
-        #[cfg(all(xuid_demo, not(xui_app)))]
+        //
+        // Issues #215/#216: with `LAZYOS_XUI_APPS` too (`xui_desktop`), only
+        // `xuid` boots here; `init` launches the embedded apps from its
+        // registry, so a desktop session runs several of them (Terminal,
+        // System Monitor, ...) side by side.
+        #[cfg(all(xuid_demo, not(xui_app), not(xui_desktop)))]
         spawn_program("xuid", "XUID.ELF");
-        #[cfg(all(xuid_demo, not(xui_app)))]
+        #[cfg(all(xuid_demo, not(xui_app), not(xui_desktop)))]
         spawn_program("xdemo", "XDEMO.ELF");
-        #[cfg(all(xuid_demo, not(xui_app)))]
+        #[cfg(all(xuid_demo, not(xui_app), not(xui_desktop)))]
         spawn_program("xdemo", "XDEMO.ELF");
+        #[cfg(all(xuid_demo, xui_desktop, not(xui_app)))]
+        spawn_program("xuid", "XUID.ELF");
         #[cfg(all(xui_app, not(xui_client)))]
         spawn_linux_program("xapp", "XAPP.ELF");
         #[cfg(xui_client)]
@@ -203,7 +236,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         // running, since the token transfer needs the clipboard service. The
         // xui app owns the display grant, so the demo skips that image; with
         // 64 task slots (issue #204) it fits next to the services too.
-        #[cfg(all(xuid_demo, not(xui_app)))]
+        #[cfg(all(xuid_demo, not(xui_app), not(xui_desktop)))]
         spawn_program("dragdemo", "DRAGDMO.ELF");
 
         // Issue #167: the shell-protocol evidence client. The
@@ -211,7 +244,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         // untouched; when set it boots `shellprobe`, which creates the desktop
         // surface, subscribes to the shell events, and logs the
         // `SHELLPROBE:*:PASS` markers.
-        #[cfg(all(xuid_demo, shellprobe_demo, not(xui_app)))]
+        #[cfg(all(xuid_demo, shellprobe_demo, not(xui_app), not(xui_desktop)))]
         spawn_program("shellprobe", "SHELLPRB.ELF");
     }
 
@@ -225,6 +258,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         stats.total
     );
 
+    boot_phase!("tasks_spawned");
     task::start();
     serial_println!("LazyOS: scheduler started (Tab switches focus)");
     x86_64::instructions::interrupts::enable();
@@ -235,9 +269,14 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
 
 /// Load a program from the FAT disk and spawn it as a task, if present.
 fn spawn_program(name: &'static str, path: &str) {
-    match fs::read(path) {
+    let bytes = fs::read(path);
+    boot_phase!("read_{name}");
+    match bytes {
         Some(bytes) => match task::spawn(name, &bytes) {
-            Ok(index) => serial_println!("LazyOS: spawned {name} as task {index}"),
+            Ok(index) => {
+                boot_phase!("spawn_{name}");
+                serial_println!("LazyOS: spawned {name} as task {index}")
+            }
             Err(err) => serial_println!("LazyOS: spawn {name} failed: {err}"),
         },
         None => serial_println!("LazyOS: {path} not found"),

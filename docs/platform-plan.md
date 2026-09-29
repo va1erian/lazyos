@@ -131,6 +131,10 @@ Full spec in [`messenger.md`](messenger.md). Summary:
   queues.
 - **Driver model:** device enumeration (ACPI/PCI), IPC to userspace drivers,
   DMA-safe shared buffers, interrupt → event delivery through Messenger.
+  Landed in D0/D1 (#239): [`architecture/devices.md`](architecture/devices.md),
+  the PCI upgrade and the in-kernel device core with typed resources,
+  claim/generation ownership and a static `Driver` table; interrupts (`D2`) and
+  the userspace `dev_*` surface (`D3`) follow.
 - **SMP:** AP bring-up, spinlocks per subsystem, IPIs; designed now, enabled
   later.
 
@@ -287,6 +291,7 @@ signed bundles; accessibility basics (keyboard nav, scaling).
 **Acceptance:** a user logs in and, using only the GUI, edits a file, copies it
 between apps, browses the filesystem, and inspects running services.
 **Depends on:** S3–S4.
+**Detail:** [`shell-plan.md`](shell-plan.md) (stages S5.0–S5.3, issues #156–#162).
 
 ### S6 — Networking (XL)
 **Goal:** local-first connectivity, then LAN.

@@ -11,11 +11,17 @@ members = [
     "font-atlas",
     "user",
     "libs/messenger",
+    # The shell language shared by `sh` and the Terminal xui app (issue #216).
+    "libs/lang",
     "libs/generated",
     # Vetted cryptography shared by `keyd` and the kernel test suite (#102):
     # no_std for the freestanding targets plus host `cargo test` known-answer
     # vectors.
     "libs/crypto",
+    # Configuration registry store (issue #259): pure `no_std` + `alloc`
+    # logic shared by the `regd` service and host tests, with no Messenger or
+    # syscall dependencies.
+    "libs/regd",
 ]
 # The xui app is an ordinary static-musl `std` program with its own workspace:
 # it is built by `tools/xui/build.py` and embedded in the image, never by the
@@ -47,9 +53,9 @@ debug = false
 strip = "symbols"
 opt-level = "s"
 
-# The bootloader embeds the kernel file in the disk image too, so the same
-# trade-off applies: the guest never reads dwarf, but every BIOS/ATA boot pays
-# for it. Keep file/line tables for panic triage and drop the rest.
+# The full kernel ELF (with line tables) stays in `target/` for panic triage;
+# build.rs embeds only its loadable part in the disk image, because the
+# bootloader reads the whole file over slow BIOS disk calls at every boot.
 [profile.dev.package.kernel]
 debug = "line-tables-only"
 

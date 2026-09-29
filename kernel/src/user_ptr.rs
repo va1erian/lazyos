@@ -17,7 +17,9 @@
 //! Two API families sit on that check:
 //!
 //! * the **fallible** `try_*` functions return [`Fault`] for a bad range. Every
-//!   native syscall uses these and turns a [`Fault`] into `-EFAULT`.
+//!   native syscall uses these and turns a [`Fault`] into `-EFAULT`. The
+//!   exception is [`try_cstr`], which returns [`CStrError`] so a path that is
+//!   merely unterminated/too long can be reported as `ENAMETOOLONG`.
 //! * the **legacy infallible** primitives ([`read`], [`write`], [`bytes`],
 //!   [`copy_to`], ...) keep their old signatures for the Linux ABI shim, whose
 //!   call sites have no error path. They validate too, and degrade to a safe
@@ -39,6 +41,17 @@ use core::mem::size_of;
 /// write was requested, or outside the canonical lower half.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Fault;
+
+/// Why [`try_cstr`] could not produce a string: the two causes need different
+/// errno codes (a path that is merely too long is `ENAMETOOLONG`, unreadable
+/// memory is `EFAULT`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum CStrError {
+    /// The bytes could not be read from user memory.
+    Fault,
+    /// No NUL terminator appeared within the allowed length.
+    Unterminated,
+}
 
 /// Plain-old-data integers a user buffer may hold. Sealed: every implementor
 /// is valid for any bit pattern, so a byte copy from user memory can never
@@ -144,24 +157,26 @@ pub fn try_copy_words(addr: u64, words: &[u64]) -> Result<(), Fault> {
 }
 
 /// Read a NUL-terminated string of at most `max` bytes (the NUL is not
-/// returned). A string that is not terminated within `max` bytes is truncated
-/// to `max`, the same as the old fixed-cap reader. The scan validates one page
-/// at a time, so a string that ends before an unmapped page is still readable.
-pub fn try_cstr(addr: u64, max: usize) -> Result<Vec<u8>, Fault> {
+/// returned). A string that is not terminated within `max` bytes is
+/// [`CStrError::Unterminated`]: callers operate on the returned path, so
+/// silently returning a truncated prefix could resolve to an unintended file.
+/// Unreadable memory is [`CStrError::Fault`]. The scan validates one page at a
+/// time, so a string that ends before an unmapped page is still readable.
+pub fn try_cstr(addr: u64, max: usize) -> Result<Vec<u8>, CStrError> {
     let mut out = Vec::new();
     let mut at = addr;
     while out.len() < max {
         let room = 4096 - (at & 0xfff) as usize;
         let take = room.min(max - out.len());
-        let chunk = try_bytes(at, take)?;
+        let chunk = try_bytes(at, take).map_err(|_| CStrError::Fault)?;
         if let Some(end) = chunk.iter().position(|byte| *byte == 0) {
             out.extend_from_slice(&chunk[..end]);
             return Ok(out);
         }
         out.extend_from_slice(chunk);
-        at = at.checked_add(take as u64).ok_or(Fault)?;
+        at = at.checked_add(take as u64).ok_or(CStrError::Fault)?;
     }
-    Ok(out)
+    Err(CStrError::Unterminated)
 }
 
 /// Read a `T` from `addr`; zero when the range is invalid.

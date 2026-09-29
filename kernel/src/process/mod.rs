@@ -96,8 +96,6 @@ use core::arch::global_asm;
 use spin::Mutex;
 use x86_64::structures::idt::HandlerFunc;
 use x86_64::{PhysAddr, VirtAddr};
-use xmas_elf::program::{SegmentData, Type as ProgramType};
-use xmas_elf::ElfFile;
 
 use crate::ipc::credentials::{self, Cred, TransitionError};
 use crate::mem::vma::{Kind, Prot};
@@ -106,7 +104,15 @@ use crate::task::{self, wait::CHILD_EXIT, WakeReason};
 use crate::user_ptr;
 use crate::{fs, input::keyboard, mem};
 
+mod credio;
+pub mod fsops;
 pub mod linux;
+pub mod loader;
+pub mod power;
+pub mod spawn_line;
+
+use credio::{read_cred, write_cred};
+pub use loader::load_segments;
 
 /// Base of the user heap (grows up toward the stack).
 pub const USER_HEAP_BASE: u64 = 0x60_0000;
@@ -197,6 +203,9 @@ extern "C" fn syscall_dispatch(regs: *mut Regs) {
         // 14: the system-stats snapshot (issue #144), read-only and available
         // to every task; see `crate::sysinfo` and the module docs.
         14 => crate::sysinfo::dispatch(regs.rdi, regs.rsi, regs.rdx),
+        // 15..22: the shell's filesystem calls, `power`, and `fsync` (issue
+        // #6, #260).
+        15..=22 => fsops::dispatch(regs.rax, regs.rdi, regs.rsi, regs.rdx),
         _ => u64::MAX,
     };
 }
@@ -209,6 +218,7 @@ pub fn dispatch_for_test(nr: u64, a1: u64, a2: u64, a3: u64) -> u64 {
     match nr {
         1 => sys_write(a1, a2),
         3 => sys_read_file(a1, a2, a3),
+        4 => sys_sbrk(a1),
         5 => crate::ipc::syscalls::dispatch(a1, a2, a3),
         6 => sys_spawn(a1),
         7 => sys_wait(a1),
@@ -219,6 +229,7 @@ pub fn dispatch_for_test(nr: u64, a1: u64, a2: u64, a3: u64) -> u64 {
         12 => crate::display::dispatch(a1, a2, a3),
         13 => sys_tasks(a1),
         14 => crate::sysinfo::dispatch(a1, a2, a3),
+        15..=22 => fsops::dispatch(nr, a1, a2, a3),
         _ => u64::MAX,
     }
 }
@@ -269,9 +280,9 @@ const USER_CSTR_MAX: usize = 4096;
 
 /// Read a NUL-terminated string (at most [`USER_CSTR_MAX`] bytes) from
 /// validated user memory. Invalid UTF-8 reads as the empty string, as it
-/// always has; an unmapped or kernel address is a [`user_ptr::Fault`].
-fn user_cstr(ptr: u64) -> Result<String, user_ptr::Fault> {
-    let bytes = user_ptr::try_cstr(ptr, USER_CSTR_MAX)?;
+/// always has; an unmapped/kernel address or an unterminated string is a Fault.
+pub(crate) fn user_cstr(ptr: u64) -> Result<String, user_ptr::Fault> {
+    let bytes = user_ptr::try_cstr(ptr, USER_CSTR_MAX).map_err(|_| user_ptr::Fault)?;
     Ok(String::from_utf8(bytes).unwrap_or_default())
 }
 
@@ -306,7 +317,10 @@ fn sys_sbrk(increment: u64) -> u64 {
     let Some(target) = current.checked_add(increment) else {
         return u64::MAX;
     };
-    let new_break = (target + page - 1) & !(page - 1);
+    let new_break = match target.checked_add(page - 1) {
+        Some(value) => value & !(page - 1),
+        None => return u64::MAX,
+    };
     if new_break > USER_STACK_TOP - USER_STACK_SIZE {
         return u64::MAX;
     }
@@ -422,19 +436,23 @@ fn spawn_program(cmdline_ptr: u64, cred: Option<Cred>) -> i64 {
     let Ok(line) = user_cstr(cmdline_ptr) else {
         return -EFAULT;
     };
-    let line = line.trim();
-    if line.is_empty() {
+    let Some(spawn_line::SpawnLine { linux, path, args }) = spawn_line::parse(&line) else {
         return -EINVAL;
-    }
-    let (path, args) = match line.split_once(char::is_whitespace) {
-        Some((path, args)) => (path, args.trim()),
-        None => (line, ""),
     };
     let Some(elf) = fs::read(path) else {
         return -ENOENT;
     };
     let name = intern_service_name(path);
-    let slot = match task::spawn_child(name, &elf) {
+    let started = if linux {
+        // argv[0] is the program name; the rest are the whitespace-split args.
+        let argv: Vec<&str> = core::iter::once(path)
+            .chain(args.split_whitespace())
+            .collect();
+        task::spawn_linux_child(name, &elf, &argv)
+    } else {
+        task::spawn_child(name, &elf)
+    };
+    let slot = match started {
         Ok(slot) => slot,
         Err(_) => return -ENOMEM,
     };
@@ -491,27 +509,6 @@ fn cred_target(pid: u64) -> usize {
     } else {
         usize::try_from(pid).unwrap_or(usize::MAX)
     }
-}
-
-/// Read a 40-byte credential block from validated user memory; `None` for a
-/// null pointer or a range that is not readable user memory.
-fn read_cred(ptr: u64) -> Option<Cred> {
-    if ptr == 0 {
-        return None;
-    }
-    let bytes = user_ptr::try_bytes(ptr, 5 * 8).ok()?;
-    let mut words = [0u64; 5];
-    for (word, chunk) in words.iter_mut().zip(bytes.chunks_exact(8)) {
-        // INVARIANT: `chunks_exact(8)` yields eight-byte slices.
-        *word = u64::from_le_bytes(chunk.try_into().unwrap());
-    }
-    Some(Cred::from_words(words))
-}
-
-/// Write a 40-byte credential block into validated user memory; `false` on a
-/// null pointer or a range that is not writable user memory.
-fn write_cred(ptr: u64, cred: Cred) -> bool {
-    ptr != 0 && user_ptr::try_copy_words(ptr, &cred.to_words()).is_ok()
 }
 
 /// syscall 10: the audited credential gate (issue #101).
@@ -650,71 +647,9 @@ fn sys_args(buf_ptr: u64, buf_len: u64) -> u64 {
     args.len() as u64
 }
 
-/// Map a program's `PT_LOAD` segments into `table` and return its entry point.
-///
-/// Segments are mapped eagerly (their contents must exist before the program
-/// runs) with the protection the ELF header asks for: read always, write only
-/// for `PF_W`, execute only for `PF_X`. Each segment is recorded as a `File`
-/// VMA so `munmap`/`mprotect` and diagnostics see the same layout the hardware
-/// does.
-pub fn load_segments(table: PhysAddr, elf_bytes: &[u8]) -> Result<u64, &'static str> {
-    let elf = ElfFile::new(elf_bytes).map_err(|_| "not a valid ELF")?;
-    let entry = elf.header.pt2.entry_point();
-
-    let mut pages: Vec<(u64, u64)> = Vec::new();
-    for program_header in elf.program_iter() {
-        if program_header.get_type() != Ok(ProgramType::Load) {
-            continue;
-        }
-        let vaddr = program_header.virtual_addr();
-        let mem_size = program_header.mem_size();
-        let start = vaddr & !0xFFF;
-        let end = (vaddr + mem_size + 0xFFF) & !0xFFF;
-
-        let flags = program_header.flags();
-        let mut prot = Prot::READ;
-        if flags.is_write() {
-            prot = prot | Prot::WRITE;
-        }
-        if flags.is_execute() {
-            prot = prot | Prot::EXEC;
-        }
-
-        let mut va = start;
-        while va < end {
-            if phys_for(&pages, va).is_none() {
-                let phys = mem::alloc_zeroed_frame().ok_or("out of memory")?;
-                if !mem::map_page_in(table, VirtAddr::new(va), phys, mem::prot_flags(prot)) {
-                    return Err("failed to map segment");
-                }
-                pages.push((va, phys.as_u64()));
-            }
-            va += 4096;
-        }
-
-        let data = program_header
-            .get_data(&elf)
-            .map_err(|_| "bad segment data")?;
-        if let SegmentData::Undefined(file_bytes) = data {
-            for (i, &byte) in file_bytes.iter().enumerate() {
-                let va = vaddr + i as u64;
-                if let Some(phys) = phys_for(&pages, va) {
-                    let dst = mem::phys_to_virt(PhysAddr::new(phys)) + (va & 0xFFF);
-                    // Safety: within the freshly-mapped user page.
-                    unsafe { core::ptr::write_volatile(dst.as_mut_ptr::<u8>(), byte) };
-                }
-            }
-        }
-
-        mem::vma::insert(table, start, end, prot, Kind::File);
-    }
-
-    Ok(entry)
-}
-
 /// Load a static ELF64 image and map the native user stack.
 pub fn load_image(table: PhysAddr, elf_bytes: &[u8]) -> Result<u64, &'static str> {
-    let entry = load_segments(table, elf_bytes)?;
+    let entry = load_segments(table, elf_bytes, &[(USER_HEAP_BASE, USER_STACK_TOP)])?;
     map_range_kind(
         table,
         USER_STACK_TOP - USER_STACK_SIZE,
