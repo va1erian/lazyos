@@ -129,3 +129,43 @@ impl Compositor {
         );
     }
 }
+
+/// Boot check of the client key encoding documented in
+/// `docs/architecture/display.md`: `XUID:KEYS:PASS` or `XUID:KEYS:FAIL`.
+pub(super) fn selftest_key_encoding() -> &'static str {
+    use display::key::*;
+    // (code, (shift, ctrl, alt, super), forwarded key)
+    type Modifiers = (bool, bool, bool, bool);
+    let cases: [(u32, Modifiers, u32); 8] = [
+        (b'a' as u32, (false, false, false, false), b'a' as u32),
+        (b'A' as u32, (true, false, false, false), b'A' as u32),
+        (LEFT, (true, false, false, false), LEFT | MOD_SHIFT),
+        (
+            b'c' as u32,
+            (false, true, false, false),
+            b'c' as u32 | MOD_CTRL,
+        ),
+        (
+            b'z' as u32,
+            (true, true, false, false),
+            b'z' as u32 | MOD_CTRL | MOD_SHIFT,
+        ),
+        (BACKSPACE, (false, true, false, false), BACKSPACE | MOD_CTRL),
+        (
+            b'f' as u32,
+            (false, false, true, false),
+            b'f' as u32 | MOD_ALT,
+        ),
+        (F1 + 4, (false, false, false, true), (F1 + 4) | MOD_SUPER),
+    ];
+    let ok = cases.iter().all(|&(code, (shift, ctrl, alt, sup), want)| {
+        with_modifiers(code, shift, ctrl, alt, sup) == want && want & CODE_MASK == code
+    });
+    if ok {
+        "XUID:KEYS:PASS
+"
+    } else {
+        "XUID:KEYS:FAIL
+"
+    }
+}

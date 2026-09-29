@@ -189,6 +189,7 @@ fn run() -> ! {
     sys::write_str(UP_MARKER);
     sys::write_str(WM_MARKER);
     sys::write_str(SHELL_MARKER);
+    sys::write_str(keys::selftest_key_encoding());
 
     loop {
         // 1. Input: drain the whole kernel queue first so pointer moves
