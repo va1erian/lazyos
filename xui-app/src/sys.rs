@@ -84,7 +84,7 @@ pub mod button {
     pub const MIDDLE: u32 = 3;
 }
 
-/// Messenger op codes, mirroring `user/src/messenger.rs::op`.
+/// Messenger op codes, mirroring `user/src/messenger/::op`.
 pub mod msg_op {
     /// Call a method and block until the reply arrives.
     pub const CALL: u64 = 1;

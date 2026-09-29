@@ -22,7 +22,7 @@ pub const NAME: &str = "os.lazy.display.v1";
 /// Interface id (the `os.lazy.` prefix, like the registry's).
 pub const INTERFACE: u64 = u64::from_le_bytes(*b"os.lazy.");
 
-/// Display protocol methods; mirrors `user/src/messenger.rs` and `xuid`.
+/// Display protocol methods; mirrors `user/src/messenger/` and `xuid`.
 pub mod method {
     /// Create a surface; the reply carries its id.
     pub const CREATE_SURFACE: u32 = 1;

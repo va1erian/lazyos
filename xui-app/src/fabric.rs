@@ -3,7 +3,7 @@
 //! (`list`), and the userspace topics broker (`messengerd`'s
 //! `os.lazy.messenger.topics` service).
 //!
-//! The block layouts mirror `user/src/messenger.rs` (which mirrors the kernel):
+//! The block layouts mirror `user/src/messenger/` (which mirrors the kernel):
 //! [`FabricStats`] is stats ABI v3 in the fixed little-endian word stream, the
 //! registry reply is a `libmessenger` parcel whose body carries one `ENTRY`
 //! record per name, and the broker reply carries one `ENTRY` per topic.

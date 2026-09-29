@@ -29,7 +29,7 @@ syscall surface (including the bootstrap channel).
   replaces it; another owner gets `NameTaken`. All resolvers alias one endpoint,
   so closing it is peer death for everyone; per-connection channels are the
   documented follow-up. TLV ids (`NAME=1`, `ENDPOINT=4`, ...) are mirrored in
-  `user/src/messenger.rs`.
+  `user/src/messenger/`.
 
 **Topic policy** (`topics.rs`)
 
@@ -60,7 +60,7 @@ Ops: 1-7 `CALL`, `REPLY`, `SEND`, `RECV`, `CANCEL`, `CLOSE_ENDPOINT`,
 `AUTHORIZE_TOPIC`.
 
 - ABI blocks are fixed 64-byte `MsgArgs`/`MsgResult` little-endian word arrays,
-  mirrored byte-for-byte in `user/src/messenger.rs`; sizes are compile-time
+  mirrored byte-for-byte in `user/src/messenger/`; sizes are compile-time
   asserted at the bottom of `syscalls.rs`.
 - Before touching a channel, `op_call`/`op_send` derive `(interface_id, method)`
   from the parcel header and pass `ipc::authorize`; the handle path uses

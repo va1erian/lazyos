@@ -148,7 +148,7 @@ pub const ARGS_SIZE: usize = 64;
 /// Number of bytes in [`MsgResult`].
 pub const RESULT_SIZE: usize = 64;
 
-/// The syscall request block. The layout is shared with `user/src/messenger.rs`
+/// The syscall request block. The layout is shared with `user/src/messenger/`
 /// and must stay in lockstep; every field is a little-endian `u64`.
 ///
 /// Only the fields an op documents as input are read; the rest are ignored (and
@@ -220,7 +220,7 @@ impl MsgArgs {
 }
 
 /// The syscall response block: `status`/`value`/`aux`/`bytes` plus reserved
-/// space. Shared with `user/src/messenger.rs`, little-endian `u64` fields.
+/// space. Shared with `user/src/messenger/`, little-endian `u64` fields.
 #[repr(C)]
 #[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
 pub struct MsgResult {
@@ -285,7 +285,7 @@ fn encode_words(words: &[u64; 8]) -> [u8; 64] {
 
 /// Compact channel counters (stats ABI version 1), exactly the byte order
 /// [`OP_STATS`] writes for a 64-byte buffer and [`OP_TOTALS`] always writes.
-/// The layout is shared with `user/src/messenger.rs`; the richer version 2
+/// The layout is shared with `user/src/messenger/`; the richer version 2
 /// block lives in [`crate::ipc::stats::FabricStats`].
 #[repr(C)]
 #[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
@@ -777,7 +777,7 @@ fn registry_unregister(args: &MsgArgs, target: usize) -> Result<MsgResult, i64> 
 
 /// `OP_LIST`: encode the table as a parcel whose body has one `ENTRY` record
 /// per name, then copy it into the caller's buffer. The wire shape is shared
-/// with `user/src/messenger.rs`, which always offers a large enough buffer.
+/// with `user/src/messenger/`, which always offers a large enough buffer.
 fn registry_list(args: &MsgArgs) -> Result<MsgResult, i64> {
     let entries = registry::list();
     let mut body = Encoder::new();
