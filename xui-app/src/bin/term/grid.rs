@@ -214,9 +214,20 @@ impl Grid {
     }
 }
 
-/// Whether a completed grid line is only a shell prompt (`# `, `$ `).
+/// Whether a completed grid line is only a shell prompt: `# `, `$ `, or
+/// BusyBox's default `\w \$ ` form with the working directory first (`/ # `,
+/// `/tmp $ `). A prompt followed by a typed command (`/ # rhai`) is not one.
+///
+/// The Terminal reports exactly one `TERM:OUT` per command, so a bare prompt
+/// line must never be taken for that output: the shell emits one when the
+/// next command was typed before its prompt appeared (a slow reap of the
+/// previous pipeline), and the real output line would then go unreported.
 pub fn is_prompt(line: &str) -> bool {
-    line.chars().all(|c| matches!(c, '#' | '$' | '>' | ' '))
+    let marks = |text: &str| text.chars().all(|c| matches!(c, '#' | '$' | '>' | ' '));
+    match line.trim().rsplit_once(' ') {
+        None => marks(line),
+        Some((cwd, mark)) => !cwd.contains(' ') && marks(mark),
+    }
 }
 
 #[cfg(test)]
@@ -236,5 +247,28 @@ mod tests {
         let mut grid = Grid::new();
         grid.feed(b"\x1b[5;10H");
         assert_eq!((grid.row, grid.col), (4, 9));
+    }
+
+    /// A bare prompt, with or without the working directory, is a prompt; a
+    /// prompt with a command after it, and any output line, is not.
+    #[test]
+    fn prompt_lines_with_a_working_directory_are_prompts() {
+        for prompt in ["# ", "$", "> ", "/ #", "/ # ", "/tmp $ ", "/home/alice $"] {
+            assert!(is_prompt(prompt), "{prompt:?} should be a prompt");
+        }
+        for line in [
+            "/ # rhai",
+            "$ echo",
+            "rhai>",
+            "42",
+            "HI",
+            "rhai REPL: :help",
+            "",
+        ] {
+            assert!(
+                !is_prompt(line) || line.is_empty(),
+                "{line:?} is not a prompt"
+            );
+        }
     }
 }
