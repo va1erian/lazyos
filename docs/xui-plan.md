@@ -187,6 +187,13 @@ and `LAZYOS_XUI_APP=<xui-client.elf>`; the kernel then spawns `xuid` + the app
 and no `xdemo`, so the app is the first surface at the top-left. Owner mode
 (`LAZYOS_XUI_APP` without `LAZYOS_XUI_CLIENT`) is unchanged.
 
+**Desktop session (issues #215/#216)** — `LAZYOS_XUI_APPS` embeds several apps
+and `init`'s app registry opens them as `xuid` clients (`XAPPS.LST` names what
+the image ships; a registered app whose ELF is absent is unavailable and never
+logged as a failed launch). `sysmon`/`fabricmon`/`counter` pick client mode via
+`LazyOSBackend::connect`; the new `xui-term` hosts the shell (`libs/lang`).
+Captured by `tools/screenshot/examples/xui_desktop.json` in the `xui-app` job.
+
 **Keyboard focus routing (issue #151)** — the backend now tracks focus stops
 (the Tab-order nodes plus button-like controls), moves focus on a pointer press
 that lands on one, delivers `SetFocus`/`KillFocus`, and routes `KeyDown`,

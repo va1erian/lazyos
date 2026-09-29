@@ -12,8 +12,6 @@ pub mod sys;
 
 pub mod sysinfo;
 
-pub mod lang;
-
 pub mod messenger;
 
 pub mod central;

@@ -194,7 +194,10 @@ role + hotkeys (#167, PR #170), `init` `Launch` and app registry (#158, PR
 #171), xui client mode and focus routing (#168, PR #172), each with an evidence
 client (`shellprobe`, `apps_demo.json`, `xui_client.json`). Not started: the
 LazyShell process (#157), the `logind` session bundle, and the CodeRabbit
-follow-ups #175/#177/#178.
+follow-ups #175/#177/#178. Update: a desktop boot now runs several apps side by
+side and can open a shell window (#215/#216): `LAZYOS_XUI_APPS` + `init`
+autostart, and the `xui-term` Terminal client (in-process `libs/lang` shell, no
+pty yet).
 
 ### S5.1 — Files and start menu (M)
 **Goal:** browse and open files from the GUI.

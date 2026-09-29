@@ -43,6 +43,7 @@ and ring-3 programs, packs them into an MBR + FAT boot disk, and launches QEMU.
 | `DRAGDMO.ELF` | drag & drop demo pair | only when `LAZYOS_XUID=1` |
 | `SHELLPRB.ELF` | shell-protocol evidence client | `LAZYOS_XUID=1` + `LAZYOS_SHELLPROBE=1` |
 | `XAPP.ELF` | `$LAZYOS_XUI_APP` (static musl xui app from `tools/xui/build.py`) | embedded whenever set; spawned only with `LAZYOS_XUID=1` |
+| `XTERM.ELF`, `XSYSMON.ELF`, `XFABMON.ELF`, `XCOUNTR.ELF`, `XAPPS.LST` | `$LAZYOS_XUI_APPS` (path list; `;` on Windows, `:` elsewhere) | each app under its 8.3 name; `XAPPS.LST` lists them (and which `autostart`) for `init`'s registry (#215/#216) |
 | `INIT.ELF` | `$LAZYOS_INIT` | ABI bench hook |
 | `BUSYBOX` | `$LAZYOS_BUSYBOX` | Linux shim demo |
 
@@ -62,6 +63,7 @@ FAT names are 8.3 because the kernel FAT reader resolves short names only
 | `LAZYOS_SHELLPROBE=1` | `shellprobe_demo` | (with `LAZYOS_XUID=1`) spawns `SHELLPRB.ELF` |
 | `LAZYOS_XUI_APP=<path>` | `xui_app` | (with `LAZYOS_XUID=1`) boots `XAPP.ELF` as the display owner *instead of* `xuid`/`xdemo` |
 | `LAZYOS_XUI_CLIENT=1` | `xui_client` | (with the two above) boots `xuid` plus `XAPP.ELF` as a compositor client; no `xdemo` |
+| `LAZYOS_XUI_APPS=<paths>` | `xui_desktop` | (with `LAZYOS_XUID=1` + `LAZYOS_XUI_CLIENT=1`) the desktop session: the kernel boots only `xuid`; `init` (`LAZYOS_SERVICES=1`) opens the embedded apps as clients, so several run side by side. `LAZYOS_XUI_AUTOSTART=term,sysmon` picks which (default all, `none` disables) |
 
 **Invariants / decisions**
 

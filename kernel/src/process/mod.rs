@@ -107,6 +107,7 @@ use crate::user_ptr;
 use crate::{fs, input::keyboard, mem};
 
 pub mod linux;
+pub mod spawn_line;
 
 /// Base of the user heap (grows up toward the stack).
 pub const USER_HEAP_BASE: u64 = 0x60_0000;
@@ -422,19 +423,23 @@ fn spawn_program(cmdline_ptr: u64, cred: Option<Cred>) -> i64 {
     let Ok(line) = user_cstr(cmdline_ptr) else {
         return -EFAULT;
     };
-    let line = line.trim();
-    if line.is_empty() {
+    let Some(spawn_line::SpawnLine { linux, path, args }) = spawn_line::parse(&line) else {
         return -EINVAL;
-    }
-    let (path, args) = match line.split_once(char::is_whitespace) {
-        Some((path, args)) => (path, args.trim()),
-        None => (line, ""),
     };
     let Some(elf) = fs::read(path) else {
         return -ENOENT;
     };
     let name = intern_service_name(path);
-    let slot = match task::spawn_child(name, &elf) {
+    let started = if linux {
+        // argv[0] is the program name; the rest are the whitespace-split args.
+        let argv: Vec<&str> = core::iter::once(path)
+            .chain(args.split_whitespace())
+            .collect();
+        task::spawn_linux_child(name, &elf, &argv)
+    } else {
+        task::spawn_child(name, &elf)
+    };
+    let slot = match started {
         Ok(slot) => slot,
         Err(_) => return -ENOMEM,
     };
