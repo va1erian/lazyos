@@ -183,7 +183,7 @@ impl State {
 
     fn publish_tick(&mut self, unix: i64) -> Result<(), Error> {
         let local = self.local(unix);
-        let payload = api::wire::encode_tick(&api::wire::Tick {
+        let payload = api::wire::encode_tick_args(&api::wire::TickArgs {
             unix,
             offset: local.offset,
             zone_name: String::from(self.zone.name),

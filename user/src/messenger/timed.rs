@@ -94,3 +94,12 @@ impl Client {
         self.call(wire::METHOD_SETTIME, body).map(|_| ())
     }
 }
+
+/// The retained broker topic `timed` publishes each minute. Its payload is the
+/// generated `Tick` method's request encoding ([`wire::encode_tick_args`]).
+pub const TICK_TOPIC: &str = "time/tick";
+
+/// Decode a `time/tick` topic payload.
+pub fn decode_tick(payload: &[u8]) -> Result<wire::TickArgs> {
+    wire::decode_tick_args(payload).map_err(Error::Parcel)
+}

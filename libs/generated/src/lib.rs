@@ -4059,42 +4059,6 @@ pub mod os_lazy_timed_v1 {
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0xc3982ac21906d77;
 
-    /// Payload of the retained `time/tick` topic event.
-    #[derive(Clone, Debug, Default, PartialEq)]
-    pub struct Tick {
-        pub unix: i64,
-        pub offset: i32,
-        pub zone_name: alloc::string::String,
-    }
-
-    pub fn encode_tick(value: &Tick) -> Result<Vec<u8>, Error> {
-        let mut target = Encoder::new();
-        target.i64(1, value.unix)?;
-        target.i32(2, value.offset)?;
-        target.string(3, &value.zone_name)?;
-        Ok(target.finish())
-    }
-
-    pub fn decode_tick(body: &[u8]) -> Result<Tick, Error> {
-        let mut out = Tick::default();
-        let mut decoder = Decoder::new(body);
-        while let Some(field) = decoder.next()? {
-            match field.id {
-                1 => {
-                    out.unix = field.as_i64()?;
-                }
-                2 => {
-                    out.offset = field.as_i32()?;
-                }
-                3 => {
-                    out.zone_name = field.as_str()?.into();
-                }
-                _ => {}
-            }
-        }
-        Ok(out)
-    }
-
     /// `Now` method id.
     pub const METHOD_NOW: u32 = 188597655;
     /// `GetZone` method id.
@@ -4103,6 +4067,8 @@ pub mod os_lazy_timed_v1 {
     pub const METHOD_SETZONE: u32 = 1574816713;
     /// `SetTime` method id.
     pub const METHOD_SETTIME: u32 = 670376986;
+    /// `Tick` method id.
+    pub const METHOD_TICK: u32 = 1;
 
     /// The current instant and its local-time parameters.
     #[derive(Clone, Debug, Default, PartialEq)]
@@ -4211,6 +4177,46 @@ pub mod os_lazy_timed_v1 {
         while let Some(field) = decoder.next()? {
             if field.id == 1 {
                 out.unix_secs = field.as_i64()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Schema of the retained `time/tick` broker topic, published each minute
+    /// (and on any zone or clock change): the topic payload is this method's
+    /// request encoding (`encode_tick_args`). It is never sent as a direct
+    /// call. `unix` is UTC seconds, `offset` the local offset in seconds with
+    /// DST included, `zone_name` the zone (`Europe/Paris`).
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct TickArgs {
+        pub unix: i64,
+        pub offset: i32,
+        pub zone_name: alloc::string::String,
+    }
+
+    pub fn encode_tick_args(value: &TickArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.i64(1, value.unix)?;
+        target.i32(2, value.offset)?;
+        target.string(3, &value.zone_name)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_tick_args(body: &[u8]) -> Result<TickArgs, Error> {
+        let mut out = TickArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.unix = field.as_i64()?;
+                }
+                2 => {
+                    out.offset = field.as_i32()?;
+                }
+                3 => {
+                    out.zone_name = field.as_str()?.into();
+                }
+                _ => {}
             }
         }
         Ok(out)

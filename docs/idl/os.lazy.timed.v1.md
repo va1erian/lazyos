@@ -19,9 +19,4 @@ reply.
 | GetZone | 697211125 | sync | `() -> (name: String)` |
 | SetZone | 1574816713 | sync | `(name: String) -> ()` |
 | SetTime | 670376986 | sync | `(unix_secs: I64) -> ()` |
-
-## struct `Tick`
-
-- `unix: I64`
-- `offset: I32`
-- `zone_name: String`
+| Tick | 1 | oneway | `(unix: I64, offset: I32, zone_name: String) -> ()` |

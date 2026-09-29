@@ -455,6 +455,11 @@
         "name": "SetTime",
         "id": 670376986,
         "oneway": false
+      },
+      {
+        "name": "Tick",
+        "id": 1,
+        "oneway": true
       }
     ]
   },

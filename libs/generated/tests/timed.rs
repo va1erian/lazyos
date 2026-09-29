@@ -23,13 +23,13 @@ fn now_reply_roundtrips_signed_offsets() {
 
 #[test]
 fn tick_roundtrips() {
-    let tick = Tick {
+    let tick = TickArgs {
         unix: 1_790_714_400,
         offset: 19_800,
         zone_name: String::from("Asia/Kolkata"),
     };
-    let body = encode_tick(&tick).unwrap();
-    assert_eq!(decode_tick(&body).unwrap(), tick);
+    let body = encode_tick_args(&tick).unwrap();
+    assert_eq!(decode_tick_args(&body).unwrap(), tick);
 }
 
 #[test]
