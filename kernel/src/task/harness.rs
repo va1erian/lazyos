@@ -133,6 +133,14 @@ pub fn simulate_tick() -> usize {
     next
 }
 
+/// Run the per-entry bookkeeping of a scheduler gate for the current task
+/// (`tick` selects the PIT gate, otherwise the voluntary gate), without a
+/// selection or a context switch (issue #338).
+pub fn on_entry(tick: bool) {
+    let mut tasks = TASKS.lock();
+    super::on_entry(&mut tasks, super::current(), tick);
+}
+
 /// The PML4 physical address of task `index`.
 pub fn pml4(index: usize) -> Option<u64> {
     TASKS.lock()[index].as_ref().map(|task| task.pml4)

@@ -4,15 +4,17 @@
 //! holds or a timeout expires" — so that shape lives here once:
 //!
 //! * a waiter registers on a [`WaitQueue`], marks its task `Blocked`, and
-//!   yields the CPU through the timer gate. The switch saves a normal
-//!   interrupt frame, so another task runs while the waiter sleeps and the
-//!   syscall's kernel stack is restored untouched when the waiter is picked
-//!   again;
+//!   yields the CPU through the voluntary-reschedule gate
+//!   ([`super::switch::yield_now`]). The switch saves a normal interrupt
+//!   frame (the same layout as a timer tick), so another task runs while the
+//!   waiter sleeps and the syscall's kernel stack is restored untouched when
+//!   the waiter is picked again. A park is not a tick: it neither advances
+//!   the clock nor charges CPU time (issue #338);
 //! * [`WaitQueue::notify_one`] / [`WaitQueue::notify_all`] move waiters back to
 //!   `Runnable` synchronously and record [`super::WakeReason::Woken`]. The
 //!   scheduler only ever picks `Runnable` tasks, so the wake takes effect
 //!   without waiting for a timer tick;
-//! * the timer ISR sweeps expired deadlines (`task::expire_deadlines`) and
+//! * every scheduler entry (tick or park) sweeps expired deadlines (`task::expire_deadlines`) and
 //!   marks those waiters `TimedOut`, so a parked task can never outlive its
 //!   deadline even if nothing notifies its queue.
 //!
@@ -90,11 +92,10 @@ impl WaitQueue {
     /// woke it (deadline sweep) rather than a tick later.
     pub fn wait(&self, task: usize, deadline: Option<u64>) -> WakeReason {
         self.park(task, deadline);
-        // Enter the scheduler through the timer gate: the saved context is a
-        // regular interrupt frame, so resuming later lands right here with the
-        // blocking syscall's stack still intact.
-        // Safety: vector 32 is the timer gate installed by `arch::idt::init`.
-        unsafe { x86_64::instructions::interrupts::software_interrupt::<32>() };
+        // Enter the scheduler through the voluntary gate: the saved context is
+        // a regular interrupt frame, so resuming later lands right here with
+        // the blocking syscall's stack still intact.
+        super::switch::yield_now();
         loop {
             if let Some(reason) = take_wake_reason(task) {
                 // The deadline sweep and notifiers leave the waiter enqueued;
@@ -104,8 +105,11 @@ impl WaitQueue {
             }
             // Not woken: sleep until a tick (possibly the deadline sweep) or a
             // notifier makes us runnable again. `enable_and_hlt` closes the
-            // race between the check above and the sleep.
+            // race between the check above and the sleep; interrupts go off
+            // again before the re-check so the caller's contract (and its
+            // next register-then-park) still holds when `wait` returns.
             x86_64::instructions::interrupts::enable_and_hlt();
+            x86_64::instructions::interrupts::disable();
         }
     }
 
