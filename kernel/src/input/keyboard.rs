@@ -208,6 +208,11 @@ fn decode(code: u8, shift: bool) -> Option<Key> {
                 Key::Char(ch)
             });
         }
+        // A character key with nothing on this layer (AltGr+`^`) produces no
+        // key; only non-character keys (Esc, Enter, ...) use the shared table.
+        if layout::is_french_character_key(code) {
+            return None;
+        }
     }
     let key = match code {
         0x01 => Key::Escape,
