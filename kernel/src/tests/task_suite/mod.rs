@@ -71,10 +71,12 @@ fn finish_and_reap_all(slots: &[usize]) -> Result<(), String> {
 mod lifecycle;
 mod process_tree;
 mod wait_queue;
+mod yield_clock;
 
 pub(super) use lifecycle::*;
 pub(super) use process_tree::*;
 pub(super) use wait_queue::*;
+pub(super) use yield_clock::*;
 
 pub(super) const CASES: &[(&str, Test)] = &[
     ("task_kernel_registered", kernel_registered),
@@ -102,6 +104,15 @@ pub(super) const CASES: &[(&str, Test)] = &[
     (
         "task_wait_queue_blocked_not_scheduled",
         wait_queue_blocked_not_scheduled,
+    ),
+    ("task_yield_does_not_tick", yield_does_not_tick),
+    (
+        "task_voluntary_park_expires_deadline",
+        voluntary_park_expires_deadline,
+    ),
+    (
+        "task_voluntary_entry_sweeps_other_deadlines",
+        voluntary_entry_sweeps_other_deadlines,
     ),
     ("task_process_tree_fork", process_tree_fork),
     ("task_pgid_sid_inherit", pgid_sid_inherit),

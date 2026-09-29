@@ -7,7 +7,7 @@
 //!
 //! * [`bind`] creates one screen-sized [`ipc::shared`] buffer, maps it into the
 //!   caller, and returns its handle, address and geometry. The compositor
-//!   writes pixels there directly and calls [`present`] to blit a damage
+//!   writes pixels there directly and calls `present` (op 3) to blit a damage
 //!   rectangle onto the real framebuffer. (Direct scanout of the bootloader
 //!   framebuffer's physical pages is not safe with the current allocator
 //!   teardown path: those frames are outside the usable regions, so
@@ -48,7 +48,6 @@ use core::sync::atomic::{AtomicUsize, Ordering};
 
 use spin::Mutex;
 
-use crate::console;
 use crate::input::keyboard::Key;
 use crate::ipc::{credentials, shared};
 use crate::task;
@@ -56,8 +55,11 @@ use crate::user_ptr;
 
 mod abi;
 mod buffers;
+mod present;
 
 pub use abi::*;
+#[cfg(lazyos_tests)]
+pub use present::damage_rows;
 
 /// Sentinel for "no compositor bound".
 const NO_OWNER: usize = usize::MAX;
@@ -137,7 +139,7 @@ pub fn dispatch(op: u64, a1: u64, a2: u64) -> u64 {
         op::BIND => bind(a1),
         op::UNBIND => unbind(),
         op::INPUT_POLL => input_poll(a1, a2),
-        op::PRESENT => present(a1),
+        op::PRESENT => present::present(a1),
         op::CREATE_BUFFER => buffers::create_buffer(a1, a2),
         op::MAP_BUFFER => buffers::map_buffer(a1, a2),
         op::CLOSE_BUFFER => buffers::close_buffer(a1),
@@ -295,51 +297,6 @@ fn input_poll(ptr: u64, capacity: u64) -> u64 {
     let delivered = count.min(events.len());
     events.drain(..delivered);
     count as u64
-}
-
-/// syscall 12 op 3: blit a damage rectangle from the screen buffer to the real
-/// framebuffer.
-///
-/// `packed` is `x | y << 16 | w << 32 | h << 48` with every field a `u16`; the
-/// rectangle is clamped to the screen. Only the owner may present.
-fn present(packed: u64) -> u64 {
-    let owner = OWNER.load(Ordering::Relaxed);
-    if owner == NO_OWNER || owner != task::current() {
-        return negative(errno::EPERM);
-    }
-    let (x, y) = (
-        (packed & 0xffff) as usize,
-        ((packed >> 16) & 0xffff) as usize,
-    );
-    let (w, h) = (
-        ((packed >> 32) & 0xffff) as usize,
-        ((packed >> 48) & 0xffff) as usize,
-    );
-    let (va, size, width, height) = {
-        let grant = GRANT.lock();
-        let Some(grant) = grant.as_ref() else {
-            return negative(errno::EPERM);
-        };
-        (
-            grant.va,
-            grant.size,
-            grant.width as usize,
-            grant.height as usize,
-        )
-    };
-    if x >= width || y >= height || w == 0 || h == 0 {
-        return 0;
-    }
-    let w = w.min(width - x);
-    let h = h.min(height - y);
-    // The owner's screen buffer is mapped at `va` in the active (caller's)
-    // address space, but the owner can unmap it (a Linux compositor has
-    // `munmap`), so re-validate before the kernel reads it.
-    let Ok(pixels) = user_ptr::try_bytes(va, size as usize) else {
-        return negative(errno::EFAULT);
-    };
-    console::with_framebuffer(|fb| fb.blit_rgba_region(pixels, width, height, x, y, x, y, w, h));
-    0
 }
 
 /// Queue one event; drops the oldest when the queue is full.
