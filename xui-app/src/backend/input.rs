@@ -232,7 +232,10 @@ fn key_char(code: u32) -> Option<char> {
         key::ENTER => Some('\n'),
         key::TAB => Some('\t'),
         key::BACKSPACE => Some('\u{8}'),
-        other if (0x20..=0x7e).contains(&other) => char::from_u32(other),
+        // ASCII plus Latin-1 (the accented letters of non-US layouts).
+        other if (0x20..=0x7e).contains(&other) || (0xa0..=0xff).contains(&other) => {
+            char::from_u32(other)
+        }
         _ => None,
     }
 }

@@ -4,6 +4,7 @@ use alloc::collections::VecDeque;
 use core::sync::atomic::{AtomicBool, Ordering};
 use spin::Mutex;
 
+use super::layout;
 use crate::display;
 
 /// A decoded key event.
@@ -79,6 +80,8 @@ static SHIFT: ModifierPair = ModifierPair::new();
 static CTRL: ModifierPair = ModifierPair::new();
 static ALT: ModifierPair = ModifierPair::new();
 static SUPER: ModifierPair = ModifierPair::new();
+/// Right Alt as AltGr, tracked only while a layout uses it (never forwarded).
+static ALTGR: ModifierPair = ModifierPair::new();
 static EXTENDED: AtomicBool = AtomicBool::new(false);
 
 /// Feed a raw scancode from the i8042 (called from the IRQ1 handler).
@@ -90,6 +93,13 @@ pub fn push_scancode(scancode: u8) {
     let extended = EXTENDED.swap(false, Ordering::SeqCst);
     let released = scancode & 0x80 != 0;
     let code = scancode & 0x7F;
+
+    // With AZERTY, right Alt is AltGr: it selects a character layer and is not
+    // an Alt for the compositor's hotkeys.
+    if extended && code == 0x38 && layout::is_french() {
+        ALTGR.set(true, !released);
+        return;
+    }
 
     // Modifier keys update their tracked per-key state and, while a
     // compositor is bound, are forwarded as modifier key codes only on a real
@@ -189,6 +199,16 @@ fn decode_extended(code: u8) -> Option<Key> {
 }
 
 fn decode(code: u8, shift: bool) -> Option<Key> {
+    if layout::is_french() {
+        if let Some(ch) = layout::french(code, shift, ALTGR.right.load(Ordering::SeqCst)) {
+            // Letters keep their Shift and Ctrl behaviour; symbols are final.
+            return Some(if ch.is_ascii_lowercase() {
+                letter(shift, ch)
+            } else {
+                Key::Char(ch)
+            });
+        }
+    }
     let key = match code {
         0x01 => Key::Escape,
         0x0E => Key::Backspace,
@@ -278,6 +298,13 @@ pub fn reset() {
     CTRL.reset();
     ALT.reset();
     SUPER.reset();
+    ALTGR.reset();
     EXTENDED.store(false, Ordering::SeqCst);
     QUEUE.lock().clear();
+}
+
+/// Test-harness hook: decode `code` under the current layout and modifiers.
+#[cfg(lazyos_tests)]
+pub fn decode_for_test(code: u8, shift: bool) -> Option<Key> {
+    decode(code, shift)
 }

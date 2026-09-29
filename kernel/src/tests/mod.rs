@@ -137,6 +137,7 @@ mod heap_suite;
 mod ipc_channel_suite;
 mod ipc_shared_suite;
 mod ipc_suite;
+mod keyboard_suite;
 mod linux_suite;
 mod loader_suite;
 mod mem_suite;
@@ -180,6 +181,7 @@ const SUITE: &[&[(&str, Test)]] = &[
     crypto_suite::CASES,
     messenger_suite::CASES,
     stats_suite::CASES,
+    keyboard_suite::CASES,
     registry_suite::CASES,
     confd_suite::CASES,
     block_suite::CASES,

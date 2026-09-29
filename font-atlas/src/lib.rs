@@ -1,6 +1,6 @@
 //! Build-time glyph atlas generator.
 //!
-//! Rasterizes the printable ASCII range of a real monospace font into 8-bit
+//! Rasterizes the printable ASCII and Latin-1 ranges of a real monospace font into 8-bit
 //! anti-aliased coverage bitmaps, plus the metrics needed to place them on a
 //! baseline. The result is embedded into the kernel by `kernel/build.rs`.
 
@@ -8,8 +8,8 @@ use fontdue::{Font, FontSettings};
 
 /// First character included in the atlas (`' '`).
 pub const FIRST_CHAR: u8 = 0x20;
-/// Last character included in the atlas (`'~'`).
-pub const LAST_CHAR: u8 = 0x7E;
+/// Last character included in the atlas (U+00FF): ASCII plus Latin-1.
+pub const LAST_CHAR: u8 = 0xFF;
 
 /// Per-glyph layout and location in the coverage buffer.
 #[derive(Clone, Copy, Debug)]
@@ -56,8 +56,13 @@ pub fn build(font_bytes: &[u8], px: f32) -> Atlas {
     let mut coverage = Vec::new();
 
     for code in FIRST_CHAR..=LAST_CHAR {
-        let ch = code as char;
-        let (metrics, bitmap) = font.rasterize(ch, px);
+        // DEL and the C1 controls have no glyph; keep their slots (indexing is
+        // `code - FIRST_CHAR`) but draw nothing rather than a .notdef box.
+        let (metrics, bitmap) = if (0x7F..=0x9F).contains(&code) {
+            (fontdue::Metrics::default(), Vec::new())
+        } else {
+            font.rasterize(code as char, px)
+        };
         let offset = coverage.len() as u32;
         // The bitmap is top-left origin; `ymin` is the offset (positive up) of
         // the bitmap's bottom edge from the baseline. Convert to a y-down
