@@ -55,6 +55,10 @@ pub(crate) enum Scope {
 }
 
 /// Classifies a path that has already passed [`validate_path`].
+///
+/// The owner segment is parsed as a `u32`, so its spelling is not canonical:
+/// `user/0100` and `user/100` both name uid 100, as distinct keys. That is
+/// harmless because both are owned by the same uid either way.
 pub(crate) fn scope(path: &str) -> Scope {
     if path == "sys" || path.starts_with("sys/") {
         return Scope::System;
@@ -101,6 +105,9 @@ mod tests {
         assert_eq!(scope("user"), Scope::Unclaimed);
         assert_eq!(scope("user/alice/x"), Scope::Unclaimed);
         assert_eq!(scope("user/4294967296"), Scope::Unclaimed);
+        // The owner segment is numeric, not textual: different spellings of
+        // the same number name the same owner.
+        assert_eq!(scope("user/0100"), Scope::User(100));
     }
 
     #[test]

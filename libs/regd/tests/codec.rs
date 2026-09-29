@@ -180,17 +180,29 @@ fn total_size_limit_is_rechecked_from_the_wire() {
 }
 
 #[test]
-fn mutated_input_never_panics_and_reencodes_stably() {
-    let base = encode(&sample_store());
+fn max_length_path_is_accepted_from_the_wire() {
+    let path = format!("sys/{}", "a".repeat(MAX_PATH_LEN - 4));
+    assert_eq!(path.len(), MAX_PATH_LEN);
+    let store = decode(&envelope(&raw_entry(path.as_bytes(), 0, &[1]))).unwrap();
+    assert_eq!(store.get(&path, ROOT).unwrap(), Some(&Value::Bool(true)));
+}
+
+#[test]
+fn mutated_body_with_valid_crc_never_panics_and_reencodes_stably() {
+    // Strip the magic and CRC and re-wrap each mutation with a fresh
+    // checksum, so the parser — not the CRC — is what has to reject it; the
+    // header/trailer bytes themselves are covered by the corruption test.
+    let encoded = encode(&sample_store());
+    let body = &encoded[4..encoded.len() - 4];
     let mut rng = SplitMix64::new(0x5EED);
     for _ in 0..20_000 {
-        let mut data = base.clone();
+        let mut mutated = body.to_vec();
         let flips = 1 + rng.below(4) as usize;
         for _ in 0..flips {
-            let index = rng.below(data.len() as u64) as usize;
-            data[index] ^= (1 << rng.below(8)) as u8;
+            let index = rng.below(mutated.len() as u64) as usize;
+            mutated[index] ^= (1 << rng.below(8)) as u8;
         }
-        if let Ok(store) = decode(&data) {
+        if let Ok(store) = decode(&envelope(&mutated)) {
             let reencoded = encode(&store);
             assert_eq!(decode(&reencoded).unwrap(), store);
         }

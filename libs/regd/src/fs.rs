@@ -52,6 +52,11 @@ pub trait StoreFs {
 /// [`STORE_FILE`]. A crash between any two steps leaves the old file in
 /// place; the rename itself is atomic, so the visible store is always one
 /// complete image.
+///
+/// The directory entry left by the rename is not itself fsynced (the trait
+/// has no directory operation), so a power loss immediately after a rename
+/// can still revert to the previous store — which is exactly the old-or-new
+/// guarantee, not a torn one.
 pub fn persist<F: StoreFs>(fs: &mut F, store: &Store) -> Result<(), F::Error> {
     let bytes = encode(store);
     fs.write_file(TMP_FILE, &bytes)?;

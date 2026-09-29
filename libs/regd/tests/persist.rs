@@ -91,6 +91,15 @@ fn load_propagates_filesystem_errors() {
     fs.fail_renames();
     assert!(load(&mut fs).is_err());
     assert_eq!(fs.file(STORE_FILE), Some(b"junk".as_slice()));
+
+    // The leftover temporary file is still cleared before the error surfaces.
+    let mut fs = MemoryFs::new();
+    fs.put(TMP_FILE, b"half");
+    fs.put(STORE_FILE, b"junk");
+    fs.fail_renames();
+    assert!(load(&mut fs).is_err());
+    assert_eq!(fs.file(TMP_FILE), None);
+    assert_eq!(fs.file(STORE_FILE), Some(b"junk".as_slice()));
 }
 
 #[test]
@@ -148,6 +157,30 @@ fn crash_at_every_persist_step_leaves_old_or_new_store() {
                 assert!(outcome.is_err(), "fuel={fuel} should fail");
                 assert_eq!(loaded, old, "fuel={fuel} must keep the old store");
             }
+        }
+    }
+}
+
+#[test]
+fn crash_during_the_first_persist_leaves_empty_or_new() {
+    let new = new_store();
+    let mut completed = MemoryFs::new();
+    persist(&mut completed, &new).unwrap();
+    let steps = completed.ops();
+
+    for fuel in 0..=steps {
+        for partial in [false, true] {
+            let mut fs = MemoryFs::new();
+            fs.partial_writes(partial);
+            fs.arm(fuel);
+            let _ = persist(&mut fs, &new);
+            fs.disarm();
+
+            let loaded = load(&mut fs).unwrap();
+            assert!(
+                loaded == Store::new() || loaded == new,
+                "fuel={fuel} partial={partial} yielded a torn store"
+            );
         }
     }
 }
