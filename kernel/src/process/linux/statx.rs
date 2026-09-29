@@ -7,12 +7,10 @@
 //! `AT_NO_AUTOMOUNT` change nothing, and the `AT_STATX_*` sync hints are
 //! accepted and ignored because every answer is already current.
 
-use alloc::string::String;
+use crate::user_ptr;
 
-use crate::user_ptr::{self, CStrError};
-
-use super::errno::{err, EFAULT, EINVAL, ENAMETOOLONG, ENOENT};
-use super::path::{resolve_at, AT_FDCWD};
+use super::cwd::{read_path, resolve_at, AT_FDCWD};
+use super::errno::{err, EFAULT, EINVAL, ENOENT};
 use super::stat::{fd_attrs, path_attrs, Attrs};
 
 // `flags` bits (Linux x86_64 values).
@@ -52,7 +50,6 @@ const STATX_SUPPORTED: u32 = STATX_TYPE
     | STATX_BLOCKS;
 
 /// Longest path accepted, as for the other path syscalls.
-const PATH_MAX: usize = 4096;
 /// Size of `struct statx`; the tail past the fields below is reserved zeros.
 const STATX_SIZE_BYTES: usize = 256;
 
@@ -78,33 +75,21 @@ pub(super) fn sys_statx(dirfd: u64, path: u64, flags: u64, mask: u64, buf: u64) 
 }
 
 /// The attributes `(dirfd, path)` names. An empty path names `dirfd` itself
-/// when `AT_EMPTY_PATH` is set (and the current directory, the root, for
+/// when `AT_EMPTY_PATH` is set (and the working directory for
 /// `AT_FDCWD`).
-fn lookup(dirfd: u64, path: u64, flags: u64) -> Result<Attrs, u64> {
+pub(super) fn lookup(dirfd: u64, path: u64, flags: u64) -> Result<Attrs, u64> {
     let path = read_path(path)?;
     if path.is_empty() {
         if flags & AT_EMPTY_PATH == 0 {
             return Err(err(ENOENT));
         }
         return if dirfd == AT_FDCWD {
-            path_attrs("/")
+            path_attrs(&resolve_at(AT_FDCWD, "")?)
         } else {
             fd_attrs(dirfd)
         };
     }
-    // `resolve_at` reports a bare errno; the ABI wants it negated.
-    path_attrs(&resolve_at(dirfd, &path).map_err(err)?)
-}
-
-/// Read the user path: unreadable memory is `-EFAULT`, a path with no NUL in
-/// `PATH_MAX` bytes `-ENAMETOOLONG`, and one that is not UTF-8 names nothing
-/// (`-ENOENT`), as no file here can have such a name.
-fn read_path(ptr: u64) -> Result<String, u64> {
-    match user_ptr::try_cstr(ptr, PATH_MAX) {
-        Ok(bytes) => String::from_utf8(bytes).map_err(|_| err(ENOENT)),
-        Err(CStrError::Fault) => Err(err(EFAULT)),
-        Err(CStrError::Unterminated) => Err(err(ENAMETOOLONG)),
-    }
+    path_attrs(&resolve_at(dirfd, &path)?)
 }
 
 /// Lay `attrs` out as a `struct statx`.

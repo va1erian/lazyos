@@ -11,6 +11,7 @@ pub(super) const ESRCH: u64 = 3;
 pub(super) const E2BIG: u64 = 7;
 pub(super) const ENOSYS: u64 = 38;
 pub(super) const ENOMEM: u64 = 12;
+pub(super) const ERANGE: u64 = 34;
 pub(super) const EINVAL: u64 = 22;
 pub(super) const ENODEV: u64 = 19;
 pub(super) const ENOTTY: u64 = 25;

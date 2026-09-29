@@ -38,6 +38,7 @@ NAMES = [
     "unixstress",
     "persist",
     "statxio",
+    "cwd",
 ]
 
 

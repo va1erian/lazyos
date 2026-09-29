@@ -14,6 +14,8 @@ use super::*;
 use crate::ipc::credentials::{self, Cred};
 
 mod attrs;
+mod cwd;
+mod cwd_paths;
 mod inspect;
 mod io;
 mod names;
@@ -144,6 +146,44 @@ pub(in crate::tests) const CASES: &[(&str, Test)] = &[
         attrs::attrs_survive_remount,
     ),
     ("linux_data_soak_attr_churn", soak::attr_churn),
+    // The per-task working directory (issue #365).
+    ("linux_cwd_roundtrip", cwd::chdir_getcwd_roundtrip),
+    ("linux_cwd_dot_and_dotdot", cwd::dot_and_dotdot_fold),
+    ("linux_cwd_chdir_errors", cwd::chdir_errors_leave_the_cwd),
+    (
+        "linux_cwd_search_permission",
+        cwd::chdir_needs_search_permission,
+    ),
+    ("linux_cwd_fchdir", cwd::fchdir_directory_descriptors),
+    (
+        "linux_cwd_getcwd_bounds_and_pointers",
+        cwd::getcwd_bounds_and_hostile_pointers,
+    ),
+    ("linux_cwd_removed", cwd::removed_cwd),
+    (
+        "linux_cwd_proc_self_cwd",
+        cwd::proc_self_cwd_reports_the_cwd,
+    ),
+    (
+        "linux_cwd_relative_paths_both_mounts",
+        cwd_paths::relative_paths_on_both_mounts,
+    ),
+    (
+        "linux_cwd_dirfd_ignores_cwd",
+        cwd_paths::dirfd_names_ignore_the_cwd,
+    ),
+    (
+        "linux_cwd_fork_inherits",
+        cwd_paths::fork_inherits_and_isolates,
+    ),
+    (
+        "linux_cwd_execve_relative",
+        cwd_paths::execve_resolves_relative_names,
+    ),
+    (
+        "linux_cwd_soak_fork_chdir_io",
+        cwd_paths::soak_fork_chdir_relative_io,
+    ),
 ];
 
 // Linux numbers and flags the tests spell out.
@@ -383,6 +423,8 @@ impl Drop for Data {
             let _ = task::fd_close(fd);
         }
         credentials::set(task::current(), Cred::ROOT);
+        // Tests move the kernel task around; later suites expect the root.
+        task::set_cwd("/");
         self.disk.set_read_only(false);
         crate::fs::restore_abi_for_test(self.previous.take());
     }

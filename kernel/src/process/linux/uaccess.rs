@@ -1,30 +1,11 @@
-//! Small user-memory helpers reused by several syscall families: reading a
-//! NUL-terminated string, and single-value reads/writes narrower than a full
-//! `struct` (`fill_stat` and friends validate and write whole structs
-//! themselves; this is for the one-word cases). [`fill_random`] lives here
-//! too since both the ELF start-stack (`AT_RANDOM`) and `getrandom(2)` need
-//! the kernel CSPRNG.
-
-use alloc::string::String;
+//! Small user-memory helpers reused by several syscall families:
+//! single-value reads/writes narrower than a full `struct` (`fill_stat` and
+//! friends validate and write whole structs themselves; this is for the
+//! one-word cases). [`fill_random`] lives here too since both the ELF
+//! start-stack (`AT_RANDOM`) and `getrandom(2)` need the kernel CSPRNG. Path
+//! strings are read by [`super::cwd::read_path`].
 
 use crate::user_ptr;
-
-/// Read a NUL-terminated user string (bounded).
-pub(super) fn read_cstr(ptr: u64) -> Option<String> {
-    if ptr == 0 {
-        return None;
-    }
-    let mut out = String::new();
-    for i in 0..4096u64 {
-        // Safety: user memory up to the NUL terminator (the syscall ABI's contract).
-        let byte = unsafe { user_ptr::read::<u8>(ptr + i) };
-        if byte == 0 {
-            break;
-        }
-        out.push(byte as char);
-    }
-    Some(out)
-}
 
 pub(super) fn write_u64(addr: u64, value: u64) {
     // Safety: caller ensures the address is valid user memory (the syscall

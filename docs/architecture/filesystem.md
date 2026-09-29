@@ -21,8 +21,9 @@ an in-memory ramfs mounted at `/tmp`.
 **VFS semantics** (`vfs.rs`, issue #98)
 
 - The resolver is **symlink-free**: a path is just directory entries. `Path`
-  folds `.`/`..` lexically and clamps `..` at the root; relative paths resolve
-  from `/` (no per-task cwd yet; `chdir` is a no-op).
+  folds `.`/`..` lexically and clamps `..` at the root. The VFS itself always
+  resolves from `/`: relative names are made absolute one layer up, against the
+  per-task working directory (see "Working directory" below).
 - Mounts are `(point, Filesystem)`; resolution picks the **longest** mount-point
   prefix, so `/tmp/notes` lands in ramfs while `/tmp2` stays on the root volume.
 - Every entry point takes an `Id { uid, gid }` from
@@ -132,6 +133,46 @@ covers direct, single, double and triple indirect blocks with one generic path
 walk; files are capped at 2 GiB - 1 (32-bit `i_size`), a write straddling the cap
 is short and one past it answers `NoSpace`. Directories still use only direct and
 single-indirect blocks.
+
+**Working directory** (`process/linux/cwd.rs`, `task/cwd.rs`, issue #365)
+
+Each task has a working directory: an absolute, normalized string in
+`Task::cwd` (`None` is `/`, so a task that never `chdir`s allocates nothing;
+the string is an `Arc<str>`, so `fork` is a reference-count bump). It is
+inherited by `fork`/`vfork` and by threads, kept across `execve` (the task is
+the same one) and freed with the task; kernel-started programs begin at `/`.
+
+`cwd::resolve_at(dirfd, path)` is the **one resolver** every path-taking Linux
+syscall goes through (`open*`, `stat`/`newfstatat`/`statx`, `chmod`/`chown`/
+`utimensat` and friends, `mkdir*`/`rmdir`/`unlink*`/`rename*`, `access`,
+`truncate`, `statfs`, `readlink`, `chdir`, `execve`): an absolute path ignores
+`dirfd`; a relative one joins onto the cwd (`AT_FDCWD`) or onto the directory
+the descriptor was opened on, and the result is folded lexically (`.`/`..`,
+`..` clamped at `/`) and bounded by `PATH_MAX` (`ENAMETOOLONG`). The VFS below
+only ever sees absolute paths. `cwd::read_path` is the matching reader for the
+user string (`EFAULT`/`ENAMETOOLONG`).
+
+- `chdir`/`fchdir`: the target must exist (`ENOENT`), be a directory
+  (`ENOTDIR`) and pass the caller's *search* permission (`EACCES`, on the
+  target and every ancestor); `fchdir` takes a directory descriptor (`EBADF`
+  for a closed one, `ENOTDIR` for anything else). A failure leaves the cwd
+  alone.
+- `getcwd` returns the byte count including the NUL (the raw syscall's
+  contract), `ERANGE` when the buffer is too small, `EFAULT` for a bad buffer.
+  `/proc/self/cwd` (`readlink`) reports the same string.
+- **A removed cwd.** Nothing pins the directory, so `rmdir` of somebody's cwd
+  succeeds (`rmdir(".")` itself is `EINVAL`). Afterwards `getcwd` is `ENOENT`
+  and every relative lookup fails with `ENOENT` because the absolute path no
+  longer exists; `chdir` to an absolute path recovers. Because the cwd is a
+  path rather than an inode, a directory re-created under the same name is the
+  cwd again, and `chdir("..")` from a removed directory goes to the lexical
+  parent (Linux answers `ENOENT`). Today only `/tmp` and the overlay root can
+  lose a directory: ext2 has no `rmdir` yet (`ENOSYS`).
+- Lexical folding means `a/..` never checks that `a` exists or is a directory
+  (there are no symlinks, so this differs from POSIX only for that case).
+- A directory descriptor inherited across `fork` has no side-table entry yet
+  (`fd.rs`), so `fchdir` and descriptor-relative names on it are `EBADF` in the
+  child; opening the directory again works.
 
 **Two mount tables** (`mod.rs`, issue #136)
 
@@ -269,5 +310,5 @@ files, synced on shutdown, and Linux descriptors that read and write it in place
 (`fs_ext2_*` over a `FakeDisk`) holds the correctness, crash-ordering and soak
 coverage; a session has `/data` when a second block device carries ext2, which
 `tools/run_demo.py` attaches by default (`target/data.img`, see the data volume
-section above). Open: symlinks, cross-mount rename, per-process
-cwd, page cache, and overlay persistence to the writable volume.
+section above). Open: symlinks, cross-mount rename, page cache, and overlay
+persistence to the writable volume.

@@ -68,4 +68,4 @@ present, plus the Linux `mmap`/`brk`/`mprotect`/`munmap` paths built on it.
 - `munmap`/`mprotect`/fault resolution all agree because they share this list.
 
 **Status.** Working: COW fork, demand-zero, split/merge/protect, `mmap`/`brk`.
-Missing: file-backed demand paging, `mremap`, shared mappings, per-process cwd.
+Missing: file-backed demand paging, `mremap`, shared mappings.

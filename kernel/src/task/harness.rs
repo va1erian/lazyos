@@ -64,6 +64,17 @@ pub fn switch_current(slot: usize) {
     super::CURRENT.store(slot, core::sync::atomic::Ordering::Relaxed);
 }
 
+/// How many tasks hold the working-directory string of `slot` (its own
+/// reference included); 0 while the task is still at the implicit root.
+/// Lets a test prove that `fork` shares the string and that a task's exit or
+/// its own `chdir` lets go of it.
+pub fn cwd_holders(slot: usize) -> usize {
+    TASKS.lock()[slot]
+        .as_ref()
+        .and_then(|task| task.cwd.as_ref())
+        .map_or(0, alloc::sync::Arc::strong_count)
+}
+
 /// The state of task `index`.
 pub fn state(index: usize) -> Option<TaskState> {
     TASKS.lock()[index].as_ref().map(|task| task.state)

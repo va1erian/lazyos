@@ -140,16 +140,16 @@ pub fn proc_mounts_reports_a_read_only_volume() -> Result<(), String> {
 
 /// One decoded directory record.
 #[derive(Debug, PartialEq)]
-struct Dirent {
+pub(super) struct Dirent {
     ino: u64,
     off: u64,
     reclen: usize,
     kind: u8,
-    name: String,
+    pub(super) name: String,
 }
 
 /// Decode a `linux_dirent64` (`legacy == false`) or `linux_dirent` stream.
-fn parse(bytes: &[u8], legacy: bool) -> Result<Vec<Dirent>, String> {
+pub(super) fn parse(bytes: &[u8], legacy: bool) -> Result<Vec<Dirent>, String> {
     let mut entries = Vec::new();
     let mut at = 0;
     while at < bytes.len() {
@@ -184,7 +184,7 @@ fn parse(bytes: &[u8], legacy: bool) -> Result<Vec<Dirent>, String> {
 
 /// One `getdents`/`getdents64` call with a `count`-byte buffer: the bytes on
 /// success, the raw return on error.
-fn dents(nr: u64, fd: u64, count: usize) -> Result<Vec<u8>, u64> {
+pub(super) fn dents(nr: u64, fd: u64, count: usize) -> Result<Vec<u8>, u64> {
     let mut buf = vec![0xEEu8; count];
     let got = syscall(nr, fd, buf.as_mut_ptr() as u64, count as u64, 0);
     if got > count as u64 {

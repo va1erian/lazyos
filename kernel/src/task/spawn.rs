@@ -28,6 +28,7 @@ pub fn register_kernel() {
         fs_base: 0,
         fds: new_fds(),
         fd_flags: [0; FD_COUNT],
+        cwd: None,
         output: Vec::new(),
         input: VecDeque::new(),
     });
@@ -191,6 +192,7 @@ pub(super) fn spawn_native(
         fs_base: 0,
         fds,
         fd_flags: [0; FD_COUNT],
+        cwd: None,
         output: Vec::new(),
         input: VecDeque::new(),
     });
@@ -226,6 +228,8 @@ pub fn spawn_thread(
     // Threads inherit their creator's scheduling class and weight, like
     // Linux threads share a nice value.
     let (class, weight) = (parent.class, parent.weight);
+    // A thread starts in its creator's directory (later `chdir`s are per task).
+    let cwd = parent.cwd.clone();
     let context = crate::arch::linux::user_context();
 
     let top = kstack_top(index);
@@ -255,6 +259,7 @@ pub fn spawn_thread(
         fs_base,
         fds: new_fds(),
         fd_flags: [0; FD_COUNT],
+        cwd,
         output: Vec::new(),
         input: VecDeque::new(),
     });
@@ -310,6 +315,9 @@ pub(super) fn spawn_fork_inner(user_rsp: Option<u64>) -> Result<usize, &'static 
     // `fork` inherits the parent's `FD_CLOEXEC` flags (they are per-descriptor,
     // and `execve` in the child closes whatever they mark).
     let fd_flags = parent.fd_flags;
+    // ...and the working directory: the child gets its own reference, so a
+    // `chdir` in either process never moves the other.
+    let cwd = parent.cwd.clone();
     let pass = virtual_now(&tasks);
 
     // `fork` is only valid inside a user address space: the kernel task's table
@@ -354,6 +362,7 @@ pub(super) fn spawn_fork_inner(user_rsp: Option<u64>) -> Result<usize, &'static 
         fs_base,
         fds,
         fd_flags,
+        cwd,
         output: Vec::new(),
         input: VecDeque::new(),
     });

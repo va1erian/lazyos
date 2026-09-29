@@ -10,16 +10,17 @@ use crate::fs::vfs::{FsError, Id, StatFs};
 use crate::task::{self, FdKind};
 use crate::user_ptr;
 
+use super::cwd::{user_path, AT_FDCWD};
 use super::errno::{err, fs_err, EBADF, EFAULT, EINVAL, ENOMEM};
 use super::fd::{fd_meta_get, fd_meta_sync_len};
 use super::path::synthetic_meta;
-use super::uaccess::read_cstr;
 use super::vfsfd;
 
 /// `truncate(path, length)`: works on any mount; the VFS checks write access.
 pub(super) fn sys_truncate(path: u64, length: u64) -> u64 {
-    let Some(path) = read_cstr(path) else {
-        return err(EINVAL);
+    let path = match user_path(AT_FDCWD, path) {
+        Ok(path) => path,
+        Err(code) => return code,
     };
     if (length as i64) < 0 {
         return err(EINVAL);
@@ -113,8 +114,9 @@ pub(super) fn sys_sync() -> u64 {
 
 /// `statfs(path, buf)`.
 pub(super) fn sys_statfs(path: u64, buf: u64) -> u64 {
-    let Some(path) = read_cstr(path) else {
-        return err(EINVAL);
+    let path = match user_path(AT_FDCWD, path) {
+        Ok(path) => path,
+        Err(code) => return code,
     };
     let id = Id::current();
     let found = match crate::fs::abi_statfs(id, &path) {
