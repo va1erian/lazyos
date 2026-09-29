@@ -44,7 +44,7 @@ mod time;
 mod uaccess;
 
 pub use elf::load;
-pub(crate) use native::write_redirected;
+pub(crate) use native::{read_redirected, write_redirected};
 // Only the `#[cfg(lazyos_tests)]` harness (`kernel/src/tests.rs`) reaches this
 // through the `process::linux::` path; a normal build never does, hence the
 // otherwise-unused-import warning this silences.

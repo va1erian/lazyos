@@ -148,9 +148,11 @@ Output: native `write` follows descriptor 1 when it is not the terminal
 work for native *output*, both at the console and in the desktop Terminal (whose
 stdout is a pipe). Limits, all by design of the minimum viable version:
 
-- native *input* is still the terminal key queue (`read_char`): a native program
-  cannot read a pipe or file on stdin, and there is no stderr (everything is
-  descriptor 1);
+- native *input* follows descriptor 0 when it is not the terminal: `read_char`
+  returns one byte of the shell's stdin pipe or file (the desktop Terminal's
+  keystrokes arrive that way), and a newline at end of input so a line reader
+  ends instead of hanging. Only `read_char` reads it (no stderr; everything
+  is descriptor 1);
 - arguments are one whitespace-split string, so an argument that contains spaces
   is split; there is no environment;
 - there is no controlling tty and no job control, so `^C` is not delivered to

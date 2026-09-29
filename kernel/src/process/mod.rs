@@ -172,6 +172,11 @@ fn sys_write(ptr: u64, len: u64) -> u64 {
 
 /// syscall 2: block until a key is routed to this task, then return its code.
 fn sys_read_char() -> u64 {
+    // A program a shell `execve`d reads the shell's stdin when it is a pipe or
+    // file, not the kernel key queue (issue #315).
+    if let Some(byte) = linux::read_redirected() {
+        return byte;
+    }
     loop {
         if let Some(key) = task::take_key() {
             return match key {

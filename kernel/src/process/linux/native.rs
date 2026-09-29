@@ -17,7 +17,9 @@
 //! child inherits the caller's descriptor table (minus `FD_CLOEXEC` entries)
 //! and native `write` follows descriptor 1 when it is not the terminal
 //! (`process::sys_write`), so redirections and pipes of native *output* work;
-//! native *input* (`read_char`) still reads the terminal queue only, and
+//! native *input* (`read_char`) follows descriptor 0 the same way
+//! (`process::sys_read_char`), so the desktop Terminal's keystrokes, which
+//! arrive on `sh`'s stdin pipe, reach the program; and
 //! arguments reach the program as one whitespace-split string (syscall 9), so
 //! an argument containing spaces is split.
 //!
@@ -30,6 +32,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use crate::fs::vfs::{self, FsError, Id};
+use crate::ipc::pipe;
 use crate::task::signal::{self, SigInfo};
 use crate::task::{self, FdKind, SpawnError, WakeReason};
 
@@ -213,4 +216,43 @@ pub(crate) fn write_redirected(ptr: u64, len: u64) -> Option<u64> {
         done += result as u64;
     }
     Some(done)
+}
+
+/// The byte a native `read_char` (syscall 2) returns at end of input on a
+/// redirected stdin: a newline, so a program reading a line ends it instead of
+/// spinning on a stream that will never deliver another key.
+const EOF_CHAR: u64 = b'\n' as u64;
+
+/// Native syscall 2 (`read_char`) for a task whose descriptor 0 is not the
+/// terminal: one byte from the pipe, socket or file the shell installed, so a
+/// native program run from the desktop Terminal (whose keystrokes arrive on
+/// `sh`'s stdin pipe, not the kernel key queue) can read them (issue #315).
+/// `None` means "descriptor 0 is the terminal, use the key queue".
+///
+/// A blocking stream parks inside the read; a non-blocking one is polled with
+/// interrupts enabled so the timer and the writer can run.
+pub(crate) fn read_redirected() -> Option<u64> {
+    match task::fd_kind(0) {
+        FdKind::Terminal => None,
+        FdKind::Pipe | FdKind::Socket => {
+            let mut byte = [0u8; 1];
+            loop {
+                match task::fd_stream_read(0, &mut byte) {
+                    Ok(1) => return Some(u64::from(byte[0])),
+                    Err(pipe::Error::WouldBlock) => {
+                        x86_64::instructions::interrupts::enable();
+                        x86_64::instructions::hlt();
+                    }
+                    // End of stream, a signal, or a broken descriptor: nothing
+                    // more will arrive.
+                    _ => return Some(EOF_CHAR),
+                }
+            }
+        }
+        FdKind::File => Some(match task::fd_read(0, 1) {
+            Some(chunk) if !chunk.is_empty() => u64::from(chunk[0]),
+            _ => EOF_CHAR,
+        }),
+        _ => Some(EOF_CHAR),
+    }
 }
