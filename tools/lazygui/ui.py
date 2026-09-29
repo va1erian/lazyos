@@ -8,7 +8,7 @@ import shutil
 import tkinter as tk
 from tkinter import filedialog, ttk
 
-from .catalog import (ACCELS, CARGO, MODES, PY, ROOT, SCRIPTS, SIMPLE_BUILDS,
+from .catalog import (ACCELS, DISKS, CARGO, MODES, PY, ROOT, SCRIPTS, SIMPLE_BUILDS,
                       SIMPLE_INTERFACES, XUI_VIEWERS, build_env, build_plan,
                       cargo_step, format_plan, simple_config)
 from .runner import Runner, open_path
@@ -43,6 +43,7 @@ class Launcher:
             "mode": s(value=MODES[0][0]),
             "profile": s(value="dev"),
             "accel": s(value="auto"),
+            "disk": s(value="virtio"),
             "memory": s(value="256M"),
             "times": s(value="10,14,18"),
             "timeout": s(value="180"),
@@ -95,6 +96,7 @@ class Launcher:
             "mode": self.v["mode"].get(),
             "profile": self.v["profile"].get(),
             "accel": self.v["accel"].get(),
+            "disk": self.v["disk"].get(),
             "memory": self.v["memory"].get().strip(),
             "times": self.v["times"].get().strip(),
             "timeout": self.v["timeout"].get().strip(),
@@ -184,6 +186,9 @@ class Launcher:
         ttk.Label(row, text="Accel:").pack(side="left")
         ttk.Combobox(row, textvariable=self.v["accel"], state="readonly",
                      values=ACCELS, width=8).pack(side="left", padx=4)
+        ttk.Label(row, text="Disk:").pack(side="left", padx=(8, 0))
+        ttk.Combobox(row, textvariable=self.v["disk"], state="readonly",
+                     values=DISKS, width=8).pack(side="left", padx=4)
         self._field(g, "Memory:", "memory", 6)
         self._field(g, "Capture at:", "times", 8)
         self._field(g, "Timeout (s):", "timeout", 6)
