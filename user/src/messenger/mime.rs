@@ -9,50 +9,19 @@ use libmessenger::{Decoder, Encoder, Header, Kind, Parcel, VERSION};
 
 use super::{errno, registry, Endpoint, Error, Result};
 
+/// The generated `os.lazy.mimed.v1` stubs (see `idl/mimed.midl`).
+pub use messenger_generated::os_lazy_mimed_v1 as wire;
+
 /// The MIME service's registered name.
 pub const NAME: &str = "os.lazy.mimed";
 
-/// `os.lazy.mimed.v1` as an interim eight-byte ABI id (the pattern the
-/// other interim service interfaces use).
-pub const INTERFACE: u64 = u64::from_le_bytes(*b"os.mime.");
+/// The interface id every `mimed` parcel carries.
+pub const INTERFACE: u64 = wire::INTERFACE_ID;
 
-/// Methods of the MIME service.
-pub mod method {
-    /// MIME type for a path, from the database.
-    pub const GUESS: u32 = 1;
-    /// App registered for a type and verb.
-    pub const LOOKUP: u32 = 2;
-    /// Verbs registered for a type.
-    pub const VERBS: u32 = 3;
-    /// Guess, resolve, and publish the launch event.
-    pub const OPEN: u32 = 4;
-    /// Add or replace an open-with registration.
-    pub const REGISTER: u32 = 5;
-}
-
-/// Protocol TLV field ids.
-pub mod field {
-    /// Path to guess.
-    pub const PATH: u16 = 1;
-    /// MIME type.
-    pub const MIME: u16 = 2;
-    /// Shell verb (`open`, `edit`, `reveal`, ...).
-    pub const VERB: u16 = 3;
-    /// App id.
-    pub const APP: u16 = 4;
-    /// One verb of a `Verbs` reply.
-    pub const VERBS: u16 = 5;
-    /// Lookup verdict (`1` = an app is registered).
-    pub const FOUND: u16 = 6;
-    /// Whether the launch event went out.
-    pub const PUBLISHED: u16 = 7;
-    /// Launch event topic.
-    pub const TOPIC: u16 = 8;
-    /// Structured error reply.
-    pub const ERROR: u16 = 9;
-    /// Whether `init` launched the resolved app (issue #158).
-    pub const LAUNCHED: u16 = 10;
-}
+/// Structured error field id in a reply body. The generated fields of every
+/// reply use small ids (at most five), so this can never collide with a
+/// success payload.
+const ERROR_FIELD: u16 = 15;
 
 /// Type reported for a path the database has no entry for.
 pub const FALLBACK_MIME: &str = "application/octet-stream";
@@ -62,129 +31,30 @@ pub const FALLBACK_MIME: &str = "application/octet-stream";
 pub const DEFAULT_VERB: &str = "open";
 
 /// One `Open` resolution: the app that will handle the file, its type, and
-/// the launch event.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct OpenResult {
-    /// App id from the open-with registry.
-    pub app: String,
-    /// Type the path guessed to.
-    pub mime: String,
-    /// Topic the launch event was published on.
-    pub topic: String,
-    /// Whether the launch event went out.
-    pub published: bool,
-    /// Whether `init` accepted the launch request for the app (#158).
-    pub launched: bool,
-}
+/// the launch event (`launched`: whether `init` accepted the launch, #158).
+pub type OpenResult = wire::OpenReply;
 
-/// A header for a MIME parcel of `method`.
-fn header(method: u32) -> Header {
-    Header {
-        version: VERSION,
-        flags: 0,
-        interface_id: INTERFACE,
-        method,
-        txn_id: 0,
-        reply_to: 0,
-        deadline_ns: 0,
-    }
-}
-
-/// Wrap an encoded body in a MIME parcel.
-fn parcel(method: u32, body: Encoder) -> Parcel {
+/// A parcel of `method` carrying an already-encoded `body`; also the reply
+/// builder for the service.
+pub fn parcel(method: u32, body: Vec<u8>) -> Parcel {
     Parcel {
-        header: header(method),
-        body: body.finish(),
+        header: Header {
+            version: VERSION,
+            flags: 0,
+            interface_id: INTERFACE,
+            method,
+            txn_id: 0,
+            reply_to: 0,
+            deadline_ns: 0,
+        },
+        body,
         ..Parcel::default()
     }
 }
 
-/// A `Guess(path)` request.
-pub fn guess_request(path: &str) -> Result<Parcel> {
-    let mut body = Encoder::new();
-    body.string(field::PATH, path).map_err(Error::Parcel)?;
-    Ok(parcel(method::GUESS, body))
-}
-
-/// A `Lookup(mime, verb)` request.
-pub fn lookup_request(mime: &str, verb: &str) -> Result<Parcel> {
-    let mut body = Encoder::new();
-    body.string(field::MIME, mime).map_err(Error::Parcel)?;
-    body.string(field::VERB, verb).map_err(Error::Parcel)?;
-    Ok(parcel(method::LOOKUP, body))
-}
-
-/// A `Verbs(mime)` request.
-pub fn verbs_request(mime: &str) -> Result<Parcel> {
-    let mut body = Encoder::new();
-    body.string(field::MIME, mime).map_err(Error::Parcel)?;
-    Ok(parcel(method::VERBS, body))
-}
-
-/// An `Open(path, verb)` request.
-pub fn open_request(path: &str, verb: &str) -> Result<Parcel> {
-    let mut body = Encoder::new();
-    body.string(field::PATH, path).map_err(Error::Parcel)?;
-    body.string(field::VERB, verb).map_err(Error::Parcel)?;
-    Ok(parcel(method::OPEN, body))
-}
-
-/// A `Register(mime, app, verb)` request (the registry takes the latest
-/// registration for each type and verb).
-pub fn register_request(mime: &str, app: &str, verb: &str) -> Result<Parcel> {
-    let mut body = Encoder::new();
-    body.string(field::MIME, mime).map_err(Error::Parcel)?;
-    body.string(field::APP, app).map_err(Error::Parcel)?;
-    body.string(field::VERB, verb).map_err(Error::Parcel)?;
-    Ok(parcel(method::REGISTER, body))
-}
-
-/// A `Guess` reply carrying the type.
-pub fn guess_reply(mime: &str) -> Result<Parcel> {
-    let mut body = Encoder::new();
-    body.string(field::MIME, mime).map_err(Error::Parcel)?;
-    Ok(parcel(method::GUESS, body))
-}
-
-/// A `Lookup` reply: `FOUND`, then the app when one is registered.
-pub fn lookup_reply(app: Option<&str>) -> Result<Parcel> {
-    let mut body = Encoder::new();
-    body.u64(field::FOUND, app.is_some() as u64)
-        .map_err(Error::Parcel)?;
-    if let Some(app) = app {
-        body.string(field::APP, app).map_err(Error::Parcel)?;
-    }
-    Ok(parcel(method::LOOKUP, body))
-}
-
-/// A `Verbs` reply: one string field per verb.
-pub fn verbs_reply(verbs: &[String]) -> Result<Parcel> {
-    let mut body = Encoder::new();
-    for verb in verbs {
-        body.string(field::VERBS, verb).map_err(Error::Parcel)?;
-    }
-    Ok(parcel(method::VERBS, body))
-}
-
-/// An `Open` reply describing the resolution and the launch event.
-pub fn open_reply(result: &OpenResult) -> Result<Parcel> {
-    let mut body = Encoder::new();
-    body.string(field::APP, &result.app)
-        .map_err(Error::Parcel)?;
-    body.string(field::MIME, &result.mime)
-        .map_err(Error::Parcel)?;
-    body.string(field::TOPIC, &result.topic)
-        .map_err(Error::Parcel)?;
-    body.u64(field::PUBLISHED, result.published as u64)
-        .map_err(Error::Parcel)?;
-    body.u64(field::LAUNCHED, result.launched as u64)
-        .map_err(Error::Parcel)?;
-    Ok(parcel(method::OPEN, body))
-}
-
 /// An empty success reply (a `Register`).
 pub fn ok_reply(method: u32) -> Parcel {
-    parcel(method, Encoder::new())
+    parcel(method, Vec::new())
 }
 
 /// The service's error answer: errno-style code plus friendly text. The
@@ -193,92 +63,20 @@ pub fn error_reply(method: u32, error: Error) -> Parcel {
     let code = error.errno().map(|code| -code).unwrap_or(errno::EINVAL);
     let mut body = Encoder::new();
     // A structured error field cannot overflow a fresh encoder here.
-    let _ = body.error(field::ERROR, code as u32, error.message());
-    parcel(method, body)
+    let _ = body.error(ERROR_FIELD, code as u32, error.message());
+    parcel(method, body.finish())
 }
 
 /// The first structured error field, when the reply is a service failure.
 fn error_field(parcel: &Parcel) -> Result<Option<i64>> {
     let mut decoder = Decoder::new(&parcel.body);
     while let Some(field) = decoder.next().map_err(Error::Parcel)? {
-        if field.kind == Kind::Error && field.id == field::ERROR {
+        if field.kind == Kind::Error && field.id == ERROR_FIELD {
             let (code, _message) = field.error_parts().map_err(Error::Parcel)?;
             return Ok(Some(code as i64));
         }
     }
     Ok(None)
-}
-
-/// The first string field with `id`, or a malformed-request error.
-pub fn string_field(parcel: &Parcel, id: u16) -> Result<String> {
-    let mut decoder = Decoder::new(&parcel.body);
-    while let Some(field) = decoder.next().map_err(Error::Parcel)? {
-        if field.kind == Kind::String && field.id == id {
-            return Ok(String::from(field.as_str().map_err(Error::Parcel)?));
-        }
-    }
-    Err(Error::Errno(-errno::EINVAL))
-}
-
-/// The first string field with `id`, when present.
-fn optional_string(parcel: &Parcel, id: u16) -> Option<String> {
-    string_field(parcel, id).ok()
-}
-
-/// The first `u64` field with `id`, if any.
-fn u64_field(parcel: &Parcel, id: u16) -> Option<u64> {
-    let mut decoder = Decoder::new(&parcel.body);
-    while let Ok(Some(field)) = decoder.next() {
-        if field.kind == Kind::U64 && field.id == id {
-            return field.as_u64().ok();
-        }
-    }
-    None
-}
-
-/// Every string field with `id`, in order.
-fn string_fields(parcel: &Parcel, id: u16) -> Vec<String> {
-    let mut values = Vec::new();
-    let mut decoder = Decoder::new(&parcel.body);
-    while let Ok(Some(field)) = decoder.next() {
-        if field.kind == Kind::String && field.id == id {
-            if let Ok(text) = field.as_str() {
-                values.push(String::from(text));
-            }
-        }
-    }
-    values
-}
-
-/// Decode a `Guess` reply.
-pub fn decode_guess(parcel: &Parcel) -> Result<String> {
-    string_field(parcel, field::MIME)
-}
-
-/// Decode a `Lookup` reply; `None` when no app is registered.
-pub fn decode_lookup(parcel: &Parcel) -> Result<Option<String>> {
-    if u64_field(parcel, field::FOUND).unwrap_or(0) == 0 {
-        return Ok(None);
-    }
-    optional_string(parcel, field::APP)
-        .map(Some)
-        .ok_or(Error::Errno(-errno::EINVAL))
-}
-
-/// Decode a `Verbs` reply.
-pub fn decode_verbs(parcel: &Parcel) -> Result<Vec<String>> {
-    Ok(string_fields(parcel, field::VERBS))
-}
-
-/// Decode an `Open` reply.
-pub fn decode_open(parcel: &Parcel) -> Result<OpenResult> {
-    Ok(OpenResult {
-        app: string_field(parcel, field::APP)?,
-        mime: optional_string(parcel, field::MIME).unwrap_or_default(),
-        topic: optional_string(parcel, field::TOPIC).unwrap_or_default(),
-        published: u64_field(parcel, field::PUBLISHED).unwrap_or(0) != 0,
-        launched: u64_field(parcel, field::LAUNCHED).unwrap_or(0) != 0,
-    })
 }
 
 /// A client of the `mimed` service.
@@ -305,8 +103,8 @@ impl Client {
     }
 
     /// Run one request as a blocking call and fail on a service error.
-    fn call(&self, request: &Parcel) -> Result<Parcel> {
-        let reply = self.endpoint.call(request, None)?;
+    fn call(&self, method: u32, body: Vec<u8>) -> Result<Parcel> {
+        let reply = self.endpoint.call(&parcel(method, body), None)?;
         if let Some(code) = error_field(&reply)? {
             return Err(Error::Mime(code));
         }
@@ -315,32 +113,62 @@ impl Client {
 
     /// MIME type for `path`.
     pub fn guess(&self, path: &str) -> Result<String> {
-        let reply = self.call(&guess_request(path)?)?;
-        decode_guess(&reply)
+        let body = wire::encode_guess_args(&wire::GuessArgs {
+            path: String::from(path),
+        })
+        .map_err(Error::Parcel)?;
+        let reply = self.call(wire::METHOD_GUESS, body)?;
+        Ok(wire::decode_guess_reply(&reply.body)
+            .map_err(Error::Parcel)?
+            .mime)
     }
 
     /// App registered for `mime` and `verb`; `None` when none is.
     pub fn lookup(&self, mime: &str, verb: &str) -> Result<Option<String>> {
-        let reply = self.call(&lookup_request(mime, verb)?)?;
-        decode_lookup(&reply)
+        let body = wire::encode_lookup_args(&wire::LookupArgs {
+            mime: String::from(mime),
+            verb: String::from(verb),
+        })
+        .map_err(Error::Parcel)?;
+        let reply = self.call(wire::METHOD_LOOKUP, body)?;
+        Ok(wire::decode_lookup_reply(&reply.body)
+            .map_err(Error::Parcel)?
+            .app)
     }
 
     /// Verbs registered for `mime`, in registration order.
     pub fn verbs(&self, mime: &str) -> Result<Vec<String>> {
-        let reply = self.call(&verbs_request(mime)?)?;
-        decode_verbs(&reply)
+        let body = wire::encode_verbs_args(&wire::VerbsArgs {
+            mime: String::from(mime),
+        })
+        .map_err(Error::Parcel)?;
+        let reply = self.call(wire::METHOD_VERBS, body)?;
+        Ok(wire::decode_verbs_reply(&reply.body)
+            .map_err(Error::Parcel)?
+            .verbs)
     }
 
     /// Guess `path`, resolve the app for `verb`, and publish the launch
     /// event. [`OpenResult::published`] reports whether the event went out.
     pub fn open(&self, path: &str, verb: &str) -> Result<OpenResult> {
-        let reply = self.call(&open_request(path, verb)?)?;
-        decode_open(&reply)
+        let body = wire::encode_open_args(&wire::OpenArgs {
+            path: String::from(path),
+            verb: String::from(verb),
+        })
+        .map_err(Error::Parcel)?;
+        let reply = self.call(wire::METHOD_OPEN, body)?;
+        wire::decode_open_reply(&reply.body).map_err(Error::Parcel)
     }
 
     /// Add or replace the app registered for `mime` and `verb`.
     pub fn register(&self, mime: &str, app: &str, verb: &str) -> Result<()> {
-        self.call(&register_request(mime, app, verb)?)?;
+        let body = wire::encode_register_args(&wire::RegisterArgs {
+            mime: String::from(mime),
+            app: String::from(app),
+            verb: String::from(verb),
+        })
+        .map_err(Error::Parcel)?;
+        self.call(wire::METHOD_REGISTER, body)?;
         Ok(())
     }
 }

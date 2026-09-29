@@ -233,23 +233,23 @@ fn dispatch(
         return Err(Error::Errno(-messenger::errno::EINVAL));
     }
     match message.method() {
-        accounts::method::LOOKUP => {
+        accounts::wire::METHOD_LOOKUP => {
             let (name, uid) = accounts::decode_lookup(&message.parcel)?;
             let found = match (name, uid) {
                 (Some(name), _) => by_name(table, &name),
-                (None, Some(uid)) => by_uid(table, uid as u32),
+                (None, Some(uid)) => by_uid(table, uid),
                 (None, None) => None,
             };
             accounts::user_reply(found.map(|account| &account.record))
         }
-        accounts::method::AUTHENTICATE => {
+        accounts::wire::METHOD_AUTHENTICATE => {
             let (name, secret) = accounts::decode_authenticate(&message.parcel)?;
             let matched = by_name(table, &name)
                 .map(|account| verify_secret(account, &secret, keyd_seen))
                 .unwrap_or(false);
             accounts::auth_reply(matched)
         }
-        accounts::method::CREATE => {
+        accounts::wire::METHOD_CREATE => {
             let new_user = accounts::decode_create(&message.parcel)?;
             if !sender_is_admin(message.sender) {
                 return accounts::create_reply(false, "admin only: uid 0 required");
