@@ -392,9 +392,11 @@ jobs:
             for group in m0 m1 m2 sysmon fabmon client sysclient desktop; do
               for png in shots/$group/*.png; do
                 name="$group-$(basename "$png")"
-                echo "**${name}**"
+                echo "<details><summary>${name}</summary>"
                 echo
                 echo "![${name}](https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${sha}/${prefix}/${name})"
+                echo
+                echo "</details>"
                 echo
               done
             done
