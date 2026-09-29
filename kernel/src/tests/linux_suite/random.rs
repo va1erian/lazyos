@@ -59,7 +59,13 @@ pub fn getrandom_unique_within_tick() -> Result<(), String> {
 pub fn getrandom_statistics() -> Result<(), String> {
     fresh()?;
     let mut buf = vec![0u8; 64 * 1024];
-    check!(getrandom(&mut buf) == buf.len() as u64, "short count");
+    // The kernel caps one call (a short read is legal), so loop like a caller.
+    let mut filled = 0;
+    while filled < buf.len() {
+        let got = getrandom(&mut buf[filled..]) as usize;
+        check!(got > 0 && got <= buf.len() - filled, "bad count {got}");
+        filled += got;
+    }
     let ones: u64 = buf.iter().map(|b| u64::from(b.count_ones())).sum();
     let total = (buf.len() * 8) as u64;
     check!(

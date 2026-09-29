@@ -69,20 +69,16 @@ fn quarter(s: &mut [u32; 16], a: usize, b: usize, c: usize, d: usize) {
     s[b] = (s[b] ^ s[c]).rotate_left(7);
 }
 
-fn le_word(bytes: &[u8]) -> u32 {
-    u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]])
-}
-
 /// One ChaCha20 block (RFC 8439 section 2.3): 64 bytes of keystream.
 pub fn chacha20_block(key: &[u8; 32], counter: u32, nonce: &[u8; 12]) -> [u8; 64] {
     let mut init = [0u32; 16];
     init[..4].copy_from_slice(&SIGMA);
-    for (word, chunk) in init[4..12].iter_mut().zip(key.chunks_exact(4)) {
-        *word = le_word(chunk);
+    for (word, chunk) in init[4..12].iter_mut().zip(key.as_chunks::<4>().0) {
+        *word = u32::from_le_bytes(*chunk);
     }
     init[12] = counter;
-    for (word, chunk) in init[13..16].iter_mut().zip(nonce.chunks_exact(4)) {
-        *word = le_word(chunk);
+    for (word, chunk) in init[13..16].iter_mut().zip(nonce.as_chunks::<4>().0) {
+        *word = u32::from_le_bytes(*chunk);
     }
     let mut s = init;
     for _ in 0..10 {
@@ -96,7 +92,7 @@ pub fn chacha20_block(key: &[u8; 32], counter: u32, nonce: &[u8; 12]) -> [u8; 64
         quarter(&mut s, 3, 4, 9, 14);
     }
     let mut out = [0u8; 64];
-    for ((chunk, word), start) in out.chunks_exact_mut(4).zip(s).zip(init) {
+    for ((chunk, word), start) in out.as_chunks_mut::<4>().0.iter_mut().zip(s).zip(init) {
         chunk.copy_from_slice(&word.wrapping_add(start).to_le_bytes());
     }
     out
@@ -169,7 +165,7 @@ fn gather() -> [u8; 32] {
         previous = now;
     }
     let mut folded = [0u8; 32];
-    for (chunk, word) in folded.chunks_exact_mut(8).zip(acc) {
+    for (chunk, word) in folded.as_chunks_mut::<8>().0.iter_mut().zip(acc) {
         chunk.copy_from_slice(&word.to_le_bytes());
     }
     let block = chacha20_block(&folded, 0, &[0x5e; 12]);
