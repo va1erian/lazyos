@@ -27,7 +27,8 @@
 //! Root (`uid 0`) bypasses the bits, matching `docs/security-model.md` section
 //! 4.1 (the bypass exists only inside the kernel-init profile). The sticky bit
 //! on a directory restricts `unlink`/`rename` to the entry owner, the directory
-//! owner, or root.
+//! owner, or root. Attribute changes (`chmod`, `chown`, `utimensat`) are
+//! decided by ownership rather than mode bits; `setattr.rs` has those rules.
 //!
 //! # Caches
 //!
@@ -42,43 +43,27 @@ use alloc::string::String;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 
+mod attr;
+mod cache;
 mod filesystem;
 mod meta;
 mod mountops;
 mod path;
+mod setattr;
 
+pub use attr::{now, AttrRequest, SetAttr, Stamp, Times};
+pub use cache::CacheStats;
+use cache::Dentry;
 pub use filesystem::Filesystem;
 pub use meta::*;
 pub use path::Path;
-
-/// Cache counters, exposed through [`Vfs::cache_stats`] for tests and future
-/// `/proc` reporting.
-#[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
-pub struct CacheStats {
-    /// Positive dentry lookups served from the cache.
-    pub dentry_hits: u64,
-    /// Lookups that had to go to the filesystem.
-    pub dentry_misses: u64,
-    /// Inode entries found for a cached dentry.
-    pub inode_hits: u64,
-    /// Inode entries that had to be re-read (miss or dropped dentry).
-    pub inode_misses: u64,
-    /// Number of invalidation passes (one per mutation).
-    pub invalidations: u64,
-    /// Mounts currently in the table.
-    pub mounts: usize,
-}
+#[cfg_attr(not(lazyos_tests), allow(unused_imports))] // the rules, for unit tests
+pub use setattr::authorize;
 
 /// One mount: a normalized mount point plus the filesystem behind it.
 struct Mount {
     point: Path,
     fs: Arc<dyn Filesystem>,
-}
-
-/// A cached directory entry: just the inode number; the metadata lives in the
-/// inode cache so a path rename does not duplicate it.
-struct Dentry {
-    ino: u64,
 }
 
 /// The filesystem root: mount table, caches, and set-once operation surface.
@@ -138,23 +123,6 @@ impl Vfs {
         let previous = self.umask;
         self.umask = umask & 0o777;
         previous
-    }
-
-    /// A snapshot of the cache counters.
-    #[cfg_attr(not(lazyos_tests), allow(dead_code))] // used by tests/diagnostics
-    pub fn cache_stats(&self) -> CacheStats {
-        self.stats
-    }
-
-    /// Drop the cached metadata for `path` (and, for a directory, everything
-    /// cached below it). Mutations call this internally; it is public so a
-    /// filesystem that changed behind the VFS's back can be re-read.
-    #[cfg_attr(not(lazyos_tests), allow(dead_code))] // used by tests/diagnostics
-    pub fn invalidate(&mut self, path: &str) {
-        let path = Path::parse(path);
-        if let Ok((mount, rel)) = self.resolve_mount(&path) {
-            self.invalidate_mount_path(mount, &rel);
-        }
     }
 
     /// Metadata for `path`, checking search on every ancestor directory. The
@@ -384,24 +352,6 @@ impl Vfs {
         Ok(meta)
     }
 
-    /// Cache-aware metadata lookup for an absolute path.
-    fn stat_path(&mut self, path: &Path) -> Result<Meta, FsError> {
-        let (mount, rel) = self.resolve_mount(path)?;
-        if let Some(dentry) = self.dentry.get(&(mount, rel.clone())) {
-            self.stats.dentry_hits += 1;
-            if let Some(meta) = self.inodes.get(&(mount, dentry.ino)) {
-                self.stats.inode_hits += 1;
-                return Ok(*meta);
-            }
-        } else {
-            self.stats.dentry_misses += 1;
-        }
-        self.stats.inode_misses += 1;
-        let meta = self.mounts[mount].fs.stat(&rel)?;
-        self.insert_cache(mount, &rel, meta);
-        Ok(meta)
-    }
-
     /// Resolve a path to `(mount index, path within that filesystem)`, picking
     /// the longest matching mount point.
     fn resolve_mount(&self, path: &Path) -> Result<(usize, String), FsError> {
@@ -417,44 +367,6 @@ impl Vfs {
         let mount = &self.mounts[index];
         let rel = path.parts[mount.point.len()..].join("/");
         Ok((index, rel))
-    }
-
-    /// Record a fresh metadata pair in both caches.
-    fn insert_cache(&mut self, mount: usize, rel: &str, meta: Meta) {
-        self.inodes.insert((mount, meta.ino), meta);
-        self.dentry
-            .insert((mount, String::from(rel)), Dentry { ino: meta.ino });
-    }
-
-    /// Invalidate a relative path within one mount, its inode, and any cached
-    /// descendants when it names an inode that other entries still point at.
-    fn invalidate_mount_path(&mut self, mount: usize, rel: &str) {
-        let ino = self
-            .dentry
-            .remove(&(mount, String::from(rel)))
-            .map(|dentry| dentry.ino);
-        if let Some(ino) = ino {
-            self.inodes.remove(&(mount, ino));
-            self.dentry
-                .retain(|(cached_mount, _), entry| *cached_mount != mount || entry.ino != ino);
-        }
-        if !rel.is_empty() {
-            let prefix = alloc::format!("{rel}/");
-            let stale: Vec<(usize, String)> = self
-                .dentry
-                .keys()
-                .filter(|(cached_mount, cached_rel)| {
-                    *cached_mount == mount && cached_rel.starts_with(&prefix)
-                })
-                .cloned()
-                .collect();
-            for key in stale {
-                if let Some(entry) = self.dentry.remove(&key) {
-                    self.inodes.remove(&(mount, entry.ino));
-                }
-            }
-        }
-        self.stats.invalidations += 1;
     }
 }
 

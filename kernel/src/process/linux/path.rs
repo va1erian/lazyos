@@ -98,6 +98,7 @@ pub(super) fn synthetic_meta(path: &str) -> Option<Meta> {
             gid: 0,
             size: 0,
             kind: FileKind::Dir,
+            times: vfs::Times::default(),
         });
     }
     if applet_name(path).is_some() {
@@ -110,6 +111,7 @@ pub(super) fn synthetic_meta(path: &str) -> Option<Meta> {
                 gid: 0,
                 size: meta.size,
                 kind: FileKind::File,
+                times: vfs::Times::default(),
             });
     }
     None
