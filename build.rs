@@ -406,12 +406,11 @@ const DESKTOP_XUI_APPS: &[&str] = &[
     "xui-counter.elf",
 ];
 
-/// The document apps (Editor, Paint, Files): always-shipped desktop apps once
-/// their ELFs exist. INTEGRATION SWITCH: keep `false` until
-/// `python tools/xui/build.py` produces all three under `target/xui/` (a missing
-/// default fails the desktop build); the lead flips it to `true` when Track A's
-/// bins land. See `docs/xui-apps-track-b.md`.
-const SHIP_DOCUMENT_APPS: bool = false;
+/// The document apps (Editor, Paint, Files): always-shipped desktop apps.
+/// `python tools/xui/build.py` produces all three under `target/xui/`; a
+/// missing one fails the desktop build on purpose. They are on-demand (never
+/// autostarted at boot), opened from the Start menu or by open-with.
+const SHIP_DOCUMENT_APPS: bool = true;
 
 /// The document apps' binaries, appended to [`DESKTOP_XUI_APPS`] when
 /// [`SHIP_DOCUMENT_APPS`] is on.

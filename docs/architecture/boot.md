@@ -47,7 +47,7 @@ and ring-3 programs, packs them into an MBR + FAT boot disk, and launches QEMU.
 | `DRAGDMO.ELF` | drag & drop demo pair | `LAZYOS_XUID=1`; dropped in the desktop profile |
 | `SHELLPRB.ELF` | shell-protocol evidence client | `LAZYOS_XUID=1` + `LAZYOS_SHELLPROBE=1` |
 | `XAPP.ELF` | `$LAZYOS_XUI_APP` (static musl xui app from `tools/xui/build.py`) | embedded whenever set; spawned only with `LAZYOS_XUID=1` |
-| `XTERM.ELF`, `XSYSMON.ELF`, `XFABMON.ELF`, `XCOUNTR.ELF`, `XAPPS.LST` | `$LAZYOS_XUI_APPS` (path list; `;` on Windows, `:` elsewhere), or the desktop default set when unset | each app under its 8.3 name; `XAPPS.LST` lists them (and which `autostart`) for `init`'s registry (#215/#216) |
+| `XTERM.ELF`, `XSYSMON.ELF`, `XFABMON.ELF`, `XCOUNTR.ELF`, `XEDITOR.ELF`, `XFILES.ELF`, `XPAINT.ELF`, `XAPPS.LST` | `$LAZYOS_XUI_APPS` (path list; `;` on Windows, `:` elsewhere), or the desktop default set when unset | each app under its 8.3 name; `XAPPS.LST` lists them (and which `autostart`) for `init`'s registry (#215/#216); the terminal/viewers autostart, the Editor/Paint/Files are on demand (Start menu or open-with) |
 | `INIT.ELF` | `$LAZYOS_INIT` | ABI bench hook |
 | `BUSYBOX` | `$LAZYOS_BUSYBOX` | Linux shim demo |
 | `RHAI.ELF` | `$LAZYOS_RHAI` | the `rhai` command (auto-embedded from `target/rhai/rhai.elf`) |

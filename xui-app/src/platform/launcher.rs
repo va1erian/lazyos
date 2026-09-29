@@ -16,8 +16,10 @@ use xui_explorer::platform::Launcher;
 use super::argv::is_acceptable;
 use super::messenger::Service;
 
-/// The `mimed` service name.
-const NAME: &str = "os.lazy.mimed.v1";
+/// The `mimed` service name. This is the *registered* name
+/// (`user::messenger::mime::NAME`), not the `os.lazy.mimed.v1` interface id:
+/// the two differ, and resolving the interface name finds no service.
+const NAME: &str = "os.lazy.mimed";
 /// The structured-error field id `mimed` replies with (outside the generated
 /// range).
 const ERROR_FIELD: u16 = 15;

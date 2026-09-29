@@ -33,6 +33,8 @@ pub const EXPIRED_DEADLINE: u64 = 1;
 
 /// Linux errno values used by the parcel helpers (positive forms).
 pub mod errno {
+    /// No such file or directory / service.
+    pub const ENOENT: i64 = 2;
     /// The receive buffer is too small.
     pub const E2BIG: i64 = 7;
     /// Invalid argument.
@@ -191,10 +193,28 @@ pub mod key {
     pub const ALT: u32 = 0x10A;
     /// Left/right Super (the Windows/Cmd key).
     pub const SUPER: u32 = 0x10B;
-    /// The one function key the kernel's PS/2 decoder currently maps (it closes
-    /// the focused surface); the rest need a kernel/keyd change (see
-    /// `docs/xui-apps-migration-status.md`).
-    pub const F4: u32 = 0x113;
+    /// Delete (forward delete).
+    pub const DELETE: u32 = 0x10C;
+    /// Insert.
+    pub const INSERT: u32 = 0x10D;
+    /// Function key `F1`; `Fn` is `F1 + n - 1`, so `F4` is `0x113`.
+    pub const F1: u32 = 0x110;
+    /// The last function key.
+    pub const F12: u32 = 0x11B;
+
+    /// Modifier bits the compositor ORs into the key of every `KeyDown`/`KeyUp`
+    /// it forwards to a client (bits 24..=27). The kernel's own records never
+    /// carry them; a client in owner mode tracks the modifier keys instead.
+    /// See `docs/architecture/display.md`, "Key codes clients receive".
+    pub const MOD_SHIFT: u32 = 1 << 24;
+    /// Ctrl held.
+    pub const MOD_CTRL: u32 = 1 << 25;
+    /// Alt held.
+    pub const MOD_ALT: u32 = 1 << 26;
+    /// Super (Windows/Cmd) held.
+    pub const MOD_SUPER: u32 = 1 << 27;
+    /// Mask selecting the key code from a forwarded key.
+    pub const CODE_MASK: u32 = 0x00FF_FFFF;
 }
 
 /// Bytes per encoded input event.

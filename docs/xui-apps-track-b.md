@@ -102,3 +102,12 @@ constants (`DELETE`, `INSERT`, `F1`.. `F12`, `MOD_*`, `CODE_MASK`,
 6. Check the FAT boot image still fits with three more ELFs (plan risk).
 7. Re-run `python tools/test/run.py --accel none`, the ABI bench and the xui
    workflow.
+
+**Status: done (integration round).** All seven steps landed: `SHIP_DOCUMENT_APPS`
+is `true`, `tools/xui/build.py` builds the three, `input.rs` masks modifiers and
+maps Delete/Insert/F-keys with Tab/Shift+Tab focus and PageUp/PageDown scrolling,
+and the three session scripts pass against the real apps. Two app-side bugs were
+fixed on the way (the launcher resolved the `mimed` interface id instead of its
+registered name; the platform service client closed its resolved endpoint, which
+is peer death for the service). The evidence and remaining notes are in
+[`xui-apps-integration.md`](xui-apps-integration.md).

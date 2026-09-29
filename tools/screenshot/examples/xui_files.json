@@ -1,15 +1,20 @@
 [
   {"wait_for": "FILES:UP:PASS", "timeout": 240},
-  {"at": 2.0, "shot": "01_files_home"},
-  {"at": 3.0, "key": "down"},
-  {"at": 3.3, "key": "down"},
-  {"at": 3.6, "key": "up"},
-  {"at": 4.0, "shot": "02_files_selected"},
-  {"at": 5.0, "key": "end"},
-  {"at": 5.3, "key": "home"},
-  {"at": 6.0, "key": "enter", "until": "FILES:OPEN:PASS", "timeout": 60, "retries": 2},
-  {"at": 7.5, "shot": "03_files_opened"},
-  {"at": 8.5, "key": "backspace"},
-  {"at": 9.5, "shot": "04_files_parent"},
-  {"at": 10.5, "quit": true}
+  {"at": 1.5, "shot": "01_files_root"},
+
+  {"at": 2.0, "mouse_move": [-300, -300]},
+  {"at": 2.2, "mouse_move": [-300, -300]},
+  {"at": 2.4, "mouse_move": [-300, -300]},
+  {"at": 2.6, "mouse_move": [-300, -300]},
+  {"at": 2.8, "mouse_move": [-300, -300]},
+  {"at": 3.0, "mouse_move": [-300, -300]},
+  {"at": 3.2, "mouse_move": [340, 290]},
+  {"at": 3.6, "mouse_click": "left"},
+  {"at": 4.1, "shot": "02_files_selected"},
+  {"at": 4.6, "key": "enter", "until": "FILES:OPEN:PASS", "timeout": 60, "retries": 2},
+  {"at": 6.0, "shot": "03_files_opened"},
+
+  {"at": 6.9, "mouse_click": "left"},
+  {"at": 7.4, "shot": "04_editor_raised"},
+  {"at": 8.5, "quit": true}
 ]

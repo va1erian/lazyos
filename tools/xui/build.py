@@ -19,9 +19,10 @@ Usage::
 
 Output: target/xui/xui-m0.elf, target/xui/xui-counter.elf,
 target/xui/xui-sysmon.elf, target/xui/xui-fabricmon.elf,
-target/xui/xui-client.elf and target/xui/xui-term.elf, plus a JSON map on stdout. If the musl target or
-toolchain is unavailable the script reports what it could build and exits 0,
-so a CI job can skip the visual run.
+target/xui/xui-client.elf and target/xui/xui-term.elf, plus xui-editor.elf,
+xui-paint.elf and xui-files.elf (the migrated document apps), and a JSON map
+on stdout. If the musl target or toolchain is unavailable the script reports
+what it could build and exits 0, so a CI job can skip the visual run.
 
 The pinned upstream ``xui-canvas`` is vendored under ``xui-app/vendor`` with the
 small LazyOS additions (in-memory font registration, natural-width alignment,
@@ -85,8 +86,11 @@ def build_env() -> dict[str, str]:
     )
     linker = Path(sysroot) / "lib" / "rustlib" / host / "bin" / "rust-lld.exe"
     if linker.is_file():
-        env.setdefault(f"CARGO_TARGET_{TARGET.upper().replace('-', '_')}_LINKER", str(linker))
-        env.setdefault("RUSTFLAGS", "-C link-self-contained=yes")
+        # Target-specific variables so the host build scripts and proc macros
+        # keep the default linker; a bare RUSTFLAGS would leak into them.
+        prefix = f"CARGO_TARGET_{TARGET.upper().replace('-', '_')}"
+        env.setdefault(f"{prefix}_LINKER", str(linker))
+        env.setdefault(f"{prefix}_RUSTFLAGS", "-C linker-flavor=ld.lld")
     return env
 
 

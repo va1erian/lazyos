@@ -195,7 +195,10 @@ embedded side by side (`XAPPS.LST` names what the image ships; a registered app
 whose ELF is absent is unavailable and never logged as a failed launch).
 `init`'s app registry opens the `autostart` rows as `xuid` clients.
 `sysmon`/`fabricmon`/`counter` pick client mode via `LazyOSBackend::connect`;
-the new `xui-term` hosts BusyBox `sh` over a pipe pair (issue #254). The desktop profile starts no
+the new `xui-term` hosts BusyBox `sh` over a pipe pair (issue #254). The desktop
+image also ships the migrated document apps **Editor**, **Paint** and **Files**
+(`XEDITOR/XFILES/XPAINT.ELF`, on demand rather than autostarted): Files opens a
+text file in the Editor through `mimed`'s open-with registry. The desktop profile starts no
 demo/evidence programs (no `flaky`, `top` launch self-test or clipboard demo
 pair). Captured by `tools/screenshot/examples/xui_desktop.json` in the `xui-app`
 job.
@@ -204,9 +207,10 @@ job.
 (the Tab-order nodes plus button-like controls), moves focus on a pointer press
 that lands on one, delivers `SetFocus`/`KillFocus`, and routes `KeyDown`,
 `KeyUp` and `Char` to the focused node rather than the node under the pointer.
-`Tab` cycles focus when no compositor reserves it; with `xuid` running (client
-mode) `PageDown`/`PageUp` do, because `xuid` consumes `Tab` for surface focus
-and the kernel's PS/2 driver does not decode function keys. The client session
+`Tab`/`Shift+Tab` cycle focus; with `xuid` running (client mode) a plain `Tab`
+reaches the client (the compositor keeps only Alt+Tab/Ctrl+Tab), and
+`PageUp`/`PageDown` are delivered to the focused widget (the Editor scrolls)
+instead of cycling focus. The client session
 clicks the `Edit`, moves the pointer away and types (`XUIAPP:KEY:PASS`), cycles
 to the counter button and activates it with Space (`XUIAPP:COUNTER:1`), then
 cycles back and types again.

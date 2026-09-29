@@ -94,7 +94,7 @@ compositor demo. Target toolkit design: [xui-plan.md](../xui-plan.md).
   `fabricmon` and `counter` call `LazyOSBackend::connect` (`xui-app/src/launch.rs`),
   which is client mode with `--client` and otherwise tries the grant and falls
   back to client mode when `xuid` holds it. `LAZYOS_XUI_APPS` embeds a list of
-  apps (`XTERM/XSYSMON/XFABMON/XCOUNTR.ELF` + `XAPPS.LST`) and `init`'s app
+  apps (`XTERM/XSYSMON/XFABMON/XCOUNTR/XEDITOR/XFILES/XPAINT.ELF` + `XAPPS.LST`) and `init`'s app
   registry launches the `autostart` ones with `linux:PATH --client` (the kernel's
   `spawn` selects the Linux ABI from the `linux:` prefix,
   `kernel/src/process/spawn_line.rs`). The whole recipe is the single

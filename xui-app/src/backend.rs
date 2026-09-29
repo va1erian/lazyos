@@ -16,11 +16,12 @@
 //!   loop.
 //!
 //! Keyboard routing (issue #151) is mode-independent: pointer presses move the
-//! backend focus to the node under them (when it is focusable), `Tab` (owner
-//! mode) and `PageUp`/`PageDown` (both modes; `xuid` reserves `Tab` for
-//! surface focus) cycle the focus across focus stops, `SetFocus`/`KillFocus`
-//! are delivered to the affected widgets, and key/char events go to the
-//! focused node rather than the node under the pointer.
+//! backend focus to the node under them (when it is focusable), `Tab` and
+//! `Shift+Tab` cycle the focus across focus stops, `SetFocus`/`KillFocus` are
+//! delivered to the affected widgets, and key/char events go to the focused
+//! node rather than the node under the pointer. Modifier bits (and the client
+//! key codes) are decoded per `docs/architecture/display.md`; `PageUp`/
+//! `PageDown` reach the focused widget so the Editor can scroll.
 //!
 //! [`run`]: Backend::run
 
