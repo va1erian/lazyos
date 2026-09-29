@@ -156,7 +156,10 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         match fs::read("BUSYBOX") {
             Some(bytes) => {
                 serial_println!("LazyOS: launching busybox sh (bench)");
-                match task::spawn_linux_args("sh", &bytes, &["sh", "-c", "echo ABI:busybox:PASS"]) {
+                // `df` and `mount` list what `/proc/mounts` says; with a data
+                // disk attached the bench requires `/data` in both (#348).
+                let script = "echo ABI:busybox:PASS; df; mount";
+                match task::spawn_linux_args("sh", &bytes, &["sh", "-c", script]) {
                     Ok(index) => serial_println!("LazyOS: spawned busybox as task {index}"),
                     Err(err) => serial_println!("ABI:busybox:FAIL:{err}"),
                 }

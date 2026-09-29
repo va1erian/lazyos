@@ -13,10 +13,13 @@ use super::fixtures::{check_volume, pattern_bytes, raw_state};
 use super::*;
 use crate::ipc::credentials::{self, Cred};
 
+mod inspect;
 mod io;
 mod names;
 mod sizing;
 mod soak;
+mod statx;
+mod vectored;
 
 pub(in crate::tests) const CASES: &[(&str, Test)] = &[
     (
@@ -66,6 +69,64 @@ pub(in crate::tests) const CASES: &[(&str, Test)] = &[
     ),
     ("linux_data_soak_fd_table_churn", soak::fd_table_churn),
     ("linux_data_soak_fill_and_free", soak::fill_and_free),
+    // Filesystem inspection and vectored I/O (issue #348).
+    (
+        "linux_proc_mounts_lists_the_table",
+        inspect::proc_mounts_lists_the_table,
+    ),
+    (
+        "linux_proc_mounts_read_only_volume",
+        inspect::proc_mounts_reports_a_read_only_volume,
+    ),
+    (
+        "linux_getdents_matches_getdents64",
+        inspect::getdents_matches_getdents64,
+    ),
+    (
+        "linux_getdents_whole_records",
+        inspect::getdents_hands_out_whole_records,
+    ),
+    (
+        "linux_getdents_bad_descriptors",
+        inspect::getdents_bad_descriptors,
+    ),
+    (
+        "linux_getdents_bad_buffer",
+        inspect::getdents_bad_buffer_loses_nothing,
+    ),
+    ("linux_statx_fields", statx::statx_reports_stat_fields),
+    (
+        "linux_stat_family_owner",
+        statx::stat_family_reports_the_owner,
+    ),
+    (
+        "linux_statx_empty_path_and_dirfd",
+        statx::statx_empty_path_and_dirfd,
+    ),
+    (
+        "linux_statx_flags_mask_and_errors",
+        statx::statx_flags_mask_and_errors,
+    ),
+    ("linux_statx_bad_pointers", statx::statx_bad_pointers),
+    (
+        "linux_vectored_positional_roundtrip",
+        vectored::preadv_pwritev_roundtrip,
+    ),
+    (
+        "linux_vectored_readv_writev_walk",
+        vectored::readv_writev_share_the_walk,
+    ),
+    ("linux_vectored_bad_inputs", vectored::vectored_bad_inputs),
+    (
+        "linux_vectored_v2_flags",
+        vectored::vectored_v2_flags_and_current_offset,
+    ),
+    (
+        "linux_vectored_read_only_volume",
+        vectored::vectored_on_read_only_volume,
+    ),
+    ("linux_vectored_snapshot_io", vectored::snapshot_vectored_io),
+    ("linux_vectored_soak", vectored::soak_vectored_io),
 ];
 
 // Linux numbers and flags the tests spell out.
