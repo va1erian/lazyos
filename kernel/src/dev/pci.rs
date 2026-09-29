@@ -407,6 +407,7 @@ fn scan_bus(bus: u8, seen: &mut [bool; 256], visit: &mut impl FnMut(Function)) {
 
 /// Find the function matching `vendor` and the earliest id in `ids` (the
 /// caller's priority order), in a single enumeration pass.
+#[cfg_attr(not(lazyos_tests), allow(dead_code))] // drivers now attach per function; tests use it
 pub fn find_any(vendor: u16, ids: &[u16]) -> Option<Function> {
     let mut best: Option<(usize, Function)> = None;
     for_each(|function| {

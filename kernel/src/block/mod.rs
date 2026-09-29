@@ -213,12 +213,18 @@ pub(crate) fn install_ata() -> Option<&'static dyn BlockDevice> {
     Some(device)
 }
 
-/// Attach legacy virtio-blk (the QEMU preference) and register it; it takes
-/// over the boot slot when present. Called by the device core's driver entry.
-pub(crate) fn install_virtio() -> Option<&'static dyn BlockDevice> {
-    let device = virtio::probe()?;
+/// Attach one legacy virtio-blk function and register it. The first virtio
+/// disk takes over the boot slot from ATA (the QEMU preference); later ones
+/// (a data disk) are registered but never displace it. Called by the device
+/// core's driver entry once per matching function.
+pub(crate) fn install_virtio(
+    function: crate::dev::pci::Function,
+) -> Option<&'static dyn BlockDevice> {
+    let device = virtio::attach_function(function)?;
     let _ = register(device);
-    set_boot_device(device);
+    if !boot_device().is_some_and(|boot| boot.name().starts_with("virtio")) {
+        set_boot_device(device);
+    }
     serial_println!(
         "block: {} ready, {} sectors",
         device.name(),
@@ -226,6 +232,7 @@ pub(crate) fn install_virtio() -> Option<&'static dyn BlockDevice> {
     );
     Some(device)
 }
+
 /// Translate a kernel virtual address to its physical address by walking the
 /// active page table. DMA drivers need physical addresses, and the bootloader
 /// maps the kernel and the physical-memory window at unrelated dynamic

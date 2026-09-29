@@ -277,8 +277,8 @@ pub fn vfs_parent_directory_needs_search_bit() -> Result<(), String> {
     Ok(())
 }
 
-/// A write that runs out of mappable blocks part-way persists what landed
-/// (the inode is written back) instead of leaking every block it allocated,
+/// A write that runs out of blocks part-way persists what landed (the inode
+/// is written back) instead of leaking every block it allocated,
 /// and an owner whose ids do not fit ext2's 16-bit fields is refused rather
 /// than truncated (uid 65536 would become root).
 pub fn ext2_short_write_persists_and_owner_is_checked() -> Result<(), String> {
@@ -288,14 +288,19 @@ pub fn ext2_short_write_persists_and_owner_is_checked() -> Result<(), String> {
     vfs.create(root, "/big", 0o644).map_err(|e| e.message())?;
     let free_before = fs.free_blocks().map_err(|e| e.message())?;
 
-    // A single-indirect file maps 12 + 256 blocks (268 KiB at 1 KiB blocks).
-    let data = vec![0x5Au8; 300 * 1024];
+    // The 512 KiB volume cannot hold 600 KiB, so the write runs the volume dry
+    // well past the single-indirect range (268 KiB at 1 KiB blocks).
+    let data = vec![0x5Au8; 600 * 1024];
     let written = vfs
         .write(root, "/big", 0, &data)
         .map_err(|e| format!("a short write failed outright: {}", e.message()))?;
     check!(
-        written == 268 * 1024,
-        "the write reported {written} bytes, expected the 268 KiB that fit"
+        written > 268 * 1024 && written < data.len() && written % 1024 == 0,
+        "the write reported {written} bytes, expected a whole-block short write"
+    );
+    check!(
+        fs.free_blocks().map_err(|e| e.message())? == 0,
+        "the short write stopped with blocks still free"
     );
     let meta = vfs.stat(root, "/big").map_err(|e| e.message())?;
     check!(
@@ -310,7 +315,7 @@ pub fn ext2_short_write_persists_and_owner_is_checked() -> Result<(), String> {
     );
     check!(
         vfs.write(root, "/big", written as u64, &data[..1024]) == Err(FsError::NoSpace),
-        "a write at the mapping limit did not report NoSpace"
+        "a write on a full volume did not report NoSpace"
     );
     vfs.unlink(root, "/big").map_err(|e| e.message())?;
     let free_after = fs.free_blocks().map_err(|e| e.message())?;
