@@ -86,6 +86,7 @@ pub fn fd_kind(fd: usize) -> FdKind {
             Fd::Closed => FdKind::Closed,
             Fd::Terminal => FdKind::Terminal,
             Fd::File { .. } => FdKind::File,
+            Fd::Vfs { .. } => FdKind::Vfs,
             Fd::Pipe { .. } => FdKind::Pipe,
             Fd::Socket { .. } => FdKind::Socket,
             Fd::Event { .. } => FdKind::EventFd,
@@ -151,6 +152,7 @@ pub fn fd_status(fd: usize) -> Option<u64> {
     match &task.fds[fd] {
         Fd::Closed => None,
         Fd::Terminal | Fd::File { .. } => Some(0), // O_RDONLY
+        Fd::Vfs { file } => Some(file.status_flags()),
         Fd::Pipe { pipe, end } => {
             let access = match end {
                 End::Read => 0,
@@ -181,7 +183,7 @@ pub fn fd_set_status(fd: usize, nonblock: bool) -> bool {
     }
     match &mut task.fds[fd] {
         Fd::Closed => false,
-        Fd::Terminal | Fd::File { .. } => true,
+        Fd::Terminal | Fd::File { .. } | Fd::Vfs { .. } => true,
         Fd::Pipe { pipe, end } => {
             pipe.set_nonblock(*end, nonblock);
             true

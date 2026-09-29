@@ -94,6 +94,13 @@ Status (#136): the ABI root is a copy-up overlay over the read-only FAT volume
 `unlink`/`rmdir` and descriptor writes work without a writable FAT driver; see
 [architecture/filesystem.md](architecture/filesystem.md).
 
+Status (#334): files under `/data` (the ext2 data volume) are VFS-backed
+descriptors rather than snapshots, with `pread64`/`pwrite64`/`truncate`/
+`ftruncate`/`fsync`/`fdatasync`/`syncfs`/`sync`/`statfs`/`fstatfs`, POSIX
+unlink-while-open, and the two-boot `persist` fixture proving a file survives a
+reboot. `chmod`/`chown`/`utimensat`, `link`/`symlink` and `statx` remain
+`ENOSYS` (the VFS trait has no attribute setter or link nodes yet).
+
 ### L3 — Threads and synchronization
 Syscalls: `clone`(56) `futex`(202, at least `WAIT`/`WAKE`/`REQUEUE`/`CMP_REQUEUE`)
 `sched_yield`(24) `set_tid_address`(218) `set_robust_list`(273) `madvise`(28)

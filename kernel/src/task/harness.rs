@@ -78,6 +78,7 @@ pub fn fd_kind_at(slot: usize, fd: usize) -> super::FdKind {
             super::Fd::Closed => super::FdKind::Closed,
             super::Fd::Terminal => super::FdKind::Terminal,
             super::Fd::File { .. } => super::FdKind::File,
+            super::Fd::Vfs { .. } => super::FdKind::Vfs,
             super::Fd::Pipe { .. } => super::FdKind::Pipe,
             super::Fd::Socket { .. } => super::FdKind::Socket,
             super::Fd::Event { .. } => super::FdKind::EventFd,

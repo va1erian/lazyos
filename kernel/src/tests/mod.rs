@@ -201,6 +201,7 @@ const SUITE: &[&[(&str, Test)]] = &[
     fsops_suite::CASES,
     overlay_suite::CASES,
     ext2_suite::CASES,
+    ext2_suite::data_fds::CASES,
     topics_suite::CASES,
     topics_gate_suite::CASES,
     service_suite::CASES,

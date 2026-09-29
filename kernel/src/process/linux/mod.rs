@@ -26,6 +26,8 @@ mod elf;
 mod epoll;
 mod errno;
 mod fd;
+mod filerw;
+mod filesys;
 mod flags;
 mod futex;
 mod io;
@@ -42,6 +44,7 @@ mod socket;
 mod stat;
 mod time;
 mod uaccess;
+mod vfsfd;
 
 pub use elf::load;
 pub(crate) use native::{read_redirected, write_redirected};
@@ -99,6 +102,8 @@ fn syscall_name(nr: u64) -> &'static str {
         14 => "rt_sigprocmask",
         15 => "rt_sigreturn",
         16 => "ioctl",
+        17 => "pread64",
+        18 => "pwrite64",
         19 => "readv",
         20 => "writev",
         21 => "access",
@@ -133,6 +138,10 @@ fn syscall_name(nr: u64) -> &'static str {
         63 => "uname",
         72 => "fcntl",
         73 => "flock",
+        74 => "fsync",
+        75 => "fdatasync",
+        76 => "truncate",
+        77 => "ftruncate",
         78 => "getdents",
         79 => "getcwd",
         80 => "chdir",
@@ -166,6 +175,9 @@ fn syscall_name(nr: u64) -> &'static str {
         124 => "getsid",
         130 => "rt_sigsuspend",
         131 => "sigaltstack",
+        137 => "statfs",
+        138 => "fstatfs",
+        162 => "sync",
         157 => "prctl",
         158 => "arch_prctl",
         186 => "gettid",
@@ -196,6 +208,7 @@ fn syscall_name(nr: u64) -> &'static str {
         291 => "epoll_create1",
         293 => "pipe2",
         302 => "prlimit64",
+        306 => "syncfs",
         318 => "getrandom",
         332 => "statx",
         334 => "rseq",
@@ -276,6 +289,8 @@ extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
         14 => sig::sys_rt_sigprocmask(a1, a2, a3, a4),
         15 => sig::sys_rt_sigreturn(),
         16 => misc::sys_ioctl(a1, a2, a3),
+        17 => filerw::sys_pread64(a1, a2, a3, a4), // pread64(fd, buf, count, offset)
+        18 => filerw::sys_pwrite64(a1, a2, a3, a4), // pwrite64(fd, buf, count, offset)
         19 => io::sys_readv(a1, a2, a3),
         20 => io::sys_writev(a1, a2, a3),
         21 => pathops::sys_access(a1, a2), // access(path, mode)
@@ -305,7 +320,10 @@ extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
         61 => procctl::sys_wait4(a1, a2, a3),  // wait4(pid, status, options)
         62 => sig::sys_kill(a1, a2),           // kill(pid, sig)
         63 => misc::sys_uname(a1),
-        72 => fd::sys_fcntl(a1, a2, a3), // fcntl(fd, cmd, arg)
+        72 => fd::sys_fcntl(a1, a2, a3),      // fcntl(fd, cmd, arg)
+        74 | 75 => filesys::sys_fsync(a1),    // fsync / fdatasync
+        76 => filesys::sys_truncate(a1, a2),  // truncate(path, length)
+        77 => filesys::sys_ftruncate(a1, a2), // ftruncate(fd, length)
         79 => pathops::sys_getcwd(a1, a2),
         80 => 0,                                        // chdir (root-only)
         82 => pathops::sys_rename(a1, a2),              // rename
@@ -331,7 +349,10 @@ extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
         124 => procctl::sys_getsid(a1),                 // getsid
         130 => sig::sys_rt_sigsuspend(a1, a2),          // rt_sigsuspend(mask, size)
         131 => sig::sys_sigaltstack(a1, a2),
-        157 => 0, // prctl (accept)
+        137 => filesys::sys_statfs(a1, a2),  // statfs(path, buf)
+        138 => filesys::sys_fstatfs(a1, a2), // fstatfs(fd, buf)
+        157 => 0,                            // prctl (accept)
+        162 => filesys::sys_sync(),
         158 => misc::sys_arch_prctl(a1, a2),
         169 => 0,                            // reboot (accept)
         200 => sig::sys_tkill(a1, a2),       // tkill(tid, sig)
@@ -356,6 +377,7 @@ extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
         290 => epoll::sys_eventfd2(a1, a2),       // eventfd2(initval, flags)
         291 => epoll::sys_epoll_create1(a1),      // epoll_create1(flags)
         293 => pipes::sys_pipe(a1, a2),           // pipe2(fds, flags)
+        306 => filesys::sys_syncfs(a1),           // syncfs(fd)
         318 => time::sys_getrandom(a1, a2),
         334 => {
             crate::serial_println!("ENOSYS 334 rseq");

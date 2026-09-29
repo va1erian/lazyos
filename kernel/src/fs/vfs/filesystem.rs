@@ -1,6 +1,6 @@
 //! The [`Filesystem`] trait mounted filesystems implement.
 
-use super::{DirEntry, FsError, Id, Meta};
+use super::{DirEntry, FsError, Id, Meta, StatFs};
 use alloc::vec::Vec;
 
 /// The filesystem implementations the VFS can mount. Methods take paths
@@ -61,6 +61,12 @@ pub trait Filesystem: Send + Sync {
     /// `fsync` reaches this through [`Vfs::flush`].
     fn flush(&self) -> Result<(), FsError> {
         Ok(())
+    }
+
+    /// Capacity and free space (`statfs(2)`). Backends with nothing sensible to
+    /// report keep the default [`FsError::NotSupported`].
+    fn statfs(&self) -> Result<StatFs, FsError> {
+        Err(FsError::NotSupported)
     }
 
     /// List a directory's entries (without `.`/`..`, which the ABI layer adds).

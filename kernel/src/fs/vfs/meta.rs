@@ -45,6 +45,24 @@ pub struct Meta {
     pub kind: FileKind,
 }
 
+/// Capacity figures for one mounted filesystem, the payload of `statfs(2)`.
+/// Blocks are `block_size` bytes; `blocks_free` is what could still be
+/// allocated (the VFS reserves nothing for root, so it is also the figure an
+/// unprivileged caller gets).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct StatFs {
+    /// The Linux `f_type` magic that identifies the filesystem to `statfs`
+    /// callers (`0xEF53` for ext2, `0x858458f6` for ramfs).
+    pub magic: u32,
+    pub block_size: u32,
+    pub blocks: u64,
+    pub blocks_free: u64,
+    pub files: u64,
+    pub files_free: u64,
+    /// Longest file name a directory entry can hold.
+    pub name_max: u32,
+}
+
 /// One directory entry: the name plus the target's inode and kind.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct DirEntry {

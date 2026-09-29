@@ -42,7 +42,7 @@ use alloc::vec::Vec;
 use spin::Mutex;
 
 use super::ramfs::RamFs;
-use super::vfs::{DirEntry, FileKind, Filesystem, FsError, Id, Meta};
+use super::vfs::{DirEntry, FileKind, Filesystem, FsError, Id, Meta, StatFs};
 
 /// Upper-layer file-data cap (2 MiB of the 16 MiB kernel heap).
 pub const MAX_UPPER_BYTES: usize = 2 * 1024 * 1024;
@@ -53,6 +53,9 @@ pub const MAX_UPPER_NODES: usize = 1024;
 /// never collide with a lower one in the VFS dentry/inode caches (each layer
 /// numbers from its own root) or with a sibling path that reused the number.
 const UPPER_INO: u64 = 1 << 63;
+
+/// The Linux `f_type` for overlayfs (`OVERLAYFS_SUPER_MAGIC`).
+const OVERLAYFS_MAGIC: u32 = 0x794c_7630;
 
 /// A copy-up overlay over a read-only `lower` filesystem; see the module docs.
 pub struct Overlay {
@@ -220,6 +223,15 @@ fn join(parent: &str, name: &str) -> String {
 impl Filesystem for Overlay {
     fn name(&self) -> &'static str {
         "overlay (abi rw)"
+    }
+
+    /// New data lands in the upper layer, so its caps are what can still be
+    /// written; only the magic says this is an overlay.
+    fn statfs(&self) -> Result<StatFs, FsError> {
+        Ok(StatFs {
+            magic: OVERLAYFS_MAGIC,
+            ..self.upper.statfs()?
+        })
     }
 
     fn lookup(&self, path: &str) -> Result<Meta, FsError> {

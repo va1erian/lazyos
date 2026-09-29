@@ -1,6 +1,7 @@
 //! Per-task file-descriptor table entries and their clone/drop semantics.
 
 use super::*;
+use crate::fs::openfile::OpenFile;
 
 /// Number of file descriptors per task.
 pub const FD_COUNT: usize = 16;
@@ -24,6 +25,10 @@ pub enum Fd {
     /// A regular file: contents read at open time plus the current offset.
     /// The `Arc` snapshot is shared by `dup`/`fork` and copied on first write.
     File { data: Arc<Vec<u8>>, offset: usize },
+    /// A regular file on the persistent mount, read and written in place
+    /// through the VFS. `dup`/`fork` share the one open file description (and
+    /// with it the offset), as POSIX requires.
+    Vfs { file: Arc<OpenFile> },
     /// One end of an anonymous pipe (`pipe`/`pipe2`).
     Pipe { pipe: Arc<Pipe>, end: End },
     /// One side of an `AF_UNIX` socket pair (`socketpair` or an accepted
@@ -90,6 +95,18 @@ impl Fd {
                     (0, 0)
                 }
             }
+            Fd::Vfs { file } => {
+                // A regular file never blocks: ready whenever it is open in
+                // the direction asked for.
+                let mut revents = 0;
+                if events & pipe::POLLIN != 0 && file.readable() {
+                    revents |= pipe::POLLIN;
+                }
+                if events & pipe::POLLOUT != 0 && file.writable() {
+                    revents |= pipe::POLLOUT;
+                }
+                (revents, 0)
+            }
             Fd::Pipe { pipe, end } => pipe.poll_gen(*end, events),
             Fd::Socket { pair, side } => pair.poll_gen(*side, events),
             Fd::Event { event } => event.poll_gen(events),
@@ -116,6 +133,9 @@ impl Clone for Fd {
             Fd::File { data, offset } => Fd::File {
                 data: data.clone(),
                 offset: *offset,
+            },
+            Fd::Vfs { file } => Fd::Vfs {
+                file: Arc::clone(file),
             },
             Fd::Pipe { pipe, end } => Fd::pipe_end(Arc::clone(pipe), *end),
             Fd::Socket { pair, side } => Fd::socket_side(Arc::clone(pair), *side),
@@ -157,6 +177,8 @@ pub enum FdKind {
     Closed,
     Terminal,
     File,
+    /// A regular file on the persistent mount.
+    Vfs,
     /// A pipe end (either direction).
     Pipe,
     /// A socket-pair side.

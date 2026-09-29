@@ -14,6 +14,8 @@ an in-memory ramfs mounted at `/tmp`.
 | `kernel/src/fs/fat.rs` | Read-only FAT12/16 on the boot volume |
 | `kernel/src/fs/ext2.rs` (+ `ext2/{layout,blocks,indirect,truncate,state,dir,fsimpl}.rs`) | Read/write ext2 rev 0/1 (issues #99, #333) |
 | `kernel/src/fs/overlay.rs` | Copy-up overlay for the Linux ABI root (issue #136) |
+| `kernel/src/fs/openfile.rs` | Open files on `/data` for Linux descriptors: in-place I/O, follow renames, unlink-while-open (issue #334) |
+| `kernel/src/fs/vfs/mountops.rs` | Whole-mount operations: `flush`, `sync_all`, `statfs`, `mount_point` |
 
 **VFS semantics** (`vfs.rs`, issue #98)
 
@@ -31,7 +33,9 @@ an in-memory ramfs mounted at `/tmp`.
   map; mutations invalidate the path, its inode, and cached descendants.
   `cache_stats()` exposes hits/misses for tests.
 - `Filesystem` trait: `name`, `lookup`/`stat`, `read`, `write`, `truncate`,
-  `create`, `mkdir`, `unlink`, `rmdir`, `rename`, `readdir`. The VFS checks
+  `create`, `mkdir`, `unlink`, `rmdir`, `rename`, `readdir`, `flush`, `statfs`
+  (`StatFs`: magic, block size, block/inode totals and free; default
+  `NotSupported`, implemented by ext2, ramfs and the overlay). The VFS checks
   permissions before calling in, so a backend only enforces what is intrinsic
   (e.g. FAT returns `ReadOnly`). `FsError` variants map to errno in the Linux
   layer.
@@ -108,6 +112,30 @@ surface. Descriptor writes update the backing file and patch the fd's snapshot,
 so a descriptor reads back its own writes; unlinking while a descriptor is open
 keeps the snapshot readable (a later write through the orphan answers ENOENT).
 
+**Linux descriptors on `/data`** (`openfile.rs`, issue #334)
+
+The overlay root and `/tmp` hand a Linux program a snapshot of the file; `/data`
+does not, because the copy would be bounded by the kernel heap and a second
+opener could not see the first one's writes. An `OpenFile` is a path, an offset
+and an access mode; `read`/`write`/`pread64`/`pwrite64`/`ftruncate`/`fsync` go to
+the VFS at that offset through the `abi_*` helpers (see
+[processes.md](processes.md) for the syscall side). Because the VFS names files
+by path, the registry of open files keeps each one meaning "the file I opened":
+
+- `rename` (`abi_rename`) retargets every open file at or under the old path, and
+  first parks a file it is about to replace (restoring it if the rename fails);
+- `unlink` (`abi_unlink`) of an open file renames it to `<dir>/.unlinked-<n>`
+  instead of freeing it, and the last close deletes that entry (all opens of one
+  file share one registry entry, so the last one out is known). A stop in
+  between leaves the hidden entry behind, the equivalent of an orphan inode;
+  nothing reclaims it yet.
+- open files run as root after `open`, which checked permissions once.
+
+`fsync` flushes only the mount holding the file (`Vfs::flush`); `sync` and the
+shutdown path flush every mount (`Vfs::sync_all`). Open, write, close, unlink
+cycles are soaked in the kernel suite (`linux_data_soak_*`) and must return every
+block, inode, descriptor and registry entry.
+
 **Backends**
 
 | Backend | Status | Notes |
@@ -151,8 +179,10 @@ default so CI stays hermetic). The kernel mounting it is tracked separately
 **Status.** Working: FAT boot, ramfs `/tmp`, ext2 read/write, permissions,
 caches, `umask`, the Linux ABI copy-up overlay (`O_CREAT`/`mkdir`/`rename`/
 `unlink`/`rmdir`, fd writes), an ext2 `/data` volume with truncate and large
-files, synced on shutdown. The in-kernel suite (`fs_ext2_*` over a `FakeDisk`)
-holds the correctness, crash-ordering and soak coverage; a session has `/data`
-when a second block device carries ext2, which `tools/run_demo.py` attaches by
-default (`target/data.img`, see the data volume section above). Open: symlinks, cross-mount rename, per-process
+files, synced on shutdown, and Linux descriptors that read and write it in place
+(`pread64`/`pwrite64`/`ftruncate`/`fsync`/`sync`/`statfs`). The in-kernel suite
+(`fs_ext2_*` over a `FakeDisk`) holds the correctness, crash-ordering and soak
+coverage; a session has `/data` when a second block device carries ext2, which
+`tools/run_demo.py` attaches by default (`target/data.img`, see the data volume
+section above). Open: symlinks, cross-mount rename, per-process
 cwd, page cache, and overlay persistence to the writable volume.

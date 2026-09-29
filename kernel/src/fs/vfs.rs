@@ -44,6 +44,7 @@ use alloc::vec::Vec;
 
 mod filesystem;
 mod meta;
+mod mountops;
 mod path;
 
 pub use filesystem::Filesystem;
@@ -204,7 +205,6 @@ impl Vfs {
     }
 
     /// Read up to `buf.len()` bytes from `path` at `offset`.
-    #[cfg_attr(not(lazyos_tests), allow(dead_code))] // used by tests/diagnostics
     pub fn read(
         &mut self,
         id: Id,
@@ -355,31 +355,6 @@ impl Vfs {
         self.invalidate_mount_path(from_mount, &from_rel);
         self.invalidate_mount_path(from_mount, &to_rel);
         Ok(())
-    }
-
-    /// Flush the filesystem holding `path` to stable storage (`fsync(2)`).
-    ///
-    /// The path must resolve (search permission on every ancestor, as with any
-    /// other VFS call) but needs no read or write bit: flushing is not reading
-    /// or writing the file's data.
-    pub fn flush(&mut self, id: Id, path: &str) -> Result<(), FsError> {
-        let path = Path::parse(path);
-        self.check_path(id, &path, 0)?;
-        let (mount, _) = self.resolve_mount(&path)?;
-        self.mounts[mount].fs.flush()
-    }
-
-    /// Flush every mounted filesystem (`sync(2)`, and the shutdown path).
-    /// One filesystem failing does not stop the rest from being flushed; the
-    /// first error is reported.
-    pub fn sync_all(&self) -> Result<(), FsError> {
-        let mut first = Ok(());
-        for mount in &self.mounts {
-            if let Err(error) = mount.fs.flush() {
-                first = first.and(Err(error));
-            }
-        }
-        first
     }
 
     /// List a directory's entries (`.`/`..` are the ABI layer's job).
