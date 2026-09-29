@@ -8,6 +8,7 @@
 //!
 //! Serial evidence: `FABMON:UP:PASS` after the first frame (or
 //! `FABMON:UP:FAIL:<errno>` when the fabric snapshot is unreadable),
+//! `FABMON:READY:PASS` once the event loop has ticked (input is now handled),
 //! `FABMON:REFRESH:PASS` on `r`, `FABMON:QUIT:PASS` on `q`, and a
 //! `FABMON:DATA:...` line with the headline counters.
 
@@ -117,7 +118,13 @@ impl App for Fabricmon {
                 let mut state = self.state.borrow_mut();
                 state.reload(matches!(msg, Msg::Refresh));
                 state.refreshes += 1;
+                // The first timer tick proves the event loop is dispatching, so
+                // scripted input sent after this marker cannot be lost.
+                let first_tick = matches!(msg, Msg::Tick) && state.refreshes == 1;
                 drop(state);
+                if first_tick {
+                    println!("FABMON:READY:PASS");
+                }
                 ui.invalidate(self.root.id());
                 if matches!(msg, Msg::Refresh) {
                     println!("FABMON:REFRESH:PASS");
