@@ -57,6 +57,7 @@ class Launcher:
             "headless": b(value=False),
             "tablet": b(value=False),
             "abi_build": b(value=False),
+            "desktop": b(value=False),
             "services": b(value=False),
             "xuid": b(value=False),
             "shellprobe": b(value=False),
@@ -110,6 +111,7 @@ class Launcher:
             "headless": self.v["headless"].get(),
             "tablet": self.v["tablet"].get(),
             "abi_build": self.v["abi_build"].get(),
+            "desktop": self.v["desktop"].get(),
             "services": self.v["services"].get(),
             "xuid": self.v["xuid"].get(),
             "shellprobe": self.v["shellprobe"].get(),
@@ -154,6 +156,7 @@ class Launcher:
         self.lbl_mode.pack(fill="x", padx=6, pady=(0, 6))
 
         g = self._group(parent, "Image configuration (build switches)")
+        self._check(g, "Desktop profile (LAZYOS_DESKTOP)", "desktop")
         self._check(g, "Services session (LAZYOS_SERVICES)", "services")
         self._check(g, "Compositor (LAZYOS_XUID)", "xuid")
         self._check(g, "Shell probe (+ LAZYOS_SHELLPROBE)", "shellprobe")
@@ -321,6 +324,7 @@ class Launcher:
         if not match:
             return
         _, _, switches, xui = match[0]
+        self.v["desktop"].set(False)
         self.v["services"].set("services" in switches)
         self.v["xuid"].set("xuid" in switches)
         self.v["shellprobe"].set("shellprobe" in switches)

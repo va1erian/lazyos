@@ -88,6 +88,19 @@ jobs:
             --fail-on "PANIC" --fail-on "REGCTL:SELFTEST:FAIL"
           python tools/screenshot/pngstats.py shots/regd/*.png --min-nonblack 0.01
 
+      # The full services evidence (issue #158): the non-desktop
+      # `LAZYOS_SERVICES=1` boot still starts the demo/evidence programs, so its
+      # serial log is checked for the launch, crash-restart, `top` and open-with
+      # markers. The desktop profile (`LAZYOS_DESKTOP=1`) deliberately omits
+      # those, and its own job checks only the markers it still emits (see
+      # `tools/services/evidence.py --desktop` and `.github/workflows/xui.yml`).
+      - name: Assert services boot evidence
+        run: |
+          python tools/screenshot/qemu_session.py --image target/lazyos.img \
+            --out shots/services --script tools/screenshot/examples/services_demo.json \
+            --fail-on "PANIC"
+          python tools/services/evidence.py shots/services/serial.log
+
       - name: Upload boot evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -96,4 +109,5 @@ jobs:
           path: |
             shots/boot/**
             shots/regd/**
+            shots/services/**
           if-no-files-found: warn

@@ -218,26 +218,21 @@ jobs:
           grep -q "SYSMON:REFRESH:PASS" shots/sysclient/serial.log
           grep -q "SYSMON:QUIT:PASS" shots/sysclient/serial.log
 
-      # Issues #215/#216: the desktop session. Services + `xuid` + several xui
-      # apps embedded side by side (`LAZYOS_XUI_APPS`); `init`'s app registry
-      # opens them as clients (Terminal, sysmon, fabricmon, counter). The
-      # session types into the Terminal window (it hosts the shell), then
-      # cycles focus with Alt+Tab. No registered-but-unshipped app may log a
-      # launch failure.
+      # Issues #215/#216/#217: the desktop session. One `LAZYOS_DESKTOP=1`
+      # switch expands to the whole recipe (services + `xuid` + the default xui
+      # apps embedded side by side); `init`'s app registry opens them as clients
+      # (Terminal, sysmon, fabricmon, counter). The session types into the
+      # Terminal window (it hosts the shell), then cycles focus with Alt+Tab.
+      # The desktop profile starts no demo/evidence programs (no `flaky`, `top`
+      # self-test or clipboard demo pair), and no registered-but-unshipped app
+      # may log a launch failure.
       - name: Capture desktop session (multi-app + Terminal)
         if: ${{ !cancelled() && steps.app.outputs.term != '' }}
         shell: bash
         env:
-          LAZYOS_SERVICES: "1"
-          LAZYOS_XUID: "1"
-          LAZYOS_XUI_CLIENT: "1"
-          XUI_TERM: ${{ steps.app.outputs.term }}
-          XUI_SYSMON: ${{ steps.app.outputs.sysmon }}
-          XUI_FABMON: ${{ steps.app.outputs.fabricmon }}
-          XUI_COUNTER: ${{ steps.app.outputs.counter }}
+          LAZYOS_DESKTOP: "1"
         run: |
           set -euo pipefail
-          export LAZYOS_XUI_APPS="$XUI_TERM:$XUI_SYSMON:$XUI_FABMON:$XUI_COUNTER"
           cargo build
           python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/desktop \
             --timeout 300 --script tools/screenshot/examples/xui_desktop.json \
@@ -248,7 +243,7 @@ jobs:
           grep -q "TERM:CMD:echo \$((6\*7))" shots/desktop/serial.log
           grep -q "TERM:OUT:42" shots/desktop/serial.log
           grep -q "TERM:OUT:Hello from LazyOS!" shots/desktop/serial.log
-          python tools/services/evidence.py shots/desktop/serial.log
+          python tools/services/evidence.py shots/desktop/serial.log --desktop
           ! grep -q "^init: launch .* failed" shots/desktop/serial.log
 
       - name: Verify screenshots are non-blank

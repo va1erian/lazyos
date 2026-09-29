@@ -123,10 +123,24 @@ const AUTOSTART_ATTEMPTS: u64 = 40;
 /// currently holds or will reclaim a slot without another cap check.
 const LAUNCH_CAP_PER_SESSION: usize = 2;
 
+/// Whether this is the desktop profile (`LAZYOS_DESKTOP=1`, issue #217): the
+/// image is a user-facing session, not an evidence boot. `init` keeps the
+/// demo-only programs out of it — the deliberate-crash service, the clipboard
+/// demo pair and the `top` launch self-test — so a desktop log shows only the
+/// real services and apps.
+const DESKTOP: bool = cfg!(lazyos_desktop);
+
 /// Whether this boot runs its self-tests (soak, demo clients, launch checks).
 /// They are evidence for headless/CI runs and cost boot time, so optimized
-/// release builds leave them out.
+/// release builds leave them out, as does the desktop profile (a desktop boot
+/// starts only the real session, never the evidence programs).
 const BOOT_SELFTESTS: bool = cfg!(debug_assertions);
+
+/// Whether this boot starts the evidence-only *programs* (the `soak=`/`demo=`
+/// clients, the `flaky` crash service and the `top` launch self-test). Kept
+/// separate from [`BOOT_SELFTESTS`] because the desktop profile still serves
+/// the registry and policy self-tests but must not start demo programs.
+const BOOT_EVIDENCE: bool = BOOT_SELFTESTS && !DESKTOP;
 
 /// What to do when a service exits.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -372,8 +386,9 @@ impl Service {
         Service {
             name: spec.name,
             path: spec.path,
-            // `soak=`/`demo=` only drive boot evidence; release boots skip them.
-            args: if BOOT_SELFTESTS {
+            // `soak=`/`demo=` only drive boot evidence; release and desktop
+            // boots skip them.
+            args: if BOOT_EVIDENCE {
                 spec.args.to_string()
             } else {
                 String::new()
@@ -450,10 +465,11 @@ fn run() -> messenger::Result<()> {
         0,
     )?;
     let mut broker = router::TopicBroker::new("os.lazy.events.sink");
-    // Release boots skip the evidence-only rows (`flaky`'s deliberate crashes).
+    // Release and desktop boots skip the evidence-only rows (`flaky`'s
+    // deliberate crashes).
     let mut services: Vec<Service> = MANIFEST
         .iter()
-        .filter(|spec| BOOT_SELFTESTS || spec.name != "flaky")
+        .filter(|spec| BOOT_EVIDENCE || spec.name != "flaky")
         .map(Service::from_manifest)
         .collect();
     sys::write_str(&format!("init: manifest: {} service(s)\n", services.len()));
@@ -483,7 +499,7 @@ fn run() -> messenger::Result<()> {
         // The boot launch self-test: spawn `TOP.ELF` through the real launch
         // path once a task slot is free (the manifest's one-shot `top` exits
         // around here), proving `Launch` end to end in a headless boot.
-        if BOOT_SELFTESTS {
+        if BOOT_EVIDENCE {
             selftest.step(&mut services, &mut broker, now);
         }
         // The desktop's apps (issue #215): open the shipped `autostart` rows.
@@ -1148,8 +1164,11 @@ fn selftest_launch_policy() {
 /// self-test needs no timing-sensitive race against real processes exiting
 /// or crashing. Prints `INIT:LAUNCH:CAP:PASS`.
 fn selftest_launch_cap() {
-    let Some(app) = find_app("top") else {
-        return sys::write_str("INIT:LAUNCH:CAP:FAIL top is not registered\n");
+    // Any always-shipped app works: the call is refused by the cap before it
+    // spawns. `top` is the launch self-test's target, which the desktop profile
+    // does not ship, so use `messengerctl`, which every services image carries.
+    let Some(app) = find_app("messengerctl") else {
+        return sys::write_str("INIT:LAUNCH:CAP:FAIL messengerctl is not registered\n");
     };
     const SESSION: u64 = 4243;
     let cred = SysCred::new(1000, 1000, 0, 0, SESSION);
@@ -1166,7 +1185,7 @@ fn selftest_launch_cap() {
         .collect();
     let mut broker = router::TopicBroker::new("os.lazy.selftest.sink");
     let request = services::LaunchRequest {
-        app: String::from("top"),
+        app: String::from("messengerctl"),
         args: String::new(),
         session: SESSION,
     };

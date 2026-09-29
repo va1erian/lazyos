@@ -84,7 +84,9 @@ compositor demo. Target toolkit design: [xui-plan.md](../xui-plan.md).
   apps (`XTERM/XSYSMON/XFABMON/XCOUNTR.ELF` + `XAPPS.LST`) and `init`'s app
   registry launches the `autostart` ones with `linux:PATH --client` (the kernel's
   `spawn` selects the Linux ABI from the `linux:` prefix,
-  `kernel/src/process/spawn_line.rs`). The **Terminal** (`xui-term`) is a client
+  `kernel/src/process/spawn_line.rs`). The whole recipe is the single
+  `LAZYOS_DESKTOP=1` switch (issue #217), which also drops the demo/evidence
+  programs. The **Terminal** (`xui-term`) is a client
   that spawns BusyBox `sh` as a real child over a pipe pair and parses its
   output (CR/LF/BS and the CSI sequences its line editor emits) into a character
   grid (issue #254). There is no controlling tty yet, so it is a pipe-pair
