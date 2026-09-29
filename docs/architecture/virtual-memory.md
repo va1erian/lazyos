@@ -10,7 +10,7 @@ present, plus the Linux `mmap`/`brk`/`mprotect`/`munmap` paths built on it.
 | `kernel/src/mem/vma.rs` | `Vma`, `Prot`, `Kind`, global per-PML4 registry, list ops |
 | `kernel/src/mem/mod.rs` | `demand_fault`, `cow_fault`, `unmap_range`, `protect_range` |
 | `kernel/src/arch/idt.rs:196` | `page_fault_dispatch`: COW -> demand-zero -> `SIGSEGV` |
-| `kernel/src/process/linux.rs` | `sys_mmap`, `sys_munmap`, `sys_mprotect`, `sys_brk` |
+| `kernel/src/process/linux/mem.rs` | `sys_mmap`, `sys_munmap`, `sys_mprotect`, `sys_brk` |
 | `kernel/src/process/mod.rs:263` | Native `sbrk` (syscall 4) and VMA recording |
 | `kernel/src/task/mod.rs:324` | `Bump` state: per-PML4 `brk` and `mmap_next` |
 
@@ -48,7 +48,7 @@ present, plus the Linux `mmap`/`brk`/`mprotect`/`munmap` paths built on it.
 
 **User memory layout**
 
-| Region | Native (`process/mod.rs`) | Linux (`process/linux.rs`) |
+| Region | Native (`process/mod.rs`) | Linux (`process/linux/mod.rs`, `process/linux/mem.rs`) |
 |---|---|---|
 | Heap (`brk`) | `USER_HEAP_BASE = 0x60_0000`, `sbrk` only | `BRK_BASE = 0x0100_0000` .. `BRK_LIMIT = 0x1f00_0000` |
 | mmap bump | - | `MMAP_BASE = 0x4000_0000` .. `MMAP_LIMIT = 0x7000_0000` |

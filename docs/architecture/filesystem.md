@@ -65,7 +65,7 @@ the top bit set so the two layers cannot collide in the caches. The upper layer
 is capped (`MAX_UPPER_BYTES`, `MAX_UPPER_NODES` in `overlay.rs`); exceeding
 either answers `NoSpace`/ENOSPC. The Linux `openat`/`mkdirat`/`unlinkat`/
 `renameat` flags (`O_CREAT`, `O_EXCL`, `O_TRUNC`, `O_APPEND`, `O_DIRECTORY`,
-`AT_REMOVEDIR`) are honoured in `process/linux.rs`; `mkdir`(83), `rename`(82),
+`AT_REMOVEDIR`) are honoured in `process/linux/path.rs` and `process/linux/pathops.rs`; `mkdir`(83), `rename`(82),
 `unlink`(87), `rmdir`(84) and the `*at` variants are wired to the `abi_*`
 surface. Descriptor writes update the backing file and patch the fd's snapshot,
 so a descriptor reads back its own writes; unlinking while a descriptor is open
