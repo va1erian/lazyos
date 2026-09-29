@@ -158,7 +158,16 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
                 serial_println!("LazyOS: launching busybox sh (bench)");
                 // `df` and `mount` list what `/proc/mounts` says; with a data
                 // disk attached the bench requires `/data` in both (#348).
-                let script = "echo ABI:busybox:PASS; df; mount";
+                // Then `cd /data` and back (#365): `pwd -P` asks the kernel,
+                // `ls` is an exec'd child that must inherit the directory,
+                // and the redirection writes relative to it. (No command
+                // substitution: the bench judges the shell's own output.)
+                let script = "echo ABI:busybox:PASS; df; mount; \
+                    cd /data && echo ABI:busybox:CWD && pwd -P && \
+                    echo probe > cwdprobe && echo ABI:busybox:LS && ls && \
+                    cd .. && echo ABI:busybox:CWD2 && pwd -P && \
+                    echo ABI:busybox:LS2 && ls; \
+                    rm -f /data/cwdprobe; echo ABI:busybox:END";
                 match task::spawn_linux_args("sh", &bytes, &["sh", "-c", script]) {
                     Ok(index) => serial_println!("LazyOS: spawned busybox as task {index}"),
                     Err(err) => serial_println!("ABI:busybox:FAIL:{err}"),

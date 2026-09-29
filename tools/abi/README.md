@@ -32,7 +32,8 @@ Tooling that measures how far LazyOS is from running prebuilt
 | `unixstress` | `UnixStream` pair/EOF/shutdown, pathname bind/connect/accept, `SOCK_SEQPACKET` boundaries. |
 | `persist` | A file on the persistent `/data` volume: write, `fsync`, `pwrite`/`pread`, `ftruncate`, append, then (second boot, same disk) the bytes are still there. Two boots, see below. |
 | `statxio` | `statx` (path and `AT_EMPTY_PATH`), `preadv`/`pwritev` (positional, hostile count refused), the legacy `getdents`, and `/proc/mounts`, all on `/tmp`. |
-| `busybox` | Pinned static BusyBox (`tools/abi/busybox.py`), the system shell: the kernel boots it with `sh -c "echo ABI:busybox:PASS; df; mount"`; with a data disk attached the row also requires `/data` in the `df` and `mount` output. |
+| `cwd` | The per-task working directory: `chdir`/`getcwd`, `.`/`..` folding (clamped at `/`), relative create/list/rename/stat, `ENOENT`/`ENOTDIR`, and a child that inherits the directory across `fork` + `execve` without moving its parent. Works in `/tmp`, and in `/data` when a disk is attached (the row then requires both `ABI:cwd:ROUND:` lines). |
+| `busybox` | Pinned static BusyBox (`tools/abi/busybox.py`), the system shell: the kernel boots it with `sh -c "echo ABI:busybox:PASS; df; mount; ..."`; with a data disk attached the row also requires `/data` in the `df` and `mount` output, and that `cd /data` really moves the kernel's cwd (`pwd -P`, an exec'd `ls` and a relative redirection all see `/data`; after `cd ..` they see `/`). |
 
 ## Convention
 
