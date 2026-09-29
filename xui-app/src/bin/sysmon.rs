@@ -5,7 +5,7 @@
 //! (frames, slab, kernel heap), the task table (pid, state, class, CPU ticks,
 //! name) and a footer with uptime. A one-second `ui` timer refreshes the
 //! snapshot; `r` refreshes immediately and `q` quits. Text uses the bundled
-//! JetBrains Mono through the backend's font.
+//! Droid Sans through the backend's font.
 //!
 //! Serial evidence: `SYSMON:UP:PASS` after the first frame (or
 //! `SYSMON:UP:FAIL:<errno>` when the snapshot is unreadable),

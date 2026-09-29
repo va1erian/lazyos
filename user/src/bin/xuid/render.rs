@@ -2,7 +2,7 @@
 //! [`repaint`] pass and the desktop/window/taskbar/overlay drawing, moved out
 //! of `xuid.rs` unchanged.
 
-use user::messenger::display::{self, Canvas, Rect};
+use user::messenger::display::{Canvas, Face, Rect};
 use user::sys;
 
 use super::drag::{draw_drag, DragSession};
@@ -89,7 +89,7 @@ fn draw_alt_tab(screen: &mut Canvas, surfaces: &[Surface], tab: &AltTab, clip: R
         .order
         .iter()
         .filter_map(|id| surface_by_id(surfaces, *id))
-        .map(|surface| surface.title.chars().count() as i32 * display::font::ADVANCE)
+        .map(|surface| Face::Sans.width(&surface.title))
         .max()
         .unwrap_or(0);
     let panel_w = (title_w + 48).clamp(180, (screen_w - 40).max(180));
@@ -125,7 +125,7 @@ fn draw_alt_tab(screen: &mut Canvas, surfaces: &[Surface], tab: &AltTab, clip: R
         clip,
         OVERLAY_BORDER,
     );
-    screen.text(panel.x + 10, panel.y + 8, "alt+tab", OVERLAY_TEXT, clip, 1);
+    screen.text_face(panel.x + 10, panel.y + 4, "Alt+Tab", Face::Serif, OVERLAY_TEXT, clip);
     // Highlight the selected row before its text, then paint the titles.
     for (index, id) in tab.order.iter().take(rows).enumerate() {
         let row = Rect::new(
@@ -138,13 +138,13 @@ fn draw_alt_tab(screen: &mut Canvas, surfaces: &[Surface], tab: &AltTab, clip: R
             screen.fill(row, clip, OVERLAY_SELECTED);
         }
         if let Some(surface) = surface_by_id(surfaces, *id) {
-            screen.text(
+            screen.text_face(
                 row.x + 8,
-                row.y + (row.h - display::font::H) / 2,
+                row.y + (row.h - Face::Sans.height()) / 2,
                 &surface.title,
+                Face::Sans,
                 OVERLAY_TEXT,
                 row.intersect(clip),
-                1,
             );
         }
     }
@@ -195,13 +195,13 @@ fn draw_surface(screen: &mut Canvas, surface: &Surface, focused: bool, clip: Rec
         TITLE_H,
     )
     .intersect(clip);
-    screen.text(
+    screen.text_face(
         surface.x + 8,
-        surface.y + 8,
+        surface.y + (TITLE_H - Face::Sans.height()) / 2,
         &surface.title,
+        Face::Sans,
         TITLE_TEXT,
         title_clip,
-        1,
     );
     // Close and minimize buttons, painted over the title bar.
     for (rect, background, glyph) in [
@@ -209,7 +209,9 @@ fn draw_surface(screen: &mut Canvas, surface: &Surface, focused: bool, clip: Rec
         (surface.minimize_button(), MINIMIZE_BG, "-"),
     ] {
         screen.fill(rect, clip, background);
-        screen.text(rect.x + 5, rect.y + 4, glyph, BUTTON_TEXT, clip, 1);
+        let x = rect.x + (rect.w - Face::Sans.width(glyph)) / 2;
+        let y = rect.y + (rect.h - Face::Sans.height()) / 2;
+        screen.text_face(x, y, glyph, Face::Sans, BUTTON_TEXT, clip);
     }
 
     // The app's pixels, or an explicit placeholder before AttachBuffer.
@@ -223,13 +225,13 @@ fn draw_surface(screen: &mut Canvas, surface: &Surface, focused: bool, clip: Rec
         screen.blit(pixels, surface.w, surface.h, content, clip);
     } else {
         screen.fill(content, clip, EMPTY_BG);
-        screen.text(
+        screen.text_face(
             content.x + 10,
             content.y + 10,
-            "waiting for buffer",
+            "Waiting for buffer...",
+            Face::Serif,
             TITLE_TEXT,
             clip,
-            1,
         );
     }
 }
@@ -263,13 +265,13 @@ fn draw_taskbar(screen: &mut Canvas, surfaces: &[Surface], focused: Option<u64>,
             clip,
             accent,
         );
-        screen.text(
+        screen.text_face(
             rect.x + ENTRY_PAD,
-            rect.y + (ENTRY_H - display::font::H) / 2,
+            rect.y + (ENTRY_H - Face::Sans.height()) / 2,
             &surface.title,
+            Face::Sans,
             TITLE_TEXT,
             rect.intersect(clip),
-            1,
         );
     });
 }

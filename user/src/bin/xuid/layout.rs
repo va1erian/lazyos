@@ -2,7 +2,7 @@
 //! on-screen clamping, the taskbar entry layout and the cursor sprite rect,
 //! moved out of `xuid.rs` unchanged.
 
-use user::messenger::display::{self, Rect};
+use user::messenger::display::{Face, Rect};
 
 use super::surface::Surface;
 use super::theme::{
@@ -88,7 +88,7 @@ fn clamp_on_screen(origin: i32, extent: i32, limit: i32, reserved: i32, visible:
 }
 /// The width of a surface's taskbar entry: title width plus padding.
 fn entry_width(surface: &Surface) -> i32 {
-    (surface.title.chars().count() as i32 * display::font::ADVANCE + ENTRY_PAD * 2).max(ENTRY_MIN_W)
+    (Face::Sans.width(&surface.title) + ENTRY_PAD * 2).max(ENTRY_MIN_W)
 }
 
 /// Visit every taskbar entry in stable creation (id) order, left to right.
