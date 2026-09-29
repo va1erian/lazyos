@@ -45,7 +45,7 @@ use alloc::vec::Vec;
 use x86_64::structures::idt::PageFaultErrorCode;
 use x86_64::PhysAddr;
 
-use libmessenger::{Decoder, Header, Kind, Parcel, MAX_PARCEL_BYTES, VERSION};
+use libmessenger::{Header, Parcel, MAX_PARCEL_BYTES, VERSION};
 
 use crate::ipc::handles::HandleKind;
 use crate::ipc::{channels, credentials, handles, registry, topics};
