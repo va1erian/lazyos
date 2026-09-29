@@ -90,8 +90,16 @@ def capture(name: str, at: str, accel: str = "auto", data_disk: Path | None = No
     ]
     if data_disk:
         command += ["--data-disk", str(data_disk)]
-    subprocess.run(command, cwd=ROOT, capture_output=True, text=True)
+    # A boot must be judged only by its own log: a stale one left by an earlier
+    # run could carry the marker and pass a boot that never happened, and a
+    # failed capture must not fall back to whatever is on disk.
     log = out / "serial.log"
+    log.unlink(missing_ok=True)
+    result = subprocess.run(command, cwd=ROOT, capture_output=True, text=True)
+    if result.returncode != 0:
+        print(f"warning: capture failed for {name}", file=sys.stderr)
+        print(result.stderr[-500:], file=sys.stderr)
+        return ""
     return log.read_text(errors="replace") if log.is_file() else ""
 
 

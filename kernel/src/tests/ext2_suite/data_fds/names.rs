@@ -275,6 +275,31 @@ pub fn permission_denials() -> Result<(), String> {
     data.check_clean()
 }
 
+/// The process that creates a file may open it whatever mode it gave the new
+/// file: `O_CREAT | O_RDWR` with 0o200 must not fail the read check. Only that
+/// creating open is exempt; a later read open is still denied.
+pub fn create_with_no_read_bit() -> Result<(), String> {
+    let data = Data::new(0)?;
+    let umask = crate::fs::abi_set_umask(0);
+    let made = path_call(SYS_MKDIR, "/data/drop", 0o777);
+    crate::fs::abi_set_umask(umask);
+    check!(made == 0, "mkdir failed");
+
+    credentials::set(task::current(), Cred::new(1000, 100, 0, 0, 0));
+    let fd = open_mode("/data/drop/w", O_CREAT | O_RDWR, 0o200);
+    let created_ok = write(fd, b"x") == 1;
+    let reopen = open("/data/drop/w", O_RDONLY);
+    credentials::set(task::current(), Cred::ROOT);
+
+    check!(created_ok, "the creating open of a 0o200 file was refused");
+    check!(
+        reopen == errno(EACCES),
+        "a later read open of the write-only file was allowed"
+    );
+    close(fd);
+    data.check_clean()
+}
+
 /// A volume whose device cannot be written still reads; every change is
 /// `EROFS` and leaves nothing behind.
 pub fn read_only_volume() -> Result<(), String> {

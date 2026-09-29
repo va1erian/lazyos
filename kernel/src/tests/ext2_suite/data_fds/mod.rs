@@ -55,6 +55,10 @@ pub(in crate::tests) const CASES: &[(&str, Test)] = &[
         names::rename_over_open_file,
     ),
     ("linux_data_permission_denials", names::permission_denials),
+    (
+        "linux_data_create_no_read_bit",
+        names::create_with_no_read_bit,
+    ),
     ("linux_data_read_only_volume", names::read_only_volume),
     (
         "linux_data_soak_create_write_unlink",

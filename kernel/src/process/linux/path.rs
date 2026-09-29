@@ -239,13 +239,15 @@ fn open_dir_fd(path: &str, meta: Meta) -> u64 {
 
 /// Snapshot a file and open it with the requested access mode. Writable
 /// descriptors record the backing path so `write(2)` reaches the ABI VFS.
-fn open_file_fd(id: Id, path: &str, meta: Meta, mode: Access) -> u64 {
+fn open_file_fd(id: Id, path: &str, meta: Meta, mode: Access, created: bool) -> u64 {
     if crate::fs::abi_persistent(path) {
         // The durable volume is read and written in place, never snapshotted.
         // Nothing reads the file here, so the read permission a snapshot open
         // gets for free from loading it has to be checked explicitly (write
-        // permission already was, by the caller).
-        if mode.read {
+        // permission already was, by the caller). A file this very open just
+        // created is the caller's whatever mode it was given (`O_CREAT` with
+        // 0o200 and `O_RDWR` must succeed), so the check is skipped for it.
+        if mode.read && !created {
             if let Err(error) = crate::fs::abi_check(id, path, vfs::READ) {
                 return fs_err(error);
             }
@@ -297,7 +299,7 @@ fn open_path(path: &str, flags: u64, mode: u64) -> u64 {
             return if meta.kind == FileKind::Dir {
                 open_dir_fd(path, meta)
             } else {
-                open_file_fd(id, path, meta, Access::READ_ONLY)
+                open_file_fd(id, path, meta, Access::READ_ONLY, false)
             };
         }
         Err(FsError::NotFound) => None,
@@ -327,7 +329,7 @@ fn open_path(path: &str, flags: u64, mode: u64) -> u64 {
                 }
             }
         }
-        return open_file_fd(id, path, meta, access);
+        return open_file_fd(id, path, meta, access, false);
     }
 
     if !create {
@@ -342,7 +344,7 @@ fn open_path(path: &str, flags: u64, mode: u64) -> u64 {
         return fs_err(error);
     }
     match resolve(path) {
-        Ok(Target::Node(meta)) => open_file_fd(id, path, meta, access),
+        Ok(Target::Node(meta)) => open_file_fd(id, path, meta, access, true),
         _ => err(ENOENT),
     }
 }
