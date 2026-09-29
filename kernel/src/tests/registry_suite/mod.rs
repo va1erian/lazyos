@@ -189,6 +189,10 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ),
     ("ipc_registry_unknown_name_friendly", unknown_name_friendly),
     ("ipc_registry_lease_expiry_prunes", lease_expiry_prunes),
+    (
+        "ipc_registry_lease_overflow_is_rejected",
+        lease_overflow_is_rejected,
+    ),
     ("ipc_registry_owner_death_releases", owner_death_releases),
     ("ipc_registry_acl_denies_register", acl_denies_register),
     ("ipc_registry_list_reflects_state", list_reflects_state),

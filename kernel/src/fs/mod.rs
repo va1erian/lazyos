@@ -293,3 +293,15 @@ pub fn abi_rename(id: Id, from: &str, to: &str) -> Result<(), FsError> {
 pub fn abi_set_umask(mask: u16) -> u16 {
     abi_with(|vfs| vfs.set_umask(mask)).unwrap_or(0)
 }
+
+/// Install a fresh Linux ABI mount table backed entirely by ramfs (issue
+/// #229's leak test): the test suite boots without [`init`] having mounted a
+/// boot volume, so the ABI table would otherwise be `None` and no path could
+/// reach `execve`'s load path.
+#[cfg(lazyos_tests)]
+pub fn install_abi_ramfs_for_test() {
+    let mut abi = Vfs::new();
+    let _ = abi.mount("/", Arc::new(ramfs::RamFs::new()));
+    let _ = abi.mount("/tmp", Arc::new(ramfs::RamFs::new()));
+    *ABI_FS.lock() = Some(abi);
+}

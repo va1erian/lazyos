@@ -97,10 +97,12 @@ fn untouched(buffer: &[u8], what: &str) -> Result<(), String> {
 }
 
 mod epoll_and_fs;
+mod fs_base_and_execve;
 mod pointer_validation;
 mod teardown_and_credentials;
 
 pub(super) use epoll_and_fs::*;
+pub(super) use fs_base_and_execve::*;
 pub(super) use pointer_validation::*;
 pub(super) use teardown_and_credentials::*;
 
@@ -165,6 +167,14 @@ pub(super) const CASES: &[(&str, Test)] = &[
     (
         "hardening_ext2_failed_write_does_not_expose_a_stale_block",
         ext2_failed_write_does_not_expose_a_stale_block,
+    ),
+    (
+        "hardening_noncanonical_fs_base_is_rejected",
+        noncanonical_fs_base_is_rejected,
+    ),
+    (
+        "hardening_execve_failure_releases_address_space",
+        execve_failure_releases_address_space,
     ),
     (
         "hardening_soak_ext2_short_writes_do_not_leak",

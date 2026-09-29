@@ -4,7 +4,9 @@
 mod heap;
 pub mod pte;
 pub mod slab;
+mod table_guard;
 pub mod vma;
+pub use table_guard::UserTableGuard;
 
 use bootloader_api::info::{MemoryRegionKind, Optional};
 use bootloader_api::BootInfo;
