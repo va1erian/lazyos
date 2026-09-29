@@ -82,6 +82,8 @@ extern crate alloc;
 
 #[path = "xuid/anim.rs"]
 mod anim;
+#[path = "xuid/clock.rs"]
+mod clock;
 #[path = "xuid/compositor.rs"]
 mod compositor;
 #[path = "xuid/drag.rs"]
@@ -194,6 +196,7 @@ fn run() -> ! {
             comp.handle_event(event);
         }
         comp.reap_dead_shell();
+        comp.tick_clock();
 
         // 2. Requests: serve one, then loop (the deadline bounds the nap when
         //    nothing is pending, keeping input latency at a couple of ticks).

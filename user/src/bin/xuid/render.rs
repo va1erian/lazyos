@@ -45,6 +45,7 @@ impl Compositor {
         let surfaces = &self.surfaces;
         let focused = self.focused;
         let dims = (screen.width(), screen.height());
+        let clock = self.clock.text();
 
         // Opaque layers above every window.
         let mut overlays = [Rect::new(0, 0, 0, 0); 3];
@@ -116,7 +117,7 @@ impl Compositor {
             }
         }
         if taskbar {
-            draw_taskbar(screen, surfaces, focused, damage);
+            draw_taskbar(screen, surfaces, focused, clock, damage);
         }
         if let Some(session) = self.drag_session.as_ref() {
             draw_drag(screen, surfaces, session, self.pointer, damage);
@@ -344,7 +345,13 @@ fn draw_surface(screen: &mut Canvas, surface: &Surface, focused: bool, clip: Rec
 
 /// Draw the bottom taskbar: one entry per live surface in creation order, with
 /// the focused entry highlighted and minimized ones dimmed.
-fn draw_taskbar(screen: &mut Canvas, surfaces: &[Surface], focused: Option<u64>, clip: Rect) {
+fn draw_taskbar(
+    screen: &mut Canvas,
+    surfaces: &[Surface],
+    focused: Option<u64>,
+    clock: &str,
+    clip: Rect,
+) {
     let (screen_w, screen_h) = (screen.width(), screen.height());
     let bar = Rect::new(0, screen_h - TASKBAR_H, screen_w, TASKBAR_H);
     if bar.intersect(clip).is_empty() {
@@ -380,4 +387,15 @@ fn draw_taskbar(screen: &mut Canvas, surfaces: &[Surface], focused: Option<u64>,
             rect.intersect(clip),
         );
     });
+    // Date and time, right-aligned in the space `for_each_entry` reserved.
+    let slot = super::clock::rect((screen_w, screen_h));
+    let width = Face::Serif.width(clock);
+    screen.text_face(
+        slot.x + slot.w - width - super::clock::PAD,
+        slot.y + (TASKBAR_H - Face::Serif.height()) / 2,
+        clock,
+        Face::Serif,
+        TITLE_TEXT,
+        bar.intersect(clip),
+    );
 }
