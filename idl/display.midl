@@ -1,0 +1,126 @@
+/// The userspace compositor protocol (`xuid`; issues #113, #143, #145, #167,
+/// #287).
+///
+/// One interface carries both directions. **Calls** (app or shell to
+/// compositor) are ordinary request/reply methods: `CreateSurface`,
+/// `AttachBuffer`, `Commit`, `DestroySurface`, `DragStart`, `DragCancel`,
+/// `ListSurfaces`, `GetWorkArea`, `Subscribe` and `GetTheme`. **Events**
+/// (compositor to app, or to the shell subscriber) are `oneway` methods sent
+/// on the event endpoint the client transferred: `PointerMove`, `PointerDown`,
+/// `PointerUp`, `KeyDown`, `KeyUp`, `WindowClose`, the drag-and-drop set
+/// `DragEnter`/`DragOver`/`DragLeave`/`Drop`/`DragEnded`, and the shell set
+/// `SurfaceChanged`/`FocusChanged`/`StartMenu`. Method ids are pinned to the
+/// values the hand-written protocol used (1-24), so the numbering stays
+/// append-only from here on.
+///
+/// Endpoint and buffer transfers ride in the parcel's `handles` and `buffers`
+/// vectors, where the kernel moves them; the TLV body has no `Handle`/`Buffer`
+/// fields because a raw handle number in the body would be meaningless to the
+/// receiver. `CreateSurface` and `Subscribe` transfer one event endpoint
+/// (`handles[0]`), `AttachBuffer` shares one pixel buffer (`buffers[0]`, at
+/// least `width * height * 4` bytes of RGBA8).
+///
+/// Pointer coordinates in every event are relative to the surface content
+/// origin; a move outside the surface (a press-and-drag) reports negative or
+/// oversized values. Pointer events carry a button id (`1` left, `2` right,
+/// `3` middle). Failures of calls are returned as a structured error field
+/// (id 15, errno-style code plus friendly text) instead of the declared reply
+/// fields, which never use that id.
+interface os.lazy.display.v1 {
+    /// Create a surface of `width` x `height` pixels titled `title`. `role` is
+    /// a `Role` value: a decorated window (also the meaning of an absent
+    /// field) or the full-screen desktop, which paints above the background
+    /// and below every window, has no chrome, never takes focus and replaces
+    /// the previous desktop. The desktop role is compositor-privileged. The
+    /// parcel transfers the event endpoint the compositor sends input on.
+    method CreateSurface(width: U32, height: U32, title: String, role: U32) -> (surface: U64) = 1;
+    /// Attach (or replace) `surface`'s pixel buffer with the parcel's shared
+    /// buffer. Only the surface's creator may attach.
+    method AttachBuffer(surface: U64) -> () = 2;
+    /// Signal that the damage rectangle of `surface` (content-relative) is
+    /// ready to present.
+    method Commit(surface: U64, x: U32, y: U32, w: U32, h: U32) -> () = 3;
+    /// Drop a surface; the compositor forgets it and repaints.
+    method DestroySurface(surface: U64) -> () = 4;
+    /// Event: the pointer moved to `(x, y)`, relative to the focused surface.
+    method PointerMove(x: I32, y: I32) -> () = 5 oneway;
+    /// Event: pointer button `button` went down at `(x, y)`, relative to the
+    /// surface.
+    method PointerDown(x: I32, y: I32, button: U32) -> () = 6 oneway;
+    /// Event: pointer button `button` went up at `(x, y)`, relative to the
+    /// surface.
+    method PointerUp(x: I32, y: I32, button: U32) -> () = 7 oneway;
+    /// Event: key `key` was pressed (a character or a non-printable code).
+    method KeyDown(key: U32) -> () = 8 oneway;
+    /// Event: key `key` was released.
+    method KeyUp(key: U32) -> () = 9 oneway;
+    /// Event: the window manager closed this surface (the X button or Alt+F4).
+    /// The app is expected to exit or re-create it.
+    method WindowClose() -> () = 10 oneway;
+    /// Begin a compositor-mediated drag from `surface` carrying clipboard
+    /// `token` of type `mime`. Only the surface's creator may start one, while
+    /// a pointer button is held; one drag at a time.
+    method DragStart(surface: U64, token: U64, mime: String) -> () = 11;
+    /// Cancel the drag that started at `surface`.
+    method DragCancel(surface: U64) -> () = 12;
+    /// Event: a drag carrying `mime` entered this surface at `(x, y)`.
+    method DragEnter(x: I32, y: I32, mime: String) -> () = 13 oneway;
+    /// Event: a drag moved inside this surface to `(x, y)`.
+    method DragOver(x: I32, y: I32) -> () = 14 oneway;
+    /// Event: a drag left this surface.
+    method DragLeave() -> () = 15 oneway;
+    /// Event: a drag was released over this surface at `(x, y)`; the target
+    /// pastes `token` of type `mime` through the clipboard service.
+    method Drop(x: I32, y: I32, token: U64, mime: String) -> () = 16 oneway;
+    /// Event to the drag's source: the drag ended (`dropped`) or was cancelled.
+    method DragEnded(dropped: Bool) -> () = 17 oneway;
+    /// Every surface in z-order (bottom first), including the desktop.
+    /// Compositor-privileged.
+    method ListSurfaces() -> (surfaces: Array<SurfaceRow>) = 18;
+    /// The rectangle available to windows: the whole screen when a shell is
+    /// subscribed, otherwise the screen minus the fallback taskbar strip.
+    method GetWorkArea() -> (x: I32, y: I32, w: I32, h: I32) = 19;
+    /// Register this task as the shell subscriber under `subscriber_role`;
+    /// the parcel transfers the event endpoint for the shell events. The role
+    /// `shell` (privileged) also hides the built-in taskbar. Registering again
+    /// replaces the previous endpoint.
+    method Subscribe(subscriber_role: String) -> () = 20;
+    /// The compositor's chrome palette as `0xRRGGBB` colours.
+    method GetTheme() -> (title_bg_active: U32, title_bg_inactive: U32, border: U32, taskbar: U32, text: U32) = 21;
+    /// Shell event: surface `surface` changed. `kind` is a `Change` value;
+    /// `title` is set on `Created` only. `role` is a `Role` value.
+    method SurfaceChanged(surface: U64, kind: U32, x: I32, y: I32, w: I32, h: I32, minimized: Bool, focused: Bool, title: Option<String>, role: U32) -> () = 22 oneway;
+    /// Shell event: the focused surface changed; absent when nothing is
+    /// focused.
+    method FocusChanged(surface: Option<U64>) -> () = 23 oneway;
+    /// Shell event: the global start-menu hotkey (Ctrl+Esc or Super) fired.
+    method StartMenu() -> () = 24 oneway;
+
+    /// What a surface is. Numeric values are the wire values.
+    enum Role { Window, Desktop }
+
+    /// The `SurfaceChanged` event kinds. `Unspecified` (0) is what a missing
+    /// field decodes to, so a malformed event never reads as `Created`.
+    enum Change { Unspecified, Created, Destroyed, Moved, Minimized, Restored, Title }
+
+    /// One row of a `ListSurfaces` reply.
+    struct SurfaceRow {
+        /// Protocol surface id.
+        id: U64,
+        /// Window title from `CreateSurface`.
+        title: String,
+        /// Window origin (the decorated window's top-left for a window; the
+        /// surface origin for a desktop).
+        x: I32,
+        y: I32,
+        /// Window content size in pixels.
+        w: I32,
+        h: I32,
+        /// Hidden by the minimize button.
+        minimized: Bool,
+        /// The compositor's focused surface.
+        focused: Bool,
+        /// A `Role` value.
+        role: U32
+    }
+}
