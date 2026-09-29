@@ -80,6 +80,8 @@
 
 extern crate alloc;
 
+#[path = "xuid/anim.rs"]
+mod anim;
 #[path = "xuid/compositor.rs"]
 mod compositor;
 #[path = "xuid/drag.rs"]

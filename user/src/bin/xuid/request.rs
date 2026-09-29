@@ -98,6 +98,11 @@ impl Compositor {
                 self.notify_focus();
             }
             self.notify_surface(id, wire::CHANGE_CREATED);
+            // Open with a zoom out of the window's taskbar entry, hidden (as
+            // if minimized) so the wireframe flies over the old screen.
+            self.set_minimized(id, true);
+            self.deiconify(id);
+            self.set_minimized(id, false);
             // A new surface changes the layout (and the taskbar), so repaint
             // the whole screen.
             self.repaint_full();

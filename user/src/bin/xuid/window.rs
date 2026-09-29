@@ -67,6 +67,7 @@ impl Compositor {
             self.focused = topmost_visible(&self.surfaces);
             self.notify_focus();
         }
+        self.iconify(id);
         // The row carries the post-minimize focus flag, so send it after the
         // focus recompute.
         self.notify_surface(id, wire::CHANGE_MINIMIZED);
