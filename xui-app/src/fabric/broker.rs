@@ -1,7 +1,8 @@
 //! The userspace topics broker (`messengerd`'s `os.lazy.messenger.topics`
 //! service): its `list_topics` call and the entry records it returns.
 
-use libmessenger::{flags, Decoder, Encoder, Header, Kind, Parcel, VERSION};
+use libmessenger::{flags, Header, Parcel, VERSION};
+use messenger_generated::os_lazy_messenger_topics_v1 as wire;
 
 use crate::sys::{self, msg_op, MsgArgs, MsgResult};
 
@@ -10,17 +11,6 @@ use super::registry::{close, resolve};
 
 /// The topics-broker well-known name.
 pub const TOPICS_NAME: &str = "os.lazy.messenger.topics";
-/// Topics interface id: `fnv1a64("os.lazy.messenger.topics.v1")`.
-const TOPICS_INTERFACE: u64 = 0xc573_4f97_8fef_7231;
-/// Broker method `list_topics` (`fnv1a32` of the method name).
-const TOPICS_LIST_TOPICS: u32 = 225_427_937;
-/// Broker TLV field ids used here.
-mod topics_field {
-    pub const TOPIC: u16 = 1;
-    pub const SUBSCRIBERS: u16 = 15;
-    pub const ENTRY: u16 = 16;
-}
-
 /// Ticks a broker call waits before it gives up (`2 s` at 100 Hz), so a stalled
 /// broker cannot freeze the dashboard forever.
 const BROKER_CALL_TICKS: u64 = 200;
@@ -74,13 +64,13 @@ impl Broker {
             header: Header {
                 version: VERSION,
                 flags: flags::SYNC | flags::ALLOW_NESTED,
-                interface_id: TOPICS_INTERFACE,
-                method: TOPICS_LIST_TOPICS,
+                interface_id: wire::INTERFACE_ID,
+                method: wire::METHOD_LISTTOPICS,
                 txn_id: 0,
                 reply_to: 0,
                 deadline_ns: 0,
             },
-            body: Encoder::new().finish(),
+            body: Vec::new(),
             handles: Vec::new(),
             buffers: Vec::new(),
         };
@@ -157,29 +147,18 @@ fn call_on(handle: u64, request: &Parcel, buf: &mut [u8]) -> Result<usize, i64> 
     Ok(len)
 }
 
-/// Decode the broker's `ENTRY` topic records.
+/// Decode the generated `ListTopics` reply into display rows.
 fn decode_topics(parcel: &Parcel) -> Option<Vec<TopicRow>> {
-    let mut topics = Vec::new();
-    let mut decoder = Decoder::new(&parcel.body);
-    while let Ok(Some(record)) = decoder.next() {
-        if record.kind != Kind::Struct || record.id != topics_field::ENTRY {
-            continue;
-        }
-        let mut nested = record.nested(0).ok()?;
-        let mut row = TopicRow {
-            topic: String::new(),
-            subscribers: 0,
-            retained: false,
-        };
-        while let Ok(Some(item)) = nested.next() {
-            match (item.kind, item.id) {
-                (Kind::String, topics_field::TOPIC) => row.topic = item.as_str().ok()?.to_string(),
-                (Kind::U64, topics_field::SUBSCRIBERS) => row.subscribers = item.as_u64().ok()?,
-                (Kind::Bool, _) => row.retained = item.as_bool().ok()?,
-                _ => {}
-            }
-        }
-        topics.push(row);
-    }
-    Some(topics)
+    let reply = wire::decode_list_topics_reply(&parcel.body).ok()?;
+    Some(
+        reply
+            .topics
+            .into_iter()
+            .map(|info| TopicRow {
+                topic: info.topic,
+                subscribers: info.subscribers,
+                retained: info.retained,
+            })
+            .collect(),
+    )
 }

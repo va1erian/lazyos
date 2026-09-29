@@ -36,7 +36,8 @@ See [processes.md](processes.md) and [display.md](display.md).
   byte; sizes are pinned there.
 - Modules: `registry` (direct ops plus the `Client` proxy through `messengerd`
   and the daemon's `serve_request`), `topics_client`
-  (`os.lazy.messenger.topics`, QoS, deferred `next_event`), `router` (interim
+  (`os.lazy.messenger.topics`, QoS, deferred `next_event`; wire from the
+  generated `idl/topics.midl` stubs, as `registry` uses `idl/registry.midl`), `router` (interim
   userspace topic router), `services` (init/healthd/logd shapes), `keyd`,
   `accounts`, `logind`, `display` (`os.lazy.display.v1`), `mime`, `clipboard`.
 - `EXPIRED_DEADLINE = 1` implements non-blocking polls via the kernel deadline
@@ -57,7 +58,7 @@ See [processes.md](processes.md) and [display.md](display.md).
 | Crate | Contents | Tests |
 |---|---|---|
 | `libs/messenger` | Parcel codec: `Header`, `Parcel`, `Encoder`/`Decoder`, `BufferDesc`, limits, `Error` | `cargo test -p libmessenger` (round-trip, limits, 1M-case decode fuzz); [README](../../libs/messenger/README.md) |
-| `libs/generated` | `midlc` output for `idl/echo.midl` (`os_lazy_echo_v1`) | `cargo test -p messenger-generated` |
+| `libs/generated` | `midlc` output for every `idl/*.midl` (`os_lazy_echo_v1`, `os_lazy_messenger_registry_v1`, `os_lazy_messenger_topics_v1`, ...); also linked by the static-musl `xui-app` | `cargo test -p messenger-generated` |
 | `libs/crypto` | SHA-256, HMAC-SHA256, HKDF-SHA256, Argon2id, RNG pool, wrap/unwrap, hex | `cargo test -p lazyos-crypto` (KATs); issue #102 |
 
 **Services** (`user/src/bin/`; image names are 8.3)

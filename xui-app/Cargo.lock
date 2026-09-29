@@ -212,6 +212,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "messenger-generated"
+version = "0.1.0"
+dependencies = [
+ "libmessenger",
+]
+
+[[package]]
 name = "miniz_oxide"
 version = "0.8.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -481,6 +488,7 @@ version = "0.1.0"
 dependencies = [
  "libc",
  "libmessenger",
+ "messenger-generated",
  "xui-canvas",
  "xui-core",
 ]

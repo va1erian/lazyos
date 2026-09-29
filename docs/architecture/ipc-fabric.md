@@ -28,8 +28,12 @@ syscall surface (including the bootstrap channel).
   proxy path gated by `CAP_IPC_CONTROL`). Re-registering a name by the same owner
   replaces it; another owner gets `NameTaken`. All resolvers alias one endpoint,
   so closing it is peer death for everyone; per-connection channels are the
-  documented follow-up. TLV ids (`NAME=1`, `ENDPOINT=4`, ...) are mirrored in
-  `user/src/messenger/`.
+  documented follow-up. The wire (interface id, method ids, TLV fields of
+  requests and the `list` reply) is defined in `idl/registry.midl` and consumed
+  through the generated `os_lazy_messenger_registry_v1` stubs by the kernel, the
+  native client in `user/src/messenger/` and `xui-app`'s fabric panel; nothing
+  is hand-mirrored. (The `REGISTER=1`..`LIST=4` numbers above are the native op
+  codes, not the parcel method ids.)
 
 **Topic policy** (`topics.rs`)
 
@@ -41,7 +45,8 @@ syscall surface (including the bootstrap channel).
   topics, and `#` only as the last filter segment. `authorize(actor, mode, name,
   txn)` checks every segment through `ipc::authorize`; the first denial
   short-circuits. Topics live in the userspace `messengerd` broker
-  ([userland.md](userland.md)); the kernel owns policy only.
+  ([userland.md](userland.md)); the kernel owns policy only. The broker and
+  both ACL scope interfaces are defined in `idl/topics.midl`.
 
 **Fabric stats** (`stats.rs`)
 

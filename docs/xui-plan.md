@@ -161,7 +161,9 @@ Landed in `xui-app/` (a standalone static-musl workspace built by
 - **Viewers** (issue #153) — `src/bin/sysmon.rs` (syscall-14 dashboard:
   frame/slab/heap gauges, uptime, task table) and `src/bin/fabricmon.rs`
   (syscall-5 panel: registry names with owners/interfaces, topics-broker
-  counts, shared buffers/fences/handles, per-task usage). Both refresh on a
+  counts, shared buffers/fences/handles, per-task usage; the registry and
+  topics wires come from the generated `messenger-generated` stubs, issue #302,
+  while the stats payload is a raw syscall snapshot). Both refresh on a
   one-second backend timer, route `r`/`q` through the backend's focused-node
   keyboard path, print `SYSMON:UP:PASS` / `FABMON:UP:PASS` (plus refresh and
   quit markers), and are captured by `.github/workflows/xui.yml`.
