@@ -117,6 +117,13 @@ fn deliver(frame_rsp: u64, rip_index: usize, sig: u8, info: SigInfo) -> bool {
     let Some(result) = prepare_handler(&regs, sig, &armed, native) else {
         return false;
     };
+    crate::task::trace::record_signal(
+        slot,
+        sig,
+        crate::task::trace::Via::Fault,
+        regs.rip,
+        regs.rsp,
+    );
     regs.rip = result.rip;
     regs.rsp = result.rsp;
     regs.rdi = sig as u64;

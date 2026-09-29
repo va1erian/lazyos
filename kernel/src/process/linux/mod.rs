@@ -433,6 +433,9 @@ extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
             errno::err(errno::ENOSYS)
         }
     };
+    // Kept for the fatal-fault report (issue #375): the last few syscalls tell
+    // a wild jump's story better than the faulting `rip` alone.
+    task::trace::record_syscall(task::current(), nr, a1, result);
     // Deliver pending unblocked signals on the way back to ring 3. The result
     // recorded in the signal frame is `rax` after `rt_sigreturn`, so an
     // interrupted syscall resumes as `-EINTR`.

@@ -92,17 +92,49 @@ pub fn kill_current(fault: Fault) -> usize {
 /// when the fault came from ring 0 (the caller then halts as before). A ring-3
 /// fault never returns: the process is terminated and this task waits for the
 /// scheduler to switch away, exactly as the `exit` syscall does.
+///
+/// This is the entry for the `x86-interrupt` handlers, which have no saved
+/// general registers; the naked exception stubs use [`contain_frame`] so the
+/// report carries the full context.
 pub fn contain(code_segment: u64, fault: Fault, detail: core::fmt::Arguments) {
     if !from_user(code_segment) {
         return;
     }
+    end_process(fault, detail, None);
+}
+
+/// [`contain`] for an exception whose stub saved the general registers at
+/// `frame_rsp` (RIP at word `rip_index`): the report then includes the
+/// registers and the user stack (issue #375).
+///
+/// # Safety
+/// `frame_rsp` must point at an exception frame the kernel's own stub saved,
+/// with the layout `regs_from_frame` expects for `rip_index`.
+pub unsafe fn contain_frame(
+    frame_rsp: u64,
+    rip_index: usize,
+    fault: Fault,
+    detail: core::fmt::Arguments,
+) {
+    let regs = signal::regs_from_frame(frame_rsp, rip_index);
+    let code_segment = crate::task::sys::frame_word(frame_rsp, rip_index + 1);
+    if !from_user(code_segment) {
+        return;
+    }
+    end_process(fault, detail, Some(&regs));
+}
+
+/// Print the fatal-fault report, end the process and wait for the scheduler.
+fn end_process(fault: Fault, detail: core::fmt::Arguments, regs: Option<&signal::UserRegs>) -> ! {
+    let slot = current();
     crate::serial_println!(
         "user: task {} killed by {} ({}), status {}",
-        current(),
+        slot,
         fault.name(),
         detail,
         exit_status(fault)
     );
+    crate::arch::fault_report::print(slot, regs);
     kill_current(fault);
     loop {
         x86_64::instructions::interrupts::enable();

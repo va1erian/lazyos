@@ -298,7 +298,11 @@ extern "C" fn exception_dispatch(rsp: u64, vector: u64) -> u64 {
     if crate::arch::fault::from_user(cs) && crate::task::signal::deliver_exception(rsp, exception) {
         return rsp;
     }
-    contain(cs, fault, format_args!("rip {rip:#x}"));
+    // SAFETY: `rsp` is the frame `exception_isr` saved, in the layout
+    // `rip_index` describes.
+    unsafe {
+        crate::arch::fault::contain_frame(rsp, rip_index, fault, format_args!("rip {rip:#x}"))
+    };
     serial_println!("EXCEPTION: {name} at {rip:#x}");
     crate::halt();
 }
@@ -348,11 +352,16 @@ extern "C" fn page_fault_dispatch(rsp: u64) -> u64 {
     }
     // SAFETY: as above; RIP is word 16, just before CS.
     let rip = unsafe { core::ptr::read_volatile((rsp + 16 * 8) as *const u64) };
-    contain(
-        saved_cs,
-        Fault::BadAccess,
-        format_args!("address {addr:?} ({error:?}), rip {rip:#x}"),
-    );
+    // SAFETY: `rsp` is the page-fault frame `page_fault_isr` saved, with RIP at
+    // `FAULT_RIP_INDEX` (16) after the registers and the error code.
+    unsafe {
+        crate::arch::fault::contain_frame(
+            rsp,
+            crate::task::signal::FAULT_RIP_INDEX,
+            Fault::BadAccess,
+            format_args!("address {addr:?} ({error:?}), rip {rip:#x}"),
+        )
+    };
     serial_println!(
         "EXCEPTION: page fault at {:?} ({:?}), frame {:#x}",
         addr,

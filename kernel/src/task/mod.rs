@@ -66,6 +66,7 @@ mod snapshot;
 pub use snapshot::{fd_set_len, prepare_fd_write};
 pub mod switch;
 pub mod sys;
+pub mod trace;
 pub mod wait;
 pub use linux_spawn::{spawn_linux, spawn_linux_args, spawn_linux_child};
 

@@ -149,6 +149,7 @@ pub(super) fn spawn_native(
     };
     // Every fallible step is behind us: keep the address space.
     guard.commit();
+    trace::clear(index);
 
     let top = kstack_top(index);
     let rsp = build_user_frame(top, entry, user_process::USER_STACK_TOP - 16);
@@ -238,6 +239,7 @@ pub fn spawn_thread(
 
     // A thread runs with its creator's credentials, not the slot's leftovers.
     credentials::inherit(current(), index);
+    trace::clear(index);
     tasks[index] = Some(Task {
         name,
         kind: Kind::Linux,
@@ -341,6 +343,7 @@ pub(super) fn spawn_fork_inner(user_rsp: Option<u64>) -> Result<usize, &'static 
     // `fork`/`vfork` children inherit the parent's credentials; the slot may
     // still hold a dead task's (possibly root) identity.
     credentials::inherit(parent_index, index);
+    trace::clear(index);
     tasks[index] = Some(Task {
         name: "fork",
         kind: Kind::Linux,

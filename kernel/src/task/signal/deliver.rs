@@ -1,6 +1,7 @@
 //! Signal delivery at the user boundary: arming handlers, default actions and the sweep.
 
 use super::*;
+use crate::task::trace;
 
 // ---------------------------------------------------------------------------
 // Delivery
@@ -258,6 +259,7 @@ pub(super) fn apply_action(
             let Some(result) = prepare_handler(regs, sig, &armed, false) else {
                 die_with_segv();
             };
+            trace::record_signal(slot, sig, trace::Via::SyscallReturn, regs.rip, regs.rsp);
             regs.rip = result.rip;
             regs.rsp = result.rsp;
             regs.rdi = sig as u64;
@@ -426,6 +428,7 @@ pub unsafe fn sweep(tasks: &mut [Option<Task>; MAX_TASKS]) -> ([SweepFinish; MAX
                 }
                 break;
             };
+            trace::record_signal(slot, sig, trace::Via::TimerSweep, regs.rip, regs.rsp);
             regs.rip = result.rip;
             regs.rsp = result.rsp;
             regs.rdi = sig as u64;
