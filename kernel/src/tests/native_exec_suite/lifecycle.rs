@@ -131,7 +131,7 @@ pub fn reap_is_specific_to_the_child() -> Result<(), String> {
     let sh = shell()?;
     let first = native::spawn("TOP.ELF", &service_suite::minimal_elf(), "")
         .map_err(|e| format!("spawn errno {e}"))?;
-    let second = native::spawn("REGCTL.ELF", &service_suite::minimal_elf(), "")
+    let second = native::spawn("CONFCTL.ELF", &service_suite::minimal_elf(), "")
         .map_err(|e| format!("spawn errno {e}"))?;
     task::harness::finish(first, 1);
     task::harness::finish(second, 2);

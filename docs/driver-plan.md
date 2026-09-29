@@ -258,7 +258,7 @@ explicitly not built, but the topic shape supports it.
 ### 3.7 Configuration
 
 Driver and device preferences (irq mode, buffer sizes, MAC override, default
-audio format, enable/disable policy) live in the `regd` registry; the kernel
+audio format, enable/disable policy) live in the `confd` registry; the kernel
 never reads it. See [driver-config-plan.md](driver-config-plan.md).
 
 ### 3.8 Class interfaces (Messenger IDL, `docs/idl/`)

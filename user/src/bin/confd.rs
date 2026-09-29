@@ -1,8 +1,8 @@
-//! `regd` (`REGD.ELF`): the configuration registry service (issue #260).
+//! `confd` (`CONFD.ELF`): the configuration registry service (issue #260).
 //!
-//! This is the v1 service from [`docs/config-registry-plan.md`](../../docs/config-registry-plan.md)
-//! (§1-§5). It loads the store logic from `libs/regd` and serves
-//! `os.lazy.regd.v1` over Messenger:
+//! This is the v1 service from [`docs/confd-plan.md`](../../docs/confd-plan.md)
+//! (§1-§5). It loads the store logic from `libs/confd` and serves
+//! `os.lazy.confd.v1` over Messenger:
 //!
 //! * `Get(path)`, `Set(path, value)`, `Delete(path)` and `List(prefix)`;
 //! * the **caller uid** comes from the kernel-stamped credential on the
@@ -11,23 +11,23 @@
 //! * a `Set`/`Delete` is persisted before the reply, on a clone of the
 //!   committed store, so a write failure leaves the live store untouched;
 //! * a committed `sys/` change is announced best-effort on
-//!   `system/regd/changed/<path>`, payload `(path, deleted)` and never the
+//!   `system/confd/changed/<path>`, payload `(path, deleted)` and never the
 //!   value.
 //!
 //! # Storage
 //!
-//! The plan's `/system/regd/store` needs a persistent writable volume. On the
+//! The plan's `/system/confd/store` needs a persistent writable volume. On the
 //! shipped image the boot volume is read-only FAT and `/tmp` is volatile
-//! ramfs, so the service falls back to `/tmp/regd`, logs a warning and reports
-//! **degraded** to `healthd`. When `/system/regd` is writable it is used and
-//! reported **ok**; the store is still safe across a `regd` restart either way
+//! ramfs, so the service falls back to `/tmp/confd`, logs a warning and reports
+//! **degraded** to `healthd`. When `/system/confd` is writable it is used and
+//! reported **ok**; the store is still safe across a `confd` restart either way
 //! (the ramfs outlives the task), but only the persistent location survives a
 //! reboot.
 //!
 //! # Change topics
 //!
 //! The kernel topic policy cannot express "`user/<uid>` is owner-only", so
-//! `libs/regd` only announces `sys/` changes. Announcing a `user/` path would
+//! `libs/confd` only announces `sys/` changes. Announcing a `user/` path would
 //! leak it to every subscriber; the reviewer-approved fallback for #260 is to
 //! stay silent on that subtree. Subscribers should `Get`/`List` after any
 //! change and re-read on reconnect.
@@ -43,30 +43,30 @@ use alloc::vec::Vec;
 use core::panic::PanicInfo;
 
 use api::wire;
-use regd::{ChangeSink, Regd, StoreFs};
+use confd::{ChangeSink, Confd, StoreFs};
 use user::central;
 use user::files::{self, Kind};
-use user::messenger::regd as api;
+use user::messenger::confd as api;
 use user::messenger::{self, errno, registry, services, Error, Message, Parcel};
 use user::sys;
 
 /// Preferred store directory: persistent when a writable volume is mounted.
-const STORE_DIR: &str = "/system/regd";
+const STORE_DIR: &str = "/system/confd";
 /// ramfs fallback when no persistent, writable volume is mounted.
-const FALLBACK_DIR: &str = "/tmp/regd";
+const FALLBACK_DIR: &str = "/tmp/confd";
 /// `ENOENT`, spelled out because `files` reports raw errnos.
 const ENOENT: i64 = 2;
 /// How long the serve loop parks between demo-child reaps (PIT ticks).
 const POLL_TICKS: u64 = 5;
 /// The evidence client `demo=1` spawns at boot (8.3 on-disk name).
-const DEMO_PROGRAM: &[u8] = b"REGCTL.ELF demo\0";
+const DEMO_PROGRAM: &[u8] = b"CONFCTL.ELF demo\0";
 
-/// The `regd` state a request is dispatched against.
-type Service = Regd<VfsStoreFs, TopicSink>;
+/// The `confd` state a request is dispatched against.
+type Service = Confd<VfsStoreFs, TopicSink>;
 
 /// A [`StoreFs`] binding the store files to one VFS directory.
 ///
-/// The names are the `libs/regd` constants (`store`, `store.tmp`,
+/// The names are the `libs/confd` constants (`store`, `store.tmp`,
 /// `store.corrupt`); this type only prefixes the directory.
 struct VfsStoreFs {
     dir: String,
@@ -126,7 +126,7 @@ impl StoreFs for VfsStoreFs {
 /// Publishes committed changes on the central broker and reports health.
 ///
 /// The broker connection is opened lazily and dropped on the first failure, so
-/// a `regd` that starts before `messengerd` connects on its first change; a
+/// a `confd` that starts before `messengerd` connects on its first change; a
 /// publish failure is swallowed because change topics are best-effort.
 struct TopicSink {
     bus: Option<central::Bus>,
@@ -156,7 +156,7 @@ impl TopicSink {
         let Ok(endpoint) = services::resolve_service(services::HEALTHD_NAME) else {
             return;
         };
-        let Ok(request) = services::health_report_request("regd", status, detail) else {
+        let Ok(request) = services::health_report_request("confd", status, detail) else {
             return;
         };
         let _ = endpoint.call(&request, None);
@@ -175,9 +175,9 @@ impl ChangeSink for TopicSink {
 
 #[no_mangle]
 pub extern "C" fn _start() -> ! {
-    sys::write_str("regd: configuration registry service (issue #260)\n");
+    sys::write_str("confd: configuration registry service (issue #260)\n");
     if let Err(error) = run() {
-        sys::write_str("regd: fatal: ");
+        sys::write_str("confd: fatal: ");
         sys::write_str(error.message());
         sys::write_str("\n");
         sys::exit(1);
@@ -195,19 +195,19 @@ fn run() -> messenger::Result<()> {
     registry::register(api::NAME, &published, &[api::INTERFACE], 0)?;
 
     let detail = if persistent {
-        "store=/system/regd"
+        "store=/system/confd"
     } else {
-        "store=/tmp/regd (ramfs; not persistent)"
+        "store=/tmp/confd (ramfs; not persistent)"
     };
     service
         .sink_mut()
         .report_health(if persistent { "ok" } else { "degraded" }, detail);
-    sys::write_str(&format!("REGD:READY dir={dir} persistent={persistent}\n"));
+    sys::write_str(&format!("CONFD:READY dir={dir} persistent={persistent}\n"));
 
     // One receive buffer for the whole life of the service: the user bump
     // allocator never reclaims per-call buffers.
     let mut buffer = alloc::vec![0u8; messenger::DEFAULT_BUFFER];
-    // `demo=1` spawns one `regctl` self-test once `regd` is serving; the loop
+    // `demo=1` spawns one `confctl` self-test once `confd` is serving; the loop
     // below parks with a deadline while it is alive so its exit is reaped.
     let mut demo_pending = demo_from_args();
     let mut demo_children = 0u64;
@@ -238,12 +238,12 @@ fn run() -> messenger::Result<()> {
         }
         while demo_children > 0 && sys::wait(sys::clock()).is_some() {
             demo_children -= 1;
-            sys::write_str("REGD:CTL:EXIT\n");
+            sys::write_str("CONFD:CTL:EXIT\n");
         }
     }
 }
 
-/// Whether the manifest asked for the `regctl` self-test (`demo=1`).
+/// Whether the manifest asked for the `confctl` self-test (`demo=1`).
 fn demo_from_args() -> bool {
     let mut buffer = [0u8; 128];
     let len = sys::service_args(&mut buffer).min(buffer.len());
@@ -251,28 +251,28 @@ fn demo_from_args() -> bool {
     text.split_whitespace().any(|part| part == "demo=1")
 }
 
-/// Spawn the `regctl` self-test as a child of this service; returns how many
+/// Spawn the `confctl` self-test as a child of this service; returns how many
 /// children are outstanding (0 or 1).
 fn spawn_demo() -> u64 {
     match sys::spawn(DEMO_PROGRAM) {
         Some(pid) => {
-            sys::write_str(&format!("REGD:CTL:START pid={pid}\n"));
+            sys::write_str(&format!("CONFD:CTL:START pid={pid}\n"));
             1
         }
         None => {
-            sys::write_str("REGD:CTL:FAIL: cannot spawn REGCTL.ELF\n");
+            sys::write_str("CONFD:CTL:FAIL: cannot spawn CONFCTL.ELF\n");
             0
         }
     }
 }
 
 /// Route one inbound message to the store, mapping a store rejection to a
-/// `REGD_*` error reply.
+/// `CONFD_*` error reply.
 fn dispatch(service: &mut Service, message: &Message) -> messenger::Result<Parcel> {
     if message.interface_id() != api::INTERFACE {
         return Err(Error::Errno(-errno::EINVAL));
     }
-    let caller = regd::Caller {
+    let caller = confd::Caller {
         uid: caller_uid(message)?,
     };
     let method = message.method();
@@ -313,14 +313,14 @@ fn dispatch(service: &mut Service, message: &Message) -> messenger::Result<Parce
 }
 
 /// A store rejection as the error the wire carries.
-fn service_error(error: regd::ServiceError) -> Error {
-    Error::Regd(api::service_error_code(error))
+fn service_error(error: confd::ServiceError) -> Error {
+    Error::Confd(api::service_error_code(error))
 }
 
-/// The `REGD_*`/errno reply for a dispatch failure.
+/// The `CONFD_*`/errno reply for a dispatch failure.
 fn error_reply_for(method: u32, error: Error) -> Parcel {
     let code = match error {
-        Error::Regd(code) => code,
+        Error::Confd(code) => code,
         other => other.errno().map(|code| -code).unwrap_or(errno::EINVAL),
     };
     api::error_reply(method, code, error.message())
@@ -338,15 +338,15 @@ fn caller_uid(message: &Message) -> messenger::Result<u32> {
 
 /// The store directory and whether it is persistent.
 ///
-/// `/system/regd` is preferred; it is only accepted if it can be created (or
-/// already is a directory) *and* a probe write succeeds. Otherwise `/tmp/regd`
+/// `/system/confd` is preferred; it is only accepted if it can be created (or
+/// already is a directory) *and* a probe write succeeds. Otherwise `/tmp/confd`
 /// (ramfs) is used and the service reports degraded.
 fn pick_dir() -> (String, bool) {
     if ensure_dir(STORE_DIR) && probe_writable(STORE_DIR) {
         return (String::from(STORE_DIR), true);
     }
     if !ensure_dir(FALLBACK_DIR) {
-        sys::write_str("regd: warning: could not create /tmp/regd\n");
+        sys::write_str("confd: warning: could not create /tmp/confd\n");
     }
     (String::from(FALLBACK_DIR), false)
 }

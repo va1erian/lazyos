@@ -374,19 +374,19 @@ pub mod mime;
 pub mod clipboard;
 
 // ---------------------------------------------------------------------------
-// regd: the configuration registry (issue #260)
+// confd: the configuration registry (issue #260)
 // ---------------------------------------------------------------------------
 
-/// Client and wire shapes for `regd`, the configuration registry
-/// (`docs/config-registry-plan.md` v1).
+/// Client and wire shapes for `confd`, the configuration registry
+/// (`docs/confd-plan.md` v1).
 ///
-/// The interface is generated from [`idl/regd.midl`](../../idl/regd.midl) into
-/// `messenger-generated`; this module wraps it with a typed [`regd::Value`]
+/// The interface is generated from [`idl/confd.midl`](../../idl/confd.midl) into
+/// `messenger-generated`; this module wraps it with a typed [`confd::Value`]
 /// conversion, a [`Client`] that resolves-and-retries at boot, and the
-/// `system/regd/changed/<path>` change-payload codec.
+/// `system/confd/changed/<path>` change-payload codec.
 ///
 /// Only `sys/` paths are announced: the kernel topic policy cannot express the
 /// "`user/<uid>` is owner-only" rule, so publishing user changes would leak
 /// them to every subscriber (issue #260's follow-up). A subscriber therefore
 /// re-reads after a change and must not assume every write produces an event.
-pub mod regd;
+pub mod confd;

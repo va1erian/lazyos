@@ -1,5 +1,5 @@
 //! `execve` of native LazyOS programs from a Linux task (issue #315): BusyBox
-//! `sh` forks a child that `execve`s `top`/`regctl`/..., and the kernel runs
+//! `sh` forks a child that `execve`s `top`/`confctl`/..., and the kernel runs
 //! the program as a native child of that forked task, parks for it, and exits
 //! with its status.
 //!
@@ -53,7 +53,7 @@ pub fn lookup_maps_names_to_files() -> Result<(), String> {
     for (path, file) in [
         ("top", "TOP.ELF"),
         ("/bin/top", "TOP.ELF"),
-        ("/usr/bin/regctl", "REGCTL.ELF"),
+        ("/usr/bin/confctl", "CONFCTL.ELF"),
         ("/sbin/msgctl", "MSGCTL.ELF"),
         ("messengerctl", "MSGCTL.ELF"),
         ("/bin/faultprobe", "FAULTPRB.ELF"),
@@ -131,7 +131,7 @@ pub fn args_line_joins_and_bounds() -> Result<(), String> {
         "no arguments should give an empty line"
     );
     check!(
-        native::args_line(&argv(&[b"regctl\0", b"get\0", b"a/b\0"])).as_deref() == Some("get a/b"),
+        native::args_line(&argv(&[b"confctl\0", b"get\0", b"a/b\0"])).as_deref() == Some("get a/b"),
         "arguments were not joined"
     );
     check!(

@@ -223,7 +223,7 @@ jobs:
       # apps embedded side by side); `init`'s app registry opens them as clients
       # (Terminal, sysmon, fabricmon, counter). The session types into the
       # Terminal window (it hosts the shell; it also runs a native LazyOS
-      # program, `regctl`, through the shell's `execve`, issue #315), then
+      # program, `confctl`, through the shell's `execve`, issue #315), then
       # cycles focus with Alt+Tab.
       # The desktop profile starts no demo/evidence programs (no `flaky`, `top`
       # self-test or clipboard demo pair), and no registered-but-unshipped app
@@ -245,7 +245,7 @@ jobs:
           grep -q "TERM:CMD:echo \$((6\*7))" shots/desktop/serial.log
           grep -q "TERM:OUT:42" shots/desktop/serial.log
           grep -q "TERM:OUT:Hello from LazyOS!" shots/desktop/serial.log
-          grep -q "TERM:OUT:usage: regctl" shots/desktop/serial.log
+          grep -q "TERM:OUT:usage: confctl" shots/desktop/serial.log
           python tools/services/evidence.py shots/desktop/serial.log --desktop
           ! grep -q "^init: launch .* failed" shots/desktop/serial.log
 

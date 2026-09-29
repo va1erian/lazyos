@@ -1,6 +1,6 @@
 //! Configuration registry service core (issue #260).
 //!
-//! The `regd` binary is ring-3, so the suite drives the same `regd::Regd`
+//! The `confd` binary is ring-3, so the suite drives the same `confd::Confd`
 //! commit logic the binary links, against an in-memory `StoreFs` and a
 //! recording change sink. Every path through the service is exercised:
 //! uid checks, list filtering, persist-before-swap, the change-topic filter
@@ -10,7 +10,7 @@ use super::*;
 use alloc::collections::BTreeMap;
 use alloc::string::String;
 use alloc::vec::Vec;
-use regd::{Caller, ChangeSink, Regd, ServiceError, StoreFs, Value};
+use confd::{Caller, ChangeSink, Confd, ServiceError, StoreFs, Value};
 
 /// Callers used throughout (mirrors the store crate's own test constants).
 const ROOT: Caller = Caller { uid: 0 };
@@ -71,10 +71,10 @@ impl ChangeSink for RecordingSink {
     }
 }
 
-type Service = Regd<MemFs, RecordingSink>;
+type Service = Confd<MemFs, RecordingSink>;
 
 fn service() -> Result<Service, String> {
-    Regd::load(MemFs::default(), RecordingSink::default()).map_err(fail)
+    Confd::load(MemFs::default(), RecordingSink::default()).map_err(fail)
 }
 
 fn text(value: &str) -> Value {
@@ -87,49 +87,55 @@ fn events(service: &Service) -> &[(String, bool)] {
 
 /// set/get/list/delete, including the absent-delete no-op.
 pub fn set_get_list_delete() -> Result<(), String> {
-    let mut regd = service()?;
+    let mut confd = service()?;
     check!(
-        regd.get("sys/net/mtu", ROOT).map_err(fail)? == None,
+        confd.get("sys/net/mtu", ROOT).map_err(fail)? == None,
         "a fresh store is not empty"
     );
 
-    regd.set("sys/net/mtu", Value::U64(1500), ROOT)
+    confd
+        .set("sys/net/mtu", Value::U64(1500), ROOT)
         .map_err(fail)?;
-    regd.set("sys/net/name", text("eth0"), ROOT).map_err(fail)?;
-    let value = regd.get("sys/net/mtu", ROOT).map_err(fail)?;
+    confd
+        .set("sys/net/name", text("eth0"), ROOT)
+        .map_err(fail)?;
+    let value = confd.get("sys/net/mtu", ROOT).map_err(fail)?;
     check!(
         value == Some(&Value::U64(1500)),
         "get returned the wrong value"
     );
     check!(
-        regd.list("sys/net", ROOT).map_err(fail)? == ["sys/net/mtu", "sys/net/name"],
+        confd.list("sys/net", ROOT).map_err(fail)? == ["sys/net/mtu", "sys/net/name"],
         "list returned the wrong paths"
     );
 
-    regd.delete("sys/net/mtu", ROOT).map_err(fail)?;
+    confd.delete("sys/net/mtu", ROOT).map_err(fail)?;
     check!(
-        regd.get("sys/net/mtu", ROOT).map_err(fail)? == None,
+        confd.get("sys/net/mtu", ROOT).map_err(fail)? == None,
         "delete left the value"
     );
     // Deleting an absent path is a no-op, not an error.
-    regd.delete("sys/net/mtu", ROOT).map_err(fail)?;
+    confd.delete("sys/net/mtu", ROOT).map_err(fail)?;
     Ok(())
 }
 
 /// Any caller may read `sys/`, but only uid 0 may write it.
 pub fn non_root_denied_on_sys() -> Result<(), String> {
-    let mut regd = service()?;
+    let mut confd = service()?;
     check!(
-        regd.set("sys/net/mtu", Value::U64(1), ALICE) == Err(ServiceError::Denied),
+        confd.set("sys/net/mtu", Value::U64(1), ALICE) == Err(ServiceError::Denied),
         "a non-root caller wrote sys/"
     );
     check!(
-        regd.set("sys/net/mtu", Value::U64(2), ROOT).map_err(fail)? == (),
+        confd
+            .set("sys/net/mtu", Value::U64(2), ROOT)
+            .map_err(fail)?
+            == (),
         "root could not write sys/"
     );
     // sys/ is world-readable.
     check!(
-        regd.get("sys/net/mtu", BOB).map_err(fail)? == Some(&Value::U64(2)),
+        confd.get("sys/net/mtu", BOB).map_err(fail)? == Some(&Value::U64(2)),
         "a non-root caller could not read sys/"
     );
     Ok(())
@@ -137,28 +143,30 @@ pub fn non_root_denied_on_sys() -> Result<(), String> {
 
 /// `user/<uid>` is owner-or-root only, for reads and writes alike.
 pub fn cross_user_denied() -> Result<(), String> {
-    let mut regd = service()?;
-    regd.set("user/1000/theme", text("dark"), ALICE)
+    let mut confd = service()?;
+    confd
+        .set("user/1000/theme", text("dark"), ALICE)
         .map_err(fail)?;
     check!(
-        regd.get("user/1000/theme", ALICE).map_err(fail)? == Some(&text("dark")),
+        confd.get("user/1000/theme", ALICE).map_err(fail)? == Some(&text("dark")),
         "the owner could not read its own path"
     );
     check!(
-        regd.get("user/1000/theme", BOB) == Err(ServiceError::Denied),
+        confd.get("user/1000/theme", BOB) == Err(ServiceError::Denied),
         "a stranger read another user's path"
     );
     check!(
-        regd.set("user/1000/theme", text("light"), BOB) == Err(ServiceError::Denied),
+        confd.set("user/1000/theme", text("light"), BOB) == Err(ServiceError::Denied),
         "a stranger wrote another user's path"
     );
     // Root may read and write any user subtree.
     check!(
-        regd.get("user/1000/theme", ROOT).map_err(fail)? == Some(&text("dark")),
+        confd.get("user/1000/theme", ROOT).map_err(fail)? == Some(&text("dark")),
         "root could not read a user path"
     );
     check!(
-        regd.set("user/1000/theme", text("light"), ROOT)
+        confd
+            .set("user/1000/theme", text("light"), ROOT)
             .map_err(fail)?
             == (),
         "root could not write a user path"
@@ -168,18 +176,20 @@ pub fn cross_user_denied() -> Result<(), String> {
 
 /// List filters out paths the caller may not read.
 pub fn list_filters_other_users() -> Result<(), String> {
-    let mut regd = service()?;
-    regd.set("user/1000/a", Value::Bool(true), ALICE)
+    let mut confd = service()?;
+    confd
+        .set("user/1000/a", Value::Bool(true), ALICE)
         .map_err(fail)?;
-    regd.set("user/1001/b", Value::Bool(true), BOB)
+    confd
+        .set("user/1001/b", Value::Bool(true), BOB)
         .map_err(fail)?;
-    regd.set("sys/a", Value::Bool(true), ROOT).map_err(fail)?;
+    confd.set("sys/a", Value::Bool(true), ROOT).map_err(fail)?;
     check!(
-        regd.list("", ALICE).map_err(fail)? == ["sys/a", "user/1000/a"],
+        confd.list("", ALICE).map_err(fail)? == ["sys/a", "user/1000/a"],
         "a caller saw another user's paths"
     );
     check!(
-        regd.list("user", ALICE).map_err(fail)? == ["user/1000/a"],
+        confd.list("user", ALICE).map_err(fail)? == ["user/1000/a"],
         "a user list leaked another subtree"
     );
     Ok(())
@@ -187,18 +197,19 @@ pub fn list_filters_other_users() -> Result<(), String> {
 
 /// A committed `sys/` change is announced with only `(path, deleted)`.
 pub fn change_topic_delivery() -> Result<(), String> {
-    let mut regd = service()?;
-    regd.set("sys/net/mtu", Value::U64(1500), ROOT)
+    let mut confd = service()?;
+    confd
+        .set("sys/net/mtu", Value::U64(1500), ROOT)
         .map_err(fail)?;
-    regd.delete("sys/net/mtu", ROOT).map_err(fail)?;
+    confd.delete("sys/net/mtu", ROOT).map_err(fail)?;
     check!(
-        events(&regd)
+        events(&confd)
             == [
                 (String::from("sys/net/mtu"), false),
                 (String::from("sys/net/mtu"), true),
             ],
         "change topics were {:?}",
-        events(&regd)
+        events(&confd)
     );
     Ok(())
 }
@@ -206,18 +217,19 @@ pub fn change_topic_delivery() -> Result<(), String> {
 /// A `user/` change commits but is deliberately not announced (the kernel
 /// topic policy cannot enforce per-uid subscriptions).
 pub fn user_changes_are_silent() -> Result<(), String> {
-    let mut regd = service()?;
-    regd.set("user/1000/theme", text("dark"), ALICE)
+    let mut confd = service()?;
+    confd
+        .set("user/1000/theme", text("dark"), ALICE)
         .map_err(fail)?;
-    regd.delete("user/1000/theme", ALICE).map_err(fail)?;
+    confd.delete("user/1000/theme", ALICE).map_err(fail)?;
     check!(
-        regd.get("user/1000/theme", ALICE).map_err(fail)? == None,
+        confd.get("user/1000/theme", ALICE).map_err(fail)? == None,
         "the user change did not commit"
     );
     check!(
-        events(&regd).is_empty(),
+        events(&confd).is_empty(),
         "a user/ change was announced: {:?}",
-        events(&regd)
+        events(&confd)
     );
     Ok(())
 }
@@ -229,22 +241,22 @@ pub fn io_leaves_store_unchanged() -> Result<(), String> {
     seeded.set("sys/keep", Value::U64(1), ROOT).map_err(fail)?;
     let mut broken = seeded.fs().clone();
     broken.fail_writes = true;
-    let mut regd = Regd::load(broken, RecordingSink::default()).map_err(fail)?;
+    let mut confd = Confd::load(broken, RecordingSink::default()).map_err(fail)?;
 
     check!(
-        regd.set("sys/new", Value::U64(2), ROOT) == Err(ServiceError::Io),
-        "a failing write did not surface REGD_IO"
+        confd.set("sys/new", Value::U64(2), ROOT) == Err(ServiceError::Io),
+        "a failing write did not surface CONFD_IO"
     );
     check!(
-        regd.get("sys/new", ROOT).map_err(fail)? == None,
+        confd.get("sys/new", ROOT).map_err(fail)? == None,
         "a failed write changed the store"
     );
     check!(
-        regd.get("sys/keep", ROOT).map_err(fail)? == Some(&Value::U64(1)),
+        confd.get("sys/keep", ROOT).map_err(fail)? == Some(&Value::U64(1)),
         "a failed write disturbed an existing key"
     );
     check!(
-        events(&regd).is_empty(),
+        events(&confd).is_empty(),
         "a failed write announced a change"
     );
     Ok(())
@@ -259,7 +271,7 @@ pub fn restart_reloads_store() -> Result<(), String> {
         .map_err(fail)?;
 
     let fs = first.fs().clone();
-    let second = Regd::load(fs, RecordingSink::default()).map_err(fail)?;
+    let second = Confd::load(fs, RecordingSink::default()).map_err(fail)?;
     check!(
         second.get("sys/a", ROOT).map_err(fail)? == Some(&Value::I64(-1)),
         "the system value did not reload"
@@ -276,7 +288,7 @@ pub fn soak_sets_and_restarts() -> Result<(), String> {
     const WRITES: usize = 4000;
     const RESTART_EVERY: usize = 500;
     let owners = [ROOT, ALICE, BOB];
-    let mut regd = service()?;
+    let mut confd = service()?;
     let mut written = 0usize;
 
     for index in 0..WRITES {
@@ -292,27 +304,28 @@ pub fn soak_sets_and_restarts() -> Result<(), String> {
             }
         };
         let path = format!("{scope}/{index}");
-        regd.set(&path, Value::U64(index as u64), owner)
+        confd
+            .set(&path, Value::U64(index as u64), owner)
             .map_err(fail)?;
         written += 1;
 
         if index % RESTART_EVERY == RESTART_EVERY - 1 {
             // Restart: reload from the same filesystem and confirm the writes
             // survived.
-            let fs = regd.fs().clone();
-            regd = Regd::load(fs, RecordingSink::default()).map_err(fail)?;
+            let fs = confd.fs().clone();
+            confd = Confd::load(fs, RecordingSink::default()).map_err(fail)?;
             let probe = format!("{scope}/{index}");
             check!(
-                regd.get(&probe, owner).map_err(fail)? == Some(&Value::U64(index as u64)),
+                confd.get(&probe, owner).map_err(fail)? == Some(&Value::U64(index as u64)),
                 "write {index} did not survive a restart"
             );
         }
     }
 
     check!(
-        regd.store().len() == written,
+        confd.store().len() == written,
         "the store holds {} entries, expected {written}",
-        regd.store().len()
+        confd.store().len()
     );
     Ok(())
 }
@@ -324,13 +337,13 @@ fn fail(error: ServiceError) -> String {
 }
 
 pub(super) const CASES: &[(&str, Test)] = &[
-    ("regd_set_get_list_delete", set_get_list_delete),
-    ("regd_non_root_denied_on_sys", non_root_denied_on_sys),
-    ("regd_cross_user_denied", cross_user_denied),
-    ("regd_list_filters_other_users", list_filters_other_users),
-    ("regd_change_topic_delivery", change_topic_delivery),
-    ("regd_user_changes_are_silent", user_changes_are_silent),
-    ("regd_io_leaves_store_unchanged", io_leaves_store_unchanged),
-    ("regd_restart_reloads_store", restart_reloads_store),
-    ("regd_soak_sets_and_restarts", soak_sets_and_restarts),
+    ("confd_set_get_list_delete", set_get_list_delete),
+    ("confd_non_root_denied_on_sys", non_root_denied_on_sys),
+    ("confd_cross_user_denied", cross_user_denied),
+    ("confd_list_filters_other_users", list_filters_other_users),
+    ("confd_change_topic_delivery", change_topic_delivery),
+    ("confd_user_changes_are_silent", user_changes_are_silent),
+    ("confd_io_leaves_store_unchanged", io_leaves_store_unchanged),
+    ("confd_restart_reloads_store", restart_reloads_store),
+    ("confd_soak_sets_and_restarts", soak_sets_and_restarts),
 ];

@@ -17,9 +17,9 @@ members = [
     # vectors.
     "libs/crypto",
     # Configuration registry store (issue #259): pure `no_std` + `alloc`
-    # logic shared by the `regd` service and host tests, with no Messenger or
+    # logic shared by the `confd` service and host tests, with no Messenger or
     # syscall dependencies.
-    "libs/regd",
+    "libs/confd",
 ]
 # The xui app is an ordinary static-musl `std` program with its own workspace:
 # it is built by `tools/xui/build.py` and embedded in the image, never by the

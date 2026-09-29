@@ -350,7 +350,7 @@
     ]
   },
   {
-    "interface": "os.lazy.regd.v1",
+    "interface": "os.lazy.confd.v1",
     "interface_id": "0x9f706a3664b0394e",
     "methods": [
       {

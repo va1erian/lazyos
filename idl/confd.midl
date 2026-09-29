@@ -4,9 +4,9 @@
 /// Messenger, and every call is checked against the kernel-stamped caller uid.
 /// Change notifications are best-effort: a subscriber observes
 /// `(path, deleted)` and must re-read the value.
-interface os.lazy.regd.v1 {
+interface os.lazy.confd.v1 {
     /// Read the value at `path`. An absent path has an empty `value`.
-    /// A path the caller may not read fails with `REGD_DENIED`.
+    /// A path the caller may not read fails with `CONFD_DENIED`.
     method Get(path: String) -> (value: Option<Value>);
     /// Create or overwrite `path`; the change is persisted before the reply.
     method Set(path: String, value: Value) -> ();

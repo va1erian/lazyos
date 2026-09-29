@@ -1,6 +1,6 @@
 //! Crash-safe persistence over a tiny filesystem abstraction.
 //!
-//! `regd` owns one directory; the only operations it needs are read, write,
+//! `confd` owns one directory; the only operations it needs are read, write,
 //! fsync, atomic rename and remove, so the service binds [`StoreFs`] to its
 //! ext2 handle and tests bind it to an in-memory map.
 
@@ -18,7 +18,7 @@ pub const CORRUPT_FILE: &str = "store.corrupt";
 
 /// The file operations [`persist`] and [`load`] are built from.
 ///
-/// Real implementations wrap a directory handle from `regd`; tests wrap an
+/// Real implementations wrap a directory handle from `confd`; tests wrap an
 /// in-memory map. The contract that makes crash safety possible is
 /// [`StoreFs::rename`]: it replaces `to` atomically (in the same directory),
 /// so an interrupted [`persist`] leaves `to` either untouched or completely

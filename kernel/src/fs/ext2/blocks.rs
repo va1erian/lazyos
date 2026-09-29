@@ -186,7 +186,7 @@ impl Ext2 {
     }
 
     /// Whether bit `index` of a bitmap is set.
-    fn bitmap_test(buf: &[u8], index: u32) -> bool {
+    pub(super) fn bitmap_test(buf: &[u8], index: u32) -> bool {
         buf[(index / 8) as usize] & (1 << (index % 8)) != 0
     }
 

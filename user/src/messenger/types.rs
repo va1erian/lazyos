@@ -283,9 +283,9 @@ pub enum Error {
     /// The supervisor refused the request with a positive errno-style code
     /// (`init` carries it in the reply's `ERROR` field).
     Init(i64),
-    /// The configuration registry refused the request with a `REGD_*` code
-    /// (`regd` carries it in the reply's `ERROR` field).
-    Regd(i64),
+    /// The configuration registry refused the request with a `CONFD_*` code
+    /// (`confd` carries it in the reply's `ERROR` field).
+    Confd(i64),
     /// A parcel was malformed on encode or decode.
     Parcel(ParcelError),
 }
@@ -300,7 +300,7 @@ impl Error {
             Error::Registry(code) | Error::Topics(code) | Error::Mime(code) | Error::Init(code) => {
                 Some(-code)
             }
-            Error::Regd(code) => Some(-code),
+            Error::Confd(code) => Some(-code),
             Error::Parcel(_) => None,
         }
     }
@@ -313,7 +313,7 @@ impl Error {
             Error::Topics(code) => topics_message(code),
             Error::Mime(code) => mime_message(code),
             Error::Init(code) => init_message(code),
-            Error::Regd(code) => regd_message(code),
+            Error::Confd(code) => confd_message(code),
             // A match guard keeps the named constants readable; a bare
             // `-CONST` is not a valid pattern.
             Error::Errno(code) => match code {
@@ -416,24 +416,24 @@ fn init_message(code: i64) -> &'static str {
     }
 }
 
-/// Friendly text for a `regd` error code crossing the protocol. The constants
+/// Friendly text for a `confd` error code crossing the protocol. The constants
 /// live with the wire module so the service and client agree on one set.
-fn regd_message(code: i64) -> &'static str {
-    use super::regd;
-    if code == regd::REGD_NOT_FOUND {
+fn confd_message(code: i64) -> &'static str {
+    use super::confd;
+    if code == confd::CONFD_NOT_FOUND {
         "no value is stored at that path"
-    } else if code == regd::REGD_BAD_PATH {
-        "that is not a valid regd path"
-    } else if code == regd::REGD_TOO_LARGE {
-        "the value or store exceeds a regd size limit"
-    } else if code == regd::REGD_DENIED {
+    } else if code == confd::CONFD_BAD_PATH {
+        "that is not a valid confd path"
+    } else if code == confd::CONFD_TOO_LARGE {
+        "the value or store exceeds a confd size limit"
+    } else if code == confd::CONFD_DENIED {
         "the caller may not access that path"
-    } else if code == regd::REGD_BAD_VALUE {
-        "the request carried a malformed regd value"
-    } else if code == regd::REGD_IO {
-        "the regd store could not be read or written"
+    } else if code == confd::CONFD_BAD_VALUE {
+        "the request carried a malformed confd value"
+    } else if code == confd::CONFD_IO {
+        "the confd store could not be read or written"
     } else {
-        "the regd request failed"
+        "the confd request failed"
     }
 }
 

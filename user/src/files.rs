@@ -177,7 +177,7 @@ pub fn rename(from: &str, to: &str) -> Result<(), i64> {
 /// Flush the filesystem holding `path` to stable storage (`fsync(2)`).
 ///
 /// The native VFS is per-mount, so this flushes every pending write on the
-/// volume, not just `path`'s. `regd` calls it on its `store.tmp` before the
+/// volume, not just `path`'s. `confd` calls it on its `store.tmp` before the
 /// atomic rename, so the new bytes are durable before they become visible.
 pub fn fsync(path: &str) -> Result<(), i64> {
     let path = nul_terminated(path);

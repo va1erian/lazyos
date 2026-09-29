@@ -1,14 +1,14 @@
-//! `regctl` (`REGCTL.ELF`): the configuration-registry command line (issue #260).
+//! `confctl` (`CONFCTL.ELF`): the configuration-registry command line (issue #260).
 //!
-//! A thin Messenger client of `regd`, run from the shell as
-//! `run REGCTL.ELF <command>`:
+//! A thin Messenger client of `confd`, run from the shell as
+//! `run CONFCTL.ELF <command>`:
 //!
 //! ```text
-//! regctl get <path>
-//! regctl set <path> <type> <value>     type: bool | i64 | u64 | str | bytes
-//! regctl delete <path>
-//! regctl list [prefix]
-//! regctl watch [filter]                default: system/regd/changed/sys/#
+//! confctl get <path>
+//! confctl set <path> <type> <value>     type: bool | i64 | u64 | str | bytes
+//! confctl delete <path>
+//! confctl list [prefix]
+//! confctl watch [filter]                default: system/confd/changed/sys/#
 //! ```
 //!
 //! `bytes` values are hex on both sides. `watch` blocks, printing one line per
@@ -25,15 +25,15 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::panic::PanicInfo;
 
+use confd::Value as StoreValue;
 use lazyos_crypto::hex;
-use regd::Value as StoreValue;
-use user::messenger::{self, regd as wire};
+use user::messenger::{self, confd as wire};
 use user::sys;
 
 /// The topic `watch` subscribes to when the caller gives no filter.
-const DEFAULT_FILTER: &str = "system/regd/changed/sys/#";
+const DEFAULT_FILTER: &str = "system/confd/changed/sys/#";
 
-const USAGE: &str = "usage: regctl <get|set|delete|list|watch> [args]\n\
+const USAGE: &str = "usage: confctl <get|set|delete|list|watch> [args]\n\
     get <path>\n\
     set <path> <bool|i64|u64|str|bytes> <value>\n\
     delete <path>\n\
@@ -128,7 +128,7 @@ fn run(args: &[String]) -> Result<(), String> {
                 .unwrap_or_else(|| String::from(DEFAULT_FILTER));
             watch(&client, &filter)
         }
-        // `regd` spawns this at boot (`demo=1`) to prove the whole path over
+        // `confd` spawns this at boot (`demo=1`) to prove the whole path over
         // the real Messenger transport and VFS; the kernel suite covers the
         // store logic itself.
         Some("demo") => selftest(&client),
@@ -142,11 +142,11 @@ fn selftest(client: &wire::Client) -> Result<(), String> {
     let result = run_selftest(client);
     match result {
         Ok(()) => {
-            say("REGCTL:SELFTEST:PASS");
+            say("CONFCTL:SELFTEST:PASS");
             Ok(())
         }
         Err(detail) => {
-            say(&format!("REGCTL:SELFTEST:FAIL:{detail}"));
+            say(&format!("CONFCTL:SELFTEST:FAIL:{detail}"));
             Err(detail)
         }
     }
@@ -161,9 +161,9 @@ fn run_selftest(client: &wire::Client) -> Result<(), String> {
     // A non-root caller may only write its own subtree, so root uses sys/ and
     // everyone else uses user/<uid>/.
     let scope = if uid == 0 {
-        String::from("sys/regctl-demo")
+        String::from("sys/confctl-demo")
     } else {
-        format!("user/{uid}/regctl-demo")
+        format!("user/{uid}/confctl-demo")
     };
     let path = format!("{scope}/value");
 

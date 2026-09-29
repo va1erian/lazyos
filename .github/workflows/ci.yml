@@ -35,7 +35,7 @@ jobs:
           cargo clippy -p kernel -p user --target x86_64-unknown-none \
             -Zbuild-std=core,alloc -- -D warnings
       - name: Clippy (host libraries)
-        run: cargo clippy -p libmessenger -p messenger-generated -p lazyos-crypto -p font-atlas -p regd -- -D warnings
+        run: cargo clippy -p libmessenger -p messenger-generated -p lazyos-crypto -p font-atlas -p confd -- -D warnings
 
   build-and-boot:
     runs-on: ubuntu-latest
@@ -75,18 +75,18 @@ jobs:
             --fail-on "EXCEPTION:" --fail-on "PANIC"
           python tools/screenshot/pngstats.py shots/boot/*.png --min-nonblack 0.01
 
-      # Issue #260: the services image starts `regd`, which spawns one
-      # `regctl` self-test at boot. The session gates on `REGD:READY` and
-      # `REGCTL:SELFTEST:PASS`, so the store, the VFS `StoreFs` (write tmp ->
+      # Issue #260: the services image starts `confd`, which spawns one
+      # `confctl` self-test at boot. The session gates on `CONFD:READY` and
+      # `CONFCTL:SELFTEST:PASS`, so the store, the VFS `StoreFs` (write tmp ->
       # fsync -> rename) and the change publisher are exercised over the real
       # Messenger transport, not just in the unit suite.
-      - name: Build services image and assert regd evidence
+      - name: Build services image and assert confd evidence
         run: |
           LAZYOS_SERVICES=1 cargo build
           python tools/screenshot/qemu_session.py --image target/lazyos.img \
-            --out shots/regd --script tools/screenshot/examples/regd_demo.json \
-            --fail-on "PANIC" --fail-on "REGCTL:SELFTEST:FAIL"
-          python tools/screenshot/pngstats.py shots/regd/*.png --min-nonblack 0.01
+            --out shots/confd --script tools/screenshot/examples/confd_demo.json \
+            --fail-on "PANIC" --fail-on "CONFCTL:SELFTEST:FAIL"
+          python tools/screenshot/pngstats.py shots/confd/*.png --min-nonblack 0.01
 
       # The full services evidence (issue #158): the non-desktop
       # `LAZYOS_SERVICES=1` boot still starts the demo/evidence programs, so its
@@ -105,7 +105,7 @@ jobs:
       # them through `fork` + `execve`; the kernel spawns the native ELF as a
       # child of the forked task, waits for it and forwards its exit status.
       # The session logs in on the console and checks the exit statuses
-      # (`top` 0, `regctl` 1, an unknown command 127, a faulting `faultprobe`
+      # (`top` 0, `confctl` 1, an unknown command 127, a faulting `faultprobe`
       # 139), a piped native program, and a background job (`top &`, then
       # `wait`).
       - name: Run native programs from the shell
@@ -117,7 +117,7 @@ jobs:
           grep -q "^status=1$" shots/native/serial.log
           grep -q "^status=127" shots/native/serial.log
           grep -q "^fault=139" shots/native/serial.log
-          grep -q "^PIPED-USAGE: regctl" shots/native/serial.log
+          grep -q "^PIPED-USAGE: confctl" shots/native/serial.log
           grep -q "^waited=0" shots/native/serial.log
           python tools/screenshot/pngstats.py shots/native/*.png --min-nonblack 0.01
 
@@ -128,7 +128,7 @@ jobs:
           name: boot-evidence
           path: |
             shots/boot/**
-            shots/regd/**
+            shots/confd/**
             shots/services/**
             shots/native/**
           if-no-files-found: warn

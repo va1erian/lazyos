@@ -14,9 +14,9 @@ libmessenger = { path = "../libs/messenger" }
 # that runs in ring 3.
 lazyos-crypto = { path = "../libs/crypto" }
 # The configuration-registry store logic (issue #259) and its `midlc`-generated
-# `os.lazy.regd.v1` stubs (issue #260): the `regd` service and `regctl` drive
+# `os.lazy.confd.v1` stubs (issue #260): the `confd` service and `confctl` drive
 # the same store the kernel test suite exercises.
-regd = { path = "../libs/regd" }
+confd = { path = "../libs/confd" }
 messenger-generated = { path = "../libs/generated" }
 
 [lib]
@@ -102,19 +102,19 @@ path = "src/bin/keyd.rs"
 test = false
 bench = false
 
-# `regd` (issue #260) is the configuration registry service: it owns the
-# `/system/regd` store through `libs/regd` and serves `os.lazy.regd.v1` over
+# `confd` (issue #260) is the configuration registry service: it owns the
+# `/system/confd` store through `libs/confd` and serves `os.lazy.confd.v1` over
 # Messenger. `init` starts it from its manifest, before config consumers, and
-# the on-disk name is `REGD.ELF` (8.3). `regctl` is its shell command line.
+# the on-disk name is `CONFD.ELF` (8.3). `confctl` is its shell command line.
 [[bin]]
-name = "regd"
-path = "src/bin/regd.rs"
+name = "confd"
+path = "src/bin/confd.rs"
 test = false
 bench = false
 
 [[bin]]
-name = "regctl"
-path = "src/bin/regctl.rs"
+name = "confctl"
+path = "src/bin/confctl.rs"
 test = false
 bench = false
 

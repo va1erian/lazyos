@@ -76,7 +76,7 @@ See [processes.md](processes.md) and [display.md](display.md).
 | `dragdemo` / `shellprobe` | `DRAGDMO` / `SHELLPRB.ELF` | Drag & drop evidence pair (#145) / shell-protocol evidence client (#167); `LAZYOS_XUID=1` images | kernel |
 | `async_echo` / `async_service` | not on disk | `messenger_async` examples (#91) | - |
 
-**Running native programs from `sh`** (#315): `top`, `regctl`, `msgctl`
+**Running native programs from `sh`** (#315): `top`, `confctl`, `msgctl`
 (`messengerctl`) and `faultprobe` are reachable by name from BusyBox `sh` (console
 and desktop Terminal); the kernel's `execve` runs them as a native child of the
 shell's fork child. `top` is not shipped in the `LAZYOS_DESKTOP=1` image (`not
