@@ -1,0 +1,14 @@
+[package]
+name = "timed"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Time zone and DST resolution for the LazyOS timed service (issue #369)"
+license = "GPL-3.0-or-later"
+
+[lib]
+name = "timed"
+path = "src/lib.rs"
+
+[dev-dependencies]
+confd = { path = "../confd" }

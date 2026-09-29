@@ -20,6 +20,9 @@ members = [
     # logic shared by the `confd` service and host tests, with no Messenger or
     # syscall dependencies.
     "libs/confd",
+    # Time-zone and DST resolution for the `timed` service (issue #369): pure
+    # `no_std` logic with host tests.
+    "libs/timed",
 ]
 # The xui app is an ordinary static-musl `std` program with its own workspace:
 # it is built by `tools/xui/build.py` and embedded in the image, never by the

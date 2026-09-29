@@ -3841,6 +3841,174 @@ pub mod os_lazy_sysmond_v1 {
     }
 }
 
+/// `os.lazy.timed.v1` (interface id `0xc3982ac21906d77`).
+pub mod os_lazy_timed_v1 {
+    use alloc::vec::Vec;
+    // Not every interface needs every codec item (`Kind` is only used by nested values).
+    #[allow(unused_imports)]
+    use libmessenger::{Decoder, Encoder, Error, Kind};
+
+    /// The interface id: the FNV-1a hash of the `.vN` interface name.
+    pub const INTERFACE_ID: u64 = 0xc3982ac21906d77;
+
+    /// Payload of the retained `time/tick` topic event.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct Tick {
+        pub unix: i64,
+        pub offset: i32,
+        pub zone_name: alloc::string::String,
+    }
+
+    pub fn encode_tick(value: &Tick) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.i64(1, value.unix)?;
+        target.i32(2, value.offset)?;
+        target.string(3, &value.zone_name)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_tick(body: &[u8]) -> Result<Tick, Error> {
+        let mut out = Tick::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.unix = field.as_i64()?;
+                }
+                2 => {
+                    out.offset = field.as_i32()?;
+                }
+                3 => {
+                    out.zone_name = field.as_str()?.into();
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// `Now` method id.
+    pub const METHOD_NOW: u32 = 188597655;
+    /// `GetZone` method id.
+    pub const METHOD_GETZONE: u32 = 697211125;
+    /// `SetZone` method id.
+    pub const METHOD_SETZONE: u32 = 1574816713;
+    /// `SetTime` method id.
+    pub const METHOD_SETTIME: u32 = 670376986;
+
+    /// The current instant and its local-time parameters.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct NowReply {
+        pub unix_ms: i64,
+        pub tz_offset_s: i32,
+        pub tz_name: alloc::string::String,
+        pub dst: bool,
+    }
+
+    pub fn encode_now_reply(value: &NowReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.i64(1, value.unix_ms)?;
+        target.i32(2, value.tz_offset_s)?;
+        target.string(3, &value.tz_name)?;
+        target.bool(4, value.dst)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_now_reply(body: &[u8]) -> Result<NowReply, Error> {
+        let mut out = NowReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.unix_ms = field.as_i64()?;
+                }
+                2 => {
+                    out.tz_offset_s = field.as_i32()?;
+                }
+                3 => {
+                    out.tz_name = field.as_str()?.into();
+                }
+                4 => {
+                    out.dst = field.as_bool()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// The configured zone name (`UTC` when none is set).
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct GetZoneReply {
+        pub name: alloc::string::String,
+    }
+
+    pub fn encode_get_zone_reply(value: &GetZoneReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.name)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_get_zone_reply(body: &[u8]) -> Result<GetZoneReply, Error> {
+        let mut out = GetZoneReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.name = field.as_str()?.into();
+            }
+        }
+        Ok(out)
+    }
+
+    /// Switch to the built-in zone `name` and persist it to `confd`.
+    /// An unknown name fails with `EINVAL`.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct SetZoneArgs {
+        pub name: alloc::string::String,
+    }
+
+    pub fn encode_set_zone_args(value: &SetZoneArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.name)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_set_zone_args(body: &[u8]) -> Result<SetZoneArgs, Error> {
+        let mut out = SetZoneArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.name = field.as_str()?.into();
+            }
+        }
+        Ok(out)
+    }
+
+    /// Step the wall clock to `unix_secs` (UTC). The caller's kernel-stamped
+    /// credentials must hold `CAP_SYS_TIME`; anyone else gets `EPERM`.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct SetTimeArgs {
+        pub unix_secs: i64,
+    }
+
+    pub fn encode_set_time_args(value: &SetTimeArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.i64(1, value.unix_secs)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_set_time_args(body: &[u8]) -> Result<SetTimeArgs, Error> {
+        let mut out = SetTimeArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.unix_secs = field.as_i64()?;
+            }
+        }
+        Ok(out)
+    }
+}
+
 /// `os.lazy.messenger.topics.v1` (interface id `0xc5734f978fef7231`).
 pub mod os_lazy_messenger_topics_v1 {
     use alloc::vec::Vec;

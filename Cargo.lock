@@ -755,6 +755,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "timed"
+version = "0.1.0"
+dependencies = [
+ "confd",
+]
+
+[[package]]
 name = "tiny-skia"
 version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
