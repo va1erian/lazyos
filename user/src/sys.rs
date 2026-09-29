@@ -47,10 +47,12 @@ pub const SERVICE_ERROR: u64 = u64::MAX;
 mod cred;
 mod display;
 mod introspect;
+mod wall;
 
 pub use cred::*;
 pub use display::*;
 pub use introspect::*;
+pub use wall::*;
 
 /// Write raw bytes to the console.
 pub fn write(bytes: &[u8]) {

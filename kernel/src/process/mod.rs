@@ -124,6 +124,7 @@ pub mod loader;
 pub mod power;
 mod spawn;
 pub mod spawn_line;
+pub mod wallsys;
 
 use credio::{read_cred, write_cred};
 #[cfg(lazyos_tests)]

@@ -390,3 +390,7 @@ pub mod clipboard;
 /// them to every subscriber (issue #260's follow-up). A subscriber therefore
 /// re-reads after a change and must not assume every write produces an event.
 pub mod confd;
+
+/// The time-of-day service `timed` (issue #369): the generated
+/// `os.lazy.timed.v1` stubs and a blocking [`timed::Client`].
+pub mod timed;

@@ -20,6 +20,8 @@ confd = { path = "../libs/confd" }
 # Display buffer-slot state machines (issue #361), shared by `xuid` and clients.
 surfbuf = { path = "../libs/surfbuf" }
 messenger-generated = { path = "../libs/generated" }
+# Time-zone and DST resolution for `timed` (issue #369).
+timezone = { path = "../libs/timed" }
 
 # Build-time only: rasterizes the bundled Droid Sans / Droid Serif into the
 # proportional glyph atlases `xuid` draws its chrome text with.
@@ -163,6 +165,12 @@ bench = false
 [[bin]]
 name = "sysmond"
 path = "src/bin/sysmond.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "timectl"
+path = "src/bin/timectl.rs"
 test = false
 bench = false
 

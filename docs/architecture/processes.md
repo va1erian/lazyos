@@ -50,6 +50,7 @@ syscall shim.
 | 21 | `power(op)` | `reboot`/`shutdown`, `CAP_SYS_ADMIN` only (`process/power.rs`, #6) |
 | 22 | `fsync(path)` | flush the mount holding the file to its block device (`process/fsops.rs`, #260) |
 | 23 | `dev(op, a1, a2, a3, a4)` | userspace driver access: list, claim, map_bar, pio, cfg, irq, release; `CAP_DEV_CLAIM` (`dev/syscall.rs`, #240; see [devices.md](devices.md)) |
+| 24 | `wall_time(op, a1)` | UTC wall clock for native services: `get` returns centiseconds since the epoch, `set` steps it to `a1` seconds (`CAP_SYS_TIME`, checked before the argument; `process/wallsys.rs`, #369) |
 
 - `spawn` reads the ELF from the FAT image, leaks one interned `&'static str`
   per distinct service name (at most 64; later spellings share the name

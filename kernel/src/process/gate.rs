@@ -106,6 +106,8 @@ extern "C" fn syscall_dispatch(regs: *mut Regs) {
         // and reach its BARs, ports, config space and interrupt through a
         // `Device` handle; see `crate::dev::syscall`.
         23 => crate::dev::syscall::dispatch(regs.rdi, regs.rsi, regs.rdx, regs.r10, regs.r8),
+        // 24: the native wall clock (issue #369), see `super::wallsys`.
+        24 => super::wallsys::dispatch(regs.rdi, regs.rsi),
         _ => u64::MAX,
     };
 }
@@ -134,6 +136,7 @@ pub fn dispatch_for_test(nr: u64, a1: u64, a2: u64, a3: u64) -> u64 {
         14 => crate::sysinfo::dispatch(a1, a2, a3),
         15..=22 => fsops::dispatch(nr, a1, a2, a3),
         23 => crate::dev::syscall::dispatch(a1, a2, a3, 0, 0),
+        24 => super::wallsys::dispatch(a1, a2),
         _ => u64::MAX,
     }
 }

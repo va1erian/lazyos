@@ -433,6 +433,37 @@
     ]
   },
   {
+    "interface": "os.lazy.timed.v1",
+    "interface_id": "0xc3982ac21906d77",
+    "methods": [
+      {
+        "name": "Now",
+        "id": 188597655,
+        "oneway": false
+      },
+      {
+        "name": "GetZone",
+        "id": 697211125,
+        "oneway": false
+      },
+      {
+        "name": "SetZone",
+        "id": 1574816713,
+        "oneway": false
+      },
+      {
+        "name": "SetTime",
+        "id": 670376986,
+        "oneway": false
+      },
+      {
+        "name": "Tick",
+        "id": 1,
+        "oneway": true
+      }
+    ]
+  },
+  {
     "interface": "os.lazy.messenger.topics.v1",
     "interface_id": "0xc5734f978fef7231",
     "methods": [

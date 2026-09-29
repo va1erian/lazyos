@@ -19,6 +19,8 @@ lazyos-crypto = { path = "../libs/crypto" }
 # Issue #260: the in-kernel suite drives the same `confd` service core the
 # userspace `confd` binary links, against an in-memory `StoreFs`.
 confd = { path = "../libs/confd" }
+# Issue #369: the in-kernel suite drives the zone/DST resolution `timed` links.
+timezone = { path = "../libs/timed" }
 # Issue #361: the in-kernel suite drives the display buffer-slot state machines
 # `xuid` and its clients link, including a present/release soak.
 surfbuf = { path = "../libs/surfbuf" }

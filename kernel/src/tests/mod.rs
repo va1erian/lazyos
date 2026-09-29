@@ -155,6 +155,7 @@ mod slab_suite;
 mod stats_suite;
 mod sysinfo_suite;
 mod task_suite;
+mod timed_suite;
 mod topics_gate_suite;
 mod topics_suite;
 mod wallclock_suite;
@@ -212,6 +213,7 @@ const SUITE: &[&[(&str, Test)]] = &[
     display_suite::CASES,
     sysinfo_suite::CASES,
     wallclock_suite::CASES,
+    timed_suite::CASES,
     hardening_suite::CASES,
 ];
 
