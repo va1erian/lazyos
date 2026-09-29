@@ -11,7 +11,7 @@ syscall surface (including the bootstrap channel).
 | `kernel/src/ipc/registry.rs` | Name table with owners, leases, pruning (issue #89) |
 | `kernel/src/ipc/topics.rs` | Per-segment publish/subscribe ACL hook (issue #92) |
 | `kernel/src/ipc/stats.rs` | `FabricStats` v3 snapshot (issue #70, #204) |
-| `kernel/src/ipc/syscalls.rs` | Native op dispatch, `MsgArgs`/`MsgResult`, bootstrap |
+| `kernel/src/ipc/syscalls.rs` (+ `syscalls/{abi,regops,usermem,bootstrap}.rs`) | Native op dispatch; `MsgArgs`/`MsgResult` ABI, registry ops, user-pointer copies, bootstrap in submodules |
 
 **Name registry** (`registry.rs`)
 
@@ -61,7 +61,7 @@ Ops: 1-7 `CALL`, `REPLY`, `SEND`, `RECV`, `CANCEL`, `CLOSE_ENDPOINT`,
 
 - ABI blocks are fixed 64-byte `MsgArgs`/`MsgResult` little-endian word arrays,
   mirrored byte-for-byte in `user/src/messenger/`; sizes are compile-time
-  asserted at the bottom of `syscalls.rs`.
+  asserted at the bottom of `syscalls/abi.rs`.
 - Before touching a channel, `op_call`/`op_send` derive `(interface_id, method)`
   from the parcel header and pass `ipc::authorize`; the handle path uses
   `access_range`/`copy_in`/`copy_out`, which validate ranges against page tables

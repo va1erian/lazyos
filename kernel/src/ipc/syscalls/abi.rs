@@ -1,0 +1,317 @@
+//! The `messenger` syscall ABI: errnos, op numbers and the argument/result blocks.
+
+use super::*;
+
+/// Negative errno-style values returned in `rax` (x86_64 Linux numbering, so
+/// userspace error handling is the same as the Linux ABI shim).
+pub mod errno {
+    /// The caller may not perform this operation.
+    pub const EPERM: i64 = 1;
+    /// No such object (unused or invalid handle/transaction).
+    pub const ENOENT: i64 = 2;
+    /// The argument list is too long (parcel over the wire limit).
+    pub const E2BIG: i64 = 7;
+    /// Operation would block (queue full, quota exhausted).
+    pub const EAGAIN: i64 = 11;
+    /// The kernel could not allocate (frame, handle, registry slot).
+    pub const ENOMEM: i64 = 12;
+    /// Policy refused the call.
+    pub const EACCES: i64 = 13;
+    /// The pointer is not a writable/readable user mapping.
+    pub const EFAULT: i64 = 14;
+    /// The bootstrap client end has already been claimed.
+    pub const EBUSY: i64 = 16;
+    /// A name registry entry already exists.
+    pub const EEXIST: i64 = 17;
+    /// A malformed argument, parcel, or op code.
+    pub const EINVAL: i64 = 22;
+    /// The peer endpoint is gone.
+    pub const EPIPE: i64 = 32;
+    /// Refused because a call would form a synchronous cycle.
+    pub const EDEADLK: i64 = 35;
+    /// The deadline passed before a reply arrived.
+    pub const ETIMEDOUT: i64 = 110;
+    /// The caller canceled the transaction.
+    pub const ECANCELED: i64 = 125;
+}
+
+/// Call a method and block until the reply arrives.
+pub const OP_CALL: u64 = 1;
+/// Answer a pending transaction with a reply parcel.
+pub const OP_REPLY: u64 = 2;
+/// Send a one-way message; never blocks.
+pub const OP_SEND: u64 = 3;
+/// Receive the next message, blocking until one is queued.
+pub const OP_RECV: u64 = 4;
+/// Cancel a pending transaction.
+pub const OP_CANCEL: u64 = 5;
+/// Close an endpoint handle.
+pub const OP_CLOSE_ENDPOINT: u64 = 6;
+/// Create a fresh channel pair; both handles open in the caller.
+pub const OP_CREATE_PAIR: u64 = 7;
+/// Read fabric statistics. When the caller offers a
+/// [`crate::ipc::stats::FabricStats::SIZE`]-byte buffer, the versioned
+/// [`crate::ipc::stats::FabricStats`] snapshot is written (ABI version 2);
+/// with a 64-byte buffer the legacy [`MsgStats`] shape is kept, and a
+/// non-zero `handle` still means per-channel [`MsgStats`].
+pub const OP_STATS: u64 = 8;
+/// Claim the boot-time client endpoint (first userspace task only).
+pub const OP_BOOTSTRAP: u64 = 9;
+/// Register a call and park, but return the transaction id instead of waiting:
+/// the asynchronous completion `channels` split `begin_call` for. Finish it
+/// with [`OP_CALL_AWAIT`].
+pub const OP_CALL_BEGIN: u64 = 10;
+/// Wait for a [`OP_CALL_BEGIN`] transaction and return its reply.
+pub const OP_CALL_AWAIT: u64 = 11;
+/// Global message totals in the compact 64-byte [`MsgStats`] shape,
+/// independent of the buffer size (the stable "totals" path next to
+/// [`OP_STATS`]'s versioned snapshot).
+pub const OP_TOTALS: u64 = 12;
+/// Publish a service name in the kernel registry (issue #89). The request
+/// parcel's body carries the name, interfaces, lease and the endpoint handle;
+/// `txn_id` names the task whose table holds that handle.
+pub const OP_REGISTER: u64 = 13;
+/// Resolve a service name; the returned `value` is a fresh handle to the
+/// registered endpoint, opened in the target task's table.
+pub const OP_RESOLVE: u64 = 14;
+/// Withdraw a service name (owner, or `CAP_IPC_CONTROL`).
+pub const OP_UNREGISTER: u64 = 15;
+/// Snapshot the name table into the caller's buffer as an encoded parcel.
+pub const OP_LIST: u64 = 16;
+/// Authorize a topic or subscription filter segment by segment (issue #92).
+///
+/// The request parcel's body is the generated `AuthorizeTopicArgs`
+/// (`idl/topics.midl`): the name, the mode (see
+/// [`crate::ipc::topics::MODE_PUBLISH`]) and an optional audit correlation id.
+/// `MsgArgs::txn_id` names the actor task: [`REGISTRY_TARGET_SELF`]
+/// (or the caller) evaluates the caller's own credentials, any other slot is
+/// the `messengerd` proxy path and requires `CAP_IPC_CONTROL`. The op returns
+/// the number of segments evaluated in `value`, or `-EACCES` when policy
+/// refused one of them (already audited by `ipc::authorize`).
+pub const OP_AUTHORIZE_TOPIC: u64 = 17;
+
+/// `MsgArgs::txn_id` marker for registry ops: act on the calling task.
+pub const REGISTRY_TARGET_SELF: u64 = u64::MAX;
+
+/// Number of bytes in [`MsgArgs`], the first range the syscall validates.
+pub const ARGS_SIZE: usize = 64;
+/// Number of bytes in [`MsgResult`].
+pub const RESULT_SIZE: usize = 64;
+
+/// The syscall request block. The layout is shared with `user/src/messenger/`
+/// and must stay in lockstep; every field is a little-endian `u64`.
+///
+/// Only the fields an op documents as input are read; the rest are ignored (and
+/// `flags` must be zero, so an ABI addition is rejected loudly rather than
+/// silently misread).
+#[repr(C)]
+#[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
+pub struct MsgArgs {
+    /// Endpoint handle: call, begin, send, recv, close, stats.
+    pub handle: u64,
+    /// Transaction id: reply, cancel, await.
+    pub txn_id: u64,
+    /// Request parcel bytes (call, begin, send, reply).
+    pub parcel_ptr: u64,
+    /// Request parcel length in bytes.
+    pub parcel_len: u64,
+    /// Reply or receive buffer (call, recv, await, stats).
+    pub buf_ptr: u64,
+    /// Capacity of `buf_ptr` in bytes.
+    pub buf_cap: u64,
+    /// Absolute PIT deadline in ticks (100 Hz); `0` waits forever.
+    pub deadline: u64,
+    /// Reserved for future flags; must be zero today.
+    pub flags: u64,
+}
+
+impl MsgArgs {
+    /// Decode a little-endian block of exactly [`ARGS_SIZE`] bytes.
+    pub fn from_bytes(bytes: &[u8]) -> Option<MsgArgs> {
+        if bytes.len() != ARGS_SIZE {
+            return None;
+        }
+        let mut words = [0u64; 8];
+        for (index, word) in words.iter_mut().enumerate() {
+            let at = index * 8;
+            *word = u64::from_le_bytes(bytes[at..at + 8].try_into().ok()?);
+        }
+        Some(MsgArgs {
+            handle: words[0],
+            txn_id: words[1],
+            parcel_ptr: words[2],
+            parcel_len: words[3],
+            buf_ptr: words[4],
+            buf_cap: words[5],
+            deadline: words[6],
+            flags: words[7],
+        })
+    }
+
+    /// The absolute deadline, or `None` for "wait forever".
+    pub(super) fn deadline_ticks(&self) -> Option<u64> {
+        (self.deadline != 0).then_some(self.deadline)
+    }
+
+    /// Encode little-endian; the user library's mirror keeps the same order.
+    pub fn to_bytes(self) -> [u8; ARGS_SIZE] {
+        let words = [
+            self.handle,
+            self.txn_id,
+            self.parcel_ptr,
+            self.parcel_len,
+            self.buf_ptr,
+            self.buf_cap,
+            self.deadline,
+            self.flags,
+        ];
+        encode_words(&words)
+    }
+}
+
+/// The syscall response block: `status`/`value`/`aux`/`bytes` plus reserved
+/// space. Shared with `user/src/messenger/`, little-endian `u64` fields.
+#[repr(C)]
+#[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
+pub struct MsgResult {
+    /// `0` on success, or a negative errno (the same value as `rax`).
+    pub status: i64,
+    /// Primary output: new handle (create_pair/bootstrap), transaction id
+    /// (call_begin/recv), or 0.
+    pub value: u64,
+    /// Secondary output: second handle (create_pair), sender task slot (recv).
+    pub aux: u64,
+    /// Bytes written to `buf_ptr` (call, call_await, recv, stats).
+    pub bytes: u64,
+    /// `recv` reports the delivered transfers here: `[first handle, handle
+    /// count, first buffer handle, buffer count]`; zero otherwise.
+    pub reserved: [u64; 4],
+}
+
+impl MsgResult {
+    /// Decode a little-endian block of exactly [`RESULT_SIZE`] bytes.
+    pub fn from_bytes(bytes: &[u8]) -> Option<MsgResult> {
+        if bytes.len() != RESULT_SIZE {
+            return None;
+        }
+        let mut words = [0u64; 8];
+        for (index, word) in words.iter_mut().enumerate() {
+            let at = index * 8;
+            *word = u64::from_le_bytes(bytes[at..at + 8].try_into().ok()?);
+        }
+        Some(MsgResult {
+            status: words[0] as i64,
+            value: words[1],
+            aux: words[2],
+            bytes: words[3],
+            reserved: [words[4], words[5], words[6], words[7]],
+        })
+    }
+
+    /// Encode little-endian; the user library's mirror keeps the same order.
+    pub fn to_bytes(self) -> [u8; RESULT_SIZE] {
+        let words = [
+            self.status as u64,
+            self.value,
+            self.aux,
+            self.bytes,
+            self.reserved[0],
+            self.reserved[1],
+            self.reserved[2],
+            self.reserved[3],
+        ];
+        encode_words(&words)
+    }
+}
+
+/// Fixed-size little-endian encoding of a word block.
+fn encode_words(words: &[u64; 8]) -> [u8; 64] {
+    let mut bytes = [0u8; 64];
+    for (index, word) in words.iter().enumerate() {
+        bytes[index * 8..index * 8 + 8].copy_from_slice(&word.to_le_bytes());
+    }
+    bytes
+}
+
+/// Compact channel counters (stats ABI version 1), exactly the byte order
+/// [`OP_STATS`] writes for a 64-byte buffer and [`OP_TOTALS`] always writes.
+/// The layout is shared with `user/src/messenger/`; the richer version 2
+/// block lives in [`crate::ipc::stats::FabricStats`].
+#[repr(C)]
+#[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
+pub struct MsgStats {
+    pub calls: u64,
+    pub replies: u64,
+    pub timeouts: u64,
+    pub cancels: u64,
+    pub drops: u64,
+    pub queued: u64,
+    pub queued_bytes: u64,
+    pub outstanding: u64,
+}
+
+impl MsgStats {
+    /// Number of bytes [`OP_STATS`] writes.
+    pub const SIZE: usize = 64;
+
+    /// Decode the block written by [`OP_STATS`].
+    pub fn from_bytes(bytes: &[u8]) -> Option<MsgStats> {
+        if bytes.len() != Self::SIZE {
+            return None;
+        }
+        let word = |index: usize| -> Option<u64> {
+            let at = index * 8;
+            Some(u64::from_le_bytes(bytes[at..at + 8].try_into().ok()?))
+        };
+        Some(MsgStats {
+            calls: word(0)?,
+            replies: word(1)?,
+            timeouts: word(2)?,
+            cancels: word(3)?,
+            drops: word(4)?,
+            queued: word(5)?,
+            queued_bytes: word(6)?,
+            outstanding: word(7)?,
+        })
+    }
+}
+
+impl From<channels::Stats> for MsgStats {
+    fn from(stats: channels::Stats) -> MsgStats {
+        MsgStats {
+            calls: stats.calls,
+            replies: stats.replies,
+            timeouts: stats.timeouts,
+            cancels: stats.cancels,
+            drops: stats.drops,
+            queued: stats.queued,
+            queued_bytes: stats.queued_bytes,
+            outstanding: stats.outstanding,
+        }
+    }
+}
+
+impl MsgStats {
+    /// Encode for `copy_out` into the caller's buffer.
+    pub(super) fn to_bytes(self) -> [u8; Self::SIZE] {
+        let words = [
+            self.calls,
+            self.replies,
+            self.timeouts,
+            self.cancels,
+            self.drops,
+            self.queued,
+            self.queued_bytes,
+            self.outstanding,
+        ];
+        encode_words(&words)
+    }
+}
+
+const _: () = {
+    // The user library mirrors these blocks; keep the sizes pinned so an
+    // accidental field addition is a compile error, not an ABI mismatch.
+    assert!(core::mem::size_of::<MsgArgs>() == ARGS_SIZE);
+    assert!(core::mem::size_of::<MsgResult>() == RESULT_SIZE);
+    assert!(core::mem::size_of::<MsgStats>() == MsgStats::SIZE);
+};

@@ -1,0 +1,94 @@
+//! Closing endpoints and forgetting a task's channels.
+
+use super::*;
+
+/// Forget everything a reclaimed task slot still owns inside the channel
+/// registry: transactions it started (nobody will ever collect their outcome)
+/// and its per-channel sender meters. Called by task teardown after the slot's
+/// endpoints were closed.
+pub fn forget_task(slot: usize) {
+    let mut channels = CHANNELS.lock();
+    for channel in channels.iter_mut() {
+        channel.txns.retain(|txn| txn.caller != slot);
+        channel.senders.retain(|meter| meter.slot != slot);
+    }
+}
+
+/// Close one endpoint: drop its handle, mark the side closed, and fail every
+/// transaction that still needs it with `PeerDied` (section 9's peer death).
+///
+/// Messages already queued for the surviving side stay deliverable; once that
+/// inbox drains, `recv`/`try_recv` report `PeerDied` too.
+pub fn close_endpoint(handle: u64) -> Result<(), Error> {
+    close_endpoint_for(task::current(), handle, false)
+}
+
+/// [`close_endpoint`] for a handle in `slot`'s table rather than the caller's.
+///
+/// Task teardown closes every endpoint a dead task still holds through this,
+/// so its peers observe `PeerDied` exactly as they would for a clean close.
+/// With `last_holder_only` the side is only marked closed when no other handle
+/// in any table still names it: name resolution hands every client a handle to
+/// the same side, so a client that exits must not fail its siblings' calls.
+pub fn close_endpoint_for(slot: usize, handle: u64, last_holder_only: bool) -> Result<(), Error> {
+    let entry = handles::get_for_task(slot, handle).map_err(from_handles)?;
+    if entry.kind != HandleKind::Channel {
+        return Err(Error::WrongKind);
+    }
+    let (channel_id, side) = split_object_id(entry.object_id);
+    handles::close_for_task(slot, handle).map_err(from_handles)?;
+    if last_holder_only && handles::object_refs(HandleKind::Channel, entry.object_id) > 0 {
+        return Ok(());
+    }
+    let mut remove = false;
+    {
+        let mut channels = CHANNELS.lock();
+        if let Some(index) = channels.iter().position(|channel| channel.id == channel_id) {
+            let channel = &mut channels[index];
+            channel.endpoints[side].closed = true;
+            // Anything still queued for the dead side will never be received;
+            // release the buffer references those messages hold.
+            channel.drops += channel.endpoints[side].inbox.len() as u64;
+            let dropped: Vec<Queued> = channel.endpoints[side].inbox.drain(..).collect();
+            channel.endpoints[side].queued_bytes = 0;
+            for message in &dropped {
+                release_queued(message);
+                release_queued_quota(message.quota_uid, message.bytes.len());
+            }
+            let mut released = Vec::new();
+            for txn in channel.txns.iter_mut() {
+                if txn.state == TxnState::Pending
+                    && (txn.caller_side == side || txn.callee_side == side)
+                {
+                    txn.state = TxnState::PeerDied;
+                    released.push(txn.caller);
+                }
+            }
+            for caller in released {
+                release_pending(channel, caller);
+            }
+            remove = channel.endpoints[0].closed && channel.endpoints[1].closed;
+            if remove {
+                // The last side closed: undelivered messages for the surviving
+                // side go away with the channel.
+                let mut extra_drops = 0u64;
+                let mut pending: Vec<Queued> = Vec::new();
+                for endpoint in channel.endpoints.iter_mut() {
+                    extra_drops += endpoint.inbox.len() as u64;
+                    pending.extend(endpoint.inbox.drain(..));
+                    endpoint.queued_bytes = 0;
+                }
+                channel.drops += extra_drops;
+                for message in &pending {
+                    release_queued(message);
+                    release_queued_quota(message.quota_uid, message.bytes.len());
+                }
+            }
+        }
+        if remove {
+            channels.retain(|channel| channel.id != channel_id);
+        }
+    }
+    MESSENGER.notify_all();
+    Ok(())
+}
