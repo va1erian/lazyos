@@ -94,6 +94,14 @@ const BORDER: i32 = 2;
 const PAD: i32 = 48;
 /// Taskbar height in pixels.
 const TASKBAR_H: i32 = 28;
+/// Gap between tiled windows (issue #250).
+const WINDOW_GAP: i32 = 16;
+/// Offset added per full grid of windows when placement must cascade (issue
+/// #250).
+const CASCADE_STEP: i32 = 32;
+/// The width of a cascaded window kept on screen: enough to show its title
+/// bar and grab it, even when the window itself is past the right edge.
+const CASCADE_VISIBLE_W: i32 = 240;
 /// Taskbar entry height in pixels.
 const ENTRY_H: i32 = 20;
 /// Horizontal gap between taskbar entries.
@@ -420,6 +428,51 @@ struct DragSession {
 /// Find a surface by id.
 fn surface_by_id(surfaces: &[Surface], id: u64) -> Option<&Surface> {
     surfaces.iter().find(|surface| surface.id == id)
+}
+
+/// Place a new window of content size `width`×`height` (issue #250).
+///
+/// Windows tile left to right and top to bottom in a grid of `columns`×`rows`
+/// cells sized to fit the screen without overlapping; a new window takes the
+/// next free cell. When no cell is free (big windows, or more windows than the
+/// screen can hold) placement wraps around the grid and cascades each further
+/// page down-right by [`CASCADE_STEP`], so every window keeps at least its
+/// title bar reachable instead of the whole row collapsing onto the edge.
+fn place_window(screen: (i32, i32), surfaces: &[Surface], width: i32, height: i32) -> (i32, i32) {
+    let win_w = width + BORDER * 2;
+    let win_h = height + TITLE_H + BORDER;
+    let index = surfaces.iter().filter(|surface| !surface.desktop).count() as i32;
+
+    // How many windows of this size fit across and down, with the gap between
+    // them; at least one cell each so the arithmetic below stays valid.
+    let area_w = (screen.0 - PAD * 2).max(0);
+    let area_h = (screen.1 - PAD - TASKBAR_H - PAD).max(0);
+    let step_x = win_w + WINDOW_GAP;
+    let step_y = win_h + WINDOW_GAP;
+    let columns = ((area_w + WINDOW_GAP) / step_x).max(1);
+    let rows = ((area_h + WINDOW_GAP) / step_y).max(1);
+    let slots = (columns * rows).max(1);
+
+    let page = index / slots;
+    let cell = index % slots;
+    let mut x = PAD + (cell % columns) * step_x;
+    let mut y = PAD + (cell / columns) * step_y;
+
+    if page > 0 {
+        // The grid is full: cascade, keeping the title bar on screen even if
+        // the window is too big for the rest of it to fit.
+        x += page * CASCADE_STEP;
+        y += page * CASCADE_STEP;
+        return (
+            x.min((screen.0 - CASCADE_VISIBLE_W).max(PAD)),
+            y.min((screen.1 - TASKBAR_H - TITLE_H - BORDER).max(PAD)),
+        );
+    }
+    // A free grid cell: keep the whole window on screen.
+    (
+        x.min((screen.0 - win_w - WINDOW_GAP).max(0)),
+        y.min((screen.1 - win_h - TASKBAR_H - WINDOW_GAP).max(0)),
+    )
 }
 
 /// The topmost visible surface whose content contains `point`, ignoring
@@ -2116,20 +2169,12 @@ fn handle_request(
                 let _ = body.u64(display::field::SURFACE, id);
                 return Some(reply_parcel(message.method(), body));
             }
-            // Lay windows out left to right at the top, cascading down when
-            // the row is full, so every surface is visible at once. The right
-            // edge comes from the rightmost window, not the top of the paint
-            // order (raising reorders `surfaces`).
-            let count = surfaces.iter().filter(|surface| !surface.desktop).count() as i32;
-            let x = surfaces
-                .iter()
-                .filter(|surface| !surface.desktop)
-                .map(|surface| surface.x + surface.window().w + 16)
-                .max()
-                .unwrap_or(PAD);
-            let x = x.min((screen.width() - width as i32 - 32).max(0));
-            let y = PAD + (count / 3) * (height as i32 + TITLE_H + 32);
-            let y = y.min((screen.height() - height as i32 - TASKBAR_H - 32).max(0));
+            let (x, y) = place_window(
+                (screen.width(), screen.height()),
+                surfaces,
+                width as i32,
+                height as i32,
+            );
             surfaces.push(Surface {
                 id,
                 title,

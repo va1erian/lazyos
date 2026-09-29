@@ -87,8 +87,10 @@ compositor demo. Target toolkit design: [xui-plan.md](../xui-plan.md).
   `kernel/src/process/spawn_line.rs`). The **Terminal** (`xui-term`) is a client
   that runs the shell's language and REPL in-process (`libs/lang`, the crate
   behind the native `sh`): there is no pty yet, so it links the interpreter
-  instead of spawning `sh`. Window placement is `xuid`'s left-to-right cascade,
-  so big windows overlap; the taskbar and Alt+Tab switch between them.
+  instead of spawning `sh`. Window placement (issue #250) tiles new windows in
+  the first free grid cell and cascades with wraparound once the screen is
+  full, so every window keeps at least its title bar visible; the taskbar and
+  Alt+Tab switch between them.
   Two `xuid` protocol gaps are worked around in the client backend and worth
   tightening later: `PointerDown`/`PointerUp` carry surface-relative
   coordinates but no button id, and `PointerMove` carries screen-absolute
