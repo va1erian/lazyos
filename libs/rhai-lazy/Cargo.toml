@@ -1,0 +1,31 @@
+[package]
+name = "rhai-lazy"
+version = "0.1.0"
+edition = "2021"
+publish = false
+license = "GPL-3.0-or-later"
+description = "LazyOS bindings for the Rhai scripting engine: the os module, engine limits and REPL logic (issue #319)"
+
+# A standalone workspace, like `xui-app`: the OS workspace (`x86_64-unknown-none`)
+# must not resolve Rhai. `rhai-host` (the static-musl program) depends on this
+# crate by path; `cargo test` here runs the bindings on the host against a mock.
+[workspace]
+resolver = "2"
+
+[features]
+default = ["std"]
+std = ["rhai/std"]
+# Forwards to Rhai's own `no_std` mode so the bindings can later be linked into
+# a native `x86_64-unknown-none` host. Off for the musl `std` host.
+no_std = ["rhai/no_std"]
+
+[dependencies]
+# Pinned exactly (supply chain): a Rhai bump is a reviewed change to this line
+# and the two lock files. Feature set (see docs/architecture/userland.md):
+# only the default `std`; `sync` stays off (user processes are single-threaded,
+# so `Rc` closures are smaller and faster), and no `no_*` language feature is
+# removed because later steps (modules, closures, custom syntax) need them.
+#
+# Rhai's own default also enables `ahash/runtime-rng`; it is left off, so map
+# hashing uses ahash's fixed keys and no `getrandom` is needed at startup.
+rhai = { version = "=1.26.1", default-features = false }

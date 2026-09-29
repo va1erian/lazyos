@@ -24,7 +24,7 @@
   / `ABI:FAIL:<reason>`, `TEST:<name>:PASS|FAIL:<detail>` ending with
   `TEST:SUMMARY:PASS=<n> FAIL=<n>`.
 - The ABI bench isolates one fixture per boot through the `LAZYOS_INIT` hook
-  (embedded as `INIT.ELF`); BusyBox uses the `LAZYOS_BUSYBOX` hook.
+  (embedded as `INIT.ELF`); BusyBox uses the `LAZYOS_BUSYBOX` hook and the `rhai` command (#319, `tools/rhai/build.py`) the `LAZYOS_RHAI` hook (embedded as `RHAI.ELF`).
 - Screenshot tooling discovers QEMU from `--qemu`, then `PATH`, then
   `C:\Program Files\qemu` on Windows; input injection works headless via QMP.
 - Generated output is git-ignored (`.gitignore`): `shots/`, `docs/compat/`,

@@ -6,6 +6,8 @@ use std::path::PathBuf;
 
 #[path = "build_support/elf_trim.rs"]
 mod elf_trim;
+#[path = "build_support/rhai_embed.rs"]
+mod rhai_embed;
 
 fn main() {
     let out_dir = PathBuf::from(std::env::var_os("OUT_DIR").expect("OUT_DIR"));
@@ -310,6 +312,9 @@ fn main() {
              (run tools/abi/busybox.py for build/supply instructions)"
         ),
     }
+    // The `rhai` scripting command (issue #319), resolved from `sh` as RHAI.ELF.
+    println!("cargo:rerun-if-changed=build_support/rhai_embed.rs");
+    rhai_embed::embed(&mut builder, &manifest_dir);
     builder
         .create_bios_image(&bios_image)
         .expect("failed to create BIOS disk image");
