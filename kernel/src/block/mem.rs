@@ -76,6 +76,10 @@ pub fn register_ramdisk(addr: u64, len: u64) -> bool {
     if addr == 0 || len < SECTOR_SIZE {
         return false;
     }
+    // `addr` is already a *virtual* address: bootloader 0.11 maps the ramdisk
+    // pages itself and stores the mapped start in `BootInfo::ramdisk_addr`
+    // (bootloader-x86_64-common `Mappings::ramdisk_slice_start`), so no
+    // physical-offset translation is needed.
     // SAFETY: the bootloader maps the ramdisk at `addr` for `len` bytes and
     // never hands the range to anything else; the kernel takes exclusive
     // ownership of it here and only ever reaches it through this device.
