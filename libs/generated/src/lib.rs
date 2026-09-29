@@ -2021,3 +2021,225 @@ pub mod os_lazy_regd_v1 {
         Ok(out)
     }
 }
+
+/// `os.lazy.messenger.registry.v1` (interface id `0x51d501afec09806c`).
+pub mod os_lazy_messenger_registry_v1 {
+    use alloc::vec::Vec;
+    // Not every interface needs every codec item (`Kind` is only used by nested values).
+    #[allow(unused_imports)]
+    use libmessenger::{Decoder, Encoder, Error, Kind};
+
+    /// The interface id: the FNV-1a hash of the `.vN` interface name.
+    pub const INTERFACE_ID: u64 = 0x51d501afec09806c;
+
+    /// One registered name.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct Entry {
+        pub name: alloc::string::String,
+        pub object: u64,
+        pub owner: u64,
+        pub interfaces: alloc::vec::Vec<u64>,
+        pub lease_remaining: u64,
+    }
+
+    pub fn encode_entry(value: &Entry) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.name)?;
+        target.u64(2, value.object)?;
+        target.u64(3, value.owner)?;
+        let mut nested = Encoder::new();
+        for item in &value.interfaces {
+            nested.u64(1, *item)?;
+        }
+        target.array(4, &nested)?;
+        target.u64(5, value.lease_remaining)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_entry(body: &[u8]) -> Result<Entry, Error> {
+        let mut out = Entry::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.name = field.as_str()?.into();
+                }
+                2 => {
+                    out.object = field.as_u64()?;
+                }
+                3 => {
+                    out.owner = field.as_u64()?;
+                }
+                4 => {
+                    let mut nested = field.nested(0)?;
+                    while let Some(item) = nested.next()? {
+                        out.interfaces.push(item.as_u64()?);
+                    }
+                }
+                5 => {
+                    out.lease_remaining = field.as_u64()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// `Register` method id.
+    pub const METHOD_REGISTER: u32 = 658098656;
+    /// `Resolve` method id.
+    pub const METHOD_RESOLVE: u32 = 1645633795;
+    /// `Unregister` method id.
+    pub const METHOD_UNREGISTER: u32 = 1480320227;
+    /// `List` method id.
+    pub const METHOD_LIST: u32 = 220805025;
+
+    /// Publish `endpoint` (a handle in the owner's table) under `name`. The
+    /// owner becomes the registering task. A `lease_ticks` of `0` registers a
+    /// permanent name; otherwise the name expires after that many ticks.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct RegisterArgs {
+        pub name: alloc::string::String,
+        pub endpoint: u64,
+        pub interfaces: alloc::vec::Vec<u64>,
+        pub lease_ticks: u64,
+    }
+
+    pub fn encode_register_args(value: &RegisterArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.name)?;
+        target.u64(2, value.endpoint)?;
+        let mut nested = Encoder::new();
+        for item in &value.interfaces {
+            nested.u64(1, *item)?;
+        }
+        target.array(3, &nested)?;
+        target.u64(4, value.lease_ticks)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_register_args(body: &[u8]) -> Result<RegisterArgs, Error> {
+        let mut out = RegisterArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.name = field.as_str()?.into();
+                }
+                2 => {
+                    out.endpoint = field.as_u64()?;
+                }
+                3 => {
+                    let mut nested = field.nested(0)?;
+                    while let Some(item) = nested.next()? {
+                        out.interfaces.push(item.as_u64()?);
+                    }
+                }
+                4 => {
+                    out.lease_ticks = field.as_u64()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Look `name` up. Over the gate the new handle is the call's return value;
+    /// over the daemon it is `handle`, already open in the caller's table.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ResolveArgs {
+        pub name: alloc::string::String,
+    }
+
+    pub fn encode_resolve_args(value: &ResolveArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.name)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_resolve_args(body: &[u8]) -> Result<ResolveArgs, Error> {
+        let mut out = ResolveArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.name = field.as_str()?.into();
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ResolveReply {
+        pub handle: u64,
+    }
+
+    pub fn encode_resolve_reply(value: &ResolveReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.handle)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_resolve_reply(body: &[u8]) -> Result<ResolveReply, Error> {
+        let mut out = ResolveReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.handle = field.as_u64()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Withdraw `name`. Only its owner (or an administrator) may.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct UnregisterArgs {
+        pub name: alloc::string::String,
+    }
+
+    pub fn encode_unregister_args(value: &UnregisterArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.name)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_unregister_args(body: &[u8]) -> Result<UnregisterArgs, Error> {
+        let mut out = UnregisterArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.name = field.as_str()?.into();
+            }
+        }
+        Ok(out)
+    }
+
+    /// Snapshot the name table.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ListReply {
+        pub entries: alloc::vec::Vec<Entry>,
+    }
+
+    pub fn encode_list_reply(value: &ListReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        let mut nested = Encoder::new();
+        for item in &value.entries {
+            nested.raw(Kind::Struct, 1, &encode_entry(item)?)?;
+        }
+        target.array(1, &nested)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_list_reply(body: &[u8]) -> Result<ListReply, Error> {
+        let mut out = ListReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                let mut nested = field.nested(0)?;
+                while let Some(item) = nested.next()? {
+                    out.entries.push(decode_entry(item.payload)?);
+                }
+            }
+        }
+        Ok(out)
+    }
+}

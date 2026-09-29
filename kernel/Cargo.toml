@@ -21,6 +21,9 @@ lazyos-crypto = { path = "../libs/crypto" }
 regd = { path = "../libs/regd" }
 libm = "0.2"
 libmessenger = { path = "../libs/messenger" }
+# Issue #300: the registry wire (`os.lazy.messenger.registry.v1`) is generated
+# from `idl/registry.midl`; the kernel serves it on the native gate ops.
+messenger-generated = { path = "../libs/generated" }
 linked_list_allocator = "0.10"
 spin = "0.9"
 tiny-skia = { version = "0.12", default-features = false, features = ["no-std-float"] }
