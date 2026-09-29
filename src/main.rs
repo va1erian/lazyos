@@ -110,6 +110,7 @@ fn main() {
     let deadline = Instant::now() + options.timeout;
     let mut serial = String::new();
     let mut timed_out = false;
+    let mut killed = false;
     loop {
         match received.recv_timeout(Duration::from_millis(200)) {
             Ok(line) => {
@@ -125,6 +126,7 @@ fn main() {
             !options.expect.is_empty() && options.expect.iter().all(|e| serial.contains(e));
         if satisfied || Instant::now() >= deadline {
             timed_out = !satisfied;
+            killed = true;
             let _ = child.kill();
             break;
         }
@@ -145,10 +147,29 @@ fn main() {
     if !missing.is_empty() || timed_out {
         exit(1);
     }
-    // A killed guest (all expectations met) has no meaningful status.
-    exit(if options.expect.is_empty() {
-        verdict(status.code())
-    } else {
+    exit(final_code(killed, verdict(status.code())));
+}
+
+/// Exit code once expectations held: a guest the runner killed itself has no
+/// meaningful status (success), but one that ended on its own keeps its verdict,
+/// so a `GUEST_FAILURE` after the marker still fails the run.
+fn final_code(killed: bool, verdict: i32) -> i32 {
+    if killed {
         0
-    });
+    } else {
+        verdict
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn guest_failure_survives_met_expectations() {
+        assert_eq!(final_code(false, verdict(Some(GUEST_FAILURE))), 1);
+        assert_eq!(final_code(false, verdict(Some(GUEST_SUCCESS))), 0);
+        assert_eq!(final_code(false, verdict(Some(7))), 2);
+        assert_eq!(final_code(true, verdict(None)), 0);
+    }
 }
