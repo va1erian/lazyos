@@ -47,7 +47,7 @@ path uses shared-buffer rings, so this is acceptable for a NIC and audio.
 
 The existing block drivers stay in-kernel and are ported onto the shared
 **device core** (§3.1) and PCI/virtio transport code, not rewritten as
-userspace services. That is a later, optional step.
+userspace services (D1 registers them; D7 moves block to modern virtio).
 
 ### D2. Kernel provides mechanism, not device knowledge
 
@@ -64,6 +64,15 @@ device it claimed. Rights bits on the handle (`MMIO`, `PIO`, `IRQ`, `DMA`,
 per-device access; the reserved `CAP_DEV_*` idea reduces to one coarse gate,
 `CAP_DEV_CLAIM`, required to *call claim at all*, so an app can never even
 attempt it.
+
+**Grant rule.** `claim` derives the handle's rights as the intersection of
+(a) the resources the device actually has (`MMIO`/`PIO` only if it has a
+memory/I/O BAR, `IRQ` only if it has an interrupt line, `DMA` only if it is
+bus-master capable, `CONFIG` always) and (b) what the class-specific policy
+rule permits for this actor. If the intersection is empty, `claim` fails with
+`EPERM` *before* any owner is recorded, so no handle is created and the device
+stays unclaimed; the denial is audited. Rights are fixed at claim time and can
+only be narrowed afterwards, never widened.
 
 ### D4. Interrupts arrive as Messenger messages
 
@@ -171,9 +180,13 @@ lengths.
 ### 3.5 Security integration
 
 - **ACL**: new interface `os.kernel.dev` with methods `list`, `claim`,
-  `map`, `dma`. Policy rules are keyed by actor label and (via `interface_id`
-  arg) device class, so "label `net-driver` may claim PCI class 0x02". Default
-  deny once policy is loaded; the bootstrap window is allow, as elsewhere.
+  `map`, `dma`. `claim` first resolves the device and its class, then calls
+  `authorize` with a **class-specific `interface_id`** (`os.kernel.dev.<class>`,
+  e.g. `os.kernel.dev.net` for PCI class 0x02), and only assigns ownership if
+  that verdict allows. A generic "may claim" rule therefore cannot authorize
+  claiming a class the policy did not name: "label `net-driver` may claim
+  class net" says nothing about audio or storage. Default deny once policy is
+  loaded; the bootstrap window is allow, as elsewhere (unchanged).
 - **Credentials**: drivers run as dedicated system uids (`_net`, `_snd`) with
   only `CAP_DEV_CLAIM` (+ the per-class ACL rule), launched by init via
   `spawn_as`. They can never `CAP_SETUID` or reach uid 0.
