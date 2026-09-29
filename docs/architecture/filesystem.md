@@ -12,7 +12,7 @@ an in-memory ramfs mounted at `/tmp`.
 | `kernel/src/fs/vfs.rs` (+ `vfs/{filesystem,meta,path}.rs`) | `Vfs`, caches; `Filesystem` trait, `Path`, `Id`, permissions in the submodules |
 | `kernel/src/fs/ramfs.rs` | In-memory tree; root inode 1 (issue #98) |
 | `kernel/src/fs/fat.rs` | Read-only FAT12/16 on the boot volume |
-| `kernel/src/fs/ext2.rs` | Read/write ext2 rev 0/1 (issue #99) |
+| `kernel/src/fs/ext2.rs` (+ `ext2/{layout,blocks,dir,fsimpl}.rs`) | Read/write ext2 rev 0/1 (issue #99) |
 | `kernel/src/fs/overlay.rs` | Copy-up overlay for the Linux ABI root (issue #136) |
 
 **VFS semantics** (`vfs.rs`, issue #98)

@@ -18,7 +18,7 @@ result deviates from the issue or could not be verified.
 | Service binary | `user/src/bin/regd.rs` (new) |
 | CLI | `user/src/bin/regctl.rs` (new) |
 | Kernel | `kernel/src/fs/{vfs,ext2,mod}.rs`, `kernel/src/process/{fsops,mod}.rs` |
-| Wiring | `build.rs`, `user/Cargo.toml`, `kernel/Cargo.toml`, `user/src/bin/init.rs` |
+| Wiring | `build.rs`, `user/Cargo.toml`, `kernel/Cargo.toml`, `user/src/bin/init/state.rs` |
 | Tests | `libs/regd/tests/service.rs`, `libs/generated/tests/regd.rs`, `kernel/src/tests/regd_suite.rs`, `kernel/src/tests/ext2_suite/format_and_roundtrip.rs` |
 | CI | `.github/workflows/{ci,clippy,midlc}.yml` |
 | QEMU evidence | `tools/screenshot/examples/regd_demo.json` |

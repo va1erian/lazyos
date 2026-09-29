@@ -136,7 +136,7 @@ The shell owns no device grants; it is one more policy-checked Messenger client.
   cannot disagree.
 - **Flagship Win95 theme:** gray 3D bevels, navy active title bar, teal desktop,
   square pixel metrics, the classic start button. The vendored XUI backend
-  already has the `set_theme` seam (`xui-app/src/backend.rs`), and xuid's
+  already has the `set_theme` seam (`xui-app/src/backend/handlers.rs`), and xuid's
   palette constants become theme fields.
 - **Existing dark theme** (today's xuid palette) ships as the second built-in.
 - **Selection:** a per-user preference read at session start and delivered to

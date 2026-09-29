@@ -75,7 +75,7 @@ See [processes.md](processes.md) and [display.md](display.md).
 | `dragdemo` / `shellprobe` | `DRAGDMO` / `SHELLPRB.ELF` | Drag & drop evidence pair (#145) / shell-protocol evidence client (#167); `LAZYOS_XUID=1` images | kernel |
 | `async_echo` / `async_service` | not on disk | `messenger_async` examples (#91) | - |
 
-The `init` manifest (`user/src/bin/init.rs`) declares dependencies and restart
+The `init` manifest (`user/src/bin/init/state.rs`) declares dependencies and restart
 policy: `messengerd` is `Once` (bootstrap can be claimed once per boot), the
 rest `Always`, and rapid crashes back off up to `MAX_RESTARTS = 5`.
 

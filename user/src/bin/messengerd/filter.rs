@@ -1,0 +1,95 @@
+//! Topic filter grammar: parsing and validating subscription filters and
+//! literal publish topics against the same byte set and depth limits as the
+//! kernel ACL gate (`kernel/src/ipc/topics.rs`).
+
+use alloc::string::String;
+use alloc::vec::Vec;
+
+/// Longest topic/filter name, mirroring the kernel ACL gate.
+const MAX_NAME_BYTES: usize = 128;
+/// Deepest topic/filter, mirroring the kernel ACL gate.
+const MAX_SEGMENTS: usize = 8;
+
+/// A parsed subscription filter: literal segments plus `+` and `#` wildcards.
+pub(super) struct Filter {
+    pub(super) segments: Vec<String>,
+}
+
+impl Filter {
+    /// Parse and validate; `None` for anything the ACL gate would refuse, so
+    /// the broker and the kernel agree on what a valid filter is.
+    pub(super) fn parse(text: &str) -> Option<Filter> {
+        if text.is_empty() || text.len() > MAX_NAME_BYTES {
+            return None;
+        }
+        let segments: Vec<String> = text.split('/').map(String::from).collect();
+        if segments.is_empty() || segments.len() > MAX_SEGMENTS {
+            return None;
+        }
+        for (index, segment) in segments.iter().enumerate() {
+            if !valid_segment(segment) {
+                return None;
+            }
+            // `#` may only stand alone and only last; anywhere else it would
+            // silently shadow a literal name.
+            if segment.contains('#') && (segment != "#" || index + 1 != segments.len()) {
+                return None;
+            }
+        }
+        Some(Filter { segments })
+    }
+
+    /// Whether this filter matches a (literal) topic name. `+` consumes one
+    /// segment; a trailing `#` consumes zero or more.
+    pub(super) fn matches(&self, topic: &str) -> bool {
+        let topic_segments: Vec<&str> = topic.split('/').collect();
+        let mut topic_index = 0;
+        for segment in &self.segments {
+            if segment == "#" {
+                return true;
+            }
+            if topic_index >= topic_segments.len() {
+                return false;
+            }
+            if segment != "+" && segment != topic_segments[topic_index] {
+                return false;
+            }
+            topic_index += 1;
+        }
+        topic_index == topic_segments.len()
+    }
+}
+
+/// Whether `segment` is a legal literal/wildcard segment (same byte set as the
+/// kernel ACL gate in `kernel/src/ipc/topics.rs`).
+fn valid_segment(segment: &str) -> bool {
+    !segment.is_empty()
+        && segment.len() <= MAX_NAME_BYTES
+        && segment.bytes().all(|byte| {
+            byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.' | b'+' | b'#')
+        })
+}
+
+/// A publish topic must be literal: no wildcards (the kernel refuses them in
+/// publish mode too).
+pub(super) fn valid_topic(topic: &str) -> bool {
+    if topic.is_empty() || topic.len() > MAX_NAME_BYTES {
+        return false;
+    }
+    let mut count = 0;
+    for segment in topic.split('/') {
+        if !valid_segment(segment) || segment.contains('+') || segment.contains('#') {
+            return false;
+        }
+        count += 1;
+        if count > MAX_SEGMENTS {
+            return false;
+        }
+    }
+    count > 0
+}
+
+/// Whether `topic` falls under the platform's reserved `system/` root.
+pub(super) fn is_system_topic(topic: &str) -> bool {
+    topic == "system" || topic.starts_with("system/")
+}
