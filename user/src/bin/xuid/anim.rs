@@ -6,9 +6,8 @@
 use user::messenger::display::{Canvas, Color, Rect};
 use user::sys;
 
+use super::compositor::Compositor;
 use super::layout::icon_rect;
-use super::render::compose;
-use super::surface::Surface;
 
 /// Frames per phase (one PIT tick, 10 ms, each).
 const STEPS: i32 = 10;
@@ -20,52 +19,90 @@ const TRAIL_LAG: i32 = 1;
 const LINE: i32 = 2;
 const WIRE: Color = Color::rgb(236, 240, 250);
 
-/// Fly a wireframe from `from` to `to` over the screen as composed from
-/// `surfaces`. The caller keeps the animated window out of `surfaces`' visible
-/// set (minimized) for the duration and repaints the full screen afterwards,
-/// which erases the last outline.
-pub(super) fn zoom(
-    screen: &mut Canvas,
-    surfaces: &[Surface],
-    pointer: (i32, i32),
-    focused: Option<u64>,
-    taskbar: bool,
-    from: Rect,
-    to: Rect,
-) {
-    let full = Rect::new(0, 0, screen.width(), screen.height());
-    // The starting rectangle counts as previously drawn, so the first frame
-    // also erases the window that was just hidden from `surfaces`.
-    let mut previous = Some(from);
-    for step in 1..=STEPS + TRAIL_LAG * (TRAIL - 1) {
-        let deadline = sys::clock() + 1;
-        let mut rects = [Rect::new(0, 0, 0, 0); TRAIL as usize];
-        let mut damage = previous.unwrap_or(Rect::new(0, 0, 0, 0));
-        for (index, slot) in rects.iter_mut().enumerate() {
-            let at = (step - index as i32 * TRAIL_LAG).clamp(0, STEPS);
-            if at == 0 {
-                continue;
+impl Compositor {
+    /// Fly a wireframe from `from` to `to` over the screen as composed from
+    /// the surfaces. The caller keeps the animated window out of the visible
+    /// set (minimized) for the duration and repaints the full screen
+    /// afterwards, which erases the last outline.
+    fn zoom(&mut self, from: Rect, to: Rect) {
+        let full = self.full();
+        // The starting rectangle counts as previously drawn, so the first
+        // frame also erases the window that was just hidden.
+        let mut previous = from;
+        for step in 1..=STEPS + TRAIL_LAG * (TRAIL - 1) {
+            let deadline = sys::clock() + 1;
+            let mut rects = [Rect::new(0, 0, 0, 0); TRAIL as usize];
+            let mut damage = previous;
+            for (index, slot) in rects.iter_mut().enumerate() {
+                let at = (step - index as i32 * TRAIL_LAG).clamp(0, STEPS);
+                if at == 0 {
+                    continue;
+                }
+                *slot = lerp(from, to, at);
+                damage = damage.union(*slot);
             }
-            *slot = lerp(from, to, at);
-            damage = if damage.is_empty() {
-                *slot
-            } else {
-                damage.union(*slot)
-            };
+            // One pixel of slack so the outlines' edges are always inside.
+            let damage =
+                Rect::new(damage.x - 1, damage.y - 1, damage.w + 2, damage.h + 2).intersect(full);
+            self.compose(damage);
+            for rect in rects.iter().filter(|rect| !rect.is_empty()) {
+                outline(&mut self.screen, *rect, damage);
+            }
+            let _ = sys::display_present(damage.x, damage.y, damage.w, damage.h);
+            previous = damage;
+            // Pace the frames: `wait` with no children just sleeps to the
+            // deadline.
+            let _ = sys::wait(deadline);
         }
-        // One pixel of slack so the outlines' edges are always inside.
-        let damage =
-            Rect::new(damage.x - 1, damage.y - 1, damage.w + 2, damage.h + 2).intersect(full);
-        compose(
-            screen, surfaces, pointer, focused, damage, None, taskbar, None,
+    }
+
+    /// Iconify in two phases: the window shrinks in place to a taskbar-entry
+    /// sized wireframe, which then slides to the entry. `id` must already be
+    /// marked minimized so the window is not composed under the wireframe.
+    pub(super) fn iconify(&mut self, id: u64) {
+        let Some((window, icon, small)) = self.phases(id) else {
+            return;
+        };
+        self.zoom(window, small);
+        self.zoom(small, icon);
+    }
+
+    /// The reverse of [`Compositor::iconify`]: the wireframe slides from the
+    /// entry to the window's centre, then grows to the window, before it is
+    /// shown.
+    pub(super) fn deiconify(&mut self, id: u64) {
+        let Some((window, icon, small)) = self.phases(id) else {
+            return;
+        };
+        self.zoom(icon, small);
+        self.zoom(small, window);
+    }
+
+    /// Hide or show surface `id` without any other side effect.
+    pub(super) fn set_minimized(&mut self, id: u64, minimized: bool) {
+        if let Some(surface) = self.surfaces.iter_mut().find(|surface| surface.id == id) {
+            surface.minimized = minimized;
+        }
+    }
+
+    /// The window, its icon rectangle, and the icon-sized rectangle centred on
+    /// the window that joins them.
+    fn phases(&self, id: u64) -> Option<(Rect, Rect, Rect)> {
+        let surface = self.surfaces.iter().find(|surface| surface.id == id)?;
+        let window = surface.window();
+        let icon = icon_rect(
+            &self.surfaces,
+            self.screen.width(),
+            self.screen.height(),
+            id,
         );
-        for rect in rects.iter().filter(|rect| !rect.is_empty()) {
-            outline(screen, *rect, damage);
-        }
-        let _ = sys::display_present(damage.x, damage.y, damage.w, damage.h);
-        previous = Some(damage);
-        // Pace the frames: `wait` with no children just sleeps to the deadline.
-        let _ = sys::wait(deadline);
+        let small = Rect::new(
+            window.x + (window.w - icon.w) / 2,
+            window.y + (window.h - icon.h) / 2,
+            icon.w,
+            icon.h,
+        );
+        Some((window, icon, small))
     }
 }
 
@@ -98,55 +135,4 @@ fn outline(screen: &mut Canvas, rect: Rect, clip: Rect) {
         clip,
         WIRE,
     );
-}
-
-/// Iconify in two phases: the window shrinks in place to a taskbar-entry
-/// sized wireframe, which then slides to the entry. `id` must already be
-/// marked minimized so the window is not composed underneath the wireframe.
-pub(super) fn iconify(
-    screen: &mut Canvas,
-    surfaces: &[Surface],
-    pointer: (i32, i32),
-    focused: Option<u64>,
-    taskbar: bool,
-    id: u64,
-) {
-    let Some(surface) = surfaces.iter().find(|surface| surface.id == id) else {
-        return;
-    };
-    let (window, icon, small) = phases(screen, surfaces, surface);
-    zoom(screen, surfaces, pointer, focused, taskbar, window, small);
-    zoom(screen, surfaces, pointer, focused, taskbar, small, icon);
-}
-
-/// The reverse of [`iconify`]: the wireframe slides from the entry to the
-/// window's centre, then grows to the window, before it is shown.
-pub(super) fn deiconify(
-    screen: &mut Canvas,
-    surfaces: &[Surface],
-    pointer: (i32, i32),
-    focused: Option<u64>,
-    taskbar: bool,
-    id: u64,
-) {
-    let Some(surface) = surfaces.iter().find(|surface| surface.id == id) else {
-        return;
-    };
-    let (window, icon, small) = phases(screen, surfaces, surface);
-    zoom(screen, surfaces, pointer, focused, taskbar, icon, small);
-    zoom(screen, surfaces, pointer, focused, taskbar, small, window);
-}
-
-/// The window, its icon rectangle, and the icon-sized rectangle centred on
-/// the window that joins them.
-fn phases(screen: &Canvas, surfaces: &[Surface], surface: &Surface) -> (Rect, Rect, Rect) {
-    let window = surface.window();
-    let icon = icon_rect(surfaces, screen.width(), screen.height(), surface.id);
-    let small = Rect::new(
-        window.x + (window.w - icon.w) / 2,
-        window.y + (window.h - icon.h) / 2,
-        icon.w,
-        icon.h,
-    );
-    (window, icon, small)
 }

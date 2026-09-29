@@ -66,8 +66,11 @@
 //! and rectangle damage. `Commit` copies the app's damaged rectangle into the
 //! screen buffer and presents exactly that rectangle; window-management events
 //! are layout changes and repaint the full screen (a title-bar drag repaints
-//! the union of the old and new window rectangles, which redraws every surface
-//! in z-order inside that damage). The app buffer handoff is already zero-copy
+//! the union of the old and new window rectangles). Inside the damage only
+//! pixels no opaque layer above would overwrite are painted: windows fully
+//! hidden by a window, the taskbar, the Alt+Tab panel or the menu are skipped
+//! (issue #360, `region.rs`). All state lives in one `Compositor` (`compositor.rs`).
+//! The app buffer handoff is already zero-copy
 //! (the compositor reads the same frames the app writes); fences and double
 //! buffering are the S8 follow-up that turns `Commit` into a tear-free
 //! pipeline.
@@ -79,20 +82,28 @@ extern crate alloc;
 
 #[path = "xuid/anim.rs"]
 mod anim;
+#[path = "xuid/compositor.rs"]
+mod compositor;
 #[path = "xuid/drag.rs"]
 mod drag;
 #[path = "xuid/event.rs"]
 mod event;
+#[path = "xuid/keys.rs"]
+mod keys;
 #[path = "xuid/layout.rs"]
 mod layout;
 #[path = "xuid/menu.rs"]
 mod menu;
 #[path = "xuid/protocol.rs"]
 mod protocol;
+#[path = "xuid/region.rs"]
+mod region;
 #[path = "xuid/render.rs"]
 mod render;
 #[path = "xuid/request.rs"]
 mod request;
+#[path = "xuid/request_shell.rs"]
+mod request_shell;
 #[path = "xuid/shell.rs"]
 mod shell;
 #[path = "xuid/surface.rs"]
@@ -104,17 +115,12 @@ mod window;
 
 use alloc::vec::Vec;
 use core::panic::PanicInfo;
-use user::messenger::display::{self, Canvas, Rect};
+use user::messenger::display::{self, Canvas};
 use user::messenger::{self, registry};
 use user::sys;
 
-use drag::DragSession;
-use event::handle_event;
+use compositor::Compositor;
 use protocol::{decode_event, push_coalesced, Event};
-use render::repaint;
-use request::handle_request;
-use shell::{reap_dead_shell, taskbar_visible, AltTab, Modifiers, ShellSub};
-use surface::{Drag, Surface};
 
 /// The serial marker the evidence session greps for.
 const UP_MARKER: &str = "XUID:UP:PASS\n";
@@ -161,49 +167,19 @@ fn run() -> ! {
     sys::write_str("xuid: display bound, os.lazy.display.v1 published\n");
 
     let (screen_w, screen_h) = (info.width as i32, info.height as i32);
-    let full = Rect::new(0, 0, screen_w, screen_h);
     // Safety: `va`/`size` come from the display bind and describe an RGBA8
     // screen buffer mapped in this task.
-    let mut screen = unsafe { Canvas::new(info.va, screen_w, screen_h) };
-
-    let mut surfaces: Vec<Surface> = Vec::new();
-    let mut pointer = (screen_w / 2, screen_h / 2);
-    let mut focused: Option<u64> = None;
-    // The window-manager title-bar drag (issue #143).
-    let mut drag: Option<Drag> = None;
-    // Issue #145: the live drag & drop session, if any, and whether a pointer
-    // button is held (`DragStart` requires it).
-    let mut drag_session: Option<DragSession> = None;
-    let mut button_down = false;
-    // Buttons whose press the compositor consumed (taskbar, window buttons,
-    // title bar, desktop): their release is swallowed too, so no surface sees
-    // an unmatched `POINTER_UP` even if focus moved in between.
-    let mut consumed: u32 = 0;
-    let mut next_id: u64 = 1;
-    // Issue #167: the registered shell subscriber, the held modifiers, and the
-    // open Alt+Tab overlay.
-    let mut shell: Option<ShellSub> = None;
-    let mut mods = Modifiers::default();
-    let mut alt_tab: Option<AltTab> = None;
-    // One receive buffer and one event-encode buffer for the whole life of the
+    let screen = unsafe { Canvas::new(info.va, screen_w, screen_h) };
+    let mut comp = Compositor::new(screen);
+    // One receive buffer and one input batch for the whole life of the
     // compositor: the user bump allocator never reclaims, so the loop reuses
-    // both instead of allocating per message.
+    // them instead of allocating per message.
     let mut request_buf = alloc::vec![0u8; messenger::DEFAULT_BUFFER];
-    let mut event_scratch = Vec::with_capacity(64);
     let mut input: Vec<Event> = Vec::with_capacity(MAX_INPUT);
 
     // First frame: the previous mux pixels are still on screen, so paint the
     // desktop and present before announcing readiness.
-    repaint(
-        &mut screen,
-        &surfaces,
-        pointer,
-        focused,
-        full,
-        None,
-        taskbar_visible(shell.as_ref()),
-        alt_tab.as_ref(),
-    );
+    comp.repaint_full();
     sys::write_str(UP_MARKER);
     sys::write_str(WM_MARKER);
     sys::write_str(SHELL_MARKER);
@@ -213,31 +189,9 @@ fn run() -> ! {
         //    coalesce across poll calls, then handle what is left in order.
         drain_input(&mut input);
         for event in input.drain(..) {
-            handle_event(
-                event,
-                &mut surfaces,
-                &mut screen,
-                &mut pointer,
-                &mut focused,
-                &mut drag,
-                &mut drag_session,
-                &mut event_scratch,
-                &mut button_down,
-                shell.as_ref(),
-                &mut mods,
-                &mut alt_tab,
-                &mut consumed,
-            );
+            comp.handle_event(event);
         }
-        reap_dead_shell(
-            &mut shell,
-            &surfaces,
-            &mut screen,
-            pointer,
-            focused,
-            drag_session.as_ref(),
-            alt_tab.as_ref(),
-        );
+        comp.reap_dead_shell();
 
         // 2. Requests: serve one, then loop (the deadline bounds the nap when
         //    nothing is pending, keeping input latency at a couple of ticks).
@@ -245,23 +199,8 @@ fn run() -> ! {
         match server.recv_with(&mut request_buf, deadline) {
             Ok(message) => {
                 if let Some(txn) = message.txn {
-                    let reply = handle_request(
-                        &message,
-                        &mut surfaces,
-                        &mut screen,
-                        &mut next_id,
-                        &mut focused,
-                        &mut drag,
-                        pointer,
-                        &mut drag_session,
-                        &mut event_scratch,
-                        button_down,
-                        &mut shell,
-                        &mut alt_tab,
-                    );
-                    if let Some(reply) = reply {
-                        let _ = server.reply(txn, &reply);
-                    }
+                    let reply = comp.handle_request(&message);
+                    let _ = server.reply(txn, &reply);
                 }
             }
             Err(error) if is_timeout(error) => {}
@@ -270,15 +209,7 @@ fn run() -> ! {
             }
             Err(_) => {}
         }
-        reap_dead_shell(
-            &mut shell,
-            &surfaces,
-            &mut screen,
-            pointer,
-            focused,
-            drag_session.as_ref(),
-            alt_tab.as_ref(),
-        );
+        comp.reap_dead_shell();
     }
 }
 
