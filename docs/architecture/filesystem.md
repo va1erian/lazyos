@@ -8,11 +8,12 @@ an in-memory ramfs mounted at `/tmp`.
 
 | Path | Role |
 |---|---|
-| `kernel/src/fs/mod.rs` | Init/mount, kernel-side `read`/`abi_*` entry points |
-| `kernel/src/fs/vfs.rs` (+ `vfs/{filesystem,meta,path}.rs`) | `Vfs`, caches; `Filesystem` trait, `Path`, `Id`, permissions in the submodules |
-| `kernel/src/fs/ramfs.rs` | In-memory tree; root inode 1 (issue #98) |
+| `kernel/src/fs/mod.rs` (+ `abi_attr.rs`) | Init/mount, kernel-side `read`/`abi_*` entry points (`abi_setattr*` in `abi_attr.rs`) |
+| `kernel/src/fs/vfs.rs` (+ `vfs/{filesystem,meta,path,cache}.rs`) | `Vfs`, resolution; `Filesystem` trait, `Path`, `Id`, permissions and the dentry/inode caches in the submodules |
+| `kernel/src/fs/vfs/{attr,setattr}.rs` | Timestamps, the filesystem clock, `SetAttr`; the `chmod`/`chown`/`utimensat` rules (issue #345) |
+| `kernel/src/fs/ramfs.rs` (+ `ramfs/{node,capacity}.rs`) | In-memory tree; root inode 1 (issue #98); a node and its attributes in `node.rs` |
 | `kernel/src/fs/fat.rs` | Read-only FAT12/16 on the boot volume |
-| `kernel/src/fs/ext2.rs` (+ `ext2/{layout,blocks,indirect,truncate,state,dir,fsimpl}.rs`) | Read/write ext2 rev 0/1 (issues #99, #333) |
+| `kernel/src/fs/ext2.rs` (+ `ext2/{layout,blocks,indirect,truncate,state,dir,attr,fsimpl}.rs`) | Read/write ext2 rev 0/1 (issues #99, #333, #345) |
 | `kernel/src/fs/overlay.rs` | Copy-up overlay for the Linux ABI root (issue #136) |
 | `kernel/src/fs/openfile.rs` | Open files on `/data` for Linux descriptors: in-place I/O, follow renames, unlink-while-open (issue #334) |
 | `kernel/src/fs/vfs/mountops.rs` | Whole-mount operations: `flush`, `sync_all`, `statfs`, `mount_point` |
@@ -33,12 +34,58 @@ an in-memory ramfs mounted at `/tmp`.
   map; mutations invalidate the path, its inode, and cached descendants.
   `cache_stats()` exposes hits/misses for tests.
 - `Filesystem` trait: `name`, `lookup`/`stat`, `read`, `write`, `truncate`,
-  `create`, `mkdir`, `unlink`, `rmdir`, `rename`, `readdir`, `flush`, `statfs`
-  (`StatFs`: magic, block size, block/inode totals and free; default
-  `NotSupported`, implemented by ext2, ramfs and the overlay). The VFS checks
-  permissions before calling in, so a backend only enforces what is intrinsic
-  (e.g. FAT returns `ReadOnly`). `FsError` variants map to errno in the Linux
-  layer.
+  `setattr`, `create`, `mkdir`, `unlink`, `rmdir`, `rename`, `readdir`,
+  `flush`, `statfs` (`StatFs`: magic, block size, block/inode totals and free;
+  default `NotSupported`, implemented by ext2, ramfs and the overlay). The VFS
+  checks permissions before calling in, so a backend only enforces what is
+  intrinsic (e.g. FAT returns `ReadOnly`). `FsError` variants map to errno in
+  the Linux layer (`NotPermitted` is `EPERM`, a missing ownership; `Access` is
+  `EACCES`, a missing permission bit).
+
+**Attributes** (`vfs/{attr,setattr}.rs`, issue #345)
+
+`Meta` carries `times: Times` (`atime`, `mtime`, `ctime`, whole seconds as
+`time_t`). Every backend stamps from one clock, `vfs::now()` (PIT uptime until
+an RTC driver lands), so a write and a `touch` agree; reads never move `atime`
+(every mount behaves as `noatime`). FAT and the fabricated ABI entries report
+zero.
+
+Mode, owner and times change through **one** trait operation,
+`Filesystem::setattr(path, &SetAttr)`. `SetAttr` is the change set: each field
+is an `Option`, and `Some` means "in the set", so a value can never be present
+without being selected (the set-mask and the values are one thing). The VFS
+entry points take an `AttrRequest` (`Mode`, `Owner { uid, gid }`, `Times {
+atime, mtime }` with `Stamp::Now`/`Stamp::At`) and turn it into an authorized
+`SetAttr` before any backend is called (`vfs::authorize`):
+
+- `chmod`: owner or root, else `NotPermitted`. A caller outside the file's
+  group has setgid dropped silently (Linux does the same).
+- `chown`: only root changes the uid (the owner may "set" it to itself); the
+  owner may set the gid to their own group (no supplementary groups yet) or
+  keep it. A regular file loses setuid *and* setgid, root's chown included;
+  a directory keeps them. `chown(-1, -1)` changes nothing.
+- `utimensat`: both stamps "now" (`touch`) needs ownership or write
+  permission; an explicit time, or touching one stamp only, needs ownership.
+  Both `UTIME_OMIT` changes nothing.
+- every change also sets `ctime` to now.
+
+`Vfs::setattr` needs search on the ancestors like any lookup;
+`Vfs::setattr_open` (`fchmod`, `fchown`, `futimens`) skips that walk because the
+descriptor was already opened, and applies only the request's own rule.
+Afterwards the path and everything cached below it are invalidated (even on
+failure: the overlay may have copied a subtree up, renumbering it) and the
+backend's fresh `Meta` is cached.
+
+Backends: ramfs stores the fields as given (a write or truncate moves `mtime`
+and `ctime`); the overlay copies the node up first, a directory with its
+subtree as for any write, and a copy-up keeps the lower node's mode, owner and
+times; FAT answers `ReadOnly`; ext2 (`ext2/attr.rs`) validates the whole change
+(ids must fit the 16-bit `i_uid`/`i_gid`, else `Invalid`), then rewrites the
+one inode through `write_inode`, so the volume is marked dirty before the
+inode reaches the disk and a stop leaves the old or the new attributes, never
+a torn inode behind a clean flag. ext2 times are 32-bit: values outside
+`0..=i32::MAX` (1970 to 2038) are clamped, as Linux clamps a time a filesystem
+cannot hold.
 
 **Mounting** (`mod.rs`)
 
@@ -177,7 +224,8 @@ default so CI stays hermetic). The kernel mounting it is tracked separately
 (#333).
 
 **Status.** Working: FAT boot, ramfs `/tmp`, ext2 read/write, permissions,
-caches, `umask`, the Linux ABI copy-up overlay (`O_CREAT`/`mkdir`/`rename`/
+caches, `umask`, `chmod`/`chown`/`utimensat` on every writable backend, the
+Linux ABI copy-up overlay (`O_CREAT`/`mkdir`/`rename`/
 `unlink`/`rmdir`, fd writes), an ext2 `/data` volume with truncate and large
 files, synced on shutdown, and Linux descriptors that read and write it in place
 (`pread64`/`pwrite64`/`ftruncate`/`fsync`/`sync`/`statfs`). The in-kernel suite

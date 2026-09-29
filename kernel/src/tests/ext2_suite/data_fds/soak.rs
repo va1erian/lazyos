@@ -2,6 +2,7 @@
 //! churn, and filling the volume. Each ends by proving that no descriptor,
 //! registered open file, block or inode was leaked.
 
+use super::attrs::{at_times, attrs, chmod, chown, utimensat, SYS_FCHMOD};
 use super::*;
 
 /// Cycles of the create/write/close/unlink loop.
@@ -159,4 +160,67 @@ pub fn fill_and_free() -> Result<(), String> {
         );
     }
     data.check_clean()
+}
+
+/// Many attribute changes interleaved with create, write and unlink: every
+/// change reads back, a file unlinked while open still takes `fchmod`, and at
+/// the end every inode and block is back and the bitmaps agree.
+pub fn attr_churn() -> Result<(), String> {
+    let data = Data::new(0)?;
+    let baseline = free_space()?;
+    for i in 0..CYCLES {
+        let path = format!("/data/a{}", i % 4);
+        put(&path, &contents(i))?;
+        let mode = 0o600 | (i as u64 % 0o100);
+        let (uid, gid) = (i as u64 % 3 * 1000, i as u64 % 5);
+        let time = 1 << 20 | i as i64;
+        check!(chmod(&path, mode) == 0, "cycle {i}: chmod");
+        check!(chown(&path, uid, gid) == 0, "cycle {i}: chown");
+        check!(
+            utimensat(AT_FDCWD, Some(&path), at_times(time, time + 1), 0) == 0,
+            "cycle {i}: utimensat"
+        );
+        let seen = attrs(&path)?;
+        check!(
+            u64::from(seen.mode) == mode
+                && u64::from(seen.uid) == uid
+                && u64::from(seen.gid) == gid
+                && (seen.atime, seen.mtime) == (time, time + 1),
+            "cycle {i}: read back {seen:?}"
+        );
+        if i % 4 == 0 {
+            // Unlinked while open: the hidden entry still takes an fchmod,
+            // and the last close frees it.
+            let fd = open(&path, O_RDONLY);
+            check!(
+                path_call(SYS_UNLINK, &path, 0) == 0,
+                "cycle {i}: unlink open"
+            );
+            check!(
+                syscall(SYS_FCHMOD, fd, 0o400, 0, 0) == 0,
+                "cycle {i}: fchmod of an unlinked open file"
+            );
+            check!(close(fd) == 0, "cycle {i}: close");
+        } else if i % 4 == 3 {
+            unlink_all()?;
+        }
+    }
+    unlink_all()?;
+    check!(parked(&data_names()?) == 0, "a hidden entry was left");
+    check!(
+        free_space()? == baseline,
+        "blocks or inodes leaked over {CYCLES} attribute cycles"
+    );
+    data.check_clean()
+}
+
+/// Remove whichever of the churn files exist.
+fn unlink_all() -> Result<(), String> {
+    for name in data_names()? {
+        if name.starts_with('a') {
+            let ret = path_call(SYS_UNLINK, &format!("/data/{name}"), 0);
+            check!(ret == 0, "unlink {name} returned {ret:#x}");
+        }
+    }
+    Ok(())
 }
