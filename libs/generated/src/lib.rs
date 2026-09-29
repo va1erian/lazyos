@@ -337,6 +337,380 @@ pub mod os_lazy_accounts_v1 {
     }
 }
 
+/// `os.lazy.clipboard.v1` (interface id `0x5a8da8f22670b758`).
+pub mod os_lazy_clipboard_v1 {
+    use alloc::vec::Vec;
+    // Not every interface needs every codec item (`Kind` is only used by nested values).
+    #[allow(unused_imports)]
+    use libmessenger::{Decoder, Encoder, Error, Kind};
+
+    /// The interface id: the FNV-1a hash of the `.vN` interface name.
+    pub const INTERFACE_ID: u64 = 0x5a8da8f22670b758;
+
+    /// One inline `{MIME, bytes}` payload of an eager offer.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct Payload {
+        pub mime: alloc::string::String,
+        pub bytes: alloc::vec::Vec<u8>,
+    }
+
+    pub fn encode_payload(value: &Payload) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.mime)?;
+        target.bytes(2, &value.bytes)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_payload(body: &[u8]) -> Result<Payload, Error> {
+        let mut out = Payload::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.mime = field.as_str()?.into();
+                }
+                2 => {
+                    out.bytes = field.as_bytes().to_vec();
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Metadata for one live offer: identity and MIME types, never content.
+    /// Also the body of the retained `session/<id>/clipboard/changed` event.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct OfferMeta {
+        pub token: u64,
+        pub owner: alloc::string::String,
+        pub session: u64,
+        pub mimes: alloc::vec::Vec<alloc::string::String>,
+        pub lazy: bool,
+        pub tick: u64,
+    }
+
+    pub fn encode_offer_meta(value: &OfferMeta) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.token)?;
+        target.string(2, &value.owner)?;
+        target.u64(3, value.session)?;
+        let mut nested = Encoder::new();
+        for item in &value.mimes {
+            nested.string(1, item)?;
+        }
+        target.array(4, &nested)?;
+        target.bool(5, value.lazy)?;
+        target.u64(6, value.tick)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_offer_meta(body: &[u8]) -> Result<OfferMeta, Error> {
+        let mut out = OfferMeta::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.token = field.as_u64()?;
+                }
+                2 => {
+                    out.owner = field.as_str()?.into();
+                }
+                3 => {
+                    out.session = field.as_u64()?;
+                }
+                4 => {
+                    let mut nested = field.nested(0)?;
+                    while let Some(item) = nested.next()? {
+                        out.mimes.push(item.as_str()?.into());
+                    }
+                }
+                5 => {
+                    out.lazy = field.as_bool()?;
+                }
+                6 => {
+                    out.tick = field.as_u64()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// `Offer` method id.
+    pub const METHOD_OFFER: u32 = 1313375869;
+    /// `Request` method id.
+    pub const METHOD_REQUEST: u32 = 38093138;
+    /// `Serialize` method id.
+    pub const METHOD_SERIALIZE: u32 = 1116160801;
+    /// `Ping` method id.
+    pub const METHOD_PING: u32 = 2142761129;
+    /// `Current` method id.
+    pub const METHOD_CURRENT: u32 = 869319546;
+
+    /// Publish typed payloads for the caller's session and return the new
+    /// offer token. An eager offer fills `data` (one bounded copy is kept); a
+    /// lazy offer sets `sink`, the registry name of the endpoint where the
+    /// owner serves `Serialize`, and leaves `data` empty.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct OfferArgs {
+        pub owner: alloc::string::String,
+        pub sink: core::option::Option<alloc::string::String>,
+        pub mimes: alloc::vec::Vec<alloc::string::String>,
+        pub data: alloc::vec::Vec<Payload>,
+    }
+
+    pub fn encode_offer_args(value: &OfferArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.owner)?;
+        match &value.sink {
+            Some(item) => {
+                let mut nested = Encoder::new();
+                nested.string(1, item)?;
+                target.option(2, Some(&nested))?;
+            }
+            None => {
+                target.option(2, None)?;
+            }
+        }
+        let mut nested = Encoder::new();
+        for item in &value.mimes {
+            nested.string(1, item)?;
+        }
+        target.array(3, &nested)?;
+        let mut nested = Encoder::new();
+        for item in &value.data {
+            nested.raw(Kind::Struct, 1, &encode_payload(item)?)?;
+        }
+        target.array(4, &nested)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_offer_args(body: &[u8]) -> Result<OfferArgs, Error> {
+        let mut out = OfferArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.owner = field.as_str()?.into();
+                }
+                2 => {
+                    if field.payload.is_empty() {
+                        out.sink = None;
+                    } else {
+                        let mut nested = field.nested(0)?;
+                        let item = nested.next()?.ok_or(Error::BadValue)?;
+                        out.sink = Some(item.as_str()?.into());
+                    }
+                }
+                3 => {
+                    let mut nested = field.nested(0)?;
+                    while let Some(item) = nested.next()? {
+                        out.mimes.push(item.as_str()?.into());
+                    }
+                }
+                4 => {
+                    let mut nested = field.nested(0)?;
+                    while let Some(item) = nested.next()? {
+                        out.data.push(decode_payload(item.payload)?);
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct OfferReply {
+        pub token: u64,
+    }
+
+    pub fn encode_offer_reply(value: &OfferReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.token)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_offer_reply(body: &[u8]) -> Result<OfferReply, Error> {
+        let mut out = OfferReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.token = field.as_u64()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Read one MIME of an offer. `token` 0 selects the newest offer in the
+    /// caller's session that lists `mime`; another session's token fails with
+    /// `EACCES` and is audited, an unknown one with `ENOENT`. The reply carries
+    /// the payload bytes inline until the shared-buffer mapping op lands.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct RequestArgs {
+        pub token: u64,
+        pub mime: alloc::string::String,
+    }
+
+    pub fn encode_request_args(value: &RequestArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.token)?;
+        target.string(2, &value.mime)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_request_args(body: &[u8]) -> Result<RequestArgs, Error> {
+        let mut out = RequestArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.token = field.as_u64()?;
+                }
+                2 => {
+                    out.mime = field.as_str()?.into();
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct RequestReply {
+        pub token: u64,
+        pub mime: alloc::string::String,
+        pub lazy: bool,
+        pub bytes: alloc::vec::Vec<u8>,
+    }
+
+    pub fn encode_request_reply(value: &RequestReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.token)?;
+        target.string(2, &value.mime)?;
+        target.bool(3, value.lazy)?;
+        target.bytes(4, &value.bytes)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_request_reply(body: &[u8]) -> Result<RequestReply, Error> {
+        let mut out = RequestReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.token = field.as_u64()?;
+                }
+                2 => {
+                    out.mime = field.as_str()?.into();
+                }
+                3 => {
+                    out.lazy = field.as_bool()?;
+                }
+                4 => {
+                    out.bytes = field.as_bytes().to_vec();
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Serialize one MIME of a lazy offer on demand. The service calls this on
+    /// the offer owner's `sink` endpoint when a paste happens.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct SerializeArgs {
+        pub token: u64,
+        pub mime: alloc::string::String,
+    }
+
+    pub fn encode_serialize_args(value: &SerializeArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.token)?;
+        target.string(2, &value.mime)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_serialize_args(body: &[u8]) -> Result<SerializeArgs, Error> {
+        let mut out = SerializeArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.token = field.as_u64()?;
+                }
+                2 => {
+                    out.mime = field.as_str()?.into();
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct SerializeReply {
+        pub bytes: alloc::vec::Vec<u8>,
+    }
+
+    pub fn encode_serialize_reply(value: &SerializeReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.bytes(1, &value.bytes)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_serialize_reply(body: &[u8]) -> Result<SerializeReply, Error> {
+        let mut out = SerializeReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.bytes = field.as_bytes().to_vec();
+            }
+        }
+        Ok(out)
+    }
+
+    /// Metadata of the caller session's newest offer, never content; empty
+    /// when no offer is live.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct CurrentReply {
+        pub offer: core::option::Option<OfferMeta>,
+    }
+
+    pub fn encode_current_reply(value: &CurrentReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        match &value.offer {
+            Some(item) => {
+                let mut nested = Encoder::new();
+                nested.raw(Kind::Struct, 1, &encode_offer_meta(item)?)?;
+                target.option(1, Some(&nested))?;
+            }
+            None => {
+                target.option(1, None)?;
+            }
+        }
+        Ok(target.finish())
+    }
+
+    pub fn decode_current_reply(body: &[u8]) -> Result<CurrentReply, Error> {
+        let mut out = CurrentReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                if field.payload.is_empty() {
+                    out.offer = None;
+                } else {
+                    let mut nested = field.nested(0)?;
+                    let item = nested.next()?.ok_or(Error::BadValue)?;
+                    out.offer = Some(decode_offer_meta(item.payload)?);
+                }
+            }
+        }
+        Ok(out)
+    }
+}
+
 /// `os.lazy.echo.v1` (interface id `0xcc4ac1057e84db93`).
 pub mod os_lazy_echo_v1 {
     use alloc::vec::Vec;
