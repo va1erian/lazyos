@@ -210,6 +210,7 @@ pub fn dispatch_for_test(nr: u64, a1: u64, a2: u64, a3: u64) -> u64 {
     match nr {
         1 => sys_write(a1, a2),
         3 => sys_read_file(a1, a2, a3),
+        4 => sys_sbrk(a1),
         5 => crate::ipc::syscalls::dispatch(a1, a2, a3),
         6 => sys_spawn(a1),
         7 => sys_wait(a1),
@@ -307,7 +308,10 @@ fn sys_sbrk(increment: u64) -> u64 {
     let Some(target) = current.checked_add(increment) else {
         return u64::MAX;
     };
-    let new_break = (target + page - 1) & !(page - 1);
+    let new_break = match target.checked_add(page - 1) {
+        Some(value) => value & !(page - 1),
+        None => return u64::MAX,
+    };
     if new_break > USER_STACK_TOP - USER_STACK_SIZE {
         return u64::MAX;
     }
