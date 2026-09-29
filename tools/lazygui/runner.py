@@ -82,6 +82,9 @@ class Runner:
         for step in steps:
             if self.stop_requested:
                 break
+            # Host wall-clock stamp per line (seconds since the step began): the
+            # guest's own tick counter drifts when QEMU delivers timer IRQs late.
+            began = time.monotonic()
             self.q.put(("step", step["label"], " ".join(step["argv"])))
             try:
                 proc = subprocess.Popen(step["argv"], cwd=cwd, env=full,
@@ -100,9 +103,6 @@ class Runner:
             if self.stop_requested:
                 kill_tree(proc)
             assert proc.stdout is not None
-            # Host wall-clock stamp per line (seconds since the step began): the
-            # guest's own tick counter drifts when QEMU delivers timer IRQs late.
-            began = time.monotonic()
             for line in proc.stdout:
                 if not self.stop_requested:
                     self.q.put(("out", f"[+{time.monotonic() - began:8.3f}s] {line}"))
