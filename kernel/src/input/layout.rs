@@ -84,6 +84,14 @@ fn symbol_at(code: u8) -> Option<(char, char, char)> {
     })
 }
 
+/// Whether `code` is a character key on the AZERTY board. `french` returns
+/// `None` both for these keys on a layer that assigns them nothing (AltGr+`^`)
+/// and for non-character keys (Esc, Enter); callers need the difference so an
+/// unassigned key does not fall back to the US table.
+pub fn is_french_character_key(code: u8) -> bool {
+    letter_at(code).is_some() || symbol_at(code).is_some()
+}
+
 /// The AZERTY character for a printable scancode, `None` when the key is not
 /// a character key or the layer has no character for it. Letters are returned
 /// lowercase; the caller applies Shift and Ctrl.

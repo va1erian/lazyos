@@ -1,8 +1,10 @@
 //! Build-time glyph atlas generator.
 //!
-//! Rasterizes the printable ASCII and Latin-1 ranges of a real monospace font into 8-bit
+//! Rasterizes the printable ASCII and Latin-1 ranges of a real font into 8-bit
 //! anti-aliased coverage bitmaps, plus the metrics needed to place them on a
-//! baseline. The result is embedded into the kernel by `kernel/build.rs`.
+//! baseline. The kernel console embeds a monospace atlas (`kernel/build.rs`);
+//! the `xuid` compositor chrome embeds proportional ones (`user/build.rs`),
+//! which is why every glyph also carries its own advance.
 
 use fontdue::{Font, FontSettings};
 
@@ -24,6 +26,9 @@ pub struct Glyph {
     pub top: i32,
     /// Byte offset of this glyph's bitmap within `Atlas::coverage`.
     pub offset: u32,
+    /// Horizontal advance to the next pen position, in 1/16 pixel. Kept
+    /// fractional so proportional text does not drift from rounding each glyph.
+    pub advance_x16: u32,
 }
 
 /// A rasterized font atlas.
@@ -34,7 +39,8 @@ pub struct Atlas {
     pub descender: i32,
     /// Recommended distance between consecutive baselines.
     pub line_height: i32,
-    /// Fixed horizontal advance for every glyph (monospace).
+    /// Fixed horizontal advance for every glyph (monospace faces only; use
+    /// [`Glyph::advance_x16`] for proportional text).
     pub advance: u32,
     /// Metrics for `FIRST_CHAR..=LAST_CHAR`, in order.
     pub glyphs: Vec<Glyph>,
@@ -74,6 +80,7 @@ pub fn build(font_bytes: &[u8], px: f32) -> Atlas {
             left: metrics.xmin,
             top,
             offset,
+            advance_x16: (metrics.advance_width * 16.0).round().max(0.0) as u32,
         });
         coverage.extend_from_slice(&bitmap);
     }

@@ -7,7 +7,7 @@
 //! call site; [`geometry`] and [`item_at`] are pure so they stay testable.
 
 use core::sync::atomic::{AtomicBool, AtomicI32, Ordering};
-use user::messenger::display::{self, Canvas, Rect};
+use user::messenger::display::{self, Canvas, Face, Rect};
 use user::messenger::services::{self, INIT_NAME};
 use user::sys;
 
@@ -48,7 +48,7 @@ pub(super) fn is_open() -> bool {
 fn geometry(at: (i32, i32), screen: (i32, i32)) -> Rect {
     let label_w = ITEMS
         .iter()
-        .map(|(_, label)| label.len() as i32 * display::font::ADVANCE)
+        .map(|(_, label)| Face::Sans.width(label))
         .max()
         .unwrap_or(0);
     let w = (label_w + TEXT_PAD * 2).max(MIN_W);
@@ -164,13 +164,13 @@ pub(super) fn draw(screen: &mut Canvas, clip: Rect) {
         if index as i32 == hovered {
             screen.fill(row, clip, OVERLAY_SELECTED);
         }
-        screen.text(
+        screen.text_face(
             row.x + TEXT_PAD - 2,
-            row.y + (ITEM_H - display::font::H) / 2,
+            row.y + (ITEM_H - Face::Sans.height()) / 2,
             label,
+            Face::Sans,
             OVERLAY_TEXT,
             row.intersect(clip),
-            1,
         );
     }
 }

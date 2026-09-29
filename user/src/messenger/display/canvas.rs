@@ -1,6 +1,8 @@
 //! The software RGBA8 blitter: [`Rect`], [`Color`], [`Canvas`], and the
 //! [`font`] bitmap font used for chrome text and demo labels.
 
+use super::Face;
+
 /// An integer rectangle, used for damage and layout.
 #[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
 pub struct Rect {
@@ -119,6 +121,66 @@ impl Canvas {
         // byte mapping `new` was promised, and `&mut self` guarantees no
         // other reference to it exists for the slice's lifetime.
         unsafe { core::slice::from_raw_parts_mut(self.base.add(at), w as usize * 4) }
+    }
+
+    /// Blend `color` over one pixel with coverage `alpha` (0..=255).
+    fn blend_pixel(&mut self, x: i32, y: i32, color: Color, alpha: u8, clip: Rect) {
+        if alpha == 0 {
+            return;
+        }
+        if alpha == 0xff {
+            return self.pixel(x, y, color, clip);
+        }
+        if x < clip.x
+            || y < clip.y
+            || x >= clip.x + clip.w
+            || y >= clip.y + clip.h
+            || x < 0
+            || y < 0
+            || x >= self.width
+            || y >= self.height
+        {
+            return;
+        }
+        let at = ((y * self.width + x) * 4) as usize;
+        let a = alpha as u32;
+        let mix = |src: u8, dst: u8| ((src as u32 * a + dst as u32 * (255 - a) + 127) / 255) as u8;
+        // Safety: bounds were checked against the canvas geometry.
+        unsafe {
+            for (i, src) in [color.r, color.g, color.b].into_iter().enumerate() {
+                let p = self.base.add(at + i);
+                p.write(mix(src, p.read()));
+            }
+            self.base.add(at + 3).write(0xff);
+        }
+    }
+
+    /// Draw `text` in a proportional anti-aliased [`Face`]. `y` is the top of
+    /// the line box (centre it with [`Face::height`]); returns the final pen x.
+    pub fn text_face(
+        &mut self,
+        x: i32,
+        y: i32,
+        text: &str,
+        face: Face,
+        color: Color,
+        clip: Rect,
+    ) -> i32 {
+        let baseline = y + face.ascent();
+        let mut pen16 = x * 16;
+        for ch in text.chars() {
+            let (glyph, coverage) = face.glyph(ch);
+            let gx = (pen16 + 8) / 16 + glyph.left;
+            let gy = baseline + glyph.top;
+            for row in 0..glyph.height as i32 {
+                for col in 0..glyph.width as i32 {
+                    let alpha = coverage[(row * glyph.width as i32 + col) as usize];
+                    self.blend_pixel(gx + col, gy + row, color, alpha, clip);
+                }
+            }
+            pen16 += glyph.advance_x16 as i32;
+        }
+        (pen16 + 8) / 16
     }
 
     /// Fill `rect` with `color`, clipped to `clip`.

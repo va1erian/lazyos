@@ -14,7 +14,7 @@ mod text;
 pub use canvas::SkiaCanvas;
 pub use offscreen::OffscreenBackend;
 pub use text::measure as measure_text;
-pub use text::set_default_font;
+pub use text::{add_font, set_default_family, set_default_font};
 
 use tiny_skia::Pixmap;
 use xui_core::color::Color;
