@@ -110,12 +110,19 @@ use crate::task::{self, wait::CHILD_EXIT, WakeReason};
 use crate::user_ptr;
 use crate::{fs, input::keyboard, mem};
 
+#[allow(unused_imports)] // part of the module ABI; referenced by tests and userspace docs
+pub use creds::cred_op;
+use creds::{sys_creds, sys_quota, sys_tasks, syscall_error, EFAULT};
+use spawn::{sys_spawn, SERVICE_ARGS};
+
 mod credio;
+mod creds;
 pub mod fsops;
 mod gate;
 pub mod linux;
 pub mod loader;
 pub mod power;
+mod spawn;
 pub mod spawn_line;
 
 use credio::{read_cred, write_cred};
@@ -135,7 +142,7 @@ pub const USER_STACK_SIZE: u64 = 0x2_0000;
 /// intern table is bounded.
 #[cfg(lazyos_tests)]
 pub fn intern_service_name_for_test(name: &str) -> &'static str {
-    intern_service_name(name)
+    spawn::intern_service_name(name)
 }
 
 /// syscall 1: write bytes to the task's terminal (and the serial log).
@@ -258,241 +265,6 @@ fn exit(code: u32) -> ! {
     loop {
         x86_64::instructions::interrupts::enable();
         x86_64::instructions::hlt();
-    }
-}
-
-/// Service argument strings, keyed by task slot (issue #93).
-///
-/// Native programs receive no `argv`/`argc` stack, so `spawn` stores the
-/// manifest argument string here and syscall 9 (or `sys::service_args`) copies
-/// it out. The entry is overwritten on the slot's next state-changing spawn and
-/// only read by that slot, so a re-used slot cannot observe stale arguments of
-/// a *different* program (a plain kernel `spawn` clears the slot).
-static SERVICE_ARGS: Mutex<[Option<Vec<u8>>; task::MAX_TASKS]> =
-    Mutex::new([const { None }; task::MAX_TASKS]);
-
-/// Distinct spellings [`intern_service_name`] will leak before it falls back to
-/// [`OVERFLOW_NAME`]; a real manifest has a few dozen services.
-const MAX_INTERNED_NAMES: usize = 64;
-/// The task name given to programs whose spelling arrives after the intern
-/// table is full.
-const OVERFLOW_NAME: &str = "service";
-
-/// Intern a userspace-provided service name into a `&'static str` for
-/// [`task::spawn_child`].
-///
-/// `Task::name` is `&'static str`, but the name comes from the supervisor's
-/// manifest at runtime. Leaking each *distinct* name once (bounded by the
-/// manifest, not by restart count) is the smallest way to satisfy that type
-/// without adding an allocation policy to the task table.
-fn intern_service_name(name: &str) -> &'static str {
-    static NAMES: Mutex<Vec<&'static str>> = Mutex::new(Vec::new());
-    let mut names = NAMES.lock();
-    if let Some(known) = names.iter().find(|known| **known == name) {
-        return known;
-    }
-    // The path is caller-supplied and the file system is case-insensitive
-    // (`A.ELF`, `a.elf`, `./A.ELF` name one file), so distinct spellings are
-    // not bounded by the manifest. Past the cap every new spelling shares one
-    // generic name instead of leaking another string.
-    if names.len() >= MAX_INTERNED_NAMES {
-        return OVERFLOW_NAME;
-    }
-    let leaked: &'static str = Box::leak(String::from(name).into_boxed_str());
-    names.push(leaked);
-    leaked
-}
-
-/// syscall 6: start `"PATH.ELF [args...]"` as a child of the calling task.
-///
-/// The command line is NUL-terminated. The first whitespace-separated token is
-/// the FAT file name, the remainder is stored for syscall 9. Returns the new
-/// task's pid (its slot), or `u64::MAX` when the file is missing, the ELF is
-/// invalid, or no slot/frame is free.
-fn sys_spawn(cmdline_ptr: u64) -> u64 {
-    let code = spawn_program(cmdline_ptr, None);
-    if code < 0 {
-        u64::MAX
-    } else {
-        code as u64
-    }
-}
-
-/// The shared body of syscalls 6 and 10 (`spawn` and the credentialed spawn).
-///
-/// `cred` is `Some` only on the credential-gate path, where the caller has
-/// already validated the request with [`credentials::check`]. The child is
-/// created holding a copy of the *caller's* credentials (`task::spawn_child`
-/// stamps them), never the root default: a task can only start children that
-/// are no more privileged than itself. On the credential-gate path the
-/// requested credential is then stamped while interrupts are off in the
-/// `int 0x80` gate, so the child never runs with any identity but the one
-/// the gate approved. Negative return values are errno codes; a positive
-/// value is the new child's pid.
-fn spawn_program(cmdline_ptr: u64, cred: Option<Cred>) -> i64 {
-    let Ok(line) = user_cstr(cmdline_ptr) else {
-        return -EFAULT;
-    };
-    let Some(spawn_line::SpawnLine { linux, path, args }) = spawn_line::parse(&line) else {
-        return -EINVAL;
-    };
-    let Some(elf) = fs::read(path) else {
-        return -ENOENT;
-    };
-    let name = intern_service_name(path);
-    let started = if linux {
-        // argv[0] is the program name; the rest are the whitespace-split args.
-        let argv: Vec<&str> = core::iter::once(path)
-            .chain(args.split_whitespace())
-            .collect();
-        task::spawn_linux_child(name, &elf, &argv)
-    } else {
-        task::spawn_child(name, &elf)
-    };
-    let slot = match started {
-        Ok(slot) => slot,
-        Err(_) => return -ENOMEM,
-    };
-    if let Some(cred) = cred {
-        // `check` ran before the spawn, so this cannot fail; if it ever did,
-        // the child would keep the identity it inherited from the caller (no
-        // more privileged than the caller) and the gate would still audit the
-        // refusal, which is the loudest signal available here.
-        let _ = credentials::transition(task::current(), slot, cred);
-    }
-    SERVICE_ARGS.lock()[slot] = Some(args.as_bytes().to_vec());
-    slot as i64
-}
-
-/// Error values the credential gate returns; the same x86_64 Linux numbering
-/// the Messenger syscall uses, so userspace handling is uniform.
-const EPERM: i64 = 1;
-const ENOENT: i64 = 2;
-const ESRCH: i64 = 3;
-const ENOMEM: i64 = 12;
-const EACCES: i64 = 13;
-const EFAULT: i64 = 14;
-const EINVAL: i64 = 22;
-
-/// The credential-gate op codes (syscall 10), mirrored by `user::sys`.
-pub mod cred_op {
-    /// Stamp a task with a credential block.
-    pub const SET: u64 = 0;
-    /// Read a task's credential block.
-    pub const GET: u64 = 1;
-    /// Spawn an ELF with a credential block, stamped before it can run.
-    pub const SPAWN: u64 = 2;
-}
-
-/// Two's-complement `-errno` in the syscall return register.
-fn syscall_error(code: i64) -> u64 {
-    (code as u64).wrapping_neg()
-}
-
-/// Map a transition refusal to its errno value.
-fn transition_error(error: TransitionError) -> u64 {
-    syscall_error(match error {
-        TransitionError::NotPrivileged => EPERM,
-        TransitionError::Widening => EACCES,
-        TransitionError::BadTarget => ESRCH,
-    })
-}
-
-/// The task slot named by a `set`/`get` target: the caller for `u64::MAX`,
-/// otherwise the pid.
-fn cred_target(pid: u64) -> usize {
-    if pid == u64::MAX {
-        task::current()
-    } else {
-        usize::try_from(pid).unwrap_or(usize::MAX)
-    }
-}
-
-/// syscall 10: the audited credential gate (issue #101).
-///
-/// Every path funnels through [`credentials::transition`]/[`credentials::read`],
-/// so the capability check, the no-widening rule, and the audit record live in
-/// one place. See the module docs for the register ABI.
-fn sys_creds(op: u64, a1: u64, a2: u64) -> u64 {
-    match op {
-        cred_op::SET => {
-            let Some(cred) = read_cred(a2) else {
-                return syscall_error(EFAULT);
-            };
-            match credentials::transition(task::current(), cred_target(a1), cred) {
-                Ok(_) => 0,
-                Err(error) => transition_error(error),
-            }
-        }
-        cred_op::GET => match credentials::read(task::current(), cred_target(a1)) {
-            Ok(cred) => {
-                if write_cred(a2, cred) {
-                    0
-                } else {
-                    syscall_error(EFAULT)
-                }
-            }
-            Err(error) => transition_error(error),
-        },
-        cred_op::SPAWN => {
-            let Some(cred) = read_cred(a2) else {
-                return syscall_error(EFAULT);
-            };
-            // Validate before a task exists, then let `spawn_program` apply the
-            // same request.
-            if let Err(error) = credentials::check(task::current(), cred) {
-                return transition_error(error);
-            }
-            let code = spawn_program(a1, Some(cred));
-            if code < 0 {
-                syscall_error(-code)
-            } else {
-                code as u64
-            }
-        }
-        _ => syscall_error(EINVAL),
-    }
-}
-
-/// syscall 11: copy the calling user's quota usage and limits (issue #103).
-///
-/// `buf` points at [`quota::STATS_WORDS`] `u64`s: for resource `i`, word `2*i`
-/// is the live usage and word `2*i + 1` the limit, in [`Resource::ALL`] order.
-/// A null buffer is `-EFAULT`; limits themselves are kernel policy
-/// ([`quota::set_limit`]), so this gate is read-only.
-fn sys_quota(buf: u64) -> u64 {
-    if buf == 0 {
-        return syscall_error(EFAULT);
-    }
-    let uid = credentials::of(task::current()).uid;
-    let words = quota::stats_words(uid);
-    if user_ptr::try_copy_words(buf, &words).is_err() {
-        return syscall_error(EFAULT);
-    }
-    0
-}
-
-/// syscall 13: copy a [`task::introspect::TaskSnapshot`] scheduler snapshot
-/// into the caller's buffer (MCP debug bridge Phase 2, `docs/mcp-debug-bridge.md`).
-///
-/// `buf` points at [`task::introspect::WORDS`] `u64`s. A null buffer is
-/// `-EFAULT`; like [`sys_quota`], this gate is read-only and discloses no
-/// more than `messengerctl sessions` already does.
-fn sys_tasks(buf: u64) -> u64 {
-    if buf == 0 {
-        return syscall_error(EFAULT);
-    }
-    let words = task::introspect::snapshot_words();
-    let mut bytes = Vec::with_capacity(words.len() * 8);
-    for word in words.iter() {
-        bytes.extend_from_slice(&word.to_ne_bytes());
-    }
-    // Validate the whole destination as writable user memory first; this
-    // gate is open to every task, so a raw write would be a kernel-write
-    // primitive.
-    match crate::ipc::syscalls::copy_out(buf, &bytes) {
-        Ok(()) => 0,
-        Err(code) => (code as u64).wrapping_neg(),
     }
 }
 
