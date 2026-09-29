@@ -45,6 +45,7 @@ mod task;
 mod tests;
 mod text;
 mod user_ptr;
+mod wallclock;
 
 use bootloader_api::config::{BootloaderConfig, Mapping};
 use bootloader_api::info::Optional;

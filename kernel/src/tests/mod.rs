@@ -157,6 +157,7 @@ mod sysinfo_suite;
 mod task_suite;
 mod topics_gate_suite;
 mod topics_suite;
+mod wallclock_suite;
 
 /// Every suite, run in the order listed. See the module doc for why the
 /// order of suites (and of a few tests within `hardening_suite`) is load-bearing.
@@ -210,6 +211,7 @@ const SUITE: &[&[(&str, Test)]] = &[
     native_exec_suite::CASES,
     display_suite::CASES,
     sysinfo_suite::CASES,
+    wallclock_suite::CASES,
     hardening_suite::CASES,
 ];
 

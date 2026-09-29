@@ -46,8 +46,8 @@ an in-memory ramfs mounted at `/tmp`.
 **Attributes** (`vfs/{attr,setattr}.rs`, issue #345)
 
 `Meta` carries `times: Times` (`atime`, `mtime`, `ctime`, whole seconds as
-`time_t`). Every backend stamps from one clock, `vfs::now()` (PIT uptime until
-an RTC driver lands), so a write and a `touch` agree; reads never move `atime`
+`time_t`). Every backend stamps from one clock, `vfs::now()` (UTC wall time: the
+CMOS RTC sampled at boot plus PIT uptime, see `wallclock.rs`), so a write and a `touch` agree; reads never move `atime`
 (every mount behaves as `noatime`). FAT and the fabricated ABI entries report
 zero.
 
@@ -253,8 +253,8 @@ block, inode, descriptor and registry entry.
 | `ext2` | read/write | 1/2/4 KiB blocks, group bitmaps, direct + single/double/triple indirect, truncate, clean/dirty state; rejects unknown incompat features and htree directories; no journal/symlinks/device nodes |
 | `overlay` | read/write (copy-up) | Linux ABI root only; lower is any read-only backend, upper is ramfs |
 
-- ext2 keeps free counters in sync, stamps timestamps from PIT ticks (best
-  effort until an RTC driver), and `flush()` flushes the device and marks the
+- ext2 keeps free counters in sync, stamps timestamps from the wall clock
+  (`vfs::now()`), and `flush()` flushes the device and marks the
   volume clean (see Durability). Only one block-sized buffer is live per helper and every loop is
   geometry-bounded, so a malformed image cannot hang the kernel.
 
