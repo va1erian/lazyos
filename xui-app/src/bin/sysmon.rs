@@ -215,12 +215,13 @@ fn paint(canvas: &mut dyn Canvas, state: &State) {
 }
 
 /// The memory-card height for `content`: between [`CARD_MIN_H`] and
-/// [`CARD_H`] when the window fits the cards, a section heading, four task rows
-/// and the footer; `0` otherwise, when the table instead uses the whole body.
+/// [`CARD_H`] when the window fits the cards, a section heading, the table header, four
+/// task rows and the footer; `0` otherwise, when the table instead uses the whole body.
 /// Keeping both in the budget stops the sections overdrawing each other in a
 /// short window (issue #251).
 fn card_height(content: Rect) -> i32 {
-    let reserved = 28 + dash::ROW * 4 + TABLE_GAP + FOOTER_H;
+    // Heading (28), the table header row and four task rows, the gap, footer.
+    let reserved = 28 + dash::ROW * 5 + TABLE_GAP + FOOTER_H;
     match content.height() - reserved {
         room if room >= CARD_MIN_H => room.min(CARD_H),
         _ => 0,

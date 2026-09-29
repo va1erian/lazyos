@@ -432,47 +432,73 @@ fn surface_by_id(surfaces: &[Surface], id: u64) -> Option<&Surface> {
 
 /// Place a new window of content size `width`×`height` (issue #250).
 ///
-/// Windows tile left to right and top to bottom in a grid of `columns`×`rows`
-/// cells sized to fit the screen without overlapping; a new window takes the
-/// next free cell. When no cell is free (big windows, or more windows than the
-/// screen can hold) placement wraps around the grid and cascades each further
-/// page down-right by [`CASCADE_STEP`], so every window keeps at least its
-/// title bar reachable instead of the whole row collapsing onto the edge.
+/// Candidate cells form a grid of `columns`×`rows` sized to this window so
+/// that cells never overlap; the window takes the first cell (left to right,
+/// top to bottom) that no existing window covers. Occupancy comes from the
+/// real window rectangles, not from a surface count, so a cell freed by a
+/// closed window is reused and windows of different sizes cannot be covered.
+/// When every cell is taken, placement cascades from the top-left by
+/// [`CASCADE_STEP`] per window, keeping the whole window (and so its
+/// controls) on screen when it fits, and only its title bar when it cannot.
 fn place_window(screen: (i32, i32), surfaces: &[Surface], width: i32, height: i32) -> (i32, i32) {
     let win_w = width + BORDER * 2;
     let win_h = height + TITLE_H + BORDER;
-    let index = surfaces.iter().filter(|surface| !surface.desktop).count() as i32;
+    let others = || {
+        surfaces
+            .iter()
+            .filter(|surface| !surface.desktop && !surface.minimized)
+    };
 
-    // How many windows of this size fit across and down, with the gap between
-    // them; at least one cell each so the arithmetic below stays valid.
     let area_w = (screen.0 - PAD * 2).max(0);
     let area_h = (screen.1 - PAD - TASKBAR_H - PAD).max(0);
     let step_x = win_w + WINDOW_GAP;
     let step_y = win_h + WINDOW_GAP;
     let columns = ((area_w + WINDOW_GAP) / step_x).max(1);
     let rows = ((area_h + WINDOW_GAP) / step_y).max(1);
-    let slots = (columns * rows).max(1);
 
-    let page = index / slots;
-    let cell = index % slots;
-    let mut x = PAD + (cell % columns) * step_x;
-    let mut y = PAD + (cell / columns) * step_y;
-
-    if page > 0 {
-        // The grid is full: cascade, keeping the title bar on screen even if
-        // the window is too big for the rest of it to fit.
-        x += page * CASCADE_STEP;
-        y += page * CASCADE_STEP;
-        return (
-            x.min((screen.0 - CASCADE_VISIBLE_W).max(PAD)),
-            y.min((screen.1 - TASKBAR_H - TITLE_H - BORDER).max(PAD)),
+    for cell in 0..columns * rows {
+        let x = clamp_on_screen(
+            PAD + (cell % columns) * step_x,
+            win_w,
+            screen.0,
+            0,
+            CASCADE_VISIBLE_W,
         );
+        let y = clamp_on_screen(
+            PAD + (cell / columns) * step_y,
+            win_h,
+            screen.1,
+            TASKBAR_H,
+            TITLE_H + BORDER,
+        );
+        let candidate = Rect::new(x, y, win_w, win_h);
+        if others().all(|surface| surface.window().intersect(candidate).is_empty()) {
+            return (x, y);
+        }
     }
-    // A free grid cell: keep the whole window on screen.
+
+    // Every cell is covered: cascade by how many windows are open, wrapping
+    // once the offset would run off the screen so it never sticks at one spot.
+    let count = others().count() as i32;
+    let steps = ((screen.0.min(screen.1) - PAD * 2) / CASCADE_STEP).max(1);
+    let step = (count % steps + 1) * CASCADE_STEP;
     (
-        x.min((screen.0 - win_w - WINDOW_GAP).max(0)),
-        y.min((screen.1 - win_h - TASKBAR_H - WINDOW_GAP).max(0)),
+        clamp_on_screen(PAD + step, win_w, screen.0, 0, CASCADE_VISIBLE_W),
+        clamp_on_screen(PAD + step, win_h, screen.1, TASKBAR_H, TITLE_H + BORDER),
     )
+}
+
+/// Clamp a window origin along one axis of size `extent` so the window stays
+/// wholly inside `limit` (minus `reserved` for the taskbar). A window that
+/// cannot fit keeps `visible` pixels of itself (its title bar) reachable
+/// instead.
+fn clamp_on_screen(origin: i32, extent: i32, limit: i32, reserved: i32, visible: i32) -> i32 {
+    let room = limit - reserved;
+    if extent <= room {
+        origin.min(room - extent).max(0)
+    } else {
+        origin.min((room - visible.min(extent)).max(0))
+    }
 }
 
 /// The topmost visible surface whose content contains `point`, ignoring
