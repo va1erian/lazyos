@@ -18,6 +18,7 @@ mod block;
 mod console;
 mod cursor;
 mod display;
+mod entropy;
 mod error;
 mod font;
 mod fs;

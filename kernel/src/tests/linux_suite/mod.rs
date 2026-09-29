@@ -198,17 +198,46 @@ fn clock_nanosleep(clock: u64, flags: u64, req: &[i64; 2], rem: &mut [i64; 2]) -
     )
 }
 
+mod creds;
 mod epoll;
 mod mremap_eventfd;
 mod nanosleep_clock;
+mod random;
 mod seqpacket_unix;
 
+pub(super) use creds::*;
 pub(super) use epoll::*;
 pub(super) use mremap_eventfd::*;
 pub(super) use nanosleep_clock::*;
+pub(super) use random::*;
 pub(super) use seqpacket_unix::*;
 
 pub(super) const CASES: &[(&str, Test)] = &[
+    (
+        "linux_getuid_family_reports_credentials",
+        getuid_family_reports_credentials,
+    ),
+    (
+        "linux_setuid_unprivileged_refused",
+        setuid_unprivileged_refused,
+    ),
+    (
+        "linux_setuid_privileged_drop_is_irreversible",
+        setuid_privileged_drop_is_irreversible,
+    ),
+    (
+        "linux_setres_partial_and_unchanged",
+        setres_partial_and_unchanged,
+    ),
+    ("linux_setuid_soak_never_widens", setuid_soak_never_widens),
+    ("linux_chacha20_rfc8439_block", chacha20_rfc8439_block),
+    (
+        "linux_getrandom_unique_within_tick",
+        getrandom_unique_within_tick,
+    ),
+    ("linux_getrandom_statistics", getrandom_statistics),
+    ("linux_entropy_reseeds", entropy_reseeds),
+    ("linux_getrandom_soak", getrandom_soak),
     ("linux_mremap_grow_shrink_move", mremap_grow_shrink_move),
     ("linux_mremap_soak_churn", mremap_soak_churn),
     ("linux_eventfd_semantics", eventfd_semantics),
