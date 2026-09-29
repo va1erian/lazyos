@@ -6,7 +6,7 @@ mod common;
 use std::collections::BTreeMap;
 
 use common::{MemoryFs, SplitMix64, ROOT};
-use regd::{decode, encode, load, persist, Error, Store, Value, MAX_VALUE_LEN};
+use confd::{decode, encode, load, persist, Error, Store, Value, MAX_VALUE_LEN};
 
 const OPS: usize = 100_000;
 const CHECKPOINT: usize = 10_000;

@@ -134,16 +134,16 @@ fn main() {
             std::env::var_os("CARGO_BIN_FILE_USER_logind").expect("user logind artifact not found");
         builder.set_file(String::from("LOGIND.ELF"), PathBuf::from(logind));
 
-        // The configuration registry (issue #260). `init` starts `regd`
-        // (`REGD.ELF`) from its manifest; `regctl` is its native command line.
+        // The configuration registry (issue #260). `init` starts `confd`
+        // (`CONFD.ELF`) from its manifest; `confctl` is its native command line.
         // Both are gated behind `LAZYOS_SERVICES=1`, like the other services,
         // so the plain demo image is unchanged.
-        let regd =
-            std::env::var_os("CARGO_BIN_FILE_USER_regd").expect("user regd artifact not found");
-        builder.set_file(String::from("REGD.ELF"), PathBuf::from(regd));
-        let regctl =
-            std::env::var_os("CARGO_BIN_FILE_USER_regctl").expect("user regctl artifact not found");
-        builder.set_file(String::from("REGCTL.ELF"), PathBuf::from(regctl));
+        let confd =
+            std::env::var_os("CARGO_BIN_FILE_USER_confd").expect("user confd artifact not found");
+        builder.set_file(String::from("CONFD.ELF"), PathBuf::from(confd));
+        let confctl = std::env::var_os("CARGO_BIN_FILE_USER_confctl")
+            .expect("user confctl artifact not found");
+        builder.set_file(String::from("CONFCTL.ELF"), PathBuf::from(confctl));
 
         // The MIME database and open-with registry (issue #116). `init`
         // starts it from its manifest; `MIMED.ELF` is the 8.3-safe on-disk

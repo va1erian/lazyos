@@ -4,7 +4,7 @@
 mod common;
 
 use common::{MemoryFs, ROOT};
-use regd::{load, persist, Store, Value, CORRUPT_FILE, STORE_FILE, TMP_FILE};
+use confd::{load, persist, Store, Value, CORRUPT_FILE, STORE_FILE, TMP_FILE};
 
 fn old_store() -> Store {
     let mut store = Store::new();
@@ -44,7 +44,7 @@ fn load_discards_a_leftover_temporary_file() {
     fs.put(TMP_FILE, b"half-written garbage");
     let mut store = Store::new();
     store.set("sys/a", Value::Bool(true), ROOT).unwrap();
-    fs.put(STORE_FILE, &regd::encode(&store));
+    fs.put(STORE_FILE, &confd::encode(&store));
 
     // The complete committed store is what survives.
     assert_eq!(load(&mut fs).unwrap(), store);
@@ -54,13 +54,13 @@ fn load_discards_a_leftover_temporary_file() {
 #[test]
 fn load_moves_a_corrupt_store_aside() {
     let mut fs = MemoryFs::new();
-    fs.put(STORE_FILE, b"REGD not really an encoded store");
+    fs.put(STORE_FILE, b"CONFD not really an encoded store");
 
     assert_eq!(load(&mut fs).unwrap(), Store::new());
     assert_eq!(fs.file(STORE_FILE), None);
     assert_eq!(
         fs.file(CORRUPT_FILE),
-        Some(b"REGD not really an encoded store".as_slice())
+        Some(b"CONFD not really an encoded store".as_slice())
     );
 }
 

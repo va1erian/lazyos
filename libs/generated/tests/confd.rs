@@ -1,10 +1,10 @@
-//! Round-trip tests for the generated `os.lazy.regd.v1` stubs (issue #260).
+//! Round-trip tests for the generated `os.lazy.confd.v1` stubs (issue #260).
 //!
 //! These cover the two codec shapes echo.midl never exercised — `Option` and
 //! `Array` — because a `midlc` regression had written their element into the
 //! outer encoder, producing a body the decoder could not read back.
 
-use messenger_generated::os_lazy_regd_v1::*;
+use messenger_generated::os_lazy_confd_v1::*;
 
 fn round_trip_value(kind: u32, value: Value) -> Value {
     let body = encode_value(&value).unwrap();

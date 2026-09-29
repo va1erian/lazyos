@@ -1,7 +1,7 @@
 //! `execve` of a native LazyOS program (issue #315).
 //!
 //! BusyBox `sh` starts every command with `fork` + `execve` on the Linux ABI,
-//! but LazyOS's own programs (`top`, `regctl`, `msgctl`, ...) are *native*
+//! but LazyOS's own programs (`top`, `confctl`, `msgctl`, ...) are *native*
 //! ELFs that speak the `int 0x80` syscall set. The two cannot be told apart
 //! from the image: both are static x86_64 executables at the same base (see
 //! `process::spawn_line`). The kernel learns a task's personality only from
@@ -44,7 +44,7 @@ use super::procctl::sys_exit_group;
 /// services (`SUPER.ELF`, `KEYD.ELF`, ...) are started by `init`.
 const PROGRAMS: &[(&str, &str)] = &[
     ("top", "TOP.ELF"),
-    ("regctl", "REGCTL.ELF"),
+    ("confctl", "CONFCTL.ELF"),
     ("msgctl", "MSGCTL.ELF"),
     ("messengerctl", "MSGCTL.ELF"),
     ("faultprobe", "FAULTPRB.ELF"),

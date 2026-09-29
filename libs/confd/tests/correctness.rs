@@ -3,7 +3,7 @@
 mod common;
 
 use common::{blob, caller, text, ALICE, BOB, ROOT};
-use regd::{
+use confd::{
     validate_path, Change, Error, Store, Value, MAX_PATH_LEN, MAX_STORE_BYTES, MAX_VALUE_LEN,
 };
 
@@ -320,5 +320,5 @@ fn list_filters_by_access_and_segment_prefix() {
 
 #[test]
 fn caller_field_constructs_directly() {
-    assert_eq!(caller(7), regd::Caller { uid: 7 });
+    assert_eq!(caller(7), confd::Caller { uid: 7 });
 }

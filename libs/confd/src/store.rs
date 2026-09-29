@@ -1,6 +1,6 @@
 //! In-memory path tree, uid access rules and change records.
 //!
-//! Every mutating call returns a [`Change`] the `regd` service publishes
+//! Every mutating call returns a [`Change`] the `confd` service publishes
 //! after the write has been persisted, so subscribers only ever see committed
 //! states. Rejecting a call never leaves a partial mutation behind: all
 //! checks run before the map is touched.
@@ -45,8 +45,8 @@ impl Error {
     /// A short, human-readable explanation (friendly-errors convention).
     pub const fn message(self) -> &'static str {
         match self {
-            Error::BadPath => "the path is not a valid regd path",
-            Error::TooLarge => "the value or store exceeds a regd size limit",
+            Error::BadPath => "the path is not a valid confd path",
+            Error::TooLarge => "the value or store exceeds a confd size limit",
             Error::Denied => "the caller may not access this path",
         }
     }

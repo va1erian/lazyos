@@ -219,15 +219,15 @@ pub fn create_write_read_rename_unlink() -> Result<(), String> {
     Ok(())
 }
 
-/// The `regd` persist shape: a complete temporary file renamed over an
+/// The `confd` persist shape: a complete temporary file renamed over an
 /// existing file. The destination must read back as the new contents only
 /// (never a mix), the temporary name must be gone, and the `Vfs::flush`
-/// passthrough `regd` uses must reach the block device.
+/// passthrough `confd` uses must reach the block device.
 ///
-/// This pins the property `libs/regd::persist` relies on. ext2 has no journal,
+/// This pins the property `libs/confd::persist` relies on. ext2 has no journal,
 /// so a power loss *during* the rename is still only guaranteed to leave the
 /// old or the new directory entry, not a torn file; the in-memory ramfs (the
-/// fallback `regd` uses on this image) replaces under one lock and is crash
+/// fallback `confd` uses on this image) replaces under one lock and is crash
 /// atomic within the boot.
 pub fn rename_over_existing_replaces() -> Result<(), String> {
     task::register_kernel();

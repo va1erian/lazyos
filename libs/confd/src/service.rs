@@ -1,7 +1,7 @@
-//! Service core: the uid-checked operations `regd` serves, with
+//! Service core: the uid-checked operations `confd` serves, with
 //! persist-before-swap semantics.
 //!
-//! This layer is deliberately free of Messenger and syscalls so the `regd`
+//! This layer is deliberately free of Messenger and syscalls so the `confd`
 //! binary and the kernel test suite drive the same commit logic. The store
 //! itself ([`crate::Store`]) already validates paths, limits and access; what
 //! this module adds is the ordering the review of #267 requires:
@@ -11,7 +11,7 @@
 //! * only then is the change announced.
 //!
 //! A persist failure therefore leaves the live store byte-for-byte unchanged
-//! and publishes nothing, which is what makes `REGD_IO` safe to retry.
+//! and publishes nothing, which is what makes `CONFD_IO` safe to retry.
 
 use alloc::vec::Vec;
 
@@ -20,7 +20,7 @@ use crate::store::{Caller, Change, Error, Store};
 use crate::value::Value;
 
 /// Why a service operation failed. The variants map one-to-one to the
-/// `REGD_*` codes the wire protocol carries.
+/// `CONFD_*` codes the wire protocol carries.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ServiceError {
     /// The path is absent.
@@ -40,10 +40,10 @@ impl ServiceError {
     pub const fn message(self) -> &'static str {
         match self {
             ServiceError::NotFound => "no value is stored at that path",
-            ServiceError::BadPath => "that is not a valid regd path",
-            ServiceError::TooLarge => "the value or store exceeds a regd size limit",
+            ServiceError::BadPath => "that is not a valid confd path",
+            ServiceError::TooLarge => "the value or store exceeds a confd size limit",
             ServiceError::Denied => "the caller may not access that path",
-            ServiceError::Io => "the regd store could not be read or written",
+            ServiceError::Io => "the confd store could not be read or written",
         }
     }
 }
@@ -97,13 +97,13 @@ fn starts_with_sys(path: &str) -> bool {
 
 /// The registry state: the committed store, its backing filesystem, and the
 /// change sink.
-pub struct Regd<F: StoreFs, S: ChangeSink> {
+pub struct Confd<F: StoreFs, S: ChangeSink> {
     store: Store,
     fs: F,
     sink: S,
 }
 
-impl<F: StoreFs, S: ChangeSink> Regd<F, S> {
+impl<F: StoreFs, S: ChangeSink> Confd<F, S> {
     /// Load the committed store from `fs` and bind it to `sink`.
     ///
     /// A corrupt store is recovered by [`load`] (moved aside, empty store); a
@@ -201,10 +201,10 @@ impl<F: StoreFs, S: ChangeSink> Regd<F, S> {
     }
 }
 
-impl<F: StoreFs, S: ChangeSink> core::fmt::Debug for Regd<F, S> {
+impl<F: StoreFs, S: ChangeSink> core::fmt::Debug for Confd<F, S> {
     fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         formatter
-            .debug_struct("Regd")
+            .debug_struct("Confd")
             .field("store", &self.store)
             .finish_non_exhaustive()
     }

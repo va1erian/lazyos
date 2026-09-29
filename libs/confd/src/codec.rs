@@ -2,7 +2,7 @@
 //!
 //! ```text
 //! store   := magic entries crc32
-//! magic   := "REGD"
+//! magic   := "CNFD"
 //! entries := entry*
 //! entry   := path_len:u16 path:u8[path_len] tag:u8 value
 //! value   :=
@@ -33,7 +33,7 @@ use crate::value::Value;
 use crate::{MAX_PATH_LEN, MAX_STORE_BYTES, MAX_VALUE_LEN};
 
 /// Magic bytes at the start of every encoded store.
-const MAGIC: [u8; 4] = *b"REGD";
+const MAGIC: [u8; 4] = *b"CNFD";
 /// Trailer size: one CRC-32.
 const CRC_SIZE: usize = 4;
 
@@ -51,7 +51,7 @@ pub const MAX_ENCODED_LEN: usize = 8 * MAX_STORE_BYTES + MAGIC.len() + CRC_SIZE;
 pub enum DecodeError {
     /// Input is shorter than the magic and CRC framing.
     TooShort,
-    /// The magic header is not `REGD`.
+    /// The magic header is not `CONFD`.
     BadMagic,
     /// The CRC-32 trailer does not match the payload.
     BadCrc,
@@ -71,9 +71,9 @@ impl DecodeError {
     pub const fn message(self) -> &'static str {
         match self {
             DecodeError::TooShort => "encoded store is too short to be complete",
-            DecodeError::BadMagic => "encoded store has no regd magic header",
+            DecodeError::BadMagic => "encoded store has no confd magic header",
             DecodeError::BadCrc => "encoded store failed its CRC check",
-            DecodeError::TooLarge => "encoded store exceeds a regd size limit",
+            DecodeError::TooLarge => "encoded store exceeds a confd size limit",
             DecodeError::Malformed => "encoded store entry is malformed",
             DecodeError::BadPath => "encoded store contains an invalid path",
             DecodeError::Duplicate => "encoded store contains a path twice",

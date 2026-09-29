@@ -152,7 +152,7 @@ with syscall 2.
 
 BusyBox `sh` runs a command with `fork` + `execve`, so `execve` has to start a
 native program without loading it over the Linux image. `sys_execve` first asks
-`native::lookup(path)`: a small table (`top`, `regctl`, `msgctl`/`messengerctl`,
+`native::lookup(path)`: a small table (`top`, `confctl`, `msgctl`/`messengerctl`,
 `faultprobe`) maps the name a user types (`top`, `/bin/top`, found through the
 synthetic `/bin` that `$PATH` searches, only while no real file has that path)
 or the boot-volume name (`/TOP.ELF`) to the 8.3 `.ELF` file. On a match the

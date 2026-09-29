@@ -16,9 +16,9 @@ bootloader_api = "0.11.17"
 # Issue #102: the in-kernel suite runs the crypto wrapper's round-trip and
 # SHARE_ONLY key-isolation checks against the same crate `keyd` links.
 lazyos-crypto = { path = "../libs/crypto" }
-# Issue #260: the in-kernel suite drives the same `regd` service core the
-# userspace `regd` binary links, against an in-memory `StoreFs`.
-regd = { path = "../libs/regd" }
+# Issue #260: the in-kernel suite drives the same `confd` service core the
+# userspace `confd` binary links, against an in-memory `StoreFs`.
+confd = { path = "../libs/confd" }
 # Issues #299/#300: the topic ACL scope ids, the `authorize_topic` request layout
 # and the registry wire come from `midlc`-generated interfaces (`idl/*.midl`),
 # not hand-computed hashes or field ids.

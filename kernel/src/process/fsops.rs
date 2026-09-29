@@ -185,7 +185,7 @@ fn rename(from: &str, to: &str) -> Result<u64, u64> {
 }
 
 /// Flush the filesystem holding `path` to stable storage. The path must
-/// resolve; the flush is per-mount, so `regd` fsyncs its temporary file before
+/// resolve; the flush is per-mount, so `confd` fsyncs its temporary file before
 /// renaming it over the committed store.
 fn fsync(path: &str) -> Result<u64, u64> {
     fs::vfs_flush(Id::current(), path)

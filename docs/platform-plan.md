@@ -421,7 +421,7 @@ Immediate next steps:
    over the shell protocol and `init.Launch`; session start from `logind`.
 3. **Storage honesty:** the kernel now mounts a second ext2 device at `/data`
    and syncs it on shutdown (#333); remaining is attaching a data disk by default
-   in the launchers/CI (#332) and moving service state (`regd`, logs) onto it.
+   in the launchers/CI (#332) and moving service state (`confd`, logs) onto it.
 4. **Keep the ABI bench and kernel suite green** as the regression gate for
    every stage.
 

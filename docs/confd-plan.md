@@ -1,6 +1,6 @@
-# LazyOS Configuration Registry — `regd` (v1: simple, v2: deferred features)
+# LazyOS Configuration Registry — `confd` (v1: simple, v2: deferred features)
 
-**One line:** `regd` is a small userspace service that stores typed
+**One line:** `confd` is a small userspace service that stores typed
 key/value configuration in a hierarchical path tree, reachable only through
 Messenger, and tells subscribers when a value changes. It is the Windows
 Registry / ODM idea reduced to what LazyOS needs today.
@@ -35,11 +35,11 @@ per-path ACLs, audit trail, compaction, queries, quotas, `keyd` delegation.
 
 | Concern | v1 choice |
 |---|---|
-| Mediation | Userspace service `regd` over Messenger; kernel stays mechanism-only. |
+| Mediation | Userspace service `confd` over Messenger; kernel stays mechanism-only. |
 | Namespace | Hierarchical paths: `sys/net/eth0/mtu`, `user/1000/shell/theme`. |
 | Data model | One **value** per path: `bool`, `i64`, `u64`, `string`, or `bytes`. No records, no schemas. Structure comes from the path tree (`.../eth0/dhcp`, `.../eth0/mtu`). |
-| Persistence | The whole tree in memory; on every write, serialize to `/system/regd/store.tmp`, fsync, rename over `/system/regd/store`. Rename is atomic, so a crash leaves the old or the new store, never a torn one. Config is small; this is fast enough. |
-| Access | Messenger interface `os.lazy.regd.v1` only. `regd` alone holds a handle to `/system/regd`. |
+| Persistence | The whole tree in memory; on every write, serialize to `/system/confd/store.tmp`, fsync, rename over `/system/confd/store`. Rename is atomic, so a crash leaves the old or the new store, never a torn one. Config is small; this is fast enough. |
+| Access | Messenger interface `os.lazy.confd.v1` only. `confd` alone holds a handle to `/system/confd`. |
 | Notification | One Messenger topic per changed path. |
 | Access control | Two fixed rules using the kernel-stamped `uid` (see §4). |
 
@@ -47,10 +47,10 @@ per-path ACLs, audit trail, compaction, queries, quotas, `keyd` delegation.
 
 ## 3. Messenger interface
 
-`os.lazy.regd.v1`, root object resolved from `messengerd` as `os.lazy.regd`.
+`os.lazy.confd.v1`, root object resolved from `messengerd` as `os.lazy.confd`.
 
 ```
-interface os.lazy.regd.v1 {
+interface os.lazy.confd.v1 {
   Get(path)              -> (value);          // NOT_FOUND if absent
   Set(path, value)       -> ();               // creates or overwrites
   Delete(path)           -> ();               // deleting an absent path is OK
@@ -58,21 +58,21 @@ interface os.lazy.regd.v1 {
 }
 
 // Pub/sub
-//   topic "regd/changed/<path>"   payload: (path, new_value | deleted)
-//   topic "regd/changed/<subtree>/#"   wildcard for a whole subtree
+//   topic "confd/changed/<path>"   payload: (path, new_value | deleted)
+//   topic "confd/changed/<subtree>/#"   wildcard for a whole subtree
 ```
 
 - `Set` and `Delete` are applied and persisted before the call returns; the
   change topic is published after the persist succeeds.
 - `List` returns only paths the caller is allowed to read (§4).
-- Limits, to keep `regd` bounded: path ≤ 256 bytes, value ≤ 4 KiB, total
-  store ≤ 1 MiB. Exceeding a limit returns `REGD_TOO_LARGE`.
+- Limits, to keep `confd` bounded: path ≤ 256 bytes, value ≤ 4 KiB, total
+  store ≤ 1 MiB. Exceeding a limit returns `CONFD_TOO_LARGE`.
 - Path validation: segments are `[a-z0-9_.-]+`, separated by `/`, no empty
-  segments, no `..`. Anything else returns `REGD_BAD_PATH`.
+  segments, no `..`. Anything else returns `CONFD_BAD_PATH`.
 - Writes are last-writer-wins. Callers that need read-modify-write must
   tolerate that in v1 (see §6 for CAS).
 
-A `regctl` CLI (`get`, `set`, `delete`, `list`, `watch`) is just another
+A `confctl` CLI (`get`, `set`, `delete`, `list`, `watch`) is just another
 Messenger client.
 
 ---
@@ -84,10 +84,10 @@ call:
 
 - `sys/**` — anyone can read, only uid 0 can write.
 - `user/<uid>/**` — only that user (and uid 0) can read or write.
-- Any other top-level path is rejected (`REGD_BAD_PATH`).
+- Any other top-level path is rejected (`CONFD_BAD_PATH`).
 
-`regd` runs unprivileged with only the `/system/regd` grant. Secrets do not go
-in `regd` in v1; use `keyd` directly.
+`confd` runs unprivileged with only the `/system/confd` grant. Secrets do not go
+in `confd` in v1; use `keyd` directly.
 
 ---
 
@@ -98,20 +98,20 @@ in `regd` in v1; use `keyd` directly.
 - *Crash during write:* atomic rename (§2) means the store is always either
   the previous or the new complete version. A leftover `store.tmp` is deleted
   on startup.
-- *regd restarts:* clients reconnect and re-resolve `os.lazy.regd` like any
+- *confd restarts:* clients reconnect and re-resolve `os.lazy.confd` like any
   other service; there is no per-client state. Subscribers should re-`Get`
   after reconnecting, since change topics are best-effort.
-- *Corrupt store file:* `regd` starts empty, logs to `logd`, and keeps the bad
+- *Corrupt store file:* `confd` starts empty, logs to `logd`, and keeps the bad
   file as `store.corrupt` for inspection.
 
 **Rollout**
 
-1. `regd` in-memory with `Get`/`Set`/`Delete`/`List` and change topics.
+1. `confd` in-memory with `Get`/`Set`/`Delete`/`List` and change topics.
 2. Persistence (atomic-rename store) and the uid rules from §4.
-3. `regctl` CLI, then migrate existing ad hoc config (network, xuid/display,
-   accounts prefs) onto `regd`.
+3. `confctl` CLI, then migrate existing ad hoc config (network, xuid/display,
+   accounts prefs) onto `confd`.
 
-**Testing** (per AGENTS.md, even though `regd` is userspace): correctness
+**Testing** (per AGENTS.md, even though `confd` is userspace): correctness
 tests for path validation, limits, permission rules, and persist/reload;
 a soak test with many rapid `Set`s and induced crashes between write and
 rename to confirm the store never tears.
@@ -130,7 +130,7 @@ independent unless noted.
   Field IDs are stable and append-only (like Messenger method IDs) so schemas
   can gain fields without breaking old records; fields can be `required`,
   have defaults, or reference enums.
-- Schemas are themselves records under `sys/regd/schema/<name>`
+- Schemas are themselves records under `sys/confd/schema/<name>`
   (self-hosting, introspectable via the same API); `RegisterSchema` /
   `GetSchema` calls. Open question: bootstrap of the schema-of-schemas vs.
   compiling schemas into services at build time.
@@ -152,7 +152,7 @@ independent unless noted.
 
 ### 6.3 Optimistic concurrency (CAS)
 
-- `expected_gen` on `Put`/`Delete`/`Revert`: fails with `REGD_CONFLICT` if it
+- `expected_gen` on `Put`/`Delete`/`Revert`: fails with `CONFD_CONFLICT` if it
   doesn't match the current generation. Omitted means blind write.
 - `expected_gen = 0` means create-only-if-absent (the first real generation
   is 1), so racing creators can't both win.
@@ -163,7 +163,7 @@ independent unless noted.
 - ACL per path: `{owner, group, world} x {READ, WRITE, MANAGE, WATCH}`,
   checked against the kernel-stamped `uid/gid/label`; `SetAcl`/`GetAcl` (needs
   MANAGE).
-- Default ACLs for well-known subtrees seeded from `regd`'s own data so
+- Default ACLs for well-known subtrees seeded from `confd`'s own data so
   policy is inspectable: `sys/**` root-writable/world-readable, `user/<uid>/**`
   owner rw + root r.
 - `List`/`Query` filter results per path; READ on a parent does not reveal
@@ -172,7 +172,7 @@ independent unless noted.
 ### 6.5 Audit trail
 
 - Every generation records `writer_cred`; changes are streamed to `auditd`
-  via `regd/changed/#`, but that topic is only a best-effort notification.
+  via `confd/changed/#`, but that topic is only a best-effort notification.
 - The durable record is `History`. Generations are not compactable until
   `auditd` acknowledges them, tracked as a **per-subtree monotonic sequence
   number** assigned to every committed generation.
@@ -185,10 +185,10 @@ independent unless noted.
 
 ### 6.6 Secrets delegation to `keyd`
 
-- Store in `regd` only an opaque, **non-authorizing** `keyd` key name. Because
+- Store in `confd` only an opaque, **non-authorizing** `keyd` key name. Because
   `sys/**` is world-readable, the identifier must grant nothing by itself:
   `keyd` re-checks the caller's identity/ACL on every operation, so reading
-  the name out of `regd` gives no more access than knowing a secret's name.
+  the name out of `confd` gives no more access than knowing a secret's name.
 
 ### 6.7 Query
 
@@ -199,7 +199,7 @@ independent unless noted.
 
 ### 6.8 Quotas, health, and storage layout
 
-- Per-user storage quotas; `regd` health/metrics exposed the way `healthd`
+- Per-user storage quotas; `confd` health/metrics exposed the way `healthd`
   expects.
 - Open question: a separate store file per top-level subtree (`sys`,
   `user/<uid>`) for independent backup/restore (leaning yes) vs. one global

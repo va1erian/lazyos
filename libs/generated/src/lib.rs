@@ -3253,8 +3253,8 @@ pub mod os_lazy_mimed_v1 {
     }
 }
 
-/// `os.lazy.regd.v1` (interface id `0x9f706a3664b0394e`).
-pub mod os_lazy_regd_v1 {
+/// `os.lazy.confd.v1` (interface id `0x9f706a3664b0394e`).
+pub mod os_lazy_confd_v1 {
     use alloc::vec::Vec;
     // Not every interface needs every codec item (`Kind` is only used by nested values).
     #[allow(unused_imports)]
@@ -3400,7 +3400,7 @@ pub mod os_lazy_regd_v1 {
     pub const METHOD_LIST: u32 = 220805025;
 
     /// Read the value at `path`. An absent path has an empty `value`.
-    /// A path the caller may not read fails with `REGD_DENIED`.
+    /// A path the caller may not read fails with `CONFD_DENIED`.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct GetArgs {
         pub path: alloc::string::String,

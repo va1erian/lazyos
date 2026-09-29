@@ -9,8 +9,8 @@
 use std::collections::BTreeMap;
 use std::fmt;
 
-use regd::store::Caller;
-use regd::{StoreFs, Value};
+use confd::store::Caller;
+use confd::{StoreFs, Value};
 
 /// Root's uid.
 pub const ROOT: Caller = Caller { uid: 0 };
@@ -82,7 +82,7 @@ pub fn crc32(data: &[u8]) -> u32 {
 /// structural validation can be tested without `encode`.
 pub fn envelope(body: &[u8]) -> Vec<u8> {
     let mut data = Vec::with_capacity(body.len() + 8);
-    data.extend_from_slice(b"REGD");
+    data.extend_from_slice(b"CNFD");
     data.extend_from_slice(body);
     let crc = crc32(&data);
     data.extend_from_slice(&crc.to_le_bytes());
@@ -95,7 +95,7 @@ pub fn envelope(body: &[u8]) -> Vec<u8> {
 /// flags) or after a number of successful calls (`arm`), which lets the
 /// crash-injection test stop a `persist` at each individual step. A failing
 /// `rename` is atomic — it leaves the target untouched — because that is the
-/// contract `regd` relies on; `write_file` can optionally leave partial bytes
+/// contract `confd` relies on; `write_file` can optionally leave partial bytes
 /// behind, since `persist` only ever writes the temporary file.
 #[derive(Clone, Default, Debug)]
 pub struct MemoryFs {

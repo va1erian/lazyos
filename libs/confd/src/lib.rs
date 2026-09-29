@@ -1,10 +1,10 @@
-//! Configuration store logic for `regd` (issue #259).
+//! Configuration store logic for `confd` (issue #259).
 //!
-//! `docs/config-registry-plan.md` v1 (§1–§5) needs one typed value per
+//! `docs/confd-plan.md` v1 (§1–§5) needs one typed value per
 //! hierarchical path, crash-safe persistence, and uid-checked access. This
 //! crate is that logic without Messenger or filesystem dependencies: the
-//! `regd` service wraps it, and the host runs the same code under
-//! `cargo test -p regd`.
+//! `confd` service wraps it, and the host runs the same code under
+//! `cargo test -p confd`.
 //!
 //! # Contract
 //!
@@ -38,7 +38,7 @@ pub mod value;
 pub use codec::{decode, encode, DecodeError, MAX_ENCODED_LEN};
 pub use fs::{load, persist, StoreFs, CORRUPT_FILE, STORE_FILE, TMP_FILE};
 pub use path::validate_path;
-pub use service::{announceable, ChangeSink, Regd, ServiceError};
+pub use service::{announceable, ChangeSink, Confd, ServiceError};
 pub use store::{Caller, Change, Error, Store};
 pub use value::Value;
 

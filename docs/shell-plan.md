@@ -293,7 +293,7 @@ Same policy as `platform-plan.md` section 6 and `AGENTS.md`:
   compositor report a work area to clients? A reported work area is cleaner and
   is the S5.0 preference.
 - Desktop icon layout persistence: a per-user file first, the configuration
-  registry when it exists ([`config-registry-plan.md`](config-registry-plan.md)).
+  registry when it exists ([`confd-plan.md`](confd-plan.md)).
 - Notifications: a shell-owned toast path versus a separate `notifyd`; the spec
   allows either, S5 starts in the shell.
 

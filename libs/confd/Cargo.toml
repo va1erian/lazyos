@@ -1,11 +1,11 @@
 [package]
-name = "regd"
+name = "confd"
 version = "0.1.0"
 edition = "2021"
 publish = false
-description = "Configuration store logic for the LazyOS regd service (issue #259)"
+description = "Configuration store logic for the LazyOS confd service (issue #259)"
 license = "GPL-3.0-or-later"
 
 [lib]
-name = "regd"
+name = "confd"
 path = "src/lib.rs"

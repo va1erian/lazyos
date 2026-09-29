@@ -176,7 +176,7 @@ pub(super) fn sys_execve(path_ptr: u64, argv_ptr: u64, envp_ptr: u64) -> u64 {
     }
     let envp = read_str_ptr_array(envp_ptr);
 
-    // A native LazyOS program (`top`, `regctl`, ...) is run as a child rather
+    // A native LazyOS program (`top`, `confctl`, ...) is run as a child rather
     // than loaded over this image (issue #315).
     if let Some(code) = super::native::try_exec(&path, &argv) {
         return code;

@@ -3,7 +3,7 @@
 mod common;
 
 use common::{blob, envelope, text, SplitMix64, ROOT};
-use regd::{
+use confd::{
     decode, encode, DecodeError, Store, Value, MAX_ENCODED_LEN, MAX_PATH_LEN, MAX_VALUE_LEN,
 };
 

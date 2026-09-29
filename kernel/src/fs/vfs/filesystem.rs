@@ -57,7 +57,7 @@ pub trait Filesystem: Send + Sync {
     /// Flush this filesystem's pending writes to stable storage.
     ///
     /// The default is a no-op for in-memory backends (ramfs, the overlay);
-    /// ext2 hands its device cache to the block layer. `regd`'s passthrough
+    /// ext2 hands its device cache to the block layer. `confd`'s passthrough
     /// `fsync` reaches this through [`Vfs::flush`].
     fn flush(&self) -> Result<(), FsError> {
         Ok(())

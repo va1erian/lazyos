@@ -1,4 +1,4 @@
-# `os.lazy.regd.v1`
+# `os.lazy.confd.v1`
 
 Interface id: `0x9f706a3664b0394e`
 
