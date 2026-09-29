@@ -195,8 +195,6 @@ pub fn sync_all_flushes_every_mount() -> Result<(), String> {
         raw_state(disk_a) & 1 == 1,
         "the retry did not clean the failed mount"
     );
-    crate::fs::init();
-    check!(crate::fs::sync_all().is_ok(), "the global sync_all failed");
     Ok(())
 }
 

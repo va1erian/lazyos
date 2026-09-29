@@ -173,6 +173,7 @@ fn syscall_name(nr: u64) -> &'static str {
         116 => "setgroups",
         121 => "getpgid",
         124 => "getsid",
+        130 => "rt_sigsuspend",
         131 => "sigaltstack",
         137 => "statfs",
         138 => "fstatfs",
@@ -346,6 +347,7 @@ extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
         112 => procctl::sys_setsid(),                   // setsid
         121 => procctl::sys_getpgid(a1),                // getpgid
         124 => procctl::sys_getsid(a1),                 // getsid
+        130 => sig::sys_rt_sigsuspend(a1, a2),          // rt_sigsuspend(mask, size)
         131 => sig::sys_sigaltstack(a1, a2),
         137 => filesys::sys_statfs(a1, a2),  // statfs(path, buf)
         138 => filesys::sys_fstatfs(a1, a2), // fstatfs(fd, buf)
