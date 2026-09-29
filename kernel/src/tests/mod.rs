@@ -152,6 +152,7 @@ mod sched_suite;
 mod service_suite;
 mod signal_suite;
 mod slab_suite;
+mod spawn_argv_suite;
 mod stats_suite;
 mod sysinfo_suite;
 mod task_suite;
@@ -209,6 +210,7 @@ const SUITE: &[&[(&str, Test)]] = &[
     topics_suite::CASES,
     topics_gate_suite::CASES,
     service_suite::CASES,
+    spawn_argv_suite::CASES,
     native_exec_suite::CASES,
     display_suite::CASES,
     sysinfo_suite::CASES,

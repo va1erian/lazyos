@@ -29,7 +29,9 @@
 //! `spawn_as`, so the kernel stamps uid/gid/session before the app runs, and
 //! then supervises it exactly like a manifest service: the same restart policy,
 //! crash backoff, `system/health/<name>` and `system/events/service/<name>`.
-//! `session` 0 means the caller's own session. The policy is session-owner
+//! `args` is empty or one absolute path, appended after the row's fixed
+//! arguments as a single `argv` item (`launch::launch_path_arg`; anything else
+//! is `-EINVAL`). `session` 0 means the caller's own session. The policy is session-owner
 //! only: a task may launch into its own session; root (or a task holding
 //! `CAP_SETUID`) may launch anywhere; anyone else is refused with `-EPERM`
 //! (printed as `INIT:LAUNCH:DENIED:PASS` and answered with a structured
@@ -89,7 +91,7 @@ use user::sys;
 
 use autostart::Autostart;
 use protocol::{serve_pending, StatusCache};
-use selftest::{selftest_launch_cap, selftest_launch_policy, LaunchSelftest};
+use selftest::{selftest_launch_args, selftest_launch_cap, selftest_launch_policy, LaunchSelftest};
 use state::{Phase, Service, BOOT_EVIDENCE, BOOT_SELFTESTS, MANIFEST};
 use supervise::{child_exited, spawn_service, start_ready, wake_deadline};
 
@@ -131,6 +133,7 @@ fn run() -> messenger::Result<()> {
         sys::write_str(&apps::selftest_apps());
         selftest_launch_policy();
         selftest_launch_cap();
+        selftest_launch_args();
     }
     start_ready(&mut services, &mut broker);
     // One receive buffer for the whole life of the supervisor: the user bump

@@ -5,7 +5,7 @@
 //! Split out of `init.rs` (issue #194); a pure move, no behavior change.
 
 use alloc::format;
-use alloc::string::ToString;
+use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 use user::messenger::{self, logind, router, services, Message};
@@ -89,6 +89,34 @@ fn lookup_session_uid(session: u64) -> messenger::Result<u32> {
         .ok_or(messenger::Error::Errno(-messenger::errno::ENOENT))
 }
 
+/// The most bytes of a launch path argument (the kernel's command line is
+/// bounded at 4096 bytes; the ELF name, fixed args and quotes need room).
+pub(super) const MAX_LAUNCH_PATH: usize = 1024;
+
+/// Validate the request's `args` and return the text appended to the app's
+/// fixed arguments. The only accepted form is one absolute path: it must
+/// start with `/`, be at most [`MAX_LAUNCH_PATH`] bytes and contain no NUL,
+/// control character or `"`. The result is one `argv` item: a path containing
+/// whitespace is wrapped in double quotes (the kernel's spawn splits on
+/// whitespace and keeps a quoted token whole), so there is no shell splitting
+/// and no way to smuggle a second argument. Empty `args` add nothing.
+pub(super) fn launch_path_arg(args: &str) -> messenger::Result<String> {
+    if args.is_empty() {
+        return Ok(String::new());
+    }
+    let valid = args.len() <= MAX_LAUNCH_PATH
+        && args.starts_with('/')
+        && !args.chars().any(|c| c.is_control() || c == '"');
+    if !valid {
+        return Err(messenger::Error::Errno(-messenger::errno::EINVAL));
+    }
+    if args.contains(char::is_whitespace) {
+        Ok(format!("\"{args}\""))
+    } else {
+        Ok(args.to_string())
+    }
+}
+
 /// Launch an app as a supervised child of this task (issue #158).
 ///
 /// The checks run in order: the app id must be in [`APPS`]; the caller must
@@ -129,6 +157,7 @@ pub(super) fn launch_row(
         request.session
     };
     authorize(caller, target_session)?;
+    let path_arg = launch_path_arg(&request.args)?;
     if !autostart && running_in_session(services, target_session) >= LAUNCH_CAP_PER_SESSION {
         return Err(messenger::Error::Errno(-messenger::errno::EAGAIN));
     }
@@ -140,7 +169,7 @@ pub(super) fn launch_row(
             && service.name == app.id
             && matches!(service.phase, Phase::Stopped | Phase::Failed))
     });
-    let mut row = Service::from_app(app, &request.args, cred);
+    let mut row = Service::from_app(app, &path_arg, cred);
     row.autostart = autostart;
     let command = command_line(&row, 0);
     let Some(pid) = sys::spawn_as(&command, &cred) else {

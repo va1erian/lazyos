@@ -91,9 +91,13 @@ pub(super) fn spawn_program(cmdline_ptr: u64, cred: Option<Cred>) -> i64 {
     };
     let name = intern_service_name(path);
     let started = if linux {
-        // argv[0] is the program name; the rest are the whitespace-split args.
+        // argv[0] is the program name; the rest are the split args (a
+        // double-quoted token is one item, see `spawn_line::argv`).
+        let Some(items) = spawn_line::argv(args) else {
+            return -EINVAL;
+        };
         let argv: Vec<&str> = core::iter::once(path)
-            .chain(args.split_whitespace())
+            .chain(items.iter().map(String::as_str))
             .collect();
         task::spawn_linux_child(name, &elf, &argv)
     } else {
