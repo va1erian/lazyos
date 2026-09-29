@@ -70,10 +70,25 @@ jobs:
             --fail-on "EXCEPTION:" --fail-on "PANIC"
           python tools/screenshot/pngstats.py shots/boot/*.png --min-nonblack 0.01
 
+      # Issue #260: the services image starts `regd`, which spawns one
+      # `regctl` self-test at boot. The session gates on `REGD:READY` and
+      # `REGCTL:SELFTEST:PASS`, so the store, the VFS `StoreFs` (write tmp ->
+      # fsync -> rename) and the change publisher are exercised over the real
+      # Messenger transport, not just in the unit suite.
+      - name: Build services image and assert regd evidence
+        run: |
+          LAZYOS_SERVICES=1 cargo build
+          python tools/screenshot/qemu_session.py --image target/lazyos.img \
+            --out shots/regd --script tools/screenshot/examples/regd_demo.json \
+            --fail-on "PANIC" --fail-on "REGCTL:SELFTEST:FAIL"
+          python tools/screenshot/pngstats.py shots/regd/*.png --min-nonblack 0.01
+
       - name: Upload boot evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: boot-evidence
-          path: shots/boot/**
+          path: |
+            shots/boot/**
+            shots/regd/**
           if-no-files-found: warn

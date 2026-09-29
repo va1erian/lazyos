@@ -74,15 +74,6 @@ fn main() {
     let keyd = std::env::var_os("CARGO_BIN_FILE_USER_keyd").expect("user keyd artifact not found");
     builder.set_file(String::from("KEYD.ELF"), PathBuf::from(keyd));
 
-    // The configuration registry (issue #260). `init` starts `regd`
-    // (`REGD.ELF`) from its manifest; `regctl` is its shell command line,
-    // run as `run REGCTL.ELF ...`. Both names are 8.3-safe for the FAT reader.
-    let regd = std::env::var_os("CARGO_BIN_FILE_USER_regd").expect("user regd artifact not found");
-    builder.set_file(String::from("REGD.ELF"), PathBuf::from(regd));
-    let regctl =
-        std::env::var_os("CARGO_BIN_FILE_USER_regctl").expect("user regctl artifact not found");
-    builder.set_file(String::from("REGCTL.ELF"), PathBuf::from(regctl));
-
     // The per-session clipboard service (issue #115). Like `keyd`, `init`
     // starts it from its manifest when the image boots with
     // `LAZYOS_SERVICES=1`; the 8.3 name is what the kernel's FAT reader sees.
@@ -113,6 +104,18 @@ fn main() {
         let logind =
             std::env::var_os("CARGO_BIN_FILE_USER_logind").expect("user logind artifact not found");
         builder.set_file(String::from("LOGIND.ELF"), PathBuf::from(logind));
+
+        // The configuration registry (issue #260). `init` starts `regd`
+        // (`REGD.ELF`) from its manifest; `regctl` is its command line, run
+        // from the login shell as `run REGCTL.ELF ...`. Both are gated behind
+        // `LAZYOS_SERVICES=1`, like the other services, so the plain demo
+        // image (and its `dos_shell` file-count evidence) is unchanged.
+        let regd =
+            std::env::var_os("CARGO_BIN_FILE_USER_regd").expect("user regd artifact not found");
+        builder.set_file(String::from("REGD.ELF"), PathBuf::from(regd));
+        let regctl =
+            std::env::var_os("CARGO_BIN_FILE_USER_regctl").expect("user regctl artifact not found");
+        builder.set_file(String::from("REGCTL.ELF"), PathBuf::from(regctl));
 
         // The MIME database and open-with registry (issue #116). `init`
         // starts it from its manifest; `MIMED.ELF` is the 8.3-safe on-disk
