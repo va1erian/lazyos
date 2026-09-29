@@ -7,7 +7,7 @@
 //! looping with interrupts off.
 
 use super::*;
-use crate::block::SECTOR_SIZE;
+use crate::block::{BlockDevice, SECTOR_SIZE};
 use crate::fs::fat::Fat16;
 use crate::fs::vfs::Filesystem;
 use crate::tests::block_suite::FakeDisk;
@@ -245,9 +245,26 @@ pub fn fat_volume_uses_its_own_device() -> Result<(), String> {
     first.data.lock().copy_from_slice(&image_a);
     second.data.lock().copy_from_slice(&image_b);
 
-    let volume_a = Fat16::open(first).ok_or_else(|| String::from("volume A did not open"))?;
-    // Point the global boot device at the other disk, as a probe on it would.
+    let previous = crate::block::boot_device();
     crate::block::set_boot_device(second);
+    let result = boot_device_swap_body(first, second, payload_b);
+    // Restore the global even on failure, so later tests and `init` see the
+    // device they expect.
+    if let Some(device) = previous {
+        crate::block::set_boot_device(device);
+    }
+    result?;
+    mount_device_accepts_non_boot_fat(payload_b)
+}
+
+/// The body of [`fat_volume_uses_its_own_device`] that runs while the boot
+/// device points at the *other* disk, as a probe on it would.
+fn boot_device_swap_body(
+    first: &'static FakeDisk,
+    second: &'static FakeDisk,
+    payload_b: &[u8],
+) -> Result<(), String> {
+    let volume_a = Fat16::open(first).ok_or_else(|| String::from("volume A did not open"))?;
     let mut buf = [0u8; 64];
     let read = volume_a
         .read("DATA.BIN", 0, &mut buf)
@@ -269,6 +286,34 @@ pub fn fat_volume_uses_its_own_device() -> Result<(), String> {
         "volume B read {} bytes from the wrong device: {:?}",
         read,
         &buf[..read]
+    );
+    Ok(())
+}
+
+/// `mount_device` must mount FAT from any registered device, not only the
+/// boot device (issue #244): the second disk is not the boot device here, yet
+/// its FAT volume mounts and serves its own payload.
+fn mount_device_accepts_non_boot_fat(payload: &[u8]) -> Result<(), String> {
+    crate::task::register_kernel();
+    crate::fs::init();
+    let disk = FakeDisk::new("test-fat-mount-b", DISK_SECTORS);
+    let mut image = fat12_image();
+    image[DATA_LBA * SECTOR_SIZE..DATA_LBA * SECTOR_SIZE + payload.len()].copy_from_slice(payload);
+    disk.data.lock().copy_from_slice(&image);
+    check!(
+        crate::block::register(disk).is_ok(),
+        "registering the FAT disk failed"
+    );
+    let is_boot = crate::block::boot_device().is_some_and(|boot| boot.name() == disk.name());
+    check!(!is_boot, "the test disk must not be the boot device");
+    check!(
+        crate::fs::mount_device("/fatb", "test-fat-mount-b").is_ok(),
+        "mount_device refused a non-boot FAT volume"
+    );
+    let data = crate::fs::vfs_read(Id::ROOT, "/fatb/DATA.BIN").map_err(fs_error)?;
+    check!(
+        data.starts_with(payload),
+        "the mounted volume returned {data:?}"
     );
     Ok(())
 }

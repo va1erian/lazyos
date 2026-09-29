@@ -107,19 +107,15 @@ pub fn init() -> bool {
 }
 
 /// Mount the filesystem on a registered block device at `point`. This is the
-/// `mount <dev>` surface: the active boot device is tried as FAT first (the
-/// shipped read-only format) and then as ext2; every other device is probed
-/// as ext2, because that is the writable volume a caller mounts by name. A
-/// device carrying neither returns [`FsError::NotSupported`].
+/// `mount <dev>` surface: every device is tried as FAT first (the shipped
+/// read-only format) and then as ext2. A device carrying neither returns [`FsError::NotSupported`].
 #[cfg_attr(not(lazyos_tests), allow(dead_code))] // the `mount <dev>` surface
 pub fn mount_device(point: &str, device: &str) -> Result<(), FsError> {
     let device = block::device(device).ok_or(FsError::NotFound)?;
-    let is_boot = block::boot_device().is_some_and(|boot| boot.name() == device.name());
-    if is_boot {
-        if let Some(volume) = fat::Fat16::open(device) {
-            return with(|vfs| vfs.mount(point, Arc::new(volume)))
-                .unwrap_or(Err(FsError::NotFound));
-        }
+    // A FAT volume is bound to the device it was opened from, so any device
+    // may carry one (issue #244); a non-FAT device fails the BPB checks.
+    if let Some(volume) = fat::Fat16::open(device) {
+        return with(|vfs| vfs.mount(point, Arc::new(volume))).unwrap_or(Err(FsError::NotFound));
     }
     match ext2::Ext2::open(device) {
         Ok(volume) => {
