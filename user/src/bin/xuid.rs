@@ -66,8 +66,11 @@
 //! and rectangle damage. `Commit` copies the app's damaged rectangle into the
 //! screen buffer and presents exactly that rectangle; window-management events
 //! are layout changes and repaint the full screen (a title-bar drag repaints
-//! the union of the old and new window rectangles, which redraws every surface
-//! in z-order inside that damage). The app buffer handoff is already zero-copy
+//! the union of the old and new window rectangles). Inside the damage only
+//! pixels no opaque layer above would overwrite are painted: windows fully
+//! hidden by a window, the taskbar, the Alt+Tab panel or the menu are skipped
+//! (issue #360, `region.rs`). All state lives in one `Compositor` (`compositor.rs`).
+//! The app buffer handoff is already zero-copy
 //! (the compositor reads the same frames the app writes); fences and double
 //! buffering are the S8 follow-up that turns `Commit` into a tear-free
 //! pipeline.
@@ -91,6 +94,8 @@ mod layout;
 mod menu;
 #[path = "xuid/protocol.rs"]
 mod protocol;
+#[path = "xuid/region.rs"]
+mod region;
 #[path = "xuid/render.rs"]
 mod render;
 #[path = "xuid/request.rs"]

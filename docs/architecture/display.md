@@ -134,7 +134,9 @@ compositor demo. Target toolkit design: [xui-plan.md](../xui-plan.md).
   focus skipping minimized ones. The close button sends the client a one-way
   `WindowClose` (method 10) event, which `xdemo` treats as "exit". Only
   `Commit` uses per-surface damage; WM layout changes repaint the full screen
-  (a drag repaints the union of the old/new window rectangles).
+  (a drag repaints the union of the old/new window rectangles). Within the
+  damage, repaint paints each layer only where no opaque layer above it (window,
+  taskbar, Alt+Tab panel, menu) lies, so hidden windows cost nothing (#360).
 
 **Drag & drop (issue #145)**
 
