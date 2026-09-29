@@ -207,7 +207,19 @@ pub fn fetch_apps_with(endpoint: &Endpoint, buf: &mut [u8]) -> Result<Vec<AppInf
 
 /// Call `init`'s `Launch` and fail on a supervisor error.
 pub fn launch(endpoint: &Endpoint, app: &str, args: &str, session: u64) -> Result<LaunchResult> {
-    let reply = endpoint.call(&launch_request(app, args, session)?, None)?;
+    launch_by(endpoint, app, args, session, None)
+}
+
+/// [`launch`] with an absolute clock `deadline` on the call, for callers (the
+/// compositor) that must not block indefinitely on the supervisor.
+pub fn launch_by(
+    endpoint: &Endpoint,
+    app: &str,
+    args: &str,
+    session: u64,
+    deadline: Option<u64>,
+) -> Result<LaunchResult> {
+    let reply = endpoint.call(&launch_request(app, args, session)?, deadline)?;
     if let Some(code) = error_field(&reply)? {
         return Err(Error::Init(code));
     }

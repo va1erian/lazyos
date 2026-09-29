@@ -1,0 +1,92 @@
+[
+ {
+  "wait_for": "XUIAPP:COUNTER:PASS",
+  "timeout": 240
+ },
+ {
+  "at": 2.0,
+  "mouse_move": [
+   900,
+   900
+  ]
+ },
+ {
+  "at": 0.3,
+  "mouse_move": [
+   -40,
+   -40
+  ]
+ },
+ {
+  "at": 0.3,
+  "mouse_move": [
+   -40,
+   -40
+  ]
+ },
+ {
+  "at": 0.3,
+  "mouse_move": [
+   -40,
+   -40
+  ]
+ },
+ {
+  "at": 0.3,
+  "mouse_move": [
+   -40,
+   -40
+  ]
+ },
+ {
+  "at": 0.3,
+  "mouse_move": [
+   -40,
+   -40
+  ]
+ },
+ {
+  "at": 0.3,
+  "mouse_move": [
+   -40,
+   -40
+  ]
+ },
+ {
+  "at": 1.0,
+  "mouse_click": "right",
+  "until": "XUID:MENU:OPEN",
+  "timeout": 30,
+  "retries": 2
+ },
+ {
+  "at": 1.0,
+  "shot": "01_menu_open"
+ },
+ {
+  "at": 0.5,
+  "mouse_move": [
+   12,
+   12
+  ]
+ },
+ {
+  "at": 1.0,
+  "shot": "02_menu_hover"
+ },
+ {
+  "at": 0.5,
+  "mouse_click": "left",
+  "until": "XUID:MENU:LAUNCH:",
+  "timeout": 30,
+  "retries": 1
+ },
+ {
+  "at": 3.0,
+  "shot": "03_after_launch"
+ },
+ {
+  "at": 1.0,
+  "quit": true
+ }
+]
