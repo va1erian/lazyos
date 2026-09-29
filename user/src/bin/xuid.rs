@@ -77,6 +77,8 @@
 
 extern crate alloc;
 
+#[path = "xuid/anim.rs"]
+mod anim;
 #[path = "xuid/drag.rs"]
 mod drag;
 #[path = "xuid/event.rs"]

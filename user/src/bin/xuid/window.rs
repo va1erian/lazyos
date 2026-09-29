@@ -6,6 +6,7 @@ use alloc::vec::Vec;
 use user::messenger::display::{self, wire, Canvas, Rect};
 use user::messenger::Endpoint;
 
+use super::anim::iconify;
 use super::drag::DragSession;
 use super::render::repaint;
 use super::shell::{notify_destroyed, notify_focus, notify_surface, AltTab, ShellSub};
@@ -80,6 +81,7 @@ pub(super) fn minimize_surface(
         *focused = topmost_visible(surfaces);
         notify_focus(shell, scratch, *focused);
     }
+    iconify(screen, surfaces, pointer, *focused, taskbar, id);
     // The row carries the post-minimize focus flag, so send it after the focus
     // recompute.
     if let Some(surface) = surface_by_id(surfaces, id) {

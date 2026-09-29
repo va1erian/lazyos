@@ -9,6 +9,7 @@ use core::sync::atomic::{AtomicBool, Ordering};
 use user::messenger::display::{self, wire, Canvas, Rect};
 use user::messenger::{self, Endpoint};
 
+use super::anim::deiconify;
 use super::drag::DragSession;
 use super::render::repaint;
 use super::surface::Surface;
@@ -249,6 +250,9 @@ pub(super) fn alt_tab_commit(
     }
     let before = *focused;
     let was_minimized = surface_by_id(surfaces, id).is_some_and(|surface| surface.minimized);
+    if was_minimized {
+        deiconify(screen, surfaces, pointer, *focused, taskbar, id);
+    }
     restore(surfaces, focused, id);
     if was_minimized {
         if let Some(surface) = surface_by_id(surfaces, id) {

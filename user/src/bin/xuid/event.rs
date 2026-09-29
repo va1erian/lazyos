@@ -5,6 +5,7 @@
 use alloc::vec::Vec;
 use user::messenger::display::{self, wire, Canvas, Rect};
 
+use super::anim::deiconify;
 use super::drag::{drag_cancel, drag_finish, drag_move, DragSession};
 use super::layout::{cursor_rect, taskbar_hit};
 use super::menu;
@@ -153,6 +154,9 @@ pub(super) fn handle_event(
                     let before = *focused;
                     let was_minimized =
                         surface_by_id(surfaces, id).is_some_and(|surface| surface.minimized);
+                    if was_minimized {
+                        deiconify(screen, surfaces, *pointer, *focused, bar, id);
+                    }
                     restore(surfaces, focused, id);
                     if was_minimized {
                         if let Some(surface) = surface_by_id(surfaces, id) {

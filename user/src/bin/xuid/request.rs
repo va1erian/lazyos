@@ -7,6 +7,7 @@ use user::messenger::display::{self, wire, Canvas, Rect};
 use user::messenger::{self, Endpoint, Message};
 use user::sys;
 
+use super::anim::deiconify;
 use super::drag::{drag_begin, drag_cancel, DragSession};
 use super::layout::place_window;
 use super::protocol::{
@@ -162,6 +163,15 @@ pub(super) fn handle_request(
                     *focused,
                     wire::CHANGE_CREATED,
                 );
+            }
+            // Open with a zoom out of the window's taskbar entry, hidden (as if
+            // minimized) so the wireframe flies over the old screen.
+            if let Some(surface) = surfaces.iter_mut().find(|surface| surface.id == id) {
+                surface.minimized = true;
+            }
+            deiconify(screen, surfaces, pointer, *focused, bar, id);
+            if let Some(surface) = surfaces.iter_mut().find(|surface| surface.id == id) {
+                surface.minimized = false;
             }
             // A new surface changes the layout (and the taskbar), so repaint
             // the whole screen.

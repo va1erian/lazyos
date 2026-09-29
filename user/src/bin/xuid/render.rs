@@ -35,6 +35,32 @@ pub(super) fn repaint(
     if damage.is_empty() {
         return;
     }
+    compose(
+        screen,
+        surfaces,
+        pointer,
+        focused,
+        damage,
+        drag_session,
+        taskbar,
+        alt_tab,
+    );
+    let _ = sys::display_present(damage.x, damage.y, damage.w, damage.h);
+}
+
+/// [`repaint`] without the present, so a caller can draw over the composed
+/// frame (the window-zoom wireframe) and present once.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn compose(
+    screen: &mut Canvas,
+    surfaces: &[Surface],
+    pointer: (i32, i32),
+    focused: Option<u64>,
+    damage: Rect,
+    drag_session: Option<&DragSession>,
+    taskbar: bool,
+    alt_tab: Option<&AltTab>,
+) {
     screen.fill(damage, damage, BACKGROUND);
     // The desktop paints above the background and below every window.
     if let Some(desktop) = surfaces.iter().find(|surface| surface.desktop) {
@@ -57,7 +83,6 @@ pub(super) fn repaint(
     }
     super::menu::draw(screen, damage);
     screen.cursor(pointer.0, pointer.1, damage);
-    let _ = sys::display_present(damage.x, damage.y, damage.w, damage.h);
 }
 
 /// Blit the desktop surface's pixels across its rectangle; no chrome, no
