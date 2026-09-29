@@ -30,7 +30,7 @@ impl Filesystem for Ext2 {
         let mut done = 0usize;
         while done < count {
             let position = offset + done as u64;
-            let index = (position / block_size) as u32;
+            let index = self.block_index(position)?;
             let inner = (position % block_size) as usize;
             let chunk = min(size_usize - inner, count - done);
             let block = self.block_map(&inode, index)?;
@@ -56,16 +56,16 @@ impl Filesystem for Ext2 {
         if data.is_empty() {
             return Ok(0);
         }
-        offset
-            .checked_add(data.len() as u64)
-            .ok_or(FsError::NoSpace)?;
+        // Sizes are 32-bit, so a write past the cap is short (or refused); it
+        // must never wrap a huge offset onto a low block.
+        let data = &data[..indirect::writable_len(offset, data.len())?];
         let block_size = u64::from(self.block_size);
         let size_usize = self.block_size as usize;
         let mut done = 0usize;
         let mut failure = None;
         while done < data.len() {
             let position = offset + done as u64;
-            let index = (position / block_size) as u32;
+            let index = self.block_index(position)?;
             let inner = (position % block_size) as usize;
             let chunk = min(size_usize - inner, data.len() - done);
             let (block, fresh) = match self.ensure_block(&mut inode, index) {
@@ -108,6 +108,10 @@ impl Filesystem for Ext2 {
             Some(error) if done == 0 => Err(error),
             _ => persisted.map(|()| done),
         }
+    }
+
+    fn truncate(&self, path: &str, size: u64) -> Result<(), FsError> {
+        self.truncate_file(path, size)
     }
 
     fn create(&self, path: &str, mode: u16, owner: Id) -> Result<Meta, FsError> {
@@ -227,10 +231,9 @@ impl Filesystem for Ext2 {
         let links = le16(&child, INO_LINKS);
         if links <= 1 {
             // Last link: release the data blocks, then the inode itself.
-            self.free_inode_blocks(&child)?;
             put16(&mut child, INO_LINKS, 0);
             put32(&mut child, INO_DTIME, now());
-            self.write_inode(child_ino, &child)?;
+            self.free_inode_blocks(child_ino, &mut child)?;
             self.free_inode(child_ino, false)?;
         } else {
             put16(&mut child, INO_LINKS, links - 1);
@@ -291,10 +294,9 @@ impl Filesystem for Ext2 {
             // file with further hard links survives the replacement.
             let last_reference = victim_kind == FileKind::Dir || links <= 1;
             if last_reference {
-                self.free_inode_blocks(&victim)?;
                 put16(&mut victim, INO_LINKS, 0);
                 put32(&mut victim, INO_DTIME, now());
-                self.write_inode(existing, &victim)?;
+                self.free_inode_blocks(existing, &mut victim)?;
                 self.free_inode(existing, victim_kind == FileKind::Dir)?;
                 if victim_kind == FileKind::Dir {
                     // The victim's `..` pointed at `to_parent`; that link goes
@@ -357,7 +359,7 @@ impl Filesystem for Ext2 {
     }
 
     fn flush(&self) -> Result<(), FsError> {
-        self.flush_device()
+        self.sync_volume()
     }
 
     fn readdir(&self, path: &str) -> Result<Vec<DirEntry>, FsError> {

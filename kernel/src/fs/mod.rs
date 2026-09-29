@@ -19,6 +19,12 @@
 //! image (issue #136). The overlay's upper layer is in-memory and discarded on
 //! reboot; native tasks do not see ABI writes. `/tmp` is one shared ramfs
 //! mounted in both tables, so scratch files are visible to both.
+//!
+//! # The data volume
+//!
+//! A second block device carrying ext2 is mounted read/write at `/data` in both
+//! tables ([`mount_data_volume`]); it is the durable store. [`sync_all`] is the
+//! shutdown hook that makes it consistent on disk.
 
 pub mod ext2;
 pub mod fallible;
@@ -44,17 +50,35 @@ static FS: Mutex<Option<(Vfs, bool)>> = Mutex::new(None);
 /// [`init`]; `None` until the boot volumes are mounted.
 static ABI_FS: Mutex<Option<Vfs>> = Mutex::new(None);
 
+/// Pick the volume that becomes `/`: the first FAT12/16 volume on any device,
+/// and only when there is none, the first ext2 one (issue #99). FAT is the
+/// shipped boot format, so it wins regardless of enumeration order; otherwise
+/// an ext2 data disk enumerated ahead of the boot disk (an IDE data disk before
+/// a virtio boot disk, say) would take `/` and leave the boot volume unmounted.
+pub(crate) fn select_root(
+    devices: &[&'static dyn block::BlockDevice],
+) -> Option<(Arc<dyn Filesystem>, &'static str)> {
+    let fat = devices.iter().find_map(|device| {
+        let volume = fat::Fat16::open(*device)?;
+        Some((Arc::new(volume) as Arc<dyn Filesystem>, device.name()))
+    });
+    fat.or_else(|| {
+        devices.iter().find_map(|device| {
+            let volume = ext2::Ext2::open(*device).ok()?;
+            Some((Arc::new(volume) as Arc<dyn Filesystem>, device.name()))
+        })
+    })
+}
+
 /// Probe the block layer, mount the boot volume at `/`, and a fresh ramfs at
 /// `/tmp`. Returns whether a filesystem volume was found (the ramfs mount
 /// always succeeds). Idempotent: a second call reports the first call's
 /// boot-volume result without remounting.
 ///
-/// Device selection runs through the block registry (issue #100): every
-/// registered device is tried in order, first as FAT12/16 (the shipped boot
-/// format) and then as ext2 (issue #99). Both readers open the device they are
+/// Device selection runs through the block registry (issue #100); see
+/// [`select_root`] for how `/` is chosen. Both readers open the device they are
 /// handed and keep that handle (issue #244), so a probe on one disk cannot
-/// read from another. The first open volume becomes `/`; the default ATA image
-/// keeps mounting as FAT.
+/// read from another.
 pub fn init() -> bool {
     let mut global = FS.lock();
     if let Some((_, mounted)) = global.as_ref() {
@@ -62,17 +86,11 @@ pub fn init() -> bool {
     }
     block::init();
     let mut vfs = Vfs::new();
-    let mut root: Option<Arc<dyn Filesystem>> = None;
-    for device in block::devices() {
-        if let Some(volume) = fat::Fat16::open(device) {
-            root = Some(Arc::new(volume));
-            break;
-        }
-        if let Ok(volume) = ext2::Ext2::open(device) {
-            root = Some(Arc::new(volume));
-            break;
-        }
-    }
+    let devices = block::devices();
+    let (root, root_device) = match select_root(&devices) {
+        Some((volume, name)) => (Some(volume), Some(name)),
+        None => (None, None),
+    };
     let mounted = root.is_some();
     if let Some(volume) = &root {
         let _ = vfs.mount("/", Arc::clone(volume));
@@ -87,6 +105,7 @@ pub fn init() -> bool {
     for (point, name) in vfs.mounts() {
         crate::serial_println!("fs: mounted {name} at {point}");
     }
+    let data = mount_data_volume(&mut vfs, root_device, &devices);
 
     // The Linux ABI sees a writable root: a copy-up overlay over the read-only
     // boot volume. Upper-layer contents live in memory and are discarded on
@@ -98,6 +117,9 @@ pub fn init() -> bool {
     };
     let _ = abi.mount("/", abi_root);
     let _ = abi.mount("/tmp", tmp);
+    if let Some(volume) = data {
+        let _ = abi.mount("/data", volume);
+    }
     for (point, name) in abi.mounts() {
         crate::serial_println!("fs: abi mounted {name} at {point}");
     }
@@ -105,6 +127,48 @@ pub fn init() -> bool {
 
     *global = Some((vfs, mounted));
     mounted
+}
+
+/// Mount the first ext2 volume that is not the root device at `/data`.
+///
+/// This is the one place the data volume is mounted (there is no mount
+/// syscall). A missing device is not an error: a session without a data disk
+/// simply has no `/data`. Every volume is opened at most once, and a device
+/// that fails to open as ext2 is skipped, never guessed at. Returns the
+/// mounted volume so the caller can share it with the Linux ABI table.
+pub(crate) fn mount_data_volume(
+    vfs: &mut Vfs,
+    root_device: Option<&str>,
+    devices: &[&'static dyn block::BlockDevice],
+) -> Option<Arc<dyn Filesystem>> {
+    for device in devices {
+        if Some(device.name()) == root_device {
+            continue;
+        }
+        let Ok(volume) = ext2::Ext2::open(*device) else {
+            continue;
+        };
+        let volume: Arc<dyn Filesystem> = Arc::new(volume);
+        if vfs.mount(DATA_MOUNT, Arc::clone(&volume)).is_err() {
+            return None;
+        }
+        crate::serial_println!("fs: mounted {} at {DATA_MOUNT}", device.name());
+        if !device.is_writable() {
+            crate::serial_println!("fs: {DATA_MOUNT} is read-only (device cannot be written)");
+        }
+        return Some(volume);
+    }
+    None
+}
+
+/// Where the durable ext2 data volume lives.
+const DATA_MOUNT: &str = "/data";
+
+/// Flush every mounted filesystem to stable storage and mark clean volumes
+/// clean. Called on the way to power-off/reboot; a filesystem that fails is
+/// reported after the others have still been flushed.
+pub fn sync_all() -> Result<(), FsError> {
+    with(|vfs| vfs.sync_all()).unwrap_or(Ok(()))
 }
 
 /// Mount the filesystem on a registered block device at `point`. This is the

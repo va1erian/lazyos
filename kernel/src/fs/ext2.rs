@@ -18,14 +18,18 @@
 //! * inode and directory operations: `lookup`, `create`, `mkdir`, `unlink`,
 //!   `rename`, `readdir`, and `stat` (through `lookup`);
 //! * block allocation from the group bitmaps with per-group accounting;
-//! * reads and writes through the direct and single-indirect block maps;
+//! * reads and writes through the direct, single-, double- and triple-indirect
+//!   block maps, with sparse holes, and `truncate` (grow and shrink);
 //! * timestamps stamped from the PIT (best effort until an RTC driver lands);
-//! * [`Ext2::flush`], which stamps the superblock and flushes the device.
+//! * a clean/dirty superblock state (`s_state`) and [`Ext2::flush`], which
+//!   flushes the device and then marks the volume clean (see `state.rs`).
 //!
 //! # Deliberate limits
 //!
 //! * No journal and no guessing: feature bits that change the layout we do not
 //!   understand (extents, 64-bit, htree, ...) are rejected in [`Ext2::open`].
+//! * Files are capped at [`MAX_FILE_SIZE`] (2 GiB - 1); directories may use
+//!   only the direct and single-indirect blocks.
 //! * No symlinks or device nodes yet: the VFS only has files and directories,
 //!   so an inode with any other type bits answers [`FsError::NotSupported`].
 //! * Directories are scanned linearly; an indexed (htree) directory is refused
@@ -42,6 +46,7 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::cmp::min;
+use core::sync::atomic::AtomicBool;
 use spin::Mutex;
 
 use super::vfs::{DirEntry, FileKind, Filesystem, FsError, Id, Meta, S_IFDIR, S_IFMT, S_IFREG};
@@ -50,7 +55,10 @@ use crate::block::{BlockDevice, BlockError, SECTOR_SIZE};
 mod blocks;
 mod dir;
 mod fsimpl;
+mod indirect;
 mod layout;
+mod state;
+mod truncate;
 
 use layout::*;
 
@@ -91,6 +99,13 @@ pub struct Ext2 {
     has_large_file: bool,
     /// The device cannot be written: reads work, mutations answer `EROFS`.
     read_only: bool,
+    /// `s_state` as found at mount. A clean sync restores exactly this, so a
+    /// volume that was already unclean (or errored) stays flagged until an
+    /// fsck, rather than being blessed by our own clean shutdown.
+    mount_state: u16,
+    /// Whether the on-disk `s_state` currently says clean. Only touched under
+    /// `lock`; see `state.rs` for the ordering rules.
+    clean: AtomicBool,
     /// Serialises every operation; see the module docs.
     lock: Mutex<()>,
 }
@@ -195,6 +210,9 @@ impl Ext2 {
         if !inodes_per_group.is_multiple_of(inodes_per_block) {
             return Err(FsError::Invalid);
         }
+        let mount_state = le16(&superblock, SB_STATE);
+        let read_only = !device.is_writable();
+        Self::report_mount_state(device.name(), mount_state);
 
         Ok(Ext2 {
             device,
@@ -213,7 +231,9 @@ impl Ext2 {
             gdt_block,
             has_file_type: feature_incompat & FEATURE_INCOMPAT_FILETYPE != 0,
             has_large_file: feature_ro & FEATURE_RO_LARGE_FILE != 0,
-            read_only: !device.is_writable(),
+            read_only,
+            mount_state,
+            clean: AtomicBool::new(!read_only && mount_state & STATE_VALID != 0),
             lock: Mutex::new(()),
         })
     }
@@ -264,24 +284,11 @@ impl Ext2 {
         self.block_map(&inode, index)
     }
 
-    /// Stamp `s_wtime` and hand the write cache to the device. ext2 keeps no
-    /// journal, so this is the whole durability story for now.
-    #[cfg_attr(not(lazyos_tests), allow(dead_code))] // the future umount surface
+    /// Make everything written so far durable and mark the volume clean.
+    /// This is the umount/fsync/shutdown surface (`state.rs` has the ordering).
+    #[cfg_attr(not(lazyos_tests), allow(dead_code))] // the trait method is the caller
     pub fn flush(&self) -> Result<(), FsError> {
-        self.flush_device()
-    }
-
-    /// Shared body of the inherent and [`Filesystem`] `flush`, kept separate so
-    /// the trait impl can reach it without a same-name method-resolution cycle.
-    fn flush_device(&self) -> Result<(), FsError> {
-        let _guard = self.lock.lock();
-        if !self.read_only {
-            let mut raw = [0u8; 1024];
-            self.read_super_raw(&mut raw)?;
-            put32(&mut raw, SB_WTIME, now());
-            self.write_super_raw(&raw)?;
-        }
-        self.device.flush().map_err(io_error)
+        self.sync_volume()
     }
 
     /// Read one filesystem block into `buf` (at least `block_size` bytes).
@@ -319,6 +326,8 @@ impl Ext2 {
         if self.read_only {
             return Err(FsError::ReadOnly);
         }
+        // Before the first change lands, the volume must already say "dirty".
+        self.mark_dirty()?;
         self.device
             .write_sectors(block * u64::from(self.sectors_per_block), &buf[..size])
             .map_err(io_error)

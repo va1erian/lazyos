@@ -26,7 +26,8 @@ import sys
 import time
 from pathlib import Path
 
-from qemu_qmp import Qmp, accel_args, build_qemu_command, find_qemu, free_port
+from qemu_qmp import (Qmp, accel_args, add_data_disk_option, build_qemu_command,
+                      existing_data_disk, find_qemu, free_port)
 
 
 def parse_times(raw: str) -> list[float]:
@@ -59,7 +60,9 @@ def main() -> int:
                         help="QEMU accelerator (auto: whpx/kvm if available)")
     parser.add_argument("--extra-arg", action="append", default=[], metavar="ARG",
                         help="extra QEMU argument; repeat for multiple")
+    add_data_disk_option(parser)
     args = parser.parse_args()
+    data_disk = existing_data_disk(args.data_disk)
 
     qemu = find_qemu(args.qemu)
     out_dir = Path(args.out).resolve()
@@ -76,7 +79,8 @@ def main() -> int:
 
     port = free_port()
     extra = list(args.extra_arg) + accel_args(args.accel, qemu)
-    command = build_qemu_command(qemu, image, port, serial_log, args.memory, extra)
+    command = build_qemu_command(qemu, image, port, serial_log, args.memory, extra,
+                                 data_disk)
     print(f"launching: {' '.join(command)}", flush=True)
     proc = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
 

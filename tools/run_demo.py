@@ -13,6 +13,12 @@ Examples
     python tools/run_demo.py --release       # optimized build for real hardware
     python tools/run_demo.py --no-build      # boot the existing target/lazyos.img
     python tools/run_demo.py -- --cpu max    # pass extra args to QEMU
+    python tools/run_demo.py --reset-data    # wipe the persistent data disk first
+    python tools/run_demo.py --no-data-disk  # boot with only the boot disk
+
+A persistent ext2 data disk (default ``target/data.img``, 64 MiB) is attached as
+a second virtio-blk device. It is created on first use and never regenerated
+unless you pass ``--reset-data``.
 
 In the demo: two windows run concurrently (a demo program and the `sh`
 interpreter). Press Tab to move focus (green border); typed input goes to the
@@ -27,10 +33,40 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "screenshot"))
-from qemu_qmp import accel_args, find_qemu  # noqa: E402
+from qemu_qmp import accel_args, data_disk_args, find_qemu  # noqa: E402
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import mkdisk  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_IMAGE = ROOT / "target" / "lazyos.img"
+
+
+def confirm(question: str) -> bool:
+    """Ask on the terminal; anything but an explicit yes (or no TTY) is a no."""
+    if not sys.stdin.isatty():
+        return False
+    try:
+        return input(f"{question} [y/N] ").strip().lower() in ("y", "yes")
+    except EOFError:  # e.g. stdin redirected from the null device
+        return False
+
+
+def prepare_data_disk(path: Path, reset: bool, assume_yes: bool) -> bool:
+    """Make sure the data volume exists, resetting it only when asked to.
+
+    Returns ``False`` when the user declined an explicit reset. Never
+    regenerates an existing volume implicitly: that would destroy user data.
+    """
+    if reset and path.exists():
+        if not assume_yes and not confirm(f"Erase {path} and format an empty volume?"):
+            print("data disk left untouched; aborting.", file=sys.stderr)
+            return False
+        mkdisk.format_image(path)
+        print(f"reset data disk: {mkdisk.status(path).describe()}", flush=True)
+    elif mkdisk.ensure_volume(path):
+        print(f"created data disk: {mkdisk.status(path).describe()}", flush=True)
+    return True
 
 
 def main(argv: list[str]) -> int:
@@ -50,9 +86,20 @@ def main(argv: list[str]) -> int:
                              "(many times faster than TCG)")
     parser.add_argument("--disk", default="virtio", choices=["virtio", "ata"],
                         help="boot disk bus: virtio-blk (DMA, fast) or legacy IDE/ATA PIO")
+    parser.add_argument("--data-disk", default=str(mkdisk.DEFAULT_PATH), metavar="PATH",
+                        help="persistent ext2 data volume, attached as a second virtio-blk "
+                             "device and created if missing (default: %(default)s)")
+    parser.add_argument("--no-data-disk", action="store_true",
+                        help="do not attach a data volume")
+    parser.add_argument("--reset-data", action="store_true",
+                        help="regenerate the data volume empty (asks first unless --yes)")
+    parser.add_argument("--yes", "-y", action="store_true",
+                        help="answer yes to the --reset-data confirmation")
     parser.add_argument("qemu_args", nargs=argparse.REMAINDER,
                         help="extra QEMU args (after `--`)")
     args = parser.parse_args(argv)
+    if args.no_data_disk and args.reset_data:
+        parser.error("--reset-data conflicts with --no-data-disk")
 
     if not args.no_build:
         cargo = ["cargo", "build"]
@@ -70,6 +117,10 @@ def main(argv: list[str]) -> int:
         print(f"disk image not found: {image}\nRun without --no-build to build it.", file=sys.stderr)
         return 1
 
+    data_disk = None if args.no_data_disk else Path(args.data_disk)
+    if data_disk and not prepare_data_disk(data_disk, args.reset_data, args.yes):
+        return 1
+
     qemu = find_qemu(args.qemu)
     command = [
         qemu,
@@ -84,6 +135,8 @@ def main(argv: list[str]) -> int:
                     "-device", "virtio-blk-pci,drive=boot"]
     else:
         command += ["-drive", f"format=raw,file={image}"]
+    if data_disk:
+        command += data_disk_args(data_disk)
     command += accel_args(args.accel, qemu)
     if args.headless:
         command += ["-display", "none"]
