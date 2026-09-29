@@ -4,6 +4,337 @@
 #![cfg_attr(not(test), no_std)]
 extern crate alloc;
 
+/// `os.lazy.accounts.v1` (interface id `0x2cbf60abbc1951bc`).
+pub mod os_lazy_accounts_v1 {
+    use alloc::vec::Vec;
+    use libmessenger::{Decoder, Encoder, Error, Kind};
+
+    /// The interface id: the FNV-1a hash of the `.vN` interface name.
+    pub const INTERFACE_ID: u64 = 0x2cbf60abbc1951bc;
+
+    /// One account record as a lookup returns it (never the secret).
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct User {
+        pub name: alloc::string::String,
+        pub uid: u32,
+        pub gid: u32,
+        pub home: alloc::string::String,
+        pub shell: alloc::string::String,
+    }
+
+    pub fn encode_user(value: &User) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.name)?;
+        target.u32(2, value.uid)?;
+        target.u32(3, value.gid)?;
+        target.string(4, &value.home)?;
+        target.string(5, &value.shell)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_user(body: &[u8]) -> Result<User, Error> {
+        let mut out = User::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.name = field.as_str()?.into();
+                }
+                2 => {
+                    out.uid = field.as_u32()?;
+                }
+                3 => {
+                    out.gid = field.as_u32()?;
+                }
+                4 => {
+                    out.home = field.as_str()?.into();
+                }
+                5 => {
+                    out.shell = field.as_str()?.into();
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Account name.
+    /// Numeric user id (`0` = root).
+    /// Primary group id.
+    /// Home directory.
+    /// Login shell path.
+    /// A create request's full payload, including the initial secret.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct NewUser {
+        pub name: alloc::string::String,
+        pub uid: u32,
+        pub gid: u32,
+        pub secret: alloc::string::String,
+        pub home: alloc::string::String,
+        pub shell: alloc::string::String,
+    }
+
+    pub fn encode_new_user(value: &NewUser) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.name)?;
+        target.u32(2, value.uid)?;
+        target.u32(3, value.gid)?;
+        target.string(4, &value.secret)?;
+        target.string(5, &value.home)?;
+        target.string(6, &value.shell)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_new_user(body: &[u8]) -> Result<NewUser, Error> {
+        let mut out = NewUser::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.name = field.as_str()?.into();
+                }
+                2 => {
+                    out.uid = field.as_u32()?;
+                }
+                3 => {
+                    out.gid = field.as_u32()?;
+                }
+                4 => {
+                    out.secret = field.as_str()?.into();
+                }
+                5 => {
+                    out.home = field.as_str()?.into();
+                }
+                6 => {
+                    out.shell = field.as_str()?.into();
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// `Lookup` method id.
+    pub const METHOD_LOOKUP: u32 = 1772818603;
+    /// `Authenticate` method id.
+    pub const METHOD_AUTHENTICATE: u32 = 1137183084;
+    /// `Create` method id.
+    pub const METHOD_CREATE: u32 = 420340861;
+
+    /// Find a user by `name` or, when `name` is absent, by `uid`.
+    /// `found` is false (and `user` empty) when no account matches.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct LookupArgs {
+        pub name: core::option::Option<alloc::string::String>,
+        pub uid: core::option::Option<u32>,
+    }
+
+    pub fn encode_lookup_args(value: &LookupArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        match &value.name {
+            Some(item) => {
+                let mut nested = Encoder::new();
+                nested.string(1, item)?;
+                target.option(1, Some(&nested))?;
+            }
+            None => {
+                target.option(1, None)?;
+            }
+        }
+        match &value.uid {
+            Some(item) => {
+                let mut nested = Encoder::new();
+                nested.u32(1, *item)?;
+                target.option(2, Some(&nested))?;
+            }
+            None => {
+                target.option(2, None)?;
+            }
+        }
+        Ok(target.finish())
+    }
+
+    pub fn decode_lookup_args(body: &[u8]) -> Result<LookupArgs, Error> {
+        let mut out = LookupArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    if field.payload.is_empty() {
+                        out.name = None;
+                    } else {
+                        let mut nested = field.nested(0)?;
+                        let item = nested.next()?.ok_or(Error::BadValue)?;
+                        out.name = Some(item.as_str()?.into());
+                    }
+                }
+                2 => {
+                    if field.payload.is_empty() {
+                        out.uid = None;
+                    } else {
+                        let mut nested = field.nested(0)?;
+                        let item = nested.next()?.ok_or(Error::BadValue)?;
+                        out.uid = Some(item.as_u32()?);
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct LookupReply {
+        pub found: bool,
+        pub user: core::option::Option<User>,
+    }
+
+    pub fn encode_lookup_reply(value: &LookupReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.bool(1, value.found)?;
+        match &value.user {
+            Some(item) => {
+                let mut nested = Encoder::new();
+                nested.raw(Kind::Struct, 1, &encode_user(item)?)?;
+                target.option(2, Some(&nested))?;
+            }
+            None => {
+                target.option(2, None)?;
+            }
+        }
+        Ok(target.finish())
+    }
+
+    pub fn decode_lookup_reply(body: &[u8]) -> Result<LookupReply, Error> {
+        let mut out = LookupReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.found = field.as_bool()?;
+                }
+                2 => {
+                    if field.payload.is_empty() {
+                        out.user = None;
+                    } else {
+                        let mut nested = field.nested(0)?;
+                        let item = nested.next()?.ok_or(Error::BadValue)?;
+                        out.user = Some(decode_user(item.payload)?);
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Verify `secret` against the stored verifier of `name`.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct AuthenticateArgs {
+        pub name: alloc::string::String,
+        pub secret: alloc::string::String,
+    }
+
+    pub fn encode_authenticate_args(value: &AuthenticateArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.name)?;
+        target.string(2, &value.secret)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_authenticate_args(body: &[u8]) -> Result<AuthenticateArgs, Error> {
+        let mut out = AuthenticateArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.name = field.as_str()?.into();
+                }
+                2 => {
+                    out.secret = field.as_str()?.into();
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct AuthenticateReply {
+        pub ok: bool,
+    }
+
+    pub fn encode_authenticate_reply(value: &AuthenticateReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.bool(1, value.ok)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_authenticate_reply(body: &[u8]) -> Result<AuthenticateReply, Error> {
+        let mut out = AuthenticateReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.ok = field.as_bool()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Create a user (admin only). `detail` explains a refusal.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct CreateArgs {
+        pub user: NewUser,
+    }
+
+    pub fn encode_create_args(value: &CreateArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.raw(Kind::Struct, 1, &encode_new_user(&value.user)?)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_create_args(body: &[u8]) -> Result<CreateArgs, Error> {
+        let mut out = CreateArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.user = decode_new_user(field.payload)?;
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct CreateReply {
+        pub ok: bool,
+        pub detail: alloc::string::String,
+    }
+
+    pub fn encode_create_reply(value: &CreateReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.bool(1, value.ok)?;
+        target.string(2, &value.detail)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_create_reply(body: &[u8]) -> Result<CreateReply, Error> {
+        let mut out = CreateReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.ok = field.as_bool()?;
+                }
+                2 => {
+                    out.detail = field.as_str()?.into();
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+}
+
 /// `os.lazy.echo.v1` (interface id `0xcc4ac1057e84db93`).
 pub mod os_lazy_echo_v1 {
     use alloc::vec::Vec;
@@ -144,6 +475,107 @@ pub mod os_lazy_echo_v1 {
         while let Some(field) = decoder.next()? {
             if field.id == 1 {
                 out.event = decode_event(field.payload)?;
+            }
+        }
+        Ok(out)
+    }
+}
+
+/// `os.lazy.logind.v1` (interface id `0x98121a421f33722d`).
+pub mod os_lazy_logind_v1 {
+    use alloc::vec::Vec;
+    use libmessenger::{Decoder, Encoder, Error, Kind};
+
+    /// The interface id: the FNV-1a hash of the `.vN` interface name.
+    pub const INTERFACE_ID: u64 = 0x98121a421f33722d;
+
+    /// One login session.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct Session {
+        pub id: u64,
+        pub user: alloc::string::String,
+        pub uid: u32,
+        pub pid: u64,
+        pub state: alloc::string::String,
+        pub started: u64,
+    }
+
+    pub fn encode_session(value: &Session) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.id)?;
+        target.string(2, &value.user)?;
+        target.u32(3, value.uid)?;
+        target.u64(4, value.pid)?;
+        target.string(5, &value.state)?;
+        target.u64(6, value.started)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_session(body: &[u8]) -> Result<Session, Error> {
+        let mut out = Session::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.id = field.as_u64()?;
+                }
+                2 => {
+                    out.user = field.as_str()?.into();
+                }
+                3 => {
+                    out.uid = field.as_u32()?;
+                }
+                4 => {
+                    out.pid = field.as_u64()?;
+                }
+                5 => {
+                    out.state = field.as_str()?.into();
+                }
+                6 => {
+                    out.started = field.as_u64()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// `Sessions` method id.
+    pub const METHOD_SESSIONS: u32 = 916097772;
+
+    /// Snapshot the session table, oldest session first.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct SessionsReply {
+        pub active: u64,
+        pub sessions: alloc::vec::Vec<Session>,
+    }
+
+    pub fn encode_sessions_reply(value: &SessionsReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.active)?;
+        let mut nested = Encoder::new();
+        for item in &value.sessions {
+            nested.raw(Kind::Struct, 1, &encode_session(item)?)?;
+        }
+        target.array(2, &nested)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_sessions_reply(body: &[u8]) -> Result<SessionsReply, Error> {
+        let mut out = SessionsReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.active = field.as_u64()?;
+                }
+                2 => {
+                    let mut nested = field.nested(0)?;
+                    while let Some(item) = nested.next()? {
+                        out.sessions.push(decode_session(item.payload)?);
+                    }
+                }
+                _ => {}
             }
         }
         Ok(out)
