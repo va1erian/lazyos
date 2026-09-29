@@ -180,7 +180,7 @@ onto it, so `xui-core` still resolves from `va1erian/xui` at `rev = "2747818"`.
 **Compositor client (M3a, issue #168)** — `src/bin/client.rs` (`xui-client`)
 runs the same counter + an `Edit` text field as a `xuid` client:
 `LazyOSBackend::new_client` resolves `os.lazy.display.v1` through the raw
-syscall-5 shim, creates a surface, attaches a display shared buffer
+syscall-5 shim (wire codecs from the generated `messenger-generated` stubs), creates a surface, attaches a display shared buffer
 (`create_buffer` op 4), commits damage rectangles per invalidated node, and
 consumes pointer/key/`WINDOW_CLOSE` events from its event endpoint. The
 compositor chrome (drag, minimize, taskbar, close) is `xuid`'s, and a title-bar
@@ -219,10 +219,12 @@ session (focus routing, key-driven counter, drag, minimize/restore, close).
 checks the serial markers and pixels.
 
 **Remaining** (the M3 list): resize, DPI changes, zero-copy scanout, and
-`std::thread` workers via `proxy()`. Protocol gaps found while writing the
-client (documented in `docs/architecture/display.md`): `PointerDown`/`PointerUp`
-carry surface-relative coordinates but no button id, and `PointerMove` carries
-screen-absolute coordinates.
+`std::thread` workers via `proxy()`. The two protocol gaps found while writing
+the client (`PointerDown`/`PointerUp` without a button id, and screen-absolute
+`PointerMove`) were closed by the MIDL migration of `os.lazy.display.v1`
+(issue #287, `idl/display.midl`): every pointer event is surface-relative and
+presses/releases carry the button id, so the client backend no longer recovers
+the surface origin from the last press.
 
 ## Smallest first step
 

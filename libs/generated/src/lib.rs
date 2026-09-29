@@ -711,6 +711,929 @@ pub mod os_lazy_clipboard_v1 {
     }
 }
 
+/// `os.lazy.display.v1` (interface id `0x5ef41f254d43c2b4`).
+pub mod os_lazy_display_v1 {
+    use alloc::vec::Vec;
+    // Not every interface needs every codec item (`Kind` is only used by nested values).
+    #[allow(unused_imports)]
+    use libmessenger::{Decoder, Encoder, Error, Kind};
+
+    /// The interface id: the FNV-1a hash of the `.vN` interface name.
+    pub const INTERFACE_ID: u64 = 0x5ef41f254d43c2b4;
+
+    /// `Role::Window` wire value.
+    pub const ROLE_WINDOW: u32 = 0;
+    /// `Role::Desktop` wire value.
+    pub const ROLE_DESKTOP: u32 = 1;
+
+    /// `Change::Unspecified` wire value.
+    pub const CHANGE_UNSPECIFIED: u32 = 0;
+    /// `Change::Created` wire value.
+    pub const CHANGE_CREATED: u32 = 1;
+    /// `Change::Destroyed` wire value.
+    pub const CHANGE_DESTROYED: u32 = 2;
+    /// `Change::Moved` wire value.
+    pub const CHANGE_MOVED: u32 = 3;
+    /// `Change::Minimized` wire value.
+    pub const CHANGE_MINIMIZED: u32 = 4;
+    /// `Change::Restored` wire value.
+    pub const CHANGE_RESTORED: u32 = 5;
+    /// `Change::Title` wire value.
+    pub const CHANGE_TITLE: u32 = 6;
+
+    /// One row of a `ListSurfaces` reply.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct SurfaceRow {
+        pub id: u64,
+        pub title: alloc::string::String,
+        pub x: i32,
+        pub y: i32,
+        pub w: i32,
+        pub h: i32,
+        pub minimized: bool,
+        pub focused: bool,
+        pub role: u32,
+    }
+
+    pub fn encode_surface_row(value: &SurfaceRow) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.id)?;
+        target.string(2, &value.title)?;
+        target.i32(3, value.x)?;
+        target.i32(4, value.y)?;
+        target.i32(5, value.w)?;
+        target.i32(6, value.h)?;
+        target.bool(7, value.minimized)?;
+        target.bool(8, value.focused)?;
+        target.u32(9, value.role)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_surface_row(body: &[u8]) -> Result<SurfaceRow, Error> {
+        let mut out = SurfaceRow::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.id = field.as_u64()?;
+                }
+                2 => {
+                    out.title = field.as_str()?.into();
+                }
+                3 => {
+                    out.x = field.as_i32()?;
+                }
+                4 => {
+                    out.y = field.as_i32()?;
+                }
+                5 => {
+                    out.w = field.as_i32()?;
+                }
+                6 => {
+                    out.h = field.as_i32()?;
+                }
+                7 => {
+                    out.minimized = field.as_bool()?;
+                }
+                8 => {
+                    out.focused = field.as_bool()?;
+                }
+                9 => {
+                    out.role = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// `CreateSurface` method id.
+    pub const METHOD_CREATESURFACE: u32 = 1;
+    /// `AttachBuffer` method id.
+    pub const METHOD_ATTACHBUFFER: u32 = 2;
+    /// `Commit` method id.
+    pub const METHOD_COMMIT: u32 = 3;
+    /// `DestroySurface` method id.
+    pub const METHOD_DESTROYSURFACE: u32 = 4;
+    /// `PointerMove` method id.
+    pub const METHOD_POINTERMOVE: u32 = 5;
+    /// `PointerDown` method id.
+    pub const METHOD_POINTERDOWN: u32 = 6;
+    /// `PointerUp` method id.
+    pub const METHOD_POINTERUP: u32 = 7;
+    /// `KeyDown` method id.
+    pub const METHOD_KEYDOWN: u32 = 8;
+    /// `KeyUp` method id.
+    pub const METHOD_KEYUP: u32 = 9;
+    /// `WindowClose` method id.
+    pub const METHOD_WINDOWCLOSE: u32 = 10;
+    /// `DragStart` method id.
+    pub const METHOD_DRAGSTART: u32 = 11;
+    /// `DragCancel` method id.
+    pub const METHOD_DRAGCANCEL: u32 = 12;
+    /// `DragEnter` method id.
+    pub const METHOD_DRAGENTER: u32 = 13;
+    /// `DragOver` method id.
+    pub const METHOD_DRAGOVER: u32 = 14;
+    /// `DragLeave` method id.
+    pub const METHOD_DRAGLEAVE: u32 = 15;
+    /// `Drop` method id.
+    pub const METHOD_DROP: u32 = 16;
+    /// `DragEnded` method id.
+    pub const METHOD_DRAGENDED: u32 = 17;
+    /// `ListSurfaces` method id.
+    pub const METHOD_LISTSURFACES: u32 = 18;
+    /// `GetWorkArea` method id.
+    pub const METHOD_GETWORKAREA: u32 = 19;
+    /// `Subscribe` method id.
+    pub const METHOD_SUBSCRIBE: u32 = 20;
+    /// `GetTheme` method id.
+    pub const METHOD_GETTHEME: u32 = 21;
+    /// `SurfaceChanged` method id.
+    pub const METHOD_SURFACECHANGED: u32 = 22;
+    /// `FocusChanged` method id.
+    pub const METHOD_FOCUSCHANGED: u32 = 23;
+    /// `StartMenu` method id.
+    pub const METHOD_STARTMENU: u32 = 24;
+
+    /// Create a surface of `width` x `height` pixels titled `title`. `role` is
+    /// a `Role` value: a decorated window (also the meaning of an absent
+    /// field) or the full-screen desktop, which paints above the background
+    /// and below every window, has no chrome, never takes focus and replaces
+    /// the previous desktop. The desktop role is compositor-privileged. The
+    /// parcel transfers the event endpoint the compositor sends input on.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct CreateSurfaceArgs {
+        pub width: u32,
+        pub height: u32,
+        pub title: alloc::string::String,
+        pub role: u32,
+    }
+
+    pub fn encode_create_surface_args(value: &CreateSurfaceArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.width)?;
+        target.u32(2, value.height)?;
+        target.string(3, &value.title)?;
+        target.u32(4, value.role)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_create_surface_args(body: &[u8]) -> Result<CreateSurfaceArgs, Error> {
+        let mut out = CreateSurfaceArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.width = field.as_u32()?;
+                }
+                2 => {
+                    out.height = field.as_u32()?;
+                }
+                3 => {
+                    out.title = field.as_str()?.into();
+                }
+                4 => {
+                    out.role = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct CreateSurfaceReply {
+        pub surface: u64,
+    }
+
+    pub fn encode_create_surface_reply(value: &CreateSurfaceReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.surface)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_create_surface_reply(body: &[u8]) -> Result<CreateSurfaceReply, Error> {
+        let mut out = CreateSurfaceReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.surface = field.as_u64()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Attach (or replace) `surface`'s pixel buffer with the parcel's shared
+    /// buffer. Only the surface's creator may attach.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct AttachBufferArgs {
+        pub surface: u64,
+    }
+
+    pub fn encode_attach_buffer_args(value: &AttachBufferArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.surface)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_attach_buffer_args(body: &[u8]) -> Result<AttachBufferArgs, Error> {
+        let mut out = AttachBufferArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.surface = field.as_u64()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Signal that the damage rectangle of `surface` (content-relative) is
+    /// ready to present.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct CommitArgs {
+        pub surface: u64,
+        pub x: u32,
+        pub y: u32,
+        pub w: u32,
+        pub h: u32,
+    }
+
+    pub fn encode_commit_args(value: &CommitArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.surface)?;
+        target.u32(2, value.x)?;
+        target.u32(3, value.y)?;
+        target.u32(4, value.w)?;
+        target.u32(5, value.h)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_commit_args(body: &[u8]) -> Result<CommitArgs, Error> {
+        let mut out = CommitArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.surface = field.as_u64()?;
+                }
+                2 => {
+                    out.x = field.as_u32()?;
+                }
+                3 => {
+                    out.y = field.as_u32()?;
+                }
+                4 => {
+                    out.w = field.as_u32()?;
+                }
+                5 => {
+                    out.h = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Drop a surface; the compositor forgets it and repaints.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct DestroySurfaceArgs {
+        pub surface: u64,
+    }
+
+    pub fn encode_destroy_surface_args(value: &DestroySurfaceArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.surface)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_destroy_surface_args(body: &[u8]) -> Result<DestroySurfaceArgs, Error> {
+        let mut out = DestroySurfaceArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.surface = field.as_u64()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Event: the pointer moved to `(x, y)`, relative to the focused surface.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct PointerMoveArgs {
+        pub x: i32,
+        pub y: i32,
+    }
+
+    pub fn encode_pointer_move_args(value: &PointerMoveArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.i32(1, value.x)?;
+        target.i32(2, value.y)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_pointer_move_args(body: &[u8]) -> Result<PointerMoveArgs, Error> {
+        let mut out = PointerMoveArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.x = field.as_i32()?;
+                }
+                2 => {
+                    out.y = field.as_i32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Event: pointer button `button` went down at `(x, y)`, relative to the
+    /// surface.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct PointerDownArgs {
+        pub x: i32,
+        pub y: i32,
+        pub button: u32,
+    }
+
+    pub fn encode_pointer_down_args(value: &PointerDownArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.i32(1, value.x)?;
+        target.i32(2, value.y)?;
+        target.u32(3, value.button)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_pointer_down_args(body: &[u8]) -> Result<PointerDownArgs, Error> {
+        let mut out = PointerDownArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.x = field.as_i32()?;
+                }
+                2 => {
+                    out.y = field.as_i32()?;
+                }
+                3 => {
+                    out.button = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Event: pointer button `button` went up at `(x, y)`, relative to the
+    /// surface.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct PointerUpArgs {
+        pub x: i32,
+        pub y: i32,
+        pub button: u32,
+    }
+
+    pub fn encode_pointer_up_args(value: &PointerUpArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.i32(1, value.x)?;
+        target.i32(2, value.y)?;
+        target.u32(3, value.button)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_pointer_up_args(body: &[u8]) -> Result<PointerUpArgs, Error> {
+        let mut out = PointerUpArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.x = field.as_i32()?;
+                }
+                2 => {
+                    out.y = field.as_i32()?;
+                }
+                3 => {
+                    out.button = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Event: key `key` was pressed (a character or a non-printable code).
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct KeyDownArgs {
+        pub key: u32,
+    }
+
+    pub fn encode_key_down_args(value: &KeyDownArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.key)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_key_down_args(body: &[u8]) -> Result<KeyDownArgs, Error> {
+        let mut out = KeyDownArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.key = field.as_u32()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Event: key `key` was released.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct KeyUpArgs {
+        pub key: u32,
+    }
+
+    pub fn encode_key_up_args(value: &KeyUpArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.key)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_key_up_args(body: &[u8]) -> Result<KeyUpArgs, Error> {
+        let mut out = KeyUpArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.key = field.as_u32()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Begin a compositor-mediated drag from `surface` carrying clipboard
+    /// `token` of type `mime`. Only the surface's creator may start one, while
+    /// a pointer button is held; one drag at a time.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct DragStartArgs {
+        pub surface: u64,
+        pub token: u64,
+        pub mime: alloc::string::String,
+    }
+
+    pub fn encode_drag_start_args(value: &DragStartArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.surface)?;
+        target.u64(2, value.token)?;
+        target.string(3, &value.mime)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_drag_start_args(body: &[u8]) -> Result<DragStartArgs, Error> {
+        let mut out = DragStartArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.surface = field.as_u64()?;
+                }
+                2 => {
+                    out.token = field.as_u64()?;
+                }
+                3 => {
+                    out.mime = field.as_str()?.into();
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Cancel the drag that started at `surface`.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct DragCancelArgs {
+        pub surface: u64,
+    }
+
+    pub fn encode_drag_cancel_args(value: &DragCancelArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.surface)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_drag_cancel_args(body: &[u8]) -> Result<DragCancelArgs, Error> {
+        let mut out = DragCancelArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.surface = field.as_u64()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Event: a drag carrying `mime` entered this surface at `(x, y)`.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct DragEnterArgs {
+        pub x: i32,
+        pub y: i32,
+        pub mime: alloc::string::String,
+    }
+
+    pub fn encode_drag_enter_args(value: &DragEnterArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.i32(1, value.x)?;
+        target.i32(2, value.y)?;
+        target.string(3, &value.mime)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_drag_enter_args(body: &[u8]) -> Result<DragEnterArgs, Error> {
+        let mut out = DragEnterArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.x = field.as_i32()?;
+                }
+                2 => {
+                    out.y = field.as_i32()?;
+                }
+                3 => {
+                    out.mime = field.as_str()?.into();
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Event: a drag moved inside this surface to `(x, y)`.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct DragOverArgs {
+        pub x: i32,
+        pub y: i32,
+    }
+
+    pub fn encode_drag_over_args(value: &DragOverArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.i32(1, value.x)?;
+        target.i32(2, value.y)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_drag_over_args(body: &[u8]) -> Result<DragOverArgs, Error> {
+        let mut out = DragOverArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.x = field.as_i32()?;
+                }
+                2 => {
+                    out.y = field.as_i32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Event: a drag was released over this surface at `(x, y)`; the target
+    /// pastes `token` of type `mime` through the clipboard service.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct DropArgs {
+        pub x: i32,
+        pub y: i32,
+        pub token: u64,
+        pub mime: alloc::string::String,
+    }
+
+    pub fn encode_drop_args(value: &DropArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.i32(1, value.x)?;
+        target.i32(2, value.y)?;
+        target.u64(3, value.token)?;
+        target.string(4, &value.mime)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_drop_args(body: &[u8]) -> Result<DropArgs, Error> {
+        let mut out = DropArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.x = field.as_i32()?;
+                }
+                2 => {
+                    out.y = field.as_i32()?;
+                }
+                3 => {
+                    out.token = field.as_u64()?;
+                }
+                4 => {
+                    out.mime = field.as_str()?.into();
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Event to the drag's source: the drag ended (`dropped`) or was cancelled.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct DragEndedArgs {
+        pub dropped: bool,
+    }
+
+    pub fn encode_drag_ended_args(value: &DragEndedArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.bool(1, value.dropped)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_drag_ended_args(body: &[u8]) -> Result<DragEndedArgs, Error> {
+        let mut out = DragEndedArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.dropped = field.as_bool()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Every surface in z-order (bottom first), including the desktop.
+    /// Compositor-privileged.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ListSurfacesReply {
+        pub surfaces: alloc::vec::Vec<SurfaceRow>,
+    }
+
+    pub fn encode_list_surfaces_reply(value: &ListSurfacesReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        let mut nested = Encoder::new();
+        for item in &value.surfaces {
+            nested.raw(Kind::Struct, 1, &encode_surface_row(item)?)?;
+        }
+        target.array(1, &nested)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_list_surfaces_reply(body: &[u8]) -> Result<ListSurfacesReply, Error> {
+        let mut out = ListSurfacesReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                let mut nested = field.nested(0)?;
+                while let Some(item) = nested.next()? {
+                    out.surfaces.push(decode_surface_row(item.payload)?);
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// The rectangle available to windows: the whole screen when a shell is
+    /// subscribed, otherwise the screen minus the fallback taskbar strip.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct GetWorkAreaReply {
+        pub x: i32,
+        pub y: i32,
+        pub w: i32,
+        pub h: i32,
+    }
+
+    pub fn encode_get_work_area_reply(value: &GetWorkAreaReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.i32(1, value.x)?;
+        target.i32(2, value.y)?;
+        target.i32(3, value.w)?;
+        target.i32(4, value.h)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_get_work_area_reply(body: &[u8]) -> Result<GetWorkAreaReply, Error> {
+        let mut out = GetWorkAreaReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.x = field.as_i32()?;
+                }
+                2 => {
+                    out.y = field.as_i32()?;
+                }
+                3 => {
+                    out.w = field.as_i32()?;
+                }
+                4 => {
+                    out.h = field.as_i32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Register this task as the shell subscriber under `subscriber_role`;
+    /// the parcel transfers the event endpoint for the shell events. The role
+    /// `shell` (privileged) also hides the built-in taskbar. Registering again
+    /// replaces the previous endpoint.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct SubscribeArgs {
+        pub subscriber_role: alloc::string::String,
+    }
+
+    pub fn encode_subscribe_args(value: &SubscribeArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.subscriber_role)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_subscribe_args(body: &[u8]) -> Result<SubscribeArgs, Error> {
+        let mut out = SubscribeArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.subscriber_role = field.as_str()?.into();
+            }
+        }
+        Ok(out)
+    }
+
+    /// The compositor's chrome palette as `0xRRGGBB` colours.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct GetThemeReply {
+        pub title_bg_active: u32,
+        pub title_bg_inactive: u32,
+        pub border: u32,
+        pub taskbar: u32,
+        pub text: u32,
+    }
+
+    pub fn encode_get_theme_reply(value: &GetThemeReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.title_bg_active)?;
+        target.u32(2, value.title_bg_inactive)?;
+        target.u32(3, value.border)?;
+        target.u32(4, value.taskbar)?;
+        target.u32(5, value.text)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_get_theme_reply(body: &[u8]) -> Result<GetThemeReply, Error> {
+        let mut out = GetThemeReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.title_bg_active = field.as_u32()?;
+                }
+                2 => {
+                    out.title_bg_inactive = field.as_u32()?;
+                }
+                3 => {
+                    out.border = field.as_u32()?;
+                }
+                4 => {
+                    out.taskbar = field.as_u32()?;
+                }
+                5 => {
+                    out.text = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Shell event: surface `surface` changed. `kind` is a `Change` value;
+    /// `title` is set on `Created` only. `role` is a `Role` value.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct SurfaceChangedArgs {
+        pub surface: u64,
+        pub kind: u32,
+        pub x: i32,
+        pub y: i32,
+        pub w: i32,
+        pub h: i32,
+        pub minimized: bool,
+        pub focused: bool,
+        pub title: core::option::Option<alloc::string::String>,
+        pub role: u32,
+    }
+
+    pub fn encode_surface_changed_args(value: &SurfaceChangedArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.surface)?;
+        target.u32(2, value.kind)?;
+        target.i32(3, value.x)?;
+        target.i32(4, value.y)?;
+        target.i32(5, value.w)?;
+        target.i32(6, value.h)?;
+        target.bool(7, value.minimized)?;
+        target.bool(8, value.focused)?;
+        match &value.title {
+            Some(item) => {
+                let mut nested = Encoder::new();
+                nested.string(1, item)?;
+                target.option(9, Some(&nested))?;
+            }
+            None => {
+                target.option(9, None)?;
+            }
+        }
+        target.u32(10, value.role)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_surface_changed_args(body: &[u8]) -> Result<SurfaceChangedArgs, Error> {
+        let mut out = SurfaceChangedArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.surface = field.as_u64()?;
+                }
+                2 => {
+                    out.kind = field.as_u32()?;
+                }
+                3 => {
+                    out.x = field.as_i32()?;
+                }
+                4 => {
+                    out.y = field.as_i32()?;
+                }
+                5 => {
+                    out.w = field.as_i32()?;
+                }
+                6 => {
+                    out.h = field.as_i32()?;
+                }
+                7 => {
+                    out.minimized = field.as_bool()?;
+                }
+                8 => {
+                    out.focused = field.as_bool()?;
+                }
+                9 => {
+                    if field.payload.is_empty() {
+                        out.title = None;
+                    } else {
+                        let mut nested = field.nested(0)?;
+                        let item = nested.next()?.ok_or(Error::BadValue)?;
+                        out.title = Some(item.as_str()?.into());
+                    }
+                }
+                10 => {
+                    out.role = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Shell event: the focused surface changed; absent when nothing is
+    /// focused.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct FocusChangedArgs {
+        pub surface: core::option::Option<u64>,
+    }
+
+    pub fn encode_focus_changed_args(value: &FocusChangedArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        match &value.surface {
+            Some(item) => {
+                let mut nested = Encoder::new();
+                nested.u64(1, *item)?;
+                target.option(1, Some(&nested))?;
+            }
+            None => {
+                target.option(1, None)?;
+            }
+        }
+        Ok(target.finish())
+    }
+
+    pub fn decode_focus_changed_args(body: &[u8]) -> Result<FocusChangedArgs, Error> {
+        let mut out = FocusChangedArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                if field.payload.is_empty() {
+                    out.surface = None;
+                } else {
+                    let mut nested = field.nested(0)?;
+                    let item = nested.next()?.ok_or(Error::BadValue)?;
+                    out.surface = Some(item.as_u64()?);
+                }
+            }
+        }
+        Ok(out)
+    }
+}
+
 /// `os.lazy.echo.v1` (interface id `0xcc4ac1057e84db93`).
 pub mod os_lazy_echo_v1 {
     use alloc::vec::Vec;

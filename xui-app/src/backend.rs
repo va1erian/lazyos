@@ -85,11 +85,6 @@ pub struct LazyOSBackend {
     /// Pointer position in window pixels, updated by move events; kernel button
     /// records carry no coordinates, so it is also used for presses.
     pointer: Cell<(i32, i32)>,
-    /// Client mode: the last screen-absolute pointer position, used to recover
-    /// the surface origin (see [`LazyOSBackend::route_client_event`]).
-    last_abs: Cell<Option<(i32, i32)>>,
-    /// Client mode: the surface origin derived from the last press.
-    origin: Cell<Option<(i32, i32)>>,
     /// The node keyboard events go to; set by [`Backend::focus`]. Keys target
     /// the focused node, not the node under the pointer.
     focused: Cell<Option<WidgetId>>,
@@ -170,8 +165,6 @@ impl LazyOSBackend {
             damage: Cell::new(None),
             quit: Arc::new(AtomicBool::new(false)),
             pointer: Cell::new((0, 0)),
-            last_abs: Cell::new(None),
-            origin: Cell::new(None),
             focused: Cell::new(None),
             timers: RefCell::new(Vec::new()),
             next_timer: Cell::new(1),

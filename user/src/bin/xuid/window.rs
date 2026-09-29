@@ -3,11 +3,10 @@
 //! forwarding, moved out of `xuid.rs` unchanged.
 
 use alloc::vec::Vec;
-use user::messenger::display::{self, Canvas, Rect};
+use user::messenger::display::{self, wire, Canvas, Rect};
 use user::messenger::Endpoint;
 
 use super::drag::DragSession;
-use super::protocol::method;
 use super::render::repaint;
 use super::shell::{notify_destroyed, notify_focus, notify_surface, AltTab, ShellSub};
 use super::surface::Surface;
@@ -22,11 +21,11 @@ pub(super) fn contains(rect: Rect, point: (i32, i32)) -> bool {
 }
 
 /// The surface-relative pointer position inside a window's content.
-pub(super) fn relative(surfaces: &[Surface], id: u64, point: (i32, i32)) -> (i64, i64) {
+pub(super) fn relative(surfaces: &[Surface], id: u64, point: (i32, i32)) -> (i32, i32) {
     match surfaces.iter().find(|surface| surface.id == id) {
         Some(surface) => {
             let content = surface.content();
-            ((point.0 - content.x) as i64, (point.1 - content.y) as i64)
+            (point.0 - content.x, point.1 - content.y)
         }
         None => (0, 0),
     }
@@ -84,13 +83,7 @@ pub(super) fn minimize_surface(
     // The row carries the post-minimize focus flag, so send it after the focus
     // recompute.
     if let Some(surface) = surface_by_id(surfaces, id) {
-        notify_surface(
-            shell,
-            scratch,
-            surface,
-            *focused,
-            display::change::MINIMIZED,
-        );
+        notify_surface(shell, scratch, surface, *focused, wire::CHANGE_MINIMIZED);
     }
     let full = Rect::new(0, 0, screen.width(), screen.height());
     repaint(
@@ -124,9 +117,8 @@ pub(super) fn close_surface(
         let _ = display::send_event(
             &Endpoint::from_raw(surface.events),
             scratch,
-            method::WINDOW_CLOSE,
-            0,
-            0,
+            wire::METHOD_WINDOWCLOSE,
+            Ok(Vec::new()),
         );
     }
     notify_destroyed(shell, scratch, id);
@@ -196,23 +188,17 @@ pub(super) fn cycle_focus(surfaces: &mut Vec<Surface>, focused: &mut Option<u64>
         *focused = Some(id);
     }
 }
-/// Send one event to a surface's endpoint, ignoring a closed peer.
+/// Send one event (`body` already encoded) to a surface's endpoint, ignoring
+/// a closed peer.
 pub(super) fn forward(
     surfaces: &[Surface],
     scratch: &mut Vec<u8>,
     id: Option<u64>,
     method: u32,
-    a: i64,
-    b: i64,
+    body: Result<Vec<u8>, libmessenger::Error>,
 ) {
     let Some(surface) = id.and_then(|id| surfaces.iter().find(|surface| surface.id == id)) else {
         return;
     };
-    let _ = display::send_event(
-        &Endpoint::from_raw(surface.events),
-        scratch,
-        method,
-        a as u64,
-        b as u64,
-    );
+    let _ = display::send_event(&Endpoint::from_raw(surface.events), scratch, method, body);
 }

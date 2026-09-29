@@ -4,16 +4,14 @@
 
 use alloc::string::String;
 use alloc::vec::Vec;
-use user::messenger::display::{self, Canvas, Rect};
-use user::messenger::Endpoint;
+use user::messenger::display::{wire, Canvas, Rect};
 
 use super::layout::cursor_rect;
-use super::protocol::method;
 use super::render::repaint;
 use super::shell::AltTab;
 use super::surface::Surface;
 use super::theme::{DRAG_ACCENT, DRAG_GHOST_BG};
-use super::window::{contains, relative, surface_by_id};
+use super::window::{contains, forward, relative, surface_by_id};
 
 // ---------------------------------------------------------------------------
 // Drag & drop (issue #145)
@@ -58,31 +56,39 @@ fn ghost_rect(mime: &str, point: (i32, i32)) -> Rect {
     Rect::new(point.0 + 6, point.1 + 6, 14 + label, 16)
 }
 
-/// Send one drag event (u64 fields plus an optional string) to a surface.
-fn forward_drag(
-    surfaces: &[Surface],
-    scratch: &mut Vec<u8>,
-    id: Option<u64>,
-    method: u32,
-    fields: &[(u16, u64)],
-    text: Option<(u16, &str)>,
-) {
-    let Some(surface) = id.and_then(|id| surface_by_id(surfaces, id)) else {
-        return;
+/// Tell surface `id` a drag carrying `mime` entered at `point`.
+fn send_enter(surfaces: &[Surface], scratch: &mut Vec<u8>, id: u64, point: (i32, i32), mime: &str) {
+    let (x, y) = relative(surfaces, id, point);
+    let args = wire::DragEnterArgs {
+        x,
+        y,
+        mime: mime.into(),
     };
-    let _ = display::send_event_fields(
-        &Endpoint::from_raw(surface.events),
+    let body = wire::encode_drag_enter_args(&args);
+    forward(surfaces, scratch, Some(id), wire::METHOD_DRAGENTER, body);
+}
+
+/// Tell surface `id` a drag left it.
+fn send_leave(surfaces: &[Surface], scratch: &mut Vec<u8>, id: u64) {
+    forward(
+        surfaces,
         scratch,
-        method,
-        fields,
-        text,
+        Some(id),
+        wire::METHOD_DRAGLEAVE,
+        Ok(Vec::new()),
     );
 }
 
-/// The `DragEnter`/`DragOver` payload fields for `point` over `id`.
-fn drag_point_fields(surfaces: &[Surface], id: u64, point: (i32, i32)) -> [(u16, u64); 2] {
-    let (x, y) = relative(surfaces, id, point);
-    [(display::field::A, x as u64), (display::field::B, y as u64)]
+/// Tell the drag's source it ended (`dropped`) or was cancelled.
+fn send_ended(surfaces: &[Surface], scratch: &mut Vec<u8>, source: u64, dropped: bool) {
+    let body = wire::encode_drag_ended_args(&wire::DragEndedArgs { dropped });
+    forward(
+        surfaces,
+        scratch,
+        Some(source),
+        wire::METHOD_DRAGENDED,
+        body,
+    );
 }
 
 /// Start a drag from `source`: adopt the token/mime, greet a surface already
@@ -108,15 +114,7 @@ pub(super) fn drag_begin(
         target: None,
     };
     if let Some(id) = drag_target_at(surfaces, source, pointer) {
-        let fields = drag_point_fields(surfaces, id, pointer);
-        forward_drag(
-            surfaces,
-            scratch,
-            Some(id),
-            method::DRAG_ENTER,
-            &fields,
-            Some((display::field::MIME, &active.mime)),
-        );
+        send_enter(surfaces, scratch, id, pointer, &active.mime);
         active.target = Some(id);
     }
     let damage = cursor_rect(pointer).union(ghost_rect(&active.mime, pointer));
@@ -150,36 +148,22 @@ pub(super) fn drag_move(
     let next = drag_target_at(surfaces, drag.source, pointer);
     if next != drag.target {
         if let Some(id) = drag.target {
-            forward_drag(surfaces, scratch, Some(id), method::DRAG_LEAVE, &[], None);
+            send_leave(surfaces, scratch, id);
             if let Some(surface) = surface_by_id(surfaces, id) {
                 damage = damage.union(surface.window());
             }
         }
         drag.target = next;
         if let Some(id) = next {
-            let fields = drag_point_fields(surfaces, id, pointer);
-            forward_drag(
-                surfaces,
-                scratch,
-                Some(id),
-                method::DRAG_ENTER,
-                &fields,
-                Some((display::field::MIME, &drag.mime)),
-            );
+            send_enter(surfaces, scratch, id, pointer, &drag.mime);
             if let Some(surface) = surface_by_id(surfaces, id) {
                 damage = damage.union(surface.window());
             }
         }
     } else if let Some(id) = next {
-        let fields = drag_point_fields(surfaces, id, pointer);
-        forward_drag(
-            surfaces,
-            scratch,
-            Some(id),
-            method::DRAG_OVER,
-            &fields,
-            None,
-        );
+        let (x, y) = relative(surfaces, id, pointer);
+        let body = wire::encode_drag_over_args(&wire::DragOverArgs { x, y });
+        forward(surfaces, scratch, Some(id), wire::METHOD_DRAGOVER, body);
     }
     damage
 }
@@ -203,37 +187,23 @@ pub(super) fn drag_finish(
     let mut damage = cursor_rect(pointer).union(ghost_rect(&active.mime, pointer));
     match drag_target_at(surfaces, active.source, pointer) {
         Some(id) => {
-            let fields = drag_point_fields(surfaces, id, pointer);
-            forward_drag(
-                surfaces,
-                scratch,
-                Some(id),
-                method::DROP,
-                &[fields[0], fields[1], (display::field::TOKEN, active.token)],
-                Some((display::field::MIME, &active.mime)),
-            );
-            forward_drag(
-                surfaces,
-                scratch,
-                Some(active.source),
-                method::DRAG_ENDED,
-                &[(display::field::A, 1)],
-                None,
-            );
+            let (x, y) = relative(surfaces, id, pointer);
+            let args = wire::DropArgs {
+                x,
+                y,
+                token: active.token,
+                mime: active.mime.clone(),
+            };
+            let body = wire::encode_drop_args(&args);
+            forward(surfaces, scratch, Some(id), wire::METHOD_DROP, body);
+            send_ended(surfaces, scratch, active.source, true);
             if let Some(surface) = surface_by_id(surfaces, id) {
                 damage = damage.union(surface.window());
             }
         }
         None => {
             drag_leave_target(&active, surfaces, scratch, &mut damage);
-            forward_drag(
-                surfaces,
-                scratch,
-                Some(active.source),
-                method::DRAG_ENDED,
-                &[(display::field::A, 0)],
-                None,
-            );
+            send_ended(surfaces, scratch, active.source, false);
         }
     }
     if let Some(surface) = surface_by_id(surfaces, active.source) {
@@ -268,14 +238,7 @@ pub(super) fn drag_cancel(
     };
     let mut damage = cursor_rect(pointer).union(ghost_rect(&active.mime, pointer));
     drag_leave_target(&active, surfaces, scratch, &mut damage);
-    forward_drag(
-        surfaces,
-        scratch,
-        Some(active.source),
-        method::DRAG_ENDED,
-        &[(display::field::A, 0)],
-        None,
-    );
+    send_ended(surfaces, scratch, active.source, false);
     if let Some(surface) = surface_by_id(surfaces, active.source) {
         damage = damage.union(surface.window());
     }
@@ -299,7 +262,7 @@ fn drag_leave_target(
     damage: &mut Rect,
 ) {
     if let Some(id) = active.target {
-        forward_drag(surfaces, scratch, Some(id), method::DRAG_LEAVE, &[], None);
+        send_leave(surfaces, scratch, id);
         if let Some(surface) = surface_by_id(surfaces, id) {
             *damage = damage.union(surface.window());
         }

@@ -2,7 +2,7 @@
 //! the title-bar [`Drag`] session, split out of `xuid.rs` unchanged.
 
 use alloc::string::String;
-use user::messenger::display::Rect;
+use user::messenger::display::{wire, Rect};
 
 use super::theme::{BORDER, BUTTON, BUTTON_GAP, BUTTON_MARGIN, TITLE_H};
 
@@ -35,6 +35,15 @@ pub(super) struct Surface {
 }
 
 impl Surface {
+    /// The protocol role this surface reports (`wire::ROLE_*`).
+    pub(super) fn role(&self) -> u32 {
+        if self.desktop {
+            wire::ROLE_DESKTOP
+        } else {
+            wire::ROLE_WINDOW
+        }
+    }
+
     /// The whole decorated window rectangle.
     pub(super) fn window(&self) -> Rect {
         Rect::new(

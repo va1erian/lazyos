@@ -278,7 +278,7 @@ fn run() -> ! {
         // The window manager's close button (or Alt+F4) asks the probe's
         // window to go away; take the desktop down with it and exit.
         if let Ok(Some(message)) = window_events.poll_recv_with(&mut window_buf) {
-            if message.method() == display::method::WINDOW_CLOSE {
+            if message.method() == display::wire::METHOD_WINDOWCLOSE {
                 let _ = client.destroy_surface(window);
                 let _ = client.destroy_surface(desktop);
                 sys::write_str("shellprobe: closed by the window manager\n");

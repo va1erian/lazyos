@@ -1,18 +1,16 @@
 //! Display protocol request handling (issue #194 split): [`handle_request`]
 //! serves `os.lazy.display.v1`, split out of `xuid.rs` unchanged.
 
-use alloc::string::String;
 use alloc::vec::Vec;
-use libmessenger::{Encoder, Parcel};
-use user::messenger::display::{self, Canvas, Rect};
+use libmessenger::Parcel;
+use user::messenger::display::{self, wire, Canvas, Rect};
 use user::messenger::{self, Endpoint, Message};
 use user::sys;
 
 use super::drag::{drag_begin, drag_cancel, DragSession};
 use super::layout::place_window;
 use super::protocol::{
-    color_u64, drop_rejected_handle, empty_reply, error_reply, is_privileged, method, reply_parcel,
-    string_field, u64_field,
+    color_u32, drop_rejected_handle, empty_reply, error_reply, is_privileged, typed_reply,
 };
 use super::render::repaint;
 use super::shell::{
@@ -42,14 +40,21 @@ pub(super) fn handle_request(
         return Some(empty_reply(message.method()));
     }
     let bar = taskbar_visible(shell.as_ref());
+    let body = &message.parcel.body;
     match message.method() {
-        method::CREATE_SURFACE => {
-            let width = u64_field(&message.parcel, display::field::WIDTH).unwrap_or(0);
-            let height = u64_field(&message.parcel, display::field::HEIGHT).unwrap_or(0);
-            let title = string_field(&message.parcel, display::field::TITLE)
-                .unwrap_or_else(|| String::from("app"));
-            let role =
-                u64_field(&message.parcel, display::field::ROLE).unwrap_or(display::role::WINDOW);
+        wire::METHOD_CREATESURFACE => {
+            let Ok(args) = wire::decode_create_surface_args(body) else {
+                drop_rejected_handle(message);
+                return Some(error_reply(message.method(), messenger::errno::EINVAL));
+            };
+            let (width, height) = (args.width as u64, args.height as u64);
+            // An unnamed window still gets a taskbar label.
+            let title = if args.title.is_empty() {
+                "app".into()
+            } else {
+                args.title
+            };
+            let role = args.role;
             // A window can never exceed the screen anyway, and bounding it
             // here keeps `width * height * 4` well inside `i32` downstream
             // (issue #176: an unbounded claim let that multiplication wrap).
@@ -59,7 +64,7 @@ pub(super) fn handle_request(
                 drop_rejected_handle(message);
                 return Some(error_reply(message.method(), messenger::errno::EINVAL));
             }
-            if role == display::role::DESKTOP && !is_privileged(message.sender) {
+            if role == wire::ROLE_DESKTOP && !is_privileged(message.sender) {
                 // Only an authorized shell identity may own the desktop
                 // (issue #175); anyone else's claim is refused outright.
                 drop_rejected_handle(message);
@@ -68,7 +73,7 @@ pub(super) fn handle_request(
             let id = *next_id;
             *next_id += 1;
             let full = Rect::new(0, 0, screen.width(), screen.height());
-            if role == display::role::DESKTOP {
+            if role == wire::ROLE_DESKTOP {
                 // The bottom layer: no chrome, no taskbar entry, never focused.
                 // A new desktop replaces the current one.
                 if let Some(index) = surfaces.iter().position(|surface| surface.desktop) {
@@ -78,9 +83,8 @@ pub(super) fn handle_request(
                     let _ = display::send_event(
                         &Endpoint::from_raw(old.events),
                         scratch,
-                        method::WINDOW_CLOSE,
-                        0,
-                        0,
+                        wire::METHOD_WINDOWCLOSE,
+                        Ok(Vec::new()),
                     );
                     notify_destroyed(shell.as_ref(), scratch, old.id);
                     let _ = Endpoint::from_raw(old.events).close();
@@ -105,7 +109,7 @@ pub(super) fn handle_request(
                         scratch,
                         surface,
                         *focused,
-                        display::change::CREATED,
+                        wire::CHANGE_CREATED,
                     );
                 }
                 repaint(
@@ -118,9 +122,10 @@ pub(super) fn handle_request(
                     bar,
                     alt_tab.as_ref(),
                 );
-                let mut body = Encoder::new();
-                let _ = body.u64(display::field::SURFACE, id);
-                return Some(reply_parcel(message.method(), body));
+                return Some(typed_reply(
+                    message.method(),
+                    wire::encode_create_surface_reply(&wire::CreateSurfaceReply { surface: id }),
+                ));
             }
             let (x, y) = place_window(
                 (screen.width(), screen.height()),
@@ -155,7 +160,7 @@ pub(super) fn handle_request(
                     scratch,
                     surface,
                     *focused,
-                    display::change::CREATED,
+                    wire::CHANGE_CREATED,
                 );
             }
             // A new surface changes the layout (and the taskbar), so repaint
@@ -170,12 +175,15 @@ pub(super) fn handle_request(
                 bar,
                 alt_tab.as_ref(),
             );
-            let mut body = Encoder::new();
-            let _ = body.u64(display::field::SURFACE, id);
-            Some(reply_parcel(message.method(), body))
+            Some(typed_reply(
+                message.method(),
+                wire::encode_create_surface_reply(&wire::CreateSurfaceReply { surface: id }),
+            ))
         }
-        method::ATTACH_BUFFER => {
-            let id = u64_field(&message.parcel, display::field::SURFACE).unwrap_or(0);
+        wire::METHOD_ATTACHBUFFER => {
+            let id = wire::decode_attach_buffer_args(body)
+                .unwrap_or_default()
+                .surface;
             let Some(surface) = surfaces.iter_mut().find(|surface| surface.id == id) else {
                 return Some(error_reply(message.method(), messenger::errno::EINVAL));
             };
@@ -226,8 +234,9 @@ pub(super) fn handle_request(
                 Err(code) => Some(error_reply(message.method(), -code)),
             }
         }
-        method::COMMIT => {
-            let id = u64_field(&message.parcel, display::field::SURFACE).unwrap_or(0);
+        wire::METHOD_COMMIT => {
+            let args = wire::decode_commit_args(body).unwrap_or_default();
+            let id = args.surface;
             if let Some(surface) = surfaces.iter().find(|surface| surface.id == id) {
                 if surface.owner != message.sender {
                     // Only the owner may commit damage (issue #176: any
@@ -247,10 +256,10 @@ pub(super) fn handle_request(
                     surface.content()
                 };
                 let damage = Rect::new(
-                    area.x + u64_field(&message.parcel, display::field::X).unwrap_or(0) as i32,
-                    area.y + u64_field(&message.parcel, display::field::Y).unwrap_or(0) as i32,
-                    u64_field(&message.parcel, display::field::W).unwrap_or(0) as i32,
-                    u64_field(&message.parcel, display::field::H).unwrap_or(0) as i32,
+                    area.x.saturating_add_unsigned(args.x),
+                    area.y.saturating_add_unsigned(args.y),
+                    i32::try_from(args.w).unwrap_or(i32::MAX),
+                    i32::try_from(args.h).unwrap_or(i32::MAX),
                 )
                 .intersect(area);
                 repaint(
@@ -266,8 +275,10 @@ pub(super) fn handle_request(
             }
             Some(empty_reply(message.method()))
         }
-        method::DESTROY_SURFACE => {
-            let id = u64_field(&message.parcel, display::field::SURFACE).unwrap_or(0);
+        wire::METHOD_DESTROYSURFACE => {
+            let id = wire::decode_destroy_surface_args(body)
+                .unwrap_or_default()
+                .surface;
             if surface_by_id(surfaces, id).is_some_and(|surface| surface.owner != message.sender) {
                 // Only the owner may destroy its own surface (issue #176:
                 // any caller that guessed the id could close another app's
@@ -325,10 +336,9 @@ pub(super) fn handle_request(
             );
             Some(empty_reply(message.method()))
         }
-        method::DRAG_START => {
-            let id = u64_field(&message.parcel, display::field::SURFACE).unwrap_or(0);
-            let token = u64_field(&message.parcel, display::field::TOKEN).unwrap_or(0);
-            let mime = string_field(&message.parcel, display::field::MIME).unwrap_or_default();
+        wire::METHOD_DRAGSTART => {
+            let args = wire::decode_drag_start_args(body).unwrap_or_default();
+            let (id, token, mime) = (args.surface, args.token, args.mime);
             if drag_session.is_some() {
                 return Some(error_reply(message.method(), messenger::errno::EBUSY));
             }
@@ -358,8 +368,10 @@ pub(super) fn handle_request(
             );
             Some(empty_reply(message.method()))
         }
-        method::DRAG_CANCEL => {
-            let id = u64_field(&message.parcel, display::field::SURFACE).unwrap_or(0);
+        wire::METHOD_DRAGCANCEL => {
+            let id = wire::decode_drag_cancel_args(body)
+                .unwrap_or_default()
+                .surface;
             let owns = drag_session
                 .as_ref()
                 .is_some_and(|active| active.source == id)
@@ -378,9 +390,10 @@ pub(super) fn handle_request(
             }
             Some(empty_reply(message.method()))
         }
-        method::SUBSCRIBE => {
-            let role =
-                string_field(&message.parcel, display::field::SUBSCRIBER_ROLE).unwrap_or_default();
+        wire::METHOD_SUBSCRIBE => {
+            let role = wire::decode_subscribe_args(body)
+                .unwrap_or_default()
+                .subscriber_role;
             if message.handles == 0 || role.is_empty() || role.len() > display::MAX_ROLE {
                 drop_rejected_handle(message);
                 return Some(error_reply(message.method(), messenger::errno::EINVAL));
@@ -415,37 +428,33 @@ pub(super) fn handle_request(
             );
             Some(empty_reply(message.method()))
         }
-        method::LIST_SURFACES => {
+        wire::METHOD_LISTSURFACES => {
             if !is_privileged(message.sender) {
-                // Every window's title and geometry is compositor-privileged
-                // (issue #175); anyone else's request is refused outright.
+                // Every window title and geometry is compositor-privileged
+                // (issue #175); a request from anyone else is refused outright.
                 return Some(error_reply(message.method(), messenger::errno::EACCES));
             }
-            let mut body = Encoder::new();
-            // One row per surface, in z-order: `SURFACE` starts a row and the
-            // trailing fields describe it.
-            for surface in surfaces.iter() {
-                let role = if surface.desktop {
-                    display::role::DESKTOP
-                } else {
-                    display::role::WINDOW
-                };
-                let _ = body.u64(display::field::SURFACE, surface.id);
-                let _ = body.string(display::field::TITLE, &surface.title);
-                let _ = body.u64(display::field::X, surface.x.max(0) as u64);
-                let _ = body.u64(display::field::Y, surface.y.max(0) as u64);
-                let _ = body.u64(display::field::W, surface.w.max(0) as u64);
-                let _ = body.u64(display::field::H, surface.h.max(0) as u64);
-                let _ = body.u64(display::field::MINIMIZED, surface.minimized as u64);
-                let _ = body.u64(
-                    display::field::FOCUSED,
-                    (*focused == Some(surface.id)) as u64,
-                );
-                let _ = body.u64(display::field::ROLE, role);
-            }
-            Some(reply_parcel(message.method(), body))
+            // One row per surface, in z-order.
+            let surfaces = surfaces
+                .iter()
+                .map(|surface| wire::SurfaceRow {
+                    id: surface.id,
+                    title: surface.title.clone(),
+                    x: surface.x,
+                    y: surface.y,
+                    w: surface.w,
+                    h: surface.h,
+                    minimized: surface.minimized,
+                    focused: *focused == Some(surface.id),
+                    role: surface.role(),
+                })
+                .collect();
+            Some(typed_reply(
+                message.method(),
+                wire::encode_list_surfaces_reply(&wire::ListSurfacesReply { surfaces }),
+            ))
         }
-        method::GET_WORK_AREA => {
+        wire::METHOD_GETWORKAREA => {
             // With a shell registered the fallback bar is hidden, so windows
             // may use the whole screen.
             let height = if taskbar_visible(shell.as_ref()) {
@@ -453,22 +462,26 @@ pub(super) fn handle_request(
             } else {
                 screen.height()
             };
-            let mut body = Encoder::new();
-            let _ = body.u64(display::field::X, 0);
-            let _ = body.u64(display::field::Y, 0);
-            let _ = body.u64(display::field::W, screen.width().max(0) as u64);
-            let _ = body.u64(display::field::H, height as u64);
-            Some(reply_parcel(message.method(), body))
+            Some(typed_reply(
+                message.method(),
+                wire::encode_get_work_area_reply(&wire::GetWorkAreaReply {
+                    x: 0,
+                    y: 0,
+                    w: screen.width().max(0),
+                    h: height,
+                }),
+            ))
         }
-        method::GET_THEME => {
-            let mut body = Encoder::new();
-            let _ = body.u64(display::field::TITLE_BG_ACTIVE, color_u64(TITLE_BG_FOCUS));
-            let _ = body.u64(display::field::TITLE_BG_INACTIVE, color_u64(TITLE_BG));
-            let _ = body.u64(display::field::BORDER, color_u64(BORDER_COLOR));
-            let _ = body.u64(display::field::TASKBAR, color_u64(TASKBAR_BG));
-            let _ = body.u64(display::field::TEXT, color_u64(TITLE_TEXT));
-            Some(reply_parcel(message.method(), body))
-        }
+        wire::METHOD_GETTHEME => Some(typed_reply(
+            message.method(),
+            wire::encode_get_theme_reply(&wire::GetThemeReply {
+                title_bg_active: color_u32(TITLE_BG_FOCUS),
+                title_bg_inactive: color_u32(TITLE_BG),
+                border: color_u32(BORDER_COLOR),
+                taskbar: color_u32(TASKBAR_BG),
+                text: color_u32(TITLE_TEXT),
+            }),
+        )),
         _ => Some(error_reply(message.method(), messenger::errno::EINVAL)),
     }
 }

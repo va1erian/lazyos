@@ -16,7 +16,7 @@ extern crate alloc;
 
 use core::panic::PanicInfo;
 use user::messenger;
-use user::messenger::display::{self, Canvas, Client, Color, Event, EventKind, Rect};
+use user::messenger::display::{self, Canvas, Client, Color, Event, Rect};
 use user::sys;
 
 /// Surface content size in pixels.
@@ -110,7 +110,7 @@ fn run() -> ! {
             Ok(message) => {
                 // The compositor's title-bar close button asks the app to go
                 // away (issue #143); there is nothing to draw into any more.
-                if message.method() == display::method::WINDOW_CLOSE {
+                if message.method() == display::wire::METHOD_WINDOWCLOSE {
                     sys::write_str("xdemo: closed by the window manager\n");
                     sys::exit(0);
                 }
@@ -146,15 +146,14 @@ fn is_timeout(error: messenger::Error) -> bool {
 
 /// Fold one compositor event into the demo state.
 fn apply(demo: &mut Demo, event: Event) {
-    match event.kind {
-        EventKind::PointerMove => demo.marker = Some((event.a, event.b)),
-        EventKind::PointerDown => demo.clicks += 1,
-        EventKind::PointerUp => {}
-        EventKind::KeyDown => {
+    match event {
+        Event::PointerMove { x, y } => demo.marker = Some((x as i64, y as i64)),
+        Event::PointerDown { .. } => demo.clicks += 1,
+        Event::PointerUp { .. } | Event::KeyUp { .. } => {}
+        Event::KeyDown { key } => {
             demo.keys += 1;
-            demo.last_key = event.a;
+            demo.last_key = key as i64;
         }
-        EventKind::KeyUp => {}
     }
 }
 

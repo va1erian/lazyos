@@ -271,7 +271,9 @@ pub mod logind;
 
 /// The display protocol (`docs/platform-plan.md` S4.4, issue #113): the
 /// userspace compositor `xuid` owns the framebuffer through the kernel's device
-/// grant and implements one Messenger interface, `os.lazy.display.v1`.
+/// grant and implements one Messenger interface, `os.lazy.display.v1`, defined
+/// in `idl/display.midl` (issue #287); [`display::wire`] holds the generated
+/// method ids and codecs.
 ///
 /// ## Client and compositor
 ///
@@ -303,8 +305,8 @@ pub mod logind;
 /// append-only set of methods and one-way events; older clients and older
 /// compositors keep working because unknown TLV fields and methods are ignored:
 ///
-/// * `CreateSurface` gains a `ROLE` field: [`role::WINDOW`] (the default when
-///   the field is absent) or [`role::DESKTOP`]. A desktop surface paints at the
+/// * `CreateSurface` gains a `role`: [`display::wire::ROLE_WINDOW`] (the
+///   default when the field is absent) or [`display::wire::ROLE_DESKTOP`]. A desktop surface paints at the
 ///   bottom of the z-order, above the compositor background and below every
 ///   window, with no chrome and no taskbar entry; creating a second one
 ///   replaces the first.

@@ -6,7 +6,7 @@ use std::sync::atomic::Ordering;
 use xui_core::backend::{Event, WidgetId, WindowId};
 use xui_core::{Key, Modifiers, MouseButton};
 
-use crate::display::{self, EventKind};
+use crate::display::{self, Event as DisplayEvent};
 use crate::sys::{self, button, errno, event, key, EVENT_BYTES};
 
 use super::{LazyOSBackend, CLIENT_INPUT_BYTES, CLIENT_POLL_TICKS, INPUT_BATCH};
@@ -112,11 +112,11 @@ impl LazyOSBackend {
                     event::POINTER_MOVE => self.pointer_move(window, raw.a, raw.b),
                     event::POINTER_DOWN => {
                         let (x, y) = self.pointer.get();
-                        self.pointer_down(window, x, y, mouse_button(raw.a));
+                        self.pointer_down(window, x, y, mouse_button(raw.a as u32));
                     }
                     event::POINTER_UP => {
                         let (x, y) = self.pointer.get();
-                        self.pointer_up(window, x, y, mouse_button(raw.a));
+                        self.pointer_up(window, x, y, mouse_button(raw.a as u32));
                     }
                     event::KEY_DOWN => self.key_down(window, raw.a as u32),
                     event::KEY_UP => self.key_up(window, raw.a as u32),
@@ -138,7 +138,7 @@ impl LazyOSBackend {
                     let Some(parcel) = display::decode_message(&buf[..len]) else {
                         continue;
                     };
-                    if parcel.header.method == display::method::WINDOW_CLOSE {
+                    if parcel.header.method == display::METHOD_WINDOW_CLOSE {
                         self.quit.store(true, Ordering::Relaxed);
                         self.deliver(window, WidgetId::NONE, &Event::Close);
                         continue;
@@ -158,38 +158,25 @@ impl LazyOSBackend {
         }
     }
 
-    /// Route one decoded compositor event.
-    ///
-    /// `xuid` reports presses relative to the surface but moves in screen
-    /// coordinates, so the surface origin is recovered from each press and
-    /// applied to the moves that follow. Press events do not carry the button
-    /// id (a protocol gap, noted in the PR), so they read as the left button.
-    fn route_client_event(&self, window: WindowId, event: display::Event) {
-        match event.kind {
-            EventKind::PointerMove => {
-                self.last_abs.set(Some((event.a as i32, event.b as i32)));
-                if let Some((ox, oy)) = self.origin.get() {
-                    self.pointer_move(window, event.a as i32 - ox, event.b as i32 - oy);
-                }
+    /// Route one decoded compositor event. Pointer coordinates are already
+    /// surface-relative and presses carry their button id.
+    fn route_client_event(&self, window: WindowId, event: DisplayEvent) {
+        match event {
+            DisplayEvent::PointerMove { x, y } => self.pointer_move(window, x, y),
+            DisplayEvent::PointerDown { x, y, button } => {
+                self.pointer_down(window, x, y, mouse_button(button));
             }
-            EventKind::PointerDown => {
-                let (x, y) = (event.a as i32, event.b as i32);
-                if let Some((abs_x, abs_y)) = self.last_abs.get() {
-                    self.origin.set(Some((abs_x - x, abs_y - y)));
-                }
-                self.pointer_down(window, x, y, MouseButton::Left);
+            DisplayEvent::PointerUp { x, y, button } => {
+                self.pointer_up(window, x, y, mouse_button(button));
             }
-            EventKind::PointerUp => {
-                self.pointer_up(window, event.a as i32, event.b as i32, MouseButton::Left);
-            }
-            EventKind::KeyDown => self.key_down(window, event.a as u32),
-            EventKind::KeyUp => self.key_up(window, event.a as u32),
+            DisplayEvent::KeyDown { key } => self.key_down(window, key),
+            DisplayEvent::KeyUp { key } => self.key_up(window, key),
         }
     }
 }
 
-fn mouse_button(code: i32) -> MouseButton {
-    match code as u32 {
+fn mouse_button(code: u32) -> MouseButton {
+    match code {
         button::RIGHT => MouseButton::Right,
         button::MIDDLE => MouseButton::Middle,
         _ => MouseButton::Left,

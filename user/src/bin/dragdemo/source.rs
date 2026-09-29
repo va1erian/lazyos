@@ -5,7 +5,7 @@
 //! Split out of `dragdemo.rs`; the code is unchanged.
 
 use alloc::format;
-use user::messenger::display::{self, Canvas, Color, DragKind, Event, EventKind, Rect};
+use user::messenger::display::{self, Canvas, Color, DragKind, Event, Rect};
 use user::messenger::{errno, Error};
 use user::sys;
 
@@ -127,21 +127,21 @@ pub(super) fn source() -> ! {
 
 /// Fold one input event into the source state; start the drag past threshold.
 fn handle_source_input(app: &mut App, state: &mut SourceState, event: Event) {
-    match event.kind {
-        EventKind::PointerDown => {
-            if in_item(event.a, event.b) {
-                state.press = Some((event.a, event.b));
+    match event {
+        Event::PointerDown { x, y, .. } => {
+            let (x, y) = (x as i64, y as i64);
+            if in_item(x, y) {
+                state.press = Some((x, y));
                 state.status = "PRESSED";
                 app.redraw(&|canvas| source_draw(canvas, state));
             }
         }
-        EventKind::PointerMove => {
-            state.pointer = Some((event.a, event.b));
+        Event::PointerMove { x, y } => {
+            let (x, y) = (x as i64, y as i64);
+            state.pointer = Some((x, y));
             if !state.dragging {
                 if let (Some((px, py)), Some(token)) = (state.press, state.token) {
-                    if (event.a - px).abs() >= DRAG_THRESHOLD
-                        || (event.b - py).abs() >= DRAG_THRESHOLD
-                    {
+                    if (x - px).abs() >= DRAG_THRESHOLD || (y - py).abs() >= DRAG_THRESHOLD {
                         match app.display.drag_start(app.surface, token, DEMO_MIME) {
                             Ok(()) => {
                                 state.dragging = true;
@@ -160,14 +160,14 @@ fn handle_source_input(app: &mut App, state: &mut SourceState, event: Event) {
             }
             app.redraw(&|canvas| source_draw(canvas, state));
         }
-        EventKind::PointerUp => {
+        Event::PointerUp { .. } => {
             state.press = None;
             if !state.dragging {
                 state.status = "READY";
             }
             app.redraw(&|canvas| source_draw(canvas, state));
         }
-        EventKind::KeyDown | EventKind::KeyUp => {}
+        Event::KeyDown { .. } | Event::KeyUp { .. } => {}
     }
 }
 

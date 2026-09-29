@@ -3,11 +3,11 @@
 //! and forwarded client events, moved out of `xuid.rs` unchanged.
 
 use alloc::vec::Vec;
-use user::messenger::display::{self, Canvas, Event, EventKind, Rect};
+use user::messenger::display::{self, wire, Canvas, Rect};
 
 use super::drag::{drag_cancel, drag_finish, drag_move, DragSession};
 use super::layout::{cursor_rect, taskbar_hit};
-use super::protocol::method;
+use super::protocol::{Event, EventKind};
 use super::render::repaint;
 use super::shell::{
     alt_tab_commit, alt_tab_open, modifier_key, notify_focus, notify_start_menu, notify_surface,
@@ -101,14 +101,13 @@ pub(super) fn handle_event(
                 );
                 return;
             }
-            forward(
-                surfaces,
-                scratch,
-                *focused,
-                method::POINTER_MOVE,
-                event.a,
-                event.b,
-            );
+            // Moves are surface-relative like presses (issue #287); they go to
+            // the focused surface and may fall outside it mid-drag.
+            if let Some(id) = *focused {
+                let (x, y) = relative(surfaces, id, new);
+                let body = wire::encode_pointer_move_args(&wire::PointerMoveArgs { x, y });
+                forward(surfaces, scratch, Some(id), wire::METHOD_POINTERMOVE, body);
+            }
             repaint(
                 screen,
                 surfaces,
@@ -144,7 +143,7 @@ pub(super) fn handle_event(
                                 scratch,
                                 surface,
                                 *focused,
-                                display::change::RESTORED,
+                                wire::CHANGE_RESTORED,
                             );
                         }
                     }
@@ -261,7 +260,9 @@ pub(super) fn handle_event(
             // stale consumed bit left by a release the input queue dropped.
             *consumed &= !button_bit;
             let (x, y) = relative(surfaces, id, point);
-            forward(surfaces, scratch, Some(id), method::POINTER_DOWN, x, y);
+            let button = event.a as u32;
+            let body = wire::encode_pointer_down_args(&wire::PointerDownArgs { x, y, button });
+            forward(surfaces, scratch, Some(id), wire::METHOD_POINTERDOWN, body);
         }
         EventKind::PointerUp => {
             *button_down = false;
@@ -288,23 +289,18 @@ pub(super) fn handle_event(
                     if let Some(active) = drag.take() {
                         // The drag is committed, so tell the shell the new geometry.
                         if let Some(surface) = surface_by_id(surfaces, active.id) {
-                            notify_surface(
-                                shell,
-                                scratch,
-                                surface,
-                                *focused,
-                                display::change::MOVED,
-                            );
+                            notify_surface(shell, scratch, surface, *focused, wire::CHANGE_MOVED);
                         }
                     }
                 }
                 return;
             }
-            let (x, y) = match *focused {
-                Some(id) => relative(surfaces, id, *pointer),
-                None => (0, 0),
-            };
-            forward(surfaces, scratch, *focused, method::POINTER_UP, x, y);
+            if let Some(id) = *focused {
+                let (x, y) = relative(surfaces, id, *pointer);
+                let button = event.a as u32;
+                let body = wire::encode_pointer_up_args(&wire::PointerUpArgs { x, y, button });
+                forward(surfaces, scratch, Some(id), wire::METHOD_POINTERUP, body);
+            }
         }
         EventKind::KeyDown => {
             let key = event.a as u32;
@@ -400,14 +396,8 @@ pub(super) fn handle_event(
                 }
                 return;
             }
-            forward(
-                surfaces,
-                scratch,
-                *focused,
-                method::KEY_DOWN,
-                event.a,
-                event.b,
-            );
+            let body = wire::encode_key_down_args(&wire::KeyDownArgs { key });
+            forward(surfaces, scratch, *focused, wire::METHOD_KEYDOWN, body);
         }
         EventKind::KeyUp => {
             let key = event.a as u32;
@@ -433,14 +423,8 @@ pub(super) fn handle_event(
             if key == display::key::ESCAPE && mods.ctrl {
                 return;
             }
-            forward(
-                surfaces,
-                scratch,
-                *focused,
-                method::KEY_UP,
-                event.a,
-                event.b,
-            );
+            let body = wire::encode_key_up_args(&wire::KeyUpArgs { key });
+            forward(surfaces, scratch, *focused, wire::METHOD_KEYUP, body);
         }
     }
 }

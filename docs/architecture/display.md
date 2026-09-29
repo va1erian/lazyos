@@ -57,6 +57,18 @@ compositor demo. Target toolkit design: [xui-plan.md](../xui-plan.md).
 
 **Display protocol / XUI current state**
 
+- **The wire is MIDL** (issue #287): `os.lazy.display.v1` is defined once in
+  `idl/display.midl` (methods 1-24 pinned with `= N`; app-to-compositor calls
+  are request/reply methods, compositor-to-app events are `oneway`; the
+  `Role`/`Change` enums, `SurfaceRow` and `Array<SurfaceRow>` for
+  `ListSurfaces`). `xuid`, the `user` client library (`display::wire`), the
+  demo apps and `xui-app` all use the generated `messenger-generated` stubs; no
+  hand-written method or field ids remain. Field ids are positional, so the
+  numbering changed from the pre-MIDL protocol (all peers ship together), the
+  interface id is the generated hash of the name, and the structured error
+  field is hand-written outside the generated range (id 15). Endpoint and
+  buffer transfers stay in the parcel's `handles`/`buffers` vectors (the kernel
+  moves those; the body has no `Handle`/`Buffer` fields).
 - `xuid` binds the grant and implements `os.lazy.display.v1` over Messenger:
   clients attach a shared surface buffer and an event endpoint, the compositor
   composites and routes input, `xdemo` is the smallest client.
@@ -95,10 +107,10 @@ compositor demo. Target toolkit design: [xui-plan.md](../xui-plan.md).
   the first free grid cell and cascades with wraparound once the screen is
   full, so every window keeps at least its title bar visible; the taskbar and
   Alt+Tab switch between them.
-  Two `xuid` protocol gaps are worked around in the client backend and worth
-  tightening later: `PointerDown`/`PointerUp` carry surface-relative
-  coordinates but no button id, and `PointerMove` carries screen-absolute
-  coordinates (the client recovers the surface origin from the last press).
+  The two early pointer-payload gaps are closed (issue #287): `PointerDown` and
+  `PointerUp` carry the button id, and `PointerMove` is surface-relative like the
+  presses (relative to the focused surface, negative or oversized while a
+  press-and-drag leaves it), so the client backend needs no origin recovery.
 - **Keyboard focus routing** (issue #151) is mode-independent: a pointer press
   on a focus stop moves the backend focus, `SetFocus`/`KillFocus` reach the
   widgets, and `KeyDown`/`KeyUp`/`Char` target the focused node, not the node
@@ -127,18 +139,18 @@ compositor demo. Target toolkit design: [xui-plan.md](../xui-plan.md).
 
 `os.lazy.display.v1` gains additive methods (11–17) that move a typed payload
 between surfaces through the compositor, while `clipboardd` stays the data
-broker. The wire fields reuse the clipboard's offer/token model, so the
-compositor never sees payload bytes:
+broker. The wire reuses the clipboard's offer/token model, so the
+compositor never sees payload bytes (field names below are the IDL parameters):
 
 | # | Method | Direction | Fields |
 |---|---|---|---|
-| 11 | `DragStart` | app → compositor | `SURFACE`, `TOKEN`, `MIME` |
-| 12 | `DragCancel` | app → compositor | `SURFACE` |
-| 13 | `DragEnter` | compositor → app | `A`/`B` = surface-local x/y, `MIME` |
-| 14 | `DragOver` | compositor → app | `A`/`B` = surface-local x/y |
+| 11 | `DragStart` | app → compositor | `surface`, `token`, `mime` |
+| 12 | `DragCancel` | app → compositor | `surface` |
+| 13 | `DragEnter` | compositor → app | `x`/`y` = surface-local, `mime` |
+| 14 | `DragOver` | compositor → app | `x`/`y` = surface-local |
 | 15 | `DragLeave` | compositor → app | – |
-| 16 | `Drop` | compositor → app | `A`/`B` = surface-local x/y, `TOKEN`, `MIME` |
-| 17 | `DragEnded` | compositor → source | `A` = 1 dropped / 0 cancelled |
+| 16 | `Drop` | compositor → app | `x`/`y` = surface-local, `token`, `mime` |
+| 17 | `DragEnded` | compositor → source | `dropped` (bool) |
 
 - The source offers the payload to `clipboardd` first (`Offer`/`write` scope)
   and calls `DragStart` with the returned token while a pointer button is held.
@@ -166,20 +178,20 @@ compositor never sees payload bytes:
 **Shell protocol (issue #167, S5.0)**
 
 LazyShell (S5) is an ordinary `os.lazy.display.v1` client, so `xuid` grows an
-append-only set of methods and one-way events; unknown fields and methods are
-ignored by older peers, and the no-shell sessions above are unchanged.
+set of methods and one-way events; unknown fields and methods are ignored by
+older peers, and the no-shell sessions above are unchanged.
 
 | # | Method | Direction | Fields |
 |---|---|---|---|
-| 18 | `ListSurfaces` | shell → compositor | reply: one row per surface — `SURFACE`, `TITLE`, `X`/`Y`/`W`/`H`, `MINIMIZED`, `FOCUSED`, `ROLE` (0 window, 1 desktop) |
-| 19 | `GetWorkArea` | shell → compositor | reply: `X`/`Y`/`W`/`H` available to windows |
-| 20 | `Subscribe` | shell → compositor | `SUBSCRIBER_ROLE` string + transferred event endpoint |
-| 21 | `GetTheme` | shell → compositor | reply: `TITLE_BG_ACTIVE`, `TITLE_BG_INACTIVE`, `BORDER`, `TASKBAR`, `TEXT` as `0xRRGGBB` |
-| 22 | `SurfaceChanged` | compositor → shell | `SURFACE`, `A` = created/destroyed/moved/minimized/restored/title, geometry + flags, `ROLE`, `TITLE` on create |
-| 23 | `FocusChanged` | compositor → shell | `SURFACE` (0 = none) |
+| 18 | `ListSurfaces` | shell → compositor | reply: `surfaces`, an `Array<SurfaceRow>` (`id`, `title`, `x`/`y`/`w`/`h`, `minimized`, `focused`, `role`: 0 window, 1 desktop) |
+| 19 | `GetWorkArea` | shell → compositor | reply: `x`/`y`/`w`/`h` available to windows |
+| 20 | `Subscribe` | shell → compositor | `subscriber_role` string + transferred event endpoint |
+| 21 | `GetTheme` | shell → compositor | reply: `title_bg_active`, `title_bg_inactive`, `border`, `taskbar`, `text` as `0xRRGGBB` |
+| 22 | `SurfaceChanged` | compositor → shell | `surface`, `kind` (`Change`: created/destroyed/moved/minimized/restored/title), geometry + flags, `role`, optional `title` on create |
+| 23 | `FocusChanged` | compositor → shell | `surface` (optional; absent = none) |
 | 24 | `StartMenu` | compositor → shell | – (the Ctrl+Esc/Super hotkey fired) |
 
-- **Desktop role.** `CreateSurface` gains a `ROLE` field (`0` window, the
+- **Desktop role.** `CreateSurface` gains a `role` (`0` window, the
   default when absent; `1` desktop). A desktop surface paints at the bottom of
   the z-order — above the background colour, below every window — with no
   chrome, no taskbar or Alt+Tab entry, and it never takes focus or hit-tests.
@@ -233,5 +245,5 @@ markers, screenshots in the `xui-app` workflow), compositor client mode
 (`xui-client` inside a `xuid` window; `XUIAPP:CLIENT:PASS`, `XUIAPP:KEY:PASS`,
 `XUIAPP:CLOSE:PASS`) and keyboard focus routing (click-focus, Tab /
 PageDown cycling, keys to the focused widget). Open: zero-copy scanout,
-tightening the pointer-event payloads noted above, userspace XUI toolkit,
+userspace XUI toolkit,
 multi-session compositors, drag targets that can refuse a drop before release.

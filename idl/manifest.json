@@ -52,6 +52,132 @@
     ]
   },
   {
+    "interface": "os.lazy.display.v1",
+    "interface_id": "0x5ef41f254d43c2b4",
+    "methods": [
+      {
+        "name": "CreateSurface",
+        "id": 1,
+        "oneway": false
+      },
+      {
+        "name": "AttachBuffer",
+        "id": 2,
+        "oneway": false
+      },
+      {
+        "name": "Commit",
+        "id": 3,
+        "oneway": false
+      },
+      {
+        "name": "DestroySurface",
+        "id": 4,
+        "oneway": false
+      },
+      {
+        "name": "PointerMove",
+        "id": 5,
+        "oneway": true
+      },
+      {
+        "name": "PointerDown",
+        "id": 6,
+        "oneway": true
+      },
+      {
+        "name": "PointerUp",
+        "id": 7,
+        "oneway": true
+      },
+      {
+        "name": "KeyDown",
+        "id": 8,
+        "oneway": true
+      },
+      {
+        "name": "KeyUp",
+        "id": 9,
+        "oneway": true
+      },
+      {
+        "name": "WindowClose",
+        "id": 10,
+        "oneway": true
+      },
+      {
+        "name": "DragStart",
+        "id": 11,
+        "oneway": false
+      },
+      {
+        "name": "DragCancel",
+        "id": 12,
+        "oneway": false
+      },
+      {
+        "name": "DragEnter",
+        "id": 13,
+        "oneway": true
+      },
+      {
+        "name": "DragOver",
+        "id": 14,
+        "oneway": true
+      },
+      {
+        "name": "DragLeave",
+        "id": 15,
+        "oneway": true
+      },
+      {
+        "name": "Drop",
+        "id": 16,
+        "oneway": true
+      },
+      {
+        "name": "DragEnded",
+        "id": 17,
+        "oneway": true
+      },
+      {
+        "name": "ListSurfaces",
+        "id": 18,
+        "oneway": false
+      },
+      {
+        "name": "GetWorkArea",
+        "id": 19,
+        "oneway": false
+      },
+      {
+        "name": "Subscribe",
+        "id": 20,
+        "oneway": false
+      },
+      {
+        "name": "GetTheme",
+        "id": 21,
+        "oneway": false
+      },
+      {
+        "name": "SurfaceChanged",
+        "id": 22,
+        "oneway": true
+      },
+      {
+        "name": "FocusChanged",
+        "id": 23,
+        "oneway": true
+      },
+      {
+        "name": "StartMenu",
+        "id": 24,
+        "oneway": true
+      }
+    ]
+  },
+  {
     "interface": "os.lazy.echo.v1",
     "interface_id": "0xcc4ac1057e84db93",
     "methods": [
