@@ -74,5 +74,9 @@ pub(super) const CASES: &[(&str, Test)] = &[
         "task_signal_suspend_swaps_and_restores_the_mask",
         suspend_swaps_and_restores_the_mask,
     ),
+    (
+        "task_signal_suspend_ignored_signals_and_owner",
+        suspend_ignores_ignored_signals_and_is_per_task,
+    ),
     ("task_signal_soak_suspend_cycles", soak_suspend_cycles),
 ];

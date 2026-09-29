@@ -72,10 +72,11 @@ struct Signals {
     /// True while a handler delivered with `SA_ONSTACK` runs, so a nested
     /// signal reuses the current stack instead of re-entering the alt stack.
     on_altstack: bool,
-    /// The mask `rt_sigsuspend` replaced: restored when the handler it woke for
-    /// returns (it becomes that frame's saved mask), or at once when no handler
-    /// ran.
-    suspend_restore: Option<u64>,
+    /// `(task slot, mask)` `rt_sigsuspend` replaced: restored when the handler it
+    /// woke for returns (it becomes that frame's saved mask), or at once when no
+    /// handler ran. Only the suspending task consumes it, so a sibling thread's
+    /// unrelated syscall cannot end another thread's suspend.
+    suspend_restore: Option<(usize, u64)>,
 }
 
 impl Signals {
@@ -279,7 +280,7 @@ pub fn suspend_begin(slot: usize, temp: u64) {
     with_signals(pml4, |state| {
         // A nested suspend keeps the outermost mask.
         if state.suspend_restore.is_none() {
-            state.suspend_restore = Some(state.blocked);
+            state.suspend_restore = Some((slot, state.blocked));
         }
         state.blocked = clean_mask(temp);
     });
@@ -293,24 +294,58 @@ pub fn suspend_end(slot: usize) {
     let Some((pml4, _)) = slot_info(slot) else {
         return;
     };
-    suspend_end_for(pml4);
+    suspend_end_for(pml4, slot);
 }
 
-/// [`suspend_end`] for a process already identified by its address space.
-pub(super) fn suspend_end_for(pml4: u64) {
+/// Test view of a sibling thread's syscall return: try to end `slot`'s suspend
+/// as if task `other` (sharing its address space) had run `deliver_linux`.
+#[cfg(lazyos_tests)]
+pub fn suspend_end_as_other(slot: usize, other: usize) {
+    let Some((pml4, _)) = slot_info(slot) else {
+        return;
+    };
+    suspend_end_for(pml4, other);
+}
+
+/// [`suspend_end`] for a task already identified by its address space: only the
+/// suspend that `slot` began is ended.
+pub(super) fn suspend_end_for(pml4: u64, slot: usize) {
     with_signals(pml4, |state| {
-        if let Some(mask) = state.suspend_restore.take() {
-            state.blocked = clean_mask(mask);
+        if let Some((owner, mask)) = state.suspend_restore {
+            if owner == slot {
+                state.suspend_restore = None;
+                state.blocked = clean_mask(mask);
+            }
         }
     });
 }
 
-/// Whether a signal the task's current mask lets through is pending.
-pub fn deliverable_pending(slot: usize) -> bool {
+/// Whether `rt_sigsuspend` may return: a signal the current mask lets through
+/// is pending *and* its action is not "ignore" (POSIX: the call returns only
+/// after a handler runs or the process terminates). Pending signals that would
+/// be ignored are discarded here so they cannot end the wait.
+pub fn suspend_wake_ready(slot: usize) -> bool {
     let Some((pml4, _)) = slot_info(slot) else {
         return false;
     };
-    with_signals(pml4, |state| state.pending & !state.blocked != 0)
+    with_signals(pml4, |state| loop {
+        let ready = state.pending & !state.blocked;
+        let Some(sig) = lowest_signal(ready) else {
+            return false;
+        };
+        let ignored = match state.actions[sig as usize] {
+            Disposition::Ignore => true,
+            Disposition::Default => matches!(
+                default_action(sig),
+                DefaultAction::Ignore | DefaultAction::Cont
+            ),
+            Disposition::Handler { .. } => false,
+        };
+        if !ignored {
+            return true;
+        }
+        state.pending &= !bit(sig);
+    })
 }
 
 pub fn altstack(slot: usize) -> AltStack {

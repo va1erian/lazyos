@@ -13,10 +13,22 @@ pub fn suspend_swaps_and_restores_the_mask() -> Result<(), String> {
     fresh()?;
     let me = task::current();
     let original = (1 << signal::SIGCHLD) | (1 << signal::SIGUSR1);
+    // A real handler, so the pending signal is one `rt_sigsuspend` must wake for.
+    signal::set_action(
+        me,
+        signal::SIGCHLD,
+        Disposition::Handler {
+            handler: 0x0040_0100,
+            flags: 0,
+            restorer: 0x0040_0200,
+            mask: 0,
+        },
+    )
+    .map_err(|error| format!("set_action: {error:?}"))?;
     signal::set_blocked(me, original);
     send(me, signal::SIGCHLD)?;
     check!(
-        !signal::deliverable_pending(me),
+        !signal::suspend_wake_ready(me),
         "a blocked pending signal was deliverable before the suspend"
     );
 
@@ -26,7 +38,7 @@ pub fn suspend_swaps_and_restores_the_mask() -> Result<(), String> {
         "the temporary mask was not installed"
     );
     check!(
-        signal::deliverable_pending(me),
+        signal::suspend_wake_ready(me),
         "the signal is not deliverable under the temporary mask"
     );
 
@@ -64,5 +76,39 @@ pub fn soak_suspend_cycles() -> Result<(), String> {
             signal::blocked(me)
         );
     }
+    Ok(())
+}
+
+/// A pending signal whose action is "ignore" must not end the suspension (it is
+/// discarded), and only the suspending task can end its own suspend.
+pub fn suspend_ignores_ignored_signals_and_is_per_task() -> Result<(), String> {
+    fresh()?;
+    let me = task::current();
+    let original = 1 << signal::SIGCHLD;
+    signal::set_blocked(me, original);
+    // SIGCHLD's default action is ignore; a record of it is still queued.
+    send(me, signal::SIGCHLD)?;
+    signal::suspend_begin(me, 0);
+    check!(
+        !signal::suspend_wake_ready(me),
+        "an ignored pending signal woke the suspend"
+    );
+    check!(
+        signal::pending(me) & (1 << signal::SIGCHLD) == 0,
+        "the ignored signal was left pending"
+    );
+
+    // Another task of the process finishing its own syscall must not consume
+    // this task's saved mask.
+    signal::suspend_end_as_other(me, me + 1);
+    check!(
+        signal::blocked(me) == 0,
+        "a sibling's syscall return ended this task's suspend"
+    );
+    signal::suspend_end(me);
+    check!(
+        signal::blocked(me) == original,
+        "the owner could not end its suspend"
+    );
     Ok(())
 }

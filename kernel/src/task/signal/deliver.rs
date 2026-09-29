@@ -33,7 +33,7 @@ pub(super) fn clear_pending(pml4: u64, sig: u8) {
 /// Consume `sig` into a handler: clear it from pending, apply the action mask
 /// (plus the signal itself unless `SA_NODEFER`), arm the alternate stack, and
 /// honour `SA_RESETHAND`.
-pub(super) fn arm_handler(pml4: u64, sig: u8) -> Option<Armed> {
+pub(super) fn arm_handler(pml4: u64, slot: usize, sig: u8) -> Option<Armed> {
     with_signals(pml4, |state| {
         let Disposition::Handler {
             handler,
@@ -46,7 +46,13 @@ pub(super) fn arm_handler(pml4: u64, sig: u8) -> Option<Armed> {
         };
         // After `rt_sigsuspend` the frame must restore the mask the suspend
         // replaced, not the temporary one the handler runs under.
-        let saved_mask = state.suspend_restore.take().unwrap_or(state.blocked);
+        let saved_mask = match state.suspend_restore {
+            Some((owner, mask)) if owner == slot => {
+                state.suspend_restore = None;
+                mask
+            }
+            _ => state.blocked,
+        };
         let mut next = state.blocked | mask;
         if flags & SA_NODEFER == 0 {
             next |= bit(sig);
@@ -234,6 +240,7 @@ pub(super) fn wait_continued() {
 /// `SIGCONT`; fatal defaults never return.
 pub(super) fn apply_action(
     pml4: u64,
+    slot: usize,
     sig: u8,
     disposition: Disposition,
     regs: &mut UserRegs,
@@ -245,7 +252,7 @@ pub(super) fn apply_action(
         }
         Disposition::Default => default_action(sig),
         Disposition::Handler { .. } => {
-            let Some(armed) = arm_handler(pml4, sig) else {
+            let Some(armed) = arm_handler(pml4, slot, sig) else {
                 return false;
             };
             let Some(result) = prepare_handler(regs, sig, &armed, false) else {
@@ -304,7 +311,7 @@ pub fn deliver_linux(result: u64) {
             wait_continued();
             continue;
         }
-        apply_action(pml4, sig, disposition, &mut regs);
+        apply_action(pml4, slot, sig, disposition, &mut regs);
         frame_written = true;
     }
     if frame_written {
@@ -312,7 +319,7 @@ pub fn deliver_linux(result: u64) {
     }
     // `rt_sigsuspend` woke without a handler frame consuming its saved mask (the
     // signal's action ignored it): the original mask comes back now.
-    suspend_end_for(pml4);
+    suspend_end_for(pml4, slot);
 }
 
 /// One task the timer sweep ended, to be finished with its side effects after
@@ -401,7 +408,7 @@ pub unsafe fn sweep(tasks: &mut [Option<Task>; MAX_TASKS]) -> ([SweepFinish; MAX
                 }
             }
             // Handler: rewrite the saved frame in place.
-            let Some(armed) = arm_handler(pml4, sig) else {
+            let Some(armed) = arm_handler(pml4, slot, sig) else {
                 break;
             };
             let mut regs = regs_from_frame(rsp, FRAME_RIP_INDEX);

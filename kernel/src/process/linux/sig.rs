@@ -8,7 +8,7 @@
 use crate::task;
 use crate::task::signal::{self, Disposition, SignalError};
 
-use super::errno::{err, EINTR, EINVAL, EPERM, ESRCH};
+use super::errno::{err, EFAULT, EINTR, EINVAL, EPERM, ESRCH};
 use super::uaccess::{read_u32, read_u64, write_u32, write_u64};
 
 /// Map a signal-layer failure to its Linux errno.
@@ -122,12 +122,16 @@ pub(super) fn sys_rt_sigsuspend(set: u64, sigsetsize: u64) -> u64 {
         return err(EINVAL);
     }
     let me = task::current();
-    let temp = signal::linux_sigset_to_kernel(read_u64(set));
+    // A bad mask pointer must fail, not read as an empty mask.
+    let Ok(mask) = crate::user_ptr::try_read::<u64>(set) else {
+        return err(EFAULT);
+    };
+    let temp = signal::linux_sigset_to_kernel(mask);
     signal::suspend_begin(me, temp);
     // The syscall runs with interrupts off, so a signal cannot slip in between
     // this check and the park: a pending one is seen here, a later one wakes
     // the park with `Interrupted`.
-    while !signal::deliverable_pending(me) {
+    while !signal::suspend_wake_ready(me) {
         if task::wait_signal() == task::WakeReason::Interrupted {
             break;
         }
