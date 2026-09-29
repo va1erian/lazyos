@@ -76,12 +76,6 @@ impl RamFs {
         RamFs::with_limits(DEFAULT_MAX_BYTES, DEFAULT_MAX_NODES)
     }
 
-    /// A ramfs that enforces no cap of its own, for a layer (the overlay's
-    /// upper) whose owner does the accounting.
-    pub fn unbounded() -> RamFs {
-        RamFs::with_limits(usize::MAX, usize::MAX)
-    }
-
     /// A ramfs with explicit caps; writes and creations past them fail with
     /// [`FsError::NoSpace`]. Tests use tiny values.
     pub fn with_limits(max_bytes: usize, max_nodes: usize) -> RamFs {
