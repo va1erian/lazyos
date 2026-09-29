@@ -163,7 +163,13 @@ def run_busybox(at: str, accel: str) -> tuple[str, str]:
     data disk attached their output must name `/data` (they read
     `/proc/mounts`); without the disk tooling only the shell itself is judged.
     """
-    disk = new_data_disk("busybox") if data_disk_tooling() else None
+    disk = None
+    if data_disk_tooling():
+        # Same rule as the two-boot rows: tooling that is present but cannot
+        # make the volume is a failure, never a silent pass without the checks.
+        disk = new_data_disk("busybox")
+        if disk is None:
+            return "fail", "could not format the data disk"
     serial = capture("busybox", at, accel, disk)
     status, detail = classify("busybox", serial)
     if status != "pass" or disk is None:
