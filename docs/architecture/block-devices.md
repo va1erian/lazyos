@@ -26,10 +26,13 @@ trait, a fixed registry with a selected boot device, and three drivers.
 
 - Registry: fixed array of `&'static dyn BlockDevice`, `MAX_DEVICES = 8`, no
   heap. Drivers are `'static` singletons (`ata::probe`, `virtio::probe`).
-- `init()` probes once (`PROBED`): ATA first (stays the fallback boot device),
-  then virtio which takes the boot slot when present. `read_sector` is the
-  compatibility entry point the legacy FAT reader calls; `virt_to_phys` walks
-  the active page table for DMA descriptors.
+- `init()` is a thin wrapper over `dev::init` (device core, #239). The one-shot
+  guards are `dev::INITED` (enumeration) and `dev::driver::PROBED` (driver
+  attach), not a block-layer flag. The in-kernel driver table attaches ATA first
+  (`install_ata`; stays the fallback boot device), then virtio (`install_virtio`),
+  which takes the boot slot when present. Filesystems read through
+  the `BlockDevice` handle they were opened with, not the global boot device;
+  `virt_to_phys` walks the active page table for DMA descriptors.
 
 **Drivers**
 
@@ -57,8 +60,9 @@ falls through to `ram0` when no disk has a volume. `Fat16::open` accepts a bare
 
 **Boot device and mount interaction**
 
-- `fs::init` iterates `block::devices()`, sets each as boot device, tries FAT
-  (boot device only) then ext2, and mounts the first success at `/`.
+- `fs::init` iterates `block::devices()`, tries FAT then ext2 on each device
+  it is handed, and mounts the first success at `/`. The volume keeps that
+  device handle, so a second volume never reads the wrong disk (#244).
 - Bench/test doubles register through the same `register()` API (tests use a
   fake device name pattern).
 

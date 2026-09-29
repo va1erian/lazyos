@@ -27,7 +27,9 @@ client. Link changes are published on `system/net/<nic>/link`.
 - `mac: Bytes` — six octets, network order
 - `mtu: U32`
 - `link: Bool`
-- `features: U32` — capability bitmap (checksum offload, VLAN, ...), zero if none
+- `features: U32` — capability bitmap, zero if none: bit 0 receive checksum
+  offload, bit 1 transmit checksum offload, bit 2 VLAN tag insert/strip. Other
+  bits are reserved: a driver sets them to zero and a client ignores them
 
 ## struct `NicStats`
 

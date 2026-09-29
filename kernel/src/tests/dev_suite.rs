@@ -326,20 +326,33 @@ pub fn attach_failure_rolls_back() -> Result<(), String> {
     let table = Mutex::new(DeviceTable::new());
     let (bad, good) = {
         let mut guard = table.lock();
-        let bad = guard.insert(test_device(0x01)).map_err(|e| format!("{e:?}"))?;
-        let good = guard.insert(test_device(0x02)).map_err(|e| format!("{e:?}"))?;
+        let bad = guard
+            .insert(test_device(0x01))
+            .map_err(|e| format!("{e:?}"))?;
+        let good = guard
+            .insert(test_device(0x02))
+            .map_err(|e| format!("{e:?}"))?;
         (bad, good)
     };
     let drivers: [&dyn Driver; 2] = [
-        &MockDriver { class: 0x01, fail: true },
-        &MockDriver { class: 0x02, fail: false },
+        &MockDriver {
+            class: 0x01,
+            fail: true,
+        },
+        &MockDriver {
+            class: 0x02,
+            fail: false,
+        },
     ];
     check!(
         attach_all(&table, &drivers) == 1,
         "expected exactly the good device to attach"
     );
     let guard = table.lock();
-    check!(guard.owner(bad).is_none(), "a failed attach left the device claimed");
+    check!(
+        guard.owner(bad).is_none(),
+        "a failed attach left the device claimed"
+    );
     check!(
         guard.owner(good) == Some(TaskSlot::KERNEL),
         "the successful attach was not claimed for the kernel"
@@ -356,10 +369,16 @@ pub fn attach_failure_soak() -> Result<(), String> {
         .lock()
         .insert(test_device(0x01))
         .map_err(|e| format!("{e:?}"))?;
-    let drivers: [&dyn Driver; 1] = [&MockDriver { class: 0x01, fail: true }];
+    let drivers: [&dyn Driver; 1] = [&MockDriver {
+        class: 0x01,
+        fail: true,
+    }];
     for round in 0..ROUNDS {
         check!(attach_all(&table, &drivers) == 0, "round {round} attached");
-        check!(table.lock().owner(id).is_none(), "round {round} leaked a claim");
+        check!(
+            table.lock().owner(id).is_none(),
+            "round {round} leaked a claim"
+        );
     }
     check!(
         table.lock().generation(id) == Some(ROUNDS),
@@ -416,5 +435,8 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("dev_attach_failure_rolls_back", attach_failure_rolls_back),
     ("dev_attach_failure_soak", attach_failure_soak),
     ("dev_pci_io_bar_16bit_mask", pci_io_bar_16bit_mask),
-    ("dev_pci_sizing_restores_command", pci_sizing_restores_command),
+    (
+        "dev_pci_sizing_restores_command",
+        pci_sizing_restores_command,
+    ),
 ];

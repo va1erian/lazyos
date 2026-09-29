@@ -25,8 +25,14 @@ the caller maps it at the returned offset and fences against the position.
 ## struct `AudioInfo`
 
 - `streams: U32` — number of concurrent streams
-- `formats: U32` — supported [`Format`](#enum-format) bitmap
-- `rates: U32` — supported rates bitmap (Hz)
+- `formats: U32` — supported [`Format`](#enum-format) bitmap: bit *n* is set
+  when the `Format` with ordinal *n* is supported (bit 0 `S16Le`, 1 `S24Le`,
+  2 `S32Le`, 3 `Float32`)
+- `rates: U32` — supported sample-rate bitmap: bit 0 8000 Hz, 1 11025, 2 16000,
+  3 22050, 4 32000, 5 44100, 6 48000, 7 88200, 8 96000, 9 176400, 10 192000
+
+Bits not listed are reserved: a driver sets them to zero and a client ignores
+them.
 - `channels: U32` — maximum channels
 
 ## enum `Direction`

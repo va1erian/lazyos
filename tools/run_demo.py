@@ -48,6 +48,8 @@ def main(argv: list[str]) -> int:
                         choices=["auto", "none", "tcg", "whpx", "kvm"],
                         help="QEMU accelerator; auto uses whpx/kvm when available "
                              "(many times faster than TCG)")
+    parser.add_argument("--disk", default="virtio", choices=["virtio", "ata"],
+                        help="boot disk bus: virtio-blk (DMA, fast) or legacy IDE/ATA PIO")
     parser.add_argument("qemu_args", nargs=argparse.REMAINDER,
                         help="extra QEMU args (after `--`)")
     args = parser.parse_args(argv)
@@ -71,11 +73,17 @@ def main(argv: list[str]) -> int:
     qemu = find_qemu(args.qemu)
     command = [
         qemu,
-        "-drive", f"format=raw,file={image}",
         "-m", args.memory,
         "-device", "isa-debug-exit,iobase=0xf4,iosize=0x04",
         "-serial", "mon:stdio",
     ]
+    # virtio-blk is DMA-based; the IDE/PIO path costs a VM exit per 16 bits read,
+    # which made loading the ~2.7 MB desktop ELFs take tens of seconds.
+    if args.disk == "virtio":
+        command += ["-drive", f"format=raw,file={image},if=none,id=boot",
+                    "-device", "virtio-blk-pci,drive=boot"]
+    else:
+        command += ["-drive", f"format=raw,file={image}"]
     command += accel_args(args.accel, qemu)
     if args.headless:
         command += ["-display", "none"]

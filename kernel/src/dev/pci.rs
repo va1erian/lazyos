@@ -330,7 +330,10 @@ pub fn header_type(address: Address) -> u8 {
 }
 
 pub fn subsystem_id(address: Address) -> (u16, u16) {
-    (read16(address, REG_SUBSYSTEM), read16(address, REG_SUBSYSTEM + 2))
+    (
+        read16(address, REG_SUBSYSTEM),
+        read16(address, REG_SUBSYSTEM + 2),
+    )
 }
 
 /// Visit every present PCI function. A function is present when its vendor id

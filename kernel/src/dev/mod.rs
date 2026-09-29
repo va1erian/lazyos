@@ -30,7 +30,7 @@ pub use bus::{Bus, PciBus};
 pub(crate) use driver::attach_all;
 pub use driver::{probe, Driver, DRIVERS};
 pub use resources::{Bar, BarKind, Irq, Resource, Resources, MAX_BARS};
-pub use table::{DeviceHandle, DevError, DeviceTable, MAX_DEVICES};
+pub use table::{DevError, DeviceHandle, DeviceTable, MAX_DEVICES};
 
 use core::sync::atomic::{AtomicBool, Ordering};
 

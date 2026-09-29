@@ -21,7 +21,7 @@ def build_simple_tab(parent: ttk.Frame, build_var, iface_var, on_start) -> None:
     ttk.Label(parent, text="Start LazyOS", font=("TkDefaultFont", 14, "bold")
               ).pack(anchor="w", padx=10, pady=(12, 2))
     ttk.Label(parent, text="Choose how to build and what to boot, then press Start. "
-                           "Machine settings (accelerator, memory, QEMU path) come "
+                           "Machine settings (accelerator, disk bus, memory, QEMU path) come "
                            "from the Advanced tab.",
               wraplength=440, foreground="#444").pack(anchor="w", padx=10, pady=(0, 8))
 

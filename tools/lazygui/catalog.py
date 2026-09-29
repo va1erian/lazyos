@@ -79,6 +79,7 @@ XUI_VIEWERS = ["(none)", "m0", "counter", "sysmon", "fabricmon", "client", "term
 # by `init` as `xuid` clients. The Terminal comes first so it takes the focus.
 DESKTOP_APPS = ("term", "sysmon", "fabricmon", "counter")
 ACCELS = ["auto", "none", "tcg", "whpx", "kvm"]
+DISKS = ["virtio", "ata"]
 
 
 def build_env(cfg: dict) -> dict[str, str]:
@@ -175,7 +176,8 @@ def build_plan(cfg: dict) -> list[dict]:
             argv.append("--no-build")
         if cfg["headless"]:
             argv.append("--headless")
-        argv += ["--accel", cfg["accel"], "--memory", cfg["memory"]]
+        argv += ["--accel", cfg["accel"], "--memory", cfg["memory"],
+                 "--disk", cfg.get("disk", "virtio")]
         if cfg["qemu"]:
             argv += ["--qemu", cfg["qemu"]]
         if cfg["extra"]:

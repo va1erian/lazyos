@@ -172,11 +172,15 @@ pub fn registry_register_lookup_duplicate() -> Result<(), String> {
         names.contains(&"test-registry-a") && names.contains(&"test-registry-b"),
         "devices() is {names:?}"
     );
+    // The boot device is a process-wide global, so put it back whatever the
+    // check says: later suites open the real boot disk through it.
+    let previous = block::boot_device();
     block::set_boot_device(first);
-    check!(
-        block::boot_device().map(|dev| dev.name()) == Some("test-registry-a"),
-        "set_boot_device did not stick"
-    );
+    let stuck = block::boot_device().map(|dev| dev.name()) == Some("test-registry-a");
+    if let Some(device) = previous {
+        block::set_boot_device(device);
+    }
+    check!(stuck, "set_boot_device did not stick");
     Ok(())
 }
 

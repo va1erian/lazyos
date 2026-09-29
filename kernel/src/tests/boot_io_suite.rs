@@ -160,22 +160,17 @@ fn expected_file() -> Vec<u8> {
 }
 
 /// Reads over a fragmented chain: whole file, every small window, and a soak
-/// of random ranges, all against the expected bytes. The volume lives on a
-/// fake disk swapped in as the boot device, and is swapped back afterwards.
+/// of random ranges, all against the expected bytes. The volume is opened on a
+/// fake disk directly; a volume keeps its own device handle (issue #244).
 fn fat_fragmented_chain_reads() -> Result<(), String> {
-    let previous = block::boot_device();
     let disk = FakeDisk::new("test-frag-fat", IMAGE_SECTORS);
     disk.data.lock().copy_from_slice(&fragmented_image());
-    block::set_boot_device(disk);
-    let result = fragmented_reads();
-    if let Some(device) = previous {
-        block::set_boot_device(device);
-    }
-    result
+    fragmented_reads(disk)
 }
 
-fn fragmented_reads() -> Result<(), String> {
-    let volume = Fat16::open().ok_or_else(|| String::from("the fake FAT volume did not open"))?;
+fn fragmented_reads(disk: &'static FakeDisk) -> Result<(), String> {
+    let volume =
+        Fat16::open(disk).ok_or_else(|| String::from("the fake FAT volume did not open"))?;
     let want = expected_file();
 
     let mut whole = vec![0u8; FILE_SIZE + 64];
@@ -229,7 +224,9 @@ fn fragmented_reads() -> Result<(), String> {
 /// repeatedly.
 fn fat_boot_volume_whole_matches_windows() -> Result<(), String> {
     block::init();
-    let volume = Fat16::open().ok_or_else(|| String::from("the boot FAT volume did not open"))?;
+    let boot = block::boot_device().ok_or("no boot device")?;
+    let volume =
+        Fat16::open(boot).ok_or_else(|| String::from("the boot FAT volume did not open"))?;
     let meta = volume
         .lookup("SH.ELF")
         .map_err(|error| format!("lookup: {error:?}"))?;

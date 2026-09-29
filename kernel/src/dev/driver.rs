@@ -9,10 +9,10 @@
 //! The legacy block drivers register here with **no behavior change**: their
 //! `attach` calls the same probe code the block layer always used.
 
-use super::{BusId, DeviceHandle, DevError, DeviceInfo, DeviceTable, TaskSlot};
-use spin::Mutex;
+use super::{BusId, DevError, DeviceHandle, DeviceInfo, DeviceTable, TaskSlot};
 use alloc::vec::Vec;
 use core::sync::atomic::{AtomicBool, Ordering};
+use spin::Mutex;
 
 /// A statically linked kernel driver.
 pub trait Driver: Sync {
@@ -74,12 +74,10 @@ impl Driver for VirtioBlkDriver {
         if VIRTIO_ATTACHED.swap(true, Ordering::SeqCst) {
             return Err(DevError::Busy);
         }
-        crate::block::install_virtio()
-            .map(|_| ())
-            .ok_or_else(|| {
-                VIRTIO_ATTACHED.store(false, Ordering::SeqCst);
-                DevError::NoDriver
-            })
+        crate::block::install_virtio().map(|_| ()).ok_or_else(|| {
+            VIRTIO_ATTACHED.store(false, Ordering::SeqCst);
+            DevError::NoDriver
+        })
     }
 }
 

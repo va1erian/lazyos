@@ -123,6 +123,11 @@ const AUTOSTART_ATTEMPTS: u64 = 40;
 /// currently holds or will reclaim a slot without another cap check.
 const LAUNCH_CAP_PER_SESSION: usize = 2;
 
+/// Whether this boot runs its self-tests (soak, demo clients, launch checks).
+/// They are evidence for headless/CI runs and cost boot time, so optimized
+/// release builds leave them out.
+const BOOT_SELFTESTS: bool = cfg!(debug_assertions);
+
 /// What to do when a service exits.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Restart {
@@ -354,7 +359,12 @@ impl Service {
         Service {
             name: spec.name,
             path: spec.path,
-            args: spec.args.to_string(),
+            // `soak=`/`demo=` only drive boot evidence; release boots skip them.
+            args: if BOOT_SELFTESTS {
+                spec.args.to_string()
+            } else {
+                String::new()
+            },
             restart: spec.restart,
             deps: spec.deps,
             health_topic: spec.health_topic.to_string(),
@@ -427,12 +437,19 @@ fn run() -> messenger::Result<()> {
         0,
     )?;
     let mut broker = router::TopicBroker::new("os.lazy.events.sink");
-    let mut services: Vec<Service> = MANIFEST.iter().map(Service::from_manifest).collect();
+    // Release boots skip the evidence-only rows (`flaky`'s deliberate crashes).
+    let mut services: Vec<Service> = MANIFEST
+        .iter()
+        .filter(|spec| BOOT_SELFTESTS || spec.name != "flaky")
+        .map(Service::from_manifest)
+        .collect();
     sys::write_str(&format!("init: manifest: {} service(s)\n", services.len()));
     apps::load_manifest();
-    sys::write_str(&apps::selftest_apps());
-    selftest_launch_policy();
-    selftest_launch_cap();
+    if BOOT_SELFTESTS {
+        sys::write_str(&apps::selftest_apps());
+        selftest_launch_policy();
+        selftest_launch_cap();
+    }
     start_ready(&mut services, &mut broker);
     // One receive buffer for the whole life of the supervisor: the user bump
     // allocator never reclaims per-call buffers, so long-lived loops must not
@@ -453,7 +470,9 @@ fn run() -> messenger::Result<()> {
         // The boot launch self-test: spawn `TOP.ELF` through the real launch
         // path once a task slot is free (the manifest's one-shot `top` exits
         // around here), proving `Launch` end to end in a headless boot.
-        selftest.step(&mut services, &mut broker, now);
+        if BOOT_SELFTESTS {
+            selftest.step(&mut services, &mut broker, now);
+        }
         // The desktop's apps (issue #215): open the shipped `autostart` rows.
         autostart.step(&mut services, &mut broker, now);
         // Reap one exit (or time out to serve requests).
