@@ -267,7 +267,7 @@ fn tasks_payload(snapshot: &Snapshot) -> String {
 fn dispatch(message: &Message) -> messenger::Result<Parcel> {
     match message.interface_id() {
         services::SYSMOND_INTERFACE => match message.method() {
-            services::sysmond_method::SNAPSHOT => {
+            services::sysmond::METHOD_SNAPSHOT => {
                 let snapshot = sysinfo::snapshot().map_err(Error::Errno)?;
                 services::sysinfo_reply(&snapshot)
             }

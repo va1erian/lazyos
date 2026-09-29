@@ -1,0 +1,30 @@
+/// The structured, hash-chained event log service (issue #93).
+///
+/// Every record chains over the previous record's hash, so `Verify` detects
+/// tampering with any retained record. Failures are returned as a structured
+/// error field (errno-style code, friendly text), not as a typed reply.
+interface os.lazy.logd.v1 {
+    /// Return the newest `count` records; an absent `count` means `10`.
+    method Tail(count: Option<U64>) -> (records: Array<LogRecord>);
+
+    /// Return the number of records appended since boot.
+    method Count() -> (count: U64);
+
+    /// Recompute the hash chain and report `ok`/first bad `index` (the record
+    /// count when the chain is intact).
+    method Verify() -> (ok: Bool, index: U64);
+
+    /// One hash-chained log record.
+    struct LogRecord {
+        /// Log sequence number.
+        seq: U64,
+        /// Tick the record was produced.
+        tick: U64,
+        /// Log topic.
+        topic: String,
+        /// Human-readable detail.
+        detail: String,
+        /// Log chain hash.
+        hash: U64
+    }
+}

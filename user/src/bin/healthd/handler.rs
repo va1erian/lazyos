@@ -1,11 +1,14 @@
 //! `healthd`'s request handling: dispatching the Messenger interfaces it
-//! serves and decoding the string fields of a `Report`.
+//! serves and decoding a `Report`.
 //!
 //! Split out of `healthd.rs` (issue #194).
 
-use alloc::string::String;
 use alloc::vec::Vec;
-use user::messenger::{self, router, services, Error, Message, Parcel};
+use user::messenger::{
+    self, router, services,
+    services::health::wire::{decode_report_args, ReportArgs},
+    Error, Message, Parcel,
+};
 
 use super::aggregate::{records, report, summary};
 use super::HealthRow;
@@ -20,14 +23,16 @@ pub(crate) fn dispatch(
     match message.interface_id() {
         router::INTERFACE => broker.handle(message),
         services::HEALTHD_INTERFACE => match message.method() {
-            services::healthd_method::REPORT => {
-                let name = string_field(message, services::field::NAME)?;
-                let status = string_field(message, services::field::STATUS)?;
-                let detail = string_field(message, services::field::DETAIL)?;
+            services::health::METHOD_REPORT => {
+                let ReportArgs {
+                    name,
+                    status,
+                    detail,
+                } = decode_report(message)?;
                 report(rows, broker, &name, &status, &detail);
                 services::health_reply(&summary(rows), &records(rows))
             }
-            services::healthd_method::STATUS => {
+            services::health::METHOD_STATUS => {
                 services::health_reply(&summary(rows), &records(rows))
             }
             _ => Err(Error::Errno(-messenger::errno::EINVAL)),
@@ -36,14 +41,15 @@ pub(crate) fn dispatch(
     }
 }
 
-/// The first string field with the given id in a message body.
-fn string_field(message: &Message, id: u16) -> messenger::Result<String> {
-    use libmessenger::{Decoder, Kind};
-    let mut decoder = Decoder::new(&message.parcel.body);
-    while let Some(field) = decoder.next().map_err(Error::Parcel)? {
-        if field.kind == Kind::String && field.id == id {
-            return Ok(String::from(field.as_str().map_err(Error::Parcel)?));
-        }
+/// Decode a `Report` request body.
+///
+/// The generated decoder defaults a missing `name` to the empty string, but a
+/// heartbeat without a service name is meaningless, so keep the explicit
+/// check the old hand-written field scan made.
+fn decode_report(message: &Message) -> messenger::Result<ReportArgs> {
+    let args = decode_report_args(&message.parcel.body).map_err(Error::Parcel)?;
+    if args.name.is_empty() {
+        return Err(Error::Errno(-messenger::errno::EINVAL));
     }
-    Err(Error::Errno(-messenger::errno::EINVAL))
+    Ok(args)
 }
