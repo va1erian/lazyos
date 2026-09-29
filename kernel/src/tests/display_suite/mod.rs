@@ -78,7 +78,10 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("display_present_partial_unmap", present_partial_unmap),
     ("display_present_small_soak", present_small_soak),
     ("display_slots_attach_rules", slots_attach_rules),
-    ("display_slots_present_and_release", slots_present_and_release),
+    (
+        "display_slots_present_and_release",
+        slots_present_and_release,
+    ),
     ("display_slots_damage_clipping", slots_damage_clipping),
     (
         "display_slots_double_buffer_ordering",
