@@ -104,6 +104,7 @@ fn spawn_linux_in(
         fs_base: 0,
         fds: new_fds(),
         fd_flags: [0; FD_COUNT],
+        cwd: None,
         output: Vec::new(),
         input: VecDeque::new(),
     });
