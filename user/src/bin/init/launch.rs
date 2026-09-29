@@ -1,0 +1,168 @@
+//! `init`'s app-launch path: caller authorization, session credential
+//! resolution and the launch-cap check, then spawning and adopting the app as
+//! a supervised child.
+//!
+//! Split out of `init.rs` (issue #194); a pure move, no behavior change.
+
+use alloc::format;
+use alloc::string::ToString;
+use alloc::vec::Vec;
+
+use user::messenger::{self, logind, router, services, Message};
+use user::sys::{self, Cred as SysCred};
+
+use super::apps::{find_app, is_available};
+use super::state::{Phase, Service, CAP_SETUID, LAUNCH_CAP_PER_SESSION, SESSION_CAPS};
+use super::supervise::{command_line, publish_state};
+
+/// The kernel-stamped actor for a message: the supervisor runs as root, so it
+/// holds `CAP_SETUID` and may read another task's credential block (the same
+/// pattern `clipboardd` uses).
+pub(super) fn actor(message: &Message) -> messenger::Result<SysCred> {
+    let mut cred = SysCred::default();
+    sys::cred_get(Some(message.sender), &mut cred).map_err(messenger::Error::Errno)?;
+    Ok(cred)
+}
+
+/// The session-owner policy: a caller may launch into its own session; root or
+/// a holder of `CAP_SETUID` (the supervisor) may launch anywhere; everyone
+/// else is refused.
+pub(super) fn authorize(caller: &SysCred, target_session: u64) -> messenger::Result<()> {
+    if caller.session == target_session || caller.uid == 0 || caller.caps & CAP_SETUID != 0 {
+        Ok(())
+    } else {
+        Err(messenger::Error::Errno(-messenger::errno::EPERM))
+    }
+}
+
+/// The number of launched rows reserved against [`LAUNCH_CAP_PER_SESSION`]
+/// for `session`: `Running` (holding a slot now) plus `Restarting` and
+/// `Pending` (will reclaim one without going through [`launch`] again). A
+/// `Stopped`/`Failed` row holds nothing and does not count; `launch` already
+/// prunes those for the same app before this runs. A launched row's session
+/// lives in its stamped credentials (`cred`), since manifest rows (`cred:
+/// None`) never count.
+fn running_in_session(services: &[Service], session: u64) -> usize {
+    services
+        .iter()
+        .filter(|service| {
+            service.launched
+                && !service.autostart
+                && matches!(
+                    service.phase,
+                    Phase::Running | Phase::Restarting | Phase::Pending
+                )
+                && service.cred.map(|cred| cred.session) == Some(session)
+        })
+        .count()
+}
+
+/// The credentials a launched child is stamped with: the target session's
+/// uid/gid/session and the session capability set. When the caller launches
+/// into its own session, its own uid/gid (and label) apply; root launching into
+/// another session resolves the uid/gid from `logind`'s table.
+fn target_cred(caller: &SysCred, target_session: u64) -> messenger::Result<SysCred> {
+    if caller.session == target_session {
+        return Ok(SysCred::new(
+            caller.uid,
+            caller.gid,
+            SESSION_CAPS,
+            caller.label_id,
+            target_session,
+        ));
+    }
+    let uid = lookup_session_uid(target_session)?;
+    Ok(SysCred::new(uid, uid, SESSION_CAPS, 0, target_session))
+}
+
+/// The uid of an active `logind` session; `ENOENT` when the service is
+/// unreachable or the session is unknown.
+fn lookup_session_uid(session: u64) -> messenger::Result<u32> {
+    let endpoint = services::resolve_service(logind::NAME)
+        .map_err(|_| messenger::Error::Errno(-messenger::errno::ENOENT))?;
+    let (_, sessions) = logind::fetch_sessions(&endpoint)
+        .map_err(|_| messenger::Error::Errno(-messenger::errno::ENOENT))?;
+    sessions
+        .iter()
+        .find(|record| record.id == session && record.state == "active")
+        .map(|record| record.uid)
+        .ok_or(messenger::Error::Errno(-messenger::errno::ENOENT))
+}
+
+/// Launch an app as a supervised child of this task (issue #158).
+///
+/// The checks run in order: the app id must be in [`APPS`]; the caller must
+/// pass [`authorize`] for the target session; the target session must have
+/// fewer than [`LAUNCH_CAP_PER_SESSION`] launched rows reserved (see
+/// [`running_in_session`]); the target session's credentials must resolve.
+/// The row then spawns
+/// immediately with `spawn_as`, and from there the ordinary supervision loop
+/// owns it: restart policy, backoff, health topic and service event.
+pub(super) fn launch(
+    services: &mut Vec<Service>,
+    broker: &mut router::TopicBroker,
+    request: &services::LaunchRequest,
+    caller: &SysCred,
+) -> messenger::Result<services::LaunchResult> {
+    launch_row(services, broker, request, caller, false)
+}
+
+/// [`launch`], for either a client request or `init`'s own autostart. An
+/// `autostart` row is opened by the supervisor itself, so it is exempt from
+/// the per-session cap and does not count against it afterwards. An app whose
+/// ELF this image does not ship is refused with `-ENOENT` *before* anything
+/// is spawned or logged: the registry lists it, the image just lacks it.
+pub(super) fn launch_row(
+    services: &mut Vec<Service>,
+    broker: &mut router::TopicBroker,
+    request: &services::LaunchRequest,
+    caller: &SysCred,
+    autostart: bool,
+) -> messenger::Result<services::LaunchResult> {
+    let app = find_app(&request.app).ok_or(messenger::Error::Errno(-messenger::errno::ENOENT))?;
+    if !is_available(app) {
+        return Err(messenger::Error::Errno(-messenger::errno::ENOENT));
+    }
+    let target_session = if request.session == 0 {
+        caller.session
+    } else {
+        request.session
+    };
+    authorize(caller, target_session)?;
+    if !autostart && running_in_session(services, target_session) >= LAUNCH_CAP_PER_SESSION {
+        return Err(messenger::Error::Errno(-messenger::errno::EAGAIN));
+    }
+    let cred = target_cred(caller, target_session)?;
+    // A stopped or failed launched row for the same app is superseded: the
+    // registry keeps the supervision table bounded (manifest rows stay).
+    services.retain(|service| {
+        !(service.launched
+            && service.name == app.id
+            && matches!(service.phase, Phase::Stopped | Phase::Failed))
+    });
+    let mut row = Service::from_app(app, &request.args, cred);
+    row.autostart = autostart;
+    let command = command_line(&row, 0);
+    let Some(pid) = sys::spawn_as(&command, &cred) else {
+        sys::write_str(&format!(
+            "init: launch {} failed: {} (session {})\n",
+            app.id, app.path, target_session
+        ));
+        return Err(messenger::Error::Errno(-messenger::errno::ENOENT));
+    };
+    row.pid = pid;
+    row.phase = Phase::Running;
+    row.started_tick = sys::clock();
+    let index = services.len();
+    services.push(row);
+    sys::write_str(&format!(
+        "INIT:LAUNCH:PASS app={} pid={pid} session={target_session}\n",
+        app.id
+    ));
+    publish_state(broker, &services[index], "running", pid, 0, 0, "");
+    Ok(services::LaunchResult {
+        app: app.id.to_string(),
+        pid,
+        session: target_session,
+    })
+}

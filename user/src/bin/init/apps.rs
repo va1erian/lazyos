@@ -21,7 +21,7 @@ use core::sync::atomic::{AtomicU64, Ordering};
 use user::messenger::services;
 use user::sys;
 
-use super::Restart;
+use super::state::Restart;
 
 /// The image builder's list of shipped optional apps.
 const MANIFEST_FILE: &str = "XAPPS.LST\0";
