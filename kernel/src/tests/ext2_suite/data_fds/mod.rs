@@ -18,6 +18,7 @@ mod io;
 mod names;
 mod sizing;
 mod soak;
+mod times;
 
 pub(in crate::tests) const CASES: &[(&str, Test)] = &[
     (
@@ -70,7 +71,7 @@ pub(in crate::tests) const CASES: &[(&str, Test)] = &[
     ("linux_data_chmod_matrix", attrs::chmod_matrix),
     ("linux_data_attr_descriptor_forms", attrs::descriptor_forms),
     ("linux_data_chown_rules", attrs::chown_rules),
-    ("linux_data_utimes_rules", attrs::utimes_rules),
+    ("linux_data_utimes_rules", times::utimes_rules),
     ("linux_data_attrs_read_only", attrs::read_only_attrs),
     (
         "linux_data_attrs_survive_remount",
