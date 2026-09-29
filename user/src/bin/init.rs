@@ -949,9 +949,9 @@ fn dispatch(
     match message.interface_id() {
         router::INTERFACE => broker.handle(message),
         services::INIT_INTERFACE => match message.method() {
-            services::init_method::SERVICES => cache.parcel(services),
-            services::init_method::LIST_APPS => services::list_apps_reply(&app_infos()),
-            services::init_method::LAUNCH => {
+            services::init::METHOD_SERVICES => cache.parcel(services),
+            services::init::METHOD_LISTAPPS => services::list_apps_reply(&app_infos()),
+            services::init::METHOD_LAUNCH => {
                 let request = services::decode_launch_request(&message.parcel)?;
                 let caller = actor(message)?;
                 match launch(services, broker, &request, &caller) {

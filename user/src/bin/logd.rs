@@ -455,8 +455,8 @@ fn dispatch(ring: &Ring, message: &Message) -> messenger::Result<Parcel> {
         return Err(Error::Errno(-messenger::errno::EINVAL));
     }
     match message.method() {
-        services::logd_method::TAIL => {
-            let count = message_u64(message, services::field::COUNT).unwrap_or(10) as usize;
+        services::logd::METHOD_TAIL => {
+            let count = decode_tail_count(message)?;
             let start = ring.records.len().saturating_sub(count);
             let records: Vec<services::LogRecord> = ring.records[start..]
                 .iter()
@@ -470,8 +470,8 @@ fn dispatch(ring: &Ring, message: &Message) -> messenger::Result<Parcel> {
                 .collect();
             services::log_records_reply(&records)
         }
-        services::logd_method::COUNT => services::log_count_reply(ring.total),
-        services::logd_method::VERIFY => {
+        services::logd::METHOD_COUNT => services::log_count_reply(ring.total),
+        services::logd::METHOD_VERIFY => {
             let (ok, index) = ring.verify();
             services::log_verify_reply(ok, index)
         }
@@ -479,16 +479,12 @@ fn dispatch(ring: &Ring, message: &Message) -> messenger::Result<Parcel> {
     }
 }
 
-/// The first `u64` field with the given id in a message body.
-fn message_u64(message: &Message, id: u16) -> Option<u64> {
-    use libmessenger::{Decoder, Kind};
-    let mut decoder = Decoder::new(&message.parcel.body);
-    while let Ok(Some(field)) = decoder.next() {
-        if field.kind == Kind::U64 && field.id == id {
-            return field.as_u64().ok();
-        }
-    }
-    None
+/// The `Tail` count, defaulting to 10 when the request omits it (the service's
+/// historic default).
+fn decode_tail_count(message: &Message) -> messenger::Result<usize> {
+    let args =
+        services::logd::wire::decode_tail_args(&message.parcel.body).map_err(Error::Parcel)?;
+    Ok(args.count.unwrap_or(10) as usize)
 }
 
 #[panic_handler]

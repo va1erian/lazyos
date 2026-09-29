@@ -1,0 +1,36 @@
+# `os.lazy.init.v1`
+
+Interface id: `0xa549dce4687b08e`
+
+The userspace service supervisor (issues #93, #158): the supervision table,
+the built-in app registry and the app-launch path.
+
+`init` serves a `router` topic broker on the same endpoint; those topic
+payloads are not part of this interface. Failures are returned as a
+structured error field (errno-style code, friendly text), not as a typed
+reply, so the error field is hand-written next to these stubs.
+
+## Methods
+
+| Method | Id | Kind | Signature |
+|---|---|---|---|
+| Services | 1672675413 | sync | `() -> (services: Array<ServiceStatus>)` |
+| Launch | 936096390 | sync | `(app: String, args: String, session: U64) -> (app: String, pid: U64, session: U64)` |
+| ListApps | 1009359625 | sync | `() -> (apps: Array<AppInfo>)` |
+
+## struct `ServiceStatus`
+
+- `name: String`
+- `state: String`
+- `pid: U64`
+- `restarts: U64`
+- `deps: String`
+- `health: String`
+
+## struct `AppInfo`
+
+- `id: String`
+- `name: String`
+- `path: String`
+- `restart: String`
+- `verbs: Array<String>`

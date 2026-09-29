@@ -1,0 +1,26 @@
+/// The service health aggregator (issue #93): retained health rows, a
+/// heartbeat channel and the aggregate snapshot.
+///
+/// Both methods answer with the same snapshot shape (the aggregate `summary`
+/// first, then one retained row per service). A service publishes a heartbeat
+/// with `Report`; `Status` only reads. Failures are returned as a structured
+/// error field (errno-style code, friendly text), not as a typed reply.
+interface os.lazy.healthd.v1 {
+    /// Publish `health/<name>` with `status`/`detail`.
+    method Report(name: String, status: String, detail: String) -> (summary: HealthRecord, records: Array<HealthRecord>);
+
+    /// Snapshot retained health rows plus the aggregate.
+    method Status() -> (summary: HealthRecord, records: Array<HealthRecord>);
+
+    /// One retained health row.
+    struct HealthRecord {
+        /// Service name (`summary` for the aggregate row).
+        name: String,
+        /// Health status (`ok`/`degraded`/`down`).
+        status: String,
+        /// Human-readable detail.
+        detail: String,
+        /// Tick the row was produced.
+        tick: U64
+    }
+}
