@@ -22,6 +22,21 @@ fn main() {
         println!("cargo:rustc-cfg=lazyos_tests");
     }
 
+    // Desktop profile (issue #217): one `LAZYOS_DESKTOP=1` switch that expands
+    // to the desktop recipe — a services session (`LAZYOS_SERVICES`), the
+    // compositor (`LAZYOS_XUID`) and the embedded xui apps (the root build
+    // script supplies the default app list when `LAZYOS_XUI_APPS` is unset).
+    // It also marks the image as a user-facing desktop so `init` keeps the
+    // demo/evidence-only programs (the crash test, the clipboard demo pair, the
+    // `top` launch self-test) out of the boot. The user crate's `build.rs`
+    // re-reads the same switch to compile `init` without them.
+    println!("cargo:rerun-if-env-changed=LAZYOS_DESKTOP");
+    println!("cargo:rustc-check-cfg=cfg(lazyos_desktop)");
+    let desktop = env::var_os("LAZYOS_DESKTOP").as_deref() == Some(std::ffi::OsStr::new("1"));
+    if desktop {
+        println!("cargo:rustc-cfg=lazyos_desktop");
+    }
+
     // Fabric observability demo switch (issue #70): `LAZYOS_MESSENGERCTL=1`
     // boots the `messengerctl` tool (`MSGCTL.ELF`) in the hello window
     // instead of HELLO.ELF.
@@ -56,7 +71,7 @@ fn main() {
     // syscalls.
     println!("cargo:rerun-if-env-changed=LAZYOS_SERVICES");
     println!("cargo:rustc-check-cfg=cfg(services_mode)");
-    if env::var_os("LAZYOS_SERVICES").as_deref() == Some(std::ffi::OsStr::new("1")) {
+    if desktop || env::var_os("LAZYOS_SERVICES").as_deref() == Some(std::ffi::OsStr::new("1")) {
         println!("cargo:rustc-cfg=services_mode");
     }
 
@@ -65,7 +80,7 @@ fn main() {
     // claim the display device grant from the kernel mux.
     println!("cargo:rerun-if-env-changed=LAZYOS_XUID");
     println!("cargo:rustc-check-cfg=cfg(xuid_demo)");
-    if env::var_os("LAZYOS_XUID").as_deref() == Some(std::ffi::OsStr::new("1")) {
+    if desktop || env::var_os("LAZYOS_XUID").as_deref() == Some(std::ffi::OsStr::new("1")) {
         println!("cargo:rustc-cfg=xuid_demo");
     }
 
@@ -115,11 +130,13 @@ fn main() {
     // `XAPP.ELF` is never started alongside `init`'s apps.
     println!("cargo:rerun-if-env-changed=LAZYOS_XUI_APPS");
     println!("cargo:rustc-check-cfg=cfg(xui_desktop)");
-    if env::var_os("LAZYOS_XUID").as_deref() == Some(std::ffi::OsStr::new("1"))
-        && env::var_os("LAZYOS_XUI_CLIENT").as_deref() == Some(std::ffi::OsStr::new("1"))
-        && env::var_os("LAZYOS_XUI_APPS").is_some()
-        && env::var_os("LAZYOS_XUI_APP").is_none()
-    {
+    // The desktop profile always embeds the app list (the root build script
+    // defaults it), so it boots `xuid` and lets `init` open the clients.
+    let desktop_apps = desktop
+        || (env::var_os("LAZYOS_XUID").as_deref() == Some(std::ffi::OsStr::new("1"))
+            && env::var_os("LAZYOS_XUI_CLIENT").as_deref() == Some(std::ffi::OsStr::new("1"))
+            && env::var_os("LAZYOS_XUI_APPS").is_some());
+    if desktop_apps && env::var_os("LAZYOS_XUI_APP").is_none() {
         println!("cargo:rustc-cfg=xui_desktop");
     }
 

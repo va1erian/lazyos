@@ -61,6 +61,22 @@ fn main() {
         .expect("user messengerd artifact not found");
     builder.set_file(String::from("MSGRD.ELF"), PathBuf::from(messengerd));
 
+    // Desktop profile (issue #217): one `LAZYOS_DESKTOP=1` switch that expands
+    // to the desktop recipe — a services session (`LAZYOS_SERVICES`), the
+    // compositor (`LAZYOS_XUID`) and the embedded xui apps (the default set
+    // below, unless `LAZYOS_XUI_APPS` overrides it). It also keeps the
+    // demo/evidence-only ELFs (the crash test, the clipboard demo pair, the
+    // `top` text client, the `xdemo`/`dragdemo` demo clients) out of the image;
+    // the kernel and the `user` crate re-read the same switch.
+    println!("cargo:rerun-if-env-changed=LAZYOS_DESKTOP");
+    println!("cargo:rerun-if-env-changed=LAZYOS_SERVICES");
+    println!("cargo:rerun-if-env-changed=LAZYOS_XUID");
+    let desktop = std::env::var_os("LAZYOS_DESKTOP").as_deref() == Some(std::ffi::OsStr::new("1"));
+    let services = desktop
+        || std::env::var_os("LAZYOS_SERVICES").as_deref() == Some(std::ffi::OsStr::new("1"));
+    let xuid =
+        desktop || std::env::var_os("LAZYOS_XUID").as_deref() == Some(std::ffi::OsStr::new("1"));
+
     // System services (issue #93). `init` is the supervisor the kernel boots
     // with `LAZYOS_SERVICES=1`; it starts the rest from its manifest. The
     // on-disk name is `SUPER.ELF`, not `INIT.ELF`: the ABI bench hook below
@@ -73,11 +89,6 @@ fn main() {
     let healthd =
         std::env::var_os("CARGO_BIN_FILE_USER_healthd").expect("user healthd artifact not found");
     builder.set_file(String::from("HEALTHD.ELF"), PathBuf::from(healthd));
-    // Deliberately-crashing service used to demonstrate supervision and
-    // restart-with-backoff in a boot log (issue #93).
-    let flaky =
-        std::env::var_os("CARGO_BIN_FILE_USER_flaky").expect("user flaky artifact not found");
-    builder.set_file(String::from("FLAKY.ELF"), PathBuf::from(flaky));
     // The secrets and crypto service (issue #102). `init` starts it from its
     // manifest when the image boots with `LAZYOS_SERVICES=1`; the 8.3 name
     // `KEYD.ELF` is what the kernel's short-name FAT reader resolves.
@@ -90,24 +101,30 @@ fn main() {
     let clipboardd = std::env::var_os("CARGO_BIN_FILE_USER_clipboardd")
         .expect("user clipboardd artifact not found");
     builder.set_file(String::from("CLIPD.ELF"), PathBuf::from(clipboardd));
-    // The clipboard demo pair (issue #115): a lazy owner and a paster.
-    // `clipboardd` spawns both at services boot (`demo=1`), so a headless
-    // `LAZYOS_SERVICES=1` run records the `CLIP:COPY`/`CLIP:PASTE`/
-    // `CLIP:DENIED` evidence markers.
-    let clipcopy =
-        std::env::var_os("CARGO_BIN_FILE_USER_clipcopy").expect("user clipcopy artifact not found");
-    builder.set_file(String::from("CLIPCP.ELF"), PathBuf::from(clipcopy));
-    let clippaste = std::env::var_os("CARGO_BIN_FILE_USER_clippaste")
-        .expect("user clippaste artifact not found");
-    builder.set_file(String::from("CLIPPS.ELF"), PathBuf::from(clippaste));
+
+    // The evidence-only programs. `init` never starts them in the desktop
+    // profile, so the image leaves their ELFs out entirely: the deliberate
+    // crash service (issue #93), whose restart-with-backoff demo is the
+    // `FLAKY.ELF` row, and the clipboard demo pair (issue #115), which
+    // `clipboardd` spawns under `demo=1`.
+    if !desktop {
+        let flaky =
+            std::env::var_os("CARGO_BIN_FILE_USER_flaky").expect("user flaky artifact not found");
+        builder.set_file(String::from("FLAKY.ELF"), PathBuf::from(flaky));
+        let clipcopy = std::env::var_os("CARGO_BIN_FILE_USER_clipcopy")
+            .expect("user clipcopy artifact not found");
+        builder.set_file(String::from("CLIPCP.ELF"), PathBuf::from(clipcopy));
+        let clippaste = std::env::var_os("CARGO_BIN_FILE_USER_clippaste")
+            .expect("user clippaste artifact not found");
+        builder.set_file(String::from("CLIPPS.ELF"), PathBuf::from(clippaste));
+    }
 
     // Accounts and console login (issue #101). `init` starts `accountsd` and
     // `logind` from its manifest; `accountsd` reads `PASSWD` when present. All
     // three are added only to the services image (`LAZYOS_SERVICES=1`): the
     // plain demo never starts them, and keeping them out of the ABI bench
     // image preserves its baseline size and boot time.
-    println!("cargo:rerun-if-env-changed=LAZYOS_SERVICES");
-    if std::env::var_os("LAZYOS_SERVICES").as_deref() == Some(std::ffi::OsStr::new("1")) {
+    if services {
         let accountsd = std::env::var_os("CARGO_BIN_FILE_USER_accountsd")
             .expect("user accountsd artifact not found");
         builder.set_file(String::from("ACCTD.ELF"), PathBuf::from(accountsd));
@@ -167,26 +184,35 @@ fn main() {
         let sysmond = std::env::var_os("CARGO_BIN_FILE_USER_sysmond")
             .expect("user sysmond artifact not found");
         builder.set_file(String::from("SYSD.ELF"), PathBuf::from(sysmond));
-        let top = std::env::var_os("CARGO_BIN_FILE_USER_top").expect("user top artifact not found");
-        builder.set_file(String::from("TOP.ELF"), PathBuf::from(top));
+        // The `top` text client is the launch self-test's target, an
+        // evidence-only program the desktop profile never starts, so its ELF
+        // stays out of the desktop image.
+        if !desktop {
+            let top =
+                std::env::var_os("CARGO_BIN_FILE_USER_top").expect("user top artifact not found");
+            builder.set_file(String::from("TOP.ELF"), PathBuf::from(top));
+        }
     }
 
     // The display protocol demo (issue #113): `LAZYOS_XUID=1` embeds the
     // userspace compositor and its demo app. Both are gated out of the default
     // demo image so its size and boot stay identical.
-    println!("cargo:rerun-if-env-changed=LAZYOS_XUID");
-    if std::env::var_os("LAZYOS_XUID").as_deref() == Some(std::ffi::OsStr::new("1")) {
+    if xuid {
         let xuid =
             std::env::var_os("CARGO_BIN_FILE_USER_xuid").expect("user xuid artifact not found");
         builder.set_file(String::from("XUID.ELF"), PathBuf::from(xuid));
-        let xdemo =
-            std::env::var_os("CARGO_BIN_FILE_USER_xdemo").expect("user xdemo artifact not found");
-        builder.set_file(String::from("XDEMO.ELF"), PathBuf::from(xdemo));
-        // The drag & drop demo pair (issue #145); the kernel starts its
-        // launcher, and 8.3 requires the `DRAGDMO.ELF` on-disk name.
-        let dragdemo = std::env::var_os("CARGO_BIN_FILE_USER_dragdemo")
-            .expect("user dragdemo artifact not found");
-        builder.set_file(String::from("DRAGDMO.ELF"), PathBuf::from(dragdemo));
+        // `xdemo` and the drag & drop pair are demo clients; the desktop
+        // profile runs its own xui apps as clients instead.
+        if !desktop {
+            let xdemo = std::env::var_os("CARGO_BIN_FILE_USER_xdemo")
+                .expect("user xdemo artifact not found");
+            builder.set_file(String::from("XDEMO.ELF"), PathBuf::from(xdemo));
+            // The drag & drop demo pair (issue #145); the kernel starts its
+            // launcher, and 8.3 requires the `DRAGDMO.ELF` on-disk name.
+            let dragdemo = std::env::var_os("CARGO_BIN_FILE_USER_dragdemo")
+                .expect("user dragdemo artifact not found");
+            builder.set_file(String::from("DRAGDMO.ELF"), PathBuf::from(dragdemo));
+        }
     }
 
     // The shell-protocol evidence client (issue #167): `LAZYOS_XUID=1` plus
@@ -221,7 +247,7 @@ fn main() {
         }
     }
 
-    embed_xui_apps(&mut builder);
+    embed_xui_apps(&mut builder, desktop);
 
     // Rebuild the image when the kernel test switch flips (issue #62): the
     // kernel's own build script turns `LAZYOS_TESTS=1` into `cfg(lazyos_tests)`.
@@ -312,20 +338,40 @@ fn xui_disk_name(path: &std::path::Path) -> (String, String) {
     (stem, format!("{base}.ELF"))
 }
 
+/// The desktop profile's default xui app set, in the order `init` opens them
+/// (the Terminal first, so it takes the focus). `LAZYOS_DESKTOP=1` embeds
+/// these from `target/xui/` unless `LAZYOS_XUI_APPS` overrides the list; the
+/// names match `tools/xui/build.py`'s outputs and `lazygui`'s `DESKTOP_APPS`.
+const DESKTOP_XUI_APPS: &[&str] = &[
+    "xui-term.elf",
+    "xui-sysmon.elf",
+    "xui-fabricmon.elf",
+    "xui-counter.elf",
+];
+
 /// Embed the desktop's xui apps (issues #215/#216).
 ///
 /// `LAZYOS_XUI_APPS` is a platform path list (`;` on Windows, `:` elsewhere)
-/// of binaries built by `tools/xui/build.py`. Each is stored under its 8.3
-/// name, and `XAPPS.LST` lists the shipped ones so `init` marks every other
-/// registry row unavailable instead of failing to launch it. Rows named in
+/// of binaries built by `tools/xui/build.py`. With `LAZYOS_DESKTOP=1` and no
+/// explicit list, the [`DESKTOP_XUI_APPS`] defaults under `target/xui/` are
+/// used, so one switch is enough. Each is stored under its 8.3 name, and
+/// `XAPPS.LST` lists the shipped ones so `init` marks every other registry row
+/// unavailable instead of failing to launch it. Rows named in
 /// `LAZYOS_XUI_AUTOSTART` (comma-separated stems such as `term,sysmon`; the
 /// default is every embedded app, `none` disables it) are tagged `autostart`,
 /// and `init` launches them at boot as `xuid` clients.
-fn embed_xui_apps(builder: &mut bootloader::DiskImageBuilder) {
+fn embed_xui_apps(builder: &mut bootloader::DiskImageBuilder, desktop: bool) {
     println!("cargo:rerun-if-env-changed=LAZYOS_XUI_APPS");
     println!("cargo:rerun-if-env-changed=LAZYOS_XUI_AUTOSTART");
-    let Some(apps) = std::env::var_os("LAZYOS_XUI_APPS") else {
-        return;
+    let apps: Vec<PathBuf> = match std::env::var_os("LAZYOS_XUI_APPS") {
+        Some(list) => std::env::split_paths(&list).collect(),
+        None if desktop => {
+            let dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("manifest dir"))
+                .join("target")
+                .join("xui");
+            DESKTOP_XUI_APPS.iter().map(|name| dir.join(name)).collect()
+        }
+        None => return,
     };
     let autostart = std::env::var("LAZYOS_XUI_AUTOSTART").ok();
     let wanted = |stem: &str| match autostart.as_deref() {
@@ -334,7 +380,7 @@ fn embed_xui_apps(builder: &mut bootloader::DiskImageBuilder) {
         Some(list) => list.split(',').any(|item| item.trim() == stem),
     };
     let mut manifest = String::new();
-    for app in std::env::split_paths(&apps) {
+    for app in apps {
         // Tracked even when missing: Cargo reruns while a listed path does not
         // exist, so an app built later is picked up without changing the env.
         println!("cargo:rerun-if-changed={}", app.display());
