@@ -8,7 +8,9 @@ committed blob. `ensure_busybox()` returns a path to a static
 1. `tools/abi/busybox` — a binary dropped by hand (or by CI) for an offline run;
 2. `target/abi/busybox/busybox` — a cached build from a previous run;
 3. a fresh build from the pinned source tarball, when the host is Linux with
-   `musl-gcc` (and the Debian/Ubuntu `linux-libc-dev` headers) available.
+   `musl-gcc` (and the Debian/Ubuntu `linux-libc-dev` headers) available;
+4. the same build inside an Alpine container (Alpine's `gcc` is natively musl),
+   when Docker is running — this is what makes a Windows or macOS host work.
 
 The build is `defconfig` + `CONFIG_STATIC=y`, with the `tc` applet disabled (its
 kernel headers conflict on modern distros). If any step is unavailable the
@@ -38,6 +40,9 @@ BUILD_ROOT = ROOT / "target" / "abi" / "busybox"
 SOURCE = BUILD_ROOT / f"busybox-{VERSION}"
 OUTPUT = BUILD_ROOT / "busybox"
 MANUAL = ROOT / "tools" / "abi" / "busybox"
+# Container image for the Docker build. Alpine is musl-native, so a plain `gcc`
+# produces a static musl binary without `musl-gcc` or the Debian header dance.
+DOCKER_IMAGE = "alpine:3.20"
 
 # The host's kernel headers are not on musl's include path. These two Debian
 # locations supply `linux/*.h` and the `asm/*.h` it includes; a host without
@@ -47,8 +52,9 @@ EXTRA_CFLAGS = "-idirafter /usr/include -idirafter /usr/include/x86_64-linux-gnu
 
 HINT = """busybox: no static BusyBox is available, so the image will have no /busybox
 and the desktop Terminal / console shell report TERM:SPAWN:FAIL. To fix it, either
-  * build it on Linux (or WSL) with musl-gcc + linux-libc-dev: python tools/abi/busybox.py
-    (downloads the pinned release tarball from busybox.net and verifies its SHA-256), or
+  * start Docker and re-run `python tools/abi/busybox.py` (builds the pinned release
+    tarball from busybox.net, verified by SHA-256, inside an Alpine container), or
+  * build it on Linux (or WSL) with musl-gcc + linux-libc-dev: python tools/abi/busybox.py, or
   * copy any static x86_64-unknown-linux-musl busybox to tools/abi/busybox, or
     point LAZYOS_BUSYBOX at it, then re-run `cargo build`."""
 
@@ -166,18 +172,72 @@ def _compile() -> bool:
     return (SOURCE / "busybox").is_file()
 
 
+def _docker_ready() -> bool:
+    """Whether a Docker engine is installed *and* answering (Docker Desktop can
+    be installed with its engine stopped)."""
+    if shutil.which("docker") is None:
+        return False
+    try:
+        return subprocess.run(
+            ["docker", "info"], capture_output=True, timeout=30
+        ).returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
+# Run inside the container: same recipe as `_configure`/`_compile`, with the
+# patches applied by `sed` because the host may have no `make` at all.
+_DOCKER_SCRIPT = (
+    "set -e; "
+    "apk add --no-cache build-base linux-headers perl >/dev/null; "
+    "make defconfig >/dev/null; "
+    "sed -i -e 's/^# CONFIG_STATIC is not set$/CONFIG_STATIC=y/' "
+    "-e 's/^CONFIG_TC=y$/# CONFIG_TC is not set/' .config; "
+    "make -j\"$(nproc)\" CC=gcc HOSTCC=gcc >/dev/null"
+)
+
+
+def _docker_compile() -> bool:
+    """Build the fetched source tree in an Alpine container (bind-mounted, so
+    the binary lands in `SOURCE` on the host)."""
+    cmd = [
+        "docker", "run", "--rm",
+        "-v", f"{SOURCE}:/src",
+        "-w", "/src",
+        DOCKER_IMAGE, "sh", "-c", _DOCKER_SCRIPT,
+    ]
+    print(f"busybox: building in a {DOCKER_IMAGE} container", file=sys.stderr)
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        print("busybox: docker build failed", file=sys.stderr)
+        print(result.stderr[-2000:], file=sys.stderr)
+        return False
+    return (SOURCE / "busybox").is_file()
+
+
+def _build_native() -> bool:
+    return _fetch() and _configure() and _compile()
+
+
+def _build_docker() -> bool:
+    return _fetch() and _docker_compile()
+
+
 def ensure_busybox() -> Path | None:
     """Return a path to a static BusyBox, building it if the host allows."""
     cached = _cached()
     if cached is not None:
         return cached
-    if sys.platform != "linux":
-        return None
-    if shutil.which("musl-gcc") is None:
-        print("busybox: musl-gcc not found; reporting unavailable", file=sys.stderr)
+    native = sys.platform == "linux" and shutil.which("musl-gcc") is not None
+    if native:
+        build = _build_native
+    elif _docker_ready():
+        build = _build_docker
+    else:
+        print("busybox: no musl-gcc and no running Docker engine", file=sys.stderr)
         return None
     try:
-        if not _fetch() or not _configure() or not _compile():
+        if not build():
             return None
     except Exception as error:  # noqa: BLE001 - any tool failure is "unavailable"
         print(f"busybox: build unavailable: {error}", file=sys.stderr)
