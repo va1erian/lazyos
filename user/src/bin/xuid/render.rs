@@ -5,7 +5,8 @@
 use user::messenger::display::{Canvas, Face, Rect};
 use user::sys;
 
-use super::drag::{draw_drag, DragSession};
+use super::compositor::Compositor;
+use super::drag::draw_drag;
 use super::layout::for_each_entry;
 use super::shell::AltTab;
 use super::surface::Surface;
@@ -17,47 +18,43 @@ use super::theme::{
 };
 use super::window::surface_by_id;
 
-/// Compose `damage` from the background, the desktop surface, every visible
-/// window in z-order, the fallback taskbar, the Alt+Tab overlay, the active
-/// drag & drop session (if any), and the cursor, then present exactly that
-/// rectangle.
-#[allow(clippy::too_many_arguments)]
-pub(super) fn repaint(
-    screen: &mut Canvas,
-    surfaces: &[Surface],
-    pointer: (i32, i32),
-    focused: Option<u64>,
-    damage: Rect,
-    drag_session: Option<&DragSession>,
-    taskbar: bool,
-    alt_tab: Option<&AltTab>,
-) {
-    if damage.is_empty() {
-        return;
+impl Compositor {
+    /// Compose `damage` from the background, the desktop surface, every
+    /// visible window in z-order, the fallback taskbar, the Alt+Tab overlay,
+    /// the active drag & drop session (if any), and the cursor, then present
+    /// exactly that rectangle.
+    pub(super) fn repaint(&mut self, damage: Rect) {
+        if damage.is_empty() {
+            return;
+        }
+        let taskbar = self.taskbar();
+        let screen = &mut self.screen;
+        let surfaces = &self.surfaces;
+        let focused = self.focused;
+        screen.fill(damage, damage, BACKGROUND);
+        // The desktop paints above the background and below every window.
+        if let Some(desktop) = surfaces.iter().find(|surface| surface.desktop) {
+            draw_desktop(screen, desktop, damage);
+        }
+        for surface in surfaces
+            .iter()
+            .filter(|surface| !surface.desktop && !surface.minimized)
+        {
+            draw_surface(screen, surface, focused == Some(surface.id), damage);
+        }
+        if taskbar {
+            draw_taskbar(screen, surfaces, focused, damage);
+        }
+        if let Some(session) = self.drag_session.as_ref() {
+            draw_drag(screen, surfaces, session, self.pointer, damage);
+        }
+        if let Some(tab) = self.alt_tab.as_ref() {
+            draw_alt_tab(screen, surfaces, tab, damage);
+        }
+        super::menu::draw(screen, damage);
+        screen.cursor(self.pointer.0, self.pointer.1, damage);
+        let _ = sys::display_present(damage.x, damage.y, damage.w, damage.h);
     }
-    screen.fill(damage, damage, BACKGROUND);
-    // The desktop paints above the background and below every window.
-    if let Some(desktop) = surfaces.iter().find(|surface| surface.desktop) {
-        draw_desktop(screen, desktop, damage);
-    }
-    for surface in surfaces
-        .iter()
-        .filter(|surface| !surface.desktop && !surface.minimized)
-    {
-        draw_surface(screen, surface, focused == Some(surface.id), damage);
-    }
-    if taskbar {
-        draw_taskbar(screen, surfaces, focused, damage);
-    }
-    if let Some(session) = drag_session {
-        draw_drag(screen, surfaces, session, pointer, damage);
-    }
-    if let Some(tab) = alt_tab {
-        draw_alt_tab(screen, surfaces, tab, damage);
-    }
-    super::menu::draw(screen, damage);
-    screen.cursor(pointer.0, pointer.1, damage);
-    let _ = sys::display_present(damage.x, damage.y, damage.w, damage.h);
 }
 
 /// Blit the desktop surface's pixels across its rectangle; no chrome, no

@@ -6,9 +6,8 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use user::messenger::display::{wire, Canvas, Face, Rect};
 
+use super::compositor::Compositor;
 use super::layout::cursor_rect;
-use super::render::repaint;
-use super::shell::AltTab;
 use super::surface::Surface;
 use super::theme::{DRAG_ACCENT, DRAG_GHOST_BG};
 use super::window::{contains, forward, relative, surface_by_id};
@@ -20,7 +19,7 @@ use super::window::{contains, forward, relative, surface_by_id};
 // over a clipboard token with `DragStart`, the surface under the pointer gets
 // enter/leave/over notifications, and a release delivers `Drop` (with the
 // token) or a cancelled `DragEnded`. All transitions live in this section;
-// `handle_event`, `handle_request` and `repaint` only route into them, which
+// the event, request and paint paths only route into them, which
 // keeps the window-management paths separate.
 // ---------------------------------------------------------------------------
 
@@ -95,167 +94,118 @@ fn send_ended(surfaces: &[Surface], scratch: &mut Vec<u8>, source: u64, dropped:
     );
 }
 
-/// Start a drag from `source`: adopt the token/mime, greet a surface already
-/// under the pointer, and draw the ghost.
-#[allow(clippy::too_many_arguments)]
-pub(super) fn drag_begin(
-    drag: &mut Option<DragSession>,
-    surfaces: &[Surface],
-    screen: &mut Canvas,
-    pointer: (i32, i32),
-    focused: Option<u64>,
-    scratch: &mut Vec<u8>,
-    taskbar: bool,
-    alt_tab: Option<&AltTab>,
-    source: u64,
-    token: u64,
-    mime: String,
-) {
-    let mut active = DragSession {
-        source,
-        token,
-        mime,
-        target: None,
-    };
-    if let Some(id) = drag_target_at(surfaces, source, pointer) {
-        send_enter(surfaces, scratch, id, pointer, &active.mime);
-        active.target = Some(id);
-    }
-    let damage = cursor_rect(pointer).union(ghost_rect(&active.mime, pointer));
-    *drag = Some(active);
-    repaint(
-        screen,
-        surfaces,
-        pointer,
-        focused,
-        damage,
-        drag.as_ref(),
-        taskbar,
-        alt_tab,
-    );
-}
-
-/// Route a pointer move while a drag is live: the surface under the pointer
-/// gets enter/over/leave; the source gets nothing until the drag ends.
-/// Returns the damage the move needs.
-pub(super) fn drag_move(
-    drag: &mut DragSession,
-    surfaces: &[Surface],
-    pointer: (i32, i32),
-    old: (i32, i32),
-    scratch: &mut Vec<u8>,
-) -> Rect {
-    let mut damage = cursor_rect(old)
-        .union(cursor_rect(pointer))
-        .union(ghost_rect(&drag.mime, old))
-        .union(ghost_rect(&drag.mime, pointer));
-    let next = drag_target_at(surfaces, drag.source, pointer);
-    if next != drag.target {
-        if let Some(id) = drag.target {
-            send_leave(surfaces, scratch, id);
-            if let Some(surface) = surface_by_id(surfaces, id) {
-                damage = damage.union(surface.window());
-            }
+impl Compositor {
+    /// Start a drag from `source`: adopt the token/mime, greet a surface
+    /// already under the pointer, and draw the ghost.
+    pub(super) fn drag_begin(&mut self, source: u64, token: u64, mime: String) {
+        let pointer = self.pointer;
+        let mut active = DragSession {
+            source,
+            token,
+            mime,
+            target: None,
+        };
+        if let Some(id) = drag_target_at(&self.surfaces, source, pointer) {
+            send_enter(&self.surfaces, &mut self.scratch, id, pointer, &active.mime);
+            active.target = Some(id);
         }
-        drag.target = next;
-        if let Some(id) = next {
-            send_enter(surfaces, scratch, id, pointer, &drag.mime);
-            if let Some(surface) = surface_by_id(surfaces, id) {
-                damage = damage.union(surface.window());
-            }
-        }
-    } else if let Some(id) = next {
-        let (x, y) = relative(surfaces, id, pointer);
-        let body = wire::encode_drag_over_args(&wire::DragOverArgs { x, y });
-        forward(surfaces, scratch, Some(id), wire::METHOD_DRAGOVER, body);
+        let damage = cursor_rect(pointer).union(ghost_rect(&active.mime, pointer));
+        self.drag_session = Some(active);
+        self.repaint(damage);
     }
-    damage
-}
 
-/// Finish a drag at `pointer`: `Drop` the token on the surface under it, or
-/// send `DragLeave` and a cancelled `DragEnded`.
-#[allow(clippy::too_many_arguments)]
-pub(super) fn drag_finish(
-    drag: &mut Option<DragSession>,
-    surfaces: &[Surface],
-    screen: &mut Canvas,
-    pointer: (i32, i32),
-    focused: Option<u64>,
-    scratch: &mut Vec<u8>,
-    taskbar: bool,
-    alt_tab: Option<&AltTab>,
-) {
-    let Some(active) = drag.take() else {
-        return;
-    };
-    let mut damage = cursor_rect(pointer).union(ghost_rect(&active.mime, pointer));
-    match drag_target_at(surfaces, active.source, pointer) {
-        Some(id) => {
+    /// Route a pointer move (`old` to the current pointer) while a drag is
+    /// live: the surface under the pointer gets enter/over/leave; the source
+    /// gets nothing until the drag ends. Returns the damage the move needs.
+    pub(super) fn drag_move(&mut self, old: (i32, i32)) -> Rect {
+        let pointer = self.pointer;
+        let Some(drag) = self.drag_session.as_mut() else {
+            return Rect::new(0, 0, 0, 0);
+        };
+        let surfaces = &self.surfaces;
+        let scratch = &mut self.scratch;
+        let mut damage = cursor_rect(old)
+            .union(cursor_rect(pointer))
+            .union(ghost_rect(&drag.mime, old))
+            .union(ghost_rect(&drag.mime, pointer));
+        let next = drag_target_at(surfaces, drag.source, pointer);
+        if next != drag.target {
+            if let Some(id) = drag.target {
+                send_leave(surfaces, scratch, id);
+                if let Some(surface) = surface_by_id(surfaces, id) {
+                    damage = damage.union(surface.window());
+                }
+            }
+            drag.target = next;
+            if let Some(id) = next {
+                send_enter(surfaces, scratch, id, pointer, &drag.mime);
+                if let Some(surface) = surface_by_id(surfaces, id) {
+                    damage = damage.union(surface.window());
+                }
+            }
+        } else if let Some(id) = next {
             let (x, y) = relative(surfaces, id, pointer);
-            let args = wire::DropArgs {
-                x,
-                y,
-                token: active.token,
-                mime: active.mime.clone(),
-            };
-            let body = wire::encode_drop_args(&args);
-            forward(surfaces, scratch, Some(id), wire::METHOD_DROP, body);
-            send_ended(surfaces, scratch, active.source, true);
-            if let Some(surface) = surface_by_id(surfaces, id) {
-                damage = damage.union(surface.window());
+            let body = wire::encode_drag_over_args(&wire::DragOverArgs { x, y });
+            forward(surfaces, scratch, Some(id), wire::METHOD_DRAGOVER, body);
+        }
+        damage
+    }
+
+    /// Finish a drag at the pointer: `Drop` the token on the surface under it,
+    /// or send `DragLeave` and a cancelled `DragEnded`.
+    pub(super) fn drag_finish(&mut self) {
+        let Some(active) = self.drag_session.take() else {
+            return;
+        };
+        let pointer = self.pointer;
+        let mut damage = cursor_rect(pointer).union(ghost_rect(&active.mime, pointer));
+        match drag_target_at(&self.surfaces, active.source, pointer) {
+            Some(id) => {
+                let (x, y) = relative(&self.surfaces, id, pointer);
+                let args = wire::DropArgs {
+                    x,
+                    y,
+                    token: active.token,
+                    mime: active.mime.clone(),
+                };
+                let body = wire::encode_drop_args(&args);
+                forward(
+                    &self.surfaces,
+                    &mut self.scratch,
+                    Some(id),
+                    wire::METHOD_DROP,
+                    body,
+                );
+                send_ended(&self.surfaces, &mut self.scratch, active.source, true);
+                if let Some(surface) = surface_by_id(&self.surfaces, id) {
+                    damage = damage.union(surface.window());
+                }
+            }
+            None => {
+                drag_leave_target(&active, &self.surfaces, &mut self.scratch, &mut damage);
+                send_ended(&self.surfaces, &mut self.scratch, active.source, false);
             }
         }
-        None => {
-            drag_leave_target(&active, surfaces, scratch, &mut damage);
-            send_ended(surfaces, scratch, active.source, false);
+        if let Some(surface) = surface_by_id(&self.surfaces, active.source) {
+            damage = damage.union(surface.window());
         }
+        self.repaint(damage);
     }
-    if let Some(surface) = surface_by_id(surfaces, active.source) {
-        damage = damage.union(surface.window());
-    }
-    repaint(
-        screen,
-        surfaces,
-        pointer,
-        focused,
-        damage,
-        drag.as_ref(),
-        taskbar,
-        alt_tab,
-    );
-}
 
-/// Cancel a live drag (Escape, `DragCancel`, or the surface going away).
-#[allow(clippy::too_many_arguments)]
-pub(super) fn drag_cancel(
-    drag: &mut Option<DragSession>,
-    surfaces: &[Surface],
-    screen: &mut Canvas,
-    pointer: (i32, i32),
-    focused: Option<u64>,
-    scratch: &mut Vec<u8>,
-    taskbar: bool,
-    alt_tab: Option<&AltTab>,
-) {
-    let Some(active) = drag.take() else {
-        return;
-    };
-    let mut damage = cursor_rect(pointer).union(ghost_rect(&active.mime, pointer));
-    drag_leave_target(&active, surfaces, scratch, &mut damage);
-    send_ended(surfaces, scratch, active.source, false);
-    if let Some(surface) = surface_by_id(surfaces, active.source) {
-        damage = damage.union(surface.window());
+    /// Cancel a live drag (Escape, `DragCancel`, or the surface going away).
+    pub(super) fn drag_cancel(&mut self) {
+        let Some(active) = self.drag_session.take() else {
+            return;
+        };
+        let pointer = self.pointer;
+        let mut damage = cursor_rect(pointer).union(ghost_rect(&active.mime, pointer));
+        drag_leave_target(&active, &self.surfaces, &mut self.scratch, &mut damage);
+        send_ended(&self.surfaces, &mut self.scratch, active.source, false);
+        if let Some(surface) = surface_by_id(&self.surfaces, active.source) {
+            damage = damage.union(surface.window());
+        }
+        self.repaint(damage);
     }
-    repaint(
-        screen,
-        surfaces,
-        pointer,
-        focused,
-        damage,
-        drag.as_ref(),
-        taskbar,
-        alt_tab,
-    );
 }
 
 /// Notify a drag's current target that the drag left, growing `damage`.

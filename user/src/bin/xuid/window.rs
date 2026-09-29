@@ -3,12 +3,10 @@
 //! forwarding, moved out of `xuid.rs` unchanged.
 
 use alloc::vec::Vec;
-use user::messenger::display::{self, wire, Canvas, Rect};
+use user::messenger::display::{self, wire, Rect};
 use user::messenger::Endpoint;
 
-use super::drag::DragSession;
-use super::render::repaint;
-use super::shell::{notify_destroyed, notify_focus, notify_surface, AltTab, ShellSub};
+use super::compositor::Compositor;
 use super::surface::Surface;
 
 /// Find a surface by id.
@@ -59,85 +57,42 @@ pub(super) fn restore(surfaces: &mut Vec<Surface>, focused: &mut Option<u64>, id
     *focused = Some(id);
 }
 
-/// Minimize a surface, moving focus to the next visible surface.
-#[allow(clippy::too_many_arguments)]
-pub(super) fn minimize_surface(
-    surfaces: &mut [Surface],
-    screen: &mut Canvas,
-    pointer: (i32, i32),
-    focused: &mut Option<u64>,
-    drag_session: Option<&DragSession>,
-    shell: Option<&ShellSub>,
-    scratch: &mut Vec<u8>,
-    taskbar: bool,
-    alt_tab: Option<&AltTab>,
-    id: u64,
-) {
-    if let Some(surface) = surfaces.iter_mut().find(|surface| surface.id == id) {
-        surface.minimized = true;
+impl Compositor {
+    /// Minimize a surface, moving focus to the next visible surface.
+    pub(super) fn minimize_surface(&mut self, id: u64) {
+        if let Some(surface) = self.surfaces.iter_mut().find(|surface| surface.id == id) {
+            surface.minimized = true;
+        }
+        if self.focused == Some(id) {
+            self.focused = topmost_visible(&self.surfaces);
+            self.notify_focus();
+        }
+        // The row carries the post-minimize focus flag, so send it after the
+        // focus recompute.
+        self.notify_surface(id, wire::CHANGE_MINIMIZED);
+        self.repaint_full();
     }
-    if *focused == Some(id) {
-        *focused = topmost_visible(surfaces);
-        notify_focus(shell, scratch, *focused);
-    }
-    // The row carries the post-minimize focus flag, so send it after the focus
-    // recompute.
-    if let Some(surface) = surface_by_id(surfaces, id) {
-        notify_surface(shell, scratch, surface, *focused, wire::CHANGE_MINIMIZED);
-    }
-    let full = Rect::new(0, 0, screen.width(), screen.height());
-    repaint(
-        screen,
-        surfaces,
-        pointer,
-        *focused,
-        full,
-        drag_session,
-        taskbar,
-        alt_tab,
-    );
-}
 
-/// Close a surface: tell the client through a one-way `WindowClose` event and
-/// drop it; the full-screen repaint lets the windows below show through.
-#[allow(clippy::too_many_arguments)]
-pub(super) fn close_surface(
-    surfaces: &mut Vec<Surface>,
-    screen: &mut Canvas,
-    pointer: (i32, i32),
-    focused: &mut Option<u64>,
-    scratch: &mut Vec<u8>,
-    drag_session: Option<&DragSession>,
-    shell: Option<&ShellSub>,
-    taskbar: bool,
-    alt_tab: Option<&AltTab>,
-    id: u64,
-) {
-    if let Some(surface) = surfaces.iter().find(|surface| surface.id == id) {
-        let _ = display::send_event(
-            &Endpoint::from_raw(surface.events),
-            scratch,
-            wire::METHOD_WINDOWCLOSE,
-            Ok(Vec::new()),
-        );
+    /// Close a surface: tell the client through a one-way `WindowClose` event
+    /// and drop it; the full-screen repaint lets the windows below show
+    /// through.
+    pub(super) fn close_surface(&mut self, id: u64) {
+        if let Some(surface) = self.surfaces.iter().find(|surface| surface.id == id) {
+            let _ = display::send_event(
+                &Endpoint::from_raw(surface.events),
+                &mut self.scratch,
+                wire::METHOD_WINDOWCLOSE,
+                Ok(Vec::new()),
+            );
+        }
+        self.notify_destroyed(id);
+        remove_surface(&mut self.surfaces, id);
+        if self.focused == Some(id) {
+            self.focused = topmost_visible(&self.surfaces);
+            self.notify_focus();
+        }
+        self.repaint_full();
     }
-    notify_destroyed(shell, scratch, id);
-    remove_surface(surfaces, id);
-    if *focused == Some(id) {
-        *focused = topmost_visible(surfaces);
-        notify_focus(shell, scratch, *focused);
-    }
-    let full = Rect::new(0, 0, screen.width(), screen.height());
-    repaint(
-        screen,
-        surfaces,
-        pointer,
-        *focused,
-        full,
-        drag_session,
-        taskbar,
-        alt_tab,
-    );
 }
 
 /// Drop surface `id` and close its transferred event endpoint, so repeated
