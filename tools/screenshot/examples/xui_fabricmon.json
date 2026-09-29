@@ -1,9 +1,9 @@
 [
   {"wait_for": "FABMON:UP:PASS", "timeout": 240},
   {"wait_for": "messengerd: serving", "timeout": 120},
-  {"wait": 11.0},
+  {"wait_for": "FABMON:READY:PASS", "timeout": 240},
   {"shot": "fabricmon_initial"},
-  {"key": "r", "until": "FABMON:REFRESH:PASS", "timeout": 60, "retries": 2},
+  {"key": "r", "until": "FABMON:REFRESH:PASS", "timeout": 90, "retries": 3},
   {"wait": 2.0},
   {"shot": "fabricmon_refreshed"},
   {"key": "q", "until": "FABMON:QUIT:PASS", "timeout": 60, "retries": 2},
