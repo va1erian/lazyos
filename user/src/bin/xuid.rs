@@ -284,25 +284,29 @@ fn run() -> ! {
 const INPUT_BATCH: usize = 32;
 /// The size of one kernel input record.
 const EVENT_BYTES: usize = 16;
-/// The most records one drain collects before `xuid` handles them (the
-/// kernel's own queue bound): the batch is allocated once, since the user
-/// bump allocator never reclaims, and input queued as fast as it is drained
-/// cannot starve request handling.
+/// The most kernel records one drain reads before `xuid` handles them (the
+/// kernel's own queue bound). The bound counts records read, not events kept:
+/// coalescing keeps a run of pointer moves at one entry, so a pointer moving
+/// as fast as the queue is drained cannot keep this loop from returning to
+/// dispatch input and serve requests. The batch is allocated once, since the
+/// user bump allocator never reclaims.
 const MAX_INPUT: usize = 256;
 
 /// Drain the kernel input queue into `batch`, collapsing each run of pointer
 /// moves into its last record (issue #339). Draining before handling adds no
 /// latency and lets a run split across two poll calls still collapse;
-/// [`MAX_INPUT`] bounds one drain.
+/// [`MAX_INPUT`] records bound one drain.
 fn drain_input(batch: &mut Vec<Event>) {
     let mut records = [0u8; EVENT_BYTES * INPUT_BATCH];
-    while batch.len() + INPUT_BATCH <= MAX_INPUT {
+    let mut read = 0;
+    while read + INPUT_BATCH <= MAX_INPUT {
         let Ok(count) = sys::display_input_poll(&mut records) else {
             break;
         };
         if count == 0 {
             break;
         }
+        read += count;
         for index in 0..count {
             if let Some(event) = decode_event(&records, index) {
                 push_coalesced(batch, event);

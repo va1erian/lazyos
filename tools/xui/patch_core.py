@@ -26,6 +26,8 @@ from typing import Iterator
 UPSTREAM = "https://github.com/va1erian/xui"
 CRATE = "xui-core"
 STAMP = ".lazyos-patch"
+# Seconds `cargo metadata` may take, including a first fetch of the git crates.
+METADATA_TIMEOUT = 600
 
 
 class PatchError(RuntimeError):
@@ -34,11 +36,17 @@ class PatchError(RuntimeError):
 
 def _checkout(app: Path) -> tuple[Path, str]:
     """Cargo's checkout of the pinned crate, and its package id."""
-    metadata = subprocess.run(
-        ["cargo", "metadata", "--manifest-path", str(app / "Cargo.toml"), "--format-version", "1"],
-        capture_output=True,
-        text=True,
-    )
+    # `cargo metadata` may fetch the git dependency on a fresh checkout; a
+    # bounded wait turns a hung network or registry into a build error.
+    try:
+        metadata = subprocess.run(
+            ["cargo", "metadata", "--manifest-path", str(app / "Cargo.toml"), "--format-version", "1"],
+            capture_output=True,
+            text=True,
+            timeout=METADATA_TIMEOUT,
+        )
+    except subprocess.TimeoutExpired as timeout:
+        raise PatchError(f"cargo metadata timed out after {METADATA_TIMEOUT}s") from timeout
     if metadata.returncode != 0:
         raise PatchError(f"cargo metadata failed: {metadata.stderr.strip()[-500:]}")
     for package in json.loads(metadata.stdout)["packages"]:
