@@ -66,7 +66,7 @@ pub mod method {
 }
 
 /// Field ids of the registry request/reply TLV bodies. The userspace mirror in
-/// `user/src/messenger.rs` keeps the same numbers.
+/// `user/src/messenger/` keeps the same numbers.
 pub mod field {
     /// Request and list-record: the service name (string).
     pub const NAME: u16 = 1;

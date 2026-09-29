@@ -87,7 +87,7 @@ bench = false
 
 # `keyd` (issue #102) is the secrets and crypto service: `init` starts it from
 # its manifest, and clients reach it through the Messenger client in
-# `user/src/messenger.rs`. The on-disk name is `KEYD.ELF` (8.3, like the other
+# `user/src/messenger/`. The on-disk name is `KEYD.ELF` (8.3, like the other
 # services).
 [[bin]]
 name = "keyd"
@@ -117,7 +117,7 @@ bench = false
 
 # `mimed` (issue #116) is the MIME database and open-with registry behind the
 # shell-integration verbs. `init` starts it from its manifest; clients reach it
-# through the `mime` module in `user/src/messenger.rs`. The on-disk name is
+# through the `mime` module in `user/src/messenger/`. The on-disk name is
 # `MIMED.ELF` (8.3, like the other services).
 [[bin]]
 name = "mimed"

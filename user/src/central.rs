@@ -1,6 +1,6 @@
 //! Central-broker topics client for the platform services (issue #169).
 //!
-//! `user/src/messenger.rs`'s `router` module is the interim per-service broker
+//! `user/src/messenger/`'s `router` module is the interim per-service broker
 //! the S2 services embedded: every service served its own `router::INTERFACE`
 //! endpoint and kept its own subscription table, so `messengerd`'s central
 //! broker reported zero topics and a fabric view could not tell a service's

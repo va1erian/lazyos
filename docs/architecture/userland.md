@@ -14,7 +14,7 @@
 | `user/src/central.rs` | Topics client that routes service publishes through `messengerd`'s central broker (#169) |
 | `user/src/heap.rs` | Bump allocator over `sbrk` (see [allocators.md](allocators.md)) |
 | `user/src/lang/` | `lexer`, `parser`, `interp`, `value` for `SH.ELF` |
-| `user/src/messenger.rs` | Blocking Messenger client: endpoints, registry, topics, services |
+| `user/src/messenger/` | Blocking Messenger client: endpoints, registry, topics, services |
 | `user/src/messenger_async.rs` | Futures, `Executor`/`block_on`, `Selector`, `service!` |
 | `user/src/bin/*` | Ring-3 programs; manifest in `user/Cargo.toml` |
 
@@ -26,7 +26,7 @@ declares `clobber_abi("sysv64")`. Numbers: 0 `exit`, 1 `write`, 2 `read_char`,
 13 `tasks`, 14 `system_stats` (11, the quota read-back, has no wrapper yet).
 See [processes.md](processes.md) and [display.md](display.md).
 
-**Blocking Messenger client** (`messenger.rs`)
+**Blocking Messenger client** (`messenger/`)
 
 - `Endpoint`: `call`/`call_with`, `begin_call`/`await_reply`, `reply`, `send`,
   `recv`/`recv_into`/`recv_with`, `poll_recv`, `cancel`, `close`, `stats`.

@@ -17,7 +17,7 @@ compositor demo. Target toolkit design: [xui-plan.md](../xui-plan.md).
 | `kernel/src/display.rs` | Display device grant, syscall 12, input event queue |
 | `user/src/bin/xuid.rs`, `xdemo.rs` | Compositor and demo app (issue #113) |
 | `user/src/bin/dragdemo.rs` | Drag & drop demo pair (issue #145) |
-| `user/src/messenger.rs` (`display` module) | `os.lazy.display.v1` client/server helpers |
+| `user/src/messenger/` (`display` module) | `os.lazy.display.v1` client/server helpers |
 | `xui-app/`, `tools/xui/build.py` | Ordinary xui app on the display grant (issue #114) |
 
 **Kernel mux** (`mux.rs`)

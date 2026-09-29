@@ -57,9 +57,9 @@ pub const PUBLISH_INTERFACE: u64 = 0x7ffc_19b0_3e94_1e16;
 /// `fnv1a64("os.lazy.messenger.topics.subscribe.v1")`.
 pub const SUBSCRIBE_INTERFACE: u64 = 0xefbc_15f1_4c9d_4bef;
 
-/// Publish-mode code shared with `user/src/messenger.rs`.
+/// Publish-mode code shared with `user/src/messenger/`.
 pub const MODE_PUBLISH: u32 = 0;
-/// Subscribe-mode code shared with `user/src/messenger.rs`.
+/// Subscribe-mode code shared with `user/src/messenger/`.
 pub const MODE_SUBSCRIBE: u32 = 1;
 
 /// Longest topic/filter accepted by the ACL gate, mirroring the registry's
@@ -69,7 +69,7 @@ pub const MAX_NAME_BYTES: usize = 128;
 pub const MAX_SEGMENTS: usize = 8;
 
 /// TLV field ids of the `authorize_topic` request parcel, mirrored by
-/// `user/src/messenger.rs` (`topics::auth_field`).
+/// `user/src/messenger/` (`topics::auth_field`).
 pub mod field {
     /// The topic or filter name.
     pub const NAME: u16 = 1;

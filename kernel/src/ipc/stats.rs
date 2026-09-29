@@ -13,7 +13,7 @@
 //! `MsgStats`. [`crate::ipc::syscalls`] serves v2 whenever the caller offers a
 //! [`FabricStats::SIZE`]-byte buffer and keeps v1 for small buffers, so old
 //! callers stay green. The wire form is little-endian `u64` words in field
-//! order; `user/src/messenger.rs` mirrors the decode byte for byte.
+//! order; `user/src/messenger/` mirrors the decode byte for byte.
 //!
 //! The snapshot is a pure read: it takes each subsystem's lock in turn and never
 //! holds two at once, so collecting stats can never block a message in flight

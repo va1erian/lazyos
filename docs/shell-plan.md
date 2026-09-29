@@ -33,7 +33,7 @@ sessions (S6); GPU acceleration (S8).
 | Area | Today | Gap to target |
 |---|---|---|
 | Compositor | `xuid` binds the display grant, composites client surfaces with rectangle damage, and paints chrome; WM #143 adds drag, z-order, close/minimize, a taskbar, and `Tab` focus; #167 adds the desktop role, a shell subscriber, `GetWorkArea`/`GetTheme` and modifier-aware global hotkeys (Alt+Tab overlay, Ctrl+Esc/Super, Alt+F4) (`user/src/bin/xuid.rs`) | per-session theme, maximize/snap, a real shell consuming the events |
-| Display protocol | `os.lazy.display.v1` methods 1-24: surfaces/buffers/commit, `Pointer*`/`Key*`, `WindowClose` (10), drag & drop (11-17), shell protocol (18-24: `ListSurfaces`, `GetWorkArea`, `Subscribe`, `GetTheme`, `SurfaceChanged`, `FocusChanged`, `StartMenu`) in `user/src/messenger.rs` (`display` module) | theme *write* path, resize, pointer-event payload tightening (button id, coordinate space) |
+| Display protocol | `os.lazy.display.v1` methods 1-24: surfaces/buffers/commit, `Pointer*`/`Key*`, `WindowClose` (10), drag & drop (11-17), shell protocol (18-24: `ListSurfaces`, `GetWorkArea`, `Subscribe`, `GetTheme`, `SurfaceChanged`, `FocusChanged`, `StartMenu`) in `user/src/messenger/` (`display` module) | theme *write* path, resize, pointer-event payload tightening (button id, coordinate space) |
 | XUI apps | `xui-app/` M0-M2 run the Counter on the display grant (#114); client mode runs xui apps in `xuid` windows with keyboard focus routing (#168, #151); `sysmon`/`fabricmon` viewers (#153) | LazyShell and the S5 apps themselves, timers/resize/DPI |
 | Session | `logind` console login spawns the user's shell with kernel-stamped uid/gid/session; `SESSION_CAPS` is empty; `os.lazy.logind` exposes the session table (`user/src/bin/logind.rs`) | per-session compositor/clipboard/topic grants, graphical session bundle, session end reaping |
 | Services | `messengerd` (#89, #92, #169 central broker), `init`/`logd`/`healthd` (#93), `keyd`/`accountsd`/`logind` (#101, #102), `clipboardd` (#115), `mimed` (#116), `sysmond` (#144); `init` app registry + `os.lazy.init.Launch` with session-owner check and supervision (#158) | `mimed.Open` still only publishes `system/events/open/<app>`; the task table (16 slots) is full under the services image |
@@ -97,7 +97,7 @@ The shell owns no device grants; it is one more policy-checked Messenger client.
 
 | Need | Interface | State |
 |---|---|---|
-| Desktop/taskbar/menu surfaces, input events, close/raise | `os.lazy.display.v1` (`display` in `user/src/messenger.rs`) | exists; S5 adds desktop role, window-list/focus events, hotkeys |
+| Desktop/taskbar/menu surfaces, input events, close/raise | `os.lazy.display.v1` (`display` in `user/src/messenger/`) | exists; S5 adds desktop role, window-list/focus events, hotkeys |
 | Copy/paste | `os.lazy.clipboard` + `os.lazy.clipboard.write.v1`/`.read.v1` | landed (#115) |
 | Open with / resolve an app | `os.lazy.mimed` (`Guess`, `Lookup`, `Verbs`, `Open`, `Register`) | landed (#116); `Open` publishes `system/events/open/<app>` |
 | Launch/supervise apps | `os.lazy.init` (new `Launch`) | no launch method yet |
