@@ -77,7 +77,9 @@ impl Canvas {
     /// # Safety
     /// `base` must be an RGBA8 mapping of at least `width * height * 4`
     /// bytes in this task's address space (the value `create_buffer` or
-    /// `map_buffer` returned).
+    /// `map_buffer` returned). The caller must also have exclusive access to
+    /// that memory for the canvas's whole lifetime: no other Rust reference
+    /// to the mapping may be live while the canvas draws.
     pub unsafe fn new(base: u64, width: i32, height: i32) -> Canvas {
         Canvas {
             base: base as *mut u8,
@@ -218,7 +220,7 @@ impl Canvas {
         let mut pen = x;
         for ch in text.chars() {
             let glyph_box = Rect::new(pen, y, 5 * scale, font::H * scale);
-            if !visible.intersect(glyph_box).is_empty() {
+            if !clip_to(visible, glyph_box).is_empty() {
                 if let Some(glyph) = font::glyph(ch) {
                     self.glyph(pen, y, glyph, color, clip, scale);
                 }
@@ -260,11 +262,14 @@ impl Canvas {
     /// masks and written with a single clip.
     pub fn cursor(&mut self, x: i32, y: i32, clip: Rect) {
         const SIZE: i32 = 10;
-        let r = self.visible(Rect::new(x - 1, y - 1, SIZE, SIZE), clip);
+        // Saturate so an extreme pointer position cannot overflow; such a
+        // sprite lies off the canvas and `visible` returns an empty rect.
+        let (ox, oy) = (x.saturating_sub(1), y.saturating_sub(1));
+        let r = self.visible(Rect::new(ox, oy, SIZE, SIZE), clip);
         for py in r.y..r.y + r.h {
-            let sy = (py - (y - 1)) as usize;
+            let sy = (py - oy) as usize;
             let (outline, body) = cursor_masks(sy);
-            let first = (r.x - (x - 1)) as usize;
+            let first = (r.x - ox) as usize;
             let row = self.row_mut(r.x, py, r.w);
             for (i, dst) in row.as_chunks_mut::<4>().0.iter_mut().enumerate() {
                 let bit = 1u16 << (first + i);
@@ -290,7 +295,12 @@ fn clip_to(rect: Rect, clip: Rect) -> Rect {
         .y
         .saturating_add(rect.h)
         .min(clip.y.saturating_add(clip.h));
-    Rect::new(x0, y0, (x1 - x0).max(0), (y1 - y0).max(0))
+    Rect::new(
+        x0,
+        y0,
+        x1.saturating_sub(x0).max(0),
+        y1.saturating_sub(y0).max(0),
+    )
 }
 
 /// The `(outline, body)` column masks of row `sy` (0..10) of the 10x10
