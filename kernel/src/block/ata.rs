@@ -7,10 +7,9 @@
 //! DEVICE` both proves the drive exists and supplies the sector count the
 //! registry advertises.
 //!
-//! [`probe`] returns the driver singleton for registration; [`read_sector`] is
-//! the legacy one-sector entry point the FAT reader still calls, forwarded to
-//! [`super::read_sector`] so the FAT volume can be read through whichever
-//! device the block layer selected.
+//! [`probe`] returns the driver singleton for registration; filesystems read
+//! through the [`BlockDevice`] trait, so the FAT volume reaches this driver
+//! through whichever handle it mounted.
 
 use super::{BlockDevice, BlockError, SECTOR_SIZE};
 use crate::arch::io::{inb, inw, outb};
@@ -157,13 +156,6 @@ pub fn probe() -> Option<&'static dyn BlockDevice> {
     let sectors = identify()?;
     SECTORS_ON_DISK.store(sectors, Ordering::Relaxed);
     Some(&ATA)
-}
-
-/// Legacy entry point used by the FAT reader. It forwards to the block layer,
-/// which routes to the active boot device, so the read-only FAT volume can be
-/// read from ATA or virtio-blk with no change in `crate::fs::fat`.
-pub fn read_sector(lba: u32, buf: &mut [u8; SECTOR_SIZE]) -> bool {
-    super::read_sector(lba, buf)
 }
 
 impl BlockDevice for AtaPio {

@@ -38,8 +38,10 @@ an in-memory ramfs mounted at `/tmp`.
 
 **Mounting** (`mod.rs`)
 
-1. `block::init()` probes devices; each device is tried as FAT first (only the
-   boot device), then as ext2 (`Ext2::open(device)`).
+1. `block::init()` probes devices; each device is tried as FAT
+   (`Fat16::open(device)`), then as ext2 (`Ext2::open(device)`). Both readers
+   keep the device they were given, so probing one disk never reads another
+   (`#244`).
 2. The first volume becomes `/`; `mounted` reports whether a volume was found.
 3. A fresh `RamFs` is always mounted at `/tmp`, so the VFS is usable even with
    no disk volume.

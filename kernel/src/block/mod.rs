@@ -15,9 +15,9 @@
 //! driver instances for the whole kernel life, which the statics in
 //! [`ata`]/[`virtio`] provide.
 //!
-//! The FAT reader predates this layer and calls [`ata::read_sector`]; that
-//! entry point now routes through the boot device (see [`read_sector`]), so
-//! mounting keeps working whichever driver won the probe.
+//! Filesystems open the device they are handed and keep that handle, so every
+//! read is tied to one disk regardless of which driver won the probe and which
+//! device is the active boot device.
 
 pub mod ata;
 pub mod pci;
@@ -221,17 +221,6 @@ pub fn init() {
     }
     if boot_device().is_none() {
         serial_println!("block: no block device found");
-    }
-}
-
-/// Compatibility entry point for the legacy FAT reader (issue #100 keeps it
-/// unchanged): read one sector from the active boot device, or straight from
-/// the ATA primary master when no device was selected yet (early probe).
-/// `false` on any failure.
-pub fn read_sector(lba: u32, buf: &mut [u8; SECTOR_SIZE]) -> bool {
-    match boot_device() {
-        Some(device) => device.read_sectors(u64::from(lba), buf).is_ok(),
-        None => ata::pio_read_sector(lba, buf),
     }
 }
 

@@ -21,7 +21,7 @@
 //! mounted in both tables, so scratch files are visible to both.
 
 pub mod ext2;
-mod fat;
+pub(crate) mod fat;
 pub mod overlay;
 pub mod ramfs;
 pub mod vfs;
@@ -50,9 +50,10 @@ static ABI_FS: Mutex<Option<Vfs>> = Mutex::new(None);
 ///
 /// Device selection runs through the block registry (issue #100): every
 /// registered device is tried in order, first as FAT12/16 (the shipped boot
-/// format, read through the FAT reader's active boot device) and then as ext2
-/// (issue #99, which opens the device it is handed). The first open volume
-/// becomes `/`; the default ATA image keeps mounting as FAT.
+/// format) and then as ext2 (issue #99). Both readers open the device they are
+/// handed and keep that handle (issue #244), so a probe on one disk cannot
+/// read from another. The first open volume becomes `/`; the default ATA image
+/// keeps mounting as FAT.
 pub fn init() -> bool {
     let mut global = FS.lock();
     if let Some((_, mounted)) = global.as_ref() {
@@ -62,8 +63,7 @@ pub fn init() -> bool {
     let mut vfs = Vfs::new();
     let mut root: Option<Arc<dyn Filesystem>> = None;
     for device in block::devices() {
-        block::set_boot_device(device);
-        if let Some(volume) = fat::Fat16::open() {
+        if let Some(volume) = fat::Fat16::open(device) {
             root = Some(Arc::new(volume));
             break;
         }
@@ -116,7 +116,7 @@ pub fn mount_device(point: &str, device: &str) -> Result<(), FsError> {
     let device = block::device(device).ok_or(FsError::NotFound)?;
     let is_boot = block::boot_device().is_some_and(|boot| boot.name() == device.name());
     if is_boot {
-        if let Some(volume) = fat::Fat16::open() {
+        if let Some(volume) = fat::Fat16::open(device) {
             return with(|vfs| vfs.mount(point, Arc::new(volume)))
                 .unwrap_or(Err(FsError::NotFound));
         }
