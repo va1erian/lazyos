@@ -148,6 +148,22 @@ class CodegenTests(unittest.TestCase):
         # `Option` must resolve to `core`, not `alloc`.
         self.assertIn("core::option::Option<u32>", rust)
 
+    def test_doc_of_empty_method_does_not_leak_to_next_item(self) -> None:
+        # A `() -> ()` method emits no argument or reply struct; its doc
+        # comment used to be left dangling onto the next method's struct.
+        text = """
+        interface os.lazy.dangling.v1 {
+            /// Probe doc.
+            method Ping() -> ();
+            /// Set doc.
+            method Set(value: U32) -> ();
+        }
+        """
+        interface = midlc.Parser(midlc.lex(text)).parse_interface()
+        rust = midlc.emit_rust(interface)
+        self.assertNotIn("Probe doc.", rust)
+        self.assertIn("/// Set doc.\n    #[derive", rust)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

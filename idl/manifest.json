@@ -42,12 +42,94 @@
     ]
   },
   {
+    "interface": "os.lazy.keyd.v1",
+    "interface_id": "0xd948c3355ba590bf",
+    "methods": [
+      {
+        "name": "Verify",
+        "id": 761007172,
+        "oneway": false
+      },
+      {
+        "name": "Sign",
+        "id": 258162884,
+        "oneway": false
+      },
+      {
+        "name": "Wrap",
+        "id": 540869,
+        "oneway": false
+      },
+      {
+        "name": "Unwrap",
+        "id": 936778462,
+        "oneway": false
+      },
+      {
+        "name": "Random",
+        "id": 1091948930,
+        "oneway": false
+      },
+      {
+        "name": "Generate",
+        "id": 1196778162,
+        "oneway": false
+      },
+      {
+        "name": "List",
+        "id": 220805025,
+        "oneway": false
+      },
+      {
+        "name": "Ping",
+        "id": 2142761129,
+        "oneway": false
+      },
+      {
+        "name": "Provision",
+        "id": 1596114784,
+        "oneway": false
+      }
+    ]
+  },
+  {
     "interface": "os.lazy.logind.v1",
     "interface_id": "0x98121a421f33722d",
     "methods": [
       {
         "name": "Sessions",
         "id": 916097772,
+        "oneway": false
+      }
+    ]
+  },
+  {
+    "interface": "os.lazy.mimed.v1",
+    "interface_id": "0x69d01278f9971fe6",
+    "methods": [
+      {
+        "name": "Guess",
+        "id": 1763202418,
+        "oneway": false
+      },
+      {
+        "name": "Lookup",
+        "id": 1772818603,
+        "oneway": false
+      },
+      {
+        "name": "Verbs",
+        "id": 1649509833,
+        "oneway": false
+      },
+      {
+        "name": "Open",
+        "id": 1401622761,
+        "oneway": false
+      },
+      {
+        "name": "Register",
+        "id": 658098656,
         "oneway": false
       }
     ]
