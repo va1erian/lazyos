@@ -69,12 +69,13 @@ fn errno_of(error: FsError) -> i64 {
 
 /// A path argument, or the `-errno` to return.
 fn path_arg(ptr: u64) -> Result<String, u64> {
-    let bytes = user_ptr::try_cstr(ptr, PATH_MAX).map_err(|_| failed(EFAULT))?;
-    // `try_cstr` silently truncates an unterminated string at the limit; for a
-    // path that would act on the wrong file, so a full-length read is refused.
-    if bytes.len() >= PATH_MAX {
-        return Err(failed(ENAMETOOLONG));
-    }
+    // A path with no terminator within `PATH_MAX` is too long, not unreadable:
+    // Linux reports `ENAMETOOLONG` here, while only a genuine memory fault is
+    // `EFAULT`.
+    let bytes = user_ptr::try_cstr(ptr, PATH_MAX).map_err(|err| match err {
+        user_ptr::CStrError::Fault => failed(EFAULT),
+        user_ptr::CStrError::Unterminated => failed(ENAMETOOLONG),
+    })?;
     let path = String::from_utf8(bytes).map_err(|_| failed(EINVAL))?;
     if path.is_empty() {
         return Err(failed(EINVAL));
