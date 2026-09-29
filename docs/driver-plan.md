@@ -80,7 +80,7 @@ The kernel ISR masks the line, sets a pending flag, and posts a one-way
 message **from the kernel identity** to the endpoint the driver registered.
 The driver receives it in the same `Selector`/`recv` loop as its client
 requests and calls `irq_ack` after servicing (which unmasks). At most one
-message is outstanding per IRQ, so an interrupt storm cannot fill a queue or
+message is outstanding per (claim, IRQ) (§3.3 covers shared lines), so an interrupt storm cannot fill a queue or
 burn the driver's `QueueDepth` quota. This is the "interrupt → event delivery
 through Messenger" line from the platform plan.
 
@@ -155,8 +155,19 @@ raw physical or port address from userspace (no ambient authority).
   `dev::irq::dispatch(line)`: if a device claim owns the line → mask, mark
   pending, post the kernel→driver one-way message; else existing handlers
   (timer/keyboard/mouse) run unchanged.
-- Level-triggered INTx may be shared: the dispatch masks the line until *all*
-  owners have acked; sharing is allowed only among the claimants that opt in.
+- **Shared INTx contract.** A line may be shared only by claimants that
+  opted in at `claim` time (each supplies its own `irq_endpoint`) and armed the
+  line with `irq_enable`. On an interrupt the kernel masks the line once and
+  posts **one message to every armed claimant**; each claim keeps its own
+  pending bit, so the one-outstanding limit is enforced **per (claim, line)**,
+  not per line. The line is unmasked only when every claimant that was sent a
+  message has called `irq_ack` (a claimant that has not armed, has released, or
+  died is not waited on). A claimant that does not ack within a bounded
+  deadline is dropped from that delivery round: the kernel unmasks the line,
+  audits the laggard, and leaves its pending bit set, so a hung driver cannot
+  hold a shared line masked and starve its co-claimants. Devices that do not
+  opt in get exclusive lines; a second claim on an occupied exclusive line
+  fails with `EBUSY`.
 - Kernel drivers register a plain `fn(line)` instead of a message.
 - APIC/IOAPIC and MSI are out of scope; the `Irq` resource kind and the
   dispatch table are the seam. **Risk**: on `q35` the PCI *Interrupt Line*
