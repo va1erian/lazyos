@@ -31,7 +31,8 @@ Tooling that measures how far LazyOS is from running prebuilt
 | `epollstress` | `eventfd` + `epoll` level/edge readiness, timeouts, add/mod/del. |
 | `unixstress` | `UnixStream` pair/EOF/shutdown, pathname bind/connect/accept, `SOCK_SEQPACKET` boundaries. |
 | `persist` | A file on the persistent `/data` volume: write, `fsync`, `pwrite`/`pread`, `ftruncate`, append, then (second boot, same disk) the bytes are still there. Two boots, see below. |
-| `busybox` | Pinned static BusyBox (`tools/abi/busybox.py`), the system shell: the kernel boots it with `sh -c "echo ABI:busybox:PASS"`. |
+| `statxio` | `statx` (path and `AT_EMPTY_PATH`), `preadv`/`pwritev` (positional, hostile count refused), the legacy `getdents`, and `/proc/mounts`, all on `/tmp`. |
+| `busybox` | Pinned static BusyBox (`tools/abi/busybox.py`), the system shell: the kernel boots it with `sh -c "echo ABI:busybox:PASS; df; mount"`; with a data disk attached the row also requires `/data` in the `df` and `mount` output. |
 
 ## Convention
 

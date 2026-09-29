@@ -45,6 +45,7 @@ ORDER = [
     "epollstress",
     "unixstress",
     "persist",
+    "statxio",
     "busybox",
 ]
 
@@ -155,6 +156,25 @@ def run_two_boots(name: str, at: str, accel: str) -> tuple[str, str]:
     return status, f"boot 2: {detail}" if detail else ""
 
 
+def run_busybox(at: str, accel: str) -> tuple[str, str]:
+    """The BusyBox row: `sh` runs, and `df` and `mount` list the `/data` volume.
+
+    The kernel's bench command is `echo ABI:busybox:PASS; df; mount`. With a
+    data disk attached their output must name `/data` (they read
+    `/proc/mounts`); without the disk tooling only the shell itself is judged.
+    """
+    disk = new_data_disk("busybox") if data_disk_tooling() else None
+    serial = capture("busybox", at, accel, disk)
+    status, detail = classify("busybox", serial)
+    if status != "pass" or disk is None:
+        return status, detail
+    if not re.search(r"^\s*\S+\s+\d+\s+\d+\s+\d+\s+\d+%\s+/data\s*$", serial, re.M):
+        return "fail", "df does not list /data"
+    if not re.search(r"\bon /data type ext2 \(rw", serial):
+        return "fail", "mount does not list /data as ext2 (rw)"
+    return "pass", ""
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--at", default="8", help="capture time in seconds (default 8)")
@@ -181,6 +201,8 @@ def main() -> int:
             continue
         if name in TWO_BOOT:
             status, detail = run_two_boots(name, args.at, args.accel)
+        elif name == "busybox":
+            status, detail = run_busybox(args.at, args.accel)
         else:
             status, detail = classify(name, capture(name, args.at, args.accel))
         results.append({"fixture": name, "status": status, "detail": detail})
