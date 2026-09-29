@@ -153,6 +153,7 @@ mod slab_suite;
 mod stats_suite;
 mod sysinfo_suite;
 mod task_suite;
+mod topics_gate_suite;
 mod topics_suite;
 
 /// Every suite, run in the order listed. See the module doc for why the
@@ -200,6 +201,7 @@ const SUITE: &[&[(&str, Test)]] = &[
     overlay_suite::CASES,
     ext2_suite::CASES,
     topics_suite::CASES,
+    topics_gate_suite::CASES,
     service_suite::CASES,
     display_suite::CASES,
     sysinfo_suite::CASES,

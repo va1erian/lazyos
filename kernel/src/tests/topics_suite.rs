@@ -23,7 +23,7 @@ const REQUEST: u64 = SPACE + 0x1000;
 
 /// Every topics test starts from the bring-up state: kernel task current,
 /// root credentials, empty policy (the bootstrap window), empty audit ring.
-fn fresh() -> Result<(), String> {
+pub(super) fn fresh() -> Result<(), String> {
     task::register_kernel();
     task::harness::reset();
     task::harness::switch_current(task::KERNEL_TASK);
@@ -38,7 +38,7 @@ fn fresh() -> Result<(), String> {
 
 /// Run `f` with [`SPACE`] mapped into a fresh address space installed as
 /// CR3, exactly as a real syscall from a user task would find it.
-fn in_space<R>(f: impl FnOnce() -> Result<R, String>) -> Result<R, String> {
+pub(super) fn in_space<R>(f: impl FnOnce() -> Result<R, String>) -> Result<R, String> {
     let kernel = mem::kernel_table();
     let table = mem::new_user_table().ok_or("new_user_table failed")?;
     process::map_range(table, SPACE, SPACE + SPACE_PAGES * 4096).map_err(to_string)?;
@@ -72,12 +72,12 @@ fn dispatch(op: u64, args: &MsgArgs) -> (u64, MsgResult) {
 }
 
 /// Two's-complement `-errno` as the syscall returns it in `rax`.
-fn failed(code: i64) -> u64 {
+pub(super) fn failed(code: i64) -> u64 {
     (code as u64).wrapping_neg()
 }
 
 /// Wrap an encoded `authorize_topic` body in a parcel and serialize it.
-fn wrap_body(body: Vec<u8>) -> Result<Vec<u8>, String> {
+pub(super) fn wrap_body(body: Vec<u8>) -> Result<Vec<u8>, String> {
     let parcel = Parcel {
         header: Header {
             version: VERSION,
@@ -98,7 +98,7 @@ fn wrap_body(body: Vec<u8>) -> Result<Vec<u8>, String> {
 }
 
 /// Encode an `authorize_topic` request parcel with the generated codec.
-fn auth_parcel(name: &str, mode: u32, txn: u64) -> Result<Vec<u8>, String> {
+pub(super) fn auth_parcel(name: &str, mode: u32, txn: u64) -> Result<Vec<u8>, String> {
     let request = topics::publish_scope::AuthorizeTopicArgs {
         name: String::from(name),
         mode,
@@ -110,7 +110,7 @@ fn auth_parcel(name: &str, mode: u32, txn: u64) -> Result<Vec<u8>, String> {
 }
 
 /// Run `authorize_topic` on the caller itself with `request` (a whole parcel).
-fn authorize_raw(request: &[u8]) -> (u64, MsgResult) {
+pub(super) fn authorize_raw(request: &[u8]) -> (u64, MsgResult) {
     write_bytes(REQUEST, request);
     let args = MsgArgs {
         txn_id: REGISTRY_TARGET_SELF,
@@ -123,7 +123,7 @@ fn authorize_raw(request: &[u8]) -> (u64, MsgResult) {
 
 /// A policy that denies `method` on `interface` for uid 1000 ahead of an
 /// allow-all rule, so neighbours and other actors stay allowed.
-fn deny_rule(interface: u64, method: u32) -> [acl::Rule; 2] {
+pub(super) fn deny_rule(interface: u64, method: u32) -> [acl::Rule; 2] {
     [
         acl::Rule {
             actor: 1000,
@@ -439,87 +439,9 @@ pub fn syscall_gate() -> Result<(), String> {
     })
 }
 
-/// The request decoder is the generated one: unknown trailing fields are
-/// ignored (forward compatibility), and a truncated body is `-EINVAL`, never
-/// a panic or a silent allow.
-pub fn gate_codec_edges() -> Result<(), String> {
-    fresh()?;
-    in_space(|| -> Result<(), String> {
-        let request = topics::publish_scope::AuthorizeTopicArgs {
-            name: String::from("system/events"),
-            mode: topics::MODE_PUBLISH,
-            txn: 9,
-        };
-        let mut body = topics::publish_scope::encode_authorize_topic_args(&request)
-            .map_err(|error| error.message())?;
-        // Field 9 is unknown to the request layout and must be skipped.
-        let mut extra = Encoder::new();
-        extra.u64(9, 0xdead).map_err(|error| error.message())?;
-        body.extend_from_slice(&extra.finish());
-        let (code, result) = authorize_raw(&wrap_body(body.clone())?);
-        check!(code == 0 && result.value == 2, "unknown field -> {code:#x}");
-
-        // Every strict prefix of a valid body is either decoded as a shorter
-        // valid body or refused; none may crash the gate.
-        let whole = topics::publish_scope::encode_authorize_topic_args(&request)
-            .map_err(|error| error.message())?;
-        for cut in 0..whole.len() {
-            let (code, _) = authorize_raw(&wrap_body(whole[..cut].to_vec())?);
-            check!(
-                code == 0 || code == failed(errno::EINVAL),
-                "truncated at {cut} -> {code:#x}"
-            );
-        }
-        // Cutting mid-field is a codec error, not an allow.
-        let (code, _) = authorize_raw(&wrap_body(whole[..3].to_vec())?);
-        check!(code == failed(errno::EINVAL), "mid-field cut -> {code:#x}");
-        Ok(())
-    })
-}
-
-/// Sustained load through the gate: thousands of allowed and denied requests
-/// must keep answering correctly, audit exactly the denials, and leak
-/// nothing (the ring is bounded, so the monotonic total is the invariant).
-pub fn gate_stress() -> Result<(), String> {
-    const ROUNDS: u64 = 3000;
-    fresh()?;
-    in_space(|| -> Result<(), String> {
-        credentials::set(task::current(), Cred::new(1000, 100, 0, 0, 0));
-        // Deny only the *subscribe* scope's `secret`; publish stays allowed,
-        // pinning that each mode authorizes on its own interface id.
-        acl::load(&deny_rule(
-            topics::SUBSCRIBE_INTERFACE,
-            topics::segment_method("secret"),
-        ));
-        let allowed = auth_parcel("public/secret/x", topics::MODE_PUBLISH, 1)?;
-        let denied = auth_parcel("public/secret/x", topics::MODE_SUBSCRIBE, 2)?;
-        let before = audit::total();
-        for round in 0..ROUNDS {
-            let (code, result) = authorize_raw(&allowed);
-            check!(
-                code == 0 && result.value == 3,
-                "round {round}: allowed publish -> {code:#x}"
-            );
-            let (code, _) = authorize_raw(&denied);
-            check!(
-                code == failed(errno::EACCES),
-                "round {round}: denied subscribe -> {code:#x}"
-            );
-        }
-        check!(
-            audit::total() == before + ROUNDS,
-            "expected {ROUNDS} audited denials, saw {}",
-            audit::total() - before
-        );
-        Ok(())
-    })
-}
-
 pub(super) const CASES: &[(&str, Test)] = &[
     ("ipc_topic_segment_methods_stable", segment_methods_stable),
     ("ipc_topic_acl_segments_enforced", acl_segments_enforced),
     ("ipc_topic_acl_wildcard_filter", acl_wildcard_filter),
     ("ipc_topic_acl_syscall_gate", syscall_gate),
-    ("ipc_topic_gate_codec_edges", gate_codec_edges),
-    ("ipc_topic_gate_stress", gate_stress),
 ];
