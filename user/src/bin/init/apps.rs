@@ -208,7 +208,11 @@ pub fn apply_manifest(text: &str) {
     let mut available = 0u64;
     let mut autostart = 0u64;
     for (index, app) in APPS.iter().enumerate() {
-        if app.ship == Ship::Always {
+        // `top` is the boot launch self-test's target: normally always shipped,
+        // but the desktop profile (`LAZYOS_DESKTOP=1`) leaves its ELF out, so
+        // its row must not advertise a program the image does not carry.
+        let desktop_skip = cfg!(lazyos_desktop) && app.path == "TOP.ELF";
+        if app.ship == Ship::Always && !desktop_skip {
             available |= 1 << index;
         }
     }

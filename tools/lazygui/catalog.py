@@ -85,20 +85,25 @@ DISKS = ["virtio", "ata"]
 def build_env(cfg: dict) -> dict[str, str]:
     """The LAZYOS_* environment for an image build / run."""
     env: dict[str, str] = {}
-    if cfg["services"]:
-        env["LAZYOS_SERVICES"] = "1"
-    if cfg["xuid"]:
-        env["LAZYOS_XUID"] = "1"
+    if cfg.get("desktop"):
+        # One switch expands to the desktop recipe (issue #217): the image
+        # build and `init` derive the rest from it.
+        env["LAZYOS_DESKTOP"] = "1"
+    else:
+        if cfg["services"]:
+            env["LAZYOS_SERVICES"] = "1"
+        if cfg["xuid"]:
+            env["LAZYOS_XUID"] = "1"
+        if cfg["xui_client"]:
+            env["LAZYOS_XUI_CLIENT"] = "1"
+        if cfg["xui_app"] != "(none)":
+            env["LAZYOS_XUI_APP"] = os.path.join(ROOT, "target", "xui", f"xui-{cfg['xui_app']}.elf")
     if cfg["shellprobe"] and cfg["xuid"]:
         env["LAZYOS_SHELLPROBE"] = "1"
     if cfg["msgctl"]:
         env["LAZYOS_MESSENGERCTL"] = "1"
     if cfg["msgrd"]:
         env["LAZYOS_MESSENGERD"] = "1"
-    if cfg["xui_client"]:
-        env["LAZYOS_XUI_CLIENT"] = "1"
-    if cfg["xui_app"] != "(none)":
-        env["LAZYOS_XUI_APP"] = os.path.join(ROOT, "target", "xui", f"xui-{cfg['xui_app']}.elf")
     if cfg.get("xui_apps"):
         env["LAZYOS_XUI_APPS"] = os.pathsep.join(
             os.path.join(ROOT, "target", "xui", f"xui-{app}.elf") for app in cfg["xui_apps"]
@@ -132,14 +137,18 @@ def simple_config(base: dict, build: str, interface: str) -> dict:
         "extra": base.get("extra", ""),
         "busybox": "",
         "cli": not desktop,
-        # Desktop = services suite + compositor + the XUI apps as its clients
-        # (`init` opens them: Terminal, System Monitor, Fabric Monitor, Counter).
-        "services": desktop,
-        "xuid": desktop,
+        # Desktop = the single `LAZYOS_DESKTOP=1` profile (issue #217): services
+        # suite + compositor + the xui apps as its clients (`init` opens the
+        # default set: Terminal, System Monitor, Fabric Monitor, Counter), with
+        # no demo/evidence programs. The individual switches stay off so no
+        # Advanced checkbox leaks in.
+        "desktop": desktop,
+        "services": False,
+        "xuid": False,
         "shellprobe": False,
         "msgctl": False,
         "msgrd": False,
-        "xui_client": desktop,
+        "xui_client": False,
         "xui_app": "(none)",
         "xui_apps": DESKTOP_APPS if desktop else (),
         "prebuild_xui": desktop,
