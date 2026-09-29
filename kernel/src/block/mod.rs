@@ -20,6 +20,7 @@
 //! mounting keeps working whichever driver won the probe.
 
 pub mod ata;
+pub mod mem;
 pub mod pci;
 pub mod virtio;
 
