@@ -9,7 +9,7 @@ an in-memory ramfs mounted at `/tmp`.
 | Path | Role |
 |---|---|
 | `kernel/src/fs/mod.rs` | Init/mount, kernel-side `read`/`abi_*` entry points |
-| `kernel/src/fs/vfs.rs` | `Filesystem` trait, `Vfs`, `Path`, `Id`, permissions, caches |
+| `kernel/src/fs/vfs.rs` (+ `vfs/{filesystem,meta,path}.rs`) | `Vfs`, caches; `Filesystem` trait, `Path`, `Id`, permissions in the submodules |
 | `kernel/src/fs/ramfs.rs` | In-memory tree; root inode 1 (issue #98) |
 | `kernel/src/fs/fat.rs` | Read-only FAT12/16 on the boot volume |
 | `kernel/src/fs/ext2.rs` | Read/write ext2 rev 0/1 (issue #99) |
