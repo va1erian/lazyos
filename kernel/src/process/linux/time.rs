@@ -6,7 +6,7 @@
 use crate::task::{self, WakeReason};
 use crate::user_ptr;
 
-use super::errno::{err, EINTR, EINVAL};
+use super::errno::{err, EFAULT, EINTR, EINVAL};
 use super::uaccess::fill_random;
 
 /// Fixed realtime epoch (2026-01-01T00:00:00Z); the PIT provides monotonicity.
@@ -129,14 +129,24 @@ fn clock_deadline_ticks(clock: u64, sec: u64, nsec: u64) -> u64 {
     }
 }
 
+/// Most bytes one `getrandom` call fills. A short read is legal (callers
+/// loop), and the cap bounds the time spent with interrupts off.
+const GETRANDOM_MAX: u64 = 4096;
+
 pub(super) fn sys_getrandom(buf: u64, len: u64) -> u64 {
+    let len = len.min(GETRANDOM_MAX);
     let mut chunk = [0u8; 256];
     let mut written = 0u64;
     while written < len {
         let n = ((len - written) as usize).min(chunk.len());
         fill_random(&mut chunk[..n]);
-        // Safety: user buffer (the syscall ABI's contract).
-        unsafe { user_ptr::copy_to(buf + written, &chunk[..n]) };
+        let Some(dest) = buf.checked_add(written) else {
+            break;
+        };
+        if user_ptr::try_copy_to(dest, &chunk[..n]).is_err() {
+            // Nothing delivered yet is a fault; otherwise report the short read.
+            return if written == 0 { err(EFAULT) } else { written };
+        }
         written += n as u64;
     }
     written

@@ -102,16 +102,20 @@ fn elf_with_segments(segments: &[(u64, u64)]) -> Vec<u8> {
 /// wraps around the address space.
 pub fn out_of_range_segment_is_refused_without_leaking() -> Result<(), String> {
     fresh()?;
-    for (what, bad) in [
-        ("above 512 GiB", (1u64 << 39, 0x1000u64)),
-        ("wrapping end", (0x80_0000, u64::MAX)),
+    for (what, bad, reason) in [
+        ("above 512 GiB", (1u64 << 39, 0x1000u64), "loadable range"),
+        ("wrapping end", (0x80_0000, u64::MAX), "wraps"),
     ] {
         let elf = elf_with_segments(&[(0x40_0000, 0x3000), bad]);
         let before = mem::frame_stats().live();
         let table = mem::new_user_table().ok_or("out of memory")?;
         let guard = mem::UserTableGuard::new(table);
-        let result = process::load_segments(guard.table(), &elf);
-        check!(result.is_err(), "a segment {what} was accepted");
+        let result = process::load_segments(guard.table(), &elf, &[]);
+        // Match the reason too, so an unrelated rejection can't pass for it.
+        check!(
+            matches!(result, Err(message) if message.contains(reason)),
+            "a segment {what} -> {result:?}, expected a refusal mentioning {reason:?}"
+        );
         drop(guard);
         let after = mem::frame_stats().live();
         check!(

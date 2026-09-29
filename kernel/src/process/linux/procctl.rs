@@ -11,7 +11,7 @@ use crate::task::process::GroupError;
 use crate::task::{self, WakeReason};
 use crate::user_ptr;
 
-use super::elf::{build_start_stack, phdr_size, program_header_addr};
+use super::elf::{build_start_stack, phdr_size, program_header_addr, LOAD_RESERVED};
 use super::errno::{
     err, fs_err, ECHILD, EFAULT, EINTR, EINVAL, ENOENT, ENOEXEC, ENOMEM, ENOSYS, EPERM, ESRCH,
 };
@@ -194,7 +194,7 @@ pub(super) fn sys_execve(path_ptr: u64, argv_ptr: u64, envp_ptr: u64) -> u64 {
     // Every error below returns while this guard is live, so a partially
     // loaded image cannot leak its address space and frames (issue #229).
     let guard = crate::mem::UserTableGuard::new(table);
-    let entry = match load_segments(guard.table(), &elf) {
+    let entry = match load_segments(guard.table(), &elf, &LOAD_RESERVED) {
         Ok(entry) => entry,
         Err(_) => return err(ENOEXEC),
     };
