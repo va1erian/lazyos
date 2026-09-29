@@ -20,7 +20,7 @@ used only where the line is a stable anchor.
 | Boot & image build | [boot.md](architecture/boot.md) | `build.rs`, `src/main.rs`, `.cargo/config.toml` | #62, S0 |
 | Arch, CPU tables & syscall gates | [arch.md](architecture/arch.md) | `kernel/src/arch/{gdt,idt,msr,pic,cpu,linux}.rs` | #69, S0 |
 | Physical memory & paging | [physical-memory.md](architecture/physical-memory.md) | `kernel/src/mem/mod.rs` | #54, #55, S0 |
-| Virtual memory (VMA/COW/mmap) | [virtual-memory.md](architecture/virtual-memory.md) | `kernel/src/mem/vma.rs`, `kernel/src/process/linux.rs` | #55, S0 |
+| Virtual memory (VMA/COW/mmap) | [virtual-memory.md](architecture/virtual-memory.md) | `kernel/src/mem/vma.rs`, `kernel/src/process/linux/mem.rs` | #55, S0 |
 | Allocators (heap/slab/user) | [allocators.md](architecture/allocators.md) | `kernel/src/mem/{heap,slab}.rs`, `user/src/heap.rs` | #61, S0 |
 | Tasks & scheduler | [tasks.md](architecture/tasks.md) | `kernel/src/task/mod.rs`, `kernel/src/task/switch.rs` | #58, S0 |
 | Wait queues & signals | [wait-signals.md](architecture/wait-signals.md) | `kernel/src/task/{wait,signal}.rs` | #57, #60, S0 |

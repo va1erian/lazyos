@@ -10,7 +10,7 @@ syscall shim.
 |---|---|
 | `kernel/src/task/process.rs` | Tree, groups, sessions, `finish`, `reap_child` |
 | `kernel/src/process/mod.rs` | Native gate dispatch, ELF loader, syscalls 6-11 |
-| `kernel/src/process/linux.rs` | Linux ELF loader + syscall dispatch, futex, clone |
+| `kernel/src/process/linux/` | Linux ELF loader + syscall dispatch, futex, clone (split by syscall family; see its `mod.rs` doc comment) |
 | `kernel/src/ipc/pipe.rs` | Pipes (`pipe`/`pipe2`) and `AF_UNIX` socket pairs |
 | `kernel/src/arch/linux.rs` | `syscall`/`sysret` entry (see [arch.md](arch.md)) |
 | `kernel/src/task/signal.rs` | `SIGCHLD`, group termination (see [wait-signals.md](wait-signals.md)) |
@@ -56,7 +56,7 @@ syscall shim.
   eagerly at `USER_HEAP_BASE = 0x60_0000` / `USER_STACK_TOP = 0x80_0000`
   (`USER_STACK_SIZE = 0x2_0000`).
 
-**Linux shim** (`process/linux.rs`, issues #55-#60; plan: [linux-abi-plan.md](../linux-abi-plan.md))
+**Linux shim** (`process/linux/`, issues #55-#60; plan: [linux-abi-plan.md](../linux-abi-plan.md))
 
 - `load` builds a Linux stack (argv/envp/auxv; `AT_CLKTCK = 100`) and returns
   `(entry, stack_top)`; `spawn_linux` registers the `brk`/`mmap` bumps.

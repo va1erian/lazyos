@@ -12,7 +12,8 @@ delivery.
 | `kernel/src/task/signal.rs` | Signal state, delivery, frames, `SIGSEGV` hook |
 | `kernel/src/ipc/channels.rs` | `MESSENGER` queue over the same primitive |
 | `kernel/src/ipc/shared.rs` | `FENCES` queue for fence waits |
-| `kernel/src/process/linux.rs` | `rt_sigaction` family and `futex` dispatch |
+| `kernel/src/process/linux/sig.rs` | `rt_sigaction` family |
+| `kernel/src/process/linux/futex.rs` | `futex` dispatch |
 
 **WaitQueue model** (`wait.rs`, issue #57)
 
