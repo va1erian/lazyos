@@ -138,7 +138,7 @@ Same multiplexed style as syscalls 5/12/14 (op in `rdi`).
 | Op | Effect | Checks |
 |---|---|---|
 | `list(buf)` | copy `DeviceInfo` rows the caller may see | `CAP_DEV_CLAIM` (devd) |
-| `claim(id, irq_endpoint)` | returns a `Device` handle; sets owner | `authorize(actor, "os.kernel.dev", claim)`, device unowned, quota |
+| `claim(id, irq_endpoint)` | returns a `Device` handle; sets owner | `authorize(actor, "os.kernel.dev.<class>", claim)` with the resolved device class (§3.5), rights per the grant rule (§2 D3), device unowned, quota |
 | `map_bar(dev, bar)` | maps MMIO uncached into caller | handle right `MMIO`, mapping charged to `UserMemory` |
 | `pio(dev, bar, off, width, val?)` | port in/out inside the device's I/O BAR only | handle right `PIO`, offset < len |
 | `cfg_read/cfg_write(dev, off)` | PCI config, write masked (no BAR/bus-master bits from userspace directly) | right `CONFIG` |
