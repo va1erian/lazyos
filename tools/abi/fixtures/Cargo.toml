@@ -63,3 +63,7 @@ path = "src/unixstress.rs"
 [[bin]]
 name = "persist"
 path = "src/persist.rs"
+
+[[bin]]
+name = "statxio"
+path = "src/statxio.rs"

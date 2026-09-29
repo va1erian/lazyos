@@ -41,6 +41,7 @@ pub(super) const ENOSPC: u64 = 28;
 pub(super) const EROFS: u64 = 30;
 pub(super) const ENAMETOOLONG: u64 = 36;
 pub(super) const ENOTEMPTY: u64 = 39;
+pub(super) const EOPNOTSUPP: u64 = 95;
 
 pub(super) fn err(e: u64) -> u64 {
     (e as i64).wrapping_neg() as u64

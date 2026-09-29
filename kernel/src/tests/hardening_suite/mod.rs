@@ -18,9 +18,9 @@ use alloc::sync::Arc;
 use libmessenger::{flags, Header, Parcel, VERSION};
 
 /// Scratch user space for the tests that need real user mappings.
-const SPACE: u64 = 0x0040_0000;
+pub(in crate::tests) const SPACE: u64 = 0x0040_0000;
 
-const SPACE_PAGES: u64 = 8;
+pub(in crate::tests) const SPACE_PAGES: u64 = 8;
 
 const EPERM: i64 = 1;
 
@@ -39,10 +39,10 @@ fn alice() -> Cred {
 /// Turns pointer validation on for the guard's lifetime. The suite's other
 /// tests pass kernel buffers as "user" pointers, so validation is off by
 /// default under `lazyos_tests`.
-struct Strict(bool);
+pub(in crate::tests) struct Strict(bool);
 
 impl Strict {
-    fn on() -> Strict {
+    pub(in crate::tests) fn on() -> Strict {
         Strict(crate::user_ptr::set_trust_kernel_pointers(false))
     }
 }
@@ -72,7 +72,7 @@ fn fresh() -> Result<(), String> {
 
 /// Run `f` with [`SPACE`] mapped into a fresh address space installed as
 /// CR3, exactly as a syscall from a user task would find it.
-fn in_space<R>(f: impl FnOnce() -> Result<R, String>) -> Result<R, String> {
+pub(in crate::tests) fn in_space<R>(f: impl FnOnce() -> Result<R, String>) -> Result<R, String> {
     let kernel = mem::kernel_table();
     let table = mem::new_user_table().ok_or("new_user_table failed")?;
     process::map_range(table, SPACE, SPACE + SPACE_PAGES * 4096).map_err(to_string)?;

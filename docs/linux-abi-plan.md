@@ -98,7 +98,7 @@ Status (#334): files under `/data` (the ext2 data volume) are VFS-backed
 descriptors rather than snapshots, with `pread64`/`pwrite64`/`truncate`/
 `ftruncate`/`fsync`/`fdatasync`/`syncfs`/`sync`/`statfs`/`fstatfs`, POSIX
 unlink-while-open, and the two-boot `persist` fixture proving a file survives a
-reboot. `chmod`/`chown`/`utimensat`, `link`/`symlink` and `statx` remain
+reboot. `chmod`/`chown`/`utimensat` and `link`/`symlink` remain
 `ENOSYS` (the VFS trait has no attribute setter or link nodes yet).
 
 ### L3 — Threads and synchronization

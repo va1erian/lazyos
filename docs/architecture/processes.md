@@ -75,7 +75,8 @@ runnable by hand from BusyBox `sh` (see "Native programs from `sh`" below).
 - `load` builds a Linux stack (argv/envp/auxv; `AT_CLKTCK = 100`) and returns
   `(entry, stack_top)`; `spawn_linux` registers the `brk`/`mmap` bumps.
 - `linux_dispatch` implements a growing subset: file I/O (`read`, `write`,
-  `openat`, `close`, `stat`/`fstat`/`newfstatat`, `getdents64`, `readv`/`writev`,
+  `openat`, `close`, `stat`/`fstat`/`newfstatat`/`statx`, `getdents`/`getdents64`,
+  `readv`/`writev`, `preadv`/`pwritev` (and the `*2` forms),
   `lseek`, `pread64`/`pwrite64`, `truncate`/`ftruncate`, `fsync`/`fdatasync`/
   `syncfs`/`sync`, `statfs`/`fstatfs`, `dup`/`dup2`, `fcntl`, `ioctl`,
   `readlink`, `getcwd`, `chmod`/`fchmod`/`fchmodat`, `chown`/`fchown`/`lchown`/
@@ -121,6 +122,20 @@ runnable by hand from BusyBox `sh` (see "Native programs from `sh`" below).
   hidden entry, as an orphan inode would; the next mount of an unclean `/data`
   reclaims it, and user calls cannot create a `.unlinked-` name (`EINVAL`). Writes on a read-only device answer
   `EROFS` from the write, not from `open`.
+- **Inspection** (issue #348). `/proc/mounts`, `/proc/self/mounts` and
+  `/proc/self/mountinfo` are fabricated by `process/linux/procfs.rs` from
+  `fs::abi_mounts()` each time they are opened (source, mount point, type,
+  `ro`/`rw`; a filesystem's `name()` ending in `(ro)` marks a read-only mount),
+  which is what BusyBox `df` and `mount` read. `getdents` (78) and `getdents64`
+  share `dents.rs`: both hand out whole records (`EINVAL` when the buffer cannot
+  hold the next one), with `d_off` set to the next record's stream offset.
+  `statx` (`statx.rs`) is built from the same `Attrs` as `stat`; it claims
+  type, mode, nlink, uid, gid, ino, size, blocks and the access, modify and
+  change times (whole seconds), and no birth time (no backend records it).
+  `stat`/`fstat`/`statx` report the real owner and times from the VFS `Meta`. `preadv`/`pwritev`/`preadv2`/`pwritev2` (`iov.rs`) share the walk
+  and the caps of `readv`/`writev` (1024 segments, no length past `isize::MAX`,
+  a bad array is `EFAULT`); `RWF_DSYNC`/`RWF_SYNC`/`RWF_APPEND` are refused with
+  `EOPNOTSUPP` and an offset of -1 means the descriptor position.
 - **Attributes** (`process/linux/attr.rs`, issue #345). The eleven
   `chmod`/`chown`/`utime` shapes decode into one `AttrRequest` on a path or a
   descriptor; the rules (owner/root, setuid clearing, `UTIME_NOW`'s
@@ -224,7 +239,6 @@ lifecycle, and a 384-cycle spawn/exit soak that checks slots and frames) and the
 epoll/eventfd, `UnixStream`/seqpacket; matrix published by CI), native
 supervision loop (`init`, app `Launch`). Gaps: `poll` edge cases, full
 `SA_RESTART`, shared file tables, per-process cwd (`chdir` is a no-op),
-dynamic linking. Still `ENOSYS` on the filesystem side: `link`/`symlink`,
-`getdents` (78, musl uses `getdents64`), `statx`, `preadv`/`pwritev`. The
+dynamic linking. Still `ENOSYS` on the filesystem side: `link`/`symlink`. The
 `persist` fixture also sets and re-checks mode, owner and times across its two
 boots.

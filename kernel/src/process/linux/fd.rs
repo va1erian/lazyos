@@ -1,8 +1,6 @@
 //! The Linux-ABI side table for open descriptors, and the syscalls that
 //! operate on the descriptor table itself rather than on what a descriptor
-//! points at: `close`, `lseek`, `dup`/`dup2`, `fcntl`, and `getdents64` (a
-//! thin wrapper over [`super::io::read_file_bytes`], since a directory's
-//! `linux_dirent64` stream is just bytes once [`super::path`] has built it).
+//! points at: `close`, `lseek`, `dup`/`dup2` and `fcntl`.
 //!
 //! The task fd table ([`task::Fd`]) carries only bytes for a `File`
 //! descriptor, so `fstat`, `write`, and path-relative opens read
@@ -17,8 +15,7 @@ use spin::Mutex;
 use crate::fs::vfs::Meta;
 use crate::task::{self, Fd, FdKind};
 
-use super::errno::{err, EBADF, EINVAL, ENOMEM, ENOTDIR, ESPIPE};
-use super::filerw::read_file_bytes;
+use super::errno::{err, EBADF, EINVAL, ENOMEM, ESPIPE};
 use super::flags::{O_NONBLOCK, S_IFCHR};
 
 /// `fcntl` commands and the `dup`/`dup2` descriptor-flag bit this module
@@ -51,6 +48,9 @@ pub(super) struct FdMeta {
     pub(super) mode: u32,
     pub(super) ino: u64,
     pub(super) size: u64,
+    /// Owner at open time, so `fstat`/`statx` report it like `stat` does.
+    pub(super) uid: u32,
+    pub(super) gid: u32,
     /// Byte length of the snapshot, checked on read so a slot reused by a
     /// different file (fork-inherited or a recycled task slot) reports no
     /// metadata instead of a stale mode.
@@ -150,6 +150,8 @@ pub(super) fn file_meta(meta: Meta, path: String, writable: bool, append: bool) 
         mode: meta.mode as u32,
         ino: meta.ino,
         size: meta.size,
+        uid: meta.uid,
+        gid: meta.gid,
         data_len: 0,
         path: Some(path),
         writable,
@@ -167,6 +169,8 @@ pub(super) fn open_device_fd() -> u64 {
             mode: S_IFCHR | 0o666,
             ino: 0,
             size: 0,
+            uid: 0,
+            gid: 0,
             data_len: 0,
             path: None,
             writable: true,
@@ -174,14 +178,6 @@ pub(super) fn open_device_fd() -> u64 {
             device: true,
         },
     )
-}
-
-pub(super) fn sys_getdents64(fd: u64, buf: u64, count: u64) -> u64 {
-    match task::fd_kind(fd as usize) {
-        FdKind::File => read_file_bytes(fd, buf, count),
-        FdKind::Vfs => err(ENOTDIR), // a regular file has no directory stream
-        _ => err(EBADF),
-    }
 }
 
 pub(super) fn sys_close(fd: u64) -> u64 {

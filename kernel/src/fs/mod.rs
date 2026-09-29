@@ -322,8 +322,8 @@ fn abi_with<T>(f: impl FnOnce(&mut Vfs) -> T) -> Option<T> {
     ABI_FS.lock().as_mut().map(f)
 }
 
-/// Mount points of the Linux ABI table, in mount order.
-#[cfg_attr(not(lazyos_tests), allow(dead_code))] // used by tests/diagnostics
+/// Mount points of the Linux ABI table, in mount order, with each
+/// filesystem's short name (which ends in `(ro)` for a read-only mount).
 pub fn abi_mounts() -> Vec<(String, &'static str)> {
     abi_with(|vfs| vfs.mounts()).unwrap_or_default()
 }

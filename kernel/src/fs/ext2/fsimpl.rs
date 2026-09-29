@@ -4,7 +4,13 @@ use super::*;
 
 impl Filesystem for Ext2 {
     fn name(&self) -> &'static str {
-        "ext2 (rw)"
+        // A volume on a device that cannot be written is mounted read-only;
+        // `/proc/mounts` reports the mode from this name.
+        if self.read_only {
+            "ext2 (ro)"
+        } else {
+            "ext2 (rw)"
+        }
     }
 
     fn lookup(&self, path: &str) -> Result<Meta, FsError> {

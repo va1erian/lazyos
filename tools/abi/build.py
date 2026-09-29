@@ -37,6 +37,7 @@ NAMES = [
     "epollstress",
     "unixstress",
     "persist",
+    "statxio",
 ]
 
 

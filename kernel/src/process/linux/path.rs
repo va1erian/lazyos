@@ -83,12 +83,12 @@ fn applet_name(path: &str) -> Option<&str> {
 fn synthetic_dir(path: &str) -> bool {
     matches!(
         path,
-        "/" | "/bin" | "/sbin" | "/usr" | "/dev" | "/proc" | "/etc"
+        "/" | "/bin" | "/sbin" | "/usr" | "/dev" | "/proc" | "/proc/self" | "/etc"
     )
 }
 
-/// Metadata for a kernel-fabricated entry: a synthetic directory or a BusyBox
-/// applet alias. Only used when the VFS has no node at `path`.
+/// Metadata for a kernel-fabricated entry: a synthetic directory, a `/proc`
+/// file ([`super::procfs`]) or a BusyBox applet alias. Only used when the VFS has no node at `path`.
 pub(super) fn synthetic_meta(path: &str) -> Option<Meta> {
     if synthetic_dir(path) {
         return Some(Meta {
@@ -100,6 +100,9 @@ pub(super) fn synthetic_meta(path: &str) -> Option<Meta> {
             kind: FileKind::Dir,
             times: vfs::Times::default(),
         });
+    }
+    if let Some(meta) = super::procfs::meta(path) {
+        return Some(meta);
     }
     if applet_name(path).is_some() {
         return crate::fs::abi_stat(Id::current(), "/busybox")
@@ -330,6 +333,8 @@ fn open_path(path: &str, flags: u64, mode: u64) -> u64 {
             }
             return if meta.kind == FileKind::Dir {
                 open_dir_fd(path, meta)
+            } else if let Some(data) = super::procfs::contents(path) {
+                open_snapshot(data, file_meta(meta, String::from(path), false, false))
             } else {
                 open_file_fd(id, path, meta, Access::READ_ONLY, false)
             };
