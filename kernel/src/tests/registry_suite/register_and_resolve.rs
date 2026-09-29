@@ -2,6 +2,8 @@
 //! name error, and lease expiry / owner-death release.
 
 use super::*;
+use crate::arch::idt::TICKS;
+use core::sync::atomic::Ordering;
 
 /// Register/resolve round-trips a name and, more importantly, duplicates
 /// the endpoint into the *resolver's* table: the child gets its own handle
@@ -153,6 +155,17 @@ pub fn lease_expiry_prunes() -> Result<(), String> {
 /// native syscall surface reports the same `EINVAL`.
 pub fn lease_overflow_is_rejected() -> Result<(), String> {
     fresh()?;
+    // The test harness runs with timer interrupts off, so the clock sits at
+    // tick 0, where even `u64::MAX` fits. Move it forward by hand (restored on
+    // every exit path) so the deadline really overflows.
+    let saved = TICKS.load(Ordering::Relaxed);
+    TICKS.store(saved.max(1), Ordering::Relaxed);
+    let result = lease_overflow_body();
+    TICKS.store(saved, Ordering::Relaxed);
+    result
+}
+
+fn lease_overflow_body() -> Result<(), String> {
     let (_service, callable) = channels::create().map_err(friendly)?;
     let published = handles::get(callable).map_err(friendly)?;
     let register = |lease| {
@@ -167,6 +180,7 @@ pub fn lease_overflow_is_rejected() -> Result<(), String> {
         )
     };
     register(0).map_err(reason)?;
+
     check!(
         register(u64::MAX) == Err(RegistryError::BadLease),
         "a u64::MAX lease was accepted"

@@ -10,9 +10,11 @@ extern crate alloc;
 
 pub mod sys;
 
-pub mod sysinfo;
+pub mod files;
 
-pub mod lang;
+pub mod dos;
+
+pub mod sysinfo;
 
 pub mod messenger;
 

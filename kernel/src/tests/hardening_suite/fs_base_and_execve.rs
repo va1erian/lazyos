@@ -65,6 +65,64 @@ fn corrupt_elf() -> Vec<u8> {
     b"this is not an ELF image\n".to_vec()
 }
 
+/// A header-only ELF64 whose program headers are `PT_LOAD` segments
+/// `(vaddr, memsz)`, none backed by file data. It is structurally valid, so
+/// `load_segments` gets past the header and maps the earlier segments before
+/// tripping over a bad later one: a genuine *partial* load.
+fn elf_with_segments(segments: &[(u64, u64)]) -> Vec<u8> {
+    let mut image = Vec::new();
+    image.extend_from_slice(&[0x7f, b'E', b'L', b'F', 2, 1, 1, 0]);
+    image.extend_from_slice(&[0; 8]);
+    image.extend_from_slice(&2u16.to_le_bytes()); // ET_EXEC
+    image.extend_from_slice(&0x3eu16.to_le_bytes()); // x86-64
+    image.extend_from_slice(&1u32.to_le_bytes());
+    image.extend_from_slice(&0x40_0000u64.to_le_bytes()); // entry
+    image.extend_from_slice(&64u64.to_le_bytes()); // phoff
+    image.extend_from_slice(&0u64.to_le_bytes()); // shoff
+    image.extend_from_slice(&0u32.to_le_bytes()); // flags
+    image.extend_from_slice(&64u16.to_le_bytes()); // ehsize
+    image.extend_from_slice(&56u16.to_le_bytes()); // phentsize
+    image.extend_from_slice(&(segments.len() as u16).to_le_bytes());
+    image.extend_from_slice(&[0; 6]); // shentsize, shnum, shstrndx
+    for &(vaddr, memsz) in segments {
+        image.extend_from_slice(&1u32.to_le_bytes()); // PT_LOAD
+        image.extend_from_slice(&6u32.to_le_bytes()); // PF_R | PF_W
+        image.extend_from_slice(&0u64.to_le_bytes()); // offset
+        image.extend_from_slice(&vaddr.to_le_bytes());
+        image.extend_from_slice(&vaddr.to_le_bytes());
+        image.extend_from_slice(&0u64.to_le_bytes()); // filesz
+        image.extend_from_slice(&memsz.to_le_bytes());
+        image.extend_from_slice(&0x1000u64.to_le_bytes());
+    }
+    image
+}
+
+/// Segments the loader must refuse after mapping an acceptable first one: one
+/// at/above the 512 GiB that `free_user_table` reclaims, and one whose end
+/// wraps around the address space.
+pub fn out_of_range_segment_is_refused_without_leaking() -> Result<(), String> {
+    fresh()?;
+    for (what, bad) in [
+        ("above 512 GiB", (1u64 << 39, 0x1000u64)),
+        ("wrapping end", (0x80_0000, u64::MAX)),
+    ] {
+        let elf = elf_with_segments(&[(0x40_0000, 0x3000), bad]);
+        let before = mem::frame_stats().live();
+        let table = mem::new_user_table().ok_or("out of memory")?;
+        let guard = mem::UserTableGuard::new(table);
+        let result = process::load_segments(guard.table(), &elf);
+        check!(result.is_err(), "a segment {what} was accepted");
+        drop(guard);
+        let after = mem::frame_stats().live();
+        check!(
+            after == before,
+            "a refused segment {what} leaked {} frames",
+            after as i64 - before as i64
+        );
+    }
+    Ok(())
+}
+
 /// A loop of failing `execve`s must not leak frames (issue #229): before the
 /// fix every attempt abandoned the freshly built PML4 (and every frame a
 /// partial load had mapped), so a process could exhaust physical memory for the
@@ -88,7 +146,25 @@ pub fn execve_failure_releases_address_space() -> Result<(), String> {
         "corrupt execve -> {code:#x}, expected -ENOEXEC"
     );
 
+    // A partial load (first segment mapped, second refused) is the case that
+    // actually strands frames beyond the PML4 itself.
+    let partial = elf_with_segments(&[(0x40_0000, 0x3000), (1u64 << 39, 0x1000)]);
+    let partial_name = "/tmp/lazyos-execve-partial";
+    crate::fs::abi_create(Id::current(), partial_name, 0o755).map_err(|e| e.message())?;
+    crate::fs::abi_write(Id::current(), partial_name, 0, &partial).map_err(|e| e.message())?;
+    let partial_path = b"/tmp/lazyos-execve-partial\0";
+    let code = process::linux::dispatch_for_test(SYS_EXECVE, partial_path.as_ptr() as u64, 0, 0);
+    check!(
+        code == failed(ENOEXEC),
+        "partial-load execve -> {code:#x}, expected -ENOEXEC"
+    );
+
     let before = mem::frame_stats().live();
+    let code = process::linux::dispatch_for_test(SYS_EXECVE, partial_path.as_ptr() as u64, 0, 0);
+    check!(
+        code == failed(ENOEXEC),
+        "partial-load execve -> {code:#x}, expected -ENOEXEC"
+    );
     for attempt in 0..8 {
         let code = process::linux::dispatch_for_test(SYS_EXECVE, path.as_ptr() as u64, 0, 0);
         check!(

@@ -3,9 +3,8 @@
 //! One flat environment (no lexical scopes) keeps this small; enough for a
 //! REPL. Every error is a human-readable message.
 
-use super::parser::{BinOp, Expr, Stmt};
-use super::value::Value;
-use crate::sys;
+use crate::parser::{BinOp, Expr, Stmt};
+use crate::value::Value;
 use alloc::string::String;
 use alloc::vec::Vec;
 
@@ -20,15 +19,17 @@ impl Interp {
         Self::default()
     }
 
-    /// Execute a parsed program.
-    pub fn run(&mut self, stmts: &[Stmt]) -> Result<(), String> {
+    /// Execute a parsed program. `out` receives everything the program
+    /// prints, so the same interpreter serves the console `sh` and a windowed
+    /// terminal.
+    pub fn run(&mut self, stmts: &[Stmt], out: &mut dyn FnMut(&str)) -> Result<(), String> {
         for stmt in stmts {
-            self.exec(stmt)?;
+            self.exec(stmt, out)?;
         }
         Ok(())
     }
 
-    fn exec(&mut self, stmt: &Stmt) -> Result<(), String> {
+    fn exec(&mut self, stmt: &Stmt, out: &mut dyn FnMut(&str)) -> Result<(), String> {
         match stmt {
             Stmt::Let(name, expr) => {
                 let value = self.eval(expr)?;
@@ -36,25 +37,25 @@ impl Interp {
             }
             Stmt::Print(expr) => {
                 let value = self.eval(expr)?;
-                sys::write_str(&value.display());
-                sys::write_str("\n");
+                out(&value.display());
+                out("\n");
             }
             // A bare expression prints its value (REPL-friendly).
             Stmt::Expr(expr) => {
                 let value = self.eval(expr)?;
-                sys::write_str(&value.display());
-                sys::write_str("\n");
+                out(&value.display());
+                out("\n");
             }
             Stmt::Block(stmts) => {
                 for stmt in stmts {
-                    self.exec(stmt)?;
+                    self.exec(stmt, out)?;
                 }
             }
             Stmt::If(condition, then_branch, else_branch) => {
                 if self.eval(condition)?.truthy() {
-                    self.exec(then_branch)?;
+                    self.exec(then_branch, out)?;
                 } else if let Some(else_branch) = else_branch {
-                    self.exec(else_branch)?;
+                    self.exec(else_branch, out)?;
                 }
             }
         }

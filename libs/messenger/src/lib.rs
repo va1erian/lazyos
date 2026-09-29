@@ -543,6 +543,18 @@ fn read_u64(buf: &[u8], at: usize) -> Result<u64, Error> {
 }
 
 #[cfg(test)]
+impl<'a> Decoder<'a> {
+    /// Count the known fields in the remaining input (test helper).
+    fn count(&mut self) -> usize {
+        let mut n = 0;
+        while let Ok(Some(_)) = self.next() {
+            n += 1;
+        }
+        n
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -754,7 +766,7 @@ mod tests {
                 bytes[at] = rng.next() as u8;
             }
             // Truncate sometimes.
-            if rng.next() % 4 == 0 && !bytes.is_empty() {
+            if rng.next().is_multiple_of(4) && !bytes.is_empty() {
                 let keep = (rng.next() as usize) % bytes.len();
                 bytes.truncate(keep);
             }
@@ -771,17 +783,5 @@ mod tests {
                 }
             }
         }
-    }
-}
-
-#[cfg(test)]
-impl<'a> Decoder<'a> {
-    /// Count the known fields in the remaining input (test helper).
-    fn count(&mut self) -> usize {
-        let mut n = 0;
-        while let Ok(Some(_)) = self.next() {
-            n += 1;
-        }
-        n
     }
 }

@@ -162,7 +162,6 @@ pub fn list() -> Vec<(String, bool, u32)> {
 
 /// Metadata through the native VFS (permission-checked; `__`-free results for
 /// callers to map to errno).
-#[cfg_attr(not(lazyos_tests), allow(dead_code))] // used by tests/diagnostics
 pub fn vfs_stat(id: Id, path: &str) -> Result<Meta, FsError> {
     with(|vfs| vfs.stat(id, path)).unwrap_or(Err(FsError::NotFound))
 }
@@ -174,31 +173,41 @@ pub fn vfs_read(id: Id, path: &str) -> Result<Vec<u8>, FsError> {
 }
 
 /// Write at an offset through the VFS (used by tests and future writers).
-#[cfg_attr(not(lazyos_tests), allow(dead_code))]
 pub fn vfs_write(id: Id, path: &str, offset: u64, data: &[u8]) -> Result<usize, FsError> {
     with(|vfs| vfs.write(id, path, offset, data)).unwrap_or(Err(FsError::NotFound))
 }
 
 /// Create a regular file through the VFS.
-#[cfg_attr(not(lazyos_tests), allow(dead_code))]
 pub fn vfs_create(id: Id, path: &str, mode: u16) -> Result<Meta, FsError> {
     with(|vfs| vfs.create(id, path, mode)).unwrap_or(Err(FsError::NotFound))
 }
 
 /// Create a directory through the VFS.
-#[cfg_attr(not(lazyos_tests), allow(dead_code))]
 pub fn vfs_mkdir(id: Id, path: &str, mode: u16) -> Result<Meta, FsError> {
     with(|vfs| vfs.mkdir(id, path, mode)).unwrap_or(Err(FsError::NotFound))
 }
 
+/// Truncate or extend a regular file through the VFS.
+pub fn vfs_truncate(id: Id, path: &str, size: u64) -> Result<(), FsError> {
+    with(|vfs| vfs.truncate(id, path, size)).unwrap_or(Err(FsError::NotFound))
+}
+
+/// List a directory through the native VFS (permission-checked).
+pub fn vfs_readdir(id: Id, path: &str) -> Result<Vec<DirEntry>, FsError> {
+    with(|vfs| vfs.readdir(id, path)).unwrap_or(Err(FsError::NotFound))
+}
+
+/// Remove an empty directory through the native VFS.
+pub fn vfs_rmdir(id: Id, path: &str) -> Result<(), FsError> {
+    with(|vfs| vfs.rmdir(id, path)).unwrap_or(Err(FsError::NotFound))
+}
+
 /// Remove a regular file through the VFS.
-#[cfg_attr(not(lazyos_tests), allow(dead_code))]
 pub fn vfs_unlink(id: Id, path: &str) -> Result<(), FsError> {
     with(|vfs| vfs.unlink(id, path)).unwrap_or(Err(FsError::NotFound))
 }
 
 /// Rename within one mount through the VFS.
-#[cfg_attr(not(lazyos_tests), allow(dead_code))]
 pub fn vfs_rename(id: Id, from: &str, to: &str) -> Result<(), FsError> {
     with(|vfs| vfs.rename(id, from, to)).unwrap_or(Err(FsError::NotFound))
 }

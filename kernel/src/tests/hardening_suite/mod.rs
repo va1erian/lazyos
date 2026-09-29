@@ -98,11 +98,13 @@ fn untouched(buffer: &[u8], what: &str) -> Result<(), String> {
 
 mod epoll_and_fs;
 mod fs_base_and_execve;
+mod overflow_guards;
 mod pointer_validation;
 mod teardown_and_credentials;
 
 pub(super) use epoll_and_fs::*;
 pub(super) use fs_base_and_execve::*;
+pub(super) use overflow_guards::*;
 pub(super) use pointer_validation::*;
 pub(super) use teardown_and_credentials::*;
 
@@ -120,6 +122,10 @@ pub(super) const CASES: &[(&str, Test)] = &[
         linux_abi_kernel_pointers_are_refused,
     ),
     ("hardening_user_ptr_edge_cases", user_ptr_edge_cases),
+    (
+        "hardening_unterminated_path_is_refused",
+        unterminated_path_is_refused,
+    ),
     (
         "hardening_soak_user_ptr_validation",
         soak_user_ptr_validation,
@@ -177,8 +183,20 @@ pub(super) const CASES: &[(&str, Test)] = &[
         execve_failure_releases_address_space,
     ),
     (
+        "hardening_out_of_range_segment_is_refused_without_leaking",
+        out_of_range_segment_is_refused_without_leaking,
+    ),
+    (
         "hardening_soak_ext2_short_writes_do_not_leak",
         soak_ext2_short_writes_do_not_leak,
+    ),
+    (
+        "hardening_lseek_overflow_and_past_eof",
+        lseek_overflow_and_past_eof,
+    ),
+    (
+        "hardening_mmap_family_rejects_overflowing_lengths",
+        mmap_family_rejects_overflowing_lengths,
     ),
     // Last: on the code as merged this one recurses until the kernel stack
     // overflows, which would take the rest of the suite with it.

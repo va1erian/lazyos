@@ -311,9 +311,6 @@ pub fn register(
         return Err(Error::TooManyInterfaces);
     }
     let now = task::ticks();
-    let live = live_slots();
-    let mut registry = REGISTRY.lock();
-    prune_locked(&mut registry, &live, now);
     // A lease is a deadline, so it must fit the tick clock: `now + lease_ticks`
     // with the user-supplied `u64::MAX` would overflow (a kernel panic with the
     // dev profile's checks) or wrap into the past and prune the name at once.
@@ -324,6 +321,9 @@ pub fn register(
     } else {
         Some(now.checked_add(lease_ticks).ok_or(Error::BadLease)?)
     };
+    let live = live_slots();
+    let mut registry = REGISTRY.lock();
+    prune_locked(&mut registry, &live, now);
     if let Some(index) = registry.entries.iter().position(|entry| entry.name == name) {
         if registry.entries[index].owner_slot != owner_slot {
             return Err(Error::NameTaken);

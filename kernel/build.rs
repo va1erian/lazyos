@@ -106,6 +106,23 @@ fn main() {
         println!("cargo:rustc-cfg=xui_client");
     }
 
+    // Desktop session (issue #215/#216): with `LAZYOS_XUID=1`,
+    // `LAZYOS_XUI_CLIENT=1` and `LAZYOS_XUI_APPS` (a list of xui app binaries
+    // the root build script embeds), the kernel boots only `xuid`; the
+    // supervisor (`init`, `LAZYOS_SERVICES=1`) launches the embedded apps as
+    // its clients. No `xdemo`/`dragdemo` demo clients share the screen. The
+    // legacy single-app switch (`LAZYOS_XUI_APP`) wins when both are set, so
+    // `XAPP.ELF` is never started alongside `init`'s apps.
+    println!("cargo:rerun-if-env-changed=LAZYOS_XUI_APPS");
+    println!("cargo:rustc-check-cfg=cfg(xui_desktop)");
+    if env::var_os("LAZYOS_XUID").as_deref() == Some(std::ffi::OsStr::new("1"))
+        && env::var_os("LAZYOS_XUI_CLIENT").as_deref() == Some(std::ffi::OsStr::new("1"))
+        && env::var_os("LAZYOS_XUI_APPS").is_some()
+        && env::var_os("LAZYOS_XUI_APP").is_none()
+    {
+        println!("cargo:rustc-cfg=xui_desktop");
+    }
+
     let font_bytes = fs::read(&font_path).expect("read JetBrainsMono-Regular.ttf");
     let atlas = font_atlas::build(&font_bytes, 20.0);
 

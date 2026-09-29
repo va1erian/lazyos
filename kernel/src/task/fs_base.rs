@@ -11,7 +11,7 @@ use super::{current, TASKS};
 /// (the non-canonical hole or the higher half) raises #GP in ring 0, so every
 /// value that reaches the MSR or a task's saved `fs_base` must pass
 /// [`valid_fs_base`].
-pub const USER_FS_BASE_MAX: u64 = 0x0000_7fff_ffff_ffff;
+const USER_FS_BASE_MAX: u64 = 0x0000_7fff_ffff_ffff;
 
 /// Whether `value` is a canonical lower-half address, the only kind that is
 /// safe as an `%fs` base (issue #222).

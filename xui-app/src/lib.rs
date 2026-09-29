@@ -17,5 +17,6 @@ pub mod display;
 pub mod fabric;
 pub mod font;
 pub mod format;
+pub mod launch;
 pub mod sys;
 pub mod sysinfo;
