@@ -36,6 +36,7 @@ NAMES = [
     "sigstress",
     "epollstress",
     "unixstress",
+    "persist",
 ]
 
 

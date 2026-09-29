@@ -30,6 +30,7 @@ Tooling that measures how far LazyOS is from running prebuilt
 | `sigstress` | Signal masks, handlers and delivery. |
 | `epollstress` | `eventfd` + `epoll` level/edge readiness, timeouts, add/mod/del. |
 | `unixstress` | `UnixStream` pair/EOF/shutdown, pathname bind/connect/accept, `SOCK_SEQPACKET` boundaries. |
+| `persist` | A file on the persistent `/data` volume: write, `fsync`, `pwrite`/`pread`, `ftruncate`, append, then (second boot, same disk) the bytes are still there. Two boots, see below. |
 | `busybox` | Pinned static BusyBox (`tools/abi/busybox.py`), the system shell: the kernel boots it with `sh -c "echo ABI:busybox:PASS"`. |
 
 ## Convention
@@ -40,6 +41,16 @@ Tooling that measures how far LazyOS is from running prebuilt
   yet, logs `ABI:INIT:SKIP:<reason>`.
 - `run.py` classifies each fixture as `pass` / `fail` / `skip` / `not-run` /
   `unavailable` accordingly.
+
+## Two-boot fixtures (`persist`)
+
+A fixture listed in `run.py`'s `TWO_BOOT` runs against a freshly formatted ext2
+data disk (`python -m tools.mkdisk`, attached with `qemu_shot.py --data-disk`),
+booted twice on the same disk. Boot 1 must print `ABI:persist:WROTE`; boot 2
+must print `ABI:persist:PASS`, and a boot 2 that prints `WROTE` again is reported
+as "the file written by boot 1 was gone". The fixture tells the boots apart by
+whether its file exists, so it takes no arguments. Without the mkdisk tooling
+the row is `n/a` rather than failing.
 
 ## The `INIT.ELF` hook
 

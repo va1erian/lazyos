@@ -76,7 +76,9 @@ runnable by hand from BusyBox `sh` (see "Native programs from `sh`" below).
   `(entry, stack_top)`; `spawn_linux` registers the `brk`/`mmap` bumps.
 - `linux_dispatch` implements a growing subset: file I/O (`read`, `write`,
   `openat`, `close`, `stat`/`fstat`/`newfstatat`, `getdents64`, `readv`/`writev`,
-  `lseek`, `dup`/`dup2`, `fcntl`, `ioctl`, `readlink`, `getcwd`,
+  `lseek`, `pread64`/`pwrite64`, `truncate`/`ftruncate`, `fsync`/`fdatasync`/
+  `syncfs`/`sync`, `statfs`/`fstatfs`, `dup`/`dup2`, `fcntl`, `ioctl`,
+  `readlink`, `getcwd`,
   `mkdir`/`mkdirat`, `rmdir`, `rename`/`renameat`, `unlink`/`unlinkat` with
   `AT_REMOVEDIR`), memory (`mmap`, `mprotect`, `munmap`, `mremap`, `brk`),
   signals (`rt_sigaction`, `rt_sigprocmask`, `rt_sigreturn`, `sigaltstack`),
@@ -95,9 +97,33 @@ runnable by hand from BusyBox `sh` (see "Native programs from `sh`" below).
   `O_APPEND`, `O_EXCL`, and `O_DIRECTORY` open, `mkdir`/`rename`/`unlink`/
   `rmdir`, and descriptor writes all succeed over the read-only FAT boot
   volume. Relative `*at` calls join a real directory descriptor's recorded
-  path (which is how `std`'s `remove_dir_all` walk works); descriptors snapshot
-  file bytes at open and `write` patches the snapshot after updating the
-  backing file.
+  path (which is how `std`'s `remove_dir_all` walk works); descriptors on the
+  root and `/tmp` snapshot file bytes at open and `write` patches the snapshot
+  after updating the backing file. Files on the persistent `/data` volume are
+  different, see below.
+- **Descriptors on `/data`** (`fs/openfile.rs`, `process/linux/{vfsfd,filerw,
+  filesys}.rs`, issue #334). A regular file opened under `/data` (only when a
+  data volume is mounted; `abi_persistent`) becomes `Fd::Vfs`: an
+  `Arc<OpenFile>` holding a path, the offset and the access mode, with **no
+  snapshot**. `read`/`write`/`pread64`/`pwrite64`/`lseek`/`fstat` go to the VFS
+  at the offset, so a file is not bounded by the kernel heap and every opener
+  sees every write at once. `dup`/`fork` share the one description, and with it
+  the offset, as POSIX requires. Permissions are checked at `open` (`READ` here,
+  `WRITE` and `O_TRUNC` in `open_path`); afterwards operations run as root, so a
+  descriptor survives its owner dropping privilege. `O_APPEND` writes (and
+  `pwrite64` on such a file, as on Linux) land at the current EOF; a read is
+  staged in 64 KiB pieces, a write is not staged (short counts are legal).
+  `unlink` of an open file renames it to a hidden `.unlinked-<n>` entry in its
+  directory and the last close deletes it, `rename` retargets open files
+  (including under a renamed directory), and renaming over an open file
+  unlinks it the same way. A stop between unlink and last close leaves the
+  hidden entry, as an orphan inode would. Writes on a read-only device answer
+  `EROFS` from the write, not from `open`.
+- `truncate`/`ftruncate` (any mount; the descriptor must be writable),
+  `fsync`/`fdatasync` (flush the one mount holding the file), `syncfs`, and
+  `sync` (every mount) reach `Filesystem::flush`; `statfs`/`fstatfs` report the
+  backend's `StatFs` (ext2 from the superblock, ramfs and the overlay from their
+  caps). `pread64`/`pwrite64`/`ftruncate` also work on snapshot descriptors.
 - Honored `clone` flags: `CLONE_VM`, `CLONE_SETTLS`, `CLONE_PARENT_SETTID`,
   `CLONE_CHILD_CLEARTID`. `CLONE_VM` with `CLONE_THREAD` is a pthread; without
   it, musl's `posix_spawn` vfork child (a copy-on-write process with the
@@ -171,9 +197,12 @@ propagation and reaping, `ENOEXEC`/`ENOENT`/`EAGAIN` without leaks, the `&`
 lifecycle, and a 384-cycle spawn/exit soak that checks slots and frames) and the
 `tools/screenshot/examples/native_exec.json` console session in `ci.yml`.
 
-**Status.** Working: BusyBox `sh`, the 13 static musl fixtures in
-`tools/abi/fixtures` (threads, `std::process` with piped stdio, `mremap`,
+**Status.** Working: BusyBox `sh`, the 14 static musl fixtures in
+`tools/abi/fixtures` (`persist` boots twice on one data disk; threads, `std::process` with piped stdio, `mremap`,
 epoll/eventfd, `UnixStream`/seqpacket; matrix published by CI), native
 supervision loop (`init`, app `Launch`). Gaps: `poll` edge cases, full
 `SA_RESTART`, shared file tables, per-process cwd (`chdir` is a no-op),
-dynamic linking.
+dynamic linking. Still `ENOSYS` on the filesystem side: `chmod`/`fchmod`,
+`chown`, `utimensat` (the `Filesystem` trait has no attribute setter),
+`link`/`symlink`, `getdents` (78, musl uses `getdents64`), `statx`,
+`preadv`/`pwritev`.
