@@ -85,13 +85,43 @@ impl Compositor {
                 Ok(Vec::new()),
             );
         }
+        self.forget_surface(id);
+        self.repaint_full();
+    }
+
+    /// Drop every trace of surface `id`: the title-bar drag, a drag & drop
+    /// session it sources or hovers, its Alt+Tab entry, the shell's view of
+    /// it and its focus. Shared by close and destroy so neither can leave a
+    /// dangling id behind; the caller repaints.
+    pub(super) fn forget_surface(&mut self, id: u64) {
+        // A window-manager title-bar drag on the surface ends with it.
+        if self.drag.is_some_and(|active| active.id == id) {
+            self.drag = None;
+        }
+        // A drag & drop session whose source or hovered target goes away ends
+        // now.
+        let stranding = self
+            .drag_session
+            .as_ref()
+            .is_some_and(|active| active.source == id || active.target == Some(id));
+        if stranding {
+            self.drag_cancel();
+        }
         self.notify_destroyed(id);
+        if let Some(tab) = self.alt_tab.as_mut() {
+            // The Alt+Tab snapshot may not outlive the surface.
+            tab.order.retain(|&entry| entry != id);
+            if tab.order.is_empty() {
+                self.alt_tab = None;
+            } else if tab.selected >= tab.order.len() {
+                tab.selected = 0;
+            }
+        }
         remove_surface(&mut self.surfaces, id);
         if self.focused == Some(id) {
             self.focused = topmost_visible(&self.surfaces);
             self.notify_focus();
         }
-        self.repaint_full();
     }
 }
 

@@ -13,7 +13,7 @@ use super::compositor::Compositor;
 use super::layout::place_window;
 use super::protocol::{drop_rejected_handle, empty_reply, error_reply, is_privileged, typed_reply};
 use super::surface::Surface;
-use super::window::{remove_surface, surface_by_id, topmost_visible};
+use super::window::surface_by_id;
 
 impl Compositor {
     /// Handle one display request; returns the reply parcel for a synchronous
@@ -216,34 +216,7 @@ impl Compositor {
             // caller that guessed the id could close another app's window).
             return error_reply(message.method(), messenger::errno::EACCES);
         }
-        // A window-manager title-bar drag on the surface ends with it.
-        if self.drag.is_some_and(|active| active.id == id) {
-            self.drag = None;
-        }
-        // A drag & drop session whose source or hovered target goes away ends
-        // now.
-        let stranding = self
-            .drag_session
-            .as_ref()
-            .is_some_and(|active| active.source == id || active.target == Some(id));
-        if stranding {
-            self.drag_cancel();
-        }
-        self.notify_destroyed(id);
-        if let Some(tab) = self.alt_tab.as_mut() {
-            // The Alt+Tab snapshot may not outlive the surface.
-            tab.order.retain(|&entry| entry != id);
-            if tab.order.is_empty() {
-                self.alt_tab = None;
-            } else if tab.selected >= tab.order.len() {
-                tab.selected = 0;
-            }
-        }
-        remove_surface(&mut self.surfaces, id);
-        if self.focused == Some(id) {
-            self.focused = topmost_visible(&self.surfaces);
-            self.notify_focus();
-        }
+        self.forget_surface(id);
         self.repaint_full();
         empty_reply(message.method())
     }
