@@ -302,6 +302,9 @@ fn embed_xui_apps(builder: &mut bootloader::DiskImageBuilder) {
     };
     let mut manifest = String::new();
     for app in std::env::split_paths(&apps) {
+        // Tracked even when missing: Cargo reruns while a listed path does not
+        // exist, so an app built later is picked up without changing the env.
+        println!("cargo:rerun-if-changed={}", app.display());
         if !app.is_file() {
             println!(
                 "cargo:warning=LAZYOS_XUI_APPS entry not found: {}",
@@ -314,7 +317,6 @@ fn embed_xui_apps(builder: &mut bootloader::DiskImageBuilder) {
             "cargo:warning=LAZYOS_XUI_APPS embedded: {} as {disk}",
             app.display()
         );
-        println!("cargo:rerun-if-changed={}", app.display());
         let suffix = if wanted(&stem) { " autostart" } else { "" };
         manifest.push_str(&format!("{disk}{suffix}\n"));
         builder.set_file(disk, app);

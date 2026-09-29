@@ -101,7 +101,10 @@ const fn native_app(
 /// image ships their ELFs yet, so they are unavailable until one does. The
 /// rest are launchable system programs (`top` proves the path end to end in a
 /// headless boot) and the desktop's xui apps.
-pub const APPS: &[AppSpec] = &[
+///
+/// A `static`, not a `const`: [`is_available`] identifies a row by address, so
+/// the table must have one stable storage location.
+pub static APPS: &[AppSpec] = &[
     native_app(
         "editor",
         "Editor",

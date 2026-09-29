@@ -16,7 +16,9 @@
 
 use std::rc::Rc;
 
-use lazyos_lang::repl::{Flow, Shell, BANNER};
+use std::io::Read;
+
+use lazyos_lang::repl::{Flow, Shell, BANNER, CAT_LIMIT};
 use xui_app::backend::LazyOSBackend;
 use xui_core::app::{run_app, App, Ui};
 use xui_core::backend::{Backend, Event, NodeKind, NodeSpec, PlatformSpec};
@@ -188,9 +190,15 @@ impl App for Terminal {
 
 /// `cat`'s file source: the boot volume through the Linux ABI.
 fn read_file(name: &str) -> Option<Vec<u8>> {
-    std::fs::read(name)
-        .or_else(|_| std::fs::read(format!("/{name}")))
-        .ok()
+    // Only `CAT_LIMIT` bytes are ever shown, so never read more than that.
+    let read = |path: &str| {
+        let mut bytes = Vec::new();
+        std::fs::File::open(path)
+            .and_then(|file| file.take(CAT_LIMIT as u64).read_to_end(&mut bytes))
+            .map(|_| bytes)
+            .ok()
+    };
+    read(name).or_else(|| read(&format!("/{name}")))
 }
 
 fn main() {
