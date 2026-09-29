@@ -76,7 +76,9 @@ fn registry_args<T>(
 pub(super) fn registry_register(args: &MsgArgs, target: usize) -> Result<MsgResult, i64> {
     let bytes = read_parcel(args)?;
     let args = registry_args(&bytes, registry::wire::decode_register_args)?;
-    let entry = handles::get_for_task(target, args.endpoint).map_err(handles_errno)?;
+    // Handle `0` is a valid slot, so an absent endpoint must not decode as it.
+    let endpoint = args.endpoint.ok_or(errno::EINVAL)?;
+    let entry = handles::get_for_task(target, endpoint).map_err(handles_errno)?;
     if !matches!(entry.kind, HandleKind::Channel | HandleKind::Endpoint) {
         return Err(errno::EINVAL);
     }

@@ -2722,7 +2722,7 @@ pub mod os_lazy_messenger_registry_v1 {
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct RegisterArgs {
         pub name: alloc::string::String,
-        pub endpoint: u64,
+        pub endpoint: core::option::Option<u64>,
         pub interfaces: alloc::vec::Vec<u64>,
         pub lease_ticks: u64,
     }
@@ -2730,7 +2730,16 @@ pub mod os_lazy_messenger_registry_v1 {
     pub fn encode_register_args(value: &RegisterArgs) -> Result<Vec<u8>, Error> {
         let mut target = Encoder::new();
         target.string(1, &value.name)?;
-        target.u64(2, value.endpoint)?;
+        match &value.endpoint {
+            Some(item) => {
+                let mut nested = Encoder::new();
+                nested.u64(1, *item)?;
+                target.option(2, Some(&nested))?;
+            }
+            None => {
+                target.option(2, None)?;
+            }
+        }
         let mut nested = Encoder::new();
         for item in &value.interfaces {
             nested.u64(1, *item)?;
@@ -2749,7 +2758,13 @@ pub mod os_lazy_messenger_registry_v1 {
                     out.name = field.as_str()?.into();
                 }
                 2 => {
-                    out.endpoint = field.as_u64()?;
+                    if field.payload.is_empty() {
+                        out.endpoint = None;
+                    } else {
+                        let mut nested = field.nested(0)?;
+                        let item = nested.next()?.ok_or(Error::BadValue)?;
+                        out.endpoint = Some(item.as_u64()?);
+                    }
                 }
                 3 => {
                     let mut nested = field.nested(0)?;

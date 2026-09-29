@@ -19,7 +19,7 @@ fn register_args_roundtrip_with_interface_arrays() {
     for interfaces in [vec![], vec![INTERFACE_ID], (0..16).collect::<Vec<u64>>()] {
         let args = RegisterArgs {
             name: "os.lazy.echo".into(),
-            endpoint: 42,
+            endpoint: Some(42),
             interfaces,
             lease_ticks: u64::MAX,
         };
@@ -102,7 +102,7 @@ fn a_full_parcel_survives_the_codec() {
 fn truncated_body_is_rejected() {
     let body = encode_register_args(&RegisterArgs {
         name: "os.lazy.echo".into(),
-        endpoint: 1,
+        endpoint: Some(1),
         interfaces: vec![1, 2],
         lease_ticks: 3,
     })
@@ -144,4 +144,24 @@ fn method_ids_are_stable() {
     assert_eq!(METHOD_UNREGISTER, 1480320227);
     assert_eq!(METHOD_LIST, 220805025);
     assert_eq!(INTERFACE_ID, 0x51d501afec09806c);
+}
+
+#[test]
+fn absent_endpoint_is_distinguishable_from_handle_zero() {
+    let absent = encode_register_args(&RegisterArgs {
+        name: "os.lazy.echo".into(),
+        endpoint: None,
+        interfaces: vec![],
+        lease_ticks: 0,
+    })
+    .unwrap();
+    assert_eq!(decode_register_args(&absent).unwrap().endpoint, None);
+    let zero = encode_register_args(&RegisterArgs {
+        name: "os.lazy.echo".into(),
+        endpoint: Some(0),
+        interfaces: vec![],
+        lease_ticks: 0,
+    })
+    .unwrap();
+    assert_eq!(decode_register_args(&zero).unwrap().endpoint, Some(0));
 }

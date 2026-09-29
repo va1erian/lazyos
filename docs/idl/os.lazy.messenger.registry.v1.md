@@ -20,7 +20,7 @@ kernel gate reports failures as negative errno values.
 
 | Method | Id | Kind | Signature |
 |---|---|---|---|
-| Register | 658098656 | sync | `(name: String, endpoint: U64, interfaces: Array<U64>, lease_ticks: U64) -> ()` |
+| Register | 658098656 | sync | `(name: String, endpoint: Option<U64>, interfaces: Array<U64>, lease_ticks: U64) -> ()` |
 | Resolve | 1645633795 | sync | `(name: String) -> (handle: U64)` |
 | Unregister | 1480320227 | sync | `(name: String) -> ()` |
 | List | 220805025 | sync | `() -> (entries: Array<Entry>)` |

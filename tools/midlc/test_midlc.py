@@ -165,6 +165,20 @@ class CodegenTests(unittest.TestCase):
         self.assertIn("/// Set doc.\n    #[derive", rust)
 
 
+class EnumConstantCollisionTests(unittest.TestCase):
+    def test_colliding_enum_constants_are_rejected(self):
+        source = """
+        interface os.lazy.clash.v1 {
+            method A() -> ();
+            enum Qos { LevelHigh }
+            enum QosLevel { High }
+        }
+        """
+        with self.assertRaises(midlc.MidlError):
+            for interface in midlc.Parser(midlc.lex(source)).parse_interfaces():
+                midlc.validate(interface)
+
+
 class MultiInterfaceTests(unittest.TestCase):
     TWO = """
     /// First.

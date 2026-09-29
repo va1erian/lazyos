@@ -72,6 +72,9 @@ pub fn fetch_services(endpoint: &Endpoint) -> Result<Vec<ServiceStatus>> {
 /// [`fetch_services`] with a caller-owned reply buffer.
 pub fn fetch_services_with(endpoint: &Endpoint, buf: &mut [u8]) -> Result<Vec<ServiceStatus>> {
     let reply = endpoint.call_with(&services_request(), buf, None)?;
+    if let Some(code) = error_field(&reply)? {
+        return Err(Error::Init(code));
+    }
     decode_services(&reply)
 }
 

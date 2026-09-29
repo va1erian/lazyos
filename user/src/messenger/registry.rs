@@ -114,7 +114,7 @@ fn register_body(
 ) -> Result<Vec<u8>> {
     wire::encode_register_args(&wire::RegisterArgs {
         name: name.into(),
-        endpoint,
+        endpoint: Some(endpoint),
         interfaces: interfaces.to_vec(),
         lease_ticks,
     })
@@ -248,10 +248,12 @@ pub fn serve_request(request: &Parcel, sender: u64) -> Result<Parcel> {
     match request.header.method {
         wire::METHOD_REGISTER => {
             let args = wire::decode_register_args(body).map_err(Error::Parcel)?;
+            // Handle `0` is valid, so an omitted endpoint is a bad request.
+            let endpoint = args.endpoint.ok_or(Error::Errno(-errno::EINVAL))?;
             register_for(
                 sender,
                 &args.name,
-                args.endpoint,
+                endpoint,
                 &args.interfaces,
                 args.lease_ticks,
             )?;

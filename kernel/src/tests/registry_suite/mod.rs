@@ -121,7 +121,7 @@ fn register_parcel(
 ) -> Result<Vec<u8>, String> {
     let body = registry::wire::encode_register_args(&registry::wire::RegisterArgs {
         name: name.into(),
-        endpoint,
+        endpoint: Some(endpoint),
         interfaces: interfaces.to_vec(),
         lease_ticks: lease,
     })

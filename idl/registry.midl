@@ -15,7 +15,7 @@ interface os.lazy.messenger.registry.v1 {
     /// Publish `endpoint` (a handle in the owner's table) under `name`. The
     /// owner becomes the registering task. A `lease_ticks` of `0` registers a
     /// permanent name; otherwise the name expires after that many ticks.
-    method Register(name: String, endpoint: U64, interfaces: Array<U64>, lease_ticks: U64) -> ();
+    method Register(name: String, endpoint: Option<U64>, interfaces: Array<U64>, lease_ticks: U64) -> ();
     /// Look `name` up. Over the gate the new handle is the call's return value;
     /// over the daemon it is `handle`, already open in the caller's table.
     method Resolve(name: String) -> (handle: U64);

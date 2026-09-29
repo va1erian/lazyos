@@ -204,6 +204,15 @@ def validate(interface: Interface) -> None:
 
     for struct in interface.structs:
         claim(snake_case(struct.name), struct.name)
+    # Enum variants become `{ENUM}_{VARIANT}` constants; two enums whose
+    # folded names meet (`Qos`/`LevelHigh` vs `QosLevel`/`High`) would emit a
+    # duplicate `const`, so reject that here.
+    for enum in interface.enums:
+        for variant in enum.variants:
+            claim(
+                f"{snake_case(enum.name)}_{snake_case(variant)}".upper(),
+                f"{enum.name}::{variant}",
+            )
     for method in interface.methods:
         if method.method_id in ids:
             raise MidlError(
