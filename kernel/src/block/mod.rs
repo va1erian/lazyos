@@ -21,11 +21,9 @@
 
 pub mod ata;
 pub mod mem;
-pub mod pci;
 pub mod virtio;
 
 use alloc::vec::Vec;
-use core::sync::atomic::{AtomicBool, Ordering};
 use spin::Mutex;
 use x86_64::registers::control::Cr3;
 use x86_64::{PhysAddr, VirtAddr};
@@ -138,13 +136,8 @@ static REGISTRY: Mutex<Registry> = Mutex::new(Registry {
     devices: [None; MAX_DEVICES],
 });
 
-/// The device filesystems read from. Set by [`init`]/[`set_boot_device`].
+/// The device filesystems read from. Set during driver attach.
 static BOOT: Mutex<Option<&'static dyn BlockDevice>> = Mutex::new(None);
-
-/// Whether [`init`] already probed the buses. Probing must happen once:
-/// registering the same `'static` driver twice would be rejected, and the
-/// second call should be a quiet no-op.
-static PROBED: AtomicBool = AtomicBool::new(false);
 
 /// Add `device` under its [`BlockDevice::name`]. A duplicate name is
 /// [`BlockError::Exists`]; a full table is [`BlockError::Full`].
@@ -194,37 +187,45 @@ pub fn set_boot_device(device: &'static dyn BlockDevice) {
     *BOOT.lock() = Some(device);
 }
 
-/// Probe and register the built-in drivers. Idempotent; safe to call from
-/// [`crate::fs::init`] on every boot path. ATA runs first so it stays the
-/// fallback, then virtio-blk (the QEMU preference) takes over the boot slot
-/// when the hardware offers one.
+/// Probe and register the built-in drivers. Idempotent; a thin wrapper over the
+/// device core (issue #239): [`crate::dev::init`] enumerates the buses and runs
+/// the in-kernel driver table, whose ATA and virtio-blk entries call
+/// [`install_ata`]/[`install_virtio`] below with the same probe order and logs
+/// as before. Safe to call from [`crate::fs::init`] on every boot path.
 pub fn init() {
-    if PROBED.swap(true, Ordering::SeqCst) {
-        return;
-    }
-    if let Some(device) = ata::probe() {
-        let _ = register(device);
-        set_boot_device(device);
-        serial_println!(
-            "block: {} ready, {} sectors",
-            device.name(),
-            device.sector_count()
-        );
-    }
-    if let Some(device) = virtio::probe() {
-        let _ = register(device);
-        set_boot_device(device);
-        serial_println!(
-            "block: {} ready, {} sectors",
-            device.name(),
-            device.sector_count()
-        );
-    }
+    crate::dev::init();
     if boot_device().is_none() {
         serial_println!("block: no block device found");
     }
 }
 
+/// Attach the ATA primary master (first, so it stays the fallback boot device)
+/// and register it. Called by the device core's ATA driver entry.
+pub(crate) fn install_ata() -> Option<&'static dyn BlockDevice> {
+    let device = ata::probe()?;
+    let _ = register(device);
+    set_boot_device(device);
+    serial_println!(
+        "block: {} ready, {} sectors",
+        device.name(),
+        device.sector_count()
+    );
+    Some(device)
+}
+
+/// Attach legacy virtio-blk (the QEMU preference) and register it; it takes
+/// over the boot slot when present. Called by the device core's driver entry.
+pub(crate) fn install_virtio() -> Option<&'static dyn BlockDevice> {
+    let device = virtio::probe()?;
+    let _ = register(device);
+    set_boot_device(device);
+    serial_println!(
+        "block: {} ready, {} sectors",
+        device.name(),
+        device.sector_count()
+    );
+    Some(device)
+}
 /// Translate a kernel virtual address to its physical address by walking the
 /// active page table. DMA drivers need physical addresses, and the bootloader
 /// maps the kernel and the physical-memory window at unrelated dynamic

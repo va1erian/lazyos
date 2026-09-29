@@ -288,14 +288,14 @@ fn fat_boot_volume_whole_matches_windows() -> Result<(), String> {
 /// The bus walk finds QEMU's host bridge at 00:00.0, is repeatable, and
 /// `find_any` honours the caller's id priority in one pass.
 fn pci_enumeration_is_stable_and_ranked() -> Result<(), String> {
-    use crate::block::pci;
+    use crate::dev::pci;
     let mut first = Vec::new();
     pci::for_each(|device| first.push(device));
     check!(!first.is_empty(), "no PCI function found");
     check!(
         first
             .iter()
-            .any(|d| d.bus == 0 && d.device == 0 && d.function == 0),
+            .any(|d| d.address.bus == 0 && d.address.device == 0 && d.address.function == 0),
         "the host bridge at 00:00.0 was not enumerated"
     );
     for _ in 0..50 {

@@ -18,8 +18,9 @@
 //! buffer may be a stack slice or a heap buffer without any physical-layout
 //! requirement.
 
-use super::{pci, BlockDevice, BlockError, SECTOR_SIZE};
+use super::{BlockDevice, BlockError, SECTOR_SIZE};
 use crate::arch::io::{inb, inl, inw, outb, outl, outw};
+use crate::dev::pci;
 use core::cell::UnsafeCell;
 use core::sync::atomic::{fence, Ordering};
 use spin::Mutex;
@@ -175,13 +176,14 @@ fn in64(port: u16) -> u64 {
 /// Find a virtio-blk function, bring up its legacy queue, and return the
 /// driver singleton for registration.
 pub fn probe() -> Option<&'static dyn BlockDevice> {
-    let device = pci::find_any(pci::VIRTIO_VENDOR, &[0x1001, 0x1042])?;
-    let bar0 = pci::bar(device, 0);
+    let function = pci::find_any(pci::VIRTIO_VENDOR, &[0x1001, 0x1042])?;
+    let address = function.address;
+    let bar0 = pci::bar_raw(address, 0);
     if bar0 & 1 == 0 {
         serial_println!(
             "virtio-blk: 1af4:{:04x} is modern-only (no legacy I/O BAR); \
              capability-based setup is not implemented",
-            device.id
+            function.id
         );
         return None;
     }
@@ -190,9 +192,9 @@ pub fn probe() -> Option<&'static dyn BlockDevice> {
     let state = unsafe { attach(io) }?;
     serial_println!(
         "virtio-blk: 1af4:{:04x} bus {}.{} io {:#x}",
-        device.id,
-        device.bus,
-        device.device,
+        function.id,
+        address.bus,
+        address.device,
         io
     );
     *VIRTIO_BLK.state.lock() = Some(state);

@@ -125,6 +125,7 @@ mod boot_io_suite;
 mod boot_trace_suite;
 mod credentials_suite;
 mod crypto_suite;
+mod dev_suite;
 mod display_suite;
 mod ext2_suite;
 mod fault_suite;
@@ -181,6 +182,7 @@ const SUITE: &[&[(&str, Test)]] = &[
     boot_trace_suite::CASES,
     boot_io_suite::CASES,
     ramdisk_suite::CASES,
+    dev_suite::CASES,
     fs_suite::CASES,
     fsops_suite::CASES,
     overlay_suite::CASES,
