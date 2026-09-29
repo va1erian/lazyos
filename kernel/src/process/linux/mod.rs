@@ -22,6 +22,7 @@ use core::sync::atomic::{AtomicBool, Ordering};
 use crate::task;
 
 mod creds;
+mod dents;
 mod elf;
 mod epoll;
 mod errno;
@@ -31,6 +32,7 @@ mod filesys;
 mod flags;
 mod futex;
 mod io;
+mod iov;
 mod mem;
 mod misc;
 pub(crate) mod native;
@@ -38,10 +40,12 @@ mod path;
 mod pathops;
 mod pipes;
 mod procctl;
+mod procfs;
 mod sendfile;
 mod sig;
 mod socket;
 mod stat;
+mod statx;
 mod time;
 mod uaccess;
 mod vfsfd;
@@ -207,9 +211,13 @@ fn syscall_name(nr: u64) -> &'static str {
         290 => "eventfd2",
         291 => "epoll_create1",
         293 => "pipe2",
+        295 => "preadv",
+        296 => "pwritev",
         302 => "prlimit64",
         306 => "syncfs",
         318 => "getrandom",
+        327 => "preadv2",
+        328 => "pwritev2",
         332 => "statx",
         334 => "rseq",
         _ => "unknown",
@@ -255,8 +263,15 @@ pub fn dispatch_args_for_test(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64) -> u6
 /// force it back off here.
 #[cfg(lazyos_tests)]
 pub fn dispatch_args5_for_test(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u64) -> u64 {
+    dispatch_args6_for_test(nr, [a1, a2, a3, a4, a5, 0])
+}
+
+/// [`dispatch_for_test`] with all six argument registers (`preadv2`'s flags).
+#[cfg(lazyos_tests)]
+pub fn dispatch_args6_for_test(nr: u64, args: [u64; 6]) -> u64 {
     x86_64::instructions::interrupts::disable();
-    let result = linux_dispatch(nr, a1, a2, a3, a4, a5, 0);
+    let [a1, a2, a3, a4, a5, a6] = args;
+    let result = linux_dispatch(nr, a1, a2, a3, a4, a5, a6);
     x86_64::instructions::interrupts::disable();
     result
 }
@@ -291,8 +306,8 @@ extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
         16 => misc::sys_ioctl(a1, a2, a3),
         17 => filerw::sys_pread64(a1, a2, a3, a4), // pread64(fd, buf, count, offset)
         18 => filerw::sys_pwrite64(a1, a2, a3, a4), // pwrite64(fd, buf, count, offset)
-        19 => io::sys_readv(a1, a2, a3),
-        20 => io::sys_writev(a1, a2, a3),
+        19 => iov::sys_readv(a1, a2, a3),
+        20 => iov::sys_writev(a1, a2, a3),
         21 => pathops::sys_access(a1, a2), // access(path, mode)
         22 => pipes::sys_pipe(a1, 0),      // pipe(fds)
         25 => mem::sys_mremap(a1, a2, a3, a4, a5), // mremap(old, old_size, new_size, flags, new)
@@ -320,10 +335,11 @@ extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
         61 => procctl::sys_wait4(a1, a2, a3),  // wait4(pid, status, options)
         62 => sig::sys_kill(a1, a2),           // kill(pid, sig)
         63 => misc::sys_uname(a1),
-        72 => fd::sys_fcntl(a1, a2, a3),      // fcntl(fd, cmd, arg)
-        74 | 75 => filesys::sys_fsync(a1),    // fsync / fdatasync
-        76 => filesys::sys_truncate(a1, a2),  // truncate(path, length)
-        77 => filesys::sys_ftruncate(a1, a2), // ftruncate(fd, length)
+        72 => fd::sys_fcntl(a1, a2, a3),       // fcntl(fd, cmd, arg)
+        74 | 75 => filesys::sys_fsync(a1),     // fsync / fdatasync
+        76 => filesys::sys_truncate(a1, a2),   // truncate(path, length)
+        77 => filesys::sys_ftruncate(a1, a2),  // ftruncate(fd, length)
+        78 => dents::sys_getdents(a1, a2, a3), // getdents
         79 => pathops::sys_getcwd(a1, a2),
         80 => 0,                                        // chdir (root-only)
         82 => pathops::sys_rename(a1, a2),              // rename
@@ -358,7 +374,7 @@ extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
         200 => sig::sys_tkill(a1, a2),       // tkill(tid, sig)
         202 => futex::sys_futex(a1, a2, a3), // futex(uaddr, op, val)
         204 => misc::sys_sched_getaffinity(a2, a3),
-        217 => fd::sys_getdents64(a1, a2, a3), // getdents64
+        217 => dents::sys_getdents64(a1, a2, a3), // getdents64
         218 => procctl::sys_set_tid_address(a1),
         228 => time::sys_clock_gettime(a1, a2),
         229 => time::sys_clock_getres(a2),
@@ -377,14 +393,18 @@ extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
         290 => epoll::sys_eventfd2(a1, a2),       // eventfd2(initval, flags)
         291 => epoll::sys_epoll_create1(a1),      // epoll_create1(flags)
         293 => pipes::sys_pipe(a1, a2),           // pipe2(fds, flags)
+        295 => iov::sys_preadv(a1, a2, a3, a4),   // preadv(fd, iov, cnt, offset)
+        296 => iov::sys_pwritev(a1, a2, a3, a4),  // pwritev(fd, iov, cnt, offset)
         306 => filesys::sys_syncfs(a1),           // syncfs(fd)
         318 => time::sys_getrandom(a1, a2),
+        327 => iov::sys_preadv2(a1, a2, a3, a4, a6), // preadv2(fd, iov, cnt, offset, flags)
+        328 => iov::sys_pwritev2(a1, a2, a3, a4, a6), // pwritev2
+        332 => statx::sys_statx(a1, a2, a3, a4, a5), // statx(dirfd, path, flags, mask, buf)
         334 => {
             crate::serial_println!("ENOSYS 334 rseq");
             errno::err(errno::ENOSYS) // musl falls back
         }
         _ => {
-            let _ = a6;
             crate::serial_println!("ENOSYS {} {}", nr, syscall_name(nr));
             errno::err(errno::ENOSYS)
         }

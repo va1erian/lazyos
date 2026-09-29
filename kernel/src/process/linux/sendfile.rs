@@ -4,7 +4,8 @@ use crate::ipc::pipe;
 use crate::task::{self, FdKind};
 
 use super::errno::{err, EAGAIN, EBADF, EINTR, EINVAL, EMSGSIZE, EPIPE};
-use super::io::{add_iov_total, partial_or, STREAM_CHUNK};
+use super::io::STREAM_CHUNK;
+use super::iov::{add_iov_total, partial_or};
 
 /// `sendfile(out_fd, in_fd, offset, count)`: copy `count` bytes from `in_fd` to
 /// `out_fd` without a user buffer in between.

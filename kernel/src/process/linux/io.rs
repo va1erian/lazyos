@@ -1,6 +1,7 @@
-//! `read`/`write` and the syscalls built on them (`readv`/`writev`, `poll`),
-//! dispatched by descriptor kind ([`crate::task::FdKind`]) to a small handler
-//! per kind: terminal, pipe/socket stream, regular file, or `eventfd`.
+//! `read`/`write` and `poll`, dispatched by descriptor kind
+//! ([`crate::task::FdKind`]) to a small handler per kind: terminal,
+//! pipe/socket stream, regular file, or `eventfd`. The vectored forms
+//! (`readv`, `writev`, ...) are in [`super::iov`].
 
 use alloc::vec::Vec;
 
@@ -17,98 +18,8 @@ use super::vfsfd;
 /// legal on a pipe, so callers that want it all loop (as `write_all` does).
 pub(super) const STREAM_CHUNK: usize = 4096;
 
-/// Most `iovec` entries one `readv`/`writev` may name (Linux `UIO_MAXIOV`).
-/// Syscalls run with interrupts off, so an unbounded user count would freeze
-/// the machine.
-const UIO_MAXIOV: u64 = 1024;
-
 /// Most `pollfd` entries one `poll` may scan.
 const POLL_MAX_FDS: u64 = 1024;
-
-/// Read entry `index` of a user `iovec` array as `(base, len)`. A bad array is
-/// `-EFAULT` rather than a run of zero-length entries.
-fn iovec_at(iov: u64, index: u64) -> Result<(u64, u64), u64> {
-    let entry = iov
-        .checked_add(index.checked_mul(16).ok_or(err(EFAULT))?)
-        .ok_or(err(EFAULT))?;
-    let base = user_ptr::try_read::<u64>(entry).map_err(|_| err(EFAULT))?;
-    let len_at = entry.checked_add(8).ok_or(err(EFAULT))?;
-    let len = user_ptr::try_read::<u64>(len_at).map_err(|_| err(EFAULT))?;
-    // A length past `isize::MAX` is `-EINVAL` (as on Linux); it also keeps a
-    // byte count distinguishable from an encoded `-errno` below.
-    if len > i64::MAX as u64 {
-        return Err(err(EINVAL));
-    }
-    Ok((base, len))
-}
-
-/// The result of a vectored transfer that failed with `code` after `total`
-/// bytes moved: report the bytes done so a retry cannot repeat them.
-pub(super) fn partial_or(total: u64, code: u64) -> u64 {
-    if total > 0 {
-        total
-    } else {
-        code
-    }
-}
-
-/// Add a segment length to a running `readv`/`writev` total; a total that
-/// overflows `isize` is `-EINVAL`, as on Linux.
-pub(super) fn add_iov_total(total: u64, part: u64) -> Result<u64, u64> {
-    match total.checked_add(part) {
-        Some(sum) if sum <= i64::MAX as u64 => Ok(sum),
-        _ => Err(err(EINVAL)),
-    }
-}
-
-/// `writev(fd, iov, iovcnt)`: `struct iovec { void *base; size_t len; }`.
-pub(super) fn sys_writev(fd: u64, iov: u64, count: u64) -> u64 {
-    if count > UIO_MAXIOV {
-        return err(EINVAL);
-    }
-    let mut total = 0u64;
-    for i in 0..count {
-        let (base, len) = match iovec_at(iov, i) {
-            Ok(entry) => entry,
-            Err(code) => return partial_or(total, code),
-        };
-        let written = sys_write(fd, base, len);
-        if written > len {
-            return partial_or(total, written); // error
-        }
-        total = match add_iov_total(total, written) {
-            Ok(sum) => sum,
-            Err(code) => return code,
-        };
-    }
-    total
-}
-
-/// `readv(fd, iov, iovcnt)`.
-pub(super) fn sys_readv(fd: u64, iov: u64, count: u64) -> u64 {
-    if count > UIO_MAXIOV {
-        return err(EINVAL);
-    }
-    let mut total = 0u64;
-    for i in 0..count {
-        let (base, len) = match iovec_at(iov, i) {
-            Ok(entry) => entry,
-            Err(code) => return partial_or(total, code),
-        };
-        let got = sys_read(fd, base, len);
-        if got > len {
-            return partial_or(total, got); // error
-        }
-        total = match add_iov_total(total, got) {
-            Ok(sum) => sum,
-            Err(code) => return code,
-        };
-        if got < len {
-            break; // short read: stop
-        }
-    }
-    total
-}
 
 /// `poll(fds, nfds, timeout)`. Only stdin is pollable; park on the terminal
 /// wait queue until it has input or the deadline passes (no busy loop).

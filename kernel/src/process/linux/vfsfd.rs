@@ -11,6 +11,7 @@
 use alloc::vec::Vec;
 
 use crate::fs::openfile::OpenFile;
+use crate::fs::vfs::Meta;
 use crate::task::{self, Fd};
 use crate::user_ptr;
 
@@ -45,6 +46,15 @@ pub(super) fn with_file(fd: u64, op: impl FnOnce(&OpenFile) -> u64) -> u64 {
     match task::fd_clone(fd as usize) {
         Some(Fd::Vfs { ref file }) => op(file),
         _ => err(EBADF),
+    }
+}
+
+/// Current metadata of the open file behind `fd` (`fstat`, `statx`); `-EBADF`
+/// if `fd` is not a VFS-backed descriptor.
+pub(super) fn meta_of(fd: u64) -> Result<Meta, u64> {
+    match task::fd_clone(fd as usize) {
+        Some(Fd::Vfs { ref file }) => file.stat().map_err(fs_err),
+        _ => Err(err(EBADF)),
     }
 }
 
