@@ -9,6 +9,18 @@ use super::*;
 /// returned [`Message`] is immediately usable.
 pub fn try_recv(handle: u64) -> Result<Option<Message>, Error> {
     let (channel_id, side) = endpoint_of(handle, rights::CALL)?;
+    take_or_register(channel_id, side, None)
+}
+
+/// [`try_recv`] on a resolved endpoint. When the inbox is empty and `waiter`
+/// is set, register it as parked on this side *under the same lock* that saw
+/// the inbox empty, so no delivery can slip between the check and the
+/// registration.
+fn take_or_register(
+    channel_id: u64,
+    side: usize,
+    waiter: Option<usize>,
+) -> Result<Option<Message>, Error> {
     let queued = {
         let mut channels = CHANNELS.lock();
         let channel = find_channel(&mut channels, channel_id)?;
@@ -19,6 +31,9 @@ pub fn try_recv(handle: u64) -> Result<Option<Message>, Error> {
         } else if channel.endpoints[1 - side].closed {
             return Err(Error::PeerDied);
         } else {
+            if let Some(slot) = waiter {
+                add_waiter(&mut channel.endpoints[side], slot);
+            }
             None
         }
     };
@@ -118,16 +133,52 @@ pub(super) fn rollback_delivery(
 
 /// Receive the next message, parking until one arrives, the deadline passes, or
 /// the peer closes.
+///
+/// Only a delivery to (or a close of) this endpoint wakes the caller
+/// (issue #338); the wake is still advisory and the inbox is re-checked.
 pub fn recv(handle: u64, deadline: Option<u64>) -> Result<Message, Error> {
+    let (channel_id, side) = endpoint_of(handle, rights::CALL)?;
+    let me = task::current();
     loop {
-        match try_recv(handle) {
+        match take_or_register(channel_id, side, Some(me)) {
             Ok(Some(message)) => return Ok(message),
             Ok(None) => {}
             Err(error) => return Err(error),
         }
-        let reason = MESSENGER.wait(task::current(), deadline);
+        let reason = MESSENGER.wait(me, deadline);
+        // A waker takes the whole list; a timeout (or any other return)
+        // must drop our own registration so it cannot outlive this call.
+        remove_waiter(channel_id, side, me);
         if reason == WakeReason::TimedOut {
             return Err(Error::TimedOut);
         }
+    }
+}
+
+/// Record `slot` as parked on `endpoint` (at most once).
+pub(super) fn add_waiter(endpoint: &mut Endpoint, slot: usize) {
+    if !endpoint.waiters.contains(&slot) {
+        endpoint.waiters.push(slot);
+    }
+}
+
+/// Drop `slot`'s registration on one side, if the channel still exists.
+fn remove_waiter(channel_id: u64, side: usize, slot: usize) {
+    let mut channels = CHANNELS.lock();
+    if let Ok(channel) = find_channel(&mut channels, channel_id) {
+        channel.endpoints[side]
+            .waiters
+            .retain(|&waiter| waiter != slot);
+    }
+}
+
+/// Wake each task in `slots` that is still parked on the Messenger queue.
+///
+/// Called with `CHANNELS` released (queue-then-task lock order). A slot that
+/// already returned, timed out or parked elsewhere is skipped by
+/// `notify_task`, so a stale registration can never wake an unrelated wait.
+pub(super) fn wake(slots: &[usize]) {
+    for &slot in slots {
+        MESSENGER.notify_task(slot);
     }
 }

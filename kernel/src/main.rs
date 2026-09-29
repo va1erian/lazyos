@@ -289,6 +289,14 @@ fn spawn_program(name: &'static str, path: &str) {
         Some(bytes) => match task::spawn(name, &bytes) {
             Ok(index) => {
                 boot_phase!("spawn_{name}");
+                // The compositor is latency-sensitive like the kernel mux, and
+                // it must take the display grant before any app that would
+                // otherwise fall back to owning the screen itself: a strictly
+                // higher class makes that ordering deterministic instead of a
+                // race the stride scheduler happens to win (issue #338).
+                if name == "xuid" {
+                    task::set_priority(index, task::PriorityClass::Interactive);
+                }
                 serial_println!("LazyOS: spawned {name} as task {index}")
             }
             Err(err) => serial_println!("LazyOS: spawn {name} failed: {err}"),
