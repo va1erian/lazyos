@@ -145,6 +145,15 @@ fn main() {
             .expect("user confctl artifact not found");
         builder.set_file(String::from("CONFCTL.ELF"), PathBuf::from(confctl));
 
+        // The time-of-day service (issue #369). `init` starts `timed`
+        // (`TIMED.ELF`) after `messengerd` and `confd`.
+        let timed =
+            std::env::var_os("CARGO_BIN_FILE_USER_timed").expect("user timed artifact not found");
+        builder.set_file(String::from("TIMED.ELF"), PathBuf::from(timed));
+        let timectl = std::env::var_os("CARGO_BIN_FILE_USER_timectl")
+            .expect("user timectl artifact not found");
+        builder.set_file(String::from("TIMECTL.ELF"), PathBuf::from(timectl));
+
         // The MIME database and open-with registry (issue #116). `init`
         // starts it from its manifest; `MIMED.ELF` is the 8.3-safe on-disk
         // name. `MIME.TYP` is the `/etc/mime.types`-style override the

@@ -13,13 +13,13 @@ use alloc::vec::Vec;
 use confd::{Caller, ChangeSink, Confd, ServiceError, StoreFs, Value};
 
 /// Callers used throughout (mirrors the store crate's own test constants).
-const ROOT: Caller = Caller { uid: 0 };
-const ALICE: Caller = Caller { uid: 1000 };
+pub(super) const ROOT: Caller = Caller { uid: 0 };
+pub(super) const ALICE: Caller = Caller { uid: 1000 };
 const BOB: Caller = Caller { uid: 1001 };
 
 /// An in-memory [`StoreFs`] with an injectable write failure.
 #[derive(Clone, Default)]
-struct MemFs {
+pub(super) struct MemFs {
     files: BTreeMap<String, Vec<u8>>,
     fail_writes: bool,
 }
@@ -61,7 +61,7 @@ impl StoreFs for MemFs {
 
 /// A sink that records every announcement.
 #[derive(Clone, Default)]
-struct RecordingSink {
+pub(super) struct RecordingSink {
     events: Vec<(String, bool)>,
 }
 
@@ -71,17 +71,17 @@ impl ChangeSink for RecordingSink {
     }
 }
 
-type Service = Confd<MemFs, RecordingSink>;
+pub(super) type Service = Confd<MemFs, RecordingSink>;
 
-fn service() -> Result<Service, String> {
+pub(super) fn service() -> Result<Service, String> {
     Confd::load(MemFs::default(), RecordingSink::default()).map_err(fail)
 }
 
-fn text(value: &str) -> Value {
+pub(super) fn text(value: &str) -> Value {
     Value::Str(String::from(value))
 }
 
-fn events(service: &Service) -> &[(String, bool)] {
+pub(super) fn events(service: &Service) -> &[(String, bool)] {
     &service.sink().events
 }
 
@@ -332,7 +332,7 @@ pub fn soak_sets_and_restarts() -> Result<(), String> {
 
 /// `ServiceError` has no `String` conversion in `no_std`; the tests only need
 /// a printable detail for `check!`.
-fn fail(error: ServiceError) -> String {
+pub(super) fn fail(error: ServiceError) -> String {
     String::from(error.message())
 }
 

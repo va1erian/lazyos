@@ -20,6 +20,10 @@ pub mod cred_op {
 /// administrative check without being uid 0 itself.
 pub const CAP_SETUID: u32 = 1 << 6;
 
+/// Mirrors `kernel::ipc::credentials::CAP_SYS_TIME`: the right to step the
+/// system clock.
+pub const CAP_SYS_TIME: u32 = 1 << 3;
+
 /// A task's kernel-stamped identity (issue #101), the userspace mirror of
 /// `kernel/src/ipc/credentials.rs::Cred`.
 ///

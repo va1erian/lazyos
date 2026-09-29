@@ -1,5 +1,5 @@
 [package]
-name = "timed"
+name = "timezone"
 version = "0.1.0"
 edition = "2021"
 publish = false
@@ -7,7 +7,7 @@ description = "Time zone and DST resolution for the LazyOS timed service (issue 
 license = "GPL-3.0-or-later"
 
 [lib]
-name = "timed"
+name = "timezone"
 path = "src/lib.rs"
 
 [dev-dependencies]

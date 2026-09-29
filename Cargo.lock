@@ -399,6 +399,7 @@ dependencies = [
  "messenger-generated",
  "spin",
  "surfbuf",
+ "timezone",
  "tiny-skia",
  "uart_16550",
  "x86_64",
@@ -760,7 +761,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "timed"
+name = "timezone"
 version = "0.1.0"
 dependencies = [
  "confd",
@@ -834,6 +835,7 @@ dependencies = [
  "libmessenger",
  "messenger-generated",
  "surfbuf",
+ "timezone",
 ]
 
 [[package]]

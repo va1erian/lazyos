@@ -125,6 +125,11 @@ pub const ZONES: &[Zone] = &[
     zone("Australia/Sydney", 100, "AEST", "AEDT", Some(AU)),
 ];
 
+/// The default zone (UTC, the first table row).
+pub fn default_zone() -> &'static Zone {
+    &ZONES[0]
+}
+
 /// The zone called exactly `name`, or `None` (names are case-sensitive and
 /// never normalised, so a typo is refused instead of guessed).
 pub fn find(name: &str) -> Option<&'static Zone> {
@@ -208,6 +213,12 @@ mod tests {
             assert!(find(bad).is_none(), "{bad:?} accepted");
         }
         assert!(find("UTC").is_some());
+    }
+
+    #[test]
+    fn default_zone_is_utc() {
+        assert_eq!(default_zone().name, crate::DEFAULT_ZONE);
+        assert_eq!(default_zone().std_offset, 0);
     }
 
     #[test]

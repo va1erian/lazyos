@@ -3,7 +3,7 @@
 //! The kernel clock is UTC; this crate turns a UTC instant into local-time
 //! parameters (offset, DST flag, abbreviation) for a small built-in zone
 //! table. It has no syscall or Messenger dependency, so the host runs the
-//! same code under `cargo test -p timed`.
+//! same code under `cargo test -p timezone`.
 //!
 //! v1 is deliberately tiny: a fixed standard offset plus, for some zones, one
 //! recurring DST rule. Full tzdata (historical rule changes) is a follow-up.
@@ -13,7 +13,7 @@
 pub mod civil;
 pub mod zones;
 
-pub use zones::{find, local, Local, Zone, ZONES};
+pub use zones::{default_zone, find, local, Local, Zone, ZONES};
 
 /// The zone used when `confd` has no `sys/time/zone` value.
 pub const DEFAULT_ZONE: &str = "UTC";
@@ -54,9 +54,7 @@ mod tests {
         assert!(store
             .set(ZONE_KEY, value.clone(), confd::Caller { uid: 1000 })
             .is_err());
-        assert!(store
-            .set(ZONE_KEY, value, confd::Caller { uid: 0 })
-            .is_ok());
+        assert!(store.set(ZONE_KEY, value, confd::Caller { uid: 0 }).is_ok());
         assert!(store.get(ZONE_KEY, confd::Caller { uid: 1000 }).is_ok());
     }
 }

@@ -152,6 +152,18 @@ pub(super) const MANIFEST: &[ServiceSpec] = &[
         deps: &["messengerd"],
         health_topic: "system/health/confd",
     },
+    // The time-of-day service (issue #369): UTC from the kernel wall clock,
+    // the zone from `confd` (`sys/time/zone`), and the retained `time/tick`
+    // topic on the broker, so it needs both. `demo=1` drives a zone change
+    // through `confd` and prints `TIMED:DEMO:PASS` once the service followed.
+    ServiceSpec {
+        name: "timed",
+        path: "TIMED.ELF",
+        args: "demo=1",
+        restart: Restart::Always,
+        deps: &["messengerd", "confd"],
+        health_topic: "system/health/timed",
+    },
     ServiceSpec {
         name: "accountsd",
         path: "ACCTD.ELF",

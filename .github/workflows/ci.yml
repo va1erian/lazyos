@@ -35,7 +35,9 @@ jobs:
           cargo clippy -p kernel -p user --target x86_64-unknown-none \
             -Zbuild-std=core,alloc -- -D warnings
       - name: Clippy (host libraries)
-        run: cargo clippy -p libmessenger -p messenger-generated -p lazyos-crypto -p font-atlas -p confd -- -D warnings
+        run: cargo clippy -p libmessenger -p messenger-generated -p lazyos-crypto -p font-atlas -p confd -p timezone -- -D warnings
+      - name: Zone and DST resolution tests (timed)
+        run: cargo test -p timezone
 
   build-and-boot:
     runs-on: ubuntu-latest
