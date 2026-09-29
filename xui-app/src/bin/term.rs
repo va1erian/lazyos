@@ -228,13 +228,18 @@ impl Grid {
     }
 
     /// The first numeric CSI parameter, `default` when absent.
-    fn csi_param(&self, default: usize) -> usize {
+    /// The `index`-th `;`-separated CSI parameter, or `default` when absent.
+    fn csi_param_at(&self, index: usize, default: usize) -> usize {
         self.csi
             .trim_start_matches('?')
             .split(';')
-            .next()
+            .nth(index)
             .and_then(|value| value.parse().ok())
             .unwrap_or(default)
+    }
+
+    fn csi_param(&self, default: usize) -> usize {
+        self.csi_param_at(0, default)
     }
 
     fn apply_csi(&mut self, final_byte: char) {
@@ -244,8 +249,8 @@ impl Grid {
             'C' => self.col = (self.col + self.csi_param(1)).min(COLS - 1),
             'D' => self.col = self.col.saturating_sub(self.csi_param(1)),
             'H' | 'f' => {
-                self.row = self.csi_param(1).saturating_sub(1).min(ROWS - 1);
-                self.col = self.csi_param(1).saturating_sub(1).min(COLS - 1);
+                self.row = self.csi_param_at(0, 1).saturating_sub(1).min(ROWS - 1);
+                self.col = self.csi_param_at(1, 1).saturating_sub(1).min(COLS - 1);
             }
             // `CSI n G` / `CSI n d`: absolute column / row (what BusyBox's
             // line editor uses to redraw the prompt and typed text).

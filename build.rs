@@ -279,7 +279,7 @@ fn main() {
     // available — `LAZYOS_BUSYBOX` overrides the search. The ABI bench embeds a
     // fixture as `INIT.ELF` instead (`LAZYOS_INIT`); skipping BusyBox then
     // keeps those images small and lets the fixture own the boot. Without a
-    // BusyBox the image still boots and falls back to the native interpreter,
+    // BusyBox the image still boots, just without a console shell,
     // and this warns so the reason is visible in the build log.
     println!("cargo:rerun-if-env-changed=LAZYOS_BUSYBOX");
     println!("cargo:rerun-if-env-changed=LAZYOS_BUSYBOX_TEST");
@@ -300,7 +300,7 @@ fn main() {
             builder.set_file(String::from("BUSYBOX"), path);
         }
         None => println!(
-            "cargo:warning=LAZYOS_BUSYBOX unavailable; the image will use the native shell \
+            "cargo:warning=LAZYOS_BUSYBOX unavailable; the image will have no console shell \
              (build it with tools/abi/build.py on a musl host)"
         ),
     }
@@ -324,7 +324,7 @@ fn main() {
 /// Locate a BusyBox built by `tools/abi/busybox.py`, whether it was dropped by
 /// hand (`tools/abi/busybox`) or built into the ABI cache
 /// (`target/abi/busybox/busybox`). Returns `None` when the host could not build
-/// one, which makes the image fall back to the native shell.
+/// one, which makes the image boot without a console shell.
 fn find_busybox(manifest_dir: &std::path::Path) -> Option<PathBuf> {
     [
         "tools/abi/busybox",

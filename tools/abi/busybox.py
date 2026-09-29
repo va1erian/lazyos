@@ -13,8 +13,8 @@ committed blob. `ensure_busybox()` returns a path to a static
 The build is `defconfig` + `CONFIG_STATIC=y`, with the `tc` applet disabled (its
 kernel headers conflict on modern distros). If any step is unavailable the
 function returns `None` and the bench marks BusyBox `unavailable`; it never
-raises, so a Windows or minimal host still builds the OS with the shell falling
-back to the native interpreter (`build.rs` logs a warning).
+raises, so a Windows or minimal host still builds the OS, which then boots
+without a console shell (`build.rs` logs a warning).
 """
 
 from __future__ import annotations

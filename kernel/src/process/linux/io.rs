@@ -426,8 +426,9 @@ fn read_eventfd(fd: u64, ptr: u64, len: u64) -> u64 {
 /// non-NULL offset is `-EINVAL` rather than a silent misread. The source may be
 /// a regular file or a pipe/socket; the destination must be a terminal or a
 /// stream, because a regular-file destination needs the copy-up write path and
-/// is not something `cat` asks for. A short read at EOF, or a short write to a
-/// full pipe, ends the transfer early with the byte count done so far.
+/// is not something `cat` asks for. A short read at EOF ends the transfer early; a short
+/// write is retried until the whole chunk is delivered, and a destination that
+/// errors or accepts nothing ends it with the byte count done so far.
 pub(super) fn sys_sendfile(out_fd: u64, in_fd: u64, offset: u64, count: u64) -> u64 {
     if count == 0 {
         return 0;
@@ -472,16 +473,27 @@ pub(super) fn sys_sendfile(out_fd: u64, in_fd: u64, offset: u64, count: u64) -> 
             break; // EOF
         }
         let short = got < want; // a short stream read means nothing more is queued
-        let written = write_kernel_bytes(out_fd, &buf[..got]);
-        if written > got as u64 {
-            return partial_or(total, written); // encoded error
+                                // The bytes are already consumed from the source, so a short write must
+                                // not end the call: keep writing the suffix until the destination has
+                                // accepted the whole chunk. Only an error (or a stalled destination that
+                                // accepts nothing) stops early, reporting what was really delivered.
+        let mut done = 0usize;
+        while done < got {
+            let written = write_kernel_bytes(out_fd, &buf[done..got]);
+            if written > (got - done) as u64 {
+                return partial_or(total, written); // encoded error
+            }
+            if written == 0 {
+                return total; // destination accepts nothing: report progress
+            }
+            done += written as usize;
+            total = match add_iov_total(total, written) {
+                Ok(sum) => sum,
+                Err(code) => return partial_or(total, code),
+            };
         }
-        total = match add_iov_total(total, written) {
-            Ok(sum) => sum,
-            Err(code) => return partial_or(total, code),
-        };
-        if written < got as u64 || short {
-            break; // pipe full or input drained: a short transfer ends the call
+        if short {
+            break; // input drained: a short transfer ends the call
         }
     }
     total

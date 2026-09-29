@@ -64,7 +64,7 @@ SCRIPTS = [
 SIMPLE_BUILDS = [("Debug", "dev"), ("Release", "release")]
 SIMPLE_INTERFACES = [
     ("CLI",
-     "A basic terminal screen with the native shell (sh) connected to it."),
+     "A basic terminal screen with the system shell (busybox sh) connected to it."),
     ("Desktop",
      "The full services suite (init, messengerd, logd, healthd, keyd, accounts, "
      "clipboardd, ...) plus the xuid compositor and an XUI app window."),
