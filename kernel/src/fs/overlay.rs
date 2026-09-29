@@ -42,7 +42,7 @@ use alloc::vec::Vec;
 use spin::Mutex;
 
 use super::ramfs::RamFs;
-use super::vfs::{DirEntry, FileKind, Filesystem, FsError, Id, Meta, StatFs};
+use super::vfs::{DirEntry, FileKind, Filesystem, FsError, Id, Meta, SetAttr, StatFs};
 
 /// Upper-layer file-data cap (2 MiB of the 16 MiB kernel heap).
 pub const MAX_UPPER_BYTES: usize = 2 * 1024 * 1024;
@@ -144,7 +144,9 @@ impl Overlay {
     }
 
     /// Ensure `path` exists in the upper layer, recursively copying lower
-    /// directories as needed. An existing upper node is left alone.
+    /// directories as needed. An existing upper node is left alone. A copy
+    /// keeps the lower node's mode, owner and times: copying up is an
+    /// implementation detail, not a change the caller made.
     fn copy_up(&self, path: &str) -> Result<(), FsError> {
         if path.is_empty() || self.upper.lookup(path).is_ok() {
             return Ok(());
@@ -169,7 +171,7 @@ impl Overlay {
                 self.upper
                     .create(path, meta.mode & 0o7777, id_of(meta))
                     .and_then(|_| self.upper.write(path, 0, &data))?;
-                Ok(())
+                self.keep_times(path, meta)
             }
             FileKind::Dir => {
                 if self.upper.usage().1 + 1 > self.max_nodes {
@@ -180,9 +182,16 @@ impl Overlay {
                     let child = join(path, &entry.name);
                     self.copy_up(&child)?;
                 }
-                Ok(())
+                self.keep_times(path, meta)
             }
         }
+    }
+
+    /// Give a fresh upper copy the lower node's timestamps (creating and
+    /// filling it stamped the current time).
+    fn keep_times(&self, path: &str, lower: Meta) -> Result<(), FsError> {
+        self.upper.setattr(path, &SetAttr::times(lower.times))?;
+        Ok(())
     }
 }
 
@@ -284,6 +293,15 @@ impl Filesystem for Overlay {
             }
         }
         self.upper.truncate(&path, size)
+    }
+
+    /// Like any other change, an attribute change copies the node up first
+    /// (a directory with its subtree, as for a write), so the lower volume is
+    /// never modified.
+    fn setattr(&self, path: &str, attr: &SetAttr) -> Result<Meta, FsError> {
+        let path = canonical(path);
+        self.copy_up(&path)?;
+        self.upper.setattr(&path, attr).map(upper_meta)
     }
 
     fn create(&self, path: &str, mode: u16, owner: Id) -> Result<Meta, FsError> {

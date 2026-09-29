@@ -4,16 +4,20 @@
 //! A tree of [`Node`]s lives under one `spin::Mutex`; the root is inode 1.
 //! Files keep their bytes in a `Vec<u8>`, directories keep an ordered child
 //! list (so `readdir` is stable). Owner uid/gid and mode bits are stamped on
-//! creation by the VFS, which is what the permission checks read back.
+//! creation by the VFS, which is what the permission checks read back, and
+//! change only through [`Filesystem::setattr`].
 
 use alloc::collections::BTreeMap;
 use alloc::string::String;
 use alloc::vec::Vec;
 use spin::Mutex;
 
-use super::vfs::{DirEntry, FileKind, Filesystem, FsError, Id, Meta, StatFs, S_IFDIR, S_IFREG};
+use super::vfs::{DirEntry, FileKind, Filesystem, FsError, Id, Meta, SetAttr, StatFs};
 
 mod capacity;
+mod node;
+
+use node::Node;
 
 /// The root directory's inode. Inodes are allocated upward from here.
 const ROOT_INO: u64 = 1;
@@ -24,35 +28,6 @@ const ROOT_INO: u64 = 1;
 pub const DEFAULT_MAX_BYTES: usize = 4 * 1024 * 1024;
 /// Default cap on live nodes (files, directories and the root).
 pub const DEFAULT_MAX_NODES: usize = 4096;
-
-/// One node: a file with contents, or a directory with children.
-struct Node {
-    name: String,
-    kind: FileKind,
-    /// Permission bits only (type bits are added by [`Node::meta`]).
-    mode: u16,
-    uid: u32,
-    gid: u32,
-    data: Vec<u8>,
-    children: Vec<u64>,
-}
-
-impl Node {
-    fn meta(&self, ino: u64) -> Meta {
-        let kind_bits = match self.kind {
-            FileKind::File => S_IFREG,
-            FileKind::Dir => S_IFDIR,
-        };
-        Meta {
-            ino,
-            mode: kind_bits | (self.mode & 0o7777),
-            uid: self.uid,
-            gid: self.gid,
-            size: self.data.len() as u64,
-            kind: self.kind,
-        }
-    }
-}
 
 struct Inner {
     next_ino: u64,
@@ -84,15 +59,7 @@ impl RamFs {
         let mut nodes = BTreeMap::new();
         nodes.insert(
             ROOT_INO,
-            Node {
-                name: String::from("/"),
-                kind: FileKind::Dir,
-                mode: 0o755,
-                uid: 0,
-                gid: 0,
-                data: Vec::new(),
-                children: Vec::new(),
-            },
+            Node::new(String::from("/"), FileKind::Dir, 0o755, Id::ROOT),
         );
         RamFs {
             inner: Mutex::new(Inner {
@@ -228,18 +195,7 @@ impl RamFs {
     ) -> Meta {
         let ino = inner.next_ino;
         inner.next_ino += 1;
-        inner.nodes.insert(
-            ino,
-            Node {
-                name,
-                kind,
-                mode,
-                uid: owner.uid,
-                gid: owner.gid,
-                data: Vec::new(),
-                children: Vec::new(),
-            },
-        );
+        inner.nodes.insert(ino, Node::new(name, kind, mode, owner));
         // INVARIANT: `parent` was resolved by the caller under the same
         // `inner` lock held here, and nothing else can remove it while we
         // hold that lock (single-threaded access to `inner`).
@@ -308,6 +264,7 @@ impl Filesystem for RamFs {
         // nothing else can remove it while we hold `inner`.
         let node = inner.nodes.get_mut(&ino).expect("resolved inode exists");
         node.data[offset as usize..end].copy_from_slice(data);
+        node.touch();
         Ok(data.len())
     }
 
@@ -318,7 +275,23 @@ impl Filesystem for RamFs {
             return Err(FsError::IsDir);
         }
         let size = usize::try_from(size).map_err(|_| FsError::NoSpace)?;
-        Self::resize_file(&mut inner, ino, size)
+        Self::resize_file(&mut inner, ino, size)?;
+        // INVARIANT: `ino` was resolved above under this same lock.
+        inner
+            .nodes
+            .get_mut(&ino)
+            .expect("resolved inode exists")
+            .touch();
+        Ok(())
+    }
+
+    fn setattr(&self, path: &str, attr: &SetAttr) -> Result<Meta, FsError> {
+        let mut inner = self.inner.lock();
+        let ino = Self::resolve(&inner, path)?;
+        // INVARIANT: `ino` was resolved above under this same lock.
+        let node = inner.nodes.get_mut(&ino).expect("resolved inode exists");
+        node.set_attr(attr);
+        Ok(node.meta(ino))
     }
 
     fn create(&self, path: &str, mode: u16, owner: Id) -> Result<Meta, FsError> {

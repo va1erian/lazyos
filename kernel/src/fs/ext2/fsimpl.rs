@@ -114,6 +114,10 @@ impl Filesystem for Ext2 {
         self.truncate_file(path, size)
     }
 
+    fn setattr(&self, path: &str, attr: &crate::fs::vfs::SetAttr) -> Result<Meta, FsError> {
+        self.set_attributes(path, attr)
+    }
+
     fn create(&self, path: &str, mode: u16, owner: Id) -> Result<Meta, FsError> {
         let _guard = self.lock.lock();
         let (parent_path, name) = split_parent(path)?;

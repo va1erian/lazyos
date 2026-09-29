@@ -58,9 +58,11 @@ fn has(entries: &[vfs::DirEntry], name: &str) -> bool {
     entries.iter().any(|entry| entry.name == name)
 }
 
+mod attrs;
 mod copy_up;
 mod lifecycle;
 
+pub(super) use attrs::*;
 pub(super) use copy_up::*;
 pub(super) use lifecycle::*;
 
@@ -72,4 +74,5 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("fs_overlay_soak_generations", soak_generations),
     ("fs_abi_mkdir_rename_rmdir", abi_syscalls),
     ("fs_abi_unlink_while_open", unlink_while_open),
+    ("fs_overlay_setattr_copies_up", setattr_copies_up),
 ];

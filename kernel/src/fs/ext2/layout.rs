@@ -135,11 +135,12 @@ pub(super) fn kind_from_mode(mode: u16) -> Option<FileKind> {
     }
 }
 
-/// The PIT tick counter is 100 Hz (`arch::pic` programs that rate), so uptime
-/// in seconds is the best clock until an RTC driver lands. Fresh timestamps
-/// therefore restart at zero on every boot; epoch time is a follow-up.
+/// The current time as an inode field holds it: the VFS clock
+/// ([`crate::fs::vfs::now`], uptime until an RTC driver lands, so fresh
+/// timestamps restart at zero on every boot), shared with every other backend
+/// so a write and a `touch` agree.
 pub(super) fn now() -> u32 {
-    (crate::task::ticks() / 100) as u32
+    super::attr::disk_time(crate::fs::vfs::now())
 }
 
 /// Refuse an owner whose ids do not fit the 16-bit `i_uid`/`i_gid` fields.

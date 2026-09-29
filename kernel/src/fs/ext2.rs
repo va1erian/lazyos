@@ -20,7 +20,8 @@
 //! * block allocation from the group bitmaps with per-group accounting;
 //! * reads and writes through the direct, single-, double- and triple-indirect
 //!   block maps, with sparse holes, and `truncate` (grow and shrink);
-//! * timestamps stamped from the PIT (best effort until an RTC driver lands);
+//! * timestamps stamped from the VFS clock (PIT uptime until an RTC driver
+//!   lands), and `setattr` for `chmod`/`chown`/`utimensat` (`attr.rs`);
 //! * a clean/dirty superblock state (`s_state`) and [`Ext2::flush`], which
 //!   flushes the device and then marks the volume clean (see `state.rs`).
 //!
@@ -52,6 +53,7 @@ use spin::Mutex;
 use super::vfs::{DirEntry, FileKind, Filesystem, FsError, Id, Meta, S_IFDIR, S_IFMT, S_IFREG};
 use crate::block::{BlockDevice, BlockError, SECTOR_SIZE};
 
+mod attr;
 mod blocks;
 mod capacity;
 mod dir;
@@ -417,23 +419,5 @@ impl Ext2 {
         put16(&mut buf, offset + GD_FREE_INODES, desc.free_inodes);
         put16(&mut buf, offset + GD_USED_DIRS, desc.used_dirs);
         self.write_block(block, &buf[..size])
-    }
-
-    /// Whether bit `index` of a bitmap is set.
-    fn bitmap_test(buf: &[u8], index: u32) -> bool {
-        buf[(index / 8) as usize] & (1 << (index % 8)) != 0
-    }
-
-    fn bitmap_set(buf: &mut [u8], index: u32) {
-        buf[(index / 8) as usize] |= 1 << (index % 8);
-    }
-
-    fn bitmap_clear(buf: &mut [u8], index: u32) {
-        buf[(index / 8) as usize] &= !(1 << (index % 8));
-    }
-
-    /// The first clear bit in `start..bits`, scanning in allocation order.
-    fn bitmap_find_zero(buf: &[u8], start: u32, bits: u32) -> Option<u32> {
-        (start..bits).find(|&index| !Self::bitmap_test(buf, index))
     }
 }

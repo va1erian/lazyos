@@ -13,7 +13,9 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use spin::Mutex;
 
-use super::vfs::{DirEntry, FileKind, Filesystem, FsError, Id, Meta, S_IFDIR, S_IFREG};
+use super::vfs::{
+    DirEntry, FileKind, Filesystem, FsError, Id, Meta, SetAttr, Times, S_IFDIR, S_IFREG,
+};
 
 mod chain;
 
@@ -302,6 +304,9 @@ fn meta_for(entry: &Entry) -> Meta {
         } else {
             FileKind::File
         },
+        // The entry's DOS write date is not converted yet, so boot-volume
+        // files report the epoch.
+        times: Times::default(),
     }
 }
 
@@ -326,6 +331,7 @@ impl Filesystem for Fat16 {
                 gid: 0,
                 size: self.root_entries as u64 * 32,
                 kind: FileKind::Dir,
+                times: Times::default(),
             });
         }
         let entry = self.find(name).ok_or(FsError::NotFound)?;
@@ -359,6 +365,10 @@ impl Filesystem for Fat16 {
     }
 
     fn truncate(&self, _path: &str, _size: u64) -> Result<(), FsError> {
+        Err(FsError::ReadOnly)
+    }
+
+    fn setattr(&self, _path: &str, _attr: &SetAttr) -> Result<Meta, FsError> {
         Err(FsError::ReadOnly)
     }
 

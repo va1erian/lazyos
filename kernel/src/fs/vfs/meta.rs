@@ -1,5 +1,6 @@
 //! VFS vocabulary: mode bits, metadata, ids, errors and the permission checks.
 
+use super::attr::Times;
 use crate::ipc::credentials;
 use alloc::string::String;
 
@@ -10,6 +11,10 @@ pub const S_IFMT: u16 = 0o170000;
 pub const S_IFREG: u16 = 0o100000;
 /// Directory.
 pub const S_IFDIR: u16 = 0o040000;
+/// Set-user-ID and set-group-ID: `chown` clears both on a regular file, and
+/// `chmod` drops setgid for a caller outside the file's group (`setattr.rs`).
+pub const S_ISUID: u16 = 0o4000;
+pub const S_ISGID: u16 = 0o2000;
 /// Sticky bit on a directory (see [`check_sticky`]).
 pub const S_ISVTX: u16 = 0o1000;
 
@@ -43,6 +48,9 @@ pub struct Meta {
     pub size: u64,
     /// The node type, kept explicit so callers do not re-mask `mode`.
     pub kind: FileKind,
+    /// Access, modification and change times (all zero where a backend keeps
+    /// none, e.g. FAT and the fabricated ABI entries).
+    pub times: Times,
 }
 
 /// Capacity figures for one mounted filesystem, the payload of `statfs(2)`.
@@ -117,6 +125,9 @@ pub enum FsError {
     IsDir,
     NotEmpty,
     Access,
+    /// The caller lacks the ownership an operation needs (`EPERM`), as
+    /// opposed to a missing permission bit ([`FsError::Access`], `EACCES`).
+    NotPermitted,
     ReadOnly,
     Invalid,
     NoSpace,
@@ -134,6 +145,7 @@ impl FsError {
             FsError::IsDir => "is a directory",
             FsError::NotEmpty => "directory not empty",
             FsError::Access => "permission denied",
+            FsError::NotPermitted => "operation not permitted",
             FsError::ReadOnly => "read-only filesystem",
             FsError::Invalid => "invalid argument",
             FsError::NoSpace => "no space left on device",
