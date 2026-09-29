@@ -18,9 +18,9 @@ use super::{BRK_BASE, MMAP_LIMIT, PAGE, STACK_SIZE, STACK_TOP};
 /// Windows an image may not occupy: the stack, `brk` and `mmap` regions.
 pub(super) const LOAD_RESERVED: [(u64, u64); 1] = [(BRK_BASE, MMAP_LIMIT)];
 
-/// Load a Linux image into `table`, build its start stack, and return
-/// `(entry, stack_pointer)`.
-pub fn load(table: PhysAddr, elf_bytes: &[u8], argv0: &str) -> Result<(u64, u64), &'static str> {
+/// Load a Linux image into `table`, build its start stack with `argv`, and
+/// return `(entry, stack_pointer)`.
+pub fn load(table: PhysAddr, elf_bytes: &[u8], argv: &[&str]) -> Result<(u64, u64), &'static str> {
     let entry = load_segments(table, elf_bytes, &LOAD_RESERVED)?;
     let stack = map_range_kind(
         table,
@@ -32,17 +32,15 @@ pub fn load(table: PhysAddr, elf_bytes: &[u8], argv0: &str) -> Result<(u64, u64)
 
     let phdr = program_header_addr(elf_bytes);
     let (phent, phnum) = phdr_size(elf_bytes);
-    let mut arg0 = Vec::from(argv0.as_bytes());
-    arg0.push(0);
-    let rsp = build_start_stack(
-        &stack,
-        core::slice::from_ref(&arg0),
-        &[],
-        entry,
-        phdr,
-        phent,
-        phnum,
-    );
+    let argv: Vec<Vec<u8>> = argv
+        .iter()
+        .map(|arg| {
+            let mut bytes = Vec::from(arg.as_bytes());
+            bytes.push(0);
+            bytes
+        })
+        .collect();
+    let rsp = build_start_stack(&stack, &argv, &[], entry, phdr, phent, phnum);
     Ok((entry, rsp))
 }
 

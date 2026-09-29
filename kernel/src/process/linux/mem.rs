@@ -21,8 +21,13 @@ const MAP_ANONYMOUS: u64 = 0x20;
 const MREMAP_MAYMOVE: u64 = 1;
 const MREMAP_FIXED: u64 = 2;
 
-fn align_up(value: u64, align: u64) -> u64 {
-    (value + align - 1) & !(align - 1)
+/// Round `value` up to a multiple of `align`, or `None` if the rounding would
+/// overflow `u64`. All callers feed this untrusted user lengths, so the
+/// addition must be checked: the default profile panics on overflow.
+fn align_up(value: u64, align: u64) -> Option<u64> {
+    value
+        .checked_add(align - 1)
+        .map(|value| value & !(align - 1))
 }
 
 /// `mmap(addr, len, prot, flags)`: anonymous private memory only.
@@ -38,7 +43,9 @@ pub(super) fn sys_mmap(addr: u64, len: u64, prot: u64, flags: u64) -> u64 {
     if len == 0 {
         return err(EINVAL);
     }
-    let len = align_up(len, PAGE);
+    let Some(len) = align_up(len, PAGE) else {
+        return err(ENOMEM);
+    };
     let table = crate::mem::kernel_table();
     let mut base = if flags & MAP_FIXED != 0 {
         addr & !0xFFF
@@ -62,7 +69,12 @@ pub(super) fn sys_mmap(addr: u64, len: u64, prot: u64, flags: u64) -> u64 {
                 break;
             }
             match occupied.iter().map(|vma| vma.end).max() {
-                Some(next) => base = align_up(next, PAGE),
+                Some(next) => {
+                    let Some(aligned) = align_up(next, PAGE) else {
+                        return err(ENOMEM);
+                    };
+                    base = aligned;
+                }
                 None => break,
             }
         }
@@ -107,7 +119,7 @@ pub(super) fn sys_munmap(addr: u64, len: u64) -> u64 {
         return err(EINVAL);
     }
     let start = addr & !0xFFF;
-    let Some(end) = addr.checked_add(len).map(|end| align_up(end, PAGE)) else {
+    let Some(end) = addr.checked_add(len).and_then(|end| align_up(end, PAGE)) else {
         return err(EINVAL);
     };
     let table = crate::mem::kernel_table();
@@ -131,7 +143,7 @@ pub(super) fn sys_mprotect(addr: u64, len: u64, prot: u64) -> u64 {
         return err(EINVAL);
     }
     let start = addr & !0xFFF;
-    let Some(end) = addr.checked_add(len).map(|end| align_up(end, PAGE)) else {
+    let Some(end) = addr.checked_add(len).and_then(|end| align_up(end, PAGE)) else {
         return err(EINVAL);
     };
     let prot = Prot((prot & 0x7) as u8);
@@ -153,7 +165,9 @@ pub(super) fn sys_brk(addr: u64) -> u64 {
     if addr == 0 || addr < BRK_BASE {
         return current;
     }
-    let new = align_up(addr, PAGE);
+    let Some(new) = align_up(addr, PAGE) else {
+        return current;
+    };
     if new > BRK_LIMIT {
         return current;
     }
@@ -184,7 +198,13 @@ pub(super) fn sys_brk(addr: u64) -> u64 {
 /// relocates the resident PTEs to a fresh range (`MREMAP_FIXED` places it
 /// exactly). Overlapping source and destination ranges are refused with
 /// `-EINVAL`; Linux supports them, but nothing here needs that yet.
-pub(super) fn sys_mremap(old_addr: u64, old_size: u64, new_size: u64, flags: u64, new_addr: u64) -> u64 {
+pub(super) fn sys_mremap(
+    old_addr: u64,
+    old_size: u64,
+    new_size: u64,
+    flags: u64,
+    new_addr: u64,
+) -> u64 {
     if old_addr & (PAGE - 1) != 0 || (flags & MREMAP_FIXED != 0 && new_addr & (PAGE - 1) != 0) {
         return err(EINVAL);
     }
@@ -196,14 +216,11 @@ pub(super) fn sys_mremap(old_addr: u64, old_size: u64, new_size: u64, flags: u64
     }
     let Some(old_end) = old_addr
         .checked_add(old_size)
-        .map(|end| align_up(end, PAGE))
+        .and_then(|end| align_up(end, PAGE))
     else {
         return err(EINVAL);
     };
-    let Some(new_len) = new_size
-        .checked_add(PAGE - 1)
-        .map(|size| size & !(PAGE - 1))
-    else {
+    let Some(new_len) = align_up(new_size, PAGE) else {
         return err(EINVAL);
     };
     let table = crate::mem::kernel_table();
@@ -242,16 +259,19 @@ pub(super) fn sys_mremap(old_addr: u64, old_size: u64, new_size: u64, flags: u64
         // Growing: the pages above the old end are demand-zero (anonymous
         // memory), so a free range above the VMA can be claimed by extending it.
         let delta = new_len - old_len;
-        let free_above = crate::mem::vma::find_range(table, old_end, old_end + delta).is_empty();
+        let Some(grow_end) = old_end.checked_add(delta) else {
+            return err(ENOMEM);
+        };
+        let free_above = crate::mem::vma::find_range(table, old_end, grow_end).is_empty();
         if free_above && matches!(vma.kind, Kind::Anon | Kind::Heap) {
             if quota::charge_for_slot(task::current(), Resource::UserMemory, delta).is_err() {
                 return err(ENOMEM);
             }
-            crate::mem::vma::insert(table, old_addr, old_end + delta, vma.prot, vma.kind);
+            crate::mem::vma::insert(table, old_addr, grow_end, vma.prot, vma.kind);
             // Keep the bump past a mapping that grew in place, so the next
             // `mmap` does not land on top of it.
-            if task::mmap_next() < old_end + delta {
-                task::set_mmap_next(old_end + delta);
+            if task::mmap_next() < grow_end {
+                task::set_mmap_next(grow_end);
             }
             return old_addr;
         }
@@ -336,6 +356,6 @@ fn choose_mremap_dest(table: PhysAddr, len: u64) -> Option<u64> {
         if occupied.is_empty() {
             return Some(candidate);
         }
-        candidate = align_up(occupied.iter().map(|vma| vma.end).max()?, PAGE);
+        candidate = align_up(occupied.iter().map(|vma| vma.end).max()?, PAGE)?;
     }
 }

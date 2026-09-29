@@ -74,7 +74,10 @@ SIMPLE_INTERFACES = [
      "clipboardd, ...) plus the xuid compositor and an XUI app window."),
 ]
 
-XUI_VIEWERS = ["(none)", "m0", "counter", "sysmon", "fabricmon", "client"]
+XUI_VIEWERS = ["(none)", "m0", "counter", "sysmon", "fabricmon", "client", "term"]
+# The desktop session's apps (issues #215/#216): embedded side by side, opened
+# by `init` as `xuid` clients. The Terminal comes first so it takes the focus.
+DESKTOP_APPS = ("term", "sysmon", "fabricmon", "counter")
 ACCELS = ["auto", "none", "tcg", "whpx", "kvm"]
 
 
@@ -95,6 +98,10 @@ def build_env(cfg: dict) -> dict[str, str]:
         env["LAZYOS_XUI_CLIENT"] = "1"
     if cfg["xui_app"] != "(none)":
         env["LAZYOS_XUI_APP"] = os.path.join(ROOT, "target", "xui", f"xui-{cfg['xui_app']}.elf")
+    if cfg.get("xui_apps"):
+        env["LAZYOS_XUI_APPS"] = os.pathsep.join(
+            os.path.join(ROOT, "target", "xui", f"xui-{app}.elf") for app in cfg["xui_apps"]
+        )
     if cfg["busybox"]:
         env["LAZYOS_BUSYBOX"] = cfg["busybox"]
     if cfg.get("cli"):
@@ -124,14 +131,16 @@ def simple_config(base: dict, build: str, interface: str) -> dict:
         "extra": base.get("extra", ""),
         "busybox": "",
         "cli": not desktop,
-        # Desktop = services suite + compositor + one XUI app as its client.
+        # Desktop = services suite + compositor + the XUI apps as its clients
+        # (`init` opens them: Terminal, System Monitor, Fabric Monitor, Counter).
         "services": desktop,
         "xuid": desktop,
         "shellprobe": False,
         "msgctl": False,
         "msgrd": False,
         "xui_client": desktop,
-        "xui_app": "client" if desktop else "(none)",
+        "xui_app": "(none)",
+        "xui_apps": DESKTOP_APPS if desktop else (),
         "prebuild_xui": desktop,
     })
     return cfg

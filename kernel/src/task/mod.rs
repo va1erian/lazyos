@@ -59,12 +59,14 @@ use crate::mem;
 use crate::process as user_process;
 
 pub mod introspect;
+mod linux_spawn;
 pub mod process;
 pub mod signal;
 mod snapshot;
 pub mod switch;
 pub mod sys;
 pub mod wait;
+pub use linux_spawn::{spawn_linux, spawn_linux_child};
 
 /// Slots: 0 is the kernel (multiplexer), 1.. are user programs/threads.
 ///
@@ -672,63 +674,6 @@ fn spawn_in_space(
         output: Vec::new(),
         input: VecDeque::new(),
     });
-    Ok(index)
-}
-
-/// Create a Linux task from a static ELF image. Returns its slot index.
-pub fn spawn_linux(name: &'static str, elf: &[u8], argv0: &str) -> Result<usize, &'static str> {
-    let mut tasks = TASKS.lock();
-    let index = (1..MAX_TASKS)
-        .find(|&i| tasks[i].is_none())
-        .ok_or("no free task slot")?;
-
-    let pml4 = mem::new_user_table().ok_or("out of memory")?;
-    let (entry, stack_top) = match user_process::linux::load(pml4, elf, argv0) {
-        Ok(loaded) => loaded,
-        Err(err) => {
-            // A partially loaded image still owns its frames: release them.
-            mem::free_user_table(pml4);
-            return Err(err);
-        }
-    };
-
-    let top = kstack_top(index);
-    let rsp = build_user_frame(top, entry, stack_top);
-    let class = PriorityClass::Normal;
-    let pass = virtual_now(&tasks);
-
-    // Started by the kernel: root, and never a dead task's stale identity.
-    credentials::reset_for_task(index);
-    tasks[index] = Some(Task {
-        name,
-        kind: Kind::Linux,
-        pml4: pml4.as_u64(),
-        kstack_top: top,
-        rsp,
-        state: TaskState::Runnable,
-        class,
-        weight: class.default_weight(),
-        pass,
-        cpu_ticks: 0,
-        wake_reason: None,
-        clear_child_tid: 0,
-        parent: 0,
-        // Top-level Linux programs are their own group and session leader.
-        pgid: index,
-        sid: index,
-        exit_status: 0,
-        heap_break: 0,
-        fs_base: 0,
-        fds: new_fds(),
-        fd_flags: [0; FD_COUNT],
-        output: Vec::new(),
-        input: VecDeque::new(),
-    });
-    register_bumps(
-        pml4.as_u64(),
-        user_process::linux::BRK_BASE,
-        user_process::linux::MMAP_BASE,
-    );
     Ok(index)
 }
 
@@ -2216,7 +2161,10 @@ pub fn fd_peek(fd: usize, count: usize) -> Option<Vec<u8>> {
         return None;
     }
     if let Fd::File { data, offset } = &task.fds[fd] {
-        let remaining = data.len().saturating_sub(*offset);
+        if *offset >= data.len() {
+            return Some(Vec::new()); // read at or past EOF
+        }
+        let remaining = data.len() - *offset;
         let n = remaining.min(count).min(FD_READ_MAX);
         Some(data[*offset..*offset + n].to_vec())
     } else {
@@ -2230,8 +2178,8 @@ pub fn fd_advance(fd: usize, n: usize) {
     let mut tasks = TASKS.lock();
     if let Some(task) = tasks[current()].as_mut() {
         if fd < FD_COUNT {
-            if let Fd::File { data, offset } = &mut task.fds[fd] {
-                *offset = (*offset + n).min(data.len());
+            if let Fd::File { offset, .. } = &mut task.fds[fd] {
+                *offset = offset.saturating_add(n);
             }
         }
     }
@@ -2297,6 +2245,11 @@ pub fn fd_apply_write(fd: usize, offset: usize, data: &[u8]) -> bool {
 }
 
 /// Reposition a file descriptor (`whence`: 0=SET, 1=CUR, 2=END).
+///
+/// Returns `None` for an unknown `whence` or a signed position that would
+/// overflow `i64` or be negative (Linux answers `-EINVAL` for both). The new
+/// position may lie past end-of-file, as Linux allows for sparse writes; reads
+/// there return zero bytes.
 pub fn fd_seek(fd: usize, offset: i64, whence: u64) -> Option<u64> {
     let mut tasks = TASKS.lock();
     let task = tasks[current()].as_mut()?;
@@ -2306,13 +2259,16 @@ pub fn fd_seek(fd: usize, offset: i64, whence: u64) -> Option<u64> {
     if let Fd::File { data, offset: pos } = &mut task.fds[fd] {
         let base = match whence {
             0 => 0i64,
-            1 => *pos as i64,
-            2 => data.len() as i64,
+            1 => i64::try_from(*pos).ok()?,
+            2 => i64::try_from(data.len()).ok()?,
             _ => return None,
         };
-        let new = (base + offset).max(0) as usize;
-        *pos = new.min(data.len());
-        Some(*pos as u64)
+        let new = base.checked_add(offset)?;
+        if new < 0 {
+            return None;
+        }
+        *pos = new as usize;
+        Some(new as u64)
     } else {
         None
     }

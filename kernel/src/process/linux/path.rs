@@ -15,7 +15,7 @@ use alloc::vec::Vec;
 use crate::fs::vfs::{self, FileKind, FsError, Id, Meta};
 use crate::task::{self, Fd, FdKind};
 
-use super::errno::{err, fs_err, EBADF, EEXIST, EINVAL, ENOENT, EISDIR, ENOTDIR, EROFS};
+use super::errno::{err, fs_err, EBADF, EEXIST, EINVAL, EISDIR, ENOENT, ENOTDIR, EROFS};
 use super::fd::{fd_meta_get, file_meta, open_device_fd, open_snapshot};
 use super::uaccess::read_cstr;
 
