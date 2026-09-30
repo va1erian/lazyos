@@ -60,6 +60,24 @@
         "retained": true,
         "publish_permission": "publish:session/+/clipboard/changed",
         "subscribe_permission": "subscribe:session/+/clipboard/changed"
+      },
+      {
+        "name": "system/events/clipboard/paste",
+        "source": "system/events/clipboard/paste",
+        "payload": "PasteEvent",
+        "qos": "latest",
+        "retained": false,
+        "publish_permission": "publish:system/events/clipboard/paste",
+        "subscribe_permission": "subscribe:system/events/clipboard/paste"
+      },
+      {
+        "name": "system/events/security/clipboard",
+        "source": "system/events/security/clipboard",
+        "payload": "ClipboardDenial",
+        "qos": "latest",
+        "retained": false,
+        "publish_permission": "publish:system/events/security/clipboard",
+        "subscribe_permission": "subscribe:system/events/security/clipboard"
       }
     ]
   },
@@ -294,7 +312,26 @@
         "oneway": false
       }
     ],
-    "topics": []
+    "topics": [
+      {
+        "name": "system/health/summary",
+        "source": "system/health/summary",
+        "payload": "HealthRecord",
+        "qos": "latest",
+        "retained": true,
+        "publish_permission": "publish:system/health/summary",
+        "subscribe_permission": "subscribe:system/health/summary"
+      },
+      {
+        "name": "system/health/+",
+        "source": "system/health/{name}",
+        "payload": "HealthRecord",
+        "qos": "latest",
+        "retained": true,
+        "publish_permission": "publish:system/health/+",
+        "subscribe_permission": "subscribe:system/health/+"
+      }
+    ]
   },
   {
     "interface": "os.lazy.init.v1",
@@ -316,7 +353,17 @@
         "oneway": false
       }
     ],
-    "topics": []
+    "topics": [
+      {
+        "name": "system/events/service/+",
+        "source": "system/events/service/{name}",
+        "payload": "ServiceEvent",
+        "qos": "latest",
+        "retained": true,
+        "publish_permission": "publish:system/events/service/+",
+        "subscribe_permission": "subscribe:system/events/service/+"
+      }
+    ]
   },
   {
     "interface": "os.lazy.keyd.v1",
@@ -402,7 +449,44 @@
         "oneway": false
       }
     ],
-    "topics": []
+    "topics": [
+      {
+        "name": "system/events/login/start",
+        "source": "system/events/login/start",
+        "payload": "LoginStart",
+        "qos": "latest",
+        "retained": true,
+        "publish_permission": "publish:system/events/login/start",
+        "subscribe_permission": "subscribe:system/events/login/start"
+      },
+      {
+        "name": "system/events/login/session/+",
+        "source": "system/events/login/session/{id}",
+        "payload": "LoginSession",
+        "qos": "latest",
+        "retained": true,
+        "publish_permission": "publish:system/events/login/session/+",
+        "subscribe_permission": "subscribe:system/events/login/session/+"
+      },
+      {
+        "name": "system/events/login/denied",
+        "source": "system/events/login/denied",
+        "payload": "LoginDenied",
+        "qos": "latest",
+        "retained": true,
+        "publish_permission": "publish:system/events/login/denied",
+        "subscribe_permission": "subscribe:system/events/login/denied"
+      },
+      {
+        "name": "system/events/login/end",
+        "source": "system/events/login/end",
+        "payload": "LoginEnd",
+        "qos": "latest",
+        "retained": true,
+        "publish_permission": "publish:system/events/login/end",
+        "subscribe_permission": "subscribe:system/events/login/end"
+      }
+    ]
   },
   {
     "interface": "os.lazy.mimed.v1",
@@ -434,7 +518,17 @@
         "oneway": false
       }
     ],
-    "topics": []
+    "topics": [
+      {
+        "name": "system/events/open/+",
+        "source": "system/events/open/{app}",
+        "payload": "OpenEvent",
+        "qos": "latest",
+        "retained": false,
+        "publish_permission": "publish:system/events/open/+",
+        "subscribe_permission": "subscribe:system/events/open/+"
+      }
+    ]
   },
   {
     "interface": "os.lazy.messenger.registry.v1",
@@ -473,7 +567,26 @@
         "oneway": false
       }
     ],
-    "topics": []
+    "topics": [
+      {
+        "name": "system/stats/memory",
+        "source": "system/stats/memory",
+        "payload": "MemoryStats",
+        "qos": "latest",
+        "retained": true,
+        "publish_permission": "publish:system/stats/memory",
+        "subscribe_permission": "subscribe:system/stats/memory"
+      },
+      {
+        "name": "system/stats/tasks",
+        "source": "system/stats/tasks",
+        "payload": "TasksStats",
+        "qos": "latest",
+        "retained": true,
+        "publish_permission": "publish:system/stats/tasks",
+        "subscribe_permission": "subscribe:system/stats/tasks"
+      }
+    ]
   },
   {
     "interface": "os.lazy.timed.v1",

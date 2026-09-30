@@ -340,7 +340,9 @@ fn first_free_range(table: PhysAddr, len: u64) -> Option<u64> {
         if end > MMAP_LIMIT {
             return None;
         }
-        let occupied = crate::mem::vma::find_range(table, candidate, end);
+        // Unclipped ends: a large mapping is skipped in one step, not `len` at
+        // a time.
+        let occupied = crate::mem::vma::find_range_full(table, candidate, end);
         if occupied.is_empty() {
             return Some(candidate);
         }

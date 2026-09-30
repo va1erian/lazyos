@@ -36,6 +36,8 @@ declared reply fields, which never use that id.
 | Topic | Payload | QoS | Retained | Permissions |
 |---|---|---|---|---|
 | `session/+/clipboard/changed` | `OfferMeta` | latest | yes | `publish:session/+/clipboard/changed`, `subscribe:session/+/clipboard/changed` |
+| `system/events/clipboard/paste` | `PasteEvent` | latest | no | `publish:system/events/clipboard/paste`, `subscribe:system/events/clipboard/paste` |
+| `system/events/security/clipboard` | `ClipboardDenial` | latest | no | `publish:system/events/security/clipboard`, `subscribe:system/events/security/clipboard` |
 
 ## struct `Payload`
 
@@ -50,3 +52,22 @@ declared reply fields, which never use that id.
 - `mimes: Array<String>`
 - `lazy: Bool`
 - `tick: U64`
+
+## struct `PasteEvent`
+
+- `seq: U64`
+- `uid: U32`
+- `session: U64`
+- `mime: String`
+- `app: U64`
+- `bytes: U64`
+- `lazy: Bool`
+
+## struct `ClipboardDenial`
+
+- `seq: U64`
+- `uid: U32`
+- `session: U64`
+- `mime: String`
+- `app: U64`
+- `token: U64`

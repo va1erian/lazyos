@@ -128,6 +128,67 @@ fn offer_meta_roundtrips_alone() {
     assert_eq!(decoded, meta());
 }
 
+fn paste() -> PasteEvent {
+    PasteEvent {
+        seq: 12,
+        uid: 1000,
+        session: 4,
+        mime: "text/plain".into(),
+        app: 7,
+        bytes: 1_024,
+        lazy: true,
+    }
+}
+
+fn denial() -> ClipboardDenial {
+    ClipboardDenial {
+        seq: 2,
+        uid: 1000,
+        session: 4,
+        mime: "text/plain".into(),
+        app: 7,
+        token: 99,
+    }
+}
+
+#[test]
+fn clipboard_audit_payloads_roundtrip() {
+    assert_eq!(
+        decode_paste_event(&encode_paste_event(&paste()).unwrap()).unwrap(),
+        paste()
+    );
+    assert_eq!(
+        decode_clipboard_denial(&encode_clipboard_denial(&denial()).unwrap()).unwrap(),
+        denial()
+    );
+    assert_eq!(
+        decode_system_events_clipboard_paste(
+            &encode_system_events_clipboard_paste(&paste()).unwrap()
+        )
+        .unwrap(),
+        paste()
+    );
+    assert_eq!(
+        decode_system_events_security_clipboard(
+            &encode_system_events_security_clipboard(&denial()).unwrap()
+        )
+        .unwrap(),
+        denial()
+    );
+}
+
+#[test]
+fn malformed_clipboard_audit_payloads_are_rejected_not_panicked() {
+    let paste = encode_paste_event(&paste()).unwrap();
+    assert!(decode_paste_event(&paste[..paste.len() - 2]).is_err());
+    assert!(decode_paste_event(&[0xff, 0xff, 0xff, 0xff]).is_err());
+    assert!(decode_paste_event(&[0x01]).is_err());
+    let denial = encode_clipboard_denial(&denial()).unwrap();
+    assert!(decode_clipboard_denial(&denial[..denial.len() - 2]).is_err());
+    assert!(decode_clipboard_denial(&[0xff, 0xff, 0xff, 0xff]).is_err());
+    assert!(decode_clipboard_denial(&[0x01]).is_err());
+}
+
 #[test]
 fn ids_are_stable() {
     // Golden values: changing these is a breaking change and must bump `.vN`.

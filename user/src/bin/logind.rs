@@ -95,7 +95,7 @@ fn run() -> messenger::Result<()> {
             // Wait for the session's shell to exit (or poll for queries).
             if let Some((pid, status)) = sys::wait(sys::clock() + POLL_TICKS) {
                 if pid == current.pid {
-                    end_session(&mut sessions, current, status, &bus);
+                    end_session(&mut sessions, current, status, &mut bus);
                     active = None;
                 }
             }
@@ -107,7 +107,7 @@ fn run() -> messenger::Result<()> {
             sleep(POLL_TICKS);
             continue;
         };
-        if let Some(started) = prompt_login(endpoint, &mut sessions, &mut next_session, &bus) {
+        if let Some(started) = prompt_login(endpoint, &mut sessions, &mut next_session, &mut bus) {
             active = Some(started);
         }
     }
@@ -118,7 +118,7 @@ fn prompt_login(
     endpoint: &Endpoint,
     sessions: &mut Vec<logind::SessionRecord>,
     next_session: &mut u64,
-    bus: &Option<router::Bus>,
+    bus: &mut Option<router::Bus>,
 ) -> Option<ActiveSession> {
     sys::write_str("\nLazyOS login: ");
     let name = read_line(true);
@@ -171,34 +171,38 @@ fn prompt_login(
         "LOGIN:OK:PASS user={} uid={} session={id} pid={pid}\n",
         user.name, user.uid
     ));
-    publish(
-        bus,
-        "system/events/login/start",
-        &format!(
-            "user={} uid={} session={id} pid={pid} state=active",
-            user.name, user.uid
-        ),
-        true,
-    );
-    publish(
-        bus,
-        &format!("system/events/login/session/{id}"),
-        &format!("user={} uid={} pid={pid} state=active", user.name, user.uid),
-        true,
-    );
+    if let Some(bus) = bus.as_mut() {
+        let start = logind::wire::LoginStart {
+            user: user.name.clone(),
+            uid: user.uid,
+            session: id,
+            pid,
+            state: String::from("active"),
+        };
+        let _ = logind::wire::publish_system_events_login_start(bus, &start);
+        let session = logind::wire::LoginSession {
+            user: user.name.clone(),
+            uid: user.uid,
+            pid,
+            state: String::from("active"),
+        };
+        let id_text = format!("{id}");
+        let _ = logind::wire::publish_system_events_login_session(bus, &id_text, &session);
+    }
     Some(ActiveSession { index, pid })
 }
 
 /// Record a refused attempt, print its serial marker, and rate-limit the next
 /// prompt.
-fn deny(bus: &Option<router::Bus>, name: &str, reason: &str) {
+fn deny(bus: &mut Option<router::Bus>, name: &str, reason: &str) {
     sys::write_str(&format!("LOGIN:DENIED:PASS user={name} reason={reason}\n"));
-    publish(
-        bus,
-        "system/events/login/denied",
-        &format!("user={name} reason={reason}"),
-        true,
-    );
+    if let Some(bus) = bus.as_mut() {
+        let event = logind::wire::LoginDenied {
+            user: String::from(name),
+            reason: String::from(reason),
+        };
+        let _ = logind::wire::publish_system_events_login_denied(bus, &event);
+    }
     // Rate limit: a failed attempt costs the next one a visible pause.
     sleep(FAIL_DELAY_TICKS);
 }
@@ -208,7 +212,7 @@ fn end_session(
     sessions: &mut [logind::SessionRecord],
     active: &ActiveSession,
     status: u64,
-    bus: &Option<router::Bus>,
+    bus: &mut Option<router::Bus>,
 ) {
     sessions[active.index].state = String::from("exited");
     let record = &sessions[active.index];
@@ -216,15 +220,15 @@ fn end_session(
         "logind: session {} for {} ended (status {status})\n",
         record.id, record.user
     ));
-    publish(
-        bus,
-        "system/events/login/end",
-        &format!(
-            "user={} uid={} session={} status={status}",
-            record.user, record.uid, record.id
-        ),
-        true,
-    );
+    if let Some(bus) = bus.as_mut() {
+        let event = logind::wire::LoginEnd {
+            user: record.user.clone(),
+            uid: record.uid,
+            session: record.id,
+            status,
+        };
+        let _ = logind::wire::publish_system_events_login_end(bus, &event);
+    }
 }
 
 /// Answer queued `Sessions` queries without blocking.
@@ -250,14 +254,6 @@ fn serve_queries(
         }
     }
     Ok(())
-}
-
-/// Publish through the supervisor's router when it is reachable; a missing
-/// broker must never stop a login.
-fn publish(bus: &Option<router::Bus>, topic: &str, payload: &str, retained: bool) {
-    if let Some(bus) = bus {
-        let _ = bus.publish(topic, payload.as_bytes(), retained);
-    }
 }
 
 /// Read one line from the terminal. `echo` prints the characters back (the

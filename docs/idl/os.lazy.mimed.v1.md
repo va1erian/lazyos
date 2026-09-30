@@ -19,3 +19,15 @@ as a typed reply.
 | Verbs | 1649509833 | sync | `(mime: String) -> (verbs: Array<String>)` |
 | Open | 1401622761 | sync | `(path: String, verb: String) -> (app: String, mime: String, topic: String, published: Bool, launched: Bool)` |
 | Register | 658098656 | sync | `(mime: String, app: String, verb: String) -> ()` |
+
+## Topics
+
+| Topic | Payload | QoS | Retained | Permissions |
+|---|---|---|---|---|
+| `system/events/open/+` | `OpenEvent` | latest | no | `publish:system/events/open/+`, `subscribe:system/events/open/+` |
+
+## struct `OpenEvent`
+
+- `path: String`
+- `mime: String`
+- `verb: String`

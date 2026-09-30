@@ -24,8 +24,9 @@
 //! to its registry, or the program is not installed, `Open` falls back to the
 //! original publish-only behavior. Either way `Open` publishes a
 //! fire-and-forget `system/events/open/<app>` event on `messengerd`'s central
-//! broker ([`user::central`]) - the broker `logd` subscribes to - with a
-//! `path=<path> mime=<mime> verb=<verb>` payload. An app id is the program's
+//! broker ([`user::central`]) - the broker `logd` subscribes to - carrying the
+//! typed `OpenEvent { path, mime, verb }` payload (`idl/mimed.midl`). An app
+//! id is the program's
 //! 8.3 stem in lowercase (`editor` is `EDITOR.ELF`), the same ids `init`'s
 //! app registry serves (`ListApps`). `messengerctl log` still shows the event
 //! as the observable launch record.

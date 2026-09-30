@@ -57,4 +57,36 @@ interface os.lazy.clipboard.v1 {
     /// UIs refresh from it without polling, and a late subscriber is handed
     /// the live offer. The payload is an `OfferMeta`, never content.
     topic "session/{session}/clipboard/changed" : OfferMeta retained qos=latest;
+
+    /// One allowed paste, the payload of `system/events/clipboard/paste`
+    /// (issue #307). `seq` is the service's monotonically increasing paste
+    /// counter, `uid`/`session` the kernel-stamped caller, `app` the owner
+    /// slot, and `lazy` whether the bytes came from a lazy owner callback.
+    struct PasteEvent {
+        seq: U64,
+        uid: U32,
+        session: U64,
+        mime: String,
+        app: U64,
+        bytes: U64,
+        lazy: Bool
+    }
+
+    /// One refused cross-session paste, the payload of
+    /// `system/events/security/clipboard` (issue #307): the audit record of a
+    /// token read denied by the clipboard read scope.
+    struct ClipboardDenial {
+        seq: U64,
+        uid: U32,
+        session: U64,
+        mime: String,
+        app: U64,
+        token: U64
+    }
+
+    /// Published for every allowed paste, so `logd` keeps the audit trail.
+    topic "system/events/clipboard/paste" : PasteEvent qos=latest;
+
+    /// Published for every refused cross-session paste.
+    topic "system/events/security/clipboard" : ClipboardDenial qos=latest;
 }

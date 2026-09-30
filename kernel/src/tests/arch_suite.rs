@@ -44,6 +44,42 @@ pub fn sysret_selectors_rpl3() -> Result<(), String> {
     Ok(())
 }
 
+/// The real syscall entry body (run through `arch::linux::probe_entry`, which
+/// shares its instructions with `linux_syscall_entry`) must reach
+/// `call linux_dispatch` with `rsp` 16-aligned and with Linux `r9` in the
+/// seventh SysV argument slot (`a6`, `preadv2`'s flags).
+///
+/// Optimised (release) builds use aligned SSE stores on their frames, so an
+/// 8-byte skew corrupted the first Linux-ABI syscall's formatting and froze
+/// the release desktop while debug builds hid it; and the padding slot that
+/// fixed it is also `a6`'s slot, which must be written, not left stale.
+pub fn syscall_entry_call_alignment() -> Result<(), String> {
+    use crate::arch::linux::{probe_entry, ENTRY_CALL_PAD, ENTRY_PUSHED_QWORDS};
+    const GETPID: u64 = 39;
+    const R9_MARK: u64 = 0x5eed_c0de_1234_5678;
+    for slot in [0, 1, crate::task::MAX_TASKS - 1] {
+        let top = crate::task::kstack_top(slot);
+        check!(
+            top % 16 == 0,
+            "kernel stack top of slot {slot} ({top:#x}) is not 16-aligned"
+        );
+        let (rsp, a6) = probe_entry(GETPID, R9_MARK, top);
+        check!(
+            rsp % 16 == 0,
+            "slot {slot}: rsp at `call linux_dispatch` is {rsp:#x} (misaligned)"
+        );
+        check!(
+            rsp == top - ENTRY_PUSHED_QWORDS * 8 - ENTRY_CALL_PAD,
+            "slot {slot}: rsp at the call is {rsp:#x}, unexpected frame layout"
+        );
+        check!(
+            a6 == R9_MARK,
+            "slot {slot}: seventh argument slot holds {a6:#x}, not Linux r9"
+        );
+    }
+    Ok(())
+}
+
 /// Run `f` with interrupts enabled but every PIC line masked, so the
 /// IRQ-shared helpers see `IF=1` (as the kernel mux does) without any
 /// interrupt actually firing into the scheduler-less harness.
@@ -136,6 +172,10 @@ pub fn soak_irq_shared_locks() -> Result<(), String> {
 }
 
 pub(super) const CASES: &[(&str, Test)] = &[
+    (
+        "arch_syscall_entry_call_alignment",
+        syscall_entry_call_alignment,
+    ),
     ("arch_sysret_selectors_rpl3", sysret_selectors_rpl3),
     (
         "arch_irq_shared_locks_disable_interrupts",

@@ -6,10 +6,10 @@
 //! * registers [`services::LOGD_NAME`] and serves `Tail`/`Count`/`Verify` for
 //!   `messengerctl log`;
 //! * subscribes to the system topics: `system/events/#` on `init` (service
-//!   starts/stops/crashes), `system/health/#` on `healthd` (retained health
-//!   rows), and `system/events/#` on `messengerd`'s central broker (the
-//!   events services publish centrally: `mimed`'s launch records, the
-//!   clipboard audit trail);
+//!   starts/stops/crashes and login events), `system/health/+` on `healthd`
+//!   (the declared retained rows, aggregate included), and `system/events/#`
+//!   on `messengerd`'s central broker (the events services publish centrally:
+//!   `mimed`'s launch records, the clipboard audit trail);
 //! * samples the fabric audit counters and appends a
 //!   `system/events/security/denial` record whenever they advance, which is
 //!   the interim signal until the kernel exposes audit records to userspace;
@@ -23,24 +23,28 @@
 //! `false` and the in-memory ring is used. The decision lives in one place so
 //! the store plugs in where the S3 volume lands.
 //!
-//! Logins join the subscription list as soon as `logind` exists; their topic
-//! prefix is reserved (`system/events/login/#`) but nothing publishes it yet.
+//! Declared payloads are decoded back to their historic `key=value` text by
+//! [`payload`], with the raw-bytes fallback kept for undeclared topics.
 
 #![no_std]
 #![no_main]
 
 extern crate alloc;
 
+#[path = "logd/payload.rs"]
+mod payload;
+#[path = "logd/ring.rs"]
+mod ring;
+
 use alloc::format;
-use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::panic::PanicInfo;
 use user::central;
 use user::messenger::{self, registry, router, services, topics_client, Error, Message, Parcel};
 use user::sys;
 
-/// Newest records kept in the ring.
-const RING_CAPACITY: usize = 64;
+use ring::Ring;
+
 /// How long the service serves queries before checking its feeds again.
 const POLL_TICKS: u64 = 2;
 /// How often the fabric audit counters are sampled for denial records.
@@ -58,102 +62,6 @@ const PRINT_LIMIT: u64 = 24;
 /// See the module docs: no writable volume exists in this branch, so the ring
 /// is the store. Flipping this to `true` (S3) sends records to the volume.
 const WRITABLE_STORE: bool = false;
-
-/// One hash-chained log record.
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct Record {
-    seq: u64,
-    tick: u64,
-    topic: String,
-    detail: String,
-    hash: u64,
-}
-
-/// The bounded ring and its chain head.
-struct Ring {
-    records: Vec<Record>,
-    /// Hash of the newest record (`0` before the first append).
-    head: u64,
-    /// Records appended since boot.
-    total: u64,
-    /// Oldest records dropped when the ring wrapped.
-    dropped: u64,
-}
-
-impl Ring {
-    fn new() -> Ring {
-        Ring {
-            records: Vec::new(),
-            head: 0,
-            total: 0,
-            dropped: 0,
-        }
-    }
-
-    /// Append a record, extending the chain; returns the new record.
-    fn append(&mut self, tick: u64, topic: &str, detail: &str) -> Record {
-        let seq = self.total + 1;
-        let hash = record_hash(self.head, seq, tick, topic, detail);
-        if self.records.len() >= RING_CAPACITY {
-            self.records.remove(0);
-            self.dropped += 1;
-        }
-        let record = Record {
-            seq,
-            tick,
-            topic: topic.to_string(),
-            detail: detail.to_string(),
-            hash,
-        };
-        self.records.push(record.clone());
-        self.head = hash;
-        self.total = seq;
-        record
-    }
-
-    /// Verify the retained window's chain links, and the genesis link while
-    /// nothing has been dropped. Returns `(intact, first bad index)`; the index
-    /// is the record count when the chain is intact.
-    fn verify(&self) -> (bool, u64) {
-        let mut previous = 0u64;
-        for (index, record) in self.records.iter().enumerate() {
-            let expected = record_hash(
-                previous,
-                record.seq,
-                record.tick,
-                &record.topic,
-                &record.detail,
-            );
-            // The first retained record's predecessor may have been dropped;
-            // the window then starts trusted and every following link is
-            // still checked.
-            if record.hash != expected && !(index == 0 && self.dropped > 0) {
-                return (false, index as u64);
-            }
-            previous = record.hash;
-        }
-        (true, self.records.len() as u64)
-    }
-}
-
-/// FNV-1a over the previous hash and the record fields.
-fn record_hash(previous: u64, seq: u64, tick: u64, topic: &str, detail: &str) -> u64 {
-    const OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
-    const PRIME: u64 = 0x0000_0100_0000_01b3;
-    let mut hash = if previous == 0 { OFFSET } else { previous };
-    for byte in seq
-        .to_le_bytes()
-        .iter()
-        .chain(tick.to_le_bytes().iter())
-        .chain(topic.as_bytes())
-        .chain(b"|")
-        .chain(detail.as_bytes())
-    {
-        hash ^= *byte as u64;
-        hash = hash.wrapping_mul(PRIME);
-    }
-    hash
-}
 
 #[no_mangle]
 pub extern "C" fn _start() -> ! {
@@ -180,7 +88,8 @@ fn run() -> messenger::Result<()> {
         sys::write_str("logd: appending to the writable store\n");
     } else {
         sys::write_str(&format!(
-            "logd: no writable store; ring of {RING_CAPACITY} hash-chained records\n"
+            "logd: no writable store; ring of {} hash-chained records\n",
+            ring::RING_CAPACITY
         ));
     }
     let mut ring = Ring::new();
@@ -214,8 +123,10 @@ fn run() -> messenger::Result<()> {
         }
         if health.is_none() {
             health_bus = connect_or_keep(health_bus, services::HEALTHD_NAME);
-            if let Some(bus) = &health_bus {
-                health = bus.subscribe("system/health/#").ok();
+            if let Some(bus) = &mut health_bus {
+                // The declared `system/health/{name}` pattern with its `+`
+                // wildcard; it also matches the literal `summary` topic.
+                health = services::health::wire::subscribe_system_health(bus, "+").ok();
             }
         }
         // Centrally published service events (`mimed` launch records, the
@@ -323,8 +234,8 @@ fn drain(
     loop {
         match subscriber.recv_with(buffer, Some(messenger::EXPIRED_DEADLINE)) {
             Ok(Some(event)) => {
-                let detail = core::str::from_utf8(&event.payload).unwrap_or("<binary>");
-                let record = ring.append(sys::clock(), &event.topic, detail);
+                let detail = payload::describe(&event.topic, &event.payload);
+                let record = ring.append(sys::clock(), &event.topic, &detail);
                 if *printed < PRINT_LIMIT {
                     sys::write_str(&format!(
                         "logd: record {} {} {}\n",
@@ -356,8 +267,8 @@ fn drain_central(
     loop {
         match sub.recv_with(buffer, Some(messenger::EXPIRED_DEADLINE)) {
             Ok(Some(event)) => {
-                let detail = core::str::from_utf8(&event.payload).unwrap_or("<binary>");
-                let record = ring.append(sys::clock(), &event.topic, detail);
+                let detail = payload::describe(&event.topic, &event.payload);
+                let record = ring.append(sys::clock(), &event.topic, &detail);
                 if *printed < PRINT_LIMIT {
                     sys::write_str(&format!(
                         "logd: record {} {} {}\n",
@@ -457,8 +368,9 @@ fn dispatch(ring: &Ring, message: &Message) -> messenger::Result<Parcel> {
     match message.method() {
         services::logd::METHOD_TAIL => {
             let count = decode_tail_count(message)?;
-            let start = ring.records.len().saturating_sub(count);
-            let records: Vec<services::LogRecord> = ring.records[start..]
+            let retained = ring.records();
+            let start = retained.len().saturating_sub(count);
+            let records: Vec<services::LogRecord> = retained[start..]
                 .iter()
                 .map(|record| services::LogRecord {
                     seq: record.seq,

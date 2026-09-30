@@ -244,6 +244,10 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("linux_getrandom_soak", getrandom_soak),
     ("linux_mmap_reuses_freed_range", mmap_reuses_freed_range),
     (
+        "linux_mmap_skips_a_large_mapping",
+        mmap_skips_a_large_mapping_in_one_step,
+    ),
+    (
         "linux_mmap_munmap_soak_does_not_exhaust_region",
         mmap_munmap_soak_does_not_exhaust_region,
     ),

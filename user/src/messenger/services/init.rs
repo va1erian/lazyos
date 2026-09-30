@@ -27,6 +27,10 @@ pub use wire::ServiceStatus;
 /// One row of `init`'s built-in app registry (the generated `AppInfo`).
 pub use wire::AppInfo;
 
+/// One service lifecycle event (the generated `ServiceEvent`): the payload of
+/// the retained `system/events/service/<name>` topic.
+pub use wire::ServiceEvent;
+
 /// A decoded `Launch` request (the generated `LaunchArgs`).
 pub use wire::LaunchArgs as LaunchRequest;
 
@@ -130,6 +134,16 @@ pub fn launch_reply(result: &LaunchResult) -> Result<Parcel> {
 pub fn decode_apps(parcel: &Parcel) -> Result<Vec<AppInfo>> {
     let reply = wire::decode_list_apps_reply(&parcel.body).map_err(Error::Parcel)?;
     Ok(reply.apps)
+}
+
+/// The service name of a concrete `system/events/service/<name>` topic, or
+/// `None` for anything else. The broker owns the topic, so a consumer keys on
+/// this rather than on a payload field a publisher could spoof.
+pub fn service_event_name(topic: &str) -> Option<&str> {
+    if !messenger_generated::topics::matches(wire::TOPIC_SYSTEM_EVENTS_SERVICE, topic) {
+        return None;
+    }
+    topic.rsplit('/').next()
 }
 
 /// Decode a `Launch` request.

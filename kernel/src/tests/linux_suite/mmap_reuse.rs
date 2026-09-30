@@ -44,3 +44,20 @@ pub fn mmap_munmap_soak_does_not_exhaust_region() -> Result<(), String> {
     }
     Ok(())
 }
+
+/// A small `mmap` lands above a large live mapping without one search step per
+/// `len` bytes (the search skips a VMA at its full extent).
+pub fn mmap_skips_a_large_mapping_in_one_step() -> Result<(), String> {
+    fresh()?;
+    let big_len = 64 * 1024 * 1024u64;
+    let big = mmap_any(big_len);
+    check!(big != 0 && (big as i64) > 0, "big mmap returned {big:#x}");
+    let small = mmap_any(PAGE);
+    check!(
+        small >= big + big_len || small + PAGE <= big,
+        "small mapping {small:#x} overlaps the big one at {big:#x}"
+    );
+    check!(munmap(small, PAGE) == 0, "munmap small failed");
+    check!(munmap(big, big_len) == 0, "munmap big failed");
+    Ok(())
+}

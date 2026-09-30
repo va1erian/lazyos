@@ -4,7 +4,6 @@
 //!
 //! Split out of `init.rs` (issue #194); a pure move, no behavior change.
 
-use alloc::format;
 use alloc::string::{String, ToString};
 
 use user::sys::Cred as SysCred;
@@ -98,14 +97,14 @@ impl Restart {
 }
 
 /// One manifest row: the fields the supervisor needs to start and watch a
-/// service. `health_topic` is the retained topic `healthd` publishes for it.
+/// service. The service's retained health topic is derived from its name via
+/// the generated `system/health/{name}` helper, so it is not stored here.
 pub(super) struct ServiceSpec {
     pub(super) name: &'static str,
     path: &'static str,
     args: &'static str,
     restart: Restart,
     deps: &'static [&'static str],
-    health_topic: &'static str,
 }
 
 /// The boot manifest. `messengerd` is first because it owns the bootstrap
@@ -129,7 +128,6 @@ pub(super) const MANIFEST: &[ServiceSpec] = &[
         args: "soak=4096",
         restart: Restart::Once,
         deps: &[],
-        health_topic: "system/health/messengerd",
     },
     ServiceSpec {
         name: "keyd",
@@ -137,7 +135,6 @@ pub(super) const MANIFEST: &[ServiceSpec] = &[
         args: "",
         restart: Restart::Always,
         deps: &["messengerd"],
-        health_topic: "system/health/keyd",
     },
     // The configuration registry (issue #260). It needs `messengerd` for the
     // change-topic broker; the store lives on the kernel VFS, so no service
@@ -150,7 +147,6 @@ pub(super) const MANIFEST: &[ServiceSpec] = &[
         args: "demo=1",
         restart: Restart::Always,
         deps: &["messengerd"],
-        health_topic: "system/health/confd",
     },
     // The time-of-day service (issue #369): UTC from the kernel wall clock,
     // the zone from `confd` (`sys/time/zone`), and the retained `time/tick`
@@ -162,7 +158,6 @@ pub(super) const MANIFEST: &[ServiceSpec] = &[
         args: "demo=1",
         restart: Restart::Always,
         deps: &["messengerd", "confd"],
-        health_topic: "system/health/timed",
     },
     ServiceSpec {
         name: "accountsd",
@@ -170,7 +165,6 @@ pub(super) const MANIFEST: &[ServiceSpec] = &[
         args: "",
         restart: Restart::Always,
         deps: &[],
-        health_topic: "system/health/accountsd",
     },
     ServiceSpec {
         name: "logind",
@@ -178,7 +172,6 @@ pub(super) const MANIFEST: &[ServiceSpec] = &[
         args: "",
         restart: Restart::Always,
         deps: &["accountsd"],
-        health_topic: "system/health/logind",
     },
     ServiceSpec {
         name: "logd",
@@ -186,7 +179,6 @@ pub(super) const MANIFEST: &[ServiceSpec] = &[
         args: "",
         restart: Restart::Always,
         deps: &["messengerd"],
-        health_topic: "system/health/logd",
     },
     ServiceSpec {
         name: "healthd",
@@ -194,7 +186,6 @@ pub(super) const MANIFEST: &[ServiceSpec] = &[
         args: "",
         restart: Restart::Always,
         deps: &["messengerd"],
-        health_topic: "system/health/healthd",
     },
     // The per-session clipboard service (issue #115). It only needs the
     // kernel's name registry, so it depends on nothing. `history=1` is the
@@ -209,7 +200,6 @@ pub(super) const MANIFEST: &[ServiceSpec] = &[
         args: "history=1 demo=1",
         restart: Restart::Always,
         deps: &[],
-        health_topic: "system/health/clipboardd",
     },
     // `mimed` is the MIME database and open-with registry (issue #116). It
     // depends only on the kernel name registry, which every task can use
@@ -220,7 +210,6 @@ pub(super) const MANIFEST: &[ServiceSpec] = &[
         args: "",
         restart: Restart::Always,
         deps: &[],
-        health_topic: "system/health/mimed",
     },
     ServiceSpec {
         name: "flaky",
@@ -228,7 +217,6 @@ pub(super) const MANIFEST: &[ServiceSpec] = &[
         args: "",
         restart: Restart::OnFailure,
         deps: &["healthd"],
-        health_topic: "system/health/flaky",
     },
     // The system monitor (issue #144): `sysmond` wraps the kernel's
     // system-stats syscall as `os.lazy.system.v1` and republishes retained
@@ -245,7 +233,6 @@ pub(super) const MANIFEST: &[ServiceSpec] = &[
         args: "demo=1",
         restart: Restart::Always,
         deps: &[],
-        health_topic: "system/health/sysmond",
     },
 ];
 
@@ -300,8 +287,6 @@ pub(super) struct Service {
     pub(super) restart: Restart,
     /// Service names that must be `Running` before this row starts.
     pub(super) deps: &'static [&'static str],
-    /// Retained health topic for the row.
-    pub(super) health_topic: String,
     /// Credentials for `spawn_as`; `None` inherits this supervisor's identity
     /// (the manifest path).
     pub(super) cred: Option<SysCred>,
@@ -340,7 +325,6 @@ impl Service {
             },
             restart: spec.restart,
             deps: spec.deps,
-            health_topic: spec.health_topic.to_string(),
             cred: None,
             launched: false,
             linux: false,
@@ -370,7 +354,6 @@ impl Service {
             args: all_args,
             restart: app.restart,
             deps: &[],
-            health_topic: format!("system/health/{}", app.id),
             cred: Some(cred),
             launched: true,
             linux: app.linux,

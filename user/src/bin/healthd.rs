@@ -53,8 +53,6 @@ const POLL_TICKS: u64 = 20_000;
 const IDLE_TICKS: u64 = 5;
 /// Age at which a `Report` stops overriding the derived row (PIT ticks).
 const REPORT_TTL: u64 = 250;
-/// Event topic prefix `init` publishes service state on.
-const SERVICE_EVENTS: &str = "system/events/service/";
 
 /// One aggregated health row.
 struct HealthRow {
@@ -126,8 +124,9 @@ fn run() -> messenger::Result<()> {
         // as soon as the supervisor is up (the replay seeds the rows).
         if events.is_none() {
             bus = connect_or_keep(bus, services::INIT_NAME);
-            if let Some(bus) = &bus {
-                events = bus.subscribe("system/events/service/#").ok();
+            if let Some(bus) = &mut bus {
+                // Every service: the `+` wildcard of the declared pattern.
+                events = services::init::wire::subscribe_system_events_service(bus, "+").ok();
             }
         }
         drain_events(
@@ -207,11 +206,17 @@ fn drain_events(
     loop {
         match events.recv_with(buffer, Some(messenger::EXPIRED_DEADLINE)) {
             Ok(Some(event)) => {
-                let Some(name) = event.topic.strip_prefix(SERVICE_EVENTS) else {
+                // The broker owns the topic, so its service name is trusted
+                // over any payload field; a malformed payload is dropped.
+                let Some(name) = services::service_event_name(&event.topic) else {
                     continue;
                 };
-                let payload = core::str::from_utf8(&event.payload).unwrap_or("");
-                apply_state(rows, name, payload, broker, summary_state);
+                let Ok(payload) =
+                    services::init::wire::decode_system_events_service(&event.payload)
+                else {
+                    continue;
+                };
+                apply_state(rows, name, &payload, broker, summary_state);
             }
             Ok(None) => return,
             Err(_) => return,
