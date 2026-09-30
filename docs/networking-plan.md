@@ -178,9 +178,12 @@ shared rings, in both directions, and trusts neither side:
 
 - Device → driver: used-ring ids and lengths are bounds-checked by
   `libs/virtio`; a length above the slot size is a dropped frame and a stat.
-- Client → driver: ring indices are reduced modulo the capacity and lengths
-  clamped to the MTU before the copy into DMA. The device never reads memory a
-  client can rewrite (driver-plan §3.4).
+- Client → driver: ring indices are reduced modulo the capacity. A frame
+  shorter than the 14-byte Ethernet header or longer than the complete-frame
+  bound (MTU + 14, so 1514 bytes at the default 1500-byte MTU) is dropped and
+  counted, never truncated; a valid frame is copied into DMA at its full
+  length, read once. The device never reads memory a client can rewrite
+  (driver-plan §3.4).
 - Driver → client: `netd` must likewise copy a frame out of the shared ring
   before parsing it, because the producer could rewrite it mid-parse.
 
@@ -271,7 +274,7 @@ interface os.lazy.net.socket.v1 {
     method Listen(sock: U32, backlog: U32) -> ();
     method Accept(sock: U32) -> (conn: U32, peer: SockAddr);    // parks
     method Send(sock: U32, data: Bytes) -> (sent: U32);         // parks when the window is full
-    method Recv(sock: U32, max: U32) -> (data: Bytes);          // parks; empty = end of stream
+    method Recv(sock: U32, max: U32) -> (data: Bytes);          // parks; max = 0 is EINVAL; empty = end of stream
     method SendTo(sock: U32, addr: SockAddr, data: Bytes) -> (sent: U32);
     method RecvFrom(sock: U32, max: U32) -> (data: Bytes, from: SockAddr);
     method Poll(sock: U32, interest: U32) -> (ready: U32);      // parks until any bit is ready
@@ -294,6 +297,9 @@ Design notes:
   16 KiB `Send`/`Recv` chunk is one copy each way. This is enough for every
   tool in §8. A per-socket shared ring (client-supplied buffer in the request,
   as audio does) is a later optimisation, not a prerequisite.
+- **End of stream is unambiguous.** `Recv` and `RecvFrom` reject `max = 0`
+  with `EINVAL`, so an empty `data` on a stream socket always means the peer
+  closed. Readiness without reading is `Poll`'s job, not a zero-length read.
 - **Multiplexing.** `nc` needs "socket or stdin, whichever first": it issues
   `Recv` with `begin_call`, polls stdin, and collects the reply with
   `await_reply` (or uses `messenger_async`). `Poll` covers many sockets.
@@ -414,12 +420,18 @@ Each stage is independently mergeable and ends with evidence.
 | Stage | Deliverable | Kernel change | Evidence |
 |---|---|---|---|
 | **N0** | This plan reviewed; `idl/net.midl` with the NIC interface (wake-up mechanism settled), frame-ring layout, `libs/framering` + `libs/virtio-net` with host tests | none | `cargo test`; `midlc` output replaces the hand-written IDL page |
-| **N1** | `virtio-net` driver, `_net` uid, `init` row, `LAZYOS_NET=1`, `nicctl`, `tools/net/run.py` skeleton, `--net` in `run_demo.py`. Closes the D5 half of #241 | none expected | `NET:NIC:PASS`; a transmitted ARP request and its reply in the pcap; interrupt delivery count |
-| **N2** | `libs/netstack` + `netd`: DHCP, ARP, echo responder, `stack.v1`, `netctl`, and `ping` | a native entropy call if none exists | `ping 10.0.2.2` replies visible in the pcap: **first user-visible milestone** |
-| **N3** | `socket.v1` (TCP, UDP, parked calls, ownership, reclaim), client library, `nc`, `nslookup` | none (or peer-closed notification, §7.1) | bytes round-trip with a host echo server both ways; probe and soak modes |
+| **N1** | `virtio-net` driver, `_net` uid, `init` row, `LAZYOS_NET=1`, `nicctl`, `tools/net/run.py` skeleton, `--net` in `run_demo.py`; class ACL rules for `_net` on `os.kernel.dev.net` (claim, map, DMA). Closes the D5 half of #241 | none expected | `NET:NIC:PASS`; a transmitted ARP request and its reply in the pcap; interrupt delivery count |
+| **N2** | `libs/netstack` + `netd`: DHCP, ARP, echo responder, `stack.v1`, `netctl`, and `ping`; ACL rules making `_netd` the only permitted client of `nic.v1`, and for `stack.v1` | a native entropy call if none exists | `ping 10.0.2.2` replies visible in the pcap: **first user-visible milestone** |
+| **N3** | `socket.v1` (TCP, UDP, parked calls, ownership, reclaim), client library, `nc`, `nslookup`; ACL rules for the `socket.v1` methods | none (or peer-closed notification, §7.1) | bytes round-trip with a host echo server both ways; probe and soak modes |
 | **N4** | `ftp` client | none | byte-exact get/put against the harness server: **stated goal reached** |
 | **N5** | Linux `AF_INET` shim (L1/L2 spike, then build), `/etc/resolv.conf`, ABI fixtures | **yes**, with full test coverage | BusyBox `nc`/`wget`/`ftpget` and `std::net` fixtures pass |
-| **N6** | Hardening: ACL rules for `_net`/`_netd` and socket methods, quotas, loopback, e1000, shared-ring data plane, finer clock, fuzzing the frame and request parsers | some | policy denial tests, throughput numbers |
+| **N6** | Hardening: per-profile tightening of the socket rules and denial tests, quotas, loopback, e1000, shared-ring data plane, finer clock, fuzzing the frame and request parsers | some | policy denial tests, throughput numbers |
+
+ACL grants land with the stage that introduces the actor, not at the end. The
+fabric is still in its bootstrap-allow window today (as for `sndd`, see
+[architecture/audio.md](architecture/audio.md) "Not done"), so nothing is
+refused without them yet, but each stage must keep working the moment a policy
+is loaded.
 
 After N6 the rest of S6 (TLS through `keyd`, IPv6, daemons, Messenger over the
 network) builds on the same interfaces.
