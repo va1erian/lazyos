@@ -35,6 +35,9 @@ pub(super) struct Buffer {
     pub(super) submitted: u64,
     /// Highest fence sequence a waiter has observed.
     pub(super) waited: u64,
+    /// `Some` for a DMA-backed buffer: its frames come from the DMA pool and
+    /// its quota is [`Resource::DmaMemory`], not `KernelMemory` (issue #241).
+    pub(super) dma: Option<DmaOwner>,
 }
 
 /// Per-process buffer accounting.
@@ -94,6 +97,29 @@ pub(super) fn release_quota(registry: &mut Registry, slot: usize, uid: u32, byte
     used.bytes = used.bytes.saturating_sub(bytes);
     used.buffers = used.buffers.saturating_sub(1);
     quota::release(uid, Resource::KernelMemory, bytes);
+}
+
+/// Give back a DMA buffer's per-process *count* only (issue #241). DMA bytes
+/// are metered by [`Resource::DmaMemory`], which the caller released before
+/// creation and which [`destroy_buffer`] releases on the last drop.
+pub(super) fn release_dma_accounting(registry: &mut Registry, slot: usize) {
+    let used = use_of(registry, slot);
+    used.buffers = used.buffers.saturating_sub(1);
+}
+
+/// Charge `slot` one live buffer for a DMA buffer, enforcing the same
+/// per-process count cap as [`create`](super::create). Returns the bytes-free
+/// usage that [`release_dma_accounting`] later gives back.
+pub(super) fn charge_dma_accounting(registry: &mut Registry, slot: usize) -> bool {
+    if registry.buffers.len() >= MAX_BUFFERS {
+        return false;
+    }
+    let used = use_of(registry, slot);
+    if used.buffers + 1 > MAX_BUFFERS_PER_PROCESS {
+        return false;
+    }
+    used.buffers += 1;
+    true
 }
 
 /// Page rounded-up length, or `None` on overflow.
@@ -184,7 +210,27 @@ pub(super) fn destroy_buffer(registry: &mut Registry, index: usize, with_refs: b
             free_frames(&buffer.frames);
         }
     }
-    release_quota(registry, buffer.owner, buffer.owner_uid, buffer.size);
+    // A DMA buffer's bytes are metered by `DmaMemory` against the uid that
+    // allocated them; a normal buffer by `KernelMemory`. Either way the charge
+    // is released exactly once, here, when the last reference goes.
+    match buffer.dma {
+        Some(owner) => {
+            let used = use_of(registry, buffer.owner);
+            used.buffers = used.buffers.saturating_sub(1);
+            quota::release(owner.uid, Resource::DmaMemory, buffer.size);
+        }
+        None => release_quota(registry, buffer.owner, buffer.owner_uid, buffer.size),
+    }
+}
+
+/// Before the last reference to a DMA buffer goes (and its run can return to the
+/// pool), stop the device that may still be writing it (issue #241). A no-op
+/// for ordinary buffers and for a claim that is already gone (release and task
+/// death quiesce first).
+pub(super) fn before_last_drop(buffer: &Buffer) {
+    if let (1, Some(owner)) = (buffer.refs, buffer.dma) {
+        crate::dev::dma_buffer_freed(owner.device, owner.generation);
+    }
 }
 
 /// Allocate `pages` zeroed frames, releasing what was allocated on failure.
