@@ -9,7 +9,7 @@ import tkinter as tk
 from tkinter import filedialog, ttk
 
 from . import datavol
-from .catalog import (ACCELS, CARGO, DATA_IMAGE, DESKTOP_APPS, DISKS, MODES, PY, ROOT,
+from .catalog import (ACCELS, CARGO, DATA_IMAGE, DISKS, MODES, PY, ROOT,
                       SCRIPTS, SIMPLE_BUILDS, SIMPLE_INTERFACES, XUI_VIEWERS, build_env, build_plan,
                       cargo_step, format_plan, simple_config)
 from .runner import Runner, open_path
@@ -127,7 +127,6 @@ class Launcher:
             "xui_client": self.v["xui_client"].get(),
             "xui_app": self.v["xui_app"].get(),
             "xui_autostart": self.v["xui_autostart"].get(),
-            "xui_apps": DESKTOP_APPS if self.v["xui_autostart"].get() else (),
             "script": SCRIPTS.index(names[0]) if names else 0,
         }
 
