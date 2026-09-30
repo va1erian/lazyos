@@ -23,11 +23,13 @@ pub enum Resource {
     CpuTicks,
     /// Device claims held by the uid (issue #240).
     DeviceClaims,
+    /// Bytes of contiguous DMA pool memory held by the uid (issue #241).
+    DmaMemory,
 }
 
 impl Resource {
     /// Number of resources; sizes every per-resource array and the ABI block.
-    pub const COUNT: usize = 8;
+    pub const COUNT: usize = 9;
     /// Every resource, in discriminant order (the ABI order).
     pub const ALL: [Resource; Resource::COUNT] = [
         Resource::KernelMemory,
@@ -38,6 +40,7 @@ impl Resource {
         Resource::QueueDepth,
         Resource::CpuTicks,
         Resource::DeviceClaims,
+        Resource::DmaMemory,
     ];
 
     /// Index into the per-resource arrays.
@@ -56,13 +59,17 @@ impl Resource {
             Resource::QueueDepth => "queued Messenger messages",
             Resource::CpuTicks => "CPU",
             Resource::DeviceClaims => "device claims",
+            Resource::DmaMemory => "DMA memory",
         }
     }
 
     /// Unit the usage/limit numbers are counted in.
     pub const fn unit(self) -> &'static str {
         match self {
-            Resource::KernelMemory | Resource::UserMemory | Resource::QueueBytes => "bytes",
+            Resource::KernelMemory
+            | Resource::UserMemory
+            | Resource::QueueBytes
+            | Resource::DmaMemory => "bytes",
             Resource::Handles => "handles",
             Resource::Fds => "fds",
             Resource::QueueDepth => "messages",
@@ -74,9 +81,9 @@ impl Resource {
 
 /// The default limit table for a regular uid, documented per resource:
 /// 32 MiB of kernel memory, 256 MiB of user memory, 1024 handles, 256 fds,
-/// 4 MiB / 1024 messages of Messenger queueing, and 2^32 CPU ticks (about
-/// 497 days at 100 Hz, i.e. effectively "metered, not capped" until CPU shares
-/// get a real policy).
+/// 4 MiB / 1024 messages of Messenger queueing, 2^32 CPU ticks (about 497 days
+/// at 100 Hz, i.e. effectively "metered, not capped" until CPU shares get a
+/// real policy), 8 device claims, and 8 MiB of DMA pool memory.
 pub const DEFAULT_LIMITS: [u64; Resource::COUNT] = [
     32 << 20,  // kernel memory
     256 << 20, // user memory
@@ -86,6 +93,7 @@ pub const DEFAULT_LIMITS: [u64; Resource::COUNT] = [
     1024,      // queued messages
     1 << 32,   // CPU ticks
     8,         // device claims
+    8 << 20,   // DMA memory
 ];
 
 /// The limit table for uid 0. The kernel task and bring-up children run as root

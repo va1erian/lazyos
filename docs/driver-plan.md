@@ -150,7 +150,7 @@ user wrappers are `user/src/dev.rs`.
 | `pio(dev, bar, off, width\|write\|val)` | port in/out inside the device's I/O BAR only | handle right `PIO`; offset+width < len; never below port 0x100 or in 0xCF8-0xCFF |
 | `cfg_read/cfg_write(dev, off, width, val)` | PCI config; the only writable register is the command register, masked | right `CONFIG`; bus-master needs `DMA`; no BAR programming |
 | `irq_enable(dev, 0)` / `irq_ack(dev, 0)` | arm / acknowledge (unmask) | right `IRQ`; `ENOSYS` when the line is not PIC-routable |
-| `dma_alloc(dev, len)` | physically contiguous frames as a **Buffer handle** + bus address (issue #241; returns `ENOSYS` until then) | right `DMA`, quota `DmaMemory` |
+| `dma_alloc(dev, len, flags, out)` | physically contiguous frames as a **Buffer handle**; writes the bus address to `*out` | right `DMA`, quota `DmaMemory`; `flags` bit 0 `SHARE_ONLY`, bit 1 64-bit address OK; `len` 1..=4 MiB |
 | `release(dev)` | quiesce + free | owner |
 
 Every op re-checks the handle against the device table and the claim table
@@ -202,16 +202,28 @@ userspace (no ambient authority).
 
 ### 3.4 DMA buffers
 
-`dma_alloc` returns a `HandleKind::Buffer` (existing shared-buffer object) with
-two additions: frames are allocated **physically contiguous** (needs a small
-contiguous-run allocator over the frame pool; bounded, charged to a new
-`DmaMemory` quota, default 8 MiB per uid) and the call returns the **bus
-address** so the driver can program descriptors. Because it is a normal Buffer
-handle it can be **passed to a client in a Messenger message** for zero-copy
+`dma_alloc` returns a `HandleKind::Buffer` (the existing shared-buffer object)
+and writes the **bus address** so the driver can program descriptors. Frames
+are allocated **physically contiguous** from a DMA pool reserved once at boot
+(`mem::dma`): `min(16 MiB, usable/8)`, below 4 GiB (32-bit-capable devices),
+above the low megabyte, and never handed out by the general frame allocator.
+The pool's bitmap lives inside the frame allocator's lock, so the documented
+order `REGISTRY -> FRAMES` covers every DMA path; a pool frame returns to the
+pool when its last reference drops. Bytes are charged to a new
+`Resource::DmaMemory` quota (default 8 MiB per uid); the per-process buffer
+*count* cap still applies, but the shared-buffer 8 MiB byte cap does not.
+
+Because it is a normal Buffer handle (with `TRANSFER`/`DUPLICATE` rights) it
+can be **passed to a client in a Messenger message** for zero-copy
 audio/packet payloads, and `SHARE_ONLY` lets a client hand a buffer to the
-driver without mapping it. Drivers should keep descriptor rings driver-owned
-and copy/validate client data into them; the driver never trusts client
-lengths.
+driver without mapping it. The buffer is never executable. On the last
+reference drop the frames return to the pool and the `DmaMemory` charge is
+released exactly once, against the uid that allocated it. `release` and task
+teardown close the owner's reference by buffer object id, so a transferred
+handle that a client still holds keeps the frames and the charge alive; bus
+mastering is cleared before any of those frames can be reused. Drivers should
+keep descriptor rings driver-owned and copy/validate client data into them; the
+driver never trusts client lengths.
 
 ### 3.5 Security integration
 
@@ -342,10 +354,14 @@ generation, no right, no CAP), teardown-while-mapped, driver-crash-then-reclaim
 soak (spawn/kill 10k times), audit chain still verifies. Boot line:
 `DEV:SYSCALL:PASS`.
 
-**Stage D4 — DMA.** Contiguous-run allocator, `dma_alloc` → Buffer handle +
-bus address, `DmaMemory` quota, bus-master off at teardown. Tests:
-alignment, fragmentation refusal, quota exhaustion, frames returned after
-crash, 1M alloc/free generations.
+**Stage D4 — DMA (done, #241).** Boot-time contiguous DMA pool over the frame
+refcount table, `dma_alloc` → Buffer handle + bus address, `DmaMemory` quota,
+bus-master off before frame reuse at teardown, `DEV:DMA:PASS` boot line. Tests
+(`dev_suite::DMA`, `dev_suite::DMA_STRESS`): `dev_dma_layout_and_zeroing`,
+`dev_dma_alignment`, `dev_dma_hostile_input`, `dev_dma_fragmentation`,
+`dev_dma_quota`, `dev_dma_lifetime_transfer`, `dev_dma_share_only`,
+`dev_dma_teardown_releases_all`, `dev_dma_busmaster_ordering`,
+`dev_stress_dma_pool_alloc_free_soak`, `dev_stress_dma_spawn_kill_soak`.
 
 **Stage D5 — virtio transport + first NIC driver.** Modern virtio-PCI library,
 `virtio-net` userspace driver, `devd`, driver manifest, `_net` uid, init

@@ -22,8 +22,10 @@ interface (see [`docs/driver-plan.md`](../driver-plan.md)).
 | `kernel/src/dev/intx.rs` | Task-context bottom half and the shared-INTx contract: rounds, ack deadline, `missed` recovery |
 | `kernel/src/dev/claims.rs` | Userspace claims: rights, `Device` handle, interrupt binding and state, BAR mappings |
 | `kernel/src/dev/grant.rs`, `class.rs` | The grant rule; PCI class to `os.kernel.dev.<class>` ids and method ids |
-| `kernel/src/dev/syscall.rs`, `ops.rs` | Syscall 23: `list`/`claim`/`release`/`irq_*`; `map_bar`/`pio`/`cfg_*` |
-| `kernel/src/dev/teardown.rs`, `report.rs`, `selfcheck.rs` | Release on exit; audit records; the `DEV:IRQ`/`DEV:SYSCALL` boot lines and routing log |
+| `kernel/src/dev/syscall.rs`, `ops.rs`, `dma.rs` | Syscall 23: `list`/`claim`/`release`/`irq_*`; `map_bar`/`pio`/`cfg_*`; `dma_alloc` |
+| `kernel/src/dev/teardown.rs`, `report.rs`, `selfcheck.rs` | Release on exit; audit records; the `DEV:IRQ`/`DEV:SYSCALL`/`DEV:DMA` boot lines and routing log |
+| `kernel/src/mem/dma.rs` | Boot-time contiguous DMA pool: bitmap, first-fit with alignment, stats |
+| `kernel/src/ipc/shared/dma.rs` | `create_from_frames`: a Buffer over an existing contiguous run, `DmaOwner` |
 | `kernel/src/arch/irq_stubs.rs`, `arch/pic.rs` | IDT stubs for the PIC lines; mask/EOI/in-service/IRR helpers |
 | `kernel/src/mem/mmio.rs`, `mem/cow.rs` | Uncached MMIO mappings tagged with a software PTE bit; fork split out of `mem/mod.rs` |
 | `kernel/src/ipc/channels_kernel.rs` | `post_from_kernel`: one-way messages from the kernel identity |
@@ -146,17 +148,50 @@ found no PCI function prints `DEV:ENUM:FAIL:no PCI devices enumerated`, and one
 that found more functions than the 32-entry table holds prints
 `DEV:ENUM:FAIL:device table full, <n> PCI function(s) dropped`.
 
-Two more boot lines come from `dev::selfcheck` after the IDT is loaded:
+Three more boot lines come from `dev::selfcheck` after the IDT is loaded:
 `DEV:IRQ:PASS:16 vectors installed, <r>/<w> INTx-wired PCI functions on routable
-lines` (each of the 16 PIC vectors has a present gate) and
+lines` (each of the 16 PIC vectors has a present gate),
 `DEV:SYSCALL:PASS:syscall 23 gates refuse, 0 claims` (unknown op, kernel-task
-claim, bad handle and the reserved `dma_alloc` all refuse cleanly).
+claim and a bad handle all refuse cleanly), and
+`DEV:DMA:PASS:<pages> pages, largest run <n>` for the boot-time DMA pool
+(`DEV:DMA:INFO:no DMA pool reserved` when RAM is too small).
+
+**DMA (D4, #241).** A driver with the `DMA` right calls
+`dma_alloc(dev, len, flags, out)`: the kernel takes a contiguous run from the
+boot-time DMA pool, wraps it in the ordinary shared-buffer object
+(`ipc::shared::create_from_frames`), and writes the run's physical address —
+the bus address until an IOMMU exists — to `*out`. The run is page aligned
+(larger alignments are honoured by the allocator), zeroed, below 4 GiB, and
+charged to `Resource::DmaMemory` (default 8 MiB per uid); `len` is 1..=4 MiB
+and the flags are `SHARE_ONLY` and "64-bit address OK". The returned `Buffer`
+handle is transferable and can be handed to a client zero-copy. The pool is
+reserved once at `mem::init` (`min(16 MiB, usable/8)`, above the low megabyte,
+clear of the refcount table); its frames stay in the frame refcount table but
+are marked `RESERVED` while free, so the general allocator never hands them
+out, and a pool frame returns to the pool — not the general free list — when
+its last reference drops. Pool frames are outside `FrameStats::total`/`free`,
+so DMA traffic never perturbs a frame `live()` delta. The claim records each
+live DMA buffer by object id (bounded to 16 per claim); `release` and task
+teardown quiesce the device first (bus mastering off) and then close the
+owner's reference, so a client that still holds a transferred buffer keeps its
+frames and charge until the last reference goes. **Without an IOMMU a driver
+with `DMA` is trusted like the kernel**: it can program its device to write any
+physical address, and only the ACL, its dedicated uid and audit limit who can
+be that driver (driver-plan D5).
 
 **Status.** Working: platform + PCI enumeration, BAR sizing (32/64-bit),
 command-register helpers (status bits are never written back), capability walk,
 claim/release with generations, ATA/virtio-blk as in-kernel drivers (D1);
 interrupt dispatch and the shared-INTx contract (D2); the `dev_*` syscall, MMIO
-mappings, grant rule, class ACL, audit, quota and teardown (D3). Not done: DMA
-and `dma_alloc` (D4, #241), function-level reset (teardown clears the command
-register enables instead), MMCONFIG, MSI/MSI-X, IOAPIC, ACPI/platform
-enumeration beyond the single ATA seed.
+mappings, grant rule, class ACL, audit, quota and teardown (D3); the DMA pool
+and `dma_alloc` (D4, #241). Not done: function-level reset (teardown clears the
+command register enables instead), MMCONFIG, MSI/MSI-X, IOAPIC,
+ACPI/platform enumeration beyond the single ATA seed, and an IOMMU.
+
+**DMA limitations (known, #241 follow-ups).** Without an IOMMU a driver must
+quiesce its device (reset or clear bus mastering) *before* closing a DMA buffer
+while the claim is live: `release` and task death do this for it, but closing
+one buffer early returns its run to the pool with the device possibly still
+writing. A driver that `fork`s copies its DMA mappings copy-on-write like any
+buffer, so the driver and device stop sharing those pages; drivers must not
+fork.

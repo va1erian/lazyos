@@ -23,6 +23,10 @@ use super::DeviceId;
 
 const _: () = assert!(MAX_DEVICES <= 32, "claim bitmasks are u32");
 
+/// How many live DMA buffers one claim may hold (issue #241). A fixed bound,
+/// like [`MAX_BARS`], keeps the claim `Copy` and heap-free.
+pub const MAX_DMA_BUFFERS: usize = 16;
+
 /// Legacy PIC interrupt lines.
 pub const LINES: usize = 16;
 
@@ -47,6 +51,17 @@ pub struct IrqBinding {
     pub side: usize,
     /// The claimant opted in to sharing its interrupt line.
     pub shared: bool,
+}
+
+/// One live DMA buffer of a claim (issue #241). The buffer is closed by
+/// *object id* on release, because a transferred handle number may since have
+/// been reused for another object in the same task table.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct DmaRecord {
+    /// Kernel buffer object id (`Buffer::object_id`).
+    pub object_id: u64,
+    /// Run length in 4 KiB pages.
+    pub pages: u64,
 }
 
 /// One live claim.
@@ -75,6 +90,31 @@ pub struct Claim {
     /// late ack comes in.
     pub missed: bool,
     pub maps: [Option<Mapping>; MAX_BARS],
+    /// Live DMA buffers this claim allocated, for release/teardown.
+    pub dma: [Option<DmaRecord>; MAX_DMA_BUFFERS],
+}
+
+impl Claim {
+    /// Record a freshly allocated DMA buffer. Returns false (and changes
+    /// nothing) when the per-claim bound is reached.
+    pub fn record_dma(&mut self, record: DmaRecord) -> bool {
+        match self.dma.iter_mut().find(|slot| slot.is_none()) {
+            Some(slot) => {
+                *slot = Some(record);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Forget the DMA record for `object_id` (the buffer is already gone).
+    pub fn forget_dma(&mut self, object_id: u64) {
+        for slot in self.dma.iter_mut() {
+            if slot.is_some_and(|record| record.object_id == object_id) {
+                *slot = None;
+            }
+        }
+    }
 }
 
 /// One delivery round on a shared line: the claimants that were sent a message

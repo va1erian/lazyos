@@ -27,6 +27,7 @@
 mod bus;
 pub mod claims;
 pub mod class;
+pub mod dma;
 mod driver;
 pub mod errno;
 pub mod grant;

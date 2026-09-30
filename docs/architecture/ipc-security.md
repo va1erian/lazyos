@@ -70,6 +70,8 @@ audit ring, and per-uid quotas. Spec: [security-model.md](../security-model.md).
 | `Fds` | 256 | API only until the fd table is charged |
 | `QueueBytes` / `QueueDepth` | 4 MiB / 1024 messages | channel enqueue, charged to sender uid |
 | `CpuTicks` | 2^32 | API only until the scheduler meters uids |
+| `DeviceClaims` | 8 | `dev::claim` |
+| `DmaMemory` | 8 MiB | `dev::dma_alloc` contiguous pool bytes |
 
 - `DEFAULT_LIMITS` applies to regular uids; uid 0 gets `ROOT_LIMITS`. Limits are
   kernel policy (`set_limit`); syscall 11 (`process::sys_quota`) is read-only and

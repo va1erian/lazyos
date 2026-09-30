@@ -1,5 +1,6 @@
 //! The physical frame allocator: refcount table, free list and frame syscalls.
 
+use super::dma::DmaPool;
 use super::*;
 
 /// Never hand out frames below this: the bootloader loads the kernel and its
@@ -40,7 +41,12 @@ pub(super) struct Frames {
     pub(super) free_head: u64,
     /// Frames never handed out, consumed lazily after the free list runs dry.
     pub(super) untouched: untouched::Untouched,
-    /// Frames the allocator can hand out (excludes reserved metadata frames).
+    /// Contiguous DMA region reserved at boot (issue #241). Its frames are in
+    /// the refcount table but marked `RESERVED` while free, so the general
+    /// allocator skips them; only [`Frames::dma_alloc`] hands them out.
+    pub(super) pool: DmaPool,
+    /// Frames the allocator can hand out (excludes reserved metadata and DMA
+    /// pool frames; see [`FrameStats`]).
     pub(super) total: usize,
     /// Cumulative successful allocations.
     pub(super) allocated: usize,
@@ -59,10 +65,13 @@ pub(super) static FRAMES: Mutex<Option<Frames>> = Mutex::new(None);
 /// A snapshot of the frame allocator's counters.
 ///
 /// [`FrameStats::live`] is the leak report: frames handed out and not yet
-/// returned to the free pool.
+/// returned to the free pool. DMA pool frames are deliberately outside these
+/// counters (they are a separate reserved region, tracked by
+/// [`super::dma::DmaStats`]), so DMA traffic never perturbs a `live()` delta.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct FrameStats {
-    /// Frames the allocator can hand out (excludes reserved metadata frames).
+    /// Frames the allocator can hand out (excludes reserved metadata and DMA
+    /// pool frames).
     pub total: usize,
     /// Cumulative successful allocations.
     pub allocated: usize,
@@ -144,7 +153,7 @@ impl Frames {
         if self.free_head == FREE_LIST_END {
             loop {
                 let phys = self.untouched.next(&self.ends, self.count)?;
-                if self.refcount(Self::index(phys)) != RESERVED {
+                if self.refcount(Self::index(phys)) != RESERVED && !self.pool.contains(phys) {
                     return Some(phys);
                 }
             }
@@ -199,15 +208,55 @@ impl Frames {
             debug_assert!(false, "freeing a reserved frame");
             return Release::Invalid;
         }
-        let remaining = count - 1;
-        self.set_refcount(index, remaining);
-        if remaining == 0 {
-            self.push_free(phys);
-            self.freed += 1;
-            Release::Pooled
+        // A DMA pool frame returns to the pool, not the general free list. It
+        // is marked `RESERVED` at zero so `pop_free` skips it. Pool frames are
+        // outside `total`/`allocated`/`freed`, so the general counters and
+        // `live()` are untouched by DMA traffic.
+        if self.pool.contains(phys) {
+            let remaining = count - 1;
+            if remaining == 0 {
+                self.set_refcount(index, RESERVED);
+                self.pool.free(phys);
+                #[cfg(lazyos_tests)]
+                super::dma::order::note(super::dma::order::DMA_FREE);
+                Release::Pooled
+            } else {
+                self.set_refcount(index, remaining);
+                Release::Shared
+            }
         } else {
-            Release::Shared
+            let remaining = count - 1;
+            self.set_refcount(index, remaining);
+            if remaining == 0 {
+                self.push_free(phys);
+                self.freed += 1;
+                Release::Pooled
+            } else {
+                Release::Shared
+            }
         }
+    }
+
+    /// Allocate `pages` contiguous, zeroed frames from the DMA pool, aligned to
+    /// `align_pages` pages. Sets each frame's refcount to one. `None` when the
+    /// request does not fit a free run.
+    pub(super) fn dma_alloc(&mut self, pages: u64, align_pages: u64) -> Option<u64> {
+        let base = self.pool.alloc(pages, align_pages)?;
+        for page in 0..pages {
+            let phys = base + page * FRAME_SIZE;
+            self.set_refcount(Self::index(phys), 1);
+            // SAFETY: a freshly reserved pool frame is usable RAM, mapped
+            // writable through the bootloader's physical-memory mapping, and
+            // exclusively ours until handed to userspace.
+            unsafe {
+                core::ptr::write_bytes(
+                    phys_to_virt(PhysAddr::new(phys)).as_mut_ptr::<u8>(),
+                    0,
+                    FRAME_SIZE as usize,
+                );
+            }
+        }
+        Some(base)
     }
 
     pub(super) fn stats(&self) -> FrameStats {

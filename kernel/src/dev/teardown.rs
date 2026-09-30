@@ -41,6 +41,15 @@ pub fn release_claim(id: DeviceId, actor: usize, why: u32, live_table: u64) {
     if let Some(info) = &info {
         quiesce(info);
     }
+    // Bus mastering is off, so the device can no longer write these frames.
+    // Close the owner's reference to each DMA buffer *by object id* (a
+    // transferred handle may have been reused): this drops the owner's mapping
+    // and, when no client or message still holds the buffer, frees the run and
+    // releases its `DmaMemory` charge. A buffer a client still holds keeps its
+    // frames and charge until that last reference goes.
+    for record in claim.dma.iter().flatten() {
+        crate::ipc::shared::close_owned_for_task(claim.owner, record.object_id, true);
+    }
     let bytes = unmap_all(&claim, live_table);
     if bytes > 0 {
         quota::release(claim.uid, Resource::UserMemory, bytes);
