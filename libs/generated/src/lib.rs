@@ -7787,6 +7787,148 @@ pub mod os_lazy_net_stack_v1 {
     }
 }
 
+/// `os.lazy.messenger.policy.v1` (interface id `0xe625b4ee97525d37`).
+#[rustfmt::skip]
+pub mod os_lazy_messenger_policy_v1 {
+    use alloc::vec::Vec;
+    #[allow(unused_imports)]
+    use alloc::string::String;
+    // Not every interface needs every codec item (`Kind` is only used by nested values).
+    #[allow(unused_imports)]
+    use libmessenger::{Decoder, Encoder, Error, Kind};
+    // Only interfaces that declare topics use the shared topic runtime.
+    #[allow(unused_imports)]
+    use super::topics;
+
+    /// The interface id: the FNV-1a hash of the `.vN` interface name.
+    pub const INTERFACE_ID: u64 = 0xe625b4ee97525d37;
+
+    /// One rule. `interface_id` and `method` accept the wildcards
+    /// `0xFFFFFFFFFFFFFFFF` and `0xFFFFFFFF`; `allow` of `false` is an
+    /// explicit deny that shadows later rules.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct LabelRule {
+        pub interface_id: u64,
+        pub method: u32,
+        pub allow: bool,
+    }
+
+    pub fn encode_label_rule(value: &LabelRule) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.interface_id)?;
+        target.u32(2, value.method)?;
+        target.bool(3, value.allow)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_label_rule(body: &[u8]) -> Result<LabelRule, Error> {
+        let mut out = LabelRule::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.interface_id = field.as_u64()?;
+                }
+                2 => {
+                    out.method = field.as_u32()?;
+                }
+                3 => {
+                    out.allow = field.as_bool()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// `LoadLabel` method id.
+    pub const METHOD_LOADLABEL: u32 = 888159937;
+
+    /// Replace every rule of `label` with `rules` (first match wins, anything
+    /// unmatched is denied). An empty list revokes the label's grants. The
+    /// label is interned if new; a malformed label or more rules than the
+    /// kernel stores per label (256) fails with `EINVAL`.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct LoadLabelArgs {
+        pub label: alloc::string::String,
+        pub rules: alloc::vec::Vec<LabelRule>,
+    }
+
+    pub fn encode_load_label_args(value: &LoadLabelArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.label)?;
+        let mut nested = Encoder::new();
+        for item in &value.rules {
+            nested.raw(Kind::Struct, 1, &encode_label_rule(item)?)?;
+        }
+        target.array(2, &nested)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_load_label_args(body: &[u8]) -> Result<LoadLabelArgs, Error> {
+        let mut out = LoadLabelArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.label = field.as_str()?.into();
+                }
+                2 => {
+                    let mut nested = field.nested(0)?;
+                    while let Some(item) = nested.next()? {
+                        out.rules.push(decode_label_rule(item.payload)?);
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+}
+
+/// `os.lazy.messenger.names.resolve.v1` (interface id `0x51c42ba74885199f`).
+#[rustfmt::skip]
+pub mod os_lazy_messenger_names_resolve_v1 {
+    use alloc::vec::Vec;
+    #[allow(unused_imports)]
+    use alloc::string::String;
+    // Not every interface needs every codec item (`Kind` is only used by nested values).
+    #[allow(unused_imports)]
+    use libmessenger::{Decoder, Encoder, Error, Kind};
+    // Only interfaces that declare topics use the shared topic runtime.
+    #[allow(unused_imports)]
+    use super::topics;
+
+    /// The interface id: the FNV-1a hash of the `.vN` interface name.
+    pub const INTERFACE_ID: u64 = 0x51c42ba74885199f;
+
+    /// `Resolve` method id.
+    pub const METHOD_RESOLVE: u32 = 1645633795;
+
+    /// Check that the actor may resolve `name`.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ResolveArgs {
+        pub name: alloc::string::String,
+    }
+
+    pub fn encode_resolve_args(value: &ResolveArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.name)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_resolve_args(body: &[u8]) -> Result<ResolveArgs, Error> {
+        let mut out = ResolveArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.name = field.as_str()?.into();
+            }
+        }
+        Ok(out)
+    }
+}
+
 /// `os.lazy.messenger.registry.v1` (interface id `0x51d501afec09806c`).
 #[rustfmt::skip]
 pub mod os_lazy_messenger_registry_v1 {

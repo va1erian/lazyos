@@ -174,6 +174,25 @@ pub fn validate(name: &str, mode: u32) -> Result<usize, Error> {
 pub fn authorize(actor_slot: usize, mode: u32, name: &str, txn_id: u64) -> Result<usize, Error> {
     let interface = interface(mode).ok_or(Error::BadMode)?;
     let segments = validate(name, mode)?;
+    let cred = crate::ipc::credentials::of(actor_slot);
+    // An app owns the `app/<id>/` subtree for its label; that is the only
+    // implicit grant, everything else goes through the per-segment rules.
+    if crate::ipc::policy::owns_topic(&cred, name) {
+        if crate::ipc::audit::trace() {
+            crate::ipc::audit::record(crate::ipc::audit::AuditEvent {
+                ticks: crate::task::ticks(),
+                actor_slot,
+                uid: cred.uid,
+                label_id: cred.label_id,
+                interface_id: interface,
+                method: segment_method(name.split('/').next().unwrap_or("")),
+                allow: true,
+                reason_code: crate::ipc::acl::reason::ALLOWED_BY_NAMESPACE,
+                txn_id,
+            });
+        }
+        return Ok(segments);
+    }
     for segment in name.split('/') {
         let decision =
             crate::ipc::authorize(actor_slot, interface, segment_method(segment), txn_id);

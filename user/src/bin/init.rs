@@ -39,7 +39,7 @@
 //! uid/gid from `logind`.
 //!
 //! A session may hold at most [`LAUNCH_CAP_PER_SESSION`] launched rows
-//! (16) reserved at once (issue #177): each `Launch` call spawns a fresh row and
+//! reserved at once (issue #177): each `Launch` call spawns a fresh row and
 //! only a `Stopped`/`Failed` row for the same app is ever superseded, so
 //! nothing else stopped an unprivileged caller from looping `launch` until
 //! the task table (`kernel/src/task/mod.rs`'s `MAX_TASKS`) was full,

@@ -48,6 +48,10 @@ members = [
     "libs/netpolicy",
     "libs/netstack",
     "libs/fuzzkit",
+    # Application package (`.lzp`) reader (docs/packages.md): pure `no_std` +
+    # `alloc` zip/manifest parsing and validation shared by the installer and
+    # host tests.
+    "libs/lazypkg",
 ]
 # The xui app is an ordinary static-musl `std` program with its own workspace:
 # it is built by `tools/xui/build.py` and embedded in the image, never by the

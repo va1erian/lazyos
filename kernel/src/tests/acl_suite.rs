@@ -142,7 +142,7 @@ pub fn credentials_default_and_set() -> Result<(), String> {
 pub fn authorize_denial_audited() -> Result<(), String> {
     fresh()?;
     let slot = task::current();
-    credentials::set(slot, Cred::new(1000, 100, 0, 3, 0));
+    credentials::set(slot, Cred::new(1000, 100, 0, 0, 0));
     acl::load(&[acl::Rule {
         actor: 1000,
         interface_id: OTHER_IFACE,

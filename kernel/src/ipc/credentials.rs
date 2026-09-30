@@ -28,6 +28,17 @@
 //!   [`AUDIT_INTERFACE`] and a [`reason`] code, so `auditd` sees logins and
 //!   elevation attempts even when they fail.
 //!
+//! # Labels (application package system, phase 1)
+//!
+//! `label_id` names an interned string ([`super::labels`]) such as
+//! `app:com.example.notes`. A label only ever goes from `0` to a value, once,
+//! on a *child being created* by a [`CAP_SETUID`] holder (the labelled spawn,
+//! [`LabelStamp::Assign`]); every other stamp must keep the label it lands on
+//! ([`LabelStamp::Keep`]), so a task cannot relabel itself, strip its label
+//! or hand a different one to a peer. Children inherit their creator's label
+//! like the rest of the credential, which keeps an app's helpers inside its
+//! sandbox.
+//!
 //! A task created by another task (`fork`, `clone`, the native `spawn`) starts
 //! with a copy of its creator's credentials ([`inherit`]); only a program the
 //! kernel itself starts (no creator) begins as [`Cred::ROOT`]. Either way the
@@ -99,6 +110,9 @@ pub mod reason {
     pub const TRANSITION_WIDENING: u32 = 3;
     /// The target slot does not name the actor or a live task.
     pub const TRANSITION_BAD_TARGET: u32 = 4;
+    /// The request would change a label a task already carries, or set one
+    /// anywhere but on a child being created.
+    pub const TRANSITION_LABEL_LOCKED: u32 = 5;
 }
 
 /// The kernel-stamped identity attached to a task and copied into every call
@@ -141,8 +155,8 @@ impl Cred {
         }
     }
 
-    /// The identity the ACL keys on today: the uid. Label-keyed policy can call
-    /// [`super::acl::evaluate`] with [`Cred::label_id`] directly.
+    /// The uid identity the legacy ACL keys on. A labelled task is keyed by
+    /// [`Cred::label_id`] instead ([`super::acl::evaluate_cred`]).
     pub const fn authority(&self) -> u32 {
         self.uid
     }
@@ -187,6 +201,9 @@ pub enum TransitionError {
     Widening,
     /// The target is not the actor and not a live task.
     BadTarget,
+    /// The request would change a label (labels go from `0` to a value once,
+    /// on a child being created, and never change afterwards).
+    LabelLocked,
 }
 
 impl TransitionError {
@@ -196,6 +213,7 @@ impl TransitionError {
             TransitionError::NotPrivileged => reason::TRANSITION_NOT_PRIVILEGED,
             TransitionError::Widening => reason::TRANSITION_WIDENING,
             TransitionError::BadTarget => reason::TRANSITION_BAD_TARGET,
+            TransitionError::LabelLocked => reason::TRANSITION_LABEL_LOCKED,
         }
     }
 }
@@ -251,12 +269,35 @@ pub fn inherit(parent_slot: usize, child_slot: usize) {
     set(child_slot, of(parent_slot));
 }
 
+/// How a stamp treats the label of the task it lands on.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum LabelStamp {
+    /// The label must stay exactly `current` (the target's label, or the label
+    /// a new child inherits from its creator). Every ordinary stamp.
+    Keep { current: u32 },
+    /// A labelled spawn: the child gets `requested.label_id`. Only a creator
+    /// that is unlabelled (or already in that very label) may assign it, so a
+    /// labelled task can never hop to another label.
+    Assign,
+}
+
 /// Validate a transition without applying or auditing it.
 ///
 /// A spawn-time stamp validates up front (so the spawn can be refused before a
-/// task exists) and again in [`transition`] to record the decision. Kernel-side
-/// only.
+/// task exists) and again in [`transition`] to record the decision. The label
+/// is held fixed at the actor's own (what a plain spawn inherits); see
+/// [`check_stamp`] for the other shapes. Kernel-side only.
 pub fn check(actor_slot: usize, requested: Cred) -> Result<(), TransitionError> {
+    let current = of(actor_slot).label_id;
+    check_stamp(actor_slot, LabelStamp::Keep { current }, requested)
+}
+
+/// [`check`] with an explicit label rule.
+pub fn check_stamp(
+    actor_slot: usize,
+    label: LabelStamp,
+    requested: Cred,
+) -> Result<(), TransitionError> {
     let actor = of(actor_slot);
     if !actor.has_cap(CAP_SETUID) {
         return Err(TransitionError::NotPrivileged);
@@ -268,6 +309,15 @@ pub fn check(actor_slot: usize, requested: Cred) -> Result<(), TransitionError> 
     }
     if requested.caps & !actor.caps != 0 {
         return Err(TransitionError::Widening);
+    }
+    let label_ok = match label {
+        LabelStamp::Keep { current } => requested.label_id == current,
+        LabelStamp::Assign => {
+            requested.label_id != 0 && (actor.label_id == 0 || actor.label_id == requested.label_id)
+        }
+    };
+    if !label_ok {
+        return Err(TransitionError::LabelLocked);
     }
     Ok(())
 }
@@ -301,7 +351,22 @@ pub fn transition(
     target_slot: usize,
     requested: Cred,
 ) -> Result<Cred, TransitionError> {
-    let verdict = check(actor_slot, requested).and_then(|()| target_ok(actor_slot, target_slot));
+    let label = LabelStamp::Keep {
+        current: of(target_slot).label_id,
+    };
+    transition_with(actor_slot, target_slot, requested, label)
+}
+
+/// [`transition`] with an explicit label rule: the labelled-spawn path stamps
+/// the new child with [`LabelStamp::Assign`].
+pub fn transition_with(
+    actor_slot: usize,
+    target_slot: usize,
+    requested: Cred,
+    label: LabelStamp,
+) -> Result<Cred, TransitionError> {
+    let verdict =
+        check_stamp(actor_slot, label, requested).and_then(|()| target_ok(actor_slot, target_slot));
     let actor = of(actor_slot);
     audit::record(AuditEvent {
         ticks: crate::task::ticks(),
