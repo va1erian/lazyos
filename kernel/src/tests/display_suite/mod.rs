@@ -42,6 +42,7 @@ mod keys;
 mod modifiers;
 mod present;
 mod slots;
+mod wheel;
 
 pub(super) use bind_and_input::*;
 pub(super) use buffers::*;
@@ -49,6 +50,7 @@ pub(super) use keys::*;
 pub(super) use modifiers::*;
 pub(super) use present::*;
 pub(super) use slots::*;
+pub(super) use wheel::*;
 
 pub(super) const CASES: &[(&str, Test)] = &[
     ("display_kernel_bind_refused", kernel_bind_refused),
@@ -93,4 +95,8 @@ pub(super) const CASES: &[(&str, Test)] = &[
         slots_double_buffer_ordering,
     ),
     ("display_slots_present_soak", slots_present_soak),
+    ("display_mouse_packet_decoding", mouse_packet_decoding),
+    ("display_wheel_reaches_compositor", wheel_reaches_compositor),
+    ("display_plain_mouse_and_resync", plain_mouse_and_resync),
+    ("display_wheel_soak_bounded_queue", wheel_soak_bounded_queue),
 ];

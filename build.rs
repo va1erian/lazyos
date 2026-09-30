@@ -39,6 +39,14 @@ fn main() {
         String::from("NOTES.TXT"),
         b"LazyOS notes\n-----------\n- single-tasking x86_64 kernel\n- tiny-skia graphics\n- PS/2 keyboard + mouse\n- FAT16 read-only filesystem\n".to_vec(),
     );
+    // The Docs app's test document (`xui-app/docs/testdata/`): opened by the
+    // Docs screenshot session through the Open dialog, and by hand as
+    // `/TESTDOC.MD` in the Docs app or the Editor.
+    println!("cargo:rerun-if-changed=xui-app/docs/testdata/testdoc.md");
+    builder.set_file_contents(
+        String::from("TESTDOC.MD"),
+        include_bytes!("xui-app/docs/testdata/testdoc.md").to_vec(),
+    );
     // The ring-3 demo program, loaded and run by `run HELLO.ELF`. The system
     // shell is BusyBox `sh` (issue #254), embedded separately below.
     let hello =
@@ -407,6 +415,7 @@ fn xui_disk_name(path: &std::path::Path) -> (String, String) {
         "editor" => "XEDITOR".to_string(),
         "paint" => "XPAINT".to_string(),
         "files" => "XFILES".to_string(),
+        "settings" => "XSETTNG".to_string(),
         "client" => "XCLIENT".to_string(),
         other => {
             let short: String = other
@@ -439,7 +448,19 @@ const SHIP_DOCUMENT_APPS: bool = true;
 
 /// The document apps' binaries, appended to [`DESKTOP_XUI_APPS`] when
 /// [`SHIP_DOCUMENT_APPS`] is on.
-const DOCUMENT_XUI_APPS: &[&str] = &["xui-editor.elf", "xui-files.elf", "xui-paint.elf"];
+const DOCUMENT_XUI_APPS: &[&str] = &[
+    "xui-editor.elf",
+    "xui-files.elf",
+    "xui-paint.elf",
+    "xui-settings.elf",
+];
+
+/// Desktop apps embedded when their ELF exists, and skipped (with a build
+/// warning) when it does not. The Docs app is C++ (litehtml) and needs the zig
+/// toolchain (`tools/xui/zig.py`), which a developer machine may lack; a
+/// missing one leaves a smaller desktop, not a broken one, so it is not a
+/// required default like [`DOCUMENT_XUI_APPS`].
+const OPTIONAL_XUI_APPS: &[&str] = &["xui-docs.elf"];
 
 /// The one app the desktop opens at boot when `LAZYOS_XUI_AUTOSTART` is unset:
 /// the Terminal. Every other embedded app (viewers, Editor, Files, Paint) is
@@ -477,10 +498,24 @@ fn embed_xui_apps(builder: &mut bootloader::DiskImageBuilder, desktop: bool) {
             } else {
                 &[]
             };
+            let optional = OPTIONAL_XUI_APPS.iter().filter_map(|name| {
+                let path = dir.join(name);
+                // Tracked even when missing, so building it later is picked up.
+                println!("cargo:rerun-if-changed={}", path.display());
+                if path.is_file() {
+                    Some(path)
+                } else {
+                    println!(
+                        "cargo:warning=optional xui app {name} not built (needs zig:                          `pip install ziglang==0.16.0`, then `python tools/xui/build.py`)"
+                    );
+                    None
+                }
+            });
             DESKTOP_XUI_APPS
                 .iter()
                 .chain(document)
                 .map(|name| dir.join(name))
+                .chain(optional)
                 .collect()
         }
         None => return,

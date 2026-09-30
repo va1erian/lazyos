@@ -46,6 +46,8 @@ pub enum Event {
     PointerDown { x: i32, y: i32, button: u32 },
     /// A pointer button went up.
     PointerUp { x: i32, y: i32, button: u32 },
+    /// The wheel rolled `delta` notches at `(x, y)`; positive scrolls up.
+    PointerWheel { x: i32, y: i32, delta: i32 },
     /// A key went down; `key` is the kernel key code.
     KeyDown { key: u32 },
     /// A key was released.
@@ -82,6 +84,14 @@ pub fn decode_event(parcel: &Parcel) -> Option<Event> {
                 x: args.x,
                 y: args.y,
                 button: args.button,
+            }
+        }
+        wire::METHOD_POINTERWHEEL => {
+            let args = wire::decode_pointer_wheel_args(body).ok()?;
+            Event::PointerWheel {
+                x: args.x,
+                y: args.y,
+                delta: args.delta,
             }
         }
         wire::METHOD_KEYDOWN => Event::KeyDown {
@@ -356,18 +366,41 @@ mod tests {
         );
     }
 
-    fn parcel(method: u32, body: Vec<u8>) -> Parcel {
-        Parcel {
-            header: Header {
-                version: VERSION,
-                flags: 0,
-                interface_id: INTERFACE,
-                method,
-                ..Header::default()
-            },
-            body,
-            ..Parcel::default()
+    #[test]
+    fn a_wheel_event_decodes_with_its_position_and_signed_delta() {
+        for delta in [1, -1, 5, -120] {
+            let body = wire::encode_pointer_wheel_args(&wire::PointerWheelArgs {
+                x: -3,
+                y: 44,
+                delta,
+            })
+            .expect("encodes");
+            let parcel = request(wire::METHOD_POINTERWHEEL, body, Vec::new(), Vec::new());
+            assert_eq!(
+                decode_event(&parcel),
+                Some(Event::PointerWheel {
+                    x: -3,
+                    y: 44,
+                    delta
+                })
+            );
         }
+    }
+
+    #[test]
+    fn a_truncated_wheel_body_is_not_an_event() {
+        let parcel = request(
+            wire::METHOD_POINTERWHEEL,
+            vec![1, 2],
+            Vec::new(),
+            Vec::new(),
+        );
+        assert_eq!(decode_event(&parcel), None);
+    }
+
+    /// A `Configure` event parcel carrying `body`.
+    fn configure(body: Vec<u8>) -> Parcel {
+        request(wire::METHOD_CONFIGURE, body, Vec::new(), Vec::new())
     }
 
     #[test]
@@ -380,7 +413,7 @@ mod tests {
         })
         .unwrap();
         assert_eq!(
-            decode_event(&parcel(wire::METHOD_CONFIGURE, body)),
+            decode_event(&configure(body)),
             Some(Event::Configure {
                 width: 950,
                 height: 696,
@@ -399,7 +432,7 @@ mod tests {
         })
         .unwrap();
         assert_eq!(
-            decode_event(&parcel(wire::METHOD_CONFIGURE, body)),
+            decode_event(&configure(body)),
             Some(Event::Configure {
                 width: i32::MAX,
                 height: 1,
@@ -408,7 +441,7 @@ mod tests {
         );
         // An empty body decodes to a zero size, which `apply_configure` drops.
         assert_eq!(
-            decode_event(&parcel(wire::METHOD_CONFIGURE, Vec::new())),
+            decode_event(&configure(Vec::new())),
             Some(Event::Configure {
                 width: 0,
                 height: 0,

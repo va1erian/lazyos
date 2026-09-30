@@ -43,6 +43,8 @@ fn method_ids_are_pinned_to_the_legacy_numbering() {
     ];
     let expected: Vec<u32> = (1..=24).collect();
     assert_eq!(ids.to_vec(), expected);
+    // Append-only additions after the legacy block.
+    assert_eq!(METHOD_POINTERWHEEL, 31);
 }
 
 #[test]
@@ -72,7 +74,7 @@ fn enum_constants_keep_the_wire_values() {
 
 #[test]
 fn resize_and_maximize_ids_are_appended_after_hint_open_origin() {
-    assert_eq!((METHOD_SETSIZEHINTS, METHOD_CONFIGURE), (31, 32));
+    assert_eq!((METHOD_SETSIZEHINTS, METHOD_CONFIGURE), (32, 33));
 }
 
 #[test]
@@ -177,6 +179,17 @@ fn input_events_roundtrip_with_negative_coordinates_and_buttons() {
             PointerUpArgs { x: 0, y: 0, button },
             encode_pointer_up_args,
             decode_pointer_up_args
+        );
+    }
+    for delta in [1, -1, 3, -120, i32::MAX, i32::MIN] {
+        roundtrip!(
+            PointerWheelArgs {
+                x: -4,
+                y: 700,
+                delta
+            },
+            encode_pointer_wheel_args,
+            decode_pointer_wheel_args
         );
     }
     roundtrip!(

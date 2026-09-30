@@ -27,10 +27,10 @@
 //!   subsequent pointer movement moves the origin. A window may be pushed
 //!   partly off the left, right and bottom edges; [`geometry::keep_reachable`]
 //!   keeps enough of its title bar on screen to grab it again;
-//! * a resizable window (one that called `SetSizeHints`, method 31) can be
+//! * a resizable window (one that called `SetSizeHints`, method 32) can be
 //!   resized by dragging an edge or corner: the compositor draws a wireframe
 //!   outline during the drag and applies the size, via a one-way `Configure`
-//!   event (method 32), on release;
+//!   event (method 33), on release;
 //! * the title bar carries close (`X`, asks the client to exit via a one-way
 //!   `WindowClose` event), minimize (`-`, hides the surface) and — for a
 //!   resizable window — maximize/restore buttons. A double-click on the title
@@ -137,8 +137,12 @@ mod shell;
 mod surface;
 #[path = "xuid/theme.rs"]
 mod theme;
+#[path = "xuid/themefeed.rs"]
+mod themefeed;
 #[path = "xuid/title.rs"]
 mod title;
+#[path = "xuid/wheel.rs"]
+mod wheel;
 #[path = "xuid/window.rs"]
 mod window;
 
@@ -217,6 +221,7 @@ fn run() -> ! {
     sys::write_str(window::selftest_focus_on_create());
     sys::write_str(origin::selftest_open_origin());
     sys::write_str(geometry::selftest_geometry());
+    sys::write_str(wheel::selftest_wheel_routing());
 
     loop {
         // 0. `inputd`: register new surfaces, report focus, apply the
@@ -231,6 +236,7 @@ fn run() -> ! {
         }
         comp.reap_dead_shell();
         comp.tick_clock();
+        comp.tick_theme();
 
         // 2. Requests: serve one, then loop (the deadline bounds the nap when
         //    nothing is pending, keeping input latency at a couple of ticks).

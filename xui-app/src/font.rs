@@ -26,3 +26,15 @@ pub fn register_mono() {
     xui_canvas::add_font(MONO_BYTES.to_vec());
     xui_canvas::set_default_family(UI_FAMILY);
 }
+
+/// Droid Sans Bold (Apache-2.0), the bold weight the Docs app's headings and
+/// `<b>`/`<strong>` resolve to; without it the shaper would fake the weight.
+pub const BOLD_BYTES: &[u8] = include_bytes!("../../assets/fonts/DroidSans-Bold.ttf");
+
+/// Registers the bold face and the monospace face (code blocks) next to the UI
+/// face, keeping Droid Sans the default family. Call before the backend is
+/// created, like [`register_mono`].
+pub fn register_docs() {
+    xui_canvas::add_font(BOLD_BYTES.to_vec());
+    register_mono();
+}

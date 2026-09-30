@@ -69,6 +69,15 @@ jobs:
         with:
           python-version: "3.x"
 
+      # The Docs app embeds litehtml (C++), built with zig for the musl target
+      # (`tools/xui/zig.py`, docs/xui-docs.md). Without it `build.py` skips the
+      # app with a warning, so the pin here is what makes CI exercise it.
+      - name: Install zig (C++ toolchain for the Docs app)
+        run: |
+          python -m pip install ziglang==0.16.0
+          python tools/xui/test_zig.py
+          python tools/screenshot/test_qmp_mouse.py
+
       - name: Build the app (static musl)
         id: app
         shell: bash
@@ -77,7 +86,7 @@ jobs:
           mkdir -p target/xui
           python tools/xui/build.py | tee target/xui/build.json
           m0=""; counter=""; sysmon=""; fabricmon=""; client=""; term=""
-          editor=""; paint=""; files=""
+          editor=""; paint=""; files=""; docs=""
           if python -c "import json,sys; sys.exit(0 if 'xui-m0' in json.load(open('target/xui/build.json')) else 1)"; then
             m0="$(pwd)/target/xui/xui-m0.elf"
             counter="$(pwd)/target/xui/xui-counter.elf"
@@ -85,9 +94,9 @@ jobs:
             fabricmon="$(pwd)/target/xui/xui-fabricmon.elf"
             client="$(pwd)/target/xui/xui-client.elf"
             term="$(pwd)/target/xui/xui-term.elf"
-            # The document apps (Editor, Paint, Files) are built by the same
-            # script; a build without them just skips their sessions.
-            for app in editor paint files; do
+            # The document apps (Editor, Paint, Files, Docs) are built by the
+            # same script; a build without them just skips their sessions.
+            for app in editor paint files docs; do
               if python -c "import json,sys; sys.exit(0 if 'xui-$app' in json.load(open('target/xui/build.json')) else 1)"; then
                 printf -v "$app" '%s' "$(pwd)/target/xui/xui-$app.elf"
               fi
@@ -104,6 +113,7 @@ jobs:
           echo "editor=$editor" >> "$GITHUB_OUTPUT"
           echo "paint=$paint" >> "$GITHUB_OUTPUT"
           echo "files=$files" >> "$GITHUB_OUTPUT"
+          echo "docs=$docs" >> "$GITHUB_OUTPUT"
           ls -l target/xui/*.elf || true
 
       # The Terminal hosts BusyBox `sh` (issue #254); build the pinned static
@@ -360,13 +370,107 @@ jobs:
           done
           ! grep -q "^init: launch .* failed" shots/files/serial.log
 
+      # Docs: Markdown rendered by litehtml (built with zig). The pointer only
+      # hovers over the window (no click), so this also proves the mouse wheel
+      # goes to the window under the pointer, through the whole input chain: the
+      # PS/2 wheel driver, `xuid`'s PointerWheel and the client backend. The
+      # page must move on wheel-down and return to the top on wheel-up.
+      - name: Capture Docs (Markdown, mouse wheel)
+        if: ${{ !cancelled() && steps.app.outputs.docs != '' }}
+        shell: bash
+        env:
+          LAZYOS_DESKTOP: "1"
+          LAZYOS_XUI_APPS: ${{ steps.app.outputs.docs }}
+          LAZYOS_XUI_AUTOSTART: docs
+        run: |
+          set -euo pipefail
+          cargo build
+          python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/docs             --timeout 300 --script tools/screenshot/examples/xui_docs.json             --fail-on "DOCS:[A-Z]+:FAIL" --fail-on "INIT:AUTOSTART:FAIL"
+          for marker in DOCS:UP:PASS DOCS:RENDER:PASS XUID:WHEEL:PASS MIME:VIEW:PASS                         "mouse: PS/2 auxiliary device enabled (wheel)"; do
+            grep -qF "$marker" shots/docs/serial.log
+          done
+          python - <<'PY'
+          import sys
+          from pathlib import Path
+
+          sys.path.insert(0, "tools/screenshot")
+          from pngstats import decode_png
+
+          # The pointer is parked before the baseline, so the cursor is at the
+          # same place in all three frames. Only the window content is compared
+          # (the taskbar clock may tick between shots).
+          def content(name):
+              width, height, channels, pixels = decode_png(Path(f"shots/docs/shot_{name}.png"))
+              x0, x1, y0, y1 = 52, 948, 52, 688
+              return b"".join(
+                  pixels[(y * width + x0) * channels : (y * width + x1) * channels]
+                  for y in range(y0, y1)
+              )
+
+          top = content("01_docs_top")
+          down = content("02_docs_wheel_down")
+          back = content("03_docs_wheel_back_up")
+          if down == top:
+              sys.exit("the mouse wheel did not scroll the page down")
+          if back != top:
+              sys.exit("wheel-up did not return the page to where it started")
+          PY
+          ! grep -q "^init: launch .* failed" shots/docs/serial.log
+
+      # Docs Open dialog: the toolbar button and Ctrl+O each show the portable
+      # file picker (which lists the `/TESTDOC.MD` fixture the image ships), a
+      # cancelled dialog leaves the page alone, and a typed path loads the
+      # document into the view.
+      - name: Capture Docs (Open dialog, test document)
+        if: ${{ !cancelled() && steps.app.outputs.docs != '' }}
+        shell: bash
+        env:
+          LAZYOS_DESKTOP: "1"
+          LAZYOS_XUI_APPS: ${{ steps.app.outputs.docs }}
+          LAZYOS_XUI_AUTOSTART: docs
+        run: |
+          set -euo pipefail
+          cargo build
+          python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/docs_open             --timeout 300 --script tools/screenshot/examples/xui_docs_open.json             --fail-on "DOCS:[A-Z]+:FAIL" --fail-on "INIT:AUTOSTART:FAIL"
+          for marker in DOCS:UP:PASS DOCS:RENDER:PASS DOCS:OPEN:PASS:/TESTDOC.MD \n                        DOCS:RENDER:PASS:/TESTDOC.MD; do
+            grep -qF "$marker" shots/docs_open/serial.log
+          done
+          # The replacement view must have painted a document: compare decoded
+          # pixels inside the page viewport only (below the toolbar, so the path
+          # label, window title and pointer cannot change the result). The
+          # pointer is unmoved between the two shots.
+          python - <<'PY'
+          import sys
+          from pathlib import Path
+
+          sys.path.insert(0, "tools/screenshot")
+          from pngstats import decode_png
+
+          def viewport(name):
+              width, height, channels, pixels = decode_png(Path(f"shots/docs_open/shot_{name}.png"))
+              x0, x1, y0, y1 = 52, 948, 90, 688
+              return b"".join(
+                  pixels[(y * width + x0) * channels : (y * width + x1) * channels]
+                  for y in range(y0, y1)
+              ), channels
+
+          welcome, channels = viewport("01_welcome_toolbar")
+          opened, _ = viewport("06_document_opened")
+          if opened == welcome:
+              sys.exit("opening the test document did not change the page viewport")
+          pixels = {opened[i : i + channels] for i in range(0, len(opened), channels)}
+          if len(pixels) < 8:
+              sys.exit(f"the opened document's viewport is nearly blank ({len(pixels)} colours)")
+          PY
+          ! grep -q "^init: launch .* failed" shots/docs_open/serial.log
+
       - name: Verify screenshots are non-blank
         if: steps.app.outputs.counter != ''
         shell: bash
         run: |
           set -euo pipefail
           shopt -s nullglob
-          pngs=(shots/m0/*.png shots/m1/*.png shots/m2/*.png shots/sysmon/*.png shots/fabmon/*.png shots/client/*.png shots/sysclient/*.png shots/desktop/*.png shots/desktop_fr/*.png shots/symbols_us/*.png shots/symbols_fr/*.png shots/editor/*.png shots/paint/*.png shots/files/*.png)
+          pngs=(shots/m0/*.png shots/m1/*.png shots/m2/*.png shots/sysmon/*.png shots/fabmon/*.png shots/client/*.png shots/sysclient/*.png shots/desktop/*.png shots/desktop_fr/*.png shots/symbols_us/*.png shots/symbols_fr/*.png shots/editor/*.png shots/paint/*.png shots/files/*.png shots/docs/*.png shots/docs_open/*.png)
           if [ ${#pngs[@]} -eq 0 ]; then
             echo "::error::no screenshots were captured"
             exit 1
@@ -380,7 +484,7 @@ jobs:
         shell: bash
         run: |
           shopt -s nullglob
-          for dir in shots/m0 shots/m1 shots/m2 shots/sysmon shots/fabmon shots/client shots/sysclient shots/desktop shots/editor shots/paint shots/files; do
+          for dir in shots/m0 shots/m1 shots/m2 shots/sysmon shots/fabmon shots/client shots/sysclient shots/desktop shots/editor shots/paint shots/files shots/docs shots/docs_open; do
             [ -d "$dir" ] || continue
             echo "::group::$dir"
             if [ -f "$dir/summary.json" ]; then
@@ -388,7 +492,7 @@ jobs:
             fi
             if [ -f "$dir/serial.log" ]; then
               echo "--- markers ---"
-              grep -aE "XUIAPP|SYSMON|FABMON|TERM:|EDITOR:|PAINT:|FILES:|INIT:AUTOSTART|panic|PANIC" "$dir/serial.log" || echo "(none)"
+              grep -aE "XUIAPP|SYSMON|FABMON|TERM:|EDITOR:|PAINT:|FILES:|DOCS:|INIT:AUTOSTART|panic|PANIC" "$dir/serial.log" || echo "(none)"
               echo "--- serial tail ---"
               tail -n 40 "$dir/serial.log"
             fi
@@ -436,6 +540,12 @@ jobs:
             shots/files/*.png
             shots/files/serial.log
             shots/files/summary.json
+            shots/docs/*.png
+            shots/docs/serial.log
+            shots/docs/summary.json
+            shots/docs_open/*.png
+            shots/docs_open/serial.log
+            shots/docs_open/summary.json
           if-no-files-found: warn
 
   # Write-scoped job: no checkout of repository code, only the screenshots
@@ -477,7 +587,7 @@ jobs:
           prefix="runs/${GITHUB_RUN_ID}/xui"
           mkdir -p "$work/$prefix"
           shopt -s nullglob
-          for group in m0 m1 m2 sysmon fabmon client sysclient desktop editor paint files; do
+          for group in m0 m1 m2 sysmon fabmon client sysclient desktop editor paint files docs docs_open; do
             for png in shots/$group/*.png; do
               cp "$png" "$work/$prefix/$group-$(basename "$png")"
             done
@@ -513,7 +623,7 @@ jobs:
             echo "_commit \`${GITHUB_SHA:0:7}\` — run [${GITHUB_RUN_ID}](https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID})_"
             echo
             shopt -s nullglob
-            for group in m0 m1 m2 sysmon fabmon client sysclient desktop editor paint files; do
+            for group in m0 m1 m2 sysmon fabmon client sysclient desktop editor paint files docs docs_open; do
               for png in shots/$group/*.png; do
                 name="$group-$(basename "$png")"
                 echo "<details><summary>${name}</summary>"
@@ -524,12 +634,12 @@ jobs:
                 echo
               done
             done
-            for log in shots/m0/serial.log shots/m2/serial.log shots/sysmon/serial.log shots/fabmon/serial.log shots/client/serial.log shots/sysclient/serial.log shots/desktop/serial.log shots/editor/serial.log shots/paint/serial.log shots/files/serial.log; do
+            for log in shots/m0/serial.log shots/m2/serial.log shots/sysmon/serial.log shots/fabmon/serial.log shots/client/serial.log shots/sysclient/serial.log shots/desktop/serial.log shots/editor/serial.log shots/paint/serial.log shots/files/serial.log shots/docs/serial.log shots/docs_open/serial.log; do
               if [ -f "$log" ]; then
                 echo "<details><summary>${log} (xui/sysmon/fabricmon/client markers)</summary>"
                 echo
                 echo '```'
-                grep -E "XUIAPP|SYSMON|FABMON|TERM:|EDITOR:|PAINT:|FILES:|INIT:AUTOSTART" "$log" || true
+                grep -E "XUIAPP|SYSMON|FABMON|TERM:|EDITOR:|PAINT:|FILES:|DOCS:|INIT:AUTOSTART" "$log" || true
                 echo '```'
                 echo
                 echo "</details>"

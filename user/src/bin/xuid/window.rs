@@ -254,7 +254,7 @@ impl Compositor {
 }
 
 /// A bare surface for the create-focus self-test: no buffers, no chrome.
-fn test_surface(id: u64, minimized: bool, desktop: bool) -> Surface {
+pub(super) fn test_surface(id: u64, minimized: bool, desktop: bool) -> Surface {
     Surface {
         id,
         title: String::new(),

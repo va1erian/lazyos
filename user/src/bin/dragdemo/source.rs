@@ -167,7 +167,7 @@ fn handle_source_input(app: &mut App, state: &mut SourceState, event: Event) {
             }
             app.redraw(&|canvas| source_draw(canvas, state));
         }
-        Event::KeyDown { .. } | Event::KeyUp { .. } => {}
+        Event::PointerWheel { .. } | Event::KeyDown { .. } | Event::KeyUp { .. } => {}
     }
 }
 

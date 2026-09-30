@@ -96,6 +96,10 @@ impl LazyOSBackend {
                         let (x, y) = self.pointer.get();
                         self.pointer_up(window, x, y, mouse_button(raw.a as u32));
                     }
+                    event::POINTER_WHEEL => {
+                        let (x, y) = self.pointer.get();
+                        self.pointer_wheel(window, x, y, raw.a);
+                    }
                     event::KEY_DOWN => self.key_down(window, raw.a as u32),
                     event::KEY_UP => self.key_up(window, raw.a as u32),
                     _ => {}
@@ -150,6 +154,7 @@ impl LazyOSBackend {
             DisplayEvent::PointerUp { x, y, button } => {
                 self.pointer_up(window, x, y, mouse_button(button));
             }
+            DisplayEvent::PointerWheel { x, y, delta } => self.pointer_wheel(window, x, y, delta),
             DisplayEvent::KeyDown { key } => self.key_down(window, key),
             DisplayEvent::KeyUp { key } => self.key_up(window, key),
             DisplayEvent::Configure { width, height, .. } => {

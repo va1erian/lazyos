@@ -34,6 +34,8 @@ pub mod event {
     pub const KEY_DOWN: u32 = 3;
     /// Key released: `a` = key code.
     pub const KEY_UP: u32 = 4;
+    /// Wheel rolled: `a` = notches, positive away from the user (scroll up).
+    pub const POINTER_WHEEL: u32 = 5;
 }
 
 /// Pointer buttons, mirroring `kernel/src/display.rs::button`.

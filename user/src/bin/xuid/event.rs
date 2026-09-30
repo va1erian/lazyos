@@ -26,6 +26,7 @@ impl Compositor {
             EventKind::PointerUp => self.pointer_up(event.a as u32),
             EventKind::KeyDown => self.key_down(event.a as u32),
             EventKind::KeyUp => self.key_up(event.a as u32),
+            EventKind::PointerWheel => self.pointer_wheel(event.a as i32),
         }
     }
 

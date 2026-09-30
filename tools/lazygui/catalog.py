@@ -65,6 +65,7 @@ SCRIPTS = [
     ("xui_editor.json", "XUI app: Editor (type, save)", ("desktop",), "editor"),
     ("xui_paint.json", "XUI app: Paint (draw, save PNG)", ("desktop",), "paint"),
     ("xui_files.json", "XUI app: Files (browse, open)", ("desktop",), "files"),
+    ("xui_settings.json", "XUI app: Settings (menu, colours, layout)", ("desktop",), None),
 ]
 
 # Simple mode: (label, cargo profile) and (label, description) choices.
@@ -78,15 +79,15 @@ SIMPLE_INTERFACES = [
 ]
 
 XUI_VIEWERS = ["(none)", "m0", "counter", "sysmon", "fabricmon", "client", "term",
-               "editor", "paint", "files"]
+               "editor", "paint", "files", "settings"]
 # The desktop session's apps (issues #215/#216): embedded side by side, opened
 # by `init` as `xuid` clients. The Terminal comes first so it takes the focus.
 # The document apps ship with every desktop image (`build.rs`
 # `SHIP_DOCUMENT_APPS`); they open on demand (Start menu, right-click menu,
-# open-with), never at boot. The GUI passes an explicit `LAZYOS_XUI_APPS`
-# list, which replaces the build script's default set, so it must name them.
+# open-with), never at boot. The GUI does not list the embedded apps: the
+# desktop profile (`LAZYOS_DESKTOP=1`) makes `build.rs` embed its own default
+# set, so a new app needs no change here.
 DOCUMENT_APPS = ("editor", "files", "paint")
-DESKTOP_APPS = ("term", "sysmon", "fabricmon", "counter") + DOCUMENT_APPS
 ACCELS = ["auto", "none", "tcg", "whpx", "kvm"]
 DISKS = ["virtio", "ata"]
 
@@ -117,10 +118,6 @@ def build_env(cfg: dict) -> dict[str, str]:
         # A document-app session: the desktop profile opens just this app, but
         # the full app set is embedded (Files' open-with needs the Editor).
         env["LAZYOS_XUI_AUTOSTART"] = cfg["xui_autostart"]
-    if cfg.get("xui_apps"):
-        env["LAZYOS_XUI_APPS"] = os.pathsep.join(
-            os.path.join(ROOT, "target", "xui", f"xui-{app}.elf") for app in cfg["xui_apps"]
-        )
     if cfg["busybox"]:
         env["LAZYOS_BUSYBOX"] = cfg["busybox"]
     if cfg.get("cli"):
@@ -166,7 +163,6 @@ def simple_config(base: dict, build: str, interface: str) -> dict:
         "msgrd": False,
         "xui_client": False,
         "xui_app": "(none)",
-        "xui_apps": DESKTOP_APPS if desktop else (),
         "prebuild_xui": desktop,
     })
     return cfg

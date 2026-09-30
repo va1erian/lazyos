@@ -11,8 +11,9 @@ compositor) are ordinary request/reply methods: `CreateSurface`,
 `ListSurfaces`, `GetWorkArea`, `Subscribe`, `GetTheme`, `SetTitle`,
 `HintOpenOrigin` and `SetSizeHints`. **Events** (compositor to app, or to
 the shell subscriber) are `oneway` methods sent on the event endpoint the
-client transferred: `PointerMove`, `PointerDown`, `PointerUp`, `KeyDown`,
-`KeyUp`, `WindowClose`, `Configure`, the drag-and-drop set
+client transferred: `PointerMove`, `PointerDown`, `PointerUp`,
+`PointerWheel`, `KeyDown`, `KeyUp`, `WindowClose`, `Configure`, the
+drag-and-drop set
 `DragEnter`/`DragOver`/`DragLeave`/`Drop`/`DragEnded`, and the shell set
 `SurfaceChanged`/`FocusChanged`/`StartMenu`. Method ids are pinned to the
 values the hand-written protocol used (1-24), so the numbering stays
@@ -67,8 +68,9 @@ fields, which never use that id.
 | FrameDone | 28 | oneway | `(surface: U64, seq: U64) -> ()` |
 | SetTitle | 29 | sync | `(surface: U64, title: String) -> ()` |
 | HintOpenOrigin | 30 | sync | `(surface: U64, x: I32, y: I32, w: U32, h: U32) -> ()` |
-| SetSizeHints | 31 | sync | `(surface: U64, min_w: U32, min_h: U32, max_w: U32, max_h: U32) -> ()` |
-| Configure | 32 | oneway | `(surface: U64, width: U32, height: U32, state: U32) -> ()` |
+| PointerWheel | 31 | oneway | `(x: I32, y: I32, delta: I32) -> ()` |
+| SetSizeHints | 32 | sync | `(surface: U64, min_w: U32, min_h: U32, max_w: U32, max_h: U32) -> ()` |
+| Configure | 33 | oneway | `(surface: U64, width: U32, height: U32, state: U32) -> ()` |
 
 ## struct `Rect`
 

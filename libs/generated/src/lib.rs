@@ -1971,6 +1971,8 @@ pub mod os_lazy_confd_v1 {
     pub const METHOD_DELETE: u32 = 1469573738;
     /// `List` method id.
     pub const METHOD_LIST: u32 = 220805025;
+    /// `Info` method id.
+    pub const METHOD_INFO: u32 = 266462757;
 
     /// Read the value at `path`. An absent path has an empty `value`.
     /// A path the caller may not read fails with `CONFD_DENIED`.
@@ -2134,6 +2136,39 @@ pub mod os_lazy_confd_v1 {
                 while let Some(item) = nested.next()? {
                     out.paths.push(item.as_str()?.into());
                 }
+            }
+        }
+        Ok(out)
+    }
+
+    /// Where the store lives: the directory confd chose and whether it
+    /// survives a reboot (`false` when it fell back to the ramfs `/tmp`).
+    /// Not restricted by path, so any caller may ask.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct InfoReply {
+        pub store_dir: alloc::string::String,
+        pub persistent: bool,
+    }
+
+    pub fn encode_info_reply(value: &InfoReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.store_dir)?;
+        target.bool(2, value.persistent)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_info_reply(body: &[u8]) -> Result<InfoReply, Error> {
+        let mut out = InfoReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.store_dir = field.as_str()?.into();
+                }
+                2 => {
+                    out.persistent = field.as_bool()?;
+                }
+                _ => {}
             }
         }
         Ok(out)
@@ -2408,10 +2443,12 @@ pub mod os_lazy_display_v1 {
     pub const METHOD_SETTITLE: u32 = 29;
     /// `HintOpenOrigin` method id.
     pub const METHOD_HINTOPENORIGIN: u32 = 30;
+    /// `PointerWheel` method id.
+    pub const METHOD_POINTERWHEEL: u32 = 31;
     /// `SetSizeHints` method id.
-    pub const METHOD_SETSIZEHINTS: u32 = 31;
+    pub const METHOD_SETSIZEHINTS: u32 = 32;
     /// `Configure` method id.
-    pub const METHOD_CONFIGURE: u32 = 32;
+    pub const METHOD_CONFIGURE: u32 = 33;
 
     /// Create a surface of `width` x `height` pixels titled `title`. `role` is
     /// a `Role` value: a decorated window (also the meaning of an absent
@@ -3444,6 +3481,46 @@ pub mod os_lazy_display_v1 {
                 }
                 5 => {
                     out.h = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Event: the mouse wheel rolled `delta` notches over this surface's
+    /// content at `(x, y)` (relative to the content origin). Positive scrolls
+    /// up (the wheel rolled away from the user), negative down. The compositor
+    /// sends it to the topmost window under the pointer, which need not be the
+    /// focused one, and never to the title bar or an area outside every window.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct PointerWheelArgs {
+        pub x: i32,
+        pub y: i32,
+        pub delta: i32,
+    }
+
+    pub fn encode_pointer_wheel_args(value: &PointerWheelArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.i32(1, value.x)?;
+        target.i32(2, value.y)?;
+        target.i32(3, value.delta)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_pointer_wheel_args(body: &[u8]) -> Result<PointerWheelArgs, Error> {
+        let mut out = PointerWheelArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.x = field.as_i32()?;
+                }
+                2 => {
+                    out.y = field.as_i32()?;
+                }
+                3 => {
+                    out.delta = field.as_i32()?;
                 }
                 _ => {}
             }

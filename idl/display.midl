@@ -7,8 +7,9 @@
 /// `ListSurfaces`, `GetWorkArea`, `Subscribe`, `GetTheme`, `SetTitle`,
 /// `HintOpenOrigin` and `SetSizeHints`. **Events** (compositor to app, or to
 /// the shell subscriber) are `oneway` methods sent on the event endpoint the
-/// client transferred: `PointerMove`, `PointerDown`, `PointerUp`, `KeyDown`,
-/// `KeyUp`, `WindowClose`, `Configure`, the drag-and-drop set
+/// client transferred: `PointerMove`, `PointerDown`, `PointerUp`,
+/// `PointerWheel`, `KeyDown`, `KeyUp`, `WindowClose`, `Configure`, the
+/// drag-and-drop set
 /// `DragEnter`/`DragOver`/`DragLeave`/`Drop`/`DragEnded`, and the shell set
 /// `SurfaceChanged`/`FocusChanged`/`StartMenu`. Method ids are pinned to the
 /// values the hand-written protocol used (1-24), so the numbering stays
@@ -147,6 +148,12 @@ interface os.lazy.display.v1 {
     /// Minimize and restore keep using the taskbar entry. A compositor that
     /// predates the method answers `EINVAL`, which callers ignore.
     method HintOpenOrigin(surface: U64, x: I32, y: I32, w: U32, h: U32) -> () = 30;
+    /// Event: the mouse wheel rolled `delta` notches over this surface's
+    /// content at `(x, y)` (relative to the content origin). Positive scrolls
+    /// up (the wheel rolled away from the user), negative down. The compositor
+    /// sends it to the topmost window under the pointer, which need not be the
+    /// focused one, and never to the title bar or an area outside every window.
+    method PointerWheel(x: I32, y: I32, delta: I32) -> () = 31 oneway;
     /// Declare `surface` resizable within these content-size bounds (pixels).
     /// Only the creator may call it (`EACCES`; `ENOENT` for an unknown
     /// surface). A `max_*` of 0 means the largest size the screen allows.
@@ -155,13 +162,13 @@ interface os.lazy.display.v1 {
     /// window is fixed-size: no resize edges and no maximize button, so old
     /// clients are unaffected. The bounds apply to the content size (the
     /// decorated window is `BORDER` wider and `TITLE_H + BORDER` taller).
-    method SetSizeHints(surface: U64, min_w: U32, min_h: U32, max_w: U32, max_h: U32) -> () = 31;
+    method SetSizeHints(surface: U64, min_w: U32, min_h: U32, max_w: U32, max_h: U32) -> () = 32;
     /// Event: the window manager changed the surface's content size to
     /// `width` x `height` (`state` is a `WindowState`). The client should
     /// attach buffer(s) of the new size (`AttachBuffer`, or `AttachBufferSlot`
     /// on non-current slots for `Present` users) and present a full frame.
     /// Until it does the compositor shows the old buffer cropped or padded.
-    method Configure(surface: U64, width: U32, height: U32, state: U32) -> () = 32 oneway;
+    method Configure(surface: U64, width: U32, height: U32, state: U32) -> () = 33 oneway;
 
     /// What a surface is. Numeric values are the wire values.
     enum Role { Window, Desktop }

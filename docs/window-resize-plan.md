@@ -76,7 +76,7 @@ This step alone is behaviour-neutral and should land first (own commit).
 ### 2. Protocol additions (`idl/display.midl`, append-only)
 
 All via MIDL + `midlc` regeneration — no hand-written constants
-(AGENTS.md). Method ids continue from 30:
+(AGENTS.md). Method ids continue from 31 (`PointerWheel`, added on main meanwhile):
 
 ```
 /// Declare `surface` resizable within these content-size bounds (pixels).
@@ -84,14 +84,14 @@ All via MIDL + `midlc` regeneration — no hand-written constants
 /// 0 means "screen size". Bounds are clamped to [MIN_CONTENT, screen]; a
 /// min > max is `EINVAL`. Until called, a window is fixed-size: no resize
 /// edges and no maximize button, so old clients are unaffected.
-method SetSizeHints(surface: U64, min_w: U32, min_h: U32, max_w: U32, max_h: U32) -> () = 31;
+method SetSizeHints(surface: U64, min_w: U32, min_h: U32, max_w: U32, max_h: U32) -> () = 32;
 
 /// Event: the window manager changed the surface's content size to
 /// `width` x `height` (`state` is a `WindowState`). The client should attach
 /// buffer(s) of the new size (AttachBuffer, or AttachBufferSlot on non-current
 /// slots for Present users) and present a full frame. Until it does, the
 /// compositor shows the old buffer cropped/padded.
-method Configure(surface: U64, width: U32, height: U32, state: U32) -> () = 32 oneway;
+method Configure(surface: U64, width: U32, height: U32, state: U32) -> () = 33 oneway;
 
 enum WindowState { Normal, Maximized }
 ```

@@ -6,6 +6,7 @@
 
 pub mod argv;
 pub mod clipboard;
+pub mod confd_store;
 pub mod dialog_fs;
 pub mod files_fs;
 pub mod launcher;
