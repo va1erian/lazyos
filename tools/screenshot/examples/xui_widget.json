@@ -1,0 +1,7 @@
+[
+  {"wait_for": "WIDGET:UP:PASS", "timeout": 240},
+  {"wait": 4.0},
+  {"shot": "widget_idle"},
+  {"key": "q", "until": "WIDGET:QUIT:PASS", "timeout": 60, "retries": 2},
+  {"quit": true}
+]

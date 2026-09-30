@@ -108,6 +108,7 @@ pub(super) const CASES: &[(&str, Test)] = &[
         wait_queue_blocked_not_scheduled,
     ),
     ("task_yield_does_not_tick", yield_does_not_tick),
+    ("task_tick_on_parked_task_is_idle", tick_on_parked_task_is_idle),
     ("task_fpu_reset_is_default", fpu_reset_is_default),
     (
         "task_fpu_switch_keeps_each_tasks_state",

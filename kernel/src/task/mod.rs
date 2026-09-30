@@ -354,6 +354,16 @@ pub fn ticks() -> u64 {
     crate::arch::idt::TICKS.load(Ordering::Relaxed)
 }
 
+/// Timer ticks that found the CPU idle: the current task was parked in its
+/// wait loop because nothing was runnable (see `schedule::charge_tick`).
+/// `ticks() - idle_ticks()` is the CPU time charged to tasks.
+pub static IDLE_TICKS: AtomicU64 = AtomicU64::new(0);
+
+/// [`IDLE_TICKS`] as a value.
+pub fn idle_ticks() -> u64 {
+    IDLE_TICKS.load(Ordering::Relaxed)
+}
+
 /// The current task's `clear_child_tid` address.
 pub fn clear_child_tid() -> u64 {
     TASKS.lock()[current()]

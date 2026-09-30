@@ -17,11 +17,12 @@
 
 use crate::sys;
 
-/// ABI version this client understands (2: 64 task rows, issue #204).
-pub const VERSION: u64 = 2;
+/// ABI version this client understands (3: 64 task rows, issue #204, plus
+/// the idle tick counter).
+pub const VERSION: u64 = 3;
 
 /// Words in the header (mirrors `kernel::sysinfo::HEADER_WORDS`).
-pub const HEADER_WORDS: usize = 23;
+pub const HEADER_WORDS: usize = 24;
 /// Words in one task row (mirrors `kernel::sysinfo::TASK_ROW_WORDS`).
 pub const TASK_ROW_WORDS: usize = 10;
 /// Scheduler slots in the task table (mirrors `kernel::task::MAX_TASKS`).
@@ -79,6 +80,8 @@ pub mod header {
     pub const TASK_ROW_WORDS: usize = 21;
     /// Task rows following the header.
     pub const TASK_SLOTS: usize = 22;
+    /// PIT ticks that found the CPU idle (no task runnable).
+    pub const IDLE_TICKS: usize = 23;
 }
 
 /// Task row word indices (relative to a row's base).
@@ -304,6 +307,8 @@ pub struct Snapshot {
     pub words: u64,
     /// PIT ticks since boot (100 Hz).
     pub ticks: u64,
+    /// PIT ticks that found the CPU idle (no task runnable).
+    pub idle_ticks: u64,
     /// Occupied slots whose state is not done.
     pub tasks_live: u64,
     /// Frames the allocator can hand out.
@@ -399,6 +404,7 @@ pub fn decode_words(words: &[u64; WORDS]) -> Option<Snapshot> {
         version: words[header::VERSION],
         words: words[header::WORDS],
         ticks: words[header::TICKS],
+        idle_ticks: words[header::IDLE_TICKS],
         tasks_live: words[header::TASKS_LIVE],
         frames_total: words[header::FRAMES_TOTAL],
         frames_live: words[header::FRAMES_LIVE],

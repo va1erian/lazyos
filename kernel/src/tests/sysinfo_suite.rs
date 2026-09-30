@@ -109,6 +109,15 @@ pub fn snapshot_abi_contract() -> Result<(), String> {
         sysinfo::TASK_ROW_WORDS,
         task::MAX_TASKS
     );
+    // Version 3: the idle counter is a share of uptime, never more than it.
+    check!(
+        words[sysinfo::H_IDLE_TICKS] <= words[sysinfo::H_TICKS]
+            && words[sysinfo::H_IDLE_TICKS] == task::idle_ticks(),
+        "idle ticks word is {} with {} ticks of uptime (kernel says {})",
+        words[sysinfo::H_IDLE_TICKS],
+        words[sysinfo::H_TICKS],
+        task::idle_ticks()
+    );
     Ok(())
 }
 
