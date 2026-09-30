@@ -14,3 +14,15 @@ pub const MONO_BYTES: &[u8] = include_bytes!("../../assets/fonts/JetBrainsMono-R
 
 /// The family name JetBrains Mono declares, for `set_default_family`.
 pub const MONO_FAMILY: &str = "JetBrains Mono";
+
+/// The family name Droid Sans declares, for `set_default_family`.
+pub const UI_FAMILY: &str = "Droid Sans";
+
+/// Registers JetBrains Mono next to the UI face for an app that draws a
+/// monospace grid (the Editor), keeping Droid Sans the default family so the
+/// menus and status bar are unchanged. Call before the backend is created:
+/// the shaper builds its font database lazily on the first measure or draw.
+pub fn register_mono() {
+    xui_canvas::add_font(MONO_BYTES.to_vec());
+    xui_canvas::set_default_family(UI_FAMILY);
+}

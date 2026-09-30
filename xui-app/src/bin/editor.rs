@@ -29,6 +29,9 @@ use xui_core::units::Dip;
 const WINDOW: (i32, i32) = (900, 640);
 
 fn main() -> std::process::ExitCode {
+    // The grid needs a real monospace face; `monospace` alone would fall back
+    // to the proportional UI font and letter-space the text.
+    xui_app::font::register_mono();
     let path = xui_app::platform::argv::file_arg(std::env::args_os());
     let backend = match LazyOSBackend::connect() {
         Ok(backend) => Rc::new(backend),

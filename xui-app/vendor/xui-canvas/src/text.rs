@@ -10,7 +10,7 @@ use std::cell::RefCell;
 use std::sync::Arc;
 
 use cosmic_text::{
-    Align, Attrs, Buffer, Color, Family, FontSystem, Metrics, Shaping, Style, SwashCache, Weight,
+    Attrs, Buffer, Color, Family, FontSystem, Metrics, Shaping, Style, SwashCache, Weight,
     Wrap,
 };
 use tiny_skia::{Mask, Pixmap, PremultipliedColorU8};
@@ -118,14 +118,6 @@ pub(crate) fn attrs_for<'a>(
     attrs
 }
 
-fn align_of(style: &TextStyle) -> Option<Align> {
-    match style.align {
-        TextAlign::Start => None,
-        TextAlign::Center => Some(Align::Center),
-        TextAlign::End => Some(Align::Right),
-    }
-}
-
 /// The shaping attributes for `style`: its family (or `fallback`, the thread's
 /// [`set_default_family`]), weight and slant, so the measured glyph advances
 /// are the ones that get painted.
@@ -174,7 +166,10 @@ pub fn measure(text: &str, style: &TextStyle, dpi: u32, max_width: i32) -> TextM
             text,
             &attrs(style, family.as_deref()),
             Shaping::Advanced,
-            align_of(style),
+            // Alignment is applied per line at draw time: cosmic-text also
+            // aligns a non-wrapped line against the buffer width, which would
+            // apply the offset twice.
+            None,
         );
         buffer.shape_until_scroll(&mut text_system.font_system, false);
         for run in buffer.layout_runs() {
@@ -225,7 +220,10 @@ pub fn draw(
             text,
             &attrs(style, family.as_deref()),
             Shaping::Advanced,
-            align_of(style),
+            // Alignment is applied per line at draw time: cosmic-text also
+            // aligns a non-wrapped line against the buffer width, which would
+            // apply the offset twice.
+            None,
         );
         buffer.shape_until_scroll(&mut text_system.font_system, false);
 

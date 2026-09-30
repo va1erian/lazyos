@@ -32,7 +32,10 @@ The three LazyOS additions:
    paragraph alignment, which only positions *wrapped* lines; a natural-width
    run draws from the rectangle's left edge whatever the style says. The
    viewers' right-aligned table cells need `TextAlign::Center`/`End`, so
-   `text::draw` applies the alignment offset itself, per line.
+   `text::draw` applies the alignment offset itself, per line. The shaper is given
+   no paragraph alignment at all: cosmic-text 0.19 also aligns a non-wrapped
+   line against the buffer width, which applied the offset twice (right-aligned
+   Editor line numbers landed on top of the text).
 3. **`Surface::pixels`.** Upstream only offers `to_image`, which clones the
    whole pixmap per call. The LazyOS backend presents a frame per timer tick,
    and a fresh screen-sized clone every frame exhausts LazyOS's bump-only

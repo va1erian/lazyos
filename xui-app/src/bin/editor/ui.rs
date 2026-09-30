@@ -92,7 +92,7 @@ pub fn build(ui: &Ui<Msg>) -> Result<Notepad> {
     // would space the glyphs apart.
     let options = Options {
         font: FontConfig {
-            family: Some("monospace".to_owned()),
+            family: Some(xui_app::font::MONO_FAMILY.to_owned()),
             ..FontConfig::default()
         },
         ..Options::default()
