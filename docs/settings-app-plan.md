@@ -58,7 +58,7 @@ preset swatches plus RGB sliders. Registration: `xui-app/Cargo.toml`,
 
 Verified by `tools/screenshot/examples/xui_settings.json` (serial markers `SETTINGS:UP:PASS`, `SETTINGS:MSG:*`, `THEME:APPLIED`, `SETTINGS:CLOSE:PASS`).
 
-**Toolkit dependency.** `ColorPicker` ignored clicks when not at its container's top-left (event coordinates are node-local, `Ui::bounds` is parent-relative). Fixed in the xui repo (`ColorPicker: hit-test in node-local coordinates`); the pinned rev in `xui-app/Cargo.toml` and `xui-app/crates/*/Cargo.toml` must be bumped to a commit containing it for the swatch grids to respond.
+**Toolkit dependency.** `ColorPicker` ignored clicks when not at its container's top-left (event coordinates are node-local, `Ui::bounds` is parent-relative). Fixed upstream in `va1erian/xui` (#248, `58c1a6e`); `xui-app` is pinned to that rev.
 
 ## Verification
 
