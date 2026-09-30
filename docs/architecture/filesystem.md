@@ -104,6 +104,13 @@ cannot hold.
    the one place it is mounted; there is no mount syscall.
 5. `mount_device(point, device)` is the named-device mount surface (tests).
 
+**Docs on the boot volume.** The build embeds the repository's Markdown —
+every `*.md` under `docs/` recursively, plus the root `README.md` — into the FAT
+boot volume at `/docs/<relative path>` (`build_support/docs_embed.rs`), e.g.
+`/docs/architecture/boot.md` and `/docs/README.md`. The Docs app and the Editor
+read them through the VFS; FAT long names and the nested subdirectories carry
+the tree as written, with no flattening.
+
 **Durability** (`fs::sync_all`, `ext2/state.rs`)
 
 `fs::sync_all()` flushes every mounted filesystem (`Vfs::sync_all`; one failing

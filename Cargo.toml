@@ -27,6 +27,8 @@ members = [
     "libs/timed",
     # Desktop theme schema + palette resolution shared by xuid and Settings.
     "libs/uitheme",
+    # Desktop context-menu schema (sys/ui/menu) shared by xuid and Settings.
+    "libs/deskmenu",
     # Modern virtio-PCI transport + split virtqueues, and the virtio-sound
     # protocol, for userspace drivers (docs/driver-plan.md D5/D6). Pure `no_std`
     # logic with host tests.

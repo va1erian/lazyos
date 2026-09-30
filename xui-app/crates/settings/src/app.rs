@@ -20,6 +20,7 @@ use xui_core::widget::{
 use xui_core::{Color, HasText, Rect};
 
 use crate::keyboard;
+use crate::menu_page::{MenuMsg, MenuPage};
 use crate::sections::{Section, SectionsModel};
 use crate::store::ConfigStore;
 use crate::theme_ops::{self, ACCENTS, BACKGROUNDS};
@@ -54,6 +55,7 @@ pub enum Msg {
     Commit(u32),
     UseDefault,
     Layout(usize),
+    Menu(MenuMsg),
     /// The compositor asked the window to close.
     Close,
 }
@@ -68,6 +70,7 @@ struct Pages {
     appearance: Panel<Msg>,
     windows: Panel<Msg>,
     keyboard: Panel<Msg>,
+    menu: MenuPage,
     mode: RadioGroup<Msg>,
     accent: ColorPicker<Msg>,
     background: ColorPicker<Msg>,
@@ -169,6 +172,8 @@ impl SettingsApp {
             (layout, hint, test)
         };
 
+        let menu = MenuPage::build(ui, page)?;
+
         let status = Label::new(
             ui,
             rect(SIDEBAR_W + 20, WINDOW.1 - STATUS_H + 4, 460, 20),
@@ -182,6 +187,7 @@ impl SettingsApp {
                 appearance,
                 windows,
                 keyboard,
+                menu,
                 mode,
                 accent,
                 background,
@@ -211,6 +217,7 @@ impl SettingsApp {
         p.appearance.set_visible(section == Section::Appearance);
         p.windows.set_visible(section == Section::Windows);
         p.keyboard.set_visible(section == Section::Keyboard);
+        p.menu.set_visible(section == Section::Menu);
     }
 
     /// Point every control at the stored values (no events are raised).
@@ -234,6 +241,7 @@ impl SettingsApp {
                 .set_text("No layout chosen yet (using the boot default)."),
         }
         self.load_target(self.target);
+        self.pages.menu.load(self.store.as_ref());
     }
 
     /// Point the colour panel at the colour in effect for `target`.
@@ -327,6 +335,12 @@ impl App for SettingsApp {
                 self.report(keyboard::set(store, i), "Keyboard layout changed.");
                 if let Some((_, name)) = keyboard::LAYOUTS.get(i) {
                     self.pages.layout_hint.set_text(&format!("Active: {name}"));
+                }
+            }
+            Msg::Menu(msg) => {
+                let text = self.pages.menu.update(msg, store);
+                if !text.is_empty() {
+                    self.status.set_text(&text);
                 }
             }
         }

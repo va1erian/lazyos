@@ -13,6 +13,7 @@
 
 pub mod backend;
 pub mod client_window;
+pub mod compact;
 pub mod dashboard;
 pub mod display;
 pub mod fabric;

@@ -38,8 +38,8 @@ per-path ACLs, audit trail, compaction, queries, quotas, `keyd` delegation.
 | Mediation | Userspace service `confd` over Messenger; kernel stays mechanism-only. |
 | Namespace | Hierarchical paths: `sys/net/eth0/mtu`, `user/1000/shell/theme`. |
 | Data model | One **value** per path: `bool`, `i64`, `u64`, `string`, or `bytes`. No records, no schemas. Structure comes from the path tree (`.../eth0/dhcp`, `.../eth0/mtu`). |
-| Persistence | The whole tree in memory; on every write, serialize to `/system/confd/store.tmp`, fsync, rename over `/system/confd/store`. Rename is atomic, so a crash leaves the old or the new store, never a torn one. Config is small; this is fast enough. |
-| Access | Messenger interface `os.lazy.confd.v1` only. `confd` alone holds a handle to `/system/confd`. |
+| Persistence | The whole tree in memory; on every write, serialize to `<dir>/store.tmp` (`/data/confd` preferred, see §5), fsync, rename over `<dir>/store`. Rename is atomic, so a crash leaves the old or the new store, never a torn one. Config is small; this is fast enough. |
+| Access | Messenger interface `os.lazy.confd.v1` only. `confd` alone holds a handle to its store directory. |
 | Notification | One Messenger topic per changed path. |
 | Access control | Two fixed rules using the kernel-stamped `uid` (see §4). |
 
@@ -103,6 +103,24 @@ in `confd` in v1; use `keyd` directly.
   after reconnecting, since change topics are best-effort.
 - *Corrupt store file:* `confd` starts empty, logs to `logd`, and keeps the bad
   file as `store.corrupt` for inspection.
+- *Where the store lives:* on the shipped image `/system` is the read-only FAT
+  boot volume (`mkdir` fails with `EROFS`) and `/tmp` is volatile ramfs, so the
+  only persistent, writable location is the ext2 data volume. Preference order
+  is `/data/confd`, `/system/confd` (for a future writable system volume),
+  then `/tmp/confd` (reported *degraded*). The kernel mounts `/data` before
+  userspace starts (there is no mount syscall), so normally `confd` finds it
+  ready; there is no retry in `init` because the mount is not asynchronous.
+- *Data volume arrives late, or an earlier run used a lower location:* settings
+  must not be silently lost. At startup `confd` merges any store left in a
+  lower-ranked directory into the chosen one (`Confd::absorb`); while running
+  on a lower-ranked directory it re-probes `/data/confd` every ~200 ticks and
+  on success moves onto it (`Confd::rebind`). Both merges only add paths the
+  destination lacks, so existing `/data` values always win; persist happens
+  before the switch, so a failure leaves the running store unchanged and is
+  retried. A fully merged source store is renamed `store.migrated`, so a value
+  deleted afterwards is never resurrected. Entries that do not fit the limits
+  are skipped (and the source kept) rather than dropped. Changed `sys/` paths
+  are announced; `CONFD:SEED`/`CONFD:MIGRATED` serial lines record it.
 
 **Rollout**
 

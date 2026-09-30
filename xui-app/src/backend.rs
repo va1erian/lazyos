@@ -226,6 +226,23 @@ impl LazyOSBackend {
         self.size_hints.set(Some((min_w, min_h, max_w, max_h)));
     }
 
+    /// Ask the compositor to resize this app's window to `width` x `height`
+    /// content pixels (a compact/expanded toggle). The compositor clamps it to
+    /// the size hints and answers with a `Configure`, which reaches the app as
+    /// `Event::Resize`; a failure (no hints, old compositor, owner mode) is
+    /// ignored because the window then simply keeps its size.
+    pub fn request_size(&self, width: u32, height: u32) {
+        let Mode::Client(state) = &self.mode else {
+            return;
+        };
+        let client = state.borrow().client;
+        for window in self.windows.borrow().values() {
+            if let Some(surface) = &window.client {
+                let _ = client.request_size(surface.surface, width, height);
+            }
+        }
+    }
+
     /// Whether this backend is a compositor client.
     pub fn is_client(&self) -> bool {
         matches!(self.mode, Mode::Client(_))

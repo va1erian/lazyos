@@ -41,7 +41,7 @@ impl Compositor {
         }
         // Hide the window for the animation, like `iconify`.
         self.set_minimized(id, true);
-        self.zoom(from, target);
+        self.zoom_two_step(id, from, target);
         self.apply_window(id, target);
         self.set_minimized(id, false);
         self.configure_and_notify(id, wire::WINDOW_STATE_MAXIMIZED, wire::CHANGE_MAXIMIZED);
@@ -67,7 +67,7 @@ impl Compositor {
             surface.maximized = None;
         }
         self.set_minimized(id, true);
-        self.zoom(from, restore);
+        self.zoom_two_step(id, from, restore);
         self.apply_window(id, restore);
         self.set_minimized(id, false);
         self.configure_and_notify(id, wire::WINDOW_STATE_NORMAL, wire::CHANGE_UNMAXIMIZED);

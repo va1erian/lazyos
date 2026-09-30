@@ -10,16 +10,22 @@
 //! `FABMON:UP:FAIL:<errno>` when the fabric snapshot is unreadable),
 //! `FABMON:READY:PASS` once the event loop has ticked (input is now handled),
 //! `FABMON:REFRESH:PASS` on `r`, `FABMON:QUIT:PASS` on `q`, and a
-//! `FABMON:DATA:...` line with the headline counters.
+//! `FABMON:DATA:...` line with the headline counters. `c` (or the chip)
+//! toggles the compact view by asking the compositor for a size, and
+//! `FABMON:SIZE:<w>x<h>` follows every resize.
 
 use std::cell::RefCell;
 use std::rc::Rc;
 
 use xui_app::backend::LazyOSBackend;
+use xui_app::compact;
 use xui_app::fabric::{self, FabricStats, RegistryEntry, Topics};
 use xui_core::app::{run_app, App, Ui};
-use xui_core::backend::{Backend, Event, NodeKind, NodeSpec, PlatformSpec};
-use xui_core::Control;
+use xui_core::backend::{Backend, Event, NodeKind, NodeSpec, PlatformSpec, WidgetId};
+use xui_core::{Control, MouseButton};
+
+#[path = "fabricmon/compact.rs"]
+mod compact_view;
 
 #[path = "fabricmon/render.rs"]
 mod render;
@@ -39,6 +45,10 @@ enum Msg {
     Refresh,
     /// The user pressed `q`.
     Quit,
+    /// The user pressed `c` or clicked the chip.
+    ToggleCompact,
+    /// The compositor resized the window.
+    Resized,
 }
 
 /// Everything the panel renders, shared with the painter.
@@ -107,6 +117,9 @@ impl State {
 struct Fabricmon {
     state: Rc<RefCell<State>>,
     root: Control<Msg>,
+    backend: Rc<LazyOSBackend>,
+    /// The last full-size window, restored when leaving compact mode.
+    full_size: (i32, i32),
 }
 
 impl App for Fabricmon {
@@ -134,6 +147,24 @@ impl App for Fabricmon {
                 println!("FABMON:QUIT:PASS");
                 ui.quit();
             }
+            Msg::ToggleCompact => {
+                let rect = ui.client_rect();
+                let (w, h) = compact::toggle_target(
+                    (rect.width(), rect.height()),
+                    self.full_size,
+                    (WINDOW.0 as u32, WINDOW.1 as u32),
+                );
+                self.backend.request_size(w, h);
+            }
+            Msg::Resized => {
+                let rect = ui.client_rect();
+                if !compact::is_compact(rect.width(), rect.height()) {
+                    self.full_size = (rect.width(), rect.height());
+                }
+                ui.apply_moves(&[(self.root.id(), rect)]);
+                ui.invalidate(self.root.id());
+                println!("FABMON:SIZE:{}x{}", rect.width(), rect.height());
+            }
         }
     }
 }
@@ -148,6 +179,7 @@ fn main() {
     };
     let (width, height) = backend.window_size(WINDOW);
     let state = Rc::new(RefCell::new(State::load()));
+    backend.set_size_hints(compact::MIN_SIZE.0, compact::MIN_SIZE.1, 0, 0);
 
     {
         let state = Rc::clone(&state);
@@ -187,16 +219,33 @@ fn main() {
                 render::paint(canvas, &state.borrow())
             }));
         }
-        root.on_events(|event| match event {
+        let ui_probe = ui.clone();
+        root.on_events(move |event| match event {
             Event::Char('r') => Some(Msg::Refresh),
             Event::Char('q') => Some(Msg::Quit),
+            Event::Char('c') => Some(Msg::ToggleCompact),
+            Event::MouseDown {
+                x,
+                y,
+                button: MouseButton::Left,
+                ..
+            } if compact::hit_chip(ui_probe.client_rect(), *x, *y) => Some(Msg::ToggleCompact),
+            _ => None,
+        });
+        ui.register_events(WidgetId::NONE, |event| match event {
+            Event::Resize { .. } => Some(Msg::Resized),
             _ => None,
         });
         root.focus();
         ui.on_timer(|_| Some(Msg::Tick));
         ui.on_close(|| Some(Msg::Quit));
         ui.set_timer(REFRESH_MILLIS);
-        Fabricmon { state, root }
+        Fabricmon {
+            state,
+            root,
+            backend: Rc::clone(&backend),
+            full_size: WINDOW,
+        }
     });
 
     backend.unbind();

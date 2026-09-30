@@ -1,6 +1,7 @@
 //! The desktop context menu (issue #323): a compositor-owned popup, like the
 //! Alt+Tab overlay, opened by a right press on the bare desktop. Its entries
-//! are hardcoded for now and each launches an `init` registry app.
+//! come from confd ([`menuitems`](super::menuitems)) and each launches an
+//! `init` registry app.
 //!
 //! The compositor is one task, so the open state lives in relaxed atomics
 //! (as `SHELL_DEAD` does) instead of being threaded through every `repaint`
@@ -12,24 +13,10 @@ use user::messenger::services::{self, INIT_NAME};
 use user::sys;
 
 use super::compositor::Compositor;
+use super::menuitems;
 use super::theme::{overlay_bg, overlay_border, overlay_selected, overlay_text, TASKBAR_H};
 use super::window::contains;
 
-/// The hardcoded entries: `(init app id, label)`. Terminal first.
-const ITEMS: &[(&str, &str)] = &[
-    ("terminal", "Terminal"),
-    ("sysmon", "System Monitor"),
-    ("fabricmon", "Fabric Monitor"),
-    ("counter", "Counter"),
-    ("editor", "Editor"),
-    ("paint", "Paint"),
-    ("files", "Files"),
-    ("settings", "Settings"),
-    // Shipped when the build had the zig toolchain (`tools/xui/zig.py`); an
-    // image without it answers the launch as unavailable, like any unshipped
-    // registry app.
-    ("docs", "Docs"),
-];
 const ITEM_H: i32 = 20;
 const PAD: i32 = 4;
 const TEXT_PAD: i32 = 12;
@@ -49,16 +36,12 @@ pub(super) fn is_open() -> bool {
     OPEN.load(Ordering::Relaxed)
 }
 
-/// The menu rectangle for a press at `at` on a `screen` of the given size:
-/// anchored at the pointer, shifted to stay on screen and above the taskbar.
-fn geometry(at: (i32, i32), screen: (i32, i32)) -> Rect {
-    let label_w = ITEMS
-        .iter()
-        .map(|(_, label)| Face::Sans.width(label))
-        .max()
-        .unwrap_or(0);
+/// The menu rectangle for a press at `at` on a `screen` of the given size,
+/// for `count` rows whose widest label is `label_w` wide: anchored at the
+/// pointer, shifted to stay on screen and above the taskbar.
+fn geometry(at: (i32, i32), screen: (i32, i32), count: usize, label_w: i32) -> Rect {
     let w = (label_w + TEXT_PAD * 2).max(MIN_W);
-    let h = ITEMS.len() as i32 * ITEM_H + PAD * 2;
+    let h = count as i32 * ITEM_H + PAD * 2;
     Rect::new(
         at.0.min(screen.0 - w).max(0),
         at.1.min(screen.1 - TASKBAR_H - h).max(0),
@@ -67,21 +50,26 @@ fn geometry(at: (i32, i32), screen: (i32, i32)) -> Rect {
     )
 }
 
-/// The item index under `point` for a menu occupying `menu`.
-fn item_at(menu: Rect, point: (i32, i32)) -> Option<usize> {
-    let inside = Rect::new(menu.x, menu.y + PAD, menu.w, ITEMS.len() as i32 * ITEM_H);
+/// The item index under `point` for a menu of `count` rows occupying `menu`.
+fn item_at(menu: Rect, point: (i32, i32), count: usize) -> Option<usize> {
+    let inside = Rect::new(menu.x, menu.y + PAD, menu.w, count as i32 * ITEM_H);
     contains(inside, point).then(|| ((point.1 - inside.y) / ITEM_H) as usize)
 }
 
 /// The open menu's rectangle (damage for repaints).
 pub(super) fn rect(screen: (i32, i32)) -> Rect {
-    geometry(
-        (
-            ORIGIN_X.load(Ordering::Relaxed),
-            ORIGIN_Y.load(Ordering::Relaxed),
-        ),
-        screen,
-    )
+    let at = (
+        ORIGIN_X.load(Ordering::Relaxed),
+        ORIGIN_Y.load(Ordering::Relaxed),
+    );
+    menuitems::with(|items| {
+        let label_w = items
+            .iter()
+            .map(|entry| Face::Sans.width(&entry.label))
+            .max()
+            .unwrap_or(0);
+        geometry(at, screen, items.len(), label_w)
+    })
 }
 
 /// Open the menu at `at`; returns the damage to repaint.
@@ -105,7 +93,8 @@ pub(super) fn close(screen: (i32, i32)) -> Rect {
 /// Track the pointer; returns the damage when the highlight changed.
 pub(super) fn hover(point: (i32, i32), screen: (i32, i32)) -> Rect {
     let menu = rect(screen);
-    let now = item_at(menu, point).map_or(-1, |index| index as i32);
+    let count = menuitems::with(|items| items.len());
+    let now = item_at(menu, point, count).map_or(-1, |index| index as i32);
     if HOVER.swap(now, Ordering::Relaxed) == now {
         return Rect::new(0, 0, 0, 0);
     }
@@ -120,10 +109,14 @@ pub(super) fn hit(point: (i32, i32), screen: (i32, i32)) -> bool {
 /// Activate the item under `point`, if any: launch it. The caller closes the
 /// menu either way.
 pub(super) fn activate(point: (i32, i32), screen: (i32, i32)) {
-    let Some(index) = item_at(rect(screen), point) else {
+    let count = menuitems::with(|items| items.len());
+    let Some(index) = item_at(rect(screen), point, count) else {
         return;
     };
-    let (app, _) = ITEMS[index];
+    let Some(app) = menuitems::with(|items| items.get(index).map(|entry| entry.app.clone())) else {
+        return;
+    };
+    let app = app.as_str();
     let deadline = Some(sys::clock() + LAUNCH_TIMEOUT_TICKS);
     let result = services::resolve_service(INIT_NAME)
         .and_then(|init| services::launch_by(&init, app, "", 0, deadline));
@@ -160,25 +153,28 @@ pub(super) fn draw(screen: &mut Canvas, clip: Rect) {
         overlay_bg(),
     );
     let hovered = HOVER.load(Ordering::Relaxed);
-    for (index, (_, label)) in ITEMS.iter().enumerate() {
-        let row = Rect::new(
-            menu.x + 2,
-            menu.y + PAD + index as i32 * ITEM_H,
-            menu.w - 4,
-            ITEM_H,
-        );
-        if index as i32 == hovered {
-            screen.fill(row, clip, overlay_selected());
+    menuitems::with(|items| {
+        for (index, entry) in items.iter().enumerate() {
+            let label = entry.label.as_str();
+            let row = Rect::new(
+                menu.x + 2,
+                menu.y + PAD + index as i32 * ITEM_H,
+                menu.w - 4,
+                ITEM_H,
+            );
+            if index as i32 == hovered {
+                screen.fill(row, clip, overlay_selected());
+            }
+            screen.text_face(
+                row.x + TEXT_PAD - 2,
+                row.y + (ITEM_H - Face::Sans.height()) / 2,
+                label,
+                Face::Sans,
+                overlay_text(),
+                row.intersect(clip),
+            );
         }
-        screen.text_face(
-            row.x + TEXT_PAD - 2,
-            row.y + (ITEM_H - Face::Sans.height()) / 2,
-            label,
-            Face::Sans,
-            overlay_text(),
-            row.intersect(clip),
-        );
-    }
+    });
 }
 
 impl Compositor {
