@@ -42,18 +42,22 @@ pub(super) const AUTOSTART_DELAY: u64 = 50;
 pub(super) const AUTOSTART_STAGGER: u64 = 40;
 /// Autostart retries per app while the task table is full.
 pub(super) const AUTOSTART_ATTEMPTS: u64 = 40;
-/// Launched rows one session may hold reserved at once (issue #177). The
-/// boot manifest's own services already run the task table
-/// (`kernel/src/task/mod.rs`'s `MAX_TASKS`) close to full for the life of the
-/// boot, so the cap is a small fixed number rather than derived from the
-/// live table: it must hold room for supervised restarts and new logins even
-/// when nothing else has freed a slot yet. A row still reserves its slot
+/// Launched rows one session may hold reserved at once (issue #177). The cap
+/// exists so an unprivileged caller cannot loop `Launch` until the task table
+/// (`kernel/src/task/mod.rs`'s `MAX_TASKS`, 64 slots) is full, starving
+/// supervised restarts and new logins. It is a fixed number rather than one
+/// derived from the live table so the headroom it protects is predictable:
+/// the desktop boot idles at about 17 live tasks, a launched app is one task
+/// (the Terminal adds one child shell), so a full session leaves roughly a
+/// third of the table free. The old value of 2 was chosen when the manifest
+/// alone nearly filled the table and read, together with the autostart
+/// Terminal, as "only three apps ever open". A row still reserves its slot
 /// while `Restarting`: [`spawn_service`] respawns it from the main loop's
 /// backoff sweep, not through [`launch`], so a crashed row that stopped
 /// counting here could let a session accumulate more rows than the cap once
 /// they all came back up. [`running_in_session`] counts every phase that
 /// currently holds or will reclaim a slot without another cap check.
-pub(super) const LAUNCH_CAP_PER_SESSION: usize = 2;
+pub(super) const LAUNCH_CAP_PER_SESSION: usize = 16;
 
 /// The `sndd` driver's identity (docs/driver-plan.md D3): a dedicated system
 /// uid holding only `CAP_DEV_CLAIM`, so a compromised driver has the device it
