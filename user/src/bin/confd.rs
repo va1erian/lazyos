@@ -171,6 +171,9 @@ fn run() -> messenger::Result<()> {
     // below parks with a deadline while it is alive so its exit is reaped.
     let mut demo_pending = demo_from_args();
     let mut demo_children = 0u64;
+    // Absolute, so steady client traffic (which never lets a receive time out)
+    // cannot postpone the move to `/data/confd` forever.
+    let mut next_upgrade = sys::clock().saturating_add(UPGRADE_TICKS);
     loop {
         if demo_pending {
             demo_children = spawn_demo();
@@ -182,7 +185,7 @@ fn run() -> messenger::Result<()> {
         let deadline = if demo_children > 0 {
             Some(sys::clock().saturating_add(POLL_TICKS))
         } else if upgrade_due {
-            Some(sys::clock().saturating_add(UPGRADE_TICKS))
+            Some(next_upgrade)
         } else {
             None
         };
@@ -198,20 +201,24 @@ fn run() -> messenger::Result<()> {
                 }
             }
             // The demo wakeup that reaps a finished child is not a failure.
-            Err(Error::Errno(code)) if code == -errno::ETIMEDOUT => {
-                if upgrade_due && try_upgrade(&mut service) {
-                    dir = String::from(dir::PREFERRED_DIR);
-                    persistent = true;
-                    service
-                        .sink_mut()
-                        .report_health("ok", &format!("store={dir}"));
-                    sys::write_str(&format!(
-                        "CONFD:MIGRATED dir={dir}
-"
-                    ));
-                }
-            }
+            Err(Error::Errno(code)) if code == -errno::ETIMEDOUT => {}
             Err(error) => return Err(error),
+        }
+        // Checked after every wakeup, not only timeouts, at most once per
+        // `UPGRADE_TICKS` (the demo poll wakes far more often than that).
+        if upgrade_due && sys::clock() >= next_upgrade {
+            next_upgrade = sys::clock().saturating_add(UPGRADE_TICKS);
+            if try_upgrade(&mut service) {
+                dir = String::from(dir::PREFERRED_DIR);
+                persistent = true;
+                service
+                    .sink_mut()
+                    .report_health("ok", &format!("store={dir}"));
+                sys::write_str(&format!(
+                    "CONFD:MIGRATED dir={dir}
+"
+                ));
+            }
         }
         while demo_children > 0 && sys::wait(sys::clock()).is_some() {
             demo_children -= 1;

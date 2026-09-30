@@ -46,17 +46,19 @@ pub struct Doc {
 /// path or bytes are not valid UTF-8, and files larger than [`MAX_FILE_BYTES`],
 /// are skipped with a `cargo:warning` so one bad file can never fail a build. A
 /// missing `docs/` is not an error.
-pub fn collect(manifest_dir: &Path) -> Vec<Doc> {
+pub fn collect(manifest_dir: &Path) -> Result<Vec<Doc>, String> {
     // A BTreeMap sorts destinations and de-duplicates them deterministically.
     let mut found: BTreeMap<String, PathBuf> = BTreeMap::new();
-    collect_dir(&manifest_dir.join(DISK_ROOT), manifest_dir, &mut found);
+    collect_dir(&manifest_dir.join(DISK_ROOT), manifest_dir, &mut found)?;
 
     let readme = manifest_dir.join(README);
     if readme.is_file() {
-        // `or_insert` keeps a real docs/README.md over the root one.
-        found
-            .entry(format!("{DISK_ROOT}/{README}"))
-            .or_insert(readme);
+        // The FAT volume is case-insensitive, so a real `docs/readme.MD` (any
+        // case) wins over the root README; both would otherwise write one file.
+        let dest = format!("{DISK_ROOT}/{README}");
+        if !found.keys().any(|key| key.eq_ignore_ascii_case(&dest)) {
+            found.insert(dest, readme);
+        }
     }
 
     let mut docs = Vec::with_capacity(found.len());
@@ -69,25 +71,44 @@ pub fn collect(manifest_dir: &Path) -> Vec<Doc> {
             ),
         }
     }
-    docs
+    Ok(docs)
 }
 
 /// Recursively add every `*.md` under `dir` (its relative path is the
-/// destination). Unreadable directories and entries are ignored; a symlinked
-/// directory is not followed, so the walk cannot loop.
-fn collect_dir(dir: &Path, manifest_dir: &Path, found: &mut BTreeMap<String, PathBuf>) {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return; // missing or unreadable: nothing to embed here
+/// destination). A missing top-level directory is fine, but an unreadable
+/// directory or entry is an error (a build must not silently lose documents); a
+/// symlinked directory is not followed, so the walk cannot loop. Two files that
+/// differ only by case would collide on the case-insensitive FAT volume, so the
+/// second is skipped with a warning.
+fn collect_dir(
+    dir: &Path,
+    manifest_dir: &Path,
+    found: &mut BTreeMap<String, PathBuf>,
+) -> Result<(), String> {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound && dir.ends_with(DISK_ROOT) => {
+            return Ok(()); // no docs/ at all: nothing to embed
+        }
+        Err(err) => return Err(format!("cannot read {}: {err}", dir.display())),
     };
-    let mut paths: Vec<PathBuf> = entries
-        .filter_map(|entry| entry.ok().map(|e| e.path()))
-        .collect();
+    let mut paths: Vec<PathBuf> = Vec::new();
+    for entry in entries {
+        let entry = entry.map_err(|err| format!("cannot list {}: {err}", dir.display()))?;
+        paths.push(entry.path());
+    }
     paths.sort(); // deterministic walk (the map sorts again at the end)
     for path in paths {
         match std::fs::symlink_metadata(&path) {
-            Ok(meta) if meta.is_dir() => collect_dir(&path, manifest_dir, found),
+            Ok(meta) if meta.is_dir() => collect_dir(&path, manifest_dir, found)?,
             Ok(meta) if meta.is_file() && is_markdown(&path) => {
                 match destination(&path, manifest_dir) {
+                    Some(dest) if found.keys().any(|key| key.eq_ignore_ascii_case(&dest)) => {
+                        println!(
+                            "cargo:warning=docs: skipping {}: collides with another file on a case-insensitive volume",
+                            path.display()
+                        );
+                    }
                     Some(dest) => {
                         found.insert(dest, path);
                     }
@@ -97,9 +118,11 @@ fn collect_dir(dir: &Path, manifest_dir: &Path, found: &mut BTreeMap<String, Pat
                     ),
                 }
             }
+            Err(err) => return Err(format!("cannot stat {}: {err}", path.display())),
             _ => {}
         }
     }
+    Ok(())
 }
 
 /// `NAME.EXT`-style markdown check, case-insensitive (`README.MD` counts).
@@ -162,7 +185,10 @@ pub fn embed(builder: &mut bootloader::DiskImageBuilder, manifest_dir: &Path) {
         manifest_dir.join(README).display()
     );
 
-    let docs = collect(manifest_dir);
+    let docs = match collect(manifest_dir) {
+        Ok(docs) => docs,
+        Err(reason) => panic!("docs: {reason}"),
+    };
     if docs.is_empty() {
         println!("cargo:warning=docs: no markdown found under {}", DISK_ROOT);
         return;
@@ -212,7 +238,7 @@ mod tests {
         write(&root, "docs/architecture/boot.md", b"boot");
         write(&root, "docs/a.md", b"a");
 
-        let docs = collect(&root);
+        let docs = collect(&root).unwrap();
 
         assert_eq!(
             dests(&docs),
@@ -230,7 +256,7 @@ mod tests {
     #[test]
     fn missing_docs_dir_is_empty_not_an_error() {
         let root = temp_root("empty");
-        assert!(collect(&root).is_empty());
+        assert!(collect(&root).unwrap().is_empty());
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -238,7 +264,7 @@ mod tests {
     fn empty_docs_dir_is_empty() {
         let root = temp_root("emptydir");
         std::fs::create_dir_all(root.join("docs")).unwrap();
-        assert!(collect(&root).is_empty());
+        assert!(collect(&root).unwrap().is_empty());
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -246,7 +272,7 @@ mod tests {
     fn extension_match_is_case_insensitive() {
         let root = temp_root("case");
         write(&root, "docs/UPPER.MD", b"upper");
-        assert_eq!(dests(&collect(&root)), ["docs/UPPER.MD"]);
+        assert_eq!(dests(&collect(&root).unwrap()), ["docs/UPPER.MD"]);
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -255,7 +281,7 @@ mod tests {
         let root = temp_root("nonmd");
         write(&root, "docs/notes.txt", b"nope");
         write(&root, "docs/keep.md", b"yes");
-        assert_eq!(dests(&collect(&root)), ["docs/keep.md"]);
+        assert_eq!(dests(&collect(&root).unwrap()), ["docs/keep.md"]);
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -265,7 +291,7 @@ mod tests {
         let big = vec![b'x'; MAX_FILE_BYTES as usize + 1];
         write(&root, "docs/big.md", &big);
         write(&root, "docs/small.md", b"ok");
-        assert_eq!(dests(&collect(&root)), ["docs/small.md"]);
+        assert_eq!(dests(&collect(&root).unwrap()), ["docs/small.md"]);
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -274,7 +300,7 @@ mod tests {
         let root = temp_root("utf8");
         write(&root, "docs/binary.md", &[0xff, 0xfe, 0x00]);
         write(&root, "docs/text.md", b"ok");
-        assert_eq!(dests(&collect(&root)), ["docs/text.md"]);
+        assert_eq!(dests(&collect(&root).unwrap()), ["docs/text.md"]);
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -283,9 +309,37 @@ mod tests {
         let root = temp_root("readme");
         write(&root, "README.md", b"root");
         write(&root, "docs/README.md", b"docs");
-        let docs = collect(&root);
+        let docs = collect(&root).unwrap();
         assert_eq!(dests(&docs), ["docs/README.md"]);
         assert_eq!(docs[0].bytes, b"docs");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn root_readme_loses_to_any_case_docs_readme() {
+        let root = temp_root("readmecase");
+        write(&root, "README.md", b"root");
+        write(&root, "docs/README.MD", b"docs");
+        let docs = collect(&root).unwrap();
+        assert_eq!(dests(&docs), ["docs/README.MD"]);
+        assert_eq!(docs[0].bytes, b"docs");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn case_colliding_docs_keep_only_the_first() {
+        let root = temp_root("collide");
+        write(&root, "docs/Guide.md", b"one");
+        write(&root, "docs/guide.MD", b"two");
+        assert_eq!(collect(&root).unwrap().len(), 1);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_docs_path_that_is_a_file_is_an_error() {
+        let root = temp_root("notdir");
+        write(&root, "docs", b"not a directory");
+        assert!(collect(&root).is_err());
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -299,7 +353,7 @@ mod tests {
                 format!("body {index}").as_bytes(),
             );
         }
-        let docs = collect(&root);
+        let docs = collect(&root).unwrap();
         assert_eq!(docs.len(), 200);
         let mut sorted = dests(&docs);
         let original = sorted.clone();

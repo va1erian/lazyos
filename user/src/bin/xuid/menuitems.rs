@@ -44,12 +44,32 @@ fn replace(next: Vec<Entry>) -> bool {
     true
 }
 
-/// The registry's app ids, or `None` when `init` cannot be asked (then only
-/// the id syntax is checked and a bad launch answers as unavailable).
+/// How long the compositor waits on `init` for the app list (1 s at 100 Hz):
+/// a stalled supervisor must not freeze compositing and input.
+const REGISTRY_TIMEOUT_TICKS: u64 = 100;
+
+struct Ids(UnsafeCell<Option<Vec<alloc::string::String>>>);
+
+// SAFETY: single compositor task, as for `Items`.
+unsafe impl Sync for Ids {}
+
+/// The registry ids from the last successful fetch. The registry is fixed for
+/// a boot (the shipped manifest), and the user bump allocator never reclaims
+/// the reply buffer, so one good answer is reused for later reloads.
+static IDS: Ids = Ids(UnsafeCell::new(None));
+
+/// The registry's app ids, or `None` when `init` cannot be asked in time (then
+/// only the id syntax is checked and a bad launch answers as unavailable).
 fn registry_ids() -> Option<Vec<alloc::string::String>> {
-    let init = services::resolve_service(INIT_NAME).ok()?;
-    let apps = services::fetch_apps(&init).ok()?;
-    Some(apps.into_iter().map(|app| app.id).collect())
+    // SAFETY: single-task access (see `Ids`); the borrow ends before return.
+    let cached = unsafe { &mut *IDS.0.get() };
+    if cached.is_none() {
+        let init = services::resolve_service(INIT_NAME).ok()?;
+        let deadline = sys::clock().saturating_add(REGISTRY_TIMEOUT_TICKS);
+        let apps = services::fetch_apps_until(&init, Some(deadline)).ok()?;
+        *cached = Some(apps.into_iter().map(|app| app.id).collect());
+    }
+    cached.clone()
 }
 
 /// Read `sys/ui/menu` and install it; seeds the defaults when the key is

@@ -103,7 +103,7 @@ pub(crate) fn open_path(
     if let Some(session) = session {
         match launch_via_init(app, path, session) {
             Ok(_) => launched = true,
-            Err(Error::Errno(code)) if code == -errno::ENOENT => {
+            Err(Error::Init(code)) if code == errno::ENOENT => {
                 app = choose(app, fallback, false);
                 if app != primary {
                     launched = launch_via_init(app, path, session).is_ok();
