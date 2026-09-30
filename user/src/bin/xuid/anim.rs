@@ -6,6 +6,7 @@
 //! blocking loop of a few frames, well under a quarter second per step.
 
 use alloc::vec;
+use alloc::vec::Vec;
 use user::messenger::display::{Canvas, Rect};
 use user::sys;
 
@@ -50,12 +51,11 @@ impl Compositor {
             let damage =
                 Rect::new(damage.x - 1, damage.y - 1, damage.w + 2, damage.h + 2).intersect(full);
             self.compose(damage);
-            // Equal rectangles (the eased motion settles) would cancel under
-            // XOR, so each distinct rectangle is drawn once.
-            for (index, rect) in rects.iter().enumerate() {
-                if !rect.is_empty() && !rects[..index].contains(rect) {
-                    outline(&mut self.screen, *rect, damage);
-                }
+            // Overlapping outlines (equal ones as the eased motion settles, but
+            // also distinct ones that share an edge) would cancel under XOR,
+            // so the trail is drawn as disjoint pieces, each pixel inverted once.
+            for piece in trail_pieces(&rects) {
+                self.screen.invert(piece, damage);
             }
             let _ = sys::display_present(damage.x, damage.y, damage.w, damage.h);
             previous = damage;
@@ -187,6 +187,48 @@ fn outline_strips(rect: Rect) -> [Rect; 4] {
     ]
 }
 
+/// `rect` minus `cut`: up to four disjoint rectangles covering what remains.
+fn subtract(rect: Rect, cut: Rect, out: &mut Vec<Rect>) {
+    let hit = rect.intersect(cut);
+    if hit.is_empty() {
+        out.push(rect);
+        return;
+    }
+    let (right, bottom) = (rect.x + rect.w, rect.y + rect.h);
+    let (hit_right, hit_bottom) = (hit.x + hit.w, hit.y + hit.h);
+    for piece in [
+        Rect::new(rect.x, rect.y, rect.w, hit.y - rect.y),
+        Rect::new(rect.x, hit_bottom, rect.w, bottom - hit_bottom),
+        Rect::new(rect.x, hit.y, hit.x - rect.x, hit.h),
+        Rect::new(hit_right, hit.y, right - hit_right, hit.h),
+    ] {
+        if !piece.is_empty() {
+            out.push(piece);
+        }
+    }
+}
+
+/// The union of the trail's outlines as pairwise-disjoint rectangles, so
+/// inverting each once never cancels where outlines overlap. Empty rectangles
+/// are skipped.
+fn trail_pieces(rects: &[Rect]) -> Vec<Rect> {
+    let mut covered: Vec<Rect> = Vec::new();
+    for rect in rects.iter().filter(|rect| !rect.is_empty()) {
+        for strip in outline_strips(*rect) {
+            let mut fresh = Vec::from([strip]);
+            for done in &covered {
+                let mut next = Vec::new();
+                for piece in &fresh {
+                    subtract(*piece, *done, &mut next);
+                }
+                fresh = next;
+            }
+            covered.extend(fresh);
+        }
+    }
+    covered
+}
+
 /// Draw a hollow rectangle by inverting the pixels under it, so it is visible
 /// on any background.
 pub(super) fn outline(screen: &mut Canvas, rect: Rect, clip: Rect) {
@@ -230,11 +272,7 @@ pub(super) fn selftest_anim() -> &'static str {
     // only thing touching it while it lives.
     let mut canvas = unsafe { Canvas::new(buf.as_mut_ptr() as u64, w, h) };
     outline(&mut canvas, frame, clip);
-    let rgb = |buf: &[u8]| {
-        buf.chunks_exact(4)
-            .map(|px| px[0])
-            .collect::<alloc::vec::Vec<u8>>()
-    };
+    let rgb = |buf: &[u8]| buf.iter().step_by(4).copied().collect::<Vec<u8>>();
     let once = rgb(&buf).iter().filter(|v| **v == 0xbf).count() as i32 == area
         && rgb(&buf).iter().all(|v| *v == 0x40 || *v == 0xbf);
     // SAFETY: as above; the previous canvas is dead, so access is exclusive.
@@ -242,7 +280,44 @@ pub(super) fn selftest_anim() -> &'static str {
     outline(&mut canvas, frame, clip);
     let twice = rgb(&buf).iter().all(|v| *v == 0x40);
 
-    if ends && eased && centred && clamped && disjoint && tiled && once && twice {
+    // Distinct outlines sharing most of an edge still invert each pixel once.
+    let pair = [Rect::new(10, 10, 20, 8), Rect::new(12, 10, 20, 8)];
+    let pieces = trail_pieces(&pair);
+    let apart = pieces
+        .iter()
+        .enumerate()
+        .all(|(i, a)| pieces[i + 1..].iter().all(|b| a.intersect(*b).is_empty()));
+    buf.fill(0x40);
+    // SAFETY: as above; the previous canvas is dead, so access is exclusive.
+    let mut canvas = unsafe { Canvas::new(buf.as_mut_ptr() as u64, w, h) };
+    for piece in &pieces {
+        canvas.invert(*piece, clip);
+    }
+    let in_trail = |x: i32, y: i32| {
+        pair.iter().any(|r| {
+            outline_strips(*r)
+                .iter()
+                .any(|s| x >= s.x && x < s.x + s.w && y >= s.y && y < s.y + s.h)
+        })
+    };
+    let overlap_once = (0..h).all(|y| {
+        (0..w).all(|x| {
+            let v = buf[((y * w + x) * 4) as usize];
+            v == if in_trail(x, y) { 0xbf } else { 0x40 }
+        })
+    });
+
+    if ends
+        && eased
+        && centred
+        && clamped
+        && disjoint
+        && tiled
+        && once
+        && twice
+        && apart
+        && overlap_once
+    {
         "XUID:ANIM:PASS\n"
     } else {
         "XUID:ANIM:FAIL\n"
