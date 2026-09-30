@@ -1,0 +1,16 @@
+[
+  {"wait_for": "FILES:UP:PASS", "timeout": 240},
+  {"at": 1.5, "shot": "01_files_root"},
+
+  {"at": 2.0, "mouse_move": [-300, -300]},
+  {"at": 2.2, "mouse_move": [-300, -300]},
+  {"at": 2.4, "mouse_move": [-300, -300]},
+  {"at": 2.6, "mouse_move": [-300, -300]},
+  {"at": 2.8, "mouse_move": [-300, -300]},
+  {"at": 3.0, "mouse_move": [-300, -300]},
+  {"at": 3.2, "mouse_move": [110, 95]},
+  {"at": 3.6, "mouse_click": "left"},
+  {"at": 4.1, "key": "enter"},
+  {"at": 9.0, "shot": "02_subfolder_window"},
+  {"at": 10.0, "quit": true}
+]
