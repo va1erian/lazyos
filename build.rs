@@ -39,6 +39,14 @@ fn main() {
         String::from("NOTES.TXT"),
         b"LazyOS notes\n-----------\n- single-tasking x86_64 kernel\n- tiny-skia graphics\n- PS/2 keyboard + mouse\n- FAT16 read-only filesystem\n".to_vec(),
     );
+    // The Docs app's test document (`xui-app/docs/testdata/`): opened by the
+    // Docs screenshot session through the Open dialog, and by hand as
+    // `/TESTDOC.MD` in the Docs app or the Editor.
+    println!("cargo:rerun-if-changed=xui-app/docs/testdata/testdoc.md");
+    builder.set_file_contents(
+        String::from("TESTDOC.MD"),
+        include_bytes!("xui-app/docs/testdata/testdoc.md").to_vec(),
+    );
     // The ring-3 demo program, loaded and run by `run HELLO.ELF`. The system
     // shell is BusyBox `sh` (issue #254), embedded separately below.
     let hello =

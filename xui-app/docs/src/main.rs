@@ -1,86 +1,36 @@
-//! `xui-docs`: renders a Markdown file with litehtml.
+//! `xui-docs`: renders Markdown files with litehtml.
 //!
 //! A `xuid` desktop client (or the display owner in a headless session). With no
-//! path argument it shows a built-in welcome page. litehtml lays the page out on a
-//! worker thread; this file supplies the LazyOS platform and the serial
-//! markers the screenshot sessions wait on.
+//! path argument it shows a built-in welcome page; a document is opened with the
+//! toolbar's Open button or `Ctrl+O`. litehtml lays the page out on a worker
+//! thread; `app.rs` is the window, this file the LazyOS platform start-up.
 //!
-//! Serial evidence: `DOCS:UP:PASS` after the first frame, `DOCS:RENDER:PASS`
-//! once litehtml's first frame has been painted, `DOCS:LINK:<href>` on a link
-//! click, `DOCS:OPEN:FAIL:<path>` when the file cannot be read.
+//! Serial evidence: `DOCS:UP:PASS` after the first frame, plus the markers
+//! documented in `app.rs`; `DOCS:BIND:FAIL:<code>` when the display cannot be
+//! bound.
 
+mod app;
+
+use std::path::PathBuf;
 use std::rc::Rc;
 
 use xui_app::backend::LazyOSBackend;
-use xui_core::app::{run_app, App, Ui};
+use xui_core::app::run_app;
 use xui_core::backend::{Backend, PlatformSpec};
 use xui_core::units::Dip;
-use xui_docs::{page, read_bounded};
-use xui_litehtml::{HtmlView, HtmlViewEvent};
+use xui_docs::page;
+
+use app::Docs;
 
 /// Window size a compositor lays the page out at.
 const WINDOW: (i32, i32) = (900, 640);
 
 /// Shown when no file is named on the command line.
-const SAMPLE: &str = include_str!("welcome.md");
-
-enum Msg {
-    /// litehtml finished a layout pass on its worker thread.
-    Frame,
-    /// Polls for the first painted frame, to print the render marker once.
-    Tick,
-    Link(String),
-    Copy(String),
-}
-
-struct Docs {
-    view: HtmlView<Msg>,
-    reported: bool,
-}
-
-impl App for Docs {
-    type Msg = Msg;
-
-    fn update(&mut self, msg: Msg, ui: &mut Ui<Msg>) {
-        match msg {
-            Msg::Frame => self.view.invalidate(),
-            Msg::Tick => {
-                if !self.reported && self.view.is_ready() {
-                    self.reported = true;
-                    println!("DOCS:RENDER:PASS");
-                }
-            }
-            Msg::Link(href) => println!("DOCS:LINK:{href}"),
-            Msg::Copy(text) => {
-                // `HtmlView` only reports the request; the app owns the clipboard.
-                ui.set_clipboard_text(&text);
-                println!("DOCS:COPY:{} bytes", text.len());
-            }
-        }
-    }
-}
-
-/// The Markdown source: the file named on the command line, else the sample.
-fn source() -> Result<String, String> {
-    let Some(path) = xui_app::platform::argv::file_arg(std::env::args_os()) else {
-        return Ok(SAMPLE.to_string());
-    };
-    // Bounded: a huge file must not be held whole before `page` truncates it.
-    std::fs::File::open(&path)
-        .and_then(read_bounded)
-        .map_err(|_| path.display().to_string())
-}
+const WELCOME: &str = include_str!("welcome.md");
 
 fn main() -> std::process::ExitCode {
     xui_app::font::register_docs();
-    let markdown = match source() {
-        Ok(text) => text,
-        Err(path) => {
-            println!("DOCS:OPEN:FAIL:{path}");
-            return std::process::ExitCode::FAILURE;
-        }
-    };
-    let html = page(&markdown);
+    let path = xui_app::platform::argv::file_arg(std::env::args_os());
     let backend = match LazyOSBackend::connect() {
         Ok(backend) => Rc::new(backend),
         Err(code) => {
@@ -93,23 +43,15 @@ fn main() -> std::process::ExitCode {
 
     let spec = PlatformSpec::new("Docs").size(Dip(width as f32), Dip(height as f32));
     let outcome = run_app(Rc::clone(&backend) as Rc<dyn Backend>, spec, move |ui| {
-        let view = HtmlView::new(
-            ui,
-            ui.client_rect(),
-            html,
-            || Msg::Frame,
-            |event| match event {
-                HtmlViewEvent::LinkClicked(href) => Some(Msg::Link(href)),
-                HtmlViewEvent::CopyRequested(text) => Some(Msg::Copy(text)),
-            },
-        )
-        .expect("the HTML view was created");
-        let tick = ui.set_timer(100);
-        ui.on_timer(move |id| (id == tick).then_some(Msg::Tick));
-        Docs {
-            view,
-            reported: false,
+        // The welcome page first; a named file is then opened like any other, so
+        // a bad path shows the same error page (and `DOCS:OPEN:FAIL`) as the
+        // dialog does instead of ending the app.
+        let mut docs =
+            Docs::build(ui, page(WELCOME), None::<PathBuf>).expect("the Docs window was created");
+        if let Some(path) = path {
+            docs.open(ui, path);
         }
+        docs
     });
     backend.unbind();
     match outcome {

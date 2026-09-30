@@ -7,8 +7,10 @@ the mouse wheel, `PageUp`/`PageDown` or the arrow keys.
 
 ## Opening a document
 
-Start it with a path, for example `XDOCS.ELF /README.MD`. With no path it shows
-this page, which doubles as a tour of what it can draw.
+Press `Ctrl+O` or click **Open...** in the toolbar to pick a Markdown file. The
+image ships one to try, `/TESTDOC.MD`. You can also start the app with a path,
+for example `XDOCS.ELF /TESTDOC.MD`. With no path it shows this page, which
+doubles as a tour of what it can draw.
 
 ## Text
 
@@ -77,6 +79,7 @@ Three dashes make a horizontal rule:
 
 | Input | Action |
 |---|---|
+| `Ctrl+O` | open a document |
 | Mouse wheel | scroll a few lines |
 | `PageUp` / `PageDown` | scroll a page |
 | `Up` / `Down` | scroll a line |

@@ -1,0 +1,29 @@
+[
+  {"wait_for": "DOCS:UP:PASS", "timeout": 240},
+  {"wait_for": "DOCS:RENDER:PASS", "timeout": 240},
+
+  {"at": 0.5, "mouse_move": [-300, -300]},
+  {"at": 0.7, "mouse_move": [-300, -300]},
+  {"at": 0.9, "mouse_move": [-300, -300]},
+  {"at": 1.1, "mouse_move": [104, 68]},
+  {"at": 1.6, "shot": "01_welcome_toolbar"},
+
+  {"at": 2.0, "mouse_click": "left"},
+  {"at": 3.0, "shot": "02_open_dialog_from_button"},
+  {"at": 3.4, "key": "escape"},
+  {"at": 4.0, "shot": "03_dialog_cancelled"},
+
+  {"at": 4.4, "key_down": "ctrl"},
+  {"at": 4.6, "key": "o"},
+  {"at": 4.8, "key_up": "ctrl"},
+  {"at": 5.6, "shot": "04_open_dialog_from_hotkey"},
+  {"at": 6.0, "type": "/TESTDOC.MD"},
+  {"at": 6.6, "shot": "05_path_typed"},
+  {"at": 7.0, "key": "enter", "until": "DOCS:OPEN:PASS:/TESTDOC.MD", "timeout": 60, "retries": 2},
+  {"at": 8.5, "shot": "06_document_opened"},
+
+  {"at": 9.0, "mouse_move": [400, 300]},
+  {"at": 9.5, "mouse_scroll": -5},
+  {"at": 10.5, "shot": "07_scrolled"},
+  {"at": 11.0, "quit": true}
+]

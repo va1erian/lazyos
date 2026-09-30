@@ -4,7 +4,9 @@
 //! concern is markup smuggled through the Markdown, so raw HTML in the source
 //! is rendered as literal text and never reaches the layout engine as markup.
 
+use std::fs::File;
 use std::io::{self, Read};
+use std::path::Path;
 
 use pulldown_cmark::{html, Event, Options, Parser};
 
@@ -62,7 +64,43 @@ pub fn page(markdown: &str) -> String {
     if cut {
         body.push_str("<p><i>(document truncated)</i></p>");
     }
+    wrap(&body)
+}
+
+/// `body` inside the viewer's document skeleton and stylesheet.
+fn wrap(body: &str) -> String {
     format!("<!doctype html><meta charset=\"utf-8\"><style>{CSS}</style><body>{body}</body>")
+}
+
+/// Reads the Markdown file at `path` (bounded, see [`read_bounded`]) and renders
+/// it as a page.
+pub fn load_file(path: &Path) -> io::Result<String> {
+    Ok(page(&read_bounded(File::open(path)?)?))
+}
+
+/// A page saying `message` under an error heading, for a document that could
+/// not be opened. The message is escaped, so a path with markup characters
+/// shows as text.
+pub fn error_page(message: &str) -> String {
+    wrap(&format!(
+        "<h1>Could not open the document</h1><p>{}</p>",
+        escape_html(message)
+    ))
+}
+
+/// `text` with the characters HTML gives meaning to replaced by entities.
+fn escape_html(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            other => out.push(other),
+        }
+    }
+    out
 }
 
 /// `markdown` cut to at most [`MAX_BYTES`] on a `char` boundary, and whether
@@ -156,5 +194,60 @@ mod tests {
     fn invalid_utf8_is_replaced_not_rejected() {
         let text = read_bounded(&b"ok \xFF\xFE done"[..]).expect("reads");
         assert_eq!(text, "ok \u{FFFD}\u{FFFD} done");
+    }
+
+    /// The fixture the image ships as `/TESTDOC.MD` and the Docs session opens.
+    const TESTDOC: &str = include_str!("../testdata/testdoc.md");
+
+    #[test]
+    fn the_test_document_renders_every_feature_it_advertises() {
+        let html = page(TESTDOC);
+        for wanted in [
+            "<h1>",
+            "<h2>",
+            "<h3>",
+            "<h4>",
+            "<table>",
+            "<blockquote>",
+            "<pre>",
+            "<code>",
+            "<ul>",
+            "<ol>",
+            "<strong>",
+            "<em>",
+            "<del>",
+            "<hr />",
+            "<a href=",
+        ] {
+            assert!(html.contains(wanted), "the test document lacks {wanted}");
+        }
+        assert!(!html.contains("<script"), "raw HTML must stay escaped");
+        assert!(!html.contains("(document truncated)"));
+        assert!(html.len() > 4000, "long enough to scroll");
+    }
+
+    #[test]
+    fn load_file_reads_and_renders_a_file() {
+        let dir = std::env::temp_dir().join(format!("xui-docs-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("note.md");
+        std::fs::write(&path, "# From disk\n\ntext").unwrap();
+        let html = load_file(&path).expect("loads");
+        assert!(html.contains("<h1>From disk</h1>"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn load_file_reports_a_missing_file() {
+        let error = load_file(Path::new("/definitely/not/here.md")).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::NotFound);
+    }
+
+    #[test]
+    fn the_error_page_escapes_the_message() {
+        let html = error_page("no <b>such</b> & \"file\"");
+        assert!(html.contains("Could not open the document"));
+        assert!(html.contains("no &lt;b&gt;such&lt;/b&gt; &amp; &quot;file&quot;"));
+        assert!(!html.contains("<b>such"));
     }
 }

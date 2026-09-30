@@ -33,6 +33,27 @@ file (or welcome.md) --pulldown-cmark--> HTML --litehtml (worker thread)--> disp
   JetBrains Mono. There is no italic face, so italics are synthesised.
 * **Scrolling.** The wheel needs the whole input chain; see *Mouse wheel* in
   [`architecture/display.md`](architecture/display.md).
+* **Opening documents.** A toolbar above the page has an **Open...** button and
+  shows the current path; `Ctrl+O` does the same. Both raise the portable
+  `FileDialog` (the Editor's picker) over `LazyFileSystem`, which adds the `/tmp`
+  and `/data` mount points the FAT listing lacks. It filters to Markdown with an
+  "All files" fallback and starts in the current document's folder. A file that
+  cannot be read shows an error page (and `DOCS:OPEN:FAIL:<path>`) instead of
+  ending the app. `app.rs` is the window; `main.rs` only starts the platform.
+* **One view per document.** `HtmlView::load` on a view that already showed a
+  page keeps the painter's font cache, which is keyed by per-document font ids,
+  so the next document's fonts resolve to the previous one's entries (small
+  monospace headings, oversized italics). This is a bug in `xui-litehtml` at the
+  pinned xui revision; until it is fixed upstream, opening a document creates a
+  fresh view and drops the old one (which destroys its node and stops its worker
+  thread).
+* **Test document.** `xui-app/docs/testdata/testdoc.md` ships in every image as
+  `/TESTDOC.MD` (embedded by `build.rs`). It covers every construct the viewer
+  draws and is long enough to scroll; the unit tests render it and
+  `tools/screenshot/examples/xui_docs_open.json` opens it through the dialog.
+* **Desktop menu.** The right-click desktop menu lists Docs next to the other
+  apps (`user/src/bin/xuid/menu.rs`). An image built without zig does not ship
+  the app, and the launch is answered as unavailable like any unshipped app.
 
 ## The C++ toolchain (zig)
 
@@ -75,6 +96,9 @@ with zig it ships in the desktop image and is opened from the Start menu.
   other documents are the natural next step.
 * The LazyOS backend sends no resize events, so the view keeps the window's
   initial size.
+* Keyboard scrolling (`PageDown`, arrows) needs the page to have focus, which a
+  click on it gives; after a dialog closes the wheel works at once but the keys
+  need that click (`HtmlView` does not expose a way to focus itself).
 * Task-list checkboxes are not drawn (litehtml does not render `<input>`), so
   that Markdown extension is off.
 * `mimed` registers Docs for the `view` verb of `text/markdown`; `open` stays

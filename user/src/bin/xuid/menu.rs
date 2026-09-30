@@ -25,6 +25,10 @@ const ITEMS: &[(&str, &str)] = &[
     ("paint", "Paint"),
     ("files", "Files"),
     ("settings", "Settings"),
+    // Shipped when the build had the zig toolchain (`tools/xui/zig.py`); an
+    // image without it answers the launch as unavailable, like any unshipped
+    // registry app.
+    ("docs", "Docs"),
 ];
 const ITEM_H: i32 = 20;
 const PAD: i32 = 4;
