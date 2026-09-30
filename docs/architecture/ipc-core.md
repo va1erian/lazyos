@@ -50,7 +50,11 @@ userspace never names another task's handles.
   `EXPIRED_DEADLINE`) is not dead on arrival. `begin_call` gives its
   transaction a short real deadline (`POLL_GRACE_TICKS` = 3 ticks, so a callee
   that never receives it cannot stall the caller), and when the callee receives
-  the request `take_locked` records the txn in the endpoint's `serving_polls`.
+  the request `take_locked` records the txn in the endpoint's `serving_polls`
+  and replaces the grace deadline with `POLL_SERVICE_TICKS` (100 ticks: a slow
+  service turn may still reply, a wedged callee is still bounded). The parked
+  caller wakes on the old deadline, finds it not due and re-parks
+  (`expire_transaction` only expires a deadline that has actually passed).
   The next `recv`/`try_recv` on that endpoint runs `expire_served_polls`, which
   ends every still-`Pending` poll as `TimedOut` and wakes its caller. The
   callee therefore gets its whole service turn to reply (the reply is accepted

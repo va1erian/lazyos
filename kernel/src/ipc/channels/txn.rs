@@ -38,7 +38,9 @@ pub(super) fn take_outcome(txn_id: u64) -> Result<Option<Result<Vec<u8>, Error>>
 }
 
 /// Mark a pending transaction expired. A no-op if it already has another
-/// terminal outcome, so a reply racing the deadline wins.
+/// terminal outcome, so a reply racing the deadline wins, and a no-op if its
+/// deadline is not actually due: the caller may have parked on an earlier
+/// deadline that a poll's receipt has since replaced.
 pub(super) fn expire_transaction(txn_id: u64) {
     let mut channels = CHANNELS.lock();
     for channel in channels.iter_mut() {
@@ -46,6 +48,12 @@ pub(super) fn expire_transaction(txn_id: u64) {
             continue;
         };
         if channel.txns[index].state != TxnState::Pending {
+            return;
+        }
+        if channel.txns[index]
+            .deadline
+            .is_some_and(|deadline| deadline > task::ticks())
+        {
             return;
         }
         channel.txns[index].state = TxnState::TimedOut;

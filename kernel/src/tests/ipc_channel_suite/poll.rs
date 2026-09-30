@@ -126,3 +126,39 @@ pub fn poll_soak() -> Result<(), String> {
     );
     fresh()
 }
+
+/// Receipt ends the grace deadline: a poll the callee has received survives
+/// past its original grace period, so a slow service turn can still reply,
+/// while a callee that wedges mid-request is still bounded.
+pub fn poll_received_outlives_grace() -> Result<(), String> {
+    fresh()?;
+    let (client, server) = channels::create().map_err(reason)?;
+    let request = parcel(7, flags::SYNC, "slow service")?;
+    let start = task::ticks();
+    let txn = channels::begin_call(client, 7, &request, POLL).map_err(reason)?;
+    check!(
+        channels::try_recv(server).map_err(reason)?.is_some(),
+        "the callee did not receive the poll"
+    );
+    // The original grace deadline passes while the callee is still serving.
+    channels::expire_deadlines(start + channels::POLL_GRACE_TICKS + 1);
+    let answer = parcel(8, 0, "slow but here")?;
+    channels::reply(txn, &answer).map_err(reason)?;
+    check!(
+        channels::await_reply(txn) == Ok(answer),
+        "a poll the callee received expired on its old grace deadline"
+    );
+
+    // A callee that never finishes is bounded by the service deadline.
+    let txn = channels::begin_call(client, 7, &request, POLL).map_err(reason)?;
+    check!(
+        channels::try_recv(server).map_err(reason)?.is_some(),
+        "the callee did not receive the second poll"
+    );
+    channels::expire_deadlines(task::ticks() + channels::POLL_SERVICE_TICKS + 1);
+    check!(
+        channels::await_reply(txn) == Err(ChannelError::TimedOut),
+        "a wedged callee held its poller past the service bound"
+    );
+    fresh()
+}

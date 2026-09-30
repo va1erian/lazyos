@@ -179,6 +179,9 @@ callee's **service turn**:
 
 A callee that never receives the poll (busy, wedged) cannot stall the caller:
 the poll also expires `POLL_GRACE_TICKS` (3 ticks, 30 ms) after it was sent.
+Once the callee has received it that grace no longer applies, so a slow service
+turn can still reply; it is replaced by `POLL_SERVICE_TICKS` (100 ticks, 1 s),
+which only bounds a callee that wedges mid-request.
 Nothing else about the transaction changes: cancel and peer death end it as
 usual. One endpoint shared by several server threads can end a poll early (any
 thread returning to `recv` ends polls another is still serving); that degrades

@@ -118,6 +118,10 @@ pub(super) const CASES: &[(&str, Test)] = &[
         poll_unanswered_ends_on_next_recv,
     ),
     ("ipc_channel_poll_grace", poll_grace_bounds_unreceived),
+    (
+        "ipc_channel_poll_received_outlives_grace",
+        poll_received_outlives_grace,
+    ),
     ("ipc_channel_poll_soak", poll_soak),
     ("ipc_channel_cancel_wakes", cancel_wakes),
     ("ipc_channel_peer_died", peer_died),

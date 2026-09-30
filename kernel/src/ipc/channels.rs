@@ -115,6 +115,11 @@ pub const POLL_DEADLINE: u64 = 1;
 /// Longest a poll waits for a callee that has not yet received it (PIT ticks,
 /// 100 Hz): a busy or stalled service must not stall its pollers.
 pub const POLL_GRACE_TICKS: u64 = 3;
+/// Longest a poll stays open once the callee has received it (PIT ticks): the
+/// callee gets its whole service turn, however slow, but a callee that wedges
+/// mid-request still cannot hold its poller forever. Receipt replaces the
+/// grace deadline with this one (`recv::take_locked`).
+pub const POLL_SERVICE_TICKS: u64 = 100;
 
 /// Global channel registry: small enough that a linear scan beats a map, and
 /// exactly the "pairs of bounded queues" shape of section 14.

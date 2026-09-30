@@ -55,6 +55,15 @@ fn take_locked(
         endpoint.queued_bytes = endpoint.queued_bytes.saturating_sub(message.bytes.len());
         if let (Some(txn), Some(POLL_DEADLINE)) = (message.txn, message.deadline) {
             endpoint.serving_polls.push(txn);
+            // Received: the grace deadline no longer applies, or a slow
+            // service turn would have its reply refused. The parked caller
+            // wakes at the old deadline, finds it replaced and parks again
+            // (`await_reply` only expires a deadline that is actually due).
+            if let Some(entry) = channel.txns.iter_mut().find(|entry| entry.id == txn) {
+                if entry.state == TxnState::Pending {
+                    entry.deadline = Some(task::ticks() + POLL_SERVICE_TICKS);
+                }
+            }
         }
         Ok(Some(message))
     } else if channel.endpoints[1 - side].closed {
