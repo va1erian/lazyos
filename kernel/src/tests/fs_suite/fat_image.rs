@@ -103,7 +103,7 @@ impl FatImage {
         }
         let offset = base + usize::from(cluster) + usize::from(cluster) / 2;
         let word = u16::from_le_bytes([self.data[offset], self.data[offset + 1]]);
-        let word = if cluster % 2 == 0 {
+        let word = if cluster.is_multiple_of(2) {
             (word & 0xF000) | (value & 0x0FFF)
         } else {
             (word & 0x000F) | ((value & 0x0FFF) << 4)
@@ -230,9 +230,9 @@ pub(super) fn checksum(short: &[u8; 11]) -> u8 {
 /// 0xFFFF only when the units do not fill the last slot exactly.
 pub(super) fn lfn_run(units: &[u16], checksum: u8) -> Vec<Slot> {
     let mut padded = units.to_vec();
-    if padded.len() % 13 != 0 {
+    if !padded.len().is_multiple_of(13) {
         padded.push(0);
-        while padded.len() % 13 != 0 {
+        while !padded.len().is_multiple_of(13) {
             padded.push(0xFFFF);
         }
     }
