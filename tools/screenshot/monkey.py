@@ -92,6 +92,13 @@ class Tail:
         *lines, self.partial = text.split("\n")
         return lines
 
+    def flush(self) -> list[str]:
+        """Everything still unread, including an unterminated last line (a
+        guest that dies mid-line never sends the newline). Clears the fragment
+        so it cannot be reported again."""
+        text, self.partial = self.partial + self.new_text(), ""
+        return text.splitlines()
+
 
 class Monkey:
     """Draws random actions from a seeded RNG and sends them over QMP."""
@@ -293,6 +300,18 @@ def run_one(args: argparse.Namespace, qemu: str, seed: int, out: Path,
     report: dict = {"seed": seed, "image": args.image, "found": False}
     recent: collections.deque = collections.deque(maxlen=25)
     actions = (out / "actions.jsonl").open("w", buffering=1, encoding="utf-8")
+
+    def scan(lines: list[str], settle: bool = True) -> None:
+        """Record fatal serial lines; the first one becomes the headline."""
+        for line in lines:
+            if any(p.search(line) for p in ignore) or not any(p.search(line) for p in fatal):
+                continue
+            report.setdefault("findings", []).append(line.strip())
+            if not report["found"]:
+                report.update(found=True, kind="serial", detail=line.strip())
+                if settle:
+                    time.sleep(1.5)  # let the rest of the fault report land
+
     try:
         if not wait_ready(tail, proc, args.marker, args.boot_timeout):
             report.update(found=True, kind="boot", detail=f"no {args.marker} in {args.boot_timeout:g}s")
@@ -324,14 +343,7 @@ def run_one(args: argparse.Namespace, qemu: str, seed: int, out: Path,
                 break
             index += 1
             time.sleep(rng.random() * args.max_gap)
-            for line in tail.new_lines():
-                if any(p.search(line) for p in ignore):
-                    continue
-                if any(p.search(line) for p in fatal):
-                    report.setdefault("findings", []).append(line.strip())
-                    if not report["found"]:  # keep the first match as the headline
-                        report.update(found=True, kind="serial", detail=line.strip())
-                        time.sleep(1.5)  # let the rest of the fault report land
+            scan(tail.new_lines())
             if report["found"] and not args.keep_going:
                 break
             if args.probe_every > 0 and not report["found"] and now >= next_probe:
@@ -349,6 +361,7 @@ def run_one(args: argparse.Namespace, qemu: str, seed: int, out: Path,
                     pass
             if index % 200 == 0:
                 print(f"monkey seed={seed}: {index} actions, {now - began:5.0f}s", flush=True)
+        scan(tail.flush(), settle=False)  # a fault at the very end, or mid-line
         report.update(actions=index, elapsed=round(time.time() - began, 1),
                       last_actions=list(recent), counts=dict(counts))
         if report["found"]:
