@@ -22,8 +22,10 @@ interface (see [`docs/driver-plan.md`](../driver-plan.md)).
 | `kernel/src/dev/intx.rs` | Task-context bottom half and the shared-INTx contract: rounds, ack deadline, `missed` recovery |
 | `kernel/src/dev/claims.rs` | Userspace claims: rights, `Device` handle, interrupt binding and state, BAR mappings |
 | `kernel/src/dev/grant.rs`, `class.rs` | The grant rule; PCI class to `os.kernel.dev.<class>` ids and method ids |
-| `kernel/src/dev/syscall.rs`, `ops.rs` | Syscall 23: `list`/`claim`/`release`/`irq_*`; `map_bar`/`pio`/`cfg_*` |
-| `kernel/src/dev/teardown.rs`, `report.rs`, `selfcheck.rs` | Release on exit; audit records; the `DEV:IRQ`/`DEV:SYSCALL` boot lines and routing log |
+| `kernel/src/dev/syscall.rs`, `ops.rs`, `dma.rs` | Syscall 23: `list`/`claim`/`release`/`irq_*`; `map_bar`/`pio`/`cfg_*`; `dma_alloc` |
+| `kernel/src/dev/teardown.rs`, `report.rs`, `selfcheck.rs` | Release on exit; audit records; the `DEV:IRQ`/`DEV:SYSCALL`/`DEV:DMA` boot lines and routing log |
+| `kernel/src/mem/dma.rs` | Boot-time contiguous DMA pool: bitmap, first-fit with alignment, stats |
+| `kernel/src/ipc/shared/dma.rs` | `create_from_frames`: a Buffer over an existing contiguous run, `DmaOwner` |
 | `kernel/src/arch/irq_stubs.rs`, `arch/pic.rs` | IDT stubs for the PIC lines; mask/EOI/in-service/IRR helpers |
 | `kernel/src/mem/mmio.rs`, `mem/cow.rs` | Uncached MMIO mappings tagged with a software PTE bit; fork split out of `mem/mod.rs` |
 | `kernel/src/ipc/channels_kernel.rs` | `post_from_kernel`: one-way messages from the kernel identity |
@@ -43,7 +45,9 @@ mask back and restores the original value, with memory and I/O decode switched
 off for the duration (PCI requires this) and the command register restored, so
 enumeration leaves the device as it found it; an I/O BAR that implements only
 16 address bits is sized correctly; the pair of registers that a 64-bit BAR occupies is sized as one
-window. The `Irq`/`Msi` seam is what later interrupt work (D2) and MMCONFIG hang
+window. A BAR that reads 0 is *unassigned*, not absent: it is sized as a
+32-bit memory BAR and reported with base 0 and its length (a BAR whose sizing
+finds no window is skipped). The `Irq`/`Msi` seam is what later interrupt work (D2) and MMCONFIG hang
 off.
 
 **In-kernel drivers.** `DRIVERS` is a static `&[&'static dyn Driver]`; nothing
@@ -89,7 +93,23 @@ subtree shared by every address space); its leaves carry software PTE bit 10
 device frame is never freed, shared or inherited. `ipc::teardown_task`
 releases every claim first: interrupts masked and the claimant dropped from
 rounds, decode/bus-master cleared with INTx disabled, MMIO unmapped and
-uncharged, generation bumped, one audit record.
+uncharged, generation bumped, one audit record. A task that has *exited* but
+is not yet reaped is a zombie whose address space (and MMIO mappings) lives on
+until the parent reaps it, so the claim is released then; but the dangerous
+part is stopped at exit: `process::finish` marks the slot and
+`dev::silence_exited` (run from the interrupt bottom half and from `finish`)
+takes its claims out of interrupt delivery, masks a line nobody else listens
+on, and clears the function's decode/bus-master enables.
+
+**The interrupt endpoint (partly hardened, #283).** Kernel-stamped
+`os.kernel.dev` messages are posted into the inbox of the channel side named at
+`claim`, and whoever holds that side reads them. `claim` requires the side to be
+held by exactly that one handle in the task tables (a name resolve gives every
+client a handle to the same side, so a resolved service endpoint is refused with
+`EBADF`) and drops its `DUPLICATE`/`TRANSFER` rights. **Known gaps:** a handle
+duplicated earlier and currently *in flight* in a queued message, and a side
+published in the name registry, are not counted; closing them needs a
+kernel-owned IRQ channel kind (tracked in #283 item 1).
 
 **IRQ routing on QEMU (observed).** The boot log prints one
 `dev: irq route ...` line per PCI function (pin, Interrupt Line, verdict). A
@@ -114,26 +134,70 @@ real ISR runs, one message reaches its endpoint from the kernel, and `irq_ack`
 unmasks the line. It passed on both machines (the CI image has no such
 function and only logs the routing). Reproduce with
 `qemu-system-x86_64 ... -netdev user,id=n0 -device virtio-net-pci,netdev=n0,disable-modern=on`
-(add `-machine q35` and a virtio-blk disk, since q35 has no IDE). A line that
+(add `-machine q35` and a virtio-blk disk, since q35 has no IDE); CI runs the
+suite three ways (`default`, `--nic`, and `--machine q35 --virtio-disk --nic`
+through `tools/test/run.py`), and the ATA-specific tests skip with an `INFO`
+line when the machine has no ATA disk. A line that
 is reserved or out of range (or a function with no pin) is not routable: the
 claim succeeds and `irq_enable` returns `ENOSYS`, the polling fallback; the
 suite covers it with the reserved mouse line and a `0xFF` line.
 
 **Boot line.** On a successful enumeration the kernel prints
 `DEV:ENUM:PASS:<n> devices (<pci> PCI, <drivers> attached)`; an enumeration that
-found no PCI function prints `DEV:ENUM:FAIL:no PCI devices enumerated`.
+found no PCI function prints `DEV:ENUM:FAIL:no PCI devices enumerated`, and one
+that found more functions than the 32-entry table holds prints
+`DEV:ENUM:FAIL:device table full, <n> PCI function(s) dropped`.
 
-Two more boot lines come from `dev::selfcheck` after the IDT is loaded:
+Three more boot lines come from `dev::selfcheck` after the IDT is loaded:
 `DEV:IRQ:PASS:16 vectors installed, <r>/<w> INTx-wired PCI functions on routable
-lines` (each of the 16 PIC vectors has a present gate) and
+lines` (each of the 16 PIC vectors has a present gate),
 `DEV:SYSCALL:PASS:syscall 23 gates refuse, 0 claims` (unknown op, kernel-task
-claim, bad handle and the reserved `dma_alloc` all refuse cleanly).
+claim and a bad handle all refuse cleanly), and
+`DEV:DMA:PASS:<pages> pages, largest run <n>` for the boot-time DMA pool
+(`DEV:DMA:INFO:no DMA pool reserved` when RAM is too small).
+
+**DMA (D4, #241).** A driver with the `DMA` right calls
+`dma_alloc(dev, len, flags, out)`: the kernel takes a contiguous run from the
+boot-time DMA pool, wraps it in the ordinary shared-buffer object
+(`ipc::shared::create_from_frames`), and writes the run's physical address —
+the bus address until an IOMMU exists — to `*out`. The run is page aligned
+(larger alignments are honoured by the allocator), zeroed, below 4 GiB, and
+charged to `Resource::DmaMemory` (default 8 MiB per uid); `len` is 1..=4 MiB
+and the flags are `SHARE_ONLY` and "64-bit address OK". The returned `Buffer`
+handle is transferable and can be handed to a client zero-copy. The pool is
+reserved once at `mem::init` (`min(16 MiB, usable/8)`, above the low megabyte,
+clear of the refcount table); its frames stay in the frame refcount table but
+are marked `RESERVED` while free, so the general allocator never hands them
+out, and a pool frame returns to the pool — not the general free list — when
+its last reference drops. Pool frames are outside `FrameStats::total`/`free`,
+so DMA traffic never perturbs a frame `live()` delta. The claim records each
+live DMA buffer by object id (bounded to 16 per claim); `release` and task
+teardown quiesce the device first (bus mastering off) and then close the
+owner's reference, so a client that still holds a transferred buffer keeps its
+frames and charge until the last reference goes. **Without an IOMMU a driver
+with `DMA` is trusted like the kernel**: it can program its device to write any
+physical address, and only the ACL, its dedicated uid and audit limit who can
+be that driver (driver-plan D5).
 
 **Status.** Working: platform + PCI enumeration, BAR sizing (32/64-bit),
 command-register helpers (status bits are never written back), capability walk,
 claim/release with generations, ATA/virtio-blk as in-kernel drivers (D1);
 interrupt dispatch and the shared-INTx contract (D2); the `dev_*` syscall, MMIO
-mappings, grant rule, class ACL, audit, quota and teardown (D3). Not done: DMA
-and `dma_alloc` (D4, #241), function-level reset (teardown clears the command
-register enables instead), MMCONFIG, MSI/MSI-X, IOAPIC, ACPI/platform
-enumeration beyond the single ATA seed.
+mappings, grant rule, class ACL, audit, quota and teardown (D3); the DMA pool
+and `dma_alloc` (D4, #241). Not done: function-level reset (teardown clears the
+command register enables instead), MMCONFIG, MSI/MSI-X, IOAPIC,
+ACPI/platform enumeration beyond the single ATA seed, and an IOMMU.
+
+**DMA and the device's lifetime.** Bus mastering is always off before a DMA
+run can be reused. `release`, task exit and task reap quiesce the device. While
+the claim is live: (a) the *driver* closing its own last reference is an
+explicit free and quiesces the device first (`dev::dma_buffer_freed`: bus
+mastering and decode off, INTx disabled), so it re-enables what it needs
+afterwards; (b) anyone else dropping the last reference (a client closing a
+transferred buffer, a discarded in-flight message) does not stop the device:
+the run is *quarantined* (`dev::dma_quarantine`), keeping its pool pages and
+`DmaMemory` charge until `release_claim` has quiesced the device and frees
+them; (c) a failed `dma_alloc` never showed the device the address, so it
+frees without quiescing. DMA buffer leaves carry software PTE bit 11
+(`pte::DMA`) and `fork` gives the child no mapping for them (like MMIO), so a
+forked driver cannot end up with a private copy the device never sees.

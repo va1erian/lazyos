@@ -3,8 +3,9 @@
 use std::cell::Cell;
 
 use xui_core::backend::{Event, WidgetId, WindowId};
-use xui_core::Point;
+use xui_core::Rect;
 
+use super::geometry::absolute_bounds;
 use super::{LazyOSBackend, Node};
 
 impl LazyOSBackend {
@@ -23,21 +24,6 @@ impl LazyOSBackend {
             .map(|(_, node)| node.window)
     }
 
-    /// The topmost enabled, visible node under `(x, y)`.
-    pub(super) fn hit(&self, window: WindowId, x: i32, y: i32) -> Option<WidgetId> {
-        self.nodes
-            .borrow()
-            .iter()
-            .rev()
-            .find(|(_, node)| {
-                node.window == window
-                    && node.visible
-                    && node.enabled
-                    && node.bounds.contains(Point::new(x, y))
-            })
-            .map(|(id, _)| *id)
-    }
-
     /// Offer `event` to the sink installed by `run_app`.
     pub(super) fn deliver(&self, window: WindowId, target: WidgetId, event: &Event) -> bool {
         let sink = self
@@ -46,6 +32,14 @@ impl LazyOSBackend {
             .get(&window.raw())
             .and_then(|entry| entry.sink.clone());
         sink.is_some_and(|sink| sink.deliver(target, event))
+    }
+
+    /// The window and window-absolute bounds of `id`: what a repaint of it
+    /// damages (node bounds are parent-relative).
+    pub(super) fn absolute_damage(&self, id: WidgetId) -> Option<(WindowId, Rect)> {
+        let nodes = self.nodes.borrow();
+        let window = nodes.iter().find(|(node_id, _)| *node_id == id)?.1.window;
+        Some((window, absolute_bounds(&nodes, id)?))
     }
 
     pub(super) fn with_node<R>(&self, id: WidgetId, f: impl FnOnce(&mut Node) -> R) -> Option<R> {

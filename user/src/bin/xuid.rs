@@ -100,6 +100,8 @@ mod keys;
 mod layout;
 #[path = "xuid/menu.rs"]
 mod menu;
+#[path = "xuid/origin.rs"]
+mod origin;
 #[path = "xuid/present.rs"]
 mod present;
 #[path = "xuid/protocol.rs"]
@@ -195,6 +197,8 @@ fn run() -> ! {
     sys::write_str(SHELL_MARKER);
     sys::write_str(keys::selftest_key_encoding());
     sys::write_str(title::selftest_titles());
+    sys::write_str(window::selftest_focus_on_create());
+    sys::write_str(origin::selftest_open_origin());
 
     loop {
         // 0. `inputd`: register new surfaces, report focus, apply the

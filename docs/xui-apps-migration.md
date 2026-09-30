@@ -132,8 +132,9 @@ Copied files keep their upstream licence headers (MIT).
    `$HOME` (fall back to `/`). `LazyLauncher::open` resolves the MIME type and
    calls `init.Launch(app, path)` through the existing `mimed` open-with
    registry; unsupported/unknown types return `io::ErrorKind::Unsupported`
-   (shown in the status bar). Decide on icons: enable `village-icons` only if
-   the `xui-icons` crate is vendored within the size budget; else Lucide.
+   (shown in the status bar). Icons: the `xui-icons` crate is a git dependency
+   (not vendored), and `xui-app/Cargo.toml` enables `village-icons` for the
+   Files app; a target that leaves it off falls back to Lucide.
 4. Registry (G9): `init/apps.rs` `editor`→`XEDITOR.ELF`, `files`→`XFILES.ELF`,
    new `paint`→`XPAINT.ELF` as `xui_app(...)` rows; make `Launch` pass a file
    path argument as a single argv item (validated: absolute, no NUL, bounded);
@@ -193,9 +194,10 @@ windows on a real `xuid` desktop. The plan was followed except for the
 deviations recorded in
 [`xui-apps-integration.md`](xui-apps-integration.md#upstream-canvas-switch):
 `xui-canvas` is built with `default-features = false` so its windowed/GL backend
-never enters the musl graph, Global Village icons stay
-off, Paint uses a fixed save path, the Files launcher calls `mimed.Open`, the
-editor refuses symlink writes, and the three apps ship without boot-autostart.
+never enters the musl graph, the Files app enables explorer's `village-icons`
+(the multi-colour Global Village tiles), Paint uses a fixed save path, the Files
+launcher calls `mimed.Open`, the editor refuses symlink writes, and the three
+apps ship without boot-autostart.
 Deferred, with reasons, are Ctrl+letter chords and F1–F3/F5–F12 (kernel PS/2
 decoding), paths with spaces, `set_window_title` (a display-MIDL addition), and
 the scripted-session/CI wiring.

@@ -12,58 +12,6 @@ use crate::sys::{self, button, errno, event, key, EVENT_BYTES};
 use super::{LazyOSBackend, CLIENT_INPUT_BYTES, CLIENT_POLL_TICKS, INPUT_BATCH};
 
 impl LazyOSBackend {
-    /// Route one pointer move (window-relative coordinates).
-    fn pointer_move(&self, window: WindowId, x: i32, y: i32) {
-        self.pointer.set((x, y));
-        let target = self.hit(window, x, y).unwrap_or(WidgetId::NONE);
-        self.deliver(
-            window,
-            target,
-            &Event::MouseMove {
-                x,
-                y,
-                modifiers: Modifiers::NONE,
-            },
-        );
-    }
-
-    /// Route one pointer press: click-to-focus, then the press itself.
-    fn pointer_down(&self, window: WindowId, x: i32, y: i32, button: MouseButton) {
-        self.pointer.set((x, y));
-        let target = self.hit(window, x, y);
-        if let Some(id) = target {
-            if self.is_focus_stop(id) {
-                self.set_focus(id);
-            }
-        }
-        self.deliver(
-            window,
-            target.unwrap_or(WidgetId::NONE),
-            &Event::MouseDown {
-                x,
-                y,
-                button,
-                modifiers: Modifiers::NONE,
-            },
-        );
-    }
-
-    /// Route one pointer release.
-    fn pointer_up(&self, window: WindowId, x: i32, y: i32, button: MouseButton) {
-        self.pointer.set((x, y));
-        let target = self.hit(window, x, y).unwrap_or(WidgetId::NONE);
-        self.deliver(
-            window,
-            target,
-            &Event::MouseUp {
-                x,
-                y,
-                button,
-                modifiers: Modifiers::NONE,
-            },
-        );
-    }
-
     /// Route one key press: focus navigation first, then the focused widget.
     ///
     /// `Tab` and `Shift+Tab` move the widget focus. `PageUp`/`PageDown` are

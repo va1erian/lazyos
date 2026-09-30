@@ -4,7 +4,7 @@
 //! load. A child of `model` so it can touch the document's private fields.
 
 use super::{Drag, Model, Pixel, PreviewKind, Side, Tool};
-use crate::model::{Bitmap, MAX_BRUSH, Preview, WHITE, fill, raster};
+use crate::model::{Bitmap, MAX_BRUSH, MAX_SIDE, MIN_SIDE, Preview, WHITE, fill, raster};
 
 impl Model {
     /// Selects a tool, dropping any in-progress preview.
@@ -192,6 +192,29 @@ impl Model {
             self.history.record(before);
             self.bump();
         }
+    }
+
+    /// Resizes the canvas to `width` x `height`: the old pixels stay at the
+    /// top-left (cropped when smaller) and new area is white. One undo step;
+    /// the same size is a no-op. A side outside `MIN_SIDE..=MAX_SIDE` is
+    /// rejected and changes nothing.
+    pub fn resize(&mut self, width: u32, height: u32) -> Result<(), String> {
+        let range = MIN_SIDE..=MAX_SIDE;
+        if !range.contains(&width) || !range.contains(&height) {
+            return Err(format!(
+                "size must be {MIN_SIDE}-{MAX_SIDE} pixels per side"
+            ));
+        }
+        self.end();
+        if self.bitmap.size() == (width, height) {
+            return Ok(());
+        }
+        let resized = self.bitmap.resized(width, height);
+        let before = std::mem::replace(&mut self.bitmap, resized);
+        self.history.record(before);
+        self.preview = None;
+        self.bump();
+        Ok(())
     }
 
     /// Replaces the document with a fresh white bitmap and an empty history.

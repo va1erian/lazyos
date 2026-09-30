@@ -21,7 +21,7 @@ implement the following; everything else below is specification
 | VFS `rwx`/`umask`/sticky checks against kernel credentials, root bypass (4.1) | POSIX ACLs, mount namespaces / filesystem jails (5.3) |
 | Capability bits `CAP_NET_*`, `CAP_SYS_ADMIN`, `CAP_SYS_TIME`, `CAP_AUDIT_READ`, `CAP_IPC_CONTROL`, `CAP_SETUID`, `CAP_KILL` (cross-uid signals), `CAP_DEV_CLAIM` (device claims through syscall 23, 4.2); `CAP_SYS_ADMIN` gates the display grant (4.2) | Dropping capabilities on `execve` |
 | Handles with rights as the primary Messenger right; default-deny ordered ACL at the kernel call boundary; per-segment topic policy (4.3) | The policy language/compiler, profiles from manifests, hot reload, revocation of live handles (5.2, 6) |
-| Per-uid quotas on kernel memory, user memory, handles, queue bytes/depth (5.5); friendly `ERR_QUOTA` | Syscall allowlists (5.1), network policy (5.4), fd/CPU quota enforcement |
+| Per-uid quotas on kernel memory, user memory, handles, queue bytes/depth, device claims and DMA memory (5.5); friendly `ERR_QUOTA` | Syscall allowlists (5.1), network policy (5.4), fd/CPU quota enforcement |
 | Validated user pointers on every native and Linux syscall, NX on user pages, length-checked parcels fuzzed in CI, every `unsafe` documented and gated by clippy (7) | W^X enforcement, SMEP/SMAP, stack canaries, signed kernel, crash dumps, watchdog |
 | 128-entry hash-chained kernel audit ring, denials always recorded (9) | `auditd`, on-disk log, `CAP_AUDIT_READ` query interface, "why was this denied" UI |
 | | Elevation service (10), signed bundles and updates (11), consent UX (12), the red-team CI suite (13) |
@@ -164,9 +164,11 @@ Every process runs under a compiled **profile** combining:
 
 The kernel side of item 5 is `kernel::quota` (issue #103): a per-uid table of
 limits and live usage for kernel memory (shared-buffer frames), user memory
-(`mmap`/`brk` growth), handles, fds, Messenger queue bytes/depth, and CPU ticks.
+(`mmap`/`brk` growth), handles, fds, Messenger queue bytes/depth, CPU ticks,
+device claims and DMA memory (contiguous pool bytes held through `dma_alloc`,
+issue #241).
 Charges and releases happen at the choke points (`handles::open`, channel
-enqueue/dequeue, `shared::create`, `mmap`/`brk`), keyed by the task's stamped
+enqueue/dequeue, `shared::create`, `mmap`/`brk`, `dev::dma_alloc`), keyed by the task's stamped
 uid, so two processes of one user share one limit. A refusal is a friendly
 `ERR_QUOTA` carrying the resource name, current usage and limit. Defaults live
 in `quota::DEFAULT_LIMITS` (uid 0 stays uncapped until login stamps a real

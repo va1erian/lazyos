@@ -184,4 +184,87 @@ mod tests {
             IconRef::Lucide(Lucide::Package)
         );
     }
+
+    /// The feature-off path declines, so the view keeps the Lucide fallback.
+    #[cfg(not(feature = "village-icons"))]
+    #[test]
+    fn the_coloured_path_is_off_and_declines() {
+        use xui_canvas::Surface;
+        use xui_core::theme::Theme;
+
+        let mut surface = Surface::new(48, 48);
+        let rect = Rect::new(4, 4, 40, 40);
+        let claimed = surface.with_canvas_at(rect, 96, |canvas| {
+            paint(
+                &entry("docs", Kind::Dir),
+                false,
+                canvas,
+                rect,
+                &Theme::light(),
+                96,
+            )
+        });
+        assert!(!claimed, "the feature-off path declines");
+    }
+
+    /// The feature-on path claims the tile and really draws the multi-colour
+    /// icon into the LazyOS canvas backend (`SkiaCanvas`), for every class and
+    /// on both themes.
+    #[cfg(feature = "village-icons")]
+    #[test]
+    fn the_coloured_path_draws_every_class_on_both_themes() {
+        use xui_canvas::Surface;
+        use xui_core::Color;
+        use xui_core::theme::Theme;
+
+        let rect = Rect::new(4, 4, 40, 40);
+        let background = Color::rgb(255, 255, 255);
+
+        // Returns (claimed, drew pixels) for one tile on one theme.
+        let draw = |entry: &Entry, flashing: bool, theme: &Theme| -> (bool, bool) {
+            let mut surface = Surface::new(48, 48);
+            surface.fill(background);
+            let before = surface.pixels().to_vec();
+            let claimed = surface.with_canvas_at(rect, 96, |canvas| {
+                paint(entry, flashing, canvas, rect, theme, 96)
+            });
+            (claimed, surface.pixels() != before.as_slice())
+        };
+
+        let cases = [
+            (entry("docs", Kind::Dir), false),
+            (entry("docs", Kind::Dir), true),
+            (entry("photo.png", Kind::File), false),
+            (entry("clip.mp3", Kind::File), false),
+            (entry("bundle.zip", Kind::File), false),
+            (entry("main.rs", Kind::File), false),
+            (entry("notes.txt", Kind::File), false),
+        ];
+        for (entry, flashing) in cases {
+            let (claimed, drew) = draw(&entry, flashing, &Theme::light());
+            assert!(claimed, "{} claims the coloured tile", entry.display);
+            assert!(drew, "{} draws pixels", entry.display);
+        }
+
+        // The dark theme retints the near-black ink; it must still draw.
+        let (claimed, drew) = draw(&entry("docs", Kind::Dir), false, &Theme::dark());
+        assert!(claimed && drew, "the dark palette draws");
+
+        // An empty rectangle draws nothing (the backend would clip it away).
+        let mut surface = Surface::new(48, 48);
+        surface.fill(background);
+        let before = surface.pixels().to_vec();
+        let claimed = surface.with_canvas_at(rect, 96, |canvas| {
+            paint(
+                &entry("docs", Kind::Dir),
+                false,
+                canvas,
+                Rect::new(0, 0, 0, 0),
+                &Theme::light(),
+                96,
+            )
+        });
+        assert!(claimed, "an empty rect still claims the tile");
+        assert_eq!(surface.pixels(), before.as_slice(), "nothing is drawn");
+    }
 }

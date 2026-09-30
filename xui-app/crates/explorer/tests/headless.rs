@@ -25,6 +25,7 @@ use xui_explorer::{Explorer, ExplorerWindow, MemPlatform};
 struct TestLauncher {
     fail: bool,
     opened: RefCell<Vec<PathBuf>>,
+    hints: RefCell<Vec<(u64, i32)>>,
 }
 
 impl TestLauncher {
@@ -32,6 +33,7 @@ impl TestLauncher {
         TestLauncher {
             fail: true,
             opened: RefCell::new(Vec::new()),
+            hints: RefCell::new(Vec::new()),
         }
     }
 }
@@ -43,6 +45,10 @@ impl Launcher for TestLauncher {
         }
         self.opened.borrow_mut().push(path.to_path_buf());
         Ok(())
+    }
+
+    fn hint_open_origin(&self, window: u64, tile: i32) {
+        self.hints.borrow_mut().push((window, tile));
     }
 }
 
@@ -149,6 +155,46 @@ fn opening_an_already_open_folder_is_a_no_op_with_a_hint() {
         "the folder window is tracked"
     );
     assert!(has(handles.status.text(0), "already open"));
+}
+
+#[test]
+fn opening_a_folder_hints_its_origin_once_and_a_duplicate_open_does_not() {
+    let launcher = Rc::new(TestLauncher::default());
+    let (_, handles) = drive(
+        mem(),
+        Rc::clone(&launcher) as Rc<dyn Launcher>,
+        "/a",
+        |stage, handles| {
+            handles.view.set_selection(&[0]);
+            stage.emit(Msg::Activate(0));
+            stage.emit(Msg::Activate(0)); // already open: no second hint
+        },
+    );
+    let hints = launcher.hints.borrow();
+    assert_eq!(hints.len(), 1, "one hint for the one window that opened");
+    assert_eq!(hints[0].0, handles.window.raw(), "relative to the source");
+    assert_eq!(hints[0].1, xui_explorer::shell::open_tile_px(96));
+}
+
+#[test]
+fn opening_a_file_gives_no_origin_hint() {
+    let launcher = Rc::new(TestLauncher::default());
+    let (_, _) = drive(
+        mem(),
+        Rc::clone(&launcher) as Rc<dyn Launcher>,
+        "/a",
+        |stage, handles| {
+            handles.view.set_selection(&[1]);
+            stage.emit(Msg::Activate(1)); // top.txt
+        },
+    );
+    assert!(launcher.hints.borrow().is_empty());
+}
+
+#[test]
+fn the_open_tile_scales_with_dpi() {
+    assert_eq!(xui_explorer::shell::open_tile_px(96), 64);
+    assert_eq!(xui_explorer::shell::open_tile_px(192), 128);
 }
 
 #[test]

@@ -131,6 +131,20 @@ interface os.lazy.display.v1 {
     /// event of kind `Title`. Clients that never call it keep the
     /// `CreateSurface` title, so old clients are unaffected.
     method SetTitle(surface: U64, title: String) -> () = 29;
+    /// Hint where the *next* `CreateSurface` from this task should open from:
+    /// a rectangle `(x, y, w, h)` relative to the content origin of `surface`
+    /// (which the caller must own; `EACCES` otherwise, `ENOENT` for an unknown
+    /// surface), typically the tile the user just double-clicked. The
+    /// compositor uses it only as the start of that window's opening zoom
+    /// animation, in place of the taskbar entry; it never affects placement,
+    /// focus or anything else. The rectangle is translated to screen
+    /// coordinates and clamped to the screen; an empty rectangle, or one
+    /// wholly off the screen, is ignored. There is at most one hint per task
+    /// (a new one replaces the old) and it is consumed by the next
+    /// `CreateSurface` from that task, or expires after about two seconds.
+    /// Minimize and restore keep using the taskbar entry. A compositor that
+    /// predates the method answers `EINVAL`, which callers ignore.
+    method HintOpenOrigin(surface: U64, x: I32, y: I32, w: U32, h: U32) -> () = 30;
 
     /// What a surface is. Numeric values are the wire values.
     enum Role { Window, Desktop }

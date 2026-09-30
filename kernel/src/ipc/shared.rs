@@ -49,10 +49,12 @@ use crate::quota::{self, Resource};
 use crate::task::wait::WaitQueue;
 use crate::task::{self, WaitKind, WakeReason};
 
+mod dma;
 mod fences;
 mod registry;
 mod types;
 
+pub use dma::{create_from_frames, is_live, DmaOwner};
 pub use fences::*;
 use registry::*;
 pub use types::*;
@@ -120,22 +122,19 @@ pub fn create(size: u64, flags: u32) -> Result<u64, Error> {
     for (index, frame) in frames.iter().enumerate() {
         let at = va + index as u64 * PAGE;
         if !mem::share_frame(*frame) {
-            // Undo the mapped prefix; the never-shared tail keeps only its
-            // allocation reference and is freed directly.
+            // Undo the mapped prefix's mapping references, then return every
+            // frame's allocation reference.
             discard_range(table, va, at, pages);
-            for remaining in &frames[index..] {
-                mem::free_frame(*remaining);
-            }
+            free_frames(&frames);
             release_quota(&mut registry, slot, uid, size);
             return Err(Error::MapFailed);
         }
         if !mem::map_page_in(table, VirtAddr::new(at), *frame, map_flags(flags)) {
-            // Undo this share, the mapped prefix, and the unshared tail.
+            // Undo this share and the mapped prefix, then return every
+            // frame's allocation reference.
             mem::free_frame(*frame);
             discard_range(table, va, at, pages);
-            for remaining in &frames[index + 1..] {
-                mem::free_frame(*remaining);
-            }
+            free_frames(&frames);
             release_quota(&mut registry, slot, uid, size);
             return Err(Error::MapFailed);
         }
@@ -171,6 +170,7 @@ pub fn create(size: u64, flags: u32) -> Result<u64, Error> {
         mappings,
         submitted: 0,
         waited: 0,
+        dma: None,
     });
     Ok(handle)
 }
@@ -234,6 +234,12 @@ pub fn close(handle: u64) -> Result<(), Error> {
     close_for(task::current(), handle, true)
 }
 
+/// [`close`] for a DMA buffer the device was never told about (a failed
+/// `dma_alloc`): dropping the last reference then needs no device quiesce.
+pub fn close_unseen(handle: u64) -> Result<(), Error> {
+    close_impl(task::current(), handle, true, false)
+}
+
 /// [`close`] for a handle in `slot`'s table.
 ///
 /// `unmap` says whether the slot's mapping may be unmapped now. Task teardown
@@ -243,6 +249,10 @@ pub fn close(handle: u64) -> Result<(), Error> {
 /// call already released the handle's own reference) once the last sharer
 /// goes.
 fn close_for(slot: usize, handle: u64, unmap: bool) -> Result<(), Error> {
+    close_impl(slot, handle, unmap, true)
+}
+
+fn close_impl(slot: usize, handle: u64, unmap: bool, seen: bool) -> Result<(), Error> {
     let entry = handles::get_for_task(slot, handle).map_err(from_handles)?;
     if entry.kind != HandleKind::Buffer {
         return Err(Error::WrongKind);
@@ -257,18 +267,35 @@ fn close_for(slot: usize, handle: u64, unmap: bool) -> Result<(), Error> {
     else {
         return Ok(());
     };
+    let quarantined = before_last_drop(&registry.buffers[index], Some(slot), seen);
     if unmap {
         unmap_slot(&mut registry.buffers[index], slot);
     }
     let buffer = &mut registry.buffers[index];
-    // Drop this handle's references: its allocator reference per frame, then
-    // its place in the registry count.
-    free_frames(&buffer.frames);
+    // Drop this handle's references: its allocator reference per frame (kept
+    // when the run is quarantined), then its place in the registry count.
+    if !quarantined {
+        free_frames(&buffer.frames);
+    }
     buffer.refs = buffer.refs.saturating_sub(1);
     if buffer.refs == 0 {
-        destroy_buffer(&mut registry, index, false);
+        destroy_buffer(&mut registry, index, false, quarantined);
     }
     Ok(())
+}
+
+/// Close whichever handle in `slot` names buffer `object_id`, if any (issue
+/// #241). Device teardown knows its DMA buffers by object id, not by a handle
+/// number that may have been moved away or reused, so it closes by identity.
+/// Returns whether a handle was closed.
+pub fn close_owned_for_task(slot: usize, object_id: u64, unmap: bool) -> bool {
+    for (handle, entry) in handles::entries_for_task(slot) {
+        if entry.kind == HandleKind::Buffer && entry.object_id == object_id {
+            let _ = close_for(slot, handle, unmap);
+            return true;
+        }
+    }
+    false
 }
 
 /// Close every buffer handle a reclaimed task slot still holds, then drop the
@@ -361,11 +388,14 @@ pub fn release(object_id: u64) {
     else {
         return;
     };
+    let quarantined = before_last_drop(&registry.buffers[index], None, true);
     let buffer = &mut registry.buffers[index];
-    free_frames(&buffer.frames);
+    if !quarantined {
+        free_frames(&buffer.frames);
+    }
     buffer.refs = buffer.refs.saturating_sub(1);
     if buffer.refs == 0 {
-        destroy_buffer(&mut registry, index, false);
+        destroy_buffer(&mut registry, index, false, quarantined);
     }
 }
 
@@ -399,6 +429,7 @@ pub fn info(handle: u64) -> Result<BufferInfo, Error> {
     Ok(BufferInfo {
         size: buffer.size,
         flags: buffer.flags,
+        dma: buffer.dma.is_some(),
         frames: buffer.frames.len() as u64,
         refs: buffer.refs,
         mappings: buffer.mappings.len() as u64,
@@ -435,5 +466,18 @@ pub mod harness {
         }
         FENCES.park(task::current(), deadline);
         Ok(false)
+    }
+
+    /// The backing frames of the buffer `handle` names, for tests that check
+    /// contiguity, zeroing and frame identity (issue #241).
+    pub fn frames(handle: u64) -> Result<Vec<PhysAddr>, Error> {
+        let object_id = object_of(handle, 0)?;
+        let registry = REGISTRY.lock();
+        registry
+            .buffers
+            .iter()
+            .find(|buffer| buffer.object_id == object_id)
+            .map(|buffer| buffer.frames.clone())
+            .ok_or(Error::NotFound)
     }
 }

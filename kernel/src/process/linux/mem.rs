@@ -47,38 +47,14 @@ pub(super) fn sys_mmap(addr: u64, len: u64, prot: u64, flags: u64) -> u64 {
         return err(ENOMEM);
     };
     let table = crate::mem::kernel_table();
-    let mut base = if flags & MAP_FIXED != 0 {
+    let base = if flags & MAP_FIXED != 0 {
         addr & !0xFFF
     } else {
-        task::mmap_next().max(MMAP_BASE)
-    };
-    if flags & MAP_FIXED == 0 {
-        // The bump pointer may point into a range another call grew (or a
-        // moved mapping left behind): find the first free hole, like Linux's
-        // unmapped-area search. Without this, a fresh `mmap` could silently
-        // replace part of a live mapping.
-        loop {
-            let Some(end) = base.checked_add(len) else {
-                return err(ENOMEM);
-            };
-            if end > MMAP_LIMIT {
-                return err(ENOMEM);
-            }
-            let occupied = crate::mem::vma::find_range(table, base, end);
-            if occupied.is_empty() {
-                break;
-            }
-            match occupied.iter().map(|vma| vma.end).max() {
-                Some(next) => {
-                    let Some(aligned) = align_up(next, PAGE) else {
-                        return err(ENOMEM);
-                    };
-                    base = aligned;
-                }
-                None => break,
-            }
+        match first_free_range(table, len) {
+            Some(base) => base,
+            None => return err(ENOMEM),
         }
-    }
+    };
     let Some(end) = base.checked_add(len) else {
         return err(ENOMEM);
     };
@@ -344,18 +320,34 @@ pub(super) fn sys_mremap(
     dest
 }
 
-/// First free address at or above the bump pointer that fits `len`.
+/// First free address in the mmap region that fits `len`.
 fn choose_mremap_dest(table: PhysAddr, len: u64) -> Option<u64> {
-    let mut candidate = task::mmap_next().max(MMAP_BASE);
-    loop {
-        let end = candidate.checked_add(len)?;
-        if end > MMAP_LIMIT {
-            return None;
+    first_free_range(table, len)
+}
+
+/// First-fit search of the mmap region for a hole of `len` bytes.
+///
+/// It starts at [`MMAP_BASE`] every time rather than at the bump pointer, so a
+/// range `munmap` gave back is reused. A bump-only search leaked address space
+/// for allocation patterns that map and unmap a large buffer per frame (a
+/// 345 KiB clip mask per repaint): the 768 MiB region was gone after ~2300
+/// cycles and the process died with `memory allocation failed` although
+/// almost no memory was resident.
+fn first_free_range(table: PhysAddr, len: u64) -> Option<u64> {
+    // One pass over the VMAs in address order: `candidate` only moves forward,
+    // past each mapping that overlaps it, so the cost is one scan however
+    // large the mappings are.
+    let mut vmas = crate::mem::vma::list(table);
+    vmas.sort_unstable_by_key(|vma| vma.start);
+    let mut candidate = MMAP_BASE;
+    for vma in vmas {
+        if vma.end <= candidate {
+            continue;
         }
-        let occupied = crate::mem::vma::find_range(table, candidate, end);
-        if occupied.is_empty() {
-            return Some(candidate);
+        if vma.start >= candidate.checked_add(len)? {
+            break;
         }
-        candidate = align_up(occupied.iter().map(|vma| vma.end).max()?, PAGE)?;
+        candidate = align_up(vma.end, PAGE)?;
     }
+    (candidate.checked_add(len)? <= MMAP_LIMIT).then_some(candidate)
 }

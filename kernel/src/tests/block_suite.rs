@@ -208,11 +208,27 @@ pub fn registry_register_lookup_duplicate() -> Result<(), String> {
     let previous = block::boot_device();
     block::set_boot_device(first);
     let stuck = block::boot_device().map(|dev| dev.name()) == Some("test-registry-a");
-    if let Some(device) = previous {
-        block::set_boot_device(device);
+    match previous {
+        Some(device) => block::set_boot_device(device),
+        None => block::clear_boot_device(),
     }
     check!(stuck, "set_boot_device did not stick");
     Ok(())
+}
+
+/// The ATA disk, or `None` (after logging why) on a machine whose only disk is
+/// not ATA, such as q35 with virtio-blk (issue #283). Still an error when no
+/// disk at all was found, so a broken probe cannot hide behind the skip.
+pub(super) fn ata_or_skip(test: &str) -> Result<Option<&'static dyn BlockDevice>, String> {
+    block::init();
+    if let Some(device) = block::device("ata0") {
+        return Ok(Some(device));
+    }
+    if block::boot_device().is_none() {
+        return Err(String::from("no block device is registered at all"));
+    }
+    serial_println!("TEST:{test}:INFO:no ATA disk on this machine type; skipped");
+    Ok(None)
 }
 
 /// The ATA path still reads the boot disk through the trait: sector 0
@@ -220,8 +236,9 @@ pub fn registry_register_lookup_duplicate() -> Result<(), String> {
 /// sector is a 512-byte-per-sector BPB. This is the acceptance for "the
 /// default image boots from ATA through the block layer".
 pub fn ata_reads_fat_root() -> Result<(), String> {
-    block::init();
-    let device = block::device("ata0").ok_or_else(|| String::from("ata0 is not registered"))?;
+    let Some(device) = ata_or_skip("block_ata_reads_fat_root")? else {
+        return Ok(());
+    };
     check!(device.sector_count() > 0, "ata0 reports an empty geometry");
 
     let mut mbr = [0u8; SECTOR_SIZE];

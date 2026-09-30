@@ -34,6 +34,9 @@ const WINDOW_WIDTH: Dip = Dip(720.0);
 /// The height each folder window opens at.
 const WINDOW_HEIGHT: Dip = Dip(480.0);
 
+/// The open animation's start tile, in design pixels (an icon and its label).
+const OPEN_TILE_DIP: f32 = 64.0;
+
 /// The shared bits behind every explorer window.
 pub struct Explorer {
     platform: Rc<dyn Platform>,
@@ -88,6 +91,8 @@ impl Explorer {
         if self.registry.is_open(&path) {
             return false;
         }
+        self.launcher
+            .hint_open_origin(ui.window().raw(), open_tile_px(ui.dpi()));
         let shell = Rc::clone(self);
         let child_path = path.clone();
         let spec = window_spec(&path);
@@ -130,6 +135,12 @@ impl Explorer {
     pub fn title_of(&self, window: WindowId) -> Option<String> {
         self.titles.borrow().get(&window.raw()).cloned()
     }
+}
+
+/// The edge, in device pixels, of the tile the open animation starts from:
+/// about an icon plus its label, so the wireframe leaves the whole tile.
+pub fn open_tile_px(dpi: u32) -> i32 {
+    Dip(OPEN_TILE_DIP).to_px(dpi).value()
 }
 
 /// The [`PlatformSpec`] a folder window opens with.

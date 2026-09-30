@@ -10,7 +10,7 @@ use super::toolbar::{self, StripItem};
 use crate::model::{Pixel, SIZES, Tool};
 
 /// The tool, size and action cells, in order. Save/Open are included only when
-/// the storage is available.
+/// the storage is available; Resize is last so the other indices are stable.
 pub(super) fn strip_items(io: bool) -> Vec<StripItem> {
     let mut items: Vec<StripItem> = Tool::ALL.into_iter().map(StripItem::Tool).collect();
     items.extend(SIZES.into_iter().map(StripItem::Size));
@@ -23,6 +23,7 @@ pub(super) fn strip_items(io: bool) -> Vec<StripItem> {
     if io {
         items.extend([StripItem::Save, StripItem::Open]);
     }
+    items.push(StripItem::Resize);
     items
 }
 

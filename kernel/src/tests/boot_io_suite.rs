@@ -24,15 +24,16 @@ impl Rng {
     }
 }
 
-fn ata() -> Result<&'static dyn BlockDevice, String> {
-    block::init();
-    block::device("ata0").ok_or_else(|| String::from("ata0 is not registered"))
+fn ata(test: &str) -> Result<Option<&'static dyn BlockDevice>, String> {
+    super::block_suite::ata_or_skip(test)
 }
 
 /// A run of N sectors must equal N single-sector reads, at every run length
 /// around the 128-sector command limit.
 fn ata_runs_match_single_sector_reads() -> Result<(), String> {
-    let device = ata()?;
+    let Some(device) = ata("boot_io_ata_runs_match_single_reads")? else {
+        return Ok(());
+    };
     for (lba, count) in [
         (0u64, 1usize),
         (1, 2),
@@ -62,7 +63,9 @@ fn ata_runs_match_single_sector_reads() -> Result<(), String> {
 
 /// Bad lengths and ranges are refused before any port is touched.
 fn ata_run_bounds() -> Result<(), String> {
-    let device = ata()?;
+    let Some(device) = ata("boot_io_ata_run_bounds")? else {
+        return Ok(());
+    };
     let mut odd = [0u8; 100];
     check!(
         device.read_sectors(0, &mut odd) == Err(BlockError::Unsupported),
