@@ -8,16 +8,14 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use timezone::{Local, Zone, DEFAULT_ZONE, TICK_TOPIC, ZONE_KEY};
+use timezone::{Local, Zone, DEFAULT_ZONE, ZONE_KEY};
 use user::central::{Bus, Subscription};
-use user::messenger::confd::{Client as Confd, CONFD_NOT_FOUND};
+use user::messenger::confd::{name_system_confd_changed, Client as Confd, CONFD_NOT_FOUND};
 use user::messenger::{self, errno, timed as api, Error, EXPIRED_DEADLINE};
 use user::sys;
 
 /// Ticks (100 Hz) between attempts to reach `confd` while it is unreachable.
 const RETRY_TICKS: u64 = 100;
-/// The confd change topic for the zone key (`system/confd/changed/<path>`).
-const ZONE_CHANGED: &str = "system/confd/changed/sys/time/zone";
 
 pub(super) struct State {
     pub(super) zone: &'static Zone,
@@ -70,7 +68,10 @@ impl State {
         match self.read_zone() {
             Ok(zone) => {
                 self.drop_watch();
-                self.watch = self.confd.as_ref().and_then(|c| c.watch(ZONE_CHANGED).ok());
+                self.watch = self.confd.as_ref().and_then(|c| {
+                    let topic = name_system_confd_changed(ZONE_KEY).ok()?;
+                    c.watch(&topic).ok()
+                });
                 if self.watch.is_some() {
                     self.synced = true;
                     sys::write_str(
@@ -205,17 +206,16 @@ impl State {
 
     fn publish_tick(&mut self, unix: i64) -> Result<(), Error> {
         let local = self.local(unix);
-        let payload = api::wire::encode_tick_args(&api::wire::TickArgs {
+        let value = api::wire::Tick {
             unix,
             offset: local.offset,
             zone_name: String::from(self.zone.name),
-        })
-        .map_err(Error::Parcel)?;
+        };
         if self.bus.is_none() {
             self.bus = Some(Bus::connect()?);
         }
         let bus = self.bus.as_mut().ok_or(Error::Errno(-errno::ENOENT))?;
-        match bus.publish(TICK_TOPIC, &payload, true) {
+        match api::wire::publish_time_tick(bus, &value) {
             Ok(_) => {
                 self.announced = true;
                 Ok(())

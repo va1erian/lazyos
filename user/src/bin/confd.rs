@@ -44,6 +44,7 @@ use core::panic::PanicInfo;
 
 use api::wire;
 use confd::{ChangeSink, Confd, StoreFs};
+use messenger_generated::topics;
 use user::central;
 use user::files::{self, Kind};
 use user::messenger::confd as api;
@@ -137,20 +138,6 @@ impl TopicSink {
         TopicSink { bus: None }
     }
 
-    /// Publish raw bytes, reconnecting once when the cached bus is stale.
-    fn publish(&mut self, topic: &str, payload: &[u8]) {
-        if self.bus.is_none() {
-            self.bus = central::Bus::connect_retry(4).ok();
-        }
-        let ok = match &mut self.bus {
-            Some(bus) => bus.publish(topic, payload, false).is_ok(),
-            None => false,
-        };
-        if !ok {
-            self.bus = None;
-        }
-    }
-
     /// Best-effort heartbeat to `healthd`.
     fn report_health(&mut self, status: &str, detail: &str) {
         let Ok(endpoint) = services::resolve_service(services::HEALTHD_NAME) else {
@@ -163,13 +150,34 @@ impl TopicSink {
     }
 }
 
+impl topics::Publish for TopicSink {
+    type Error = Error;
+
+    /// Publish through the central broker, reconnecting once when the cached
+    /// bus is stale.
+    fn publish_topic(&mut self, topic: &str, payload: &[u8], retained: bool) -> Result<u64, Error> {
+        if self.bus.is_none() {
+            self.bus = central::Bus::connect_retry(4).ok();
+        }
+        let result = match &mut self.bus {
+            Some(bus) => bus.publish(topic, payload, retained),
+            None => Err(Error::Errno(-errno::ENOENT)),
+        };
+        if result.is_err() {
+            self.bus = None;
+        }
+        result
+    }
+}
+
 impl ChangeSink for TopicSink {
     fn changed(&mut self, path: &str, deleted: bool) {
-        let Ok(payload) = api::change_payload(path, deleted) else {
-            return;
+        let value = wire::Change {
+            path: String::from(path),
+            deleted,
         };
-        let topic = api::change_topic(path);
-        self.publish(&topic, &payload);
+        // Best-effort: a change topic is an event, not state.
+        let _ = wire::publish_system_confd_changed(self, path, &value);
     }
 }
 

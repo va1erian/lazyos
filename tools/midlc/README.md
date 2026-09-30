@@ -3,13 +3,15 @@
 `midlc.py` turns `.midl` interface definitions into:
 
 - **Rust wire helpers** (`libs/generated/src/lib.rs`): typed `encode_*`/`decode_*`
-  functions over the [`libmessenger`](../../libs/messenger) parcel codec,
+  functions over the [`libmessenger`](../../libs/messenger) parcel codec, plus
+  typed `publish_*`/`subscribe_*` helpers for declared topics,
 - a **Markdown reference** per interface (`docs/idl/`),
 - a machine-readable **manifest** (`idl/manifest.json`) with method ids and the
   interface hash.
 
 The grammar and versioning rules are described in
-[`docs/messenger.md`](../../docs/messenger.md) section 11. Method ids are stable:
+[`docs/messenger.md`](../../docs/messenger.md) section 11; topic declarations
+are documented in [`docs/midl.md`](../../docs/midl.md). Method ids are stable:
 an explicit `= 7` wins, otherwise a deterministic hash of the method name is
 used, and adding a method never renumbers existing ones.
 

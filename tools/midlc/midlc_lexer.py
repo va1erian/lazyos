@@ -13,6 +13,7 @@ from dataclasses import dataclass
 TOKEN = re.compile(
     r"(?P<doc>///[^\n]*)"
     r"|(?P<comment>//[^\n]*)"
+    r"|(?P<string>\"(?:[^\"\\]|\\.)*\")"
     r"|(?P<number>\d+)"
     r"|(?P<arrow>->)"
     r"|(?P<ident>[A-Za-z_][A-Za-z0-9_.]*)"

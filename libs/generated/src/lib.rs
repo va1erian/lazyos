@@ -4,12 +4,202 @@
 #![cfg_attr(not(test), no_std)]
 extern crate alloc;
 
+/// Shared runtime for the topic helpers generated from `topic` declarations
+/// (issue #307, `docs/midl.md`).
+// Generated code is not hand-formatted; skip rustfmt so the generator's output
+// is byte-for-byte reproducible (`midlc --check`).
+#[rustfmt::skip]
+pub mod topics {
+    use alloc::string::String;
+
+    /// `Qos::Latest` (`idl/topics.midl`).
+    pub const QOS_LATEST: u32 = 0;
+    /// `Qos::Buffered`.
+    pub const QOS_BUFFERED: u32 = 1;
+    /// `Qos::Conflate`.
+    pub const QOS_CONFLATE: u32 = 2;
+    /// `Qos::Reliable`.
+    pub const QOS_RELIABLE: u32 = 3;
+
+    /// Longest topic name, mirroring the broker and the kernel ACL gate.
+    pub const MAX_NAME_BYTES: usize = 128;
+    /// Deepest topic, mirroring the broker and the kernel ACL gate.
+    pub const MAX_SEGMENTS: usize = 8;
+
+    /// Whether a generated name is a concrete publish topic or a filter.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    pub enum Mode {
+        /// Publishing: every wildcard must be given a literal segment.
+        Publish,
+        /// Subscribing: a `+` segment and a trailing `#` are allowed.
+        Subscribe,
+    }
+
+    /// Why a generated topic helper refused to build a name.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    pub enum TopicError {
+        /// A segment was empty or used a character the broker refuses.
+        BadSegment,
+        /// Fewer arguments than the pattern's wildcards.
+        MissingSegment,
+        /// More arguments than the pattern's wildcards.
+        ExtraSegment,
+        /// The built name exceeded the broker's byte or segment limit.
+        TooLong,
+        /// A payload could not be encoded.
+        Encode(libmessenger::Error),
+    }
+
+    impl From<libmessenger::Error> for TopicError {
+        fn from(error: libmessenger::Error) -> Self {
+            TopicError::Encode(error)
+        }
+    }
+
+    /// A transport that publishes already-encoded topic payload bytes.
+    pub trait Publish {
+        /// The transport's error type.
+        type Error;
+        /// Publish `payload` under `topic`; `retained` keeps it for late
+        /// subscribers.
+        fn publish_topic(
+            &mut self,
+            topic: &str,
+            payload: &[u8],
+            retained: bool,
+        ) -> Result<u64, Self::Error>;
+    }
+
+    /// A transport that subscribes to a topic filter.
+    pub trait Subscribe {
+        /// The transport's error type.
+        type Error;
+        /// The live subscription handle.
+        type Subscription;
+        /// Subscribe to `filter` with the `qos` code from `idl/topics.midl`.
+        fn subscribe_topic(&mut self, filter: &str, qos: u32)
+            -> Result<Self::Subscription, Self::Error>;
+    }
+
+    /// One declared topic, for introspection (`messengerctl topics`).
+    #[derive(Clone, Copy, Debug)]
+    pub struct TopicDecl {
+        /// Owning interface name.
+        pub interface: &'static str,
+        /// Normalized filter pattern (`+`/`#`).
+        pub name: &'static str,
+        /// Payload type name declared in the interface.
+        pub payload: &'static str,
+        /// `Qos` code from `idl/topics.midl`.
+        pub qos: u32,
+        /// Whether publishers mark the topic retained.
+        pub retained: bool,
+        /// The `publish:<pattern>` permission string.
+        pub publish_permission: &'static str,
+        /// The `subscribe:<pattern>` permission string.
+        pub subscribe_permission: &'static str,
+    }
+
+    /// Whether `byte` may appear in a literal segment (the broker's set).
+    fn valid_literal_byte(byte: u8) -> bool {
+        byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.')
+    }
+
+    fn push_literal(out: &mut String, segment: &str) -> Result<(), TopicError> {
+        if segment.is_empty() || !segment.bytes().all(valid_literal_byte) {
+            return Err(TopicError::BadSegment);
+        }
+        out.push_str(segment);
+        Ok(())
+    }
+
+    /// Push a `#` argument: one or more literal segments, or (subscribe only)
+    /// a literal prefix whose last segment is a standalone `#`.
+    fn push_tail(out: &mut String, arg: &str, mode: Mode) -> Result<(), TopicError> {
+        let mut parts = arg.split('/').peekable();
+        while let Some(part) = parts.next() {
+            let last = parts.peek().is_none();
+            if mode == Mode::Subscribe && last && part == "#" {
+                out.push('#');
+            } else {
+                push_literal(out, part)?;
+            }
+            if !last {
+                out.push('/');
+            }
+        }
+        Ok(())
+    }
+
+    /// Build a concrete name (`Mode::Publish`) or a filter
+    /// (`Mode::Subscribe`) from the normalized `pattern` and one argument per
+    /// wildcard, left to right.
+    pub fn build(pattern: &str, args: &[&str], mode: Mode) -> Result<String, TopicError> {
+        if pattern.is_empty() || pattern.split('/').count() > MAX_SEGMENTS {
+            return Err(TopicError::TooLong);
+        }
+        let mut out = String::new();
+        let mut used = 0usize;
+        for (index, segment) in pattern.split('/').enumerate() {
+            if index > 0 {
+                out.push('/');
+            }
+            match segment {
+                "+" => {
+                    let arg = *args.get(used).ok_or(TopicError::MissingSegment)?;
+                    used += 1;
+                    if mode == Mode::Subscribe && arg == "+" {
+                        out.push('+');
+                    } else {
+                        push_literal(&mut out, arg)?;
+                    }
+                }
+                "#" => {
+                    let arg = *args.get(used).ok_or(TopicError::MissingSegment)?;
+                    used += 1;
+                    push_tail(&mut out, arg, mode)?;
+                }
+                literal => push_literal(&mut out, literal)?,
+            }
+        }
+        if used != args.len() {
+            return Err(TopicError::ExtraSegment);
+        }
+        if out.len() > MAX_NAME_BYTES || out.split('/').count() > MAX_SEGMENTS {
+            return Err(TopicError::TooLong);
+        }
+        Ok(out)
+    }
+
+    /// Whether the topic filter `filter` matches the concrete `topic`: `+` is
+    /// one segment, a trailing `#` is zero or more. Mirrors the broker.
+    pub fn matches(filter: &str, topic: &str) -> bool {
+        let mut filter_segments = filter.split('/');
+        let mut topic_segments = topic.split('/');
+        loop {
+            match (filter_segments.next(), topic_segments.next()) {
+                (Some("#"), _) => return true,
+                (Some("+"), Some(_)) => {}
+                (Some(expected), Some(actual)) if expected == actual => {}
+                (None, None) => return true,
+                _ => return false,
+            }
+        }
+    }
+}
+
 /// `os.lazy.accounts.v1` (interface id `0x2cbf60abbc1951bc`).
+#[rustfmt::skip]
 pub mod os_lazy_accounts_v1 {
     use alloc::vec::Vec;
+    #[allow(unused_imports)]
+    use alloc::string::String;
     // Not every interface needs every codec item (`Kind` is only used by nested values).
     #[allow(unused_imports)]
     use libmessenger::{Decoder, Encoder, Error, Kind};
+    // Only interfaces that declare topics use the shared topic runtime.
+    #[allow(unused_imports)]
+    use super::topics;
 
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0x2cbf60abbc1951bc;
@@ -338,11 +528,17 @@ pub mod os_lazy_accounts_v1 {
 }
 
 /// `os.lazy.clipboard.v1` (interface id `0x5a8da8f22670b758`).
+#[rustfmt::skip]
 pub mod os_lazy_clipboard_v1 {
     use alloc::vec::Vec;
+    #[allow(unused_imports)]
+    use alloc::string::String;
     // Not every interface needs every codec item (`Kind` is only used by nested values).
     #[allow(unused_imports)]
     use libmessenger::{Decoder, Encoder, Error, Kind};
+    // Only interfaces that declare topics use the shared topic runtime.
+    #[allow(unused_imports)]
+    use super::topics;
 
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0x5a8da8f22670b758;
@@ -709,14 +905,68 @@ pub mod os_lazy_clipboard_v1 {
         }
         Ok(out)
     }
+
+    /// The retained per-session offer-announcement topic (issue #307): paste
+    /// UIs refresh from it without polling, and a late subscriber is handed
+    /// the live offer. The payload is an `OfferMeta`, never content.
+    /// The declared `session/+/clipboard/changed` topic (`OfferMeta`, `latest`, retained).
+    pub const TOPIC_SESSION_CLIPBOARD_CHANGED: &str = "session/+/clipboard/changed";
+    /// The `session/+/clipboard/changed` delivery policy.
+    pub const TOPIC_SESSION_CLIPBOARD_CHANGED_QOS: u32 = topics::QOS_LATEST;
+    /// Whether `session/+/clipboard/changed` publishes are retained.
+    pub const TOPIC_SESSION_CLIPBOARD_CHANGED_RETAINED: bool = true;
+
+    /// Build the concrete `session/+/clipboard/changed` name; each wildcard takes one literal segment.
+    pub fn name_session_clipboard_changed(session: &str) -> Result<String, topics::TopicError> {
+        topics::build(TOPIC_SESSION_CLIPBOARD_CHANGED, &[session], topics::Mode::Publish)
+    }
+
+    /// Encode a `OfferMeta` payload for `session/+/clipboard/changed`.
+    pub fn encode_session_clipboard_changed(value: &OfferMeta) -> Result<Vec<u8>, Error> {
+        encode_offer_meta(value)
+    }
+
+    /// Decode a `session/+/clipboard/changed` payload; malformed bytes are an error.
+    pub fn decode_session_clipboard_changed(body: &[u8]) -> Result<OfferMeta, Error> {
+        decode_offer_meta(body)
+    }
+
+    /// Publish a typed `OfferMeta` on `session/+/clipboard/changed`.
+    pub fn publish_session_clipboard_changed<P>(publisher: &mut P, session: &str, value: &OfferMeta) -> Result<u64, P::Error>
+    where
+        P: topics::Publish,
+        P::Error: From<topics::TopicError>,
+    {
+        let topic = name_session_clipboard_changed(session).map_err(P::Error::from)?;
+        let payload = encode_session_clipboard_changed(value)
+            .map_err(|error| P::Error::from(topics::TopicError::Encode(error)))?;
+        publisher.publish_topic(&topic, &payload, TOPIC_SESSION_CLIPBOARD_CHANGED_RETAINED)
+    }
+
+    /// Subscribe to `session/+/clipboard/changed` with its declared QoS.
+    pub fn subscribe_session_clipboard_changed<S>(subscriber: &mut S, session: &str) -> Result<S::Subscription, S::Error>
+    where
+        S: topics::Subscribe,
+        S::Error: From<topics::TopicError>,
+    {
+        let filter = topics::build(TOPIC_SESSION_CLIPBOARD_CHANGED, &[session], topics::Mode::Subscribe)
+            .map_err(S::Error::from)?;
+        subscriber.subscribe_topic(&filter, TOPIC_SESSION_CLIPBOARD_CHANGED_QOS)
+    }
 }
 
 /// `os.lazy.confd.v1` (interface id `0xdf3c79dfb9f8f2e0`).
+#[rustfmt::skip]
 pub mod os_lazy_confd_v1 {
     use alloc::vec::Vec;
+    #[allow(unused_imports)]
+    use alloc::string::String;
     // Not every interface needs every codec item (`Kind` is only used by nested values).
     #[allow(unused_imports)]
     use libmessenger::{Decoder, Encoder, Error, Kind};
+    // Only interfaces that declare topics use the shared topic runtime.
+    #[allow(unused_imports)]
+    use super::topics;
 
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0xdf3c79dfb9f8f2e0;
@@ -841,6 +1091,39 @@ pub mod os_lazy_confd_v1 {
                         let item = nested.next()?.ok_or(Error::BadValue)?;
                         out.bytes_value = Some(item.as_bytes().to_vec());
                     }
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// One committed change (issue #307): the payload of the
+    /// `system/confd/changed/<path>` topic. It deliberately never carries the
+    /// value; a subscriber re-reads the path.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct Change {
+        pub path: alloc::string::String,
+        pub deleted: bool,
+    }
+
+    pub fn encode_change(value: &Change) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.path)?;
+        target.bool(2, value.deleted)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_change(body: &[u8]) -> Result<Change, Error> {
+        let mut out = Change::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.path = field.as_str()?.into();
+                }
+                2 => {
+                    out.deleted = field.as_bool()?;
                 }
                 _ => {}
             }
@@ -1023,14 +1306,69 @@ pub mod os_lazy_confd_v1 {
         }
         Ok(out)
     }
+
+    /// Announced for every committed `sys/` change (issue #260): the topic is
+    /// `system/confd/changed/<path>`, where `<path>` is the changed path, so a
+    /// subscriber watches a subtree with `system/confd/changed/sys/#`. Not
+    /// retained: a change is an event, not state.
+    /// The declared `system/confd/changed/#` topic (`Change`, `latest`).
+    pub const TOPIC_SYSTEM_CONFD_CHANGED: &str = "system/confd/changed/#";
+    /// The `system/confd/changed/#` delivery policy.
+    pub const TOPIC_SYSTEM_CONFD_CHANGED_QOS: u32 = topics::QOS_LATEST;
+    /// Whether `system/confd/changed/#` publishes are retained.
+    pub const TOPIC_SYSTEM_CONFD_CHANGED_RETAINED: bool = false;
+
+    /// Build the concrete `system/confd/changed/#` name; each wildcard takes one literal segment.
+    pub fn name_system_confd_changed(path: &str) -> Result<String, topics::TopicError> {
+        topics::build(TOPIC_SYSTEM_CONFD_CHANGED, &[path], topics::Mode::Publish)
+    }
+
+    /// Encode a `Change` payload for `system/confd/changed/#`.
+    pub fn encode_system_confd_changed(value: &Change) -> Result<Vec<u8>, Error> {
+        encode_change(value)
+    }
+
+    /// Decode a `system/confd/changed/#` payload; malformed bytes are an error.
+    pub fn decode_system_confd_changed(body: &[u8]) -> Result<Change, Error> {
+        decode_change(body)
+    }
+
+    /// Publish a typed `Change` on `system/confd/changed/#`.
+    pub fn publish_system_confd_changed<P>(publisher: &mut P, path: &str, value: &Change) -> Result<u64, P::Error>
+    where
+        P: topics::Publish,
+        P::Error: From<topics::TopicError>,
+    {
+        let topic = name_system_confd_changed(path).map_err(P::Error::from)?;
+        let payload = encode_system_confd_changed(value)
+            .map_err(|error| P::Error::from(topics::TopicError::Encode(error)))?;
+        publisher.publish_topic(&topic, &payload, TOPIC_SYSTEM_CONFD_CHANGED_RETAINED)
+    }
+
+    /// Subscribe to `system/confd/changed/#` with its declared QoS.
+    pub fn subscribe_system_confd_changed<S>(subscriber: &mut S, path: &str) -> Result<S::Subscription, S::Error>
+    where
+        S: topics::Subscribe,
+        S::Error: From<topics::TopicError>,
+    {
+        let filter = topics::build(TOPIC_SYSTEM_CONFD_CHANGED, &[path], topics::Mode::Subscribe)
+            .map_err(S::Error::from)?;
+        subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_CONFD_CHANGED_QOS)
+    }
 }
 
 /// `os.lazy.display.v1` (interface id `0x5ef41f254d43c2b4`).
+#[rustfmt::skip]
 pub mod os_lazy_display_v1 {
     use alloc::vec::Vec;
+    #[allow(unused_imports)]
+    use alloc::string::String;
     // Not every interface needs every codec item (`Kind` is only used by nested values).
     #[allow(unused_imports)]
     use libmessenger::{Decoder, Encoder, Error, Kind};
+    // Only interfaces that declare topics use the shared topic runtime.
+    #[allow(unused_imports)]
+    use super::topics;
 
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0x5ef41f254d43c2b4;
@@ -2157,11 +2495,17 @@ pub mod os_lazy_display_v1 {
 }
 
 /// `os.lazy.echo.v1` (interface id `0xcc4ac1057e84db93`).
+#[rustfmt::skip]
 pub mod os_lazy_echo_v1 {
     use alloc::vec::Vec;
+    #[allow(unused_imports)]
+    use alloc::string::String;
     // Not every interface needs every codec item (`Kind` is only used by nested values).
     #[allow(unused_imports)]
     use libmessenger::{Decoder, Encoder, Error, Kind};
+    // Only interfaces that declare topics use the shared topic runtime.
+    #[allow(unused_imports)]
+    use super::topics;
 
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0xcc4ac1057e84db93;
@@ -2312,11 +2656,17 @@ pub mod os_lazy_echo_v1 {
 }
 
 /// `os.lazy.healthd.v1` (interface id `0xd022082ef0aaed78`).
+#[rustfmt::skip]
 pub mod os_lazy_healthd_v1 {
     use alloc::vec::Vec;
+    #[allow(unused_imports)]
+    use alloc::string::String;
     // Not every interface needs every codec item (`Kind` is only used by nested values).
     #[allow(unused_imports)]
     use libmessenger::{Decoder, Encoder, Error, Kind};
+    // Only interfaces that declare topics use the shared topic runtime.
+    #[allow(unused_imports)]
+    use super::topics;
 
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0xd022082ef0aaed78;
@@ -2480,11 +2830,17 @@ pub mod os_lazy_healthd_v1 {
 }
 
 /// `os.lazy.init.v1` (interface id `0xa549dce4687b08e`).
+#[rustfmt::skip]
 pub mod os_lazy_init_v1 {
     use alloc::vec::Vec;
+    #[allow(unused_imports)]
+    use alloc::string::String;
     // Not every interface needs every codec item (`Kind` is only used by nested values).
     #[allow(unused_imports)]
     use libmessenger::{Decoder, Encoder, Error, Kind};
+    // Only interfaces that declare topics use the shared topic runtime.
+    #[allow(unused_imports)]
+    use super::topics;
 
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0xa549dce4687b08e;
@@ -2741,11 +3097,17 @@ pub mod os_lazy_init_v1 {
 }
 
 /// `os.lazy.keyd.v1` (interface id `0xd948c3355ba590bf`).
+#[rustfmt::skip]
 pub mod os_lazy_keyd_v1 {
     use alloc::vec::Vec;
+    #[allow(unused_imports)]
+    use alloc::string::String;
     // Not every interface needs every codec item (`Kind` is only used by nested values).
     #[allow(unused_imports)]
     use libmessenger::{Decoder, Encoder, Error, Kind};
+    // Only interfaces that declare topics use the shared topic runtime.
+    #[allow(unused_imports)]
+    use super::topics;
 
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0xd948c3355ba590bf;
@@ -3182,11 +3544,17 @@ pub mod os_lazy_keyd_v1 {
 }
 
 /// `os.lazy.logd.v1` (interface id `0x9c5197a46ce8a872`).
+#[rustfmt::skip]
 pub mod os_lazy_logd_v1 {
     use alloc::vec::Vec;
+    #[allow(unused_imports)]
+    use alloc::string::String;
     // Not every interface needs every codec item (`Kind` is only used by nested values).
     #[allow(unused_imports)]
     use libmessenger::{Decoder, Encoder, Error, Kind};
+    // Only interfaces that declare topics use the shared topic runtime.
+    #[allow(unused_imports)]
+    use super::topics;
 
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0x9c5197a46ce8a872;
@@ -3368,11 +3736,17 @@ pub mod os_lazy_logd_v1 {
 }
 
 /// `os.lazy.logind.v1` (interface id `0x98121a421f33722d`).
+#[rustfmt::skip]
 pub mod os_lazy_logind_v1 {
     use alloc::vec::Vec;
+    #[allow(unused_imports)]
+    use alloc::string::String;
     // Not every interface needs every codec item (`Kind` is only used by nested values).
     #[allow(unused_imports)]
     use libmessenger::{Decoder, Encoder, Error, Kind};
+    // Only interfaces that declare topics use the shared topic runtime.
+    #[allow(unused_imports)]
+    use super::topics;
 
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0x98121a421f33722d;
@@ -3471,11 +3845,17 @@ pub mod os_lazy_logind_v1 {
 }
 
 /// `os.lazy.mimed.v1` (interface id `0x69d01278f9971fe6`).
+#[rustfmt::skip]
 pub mod os_lazy_mimed_v1 {
     use alloc::vec::Vec;
+    #[allow(unused_imports)]
+    use alloc::string::String;
     // Not every interface needs every codec item (`Kind` is only used by nested values).
     #[allow(unused_imports)]
     use libmessenger::{Decoder, Encoder, Error, Kind};
+    // Only interfaces that declare topics use the shared topic runtime.
+    #[allow(unused_imports)]
+    use super::topics;
 
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0x69d01278f9971fe6;
@@ -3776,11 +4156,17 @@ pub mod os_lazy_mimed_v1 {
 }
 
 /// `os.lazy.messenger.registry.v1` (interface id `0x51d501afec09806c`).
+#[rustfmt::skip]
 pub mod os_lazy_messenger_registry_v1 {
     use alloc::vec::Vec;
+    #[allow(unused_imports)]
+    use alloc::string::String;
     // Not every interface needs every codec item (`Kind` is only used by nested values).
     #[allow(unused_imports)]
     use libmessenger::{Decoder, Encoder, Error, Kind};
+    // Only interfaces that declare topics use the shared topic runtime.
+    #[allow(unused_imports)]
+    use super::topics;
 
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0x51d501afec09806c;
@@ -4013,11 +4399,17 @@ pub mod os_lazy_messenger_registry_v1 {
 }
 
 /// `os.lazy.sysmond.v1` (interface id `0x5cd4605eb47c3d8f`).
+#[rustfmt::skip]
 pub mod os_lazy_sysmond_v1 {
     use alloc::vec::Vec;
+    #[allow(unused_imports)]
+    use alloc::string::String;
     // Not every interface needs every codec item (`Kind` is only used by nested values).
     #[allow(unused_imports)]
     use libmessenger::{Decoder, Encoder, Error, Kind};
+    // Only interfaces that declare topics use the shared topic runtime.
+    #[allow(unused_imports)]
+    use super::topics;
 
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0x5cd4605eb47c3d8f;
@@ -4050,14 +4442,58 @@ pub mod os_lazy_sysmond_v1 {
 }
 
 /// `os.lazy.timed.v1` (interface id `0xc3982ac21906d77`).
+#[rustfmt::skip]
 pub mod os_lazy_timed_v1 {
     use alloc::vec::Vec;
+    #[allow(unused_imports)]
+    use alloc::string::String;
     // Not every interface needs every codec item (`Kind` is only used by nested values).
     #[allow(unused_imports)]
     use libmessenger::{Decoder, Encoder, Error, Kind};
+    // Only interfaces that declare topics use the shared topic runtime.
+    #[allow(unused_imports)]
+    use super::topics;
 
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0xc3982ac21906d77;
+
+    /// The retained `time/tick` topic payload (issue #307). `unix` is UTC
+    /// seconds, `offset` the local offset in seconds with DST included, and
+    /// `zone_name` the zone (`Europe/Paris`).
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct Tick {
+        pub unix: i64,
+        pub offset: i32,
+        pub zone_name: alloc::string::String,
+    }
+
+    pub fn encode_tick(value: &Tick) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.i64(1, value.unix)?;
+        target.i32(2, value.offset)?;
+        target.string(3, &value.zone_name)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_tick(body: &[u8]) -> Result<Tick, Error> {
+        let mut out = Tick::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.unix = field.as_i64()?;
+                }
+                2 => {
+                    out.offset = field.as_i32()?;
+                }
+                3 => {
+                    out.zone_name = field.as_str()?.into();
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
 
     /// `Now` method id.
     pub const METHOD_NOW: u32 = 188597655;
@@ -4067,8 +4503,6 @@ pub mod os_lazy_timed_v1 {
     pub const METHOD_SETZONE: u32 = 1574816713;
     /// `SetTime` method id.
     pub const METHOD_SETTIME: u32 = 670376986;
-    /// `Tick` method id.
-    pub const METHOD_TICK: u32 = 1;
 
     /// The current instant and its local-time parameters.
     #[derive(Clone, Debug, Default, PartialEq)]
@@ -4182,53 +4616,66 @@ pub mod os_lazy_timed_v1 {
         Ok(out)
     }
 
-    /// Schema of the retained `time/tick` broker topic, published each minute
-    /// (and on any zone or clock change): the topic payload is this method's
-    /// request encoding (`encode_tick_args`). It is never sent as a direct
-    /// call. `unix` is UTC seconds, `offset` the local offset in seconds with
-    /// DST included, `zone_name` the zone (`Europe/Paris`).
-    #[derive(Clone, Debug, Default, PartialEq)]
-    pub struct TickArgs {
-        pub unix: i64,
-        pub offset: i32,
-        pub zone_name: alloc::string::String,
+    /// Published each minute (and on any zone or clock change) and retained, so
+    /// a subscriber that starts late immediately learns the current time.
+    /// The declared `time/tick` topic (`Tick`, `latest`, retained).
+    pub const TOPIC_TIME_TICK: &str = "time/tick";
+    /// The `time/tick` delivery policy.
+    pub const TOPIC_TIME_TICK_QOS: u32 = topics::QOS_LATEST;
+    /// Whether `time/tick` publishes are retained.
+    pub const TOPIC_TIME_TICK_RETAINED: bool = true;
+
+    /// Build the concrete `time/tick` name; each wildcard takes one literal segment.
+    pub fn name_time_tick() -> Result<String, topics::TopicError> {
+        topics::build(TOPIC_TIME_TICK, &[], topics::Mode::Publish)
     }
 
-    pub fn encode_tick_args(value: &TickArgs) -> Result<Vec<u8>, Error> {
-        let mut target = Encoder::new();
-        target.i64(1, value.unix)?;
-        target.i32(2, value.offset)?;
-        target.string(3, &value.zone_name)?;
-        Ok(target.finish())
+    /// Encode a `Tick` payload for `time/tick`.
+    pub fn encode_time_tick(value: &Tick) -> Result<Vec<u8>, Error> {
+        encode_tick(value)
     }
 
-    pub fn decode_tick_args(body: &[u8]) -> Result<TickArgs, Error> {
-        let mut out = TickArgs::default();
-        let mut decoder = Decoder::new(body);
-        while let Some(field) = decoder.next()? {
-            match field.id {
-                1 => {
-                    out.unix = field.as_i64()?;
-                }
-                2 => {
-                    out.offset = field.as_i32()?;
-                }
-                3 => {
-                    out.zone_name = field.as_str()?.into();
-                }
-                _ => {}
-            }
-        }
-        Ok(out)
+    /// Decode a `time/tick` payload; malformed bytes are an error.
+    pub fn decode_time_tick(body: &[u8]) -> Result<Tick, Error> {
+        decode_tick(body)
+    }
+
+    /// Publish a typed `Tick` on `time/tick`.
+    pub fn publish_time_tick<P>(publisher: &mut P, value: &Tick) -> Result<u64, P::Error>
+    where
+        P: topics::Publish,
+        P::Error: From<topics::TopicError>,
+    {
+        let topic = name_time_tick().map_err(P::Error::from)?;
+        let payload = encode_time_tick(value)
+            .map_err(|error| P::Error::from(topics::TopicError::Encode(error)))?;
+        publisher.publish_topic(&topic, &payload, TOPIC_TIME_TICK_RETAINED)
+    }
+
+    /// Subscribe to `time/tick` with its declared QoS.
+    pub fn subscribe_time_tick<S>(subscriber: &mut S) -> Result<S::Subscription, S::Error>
+    where
+        S: topics::Subscribe,
+        S::Error: From<topics::TopicError>,
+    {
+        let filter = topics::build(TOPIC_TIME_TICK, &[], topics::Mode::Subscribe)
+            .map_err(S::Error::from)?;
+        subscriber.subscribe_topic(&filter, TOPIC_TIME_TICK_QOS)
     }
 }
 
 /// `os.lazy.messenger.topics.v1` (interface id `0xc5734f978fef7231`).
+#[rustfmt::skip]
 pub mod os_lazy_messenger_topics_v1 {
     use alloc::vec::Vec;
+    #[allow(unused_imports)]
+    use alloc::string::String;
     // Not every interface needs every codec item (`Kind` is only used by nested values).
     #[allow(unused_imports)]
     use libmessenger::{Decoder, Encoder, Error, Kind};
+    // Only interfaces that declare topics use the shared topic runtime.
+    #[allow(unused_imports)]
+    use super::topics;
 
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0xc5734f978fef7231;
@@ -4690,11 +5137,17 @@ pub mod os_lazy_messenger_topics_v1 {
 }
 
 /// `os.lazy.messenger.topics.publish.v1` (interface id `0x7ffc19b03e941e16`).
+#[rustfmt::skip]
 pub mod os_lazy_messenger_topics_publish_v1 {
     use alloc::vec::Vec;
+    #[allow(unused_imports)]
+    use alloc::string::String;
     // Not every interface needs every codec item (`Kind` is only used by nested values).
     #[allow(unused_imports)]
     use libmessenger::{Decoder, Encoder, Error, Kind};
+    // Only interfaces that declare topics use the shared topic runtime.
+    #[allow(unused_imports)]
+    use super::topics;
 
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0x7ffc19b03e941e16;
@@ -4747,11 +5200,17 @@ pub mod os_lazy_messenger_topics_publish_v1 {
 }
 
 /// `os.lazy.messenger.topics.subscribe.v1` (interface id `0xefbc15f14c9d4bef`).
+#[rustfmt::skip]
 pub mod os_lazy_messenger_topics_subscribe_v1 {
     use alloc::vec::Vec;
+    #[allow(unused_imports)]
+    use alloc::string::String;
     // Not every interface needs every codec item (`Kind` is only used by nested values).
     #[allow(unused_imports)]
     use libmessenger::{Decoder, Encoder, Error, Kind};
+    // Only interfaces that declare topics use the shared topic runtime.
+    #[allow(unused_imports)]
+    use super::topics;
 
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0xefbc15f14c9d4bef;
@@ -4800,4 +5259,42 @@ pub mod os_lazy_messenger_topics_subscribe_v1 {
         }
         Ok(out)
     }
+}
+
+/// Every topic declared across the compiled `.midl` files (issue #307).
+#[rustfmt::skip]
+pub static DECLARED_TOPICS: &[topics::TopicDecl] = &[
+    topics::TopicDecl {
+        interface: "os.lazy.clipboard.v1",
+        name: "session/+/clipboard/changed",
+        payload: "OfferMeta",
+        qos: topics::QOS_LATEST,
+        retained: true,
+        publish_permission: "publish:session/+/clipboard/changed",
+        subscribe_permission: "subscribe:session/+/clipboard/changed",
+    },
+    topics::TopicDecl {
+        interface: "os.lazy.confd.v1",
+        name: "system/confd/changed/#",
+        payload: "Change",
+        qos: topics::QOS_LATEST,
+        retained: false,
+        publish_permission: "publish:system/confd/changed/#",
+        subscribe_permission: "subscribe:system/confd/changed/#",
+    },
+    topics::TopicDecl {
+        interface: "os.lazy.timed.v1",
+        name: "time/tick",
+        payload: "Tick",
+        qos: topics::QOS_LATEST,
+        retained: true,
+        publish_permission: "publish:time/tick",
+        subscribe_permission: "subscribe:time/tick",
+    },
+];
+
+/// The declared topic whose pattern matches the concrete `topic`.
+#[rustfmt::skip]
+pub fn declared_topic(topic: &str) -> Option<&'static topics::TopicDecl> {
+    DECLARED_TOPICS.iter().find(|decl| topics::matches(decl.name, topic))
 }

@@ -176,6 +176,7 @@ class MidlBrowser:
             ("event", "#0f766e"),
             ("struct", "#8a5a00"),
             ("enum", "#7a2f8a"),
+            ("topic", "#0b6e99"),
             ("error", "#b00020"),
         ):
             self.tree.tag_configure(tag, foreground=colour)
@@ -186,6 +187,7 @@ class MidlBrowser:
         self.detail.tag_configure("event", foreground="#0f766e", font=("TkDefaultFont", 10, "bold"))
         self.detail.tag_configure("struct", foreground="#8a5a00", font=("TkDefaultFont", 10, "bold"))
         self.detail.tag_configure("enum", foreground="#7a2f8a", font=("TkDefaultFont", 10, "bold"))
+        self.detail.tag_configure("topic", foreground="#0b6e99", font=("TkDefaultFont", 10, "bold"))
         self.detail.tag_configure("meta", foreground="#6c757d")
         self.detail.tag_configure("code", font=("Consolas", 10), foreground="#202020")
         self.detail.tag_configure("doc", foreground="#444444")
@@ -230,9 +232,10 @@ class MidlBrowser:
             methods = [m for m in interface.methods if _matches(query, m.name, m.doc)]
             structs = [s for s in interface.structs if _matches(query, s.name, s.doc)]
             enums = [e for e in interface.enums if _matches(query, e.name)]
-            if not (methods or structs or enums):
+            topics = [t for t in interface.topics if _matches(query, t.name, t.payload, t.doc)]
+            if not (methods or structs or enums or topics):
                 return
-            shown = midlc.Interface(interface.name, interface.docs, methods, structs, enums)
+            shown = midlc.Interface(interface.name, interface.docs, methods, structs, enums, topics)
         else:
             shown = interface
 
@@ -257,6 +260,12 @@ class MidlBrowser:
             for enum in shown.enums:
                 iid = self._add(group, enum.name, "enum")
                 self.nodes[iid] = Node("enum", enum, loaded.path)
+        if shown.topics:
+            group = self._add(iface_iid, f"Topics ({len(shown.topics)})", "group")
+            self.nodes[group] = Node("group", loaded, loaded.path)
+            for topic in shown.topics:
+                iid = self._add(group, topic.name, "topic")
+                self.nodes[iid] = Node("topic", topic, loaded.path)
 
     def _add_method_group(self, parent: str, loaded: Loaded, title: str, methods: list[midlc.Method]) -> None:
         if not methods:
@@ -299,6 +308,8 @@ class MidlBrowser:
             self._render_struct(node)
         elif node.kind == "enum":
             self._render_enum(node)
+        elif node.kind == "topic":
+            self._render_topic(node)
         self.detail.configure(state="disabled")
         self.detail.mark_set("insert", "1.0")
 
@@ -326,6 +337,19 @@ class MidlBrowser:
         events = [m for m in interface.methods if m.oneway]
         self._render_method_list(calls, "Methods")
         self._render_method_list(events, "Events")
+
+        if interface.topics:
+            self._put(f"\nTopics ({len(interface.topics)})\n", "section")
+            for topic in interface.topics:
+                retained = " retained" if topic.retained else ""
+                self._put(f"  {topic.name}\n", "topic")
+                self._put(f"      payload {topic.payload}  qos {topic.qos}{retained}\n", "meta")
+                if topic.source != topic.name:
+                    self._put(f"      source  {topic.source}\n", "code")
+                for permission in topic.permissions:
+                    self._put(f"      permission {permission}\n", "meta")
+                if topic.doc:
+                    self._put(f"      {topic.doc}\n", "doc")
 
         if interface.structs:
             self._put(f"\nStructs ({len(interface.structs)})\n", "section")
@@ -387,6 +411,27 @@ class MidlBrowser:
         for variant in enum.variants:
             self._put(f"  {variant}\n", "code")
 
+    def _render_topic(self, node: Node) -> None:
+        topic: midlc.Topic = node.payload  # type: ignore[assignment]
+        self._put(f"topic {topic.name}\n", "title")
+        self._put(f"payload     {topic.payload}\n", "meta")
+        self._put(f"qos         {topic.qos}\n", "meta")
+        self._put(f"retained    {'yes' if topic.retained else 'no'}\n", "meta")
+        if topic.source != topic.name:
+            self._put(f"source      {topic.source}\n", "code")
+        for permission in topic.permissions:
+            self._put(f"permission  {permission}\n", "code")
+        if topic.params:
+            self._put(f"\nWildcards ({len(topic.params)})\n", "section")
+            for param in topic.params:
+                label = param.name if param.name else "(unnamed)"
+                self._put(
+                    f"  {param.rust_name}  segment {param.index}  {param.kind}  {label}\n",
+                    "code",
+                )
+        if topic.doc:
+            self._put(f"\n{topic.doc}\n", "doc")
+
     def copy_detail(self) -> None:
         text = self.detail.get("1.0", "end-1c")
         self.root.clipboard_clear()
@@ -406,8 +451,12 @@ class MidlBrowser:
         methods = sum(len(entry.interface.methods) for entry in ok)  # type: ignore[union-attr]
         structs = sum(len(entry.interface.structs) for entry in ok)  # type: ignore[union-attr]
         enums = sum(len(entry.interface.enums) for entry in ok)  # type: ignore[union-attr]
+        topics = sum(len(entry.interface.topics) for entry in ok)  # type: ignore[union-attr]
         errors = files - len(ok)
-        text = f"{len(ok)} interface(s) in {files} file(s) · {methods} methods · {structs} structs · {enums} enums"
+        text = (
+            f"{len(ok)} interface(s) in {files} file(s) · {methods} methods · "
+            f"{structs} structs · {enums} enums · {topics} topics"
+        )
         if errors:
             text += f" · {errors} file(s) failed to parse"
         self.status.configure(text=text)

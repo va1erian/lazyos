@@ -56,7 +56,8 @@ fn run() -> messenger::Result<()> {
     // The changed topic lives on `messengerd`'s central broker (issue #169);
     // the broker replays the retained offer to a late subscriber.
     let mut changes_bus = central::Bus::connect_retry(64)?;
-    let changes = changes_bus.subscribe(&clipboard::changes_topic(client.session()))?;
+    let session_text = format!("{}", client.session());
+    let changes = clipboard::subscribe_session_clipboard_changed(&mut changes_bus, &session_text)?;
     let token = client.offer_lazy("clipcopy", SINK, &[DEMO_MIME])?;
     sys::write_str(&format!("CLIP:COPY:PASS token={token}\n"));
     // Drain the changed event: the owner watches its own session too.

@@ -18,6 +18,12 @@ Change notifications are best-effort: a subscriber observes
 | Delete | 1469573738 | sync | `(path: String) -> ()` |
 | List | 220805025 | sync | `(prefix: String) -> (paths: Array<String>)` |
 
+## Topics
+
+| Topic | Payload | QoS | Retained | Permissions |
+|---|---|---|---|---|
+| `system/confd/changed/#` | `Change` | latest | no | `publish:system/confd/changed/#`, `subscribe:system/confd/changed/#` |
+
 ## struct `Value`
 
 - `kind: U32`
@@ -26,3 +32,8 @@ Change notifications are best-effort: a subscriber observes
 - `u64_value: Option<U64>`
 - `str_value: Option<String>`
 - `bytes_value: Option<Bytes>`
+
+## struct `Change`
+
+- `path: String`
+- `deleted: Bool`

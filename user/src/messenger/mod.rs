@@ -348,7 +348,8 @@ pub mod mime;
 ///   endpoint registered under the offer's sink and forwards the bytes, so the
 ///   owning app materializes the data on demand;
 /// * every offer announces itself on the retained per-session topic
-///   `session/<id>/clipboard/changed`; [`Client::subscribe_changes`] attaches a
+///   `session/<id>/clipboard/changed` (declared in `idl/clipboard.midl`);
+///   [`wire::subscribe_session_clipboard_changed`](clipboard::wire) attaches a
 ///   subscriber so paste UIs refresh without polling.
 ///
 /// # Buffer handle

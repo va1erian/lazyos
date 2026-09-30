@@ -68,12 +68,60 @@ class Enum:
 
 
 @dataclass
+class TopicParam:
+    """One wildcard of a declared topic pattern, in left-to-right order.
+
+    `kind` is `"+"` (exactly one segment) or `"#"` (the trailing segments).
+    `name` is the placeholder name when the pattern wrote `{name}`, else
+    `None` so the code generator spells an automatic identifier."""
+
+    index: int
+    kind: str
+    name: str | None = None
+
+    @property
+    def rust_name(self) -> str:
+        return self.name if self.name else f"wildcard{self.index}"
+
+
+@dataclass
+class Topic:
+    """A declared topic: a filter pattern, its payload type, delivery policy
+    and whether it is retained (`docs/midl.md`)."""
+
+    name: str  # normalized pattern, `+`/`#` wildcards, no placeholders
+    source: str  # the pattern as written, placeholders intact (docs)
+    payload: str
+    qos: str  # one of latest/buffered/conflate/reliable
+    retained: bool
+    params: list[TopicParam]
+    doc: str = ""
+
+    @property
+    def segments(self) -> list[str]:
+        return self.name.split("/")
+
+    @property
+    def suffix(self) -> str:
+        """Rust identifier suffix: the literal pattern segments joined by `_`,
+        with `.`/`-` folded to `_` so the generated function names are valid
+        identifiers (`session/+/clipboard/changed` -> `session_clipboard_changed`)."""
+        literal = "_".join(seg for seg in self.segments if seg not in ("+", "#"))
+        return re.sub(r"[^0-9A-Za-z_]", "_", literal)
+
+    @property
+    def permissions(self) -> list[str]:
+        return [f"publish:{self.name}", f"subscribe:{self.name}"]
+
+
+@dataclass
 class Interface:
     name: str
     docs: str = ""
     methods: list[Method] = field(default_factory=list)
     structs: list[Struct] = field(default_factory=list)
     enums: list[Enum] = field(default_factory=list)
+    topics: list[Topic] = field(default_factory=list)
 
     @property
     def id(self) -> int:

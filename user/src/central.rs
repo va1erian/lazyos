@@ -27,6 +27,7 @@
 use alloc::vec::Vec;
 
 use libmessenger::{Decoder, Encoder, Kind, Parcel};
+use messenger_generated::topics;
 
 use crate::messenger::{
     create_pair, errno, router, topics_client, Endpoint, Error, Result, DEFAULT_BUFFER,
@@ -162,6 +163,28 @@ impl Bus {
             return Err(Error::Topics(code));
         }
         topics_client::decode_topics(&reply)
+    }
+}
+
+impl topics::Publish for Bus {
+    type Error = Error;
+
+    /// Publish through the broker; this is exactly [`Bus::publish`], exposed
+    /// as the transport the generated `publish_*` helpers call (issue #307).
+    fn publish_topic(&mut self, topic: &str, payload: &[u8], retained: bool) -> Result<u64> {
+        self.publish(topic, payload, retained)
+    }
+}
+
+impl topics::Subscribe for Bus {
+    type Error = Error;
+    type Subscription = Subscription;
+
+    /// Subscribe with the `qos` code from a generated topic declaration; an
+    /// unknown code falls back to `latest`.
+    fn subscribe_topic(&mut self, filter: &str, qos: u32) -> Result<Subscription> {
+        let qos = topics_client::Qos::from_parts(qos, 1).unwrap_or(topics_client::Qos::Latest);
+        self.subscribe_with_qos(filter, qos)
     }
 }
 

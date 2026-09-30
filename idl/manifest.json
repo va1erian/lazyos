@@ -18,7 +18,8 @@
         "id": 420340861,
         "oneway": false
       }
-    ]
+    ],
+    "topics": []
   },
   {
     "interface": "os.lazy.clipboard.v1",
@@ -49,6 +50,17 @@
         "id": 869319546,
         "oneway": false
       }
+    ],
+    "topics": [
+      {
+        "name": "session/+/clipboard/changed",
+        "source": "session/{session}/clipboard/changed",
+        "payload": "OfferMeta",
+        "qos": "latest",
+        "retained": true,
+        "publish_permission": "publish:session/+/clipboard/changed",
+        "subscribe_permission": "subscribe:session/+/clipboard/changed"
+      }
     ]
   },
   {
@@ -74,6 +86,17 @@
         "name": "List",
         "id": 220805025,
         "oneway": false
+      }
+    ],
+    "topics": [
+      {
+        "name": "system/confd/changed/#",
+        "source": "system/confd/changed/{path...}",
+        "payload": "Change",
+        "qos": "latest",
+        "retained": false,
+        "publish_permission": "publish:system/confd/changed/#",
+        "subscribe_permission": "subscribe:system/confd/changed/#"
       }
     ]
   },
@@ -221,7 +244,8 @@
         "id": 28,
         "oneway": true
       }
-    ]
+    ],
+    "topics": []
   },
   {
     "interface": "os.lazy.echo.v1",
@@ -242,7 +266,8 @@
         "id": 314575196,
         "oneway": true
       }
-    ]
+    ],
+    "topics": []
   },
   {
     "interface": "os.lazy.healthd.v1",
@@ -258,7 +283,8 @@
         "id": 6222351,
         "oneway": false
       }
-    ]
+    ],
+    "topics": []
   },
   {
     "interface": "os.lazy.init.v1",
@@ -279,7 +305,8 @@
         "id": 1009359625,
         "oneway": false
       }
-    ]
+    ],
+    "topics": []
   },
   {
     "interface": "os.lazy.keyd.v1",
@@ -330,7 +357,8 @@
         "id": 1596114784,
         "oneway": false
       }
-    ]
+    ],
+    "topics": []
   },
   {
     "interface": "os.lazy.logd.v1",
@@ -351,7 +379,8 @@
         "id": 761007172,
         "oneway": false
       }
-    ]
+    ],
+    "topics": []
   },
   {
     "interface": "os.lazy.logind.v1",
@@ -362,7 +391,8 @@
         "id": 916097772,
         "oneway": false
       }
-    ]
+    ],
+    "topics": []
   },
   {
     "interface": "os.lazy.mimed.v1",
@@ -393,7 +423,8 @@
         "id": 658098656,
         "oneway": false
       }
-    ]
+    ],
+    "topics": []
   },
   {
     "interface": "os.lazy.messenger.registry.v1",
@@ -419,7 +450,8 @@
         "id": 220805025,
         "oneway": false
       }
-    ]
+    ],
+    "topics": []
   },
   {
     "interface": "os.lazy.sysmond.v1",
@@ -430,7 +462,8 @@
         "id": 1312231341,
         "oneway": false
       }
-    ]
+    ],
+    "topics": []
   },
   {
     "interface": "os.lazy.timed.v1",
@@ -455,11 +488,17 @@
         "name": "SetTime",
         "id": 670376986,
         "oneway": false
-      },
+      }
+    ],
+    "topics": [
       {
-        "name": "Tick",
-        "id": 1,
-        "oneway": true
+        "name": "time/tick",
+        "source": "time/tick",
+        "payload": "Tick",
+        "qos": "latest",
+        "retained": true,
+        "publish_permission": "publish:time/tick",
+        "subscribe_permission": "subscribe:time/tick"
       }
     ]
   },
@@ -507,7 +546,8 @@
         "id": 2142761129,
         "oneway": false
       }
-    ]
+    ],
+    "topics": []
   },
   {
     "interface": "os.lazy.messenger.topics.publish.v1",
@@ -518,7 +558,8 @@
         "id": 727248511,
         "oneway": false
       }
-    ]
+    ],
+    "topics": []
   },
   {
     "interface": "os.lazy.messenger.topics.subscribe.v1",
@@ -529,6 +570,7 @@
         "id": 727248511,
         "oneway": false
       }
-    ]
+    ],
+    "topics": []
   }
 ]

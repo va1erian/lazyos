@@ -95,11 +95,10 @@ impl Client {
     }
 }
 
-/// The retained broker topic `timed` publishes each minute. Its payload is the
-/// generated `Tick` method's request encoding ([`wire::encode_tick_args`]).
-pub const TICK_TOPIC: &str = "time/tick";
+/// The retained `time/tick` topic, declared in `idl/timed.midl` (issue #307).
+pub const TICK_TOPIC: &str = wire::TOPIC_TIME_TICK;
 
 /// Decode a `time/tick` topic payload.
-pub fn decode_tick(payload: &[u8]) -> Result<wire::TickArgs> {
-    wire::decode_tick_args(payload).map_err(Error::Parcel)
+pub fn decode_tick(payload: &[u8]) -> Result<wire::Tick> {
+    wire::decode_time_tick(payload).map_err(Error::Parcel)
 }

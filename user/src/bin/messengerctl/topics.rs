@@ -25,8 +25,14 @@ pub(crate) fn print_topics() {
                 } else {
                     "volatile"
                 };
+                // The payload type comes from the generated declaration table
+                // (`idl/*.midl`, issue #307): a concrete topic is matched
+                // against the declared patterns.
+                let payload = messenger_generated::declared_topic(&entry.topic)
+                    .map(|decl| decl.payload)
+                    .unwrap_or("-");
                 sys::write_str(&format!(
-                    "  {}  subs {}  {retained}\n",
+                    "  {}  subs {}  {retained}  payload {payload}\n",
                     entry.topic, entry.subscribers
                 ));
             }

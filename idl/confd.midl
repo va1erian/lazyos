@@ -25,4 +25,18 @@ interface os.lazy.confd.v1 {
         str_value: Option<String>,
         bytes_value: Option<Bytes>
     }
+
+    /// One committed change (issue #307): the payload of the
+    /// `system/confd/changed/<path>` topic. It deliberately never carries the
+    /// value; a subscriber re-reads the path.
+    struct Change {
+        path: String,
+        deleted: Bool
+    }
+
+    /// Announced for every committed `sys/` change (issue #260): the topic is
+    /// `system/confd/changed/<path>`, where `<path>` is the changed path, so a
+    /// subscriber watches a subtree with `system/confd/changed/sys/#`. Not
+    /// retained: a change is an event, not state.
+    topic "system/confd/changed/{path...}" : Change qos=latest;
 }

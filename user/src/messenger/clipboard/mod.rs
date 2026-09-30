@@ -5,7 +5,6 @@
 //! Split into [`protocol`] (parcel encode/decode) and [`client`] ([`Client`]);
 //! both are re-exported here so callers keep using `clipboard::*`.
 
-use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 
@@ -22,6 +21,12 @@ pub const NAME: &str = "os.lazy.clipboard";
 
 /// The generated `os.lazy.clipboard.v1` stubs (`idl/clipboard.midl`).
 pub use messenger_generated::os_lazy_clipboard_v1 as wire;
+/// The generated helpers for the declared `.../clipboard/changed` topic, so
+/// callers do not have to reach through [`wire`].
+pub use messenger_generated::os_lazy_clipboard_v1::{
+    decode_session_clipboard_changed, publish_session_clipboard_changed,
+    subscribe_session_clipboard_changed,
+};
 
 /// Control interface id (`os.lazy.clipboard.v1`, from the IDL): carries
 /// `Ping` and `Current`.
@@ -122,12 +127,6 @@ pub struct OfferRequest {
     pub mimes: Vec<String>,
     /// Inline payloads for an eager offer.
     pub data: Vec<(String, Vec<u8>)>,
-}
-
-/// The scoped retained topic a session's paste UIs watch
-/// (`docs/messenger.md` section 19).
-pub fn changes_topic(session: u64) -> String {
-    format!("session/{session}/clipboard/changed")
 }
 
 /// A header for a clipboard parcel on `interface_id`.

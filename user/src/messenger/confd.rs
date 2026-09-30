@@ -15,6 +15,12 @@ use super::{errno, registry, Endpoint, Error, Result};
 
 /// The generated `os.lazy.confd.v1` stubs.
 pub use messenger_generated::os_lazy_confd_v1 as wire;
+/// The generated helpers for the declared `system/confd/changed/#` topic, so
+/// callers do not have to reach through [`wire`].
+pub use messenger_generated::os_lazy_confd_v1::{
+    decode_system_confd_changed, encode_system_confd_changed, name_system_confd_changed,
+    publish_system_confd_changed,
+};
 
 /// Registered service name (the root object clients resolve).
 pub const NAME: &str = "os.lazy.confd";
@@ -42,14 +48,6 @@ pub const KIND_BYTES: u32 = 4;
 /// Structured error field id in a reply body (unused by the generated fields
 /// 1-6, so it can never collide with a success payload).
 const ERROR_FIELD: u16 = 15;
-
-/// Change-payload field ids (a tiny local struct, not worth an IDL method).
-pub mod change_field {
-    /// The changed path.
-    pub const PATH: u16 = 1;
-    /// `true` when the path was deleted.
-    pub const DELETED: u16 = 2;
-}
 
 /// A header for a `confd` parcel of `method`.
 fn header(method: u32) -> Header {
@@ -153,46 +151,6 @@ pub fn value_from_wire(value: &wire::Value) -> Result<confd::Value> {
             .ok_or_else(invalid),
         _ => Err(invalid()),
     }
-}
-
-/// The topic a committed `sys/` change is announced on.
-///
-/// The path is appended as a literal segment, so a subscriber watches a
-/// subtree with `system/confd/changed/sys/.../#`.
-pub fn change_topic(path: &str) -> String {
-    let mut topic = String::from("system/confd/changed/");
-    topic.push_str(path);
-    topic
-}
-
-/// Encode a change payload: `(path, deleted)` and deliberately never the
-/// value (subscribers re-read it).
-pub fn change_payload(path: &str, deleted: bool) -> Result<Vec<u8>> {
-    let mut body = Encoder::new();
-    body.string(change_field::PATH, path)
-        .map_err(Error::Parcel)?;
-    body.bool(change_field::DELETED, deleted)
-        .map_err(Error::Parcel)?;
-    Ok(body.finish())
-}
-
-/// Decode a change payload.
-pub fn decode_change(payload: &[u8]) -> Result<(String, bool)> {
-    let mut path = String::new();
-    let mut deleted = false;
-    let mut decoder = Decoder::new(payload);
-    while let Some(field) = decoder.next().map_err(Error::Parcel)? {
-        match (field.kind, field.id) {
-            (Kind::String, change_field::PATH) => {
-                path = String::from(field.as_str().map_err(Error::Parcel)?)
-            }
-            (Kind::Bool, change_field::DELETED) => {
-                deleted = field.as_bool().map_err(Error::Parcel)?
-            }
-            _ => {}
-        }
-    }
-    Ok((path, deleted))
 }
 
 /// A blocking client of the `confd` service.

@@ -4,12 +4,12 @@ use alloc::vec::Vec;
 
 use libmessenger::Parcel;
 
-use super::super::{errno, registry, router, Endpoint, Error, Result};
+use super::super::{errno, registry, Endpoint, Error, Result};
 use super::protocol::{
     current_request, decode_bytes, decode_current, decode_token, error_field, offer_lazy_request,
     offer_request, ping_request, request_request,
 };
-use super::{changes_topic, OfferInfo, NAME};
+use super::{OfferInfo, NAME};
 use crate::sys;
 
 /// A client of the clipboard service.
@@ -91,12 +91,6 @@ impl Client {
     pub fn current(&self) -> Result<Option<OfferInfo>> {
         let reply = self.call(&current_request())?;
         decode_current(&reply)
-    }
-
-    /// Attach to this session's retained
-    /// `session/<id>/clipboard/changed` topic.
-    pub fn subscribe_changes(&self) -> Result<router::Subscriber> {
-        router::Bus::connect(NAME)?.subscribe(&changes_topic(self.session))
     }
 
     /// Round-trip probe.
