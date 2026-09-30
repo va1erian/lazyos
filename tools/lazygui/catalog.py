@@ -42,7 +42,9 @@ MODES = [
 ]
 
 # (file, label, switches, xui-app) - `switches` are the image build switches a
-# script needs; `xui-app` names the viewer to embed via LAZYOS_XUI_APP.
+# script needs; `xui-app` names the viewer to embed via LAZYOS_XUI_APP. A
+# `desktop` script (the document apps) instead boots the desktop profile with
+# every desktop app embedded and only `xui-app` autostarted.
 SCRIPTS = [
     ("type_and_shot.json", "Type & shot (input smoke test)", (), None),
     ("multitask_demo.json", "Multitask (two windows, Tab focus)", (), None),
@@ -60,9 +62,9 @@ SCRIPTS = [
     ("xui_sysmon.json", "XUI app: sysmon dashboard", ("xuid",), "sysmon"),
     ("xui_fabricmon.json", "XUI app: fabricmon (services)", ("xuid", "services"), "fabricmon"),
     ("xui_client.json", "XUI app: compositor client (window/focus)", ("xuid", "xui_client"), "client"),
-    ("xui_editor.json", "XUI app: Editor (type, save)", ("xuid", "services"), "editor"),
-    ("xui_paint.json", "XUI app: Paint (draw, save PNG)", ("xuid", "services"), "paint"),
-    ("xui_files.json", "XUI app: Files (browse, open)", ("xuid", "services"), "files"),
+    ("xui_editor.json", "XUI app: Editor (type, save)", ("desktop",), "editor"),
+    ("xui_paint.json", "XUI app: Paint (draw, save PNG)", ("desktop",), "paint"),
+    ("xui_files.json", "XUI app: Files (browse, open)", ("desktop",), "files"),
 ]
 
 # Simple mode: (label, cargo profile) and (label, description) choices.
@@ -111,6 +113,10 @@ def build_env(cfg: dict) -> dict[str, str]:
         env["LAZYOS_MESSENGERCTL"] = "1"
     if cfg["msgrd"]:
         env["LAZYOS_MESSENGERD"] = "1"
+    if cfg.get("xui_autostart"):
+        # A document-app session: the desktop profile opens just this app, but
+        # the full app set is embedded (Files' open-with needs the Editor).
+        env["LAZYOS_XUI_AUTOSTART"] = cfg["xui_autostart"]
     if cfg.get("xui_apps"):
         env["LAZYOS_XUI_APPS"] = os.pathsep.join(
             os.path.join(ROOT, "target", "xui", f"xui-{app}.elf") for app in cfg["xui_apps"]

@@ -9,8 +9,8 @@ import tkinter as tk
 from tkinter import filedialog, ttk
 
 from . import datavol
-from .catalog import (ACCELS, CARGO, DATA_IMAGE, DISKS, MODES, PY, ROOT, SCRIPTS,
-                      SIMPLE_BUILDS, SIMPLE_INTERFACES, XUI_VIEWERS, build_env, build_plan,
+from .catalog import (ACCELS, CARGO, DATA_IMAGE, DESKTOP_APPS, DISKS, MODES, PY, ROOT,
+                      SCRIPTS, SIMPLE_BUILDS, SIMPLE_INTERFACES, XUI_VIEWERS, build_env, build_plan,
                       cargo_step, format_plan, simple_config)
 from .runner import Runner, open_path
 from .simple import build_simple_tab, simple_choice
@@ -69,6 +69,7 @@ class Launcher:
             "msgrd": b(value=False),
             "xui_client": b(value=False),
             "xui_app": s(value="(none)"),
+            "xui_autostart": s(value=""),
             "script": s(value=SCRIPTS[0][1]),
             "simple_build": s(value=SIMPLE_BUILDS[0][0]),
             "simple_iface": s(value=SIMPLE_INTERFACES[0][0]),
@@ -125,6 +126,8 @@ class Launcher:
             "msgrd": self.v["msgrd"].get(),
             "xui_client": self.v["xui_client"].get(),
             "xui_app": self.v["xui_app"].get(),
+            "xui_autostart": self.v["xui_autostart"].get(),
+            "xui_apps": DESKTOP_APPS if self.v["xui_autostart"].get() else (),
             "script": SCRIPTS.index(names[0]) if names else 0,
         }
 
@@ -335,14 +338,16 @@ class Launcher:
         if not match:
             return
         _, _, switches, xui = match[0]
-        self.v["desktop"].set(False)
+        desktop = "desktop" in switches
+        self.v["desktop"].set(desktop)
+        self.v["xui_autostart"].set(xui if desktop else "")
         self.v["services"].set("services" in switches)
         self.v["xuid"].set("xuid" in switches)
         self.v["shellprobe"].set("shellprobe" in switches)
         self.v["msgctl"].set(False)
         self.v["msgrd"].set(False)
         self.v["xui_client"].set("xui_client" in switches)
-        self.v["xui_app"].set(xui or "(none)")
+        self.v["xui_app"].set("(none)" if desktop else xui or "(none)")
         self._update_plan()
 
     def _update_plan(self) -> None:
