@@ -27,6 +27,9 @@
 //! * [`Resource::CpuTicks`] -- CPU ticks. The API exists and the suite exercises
 //!   it; wiring it to the scheduler's accounting is the same `task/**` follow-up
 //!   (the scheduler currently charges ticks to slots, not uids).
+//! * [`Resource::DmaMemory`] -- bytes of contiguous DMA pool memory a driver
+//!   holds through `dma_alloc` (issue #241). Charged before the run is taken
+//!   and released when the backing buffer is destroyed.
 //!
 //! # Limits
 //!

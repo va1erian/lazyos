@@ -43,7 +43,7 @@ pub mod op {
     pub const IRQ_ENABLE: u64 = 6;
     pub const IRQ_ACK: u64 = 7;
     pub const RELEASE: u64 = 8;
-    /// Reserved for issue #241.
+    /// Allocate contiguous DMA memory; see [`dma_alloc`].
     pub const DMA_ALLOC: u64 = 9;
 }
 
@@ -61,13 +61,23 @@ pub mod row_flag {
 pub mod errno {
     pub const EPERM: i64 = 1;
     pub const EBADF: i64 = 9;
+    pub const ENOMEM: i64 = 12;
     pub const EACCES: i64 = 13;
+    pub const EFAULT: i64 = 14;
     pub const EBUSY: i64 = 16;
     pub const ENODEV: i64 = 19;
     pub const EINVAL: i64 = 22;
     pub const EMFILE: i64 = 24;
     pub const ENOSYS: i64 = 38;
     pub const EDQUOT: i64 = 122;
+}
+
+/// `dma_alloc` flag bits (issue #241).
+pub mod dma_flag {
+    /// Map the buffer only into the creator, never a client.
+    pub const SHARE_ONLY: u64 = 1 << 0;
+    /// The caller can address the whole 64-bit bus.
+    pub const ADDR64: u64 = 1 << 1;
 }
 
 /// One decoded `list` row. Physical BAR addresses are never reported: a driver
@@ -228,6 +238,23 @@ pub fn irq_ack(handle: u64) -> Result<(), i64> {
 /// Quiesce the device, unmap its BARs and end the claim.
 pub fn release(handle: u64) -> Result<(), i64> {
     value(dev_syscall(op::RELEASE, handle, 0, 0, 0)).map(|_| ())
+}
+
+/// Allocate `len` bytes of physically contiguous DMA memory (issue #241).
+///
+/// Returns the shared-buffer handle and the bus address to program into the
+/// device. The buffer can be transferred to a client zero-copy; `flags` is a
+/// bitwise OR of [`dma_flag`].
+pub fn dma_alloc(handle: u64, len: u64, flags: u64) -> Result<(u64, u64), i64> {
+    let mut bus = 0u64;
+    let buffer = value(dev_syscall(
+        op::DMA_ALLOC,
+        handle,
+        len,
+        flags,
+        &mut bus as *mut u64 as u64,
+    ))?;
+    Ok((buffer, bus))
 }
 
 /// The fields of an interrupt notification.

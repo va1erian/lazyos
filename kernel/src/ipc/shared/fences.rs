@@ -131,7 +131,7 @@ pub fn reset() {
     while !registry.buffers.is_empty() {
         let last = registry.buffers.len() - 1;
         // Handles may still be open: release their allocator references too.
-        destroy_buffer(&mut registry, last, true);
+        destroy_buffer(&mut registry, last, true, false);
     }
     registry.uses.clear();
     registry.fences_submitted = 0;

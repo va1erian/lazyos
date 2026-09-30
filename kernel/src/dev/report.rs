@@ -40,6 +40,18 @@ pub mod reason {
     pub const DMA_DENIED: u32 = 0x1A;
     /// A BAR overlapping system RAM was refused.
     pub const BAR_IN_RAM: u32 = 0x1B;
+    /// A `dma_alloc` succeeded; the run length in 4 KiB pages is in bits 8..24.
+    pub const DMA_ALLOCATED: u32 = 0x1C;
+    /// `dma_alloc` refused a bad length or unknown flag bits.
+    pub const DMA_BAD_REQUEST: u32 = 0x1D;
+    /// The DMA pool had no contiguous run for the request.
+    pub const DMA_NO_MEMORY: u32 = 0x1E;
+    /// The caller's `DmaMemory` quota is exhausted.
+    pub const DMA_QUOTA: u32 = 0x1F;
+    /// The claim's per-claim DMA-buffer record is full.
+    pub const DMA_RECORD_FULL: u32 = 0x20;
+    /// The bus-address copy-out to userspace faulted; the allocation was undone.
+    pub const DMA_FAULT: u32 = 0x21;
 }
 
 /// Tag in the correlation id marking it as a device id, not a transaction.

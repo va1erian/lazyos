@@ -27,6 +27,7 @@
 mod bus;
 pub mod claims;
 pub mod class;
+pub mod dma;
 mod driver;
 pub mod errno;
 pub mod grant;
@@ -41,13 +42,15 @@ pub mod syscall;
 pub mod table;
 mod teardown;
 
-pub use bus::{Bus, PciBus};
+pub use bus::{Bus, Enumerated, PciBus};
 pub(crate) use driver::attach_all;
 pub use driver::{probe, Driver, DRIVERS};
 pub use resources::{Bar, BarKind, Irq, Resource, Resources, MAX_BARS};
 pub use selfcheck::selfcheck;
 pub use table::{DevError, DeviceHandle, DeviceTable, MAX_DEVICES};
-pub use teardown::teardown_task;
+pub use teardown::{
+    dma_buffer_freed, dma_quarantine, note_task_exited, silence_exited, teardown_task,
+};
 
 use core::sync::atomic::{AtomicBool, Ordering};
 
@@ -140,15 +143,22 @@ pub fn init() {
     if INITED.swap(true, Ordering::SeqCst) {
         return;
     }
-    let (total, pci_count) = {
+    let (total, found) = {
         let mut table = TABLE.lock();
         let _ = table.insert(DeviceInfo::platform_ata());
-        let pci_count = PciBus.enumerate(&mut table);
-        (table.len(), pci_count)
+        let found = PciBus.enumerate(&mut table);
+        (table.len(), found)
     };
+    let pci_count = found.inserted;
     let attached = probe();
     selfcheck::log_irq_routes();
-    if pci_count > 0 {
+    if found.dropped > 0 {
+        serial_println!(
+            "DEV:ENUM:FAIL:device table full, {} PCI function(s) dropped ({} recorded)",
+            found.dropped,
+            pci_count
+        );
+    } else if pci_count > 0 {
         serial_println!(
             "DEV:ENUM:PASS:{} devices ({} PCI, {} drivers attached)",
             total,

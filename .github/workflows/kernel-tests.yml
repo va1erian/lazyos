@@ -24,7 +24,23 @@ concurrency:
 
 jobs:
   kernel-tests:
+    name: kernel-tests (${{ matrix.name }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # The default machine: IDE disk, no NIC.
+          - name: default
+            args: ""
+          # A legacy virtio-net function enables the end-to-end device
+          # interrupt test (dev_irq_real_device_end_to_end); issue #283.
+          - name: virtio-net
+            args: "--nic"
+          # q35 with a virtio-only disk: no ATA, so the ATA-specific tests must
+          # skip cleanly and the device core must work without an IDE drive.
+          - name: q35-virtio
+            args: "--machine q35 --virtio-disk --nic"
     steps:
       - uses: actions/checkout@v4
 
@@ -45,7 +61,7 @@ jobs:
       # rust-toolchain.toml pins the nightly toolchain and target; rustup
       # installs it on first use.
       - name: Run the kernel test harness
-        run: python tools/test/run.py --out shots/kernel-tests
+        run: python tools/test/run.py --out shots/kernel-tests ${{ matrix.args }}
 
       - name: Append report to the job summary
         if: always()
@@ -61,7 +77,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: kernel-test-report
+          name: kernel-test-report-${{ matrix.name }}
           path: |
             docs/test/**
             shots/kernel-tests/**

@@ -17,7 +17,9 @@
 //!   IRQ_ENABLE(6)  a1 = handle, a2 = 0
 //!   IRQ_ACK(7)     a1 = handle, a2 = 0
 //!   RELEASE(8)     a1 = handle
-//!   DMA_ALLOC(9)   reserved for issue #241 -> -ENOSYS
+//!   DMA_ALLOC(9)   a1 = handle, a2 = length in bytes, a3 = flags
+//!                  (bit 0 share-only, bit 1 64-bit address OK), a4 -> u64
+//!                  bus address   -> Buffer handle
 //! ```
 //!
 //! No operation takes a raw physical or port address: everything is resolved
@@ -33,7 +35,7 @@ use crate::ipc::handles::{self, rights, HandleKind};
 use crate::quota::{self, Resource};
 use crate::user_ptr;
 
-use super::claims::{self, Claim, InstallError, IrqBinding, CLAIMS};
+use super::claims::{self, Claim, InstallError, IrqBinding, CLAIMS, MAX_DMA_BUFFERS};
 use super::class::{class_of, method, DEV_INTERFACE};
 use super::errno::*;
 use super::grant;
@@ -41,7 +43,7 @@ use super::irq;
 use super::pci::{self, COMMAND_BUS_MASTER, COMMAND_INTX_DISABLE, COMMAND_IO, COMMAND_MEMORY};
 use super::report::{self, reason};
 use super::resources::MAX_BARS;
-use super::{intx, ops, table, teardown, BarKind, BusId, DeviceId, DeviceInfo, TaskSlot};
+use super::{dma, intx, ops, table, teardown, BarKind, BusId, DeviceId, DeviceInfo, TaskSlot};
 
 pub const OP_LIST: u64 = 0;
 pub const OP_CLAIM: u64 = 1;
@@ -84,7 +86,7 @@ pub fn dispatch(op: u64, a1: u64, a2: u64, a3: u64, a4: u64) -> u64 {
         OP_IRQ_ENABLE => with_handle(slot, a1, rights::DEV_IRQ, |r| irq_enable(r, a2)),
         OP_IRQ_ACK => with_handle(slot, a1, rights::DEV_IRQ, |r| irq_ack(r, a2)),
         OP_RELEASE => release(slot, a1),
-        OP_DMA_ALLOC => Err(ENOSYS),
+        OP_DMA_ALLOC => with_handle(slot, a1, rights::DEV_DMA, |r| dma::dma_alloc(r, a2, a3, a4)),
         _ => Err(EINVAL),
     };
     match result {
@@ -303,7 +305,7 @@ fn claim(slot: usize, id_raw: u64, endpoint: u64, flags: u64) -> Result<u64, Err
         if granted & rights::DEV_IRQ == 0 {
             return Err(deny(slot, Some(&info), reason::NO_RIGHTS, EPERM));
         }
-        let (channel, side) = channels::endpoint_of_task(slot, endpoint)
+        let (channel, side) = channels::private_endpoint_of_task(slot, endpoint)
             .map_err(|_| deny(slot, Some(&info), reason::BAD_ENDPOINT, EBADF))?;
         Some(IrqBinding {
             channel,
@@ -352,6 +354,7 @@ fn claim(slot: usize, id_raw: u64, endpoint: u64, flags: u64) -> Result<u64, Err
         pending: false,
         missed: false,
         maps: [None; MAX_BARS],
+        dma: [None; MAX_DMA_BUFFERS],
     };
     let installed = CLAIMS.lock().install(id, record);
     if let Err(error) = installed {
@@ -361,6 +364,9 @@ fn claim(slot: usize, id_raw: u64, endpoint: u64, flags: u64) -> Result<u64, Err
             InstallError::Occupied => reason::BUSY,
         };
         return Err(deny(slot, Some(&info), why, EBUSY));
+    }
+    if binding.is_some() {
+        channels::seal_endpoint(slot, endpoint);
     }
     quiesce(&info);
     report::record(
@@ -377,6 +383,10 @@ fn claim(slot: usize, id_raw: u64, endpoint: u64, flags: u64) -> Result<u64, Err
 /// state: memory/I/O decode and bus mastering off, INTx disabled. The driver
 /// switches on only what it uses.
 pub(super) fn quiesce(info: &DeviceInfo) {
+    // Test-only ordering marker: bus mastering is being turned off, which must
+    // precede any of this device's DMA frames returning to the pool.
+    #[cfg(lazyos_tests)]
+    crate::mem::dma::order::note(crate::mem::dma::order::QUIESCE);
     if let BusId::Pci(address) = info.bus {
         let command = pci::command(address);
         let quiet =

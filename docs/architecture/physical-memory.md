@@ -8,6 +8,7 @@ surface used by every address space.
 | Path | Role |
 |---|---|
 | `kernel/src/mem/frames.rs` | `Frames` allocator and frame refcounts |
+| `kernel/src/mem/dma.rs` | Boot-time contiguous DMA pool, stats and test ordering log |
 | `kernel/src/mem/uspace.rs` | User tables, COW, teardown, `demand_fault`/`cow_fault` |
 | `kernel/src/mem/mod.rs` | Kernel tables, `init`, re-exports |
 | `kernel/src/mem/vma.rs` | Per-address-space VMA list (see [virtual-memory.md](virtual-memory.md)) |
@@ -21,6 +22,14 @@ surface used by every address space.
   marked `RESERVED` (`u32::MAX`). `0` = free, `1..` = live.
 - Usable regions come from `BootInfo.memory_regions`, clamped above `LOWEST_FRAME`
   (1 MiB, where the bootloader lives); at most `MAX_REGIONS` (32) regions.
+- A contiguous **DMA pool** (issue #241) is reserved at `init` from the memory
+  map: `min(16 MiB, usable/8)` pages, below 4 GiB, clear of the refcount table.
+  Its frames stay in the refcount table but are marked `RESERVED` while free, so
+  `pop_free` skips them; they are excluded from `total`/`free` like the metadata
+  table. `Frames::release` routes a pool frame that reaches refcount zero back
+  to the pool bitmap instead of the general free list, so DMA traffic never
+  perturbs a frame `live()` delta. The pool bitmap is protected by the frame
+  allocator lock itself, so the only documented order is `REGISTRY -> FRAMES`.
 - The kernel heap (16 MiB at `HEAP_START = 0x_4444_4444_0000`) is mapped last, so
   the allocator itself never needs the heap.
 - `EFER.NXE` is enabled before any VMA-derived mapping, because `prot_flags` sets
@@ -34,6 +43,7 @@ surface used by every address space.
 | `share_frame` | +1 on a live frame (COW fork); false for dead/foreign |
 | `free_frame` | -1; returns to the pool at 0; false on double/invalid free |
 | `frame_refcount` / `frame_stats` | diagnostics; `FrameStats::live()` = alloc - free |
+| `dma_alloc` / `dma_stats` | contiguous zeroed DMA pool run; pool free-space snapshot |
 | `phys_to_virt` / `physical_offset` | via the bootloader's physical-memory mapping |
 | `new_user_table` | fresh PML4 sharing kernel entries 1..512, empty entry 0 |
 | `clone_user_table` | COW-share the user half; registers `vma::clone_space` |
