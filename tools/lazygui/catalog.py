@@ -65,6 +65,7 @@ SCRIPTS = [
     ("xui_editor.json", "XUI app: Editor (type, save)", ("desktop",), "editor"),
     ("xui_paint.json", "XUI app: Paint (draw, save PNG)", ("desktop",), "paint"),
     ("xui_files.json", "XUI app: Files (browse, open)", ("desktop",), "files"),
+    ("xui_settings.json", "XUI app: Settings (menu, colours, layout)", ("desktop",), None),
 ]
 
 # Simple mode: (label, cargo profile) and (label, description) choices.
@@ -78,14 +79,14 @@ SIMPLE_INTERFACES = [
 ]
 
 XUI_VIEWERS = ["(none)", "m0", "counter", "sysmon", "fabricmon", "client", "term",
-               "editor", "paint", "files"]
+               "editor", "paint", "files", "settings"]
 # The desktop session's apps (issues #215/#216): embedded side by side, opened
 # by `init` as `xuid` clients. The Terminal comes first so it takes the focus.
 # The document apps ship with every desktop image (`build.rs`
 # `SHIP_DOCUMENT_APPS`); they open on demand (Start menu, right-click menu,
 # open-with), never at boot. The GUI passes an explicit `LAZYOS_XUI_APPS`
 # list, which replaces the build script's default set, so it must name them.
-DOCUMENT_APPS = ("editor", "files", "paint")
+DOCUMENT_APPS = ("editor", "files", "paint", "settings")
 DESKTOP_APPS = ("term", "sysmon", "fabricmon", "counter") + DOCUMENT_APPS
 ACCELS = ["auto", "none", "tcg", "whpx", "kvm"]
 DISKS = ["virtio", "ata"]
