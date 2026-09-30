@@ -85,6 +85,17 @@ impl Backend for LazyOSBackend {
             ),
             Mode::Owner { .. } => None,
         };
+        // Declare the window resizable (if the app opted in) right after
+        // `CreateSurface`, before any input can reach it.
+        if let (Some((min_w, min_h, max_w, max_h)), Some(surface), Mode::Client(state)) =
+            (self.size_hints.get(), client.as_ref(), &self.mode)
+        {
+            let _ =
+                state
+                    .borrow()
+                    .client
+                    .set_size_hints(surface.surface, min_w, min_h, max_w, max_h);
+        }
         self.windows.borrow_mut().insert(
             id.raw(),
             Window {

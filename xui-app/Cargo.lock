@@ -1051,6 +1051,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "xui-app-testkit"
+version = "0.1.0"
+dependencies = [
+ "xui-canvas",
+ "xui-core",
+]
+
+[[package]]
 name = "xui-canvas"
 version = "0.1.0"
 source = "git+https://github.com/va1erian/xui?rev=58c1a6ea1a2dc1e5bb81463ff8dba82329a4f080#58c1a6ea1a2dc1e5bb81463ff8dba82329a4f080"
@@ -1067,6 +1075,7 @@ dependencies = [
  "regex",
  "rhai",
  "ropey",
+ "xui-app-testkit",
  "xui-canvas",
  "xui-core",
 ]
@@ -1094,6 +1103,7 @@ dependencies = [
 name = "xui-explorer"
 version = "0.1.0"
 dependencies = [
+ "xui-app-testkit",
  "xui-canvas",
  "xui-core",
  "xui-icons",
@@ -1122,6 +1132,7 @@ dependencies = [
 name = "xui-paint"
 version = "0.0.0"
 dependencies = [
+ "xui-app-testkit",
  "xui-canvas",
  "xui-core",
 ]

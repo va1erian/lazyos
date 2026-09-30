@@ -104,6 +104,7 @@ impl Compositor {
             title: matches!(kind, wire::CHANGE_CREATED | wire::CHANGE_TITLE)
                 .then(|| surface.title.clone()),
             role: surface.role(),
+            maximized: surface.maximized.is_some(),
         };
         self.notify_shell(
             wire::METHOD_SURFACECHANGED,
@@ -148,7 +149,9 @@ impl Compositor {
         if !SHELL_DEAD.swap(false, Ordering::Relaxed) || self.shell.take().is_none() {
             return;
         }
-        // The subscription is already gone, so the fallback taskbar is visible.
+        // The subscription is already gone, so the fallback taskbar is visible
+        // and the work area shrank: re-fit maximized windows.
+        self.reflow_maximized();
         self.repaint_full();
     }
 

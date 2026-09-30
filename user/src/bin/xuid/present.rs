@@ -24,6 +24,12 @@ pub(super) struct Mapping {
     pub(super) bytes: u64,
     /// The compositor's handle for the buffer, closed to unmap it.
     pub(super) handle: u64,
+    /// The content width the buffer was attached for, in pixels. The window
+    /// may since have been resized, so the renderer must use this, not the
+    /// surface's current content size, as the source stride.
+    pub(super) width: i32,
+    /// The content height the buffer was attached for, in pixels.
+    pub(super) height: i32,
 }
 
 impl Mapping {
@@ -34,14 +40,16 @@ impl Mapping {
 }
 
 impl Surface {
-    /// Point `pixels`/`bytes` at the current slot (or clear them).
+    /// Point `pixels`/`bytes` and the buffer dimensions at the current slot
+    /// (or clear them).
     pub(super) fn sync_pixels(&mut self) {
-        let (va, bytes) = self
-            .slots
-            .current()
-            .map_or((0, 0), |mapping| (mapping.va, mapping.bytes));
+        let (va, bytes, width, height) = self.slots.current().map_or((0, 0, 0, 0), |mapping| {
+            (mapping.va, mapping.bytes, mapping.width, mapping.height)
+        });
         self.pixels = va;
         self.bytes = bytes;
+        self.buf_w = width;
+        self.buf_h = height;
     }
 
     /// Unmap every slot; the surface is going away.
@@ -86,9 +94,13 @@ fn try_attach(
     }
     // The descriptor's length is the sender's claim about how many bytes the
     // surface needs; never trust it to cover the geometry the compositor
-    // paints. Checked `u64` arithmetic avoids the wrap a pathological
-    // width/height could otherwise cause in the `i32` product (issue #176);
-    // `CreateSurface` also bounds both to the screen size.
+    // paints. The mapping records the size it was attached for, so the
+    // renderer's stride is always the attach-time width even after a resize;
+    // a too-small buffer (an old-size attach racing a grow) is refused and
+    // the client attaches again after its pending `Configure`. Checked `u64`
+    // arithmetic avoids the wrap a pathological width/height could otherwise
+    // cause in the `i32` product (issue #176); `CreateSurface` also bounds
+    // both to the screen size.
     let expected = (surface.w.max(0) as u64)
         .checked_mul(surface.h.max(0) as u64)
         .and_then(|area| area.checked_mul(4))
@@ -106,6 +118,8 @@ fn try_attach(
         va,
         bytes: expected,
         handle: message.first_buffer,
+        width: surface.w,
+        height: surface.h,
     };
     let attached = match slot {
         Some(slot) => surface.slots.attach(slot, mapping),
@@ -152,10 +166,14 @@ impl Compositor {
             surface.sync_pixels();
         }
         // A minimized surface is not painted; the swap above is all it needs.
+        // Damage is content-relative but only the current buffer's pixels were
+        // drawn, so clip to the buffer and the content.
+        let clip_w = surface.buf_w.min(surface.w).max(0) as u32;
+        let clip_h = surface.buf_h.min(surface.h).max(0) as u32;
         let (rects, count) = if outcome.is_ok() && !surface.minimized {
             clip_damage(
-                surface.w.max(0) as u32,
-                surface.h.max(0) as u32,
+                clip_w,
+                clip_h,
                 args.damage.iter().map(|rect| Area {
                     x: rect.x,
                     y: rect.y,

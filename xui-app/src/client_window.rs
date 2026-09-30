@@ -97,6 +97,33 @@ impl ClientWindow {
         })
     }
 
+    /// Resize the surface to `width` x `height`: allocate and attach the new
+    /// buffer **before** closing the old one, so a failed attach leaves the
+    /// window drawable with its previous buffer (failure
+    /// atomicity). On `EINVAL` the compositor saw a newer size than this
+    /// Configure carried; keep the old buffer and wait for the next event.
+    pub fn reconfigure(&mut self, client: Client, width: u32, height: u32) -> Result<(), String> {
+        if width == 0 || height == 0 {
+            return Err("reconfigure: zero size".into());
+        }
+        let size = width as u64 * height as u64 * 4;
+        let (buffer, va, _) = sys::display_create_buffer(size)
+            .map_err(|code| format!("create_buffer: errno {code}"))?;
+        if let Err(code) = client.attach_buffer(self.surface, buffer, size) {
+            // The new buffer is not used; release it and keep the old one.
+            let _ = sys::display_close_buffer(buffer);
+            return Err(format!("attach_buffer: errno {code}"));
+        }
+        if self.buffer != 0 {
+            let _ = sys::display_close_buffer(self.buffer);
+        }
+        self.buffer = buffer;
+        self.va = va;
+        self.size = size;
+        self.rect = (width as i32, height as i32);
+        Ok(())
+    }
+
     /// Destroy the surface and close its event channel and buffer. Safe to call
     /// on a window already torn down (every handle is zeroed).
     pub fn close(&self, client: Client) {

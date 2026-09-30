@@ -23,8 +23,9 @@ impl Compositor {
     /// Fly a wireframe from `from` to `to` over the screen as composed from
     /// the surfaces. The caller keeps the animated window out of the visible
     /// set (minimized) for the duration and repaints the full screen
-    /// afterwards, which erases the last outline.
-    fn zoom(&mut self, from: Rect, to: Rect) {
+    /// afterwards, which erases the last outline. Shared by minimize/restore,
+    /// open and maximize/restore.
+    pub(super) fn zoom(&mut self, from: Rect, to: Rect) {
         let full = self.full();
         // The starting rectangle counts as previously drawn, so the first
         // frame also erases the window that was just hidden.
@@ -116,6 +117,9 @@ impl Compositor {
             icon.w,
             icon.h,
         );
+        // A mostly off-screen window centres `small` off screen too; keep it
+        // visible so the minimize animation does not fly off the edge.
+        let small = super::geometry::clamp_into(small, self.full());
         Some((window, icon, small))
     }
 }
@@ -135,7 +139,7 @@ fn lerp(from: Rect, to: Rect, at: i32) -> Rect {
 }
 
 /// Draw a hollow rectangle.
-fn outline(screen: &mut Canvas, rect: Rect, clip: Rect) {
+pub(super) fn outline(screen: &mut Canvas, rect: Rect, clip: Rect) {
     let t = LINE.min(rect.w / 2).min(rect.h / 2).max(1);
     screen.fill(Rect::new(rect.x, rect.y, rect.w, t), clip, WIRE);
     screen.fill(

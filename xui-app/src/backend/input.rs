@@ -3,13 +3,14 @@
 
 use std::sync::atomic::Ordering;
 
+use xui_canvas::Surface;
 use xui_core::backend::{Event, WidgetId, WindowId};
-use xui_core::{Key, Modifiers, MouseButton};
+use xui_core::{Key, Modifiers, MouseButton, Rect};
 
 use crate::display::{self, Event as DisplayEvent};
 use crate::sys::{self, button, errno, event, key, EVENT_BYTES};
 
-use super::{LazyOSBackend, CLIENT_INPUT_BYTES, CLIENT_POLL_TICKS, INPUT_BATCH};
+use super::{LazyOSBackend, Mode, CLIENT_INPUT_BYTES, CLIENT_POLL_TICKS, INPUT_BATCH};
 
 impl LazyOSBackend {
     /// Route one key press: focus navigation first, then the focused widget.
@@ -156,6 +157,47 @@ impl LazyOSBackend {
             DisplayEvent::PointerWheel { x, y, delta } => self.pointer_wheel(window, x, y, delta),
             DisplayEvent::KeyDown { key } => self.key_down(window, key),
             DisplayEvent::KeyUp { key } => self.key_up(window, key),
+            DisplayEvent::Configure { width, height, .. } => {
+                self.apply_configure(window, width, height);
+            }
+        }
+    }
+
+    /// Apply a `Configure`: swap the window's shared buffer for one of the new
+    /// size, resize the painting surface, and tell `xui-core` through a
+    /// window-level `Resize` so its layouts re-flow. A failed
+    /// reconfigure (a newer Configure raced) keeps the old buffer and waits.
+    fn apply_configure(&self, window: WindowId, width: i32, height: i32) {
+        if width <= 0 || height <= 0 {
+            return;
+        }
+        let Mode::Client(state) = &self.mode else {
+            return;
+        };
+        let client = state.borrow().client;
+        let applied = {
+            let mut windows = self.windows.borrow_mut();
+            let Some(entry) = windows.get_mut(&window.raw()) else {
+                return;
+            };
+            let Some(surface) = entry.client.as_mut() else {
+                return;
+            };
+            if surface
+                .reconfigure(client, width as u32, height as u32)
+                .is_err()
+            {
+                return;
+            }
+            entry.width = width;
+            entry.height = height;
+            entry.surface = Surface::new(width as u32, height as u32);
+            true
+        };
+        if applied {
+            self.deliver(window, WidgetId::NONE, &Event::Resize { width, height });
+            self.add_damage(window, Rect::new(0, 0, width, height));
+            self.dirty.store(true, Ordering::Relaxed);
         }
     }
 }

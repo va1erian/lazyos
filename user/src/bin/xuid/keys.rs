@@ -88,6 +88,11 @@ impl Compositor {
             self.drag_cancel();
             return true;
         }
+        // ...or an in-progress resize, erasing its outline.
+        if self.resize.is_some() {
+            self.cancel_resize();
+            return true;
+        }
         false
     }
 

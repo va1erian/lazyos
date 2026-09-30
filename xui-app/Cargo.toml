@@ -15,6 +15,7 @@ members = [
     "crates/paint",
     "crates/explorer",
     "crates/settings",
+    "crates/testkit",
 ]
 
 [dependencies]

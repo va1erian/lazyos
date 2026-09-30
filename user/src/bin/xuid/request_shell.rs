@@ -10,7 +10,7 @@ use super::protocol::{
     color_u32, drop_rejected_handle, empty_reply, error_reply, is_privileged, typed_reply,
 };
 use super::shell::ShellSub;
-use super::theme::{border_color, taskbar_bg, title_bg, title_bg_focus, title_text, TASKBAR_H};
+use super::theme::{border_color, taskbar_bg, title_bg, title_bg_focus, title_text};
 use super::window::surface_by_id;
 
 impl Compositor {
@@ -77,6 +77,9 @@ impl Compositor {
         if let Some(previous) = previous {
             let _ = Endpoint::from_raw(previous.events).close();
         }
+        // Registering a shell can hide or reveal the fallback taskbar, which
+        // changes the work area: re-fit maximized windows to it.
+        self.reflow_maximized();
         self.repaint_full();
         empty_reply(message.method())
     }
@@ -101,6 +104,7 @@ impl Compositor {
                 minimized: surface.minimized,
                 focused: self.focused == Some(surface.id),
                 role: surface.role(),
+                maximized: surface.maximized.is_some(),
             })
             .collect();
         typed_reply(
@@ -112,18 +116,14 @@ impl Compositor {
     /// `GetWorkArea`: with a shell registered the fallback bar is hidden, so
     /// windows may use the whole screen.
     pub(super) fn get_work_area(&self, message: &Message) -> Parcel {
-        let height = if self.taskbar() {
-            (self.screen.height() - TASKBAR_H).max(0)
-        } else {
-            self.screen.height()
-        };
+        let area = self.work_area();
         typed_reply(
             message.method(),
             wire::encode_get_work_area_reply(&wire::GetWorkAreaReply {
-                x: 0,
-                y: 0,
-                w: self.screen.width().max(0),
-                h: height,
+                x: area.x,
+                y: area.y,
+                w: area.w,
+                h: area.h,
             }),
         )
     }

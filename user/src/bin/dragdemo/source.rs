@@ -167,7 +167,11 @@ fn handle_source_input(app: &mut App, state: &mut SourceState, event: Event) {
             }
             app.redraw(&|canvas| source_draw(canvas, state));
         }
-        Event::PointerWheel { .. } | Event::KeyDown { .. } | Event::KeyUp { .. } => {}
+        // Fixed-size: the window never opts in to `Configure`.
+        Event::PointerWheel { .. }
+        | Event::KeyDown { .. }
+        | Event::KeyUp { .. }
+        | Event::Configure { .. } => {}
     }
 }
 

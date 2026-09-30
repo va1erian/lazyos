@@ -92,3 +92,35 @@ pub(super) fn draw_minimize(screen: &mut Canvas, button: Rect, color: Color, cli
     let h = 5 * UNIT;
     stroke(screen, button, &[((cx - h, cy), (cx + h, cy))], color, clip);
 }
+
+/// A maximize glyph (a hollow square) centred in `button`.
+pub(super) fn draw_maximize(screen: &mut Canvas, button: Rect, color: Color, clip: Rect) {
+    let (cx, cy) = centre(button);
+    let h = 4 * UNIT + UNIT / 2;
+    stroke(screen, button, &square(cx, cy, h), color, clip);
+}
+
+/// A restore glyph: two offset squares, the back one peeking out up-left of
+/// the front one, centred in `button`.
+pub(super) fn draw_restore(screen: &mut Canvas, button: Rect, color: Color, clip: Rect) {
+    let (cx, cy) = centre(button);
+    let h = 3 * UNIT + UNIT / 2;
+    let o = 3 * UNIT;
+    let back = square(cx - o / 2, cy - o / 2, h);
+    let front = square(cx + o / 2, cy + o / 2, h);
+    let mut lines = [((0, 0), (0, 0)); 8];
+    lines[..4].copy_from_slice(&back);
+    lines[4..].copy_from_slice(&front);
+    stroke(screen, button, &lines, color, clip);
+}
+
+/// The four edges of an axis-aligned square centred at `(cx, cy)` with
+/// half-extent `h`, in fixed-point units.
+fn square(cx: i32, cy: i32, h: i32) -> [Segment; 4] {
+    [
+        ((cx - h, cy - h), (cx + h, cy - h)),
+        ((cx - h, cy + h), (cx + h, cy + h)),
+        ((cx - h, cy - h), (cx - h, cy + h)),
+        ((cx + h, cy - h), (cx + h, cy + h)),
+    ]
+}
