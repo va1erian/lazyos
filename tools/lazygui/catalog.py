@@ -79,10 +79,12 @@ XUI_VIEWERS = ["(none)", "m0", "counter", "sysmon", "fabricmon", "client", "term
                "editor", "paint", "files"]
 # The desktop session's apps (issues #215/#216): embedded side by side, opened
 # by `init` as `xuid` clients. The Terminal comes first so it takes the focus.
-DESKTOP_APPS = ("term", "sysmon", "fabricmon", "counter")
-# The document apps join the default set when `build.rs` `SHIP_DOCUMENT_APPS`
-# is on (see docs/xui-apps-track-b.md); they open on demand, never at boot.
+# The document apps ship with every desktop image (`build.rs`
+# `SHIP_DOCUMENT_APPS`); they open on demand (Start menu, right-click menu,
+# open-with), never at boot. The GUI passes an explicit `LAZYOS_XUI_APPS`
+# list, which replaces the build script's default set, so it must name them.
 DOCUMENT_APPS = ("editor", "files", "paint")
+DESKTOP_APPS = ("term", "sysmon", "fabricmon", "counter") + DOCUMENT_APPS
 ACCELS = ["auto", "none", "tcg", "whpx", "kvm"]
 DISKS = ["virtio", "ata"]
 
@@ -144,7 +146,7 @@ def simple_config(base: dict, build: str, interface: str) -> dict:
         "cli": not desktop,
         # Desktop = the single `LAZYOS_DESKTOP=1` profile (issue #217): services
         # suite + compositor + the xui apps as its clients (`init` opens the
-        # default set: Terminal, System Monitor, Fabric Monitor, Counter), with
+        # default set: Terminal, System Monitor, Fabric Monitor, Counter; Editor, Files and Paint are embedded but open on demand), with
         # no demo/evidence programs. The individual switches stay off so no
         # Advanced checkbox leaks in.
         "desktop": desktop,
