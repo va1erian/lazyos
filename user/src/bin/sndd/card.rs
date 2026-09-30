@@ -84,9 +84,10 @@ pub(super) struct Card {
     slot_of_head: [u8; virtio::queue::MAX_QUEUE],
     /// Number of streams the device reports.
     pub(super) streams: u32,
-    /// Control requests that timed out and may still complete: their used
-    /// entries are skipped when they show up, so one lost answer cannot make
-    /// every later request fail.
+    /// Control requests that timed out and that the device has not returned
+    /// yet. The request and reply buffers are shared by every control request,
+    /// so while one is outstanding the device may still read or write them:
+    /// no new request is built until each has been handed back.
     stale_control: u32,
     /// Interrupt messages serviced (0 when polling alone).
     irqs: u64,
@@ -158,6 +159,7 @@ impl Card {
         if request.len() > CTRL_REQ_LEN || response_len > CTRL_RESP_LEN {
             return Err(Error::Range);
         }
+        self.reclaim_stale_control()?;
         self.core
             .bytes(CTRL_REQ, request.len())?
             .copy_from_slice(request);
@@ -179,10 +181,9 @@ impl Card {
         loop {
             match self.control.vq.pop_used()? {
                 Some(used) if used.head == head => break,
-                // Only one request is outstanding per call, so a completion
-                // for any other head belongs to one that timed out earlier;
-                // with none outstanding it is a device fault.
-                Some(_) if self.stale_control > 0 => self.stale_control -= 1,
+                // Exactly one request is outstanding here (earlier timeouts
+                // were reclaimed before this one was built), so any other head
+                // is a device fault.
                 Some(_) => return Err(Error::Virtio(virtio::Error::DeviceError)),
                 None if sys::clock() >= deadline => {
                     self.stale_control = self.stale_control.saturating_add(1);
@@ -208,6 +209,20 @@ impl Card {
             Some(other) => Err(Error::Status(other)),
             None => Err(Error::Status(0)),
         }
+    }
+
+    /// Take back the completions of control requests that timed out. Until the
+    /// device has returned every one, the shared request/reply buffers may
+    /// still be in use by it, so a new request is refused (`Timeout`, the same
+    /// answer the caller already saw) rather than overwriting them.
+    fn reclaim_stale_control(&mut self) -> Result<(), Error> {
+        while self.stale_control > 0 {
+            match self.control.vq.pop_used()? {
+                Some(_) => self.stale_control -= 1,
+                None => return Err(Error::Timeout),
+            }
+        }
+        Ok(())
     }
 
     /// Describe every stream the device reports (up to [`MAX_STREAMS`]).
