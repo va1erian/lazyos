@@ -4,11 +4,24 @@
 //! concern is markup smuggled through the Markdown, so raw HTML in the source
 //! is rendered as literal text and never reaches the layout engine as markup.
 
+use std::io::{self, Read};
+
 use pulldown_cmark::{html, Event, Options, Parser};
 
 /// The largest document the app renders; a bigger file is cut off (with a
 /// notice) rather than handed whole to the parser and layout engine.
 pub const MAX_BYTES: usize = 1 << 20;
+
+/// Reads at most [`MAX_BYTES`] + 1 bytes of `reader` as text, so a huge file is
+/// never held whole in memory: the extra byte lets [`page`] see that the
+/// document was longer than the limit and add its truncation notice. Invalid
+/// UTF-8, including a multi-byte character cut by the limit, becomes U+FFFD
+/// instead of failing the open.
+pub fn read_bounded(reader: impl Read) -> io::Result<String> {
+    let mut bytes = Vec::new();
+    reader.take(MAX_BYTES as u64 + 1).read_to_end(&mut bytes)?;
+    Ok(String::from_utf8_lossy(&bytes).into_owned())
+}
 
 /// The page stylesheet: Droid Sans body, JetBrains Mono code, light theme.
 const CSS: &str = "\
@@ -96,5 +109,52 @@ mod tests {
     #[test]
     fn empty_input_is_a_valid_page() {
         assert!(page("").contains("<body></body>"));
+    }
+
+    /// A reader that counts how much was pulled from it.
+    struct Counting<'a>(&'a std::cell::Cell<usize>, usize);
+
+    impl Read for Counting<'_> {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            let n = buf.len().min(self.1);
+            buf[..n].fill(b'a');
+            self.1 -= n;
+            self.0.set(self.0.get() + n);
+            Ok(n)
+        }
+    }
+
+    #[test]
+    fn a_huge_file_is_read_only_up_to_the_limit_plus_one() {
+        let pulled = std::cell::Cell::new(0);
+        let text = read_bounded(Counting(&pulled, 50 * MAX_BYTES)).expect("reads");
+        assert_eq!(text.len(), MAX_BYTES + 1);
+        assert_eq!(
+            pulled.get(),
+            MAX_BYTES + 1,
+            "nothing past the limit was read"
+        );
+        assert!(page(&text).contains("(document truncated)"));
+    }
+
+    #[test]
+    fn a_file_at_the_limit_is_not_reported_truncated() {
+        let text = read_bounded(&vec![b'a'; MAX_BYTES][..]).expect("reads");
+        assert!(!page(&text).contains("(document truncated)"));
+    }
+
+    #[test]
+    fn a_multibyte_character_cut_by_the_limit_does_not_fail_the_read() {
+        // 2-byte characters: the limit + 1 byte lands mid-character.
+        let bytes = "\u{e9}".repeat(MAX_BYTES).into_bytes();
+        let text = read_bounded(&bytes[..]).expect("reads");
+        assert!(text.ends_with('\u{FFFD}'));
+        assert!(page(&text).contains("(document truncated)"));
+    }
+
+    #[test]
+    fn invalid_utf8_is_replaced_not_rejected() {
+        let text = read_bounded(&b"ok \xFF\xFE done"[..]).expect("reads");
+        assert_eq!(text, "ok \u{FFFD}\u{FFFD} done");
     }
 }

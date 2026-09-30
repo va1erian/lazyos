@@ -56,14 +56,21 @@ pub struct Decoded {
     pub wheel: i32,
 }
 
+/// One axis of motion: the movement byte is the low eight bits of a 9-bit
+/// two's-complement value whose sign is bit `sign_bit` of the header byte, so a
+/// fast movement (128..=255) stays positive instead of wrapping negative.
+fn motion(header: u8, byte: u8, sign_bit: u8) -> i32 {
+    i32::from(byte) - if header & sign_bit != 0 { 256 } else { 0 }
+}
+
 /// Decode a complete packet. `data[3]` is only read when `wheel` is set (a
 /// 4-byte IntelliMouse packet); it is a signed 8-bit count that is positive
 /// when the wheel rolls *toward* the user, so it is negated to make "up"
 /// positive like the display protocol's wheel event.
 pub fn decode_packet(data: &[u8; 4], wheel: bool) -> Decoded {
     Decoded {
-        dx: data[1] as i8 as i32,
-        dy: data[2] as i8 as i32,
+        dx: motion(data[0], data[1], 0x10),
+        dy: motion(data[0], data[2], 0x20),
         left: data[0] & 0x01 != 0,
         right: data[0] & 0x02 != 0,
         middle: data[0] & 0x04 != 0,

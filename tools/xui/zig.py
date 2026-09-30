@@ -68,7 +68,10 @@ def find_zig() -> list[str] | None:
     candidates: list[list[str]] = []
     explicit = os.environ.get("LAZYOS_ZIG")
     if explicit:
-        candidates.append(shlex.split(explicit, posix=os.name != "nt"))
+        # One executable path, never split: `C:\Program Files\zig\zig.exe`
+        # has a space, and `shlex` on Windows would keep quote characters in
+        # the token. Surrounding quotes (a shell habit) are stripped.
+        candidates.append([explicit.strip().strip("\"'")])
     on_path = shutil.which("zig")
     if on_path:
         candidates.append([on_path])

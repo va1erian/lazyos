@@ -389,14 +389,30 @@ jobs:
             grep -qF "$marker" shots/docs/serial.log
           done
           python - <<'PY'
-          import hashlib, sys
-          def digest(name):
-              return hashlib.sha256(open(f"shots/docs/shot_{name}.png", "rb").read()).hexdigest()
-          top, down, back = digest("01_docs_top"), digest("02_docs_wheel_down"), digest("03_docs_wheel_back_up")
-          if top == down:
+          import sys
+          from pathlib import Path
+
+          sys.path.insert(0, "tools/screenshot")
+          from pngstats import decode_png
+
+          # The pointer is parked before the baseline, so the cursor is at the
+          # same place in all three frames. Only the window content is compared
+          # (the taskbar clock may tick between shots).
+          def content(name):
+              width, height, channels, pixels = decode_png(Path(f"shots/docs/shot_{name}.png"))
+              x0, x1, y0, y1 = 52, 948, 52, 688
+              return b"".join(
+                  pixels[(y * width + x0) * channels : (y * width + x1) * channels]
+                  for y in range(y0, y1)
+              )
+
+          top = content("01_docs_top")
+          down = content("02_docs_wheel_down")
+          back = content("03_docs_wheel_back_up")
+          if down == top:
               sys.exit("the mouse wheel did not scroll the page down")
-          if back == down:
-              sys.exit("the mouse wheel did not scroll the page back up")
+          if back != top:
+              sys.exit("wheel-up did not return the page to where it started")
           PY
           ! grep -q "^init: launch .* failed" shots/docs/serial.log
 

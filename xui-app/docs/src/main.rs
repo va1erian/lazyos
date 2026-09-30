@@ -15,7 +15,7 @@ use xui_app::backend::LazyOSBackend;
 use xui_core::app::{run_app, App, Ui};
 use xui_core::backend::{Backend, PlatformSpec};
 use xui_core::units::Dip;
-use xui_docs::page;
+use xui_docs::{page, read_bounded};
 use xui_litehtml::{HtmlView, HtmlViewEvent};
 
 /// Window size a compositor lays the page out at.
@@ -41,7 +41,7 @@ struct Docs {
 impl App for Docs {
     type Msg = Msg;
 
-    fn update(&mut self, msg: Msg, _ui: &mut Ui<Msg>) {
+    fn update(&mut self, msg: Msg, ui: &mut Ui<Msg>) {
         match msg {
             Msg::Frame => self.view.invalidate(),
             Msg::Tick => {
@@ -51,7 +51,11 @@ impl App for Docs {
                 }
             }
             Msg::Link(href) => println!("DOCS:LINK:{href}"),
-            Msg::Copy(text) => println!("DOCS:COPY:{} bytes", text.len()),
+            Msg::Copy(text) => {
+                // `HtmlView` only reports the request; the app owns the clipboard.
+                ui.set_clipboard_text(&text);
+                println!("DOCS:COPY:{} bytes", text.len());
+            }
         }
     }
 }
@@ -61,7 +65,10 @@ fn source() -> Result<String, String> {
     let Some(path) = xui_app::platform::argv::file_arg(std::env::args_os()) else {
         return Ok(SAMPLE.to_string());
     };
-    std::fs::read_to_string(&path).map_err(|_| path.display().to_string())
+    // Bounded: a huge file must not be held whole before `page` truncates it.
+    std::fs::File::open(&path)
+        .and_then(read_bounded)
+        .map_err(|_| path.display().to_string())
 }
 
 fn main() -> std::process::ExitCode {

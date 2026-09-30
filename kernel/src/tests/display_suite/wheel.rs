@@ -56,7 +56,7 @@ fn finish() {
 
 /// A packet decodes to motion, buttons and a signed, up-positive wheel.
 pub fn mouse_packet_decoding() -> Result<(), String> {
-    let plain = decode_packet(&[0x09, 5, 0xFB, 0x7F], false);
+    let plain = decode_packet(&[0x29, 5, 0xFB, 0x7F], false);
     check!(
         plain
             == Decoded {
@@ -73,6 +73,25 @@ pub fn mouse_packet_decoding() -> Result<(), String> {
     for (z, want) in [(1i8, -1), (-1, 1), (127, -127), (-127, 127), (0, 0)] {
         let got = decode_packet(&[0x08, 0, 0, z as u8], true).wheel;
         check!(got == want, "z {z} decoded to {got}, want {want}");
+    }
+    // Motion takes its sign from the header bits (X = 0x10, Y = 0x20), so the
+    // full 9-bit range decodes: 200 is fast right, not -56.
+    for (header, x, y, want) in [
+        (0x08u8, 0xC8u8, 0x00u8, (200, 0)),
+        (0x18, 0xC8, 0x00, (-56, 0)),
+        (0x08, 0x00, 0xFF, (0, 255)),
+        (0x28, 0x00, 0xFF, (0, -1)),
+        (0x28 | 0x10, 0x01, 0x01, (-255, -255)),
+        (0x08, 0x7F, 0x80, (127, 128)),
+        (0x38, 0x80, 0x80, (-128, -128)),
+    ] {
+        let got = decode_packet(&[header, x, y, 0], false);
+        check!(
+            (got.dx, got.dy) == want,
+            "header {header:#x} x {x:#x} y {y:#x} decoded to ({}, {}), want {want:?}",
+            got.dx,
+            got.dy
+        );
     }
     let all = decode_packet(&[0x07, 0, 0, 0], true);
     check!(

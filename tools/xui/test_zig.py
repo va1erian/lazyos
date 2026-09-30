@@ -93,6 +93,16 @@ class FindTests(unittest.TestCase):
         ), mock.patch.object(zig.shutil, "which", return_value="/usr/bin/zig"):
             self.assertEqual(zig.find_zig(), ["/custom/zig"])
 
+    def test_lazyos_zig_keeps_a_windows_path_with_spaces_whole(self):
+        path = "C:\Program Files\zig\zig.exe"
+        for value in (path, f'"{path}"', f"'{path}'", f"  {path}  "):
+            seen = []
+            with mock.patch.dict(os.environ, {"LAZYOS_ZIG": value}), mock.patch.object(
+                zig, "_probe", side_effect=lambda command: seen.append(command) or "0.16.0"
+            ):
+                self.assertEqual(zig.find_zig(), [path], value)
+            self.assertEqual(seen, [[path]])
+
     def test_falls_back_to_the_pip_wheel(self):
         env = {k: v for k, v in os.environ.items() if k != "LAZYOS_ZIG"}
         wheel = [sys.executable, "-m", "ziglang"]
