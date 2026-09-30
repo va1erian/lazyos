@@ -25,6 +25,7 @@ pub enum Path {
     Cow,
     Demand,
     Signal,
+    Spurious,
 }
 
 impl Path {
@@ -33,6 +34,7 @@ impl Path {
             Path::Cow => "cow",
             Path::Demand => "demand",
             Path::Signal => "signal",
+            Path::Spurious => "spurious",
         }
     }
 }
