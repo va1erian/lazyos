@@ -20,7 +20,8 @@
   {"at": 6.0, "type": "/TESTDOC.MD"},
   {"at": 6.6, "shot": "05_path_typed"},
   {"at": 7.0, "key": "enter", "until": "DOCS:OPEN:PASS:/TESTDOC.MD", "timeout": 60, "retries": 2},
-  {"at": 8.5, "shot": "06_document_opened"},
+  {"wait_for": "DOCS:RENDER:PASS:/TESTDOC.MD", "timeout": 60},
+  {"at": 1.0, "shot": "06_document_opened"},
 
   {"at": 9.0, "mouse_move": [400, 300]},
   {"at": 9.5, "mouse_scroll": -5},

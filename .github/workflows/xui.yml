@@ -96,7 +96,7 @@ jobs:
             term="$(pwd)/target/xui/xui-term.elf"
             # The document apps (Editor, Paint, Files, Docs) are built by the
             # same script; a build without them just skips their sessions.
-            for app in editor paint files docs docs_open; do
+            for app in editor paint files docs; do
               if python -c "import json,sys; sys.exit(0 if 'xui-$app' in json.load(open('target/xui/build.json')) else 1)"; then
                 printf -v "$app" '%s' "$(pwd)/target/xui/xui-$app.elf"
               fi
@@ -432,15 +432,35 @@ jobs:
           set -euo pipefail
           cargo build
           python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/docs_open             --timeout 300 --script tools/screenshot/examples/xui_docs_open.json             --fail-on "DOCS:[A-Z]+:FAIL" --fail-on "INIT:AUTOSTART:FAIL"
-          for marker in DOCS:UP:PASS DOCS:RENDER:PASS DOCS:OPEN:PASS:/TESTDOC.MD; do
+          for marker in DOCS:UP:PASS DOCS:RENDER:PASS DOCS:OPEN:PASS:/TESTDOC.MD \n                        DOCS:RENDER:PASS:/TESTDOC.MD; do
             grep -qF "$marker" shots/docs_open/serial.log
           done
-          # The opened document must look different from the welcome page.
+          # The replacement view must have painted a document: compare decoded
+          # pixels inside the page viewport only (below the toolbar, so the path
+          # label, window title and pointer cannot change the result). The
+          # pointer is unmoved between the two shots.
           python - <<'PY'
-          import hashlib, sys
-          digest = lambda n: hashlib.sha256(open(f"shots/docs_open/shot_{n}.png", "rb").read()).hexdigest()
-          if digest("06_document_opened") == digest("01_welcome_toolbar"):
-              sys.exit("opening the test document did not change the page")
+          import sys
+          from pathlib import Path
+
+          sys.path.insert(0, "tools/screenshot")
+          from pngstats import decode_png
+
+          def viewport(name):
+              width, height, channels, pixels = decode_png(Path(f"shots/docs_open/shot_{name}.png"))
+              x0, x1, y0, y1 = 52, 948, 90, 688
+              return b"".join(
+                  pixels[(y * width + x0) * channels : (y * width + x1) * channels]
+                  for y in range(y0, y1)
+              ), channels
+
+          welcome, channels = viewport("01_welcome_toolbar")
+          opened, _ = viewport("06_document_opened")
+          if opened == welcome:
+              sys.exit("opening the test document did not change the page viewport")
+          pixels = {opened[i : i + channels] for i in range(0, len(opened), channels)}
+          if len(pixels) < 8:
+              sys.exit(f"the opened document's viewport is nearly blank ({len(pixels)} colours)")
           PY
           ! grep -q "^init: launch .* failed" shots/docs_open/serial.log
 

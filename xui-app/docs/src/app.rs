@@ -2,8 +2,9 @@
 //! the litehtml page, and the Open dialog behind the button and `Ctrl+O`.
 //!
 //! Serial evidence (the screenshot sessions wait on it): `DOCS:RENDER:PASS` once
-//! litehtml's first frame has been painted, `DOCS:OPEN:PASS:<path>` after a
-//! document loads, `DOCS:OPEN:FAIL:<path>` when it cannot be read, and
+//! the welcome page's first frame has been painted, `DOCS:OPEN:PASS:<path>` after
+//! a document loads and `DOCS:RENDER:PASS:<path>` once *its* view has painted (a
+//! fresh view per document, so the first marker says nothing about it), `DOCS:OPEN:FAIL:<path>` when it cannot be read, and
 //! `DOCS:LINK:<href>` on a link click.
 
 use std::cell::Cell;
@@ -67,7 +68,10 @@ pub struct Docs {
     dialog_open: Rc<Cell<bool>>,
     /// The document on show, for the dialog's start folder.
     current: Option<PathBuf>,
-    reported: bool,
+    /// What to append to `DOCS:RENDER:PASS` when the current view first paints
+    /// (empty for the welcome page, `:<path>` for a document); `None` once
+    /// reported.
+    render_marker: Option<String>,
     // Held so the widget lives as long as the window.
     _open_button: Button<Msg>,
 }
@@ -114,7 +118,7 @@ impl Docs {
             open_dialog,
             dialog_open,
             current: None,
-            reported: false,
+            render_marker: Some(String::new()),
             _open_button: open_button,
         };
         docs.show(ui, path);
@@ -154,6 +158,7 @@ impl Docs {
             Ok(view) => self.view = view,
             Err(error) => println!("DOCS:VIEW:FAIL:{error}"),
         }
+        self.render_marker = Some(format!(":{}", path.display()));
         self.show(ui, Some(path.clone()));
         println!("DOCS:OPEN:{marker}:{}", path.display());
     }
@@ -177,9 +182,9 @@ impl App for Docs {
         match msg {
             Msg::Frame => self.view.invalidate(),
             Msg::Tick => {
-                if !self.reported && self.view.is_ready() {
-                    self.reported = true;
-                    println!("DOCS:RENDER:PASS");
+                if self.render_marker.is_some() && self.view.is_ready() {
+                    let suffix = self.render_marker.take().unwrap_or_default();
+                    println!("DOCS:RENDER:PASS{suffix}");
                 }
             }
             Msg::Link(href) => println!("DOCS:LINK:{href}"),
