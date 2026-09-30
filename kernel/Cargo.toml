@@ -28,6 +28,9 @@ surfbuf = { path = "../libs/surfbuf" }
 # and the registry wire come from `midlc`-generated interfaces (`idl/*.midl`),
 # not hand-computed hashes or field ids.
 messenger-generated = { path = "../libs/generated" }
+# The networking stack's access rules (docs/networking-plan.md N1): the in-kernel
+# suite loads this table into the real ACL and checks what it decides.
+netpolicy = { path = "../libs/netpolicy" }
 libm = "0.2"
 libmessenger = { path = "../libs/messenger" }
 linked_list_allocator = "0.10"

@@ -223,6 +223,12 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         #[cfg(all(sound_demo, not(services_mode)))]
         spawn_sound_demo();
 
+        // `LAZYOS_NET=1` boots the virtio-net driver directly when there is no
+        // supervisor to start it (docs/networking-plan.md N1). `netdrv` runs
+        // its ARP self-test and the `nicctl` evidence clients with `demo=1`.
+        #[cfg(all(net_demo, not(services_mode)))]
+        spawn_net_demo();
+
         // Issue #113: `LAZYOS_XUID=1` boots the userspace compositor (`XUID.ELF`)
         // and two instances of the display-protocol demo app (`XDEMO.ELF`).
         // `xuid` binds the display grant, so the mux stops painting and the
@@ -343,6 +349,29 @@ fn spawn_sound_demo() {
             serial_println!("LazyOS: spawned sndd as task {index}");
         }
         Err(err) => serial_println!("LazyOS: spawn sndd failed: {err}"),
+    }
+}
+
+/// Boot `netdrv` with `demo=1` (kernel-spawned tasks have no argument string
+/// otherwise), so a scripted boot runs the network harness's evidence.
+#[cfg(all(net_demo, not(services_mode)))]
+fn spawn_net_demo() {
+    // `LAZYOS_NET_ARGS` overrides the argument string at build time (the
+    // network harness's `--poll` passes `demo=1 irq=poll`).
+    const NET_ARGS: &str = match option_env!("LAZYOS_NET_ARGS") {
+        Some(args) => args,
+        None => "demo=1",
+    };
+    let Some(bytes) = fs::read("NETDRV.ELF") else {
+        serial_println!("LazyOS: NETDRV.ELF not found");
+        return;
+    };
+    match task::spawn("netdrv", &bytes) {
+        Ok(index) => {
+            process::set_service_args(index, NET_ARGS.as_bytes());
+            serial_println!("LazyOS: spawned netdrv as task {index}");
+        }
+        Err(err) => serial_println!("LazyOS: spawn netdrv failed: {err}"),
     }
 }
 
