@@ -37,6 +37,8 @@ struct Shell {
     sender: u64,
     /// Where shell events go.
     events: Endpoint,
+    /// Chords it registered, removed again when it is replaced or gone.
+    hotkeys: Vec<u64>,
 }
 
 pub(super) struct Hub {
@@ -201,6 +203,9 @@ impl Hub {
                     return Err(Error::Errno(-errno::ENOMEM));
                 }
                 let id = self.engine.add_hotkey(code, args.mods);
+                if let Some(shell) = self.shell.as_mut() {
+                    shell.hotkeys.push(id);
+                }
                 shell_wire::encode_register_hotkey_reply(&shell_wire::RegisterHotkeyReply { id })
                     .map_err(Error::Parcel)
             }
@@ -208,6 +213,9 @@ impl Hub {
                 let args =
                     shell_wire::decode_unregister_hotkey_args(body).map_err(Error::Parcel)?;
                 if self.engine.remove_hotkey(args.id) {
+                    if let Some(shell) = self.shell.as_mut() {
+                        shell.hotkeys.retain(|id| *id != args.id);
+                    }
                     Ok(Vec::new())
                 } else {
                     Err(Error::Errno(-errno::ENOENT))
@@ -229,12 +237,11 @@ impl Hub {
             release_handle(message);
             return Err(Error::Errno(-errno::EACCES));
         }
-        if let Some(old) = self.shell.take() {
-            let _ = old.events.close();
-        }
+        self.drop_shell();
         self.shell = Some(Shell {
             sender: message.sender,
             events: Endpoint::from_raw(message.first_handle),
+            hotkeys: Vec::new(),
         });
         // A re-attaching compositor has forgotten which surfaces take keys
         // through a session; tell it, or it would forward legacy keys too.
@@ -372,8 +379,19 @@ impl Hub {
         if let Err(Error::Errno(code)) = shell.events.send(&parcel) {
             if code == -errno::EPIPE {
                 // The compositor is gone: nobody is focused until it returns.
-                self.shell = None;
+                self.drop_shell();
                 self.set_focus(None);
+            }
+        }
+    }
+
+    /// Forget the attached compositor: close its event endpoint and remove
+    /// the chords it registered (a re-attach registers them again).
+    fn drop_shell(&mut self) {
+        if let Some(old) = self.shell.take() {
+            let _ = old.events.close();
+            for id in old.hotkeys {
+                self.engine.remove_hotkey(id);
             }
         }
     }
