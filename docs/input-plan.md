@@ -1,6 +1,8 @@
 # Plan: a system-wide input subsystem
 
-> **Status: draft proposal (2026-09-30).** Motivated by the Doom port
+> **Status: I0-I2 implemented (first cut); I3-I5 proposed.** See
+> [Implementation status](#implementation-status-first-cut) for what landed and
+> where it deviates from the sketch below. Original note: draft proposal (2026-09-30). Motivated by the Doom port
 > ([doom-port-plan.md](doom-port-plan.md) D3), but designed for every consumer:
 > the compositor, xui apps, Linux-ABI programs, the login console and games.
 
@@ -48,22 +50,28 @@ Not `keyd`: that service is the secrets/crypto daemon.
 
 The kernel input layer becomes device-agnostic and dumb.
 
-- Event record (fixed 24 bytes, `repr(C)`, versioned):
-  `seq: u64`, `ts_ns: u64` (monotonic), `device: u16`, `kind: u16`
-  (`Key`, `RelMotion`, `AbsMotion`, `Button`, `Scroll`, `Sync`, `Dropped`),
-  `code: u16`, `value: i32`.
+- Event record (fixed 24 bytes, `repr(C)`):
+  `seq: u64`, `ts_ns: u64` (monotonic; PIT-tick resolution today), `device: u8`,
+  `kind: u8` (`Key`, `RelMotion`, `AbsMotion`, `Button`, `Scroll`, `Sync`,
+  `Dropped`), `code: u16`, `value: i32`. (`device`/`kind` are one byte so the
+  record stays 24 bytes with a full `i32` value.)
 - **Key `code` is a physical USB HID usage** (page 0x07), not a character. PS/2
   scancode set 1/2 is translated to HID at the driver boundary (one table,
   including E0 prefixes and Pause/PrintScreen quirks). Every future device
   speaks the same vocabulary.
 - **`value`: 0 = release, 1 = press.** The kernel never synthesises repeat.
-  Hardware typematic is switched off (PS/2 command `0xF3`) so `inputd` owns rate
-  and delay.
-- Per-consumer **bounded ring**, single-producer; on overflow the oldest events are
-  dropped and a `Dropped{count}` record is inserted so the consumer can
-  resynchronise instead of guessing.
-- Access is a **capability** (`input.raw`, per device class), granted at spawn to
-  `inputd` only. This replaces "whoever binds the display grant gets everything"
+  The PS/2 tap also swallows the keyboard's own typematic make codes (a make for
+  a key already down), so the bus carries only edges and `inputd` owns rate and
+  delay. Actually switching typematic off (PS/2 command `0xF3`) waits for I5:
+  the legacy `display_input_poll` stream still relies on it.
+- Per-consumer **bounded ring** (256 events); on overflow the oldest events are
+  dropped and the next drain starts with one `Dropped` record (`seq` = first lost
+  sequence number, `value` = count) so the consumer can resynchronise instead of
+  guessing. Sequence numbers are global and gapless, so a consumer can prove it
+  missed nothing. Consumers drain with syscall 25 (`open`/`poll`/`close`).
+- Access is a **capability** (`input.raw`, kernel bit `CAP_INPUT_RAW`; per device
+  class later), granted at spawn to `inputd` only (`init` strips it from every
+  other service). This replaces "whoever binds the display grant gets everything"
   and removes ambient keylogging authority.
 - Kernel debug console keeps a minimal built-in path (US layout) for panics and
   the early boot, independent of `inputd`.
@@ -228,3 +236,31 @@ Later, each independent and additive: down-state bitmap (I3), keyboard grab and
 escape chord (I3), `/dev/input/event*` (I4), removal of the old kernel layout
 path (I5), data-driven keymaps, hotkey registration UI, SAS, pointer migration.
 Hotkey registration stays a small internal table in `xuid` until then.
+
+## Implementation status (first cut)
+
+I0, I1 and I2 are in. Where the code differs from the sketch above:
+
+| Area | As built |
+|---|---|
+| Kernel bus | `kernel/src/input/{hid,raw_tap,bus,rawsys}.rs`; syscall 25 (`open`/`poll`/`close`) gated by `CAP_INPUT_RAW` (bit 9). Records are 24 bytes with `device: u8`, `kind: u8` (see layer 1). Timestamps have PIT-tick (10 ms) resolution; ordering is by `seq`. Pause is reported as an immediate press+release (it has no break code). The legacy `display_input_poll` stream is unchanged and fed in parallel. |
+| Capability | `init` starts `inputd` with `CAP_INPUT_RAW` only and strips the bit from every other manifest service; the kernel strips it from every boot-spawned program except `init` (`credentials::drop_caps`). |
+| `inputd` | `user/src/bin/inputd*`, logic in `libs/inputmap` (host-tested: keymaps cross-checked against the kernel's old tables, modifier/lock state, repeat, hotkeys, resync after `Dropped`, session/focus routing). Compiled-in US and FR keymaps; layout from `confd` key `sys/input/layout`, boot default `LAZYOS_KBD_LAYOUT`. Repeat: 500 ms delay, 30 ms interval, fixed. NumLock starts on; LEDs are not driven. |
+| Keysyms | Unicode scalars for character keys, X11 `0xFFxx` values otherwise. With Ctrl held a letter's `sym` is its unshifted form. `mods` is the state *after* the event. |
+| Interfaces | `idl/input.midl`. `KeyboardEnter.down` is `Array<U32>` (MIDL has no `U16`). `Open` requires a surface. This is temporary: focus is defined per surface, so a sessionless session could never receive keys; the login console/service case needs its own routing rule (tracked in follow-up issues); `Attach`, `UnregisterSurface`, `UnregisterHotkey`, `SessionOpened`/`SessionClosed` were added to the shell interface. `RequestGrant`/`ReleaseGrant`/`Ping` and real grants are I3. `ApproveGrant` answers `ENOSYS`. |
+| Shell authority | `inputd` accepts shell calls only from the task that holds the display grant, which it asks the kernel for (`rawsys` op 3, `display::owner()`; the grant itself needs `CAP_SYS_ADMIN`), so no capability bit beyond `input.raw` was needed yet. (The registry's name list is privileged, and a name is not an identity anyway.) |
+| Legacy bridge | `xuid` keeps its own hotkeys and the kernel key stream for surfaces without a session, and suppresses `KeyDown`/`KeyUp` for surfaces `inputd` reports a session for. It does not subscribe to `inputd` for legacy surfaces; that comes with the removal of the kernel stream (I5). |
+| xui apps | The static-musl backend opens one session per window (`xui-app/src/input.rs`, `backend/session_input.rs`), maps `KeyEvent` to `KeyDown`/`KeyUp` and `TextInput` to `Char`, and releases held keys on `KeyboardLeave`. |
+| Delivery robustness | A client whose endpoint fills up is marked lagging and gets `KeyboardLeave` + `KeyboardEnter` before its next event, so a dropped release cannot leave a stuck key. |
+
+The compositor's legacy `KeyDown` used a character's code as the Windows virtual
+key, which made `& \" ' ( % $ #` arrive as arrow/page/home/end keys. Session
+clients map character keys by physical position; the legacy fallback
+(`xui-app/src/backend/input.rs::char_key`) now maps punctuation to the US key
+that types it and never yields a navigation code.
+
+Verification: `python tools/test/run.py --accel none` (bus, HID table, ring,
+capability gate, stress), `cargo test -p inputmap -p messenger-generated`,
+`tools/screenshot/examples/input_keys.json` + `tools/input/verify_trace.py`
+(both layouts, serial), and the desktop sessions (typing in the Terminal and the
+Editor on both layouts).

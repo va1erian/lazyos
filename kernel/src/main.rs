@@ -308,6 +308,11 @@ fn spawn_program(name: &'static str, path: &str) {
         Some(bytes) => match task::spawn(name, &bytes) {
             Ok(index) => {
                 boot_phase!("spawn_{name}");
+                // Every kernel-started program is root, but only `init` may
+                // hold the raw input bus (it hands it to `inputd` alone).
+                if name != "init" {
+                    ipc::credentials::drop_caps(index, ipc::credentials::CAP_INPUT_RAW);
+                }
                 // The compositor is latency-sensitive like the kernel mux, and
                 // it must take the display grant before any app that would
                 // otherwise fall back to owning the screen itself: a strictly

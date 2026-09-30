@@ -28,6 +28,8 @@ virtio = { path = "../libs/virtio" }
 virtio-snd = { path = "../libs/virtio-snd" }
 # Test-tone synthesis for `sndd`'s self-test and the `beep` client.
 pcm = { path = "../libs/pcm" }
+# Keymaps, modifier/lock state and key repeat for `inputd` (docs/input-plan.md).
+inputmap = { path = "../libs/inputmap" }
 
 # Build-time only: rasterizes the bundled Droid Sans / Droid Serif into the
 # proportional glyph atlases `xuid` draws its chrome text with.
@@ -137,6 +139,14 @@ bench = false
 # transfer through an owner `Serialize` callback, a retained changed topic per
 # session, and a `history=N` policy. `init` starts it from its manifest; the
 # on-disk name is `CLIPD.ELF` (8.3, like the other services).
+# The input policy service (docs/input-plan.md): the only holder of the
+# `input.raw` capability. `INPUTD.ELF` is the 8.3-safe on-disk name.
+[[bin]]
+name = "inputd"
+path = "src/bin/inputd.rs"
+test = false
+bench = false
+
 [[bin]]
 name = "clipboardd"
 path = "src/bin/clipboardd.rs"

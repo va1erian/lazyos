@@ -4248,6 +4248,665 @@ pub mod os_lazy_init_v1 {
     }
 }
 
+/// `os.lazy.input.v1` (interface id `0x5026bd54a60f1ff6`).
+#[rustfmt::skip]
+pub mod os_lazy_input_v1 {
+    use alloc::vec::Vec;
+    #[allow(unused_imports)]
+    use alloc::string::String;
+    // Not every interface needs every codec item (`Kind` is only used by nested values).
+    #[allow(unused_imports)]
+    use libmessenger::{Decoder, Encoder, Error, Kind};
+    // Only interfaces that declare topics use the shared topic runtime.
+    #[allow(unused_imports)]
+    use super::topics;
+
+    /// The interface id: the FNV-1a hash of the `.vN` interface name.
+    pub const INTERFACE_ID: u64 = 0x5026bd54a60f1ff6;
+
+    /// `KeyState::Down` wire value.
+    pub const KEY_STATE_DOWN: u32 = 0;
+    /// `KeyState::Up` wire value.
+    pub const KEY_STATE_UP: u32 = 1;
+    /// `KeyState::Repeat` wire value.
+    pub const KEY_STATE_REPEAT: u32 = 2;
+
+    /// `Open` method id.
+    pub const METHOD_OPEN: u32 = 1;
+    /// `Close` method id.
+    pub const METHOD_CLOSE: u32 = 2;
+    /// `GetState` method id.
+    pub const METHOD_GETSTATE: u32 = 3;
+    /// `KeyEvent` method id.
+    pub const METHOD_KEYEVENT: u32 = 10;
+    /// `TextInput` method id.
+    pub const METHOD_TEXTINPUT: u32 = 11;
+    /// `KeyboardEnter` method id.
+    pub const METHOD_KEYBOARDENTER: u32 = 12;
+    /// `KeyboardLeave` method id.
+    pub const METHOD_KEYBOARDLEAVE: u32 = 13;
+    /// `LayoutChanged` method id.
+    pub const METHOD_LAYOUTCHANGED: u32 = 14;
+
+    /// Open an input session bound to the calling task (the kernel-stamped
+    /// sender). `surface` names the window it wants keys for: it must be a
+    /// surface the compositor registered as owned by this same task, so a
+    /// client can never claim someone else's window (`EACCES`; `ENOENT` when
+    /// the compositor has not registered it); an absent `surface` is reserved for
+    /// the login console and refused with `EINVAL` for now. The parcel transfers the event
+    /// endpoint (`handles[0]`) that receives every event below. A task may hold
+    /// several sessions, one per surface.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct OpenArgs {
+        pub surface: core::option::Option<u64>,
+    }
+
+    pub fn encode_open_args(value: &OpenArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        match &value.surface {
+            Some(item) => {
+                let mut nested = Encoder::new();
+                nested.u64(1, *item)?;
+                target.option(1, Some(&nested))?;
+            }
+            None => {
+                target.option(1, None)?;
+            }
+        }
+        Ok(target.finish())
+    }
+
+    pub fn decode_open_args(body: &[u8]) -> Result<OpenArgs, Error> {
+        let mut out = OpenArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                if field.payload.is_empty() {
+                    out.surface = None;
+                } else {
+                    let mut nested = field.nested(0)?;
+                    let item = nested.next()?.ok_or(Error::BadValue)?;
+                    out.surface = Some(item.as_u64()?);
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct OpenReply {
+        pub session: u64,
+    }
+
+    pub fn encode_open_reply(value: &OpenReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.session)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_open_reply(body: &[u8]) -> Result<OpenReply, Error> {
+        let mut out = OpenReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.session = field.as_u64()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// End a session. Only the task that opened it may.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct CloseArgs {
+        pub session: u64,
+    }
+
+    pub fn encode_close_args(value: &CloseArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.session)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_close_args(body: &[u8]) -> Result<CloseArgs, Error> {
+        let mut out = CloseArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.session = field.as_u64()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// The current layout name, modifier and lock bits (`mods` as in
+    /// `KeyEvent`) and the key-repeat timing in milliseconds.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct GetStateReply {
+        pub layout: alloc::string::String,
+        pub mods: u32,
+        pub repeat_delay_ms: u32,
+        pub repeat_interval_ms: u32,
+    }
+
+    pub fn encode_get_state_reply(value: &GetStateReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.layout)?;
+        target.u32(2, value.mods)?;
+        target.u32(3, value.repeat_delay_ms)?;
+        target.u32(4, value.repeat_interval_ms)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_get_state_reply(body: &[u8]) -> Result<GetStateReply, Error> {
+        let mut out = GetStateReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.layout = field.as_str()?.into();
+                }
+                2 => {
+                    out.mods = field.as_u32()?;
+                }
+                3 => {
+                    out.repeat_delay_ms = field.as_u32()?;
+                }
+                4 => {
+                    out.repeat_interval_ms = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Event: a key changed state. `code` is the physical key, `sym` its
+    /// keysym under the active layout (a Unicode scalar for character keys,
+    /// an X11-style `0xFFxx` value otherwise, `0` when the key has no meaning
+    /// on the current level), `mods` the modifier and lock bits in force after
+    /// this event (`1` Shift, `2` Ctrl, `4` Alt, `8` Super, `0x10` AltGr,
+    /// `0x20` CapsLock, `0x40` NumLock, `0x80` ScrollLock), `state` a
+    /// `KeyState`, `ts_ns` the kernel timestamp and `seq` the raw sequence
+    /// number. Auto-repeat is always flagged `Repeat`, never `Down`.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct KeyEventArgs {
+        pub code: u32,
+        pub sym: u32,
+        pub mods: u32,
+        pub state: u32,
+        pub ts_ns: u64,
+        pub seq: u64,
+    }
+
+    pub fn encode_key_event_args(value: &KeyEventArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.code)?;
+        target.u32(2, value.sym)?;
+        target.u32(3, value.mods)?;
+        target.u32(4, value.state)?;
+        target.u64(5, value.ts_ns)?;
+        target.u64(6, value.seq)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_key_event_args(body: &[u8]) -> Result<KeyEventArgs, Error> {
+        let mut out = KeyEventArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.code = field.as_u32()?;
+                }
+                2 => {
+                    out.sym = field.as_u32()?;
+                }
+                3 => {
+                    out.mods = field.as_u32()?;
+                }
+                4 => {
+                    out.state = field.as_u32()?;
+                }
+                5 => {
+                    out.ts_ns = field.as_u64()?;
+                }
+                6 => {
+                    out.seq = field.as_u64()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Event: composed text (UTF-8) for a character-producing press or repeat.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct TextInputArgs {
+        pub utf8: alloc::string::String,
+    }
+
+    pub fn encode_text_input_args(value: &TextInputArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.utf8)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_text_input_args(body: &[u8]) -> Result<TextInputArgs, Error> {
+        let mut out = TextInputArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.utf8 = field.as_str()?.into();
+            }
+        }
+        Ok(out)
+    }
+
+    /// Event: keyboard focus arrived. `down` lists the physical keys held right
+    /// now, so the client seeds its key state.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct KeyboardEnterArgs {
+        pub down: alloc::vec::Vec<u32>,
+    }
+
+    pub fn encode_keyboard_enter_args(value: &KeyboardEnterArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        let mut nested = Encoder::new();
+        for item in &value.down {
+            nested.u32(1, *item)?;
+        }
+        target.array(1, &nested)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_keyboard_enter_args(body: &[u8]) -> Result<KeyboardEnterArgs, Error> {
+        let mut out = KeyboardEnterArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                let mut nested = field.nested(0)?;
+                while let Some(item) = nested.next()? {
+                    out.down.push(item.as_u32()?);
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// Event: the layout changed (a `confd` write, live).
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct LayoutChangedArgs {
+        pub layout: alloc::string::String,
+    }
+
+    pub fn encode_layout_changed_args(value: &LayoutChangedArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.layout)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_layout_changed_args(body: &[u8]) -> Result<LayoutChangedArgs, Error> {
+        let mut out = LayoutChangedArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.layout = field.as_str()?.into();
+            }
+        }
+        Ok(out)
+    }
+}
+
+/// `os.lazy.input.shell.v1` (interface id `0xc258ed5b9b5debfe`).
+#[rustfmt::skip]
+pub mod os_lazy_input_shell_v1 {
+    use alloc::vec::Vec;
+    #[allow(unused_imports)]
+    use alloc::string::String;
+    // Not every interface needs every codec item (`Kind` is only used by nested values).
+    #[allow(unused_imports)]
+    use libmessenger::{Decoder, Encoder, Error, Kind};
+    // Only interfaces that declare topics use the shared topic runtime.
+    #[allow(unused_imports)]
+    use super::topics;
+
+    /// The interface id: the FNV-1a hash of the `.vN` interface name.
+    pub const INTERFACE_ID: u64 = 0xc258ed5b9b5debfe;
+
+    /// `Attach` method id.
+    pub const METHOD_ATTACH: u32 = 1;
+    /// `SetFocus` method id.
+    pub const METHOD_SETFOCUS: u32 = 2;
+    /// `RegisterSurface` method id.
+    pub const METHOD_REGISTERSURFACE: u32 = 3;
+    /// `UnregisterSurface` method id.
+    pub const METHOD_UNREGISTERSURFACE: u32 = 4;
+    /// `RegisterHotkey` method id.
+    pub const METHOD_REGISTERHOTKEY: u32 = 5;
+    /// `UnregisterHotkey` method id.
+    pub const METHOD_UNREGISTERHOTKEY: u32 = 6;
+    /// `ApproveGrant` method id.
+    pub const METHOD_APPROVEGRANT: u32 = 7;
+    /// `HotkeyFired` method id.
+    pub const METHOD_HOTKEYFIRED: u32 = 20;
+    /// `GrantRequested` method id.
+    pub const METHOD_GRANTREQUESTED: u32 = 21;
+    /// `EscapeChord` method id.
+    pub const METHOD_ESCAPECHORD: u32 = 22;
+    /// `SessionOpened` method id.
+    pub const METHOD_SESSIONOPENED: u32 = 23;
+    /// `SessionClosed` method id.
+    pub const METHOD_SESSIONCLOSED: u32 = 24;
+
+    /// Move keyboard focus to `surface` (absent: nobody is focused and no key
+    /// content is delivered). The previous holder gets `KeyboardLeave`, the new
+    /// one `KeyboardEnter`; repeat is cancelled.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct SetFocusArgs {
+        pub surface: core::option::Option<u64>,
+    }
+
+    pub fn encode_set_focus_args(value: &SetFocusArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        match &value.surface {
+            Some(item) => {
+                let mut nested = Encoder::new();
+                nested.u64(1, *item)?;
+                target.option(1, Some(&nested))?;
+            }
+            None => {
+                target.option(1, None)?;
+            }
+        }
+        Ok(target.finish())
+    }
+
+    pub fn decode_set_focus_args(body: &[u8]) -> Result<SetFocusArgs, Error> {
+        let mut out = SetFocusArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                if field.payload.is_empty() {
+                    out.surface = None;
+                } else {
+                    let mut nested = field.nested(0)?;
+                    let item = nested.next()?.ok_or(Error::BadValue)?;
+                    out.surface = Some(item.as_u64()?);
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// Declare that `owner` (a task slot, as the compositor stamps in
+    /// `Surface.owner`) created `surface`, so `inputd` can match that task's
+    /// `Open` to the window.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct RegisterSurfaceArgs {
+        pub surface: u64,
+        pub owner: u64,
+    }
+
+    pub fn encode_register_surface_args(value: &RegisterSurfaceArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.surface)?;
+        target.u64(2, value.owner)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_register_surface_args(body: &[u8]) -> Result<RegisterSurfaceArgs, Error> {
+        let mut out = RegisterSurfaceArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.surface = field.as_u64()?;
+                }
+                2 => {
+                    out.owner = field.as_u64()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Forget a destroyed surface; its sessions are closed.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct UnregisterSurfaceArgs {
+        pub surface: u64,
+    }
+
+    pub fn encode_unregister_surface_args(value: &UnregisterSurfaceArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.surface)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_unregister_surface_args(body: &[u8]) -> Result<UnregisterSurfaceArgs, Error> {
+        let mut out = UnregisterSurfaceArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.surface = field.as_u64()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Register a chord: `code` (HID usage) with exactly the Shift/Ctrl/Alt/
+    /// Super bits of `mods`. A match is consumed (its press and release are
+    /// never delivered to a client) and reported as `HotkeyFired`.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct RegisterHotkeyArgs {
+        pub code: u32,
+        pub mods: u32,
+    }
+
+    pub fn encode_register_hotkey_args(value: &RegisterHotkeyArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.code)?;
+        target.u32(2, value.mods)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_register_hotkey_args(body: &[u8]) -> Result<RegisterHotkeyArgs, Error> {
+        let mut out = RegisterHotkeyArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.code = field.as_u32()?;
+                }
+                2 => {
+                    out.mods = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct RegisterHotkeyReply {
+        pub id: u64,
+    }
+
+    pub fn encode_register_hotkey_reply(value: &RegisterHotkeyReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.id)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_register_hotkey_reply(body: &[u8]) -> Result<RegisterHotkeyReply, Error> {
+        let mut out = RegisterHotkeyReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.id = field.as_u64()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Drop a chord.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct UnregisterHotkeyArgs {
+        pub id: u64,
+    }
+
+    pub fn encode_unregister_hotkey_args(value: &UnregisterHotkeyArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.id)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_unregister_hotkey_args(body: &[u8]) -> Result<UnregisterHotkeyArgs, Error> {
+        let mut out = UnregisterHotkeyArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.id = field.as_u64()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Answer a `GrantRequested`. Keyboard grabs are not implemented yet, so
+    /// this is refused with `ENOSYS`; the method is reserved so the interface
+    /// does not change when they land.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ApproveGrantArgs {
+        pub session: u64,
+        pub allow: bool,
+    }
+
+    pub fn encode_approve_grant_args(value: &ApproveGrantArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.session)?;
+        target.bool(2, value.allow)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_approve_grant_args(body: &[u8]) -> Result<ApproveGrantArgs, Error> {
+        let mut out = ApproveGrantArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.session = field.as_u64()?;
+                }
+                2 => {
+                    out.allow = field.as_bool()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Shell event: a registered chord was pressed.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct HotkeyFiredArgs {
+        pub id: u64,
+    }
+
+    pub fn encode_hotkey_fired_args(value: &HotkeyFiredArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.id)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_hotkey_fired_args(body: &[u8]) -> Result<HotkeyFiredArgs, Error> {
+        let mut out = HotkeyFiredArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.id = field.as_u64()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Shell event: a client asked for a grab (reserved; never sent yet).
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct GrantRequestedArgs {
+        pub session: u64,
+        pub kind: u32,
+    }
+
+    pub fn encode_grant_requested_args(value: &GrantRequestedArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.session)?;
+        target.u32(2, value.kind)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_grant_requested_args(body: &[u8]) -> Result<GrantRequestedArgs, Error> {
+        let mut out = GrantRequestedArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.session = field.as_u64()?;
+                }
+                2 => {
+                    out.kind = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Shell event: `surface` now receives keys through an input session, so
+    /// the compositor must stop synthesising legacy `KeyDown`/`KeyUp` for it.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct SessionOpenedArgs {
+        pub surface: u64,
+    }
+
+    pub fn encode_session_opened_args(value: &SessionOpenedArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.surface)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_session_opened_args(body: &[u8]) -> Result<SessionOpenedArgs, Error> {
+        let mut out = SessionOpenedArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.surface = field.as_u64()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Shell event: the last input session of `surface` ended; legacy key
+    /// delivery applies again.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct SessionClosedArgs {
+        pub surface: u64,
+    }
+
+    pub fn encode_session_closed_args(value: &SessionClosedArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.surface)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_session_closed_args(body: &[u8]) -> Result<SessionClosedArgs, Error> {
+        let mut out = SessionClosedArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.surface = field.as_u64()?;
+            }
+        }
+        Ok(out)
+    }
+}
+
 /// `os.lazy.keyd.v1` (interface id `0xd948c3355ba590bf`).
 #[rustfmt::skip]
 pub mod os_lazy_keyd_v1 {

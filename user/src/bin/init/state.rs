@@ -179,6 +179,18 @@ pub(super) const MANIFEST: &[ServiceSpec] = &[
         restart: Restart::Always,
         deps: &["messengerd", "confd"],
     },
+    // The input policy service (docs/input-plan.md): the one task holding the
+    // kernel `input.raw` capability. It turns the raw HID-coded key edges into
+    // layout-aware key events, modifier/lock state and key repeat, so it starts
+    // with `confd` (the layout is `sys/input/layout`). `trace=1` echoes decoded
+    // events to serial as boot evidence; the desktop profile stays quiet.
+    ServiceSpec {
+        name: "inputd",
+        path: "INPUTD.ELF",
+        args: if BOOT_EVIDENCE { "trace=1" } else { "" },
+        restart: Restart::Always,
+        deps: &["confd"],
+    },
     ServiceSpec {
         name: "accountsd",
         path: "ACCTD.ELF",

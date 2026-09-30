@@ -48,6 +48,8 @@ fn main() {
     println!("cargo:rerun-if-changed=link.ld");
     println!("cargo:rerun-if-changed=build.rs");
     generate_typefaces(&manifest);
+    // `inputd` boots into this layout when `confd` holds none (`option_env!`).
+    println!("cargo:rerun-if-env-changed=LAZYOS_KBD_LAYOUT");
 
     // Desktop profile (issue #217): `LAZYOS_DESKTOP=1` marks the image as a
     // user-facing desktop. `init` reads `cfg(lazyos_desktop)` to keep the

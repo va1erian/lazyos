@@ -54,6 +54,11 @@ source-only claim.
 - Vendor doomgeneric as a **pinned git revision fetched at build time** (SHA
   recorded in the script, like BusyBox's tarball digest), not copied into the
   tree. Its GPL-2.0 license and a `NOTICE` go in `doom/`.
+  Because the engine is statically linked into an ELF shipped in the OS image,
+  the plan must settle before D4 how recipients obtain the corresponding source
+  (the pinned revision plus our build script and wrapper, offered alongside the
+  image) and which license covers the Rust wrapper (GPL-2.0-compatible; the repo
+  is GPL-3.0-or-later, so confirm the combination with the owner first).
 - Build flags: `-static -O2 -fno-pie -no-pie -fno-stack-protector -ffreestanding`
   is *not* wanted (we use libc); use `-DFEATURE_SOUND` **off**, `-D_DEFAULT_SOURCE`,
   `-Wno-implicit-function-declaration` only where doomgeneric needs it.
@@ -111,8 +116,11 @@ not with a Doom-side workaround.
 > `KeyDown`/`KeyUp` if Doom lands first.
 
 - Map `KEY_DOWN`/`KEY_UP` codes (low 24 bits, see "Key codes clients receive" in
-  `display.md`) to Doom keys (`KEY_UPARROW`, `KEY_FIRE` = Ctrl, `KEY_USE` = Space,
-  strafe = `,`/`.`, Enter, Esc, Tab for automap, Shift = run). A table in one
+  `display.md`) to Doom keys (`KEY_UPARROW`, `KEY_FIRE` = `F`, `KEY_USE` = Space,
+  strafe = `,`/`.`, Enter, Esc, Tab for automap, run = `R`). Modifier keys are
+  never forwarded as events on this path, so fire/run cannot be bound to
+  standalone Ctrl/Shift; the input-session path (`KeyEvent` with HID codes) does
+  report them. A table in one
   file, unit-tested on the host.
 - `DG_GetKey` returns `pressed`+`doomKey` pairs from a ring buffer; the event
   pump runs once per tick (non-blocking), so the game loop never stalls on
@@ -121,8 +129,9 @@ not with a Doom-side workaround.
   - **Held-key repeat.** PS/2 typematic gives repeated `KeyDown` with no
     `KeyUp`; Doom wants a clean edge model. Track "down" state and ignore repeats.
   - **Compositor-reserved chords** (Alt+Tab, Ctrl+Tab, Ctrl+Esc/Super, Alt+F4).
-    Doom's default fire key is Ctrl; verify plain Ctrl and Ctrl+arrow reach the
-    client (only listed chords are taken). If not, default-bind fire to `F`/Right-Ctrl.
+    Doom's default fire key is Ctrl, which the legacy path cannot deliver on its
+    own (see above), so bind fire to `F` there; with input sessions Ctrl is a
+    real key event.
   - **Mouse look.** Pointer events are surface-relative and absolute; no relative
     mode or capture exists. Ship keyboard-only in v1. Mouse strafe/turn needs a
     pointer-capture feature in `xuid` (a separate proposal, with its own IDL
@@ -136,7 +145,8 @@ not with a Doom-side workaround.
   `freedoom-<ver>.zip` from the official GitHub release with a **pinned SHA-256**
   (extract `freedoom1.wad`), cached under `target/doom/`. Same "artifact, never a
   committed blob" policy as BusyBox; if unavailable it reports `unavailable`
-  and exits 0.
+  and exits 0 locally; the required CI job (D5) runs with `--require-wad`, which
+  turns `unavailable` into a failure, so a missing WAD is never a passing check.
 - WAD placement, decide by measurement in D1:
   1. **FAT boot volume** (`build.rs` `set_file_contents`): simplest, read-only,
      but adds ~28 MB to *every* desktop image and slows boot-image builds. Gate it

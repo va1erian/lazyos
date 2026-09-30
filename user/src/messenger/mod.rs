@@ -329,6 +329,11 @@ pub mod logind;
 ///   sends `WindowClose` to the focused surface; `Escape` cancels a drag & drop.
 pub mod display;
 
+/// The input service protocol (`docs/input-plan.md`): `os.lazy.input.v1` for
+/// clients and `os.lazy.input.shell.v1` for the compositor, plus the
+/// compositor's [`input::ShellLink`].
+pub mod input;
+
 /// Wire shapes for `mimed` (issue #158): MIME/handler registry and app launch
 /// records, plus the `system/events/open/<app>` interim launch event.
 pub mod mime;

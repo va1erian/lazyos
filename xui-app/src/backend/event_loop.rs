@@ -33,14 +33,18 @@ impl LazyOSBackend {
         match &self.mode {
             Mode::Owner { .. } => self.pump_input(window),
             Mode::Client(_) => {
-                let events = self
+                let (events, session) = self
                     .windows
                     .borrow()
                     .get(&window.raw())
                     .and_then(|entry| entry.client.as_ref())
-                    .map(|surface| surface.events);
+                    .map(|surface| (surface.events, surface.input.map(|s| s.events)))
+                    .unzip();
                 if let Some(events) = events {
                     self.pump_client_input(window, events);
+                }
+                if let Some(Some(session)) = session {
+                    self.pump_session_input(window, session);
                 }
             }
         }
