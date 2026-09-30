@@ -92,6 +92,13 @@ pub struct Client {
 }
 
 impl Client {
+    /// A connection that reaches nothing, for host tests of the backend's
+    /// bookkeeping.
+    #[cfg(test)]
+    pub(crate) fn detached() -> Client {
+        Client { endpoint: 0 }
+    }
+
     /// Resolve [`NAME`] into this task, retrying briefly while the compositor
     /// starts, and wrap the endpoint handle.
     pub fn connect() -> Result<Client, i64> {

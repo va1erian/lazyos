@@ -126,7 +126,7 @@ impl LazyOSBackend {
     }
 
     /// The damage `window` accumulated since the last commit, clamped to `full`.
-    fn take_damage(&self, window: WindowId, full: Rect) -> Rect {
+    pub(super) fn take_damage(&self, window: WindowId, full: Rect) -> Rect {
         let Some(damage) = self.damage.borrow_mut().remove(&window.raw()) else {
             return full;
         };

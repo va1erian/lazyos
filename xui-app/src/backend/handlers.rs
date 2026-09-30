@@ -91,6 +91,11 @@ impl Backend for LazyOSBackend {
                 client,
             },
         );
+        if self.is_client() {
+            // A new surface must be committed once even if nothing draws on it
+            // before its first tick.
+            self.add_damage(id, Rect::new(0, 0, width as i32, height as i32));
+        }
         if self.primary.get().is_none() {
             self.primary.set(Some(id));
         }
