@@ -49,6 +49,8 @@ fn main() -> std::process::ExitCode {
         if let Some(path) = path {
             commands::open_path(&mut notepad, ui, path);
         }
+        // Title the window ("Untitled - Editor") before the first frame.
+        commands::refresh(&mut notepad, ui);
         notepad
     });
     backend.unbind();
