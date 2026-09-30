@@ -35,6 +35,29 @@ pub(super) const BUTTON: i32 = 16;
 pub(super) const BUTTON_GAP: i32 = 2;
 /// Distance from the button group to the window's right edge.
 pub(super) const BUTTON_MARGIN: i32 = 3;
+/// Interactive-resize frame grip: how far inside (and outside) a window side a
+/// pointer grabs that edge.
+pub(super) const RESIZE_GRIP: i32 = 4;
+/// How far outside the window rectangle a pointer still counts as on its
+/// frame; the outer half of the grip.
+pub(super) const RESIZE_OUT: i32 = 2;
+/// Corner grip span: how far along a side a point still grabs the corner, so
+/// diagonal resizing is easy to hit.
+pub(super) const CORNER_GRIP: i32 = 14;
+/// Smallest content width a resizable window may have, in pixels: enough for
+/// the three title-bar buttons plus a little title.
+pub(super) const MIN_CONTENT_W: i32 = 120;
+/// Smallest content height a resizable window may have, in pixels.
+pub(super) const MIN_CONTENT_H: i32 = 40;
+/// How much of a window's title bar must stay on screen when it is moved off
+/// an edge, so it can be grabbed again.
+pub(super) const TITLE_REACHABLE_W: i32 = 64;
+/// Two title-bar presses within this many PIT ticks (10 ms each) are a
+/// double-click (500 ms).
+pub(super) const DOUBLE_CLICK_TICKS: u64 = 50;
+/// Pointer slop, in pixels, allowed between the two presses of a
+/// double-click.
+pub(super) const DOUBLE_CLICK_SLOP: i32 = 4;
 
 pub(super) const BACKGROUND: Color = Color::rgb(18, 22, 36);
 pub(super) const WINDOW_BG: Color = Color::rgb(30, 36, 54);

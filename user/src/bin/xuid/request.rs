@@ -10,6 +10,7 @@ use user::messenger::{self, Endpoint, Message};
 use user::sys;
 
 use super::compositor::Compositor;
+use super::geometry::SizeHints;
 use super::layout::place_window;
 use super::present::attach;
 use super::protocol::{drop_rejected_handle, empty_reply, error_reply, is_privileged, typed_reply};
@@ -34,6 +35,7 @@ impl Compositor {
             wire::METHOD_DRAGCANCEL => self.drag_cancel_request(message, body),
             wire::METHOD_SETTITLE => self.set_title(message, body),
             wire::METHOD_HINTOPENORIGIN => self.hint_open_origin(message, body),
+            wire::METHOD_SETSIZEHINTS => self.set_size_hints(message, body),
             wire::METHOD_SUBSCRIBE => self.subscribe(message, body),
             wire::METHOD_LISTSURFACES => self.list_surfaces(message),
             wire::METHOD_GETWORKAREA => self.get_work_area(message),
@@ -197,6 +199,39 @@ impl Compositor {
         empty_reply(message.method())
     }
 
+    /// `SetSizeHints`: declare `surface` resizable within content-size bounds.
+    /// Only the owner may call it; a bad bound is `EINVAL`, an unknown surface
+    /// `ENOENT`. A fixed-size window stays fixed, so old clients are
+    /// unaffected.
+    fn set_size_hints(&mut self, message: &Message, body: &[u8]) -> Parcel {
+        let Ok(args) = wire::decode_set_size_hints_args(body) else {
+            return error_reply(message.method(), messenger::errno::EINVAL);
+        };
+        let Some(surface) = surface_by_id(&self.surfaces, args.surface) else {
+            return error_reply(message.method(), messenger::errno::ENOENT);
+        };
+        if surface.owner != message.sender {
+            return error_reply(message.method(), messenger::errno::EACCES);
+        }
+        // The desktop layer has no chrome to resize.
+        if surface.desktop {
+            return error_reply(message.method(), messenger::errno::EINVAL);
+        }
+        let Some(hints) = SizeHints::new(
+            args.min_w,
+            args.min_h,
+            args.max_w,
+            args.max_h,
+            (self.screen.width(), self.screen.height()),
+        ) else {
+            return error_reply(message.method(), messenger::errno::EINVAL);
+        };
+        if let Some(surface) = self.surfaces.iter_mut().find(|s| s.id == args.surface) {
+            surface.hints = Some(hints);
+        }
+        empty_reply(message.method())
+    }
+
     /// `DestroySurface`: only the owner may close its window.
     fn destroy_surface(&mut self, message: &Message, body: &[u8]) -> Parcel {
         let id = wire::decode_destroy_surface_args(body)
@@ -234,6 +269,10 @@ fn new_surface(
         owner: message.sender,
         pixels: 0,
         bytes: 0,
+        buf_w: 0,
+        buf_h: 0,
+        hints: None,
+        maximized: None,
         minimized: false,
         desktop,
         input_session: false,

@@ -62,6 +62,8 @@ pub enum Msg {
     SaveChosen,
     /// A dialog was dismissed without a choice; the canvas takes the focus back.
     DialogClosed,
+    /// The window was resized; the widgets re-flow to the new client rect.
+    WindowResized,
     /// A canvas interaction.
     Canvas(CanvasMsg),
 }

@@ -11,8 +11,10 @@ use super::clock::{self, Clock};
 use super::drag::DragSession;
 use super::inputlink::InputLink;
 use super::origin::OpenHint;
+use super::resize::ResizeDrag;
 use super::shell::{taskbar_visible, AltTab, Modifiers, ShellSub};
 use super::surface::{Drag, Surface};
+use super::theme::TASKBAR_H;
 
 /// The session compositor's whole mutable state.
 pub(super) struct Compositor {
@@ -26,6 +28,11 @@ pub(super) struct Compositor {
     pub(super) focused: Option<u64>,
     /// The window-manager title-bar drag (issue #143).
     pub(super) drag: Option<Drag>,
+    /// The live interactive edge resize, if any.
+    pub(super) resize: Option<ResizeDrag>,
+    /// The last title-bar press, for the double-click-to-maximize rule:
+    /// `(surface id, PIT tick, pointer)`.
+    pub(super) last_title_click: Option<(u64, u64, (i32, i32))>,
     /// The live drag & drop session, if any (issue #145).
     pub(super) drag_session: Option<DragSession>,
     /// Whether a pointer button is held (`DragStart` requires it).
@@ -64,6 +71,8 @@ impl Compositor {
             pointer,
             focused: None,
             drag: None,
+            resize: None,
+            last_title_click: None,
             drag_session: None,
             button_down: false,
             consumed: 0,
@@ -86,6 +95,18 @@ impl Compositor {
     /// Whether the built-in fallback taskbar paints (no `"shell"` subscriber).
     pub(super) fn taskbar(&self) -> bool {
         taskbar_visible(self.shell.as_ref())
+    }
+
+    /// The rectangle windows may occupy: the whole screen, less the fallback
+    /// taskbar strip while it is visible. The single source of the rule that
+    /// `GetWorkArea`, window movement and maximize all share.
+    pub(super) fn work_area(&self) -> Rect {
+        let height = if self.taskbar() {
+            (self.screen.height() - TASKBAR_H).max(0)
+        } else {
+            self.screen.height()
+        };
+        Rect::new(0, 0, self.screen.width().max(0), height)
     }
 
     /// Advance the taskbar clock and repaint just its rectangle when the

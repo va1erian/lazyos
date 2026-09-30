@@ -1,0 +1,15 @@
+# A dev-only test backend for the portable xui apps. `xui-core`'s own headless
+# backend (the one with `resize_window`) is crate-private, and `xui-canvas`'s
+# offscreen backend cannot change a window's client rect, so this crate wraps
+# the offscreen backend and adds a resizable window. It is a normal workspace
+# member so the three app crates share one copy through `[dev-dependencies]`.
+[package]
+name = "xui-app-testkit"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "A resizable offscreen backend for the xui-app test suites"
+
+[dependencies]
+xui-core = { git = "https://github.com/va1erian/xui", rev = "35c818f9b187359927b1528c37d63f62604caa05" }
+xui-canvas = { git = "https://github.com/va1erian/xui", rev = "35c818f9b187359927b1528c37d63f62604caa05", default-features = false }

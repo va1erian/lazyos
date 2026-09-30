@@ -34,3 +34,5 @@ village-icons = ["dep:xui-icons"]
 [dev-dependencies]
 # Offscreen rendering for the crate's headless tests.
 xui-canvas = { git = "https://github.com/va1erian/xui", rev = "35c818f9b187359927b1528c37d63f62604caa05", default-features = false }
+# The resizable offscreen backend the window-resize tests drive.
+xui-app-testkit = { path = "../testkit" }

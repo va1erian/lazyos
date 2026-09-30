@@ -31,6 +31,9 @@ impl Compositor {
     /// each layer draws only where nothing opaque lies above it inside the
     /// damage. The result is pixel-identical to painting every layer in full.
     pub(super) fn repaint(&mut self, damage: Rect) {
+        // A window may hang off the screen, so damage rectangles derived from
+        // its geometry can too; never compose or present off screen.
+        let damage = damage.intersect(self.full());
         if damage.is_empty() {
             return;
         }
@@ -41,6 +44,10 @@ impl Compositor {
     /// [`Compositor::repaint`] without the present, so a caller can draw over
     /// the composed frame (the window-zoom wireframe) and present once.
     pub(super) fn compose(&mut self, damage: Rect) {
+        let damage = damage.intersect(self.full());
+        if damage.is_empty() {
+            return;
+        }
         let taskbar = self.taskbar();
         let screen = &mut self.screen;
         let surfaces = &self.surfaces;
@@ -143,9 +150,14 @@ fn taskbar_rect(dims: (i32, i32)) -> Rect {
     Rect::new(0, dims.1 - TASKBAR_H, dims.0, TASKBAR_H)
 }
 
-/// Whether the surface has a mapped buffer big enough for its geometry.
+/// Whether the surface has a mapped buffer big enough for the dimensions it
+/// was attached at. The window may since have been resized; the old buffer is
+/// cropped or padded.
 fn has_pixels(surface: &Surface) -> bool {
-    surface.pixels != 0 && surface.bytes >= (surface.w * surface.h * 4) as u64
+    surface.pixels != 0
+        && surface.buf_w > 0
+        && surface.buf_h > 0
+        && surface.bytes >= (surface.buf_w as u64 * surface.buf_h as u64 * 4)
 }
 
 /// Blit the desktop surface's pixels across its rectangle; no chrome, no
@@ -156,12 +168,13 @@ fn draw_desktop(screen: &mut Canvas, surface: &Surface, clip: Rect) {
         return;
     }
     if has_pixels(surface) {
-        // Safety: the mapping was installed by `display_map_buffer` for this
-        // buffer and the surface's geometry describes it.
+        // SAFETY: the mapping was installed by `display_map_buffer` for this
+        // buffer; `bytes` is at least `buf_w * buf_h * 4` (see `has_pixels`),
+        // so the slice describes exactly the source `blit` reads.
         let pixels = unsafe {
             core::slice::from_raw_parts(surface.pixels as *const u8, surface.bytes as usize)
         };
-        screen.blit(pixels, surface.w, surface.h, area, clip);
+        screen.blit(pixels, surface.buf_w, surface.buf_h, area, clip);
     }
 }
 
@@ -294,8 +307,10 @@ fn draw_surface(screen: &mut Canvas, surface: &Surface, focused: bool, clip: Rec
         clip,
         border,
     );
-    // The title stops before the button group on the right.
-    let reserved = BUTTON * 2 + BUTTON_GAP + BUTTON_MARGIN + 6;
+    // The title stops before the button group on the right; a resizable
+    // window has three buttons where a fixed-size one has two.
+    let buttons = if surface.resizable() { 3 } else { 2 };
+    let reserved = BUTTON * buttons + BUTTON_GAP * (buttons - 1) + BUTTON_MARGIN + 6;
     let title_clip = Rect::new(
         window.x + 2,
         surface.y,
@@ -311,20 +326,48 @@ fn draw_surface(screen: &mut Canvas, surface: &Surface, focused: bool, clip: Rec
         TITLE_TEXT,
         title_clip,
     );
-    // Close and minimize glyphs sit directly on the title bar, in its text
-    // colour, so they match the chrome instead of adding coloured tiles.
+    // Close, maximize (resizable only) and minimize glyphs sit directly on the
+    // title bar, in its text colour, so they match the chrome instead of
+    // adding coloured tiles.
     icons::draw_close(screen, surface.close_button(), TITLE_TEXT, clip);
+    if surface.resizable() {
+        let button = surface.maximize_button();
+        if surface.maximized.is_some() {
+            icons::draw_restore(screen, button, TITLE_TEXT, clip);
+        } else {
+            icons::draw_maximize(screen, button, TITLE_TEXT, clip);
+        }
+    }
     icons::draw_minimize(screen, surface.minimize_button(), TITLE_TEXT, clip);
 
     // The app's pixels, or an explicit placeholder before AttachBuffer.
     let content = surface.content();
     if has_pixels(surface) {
-        // Safety: the mapping was installed by `display_map_buffer` for this
-        // buffer and the surface's geometry describes it.
+        // The window may have grown since the buffer was attached: the strips
+        // the (cropped) buffer does not cover show the window background.
+        // Only those strips are filled, so a normal frame writes each pixel
+        // once.
+        let (cover_w, cover_h) = (surface.buf_w.min(content.w), surface.buf_h.min(content.h));
+        let right = Rect::new(
+            content.x + cover_w,
+            content.y,
+            content.w - cover_w,
+            content.h,
+        );
+        let bottom = Rect::new(content.x, content.y + cover_h, cover_w, content.h - cover_h);
+        for strip in [right, bottom]
+            .into_iter()
+            .filter(|strip| !strip.is_empty())
+        {
+            screen.fill(strip, clip, WINDOW_BG);
+        }
+        // SAFETY: the mapping was installed by `display_map_buffer` for this
+        // buffer; `bytes` is at least `buf_w * buf_h * 4` (see `has_pixels`),
+        // so the slice describes exactly the source `blit` reads.
         let pixels = unsafe {
             core::slice::from_raw_parts(surface.pixels as *const u8, surface.bytes as usize)
         };
-        screen.blit(pixels, surface.w, surface.h, content, clip);
+        screen.blit(pixels, surface.buf_w, surface.buf_h, content, clip);
     } else {
         screen.fill(content, clip, EMPTY_BG);
         screen.text_face(

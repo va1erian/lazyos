@@ -13,6 +13,7 @@ members = [
     "crates/code-editor",
     "crates/paint",
     "crates/explorer",
+    "crates/testkit",
 ]
 
 [dependencies]

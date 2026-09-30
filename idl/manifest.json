@@ -333,6 +333,16 @@
         "name": "HintOpenOrigin",
         "id": 30,
         "oneway": false
+      },
+      {
+        "name": "SetSizeHints",
+        "id": 31,
+        "oneway": false
+      },
+      {
+        "name": "Configure",
+        "id": 32,
+        "oneway": true
       }
     ],
     "topics": []

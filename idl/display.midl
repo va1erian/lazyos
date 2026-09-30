@@ -4,10 +4,11 @@
 /// One interface carries both directions. **Calls** (app or shell to
 /// compositor) are ordinary request/reply methods: `CreateSurface`,
 /// `AttachBuffer`, `Commit`, `DestroySurface`, `DragStart`, `DragCancel`,
-/// `ListSurfaces`, `GetWorkArea`, `Subscribe` and `GetTheme`. **Events**
-/// (compositor to app, or to the shell subscriber) are `oneway` methods sent
-/// on the event endpoint the client transferred: `PointerMove`, `PointerDown`,
-/// `PointerUp`, `KeyDown`, `KeyUp`, `WindowClose`, the drag-and-drop set
+/// `ListSurfaces`, `GetWorkArea`, `Subscribe`, `GetTheme`, `SetTitle`,
+/// `HintOpenOrigin` and `SetSizeHints`. **Events** (compositor to app, or to
+/// the shell subscriber) are `oneway` methods sent on the event endpoint the
+/// client transferred: `PointerMove`, `PointerDown`, `PointerUp`, `KeyDown`,
+/// `KeyUp`, `WindowClose`, `Configure`, the drag-and-drop set
 /// `DragEnter`/`DragOver`/`DragLeave`/`Drop`/`DragEnded`, and the shell set
 /// `SurfaceChanged`/`FocusChanged`/`StartMenu`. Method ids are pinned to the
 /// values the hand-written protocol used (1-24), so the numbering stays
@@ -18,7 +19,8 @@
 /// fields because a raw handle number in the body would be meaningless to the
 /// receiver. `CreateSurface` and `Subscribe` transfer one event endpoint
 /// (`handles[0]`), `AttachBuffer` shares one pixel buffer (`buffers[0]`, at
-/// least `width * height * 4` bytes of RGBA8).
+/// least `width * height * 4` bytes of RGBA8 for the surface's current
+/// content size, rows tightly packed at that width).
 ///
 /// Pointer coordinates in every event are relative to the surface content
 /// origin; a move outside the surface (a press-and-drag) reports negative or
@@ -91,7 +93,7 @@ interface os.lazy.display.v1 {
     method GetTheme() -> (title_bg_active: U32, title_bg_inactive: U32, border: U32, taskbar: U32, text: U32) = 21;
     /// Shell event: surface `surface` changed. `kind` is a `Change` value;
     /// `title` is set on `Created` and `Title`. `role` is a `Role` value.
-    method SurfaceChanged(surface: U64, kind: U32, x: I32, y: I32, w: I32, h: I32, minimized: Bool, focused: Bool, title: Option<String>, role: U32) -> () = 22 oneway;
+    method SurfaceChanged(surface: U64, kind: U32, x: I32, y: I32, w: I32, h: I32, minimized: Bool, focused: Bool, title: Option<String>, role: U32, maximized: Bool) -> () = 22 oneway;
     /// Shell event: the focused surface changed; absent when nothing is
     /// focused.
     method FocusChanged(surface: Option<U64>) -> () = 23 oneway;
@@ -145,13 +147,34 @@ interface os.lazy.display.v1 {
     /// Minimize and restore keep using the taskbar entry. A compositor that
     /// predates the method answers `EINVAL`, which callers ignore.
     method HintOpenOrigin(surface: U64, x: I32, y: I32, w: U32, h: U32) -> () = 30;
+    /// Declare `surface` resizable within these content-size bounds (pixels).
+    /// Only the creator may call it (`EACCES`; `ENOENT` for an unknown
+    /// surface). A `max_*` of 0 means the largest size the screen allows.
+    /// Bounds are clamped to the compositor's minimums and the screen; a
+    /// resulting `min` greater than its `max` is `EINVAL`. Until it is called a
+    /// window is fixed-size: no resize edges and no maximize button, so old
+    /// clients are unaffected. The bounds apply to the content size (the
+    /// decorated window is `BORDER` wider and `TITLE_H + BORDER` taller).
+    method SetSizeHints(surface: U64, min_w: U32, min_h: U32, max_w: U32, max_h: U32) -> () = 31;
+    /// Event: the window manager changed the surface's content size to
+    /// `width` x `height` (`state` is a `WindowState`). The client should
+    /// attach buffer(s) of the new size (`AttachBuffer`, or `AttachBufferSlot`
+    /// on non-current slots for `Present` users) and present a full frame.
+    /// Until it does the compositor shows the old buffer cropped or padded.
+    method Configure(surface: U64, width: U32, height: U32, state: U32) -> () = 32 oneway;
 
     /// What a surface is. Numeric values are the wire values.
     enum Role { Window, Desktop }
 
     /// The `SurfaceChanged` event kinds. `Unspecified` (0) is what a missing
     /// field decodes to, so a malformed event never reads as `Created`.
-    enum Change { Unspecified, Created, Destroyed, Moved, Minimized, Restored, Title }
+    /// `Resized`/`Maximized`/`Unmaximized` were appended so the earlier values
+    /// stay stable.
+    enum Change { Unspecified, Created, Destroyed, Moved, Minimized, Restored, Title, Resized, Maximized, Unmaximized }
+
+    /// The window state a `Configure` reports. Numeric values are the wire
+    /// values.
+    enum WindowState { Normal, Maximized }
 
     /// A damage rectangle relative to a surface's content origin.
     struct Rect {
@@ -179,6 +202,8 @@ interface os.lazy.display.v1 {
         /// The compositor's focused surface.
         focused: Bool,
         /// A `Role` value.
-        role: U32
+        role: U32,
+        /// Whether the window is maximized (also a `WindowState` value).
+        maximized: Bool
     }
 }

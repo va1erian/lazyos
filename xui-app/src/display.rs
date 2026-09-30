@@ -50,6 +50,10 @@ pub enum Event {
     KeyDown { key: u32 },
     /// A key was released.
     KeyUp { key: u32 },
+    /// The window manager changed the surface's content size: the app must
+    /// attach a new-size buffer and repaint. `state` is a
+    /// `wire::WINDOW_STATE_*`.
+    Configure { width: i32, height: i32, state: u32 },
 }
 
 /// Decode an input event from a received parcel, or `None` when the message is
@@ -86,6 +90,14 @@ pub fn decode_event(parcel: &Parcel) -> Option<Event> {
         wire::METHOD_KEYUP => Event::KeyUp {
             key: wire::decode_key_up_args(body).ok()?.key,
         },
+        wire::METHOD_CONFIGURE => {
+            let args = wire::decode_configure_args(body).ok()?;
+            Event::Configure {
+                width: i32::try_from(args.width).unwrap_or(i32::MAX),
+                height: i32::try_from(args.height).unwrap_or(i32::MAX),
+                state: args.state,
+            }
+        }
         _ => return None,
     })
 }
@@ -191,6 +203,29 @@ impl Client {
         })
         .map_err(|_| -errno::EINVAL)?;
         let parcel = request(wire::METHOD_SETTITLE, body, Vec::new(), Vec::new());
+        self.call(&parcel).map(|_| ())
+    }
+
+    /// `SetSizeHints`: declare `surface` resizable within the given content
+    /// bounds (a `max` of 0 means the screen). An older compositor answers
+    /// `EINVAL`; callers may ignore it, leaving the window fixed-size.
+    pub fn set_size_hints(
+        &self,
+        surface: u64,
+        min_w: u32,
+        min_h: u32,
+        max_w: u32,
+        max_h: u32,
+    ) -> Result<(), i64> {
+        let body = wire::encode_set_size_hints_args(&wire::SetSizeHintsArgs {
+            surface,
+            min_w,
+            min_h,
+            max_w,
+            max_h,
+        })
+        .map_err(|_| -errno::EINVAL)?;
+        let parcel = request(wire::METHOD_SETSIZEHINTS, body, Vec::new(), Vec::new());
         self.call(&parcel).map(|_| ())
     }
 
@@ -318,6 +353,67 @@ mod tests {
         assert_eq!(
             (args.surface, args.x, args.y, args.w, args.h),
             (7, -4, 12, 64, 48)
+        );
+    }
+
+    fn parcel(method: u32, body: Vec<u8>) -> Parcel {
+        Parcel {
+            header: Header {
+                version: VERSION,
+                flags: 0,
+                interface_id: INTERFACE,
+                method,
+                ..Header::default()
+            },
+            body,
+            ..Parcel::default()
+        }
+    }
+
+    #[test]
+    fn configure_decodes_into_its_own_event() {
+        let body = wire::encode_configure_args(&wire::ConfigureArgs {
+            surface: 9,
+            width: 950,
+            height: 696,
+            state: wire::WINDOW_STATE_MAXIMIZED,
+        })
+        .unwrap();
+        assert_eq!(
+            decode_event(&parcel(wire::METHOD_CONFIGURE, body)),
+            Some(Event::Configure {
+                width: 950,
+                height: 696,
+                state: wire::WINDOW_STATE_MAXIMIZED,
+            })
+        );
+    }
+
+    #[test]
+    fn a_configure_with_an_oversized_size_is_clamped_not_wrapped() {
+        let body = wire::encode_configure_args(&wire::ConfigureArgs {
+            surface: 1,
+            width: u32::MAX,
+            height: 1,
+            state: wire::WINDOW_STATE_NORMAL,
+        })
+        .unwrap();
+        assert_eq!(
+            decode_event(&parcel(wire::METHOD_CONFIGURE, body)),
+            Some(Event::Configure {
+                width: i32::MAX,
+                height: 1,
+                state: wire::WINDOW_STATE_NORMAL,
+            })
+        );
+        // An empty body decodes to a zero size, which `apply_configure` drops.
+        assert_eq!(
+            decode_event(&parcel(wire::METHOD_CONFIGURE, Vec::new())),
+            Some(Event::Configure {
+                width: 0,
+                height: 0,
+                state: wire::WINDOW_STATE_NORMAL,
+            })
         );
     }
 }

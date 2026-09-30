@@ -8,10 +8,11 @@ The userspace compositor protocol (`xuid`; issues #113, #143, #145, #167,
 One interface carries both directions. **Calls** (app or shell to
 compositor) are ordinary request/reply methods: `CreateSurface`,
 `AttachBuffer`, `Commit`, `DestroySurface`, `DragStart`, `DragCancel`,
-`ListSurfaces`, `GetWorkArea`, `Subscribe` and `GetTheme`. **Events**
-(compositor to app, or to the shell subscriber) are `oneway` methods sent
-on the event endpoint the client transferred: `PointerMove`, `PointerDown`,
-`PointerUp`, `KeyDown`, `KeyUp`, `WindowClose`, the drag-and-drop set
+`ListSurfaces`, `GetWorkArea`, `Subscribe`, `GetTheme`, `SetTitle`,
+`HintOpenOrigin` and `SetSizeHints`. **Events** (compositor to app, or to
+the shell subscriber) are `oneway` methods sent on the event endpoint the
+client transferred: `PointerMove`, `PointerDown`, `PointerUp`, `KeyDown`,
+`KeyUp`, `WindowClose`, `Configure`, the drag-and-drop set
 `DragEnter`/`DragOver`/`DragLeave`/`Drop`/`DragEnded`, and the shell set
 `SurfaceChanged`/`FocusChanged`/`StartMenu`. Method ids are pinned to the
 values the hand-written protocol used (1-24), so the numbering stays
@@ -22,7 +23,8 @@ vectors, where the kernel moves them; the TLV body has no `Handle`/`Buffer`
 fields because a raw handle number in the body would be meaningless to the
 receiver. `CreateSurface` and `Subscribe` transfer one event endpoint
 (`handles[0]`), `AttachBuffer` shares one pixel buffer (`buffers[0]`, at
-least `width * height * 4` bytes of RGBA8).
+least `width * height * 4` bytes of RGBA8 for the surface's current
+content size, rows tightly packed at that width).
 
 Pointer coordinates in every event are relative to the surface content
 origin; a move outside the surface (a press-and-drag) reports negative or
@@ -56,7 +58,7 @@ fields, which never use that id.
 | GetWorkArea | 19 | sync | `() -> (x: I32, y: I32, w: I32, h: I32)` |
 | Subscribe | 20 | sync | `(subscriber_role: String) -> ()` |
 | GetTheme | 21 | sync | `() -> (title_bg_active: U32, title_bg_inactive: U32, border: U32, taskbar: U32, text: U32)` |
-| SurfaceChanged | 22 | oneway | `(surface: U64, kind: U32, x: I32, y: I32, w: I32, h: I32, minimized: Bool, focused: Bool, title: Option<String>, role: U32) -> ()` |
+| SurfaceChanged | 22 | oneway | `(surface: U64, kind: U32, x: I32, y: I32, w: I32, h: I32, minimized: Bool, focused: Bool, title: Option<String>, role: U32, maximized: Bool) -> ()` |
 | FocusChanged | 23 | oneway | `(surface: Option<U64>) -> ()` |
 | StartMenu | 24 | oneway | `() -> ()` |
 | AttachBufferSlot | 25 | sync | `(surface: U64, slot: U32) -> ()` |
@@ -65,6 +67,8 @@ fields, which never use that id.
 | FrameDone | 28 | oneway | `(surface: U64, seq: U64) -> ()` |
 | SetTitle | 29 | sync | `(surface: U64, title: String) -> ()` |
 | HintOpenOrigin | 30 | sync | `(surface: U64, x: I32, y: I32, w: U32, h: U32) -> ()` |
+| SetSizeHints | 31 | sync | `(surface: U64, min_w: U32, min_h: U32, max_w: U32, max_h: U32) -> ()` |
+| Configure | 32 | oneway | `(surface: U64, width: U32, height: U32, state: U32) -> ()` |
 
 ## struct `Rect`
 
@@ -84,6 +88,7 @@ fields, which never use that id.
 - `minimized: Bool`
 - `focused: Bool`
 - `role: U32`
+- `maximized: Bool`
 
 ## enum `Role`
 
@@ -91,4 +96,8 @@ fields, which never use that id.
 
 ## enum `Change`
 
-- Unspecified, Created, Destroyed, Moved, Minimized, Restored, Title
+- Unspecified, Created, Destroyed, Moved, Minimized, Restored, Title, Resized, Maximized, Unmaximized
+
+## enum `WindowState`
+
+- Normal, Maximized
