@@ -78,7 +78,7 @@ impl StatsRow {
 /// A whole-table task snapshot for the system-stats syscall (issue #144).
 pub struct TaskStats {
     /// One row per scheduler slot (empty slots are `present == false`).
-    pub rows: [StatsRow; MAX_TASKS],
+    pub rows: Vec<StatsRow>,
     /// Occupied slots whose state is not `Done`.
     pub live: usize,
 }
@@ -88,7 +88,8 @@ pub struct TaskStats {
 pub fn stats_snapshot() -> TaskStats {
     let tasks = TASKS.lock();
     let mut snapshot = TaskStats {
-        rows: [StatsRow::EMPTY; MAX_TASKS],
+        // On the heap: 256 rows would take over half of a kernel stack.
+        rows: alloc::vec![StatsRow::EMPTY; MAX_TASKS],
         live: 0,
     };
     for (slot, task) in tasks.iter().enumerate() {

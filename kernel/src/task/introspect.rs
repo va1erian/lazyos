@@ -20,7 +20,7 @@ use alloc::vec::Vec;
 use super::{PriorityClass, TaskState, MAX_TASKS, TASKS};
 
 /// ABI version of the [`TaskSnapshot`] block.
-pub const TASK_SNAPSHOT_VERSION: u64 = 2;
+pub const TASK_SNAPSHOT_VERSION: u64 = 3;
 
 /// Words in one per-slot row: live, pid, ppid, pgid, sid, state tag, class,
 /// weight, cpu_ticks, then two words (16 bytes) of the task name.

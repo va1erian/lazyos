@@ -840,6 +840,30 @@
     ]
   },
   {
+    "interface": "os.lazy.messenger.policy.v1",
+    "interface_id": "0xe625b4ee97525d37",
+    "methods": [
+      {
+        "name": "LoadLabel",
+        "id": 888159937,
+        "oneway": false
+      }
+    ],
+    "topics": []
+  },
+  {
+    "interface": "os.lazy.messenger.names.resolve.v1",
+    "interface_id": "0x51c42ba74885199f",
+    "methods": [
+      {
+        "name": "Resolve",
+        "id": 1645633795,
+        "oneway": false
+      }
+    ],
+    "topics": []
+  },
+  {
     "interface": "os.lazy.messenger.registry.v1",
     "interface_id": "0x51d501afec09806c",
     "methods": [

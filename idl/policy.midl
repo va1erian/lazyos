@@ -1,0 +1,34 @@
+/// The kernel's label-keyed Messenger policy (application package system,
+/// phase 1; `docs/architecture/ipc-security.md`).
+///
+/// A process stamped with a label (`app:<reverse.dns.name>` or
+/// `system:<name>`) is default-deny: it may only use what its own namespace
+/// grants (`app.<id>.<name>` services, `app/<id>/...` topics) plus the allow
+/// rules loaded here. `LoadLabel` is the one way rules get in: it is the
+/// request body of the privileged `acl_load` messenger op, which needs
+/// `CAP_IPC_CONTROL`, and it is never a parcel any service receives.
+interface os.lazy.messenger.policy.v1 {
+    /// Replace every rule of `label` with `rules` (first match wins, anything
+    /// unmatched is denied). An empty list revokes the label's grants. The
+    /// label is interned if new; a malformed label or more rules than the
+    /// kernel stores per label (256) fails with `EINVAL`.
+    method LoadLabel(label: String, rules: Array<LabelRule>) -> ();
+
+    /// One rule. `interface_id` and `method` accept the wildcards
+    /// `0xFFFFFFFFFFFFFFFF` and `0xFFFFFFFF`; `allow` of `false` is an
+    /// explicit deny that shadows later rules.
+    struct LabelRule {
+        interface_id: U64,
+        method: U32,
+        allow: Bool
+    }
+}
+
+/// Kernel ACL scope for resolving a service name. The kernel evaluates a
+/// labelled task's `Resolve` of `name` against its rules on this interface id,
+/// using `fnv1a32(name)` as the method id, so a rule grants one exact name.
+/// Only the interface id is contractual; nothing ever serves this interface.
+interface os.lazy.messenger.names.resolve.v1 {
+    /// Check that the actor may resolve `name`.
+    method Resolve(name: String) -> ();
+}

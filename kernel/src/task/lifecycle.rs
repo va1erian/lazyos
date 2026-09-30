@@ -111,7 +111,7 @@ pub(super) fn mark_finished(tasks: &[Option<Task>; MAX_TASKS], slot: usize) {
         .as_ref()
         .is_some_and(|task| task.state == TaskState::Done && task.parent == 0);
     if finished_parentless {
-        PENDING_RECLAIM.fetch_or(1u64 << slot, Ordering::Relaxed);
+        PENDING_RECLAIM.set(slot);
     }
 }
 
@@ -123,25 +123,22 @@ pub(super) fn mark_finished(tasks: &[Option<Task>; MAX_TASKS], slot: usize) {
 /// mux loop): dropping a dead task takes the heap lock, and unlike a preempted
 /// task the current task holds none inside a critical section there.
 pub fn reclaim_pending() {
-    let pending = PENDING_RECLAIM.swap(0, Ordering::Relaxed);
-    if pending == 0 {
+    let pending = PENDING_RECLAIM.take();
+    if pending.is_empty() {
         return;
     }
-    let mut tasks = TASKS.lock();
-    let mut orphans = [0u64; MAX_TASKS];
-    let mut orphan_count = 0;
+    // Heap, not stack: with `MAX_TASKS` slots these lists would cost several
+    // KiB of a 32 KiB kernel stack. This runs in task context, where the heap
+    // lock is not held (see above).
+    let mut orphans: Vec<u64> = Vec::with_capacity(pending.len());
     // (slot, its PML4, whether another task still shares that PML4).
-    let mut removed = [(0usize, 0u64, false); MAX_TASKS];
-    let mut removed_count = 0;
-    for slot in 1..MAX_TASKS {
-        if pending & (1u64 << slot) != 0 {
-            if let Some((pml4, shared)) = take_finished(&mut tasks, slot) {
-                removed[removed_count] = (slot, pml4, shared);
-                removed_count += 1;
-                if !shared {
-                    orphans[orphan_count] = pml4;
-                    orphan_count += 1;
-                }
+    let mut removed: Vec<(usize, u64, bool)> = Vec::with_capacity(pending.len());
+    let mut tasks = TASKS.lock();
+    for slot in pending.iter().filter(|slot| *slot != 0) {
+        if let Some((pml4, shared)) = take_finished(&mut tasks, slot) {
+            removed.push((slot, pml4, shared));
+            if !shared {
+                orphans.push(pml4);
             }
         }
     }
@@ -150,15 +147,15 @@ pub fn reclaim_pending() {
     // their address spaces go away (`ipc::teardown_task` explains why the
     // order matters). The task table is unlocked: closing an endpoint wakes
     // waiters, which takes the wait-queue lock and then the table.
-    for &(slot, pml4, shared) in &removed[..removed_count] {
+    for &(slot, pml4, shared) in &removed {
         crate::ipc::teardown_task(slot, pml4, shared);
     }
-    if removed_count > 0 {
+    if !removed.is_empty() {
         // A `clone` sleeping on table pressure can return early. Queue before
         // task table order holds: the lock above is already released.
         wait::SLOT.notify_all();
     }
-    for &pml4 in &orphans[..orphan_count] {
+    for &pml4 in &orphans {
         let pages = mem::user_table_frame_count(PhysAddr::new(pml4));
         let released = release_address_space(pml4);
         let stats = mem::frame_stats();

@@ -9,7 +9,10 @@ audit ring, and per-uid quotas. Spec: [security-model.md](../security-model.md).
 | Path | Role |
 |---|---|
 | `kernel/src/ipc/credentials.rs` | `Cred`, capability bits, audited transition gate (issue #68/#101) |
-| `kernel/src/ipc/acl.rs` | Ordered default-deny rule list, verdicts, reason codes |
+| `kernel/src/ipc/acl.rs` | Ordered default-deny rule list, verdicts, reason codes; label-keyed rule sets |
+| `kernel/src/ipc/labels.rs` | Interned label table (`app:<id>`, `system:<name>`) |
+| `kernel/src/ipc/policy.rs` | Namespace rules for labelled tasks (`os.lazy.*`, `app.<id>.*`, `app/<id>/`) |
+| `kernel/src/ipc/syscalls/aclop.rs` | The `acl_load` messenger op (`OP_ACL_LOAD = 18`) |
 | `kernel/src/ipc/audit.rs` | 128-entry ring with an FNV-1a hash chain |
 | `kernel/src/quota.rs` | Per-uid resource limits and usage (issue #103) |
 | `kernel/src/ipc/mod.rs` | `authorize()`: the single policy choke point |
@@ -37,7 +40,16 @@ audit ring, and per-uid quotas. Spec: [security-model.md](../security-model.md).
   task may only restamp itself. `check` validates a spawn before the task exists;
   `read` lets a task read its own identity, or another's with `CAP_SETUID`.
   Transition records use `AUDIT_INTERFACE = "os.cred."` / `AUDIT_METHOD_SET` with
-  `reason` codes for allowed, not-privileged, widening and bad target.
+  `reason` codes for allowed, not-privileged, widening, bad target and
+  label-locked.
+- **Labels.** `label_id` names an interned string (`labels.rs`): at most 160
+  bytes of `[a-z0-9.:-]`, either `app:<reverse.dns.name>` or `system:<name>`,
+  256 labels, append-only (`0` = unlabelled; a full table refuses new labels
+  rather than evicting). The label is write-once: `LabelStamp::Assign` (the
+  labelled spawn, syscall 10 op 3) sets it on a new child for an unlabelled
+  `CAP_SETUID` creator; every other stamp is `LabelStamp::Keep` and fails with
+  `TransitionError::LabelLocked` if it would change it. Children inherit their
+  creator's label, so an app's helpers stay in its sandbox.
 
 **ACL** (`acl.rs`)
 
@@ -49,6 +61,35 @@ audit ring, and per-uid quotas. Spec: [security-model.md](../security-model.md).
 - `authorize(actor_slot, interface_id, method, txn_id)`
   (`kernel/src/ipc/mod.rs:43`) reads kernel-stamped credentials, evaluates the
   policy, and records an audit event on denial (and on allows while tracing).
+  A task with a label is judged by its label's rules (`policy::evaluate_labelled`),
+  never its uid; unlabelled tasks keep the uid rules and the bootstrap window.
+- **Label rules** (`acl::load_label`): a second, separate rule set whose actor is
+  a label id. A labelled task is default-deny from its first call (no bootstrap
+  window); rules are first-match, at most 256 per label and 4096 in total.
+  `load_label` replaces every rule of one label, so revoking an app is loading
+  an empty list. The only implicit grants are the registry's
+  register/unregister/resolve calls (checked per name, below) and the app's
+  own namespaces.
+- **Namespaces** (`policy.rs`, issue #308): `register` of `os.lazy.*` needs a
+  `system:*` label, or no label plus uid 0, `CAP_IPC_CONTROL` or `CAP_DEV_CLAIM`
+  (a provisioned driver); `app.<id>.<name>` needs label `app:<id>` (`<name>` is
+  one dot-free segment so a name names exactly one id); a labelled task may
+  register nothing else. A topic at or under `app/<id>/` (publish or subscribe)
+  is allowed for `app:<id>`. Resolving any other name (checked as
+  `os.lazy.messenger.names.resolve.v1` with `fnv1a32(name)` as the method, so a
+  rule grants one exact name), calling any interface and every other topic
+  segment need an allow rule for the label. Checks run against the *client's*
+  slot when `messengerd` proxies, and before the registry lookup, so a refusal
+  reveals nothing about which names exist. Every refusal is audited with the
+  label id and a reason (`LABEL_DEFAULT_DENY`, `RESERVED_NAMESPACE`,
+  `OUTSIDE_NAMESPACE`, ...); `policy::explain(label, reason)` renders the
+  friendly sentence naming the namespace the app may use.
+- **Loading policy** (`OP_ACL_LOAD`, `idl/policy.midl`): the request parcel's
+  body is the generated `LoadLabelArgs { label, rules: Array<LabelRule> }`;
+  the caller needs `CAP_IPC_CONTROL` (`-EPERM`, audited) and must itself pass
+  `authorize` (a labelled task is refused). Replace-all per label; a malformed
+  label or more than 256 rules is `-EINVAL`, a full table or rule budget
+  `-ENOMEM`, and a failed load changes nothing. Userspace: `user::messenger::policy`.
 
 **Audit ring** (`audit.rs`)
 

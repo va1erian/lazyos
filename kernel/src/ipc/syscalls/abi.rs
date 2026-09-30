@@ -90,6 +90,13 @@ pub const OP_LIST: u64 = 16;
 /// refused one of them (already audited by `ipc::authorize`).
 pub const OP_AUTHORIZE_TOPIC: u64 = 17;
 
+/// Replace every rule of one label (the `acl_load` syscall, application
+/// package system phase 1). The request parcel's body is the generated
+/// `LoadLabelArgs` (`idl/policy.midl`): the label string and its rule list.
+/// Needs `CAP_IPC_CONTROL`; an empty list revokes the label. `value` is the
+/// number of rules now held by the label.
+pub const OP_ACL_LOAD: u64 = 18;
+
 /// `MsgArgs::txn_id` marker for registry ops: act on the calling task.
 pub const REGISTRY_TARGET_SELF: u64 = u64::MAX;
 
