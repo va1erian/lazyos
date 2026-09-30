@@ -87,9 +87,19 @@ jobs:
           {
             echo "### Linux ABI conformance"
             echo
+            # Blank lines around the content are required for GitHub to
+            # render the markdown tables inside <details>.
+            echo "<details><summary>Compatibility matrix</summary>"
+            echo
             cat docs/compat/matrix.md
             echo
+            echo "</details>"
+            echo
+            echo "<details><summary>Syscall coverage (ENOSYS)</summary>"
+            echo
             cat docs/compat/coverage.md
+            echo
+            echo "</details>"
           } > abi-comment.md
           gh pr comment "${{ github.event.pull_request.number }}" \
             --repo "${GITHUB_REPOSITORY}" --body-file abi-comment.md
