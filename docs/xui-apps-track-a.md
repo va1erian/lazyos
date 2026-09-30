@@ -13,12 +13,15 @@ the Track A checklist and the evidence gathered while finishing the branch.
 ## What Track A shipped
 
 - **P0 — xui bump to `5efb730`.** `xui-core`/`xui-canvas` pins moved; the
-  vendored `xui-canvas` was re-vendored and the three LazyOS additions ported
-  (`set_default_font`/`add_font`/`set_default_family`, natural-width horizontal
-  alignment in `text::draw`, `Surface::pixels`). The windowed `winit`/GL
-  backend, the `arboard` clip and `xui-gpu` were dropped from the vendored copy
-  because they cannot link for the Windows-host musl target and LazyOS cannot
-  host `winit` (anonymous `mmap` only). `patches/xui-core.patch`,
+  three LazyOS additions (`set_default_font`/`add_font`/`set_default_family`,
+  natural-width horizontal alignment in `text::draw`, `Surface::pixels`) were
+  carried in a vendored `xui-canvas` at the time. They have since been
+  **upstreamed** (va1erian/xui#246, rev `35c818f9`) behind a default-on
+  `winit-backend` feature: LazyOS now depends on `xui-canvas` with
+  `default-features = false` and the vendor directory plus `[patch]` are gone.
+  The windowed `winit`/GL backend, the `arboard` clip and `xui-gpu` stay out of
+  the musl graph because they cannot link for the Windows-host musl target and
+  LazyOS cannot host `winit` (anonymous `mmap` only). `patches/xui-core.patch`,
   `tools/xui/patch_core.py` and the `build.py` hook were deleted; the Button
   hover fix is upstream now.
 - **P1.2 clipboard.** `xui-app/src/platform/clipboard.rs` is a

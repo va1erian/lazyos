@@ -40,7 +40,7 @@ Each is a work item below; the list is the reason this is a plan and not a copy.
 
 | # | Gap | Where |
 |---|---|---|
-| G0 | The pinned xui (`2747818`, 2026-09-26) has **none** of these crates and predates `IconView`, `StatusBar`, `FileDialog`, `TaskDialog`. Bumping is blocked by the vendored `xui-canvas` (issue #351). | `xui-app/Cargo.toml`, `xui-app/vendor/xui-canvas`, `patches/` |
+| G0 | The pinned xui (`2747818`, 2026-09-26) had **none** of these crates and predated `IconView`, `StatusBar`, `FileDialog`, `TaskDialog`. **Resolved:** the pin moved to `5efb730` for the migration and later to `35c818f9` (upstream PR va1erian/xui#246); `xui-canvas`/`xui-icons` are git dependencies at that rev (`xui-canvas` with `default-features = false`), not vendored. Issue #351 is closed. | `xui-app/Cargo.toml`, `xui-app/crates/*/Cargo.toml` |
 | G1 | `LazyOSBackend` does not override `clipboard_text`/`set_clipboard_text`, `file_dialog`, `run_modal`, `set_window_title`, `set_cursor`, `minimize`. Defaults are in-process or unsupported. | `xui-app/src/backend/handlers.rs` |
 | G2 | **Multiple windows per process.** Files opens one window per folder. The client backend creates a single surface. | `xui-app/src/backend*`, `client_window.rs`, `os.lazy.display.v1` |
 | G3 | **Keyboard coverage.** Editor/Files need arrows, Home/End, PgUp/PgDn, Delete, F-keys (F5), Ctrl/Alt/Shift modifiers and Ctrl+letter chords delivered as `Event::KeyDown{key, modifiers}`. `docs/xui-plan.md` records that the PS/2 path does not decode function keys, and `xuid` consumes Tab/PageUp/PageDown. | kernel PS/2 decode, `keyd`, `xuid`, `input.rs` |
@@ -65,6 +65,13 @@ xui-app/src/bin/editor.rs  files.rs  paint.rs   (+ editor/ files/ paint/ submodu
 xui-app/src/platform/         LazyOS impls: fs.rs, launcher.rs, clipboard.rs, storage.rs
 ```
 
+`xui-core`, `xui-canvas` and `xui-icons` are **not** copied: they are git
+dependencies on `va1erian/xui` at one pinned rev (`xui-canvas` with
+`default-features = false`, `xui-icons` optional behind explorer's
+`village-icons`). This file keeps the historical plan; the switch to upstream
+canvas is recorded in
+[`xui-apps-integration.md`](xui-apps-integration.md#upstream-canvas-switch).
+
 Keep every file under 500 lines (AGENTS.md); split by responsibility as you go.
 Copied files keep their upstream licence headers (MIT).
 
@@ -73,10 +80,12 @@ Copied files keep their upstream licence headers (MIT).
 ### P0 — bump xui (prerequisite, issue #351)
 1. Pick the xui commit: newest `main` that has the three crates and still
    compiles for musl (`5efb730` at time of writing; re-check `gh api`).
-2. Re-vendor `xui-app/vendor/xui-canvas` from that rev; port the three LazyOS
-   modifications documented in its README (`set_default_font`/`add_font`/
-   `set_default_family`, per-line horizontal alignment for natural-width runs,
-   `Surface::pixels`).
+2. Add the LazyOS additions upstream rather than vendoring: upstream PR
+   va1erian/xui#246 (`35c818f9`) puts `set_default_font`/`add_font`/
+   `set_default_family`, per-line horizontal alignment for natural-width runs
+   and `Surface::pixels` into `crates/xui-canvas`, behind a default-on
+   `winit-backend` feature. Depend on `xui-canvas` with `default-features =
+   false` and there is no vendor copy to port.
 3. Bump `xui-core`/`xui-canvas` pins; implement new `Backend` trait items in
    `handlers.rs` (no-ops where LazyOS has no equivalent, each with a comment).
 4. Delete `patches/xui-core.patch`, `tools/xui/patch_core.py` and its hook in
@@ -168,7 +177,7 @@ beyond `PlainText`, cursor-shape protocol, zoom in Paint, file watching, Linux
 ## Risks
 | Risk | Mitigation |
 |---|---|
-| P0 re-vendor breaks text rendering | screenshot diff of sysmon/term before and after |
+| P0 bump breaks text rendering | screenshot diff of sysmon/term before and after |
 | Multi-window needs a display-protocol change | do it via MIDL; if it balloons, fall back to one-window navigation for Files and record it in the status doc |
 | Function keys never reach the client | fix at the earliest layer; kernel change carries tests |
 | ELF size vs FAT image | measure after P2.4; grow the image if needed |
@@ -176,13 +185,15 @@ beyond `PlainText`, cursor-shape protocol, zoom in Paint, file watching, Linux
 
 ## Outcome
 
-Implemented: P0 (bump to `5efb730`, re-vendor + port, drop the core patch), the
+Implemented: P0 (bump to `5efb730`, then `35c818f9` with the upstream canvas and
+the vendored copy + `[patch]` deleted, drop the core patch), the
 platform layer, multi-window client mode, the three apps, registry/MIME/image
 integration, and the host tests. Captured pixels of the Editor, Paint and Files
 windows on a real `xuid` desktop. The plan was followed except for the
 deviations recorded in
-[`xui-apps-migration-status.md`](xui-apps-migration-status.md): the vendored
-`xui-canvas` drops its unusable windowed/GL backend, Global Village icons stay
+[`xui-apps-integration.md`](xui-apps-integration.md#upstream-canvas-switch):
+`xui-canvas` is built with `default-features = false` so its windowed/GL backend
+never enters the musl graph, Global Village icons stay
 off, Paint uses a fixed save path, the Files launcher calls `mimed.Open`, the
 editor refuses symlink writes, and the three apps ship without boot-autostart.
 Deferred, with reasons, are Ctrl+letter chords and F1–F3/F5–F12 (kernel PS/2

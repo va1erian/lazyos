@@ -1,6 +1,7 @@
-# Copied from `va1erian/xui` `crates/xui-code-editor` at rev `5efb730` (MIT),
-# library only. The upstream notepad example is promoted to the `xui-editor`
-# binary in `xui-app/src/bin/editor.rs` + `xui-app/src/bin/editor/`.
+# Copied from `va1erian/xui` `crates/xui-code-editor` (MIT), library only. The
+# upstream notepad example is promoted to the `xui-editor` binary in
+# `xui-app/src/bin/editor.rs` + `xui-app/src/bin/editor/`. `xui-core` and
+# `xui-canvas` are git dependencies at the LazyOS-pinned rev.
 [package]
 name = "xui-code-editor"
 version = "0.1.0"
@@ -14,7 +15,7 @@ publish = false
 [dependencies]
 regex = "1"
 ropey = "1"
-xui-core = { git = "https://github.com/va1erian/xui", rev = "5efb730" }
+xui-core = { git = "https://github.com/va1erian/xui", rev = "35c818f9b187359927b1528c37d63f62604caa05" }
 
 [features]
 # The hand-written, line-incremental Rhai lexer (`lexer::RhaiHighlighter`).
@@ -22,7 +23,7 @@ xui-core = { git = "https://github.com/va1erian/xui", rev = "5efb730" }
 rhai-syntax = []
 
 [dev-dependencies]
-xui-canvas = { path = "../../vendor/xui-canvas" }
+xui-canvas = { git = "https://github.com/va1erian/xui", rev = "35c818f9b187359927b1528c37d63f62604caa05", default-features = false }
 # Rhai's own tokenizer, the oracle the hand-written lexer's tests compare token
 # boundaries against. The lexer itself never uses it, so `rhai-syntax` builds
 # carry no Rhai crate either.

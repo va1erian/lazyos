@@ -858,6 +858,7 @@ dependencies = [
 [[package]]
 name = "xui-canvas"
 version = "0.1.0"
+source = "git+https://github.com/va1erian/xui?rev=35c818f9b187359927b1528c37d63f62604caa05#35c818f9b187359927b1528c37d63f62604caa05"
 dependencies = [
  "cosmic-text",
  "tiny-skia",
@@ -878,7 +879,7 @@ dependencies = [
 [[package]]
 name = "xui-core"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/xui?rev=5efb730#5efb7309309c20ac16f3f2b9bec7645e1b490c8c"
+source = "git+https://github.com/va1erian/xui?rev=35c818f9b187359927b1528c37d63f62604caa05#35c818f9b187359927b1528c37d63f62604caa05"
 dependencies = [
  "png",
  "zune-jpeg",
@@ -896,8 +897,8 @@ dependencies = [
 [[package]]
 name = "xui-icons"
 version = "0.1.0"
+source = "git+https://github.com/va1erian/xui?rev=35c818f9b187359927b1528c37d63f62604caa05#35c818f9b187359927b1528c37d63f62604caa05"
 dependencies = [
- "xui-canvas",
  "xui-core",
 ]
 

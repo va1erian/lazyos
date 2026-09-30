@@ -136,7 +136,7 @@ real captured pixels (QEMU sessions, screenshots read), not source.
 
 | Gap | Result | Evidence |
 |---|---|---|
-| Editor letter-spaced text, line numbers over the first column | Fixed at the root. Two causes: the Editor asked for the generic `monospace` family, which resolved to the proportional Droid Sans because only that face was registered (so the `MMMMMMMMMM` cell probe measured a wide cell), and the vendored canvas aligned non-wrapped text twice (cosmic-text against the buffer width, then again at draw time), which pushed right-aligned line numbers by the gutter width. The Editor now registers JetBrains Mono (`xui_app::font::register_mono`, Droid Sans stays the default UI family) and names it; the canvas gives the shaper no paragraph alignment and applies it once, per line. | `xui_editor.json` `02_editor_typed`: `Hello from LazyOS` on a tight grid with `1`/`2` right-aligned in the gutter. Terminal (`xui_desktop.json`) and fabricmon right-aligned table columns re-read: unchanged/correct. |
+| Editor letter-spaced text, line numbers over the first column | Fixed at the root. Two causes: the Editor asked for the generic `monospace` family, which resolved to the proportional Droid Sans because only that face was registered (so the `MMMMMMMMMM` cell probe measured a wide cell), and the canvas aligned non-wrapped text twice (cosmic-text against the buffer width, then again at draw time), which pushed right-aligned line numbers by the gutter width. The Editor now registers JetBrains Mono (`xui_app::font::register_mono`, Droid Sans stays the default UI family) and names it; the canvas gives the shaper no paragraph alignment and applies it once, per line. The upstream `xui-canvas` now carries this per-line alignment (see [Upstream canvas switch](#upstream-canvas-switch)). | `xui_editor.json` `02_editor_typed`: `Hello from LazyOS` on a tight grid with `1`/`2` right-aligned in the gutter. Terminal (`xui_desktop.json`) and fabricmon right-aligned table columns re-read: unchanged/correct. |
 | Open / Save As showed an empty list | The listing itself worked; two things hid it. The name field is a type-ahead prefix filter (the session had typed a path), and `read_dir("/")` on the FAT root omits the `/tmp` and `/data` mount points (the VFS does not synthesise a mount's entry in its parent). `LazyFileSystem` (`xui-app/src/platform/dialog_fs.rs`) adds the mount points that resolve as directories; the pickers start in `/tmp`. Folders sort first (portable dialog). | `03a_save_dialog_tmp_listing` (`..`, `confd/`), `03b_save_dialog_root_listing` (`tmp/`, `HELLO.TXT`, `NOTES.TXT`), `05a_open_dialog_listing` (`confd/`, `note.txt`). |
 | `set_window_title` was a no-op | New `os.lazy.display.v1` method 29 `SetTitle(surface, title)` (`idl/display.midl`, regenerated with `midlc`, `--check` clean). `xuid` (`title.rs`): owner only (`EACCES`), unknown surface `ENOENT`, at most 128 bytes cut at a character boundary, control characters dropped, blank result keeps the old title, unchanged title is a no-op; it repaints the chrome/taskbar and sends the shell `SurfaceChanged(Title)` (the `title` field is now set for `Title` as well as `Created`). Old clients are unaffected; a new client on an old `xuid` gets `EINVAL`, ignored. The backend dedupes so the Editor's per-keystroke retitle costs no IPC. Boot self-test `XUID:TITLE:PASS`. | `04_editor_saved`: title bar and taskbar read `note.txt - Editor`; a modified buffer shows `*Untitled - Editor`. |
 | Paste into a second Editor | Works; no bug found. `xui_editor.json` now copies in the first Editor, launches a second Editor process from the desktop context menu, clicks into it and pastes through `clipboardd`. | `12_second_editor_pasted`: the second window (`*Untitled - Editor`) holds the four lines copied from `*note.txt - Editor`; serial has two `EDITOR:UP:PASS`. |
@@ -153,13 +153,13 @@ sessions pass their serial markers. Multi-app sessions on Windows need the
 `LAZYOS_XUI_APPS` list in native form (`C:\...;C:\...`); a bash-style
 `/e/...;...` list is silently skipped with a build warning.
 
-Not fixed / limits: the vendored `xui-canvas` has its own unit tests but it is
-excluded from the `xui-app` workspace and cannot be run standalone here
-("believes it's in a workspace"), so the alignment change is covered by the
-screenshots only. The mount-point list is fixed (`tmp`, `data`); a kernel-side
+Not fixed / limits: the mount-point list is fixed (`tmp`, `data`); a kernel-side
 fix (the VFS synthesising mount points in `readdir`) would make the wrappers
 unnecessary and is not done. Paint and Files keep their creation title (the
-folder path for Files); only the Editor retitles.
+folder path for Files); only the Editor retitles. The alignment change is now
+covered by the upstream `xui-canvas` tests and the LazyOS screenshots below
+(the crate is a git dependency, so its own test suite is not part of the
+`xui-app` workspace).
 
 ## Correctness checklist (this round)
 
@@ -184,3 +184,62 @@ folder path for Files); only the Editor retitles.
 8. **Domain** — multi-window, focus/close, unsaved prompt, atomic save, symlink
    refusal, open-with errors in the status bar, and scripted sessions are all
    either tested here or unchanged from Track A.
+
+## Upstream canvas switch
+
+The vendored `xui-canvas` fork is gone. Upstream PR
+[va1erian/xui#246](https://github.com/va1erian/xui/pull/246) (merge commit
+`35c818f9b187359927b1528c37d63f62604caa05`) put every LazyOS addition into
+`crates/xui-canvas` behind a default-on `winit-backend` feature:
+
+* `set_default_font`/`add_font`/`set_default_family` build the shaper's font
+  database from the registered bytes only (no system scan, no file `mmap`), so
+  LazyOS can shape text with its bundled TTFs;
+* `TextStyle` horizontal alignment is applied once per line at draw time, so the
+  Editor line-number gutter and every right-aligned table column are correct;
+* `Surface::pixels` exposes the borrowed RGBA plane for a clone-free present;
+* `default-features = false` drops `winit`, `softbuffer`, `glutin`, `glow`,
+  `arboard`, the `windows` double-click metrics and `xui-gpu`, leaving the pure
+  `tiny-skia`/`cosmic-text` painter plus `OffscreenBackend`.
+
+### Change
+
+* Deleted `xui-app/vendor/xui-canvas/` and `xui-app/crates/icons/` — **370
+  tracked files removed** (32 and 338).
+* `xui-app/Cargo.toml`: dropped `exclude = ["vendor/xui-canvas"]` and the
+  `[patch."https://github.com/va1erian/xui"]` block; `xui-core` and `xui-canvas`
+  are now git dependencies at `rev = "35c818f9…"`, the latter with
+  `default-features = false`. Every manifest under `xui-app/crates/*` uses the
+  same rev (`xui-canvas` as a dev-dependency; explorer's optional `xui-icons`),
+  so a single `xui_core` is linked. `village-icons` stays off (the Files app
+  does not enable it), so the Lucide fallback is still what ships.
+* `xui-app/Cargo.lock` refreshed with `cargo fetch`: only the three xui packages
+  changed (git sources), no unrelated upgrades.
+* No source change was needed in `xui-app/src` or the three app crates: the
+  symbols they use are a subset of the upstream API. `docs/xui-plan.md` records
+  the pinned-rev bump procedure (bump `xui-core` and `xui-canvas` together).
+
+### Verification
+
+| Check | Result |
+|---|---|
+| `python tools/xui/build.py` | 9 binaries incl. `xui-editor/paint/files.elf` |
+| `cargo test --manifest-path xui-app/Cargo.toml --workspace --lib` | 242 passed (29+136+37+40) |
+| crate integration tests (`xui-code-editor`, `xui-paint`, `xui-explorer`) | all passed (incl. the snapshot suites) |
+| `cargo clippy … xui-app --workspace --lib -- -D warnings` (host) | clean |
+| `cargo clippy … xui-app --workspace --target x86_64-unknown-linux-musl -- -D warnings` | clean |
+| `cargo fmt --all` (xui-app) | clean |
+| `cargo tree --target x86_64-unknown-linux-musl` | single `xui-core`; no `winit`/`softbuffer`/`glutin`/`glow`/`arboard`/`windows`/`xui-gpu` |
+| Editor session (`xui_editor.json`) | `EDITOR:UP/SAVE/OPEN:PASS`; `02_editor_typed`: `1`/`2` **right-aligned** in the gutter, text starts on a tight, non-overlapping grid |
+| Paint session (`xui_paint.json`) | `PAINT:UP/SAVE:PASS`; drawn/undone/redone/saved shots non-blank |
+| Files session (`xui_files.json`) | `FILES:UP/OPEN:PASS`, `EDITOR:OPEN:PASS:/HELLO.TXT` |
+| Desktop session (`xui_desktop.json`, `LAZYOS_XUI_AUTOSTART=term,sysmon,fabricmon,counter`) | `TERM`/`SYSMON`/`FABMON` `UP:PASS`, shell `42` + `Hello from LazyOS!` + `confctl` usage |
+| sysmon owner session (`xui_sysmon.json`) | `SYSMON:UP/REFRESH/QUIT:PASS`; numeric columns right-aligned |
+| client session (`xui_client.json`) | `XUIAPP:CLIENT/KEY:PASS`, `XUIAPP:COUNTER:1`, `XUIAPP:CLOSE:PASS` |
+| `pngstats.py` on the editor/desktop/sysmon/client/paint/files shots | 1280x720, ≥51 colours, >99.9% non-background |
+
+The upstream alignment code is byte-for-byte the same logic the fork carried
+(the `text::draw` per-line offset), so the Terminal grid and the
+sysmon/fabricmon right-aligned columns are unchanged; they were re-read from the
+captured pixels above. **No follow-up needed**: no `docs/xui-canvas-followup.md`
+was created because upstream #246 already has the fix.

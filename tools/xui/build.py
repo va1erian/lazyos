@@ -24,9 +24,12 @@ xui-paint.elf and xui-files.elf (the migrated document apps), and a JSON map
 on stdout. If the musl target or toolchain is unavailable the script reports
 what it could build and exits 0, so a CI job can skip the visual run.
 
-The pinned upstream ``xui-canvas`` is vendored under ``xui-app/vendor`` with the
-small LazyOS additions (in-memory font registration, natural-width alignment,
-borrowed pixels); the app's ``[patch]`` points the git dependency at that copy.
+``xui-core``, ``xui-canvas`` and ``xui-icons`` are git dependencies on
+``va1erian/xui`` at a single pinned revision; ``xui-canvas`` is built with
+``default-features = false`` so its software painter core (in-memory font
+registration, natural-width alignment, borrowed pixels, ``OffscreenBackend``) is
+used without ``winit``/``softbuffer``/``glutin``/``glow``/``arboard``/``xui-gpu``.
+No vendored copy or ``[patch]`` is involved.
 """
 
 from __future__ import annotations

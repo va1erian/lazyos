@@ -13,13 +13,16 @@ members = [
     "crates/code-editor",
     "crates/paint",
     "crates/explorer",
-    "crates/icons",
 ]
-exclude = ["vendor/xui-canvas"]
 
 [dependencies]
-xui-core = { git = "https://github.com/va1erian/xui", rev = "5efb730" }
-xui-canvas = { git = "https://github.com/va1erian/xui", rev = "5efb730" }
+# Both xui crates must resolve to the same revision so a single `xui_core`
+# links. `xui-canvas`'s default `winit-backend` feature pulls winit/softbuffer/
+# glutin/glow/arboard/windows/xui-gpu; turning it off leaves the pure tiny-skia
+# software painter core (Surface, SkiaCanvas, OffscreenBackend and the in-memory
+# font API) that LazyOS drives its own display protocol with.
+xui-core = { git = "https://github.com/va1erian/xui", rev = "35c818f9b187359927b1528c37d63f62604caa05" }
+xui-canvas = { git = "https://github.com/va1erian/xui", rev = "35c818f9b187359927b1528c37d63f62604caa05", default-features = false }
 # The same parcel codec the kernel and native `user` programs use, so the
 # fabric panel reads registry replies and talks to the topics broker with one
 # shared wire implementation. `no_std` + `alloc`, so it links into this binary.
@@ -31,22 +34,14 @@ messenger-generated = { path = "../libs/generated" }
 # The Terminal (issue #254) sends a process-group SIGINT on Ctrl-C. `libc` is
 # already in the dependency graph; a direct edge lets `term.rs` name `kill`.
 libc = "0.2"
-# The three portable apps, copied from `va1erian/xui` at rev `5efb730` into
-# `crates/`. Each is a workspace member so its own test suite runs on the host;
-# the `xui-editor`/`xui-paint`/`xui-files` binaries in `src/bin` supply the
-# LazyOS platform (filesystem, launcher, storage, clipboard) and drive them.
+# The three portable apps, copied from `va1erian/xui` (unchanged by the canvas
+# bump) into `crates/`. Each is a workspace member so its own test suite runs on
+# the host; the `xui-editor`/`xui-paint`/`xui-files` binaries in `src/bin`
+# supply the LazyOS platform (filesystem, launcher, storage, clipboard) and
+# drive them.
 xui-code-editor = { path = "crates/code-editor" }
 xui-paint = { path = "crates/paint" }
 xui-explorer = { path = "crates/explorer" }
-
-# Upstream `xui-canvas` builds its shaper's font database from the directories
-# `fontdb` scans and memory-maps the files it finds; LazyOS's Linux ABI has
-# anonymous `mmap` only. The vendored copy adds `set_default_font` /
-# `add_font` / `set_default_family`, applies `TextStyle`'s horizontal alignment
-# for natural-width (non-wrapped) runs, and exposes `Surface::pixels` for a
-# clone-free present; otherwise it is the pinned revision (see its README).
-[patch."https://github.com/va1erian/xui"]
-xui-canvas = { path = "vendor/xui-canvas" }
 
 [[bin]]
 name = "xui-m0"
