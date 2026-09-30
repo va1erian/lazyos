@@ -6,14 +6,10 @@ use xui_core::backend::{ParentRef, WidgetId};
 
 use super::{LazyOSBackend, Node};
 
-/// Moves `id` and its descendants to the end of `nodes`, keeping their relative
-/// order. Returns whether the table changed.
-pub(super) fn raise_in(nodes: &mut Vec<(WidgetId, Node)>, id: WidgetId) -> bool {
-    if !nodes.iter().any(|(node_id, _)| *node_id == id) {
-        return false;
-    }
-    // Grow the raised set to a fixed point; the loop is bounded by the table
-    // length, so a corrupted (cyclic) parent chain cannot spin.
+/// `id` and its descendants, in table order.
+fn family(nodes: &[(WidgetId, Node)], id: WidgetId) -> Vec<WidgetId> {
+    // Grow the set to a fixed point; the loop is bounded by the table length,
+    // so a corrupted (cyclic) parent chain cannot spin.
     let mut raised = vec![id];
     for _ in 0..nodes.len() {
         let before = raised.len();
@@ -28,6 +24,16 @@ pub(super) fn raise_in(nodes: &mut Vec<(WidgetId, Node)>, id: WidgetId) -> bool 
             break;
         }
     }
+    raised
+}
+
+/// Moves `id` and its descendants to the end of `nodes`, keeping their relative
+/// order. Returns whether the table changed.
+pub(super) fn raise_in(nodes: &mut Vec<(WidgetId, Node)>, id: WidgetId) -> bool {
+    if !nodes.iter().any(|(node_id, _)| *node_id == id) {
+        return false;
+    }
+    let raised = family(nodes, id);
     let (top, rest): (Vec<_>, Vec<_>) = std::mem::take(nodes)
         .into_iter()
         .partition(|(node_id, _)| raised.contains(node_id));
@@ -40,8 +46,13 @@ impl LazyOSBackend {
     /// Raises `id` above everything else in its window and repaints it.
     pub(super) fn raise_node(&self, id: WidgetId) {
         if self.is_client() {
-            if let Some((window, area)) = self.absolute_damage(id) {
-                self.add_damage(window, area);
+            // Damage the node and every descendant, which may extend past the
+            // node's own bounds.
+            let members = family(&self.nodes.borrow(), id);
+            for member in members {
+                if let Some((window, area)) = self.absolute_damage(member) {
+                    self.add_damage(window, area);
+                }
             }
         }
         raise_in(&mut self.nodes.borrow_mut(), id);
@@ -109,6 +120,13 @@ mod tests {
         assert_eq!(order(&nodes), [1, 2, 3, 4]);
         assert!(!raise_in(&mut nodes, id(99)));
         assert_eq!(order(&nodes), [1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn the_family_is_the_node_and_its_descendants() {
+        let nodes = table();
+        assert_eq!(family(&nodes, id(1)), [id(1), id(2)]);
+        assert_eq!(family(&nodes, id(3)), [id(3)]);
     }
 
     #[test]
