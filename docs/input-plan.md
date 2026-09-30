@@ -32,10 +32,14 @@ only what must be privileged.
   hardware drivers (PS/2 now; USB HID, virtio-input later; userspace drivers per driver-plan.md)
         |  raw, timestamped events        (kernel event bus, capability-gated)
         v
-  inputd  (userspace service, os.lazy.input.v1)
+  inputd  (userspace service; os.lazy.input.v1 + os.lazy.input.shell.v1)
         |  keymap, repeat, modifiers/locks, hotkeys, grabs, focus routing
+        |  events go DIRECTLY to each client's own endpoint (not via xuid)
         v
-  xuid / logind / Linux-ABI evdev nodes / any client with an input capability
+  apps / logind / Linux-ABI evdev nodes / any client holding an input session
+        ^
+        |  focus + hotkeys (os.lazy.input.shell.v1)
+  xuid (compositor; owns windows only, no longer carries keystrokes)
 ```
 
 Not `keyd`: that service is the secrets/crypto daemon.
@@ -91,10 +95,34 @@ Owns everything that was hard-coded in `layout.rs` and `keyboard.rs`.
   (layout changed, device added/removed, lock LEDs) declared in MIDL topics
   (`idl/topics.midl`). No keystroke content is ever published on a topic.
 
-### Layer 3 - client delivery: key and text are separate
+### Layer 3 - client delivery: its own namespace, key and text separate
 
-Extend `os.lazy.display.v1` with **new pinned methods** (25+), negotiated per
-surface so existing clients keep using methods 8/9 untouched:
+Input does **not** grow `os.lazy.display.v1`. Display stays about surfaces,
+buffers and windows; input gets its own MIDL interfaces in `idl/input.midl`, so
+the two evolve, version and are authorised independently (a login console or a
+service with no window can use input; a display client needs no input rights).
+
+| Interface | Audience | Capability | Role |
+|---|---|---|---|
+| `os.lazy.input.v1` | any client | `input.session` (default for windowed apps) | Open a session, receive events on your own endpoint, query state |
+| `os.lazy.input.shell.v1` | the compositor / session shell only | `input.shell` (held by `xuid`, `logind`) | Tell `inputd` who has focus, register hotkeys, approve grants |
+| kernel raw bus | `inputd` only | `input.raw` | Layer 1 above; not a Messenger interface |
+
+**Client flow.** A display client keeps creating its surface through
+`os.lazy.display.v1` unchanged. To get keys it calls `os.lazy.input.v1`
+`Open(surface: Option<U64>) -> (session: U64)` and transfers an event endpoint
+in the parcel (endpoint transfers stay in `handles`, as in `display.midl`).
+`inputd` binds the session to the kernel-stamped sender task, and the shell
+side tells it which session owns which surface (`xuid` already knows the
+surface's creator, so it registers `(surface, owner task)` and `inputd`
+matches the `Open`). A client can never claim a surface it does not own.
+Events then flow `inputd` -> client directly, which is one Messenger hop
+fewer than today's kernel -> `xuid` -> client path.
+
+`os.lazy.input.v1` (client -> `inputd`): `Open`, `Close`, `GetState`
+(layout, repeat timing), `RequestGrant(kind)`, `ReleaseGrant`, `Ping`.
+
+`os.lazy.input.v1` events (`inputd` -> client, `oneway`):
 
 | Event | Fields | For |
 |---|---|---|
@@ -104,16 +132,28 @@ surface so existing clients keep using methods 8/9 untouched:
 | `KeyboardLeave` | none | focus lost: **client must release all keys**; `inputd` also cancels repeat |
 | `LayoutChanged` | layout name | UI hints |
 
+`os.lazy.input.shell.v1` (compositor -> `inputd`): `SetFocus(session or
+surface)`, `RegisterSurface(surface, owner)`, `RegisterHotkey(chord) ->
+(id)`, `UnregisterHotkey`, `ApproveGrant(session, allow)`. Shell events
+(`inputd` -> compositor): `HotkeyFired(id)`, `GrantRequested(session, kind)`,
+`EscapeChord`.
+
 Rules: physical `code` always present; `TextInput` only for character-producing
 presses (not for Ctrl/Alt chords, mirroring today's rule 5 in `display.md`).
 `KeyEvent.Down` carries no text, so games ignore `TextInput` and editors ignore raw
 codes, and neither has to reverse-engineer the other.
 
-**Low-latency poll path for games.** Optionally the compositor hands a focused
-client a `SHARE_ONLY` shared buffer holding a 256-bit *down bitmap* plus a
-`seq: AtomicU64`. Reading `is_down(HID_W)` is a memory read, no Messenger round
-trip and no event queue. The bitmap is cleared and the client notified on
-`KeyboardLeave`. Events still flow for edge-triggered actions.
+**Legacy bridge.** `display.v1` methods 8/9 (`KeyDown`/`KeyUp`) are frozen, not
+extended. While old clients exist, `xuid` synthesises them by subscribing to
+`inputd` as an ordinary shell-side session for legacy surfaces only. New code
+never uses them, and they are removed in I5. No new display method is added by
+this plan.
+
+**Low-latency poll path for games.** Optionally `inputd` (not the compositor)
+hands a focused session a `SHARE_ONLY` shared buffer holding a 256-bit *down
+bitmap* plus a `seq: AtomicU64`. Reading `is_down(HID_W)` is a memory read, no
+Messenger round trip and no event queue. The bitmap is cleared and the client
+notified on `KeyboardLeave`. Events still flow for edge-triggered actions.
 
 ### Linux ABI: `/dev/input/event*` for unmodified programs
 
@@ -146,7 +186,7 @@ capability is required for the raw, unfocused device (console/login only).
 |---|---|---|
 | **I0** | Kernel raw event bus + HID translation table + `Dropped` marker; PS/2 driver emits both old and new streams. `display_input_poll` unchanged. | Correctness: table round-trips for every scancode incl. E0, Pause, PrintScreen; release/press pairing; ring wraparound and overflow marker. Stress: millions of events across producers, no loss without a marker |
 | **I1** | `idl/input.midl` + `inputd` skeleton: consumes raw events, ports `layout.rs` (US, FR) to data files, generates repeat, reports modifiers. Runs beside the old path behind `LAZYOS_INPUTD=1`. | Host-run keymap unit tests; QEMU `send-key` scripts via `qemu_qmp.py` typing all printable keys on both layouts |
-| **I2** | `xuid` switches to `inputd` for routing; hotkey registration replaces built-in chords; `KeyboardEnter/Leave`, new `KeyEvent`/`TextInput` opt-in; old `KeyDown/KeyUp` synthesised for legacy clients. xui backend migrated to `TextInput` for text widgets. | Existing display suite (`kernel/src/tests/display_suite/`) must still pass unchanged; new focus-change, stuck-key and grab tests |
+| **I2** | `idl/input.midl` (`os.lazy.input.v1`, `os.lazy.input.shell.v1`) is generated with `midlc`; `xuid` becomes a shell client (focus, surface registration, hotkeys) and stops carrying keystrokes; apps `Open` a session and receive `KeyEvent`/`TextInput`/`KeyboardEnter/Leave` directly from `inputd`; `KeyDown/KeyUp` are synthesised for legacy surfaces only. xui backend migrated to `TextInput` for text widgets. | Existing display suite (`kernel/src/tests/display_suite/`) must still pass unchanged; new focus-change, stuck-key and grab tests |
 | **I3** | Poll bitmap buffer; keyboard grab + escape chord; Doom (`lazydoom`) adopts `KeyEvent` + bitmap. | Screenshot session driving WASD, fire, automap in the Doom title/demos; grab/escape scenario |
 | **I4** | `/dev/input/event*` on the Linux shim; `input` ABI fixture (`ABI:input:PASS`). | Fixture: open, `EVIOCG*` ioctls, read events under injected QMP keys, focus-gated reads, `EVIOCGRAB` |
 | **I5** | Remove the kernel layout code and the old bound-consumer path; USB HID / virtio-input drivers plug into the bus with no other changes; `logind` console login moves onto `inputd`. | Full `tools/test/run.py --accel none`, desktop screenshots, login session |
@@ -179,7 +219,7 @@ that can be added behind that boundary later is deferred.
 ## Minimal first cut (what "v1" means)
 
 In: I0 (kernel bus, HID translation, `Dropped` marker), I1 (`inputd` with
-US/FR tables, modifiers, repeat), and I2 (routing through `xuid`, `KeyEvent` /
+US/FR tables, modifiers, repeat), and I2 (the two `os.lazy.input` interfaces with `xuid` as shell client, `KeyEvent` /
 `TextInput` / `KeyboardEnter` / `KeyboardLeave`, legacy `KeyDown`/`KeyUp`
 synthesised for old clients). That is enough for the Doom port: physical codes,
 explicit press/release/repeat, no stuck keys.
