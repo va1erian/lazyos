@@ -73,7 +73,7 @@ class Tail:
     """Incremental serial reader that only decodes bytes it has not seen."""
 
     def __init__(self, path: Path):
-        self.path, self.offset = path, 0
+        self.path, self.offset, self.partial = path, 0, ""
 
     def new_text(self) -> str:
         try:
@@ -84,6 +84,13 @@ class Tail:
             return ""
         self.offset += len(data)
         return data.decode("utf-8", errors="replace")
+
+    def new_lines(self) -> list[str]:
+        """Complete new lines only; a line still being written is held back so
+        a pattern split across two reads (``EXCEPT`` + ``ION:``) still matches."""
+        text = self.partial + self.new_text()
+        *lines, self.partial = text.split("\n")
+        return lines
 
 
 class Monkey:
@@ -229,7 +236,12 @@ def start_guest(args: argparse.Namespace, qemu: str, out: Path):
     command = build_qemu_command(qemu, str(Path(args.image).resolve()), port, serial,
                                  args.memory, extra)
     proc = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
-    return proc, Qmp("127.0.0.1", port, 60), serial
+    try:
+        return proc, Qmp("127.0.0.1", port, 60), serial
+    except BaseException:
+        proc.kill()  # never leave an orphan QEMU behind a failed QMP connect
+        proc.wait()
+        raise
 
 
 def wait_ready(tail: Tail, proc, marker: str, timeout: float) -> bool:
@@ -271,7 +283,11 @@ def run_one(args: argparse.Namespace, qemu: str, seed: int, out: Path,
             replay: list[dict] | None) -> bool:
     """One boot + monkey session. Returns True when no fault was found."""
     out.mkdir(parents=True, exist_ok=True)
-    proc, qmp, serial = start_guest(args, qemu, out)
+    try:
+        proc, qmp, serial = start_guest(args, qemu, out)
+    except (RuntimeError, OSError) as error:
+        print(f"MONKEY: FAULT seed={seed} could not start the guest: {error}")
+        return False
     tail, fatal = Tail(serial), [re.compile(p) for p in (args.fail_on or DEFAULT_FATAL)]
     ignore = [re.compile(p) for p in args.ignore]
     report: dict = {"seed": seed, "image": args.image, "found": False}
@@ -308,13 +324,14 @@ def run_one(args: argparse.Namespace, qemu: str, seed: int, out: Path,
                 break
             index += 1
             time.sleep(rng.random() * args.max_gap)
-            for line in tail.new_text().splitlines():
+            for line in tail.new_lines():
                 if any(p.search(line) for p in ignore):
                     continue
                 if any(p.search(line) for p in fatal):
-                    report.update(found=True, kind="serial", detail=line.strip())
-                    time.sleep(1.5)  # let the rest of the fault report land
-                    break
+                    report.setdefault("findings", []).append(line.strip())
+                    if not report["found"]:  # keep the first match as the headline
+                        report.update(found=True, kind="serial", detail=line.strip())
+                        time.sleep(1.5)  # let the rest of the fault report land
             if report["found"] and not args.keep_going:
                 break
             if args.probe_every > 0 and not report["found"] and now >= next_probe:

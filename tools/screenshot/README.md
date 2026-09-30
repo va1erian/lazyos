@@ -173,7 +173,8 @@ Guest timing is not deterministic, so use `--runs N` (seeds `seed..seed+N-1`)
 to hunt a rare fault. To symbolize a freeze, subtract the kernel load base
 (`0x8000000000`) from the addresses in `freeze_registers.txt` and run
 `addr2line -f -C -e <kernel ELF>`. Findings keep `shot_fault.png`,
-`serial_tail.txt`, `report.json` and the registers; exit status is 1.
+`serial_tail.txt`, `report.json` and the registers; freeze findings also keep
+`freeze_registers.txt` and `freeze_hang_report.txt`. Exit status is 1.
 
 ## CI
 
