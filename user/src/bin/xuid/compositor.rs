@@ -9,6 +9,7 @@ use user::messenger::display::{Canvas, Rect};
 
 use super::clock::{self, Clock};
 use super::drag::DragSession;
+use super::inputlink::InputLink;
 use super::shell::{taskbar_visible, AltTab, Modifiers, ShellSub};
 use super::surface::{Drag, Surface};
 
@@ -46,6 +47,8 @@ pub(super) struct Compositor {
     pub(super) scratch: Vec<u8>,
     /// The taskbar clock (issue #370).
     pub(super) clock: Clock,
+    /// The compositor's side of `inputd` (`docs/input-plan.md`).
+    pub(super) input: InputLink,
 }
 
 impl Compositor {
@@ -67,6 +70,7 @@ impl Compositor {
             alt_tab: None,
             scratch: Vec::with_capacity(64),
             clock: Clock::new(),
+            input: InputLink::new(),
         }
     }
 

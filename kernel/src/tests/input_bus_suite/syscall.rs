@@ -6,6 +6,7 @@ use crate::input::rawsys::op;
 use crate::ipc::credentials::{self, Cred, CAP_INPUT_RAW, CAP_SYS_ADMIN};
 
 const EPERM: i64 = 1;
+const ENOENT: i64 = 2;
 const EBADF: i64 = 9;
 const EFAULT: i64 = 14;
 const EINVAL: i64 = 22;
@@ -202,6 +203,44 @@ pub fn poll_bounds_and_faults() -> Result<(), String> {
     check!(poll(&mut buf) == failed(EBADF), "poll after close");
     check!(call(op::CLOSE, 0, 0) == failed(EBADF), "double close");
     bus::reset();
+    fresh();
+    Ok(())
+}
+
+/// `inputd` authenticates the compositor by asking the kernel who holds the
+/// display grant: nobody, then the binder, then nobody again; and only an
+/// `input.raw` holder may ask.
+pub fn display_owner_reports_the_compositor() -> Result<(), String> {
+    let slot = inputd_task()?;
+    crate::display::reset();
+    check!(
+        call(op::DISPLAY_OWNER, 0, 0) == failed(ENOENT),
+        "owner with nothing bound"
+    );
+    credentials::set(slot, Cred::new(0, 0, CAP_INPUT_RAW | CAP_SYS_ADMIN, 0, 1));
+    let mut info = [0u64; crate::display::INFO_WORDS];
+    let bound =
+        process::dispatch_for_test(12, crate::display::op::BIND, info.as_mut_ptr() as u64, 0);
+    check!(bound == 0, "bind -> {bound:#x}");
+    check!(
+        call(op::DISPLAY_OWNER, 0, 0) == slot as u64,
+        "owner is not the binder"
+    );
+    // A task without the capability cannot ask (the owner is not public).
+    let other = scratch()?;
+    credentials::set(other, Cred::new(0, 0, CAP_SYS_ADMIN, 0, 1));
+    task::harness::switch_current(other);
+    check!(
+        call(op::DISPLAY_OWNER, 0, 0) == failed(EPERM),
+        "owner query without the capability"
+    );
+    task::harness::switch_current(slot);
+    process::dispatch_for_test(12, crate::display::op::UNBIND, 0, 0);
+    check!(
+        call(op::DISPLAY_OWNER, 0, 0) == failed(ENOENT),
+        "owner after unbind"
+    );
+    crate::display::reset();
     fresh();
     Ok(())
 }

@@ -15,12 +15,14 @@ mod engine;
 pub mod keymap;
 pub mod keysym;
 mod repeat;
+pub mod router;
 #[cfg(test)]
 mod tests;
 
 pub use engine::{Engine, KeyOut, KeyState, Output, RawKey};
 pub use keymap::Layout;
 pub use repeat::{REPEAT_DELAY_TICKS, REPEAT_INTERVAL_TICKS, TICK_NS};
+pub use router::Router;
 
 /// The `confd` key that selects the keyboard layout (`"us"` or `"fr"`).
 pub const LAYOUT_KEY: &str = "sys/input/layout";

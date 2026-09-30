@@ -108,6 +108,9 @@ impl Compositor {
             // the whole screen.
             self.repaint_full();
         }
+        // Register the surface with `inputd` before the client learns its id,
+        // so the `Open` it sends next can find it.
+        self.sync_input();
         typed_reply(
             message.method(),
             wire::encode_create_surface_reply(&wire::CreateSurfaceReply { surface: id }),
@@ -230,6 +233,7 @@ fn new_surface(
         bytes: 0,
         minimized: false,
         desktop,
+        input_session: false,
         slots: Default::default(),
     }
 }

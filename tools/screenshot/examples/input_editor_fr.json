@@ -1,0 +1,16 @@
+[
+  {"wait_for": "EDITOR:UP:PASS", "timeout": 240},
+  {"wait_for": "INPUTD:SESSION:OPEN", "timeout": 60},
+  {"wait": 2.0},
+  {"type": "qwerty 123 m,;:!"},
+  {"key": "enter"},
+  {"key_down": "shift"},
+  {"type": "qwerty"},
+  {"key_up": "shift"},
+  {"key_down": "altgr"},
+  {"type": "0"},
+  {"key_up": "altgr"},
+  {"wait": 1.0},
+  {"shot": "01_editor_azerty"},
+  {"quit": true}
+]

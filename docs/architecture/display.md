@@ -120,6 +120,17 @@ compositor demo. Target toolkit design: [xui-plan.md](../xui-plan.md).
   instead; `Tab` now reaches the client (see *Key codes clients receive*), and
   the compositor takes only Alt+Tab, Ctrl+Tab (cycle windows) and an unfocused
   Tab.
+- **Keys now have their own interface.** Windowed clients get keystrokes from
+  `inputd` (`os.lazy.input.v1`, `idl/input.midl`, [../input-plan.md](../input-plan.md)):
+  they `Open` a session for a surface they created and receive `KeyEvent`
+  (physical HID `code`, `sym`, modifier bits, `Down`/`Up`/`Repeat`) and
+  `TextInput` directly from `inputd`, only while focused. `xuid` is the shell
+  client of `inputd` (`os.lazy.input.shell.v1`: it registers each surface's
+  creator and reports focus) and stops carrying keystrokes for a surface once
+  `inputd` reports a session for it (`SessionOpened`). The frozen
+  `KeyDown`/`KeyUp` below are still synthesised, from the kernel's legacy
+  stream, for surfaces without a session (native demo clients, images without
+  `inputd`).
 - **Key codes clients receive** (`KeyDown(key)` / `KeyUp(key)`, method 8/9 of
   `os.lazy.display.v1`). `key` is a `u32`: the **code** in the low 24 bits
   (`key & 0x00FF_FFFF`) plus **modifier bits** in bits 24-27, added by `xuid`

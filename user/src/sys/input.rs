@@ -19,6 +19,7 @@ pub mod input_op {
     pub const OPEN: u64 = 0;
     pub const POLL: u64 = 1;
     pub const CLOSE: u64 = 2;
+    pub const DISPLAY_OWNER: u64 = 3;
 }
 
 /// Raw event kinds (`kernel/src/input/bus.rs`).
@@ -100,5 +101,16 @@ pub fn input_raw_close() -> Result<(), i64> {
     match input_syscall(input_op::CLOSE, 0, 0) {
         0 => Ok(()),
         code => Err(code),
+    }
+}
+
+/// The task slot holding the display grant (the compositor), `Err(-ENOENT)`
+/// when nothing is bound. Needs `CAP_INPUT_RAW`.
+pub fn input_display_owner() -> Result<u64, i64> {
+    let code = input_syscall(input_op::DISPLAY_OWNER, 0, 0);
+    if code >= 0 {
+        Ok(code as u64)
+    } else {
+        Err(code)
     }
 }

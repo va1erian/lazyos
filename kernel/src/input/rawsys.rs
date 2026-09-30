@@ -4,6 +4,7 @@
 //!   op 0 (open):  claim a consumer ring; -EPERM without CAP_INPUT_RAW
 //!   op 1 (poll):  rsi -> record buffer, rdx = capacity in bytes -> count
 //!   op 2 (close): release the ring
+//!   op 3 (display_owner): the task slot holding the display grant, or -ENOENT
 //! ```
 //!
 //! Every return is a count/zero or `-errno`. Records are
@@ -21,9 +22,12 @@ pub mod op {
     pub const OPEN: u64 = 0;
     pub const POLL: u64 = 1;
     pub const CLOSE: u64 = 2;
+    /// The compositor's task slot (the display grant holder).
+    pub const DISPLAY_OWNER: u64 = 3;
 }
 
 const EPERM: i64 = 1;
+const ENOENT: i64 = 2;
 const EFAULT: i64 = 14;
 const EBUSY: i64 = 16;
 const EINVAL: i64 = 22;
@@ -52,6 +56,12 @@ pub fn dispatch(operation: u64, buf: u64, capacity: u64) -> u64 {
                 _ => negative(EBADF),
             }
         }
+        // `inputd` accepts its shell interface only from the display grant's
+        // holder; the kernel is the authority on who that is.
+        op::DISPLAY_OWNER => match crate::display::owner() {
+            Some(slot) => slot as u64,
+            None => negative(ENOENT),
+        },
         _ => negative(EINVAL),
     }
 }

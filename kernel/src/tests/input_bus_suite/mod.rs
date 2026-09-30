@@ -96,6 +96,10 @@ pub(super) const CASES: &[(&str, Test)] = &[
         syscall::poll_bounds_and_faults,
     ),
     (
+        "input_raw_display_owner_reports_the_compositor",
+        syscall::display_owner_reports_the_compositor,
+    ),
+    (
         "input_raw_legacy_display_path_unchanged",
         syscall::legacy_path_unchanged,
     ),

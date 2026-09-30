@@ -92,6 +92,8 @@ mod drag;
 mod event;
 #[path = "xuid/icons.rs"]
 mod icons;
+#[path = "xuid/inputlink.rs"]
+mod inputlink;
 #[path = "xuid/keys.rs"]
 mod keys;
 #[path = "xuid/layout.rs"]
@@ -195,6 +197,10 @@ fn run() -> ! {
     sys::write_str(title::selftest_titles());
 
     loop {
+        // 0. `inputd`: register new surfaces, report focus, apply the
+        //    sessions it opened (keys for those windows come from it).
+        comp.sync_input();
+
         // 1. Input: drain the whole kernel queue first so pointer moves
         //    coalesce across poll calls, then handle what is left in order.
         drain_input(&mut input);

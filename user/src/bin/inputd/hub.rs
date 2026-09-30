@@ -1,0 +1,434 @@
+//! The service half of `inputd`: sessions, focus routing and event delivery.
+//!
+//! The pure decisions (who may open what, who has focus) live in
+//! `inputmap::Router`; this module owns the endpoints those decisions refer to
+//! and turns them into Messenger traffic. Key content goes to exactly one
+//! place: the endpoint of the focused session. A session whose endpoint fills
+//! up is marked lagging and resynchronised (`KeyboardLeave` + `KeyboardEnter`)
+//! before it gets anything else, so a dropped release can never leave a client
+//! with a stuck key.
+
+use alloc::collections::{BTreeMap, BTreeSet};
+use alloc::format;
+use alloc::vec::Vec;
+
+use inputmap::router::Error as RouteError;
+use inputmap::{
+    Engine, KeyOut, KeyState, Layout, Output, Router, REPEAT_DELAY_TICKS, REPEAT_INTERVAL_TICKS,
+};
+use user::messenger::input::{self as api, shell_wire, wire};
+use user::messenger::{errno, services, Endpoint, Error, Message, Parcel, Result};
+use user::sys;
+
+/// Most hotkey chords the compositor may register.
+const MAX_HOTKEYS: usize = 64;
+
+/// PIT ticks are 10 ms.
+const TICK_MS: u32 = 10;
+
+const ENOSYS: i64 = 38;
+
+/// What the generated encoders return.
+type Encoded = core::result::Result<Vec<u8>, libmessenger::Error>;
+
+/// The attached compositor.
+struct Shell {
+    /// Its kernel-stamped task slot: every shell call must come from it.
+    sender: u64,
+    /// Where shell events go.
+    events: Endpoint,
+}
+
+pub(super) struct Hub {
+    pub(super) engine: Engine,
+    router: Router,
+    /// session -> the client's event endpoint.
+    endpoints: BTreeMap<u64, Endpoint>,
+    /// Sessions that missed an event and must be resynchronised first.
+    lagging: BTreeSet<u64>,
+    shell: Option<Shell>,
+}
+
+impl Hub {
+    pub(super) fn new(layout: Layout) -> Hub {
+        Hub {
+            engine: Engine::new(layout),
+            router: Router::new(),
+            endpoints: BTreeMap::new(),
+            lagging: BTreeSet::new(),
+            shell: None,
+        }
+    }
+
+    // ---- requests ---------------------------------------------------------
+
+    /// Route one inbound call. `Ok(parcel)` is the reply; `Err` becomes the
+    /// structured error reply the caller sees.
+    pub(super) fn handle(&mut self, message: &Message) -> Result<Parcel> {
+        let interface = message.interface_id();
+        let method = message.method();
+        let body = if interface == api::INTERFACE {
+            self.client_call(message)?
+        } else if interface == api::SHELL_INTERFACE {
+            self.shell_call(message)?
+        } else {
+            release_handle(message);
+            return Err(Error::Errno(-errno::EINVAL));
+        };
+        Ok(api::request(interface, method, body, Vec::new()))
+    }
+
+    /// The error reply for a refused request.
+    pub(super) fn error_reply(message: &Message, error: Error) -> Parcel {
+        services::error_reply(message.interface_id(), message.method(), error)
+    }
+
+    fn client_call(&mut self, message: &Message) -> Result<Vec<u8>> {
+        let body = &message.parcel.body;
+        match message.method() {
+            wire::METHOD_OPEN => self.open(message),
+            wire::METHOD_CLOSE => {
+                release_handle(message);
+                let args = wire::decode_close_args(body).map_err(Error::Parcel)?;
+                let surface = self
+                    .router
+                    .close(args.session, message.sender)
+                    .map_err(route_error)?;
+                self.forget_endpoint(args.session);
+                self.announce_closed(surface);
+                Ok(Vec::new())
+            }
+            wire::METHOD_GETSTATE => {
+                release_handle(message);
+                wire::encode_get_state_reply(&wire::GetStateReply {
+                    layout: self.engine.layout().name().into(),
+                    mods: self.engine.mods(),
+                    repeat_delay_ms: REPEAT_DELAY_TICKS as u32 * TICK_MS,
+                    repeat_interval_ms: REPEAT_INTERVAL_TICKS as u32 * TICK_MS,
+                })
+                .map_err(Error::Parcel)
+            }
+            _ => {
+                release_handle(message);
+                Err(Error::Errno(-errno::EINVAL))
+            }
+        }
+    }
+
+    /// `Open`: bind a session to a surface the sender owns and adopt the event
+    /// endpoint it transferred.
+    fn open(&mut self, message: &Message) -> Result<Vec<u8>> {
+        let result = self.open_inner(message);
+        if result.is_err() {
+            release_handle(message);
+        }
+        result
+    }
+
+    fn open_inner(&mut self, message: &Message) -> Result<Vec<u8>> {
+        let args = wire::decode_open_args(&message.parcel.body).map_err(Error::Parcel)?;
+        // A session without a surface is reserved for the login console.
+        let surface = args.surface.ok_or(Error::Errno(-errno::EINVAL))?;
+        if message.handles == 0 {
+            return Err(Error::Errno(-errno::EINVAL));
+        }
+        let opened = self
+            .router
+            .open(message.sender, surface)
+            .map_err(route_error)?;
+        if let Some(old) = opened.replaced {
+            self.forget_endpoint(old);
+        }
+        self.endpoints
+            .insert(opened.session, Endpoint::from_raw(message.first_handle));
+        // Sessions are rare (one per window), so each is worth a boot-log line.
+        sys::write_str(&format!(
+            "INPUTD:SESSION:OPEN session={} surface={surface} owner={}
+",
+            opened.session, message.sender
+        ));
+        if opened.first_for_surface {
+            self.shell_event(
+                shell_wire::METHOD_SESSIONOPENED,
+                shell_wire::encode_session_opened_args(&shell_wire::SessionOpenedArgs { surface }),
+            );
+        }
+        if opened.focused {
+            self.enter(opened.session);
+        }
+        wire::encode_open_reply(&wire::OpenReply {
+            session: opened.session,
+        })
+        .map_err(Error::Parcel)
+    }
+
+    fn shell_call(&mut self, message: &Message) -> Result<Vec<u8>> {
+        let method = message.method();
+        if method == shell_wire::METHOD_ATTACH {
+            return self.attach(message);
+        }
+        release_handle(message);
+        // Everything else is the attached compositor's alone.
+        if self.shell.as_ref().map(|shell| shell.sender) != Some(message.sender) {
+            return Err(Error::Errno(-errno::EACCES));
+        }
+        let body = &message.parcel.body;
+        match method {
+            shell_wire::METHOD_SETFOCUS => {
+                let args = shell_wire::decode_set_focus_args(body).map_err(Error::Parcel)?;
+                self.set_focus(args.surface);
+                Ok(Vec::new())
+            }
+            shell_wire::METHOD_REGISTERSURFACE => {
+                let args = shell_wire::decode_register_surface_args(body).map_err(Error::Parcel)?;
+                self.router
+                    .register_surface(args.surface, args.owner)
+                    .map_err(route_error)?;
+                Ok(Vec::new())
+            }
+            shell_wire::METHOD_UNREGISTERSURFACE => {
+                let args =
+                    shell_wire::decode_unregister_surface_args(body).map_err(Error::Parcel)?;
+                if let Some(session) = self.router.unregister_surface(args.surface) {
+                    self.forget_endpoint(session);
+                }
+                Ok(Vec::new())
+            }
+            shell_wire::METHOD_REGISTERHOTKEY => {
+                let args = shell_wire::decode_register_hotkey_args(body).map_err(Error::Parcel)?;
+                let code = u16::try_from(args.code).map_err(|_| Error::Errno(-errno::EINVAL))?;
+                if self.engine.hotkey_count() >= MAX_HOTKEYS {
+                    return Err(Error::Errno(-errno::ENOMEM));
+                }
+                let id = self.engine.add_hotkey(code, args.mods);
+                shell_wire::encode_register_hotkey_reply(&shell_wire::RegisterHotkeyReply { id })
+                    .map_err(Error::Parcel)
+            }
+            shell_wire::METHOD_UNREGISTERHOTKEY => {
+                let args =
+                    shell_wire::decode_unregister_hotkey_args(body).map_err(Error::Parcel)?;
+                if self.engine.remove_hotkey(args.id) {
+                    Ok(Vec::new())
+                } else {
+                    Err(Error::Errno(-errno::ENOENT))
+                }
+            }
+            // Keyboard grabs are a later phase; the method is reserved.
+            shell_wire::METHOD_APPROVEGRANT => Err(Error::Errno(-ENOSYS)),
+            _ => Err(Error::Errno(-errno::EINVAL)),
+        }
+    }
+
+    /// `Attach`: only the display grant's holder (the compositor) may become
+    /// the shell client.
+    fn attach(&mut self, message: &Message) -> Result<Vec<u8>> {
+        if message.handles == 0 {
+            return Err(Error::Errno(-errno::EINVAL));
+        }
+        if !is_compositor(message.sender) {
+            release_handle(message);
+            return Err(Error::Errno(-errno::EACCES));
+        }
+        if let Some(old) = self.shell.take() {
+            let _ = old.events.close();
+        }
+        self.shell = Some(Shell {
+            sender: message.sender,
+            events: Endpoint::from_raw(message.first_handle),
+        });
+        Ok(Vec::new())
+    }
+
+    // ---- focus ------------------------------------------------------------
+
+    /// Move keyboard focus. Repeat is cancelled so a held key cannot leak from
+    /// one window into the next.
+    fn set_focus(&mut self, surface: Option<u64>) {
+        let change = self.router.set_focus(surface);
+        self.engine.cancel_repeat();
+        if let Some(session) = change.left {
+            self.send(session, wire::METHOD_KEYBOARDLEAVE, Ok(Vec::new()));
+        }
+        if let Some(session) = change.entered {
+            self.enter(session);
+        }
+    }
+
+    /// Tell `session` it has the keyboard, seeding it with the held keys.
+    fn enter(&mut self, session: u64) {
+        let down = self.engine.held().into_iter().map(u32::from).collect();
+        let body = wire::encode_keyboard_enter_args(&wire::KeyboardEnterArgs { down });
+        self.send(session, wire::METHOD_KEYBOARDENTER, body);
+    }
+
+    // ---- delivery ---------------------------------------------------------
+
+    /// Deliver the engine's outputs: key content to the focused session only,
+    /// hotkey matches to the compositor.
+    pub(super) fn deliver(&mut self, outputs: &[Output]) {
+        for output in outputs {
+            match output {
+                Output::Hotkey(id) => self.shell_event(
+                    shell_wire::METHOD_HOTKEYFIRED,
+                    shell_wire::encode_hotkey_fired_args(&shell_wire::HotkeyFiredArgs { id: *id }),
+                ),
+                Output::Key(key) => {
+                    if let Some(session) = self.router.focused_session() {
+                        self.send(session, wire::METHOD_KEYEVENT, encode_key(key));
+                    }
+                }
+                Output::Text(text) => {
+                    if let Some(session) = self.router.focused_session() {
+                        let body = wire::encode_text_input_args(&wire::TextInputArgs {
+                            utf8: text.clone(),
+                        });
+                        self.send(session, wire::METHOD_TEXTINPUT, body);
+                    }
+                }
+            }
+        }
+    }
+
+    /// The layout changed: adopt it and tell every session (the layout name is
+    /// not secret).
+    pub(super) fn set_layout(&mut self, layout: Layout) {
+        self.engine.set_layout(layout);
+        let sessions: Vec<u64> = self.router.sessions().collect();
+        for session in sessions {
+            let body = wire::encode_layout_changed_args(&wire::LayoutChangedArgs {
+                layout: layout.name().into(),
+            });
+            self.send(session, wire::METHOD_LAYOUTCHANGED, body);
+        }
+    }
+
+    /// Send an event to `session`, resynchronising it first if it lagged, and
+    /// dropping it when its endpoint is gone.
+    fn send(&mut self, session: u64, method: u32, body: Encoded) {
+        let Ok(body) = body else { return };
+        if self.lagging.contains(&session) && !self.resync(session) {
+            return;
+        }
+        match self.transmit(session, method, body) {
+            Ok(()) => {}
+            Err(Error::Errno(code)) if code == -errno::EPIPE => self.drop_session(session),
+            Err(_) => {
+                self.lagging.insert(session);
+            }
+        }
+    }
+
+    fn transmit(&self, session: u64, method: u32, body: Vec<u8>) -> Result<()> {
+        let endpoint = self
+            .endpoints
+            .get(&session)
+            .ok_or(Error::Errno(-errno::ENOENT))?;
+        endpoint.send(&api::event(api::INTERFACE, method, body))
+    }
+
+    /// Release-everything, then re-seed: the client tells no difference from a
+    /// focus loss and regain, which is exactly the recovery it already has.
+    fn resync(&mut self, session: u64) -> bool {
+        let down = self.engine.held().into_iter().map(u32::from).collect();
+        let enter = match wire::encode_keyboard_enter_args(&wire::KeyboardEnterArgs { down }) {
+            Ok(body) => body,
+            Err(_) => return false,
+        };
+        let sent = self
+            .transmit(session, wire::METHOD_KEYBOARDLEAVE, Vec::new())
+            .and_then(|()| self.transmit(session, wire::METHOD_KEYBOARDENTER, enter));
+        match sent {
+            Ok(()) => {
+                self.lagging.remove(&session);
+                true
+            }
+            Err(Error::Errno(code)) if code == -errno::EPIPE => {
+                self.drop_session(session);
+                false
+            }
+            Err(_) => false,
+        }
+    }
+
+    fn shell_event(&mut self, method: u32, body: Encoded) {
+        let (Some(shell), Ok(body)) = (&self.shell, body) else {
+            return;
+        };
+        let parcel = api::event(api::SHELL_INTERFACE, method, body);
+        if let Err(Error::Errno(code)) = shell.events.send(&parcel) {
+            if code == -errno::EPIPE {
+                // The compositor is gone: nobody is focused until it returns.
+                self.shell = None;
+                self.set_focus(None);
+            }
+        }
+    }
+
+    // ---- teardown ---------------------------------------------------------
+
+    fn forget_endpoint(&mut self, session: u64) {
+        self.lagging.remove(&session);
+        if let Some(endpoint) = self.endpoints.remove(&session) {
+            let _ = endpoint.close();
+        }
+    }
+
+    /// A session's endpoint died: drop it and tell the compositor.
+    fn drop_session(&mut self, session: u64) {
+        if let Some(removed) = self.router.remove(session) {
+            self.forget_endpoint(session);
+            self.announce_closed(removed.surface);
+        }
+    }
+
+    /// Tell the compositor `surface` has no session (legacy delivery resumes).
+    fn announce_closed(&mut self, surface: u64) {
+        if !self.router.has_session(surface) {
+            sys::write_str(&format!(
+                "INPUTD:SESSION:CLOSE surface={surface}
+"
+            ));
+            self.shell_event(
+                shell_wire::METHOD_SESSIONCLOSED,
+                shell_wire::encode_session_closed_args(&shell_wire::SessionClosedArgs { surface }),
+            );
+        }
+    }
+}
+
+fn encode_key(key: &KeyOut) -> Encoded {
+    wire::encode_key_event_args(&wire::KeyEventArgs {
+        code: u32::from(key.code),
+        sym: key.sym,
+        mods: key.mods,
+        state: match key.state {
+            KeyState::Down => wire::KEY_STATE_DOWN,
+            KeyState::Up => wire::KEY_STATE_UP,
+            KeyState::Repeat => wire::KEY_STATE_REPEAT,
+        },
+        ts_ns: key.ts_ns,
+        seq: key.seq,
+    })
+}
+
+/// Map a router refusal onto its errno.
+fn route_error(error: RouteError) -> Error {
+    Error::Errno(-match error {
+        RouteError::NoSurface | RouteError::NoSession => errno::ENOENT,
+        RouteError::NotOwner => errno::EACCES,
+        RouteError::Full => errno::ENOMEM,
+    })
+}
+
+/// Close a handle a refused request transferred, so it does not leak.
+fn release_handle(message: &Message) {
+    if message.handles != 0 {
+        let _ = Endpoint::from_raw(message.first_handle).close();
+    }
+}
+
+/// Whether `sender` holds the display grant: the compositor. The kernel says
+/// who that is, so no client can pose as it by registering a name.
+fn is_compositor(sender: u64) -> bool {
+    sys::input_display_owner() == Ok(sender)
+}

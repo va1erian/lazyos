@@ -137,6 +137,11 @@ impl Engine {
         id
     }
 
+    /// How many chords are registered.
+    pub fn hotkey_count(&self) -> usize {
+        self.hotkeys.len()
+    }
+
     /// Remove a chord; whether it existed.
     pub fn remove_hotkey(&mut self, id: u64) -> bool {
         let before = self.hotkeys.len();

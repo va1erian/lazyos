@@ -1,0 +1,16 @@
+[
+  {"wait_for": "TERM:UP:PASS", "timeout": 240},
+  {"wait_for": "EDITOR:UP:PASS", "timeout": 240},
+  {"wait_for": "INPUTD:SESSION:OPEN", "timeout": 60},
+  {"at": 2.0, "shot": "01_desktop_fr"},
+  {"at": 3.0, "type": "qwerty 123 m,;:!"},
+  {"at": 4.0, "shot": "02_editor_azerty"},
+  {"at": 5.0, "key_down": "alt"},
+  {"at": 5.2, "key": "tab"},
+  {"at": 5.5, "key_up": "alt"},
+  {"at": 6.5, "type": "echo qwerty"},
+  {"at": 7.0, "key": "enter", "until": "TERM:CMD:echo azerty", "timeout": 30, "retries": 2},
+  {"wait_for": "TERM:OUT:azerty", "timeout": 30},
+  {"at": 1.0, "shot": "03_terminal_azerty"},
+  {"at": 2.0, "quit": true}
+]

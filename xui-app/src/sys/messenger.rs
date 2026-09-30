@@ -166,6 +166,32 @@ pub fn msg_call(
     Parcel::decode(&buf[..len]).map_err(|_| -errno::EINVAL)
 }
 
+/// How many messages are queued on `handle`'s channel, without parking.
+///
+/// An expired-deadline `recv` on an empty queue parks until the next timer
+/// gate (up to one tick), which would make polling a second endpoint every
+/// loop pass cost a tick; the channel counters answer instantly instead.
+/// Only meaningful for a channel that carries traffic in one direction, like
+/// an input session's event channel.
+pub fn msg_queued(handle: u64) -> Result<u64, i64> {
+    /// `Stats::queued` in the compact 64-byte shape (calls, replies, timeouts,
+    /// cancels, drops, queued, queued_bytes, outstanding).
+    const QUEUED_WORD: usize = 5;
+    let mut words = [0u64; 8];
+    let args = MsgArgs {
+        handle,
+        buf_ptr: words.as_mut_ptr() as u64,
+        buf_cap: core::mem::size_of_val(&words) as u64,
+        ..MsgArgs::default()
+    };
+    let mut result = MsgResult::default();
+    messenger_syscall(msg_op::STATS, &args, &mut result)?;
+    if result.bytes as usize != core::mem::size_of_val(&words) {
+        return Err(-errno::E2BIG);
+    }
+    Ok(words[QUEUED_WORD])
+}
+
 /// Receive one queued message into `buf`; the full [`MsgResult`] carries the
 /// reply length (`bytes`) and transaction id (`value`). `deadline` is an
 /// absolute PIT tick, or [`EXPIRED_DEADLINE`] for a non-blocking poll.
