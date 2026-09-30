@@ -129,6 +129,15 @@ pub fn locked() -> bool {
 
 /// Run a closure with mutable access to the underlying framebuffer, e.g. to
 /// blit a rendered image.
+///
+/// The lock is held with interrupts off (issue #382). The kernel mux blits
+/// from a preemptible context while `present` (syscall 12) blits with
+/// interrupts off: a tick that preempted the mux mid-blit handed the CPU to
+/// a compositor that then spun on this lock forever, with the timer masked,
+/// so the mux never ran again to release it. Holding it with interrupts off
+/// everywhere makes a preempted holder impossible on this single CPU.
 pub fn with_framebuffer<R>(f: impl FnOnce(&mut Framebuffer) -> R) -> Option<R> {
-    CONSOLE.lock().as_mut().map(|console| f(&mut console.fb))
+    x86_64::instructions::interrupts::without_interrupts(|| {
+        CONSOLE.lock().as_mut().map(|console| f(&mut console.fb))
+    })
 }

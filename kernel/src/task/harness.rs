@@ -27,6 +27,31 @@ pub fn take_critical_stats() -> (u64, u64) {
     )
 }
 
+/// Timer ticks that interrupted ring-0 code, and those of them that found a
+/// lock held which non-preemptible code also takes (heap, console): each is
+/// a preempted holder that a syscall could then spin on forever (issue #382).
+static TICKS_IN_KERNEL: AtomicU64 = AtomicU64::new(0);
+static PREEMPTED_HOLDERS: AtomicU64 = AtomicU64::new(0);
+
+/// Called by the scheduler on every timer tick (test builds only).
+pub fn note_tick_locks() {
+    if !super::diag::last_tick_in_kernel() {
+        return;
+    }
+    TICKS_IN_KERNEL.fetch_add(1, Ordering::Relaxed);
+    if crate::mem::heap_locked() || crate::console::locked() {
+        PREEMPTED_HOLDERS.fetch_add(1, Ordering::Relaxed);
+    }
+}
+
+/// `(ticks_in_kernel, preempted_holders)` since the last call; resets both.
+pub fn take_tick_lock_stats() -> (u64, u64) {
+    (
+        TICKS_IN_KERNEL.swap(0, Ordering::Relaxed),
+        PREEMPTED_HOLDERS.swap(0, Ordering::Relaxed),
+    )
+}
+
 /// Free every slot except the kernel task's and zero its scheduler
 /// accounting, so tests do not inherit virtual-time or CPU ticks from an
 /// earlier test.

@@ -47,15 +47,30 @@ const LOCKS: [LockProbe; 5] = [
     ("signals", crate::task::signal::registry_locked),
 ];
 
-/// IDT entry for vector 2.
-pub extern "x86-interrupt" fn nmi_handler(frame: InterruptStackFrame) {
-    // A report that fails half-way (it cannot: `RawSerial` never errors)
-    // still leaves the lines already printed.
-    let _ = report(&mut RawSerial, &frame);
+/// The context an NMI interrupted, as the CPU saved it.
+#[derive(Clone, Copy, Debug)]
+pub struct Interrupted {
+    pub rip: u64,
+    pub cs: u64,
+    pub rflags: u64,
+    pub rsp: u64,
 }
 
-/// Print the whole report for the context `frame` interrupted.
-fn report(out: &mut impl Write, frame: &InterruptStackFrame) -> fmt::Result {
+/// IDT entry for vector 2.
+pub extern "x86-interrupt" fn nmi_handler(frame: InterruptStackFrame) {
+    let at = Interrupted {
+        rip: frame.instruction_pointer.as_u64(),
+        cs: frame.code_segment.0.into(),
+        rflags: frame.cpu_flags.bits(),
+        rsp: frame.stack_pointer.as_u64(),
+    };
+    // A report that fails half-way (it cannot: `RawSerial` never errors)
+    // still leaves the lines already printed.
+    let _ = report(&mut RawSerial, &at);
+}
+
+/// Print the whole report for the context `at` (the NMI's interrupted one).
+pub fn report(out: &mut impl Write, at: &Interrupted) -> fmt::Result {
     let anchor = nmi_handler as *const () as u64;
     writeln!(
         out,
@@ -63,21 +78,20 @@ fn report(out: &mut impl Write, frame: &InterruptStackFrame) -> fmt::Result {
         crate::task::ticks(),
         crate::task::current()
     )?;
-    let (rip, rsp) = (
-        frame.instruction_pointer.as_u64(),
-        frame.stack_pointer.as_u64(),
-    );
-    let (cs, rflags) = (frame.code_segment.0, frame.cpu_flags.bits());
     writeln!(
         out,
-        "HANG:CPU rip={rip:#x} cs={cs:#x} rflags={rflags:#x} if={} rsp={rsp:#x} cr3={:#x}",
-        u8::from(rflags & IF != 0),
+        "HANG:CPU rip={:#x} cs={:#x} rflags={:#x} if={} rsp={:#x} cr3={:#x}",
+        at.rip,
+        at.cs,
+        at.rflags,
+        u8::from(at.rflags & IF != 0),
+        at.rsp,
         Cr3::read().0.start_address().as_u64()
     )?;
     write_locks(out)?;
     crate::task::diag::write_report(out)?;
-    if cs & 3 == 0 {
-        write_stack(out, crate::task::current(), rsp, CPU_STACK_WORDS)?;
+    if at.cs & 3 == 0 {
+        write_stack(out, crate::task::current(), at.rsp, CPU_STACK_WORDS)?;
     }
     writeln!(out, "HANG:END")
 }

@@ -7,7 +7,7 @@ kernel object slab allocator, and the ring-3 bump allocator.
 
 | Path | Role |
 |---|---|
-| `kernel/src/mem/heap.rs` | `#[global_allocator] LockedHeap` (`linked_list_allocator`) |
+| `kernel/src/mem/heap.rs` | `#[global_allocator] IrqSafeHeap(LockedHeap)` (`linked_list_allocator`, lock held with interrupts off, issue #382) |
 | `kernel/src/mem/slab.rs` | Size-class slab allocator with owner accounting |
 | `user/src/heap.rs` | Bump allocator over the `sbrk` syscall |
 | `kernel/src/tests/heap_suite.rs`, `kernel/src/tests/slab_suite.rs` | `heap_suite`, `slab_suite` coverage |

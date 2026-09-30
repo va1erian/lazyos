@@ -145,6 +145,7 @@ mod messenger_suite;
 mod native_exec_suite;
 mod overlay_suite;
 mod pipe_suite;
+mod preempt_lock_suite;
 mod quota_suite;
 mod ramdisk_suite;
 mod registry_suite;
@@ -166,6 +167,7 @@ const SUITE: &[&[(&str, Test)]] = &[
     mem_suite::CASES,
     heap_suite::CASES,
     arch_suite::CASES,
+    preempt_lock_suite::CASES,
     slab_suite::CASES,
     quota_suite::CASES,
     task_suite::CASES,

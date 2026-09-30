@@ -38,6 +38,12 @@ pub(super) fn note_tick(slot: usize, rsp: u64) {
     }
 }
 
+/// Whether the last timer tick interrupted ring-0 code.
+#[cfg(lazyos_tests)]
+pub(super) fn last_tick_in_kernel() -> bool {
+    LAST_TICK[3].load(Ordering::Relaxed) & 3 == 0
+}
+
 /// Whether the task table lock is held right now.
 pub fn table_locked() -> bool {
     TASKS.is_locked()
