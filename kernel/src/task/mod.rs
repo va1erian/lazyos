@@ -58,6 +58,7 @@ use crate::mem;
 // two apart.
 use crate::process as user_process;
 
+pub mod diag;
 pub mod introspect;
 mod linux_spawn;
 pub mod process;

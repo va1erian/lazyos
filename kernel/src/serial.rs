@@ -63,6 +63,11 @@ impl fmt::Write for Stamped<'_> {
     }
 }
 
+/// Whether the port lock is held right now (the NMI hang report, issue #382).
+pub fn locked() -> bool {
+    SERIAL1.is_locked()
+}
+
 /// Initialise COM1.
 pub fn init() {
     // Safety: 0x3F8 is the standard COM1 base port.

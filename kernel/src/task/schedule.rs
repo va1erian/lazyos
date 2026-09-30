@@ -21,8 +21,13 @@ pub extern "C" fn schedule(current_rsp: u64, tick: u32) -> u64 {
         unsafe { crate::arch::pic::end_of_interrupt(0) };
     }
 
-    let mut tasks = TASKS.lock();
     let cur = CURRENT.load(Ordering::Relaxed);
+    if tick {
+        diag::note_tick(cur, current_rsp);
+        #[cfg(lazyos_tests)]
+        harness::note_tick_locks();
+    }
+    let mut tasks = TASKS.lock();
     if let Some(task) = tasks[cur].as_mut() {
         task.rsp = current_rsp;
     }

@@ -83,6 +83,33 @@ ISR that performs context switches.
 - fd table: `fd_open/close/read/size/seek/dup/dup2`, 16 slots; 0/1/2 are the
   task terminal; files are whole-file buffers with an offset.
 
+**Locks and preemption** (issue #382)
+
+- Syscalls and ISRs run with interrupts off; the kernel task (the mux) runs
+  with them on and is preempted by the timer. A spin lock that both sides
+  take must therefore always be held with interrupts off: a tick that
+  preempts the mux while it holds the lock hands the CPU to a task whose
+  syscall then spins on it with the timer masked, and the machine stops
+  silently. The task table (`task::live`), the mouse state, the console
+  (`console::with_framebuffer`) and the heap (`mem::heap`'s `IrqSafeHeap`
+  wrapper around `LockedHeap`) follow this rule;
+  `preempt_lock_suite` soaks the heap and console under real PIT ticks.
+- The same holds inside a syscall that sleeps: a busy-wait must re-mask
+  interrupts after each `hlt` before it touches a lock again. `task::nap`
+  (`enable_and_hlt` then `cli`) and `task::poll_until` do this; native
+  `read_char`, redirected stdin, a stopped task and `WaitQueue::wait` use
+  them.
+- A hang is diagnosed with an NMI (`arch::nmi`): QMP `inject-nmi` (sent by
+  `qemu_session.py` on a timed-out gate, or the monitor's `nmi`) prints
+  `HANG:` lines through a lock-free UART writer: the interrupted context, the
+  held global locks, the context the last tick interrupted, every task's
+  state and saved frame (`task::diag`), and raw ring-0 stack words
+  (subtract the bootloader's logged `virtual_address_offset`, then
+  `llvm-symbolizer` against the kernel ELF). WHPX drops injected NMIs; the
+  session then keeps `info registers` and the words at `rsp`
+  (`hang_registers.txt`). `tools/screenshot/boot_stress.py` boots an image
+  many times to measure a hang rate.
+
 **Status.** Working: preemptive RR-with-priorities demo, native/Linux spawn,
 fork/threads, CPU accounting (`cpu_usage`), per-task fds. Not yet: SMP, per-CPU
 run queues, Linux nice mapping.

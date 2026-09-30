@@ -106,6 +106,31 @@ pub fn wait_sleep(deadline: u64) -> WakeReason {
     wait::SLEEP.wait(current(), Some(deadline))
 }
 
+/// Sleep until the next interrupt, then mask interrupts again.
+///
+/// For syscall loops that re-check state under spin locks between sleeps.
+/// The re-check must run with interrupts off, as the syscall entry left
+/// them: a tick that preempted it while it held the task table would find
+/// the lock taken and spin on it forever in the scheduler, with the timer
+/// masked (issue #382: `logind`'s native `read_char` hung a desktop boot
+/// this way). `enable_and_hlt` also closes the race between the check and
+/// the sleep.
+pub fn nap() {
+    x86_64::instructions::interrupts::enable_and_hlt();
+    x86_64::instructions::interrupts::disable();
+}
+
+/// Call `ready` until it yields a value, [`nap`]ping between attempts, so
+/// every attempt runs with interrupts masked.
+pub fn poll_until<T>(mut ready: impl FnMut() -> Option<T>) -> T {
+    loop {
+        if let Some(value) = ready() {
+            return value;
+        }
+        nap();
+    }
+}
+
 /// Park the current task until `deadline` (absolute PIT ticks), from a context
 /// with interrupts enabled: the multiplexer's between-frames idle primitive.
 ///

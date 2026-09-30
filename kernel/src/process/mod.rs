@@ -178,22 +178,17 @@ fn sys_read_char() -> u64 {
     if let Some(byte) = linux::read_redirected() {
         return byte;
     }
-    loop {
-        if let Some(key) = task::take_key() {
-            return match key {
-                keyboard::Key::Char(c) => c as u64,
-                keyboard::Key::Enter => b'\n' as u64,
-                keyboard::Key::Space => b' ' as u64,
-                keyboard::Key::Backspace => 8,
-                keyboard::Key::Tab => b'\t' as u64,
-                keyboard::Key::Escape => 27,
-                _ => 0,
-            };
-        }
-        // Interrupts are disabled inside the gate; enable them so the timer can
-        // preempt us (letting other tasks run) and the keyboard can deliver keys.
-        x86_64::instructions::interrupts::enable();
-        x86_64::instructions::hlt();
+    // Napping between polls lets the timer preempt us (other tasks run) and
+    // the keyboard deliver keys, while each `take_key` (the task table) still
+    // runs with interrupts off (issue #382).
+    match task::poll_until(task::take_key) {
+        keyboard::Key::Char(c) => c as u64,
+        keyboard::Key::Enter => b'\n' as u64,
+        keyboard::Key::Space => b' ' as u64,
+        keyboard::Key::Backspace => 8,
+        keyboard::Key::Tab => b'\t' as u64,
+        keyboard::Key::Escape => 27,
+        _ => 0,
     }
 }
 

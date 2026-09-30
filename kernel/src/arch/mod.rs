@@ -9,7 +9,9 @@ pub mod io;
 pub mod irq_stubs;
 pub mod linux;
 pub mod msr;
+pub mod nmi;
 pub mod pic;
+pub mod raw_serial;
 pub mod rtc;
 
 /// Initialise interrupt hardware and load the IDT.

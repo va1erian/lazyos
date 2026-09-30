@@ -231,7 +231,7 @@ pub(super) fn wait_continued() {
             Some(TaskState::Blocked {
                 wait: WaitKind::Signal,
                 ..
-            }) => x86_64::instructions::interrupts::enable_and_hlt(),
+            }) => crate::task::nap(),
             Some(TaskState::Done) | None => halt_forever(),
             _ => return,
         }
