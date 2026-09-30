@@ -126,7 +126,7 @@ impl Canvas {
     }
 
     /// Blend `color` over one pixel with coverage `alpha` (0..=255).
-    fn blend_pixel(&mut self, x: i32, y: i32, color: Color, alpha: u8, clip: Rect) {
+    pub fn blend_pixel(&mut self, x: i32, y: i32, color: Color, alpha: u8, clip: Rect) {
         if alpha == 0 {
             return;
         }

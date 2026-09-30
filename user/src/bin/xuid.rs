@@ -90,6 +90,8 @@ mod compositor;
 mod drag;
 #[path = "xuid/event.rs"]
 mod event;
+#[path = "xuid/icons.rs"]
+mod icons;
 #[path = "xuid/keys.rs"]
 mod keys;
 #[path = "xuid/layout.rs"]

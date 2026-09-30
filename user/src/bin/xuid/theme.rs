@@ -48,9 +48,6 @@ pub(super) const TASKBAR_BG: Color = Color::rgb(24, 28, 44);
 pub(super) const TASKBAR_ENTRY: Color = Color::rgb(52, 60, 92);
 pub(super) const TASKBAR_ENTRY_MIN: Color = Color::rgb(38, 44, 66);
 pub(super) const TASKBAR_ENTRY_FOCUS: Color = Color::rgb(44, 112, 74);
-pub(super) const CLOSE_BG: Color = Color::rgb(198, 76, 76);
-pub(super) const MINIMIZE_BG: Color = Color::rgb(208, 168, 88);
-pub(super) const BUTTON_TEXT: Color = Color::rgb(24, 24, 32);
 /// Drop-target frame and drag-label accent (issue #145).
 pub(super) const DRAG_ACCENT: Color = Color::rgb(245, 196, 84);
 /// The drag label's chip background.
