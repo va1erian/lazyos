@@ -122,18 +122,44 @@ rasteriser bug; no code change was needed.
 
 ## Remaining / not exercised
 
-* **Clipboard across two windows.** Copy/paste is proven through `clipboardd`
-  within one Editor (the paste duplicates the selection through the service).
-  The scripted session does not open a *second* Editor and paste there; that is
-  the same session-scoped service call, but it is not captured as a screenshot.
-* **`set_window_title`** is still a no-op (no `os.lazy.display.v1` method); the
-  Editor's title bar shows the static `Editor` name, not the file name.
 * **Paint has no keyboard shortcuts** (upstream gap G6), so its session drives
   the toolbar with pointer clicks; the Save/Open paths are fixed at start-up.
 * **Paths with spaces** still cannot be launched through `init` (Track B
   deferred); the apps validate what they do receive.
 * The ABI bench was not re-run: no kernel/Linux-shim source changed (only the
   `clipboardd` userspace service and `xui-app`).
+
+## Remaining gaps closed
+
+A follow-up round fixed the gaps listed above. Every item was checked against
+real captured pixels (QEMU sessions, screenshots read), not source.
+
+| Gap | Result | Evidence |
+|---|---|---|
+| Editor letter-spaced text, line numbers over the first column | Fixed at the root. Two causes: the Editor asked for the generic `monospace` family, which resolved to the proportional Droid Sans because only that face was registered (so the `MMMMMMMMMM` cell probe measured a wide cell), and the vendored canvas aligned non-wrapped text twice (cosmic-text against the buffer width, then again at draw time), which pushed right-aligned line numbers by the gutter width. The Editor now registers JetBrains Mono (`xui_app::font::register_mono`, Droid Sans stays the default UI family) and names it; the canvas gives the shaper no paragraph alignment and applies it once, per line. | `xui_editor.json` `02_editor_typed`: `Hello from LazyOS` on a tight grid with `1`/`2` right-aligned in the gutter. Terminal (`xui_desktop.json`) and fabricmon right-aligned table columns re-read: unchanged/correct. |
+| Open / Save As showed an empty list | The listing itself worked; two things hid it. The name field is a type-ahead prefix filter (the session had typed a path), and `read_dir("/")` on the FAT root omits the `/tmp` and `/data` mount points (the VFS does not synthesise a mount's entry in its parent). `LazyFileSystem` (`xui-app/src/platform/dialog_fs.rs`) adds the mount points that resolve as directories; the pickers start in `/tmp`. Folders sort first (portable dialog). | `03a_save_dialog_tmp_listing` (`..`, `confd/`), `03b_save_dialog_root_listing` (`tmp/`, `HELLO.TXT`, `NOTES.TXT`), `05a_open_dialog_listing` (`confd/`, `note.txt`). |
+| `set_window_title` was a no-op | New `os.lazy.display.v1` method 29 `SetTitle(surface, title)` (`idl/display.midl`, regenerated with `midlc`, `--check` clean). `xuid` (`title.rs`): owner only (`EACCES`), unknown surface `ENOENT`, at most 128 bytes cut at a character boundary, control characters dropped, blank result keeps the old title, unchanged title is a no-op; it repaints the chrome/taskbar and sends the shell `SurfaceChanged(Title)` (the `title` field is now set for `Title` as well as `Created`). Old clients are unaffected; a new client on an old `xuid` gets `EINVAL`, ignored. The backend dedupes so the Editor's per-keystroke retitle costs no IPC. Boot self-test `XUID:TITLE:PASS`. | `04_editor_saved`: title bar and taskbar read `note.txt - Editor`; a modified buffer shows `*Untitled - Editor`. |
+| Paste into a second Editor | Works; no bug found. `xui_editor.json` now copies in the first Editor, launches a second Editor process from the desktop context menu, clicks into it and pastes through `clipboardd`. | `12_second_editor_pasted`: the second window (`*Untitled - Editor`) holds the four lines copied from `*note.txt - Editor`; serial has two `EDITOR:UP:PASS`. |
+| Paint and Files sessions re-read | Paint: no defect (toolbar, palette, canvas, undo/redo/save states). Files: the root showed files only, so `/tmp` was unreachable; `LazyPlatform` (`platform/files_fs.rs`) adds the mount points, folders first (`30 items (1 folder, 29 files)`). The Files session's click moved one tile right (`tmp` is now first). | `xui_files.json` `02_files_selected`: `tmp` Folder first, `HELLO.TXT` selected; `04_editor_raised`: `HELLO.TXT - Editor`. |
+
+Checks run: `midlc --check` clean, `cargo fmt --all --check` clean (root and
+`xui-app`), `cargo clippy -p kernel -p user ... -D warnings` clean, `xui-app`
+clippy `-D warnings` clean (musl workspace, and the host `--lib`), `cargo test
+--manifest-path xui-app/Cargo.toml --workspace --lib` 246 passed (new tests for
+both mount-point wrappers), `python tools/test/run.py --accel none`
+`PASS=500 FAIL=0`, and the editor, paint, files, desktop
+(`LAZYOS_XUI_AUTOSTART=term,sysmon,fabricmon,counter`), sysmon and client
+sessions pass their serial markers. Multi-app sessions on Windows need the
+`LAZYOS_XUI_APPS` list in native form (`C:\...;C:\...`); a bash-style
+`/e/...;...` list is silently skipped with a build warning.
+
+Not fixed / limits: the vendored `xui-canvas` has its own unit tests but it is
+excluded from the `xui-app` workspace and cannot be run standalone here
+("believes it's in a workspace"), so the alignment change is covered by the
+screenshots only. The mount-point list is fixed (`tmp`, `data`); a kernel-side
+fix (the VFS synthesising mount points in `readdir`) would make the wrappers
+unnecessary and is not done. Paint and Files keep their creation title (the
+folder path for Files); only the Editor retitles.
 
 ## Correctness checklist (this round)
 
