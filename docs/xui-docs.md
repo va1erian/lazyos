@@ -101,5 +101,7 @@ with zig it ships in the desktop image and is opened from the Start menu.
   need that click (`HtmlView` does not expose a way to focus itself).
 * Task-list checkboxes are not drawn (litehtml does not render `<input>`), so
   that Markdown extension is off.
-* `mimed` registers Docs for the `view` verb of `text/markdown`; `open` stays
-  with the Editor until every image ships Docs.
+* `mimed` registers Docs for the `open` and `view` verbs of `text/markdown`.
+  Docs is zig-built and optional, so `open` names the Editor as a fallback: an
+  image without Docs opens Markdown in the Editor, which is also the `edit`
+  verb.
