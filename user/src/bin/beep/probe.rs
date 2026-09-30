@@ -159,6 +159,25 @@ pub(super) fn run() -> Result<u32, String> {
         client.raw(wire::METHOD_POSITION, body, buffers).is_ok()
     })?;
 
+    // Malformed requests that carry a buffer must not leak it into the driver's
+    // handle table: hundreds of them would fill any table that leaked.
+    let flood = (0..300).all(|_| {
+        let buffers = alloc::vec![BufferDesc {
+            handle: ring,
+            offset: 0,
+            len: ring_bytes,
+            flags: 0
+        }];
+        client
+            .raw(wire::METHOD_ATTACHRING, Vec::new(), buffers)
+            .is_err()
+    });
+    checks.expect("malformed AttachRing flood is refused", flood)?;
+    checks.expect(
+        "driver still serves after the flood",
+        client.position(stream).is_ok(),
+    )?;
+
     // Someone else must not be able to drive this stream.
     checks.expect("intruder spawned", intruder()?)?;
 

@@ -43,7 +43,7 @@ and starts `sndd demo=1` (from the kernel, or from `init`'s manifest with
 | `SND:IRQ:PASS delivered=N` | the armed INTx line delivered interrupts (`SNDD:IRQ:POLLING` instead when the machine's line is not routable, which the harness reports but accepts) |
 | `SNDD:READY` | `os.lazy.audio.v1` is registered |
 | `BEEP:PLAY:PASS freq=880 ...` | a real client played a tone through the service |
-| `BEEP:PROBE:PASS checks=26` | malformed and hostile requests were all refused correctly, and the driver survived |
+| `BEEP:PROBE:PASS checks=28` | malformed and hostile requests were all refused correctly, and the driver survived |
 | `BEEP:INTRUDER:PASS` | a second task was refused on the owner's stream |
 | `BEEP:SOAK:PASS iterations=40` | 40 open/play/close cycles leaked nothing |
 

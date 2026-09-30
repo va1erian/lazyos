@@ -65,20 +65,29 @@ impl Service {
 
     /// Route one request. `Ok` is the reply; `Err` becomes the error reply.
     pub(super) fn dispatch(&mut self, message: &Message) -> Result<Parcel> {
+        // Whatever the request transferred lands in this task's handle table
+        // before we look at it, so every path out, success or refusal, must
+        // close what was not adopted: a client that can resolve this service
+        // could otherwise fill the table with malformed requests.
+        let mut adopted = false;
+        let result = self.route(message, &mut adopted);
+        discard_transfers(message, adopted);
+        result
+    }
+
+    fn route(&mut self, message: &Message, ring_adopted: &mut bool) -> Result<Parcel> {
         if message.interface_id() != api::INTERFACE {
             return Err(err(errno::EINVAL));
         }
         let method = message.method();
         let body = &message.parcel.body;
-        if method != wire::METHOD_ATTACHRING {
-            discard_transfers(message);
-        }
         let reply = match method {
             wire::METHOD_INFO => self.info()?,
             wire::METHOD_OPENSTREAM => self.open_stream(message)?,
             wire::METHOD_ATTACHRING => {
                 let args = wire::decode_attach_ring_args(body).map_err(MsgError::Parcel)?;
                 self.attach_ring(message, args.stream)?;
+                *ring_adopted = true;
                 Vec::new()
             }
             wire::METHOD_COMMIT => {
@@ -182,22 +191,16 @@ impl Service {
         if message.buffers == 0 {
             return Err(err(errno::EINVAL));
         }
-        let handle = message.first_buffer;
-        let result = owned(&mut self.session, message, stream).and_then(|s| s.attach(handle, desc));
-        if result.is_err() {
-            // The buffer was installed in this task's table; a refused attach
-            // must not leak the handle or its mapping.
-            let _ = sys::display_close_buffer(handle);
-        }
-        result
+        owned(&mut self.session, message, stream)?.attach(message.first_buffer, desc)
     }
 }
 
-/// Close whatever a request transferred that its method has no use for, so a
-/// client cannot fill this task's handle table by attaching buffers or
-/// endpoints to other calls. The kernel surfaces only the first of each.
-fn discard_transfers(message: &Message) {
-    if message.buffers > 0 {
+/// Close whatever a request transferred and the driver did not adopt: the ring
+/// buffer unless `AttachRing` took it, and any endpoint (no method uses one).
+/// The kernel surfaces only the first of each kind, so a request carrying
+/// several still leaves the extras open until the client's own quotas stop it.
+fn discard_transfers(message: &Message, buffer_adopted: bool) {
+    if message.buffers > 0 && !buffer_adopted {
         let _ = sys::display_close_buffer(message.first_buffer);
     }
     if message.handles > 0 {

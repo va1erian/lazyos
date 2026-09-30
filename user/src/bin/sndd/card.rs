@@ -1,11 +1,12 @@
 //! The virtio-sound card: its four virtqueues, the control-request path and the
 //! transmit path.
 //!
-//! The driver polls: it never arms the device's INTx line, so `irq_enable`
-//! is not used and the claim keeps INTx disabled. A request is queued, the
-//! device kicked, and the used ring polled with a one-tick sleep between looks.
-//! That is the CI-safe default of `docs/driver-plan.md` section 3.3, and audio
-//! periods are tens of milliseconds long, far coarser than the 10 ms tick.
+//! A request is queued, the device kicked, and the used ring polled. Between
+//! looks the driver waits on the device's interrupt endpoint for at most one
+//! tick (`wait_event`): an armed INTx line wakes it at once, and on a line that
+//! is not routable it degrades to plain one-tick polling, the CI-safe default of
+//! `docs/driver-plan.md` section 3.3. Audio periods are tens of milliseconds
+//! long, far coarser than the 10 ms tick either way.
 
 use alloc::vec::Vec;
 
@@ -83,6 +84,10 @@ pub(super) struct Card {
     slot_of_head: [u8; virtio::queue::MAX_QUEUE],
     /// Number of streams the device reports.
     pub(super) streams: u32,
+    /// Control requests that timed out and may still complete: their used
+    /// entries are skipped when they show up, so one lost answer cannot make
+    /// every later request fail.
+    stale_control: u32,
     /// Interrupt messages serviced (0 when polling alone).
     irqs: u64,
     /// Receive buffer for interrupt messages, allocated once.
@@ -130,6 +135,7 @@ impl Card {
             staging: Some(staging),
             slot_of_head: [u8::MAX; virtio::queue::MAX_QUEUE],
             streams,
+            stale_control: 0,
             irqs: 0,
             irq_buf: alloc::vec![0u8; 256],
         })
@@ -173,8 +179,13 @@ impl Card {
         loop {
             match self.control.vq.pop_used()? {
                 Some(used) if used.head == head => break,
+                // Only one request is outstanding per call, so a completion
+                // for any other head belongs to one that timed out earlier;
+                // with none outstanding it is a device fault.
+                Some(_) if self.stale_control > 0 => self.stale_control -= 1,
                 Some(_) => return Err(Error::Virtio(virtio::Error::DeviceError)),
                 None if sys::clock() >= deadline => {
+                    self.stale_control = self.stale_control.saturating_add(1);
                     let code = wire::parse_status(request).unwrap_or(0);
                     sys::write_str(&alloc::format!(
                         "SNDD:CTL:TIMEOUT request={code:#x}

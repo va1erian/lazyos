@@ -378,7 +378,7 @@ transport (`user/src/bin/sndd.rs`), `os.lazy.audio.v1`, `_snd` uid (901, only
 `CAP_DEV_CLAIM`, under `init`), the `beep` client, and a WAV-based assertion:
 `python tools/sound/run.py` boots QEMU with `-audiodev wav` and requires both the
 driver's own 440 Hz tone and `beep`'s 880 Hz tone, in order, in the recording.
-Boot evidence `SND:PLAY:PASS` and `BEEP:PLAY:PASS`, plus `BEEP:PROBE:PASS` (26
+Boot evidence `SND:PLAY:PASS` and `BEEP:PLAY:PASS`, plus `BEEP:PROBE:PASS` (28
 hostile-input checks and an intruder task), `BEEP:SOAK:PASS` (40 stream
 lifecycles), and `SND:IRQ:PASS` (the driver arms its INTx line and takes real
 interrupts, with polling as the fallback). Details, the DMA-lifetime lesson and

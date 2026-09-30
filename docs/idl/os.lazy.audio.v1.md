@@ -38,9 +38,9 @@ reply, never failing for a merely unsupported rate or period size. A
 request outside `AudioInfo` (unknown format, zero or oversized channel
 count, a zero period) fails with `EINVAL`; a stream the card cannot provide
 (capture, today) with `ENOTSUP`; a busy card with `EBUSY`. Calls on a stream
-by anyone but its owner fail with `EACCES`. Failures are returned as a
-the shared structured error field (see `services::error_field`) instead of
-the declared reply fields.
+by anyone but its owner fail with `EACCES`. Failures are returned as the
+shared structured error field (see `services::error_field`) instead of the
+declared reply fields.
 
 ## Methods
 

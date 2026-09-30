@@ -110,7 +110,7 @@ mastering after a free.
 |---|---|---|
 | Host unit | `virtio` (20): capability parsing incl. looping/hostile lists, negotiation, queue setup bounds, split-queue chains, exhaustion, index wraparound over 70k round trips, hostile used entries. `virtio-snd` (15): request layouts, `PCM_INFO` parsing, every rate/format/channel/period policy case. `pcm` (6): sine accuracy against libm, pitch, amplitude, degenerate arguments | `cargo test -p virtio -p virtio-snd -p pcm` |
 | Harness unit | The WAV detector must fail when it should: silence, wrong pitch, missing/extra/swapped tones, too short, too quiet, killed-emulator headers | `python tools/sound/test_analyze_wav.py` |
-| End to end | QEMU with `-audiodev wav`: the driver's own tone (440 Hz) and `beep`'s (880 Hz) must both be in the recording, in order, and an armed interrupt line must have delivered interrupts (`SND:IRQ:PASS delivered=N`); plus `beep probe=1` (26 malformed/hostile calls and an intruder task), `beep soak=40` (40 open/play/close cycles) | `python tools/sound/run.py` |
+| End to end | QEMU with `-audiodev wav`: the driver's own tone (440 Hz) and `beep`'s (880 Hz) must both be in the recording, in order, and an armed interrupt line must have delivered interrupts (`SND:IRQ:PASS delivered=N`); plus `beep probe=1` (28 malformed/hostile checks and an intruder task), `beep soak=40` (40 open/play/close cycles) | `python tools/sound/run.py` |
 | Variants | `--services` (supervised by `init` as `_snd`), `--machine q35 --virtio-disk`, `--no-device` (the driver exits cleanly), `--smoke` (`-audiodev none`) | see `tools/sound/README.md` |
 
 The serial markers (`SND:PLAY:PASS`, `BEEP:PLAY:PASS`, ...) only tell the

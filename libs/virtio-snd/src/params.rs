@@ -175,10 +175,16 @@ pub fn grant(
     }
     let format = pick_format(info, request.format).ok_or(ParamError::Unsupported)?;
     let (rate_hz, virtio_rate) = pick_rate(info, request.rate_hz).ok_or(ParamError::Unsupported)?;
-    let channels = request.channels.clamp(
+    // The range comes from the device, which is untrusted: `clamp` panics when
+    // the bounds are inverted, so refuse such a stream instead.
+    let (lo, hi) = (
         u32::from(info.channels_min).max(1),
         u32::from(info.channels_max).max(1),
     );
+    if lo > hi {
+        return Err(ParamError::Unsupported);
+    }
+    let channels = request.channels.clamp(lo, hi);
     let frame = frame_bytes(format, channels).ok_or(ParamError::Invalid)?;
 
     // A whole number of frames per period, within [64 frames, ring / PERIODS].
@@ -300,6 +306,24 @@ mod tests {
         let mono_only = output(&[format::S16], &[rate::R48000], 1, 1);
         assert_eq!(
             super::grant(&mono_only, &request(0, 48000, 2, 4096), 65536)
+                .unwrap()
+                .channels,
+            1
+        );
+    }
+
+    #[test]
+    fn an_inverted_channel_range_from_the_device_is_unsupported_not_a_panic() {
+        // channels_min 4 > channels_max 2, as a hostile or broken device could say.
+        let info = output(&[format::S16], &[rate::R48000], 4, 2);
+        assert_eq!(
+            grant(&info, &request(0, 48000, 2, 4096), 65536),
+            Err(ParamError::Unsupported)
+        );
+        // A zero maximum is treated as one channel, never an inverted range.
+        let zero = output(&[format::S16], &[rate::R48000], 0, 0);
+        assert_eq!(
+            grant(&zero, &request(0, 48000, 2, 4096), 65536)
                 .unwrap()
                 .channels,
             1

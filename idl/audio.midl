@@ -34,9 +34,9 @@
 /// request outside `AudioInfo` (unknown format, zero or oversized channel
 /// count, a zero period) fails with `EINVAL`; a stream the card cannot provide
 /// (capture, today) with `ENOTSUP`; a busy card with `EBUSY`. Calls on a stream
-/// by anyone but its owner fail with `EACCES`. Failures are returned as a
-/// the shared structured error field (see `services::error_field`) instead of
-/// the declared reply fields.
+/// by anyone but its owner fail with `EACCES`. Failures are returned as the
+/// shared structured error field (see `services::error_field`) instead of the
+/// declared reply fields.
 interface os.lazy.audio.v1 {
     /// Describe the card: stream count and the formats, rates and channel
     /// counts it accepts.
