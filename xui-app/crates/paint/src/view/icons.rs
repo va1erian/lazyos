@@ -28,6 +28,7 @@ pub(crate) fn draw(canvas: &mut dyn Canvas, item: StripItem, rect: Rect, color: 
         StripItem::New => draw_icon(canvas, Lucide::FilePlus, rect, color, dpi),
         StripItem::Save => draw_icon(canvas, Lucide::Save, rect, color, dpi),
         StripItem::Open => draw_icon(canvas, Lucide::FolderOpen, rect, color, dpi),
+        StripItem::Resize => draw_resize(canvas, rect, color, dpi),
     }
 }
 
@@ -118,6 +119,33 @@ fn draw_tool(canvas: &mut dyn Canvas, tool: Tool, rect: Rect, color: Color, dpi:
             );
         }
     }
+}
+
+/// Draws the resize glyph (Lucide has none): a frame with a handle square in
+/// its bottom-right corner and a diagonal towards it.
+fn draw_resize(canvas: &mut dyn Canvas, rect: Rect, color: Color, dpi: u32) {
+    let frame = inset(rect, 6);
+    let stroke = (1.5 * dpi as f32 / 96.0).max(1.0);
+    canvas.stroke_rect(frame, color, stroke);
+    let handle = (frame.width() / 3).max(2);
+    canvas.fill_rect(
+        Rect::new(
+            frame.right - handle,
+            frame.bottom - handle,
+            frame.right,
+            frame.bottom,
+        ),
+        color,
+    );
+    canvas.draw_line(
+        Point::new(
+            frame.left + frame.width() / 4,
+            frame.top + frame.height() / 4,
+        ),
+        Point::new(frame.right - handle, frame.bottom - handle),
+        color,
+        stroke,
+    );
 }
 
 /// Draws a size swatch: the dot the brush would paint.

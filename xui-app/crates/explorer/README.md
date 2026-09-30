@@ -12,21 +12,21 @@ filesystem and shell — in particular **LazyOS**.
 - `IconView` listing (folders first, then files), a `StatusBar` summary, a
   context `Menu`, Delete/Properties `TaskDialog`/`Dialog` actions and
   `Delete` / `Alt+Enter` / `F5` shortcuts.
-- Tile icons: the single-colour Lucide fallback by default. The multi-colour
-  Global Village set is the opt-in `village-icons` feature (off in this copy;
-  the `xui-icons` crate stays in the xui repository and is a git
-  dependency). Opening a folder shows its open icon for two seconds, then
-  reverts.
+- Tile icons: the multi-colour Global Village set when the opt-in
+  `village-icons` feature is on (the LazyOS Files app enables it), else the
+  single-colour Lucide fallback. The `xui-icons` crate stays in the xui
+  repository and is a git dependency. Opening a folder shows its open icon for
+  two seconds, then reverts.
 
 ## Icons and the open-folder flash
 
-With the `village-icons` feature enabled, tiles are drawn with the
-`xui-icons` Global Village set, classified by kind and extension (folder,
-image, music, archive, document). On a light theme the set's own
-`Palette::GLOBAL_VILLAGE` is used; on a dark theme only its near-black ink is
-retinted to a pale periwinkle, so the outlines stay visible, and both palettes
-are built once. Leave the feature off for the single-colour Lucide fallback (the
-default here); the classification is shared by both paths.
+With the `village-icons` feature enabled (as the LazyOS Files app does), tiles
+are drawn with the `xui-icons` Global Village set, classified by kind and
+extension (folder, image, music, archive, document). On a light theme the set's
+own `Palette::GLOBAL_VILLAGE` is used; on a dark theme only its near-black ink
+is retinted to a pale periwinkle, so the outlines stay visible, and both
+palettes are built once. Leave the feature off for the single-colour Lucide
+fallback (the crate default); the classification is shared by both paths.
 
 Opening a folder (double-click or Enter) flags it in a per-window list of
 `(name, deadline)` entries and shows its open icon for 2000 ms; several folders
@@ -85,8 +85,9 @@ Implement three things and nothing else:
 Then build windows with `Explorer::new(platform, launcher).open_root(ui, path)`
 and the portable crate is unchanged. The `std-platform` feature (on by default)
 is the only part that uses `std::fs` and `#[cfg(...)]`; turn it off for a
-no-std-ish target. `village-icons` is off by default, which keeps `xui-icons`
-out of the build and draws the Lucide fallback.
+no-std-ish target. `village-icons` is off by default; the LazyOS Files app
+enables it so the boot image ships the coloured set (and `xui-icons` in its
+dependency graph).
 
 ## Known limits (v1)
 

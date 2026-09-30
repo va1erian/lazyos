@@ -41,7 +41,10 @@ libc = "0.2"
 # drive them.
 xui-code-editor = { path = "crates/code-editor" }
 xui-paint = { path = "crates/paint" }
-xui-explorer = { path = "crates/explorer" }
+# The LazyOS Files app ships the multi-colour Global Village tiles: the
+# `village-icons` feature pulls in `xui-icons` and makes `village::paint` draw
+# the coloured set instead of the Lucide fallback.
+xui-explorer = { path = "crates/explorer", features = ["village-icons"] }
 
 [[bin]]
 name = "xui-m0"

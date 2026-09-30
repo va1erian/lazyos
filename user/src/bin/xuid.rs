@@ -193,6 +193,7 @@ fn run() -> ! {
     sys::write_str(SHELL_MARKER);
     sys::write_str(keys::selftest_key_encoding());
     sys::write_str(title::selftest_titles());
+    sys::write_str(window::selftest_focus_on_create());
 
     loop {
         // 1. Input: drain the whole kernel queue first so pointer moves

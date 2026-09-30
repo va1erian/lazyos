@@ -3,7 +3,6 @@
 use std::cell::Cell;
 
 use xui_core::backend::{Event, WidgetId, WindowId};
-use xui_core::Point;
 
 use super::{LazyOSBackend, Node};
 
@@ -21,21 +20,6 @@ impl LazyOSBackend {
             .iter()
             .find(|(node_id, _)| *node_id == id)
             .map(|(_, node)| node.window)
-    }
-
-    /// The topmost enabled, visible node under `(x, y)`.
-    pub(super) fn hit(&self, window: WindowId, x: i32, y: i32) -> Option<WidgetId> {
-        self.nodes
-            .borrow()
-            .iter()
-            .rev()
-            .find(|(_, node)| {
-                node.window == window
-                    && node.visible
-                    && node.enabled
-                    && node.bounds.contains(Point::new(x, y))
-            })
-            .map(|(id, _)| *id)
     }
 
     /// Offer `event` to the sink installed by `run_app`.

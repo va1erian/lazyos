@@ -211,8 +211,9 @@ The vendored `xui-canvas` fork is gone. Upstream PR
   are now git dependencies at `rev = "35c818f9…"`, the latter with
   `default-features = false`. Every manifest under `xui-app/crates/*` uses the
   same rev (`xui-canvas` as a dev-dependency; explorer's optional `xui-icons`),
-  so a single `xui_core` is linked. `village-icons` stays off (the Files app
-  does not enable it), so the Lucide fallback is still what ships.
+  so a single `xui_core` is linked. The Files app enables `village-icons`
+  (`xui-app/Cargo.toml`), so the multi-colour Global Village tiles ship; the
+  Lucide fallback remains for a target that leaves the feature off.
 * `xui-app/Cargo.lock` refreshed with `cargo fetch`: only the three xui packages
   changed (git sources), no unrelated upgrades.
 * No source change was needed in `xui-app/src` or the three app crates: the

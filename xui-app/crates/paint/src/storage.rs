@@ -9,6 +9,7 @@
 //! in tests.
 
 use std::cell::RefCell;
+use std::path::{Path, PathBuf};
 
 /// Where a paint document is saved and loaded.
 pub trait Storage {
@@ -21,6 +22,30 @@ pub trait Storage {
 
     /// Whether Save/Open should be offered.
     fn available(&self) -> bool;
+
+    /// Writes `bytes` to a caller-chosen `path` (the Save As seam). The default
+    /// is unsupported, so a path-less store never sees a path.
+    fn save_to(&self, _path: &Path, _bytes: &[u8]) -> Result<(), String> {
+        Err("unsupported".to_string())
+    }
+
+    /// Reads the bytes at a caller-chosen `path` (the Open seam), or `None` on
+    /// any failure.
+    fn load_from(&self, _path: &Path) -> Option<Vec<u8>> {
+        None
+    }
+
+    /// Whether [`save_to`](Storage::save_to)/[`load_from`](Storage::load_from)
+    /// work, i.e. whether file dialogs make sense for this store.
+    fn supports_paths(&self) -> bool {
+        false
+    }
+
+    /// The path [`save`](Storage::save)/[`load`](Storage::load) act on, if the
+    /// store has one; a start-up load uses it as the document's path.
+    fn default_path(&self) -> Option<PathBuf> {
+        None
+    }
 }
 
 /// An in-memory store: no file, no environment, always available. This is the

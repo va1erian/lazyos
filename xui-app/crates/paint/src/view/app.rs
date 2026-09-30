@@ -4,11 +4,12 @@
 //! `Msg` -> model glue.
 
 use std::cell::RefCell;
+use std::path::PathBuf;
 use std::rc::Rc;
 
 use xui_core::app::{App, Ui};
 use xui_core::backend::Result;
-use xui_core::widget::StatusBar;
+use xui_core::widget::{FileSystem, StatusBar};
 
 use super::canvas::CanvasMsg;
 use super::layout::{Observer, layout, strip_items};
@@ -19,6 +20,11 @@ use crate::model::{Model, Side};
 use crate::storage::Storage;
 
 use crate::{DEFAULT_HEIGHT, DEFAULT_WIDTH};
+
+mod dialogs;
+mod files;
+
+use dialogs::{FileDialogs, ResizePrompt};
 
 /// The paint application.
 pub struct PaintApp {
@@ -31,6 +37,13 @@ pub struct PaintApp {
     observer: Rc<RefCell<Observer>>,
     cursor: Option<(i32, i32)>,
     message: Option<String>,
+    /// The Open/Save As pickers; `None` keeps the path-less Save/Open.
+    files: Option<FileDialogs>,
+    resize: ResizePrompt,
+    /// The file the document was last opened from or saved to.
+    current_path: Option<PathBuf>,
+    /// The last window title set, so an unchanged one is not re-sent.
+    title: String,
 }
 
 impl PaintApp {
@@ -39,13 +52,53 @@ impl PaintApp {
         PaintApp::build_observed(ui, storage, Rc::new(RefCell::new(Observer::default())))
     }
 
+    /// Like [`PaintApp::build`], with Open and Save As file dialogs over `fs`.
+    /// The storage must support paths ([`Storage::supports_paths`]) for the
+    /// dialogs to be wired; otherwise this is [`PaintApp::build`].
+    pub fn build_with_files(
+        ui: &mut Ui<Msg>,
+        storage: Rc<dyn Storage>,
+        fs: Rc<dyn FileSystem>,
+    ) -> Result<PaintApp> {
+        let observer = Rc::new(RefCell::new(Observer::default()));
+        PaintApp::build_with_files_observed(ui, storage, fs, observer)
+    }
+
+    /// Like [`PaintApp::build_with_files`], additionally reporting to `observer`.
+    pub fn build_with_files_observed(
+        ui: &mut Ui<Msg>,
+        storage: Rc<dyn Storage>,
+        fs: Rc<dyn FileSystem>,
+        observer: Rc<RefCell<Observer>>,
+    ) -> Result<PaintApp> {
+        let files = storage.supports_paths().then_some(fs);
+        PaintApp::construct(ui, storage, observer, files)
+    }
+
+    /// Sets the directory the Open and Save As dialogs start in.
+    pub fn set_start_dir(&self, dir: impl Into<PathBuf>) {
+        if let Some(files) = &self.files {
+            files.set_start_dir(&dir.into());
+        }
+    }
+
     /// Like [`PaintApp::build`], additionally reporting state to `observer`.
     pub fn build_observed(
         ui: &mut Ui<Msg>,
         storage: Rc<dyn Storage>,
         observer: Rc<RefCell<Observer>>,
     ) -> Result<PaintApp> {
-        let io = storage.available();
+        PaintApp::construct(ui, storage, observer, None)
+    }
+
+    fn construct(
+        ui: &mut Ui<Msg>,
+        storage: Rc<dyn Storage>,
+        observer: Rc<RefCell<Observer>>,
+        fs: Option<Rc<dyn FileSystem>>,
+    ) -> Result<PaintApp> {
+        let files = fs.map(|fs| FileDialogs::new(ui, fs)).transpose()?;
+        let io = storage.available() || files.is_some();
         let areas = layout(ui.client_rect(), ui.dpi(), io);
         let canvas = PaintCanvas::new(ui, areas.canvas)?;
         let toolbar = ToolStrip::new(ui, areas.toolbar, strip_items(io))?;
@@ -62,6 +115,10 @@ impl PaintApp {
             observer,
             cursor: None,
             message: None,
+            files,
+            resize: ResizePrompt::default(),
+            current_path: None,
+            title: String::new(),
         };
         app.sync();
         Ok(app)
@@ -100,7 +157,8 @@ impl PaintApp {
             self.model.preview(),
             self.model.size(),
         );
-        self.toolbar.sync(&self.model, self.storage.available());
+        let io = self.storage.available() || self.files.is_some();
+        self.toolbar.sync(&self.model, io);
         self.palette
             .sync(self.model.primary(), self.model.secondary());
         self.refresh_status();
@@ -148,26 +206,57 @@ impl PaintApp {
     }
 
     /// Decodes first, then swaps, so a failed load leaves the canvas intact.
-    fn open(&mut self) {
+    fn open(&mut self) -> bool {
         let Some(bytes) = self.storage.load() else {
             self.message = Some("Open failed: nothing stored".to_string());
-            return;
+            return false;
         };
         match crate::model::Bitmap::decode(&bytes) {
             Ok(bitmap) => {
                 self.model.load(bitmap);
                 self.cursor = None;
                 self.message = Some("Opened".to_string());
+                true
             }
-            Err(error) => self.message = Some(format!("Open failed: {error}")),
+            Err(error) => {
+                self.message = Some(format!("Open failed: {error}"));
+                false
+            }
         }
+    }
+
+    /// Applies the size typed into the Resize prompt.
+    fn resize_chosen(&mut self, ui: &Ui<Msg>) {
+        ui.focus(self.canvas.id());
+        let Some(text) = self.resize.take_text() else {
+            return;
+        };
+        let result = crate::model::parse_size(&text)
+            .and_then(|(width, height)| self.model.resize(width, height).map(|()| (width, height)));
+        self.message = Some(match result {
+            Ok((width, height)) => format!("Resized to {width} x {height}"),
+            Err(error) => format!("Resize failed: {error}"),
+        });
     }
 }
 
 impl App for PaintApp {
     type Msg = Msg;
 
-    fn update(&mut self, msg: Msg, _ui: &mut Ui<Msg>) {
+    fn update(&mut self, msg: Msg, ui: &mut Ui<Msg>) {
+        // A dialog is modal: only its own results and a focus-loss cancel pass.
+        let passes = matches!(
+            msg,
+            Msg::OpenChosen
+                | Msg::SaveChosen
+                | Msg::ResizeChosen
+                | Msg::DialogClosed
+                | Msg::OpenStartup
+                | Msg::Canvas(CanvasMsg::Cancel)
+        );
+        if !passes && self.modal_open() {
+            return;
+        }
         match msg {
             Msg::Tool(tool) => self.model.set_tool(tool),
             Msg::Size(size) => self.model.set_size(size),
@@ -182,9 +271,20 @@ impl App for PaintApp {
             Msg::New => {
                 self.model.reset(DEFAULT_WIDTH, DEFAULT_HEIGHT);
                 self.cursor = None;
+                self.current_path = None;
             }
-            Msg::Save => self.save(),
-            Msg::Open => self.open(),
+            Msg::Save => self.save_requested(),
+            Msg::Open => self.open_requested(),
+            Msg::OpenStartup => self.open_startup(),
+            Msg::OpenChosen => self.open_chosen(ui),
+            Msg::SaveChosen => self.save_chosen(ui),
+            Msg::ResizeAsk => {
+                if let Err(error) = self.resize.show(ui, self.model.bitmap().size()) {
+                    self.message = Some(format!("Resize failed: {error}"));
+                }
+            }
+            Msg::ResizeChosen => self.resize_chosen(ui),
+            Msg::DialogClosed => ui.focus(self.canvas.id()),
             Msg::Canvas(CanvasMsg::Down { x, y, side }) => {
                 if self.model.is_dragging() {
                     self.model.end();
@@ -207,5 +307,9 @@ impl App for PaintApp {
             }
         }
         self.sync();
+        if self.files.is_some() && self.title != self.title() {
+            self.title = self.title();
+            ui.set_window_title(&self.title);
+        }
     }
 }

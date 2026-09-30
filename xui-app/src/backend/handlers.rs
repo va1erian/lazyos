@@ -6,7 +6,7 @@ use std::sync::atomic::Ordering;
 
 use xui_canvas::Surface;
 use xui_core::backend::{
-    Backend, BackendError, ImplKind, NodeKind, NodeSpec, Painter, ParentRef, PlatformSpec,
+    Backend, BackendError, Event, ImplKind, NodeKind, NodeSpec, Painter, ParentRef, PlatformSpec,
     Result as BackendResult, TextMetrics, TextStyle, TimerId, Waker, WidgetId, WindowId,
 };
 use xui_core::router::WidgetHost;
@@ -119,6 +119,8 @@ impl Backend for LazyOSBackend {
             self.primary.set(None);
         }
         self.focused.set(None);
+        self.captured.set(None);
+        self.clicks.borrow_mut().forget_window(window);
     }
 
     fn create(&self, parent: ParentRef, spec: &NodeSpec) -> BackendResult<WidgetId> {
@@ -145,6 +147,7 @@ impl Backend for LazyOSBackend {
                 visible: spec.visible,
                 enabled: spec.enabled,
                 focus_stop: focus_stop(spec),
+                clip: None,
                 text: spec.text.clone(),
                 painter: None,
             },
@@ -158,6 +161,7 @@ impl Backend for LazyOSBackend {
         if self.focused.get() == Some(id) {
             self.focused.set(None);
         }
+        self.clicks.borrow_mut().forget_widget(id);
         // Cascade: drop any node whose parent chain no longer exists.
         loop {
             let gone: Vec<WidgetId> = nodes
@@ -173,6 +177,20 @@ impl Backend for LazyOSBackend {
             }
             nodes.retain(|(id, _)| !gone.contains(id));
         }
+        // A capture or pending click on a node the cascade removed is stale.
+        if let Some(captured) = self.captured.get() {
+            if !nodes.iter().any(|(node_id, _)| *node_id == captured) {
+                self.captured.set(None);
+            }
+        }
+        if let Some(focused) = self.focused.get() {
+            if !nodes.iter().any(|(node_id, _)| *node_id == focused) {
+                self.focused.set(None);
+            }
+        }
+        self.clicks
+            .borrow_mut()
+            .forget_unless(|target| nodes.iter().any(|(node_id, _)| *node_id == target));
     }
 
     fn apply_moves(&self, window: WindowId, moves: &[(WidgetId, Rect)]) {
@@ -205,6 +223,25 @@ impl Backend for LazyOSBackend {
 
     fn set_enabled(&self, id: WidgetId, enabled: bool) {
         self.with_node(id, |node| node.enabled = enabled);
+    }
+
+    fn set_clip(&self, id: WidgetId, rect: Option<Rect>) {
+        self.with_node(id, |node| node.clip = rect);
+    }
+
+    fn set_capture(&self, id: WidgetId) {
+        self.captured.set(Some(id));
+    }
+
+    fn release_capture(&self) {
+        let Some(id) = self.captured.take() else {
+            return;
+        };
+        // Tell the node after the capture is cleared, so its handler may
+        // capture again or call back into the backend.
+        if let Some(window) = self.window_of(id) {
+            self.deliver(window, id, &Event::CaptureChanged);
+        }
     }
 
     fn focus(&self, id: WidgetId) {

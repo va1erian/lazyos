@@ -113,6 +113,11 @@ or any `Storage`-aware dialog. **Workaround:** `storage.rs` Save/Open cells with
 a host-configured path; failures surface in the status bar. A portable picker
 would need host policy, so it does not belong in `xui-core`.
 
+**Update.** `xui-core` now ships `FileDialog`/`FileSystem`; Paint uses it through
+`PaintApp::build_with_files` and the `Storage::save_to`/`load_from` path seam
+(README, "File dialogs"). The offscreen backend records focus but never delivers
+`Event::SetFocus`, so tests typing into a dialog's `Edit` inject it first.
+
 **Proposal:** define a `FileDialog` capability in a host crate (like
 `xui-paint`'s `Storage`) implemented per platform, and leave `xui-core` a
 `Dialog`-based fallback for a path text field.

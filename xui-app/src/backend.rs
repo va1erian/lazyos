@@ -25,11 +25,14 @@
 //!
 //! [`run`]: Backend::run
 
+mod double_click;
 mod event_loop;
 mod focus;
+mod geometry;
 mod handlers;
 mod input;
 mod node;
+mod pointer;
 mod render;
 
 use std::cell::{Cell, RefCell};
@@ -90,6 +93,12 @@ pub struct LazyOSBackend {
     /// The node keyboard events go to; set by [`Backend::focus`]. Keys target
     /// the focused node, not the node under the pointer.
     focused: Cell<Option<WidgetId>>,
+    /// The node that captured the pointer ([`Backend::set_capture`]); it gets
+    /// every move and release until released or destroyed.
+    captured: Cell<Option<WidgetId>>,
+    /// Recognizes the second press of a double-click (never borrowed across a
+    /// delivery, so a widget may call back into the backend).
+    clicks: RefCell<double_click::ClickTracker>,
     /// The modifier keys currently held, from the `Shift`/`Ctrl`/`Alt`/`Super`
     /// key records the kernel forwards to a bound compositor. Attached to every
     /// `KeyDown`/`KeyUp` so an app sees Ctrl+key chords.
@@ -132,6 +141,8 @@ struct Node {
     enabled: bool,
     /// Whether this node takes part in pointer click-focus and the focus cycle.
     focus_stop: bool,
+    /// Clips this node's descendants, in its own coordinates (`set_clip`).
+    clip: Option<Rect>,
     text: String,
     painter: Option<Painter>,
 }
@@ -177,6 +188,8 @@ impl LazyOSBackend {
             quit: Arc::new(AtomicBool::new(false)),
             pointer: Cell::new((0, 0)),
             focused: Cell::new(None),
+            captured: Cell::new(None),
+            clicks: RefCell::new(double_click::ClickTracker::new()),
             modifiers: Cell::new(Modifiers::NONE),
             timers: RefCell::new(Vec::new()),
             next_timer: Cell::new(1),
@@ -240,3 +253,36 @@ impl LazyOSBackend {
 /// The Linux-style positive errno a failed bind reports; the kernel's own
 /// failure codes are negative and reach the user as the syscall result.
 const ENOENT: i64 = 2;
+
+#[cfg(test)]
+mod test_support {
+    use std::rc::Rc;
+
+    use xui_core::router::WidgetHost;
+
+    use super::*;
+    use crate::client_window::ClientState;
+    use crate::display::Client;
+
+    /// A client-mode backend with no display behind it.
+    pub(super) fn client_backend() -> LazyOSBackend {
+        LazyOSBackend::with_mode(Mode::Client(RefCell::new(ClientState::new(
+            Client::detached(),
+        ))))
+    }
+
+    impl Window {
+        /// A small surface-less window whose events go to `sink`.
+        pub(super) fn for_tests(sink: Rc<dyn WidgetHost>) -> Window {
+            Window {
+                surface: Surface::new(64, 64),
+                sink: Some(sink),
+                background: xui_core::Theme::light().background,
+                dpi: DEFAULT_DPI,
+                width: 64,
+                height: 64,
+                client: None,
+            }
+        }
+    }
+}

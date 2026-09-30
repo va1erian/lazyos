@@ -2,6 +2,7 @@
 //! focus, minimize/close, lookup and hit helpers, and per-surface event
 //! forwarding, moved out of `xuid.rs` unchanged.
 
+use alloc::string::String;
 use alloc::vec::Vec;
 use user::messenger::display::{self, wire, Rect};
 use user::messenger::Endpoint;
@@ -55,6 +56,26 @@ pub(super) fn restore(surfaces: &mut Vec<Surface>, focused: &mut Option<u64>, id
     }
     raise(surfaces, id);
     *focused = Some(id);
+}
+
+/// Raise a newly created window to the top of the paint order and focus it,
+/// returning whether the focused surface changed.
+///
+/// A window that just opened must come up in front and focused, or it opens
+/// behind the window that spawned it with the old title bar still highlighted
+/// (the Files app double-clicking a folder). This includes the first window,
+/// which keeps the old "focus the only window" behaviour; focusing the surface
+/// that is already focused reports no change, so the caller does not send a
+/// redundant `FocusChanged`.
+pub(super) fn focus_on_create(
+    surfaces: &mut Vec<Surface>,
+    focused: &mut Option<u64>,
+    id: u64,
+) -> bool {
+    raise(surfaces, id);
+    let changed = *focused != Some(id);
+    *focused = Some(id);
+    changed
 }
 
 impl Compositor {
@@ -188,4 +209,82 @@ pub(super) fn forward(
         return;
     };
     let _ = display::send_event(&Endpoint::from_raw(surface.events), scratch, method, body);
+}
+
+/// A bare surface for the create-focus self-test: no buffers, no chrome.
+fn test_surface(id: u64, minimized: bool, desktop: bool) -> Surface {
+    Surface {
+        id,
+        title: String::new(),
+        x: 0,
+        y: 0,
+        w: 10,
+        h: 10,
+        events: 0,
+        owner: 0,
+        pixels: 0,
+        bytes: 0,
+        slots: Default::default(),
+        minimized,
+        desktop,
+    }
+}
+
+/// Boot check of the create-time focus/raise rule documented on
+/// [`focus_on_create`]: `XUID:FOCUS:PASS` or `XUID:FOCUS:FAIL`.
+pub(super) fn selftest_focus_on_create() -> &'static str {
+    let tail = |surfaces: &[Surface], id: u64| surfaces.last().is_some_and(|s| s.id == id);
+
+    // The first window gets focus (the pre-existing behaviour).
+    let mut surfaces = alloc::vec![test_surface(1, false, false)];
+    let mut focused = None;
+    let first = focus_on_create(&mut surfaces, &mut focused, 1) && focused == Some(1);
+
+    // A second window opens on top and takes focus from the first.
+    surfaces.push(test_surface(2, false, false));
+    let second =
+        focus_on_create(&mut surfaces, &mut focused, 2) && focused == Some(2) && tail(&surfaces, 2);
+
+    // Re-focusing the window that is already focused reports no change, so the
+    // caller sends no redundant `FocusChanged`.
+    let again = !focus_on_create(&mut surfaces, &mut focused, 2) && focused == Some(2);
+
+    // Focusing a window that is not at the tail raises it.
+    let mut stack = alloc::vec![
+        test_surface(10, false, false),
+        test_surface(11, false, false),
+        test_surface(12, false, false),
+    ];
+    let mut focus = None;
+    let raised =
+        focus_on_create(&mut stack, &mut focus, 10) && focus == Some(10) && tail(&stack, 10);
+
+    // A window created while the previous focus is minimized takes focus and
+    // leaves the minimized window minimized, below the new one.
+    let mut minimized_stack = alloc::vec![test_surface(20, true, false)];
+    let mut minimized_focus = None;
+    focus_on_create(&mut minimized_stack, &mut minimized_focus, 20);
+    minimized_stack.push(test_surface(21, false, false));
+    let after_minimized = focus_on_create(&mut minimized_stack, &mut minimized_focus, 21)
+        && minimized_focus == Some(21)
+        && tail(&minimized_stack, 21)
+        && minimized_stack.iter().any(|s| s.id == 20 && s.minimized);
+
+    // A desktop at the tail of the vector is not a window: a window created
+    // after it still ends up at the tail and focused.
+    let mut desktop_stack = alloc::vec![
+        test_surface(30, false, false),
+        test_surface(31, false, true),
+        test_surface(32, false, false),
+    ];
+    let mut desktop_focus = None;
+    let after_desktop = focus_on_create(&mut desktop_stack, &mut desktop_focus, 32)
+        && desktop_focus == Some(32)
+        && tail(&desktop_stack, 32);
+
+    if first && second && again && raised && after_minimized && after_desktop {
+        "XUID:FOCUS:PASS\n"
+    } else {
+        "XUID:FOCUS:FAIL\n"
+    }
 }
