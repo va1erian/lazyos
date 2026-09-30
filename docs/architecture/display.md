@@ -256,6 +256,11 @@ restore, between close and minimize) and interactive resize edges.
   minimize/restore. When a shell subscribes or its endpoint dies (the fallback
   taskbar appears or disappears), `reflow_maximized` re-fits every maximized
   window to the new work area.
+- **Client-requested size (`RequestSize`, method 34).** A surface that declared
+  `SetSizeHints` (and is not maximized/minimized) may ask for a content size;
+  `xuid` keeps the top-left corner, clamps to the hints and the screen, and
+  replies with `Configure` carrying the applied size (even if unchanged). Used
+  by the `sysmon`/`fabricmon` compact toggle; see `docs/window-resize-plan.md`.
 - **Off-screen movement.** A title drag clamps the origin so at least
   `TITLE_REACHABLE_W` pixels of the title bar stay on screen horizontally and
   the title bar never goes above the work-area top or below its bottom; the

@@ -68,6 +68,10 @@ name = "xui-sysmon"
 path = "src/bin/sysmon.rs"
 
 [[bin]]
+name = "xui-widget"
+path = "src/bin/widget.rs"
+
+[[bin]]
 name = "xui-fabricmon"
 path = "src/bin/fabricmon.rs"
 

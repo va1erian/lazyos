@@ -432,6 +432,7 @@ const DESKTOP_XUI_APPS: &[&str] = &[
     "xui-term.elf",
     "xui-sysmon.elf",
     "xui-fabricmon.elf",
+    "xui-widget.elf",
     "xui-counter.elf",
 ];
 
