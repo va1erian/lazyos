@@ -287,6 +287,26 @@ jobs:
           grep -q "INPUTD:READY layout=fr" shots/desktop_fr/serial.log
           grep -q "TERM:OUT:azerty" shots/desktop_fr/serial.log
 
+      # Symbols that share their code with navigation keys in the Windows
+      # virtual-key vocabulary (`& " ' ( % $ #`) must type, not move the caret.
+      # The Editor screenshot shows the text in order; the Terminal marker is
+      # checked on serial. Same symbols on US and (physical keys) AZERTY.
+      - name: Capture symbol typing (US and AZERTY)
+        if: ${{ !cancelled() && steps.app.outputs.term != '' && steps.app.outputs.editor != '' }}
+        shell: bash
+        env:
+          LAZYOS_DESKTOP: "1"
+          LAZYOS_XUI_APPS: ${{ steps.app.outputs.term }}:${{ steps.app.outputs.editor }}
+          LAZYOS_XUI_AUTOSTART: term,editor
+        run: |
+          set -euo pipefail
+          cargo build
+          python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/symbols_us --timeout 300 --script tools/screenshot/examples/input_symbols_us.json --fail-on "(TERM|EDITOR):[A-Z]+:FAIL"
+          grep -qF 'TERM:OUT:&"(%$#' shots/symbols_us/serial.log
+          LAZYOS_KBD_LAYOUT=fr cargo build
+          python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/symbols_fr --timeout 300 --script tools/screenshot/examples/input_symbols_fr.json --fail-on "(TERM|EDITOR):[A-Z]+:FAIL"
+          grep -qF 'TERM:OUT:&"(%$#' shots/symbols_fr/serial.log
+
       # The document apps (Editor, Paint, Files). Each session boots the
       # desktop profile with just that app (an explicit `LAZYOS_XUI_APPS` list,
       # so it does not depend on the default desktop set) autostarted, then
@@ -346,7 +366,7 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
-          pngs=(shots/m0/*.png shots/m1/*.png shots/m2/*.png shots/sysmon/*.png shots/fabmon/*.png shots/client/*.png shots/sysclient/*.png shots/desktop/*.png shots/desktop_fr/*.png shots/editor/*.png shots/paint/*.png shots/files/*.png)
+          pngs=(shots/m0/*.png shots/m1/*.png shots/m2/*.png shots/sysmon/*.png shots/fabmon/*.png shots/client/*.png shots/sysclient/*.png shots/desktop/*.png shots/desktop_fr/*.png shots/symbols_us/*.png shots/symbols_fr/*.png shots/editor/*.png shots/paint/*.png shots/files/*.png)
           if [ ${#pngs[@]} -eq 0 ]; then
             echo "::error::no screenshots were captured"
             exit 1

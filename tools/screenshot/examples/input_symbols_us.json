@@ -1,0 +1,16 @@
+[
+  {"wait_for": "TERM:UP:PASS", "timeout": 240},
+  {"wait_for": "EDITOR:UP:PASS", "timeout": 240},
+  {"wait_for": "INPUTD:SESSION:OPEN", "timeout": 60},
+  {"wait": 2.0},
+  {"type": "a&b(c%d\"e'f#g$h!i"},
+  {"wait": 1.0},
+  {"shot": "01_editor_symbols"},
+  {"key_down": "alt"}, {"wait": 0.2}, {"key": "tab"}, {"wait": 0.3}, {"key_up": "alt"},
+  {"wait": 1.0},
+  {"type": "echo '&\"(%$#'"},
+  {"key": "enter", "until": "TERM:OUT:&\"(%$#", "timeout": 30, "retries": 2},
+  {"wait": 1.0},
+  {"shot": "02_terminal_symbols"},
+  {"quit": true}
+]
