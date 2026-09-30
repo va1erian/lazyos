@@ -83,6 +83,11 @@ impl Consumer {
         self.region.armed().store(1, Ordering::SeqCst);
     }
 
+    /// Slots in the ring.
+    pub fn slots(&self) -> u32 {
+        self.region.slots()
+    }
+
     pub fn is_poisoned(&self) -> bool {
         self.poisoned
     }

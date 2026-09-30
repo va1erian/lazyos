@@ -55,6 +55,15 @@ fn main() {
         println!("cargo:rustc-cfg=sound_demo");
     }
 
+    // virtio-net driver switch (docs/networking-plan.md N1): `LAZYOS_NET=1`
+    // makes the kernel boot `netdrv` (`NETDRV.ELF`) when no supervisor runs;
+    // under `LAZYOS_SERVICES=1` `init` starts it from its manifest instead.
+    println!("cargo:rerun-if-env-changed=LAZYOS_NET");
+    println!("cargo:rustc-check-cfg=cfg(net_demo)");
+    if env::var_os("LAZYOS_NET").as_deref() == Some(std::ffi::OsStr::new("1")) {
+        println!("cargo:rustc-cfg=net_demo");
+    }
+
     // CLI mode switch: `LAZYOS_CLI=1` boots only the system shell (BusyBox
     // `sh`) in a single mux window, dropping the `hello` demo window.
     // Ignored in services mode, where `init` owns the session.

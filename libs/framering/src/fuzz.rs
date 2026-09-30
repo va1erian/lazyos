@@ -37,7 +37,12 @@ pub struct Mem {
 
 impl Mem {
     pub fn new(slots: u32) -> Mem {
-        let len = ring_bytes(slots);
+        Mem::with_len(ring_bytes(slots))
+    }
+
+    /// Zeroed, page-aligned memory of `len` bytes between two guard pages (for
+    /// tests that put more than one ring, or a device's queues, in one block).
+    pub fn with_len(len: usize) -> Mem {
         let layout = std::alloc::Layout::from_size_align(len + 2 * PAGE, PAGE).expect("layout");
         // SAFETY: the layout has a non-zero size.
         let block = unsafe { std::alloc::alloc_zeroed(layout) };

@@ -121,10 +121,70 @@ def virtio_net_seeds():
     return seeds
 
 
+# ---- nicdrv script grammar ----------------------------------------------------
+
+
+def nic_first(rx_pick, tx_pick):
+    """First byte: receive entries and transmit entries, each 2 << pick (2..32)
+    via the sizes table [2, 4, 16, 64, 256] in `libs/nicdrv/src/fuzz.rs`."""
+    return bytes([rx_pick + 5 * tx_pick])
+
+
+def deliver(length, dst=0):
+    return bytes([0]) + struct.pack(">H", length) + bytes([dst])
+
+
+PUMP, POP_CLIENT, DEV_TX = bytes([70]), bytes([140]), bytes([170])
+
+
+def push_tx(selector, extra=0):
+    """selector: 0 empty, 1 13, 2 14, 3 1514, 4 1515, 5 random u16."""
+    return bytes([100, selector]) + (struct.pack(">H", extra) if selector >= 5 else b"")
+
+
+ATTACH = bytes([190, 0, 0])  # owner OWNER, 16 slots
+
+
+def nicdrv_seeds():
+    seeds = {
+        "traffic": nic_first(3, 3) + ATTACH
+        + deliver(60) * 5 + PUMP + POP_CLIENT * 6
+        + push_tx(2) + push_tx(3) + push_tx(5, 100) + PUMP + DEV_TX * 4 + PUMP,
+        "length_boundaries": nic_first(3, 3) + ATTACH
+        + b"".join(deliver(n) for n in (13, 14, 1514, 1515, 0, 1699)) + PUMP + POP_CLIENT * 6
+        + b"".join(push_tx(s) for s in range(5)) + PUMP + DEV_TX * 5,
+        "receive_filter": nic_first(2, 2) + ATTACH
+        + b"".join(deliver(60, dst) for dst in range(4)) + PUMP + POP_CLIENT * 4
+        + bytes([205, 0, 0, 2]) + deliver(60, 3) + PUMP + POP_CLIENT
+        + bytes([205, 0, 0, 0]) + deliver(60, 0) + PUMP + POP_CLIENT,
+        "backpressure": nic_first(1, 0) + ATTACH
+        + b"".join(push_tx(2) for _ in range(10)) + PUMP + PUMP + DEV_TX * 2 + PUMP + DEV_TX * 2 + PUMP,
+        "wake_ups": nic_first(3, 3) + ATTACH
+        + bytes([180]) + deliver(60) * 3 + PUMP + bytes([185]) + push_tx(2) + bytes([185]) + PUMP + bytes([185]),
+        "attach_abuse": nic_first(3, 3)
+        + bytes([190, 0, 3]) + bytes([190, 0, 4]) + bytes([190, 1, 0]) + ATTACH + ATTACH + bytes([190, 1, 0])
+        + bytes([200, 1, 0]) + bytes([200, 0, 1]) + bytes([200, 0, 0]) + bytes([210, 2, 0]) + ATTACH
+        + bytes([205, 1, 0, 1]) + bytes([205, 0, 0, 7]),
+        "link_flap": nic_first(3, 3) + ATTACH + bytes([215, 1]) + PUMP + bytes([215, 0]) + PUMP + bytes([215, 0]) + PUMP,
+        "scribble_each": nic_first(3, 3) + b"".join(
+            ATTACH + deliver(60) + PUMP + bytes([220, 0, kind]) + struct.pack(">IH", 0xDEADBEEF, 2)
+            + push_tx(2) + deliver(60) + PUMP + POP_CLIENT + bytes([245, 0])
+            for kind in range(6)
+        ),
+        "device_lies": nic_first(3, 3) + ATTACH
+        + deliver(60) + PUMP
+        + bytes([60, 4]) + bytes([1, 2, 3, 4]) + bytes([2]) + PUMP
+        + bytes([230, 0, 0]) + struct.pack(">II", 9999, 60) + PUMP,
+        "empty": b"",
+    }
+    return seeds
+
+
 TARGETS = {
     "framering": framering_seeds,
     "framering_header": header_seeds,
     "virtio_net": virtio_net_seeds,
+    "nicdrv": nicdrv_seeds,
 }
 
 

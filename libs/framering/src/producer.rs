@@ -84,6 +84,11 @@ impl Producer {
         self.region.armed().swap(0, Ordering::SeqCst) != 0
     }
 
+    /// Slots in the ring.
+    pub fn slots(&self) -> u32 {
+        self.region.slots()
+    }
+
     /// Whether an earlier call found the peer's index impossible.
     pub fn is_poisoned(&self) -> bool {
         self.poisoned
