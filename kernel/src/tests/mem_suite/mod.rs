@@ -8,9 +8,11 @@
 
 use super::*;
 
+mod fault_storm;
 mod frames_and_cow;
 mod vma;
 
+pub(super) use fault_storm::*;
 pub(super) use frames_and_cow::*;
 pub(super) use vma::*;
 
@@ -26,4 +28,12 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("mem_vma_split_merge_protect", vma_split_merge_protect),
     ("mem_demand_zero_and_munmap", demand_zero_and_munmap),
     ("mem_vma_cow_mprotect", vma_cow_mprotect),
+    (
+        "mem_fault_storm_reports_once_per_storm",
+        fault_storm_reports_once_per_storm,
+    ),
+    (
+        "mem_pte_chain_walks_to_the_leaf",
+        pte_chain_walks_to_the_leaf,
+    ),
 ];

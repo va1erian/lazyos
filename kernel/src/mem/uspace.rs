@@ -209,6 +209,25 @@ pub(super) unsafe fn leaf_entry(table: PhysAddr, va: u64) -> Option<*mut u64> {
     Some(entry)
 }
 
+/// The raw entries on `table`'s walk for `va`, PML4 first; the walk stops
+/// (leaving zeros) at the first absent or huge entry. A diagnostic view for
+/// fault reports: it never allocates or changes anything.
+pub fn pte_chain(table: PhysAddr, va: u64) -> [u64; 4] {
+    let mut chain = [0u64; 4];
+    let mut phys = table;
+    for (level, shift) in [39u64, 30, 21, 12].into_iter().enumerate() {
+        // Safety: `phys` is `table` or a present, non-huge entry's target
+        // read on the previous iteration, so it names a live page table.
+        let entry = unsafe { *entry_table(phys).add(((va >> shift) & 0x1ff) as usize) };
+        chain[level] = entry;
+        if entry & PTE_PRESENT == 0 || (level > 0 && entry & PTE_HUGE != 0) {
+            break;
+        }
+        phys = PhysAddr::new(entry & PTE_ADDR);
+    }
+    chain
+}
+
 /// Resolve a write fault on a COW page: copy the frame and map it writable.
 /// Returns true if the fault was handled (caller should resume).
 pub fn cow_fault(table: PhysAddr, va: u64) -> bool {

@@ -73,6 +73,9 @@ pub extern "C" fn schedule(current_rsp: u64, tick: u32) -> u64 {
     mark_finished(&tasks, cur);
     drop(tasks);
     signal::finish_sweep(&sweep_finished[..sweep_count]);
+    // The live x87/SSE registers are `cur`'s user state (the kernel is
+    // soft-float): park them before `install` loads the next task's.
+    fpu::save(cur);
     resume(next, cur)
 }
 
@@ -116,8 +119,9 @@ fn install(slot: usize) -> u64 {
         gdt::set_kernel_stack(kstack_top);
         crate::arch::linux::set_kernel_stack(kstack_top);
     }
-    // Restore this task's user thread pointer.
+    // Restore this task's user thread pointer and floating-point registers.
     crate::arch::msr::write(crate::arch::msr::IA32_FS_BASE, fs_base);
+    fpu::restore(slot);
     rsp
 }
 
