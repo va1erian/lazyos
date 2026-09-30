@@ -245,6 +245,14 @@ impl Client {
             .paths)
     }
 
+    /// `Info()`: the directory `confd` keeps its store in and whether that
+    /// survives a reboot (`false` when it fell back to ramfs).
+    pub fn info(&self) -> Result<(String, bool)> {
+        let reply = self.call(wire::METHOD_INFO, Vec::new())?;
+        let info = wire::decode_info_reply(&reply.body).map_err(Error::Parcel)?;
+        Ok((info.store_dir, info.persistent))
+    }
+
     /// Subscribe to change topics; the filter is a topic filter such as
     /// `system/confd/changed/sys/#`. Retained nothing is replayed (changes are
     /// not retained), so callers should `List`/`Get` once before watching.

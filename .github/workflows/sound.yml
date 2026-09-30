@@ -1,0 +1,91 @@
+name: sound
+
+# virtio-sound driver (docs/driver-plan.md D6): host unit tests for the driver
+# libraries and the WAV detector, then the end-to-end harness, which boots QEMU
+# with `-audiodev wav` and checks the *recording*, not just the serial markers.
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+  pull_request:
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sound-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit:
+    name: unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      # rust-toolchain.toml pins the nightly toolchain; rustup installs it.
+      - name: Driver libraries (host)
+        run: cargo test -p virtio -p virtio-snd -p pcm
+
+      - name: WAV detector
+        run: python tools/sound/test_analyze_wav.py
+
+  harness:
+    name: harness (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # The default machine: the kernel boots `sndd`, which plays its own
+          # tone and then runs the `beep` clients (tone, probe, intruder, soak).
+          - name: default
+            args: ""
+          # `init` supervises the driver as the unprivileged _snd user (uid 901).
+          - name: services
+            args: "--services"
+          # q35 has no IDE controller the kernel drives: virtio-blk boot disk.
+          - name: q35
+            args: "--machine q35 --virtio-disk"
+          # No sound card: the driver must say so and exit cleanly.
+          - name: no-device
+            args: "--no-device"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install QEMU
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-x86
+
+      # Hosted runners expose /dev/kvm but not to the runner user; open it up
+      # so `--accel auto` picks KVM (it falls back to TCG if KVM is unusable).
+      - name: Enable KVM (best effort)
+        run: bash tools/ci/enable_kvm.sh
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Boot, record and verify
+        run: python tools/sound/run.py --out shots/sound ${{ matrix.args }}
+
+      - name: Upload the recording and serial log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sound-${{ matrix.name }}
+          path: shots/sound/**
+          if-no-files-found: warn

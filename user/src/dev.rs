@@ -269,8 +269,15 @@ pub struct IrqMessage {
 /// trust it if the message's kernel-stamped `sender` is slot 0 (the kernel).
 pub fn parse_irq(parcel_bytes: &[u8]) -> Option<IrqMessage> {
     let parcel = Parcel::decode(parcel_bytes).ok()?;
+    parse_irq_body(&parcel.body)
+}
+
+/// Decode the TLV body of an interrupt message that a Messenger receive already
+/// unwrapped into a parcel (`Message::parcel.body`). The same trust rule as
+/// [`parse_irq`] applies: check the sender is slot 0 first.
+pub fn parse_irq_body(body: &[u8]) -> Option<IrqMessage> {
     let mut fields = [None::<u32>; 3];
-    let mut decoder = Decoder::new(&parcel.body);
+    let mut decoder = Decoder::new(body);
     while let Ok(Some(field)) = decoder.next() {
         let slot = usize::from(field.id).checked_sub(1)?;
         if let Some(entry) = fields.get_mut(slot) {

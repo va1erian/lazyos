@@ -9,7 +9,7 @@ import tkinter as tk
 from tkinter import filedialog, ttk
 
 from . import datavol
-from .catalog import (ACCELS, CARGO, DATA_IMAGE, DESKTOP_APPS, DISKS, MODES, PY, ROOT,
+from .catalog import (ACCELS, CARGO, DATA_IMAGE, DISKS, MODES, PY, ROOT,
                       SCRIPTS, SIMPLE_BUILDS, SIMPLE_INTERFACES, XUI_VIEWERS, build_env, build_plan,
                       cargo_step, format_plan, simple_config)
 from .runner import Runner, open_path
@@ -59,6 +59,7 @@ class Launcher:
             "skip_build": b(value=False),
             "headless": b(value=False),
             "tablet": b(value=False),
+            "sound": b(value=True),
             "abi_build": b(value=False),
             "data_disk": b(value=True),
             "desktop": b(value=False),
@@ -117,6 +118,7 @@ class Launcher:
             "skip_build": self.v["skip_build"].get(),
             "headless": self.v["headless"].get(),
             "tablet": self.v["tablet"].get(),
+            "sound": self.v["sound"].get(),
             "abi_build": self.v["abi_build"].get(),
             "desktop": self.v["desktop"].get(),
             "services": self.v["services"].get(),
@@ -127,7 +129,6 @@ class Launcher:
             "xui_client": self.v["xui_client"].get(),
             "xui_app": self.v["xui_app"].get(),
             "xui_autostart": self.v["xui_autostart"].get(),
-            "xui_apps": DESKTOP_APPS if self.v["xui_autostart"].get() else (),
             "script": SCRIPTS.index(names[0]) if names else 0,
         }
 
@@ -215,6 +216,7 @@ class Launcher:
         ttk.Checkbutton(row, text="Skip build", variable=self.v["skip_build"]).pack(side="left")
         ttk.Checkbutton(row, text="Headless", variable=self.v["headless"]).pack(side="left", padx=12)
         ttk.Checkbutton(row, text="USB tablet", variable=self.v["tablet"]).pack(side="left")
+        ttk.Checkbutton(row, text="Sound card", variable=self.v["sound"]).pack(side="left", padx=12)
         row = ttk.Frame(g); row.pack(fill="x", padx=6, pady=2)
         ttk.Label(row, text="ABI at (s):").pack(side="left")
         ttk.Entry(row, textvariable=self.v["abi_time"], width=5).pack(side="left", padx=4)

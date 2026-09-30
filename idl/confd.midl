@@ -14,6 +14,10 @@ interface os.lazy.confd.v1 {
     method Delete(path: String) -> ();
     /// Every path the caller may read under `prefix`, in sorted order.
     method List(prefix: String) -> (paths: Array<String>);
+    /// Where the store lives: the directory confd chose and whether it
+    /// survives a reboot (`false` when it fell back to the ramfs `/tmp`).
+    /// Not restricted by path, so any caller may ask.
+    method Info() -> (store_dir: String, persistent: Bool);
 
     /// One typed value. `kind` selects which optional payload field is set:
     /// `0` bool, `1` i64, `2` u64, `3` string, `4` bytes.

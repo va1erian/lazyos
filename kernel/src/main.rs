@@ -217,6 +217,12 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         #[cfg(not(services_mode))]
         spawn_console_shell();
 
+        // `LAZYOS_SOUND=1` boots the virtio-sound driver directly when there is
+        // no supervisor to start it (docs/driver-plan.md D6). `sndd` plays a
+        // test tone with `demo=1`, which the sound harness records.
+        #[cfg(all(sound_demo, not(services_mode)))]
+        spawn_sound_demo();
+
         // Issue #113: `LAZYOS_XUID=1` boots the userspace compositor (`XUID.ELF`)
         // and two instances of the display-protocol demo app (`XDEMO.ELF`).
         // `xuid` binds the display grant, so the mux stops painting and the
@@ -320,6 +326,23 @@ fn spawn_program(name: &'static str, path: &str) {
             Err(err) => serial_println!("LazyOS: spawn {name} failed: {err}"),
         },
         None => serial_println!("LazyOS: {path} not found"),
+    }
+}
+
+/// Boot `sndd` with `demo=1` (kernel-spawned tasks have no argument string
+/// otherwise), so a scripted boot plays the harness's test tone.
+#[cfg(all(sound_demo, not(services_mode)))]
+fn spawn_sound_demo() {
+    let Some(bytes) = fs::read("SNDD.ELF") else {
+        serial_println!("LazyOS: SNDD.ELF not found");
+        return;
+    };
+    match task::spawn("sndd", &bytes) {
+        Ok(index) => {
+            process::set_service_args(index, b"demo=1");
+            serial_println!("LazyOS: spawned sndd as task {index}");
+        }
+        Err(err) => serial_println!("LazyOS: spawn sndd failed: {err}"),
     }
 }
 

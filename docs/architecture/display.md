@@ -52,8 +52,9 @@ compositor demo. Target toolkit design: [xui-plan.md](../xui-plan.md).
   used because the bootloader framebuffer frames live outside the allocator's
   usable regions (zero-copy scanout is an S8 follow-up).
 - Input events (`Event`, 16 bytes) are pushed by keyboard/mouse IRQs into a
-  256-entry queue and drained only by the owner; kinds are pointer move/down/up
-  and key down/up with `key::*` codes for non-printables. `bound()` checks owner
+  256-entry queue and drained only by the owner; kinds are pointer move/down/up,
+  key down/up with `key::*` codes for non-printables, and the wheel
+  (`POINTER_WHEEL`, `a` = notches, positive scrolls up). `bound()` checks owner
   liveness (`task::live`), so no scheduler teardown hook is needed.
 
 **Display protocol / XUI current state**
@@ -112,6 +113,19 @@ compositor demo. Target toolkit design: [xui-plan.md](../xui-plan.md).
   `PointerUp` carry the button id, and `PointerMove` is surface-relative like the
   presses (relative to the focused surface, negative or oversized while a
   press-and-drag leaves it), so the client backend needs no origin recovery.
+- **Mouse wheel.** `kernel/src/input/mouse.rs` runs the IntelliMouse handshake
+  at boot (sample rate 200, 100, 80, then *get id*; id 3 means a wheel), and
+  from then on reads 4-byte packets whose last byte is a signed count, positive
+  toward the user. The driver negates it, so the display event is **up-positive**
+  like the protocol below, and queues one `POINTER_WHEEL` record per packet that
+  rolled the wheel. A mouse that ignores the handshake keeps 3-byte packets and
+  never produces the event. `xuid` forwards it as the one-way `PointerWheel(x,
+  y, delta)` (method 31) to the **topmost window under the pointer**, not the
+  focused one, and only when the pointer is over that window's content (a title
+  bar, a border, an open menu or a drag swallows it; it never falls through to a
+  window below). `xui-app` turns it into `Event::MouseWheel` for the widget under
+  the pointer, one notch being `120` (Windows' `WHEEL_DELTA`, which xui's
+  widgets and `xui-litehtml` expect). Horizontal wheels are not reported.
 - **Keyboard focus routing** (issue #151) is mode-independent: a pointer press
   on a focus stop moves the backend focus, `SetFocus`/`KillFocus` reach the
   widgets, and `KeyDown`/`KeyUp`/`Char` target the focused node, not the node

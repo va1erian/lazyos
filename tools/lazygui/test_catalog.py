@@ -45,13 +45,32 @@ class DataDiskPlanTests(unittest.TestCase):
         self.assertNotIn("--data-disk", argv)
 
 
+class SoundPlanTests(unittest.TestCase):
+    """The launcher attaches a sound card for the desktop (`beep` in the Terminal)."""
+
+    def test_desktop_simple_start_enables_sound(self) -> None:
+        cfg = catalog.simple_config(demo_config(), "dev", "Desktop")
+        self.assertTrue(cfg["sound"])
+        self.assertIn("--sound", catalog.build_plan(cfg)[-1]["argv"])
+
+    def test_cli_simple_start_stays_quiet(self) -> None:
+        cfg = catalog.simple_config(demo_config(), "dev", "CLI")
+        self.assertFalse(cfg["sound"])
+        self.assertNotIn("--sound", catalog.build_plan(cfg)[-1]["argv"])
+
+    def test_advanced_checkbox_is_honoured(self) -> None:
+        self.assertIn("--sound", demo_argv(sound=True))
+        self.assertNotIn("--sound", demo_argv(sound=False))
+        self.assertNotIn("--sound", demo_argv())
+
+
 class DocumentAppSessionTests(unittest.TestCase):
     """Editor/Paint/Files scripts boot the desktop profile, autostarting one app."""
 
     def env(self, stem: str) -> dict[str, str]:
         cfg = {"desktop": True, "services": False, "xuid": False, "xui_client": False,
                "xui_app": "(none)", "shellprobe": False, "msgctl": False, "msgrd": False,
-               "busybox": "", "xui_autostart": stem, "xui_apps": catalog.DESKTOP_APPS}
+               "busybox": "", "xui_autostart": stem}
         return catalog.build_env(cfg)
 
     def test_document_scripts_are_desktop_sessions(self) -> None:
@@ -64,9 +83,9 @@ class DocumentAppSessionTests(unittest.TestCase):
         self.assertEqual(env["LAZYOS_DESKTOP"], "1")
         self.assertEqual(env["LAZYOS_XUI_AUTOSTART"], "files")
         self.assertNotIn("LAZYOS_XUI_APP", env)
-        embedded = env["LAZYOS_XUI_APPS"].split(os.pathsep)
-        self.assertEqual(len(embedded), len(catalog.DESKTOP_APPS))
-        self.assertTrue(any(p.endswith("xui-editor.elf") for p in embedded))
+        # The desktop profile embeds its own default app set (build.rs); the
+        # GUI must not override it with a list of its own.
+        self.assertNotIn("LAZYOS_XUI_APPS", env)
 
     def test_no_autostart_without_a_document_script(self) -> None:
         self.assertNotIn("LAZYOS_XUI_AUTOSTART", self.env(""))

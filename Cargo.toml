@@ -25,6 +25,15 @@ members = [
     # Time-zone and DST resolution for the `timed` service (issue #369): pure
     # `no_std` logic with host tests.
     "libs/timed",
+    # Desktop theme schema + palette resolution shared by xuid and Settings.
+    "libs/uitheme",
+    # Modern virtio-PCI transport + split virtqueues, and the virtio-sound
+    # protocol, for userspace drivers (docs/driver-plan.md D5/D6). Pure `no_std`
+    # logic with host tests.
+    "libs/virtio",
+    "libs/virtio-snd",
+    # PCM sample helpers (test-tone synthesis) shared by `sndd` and its clients.
+    "libs/pcm",
     # Keymaps, modifier/lock state, repeat and hotkey matching for `inputd`
     # (docs/input-plan.md): pure `no_std` logic with host tests.
     "libs/inputmap",

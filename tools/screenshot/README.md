@@ -104,7 +104,7 @@ or since the latest `wait_for` gate) and one action:
 | press a named key | `{"key": "enter"}` / `{"key": "f5"}` |
 | press several keys | `{"keys": ["up", "up", "enter"]}` |
 | hold a key | `{"key_down": "alt"}` / `{"key_up": "alt"}` |
-| move the mouse | `{"mouse_move": [dx, dy]}` |
+| move the mouse | `{"mouse_move": [dx, dy]}` (relative; sent as paced steps of at most 127 px per axis, see below) |
 | hold a button | `{"mouse_down": "left"}` / `{"mouse_up": "left"}` |
 | click | `{"mouse_click": "left"}` |
 | scroll | `{"mouse_scroll": 3}` |
@@ -215,3 +215,14 @@ Beyond the blank-screen assertions CI runs today, a session can add
 `--min-colors`, `--expect-width`/`--expect-height` or `--max-mean`. Golden
 reference-image comparison is not implemented; the decoder in `pngstats.py` is
 the place to build it.
+
+## Relative mouse moves are split into paced steps
+
+A PS/2 packet moves the pointer at most 127 px per axis, and QEMU's PS/2 mouse
+queue holds only 16 bytes. A large relative move needs several packets, and the
+ones that do not fit are held back until the *next* input event. A click sent
+right after a long move would then fire before the pointer arrived (with a wheel
+mouse's 4-byte packets this starts at about 250 px). `Qmp.mouse_move` therefore
+sends every move as single-packet steps with a short pause, so `mouse_move` is
+exact and a following click lands where the script says. `python
+tools/screenshot/test_qmp_mouse.py` tests the splitting.

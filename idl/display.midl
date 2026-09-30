@@ -7,7 +7,7 @@
 /// `ListSurfaces`, `GetWorkArea`, `Subscribe` and `GetTheme`. **Events**
 /// (compositor to app, or to the shell subscriber) are `oneway` methods sent
 /// on the event endpoint the client transferred: `PointerMove`, `PointerDown`,
-/// `PointerUp`, `KeyDown`, `KeyUp`, `WindowClose`, the drag-and-drop set
+/// `PointerUp`, `PointerWheel`, `KeyDown`, `KeyUp`, `WindowClose`, the drag-and-drop set
 /// `DragEnter`/`DragOver`/`DragLeave`/`Drop`/`DragEnded`, and the shell set
 /// `SurfaceChanged`/`FocusChanged`/`StartMenu`. Method ids are pinned to the
 /// values the hand-written protocol used (1-24), so the numbering stays
@@ -145,6 +145,12 @@ interface os.lazy.display.v1 {
     /// Minimize and restore keep using the taskbar entry. A compositor that
     /// predates the method answers `EINVAL`, which callers ignore.
     method HintOpenOrigin(surface: U64, x: I32, y: I32, w: U32, h: U32) -> () = 30;
+    /// Event: the mouse wheel rolled `delta` notches over this surface's
+    /// content at `(x, y)` (relative to the content origin). Positive scrolls
+    /// up (the wheel rolled away from the user), negative down. The compositor
+    /// sends it to the topmost window under the pointer, which need not be the
+    /// focused one, and never to the title bar or an area outside every window.
+    method PointerWheel(x: I32, y: I32, delta: I32) -> () = 31 oneway;
 
     /// What a surface is. Numeric values are the wire values.
     enum Role { Window, Desktop }

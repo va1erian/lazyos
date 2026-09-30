@@ -7,12 +7,16 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 /// Open-with defaults seeded at boot: `(mime, app, verbs)`. The app ids are
-/// registry ids (`editor` -> `XEDITOR.ELF`, `paint`, `files`); an app the image
+/// registry ids (`editor` -> `XEDITOR.ELF`, `paint`, `files`, `docs`); an app the image
 /// does not ship falls back to the launch event alone.
 const DEFAULT_APPS: &[(&str, &str, &[&str])] = &[
     ("text/plain", "editor", &["open", "edit"]),
     ("text/plain", "files", &["reveal"]),
     ("text/markdown", "editor", &["open", "edit"]),
+    // The Docs app (litehtml) renders Markdown. It is shipped only when the
+    // build had the zig toolchain, so it is a `view` verb rather than the
+    // default `open`: an image without it still opens `.md` files in the Editor.
+    ("text/markdown", "docs", &["view"]),
     ("text/x-rust", "editor", &["open", "edit"]),
     ("text/x-shellscript", "editor", &["open", "edit"]),
     ("image/png", "paint", &["open", "edit"]),

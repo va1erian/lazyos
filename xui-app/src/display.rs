@@ -46,6 +46,8 @@ pub enum Event {
     PointerDown { x: i32, y: i32, button: u32 },
     /// A pointer button went up.
     PointerUp { x: i32, y: i32, button: u32 },
+    /// The wheel rolled `delta` notches at `(x, y)`; positive scrolls up.
+    PointerWheel { x: i32, y: i32, delta: i32 },
     /// A key went down; `key` is the kernel key code.
     KeyDown { key: u32 },
     /// A key was released.
@@ -78,6 +80,14 @@ pub fn decode_event(parcel: &Parcel) -> Option<Event> {
                 x: args.x,
                 y: args.y,
                 button: args.button,
+            }
+        }
+        wire::METHOD_POINTERWHEEL => {
+            let args = wire::decode_pointer_wheel_args(body).ok()?;
+            Event::PointerWheel {
+                x: args.x,
+                y: args.y,
+                delta: args.delta,
             }
         }
         wire::METHOD_KEYDOWN => Event::KeyDown {
@@ -319,5 +329,37 @@ mod tests {
             (args.surface, args.x, args.y, args.w, args.h),
             (7, -4, 12, 64, 48)
         );
+    }
+
+    #[test]
+    fn a_wheel_event_decodes_with_its_position_and_signed_delta() {
+        for delta in [1, -1, 5, -120] {
+            let body = wire::encode_pointer_wheel_args(&wire::PointerWheelArgs {
+                x: -3,
+                y: 44,
+                delta,
+            })
+            .expect("encodes");
+            let parcel = request(wire::METHOD_POINTERWHEEL, body, Vec::new(), Vec::new());
+            assert_eq!(
+                decode_event(&parcel),
+                Some(Event::PointerWheel {
+                    x: -3,
+                    y: 44,
+                    delta
+                })
+            );
+        }
+    }
+
+    #[test]
+    fn a_truncated_wheel_body_is_not_an_event() {
+        let parcel = request(
+            wire::METHOD_POINTERWHEEL,
+            vec![1, 2],
+            Vec::new(),
+            Vec::new(),
+        );
+        assert_eq!(decode_event(&parcel), None);
     }
 }

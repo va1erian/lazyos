@@ -18,11 +18,12 @@
 //!
 //! The plan's `/system/confd/store` needs a persistent writable volume. On the
 //! shipped image the boot volume is read-only FAT and `/tmp` is volatile
-//! ramfs, so the service falls back to `/tmp/confd`, logs a warning and reports
-//! **degraded** to `healthd`. When `/system/confd` is writable it is used and
-//! reported **ok**; the store is still safe across a `confd` restart either way
-//! (the ramfs outlives the task), but only the persistent location survives a
-//! reboot.
+//! ramfs. The first writable directory of `/system/confd` (not mounted yet),
+//! `/data/confd` (the ext2 data volume, present when a data disk is attached)
+//! and `/tmp/confd` wins. A persistent location is reported **ok**; falling
+//! back to `/tmp/confd` logs a warning and reports **degraded** to `healthd`.
+//! The store is safe across a `confd` restart either way (the ramfs outlives
+//! the task), but only a persistent location survives a reboot.
 //!
 //! # Change topics
 //!
@@ -43,7 +44,7 @@ use alloc::vec::Vec;
 use core::panic::PanicInfo;
 
 use api::wire;
-use confd::{ChangeSink, Confd, StoreFs};
+use confd::{dir, ChangeSink, Confd, StoreFs};
 use messenger_generated::topics;
 use user::central;
 use user::files::{self, Kind};
@@ -51,10 +52,6 @@ use user::messenger::confd as api;
 use user::messenger::{self, errno, registry, services, Error, Message, Parcel};
 use user::sys;
 
-/// Preferred store directory: persistent when a writable volume is mounted.
-const STORE_DIR: &str = "/system/confd";
-/// ramfs fallback when no persistent, writable volume is mounted.
-const FALLBACK_DIR: &str = "/tmp/confd";
 /// `ENOENT`, spelled out because `files` reports raw errnos.
 const ENOENT: i64 = 2;
 /// How long the serve loop parks between demo-child reaps (PIT ticks).
@@ -203,13 +200,13 @@ fn run() -> messenger::Result<()> {
     registry::register(api::NAME, &published, &[api::INTERFACE], 0)?;
 
     let detail = if persistent {
-        "store=/system/confd"
+        format!("store={dir}")
     } else {
-        "store=/tmp/confd (ramfs; not persistent)"
+        format!("store={dir} (ramfs; not persistent)")
     };
     service
         .sink_mut()
-        .report_health(if persistent { "ok" } else { "degraded" }, detail);
+        .report_health(if persistent { "ok" } else { "degraded" }, &detail);
     sys::write_str(&format!("CONFD:READY dir={dir} persistent={persistent}\n"));
 
     // One receive buffer for the whole life of the service: the user bump
@@ -232,7 +229,7 @@ fn run() -> messenger::Result<()> {
         match server.recv_with(&mut buffer, deadline) {
             Ok(message) => {
                 let method = message.method();
-                let reply = match dispatch(&mut service, &message) {
+                let reply = match dispatch(&mut service, &message, &dir, persistent) {
                     Ok(parcel) => parcel,
                     Err(error) => error_reply_for(method, error),
                 };
@@ -275,8 +272,14 @@ fn spawn_demo() -> u64 {
 }
 
 /// Route one inbound message to the store, mapping a store rejection to a
-/// `CONFD_*` error reply.
-fn dispatch(service: &mut Service, message: &Message) -> messenger::Result<Parcel> {
+/// `CONFD_*` error reply. `dir` and `persistent` describe where the store
+/// lives, for `Info`.
+fn dispatch(
+    service: &mut Service,
+    message: &Message,
+    dir: &str,
+    persistent: bool,
+) -> messenger::Result<Parcel> {
     if message.interface_id() != api::INTERFACE {
         return Err(Error::Errno(-errno::EINVAL));
     }
@@ -316,6 +319,14 @@ fn dispatch(service: &mut Service, message: &Message) -> messenger::Result<Parce
             .map_err(Error::Parcel)?;
             Ok(api::parcel(method, body))
         }
+        wire::METHOD_INFO => {
+            let body = wire::encode_info_reply(&wire::InfoReply {
+                store_dir: String::from(dir),
+                persistent,
+            })
+            .map_err(Error::Parcel)?;
+            Ok(api::parcel(method, body))
+        }
         _ => Err(Error::Errno(-errno::EINVAL)),
     }
 }
@@ -346,38 +357,61 @@ fn caller_uid(message: &Message) -> messenger::Result<u32> {
 
 /// The store directory and whether it is persistent.
 ///
-/// `/system/confd` is preferred; it is only accepted if it can be created (or
-/// already is a directory) *and* a probe write succeeds. Otherwise `/tmp/confd`
+/// A persistent candidate is only accepted if it can be created (or already
+/// is a directory) *and* a probe write succeeds. Otherwise `/tmp/confd`
 /// (ramfs) is used and the service reports degraded.
 fn pick_dir() -> (String, bool) {
-    if ensure_dir(STORE_DIR) && probe_writable(STORE_DIR) {
-        return (String::from(STORE_DIR), true);
+    let choice = dir::choose(&dir::PERSISTENT_DIRS, |d| match check_dir(d) {
+        Ok(()) => true,
+        Err(why) => {
+            // Say why a persistent location was passed over, so a silent
+            // fallback to ramfs is diagnosable from the serial log.
+            sys::write_str(&format!(
+                "confd: {d} not usable: {why}
+"
+            ));
+            false
+        }
+    });
+    if !choice.persistent {
+        if let Err(why) = ensure_dir(choice.dir) {
+            sys::write_str(&format!(
+                "confd: warning: {}: {why}
+",
+                choice.dir
+            ));
+        }
     }
-    if !ensure_dir(FALLBACK_DIR) {
-        sys::write_str("confd: warning: could not create /tmp/confd\n");
-    }
-    (String::from(FALLBACK_DIR), false)
+    (String::from(choice.dir), choice.persistent)
 }
 
-/// Whether `path` is a directory, creating it when absent.
-fn ensure_dir(path: &str) -> bool {
+/// Whether `dir` can hold the store: it exists (or can be created) and a probe
+/// file can be written there.
+fn check_dir(dir: &str) -> Result<(), String> {
+    ensure_dir(dir)?;
+    probe_writable(dir)
+}
+
+/// Succeeds when `path` is a directory, creating it when absent.
+fn ensure_dir(path: &str) -> Result<(), String> {
     match files::stat(path) {
-        Ok((_, Kind::Dir)) => true,
-        Ok(_) => false,
-        Err(errno) if errno == ENOENT => files::mkdir(path).is_ok(),
-        Err(_) => false,
+        Ok((_, Kind::Dir)) => Ok(()),
+        Ok(_) => Err(String::from("exists but is not a directory")),
+        Err(errno) if errno == ENOENT => {
+            files::mkdir(path).map_err(|errno| format!("mkdir failed (errno {errno})"))
+        }
+        Err(errno) => Err(format!("stat failed (errno {errno})")),
     }
 }
 
-/// Whether a file can be written and removed under `dir`.
-fn probe_writable(dir: &str) -> bool {
+/// Succeeds when a file can be written and removed under `dir`.
+fn probe_writable(dir: &str) -> Result<(), String> {
     let mut probe = String::from(dir);
     probe.push_str("/.probe");
-    if files::write_file(&probe, b"ok").is_err() {
-        return false;
-    }
+    files::write_file(&probe, b"ok")
+        .map_err(|errno| format!("probe write failed (errno {errno})"))?;
     let _ = files::remove(&probe);
-    true
+    Ok(())
 }
 
 #[panic_handler]

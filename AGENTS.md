@@ -84,6 +84,15 @@ python tools/screenshot/qemu_session.py --image target/lazyos.img \
     --out shots/demo --script tools/screenshot/examples/multitask_demo.json
 ```
 
+## Docs app and the C++ toolchain
+
+`xui-docs` renders Markdown with litehtml, which is C++, so it is built with zig
+(`pip install ziglang==0.16.0`, then `python tools/xui/build.py`; see
+[`docs/xui-docs.md`](docs/xui-docs.md)). Without zig the script skips it with a
+warning and every other app still builds. `python tools/xui/test_zig.py` tests
+the toolchain helper. Screenshot sessions: `tools/screenshot/examples/xui_docs.json`
+(wheel scrolling) and `xui_docs_open.json` (Open dialog and `/TESTDOC.MD`).
+
 ## Linux ABI conformance bench
 
 Compatibility with Linux (`x86_64-unknown-linux-musl`) binaries is tracked by a
@@ -121,6 +130,24 @@ non-test image. Normal boots are unaffected: without `LAZYOS_TESTS=1` the suite
 is not compiled. Test-only hooks live behind `cfg(lazyos_tests)`; add new tests
 under `kernel/src/tests/` (`mem_suite` is where allocator-specific tests go). CI
 is `.github/workflows/kernel-tests.yml`; see `tools/test/README.md`.
+
+## Sound harness
+
+The virtio-sound driver (`sndd`) is verified by listening: QEMU records what the
+guest plays (`-audiodev wav`) and a detector measures the recording. One command
+builds with `LAZYOS_SOUND=1`, boots headless, records and checks it:
+
+```bash
+python tools/sound/run.py                          # driver tone + beep client tone
+python tools/sound/run.py --services               # init supervises sndd as _snd
+python tools/sound/run.py --machine q35 --virtio-disk
+python tools/sound/test_analyze_wav.py             # the detector's own tests
+cargo test -p virtio -p virtio-snd -p pcm          # the driver libraries
+```
+
+Do not claim an audio change works from the serial markers alone; the verdict is
+the recording. See `tools/sound/README.md` and `docs/architecture/audio.md`
+(including why a driver must never free a DMA buffer while its device runs).
 
 ## Testing requirement for kernel components
 
@@ -173,4 +200,5 @@ regressions, not kernel-internal correctness or resource leaks.
 python tools/screenshot/qemu_shot.py --out shots --at 2,5,10 --image <img>
 python tools/screenshot/pngstats.py shots/*.png --min-nonblack 0.01
 python tools/test/run.py --accel none
+python tools/sound/run.py
 ```

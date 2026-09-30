@@ -390,11 +390,11 @@ extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
         157 => 0,                            // prctl (accept)
         162 => filesys::sys_sync(),
         158 => misc::sys_arch_prctl(a1, a2),
-        169 => 0,                            // reboot (accept)
-        200 => sig::sys_tkill(a1, a2),       // tkill(tid, sig)
-        202 => futex::sys_futex(a1, a2, a3), // futex(uaddr, op, val)
-        204 => misc::sys_sched_getaffinity(a2, a3),
-        217 => dents::sys_getdents64(a1, a2, a3), // getdents64
+        169 => 0,                                   // reboot (accept)
+        200 => sig::sys_tkill(a1, a2),              // tkill(tid, sig)
+        202 => futex::sys_futex(a1, a2, a3),        // futex(uaddr, op, val)
+        204 => misc::sys_sched_getaffinity(a3, a2), // sched_getaffinity(pid, len, mask)
+        217 => dents::sys_getdents64(a1, a2, a3),   // getdents64
         218 => procctl::sys_set_tid_address(a1),
         227 => time::sys_clock_settime(a1, a2),
         228 => time::sys_clock_gettime(a1, a2),

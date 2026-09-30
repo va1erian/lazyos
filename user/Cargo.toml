@@ -22,6 +22,13 @@ surfbuf = { path = "../libs/surfbuf" }
 messenger-generated = { path = "../libs/generated" }
 # Time-zone and DST resolution for `timed` (issue #369).
 timezone = { path = "../libs/timed" }
+uitheme = { path = "../libs/uitheme" }
+# Modern virtio-PCI transport and the virtio-sound protocol for `sndd`
+# (docs/driver-plan.md D5/D6); host-tested `no_std` logic.
+virtio = { path = "../libs/virtio" }
+virtio-snd = { path = "../libs/virtio-snd" }
+# Test-tone synthesis for `sndd`'s self-test and the `beep` client.
+pcm = { path = "../libs/pcm" }
 # Keymaps, modifier/lock state and key repeat for `inputd` (docs/input-plan.md).
 inputmap = { path = "../libs/inputmap" }
 
@@ -250,3 +257,21 @@ path = "src/bin/async_service.rs"
 test = false
 bench = false
 
+# The virtio-sound userspace driver (docs/driver-plan.md D6). It claims the
+# device through syscall 23, drives it through `libs/virtio`, and serves
+# `os.lazy.audio.v1`. Embedded with `LAZYOS_SOUND=1`; the on-disk name is
+# `SNDD.ELF` (8.3, like the other services).
+[[bin]]
+name = "sndd"
+path = "src/bin/sndd.rs"
+test = false
+bench = false
+
+# `beep` (docs/driver-plan.md D6) is the smallest `os.lazy.audio.v1` client: it
+# plays a sine tone through `sndd`. `sndd` spawns it under `demo=1`; the
+# on-disk name is `BEEP.ELF`.
+[[bin]]
+name = "beep"
+path = "src/bin/beep.rs"
+test = false
+bench = false

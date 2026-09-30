@@ -29,6 +29,7 @@
 extern crate alloc;
 
 pub mod codec;
+pub mod dir;
 pub mod fs;
 pub mod path;
 pub mod service;

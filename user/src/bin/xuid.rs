@@ -120,8 +120,12 @@ mod shell;
 mod surface;
 #[path = "xuid/theme.rs"]
 mod theme;
+#[path = "xuid/themefeed.rs"]
+mod themefeed;
 #[path = "xuid/title.rs"]
 mod title;
+#[path = "xuid/wheel.rs"]
+mod wheel;
 #[path = "xuid/window.rs"]
 mod window;
 
@@ -199,6 +203,7 @@ fn run() -> ! {
     sys::write_str(title::selftest_titles());
     sys::write_str(window::selftest_focus_on_create());
     sys::write_str(origin::selftest_open_origin());
+    sys::write_str(wheel::selftest_wheel_routing());
 
     loop {
         // 0. `inputd`: register new surfaces, report focus, apply the
@@ -213,6 +218,7 @@ fn run() -> ! {
         }
         comp.reap_dead_shell();
         comp.tick_clock();
+        comp.tick_theme();
 
         // 2. Requests: serve one, then loop (the deadline bounds the nap when
         //    nothing is pending, keeping input latency at a couple of ticks).
