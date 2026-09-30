@@ -44,27 +44,37 @@ pub fn sysret_selectors_rpl3() -> Result<(), String> {
     Ok(())
 }
 
-/// The syscall entry stub must reach `call linux_dispatch` with `rsp`
-/// 16-aligned. The stub pushes [`ENTRY_PUSHED_QWORDS`] qwords onto the task's
-/// kernel stack; optimised (release) builds use aligned SSE stores on their
-/// frames, so an 8-byte skew corrupted the first Linux-ABI syscall's
-/// formatting and froze the release desktop, while debug builds hid it. The
-/// harness has no scheduler, so this checks the arithmetic the stub is
-/// assembled from against every real kernel stack top.
+/// The real syscall entry body (run through `arch::linux::probe_entry`, which
+/// shares its instructions with `linux_syscall_entry`) must reach
+/// `call linux_dispatch` with `rsp` 16-aligned and with Linux `r9` in the
+/// seventh SysV argument slot (`a6`, `preadv2`'s flags).
 ///
-/// [`ENTRY_PUSHED_QWORDS`]: crate::arch::linux::ENTRY_PUSHED_QWORDS
+/// Optimised (release) builds use aligned SSE stores on their frames, so an
+/// 8-byte skew corrupted the first Linux-ABI syscall's formatting and froze
+/// the release desktop while debug builds hid it; and the padding slot that
+/// fixed it is also `a6`'s slot, which must be written, not left stale.
 pub fn syscall_entry_call_alignment() -> Result<(), String> {
-    use crate::arch::linux::{ENTRY_CALL_PAD, ENTRY_PUSHED_QWORDS};
-    for slot in 0..crate::task::MAX_TASKS {
+    use crate::arch::linux::{probe_entry, ENTRY_CALL_PAD, ENTRY_PUSHED_QWORDS};
+    const GETPID: u64 = 39;
+    const R9_MARK: u64 = 0x5eed_c0de_1234_5678;
+    for slot in [0, 1, crate::task::MAX_TASKS - 1] {
         let top = crate::task::kstack_top(slot);
         check!(
             top % 16 == 0,
             "kernel stack top of slot {slot} ({top:#x}) is not 16-aligned"
         );
-        let at_call = top - ENTRY_PUSHED_QWORDS * 8 - ENTRY_CALL_PAD;
+        let (rsp, a6) = probe_entry(GETPID, R9_MARK, top);
         check!(
-            at_call % 16 == 0,
-            "slot {slot}: rsp at `call linux_dispatch` is {at_call:#x} (misaligned)"
+            rsp % 16 == 0,
+            "slot {slot}: rsp at `call linux_dispatch` is {rsp:#x} (misaligned)"
+        );
+        check!(
+            rsp == top - ENTRY_PUSHED_QWORDS * 8 - ENTRY_CALL_PAD,
+            "slot {slot}: rsp at the call is {rsp:#x}, unexpected frame layout"
+        );
+        check!(
+            a6 == R9_MARK,
+            "slot {slot}: seventh argument slot holds {a6:#x}, not Linux r9"
         );
     }
     Ok(())

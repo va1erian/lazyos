@@ -107,10 +107,13 @@ pub const ENTRY_PUSHED_QWORDS: u64 = 15;
 /// kernel stack tops are 16-aligned, so only the push count matters.
 pub const ENTRY_CALL_PAD: u64 = (16 - (ENTRY_PUSHED_QWORDS * 8) % 16) % 16;
 
-global_asm!(
-    r#"
-    .global linux_syscall_entry
-    linux_syscall_entry:
+/// The entry stub from the register save through the `call`, shared with the
+/// test-only `lazyos_entry_probe` so the test exercises the real instructions.
+/// `$hook` is asm inserted just before the call (empty in the real stub).
+macro_rules! entry_body {
+    ($hook:literal) => {
+        concat!(
+            r#"
         /* Save the user context (Linux preserves it across `syscall`). */
         mov [rip + USER_CONTEXT + 0], rcx
         mov [rip + USER_CONTEXT + 8], r11
@@ -148,16 +151,36 @@ global_asm!(
         push r8
         push r9
         push r10
-        /* shuffle to SysV: linux_dispatch(nr, a1..a6) */
+        /* linux_dispatch(nr, a1..a6) takes a6 - Linux r9 - as its seventh
+           argument, on the stack at [rsp] at the call. The padding slot is
+           exactly that slot, so it must be written, not left stale. */
+        sub rsp, {pad}                  /* 16-align rsp for the call */
+        mov [rsp], r9
+        /* shuffle to SysV */
         mov r9, r8
         mov r8, r10
         mov rcx, rdx
         mov rdx, rsi
         mov rsi, rdi
         mov rdi, rax
-        sub rsp, {pad}                  /* 16-align rsp for the call */
+        "#,
+            $hook,
+            r#"
         call linux_dispatch
         add rsp, {pad}
+"#
+        )
+    };
+}
+
+global_asm!(
+    concat!(
+        r#"
+    .global linux_syscall_entry
+    linux_syscall_entry:
+"#,
+        entry_body!(""),
+        r#"
         pop r10
         pop r9
         pop r8
@@ -174,9 +197,75 @@ global_asm!(
         pop r11
         pop rsp                         /* rsp = user RSP (rax holds result) */
         sysretq
-    "#,
+    "#
+    ),
     pad = const ENTRY_CALL_PAD,
 );
+
+/// Test-only twin of `linux_syscall_entry`: the same body (via `entry_body!`),
+/// but entered with a plain `call` from ring 0 and left with `ret`, recording
+/// `rsp` and the seventh-argument slot at the `call linux_dispatch`. Takes
+/// `(nr, r9)`; every other syscall register is zero.
+#[cfg(lazyos_tests)]
+global_asm!(
+    concat!(
+        r#"
+    .global lazyos_entry_probe
+    lazyos_entry_probe:
+        mov rax, rdi
+        mov r9, rsi
+        xor edi, edi
+        xor esi, esi
+        xor edx, edx
+        xor r8d, r8d
+        xor r10d, r10d
+        xor ecx, ecx
+        mov r11d, 2
+"#,
+        entry_body!(
+            "mov [rip + PROBE_RSP], rsp
+        mov rax, [rsp]
+        mov [rip + PROBE_A6], rax"
+        ),
+        r#"
+        mov rsp, [rip + SAVED_USER_RSP]
+        ret
+    "#
+    ),
+    pad = const ENTRY_CALL_PAD,
+);
+
+/// `rsp` / seventh-argument slot the probe saw at `call linux_dispatch`.
+#[cfg(lazyos_tests)]
+#[no_mangle]
+pub static mut PROBE_RSP: u64 = 0;
+#[cfg(lazyos_tests)]
+#[no_mangle]
+pub static mut PROBE_A6: u64 = 0;
+
+#[cfg(lazyos_tests)]
+extern "C" {
+    fn lazyos_entry_probe(nr: u64, r9: u64) -> u64;
+}
+
+/// Run syscall `nr` through the real entry body on `stack_top`, returning
+/// `(rsp at the call, a6 slot at the call)`. Saves and restores the globals
+/// the stub overwrites. Interrupts must be off (the harness's normal state).
+#[cfg(lazyos_tests)]
+pub fn probe_entry(nr: u64, r9: u64, stack_top: u64) -> (u64, u64) {
+    let context = user_context();
+    // Safety: single CPU, interrupts off; the globals are restored below.
+    unsafe {
+        let stack = KERNEL_STACK;
+        let user_rsp = SAVED_USER_RSP;
+        KERNEL_STACK = stack_top;
+        lazyos_entry_probe(nr, r9);
+        KERNEL_STACK = stack;
+        SAVED_USER_RSP = user_rsp;
+        set_user_context(context);
+        (PROBE_RSP, PROBE_A6)
+    }
+}
 
 extern "C" {
     fn linux_syscall_entry();
