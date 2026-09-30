@@ -38,7 +38,7 @@ per-path ACLs, audit trail, compaction, queries, quotas, `keyd` delegation.
 | Mediation | Userspace service `confd` over Messenger; kernel stays mechanism-only. |
 | Namespace | Hierarchical paths: `sys/net/eth0/mtu`, `user/1000/shell/theme`. |
 | Data model | One **value** per path: `bool`, `i64`, `u64`, `string`, or `bytes`. No records, no schemas. Structure comes from the path tree (`.../eth0/dhcp`, `.../eth0/mtu`). |
-| Persistence | The whole tree in memory; on every write, serialize to `<dir>/store.tmp` (`/data/confd` preferred, see �5), fsync, rename over `<dir>/store`. Rename is atomic, so a crash leaves the old or the new store, never a torn one. Config is small; this is fast enough. |
+| Persistence | The whole tree in memory; on every write, serialize to `<dir>/store.tmp` (`/data/confd` preferred, see §5), fsync, rename over `<dir>/store`. Rename is atomic, so a crash leaves the old or the new store, never a torn one. Config is small; this is fast enough. |
 | Access | Messenger interface `os.lazy.confd.v1` only. `confd` alone holds a handle to its store directory. |
 | Notification | One Messenger topic per changed path. |
 | Access control | Two fixed rules using the kernel-stamped `uid` (see §4). |

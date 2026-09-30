@@ -4,10 +4,10 @@
 
 use std::path::PathBuf;
 
-#[path = "build_support/drivers.rs"]
-mod drivers;
 #[path = "build_support/docs_embed.rs"]
 mod docs_embed;
+#[path = "build_support/drivers.rs"]
+mod drivers;
 #[path = "build_support/elf_trim.rs"]
 mod elf_trim;
 #[path = "build_support/rhai_embed.rs"]
