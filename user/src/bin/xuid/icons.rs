@@ -13,6 +13,11 @@ const UNIT: i32 = 16;
 /// Twice the stroke width in pixels: 1.5px reads crisp yet smooth here.
 const STROKE_X2: i32 = 3;
 
+/// A point in fixed-point units.
+type Point = (i32, i32);
+/// A line segment between two points.
+type Segment = (Point, Point);
+
 /// Squared distance from `p` to segment `a`-`b`, all in fixed-point units.
 fn dist2(p: (i64, i64), a: (i64, i64), b: (i64, i64)) -> i64 {
     let (dx, dy) = (b.0 - a.0, b.1 - a.1);
@@ -34,13 +39,7 @@ fn dist2(p: (i64, i64), a: (i64, i64), b: (i64, i64)) -> i64 {
 }
 
 /// Stroke `lines` (fixed-point endpoints) over the pixels of `bounds`.
-fn stroke(
-    screen: &mut Canvas,
-    bounds: Rect,
-    lines: &[((i32, i32), (i32, i32))],
-    color: Color,
-    clip: Rect,
-) {
+fn stroke(screen: &mut Canvas, bounds: Rect, lines: &[Segment], color: Color, clip: Rect) {
     let radius = (STROKE_X2 * UNIT / 4) as i64;
     for py in bounds.y..bounds.y + bounds.h {
         for px in bounds.x..bounds.x + bounds.w {
