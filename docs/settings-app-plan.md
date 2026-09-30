@@ -9,7 +9,7 @@ onto the ext2 data volume.
 | Parameter | Mechanism |
 |---|---|
 | Date and time, timezone | `timed` (`SetTime`, `SetZone`, `Now`) |
-| Keyboard layout (US, FR only) | UI only: writes `sys/input/layout` to confd; a separate input daemon (other session) applies it |
+| Keyboard layout (US, FR only) | UI only: writes `sys/input/layout` to confd; `inputd` applies it live |
 | Background, active/inactive window, taskbar, accent colors | runtime `Theme` in `xuid`, driven by confd |
 | Dark / light theme | preset that resolves into the same `Theme` |
 | Extras | animations toggle, 12/24-hour clock, show seconds, per-section reset, About page |
@@ -38,7 +38,7 @@ shows a "settings will not survive reboot" banner.
 `Theme` struct loaded from `sys/ui/*`, re-read on the confd change topic.
 `GetTheme` in `idl/display.midl` gains `mode` and `accent` (midlc regenerated).
 
-**Keyboard.** UI only. The section shows a two-item single-select `ListView` (`English (US)`, `Français (AZERTY)`; `ListView::new(ui, bounds, &[...])`, `.selection_mode(Single)`, `.on_select(...)`) and a test text field and writes `sys/input/layout`. No kernel syscall or `init` wiring is added here: layout switching moves into an input daemon being built in another session, which will own applying that key. The Keyboard section shows the stored value and notes that it takes effect once the daemon lands.
+**Keyboard.** UI only. The section shows a two-item single-select `ListView` (`English (US)`, `Français (AZERTY)`; `ListView::new(ui, bounds, &[...])`, `.selection_mode(Single)`, `.on_select(...)`) and a test text field and writes `sys/input/layout`. No kernel syscall or `init` wiring is needed: `inputd` (merged from `docs/input-plan.md`) already reads confd `sys/input/layout` and applies a change live, so the section shows the stored value and the effect is immediate.
 
 **App.** `xui-app/crates/settings` (host-testable model + reducer + schema) and
 `xui-app/src/bin/settings.rs`. Sidebar is an `IconView` with a `SectionsModel`
