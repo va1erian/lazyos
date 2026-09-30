@@ -24,16 +24,16 @@ const DATA_LBA: usize = 4;
 const CLUSTER_BYTES: u32 = 512;
 const PAYLOAD: &[u8] = b"hello fat corruption";
 
-fn put16(buf: &mut [u8], offset: usize, value: u16) {
+pub(super) fn put16(buf: &mut [u8], offset: usize, value: u16) {
     buf[offset..offset + 2].copy_from_slice(&value.to_le_bytes());
 }
 
-fn put32(buf: &mut [u8], offset: usize, value: u32) {
+pub(super) fn put32(buf: &mut [u8], offset: usize, value: u32) {
     buf[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
 }
 
 /// Write a packed 12-bit FAT entry (entries share a byte at odd boundaries).
-fn set_fat12(fat: &mut [u8], cluster: u16, value: u16) {
+pub(super) fn set_fat12(fat: &mut [u8], cluster: u16, value: u16) {
     let offset = cluster as usize + cluster as usize / 2;
     let word = u16::from_le_bytes([fat[offset], fat[offset + 1]]);
     let word = if cluster.is_multiple_of(2) {

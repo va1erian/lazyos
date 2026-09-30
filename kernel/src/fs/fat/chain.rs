@@ -26,7 +26,7 @@ impl Fat16 {
 
     /// LBA of a data cluster's first sector. `None` for the reserved cluster
     /// values `0`/`1` or an out-of-range cluster (issue #235).
-    fn cluster_lba(&self, cluster: u16) -> Option<u32> {
+    pub(super) fn cluster_lba(&self, cluster: u16) -> Option<u32> {
         let index = (cluster as u32).checked_sub(2)?;
         if index >= self.clusters {
             return None;
@@ -67,7 +67,7 @@ impl Fat16 {
     /// and anything past the volume's last cluster. Treating those as an
     /// error stops a corrupt image from steering a read into the FAT or a
     /// neighbouring partition (issue #235).
-    fn next_cluster(&self, cluster: u16) -> Option<u16> {
+    pub(super) fn next_cluster(&self, cluster: u16) -> Option<u16> {
         if cluster < 2 || u32::from(cluster) > self.clusters + 1 {
             return None;
         }
