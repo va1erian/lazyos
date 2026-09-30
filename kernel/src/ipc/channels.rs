@@ -100,6 +100,22 @@ pub const MAX_OUTSTANDING: usize = 64;
 /// Largest number of outstanding transactions from one sender on one channel.
 pub const MAX_PENDING_PER_SENDER: u64 = 16;
 
+/// The call deadline that means "poll": answer if the callee can do so in its
+/// current service turn, otherwise report `TimedOut` without blocking for
+/// long. Equal to the user library's `EXPIRED_DEADLINE`.
+///
+/// A literally expired deadline cannot express that: the caller would time
+/// out inside `await_reply` before the callee ever ran, so the callee's reply
+/// was always refused as "caller gone" and a queued event was never delivered
+/// (messengerd's topic polls). A poll instead stays open while the callee
+/// serves it and ends when the callee comes back to `recv` (see
+/// `recv::expire_served_polls`), or after [`POLL_GRACE_TICKS`] if the callee
+/// never picks it up.
+pub const POLL_DEADLINE: u64 = 1;
+/// Longest a poll waits for a callee that has not yet received it (PIT ticks,
+/// 100 Hz): a busy or stalled service must not stall its pollers.
+pub const POLL_GRACE_TICKS: u64 = 3;
+
 /// Global channel registry: small enough that a linear scan beats a map, and
 /// exactly the "pairs of bounded queues" shape of section 14.
 static CHANNELS: Mutex<Vec<Channel>> = Mutex::new(Vec::new());
@@ -334,7 +350,12 @@ pub fn begin_call(
             caller: me,
             caller_side: side,
             callee_side: peer,
-            deadline,
+            // A poll waits a bounded grace for the callee; see `POLL_DEADLINE`.
+            deadline: if deadline == Some(POLL_DEADLINE) {
+                Some(task::ticks() + POLL_GRACE_TICKS)
+            } else {
+                deadline
+            },
             state: TxnState::Pending,
             reply: Vec::new(),
         });

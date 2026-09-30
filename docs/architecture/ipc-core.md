@@ -46,6 +46,21 @@ userspace never names another task's handles.
   allowed: resolved names alias one endpoint, so a service's independent
   clients share its channel. One shared `MESSENGER` wait
   queue with advisory wakeups handles all blocking.
+- **Poll calls.** A call with deadline `POLL_DEADLINE` (1, the user library's
+  `EXPIRED_DEADLINE`) is not dead on arrival. `begin_call` gives its
+  transaction a short real deadline (`POLL_GRACE_TICKS` = 3 ticks, so a callee
+  that never receives it cannot stall the caller), and when the callee receives
+  the request `take_locked` records the txn in the endpoint's `serving_polls`.
+  The next `recv`/`try_recv` on that endpoint runs `expire_served_polls`, which
+  ends every still-`Pending` poll as `TimedOut` and wakes its caller. The
+  callee therefore gets its whole service turn to reply (the reply is accepted
+  and returned), while a request it deferred (a parked long-poll) is reported
+  as "nothing ready" the moment it is done, not after a timeout. Before this, a
+  literal expired deadline expired the call inside `await_reply` before the
+  callee ran, so every reply was refused and the broker's event was never
+  committed. Plain `recv` with `EXPIRED_DEADLINE` (no transaction) is unchanged.
+  Tests: `ipc_channel_poll_*` in `tests/ipc_channel_suite/poll.rs`, including a
+  20,000-round soak.
 - A parcel's handles **move** (sender holds `TRANSFER`; its handle closes once
   queued; delivery opens a receiver-local one); buffers **share** (the message
   takes one reference). Replies refuse transfers (`UnsupportedTransfer`);

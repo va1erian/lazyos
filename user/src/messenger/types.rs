@@ -464,4 +464,10 @@ pub const DEFAULT_BUFFER: usize = 16 * 1024;
 /// spot and reports `-ETIMEDOUT` instead of blocking for a message. Tick 1 is
 /// in the past after the first 10 ms of boot, so [`Endpoint::poll_recv`] is
 /// immediate from then on; before the first tick it waits at most one tick.
+///
+/// As the deadline of a *call* it means "poll": the kernel keeps the
+/// transaction open while the callee serves it, so the callee's reply is
+/// accepted, and ends it with `-ETIMEDOUT` when the callee returns to `recv`
+/// without answering or after a few ticks if it never receives it
+/// (`kernel::ipc::channels::POLL_DEADLINE`, `docs/messenger.md` section 6).
 pub const EXPIRED_DEADLINE: u64 = 1;
