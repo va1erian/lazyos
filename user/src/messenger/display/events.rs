@@ -27,6 +27,9 @@ pub enum Event {
     PointerDown { x: i32, y: i32, button: u32 },
     /// A pointer button went up.
     PointerUp { x: i32, y: i32, button: u32 },
+    /// The wheel rolled `delta` notches over the surface at `(x, y)`; positive
+    /// scrolls up.
+    PointerWheel { x: i32, y: i32, delta: i32 },
     /// A key went down; `key` is a character or a [`super::key`] code.
     KeyDown { key: u32 },
     /// A key was released.
@@ -59,6 +62,14 @@ pub fn decode_event(message: &Message) -> Option<Event> {
                 x: args.x,
                 y: args.y,
                 button: args.button,
+            }
+        }
+        wire::METHOD_POINTERWHEEL => {
+            let args = wire::decode_pointer_wheel_args(body).ok()?;
+            Event::PointerWheel {
+                x: args.x,
+                y: args.y,
+                delta: args.delta,
             }
         }
         wire::METHOD_KEYDOWN => Event::KeyDown {

@@ -10,6 +10,10 @@ use super::double_click::PressKind;
 use super::geometry::{absolute_bounds, hit, translate};
 use super::LazyOSBackend;
 
+/// The `MouseWheel` delta of one notch: Windows' `WHEEL_DELTA`, the unit xui's
+/// widgets and `xui-litehtml` (which divides by it) expect.
+const WHEEL_NOTCH: i32 = 120;
+
 impl LazyOSBackend {
     /// The node a pointer event at window point `(x, y)` goes to, with its
     /// window-absolute bounds: the capturing node in `window` if any (so a drag
@@ -48,6 +52,27 @@ impl LazyOSBackend {
         self.pointer.set((x, y));
         let target = self.pointer_target(window, x, y);
         let event = Event::MouseMove {
+            x,
+            y,
+            modifiers: Modifiers::NONE,
+        };
+        self.deliver_pointer(window, target, event);
+    }
+
+    /// Route a wheel roll of `notches` (positive scrolls up) at window point
+    /// `(x, y)` to the node under the pointer.
+    pub(super) fn pointer_wheel(&self, window: WindowId, x: i32, y: i32, notches: i32) {
+        self.pointer.set((x, y));
+        let delta = notches
+            .saturating_mul(WHEEL_NOTCH)
+            .clamp(i32::from(i16::MIN), i32::from(i16::MAX)) as i16;
+        if delta == 0 {
+            return;
+        }
+        let target = self.pointer_target(window, x, y);
+        let event = Event::MouseWheel {
+            delta,
+            horizontal: false,
             x,
             y,
             modifiers: Modifiers::NONE,
@@ -242,5 +267,65 @@ mod tests {
         backend.destroy(id(2));
         backend.pointer_move(W, 10, 40);
         assert_eq!(last(&log).0, id(1));
+    }
+
+    #[test]
+    fn a_wheel_notch_reaches_the_widget_under_the_pointer_in_local_coordinates() {
+        let (backend, log) = rig();
+        backend.pointer_wheel(W, 10, 40, 1);
+        let (target, event) = last(&log);
+        assert_eq!(target, id(2));
+        assert!(matches!(
+            event,
+            Event::MouseWheel {
+                delta: 120,
+                horizontal: false,
+                x: 10,
+                y: 13,
+                ..
+            }
+        ));
+        backend.pointer_wheel(W, 160, 40, -2);
+        let (target, event) = last(&log);
+        assert_eq!(target, id(3));
+        assert!(matches!(event, Event::MouseWheel { delta: -240, .. }));
+    }
+
+    #[test]
+    fn a_zero_wheel_is_dropped_and_a_huge_one_saturates() {
+        let (backend, log) = rig();
+        backend.pointer_wheel(W, 10, 40, 0);
+        assert!(log.0.borrow().is_empty(), "no event for zero notches");
+        backend.pointer_wheel(W, 10, 40, i32::MAX);
+        assert!(matches!(
+            last(&log).1,
+            Event::MouseWheel {
+                delta: i16::MAX,
+                ..
+            }
+        ));
+        backend.pointer_wheel(W, 10, 40, i32::MIN);
+        assert!(matches!(
+            last(&log).1,
+            Event::MouseWheel {
+                delta: i16::MIN,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn a_wheel_soak_delivers_every_notch_in_order() {
+        let (backend, log) = rig();
+        for round in 0..10_000i32 {
+            backend.pointer_wheel(W, 10, 40, if round % 2 == 0 { 1 } else { -1 });
+        }
+        let log = log.0.borrow();
+        assert_eq!(log.len(), 10_000);
+        for (index, (target, event)) in log.iter().enumerate() {
+            let want = if index % 2 == 0 { 120 } else { -120 };
+            assert_eq!(*target, id(2));
+            assert!(matches!(event, Event::MouseWheel { delta, .. } if *delta == want));
+        }
     }
 }

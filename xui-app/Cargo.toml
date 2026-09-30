@@ -10,6 +10,7 @@ description = "An ordinary xui application running on LazyOS (issue #114)"
 [workspace]
 resolver = "2"
 members = [
+    "docs",
     "crates/code-editor",
     "crates/paint",
     "crates/explorer",

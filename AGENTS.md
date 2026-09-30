@@ -84,6 +84,15 @@ python tools/screenshot/qemu_session.py --image target/lazyos.img \
     --out shots/demo --script tools/screenshot/examples/multitask_demo.json
 ```
 
+## Docs app and the C++ toolchain
+
+`xui-docs` renders Markdown with litehtml, which is C++, so it is built with zig
+(`pip install ziglang==0.16.0`, then `python tools/xui/build.py`; see
+[`docs/xui-docs.md`](docs/xui-docs.md)). Without zig the script skips it with a
+warning and every other app still builds. `python tools/xui/test_zig.py` tests
+the toolchain helper. Screenshot sessions: `tools/screenshot/examples/xui_docs.json`
+(wheel scrolling) and `xui_docs_open.json` (Open dialog and `/TESTDOC.MD`).
+
 ## Linux ABI conformance bench
 
 Compatibility with Linux (`x86_64-unknown-linux-musl`) binaries is tracked by a

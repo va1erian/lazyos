@@ -249,6 +249,10 @@ the client (`PointerDown`/`PointerUp` without a button id, and screen-absolute
 presses/releases carry the button id, so the client backend no longer recovers
 the surface origin from the last press.
 
+**Docs app.** `xui-docs` (`xui-app/docs/`) renders Markdown with `xui-litehtml`,
+a `xuid` client like the other apps; see [`xui-docs.md`](xui-docs.md). The
+mouse wheel now reaches xui apps (see `architecture/display.md`).
+
 ## Smallest first step
 
 Land **M0**: a `gfx_present` syscall so a task can own a LazyOS window and blit

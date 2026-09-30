@@ -11,7 +11,7 @@ compositor) are ordinary request/reply methods: `CreateSurface`,
 `ListSurfaces`, `GetWorkArea`, `Subscribe` and `GetTheme`. **Events**
 (compositor to app, or to the shell subscriber) are `oneway` methods sent
 on the event endpoint the client transferred: `PointerMove`, `PointerDown`,
-`PointerUp`, `KeyDown`, `KeyUp`, `WindowClose`, the drag-and-drop set
+`PointerUp`, `PointerWheel`, `KeyDown`, `KeyUp`, `WindowClose`, the drag-and-drop set
 `DragEnter`/`DragOver`/`DragLeave`/`Drop`/`DragEnded`, and the shell set
 `SurfaceChanged`/`FocusChanged`/`StartMenu`. Method ids are pinned to the
 values the hand-written protocol used (1-24), so the numbering stays
@@ -65,6 +65,7 @@ fields, which never use that id.
 | FrameDone | 28 | oneway | `(surface: U64, seq: U64) -> ()` |
 | SetTitle | 29 | sync | `(surface: U64, title: String) -> ()` |
 | HintOpenOrigin | 30 | sync | `(surface: U64, x: I32, y: I32, w: U32, h: U32) -> ()` |
+| PointerWheel | 31 | oneway | `(x: I32, y: I32, delta: I32) -> ()` |
 
 ## struct `Rect`
 

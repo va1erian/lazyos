@@ -178,7 +178,7 @@ fn apply(demo: &mut Demo, event: Event) {
     match event {
         Event::PointerMove { x, y } => demo.marker = Some((x as i64, y as i64)),
         Event::PointerDown { .. } => demo.clicks += 1,
-        Event::PointerUp { .. } | Event::KeyUp { .. } => {}
+        Event::PointerUp { .. } | Event::PointerWheel { .. } | Event::KeyUp { .. } => {}
         Event::KeyDown { key } => {
             demo.keys += 1;
             demo.last_key = key as i64;

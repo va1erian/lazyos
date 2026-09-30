@@ -55,6 +55,10 @@ impl Backend for LazyOSBackend {
         self.quit.store(true, Ordering::Relaxed);
     }
 
+    fn text_shaper(&self) -> Box<dyn xui_core::backend::TextShaper> {
+        self.shaper.text_shaper()
+    }
+
     fn wake(&self, _window: WindowId) {}
 
     fn waker(&self, _window: WindowId) -> Waker {

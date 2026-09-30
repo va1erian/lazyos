@@ -2392,6 +2392,8 @@ pub mod os_lazy_display_v1 {
     pub const METHOD_SETTITLE: u32 = 29;
     /// `HintOpenOrigin` method id.
     pub const METHOD_HINTOPENORIGIN: u32 = 30;
+    /// `PointerWheel` method id.
+    pub const METHOD_POINTERWHEEL: u32 = 31;
 
     /// Create a surface of `width` x `height` pixels titled `title`. `role` is
     /// a `Role` value: a decorated window (also the meaning of an absent
@@ -3419,6 +3421,46 @@ pub mod os_lazy_display_v1 {
                 }
                 5 => {
                     out.h = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Event: the mouse wheel rolled `delta` notches over this surface's
+    /// content at `(x, y)` (relative to the content origin). Positive scrolls
+    /// up (the wheel rolled away from the user), negative down. The compositor
+    /// sends it to the topmost window under the pointer, which need not be the
+    /// focused one, and never to the title bar or an area outside every window.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct PointerWheelArgs {
+        pub x: i32,
+        pub y: i32,
+        pub delta: i32,
+    }
+
+    pub fn encode_pointer_wheel_args(value: &PointerWheelArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.i32(1, value.x)?;
+        target.i32(2, value.y)?;
+        target.i32(3, value.delta)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_pointer_wheel_args(body: &[u8]) -> Result<PointerWheelArgs, Error> {
+        let mut out = PointerWheelArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.x = field.as_i32()?;
+                }
+                2 => {
+                    out.y = field.as_i32()?;
+                }
+                3 => {
+                    out.delta = field.as_i32()?;
                 }
                 _ => {}
             }

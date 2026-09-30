@@ -1,0 +1,27 @@
+# The Docs app: renders Markdown with litehtml. A package of its own (not a
+# `xui-app` binary) because litehtml is C++: Cargo builds every dependency of a
+# package for every target in it, so keeping the engine here means the other
+# apps still build with the plain Rust toolchain. `tools/xui/build.py` builds
+# this package with the zig toolchain (see docs/xui-docs.md).
+[package]
+name = "xui-docs"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Markdown viewer for LazyOS: pulldown-cmark to HTML, laid out by litehtml"
+
+[lib]
+name = "xui_docs"
+path = "src/lib.rs"
+
+[[bin]]
+name = "xui-docs"
+path = "src/main.rs"
+
+[dependencies]
+xui-app = { path = ".." }
+xui-core = { git = "https://github.com/va1erian/xui", rev = "58c1a6ea1a2dc1e5bb81463ff8dba82329a4f080" }
+# One xui revision for every crate, so a single `xui_core` links. `xui-litehtml`
+# is an ordinary git dependency, not vendored.
+xui-litehtml = { git = "https://github.com/va1erian/xui", rev = "58c1a6ea1a2dc1e5bb81463ff8dba82329a4f080" }
+pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
