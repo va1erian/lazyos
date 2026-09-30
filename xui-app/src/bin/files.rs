@@ -18,6 +18,7 @@ use std::rc::Rc;
 
 use xui_app::backend::LazyOSBackend;
 use xui_app::platform::argv;
+use xui_app::platform::files_fs::LazyPlatform;
 use xui_app::platform::launcher::LazyLauncher;
 use xui_core::app::run_app;
 use xui_core::backend::{Backend, PlatformSpec};
@@ -56,7 +57,7 @@ fn start_dir() -> PathBuf {
 }
 
 fn main() -> std::process::ExitCode {
-    let platform = Rc::new(StdPlatform::new());
+    let platform = Rc::new(LazyPlatform::new(StdPlatform::new()));
     let start = start_dir();
     let explorer = Explorer::new(platform as Rc<dyn Platform>, Rc::new(ReportingLauncher));
 

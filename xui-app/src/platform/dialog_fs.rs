@@ -15,7 +15,7 @@ use std::rc::Rc;
 use xui_core::widget::{Entry, FileSystem, StdFileSystem};
 
 /// Mount points that hang off `/` (see `docs/architecture/filesystem.md`).
-const ROOT_MOUNTS: &[&str] = &["tmp", "data"];
+pub const ROOT_MOUNTS: &[&str] = &["tmp", "data"];
 
 /// A [`FileSystem`] over `inner` that surfaces the root mount points.
 pub struct LazyFileSystem<F: FileSystem = StdFileSystem> {
