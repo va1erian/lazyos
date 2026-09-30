@@ -213,9 +213,17 @@ pub fn read_bar(address: Address, index: u8) -> Option<(Bar, u8)> {
     if index >= count {
         return None;
     }
-    let decoded = decode_bar(
+    let raw = bar_raw(address, index);
+    // A 64-bit memory BAR also owns the next register. If that lies outside the
+    // header's BARs, refuse before reading or sizing anything, or the probe
+    // would write to a register that is not a BAR.
+    let is_64_memory = raw & 1 == 0 && (raw >> 1) & 0x3 == 0x2;
+    if is_64_memory && index + 1 >= count {
+        return None;
+    }
+    decode_bar(
         index,
-        bar_raw(address, index),
+        raw,
         || bar_raw(address, index + 1),
         |io, is_64| {
             with_decode_off(address, || {
@@ -226,9 +234,7 @@ pub fn read_bar(address: Address, index: u8) -> Option<(Bar, u8)> {
                 }
             })
         },
-    );
-    // A 64-bit BAR needs its high half inside the header too.
-    decoded.filter(|(_, stride)| index + stride <= count)
+    )
 }
 
 /// The pure half of [`read_bar`]: classify `raw` and fill in the window from
