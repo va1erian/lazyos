@@ -44,10 +44,10 @@ pub struct AtaPio;
 
 static ATA: AtaPio = AtaPio;
 
-/// Wait at least `reads` alternate-status reads. Each read is one I/O cycle,
-/// at least ~100ns on real hardware (far more under a hypervisor), so a count
-/// is a lower bound on the time; the driver has no calibrated clock.
-fn delay_reads(reads: u32) {
+/// Delay by reading the alternate status port `reads` times. Each read takes
+/// at least ~100ns on real hardware (more under a hypervisor, where it is a VM
+/// exit), so `reads` is a lower bound on the wait, never an upper one.
+fn delay_alt_status_reads(reads: u32) {
     for _ in 0..reads {
         // Safety: reading the alternate status register has no side effect
         // the driver needs to guard against; it exists to be polled.
@@ -55,21 +55,16 @@ fn delay_reads(reads: u32) {
     }
 }
 
-/// 400ns delay: four reads.
+/// 400ns delay: four alternate-status reads.
 fn delay_400ns() {
-    delay_reads(4);
+    delay_alt_status_reads(4);
 }
 
-/// At least 5us (50 reads): SRST must stay asserted that long (ATA/ATAPI-7).
-fn delay_5us() {
-    delay_reads(50);
-}
-
-/// At least 2ms (20,000 reads): the host must not poll status until that long
-/// after SRST is cleared (ATA/ATAPI-7), or a not-yet-busy drive looks ready.
-fn delay_2ms() {
-    delay_reads(20_000);
-}
+/// Reads holding SRST asserted: at least 64 x ~100ns, past the 5us minimum.
+const SRST_HOLD_READS: u32 = 64;
+/// Reads after clearing SRST: at least 20,000 x ~100ns, past the 2ms the
+/// spec gives the device before BSY may be trusted.
+const SRST_SETTLE_READS: u32 = 20_000;
 
 fn status() -> u8 {
     // Safety: reading the status register has no side effect; it exists to
@@ -152,11 +147,11 @@ fn reset_channel() -> bool {
     // Safety: SRST is the documented way to abort a command; the driver
     // re-selects the drive and reprograms every register for the next one.
     unsafe { outb(DEVICE_CONTROL, CONTROL_SRST) };
-    delay_5us();
+    delay_alt_status_reads(SRST_HOLD_READS);
     // Safety: as above; clearing SRST ends the reset (interrupts stay as the
     // driver found them: nIEN clear, and the driver polls regardless).
     unsafe { outb(DEVICE_CONTROL, 0) };
-    delay_2ms();
+    delay_alt_status_reads(SRST_SETTLE_READS);
     wait_not_busy()
 }
 

@@ -27,8 +27,9 @@ pub enum Via {
     SyscallReturn,
     /// The scheduler, for a task preempted in user mode.
     TimerSweep,
-    /// A synchronous CPU fault turned into a signal; carries the `siginfo`
-    /// address (the faulting address for `SIGSEGV`/`SIGBUS`, else the `rip`).
+    /// A synchronous CPU fault turned into a signal; carries `si_addr`, the
+    /// address the `siginfo` reports: the faulting address for a page fault,
+    /// the `rip` for `#DE`/`#UD`, and 0 for `#GP` (which has no address).
     Fault { addr: u64 },
 }
 

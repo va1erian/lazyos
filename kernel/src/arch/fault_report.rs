@@ -114,7 +114,7 @@ fn print_history(slot: usize) {
                 rip,
                 rsp,
             } => crate::serial_println!(
-                "user: trace signal {sig} via fault at addr={addr:#x} over rip={rip:#x} rsp={rsp:#x}"
+                "user: trace signal {sig} via fault si_addr={addr:#x} over rip={rip:#x} rsp={rsp:#x}"
             ),
             Event::Signal { sig, via, rip, rsp } => crate::serial_println!(
                 "user: trace signal {sig} via {} over rip={rip:#x} rsp={rsp:#x}",
