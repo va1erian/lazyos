@@ -18,11 +18,12 @@
 //!
 //! The plan's `/system/confd/store` needs a persistent writable volume. On the
 //! shipped image the boot volume is read-only FAT and `/tmp` is volatile
-//! ramfs, so the service falls back to `/tmp/confd`, logs a warning and reports
-//! **degraded** to `healthd`. When `/system/confd` is writable it is used and
-//! reported **ok**; the store is still safe across a `confd` restart either way
-//! (the ramfs outlives the task), but only the persistent location survives a
-//! reboot.
+//! ramfs. The first writable directory of `/system/confd` (not mounted yet),
+//! `/data/confd` (the ext2 data volume, present when a data disk is attached)
+//! and `/tmp/confd` wins. A persistent location is reported **ok**; falling
+//! back to `/tmp/confd` logs a warning and reports **degraded** to `healthd`.
+//! The store is safe across a `confd` restart either way (the ramfs outlives
+//! the task), but only a persistent location survives a reboot.
 //!
 //! # Change topics
 //!
@@ -43,7 +44,7 @@ use alloc::vec::Vec;
 use core::panic::PanicInfo;
 
 use api::wire;
-use confd::{ChangeSink, Confd, StoreFs};
+use confd::{dir, ChangeSink, Confd, StoreFs};
 use messenger_generated::topics;
 use user::central;
 use user::files::{self, Kind};
@@ -51,10 +52,6 @@ use user::messenger::confd as api;
 use user::messenger::{self, errno, registry, services, Error, Message, Parcel};
 use user::sys;
 
-/// Preferred store directory: persistent when a writable volume is mounted.
-const STORE_DIR: &str = "/system/confd";
-/// ramfs fallback when no persistent, writable volume is mounted.
-const FALLBACK_DIR: &str = "/tmp/confd";
 /// `ENOENT`, spelled out because `files` reports raw errnos.
 const ENOENT: i64 = 2;
 /// How long the serve loop parks between demo-child reaps (PIT ticks).
@@ -203,13 +200,13 @@ fn run() -> messenger::Result<()> {
     registry::register(api::NAME, &published, &[api::INTERFACE], 0)?;
 
     let detail = if persistent {
-        "store=/system/confd"
+        format!("store={dir}")
     } else {
-        "store=/tmp/confd (ramfs; not persistent)"
+        format!("store={dir} (ramfs; not persistent)")
     };
     service
         .sink_mut()
-        .report_health(if persistent { "ok" } else { "degraded" }, detail);
+        .report_health(if persistent { "ok" } else { "degraded" }, &detail);
     sys::write_str(&format!("CONFD:READY dir={dir} persistent={persistent}\n"));
 
     // One receive buffer for the whole life of the service: the user bump
@@ -346,17 +343,20 @@ fn caller_uid(message: &Message) -> messenger::Result<u32> {
 
 /// The store directory and whether it is persistent.
 ///
-/// `/system/confd` is preferred; it is only accepted if it can be created (or
-/// already is a directory) *and* a probe write succeeds. Otherwise `/tmp/confd`
+/// A persistent candidate is only accepted if it can be created (or already
+/// is a directory) *and* a probe write succeeds. Otherwise `/tmp/confd`
 /// (ramfs) is used and the service reports degraded.
 fn pick_dir() -> (String, bool) {
-    if ensure_dir(STORE_DIR) && probe_writable(STORE_DIR) {
-        return (String::from(STORE_DIR), true);
+    let choice = dir::choose(&dir::PERSISTENT_DIRS, |d| {
+        ensure_dir(d) && probe_writable(d)
+    });
+    if !choice.persistent && !ensure_dir(choice.dir) {
+        sys::write_str(
+            "confd: warning: could not create /tmp/confd
+",
+        );
     }
-    if !ensure_dir(FALLBACK_DIR) {
-        sys::write_str("confd: warning: could not create /tmp/confd\n");
-    }
-    (String::from(FALLBACK_DIR), false)
+    (String::from(choice.dir), choice.persistent)
 }
 
 /// Whether `path` is a directory, creating it when absent.

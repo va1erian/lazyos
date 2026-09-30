@@ -13,10 +13,10 @@ use super::region::Region;
 use super::shell::AltTab;
 use super::surface::Surface;
 use super::theme::{
-    BACKGROUND, BORDER_COLOR, BORDER_COLOR_FOCUS, BUTTON, BUTTON_GAP, BUTTON_MARGIN, EMPTY_BG,
-    ENTRY_H, ENTRY_PAD, OVERLAY_BG, OVERLAY_BORDER, OVERLAY_SELECTED, OVERLAY_TEXT, TASKBAR_BG,
-    TASKBAR_ENTRY, TASKBAR_ENTRY_FOCUS, TASKBAR_ENTRY_MIN, TASKBAR_H, TITLE_BG, TITLE_BG_FOCUS,
-    TITLE_H, TITLE_TEXT, WINDOW_BG,
+    background, border_color, border_color_focus, empty_bg, overlay_bg, overlay_border,
+    overlay_selected, overlay_text, taskbar_bg, taskbar_entry, taskbar_entry_focus,
+    taskbar_entry_min, title_bg, title_bg_focus, title_text, window_bg, BUTTON, BUTTON_GAP,
+    BUTTON_MARGIN, ENTRY_H, ENTRY_PAD, TASKBAR_H, TITLE_H,
 };
 use super::window::surface_by_id;
 
@@ -90,7 +90,7 @@ impl Compositor {
             visible.subtract(area);
         }
         for piece in visible.rects() {
-            screen.fill(*piece, *piece, BACKGROUND);
+            screen.fill(*piece, *piece, background());
         }
         // The desktop paints above the background and below every window.
         if let Some(desktop) = desktop {
@@ -205,33 +205,33 @@ fn draw_alt_tab(screen: &mut Canvas, surfaces: &[Surface], tab: &AltTab, clip: R
     if panel.intersect(clip).is_empty() {
         return;
     }
-    screen.fill(panel, clip, OVERLAY_BG);
+    screen.fill(panel, clip, overlay_bg());
     screen.fill(
         Rect::new(panel.x, panel.y, panel.w, 2),
         clip,
-        OVERLAY_BORDER,
+        overlay_border(),
     );
     screen.fill(
         Rect::new(panel.x, panel.y + panel.h - 2, panel.w, 2),
         clip,
-        OVERLAY_BORDER,
+        overlay_border(),
     );
     screen.fill(
         Rect::new(panel.x, panel.y, 2, panel.h),
         clip,
-        OVERLAY_BORDER,
+        overlay_border(),
     );
     screen.fill(
         Rect::new(panel.x + panel.w - 2, panel.y, 2, panel.h),
         clip,
-        OVERLAY_BORDER,
+        overlay_border(),
     );
     screen.text_face(
         panel.x + 10,
         panel.y + 4,
         "Alt+Tab",
         Face::Serif,
-        OVERLAY_TEXT,
+        overlay_text(),
         clip,
     );
     // Highlight the selected row before its text, then paint the titles.
@@ -243,7 +243,7 @@ fn draw_alt_tab(screen: &mut Canvas, surfaces: &[Surface], tab: &AltTab, clip: R
             row_h - 2,
         );
         if index == tab.selected {
-            screen.fill(row, clip, OVERLAY_SELECTED);
+            screen.fill(row, clip, overlay_selected());
         }
         if let Some(surface) = surface_by_id(surfaces, *id) {
             screen.text_face(
@@ -251,7 +251,7 @@ fn draw_alt_tab(screen: &mut Canvas, surfaces: &[Surface], tab: &AltTab, clip: R
                 row.y + (row.h - Face::Sans.height()) / 2,
                 &surface.title,
                 Face::Sans,
-                OVERLAY_TEXT,
+                overlay_text(),
                 row.intersect(clip),
             );
         }
@@ -265,12 +265,12 @@ fn draw_surface(screen: &mut Canvas, surface: &Surface, focused: bool, clip: Rec
         return;
     }
     let border = if focused {
-        BORDER_COLOR_FOCUS
+        border_color_focus()
     } else {
-        BORDER_COLOR
+        border_color()
     };
     // Body, then a 1px frame and the title separator.
-    screen.fill(window, clip, WINDOW_BG);
+    screen.fill(window, clip, window_bg());
     screen.fill(Rect::new(window.x, window.y, window.w, 1), clip, border);
     screen.fill(
         Rect::new(window.x, window.y + window.h - 1, window.w, 1),
@@ -287,7 +287,11 @@ fn draw_surface(screen: &mut Canvas, surface: &Surface, focused: bool, clip: Rec
     screen.fill(
         surface.title_bar(),
         clip,
-        if focused { TITLE_BG_FOCUS } else { TITLE_BG },
+        if focused {
+            title_bg_focus()
+        } else {
+            title_bg()
+        },
     );
     screen.fill(
         Rect::new(window.x, surface.y + TITLE_H, window.w, 1),
@@ -308,13 +312,13 @@ fn draw_surface(screen: &mut Canvas, surface: &Surface, focused: bool, clip: Rec
         surface.y + (TITLE_H - Face::Sans.height()) / 2,
         &surface.title,
         Face::Sans,
-        TITLE_TEXT,
+        title_text(),
         title_clip,
     );
     // Close and minimize glyphs sit directly on the title bar, in its text
     // colour, so they match the chrome instead of adding coloured tiles.
-    icons::draw_close(screen, surface.close_button(), TITLE_TEXT, clip);
-    icons::draw_minimize(screen, surface.minimize_button(), TITLE_TEXT, clip);
+    icons::draw_close(screen, surface.close_button(), title_text(), clip);
+    icons::draw_minimize(screen, surface.minimize_button(), title_text(), clip);
 
     // The app's pixels, or an explicit placeholder before AttachBuffer.
     let content = surface.content();
@@ -326,13 +330,13 @@ fn draw_surface(screen: &mut Canvas, surface: &Surface, focused: bool, clip: Rec
         };
         screen.blit(pixels, surface.w, surface.h, content, clip);
     } else {
-        screen.fill(content, clip, EMPTY_BG);
+        screen.fill(content, clip, empty_bg());
         screen.text_face(
             content.x + 10,
             content.y + 10,
             "Waiting for buffer...",
             Face::Serif,
-            TITLE_TEXT,
+            title_text(),
             clip,
         );
     }
@@ -352,21 +356,21 @@ fn draw_taskbar(
     if bar.intersect(clip).is_empty() {
         return;
     }
-    screen.fill(bar, clip, TASKBAR_BG);
-    screen.fill(Rect::new(bar.x, bar.y, bar.w, 1), clip, BORDER_COLOR);
+    screen.fill(bar, clip, taskbar_bg());
+    screen.fill(Rect::new(bar.x, bar.y, bar.w, 1), clip, border_color());
     for_each_entry(surfaces, screen_w, screen_h, |surface, rect| {
         let background = if focused == Some(surface.id) {
-            TASKBAR_ENTRY_FOCUS
+            taskbar_entry_focus()
         } else if surface.minimized {
-            TASKBAR_ENTRY_MIN
+            taskbar_entry_min()
         } else {
-            TASKBAR_ENTRY
+            taskbar_entry()
         };
         screen.fill(rect, clip, background);
         let accent = if focused == Some(surface.id) {
-            BORDER_COLOR_FOCUS
+            border_color_focus()
         } else {
-            BORDER_COLOR
+            border_color()
         };
         screen.fill(
             Rect::new(rect.x, rect.y + rect.h - 2, rect.w, 2),
@@ -378,7 +382,7 @@ fn draw_taskbar(
             rect.y + (ENTRY_H - Face::Sans.height()) / 2,
             &surface.title,
             Face::Sans,
-            TITLE_TEXT,
+            title_text(),
             rect.intersect(clip),
         );
     });
@@ -390,7 +394,7 @@ fn draw_taskbar(
         slot.y + (TASKBAR_H - Face::Serif.height()) / 2,
         clock,
         Face::Serif,
-        TITLE_TEXT,
+        title_text(),
         bar.intersect(clip),
     );
 }

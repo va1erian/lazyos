@@ -1,0 +1,14 @@
+[package]
+name = "uitheme"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Desktop theme schema and palette resolution shared by xuid and the Settings app"
+license = "GPL-3.0-or-later"
+
+[lib]
+name = "uitheme"
+path = "src/lib.rs"
+
+[dependencies]
+confd = { path = "../confd" }

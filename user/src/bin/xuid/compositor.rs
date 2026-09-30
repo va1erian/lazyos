@@ -13,6 +13,7 @@ use super::inputlink::InputLink;
 use super::origin::OpenHint;
 use super::shell::{taskbar_visible, AltTab, Modifiers, ShellSub};
 use super::surface::{Drag, Surface};
+use super::themefeed::ThemeFeed;
 
 /// The session compositor's whole mutable state.
 pub(super) struct Compositor {
@@ -48,6 +49,8 @@ pub(super) struct Compositor {
     pub(super) scratch: Vec<u8>,
     /// The taskbar clock (issue #370).
     pub(super) clock: Clock,
+    /// The live `sys/ui/*` theme follower.
+    pub(super) themefeed: ThemeFeed,
     /// The compositor's side of `inputd` (`docs/input-plan.md`).
     pub(super) input: InputLink,
     /// Pending open-origin hints, at most one per task.
@@ -73,6 +76,7 @@ impl Compositor {
             alt_tab: None,
             scratch: Vec::with_capacity(64),
             clock: Clock::new(),
+            themefeed: ThemeFeed::new(),
             input: InputLink::new(),
             hints: Vec::new(),
         }
@@ -94,6 +98,13 @@ impl Compositor {
         if self.clock.poll() && self.taskbar() {
             let dims = (self.screen.width(), self.screen.height());
             self.repaint(clock::rect(dims));
+        }
+    }
+
+    /// Follow the confd theme and repaint the whole screen when it changed.
+    pub(super) fn tick_theme(&mut self) {
+        if self.themefeed.poll() {
+            self.repaint_full();
         }
     }
 

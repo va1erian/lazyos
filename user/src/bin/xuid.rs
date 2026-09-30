@@ -120,6 +120,8 @@ mod shell;
 mod surface;
 #[path = "xuid/theme.rs"]
 mod theme;
+#[path = "xuid/themefeed.rs"]
+mod themefeed;
 #[path = "xuid/title.rs"]
 mod title;
 #[path = "xuid/window.rs"]
@@ -213,6 +215,7 @@ fn run() -> ! {
         }
         comp.reap_dead_shell();
         comp.tick_clock();
+        comp.tick_theme();
 
         // 2. Requests: serve one, then loop (the deadline bounds the nap when
         //    nothing is pending, keeping input latency at a couple of ticks).

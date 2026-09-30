@@ -22,6 +22,7 @@ surfbuf = { path = "../libs/surfbuf" }
 messenger-generated = { path = "../libs/generated" }
 # Time-zone and DST resolution for `timed` (issue #369).
 timezone = { path = "../libs/timed" }
+uitheme = { path = "../libs/uitheme" }
 # Modern virtio-PCI transport and the virtio-sound protocol for `sndd`
 # (docs/driver-plan.md D5/D6); host-tested `no_std` logic.
 virtio = { path = "../libs/virtio" }
