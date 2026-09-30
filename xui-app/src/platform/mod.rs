@@ -6,6 +6,7 @@
 
 pub mod argv;
 pub mod clipboard;
+pub mod dialog_fs;
 pub mod launcher;
 pub mod messenger;
 pub mod storage;

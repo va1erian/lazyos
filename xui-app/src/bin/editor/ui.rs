@@ -16,8 +16,13 @@ use xui_core::widget::{
 };
 use xui_core::Dip;
 
+use xui_app::platform::dialog_fs::LazyFileSystem;
+
 use crate::app::{FindBar, Msg, Notepad};
 
+/// Where the pickers start for an untitled document: `/tmp`, the one writable
+/// volume every LazyOS boot has (the FAT root may be read-only media).
+const START_DIR: &str = "/tmp";
 /// The menu bar's design height.
 const MENU_HEIGHT: Dip = Dip(30.0);
 /// The find bar's design height.
@@ -156,6 +161,8 @@ pub fn build(ui: &Ui<Msg>) -> Result<Notepad> {
         }
     };
     let open_dialog = FileDialog::open_file(ui, "Open")?
+        .file_system(LazyFileSystem::shared())
+        .initial_dir(START_DIR)
         .require_existing(true)
         .on_accept(|path| Some(Msg::OpenChosen(path)))
         .on_cancel(cancel);
@@ -169,6 +176,8 @@ pub fn build(ui: &Ui<Msg>) -> Result<Notepad> {
         }
     };
     let save_dialog = FileDialog::save_file(ui, "Save As")?
+        .file_system(LazyFileSystem::shared())
+        .initial_dir(START_DIR)
         .filter("Text files", &["txt", "md", "rs"])
         .filter("All files", &[])
         .on_accept(|path| Some(Msg::SaveChosen(path)))
