@@ -95,8 +95,10 @@ impl LfnBuilder {
         let base = (usize::from(seq) - 1) * UNITS_PER_SLOT;
         let mut unit = 0;
         for range in [1..11, 14..26, 28..32] {
-            for pair in raw[range].chunks_exact(2) {
-                self.units[base + unit] = u16::from_le_bytes([pair[0], pair[1]]);
+            // Each range is an even number of bytes, so nothing is left over.
+            let (pairs, _) = raw[range].as_chunks::<2>();
+            for pair in pairs {
+                self.units[base + unit] = u16::from_le_bytes(*pair);
                 unit += 1;
             }
         }
