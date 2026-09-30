@@ -44,14 +44,27 @@ pub struct AtaPio;
 
 static ATA: AtaPio = AtaPio;
 
-/// 400ns delay: reading the alternate status port four times.
-fn delay_400ns() {
-    for _ in 0..4 {
+/// Delay by reading the alternate status port `reads` times. Each read takes
+/// at least ~100ns on real hardware (more under a hypervisor, where it is a VM
+/// exit), so `reads` is a lower bound on the wait, never an upper one.
+fn delay_alt_status_reads(reads: u32) {
+    for _ in 0..reads {
         // Safety: reading the alternate status register has no side effect
         // the driver needs to guard against; it exists to be polled.
         let _: u8 = unsafe { inb(ALT_STATUS) };
     }
 }
+
+/// 400ns delay: four alternate-status reads.
+fn delay_400ns() {
+    delay_alt_status_reads(4);
+}
+
+/// Reads holding SRST asserted: at least 64 x ~100ns, past the 5us minimum.
+const SRST_HOLD_READS: u32 = 64;
+/// Reads after clearing SRST: at least 20,000 x ~100ns, past the 2ms the
+/// spec gives the device before BSY may be trusted.
+const SRST_SETTLE_READS: u32 = 20_000;
 
 fn status() -> u8 {
     // Safety: reading the status register has no side effect; it exists to
@@ -134,11 +147,11 @@ fn reset_channel() -> bool {
     // Safety: SRST is the documented way to abort a command; the driver
     // re-selects the drive and reprograms every register for the next one.
     unsafe { outb(DEVICE_CONTROL, CONTROL_SRST) };
-    delay_400ns();
+    delay_alt_status_reads(SRST_HOLD_READS);
     // Safety: as above; clearing SRST ends the reset (interrupts stay as the
     // driver found them: nIEN clear, and the driver polls regardless).
     unsafe { outb(DEVICE_CONTROL, 0) };
-    delay_400ns();
+    delay_alt_status_reads(SRST_SETTLE_READS);
     wait_not_busy()
 }
 

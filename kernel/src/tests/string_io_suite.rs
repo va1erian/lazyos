@@ -182,7 +182,9 @@ fn ata_abort_soak() -> Result<(), String> {
     let retried = ata::retried_runs();
     let mut expected_retries = 0u64;
     let mut rng = Rng(0x9e37_79b9_7f4a_7c15);
-    for round in 0..400 {
+    // Each abort costs a full 2ms-spec channel reset (20,000 port reads,
+    // slow under TCG), so the round count is bounded by that, not by taste.
+    for round in 0..16 {
         let sectors = 1 + (rng.next() % 200) as usize;
         let lba = rng.next() % (WINDOW - sectors) as u64;
         let aborts = rng.next() % ata::RUN_ATTEMPTS as u64; // always < attempts
