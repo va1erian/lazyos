@@ -235,9 +235,8 @@ pub(super) fn serve_topic(
             for wake in outcome.wakes {
                 match endpoint.reply(wake.txn, &wake.parcel) {
                     Ok(()) => broker.commit(wake.subscription, wake.sequence),
-                    Err(_) => {
-                        sys::write_str("messengerd: topic wake dropped (subscriber gone)\n");
-                    }
+                    // Expected for an abandoned poll; see the reply path below.
+                    Err(_) => {}
                 }
             }
             if let (Some(txn), Some(reply)) = (message.txn, outcome.reply) {
@@ -247,9 +246,12 @@ pub(super) fn serve_topic(
                             broker.commit(delivery.subscription, delivery.sequence);
                         }
                     }
-                    Err(_) => {
-                        sys::write_str("messengerd: topic reply dropped (caller gone)\n");
-                    }
+                    // Expected, not an error: a non-blocking poll
+                    // (`EXPIRED_DEADLINE`) times out in the kernel before
+                    // this reply is sent, and the desktop's pollers do that
+                    // every tick. Nothing was committed, so the next poll
+                    // takes the same event; logging it spammed once a second.
+                    Err(_) => {}
                 }
             }
         }
