@@ -41,6 +41,10 @@ fn dist2(p: (i64, i64), a: (i64, i64), b: (i64, i64)) -> i64 {
 /// Stroke `lines` (fixed-point endpoints) over the pixels of `bounds`.
 fn stroke(screen: &mut Canvas, bounds: Rect, lines: &[Segment], color: Color, clip: Rect) {
     let radius = (STROKE_X2 * UNIT / 4) as i64;
+    // Skip supersampling pixels that `blend_pixel` would reject anyway.
+    let bounds = bounds
+        .intersect(clip)
+        .intersect(Rect::new(0, 0, screen.width(), screen.height()));
     for py in bounds.y..bounds.y + bounds.h {
         for px in bounds.x..bounds.x + bounds.w {
             let mut hits = 0;
