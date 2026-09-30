@@ -52,7 +52,12 @@ pub fn handler_frame_roundtrip() -> Result<(), String> {
         "handler rip is {:#x}",
         result.rip
     );
-    check!(result.rsp % 16 == 0, "frame is not 16-byte aligned");
+    // The handler is entered as if by `call`: `rsp + 8` is 16-byte aligned.
+    check!(
+        result.rsp % 16 == 8,
+        "handler entry rsp {:#x} is not call-aligned",
+        result.rsp
+    );
     let pretcode = unsafe { core::ptr::read_volatile(result.rsp as *const u64) };
     check!(pretcode == 0x0040_3000, "pretcode is {pretcode:#x}");
     let signo = unsafe { core::ptr::read_volatile(result.info as *const i32) };
@@ -81,6 +86,32 @@ pub fn handler_frame_roundtrip() -> Result<(), String> {
     check!(mask == saved_mask, "saved mask is {mask:#x}");
     check!(restored == regs, "restored registers differ: {restored:?}");
 
+    // Whatever the alignment of the stack top (an `rsp` or a `sigaltstack`
+    // end), both handlers are entered with `rsp + 8` 16-aligned: Rust's
+    // SIGSEGV handler died of `#GP` on its first `movaps` before this held.
+    for skew in 0..16u64 {
+        let skewed = top - 64 - skew;
+        let linux = signal::build_linux_frame(
+            skewed,
+            &regs,
+            signal::SIGSEGV,
+            0x0040_2000,
+            0,
+            0x0040_3000,
+            0,
+            0,
+            &info,
+        )
+        .ok_or("skewed frame does not fit")?;
+        let native = signal::build_native_frame(skewed, &regs, signal::SIGTERM)
+            .ok_or("skewed native frame does not fit")?;
+        check!(
+            linux.rsp % 16 == 8 && native.rsp % 16 == 8,
+            "top {skewed:#x}: handler rsp {:#x} / native {:#x} not call-aligned",
+            linux.rsp,
+            native.rsp
+        );
+    }
     let native = signal::build_native_frame(top, &regs, signal::SIGTERM)
         .ok_or("native frame does not fit")?;
     let (native_regs, native_sig) = signal::parse_native_frame(native.rsp);

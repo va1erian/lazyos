@@ -156,6 +156,7 @@ mod signal_suite;
 mod slab_suite;
 mod spawn_argv_suite;
 mod stats_suite;
+mod string_io_suite;
 mod sysinfo_suite;
 mod task_suite;
 mod timed_suite;
@@ -194,6 +195,7 @@ const SUITE: &[&[(&str, Test)]] = &[
     block_suite::CASES,
     boot_trace_suite::CASES,
     boot_io_suite::CASES,
+    string_io_suite::CASES,
     ramdisk_suite::CASES,
     dev_suite::CORE,
     dev_suite::IRQ,

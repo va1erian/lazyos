@@ -120,7 +120,7 @@ fn deliver(frame_rsp: u64, rip_index: usize, sig: u8, info: SigInfo) -> bool {
     crate::task::trace::record_signal(
         slot,
         sig,
-        crate::task::trace::Via::Fault,
+        crate::task::trace::Via::Fault { addr: info.addr },
         regs.rip,
         regs.rsp,
     );
