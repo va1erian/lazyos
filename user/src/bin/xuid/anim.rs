@@ -78,6 +78,20 @@ impl Compositor {
         self.zoom(small, window);
     }
 
+    /// Animate a new window opening: from `origin` (the on-screen rectangle
+    /// the app hinted at, e.g. the folder tile just double-clicked) straight
+    /// to the window, or from its taskbar entry when there is no hint.
+    pub(super) fn open_zoom(&mut self, id: u64, origin: Option<Rect>) {
+        let Some(from) = origin else {
+            self.deiconify(id);
+            return;
+        };
+        if let Some(surface) = self.surfaces.iter().find(|surface| surface.id == id) {
+            let window = surface.window();
+            self.zoom(from, window);
+        }
+    }
+
     /// Hide or show surface `id` without any other side effect.
     pub(super) fn set_minimized(&mut self, id: u64, minimized: bool) {
         if let Some(surface) = self.surfaces.iter_mut().find(|surface| surface.id == id) {

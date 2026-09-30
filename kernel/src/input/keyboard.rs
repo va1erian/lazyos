@@ -4,7 +4,7 @@ use alloc::collections::VecDeque;
 use core::sync::atomic::{AtomicBool, Ordering};
 use spin::Mutex;
 
-use super::layout;
+use super::{layout, raw_tap};
 use crate::display;
 
 /// A decoded key event.
@@ -86,9 +86,15 @@ static SUPER: ModifierPair = ModifierPair::new();
 /// Right Alt as AltGr, tracked only while a layout uses it (never forwarded).
 static ALTGR: ModifierPair = ModifierPair::new();
 static EXTENDED: AtomicBool = AtomicBool::new(false);
+/// Independent set-1 to HID decoder feeding the raw event bus
+/// (`docs/input-plan.md`). It sees every byte before any layout or modifier
+/// logic, so the raw stream is complete even where the legacy path swallows a
+/// key (AltGr on AZERTY, unmapped keys).
+static RAW: Mutex<raw_tap::Tap> = Mutex::new(raw_tap::Tap::new());
 
 /// Feed a raw scancode from the i8042 (called from the IRQ1 handler).
 pub fn push_scancode(scancode: u8) {
+    RAW.lock().feed(scancode);
     if scancode == 0xE0 {
         EXTENDED.store(true, Ordering::SeqCst);
         return;
@@ -313,6 +319,7 @@ pub fn reset() {
     SUPER.reset();
     ALTGR.reset();
     EXTENDED.store(false, Ordering::SeqCst);
+    RAW.lock().reset();
     QUEUE.lock().clear();
 }
 

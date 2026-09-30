@@ -71,6 +71,37 @@ pub fn pci_enumeration() -> Result<(), String> {
     Ok(())
 }
 
+/// A BAR reading 0 is unassigned, not absent (issue #274): it is sized as a
+/// 32-bit memory BAR and reported with a zero base; only a BAR with no window
+/// is dropped, and assigned I/O and 64-bit BARs decode as before.
+pub fn pci_unassigned_bar_is_sized() -> Result<(), String> {
+    let none = || -> u32 { 0 };
+    let (bar, stride) = pci::decode_bar(2, 0, none, |io, is_64| (!io && !is_64).then_some(0x4000))
+        .ok_or("an unassigned memory BAR was treated as absent")?;
+    check!(
+        bar.kind == BarKind::Mem && bar.base == 0 && bar.len == 0x4000 && stride == 1,
+        "unassigned BAR decoded to {bar:?} stride {stride}"
+    );
+    check!(
+        pci::decode_bar(3, 0, none, |_, _| None).is_none(),
+        "a BAR with no window was reported"
+    );
+    let (io, _) = pci::decode_bar(1, 0x0700 | 1, none, |io, _| io.then_some(8))
+        .ok_or("an I/O BAR was dropped")?;
+    check!(
+        io.kind == BarKind::Io && io.base == 0x700 && io.len == 8,
+        "I/O BAR decoded to {io:?}"
+    );
+    let (wide, stride) =
+        pci::decode_bar(0, 0xFEB0_0004, || 0x1, |_, is_64| is_64.then_some(0x1000))
+            .ok_or("a 64-bit BAR was dropped")?;
+    check!(
+        wide.is_64 && wide.base == 0x1_FEB0_0000 && stride == 2,
+        "64-bit BAR decoded to {wide:?} stride {stride}"
+    );
+    Ok(())
+}
+
 /// Decodes a size from a write-ones mask, and probes a live BAR: the length is
 /// a power of two and the original BAR value is restored afterwards.
 pub fn pci_bar_size_probe() -> Result<(), String> {
@@ -428,6 +459,10 @@ pub fn pci_sizing_restores_command() -> Result<(), String> {
 pub(super) const CASES: &[(&str, Test)] = &[
     ("dev_pci_enumeration", pci_enumeration),
     ("dev_pci_bar_size_probe", pci_bar_size_probe),
+    (
+        "dev_pci_unassigned_bar_is_sized",
+        pci_unassigned_bar_is_sized,
+    ),
     ("dev_pci_capability_walk", pci_capability_walk),
     ("dev_claim_unclaim_double", claim_unclaim_double),
     ("dev_stale_generation_rejected", stale_generation_rejected),

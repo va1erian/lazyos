@@ -120,4 +120,13 @@ pub trait Launcher {
     /// Hands `path` to the OS. `Ok(())` means the request was accepted, not that
     /// the handler ran.
     fn open(&self, path: &Path) -> io::Result<()>;
+
+    /// Called just before a folder window opens because the user activated a
+    /// tile in window `window` (the backend's raw window id): the shell may
+    /// use it to animate the new window from that tile. `tile` is the tile's
+    /// approximate edge in device pixels; the tile is the one under the
+    /// window's last pointer position, which is where the activation
+    /// happened. Purely cosmetic and best-effort, so the default does nothing
+    /// and nothing may fail or block here.
+    fn hint_open_origin(&self, _window: u64, _tile: i32) {}
 }

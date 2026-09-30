@@ -64,6 +64,7 @@ fields, which never use that id.
 | BufferRelease | 27 | oneway | `(surface: U64, slot: U32) -> ()` |
 | FrameDone | 28 | oneway | `(surface: U64, seq: U64) -> ()` |
 | SetTitle | 29 | sync | `(surface: U64, title: String) -> ()` |
+| HintOpenOrigin | 30 | sync | `(surface: U64, x: I32, y: I32, w: U32, h: U32) -> ()` |
 
 ## struct `Rect`
 

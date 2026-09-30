@@ -24,6 +24,7 @@ audit ring, and per-uid quotas. Spec: [security-model.md](../security-model.md).
 | `CAP_SETUID` | use the credential transition gate |
 | `CAP_KILL` | signal tasks of another uid (`kill`/`tkill`/`tgkill`); otherwise only same-uid targets (and `SIGCONT` within a session) |
 | `CAP_DEV_CLAIM` | list and claim devices through syscall 23 (the coarse gate; the class ACL rule `os.kernel.dev.<class>` and the `Device` handle rights bound what a claim can do) |
+| `CAP_INPUT_RAW` | drain the raw input event bus through syscall 25 (`kernel/src/input/rawsys.rs`; every keystroke passes through it, so `init` stamps it onto `inputd` alone; see [../input-plan.md](../input-plan.md)) |
 
 - `Cred { uid, gid, caps, label_id, session }`; a program the kernel starts is
   `Cred::ROOT` (uid 0, all caps), and every task another task creates (`spawn`,
@@ -70,6 +71,8 @@ audit ring, and per-uid quotas. Spec: [security-model.md](../security-model.md).
 | `Fds` | 256 | API only until the fd table is charged |
 | `QueueBytes` / `QueueDepth` | 4 MiB / 1024 messages | channel enqueue, charged to sender uid |
 | `CpuTicks` | 2^32 | API only until the scheduler meters uids |
+| `DeviceClaims` | 8 | `dev::claim` |
+| `DmaMemory` | 8 MiB | `dev::dma_alloc` contiguous pool bytes |
 
 - `DEFAULT_LIMITS` applies to regular uids; uid 0 gets `ROOT_LIMITS`. Limits are
   kernel policy (`set_limit`); syscall 11 (`process::sys_quota`) is read-only and

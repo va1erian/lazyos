@@ -169,6 +169,7 @@ pub(crate) fn finish(slot: usize, status: u64) -> bool {
         return false;
     };
     NEEDS_REDRAW.store(true, Ordering::Relaxed);
+    crate::dev::silence_exited();
     // The child-exit event is both a `SIGCHLD` and a wait-queue notification:
     // the signal is recorded/queued (and wakes a handler-armed parent), while
     // every `wait4` sleeper is woken to re-check for a reapable child. Both run
@@ -197,6 +198,9 @@ pub(crate) fn finish_locked(
         task.exit_status = status;
         task.parent
     };
+    // Stop the dead task's devices (interrupt line, DMA) before its parent can
+    // be slow to reap it; the actual work runs later in task context.
+    crate::dev::note_task_exited(slot);
     let reparented = reparent_children_locked(tasks, slot, KERNEL_TASK);
     if reparented > 0 {
         serial_println!("proc: task {slot} died; re-parented {reparented} task(s) to init");

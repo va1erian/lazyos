@@ -214,6 +214,22 @@ def main() -> int:
         "--timeout", type=float, default=240.0, help="seconds to wait for TEST:SUMMARY"
     )
     parser.add_argument("--no-build", action="store_true", help="skip the cargo build step")
+    parser.add_argument(
+        "--machine",
+        help="QEMU machine type, e.g. q35 (default: QEMU's default, i440fx)",
+    )
+    parser.add_argument(
+        "--virtio-disk",
+        action="store_true",
+        help="attach the image as legacy virtio-blk instead of IDE, so the guest "
+        "has no ATA disk (issue #283)",
+    )
+    parser.add_argument(
+        "--nic",
+        action="store_true",
+        help="add a legacy virtio-net function, which enables the end-to-end "
+        "device interrupt test (issue #283)",
+    )
     args = parser.parse_args()
 
     image = Path(args.image).resolve()
@@ -229,8 +245,21 @@ def main() -> int:
     qemu = find_qemu(args.qemu)
     port = free_port()
     extra = accel_args(args.accel, qemu)
+    extra = list(extra or [])
+    if args.machine:
+        extra += ["-machine", args.machine]
+    if args.nic:
+        extra += [
+            "-netdev", "user,id=n0",
+            "-device", "virtio-net-pci,netdev=n0,disable-modern=on",
+        ]
+    if args.virtio_disk:
+        extra += [
+            "-drive", f"if=none,id=d0,format=raw,file={image.as_posix()}",
+            "-device", "virtio-blk-pci,drive=d0,disable-modern=on",
+        ]
     command = build_qemu_command(
-        qemu, str(image), port, serial_log, args.memory, extra
+        qemu, None if args.virtio_disk else str(image), port, serial_log, args.memory, extra
     )
     print(f"launching: {' '.join(command)}", flush=True)
     proc = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
@@ -251,7 +280,7 @@ def main() -> int:
     payload["image"] = str(image)
     payload["qemu"] = qemu
     # Record the accelerator actually used (what `auto` resolved to).
-    payload["accel"] = extra[1] if extra else "none"
+    payload["accel"] = extra[1] if extra and extra[0] == "-accel" else "none"
     payload["qemu_exit_code"] = proc.returncode
     payload["missing_summary"] = payload["reported"] is None
 

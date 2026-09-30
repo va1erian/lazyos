@@ -71,7 +71,7 @@ mod error;
 pub use error::Error;
 #[path = "channels_kernel.rs"]
 mod kernel_post;
-pub use kernel_post::{endpoint_of_task, post_from_kernel};
+pub use kernel_post::{post_from_kernel, private_endpoint_of_task, seal_endpoint};
 
 mod close;
 mod recv;

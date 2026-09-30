@@ -156,6 +156,9 @@ pub struct ProcessStats {
 pub struct BufferInfo {
     pub size: u64,
     pub flags: u32,
+    /// Whether the buffer is DMA-backed (its frames came from the DMA pool and
+    /// its quota is `DmaMemory`; issue #241).
+    pub dma: bool,
     /// Backing frames.
     pub frames: u64,
     /// Live references (handles plus in-flight messages).

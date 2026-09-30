@@ -67,7 +67,9 @@ unsafe fn cow_clone_level(src_phys: u64, level: u8) -> Option<u64> {
         if level == 1 {
             // Device MMIO is not RAM and belongs to the parent's claim: the
             // child simply does not get the mapping.
-            if entry & pte::MMIO != 0 {
+            // A DMA buffer is shared with a device, not copy-on-write memory:
+            // the child does not get it either.
+            if entry & (pte::MMIO | pte::DMA) != 0 {
                 continue;
             }
             // Share the frame read-only and mark it copy-on-write in both.

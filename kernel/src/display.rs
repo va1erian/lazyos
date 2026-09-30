@@ -122,6 +122,14 @@ pub fn bound() -> bool {
     owner != NO_OWNER && task::live(owner)
 }
 
+/// The task slot holding the display grant (the compositor), if one is live.
+/// `inputd` uses it to authenticate its shell client: the grant needs
+/// `CAP_SYS_ADMIN`, so "holds the display grant" is a kernel-backed identity.
+pub fn owner() -> Option<usize> {
+    let owner = OWNER.load(Ordering::Relaxed);
+    (owner != NO_OWNER && task::live(owner)).then_some(owner)
+}
+
 /// The screen-buffer handle `slot` holds as the bound compositor, if any.
 ///
 /// `close_buffer` refuses it: closing it would leave the grant pointing at a

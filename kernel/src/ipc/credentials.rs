@@ -66,6 +66,10 @@ pub const CAP_KILL: u32 = 1 << 7;
 /// `Device` handle `claim` returns, whose rights the class ACL rule
 /// (`os.kernel.dev.<class>`) bounds.
 pub const CAP_DEV_CLAIM: u32 = 1 << 8;
+/// Drain the raw input event bus (syscall 25, `docs/input-plan.md`). Every
+/// keystroke on the machine passes through it, so `init` stamps it onto
+/// `inputd` alone and strips it from every other service it starts.
+pub const CAP_INPUT_RAW: u32 = 1 << 9;
 /// Every capability bit defined today.
 pub const CAP_ALL: u32 = CAP_NET_BIND
     | CAP_NET_RAW
@@ -75,7 +79,8 @@ pub const CAP_ALL: u32 = CAP_NET_BIND
     | CAP_IPC_CONTROL
     | CAP_SETUID
     | CAP_KILL
-    | CAP_DEV_CLAIM;
+    | CAP_DEV_CLAIM
+    | CAP_INPUT_RAW;
 
 /// Audit interface id for credential transitions (issue #101). The ring keys on
 /// this so `auditd` can separate login/elevation records from Messenger policy
@@ -223,6 +228,15 @@ pub fn set_current(cred: Cred) {
 /// exits.
 pub fn reset_for_task(slot: usize) {
     set(slot, Cred::ROOT);
+}
+
+/// Remove capability bits from `slot`, keeping everything else. `Kernel-only`,
+/// like [`set`]: the boot path uses it to withhold `CAP_INPUT_RAW` from every
+/// program it starts except `init`, which delegates it to `inputd` alone.
+pub fn drop_caps(slot: usize, caps: u32) {
+    if let Some(entry) = CREDS.lock().get_mut(slot) {
+        entry.caps &= !caps;
+    }
 }
 
 /// Give `child_slot` a copy of `parent_slot`'s credentials.

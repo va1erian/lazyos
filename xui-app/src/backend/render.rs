@@ -7,6 +7,7 @@ use xui_core::Rect;
 
 use crate::sys;
 
+use super::geometry::{absolute_bounds, effectively_visible};
 use super::{LazyOSBackend, Mode};
 
 impl LazyOSBackend {
@@ -31,13 +32,19 @@ impl LazyOSBackend {
             )
         };
         surface.fill(background);
-        let paints: Vec<(Rect, Painter)> = self
-            .nodes
-            .borrow()
-            .iter()
-            .filter(|(_, node)| node.window == window && node.visible)
-            .filter_map(|(_, node)| node.painter.clone().map(|painter| (node.bounds, painter)))
-            .collect();
+        // Bounds are parent-relative: paint at the window-absolute position,
+        // and skip a node hidden through any ancestor.
+        let paints: Vec<(Rect, Painter)> = {
+            let nodes = self.nodes.borrow();
+            nodes
+                .iter()
+                .filter(|(id, node)| node.window == window && effectively_visible(&nodes, *id))
+                .filter_map(|(id, node)| {
+                    let painter = node.painter.clone()?;
+                    Some((absolute_bounds(&nodes, *id)?, painter))
+                })
+                .collect()
+        };
         for (bounds, painter) in paints {
             surface.with_canvas_at(bounds, dpi, |canvas| painter(canvas));
         }

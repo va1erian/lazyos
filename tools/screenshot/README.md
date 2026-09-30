@@ -12,7 +12,7 @@ CI and an AI agent can *see* what LazyOS renders, without a physical display.
 | `qemu_session.py` | Drive the guest with a scripted timeline of input + captures. |
 | `pngstats.py`  | Decode a PNG (stdlib only) and report/assert pixel statistics. |
 | `upload_image.py` | Upload PNGs to a public image host for PR comments. |
-| `examples/*.json` | Session scripts, one per demo. Plain image: `type_and_shot`, `window_demo`, `mouse_demo`, `multitask_demo` (two windows, Tab focus), `fs_demo` (BusyBox `sh`: `ls` / `cat`), `shell_fork_stress` (`LAZYOS_CLI=1`: 150 shell loop iterations of pipelines, the fork/`SIGCHLD`/`wait` soak that reproduced issue #375; pass `--fail-on "user: task [0-9]+ killed by"`). `LAZYOS_SERVICES=1`: `services_demo`, `login_demo`, `apps_demo`, `native_exec` (log in, run `top`/`confctl`/`faultprobe` from `sh`: exit statuses, a pipe, `&` + `wait`). `LAZYOS_XUID=1`: `xuid_wm` (drag, raise, taskbar, close), `dnd_drop`/`dnd_cancel`, `xuid_shell` (+`LAZYOS_SHELLPROBE=1`: desktop, Alt+F4, Alt+Tab, Ctrl+Esc). xui apps (`LAZYOS_XUI_APP`): `xui_m0`, `xui_m1`, `xui_counter`, `xui_sysmon`, `xui_fabricmon`, `xui_client` (+`LAZYOS_XUI_CLIENT=1`), `xui_editor`/`xui_paint`/`xui_files` (`LAZYOS_DESKTOP=1 LAZYOS_XUI_APPS=<elf> LAZYOS_XUI_AUTOSTART=<stem>`; serial markers `EDITOR:`/`PAINT:`/`FILES:` `UP\|SAVE\|OPEN`), `xui_desktop` (`LAZYOS_DESKTOP=1 LAZYOS_XUI_AUTOSTART=term,sysmon,fabricmon,counter` (only the Terminal autostarts by default), optionally `LAZYOS_XUI_APPS=<term:sysmon:fabricmon:counter>` (`;` on Windows): Terminal + three viewers side by side, types into the BusyBox shell) -- these are readiness-gated (`wait_for`/`until`, see below) rather than fixed-timestamp, for the `xui-app` CI job (`.github/workflows/xui.yml`). The `rhai` command (#319, `.github/workflows/rhai.yml`): `rhai_demo` (`LAZYOS_CLI=1`: `rhai -e`, scripts, pipelines, limits, REPL on the console, serial markers `RHAI:<name>:PASS\|FAIL`) and `rhai_desktop` (`LAZYOS_DESKTOP=1 LAZYOS_XUI_AUTOSTART=term`: the same in the desktop Terminal). |
+| `examples/*.json` | Session scripts, one per demo. Plain image: `type_and_shot`, `window_demo`, `mouse_demo`, `multitask_demo` (two windows, Tab focus), `fs_demo` (BusyBox `sh`: `ls` / `cat`), `shell_fork_stress` (`LAZYOS_CLI=1`: 150 shell loop iterations of pipelines, the fork/`SIGCHLD`/`wait` soak that reproduced issue #375; pass `--fail-on "user: task [0-9]+ killed by"`). `LAZYOS_SERVICES=1`: `input_keys` (physical keys through `inputd`; check the serial trace with `tools/input/verify_trace.py`, build with `LAZYOS_KBD_LAYOUT=fr` for the AZERTY run), `services_demo`, `login_demo`, `apps_demo`, `native_exec` (log in, run `top`/`confctl`/`faultprobe` from `sh`: exit statuses, a pipe, `&` + `wait`). `LAZYOS_XUID=1`: `xuid_wm` (drag, raise, taskbar, close), `dnd_drop`/`dnd_cancel`, `xuid_shell` (+`LAZYOS_SHELLPROBE=1`: desktop, Alt+F4, Alt+Tab, Ctrl+Esc). xui apps (`LAZYOS_XUI_APP`): `xui_m0`, `xui_m1`, `xui_counter`, `xui_sysmon`, `xui_fabricmon`, `xui_client` (+`LAZYOS_XUI_CLIENT=1`), `xui_editor`/`xui_paint`/`xui_files` (`LAZYOS_DESKTOP=1 LAZYOS_XUI_APPS=<elf> LAZYOS_XUI_AUTOSTART=<stem>`; serial markers `EDITOR:`/`PAINT:`/`FILES:` `UP\|SAVE\|OPEN`), `xui_desktop` (`LAZYOS_DESKTOP=1 LAZYOS_XUI_AUTOSTART=term,sysmon,fabricmon,counter` (only the Terminal autostarts by default), optionally `LAZYOS_XUI_APPS=<term:sysmon:fabricmon:counter>` (`;` on Windows): Terminal + three viewers side by side, types into the BusyBox shell) -- these are readiness-gated (`wait_for`/`until`, see below) rather than fixed-timestamp, for the `xui-app` CI job (`.github/workflows/xui.yml`). The `rhai` command (#319, `.github/workflows/rhai.yml`): `rhai_demo` (`LAZYOS_CLI=1`: `rhai -e`, scripts, pipelines, limits, REPL on the console, serial markers `RHAI:<name>:PASS\|FAIL`) and `rhai_desktop` (`LAZYOS_DESKTOP=1 LAZYOS_XUI_AUTOSTART=term`: the same in the desktop Terminal). |
 | `../run_demo.py` | Build and boot the interactive demo in QEMU with one command. |
 
 ### Why QMP instead of `-vnc`/`-nographic`
@@ -150,6 +150,31 @@ Keyboard uses a US layout (Shift handled automatically for symbols/capitals).
 Mouse uses relative motion/buttons (PS/2) by default; pass `--tablet` to attach
 `usb-tablet` for absolute positioning. The guest's PS/2 keyboard and mouse
 drivers consume the injected events, so a script drives the real OS input path.
+
+## `monkey.py` (random-input soak)
+
+The Android-`monkey` equivalent: boots the desktop headless, then fires seeded
+random mouse / keyboard / drag / scroll / chord / typing / burst input over QMP
+for `--duration` seconds and stops at the first crash signature (`EXCEPTION:`,
+`LazyOS PANIC`, `HANG:`, ring-3 `killed by`) or a **freeze** (the display stops
+changing while the pointer is nudged; registers, a 256-word stack dump and an
+NMI `HANG:` report are captured).
+
+```bash
+python tools/screenshot/monkey.py --build --image target/lazyos.img     --duration 300 --seed 1 --runs 4 --out shots/monkey
+```
+
+`--build` builds the desktop image exactly as the launcher's Desktop mode does
+(`tools/xui/build.py`, then `cargo build` with `LAZYOS_DESKTOP=1`); a plain
+`cargo build` has no userspace and never reaches a desktop. Every action is
+logged to `actions.jsonl` *before* it is sent, so the last line is the input in
+flight at the fault; `--replay actions.jsonl [--replay-tail N]` re-sends it.
+Guest timing is not deterministic, so use `--runs N` (seeds `seed..seed+N-1`)
+to hunt a rare fault. To symbolize a freeze, subtract the kernel load base
+(`0x8000000000`) from the addresses in `freeze_registers.txt` and run
+`addr2line -f -C -e <kernel ELF>`. Findings keep `shot_fault.png`,
+`serial_tail.txt`, `report.json` and the registers; freeze findings also keep
+`freeze_registers.txt` and `freeze_hang_report.txt`. Exit status is 1.
 
 ## CI
 

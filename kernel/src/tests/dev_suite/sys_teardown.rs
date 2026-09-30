@@ -155,6 +155,42 @@ pub fn teardown_leaves_shared_rounds() -> Result<(), String> {
     Ok(())
 }
 
+/// A task that exits but is not yet reaped stops being an interrupt listener
+/// and a possible DMA master at once (issue #283); the claim itself (and its
+/// mappings) lives until the reap frees them.
+pub fn zombie_claim_is_silenced_at_exit() -> Result<(), String> {
+    let fx = Fixture::new()?;
+    let r = rig(LINE_A, false, true)?;
+    fire(LINE_A, 10);
+    check!(
+        r.flags()? == (true, true, false),
+        "the claim is not in flight"
+    );
+    leave(&fx);
+
+    task::harness::finish(r.slot, 0);
+    check!(
+        r.flags()? == (false, false, false),
+        "a zombie still listens: {:?}",
+        r.flags()?
+    );
+    check!(masked(LINE_A), "a zombie left its line unmasked");
+    check!(
+        table_state(r.dev).0 == Some(crate::dev::TaskSlot(r.slot)),
+        "the claim was released before the reap"
+    );
+
+    // Now reap: the release completes and the device is free again.
+    let reaped = task::reap_child().ok_or("the finished task was not reaped")?;
+    check!(reaped.0 == r.slot, "reaped slot {}", reaped.0);
+    check!(
+        table_state(r.dev).0.is_none(),
+        "the reap left the device owned"
+    );
+    check!(CLAIMS.lock().len() == 0, "a claim survived the reap");
+    Ok(())
+}
+
 /// Teardown while the address space lives on (a thread group): the mapping
 /// disappears from the live table, and the still-open handle fails closed.
 pub fn teardown_unmaps_live_space() -> Result<(), String> {
@@ -279,6 +315,10 @@ pub(super) const CASES: &[(&str, Test)] = &[
     (
         "dev_teardown_releases_everything",
         teardown_releases_everything,
+    ),
+    (
+        "dev_zombie_claim_is_silenced_at_exit",
+        zombie_claim_is_silenced_at_exit,
     ),
     (
         "dev_teardown_leaves_shared_rounds",

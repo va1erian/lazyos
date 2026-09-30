@@ -42,6 +42,21 @@ pub(super) fn start_ready(services: &mut [Service], broker: &mut router::TopicBr
     }
 }
 
+/// The credentials a manifest service runs with. Only `inputd` may hold the
+/// raw input bus (`CAP_INPUT_RAW`): it gets exactly that capability, and every
+/// other service inherits this supervisor's identity minus it, so a compromised
+/// service cannot read the keystroke stream. `None` (plain inherit) when this
+/// task's own credentials cannot be read.
+fn manifest_cred(name: &str) -> Option<sys::Cred> {
+    let mut own = sys::Cred::default();
+    sys::cred_get(None, &mut own).ok()?;
+    if name == "inputd" {
+        return Some(sys::Cred::new(0, 0, sys::CAP_INPUT_RAW, own.label_id, 0));
+    }
+    own.caps &= !sys::CAP_INPUT_RAW;
+    Some(own)
+}
+
 /// Start one supervised row as a child of this task: `spawn_as` with the
 /// row's stamped credentials for a launched app, plain `spawn` (inheriting the
 /// supervisor's identity) for a manifest service.
@@ -51,7 +66,10 @@ pub(super) fn spawn_service(
     broker: &mut router::TopicBroker,
 ) {
     let command = command_line(&services[index], services[index].restarts);
-    let spawned = match services[index].cred {
+    let spawned = match services[index]
+        .cred
+        .or_else(|| manifest_cred(services[index].name))
+    {
         Some(cred) => sys::spawn_as(&command, &cred),
         None => sys::spawn(&command),
     };

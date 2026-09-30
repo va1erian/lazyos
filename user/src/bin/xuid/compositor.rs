@@ -9,6 +9,8 @@ use user::messenger::display::{Canvas, Rect};
 
 use super::clock::{self, Clock};
 use super::drag::DragSession;
+use super::inputlink::InputLink;
+use super::origin::OpenHint;
 use super::shell::{taskbar_visible, AltTab, Modifiers, ShellSub};
 use super::surface::{Drag, Surface};
 use super::themefeed::ThemeFeed;
@@ -49,6 +51,10 @@ pub(super) struct Compositor {
     pub(super) clock: Clock,
     /// The live `sys/ui/*` theme follower.
     pub(super) themefeed: ThemeFeed,
+    /// The compositor's side of `inputd` (`docs/input-plan.md`).
+    pub(super) input: InputLink,
+    /// Pending open-origin hints, at most one per task.
+    pub(super) hints: Vec<OpenHint>,
 }
 
 impl Compositor {
@@ -71,6 +77,8 @@ impl Compositor {
             scratch: Vec::with_capacity(64),
             clock: Clock::new(),
             themefeed: ThemeFeed::new(),
+            input: InputLink::new(),
+            hints: Vec::new(),
         }
     }
 

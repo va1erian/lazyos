@@ -119,6 +119,22 @@ impl PaintCanvas {
                 state.revision = revision;
             }
             state.bitmap_size = (bitmap.width() as i32, bitmap.height() as i32);
+            // A shrinking bitmap must not leave the viewport scrolled past it.
+            let view = self.control.bounds();
+            let clamped = (
+                state
+                    .offset
+                    .0
+                    .clamp(0, (state.bitmap_size.0 - view.width()).max(0)),
+                state
+                    .offset
+                    .1
+                    .clamp(0, (state.bitmap_size.1 - view.height()).max(0)),
+            );
+            if clamped != state.offset {
+                state.offset = clamped;
+                self.control.invalidate();
+            }
             if state.preview != preview || state.brush != brush {
                 state.preview = preview;
                 state.brush = brush;

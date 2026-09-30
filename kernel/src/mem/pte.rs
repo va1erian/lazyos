@@ -38,6 +38,12 @@ pub const ADDR: u64 = 0x000F_FFFF_FFFF_F000;
 /// device MMIO rather than an allocator frame (issue #240). Teardown, fork and
 /// `unmap_range` skip the frame accounting for such a leaf; see `mem::mmio`.
 pub const MMIO: u64 = 1 << 10;
+/// Software-defined bit (bit 11) marking a leaf that maps a driver's DMA
+/// buffer (issue #241). The device writes those frames behind the CPU's back,
+/// so `fork` must not turn them copy-on-write: the child does not get the
+/// mapping, exactly as for [`MMIO`], and the parent keeps sharing the frames
+/// with its device.
+pub const DMA: u64 = 1 << 11;
 /// No-execute bit (requires `EFER.NXE`, which `mem::init` enables at boot).
 pub const NX: u64 = 1 << 63;
 

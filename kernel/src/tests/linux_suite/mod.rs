@@ -200,6 +200,7 @@ fn clock_nanosleep(clock: u64, flags: u64, req: &[i64; 2], rem: &mut [i64; 2]) -
 
 mod creds;
 mod epoll;
+mod mmap_reuse;
 mod mremap_eventfd;
 mod nanosleep_clock;
 mod random;
@@ -208,6 +209,7 @@ mod seqpacket_unix;
 
 pub(super) use creds::*;
 pub(super) use epoll::*;
+pub(super) use mmap_reuse::*;
 pub(super) use mremap_eventfd::*;
 pub(super) use nanosleep_clock::*;
 pub(super) use random::*;
@@ -240,6 +242,15 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("linux_getrandom_statistics", getrandom_statistics),
     ("linux_entropy_reseeds", entropy_reseeds),
     ("linux_getrandom_soak", getrandom_soak),
+    ("linux_mmap_reuses_freed_range", mmap_reuses_freed_range),
+    (
+        "linux_mmap_skips_a_large_mapping",
+        mmap_skips_a_large_mapping_in_one_step,
+    ),
+    (
+        "linux_mmap_munmap_soak_does_not_exhaust_region",
+        mmap_munmap_soak_does_not_exhaust_region,
+    ),
     ("linux_mremap_grow_shrink_move", mremap_grow_shrink_move),
     ("linux_mremap_soak_churn", mremap_soak_churn),
     ("linux_eventfd_semantics", eventfd_semantics),

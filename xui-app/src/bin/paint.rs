@@ -6,19 +6,20 @@
 //! refusing writes, and the serial evidence markers the screenshot sessions
 //! grep for.
 //!
-//! The portable `Storage` trait is path-less (the app calls `save`/`load` with
-//! no argument), so the path is chosen once at start-up; a Save/Open inside the
-//! app acts on that file.
+//! The path-less `Storage::save`/`load` act on the start-up file; Open and Save
+//! As go through the xui file dialogs (`LazyFileSystem`) and the path seam
+//! (`save_to`/`load_from`), starting in the file's directory, `$HOME` or `/`.
 //!
 //! Serial evidence: `PAINT:UP:PASS` after the first frame, `PAINT:OPEN:PASS`
 //! after a PNG loads, `PAINT:SAVE:PASS` after a successful save.
 
 use std::cell::Cell;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use xui_app::backend::LazyOSBackend;
 use xui_app::platform::argv;
+use xui_app::platform::dialog_fs::LazyFileSystem;
 use xui_app::platform::storage::PngStorage;
 use xui_core::app::run_app;
 use xui_core::backend::{Backend, PlatformSpec};
@@ -68,6 +69,43 @@ impl Storage for ReportingStorage {
     fn available(&self) -> bool {
         self.inner.available()
     }
+
+    fn save_to(&self, path: &Path, bytes: &[u8]) -> Result<(), String> {
+        let result = self.inner.save_to(path, bytes);
+        let verdict = if result.is_ok() { "PASS" } else { "FAIL" };
+        println!("PAINT:SAVE:{verdict}:{}", path.display());
+        result
+    }
+
+    fn load_from(&self, path: &Path) -> Option<Vec<u8>> {
+        let bytes = self.inner.load_from(path);
+        if bytes.is_some() {
+            println!("PAINT:OPEN:PASS:{}", path.display());
+        }
+        bytes
+    }
+
+    fn supports_paths(&self) -> bool {
+        self.inner.supports_paths()
+    }
+
+    fn default_path(&self) -> Option<PathBuf> {
+        self.inner.default_path()
+    }
+}
+
+/// Where the file dialogs start: the file's directory, else `$HOME`, else `/`.
+fn start_dir(requested: Option<&Path>) -> PathBuf {
+    requested
+        .and_then(Path::parent)
+        .filter(|dir| !dir.as_os_str().is_empty())
+        .map(Path::to_path_buf)
+        .or_else(|| {
+            std::env::var_os("HOME")
+                .filter(|home| !home.is_empty())
+                .map(PathBuf::from)
+        })
+        .unwrap_or_else(|| PathBuf::from("/"))
 }
 
 fn main() -> std::process::ExitCode {
@@ -89,7 +127,9 @@ fn main() -> std::process::ExitCode {
 
     let spec = PlatformSpec::new("Paint").size(Dip(width as f32), Dip(height as f32));
     let outcome = run_app(Rc::clone(&backend) as Rc<dyn Backend>, spec, move |ui| {
-        let app = PaintApp::build(ui, storage.clone()).expect("the paint widgets built");
+        let app = PaintApp::build_with_files(ui, storage.clone(), LazyFileSystem::shared())
+            .expect("the paint widgets built");
+        app.set_start_dir(start_dir(requested.as_deref()));
         if requested.is_some() {
             // A one-shot Open loads the file named on the command line. The
             // timer kills itself on first fire so an idle Paint costs no
@@ -102,7 +142,7 @@ fn main() -> std::process::ExitCode {
                 if fired.replace(true) {
                     None
                 } else {
-                    Some(Msg::Open)
+                    Some(Msg::OpenStartup)
                 }
             });
         }

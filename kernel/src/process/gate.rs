@@ -108,6 +108,8 @@ extern "C" fn syscall_dispatch(regs: *mut Regs) {
         23 => crate::dev::syscall::dispatch(regs.rdi, regs.rsi, regs.rdx, regs.r10, regs.r8),
         // 24: the native wall clock (issue #369), see `super::wallsys`.
         24 => super::wallsys::dispatch(regs.rdi, regs.rsi),
+        // 25: the raw input event bus (`docs/input-plan.md`), `inputd` only.
+        25 => crate::input::rawsys::dispatch(regs.rdi, regs.rsi, regs.rdx),
         _ => u64::MAX,
     };
 }
@@ -137,6 +139,7 @@ pub fn dispatch_for_test(nr: u64, a1: u64, a2: u64, a3: u64) -> u64 {
         15..=22 => fsops::dispatch(nr, a1, a2, a3),
         23 => crate::dev::syscall::dispatch(a1, a2, a3, 0, 0),
         24 => super::wallsys::dispatch(a1, a2),
+        25 => crate::input::rawsys::dispatch(a1, a2, a3),
         _ => u64::MAX,
     }
 }

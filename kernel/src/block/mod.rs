@@ -187,6 +187,13 @@ pub fn set_boot_device(device: &'static dyn BlockDevice) {
     *BOOT.lock() = Some(device);
 }
 
+/// Forget the boot device, restoring the "none selected" state a test may have
+/// replaced (issue #274).
+#[cfg(lazyos_tests)]
+pub fn clear_boot_device() {
+    *BOOT.lock() = None;
+}
+
 /// Probe and register the built-in drivers. Idempotent; a thin wrapper over the
 /// device core (issue #239): [`crate::dev::init`] enumerates the buses and runs
 /// the in-kernel driver table, whose ATA and virtio-blk entries call

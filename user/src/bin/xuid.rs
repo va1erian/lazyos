@@ -92,12 +92,16 @@ mod drag;
 mod event;
 #[path = "xuid/icons.rs"]
 mod icons;
+#[path = "xuid/inputlink.rs"]
+mod inputlink;
 #[path = "xuid/keys.rs"]
 mod keys;
 #[path = "xuid/layout.rs"]
 mod layout;
 #[path = "xuid/menu.rs"]
 mod menu;
+#[path = "xuid/origin.rs"]
+mod origin;
 #[path = "xuid/present.rs"]
 mod present;
 #[path = "xuid/protocol.rs"]
@@ -195,8 +199,14 @@ fn run() -> ! {
     sys::write_str(SHELL_MARKER);
     sys::write_str(keys::selftest_key_encoding());
     sys::write_str(title::selftest_titles());
+    sys::write_str(window::selftest_focus_on_create());
+    sys::write_str(origin::selftest_open_origin());
 
     loop {
+        // 0. `inputd`: register new surfaces, report focus, apply the
+        //    sessions it opened (keys for those windows come from it).
+        comp.sync_input();
+
         // 1. Input: drain the whole kernel queue first so pointer moves
         //    coalesce across poll calls, then handle what is left in order.
         drain_input(&mut input);

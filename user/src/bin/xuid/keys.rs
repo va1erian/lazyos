@@ -56,10 +56,11 @@ impl Compositor {
         }
         let key = self.client_key(key);
         let body = wire::encode_key_down_args(&wire::KeyDownArgs { key });
+        let target = self.legacy_key_target();
         forward(
             &self.surfaces,
             &mut self.scratch,
-            self.focused,
+            target,
             wire::METHOD_KEYDOWN,
             body,
         );
@@ -88,6 +89,18 @@ impl Compositor {
             return true;
         }
         false
+    }
+
+    /// The surface legacy `KeyDown`/`KeyUp` go to: the focused one, unless its
+    /// client takes keys through an `inputd` session (it would get every key
+    /// twice). Display's key events are frozen; only old clients use them.
+    fn legacy_key_target(&self) -> Option<u64> {
+        let id = self.focused?;
+        let session = self
+            .surfaces
+            .iter()
+            .any(|surface| surface.id == id && surface.input_session);
+        (!session).then_some(id)
     }
 
     /// `key` with the held modifiers OR-ed in, as clients receive it.
@@ -120,10 +133,11 @@ impl Compositor {
         }
         let key = self.client_key(key);
         let body = wire::encode_key_up_args(&wire::KeyUpArgs { key });
+        let target = self.legacy_key_target();
         forward(
             &self.surfaces,
             &mut self.scratch,
-            self.focused,
+            target,
             wire::METHOD_KEYUP,
             body,
         );

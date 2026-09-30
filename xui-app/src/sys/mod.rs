@@ -21,8 +21,8 @@ pub use display::{
     EVENT_BYTES,
 };
 pub use messenger::{
-    messenger, msg_call, msg_create_pair, msg_op, msg_recv, msg_resolve, MsgArgs, MsgResult,
-    REGISTRY_TARGET_SELF,
+    messenger, msg_call, msg_create_pair, msg_op, msg_queued, msg_recv, msg_resolve, MsgArgs,
+    MsgResult, REGISTRY_TARGET_SELF,
 };
 
 use core::arch::asm;

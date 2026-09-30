@@ -2,6 +2,7 @@
 //! the heap.
 
 mod cow;
+pub mod dma;
 mod frames;
 mod heap;
 pub mod mmio;
@@ -14,6 +15,7 @@ pub mod untouched;
 mod uspace;
 pub mod vma;
 pub use cow::clone_user_table;
+pub use dma::{dma_alloc, dma_stats};
 pub use frames::*;
 pub use table_guard::UserTableGuard;
 pub use uspace::*;
@@ -135,6 +137,7 @@ pub fn init(boot_info: &'static mut BootInfo) {
         refcounts: table_phys,
         free_head: FREE_LIST_END,
         untouched: untouched::Untouched::new(&starts),
+        pool: dma::DmaPool::empty(),
         total: 0,
         allocated: 0,
         freed: 0,
@@ -158,7 +161,21 @@ pub fn init(boot_info: &'static mut BootInfo) {
     let in_regions: usize = (0..count)
         .map(|i| untouched::Untouched::frames_in(starts[i], ends[i]))
         .sum();
-    frames.total = in_regions - table_frames;
+    // Reserve the DMA pool once, from the memory map (issue #241): its frames
+    // stay in the refcount table but are marked `RESERVED` while free, so the
+    // general allocator (which skips `RESERVED` in `pop_free`) never hands them
+    // out, and they are excluded from `total`/`free` like the metadata table.
+    let mut pool_pages = 0usize;
+    if let Some((base, pages)) =
+        dma::choose_pool(&starts, &ends, count, in_regions, table_phys, table_frames)
+    {
+        frames.pool.reserve(base, pages);
+        for page in 0..u64::from(pages) {
+            frames.set_refcount(Frames::index(base + page * FRAME_SIZE), RESERVED);
+        }
+        pool_pages = pages as usize;
+    }
+    frames.total = in_regions - table_frames - pool_pages;
     let boot = frames.stats();
     *FRAMES.lock() = Some(frames);
     // The slab allocator needs only frames and the physical-memory mapping, so

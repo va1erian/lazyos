@@ -320,7 +320,16 @@ pub fn sys_small_ops() -> Result<(), String> {
     let _fx = Fixture::new()?;
     let dev = add_device(Spec::nic(None))?;
     let (_, handle) = claimed(dev)?;
-    expect_errno(sys(OP_DMA_ALLOC, handle, 4096, 0, 0), ENOSYS, "dma_alloc")?;
+    // `dma_alloc` is live now (issue #241); a hostile out-pointer fails with no
+    // side effects. The dedicated DMA tests cover the happy path.
+    {
+        let _strict = Strict::on();
+        expect_errno(
+            sys(OP_DMA_ALLOC, handle, 4096, 0, 0),
+            EFAULT,
+            "dma_alloc with a null bus-address pointer",
+        )?;
+    }
     expect_errno(sys(10, 0, 0, 0, 0), EINVAL, "op 10")?;
     expect_errno(sys(u64::MAX, 0, 0, 0, 0), EINVAL, "op -1")?;
     // The whole call goes through the syscall gate's routing too.

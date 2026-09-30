@@ -1,9 +1,10 @@
 # Copied from `va1erian/xui` `crates/xui-explorer` (MIT). The LazyOS app
 # supplies its own `Platform`/`Launcher` (over the Linux shim and init.Launch)
-# instead of the std desktop shell; the Global Village icon set is optional and
-# stays off to keep the boot image small (the Lucide fallback is used). The
-# `xui-core`, `xui-icons` and dev-only `xui-canvas` crates are git dependencies
-# at the LazyOS-pinned rev. See `docs/xui-apps-migration-status.md`.
+# instead of the std desktop shell; the Global Village icon set is the opt-in
+# `village-icons` feature, which `xui-app/Cargo.toml` enables for the Files app
+# (the Lucide fallback is still the crate default). The `xui-core`, `xui-icons`
+# and dev-only `xui-canvas` crates are git dependencies at the LazyOS-pinned
+# rev. See `docs/xui-apps-integration.md`.
 [package]
 name = "xui-explorer"
 version = "0.1.0"
@@ -16,8 +17,9 @@ publish = false
 
 [dependencies]
 xui-core = { git = "https://github.com/va1erian/xui", rev = "35c818f9b187359927b1528c37d63f62604caa05" }
-# The optional Global Village multi-colour icon set. Off for a target that
-# prefers the single-colour Lucide fallback (or cannot afford the crate).
+# The optional Global Village multi-colour icon set. A target that prefers the
+# single-colour Lucide fallback (or cannot afford the crate) leaves the feature
+# off; the LazyOS Files app turns it on.
 xui-icons = { git = "https://github.com/va1erian/xui", rev = "35c818f9b187359927b1528c37d63f62604caa05", optional = true }
 
 [features]
@@ -26,7 +28,7 @@ xui-icons = { git = "https://github.com/va1erian/xui", rev = "35c818f9b187359927
 default = ["std-platform"]
 std-platform = []
 # Draw tiles with the multi-colour Global Village icons instead of Lucide.
-# Off by default to keep the boot image small; enable per target if it fits.
+# Off by default; `xui-app/Cargo.toml` enables it for the LazyOS Files app.
 village-icons = ["dep:xui-icons"]
 
 [dev-dependencies]

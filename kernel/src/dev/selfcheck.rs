@@ -4,7 +4,7 @@
 
 use x86_64::instructions::tables::sidt;
 
-use super::errno::{EBADF, EINVAL, ENOSYS, EPERM};
+use super::errno::{EBADF, EINVAL, EPERM};
 use super::irq::{self, LINES};
 use super::syscall::{self, NO_ENDPOINT};
 use super::{pci, table, BusId};
@@ -56,11 +56,26 @@ fn vector_present(vector: u64) -> bool {
     word & (1 << 47) != 0
 }
 
-/// Print `DEV:IRQ` and `DEV:SYSCALL`. Needs the IDT loaded, so it runs after
-/// `arch::init`.
+/// Print `DEV:IRQ`, `DEV:SYSCALL` and `DEV:DMA`. Needs the IDT loaded, so it
+/// runs after `arch::init`.
 pub fn selfcheck() {
     check_irq();
     check_syscall();
+    check_dma();
+}
+
+/// `DEV:DMA`: the boot-time DMA pool reservation (issue #241).
+fn check_dma() {
+    let stats = crate::mem::dma_stats();
+    if stats.total_pages == 0 {
+        serial_println!("DEV:DMA:INFO:no DMA pool reserved");
+    } else {
+        serial_println!(
+            "DEV:DMA:PASS:{} pages, largest run {}",
+            stats.total_pages,
+            stats.largest_run
+        );
+    }
 }
 
 fn check_irq() {
@@ -106,9 +121,9 @@ fn check_syscall() {
             neg(EBADF),
         ),
         (
-            "dma_alloc reserved",
+            "dma_alloc bad handle",
             syscall::dispatch(syscall::OP_DMA_ALLOC, 0, 0, 0, 0),
-            neg(ENOSYS),
+            neg(EBADF),
         ),
     ];
     let failed = checks.iter().find(|(_, got, want)| got != want);

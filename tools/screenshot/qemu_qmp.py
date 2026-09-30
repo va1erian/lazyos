@@ -397,6 +397,14 @@ _NAMED = {
     # The Super/Windows/GUI key is QEMU's left "meta" key.
     "super": "meta_l", "meta": "meta_l", "win": "meta_l", "gui": "meta_l",
     "capslock": "caps_lock", "menu": "menu",
+    # Right-hand modifiers (AltGr on AZERTY), lock keys and the keypad, for
+    # the input subsystem's scripted checks (docs/input-plan.md).
+    "altgr": "alt_r", "alt_r": "alt_r", "ctrl_r": "ctrl_r", "shift_r": "shift_r",
+    "super_r": "meta_r", "numlock": "num_lock", "scrolllock": "scroll_lock",
+    "print": "print", "pause": "pause",
+    "kp_add": "kp_add", "kp_subtract": "kp_subtract", "kp_multiply": "kp_multiply",
+    "kp_divide": "kp_divide", "kp_decimal": "kp_decimal", "kp_enter": "kp_enter",
+    **{f"kp_{n}": f"kp_{n}" for n in range(10)},
 }
 
 
