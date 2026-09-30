@@ -334,18 +334,20 @@ fn choose_mremap_dest(table: PhysAddr, len: u64) -> Option<u64> {
 /// cycles and the process died with `memory allocation failed` although
 /// almost no memory was resident.
 fn first_free_range(table: PhysAddr, len: u64) -> Option<u64> {
+    // One pass over the VMAs in address order: `candidate` only moves forward,
+    // past each mapping that overlaps it, so the cost is one scan however
+    // large the mappings are.
+    let mut vmas = crate::mem::vma::list(table);
+    vmas.sort_unstable_by_key(|vma| vma.start);
     let mut candidate = MMAP_BASE;
-    loop {
-        let end = candidate.checked_add(len)?;
-        if end > MMAP_LIMIT {
-            return None;
+    for vma in vmas {
+        if vma.end <= candidate {
+            continue;
         }
-        // Unclipped ends: a large mapping is skipped in one step, not `len` at
-        // a time.
-        let occupied = crate::mem::vma::find_range_full(table, candidate, end);
-        if occupied.is_empty() {
-            return Some(candidate);
+        if vma.start >= candidate.checked_add(len)? {
+            break;
         }
-        candidate = align_up(occupied.iter().map(|vma| vma.end).max()?, PAGE)?;
+        candidate = align_up(vma.end, PAGE)?;
     }
+    (candidate.checked_add(len)? <= MMAP_LIMIT).then_some(candidate)
 }

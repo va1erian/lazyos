@@ -16,6 +16,7 @@ use crate::client_window::ClientWindow;
 use crate::sys;
 
 use super::geometry::absolute_bounds;
+use super::zorder::family;
 use super::{LazyOSBackend, Mode, Node, Timer, Window, DEFAULT_DPI, POLL_MILLIS};
 
 impl Backend for LazyOSBackend {
@@ -200,16 +201,21 @@ impl Backend for LazyOSBackend {
             let Some(index) = nodes.iter().position(|(node_id, _)| node_id == id) else {
                 continue;
             };
-            // Damage is window-absolute: the old and the new position.
-            let before = self
-                .is_client()
-                .then(|| absolute_bounds(&nodes, *id))
-                .flatten();
+            // Damage is window-absolute: the old and the new position of the
+            // node and of every descendant (a child may extend past its parent).
+            let family = self.is_client().then(|| family(&nodes, *id));
+            let before: Vec<Rect> = family
+                .iter()
+                .flatten()
+                .filter_map(|member| absolute_bounds(&nodes, *member))
+                .collect();
             nodes[index].1.bounds = *rect;
-            if self.is_client() {
-                for area in before.into_iter().chain(absolute_bounds(&nodes, *id)) {
-                    self.add_damage(window, area);
-                }
+            let after = family
+                .iter()
+                .flatten()
+                .filter_map(|member| absolute_bounds(&nodes, *member));
+            for area in before.into_iter().chain(after) {
+                self.add_damage(window, area);
             }
         }
     }

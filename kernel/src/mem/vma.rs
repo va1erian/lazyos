@@ -268,26 +268,6 @@ pub fn find_range(table: PhysAddr, start: u64, end: u64) -> Vec<Vma> {
     found
 }
 
-/// Every VMA intersecting `[start, end)`, at its full (unclipped) extent. An
-/// address-space search uses it to skip past a large mapping in one step.
-pub fn find_range_full(table: PhysAddr, start: u64, end: u64) -> Vec<Vma> {
-    let mut found = Vec::new();
-    if end <= start {
-        return found;
-    }
-    let spaces = SPACES.lock();
-    if let Some(space) = spaces.iter().find(|space| space.pml4 == table.as_u64()) {
-        found.extend(
-            space
-                .vmas
-                .iter()
-                .copied()
-                .filter(|vma| vma.intersects(start, end)),
-        );
-    }
-    found
-}
-
 /// Set `prot` on every VMA intersecting `[start, end)`, splitting at the range
 /// boundaries and re-merging what the new protection makes adjacent. Returns
 /// whether the range covered at least one existing VMA.

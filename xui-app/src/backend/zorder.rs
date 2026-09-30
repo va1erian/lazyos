@@ -7,7 +7,7 @@ use xui_core::backend::{ParentRef, WidgetId};
 use super::{LazyOSBackend, Node};
 
 /// `id` and its descendants, in table order.
-fn family(nodes: &[(WidgetId, Node)], id: WidgetId) -> Vec<WidgetId> {
+pub(super) fn family(nodes: &[(WidgetId, Node)], id: WidgetId) -> Vec<WidgetId> {
     // Grow the set to a fixed point; the loop is bounded by the table length,
     // so a corrupted (cyclic) parent chain cannot spin.
     let mut raised = vec![id];
