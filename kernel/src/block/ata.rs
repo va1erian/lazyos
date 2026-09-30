@@ -53,6 +53,16 @@ fn delay_400ns() {
     }
 }
 
+/// At least 5us: SRST must stay asserted that long (ATA/ATAPI-7). Each
+/// alternate-status read takes at least ~100ns on the ISA-speed bus (far more
+/// under a hypervisor), so 50 reads is a lower bound on the time, not a guess.
+fn delay_5us() {
+    for _ in 0..50 {
+        // Safety: as in `delay_400ns`.
+        let _: u8 = unsafe { inb(ALT_STATUS) };
+    }
+}
+
 fn status() -> u8 {
     // Safety: reading the status register has no side effect; it exists to
     // be polled and this driver never treats it as read-to-clear.
@@ -134,7 +144,7 @@ fn reset_channel() -> bool {
     // Safety: SRST is the documented way to abort a command; the driver
     // re-selects the drive and reprograms every register for the next one.
     unsafe { outb(DEVICE_CONTROL, CONTROL_SRST) };
-    delay_400ns();
+    delay_5us();
     // Safety: as above; clearing SRST ends the reset (interrupts stay as the
     // driver found them: nIEN clear, and the driver polls regardless).
     unsafe { outb(DEVICE_CONTROL, 0) };
