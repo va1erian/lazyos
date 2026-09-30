@@ -132,22 +132,26 @@ pub fn dma_alloc(r: &Resolved, len: u64, flags: u64, out: u64) -> Result<u64, Er
     let object_id = match handles::get(handle) {
         Ok(entry) => entry.object_id,
         Err(_) => {
-            let _ = shared::close(handle);
+            let _ = shared::close_unseen(handle);
             return Err(refuse(r, reason::DMA_RECORD_FULL, EMFILE));
         }
     };
     let recorded = {
         let mut claims = CLAIMS.lock();
         match claims.get_mut(r.id) {
-            Some(claim) if claim.generation == r.claim.generation => {
-                claim.record_dma(DmaRecord { object_id, pages })
-            }
+            Some(claim) if claim.generation == r.claim.generation => claim.record_dma(DmaRecord {
+                object_id,
+                pages,
+                base: phys.as_u64(),
+                quarantined: false,
+            }),
             _ => false,
         }
     };
     if !recorded {
-        // Closing the buffer frees the run and releases the charge.
-        let _ = shared::close(handle);
+        // Closing the buffer frees the run and releases the charge. The device
+        // never saw its address, so nothing needs quiescing.
+        let _ = shared::close_unseen(handle);
         return Err(refuse(r, reason::DMA_RECORD_FULL, EMFILE));
     }
 
@@ -156,7 +160,7 @@ pub fn dma_alloc(r: &Resolved, len: u64, flags: u64, out: u64) -> Result<u64, Er
         if let Some(claim) = CLAIMS.lock().get_mut(r.id) {
             claim.forget_dma(object_id);
         }
-        let _ = shared::close(handle);
+        let _ = shared::close_unseen(handle);
         return Err(refuse(r, reason::DMA_FAULT, EFAULT));
     }
 
@@ -181,6 +185,8 @@ fn prune_records(r: &Resolved) {
     let dead: Vec<u64> = records
         .iter()
         .flatten()
+        // A quarantined run is kept on purpose until the claim is released.
+        .filter(|record| !record.quarantined)
         .map(|record| record.object_id)
         .filter(|id| !shared::is_live(*id))
         .collect();

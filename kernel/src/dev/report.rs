@@ -40,7 +40,7 @@ pub mod reason {
     pub const DMA_DENIED: u32 = 0x1A;
     /// A BAR overlapping system RAM was refused.
     pub const BAR_IN_RAM: u32 = 0x1B;
-    /// A `dma_alloc` succeeded; the byte length is in bits 8 and up.
+    /// A `dma_alloc` succeeded; the run length in 4 KiB pages is in bits 8..24.
     pub const DMA_ALLOCATED: u32 = 0x1C;
     /// `dma_alloc` refused a bad length or unknown flag bits.
     pub const DMA_BAD_REQUEST: u32 = 0x1D;

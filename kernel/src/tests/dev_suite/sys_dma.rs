@@ -207,12 +207,19 @@ pub fn dma_copy_out_failure_undoes_everything() -> Result<(), String> {
     let va = crate::ipc::shared::map(ro).map_err(|error| error.message().to_string())?;
     let handles_mid = handles::count_for_task(slot);
     let strict = Strict::on();
+    crate::mem::dma::order::reset();
     expect_errno(
         sys(OP_DMA_ALLOC, handle, 4096, 0, va),
         EFAULT,
         "read-only bus-address pointer",
     )?;
     drop(strict);
+    check!(
+        crate::mem::dma::order::events()
+            .iter()
+            .all(|event| *event != crate::mem::dma::order::QUIESCE),
+        "a failed allocation stopped the device"
+    );
     check!(pool() == base, "the failed copy-out leaked pool pages");
     check!(
         usage(Resource::DmaMemory) == 0,

@@ -189,10 +189,15 @@ command register enables instead), MMCONFIG, MSI/MSI-X, IOAPIC,
 ACPI/platform enumeration beyond the single ATA seed, and an IOMMU.
 
 **DMA and the device's lifetime.** Bus mastering is always off before a DMA
-run can be reused. `release`, task exit and task reap already quiesce the
-device; in addition, closing the *last* reference to a DMA buffer while its
-claim is live quiesces the device first (`dev::dma_buffer_freed`: bus
-mastering and decode off, INTx disabled), so a driver must re-enable what it
-needs after freeing a buffer. DMA buffer leaves carry software PTE bit 11
+run can be reused. `release`, task exit and task reap quiesce the device. While
+the claim is live: (a) the *driver* closing its own last reference is an
+explicit free and quiesces the device first (`dev::dma_buffer_freed`: bus
+mastering and decode off, INTx disabled), so it re-enables what it needs
+afterwards; (b) anyone else dropping the last reference (a client closing a
+transferred buffer, a discarded in-flight message) does not stop the device:
+the run is *quarantined* (`dev::dma_quarantine`), keeping its pool pages and
+`DmaMemory` charge until `release_claim` has quiesced the device and frees
+them; (c) a failed `dma_alloc` never showed the device the address, so it
+frees without quiescing. DMA buffer leaves carry software PTE bit 11
 (`pte::DMA`) and `fork` gives the child no mapping for them (like MMIO), so a
 forked driver cannot end up with a private copy the device never sees.

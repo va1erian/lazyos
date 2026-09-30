@@ -202,10 +202,18 @@ fn size_mem(address: Address, index: u8, is_64: bool) -> Option<u64> {
 /// Read and decode BAR `index`. Returns the [`Bar`] and how many registers it
 /// occupies (2 for a 64-bit memory BAR). `None` for an unimplemented BAR.
 pub fn read_bar(address: Address, index: u8) -> Option<(Bar, u8)> {
-    if index >= 6 {
+    // Only type-0 functions have six BARs and bridges two; in any other header
+    // the same offsets hold bus numbers and forwarding windows, which must not
+    // be probed as if they were BARs.
+    let count = match header_type(address) & 0x7F {
+        0 => 6,
+        1 => 2,
+        _ => 0,
+    };
+    if index >= count {
         return None;
     }
-    decode_bar(
+    let decoded = decode_bar(
         index,
         bar_raw(address, index),
         || bar_raw(address, index + 1),
@@ -218,7 +226,9 @@ pub fn read_bar(address: Address, index: u8) -> Option<(Bar, u8)> {
                 }
             })
         },
-    )
+    );
+    // A 64-bit BAR needs its high half inside the header too.
+    decoded.filter(|(_, stride)| index + stride <= count)
 }
 
 /// The pure half of [`read_bar`]: classify `raw` and fill in the window from

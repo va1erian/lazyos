@@ -113,6 +113,10 @@ pub fn dma_share_only() -> Result<(), String> {
         "a SHARE_ONLY buffer was mapped into the client"
     );
     close(received)?;
+    // The claim is live, so the run waits (quarantined) for the release.
+    check!(usage(Resource::DmaMemory) == 4096, "charge released early");
+    enter(driver)?;
+    expect_ok(sys(OP_RELEASE, handle, 0, 0, 0), "release")?;
     check!(usage(Resource::DmaMemory) == 0, "quota leaked");
     check!(pool() == base, "pool leaked");
     leave(&fx);
@@ -252,6 +256,64 @@ pub fn dma_early_close_quiesces() -> Result<(), String> {
     Ok(())
 }
 
+/// A client closing the last reference to a transferred buffer must not stop
+/// the running device: the run is quarantined (pool and charge kept) until the
+/// driver releases the claim, and only then does it return, after the quiesce.
+pub fn dma_client_last_close_quarantines() -> Result<(), String> {
+    use crate::mem::dma::order;
+    let fx = Fixture::new()?;
+    let base = idle_pool()?;
+    let dev = add_device(Spec::nic(None))?;
+    let driver = spawn_driver(driver_cred())?;
+    let client = spawn_driver(driver_cred())?;
+    enter(driver)?;
+    let handle = expect_ok(claim_plain(dev), "claim")?;
+    let mut bus = 0u64;
+    let buffer = expect_ok(dma_alloc(handle, 2 * 4096, 0, &mut bus), "alloc")?;
+    let held = transfer_and_hold(driver, client, buffer)?;
+
+    order::reset();
+    task::harness::switch_current(client);
+    mem::switch_to(PhysAddr::new(
+        task::harness::pml4(client).ok_or("no table")?,
+    ));
+    close(held)?;
+    let events = order::events();
+    check!(
+        events.is_empty(),
+        "a client close touched the device: {events:?}"
+    );
+    check!(
+        pool().free_pages == base.free_pages - 2,
+        "the run returned to the pool while the device may write it: {:?}",
+        pool()
+    );
+    check!(
+        usage(Resource::DmaMemory) == 2 * 4096,
+        "the charge was released early"
+    );
+
+    enter(driver)?;
+    order::reset();
+    expect_ok(sys(OP_RELEASE, handle, 0, 0, 0), "release")?;
+    let events = order::events();
+    check!(
+        events.first() == Some(&order::QUIESCE) && events.contains(&order::DMA_FREE),
+        "release order {events:?}"
+    );
+    check!(
+        pool() == base,
+        "the quarantined run did not return: {:?}",
+        pool()
+    );
+    check!(
+        usage(Resource::DmaMemory) == 0,
+        "the charge was not released"
+    );
+    leave(&fx);
+    Ok(())
+}
+
 /// Whether every pool free in `events` follows a quiesce.
 fn quiesce_before_free(events: &[u64]) -> bool {
     use crate::mem::dma::order;
@@ -317,6 +379,10 @@ pub fn dma_records_are_recycled() -> Result<(), String> {
 }
 
 pub(super) const CASES: &[(&str, Test)] = &[
+    (
+        "dev_dma_client_last_close_quarantines",
+        dma_client_last_close_quarantines,
+    ),
     ("dev_dma_early_close_quiesces", dma_early_close_quiesces),
     (
         "dev_dma_general_allocator_skips_live_pool",

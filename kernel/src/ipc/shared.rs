@@ -234,6 +234,12 @@ pub fn close(handle: u64) -> Result<(), Error> {
     close_for(task::current(), handle, true)
 }
 
+/// [`close`] for a DMA buffer the device was never told about (a failed
+/// `dma_alloc`): dropping the last reference then needs no device quiesce.
+pub fn close_unseen(handle: u64) -> Result<(), Error> {
+    close_impl(task::current(), handle, true, false)
+}
+
 /// [`close`] for a handle in `slot`'s table.
 ///
 /// `unmap` says whether the slot's mapping may be unmapped now. Task teardown
@@ -243,6 +249,10 @@ pub fn close(handle: u64) -> Result<(), Error> {
 /// call already released the handle's own reference) once the last sharer
 /// goes.
 fn close_for(slot: usize, handle: u64, unmap: bool) -> Result<(), Error> {
+    close_impl(slot, handle, unmap, true)
+}
+
+fn close_impl(slot: usize, handle: u64, unmap: bool, seen: bool) -> Result<(), Error> {
     let entry = handles::get_for_task(slot, handle).map_err(from_handles)?;
     if entry.kind != HandleKind::Buffer {
         return Err(Error::WrongKind);
@@ -257,17 +267,19 @@ fn close_for(slot: usize, handle: u64, unmap: bool) -> Result<(), Error> {
     else {
         return Ok(());
     };
-    before_last_drop(&registry.buffers[index]);
+    let quarantined = before_last_drop(&registry.buffers[index], Some(slot), seen);
     if unmap {
         unmap_slot(&mut registry.buffers[index], slot);
     }
     let buffer = &mut registry.buffers[index];
-    // Drop this handle's references: its allocator reference per frame, then
-    // its place in the registry count.
-    free_frames(&buffer.frames);
+    // Drop this handle's references: its allocator reference per frame (kept
+    // when the run is quarantined), then its place in the registry count.
+    if !quarantined {
+        free_frames(&buffer.frames);
+    }
     buffer.refs = buffer.refs.saturating_sub(1);
     if buffer.refs == 0 {
-        destroy_buffer(&mut registry, index, false);
+        destroy_buffer(&mut registry, index, false, quarantined);
     }
     Ok(())
 }
@@ -376,12 +388,14 @@ pub fn release(object_id: u64) {
     else {
         return;
     };
-    before_last_drop(&registry.buffers[index]);
+    let quarantined = before_last_drop(&registry.buffers[index], None, true);
     let buffer = &mut registry.buffers[index];
-    free_frames(&buffer.frames);
+    if !quarantined {
+        free_frames(&buffer.frames);
+    }
     buffer.refs = buffer.refs.saturating_sub(1);
     if buffer.refs == 0 {
-        destroy_buffer(&mut registry, index, false);
+        destroy_buffer(&mut registry, index, false, quarantined);
     }
 }
 

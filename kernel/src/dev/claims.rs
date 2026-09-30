@@ -62,6 +62,12 @@ pub struct DmaRecord {
     pub object_id: u64,
     /// Run length in 4 KiB pages.
     pub pages: u64,
+    /// Physical address of the first page of the run.
+    pub base: u64,
+    /// The last reference dropped while the claim was live and the device may
+    /// still write the run: the pool return and the `DmaMemory` charge wait for
+    /// `release_claim`, which frees them once bus mastering is off.
+    pub quarantined: bool,
 }
 
 /// One live claim.

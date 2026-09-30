@@ -48,7 +48,16 @@ pub fn release_claim(id: DeviceId, actor: usize, why: u32, live_table: u64) {
     // releases its `DmaMemory` charge. A buffer a client still holds keeps its
     // frames and charge until that last reference goes.
     for record in claim.dma.iter().flatten() {
-        crate::ipc::shared::close_owned_for_task(claim.owner, record.object_id, true);
+        if record.quarantined {
+            // Nobody holds the buffer any more; the device is off, so the run
+            // can finally return to the pool and its charge be released.
+            for page in 0..record.pages {
+                crate::mem::free_frame(PhysAddr::new(record.base + page * 4096));
+            }
+            quota::release(claim.uid, Resource::DmaMemory, record.pages * 4096);
+        } else {
+            crate::ipc::shared::close_owned_for_task(claim.owner, record.object_id, true);
+        }
     }
     let bytes = unmap_all(&claim, live_table);
     if bytes > 0 {
@@ -160,5 +169,33 @@ pub fn dma_buffer_freed(device: u16, generation: u32) {
     let info = table().lock().get(id);
     if let Some(info) = &info {
         quiesce(info);
+    }
+}
+
+/// The last reference to a DMA buffer is going away, but not by the driver
+/// that owns the claim (a client closed a transferred buffer, or an in-flight
+/// message was discarded) and the claim is live, so the device may still be
+/// writing the run. Keep the run out of the pool: mark the record quarantined
+/// so `release_claim` frees it after bus mastering is off (issue #241).
+/// Returns whether the run was quarantined; `false` means free it now.
+pub fn dma_quarantine(device: u16, generation: u32, object_id: u64) -> bool {
+    let mut claims = CLAIMS.lock();
+    let Some(claim) = claims.get_mut(DeviceId(device)) else {
+        return false;
+    };
+    if claim.generation != generation {
+        return false;
+    }
+    match claim
+        .dma
+        .iter_mut()
+        .flatten()
+        .find(|record| record.object_id == object_id)
+    {
+        Some(record) => {
+            record.quarantined = true;
+            true
+        }
+        None => false,
     }
 }
