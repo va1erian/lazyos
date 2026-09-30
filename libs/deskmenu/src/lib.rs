@@ -62,7 +62,6 @@ pub fn defaults() -> Vec<Entry> {
         ("sysmon", "System Monitor"),
         ("fabricmon", "Fabric Monitor"),
         ("counter", "Counter"),
-        ("widget", "CPU & Memory"),
         ("editor", "Editor"),
         ("paint", "Paint"),
         ("files", "Files"),
@@ -70,6 +69,9 @@ pub fn defaults() -> Vec<Entry> {
         // Shipped only when the build had the zig toolchain; an image
         // without it answers the launch as unavailable.
         ("docs", "Docs"),
+        // Last, so the rows above keep the positions the screenshot sessions
+        // click by coordinate.
+        ("widget", "CPU & Memory"),
     ];
     ITEMS
         .iter()
