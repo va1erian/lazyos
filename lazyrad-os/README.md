@@ -63,6 +63,6 @@ procedure in [`docs/xui-plan.md`](../docs/xui-plan.md): LazyRAD's workspace, thi
 ## Tests
 
 ```bash
-cd lazyrad-os && cargo test          # args, platform, markers (host)
-python tools/pkg/test_lzp_conformance.py   # .lzp produced by lazyrad-pack, vs lazypkg's rules
+cd lazyrad-os && cargo test    # args, platform, markers, and tests/lzp_conformance.rs
+# LAZYRAD_SAMPLES=<lazyrad>/examples/hello;... adds the real samples to the conformance run
 ```

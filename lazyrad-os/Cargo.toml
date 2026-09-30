@@ -35,6 +35,11 @@ lazyrad-runtime = { git = "https://github.com/va1erian/lazyrad", rev = "495b0a6f
 lazyrad-player = { git = "https://github.com/va1erian/lazyrad", rev = "495b0a6f95a9d3e3a91867dc6c96a842617d2f4f", default-features = false }
 
 [dev-dependencies]
+# The `.lzp` conformance suite (tests/lzp_conformance.rs): packages built by
+# LazyRAD's packager are re-opened with LazyOS's own reader. `libs/lazypkg` is
+# PR #431; the packager is pinned like the other LazyRAD crates.
+lazypkg = { path = "../libs/lazypkg" }
+lazyrad-packager = { git = "https://github.com/va1erian/lazyrad", rev = "495b0a6f95a9d3e3a91867dc6c96a842617d2f4f", default-features = false }
 
 [lib]
 name = "lazyrad_os"
