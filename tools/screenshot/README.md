@@ -151,6 +151,30 @@ Mouse uses relative motion/buttons (PS/2) by default; pass `--tablet` to attach
 `usb-tablet` for absolute positioning. The guest's PS/2 keyboard and mouse
 drivers consume the injected events, so a script drives the real OS input path.
 
+## `monkey.py` (random-input soak)
+
+The Android-`monkey` equivalent: boots the desktop headless, then fires seeded
+random mouse / keyboard / drag / scroll / chord / typing / burst input over QMP
+for `--duration` seconds and stops at the first crash signature (`EXCEPTION:`,
+`LazyOS PANIC`, `HANG:`, ring-3 `killed by`) or a **freeze** (the display stops
+changing while the pointer is nudged; registers, a 256-word stack dump and an
+NMI `HANG:` report are captured).
+
+```bash
+python tools/screenshot/monkey.py --build --image target/lazyos.img     --duration 300 --seed 1 --runs 4 --out shots/monkey
+```
+
+`--build` builds the desktop image exactly as the launcher's Desktop mode does
+(`tools/xui/build.py`, then `cargo build` with `LAZYOS_DESKTOP=1`); a plain
+`cargo build` has no userspace and never reaches a desktop. Every action is
+logged to `actions.jsonl` *before* it is sent, so the last line is the input in
+flight at the fault; `--replay actions.jsonl [--replay-tail N]` re-sends it.
+Guest timing is not deterministic, so use `--runs N` (seeds `seed..seed+N-1`)
+to hunt a rare fault. To symbolize a freeze, subtract the kernel load base
+(`0x8000000000`) from the addresses in `freeze_registers.txt` and run
+`addr2line -f -C -e <kernel ELF>`. Findings keep `shot_fault.png`,
+`serial_tail.txt`, `report.json` and the registers; exit status is 1.
+
 ## CI
 
 `.github/workflows/screenshots.yml` runs on push, pull requests, and manually.
