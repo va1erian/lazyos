@@ -116,6 +116,8 @@ mod shell;
 mod surface;
 #[path = "xuid/theme.rs"]
 mod theme;
+#[path = "xuid/title.rs"]
+mod title;
 #[path = "xuid/window.rs"]
 mod window;
 
@@ -190,6 +192,7 @@ fn run() -> ! {
     sys::write_str(WM_MARKER);
     sys::write_str(SHELL_MARKER);
     sys::write_str(keys::selftest_key_encoding());
+    sys::write_str(title::selftest_titles());
 
     loop {
         // 1. Input: drain the whole kernel queue first so pointer moves

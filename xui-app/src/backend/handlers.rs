@@ -281,6 +281,29 @@ impl Backend for LazyOSBackend {
             })
     }
 
+    fn set_window_title(&self, window: WindowId, title: &str) {
+        // Owner mode draws no chrome. In client mode the compositor renames the
+        // window; a refusal (an older `xuid`) leaves the creation title.
+        let Mode::Client(state) = &self.mode else {
+            return;
+        };
+        let client = state.borrow().client;
+        let surface = {
+            let mut windows = self.windows.borrow_mut();
+            windows
+                .get_mut(&window.raw())
+                .and_then(|entry| entry.client.as_mut())
+                .filter(|c| c.title != title)
+                .map(|c| {
+                    c.title = title.to_owned();
+                    c.surface
+                })
+        };
+        if let Some(surface) = surface {
+            let _ = client.set_title(surface, title);
+        }
+    }
+
     fn set_theme(&self, window: WindowId, theme: &Theme) {
         if let Some(entry) = self.windows.borrow_mut().get_mut(&window.raw()) {
             entry.background = theme.background;

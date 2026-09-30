@@ -31,6 +31,7 @@ impl Compositor {
             wire::METHOD_DESTROYSURFACE => self.destroy_surface(message, body),
             wire::METHOD_DRAGSTART => self.drag_start(message, body),
             wire::METHOD_DRAGCANCEL => self.drag_cancel_request(message, body),
+            wire::METHOD_SETTITLE => self.set_title(message, body),
             wire::METHOD_SUBSCRIBE => self.subscribe(message, body),
             wire::METHOD_LISTSURFACES => self.list_surfaces(message),
             wire::METHOD_GETWORKAREA => self.get_work_area(message),

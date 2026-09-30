@@ -324,3 +324,17 @@ and a present from a non-owner is dropped. The rules live in
 `libs/surfbuf` (`SlotTable` for the compositor, `Swapchain` for the client),
 exercised by `display_slots_*` in the kernel suite; `xdemo` is the reference
 double-buffered client. The legacy `AttachBuffer` is "slot 0, current at once".
+
+**Retitling a window (`SetTitle`, method 29)**
+
+`SetTitle(surface, title)` renames a window after creation, so a document app
+can show the file it holds (the Editor shows `note.txt - Editor`, `*` prefixed
+while modified). Only the surface's creator may call it (`EACCES` otherwise,
+`ENOENT` for an unknown surface). `xuid` (`user/src/bin/xuid/title.rs`) keeps at
+most 128 bytes cut at a character boundary, drops control characters, trims the
+result and keeps the old title if nothing printable is left; an unchanged title
+is a no-op. A change repaints the chrome and the taskbar, and sends the shell a
+`SurfaceChanged` event of kind `Title` whose `title` field carries the new
+name. The boot self-test prints `XUID:TITLE:PASS` (`title::selftest_titles`).
+Clients that never call it keep their `CreateSurface` title; a client talking
+to a compositor that predates the method gets `EINVAL`, which `xui-app` ignores.

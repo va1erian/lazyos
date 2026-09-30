@@ -101,7 +101,8 @@ impl Compositor {
             h: surface.h,
             minimized: surface.minimized,
             focused: self.focused == Some(surface.id),
-            title: (kind == wire::CHANGE_CREATED).then(|| surface.title.clone()),
+            title: matches!(kind, wire::CHANGE_CREATED | wire::CHANGE_TITLE)
+                .then(|| surface.title.clone()),
             role: surface.role(),
         };
         self.notify_shell(

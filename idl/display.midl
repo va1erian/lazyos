@@ -90,7 +90,7 @@ interface os.lazy.display.v1 {
     /// The compositor's chrome palette as `0xRRGGBB` colours.
     method GetTheme() -> (title_bg_active: U32, title_bg_inactive: U32, border: U32, taskbar: U32, text: U32) = 21;
     /// Shell event: surface `surface` changed. `kind` is a `Change` value;
-    /// `title` is set on `Created` only. `role` is a `Role` value.
+    /// `title` is set on `Created` and `Title`. `role` is a `Role` value.
     method SurfaceChanged(surface: U64, kind: U32, x: I32, y: I32, w: I32, h: I32, minimized: Bool, focused: Bool, title: Option<String>, role: U32) -> () = 22 oneway;
     /// Shell event: the focused surface changed; absent when nothing is
     /// focused.
@@ -121,6 +121,16 @@ interface os.lazy.display.v1 {
     /// Event: the compositor consumed the `Present` numbered `seq`. Frames
     /// complete in submission order.
     method FrameDone(surface: U64, seq: U64) -> () = 28 oneway;
+    /// Rename `surface`'s window (its title bar, taskbar entry and switcher
+    /// row) to `title`, so a document window can show the file it holds. Only
+    /// the surface's creator may rename it (`EACCES` otherwise; `ENOENT` for
+    /// an unknown surface). The compositor keeps at most 128 bytes (cut at a
+    /// character boundary), drops control characters and keeps the previous
+    /// title when nothing printable is left, so a client cannot blank or
+    /// overflow its own chrome. A change sends the shell a `SurfaceChanged`
+    /// event of kind `Title`. Clients that never call it keep the
+    /// `CreateSurface` title, so old clients are unaffected.
+    method SetTitle(surface: U64, title: String) -> () = 29;
 
     /// What a surface is. Numeric values are the wire values.
     enum Role { Window, Desktop }

@@ -43,6 +43,9 @@ pub struct ClientWindow {
     pub size: u64,
     /// The surface size in pixels.
     pub rect: (i32, i32),
+    /// The title the compositor currently shows, so an unchanged title is not
+    /// sent again (the Editor retitles on every keystroke).
+    pub title: String,
 }
 
 impl ClientWindow {
@@ -82,6 +85,7 @@ impl ClientWindow {
             va,
             size,
             rect: (width as i32, height as i32),
+            title: title.to_owned(),
         })
     }
 

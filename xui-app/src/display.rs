@@ -169,6 +169,19 @@ impl Client {
         self.call(&parcel).map(|_| ())
     }
 
+    /// `SetTitle`: rename `surface`'s window. An older compositor answers
+    /// `EINVAL` (the method is unknown to it), which callers ignore: the title
+    /// only decorates.
+    pub fn set_title(&self, surface: u64, title: &str) -> Result<(), i64> {
+        let body = wire::encode_set_title_args(&wire::SetTitleArgs {
+            surface,
+            title: title.into(),
+        })
+        .map_err(|_| -errno::EINVAL)?;
+        let parcel = request(wire::METHOD_SETTITLE, body, Vec::new(), Vec::new());
+        self.call(&parcel).map(|_| ())
+    }
+
     /// Drop `surface`; the compositor forgets it and repaints.
     pub fn destroy_surface(&self, surface: u64) -> Result<(), i64> {
         let body = wire::encode_destroy_surface_args(&wire::DestroySurfaceArgs { surface })

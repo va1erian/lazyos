@@ -53,7 +53,7 @@ pub fn refresh(app: &mut Notepad, ui: &mut Ui<Msg>) {
     app.status
         .set_text(3, if dirty { "Modified" } else { "Saved" });
     ui.set_window_title(&format!(
-        "{}{} - xui notepad",
+        "{}{} - Editor",
         if dirty { "*" } else { "" },
         app.document.display_name()
     ));
