@@ -1,0 +1,11 @@
+[package]
+name = "virtio"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Modern virtio-PCI transport and split virtqueues for LazyOS userspace drivers"
+license = "GPL-3.0-or-later"
+
+[lib]
+name = "virtio"
+path = "src/lib.rs"

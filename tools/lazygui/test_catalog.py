@@ -45,6 +45,25 @@ class DataDiskPlanTests(unittest.TestCase):
         self.assertNotIn("--data-disk", argv)
 
 
+class SoundPlanTests(unittest.TestCase):
+    """The launcher attaches a sound card for the desktop (`beep` in the Terminal)."""
+
+    def test_desktop_simple_start_enables_sound(self) -> None:
+        cfg = catalog.simple_config(demo_config(), "dev", "Desktop")
+        self.assertTrue(cfg["sound"])
+        self.assertIn("--sound", catalog.build_plan(cfg)[-1]["argv"])
+
+    def test_cli_simple_start_stays_quiet(self) -> None:
+        cfg = catalog.simple_config(demo_config(), "dev", "CLI")
+        self.assertFalse(cfg["sound"])
+        self.assertNotIn("--sound", catalog.build_plan(cfg)[-1]["argv"])
+
+    def test_advanced_checkbox_is_honoured(self) -> None:
+        self.assertIn("--sound", demo_argv(sound=True))
+        self.assertNotIn("--sound", demo_argv(sound=False))
+        self.assertNotIn("--sound", demo_argv())
+
+
 class DocumentAppSessionTests(unittest.TestCase):
     """Editor/Paint/Files scripts boot the desktop profile, autostarting one app."""
 

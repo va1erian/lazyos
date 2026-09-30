@@ -60,6 +60,9 @@ pub fn lookup_maps_names_to_files() -> Result<(), String> {
         ("/TOP.ELF", "TOP.ELF"),
         ("top.elf", "TOP.ELF"),
         ("/faultprb.elf", "FAULTPRB.ELF"),
+        ("beep", "BEEP.ELF"),
+        ("/usr/bin/beep", "BEEP.ELF"),
+        ("/beep.elf", "BEEP.ELF"),
     ] {
         check!(
             native::lookup(path) == Some(file),
@@ -85,6 +88,8 @@ pub fn lookup_maps_names_to_files() -> Result<(), String> {
         "/etc/TOP.ELF",
         "SUPER.ELF",
         "/bin/init",
+        "/tmp/beep",
+        "/bin/beepx",
     ] {
         check!(
             native::lookup(path).is_none(),

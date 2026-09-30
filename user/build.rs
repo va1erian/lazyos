@@ -61,4 +61,16 @@ fn main() {
     if env::var_os("LAZYOS_DESKTOP").as_deref() == Some(std::ffi::OsStr::new("1")) {
         println!("cargo:rustc-cfg=lazyos_desktop");
     }
+
+    // virtio-sound driver (docs/driver-plan.md D6): `LAZYOS_SOUND=1` adds the
+    // `sndd` row to `init`'s manifest (the ELF itself is embedded by the root
+    // build script), so a services boot supervises the driver.
+    println!("cargo:rerun-if-env-changed=LAZYOS_SOUND");
+    println!("cargo:rustc-check-cfg=cfg(lazyos_sound)");
+    // The desktop profile ships the sound stack too (`beep` is a shell command).
+    if env::var_os("LAZYOS_SOUND").as_deref() == Some(std::ffi::OsStr::new("1"))
+        || env::var_os("LAZYOS_DESKTOP").as_deref() == Some(std::ffi::OsStr::new("1"))
+    {
+        println!("cargo:rustc-cfg=lazyos_sound");
+    }
 }
