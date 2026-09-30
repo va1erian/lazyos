@@ -78,8 +78,20 @@ const NET_UID: u32 = netpolicy::NET_UID;
 #[cfg(lazyos_net)]
 const NET_ARGS: &str = match option_env!("LAZYOS_NET_ARGS") {
     Some(args) => args,
+    // With `netd` present the driver runs only its ARP self-test: the evidence
+    // clients attach to the NIC, and `netd` holds the one attachment.
+    None if cfg!(lazyos_netd) => "selftest=1",
     None => "demo=1",
 };
+
+/// The `netd` stack service's identity (docs/networking-plan.md N2): its own
+/// system uid and **no capabilities at all**: it holds no device authority, no
+/// DMA, nothing it could misuse if a parser bug handed an attacker the process.
+#[cfg(lazyos_netd)]
+const NETD_CRED: SysCred = SysCred::new(NETD_UID, NETD_UID, 0, 0, 0);
+/// The `_netd` system user.
+#[cfg(lazyos_netd)]
+const NETD_UID: u32 = netpolicy::NETD_UID;
 
 /// Credentials a manifest row is spawned with; `None` inherits this
 /// supervisor's identity, which is what the platform services need.
@@ -91,6 +103,10 @@ fn manifest_cred(name: &str) -> Option<SysCred> {
     #[cfg(lazyos_net)]
     if name == "netdrv" {
         return Some(NET_CRED);
+    }
+    #[cfg(lazyos_netd)]
+    if name == "netd" {
+        return Some(NETD_CRED);
     }
     let _ = name;
     None
@@ -295,6 +311,20 @@ pub(super) const MANIFEST: &[ServiceSpec] = &[
         name: "netdrv",
         path: "NETDRV.ELF",
         args: NET_ARGS,
+        restart: Restart::Always,
+        deps: &[],
+    },
+    // The network stack service (docs/networking-plan.md N2), present only on
+    // `LAZYOS_NETD=1` images: smoltcp over the NIC driver's rings, as `_netd`
+    // with no capabilities. It finds the driver by name and retries until the
+    // driver is there (or forever, if the machine has no NIC), so it has no
+    // start dependency. `demo=1` runs `netctl`, `ping`, the hostile-input probe
+    // and the soak as real clients.
+    #[cfg(lazyos_netd)]
+    ServiceSpec {
+        name: "netd",
+        path: "NETD.ELF",
+        args: "demo=1",
         restart: Restart::Always,
         deps: &[],
     },

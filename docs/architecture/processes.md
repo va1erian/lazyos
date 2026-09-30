@@ -52,6 +52,7 @@ syscall shim.
 | 23 | `dev(op, a1, a2, a3, a4)` | userspace driver access: list, claim, map_bar, pio, cfg, irq, release; `CAP_DEV_CLAIM` (`dev/syscall.rs`, #240; see [devices.md](devices.md)) |
 | 24 | `wall_time(op, a1)` | UTC wall clock for native services: `get` returns centiseconds since the epoch, `set` steps it to `a1` seconds (`CAP_SYS_TIME`, checked before the argument; `process/wallsys.rs`, #369) |
 | 25 | `input_raw(op, a1, a2)` | the raw input event bus for `inputd`: `open`, `poll` (24-byte HID-coded key events with a gapless `seq` and `Dropped` markers), `close`; `CAP_INPUT_RAW` (`input/rawsys.rs`; see [../input-plan.md](../input-plan.md)) |
+| 26 | `random(buf, len)` | up to 256 bytes from the kernel CSPRNG (`entropy.rs`) for native services such as `netd`; open to every task, no capability, `-EFAULT` on a bad destination (`process/randsys.rs`, networking plan N2) |
 
 - `spawn` reads the ELF from the FAT image, leaks one interned `&'static str`
   per distinct service name (at most 64; later spellings share the name

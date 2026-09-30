@@ -68,6 +68,13 @@ impl Client {
         })
     }
 
+    /// Give up the handle to the driver's endpoint (it was obtained by name,
+    /// so it is released, not closed: the driver and its other clients keep
+    /// theirs).
+    pub fn release(self) {
+        let _ = self.endpoint.release();
+    }
+
     /// Run one request; a service failure comes back as its original errno.
     fn call(&self, request: Parcel, deadline: Option<u64>) -> Result<Parcel> {
         let reply = self.endpoint.call(&request, deadline)?;
@@ -143,9 +150,36 @@ impl Client {
         self.endpoint.send(&event(wire::METHOD_KICK, body))
     }
 
-    /// Create both rings in one shared buffer, a notify endpoint, and attach
-    /// them. The driver keeps the other side of the endpoint.
+    /// Create both rings in one shared buffer and a fresh notify endpoint, and
+    /// attach them. The driver keeps the other side of the endpoint; the
+    /// client waits on its own with [`Attachment::wait`].
     pub fn attach(&self, slots: u32) -> Result<Attachment> {
+        let (mine, theirs) = create_pair()?;
+        let result = self.attach_inner(slots, theirs.handle(), Some(mine));
+        if result.is_err() {
+            // The driver never took the far end, or closed its copy.
+            let _ = mine.close();
+            let _ = theirs.close();
+        }
+        result
+    }
+
+    /// Create both rings and attach them, telling the driver to post `Notify`
+    /// into `notify`, an endpoint this task holds and **transfers** (it is
+    /// gone from this task's table on success). A service that already waits
+    /// on one endpoint passes a handle to that same endpoint, so notices and
+    /// requests arrive in one `recv` (`netd`). The attachment then has no
+    /// notify endpoint of its own.
+    pub fn attach_notifying(&self, slots: u32, notify: Endpoint) -> Result<Attachment> {
+        self.attach_inner(slots, notify.handle(), None)
+    }
+
+    fn attach_inner(
+        &self,
+        slots: u32,
+        transfer: u64,
+        mine: Option<Endpoint>,
+    ) -> Result<Attachment> {
         if !valid_slots(slots) {
             return Err(Error::Errno(-super::errno::EINVAL));
         }
@@ -165,13 +199,6 @@ impl Client {
             let _ = sys::display_close_buffer(buffer);
             return Err(Error::Errno(-super::errno::EINVAL));
         };
-        let (mine, theirs) = match create_pair() {
-            Ok(pair) => pair,
-            Err(error) => {
-                let _ = sys::display_close_buffer(buffer);
-                return Err(error);
-            }
-        };
         let body = wire::encode_attach_ring_args(&wire::AttachRingArgs { slots })
             .map_err(Error::Parcel)?;
         let descriptor = BufferDesc {
@@ -183,7 +210,7 @@ impl Client {
         let request = parcel(
             wire::METHOD_ATTACHRING,
             body,
-            vec![theirs.handle()],
+            vec![transfer],
             vec![descriptor],
         );
         match self.call(request, None) {
@@ -204,10 +231,27 @@ impl Client {
             }
             Err(error) => {
                 let _ = sys::display_close_buffer(buffer);
-                let _ = mine.close();
-                let _ = theirs.close();
                 Err(error)
             }
+        }
+    }
+}
+
+/// What [`Attachment::split`] leaves: the driver-side ring id and the
+/// resources to release once nothing reads or writes the rings any more.
+pub struct Shared {
+    pub ring: u32,
+    buffer: u64,
+    notify: Option<Endpoint>,
+}
+
+impl Shared {
+    /// Unmap the shared buffer and close the notify endpoint. The ring
+    /// endpoints must be gone first: they point into the buffer.
+    pub fn close(self) {
+        let _ = sys::display_close_buffer(self.buffer);
+        if let Some(notify) = self.notify {
+            let _ = notify.close();
         }
     }
 }
@@ -219,7 +263,9 @@ pub struct Attachment {
     buffer: u64,
     /// Start of the shared buffer: the receive ring, then the transmit ring.
     base: *mut u8,
-    notify: Endpoint,
+    /// This client's own notify endpoint; `None` when it handed the driver an
+    /// endpoint it waits on elsewhere (see [`Client::attach_notifying`]).
+    notify: Option<Endpoint>,
     /// Frames from the driver: this client consumes.
     pub rx: Consumer,
     /// Frames to the driver: this client produces.
@@ -232,7 +278,10 @@ impl Attachment {
     /// carries the `NotifyBit` bitmap, `Ok(None)` a timeout. A message that is
     /// not a well-formed `Notify` is ignored, as a hostile sender could send one.
     pub fn wait(&mut self, deadline: u64) -> Result<Option<u32>> {
-        match self.notify.recv_with(&mut self.buf, Some(deadline)) {
+        let Some(notify) = self.notify else {
+            return Err(Error::Errno(-super::errno::EINVAL));
+        };
+        match notify.recv_with(&mut self.buf, Some(deadline)) {
             Ok(message) => {
                 if message.interface_id() == INTERFACE && message.method() == wire::METHOD_NOTIFY {
                     if let Ok(args) = wire::decode_notify_args(&message.parcel.body) {
@@ -249,7 +298,11 @@ impl Attachment {
     /// Whether the notify endpoint is still connected (the driver holds the
     /// other side); `false` once the driver dropped the attachment.
     pub fn is_live(&mut self) -> bool {
-        !matches!(self.notify.poll_recv_with(&mut self.buf), Err(Error::Errno(code)) if code == -super::errno::EPIPE)
+        let Some(notify) = self.notify else {
+            return true;
+        };
+        !matches!(
+            notify.poll_recv_with(&mut self.buf), Err(Error::Errno(code)) if code == -super::errno::EPIPE)
     }
 
     /// Hostile-client simulation for the probe: make the transmit ring's
@@ -262,10 +315,24 @@ impl Attachment {
         unsafe { core::ptr::write_volatile(self.base.add(head) as *mut u32, 0x7FFF_0000) };
     }
 
+    /// Split into the two ring endpoints and what must be released when the
+    /// attachment ends: for a consumer that owns the rings itself (a stack
+    /// device) rather than driving them through this wrapper.
+    pub fn split(self) -> (Consumer, Producer, Shared) {
+        let shared = Shared {
+            ring: self.ring,
+            buffer: self.buffer,
+            notify: self.notify,
+        };
+        (self.rx, self.tx, shared)
+    }
+
     /// Release the shared buffer and the notify endpoint. Call
     /// [`Client::detach`] first to release the driver's side.
     pub fn close(self) {
         let _ = sys::display_close_buffer(self.buffer);
-        let _ = self.notify.close();
+        if let Some(notify) = self.notify {
+            let _ = notify.close();
+        }
     }
 }
