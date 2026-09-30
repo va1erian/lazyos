@@ -7,10 +7,10 @@ every checker has tests that prove it fails when it should.
 
 | Layer | What | Run |
 |---|---|---|
-| Host unit | `framering`, `virtio-net`, `nicdrv` (the driver core against a fake device and a hostile client), `netpolicy`, `virtio` (queue, incl. the 256-entry cap), the generated `os.lazy.net.nic.v1` stubs | `cargo test -p framering -p virtio-net -p nicdrv -p netpolicy -p virtio -p messenger-generated` |
-| Seeded fuzz | The same entry points the cargo-fuzz targets use, driven by a PRNG over many seeds, inside plain `cargo test` (any platform) | `cargo test -p framering -p virtio-net -p nicdrv fuzz::` |
+| Host unit | `framering`, `virtio-net`, `nicdrv` (the driver core against a fake device and a hostile client), `netstack` (the stack against a scripted gateway), `netpolicy`, `virtio` (queue, incl. the 256-entry cap), the generated `os.lazy.net.*` stubs | `cargo test -p framering -p virtio-net -p nicdrv -p netstack -p netpolicy -p virtio -p messenger-generated` |
+| Seeded fuzz | The same entry points the cargo-fuzz targets use, driven by a PRNG over many seeds, inside plain `cargo test` (any platform) | `cargo test -p framering -p virtio-net -p nicdrv -p netstack fuzz::` |
 | Replay a failure | A failing seed prints `FUZZ_SEED=0x...`; set it to rerun exactly that case | `FUZZ_SEED=0x6a04526241fcd766 cargo test -p framering clean_scripts` |
-| Longer soak | More seeds per test | `FUZZ_CASES=20000 cargo test -p framering -p virtio-net -p nicdrv fuzz::` |
+| Longer soak | More seeds per test | `FUZZ_CASES=20000 cargo test -p framering -p virtio-net -p nicdrv -p netstack fuzz::` |
 | Coverage-guided fuzz | libFuzzer via `cargo-fuzz`, Linux (CI runs it for a bounded time) | `cargo install cargo-fuzz`, `mkdir -p fuzz/corpus/framering`, then `cargo fuzz run framering --fuzz-dir fuzz fuzz/corpus/framering fuzz/seeds/framering -- -max_total_time=60` |
 | Harness unit | The pcap judge must fail when it should: a missing reply, a wrong payload, the wrong order, a truncated capture, an empty file, frames outside the length policy | `python tools/net/test_analyze_pcap.py` |
 | End to end | Build with `LAZYOS_NET=1`, boot headless QEMU with a virtio-net card and a packet capture, judge the capture | `python tools/net/run.py` |
@@ -88,5 +88,30 @@ intact, none of 13 or 1515). With `--services` it also requires
 itself: an empty file, a bad header or a record cut short is an error, never
 "fewer packets", so a killed emulator cannot become a pass.
 
-Later stages add to this file: the `netstack` frame fuzzing, `netd`'s probe and
-soak modes, and the DHCP and ping checks (N2).
+## Stage N2: netd, DHCP and ping
+
+```bash
+python tools/net/run.py --netd                      # build (LAZYOS_NETD=1), boot, judge DHCP and echo from the capture
+python tools/net/run.py --netd --services           # init supervises netdrv (_net, 902) and netd (_netd, 903, no caps)
+python tools/net/run.py --netd --machine q35 --virtio-disk
+python tools/net/run.py --netd --poll               # driver interrupts off
+python tools/net/run.py --netd --no-device          # netd must say NETD:NIC:WAIT and idle
+python tools/net/analyze_pcap.py shots/net/net.pcap --min-dhcp 6 --min-pings 46   # judge a capture alone
+cargo test -p netstack                              # host tests + seeded fuzz of the stack
+cargo fuzz run netstack --fuzz-dir fuzz fuzz/corpus/netstack fuzz/seeds/netstack -- -max_total_time=60   # Linux
+```
+
+`netd demo=1` waits for a DHCP lease and then runs `netctl` (info), a real
+`ping 10.0.2.2 4`, `netctl probe=1` (malformed and out-of-contract `stack.v1`
+requests, the ping limits, a renewal, and a ping that times out followed by one
+that must still be answered) and `netctl soak=40` (40 pings with a renewal every
+tenth and reattachments, checking that `netd` and `netdrv` hold exactly what they
+held before). Markers: `NETD:READY`, `NETD:NIC:WAIT` (no device),
+`NETCTL:INFO:PASS`, `PING:PASS`, `NETCTL:PROBE:PASS`, `NETCTL:SOAK:PASS`; any
+`FAIL` ends the wait.
+
+The capture decides: at least 6 complete DHCP exchanges and 46 echo
+request/reply pairs with the gateway, no frame outside 14..=1514 bytes, IPv4
+and ICMP checksums valid, every reply after its request with the same
+identifier, sequence and payload. `analyze_pcap.py` has its own tests
+(`python tools/net/test_analyze_pcap.py`) that feed it broken captures.

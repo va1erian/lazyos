@@ -46,12 +46,12 @@ jobs:
       # rust-toolchain.toml pins the nightly toolchain; rustup installs it.
       # CI=1 makes the corpus replay tests insist that seeds exist.
       - name: Libraries (host, includes the seeded fuzz tests)
-        run: cargo test -p framering -p virtio-net -p nicdrv -p netpolicy -p virtio -p fuzzkit -p messenger-generated
+        run: cargo test -p framering -p virtio-net -p nicdrv -p netstack -p netpolicy -p virtio -p fuzzkit -p messenger-generated
         env:
           FUZZ_CASES: "2000"
 
       - name: Lints
-        run: cargo clippy -p framering -p virtio-net -p nicdrv -p netpolicy -p virtio -p fuzzkit --all-targets --features framering/fuzz,virtio-net/fuzz,nicdrv/fuzz -- -D warnings
+        run: cargo clippy -p framering -p virtio-net -p nicdrv -p netstack -p netpolicy -p virtio -p fuzzkit --all-targets --features framering/fuzz,virtio-net/fuzz,nicdrv/fuzz,netstack/fuzz -- -D warnings
 
       - name: Fuzz seed corpus is current
         run: python fuzz/gen_corpus.py --check
@@ -66,7 +66,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [framering, framering_header, virtio_net, nicdrv]
+        target: [framering, framering_header, virtio_net, nicdrv, netstack]
     steps:
       - uses: actions/checkout@v4
 
@@ -112,6 +112,17 @@ jobs:
           # No NIC: the driver must say so and idle.
           - name: no-device
             args: "--no-device"
+          # Stage N2: netd, DHCP and ping, judged from the capture.
+          - name: netd
+            args: "--netd"
+          - name: netd-services
+            args: "--netd --services"
+          - name: netd-q35
+            args: "--netd --machine q35 --virtio-disk"
+          - name: netd-poll
+            args: "--netd --poll"
+          - name: netd-no-device
+            args: "--netd --no-device"
     steps:
       - uses: actions/checkout@v4
 

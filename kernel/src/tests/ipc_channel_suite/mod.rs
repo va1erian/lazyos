@@ -94,10 +94,12 @@ fn shared_clients(shared: u64, count: usize) -> Result<Vec<(usize, u64)>, String
 }
 
 mod echo_and_calls;
+mod release;
 mod resilience;
 mod targeted_wake;
 
 pub(super) use echo_and_calls::*;
+pub(super) use release::*;
 pub(super) use resilience::*;
 pub(super) use targeted_wake::*;
 
@@ -112,6 +114,19 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("ipc_channel_call_deadline_zero", call_deadline_zero),
     ("ipc_channel_cancel_wakes", cancel_wakes),
     ("ipc_channel_peer_died", peer_died),
+    (
+        "ipc_channel_release_keeps_the_side_while_others_hold_it",
+        release_keeps_the_side_while_others_hold_it,
+    ),
+    (
+        "ipc_channel_close_ends_the_side_for_everyone",
+        close_ends_the_side_for_everyone,
+    ),
+    (
+        "ipc_channel_release_refuses_what_it_cannot_release",
+        release_refuses_what_it_cannot_release,
+    ),
+    ("ipc_channel_release_soak", release_soak),
     ("ipc_channel_deadlock_refused", deadlock_refused),
     (
         "ipc_channel_concurrent_clients_allowed",

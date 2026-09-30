@@ -30,10 +30,18 @@ pub fn embed(builder: &mut bootloader::DiskImageBuilder, desktop: bool) {
         // `beep`, the smallest audio client: `sndd` spawns it under `demo=1`.
         add(builder, "BEEP.ELF", "beep");
     }
-    if enabled("LAZYOS_NET") {
+    // `LAZYOS_NETD=1` adds the stack service and its tools, and needs the driver.
+    let netd = enabled("LAZYOS_NETD");
+    if netd || enabled("LAZYOS_NET") {
         add(builder, "NETDRV.ELF", "netdrv");
         // `nicctl` prints the card and carries the evidence clients the driver
         // spawns under `demo=1`.
         add(builder, "NICCTL.ELF", "nicctl");
+    }
+    if netd {
+        add(builder, "NETD.ELF", "netd");
+        // `netctl` and `ping`, the stack's shell commands and evidence clients.
+        add(builder, "NETCTL.ELF", "netctl");
+        add(builder, "PING.ELF", "ping");
     }
 }

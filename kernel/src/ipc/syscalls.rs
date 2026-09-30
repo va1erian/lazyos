@@ -79,7 +79,9 @@ pub fn dispatch(op: u64, args_ptr: u64, result_ptr: u64) -> u64 {
         Ok(args) => args,
         Err(code) => return report(result_ptr, code),
     };
-    if args.flags != 0 {
+    // Flags are reserved, except the one `close_endpoint` knows.
+    let allowed = op == OP_CLOSE_ENDPOINT && args.flags == CLOSE_RELEASE;
+    if args.flags != 0 && !allowed {
         return report(result_ptr, errno::EINVAL);
     }
     match handle_op(op, &args) {
@@ -263,7 +265,11 @@ fn op_cancel(args: &MsgArgs) -> Result<MsgResult, i64> {
 }
 
 fn op_close(args: &MsgArgs) -> Result<MsgResult, i64> {
-    channels::close_endpoint(args.handle).map_err(channel_errno)?;
+    if args.flags == CLOSE_RELEASE {
+        channels::release_endpoint(args.handle).map_err(channel_errno)?;
+    } else {
+        channels::close_endpoint(args.handle).map_err(channel_errno)?;
+    }
     Ok(MsgResult::default())
 }
 

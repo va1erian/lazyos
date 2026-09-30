@@ -15,6 +15,14 @@ show that every one fails when it should):
   * frame-length policy: no captured frame is shorter than an Ethernet header
     (14 bytes) or longer than MTU + 14 (1514), so the driver's dropped frames
     never reached the wire;
+  * DHCP (``--min-dhcp``): complete DISCOVER/OFFER/REQUEST/ACK exchanges in
+    order with one transaction id, the ACK granting the OFFERed address;
+  * IP sanity (with the DHCP or ping checks): every IPv4 frame the guest sends
+    has a correct header checksum and length, every ICMP message a correct
+    checksum;
+  * ICMP echo (``--min-pings``): requests to the gateway answered, in order, by a
+    reply with the same identifier, sequence number and payload; no echo request
+    to an address that cannot be a host reached the wire;
   * probe frames (``--expect-probe``): the frames the hostile-input probe sent
     at the legal extremes are on the wire exactly - 14 and 1514 bytes, payload
     intact - and the ones one byte outside them (13 and 1515) are not.
@@ -28,6 +36,7 @@ truncated capture.
 from __future__ import annotations
 
 import argparse
+import struct
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -167,26 +176,222 @@ def check_probe(frames: list[Frame], guest_mac: bytes) -> tuple[list[int], list[
     return lengths, problems
 
 
+# ---- DHCP, IP sanity, ICMP echo (stage N2) ----------------------------------------
+
+DHCP_DISCOVER, DHCP_OFFER, DHCP_REQUEST, DHCP_ACK, DHCP_NAK = 1, 2, 3, 5, 6
+DHCP_NAMES = {1: "DISCOVER", 2: "OFFER", 3: "REQUEST", 5: "ACK", 6: "NAK"}
+
+
+def dhcp_messages(frames: list[Frame]) -> list[tuple[Frame, pcap.Dhcp]]:
+    out = []
+    for frame in frames:
+        packet = pcap.parse_ipv4(frame.data)
+        if packet is not None:
+            message = pcap.parse_dhcp(packet)
+            if message is not None:
+                out.append((frame, message))
+    return out
+
+
+def check_dhcp(frames: list[Frame], guest_mac: bytes, min_exchanges: int) -> tuple[int, list[str]]:
+    """Count complete DISCOVER/OFFER/REQUEST/ACK exchanges and explain what is wrong.
+
+    An exchange is four messages in this order, sharing one transaction id: the
+    guest's DISCOVER, a server's OFFER, the guest's REQUEST, a server's ACK
+    that grants the address the OFFER named. Every client message carries the
+    guest's hardware address; a NAK is a failure.
+    """
+    problems: list[str] = []
+    messages = dhcp_messages(frames)
+    by_xid: dict[int, list[tuple[Frame, pcap.Dhcp]]] = {}
+    for frame, message in messages:
+        if message.op == 1 and message.client_mac != guest_mac:
+            problems.append(
+                f"frame {frame.index}: a DHCP client message carries hardware address "
+                f"{mac_text(message.client_mac)}, not the guest's"
+            )
+        if message.message_type == DHCP_NAK:
+            problems.append(f"frame {frame.index}: the server sent a DHCPNAK")
+        by_xid.setdefault(message.xid, []).append((frame, message))
+    if not messages:
+        problems.append("no DHCP message is in the capture")
+    complete = 0
+    for xid, group in by_xid.items():
+        def first(kind, after=-1):
+            return next(((f, m) for f, m in group if m.message_type == kind and f.index > after), None)
+
+        discover = first(DHCP_DISCOVER)
+        offer = first(DHCP_OFFER, discover[0].index) if discover else None
+        request = first(DHCP_REQUEST, offer[0].index) if offer else None
+        ack = first(DHCP_ACK, request[0].index) if request else None
+        if discover and offer and request and ack:
+            offered, granted = offer[1].yiaddr, ack[1].yiaddr
+            if offered != granted or offered == bytes(4):
+                problems.append(
+                    f"transaction {xid:#010x}: the ACK grants {pcap.ip_text(granted)} "
+                    f"but the OFFER named {pcap.ip_text(offered)}"
+                )
+            else:
+                complete += 1
+            continue
+        names = ", ".join(f"{DHCP_NAMES.get(m.message_type, m.message_type)}@{f.index}" for f, m in group)
+        if discover:
+            missing = "OFFER" if not offer else "REQUEST" if not request else "ACK"
+            problems.append(f"transaction {xid:#010x}: no {missing} in order after the earlier messages ({names})")
+        else:
+            problems.append(f"transaction {xid:#010x}: server messages without a DISCOVER first ({names})")
+    if complete < min_exchanges:
+        problems.append(f"{complete} complete DHCP exchange(s), {min_exchanges} required")
+    return complete, problems
+
+
+def check_ip_sanity(frames: list[Frame], guest_mac: bytes) -> list[str]:
+    """Everything the guest sends as IPv4 is well formed: a correct header
+    checksum, a total length that matches the frame, and, for ICMP, a correct
+    ICMP checksum."""
+    problems = []
+    for frame in frames:
+        if frame.data[6:12] != guest_mac or pcap.ethertype(frame.data) != pcap.ETHERTYPE_IPV4:
+            continue
+        packet = pcap.parse_ipv4(frame.data)
+        if packet is None:
+            problems.append(f"frame {frame.index}: an IPv4 frame from the guest does not parse")
+            continue
+        if not packet.header_ok:
+            problems.append(f"frame {frame.index}: the IPv4 header checksum is wrong")
+        total = struct.unpack_from(">H", frame.data, 16)[0]
+        # Ethernet may pad a short frame to 60 bytes; anything else is a mismatch.
+        if total != len(frame.data) - 14 and not (len(frame.data) == 60 and total < 46):
+            problems.append(
+                f"frame {frame.index}: the IPv4 total length {total} does not match the frame ({len(frame.data) - 14})"
+            )
+        echo = pcap.parse_icmp_echo(packet)
+        if echo is not None and not echo.checksum_ok:
+            problems.append(f"frame {frame.index}: the ICMP checksum is wrong")
+    return problems
+
+
+def echo_messages(frames: list[Frame]) -> list[tuple[Frame, pcap.Ipv4, pcap.Icmp]]:
+    out = []
+    for frame in frames:
+        packet = pcap.parse_ipv4(frame.data)
+        echo = pcap.parse_icmp_echo(packet) if packet else None
+        if packet and echo:
+            out.append((frame, packet, echo))
+    return out
+
+
+def invalid_destination(ip: bytes) -> bool:
+    return ip[0] in (0, 127) or ip[0] >= 224
+
+
+def check_ping(frames: list[Frame], guest_mac: bytes, gateway_ip: bytes, min_pairs: int) -> tuple[int, list[str]]:
+    """Count echo request/reply pairs with the gateway and explain what is wrong.
+
+    A request is an ICMP echo request (type 8, code 0) sent by the guest to the
+    gateway; its reply is the *next unmatched* echo reply (type 0) from the
+    gateway with the same identifier and sequence number, later in the
+    capture, addressed (IPv4 destination) to the address the request came from,
+    carrying byte-for-byte the same payload and correct checksums. An
+    echo request from the guest to an address that cannot be a host
+    (unspecified, loopback, multicast, broadcast) is a failure: the stack must
+    refuse those before anything reaches the wire.
+    """
+    problems: list[str] = []
+    requests = []
+    replies = []
+    for frame, packet, echo in echo_messages(frames):
+        if echo.type == 8 and packet.eth_src == guest_mac:
+            if invalid_destination(packet.dst):
+                problems.append(f"frame {frame.index}: an echo request to {pcap.ip_text(packet.dst)} reached the wire")
+            elif packet.dst == gateway_ip:
+                if echo.code != 0:
+                    problems.append(f"frame {frame.index}: the echo request has code {echo.code}")
+                requests.append((frame, packet, echo))
+        elif echo.type == 0 and packet.src == gateway_ip and packet.eth_dst == guest_mac:
+            replies.append((frame, packet, echo))
+    if not requests:
+        problems.append("no ICMP echo request to the gateway is in the capture")
+    if not replies:
+        problems.append("no ICMP echo reply from the gateway is in the capture")
+    if requests and replies and replies[0][0].index < requests[0][0].index:
+        problems.append(
+            f"the first reply (frame {replies[0][0].index}) comes before "
+            f"the first request (frame {requests[0][0].index})"
+        )
+    pairs = 0
+    unused = list(replies)
+    for frame, packet, echo in requests:
+        match = next(
+            (
+                r
+                for r in unused
+                if r[0].index > frame.index
+                and r[2].ident == echo.ident
+                and r[2].seq == echo.seq
+                and r[1].dst == packet.src
+            ),
+            None,
+        )
+        if match is None:
+            problems.append(f"the echo request in frame {frame.index} (seq {echo.seq}) has no reply after it")
+            continue
+        unused.remove(match)
+        reply_frame, reply_packet, reply = match
+        if reply.data != echo.data:
+            problems.append(
+                f"frame {reply_frame.index}: the reply's payload differs from the request's "
+                f"(frame {frame.index}, seq {echo.seq})"
+            )
+        elif not reply.checksum_ok or not reply_packet.header_ok:
+            problems.append(f"frame {reply_frame.index}: the reply's checksum is wrong")
+        else:
+            pairs += 1
+    if pairs < min_pairs:
+        problems.append(f"{pairs} complete echo exchange(s) with the gateway, {min_pairs} required")
+    return pairs, problems
+
+
 # ---- driver ----------------------------------------------------------------------
 
 
-def analyze(frames: list[Frame], *, guest_mac: bytes, gateway_ip: bytes, min_arp_pairs: int, expect_probe: bool, min_frames: int = 1) -> Report:
+def analyze(frames: list[Frame], *, guest_mac: bytes, gateway_ip: bytes, min_arp_pairs: int, expect_probe: bool,
+            min_frames: int = 1, min_dhcp: int = 0, min_pings: int = 0) -> Report:
     report = Report([])
     tx = sum(1 for f in frames if f.data[6:12] == guest_mac)
     report.lines.append(f"NET:PCAP:FRAMES total={len(frames)} from_guest={tx} to_guest={len(frames) - tx}")
     if len(frames) < min_frames:
         report.failed("FRAMES", [f"{len(frames)} frames captured, {min_frames} required"])
         return report
-    pairs, problems = check_arp(frames, guest_mac, gateway_ip, min_arp_pairs)
-    if problems:
-        report.failed("ARP", problems)
-    else:
-        report.passed("ARP", f"pairs={pairs} guest={mac_text(guest_mac)} gateway={pcap.ip_text(gateway_ip)}")
+    if min_arp_pairs:
+        pairs, problems = check_arp(frames, guest_mac, gateway_ip, min_arp_pairs)
+        if problems:
+            report.failed("ARP", problems)
+        else:
+            report.passed("ARP", f"pairs={pairs} guest={mac_text(guest_mac)} gateway={pcap.ip_text(gateway_ip)}")
     problems = check_frame_sizes(frames)
     if problems:
         report.failed("POLICY", problems[:10])
     else:
         report.passed("POLICY", f"every frame is {MIN_FRAME}..{MAX_FRAME} bytes")
+    if min_dhcp:
+        complete, problems = check_dhcp(frames, guest_mac, min_dhcp)
+        if problems:
+            report.failed("DHCP", problems[:10])
+        else:
+            report.passed("DHCP", f"exchanges={complete}")
+    if min_dhcp or min_pings:
+        problems = check_ip_sanity(frames, guest_mac)
+        if problems:
+            report.failed("IP", problems[:10])
+        else:
+            report.passed("IP", "every IPv4 frame from the guest is well formed")
+    if min_pings:
+        pairs, problems = check_ping(frames, guest_mac, gateway_ip, min_pings)
+        if problems:
+            report.failed("PING", problems[:10])
+        else:
+            report.passed("PING", f"pairs={pairs} gateway={pcap.ip_text(gateway_ip)}")
     if expect_probe:
         lengths, problems = check_probe(frames, guest_mac)
         if problems:
@@ -204,6 +409,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--min-arp-pairs", type=int, default=1, help="complete ARP request/reply pairs required")
     parser.add_argument("--expect-probe", action="store_true", help="check the hostile-input probe's boundary frames")
     parser.add_argument("--min-frames", type=int, default=1)
+    parser.add_argument("--min-dhcp", type=int, default=0, help="complete DHCP exchanges required (stage N2)")
+    parser.add_argument("--min-pings", type=int, default=0, help="ICMP echo pairs with the gateway required (stage N2)")
     args = parser.parse_args(argv)
     try:
         frames = pcap.read_pcap(args.pcap)
@@ -217,6 +424,8 @@ def main(argv: list[str] | None = None) -> int:
         min_arp_pairs=args.min_arp_pairs,
         expect_probe=args.expect_probe,
         min_frames=args.min_frames,
+        min_dhcp=args.min_dhcp,
+        min_pings=args.min_pings,
     )
     print("\n".join(report.lines))
     return 0 if report.ok else 1

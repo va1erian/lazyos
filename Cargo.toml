@@ -46,6 +46,7 @@ members = [
     "libs/virtio-net",
     "libs/nicdrv",
     "libs/netpolicy",
+    "libs/netstack",
     "libs/fuzzkit",
 ]
 # The xui app is an ordinary static-musl `std` program with its own workspace:

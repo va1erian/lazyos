@@ -53,3 +53,22 @@ pub fn writable(addr: u64) -> bool {
             .iter()
             .all(|entry| entry & (PRESENT | WRITABLE) == PRESENT | WRITABLE)
 }
+
+/// Whether the active address space lets ring 3 perform the access at `addr`:
+/// present and user-accessible at every level through a leaf, writable for a
+/// write, executable (NX clear) for an instruction fetch. A genuine `#PF` for
+/// such an access cannot exist, so a fault reported for one is spurious.
+pub fn user_access_allowed(addr: u64, write: bool, exec: bool) -> bool {
+    const USER: u64 = 1 << 2;
+    const NX: u64 = 1 << 63;
+    let (entries, count) = walk(addr);
+    let (level, _) = LEVELS[count - 1];
+    if !is_leaf(level, entries[count - 1]) {
+        return false;
+    }
+    entries[..count].iter().all(|entry| {
+        entry & (PRESENT | USER) == PRESENT | USER
+            && (!write || entry & WRITABLE != 0)
+            && (!exec || entry & NX == 0)
+    })
+}

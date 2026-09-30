@@ -28,6 +28,19 @@ pub fn close_endpoint(handle: u64) -> Result<(), Error> {
     close_endpoint_for(task::current(), handle, false)
 }
 
+/// Release the caller's handle to an endpoint, closing the side only if no
+/// other handle in any table still names it (docs/networking-plan.md N2).
+///
+/// An explicit [`close_endpoint`] ends the *side* whoever else holds a handle
+/// to it, which is right for the owner of a fresh pair and wrong for a handle
+/// received from elsewhere: name resolution hands every client a handle to the
+/// same side, and a service can be given one of them (a notify endpoint, a
+/// reply address). Closing that would end somebody else's service, so a
+/// receiver that is done with such a handle releases it instead.
+pub fn release_endpoint(handle: u64) -> Result<(), Error> {
+    close_endpoint_for(task::current(), handle, true)
+}
+
 /// [`close_endpoint`] for a handle in `slot`'s table rather than the caller's.
 ///
 /// Task teardown closes every endpoint a dead task still holds through this,

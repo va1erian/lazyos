@@ -42,6 +42,8 @@ nicdrv = { path = "../libs/nicdrv" }
 # The `_net` uid `init` spawns the driver as, shared with the ACL rules.
 netpolicy = { path = "../libs/netpolicy" }
 framering = { path = "../libs/framering" }
+# The stack `netd` runs: smoltcp over the frame rings, DHCP, the echo path.
+netstack = { path = "../libs/netstack" }
 # Keymaps, modifier/lock state and key repeat for `inputd` (docs/input-plan.md).
 inputmap = { path = "../libs/inputmap" }
 
@@ -295,6 +297,30 @@ bench = false
 [[bin]]
 name = "nicctl"
 path = "src/bin/nicctl.rs"
+test = false
+bench = false
+
+# The network stack service (docs/networking-plan.md N2): smoltcp over the NIC
+# driver's frame rings, serving `os.lazy.net.stack.v1`, with no capabilities.
+# Embedded with `LAZYOS_NETD=1`; the on-disk name is `NETD.ELF` (8.3).
+[[bin]]
+name = "netd"
+path = "src/bin/netd.rs"
+test = false
+bench = false
+
+# `netctl` shows and controls the stack and carries `netd`'s evidence clients
+# (`probe=1`, `soak=<n>`); `ping` sends ICMP echo through it. `NETCTL.ELF` and
+# `PING.ELF` on the image.
+[[bin]]
+name = "netctl"
+path = "src/bin/netctl.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "ping"
+path = "src/bin/ping.rs"
 test = false
 bench = false
 
