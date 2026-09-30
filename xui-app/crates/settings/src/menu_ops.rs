@@ -7,12 +7,12 @@ use deskmenu::{Entry, MAX_ENTRIES, MAX_LABEL};
 
 use crate::store::{AppChoice, ConfigStore, StoreError};
 
-/// The stored list; the defaults when nothing usable is stored. Apps the
-/// registry does not know are dropped (as `xuid` does), unless the registry
-/// could not be read (`apps` empty), when any well-formed id is accepted.
-pub fn load(store: &dyn ConfigStore, apps: &[AppChoice]) -> Vec<Entry> {
-    let known = |id: &str| apps.is_empty() || apps.iter().any(|a| a.id == id);
-    deskmenu::from_value(store.get(deskmenu::KEY).as_ref(), &known)
+/// The stored list; the defaults when nothing usable is stored. Any
+/// well-formed id is kept, including apps this image does not ship (the
+/// registry lists only shipped apps): dropping them here would erase them on
+/// the next save, and a launch of an unshipped app just answers unavailable.
+pub fn load(store: &dyn ConfigStore) -> Vec<Entry> {
+    deskmenu::from_value(store.get(deskmenu::KEY).as_ref(), &|_| true)
 }
 
 /// Write `entries`; `list` becomes `entries` only when the write succeeded.
@@ -151,14 +151,14 @@ mod tests {
     }
 
     #[test]
-    fn empty_store_loads_defaults_and_unknown_apps_are_dropped() {
+    fn empty_store_loads_defaults_and_keeps_unshipped_apps() {
         let store = MemStore::new();
-        assert_eq!(load(&store, &[]), deskmenu::defaults());
+        assert_eq!(load(&store), deskmenu::defaults());
         let mut list = deskmenu::defaults();
         let same = list.clone();
         commit(&store, &mut list, same).unwrap();
-        let known = [choice("terminal")];
-        assert_eq!(ids(&load(&store, &known)), ["terminal"]);
+        // An app the registry does not list (not shipped) survives a reload.
+        assert!(ids(&load(&store)).contains(&"docs"));
     }
 
     #[test]
@@ -167,7 +167,7 @@ mod tests {
         let mut list = deskmenu::defaults();
         assert_eq!(move_by(&store, &mut list, 1, -1), Ok(0));
         assert_eq!(list[0].app, "sysmon");
-        assert_eq!(load(&store, &[]), list);
+        assert_eq!(load(&store), list);
     }
 
     #[test]
@@ -192,7 +192,7 @@ mod tests {
         }
         assert!(remove(&store, &mut list, 0).is_err());
         assert_eq!(list.len(), 1);
-        assert_eq!(load(&store, &[]).len(), 1);
+        assert_eq!(load(&store).len(), 1);
     }
 
     #[test]
@@ -217,7 +217,7 @@ mod tests {
         rename(&store, &mut list, 0, &"x".repeat(MAX_LABEL)).unwrap();
         assert_eq!(list[0].label.len(), MAX_LABEL);
         assert!(rename(&store, &mut list, 99, "a").is_err());
-        assert_eq!(load(&store, &[])[0].label.len(), MAX_LABEL);
+        assert_eq!(load(&store)[0].label.len(), MAX_LABEL);
     }
 
     #[test]

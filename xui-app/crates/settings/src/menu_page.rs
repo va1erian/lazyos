@@ -102,7 +102,7 @@ impl MenuPage {
     /// Re-read the store and the registry and repaint both lists.
     pub fn load(&mut self, store: &dyn ConfigStore) {
         self.apps = store.apps();
-        self.list = menu_ops::load(store, &self.apps);
+        self.list = menu_ops::load(store);
         self.refresh(Some(0));
     }
 

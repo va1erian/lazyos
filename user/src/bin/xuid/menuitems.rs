@@ -9,7 +9,6 @@ use alloc::vec::Vec;
 use core::cell::UnsafeCell;
 use deskmenu::Entry;
 use user::messenger::confd::Client;
-use user::messenger::services::{self, INIT_NAME};
 use user::sys;
 
 struct Items(UnsafeCell<Vec<Entry>>);
@@ -44,34 +43,6 @@ fn replace(next: Vec<Entry>) -> bool {
     true
 }
 
-/// How long the compositor waits on `init` for the app list (1 s at 100 Hz):
-/// a stalled supervisor must not freeze compositing and input.
-const REGISTRY_TIMEOUT_TICKS: u64 = 100;
-
-struct Ids(UnsafeCell<Option<Vec<alloc::string::String>>>);
-
-// SAFETY: single compositor task, as for `Items`.
-unsafe impl Sync for Ids {}
-
-/// The registry ids from the last successful fetch. The registry is fixed for
-/// a boot (the shipped manifest), and the user bump allocator never reclaims
-/// the reply buffer, so one good answer is reused for later reloads.
-static IDS: Ids = Ids(UnsafeCell::new(None));
-
-/// The registry's app ids, or `None` when `init` cannot be asked in time (then
-/// only the id syntax is checked and a bad launch answers as unavailable).
-fn registry_ids() -> Option<Vec<alloc::string::String>> {
-    // SAFETY: single-task access (see `Ids`); the borrow ends before return.
-    let cached = unsafe { &mut *IDS.0.get() };
-    if cached.is_none() {
-        let init = services::resolve_service(INIT_NAME).ok()?;
-        let deadline = sys::clock().saturating_add(REGISTRY_TIMEOUT_TICKS);
-        let apps = services::fetch_apps_until(&init, Some(deadline)).ok()?;
-        *cached = Some(apps.into_iter().map(|app| app.id).collect());
-    }
-    cached.clone()
-}
-
 /// Read `sys/ui/menu` and install it; seeds the defaults when the key is
 /// absent. Returns `true` when the visible list changed. A failing `confd`
 /// keeps the previous list.
@@ -88,12 +59,10 @@ pub(super) fn reload(client: &Client) -> bool {
             sys::write_str("MENU:SEED:FAIL\n");
         }
     }
-    let ids = registry_ids();
-    let known = |app: &str| {
-        ids.as_ref()
-            .is_none_or(|ids| ids.iter().any(|id| id == app))
-    };
-    let next = deskmenu::from_value(stored.as_ref(), &known);
+    // Every well-formed id is kept, shipped or not (the old hardcoded menu
+    // behaved the same): a launch of an unshipped app answers unavailable, and
+    // asking `init` here would put a blocking call in the compositor.
+    let next = deskmenu::from_value(stored.as_ref(), &|_| true);
     let changed = replace(next);
     if changed {
         sys::write_str("XUID:MENU:RELOAD\n");

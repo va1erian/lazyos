@@ -212,22 +212,7 @@ pub fn fetch_apps(endpoint: &Endpoint) -> Result<Vec<AppInfo>> {
 
 /// [`fetch_apps`] with a caller-owned reply buffer.
 pub fn fetch_apps_with(endpoint: &Endpoint, buf: &mut [u8]) -> Result<Vec<AppInfo>> {
-    fetch_apps_until_with(endpoint, buf, None)
-}
-
-/// [`fetch_apps`] that gives up at the absolute tick `deadline` (`None` waits
-/// indefinitely), for callers that must not block on a stalled supervisor.
-pub fn fetch_apps_until(endpoint: &Endpoint, deadline: Option<u64>) -> Result<Vec<AppInfo>> {
-    let mut buf = alloc::vec![0u8; crate::messenger::DEFAULT_BUFFER];
-    fetch_apps_until_with(endpoint, &mut buf, deadline)
-}
-
-fn fetch_apps_until_with(
-    endpoint: &Endpoint,
-    buf: &mut [u8],
-    deadline: Option<u64>,
-) -> Result<Vec<AppInfo>> {
-    let reply = endpoint.call_with(&list_apps_request(), buf, deadline)?;
+    let reply = endpoint.call_with(&list_apps_request(), buf, None)?;
     if let Some(code) = error_field(&reply)? {
         return Err(Error::Init(code));
     }
