@@ -15,6 +15,7 @@ use xui_core::{Rect, Theme};
 use crate::client_window::ClientWindow;
 use crate::sys;
 
+use super::geometry::absolute_bounds;
 use super::{LazyOSBackend, Mode, Node, Timer, Window, DEFAULT_DPI, POLL_MILLIS};
 
 impl Backend for LazyOSBackend {
@@ -196,25 +197,26 @@ impl Backend for LazyOSBackend {
     fn apply_moves(&self, window: WindowId, moves: &[(WidgetId, Rect)]) {
         let mut nodes = self.nodes.borrow_mut();
         for (id, rect) in moves {
-            if let Some((_, node)) = nodes.iter_mut().find(|(node_id, _)| node_id == id) {
-                if self.is_client() {
-                    self.add_damage(window, node.bounds);
-                    self.add_damage(window, *rect);
+            let Some(index) = nodes.iter().position(|(node_id, _)| node_id == id) else {
+                continue;
+            };
+            // Damage is window-absolute: the old and the new position.
+            let before = self
+                .is_client()
+                .then(|| absolute_bounds(&nodes, *id))
+                .flatten();
+            nodes[index].1.bounds = *rect;
+            if self.is_client() {
+                for area in before.into_iter().chain(absolute_bounds(&nodes, *id)) {
+                    self.add_damage(window, area);
                 }
-                node.bounds = *rect;
             }
         }
     }
 
     fn set_visible(&self, id: WidgetId, visible: bool) {
         if self.is_client() {
-            if let Some((window, bounds)) = self
-                .nodes
-                .borrow()
-                .iter()
-                .find(|(node_id, _)| *node_id == id)
-                .map(|(_, node)| (node.window, node.bounds))
-            {
+            if let Some((window, bounds)) = self.absolute_damage(id) {
                 self.add_damage(window, bounds);
             }
         }
@@ -264,13 +266,7 @@ impl Backend for LazyOSBackend {
     fn invalidate(&self, id: WidgetId) {
         self.dirty.store(true, Ordering::Relaxed);
         if self.is_client() {
-            if let Some((window, bounds)) = self
-                .nodes
-                .borrow()
-                .iter()
-                .find(|(node_id, _)| *node_id == id)
-                .map(|(_, node)| (node.window, node.bounds))
-            {
+            if let Some((window, bounds)) = self.absolute_damage(id) {
                 self.add_damage(window, bounds);
             }
         }
@@ -279,13 +275,7 @@ impl Backend for LazyOSBackend {
     fn invalidate_rect(&self, id: WidgetId, _rect: Rect) {
         self.dirty.store(true, Ordering::Relaxed);
         if self.is_client() {
-            if let Some((window, bounds)) = self
-                .nodes
-                .borrow()
-                .iter()
-                .find(|(node_id, _)| *node_id == id)
-                .map(|(_, node)| (node.window, node.bounds))
-            {
+            if let Some((window, bounds)) = self.absolute_damage(id) {
                 self.add_damage(window, bounds);
             }
         }
