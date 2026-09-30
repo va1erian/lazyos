@@ -89,6 +89,21 @@ no-std-ish target. `village-icons` is off by default; the LazyOS Files app
 enables it so the boot image ships the coloured set (and `xui-icons` in its
 dependency graph).
 
+## Opening animation hint
+
+`Launcher::hint_open_origin(window, tile)` is an optional method (default: do
+nothing) called right before a folder window opens because a tile was activated
+(not when the folder is already open, and not for files). `window` is the
+backend's raw id of the source window and `tile` the tile's approximate edge in
+device pixels (`shell::open_tile_px`, 64 dip). The explorer has no item-rect API
+from `IconView`, so it does not compute the tile's rectangle: the backend
+centres a `tile`-sized square on the window's last pointer position, which is
+the tile that was just double-clicked. The LazyOS Files app forwards it to
+`LazyOSBackend::hint_open_origin`, which sends `HintOpenOrigin` (display
+protocol method 30) so `xuid` zooms the new window open from the tile instead of
+the taskbar. It is cosmetic and best-effort: keyboard activation with the
+pointer outside the window sends no hint.
+
 ## Known limits (v1)
 
 - **No filesystem watching.** Refresh happens on `F5`, the context menu, and

@@ -21,7 +21,7 @@ use xui_app::platform::argv;
 use xui_app::platform::files_fs::LazyPlatform;
 use xui_app::platform::launcher::LazyLauncher;
 use xui_core::app::run_app;
-use xui_core::backend::{Backend, PlatformSpec};
+use xui_core::backend::{Backend, PlatformSpec, WindowId};
 use xui_core::units::Dip;
 use xui_explorer::platform::{Launcher, Platform};
 use xui_explorer::std_platform::StdPlatform;
@@ -30,8 +30,12 @@ use xui_explorer::Explorer;
 /// Window size each folder window opens at.
 const WINDOW: (i32, i32) = (720, 480);
 
-/// The launcher, with serial reporting.
-struct ReportingLauncher;
+/// The launcher, with serial reporting; it also passes the explorer's
+/// open-origin hint on to the compositor so a folder window zooms open from the
+/// tile that was double-clicked.
+struct ReportingLauncher {
+    backend: Rc<LazyOSBackend>,
+}
 
 impl Launcher for ReportingLauncher {
     fn open(&self, path: &Path) -> io::Result<()> {
@@ -48,6 +52,11 @@ impl Launcher for ReportingLauncher {
             }
         }
     }
+
+    fn hint_open_origin(&self, window: u64, tile: i32) {
+        self.backend
+            .hint_open_origin(WindowId::from_raw(window), tile);
+    }
 }
 
 /// The folder to start in: an argument, else the filesystem root `/` (Files
@@ -59,7 +68,6 @@ fn start_dir() -> PathBuf {
 fn main() -> std::process::ExitCode {
     let platform = Rc::new(LazyPlatform::new(StdPlatform::new()));
     let start = start_dir();
-    let explorer = Explorer::new(platform as Rc<dyn Platform>, Rc::new(ReportingLauncher));
 
     let backend = match LazyOSBackend::connect() {
         Ok(backend) => Rc::new(backend),
@@ -68,6 +76,10 @@ fn main() -> std::process::ExitCode {
             return std::process::ExitCode::FAILURE;
         }
     };
+    let launcher = ReportingLauncher {
+        backend: Rc::clone(&backend),
+    };
+    let explorer = Explorer::new(platform as Rc<dyn Platform>, Rc::new(launcher));
     let (width, height) = backend.window_size(WINDOW);
     backend.on_first_frame(|| println!("FILES:UP:PASS"));
 

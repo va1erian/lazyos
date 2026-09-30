@@ -7,6 +7,7 @@ use alloc::vec::Vec;
 use libmessenger::Parcel;
 use user::messenger::display::{self, wire, Rect};
 use user::messenger::{self, Endpoint, Message};
+use user::sys;
 
 use super::compositor::Compositor;
 use super::layout::place_window;
@@ -32,6 +33,7 @@ impl Compositor {
             wire::METHOD_DRAGSTART => self.drag_start(message, body),
             wire::METHOD_DRAGCANCEL => self.drag_cancel_request(message, body),
             wire::METHOD_SETTITLE => self.set_title(message, body),
+            wire::METHOD_HINTOPENORIGIN => self.hint_open_origin(message, body),
             wire::METHOD_SUBSCRIBE => self.subscribe(message, body),
             wire::METHOD_LISTSURFACES => self.list_surfaces(message),
             wire::METHOD_GETWORKAREA => self.get_work_area(message),
@@ -98,10 +100,12 @@ impl Compositor {
                 self.notify_focus();
             }
             self.notify_surface(id, wire::CHANGE_CREATED);
-            // Open with a zoom out of the window's taskbar entry, hidden (as
-            // if minimized) so the wireframe flies over the old screen.
+            // Open with a zoom out of the tile the app hinted at, else out of
+            // the window's taskbar entry; hidden (as if minimized) so the
+            // wireframe flies over the old screen.
+            let origin = super::origin::take(&mut self.hints, message.sender, sys::clock());
             self.set_minimized(id, true);
-            self.deiconify(id);
+            self.open_zoom(id, origin);
             self.set_minimized(id, false);
             // A new surface changes the layout (and the taskbar), so repaint
             // the whole screen.

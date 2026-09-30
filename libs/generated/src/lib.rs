@@ -1558,6 +1558,8 @@ pub mod os_lazy_display_v1 {
     pub const METHOD_FRAMEDONE: u32 = 28;
     /// `SetTitle` method id.
     pub const METHOD_SETTITLE: u32 = 29;
+    /// `HintOpenOrigin` method id.
+    pub const METHOD_HINTOPENORIGIN: u32 = 30;
 
     /// Create a surface of `width` x `height` pixels titled `title`. `role` is
     /// a `Role` value: a decorated window (also the meaning of an absent
@@ -2527,6 +2529,64 @@ pub mod os_lazy_display_v1 {
                 }
                 2 => {
                     out.title = field.as_str()?.into();
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Hint where the *next* `CreateSurface` from this task should open from:
+    /// a rectangle `(x, y, w, h)` relative to the content origin of `surface`
+    /// (which the caller must own; `EACCES` otherwise, `ENOENT` for an unknown
+    /// surface), typically the tile the user just double-clicked. The
+    /// compositor uses it only as the start of that window's opening zoom
+    /// animation, in place of the taskbar entry; it never affects placement,
+    /// focus or anything else. The rectangle is translated to screen
+    /// coordinates and clamped to the screen; an empty rectangle, or one
+    /// wholly off the screen, is ignored. There is at most one hint per task
+    /// (a new one replaces the old) and it is consumed by the next
+    /// `CreateSurface` from that task, or expires after about two seconds.
+    /// Minimize and restore keep using the taskbar entry. A compositor that
+    /// predates the method answers `EINVAL`, which callers ignore.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct HintOpenOriginArgs {
+        pub surface: u64,
+        pub x: i32,
+        pub y: i32,
+        pub w: u32,
+        pub h: u32,
+    }
+
+    pub fn encode_hint_open_origin_args(value: &HintOpenOriginArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.surface)?;
+        target.i32(2, value.x)?;
+        target.i32(3, value.y)?;
+        target.u32(4, value.w)?;
+        target.u32(5, value.h)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_hint_open_origin_args(body: &[u8]) -> Result<HintOpenOriginArgs, Error> {
+        let mut out = HintOpenOriginArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.surface = field.as_u64()?;
+                }
+                2 => {
+                    out.x = field.as_i32()?;
+                }
+                3 => {
+                    out.y = field.as_i32()?;
+                }
+                4 => {
+                    out.w = field.as_u32()?;
+                }
+                5 => {
+                    out.h = field.as_u32()?;
                 }
                 _ => {}
             }

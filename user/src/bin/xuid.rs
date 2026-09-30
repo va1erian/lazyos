@@ -98,6 +98,8 @@ mod keys;
 mod layout;
 #[path = "xuid/menu.rs"]
 mod menu;
+#[path = "xuid/origin.rs"]
+mod origin;
 #[path = "xuid/present.rs"]
 mod present;
 #[path = "xuid/protocol.rs"]
@@ -194,6 +196,7 @@ fn run() -> ! {
     sys::write_str(keys::selftest_key_encoding());
     sys::write_str(title::selftest_titles());
     sys::write_str(window::selftest_focus_on_create());
+    sys::write_str(origin::selftest_open_origin());
 
     loop {
         // 1. Input: drain the whole kernel queue first so pointer moves

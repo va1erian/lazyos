@@ -189,6 +189,15 @@ impl Client {
         self.call(&parcel).map(|_| ())
     }
 
+    /// `HintOpenOrigin`: ask the compositor to open this task's next window
+    /// from `rect` (`x, y, w, h`, relative to `surface`'s content origin)
+    /// instead of from its taskbar entry. Purely cosmetic: an older
+    /// compositor answers `EINVAL`, which callers ignore.
+    pub fn hint_open_origin(&self, surface: u64, rect: (i32, i32, u32, u32)) -> Result<(), i64> {
+        let parcel = hint_open_origin_parcel(surface, rect)?;
+        self.call(&parcel).map(|_| ())
+    }
+
     /// Drop `surface`; the compositor forgets it and repaints.
     pub fn destroy_surface(&self, surface: u64) -> Result<(), i64> {
         let body = wire::encode_destroy_surface_args(&wire::DestroySurfaceArgs { surface })
@@ -207,6 +216,24 @@ impl Client {
             None => Ok(reply),
         }
     }
+}
+
+/// The `HintOpenOrigin` request parcel for `rect` relative to `surface`.
+fn hint_open_origin_parcel(surface: u64, rect: (i32, i32, u32, u32)) -> Result<Parcel, i64> {
+    let body = wire::encode_hint_open_origin_args(&wire::HintOpenOriginArgs {
+        surface,
+        x: rect.0,
+        y: rect.1,
+        w: rect.2,
+        h: rect.3,
+    })
+    .map_err(|_| -errno::EINVAL)?;
+    Ok(request(
+        wire::METHOD_HINTOPENORIGIN,
+        body,
+        Vec::new(),
+        Vec::new(),
+    ))
 }
 
 /// A request parcel; `ALLOW_NESTED` keeps the app's event receive from
@@ -262,5 +289,22 @@ pub fn close(handle: u64) -> Result<(), i64> {
         Err(code)
     } else {
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_hint_parcel_carries_method_30_and_the_rect() {
+        let parcel = hint_open_origin_parcel(7, (-4, 12, 64, 48)).expect("encodes");
+        assert_eq!(parcel.header.method, 30);
+        assert_eq!(parcel.header.interface_id, INTERFACE);
+        let args = wire::decode_hint_open_origin_args(&parcel.body).expect("decodes");
+        assert_eq!(
+            (args.surface, args.x, args.y, args.w, args.h),
+            (7, -4, 12, 64, 48)
+        );
     }
 }
