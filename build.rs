@@ -4,6 +4,8 @@
 
 use std::path::PathBuf;
 
+#[path = "build_support/docs_embed.rs"]
+mod docs_embed;
 #[path = "build_support/elf_trim.rs"]
 mod elf_trim;
 #[path = "build_support/rhai_embed.rs"]
@@ -357,6 +359,10 @@ fn main() {
     // The `rhai` scripting command (issue #319), resolved from `sh` as RHAI.ELF.
     println!("cargo:rerun-if-changed=build_support/rhai_embed.rs");
     rhai_embed::embed(&mut builder, &manifest_dir);
+    // The documentation tree (`docs/**/*.md` plus `README.md`) at `/docs/...`,
+    // read by the Docs app and the Editor.
+    println!("cargo:rerun-if-changed=build_support/docs_embed.rs");
+    docs_embed::embed(&mut builder, &manifest_dir);
     builder
         .create_bios_image(&bios_image)
         .expect("failed to create BIOS disk image");
