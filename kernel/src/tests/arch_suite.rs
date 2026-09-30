@@ -57,7 +57,10 @@ pub fn syscall_entry_call_alignment() -> Result<(), String> {
     use crate::arch::linux::{ENTRY_CALL_PAD, ENTRY_PUSHED_QWORDS};
     for slot in 0..crate::task::MAX_TASKS {
         let top = crate::task::kstack_top(slot);
-        check!(top % 16 == 0, "kernel stack top of slot {slot} ({top:#x}) is not 16-aligned");
+        check!(
+            top % 16 == 0,
+            "kernel stack top of slot {slot} ({top:#x}) is not 16-aligned"
+        );
         let at_call = top - ENTRY_PUSHED_QWORDS * 8 - ENTRY_CALL_PAD;
         check!(
             at_call % 16 == 0,
@@ -159,7 +162,10 @@ pub fn soak_irq_shared_locks() -> Result<(), String> {
 }
 
 pub(super) const CASES: &[(&str, Test)] = &[
-    ("arch_syscall_entry_call_alignment", syscall_entry_call_alignment),
+    (
+        "arch_syscall_entry_call_alignment",
+        syscall_entry_call_alignment,
+    ),
     ("arch_sysret_selectors_rpl3", sysret_selectors_rpl3),
     (
         "arch_irq_shared_locks_disable_interrupts",
