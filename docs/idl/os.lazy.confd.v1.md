@@ -17,6 +17,7 @@ Change notifications are best-effort: a subscriber observes
 | Set | 682729123 | sync | `(path: String, value: Value) -> ()` |
 | Delete | 1469573738 | sync | `(path: String) -> ()` |
 | List | 220805025 | sync | `(prefix: String) -> (paths: Array<String>)` |
+| Info | 266462757 | sync | `() -> (store_dir: String, persistent: Bool)` |
 
 ## Topics
 

@@ -18,7 +18,7 @@ python tools/test/run.py --accel none
 python tools/test/run.py --no-build
 
 # Custom image / output directory / timeout
-python tools/test/run.py --image target/lazyos.img --out shots/kernel-tests --timeout 240
+python tools/test/run.py --image target/lazyos.img --out shots/kernel-tests --timeout 900
 ```
 
 QEMU is discovered exactly like the screenshot tools (`--qemu`, then `PATH`,

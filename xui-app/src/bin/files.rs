@@ -81,6 +81,8 @@ fn main() -> std::process::ExitCode {
     };
     let explorer = Explorer::new(platform as Rc<dyn Platform>, Rc::new(launcher));
     let (width, height) = backend.window_size(WINDOW);
+    // Every folder window is resizable; the explorer's tile view re-flows.
+    backend.set_size_hints(360, 240, 0, 0);
     backend.on_first_frame(|| println!("FILES:UP:PASS"));
 
     let spec = PlatformSpec::new("Files").size(Dip(width as f32), Dip(height as f32));

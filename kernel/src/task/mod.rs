@@ -76,6 +76,7 @@ mod cwd;
 mod fdio;
 mod fdops;
 mod fdtypes;
+pub mod fpu;
 mod fs_base;
 #[cfg(lazyos_tests)]
 pub mod harness;

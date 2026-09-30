@@ -37,10 +37,11 @@ pub(super) enum EventKind {
     PointerUp,
     KeyDown,
     KeyUp,
+    PointerWheel,
 }
 
 /// One raw kernel input record: `a`/`b` carry the pointer `(x, y)`, the button
-/// id, or the key code depending on the kind. Screen-absolute; `xuid`
+/// id, the wheel notches (`a`) or the key code depending on the kind. Screen-absolute; `xuid`
 /// translates to surface coordinates before forwarding.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(super) struct Event {
@@ -70,6 +71,7 @@ pub(super) fn decode_event(bytes: &[u8], index: usize) -> Option<Event> {
         raw_kind::POINTER_UP => EventKind::PointerUp,
         raw_kind::KEY_DOWN => EventKind::KeyDown,
         raw_kind::KEY_UP => EventKind::KeyUp,
+        raw_kind::POINTER_WHEEL => EventKind::PointerWheel,
         _ => return None,
     };
     Some(Event {
@@ -105,6 +107,7 @@ mod raw_kind {
     pub const POINTER_UP: u32 = 2;
     pub const KEY_DOWN: u32 = 3;
     pub const KEY_UP: u32 = 4;
+    pub const POINTER_WHEEL: u32 = 5;
 }
 /// Pack a colour into the `0xRRGGBB` form `GetTheme` reports.
 pub(super) fn color_u32(color: Color) -> u32 {

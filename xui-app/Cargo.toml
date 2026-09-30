@@ -10,9 +10,12 @@ description = "An ordinary xui application running on LazyOS (issue #114)"
 [workspace]
 resolver = "2"
 members = [
+    "docs",
     "crates/code-editor",
     "crates/paint",
     "crates/explorer",
+    "crates/settings",
+    "crates/testkit",
 ]
 
 [dependencies]
@@ -21,8 +24,8 @@ members = [
 # glutin/glow/arboard/windows/xui-gpu; turning it off leaves the pure tiny-skia
 # software painter core (Surface, SkiaCanvas, OffscreenBackend and the in-memory
 # font API) that LazyOS drives its own display protocol with.
-xui-core = { git = "https://github.com/va1erian/xui", rev = "35c818f9b187359927b1528c37d63f62604caa05" }
-xui-canvas = { git = "https://github.com/va1erian/xui", rev = "35c818f9b187359927b1528c37d63f62604caa05", default-features = false }
+xui-core = { git = "https://github.com/va1erian/xui", rev = "58c1a6ea1a2dc1e5bb81463ff8dba82329a4f080" }
+xui-canvas = { git = "https://github.com/va1erian/xui", rev = "58c1a6ea1a2dc1e5bb81463ff8dba82329a4f080", default-features = false }
 # The same parcel codec the kernel and native `user` programs use, so the
 # fabric panel reads registry replies and talks to the topics broker with one
 # shared wire implementation. `no_std` + `alloc`, so it links into this binary.
@@ -45,6 +48,8 @@ xui-paint = { path = "crates/paint" }
 # `village-icons` feature pulls in `xui-icons` and makes `village::paint` draw
 # the coloured set instead of the Lucide fallback.
 xui-explorer = { path = "crates/explorer", features = ["village-icons"] }
+# The Settings app core (sections, config seam, UI); the binary supplies confd.
+xui-settings = { path = "crates/settings" }
 
 [[bin]]
 name = "xui-m0"
@@ -89,3 +94,7 @@ opt-level = "z"
 lto = "fat"
 panic = "abort"
 strip = "symbols"
+
+[[bin]]
+name = "xui-settings"
+path = "src/bin/settings.rs"

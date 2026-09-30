@@ -62,6 +62,22 @@ pub(crate) fn selftest(db: &MimeDb, apps: &mut AppRegistry) {
         sys::write_str("MIME:REGISTER:FAIL lookup or verbs mismatch\n");
     }
 
+    // Markdown opens in the Editor and can be viewed (rendered) in Docs.
+    if apps.lookup("text/markdown", "open") == Some("editor")
+        && apps.lookup("text/markdown", "edit") == Some("editor")
+        && apps.lookup("text/markdown", "view") == Some("docs")
+    {
+        sys::write_str(
+            "MIME:VIEW:PASS
+",
+        );
+    } else {
+        sys::write_str(
+            "MIME:VIEW:FAIL markdown verbs
+",
+        );
+    }
+
     let mut bus = None;
     for (path, expected) in [
         ("NOTES.TXT", "editor"),

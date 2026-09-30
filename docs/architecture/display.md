@@ -52,8 +52,9 @@ compositor demo. Target toolkit design: [xui-plan.md](../xui-plan.md).
   used because the bootloader framebuffer frames live outside the allocator's
   usable regions (zero-copy scanout is an S8 follow-up).
 - Input events (`Event`, 16 bytes) are pushed by keyboard/mouse IRQs into a
-  256-entry queue and drained only by the owner; kinds are pointer move/down/up
-  and key down/up with `key::*` codes for non-printables. `bound()` checks owner
+  256-entry queue and drained only by the owner; kinds are pointer move/down/up,
+  key down/up with `key::*` codes for non-printables, and the wheel
+  (`POINTER_WHEEL`, `a` = notches, positive scrolls up). `bound()` checks owner
   liveness (`task::live`), so no scheduler teardown hook is needed.
 
 **Display protocol / XUI current state**
@@ -112,6 +113,19 @@ compositor demo. Target toolkit design: [xui-plan.md](../xui-plan.md).
   `PointerUp` carry the button id, and `PointerMove` is surface-relative like the
   presses (relative to the focused surface, negative or oversized while a
   press-and-drag leaves it), so the client backend needs no origin recovery.
+- **Mouse wheel.** `kernel/src/input/mouse.rs` runs the IntelliMouse handshake
+  at boot (sample rate 200, 100, 80, then *get id*; id 3 means a wheel), and
+  from then on reads 4-byte packets whose last byte is a signed count, positive
+  toward the user. The driver negates it, so the display event is **up-positive**
+  like the protocol below, and queues one `POINTER_WHEEL` record per packet that
+  rolled the wheel. A mouse that ignores the handshake keeps 3-byte packets and
+  never produces the event. `xuid` forwards it as the one-way `PointerWheel(x,
+  y, delta)` (method 31) to the **topmost window under the pointer**, not the
+  focused one, and only when the pointer is over that window's content (a title
+  bar, a border, an open menu or a drag swallows it; it never falls through to a
+  window below). `xui-app` turns it into `Event::MouseWheel` for the widget under
+  the pointer, one notch being `120` (Windows' `WHEEL_DELTA`, which xui's
+  widgets and `xui-litehtml` expect). Horizontal wheels are not reported.
 - **Keyboard focus routing** (issue #151) is mode-independent: a pointer press
   on a focus stop moves the backend focus, `SetFocus`/`KillFocus` reach the
   widgets, and `KeyDown`/`KeyUp`/`Char` target the focused node, not the node
@@ -185,8 +199,9 @@ compositor demo. Target toolkit design: [xui-plan.md](../xui-plan.md).
   `.github/workflows/xui.yml` as the display owner in turn (fabricmon over the
   `LAZYOS_SERVICES=1` session, so the registry and broker are live).
 - Window management (issue #143) lives in `xuid`: the `surfaces` vector is the
-  z-order (tail paints last), a title-bar press drags the window (clamped to the
-  screen above the taskbar), the title bar carries close/minimize buttons, and a
+  z-order (tail paints last), a title-bar press drags the window (which may hang
+  off the left, right and bottom edges, keeping `TITLE_REACHABLE_W` of its
+  title bar on screen), the title bar carries close/minimize buttons, and a
   bottom taskbar lists live surfaces with the focused entry highlighted.
   The right end of the bar holds a serif date and time (`xuid/clock.rs`): the
   instant is the kernel wall clock, the zone comes from `timed`'s retained
@@ -199,6 +214,54 @@ compositor demo. Target toolkit design: [xui-plan.md](../xui-plan.md).
   (a drag repaints the union of the old/new window rectangles). Within the
   damage, repaint paints each layer only where no opaque layer above it (window,
   taskbar, Alt+Tab panel, menu) lies, so hidden windows cost nothing (#360).
+
+**Resize and maximize**
+
+A window is fixed-size until its client calls `SetSizeHints` (method 32). That
+call declares content-size bounds (clamped to the compositor's minimums and the
+screen; a `max` of 0 means the screen) and is refused for anyone but the
+creator (`EACCES`), an unknown surface (`ENOENT`) or a min above its max
+(`EINVAL`). A resizable window gets a third title-bar button (maximize /
+restore, between close and minimize) and interactive resize edges.
+
+- **Edges.** `xuid/geometry.rs` hit-tests the frame: a 4 px grip (2 px outside,
+  4 px inside) on each side, widened to 14 px at the corners; the title bar's
+  body stays a move handle and the button group is excluded. The pure rules
+  (hit-testing, resize clamping, off-screen reachability, the maximized
+  rectangle, size-hint validation) are self-tested at boot as
+  `XUID:GEOM:PASS`.
+- **Outline resize.** A press on an edge consumes the press and starts a
+  `ResizeDrag`; moving the pointer composes the old and new outline rectangles
+  and draws a wireframe (`xuid/anim.rs::outline`) without re-rendering the
+  window. On release the new geometry is adopted and the client gets a one-way
+  `Configure(width, height, Normal)` (method 33) plus a shell `Resized` event.
+  `Escape` cancels and erases the outline; a destroyed surface clears the drag.
+  Resize and title-bar drag are mutually exclusive and neither starts during a
+  drag & drop, an open menu or Alt+Tab.
+- **Buffer decoupling.** A `Mapping` records the content size it was attached
+  for and `Surface` mirrors it in `buf_w`/`buf_h`. `draw_surface` blits the
+  buffer at that size (cropped to the content) and fills the uncovered strip
+  with the window background, so the window may be resized before the client
+  attaches the new buffer without a stride-mismatched read. `try_attach`
+  accepts a buffer of at least `width * height * 4` bytes for the current
+  size: a stale smaller buffer fails with `EINVAL`, while a stale larger one
+  (attached while a shrink was in flight) is accepted and drawn at the current
+  stride, one wrong frame, until the client handles its `Configure` and
+  attaches again.
+- **Maximize.** The maximize button or a double-click on the title bar toggles
+  between the work area and the saved normal rectangle, using the same
+  wireframe zoom as minimize; the client is told with `Configure(.., Maximized)`
+  and a shell `Maximized`/`Unmaximized` event. A maximized window has no resize
+  edges and does not move on a title drag, and it stays maximized across
+  minimize/restore. When a shell subscribes or its endpoint dies (the fallback
+  taskbar appears or disappears), `reflow_maximized` re-fits every maximized
+  window to the new work area.
+- **Off-screen movement.** A title drag clamps the origin so at least
+  `TITLE_REACHABLE_W` pixels of the title bar stay on screen horizontally and
+  the title bar never goes above the work-area top or below its bottom; the
+  body may hang off the left, right and bottom. Damage rectangles are
+  intersected with the screen before composing or presenting, and the minimize
+  animation's small rectangle is clamped on screen.
 
 **Drag & drop (issue #145)**
 

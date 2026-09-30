@@ -12,7 +12,7 @@ use user::messenger::services::{self, INIT_NAME};
 use user::sys;
 
 use super::compositor::Compositor;
-use super::theme::{OVERLAY_BG, OVERLAY_BORDER, OVERLAY_SELECTED, OVERLAY_TEXT, TASKBAR_H};
+use super::theme::{overlay_bg, overlay_border, overlay_selected, overlay_text, TASKBAR_H};
 use super::window::contains;
 
 /// The hardcoded entries: `(init app id, label)`. Terminal first.
@@ -24,6 +24,11 @@ const ITEMS: &[(&str, &str)] = &[
     ("editor", "Editor"),
     ("paint", "Paint"),
     ("files", "Files"),
+    ("settings", "Settings"),
+    // Shipped when the build had the zig toolchain (`tools/xui/zig.py`); an
+    // image without it answers the launch as unavailable, like any unshipped
+    // registry app.
+    ("docs", "Docs"),
 ];
 const ITEM_H: i32 = 20;
 const PAD: i32 = 4;
@@ -148,11 +153,11 @@ pub(super) fn draw(screen: &mut Canvas, clip: Rect) {
     if menu.intersect(clip).is_empty() {
         return;
     }
-    screen.fill(menu, clip, OVERLAY_BORDER);
+    screen.fill(menu, clip, overlay_border());
     screen.fill(
         Rect::new(menu.x + 1, menu.y + 1, menu.w - 2, menu.h - 2),
         clip,
-        OVERLAY_BG,
+        overlay_bg(),
     );
     let hovered = HOVER.load(Ordering::Relaxed);
     for (index, (_, label)) in ITEMS.iter().enumerate() {
@@ -163,14 +168,14 @@ pub(super) fn draw(screen: &mut Canvas, clip: Rect) {
             ITEM_H,
         );
         if index as i32 == hovered {
-            screen.fill(row, clip, OVERLAY_SELECTED);
+            screen.fill(row, clip, overlay_selected());
         }
         screen.text_face(
             row.x + TEXT_PAD - 2,
             row.y + (ITEM_H - Face::Sans.height()) / 2,
             label,
             Face::Sans,
-            OVERLAY_TEXT,
+            overlay_text(),
             row.intersect(clip),
         );
     }

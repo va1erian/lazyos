@@ -166,6 +166,11 @@
         "name": "List",
         "id": 220805025,
         "oneway": false
+      },
+      {
+        "name": "Info",
+        "id": 266462757,
+        "oneway": false
       }
     ],
     "topics": [
@@ -333,6 +338,21 @@
         "name": "HintOpenOrigin",
         "id": 30,
         "oneway": false
+      },
+      {
+        "name": "PointerWheel",
+        "id": 31,
+        "oneway": true
+      },
+      {
+        "name": "SetSizeHints",
+        "id": 32,
+        "oneway": false
+      },
+      {
+        "name": "Configure",
+        "id": 33,
+        "oneway": true
       }
     ],
     "topics": []

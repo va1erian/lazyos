@@ -43,6 +43,8 @@ fn method_ids_are_pinned_to_the_legacy_numbering() {
     ];
     let expected: Vec<u32> = (1..=24).collect();
     assert_eq!(ids.to_vec(), expected);
+    // Append-only additions after the legacy block.
+    assert_eq!(METHOD_POINTERWHEEL, 31);
 }
 
 #[test]
@@ -56,9 +58,61 @@ fn enum_constants_keep_the_wire_values() {
             CHANGE_MOVED,
             CHANGE_MINIMIZED,
             CHANGE_RESTORED,
-            CHANGE_TITLE
+            CHANGE_TITLE,
+            CHANGE_RESIZED,
+            CHANGE_MAXIMIZED,
+            CHANGE_UNMAXIMIZED
         ],
-        [0, 1, 2, 3, 4, 5, 6]
+        [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+    );
+    assert_eq!(
+        (WINDOW_STATE_NORMAL, WINDOW_STATE_MAXIMIZED),
+        (0, 1),
+        "WindowState values are pinned"
+    );
+}
+
+#[test]
+fn resize_and_maximize_ids_are_appended_after_hint_open_origin() {
+    assert_eq!((METHOD_SETSIZEHINTS, METHOD_CONFIGURE), (32, 33));
+}
+
+#[test]
+fn size_hints_and_configure_roundtrip() {
+    for (min_w, min_h, max_w, max_h) in [(0, 0, 0, 0), (120, 40, 800, 600), (u32::MAX, 1, 2, 3)] {
+        roundtrip!(
+            SetSizeHintsArgs {
+                surface: 11,
+                min_w,
+                min_h,
+                max_w,
+                max_h
+            },
+            encode_set_size_hints_args,
+            decode_set_size_hints_args
+        );
+    }
+    for state in [WINDOW_STATE_NORMAL, WINDOW_STATE_MAXIMIZED] {
+        roundtrip!(
+            ConfigureArgs {
+                surface: u64::MAX,
+                width: 1024,
+                height: 768,
+                state
+            },
+            encode_configure_args,
+            decode_configure_args
+        );
+    }
+    // An empty body decodes to defaults, so an old compositor's malformed
+    // Configure is a no-op rather than a zero-size resize.
+    assert_eq!(
+        decode_configure_args(&[]).unwrap(),
+        ConfigureArgs::default()
+    );
+    assert_eq!(
+        decode_set_size_hints_args(&[]).unwrap(),
+        SetSizeHintsArgs::default()
     );
 }
 
@@ -125,6 +179,17 @@ fn input_events_roundtrip_with_negative_coordinates_and_buttons() {
             PointerUpArgs { x: 0, y: 0, button },
             encode_pointer_up_args,
             decode_pointer_up_args
+        );
+    }
+    for delta in [1, -1, 3, -120, i32::MAX, i32::MIN] {
+        roundtrip!(
+            PointerWheelArgs {
+                x: -4,
+                y: 700,
+                delta
+            },
+            encode_pointer_wheel_args,
+            decode_pointer_wheel_args
         );
     }
     roundtrip!(
@@ -199,6 +264,7 @@ fn row(id: u64) -> SurfaceRow {
         minimized: id.is_multiple_of(2),
         focused: id == 1,
         role: if id == 0 { ROLE_DESKTOP } else { ROLE_WINDOW },
+        maximized: id == 3,
     }
 }
 
@@ -258,7 +324,8 @@ fn shell_events_roundtrip_with_optional_fields() {
                 minimized: true,
                 focused: true,
                 title,
-                role: ROLE_WINDOW
+                role: ROLE_WINDOW,
+                maximized: true
             },
             encode_surface_changed_args,
             decode_surface_changed_args

@@ -123,6 +123,9 @@ fn main() -> std::process::ExitCode {
         }
     };
     let (width, height) = backend.window_size(WINDOW);
+    // Paint's document is fixed; only the viewport follows the window, so it
+    // can be resized down to a workable drawing area.
+    backend.set_size_hints(320, 240, 0, 0);
     backend.on_first_frame(|| println!("PAINT:UP:PASS"));
 
     let spec = PlatformSpec::new("Paint").size(Dip(width as f32), Dip(height as f32));

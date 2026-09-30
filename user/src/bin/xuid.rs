@@ -24,10 +24,18 @@
 //! * the `surfaces` vector *is* the z-order — its tail paints last, and a click
 //!   raises that surface to the tail and focuses it;
 //! * the title bar is a drag handle: a left press on it grabs the window and
-//!   subsequent pointer movement moves the origin, clamped to the screen (and
-//!   to the space above the taskbar);
+//!   subsequent pointer movement moves the origin. A window may be pushed
+//!   partly off the left, right and bottom edges; [`geometry::keep_reachable`]
+//!   keeps enough of its title bar on screen to grab it again;
+//! * a resizable window (one that called `SetSizeHints`, method 32) can be
+//!   resized by dragging an edge or corner: the compositor draws a wireframe
+//!   outline during the drag and applies the size, via a one-way `Configure`
+//!   event (method 33), on release;
 //! * the title bar carries close (`X`, asks the client to exit via a one-way
-//!   `WindowClose` event) and minimize (`-`, hides the surface) buttons;
+//!   `WindowClose` event), minimize (`-`, hides the surface) and — for a
+//!   resizable window — maximize/restore buttons. A double-click on the title
+//!   bar toggles maximize; the transition uses the same wireframe zoom as
+//!   minimize;
 //! * a bottom taskbar strip lists every live surface by title in creation
 //!   order; clicking an entry focuses/raises it, and restores it when minimized.
 //!   The focused entry is highlighted;
@@ -73,7 +81,10 @@
 //! The app buffer handoff is already zero-copy
 //! (the compositor reads the same frames the app writes); fences and double
 //! buffering are the S8 follow-up that turns `Commit` into a tear-free
-//! pipeline.
+//! pipeline. Each buffer mapping records the content size it was attached for,
+//! so a window resized between the `Configure` and the client's next attach is
+//! drawn from the old buffer cropped or padded with the window background,
+//! never read with the wrong stride.
 
 #![no_std]
 #![no_main]
@@ -90,6 +101,8 @@ mod compositor;
 mod drag;
 #[path = "xuid/event.rs"]
 mod event;
+#[path = "xuid/geometry.rs"]
+mod geometry;
 #[path = "xuid/icons.rs"]
 mod icons;
 #[path = "xuid/inputlink.rs"]
@@ -98,6 +111,8 @@ mod inputlink;
 mod keys;
 #[path = "xuid/layout.rs"]
 mod layout;
+#[path = "xuid/maximize.rs"]
+mod maximize;
 #[path = "xuid/menu.rs"]
 mod menu;
 #[path = "xuid/origin.rs"]
@@ -114,14 +129,20 @@ mod render;
 mod request;
 #[path = "xuid/request_shell.rs"]
 mod request_shell;
+#[path = "xuid/resize.rs"]
+mod resize;
 #[path = "xuid/shell.rs"]
 mod shell;
 #[path = "xuid/surface.rs"]
 mod surface;
 #[path = "xuid/theme.rs"]
 mod theme;
+#[path = "xuid/themefeed.rs"]
+mod themefeed;
 #[path = "xuid/title.rs"]
 mod title;
+#[path = "xuid/wheel.rs"]
+mod wheel;
 #[path = "xuid/window.rs"]
 mod window;
 
@@ -199,6 +220,8 @@ fn run() -> ! {
     sys::write_str(title::selftest_titles());
     sys::write_str(window::selftest_focus_on_create());
     sys::write_str(origin::selftest_open_origin());
+    sys::write_str(geometry::selftest_geometry());
+    sys::write_str(wheel::selftest_wheel_routing());
 
     loop {
         // 0. `inputd`: register new surfaces, report focus, apply the
@@ -213,6 +236,7 @@ fn run() -> ! {
         }
         comp.reap_dead_shell();
         comp.tick_clock();
+        comp.tick_theme();
 
         // 2. Requests: serve one, then loop (the deadline bounds the nap when
         //    nothing is pending, keeping input latency at a couple of ticks).

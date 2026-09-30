@@ -89,6 +89,12 @@ impl<M: 'static> Placeable<M> for EditorPane<M> {
     fn natural_size(&self, _ui: &Ui<M>, _dpi: u32) -> Size {
         Size::new(0, 0)
     }
+
+    fn placed(&self, _ui: &Ui<M>, _rect: Rect) {
+        // The mounted layout re-flows the editor node on a window resize; keep
+        // the caret and scroll valid for the new, possibly narrower, viewport.
+        self.0.on_resize();
+    }
 }
 
 /// Builds the app's widgets and mounts the layout.

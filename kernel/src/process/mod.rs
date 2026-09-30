@@ -178,10 +178,21 @@ fn sys_read_char() -> u64 {
     if let Some(byte) = linux::read_redirected() {
         return byte;
     }
-    // Napping between polls lets the timer preempt us (other tasks run) and
-    // the keyboard deliver keys, while each `take_key` (the task table) still
-    // runs with interrupts off (issue #382).
-    match task::poll_until(task::take_key) {
+    // Park on the terminal queue between checks (`on_key` notifies it), so an
+    // idle reader such as `logind` is Blocked rather than Runnable: a napping
+    // poll loop stayed runnable and took every other tick from the desktop's
+    // apps (issue #373). Syscalls run with interrupts off, so a key cannot
+    // land between the check and the park, and `take_key` (the task table)
+    // never runs preemptibly (issue #382).
+    let key = loop {
+        if let Some(key) = task::take_key() {
+            break key;
+        }
+        if task::wait_terminal() == WakeReason::Interrupted {
+            return 0;
+        }
+    };
+    match key {
         keyboard::Key::Char(c) => c as u64,
         keyboard::Key::Enter => b'\n' as u64,
         keyboard::Key::Space => b' ' as u64,
