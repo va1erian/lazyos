@@ -1,0 +1,473 @@
+# LazyOS networking — exploration and plan
+
+Status: **exploratory draft for review** (2026-09-30). Nothing here is built.
+Scope: the shortest credible path from "no network" to basic tools working
+(`ping`, a netcat equivalent, an FTP client, name lookups), and the three
+decisions that path depends on: which TCP/IP stack to reuse, how the NIC driver
+is built, and what the userland API looks like. This is the LAN half of
+platform stage **S6** ([platform-plan.md](platform-plan.md) §4.7); it starts
+where the driver plan stops ([driver-plan.md](driver-plan.md) §8 excludes "any
+protocol above the NIC link layer").
+
+Related: [driver-plan.md](driver-plan.md) (D5, the NIC driver),
+[driver-config-plan.md](driver-config-plan.md) (`net/<drv>/*` keys),
+[architecture/devices.md](architecture/devices.md),
+[architecture/audio.md](architecture/audio.md) (the reference userspace driver),
+[messenger.md](messenger.md), [security-model.md](security-model.md) §4.2 and §5,
+[linux-abi-plan.md](linux-abi-plan.md), [rust-std.md](rust-std.md).
+
+## 1. Summary of recommendations
+
+| Question | Recommendation |
+|---|---|
+| Stack | Reuse **smoltcp** (0.14, 0BSD, `no_std`). Do not write one; do not port Netstack3 or lwIP |
+| Where the stack runs | A userspace service, **`netd`**, separate from the NIC driver. The driver holds DMA authority and parses nothing; `netd` parses hostile packets and holds no device authority |
+| Driver | **`virtio-net`** userspace driver on the existing `libs/virtio` transport, shaped like `sndd`; serves `os.lazy.net.nic.v1` (link layer only). This is the open half of driver stage D5 (issue #241) |
+| Native API | Messenger interfaces in `idl/net.midl`: `os.lazy.net.socket.v1` (sockets, blocking through deferred replies), `os.lazy.net.stack.v1` (admin), plus the NIC interface |
+| Linux ABI | Later stage: `AF_INET` in the kernel shim, fronting `netd`. This makes BusyBox `nc`/`ping`/`ftpget`/`wget` and Rust `std::net` work unmodified, but it is the one piece that needs new kernel code |
+| First tools | Native `netctl`, `ping`, `nc`, `nslookup`, `ftp` against the Messenger API, so the goal is reachable **with no kernel change** |
+| Verification | A `tools/net/run.py` harness modelled on `tools/sound/run.py`: the verdict is the packet capture and what the host peer received, never serial markers alone |
+
+## 2. Where we are
+
+| Piece | State today | Evidence |
+|---|---|---|
+| Network stack, `AF_INET` | none; `socket()` returns `EAFNOSUPPORT` for anything but `AF_UNIX` | `kernel/src/process/linux/socket.rs` |
+| Device core, `dev_*` syscall 23, INTx to userspace, DMA pool | done (D1–D4) | [architecture/devices.md](architecture/devices.md) |
+| Modern virtio-PCI transport, split virtqueues | done, host tested, used by `sndd` | `libs/virtio` |
+| A real virtio-net interrupt reaching a userspace claimant | proven on `pc` and `q35` (test only, legacy device, raw `pio`) | `dev_irq_real_device_end_to_end`, `tools/test/run.py --nic` |
+| NIC driver, `devd`, `_net` uid, driver manifest | not started (D5 remainder) | issue #241 |
+| `os.lazy.net.nic.v1` | **prose only**: `docs/idl/os.lazy.net.nic.v1.md` exists from D0, but there is no `idl/*.midl` for it and no entry in `idl/manifest.json` | `idl/` |
+| Driver config keys | specified (`net/<drv>/mtu`, `rx_ring_entries`, `mac_override`, ...) | [driver-config-plan.md](driver-config-plan.md) §2 |
+| Linux fd layer | `Fd` enum with pipes, `AF_UNIX` stream/seqpacket pairs, listeners, `poll`, `epoll` with edge generations | `kernel/src/task/fdtypes.rs`, `kernel/src/ipc/epoll.rs` |
+| BusyBox | `defconfig` static build already runs on the shim; its network applets are compiled in and simply fail at `socket()` | `tools/abi/busybox.py` |
+| Messenger features the design leans on | deferred replies with real deadlines, `begin_call`/`await_reply`, shared buffers + fences, 1 MiB parcels, kernel-stamped credentials, `PeerDied` | [messenger.md](messenger.md) §6, §7, §10 |
+| Known Messenger gaps that matter here | replies cannot carry handles or buffers; no per-connection channels | [architecture/ipc-core.md](architecture/ipc-core.md) |
+| Time | 100 Hz PIT, 10 ms resolution everywhere | `kernel/src/process/linux/time.rs` |
+| Entropy | kernel ChaCha20 pool behind Linux `getrandom`; no native wrapper found in `user/src/sys.rs` | `kernel/src/entropy.rs` |
+
+## 3. Reusable Rust network stacks
+
+### 3.1 Survey
+
+| Candidate | What it is | Fit for LazyOS | Verdict |
+|---|---|---|---|
+| **[smoltcp](https://github.com/smoltcp-rs/smoltcp)** 0.14.0 (Aug 2026) | Standalone event-driven TCP/IP stack, `no_std`, heap optional, 0BSD, stable Rust 1.91+, about 43k lines. Ethernet, ARP, IPv4 (fragmentation and reassembly), IPv6, ICMP, UDP, TCP (window scaling, out-of-order reassembly, keep-alive, Nagle, delayed ACK, Reno/CUBIC), and DHCPv4, DNS, raw and ICMP sockets | Builds for `x86_64-unknown-none` with `alloc`, no floats, one explicit `poll` loop that maps directly onto a Messenger service loop. 0BSD is compatible with our GPL-3.0-or-later | **Use this** |
+| [embassy-net](https://crates.io/crates/embassy-net) 0.9 | Async wrapper around smoltcp for the Embassy executor | Adds an executor dependency we do not have; the value is all smoltcp's | No; take smoltcp directly |
+| Netstack3 (Fuchsia) | Production, POSIX-oriented Rust stack, about 135k lines, `no_std` core | Not published as a crate; must be vendored out of the Fuchsia tree with its build glue, and the core supplies no sockets/bindings layer. Asterinas evaluated the switch and closed it as not planned ([asterinas#1821](https://github.com/asterinas/asterinas/issues/1821)) | No; revisit only if smoltcp's TCP proves limiting |
+| lwIP (C) through bindings | Mature embedded C stack | Needs a C toolchain in the OS workspace and an `unsafe` FFI boundary around the most exposed parser in the system; contradicts the code standards | No |
+| Write our own | | TCP alone is months of interop debugging; nothing about LazyOS needs a bespoke stack | No |
+| [virtio-drivers](https://crates.io/crates/virtio-drivers) 0.13 (`VirtIONet`) | rCore's virtio guest drivers | We already have `libs/virtio`, built for the `dev_*` handle model and host tested; a second transport would be duplication | No; add a small `libs/virtio-net` next to `libs/virtio-snd` |
+
+Precedent: smoltcp is the stack behind Redox (`smolnetd`), Hermit, Asterinas,
+ArceOS and Theseus, so "hobby or research OS in Rust + smoltcp" is the
+well-trodden path, including the userspace-daemon shape we want (Redox).
+
+### 3.2 What smoltcp does not give us
+
+These are the parts `netd` must own; none is a blocker for the goal.
+
+- **No BSD socket layer.** No blocking calls, no fd, no `accept` backlog: a
+  listening smoltcp TCP socket turns into the one connection it accepts.
+  `netd` emulates a backlog by keeping a small pool of listening sockets per
+  bound port and re-arming on accept.
+- **No ephemeral port allocation, no loopback routing, one device per
+  `Interface`.** `netd` allocates ports, and serves `127.0.0.1` with a second
+  `Interface` over smoltcp's `phy::Loopback` (or short-circuits in the socket
+  layer).
+- **TCP without SACK and timestamps**, IPv4 options ignored. Fine on a LAN and
+  through QEMU user networking; lossy WAN throughput will be modest.
+- **Caller supplies time and randomness.** Time comes from the 100 Hz tick
+  (10 ms granularity: acceptable for TCP timers, poor for `ping` RTT, see §10).
+  Randomness (initial sequence numbers, ports, DHCP/DNS ids) needs a native
+  entropy call.
+- **Compile-time limits** (address count, route count, reassembly buffer,
+  neighbor cache) are set by cargo features / env; pick them once in
+  `libs/netstack`.
+
+Proposed dependency line (exact feature names to be confirmed when pinning):
+
+```toml
+smoltcp = { version = "0.14", default-features = false, features = [
+    "alloc", "medium-ethernet", "proto-ipv4",
+    "socket-tcp", "socket-udp", "socket-icmp", "socket-raw",
+    "socket-dhcpv4", "socket-dns",
+] }
+```
+
+IPv6 (`proto-ipv6`) is a feature flag away and deliberately off for the first cut.
+
+### 3.3 Later, above the stack
+
+| Need | Option |
+|---|---|
+| DHCP, DNS | smoltcp's own `dhcpv4` and `dns` sockets |
+| TLS (S6 stage 3, keys in `keyd`) | [embedded-tls](https://crates.io/crates/embedded-tls) (TLS 1.3 client, `no_std`, no allocator) or rustls (`no_std` + `alloc` with a custom crypto provider over `libs/crypto`) |
+| FTP for `std` programs | [suppaftp](https://crates.io/crates/suppaftp) once `std::net` works through the Linux shim; the native `ftp` tool is small enough to hand-write (§8) |
+
+## 4. Architecture
+
+```
+  ping  nc  ftp  nslookup  netctl          BusyBox nc/wget/ftpget, std::net
+   │ native client lib (generated)               │ Linux syscalls (N5)
+   │                                     ┌───────┴────────┐
+   │                                     │ kernel AF_INET │ thin fd shim,
+   │                                     │ socket shim    │ no protocol code
+   │                                     └───────┬────────┘
+   └──────────────┬──── Messenger ───────────────┘
+                  ▼   os.lazy.net.socket.v1 / os.lazy.net.stack.v1
+        ┌───────────────────┐  uid _netd, no CAP_DEV_CLAIM, no DMA
+        │ netd              │  smoltcp + socket table + DHCP/DNS + policy
+        └─────────┬─────────┘
+                  │ os.lazy.net.nic.v1: control calls + two shared frame rings
+        ┌─────────▼─────────┐  uid _net, CAP_DEV_CLAIM only
+        │ virtio-net driver │  never parses a payload
+        └─────────┬─────────┘
+   ═══════ syscall 23 dev_* : claim · map_bar · irq · dma_alloc ═══════
+                  kernel device core (unchanged)
+```
+
+### 4.1 Where should the stack live?
+
+| Option | For | Against | Verdict |
+|---|---|---|---|
+| A. smoltcp and the NIC driver in the kernel | Fewest hops; Linux `AF_INET` is a direct call | Breaks driver-plan D1/D2 (drivers in userspace, kernel knows no device class); a hostile-packet parser in ring 0; kernel code needs the full correctness + soak suite | Rejected |
+| B. Stack inside the driver process | One copy fewer per frame, one task fewer | The packet parser would hold `DMA` rights, which are kernel-equivalent until an IOMMU exists (driver-plan D5); one stack per NIC; e1000 would duplicate it | Rejected |
+| **C. Separate `netd` over `os.lazy.net.nic.v1`** | Matches the target architecture box (`netd (socket API, DNS, TCP)`), the driver plan ("a future stack service is just another client") and the threat model ("network daemon sandboxed, minimal parser surface"). A `netd` crash is a supervised restart that never touches the device | One extra frame copy and one wake hop per batch | **Recommended** |
+
+The platform plan's "in-kernel socket core" survives as the thin `AF_INET` fd
+shim of §7.2: descriptors, readiness and policy checks in the kernel, protocols
+in `netd`.
+
+## 5. The NIC driver (`virtio-net`)
+
+This completes driver stage D5. `sndd` is the template
+([architecture/audio.md](architecture/audio.md)); the structure carries over
+almost file for file.
+
+| Path (proposed) | Role |
+|---|---|
+| `idl/net.midl` | `os.lazy.net.nic.v1` as real MIDL (today it is prose only), generated into `libs/generated` |
+| `libs/virtio-net/` | Wire definitions, pure `no_std` with host tests: feature bits, `virtio_net_config` (MAC, status), the 12-byte `virtio_net_hdr` |
+| `libs/framering/` | The shared SPSC frame ring used between driver and stack, host tested including a hostile peer |
+| `user/src/bin/netdrv.rs`, `netdrv/` | The driver: `device.rs` (claim, BARs), `queues.rs` (rx/tx virtqueues, DMA slots), `rings.rs` (client rings), `service.rs` (dispatch) |
+| `user/src/bin/nicctl.rs` | Prints MAC, link, stats (the D5 demo) |
+
+**Bring-up sequence**
+
+1. `dev::list`, claim the function. QEMU's default `virtio-net-pci` is
+   *transitional* (`1af4:1000`, legacy and modern both present); with
+   `disable-legacy=on` it is `1af4:1041`. Match both and always drive the
+   modern interface through the capability list.
+2. `Transport::negotiate`: require `VERSION_1`; want `MAC` (bit 5) and `STATUS`
+   (bit 16). Take nothing else at first: no `MRG_RXBUF`, no checksum or
+   segmentation offload, no control queue. `NicInfo.features` stays 0.
+3. One `dma_alloc` for both virtqueues and all packet slots, held for the
+   driver's lifetime. **Never free DMA while the device runs** (the audio
+   lesson: the kernel treats that as a device stop).
+4. Queue 0 is receive, queue 1 transmit. Pre-post every receive slot
+   (12-byte header + 1514-byte frame, one descriptor each). `DRIVER_OK`.
+5. Claim with an interrupt endpoint, `irq_enable`, fall back to polling on
+   `ENOSYS` (`net/virtio-net/irq_mode`, `poll_interval_ms`). Line 11 is shared
+   with virtio-blk on both QEMU machines, so claim with `FLAG_SHARED_IRQ`.
+6. Serve `Info`, `SetRxMode`, `AttachRing`, `DetachRing`, `Stats`; publish
+   `system/net/<nic>/link`.
+
+**Data path.** The driver copies between its own DMA slots and the client's
+shared rings, in both directions, and trusts neither side:
+
+- Device → driver: used-ring ids and lengths are bounds-checked by
+  `libs/virtio`; a length above the slot size is a dropped frame and a stat.
+- Client → driver: ring indices are reduced modulo the capacity. A frame
+  shorter than the 14-byte Ethernet header or longer than the complete-frame
+  bound (MTU + 14, so 1514 bytes at the default 1500-byte MTU) is dropped and
+  counted, never truncated; a valid frame is copied into DMA at its full
+  length, read once. The device never reads memory a client can rewrite
+  (driver-plan §3.4).
+- Driver → client: `netd` must likewise copy a frame out of the shared ring
+  before parsing it, because the producer could rewrite it mid-parse.
+
+**Frame ring (proposal for `libs/framering`).** Fixed 2048-byte slots (a `u16`
+length then the frame), power-of-two slot count, producer and consumer indices
+in a header page. Fixed slots cost memory (256 slots = 512 KiB per direction)
+but make validation trivial and rule out the wrap-around bugs of a variable
+length byte ring. Revisit with a byte ring only if memory matters.
+
+**Points to settle before coding (the IDL is still a draft):**
+
+- *Wake-up.* The draft passes `notify: String`, a topic the driver publishes
+  on. That puts a broker round trip on the receive path. Prefer a one-way
+  message straight to an endpoint the client passes in `AttachRing`, coalesced
+  to one outstanding notice (the same rule the kernel uses for IRQ messages), so
+  `netd` waits on a single endpoint for client calls, NIC notices and timeouts.
+  Fences (`fence_wait`) are the alternative but are a second blocking wait.
+- *Queue size.* `libs/virtio` caps a queue at `MAX_QUEUE = 64` entries; the
+  config plan's default `rx_ring_entries` is 256. Either raise the cap or clamp
+  the key to 64 for now (64 × 2 KiB = 128 KiB of DMA per queue is plenty for a
+  first cut and well inside the 8 MiB `DmaMemory` quota).
+- *`devd`.* D5 bundles `devd` and a driver manifest. Neither is needed to get
+  packets flowing: start the driver from an `init` manifest row with a `_net`
+  credential exactly as `sndd` is (`SND_CRED`), behind a `LAZYOS_NET=1` image
+  flag, and land `devd` separately.
+- *One client.* The ring has one consumer, so the driver accepts one attached
+  client (`EBUSY` otherwise), owner = the kernel-stamped sender, released on
+  `DetachRing` or when the owner's notify endpoint reports the peer gone.
+
+**Second driver.** e1000 (`-device e1000`) stays the D7 genericity proof; it
+serves the same interface, so `netd` does not change.
+
+## 6. `netd`, the stack service
+
+| Path (proposed) | Role |
+|---|---|
+| `libs/netstack/` | Pure `no_std` + `alloc`, host tested: the smoltcp `Device` over a frame-ring pair, the socket table, backlog emulation, port allocation, address and option validation |
+| `user/src/bin/netd.rs`, `netd/` | Service glue: NIC attach, event loop, request dispatch, parked transactions, config, topics |
+
+**Event loop.** One wait: `recv(deadline)` on `netd`'s endpoint, with the
+deadline from smoltcp's `poll_delay`, rounded up to a tick. On wake: drain the
+receive ring into private buffers, `iface.poll`, move data between smoltcp
+sockets and parked client transactions, reply to whatever became ready, flush
+the transmit ring and notify the driver once.
+
+**Blocking calls without threads.** A `Recv`, `Accept` or `Connect` that
+cannot finish is *parked*: `netd` keeps the transaction id and replies later,
+exactly as the topics broker parks `next_event`. The caller sleeps in the
+kernel with a real deadline; `msg_cancel` and `PeerDied` clean up.
+
+**Configuration and state**
+
+- DHCP by default; static settings from `confd` under `sys/net/<if>/`
+  (`mode`, `address`, `gateway`, `dns`), read-only for `netd`, with the
+  clamp-and-default rules of [driver-config-plan.md](driver-config-plan.md) §4.
+  `confd` is a soft dependency.
+- State goes on retained topics, not into `confd`: `system/net/<if>/addr`,
+  `system/net/<if>/link`, and `system/events/network/up` (already named in
+  [topics-catalog.md](topics-catalog.md)).
+
+**Limits.** A fixed socket table (say 64), a per-uid socket quota, fixed
+per-socket buffers (for example 16 KiB each way for TCP, 8 datagrams for UDP).
+Nothing is allocated from a client-supplied size.
+
+**Identity.** A dedicated `_netd` uid with no capabilities. It is the only
+permitted client of the NIC driver and the only holder of the ring buffers.
+
+## 7. Userland API
+
+### 7.1 Native: Messenger interfaces (`idl/net.midl`)
+
+Per AGENTS.md every interface is MIDL; nothing below is hand-encoded.
+
+| Interface | Served by | Purpose |
+|---|---|---|
+| `os.lazy.net.nic.v1` | driver | link layer (§5) |
+| `os.lazy.net.stack.v1` | `netd` | `Interfaces`, `Addresses`, `Routes`, `Stats`, `Resolve(name)`; what `netctl` and `nslookup` call |
+| `os.lazy.net.socket.v1` | `netd` | sockets |
+
+Sketch of the socket interface (shape only; names and types to be fixed in
+review):
+
+```idl
+interface os.lazy.net.socket.v1 {
+    method Open(kind: U32, protocol: U32) -> (sock: U32);      // Stream, Datagram, IcmpEcho, Raw
+    method Bind(sock: U32, addr: SockAddr) -> ();
+    method Connect(sock: U32, addr: SockAddr) -> ();            // parks until established
+    method Listen(sock: U32, backlog: U32) -> ();
+    method Accept(sock: U32) -> (conn: U32, peer: SockAddr);    // parks
+    method Send(sock: U32, data: Bytes) -> (sent: U32);         // parks when the window is full
+    method Recv(sock: U32, max: U32) -> (data: Bytes);          // parks; max = 0 is EINVAL; empty = end of stream
+    method SendTo(sock: U32, addr: SockAddr, data: Bytes) -> (sent: U32);
+    method RecvFrom(sock: U32, max: U32) -> (data: Bytes, from: SockAddr);
+    method Poll(sock: U32, interest: U32) -> (ready: U32);      // parks until any bit is ready
+    method Shutdown(sock: U32, how: U32) -> ();
+    method SetOption(sock: U32, option: U32, value: U64) -> ();
+    method LocalAddr(sock: U32) -> (addr: SockAddr);
+    method PeerAddr(sock: U32) -> (addr: SockAddr);
+    method Close(sock: U32) -> ();
+
+    struct SockAddr { family: U32, addr: Bytes, port: U32 }     // 4 or 16 address octets
+}
+```
+
+Design notes:
+
+- **Ownership.** A socket belongs to the kernel-stamped sender of `Open`; every
+  other caller gets `EACCES` (the `sndd` stream rule). Nothing in a request body
+  names a caller.
+- **Data plane, first cut: bytes in parcels.** Parcels carry up to 1 MiB, so a
+  16 KiB `Send`/`Recv` chunk is one copy each way. This is enough for every
+  tool in §8. A per-socket shared ring (client-supplied buffer in the request,
+  as audio does) is a later optimisation, not a prerequisite.
+- **End of stream is unambiguous.** `Recv` and `RecvFrom` reject `max = 0`
+  with `EINVAL`, so an empty `data` on a stream socket always means the peer
+  closed. Readiness without reading is `Poll`'s job, not a zero-length read.
+- **Multiplexing.** `nc` needs "socket or stdin, whichever first": it issues
+  `Recv` with `begin_call`, polls stdin, and collects the reply with
+  `await_reply` (or uses `messenger_async`). `Poll` covers many sockets.
+- **Lifetime is the open problem.** `netd` must reclaim a dead client's
+  sockets, and socket ids in one shared endpoint give it no death signal.
+  Preferred fix: the client creates a channel pair and passes one end in the
+  `Open` request (requests can carry endpoints; replies cannot), so each socket
+  is its own channel and kernel teardown of the client closes it. This depends
+  on `netd` being able to observe "peer closed" on a channel it is not
+  currently calling; if that is not available yet, fall back to an idle
+  reclaim timer like `sndd`'s and track the gap with the "per-connection
+  channels" item in [architecture/ipc-core.md](architecture/ipc-core.md).
+- **Client library.** `user/src/messenger/net.rs`: the generated client plus
+  thin `TcpStream`, `TcpListener`, `UdpSocket` wrappers named after `std::net`,
+  so tools read conventionally and a future native `std` port (rust-std.md
+  Route A) has an obvious mapping.
+
+### 7.2 Linux ABI: `AF_INET` in the kernel shim
+
+Static musl binaries issue raw `socket`/`connect`/`sendto` syscalls, so there
+is no libc layer to retarget (unlike Fuchsia's fdio or Redox's relibc); the
+kernel shim has to front `netd`. Two ways:
+
+| Option | How | For | Against |
+|---|---|---|---|
+| L1. Proxy every call (Redox scheme style) | `read`/`write`/`connect` on an `Fd::Inet` become Messenger calls to `netd`, made by the kernel on the caller's behalf | Least kernel state | The kernel today can only *post* one-way messages (`post_from_kernel`); it needs a kernel-originated synchronous call stamped with the caller's credentials. `poll`/`epoll` scan `Fd::poll()` synchronously and cannot round-trip to `netd` |
+| **L2. Kernel socket object, `netd` behind it (Fuchsia `zx_socket` style)** | `Fd::Inet` wraps a kernel object with two byte or datagram queues and a state word, like today's `SocketPair`. The app's `read`/`write`/`poll`/`epoll` run entirely in the kernel on that object; control calls (`connect`, `bind`, `listen`, `accept`, options) go to `netd` over Messenger; `netd` pumps the far side | Reuses the existing stream, readiness and edge-generation code; no `netd` round trip per `read` | `netd`, a native task, needs a way to hold the far side (a new handle kind or a small `sock_*` native syscall); still needs the kernel-originated control call |
+
+Recommendation: **L2**, decided by a spike in stage N5. Either way this is new
+kernel surface, so it ships with correctness and soak tests in
+`kernel/src/tests/` (hostile `sockaddr` lengths, fd exhaustion, close during a
+parked `connect`, thousands of connect/close cycles, `netd` death with sockets
+open) and `python tools/test/run.py --accel none` must pass.
+
+What falls out once it works:
+
+- **BusyBox applets**, already in the image: `nc`, `wget`, `ftpget`/`ftpput`,
+  `telnet`, `tftp`, `nslookup`, and servers (`ftpd`, `httpd`, `telnetd`).
+  `ping` needs a raw or datagram ICMP socket mapped onto `netd`'s `IcmpEcho`
+  kind.
+- **Rust `std::net`** in any musl program, including XUI apps.
+- **DNS for free**: musl resolves names itself over UDP, so it only needs
+  `/etc/resolv.conf` (written by `netd` from DHCP) and `/etc/hosts` in the
+  overlay root.
+- Not covered: netlink and the `SIOCGIF*` ioctls, so BusyBox `ifconfig`/`route`
+  will not work; `netctl` is the supported tool.
+
+Also note `FD_COUNT` is 16 per task: enough for the tools here, tight for any
+real server.
+
+### 7.3 Authority and policy
+
+- The default-deny Messenger ACL already gates `os.lazy.net.socket.v1` per
+  method, so "this label may `Connect` but not `Listen`" is a policy rule, not
+  new mechanism. Apps get no network unless granted
+  ([security-model.md](security-model.md) §5 item 4).
+- `netd` enforces the two reserved capabilities from the kernel-stamped
+  credentials: `CAP_NET_BIND` for ports below 1024, `CAP_NET_RAW` for the `Raw`
+  kind. The `IcmpEcho` kind is a datagram echo socket and needs neither, so
+  `ping` runs unprivileged.
+- The Linux shim must pass the *caller's* stamped identity on control calls.
+  `netd` trusts it only on the kernel-originated path, never from a request
+  body.
+- Every refusal is audited. Egress rules, per-sandbox firewalling and consent
+  prompts are S7 and hook in at `netd`'s `Connect`/`Bind`/`SendTo`.
+
+## 8. The tools
+
+Native programs in `user/src/bin/`, added to the native-program table in
+`kernel/src/process/linux/native.rs` so the shell and the desktop Terminal can
+run them (as `beep` was).
+
+| Tool | Does | Needs |
+|---|---|---|
+| `nicctl` | MAC, link, frame counters | NIC driver only |
+| `netctl` | `netctl addr`, `route`, `stats`, `dhcp renew` | `stack.v1` |
+| `ping <host> [count]` | ICMP echo with sequence, loss and RTT | `IcmpEcho` socket, `Resolve` |
+| `nslookup <name>` | A-record lookup | `Resolve` |
+| `nc <host> <port>`, `nc -l <port>`, `-u` | stdin/stdout to a TCP or UDP socket, client or listener | `Stream`/`Datagram` sockets, stdin multiplexing |
+| `ftp <host>` | Passive mode only (`PASV`), binary transfers: `ls`, `cd`, `pwd`, `get`, `put`, `quit`; files through the VFS (`/tmp`, `/data`) | two TCP sockets; a small host-tested reply parser in `libs/` |
+
+FTP is a line protocol with a second data connection; a passive-only client is
+a few hundred lines and a good end-to-end exercise for connect, stream I/O and
+close ordering. After stage N5 the BusyBox equivalents work as well, which
+gives a useful cross-check: two independent clients over the same stack.
+
+## 9. Verification
+
+Same principle as audio: serial markers say *when* to look; the evidence is
+what crossed the wire.
+
+**QEMU setup.** `-netdev user,id=n0 -device virtio-net-pci,netdev=n0
+-object filter-dump,id=f0,netdev=n0,file=net.pcap`. User networking gives the
+guest 10.0.2.15 by DHCP, a gateway at 10.0.2.2 that reaches the host and
+answers echo requests itself, and DNS at 10.0.2.3. `hostfwd=tcp::PORT-:7`
+exposes a guest listener to the host. Echo to addresses beyond the gateway
+depends on the host's ICMP support, so tests ping the gateway only.
+
+| Layer | What | Run |
+|---|---|---|
+| Host unit | `libs/virtio-net` (layouts, feature sets), `libs/framering` (wrap, full/empty, hostile indices and lengths, long soak), `libs/netstack` (smoltcp over a scripted device: ARP, DHCP, echo, TCP open/transfer/close, backlog, port exhaustion, malformed and truncated frames) | `cargo test -p virtio-net -p framering -p netstack` |
+| Harness unit | The pcap checker must fail when it should (missing reply, wrong payload, truncated capture) | `python tools/net/test_analyze_pcap.py` |
+| End to end | `python tools/net/run.py`: DHCP completes; `ping 10.0.2.2` shows request and reply in the pcap; guest `nc` to a host echo server returns the exact bytes; host connects through `hostfwd` to guest `nc -l`; `ftp` get and put against a harness-run FTP server compare byte for byte; hostile-input probe and a connect/close soak, as `beep probe=1`/`soak=40` do | new |
+| Variants | `--services` (supervised, `_net`/`_netd` uids), `--machine q35 --virtio-disk`, `--no-device` (driver and `netd` exit or idle cleanly), `--poll` (no interrupts) | new |
+| Kernel | Only if kernel code is added (stage N5): correctness + soak in `kernel/src/tests/` | `python tools/test/run.py --accel none` |
+| ABI bench | Stage N5: `tcpecho` and `udpecho` fixtures using plain `std::net` | `python tools/abi/run.py` |
+| Visual | Terminal session typing `ping`, captured with `qemu_session.py` | optional |
+
+A fully deterministic alternative to user networking is a host-side peer on a
+raw-frame netdev (`-netdev socket`/`dgram`), where the harness script answers
+ARP and echo itself. Keep it in reserve for frame-level tests (the D5 "inject
+an ARP reply" check) and for CI hosts where user-mode ICMP is unreliable.
+
+## 10. Staged delivery
+
+Each stage is independently mergeable and ends with evidence.
+
+| Stage | Deliverable | Kernel change | Evidence |
+|---|---|---|---|
+| **N0** | This plan reviewed; `idl/net.midl` with the NIC interface (wake-up mechanism settled), frame-ring layout, `libs/framering` + `libs/virtio-net` with host tests | none | `cargo test`; `midlc` output replaces the hand-written IDL page |
+| **N1** | `virtio-net` driver, `_net` uid, `init` row, `LAZYOS_NET=1`, `nicctl`, `tools/net/run.py` skeleton, `--net` in `run_demo.py`; class ACL rules for `_net` on `os.kernel.dev.net` (claim, map, DMA). Closes the D5 half of #241 | none expected | `NET:NIC:PASS`; a transmitted ARP request and its reply in the pcap; interrupt delivery count |
+| **N2** | `libs/netstack` + `netd`: DHCP, ARP, echo responder, `stack.v1`, `netctl`, and `ping`; ACL rules making `_netd` the only permitted client of `nic.v1`, and for `stack.v1` | a native entropy call if none exists | `ping 10.0.2.2` replies visible in the pcap: **first user-visible milestone** |
+| **N3** | `socket.v1` (TCP, UDP, parked calls, ownership, reclaim), client library, `nc`, `nslookup`; ACL rules for the `socket.v1` methods | none (or peer-closed notification, §7.1) | bytes round-trip with a host echo server both ways; probe and soak modes |
+| **N4** | `ftp` client | none | byte-exact get/put against the harness server: **stated goal reached** |
+| **N5** | Linux `AF_INET` shim (L1/L2 spike, then build), `/etc/resolv.conf`, ABI fixtures | **yes**, with full test coverage | BusyBox `nc`/`wget`/`ftpget` and `std::net` fixtures pass |
+| **N6** | Hardening: per-profile tightening of the socket rules and denial tests, quotas, loopback, e1000, shared-ring data plane, finer clock, fuzzing the frame and request parsers | some | policy denial tests, throughput numbers |
+
+ACL grants land with the stage that introduces the actor, not at the end. The
+fabric is still in its bootstrap-allow window today (as for `sndd`, see
+[architecture/audio.md](architecture/audio.md) "Not done"), so nothing is
+refused without them yet, but each stage must keep working the moment a policy
+is loaded.
+
+After N6 the rest of S6 (TLS through `keyd`, IPv6, daemons, Messenger over the
+network) builds on the same interfaces.
+
+## 11. Risks and open questions
+
+1. **Peer-death signalling for sockets** (§7.1). Decides whether a socket is a
+   channel or an id. Needs an answer in N0, because it shapes the IDL.
+2. **Kernel-originated synchronous calls** (§7.2). Required by the Linux shim
+   under both options; does not exist today. Isolated to N5 so it cannot delay
+   the native tools.
+3. **10 ms clock.** `ping` will report RTTs of 0 or 10 ms, and a `netd` that
+   only wakes on ticks adds latency. Interrupt-driven wake-ups solve the
+   second; the first wants a TSC-backed monotonic clock exposed to native
+   programs. Worth doing in N6, not before.
+4. **Latency of three context switches per packet** (driver → `netd` → app) on
+   one CPU. Batch per wake, coalesce notifications, measure before optimising.
+   Interactive tools will not notice; bulk transfer numbers go in N6.
+5. **Shared interrupt line 11** with the polled in-kernel virtio-blk. Covered
+   by the shared-INTx contract, but the ack deadline (100 ticks) means a busy
+   `netdrv` must ack promptly; polling remains the fallback.
+6. **NIC IDL is unimplemented prose.** `notify: String` and the single-ring
+   rule should be revisited while it is still free to change (§5).
+7. **`MAX_QUEUE = 64`** in `libs/virtio` against a documented default of 256
+   ring entries (§5).
+8. **smoltcp TCP limits** (no SACK/timestamps, one connection per listening
+   socket). Acceptable for the goal; the fallback if it ever is not would be
+   vendoring Netstack3's core, which is a large project.
+9. **Task and fd budgets.** Two more always-on services (driver, `netd`) and
+   16 fds per task. Fine now (`MAX_TASKS` is 64); revisit for servers.
+10. **Trusted DMA driver.** Unchanged from driver-plan D5; the split in §4.1
+    keeps the parser out of that trust domain.
+
+## 12. Non-goals for this plan
+
+IPv6, TLS, Wi-Fi, routing/forwarding/NAT, multiple NICs, a firewall language,
+netlink or `ifconfig` compatibility, zero-copy receive, remote Messenger
+transport, and hot-plug. Each has a seam above; none is needed for `ping`,
+`nc` and `ftp`.
