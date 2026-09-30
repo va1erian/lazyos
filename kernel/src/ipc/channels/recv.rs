@@ -21,22 +21,11 @@ fn take_or_register(
     side: usize,
     waiter: Option<usize>,
 ) -> Result<Option<Message>, Error> {
-    let queued = {
-        let mut channels = CHANNELS.lock();
-        let channel = find_channel(&mut channels, channel_id)?;
-        let endpoint = &mut channel.endpoints[side];
-        if let Some(message) = endpoint.inbox.pop_front() {
-            endpoint.queued_bytes = endpoint.queued_bytes.saturating_sub(message.bytes.len());
-            Some(message)
-        } else if channel.endpoints[1 - side].closed {
-            return Err(Error::PeerDied);
-        } else {
-            if let Some(slot) = waiter {
-                add_waiter(&mut channel.endpoints[side], slot);
-            }
-            None
-        }
-    };
+    let mut abandoned = Vec::new();
+    let taken = take_locked(channel_id, side, waiter, &mut abandoned);
+    // Woken with `CHANNELS` released (queue-then-task lock order).
+    wake(&abandoned);
+    let queued = taken?;
     match queued {
         Some(message) => {
             // Delivery takes the message out of the inbox, so the sender's
@@ -45,6 +34,66 @@ fn take_or_register(
             Ok(Some(deliver(message)?))
         }
         None => Ok(None),
+    }
+}
+
+/// The locked half of [`take_or_register`]. Callers of polls the receiver had
+/// left unanswered are pushed onto `abandoned` for the caller to wake.
+fn take_locked(
+    channel_id: u64,
+    side: usize,
+    waiter: Option<usize>,
+    abandoned: &mut Vec<usize>,
+) -> Result<Option<Queued>, Error> {
+    let mut channels = CHANNELS.lock();
+    let channel = find_channel(&mut channels, channel_id)?;
+    // Coming back to receive means the receiver is done with its previous
+    // message: any poll it neither answered nor is still working on is over.
+    expire_served_polls(channel, side, abandoned);
+    let endpoint = &mut channel.endpoints[side];
+    if let Some(message) = endpoint.inbox.pop_front() {
+        endpoint.queued_bytes = endpoint.queued_bytes.saturating_sub(message.bytes.len());
+        if let (Some(txn), Some(POLL_DEADLINE)) = (message.txn, message.deadline) {
+            endpoint.serving_polls.push(txn);
+            // Received: the grace deadline no longer applies, or a slow
+            // service turn would have its reply refused. The parked caller
+            // wakes at the old deadline, finds it replaced and parks again
+            // (`await_reply` only expires a deadline that is actually due).
+            if let Some(entry) = channel.txns.iter_mut().find(|entry| entry.id == txn) {
+                if entry.state == TxnState::Pending {
+                    entry.deadline = Some(task::ticks() + POLL_SERVICE_TICKS);
+                }
+            }
+        }
+        Ok(Some(message))
+    } else if channel.endpoints[1 - side].closed {
+        Err(Error::PeerDied)
+    } else {
+        if let Some(slot) = waiter {
+            add_waiter(&mut channel.endpoints[side], slot);
+        }
+        Ok(None)
+    }
+}
+
+/// End every poll `side` received earlier and never answered: the receiver
+/// has returned to `recv`, so it answered (the transaction is already
+/// `Replied`) or deferred the request (a parked pull), and a poll must not
+/// wait for a deferred answer. Callers are appended to `woken`.
+fn expire_served_polls(channel: &mut Channel, side: usize, woken: &mut Vec<usize>) {
+    let served = core::mem::take(&mut channel.endpoints[side].serving_polls);
+    for id in served {
+        let Some(index) = channel.txns.iter().position(|txn| txn.id == id) else {
+            continue;
+        };
+        if channel.txns[index].state != TxnState::Pending {
+            continue;
+        }
+        channel.txns[index].state = TxnState::TimedOut;
+        channel.timeouts += 1;
+        let caller = channel.txns[index].caller;
+        release_pending(channel, caller);
+        woken.push(caller);
     }
 }
 
