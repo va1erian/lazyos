@@ -108,6 +108,14 @@ fn print_history(slot: usize) {
             Event::Syscall { nr, a1, result } => {
                 crate::serial_println!("user: trace syscall {nr} a1={a1:#x} -> {result:#x}")
             }
+            Event::Signal {
+                sig,
+                via: trace::Via::Fault { addr },
+                rip,
+                rsp,
+            } => crate::serial_println!(
+                "user: trace signal {sig} via fault at addr={addr:#x} over rip={rip:#x} rsp={rsp:#x}"
+            ),
             Event::Signal { sig, via, rip, rsp } => crate::serial_println!(
                 "user: trace signal {sig} via {} over rip={rip:#x} rsp={rsp:#x}",
                 via.label()

@@ -232,6 +232,12 @@ pub fn soak_frame_validation() -> Result<(), String> {
                 "frame_below({top:#x}) -> {base:#x}"
             );
         }
+        if let Some(entry) = harden::handler_frame_below(top, 640) {
+            check!(
+                entry % 16 == 8 && entry >= 0x1000 && entry + 640 <= top,
+                "handler_frame_below({top:#x}) -> {entry:#x}"
+            );
+        }
         let flags = harden::sanitize_rflags(seed);
         check!(
             flags & RFLAGS_IOPL == 0 && flags & RFLAGS_IF != 0 && flags & 0x2 != 0,
