@@ -6621,6 +6621,494 @@ pub mod os_lazy_mimed_v1 {
     }
 }
 
+/// `os.lazy.net.nic.v1` (interface id `0x6748c83c2024715b`).
+#[rustfmt::skip]
+pub mod os_lazy_net_nic_v1 {
+    use alloc::vec::Vec;
+    #[allow(unused_imports)]
+    use alloc::string::String;
+    // Not every interface needs every codec item (`Kind` is only used by nested values).
+    #[allow(unused_imports)]
+    use libmessenger::{Decoder, Encoder, Error, Kind};
+    // Only interfaces that declare topics use the shared topic runtime.
+    #[allow(unused_imports)]
+    use super::topics;
+
+    /// The interface id: the FNV-1a hash of the `.vN` interface name.
+    pub const INTERFACE_ID: u64 = 0x6748c83c2024715b;
+
+    /// `NotifyBit::RxReady` wire value.
+    pub const NOTIFY_BIT_RX_READY: u32 = 0;
+    /// `NotifyBit::TxSpace` wire value.
+    pub const NOTIFY_BIT_TX_SPACE: u32 = 1;
+    /// `NotifyBit::LinkChange` wire value.
+    pub const NOTIFY_BIT_LINK_CHANGE: u32 = 2;
+
+    /// `RxMode::Off` wire value.
+    pub const RX_MODE_OFF: u32 = 0;
+    /// `RxMode::Filtered` wire value.
+    pub const RX_MODE_FILTERED: u32 = 1;
+    /// `RxMode::Promiscuous` wire value.
+    pub const RX_MODE_PROMISCUOUS: u32 = 2;
+
+    /// Card description.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct NicInfo {
+        pub mac: alloc::vec::Vec<u8>,
+        pub mtu: u32,
+        pub max_frame: u32,
+        pub link: bool,
+        pub features: u32,
+    }
+
+    pub fn encode_nic_info(value: &NicInfo) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.bytes(1, &value.mac)?;
+        target.u32(2, value.mtu)?;
+        target.u32(3, value.max_frame)?;
+        target.bool(4, value.link)?;
+        target.u32(5, value.features)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_nic_info(body: &[u8]) -> Result<NicInfo, Error> {
+        let mut out = NicInfo::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.mac = field.as_bytes().to_vec();
+                }
+                2 => {
+                    out.mtu = field.as_u32()?;
+                }
+                3 => {
+                    out.max_frame = field.as_u32()?;
+                }
+                4 => {
+                    out.link = field.as_bool()?;
+                }
+                5 => {
+                    out.features = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Six octets, network order.
+    /// Payload bytes of the largest frame the card carries.
+    /// Largest complete frame (`mtu` plus the 14-byte Ethernet header),
+    /// the bound the driver enforces in both directions.
+    /// Capability bitmap, zero if none: bit 0 receive checksum offload,
+    /// bit 1 transmit checksum offload, bit 2 VLAN tag insert/strip. Other
+    /// bits are reserved: a driver sets them to zero and a client ignores
+    /// them.
+    /// Counters since the driver started.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct NicStats {
+        pub rx_frames: u64,
+        pub tx_frames: u64,
+        pub rx_bytes: u64,
+        pub tx_bytes: u64,
+        pub rx_dropped: u64,
+        pub tx_dropped: u64,
+        pub runts: u64,
+        pub oversize: u64,
+        pub ring_errors: u64,
+        pub interrupts: u64,
+        pub link_changes: u32,
+    }
+
+    pub fn encode_nic_stats(value: &NicStats) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.rx_frames)?;
+        target.u64(2, value.tx_frames)?;
+        target.u64(3, value.rx_bytes)?;
+        target.u64(4, value.tx_bytes)?;
+        target.u64(5, value.rx_dropped)?;
+        target.u64(6, value.tx_dropped)?;
+        target.u64(7, value.runts)?;
+        target.u64(8, value.oversize)?;
+        target.u64(9, value.ring_errors)?;
+        target.u64(10, value.interrupts)?;
+        target.u32(11, value.link_changes)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_nic_stats(body: &[u8]) -> Result<NicStats, Error> {
+        let mut out = NicStats::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.rx_frames = field.as_u64()?;
+                }
+                2 => {
+                    out.tx_frames = field.as_u64()?;
+                }
+                3 => {
+                    out.rx_bytes = field.as_u64()?;
+                }
+                4 => {
+                    out.tx_bytes = field.as_u64()?;
+                }
+                5 => {
+                    out.rx_dropped = field.as_u64()?;
+                }
+                6 => {
+                    out.tx_dropped = field.as_u64()?;
+                }
+                7 => {
+                    out.runts = field.as_u64()?;
+                }
+                8 => {
+                    out.oversize = field.as_u64()?;
+                }
+                9 => {
+                    out.ring_errors = field.as_u64()?;
+                }
+                10 => {
+                    out.interrupts = field.as_u64()?;
+                }
+                11 => {
+                    out.link_changes = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Frames dropped on receive for any reason (no ring, ring full, and
+    /// the invalid frames below).
+    /// Frames dropped on transmit for any reason (queue full, and the
+    /// invalid frames below).
+    /// Frames shorter than the 14-byte Ethernet header, either direction.
+    /// Frames longer than `max_frame`, either direction.
+    /// Rings poisoned by a peer that broke the protocol, plus device
+    /// used-ring entries the driver rejected.
+    /// Interrupt messages the driver handled (0 when polling).
+    /// The payload of `system/net/{nic}/link`.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct LinkEvent {
+        pub up: bool,
+        pub changes: u32,
+    }
+
+    pub fn encode_link_event(value: &LinkEvent) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.bool(1, value.up)?;
+        target.u32(2, value.changes)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_link_event(body: &[u8]) -> Result<LinkEvent, Error> {
+        let mut out = LinkEvent::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.up = field.as_bool()?;
+                }
+                2 => {
+                    out.changes = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// `Info` method id.
+    pub const METHOD_INFO: u32 = 266462757;
+    /// `SetRxMode` method id.
+    pub const METHOD_SETRXMODE: u32 = 506115710;
+    /// `AttachRing` method id.
+    pub const METHOD_ATTACHRING: u32 = 62355614;
+    /// `DetachRing` method id.
+    pub const METHOD_DETACHRING: u32 = 162562056;
+    /// `Stats` method id.
+    pub const METHOD_STATS: u32 = 267161228;
+    /// `Kick` method id.
+    pub const METHOD_KICK: u32 = 754690623;
+    /// `Notify` method id.
+    pub const METHOD_NOTIFY: u32 = 314575196;
+
+    /// Describe the card: MAC, MTU, link state and the negotiated feature set.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct InfoReply {
+        pub info: NicInfo,
+    }
+
+    pub fn encode_info_reply(value: &InfoReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.raw(Kind::Struct, 1, &encode_nic_info(&value.info)?)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_info_reply(body: &[u8]) -> Result<InfoReply, Error> {
+        let mut out = InfoReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.info = decode_nic_info(field.payload)?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Choose which received frames reach the client: an `RxMode` ordinal.
+    /// The reply says whether the driver applied it (a device without a
+    /// filter table treats `Filtered` as `Promiscuous` and answers `false`).
+    /// Only the attached client may change it.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct SetRxModeArgs {
+        pub mode: u32,
+    }
+
+    pub fn encode_set_rx_mode_args(value: &SetRxModeArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.mode)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_set_rx_mode_args(body: &[u8]) -> Result<SetRxModeArgs, Error> {
+        let mut out = SetRxModeArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.mode = field.as_u32()?;
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct SetRxModeReply {
+        pub ok: bool,
+    }
+
+    pub fn encode_set_rx_mode_reply(value: &SetRxModeReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.bool(1, value.ok)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_set_rx_mode_reply(body: &[u8]) -> Result<SetRxModeReply, Error> {
+        let mut out = SetRxModeReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.ok = field.as_bool()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Attach the client's rings and notify endpoint (see the interface
+    /// notes for what the parcel carries). `slots` is the slot count of both
+    /// rings. The reply is the ring id later calls name.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct AttachRingArgs {
+        pub slots: u32,
+    }
+
+    pub fn encode_attach_ring_args(value: &AttachRingArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.slots)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_attach_ring_args(body: &[u8]) -> Result<AttachRingArgs, Error> {
+        let mut out = AttachRingArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.slots = field.as_u32()?;
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct AttachRingReply {
+        pub ring: u32,
+    }
+
+    pub fn encode_attach_ring_reply(value: &AttachRingReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.ring)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_attach_ring_reply(body: &[u8]) -> Result<AttachRingReply, Error> {
+        let mut out = AttachRingReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.ring = field.as_u32()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Release the rings; the driver stops reading and writing them. Also
+    /// implied when the owner exits or its notify endpoint reports the peer
+    /// gone.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct DetachRingArgs {
+        pub ring: u32,
+    }
+
+    pub fn encode_detach_ring_args(value: &DetachRingArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.ring)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_detach_ring_args(body: &[u8]) -> Result<DetachRingArgs, Error> {
+        let mut out = DetachRingArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.ring = field.as_u32()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Frame and error counters since the driver started.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct StatsReply {
+        pub stats: NicStats,
+    }
+
+    pub fn encode_stats_reply(value: &StatsReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.raw(Kind::Struct, 1, &encode_nic_stats(&value.stats)?)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_stats_reply(body: &[u8]) -> Result<StatsReply, Error> {
+        let mut out = StatsReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.stats = decode_nic_stats(field.payload)?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Event, client to driver: the client queued frames in the transmit ring
+    /// of `ring`. Ignored from anyone but the owner.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct KickArgs {
+        pub ring: u32,
+    }
+
+    pub fn encode_kick_args(value: &KickArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.ring)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_kick_args(body: &[u8]) -> Result<KickArgs, Error> {
+        let mut out = KickArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.ring = field.as_u32()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Event, driver to client: something needs the client's attention.
+    /// `events` is a bitmap: bit *n* is set for the `NotifyBit` with ordinal
+    /// *n*. Reserved bits are zero; a client ignores them.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct NotifyArgs {
+        pub ring: u32,
+        pub events: u32,
+    }
+
+    pub fn encode_notify_args(value: &NotifyArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.ring)?;
+        target.u32(2, value.events)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_notify_args(body: &[u8]) -> Result<NotifyArgs, Error> {
+        let mut out = NotifyArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.ring = field.as_u32()?;
+                }
+                2 => {
+                    out.events = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Link changes since the driver started, so a subscriber can tell a
+    /// flap from a repeat.
+    /// Published by the driver whenever the link changes, and once at start.
+    /// `{nic}` is the driver's card name (`virtio-net0`).
+    /// The declared `system/net/+/link` topic (`LinkEvent`, `latest`, retained).
+    pub const TOPIC_SYSTEM_NET_LINK: &str = "system/net/+/link";
+    /// The `system/net/+/link` delivery policy.
+    pub const TOPIC_SYSTEM_NET_LINK_QOS: u32 = topics::QOS_LATEST;
+    /// Whether `system/net/+/link` publishes are retained.
+    pub const TOPIC_SYSTEM_NET_LINK_RETAINED: bool = true;
+
+    /// Build the concrete `system/net/+/link` name; each wildcard takes one literal segment.
+    pub fn name_system_net_link(nic: &str) -> Result<String, topics::TopicError> {
+        topics::build(TOPIC_SYSTEM_NET_LINK, &[nic], topics::Mode::Publish)
+    }
+
+    /// Encode a `LinkEvent` payload for `system/net/+/link`.
+    pub fn encode_system_net_link(value: &LinkEvent) -> Result<Vec<u8>, Error> {
+        encode_link_event(value)
+    }
+
+    /// Decode a `system/net/+/link` payload; malformed bytes are an error.
+    pub fn decode_system_net_link(body: &[u8]) -> Result<LinkEvent, Error> {
+        decode_link_event(body)
+    }
+
+    /// Publish a typed `LinkEvent` on `system/net/+/link`.
+    pub fn publish_system_net_link<P>(publisher: &mut P, nic: &str, value: &LinkEvent) -> Result<u64, P::Error>
+    where
+        P: topics::Publish,
+        P::Error: From<topics::TopicError>,
+    {
+        let topic = name_system_net_link(nic).map_err(P::Error::from)?;
+        let payload = encode_system_net_link(value)
+            .map_err(|error| P::Error::from(topics::TopicError::Encode(error)))?;
+        publisher.publish_topic(&topic, &payload, TOPIC_SYSTEM_NET_LINK_RETAINED)
+    }
+
+    /// Subscribe to `system/net/+/link` with its declared QoS.
+    pub fn subscribe_system_net_link<S>(subscriber: &mut S, nic: &str) -> Result<S::Subscription, S::Error>
+    where
+        S: topics::Subscribe,
+        S::Error: From<topics::TopicError>,
+    {
+        let filter = topics::build(TOPIC_SYSTEM_NET_LINK, &[nic], topics::Mode::Subscribe)
+            .map_err(S::Error::from)?;
+        subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_NET_LINK_QOS)
+    }
+}
+
 /// `os.lazy.messenger.registry.v1` (interface id `0x51d501afec09806c`).
 #[rustfmt::skip]
 pub mod os_lazy_messenger_registry_v1 {
@@ -8100,6 +8588,15 @@ pub static DECLARED_TOPICS: &[topics::TopicDecl] = &[
         retained: false,
         publish_permission: "publish:system/events/open/+",
         subscribe_permission: "subscribe:system/events/open/+",
+    },
+    topics::TopicDecl {
+        interface: "os.lazy.net.nic.v1",
+        name: "system/net/+/link",
+        payload: "LinkEvent",
+        qos: topics::QOS_LATEST,
+        retained: true,
+        publish_permission: "publish:system/net/+/link",
+        subscribe_permission: "subscribe:system/net/+/link",
     },
     topics::TopicDecl {
         interface: "os.lazy.sysmond.v1",

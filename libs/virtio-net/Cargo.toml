@@ -1,0 +1,18 @@
+[package]
+name = "virtio-net"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "virtio-net wire definitions: feature bits, device config and the packet header"
+license = "GPL-3.0-or-later"
+
+[lib]
+name = "virtio_net"
+path = "src/lib.rs"
+
+[features]
+# Expose `fuzz::run`, shared by the in-tree seeded tests and the cargo-fuzz target.
+fuzz = []
+
+[dev-dependencies]
+fuzzkit = { path = "../fuzzkit" }

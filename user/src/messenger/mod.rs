@@ -411,3 +411,11 @@ pub mod timed;
 /// The `os.lazy.audio.v1` client: streams, the shared ring and the transport
 /// controls of the `sndd` driver.
 pub mod audio;
+
+// ---------------------------------------------------------------------------
+// Networking (docs/networking-plan.md N1)
+// ---------------------------------------------------------------------------
+
+/// The `os.lazy.net.nic.v1` client: control calls on the `netdrv` driver and
+/// the client's side of its frame rings.
+pub mod net;

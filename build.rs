@@ -4,6 +4,8 @@
 
 use std::path::PathBuf;
 
+#[path = "build_support/drivers.rs"]
+mod drivers;
 #[path = "build_support/docs_embed.rs"]
 mod docs_embed;
 #[path = "build_support/elf_trim.rs"]
@@ -23,6 +25,7 @@ fn main() {
     let trimmed = elf_trim::trim_to_loadable(&full).unwrap_or(full);
     std::fs::write(&kernel, trimmed).expect("write trimmed kernel");
     println!("cargo:rerun-if-changed=build_support/elf_trim.rs");
+    println!("cargo:rerun-if-changed=build_support/drivers.rs");
 
     let bios_image = out_dir.join("bios.img");
     let mut builder = bootloader::DiskImageBuilder::new(kernel);
@@ -244,23 +247,9 @@ fn main() {
         }
     }
 
-    // The virtio-sound userspace driver (docs/driver-plan.md D6): `LAZYOS_SOUND=1`
-    // embeds `SNDD.ELF`. Without a supervisor the kernel boots it directly; with
-    // `LAZYOS_SERVICES=1` `init` starts it from its manifest instead. The
-    // 8.3-safe on-disk name is what the kernel's FAT reader resolves.
-    println!("cargo:rerun-if-env-changed=LAZYOS_SOUND");
-    // The desktop profile always ships the sound stack, so its shell has `beep`.
-    let sound =
-        desktop || std::env::var_os("LAZYOS_SOUND").as_deref() == Some(std::ffi::OsStr::new("1"));
-    if sound {
-        let sndd =
-            std::env::var_os("CARGO_BIN_FILE_USER_sndd").expect("user sndd artifact not found");
-        builder.set_file(String::from("SNDD.ELF"), PathBuf::from(sndd));
-        // `beep`, the smallest audio client: `sndd` spawns it under `demo=1`.
-        let beep =
-            std::env::var_os("CARGO_BIN_FILE_USER_beep").expect("user beep artifact not found");
-        builder.set_file(String::from("BEEP.ELF"), PathBuf::from(beep));
-    }
+    // The virtio-sound and virtio-net userspace drivers (`LAZYOS_SOUND=1`,
+    // `LAZYOS_NET=1`; the desktop profile always ships the sound stack).
+    drivers::embed(&mut builder, desktop);
 
     // The shell-protocol evidence client (issue #167): `LAZYOS_XUID=1` plus
     // the `LAZYOS_SHELLPROBE=1` demo hook embeds and boots it, so the default

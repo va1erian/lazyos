@@ -5,6 +5,11 @@ edition = "2021"
 description = "LazyOS ring-3 user runtime and programs"
 license = "GPL-3.0-or-later"
 
+[lints.cargo]
+# `netpolicy` is only referenced by `init` under `cfg(lazyos_net)` (the `_net`
+# uid), so a default build looks like it never uses it.
+unused_dependencies = "allow"
+
 [dependencies]
 # The parcel codec, shared with the kernel, so client/server parcels round-trip
 # through one implementation (issue #69).
@@ -29,6 +34,13 @@ virtio = { path = "../libs/virtio" }
 virtio-snd = { path = "../libs/virtio-snd" }
 # Test-tone synthesis for `sndd`'s self-test and the `beep` client.
 pcm = { path = "../libs/pcm" }
+# virtio-net for `netdrv` (docs/networking-plan.md N1): the wire definitions, the
+# host-tested driver core and the frame ring shared with the stack.
+virtio-net = { path = "../libs/virtio-net" }
+nicdrv = { path = "../libs/nicdrv" }
+# The `_net` uid `init` spawns the driver as, shared with the ACL rules.
+netpolicy = { path = "../libs/netpolicy" }
+framering = { path = "../libs/framering" }
 # Keymaps, modifier/lock state and key repeat for `inputd` (docs/input-plan.md).
 inputmap = { path = "../libs/inputmap" }
 
@@ -264,6 +276,24 @@ bench = false
 [[bin]]
 name = "sndd"
 path = "src/bin/sndd.rs"
+test = false
+bench = false
+
+# The virtio-net userspace driver (docs/networking-plan.md N1). It claims the
+# device through syscall 23, drives it through `libs/virtio` and `libs/nicdrv`,
+# and serves `os.lazy.net.nic.v1`. Embedded with `LAZYOS_NET=1`; the on-disk
+# name is `NETDRV.ELF` (8.3).
+[[bin]]
+name = "netdrv"
+path = "src/bin/netdrv.rs"
+test = false
+bench = false
+
+# `nicctl` prints the card's MAC, link and counters, and carries the driver's
+# evidence clients (`arp`, `probe=1`, `soak=<n>`); `NICCTL.ELF` on the image.
+[[bin]]
+name = "nicctl"
+path = "src/bin/nicctl.rs"
 test = false
 bench = false
 

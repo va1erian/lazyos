@@ -215,6 +215,17 @@ impl Transport {
         })
     }
 
+    /// The largest size the device supports for queue `index` (0 when the queue
+    /// is not available). A driver picks its queue size at or below this, then
+    /// calls [`Transport::setup_queue`].
+    pub fn queue_max(&self, index: u16) -> Result<u16, Error> {
+        if index >= self.num_queues() {
+            return Err(Error::BadQueue);
+        }
+        self.w16(common::QUEUE_SELECT, index);
+        Ok(self.r16(common::QUEUE_SIZE))
+    }
+
     /// Notify the device that `kick`'s queue has new buffers.
     pub fn notify(&self, kick: Kick) {
         // SAFETY: `setup_queue` checked `offset + 2 <= notify_len`, and the
@@ -392,6 +403,29 @@ mod tests {
         assert_eq!(transport.setup_queue(0, &queue), Err(Error::BadQueue));
         rig.set16(common::QUEUE_SIZE, 0); // queue not available
         assert_eq!(transport.setup_queue(0, &queue), Err(Error::BadQueue));
+    }
+
+    #[test]
+    fn queue_max_reports_the_device_limit_per_queue() {
+        let mut rig = Rig::new();
+        rig.set16(common::NUM_QUEUES, 2);
+        rig.set16(common::QUEUE_SIZE, 256);
+        let transport = rig.transport(4, 64);
+        assert_eq!(transport.queue_max(0), Ok(256));
+        assert_eq!(rig.get(common::QUEUE_SELECT) as u16, 0);
+        assert_eq!(transport.queue_max(1), Ok(256));
+        assert_eq!(rig.get(common::QUEUE_SELECT) as u16, 1);
+        assert_eq!(
+            transport.queue_max(2),
+            Err(Error::BadQueue),
+            "no such queue"
+        );
+        rig.set16(common::QUEUE_SIZE, 0);
+        assert_eq!(
+            transport.queue_max(0),
+            Ok(0),
+            "an unavailable queue reads 0"
+        );
     }
 
     #[test]

@@ -1,0 +1,6 @@
+target/
+artifacts/
+coverage/
+# libFuzzer's working corpus (it grows as the fuzzer finds coverage). The
+# checked-in starting points are under seeds/, made by gen_corpus.py.
+corpus/

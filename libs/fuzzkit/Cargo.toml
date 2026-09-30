@@ -1,0 +1,11 @@
+[package]
+name = "fuzzkit"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Seeded pseudo-random input for in-tree fuzz-style tests (host only)"
+license = "GPL-3.0-or-later"
+
+[lib]
+name = "fuzzkit"
+path = "src/lib.rs"

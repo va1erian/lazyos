@@ -1,0 +1,141 @@
+name: net
+
+# Networking (docs/networking-plan.md): host unit and seeded-fuzz tests for the
+# wire, ring and driver-core libraries, the pcap analyzer's own tests, a drift
+# check on the fuzz seeds, bounded coverage-guided fuzz runs (cargo-fuzz,
+# libFuzzer) of the same entry points, and the end-to-end QEMU harness, which
+# judges the *packet capture* (QEMU's filter-dump), not the serial markers.
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+  pull_request:
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+  workflow_dispatch:
+    inputs:
+      fuzz_seconds:
+        description: "Seconds per fuzz target"
+        default: "60"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: net-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FUZZ_SECONDS: ${{ github.event.inputs.fuzz_seconds || '60' }}
+
+jobs:
+  unit:
+    name: unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      # rust-toolchain.toml pins the nightly toolchain; rustup installs it.
+      # CI=1 makes the corpus replay tests insist that seeds exist.
+      - name: Libraries (host, includes the seeded fuzz tests)
+        run: cargo test -p framering -p virtio-net -p nicdrv -p netpolicy -p virtio -p fuzzkit -p messenger-generated
+        env:
+          FUZZ_CASES: "2000"
+
+      - name: Lints
+        run: cargo clippy -p framering -p virtio-net -p nicdrv -p netpolicy -p virtio -p fuzzkit --all-targets --features framering/fuzz,virtio-net/fuzz,nicdrv/fuzz -- -D warnings
+
+      - name: Fuzz seed corpus is current
+        run: python fuzz/gen_corpus.py --check
+
+      - name: Pcap analyzer (it must fail when it should)
+        run: python tools/net/test_analyze_pcap.py
+
+  fuzz:
+    name: fuzz (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [framering, framering_header, virtio_net, nicdrv]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+
+      - name: Fuzz for a bounded time
+        run: |
+          mkdir -p fuzz/corpus/${{ matrix.target }}
+          cargo fuzz run ${{ matrix.target }} --fuzz-dir fuzz fuzz/corpus/${{ matrix.target }} fuzz/seeds/${{ matrix.target }} -- -max_total_time=${{ env.FUZZ_SECONDS }}
+
+      # A crash is a file under fuzz/artifacts/<target>/: keep it, and copy it to
+      # fuzz/regressions/<target>/ with the fix so plain `cargo test` replays it.
+      - name: Upload crashing inputs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-crash-${{ matrix.target }}
+          path: fuzz/artifacts/**
+          if-no-files-found: warn
+
+  harness:
+    name: harness (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # The default machine: the kernel boots `netdrv`, which runs its ARP
+          # self-test and the `nicctl` clients (info, arp, probe, soak).
+          - name: default
+            args: ""
+          # `init` supervises the driver as the unprivileged _net user (uid 902).
+          - name: services
+            args: "--services"
+          # q35 has no IDE controller the kernel drives: virtio-blk boot disk.
+          - name: q35
+            args: "--machine q35 --virtio-disk"
+          # Interrupts off: the driver must fall back to polling and still pass.
+          - name: poll
+            args: "--poll"
+          # No NIC: the driver must say so and idle.
+          - name: no-device
+            args: "--no-device"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install QEMU
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-x86
+
+      # Hosted runners expose /dev/kvm but not to the runner user; open it up
+      # so `--accel auto` picks KVM (it falls back to TCG if KVM is unusable).
+      - name: Enable KVM (best effort)
+        run: bash tools/ci/enable_kvm.sh
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Boot, capture and verify
+        run: python tools/net/run.py --out shots/net ${{ matrix.args }}
+
+      - name: Upload the capture and serial log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: net-${{ matrix.name }}
+          path: shots/net/**
+          if-no-files-found: warn

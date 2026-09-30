@@ -1,0 +1,39 @@
+//! The userspace drivers embedded in the disk image: the virtio-sound stack
+//! (`LAZYOS_SOUND=1`, docs/driver-plan.md D6) and the virtio-net stack
+//! (`LAZYOS_NET=1`, docs/networking-plan.md N1).
+//!
+//! Without a supervisor the kernel boots a driver directly; with
+//! `LAZYOS_SERVICES=1` `init` starts it from its manifest instead. The 8.3-safe
+//! on-disk names are what the kernel's FAT reader resolves.
+
+use std::ffi::OsStr;
+use std::path::PathBuf;
+
+fn enabled(variable: &str) -> bool {
+    println!("cargo:rerun-if-env-changed={variable}");
+    std::env::var_os(variable).as_deref() == Some(OsStr::new("1"))
+}
+
+/// Add the ELF built for the `user` binary `bin` to the image as `name`.
+fn add(builder: &mut bootloader::DiskImageBuilder, name: &str, bin: &str) {
+    let variable = format!("CARGO_BIN_FILE_USER_{bin}");
+    let path =
+        std::env::var_os(&variable).unwrap_or_else(|| panic!("user {bin} artifact not found"));
+    builder.set_file(String::from(name), PathBuf::from(path));
+}
+
+/// Embed the drivers this build asked for. The desktop profile always ships the
+/// sound stack, so its shell has `beep`.
+pub fn embed(builder: &mut bootloader::DiskImageBuilder, desktop: bool) {
+    if desktop || enabled("LAZYOS_SOUND") {
+        add(builder, "SNDD.ELF", "sndd");
+        // `beep`, the smallest audio client: `sndd` spawns it under `demo=1`.
+        add(builder, "BEEP.ELF", "beep");
+    }
+    if enabled("LAZYOS_NET") {
+        add(builder, "NETDRV.ELF", "netdrv");
+        // `nicctl` prints the card and carries the evidence clients the driver
+        // spawns under `demo=1`.
+        add(builder, "NICCTL.ELF", "nicctl");
+    }
+}
