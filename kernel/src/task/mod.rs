@@ -255,7 +255,12 @@ pub struct Task {
 }
 
 static TASKS: Mutex<[Option<Task>; MAX_TASKS]> = Mutex::new([const { None }; MAX_TASKS]);
-static mut KSTACKS: [[u8; KSTACK_SIZE]; MAX_TASKS] = [[0; KSTACK_SIZE]; MAX_TASKS];
+/// One task's kernel stack. 16-aligned so the top (where entry frames are
+/// built) satisfies the SysV stack alignment the optimised kernel relies on.
+#[repr(align(16))]
+struct KStack([u8; KSTACK_SIZE]);
+
+static mut KSTACKS: [KStack; MAX_TASKS] = [const { KStack([0; KSTACK_SIZE]) }; MAX_TASKS];
 
 /// Linux `brk`/`mmap` bump state, keyed by PML4 so threads share it.
 struct Bump {

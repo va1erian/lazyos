@@ -147,7 +147,11 @@ global_asm!(
         mov rdx, rsi
         mov rsi, rdi
         mov rdi, rax
+        /* 15 pushes leave rsp 8 mod 16, but the SysV ABI wants it 16-aligned
+           at the `call`: optimised code uses aligned SSE stores on its frame. */
+        sub rsp, 8
         call linux_dispatch
+        add rsp, 8
         pop r10
         pop r9
         pop r8
