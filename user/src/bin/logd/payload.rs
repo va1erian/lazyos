@@ -9,7 +9,8 @@
 use alloc::format;
 use alloc::string::String;
 use messenger_generated::{
-    os_lazy_healthd_v1 as healthd, os_lazy_init_v1 as init, os_lazy_logind_v1 as logind, topics,
+    os_lazy_clipboard_v1 as clipboard, os_lazy_healthd_v1 as healthd, os_lazy_init_v1 as init,
+    os_lazy_logind_v1 as logind, os_lazy_mimed_v1 as mimed, topics,
 };
 
 /// Render one event payload for the log: the declared payload decoded to its
@@ -71,6 +72,21 @@ fn declared(topic: &str, payload: &[u8]) -> Option<String> {
         return Some(format!(
             "user={} uid={} session={} status={}",
             event.user, event.uid, event.session, event.status
+        ));
+    }
+    if topic == clipboard::TOPIC_SYSTEM_EVENTS_CLIPBOARD_PASTE {
+        let event = clipboard::decode_system_events_clipboard_paste(payload).ok()?;
+        return Some(user::messenger::clipboard::paste_event_text(&event));
+    }
+    if topic == clipboard::TOPIC_SYSTEM_EVENTS_SECURITY_CLIPBOARD {
+        let event = clipboard::decode_system_events_security_clipboard(payload).ok()?;
+        return Some(user::messenger::clipboard::denial_event_text(&event));
+    }
+    if topics::matches(mimed::TOPIC_SYSTEM_EVENTS_OPEN, topic) {
+        let event = mimed::decode_system_events_open(payload).ok()?;
+        return Some(format!(
+            "path={} mime={} verb={}",
+            event.path, event.mime, event.verb
         ));
     }
     None
