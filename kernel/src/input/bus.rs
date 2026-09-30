@@ -22,8 +22,6 @@
 //! lock, and nothing under it allocates or touches user memory.
 
 use alloc::vec::Vec;
-use core::sync::atomic::{AtomicU64, Ordering};
-
 use spin::Mutex;
 
 use crate::task;
@@ -41,6 +39,7 @@ pub const MAX_CONSUMERS: usize = 4;
 /// Raw event kinds. `Key` is the only kind produced today; the pointer kinds
 /// are reserved so the schema is not keyboard-only (pointer devices still use
 /// the display grant path).
+#[allow(dead_code)] // the reserved kinds have no producer yet
 pub mod kind {
     pub const KEY: u8 = 1;
     pub const REL_MOTION: u8 = 2;
@@ -94,7 +93,7 @@ impl RawEvent {
     };
 
     /// The wire encoding.
-    pub fn to_bytes(&self) -> [u8; RAW_EVENT_BYTES] {
+    pub fn to_bytes(self) -> [u8; RAW_EVENT_BYTES] {
         let mut out = [0u8; RAW_EVENT_BYTES];
         out[0..8].copy_from_slice(&self.seq.to_le_bytes());
         out[8..16].copy_from_slice(&self.ts_ns.to_le_bytes());
@@ -206,9 +205,6 @@ static BUS: Mutex<Bus> = Mutex::new(Bus {
     slots: [FREE_SLOT; MAX_CONSUMERS],
 });
 
-/// Events every producer published, for the introspection tests.
-static PUBLISHED: AtomicU64 = AtomicU64::new(0);
-
 fn now_ns() -> u64 {
     task::ticks().saturating_mul(10_000_000)
 }
@@ -220,7 +216,6 @@ pub fn publish(device: u8, kind: u8, code: u16, value: i32) {
     let mut bus = BUS.lock();
     let seq = bus.next_seq;
     bus.next_seq += 1;
-    PUBLISHED.fetch_add(1, Ordering::Relaxed);
     let event = RawEvent {
         seq,
         ts_ns,
@@ -250,7 +245,7 @@ pub fn open(owner: usize) -> Result<usize, Error> {
         let id = bus
             .slots
             .iter()
-            .position(|slot| slot.owner.map_or(true, |task| !task::live(task)))
+            .position(|slot| slot.owner.is_none_or(|task| !task::live(task)))
             .ok_or(Error::Full)?;
         bus.slots[id].owner = Some(owner);
         bus.slots[id].ring.clear();
@@ -286,11 +281,6 @@ pub fn drain(id: usize, owner: usize, max: usize, out: &mut Vec<RawEvent>) -> Re
         slot.ring.drain(max, out);
         Ok(())
     })
-}
-
-/// Total events ever published (diagnostics and tests).
-pub fn published() -> u64 {
-    PUBLISHED.load(Ordering::Relaxed)
 }
 
 /// Test-harness hook: free every consumer and restart sequence numbering.

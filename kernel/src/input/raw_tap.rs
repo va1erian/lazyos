@@ -21,11 +21,13 @@ static UNKNOWN: AtomicU64 = AtomicU64::new(0);
 static REPEATS: AtomicU64 = AtomicU64::new(0);
 
 /// Bytes with no HID mapping seen so far.
+#[cfg(lazyos_tests)]
 pub fn unknown_count() -> u64 {
     UNKNOWN.load(Ordering::Relaxed)
 }
 
 /// Hardware auto-repeat make codes suppressed so far.
+#[cfg(lazyos_tests)]
 pub fn suppressed_repeats() -> u64 {
     REPEATS.load(Ordering::Relaxed)
 }
@@ -45,6 +47,7 @@ impl Tap {
     }
 
     /// Forget partial sequences and held keys (test hook).
+    #[cfg(lazyos_tests)]
     pub fn reset(&mut self) {
         self.decoder.reset();
         self.down = [0; 4];

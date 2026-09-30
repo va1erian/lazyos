@@ -131,6 +131,35 @@ pub fn capability_gate() -> Result<(), String> {
     Ok(())
 }
 
+/// The boot path withholds the bit from kernel-started programs (all root)
+/// without touching their other capabilities.
+pub fn drop_caps_only_removes_the_named_bits() -> Result<(), String> {
+    fresh();
+    let slot = scratch()?;
+    credentials::set(slot, Cred::ROOT);
+    check!(
+        credentials::of(slot).caps & CAP_INPUT_RAW != 0,
+        "root lacks it"
+    );
+    credentials::drop_caps(slot, CAP_INPUT_RAW);
+    let after = credentials::of(slot);
+    check!(
+        after.caps == credentials::CAP_ALL & !CAP_INPUT_RAW,
+        "caps are {:#x}",
+        after.caps
+    );
+    check!(after.uid == 0, "uid changed");
+    // The stripped task cannot open the bus even though it is root.
+    task::harness::switch_current(slot);
+    check!(
+        call(op::OPEN, 0, 0) == failed(EPERM),
+        "root without the bit opened it"
+    );
+    credentials::drop_caps(usize::MAX, CAP_INPUT_RAW); // out of range: ignored
+    fresh();
+    Ok(())
+}
+
 /// Capacity handling, the `EBADF` states, and the "a bad buffer loses no
 /// input" guarantee.
 pub fn poll_bounds_and_faults() -> Result<(), String> {

@@ -88,6 +88,10 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("input_raw_ps2_reaches_bus", syscall::ps2_reaches_bus),
     ("input_raw_capability_gate", syscall::capability_gate),
     (
+        "input_raw_drop_caps_only_removes_the_named_bits",
+        syscall::drop_caps_only_removes_the_named_bits,
+    ),
+    (
         "input_raw_poll_bounds_and_faults",
         syscall::poll_bounds_and_faults,
     ),

@@ -230,6 +230,15 @@ pub fn reset_for_task(slot: usize) {
     set(slot, Cred::ROOT);
 }
 
+/// Remove capability bits from `slot`, keeping everything else. `Kernel-only`,
+/// like [`set`]: the boot path uses it to withhold `CAP_INPUT_RAW` from every
+/// program it starts except `init`, which delegates it to `inputd` alone.
+pub fn drop_caps(slot: usize, caps: u32) {
+    if let Some(entry) = CREDS.lock().get_mut(slot) {
+        entry.caps &= !caps;
+    }
+}
+
 /// Give `child_slot` a copy of `parent_slot`'s credentials.
 ///
 /// Every task-creation path calls this (or [`reset_for_task`] for a program

@@ -20,6 +20,7 @@
 
 /// HID usage codes (page 0x07) the table produces. Only the ones other code
 /// names are listed; the rest are reachable through [`translate`].
+#[allow(dead_code)] // a vocabulary for consumers; not every name has a user yet
 pub mod usage {
     pub const A: u16 = 0x04;
     pub const ENTER: u16 = 0x28;
@@ -79,7 +80,8 @@ impl Set1Decoder {
         Set1Decoder { state: State::Idle }
     }
 
-    /// Forget any half-received sequence (test hook and IRQ resync).
+    /// Forget any half-received sequence (test hook).
+    #[cfg(lazyos_tests)]
     pub fn reset(&mut self) {
         self.state = State::Idle;
     }

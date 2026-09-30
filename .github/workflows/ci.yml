@@ -41,9 +41,11 @@ jobs:
           cargo clippy -p kernel -p user --target x86_64-unknown-none \
             -Zbuild-std=core,alloc -- -D warnings
       - name: Clippy (host libraries)
-        run: cargo clippy -p libmessenger -p messenger-generated -p lazyos-crypto -p font-atlas -p confd -p timezone -- -D warnings
+        run: cargo clippy -p libmessenger -p messenger-generated -p lazyos-crypto -p font-atlas -p confd -p timezone -p inputmap -- -D warnings
       - name: Zone and DST resolution tests (timed)
         run: cargo test -p timezone
+      - name: Keymap, modifier and repeat tests (inputd)
+        run: cargo test -p inputmap
 
   build-and-boot:
     runs-on: ubuntu-latest
@@ -129,6 +131,21 @@ jobs:
           grep -q "^waited=0" shots/native/serial.log
           python tools/screenshot/pngstats.py shots/native/*.png --min-nonblack 0.01
 
+      # docs/input-plan.md: `inputd` turns the kernel's raw HID-coded key edges
+      # into layout-aware events. The session presses a fixed set of physical
+      # keys (letters, symbols, Shift, AltGr, Ctrl, Caps Lock, keypad, a held
+      # key for repeat) and `verify_trace.py` checks the `INPUTD:` serial trace
+      # against what each layout must type. Runs last: the AZERTY image is a
+      # separate build (`LAZYOS_KBD_LAYOUT=fr`).
+      - name: Input trace (US then AZERTY)
+        run: |
+          LAZYOS_SERVICES=1 cargo build
+          python tools/screenshot/qemu_session.py --image target/lazyos.img             --out shots/input_us --script tools/screenshot/examples/input_keys.json             --fail-on "PANIC" --fail-on "EXCEPTION:"
+          python tools/input/verify_trace.py shots/input_us/serial.log --layout us
+          LAZYOS_KBD_LAYOUT=fr LAZYOS_SERVICES=1 cargo build
+          python tools/screenshot/qemu_session.py --image target/lazyos.img             --out shots/input_fr --script tools/screenshot/examples/input_keys.json             --fail-on "PANIC" --fail-on "EXCEPTION:"
+          python tools/input/verify_trace.py shots/input_fr/serial.log --layout fr
+
       - name: Upload boot evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -139,4 +156,6 @@ jobs:
             shots/confd/**
             shots/services/**
             shots/native/**
+            shots/input_us/**
+            shots/input_fr/**
           if-no-files-found: warn

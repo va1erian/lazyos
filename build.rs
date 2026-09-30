@@ -145,6 +145,13 @@ fn main() {
             .expect("user confctl artifact not found");
         builder.set_file(String::from("CONFCTL.ELF"), PathBuf::from(confctl));
 
+        // The input policy service (docs/input-plan.md). `init` starts
+        // `inputd` (`INPUTD.ELF`) after `confd`; it is the only task that
+        // holds the kernel's `input.raw` capability.
+        let inputd =
+            std::env::var_os("CARGO_BIN_FILE_USER_inputd").expect("user inputd artifact not found");
+        builder.set_file(String::from("INPUTD.ELF"), PathBuf::from(inputd));
+
         // The time-of-day service (issue #369). `init` starts `timed`
         // (`TIMED.ELF`) after `messengerd` and `confd`.
         let timed =
