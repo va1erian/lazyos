@@ -80,6 +80,10 @@ pub(super) const CASES: &[(&str, Test)] = &[
         "fs_fat_lfn_malformed_runs_fall_back",
         fat_lfn_malformed_runs_fall_back,
     ),
+    (
+        "fs_fat_lfn_terminator_padding_checked",
+        fat_lfn_terminator_padding_checked,
+    ),
     ("fs_fat_dirs_nested_resolution", fat_dirs_nested_resolution),
     (
         "fs_fat_dirs_fragmented_multi_cluster",

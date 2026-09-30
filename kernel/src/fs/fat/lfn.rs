@@ -117,13 +117,16 @@ impl LfnBuilder {
         name
     }
 
-    /// Decode the first `total` units: stop at the NUL terminator (the rest is
-    /// 0xFFFF padding) and refuse unpaired surrogates, empty or over-long
+    /// Decode the first `total` units: stop at the NUL terminator (the rest
+    /// must be 0xFFFF padding) and refuse unpaired surrogates, empty or over-long
     /// names, and the characters a path component can never contain.
     fn decode(&self, total: usize) -> Option<String> {
         let units = &self.units[..total];
         let len = units.iter().position(|&unit| unit == 0).unwrap_or(total);
-        if len == 0 || len > MAX_NAME_UNITS {
+        // Everything after the terminator must be 0xFFFF padding; anything
+        // else means the run was tampered with or truncated.
+        let padding = units.get(len + 1..).unwrap_or_default();
+        if len == 0 || len > MAX_NAME_UNITS || padding.iter().any(|&unit| unit != 0xFFFF) {
             return None;
         }
         let mut name = String::new();

@@ -310,3 +310,55 @@ pub fn fat_lfn_malformed_runs_fall_back() -> Result<(), String> {
     );
     Ok(())
 }
+
+/// The units after the terminator must be 0xFFFF padding: a run with anything
+/// else there is discarded (the entry keeps its 8.3 name), while correctly
+/// padded runs, including a 2-slot one, still decode.
+pub fn fat_lfn_terminator_padding_checked() -> Result<(), String> {
+    let mut img = FatImage::new(64, false);
+    let mut root = Vec::new();
+
+    // "padded name" is 11 units: terminator at 11, padding at 12.
+    root.extend(long_entry(
+        "padded name",
+        &s83("GOODPD~1.TXT"),
+        ATTR_FILE,
+        0,
+        0,
+    ));
+    let bad = s83("BADPAD~1.TXT");
+    let mut run = lfn_run(&units("padded name"), checksum(&bad));
+    // Unit 12 lives in the last two bytes of the slot.
+    run[0][30..32].copy_from_slice(&0x0041u16.to_le_bytes());
+    root.extend(run);
+    root.push(short_slot(&bad, ATTR_FILE, 0, 0));
+    // Garbage after the terminator in the last slot of a 2-slot run.
+    let bad2 = s83("BADPD2~1.TXT");
+    let mut run = lfn_run(&units("a name needing two slots"), checksum(&bad2));
+    run[0][30..32].copy_from_slice(&0x1234u16.to_le_bytes());
+    root.extend(run);
+    root.push(short_slot(&bad2, ATTR_FILE, 0, 0));
+    root.extend(long_entry(
+        "a name needing two slots",
+        &s83("TWOSLT~1.TXT"),
+        ATTR_FILE,
+        0,
+        0,
+    ));
+    img.set_root(&root);
+    let fs = img.mount("test-fat-lfn-padding");
+
+    let listed = names(&fs, "/")?;
+    let want = [
+        "padded name",
+        "BADPAD~1.TXT",
+        "BADPD2~1.TXT",
+        "a name needing two slots",
+    ];
+    check!(listed == want, "listing is {listed:?}");
+    check!(
+        fs.lookup("BADPAD~1.TXT").is_ok(),
+        "the 8.3 name of the bad-padding run is gone"
+    );
+    Ok(())
+}
