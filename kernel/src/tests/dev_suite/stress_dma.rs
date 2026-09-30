@@ -18,6 +18,7 @@ pub fn dma_pool_alloc_free_soak() -> Result<(), String> {
     const MAX_CYCLES: u64 = 120_000_000_000;
 
     let base = pool();
+    // SAFETY: `rdtsc` only reads the time-stamp counter.
     let start = unsafe { core::arch::x86_64::_rdtsc() };
     let mut rng = 0x9E37_79B9_7F4A_7C15u64;
     let mut live: Vec<(u64, u64)> = Vec::new();
@@ -52,6 +53,7 @@ pub fn dma_pool_alloc_free_soak() -> Result<(), String> {
             mem::free_frame(PhysAddr::new(phys + page * 4096));
         }
     }
+    // SAFETY: `rdtsc` only reads the time-stamp counter.
     let cycles = unsafe { core::arch::x86_64::_rdtsc() }.wrapping_sub(start);
     serial_println!(
         "TEST:dev_stress_dma_pool_alloc_free_soak:INFO:ops={OPS} max_live={MAX_LIVE} cycles={cycles}"

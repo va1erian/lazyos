@@ -19,7 +19,7 @@ fn close(handle: u64) -> Result<(), String> {
 /// return only when the client closes the last reference.
 pub fn dma_lifetime_transfer() -> Result<(), String> {
     let fx = Fixture::new()?;
-    let base = idle_pool();
+    let base = idle_pool()?;
     let dev = add_device(Spec::nic(None))?;
     // Spawn both tasks first: `spawn_driver` leaves the kernel task current, so
     // entering the driver must come after the client exists.
@@ -86,7 +86,7 @@ pub fn dma_lifetime_transfer() -> Result<(), String> {
 /// A `SHARE_ONLY` DMA buffer is never mappable by a client that receives it.
 pub fn dma_share_only() -> Result<(), String> {
     let fx = Fixture::new()?;
-    let base = idle_pool();
+    let base = idle_pool()?;
     let dev = add_device(Spec::nic(None))?;
     let driver = spawn_driver(driver_cred())?;
     let client = spawn_driver(driver_cred())?;
@@ -123,7 +123,7 @@ pub fn dma_share_only() -> Result<(), String> {
 /// frame, the quota, the handles and the claims to baseline.
 pub fn dma_teardown_releases_all() -> Result<(), String> {
     let fx = Fixture::new()?;
-    let base = idle_pool();
+    let base = idle_pool()?;
     let frames_before = mem::frame_stats();
     let handles_before = quota::usage(DRIVER_UID, Resource::Handles);
     let dev = add_device(Spec::nic(None))?;
@@ -223,6 +223,35 @@ pub fn dma_busmaster_ordering() -> Result<(), String> {
     Ok(())
 }
 
+/// Closing a DMA buffer while its claim is live stops the device first, so the
+/// run cannot return to the pool with bus mastering on.
+pub fn dma_early_close_quiesces() -> Result<(), String> {
+    use crate::mem::dma::order;
+    let fx = Fixture::new()?;
+    let base = idle_pool()?;
+    let dev = add_device(Spec::nic(None))?;
+    let slot = spawn_driver(driver_cred())?;
+    enter(slot)?;
+    let handle = expect_ok(claim_plain(dev), "claim")?;
+    let mut bus = 0u64;
+    let first = expect_ok(dma_alloc(handle, 4096, 0, &mut bus), "alloc")?;
+    let _second = expect_ok(dma_alloc(handle, 4096, 0, &mut bus), "alloc")?;
+    order::reset();
+    close(first)?;
+    let events = order::events();
+    check!(
+        events.first() == Some(&order::QUIESCE) && events.contains(&order::DMA_FREE),
+        "early close order {events:?}"
+    );
+    check!(quiesce_before_free(&events), "early close order {events:?}");
+    check!(
+        pool().free_pages == base.free_pages - 1,
+        "one page should stay"
+    );
+    leave(&fx);
+    Ok(())
+}
+
 /// Whether every pool free in `events` follows a quiesce.
 fn quiesce_before_free(events: &[u64]) -> bool {
     use crate::mem::dma::order;
@@ -239,7 +268,7 @@ fn quiesce_before_free(events: &[u64]) -> bool {
 /// buffer holds, however much general memory is allocated.
 pub fn dma_general_allocator_skips_live_pool() -> Result<(), String> {
     let fx = Fixture::new()?;
-    let base = idle_pool();
+    let base = idle_pool()?;
     let dev = add_device(Spec::nic(None))?;
     let slot = spawn_driver(driver_cred())?;
     enter(slot)?;
@@ -271,7 +300,7 @@ pub fn dma_general_allocator_skips_live_pool() -> Result<(), String> {
 /// the per-claim record bound (16 live buffers), only by live ones.
 pub fn dma_records_are_recycled() -> Result<(), String> {
     let fx = Fixture::new()?;
-    let base = idle_pool();
+    let base = idle_pool()?;
     let dev = add_device(Spec::nic(None))?;
     let slot = spawn_driver(driver_cred())?;
     enter(slot)?;
@@ -288,6 +317,7 @@ pub fn dma_records_are_recycled() -> Result<(), String> {
 }
 
 pub(super) const CASES: &[(&str, Test)] = &[
+    ("dev_dma_early_close_quiesces", dma_early_close_quiesces),
     (
         "dev_dma_general_allocator_skips_live_pool",
         dma_general_allocator_skips_live_pool,

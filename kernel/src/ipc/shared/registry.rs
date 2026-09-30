@@ -223,6 +223,16 @@ pub(super) fn destroy_buffer(registry: &mut Registry, index: usize, with_refs: b
     }
 }
 
+/// Before the last reference to a DMA buffer goes (and its run can return to the
+/// pool), stop the device that may still be writing it (issue #241). A no-op
+/// for ordinary buffers and for a claim that is already gone (release and task
+/// death quiesce first).
+pub(super) fn before_last_drop(buffer: &Buffer) {
+    if let (1, Some(owner)) = (buffer.refs, buffer.dma) {
+        crate::dev::dma_buffer_freed(owner.device, owner.generation);
+    }
+}
+
 /// Allocate `pages` zeroed frames, releasing what was allocated on failure.
 pub(super) fn alloc_frames(pages: u64) -> Option<Vec<PhysAddr>> {
     let mut frames = Vec::with_capacity(pages as usize);

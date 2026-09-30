@@ -48,7 +48,7 @@ pub use driver::{probe, Driver, DRIVERS};
 pub use resources::{Bar, BarKind, Irq, Resource, Resources, MAX_BARS};
 pub use selfcheck::selfcheck;
 pub use table::{DevError, DeviceHandle, DeviceTable, MAX_DEVICES};
-pub use teardown::{note_task_exited, silence_exited, teardown_task};
+pub use teardown::{dma_buffer_freed, note_task_exited, silence_exited, teardown_task};
 
 use core::sync::atomic::{AtomicBool, Ordering};
 

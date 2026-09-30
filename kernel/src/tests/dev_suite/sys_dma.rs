@@ -24,7 +24,7 @@ fn close(handle: u64) -> Result<(), String> {
 /// the bus address is the first frame; two allocations never overlap.
 pub fn dma_layout_and_zeroing() -> Result<(), String> {
     let fx = Fixture::new()?;
-    let base = idle_pool();
+    let base = idle_pool()?;
     let dev = add_device(Spec::nic(None))?;
     let (slot, handle) = driver_with(dev)?;
     let len = 3 * 4096;
@@ -116,7 +116,7 @@ pub fn dma_alignment() -> Result<(), String> {
 /// effect.
 pub fn dma_hostile_input() -> Result<(), String> {
     let fx = Fixture::new()?;
-    let base = idle_pool();
+    let base = idle_pool()?;
     let dev = add_device(Spec::nic(None))?;
     let (slot, handle) = driver_with(dev)?;
     let handles_before = handles::count_for_task(slot);
@@ -168,9 +168,9 @@ pub fn dma_hostile_input() -> Result<(), String> {
     expect_errno(dma_alloc(bogus, 4096, 0, &mut bus), EBADF, "bad handle")?;
     leave(&fx);
     expect_errno(
-        sys(OP_DMA_ALLOC, 0, 4096, 0, &mut bus as *mut u64 as u64),
+        sys(OP_DMA_ALLOC, handle, 4096, 0, &mut bus as *mut u64 as u64),
         EBADF,
-        "kernel task has no device handle",
+        "the kernel task cannot use a driver's device handle",
     )?;
     enter(slot)?;
     expect_ok(sys(OP_RELEASE, handle, 0, 0, 0), "release")?;
@@ -197,13 +197,14 @@ pub fn dma_hostile_input() -> Result<(), String> {
 /// while total free space would suffice, and coalescing makes it succeed.
 pub fn dma_fragmentation() -> Result<(), String> {
     let fx = Fixture::new()?;
-    let base = idle_pool();
+    let base = idle_pool()?;
     quota::set_limit(DRIVER_UID, Resource::DmaMemory, u64::MAX);
     let dev = add_device(Spec::nic(None))?;
     let (_slot, handle) = driver_with(dev)?;
     let total = base.total_pages;
     if total < 16 {
         serial_println!("TEST:dev_dma_fragmentation:INFO:pool too small ({total} pages)");
+        leave(&fx);
         return Ok(());
     }
     let chunk = total / 8;
@@ -260,7 +261,7 @@ pub fn dma_fragmentation() -> Result<(), String> {
 /// isolated per uid.
 pub fn dma_quota() -> Result<(), String> {
     let fx = Fixture::new()?;
-    let base = idle_pool();
+    let base = idle_pool()?;
     quota::set_limit(DRIVER_UID, Resource::DmaMemory, 3 * 4096);
     let dev = add_device(Spec::nic(None))?;
     let (_slot, handle) = driver_with(dev)?;

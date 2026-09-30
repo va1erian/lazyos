@@ -371,13 +371,13 @@ pub fn pool() -> crate::mem::dma::DmaStats {
 }
 
 /// A pool with no live allocations, for a balanced test to return to.
-pub fn idle_pool() -> crate::mem::dma::DmaStats {
+pub fn idle_pool() -> Result<crate::mem::dma::DmaStats, String> {
     let stats = pool();
-    assert_eq!(
-        stats.free_pages, stats.total_pages,
+    check!(
+        stats.free_pages == stats.total_pages,
         "the DMA pool was not idle at test start: {stats:?}"
     );
-    stats
+    Ok(stats)
 }
 
 /// Backing frames of a buffer handle, for contiguity and identity checks.

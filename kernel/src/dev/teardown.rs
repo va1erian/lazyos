@@ -141,3 +141,24 @@ fn silence_exited_locked() {
         }
     }
 }
+
+/// A driver's DMA buffer is about to lose its last reference while the claim
+/// that allocated it is still live: stop the device first (bus mastering off,
+/// decode off, INTx disabled) so it cannot write memory the pool is about to
+/// hand to someone else. The driver re-enables what it needs afterwards
+/// (issue #241). Called with the buffer registry locked; takes only the claim
+/// and device locks, one at a time.
+pub fn dma_buffer_freed(device: u16, generation: u32) {
+    let id = DeviceId(device);
+    let live = CLAIMS
+        .lock()
+        .get(id)
+        .is_some_and(|claim| claim.generation == generation);
+    if !live {
+        return;
+    }
+    let info = table().lock().get(id);
+    if let Some(info) = &info {
+        quiesce(info);
+    }
+}

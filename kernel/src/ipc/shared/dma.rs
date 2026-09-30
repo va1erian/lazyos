@@ -80,7 +80,12 @@ pub fn create_from_frames(
             release_dma_accounting(&mut registry, slot);
             return Err(Error::MapFailed);
         }
-        if !mem::map_page_in(table, VirtAddr::new(at), *frame, map_flags(flags)) {
+        if !mem::map_page_in(
+            table,
+            VirtAddr::new(at),
+            *frame,
+            map_flags(flags) | PageTableFlags::BIT_11,
+        ) {
             // Drop the mapping reference just taken on this frame.
             mem::free_frame(*frame);
             discard_range(table, va, at, size / PAGE);

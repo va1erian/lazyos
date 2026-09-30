@@ -188,10 +188,11 @@ and `dma_alloc` (D4, #241). Not done: function-level reset (teardown clears the
 command register enables instead), MMCONFIG, MSI/MSI-X, IOAPIC,
 ACPI/platform enumeration beyond the single ATA seed, and an IOMMU.
 
-**DMA limitations (known, #241 follow-ups).** Without an IOMMU a driver must
-quiesce its device (reset or clear bus mastering) *before* closing a DMA buffer
-while the claim is live: `release` and task death do this for it, but closing
-one buffer early returns its run to the pool with the device possibly still
-writing. A driver that `fork`s copies its DMA mappings copy-on-write like any
-buffer, so the driver and device stop sharing those pages; drivers must not
-fork.
+**DMA and the device's lifetime.** Bus mastering is always off before a DMA
+run can be reused. `release`, task exit and task reap already quiesce the
+device; in addition, closing the *last* reference to a DMA buffer while its
+claim is live quiesces the device first (`dev::dma_buffer_freed`: bus
+mastering and decode off, INTx disabled), so a driver must re-enable what it
+needs after freeing a buffer. DMA buffer leaves carry software PTE bit 11
+(`pte::DMA`) and `fork` gives the child no mapping for them (like MMIO), so a
+forked driver cannot end up with a private copy the device never sees.

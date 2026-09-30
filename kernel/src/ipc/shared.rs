@@ -260,6 +260,7 @@ fn close_for(slot: usize, handle: u64, unmap: bool) -> Result<(), Error> {
     else {
         return Ok(());
     };
+    before_last_drop(&registry.buffers[index]);
     if unmap {
         unmap_slot(&mut registry.buffers[index], slot);
     }
@@ -378,6 +379,7 @@ pub fn release(object_id: u64) {
     else {
         return;
     };
+    before_last_drop(&registry.buffers[index]);
     let buffer = &mut registry.buffers[index];
     free_frames(&buffer.frames);
     buffer.refs = buffer.refs.saturating_sub(1);
