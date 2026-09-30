@@ -448,6 +448,27 @@ pub fn transfer_and_consume(from: usize, to: usize, buffer: u64) -> Result<(), S
     Ok(())
 }
 
+/// [`transfer_and_consume`] without the close: returns the handle the client
+/// now holds (in the client table), so the buffer outlives its sender.
+pub fn transfer_and_hold(from: usize, to: usize, buffer: u64) -> Result<u64, String> {
+    let (endpoint, server) = channel_to(to)?;
+    send_buffer(endpoint, buffer)?;
+    task::harness::switch_current(to);
+    mem::switch_to(PhysAddr::new(task::harness::pml4(to).ok_or("no table")?));
+    let message = channels::try_recv(server)
+        .map_err(|error| error.message().to_string())?
+        .ok_or("the transferred buffer never arrived")?;
+    check!(
+        message.handles.len() == 1,
+        "the transfer delivered no handle"
+    );
+    let held = message.handles[0];
+    channels::close_endpoint(server).map_err(|error| error.message().to_string())?;
+    task::harness::switch_current(from);
+    mem::switch_to(PhysAddr::new(task::harness::pml4(from).ok_or("no table")?));
+    Ok(held)
+}
+
 /// The encoded `pio` request word.
 pub fn pio_word(width: u64, write: bool, value: u32) -> u64 {
     width | u64::from(write) << 8 | u64::from(value) << 32

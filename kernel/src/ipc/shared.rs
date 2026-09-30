@@ -122,22 +122,19 @@ pub fn create(size: u64, flags: u32) -> Result<u64, Error> {
     for (index, frame) in frames.iter().enumerate() {
         let at = va + index as u64 * PAGE;
         if !mem::share_frame(*frame) {
-            // Undo the mapped prefix; the never-shared tail keeps only its
-            // allocation reference and is freed directly.
+            // Undo the mapped prefix's mapping references, then return every
+            // frame's allocation reference.
             discard_range(table, va, at, pages);
-            for remaining in &frames[index..] {
-                mem::free_frame(*remaining);
-            }
+            free_frames(&frames);
             release_quota(&mut registry, slot, uid, size);
             return Err(Error::MapFailed);
         }
         if !mem::map_page_in(table, VirtAddr::new(at), *frame, map_flags(flags)) {
-            // Undo this share, the mapped prefix, and the unshared tail.
+            // Undo this share and the mapped prefix, then return every
+            // frame's allocation reference.
             mem::free_frame(*frame);
             discard_range(table, va, at, pages);
-            for remaining in &frames[index + 1..] {
-                mem::free_frame(*remaining);
-            }
+            free_frames(&frames);
             release_quota(&mut registry, slot, uid, size);
             return Err(Error::MapFailed);
         }

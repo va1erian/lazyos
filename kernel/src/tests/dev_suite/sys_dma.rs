@@ -193,6 +193,40 @@ pub fn dma_hostile_input() -> Result<(), String> {
     Ok(())
 }
 
+/// If the bus address cannot be written back (the pointer is readable but not
+/// writable), the whole allocation is undone: pool, quota and handles.
+pub fn dma_copy_out_failure_undoes_everything() -> Result<(), String> {
+    let fx = Fixture::new()?;
+    let base = idle_pool()?;
+    let dev = add_device(Spec::nic(None))?;
+    let (slot, handle) = driver_with(dev)?;
+    let handles_before = handles::count_for_task(slot);
+    // A read-only buffer mapping is a valid readable, unwritable user address.
+    let ro = crate::ipc::shared::create(4096, crate::ipc::shared::flags::READ)
+        .map_err(|error| error.message().to_string())?;
+    let va = crate::ipc::shared::map(ro).map_err(|error| error.message().to_string())?;
+    let handles_mid = handles::count_for_task(slot);
+    let strict = Strict::on();
+    expect_errno(
+        sys(OP_DMA_ALLOC, handle, 4096, 0, va),
+        EFAULT,
+        "read-only bus-address pointer",
+    )?;
+    drop(strict);
+    check!(pool() == base, "the failed copy-out leaked pool pages");
+    check!(
+        usage(Resource::DmaMemory) == 0,
+        "the failed copy-out kept a charge"
+    );
+    check!(
+        handles::count_for_task(slot) == handles_mid && handles_mid == handles_before + 1,
+        "the failed copy-out leaked a handle"
+    );
+    let _ = close(ro);
+    leave(&fx);
+    Ok(())
+}
+
 /// Fragmentation is refused cleanly: a run larger than the largest hole fails
 /// while total free space would suffice, and coalescing makes it succeed.
 pub fn dma_fragmentation() -> Result<(), String> {
@@ -303,6 +337,10 @@ pub fn dma_quota() -> Result<(), String> {
 }
 
 pub(super) const CASES: &[(&str, Test)] = &[
+    (
+        "dev_dma_copy_out_failure_undoes_everything",
+        dma_copy_out_failure_undoes_everything,
+    ),
     ("dev_dma_layout_and_zeroing", dma_layout_and_zeroing),
     ("dev_dma_alignment", dma_alignment),
     ("dev_dma_hostile_input", dma_hostile_input),

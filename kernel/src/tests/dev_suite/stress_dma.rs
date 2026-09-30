@@ -11,11 +11,11 @@ use crate::quota::Resource;
 /// churning the pool into fragments and back. At the end the pool is one free
 /// run again and the frame allocator saw no double free.
 pub fn dma_pool_alloc_free_soak() -> Result<(), String> {
-    const OPS: u32 = 60_000;
+    const OPS: u32 = 1_000_000;
     const MAX_LIVE: usize = 16;
     /// Roughly a minute of wall clock; the loop is expected to fit in tens of
     /// seconds even under TCG, and the runner's timeout is the second bound.
-    const MAX_CYCLES: u64 = 120_000_000_000;
+    const MAX_CYCLES: u64 = 600_000_000_000;
 
     let base = pool();
     // SAFETY: `rdtsc` only reads the time-stamp counter.
@@ -26,7 +26,13 @@ pub fn dma_pool_alloc_free_soak() -> Result<(), String> {
         rng ^= rng << 13;
         rng ^= rng >> 7;
         rng ^= rng << 17;
-        let pages = 1 + rng % 64;
+        // Mostly small runs (cheap to zero) with an occasional large one to
+        // keep the pool fragmenting.
+        let pages = if rng & 0x38 == 0 {
+            1 + (rng >> 8) % 64
+        } else {
+            1 + (rng >> 8) % 4
+        };
         let free_first = live.len() >= MAX_LIVE || (rng & 3 == 0 && !live.is_empty());
         if free_first {
             let index = (rng as usize) % live.len();
@@ -44,7 +50,7 @@ pub fn dma_pool_alloc_free_soak() -> Result<(), String> {
                 mem::free_frame(PhysAddr::new(phys + page * 4096));
             }
         }
-        if op % 20_000 == 0 {
+        if op % 200_000 == 0 {
             serial_println!("TEST:dev_stress_dma_pool_alloc_free_soak:PROGRESS:{op}/{OPS}");
         }
     }
@@ -84,6 +90,7 @@ pub fn dma_spawn_kill_soak() -> Result<(), String> {
     // frame baseline after it exists.
     let client = spawn_driver(driver_cred())?;
     let frames_before = mem::frame_stats();
+    let mut held = Vec::new();
     let audit_before = audit::total();
     let mut bus = 0u64;
     for round in 0..ROUNDS {
@@ -94,6 +101,9 @@ pub fn dma_spawn_kill_soak() -> Result<(), String> {
         let _ = expect_ok(dma_alloc(handle, 4096, 0, &mut bus), "alloc two")?;
         if round % 4 == 0 {
             transfer_and_consume(slot, client, buffer)?;
+        } else if round % 4 == 1 {
+            // This one stays with the client after the driver is gone.
+            held.push(transfer_and_hold(slot, client, buffer)?);
         }
         leave(&fx);
         task::harness::finish(slot, 0);
@@ -103,11 +113,29 @@ pub fn dma_spawn_kill_soak() -> Result<(), String> {
         );
         check!(CLAIMS.lock().len() == 0, "round {round}: a claim survived");
         check!(
-            pool().free_pages == base.free_pages,
+            pool().free_pages == base.free_pages - 2 * held.len() as u64,
             "round {round}: pool leaked: {:?}",
             pool()
         );
     }
+    // The dead drivers' buffers the client still holds keep their frames and
+    // charge; closing the last references returns everything.
+    let held_pages = 2 * held.len() as u64;
+    check!(
+        pool().free_pages == base.free_pages - held_pages
+            && usage(Resource::DmaMemory) == held_pages * 4096,
+        "held buffers: pool {:?}, charge {}",
+        pool(),
+        usage(Resource::DmaMemory)
+    );
+    task::harness::switch_current(client);
+    mem::switch_to(PhysAddr::new(
+        task::harness::pml4(client).ok_or("no table")?,
+    ));
+    for handle in held {
+        crate::ipc::shared::close(handle).map_err(|error| error.message().to_string())?;
+    }
+    leave(&fx);
     check!(
         pool() == base,
         "the pool leaked: {:?} != {:?}",
@@ -129,9 +157,41 @@ pub fn dma_spawn_kill_soak() -> Result<(), String> {
         audit::total() >= audit_before + 2 * u64::from(ROUNDS),
         "the soak did not audit every claim/release"
     );
+    verify_audit_chain(&fx, dev)?;
+    Ok(())
+}
+
+/// Run a few more claim/alloc/release rounds and recompute the audit hash chain
+/// over exactly the events they recorded: it must land on the kernel head.
+fn verify_audit_chain(fx: &Fixture, dev: DeviceId) -> Result<(), String> {
+    let head = audit::last_hash();
+    let before = audit::total();
+    let mut bus = 0u64;
+    for _ in 0..8 {
+        let slot = spawn_driver(driver_cred())?;
+        enter(slot)?;
+        let handle = expect_ok(claim_plain(dev), "claim")?;
+        let _ = expect_ok(dma_alloc(handle, 4096, 0, &mut bus), "alloc")?;
+        expect_ok(
+            sys(crate::dev::syscall::OP_RELEASE, handle, 0, 0, 0),
+            "release",
+        )?;
+        leave(fx);
+        task::harness::finish(slot, 0);
+        let _ = task::reap_child();
+    }
+    let added = (audit::total() - before) as usize;
     check!(
-        audit::last_hash() != 0,
-        "the audit chain head is empty after the soak"
+        added > 0 && added <= audit::AUDIT_CAPACITY,
+        "{added} audit events do not fit the ring"
+    );
+    let mut hash = head;
+    for event in audit::recent(added).iter().rev() {
+        hash = audit::chain(hash, event);
+    }
+    check!(
+        hash == audit::last_hash(),
+        "the audit chain does not verify over {added} events"
     );
     Ok(())
 }
