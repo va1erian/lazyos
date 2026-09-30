@@ -193,7 +193,10 @@ and no `xdemo`, so the app is the first surface at the top-left. Owner mode
 expands to the whole recipe: a services session, `xuid`, and the xui apps
 embedded side by side (`XAPPS.LST` names what the image ships; a registered app
 whose ELF is absent is unavailable and never logged as a failed launch).
-`init`'s app registry opens the `autostart` rows as `xuid` clients.
+`init`'s app registry opens the `autostart` rows as `xuid` clients; by
+default only the Terminal is autostarted (`LAZYOS_XUI_AUTOSTART` lists other
+stems, `none` disables it) and the other apps open on demand from the start
+menu or the desktop right-click menu.
 `sysmon`/`fabricmon`/`counter` pick client mode via `LazyOSBackend::connect`;
 the new `xui-term` hosts BusyBox `sh` over a pipe pair (issue #254). The desktop
 image also ships the migrated document apps **Editor**, **Paint** and **Files**

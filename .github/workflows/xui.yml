@@ -244,6 +244,9 @@ jobs:
         shell: bash
         env:
           LAZYOS_DESKTOP: "1"
+          # The desktop opens only the Terminal by default; this session
+          # exercises the viewers side by side too.
+          LAZYOS_XUI_AUTOSTART: term,sysmon,fabricmon,counter
         run: |
           set -euo pipefail
           cargo build

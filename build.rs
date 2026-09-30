@@ -416,9 +416,10 @@ const SHIP_DOCUMENT_APPS: bool = true;
 /// [`SHIP_DOCUMENT_APPS`] is on.
 const DOCUMENT_XUI_APPS: &[&str] = &["xui-editor.elf", "xui-files.elf", "xui-paint.elf"];
 
-/// Stems that are launched on demand (Files, an open-with) and never at boot,
-/// even under the default "autostart every embedded app" rule.
-const ON_DEMAND_XUI_STEMS: &[&str] = &["editor", "files", "paint"];
+/// The one app the desktop opens at boot when `LAZYOS_XUI_AUTOSTART` is unset:
+/// the Terminal. Every other embedded app (viewers, Editor, Files, Paint) is
+/// launched on demand from the Start menu, the right-click menu or open-with.
+const DEFAULT_AUTOSTART_STEM: &str = "term";
 
 /// Embed the desktop's xui apps (issues #215/#216).
 ///
@@ -429,7 +430,7 @@ const ON_DEMAND_XUI_STEMS: &[&str] = &["editor", "files", "paint"];
 /// `XAPPS.LST` lists the shipped ones so `init` marks every other registry row
 /// unavailable instead of failing to launch it. Rows named in
 /// `LAZYOS_XUI_AUTOSTART` (comma-separated stems such as `term,sysmon`; the
-/// default is every embedded app, `none` disables it) are tagged `autostart`,
+/// default is the Terminal only, `none` disables it) are tagged `autostart`,
 /// and `init` launches them at boot as `xuid` clients.
 fn embed_xui_apps(builder: &mut bootloader::DiskImageBuilder, desktop: bool) {
     println!("cargo:rerun-if-env-changed=LAZYOS_XUI_APPS");
@@ -461,7 +462,7 @@ fn embed_xui_apps(builder: &mut bootloader::DiskImageBuilder, desktop: bool) {
     };
     let autostart = std::env::var("LAZYOS_XUI_AUTOSTART").ok();
     let wanted = |stem: &str| match autostart.as_deref() {
-        None => !ON_DEMAND_XUI_STEMS.contains(&stem),
+        None => stem == DEFAULT_AUTOSTART_STEM,
         Some("none") => false,
         Some(list) => list.split(',').any(|item| item.trim() == stem),
     };

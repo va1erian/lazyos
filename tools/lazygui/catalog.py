@@ -146,8 +146,8 @@ def simple_config(base: dict, build: str, interface: str) -> dict:
         "cli": not desktop,
         # Desktop = the single `LAZYOS_DESKTOP=1` profile (issue #217): services
         # suite + compositor + the xui apps as its clients (`init` opens the
-        # default set: Terminal, System Monitor, Fabric Monitor, Counter; Editor, Files and Paint are embedded but open on demand), with
-        # no demo/evidence programs. The individual switches stay off so no
+        # Terminal at boot; the viewers, Editor, Files and Paint are embedded
+        # and open on demand), with no demo/evidence programs. The individual switches stay off so no
         # Advanced checkbox leaks in.
         "desktop": desktop,
         "services": False,

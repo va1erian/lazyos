@@ -1,6 +1,6 @@
 [
  {
-  "wait_for": "XUIAPP:COUNTER:PASS",
+  "wait_for": "TERM:UP:PASS",
   "timeout": 240
  },
  {
