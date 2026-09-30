@@ -13,7 +13,7 @@
 //! The wire calls sit behind the [`Transport`] seam so the fallback and the
 //! size bound can be tested on a host with no LazyOS kernel.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 
 use libmessenger::Parcel;
 use messenger_generated::os_lazy_clipboard_v1 as wire;
@@ -50,6 +50,10 @@ const fn fnv1a64(text: &str) -> u64 {
 thread_local! {
     /// The fallback store, used when `clipboardd` is absent.
     static IN_PROCESS: RefCell<String> = const { RefCell::new(String::new()) };
+    /// Set while [`IN_PROCESS`] holds the newest copy (it was too large to
+    /// offer, or the offer failed), so a paste must not prefer an older offer
+    /// still sitting in the service.
+    static LOCAL_NEWEST: Cell<bool> = const { Cell::new(false) };
 }
 
 /// The two clipboard operations, so tests can substitute a failing service.
@@ -108,20 +112,33 @@ fn set_text_with(transport: &dyn Transport, text: &str) {
     // A payload larger than the service's cap cannot be offered; keep it
     // in-process so a copy/paste within one app still works.
     if text.len() <= MAX_BYTES && transport.offer(text).is_ok() {
+        // The service now holds the newest copy; drop the local one so a
+        // later failed request cannot resurrect stale text.
+        IN_PROCESS.with(|slot| slot.borrow_mut().clear());
+        LOCAL_NEWEST.with(|flag| flag.set(false));
         return;
     }
     IN_PROCESS.with(|slot| *slot.borrow_mut() = text.to_string());
+    LOCAL_NEWEST.with(|flag| flag.set(true));
 }
 
 /// [`text`] against a chosen transport.
 fn text_with(transport: &dyn Transport) -> Option<String> {
+    if LOCAL_NEWEST.with(Cell::get) {
+        return local_text();
+    }
     match transport.request() {
         Ok(bytes) if bytes.len() <= MAX_BYTES => String::from_utf8(bytes).ok(),
-        _ => IN_PROCESS.with(|slot| {
-            let value = slot.borrow();
-            (!value.is_empty()).then(|| value.clone())
-        }),
+        _ => local_text(),
     }
+}
+
+/// The in-process copy, if there is one.
+fn local_text() -> Option<String> {
+    IN_PROCESS.with(|slot| {
+        let value = slot.borrow();
+        (!value.is_empty()).then(|| value.clone())
+    })
 }
 
 /// Decodes a `Request` reply body into bytes, enforcing [`MAX_BYTES`].
@@ -180,9 +197,28 @@ mod tests {
     fn an_over_bounded_payload_is_never_offered() {
         let fake = Fake::default();
         // `set_text_with` stores it and must not call `offer`.
-        set_text_with(&Absent, &"x".repeat(MAX_BYTES + 1));
+        set_text_with(&fake, &"x".repeat(MAX_BYTES + 1));
         assert!(fake.0.borrow().is_none());
         IN_PROCESS.with(|slot| assert_eq!(slot.borrow().len(), MAX_BYTES + 1));
+    }
+
+    #[test]
+    fn an_oversize_copy_wins_over_an_older_offer() {
+        let fake = Fake::default();
+        set_text_with(&fake, "older");
+        let big = "y".repeat(MAX_BYTES + 1);
+        set_text_with(&fake, &big);
+        assert_eq!(text_with(&fake).as_deref(), Some(big.as_str()));
+    }
+
+    #[test]
+    fn a_stale_fallback_is_not_returned_after_a_later_offer() {
+        set_text_with(&Absent, "stale");
+        let fake = Fake::default();
+        set_text_with(&fake, "fresh");
+        assert_eq!(text_with(&fake).as_deref(), Some("fresh"));
+        // The service goes away: nothing local is left to resurrect.
+        assert_eq!(text_with(&Absent), None);
     }
 
     #[test]
