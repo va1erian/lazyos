@@ -13,6 +13,7 @@ members = [
     "crates/code-editor",
     "crates/paint",
     "crates/explorer",
+    "crates/settings",
 ]
 
 [dependencies]
@@ -45,6 +46,8 @@ xui-paint = { path = "crates/paint" }
 # `village-icons` feature pulls in `xui-icons` and makes `village::paint` draw
 # the coloured set instead of the Lucide fallback.
 xui-explorer = { path = "crates/explorer", features = ["village-icons"] }
+# The Settings app core (sections, config seam, UI); the binary supplies confd.
+xui-settings = { path = "crates/settings" }
 
 [[bin]]
 name = "xui-m0"
@@ -89,3 +92,7 @@ opt-level = "z"
 lto = "fat"
 panic = "abort"
 strip = "symbols"
+
+[[bin]]
+name = "xui-settings"
+path = "src/bin/settings.rs"

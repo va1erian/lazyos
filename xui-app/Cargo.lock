@@ -94,6 +94,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600"
 
 [[package]]
+name = "confd"
+version = "0.1.0"
+
+[[package]]
 name = "const-random"
 version = "0.1.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -730,6 +734,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "uitheme"
+version = "0.1.0"
+dependencies = [
+ "confd",
+]
+
+[[package]]
 name = "unicode-bidi"
 version = "0.3.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -853,6 +864,7 @@ dependencies = [
  "xui-core",
  "xui-explorer",
  "xui-paint",
+ "xui-settings",
 ]
 
 [[package]]
@@ -906,6 +918,16 @@ dependencies = [
 name = "xui-paint"
 version = "0.0.0"
 dependencies = [
+ "xui-canvas",
+ "xui-core",
+]
+
+[[package]]
+name = "xui-settings"
+version = "0.1.0"
+dependencies = [
+ "confd",
+ "uitheme",
  "xui-canvas",
  "xui-core",
 ]

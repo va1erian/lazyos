@@ -10,7 +10,7 @@ use super::protocol::{
     color_u32, drop_rejected_handle, empty_reply, error_reply, is_privileged, typed_reply,
 };
 use super::shell::ShellSub;
-use super::theme::{border_color, taskbar_bg, TASKBAR_H, title_bg, title_bg_focus, title_text};
+use super::theme::{border_color, taskbar_bg, title_bg, title_bg_focus, title_text, TASKBAR_H};
 use super::window::surface_by_id;
 
 impl Compositor {

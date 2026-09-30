@@ -13,10 +13,10 @@ use super::region::Region;
 use super::shell::AltTab;
 use super::surface::Surface;
 use super::theme::{
-    background, border_color, border_color_focus, BUTTON, BUTTON_GAP, BUTTON_MARGIN, empty_bg,
-    ENTRY_H, ENTRY_PAD, overlay_bg, overlay_border, overlay_selected, overlay_text, taskbar_bg,
-    taskbar_entry, taskbar_entry_focus, taskbar_entry_min, TASKBAR_H, title_bg, title_bg_focus,
-    TITLE_H, title_text, window_bg,
+    background, border_color, border_color_focus, empty_bg, overlay_bg, overlay_border,
+    overlay_selected, overlay_text, taskbar_bg, taskbar_entry, taskbar_entry_focus,
+    taskbar_entry_min, title_bg, title_bg_focus, title_text, window_bg, BUTTON, BUTTON_GAP,
+    BUTTON_MARGIN, ENTRY_H, ENTRY_PAD, TASKBAR_H, TITLE_H,
 };
 use super::window::surface_by_id;
 
@@ -287,7 +287,11 @@ fn draw_surface(screen: &mut Canvas, surface: &Surface, focused: bool, clip: Rec
     screen.fill(
         surface.title_bar(),
         clip,
-        if focused { title_bg_focus() } else { title_bg() },
+        if focused {
+            title_bg_focus()
+        } else {
+            title_bg()
+        },
     );
     screen.fill(
         Rect::new(window.x, surface.y + TITLE_H, window.w, 1),

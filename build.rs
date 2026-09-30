@@ -389,6 +389,7 @@ fn xui_disk_name(path: &std::path::Path) -> (String, String) {
         "editor" => "XEDITOR".to_string(),
         "paint" => "XPAINT".to_string(),
         "files" => "XFILES".to_string(),
+        "settings" => "XSETTNG".to_string(),
         "client" => "XCLIENT".to_string(),
         other => {
             let short: String = other
@@ -421,7 +422,12 @@ const SHIP_DOCUMENT_APPS: bool = true;
 
 /// The document apps' binaries, appended to [`DESKTOP_XUI_APPS`] when
 /// [`SHIP_DOCUMENT_APPS`] is on.
-const DOCUMENT_XUI_APPS: &[&str] = &["xui-editor.elf", "xui-files.elf", "xui-paint.elf"];
+const DOCUMENT_XUI_APPS: &[&str] = &[
+    "xui-editor.elf",
+    "xui-files.elf",
+    "xui-paint.elf",
+    "xui-settings.elf",
+];
 
 /// The one app the desktop opens at boot when `LAZYOS_XUI_AUTOSTART` is unset:
 /// the Terminal. Every other embedded app (viewers, Editor, Files, Paint) is

@@ -347,10 +347,14 @@ fn caller_uid(message: &Message) -> messenger::Result<u32> {
 /// is a directory) *and* a probe write succeeds. Otherwise `/tmp/confd`
 /// (ramfs) is used and the service reports degraded.
 fn pick_dir() -> (String, bool) {
-    let choice = dir::choose(&dir::PERSISTENT_DIRS, |d| ensure_dir(d) && probe_writable(d));
+    let choice = dir::choose(&dir::PERSISTENT_DIRS, |d| {
+        ensure_dir(d) && probe_writable(d)
+    });
     if !choice.persistent && !ensure_dir(choice.dir) {
-        sys::write_str("confd: warning: could not create /tmp/confd
-");
+        sys::write_str(
+            "confd: warning: could not create /tmp/confd
+",
+        );
     }
     (String::from(choice.dir), choice.persistent)
 }

@@ -49,12 +49,16 @@ preset swatches plus RGB sliders. Registration: `xui-app/Cargo.toml`,
 
 ## Phases
 
-1. **Persistence**: confd falls back `/system` -> `/data` -> `/tmp`; tests incl. soak.
-2. **Runtime theme in xuid**: `Theme` struct, confd load + subscribe, `GetTheme` extension, `THEME:*` markers.
-3. **Keyboard**: dropped as kernel work; UI-only section in phase 5.
-4. **App scaffold**: crate, window, `IconView` sidebar, registration, menu entry, `SETTINGS:UP:PASS`.
-5. **Sections**: Appearance, Windows, Time, Keyboard (UI only), About.
-6. **Polish and docs**: reset buttons, persistence banner, doc updates.
+1. **Persistence** (done): confd falls back `/system` -> `/data` -> `/tmp` (`libs/confd/src/dir.rs`, host-tested). Still to verify on a booted image with a data disk.
+2. **Runtime theme in xuid** (done): `libs/uitheme` + `xuid/themefeed.rs`; verified live by `tools/screenshot/examples/theme_live.json`. `GetTheme` extension (`mode`, `accent`) still open.
+3. **Keyboard** (done, UI only): `inputd` applies `sys/input/layout`.
+4. **App scaffold** (done): `xui-app/crates/settings` + `xui-settings` binary, `IconView` sidebar, registered in `tools/xui/build.py`, `build.rs`, `init/apps.rs`, `xuid/menu.rs`.
+5. **Sections**: Appearance, Windows (full `ColorPanel`), Keyboard done; **Time & Date** and **About** open.
+6. **Polish and docs**: open (animations toggle, clock format options, About).
+
+Verified by `tools/screenshot/examples/xui_settings.json` (serial markers `SETTINGS:UP:PASS`, `SETTINGS:MSG:*`, `THEME:APPLIED`, `SETTINGS:CLOSE:PASS`).
+
+**Toolkit dependency.** `ColorPicker` ignored clicks when not at its container's top-left (event coordinates are node-local, `Ui::bounds` is parent-relative). Fixed in the xui repo (`ColorPicker: hit-test in node-local coordinates`); the pinned rev in `xui-app/Cargo.toml` and `xui-app/crates/*/Cargo.toml` must be bumped to a commit containing it for the swatch grids to respond.
 
 ## Verification
 

@@ -24,10 +24,16 @@ pub struct Choice {
 pub fn choose(candidates: &[&'static str], mut usable: impl FnMut(&str) -> bool) -> Choice {
     for &dir in candidates {
         if usable(dir) {
-            return Choice { dir, persistent: true };
+            return Choice {
+                dir,
+                persistent: true,
+            };
         }
     }
-    Choice { dir: FALLBACK_DIR, persistent: false }
+    Choice {
+        dir: FALLBACK_DIR,
+        persistent: false,
+    }
 }
 
 #[cfg(test)]
@@ -37,19 +43,37 @@ mod tests {
     #[test]
     fn prefers_system_over_data() {
         let c = choose(&PERSISTENT_DIRS, |_| true);
-        assert_eq!(c, Choice { dir: "/system/confd", persistent: true });
+        assert_eq!(
+            c,
+            Choice {
+                dir: "/system/confd",
+                persistent: true
+            }
+        );
     }
 
     #[test]
     fn falls_through_to_data_volume() {
         let c = choose(&PERSISTENT_DIRS, |d| d == "/data/confd");
-        assert_eq!(c, Choice { dir: "/data/confd", persistent: true });
+        assert_eq!(
+            c,
+            Choice {
+                dir: "/data/confd",
+                persistent: true
+            }
+        );
     }
 
     #[test]
     fn falls_back_to_ramfs_when_nothing_writable() {
         let c = choose(&PERSISTENT_DIRS, |_| false);
-        assert_eq!(c, Choice { dir: FALLBACK_DIR, persistent: false });
+        assert_eq!(
+            c,
+            Choice {
+                dir: FALLBACK_DIR,
+                persistent: false
+            }
+        );
     }
 
     #[test]

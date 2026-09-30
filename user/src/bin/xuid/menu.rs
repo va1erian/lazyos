@@ -24,6 +24,7 @@ const ITEMS: &[(&str, &str)] = &[
     ("editor", "Editor"),
     ("paint", "Paint"),
     ("files", "Files"),
+    ("settings", "Settings"),
 ];
 const ITEM_H: i32 = 20;
 const PAD: i32 = 4;

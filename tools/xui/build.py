@@ -57,6 +57,8 @@ BINS = {
     "xui-editor": "xui-editor.elf",
     "xui-paint": "xui-paint.elf",
     "xui-files": "xui-files.elf",
+    # The Settings app (confd-backed configuration panel).
+    "xui-settings": "xui-settings.elf",
 }
 
 
