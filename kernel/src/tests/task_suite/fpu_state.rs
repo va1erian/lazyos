@@ -113,20 +113,130 @@ pub fn fpu_inherit_then_exec_reset() -> Result<(), String> {
     })
 }
 
-/// Real entries through the voluntary scheduler gate resume the caller with
-/// its registers intact.
-pub fn fpu_survives_real_yields() -> Result<(), String> {
+/// Where the peer task's program is mapped in its own address space.
+const PEER_CODE: u64 = 0x0060_0000;
+/// The XMM0 value the peer loads, distinct from every kernel-side pattern.
+const PEER_XMM0: u64 = 0x5eed_0f_face_b00c;
+
+/// Offset of the peer's progress counter inside its page.
+const PEER_COUNTER: usize = 32;
+
+/// A ring-3 program that, in a loop, loads [`PEER_XMM0`] into XMM0 and
+/// [`MXCSR_ROUND_UP`] into MXCSR, then bumps a counter in its own page:
+///
+/// ```text
+///  0: mov rax, PEER_XMM0        48 b8 imm64
+/// 10: movq xmm0, rax            66 48 0f 6e c0
+/// 15: ldmxcsr [rip + 0x12]      0f ae 15 12 00 00 00   (-> offset 40)
+/// 22: inc qword [rip + 3]       48 ff 05 03 00 00 00   (-> offset 32)
+/// 29: jmp 0                     eb e1
+/// 32: dq counter
+/// 40: dd MXCSR_ROUND_UP
+/// ```
+///
+/// The counter is the proof the peer executed: a switch into it can take an
+/// already-pending tick before its first instruction, so CPU ticks charged
+/// to it prove nothing. Reloading the registers every iteration means a
+/// missing restore clobbers whichever task runs next.
+fn peer_program() -> [u8; 44] {
+    let mut code = [0u8; 44];
+    code[0..2].copy_from_slice(&[0x48, 0xb8]);
+    code[2..10].copy_from_slice(&PEER_XMM0.to_le_bytes());
+    code[10..15].copy_from_slice(&[0x66, 0x48, 0x0f, 0x6e, 0xc0]);
+    code[15..22].copy_from_slice(&[0x0f, 0xae, 0x15, 0x12, 0x00, 0x00, 0x00]);
+    code[22..29].copy_from_slice(&[0x48, 0xff, 0x05, 0x03, 0x00, 0x00, 0x00]);
+    code[29..31].copy_from_slice(&[0xeb, 0xe1]);
+    code[40..44].copy_from_slice(&MXCSR_ROUND_UP.to_le_bytes());
+    code
+}
+
+/// A forked peer whose saved frame resumes, in ring 3, at [`peer_program`]
+/// in its own table, plus a kernel view of its progress counter.
+struct Peer {
+    slot: usize,
+    counter: *const u64,
+}
+
+impl Peer {
+    /// How many loop iterations the peer has completed.
+    fn progress(&self) -> u64 {
+        // SAFETY: `counter` points into the peer's code page through the
+        // physical-memory map, 8-aligned (offset 32 of a page); the page
+        // stays allocated until the peer is reaped, after the last read.
+        unsafe { self.counter.read_volatile() }
+    }
+}
+
+fn spawn_peer() -> Result<Peer, String> {
+    use crate::mem::vma::{Kind, Prot};
+    let slot = task::spawn_fork().map_err(|error| format!("spawn: {error}"))?;
+    let pml4 = x86_64::PhysAddr::new(task::harness::pml4(slot).ok_or("peer has no table")?);
+    let pages = process::map_range_kind(
+        pml4,
+        PEER_CODE,
+        PEER_CODE + 4096,
+        Prot::READ | Prot::WRITE | Prot::EXEC,
+        Kind::Anon,
+    )
+    .map_err(|error| format!("map peer code: {error}"))?;
+    let (_, phys) = *pages.first().ok_or("no peer code page")?;
+    let code = peer_program();
+    let page = mem::phys_to_virt(x86_64::PhysAddr::new(phys)).as_mut_ptr::<u8>();
+    // SAFETY: `phys` is the frame `map_range_kind` just allocated for the
+    // peer, reached through the physical-memory map; 44 bytes fit in it.
+    unsafe { core::ptr::copy_nonoverlapping(code.as_ptr(), page, code.len()) };
+    // The program never touches its stack; an interrupt from ring 3 switches
+    // to the task's kernel stack, so any user `rsp` will do.
+    check!(
+        task::harness::set_user_frame(slot, PEER_CODE, PEER_CODE + 4096),
+        "could not point the peer at its program"
+    );
+    Ok(Peer {
+        slot,
+        // SAFETY: offset 32 is inside the page `page` points at.
+        counter: unsafe { page.add(PEER_COUNTER) } as *const u64,
+    })
+}
+
+/// A real context switch to another task that clobbers XMM0 and MXCSR in
+/// ring 3: the kernel task parks, the scheduler runs the peer until a tick
+/// switches back, and each side keeps exactly its own state. The peer's
+/// counter proves it executed in between; its saved image proves it was
+/// saved on switch-out.
+pub fn fpu_real_switch_to_a_user_task() -> Result<(), String> {
     with_kernel_state_kept(|| {
-        set_live(0xfeed_face_cafe_beef, MXCSR_ROUND_DOWN);
-        for round in 0..5_000 {
-            task::switch::yield_now();
-            check!(
-                live() == (0xfeed_face_cafe_beef, MXCSR_ROUND_DOWN),
-                "yield {round} resumed with {:x?}",
-                live()
-            );
-        }
-        Ok(())
+        let peer = spawn_peer()?;
+        let outcome = (|| {
+            for round in 0..20u64 {
+                let mine = 0xfeed_face_0000_0000 | round;
+                set_live(mine, MXCSR_ROUND_DOWN);
+                // Park a tick at a time until the peer (the only other
+                // runnable task) has made progress.
+                let before = peer.progress();
+                let mut parks = 0;
+                while peer.progress() == before {
+                    check!(parks < 100, "round {round}: the peer never ran");
+                    task::wait_sleep(task::ticks() + 1);
+                    parks += 1;
+                }
+                check!(
+                    live() == (mine, MXCSR_ROUND_DOWN),
+                    "round {round}: kernel resumed with {:x?} after the peer ran",
+                    live()
+                );
+                check!(
+                    fpu::saved_xmm0(peer.slot) == PEER_XMM0
+                        && fpu::saved_mxcsr(peer.slot) == MXCSR_ROUND_UP,
+                    "round {round}: peer image xmm0={:#x} mxcsr={:#x}",
+                    fpu::saved_xmm0(peer.slot),
+                    fpu::saved_mxcsr(peer.slot)
+                );
+            }
+            Ok(())
+        })();
+        task::harness::finish(peer.slot, 0);
+        while task::reap_child().is_some() {}
+        outcome
     })
 }
 

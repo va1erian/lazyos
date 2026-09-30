@@ -117,7 +117,10 @@ pub(super) const CASES: &[(&str, Test)] = &[
         "task_fpu_inherit_then_exec_reset",
         fpu_inherit_then_exec_reset,
     ),
-    ("task_fpu_survives_real_yields", fpu_survives_real_yields),
+    (
+        "task_fpu_real_switch_to_a_user_task",
+        fpu_real_switch_to_a_user_task,
+    ),
     ("task_fpu_switch_soak_all_slots", fpu_switch_soak_all_slots),
     (
         "task_voluntary_park_expires_deadline",
