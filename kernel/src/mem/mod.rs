@@ -39,7 +39,7 @@ pub const HEAP_SIZE: u64 = 16 * 1024 * 1024;
 /// Maximum usable memory regions we track (no heap needed to bootstrap).
 pub const MAX_REGIONS: usize = 32;
 
-pub use heap::HeapStats;
+pub use heap::{locked as heap_locked, HeapStats};
 
 /// Snapshot of the kernel heap's counters; see [`HeapStats`]. The system-stats
 /// syscall (issue #144) uses this for its `slab/heap usage` fields.

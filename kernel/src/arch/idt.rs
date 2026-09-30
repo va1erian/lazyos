@@ -18,6 +18,9 @@ pub static TICKS: AtomicU64 = AtomicU64::new(0);
 pub fn init() {
     let mut idt = InterruptDescriptorTable::new();
     idt.breakpoint.set_handler_fn(breakpoint_handler);
+    // Issue #382: an injected NMI prints a hang report, even over IF=0 spins.
+    idt.non_maskable_interrupt
+        .set_handler_fn(super::nmi::nmi_handler);
     idt.device_not_available
         .set_handler_fn(device_not_available_handler);
     idt.stack_segment_fault

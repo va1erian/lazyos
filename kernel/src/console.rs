@@ -122,6 +122,11 @@ pub fn init(base: usize, info: FrameBufferInfo) {
     *CONSOLE.lock() = Some(console);
 }
 
+/// Whether the console lock is held right now (the NMI hang report, issue #382).
+pub fn locked() -> bool {
+    CONSOLE.is_locked()
+}
+
 /// Run a closure with mutable access to the underlying framebuffer, e.g. to
 /// blit a rendered image.
 pub fn with_framebuffer<R>(f: impl FnOnce(&mut Framebuffer) -> R) -> Option<R> {

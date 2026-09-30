@@ -188,6 +188,11 @@ fn with_signals<R>(pml4: u64, f: impl FnOnce(&mut Signals) -> R) -> R {
     f(&mut all[index])
 }
 
+/// Whether the registry lock is held right now (the NMI hang report, issue #382).
+pub fn registry_locked() -> bool {
+    SIGNALS.is_locked()
+}
+
 /// Drop a torn-down address space's signal state.
 pub fn forget(pml4: u64) {
     SIGNALS.lock().retain(|state| state.pml4 != pml4);

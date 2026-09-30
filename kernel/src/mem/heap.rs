@@ -13,6 +13,11 @@ pub unsafe fn init(start: usize, size: usize) {
     ALLOCATOR.lock().init(start as *mut u8, size);
 }
 
+/// Whether the heap lock is held right now (the NMI hang report, issue #382).
+pub fn locked() -> bool {
+    ALLOCATOR.is_locked()
+}
+
 /// Live usage of the linked-list heap, for the system-stats snapshot
 /// (issue #144). The heap is the oversized-object fallback of the slab
 /// allocator, so `used` is usually small.
