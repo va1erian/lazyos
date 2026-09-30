@@ -15,6 +15,7 @@ use timezone::format::{format_clock, ClockText};
 use timezone::Zone;
 use user::central::{Bus, Subscription};
 use user::messenger::display::{Face, Rect};
+use user::messenger::topics_client::Qos;
 use user::messenger::{timed, DEFAULT_BUFFER, EXPIRED_DEADLINE};
 use user::sys;
 
@@ -24,6 +25,8 @@ use super::theme::TASKBAR_H;
 const POLL_TICKS: u64 = 100;
 /// Ticks between attempts to reach the broker while it is unreachable.
 const RETRY_TICKS: u64 = 500;
+/// Ticks the subscribe call may wait for the broker before it is abandoned.
+const SUBSCRIBE_TICKS: u64 = 5;
 /// Padding either side of the clock text.
 pub(super) const PAD: i32 = 12;
 /// The widest line the format can produce, used to reserve the bar space so
@@ -91,8 +94,12 @@ impl Clock {
                 return;
             }
             self.next_connect = now + RETRY_TICKS;
+            // Bounded: the compositor must not stall on a silent broker.
+            let deadline = Some(now + SUBSCRIBE_TICKS);
             self.watch = Bus::connect()
-                .and_then(|mut bus| bus.subscribe(timed::TICK_TOPIC))
+                .and_then(|mut bus| {
+                    bus.subscribe_with_deadline(timed::TICK_TOPIC, Qos::Latest, deadline)
+                })
                 .ok();
         }
         let Some(watch) = &self.watch else {

@@ -115,8 +115,22 @@ impl Bus {
         filter: &str,
         qos: topics_client::Qos,
     ) -> Result<Subscription> {
+        self.subscribe_with_deadline(filter, qos, None)
+    }
+
+    /// [`Bus::subscribe_with_qos`] that gives up at `deadline` (an absolute
+    /// tick, `None` = wait forever) with `-ETIMEDOUT`, for a caller such as a
+    /// compositor that must not stall on a broker that stopped answering.
+    pub fn subscribe_with_deadline(
+        &mut self,
+        filter: &str,
+        qos: topics_client::Qos,
+        deadline: Option<u64>,
+    ) -> Result<Subscription> {
         let request = topics_client::subscribe_request(filter, qos)?;
-        let reply = self.endpoint.call_with(&request, &mut self.scratch, None)?;
+        let reply = self
+            .endpoint
+            .call_with(&request, &mut self.scratch, deadline)?;
         if let Some(code) = error_code(&reply) {
             return Err(Error::Topics(code));
         }

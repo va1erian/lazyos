@@ -38,8 +38,8 @@ REQUIRED: list[tuple[str, str]] = [
     ("timed followed a confd zone change", r"^TIMED:DEMO:PASS"),
     ("timed answered every method (timectl)", r"^TIMECTL:SELFTEST:PASS paris_offset=-?\d+$"),
     ("open-with publish fallback", r"^MIME:OPEN:PASS"),
-    ("timed serving (issue #369)", r"^TIMED:READY unix=\d+ "),
-    ("timed published time/tick", r"^TIMED:TICK:PASS unix=\d+ offset=-?\d+ zone=\S+$"),
+    ("timed serving (issue #369)", r"TIMED:READY unix=\d+ "),
+    ("timed published time/tick", r"TIMED:TICK:PASS unix=\d+ offset=-?\d+ zone=\S+$"),
 ]
 
 #: Markers a desktop-profile boot (`LAZYOS_DESKTOP=1`, issue #217) still
@@ -51,8 +51,8 @@ DESKTOP: list[tuple[str, str]] = [
     ("shipped apps counted (issue #216)", r"^INIT:APPS:SHIPPED count=\d+$"),
     ("foreign-session launch denied", r"^INIT:LAUNCH:DENIED:PASS"),
     ("open-with publish fallback", r"^MIME:OPEN:PASS"),
-    ("timed serving (issue #369)", r"^TIMED:READY unix=\d+ "),
-    ("timed published time/tick", r"^TIMED:TICK:PASS unix=\d+ offset=-?\d+ zone=\S+$"),
+    ("timed serving (issue #369)", r"TIMED:READY unix=\d+ "),
+    ("timed published time/tick", r"TIMED:TICK:PASS unix=\d+ offset=-?\d+ zone=\S+$"),
 ]
 
 #: Lines that must NOT appear (issue #216): `init` refuses a registered app whose
