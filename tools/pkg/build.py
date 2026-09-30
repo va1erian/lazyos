@@ -50,6 +50,9 @@ MAX_DESCRIPTION = 1024
 MAX_ARGS = 16
 MAX_ARG = 256
 MAX_VERB = 16
+# Mirrors `lazypkg::MAX_NAME_LEN` and `lazypkg::MAX_MANIFEST`.
+MAX_NAME_LEN = 255
+MAX_MANIFEST = 1024 * 1024
 
 _SYSTEM_LABEL = re.compile(r"^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$")
 _VERSION = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
@@ -175,7 +178,8 @@ def validate_manifest(manifest):
             _check_keys(handler, {"type", "verbs", "icon"}, f"mime[{index}]", problems)
             if not isinstance(handler, dict):
                 continue
-            if not _MIME.match(handler.get("type", "")):
+            mime_type = handler.get("type")
+            if not isinstance(mime_type, str) or not _MIME.match(mime_type):
                 problems.append(f"mime[{index}].type must be type/subtype")
             verbs = handler.get("verbs")
             if not isinstance(verbs, list) or not verbs:
@@ -191,19 +195,50 @@ def validate_manifest(manifest):
     permissions = manifest.get("permissions", {})
     _check_keys(permissions, {"interfaces", "topics", "files", "network"}, "permissions", problems)
     if isinstance(permissions, dict):
-        for interface in permissions.get("interfaces", []):
-            if not _INTERFACE.match(interface if isinstance(interface, str) else ""):
+        for interface in _list_field(permissions, "interfaces", "permissions", problems):
+            if not isinstance(interface, str) or not _INTERFACE.match(interface):
                 problems.append(f"permissions.interfaces entry {interface!r} is not name.vN")
-        for topic in permissions.get("topics", []):
+        for topic in _list_field(permissions, "topics", "permissions", problems):
             if not _valid_topic(topic):
                 problems.append(f"permissions.topics entry {topic!r} is not a publish:/subscribe: pattern")
-        for rule in permissions.get("files", []):
+        for rule in _list_field(permissions, "files", "permissions", problems):
             if not _valid_file_rule(rule):
                 problems.append(f"permissions.files entry {rule!r} is not a read:/write: absolute path")
         network = permissions.get("network", [])
         if network not in ([], ["outbound"]):
             problems.append('permissions.network must be empty or exactly ["outbound"]')
     return problems
+
+
+def _list_field(table, key, where, problems):
+    """`table[key]` when it is a list, else record a problem and yield nothing."""
+    value = table.get(key, [])
+    if isinstance(value, list):
+        return value
+    problems.append(f"{where}.{key} must be an array")
+    return []
+
+
+def entry_name_problem(name):
+    """Why the reader (`libs/lazypkg/src/path.rs`) would reject `name`, or None."""
+    if not name:
+        return "is empty"
+    if len(name.encode("utf-8")) > MAX_NAME_LEN:
+        return f"is longer than {MAX_NAME_LEN} bytes"
+    if "\0" in name:
+        return "contains a NUL byte"
+    if any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in name):
+        return "contains a control character"
+    if name.startswith(("/", "\\")):
+        return "is absolute"
+    if "\\" in name:
+        return "contains a backslash"
+    if len(name) >= 2 and name[0].isascii() and name[0].isalpha() and name[1] == ":":
+        return "has a drive letter"
+    for component in name.split("/"):
+        if component in ("", ".", ".."):
+            return "has an empty, `.` or `..` path component"
+    return None
 
 
 def collect_files(root):
@@ -221,6 +256,10 @@ def validate_layout(files):
     if "manifest.toml" not in files:
         problems.append("manifest.toml is missing")
     for name in files:
+        reason = entry_name_problem(name)
+        if reason is not None:
+            problems.append(f"entry {name!r} {reason}")
+            continue
         if name == "manifest.toml":
             continue
         top = name.split("/", 1)[0]
@@ -261,9 +300,14 @@ def build(root, out_dir):
     if not root.is_dir():
         raise BuildError(f"{root} is not a directory")
     try:
-        manifest = tomllib.loads((root / "manifest.toml").read_text("utf-8-sig"))
+        manifest_bytes = (root / "manifest.toml").read_bytes()
     except FileNotFoundError as error:
         raise BuildError("manifest.toml is missing") from error
+    # The reader refuses a larger manifest before parsing it; so does the builder.
+    if len(manifest_bytes) > MAX_MANIFEST:
+        raise BuildError(f"manifest.toml is larger than {MAX_MANIFEST} bytes")
+    try:
+        manifest = tomllib.loads(manifest_bytes.decode("utf-8-sig"))
     except (tomllib.TOMLDecodeError, UnicodeDecodeError) as error:
         raise BuildError(f"manifest.toml is invalid: {error}") from error
 

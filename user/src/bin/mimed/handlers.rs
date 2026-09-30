@@ -12,7 +12,7 @@ use user::messenger::mime::wire;
 use user::messenger::{self, errno, mime, services, Endpoint, Error, Message, Parcel};
 use user::sys;
 
-use super::apps::AppRegistry;
+use super::apps::{choose, AppRegistry};
 use super::db::MimeDb;
 use super::validate::{valid_app_id, valid_mime, valid_token};
 
@@ -88,17 +88,31 @@ pub(crate) fn open_path(
     session: Option<u64>,
 ) -> messenger::Result<mime::OpenResult> {
     let mime_type = db.guess(path);
-    let app = apps
-        .lookup(&mime_type, verb)
-        .or_else(|| apps.lookup(&mime_type, mime::DEFAULT_VERB))
-        .ok_or(Error::Errno(-errno::ENOENT))?
-        .to_string();
+    let (primary, fallback) = apps
+        .resolve(&mime_type, verb)
+        .or_else(|| apps.resolve(&mime_type, mime::DEFAULT_VERB))
+        .ok_or(Error::Errno(-errno::ENOENT))?;
     // The gated `init` launch (issue #158): best-effort, so an absent
     // supervisor, an app it does not know, or an app whose ELF is not
-    // installed all fall back to the publish-only behavior below.
-    let launched = session
-        .map(|session| launch_via_init(&app, path, session))
-        .unwrap_or(false);
+    // installed all fall back to the publish-only behavior below. When `init`
+    // reports the primary's ELF is not shipped (`-ENOENT`), swap in the
+    // registration's fallback: `text/markdown` opens in the Editor when the
+    // zig-built Docs app is not in the image.
+    let mut app = primary;
+    let mut launched = false;
+    if let Some(session) = session {
+        match launch_via_init(app, path, session) {
+            Ok(_) => launched = true,
+            Err(Error::Init(code)) if code == errno::ENOENT => {
+                app = choose(app, fallback, false);
+                if app != primary {
+                    launched = launch_via_init(app, path, session).is_ok();
+                }
+            }
+            Err(_) => {}
+        }
+    }
+    let app = app.to_string();
     let event = wire::OpenEvent {
         path: String::from(path),
         mime: mime_type.clone(),
@@ -127,14 +141,20 @@ fn caller_session(message: &Message) -> Option<u64> {
     Some(cred.session)
 }
 
-/// Ask `init` to launch `app` for `path` in the caller's session. `false` on
-/// any failure: the caller still gets the `Open` event.
+/// Ask `init` to launch `app` for `path` in the caller's session.
 ///
 /// The kernel refuses a second synchronous call on a channel while another
 /// transaction is open (`-EDEADLK`), and `init`'s endpoint is shared by every
 /// client, so a boot-time open walk can race another task's query; retry that
-/// specific error, mirroring [`publish_event`].
-fn launch_via_init(app: &str, path: &str, session: u64) -> bool {
+/// specific error, mirroring [`publish_event`]. Any other supervisor error is
+/// returned to the caller: `-ENOENT` means the image does not ship the app (the
+/// open path then swaps in its fallback), and an absent supervisor becomes
+/// `-EAGAIN` after the retries.
+fn launch_via_init(
+    app: &str,
+    path: &str,
+    session: u64,
+) -> messenger::Result<services::LaunchResult> {
     // The boot pass has several clients queueing on `init` at once
     // (`logd`/`healthd` subscribing, `messengerctl`'s self-tests), so the
     // retry window is generous: ~1.3 s of parked ticks.
@@ -154,13 +174,13 @@ fn launch_via_init(app: &str, path: &str, session: u64) -> bool {
                     "mimed: launched {} pid {} (session {})\n",
                     result.app, result.pid, result.session
                 ));
-                return true;
+                return Ok(result);
             }
             Err(Error::Errno(code)) if code == -errno::EDEADLK => park_tick(),
-            Err(_) => return false,
+            Err(error) => return Err(error),
         }
     }
-    false
+    Err(Error::Errno(-errno::EAGAIN))
 }
 
 /// Publish a fire-and-forget launch event through the central broker.

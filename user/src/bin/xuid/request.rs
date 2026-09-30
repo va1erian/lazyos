@@ -10,11 +10,12 @@ use user::messenger::{self, Endpoint, Message};
 use user::sys;
 
 use super::compositor::Compositor;
-use super::geometry::SizeHints;
+use super::geometry::{self, SizeHints};
 use super::layout::place_window;
 use super::present::attach;
 use super::protocol::{drop_rejected_handle, empty_reply, error_reply, is_privileged, typed_reply};
 use super::surface::Surface;
+use super::theme::{BORDER, TITLE_H};
 use super::window::{focus_on_create, surface_by_id};
 
 impl Compositor {
@@ -36,6 +37,7 @@ impl Compositor {
             wire::METHOD_SETTITLE => self.set_title(message, body),
             wire::METHOD_HINTOPENORIGIN => self.hint_open_origin(message, body),
             wire::METHOD_SETSIZEHINTS => self.set_size_hints(message, body),
+            wire::METHOD_REQUESTSIZE => self.request_size(message, body),
             wire::METHOD_SUBSCRIBE => self.subscribe(message, body),
             wire::METHOD_LISTSURFACES => self.list_surfaces(message),
             wire::METHOD_GETWORKAREA => self.get_work_area(message),
@@ -229,6 +231,59 @@ impl Compositor {
         if let Some(surface) = self.surfaces.iter_mut().find(|s| s.id == args.surface) {
             surface.hints = Some(hints);
         }
+        empty_reply(message.method())
+    }
+
+    /// `RequestSize`: the owner asks for a new content size (a compact or
+    /// expanded view). Needs declared size hints and a normal (neither
+    /// maximized nor minimized) window; the size is clamped by
+    /// [`geometry::requested_rect`] and the client is always answered with a
+    /// `Configure`, even when nothing changed, so it never waits in vain.
+    fn request_size(&mut self, message: &Message, body: &[u8]) -> Parcel {
+        let Ok(args) = wire::decode_request_size_args(body) else {
+            return error_reply(message.method(), messenger::errno::EINVAL);
+        };
+        let Some(surface) = surface_by_id(&self.surfaces, args.surface) else {
+            return error_reply(message.method(), messenger::errno::ENOENT);
+        };
+        if surface.owner != message.sender {
+            return error_reply(message.method(), messenger::errno::EACCES);
+        }
+        let Some(hints) = surface.hints.filter(|_| surface.resizable()) else {
+            return error_reply(message.method(), messenger::errno::EINVAL);
+        };
+        if surface.minimized || surface.maximized.is_some() {
+            return error_reply(message.method(), messenger::errno::EINVAL);
+        }
+        let (window, events) = (surface.window(), surface.events);
+        let rect =
+            geometry::requested_rect(window, (args.width, args.height), &hints, self.work_area());
+        if rect == window {
+            self.send_configure(
+                args.surface,
+                events,
+                window.w - BORDER * 2,
+                window.h - TITLE_H - BORDER,
+                wire::WINDOW_STATE_NORMAL,
+            );
+            return empty_reply(message.method());
+        }
+        if let Some(surface) = self.surfaces.iter_mut().find(|s| s.id == args.surface) {
+            surface.x = rect.x;
+            surface.y = rect.y;
+            surface.w = rect.w - BORDER * 2;
+            surface.h = rect.h - TITLE_H - BORDER;
+        }
+        self.send_configure(
+            args.surface,
+            events,
+            rect.w - BORDER * 2,
+            rect.h - TITLE_H - BORDER,
+            wire::WINDOW_STATE_NORMAL,
+        );
+        self.notify_surface(args.surface, wire::CHANGE_RESIZED);
+        // The old footprint may be larger than the new one: repaint it all.
+        self.repaint_full();
         empty_reply(message.method())
     }
 

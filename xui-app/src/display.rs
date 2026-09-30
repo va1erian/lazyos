@@ -239,6 +239,15 @@ impl Client {
         self.call(&parcel).map(|_| ())
     }
 
+    /// `RequestSize`: ask the compositor to resize `surface`'s content (a
+    /// compact/expanded toggle). The answer is a `Configure` event with the
+    /// size it applied; an older compositor or a window without size hints
+    /// answers `EINVAL`, which callers ignore.
+    pub fn request_size(&self, surface: u64, width: u32, height: u32) -> Result<(), i64> {
+        let parcel = request_size_parcel(surface, width, height)?;
+        self.call(&parcel).map(|_| ())
+    }
+
     /// `HintOpenOrigin`: ask the compositor to open this task's next window
     /// from `rect` (`x, y, w, h`, relative to `surface`'s content origin)
     /// instead of from its taskbar entry. Purely cosmetic: an older
@@ -274,6 +283,22 @@ impl Client {
             None => Ok(reply),
         }
     }
+}
+
+/// The `RequestSize` request parcel.
+fn request_size_parcel(surface: u64, width: u32, height: u32) -> Result<Parcel, i64> {
+    let body = wire::encode_request_size_args(&wire::RequestSizeArgs {
+        surface,
+        width,
+        height,
+    })
+    .map_err(|_| -errno::EINVAL)?;
+    Ok(request(
+        wire::METHOD_REQUESTSIZE,
+        body,
+        Vec::new(),
+        Vec::new(),
+    ))
 }
 
 /// The `HintOpenOrigin` request parcel for `rect` relative to `surface`.
@@ -364,6 +389,14 @@ mod tests {
             (args.surface, args.x, args.y, args.w, args.h),
             (7, -4, 12, 64, 48)
         );
+    }
+
+    #[test]
+    fn the_size_request_parcel_carries_method_34_and_the_size() {
+        let parcel = request_size_parcel(3, 200, 90).expect("encodes");
+        assert_eq!(parcel.header.method, 34);
+        let args = wire::decode_request_size_args(&parcel.body).expect("decodes");
+        assert_eq!((args.surface, args.width, args.height), (3, 200, 90));
     }
 
     #[test]

@@ -60,7 +60,7 @@ impl Service {
         if let Some(attachment) = self.attachment.take() {
             sys::write_str(&format!("NETDRV:DETACH {why}\n"));
             let _ = sys::display_close_buffer(attachment.buffer);
-            let _ = attachment.notify.close();
+            let _ = attachment.notify.release();
         }
     }
 
@@ -283,6 +283,6 @@ fn discard_transfers(message: &Message, adopted: bool) {
         let _ = sys::display_close_buffer(message.first_buffer);
     }
     if message.handles > 0 {
-        let _ = Endpoint::from_raw(message.first_handle).close();
+        let _ = Endpoint::from_raw(message.first_handle).release();
     }
 }

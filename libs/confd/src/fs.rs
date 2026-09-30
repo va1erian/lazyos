@@ -16,6 +16,10 @@ pub const TMP_FILE: &str = "store.tmp";
 /// Name a store file too corrupt to read is moved to, for inspection.
 pub const CORRUPT_FILE: &str = "store.corrupt";
 
+/// Name a store file is moved to once its entries were merged into a better
+/// location, so a later start cannot resurrect values deleted since.
+pub const MIGRATED_FILE: &str = "store.migrated";
+
 /// The file operations [`persist`] and [`load`] are built from.
 ///
 /// Real implementations wrap a directory handle from `confd`; tests wrap an
@@ -83,4 +87,10 @@ pub fn load<F: StoreFs>(fs: &mut F) -> Result<Store, F::Error> {
             }
         },
     }
+}
+
+/// Marks the store in `fs` as merged elsewhere (best effort: a failure only
+/// means the merge is repeated, and it never overwrites a newer value).
+pub fn retire<F: StoreFs>(fs: &mut F) {
+    let _ = fs.rename(STORE_FILE, MIGRATED_FILE);
 }

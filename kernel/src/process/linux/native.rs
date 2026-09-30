@@ -53,6 +53,11 @@ const PROGRAMS: &[(&str, &str)] = &[
     // The NIC control tool (docs/networking-plan.md N1): `nicctl [arp]` shows
     // the card and its counters. On the image only with `LAZYOS_NET=1`.
     ("nicctl", "NICCTL.ELF"),
+    // The network stack's tools (docs/networking-plan.md N2): `netctl [addr |
+    // route | stats | ...]` and `ping <a.b.c.d> [count]`. On the image only
+    // with `LAZYOS_NETD=1`.
+    ("netctl", "NETCTL.ELF"),
+    ("ping", "PING.ELF"),
 ];
 
 /// The directories a `$PATH` search (BusyBox `sh`'s default is

@@ -434,7 +434,7 @@ Each stage is independently mergeable and ends with evidence.
 |---|---|---|---|
 | **N0** | This plan reviewed; `idl/net.midl` with the NIC interface (wake-up mechanism settled), frame-ring layout, `libs/framering` + `libs/virtio-net` with host tests | none | `cargo test`; `midlc` output replaces the hand-written IDL page |
 | **N1** | `virtio-net` driver, `_net` uid, `init` row, `LAZYOS_NET=1`, `nicctl`, `tools/net/run.py` skeleton, `--net` in `run_demo.py`; class ACL rules for `_net` on `os.kernel.dev.net` (claim, map, DMA). Closes the D5 half of #241 | none expected | `NET:NIC:PASS`; a transmitted ARP request and its reply in the pcap; interrupt delivery count |
-| **N2** | `libs/netstack` + `netd`: DHCP, ARP, echo responder, `stack.v1`, `netctl`, and `ping`; ACL rules making `_netd` the only permitted client of `nic.v1`, and for `stack.v1` | a native entropy call if none exists | `ping 10.0.2.2` replies visible in the pcap: **first user-visible milestone** |
+| **N2** | `libs/netstack` + `netd`: DHCP, ARP, echo responder, `stack.v1`, `netctl`, and `ping`; ACL rules for `nic.v1` (`_netd` and root, for the diagnostic tools, are its only permitted callers of the control methods; anyone may read `Info` and `Stats`; `_net` sends its own `Notify`) and for `stack.v1` | a native entropy call if none exists | `ping 10.0.2.2` replies visible in the pcap: **first user-visible milestone** |
 | **N3** | `socket.v1` (TCP, UDP, parked calls, ownership, reclaim), client library, `nc`, `nslookup`; ACL rules for the `socket.v1` methods | none (or peer-closed notification, §7.1) | bytes round-trip with a host echo server both ways; probe and soak modes |
 | **N4** | `ftp` client | none | byte-exact get/put against the harness server: **stated goal reached** |
 | **N5** | Linux `AF_INET` shim (L1/L2 spike, then build), `/etc/resolv.conf`, ABI fixtures | **yes**, with full test coverage | BusyBox `nc`/`wget`/`ftpget` and `std::net` fixtures pass |
@@ -455,7 +455,7 @@ network) builds on the same interfaces.
 |---|---|
 | N0 | **Built.** `idl/net.midl` (`os.lazy.net.nic.v1`), `libs/framering`, `libs/virtio-net`, `libs/fuzzkit`, the 256-entry queue cap, the `fuzz/` cargo-fuzz crate, `.github/workflows/net.yml`, `tools/net/README.md` |
 | N1 | **Built.** `netdrv` (`user/src/bin/netdrv.rs`), `libs/nicdrv` (its host-tested core), `nicctl`, `user/src/messenger/net.rs`, the `_net` uid (902) and `init` row, `LAZYOS_NET=1`, `libs/netpolicy` (class rules, loaded by a kernel test), `tools/net/run.py` + `analyze_pcap.py` + their tests, `--net` in `run_demo.py`. Evidence: a 42-exchange ARP capture, frame-policy and probe frames checked on the wire, in five harness variants |
-| N2 | Not built |
+| N2 | **Built.** `libs/netstack` (smoltcp 0.14), `netd` (`user/src/bin/netd.rs`), `os.lazy.net.stack.v1` (`idl/net.midl`), `netctl`, native `ping`, the `_netd` uid (903, no capabilities) and `init` row, `LAZYOS_NETD=1`, `libs/netpolicy` call rules (loaded by a kernel test), native syscall 26 and `CLOSE_RELEASE`. Evidence: a capture with 6 DHCP exchanges and 46 echo pairs (checksums valid) in the default, `--services`, q35 and `--poll` runs; `--no-device` is an idle-state check only (no capture is analysed: `netd` and the driver must idle cleanly). Kernel: `python tools/test/run.py --accel none`, 589/589, which includes the syscall 26 tests (bounds, bad pointers, distinct output, soak), the `CLOSE_RELEASE` tests (channel and syscall level, 20 000-round soak) and the `nic.v1`/`stack.v1` call-rule test |
 | N3 to N6 | Not built (out of scope for the current work) |
 
 ## 11. Risks and open questions
@@ -579,3 +579,43 @@ Kept current as stages land; the reasoning for each is where it is used.
   `sndd` and `netdrv` now both carry (the two copies of `device.rs`/`dma.rs`
   differ only in the error type and the device id).
 
+**N2**
+
+- *Entropy.* No native call existed (`keyd` seeds from `RDRAND` and the tick).
+  Added syscall 26, `random(buf, len)`: at most 256 bytes per call from the
+  kernel CSPRNG that backs Linux `getrandom`, open to every task with no
+  capability (it grants no authority, and `netd` has none). Tests: bounds, bad
+  pointers, distinct output, a soak.
+- *`Ping` is on `stack.v1`.* The plan listed ping with the tools; it is a method
+  of the stack service (`Ping(dst, payload_len, timeout_ms) -> EchoResult`), a
+  parked call, so `ping` and `netctl` are thin clients and the echo socket stays
+  inside `netd`.
+- *`CLOSE_RELEASE`.* `netd` passes its own endpoint to the driver as the notify
+  endpoint so one `recv` serves both. The driver's close of a received endpoint
+  then closed the service for everyone. Releasing (close only if no other
+  handle) is now a flag of `close_endpoint`; the driver and `netd` release what
+  they did not create. The second kernel change of the stage, with tests.
+- *Head-of-line blocking in smoltcp's ICMP socket.* An undeliverable queued
+  packet stays at the head, so one ping to a dead address blocked all later
+  ones. The probe found it; `Stack::reset_icmp` rebuilds the socket when a ping
+  times out with its packet queued. Cost: a reply to a ping that already timed
+  out is discarded.
+- *Leases are validated.* The plan assumed DHCP could be trusted. A lease with
+  an unusable address or a prefix outside /1 to /30 is rejected: any address
+  held is dropped and the DHCP client restarts discovery (resetting smoltcp's
+  socket, which otherwise believes it is configured until the lease expires);
+  unusable routers and resolvers are dropped and at most three resolvers are
+  kept. A server that keeps offering a bad lease keeps the client discovering,
+  at the network's round-trip pace; there is no backoff yet.
+- *`Notify` needs a rule.* The driver's wake-up is judged as a call from `_net`
+  on `nic.v1`, so `NIC_CLIENT_RULES` allows `_net` exactly that method (and no
+  other uid may send it).
+- *10 ms clock accepted* as the plan said: RTTs are 0 or 10 ms; the first ping
+  (ARP first) takes about 90 ms.
+- *Not done in N2:* DNS queries (resolvers are kept, not used), non-owner call
+  enforcement (no policy loader, so `Renew` and `Reattach` are open to anyone
+  until one exists), releasing a parked `Ping` whose caller cancelled or died
+  (the slot is held until the ping's own timeout, at most 60 s), the shared PCI
+  bring-up module, `sndd`'s
+  `discard_transfers` leaving extra handles open, hosted CI (the workflow is
+  written, not run on GitHub).

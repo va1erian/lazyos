@@ -169,6 +169,15 @@ interface os.lazy.display.v1 {
     /// on non-current slots for `Present` users) and present a full frame.
     /// Until it does the compositor shows the old buffer cropped or padded.
     method Configure(surface: U64, width: U32, height: U32, state: U32) -> () = 33 oneway;
+    /// Ask the compositor to change `surface`'s content size to `width` x
+    /// `height`, keeping its top-left corner (a compact/expanded toggle). Only
+    /// the creator may call it (`EACCES`; `ENOENT` for an unknown surface) and
+    /// only a surface that declared `SetSizeHints` and is neither maximized nor
+    /// minimized (`EINVAL` otherwise). The size is clamped to the declared
+    /// bounds and to the screen; the compositor answers by sending a
+    /// `Configure` with the size it actually applied (also when that equals
+    /// the current size), which is the only confirmation the client needs.
+    method RequestSize(surface: U64, width: U32, height: U32) -> () = 34;
 
     /// What a surface is. Numeric values are the wire values.
     enum Role { Window, Desktop }

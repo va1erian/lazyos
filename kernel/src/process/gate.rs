@@ -25,7 +25,9 @@ struct Regs {
     rdi: u64,
 }
 
-// Syscall entry stub: save argument registers, dispatch, restore, iretq.
+// Syscall entry stub: save argument registers, dispatch, restore, iretq. An
+// interrupt gate keeps the caller's direction flag, so it is cleared before
+// any Rust runs (issue #405; `task::switch` has the full story).
 global_asm!(
     r#"
     .global syscall_isr
@@ -37,6 +39,7 @@ global_asm!(
         push r9
         push r10
         push rax
+        cld                         /* see task::switch: DF may be set */
         mov rdi, rsp
         call syscall_dispatch
         pop rax
@@ -64,6 +67,8 @@ pub fn syscall_gate() -> HandlerFunc {
 extern "C" fn syscall_dispatch(regs: *mut Regs) {
     // Safety: the stub passes a valid pointer to saved registers.
     let regs = unsafe { &mut *regs };
+    #[cfg(lazyos_tests)]
+    task::harness::note_entry_flags();
     // Reclaim slots the scheduler flagged (issue #133): on a syscall entry the
     // current task holds no heap lock, so dropping dead tasks is safe.
     task::reclaim_pending();
@@ -110,6 +115,9 @@ extern "C" fn syscall_dispatch(regs: *mut Regs) {
         24 => super::wallsys::dispatch(regs.rdi, regs.rsi),
         // 25: the raw input event bus (`docs/input-plan.md`), `inputd` only.
         25 => crate::input::rawsys::dispatch(regs.rdi, regs.rsi, regs.rdx),
+        // 26: random bytes from the kernel CSPRNG (docs/networking-plan.md N2),
+        // open to every task; see `super::randsys`.
+        26 => super::randsys::dispatch(regs.rdi, regs.rsi),
         _ => u64::MAX,
     };
 }
@@ -140,6 +148,7 @@ pub fn dispatch_for_test(nr: u64, a1: u64, a2: u64, a3: u64) -> u64 {
         23 => crate::dev::syscall::dispatch(a1, a2, a3, 0, 0),
         24 => super::wallsys::dispatch(a1, a2),
         25 => crate::input::rawsys::dispatch(a1, a2, a3),
+        26 => super::randsys::dispatch(a1, a2),
         _ => u64::MAX,
     }
 }

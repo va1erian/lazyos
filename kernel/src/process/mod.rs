@@ -122,6 +122,7 @@ mod gate;
 pub mod linux;
 pub mod loader;
 pub mod power;
+pub mod randsys;
 mod spawn;
 pub mod spawn_line;
 pub mod wallsys;

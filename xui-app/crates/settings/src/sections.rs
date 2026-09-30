@@ -10,17 +10,24 @@ pub enum Section {
     Appearance,
     Windows,
     Keyboard,
+    Menu,
 }
 
 impl Section {
     /// Sidebar order.
-    pub const ALL: [Section; 3] = [Section::Appearance, Section::Windows, Section::Keyboard];
+    pub const ALL: [Section; 4] = [
+        Section::Appearance,
+        Section::Windows,
+        Section::Keyboard,
+        Section::Menu,
+    ];
 
     pub const fn label(self) -> &'static str {
         match self {
             Section::Appearance => "Appearance",
             Section::Windows => "Windows",
             Section::Keyboard => "Keyboard",
+            Section::Menu => "Menu",
         }
     }
 
@@ -29,6 +36,7 @@ impl Section {
             Section::Appearance => Lucide::Monitor,
             Section::Windows => Lucide::AppWindow,
             Section::Keyboard => Lucide::TextCursorInput,
+            Section::Menu => Lucide::List,
         }
     }
 

@@ -84,7 +84,11 @@ const IDLE_TICKS: u64 = 20;
 const ATTACHED_TICKS: u64 = 2;
 
 struct Args {
+    /// Run the ARP self-test and then the evidence clients.
     demo: bool,
+    /// Run the ARP self-test only (`netd` holds the one attachment, so no
+    /// client can attach); implied by `demo`.
+    selftest: bool,
     /// `irq=poll`: never arm the interrupt line, whatever `confd` says.
     poll: bool,
 }
@@ -97,6 +101,7 @@ impl Args {
         let has = |word: &str| text.split_whitespace().any(|part| part == word);
         Args {
             demo: has("demo=1"),
+            selftest: has("demo=1") || has("selftest=1"),
             poll: has("irq=poll"),
         }
     }
@@ -163,7 +168,7 @@ fn run(args: &Args) -> Result<(), Error> {
         card.queue_sizes.1,
         if card.irq_armed() { "armed" } else { "polling" }
     ));
-    if args.demo {
+    if args.selftest {
         selftest_and_report(&mut card, &server);
     }
     registry::register(api::NAME, &published, &[api::INTERFACE], 0).map_err(fail)?;

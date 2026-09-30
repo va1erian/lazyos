@@ -1,0 +1,39 @@
+[package]
+name = "netstack"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "The LazyOS network stack: smoltcp over a frame-ring pair, DHCP and the ICMP echo path, pure no_std + alloc"
+license = "GPL-3.0-or-later"
+
+[lib]
+name = "netstack"
+path = "src/lib.rs"
+
+[features]
+# Expose `fuzz::run`, shared by the in-tree seeded tests and the cargo-fuzz
+# target (`fuzz/`). Needs `std`.
+fuzz = ["framering/fuzz"]
+
+[dependencies]
+framering = { path = "../framering" }
+# smoltcp 0.14 without its defaults: no `std`, no logging, no IPv6, no raw-socket
+# or TUN/TAP phys. `alloc` backs the socket set; `auto-icmp-echo-reply` makes
+# the interface answer echo requests addressed to it. TCP and UDP are compiled
+# in so hostile segments and datagrams exercise the real code paths (and so the
+# socket layer of docs/networking-plan.md N3 needs no stack change).
+smoltcp = { version = "0.14", default-features = false, features = [
+    "alloc",
+    "medium-ethernet",
+    "proto-ipv4",
+    "proto-dhcpv4",
+    "socket-dhcpv4",
+    "socket-icmp",
+    "socket-udp",
+    "socket-tcp",
+    "auto-icmp-echo-reply",
+] }
+
+[dev-dependencies]
+fuzzkit = { path = "../fuzzkit" }
+framering = { path = "../framering", features = ["fuzz"] }

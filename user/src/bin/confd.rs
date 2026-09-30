@@ -17,10 +17,16 @@
 //! # Storage
 //!
 //! The plan's `/system/confd/store` needs a persistent writable volume. On the
-//! shipped image the boot volume is read-only FAT and `/tmp` is volatile
-//! ramfs. The first writable directory of `/system/confd` (not mounted yet),
-//! `/data/confd` (the ext2 data volume, present when a data disk is attached)
-//! and `/tmp/confd` wins. A persistent location is reported **ok**; falling
+//! shipped image `/system` is the read-only FAT boot volume and `/tmp` is
+//! volatile ramfs, so the store lives on the ext2 data volume when a data disk
+//! is attached. The first writable directory of `/data/confd`,
+//! `/system/confd` (not writable yet) and `/tmp/confd` wins. The kernel mounts
+//! `/data` before userspace starts, but a volume attached later is picked up:
+//! while on a lower-ranked location the serve loop re-probes `/data/confd`
+//! and, once usable, migrates the live settings there (existing `/data` values
+//! win; the old store file is renamed `store.migrated`). Stores left in
+//! lower-ranked locations by an earlier run are merged in at startup the same
+//! way. A persistent location is reported **ok**; falling
 //! back to `/tmp/confd` logs a warning and reports **degraded** to `healthd`.
 //! The store is safe across a `confd` restart either way (the ramfs outlives
 //! the task), but only a persistent location survives a reboot.
@@ -38,88 +44,34 @@
 
 extern crate alloc;
 
+#[path = "confd/storage.rs"]
+mod storage;
+
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::panic::PanicInfo;
 
 use api::wire;
-use confd::{dir, ChangeSink, Confd, StoreFs};
+use confd::{dir, ChangeSink, Confd};
 use messenger_generated::topics;
 use user::central;
-use user::files::{self, Kind};
 use user::messenger::confd as api;
 use user::messenger::{self, errno, registry, services, Error, Message, Parcel};
 use user::sys;
 
-/// `ENOENT`, spelled out because `files` reports raw errnos.
-const ENOENT: i64 = 2;
+use storage::{pick_dir, seed_from_lower, try_upgrade, VfsStoreFs};
+
 /// How long the serve loop parks between demo-child reaps (PIT ticks).
 const POLL_TICKS: u64 = 5;
+/// How long the serve loop waits before re-probing `/data/confd` while the
+/// store sits on a lower-ranked location (PIT ticks).
+const UPGRADE_TICKS: u64 = 200;
 /// The evidence client `demo=1` spawns at boot (8.3 on-disk name).
 const DEMO_PROGRAM: &[u8] = b"CONFCTL.ELF demo\0";
 
 /// The `confd` state a request is dispatched against.
 type Service = Confd<VfsStoreFs, TopicSink>;
-
-/// A [`StoreFs`] binding the store files to one VFS directory.
-///
-/// The names are the `libs/confd` constants (`store`, `store.tmp`,
-/// `store.corrupt`); this type only prefixes the directory.
-struct VfsStoreFs {
-    dir: String,
-}
-
-impl VfsStoreFs {
-    fn new(dir: &str) -> VfsStoreFs {
-        VfsStoreFs {
-            dir: String::from(dir),
-        }
-    }
-
-    /// The absolute path of one store file.
-    fn path(&self, name: &str) -> String {
-        let mut path = self.dir.clone();
-        path.push('/');
-        path.push_str(name);
-        path
-    }
-}
-
-impl StoreFs for VfsStoreFs {
-    type Error = i64;
-
-    fn read_file(&mut self, name: &str) -> Result<Option<Vec<u8>>, i64> {
-        match files::read_all(&self.path(name)) {
-            Ok(data) => Ok(Some(data)),
-            Err(errno) if errno == ENOENT => Ok(None),
-            Err(errno) => Err(errno),
-        }
-    }
-
-    fn write_file(&mut self, name: &str, data: &[u8]) -> Result<(), i64> {
-        // `write_file` creates-or-replaces, which is all `persist` needs; it
-        // only ever points this at `store.tmp`.
-        files::write_file(&self.path(name), data)
-    }
-
-    fn fsync(&mut self, name: &str) -> Result<(), i64> {
-        files::fsync(&self.path(name))
-    }
-
-    fn rename(&mut self, from: &str, to: &str) -> Result<(), i64> {
-        files::rename(&self.path(from), &self.path(to))
-    }
-
-    fn remove(&mut self, name: &str) -> Result<(), i64> {
-        match files::remove(&self.path(name)) {
-            Ok(()) => Ok(()),
-            // A missing file is not an error (the trait contract).
-            Err(errno) if errno == ENOENT => Ok(()),
-            Err(errno) => Err(errno),
-        }
-    }
-}
 
 /// Publishes committed changes on the central broker and reports health.
 ///
@@ -192,9 +144,12 @@ pub extern "C" fn _start() -> ! {
 
 /// Choose the store directory, load the store, register, then serve forever.
 fn run() -> messenger::Result<()> {
-    let (dir, persistent) = pick_dir();
+    let (mut dir, mut persistent) = pick_dir();
     let fs = VfsStoreFs::new(&dir);
     let mut service = Service::load(fs, TopicSink::new()).map_err(|_| Error::Errno(-errno::EIO))?;
+    // Settings written while a better store was unreachable (an earlier run on
+    // `/tmp/confd`) are merged in, never overwriting what is already here.
+    seed_from_lower(&mut service, &dir);
 
     let (published, server) = messenger::create_pair()?;
     registry::register(api::NAME, &published, &[api::INTERFACE], 0)?;
@@ -216,13 +171,21 @@ fn run() -> messenger::Result<()> {
     // below parks with a deadline while it is alive so its exit is reaped.
     let mut demo_pending = demo_from_args();
     let mut demo_children = 0u64;
+    // Absolute, so steady client traffic (which never lets a receive time out)
+    // cannot postpone the move to `/data/confd` forever.
+    let mut next_upgrade = sys::clock().saturating_add(UPGRADE_TICKS);
     loop {
         if demo_pending {
             demo_children = spawn_demo();
             demo_pending = false;
         }
+        // While the store is not on the preferred `/data/confd`, wake up
+        // periodically to see whether the data volume has become usable.
+        let upgrade_due = dir != dir::PREFERRED_DIR;
         let deadline = if demo_children > 0 {
             Some(sys::clock().saturating_add(POLL_TICKS))
+        } else if upgrade_due {
+            Some(next_upgrade)
         } else {
             None
         };
@@ -240,6 +203,22 @@ fn run() -> messenger::Result<()> {
             // The demo wakeup that reaps a finished child is not a failure.
             Err(Error::Errno(code)) if code == -errno::ETIMEDOUT => {}
             Err(error) => return Err(error),
+        }
+        // Checked after every wakeup, not only timeouts, at most once per
+        // `UPGRADE_TICKS` (the demo poll wakes far more often than that).
+        if upgrade_due && sys::clock() >= next_upgrade {
+            next_upgrade = sys::clock().saturating_add(UPGRADE_TICKS);
+            if try_upgrade(&mut service) {
+                dir = String::from(dir::PREFERRED_DIR);
+                persistent = true;
+                service
+                    .sink_mut()
+                    .report_health("ok", &format!("store={dir}"));
+                sys::write_str(&format!(
+                    "CONFD:MIGRATED dir={dir}
+"
+                ));
+            }
         }
         while demo_children > 0 && sys::wait(sys::clock()).is_some() {
             demo_children -= 1;
@@ -353,65 +332,6 @@ fn caller_uid(message: &Message) -> messenger::Result<u32> {
     let mut cred = sys::Cred::default();
     sys::cred_get(Some(message.sender), &mut cred).map_err(|_| Error::Errno(-errno::EACCES))?;
     Ok(cred.uid)
-}
-
-/// The store directory and whether it is persistent.
-///
-/// A persistent candidate is only accepted if it can be created (or already
-/// is a directory) *and* a probe write succeeds. Otherwise `/tmp/confd`
-/// (ramfs) is used and the service reports degraded.
-fn pick_dir() -> (String, bool) {
-    let choice = dir::choose(&dir::PERSISTENT_DIRS, |d| match check_dir(d) {
-        Ok(()) => true,
-        Err(why) => {
-            // Say why a persistent location was passed over, so a silent
-            // fallback to ramfs is diagnosable from the serial log.
-            sys::write_str(&format!(
-                "confd: {d} not usable: {why}
-"
-            ));
-            false
-        }
-    });
-    if !choice.persistent {
-        if let Err(why) = ensure_dir(choice.dir) {
-            sys::write_str(&format!(
-                "confd: warning: {}: {why}
-",
-                choice.dir
-            ));
-        }
-    }
-    (String::from(choice.dir), choice.persistent)
-}
-
-/// Whether `dir` can hold the store: it exists (or can be created) and a probe
-/// file can be written there.
-fn check_dir(dir: &str) -> Result<(), String> {
-    ensure_dir(dir)?;
-    probe_writable(dir)
-}
-
-/// Succeeds when `path` is a directory, creating it when absent.
-fn ensure_dir(path: &str) -> Result<(), String> {
-    match files::stat(path) {
-        Ok((_, Kind::Dir)) => Ok(()),
-        Ok(_) => Err(String::from("exists but is not a directory")),
-        Err(errno) if errno == ENOENT => {
-            files::mkdir(path).map_err(|errno| format!("mkdir failed (errno {errno})"))
-        }
-        Err(errno) => Err(format!("stat failed (errno {errno})")),
-    }
-}
-
-/// Succeeds when a file can be written and removed under `dir`.
-fn probe_writable(dir: &str) -> Result<(), String> {
-    let mut probe = String::from(dir);
-    probe.push_str("/.probe");
-    files::write_file(&probe, b"ok")
-        .map_err(|errno| format!("probe write failed (errno {errno})"))?;
-    let _ = files::remove(&probe);
-    Ok(())
 }
 
 #[panic_handler]

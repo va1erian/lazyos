@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import sys
 import tempfile
+import tomllib
 import unittest
 import zipfile
 from pathlib import Path
@@ -90,6 +91,53 @@ class BuildTests(unittest.TestCase):
             with self.assertRaises(build.BuildError) as caught:
                 build.build(root, Path(tmp) / "dist")
             self.assertIn("extra/foo.txt", str(caught.exception))
+
+    def test_an_overlong_entry_name_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "tree"
+            make_tree(root)
+            deep = root / "resources" / ("a" * 130) / ("b" * 130)
+            deep.mkdir(parents=True)
+            (deep / "x").write_bytes(b"x")
+            with self.assertRaises(build.BuildError) as raised:
+                build.build(root, Path(tmp))
+            self.assertIn("longer than 255 bytes", str(raised.exception))
+
+    def test_forbidden_entry_name_characters_are_rejected(self):
+        # Backslashes and control characters cannot be exercised through real
+        # files on every host filesystem, so the name check is tested directly.
+        self.assertEqual(build.entry_name_problem("resources/a\\b"), "contains a backslash")
+        self.assertEqual(build.entry_name_problem("resources/a\tb"), "contains a control character")
+        self.assertEqual(build.entry_name_problem("resources/../x"), "has an empty, `.` or `..` path component")
+        self.assertEqual(build.entry_name_problem("C:/x"), "has a drive letter")
+        self.assertEqual(build.entry_name_problem("/etc/passwd"), "is absolute")
+        self.assertIsNone(build.entry_name_problem("resources/ok.txt"))
+        problems = build.validate_layout({"manifest.toml": None, "resources/a\tb": None})
+        self.assertTrue(any("control character" in p for p in problems), problems)
+
+    def test_manifest_size_boundary(self):
+        for padding, ok in [(0, True), (1, False)]:
+            with self.subTest(over=padding), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp) / "tree"
+                make_tree(root)
+                path = root / "manifest.toml"
+                body = path.read_bytes()
+                fill = build.MAX_MANIFEST - len(body) + padding
+                path.write_bytes(body + b"#" + b"x" * (fill - 2) + b"\n")
+                self.assertEqual(len(path.read_bytes()), build.MAX_MANIFEST + padding)
+                if ok:
+                    build.build(root, Path(tmp))
+                else:
+                    with self.assertRaises(build.BuildError) as raised:
+                        build.build(root, Path(tmp))
+                    self.assertIn("larger than", str(raised.exception))
+
+    def test_wrong_field_types_are_reported_not_raised(self):
+        manifest = MANIFEST + '\n[[mime]]\ntype = 123\nverbs = ["open"]\n\n[permissions]\ninterfaces = 7\ntopics = "x"\n'
+        problems = build.validate_manifest(tomllib.loads(manifest))
+        self.assertTrue(any("mime[0].type" in p for p in problems), problems)
+        self.assertTrue(any("permissions.interfaces must be an array" in p for p in problems), problems)
+        self.assertTrue(any("permissions.topics must be an array" in p for p in problems), problems)
 
     def test_a_missing_referenced_binary_fails(self):
         with tempfile.TemporaryDirectory() as tmp:

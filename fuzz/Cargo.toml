@@ -20,6 +20,7 @@ framering = { path = "../libs/framering", features = ["fuzz"] }
 virtio-net = { path = "../libs/virtio-net", features = ["fuzz"] }
 nicdrv = { path = "../libs/nicdrv", features = ["fuzz"] }
 lazypkg = { path = "../libs/lazypkg", features = ["fuzz"] }
+netstack = { path = "../libs/netstack", features = ["fuzz"] }
 
 [workspace]
 
@@ -40,6 +41,13 @@ bench = false
 [[bin]]
 name = "nicdrv"
 path = "fuzz_targets/nicdrv.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "netstack"
+path = "fuzz_targets/netstack.rs"
 test = false
 doc = false
 bench = false

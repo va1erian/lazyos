@@ -212,6 +212,24 @@ fn clamp_edge(value: i32, lo: i32, hi: i32, fallback: i32) -> i32 {
     }
 }
 
+/// The decorated window rectangle after a client's `RequestSize` of
+/// `want` content pixels: the size is clamped to `hints` (already bounded by
+/// the screen) and the top-left corner is kept, except that the window is
+/// shifted back onto `work` when the new size would overflow it. A size that
+/// cannot fit at all stays anchored at the top-left.
+pub(super) fn requested_rect(
+    window: Rect,
+    want: (u32, u32),
+    hints: &SizeHints,
+    work: Rect,
+) -> Rect {
+    let to_i32 = |value: u32| i32::try_from(value).unwrap_or(i32::MAX);
+    let w = to_i32(want.0).clamp(hints.min_w, hints.max_w.max(hints.min_w));
+    let h = to_i32(want.1).clamp(hints.min_h, hints.max_h.max(hints.min_h));
+    let grown = Rect::new(window.x, window.y, w + BORDER * 2, h + TITLE_H + BORDER);
+    clamp_into(grown, work)
+}
+
 /// Clamp a dragged window origin so at least [`TITLE_REACHABLE_W`] pixels of
 /// its title bar stay inside `work` horizontally, and the title bar never goes
 /// above the work-area top or below its bottom. The body may hang off the
@@ -364,7 +382,24 @@ pub(super) fn selftest_geometry() -> &'static str {
     let bad = SizeHints::new(400, 10, 100, 100, (800, 600)).is_none()
         && SizeHints::new(10, 10, 100, 100, (800, 600)).is_none();
 
-    let ok = left
+    // A client-requested size clamps to the hints, keeps the top-left, and
+    // slides back onto the work area only when the new size would overflow it.
+    let hint = SizeHints::new(160, 70, 600, 400, (800, 600)).unwrap();
+    let small = requested_rect(window, (1, 1), &hint, work)
+        == Rect::new(100, 50, 164, 70 + TITLE_H + BORDER);
+    let huge = requested_rect(window, (9999, 9999), &hint, work)
+        == Rect::new(100, 50, 600 + BORDER * 2, 400 + TITLE_H + BORDER);
+    let slide = requested_rect(Rect::new(700, 500, 204, 120), (300, 200), &hint, work)
+        == Rect::new(
+            800 - (300 + BORDER * 2),
+            572 - (200 + TITLE_H + BORDER),
+            304,
+            200 + TITLE_H + BORDER,
+        );
+    let request = small && huge && slide;
+
+    let ok = request
+        && left
         && bottom_right
         && top_left
         && top_mid
