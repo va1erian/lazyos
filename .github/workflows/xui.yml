@@ -35,14 +35,6 @@ on:
       - "Cargo.toml"
       - ".github/workflows/xui.yml"
   workflow_dispatch:
-    inputs:
-      stress:
-        description: "TEMPORARY (issue #382): only run the boot-stress job"
-        type: boolean
-        default: false
-      boots:
-        description: "boots per stress shard"
-        default: "25"
 
 permissions:
   contents: read
@@ -52,65 +44,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # TEMPORARY (issue #382): boot the desktop and client images many times and
-  # count the boots that never become ready. Removed before merging.
-  boot-stress:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.stress }}
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [desktop-1, desktop-2, desktop-3, client-1]
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - name: Install QEMU
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y qemu-system-x86 musl-tools
-      - name: Enable KVM (best effort)
-        run: bash tools/ci/enable_kvm.sh
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.x"
-      - name: Build the apps and BusyBox
-        run: |
-          python tools/xui/build.py
-          python tools/abi/busybox.py
-      - name: Build the image
-        shell: bash
-        run: |
-          set -euo pipefail
-          case "${{ matrix.shard }}" in
-            desktop-*)
-              LAZYOS_DESKTOP=1 LAZYOS_XUI_AUTOSTART=term cargo build
-              echo "MARKER=TERM:UP:PASS" >> "$GITHUB_ENV" ;;
-            client-*)
-              LAZYOS_XUID=1 LAZYOS_XUI_CLIENT=1 LAZYOS_XUI_APP="$(pwd)/target/xui/xui-client.elf" cargo build
-              echo "MARKER=XUIAPP:CLIENT:PASS" >> "$GITHUB_ENV" ;;
-          esac
-          cp "$(ls -t target/x86_64-unknown-none/debug/build/kernel/*/artifact/bin/kernel | head -1)" kernel.elf
-      - name: Boot stress
-        run: >-
-          python tools/screenshot/boot_stress.py --image target/lazyos.img
-          --boots "${{ inputs.boots }}" --parallel 1 --timeout 120
-          --marker "$MARKER" --out shots/stress
-      - name: Hang reports
-        if: always()
-        run: grep -h -e "HANG:" -e "virtual_address_offset" shots/stress/*/serial.log || echo "(no hang reports)"
-      - name: Upload
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: boot-stress-${{ matrix.shard }}
-          path: |
-            shots/stress
-            kernel.elf
-          if-no-files-found: warn
-
   xui:
-    if: ${{ !inputs.stress }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
