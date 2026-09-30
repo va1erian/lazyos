@@ -74,11 +74,18 @@ fn unmap_all(claim: &Claim, live_table: u64) -> u64 {
 /// [`crate::ipc::teardown_task`], before the task's handle table and address
 /// space go away; `table` is the task's PML4.
 pub fn teardown_task(slot: usize, table: u64) {
+    // The slot is about to be reused: a stale exit mark must not silence its
+    // next owner.
+    if slot < 64 {
+        EXITED.fetch_and(!(1 << slot), Ordering::AcqRel);
+    }
     let (ids, count) = CLAIMS.lock().owned_by(slot);
     for id in ids.iter().take(count).flatten() {
         release_claim(*id, slot, reason::TEARDOWN, table);
     }
 }
+
+const _: () = assert!(crate::task::MAX_TASKS <= 64, "EXITED is one u64");
 
 /// Bit per task slot that died since the last [`silence_exited`].
 static EXITED: AtomicU64 = AtomicU64::new(0);
@@ -103,17 +110,25 @@ pub fn exits_pending() -> bool {
 /// claim, its mappings and its quota stay until the zombie is reaped, when
 /// [`teardown_task`] frees them. Idempotent.
 pub fn silence_exited() {
+    // The mux calls this with interrupts on and is preemptible: hold neither
+    // the claim lock nor the PCI address port across a switch.
+    x86_64::instructions::interrupts::without_interrupts(silence_exited_locked);
+}
+
+fn silence_exited_locked() {
     let mut dead = EXITED.swap(0, Ordering::AcqRel);
     while dead != 0 {
         let slot = dead.trailing_zeros() as usize;
         dead &= dead - 1;
         let (ids, count) = CLAIMS.lock().owned_by(slot);
         for id in ids.iter().take(count).flatten() {
-            CLAIMS.lock().silence(*id);
+            // Stop the device first so a shared line is not unmasked while the
+            // dead function still asserts it.
             let info = table().lock().get(*id);
             if let Some(info) = &info {
                 quiesce(info);
             }
+            CLAIMS.lock().silence(*id);
         }
     }
 }

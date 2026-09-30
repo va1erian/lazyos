@@ -99,13 +99,15 @@ part is stopped at exit: `process::finish` marks the slot and
 takes its claims out of interrupt delivery, masks a line nobody else listens
 on, and clears the function's decode/bus-master enables.
 
-**The interrupt endpoint is private.** Kernel-stamped `os.kernel.dev` messages
-are posted into the inbox of the channel side named at `claim`, and whoever
-holds that side reads them. `claim` therefore requires the side to be held by
-exactly that one handle (a name resolve gives every client a handle to the
-same side, so a resolved service endpoint is refused with `EBADF`), and drops
-its `DUPLICATE`/`TRANSFER` rights once the claim succeeds, so a driver cannot
-make another service receive kernel-stamped messages.
+**The interrupt endpoint (partly hardened, #283).** Kernel-stamped
+`os.kernel.dev` messages are posted into the inbox of the channel side named at
+`claim`, and whoever holds that side reads them. `claim` requires the side to be
+held by exactly that one handle in the task tables (a name resolve gives every
+client a handle to the same side, so a resolved service endpoint is refused with
+`EBADF`) and drops its `DUPLICATE`/`TRANSFER` rights. **Known gaps:** a handle
+duplicated earlier and currently *in flight* in a queued message, and a side
+published in the name registry, are not counted; closing them needs a
+kernel-owned IRQ channel kind (tracked in #283 item 1).
 
 **IRQ routing on QEMU (observed).** The boot log prints one
 `dev: irq route ...` line per PCI function (pin, Interrupt Line, verdict). A
