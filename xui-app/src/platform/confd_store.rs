@@ -107,11 +107,15 @@ impl ConfigStore for ConfdStore {
         self.call(wire::METHOD_DELETE, body).map(|_| ())
     }
 
-    /// confd's store is on a persistent volume when its directory exists there.
+    /// Whether confd chose a persistent directory, as it reports itself: it
+    /// falls back to the ramfs `/tmp/confd` when a persistent one is missing,
+    /// read-only or fails its probe write, which a directory check cannot see.
+    /// An unreachable confd counts as not persistent (writes fail anyway).
     fn persistent(&self) -> bool {
-        ["/system/confd", "/data/confd"]
-            .iter()
-            .any(|dir| std::path::Path::new(dir).is_dir())
+        self.call(wire::METHOD_INFO, Vec::new())
+            .ok()
+            .and_then(|reply| wire::decode_info_reply(&reply.body).ok())
+            .is_some_and(|info| info.persistent)
     }
 }
 
@@ -129,6 +133,20 @@ mod tests {
             Value::Bytes(vec![1, 2, 3]),
         ] {
             assert_eq!(from_wire(&to_wire(&value)), Some(value));
+        }
+    }
+
+    #[test]
+    fn the_info_reply_round_trips() {
+        for persistent in [true, false] {
+            let body = wire::encode_info_reply(&wire::InfoReply {
+                store_dir: "/data/confd".to_owned(),
+                persistent,
+            })
+            .unwrap();
+            let info = wire::decode_info_reply(&body).unwrap();
+            assert_eq!(info.store_dir, "/data/confd");
+            assert_eq!(info.persistent, persistent);
         }
     }
 

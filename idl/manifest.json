@@ -166,6 +166,11 @@
         "name": "List",
         "id": 220805025,
         "oneway": false
+      },
+      {
+        "name": "Info",
+        "id": 266462757,
+        "oneway": false
       }
     ],
     "topics": [
