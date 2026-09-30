@@ -469,7 +469,7 @@ jobs:
             echo "_commit \`${GITHUB_SHA:0:7}\` — run [${GITHUB_RUN_ID}](https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID})_"
             echo
             shopt -s nullglob
-            for group in m0 m1 m2 sysmon fabmon client sysclient desktop; do
+            for group in m0 m1 m2 sysmon fabmon client sysclient desktop editor paint files; do
               for png in shots/$group/*.png; do
                 name="$group-$(basename "$png")"
                 echo "<details><summary>${name}</summary>"

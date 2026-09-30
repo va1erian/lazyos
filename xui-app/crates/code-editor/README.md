@@ -47,23 +47,24 @@ fn build<M: 'static>(ui: &Ui<M>) -> xui_core::backend::Result<Editor<M>> {
 }
 ```
 
-## Notepad example
+## The LazyOS Editor app
 
-`examples/notepad/` is a small, cross-platform text editor built on the widget:
-a menu bar, an editor filling the middle, a find/replace bar and a status bar.
-It runs on the portable `xui_canvas::WinitBackend`, so it behaves the same on
-Windows, Linux and macOS.
+This copy is the library only. The upstream Notepad example became the
+`xui-editor` binary in `xui-app/src/bin/editor.rs` (with
+`xui-app/src/bin/editor/`), which the desktop image ships as `XEDITOR.ELF`. It
+runs on LazyOS's own backend (`xui-app/src/backend*`) over the `xuid`
+compositor, opens an optional absolute path passed as the first argument (as
+Files' open-with does), and titles its window after the document. Build it with
+`python tools/xui/build.py`; see `docs/xui-apps-track-a.md` for how it is
+launched. The file dialogs are xui's portable `FileDialog`, listing through
+LazyOS's filesystem.
 
-```text
-cargo run -p xui-code-editor --example notepad -- path/to/file.txt
-```
-
-Features:
+The app is a menu bar, an editor filling the middle, a find/replace bar and a
+status bar. Features:
 
 * File: New, Open..., Save, Save As..., Quit. Open and Save As use the portable
   `xui_core::FileDialog`, which lists directories and confirms an overwrite; a
-  path can also come from the command-line argument. On a backend with a native
-  picker the dialog hands off to it, so the app code is unchanged.
+  path can also come from the command-line argument.
 * Edit: Undo, Redo, Cut, Copy, Paste, Select All, Find..., Replace...
 * Find/replace bar with Next, Previous, Replace, Replace all, a Regex and a
   Match case check box, and a "3 of 17" or error label. Replace all is a single
@@ -89,9 +90,8 @@ Shortcuts (the command modifier is Ctrl on Windows/Linux and Cmd on macOS):
 | Editor defaults | Ctrl/Cmd+C, X, V, Z, Y, A and navigation |
 
 The pure file and find models live in `document` and `search`, so they are
-tested without a window; `scripts/snapshots.*` does not enumerate this crate's
-examples, but `tests/notepad_ui.rs` renders the editor and find bar headlessly in
-light and dark into `target/snapshots/`.
+tested without a window; `tests/notepad_ui.rs` renders the editor and find bar
+headlessly in light and dark into `target/snapshots/`.
 
 ## Features
 

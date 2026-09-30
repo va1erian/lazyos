@@ -47,7 +47,7 @@ and ring-3 programs, packs them into an MBR + FAT boot disk, and launches QEMU.
 | `DRAGDMO.ELF` | drag & drop demo pair | `LAZYOS_XUID=1`; dropped in the desktop profile |
 | `SHELLPRB.ELF` | shell-protocol evidence client | `LAZYOS_XUID=1` + `LAZYOS_SHELLPROBE=1` |
 | `XAPP.ELF` | `$LAZYOS_XUI_APP` (static musl xui app from `tools/xui/build.py`) | embedded whenever set; spawned only with `LAZYOS_XUID=1` |
-| `XTERM.ELF`, `XSYSMON.ELF`, `XFABMON.ELF`, `XCOUNTR.ELF`, `XEDITOR.ELF`, `XFILES.ELF`, `XPAINT.ELF`, `XAPPS.LST` | `$LAZYOS_XUI_APPS` (path list; `;` on Windows, `:` elsewhere), or the desktop default set when unset | each app under its 8.3 name; `XAPPS.LST` lists them (and which `autostart`) for `init`'s registry (#215/#216); the terminal/viewers autostart, the Editor/Paint/Files are on demand (Start menu or open-with) |
+| `XTERM.ELF`, `XSYSMON.ELF`, `XFABMON.ELF`, `XCOUNTR.ELF`, `XEDITOR.ELF`, `XFILES.ELF`, `XPAINT.ELF`, `XAPPS.LST` | `$LAZYOS_XUI_APPS` (path list; `;` on Windows, `:` elsewhere), or the desktop default set when unset | each app under its 8.3 name; `XAPPS.LST` lists them (and which `autostart`) for `init`'s registry (#215/#216); only the Terminal autostarts by default (`LAZYOS_XUI_AUTOSTART` picks others); the viewers, Editor, Paint and Files are on demand (Start menu, right-click menu or open-with) |
 | `INIT.ELF` | `$LAZYOS_INIT` | ABI bench hook |
 | `BUSYBOX` | `$LAZYOS_BUSYBOX` | Linux shim demo |
 | `RHAI.ELF` | `$LAZYOS_RHAI` | the `rhai` command (auto-embedded from `target/rhai/rhai.elf`) |
@@ -68,7 +68,7 @@ FAT names are 8.3 because the kernel FAT reader resolves short names only
 | `LAZYOS_SHELLPROBE=1` | `shellprobe_demo` | (with `LAZYOS_XUID=1`) spawns `SHELLPRB.ELF` |
 | `LAZYOS_XUI_APP=<path>` | `xui_app` | (with `LAZYOS_XUID=1`) boots `XAPP.ELF` as the display owner *instead of* `xuid`/`xdemo` |
 | `LAZYOS_XUI_CLIENT=1` | `xui_client` | (with the two above) boots `xuid` plus `XAPP.ELF` as a compositor client; no `xdemo` |
-| `LAZYOS_XUI_APPS=<paths>` | `xui_desktop` | (with `LAZYOS_XUID=1` + `LAZYOS_XUI_CLIENT=1`) the desktop session: the kernel boots only `xuid`; `init` (`LAZYOS_SERVICES=1`) opens the embedded apps as clients, so several run side by side. `LAZYOS_XUI_AUTOSTART=term,sysmon` picks which (default all, `none` disables) |
+| `LAZYOS_XUI_APPS=<paths>` | `xui_desktop` | (with `LAZYOS_XUID=1` + `LAZYOS_XUI_CLIENT=1`) the desktop session: the kernel boots only `xuid`; `init` (`LAZYOS_SERVICES=1`) opens the embedded apps as clients, so several run side by side. `LAZYOS_XUI_AUTOSTART=term,sysmon` picks which (default `term`, `none` disables) |
 | `LAZYOS_DESKTOP=1` | `services_mode`, `xuid_demo`, `xui_desktop`, `lazyos_desktop` | The desktop profile (issue #217): one switch for the whole recipe. It implies `LAZYOS_SERVICES` + `LAZYOS_XUID`; the root build script embeds the default xui app set (`target/xui/xui-{term,sysmon,fabricmon,counter}.elf`, overridable with `LAZYOS_XUI_APPS`; a missing default app fails the build), and `init` starts only the real session — no `flaky`, clipboard demo pair or `top` launch self-test (`lazyos_desktop` drops their ELFs and manifest rows too) |
 | `LAZYOS_KBD_LAYOUT=fr` | (none; `option_env!` in `kernel/src/input/layout.rs`) | Keyboard layout: French AZERTY with AltGr layer instead of the default US QWERTY. Dead keys are not modelled (`^`, `¨` are literal) |
 

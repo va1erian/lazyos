@@ -12,19 +12,21 @@ filesystem and shell — in particular **LazyOS**.
 - `IconView` listing (folders first, then files), a `StatusBar` summary, a
   context `Menu`, Delete/Properties `TaskDialog`/`Dialog` actions and
   `Delete` / `Alt+Enter` / `F5` shortcuts.
-- Multi-colour [Global Village](../xui-icons/README.md) tile icons by default (the
-  `village-icons` feature); opening a folder shows its open icon for two
-  seconds, then reverts.
+- Tile icons: the single-colour Lucide fallback by default. The multi-colour
+  Global Village set is the opt-in `village-icons` feature (off in this copy;
+  the `xui-icons` crate stays in the xui repository and is a git
+  dependency). Opening a folder shows its open icon for two seconds, then
+  reverts.
 
 ## Icons and the open-folder flash
 
-With the default `village-icons` feature, tiles are drawn with the
+With the `village-icons` feature enabled, tiles are drawn with the
 `xui-icons` Global Village set, classified by kind and extension (folder,
 image, music, archive, document). On a light theme the set's own
 `Palette::GLOBAL_VILLAGE` is used; on a dark theme only its near-black ink is
 retinted to a pale periwinkle, so the outlines stay visible, and both palettes
-are built once. Turn the feature off for the single-colour Lucide fallback
-(`village-icons = false`); the classification is shared by both paths.
+are built once. Leave the feature off for the single-colour Lucide fallback (the
+default here); the classification is shared by both paths.
 
 Opening a folder (double-click or Enter) flags it in a per-window list of
 `(name, deadline)` entries and shows its open icon for 2000 ms; several folders
@@ -83,8 +85,8 @@ Implement three things and nothing else:
 Then build windows with `Explorer::new(platform, launcher).open_root(ui, path)`
 and the portable crate is unchanged. The `std-platform` feature (on by default)
 is the only part that uses `std::fs` and `#[cfg(...)]`; turn it off for a
-no-std-ish target. The `village-icons` default can be turned off too, to drop
-`xui-icons` and draw the Lucide fallback instead.
+no-std-ish target. `village-icons` is off by default, which keeps `xui-icons`
+out of the build and draws the Lucide fallback.
 
 ## Known limits (v1)
 
