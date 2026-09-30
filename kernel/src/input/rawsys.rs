@@ -74,7 +74,9 @@ fn poll(me: usize, ptr: u64, capacity: u64) -> u64 {
     if ptr == 0 {
         return negative(EFAULT);
     }
-    let slots = (capacity / RAW_EVENT_BYTES as u64) as usize;
+    // One drain yields at most the ring plus one `Dropped` marker; never size
+    // kernel allocations from a caller-chosen capacity.
+    let slots = (capacity / RAW_EVENT_BYTES as u64).min(bus::RING_CAP as u64 + 1) as usize;
     if slots == 0 {
         return 0;
     }

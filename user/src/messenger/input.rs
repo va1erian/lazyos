@@ -195,6 +195,17 @@ impl ShellLink {
             .map(|_| ())
     }
 
+    /// Register a chord; `inputd` then consumes it (client never sees it).
+    pub fn register_hotkey(&self, code: u32, mods: u32) -> Result<u64> {
+        let body =
+            shell_wire::encode_register_hotkey_args(&shell_wire::RegisterHotkeyArgs { code, mods })
+                .map_err(Error::Parcel)?;
+        let reply = self.shell_call(shell_wire::METHOD_REGISTERHOTKEY, body)?;
+        Ok(shell_wire::decode_register_hotkey_reply(&reply.body)
+            .map_err(Error::Parcel)?
+            .id)
+    }
+
     /// The next queued shell event, without blocking. `Err` means the link is
     /// dead (`inputd` went away).
     pub fn poll_event(&mut self) -> Result<Option<ShellEvent>> {

@@ -236,6 +236,20 @@ impl Hub {
             sender: message.sender,
             events: Endpoint::from_raw(message.first_handle),
         });
+        // A re-attaching compositor has forgotten which surfaces take keys
+        // through a session; tell it, or it would forward legacy keys too.
+        let surfaces: Vec<u64> = self
+            .router
+            .sessions()
+            .filter_map(|session| self.router.session(session))
+            .map(|session| session.surface)
+            .collect();
+        for surface in surfaces {
+            self.shell_event(
+                shell_wire::METHOD_SESSIONOPENED,
+                shell_wire::encode_session_opened_args(&shell_wire::SessionOpenedArgs { surface }),
+            );
+        }
         Ok(Vec::new())
     }
 

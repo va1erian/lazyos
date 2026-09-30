@@ -73,6 +73,11 @@ impl LazyOSBackend {
         state: KeyState,
     ) {
         // Tab moves widget focus rather than reaching a widget.
+        // Alt/Ctrl+Tab are the compositor's chords; `inputd` normally consumes
+        // them, and if one slips through it must not also move widget focus.
+        if sym == keysym::TAB && (modifiers.alt || modifiers.ctrl) {
+            return;
+        }
         if sym == keysym::TAB && state != KeyState::Up {
             self.cycle_focus(window, !modifiers.shift);
             return;

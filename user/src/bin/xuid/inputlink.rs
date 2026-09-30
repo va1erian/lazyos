@@ -69,6 +69,7 @@ impl Compositor {
                 self.input.registered.clear();
                 self.input.told_focus = None;
                 sys::write_str("xuid: attached to inputd\n");
+                self.register_chords();
                 true
             }
             Err(error) => {
@@ -85,6 +86,20 @@ impl Compositor {
                 self.input.next_try = sys::clock() + RETRY_TICKS;
                 false
             }
+        }
+    }
+
+    /// Register the chords `keys.rs` acts on itself, so `inputd` keeps them
+    /// from session clients (the compositor still sees them on the kernel
+    /// stream). Plain Escape stays with the client.
+    fn register_chords(&mut self) {
+        // HID usages: Tab, F4, Escape; modifier bits from `inputmap::mods`.
+        const CHORDS: [(u32, u32); 4] = [(0x2B, 4), (0x2B, 2), (0x3D, 4), (0x29, 2)];
+        let Some(link) = self.input.link.as_ref() else {
+            return;
+        };
+        for (code, mods) in CHORDS {
+            let _ = link.register_hotkey(code, mods);
         }
     }
 
