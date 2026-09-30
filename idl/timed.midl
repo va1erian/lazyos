@@ -21,10 +21,16 @@ interface os.lazy.timed.v1 {
     /// credentials must hold `CAP_SYS_TIME`; anyone else gets `EPERM`.
     method SetTime(unix_secs: I64) -> ();
 
-    /// Schema of the retained `time/tick` broker topic, published each minute
-    /// (and on any zone or clock change): the topic payload is this method's
-    /// request encoding (`encode_tick_args`). It is never sent as a direct
-    /// call. `unix` is UTC seconds, `offset` the local offset in seconds with
-    /// DST included, `zone_name` the zone (`Europe/Paris`).
-    method Tick(unix: I64, offset: I32, zone_name: String) -> () = 1 oneway;
+    /// The retained `time/tick` topic payload (issue #307). `unix` is UTC
+    /// seconds, `offset` the local offset in seconds with DST included, and
+    /// `zone_name` the zone (`Europe/Paris`).
+    struct Tick {
+        unix: I64,
+        offset: I32,
+        zone_name: String
+    }
+
+    /// Published each minute (and on any zone or clock change) and retained, so
+    /// a subscriber that starts late immediately learns the current time.
+    topic "time/tick" : Tick retained qos=latest;
 }

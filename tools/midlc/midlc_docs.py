@@ -17,6 +17,14 @@ def emit_markdown(interface: Interface) -> str:
         args = ", ".join(f"{p.name}: {p.ty}" for p in m.params)
         rets = ", ".join(f"{p.name}: {p.ty}" for p in m.returns)
         lines.append(f"| {m.name} | {m.method_id} | {'oneway' if m.oneway else 'sync'} | `({args}) -> ({rets})` |")
+    if interface.topics:
+        lines += ["", "## Topics", "", "| Topic | Payload | QoS | Retained | Permissions |", "|---|---|---|---|---|"]
+        for topic in interface.topics:
+            retained = "yes" if topic.retained else "no"
+            permissions = ", ".join(f"`{p}`" for p in topic.permissions)
+            lines.append(
+                f"| `{topic.name}` | `{topic.payload}` | {topic.qos} | {retained} | {permissions} |"
+            )
     for struct in interface.structs:
         lines += ["", f"## struct `{struct.name}`", ""]
         lines += [f"- `{f.name}: {f.ty}`" for f in struct.fields]
@@ -30,4 +38,18 @@ def emit_manifest(interface: Interface) -> dict:
         "interface": interface.name,
         "interface_id": f"{interface.id:#x}",
         "methods": [{"name": m.name, "id": m.method_id, "oneway": m.oneway} for m in interface.methods],
+        # Every declared topic, with both permission strings derived from the
+        # pattern (issue #307): no hand-typed `publish:`/`subscribe:` strings.
+        "topics": [
+            {
+                "name": topic.name,
+                "source": topic.source,
+                "payload": topic.payload,
+                "qos": topic.qos,
+                "retained": topic.retained,
+                "publish_permission": f"publish:{topic.name}",
+                "subscribe_permission": f"subscribe:{topic.name}",
+            }
+            for topic in interface.topics
+        ],
     }

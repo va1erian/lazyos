@@ -52,4 +52,9 @@ interface os.lazy.clipboard.v1 {
         lazy: Bool,
         tick: U64
     }
+
+    /// The retained per-session offer-announcement topic (issue #307): paste
+    /// UIs refresh from it without polling, and a late subscriber is handed
+    /// the live offer. The payload is an `OfferMeta`, never content.
+    topic "session/{session}/clipboard/changed" : OfferMeta retained qos=latest;
 }

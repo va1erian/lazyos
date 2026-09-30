@@ -11,7 +11,7 @@ use alloc::vec::Vec;
 
 use libmessenger::{Decoder, Encoder, Kind, Parcel};
 
-use super::super::{errno, router, Error, Result};
+use super::super::{errno, Error, Result};
 use super::{
     parcel, wire, BufferHandle, OfferInfo, OfferRequest, INTERFACE, OWNER_INTERFACE,
     READ_INTERFACE, WRITE_INTERFACE,
@@ -119,7 +119,7 @@ pub fn ok_reply(interface_id: u64, method: u32) -> Parcel {
 }
 
 /// The generated metadata record for `info`.
-fn meta(info: &OfferInfo) -> wire::OfferMeta {
+pub fn to_wire_meta(info: &OfferInfo) -> wire::OfferMeta {
     wire::OfferMeta {
         token: info.token,
         owner: info.owner.clone(),
@@ -131,7 +131,7 @@ fn meta(info: &OfferInfo) -> wire::OfferMeta {
 }
 
 /// The plain-Rust view of a generated metadata record.
-fn info(meta: wire::OfferMeta) -> OfferInfo {
+pub fn from_wire_meta(meta: wire::OfferMeta) -> OfferInfo {
     OfferInfo {
         token: meta.token,
         owner: meta.owner,
@@ -145,20 +145,10 @@ fn info(meta: wire::OfferMeta) -> OfferInfo {
 /// Encode `info` into a `Current` reply; `None` when no offer is live.
 pub fn current_reply(info: Option<&OfferInfo>) -> Result<Parcel> {
     let reply = wire::CurrentReply {
-        offer: info.map(meta),
+        offer: info.map(to_wire_meta),
     };
     let body = wire::encode_current_reply(&reply).map_err(Error::Parcel)?;
     Ok(parcel(INTERFACE, wire::METHOD_CURRENT, body))
-}
-
-/// Encode an offer's metadata as the retained `.../clipboard/changed`
-/// event payload: a `Current` reply parcel, never content.
-pub fn changed_payload(info: &OfferInfo) -> Result<Vec<u8>> {
-    let mut bytes = Vec::new();
-    current_reply(Some(info))?
-        .encode(&mut bytes)
-        .map_err(Error::Parcel)?;
-    Ok(bytes)
 }
 
 /// The service's error answer: errno-style code plus friendly text.
@@ -233,12 +223,5 @@ pub fn decode_token(parcel: &Parcel) -> Result<u64> {
 /// Decode a `Current` reply into the live offer's metadata.
 pub fn decode_current(parcel: &Parcel) -> Result<Option<OfferInfo>> {
     let reply = wire::decode_current_reply(&parcel.body).map_err(Error::Parcel)?;
-    Ok(reply.offer.map(info))
-}
-
-/// Decode a changed-event payload (the bytes the topic broker carries)
-/// into the offer metadata.
-pub fn decode_changed(event: &router::Event) -> Result<OfferInfo> {
-    let parcel = Parcel::decode(&event.payload).map_err(Error::Parcel)?;
-    decode_current(&parcel)?.ok_or(Error::Errno(-errno::EINVAL))
+    Ok(reply.offer.map(from_wire_meta))
 }

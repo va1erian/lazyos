@@ -3,6 +3,8 @@
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
+use messenger_generated::topics;
+use messenger_generated::topics::Publish as _;
 use user::central;
 use user::messenger::{clipboard as wire, errno, registry, Endpoint, Error};
 use user::sys;
@@ -89,9 +91,12 @@ impl Clipboard {
         while clip.offers.len() > history {
             clip.offers.pop_front();
         }
-        let topic = wire::changes_topic(session);
-        let payload = wire::changed_payload(&info)?;
-        self.publish_central(&topic, &payload, true);
+        let session_text = format!("{session}");
+        let _ = wire::publish_session_clipboard_changed(
+            self,
+            &session_text,
+            &wire::to_wire_meta(&info),
+        );
         Ok(token)
     }
 
@@ -239,20 +244,25 @@ impl Clipboard {
     /// Best-effort audit record: publish through `messengerd`'s central
     /// broker, reconnecting on the next event when the broker is unreachable.
     fn publish_event(&mut self, topic: &str, detail: &str) {
-        self.publish_central(topic, detail.as_bytes(), false);
+        let _ = self.publish_topic(topic, detail.as_bytes(), false);
     }
+}
+
+impl topics::Publish for Clipboard {
+    type Error = Error;
 
     /// Publish raw bytes through the central broker, reusing one connection.
-    fn publish_central(&mut self, topic: &str, payload: &[u8], retained: bool) {
+    fn publish_topic(&mut self, topic: &str, payload: &[u8], retained: bool) -> Result<u64, Error> {
         if self.central.is_none() {
             self.central = central::Bus::connect_retry(4).ok();
         }
-        let ok = match &mut self.central {
-            Some(bus) => bus.publish(topic, payload, retained).is_ok(),
-            None => false,
+        let result = match &mut self.central {
+            Some(bus) => bus.publish(topic, payload, retained),
+            None => Err(Error::Errno(-errno::ENOENT)),
         };
-        if !ok {
+        if result.is_err() {
             self.central = None;
         }
+        result
     }
 }

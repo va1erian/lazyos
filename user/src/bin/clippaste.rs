@@ -54,7 +54,8 @@ fn run() -> messenger::Result<()> {
     // Watch the session's retained changed topic on the central broker first
     // (issue #169); a late subscriber is handed the offer.
     let mut changes_bus = central::Bus::connect_retry(64)?;
-    let changes = changes_bus.subscribe(&clipboard::changes_topic(client.session()))?;
+    let session_text = format!("{}", client.session());
+    let changes = clipboard::subscribe_session_clipboard_changed(&mut changes_bus, &session_text)?;
     let mut changed_buffer = alloc::vec![0u8; messenger::DEFAULT_BUFFER];
     let event = match changes.recv_with(
         &mut changed_buffer,
@@ -63,7 +64,9 @@ fn run() -> messenger::Result<()> {
         Some(event) => event,
         None => fail("PASTE", "no changed event"),
     };
-    let info = clipboard::decode_changed(&event)?;
+    let meta =
+        clipboard::decode_session_clipboard_changed(&event.payload).map_err(Error::Parcel)?;
+    let info = clipboard::from_wire_meta(meta);
     if !info.mimes.iter().any(|mime| mime == DEMO_MIME) {
         fail("PASTE", "offer lacks the demo MIME type");
     }

@@ -272,10 +272,10 @@ fn watch(client: &wire::Client, filter: &str) -> Result<(), String> {
     loop {
         match subscription.recv_with(&mut buffer, None) {
             Ok(Some(event)) => {
-                let (path, deleted) = wire::decode_change(&event.payload)
+                let change = wire::decode_system_confd_changed(&event.payload)
                     .map_err(|error| format!("bad change payload: {}", error.message()))?;
-                let action = if deleted { "deleted" } else { "set" };
-                say(&format!("{action} {path}"));
+                let action = if change.deleted { "deleted" } else { "set" };
+                say(&format!("{action} {}", change.path));
             }
             Ok(None) => {}
             Err(error) => return Err(format!("watch {filter}: {}", error.message())),

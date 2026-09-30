@@ -18,10 +18,12 @@ from midlc_model import (
     MidlError,
     Param,
     Struct,
+    Topic,
     Type,
     fnv1a32,
     snake_case,
 )
+from midlc_topics import make_topic
 
 
 # ---------------------------------------------------------------------------
@@ -139,6 +141,34 @@ class Parser:
         self.expect("}")
         return Struct(name.text, fields, doc)
 
+    def parse_topic(self) -> Topic:
+        doc = self.take_doc()
+        name = self.next()
+        if name.kind != "string":
+            raise MidlError(f"expected a quoted topic name, found {name.text!r}", name.line)
+        self.expect(":")
+        payload = self.next()
+        if payload.kind != "ident":
+            raise MidlError(f"expected a payload type, found {payload.text!r}", payload.line)
+        qos = "latest"
+        retained = False
+        while self.peek() and self.peek().text != ";":
+            token = self.next()
+            if token.text == "retained":
+                retained = True
+            elif token.text == "qos":
+                self.expect("=")
+                value = self.next()
+                if value.kind != "ident":
+                    raise MidlError("expected a qos value after 'qos='", value.line)
+                qos = value.text
+            else:
+                raise MidlError(f"unexpected {token.text!r} in topic", token.line)
+        self.expect(";")
+        # The pattern literal is quoted with no escapes; the lexer's string
+        # token keeps the quotes, so strip them.
+        return make_topic(name.text[1:-1], payload.text, qos, retained, doc, name.line)
+
     def parse_enum(self) -> Enum:
         self.take_doc()
         name = self.next()
@@ -178,6 +208,8 @@ class Parser:
                 interface.structs.append(self.parse_struct())
             elif keyword.text == "enum":
                 interface.enums.append(self.parse_enum())
+            elif keyword.text == "topic":
+                interface.topics.append(self.parse_topic())
             else:
                 raise MidlError(f"unexpected {keyword.text!r}", keyword.line)
         self.expect("}")
@@ -203,7 +235,11 @@ def validate(interface: Interface) -> None:
         codec_names[identifier] = origin
 
     for struct in interface.structs:
-        claim(snake_case(struct.name), struct.name)
+        # The generated codec names are `encode_<snake>`/`decode_<snake>`, so
+        # claim those: a topic whose suffix folds to a struct's name must be
+        # rejected here rather than collide in the generated Rust.
+        claim(f"encode_{snake_case(struct.name)}", struct.name)
+        claim(f"decode_{snake_case(struct.name)}", struct.name)
     # Enum variants become `{ENUM}_{VARIANT}` constants; two enums whose
     # folded names meet (`Qos`/`LevelHigh` vs `QosLevel`/`High`) would emit a
     # duplicate `const`, so reject that here.
@@ -222,14 +258,47 @@ def validate(interface: Interface) -> None:
         if method.oneway and method.returns:
             raise MidlError(f"oneway method {method.name!r} cannot return values")
         if method.params:
-            claim(f"{snake_case(method.name)}_args", f"{method.name} (args)")
+            claim(f"encode_{snake_case(method.name)}_args", f"{method.name} (args)")
+            claim(f"decode_{snake_case(method.name)}_args", f"{method.name} (args)")
         if method.returns:
-            claim(f"{snake_case(method.name)}_reply", f"{method.name} (reply)")
+            claim(f"encode_{snake_case(method.name)}_reply", f"{method.name} (reply)")
+            claim(f"decode_{snake_case(method.name)}_reply", f"{method.name} (reply)")
         for param in method.params + method.returns:
             check_type(param.ty, named)
     for struct in interface.structs:
         for f in struct.fields:
             check_type(f.ty, named)
+    validate_topics(interface, named, claim)
+
+
+def validate_topics(interface: Interface, named: set[str], claim) -> None:
+    """Every topic must name a payload type of this interface, be unique, and
+    not collide with another codec name."""
+    patterns: dict[str, str] = {}
+    suffixes: dict[str, str] = {}
+    for topic in interface.topics:
+        origin = f"topic {topic.name!r}"
+        if topic.payload not in named:
+            raise MidlError(
+                f"{origin} payload {topic.payload!r} is not a struct or enum of {interface.name!r}"
+            )
+        if topic.name in patterns:
+            raise MidlError(f"topic {topic.name!r} is declared twice")
+        if topic.suffix in suffixes:
+            raise MidlError(
+                f"topics {topic.name!r} and {suffixes[topic.suffix]!r} share "
+                f"the generated name {topic.suffix!r}; rename one"
+            )
+        patterns[topic.name] = origin
+        suffixes[topic.suffix] = topic.name
+        for identifier in (
+            f"encode_{topic.suffix}",
+            f"decode_{topic.suffix}",
+            f"name_{topic.suffix}",
+            f"publish_{topic.suffix}",
+            f"subscribe_{topic.suffix}",
+        ):
+            claim(identifier, origin)
 
 
 def check_type(ty: Type, named: set[str]) -> None:

@@ -23,13 +23,16 @@ fn now_reply_roundtrips_signed_offsets() {
 
 #[test]
 fn tick_roundtrips() {
-    let tick = TickArgs {
+    let tick = Tick {
         unix: 1_790_714_400,
         offset: 19_800,
         zone_name: String::from("Asia/Kolkata"),
     };
-    let body = encode_tick_args(&tick).unwrap();
-    assert_eq!(decode_tick_args(&body).unwrap(), tick);
+    let body = encode_time_tick(&tick).unwrap();
+    assert_eq!(decode_time_tick(&body).unwrap(), tick);
+    // The `time/tick` pattern has no wildcards, so its concrete name is the
+    // declared pattern itself.
+    assert_eq!(name_time_tick().unwrap(), "time/tick");
 }
 
 #[test]

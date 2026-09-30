@@ -290,6 +290,17 @@ pub enum Error {
     Parcel(ParcelError),
 }
 
+impl From<messenger_generated::topics::TopicError> for Error {
+    /// A malformed generated topic name is `EINVAL`; an encode failure keeps
+    /// the parcel error so callers can tell the two apart.
+    fn from(error: messenger_generated::topics::TopicError) -> Self {
+        match error {
+            messenger_generated::topics::TopicError::Encode(parcel) => Error::Parcel(parcel),
+            _ => Error::Errno(-errno::EINVAL),
+        }
+    }
+}
+
 impl Error {
     /// The negative errno the kernel returned, if this is a kernel error.
     pub fn errno(self) -> Option<i64> {

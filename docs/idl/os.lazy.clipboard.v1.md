@@ -31,6 +31,12 @@ declared reply fields, which never use that id.
 | Ping | 2142761129 | sync | `() -> ()` |
 | Current | 869319546 | sync | `() -> (offer: Option<OfferMeta>)` |
 
+## Topics
+
+| Topic | Payload | QoS | Retained | Permissions |
+|---|---|---|---|---|
+| `session/+/clipboard/changed` | `OfferMeta` | latest | yes | `publish:session/+/clipboard/changed`, `subscribe:session/+/clipboard/changed` |
+
 ## struct `Payload`
 
 - `mime: String`

@@ -7,7 +7,11 @@ record, nested into a module named after the interface.
 
 from __future__ import annotations
 
-from midlc_model import Interface, Param, SCALARS, Type, snake_case
+from midlc_model import Interface, Param, SCALARS, Topic, Type, snake_case
+from midlc_topics import qos_rust_expr
+
+# Topic codegen lives here; the shared Rust runtime (`TOPIC_SUPPORT`) is in
+# `midlc_topic_support` to keep this file small.
 
 # ---------------------------------------------------------------------------
 # Rust code generation
@@ -214,14 +218,139 @@ def emit_message(method_name: str, kind: str, params: list[Param]) -> str:
     return "\n".join(lines)
 
 
+def payload_kind(interface: Interface, topic: Topic) -> str:
+    """`"struct"` when the topic names a struct, else `"enum"` (checked by the
+    parser, which rejects a payload that is neither)."""
+    return "struct" if any(s.name == topic.payload for s in interface.structs) else "enum"
+
+
+def emit_topic(interface: Interface, topic: Topic) -> list[str]:
+    """One declared topic: its constants plus typed name/codec/publish/subscribe
+    helpers built over [`TOPIC_SUPPORT`]."""
+    suffix = topic.suffix
+    upper = suffix.upper()
+    kind = payload_kind(interface, topic)
+    param_names = [p.rust_name for p in topic.params]
+    name_sig = ", ".join(f"{name}: &str" for name in param_names)
+    name_args = ", ".join(param_names)
+    value_param = "value: u32" if kind == "enum" else f"value: &{topic.payload}"
+    retained = str(topic.retained).lower()
+
+    lines: list[str] = []
+    lines += emit_doc_lines(topic.doc, indent="    ")
+    retained_note = ", retained" if topic.retained else ""
+    lines.append(f"    /// The declared `{topic.name}` topic (`{topic.payload}`, `{topic.qos}`{retained_note}).")
+    lines.append(f'    pub const TOPIC_{upper}: &str = "{topic.name}";')
+    lines.append(f"    /// The `{topic.name}` delivery policy.")
+    lines.append(f"    pub const TOPIC_{upper}_QOS: u32 = {qos_rust_expr(topic.qos)};")
+    lines.append(f"    /// Whether `{topic.name}` publishes are retained.")
+    lines.append(f"    pub const TOPIC_{upper}_RETAINED: bool = {retained};")
+    lines.append("")
+    lines.append(f"    /// Build the concrete `{topic.name}` name; each wildcard takes one literal segment.")
+    lines.append(f"    pub fn name_{suffix}({name_sig}) -> Result<String, topics::TopicError> {{")
+    lines.append(f"        topics::build(TOPIC_{upper}, &[{name_args}], topics::Mode::Publish)")
+    lines.append("    }")
+    lines.append("")
+    if kind == "struct":
+        lines.append(f"    /// Encode a `{topic.payload}` payload for `{topic.name}`.")
+        lines.append(f"    pub fn encode_{suffix}(value: &{topic.payload}) -> Result<Vec<u8>, Error> {{")
+        lines.append(f"        encode_{snake_case(topic.payload)}(value)")
+        lines.append("    }")
+        lines.append("")
+        lines.append(f"    /// Decode a `{topic.name}` payload; malformed bytes are an error.")
+        lines.append(f"    pub fn decode_{suffix}(body: &[u8]) -> Result<{topic.payload}, Error> {{")
+        lines.append(f"        decode_{snake_case(topic.payload)}(body)")
+        lines.append("    }")
+    else:
+        lines.append(f"    /// Encode a `{topic.payload}` payload for `{topic.name}` (travels as a `U32`).")
+        lines.append(f"    pub fn encode_{suffix}(value: u32) -> Result<Vec<u8>, Error> {{")
+        lines.append("        let mut target = Encoder::new();")
+        lines.append("        target.u32(1, value)?;")
+        lines.append("        Ok(target.finish())")
+        lines.append("    }")
+        lines.append("")
+        lines.append(f"    /// Decode a `{topic.name}` payload (a `U32`); malformed bytes are an error.")
+        lines.append(f"    pub fn decode_{suffix}(body: &[u8]) -> Result<u32, Error> {{")
+        lines.append("        let mut value = 0u32;")
+        lines.append("        let mut decoder = Decoder::new(body);")
+        lines.append("        while let Some(field) = decoder.next()? {")
+        lines.append("            if field.id == 1 {")
+        lines.append("                value = field.as_u32()?;")
+        lines.append("            }")
+        lines.append("        }")
+        lines.append("        Ok(value)")
+        lines.append("    }")
+    lines.append("")
+    publish_params = ", ".join(["publisher: &mut P"] + [f"{name}: &str" for name in param_names] + [value_param])
+    lines.append(f"    /// Publish a typed `{topic.payload}` on `{topic.name}`.")
+    lines.append(f"    pub fn publish_{suffix}<P>({publish_params}) -> Result<u64, P::Error>")
+    lines.append("    where")
+    lines.append("        P: topics::Publish,")
+    lines.append("        P::Error: From<topics::TopicError>,")
+    lines.append("    {")
+    lines.append(f"        let topic = name_{suffix}({name_args}).map_err(P::Error::from)?;")
+    lines.append(f"        let payload = encode_{suffix}(value)")
+    lines.append("            .map_err(|error| P::Error::from(topics::TopicError::Encode(error)))?;")
+    lines.append(f"        publisher.publish_topic(&topic, &payload, TOPIC_{upper}_RETAINED)")
+    lines.append("    }")
+    lines.append("")
+    subscribe_params = ", ".join(["subscriber: &mut S"] + [f"{name}: &str" for name in param_names])
+    lines.append(f"    /// Subscribe to `{topic.name}` with its declared QoS.")
+    lines.append(f"    pub fn subscribe_{suffix}<S>({subscribe_params}) -> Result<S::Subscription, S::Error>")
+    lines.append("    where")
+    lines.append("        S: topics::Subscribe,")
+    lines.append("        S::Error: From<topics::TopicError>,")
+    lines.append("    {")
+    lines.append(f"        let filter = topics::build(TOPIC_{upper}, &[{name_args}], topics::Mode::Subscribe)")
+    lines.append("            .map_err(S::Error::from)?;")
+    lines.append(f"        subscriber.subscribe_topic(&filter, TOPIC_{upper}_QOS)")
+    lines.append("    }")
+    return lines
+
+
+def emit_topic_table(interfaces: list[Interface]) -> str:
+    """The crate-level table of every declared topic, with the permission
+    strings derived from each pattern (never hand-typed)."""
+    lines = [
+        "/// Every topic declared across the compiled `.midl` files (issue #307).",
+        "#[rustfmt::skip]",
+        "pub static DECLARED_TOPICS: &[topics::TopicDecl] = &[",
+    ]
+    for interface in interfaces:
+        for topic in interface.topics:
+            lines.append("    topics::TopicDecl {")
+            lines.append(f'        interface: "{interface.name}",')
+            lines.append(f'        name: "{topic.name}",')
+            lines.append(f'        payload: "{topic.payload}",')
+            lines.append(f"        qos: {qos_rust_expr(topic.qos)},")
+            lines.append(f"        retained: {str(topic.retained).lower()},")
+            lines.append(f'        publish_permission: "publish:{topic.name}",')
+            lines.append(f'        subscribe_permission: "subscribe:{topic.name}",')
+            lines.append("    },")
+    lines.append("];")
+    lines.append("")
+    lines.append("/// The declared topic whose pattern matches the concrete `topic`.")
+    lines.append("#[rustfmt::skip]")
+    lines.append("pub fn declared_topic(topic: &str) -> Option<&'static topics::TopicDecl> {")
+    lines.append("    DECLARED_TOPICS.iter().find(|decl| topics::matches(decl.name, topic))")
+    lines.append("}")
+    return "\n".join(lines) + "\n"
+
+
 def emit_rust(interface: Interface) -> str:
     lines = [
         f"/// `{interface.name}` (interface id `{interface.id:#x}`).",
+        "#[rustfmt::skip]",
         f"pub mod {interface.module} {{",
         "    use alloc::vec::Vec;",
+        "    #[allow(unused_imports)]",
+        "    use alloc::string::String;",
         "    // Not every interface needs every codec item (`Kind` is only used by nested values).",
         "    #[allow(unused_imports)]",
         "    use libmessenger::{Decoder, Encoder, Error, Kind};",
+        "    // Only interfaces that declare topics use the shared topic runtime.",
+        "    #[allow(unused_imports)]",
+        "    use super::topics;",
         "",
         "    /// The interface id: the FNV-1a hash of the `.vN` interface name.",
         f"    pub const INTERFACE_ID: u64 = {interface.id:#x};",
@@ -252,6 +381,9 @@ def emit_rust(interface: Interface) -> str:
         if method.returns:
             lines += emit_message(method.name, "reply", method.returns).splitlines()
             lines.append("")
+    for topic in interface.topics:
+        lines += emit_topic(interface, topic)
+        lines.append("")
     if lines[-1] == "":
         lines.pop()
     lines.append("}")
