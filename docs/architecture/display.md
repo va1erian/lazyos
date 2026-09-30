@@ -130,6 +130,10 @@ compositor demo. Target toolkit design: [xui-plan.md](../xui-plan.md).
   z-order (tail paints last), a title-bar press drags the window (clamped to the
   screen above the taskbar), the title bar carries close/minimize buttons, and a
   bottom taskbar lists live surfaces with the focused entry highlighted.
+  The right end of the bar holds a serif date and time (`xuid/clock.rs`): the
+  instant is the kernel wall clock, the zone comes from `timed`'s retained
+  `time/tick` topic (UTC when `timed` is absent), and only the clock rectangle
+  repaints when the minute changes.
   Minimized surfaces are hidden and restored from the taskbar; `Tab` cycles
   focus skipping minimized ones. The close button sends the client a one-way
   `WindowClose` (method 10) event, which `xdemo` treats as "exit". Only

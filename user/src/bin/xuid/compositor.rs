@@ -7,6 +7,7 @@
 use alloc::vec::Vec;
 use user::messenger::display::{Canvas, Rect};
 
+use super::clock::{self, Clock};
 use super::drag::DragSession;
 use super::shell::{taskbar_visible, AltTab, Modifiers, ShellSub};
 use super::surface::{Drag, Surface};
@@ -43,6 +44,8 @@ pub(super) struct Compositor {
     /// bump allocator never reclaims, so events reuse it instead of
     /// allocating per message.
     pub(super) scratch: Vec<u8>,
+    /// The taskbar clock (issue #370).
+    pub(super) clock: Clock,
 }
 
 impl Compositor {
@@ -63,6 +66,7 @@ impl Compositor {
             mods: Modifiers::default(),
             alt_tab: None,
             scratch: Vec::with_capacity(64),
+            clock: Clock::new(),
         }
     }
 
@@ -74,6 +78,15 @@ impl Compositor {
     /// Whether the built-in fallback taskbar paints (no `"shell"` subscriber).
     pub(super) fn taskbar(&self) -> bool {
         taskbar_visible(self.shell.as_ref())
+    }
+
+    /// Advance the taskbar clock and repaint just its rectangle when the
+    /// minute (or zone) changed and the built-in bar is showing.
+    pub(super) fn tick_clock(&mut self) {
+        if self.clock.poll() && self.taskbar() {
+            let dims = (self.screen.width(), self.screen.height());
+            self.repaint(clock::rect(dims));
+        }
     }
 
     /// Repaint the full screen.

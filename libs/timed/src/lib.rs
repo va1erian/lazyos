@@ -11,6 +11,7 @@
 #![cfg_attr(not(test), no_std)]
 
 pub mod civil;
+pub mod format;
 pub mod zones;
 
 pub use zones::{default_zone, find, local, Local, Zone, ZONES};

@@ -103,6 +103,8 @@ pub(super) fn for_each_entry(
     screen_h: i32,
     mut visit: impl FnMut(&Surface, Rect),
 ) {
+    // The clock owns the bar's right end; entries lay out in what is left.
+    let screen_w = (screen_w - super::clock::reserved_width()).max(0);
     let count = surfaces.iter().filter(|surface| !surface.desktop).count() as i32;
     let usable = screen_w - ENTRY_MARGIN * 2 - ENTRY_GAP * (count - 1).max(0);
     let share = (usable / count.max(1)).max(ENTRY_MIN_W);
