@@ -9,7 +9,6 @@
 //! [`chain`] treat the on-disk bytes as untrusted (#235).
 
 use crate::block::{BlockDevice, SECTOR_SIZE};
-use alloc::string::String;
 use alloc::vec::Vec;
 use spin::Mutex;
 
@@ -18,20 +17,17 @@ use super::vfs::{
 };
 
 mod chain;
+mod dir;
+mod lfn;
+mod resolve;
+
+use resolve::{Node, PathCache};
 
 /// Which FAT flavour the volume uses (determined by cluster count).
 #[derive(Clone, Copy, PartialEq)]
 enum FatKind {
     Fat12,
     Fat16,
-}
-
-/// A directory entry.
-pub struct Entry {
-    pub name: String,
-    pub size: u32,
-    pub cluster: u16,
-    pub is_dir: bool,
 }
 
 /// A mounted FAT12/FAT16 volume.
@@ -55,6 +51,8 @@ pub struct Fat16 {
     /// so consecutive lookups almost always land in the same sector; the
     /// volume is read-only, so the cache can never go stale.
     fat_cache: Mutex<Option<(u32, [u8; SECTOR_SIZE])>>,
+    /// Resolved paths; valid forever on a read-only volume.
+    paths: Mutex<PathCache>,
 }
 
 fn le16(buf: &[u8], offset: usize) -> u16 {
@@ -184,113 +182,17 @@ impl Fat16 {
             clusters: clusters as u32,
             kind,
             fat_cache: Mutex::new(None),
+            paths: Mutex::new(PathCache::new()),
         })
     }
-
-    /// List the root directory (short 8.3 entries; long-name entries skipped).
-    pub fn list(&self) -> Vec<Entry> {
-        let mut entries = Vec::new();
-        let mut offset = 0u32;
-        // One sector holds 16 entries: read it once, not once per entry.
-        let mut loaded: Option<(u32, [u8; SECTOR_SIZE])> = None;
-        while offset < self.root_entries as u32 {
-            let sector = self.root_lba + offset / 16;
-            if loaded.as_ref().is_none_or(|(lba, _)| *lba != sector) {
-                let Some(buf) = self.read_sector(sector) else {
-                    break;
-                };
-                loaded = Some((sector, buf));
-            }
-            let Some((_, buf)) = loaded.as_ref() else {
-                break;
-            };
-            let index = (offset % 16) as usize * 32;
-            let entry = &buf[index..index + 32];
-            offset += 1;
-
-            if entry[0] == 0x00 {
-                break; // end of directory
-            }
-            if entry[0] == 0xE5 {
-                continue; // deleted
-            }
-            let attr = entry[11];
-            if attr == 0x0F || attr & 0x08 != 0 {
-                continue; // long-name entry or volume label
-            }
-
-            entries.push(Entry {
-                name: format_name(&entry[0..8], &entry[8..11]),
-                cluster: le16(entry, 26),
-                size: le32(entry, 28),
-                is_dir: attr & 0x10 != 0,
-            });
-        }
-        entries
-    }
-
-    /// Find a root-directory entry by name (case-insensitive).
-    pub fn find(&self, name: &str) -> Option<Entry> {
-        let wanted = normalize(name);
-        self.list()
-            .into_iter()
-            .find(|entry| match (&wanted, normalize(&entry.name)) {
-                (Some(want), Some(candidate)) => *want == candidate,
-                _ => entry.name.eq_ignore_ascii_case(name),
-            })
-    }
 }
 
-fn format_name(base: &[u8], ext: &[u8]) -> String {
-    let base: String = base
-        .iter()
-        .take_while(|&&c| c != b' ')
-        .map(|&c| c as char)
-        .collect();
-    let ext: String = ext
-        .iter()
-        .take_while(|&&c| c != b' ')
-        .map(|&c| c as char)
-        .collect();
-    if ext.is_empty() {
-        base
-    } else {
-        alloc::format!("{base}.{ext}")
-    }
-}
-
-/// Normalize `NAME.EXT` to an uppercase "NAME.EXT" or "NAME" key.
-fn normalize(name: &str) -> Option<String> {
-    let (base, ext) = match name.split_once('.') {
-        Some((base, ext)) => (base, ext),
-        None => (name, ""),
-    };
-    if base.is_empty() || base.len() > 8 || ext.len() > 3 {
-        return None;
-    }
-    let mut key = base.to_ascii_uppercase();
-    if !ext.is_empty() {
-        key.push('.');
-        key.push_str(&ext.to_ascii_uppercase());
-    }
-    Some(key)
-}
-
-/// Stable pseudo-inode for a FAT name (FAT has no inode numbers). Bit 1 is
-/// forced, so no entry can collide with the root's inode 1 or with 0.
-fn ino_for(name: &str) -> u64 {
-    name.to_ascii_uppercase()
-        .bytes()
-        .fold(0u64, |acc, byte| acc.wrapping_mul(31) + byte as u64)
-        | 2
-}
-
-/// Metadata for a FAT entry. The volume has no owner, so nodes are
+/// Metadata for a resolved node. The volume has no owner, so nodes are
 /// root-owned; directories and files are readable/executable by everyone
 /// (`0555`, the vfat default), and nothing is writable.
-fn meta_for(entry: &Entry) -> Meta {
+fn meta_for(entry: &Node) -> Meta {
     Meta {
-        ino: ino_for(&entry.name),
+        ino: entry.ino,
         mode: if entry.is_dir {
             S_IFDIR | 0o555
         } else {
@@ -312,39 +214,33 @@ fn meta_for(entry: &Entry) -> Meta {
 
 /// The read-only FAT volume behind the [`Filesystem`] trait.
 ///
-/// This reader only resolves the root directory, so the mount point root is
-/// the whole volume and any nested path is simply not found. Every mutating
-/// method answers [`FsError::ReadOnly`]: the friendly `EROFS` the ABI layer
-/// reports when userspace tries to write.
+/// Paths resolve from the root through nested directories, with long names
+/// and case-insensitive matching. Every mutating method answers
+/// [`FsError::ReadOnly`]: the friendly `EROFS` the ABI layer reports when
+/// userspace tries to write.
 impl Filesystem for Fat16 {
     fn name(&self) -> &'static str {
         "fat16 (ro)"
     }
 
     fn lookup(&self, path: &str) -> Result<Meta, FsError> {
-        let name = path.trim_matches('/');
-        if name.is_empty() {
+        let node = self.resolve(path)?;
+        if node.ino == resolve::ROOT_INO {
             return Ok(Meta {
-                ino: 1,
-                mode: S_IFDIR | 0o555,
-                uid: 0,
-                gid: 0,
                 size: self.root_entries as u64 * 32,
-                kind: FileKind::Dir,
-                times: Times::default(),
+                ..meta_for(&node)
             });
         }
-        let entry = self.find(name).ok_or(FsError::NotFound)?;
         // A directory entry claiming more bytes than the volume can hold is
         // corrupt; refuse it before a caller sizes an allocation from it.
-        if entry.size as u64 > self.capacity_bytes() {
+        if node.size as u64 > self.capacity_bytes() {
             return Err(FsError::Invalid);
         }
-        Ok(meta_for(&entry))
+        Ok(meta_for(&node))
     }
 
     fn read(&self, path: &str, offset: u64, buf: &mut [u8]) -> Result<usize, FsError> {
-        let entry = self.find(path.trim_matches('/')).ok_or(FsError::NotFound)?;
+        let entry = self.resolve(path)?;
         if entry.is_dir {
             return Err(FsError::IsDir);
         }
@@ -393,14 +289,12 @@ impl Filesystem for Fat16 {
     }
 
     fn readdir(&self, path: &str) -> Result<Vec<DirEntry>, FsError> {
-        if !path.trim_matches('/').is_empty() {
-            return Err(FsError::NotDir); // root-only reader: no subdirectories
-        }
+        let dir = self.resolve(path)?;
         Ok(self
-            .list()
+            .read_dir(&dir)?
             .into_iter()
             .map(|entry| DirEntry {
-                ino: ino_for(&entry.name),
+                ino: entry.ino,
                 kind: if entry.is_dir {
                     FileKind::Dir
                 } else {

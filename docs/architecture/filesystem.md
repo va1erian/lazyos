@@ -12,7 +12,7 @@ an in-memory ramfs mounted at `/tmp`.
 | `kernel/src/fs/vfs.rs` (+ `vfs/{filesystem,meta,path,cache}.rs`) | `Vfs`, resolution; `Filesystem` trait, `Path`, `Id`, permissions and the dentry/inode caches in the submodules |
 | `kernel/src/fs/vfs/{attr,setattr}.rs` | Timestamps, the filesystem clock, `SetAttr`; the `chmod`/`chown`/`utimensat` rules (issue #345) |
 | `kernel/src/fs/ramfs.rs` (+ `ramfs/{node,capacity}.rs`) | In-memory tree; root inode 1 (issue #98); a node and its attributes in `node.rs` |
-| `kernel/src/fs/fat.rs` | Read-only FAT12/16 on the boot volume |
+| `kernel/src/fs/fat/` | Read-only FAT12/16 on the boot volume (`dir.rs` directory walker, `lfn.rs` long names, `resolve.rs` paths + cache) |
 | `kernel/src/fs/ext2.rs` (+ `ext2/{layout,blocks,indirect,truncate,state,dir,attr,fsimpl}.rs`) | Read/write ext2 rev 0/1 (issues #99, #333, #345) |
 | `kernel/src/fs/overlay.rs` | Copy-up overlay for the Linux ABI root (issue #136) |
 | `kernel/src/fs/openfile.rs` | Open files on `/data` for Linux descriptors: in-place I/O, follow renames, unlink-while-open (issue #334) |
@@ -249,7 +249,7 @@ block, inode, descriptor and registry entry.
 | Backend | Status | Notes |
 |---|---|---|
 | `ramfs` | read/write | `BTreeMap` of nodes, ordered children, owner/mode stamped by VFS |
-| `fat` | read-only | FAT12/16, MBR partition, sector reads via the block layer; 8.3 short names only |
+| `fat` | read-only | FAT12/16, MBR partition, sector reads via the block layer; VFAT long names and nested subdirectories, ASCII case-insensitive; inode = on-disk entry position (root = 1); resolved-path cache |
 | `ext2` | read/write | 1/2/4 KiB blocks, group bitmaps, direct + single/double/triple indirect, truncate, clean/dirty state; rejects unknown incompat features and htree directories; no journal/symlinks/device nodes |
 | `overlay` | read/write (copy-up) | Linux ABI root only; lower is any read-only backend, upper is ramfs |
 

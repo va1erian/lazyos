@@ -20,12 +20,15 @@ fn fs_error(error: FsError) -> String {
 
 mod attrs;
 mod fat_corruption;
+mod fat_image;
+mod fat_lfn;
 mod ramfs_and_permissions;
 mod ramfs_limits;
 mod traversal_and_cache;
 
 pub(super) use attrs::*;
 pub(super) use fat_corruption::*;
+pub(super) use fat_lfn::*;
 pub(super) use ramfs_and_permissions::*;
 pub(super) use ramfs_limits::*;
 pub(super) use traversal_and_cache::*;
@@ -78,4 +81,16 @@ pub(super) const CASES: &[(&str, Test)] = &[
         setattr_through_vfs_and_cache,
     ),
     ("fs_ramfs_timestamps", ramfs_timestamps),
+    ("fs_fat_lfn_names_assemble", fat_lfn_names_assemble),
+    (
+        "fs_fat_lfn_inconsistent_runs_fall_back",
+        fat_lfn_inconsistent_runs_fall_back,
+    ),
+    ("fs_fat_subdirectories_resolve", fat_subdirectories_resolve),
+    (
+        "fs_fat_directory_chain_corruption",
+        fat_directory_chain_corruption,
+    ),
+    ("fs_fat_overlay_copy_up_nested", fat_overlay_copy_up_nested),
+    ("fs_fat_tree_soak", fat_tree_soak),
 ];
