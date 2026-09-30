@@ -148,6 +148,13 @@ pub(super) fn sys_brk(addr: u64) -> u64 {
         return current;
     }
     let table = crate::mem::kernel_table();
+    // The break never grows over another mapping: `vma::insert` would silently
+    // turn it into heap (the user stack sits inside the brk range), handing
+    // out live stack memory and letting a later shrink unmap it. Linux fails
+    // the same collision by leaving the break unchanged.
+    if new > current && !crate::mem::vma::find_range(table, current, new).is_empty() {
+        return current;
+    }
     if new > current {
         // Per-uid user-memory quota (issue #103): charge the growth before the
         // VMA exists. A refusal reports the unchanged break, which is how a

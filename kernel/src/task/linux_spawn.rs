@@ -83,6 +83,8 @@ fn spawn_linux_in(
         Some(parent) => credentials::inherit(parent, index),
         None => credentials::reset_for_task(index),
     }
+    // A new program starts with clean x87/SSE registers.
+    fpu::reset(index);
     tasks[index] = Some(Task {
         name,
         kind: Kind::Linux,

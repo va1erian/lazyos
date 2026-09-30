@@ -68,11 +68,13 @@ fn finish_and_reap_all(slots: &[usize]) -> Result<(), String> {
     Ok(())
 }
 
+mod fpu_state;
 mod lifecycle;
 mod process_tree;
 mod wait_queue;
 mod yield_clock;
 
+pub(super) use fpu_state::*;
 pub(super) use lifecycle::*;
 pub(super) use process_tree::*;
 pub(super) use wait_queue::*;
@@ -106,6 +108,17 @@ pub(super) const CASES: &[(&str, Test)] = &[
         wait_queue_blocked_not_scheduled,
     ),
     ("task_yield_does_not_tick", yield_does_not_tick),
+    ("task_fpu_reset_is_default", fpu_reset_is_default),
+    (
+        "task_fpu_switch_keeps_each_tasks_state",
+        fpu_switch_keeps_each_tasks_state,
+    ),
+    (
+        "task_fpu_inherit_then_exec_reset",
+        fpu_inherit_then_exec_reset,
+    ),
+    ("task_fpu_survives_real_yields", fpu_survives_real_yields),
+    ("task_fpu_switch_soak_all_slots", fpu_switch_soak_all_slots),
     (
         "task_voluntary_park_expires_deadline",
         voluntary_park_expires_deadline,

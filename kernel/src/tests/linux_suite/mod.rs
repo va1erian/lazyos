@@ -198,6 +198,7 @@ fn clock_nanosleep(clock: u64, flags: u64, req: &[i64; 2], rem: &mut [i64; 2]) -
     )
 }
 
+mod brk_stack;
 mod creds;
 mod epoll;
 mod mmap_reuse;
@@ -207,6 +208,7 @@ mod random;
 mod sendfile;
 mod seqpacket_unix;
 
+pub(super) use brk_stack::*;
 pub(super) use creds::*;
 pub(super) use epoll::*;
 pub(super) use mmap_reuse::*;
@@ -242,6 +244,8 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("linux_getrandom_statistics", getrandom_statistics),
     ("linux_entropy_reseeds", entropy_reseeds),
     ("linux_getrandom_soak", getrandom_soak),
+    ("linux_brk_stops_below_the_stack", brk_stops_below_the_stack),
+    ("linux_brk_stack_boundary_soak", brk_stack_boundary_soak),
     ("linux_mmap_reuses_freed_range", mmap_reuses_freed_range),
     (
         "linux_mmap_skips_a_large_mapping",
