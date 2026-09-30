@@ -186,6 +186,22 @@ impl Canvas {
         }
     }
 
+    /// Invert the colour of every pixel of `rect` (clipped to `clip`): XOR
+    /// with white, so the result contrasts with whatever was there. It is its
+    /// own inverse, but overlapping inverted rectangles cancel where they
+    /// overlap, so callers draw disjoint pieces.
+    pub fn invert(&mut self, rect: Rect, clip: Rect) {
+        let r = self.visible(rect, clip);
+        for y in r.y..r.y + r.h {
+            for dst in self.row_mut(r.x, y, r.w).as_chunks_mut::<4>().0.iter_mut() {
+                dst[0] ^= 0xff;
+                dst[1] ^= 0xff;
+                dst[2] ^= 0xff;
+                dst[3] = 0xff;
+            }
+        }
+    }
+
     /// Copy a tightly packed RGBA8 source image into `dst`, clipped to
     /// `clip`. `src_w` is the source row length in pixels; rows and columns
     /// past the source are ignored. The destination is always opaque.

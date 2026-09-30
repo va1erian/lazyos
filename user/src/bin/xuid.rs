@@ -221,6 +221,7 @@ fn run() -> ! {
     sys::write_str(window::selftest_focus_on_create());
     sys::write_str(origin::selftest_open_origin());
     sys::write_str(geometry::selftest_geometry());
+    sys::write_str(anim::selftest_anim());
     sys::write_str(wheel::selftest_wheel_routing());
 
     loop {
