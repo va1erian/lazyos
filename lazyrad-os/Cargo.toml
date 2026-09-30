@@ -1,0 +1,58 @@
+[package]
+name = "lazyrad-os"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "LazyRAD on LazyOS: the `lrplay` player and the `lazyrad` IDE as xuid clients"
+
+# A standalone workspace, like `xui-app` and `rhai-host`: both bins build for
+# x86_64-unknown-linux-musl (static) via `tools/lazyrad/build.py` and are
+# embedded in the disk image as LRPLAY.ELF and LAZYRAD.ELF, so the OS workspace
+# never resolves Rhai, xui or LazyRAD.
+[workspace]
+resolver = "2"
+
+[dependencies]
+# One xui for the whole graph: the same revision `xui-app` pins (see its
+# Cargo.toml and docs/xui-plan.md "Bumping the pinned rev"). LazyRAD's own
+# workspace pins the same revision. `default-features = false` keeps
+# winit/softbuffer/glutin/glow/arboard/xui-gpu out of the image.
+xui-core = { git = "https://github.com/va1erian/xui", rev = "58c1a6ea1a2dc1e5bb81463ff8dba82329a4f080" }
+xui-canvas = { git = "https://github.com/va1erian/xui", rev = "58c1a6ea1a2dc1e5bb81463ff8dba82329a4f080", default-features = false }
+# The LazyOS backend (xuid client), fonts, clipboardd client and the portable
+# file-dialog plumbing.
+xui-app = { path = "../xui-app" }
+
+# LazyRAD, from its own repository, `default-features = false` so the `desktop`
+# features (winit, rfd, directories, dark-light, local time) stay off.
+#
+# PIN: `rev` is LazyRAD's `main` before the LazyOS platform seam (P0) landed.
+# Until the P0 pull request is merged, builds need the local override in
+# `lazyrad-os/README.md` ("Developing against a local LazyRAD checkout"). After
+# the merge, set `rev` to the merge commit of the LazyRAD P0 PR on every line
+# below and delete the override.
+lazyrad-runtime = { git = "https://github.com/va1erian/lazyrad", rev = "495b0a6f95a9d3e3a91867dc6c96a842617d2f4f", default-features = false }
+lazyrad-player = { git = "https://github.com/va1erian/lazyrad", rev = "495b0a6f95a9d3e3a91867dc6c96a842617d2f4f", default-features = false }
+
+[dev-dependencies]
+
+[lib]
+name = "lazyrad_os"
+path = "src/lib.rs"
+
+[[bin]]
+name = "lrplay"
+path = "src/bin/lrplay.rs"
+
+[[bin]]
+name = "lazyrad"
+path = "src/bin/lazyrad.rs"
+
+# Embedded in the disk image and read over slow boot-time ATA: size first
+# (the player is copied into every produced `.lzp`, plan D2).
+[profile.release]
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
