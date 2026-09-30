@@ -8,7 +8,7 @@ use alloc::format;
 use user::messenger::mime;
 use user::sys;
 
-use super::apps::AppRegistry;
+use super::apps::{choose, AppRegistry};
 use super::db::MimeDb;
 use super::handlers::open_path;
 
@@ -62,11 +62,28 @@ pub(crate) fn selftest(db: &MimeDb, apps: &mut AppRegistry) {
         sys::write_str("MIME:REGISTER:FAIL lookup or verbs mismatch\n");
     }
 
-    // Markdown opens in the Editor and can be viewed (rendered) in Docs.
-    if apps.lookup("text/markdown", "open") == Some("editor")
-        && apps.lookup("text/markdown", "edit") == Some("editor")
-        && apps.lookup("text/markdown", "view") == Some("docs")
-    {
+    // The seeded file-type defaults (issue #116): plain text opens in the
+    // Editor, PNGs in Paint, Markdown in the Docs renderer. The registry is
+    // seeded the same in every image, so the mapping is asserted directly.
+    let plain = apps.lookup("text/plain", "open");
+    let png = apps.lookup("image/png", "open");
+    let markdown = apps.lookup("text/markdown", "open");
+    if plain == Some("editor") && png == Some("paint") && markdown == Some("docs") {
+        sys::write_str("MIME:DEFAULT:PASS text/plain=editor image/png=paint text/markdown=docs\n");
+    } else {
+        sys::write_str(&format!(
+            "MIME:DEFAULT:FAIL text/plain={} image/png={} text/markdown={}\n",
+            plain.unwrap_or("<none>"),
+            png.unwrap_or("<none>"),
+            markdown.unwrap_or("<none>"),
+        ));
+    }
+
+    // Markdown keeps the Editor as its `edit` verb and Docs as its `view` verb,
+    // and names the Editor as the fallback for `open` when Docs is not shipped.
+    let verbs_ok = apps.lookup("text/markdown", "edit") == Some("editor")
+        && apps.lookup("text/markdown", "view") == Some("docs");
+    if verbs_ok {
         sys::write_str(
             "MIME:VIEW:PASS
 ",
@@ -76,6 +93,21 @@ pub(crate) fn selftest(db: &MimeDb, apps: &mut AppRegistry) {
             "MIME:VIEW:FAIL markdown verbs
 ",
         );
+    }
+
+    // The fallback policy is pure: an unshipped primary resolves to the named
+    // fallback, a shipped one stays, and a pair without a fallback keeps its
+    // primary. Exercised directly so a boot proves it without a live `init`.
+    let fallback = apps
+        .resolve("text/markdown", "open")
+        .and_then(|(_, fallback)| fallback);
+    let fallback_ok = choose("docs", fallback, false) == "editor"
+        && choose("docs", fallback, true) == "docs"
+        && choose("editor", None, false) == "editor";
+    if fallback_ok {
+        sys::write_str("MIME:FALLBACK:PASS text/markdown=docs->editor\n");
+    } else {
+        sys::write_str("MIME:FALLBACK:FAIL markdown open fallback\n");
     }
 
     let mut bus = None;
