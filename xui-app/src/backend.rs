@@ -35,6 +35,7 @@ mod node;
 mod origin;
 mod pointer;
 mod render;
+mod session_input;
 mod zorder;
 
 use std::cell::{Cell, RefCell};
@@ -46,7 +47,7 @@ use std::sync::Arc;
 use xui_canvas::Surface;
 use xui_core::backend::{Painter, ParentRef, WidgetId, WindowId};
 use xui_core::router::WidgetHost;
-use xui_core::{Color, Modifiers, Rect};
+use xui_core::{Color, Key, Modifiers, Rect};
 
 use crate::client_window::{ClientState, ClientWindow};
 use crate::display;
@@ -105,6 +106,9 @@ pub struct LazyOSBackend {
     /// key records the kernel forwards to a bound compositor. Attached to every
     /// `KeyDown`/`KeyUp` so an app sees Ctrl+key chords.
     modifiers: Cell<Modifiers>,
+    /// Keys an `inputd` session reported down and not yet up, so a focus loss
+    /// can release them (`KeyboardLeave`).
+    held_keys: RefCell<Vec<Key>>,
     /// Repeating timers armed by [`Backend::set_timer`], in PIT ticks.
     timers: RefCell<Vec<Timer>>,
     next_timer: Cell<usize>,
@@ -193,6 +197,7 @@ impl LazyOSBackend {
             captured: Cell::new(None),
             clicks: RefCell::new(double_click::ClickTracker::new()),
             modifiers: Cell::new(Modifiers::NONE),
+            held_keys: RefCell::new(Vec::new()),
             timers: RefCell::new(Vec::new()),
             next_timer: Cell::new(1),
             frames: Cell::new(0),

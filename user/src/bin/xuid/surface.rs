@@ -38,6 +38,9 @@ pub(super) struct Surface {
     /// The bottom-layer desktop surface (issue #167): no chrome, never
     /// focused, hit-tested, minimized, or listed on the taskbar.
     pub(super) desktop: bool,
+    /// Keys reach this surface's client through an `inputd` session, so the
+    /// legacy `KeyDown`/`KeyUp` synthesis must skip it (`docs/input-plan.md`).
+    pub(super) input_session: bool,
 }
 
 impl Surface {

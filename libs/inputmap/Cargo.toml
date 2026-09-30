@@ -1,0 +1,11 @@
+[package]
+name = "inputmap"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Keymaps, modifier/lock state, key repeat and hotkey matching for the LazyOS inputd service"
+license = "GPL-3.0-or-later"
+
+[lib]
+name = "inputmap"
+path = "src/lib.rs"

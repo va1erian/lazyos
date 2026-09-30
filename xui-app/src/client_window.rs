@@ -13,6 +13,7 @@
 //! compositor with nothing able to destroy it.
 
 use crate::display::{self, Client};
+use crate::input;
 use crate::sys;
 
 /// A live compositor connection, shared by a backend's windows.
@@ -46,6 +47,9 @@ pub struct ClientWindow {
     /// The title the compositor currently shows, so an unchanged title is not
     /// sent again (the Editor retitles on every keystroke).
     pub title: String,
+    /// The window's keyboard session with `inputd`, when the service is
+    /// running; without it keys come from the compositor's legacy events.
+    pub input: Option<input::Session>,
 }
 
 impl ClientWindow {
@@ -78,6 +82,9 @@ impl ClientWindow {
                 return Err(message);
             }
         };
+        // Best effort: `xuid` registered the surface with `inputd` before it
+        // answered `CreateSurface`, so the session can be opened right away.
+        let input = input::Session::open(surface).ok();
         Ok(ClientWindow {
             events,
             surface,
@@ -86,12 +93,16 @@ impl ClientWindow {
             size,
             rect: (width as i32, height as i32),
             title: title.to_owned(),
+            input,
         })
     }
 
     /// Destroy the surface and close its event channel and buffer. Safe to call
     /// on a window already torn down (every handle is zeroed).
     pub fn close(&self, client: Client) {
+        if let Some(session) = &self.input {
+            session.close();
+        }
         if self.surface != 0 {
             let _ = client.destroy_surface(self.surface);
         }

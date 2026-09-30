@@ -227,6 +227,7 @@ fn test_surface(id: u64, minimized: bool, desktop: bool) -> Surface {
         slots: Default::default(),
         minimized,
         desktop,
+        input_session: false,
     }
 }
 

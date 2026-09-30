@@ -46,11 +46,13 @@ pub const SERVICE_ERROR: u64 = u64::MAX;
 
 mod cred;
 mod display;
+mod input;
 mod introspect;
 mod wall;
 
 pub use cred::*;
 pub use display::*;
+pub use input::*;
 pub use introspect::*;
 pub use wall::*;
 

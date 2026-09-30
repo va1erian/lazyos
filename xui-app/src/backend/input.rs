@@ -214,8 +214,47 @@ fn key_of(code: u32) -> Key {
         other if (b'a' as u32..=b'z' as u32).contains(&other) => {
             Key::from_code((other as u8).to_ascii_uppercase() as u16)
         }
-        other => Key::from_code(other as u16),
+        other => char_key(other),
     }
+}
+
+/// The virtual key for a character the compositor forwarded as its code.
+///
+/// Only letters and digits may reuse their character code: the Windows codes
+/// 0x21..=0x28 are PageUp/PageDown/End/Home/arrows and 0x2D/0x2E are
+/// Insert/Delete, which are also the codes of `! " # $ % & ' ( - .`. Passing
+/// those through moved the caret whenever one was typed. Punctuation and
+/// shifted symbols map to the US key that types them (its OEM code); anything
+/// else (Latin-1 letters, which have no US key) is unnamed, and still arrives
+/// as `Char`. Sessions with `inputd` know the physical key and do better
+/// (`session_input.rs`); this is the fallback for clients without one.
+fn char_key(code: u32) -> Key {
+    let vk: u16 = match char::from_u32(code) {
+        Some(c @ ('0'..='9' | 'A'..='Z')) => c as u16,
+        Some(')') => 0x30,
+        Some('!') => 0x31,
+        Some('@') => 0x32,
+        Some('#') => 0x33,
+        Some('$') => 0x34,
+        Some('%') => 0x35,
+        Some('^') => 0x36,
+        Some('&') => 0x37,
+        Some('*') => 0x38,
+        Some('(') => 0x39,
+        Some('-' | '_') => 0xBD,
+        Some('=' | '+') => 0xBB,
+        Some('[' | '{') => 0xDB,
+        Some(']' | '}') => 0xDD,
+        Some('\\' | '|') => 0xDC,
+        Some(';' | ':') => 0xBA,
+        Some('\'' | '"') => 0xDE,
+        Some('`' | '~') => 0xC0,
+        Some(',' | '<') => 0xBC,
+        Some('.' | '>') => 0xBE,
+        Some('/' | '?') => 0xBF,
+        _ => 0,
+    };
+    Key::from_code(vk)
 }
 
 /// The modifier state packed into a compositor-forwarded key.
@@ -352,6 +391,24 @@ mod tests {
         }
         assert_eq!(key_of(key::F1), Key::F1);
         assert_eq!(key_of(0x113), Key::F4);
+    }
+
+    #[test]
+    fn typed_symbols_are_never_navigation_keys() {
+        let navigation = [0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x2D, 0x2E];
+        for code in 0x20..=0xFFu32 {
+            if code == 0x20 {
+                continue; // Space is a named key
+            }
+            assert!(
+                !navigation.contains(&key_of(code).code()),
+                "{code:#x} typed as a navigation key"
+            );
+        }
+        // `&` is Shift+7, `\"` is Shift+' : the keys that type them.
+        assert_eq!(key_of('&' as u32).code(), 0x37);
+        assert_eq!(key_of('"' as u32).code(), 0xDE);
+        assert_eq!(key_of('a' as u32), Key::A);
     }
 
     #[test]
