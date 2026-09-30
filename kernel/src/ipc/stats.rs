@@ -8,8 +8,9 @@
 //! ACL and audit rings, and the kernel services registered so far.
 //!
 //! [`FabricStats`] is also the versioned ABI block behind the native `stats`
-//! syscall op. [`FABRIC_STATS_VERSION`] is 3 (version 2 had 16 per-slot rows;
-//! issue #204 raised `MAX_TASKS` to 64); version 1 was the compact 64-byte
+//! syscall op. [`FABRIC_STATS_VERSION`] is 4 (version 2 had 16 per-slot rows,
+//! version 3 had 64 after issue #204, version 4 has 256 for the application
+//! package system); version 1 was the compact 64-byte
 //! `MsgStats`. [`crate::ipc::syscalls`] serves v2 whenever the caller offers a
 //! [`FabricStats::SIZE`]-byte buffer and keeps v1 for small buffers, so old
 //! callers stay green. The wire form is little-endian `u64` words in field
@@ -19,6 +20,7 @@
 //! holds two at once, so collecting stats can never block a message in flight
 //! for longer than one counter read.
 
+use alloc::boxed::Box;
 use alloc::vec::Vec;
 
 use super::{acl, audit, channels, handles, shared};
@@ -28,7 +30,7 @@ use crate::task::MAX_TASKS;
 ///
 /// * `1` — the compact 64-byte [`crate::ipc::syscalls::MsgStats`] counters.
 /// * `2` — this snapshot: every subsystem, per-slot usage included.
-pub const FABRIC_STATS_VERSION: u64 = 3;
+pub const FABRIC_STATS_VERSION: u64 = 4;
 
 /// Words in one per-slot task usage row (see [`TaskUsage`]).
 const TASK_USAGE_WORDS: usize = 4;
@@ -65,7 +67,7 @@ pub struct TaskUsage {
 /// [`FabricStats::queued`], [`FabricStats::outstanding`] and the buffer totals
 /// are live depths.
 #[repr(C)]
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub struct FabricStats {
     /// [`FABRIC_STATS_VERSION`]: lets a caller detect a newer ABI.
     pub version: u64,
@@ -180,15 +182,21 @@ impl FabricStats {
     /// Take one consistent-enough read of every subsystem. Counters are sampled
     /// subsystem by subsystem; a message that lands between two reads may be
     /// counted in one and not the other, which is exactly what "snapshot" means.
-    pub fn snapshot() -> FabricStats {
+    ///
+    /// Boxed and filled in place: at 256 slots the block is ~10 KiB, and a
+    /// by-value return would copy it through a 32 KiB kernel stack twice.
+    pub fn snapshot() -> Box<FabricStats> {
         let channel_stats = channels::stats();
         let channel_counts = channels::counts();
         let buffer_stats = shared::stats();
 
+        // SAFETY: `FabricStats` is `repr(C)` and made only of `u64`s and arrays
+        // of `u64`-only structs, so the all-zero pattern is a valid value.
+        let mut stats: Box<FabricStats> = unsafe { Box::new_zeroed().assume_init() };
+
         // Handles per slot, and their total, from the per-task tables.
-        let mut handles_per_task = [0u64; MAX_TASKS];
         let mut handles_total = 0u64;
-        for (slot, count) in handles_per_task.iter_mut().enumerate() {
+        for (slot, count) in stats.handles_per_task.iter_mut().enumerate() {
             *count = handles::count_for_task(slot) as u64;
             handles_total += *count;
         }
@@ -196,55 +204,53 @@ impl FabricStats {
         // Per-slot usage joins the task table (is anyone there?) with the
         // handle and buffer accounting read above.
         let processes = crate::task::process::process_list();
-        let mut tasks = [TaskUsage::default(); MAX_TASKS];
-        for (slot, usage) in tasks.iter_mut().enumerate() {
+        for slot in 0..MAX_TASKS {
             let buffer = shared::process_stats(slot);
-            *usage = TaskUsage {
+            stats.tasks[slot] = TaskUsage {
                 live: processes.iter().any(|process| process.slot == slot) as u64,
-                handles: handles_per_task[slot],
+                handles: stats.handles_per_task[slot],
                 buffers: buffer.buffers,
                 buffer_bytes: buffer.bytes,
             };
         }
 
-        FabricStats {
-            version: FABRIC_STATS_VERSION,
-            services: super::syscalls::bootstrap::service_handle().is_some() as u64,
-            endpoints: channel_counts.endpoints,
-            channels: channel_counts.channels,
-            queued: channel_stats.queued,
-            queued_bytes: channel_stats.queued_bytes,
-            outstanding: channel_stats.outstanding,
-            calls: channel_stats.calls,
-            replies: channel_stats.replies,
-            one_way: channel_stats.one_way,
-            timeouts: channel_stats.timeouts,
-            cancels: channel_stats.cancels,
-            drops: channel_stats.drops,
-            buffers: buffer_stats.buffers,
-            buffer_bytes: buffer_stats.bytes,
-            buffer_mappings: buffer_stats.mappings,
-            fences_submitted: buffer_stats.fences_submitted,
-            fence_waits: buffer_stats.fence_waits,
-            fence_timeouts: buffer_stats.fence_timeouts,
-            outstanding_fences: buffer_stats.outstanding_fences,
-            handoffs: buffer_stats.handoffs,
-            handles: handles_total,
-            handles_per_task,
-            acl_rules: acl::rule_count() as u64,
-            acl_loaded: acl::is_loaded() as u64,
-            audit_trace: audit::trace() as u64,
-            audit_denies: audit::denials(),
-            audit_allows: audit::allows(),
-            audit_count: audit::count() as u64,
-            audit_total: audit::total(),
-            audit_last_hash: audit::last_hash(),
-            tasks,
-        }
+        // Scalars last: assigned field by field so the arrays above are never
+        // copied through the stack.
+        stats.version = FABRIC_STATS_VERSION;
+        stats.services = super::syscalls::bootstrap::service_handle().is_some() as u64;
+        stats.endpoints = channel_counts.endpoints;
+        stats.channels = channel_counts.channels;
+        stats.queued = channel_stats.queued;
+        stats.queued_bytes = channel_stats.queued_bytes;
+        stats.outstanding = channel_stats.outstanding;
+        stats.calls = channel_stats.calls;
+        stats.replies = channel_stats.replies;
+        stats.one_way = channel_stats.one_way;
+        stats.timeouts = channel_stats.timeouts;
+        stats.cancels = channel_stats.cancels;
+        stats.drops = channel_stats.drops;
+        stats.buffers = buffer_stats.buffers;
+        stats.buffer_bytes = buffer_stats.bytes;
+        stats.buffer_mappings = buffer_stats.mappings;
+        stats.fences_submitted = buffer_stats.fences_submitted;
+        stats.fence_waits = buffer_stats.fence_waits;
+        stats.fence_timeouts = buffer_stats.fence_timeouts;
+        stats.outstanding_fences = buffer_stats.outstanding_fences;
+        stats.handoffs = buffer_stats.handoffs;
+        stats.handles = handles_total;
+        stats.acl_rules = acl::rule_count() as u64;
+        stats.acl_loaded = acl::is_loaded() as u64;
+        stats.audit_trace = audit::trace() as u64;
+        stats.audit_denies = audit::denials();
+        stats.audit_allows = audit::allows();
+        stats.audit_count = audit::count() as u64;
+        stats.audit_total = audit::total();
+        stats.audit_last_hash = audit::last_hash();
+        stats
     }
 
     /// Encode as little-endian words in field order (the syscall wire form).
-    pub fn to_bytes(self) -> Vec<u8> {
+    pub fn to_bytes(&self) -> Vec<u8> {
         let mut words: Vec<u64> = Vec::with_capacity(WORDS);
         words.push(self.version);
         words.push(self.services);
@@ -293,7 +299,7 @@ impl FabricStats {
 
     /// Decode the block [`FabricStats::to_bytes`] produces. `None` when the
     /// length is not exactly [`FabricStats::SIZE`].
-    pub fn from_bytes(bytes: &[u8]) -> Option<FabricStats> {
+    pub fn from_bytes(bytes: &[u8]) -> Option<Box<FabricStats>> {
         if bytes.len() != Self::SIZE {
             return None;
         }
@@ -301,13 +307,13 @@ impl FabricStats {
             let at = index * 8;
             Some(u64::from_le_bytes(bytes[at..at + 8].try_into().ok()?))
         };
-        let mut handles_per_task = [0u64; MAX_TASKS];
-        for (index, value) in handles_per_task.iter_mut().enumerate() {
+        // SAFETY: see `snapshot`: all-zero is a valid `FabricStats`.
+        let mut stats: Box<FabricStats> = unsafe { Box::new_zeroed().assume_init() };
+        for (index, value) in stats.handles_per_task.iter_mut().enumerate() {
             *value = word(SCALAR_WORDS + index)?;
         }
         let acl = SCALAR_WORDS + MAX_TASKS;
-        let mut tasks = [TaskUsage::default(); MAX_TASKS];
-        for (index, usage) in tasks.iter_mut().enumerate() {
+        for (index, usage) in stats.tasks.iter_mut().enumerate() {
             let base = acl + ACL_AUDIT_WORDS + index * TASK_USAGE_WORDS;
             *usage = TaskUsage {
                 live: word(base)?,
@@ -316,45 +322,42 @@ impl FabricStats {
                 buffer_bytes: word(base + 3)?,
             };
         }
-        Some(FabricStats {
-            version: word(0)?,
-            services: word(1)?,
-            endpoints: word(2)?,
-            channels: word(3)?,
-            queued: word(4)?,
-            queued_bytes: word(5)?,
-            outstanding: word(6)?,
-            calls: word(7)?,
-            replies: word(8)?,
-            one_way: word(9)?,
-            timeouts: word(10)?,
-            cancels: word(11)?,
-            drops: word(12)?,
-            buffers: word(13)?,
-            buffer_bytes: word(14)?,
-            buffer_mappings: word(15)?,
-            fences_submitted: word(16)?,
-            fence_waits: word(17)?,
-            fence_timeouts: word(18)?,
-            outstanding_fences: word(19)?,
-            handoffs: word(20)?,
-            handles: word(21)?,
-            handles_per_task,
-            acl_rules: word(acl)?,
-            acl_loaded: word(acl + 1)?,
-            audit_trace: word(acl + 2)?,
-            audit_denies: word(acl + 3)?,
-            audit_allows: word(acl + 4)?,
-            audit_count: word(acl + 5)?,
-            audit_total: word(acl + 6)?,
-            audit_last_hash: word(acl + 7)?,
-            tasks,
-        })
+        stats.version = word(0)?;
+        stats.services = word(1)?;
+        stats.endpoints = word(2)?;
+        stats.channels = word(3)?;
+        stats.queued = word(4)?;
+        stats.queued_bytes = word(5)?;
+        stats.outstanding = word(6)?;
+        stats.calls = word(7)?;
+        stats.replies = word(8)?;
+        stats.one_way = word(9)?;
+        stats.timeouts = word(10)?;
+        stats.cancels = word(11)?;
+        stats.drops = word(12)?;
+        stats.buffers = word(13)?;
+        stats.buffer_bytes = word(14)?;
+        stats.buffer_mappings = word(15)?;
+        stats.fences_submitted = word(16)?;
+        stats.fence_waits = word(17)?;
+        stats.fence_timeouts = word(18)?;
+        stats.outstanding_fences = word(19)?;
+        stats.handoffs = word(20)?;
+        stats.handles = word(21)?;
+        stats.acl_rules = word(acl)?;
+        stats.acl_loaded = word(acl + 1)?;
+        stats.audit_trace = word(acl + 2)?;
+        stats.audit_denies = word(acl + 3)?;
+        stats.audit_allows = word(acl + 4)?;
+        stats.audit_count = word(acl + 5)?;
+        stats.audit_total = word(acl + 6)?;
+        stats.audit_last_hash = word(acl + 7)?;
+        Some(stats)
     }
 }
 
 /// Take one snapshot of the whole fabric.
-pub fn snapshot() -> FabricStats {
+pub fn snapshot() -> Box<FabricStats> {
     FabricStats::snapshot()
 }
 

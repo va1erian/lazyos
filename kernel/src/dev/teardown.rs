@@ -94,32 +94,26 @@ fn unmap_all(claim: &Claim, live_table: u64) -> u64 {
 pub fn teardown_task(slot: usize, table: u64) {
     // The slot is about to be reused: a stale exit mark must not silence its
     // next owner.
-    if slot < 64 {
-        EXITED.fetch_and(!(1 << slot), Ordering::AcqRel);
-    }
+    EXITED.clear(slot);
     let (ids, count) = CLAIMS.lock().owned_by(slot);
     for id in ids.iter().take(count).flatten() {
         release_claim(*id, slot, reason::TEARDOWN, table);
     }
 }
 
-const _: () = assert!(crate::task::MAX_TASKS <= 64, "EXITED is one u64");
-
 /// Bit per task slot that died since the last [`silence_exited`].
-static EXITED: AtomicU64 = AtomicU64::new(0);
+static EXITED: crate::task::slotmask::SlotMask = crate::task::slotmask::SlotMask::new();
 
 /// Record that task `slot` has just died. Lock-free, so the scheduler can call
 /// it from the timer sweep with its own locks held; [`silence_exited`] does the
 /// work later, from task context.
 pub fn note_task_exited(slot: usize) {
-    if slot < 64 {
-        EXITED.fetch_or(1 << slot, Ordering::AcqRel);
-    }
+    EXITED.set(slot);
 }
 
 /// Whether a dead task's claims still wait to be silenced.
 pub fn exits_pending() -> bool {
-    EXITED.load(Ordering::Acquire) != 0
+    EXITED.any()
 }
 
 /// Stop every device claimed by a task that died since the last call (issue
@@ -134,10 +128,7 @@ pub fn silence_exited() {
 }
 
 fn silence_exited_locked() {
-    let mut dead = EXITED.swap(0, Ordering::AcqRel);
-    while dead != 0 {
-        let slot = dead.trailing_zeros() as usize;
-        dead &= dead - 1;
+    for slot in EXITED.take().iter() {
         let (ids, count) = CLAIMS.lock().owned_by(slot);
         for id in ids.iter().take(count).flatten() {
             // Stop the device first so a shared line is not unmasked while the

@@ -14,14 +14,14 @@
 use crate::sys::{self, system_stats_op};
 
 /// ABI version this client understands.
-pub const VERSION: u64 = 3;
+pub const VERSION: u64 = 4;
 
 /// Words in the header (mirrors `kernel::sysinfo::HEADER_WORDS`).
 pub const HEADER_WORDS: usize = 24;
 /// Words in one task row (mirrors `kernel::sysinfo::TASK_ROW_WORDS`).
 pub const TASK_ROW_WORDS: usize = 10;
 /// Scheduler slots in the task table (mirrors `kernel::task::MAX_TASKS`).
-pub const MAX_TASKS: usize = 64;
+pub const MAX_TASKS: usize = 256;
 /// Words in the whole block.
 pub const WORDS: usize = HEADER_WORDS + MAX_TASKS * TASK_ROW_WORDS;
 /// Bytes in the whole block.

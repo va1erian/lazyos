@@ -22,13 +22,17 @@ use crate::task::trace;
 pub struct SweepFinish {
     /// The task that was ended (diagnostics).
     #[allow(dead_code)]
-    pub slot: usize,
+    pub slot: u16,
     /// Its parent, to receive `SIGCHLD` once the table lock is dropped.
-    pub parent: usize,
-    /// The exit status recorded (diagnostics).
+    pub parent: u16,
+    /// The exit status recorded, truncated (diagnostics). The fields are
+    /// narrow on purpose: the sweep returns one of these per task slot by
+    /// value in timer-interrupt context, where a kernel stack is scarce.
     #[allow(dead_code)]
-    pub status: u64,
+    pub status: u32,
 }
+
+const _: () = assert!(MAX_TASKS <= u16::MAX as usize);
 
 const NO_FINISH: SweepFinish = SweepFinish {
     slot: 0,
@@ -167,9 +171,9 @@ unsafe fn enter_handler(
 /// End `slot` under the table lock, recording the finish for the caller.
 fn finish(tasks: &mut [Option<Task>; MAX_TASKS], slot: usize, status: u64) -> Option<SweepFinish> {
     process::finish_locked(tasks, slot, status).map(|parent| SweepFinish {
-        slot,
-        parent,
-        status,
+        slot: slot as u16,
+        parent: parent as u16,
+        status: status as u32,
     })
 }
 
@@ -181,8 +185,9 @@ pub fn finish_sweep(finished: &[SweepFinish]) {
     }
     NEEDS_REDRAW.store(true, core::sync::atomic::Ordering::Relaxed);
     for done in finished {
-        if done.parent != KERNEL_TASK && done.parent != 0 {
-            post_sigchld(done.parent);
+        let parent = done.parent as usize;
+        if parent != KERNEL_TASK && parent != 0 {
+            post_sigchld(parent);
         }
     }
     crate::task::wait::CHILD_EXIT.notify_all();

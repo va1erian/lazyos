@@ -484,7 +484,7 @@ network) builds on the same interfaces.
    socket). Acceptable for the goal; the fallback if it ever is not would be
    vendoring Netstack3's core, which is a large project.
 9. **Task and fd budgets.** Two more always-on services (driver, `netd`) and
-   16 fds per task. Fine now (`MAX_TASKS` is 64); revisit for servers.
+   16 fds per task. Fine now (`MAX_TASKS` is 256); revisit for servers.
 10. **Trusted DMA driver.** Unchanged from driver-plan D5; the split in §4.1
     keeps the parser out of that trust domain.
 
