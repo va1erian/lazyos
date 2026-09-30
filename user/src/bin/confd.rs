@@ -366,15 +366,20 @@ fn pick_dir() -> (String, bool) {
         Err(why) => {
             // Say why a persistent location was passed over, so a silent
             // fallback to ramfs is diagnosable from the serial log.
-            sys::write_str(&format!("confd: {d} not usable: {why}
-"));
+            sys::write_str(&format!(
+                "confd: {d} not usable: {why}
+"
+            ));
             false
         }
     });
     if !choice.persistent {
         if let Err(why) = ensure_dir(choice.dir) {
-            sys::write_str(&format!("confd: warning: {}: {why}
-", choice.dir));
+            sys::write_str(&format!(
+                "confd: warning: {}: {why}
+",
+                choice.dir
+            ));
         }
     }
     (String::from(choice.dir), choice.persistent)
