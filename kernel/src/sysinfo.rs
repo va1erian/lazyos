@@ -13,7 +13,8 @@
 //! [`WORDS`] little-endian `u64`s are written in one fixed order: a
 //! [`HEADER_WORDS`]-word header (version, sizes, uptime, memory counters) and
 //! then one [`TASK_ROW_WORDS`]-word row per scheduler slot. [`SYSTEM_STATS_VERSION`]
-//! is `2` (version 1 carried 16 rows; issue #204 raised the slot count to 64);
+//! is `3` (version 1 carried 16 rows, version 2 had 64 after issue #204; version 3
+//! has 256 for the application package system);
 //! a caller must reject a header version it does not know. A buffer
 //! smaller than [`SIZE`] is refused with `-E2BIG` (like the Messenger stats
 //! op), a null buffer with `-EFAULT`, an unknown op with `-EINVAL`. The
@@ -42,7 +43,7 @@ use crate::mem;
 use crate::task::{self, PriorityClass, TaskState, WaitKind};
 
 /// ABI version of the block written by the `snapshot` op.
-pub const SYSTEM_STATS_VERSION: u64 = 2;
+pub const SYSTEM_STATS_VERSION: u64 = 3;
 
 /// Native system-stats ops (syscall 14).
 pub mod op {
@@ -197,7 +198,12 @@ fn snapshot(buf: u64, capacity: u64) -> u64 {
     // Validate the whole `[buf, buf + SIZE)` range as mapped, writable user
     // memory before writing: a raw write would let any task aim the kernel at
     // a kernel address (CWE-787).
-    let mut words = [0u64; WORDS];
+    // Heap, not stack: the block is ~20 KiB at 256 task rows, most of a kernel
+    // stack. `snapshot_words` wants the fixed-size array view of the same Vec.
+    let mut words: alloc::boxed::Box<[u64; WORDS]> = alloc::vec![0u64; WORDS]
+        .into_boxed_slice()
+        .try_into()
+        .unwrap_or_else(|_| unreachable!("the Vec has exactly WORDS elements"));
     snapshot_words(&mut words);
     let mut bytes = Vec::with_capacity(SIZE as usize);
     for word in words.iter() {

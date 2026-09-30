@@ -118,7 +118,7 @@ pub(super) fn mark_finished(tasks: &[Option<Task>; MAX_TASKS], slot: usize) {
         .as_ref()
         .is_some_and(|task| task.state == TaskState::Done && task.parent == 0);
     if finished_parentless {
-        PENDING_RECLAIM.fetch_or(1u64 << slot, Ordering::Relaxed);
+        PENDING_RECLAIM.set(slot);
     }
 }
 
@@ -137,12 +137,12 @@ pub(super) fn mark_finished(tasks: &[Option<Task>; MAX_TASKS], slot: usize) {
 /// table between two slots; a thread removed while a sibling is still
 /// pending sees the space as shared, and the sibling's removal frees it.
 pub fn reclaim_pending() {
-    let pending = PENDING_RECLAIM.swap(0, Ordering::Relaxed);
-    if pending == 0 {
+    let pending = PENDING_RECLAIM.take();
+    if pending.is_empty() {
         return;
     }
     let mut removed_any = false;
-    for slot in (1..MAX_TASKS).filter(|slot| pending & (1u64 << slot) != 0) {
+    for slot in pending.iter().filter(|slot| *slot != 0) {
         let Some((dead, shared)) = take_finished(&mut TASKS.lock(), slot) else {
             continue;
         };

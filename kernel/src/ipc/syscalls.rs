@@ -54,6 +54,7 @@ use crate::mem::pte;
 use crate::task;
 
 mod abi;
+mod aclop;
 pub mod bootstrap;
 mod regops;
 mod usermem;
@@ -131,6 +132,7 @@ fn handle_op(op: u64, args: &MsgArgs) -> Result<MsgResult, i64> {
         OP_UNREGISTER => op_registry(args, crate::ipc::registry::method::UNREGISTER),
         OP_LIST => op_registry(args, crate::ipc::registry::method::LIST),
         OP_AUTHORIZE_TOPIC => op_authorize_topic(args),
+        OP_ACL_LOAD => aclop::op_acl_load(args),
         _ => Err(errno::EINVAL),
     }
 }

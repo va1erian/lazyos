@@ -15,17 +15,20 @@
 //! docs); it contains no addresses or credentials, only counters, pids,
 //! states, classes, CPU ticks and names.
 
+use alloc::vec;
+use alloc::vec::Vec;
+
 use crate::sys;
 
-/// ABI version this client understands (2: 64 task rows, issue #204).
-pub const VERSION: u64 = 2;
+/// ABI version this client understands (3: 256 task rows; 2 had 64, issue #204).
+pub const VERSION: u64 = 3;
 
 /// Words in the header (mirrors `kernel::sysinfo::HEADER_WORDS`).
 pub const HEADER_WORDS: usize = 23;
 /// Words in one task row (mirrors `kernel::sysinfo::TASK_ROW_WORDS`).
 pub const TASK_ROW_WORDS: usize = 10;
 /// Scheduler slots in the task table (mirrors `kernel::task::MAX_TASKS`).
-pub const MAX_TASKS: usize = 64;
+pub const MAX_TASKS: usize = 256;
 /// Words in the whole block.
 pub const WORDS: usize = HEADER_WORDS + MAX_TASKS * TASK_ROW_WORDS;
 /// Bytes in the whole block.
@@ -295,8 +298,9 @@ impl TaskRow {
     }
 }
 
-/// A decoded system-stats snapshot.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+/// A decoded system-stats snapshot. The per-slot rows and the raw words live on
+/// the heap: at 256 slots they would be ~40 KiB, a third of a user stack.
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Snapshot {
     /// ABI version of the block.
     pub version: u64,
@@ -341,14 +345,14 @@ pub struct Snapshot {
     /// Bytes on the kernel heap's free list.
     pub heap_free: u64,
     /// One row per scheduler slot.
-    pub tasks: [TaskRow; MAX_TASKS],
+    pub tasks: Vec<TaskRow>,
     /// The raw words, so a snapshot can be re-encoded for the wire.
-    raw: [u64; WORDS],
+    raw: Vec<u64>,
 }
 
 impl Snapshot {
     /// The raw little-endian words, exactly as the kernel wrote them.
-    pub fn raw_words(&self) -> &[u64; WORDS] {
+    pub fn raw_words(&self) -> &[u64] {
         &self.raw
     }
 
@@ -372,11 +376,11 @@ impl Snapshot {
 
 /// Decode a block from raw words. Returns `None` when the version is not
 /// [`VERSION`].
-pub fn decode_words(words: &[u64; WORDS]) -> Option<Snapshot> {
-    if words[header::VERSION] != VERSION {
+pub fn decode_words(words: &[u64]) -> Option<Snapshot> {
+    if words.len() < WORDS || words[header::VERSION] != VERSION {
         return None;
     }
-    let mut tasks = [TaskRow::EMPTY; MAX_TASKS];
+    let mut tasks = vec![TaskRow::EMPTY; MAX_TASKS];
     for (slot, row) in tasks.iter_mut().enumerate() {
         let base = HEADER_WORDS + slot * TASK_ROW_WORDS;
         if words[base + row::PRESENT] == 0 {
@@ -418,7 +422,7 @@ pub fn decode_words(words: &[u64; WORDS]) -> Option<Snapshot> {
         heap_used: words[header::HEAP_USED],
         heap_free: words[header::HEAP_FREE],
         tasks,
-        raw: *words,
+        raw: words[..WORDS].to_vec(),
     })
 }
 
@@ -428,7 +432,7 @@ pub fn decode_bytes(bytes: &[u8]) -> Option<Snapshot> {
     if bytes.len() < SIZE {
         return None;
     }
-    let mut words = [0u64; WORDS];
+    let mut words = vec![0u64; WORDS];
     for (index, word) in words.iter_mut().enumerate() {
         let start = index * 8;
         *word = u64::from_le_bytes(bytes[start..start + 8].try_into().ok()?);
@@ -450,7 +454,7 @@ pub fn snapshot() -> Result<Snapshot, i64> {
     if reported as usize != SIZE {
         return Err(-EINVAL);
     }
-    let mut words = [0u64; WORDS];
+    let mut words = vec![0u64; WORDS];
     let code = sys::system_stats(
         sys::system_stats_op::SNAPSHOT,
         words.as_mut_ptr() as u64,

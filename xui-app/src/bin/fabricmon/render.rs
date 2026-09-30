@@ -57,7 +57,7 @@ fn paint_fabric(canvas: &mut dyn Canvas, theme: Theme, rect: Rect, state: &State
         canvas,
         theme,
         Rect::new(rect.left + 16, rect.top + 8, rect.right - 16, rect.top + 32),
-        "Fabric — stats ABI v3",
+        "Fabric — stats ABI v4",
     );
 
     let Some(stats) = &state.stats else {
@@ -476,7 +476,7 @@ fn paint_footer(canvas: &mut dyn Canvas, theme: Theme, content: Rect, state: &St
         content.bottom,
     );
     let text = format!(
-        "tick {} · {} refresh(es) · stats ABI v3 via syscall 5",
+        "tick {} · {} refresh(es) · stats ABI v4 via syscall 5",
         xui_app::sys::clock_ticks(),
         state.refreshes
     );

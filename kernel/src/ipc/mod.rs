@@ -20,7 +20,9 @@ pub mod credentials;
 pub mod epoll;
 pub mod eventfd;
 pub mod handles;
+pub mod labels;
 pub mod pipe;
+pub mod policy;
 pub mod registry;
 pub mod shared;
 pub mod shared_va;
@@ -76,8 +78,8 @@ pub fn teardown_task(slot: usize, table: u64, table_shared: bool) {
 ///
 /// 1. reads the actor's kernel-stamped credentials by slot (never a
 ///    userspace-supplied identity),
-/// 2. resolves the ACL authority from them (the uid today; see
-///    [`credentials::Cred::authority`]),
+/// 2. resolves the ACL authority from them (the label when the task has one,
+///    otherwise the uid; see [`policy`] and [`credentials::Cred::authority`]),
 /// 3. evaluates the compiled policy (default deny; see [`acl`]), and
 /// 4. records an audit event: every denial, and allows when tracing is on
 ///    ([`audit::set_trace`]).
@@ -87,7 +89,12 @@ pub fn teardown_task(slot: usize, table: u64, table_shared: bool) {
 /// denial text; #69 maps it to `ERR_DENIED`.
 pub fn authorize(actor_slot: usize, interface_id: u64, method: u32, txn_id: u64) -> acl::Decision {
     let cred = credentials::of(actor_slot);
-    let (decision, reason_code) = acl::evaluate_verdict(cred.authority(), interface_id, method);
+    let (decision, reason_code) = if cred.label_id != 0 {
+        // A labelled task is judged by its label's rules, never its uid.
+        policy::evaluate_labelled(&cred, interface_id, method)
+    } else {
+        acl::evaluate_verdict(cred.authority(), interface_id, method)
+    };
     if decision.denied() || audit::trace() {
         audit::record(audit::AuditEvent {
             ticks: crate::task::ticks(),

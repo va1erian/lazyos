@@ -13,7 +13,14 @@ pub mod cred_op {
     pub const GET: u64 = 1;
     /// Spawn an ELF with a credential block, stamped before it can run.
     pub const SPAWN: u64 = 2;
+    /// Spawn an ELF stamped with a label string (`CAP_SETUID`).
+    pub const SPAWN_LABELLED: u64 = 3;
+    /// Read the label string for a label id.
+    pub const LABEL_NAME: u64 = 4;
 }
+
+/// Longest label the kernel accepts (`ipc::labels::MAX_LABEL_BYTES`).
+pub const MAX_LABEL_BYTES: usize = 160;
 
 /// Mirrors `kernel::ipc::credentials::CAP_SETUID`: a service holding this in
 /// [`Cred::caps`] may act with root-equivalent authority for an
@@ -153,4 +160,47 @@ pub fn spawn_as(cmdline_z: &[u8], cred: &Cred) -> Option<u64> {
         words.as_ptr() as u64,
     );
     (code >= 0).then_some(code as u64)
+}
+
+/// Like [`spawn_as`], but the child is stamped with the label string `label`
+/// (`app:<reverse.dns.name>` or `system:<name>`) as well: the kernel interns
+/// it and records the id in the child's credentials. The `label_id` inside
+/// `cred` is ignored. Only a `CAP_SETUID` holder that is unlabelled (or already
+/// in that label) may do this, and a label can never change afterwards.
+pub fn spawn_as_labelled(cmdline_z: &[u8], cred: &Cred, label: &str) -> Option<u64> {
+    let cred = cred.to_words();
+    let block = [
+        cred[0],
+        cred[1],
+        cred[2],
+        0,
+        cred[4],
+        label.as_ptr() as u64,
+        label.len() as u64,
+    ];
+    let code = creds_syscall(
+        cred_op::SPAWN_LABELLED,
+        cmdline_z.as_ptr() as u64,
+        block.as_ptr() as u64,
+    );
+    (code >= 0).then_some(code as u64)
+}
+
+/// Read the label string for `label_id` into `out`, returning its length.
+/// Needs `CAP_SETUID`, or `label_id` must be the caller's own label; the
+/// error is the negative errno (`-EPERM`, `-ENOENT` for `0` or an unknown id).
+pub fn label_name(label_id: u32, out: &mut [u8; MAX_LABEL_BYTES]) -> Result<usize, i64> {
+    let mut block = [0u8; 8 + MAX_LABEL_BYTES];
+    let code = creds_syscall(
+        cred_op::LABEL_NAME,
+        label_id as u64,
+        block.as_mut_ptr() as u64,
+    );
+    if code != 0 {
+        return Err(code);
+    }
+    let len =
+        (u64::from_le_bytes(block[..8].try_into().unwrap_or([0; 8])) as usize).min(MAX_LABEL_BYTES);
+    out[..len].copy_from_slice(&block[8..8 + len]);
+    Ok(len)
 }

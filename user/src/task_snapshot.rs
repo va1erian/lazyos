@@ -14,7 +14,7 @@ use crate::messenger::{Error, Result};
 use crate::sys;
 
 /// Task slots in a [`TaskSnapshot`]; mirrors the kernel's `task::MAX_TASKS`.
-pub const MAX_TASKS: usize = 64;
+pub const MAX_TASKS: usize = 256;
 
 /// One task slot's row.
 #[derive(Clone, PartialEq, Eq, Debug)]

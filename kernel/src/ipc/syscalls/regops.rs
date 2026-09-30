@@ -1,6 +1,7 @@
 //! Name registry ops (issue #89).
 
 use super::*;
+use crate::ipc::policy::{self, NameOp};
 
 /// Resolve the task slot a registry op acts on.
 ///
@@ -78,6 +79,9 @@ pub(super) fn registry_register(args: &MsgArgs, target: usize) -> Result<MsgResu
     let args = registry_args(&bytes, registry::wire::decode_register_args)?;
     // Handle `0` is a valid slot, so an absent endpoint must not decode as it.
     let endpoint = args.endpoint.ok_or(errno::EINVAL)?;
+    // Name policy first, keyed by the task that will own the name (the client
+    // when `messengerd` proxies), so a denied app learns nothing about handles.
+    policy::check_name(target, NameOp::Register, &args.name).map_err(|_| errno::EACCES)?;
     let entry = handles::get_for_task(target, endpoint).map_err(handles_errno)?;
     if !matches!(entry.kind, HandleKind::Channel | HandleKind::Endpoint) {
         return Err(errno::EINVAL);
@@ -102,6 +106,9 @@ pub(super) fn registry_register(args: &MsgArgs, target: usize) -> Result<MsgResu
 pub(super) fn registry_resolve(args: &MsgArgs, target: usize) -> Result<MsgResult, i64> {
     let bytes = read_parcel(args)?;
     let args = registry_args(&bytes, registry::wire::decode_resolve_args)?;
+    // Denied before the lookup, so a refusal cannot be used to probe which
+    // names exist.
+    policy::check_name(target, NameOp::Resolve, &args.name).map_err(|_| errno::EACCES)?;
     let handle = registry::resolve(target, &args.name).map_err(registry_errno)?;
     Ok(MsgResult {
         value: handle,
