@@ -20,12 +20,19 @@ fn fs_error(error: FsError) -> String {
 
 mod attrs;
 mod fat_corruption;
+mod fat_dirs;
+mod fat_image;
+mod fat_lfn;
+mod fat_soak;
 mod ramfs_and_permissions;
 mod ramfs_limits;
 mod traversal_and_cache;
 
 pub(super) use attrs::*;
 pub(super) use fat_corruption::*;
+pub(super) use fat_dirs::*;
+pub(super) use fat_lfn::*;
+pub(super) use fat_soak::*;
 pub(super) use ramfs_and_permissions::*;
 pub(super) use ramfs_limits::*;
 pub(super) use traversal_and_cache::*;
@@ -64,6 +71,35 @@ pub(super) const CASES: &[(&str, Test)] = &[
         "fs_fat_volume_uses_its_own_device",
         fat_volume_uses_its_own_device,
     ),
+    (
+        "fs_fat_lfn_single_and_multi_entry",
+        fat_lfn_single_and_multi_entry,
+    ),
+    ("fs_fat_lfn_boundary_lengths", fat_lfn_boundary_lengths),
+    (
+        "fs_fat_lfn_malformed_runs_fall_back",
+        fat_lfn_malformed_runs_fall_back,
+    ),
+    ("fs_fat_dirs_nested_resolution", fat_dirs_nested_resolution),
+    (
+        "fs_fat_dirs_fragmented_multi_cluster",
+        fat_dirs_fragmented_multi_cluster,
+    ),
+    (
+        "fs_fat_dirs_full_cluster_ends_cleanly",
+        fat_dirs_full_cluster_ends_cleanly,
+    ),
+    (
+        "fs_fat_dirs_corrupt_chains_terminate",
+        fat_dirs_corrupt_chains_terminate,
+    ),
+    ("fs_fat_dirs_unique_inodes", fat_dirs_unique_inodes),
+    (
+        "fs_fat_dirs_overlay_copy_up_nested",
+        fat_dirs_overlay_copy_up_nested,
+    ),
+    ("fs_fat_dirs_on_fat16", fat_dirs_on_fat16),
+    ("fs_fat_soak_random_tree", fat_soak_random_tree),
     (
         "fs_ramfs_rename_same_path_and_cycles",
         ramfs_rename_same_path_and_cycles,

@@ -8,6 +8,13 @@
 use super::{Fat16, FatKind};
 use crate::block::SECTOR_SIZE;
 
+/// The outcome of following one FAT entry; see [`Fat16::chain_step`].
+pub(super) enum Step {
+    Next(u16),
+    End,
+    Bad,
+}
+
 impl Fat16 {
     /// Read one 512-byte sector from this volume's device.
     pub(super) fn read_sector(&self, lba: u32) -> Option<[u8; SECTOR_SIZE]> {
@@ -26,7 +33,7 @@ impl Fat16 {
 
     /// LBA of a data cluster's first sector. `None` for the reserved cluster
     /// values `0`/`1` or an out-of-range cluster (issue #235).
-    fn cluster_lba(&self, cluster: u16) -> Option<u32> {
+    pub(super) fn cluster_lba(&self, cluster: u16) -> Option<u32> {
         let index = (cluster as u32).checked_sub(2)?;
         if index >= self.clusters {
             return None;
@@ -68,46 +75,57 @@ impl Fat16 {
     /// error stops a corrupt image from steering a read into the FAT or a
     /// neighbouring partition (issue #235).
     fn next_cluster(&self, cluster: u16) -> Option<u16> {
+        match self.chain_step(cluster) {
+            Step::Next(next) => Some(next),
+            Step::End | Step::Bad => None,
+        }
+    }
+
+    /// One step along a chain, telling a clean end apart from corruption.
+    ///
+    /// File reads treat both as "no next cluster"; directory walks need the
+    /// difference, because a directory that ends cleanly is complete while a
+    /// bad pointer means the listing cannot be trusted.
+    pub(super) fn chain_step(&self, cluster: u16) -> Step {
         if cluster < 2 || u32::from(cluster) > self.clusters + 1 {
-            return None;
+            return Step::Bad;
         }
         let byte_offset = match self.kind {
             FatKind::Fat12 => cluster as u32 + cluster as u32 / 2,
             FatKind::Fat16 => cluster as u32 * 2,
         };
-        let sector = self
+        let Some(sector) = self
             .fat_start
-            .checked_add(byte_offset / self.bytes_per_sector as u32)?;
+            .checked_add(byte_offset / self.bytes_per_sector as u32)
+        else {
+            return Step::Bad;
+        };
         let index = (byte_offset % self.bytes_per_sector as u32) as usize;
 
-        let value = match self.kind {
+        let Some(word) = self.read_fat_word(sector, index) else {
+            return Step::Bad;
+        };
+        let (value, bad, end_of_chain) = match self.kind {
+            // 12-bit entries are packed; pick the low or high nibble pair.
             FatKind::Fat12 => {
-                let word = self.read_fat_word(sector, index)?;
-                // 12-bit entries are packed; pick the low or high nibble pair.
-                if cluster.is_multiple_of(2) {
+                let value = if cluster.is_multiple_of(2) {
                     word & 0x0FFF
                 } else {
                     word >> 4
-                }
+                };
+                (value, value == 0xFF7, value >= 0xFF8)
             }
-            FatKind::Fat16 => self.read_fat_word(sector, index)?,
+            FatKind::Fat16 => (word, word == 0xFFF7, word >= 0xFFF8),
         };
-
-        let (bad, end_of_chain) = match self.kind {
-            FatKind::Fat12 => (value == 0xFF7, value >= 0xFF8),
-            FatKind::Fat16 => (value == 0xFFF7, value >= 0xFFF8),
-        };
-        // `0` and the EOC markers end the chain; `1`, the bad-cluster marker,
-        // and out-of-range values are invalid and end it too (as an error at
-        // the caller). Reserved markers (0xFF0..0xFFF6 / 0xFF0..0xFF6) land in
-        // the range check below.
-        if end_of_chain || value == 0 {
-            return None;
+        if end_of_chain {
+            return Step::End;
         }
+        // `0` (free), `1`, the bad-cluster marker, other reserved markers and
+        // out-of-range values are all corruption in the middle of a chain.
         if bad || value < 2 || u32::from(value) > self.clusters + 1 {
-            return None;
+            return Step::Bad;
         }
-        Some(value)
+        Step::Next(value)
     }
 
     /// Read `buf.len()` bytes at `offset` without loading the whole chain: walk
