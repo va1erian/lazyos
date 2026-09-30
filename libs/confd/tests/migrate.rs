@@ -260,7 +260,7 @@ fn oversized_entries_are_skipped_and_the_source_is_kept() {
 
 #[test]
 fn soak_repeated_late_mounts_never_lose_or_clobber() {
-    let mut rng = SplitMix64::new(0xC0FF_EE);
+    let mut rng = SplitMix64::new(0x00C0_FFEE);
     // Model: path -> value, the live truth.
     let mut model = std::collections::BTreeMap::<String, u64>::new();
     let mut svc = service();
