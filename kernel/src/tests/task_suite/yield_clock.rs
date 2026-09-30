@@ -95,7 +95,9 @@ pub fn tick_on_parked_task_is_idle() -> Result<(), String> {
             // Simulated ticks never advanced uptime: put the idle counter
             // back so it stays a share of `ticks()` for the sysinfo checks.
             task::IDLE_TICKS.store(idle_start, core::sync::atomic::Ordering::Relaxed);
-            (parked.0, parked.1, running.0, running.1, cpu_start, idle_start)
+            (
+                parked.0, parked.1, running.0, running.1, cpu_start, idle_start,
+            )
         });
     check!(
         cpu_parked == cpu_start,

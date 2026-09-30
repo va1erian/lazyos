@@ -114,7 +114,10 @@ pub(super) const CASES: &[(&str, Test)] = &[
         wait_queue_blocked_not_scheduled,
     ),
     ("task_yield_does_not_tick", yield_does_not_tick),
-    ("task_tick_on_parked_task_is_idle", tick_on_parked_task_is_idle),
+    (
+        "task_tick_on_parked_task_is_idle",
+        tick_on_parked_task_is_idle,
+    ),
     (
         "task_entry_clears_direction_flag",
         entry_clears_direction_flag,
