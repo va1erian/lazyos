@@ -38,7 +38,7 @@ shows a "settings will not survive reboot" banner.
 `Theme` struct loaded from `sys/ui/*`, re-read on the confd change topic.
 `GetTheme` in `idl/display.midl` gains `mode` and `accent` (midlc regenerated).
 
-**Keyboard.** UI only. The section shows a US/FR radio and a test text field and writes `sys/input/layout`. No kernel syscall or `init` wiring is added here: layout switching moves into an input daemon being built in another session, which will own applying that key. The Keyboard section shows the stored value and notes that it takes effect once the daemon lands.
+**Keyboard.** UI only. The section shows a two-item single-select `ListView` (`English (US)`, `Français (AZERTY)`; `ListView::new(ui, bounds, &[...])`, `.selection_mode(Single)`, `.on_select(...)`) and a test text field and writes `sys/input/layout`. No kernel syscall or `init` wiring is added here: layout switching moves into an input daemon being built in another session, which will own applying that key. The Keyboard section shows the stored value and notes that it takes effect once the daemon lands.
 
 **App.** `xui-app/crates/settings` (host-testable model + reducer + schema) and
 `xui-app/src/bin/settings.rs`. Sidebar is an `IconView` with a `SectionsModel`
