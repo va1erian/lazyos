@@ -313,8 +313,9 @@ Audit everything that assumed windows are on screen, and fix what breaks:
   size — step 1 must cover `draw_surface`, `present` damage clipping and any
   other `surface.w/h` use on pixel data (grep for `surface.pixels`).
 - **Races** between `Configure` and a client's in-flight attach/present: the
-  per-mapping dimensions make any mix safe to draw; strict attach sizing
-  makes a stale attach fail cleanly.
+  per-mapping dimensions make any mix safe to draw. A stale smaller attach
+  fails with `EINVAL`; a stale larger one shows one wrong frame until the
+  client re-attaches (see "Attach size stays at least" below).
 - **Blocking animation**: `zoom` blocks the compositor ~120 ms, as minimize
   already does; acceptable.
 - **File size**: `event.rs`, `render.rs` (396 lines) and `surface.rs` must stay

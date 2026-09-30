@@ -27,10 +27,16 @@ struct Probe {
     palette: WidgetId,
     status: WidgetId,
     window: WindowId,
-    bitmap: (u32, u32),
 }
 
 impl Probe {
+    /// The bitmap size as the app reports it now. `update` re-syncs the
+    /// observer after every message, the resize included, so this is read
+    /// after the re-flow rather than captured at build time.
+    fn bitmap(&self) -> String {
+        self.observer.borrow().status[1].clone()
+    }
+
     /// Injects one pointer event at the window, as a backend would.
     fn pointer(&self, event: Event) {
         self.backend.inject(self.window, event);
@@ -75,7 +81,6 @@ fn resized(
                 palette: app.palette().id(),
                 status: app.status().id(),
                 window: ui.window(),
-                bitmap: app.model().bitmap().size(),
             });
             app
         },
@@ -101,7 +106,7 @@ fn assert_reflowed(probe: &Probe, width: i32, height: i32) {
         toolbar.bottom <= canvas.top && canvas.bottom <= palette.top,
         "the stack stays ordered: {toolbar:?} {canvas:?} {palette:?}"
     );
-    assert_eq!(probe.bitmap, (320, 240), "the document is unchanged");
+    assert_eq!(probe.bitmap(), "320 x 240", "the document is unchanged");
 }
 
 #[test]
@@ -143,7 +148,7 @@ fn a_window_smaller_than_the_natural_size_does_not_panic() {
             assert!(canvas.top <= canvas.bottom, "canvas: {canvas:?}");
             assert!(palette.top <= palette.bottom, "palette: {palette:?}");
             assert!(status.top <= status.bottom, "status: {status:?}");
-            assert_eq!(probe.bitmap, (320, 240), "the document is unchanged");
+            assert_eq!(probe.bitmap(), "320 x 240", "the document is unchanged");
         },
     );
 }

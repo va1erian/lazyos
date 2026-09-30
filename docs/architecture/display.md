@@ -242,8 +242,12 @@ restore, between close and minimize) and interactive resize edges.
   for and `Surface` mirrors it in `buf_w`/`buf_h`. `draw_surface` blits the
   buffer at that size (cropped to the content) and fills the uncovered strip
   with the window background, so the window may be resized before the client
-  attaches the new buffer without a stride-mismatched read. `try_attach` still
-  requires the current size, so a stale attach fails cleanly with `EINVAL`.
+  attaches the new buffer without a stride-mismatched read. `try_attach`
+  accepts a buffer of at least `width * height * 4` bytes for the current
+  size: a stale smaller buffer fails with `EINVAL`, while a stale larger one
+  (attached while a shrink was in flight) is accepted and drawn at the current
+  stride, one wrong frame, until the client handles its `Configure` and
+  attaches again.
 - **Maximize.** The maximize button or a double-click on the title bar toggles
   between the work area and the saved normal rectangle, using the same
   wireframe zoom as minimize; the client is told with `Configure(.., Maximized)`

@@ -152,15 +152,14 @@ pub(super) fn hit_edges(window: Rect, point: (i32, i32)) -> Edges {
 }
 
 /// The window rectangle after dragging `edges` by `(dx, dy)` and clamping the
-/// content size to `[min, max]` (content pixels). The edge opposite a clamp
-/// stays fixed.
+/// content size to `[min, max]` (content pixels), keeping the title bar
+/// reachable on `work`. The edge opposite a clamp stays fixed.
 pub(super) fn resize_rect(
     start: Rect,
     edges: Edges,
-    dx: i32,
-    dy: i32,
-    min: (i32, i32),
-    max: (i32, i32),
+    (dx, dy): (i32, i32),
+    (min, max): ((i32, i32), (i32, i32)),
+    work: Rect,
 ) -> Rect {
     let (mut left, mut top) = (start.x, start.y);
     let (mut right, mut bottom) = (start.x + start.w, start.y + start.h);
@@ -180,18 +179,37 @@ pub(super) fn resize_rect(
     let min_h = min.1.max(0) + TITLE_H + BORDER;
     let max_w = max.0.max(min.0) + BORDER * 2;
     let max_h = max.1.max(min.1) + TITLE_H + BORDER;
+    // Each moving edge is bounded by the size limits against its anchored
+    // opposite edge and by the rule `keep_reachable` enforces for moves: part
+    // of the title bar stays on the work area. The anchor never moves.
+    let (work_right, work_bottom) = (work.x + work.w, work.y + work.h);
     if edges.has(Edges::LEFT) {
-        // The right edge is the anchor: clamp the moving left edge against it.
-        left = left.max(right - max_w).min(right - min_w);
+        let lo = right - max_w;
+        let hi = (right - min_w).min(work_right - TITLE_REACHABLE_W);
+        left = clamp_edge(left, lo, hi, start.x);
     } else if edges.has(Edges::RIGHT) {
-        right = right.min(left + max_w).max(left + min_w);
+        let lo = (left + min_w).max(work.x + TITLE_REACHABLE_W);
+        right = clamp_edge(right, lo, left + max_w, start.x + start.w);
     }
     if edges.has(Edges::TOP) {
-        top = top.max(bottom - max_h).min(bottom - min_h);
+        let lo = (bottom - max_h).max(work.y);
+        let hi = (bottom - min_h).min(work_bottom - TITLE_H);
+        top = clamp_edge(top, lo, hi, start.y);
     } else if edges.has(Edges::BOTTOM) {
+        // The bottom edge may leave the screen: the title bar is at the top.
         bottom = bottom.min(top + max_h).max(top + min_h);
     }
     Rect::new(left, top, right - left, bottom - top)
+}
+
+/// `value` clamped to `[lo, hi]`, or `fallback` (the edge's starting position)
+/// when the size limits and the reachability rule leave no valid position.
+fn clamp_edge(value: i32, lo: i32, hi: i32, fallback: i32) -> i32 {
+    if lo <= hi {
+        value.clamp(lo, hi)
+    } else {
+        fallback
+    }
 }
 
 /// Clamp a dragged window origin so at least [`TITLE_REACHABLE_W`] pixels of
@@ -245,26 +263,72 @@ pub(super) fn selftest_geometry() -> &'static str {
     // Resizing keeps the opposite edge fixed when a bound clamps.
     let min = (MIN_CONTENT_W, MIN_CONTENT_H);
     let max = (300, 300);
-    let right_grow = resize_rect(window, hit_edges(window, (299, 120)), 50, 0, min, max)
-        == Rect::new(100, 50, 250, 150);
-    let right_max = resize_rect(window, hit_edges(window, (299, 120)), 1000, 0, min, max)
-        == Rect::new(100, 50, 300 + BORDER * 2, 150);
-    let left_min = resize_rect(window, hit_edges(window, (101, 120)), 1000, 0, min, max)
-        == Rect::new(
-            300 - (MIN_CONTENT_W + BORDER * 2),
-            50,
-            MIN_CONTENT_W + BORDER * 2,
-            150,
-        );
-    let bottom_max = resize_rect(window, hit_edges(window, (180, 199)), 0, 1000, min, max)
-        == Rect::new(100, 50, 200, 300 + TITLE_H + BORDER);
-    let top_min = resize_rect(window, hit_edges(window, (180, 51)), 0, 1000, min, max)
-        == Rect::new(
-            100,
-            200 - (MIN_CONTENT_H + TITLE_H + BORDER),
-            200,
-            MIN_CONTENT_H + TITLE_H + BORDER,
-        );
+    let area = Rect::new(0, 0, 800, 572);
+    let right_grow = resize_rect(
+        window,
+        hit_edges(window, (299, 120)),
+        (50, 0),
+        (min, max),
+        area,
+    ) == Rect::new(100, 50, 250, 150);
+    let right_max = resize_rect(
+        window,
+        hit_edges(window, (299, 120)),
+        (1000, 0),
+        (min, max),
+        area,
+    ) == Rect::new(100, 50, 300 + BORDER * 2, 150);
+    let left_min = resize_rect(
+        window,
+        hit_edges(window, (101, 120)),
+        (1000, 0),
+        (min, max),
+        area,
+    ) == Rect::new(
+        300 - (MIN_CONTENT_W + BORDER * 2),
+        50,
+        MIN_CONTENT_W + BORDER * 2,
+        150,
+    );
+    let bottom_max = resize_rect(
+        window,
+        hit_edges(window, (180, 199)),
+        (0, 1000),
+        (min, max),
+        area,
+    ) == Rect::new(100, 50, 200, 300 + TITLE_H + BORDER);
+    let top_min = resize_rect(
+        window,
+        hit_edges(window, (180, 51)),
+        (0, 1000),
+        (min, max),
+        area,
+    ) == Rect::new(
+        100,
+        200 - (MIN_CONTENT_H + TITLE_H + BORDER),
+        200,
+        MIN_CONTENT_H + TITLE_H + BORDER,
+    );
+
+    // A resize keeps the title bar reachable without moving the anchor: a
+    // window already at the right reach limit cannot have its left edge
+    // dragged off the screen, and a top edge stops at the work area's top.
+    let far = Rect::new(800 - TITLE_REACHABLE_W, 50, 400, 150);
+    let far_left = resize_rect(far, Edges(Edges::LEFT), (60, 0), (min, (1000, 1000)), area)
+        == Rect::new(800 - TITLE_REACHABLE_W, 50, 400, 150);
+    let top_stop = resize_rect(window, Edges(Edges::TOP), (0, -500), (min, max), area)
+        == Rect::new(100, 0, 200, 200);
+    // When the size bounds and reachability conflict (a window already past
+    // the reach limit, e.g. after the work area shrank, at its maximum width)
+    // the edge stays put rather than moving the anchor.
+    let wide = Rect::new(760, 50, 390 + BORDER * 2, 150);
+    let stuck = resize_rect(
+        wide,
+        Edges(Edges::LEFT),
+        (-20, 0),
+        ((380, 40), (390, 300)),
+        area,
+    ) == wide;
 
     // Off-screen movement: reachable on all four sides, body may hang off.
     let work = Rect::new(0, 0, 800, 572);
@@ -312,6 +376,9 @@ pub(super) fn selftest_geometry() -> &'static str {
         && left_min
         && bottom_max
         && top_min
+        && far_left
+        && top_stop
+        && stuck
         && in_place
         && off_left
         && off_right

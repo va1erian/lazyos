@@ -66,10 +66,9 @@ impl Compositor {
         let rect = geometry::resize_rect(
             active.start,
             active.edges,
-            new.0 - active.grab.0,
-            new.1 - active.grab.1,
-            (hints.min_w, hints.min_h),
-            (hints.max_w, hints.max_h),
+            (new.0 - active.grab.0, new.1 - active.grab.1),
+            ((hints.min_w, hints.min_h), (hints.max_w, hints.max_h)),
+            self.work_area(),
         );
         if let Some(drag) = self.resize.as_mut() {
             drag.outline = rect;
