@@ -2638,7 +2638,10 @@ pub mod os_lazy_init_v1 {
     }
 
     /// Launch an app as a session child. `session` 0 means the caller's own
-    /// session; only the session's owner (or root) may launch into it.
+    /// session; only the session's owner (or root) may launch into it. `args`
+    /// is empty or one absolute path (at most 1024 bytes, no control
+    /// character or `"`), appended to the app's fixed arguments as a single
+    /// `argv` item; any other value is refused with `EINVAL`.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct LaunchArgs {
         pub app: alloc::string::String,
