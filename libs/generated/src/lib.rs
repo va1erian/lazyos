@@ -1971,6 +1971,8 @@ pub mod os_lazy_confd_v1 {
     pub const METHOD_DELETE: u32 = 1469573738;
     /// `List` method id.
     pub const METHOD_LIST: u32 = 220805025;
+    /// `Info` method id.
+    pub const METHOD_INFO: u32 = 266462757;
 
     /// Read the value at `path`. An absent path has an empty `value`.
     /// A path the caller may not read fails with `CONFD_DENIED`.
@@ -2134,6 +2136,39 @@ pub mod os_lazy_confd_v1 {
                 while let Some(item) = nested.next()? {
                     out.paths.push(item.as_str()?.into());
                 }
+            }
+        }
+        Ok(out)
+    }
+
+    /// Where the store lives: the directory confd chose and whether it
+    /// survives a reboot (`false` when it fell back to the ramfs `/tmp`).
+    /// Not restricted by path, so any caller may ask.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct InfoReply {
+        pub store_dir: alloc::string::String,
+        pub persistent: bool,
+    }
+
+    pub fn encode_info_reply(value: &InfoReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.store_dir)?;
+        target.bool(2, value.persistent)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_info_reply(body: &[u8]) -> Result<InfoReply, Error> {
+        let mut out = InfoReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.store_dir = field.as_str()?.into();
+                }
+                2 => {
+                    out.persistent = field.as_bool()?;
+                }
+                _ => {}
             }
         }
         Ok(out)

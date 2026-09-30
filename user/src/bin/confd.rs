@@ -229,7 +229,7 @@ fn run() -> messenger::Result<()> {
         match server.recv_with(&mut buffer, deadline) {
             Ok(message) => {
                 let method = message.method();
-                let reply = match dispatch(&mut service, &message) {
+                let reply = match dispatch(&mut service, &message, &dir, persistent) {
                     Ok(parcel) => parcel,
                     Err(error) => error_reply_for(method, error),
                 };
@@ -272,8 +272,14 @@ fn spawn_demo() -> u64 {
 }
 
 /// Route one inbound message to the store, mapping a store rejection to a
-/// `CONFD_*` error reply.
-fn dispatch(service: &mut Service, message: &Message) -> messenger::Result<Parcel> {
+/// `CONFD_*` error reply. `dir` and `persistent` describe where the store
+/// lives, for `Info`.
+fn dispatch(
+    service: &mut Service,
+    message: &Message,
+    dir: &str,
+    persistent: bool,
+) -> messenger::Result<Parcel> {
     if message.interface_id() != api::INTERFACE {
         return Err(Error::Errno(-errno::EINVAL));
     }
@@ -313,6 +319,14 @@ fn dispatch(service: &mut Service, message: &Message) -> messenger::Result<Parce
             .map_err(Error::Parcel)?;
             Ok(api::parcel(method, body))
         }
+        wire::METHOD_INFO => {
+            let body = wire::encode_info_reply(&wire::InfoReply {
+                store_dir: String::from(dir),
+                persistent,
+            })
+            .map_err(Error::Parcel)?;
+            Ok(api::parcel(method, body))
+        }
         _ => Err(Error::Errno(-errno::EINVAL)),
     }
 }
@@ -347,37 +361,57 @@ fn caller_uid(message: &Message) -> messenger::Result<u32> {
 /// is a directory) *and* a probe write succeeds. Otherwise `/tmp/confd`
 /// (ramfs) is used and the service reports degraded.
 fn pick_dir() -> (String, bool) {
-    let choice = dir::choose(&dir::PERSISTENT_DIRS, |d| {
-        ensure_dir(d) && probe_writable(d)
+    let choice = dir::choose(&dir::PERSISTENT_DIRS, |d| match check_dir(d) {
+        Ok(()) => true,
+        Err(why) => {
+            // Say why a persistent location was passed over, so a silent
+            // fallback to ramfs is diagnosable from the serial log.
+            sys::write_str(&format!(
+                "confd: {d} not usable: {why}
+"
+            ));
+            false
+        }
     });
-    if !choice.persistent && !ensure_dir(choice.dir) {
-        sys::write_str(
-            "confd: warning: could not create /tmp/confd
+    if !choice.persistent {
+        if let Err(why) = ensure_dir(choice.dir) {
+            sys::write_str(&format!(
+                "confd: warning: {}: {why}
 ",
-        );
+                choice.dir
+            ));
+        }
     }
     (String::from(choice.dir), choice.persistent)
 }
 
-/// Whether `path` is a directory, creating it when absent.
-fn ensure_dir(path: &str) -> bool {
+/// Whether `dir` can hold the store: it exists (or can be created) and a probe
+/// file can be written there.
+fn check_dir(dir: &str) -> Result<(), String> {
+    ensure_dir(dir)?;
+    probe_writable(dir)
+}
+
+/// Succeeds when `path` is a directory, creating it when absent.
+fn ensure_dir(path: &str) -> Result<(), String> {
     match files::stat(path) {
-        Ok((_, Kind::Dir)) => true,
-        Ok(_) => false,
-        Err(errno) if errno == ENOENT => files::mkdir(path).is_ok(),
-        Err(_) => false,
+        Ok((_, Kind::Dir)) => Ok(()),
+        Ok(_) => Err(String::from("exists but is not a directory")),
+        Err(errno) if errno == ENOENT => {
+            files::mkdir(path).map_err(|errno| format!("mkdir failed (errno {errno})"))
+        }
+        Err(errno) => Err(format!("stat failed (errno {errno})")),
     }
 }
 
-/// Whether a file can be written and removed under `dir`.
-fn probe_writable(dir: &str) -> bool {
+/// Succeeds when a file can be written and removed under `dir`.
+fn probe_writable(dir: &str) -> Result<(), String> {
     let mut probe = String::from(dir);
     probe.push_str("/.probe");
-    if files::write_file(&probe, b"ok").is_err() {
-        return false;
-    }
+    files::write_file(&probe, b"ok")
+        .map_err(|errno| format!("probe write failed (errno {errno})"))?;
     let _ = files::remove(&probe);
-    true
+    Ok(())
 }
 
 #[panic_handler]
