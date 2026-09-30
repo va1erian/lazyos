@@ -279,8 +279,23 @@ class Qmp:
         """Release a key held by :meth:`key_down`."""
         self.send_events(named_key_up_events(name), device)
 
-    def mouse_move(self, dx: int, dy: int, device: str | None = None) -> None:
-        self.send_events(mouse_move_events(dx, dy), device)
+    def mouse_move(
+        self, dx: int, dy: int, device: str | None = None, delay: float = 0.02
+    ) -> None:
+        """Move the pointer by (`dx`, `dy`), as paced single-packet steps.
+
+        A PS/2 packet carries at most +-127 per axis, and QEMU's PS/2 mouse
+        queue holds only 16 bytes. One large relative event needs several
+        packets; the ones that do not fit are *deferred until the next input
+        event* and then delivered after it, so a click sent right after a long
+        move would fire before the pointer arrived (a wheel mouse's 4-byte
+        packets make this happen at ~250 px instead of ~380 px). Each step here
+        is one packet, and the small delay lets the guest drain the queue.
+        """
+        for step_x, step_y in mouse_move_steps(dx, dy):
+            self.send_events(mouse_move_events(step_x, step_y), device)
+            if delay:
+                time.sleep(delay)
 
     def _monitor_buttons(self, mask: int) -> bool:
         """Set the pointer's held-button mask with the monitor's
@@ -492,6 +507,23 @@ _BUTTONS = {"left", "middle", "right", "side", "extra", "wheel-up", "wheel-down"
 # HMP `mouse_button` state bits, QEMU's MOUSE_EVENT_* values: 1 = left,
 # 2 = right, 4 = middle.
 _BUTTON_MASKS = {"left": 1, "right": 2, "middle": 4}
+
+
+# The most a PS/2 packet moves the pointer along one axis.
+PS2_MOUSE_STEP = 127
+
+
+def mouse_move_steps(dx: int, dy: int) -> list[tuple[int, int]]:
+    """Split a relative move into steps of at most one PS/2 packet each."""
+    dx, dy = int(dx), int(dy)
+    steps: list[tuple[int, int]] = []
+    while dx or dy:
+        step_x = max(-PS2_MOUSE_STEP, min(PS2_MOUSE_STEP, dx))
+        step_y = max(-PS2_MOUSE_STEP, min(PS2_MOUSE_STEP, dy))
+        steps.append((step_x, step_y))
+        dx -= step_x
+        dy -= step_y
+    return steps
 
 
 def mouse_move_events(dx: int, dy: int) -> list[dict]:
