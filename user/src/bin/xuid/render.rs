@@ -7,15 +7,16 @@ use user::sys;
 
 use super::compositor::Compositor;
 use super::drag::draw_drag;
+use super::icons;
 use super::layout::for_each_entry;
 use super::region::Region;
 use super::shell::AltTab;
 use super::surface::Surface;
 use super::theme::{
-    BACKGROUND, BORDER_COLOR, BORDER_COLOR_FOCUS, BUTTON, BUTTON_GAP, BUTTON_MARGIN, BUTTON_TEXT,
-    CLOSE_BG, EMPTY_BG, ENTRY_H, ENTRY_PAD, MINIMIZE_BG, OVERLAY_BG, OVERLAY_BORDER,
-    OVERLAY_SELECTED, OVERLAY_TEXT, TASKBAR_BG, TASKBAR_ENTRY, TASKBAR_ENTRY_FOCUS,
-    TASKBAR_ENTRY_MIN, TASKBAR_H, TITLE_BG, TITLE_BG_FOCUS, TITLE_H, TITLE_TEXT, WINDOW_BG,
+    BACKGROUND, BORDER_COLOR, BORDER_COLOR_FOCUS, BUTTON, BUTTON_GAP, BUTTON_MARGIN, EMPTY_BG,
+    ENTRY_H, ENTRY_PAD, OVERLAY_BG, OVERLAY_BORDER, OVERLAY_SELECTED, OVERLAY_TEXT, TASKBAR_BG,
+    TASKBAR_ENTRY, TASKBAR_ENTRY_FOCUS, TASKBAR_ENTRY_MIN, TASKBAR_H, TITLE_BG, TITLE_BG_FOCUS,
+    TITLE_H, TITLE_TEXT, WINDOW_BG,
 };
 use super::window::surface_by_id;
 
@@ -310,16 +311,10 @@ fn draw_surface(screen: &mut Canvas, surface: &Surface, focused: bool, clip: Rec
         TITLE_TEXT,
         title_clip,
     );
-    // Close and minimize buttons, painted over the title bar.
-    for (rect, background, glyph) in [
-        (surface.close_button(), CLOSE_BG, "X"),
-        (surface.minimize_button(), MINIMIZE_BG, "-"),
-    ] {
-        screen.fill(rect, clip, background);
-        let x = rect.x + (rect.w - Face::Sans.width(glyph)) / 2;
-        let y = rect.y + (rect.h - Face::Sans.height()) / 2;
-        screen.text_face(x, y, glyph, Face::Sans, BUTTON_TEXT, clip);
-    }
+    // Close and minimize glyphs sit directly on the title bar, in its text
+    // colour, so they match the chrome instead of adding coloured tiles.
+    icons::draw_close(screen, surface.close_button(), TITLE_TEXT, clip);
+    icons::draw_minimize(screen, surface.minimize_button(), TITLE_TEXT, clip);
 
     // The app's pixels, or an explicit placeholder before AttachBuffer.
     let content = surface.content();
