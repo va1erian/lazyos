@@ -224,9 +224,14 @@ impl Grid {
 /// previous pipeline), and the real output line would then go unreported.
 pub fn is_prompt(line: &str) -> bool {
     let marks = |text: &str| text.chars().all(|c| matches!(c, '#' | '$' | '>' | ' '));
+    // BusyBox's `\w` is an absolute path or `~`-relative, so anything else in
+    // front of the mark (`a #`, `x $`) is ordinary output that merely ends
+    // like a prompt.
+    let is_cwd =
+        |text: &str| (text.starts_with('/') || text.starts_with('~')) && !text.contains(' ');
     match line.trim().rsplit_once(' ') {
         None => marks(line),
-        Some((cwd, mark)) => !cwd.contains(' ') && marks(mark),
+        Some((cwd, mark)) => is_cwd(cwd) && marks(mark),
     }
 }
 
@@ -253,7 +258,16 @@ mod tests {
     /// prompt with a command after it, and any output line, is not.
     #[test]
     fn prompt_lines_with_a_working_directory_are_prompts() {
-        for prompt in ["# ", "$", "> ", "/ #", "/ # ", "/tmp $ ", "/home/alice $"] {
+        for prompt in [
+            "# ",
+            "$",
+            "> ",
+            "/ #",
+            "/ # ",
+            "/tmp $ ",
+            "/home/alice $",
+            "~ $",
+        ] {
             assert!(is_prompt(prompt), "{prompt:?} should be a prompt");
         }
         for line in [
@@ -261,6 +275,9 @@ mod tests {
             "$ echo",
             "rhai>",
             "42",
+            "a #",
+            "x $",
+            "cost 5 $",
             "HI",
             "rhai REPL: :help",
             "",
