@@ -22,6 +22,7 @@ surfbuf = { path = "../libs/surfbuf" }
 messenger-generated = { path = "../libs/generated" }
 # Time-zone and DST resolution for `timed` (issue #369).
 timezone = { path = "../libs/timed" }
+uitheme = { path = "../libs/uitheme" }
 
 # Build-time only: rasterizes the bundled Droid Sans / Droid Serif into the
 # proportional glyph atlases `xuid` draws its chrome text with.
