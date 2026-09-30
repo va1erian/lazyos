@@ -31,6 +31,11 @@ const ERROR_FIELD: u16 = 15;
 /// makes the race one-sided; the retry keeps a manual boot robust.
 const CONNECT_TICKS: u64 = 600;
 
+/// PIT ticks the cosmetic `HintOpenOrigin` call may wait for a reply. A hung
+/// compositor must not stall opening a folder window, so the hint is
+/// best-effort and gives up after half a second.
+const HINT_TICKS: u64 = 50;
+
 /// One input event delivered to an app by the compositor, in surface
 /// coordinates.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -192,10 +197,12 @@ impl Client {
     /// `HintOpenOrigin`: ask the compositor to open this task's next window
     /// from `rect` (`x, y, w, h`, relative to `surface`'s content origin)
     /// instead of from its taskbar entry. Purely cosmetic: an older
-    /// compositor answers `EINVAL`, which callers ignore.
+    /// compositor answers `EINVAL`, and an unresponsive one times out after
+    /// [`HINT_TICKS`]; callers ignore both and go on to create the window.
     pub fn hint_open_origin(&self, surface: u64, rect: (i32, i32, u32, u32)) -> Result<(), i64> {
         let parcel = hint_open_origin_parcel(surface, rect)?;
-        self.call(&parcel).map(|_| ())
+        let deadline = sys::clock_ticks().saturating_add(HINT_TICKS);
+        self.call_until(&parcel, deadline).map(|_| ())
     }
 
     /// Drop `surface`; the compositor forgets it and repaints.
@@ -209,8 +216,14 @@ impl Client {
     /// One synchronous call on the compositor endpoint; a structured error
     /// reply becomes its negative errno.
     fn call(&self, parcel: &Parcel) -> Result<Parcel, i64> {
+        self.call_until(parcel, 0)
+    }
+
+    /// Like [`Client::call`], bounded by `deadline` (an absolute PIT tick; `0`
+    /// waits forever).
+    fn call_until(&self, parcel: &Parcel, deadline: u64) -> Result<Parcel, i64> {
         let mut buf = [0u8; 256];
-        let reply = sys::msg_call(self.endpoint, parcel, &mut buf, 0)?;
+        let reply = sys::msg_call(self.endpoint, parcel, &mut buf, deadline)?;
         match error_field(&reply) {
             Some(code) => Err(code),
             None => Ok(reply),
