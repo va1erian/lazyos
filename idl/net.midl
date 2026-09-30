@@ -1,0 +1,147 @@
+/// A network interface card, **link layer only** (docs/driver-plan.md §3.8,
+/// docs/networking-plan.md §5). No IP, ARP or DHCP: those belong to the stack
+/// service `netd`, which is just another client of this interface and, by
+/// policy, the only one. A NIC driver (`netdrv`, virtio-net first) serves it and
+/// never parses a payload.
+///
+/// **The client owns the rings.** Replies cannot carry buffers or handles (the
+/// kernel refuses transfers in a reply), and the driver must not let its device
+/// read memory a client can rewrite, so the client creates two shared buffers
+/// and the driver copies frames between them and its own DMA slots, in both
+/// directions (the audio rule, see `os.lazy.audio.v1`). A ring is the
+/// single-producer/single-consumer frame ring of `libs/framering`: fixed
+/// 2048-byte slots, a `u16` length then the frame, a power-of-two slot count,
+/// free-running `u32` indices in a header page. Nothing about the wire lives in
+/// a request body except the slot count.
+///
+/// `AttachRing` carries, in the parcel's `handles` and `buffers` vectors (the
+/// TLV body has no `Handle`/`Buffer` fields, as in `os.lazy.display.v1`):
+///
+/// * `buffers[0]`: the **receive ring** (driver produces, client consumes);
+/// * `buffers[1]`: the **transmit ring** (client produces, driver consumes);
+/// * `handles[0]`: the **notify endpoint**, an endpoint the client holds the
+///   receiving side of, to which the driver posts `Notify`.
+///
+/// Each buffer must be exactly `framering::ring_bytes(slots)` bytes (the header
+/// page plus `slots` slots) or the call fails with `EINVAL`; `slots` must be a
+/// power of two from 16 to 1024 or it fails with `EINVAL`. Only one client may
+/// be attached (`EBUSY` otherwise); its owner is the kernel-stamped sender of
+/// `AttachRing`, and calls on the ring by anyone else fail with `EACCES`.
+///
+/// **Wake-up.** This interface replaces the draft's `notify: String` topic: a
+/// topic would put a broker round trip on the receive path. Instead each
+/// direction has one one-way message and one shared flag, so a waiter needs a
+/// single wait on a single endpoint and a burst costs one message, not one per
+/// frame (the rule the kernel uses for interrupt messages):
+///
+/// * driver to client, `Notify`: posted to the notify endpoint when frames
+///   arrive in the receive ring, when the transmit ring gains space after
+///   being full, or when the link changes;
+/// * client to driver, `Kick`: sent to the driver's endpoint after the client
+///   queues frames in the transmit ring.
+///
+/// A message is sent only when the consumer of that ring has *armed* it: the
+/// consumer sets the ring's `armed` flag before it sleeps (after a final look at
+/// the ring, so a frame that lands in between is never missed) and the producer
+/// clears it with one atomic exchange when it sends. That coalesces a burst to
+/// at most one outstanding message per ring, with no kernel help. A consumer
+/// that never arms simply polls; it can only harm itself.
+///
+/// Both sides treat the other as hostile: every index and length read from
+/// shared memory is validated and read exactly once, and a frame is copied out
+/// before it is looked at. A ring whose peer breaks the protocol (an index
+/// that claims more frames than the ring holds, an oversized length) is
+/// poisoned: the driver counts it in `NicStats.ring_errors` and detaches the
+/// client. A frame shorter than the 14-byte Ethernet header or longer than
+/// `NicInfo.max_frame` is dropped and counted, never truncated.
+///
+/// Failures of calls are returned as the shared structured error field
+/// (`services::error_field`) instead of the declared reply fields.
+interface os.lazy.net.nic.v1 {
+    /// Describe the card: MAC, MTU, link state and the negotiated feature set.
+    method Info() -> (info: NicInfo);
+    /// Choose which received frames reach the client: an `RxMode` ordinal.
+    /// The reply says whether the driver applied it (a device without a
+    /// filter table treats `Filtered` as `Promiscuous` and answers `false`).
+    /// Only the attached client may change it.
+    method SetRxMode(mode: U32) -> (ok: Bool);
+    /// Attach the client's rings and notify endpoint (see the interface
+    /// notes for what the parcel carries). `slots` is the slot count of both
+    /// rings. The reply is the ring id later calls name.
+    method AttachRing(slots: U32) -> (ring: U32);
+    /// Release the rings; the driver stops reading and writing them. Also
+    /// implied when the owner exits or its notify endpoint reports the peer
+    /// gone.
+    method DetachRing(ring: U32) -> ();
+    /// Frame and error counters since the driver started.
+    method Stats() -> (stats: NicStats);
+    /// Event, client to driver: the client queued frames in the transmit ring
+    /// of `ring`. Ignored from anyone but the owner.
+    method Kick(ring: U32) -> () oneway;
+    /// Event, driver to client: something needs the client's attention.
+    /// `events` is a bitmap: bit *n* is set for the `NotifyBit` with ordinal
+    /// *n*. Reserved bits are zero; a client ignores them.
+    method Notify(ring: U32, events: U32) -> () oneway;
+
+    /// Card description.
+    struct NicInfo {
+        /// Six octets, network order.
+        mac: Bytes,
+        /// Payload bytes of the largest frame the card carries.
+        mtu: U32,
+        /// Largest complete frame (`mtu` plus the 14-byte Ethernet header),
+        /// the bound the driver enforces in both directions.
+        max_frame: U32,
+        link: Bool,
+        /// Capability bitmap, zero if none: bit 0 receive checksum offload,
+        /// bit 1 transmit checksum offload, bit 2 VLAN tag insert/strip. Other
+        /// bits are reserved: a driver sets them to zero and a client ignores
+        /// them.
+        features: U32
+    }
+
+    /// Counters since the driver started.
+    struct NicStats {
+        rx_frames: U64,
+        tx_frames: U64,
+        rx_bytes: U64,
+        tx_bytes: U64,
+        /// Frames dropped on receive for any reason (no ring, ring full, and
+        /// the invalid frames below).
+        rx_dropped: U64,
+        /// Frames dropped on transmit for any reason (queue full, and the
+        /// invalid frames below).
+        tx_dropped: U64,
+        /// Frames shorter than the 14-byte Ethernet header, either direction.
+        runts: U64,
+        /// Frames longer than `max_frame`, either direction.
+        oversize: U64,
+        /// Rings poisoned by a peer that broke the protocol, plus device
+        /// used-ring entries the driver rejected.
+        ring_errors: U64,
+        /// Interrupt messages the driver handled (0 when polling).
+        interrupts: U64,
+        link_changes: U32
+    }
+
+    /// The payload of `system/net/{nic}/link`.
+    struct LinkEvent {
+        up: Bool,
+        /// Link changes since the driver started, so a subscriber can tell a
+        /// flap from a repeat.
+        changes: U32
+    }
+
+    /// Published by the driver whenever the link changes, and once at start.
+    /// `{nic}` is the driver's card name (`virtio-net0`).
+    topic "system/net/{nic}/link" : LinkEvent retained qos=latest;
+
+    /// Reasons for a `Notify`; ordinals are the `events` bit numbers, so new
+    /// ones are append-only. `RxReady`: frames arrived in the receive ring.
+    /// `TxSpace`: the transmit ring gained space after being full.
+    /// `LinkChange`: the link went up or down.
+    enum NotifyBit { RxReady, TxSpace, LinkChange }
+
+    /// Which received frames reach the client.
+    enum RxMode { Off, Filtered, Promiscuous }
+}

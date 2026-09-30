@@ -1,0 +1,85 @@
+name: net
+
+# Networking (docs/networking-plan.md): host unit and seeded-fuzz tests for the
+# wire and ring libraries, a drift check on the fuzz seed corpus, and bounded
+# coverage-guided fuzz runs (cargo-fuzz, libFuzzer) of the same entry points.
+# Later stages add the pcap analyzer tests and the end-to-end QEMU harness here.
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+  pull_request:
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+  workflow_dispatch:
+    inputs:
+      fuzz_seconds:
+        description: "Seconds per fuzz target"
+        default: "60"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: net-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FUZZ_SECONDS: ${{ github.event.inputs.fuzz_seconds || '60' }}
+
+jobs:
+  unit:
+    name: unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      # rust-toolchain.toml pins the nightly toolchain; rustup installs it.
+      # CI=1 makes the corpus replay tests insist that seeds exist.
+      - name: Libraries (host, includes the seeded fuzz tests)
+        run: cargo test -p framering -p virtio-net -p virtio -p fuzzkit -p messenger-generated
+        env:
+          FUZZ_CASES: "2000"
+
+      - name: Lints
+        run: cargo clippy -p framering -p virtio-net -p virtio -p fuzzkit --all-targets --features framering/fuzz,virtio-net/fuzz -- -D warnings
+
+      - name: Fuzz seed corpus is current
+        run: python fuzz/gen_corpus.py --check
+
+  fuzz:
+    name: fuzz (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [framering, framering_header, virtio_net]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+
+      - name: Fuzz for a bounded time
+        run: |
+          mkdir -p fuzz/corpus/${{ matrix.target }}
+          cargo fuzz run ${{ matrix.target }} --fuzz-dir fuzz fuzz/corpus/${{ matrix.target }} fuzz/seeds/${{ matrix.target }} -- -max_total_time=${{ env.FUZZ_SECONDS }}
+
+      # A crash is a file under fuzz/artifacts/<target>/: keep it, and copy it to
+      # fuzz/regressions/<target>/ with the fix so plain `cargo test` replays it.
+      - name: Upload crashing inputs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-crash-${{ matrix.target }}
+          path: fuzz/artifacts/**
+          if-no-files-found: warn

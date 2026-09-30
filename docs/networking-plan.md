@@ -1,6 +1,10 @@
 # LazyOS networking — exploration and plan
 
-Status: **exploratory draft for review** (2026-09-30). Nothing here is built.
+Status: **N0 built** (2026-09-30): the NIC interface is real MIDL, `libs/framering`
+and `libs/virtio-net` exist with host tests and fuzzing, and the queue cap is
+resolved. N1 and later are not built; see §10.1 for the state of each stage and
+§13 for what the plan got wrong. What is built is described in
+[architecture/networking.md](architecture/networking.md).
 Scope: the shortest credible path from "no network" to basic tools working
 (`ping`, a netcat equivalent, an FTP client, name lookups), and the three
 decisions that path depends on: which TCP/IP stack to reuse, how the NIC driver
@@ -195,16 +199,24 @@ length byte ring. Revisit with a byte ring only if memory matters.
 
 **Points to settle before coding (the IDL is still a draft):**
 
-- *Wake-up.* The draft passes `notify: String`, a topic the driver publishes
-  on. That puts a broker round trip on the receive path. Prefer a one-way
-  message straight to an endpoint the client passes in `AttachRing`, coalesced
-  to one outstanding notice (the same rule the kernel uses for IRQ messages), so
-  `netd` waits on a single endpoint for client calls, NIC notices and timeouts.
-  Fences (`fence_wait`) are the alternative but are a second blocking wait.
-- *Queue size.* `libs/virtio` caps a queue at `MAX_QUEUE = 64` entries; the
-  config plan's default `rx_ring_entries` is 256. Either raise the cap or clamp
-  the key to 64 for now (64 × 2 KiB = 128 KiB of DMA per queue is plenty for a
-  first cut and well inside the 8 MiB `DmaMemory` quota).
+- *Wake-up. **Decided (N0).*** The draft's `notify: String` topic is gone. The
+  client passes a notify endpoint in `AttachRing` (`handles[0]`, with the two
+  rings as `buffers[0]` receive and `buffers[1]` transmit, and the slot count in
+  the body). Wake-ups are two one-way messages, `Notify` (driver to client) and
+  `Kick` (client to driver), coalesced by a shared `armed` flag in each ring's
+  header instead of by the kernel: a consumer arms the ring, looks once more,
+  then sleeps; a producer clears the flag with one atomic exchange when it sends.
+  `netd` therefore waits on a single endpoint for client calls, NIC notices and
+  timeouts. Fences stay unused. See `idl/net.midl` and `libs/framering`.
+- *Queue size. **Decided (N0).*** `libs/virtio` now caps a queue at
+  `MAX_QUEUE = 256` (it was 64), which is the config plan's default
+  `rx_ring_entries` and what QEMU's virtio-net offers; the in-struct free list
+  costs 768 bytes at the cap. The `rx_ring_entries`/`tx_ring_entries` keys clamp
+  to a power of two in 16..=256 rather than the plan's 16..=4096, and `mtu` to
+  576..=1500 rather than 9000 (a 2048-byte slot cannot carry a jumbo frame).
+  A device that offers a smaller queue is driven at its own size. 256 slots of
+  2 KiB is 512 KiB per queue, two queues about 1 MiB of DMA, well inside the
+  8 MiB `DmaMemory` quota.
 - *`devd`.* D5 bundles `devd` and a driver manifest. Neither is needed to get
   packets flowing: start the driver from an `init` manifest row with a `_net`
   credential exactly as `sndd` is (`SND_CRED`), behind a `LAZYOS_NET=1` image
@@ -436,6 +448,15 @@ is loaded.
 After N6 the rest of S6 (TLS through `keyd`, IPv6, daemons, Messenger over the
 network) builds on the same interfaces.
 
+### 10.1 Status
+
+| Stage | State |
+|---|---|
+| N0 | **Built.** `idl/net.midl` (`os.lazy.net.nic.v1`), `libs/framering`, `libs/virtio-net`, `libs/fuzzkit`, the 256-entry queue cap, the `fuzz/` cargo-fuzz crate, `.github/workflows/net.yml`, `tools/net/README.md` |
+| N1 | Not built |
+| N2 | Not built |
+| N3 to N6 | Not built (out of scope for the current work) |
+
 ## 11. Risks and open questions
 
 1. **Peer-death signalling for sockets** (§7.1). Decides whether a socket is a
@@ -453,10 +474,11 @@ network) builds on the same interfaces.
 5. **Shared interrupt line 11** with the polled in-kernel virtio-blk. Covered
    by the shared-INTx contract, but the ack deadline (100 ticks) means a busy
    `netdrv` must ack promptly; polling remains the fallback.
-6. **NIC IDL is unimplemented prose.** `notify: String` and the single-ring
-   rule should be revisited while it is still free to change (§5).
+6. **NIC IDL is unimplemented prose.** *Resolved in N0:* it is MIDL
+   (`idl/net.midl`), the wake-up is `Kick`/`Notify` plus an `armed` flag, and the
+   rings travel in the request (§5).
 7. **`MAX_QUEUE = 64`** in `libs/virtio` against a documented default of 256
-   ring entries (§5).
+   ring entries. *Resolved in N0:* the cap is 256 (§5).
 8. **smoltcp TCP limits** (no SACK/timestamps, one connection per listening
    socket). Acceptable for the goal; the fallback if it ever is not would be
    vendoring Netstack3's core, which is a large project.
@@ -471,3 +493,33 @@ IPv6, TLS, Wi-Fi, routing/forwarding/NAT, multiple NICs, a firewall language,
 netlink or `ifconfig` compatibility, zero-copy receive, remote Messenger
 transport, and hot-plug. Each has a seam above; none is needed for `ping`,
 `nc` and `ftp`.
+
+## 13. Decisions taken and corrections to this plan
+
+Kept current as stages land; the reasoning for each is where it is used.
+
+**N0**
+
+- *Wake-up mechanism* (§5): one-way `Kick` and `Notify` to endpoints, coalesced by
+  an `armed` flag in the ring header. The plan preferred the endpoint over a
+  topic but did not say how the coalescing to "one outstanding notice" would be
+  done without kernel help; the shared flag is that mechanism.
+- *Ring ownership* (§5): the rings, and the notify endpoint, are in the
+  `AttachRing` request. The plan said "the client supplies the rings"; the
+  interface also needs the slot count in the body so the driver can check both
+  buffer lengths exactly.
+- *Frame ring layout* (§5): the slot is 2048 bytes, so the largest frame is
+  **2046**, not 2048; the plan's "2048-byte slots, a `u16` length" leaves the
+  length inside the slot. Slot counts are 16..=1024 (a ring is at most 2 MiB and
+  one `dma_alloc` is at most 4 MiB).
+- *Queue cap and settings* (§5, risk 7): cap raised to 256; `rx_ring_entries`
+  clamps to 16..=256 and `mtu` to 576..=1500. Both differ from
+  [driver-config-plan.md](driver-config-plan.md) §2, which should be read with
+  this note until the two are merged.
+- *Poisoned rings.* An index that claims more frames than the ring holds
+  poisons that endpoint permanently; the plan only said "validated". The driver
+  detaches such a client and counts it.
+- *Extra interface members.* `NicInfo.max_frame`, a wider `NicStats` (bytes,
+  runts, oversize, ring errors, interrupts), a `LinkEvent` payload for the link
+  topic, and `NotifyBit`/`RxMode` enums, none of which the draft had.
+

@@ -149,6 +149,28 @@ Do not claim an audio change works from the serial markers alone; the verdict is
 the recording. See `tools/sound/README.md` and `docs/architecture/audio.md`
 (including why a driver must never free a DMA buffer while its device runs).
 
+## Network tooling
+
+Networking (`docs/networking-plan.md`) is verified like audio: serial markers
+only say when the guest is done, the verdict is what crossed the wire. Testing
+and fuzzing tooling ships with every stage; the full description is
+`tools/net/README.md`.
+
+```bash
+cargo test -p framering -p virtio-net -p virtio -p messenger-generated   # host unit + seeded fuzz
+FUZZ_CASES=20000 cargo test -p framering -p virtio-net fuzz::           # a longer seeded soak
+FUZZ_SEED=0x<seed> cargo test -p framering clean_scripts                # replay a printed failing seed
+python fuzz/gen_corpus.py --check                                       # the checked-in fuzz seeds are current
+mkdir -p fuzz/corpus/framering                                          # once; libFuzzer's working corpus (git-ignored)
+cargo fuzz run framering --fuzz-dir fuzz fuzz/corpus/framering fuzz/seeds/framering -- -max_total_time=60  # Linux; CI runs it
+```
+
+Fuzz entry points (`fuzz::run(&[u8])`) are shared by the in-tree seeded tests
+and the `fuzz/` cargo-fuzz targets, so a libFuzzer crash replays under plain
+`cargo test`; save fixed crashes in `fuzz/regressions/<target>/`. The `fuzz/`
+crate is outside the OS workspace on purpose: local development never needs
+libFuzzer, which is Linux-only in CI.
+
 ## Testing requirement for kernel components
 
 Every kernel component (scheduler, memory/allocators, IPC/Messenger, VFS/FS,

@@ -367,7 +367,9 @@ bus-master off before frame reuse at teardown, `DEV:DMA:PASS` boot line. Tests
 `dev_stress_dma_pool_alloc_free_soak`, `dev_stress_dma_spawn_kill_soak`.
 
 **Stage D5 — virtio transport + first NIC driver.** *Transport landed with D6
-(`libs/virtio`); the NIC driver, `devd` and the manifest are still open.* Modern virtio-PCI library,
+(`libs/virtio`); the NIC interface, frame ring and wire definitions landed as
+networking stage N0 ([`architecture/networking.md`](architecture/networking.md));
+the NIC driver (N1), `devd` and the manifest are still open.* Modern virtio-PCI library,
 `virtio-net` userspace driver, `devd`, driver manifest, `_net` uid, init
 manifest row, `os.lazy.net.nic.v1` served. Demo: `nicctl` tool prints MAC and
 link; frame TX/RX loopback test against `filter-dump`. Boot evidence
