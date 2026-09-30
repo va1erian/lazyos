@@ -297,7 +297,7 @@ a transmit slot that did not come back.
 | Harness unit | The pcap judge must fail on a missing reply, a wrong payload, the wrong order, a truncated capture, an empty file, frames outside the policy | `python tools/net/test_analyze_pcap.py` |
 | End to end | The capture-judged run above | `python tools/net/run.py` |
 | Variants | `--services` (supervised as `_net`, uid 902 checked), `--machine q35 --virtio-disk`, `--poll` (interrupts off), `--no-device` (`-nic none`: the driver prints `NETDRV:NODEV` and idles) | see `tools/net/README.md` |
-| Kernel | N1: the class rules loaded into the real ACL. N2: syscall 26 (bounds, bad pointers, distinct output, soak), `CLOSE_RELEASE` (channel and syscall level, soak), the call rules for `nic.v1` and `stack.v1` | `python tools/test/run.py --accel none` (569 tests at N2) |
+| Kernel | N1: the class rules loaded into the real ACL. N2: syscall 26 (bounds, bad pointers, distinct output, soak), `CLOSE_RELEASE` (channel and syscall level, soak), the call rules for `nic.v1` and `stack.v1` | `python tools/test/run.py --accel none` (589 tests at the last N2 run) |
 
 ### N2 evidence
 
@@ -326,7 +326,11 @@ answered, nothing dropped, every renewal and reattachment counted).
 Sockets, `nc`, `ftp`, the Linux `AF_INET` shim (N3 to N5); DNS lookups (the stack
 keeps the resolvers it is told about; nothing queries them yet); refusing
 `nic.v1` and `stack.v1` calls from non-owners in the ACL (waits for a policy
-loader); a shared module for the PCI bring-up that `sndd` and `netdrv` both carry,
+loader, so `Renew` and `Reattach` are callable by anyone today); releasing a
+parked `Ping` when its caller cancels, times out or dies (`netd` learns of the
+end only when the stack reports a result, so an abandoned ping holds one of the
+8 slots until its timeout, at most 60 s, which two callers can use to make
+others see `EAGAIN` for that long); a shared module for the PCI bring-up that `sndd` and `netdrv` both carry,
 and `sndd`'s `discard_transfers` leaving extra transferred handles open; `devd` (the driver is started by `init`'s manifest or
 the kernel directly); MSI/MSI-X (INTx only); checksum/segmentation offload and
 jumbo frames; a second NIC driver (e1000); a tickless serve loop (the loop wakes

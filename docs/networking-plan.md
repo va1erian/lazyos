@@ -613,6 +613,9 @@ Kept current as stages land; the reasoning for each is where it is used.
 - *10 ms clock accepted* as the plan said: RTTs are 0 or 10 ms; the first ping
   (ARP first) takes about 90 ms.
 - *Not done in N2:* DNS queries (resolvers are kept, not used), non-owner call
-  enforcement (no policy loader), the shared PCI bring-up module, `sndd`'s
+  enforcement (no policy loader, so `Renew` and `Reattach` are open to anyone
+  until one exists), releasing a parked `Ping` whose caller cancelled or died
+  (the slot is held until the ping's own timeout, at most 60 s), the shared PCI
+  bring-up module, `sndd`'s
   `discard_transfers` leaving extra handles open, hosted CI (the workflow is
   written, not run on GitHub).
