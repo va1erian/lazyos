@@ -16,9 +16,10 @@ is done; the verdict comes from the capture.
     python tools/net/run.py --machine q35 --virtio-disk
     python tools/net/run.py --no-device          # no NIC: the driver must say so and idle
     python tools/net/run.py --poll               # interrupts off: the driver polls
+    python tools/net/run.py --netd               # stage N2: netd, DHCP and ping (plus any variant above)
 
-The image must be built with `LAZYOS_NET=1` (this script does it unless
-`--no-build`). Exit status is non-zero on any failure.
+The image must be built with `LAZYOS_NET=1` (`--netd`: `LAZYOS_NETD=1`, which adds
+the stack service `netd` and its tools); this script does it unless `--no-build`. Exit status is non-zero on any failure.
 """
 
 from __future__ import annotations
@@ -44,6 +45,31 @@ SOAK_ITERATIONS = 40
 #: `nicctl arp` client, and one per soak iteration.
 MIN_ARP_PAIRS = 1 + 1 + SOAK_ITERATIONS
 
+#: Stage N2 (`--netd`): the stack's evidence. `netd demo=1` runs `netctl`, a real
+#: `ping`, the hostile-input probe and a soak once DHCP has completed.
+SOAK_RENEWALS = SOAK_ITERATIONS // 10
+#: DHCP exchanges: the stack's start, `netctl probe=1`'s renewal, and one renewal
+#: every tenth soak round.
+NETD_MIN_DHCP = 1 + 1 + SOAK_RENEWALS
+#: Echo exchanges with the gateway: `ping 10.0.2.2 4`, the probe's two, and one
+#: per soak round.
+NETD_MIN_PINGS = 4 + 2 + SOAK_ITERATIONS
+NETD_PASS_MARKERS = (
+    "NET:NIC:PASS",
+    "NETCTL:INFO:PASS",
+    "PING:PASS",
+    "NETCTL:PROBE:PASS",
+    "NETCTL:SOAK:PASS",
+)
+NETD_FAIL_MARKERS = (
+    "NET:NIC:FAIL",
+    "NET:IRQ:FAIL",
+    "NETCTL:FAIL",
+    "PING:FAIL",
+    "NETD:FAIL",
+    "NETDRV:NODEV",
+)
+
 #: Serial markers: every PASS must appear; any FAIL (or a missing device) ends
 #: the wait early.
 PASS_MARKERS = (
@@ -60,18 +86,22 @@ FAIL_MARKERS = (
     "NICCTL:FAIL",
     "NETDRV:NODEV",
 )
-LOG_PREFIXES = ("NET", "netdrv", "NICCTL", "NETDRV")
+LOG_PREFIXES = ("NET", "netdrv", "netd", "NICCTL", "NETDRV", "NETD", "NETCTL", "PING")
 
 
-def build_image(services: bool, poll: bool) -> Path:
+def build_image(services: bool, poll: bool, netd: bool = False) -> Path:
     env = dict(os.environ, LAZYOS_NET="1")
+    if netd:
+        env["LAZYOS_NETD"] = "1"
+    else:
+        env.pop("LAZYOS_NETD", None)
     if services:
         env["LAZYOS_SERVICES"] = "1"
     if poll:
         env["LAZYOS_NET_ARGS"] = "demo=1 irq=poll"
     else:
         env.pop("LAZYOS_NET_ARGS", None)
-    label = "LAZYOS_NET=1" + (" LAZYOS_SERVICES=1" if services else "") + (" LAZYOS_NET_ARGS='demo=1 irq=poll'" if poll else "")
+    label = "LAZYOS_NET=1" + (" LAZYOS_NETD=1" if netd else "") + (" LAZYOS_SERVICES=1" if services else "") + (" LAZYOS_NET_ARGS='demo=1 irq=poll'" if poll else "")
     print(f"building: {label} cargo build", flush=True)
     result = subprocess.run(["cargo", "build"], cwd=ROOT, env=env, capture_output=True, text=True)
     if result.returncode != 0:
@@ -82,7 +112,7 @@ def build_image(services: bool, poll: bool) -> Path:
     return image
 
 
-def wait_for_marker(serial_log: Path, proc: subprocess.Popen, timeout: float, done) -> str:
+def wait_for_marker(serial_log: Path, proc: subprocess.Popen, timeout: float, done, fail_markers=FAIL_MARKERS) -> str:
     """Poll the serial log until `done(text)` or a failure marker, or time runs out."""
     deadline = time.time() + timeout
     text = ""
@@ -95,7 +125,7 @@ def wait_for_marker(serial_log: Path, proc: subprocess.Popen, timeout: float, do
                 if line.startswith(LOG_PREFIXES) or "PANIC" in line or "EXCEPTION" in line:
                     print(f"  {line}", flush=True)
             printed = len(lines)
-            if done(text) or any(marker in text for marker in FAIL_MARKERS):
+            if done(text) or any(marker in text for marker in fail_markers):
                 return text
         if proc.poll() is not None:
             break
@@ -164,7 +194,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--services", action="store_true", help="build with LAZYOS_SERVICES=1 (init supervises netdrv)")
     parser.add_argument("--no-device", action="store_true", help="boot without a NIC: the driver must say so and idle")
     parser.add_argument("--poll", action="store_true", help="interrupts off: build with `irq=poll`, expect polling")
-    parser.add_argument("--min-arp-pairs", type=int, default=MIN_ARP_PAIRS)
+    parser.add_argument("--netd", action="store_true",
+                        help="stage N2: build with LAZYOS_NETD=1 and judge DHCP and ping from the capture")
+    parser.add_argument("--min-arp-pairs", type=int, default=None)
     args = parser.parse_args(argv)
 
     out_dir = Path(args.out) if Path(args.out).is_absolute() else ROOT / args.out
@@ -174,7 +206,7 @@ def main(argv: list[str] | None = None) -> int:
     for stale in (serial_log, pcap_path):
         stale.unlink(missing_ok=True)
 
-    image = Path(args.image) if args.no_build else build_image(args.services, args.poll)
+    image = Path(args.image) if args.no_build else build_image(args.services, args.poll, args.netd)
     if not image.is_file():
         sys.exit(f"image not found: {image}")
 
@@ -187,26 +219,33 @@ def main(argv: list[str] | None = None) -> int:
 
     text = ""
     qmp: Qmp | None = None
+    pass_markers = NETD_PASS_MARKERS if args.netd else PASS_MARKERS
+    fail_markers = NETD_FAIL_MARKERS if args.netd else FAIL_MARKERS
     if args.no_device:
-        done = lambda t: "NETDRV:NODEV" in t  # noqa: E731
+        # `netd` must keep running and waiting for a driver that never comes.
+        done = lambda t: "NETDRV:NODEV" in t and (not args.netd or "NETD:NIC:WAIT" in t)  # noqa: E731
+        fail_markers = ()
     else:
-        done = lambda t: all(marker in t for marker in PASS_MARKERS)  # noqa: E731
+        done = lambda t: all(marker in t for marker in pass_markers)  # noqa: E731
     try:
         qmp = Qmp("127.0.0.1", port, min(30.0, args.timeout))
-        text = wait_for_marker(serial_log, proc, args.timeout, done)
+        text = wait_for_marker(serial_log, proc, args.timeout, done, fail_markers)
         time.sleep(1.0)  # let the capture see the last frames
     finally:
         stop_qemu(proc, qmp)
 
     if args.no_device:
         ok = "NETDRV:NODEV" in text and "NET:NIC:FAIL" not in text and "NICCTL:FAIL" not in text
-        print("NET:HARNESS:" + ("PASS (no device: the driver idled cleanly)" if ok else "FAIL"))
+        if args.netd:
+            ok = ok and "NETD:READY" in text and "NETD:NIC:WAIT" in text and "NETD:FAIL" not in text
+        what = "the driver and netd idled cleanly" if args.netd else "the driver idled cleanly"
+        print("NET:HARNESS:" + (f"PASS (no device: {what})" if ok else "FAIL"))
         return 0 if ok else 1
 
-    missing = [marker for marker in PASS_MARKERS if marker not in text]
+    missing = [marker for marker in pass_markers if marker not in text]
     if missing:
         for line in text.splitlines():
-            if any(marker in line for marker in FAIL_MARKERS):
+            if any(marker in line for marker in fail_markers):
                 print(line)
         print(f"NET:HARNESS:FAIL the guest never reported {', '.join(missing)}")
         return 1
@@ -227,6 +266,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.services and "NETDRV:CRED uid=902 caps=0x100" not in text:
         print("NET:HARNESS:FAIL netdrv did not run as _net (uid 902) with only CAP_DEV_CLAIM")
         return 1
+    if args.netd and args.services and "NETD:CRED uid=903 caps=0x0" not in text:
+        print("NET:HARNESS:FAIL netd did not run as _netd (uid 903) with no capabilities")
+        return 1
     print("NET:GUEST:PASS")
 
     if not pcap_path.is_file():
@@ -239,13 +281,21 @@ def main(argv: list[str] | None = None) -> int:
         print("NET:HARNESS:FAIL")
         return 1
     mac = next((m for m in (line.split("mac=")[1].split()[0] for line in text.splitlines() if line.startswith("NETDRV:CARD") and "mac=" in line)), None)
+    if args.netd:
+        # The driver's own ARP self-test is the one exchange that does not come
+        # from the stack (whose ARP traffic is whatever its neighbours need).
+        arp_pairs = 1 if args.min_arp_pairs is None else args.min_arp_pairs
+        extra = dict(expect_probe=False, min_dhcp=NETD_MIN_DHCP, min_pings=NETD_MIN_PINGS,
+                     min_frames=2 * (NETD_MIN_DHCP + NETD_MIN_PINGS))
+    else:
+        arp_pairs = MIN_ARP_PAIRS if args.min_arp_pairs is None else args.min_arp_pairs
+        extra = dict(expect_probe=True, min_frames=2 * arp_pairs)
     report = analyze_pcap.analyze(
         frames,
         guest_mac=pcap.parse_mac(mac or analyze_pcap.DEFAULT_GUEST_MAC),
         gateway_ip=pcap.parse_ip(analyze_pcap.DEFAULT_GATEWAY),
-        min_arp_pairs=args.min_arp_pairs,
-        expect_probe=True,
-        min_frames=2 * args.min_arp_pairs,
+        min_arp_pairs=arp_pairs,
+        **extra,
     )
     print("\n".join(report.lines))
     print("NET:HARNESS:" + ("PASS" if report.ok else "FAIL"))

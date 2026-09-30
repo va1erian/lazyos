@@ -180,11 +180,57 @@ def nicdrv_seeds():
     return seeds
 
 
+# ---- netstack script grammar --------------------------------------------------
+# `libs/netstack/src/fuzz.rs`: mode byte, four u16 of seed, then ops. 60..=139
+# advance the clock (one delay byte) and let the gateway answer, each answer
+# followed by a mutation byte (0..4 intact) and a checksum-fix byte; 140..=159
+# ping; 160..=169 renew; 185..=199 a gateway-made frame; 200..=214 bend what the
+# gateway offers.
+
+
+def ns_header(mode=1, seed=0x1122334455667788):
+    return bytes([mode]) + struct.pack(">Q", seed)
+
+
+def ns_step(delay=9, mutations=b"\0\0\0\0\0\0"):
+    return bytes([100, delay]) + mutations
+
+
+def ns_ping(dst_kind=0, length=56, timeout=50):
+    return bytes([150, dst_kind]) + struct.pack(">H", length) + bytes([timeout])
+
+
+def netstack_seeds():
+    return {
+        # DHCP to completion, then a few pings to the gateway.
+        "dhcp_then_ping": ns_header() + ns_step() * 12 + ns_ping() + ns_step() * 6 + ns_ping(length=1400) + ns_step() * 6,
+        "static_then_ping": ns_header(mode=0) + ns_step() * 4 + ns_ping() + ns_step() * 6,
+        # A renewal in the middle of traffic.
+        "renew": ns_header() + ns_step() * 12 + bytes([165]) + ns_step() * 12 + ns_ping() + ns_step() * 4,
+        # A gateway that offers a hostile lease: loopback, multicast, /31.
+        "bent_leases": ns_header() + b"".join(
+            bytes([205]) + bytes(ip) + bytes([0, 1, 10, 0, 2, 2, 1, 10, 0, 2, 3, 0, 16, 2])
+            + bytes([165]) + ns_step() * 10
+            for ip in ((127, 0, 0, 1), (224, 0, 0, 9), (0, 0, 0, 0), (10, 0, 2, 255))
+        ),
+        # Damaged answers: truncated, bit flips (with and without checksum repair).
+        "damage": ns_header() + ns_step(mutations=bytes([5, 0, 1, 7, 1, 2, 1, 0])) * 10 + ns_ping() + ns_step(mutations=bytes([6, 0, 0, 3, 1, 1, 6, 1])) * 10,
+        # Raw frames of arbitrary bytes, including an oversize one.
+        "raw_frames": ns_header() + bytes([0, 0, 60, 7]) + bytes(range(60)) + bytes([0, 6, 200, 1]) + bytes(range(200)) * 2 + ns_step() * 4,
+        # Pings to invalid, off-link and unanswered addresses, then the cap.
+        "ping_abuse": ns_header() + ns_step() * 12 + b"".join(ns_ping(dst_kind=k, length=n, timeout=t) for k, n, t in ((1, 8, 10), (2, 0, 50), (3, 1400, 255), (0, 1500, 1), (2, 8, 255), (2, 8, 255), (2, 8, 255), (2, 8, 255), (2, 8, 255), (2, 8, 255), (2, 8, 255), (2, 8, 255), (2, 8, 255))) + ns_step() * 8,
+        # Cancel a ping, flip the gateway's echo behaviour.
+        "cancel_and_mute": ns_header() + ns_step() * 12 + ns_ping() + bytes([182, 0, 0]) + bytes([172, 1]) + ns_ping() + ns_step() * 8,
+        "empty": b"",
+    }
+
+
 TARGETS = {
     "framering": framering_seeds,
     "framering_header": header_seeds,
     "virtio_net": virtio_net_seeds,
     "nicdrv": nicdrv_seeds,
+    "netstack": netstack_seeds,
 }
 
 

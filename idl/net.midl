@@ -149,3 +149,142 @@ interface os.lazy.net.nic.v1 {
     /// Which received frames reach the client.
     enum RxMode { Off, Filtered, Promiscuous }
 }
+
+/// The network stack service `netd` (docs/networking-plan.md N2): address
+/// configuration, routes, statistics and ping, over the one interface the
+/// stack drives (`os.lazy.net.nic.v1`). `netd` runs as the `_netd` user with no
+/// capabilities, is the only client of the NIC driver, and parses every frame
+/// the network sends it: nothing here is authority over a device.
+///
+/// **Nothing names a caller.** Who is asking is the kernel-stamped sender of the
+/// call; `Renew` and other changes are gated by the ACL (`libs/netpolicy`), not
+/// by a field in a request. Failures are returned as the shared structured error
+/// field (`services::error_field`) instead of the declared reply fields.
+///
+/// **Blocking without threads.** `Ping` is a synchronous call whose reply is
+/// *parked*: `netd` answers it when the echo reply arrives, or with `ETIMEDOUT`
+/// when `timeout_ms` passes, and the caller sleeps in the kernel meanwhile with
+/// its own deadline (`msg_cancel` and the caller's death clean up). One
+/// caller may have up to 8 pings outstanding; past that the call fails with
+/// `EAGAIN`. The stack's clock is the 100 Hz tick, so round trips read in
+/// multiples of 10 ms.
+interface os.lazy.net.stack.v1 {
+    /// The interfaces the stack drives (one today).
+    method Interfaces() -> (list: Array<InterfaceInfo>);
+    /// The addresses configured on every interface.
+    method Addresses() -> (list: Array<AddressInfo>);
+    /// The routing table.
+    method Routes() -> (list: Array<RouteInfo>);
+    /// Stack counters since it started.
+    method Stats() -> (stats: StackStats);
+    /// Send one ICMP echo request to `dst` (four octets) with `payload_len`
+    /// bytes of payload (0 to 1400) and wait for its reply. `timeout_ms`
+    /// (10 to 60000) bounds the wait. Fails with `EINVAL` for a bad argument,
+    /// `ENETUNREACH` when there is no address or route yet, `EAGAIN` when too
+    /// many pings are outstanding and `ETIMEDOUT` when no reply came.
+    method Ping(dst: Bytes, payload_len: U32, timeout_ms: U32) -> (result: EchoResult);
+    /// Ask for a fresh DHCP lease (drops the current one). Gated by the ACL.
+    method Renew() -> ();
+    /// Drop the attachment to the NIC driver and establish it again, as after
+    /// a driver restart: the stack keeps its lease and timers. A recovery and
+    /// test call; gated by the ACL.
+    method Reattach() -> ();
+
+    /// One network interface.
+    struct InterfaceInfo {
+        /// The interface name (`eth0`).
+        name: String,
+        /// Six octets, network order.
+        mac: Bytes,
+        mtu: U32,
+        /// The driver reports the link up.
+        link: Bool,
+        /// A `ConfigMode` ordinal: how the interface is configured.
+        mode: U32,
+        /// A `DhcpState` ordinal (`Off` for a static interface).
+        dhcp: U32
+    }
+
+    /// One configured IPv4 address.
+    struct AddressInfo {
+        interface: String,
+        /// Four octets, network order.
+        addr: Bytes,
+        prefix_len: U32,
+        /// An `AddrSource` ordinal.
+        source: U32,
+        /// Seconds of lease left when asked (0 when static or unknown).
+        lease_secs: U32
+    }
+
+    /// One IPv4 route.
+    struct RouteInfo {
+        interface: String,
+        /// Four octets; all zero with `prefix_len` 0 is the default route.
+        dest: Bytes,
+        prefix_len: U32,
+        /// Four octets; all zero for an on-link route.
+        gateway: Bytes
+    }
+
+    /// Stack counters since it started.
+    struct StackStats {
+        /// Frames read from and written to the NIC rings.
+        rx_frames: U64,
+        tx_frames: U64,
+        rx_bytes: U64,
+        tx_bytes: U64,
+        /// Frames the stack wanted to send but the transmit ring had no room for.
+        tx_dropped: U64,
+        /// Frames the driver's ring delivered with an impossible length.
+        rx_bad_length: U64,
+        /// Times the NIC ring or the driver went away and was re-attached.
+        nic_resets: U64,
+        /// DHCP leases acquired and lost.
+        leases: U64,
+        lease_losses: U64,
+        /// Pings started, answered, and timed out.
+        pings_sent: U64,
+        pings_answered: U64,
+        pings_timed_out: U64
+    }
+
+    /// The answer to one echo request.
+    struct EchoResult {
+        /// Round trip in milliseconds (10 ms resolution).
+        rtt_ms: U32,
+        /// Four octets: who answered.
+        source: Bytes,
+        /// Bytes of echo payload returned.
+        bytes: U32
+    }
+
+    /// The address `netd` currently holds on an interface, retained so a late
+    /// subscriber sees it. `{ifname}` is the interface name.
+    topic "system/net/{ifname}/addr" : AddressEvent retained qos=latest;
+
+    /// Published once when the stack first has an address (and again after a
+    /// lease is lost and regained).
+    topic "system/events/network/up" : AddressEvent qos=latest;
+
+    /// An interface's address state.
+    struct AddressEvent {
+        interface: String,
+        /// Four octets; all zero when there is no address.
+        addr: Bytes,
+        prefix_len: U32,
+        /// Four octets; all zero when there is no gateway.
+        gateway: Bytes
+    }
+
+    /// How an interface is configured.
+    enum ConfigMode { Dhcp, Static }
+
+    /// Where an address came from.
+    enum AddrSource { Dhcp, Static }
+
+    /// The DHCP client's state as the stack can observe it: a lease is held
+    /// (`Bound`) or it is being looked for (`Discovering`, which includes asking
+    /// the server to confirm an offer).
+    enum DhcpState { Off, Discovering, Bound }
+}

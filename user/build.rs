@@ -79,7 +79,14 @@ fn main() {
     // build script), so a services boot supervises the driver.
     println!("cargo:rerun-if-env-changed=LAZYOS_NET");
     println!("cargo:rustc-check-cfg=cfg(lazyos_net)");
-    if env::var_os("LAZYOS_NET").as_deref() == Some(std::ffi::OsStr::new("1")) {
+    // `LAZYOS_NETD=1` adds the `netd` row and implies the driver's.
+    println!("cargo:rerun-if-env-changed=LAZYOS_NETD");
+    println!("cargo:rustc-check-cfg=cfg(lazyos_netd)");
+    let netd = env::var_os("LAZYOS_NETD").as_deref() == Some(std::ffi::OsStr::new("1"));
+    if netd || env::var_os("LAZYOS_NET").as_deref() == Some(std::ffi::OsStr::new("1")) {
         println!("cargo:rustc-cfg=lazyos_net");
+    }
+    if netd {
+        println!("cargo:rustc-cfg=lazyos_netd");
     }
 }

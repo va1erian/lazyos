@@ -98,6 +98,7 @@ fn untouched(buffer: &[u8], what: &str) -> Result<(), String> {
 
 mod epoll_and_fs;
 mod fs_base_and_execve;
+mod native_random;
 mod overflow_guards;
 mod pointer_validation;
 mod teardown_and_credentials;
@@ -105,6 +106,7 @@ mod user_limits;
 
 pub(super) use epoll_and_fs::*;
 pub(super) use fs_base_and_execve::*;
+pub(super) use native_random::*;
 pub(super) use overflow_guards::*;
 pub(super) use pointer_validation::*;
 pub(super) use teardown_and_credentials::*;
@@ -160,6 +162,19 @@ pub(super) const CASES: &[(&str, Test)] = &[
         "hardening_concurrent_clients_are_not_a_deadlock",
         concurrent_clients_are_not_a_deadlock,
     ),
+    (
+        "hardening_native_random_honours_counts_and_the_cap",
+        native_random_honours_counts_and_the_cap,
+    ),
+    (
+        "hardening_native_random_rejects_bad_buffers",
+        native_random_rejects_bad_buffers,
+    ),
+    (
+        "hardening_native_random_is_unique_and_balanced",
+        native_random_is_unique_and_balanced,
+    ),
+    ("hardening_soak_native_random", native_random_soak),
     (
         "hardening_intern_service_names_are_bounded",
         intern_service_names_are_bounded,

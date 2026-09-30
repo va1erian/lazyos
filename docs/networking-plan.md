@@ -455,7 +455,7 @@ network) builds on the same interfaces.
 |---|---|
 | N0 | **Built.** `idl/net.midl` (`os.lazy.net.nic.v1`), `libs/framering`, `libs/virtio-net`, `libs/fuzzkit`, the 256-entry queue cap, the `fuzz/` cargo-fuzz crate, `.github/workflows/net.yml`, `tools/net/README.md` |
 | N1 | **Built.** `netdrv` (`user/src/bin/netdrv.rs`), `libs/nicdrv` (its host-tested core), `nicctl`, `user/src/messenger/net.rs`, the `_net` uid (902) and `init` row, `LAZYOS_NET=1`, `libs/netpolicy` (class rules, loaded by a kernel test), `tools/net/run.py` + `analyze_pcap.py` + their tests, `--net` in `run_demo.py`. Evidence: a 42-exchange ARP capture, frame-policy and probe frames checked on the wire, in five harness variants |
-| N2 | Not built |
+| N2 | **Built.** `libs/netstack` (smoltcp 0.14), `netd` (`user/src/bin/netd.rs`), `os.lazy.net.stack.v1` (`idl/net.midl`), `netctl`, native `ping`, the `_netd` uid (903, no capabilities) and `init` row, `LAZYOS_NETD=1`, `libs/netpolicy` call rules (loaded by a kernel test), native syscall 26 and `CLOSE_RELEASE`. Evidence: a capture with 6 DHCP exchanges and 46 echo pairs (checksums valid) in default, `--services`, q35, `--poll` and `--no-device` runs; kernel suite 569/569 |
 | N3 to N6 | Not built (out of scope for the current work) |
 
 ## 11. Risks and open questions
@@ -579,3 +579,33 @@ Kept current as stages land; the reasoning for each is where it is used.
   `sndd` and `netdrv` now both carry (the two copies of `device.rs`/`dma.rs`
   differ only in the error type and the device id).
 
+**N2**
+
+- *Entropy.* No native call existed (`keyd` seeds from `RDRAND` and the tick).
+  Added syscall 26, `random(buf, len)`: at most 256 bytes per call from the
+  kernel CSPRNG that backs Linux `getrandom`, open to every task with no
+  capability (it grants no authority, and `netd` has none). Tests: bounds, bad
+  pointers, distinct output, a soak.
+- *`Ping` is on `stack.v1`.* The plan listed ping with the tools; it is a method
+  of the stack service (`Ping(dst, payload_len, timeout_ms) -> EchoResult`), a
+  parked call, so `ping` and `netctl` are thin clients and the echo socket stays
+  inside `netd`.
+- *`CLOSE_RELEASE`.* `netd` passes its own endpoint to the driver as the notify
+  endpoint so one `recv` serves both. The driver's close of a received endpoint
+  then closed the service for everyone. Releasing (close only if no other
+  handle) is now a flag of `close_endpoint`; the driver and `netd` release what
+  they did not create. The second kernel change of the stage, with tests.
+- *Head-of-line blocking in smoltcp's ICMP socket.* An undeliverable queued
+  packet stays at the head, so one ping to a dead address blocked all later
+  ones. The probe found it; `Stack::reset_icmp` rebuilds the socket when a ping
+  times out with its packet queued. Cost: a reply to a ping that already timed
+  out is discarded.
+- *Leases are validated.* The plan assumed DHCP could be trusted. A lease with
+  an unusable address or a prefix outside /1 to /30 is ignored; unusable
+  routers and resolvers are dropped and at most three resolvers are kept.
+- *10 ms clock accepted* as the plan said: RTTs are 0 or 10 ms; the first ping
+  (ARP first) takes about 90 ms.
+- *Not done in N2:* DNS queries (resolvers are kept, not used), non-owner call
+  enforcement (no policy loader), the shared PCI bring-up module, `sndd`'s
+  `discard_transfers` leaving extra handles open, hosted CI (the workflow is
+  written, not run on GitHub).

@@ -1,10 +1,13 @@
-//! The networking stack's class rules (`libs/netpolicy`, networking plan N1)
-//! loaded into the real ACL and exercised through `claim`.
+//! The networking stack's access rules (`libs/netpolicy`, networking plan N1
+//! and N2) loaded into the real ACL: the device-class rules exercised through
+//! `claim`, and the call rules for the NIC driver and the stack service through
+//! the kernel's own evaluation.
 //!
 //! The rules live in a host-tested data crate because nothing loads a policy at
-//! boot yet; this test proves the table does what its doc says when something
-//! does: `_net` may claim, map and DMA a net-class device and nothing else, and
-//! no other uid gets the net class.
+//! boot yet; these tests prove the tables do what their docs say when something
+//! does: `_net` may claim, map and DMA a net-class device and nothing else, no
+//! other uid gets the net class, `_netd` is the NIC driver's client, and an
+//! application can read the network and ping but not attach to the card.
 
 use alloc::vec::Vec;
 
@@ -13,7 +16,7 @@ use super::*;
 use crate::dev::class::{self, method};
 use crate::dev::errno::*;
 use crate::dev::syscall::*;
-use crate::ipc::acl::{Rule, ANY_METHOD};
+use crate::ipc::acl::{self as acl_rules, Rule, ANY_ACTOR, ANY_METHOD};
 use crate::ipc::credentials::Cred;
 use crate::ipc::handles::rights;
 use crate::ipc::topics::{fnv1a32, fnv1a64};
@@ -25,12 +28,16 @@ fn driver_in(cred: Cred) -> Result<usize, String> {
     Ok(slot)
 }
 
-/// `netpolicy`'s rules, hashed the way the loader will hash them.
-fn compiled() -> Vec<Rule> {
-    netpolicy::NET_DRIVER_CLASS_RULES
+/// `netpolicy` rules, hashed the way the loader will hash them.
+fn compile(specs: &[netpolicy::RuleSpec]) -> Vec<Rule> {
+    specs
         .iter()
         .map(|spec| Rule {
-            actor: spec.actor,
+            actor: if spec.actor == netpolicy::ANY_ACTOR {
+                ANY_ACTOR
+            } else {
+                spec.actor
+            },
             interface_id: fnv1a64(spec.interface),
             method: if spec.method == netpolicy::ANY_METHOD {
                 ANY_METHOD
@@ -40,6 +47,10 @@ fn compiled() -> Vec<Rule> {
             allow: spec.allow,
         })
         .collect()
+}
+
+fn compiled() -> Vec<Rule> {
+    compile(netpolicy::NET_DRIVER_CLASS_RULES)
 }
 
 /// `_net` gets the full rights of a NIC on a net-class device, is refused every
@@ -105,7 +116,108 @@ pub fn sys_net_driver_policy_is_exactly_the_class_rules() -> Result<(), String> 
     Ok(())
 }
 
-pub(super) const CASES: &[(&str, Test)] = &[(
-    "dev_sys_net_driver_policy_is_exactly_the_class_rules",
-    sys_net_driver_policy_is_exactly_the_class_rules,
-)];
+/// `netpolicy`'s call rules for the NIC driver and the stack service, loaded
+/// into the real ACL and asked about every method for each kind of caller.
+pub fn net_call_rules_decide_who_may_call_what() -> Result<(), String> {
+    let _fx = Fixture::new()?;
+    let mut rules = compile(netpolicy::NIC_CLIENT_RULES);
+    rules.extend(compile(netpolicy::STACK_CLIENT_RULES));
+    acl::load(&rules);
+    let allowed = |uid: u32, interface: &str, method: &str| {
+        !acl_rules::evaluate(uid, fnv1a64(interface), fnv1a32(method)).denied()
+    };
+    let nic = netpolicy::NIC_INTERFACE;
+    let stack = netpolicy::STACK_INTERFACE;
+    let (netd, net, root, app, stranger) = (netpolicy::NETD_UID, netpolicy::NET_UID, 0, 1000, 4242);
+
+    // The NIC driver: `_netd` is its client; everyone may read the card.
+    for method in [
+        "Info",
+        "SetRxMode",
+        "AttachRing",
+        "DetachRing",
+        "Stats",
+        "Kick",
+        "Notify",
+    ] {
+        check!(
+            allowed(netd, nic, method),
+            "_netd refused {method} on the NIC"
+        );
+        check!(
+            allowed(root, nic, method),
+            "root refused {method} on the NIC"
+        );
+    }
+    for uid in [app, stranger, net] {
+        for method in ["Info", "Stats"] {
+            check!(
+                allowed(uid, nic, method),
+                "uid {uid} cannot read the card ({method})"
+            );
+        }
+        for method in [
+            "SetRxMode",
+            "AttachRing",
+            "DetachRing",
+            "Kick",
+            "Notify",
+            "NoSuchMethod",
+        ] {
+            check!(
+                !allowed(uid, nic, method),
+                "uid {uid} may call {method} on the NIC"
+            );
+        }
+    }
+
+    // The stack service: anyone reads and pings; only `_netd` and root change it.
+    for uid in [netd, root, app, stranger, net] {
+        for method in ["Interfaces", "Addresses", "Routes", "Stats", "Ping"] {
+            check!(
+                allowed(uid, stack, method),
+                "uid {uid} refused {method} on the stack"
+            );
+        }
+    }
+    for uid in [app, stranger, net] {
+        for method in ["Renew", "Reattach", "NoSuchMethod"] {
+            check!(
+                !allowed(uid, stack, method),
+                "uid {uid} may call {method} on the stack"
+            );
+        }
+    }
+    for uid in [netd, root] {
+        for method in ["Renew", "Reattach"] {
+            check!(
+                allowed(uid, stack, method),
+                "uid {uid} refused {method} on the stack"
+            );
+        }
+    }
+
+    // Default deny: an interface the rules do not name is refused to everyone.
+    check!(
+        !allowed(app, "os.lazy.confd.v1", "Get") && !allowed(root, "os.lazy.confd.v1", "Get"),
+        "a policy of only network rules allowed an unrelated interface"
+    );
+    // The audit record of a denial names the rule outcome.
+    let (decision, code) = acl_rules::evaluate_verdict(app, fnv1a64(nic), fnv1a32("AttachRing"));
+    check!(
+        decision.denied() && code == acl_rules::reason::EXPLICIT_DENY,
+        "an application attaching to the NIC was denied for reason {code}"
+    );
+    Ok(())
+}
+
+pub(super) const CASES: &[(&str, Test)] = &[
+    (
+        "dev_sys_net_driver_policy_is_exactly_the_class_rules",
+        sys_net_driver_policy_is_exactly_the_class_rules,
+    ),
+    (
+        "dev_net_call_rules_decide_who_may_call_what",
+        net_call_rules_decide_who_may_call_what,
+    ),
+];
