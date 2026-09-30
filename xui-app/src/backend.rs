@@ -44,7 +44,7 @@ use std::rc::Rc;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
-use xui_canvas::Surface;
+use xui_canvas::{OffscreenBackend, Surface};
 use xui_core::backend::{Painter, ParentRef, WidgetId, WindowId};
 use xui_core::router::WidgetHost;
 use xui_core::{Color, Key, Modifiers, Rect};
@@ -116,6 +116,13 @@ pub struct LazyOSBackend {
     frames: Cell<u64>,
     /// A one-shot callback run after the first frame reached the screen.
     on_first_frame: RefCell<Option<Box<dyn FnOnce()>>>,
+    /// Source of the shared text shaper. `xui-canvas` keeps its cosmic-text
+    /// shaper crate-private, but the headless backend hands out that same
+    /// `Send + Sync` shaper (cloning shares one font system, built on first use
+    /// from the fonts the app registered), so a widget can measure text on a
+    /// worker thread and this thread's canvas draws the resulting layouts. The
+    /// backend is never opened or run; it only owns the shaper.
+    shaper: OffscreenBackend,
 }
 
 /// One repeating timer; `deadline` is an absolute PIT tick (100 Hz).
@@ -202,6 +209,7 @@ impl LazyOSBackend {
             next_timer: Cell::new(1),
             frames: Cell::new(0),
             on_first_frame: RefCell::new(None),
+            shaper: OffscreenBackend::new(),
         }
     }
 

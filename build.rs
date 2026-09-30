@@ -447,6 +447,13 @@ const DOCUMENT_XUI_APPS: &[&str] = &[
     "xui-settings.elf",
 ];
 
+/// Desktop apps embedded when their ELF exists, and skipped (with a build
+/// warning) when it does not. The Docs app is C++ (litehtml) and needs the zig
+/// toolchain (`tools/xui/zig.py`), which a developer machine may lack; a
+/// missing one leaves a smaller desktop, not a broken one, so it is not a
+/// required default like [`DOCUMENT_XUI_APPS`].
+const OPTIONAL_XUI_APPS: &[&str] = &["xui-docs.elf"];
+
 /// The one app the desktop opens at boot when `LAZYOS_XUI_AUTOSTART` is unset:
 /// the Terminal. Every other embedded app (viewers, Editor, Files, Paint) is
 /// launched on demand from the Start menu, the right-click menu or open-with.
@@ -483,10 +490,24 @@ fn embed_xui_apps(builder: &mut bootloader::DiskImageBuilder, desktop: bool) {
             } else {
                 &[]
             };
+            let optional = OPTIONAL_XUI_APPS.iter().filter_map(|name| {
+                let path = dir.join(name);
+                // Tracked even when missing, so building it later is picked up.
+                println!("cargo:rerun-if-changed={}", path.display());
+                if path.is_file() {
+                    Some(path)
+                } else {
+                    println!(
+                        "cargo:warning=optional xui app {name} not built (needs zig:                          `pip install ziglang==0.16.0`, then `python tools/xui/build.py`)"
+                    );
+                    None
+                }
+            });
             DESKTOP_XUI_APPS
                 .iter()
                 .chain(document)
                 .map(|name| dir.join(name))
+                .chain(optional)
                 .collect()
         }
         None => return,

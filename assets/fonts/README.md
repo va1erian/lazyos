@@ -5,6 +5,7 @@ All fonts here are redistributed unmodified under permissive licenses.
 | File | Font | Used by | License |
 |---|---|---|---|
 | `DroidSans.ttf` | Droid Sans (proportional sans-serif) | `xuid` chrome (titles, taskbar, menus); every xui app | Apache-2.0 |
+| `DroidSans-Bold.ttf` | Droid Sans Bold | the Docs app (headings, emphasis) | Apache-2.0 |
 | `DroidSerif-Regular.ttf` | Droid Serif (proportional serif) | `xuid` headings and placeholders (Alt+Tab title, "Waiting for buffer") | Apache-2.0 |
 | `JetBrainsMono-Regular.ttf` | JetBrains Mono (monospace) | kernel framebuffer console; the xui Terminal | SIL OFL 1.1 |
 
@@ -20,7 +21,7 @@ All fonts here are redistributed unmodified under permissive licenses.
 - **JetBrains Mono** — Copyright 2020 The JetBrains Mono Project Authors
   (<https://github.com/JetBrains/JetBrainsMono>), SIL OFL 1.1 (`OFL.txt`).
 
-Droid Sans and Droid Serif were taken from the Android Open Source Project
+Droid Sans, Droid Sans Bold and Droid Serif were taken from the Android Open Source Project
 (`frameworks/base/data/fonts`, tag `android-4.4_r1`, mirrored at
 <https://github.com/aosp-mirror/platform_frameworks_base>). The files are
 byte-for-byte as shipped there. Android's Droid family was succeeded by Noto

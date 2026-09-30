@@ -1,0 +1,21 @@
+[
+  {"wait_for": "DOCS:UP:PASS", "timeout": 240},
+  {"wait_for": "DOCS:RENDER:PASS", "timeout": 240},
+  {"at": 1.5, "shot": "01_docs_top"},
+
+  {"at": 1.7, "mouse_move": [-300, -300]},
+  {"at": 1.9, "mouse_move": [-300, -300]},
+  {"at": 2.1, "mouse_move": [-300, -300]},
+  {"at": 2.3, "mouse_move": [-300, -300]},
+  {"at": 2.5, "mouse_move": [-300, -300]},
+  {"at": 2.7, "mouse_move": [500, 350]},
+
+  {"at": 3.2, "mouse_scroll": -5},
+  {"at": 3.8, "mouse_scroll": -5},
+  {"at": 4.6, "shot": "02_docs_wheel_down"},
+
+  {"at": 5.0, "mouse_scroll": 20},
+  {"at": 5.8, "shot": "03_docs_wheel_back_up"},
+
+  {"at": 6.4, "quit": true}
+]
