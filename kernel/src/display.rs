@@ -16,7 +16,8 @@
 //!   damage rectangle and the surface handoff between apps and the compositor
 //!   is already zero-copy via shared buffers.)
 //! * input events are pushed by the keyboard and mouse IRQ handlers into a
-//!   bounded queue ([`push_key`], [`push_pointer_move`], [`push_pointer_button`])
+//!   bounded queue ([`push_key`], [`push_pointer_move`], [`push_pointer_button`],
+//!   [`push_pointer_wheel`])
 //!   and drained by the compositor with the `input_poll` op. No Messenger
 //!   traffic is needed for input, which keeps the IRQ path allocation-free.
 //! * when the owner exits without unbinding, [`bound`] reports false and
@@ -354,6 +355,16 @@ pub fn push_pointer_button(button: u32, down: bool) {
     push_event(Event {
         kind,
         a: button as i32,
+        b: 0,
+        reserved: 0,
+    });
+}
+
+/// Queue a wheel movement of `notches` (positive scrolls up).
+pub fn push_pointer_wheel(notches: i32) {
+    push_event(Event {
+        kind: event::POINTER_WHEEL,
+        a: notches,
         b: 0,
         reserved: 0,
     });

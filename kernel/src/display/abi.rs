@@ -29,6 +29,9 @@ pub mod event {
     pub const KEY_DOWN: u32 = 3;
     /// Key released: `a` = key code.
     pub const KEY_UP: u32 = 4;
+    /// Wheel rolled: `a` = notches, positive away from the user (scroll up),
+    /// negative toward the user (scroll down). Only wheel mice produce it.
+    pub const POINTER_WHEEL: u32 = 5;
 }
 
 /// Pointer buttons, as reported in `POINTER_DOWN`/`POINTER_UP`.
