@@ -31,6 +31,7 @@ pub fn print(frame: u64, cr2: u64) {
     );
     print_walk("cr2", cr2);
     print_walk("rdi", word(9));
+    crate::task::diag::print_kstack_report(frame);
 }
 
 /// Print each paging-structure entry mapping `addr` in the current address

@@ -52,6 +52,31 @@ pub fn take_tick_lock_stats() -> (u64, u64) {
     )
 }
 
+/// Kernel entries (scheduler gates, the native syscall gate) whose Rust body
+/// started with the direction flag set. Must stay 0: the entry stubs clear
+/// DF before calling into Rust (issue #405), and the kernel's `memcpy`/
+/// `memset` silently corrupt memory when they run with it set.
+static DF_ENTRIES: AtomicU64 = AtomicU64::new(0);
+/// Entries checked by [`note_entry_flags`].
+static ENTRY_CHECKS: AtomicU64 = AtomicU64::new(0);
+
+/// Called at the top of `schedule` and `syscall_dispatch` (test builds only).
+pub fn note_entry_flags() {
+    ENTRY_CHECKS.fetch_add(1, Ordering::Relaxed);
+    if x86_64::registers::rflags::read().contains(x86_64::registers::rflags::RFlags::DIRECTION_FLAG)
+    {
+        DF_ENTRIES.fetch_add(1, Ordering::Relaxed);
+    }
+}
+
+/// `(entries_checked, entries_with_df_set)` since the last call; resets both.
+pub fn take_entry_flag_stats() -> (u64, u64) {
+    (
+        ENTRY_CHECKS.swap(0, Ordering::Relaxed),
+        DF_ENTRIES.swap(0, Ordering::Relaxed),
+    )
+}
+
 /// Free every slot except the kernel task's and zero its scheduler
 /// accounting, so tests do not inherit virtual-time or CPU ticks from an
 /// earlier test.

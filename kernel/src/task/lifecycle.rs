@@ -81,26 +81,33 @@ pub(super) fn release_address_space(pml4: u64) -> usize {
 
 /// Remove `slot` if it holds a finished task that no `wait4` can ever collect:
 /// a `clone(CLONE_VM)` thread or a kernel-started program has `parent == 0`,
-/// so it has no reaper. Returns the removed task's address space and whether
-/// another task still shares it (so the space must outlive this removal), or
-/// `None` when nothing was removed.
+/// so it has no reaper. Returns the removed task and whether another task
+/// still shares its address space (so the space must outlive this removal),
+/// or `None` when nothing was removed.
+///
+/// The task is handed back rather than dropped here: dropping it closes its
+/// descriptors, and the last reference to a pipe end wakes the peer's wait
+/// queue, which takes the task table (queue-before-table order). Dropping it
+/// under the caller's `TASKS` lock would spin on that lock forever with
+/// interrupts off (issue #404). The kernel stack is a static array reused
+/// with the slot, so it needs no freeing.
 pub(super) fn take_finished(
     tasks: &mut [Option<Task>; MAX_TASKS],
     slot: usize,
-) -> Option<(u64, bool)> {
-    let task = tasks[slot].as_ref()?;
-    if task.state != TaskState::Done || task.parent != 0 {
+) -> Option<(Task, bool)> {
+    let reclaimable = tasks[slot]
+        .as_ref()
+        .is_some_and(|task| task.state == TaskState::Done && task.parent == 0);
+    if !reclaimable {
         return None;
     }
-    let pml4 = task.pml4;
-    // Dropping the task frees its fds and output/input buffers; the kernel
-    // stack is a static array reused with the slot, so it needs no freeing.
-    tasks[slot] = None;
+    let dead = tasks[slot].take()?;
+    let pml4 = dead.pml4;
     let shared = tasks
         .iter()
         .enumerate()
         .any(|(other, task)| other != slot && task.as_ref().is_some_and(|task| task.pml4 == pml4));
-    Some((pml4, shared))
+    Some((dead, shared))
 }
 
 /// Flag `slot` for task-context reclamation if it holds a finished parentless
@@ -122,51 +129,47 @@ pub(super) fn mark_finished(tasks: &[Option<Task>; MAX_TASKS], slot: usize) {
 /// Must run with interrupts disabled in task context (a syscall entry or the
 /// mux loop): dropping a dead task takes the heap lock, and unlike a preempted
 /// task the current task holds none inside a critical section there.
+///
+/// Each slot is handled in its own critical section, and the dead task is
+/// dropped only once the table is unlocked, for the reason [`take_finished`]
+/// gives: its pipe ends may wake a peer, which re-takes the table (issue
+/// #404). Interrupts are off and the CPU is single, so nothing changes the
+/// table between two slots; a thread removed while a sibling is still
+/// pending sees the space as shared, and the sibling's removal frees it.
 pub fn reclaim_pending() {
     let pending = PENDING_RECLAIM.swap(0, Ordering::Relaxed);
     if pending == 0 {
         return;
     }
-    let mut tasks = TASKS.lock();
-    let mut orphans = [0u64; MAX_TASKS];
-    let mut orphan_count = 0;
-    // (slot, its PML4, whether another task still shares that PML4).
-    let mut removed = [(0usize, 0u64, false); MAX_TASKS];
-    let mut removed_count = 0;
-    for slot in 1..MAX_TASKS {
-        if pending & (1u64 << slot) != 0 {
-            if let Some((pml4, shared)) = take_finished(&mut tasks, slot) {
-                removed[removed_count] = (slot, pml4, shared);
-                removed_count += 1;
-                if !shared {
-                    orphans[orphan_count] = pml4;
-                    orphan_count += 1;
-                }
-            }
-        }
-    }
-    drop(tasks);
-    // Release what the dead tasks still hold in the Messenger fabric before
-    // their address spaces go away (`ipc::teardown_task` explains why the
-    // order matters). The task table is unlocked: closing an endpoint wakes
-    // waiters, which takes the wait-queue lock and then the table.
-    for &(slot, pml4, shared) in &removed[..removed_count] {
+    let mut removed_any = false;
+    for slot in (1..MAX_TASKS).filter(|slot| pending & (1u64 << slot) != 0) {
+        let Some((dead, shared)) = take_finished(&mut TASKS.lock(), slot) else {
+            continue;
+        };
+        let pml4 = dead.pml4;
+        // The table lock is released (the guard was a temporary): closing
+        // the dead task's descriptors may now wake a peer safely.
+        drop(dead);
+        // Release what the dead task still holds in the Messenger fabric
+        // before its address space goes away (`ipc::teardown_task` explains
+        // why the order matters).
         crate::ipc::teardown_task(slot, pml4, shared);
+        if !shared {
+            let pages = mem::user_table_frame_count(PhysAddr::new(pml4));
+            let released = release_address_space(pml4);
+            let stats = mem::frame_stats();
+            serial_println!(
+                "mem: reclaimed address space {pml4:#x}: {pages} pages, released {released} frames, {} free of {}",
+                stats.free,
+                stats.total
+            );
+        }
+        removed_any = true;
     }
-    if removed_count > 0 {
+    if removed_any {
         // A `clone` sleeping on table pressure can return early. Queue before
-        // task table order holds: the lock above is already released.
+        // task table order holds: no table lock is held here.
         wait::SLOT.notify_all();
-    }
-    for &pml4 in &orphans[..orphan_count] {
-        let pages = mem::user_table_frame_count(PhysAddr::new(pml4));
-        let released = release_address_space(pml4);
-        let stats = mem::frame_stats();
-        serial_println!(
-            "mem: reclaimed address space {pml4:#x}: {pages} pages, released {released} frames, {} free of {}",
-            stats.free,
-            stats.total
-        );
     }
 }
 
