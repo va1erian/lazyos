@@ -9,7 +9,7 @@ onto the ext2 data volume.
 | Parameter | Mechanism |
 |---|---|
 | Date and time, timezone | `timed` (`SetTime`, `SetZone`, `Now`) |
-| Keyboard layout (US, FR only) | new `kbd_layout` syscall, applied at boot by `init` |
+| Keyboard layout (US, FR only) | UI only: writes `sys/input/layout` to confd; a separate input daemon (other session) applies it |
 | Background, active/inactive window, taskbar, accent colors | runtime `Theme` in `xuid`, driven by confd |
 | Dark / light theme | preset that resolves into the same `Theme` |
 | Extras | animations toggle, 12/24-hour clock, show seconds, per-section reset, About page |
@@ -38,8 +38,7 @@ shows a "settings will not survive reboot" banner.
 `Theme` struct loaded from `sys/ui/*`, re-read on the confd change topic.
 `GetTheme` in `idl/display.midl` gains `mode` and `accent` (midlc regenerated).
 
-**Keyboard.** Syscall `kbd_layout(op, arg)`; set needs `CAP_SYS_ADMIN`. `init`
-applies `sys/input/layout` after confd is up.
+**Keyboard.** UI only. The section shows a US/FR radio and a test text field and writes `sys/input/layout`. No kernel syscall or `init` wiring is added here: layout switching moves into an input daemon being built in another session, which will own applying that key. The Keyboard section shows the stored value and notes that it takes effect once the daemon lands.
 
 **App.** `xui-app/crates/settings` (host-testable model + reducer + schema) and
 `xui-app/src/bin/settings.rs`. Sidebar is an `IconView` with a `SectionsModel`
@@ -52,9 +51,9 @@ preset swatches plus RGB sliders. Registration: `xui-app/Cargo.toml`,
 
 1. **Persistence**: confd falls back `/system` -> `/data` -> `/tmp`; tests incl. soak.
 2. **Runtime theme in xuid**: `Theme` struct, confd load + subscribe, `GetTheme` extension, `THEME:*` markers.
-3. **Keyboard syscall**: syscall, init apply, `keyboard_suite` tests + soak.
+3. **Keyboard**: dropped as kernel work; UI-only section in phase 5.
 4. **App scaffold**: crate, window, `IconView` sidebar, registration, menu entry, `SETTINGS:UP:PASS`.
-5. **Sections**: Appearance, Windows, Time, Keyboard, About.
+5. **Sections**: Appearance, Windows, Time, Keyboard (UI only), About.
 6. **Polish and docs**: reset buttons, persistence banner, doc updates.
 
 ## Verification
