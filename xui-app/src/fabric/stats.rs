@@ -6,7 +6,7 @@ use crate::sys::{self, msg_op, MsgArgs, MsgResult};
 use super::error::{E2BIG, EINVAL};
 
 /// Task slots in the per-slot arrays; mirrors `kernel::task::MAX_TASKS`.
-pub const FABRIC_TASKS: usize = 64;
+pub const FABRIC_TASKS: usize = 256;
 
 /// Bytes in the version-3 `FabricStats` block: 22 scalar words, 64 per-task
 /// handle words, 8 ACL/audit words, and 64 four-word task rows.
@@ -25,7 +25,7 @@ pub struct TaskUsage {
     pub buffer_bytes: u64,
 }
 
-/// The versioned fabric snapshot (stats ABI v3): channels, messages, buffers,
+/// The versioned fabric snapshot (stats ABI v4): channels, messages, buffers,
 /// handles, fences, ACL/audit state, and per-slot usage in one block.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct FabricStats {
@@ -126,8 +126,8 @@ impl Default for FabricStats {
 }
 
 impl FabricStats {
-    /// The ABI version this mirror understands (3: 64 per-slot rows, #204).
-    pub const VERSION: u64 = 3;
+    /// The ABI version this mirror understands (4: 256 per-slot rows; 3 had 64, #204).
+    pub const VERSION: u64 = 4;
 
     /// Decode the little-endian word stream written by the `stats` op. `None`
     /// when the length is wrong or the version is newer than this mirror.

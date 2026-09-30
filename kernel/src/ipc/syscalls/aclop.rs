@@ -43,6 +43,11 @@ pub(super) fn op_acl_load(args: &MsgArgs) -> Result<MsgResult, i64> {
     let bytes = read_parcel(args)?;
     let parcel = decode_parcel(&bytes)?;
     let request = policy::wire::decode_load_label_args(&parcel.body).map_err(|_| errno::EINVAL)?;
+    // Size before interning: a refused load must not consume a slot of the
+    // append-only label table.
+    if request.rules.len() > acl::MAX_RULES_PER_LABEL {
+        return Err(errno::EINVAL);
+    }
     let label = labels::intern(&request.label).map_err(|error| match error {
         labels::Error::Malformed => errno::EINVAL,
         labels::Error::TableFull => errno::ENOMEM,

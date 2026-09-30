@@ -5,7 +5,10 @@
 //!
 //! * Service names. `os.lazy.*` belongs to the platform: a `system:*` task or
 //!   an unlabelled task holding root, `CAP_IPC_CONTROL` or `CAP_DEV_CLAIM` (a
-//!   driver `init` provisioned) may register there. `app.<id>.<name>` belongs
+//!   driver `init` provisioned) may register there, and any other unlabelled
+//!   task falls back to the uid rules (bootstrap-allow until a uid policy is
+//!   loaded, so `init`'s capability-less services such as `netd` still come
+//!   up). `app.<id>.<name>` belongs
 //!   to the task labelled `app:<id>`. A labelled task may register nothing
 //!   else. The `<name>` part is a single segment (no dots), so a name maps to
 //!   exactly one `<id>`: `app:com.foo` cannot claim `app.com.foo.bar.svc`,
@@ -107,6 +110,16 @@ fn unlabelled_admin(cred: &Cred) -> bool {
         && (cred.uid == 0 || cred.has_cap(CAP_IPC_CONTROL) || cred.has_cap(CAP_DEV_CLAIM))
 }
 
+/// The legacy uid rules for an unlabelled task's registry call.
+fn uid_verdict(cred: &Cred, method: u32) -> Result<u32, u32> {
+    let (decision, code) = acl::evaluate_verdict(cred.authority(), registry::INTERFACE, method);
+    if decision.denied() {
+        Err(code)
+    } else {
+        Ok(code)
+    }
+}
+
 /// Decide a name operation without auditing it: `Ok(reason)` or `Err(reason)`.
 fn name_verdict(cred: &Cred, op: NameOp, name: &str) -> Result<u32, u32> {
     let own_app = app_id_of(cred.label_id);
@@ -117,11 +130,17 @@ fn name_verdict(cred: &Cred, op: NameOp, name: &str) -> Result<u32, u32> {
         NameOp::Register => {
             if name.starts_with(SYSTEM_NAMES) {
                 let system = labels::kind_of(cred.label_id) == Some(Kind::System);
-                return if system || unlabelled_admin(cred) {
-                    Ok(reason::ALLOWED_BY_NAMESPACE)
-                } else {
-                    Err(reason::RESERVED_NAMESPACE)
-                };
+                if system || unlabelled_admin(cred) {
+                    return Ok(reason::ALLOWED_BY_NAMESPACE);
+                }
+                if cred.label_id != 0 {
+                    return Err(reason::RESERVED_NAMESPACE);
+                }
+                // An unlabelled, unprivileged task (a platform service `init`
+                // runs under its own uid with no capabilities, like `netd`)
+                // keeps the legacy uid rules: bootstrap-allow until
+                // `messengerd` loads a uid policy, then whatever it says.
+                return uid_verdict(cred, registry::method::REGISTER);
             }
             if name.starts_with(APP_NAMES) {
                 return if namespaced || unlabelled_admin(cred) {

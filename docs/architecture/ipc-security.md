@@ -72,7 +72,10 @@ audit ring, and per-uid quotas. Spec: [security-model.md](../security-model.md).
   own namespaces.
 - **Namespaces** (`policy.rs`, issue #308): `register` of `os.lazy.*` needs a
   `system:*` label, or no label plus uid 0, `CAP_IPC_CONTROL` or `CAP_DEV_CLAIM`
-  (a provisioned driver); `app.<id>.<name>` needs label `app:<id>` (`<name>` is
+  (a provisioned driver); any other unlabelled task falls back to the uid rules
+  (bootstrap-allow until a uid policy is loaded), so `init`'s capability-less
+  services such as `netd` still register. No labelled app can claim `os.lazy.*`.
+  `app.<id>.<name>` needs label `app:<id>` (`<name>` is
   one dot-free segment so a name names exactly one id); a labelled task may
   register nothing else. A topic at or under `app/<id>/` (publish or subscribe)
   is allowed for `app:<id>`. Resolving any other name (checked as

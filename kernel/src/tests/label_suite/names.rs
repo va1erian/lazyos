@@ -65,14 +65,16 @@ pub fn reserved_os_lazy() -> Result<(), String> {
             register_as(driver, "os.lazy.drv")? == 0,
             "a provisioned driver refused"
         );
+        // An unlabelled, capability-less service (how `init` runs `netd`)
+        // keeps the legacy uid rules: allowed while no uid policy is loaded.
         let plain = labelled_task("", 1000, 0)?;
-        let code = register_as(plain, "os.lazy.nope")?;
+        let code = register_as(plain, "os.lazy.plain")?;
         check!(
-            code == failed(EACCES),
-            "an unprivileged unlabelled task squatted os.lazy.* -> {code:#x}"
+            code == 0,
+            "an unlabelled capability-less service lost os.lazy.* -> {code:#x}"
         );
         check!(
-            registry::list().len() == 4,
+            registry::list().len() == 5,
             "{} names",
             registry::list().len()
         );
@@ -280,6 +282,17 @@ pub fn load_gate_and_revoke() -> Result<(), String> {
         check!(
             acl::label_rule_count(id) == 1,
             "a failed load changed the label"
+        );
+        // An oversized batch for a label nobody has seen must not intern it:
+        // a refused load changes nothing, including the append-only table.
+        let before = labels::count();
+        check!(
+            load_current("app:com.oversized", &many)? == failed(EINVAL),
+            "an oversized batch for a new label was accepted"
+        );
+        check!(
+            labels::count() == before && labels::lookup("app:com.oversized").is_none(),
+            "a refused load interned its label"
         );
         // Revoke by loading nothing.
         check!(load_current("app:com.load", &[])? == 0, "revoke");
