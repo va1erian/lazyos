@@ -23,6 +23,15 @@ const LOGGED: u64 = 4;
 /// Whether a fault with `error` at `addr`, raised from ring 3, is one the
 /// current page tables already permit.
 pub fn is_spurious(error: PageFaultErrorCode, addr: u64) -> bool {
+    // RSVD together with P is what hardware reports for a PTE that really has
+    // reserved bits set: a genuine fault the walk below cannot see (it does
+    // not check reserved bits), and retrying it would livelock. Only RSVD
+    // *without* P, which no CPU produces, is the hypervisor's fabrication.
+    if error
+        .contains(PageFaultErrorCode::MALFORMED_TABLE | PageFaultErrorCode::PROTECTION_VIOLATION)
+    {
+        return false;
+    }
     super::pagewalk::user_access_allowed(
         addr,
         error.contains(PageFaultErrorCode::CAUSED_BY_WRITE),

@@ -58,6 +58,12 @@ fn classifies_by_page_tables() -> Result<(), String> {
             check!(is_spurious(code, ro + 8), "read of ro page, {code:?}");
             check!(!is_spurious(code, gone), "read of unmapped page, {code:?}");
         }
+        // A genuine reserved-bit fault (RSVD with P) is never retried.
+        let real_rsvd =
+            PageFaultErrorCode::MALFORMED_TABLE | PageFaultErrorCode::PROTECTION_VIOLATION;
+        for code in [real_rsvd, READ | real_rsvd, WRITE | real_rsvd] {
+            check!(!is_spurious(code, rw + 8), "RSVD+P fault retried, {code:?}");
+        }
         check!(is_spurious(WRITE, rw + 100), "write to rw page");
         check!(!is_spurious(WRITE, ro + 100), "write to read-only page");
         check!(!is_spurious(WRITE, gone), "write to unmapped page");
