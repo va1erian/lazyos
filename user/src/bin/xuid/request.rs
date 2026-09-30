@@ -7,13 +7,14 @@ use alloc::vec::Vec;
 use libmessenger::Parcel;
 use user::messenger::display::{self, wire, Rect};
 use user::messenger::{self, Endpoint, Message};
+use user::sys;
 
 use super::compositor::Compositor;
 use super::layout::place_window;
 use super::present::attach;
 use super::protocol::{drop_rejected_handle, empty_reply, error_reply, is_privileged, typed_reply};
 use super::surface::Surface;
-use super::window::surface_by_id;
+use super::window::{focus_on_create, surface_by_id};
 
 impl Compositor {
     /// Handle one display request; returns the reply parcel for a synchronous
@@ -32,6 +33,7 @@ impl Compositor {
             wire::METHOD_DRAGSTART => self.drag_start(message, body),
             wire::METHOD_DRAGCANCEL => self.drag_cancel_request(message, body),
             wire::METHOD_SETTITLE => self.set_title(message, body),
+            wire::METHOD_HINTOPENORIGIN => self.hint_open_origin(message, body),
             wire::METHOD_SUBSCRIBE => self.subscribe(message, body),
             wire::METHOD_LISTSURFACES => self.list_surfaces(message),
             wire::METHOD_GETWORKAREA => self.get_work_area(message),
@@ -91,18 +93,19 @@ impl Compositor {
             );
             self.surfaces
                 .push(new_surface(message, id, title, origin, (w, h), false));
-            let before = self.focused;
-            if self.focused.is_none() {
-                self.focused = Some(id);
-            }
-            if self.focused != before {
+            // A new window comes up on top and focused, so double-clicking a
+            // folder in Files shows the new window in front instead of behind
+            // the one that opened it. The first window still gets focus.
+            if focus_on_create(&mut self.surfaces, &mut self.focused, id) {
                 self.notify_focus();
             }
             self.notify_surface(id, wire::CHANGE_CREATED);
-            // Open with a zoom out of the window's taskbar entry, hidden (as
-            // if minimized) so the wireframe flies over the old screen.
+            // Open with a zoom out of the tile the app hinted at, else out of
+            // the window's taskbar entry; hidden (as if minimized) so the
+            // wireframe flies over the old screen.
+            let origin = super::origin::take(&mut self.hints, message.sender, sys::clock());
             self.set_minimized(id, true);
-            self.deiconify(id);
+            self.open_zoom(id, origin);
             self.set_minimized(id, false);
             // A new surface changes the layout (and the taskbar), so repaint
             // the whole screen.

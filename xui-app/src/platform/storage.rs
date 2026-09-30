@@ -1,13 +1,13 @@
 //! The Paint app's filesystem [`Storage`]: PNG bytes at a fixed path.
 //!
-//! The portable [`Storage`] trait takes no path, so a LazyOS paint session
-//! saves to and loads from one path chosen at start-up (a file named in the
-//! command line, else `$HOME/xpaint.png`). Writes are atomic — a temp file in
+//! The portable [`Storage`] trait's path-less `save`/`load` act on one path
+//! chosen at start-up (a file named in the command line, else
+//! `$HOME/xpaint.png`); `save_to`/`load_from` serve the file dialogs. Writes are atomic — a temp file in
 //! the target's directory, then a rename — and a path that is a symlink is
 //! refused outright, so a save can never be redirected through a link.
 
 use std::fs;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -28,50 +28,85 @@ impl PngStorage {
     pub fn path(&self) -> &Path {
         &self.path
     }
+}
 
-    /// A temp path next to the target, so the rename stays on one filesystem.
-    fn temp_path(&self) -> PathBuf {
-        static COUNTER: AtomicU64 = AtomicU64::new(0);
-        let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-        let mut name = self
-            .path
-            .file_name()
-            .map(|name| name.to_os_string())
-            .unwrap_or_else(|| "xpaint".into());
-        name.push(format!(".tmp-{}-{n}", std::process::id()));
-        self.path.with_file_name(name)
-    }
+/// The largest PNG a load will read; a bigger file is refused unread.
+const MAX_LOAD_BYTES: u64 = 32 * 1024 * 1024;
 
-    /// Whether `path` may be written: not an existing symlink and its parent
-    /// directory exists.
-    fn writable(&self, path: &Path) -> bool {
-        match fs::symlink_metadata(path) {
-            Ok(meta) if meta.file_type().is_symlink() => false,
-            Ok(_) => true,
-            Err(_) => path.parent().is_some_and(|parent| parent.is_dir()),
-        }
+/// A temp path next to `target`, so the rename stays on one filesystem.
+fn temp_path(target: &Path) -> PathBuf {
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+    let mut name = target
+        .file_name()
+        .map(|name| name.to_os_string())
+        .unwrap_or_else(|| "xpaint".into());
+    name.push(format!(".tmp-{}-{n}", std::process::id()));
+    target.with_file_name(name)
+}
+
+/// Whether `path` may be written: not an existing symlink and its parent
+/// directory exists.
+fn writable(path: &Path) -> bool {
+    match fs::symlink_metadata(path) {
+        Ok(meta) if meta.file_type().is_symlink() => false,
+        Ok(_) => true,
+        Err(_) => path.parent().is_some_and(|parent| parent.is_dir()),
     }
+}
+
+/// Writes `bytes` to `path` atomically (temp file, then rename), refusing a
+/// symlink or a missing directory.
+fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    if !writable(path) {
+        return Err("refusing to write a symlink or a missing directory".to_string());
+    }
+    let temp = temp_path(path);
+    let result = write_temp(&temp, bytes).and_then(|()| fs::rename(&temp, path));
+    if result.is_err() {
+        let _ = fs::remove_file(&temp);
+    }
+    result.map_err(|error| error.to_string())
+}
+
+/// Reads `path`, refusing anything over [`MAX_LOAD_BYTES`].
+fn read_bounded(path: &Path) -> Option<Vec<u8>> {
+    let mut bytes = Vec::new();
+    fs::File::open(path)
+        .ok()?
+        .take(MAX_LOAD_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .ok()?;
+    (bytes.len() as u64 <= MAX_LOAD_BYTES).then_some(bytes)
 }
 
 impl Storage for PngStorage {
     fn save(&self, bytes: &[u8]) -> Result<(), String> {
-        if !self.writable(&self.path) {
-            return Err("refusing to write a symlink or a missing directory".to_string());
-        }
-        let temp = self.temp_path();
-        let result = write_temp(&temp, bytes).and_then(|()| fs::rename(&temp, &self.path));
-        if result.is_err() {
-            let _ = fs::remove_file(&temp);
-        }
-        result.map_err(|error| error.to_string())
+        write_atomic(&self.path, bytes)
     }
 
     fn load(&self) -> Option<Vec<u8>> {
-        fs::read(&self.path).ok()
+        read_bounded(&self.path)
     }
 
     fn available(&self) -> bool {
-        self.writable(&self.path)
+        writable(&self.path)
+    }
+
+    fn save_to(&self, path: &Path, bytes: &[u8]) -> Result<(), String> {
+        write_atomic(path, bytes)
+    }
+
+    fn load_from(&self, path: &Path) -> Option<Vec<u8>> {
+        read_bounded(path)
+    }
+
+    fn supports_paths(&self) -> bool {
+        true
+    }
+
+    fn default_path(&self) -> Option<PathBuf> {
+        Some(self.path.clone())
     }
 }
 
@@ -167,5 +202,22 @@ mod tests {
         std::os::unix::fs::symlink(&other, &path).unwrap();
         assert!(storage.save(b"bad").is_err());
         assert_eq!(fs::read(&other).unwrap(), b"safe");
+    }
+
+    #[test]
+    fn path_seam_writes_and_reads_other_files() {
+        let dir = TempDir::new("paths");
+        let storage = PngStorage::new(dir.file("default.png"));
+        assert!(storage.supports_paths());
+        assert_eq!(storage.default_path(), Some(dir.file("default.png")));
+        let other = dir.file("other.png");
+        storage.save_to(&other, b"other").unwrap();
+        assert_eq!(
+            storage.load_from(&other).as_deref(),
+            Some(b"other".as_slice())
+        );
+        assert_eq!(storage.load(), None, "the default path was not touched");
+        assert!(storage.save_to(&dir.file("no/such/dir.png"), b"x").is_err());
+        assert_eq!(storage.load_from(&dir.file("missing.png")), None);
     }
 }

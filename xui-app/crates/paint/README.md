@@ -92,6 +92,21 @@ things an app normally gets from xui:
    shown when `Storage::available()` is true, and a failed save/load is reported
    in the status bar and never panics.
 
+**File dialogs.** `PaintApp::build_with_files(ui, storage, fs)` (or
+`build_with_files_observed`) wires the xui `FileDialog` for Open and Save As over
+a `xui_core::widget::FileSystem`, provided the storage `supports_paths()` (the
+`Storage::save_to`/`load_from` seam; the defaults are "unsupported"). Save writes
+to the current file, or asks with Save As when there is none (`.png` is appended
+when missing); Open decodes before it swaps, so a bad file or a failed write
+leaves the document intact and reports in the status bar. `Msg::OpenStartup`
+loads the storage's own `default_path()` with no dialog. `set_start_dir` picks
+the pickers' starting directory. Plain `build`/`build_observed` keep the
+path-less behaviour.
+
+**Resize.** The last strip cell opens a prompt pre-filled with the current
+`WxH` (also `W,H` / `W x H`); `Model::resize` keeps the pixels top-left, pads
+white, is one undo step and rejects sides outside `1..=1024`.
+
 `PaintApp::build_observed(ui, storage, observer)` also reports tool, size,
 colours, history and status to an `Observer`, for a host that wants to mirror
 them. `xui_paint::layout(client, dpi, io)` returns the four rectangles the

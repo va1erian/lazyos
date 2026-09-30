@@ -6,7 +6,7 @@ use std::sync::atomic::Ordering;
 
 use xui_canvas::Surface;
 use xui_core::backend::{
-    Backend, BackendError, ImplKind, NodeKind, NodeSpec, Painter, ParentRef, PlatformSpec,
+    Backend, BackendError, Event, ImplKind, NodeKind, NodeSpec, Painter, ParentRef, PlatformSpec,
     Result as BackendResult, TextMetrics, TextStyle, TimerId, Waker, WidgetId, WindowId,
 };
 use xui_core::router::WidgetHost;
@@ -15,6 +15,8 @@ use xui_core::{Rect, Theme};
 use crate::client_window::ClientWindow;
 use crate::sys;
 
+use super::geometry::absolute_bounds;
+use super::zorder::family;
 use super::{LazyOSBackend, Mode, Node, Timer, Window, DEFAULT_DPI, POLL_MILLIS};
 
 impl Backend for LazyOSBackend {
@@ -119,6 +121,8 @@ impl Backend for LazyOSBackend {
             self.primary.set(None);
         }
         self.focused.set(None);
+        self.captured.set(None);
+        self.clicks.borrow_mut().forget_window(window);
     }
 
     fn create(&self, parent: ParentRef, spec: &NodeSpec) -> BackendResult<WidgetId> {
@@ -145,6 +149,7 @@ impl Backend for LazyOSBackend {
                 visible: spec.visible,
                 enabled: spec.enabled,
                 focus_stop: focus_stop(spec),
+                clip: None,
                 text: spec.text.clone(),
                 painter: None,
             },
@@ -158,6 +163,7 @@ impl Backend for LazyOSBackend {
         if self.focused.get() == Some(id) {
             self.focused.set(None);
         }
+        self.clicks.borrow_mut().forget_widget(id);
         // Cascade: drop any node whose parent chain no longer exists.
         loop {
             let gone: Vec<WidgetId> = nodes
@@ -173,38 +179,81 @@ impl Backend for LazyOSBackend {
             }
             nodes.retain(|(id, _)| !gone.contains(id));
         }
+        // A capture or pending click on a node the cascade removed is stale.
+        if let Some(captured) = self.captured.get() {
+            if !nodes.iter().any(|(node_id, _)| *node_id == captured) {
+                self.captured.set(None);
+            }
+        }
+        if let Some(focused) = self.focused.get() {
+            if !nodes.iter().any(|(node_id, _)| *node_id == focused) {
+                self.focused.set(None);
+            }
+        }
+        self.clicks
+            .borrow_mut()
+            .forget_unless(|target| nodes.iter().any(|(node_id, _)| *node_id == target));
     }
 
     fn apply_moves(&self, window: WindowId, moves: &[(WidgetId, Rect)]) {
         let mut nodes = self.nodes.borrow_mut();
         for (id, rect) in moves {
-            if let Some((_, node)) = nodes.iter_mut().find(|(node_id, _)| node_id == id) {
-                if self.is_client() {
-                    self.add_damage(window, node.bounds);
-                    self.add_damage(window, *rect);
-                }
-                node.bounds = *rect;
+            let Some(index) = nodes.iter().position(|(node_id, _)| node_id == id) else {
+                continue;
+            };
+            // Damage is window-absolute: the old and the new position of the
+            // node and of every descendant (a child may extend past its parent).
+            let family = self.is_client().then(|| family(&nodes, *id));
+            let before: Vec<Rect> = family
+                .iter()
+                .flatten()
+                .filter_map(|member| absolute_bounds(&nodes, *member))
+                .collect();
+            nodes[index].1.bounds = *rect;
+            let after = family
+                .iter()
+                .flatten()
+                .filter_map(|member| absolute_bounds(&nodes, *member));
+            for area in before.into_iter().chain(after) {
+                self.add_damage(window, area);
             }
         }
     }
 
     fn set_visible(&self, id: WidgetId, visible: bool) {
         if self.is_client() {
-            if let Some((window, bounds)) = self
-                .nodes
-                .borrow()
-                .iter()
-                .find(|(node_id, _)| *node_id == id)
-                .map(|(_, node)| (node.window, node.bounds))
-            {
+            if let Some((window, bounds)) = self.absolute_damage(id) {
                 self.add_damage(window, bounds);
             }
         }
         self.with_node(id, |node| node.visible = visible);
     }
 
+    fn raise(&self, id: WidgetId) {
+        self.raise_node(id);
+    }
+
     fn set_enabled(&self, id: WidgetId, enabled: bool) {
         self.with_node(id, |node| node.enabled = enabled);
+    }
+
+    fn set_clip(&self, id: WidgetId, rect: Option<Rect>) {
+        self.with_node(id, |node| node.clip = rect);
+    }
+
+    fn set_capture(&self, id: WidgetId) {
+        self.captured.set(Some(id));
+    }
+
+    fn release_capture(&self) {
+        let Some(id) = self.captured.take() else {
+            return;
+        };
+        // Tell the node after the capture is cleared, so its handler may
+        // capture again or call back into the backend.
+        if let Some(window) = self.window_of(id) {
+            self.deliver(window, id, &Event::CaptureChanged);
+        }
     }
 
     fn focus(&self, id: WidgetId) {
@@ -227,13 +276,7 @@ impl Backend for LazyOSBackend {
     fn invalidate(&self, id: WidgetId) {
         self.dirty.store(true, Ordering::Relaxed);
         if self.is_client() {
-            if let Some((window, bounds)) = self
-                .nodes
-                .borrow()
-                .iter()
-                .find(|(node_id, _)| *node_id == id)
-                .map(|(_, node)| (node.window, node.bounds))
-            {
+            if let Some((window, bounds)) = self.absolute_damage(id) {
                 self.add_damage(window, bounds);
             }
         }
@@ -242,13 +285,7 @@ impl Backend for LazyOSBackend {
     fn invalidate_rect(&self, id: WidgetId, _rect: Rect) {
         self.dirty.store(true, Ordering::Relaxed);
         if self.is_client() {
-            if let Some((window, bounds)) = self
-                .nodes
-                .borrow()
-                .iter()
-                .find(|(node_id, _)| *node_id == id)
-                .map(|(_, node)| (node.window, node.bounds))
-            {
+            if let Some((window, bounds)) = self.absolute_damage(id) {
                 self.add_damage(window, bounds);
             }
         }

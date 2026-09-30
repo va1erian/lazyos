@@ -338,3 +338,32 @@ is a no-op. A change repaints the chrome and the taskbar, and sends the shell a
 name. The boot self-test prints `XUID:TITLE:PASS` (`title::selftest_titles`).
 Clients that never call it keep their `CreateSurface` title; a client talking
 to a compositor that predates the method gets `EINVAL`, which `xui-app` ignores.
+
+**Opening from a tile (`HintOpenOrigin`, method 30)**
+
+`HintOpenOrigin(surface, x, y, w, h)` tells the compositor where the task's
+*next* `CreateSurface` should zoom open from, in place of the taskbar entry:
+the rectangle is relative to the content origin of `surface`, which the caller
+must own (`EACCES` otherwise, `ENOENT` if unknown). Files sends it when a
+folder tile is double-clicked, so the wireframe leaves the tile. It is cosmetic
+and untrusted: `xuid` (`user/src/bin/xuid/origin.rs`) translates it to screen
+coordinates with 64-bit arithmetic, clamps it to the screen, ignores an empty or
+off-screen rectangle (and one from a minimized surface), keeps one hint per
+task, consumes it at that task's next `CreateSurface` and drops it after two
+seconds. With a hint the animation is a single wireframe zoom from the rectangle
+to the window (`Compositor::open_zoom`); without one, and for minimize/restore,
+the taskbar behaviour is unchanged. Placement and focus are never affected. An
+older compositor answers `EINVAL`, which `xui-app` ignores. The boot self-test
+prints `XUID:ORIGIN:PASS` (`origin::selftest_open_origin`).
+
+**Focus on create**
+
+A newly created non-desktop surface is raised to the top of the paint order and
+focused (`window::focus_on_create`), so a window that just opened comes up in
+front of the one that spawned it instead of behind it (the Files app
+double-clicking a folder opens a new window). The first window still gets
+focus; focusing the surface that already holds it sends no `FocusChanged`. The
+boot self-test prints `XUID:FOCUS:PASS` (`window::selftest_focus_on_create`).
+There is no display-protocol method to raise or focus an *existing* window, so
+the portable explorer still reports a duplicate open in its status bar rather
+than bringing the open window forward.

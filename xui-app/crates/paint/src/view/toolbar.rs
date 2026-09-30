@@ -41,6 +41,8 @@ pub enum StripItem {
     Save,
     /// Load through the storage.
     Open,
+    /// Resize the canvas.
+    Resize,
 }
 
 impl StripItem {
@@ -247,6 +249,7 @@ fn message(item: StripItem) -> Msg {
         StripItem::New => Msg::New,
         StripItem::Save => Msg::Save,
         StripItem::Open => Msg::Open,
+        StripItem::Resize => Msg::ResizeAsk,
     }
 }
 

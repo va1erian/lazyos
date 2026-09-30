@@ -266,6 +266,11 @@
         "name": "SetTitle",
         "id": 29,
         "oneway": false
+      },
+      {
+        "name": "HintOpenOrigin",
+        "id": 30,
+        "oneway": false
       }
     ],
     "topics": []

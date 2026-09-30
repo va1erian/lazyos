@@ -50,6 +50,18 @@ pub enum Msg {
     Save,
     /// Load through the storage.
     Open,
+    /// Ask for a new canvas size (opens the prompt).
+    ResizeAsk,
+    /// The resize prompt was accepted; the text is in the app's slot.
+    ResizeChosen,
+    /// Load the start-up file through the storage, without a dialog.
+    OpenStartup,
+    /// The Open picker returned a path (held in the app's slot).
+    OpenChosen,
+    /// The Save As picker returned a path (held in the app's slot).
+    SaveChosen,
+    /// A dialog was dismissed without a choice; the canvas takes the focus back.
+    DialogClosed,
     /// A canvas interaction.
     Canvas(CanvasMsg),
 }

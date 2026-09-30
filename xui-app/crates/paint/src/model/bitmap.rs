@@ -46,6 +46,20 @@ impl Bitmap {
         Bitmap::new(width, height, WHITE)
     }
 
+    /// A white `width` x `height` bitmap with this one's pixels copied to the
+    /// top-left, cropped when smaller. Sides are clamped like [`Bitmap::new`].
+    pub fn resized(&self, width: u32, height: u32) -> Bitmap {
+        let mut out = Bitmap::white(width, height);
+        let columns = self.width.min(out.width) as usize * 4;
+        let rows = self.height.min(out.height) as usize;
+        for row in 0..rows {
+            let from = row * self.width as usize * 4;
+            let to = row * out.width as usize * 4;
+            out.pixels[to..to + columns].copy_from_slice(&self.pixels[from..from + columns]);
+        }
+        out
+    }
+
     /// The width in pixels.
     pub fn width(&self) -> u32 {
         self.width
