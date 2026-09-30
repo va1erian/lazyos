@@ -1,0 +1,112 @@
+# xui-explorer
+
+A small, **spatial** file explorer built on xui's portable widget layer: one
+window is one open folder, with no tree, address bar or in-window navigation.
+It is written as a portable core with every OS-specific operation behind two
+small traits, so it can be embedded by an operating system with its own
+filesystem and shell — in particular **LazyOS**.
+
+- `xui-core` only (no platform dependency, no `unsafe`).
+- Folders open their own window (or reuse the one already showing them); files
+  go to the OS default handler.
+- `IconView` listing (folders first, then files), a `StatusBar` summary, a
+  context `Menu`, Delete/Properties `TaskDialog`/`Dialog` actions and
+  `Delete` / `Alt+Enter` / `F5` shortcuts.
+- Tile icons: the single-colour Lucide fallback by default. The multi-colour
+  Global Village set is the opt-in `village-icons` feature (off in this copy;
+  the `xui-icons` crate stays in the xui repository and is a git
+  dependency). Opening a folder shows its open icon for two seconds, then
+  reverts.
+
+## Icons and the open-folder flash
+
+With the `village-icons` feature enabled, tiles are drawn with the
+`xui-icons` Global Village set, classified by kind and extension (folder,
+image, music, archive, document). On a light theme the set's own
+`Palette::GLOBAL_VILLAGE` is used; on a dark theme only its near-black ink is
+retinted to a pale periwinkle, so the outlines stay visible, and both palettes
+are built once. Leave the feature off for the single-colour Lucide fallback (the
+default here); the classification is shared by both paths.
+
+Opening a folder (double-click or Enter) flags it in a per-window list of
+`(name, deadline)` entries and shows its open icon for 2000 ms; several folders
+can flash at once, each with its own deadline, and re-opening one restarts it.
+A single repeating timer prunes expired names and repaints, and stops as soon
+as nothing is flashing, so an idle window has no timer. The flash is visual
+only — it never changes the opening behaviour, selection, focus or scroll — and
+survives a refresh by name, dropping a folder that was deleted or renamed.
+
+## The seam
+
+Everything OS-specific is in [`src/platform.rs`](src/platform.rs):
+
+```rust
+trait Platform {
+    fn list(&self, dir: &Path) -> io::Result<Vec<RawEntry>>;
+    fn metadata(&self, path: &Path) -> io::Result<Meta>;
+    fn remove(&self, path: &Path, recursive: bool) -> io::Result<()>;
+    fn home(&self) -> Option<PathBuf>;
+}
+
+trait Launcher {
+    fn open(&self, path: &Path) -> io::Result<()>;
+}
+```
+
+The trait signatures mention only `Path`/`PathBuf`, `OsString`, `io::Result`
+and `SystemTime` — no `xui`, no `std::fs`, no `cfg`. The rest of the crate is
+portable:
+
+- `model/` is pure logic: sorting, `Listing`, the `IconModel` view, status
+  summaries, the Properties rows, size and UTC time formatting and path
+  helpers. It assumes nothing about drive letters or separators.
+- `window.rs` is the per-window `App`: it owns the widgets and reacts to their
+  messages; it never touches the filesystem directly.
+- `shell.rs` holds the `Platform`, the `Launcher` and the path-to-window
+  registry that makes an already-open folder a no-op and lets a delete close
+  the windows below it.
+
+`testing::MemPlatform` is an in-memory `Platform` used by the tests, so no test
+touches the real disk.
+
+## Porting to LazyOS
+
+Implement three things and nothing else:
+
+1. **`Platform`** over LazyOS' filesystem. `metadata` must be symlink-aware (use
+   the equivalent of `symlink_metadata`) and `remove` must delete a symlink as a
+   link; `home` may return `None`.
+2. **`Launcher`**, or a no-op if LazyOS has no default handler yet. The explorer
+   reports a launcher error in the status bar, so a no-op that returns
+   `io::ErrorKind::Unsupported` is honest.
+3. **A `xui_core::backend::Backend`** (LazyOS' own), and start the app with
+   `xui_core::run_app`.
+
+Then build windows with `Explorer::new(platform, launcher).open_root(ui, path)`
+and the portable crate is unchanged. The `std-platform` feature (on by default)
+is the only part that uses `std::fs` and `#[cfg(...)]`; turn it off for a
+no-std-ish target. `village-icons` is off by default, which keeps `xui-icons`
+out of the build and draws the Lucide fallback.
+
+## Known limits (v1)
+
+- **No filesystem watching.** Refresh happens on `F5`, the context menu, and
+  after the explorer's own delete. A change made outside the explorer shows only
+  after a refresh.
+- **Listing runs on the UI thread.** A very large or slow directory blocks the
+  window while it loads.
+- **No raise/focus API.** Opening a folder that is already open reports
+  `"already open"` in the status bar instead of bringing that window forward.
+- Out of scope: rename, copy/move, drag and drop, new folder, recycle bin,
+  hidden-file toggle, sorting options, search, navigating up.
+
+## Checks
+
+```bash
+cargo fmt --all --check
+cargo clippy -p xui-explorer --all-targets -- -D warnings
+cargo test -p xui-explorer
+```
+
+The snapshot test writes `target/snapshots/xui-explorer-{light,dark}.png`
+headlessly, with no window.

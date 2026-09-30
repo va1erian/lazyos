@@ -30,8 +30,11 @@ pub enum Key {
     Ctrl,
     Alt,
     Super,
-    /// Function keys are compositor-only for now (Alt+F4 closes a window).
-    F4,
+    Delete,
+    Insert,
+    /// Function key `F1..=F12` (the payload is the key number). Function keys
+    /// are compositor-bound only: with no compositor they reach no task.
+    F(u8),
 }
 
 /// A modifier tracked per physical key (issue #175): left/right Shift, Ctrl,
@@ -144,7 +147,7 @@ pub fn push_scancode(scancode: u8) {
         // compositor-only: the terminal mapping would turn them into a NUL.
         if display::bound() {
             display::push_key(key, true);
-        } else if key != Key::F4 {
+        } else if !matches!(key, Key::F(_) | Key::Delete | Key::Insert) {
             crate::task::on_key(key);
         }
     }
@@ -194,6 +197,8 @@ fn decode_extended(code: u8) -> Option<Key> {
         0x47 => Key::Home,
         0x4F => Key::End,
         0x1C => Key::Enter,
+        0x53 => Key::Delete,
+        0x52 => Key::Insert,
         _ => return None,
     })
 }
@@ -220,7 +225,10 @@ fn decode(code: u8, shift: bool) -> Option<Key> {
         0x0F => Key::Tab,
         0x1C => Key::Enter,
         0x39 => Key::Space,
-        0x3E => Key::F4,
+        // F1..F10 are contiguous (0x3B..=0x44); F11/F12 sit apart.
+        0x3B..=0x44 => Key::F(code - 0x3B + 1),
+        0x57 => Key::F(11),
+        0x58 => Key::F(12),
         // Digits 1..9, 0
         0x02 => Key::Char(shifted(shift, '1', '!')),
         0x03 => Key::Char(shifted(shift, '2', '@')),

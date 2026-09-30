@@ -39,6 +39,7 @@ NAMES = [
     "persist",
     "statxio",
     "cwd",
+    "fsops",
 ]
 
 

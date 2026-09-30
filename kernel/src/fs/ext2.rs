@@ -60,6 +60,7 @@ mod fsimpl;
 mod indirect;
 mod layout;
 mod orphans;
+mod rmdir;
 mod state;
 mod truncate;
 

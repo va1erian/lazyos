@@ -42,7 +42,9 @@ MODES = [
 ]
 
 # (file, label, switches, xui-app) - `switches` are the image build switches a
-# script needs; `xui-app` names the viewer to embed via LAZYOS_XUI_APP.
+# script needs; `xui-app` names the viewer to embed via LAZYOS_XUI_APP. A
+# `desktop` script (the document apps) instead boots the desktop profile with
+# every desktop app embedded and only `xui-app` autostarted.
 SCRIPTS = [
     ("type_and_shot.json", "Type & shot (input smoke test)", (), None),
     ("multitask_demo.json", "Multitask (two windows, Tab focus)", (), None),
@@ -60,6 +62,9 @@ SCRIPTS = [
     ("xui_sysmon.json", "XUI app: sysmon dashboard", ("xuid",), "sysmon"),
     ("xui_fabricmon.json", "XUI app: fabricmon (services)", ("xuid", "services"), "fabricmon"),
     ("xui_client.json", "XUI app: compositor client (window/focus)", ("xuid", "xui_client"), "client"),
+    ("xui_editor.json", "XUI app: Editor (type, save)", ("desktop",), "editor"),
+    ("xui_paint.json", "XUI app: Paint (draw, save PNG)", ("desktop",), "paint"),
+    ("xui_files.json", "XUI app: Files (browse, open)", ("desktop",), "files"),
 ]
 
 # Simple mode: (label, cargo profile) and (label, description) choices.
@@ -72,10 +77,16 @@ SIMPLE_INTERFACES = [
      "clipboardd, ...) plus the xuid compositor and an XUI app window."),
 ]
 
-XUI_VIEWERS = ["(none)", "m0", "counter", "sysmon", "fabricmon", "client", "term"]
+XUI_VIEWERS = ["(none)", "m0", "counter", "sysmon", "fabricmon", "client", "term",
+               "editor", "paint", "files"]
 # The desktop session's apps (issues #215/#216): embedded side by side, opened
 # by `init` as `xuid` clients. The Terminal comes first so it takes the focus.
-DESKTOP_APPS = ("term", "sysmon", "fabricmon", "counter")
+# The document apps ship with every desktop image (`build.rs`
+# `SHIP_DOCUMENT_APPS`); they open on demand (Start menu, right-click menu,
+# open-with), never at boot. The GUI passes an explicit `LAZYOS_XUI_APPS`
+# list, which replaces the build script's default set, so it must name them.
+DOCUMENT_APPS = ("editor", "files", "paint")
+DESKTOP_APPS = ("term", "sysmon", "fabricmon", "counter") + DOCUMENT_APPS
 ACCELS = ["auto", "none", "tcg", "whpx", "kvm"]
 DISKS = ["virtio", "ata"]
 
@@ -102,6 +113,10 @@ def build_env(cfg: dict) -> dict[str, str]:
         env["LAZYOS_MESSENGERCTL"] = "1"
     if cfg["msgrd"]:
         env["LAZYOS_MESSENGERD"] = "1"
+    if cfg.get("xui_autostart"):
+        # A document-app session: the desktop profile opens just this app, but
+        # the full app set is embedded (Files' open-with needs the Editor).
+        env["LAZYOS_XUI_AUTOSTART"] = cfg["xui_autostart"]
     if cfg.get("xui_apps"):
         env["LAZYOS_XUI_APPS"] = os.pathsep.join(
             os.path.join(ROOT, "target", "xui", f"xui-{app}.elf") for app in cfg["xui_apps"]
@@ -137,8 +152,8 @@ def simple_config(base: dict, build: str, interface: str) -> dict:
         "cli": not desktop,
         # Desktop = the single `LAZYOS_DESKTOP=1` profile (issue #217): services
         # suite + compositor + the xui apps as its clients (`init` opens the
-        # default set: Terminal, System Monitor, Fabric Monitor, Counter), with
-        # no demo/evidence programs. The individual switches stay off so no
+        # Terminal at boot; the viewers, Editor, Files and Paint are embedded
+        # and open on demand), with no demo/evidence programs. The individual switches stay off so no
         # Advanced checkbox leaks in.
         "desktop": desktop,
         "services": False,

@@ -1,0 +1,31 @@
+[
+  {"wait_for": "PAINT:UP:PASS", "timeout": 240},
+  {"at": 1.5, "shot": "01_paint_blank"},
+
+  {"at": 2.0, "mouse_move": [-300, -300]},
+  {"at": 2.2, "mouse_move": [-300, -300]},
+  {"at": 2.4, "mouse_move": [-300, -300]},
+  {"at": 2.6, "mouse_move": [-300, -300]},
+  {"at": 2.8, "mouse_move": [-300, -300]},
+  {"at": 3.0, "mouse_move": [-300, -300]},
+  {"at": 3.2, "mouse_move": [120, 150]},
+  {"at": 3.4, "mouse_down": "left"},
+  {"at": 3.6, "mouse_move": [80, 40]},
+  {"at": 3.8, "mouse_move": [80, -20]},
+  {"at": 4.0, "mouse_move": [-20, 60]},
+  {"at": 4.2, "mouse_up": "left"},
+  {"at": 4.8, "shot": "02_paint_drawn"},
+
+  {"at": 5.4, "mouse_move": [166, -145]},
+  {"at": 5.8, "mouse_click": "left"},
+  {"at": 6.4, "shot": "03_paint_undone"},
+
+  {"at": 7.0, "mouse_move": [28, 0]},
+  {"at": 7.4, "mouse_click": "left"},
+  {"at": 8.0, "shot": "04_paint_redone"},
+
+  {"at": 8.6, "mouse_move": [84, 0]},
+  {"at": 9.0, "mouse_click": "left", "until": "PAINT:SAVE:PASS", "timeout": 60, "retries": 2},
+  {"at": 10.0, "shot": "05_paint_saved"},
+  {"at": 11.0, "quit": true}
+]

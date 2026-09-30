@@ -153,4 +153,4 @@ LazyOS is small enough to be understood and audited by one person; keep it that 
 
 ## License
 
-GPL-3.0-or-later. See [`LICENSE`](LICENSE). Bundled third-party code keeps its own license: Droid Sans and Droid Serif (Google / Ascender / Monotype, Apache-2.0, `assets/fonts/LICENSE-Apache-2.0.txt`), JetBrains Mono (`assets/fonts/OFL.txt`, SIL OFL 1.1; credits in `assets/fonts/README.md`) and the vendored `xui-canvas` (MIT). All Cargo dependencies are MIT, Apache-2.0, BSD, Zlib or Unlicense, which are GPLv3-compatible.
+GPL-3.0-or-later. See [`LICENSE`](LICENSE). Bundled third-party code keeps its own license: Droid Sans and Droid Serif (Google / Ascender / Monotype, Apache-2.0, `assets/fonts/LICENSE-Apache-2.0.txt`), JetBrains Mono (`assets/fonts/OFL.txt`, SIL OFL 1.1; credits in `assets/fonts/README.md`) and the `xui` crates from `va1erian/xui` (`xui-core`/`xui-canvas`/`xui-icons`, MIT). All Cargo dependencies are MIT, Apache-2.0, BSD, Zlib or Unlicense, which are GPLv3-compatible.

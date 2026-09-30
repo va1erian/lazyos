@@ -10,7 +10,10 @@ interface os.lazy.init.v1 {
     method Services() -> (services: Array<ServiceStatus>);
 
     /// Launch an app as a session child. `session` 0 means the caller's own
-    /// session; only the session's owner (or root) may launch into it.
+    /// session; only the session's owner (or root) may launch into it. `args`
+    /// is empty or one absolute path (at most 1024 bytes, no control
+    /// character or `"`), appended to the app's fixed arguments as a single
+    /// `argv` item; any other value is refused with `EINVAL`.
     method Launch(app: String, args: String, session: U64) -> (app: String, pid: U64, session: U64);
 
     /// Enumerate the built-in app registry.

@@ -379,6 +379,9 @@ fn xui_disk_name(path: &std::path::Path) -> (String, String) {
         "fabricmon" => "XFABMON".to_string(),
         "counter" => "XCOUNTR".to_string(),
         "term" => "XTERM".to_string(),
+        "editor" => "XEDITOR".to_string(),
+        "paint" => "XPAINT".to_string(),
+        "files" => "XFILES".to_string(),
         "client" => "XCLIENT".to_string(),
         other => {
             let short: String = other
@@ -403,6 +406,21 @@ const DESKTOP_XUI_APPS: &[&str] = &[
     "xui-counter.elf",
 ];
 
+/// The document apps (Editor, Paint, Files): always-shipped desktop apps.
+/// `python tools/xui/build.py` produces all three under `target/xui/`; a
+/// missing one fails the desktop build on purpose. They are on-demand (never
+/// autostarted at boot), opened from the Start menu or by open-with.
+const SHIP_DOCUMENT_APPS: bool = true;
+
+/// The document apps' binaries, appended to [`DESKTOP_XUI_APPS`] when
+/// [`SHIP_DOCUMENT_APPS`] is on.
+const DOCUMENT_XUI_APPS: &[&str] = &["xui-editor.elf", "xui-files.elf", "xui-paint.elf"];
+
+/// The one app the desktop opens at boot when `LAZYOS_XUI_AUTOSTART` is unset:
+/// the Terminal. Every other embedded app (viewers, Editor, Files, Paint) is
+/// launched on demand from the Start menu, the right-click menu or open-with.
+const DEFAULT_AUTOSTART_STEM: &str = "term";
+
 /// Embed the desktop's xui apps (issues #215/#216).
 ///
 /// `LAZYOS_XUI_APPS` is a platform path list (`;` on Windows, `:` elsewhere)
@@ -412,7 +430,7 @@ const DESKTOP_XUI_APPS: &[&str] = &[
 /// `XAPPS.LST` lists the shipped ones so `init` marks every other registry row
 /// unavailable instead of failing to launch it. Rows named in
 /// `LAZYOS_XUI_AUTOSTART` (comma-separated stems such as `term,sysmon`; the
-/// default is every embedded app, `none` disables it) are tagged `autostart`,
+/// default is the Terminal only, `none` disables it) are tagged `autostart`,
 /// and `init` launches them at boot as `xuid` clients.
 fn embed_xui_apps(builder: &mut bootloader::DiskImageBuilder, desktop: bool) {
     println!("cargo:rerun-if-env-changed=LAZYOS_XUI_APPS");
@@ -429,13 +447,22 @@ fn embed_xui_apps(builder: &mut bootloader::DiskImageBuilder, desktop: bool) {
             let dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("manifest dir"))
                 .join("target")
                 .join("xui");
-            DESKTOP_XUI_APPS.iter().map(|name| dir.join(name)).collect()
+            let document: &[&str] = if SHIP_DOCUMENT_APPS {
+                DOCUMENT_XUI_APPS
+            } else {
+                &[]
+            };
+            DESKTOP_XUI_APPS
+                .iter()
+                .chain(document)
+                .map(|name| dir.join(name))
+                .collect()
         }
         None => return,
     };
     let autostart = std::env::var("LAZYOS_XUI_AUTOSTART").ok();
     let wanted = |stem: &str| match autostart.as_deref() {
-        None => true,
+        None => stem == DEFAULT_AUTOSTART_STEM,
         Some("none") => false,
         Some(list) => list.split(',').any(|item| item.trim() == stem),
     };

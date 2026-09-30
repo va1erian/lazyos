@@ -173,6 +173,7 @@ mod large_files;
 mod orphan_crash;
 mod orphans;
 mod persistence;
+mod rmdir;
 mod sync_state;
 mod truncate;
 
@@ -183,6 +184,7 @@ pub(super) use large_files::*;
 pub(super) use orphan_crash::*;
 pub(super) use orphans::*;
 pub(super) use persistence::*;
+pub(super) use rmdir::*;
 pub(super) use sync_state::*;
 pub(super) use truncate::*;
 
@@ -250,6 +252,13 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("fs_ext2_data_volume_probe", data_volume_probe),
     ("fs_root_prefers_fat_over_ext2", root_prefers_fat_over_ext2),
     ("fs_ext2_soak_state_generations", soak_state_generations),
+    ("fs_ext2_rmdir_rules", rmdir_rules),
+    (
+        "fs_ext2_rmdir_failure_keeps_parent_links",
+        rmdir_failure_keeps_parent_links,
+    ),
+    ("fs_ext2_rmdir_survives_remount", rmdir_survives_remount),
+    ("fs_ext2_soak_rmdir_generations", rmdir_soak_generations),
     (
         "fs_ext2_orphans_reclaimed_on_unclean_mount",
         orphans_reclaimed_on_unclean_mount,

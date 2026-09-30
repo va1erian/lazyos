@@ -21,6 +21,9 @@ const ITEMS: &[(&str, &str)] = &[
     ("sysmon", "System Monitor"),
     ("fabricmon", "Fabric Monitor"),
     ("counter", "Counter"),
+    ("editor", "Editor"),
+    ("paint", "Paint"),
+    ("files", "Files"),
 ];
 const ITEM_H: i32 = 20;
 const PAD: i32 = 4;

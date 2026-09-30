@@ -1,0 +1,26 @@
+# Copied from `va1erian/xui` `crates/xui-paint` (library only, MIT). The
+# upstream `xpaint` binary is replaced by the `xui-paint` binary in
+# `xui-app/src/bin/paint.rs`, which drives the same `PaintApp` on the LazyOS
+# backend; the LazyOS canonical library never names a backend. `xui-core` and
+# the dev-only `xui-canvas` are git dependencies at the LazyOS-pinned rev.
+[package]
+name = "xui-paint"
+version = "0.0.0"
+edition = "2024"
+publish = false
+description = "A minimal MS-Paint-style doodler built on xui, portable to a toy OS."
+
+[lib]
+name = "xui_paint"
+path = "src/lib.rs"
+
+[features]
+# Optional filesystem persistence; off by default so nothing touches disk.
+fs = []
+
+[dependencies]
+xui-core = { git = "https://github.com/va1erian/xui", rev = "35c818f9b187359927b1528c37d63f62604caa05" }
+
+[dev-dependencies]
+# Offscreen rendering for the crate's snapshot tests.
+xui-canvas = { git = "https://github.com/va1erian/xui", rev = "35c818f9b187359927b1528c37d63f62604caa05", default-features = false }

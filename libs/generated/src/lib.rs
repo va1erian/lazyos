@@ -1556,6 +1556,8 @@ pub mod os_lazy_display_v1 {
     pub const METHOD_BUFFERRELEASE: u32 = 27;
     /// `FrameDone` method id.
     pub const METHOD_FRAMEDONE: u32 = 28;
+    /// `SetTitle` method id.
+    pub const METHOD_SETTITLE: u32 = 29;
 
     /// Create a surface of `width` x `height` pixels titled `title`. `role` is
     /// a `Role` value: a decorated window (also the meaning of an absent
@@ -2211,7 +2213,7 @@ pub mod os_lazy_display_v1 {
     }
 
     /// Shell event: surface `surface` changed. `kind` is a `Change` value;
-    /// `title` is set on `Created` only. `role` is a `Role` value.
+    /// `title` is set on `Created` and `Title`. `role` is a `Role` value.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct SurfaceChangedArgs {
         pub surface: u64,
@@ -2486,6 +2488,45 @@ pub mod os_lazy_display_v1 {
                 }
                 2 => {
                     out.seq = field.as_u64()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Rename `surface`'s window (its title bar, taskbar entry and switcher
+    /// row) to `title`, so a document window can show the file it holds. Only
+    /// the surface's creator may rename it (`EACCES` otherwise; `ENOENT` for
+    /// an unknown surface). The compositor keeps at most 128 bytes (cut at a
+    /// character boundary), drops control characters and keeps the previous
+    /// title when nothing printable is left, so a client cannot blank or
+    /// overflow its own chrome. A change sends the shell a `SurfaceChanged`
+    /// event of kind `Title`. Clients that never call it keep the
+    /// `CreateSurface` title, so old clients are unaffected.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct SetTitleArgs {
+        pub surface: u64,
+        pub title: alloc::string::String,
+    }
+
+    pub fn encode_set_title_args(value: &SetTitleArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.surface)?;
+        target.string(2, &value.title)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_set_title_args(body: &[u8]) -> Result<SetTitleArgs, Error> {
+        let mut out = SetTitleArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.surface = field.as_u64()?;
+                }
+                2 => {
+                    out.title = field.as_str()?.into();
                 }
                 _ => {}
             }
@@ -2994,7 +3035,10 @@ pub mod os_lazy_init_v1 {
     }
 
     /// Launch an app as a session child. `session` 0 means the caller's own
-    /// session; only the session's owner (or root) may launch into it.
+    /// session; only the session's owner (or root) may launch into it. `args`
+    /// is empty or one absolute path (at most 1024 bytes, no control
+    /// character or `"`), appended to the app's fixed arguments as a single
+    /// `argv` item; any other value is refused with `EINVAL`.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct LaunchArgs {
         pub app: alloc::string::String,

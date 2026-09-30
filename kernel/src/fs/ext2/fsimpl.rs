@@ -257,6 +257,10 @@ impl Filesystem for Ext2 {
         Ok(())
     }
 
+    fn rmdir(&self, path: &str) -> Result<(), FsError> {
+        self.remove_dir(path)
+    }
+
     fn rename(&self, from: &str, to: &str) -> Result<(), FsError> {
         let _guard = self.lock.lock();
         if from == to {

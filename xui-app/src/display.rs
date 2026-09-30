@@ -92,6 +92,13 @@ pub struct Client {
 }
 
 impl Client {
+    /// A connection that reaches nothing, for host tests of the backend's
+    /// bookkeeping.
+    #[cfg(test)]
+    pub(crate) fn detached() -> Client {
+        Client { endpoint: 0 }
+    }
+
     /// Resolve [`NAME`] into this task, retrying briefly while the compositor
     /// starts, and wrap the endpoint handle.
     pub fn connect() -> Result<Client, i64> {
@@ -166,6 +173,19 @@ impl Client {
         })
         .map_err(|_| -errno::EINVAL)?;
         let parcel = request(wire::METHOD_COMMIT, body, Vec::new(), Vec::new());
+        self.call(&parcel).map(|_| ())
+    }
+
+    /// `SetTitle`: rename `surface`'s window. An older compositor answers
+    /// `EINVAL` (the method is unknown to it), which callers ignore: the title
+    /// only decorates.
+    pub fn set_title(&self, surface: u64, title: &str) -> Result<(), i64> {
+        let body = wire::encode_set_title_args(&wire::SetTitleArgs {
+            surface,
+            title: title.into(),
+        })
+        .map_err(|_| -errno::EINVAL)?;
+        let parcel = request(wire::METHOD_SETTITLE, body, Vec::new(), Vec::new());
         self.call(&parcel).map(|_| ())
     }
 

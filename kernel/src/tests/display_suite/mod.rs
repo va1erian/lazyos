@@ -38,12 +38,14 @@ fn event_at(events: &[u8], index: usize) -> (u32, i32) {
 
 mod bind_and_input;
 mod buffers;
+mod keys;
 mod modifiers;
 mod present;
 mod slots;
 
 pub(super) use bind_and_input::*;
 pub(super) use buffers::*;
+pub(super) use keys::*;
 pub(super) use modifiers::*;
 pub(super) use present::*;
 pub(super) use slots::*;
@@ -64,6 +66,9 @@ pub(super) const CASES: &[(&str, Test)] = &[
         modifier_per_key_transitions,
     ),
     ("display_modifier_per_key_soak", modifier_per_key_soak),
+    ("display_nav_and_function_keys", nav_and_function_keys),
+    ("display_ctrl_letter_is_letter", ctrl_letter_is_letter),
+    ("display_key_decode_soak", key_decode_soak),
     ("display_close_buffer_releases", close_buffer_releases),
     (
         "display_close_buffer_refuses_screen",

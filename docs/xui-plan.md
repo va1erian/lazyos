@@ -10,8 +10,9 @@ renderer**) inside a LazyOS window, with real input — **without** `winit`,
 > realised as native syscall 12 (`bind`/`present`/`input_poll`/`create_buffer`,
 > [`architecture/display.md`](architecture/display.md)) and, for windowed apps,
 > as the `os.lazy.display.v1` client mode inside `xuid`. The `xui-skia` split
-> was not needed: the vendored `xui-canvas` is patched instead
-> (`xui-app/vendor/xui-canvas`).
+> was not needed: upstream `xui-canvas` grew a default-on `winit-backend`
+> feature, so building it with `default-features = false` gives the software
+> painter core LazyOS wants (no vendor fork, no `[patch]`).
 
 This builds on `docs/linux-abi-plan.md` (Rust `std` via the Linux x86_64 ABI
 shim). `xui` is a `std` library (`Rc`, `Vec`, `format!`, `std::thread`), so
@@ -169,13 +170,28 @@ Landed in `xui-app/` (a standalone static-musl workspace built by
   quit markers), and are captured by `.github/workflows/xui.yml`.
 
 Text uses the bundled `DroidSans.ttf` (Apache-2.0, see `assets/fonts/README.md`) via `include_bytes!` (the Terminal alone switches to JetBrains Mono for its fixed grid).
-Upstream `xui-canvas` builds its shaper's font database from the system
-directories `fontdb` scans and memory-maps the files; LazyOS's Linux ABI has
-anonymous `mmap` only. `xui-app/vendor/xui-canvas` is the pinned upstream crate
-with three additions (`set_default_font`/`add_font`/`set_default_family` feeding the shaper in-memory,
-per-line horizontal alignment for natural-width runs, and `Surface::pixels`
-for a clone-free present), and `xui-app/Cargo.toml` patches the git dependency
-onto it, so `xui-core` still resolves from `va1erian/xui` at `rev = "2747818"`.
+`xui-core` and `xui-canvas` are git dependencies on `va1erian/xui`, pinned to
+the same `rev = "35c818f9b187359927b1528c37d63f62604caa05"` (upstream PR
+va1erian/xui#246). `xui-canvas` is built with `default-features = false`: that
+turns off its `winit-backend` feature (winit/softbuffer/glutin/glow/arboard/
+windows/xui-gpu) and leaves the pure tiny-skia/cosmic-text software painter
+core, including the in-memory font API (`set_default_font`/`add_font`/
+`set_default_family`, which build the shaper database from registered bytes
+without scanning the system font directories or memory-mapping files — LazyOS's
+Linux ABI has anonymous `mmap` only), per-line horizontal alignment for
+natural-width runs, and `Surface::pixels` for a clone-free present. `xui-icons`
+(explorer's optional `village-icons`) is the git dependency at the same rev.
+There is no vendored copy and no `[patch]`.
+
+**Bumping the pinned rev:** both `xui-core` and `xui-canvas` (and the dev-only
+`xui-canvas` plus optional `xui-icons` in the `crates/*` manifests) MUST move to
+the same new commit together, or two different `xui_core` versions end up in the
+graph. Bump every `rev = "..."` under `xui-app/`, then run `cargo fetch` in
+`xui-app/` (or just build) to refresh `Cargo.lock`; confirm the diff touches
+only the three xui packages, and re-run
+`cargo tree --target x86_64-unknown-linux-musl | grep -E
+'winit|softbuffer|glutin|glow|arboard|xui-gpu'` to confirm the windowing crates
+are still absent.
 
 **Compositor client (M3a, issue #168)** — `src/bin/client.rs` (`xui-client`)
 runs the same counter + an `Edit` text field as a `xuid` client:
@@ -193,9 +209,15 @@ and no `xdemo`, so the app is the first surface at the top-left. Owner mode
 expands to the whole recipe: a services session, `xuid`, and the xui apps
 embedded side by side (`XAPPS.LST` names what the image ships; a registered app
 whose ELF is absent is unavailable and never logged as a failed launch).
-`init`'s app registry opens the `autostart` rows as `xuid` clients.
+`init`'s app registry opens the `autostart` rows as `xuid` clients; by
+default only the Terminal is autostarted (`LAZYOS_XUI_AUTOSTART` lists other
+stems, `none` disables it) and the other apps open on demand from the start
+menu or the desktop right-click menu.
 `sysmon`/`fabricmon`/`counter` pick client mode via `LazyOSBackend::connect`;
-the new `xui-term` hosts BusyBox `sh` over a pipe pair (issue #254). The desktop profile starts no
+the new `xui-term` hosts BusyBox `sh` over a pipe pair (issue #254). The desktop
+image also ships the migrated document apps **Editor**, **Paint** and **Files**
+(`XEDITOR/XFILES/XPAINT.ELF`, on demand rather than autostarted): Files opens a
+text file in the Editor through `mimed`'s open-with registry. The desktop profile starts no
 demo/evidence programs (no `flaky`, `top` launch self-test or clipboard demo
 pair). Captured by `tools/screenshot/examples/xui_desktop.json` in the `xui-app`
 job.
@@ -204,9 +226,10 @@ job.
 (the Tab-order nodes plus button-like controls), moves focus on a pointer press
 that lands on one, delivers `SetFocus`/`KillFocus`, and routes `KeyDown`,
 `KeyUp` and `Char` to the focused node rather than the node under the pointer.
-`Tab` cycles focus when no compositor reserves it; with `xuid` running (client
-mode) `PageDown`/`PageUp` do, because `xuid` consumes `Tab` for surface focus
-and the kernel's PS/2 driver does not decode function keys. The client session
+`Tab`/`Shift+Tab` cycle focus; with `xuid` running (client mode) a plain `Tab`
+reaches the client (the compositor keeps only Alt+Tab/Ctrl+Tab), and
+`PageUp`/`PageDown` are delivered to the focused widget (the Editor scrolls)
+instead of cycling focus. The client session
 clicks the `Edit`, moves the pointer away and types (`XUIAPP:KEY:PASS`), cycles
 to the counter button and activates it with Space (`XUIAPP:COUNTER:1`), then
 cycles back and types again.

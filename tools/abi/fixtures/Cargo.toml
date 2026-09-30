@@ -71,3 +71,7 @@ path = "src/statxio.rs"
 [[bin]]
 name = "cwd"
 path = "src/cwd.rs"
+
+[[bin]]
+name = "fsops"
+path = "src/fsops.rs"

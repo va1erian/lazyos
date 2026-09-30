@@ -6,6 +6,7 @@ Run: python tools/lazygui/test_catalog.py
 
 from __future__ import annotations
 
+import os
 import sys
 import tempfile
 import unittest
@@ -42,6 +43,33 @@ class DataDiskPlanTests(unittest.TestCase):
         argv = demo_argv(data_disk=False)
         self.assertIn("--no-data-disk", argv)
         self.assertNotIn("--data-disk", argv)
+
+
+class DocumentAppSessionTests(unittest.TestCase):
+    """Editor/Paint/Files scripts boot the desktop profile, autostarting one app."""
+
+    def env(self, stem: str) -> dict[str, str]:
+        cfg = {"desktop": True, "services": False, "xuid": False, "xui_client": False,
+               "xui_app": "(none)", "shellprobe": False, "msgctl": False, "msgrd": False,
+               "busybox": "", "xui_autostart": stem, "xui_apps": catalog.DESKTOP_APPS}
+        return catalog.build_env(cfg)
+
+    def test_document_scripts_are_desktop_sessions(self) -> None:
+        for file, _, switches, stem in catalog.SCRIPTS:
+            if stem in catalog.DOCUMENT_APPS:
+                self.assertEqual(switches, ("desktop",), file)
+
+    def test_autostart_names_the_app_and_all_apps_are_embedded(self) -> None:
+        env = self.env("files")
+        self.assertEqual(env["LAZYOS_DESKTOP"], "1")
+        self.assertEqual(env["LAZYOS_XUI_AUTOSTART"], "files")
+        self.assertNotIn("LAZYOS_XUI_APP", env)
+        embedded = env["LAZYOS_XUI_APPS"].split(os.pathsep)
+        self.assertEqual(len(embedded), len(catalog.DESKTOP_APPS))
+        self.assertTrue(any(p.endswith("xui-editor.elf") for p in embedded))
+
+    def test_no_autostart_without_a_document_script(self) -> None:
+        self.assertNotIn("LAZYOS_XUI_AUTOSTART", self.env(""))
 
 
 class ResetTests(unittest.TestCase):

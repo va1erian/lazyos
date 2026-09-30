@@ -50,10 +50,14 @@ pub(super) fn run() -> messenger::Result<()> {
                 if let Some(txn) = message.txn {
                     // A caller whose deadline passed is a normal scheduling
                     // race: the kernel expired the transaction and the reply
-                    // is `-ENOENT`. Keep serving the other session's offers.
+                    // is `-ENOENT`. A caller whose channel closed before the
+                    // reply was written (`-EPIPE`, e.g. a short-lived probe or
+                    // an offer client that has already dropped its endpoint)
+                    // is equally normal. Keep serving the other sessions.
                     if let Err(error) = server.reply(txn, &reply) {
-                        if error.errno() != Some(-errno::ENOENT) {
-                            return Err(error);
+                        match error.errno() {
+                            Some(code) if code == -errno::ENOENT || code == -errno::EPIPE => {}
+                            _ => return Err(error),
                         }
                     }
                 }

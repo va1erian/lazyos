@@ -68,8 +68,49 @@ pub mod key {
     pub const CTRL: u32 = 0x109;
     pub const ALT: u32 = 0x10A;
     pub const SUPER: u32 = 0x10B;
-    /// Function key 4, used for the compositor's Alt+F4 (issue #167).
+    pub const DELETE: u32 = 0x10C;
+    pub const INSERT: u32 = 0x10D;
+    /// `F1`; function key `n` (1..=12) is `F1 + n - 1`. `F4` is used for the
+    /// compositor's Alt+F4 (issue #167).
+    pub const F1: u32 = 0x110;
     pub const F4: u32 = 0x113;
+    pub const F12: u32 = 0x11B;
+
+    /// Modifier bits the compositor ORs into the key of every `KeyDown` and
+    /// `KeyUp` it forwards to a client (bits 24..=27; the code is the low 24
+    /// bits, `key & CODE_MASK`). See `docs/architecture/display.md`.
+    pub const MOD_SHIFT: u32 = 1 << 24;
+    pub const MOD_CTRL: u32 = 1 << 25;
+    pub const MOD_ALT: u32 = 1 << 26;
+    pub const MOD_SUPER: u32 = 1 << 27;
+    /// Mask selecting the key code from a forwarded key.
+    pub const CODE_MASK: u32 = 0x00FF_FFFF;
+
+    /// Whether `code` is a printable character whose case or symbol already
+    /// reflects Shift (ASCII graphic/space, Latin-1 graphic).
+    pub const fn is_printable(code: u32) -> bool {
+        (code >= 0x20 && code < 0x7F) || (code >= 0xA0 && code <= 0xFF)
+    }
+
+    /// The key as forwarded to a client: `code` plus the held modifier bits.
+    /// Shift is omitted for a printable character (`A`, `!` already carry it)
+    /// unless Ctrl or Alt is also held, where the case is otherwise lost.
+    pub const fn with_modifiers(code: u32, shift: bool, ctrl: bool, alt: bool, sup: bool) -> u32 {
+        let mut key = code;
+        if shift && (!is_printable(code) || ctrl || alt) {
+            key |= MOD_SHIFT;
+        }
+        if ctrl {
+            key |= MOD_CTRL;
+        }
+        if alt {
+            key |= MOD_ALT;
+        }
+        if sup {
+            key |= MOD_SUPER;
+        }
+        key
+    }
 }
 
 /// Pointer buttons, as reported in pointer events.
