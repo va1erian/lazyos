@@ -108,8 +108,7 @@ impl WaitQueue {
             // race between the check above and the sleep; interrupts go off
             // again before the re-check so the caller's contract (and its
             // next register-then-park) still holds when `wait` returns.
-            x86_64::instructions::interrupts::enable_and_hlt();
-            x86_64::instructions::interrupts::disable();
+            super::nap();
         }
     }
 

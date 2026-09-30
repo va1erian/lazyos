@@ -229,8 +229,9 @@ const EOF_CHAR: u64 = b'\n' as u64;
 /// `sh`'s stdin pipe, not the kernel key queue) can read them (issue #315).
 /// `None` means "descriptor 0 is the terminal, use the key queue".
 ///
-/// A blocking stream parks inside the read; a non-blocking one is polled with
-/// interrupts enabled so the timer and the writer can run.
+/// A blocking stream parks inside the read; a non-blocking one is polled,
+/// napping between reads so the timer and the writer can run while each read
+/// (the task table, the pipe) still runs with interrupts off (issue #382).
 pub(crate) fn read_redirected() -> Option<u64> {
     match task::fd_kind(0) {
         FdKind::Terminal => None,
@@ -239,18 +240,15 @@ pub(crate) fn read_redirected() -> Option<u64> {
         FdKind::Socket if task::fd_seqpacket(0) => Some(EOF_CHAR),
         FdKind::Pipe | FdKind::Socket => {
             let mut byte = [0u8; 1];
-            loop {
+            Some(task::poll_until(|| {
                 match task::fd_stream_read(0, &mut byte) {
-                    Ok(1) => return Some(u64::from(byte[0])),
-                    Err(pipe::Error::WouldBlock) => {
-                        x86_64::instructions::interrupts::enable();
-                        x86_64::instructions::hlt();
-                    }
+                    Ok(1) => Some(u64::from(byte[0])),
+                    Err(pipe::Error::WouldBlock) => None,
                     // End of stream, a signal, or a broken descriptor: nothing
                     // more will arrive.
-                    _ => return Some(EOF_CHAR),
+                    _ => Some(EOF_CHAR),
                 }
-            }
+            }))
         }
         FdKind::File => Some(match task::fd_read(0, 1) {
             Some(chunk) if !chunk.is_empty() => u64::from(chunk[0]),

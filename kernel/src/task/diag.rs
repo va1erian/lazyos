@@ -22,18 +22,25 @@ const RSP: u64 = 18;
 /// Stack words printed above a task's kernel-mode saved context.
 const TASK_STACK_WORDS: usize = 16;
 
-/// The context the most recent timer tick interrupted: tick, slot, rip, cs.
-/// Written by every tick (four relaxed stores), read only by the report.
-static LAST_TICK: [AtomicU64; 4] = [const { AtomicU64::new(0) }; 4];
+/// Stack words printed above the context the last tick interrupted.
+const TICK_STACK_WORDS: usize = 32;
+
+/// The context the most recent timer tick interrupted: tick, slot, rip, cs,
+/// rflags, rsp. Written by every tick (six relaxed stores), read only by the
+/// report: when the scheduler itself is what hangs, this is the only record
+/// of the code the tick preempted.
+static LAST_TICK: [AtomicU64; 6] = [const { AtomicU64::new(0) }; 6];
 
 /// Record the context a timer tick interrupted. `rsp` is the frame the tick
 /// saved for `slot`.
 pub(super) fn note_tick(slot: usize, rsp: u64) {
     // SAFETY: `rsp` is the interrupt frame the scheduler ISR just pushed on
-    // the interrupted task's kernel stack; words RIP and CS are inside it.
-    let (rip, cs) = unsafe { (frame_word(rsp, RIP), frame_word(rsp, CS)) };
+    // the interrupted task's kernel stack; words RIP..RSP are inside it.
+    let [rip, cs, rflags, saved_rsp] =
+        unsafe { [RIP, CS, RFLAGS, RSP].map(|i| frame_word(rsp, i)) };
     let tick = crate::arch::idt::TICKS.load(Ordering::Relaxed);
-    for (cell, value) in LAST_TICK.iter().zip([tick, slot as u64, rip, cs]) {
+    let record = [tick, slot as u64, rip, cs, rflags, saved_rsp];
+    for (cell, value) in LAST_TICK.iter().zip(record) {
         cell.store(value, Ordering::Relaxed);
     }
 }
@@ -52,13 +59,18 @@ pub fn table_locked() -> bool {
 /// Print the scheduler's view: the last tick's interrupted context and one
 /// line per task (plus its kernel stack when it was saved in ring 0).
 pub fn write_report(out: &mut impl Write) -> fmt::Result {
-    let [tick, slot, rip, cs] = LAST_TICK
+    let [tick, slot, rip, cs, rflags, rsp] = LAST_TICK
         .each_ref()
         .map(|cell| cell.load(Ordering::Relaxed));
     writeln!(
         out,
-        "HANG:LASTTICK tick={tick} slot={slot} rip={rip:#x} cs={cs:#x}"
+        "HANG:LASTTICK tick={tick} slot={slot} rip={rip:#x} cs={cs:#x} rflags={rflags:#x} rsp={rsp:#x}"
     )?;
+    // A tick that preempted ring-0 code (IF=1 there) is the prime suspect
+    // for a held lock: its stack shows the call chain holding it.
+    if tick != 0 && cs & 3 == 0 {
+        write_stack(out, slot as usize, rsp, TICK_STACK_WORDS)?;
+    }
     // A held table is itself evidence (a holder preempted or spinning); its
     // contents may be mid-update, so they are not read.
     let Some(tasks) = TASKS.try_lock() else {

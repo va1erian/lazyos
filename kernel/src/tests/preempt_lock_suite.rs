@@ -8,6 +8,12 @@
 //! same shape (the mux allocates preemptibly, syscalls and the scheduler's
 //! signal sweep with interrupts off). Both locks are now taken with
 //! interrupts masked, so a tick can never find them held.
+//!
+//! With that fixed, the CI stress found the same shape in a syscall:
+//! native `read_char` slept with `enable(); hlt()` and then polled the task
+//! table with interrupts still on, so a tick landing in `take_key` spun in
+//! the scheduler on the table lock. Syscall busy-waits now go through
+//! `task::poll_until`, which masks interrupts again after every nap.
 
 use super::*;
 use crate::arch::nmi::{self, Interrupted};
@@ -146,6 +152,76 @@ pub fn soak_ticks_never_preempt_lock_holders() -> Result<(), String> {
     Ok(())
 }
 
+/// Run `f` with the PIT line unmasked but `IF` left as the caller has it
+/// (off, like a syscall), restoring the mask afterwards.
+fn with_timer_unmasked<R>(f: impl FnOnce() -> R) -> R {
+    let saved = pic::is_masked(TIMER_LINE);
+    pic::set_masked(TIMER_LINE, false);
+    let result = f();
+    pic::set_masked(TIMER_LINE, saved);
+    result
+}
+
+/// Poll like native `read_char` does, with the PIT running: `take_key` (the
+/// task table) until `ticks` ticks have passed. Returns `(attempts,
+/// attempts that ran with interrupts on)`.
+fn poll_like_read_char(ticks: u64) -> (u64, u64) {
+    let start = task::ticks();
+    let (mut attempts, mut unmasked) = (0u64, 0u64);
+    task::poll_until(|| {
+        attempts += 1;
+        if x86_64::instructions::interrupts::are_enabled() {
+            unmasked += 1;
+        }
+        let _ = task::take_key();
+        (task::ticks() >= start + ticks).then_some(())
+    });
+    (attempts, unmasked)
+}
+
+/// The syscall busy-wait helper masks interrupts for every attempt and
+/// returns with them masked, as the syscall entry left them. The old
+/// `enable(); hlt()` loop ran every attempt after the first with `IF=1`, and
+/// `logind`'s `read_char` hung a boot when a tick landed on its `take_key`.
+pub fn poll_until_masks_every_attempt() -> Result<(), String> {
+    kernel_task_only();
+    let ((attempts, unmasked), if_after) = with_timer_unmasked(|| {
+        let polled = poll_like_read_char(5);
+        (polled, x86_64::instructions::interrupts::are_enabled())
+    });
+    check!(
+        attempts >= 2,
+        "only {attempts} attempts: the helper never napped"
+    );
+    check!(
+        unmasked == 0,
+        "{unmasked} of {attempts} attempts ran with interrupts on"
+    );
+    check!(!if_after, "poll_until returned with interrupts on");
+    Ok(())
+}
+
+/// Soak: a few seconds of `read_char`-style polling under real ticks, every
+/// attempt masked, and the ticks keep coming (a tick that preempted a
+/// `take_key` would deadlock the scheduler instead).
+pub fn soak_poll_until_under_ticks() -> Result<(), String> {
+    kernel_task_only();
+    let total = with_timer_unmasked(|| {
+        (0..30).fold((0u64, 0u64), |total, _| {
+            let (attempts, unmasked) = poll_like_read_char(10);
+            (total.0 + attempts, total.1 + unmasked)
+        })
+    });
+    check!(total.0 >= 150, "only {} attempts in 300 ticks", total.0);
+    check!(
+        total.1 == 0,
+        "{} of {} attempts ran with interrupts on",
+        total.1,
+        total.0
+    );
+    Ok(())
+}
+
 /// A `fmt::Write` sink into a heap string (tests only; the real report
 /// writes to the UART).
 struct Capture(String);
@@ -232,6 +308,14 @@ pub(super) const CASES: &[(&str, Test)] = &[
     (
         "preempt_soak_ticks_never_preempt_lock_holders",
         soak_ticks_never_preempt_lock_holders,
+    ),
+    (
+        "preempt_poll_until_masks_every_attempt",
+        poll_until_masks_every_attempt,
+    ),
+    (
+        "preempt_soak_poll_until_under_ticks",
+        soak_poll_until_under_ticks,
     ),
     ("preempt_nmi_report_is_complete", nmi_report_is_complete),
     (
