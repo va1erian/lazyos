@@ -332,6 +332,16 @@ extern "C" fn page_fault_dispatch(rsp: u64) -> u64 {
     }
     if let Ok(fault) = addr {
         let table = crate::mem::kernel_table();
+        // A ring-3 fault the page tables already permit is the hypervisor
+        // emulator's fabrication (see `arch::spurious_fault`): retry.
+        if crate::arch::fault::from_user(saved_cs)
+            && crate::arch::spurious_fault::is_spurious(error, fault.as_u64())
+        {
+            // SAFETY: as above; RIP is word 16.
+            let rip = unsafe { core::ptr::read_volatile((rsp + 16 * 8) as *const u64) };
+            crate::arch::spurious_fault::note(error, fault.as_u64(), rip);
+            return rsp;
+        }
         // A write to a present copy-on-write user page takes a private copy.
         // This must come first: such a page is present, so the demand-zero
         // path below would never apply to it.

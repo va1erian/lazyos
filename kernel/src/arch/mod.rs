@@ -15,6 +15,7 @@ pub mod pagewalk;
 pub mod pic;
 pub mod raw_serial;
 pub mod rtc;
+pub mod spurious_fault;
 pub mod string_io;
 
 /// Initialise interrupt hardware and load the IDT.
