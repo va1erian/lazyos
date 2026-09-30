@@ -18,12 +18,12 @@ use std::rc::Rc;
 pub use flash::FlashHandle;
 
 use xui_core::app::{App, Ui};
-use xui_core::backend::{BackendError, NodeKind, NodeSpec, TimerId};
+use xui_core::backend::{BackendError, Event, NodeKind, NodeSpec, TimerId, WidgetId};
 use xui_core::geometry::{Point, Rect};
 use xui_core::message::Key;
 use xui_core::units::Dip;
 use xui_core::widget::{
-    Control, Dialog, IconView, Menu, MenuId, StatusBar, TaskDialog, TaskDialogAction,
+    Control, Dialog, IconView, Menu, MenuId, Placeable, StatusBar, TaskDialog, TaskDialogAction,
 };
 
 use crate::model::{Clock, Flash, Listing, SharedListing, summarize, title};
@@ -67,6 +67,9 @@ pub enum Msg {
     PropertiesClosed,
     /// The open-folder flash's repeating timer fired.
     FlashTick,
+    /// The window was resized; the view and status bar re-flow to the new
+    /// client rect.
+    WindowResized,
 }
 
 /// One open folder window.
@@ -148,6 +151,13 @@ impl ExplorerWindow {
             _ => None,
         });
 
+        // The compositor announces a resize at the window level; map it to a
+        // message so the re-flow runs in `update`, outside event dispatch.
+        ui.register_events(WidgetId::NONE, |event| match event {
+            Event::Resize { .. } => Some(Msg::WindowResized),
+            _ => None,
+        });
+
         let mut window = ExplorerWindow {
             explorer,
             dir,
@@ -221,6 +231,16 @@ impl ExplorerWindow {
         }
     }
 
+    /// Re-lays the view and status bar out for the window's current client
+    /// rect. The icon view owns a scrollbar child node, so it is told through
+    /// [`Placeable::placed`] after the batch move; each open folder window
+    /// re-flows on its own.
+    fn reflow(&self, ui: &Ui<Msg>) {
+        let (view_rect, status_rect) = layout(ui);
+        ui.apply_moves(&[(self.view.id(), view_rect), (self.status.id(), status_rect)]);
+        self.view.placed(ui, view_rect);
+    }
+
     /// Opens a directory in its own window (or reports it already open) or
     /// hands a file to the launcher.
     fn activate(&mut self, index: usize, ui: &mut Ui<Msg>) {
@@ -292,6 +312,9 @@ impl App for ExplorerWindow {
 
     fn update(&mut self, msg: Msg, ui: &mut Ui<Msg>) {
         match msg {
+            // A resize re-flows even while a modal is open: the dialogs are
+            // window-level nodes and keep their own layout.
+            Msg::WindowResized => self.reflow(ui),
             Msg::Selection => self.update_status(),
             Msg::Activate(index) => {
                 if !self.modal_open() {

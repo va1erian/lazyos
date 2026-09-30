@@ -193,4 +193,22 @@ impl<M: 'static> Editor<M> {
         self.state.borrow_mut().selected = selected;
         self.control.set_selected(selected);
     }
+
+    /// Re-clamps the scroll so the caret stays visible after the node's bounds
+    /// changed. A mounted layout calls this from its `placed` hook on a window
+    /// resize; the widget's own event mapper also handles a node-level
+    /// `Resize`, so either path keeps the caret and scroll valid.
+    pub fn on_resize(&self) {
+        let ui = self.control.ui();
+        let id = self.control.id();
+        let mut state = self.state.borrow_mut();
+        crate::events::ensure_visible(&mut state, ui, id);
+    }
+
+    /// The first visible line and display column, for a host that checks the
+    /// scroll after a re-flow.
+    pub fn scroll_position(&self) -> (usize, usize) {
+        let state = self.state.borrow();
+        (state.view.first_line, state.view.first_col)
+    }
 }

@@ -116,6 +116,10 @@ pub struct LazyOSBackend {
     frames: Cell<u64>,
     /// A one-shot callback run after the first frame reached the screen.
     on_first_frame: RefCell<Option<Box<dyn FnOnce()>>>,
+    /// Content-size hints applied to every window this app opens, or `None`
+    /// for fixed-size windows. Set before `run_app` with
+    /// [`LazyOSBackend::set_size_hints`].
+    size_hints: Cell<Option<(u32, u32, u32, u32)>>,
     /// Source of the shared text shaper. `xui-canvas` keeps its cosmic-text
     /// shaper crate-private, but the headless backend hands out that same
     /// `Send + Sync` shaper (cloning shares one font system, built on first use
@@ -209,8 +213,17 @@ impl LazyOSBackend {
             next_timer: Cell::new(1),
             frames: Cell::new(0),
             on_first_frame: RefCell::new(None),
+            size_hints: Cell::new(None),
             shaper: OffscreenBackend::new(),
         }
+    }
+
+    /// Make every window this app opens resizable within the given content
+    /// bounds (`min_w`/`min_h` at least, `max_w`/`max_h` at most; a `max` of 0
+    /// means the screen). Call it before `run_app`. Apps that never call it
+    /// keep the old fixed-size behaviour.
+    pub fn set_size_hints(&self, min_w: u32, min_h: u32, max_w: u32, max_h: u32) {
+        self.size_hints.set(Some((min_w, min_h, max_w, max_h)));
     }
 
     /// Whether this backend is a compositor client.

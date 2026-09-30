@@ -120,6 +120,20 @@ impl Compositor {
         if self.drag.is_some_and(|active| active.id == id) {
             self.drag = None;
         }
+        // An interactive resize on the surface ends with it; its outline is
+        // erased by the caller's repaint.
+        if self.resize.is_some_and(|active| active.id == id) {
+            self.resize = None;
+        }
+        // A pending double-click record for the surface would otherwise match a
+        // later window that reused nothing (ids are never reused) but is still
+        // stale state.
+        if self
+            .last_title_click
+            .is_some_and(|(click_id, ..)| click_id == id)
+        {
+            self.last_title_click = None;
+        }
         // A drag & drop session whose source or hovered target goes away ends
         // now.
         let stranding = self
@@ -211,6 +225,34 @@ pub(super) fn forward(
     let _ = display::send_event(&Endpoint::from_raw(surface.events), scratch, method, body);
 }
 
+impl Compositor {
+    /// Send surface `id`'s client a one-way `Configure(width, height, state)`
+    /// so it can attach a buffer of the new content size and repaint. Used by
+    /// resize and maximize; the compositor keeps drawing the old buffer,
+    /// cropped or padded, until the client catches up.
+    pub(super) fn send_configure(
+        &mut self,
+        id: u64,
+        events: u64,
+        width: i32,
+        height: i32,
+        state: u32,
+    ) {
+        let args = wire::ConfigureArgs {
+            surface: id,
+            width: width.max(0) as u32,
+            height: height.max(0) as u32,
+            state,
+        };
+        let _ = display::send_event(
+            &Endpoint::from_raw(events),
+            &mut self.scratch,
+            wire::METHOD_CONFIGURE,
+            wire::encode_configure_args(&args),
+        );
+    }
+}
+
 /// A bare surface for the create-focus self-test: no buffers, no chrome.
 pub(super) fn test_surface(id: u64, minimized: bool, desktop: bool) -> Surface {
     Surface {
@@ -224,6 +266,10 @@ pub(super) fn test_surface(id: u64, minimized: bool, desktop: bool) -> Surface {
         owner: 0,
         pixels: 0,
         bytes: 0,
+        buf_w: 0,
+        buf_h: 0,
+        hints: None,
+        maximized: None,
         slots: Default::default(),
         minimized,
         desktop,

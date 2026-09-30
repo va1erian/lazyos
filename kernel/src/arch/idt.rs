@@ -1,6 +1,7 @@
 //! Interrupt descriptor table and handlers.
 
 use crate::arch::fault::{contain, Fault};
+use crate::arch::fault_storm::Path;
 use crate::arch::io::inb;
 use crate::arch::pic;
 use crate::input::{keyboard, mouse};
@@ -330,17 +331,23 @@ extern "C" fn page_fault_dispatch(rsp: u64) -> u64 {
     if crate::arch::string_io::recover(rsp) {
         return rsp;
     }
+    // SAFETY: as above; RIP is word 16, just before CS.
+    let rip = unsafe { core::ptr::read_volatile((rsp + 16 * 8) as *const u64) };
     if let Ok(fault) = addr {
         let table = crate::mem::kernel_table();
+        // Every "handled" exit resumes the same instruction; a path that is
+        // wrong about it livelocks the task, so each one is counted.
+        let handled = |path| {
+            crate::arch::fault_storm::note(table, rip, fault.as_u64(), raw_error, path);
+            rsp
+        };
         // A ring-3 fault the page tables already permit is the hypervisor
         // emulator's fabrication (see `arch::spurious_fault`): retry.
         if crate::arch::fault::from_user(saved_cs)
             && crate::arch::spurious_fault::is_spurious(error, fault.as_u64())
         {
-            // SAFETY: as above; RIP is word 16.
-            let rip = unsafe { core::ptr::read_volatile((rsp + 16 * 8) as *const u64) };
             crate::arch::spurious_fault::note(error, fault.as_u64(), rip);
-            return rsp;
+            return handled(Path::Spurious);
         }
         // A write to a present copy-on-write user page takes a private copy.
         // This must come first: such a page is present, so the demand-zero
@@ -348,12 +355,12 @@ extern "C" fn page_fault_dispatch(rsp: u64) -> u64 {
         if error.contains(PageFaultErrorCode::CAUSED_BY_WRITE)
             && crate::mem::cow_fault(table, fault.as_u64())
         {
-            return rsp;
+            return handled(Path::Cow);
         }
         // A not-present page inside an Anon/Heap VMA is demand-zero memory:
         // materialize it (if the VMA permits this access) and resume.
         if crate::mem::demand_fault(table, fault.as_u64(), error) {
-            return rsp;
+            return handled(Path::Demand);
         }
         // Still a fault: a ring-3 process with a `SIGSEGV` handler resumes
         // there (a kernel-mode fault must never have its frame rewritten to
@@ -366,11 +373,9 @@ extern "C" fn page_fault_dispatch(rsp: u64) -> u64 {
                 raw_error,
             )
         {
-            return rsp;
+            return handled(Path::Signal);
         }
     }
-    // SAFETY: as above; RIP is word 16, just before CS.
-    let rip = unsafe { core::ptr::read_volatile((rsp + 16 * 8) as *const u64) };
     // SAFETY: `rsp` is the page-fault frame `page_fault_isr` saved, with RIP at
     // `FAULT_RIP_INDEX` (16) after the registers and the error code.
     unsafe {

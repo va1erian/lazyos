@@ -343,6 +343,16 @@
         "name": "PointerWheel",
         "id": 31,
         "oneway": true
+      },
+      {
+        "name": "SetSizeHints",
+        "id": 32,
+        "oneway": false
+      },
+      {
+        "name": "Configure",
+        "id": 33,
+        "oneway": true
       }
     ],
     "topics": []

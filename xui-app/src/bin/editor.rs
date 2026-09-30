@@ -41,6 +41,8 @@ fn main() -> std::process::ExitCode {
         }
     };
     let (width, height) = backend.window_size(WINDOW);
+    // The editor re-flows its text area and line numbers to the window size.
+    backend.set_size_hints(400, 300, 0, 0);
     backend.on_first_frame(|| println!("EDITOR:UP:PASS"));
 
     let spec = PlatformSpec::new("Editor").size(Dip(width as f32), Dip(height as f32));

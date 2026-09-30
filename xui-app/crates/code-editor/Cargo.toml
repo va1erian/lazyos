@@ -24,6 +24,8 @@ rhai-syntax = []
 
 [dev-dependencies]
 xui-canvas = { git = "https://github.com/va1erian/xui", rev = "58c1a6ea1a2dc1e5bb81463ff8dba82329a4f080", default-features = false }
+# The resizable offscreen backend the window-resize tests drive.
+xui-app-testkit = { path = "../testkit" }
 # Rhai's own tokenizer, the oracle the hand-written lexer's tests compare token
 # boundaries against. The lexer itself never uses it, so `rhai-syntax` builds
 # carry no Rhai crate either.

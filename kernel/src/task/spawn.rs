@@ -172,6 +172,9 @@ pub(super) fn spawn_native(
             .map(|source| clone_fds_exec(&source.fds, &source.fd_flags))
             .unwrap_or_else(new_fds),
     };
+    // A new program starts with clean x87/SSE registers, not the slot's
+    // previous owner's.
+    fpu::reset(index);
     tasks[index] = Some(Task {
         name,
         kind: Kind::Native,
@@ -240,6 +243,9 @@ pub fn spawn_thread(
     // A thread runs with its creator's credentials, not the slot's leftovers.
     credentials::inherit(current(), index);
     trace::clear(index);
+    // Like its registers, a thread's floating-point state starts as its
+    // creator's.
+    fpu::inherit_live(index);
     tasks[index] = Some(Task {
         name,
         kind: Kind::Linux,
@@ -344,6 +350,8 @@ pub(super) fn spawn_fork_inner(user_rsp: Option<u64>) -> Result<usize, &'static 
     // still hold a dead task's (possibly root) identity.
     credentials::inherit(parent_index, index);
     trace::clear(index);
+    // The child resumes with the parent's registers, floating point included.
+    fpu::inherit_live(index);
     tasks[index] = Some(Task {
         name: "fork",
         kind: Kind::Linux,

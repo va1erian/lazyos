@@ -243,6 +243,8 @@ pub(super) fn sys_execve(path_ptr: u64, argv_ptr: u64, envp_ptr: u64) -> u64 {
     crate::mem::switch_to(table);
     task::set_pml4(table.as_u64());
     task::set_fs_base(0);
+    // The new image starts with default x87/SSE registers, not the old one's.
+    task::fpu::reset_live(task::current());
     task::register_bumps(table.as_u64(), BRK_BASE, MMAP_BASE);
     crate::arch::linux::set_user_return(entry, rsp, 0x202);
     guard.commit();

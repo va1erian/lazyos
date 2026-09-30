@@ -3,6 +3,7 @@
 pub mod cpu;
 pub mod fault;
 pub mod fault_report;
+pub mod fault_storm;
 pub mod gdt;
 pub mod idt;
 pub mod io;
