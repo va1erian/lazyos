@@ -341,6 +341,14 @@ extern "C" fn page_fault_dispatch(rsp: u64) -> u64 {
             crate::arch::fault_storm::note(table, rip, fault.as_u64(), raw_error, path);
             rsp
         };
+        // A ring-3 fault the page tables already permit is the hypervisor
+        // emulator's fabrication (see `arch::spurious_fault`): retry.
+        if crate::arch::fault::from_user(saved_cs)
+            && crate::arch::spurious_fault::is_spurious(error, fault.as_u64())
+        {
+            crate::arch::spurious_fault::note(error, fault.as_u64(), rip);
+            return handled(Path::Spurious);
+        }
         // A write to a present copy-on-write user page takes a private copy.
         // This must come first: such a page is present, so the demand-zero
         // path below would never apply to it.

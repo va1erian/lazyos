@@ -64,12 +64,49 @@ const SND_CRED: SysCred = SysCred::new(SND_UID, SND_UID, user::dev::CAP_DEV_CLAI
 #[cfg(lazyos_sound)]
 const SND_UID: u32 = 901;
 
+/// The `netdrv` driver's identity (docs/networking-plan.md N1): a dedicated
+/// system uid holding only `CAP_DEV_CLAIM`, exactly like `sndd`'s.
+#[cfg(lazyos_net)]
+const NET_CRED: SysCred = SysCred::new(NET_UID, NET_UID, user::dev::CAP_DEV_CLAIM, 0, 0);
+/// The `_net` system user.
+#[cfg(lazyos_net)]
+const NET_UID: u32 = netpolicy::NET_UID;
+
+/// The argument string of the `netdrv` row: `demo=1` runs the self-test and the
+/// evidence clients; `LAZYOS_NET_ARGS` overrides it at build time (the network
+/// harness's `--poll` passes `demo=1 irq=poll`).
+#[cfg(lazyos_net)]
+const NET_ARGS: &str = match option_env!("LAZYOS_NET_ARGS") {
+    Some(args) => args,
+    // With `netd` present the driver runs only its ARP self-test: the evidence
+    // clients attach to the NIC, and `netd` holds the one attachment.
+    None if cfg!(lazyos_netd) => "selftest=1",
+    None => "demo=1",
+};
+
+/// The `netd` stack service's identity (docs/networking-plan.md N2): its own
+/// system uid and **no capabilities at all**: it holds no device authority, no
+/// DMA, nothing it could misuse if a parser bug handed an attacker the process.
+#[cfg(lazyos_netd)]
+const NETD_CRED: SysCred = SysCred::new(NETD_UID, NETD_UID, 0, 0, 0);
+/// The `_netd` system user.
+#[cfg(lazyos_netd)]
+const NETD_UID: u32 = netpolicy::NETD_UID;
+
 /// Credentials a manifest row is spawned with; `None` inherits this
 /// supervisor's identity, which is what the platform services need.
 fn manifest_cred(name: &str) -> Option<SysCred> {
     #[cfg(lazyos_sound)]
     if name == "sndd" {
         return Some(SND_CRED);
+    }
+    #[cfg(lazyos_net)]
+    if name == "netdrv" {
+        return Some(NET_CRED);
+    }
+    #[cfg(lazyos_netd)]
+    if name == "netd" {
+        return Some(NETD_CRED);
     }
     let _ = name;
     None
@@ -261,6 +298,34 @@ pub(super) const MANIFEST: &[ServiceSpec] = &[
         path: "SNDD.ELF",
         args: "demo=1",
         restart: Restart::OnFailure,
+        deps: &[],
+    },
+    // The virtio-net userspace driver (docs/networking-plan.md N1), present only
+    // on `LAZYOS_NET=1` images. It needs nothing but the device syscall (and
+    // `confd`, softly). `demo=1` runs the ARP self-test and the `nicctl`
+    // evidence clients that the network harness checks against the packet
+    // capture. A machine without the device makes it idle, so `Always` only
+    // restarts it after a crash or a restart-class setting change.
+    #[cfg(lazyos_net)]
+    ServiceSpec {
+        name: "netdrv",
+        path: "NETDRV.ELF",
+        args: NET_ARGS,
+        restart: Restart::Always,
+        deps: &[],
+    },
+    // The network stack service (docs/networking-plan.md N2), present only on
+    // `LAZYOS_NETD=1` images: smoltcp over the NIC driver's rings, as `_netd`
+    // with no capabilities. It finds the driver by name and retries until the
+    // driver is there (or forever, if the machine has no NIC), so it has no
+    // start dependency. `demo=1` runs `netctl`, `ping`, the hostile-input probe
+    // and the soak as real clients.
+    #[cfg(lazyos_netd)]
+    ServiceSpec {
+        name: "netd",
+        path: "NETD.ELF",
+        args: "demo=1",
+        restart: Restart::Always,
         deps: &[],
     },
     // The system monitor (issue #144): `sysmond` wraps the kernel's

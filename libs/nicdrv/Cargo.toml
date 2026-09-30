@@ -1,0 +1,26 @@
+[package]
+name = "nicdrv"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "The logic of the virtio-net driver, host testable: DMA slot pools over virtqueues, client ring sessions, statistics"
+license = "GPL-3.0-or-later"
+
+[lib]
+name = "nicdrv"
+path = "src/lib.rs"
+
+[features]
+# Expose `fuzz::run`, shared by the in-tree seeded tests and the cargo-fuzz
+# target (`fuzz/`). Needs `std`.
+fuzz = ["framering/fuzz"]
+
+[dependencies]
+virtio = { path = "../virtio" }
+virtio-net = { path = "../virtio-net" }
+framering = { path = "../framering" }
+
+[dev-dependencies]
+fuzzkit = { path = "../fuzzkit" }
+# Test memory with guard pages, and the ring's own fuzz helpers.
+framering = { path = "../framering", features = ["fuzz"] }

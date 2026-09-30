@@ -73,4 +73,20 @@ fn main() {
     {
         println!("cargo:rustc-cfg=lazyos_sound");
     }
+
+    // virtio-net driver (docs/networking-plan.md N1): `LAZYOS_NET=1` adds the
+    // `netdrv` row to `init`'s manifest (the ELFs are embedded by the root
+    // build script), so a services boot supervises the driver.
+    println!("cargo:rerun-if-env-changed=LAZYOS_NET");
+    println!("cargo:rustc-check-cfg=cfg(lazyos_net)");
+    // `LAZYOS_NETD=1` adds the `netd` row and implies the driver's.
+    println!("cargo:rerun-if-env-changed=LAZYOS_NETD");
+    println!("cargo:rustc-check-cfg=cfg(lazyos_netd)");
+    let netd = env::var_os("LAZYOS_NETD").as_deref() == Some(std::ffi::OsStr::new("1"));
+    if netd || env::var_os("LAZYOS_NET").as_deref() == Some(std::ffi::OsStr::new("1")) {
+        println!("cargo:rustc-cfg=lazyos_net");
+    }
+    if netd {
+        println!("cargo:rustc-cfg=lazyos_netd");
+    }
 }

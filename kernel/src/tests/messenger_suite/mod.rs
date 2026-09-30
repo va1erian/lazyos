@@ -139,9 +139,11 @@ fn syscall(op: u64, args: &MsgArgs) -> (u64, MsgResult) {
 }
 
 mod bootstrap_and_stats;
+mod release_flag;
 mod syscall_core;
 
 pub(super) use bootstrap_and_stats::*;
+pub(super) use release_flag::*;
 pub(super) use syscall_core::*;
 
 pub(super) const CASES: &[(&str, Test)] = &[
@@ -151,5 +153,9 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("ipc_messenger_syscall_bad_pointer", syscall_bad_pointer),
     ("ipc_messenger_late_reply_is_enoent", late_reply_is_enoent),
     ("ipc_messenger_bootstrap_claim", bootstrap_claim),
+    (
+        "ipc_messenger_release_flag_is_accepted_only_on_close",
+        release_flag_is_accepted_only_on_close,
+    ),
     ("ipc_messenger_fabric_stats_abi", syscall_fabric_stats),
 ];

@@ -110,6 +110,9 @@ extern "C" fn syscall_dispatch(regs: *mut Regs) {
         24 => super::wallsys::dispatch(regs.rdi, regs.rsi),
         // 25: the raw input event bus (`docs/input-plan.md`), `inputd` only.
         25 => crate::input::rawsys::dispatch(regs.rdi, regs.rsi, regs.rdx),
+        // 26: random bytes from the kernel CSPRNG (docs/networking-plan.md N2),
+        // open to every task; see `super::randsys`.
+        26 => super::randsys::dispatch(regs.rdi, regs.rsi),
         _ => u64::MAX,
     };
 }
@@ -140,6 +143,7 @@ pub fn dispatch_for_test(nr: u64, a1: u64, a2: u64, a3: u64) -> u64 {
         23 => crate::dev::syscall::dispatch(a1, a2, a3, 0, 0),
         24 => super::wallsys::dispatch(a1, a2),
         25 => crate::input::rawsys::dispatch(a1, a2, a3),
+        26 => super::randsys::dispatch(a1, a2),
         _ => u64::MAX,
     }
 }

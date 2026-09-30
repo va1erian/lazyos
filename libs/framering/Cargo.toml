@@ -1,0 +1,19 @@
+[package]
+name = "framering"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Single-producer/single-consumer Ethernet frame ring over shared memory, for a hostile peer"
+license = "GPL-3.0-or-later"
+
+[lib]
+name = "framering"
+path = "src/lib.rs"
+
+[features]
+# Expose `fuzz::run`, the byte-script entry point shared by the in-tree seeded
+# tests and the cargo-fuzz target (`fuzz/`). Needs `std`.
+fuzz = []
+
+[dev-dependencies]
+fuzzkit = { path = "../fuzzkit" }

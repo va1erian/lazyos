@@ -48,12 +48,14 @@ mod cred;
 mod display;
 mod input;
 mod introspect;
+mod random;
 mod wall;
 
 pub use cred::*;
 pub use display::*;
 pub use input::*;
 pub use introspect::*;
+pub use random::*;
 pub use wall::*;
 
 /// Write raw bytes to the console.

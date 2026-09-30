@@ -56,6 +56,9 @@ pub mod op {
     pub const CANCEL: u64 = 5;
     /// Close an endpoint handle.
     pub const CLOSE_ENDPOINT: u64 = 6;
+    /// `flags` of [`CLOSE_ENDPOINT`]: release the handle, and close the side
+    /// only if no other handle names it.
+    pub const CLOSE_RELEASE: u64 = 1;
     /// Create a fresh channel pair; both handles open in this task.
     pub const CREATE_PAIR: u64 = 7;
     /// Read channel counters (`handle = 0` means every live channel).
@@ -411,3 +414,15 @@ pub mod timed;
 /// The `os.lazy.audio.v1` client: streams, the shared ring and the transport
 /// controls of the `sndd` driver.
 pub mod audio;
+
+// ---------------------------------------------------------------------------
+// Networking (docs/networking-plan.md N1)
+// ---------------------------------------------------------------------------
+
+/// The `os.lazy.net.nic.v1` client: control calls on the `netdrv` driver and
+/// the client's side of its frame rings.
+pub mod net;
+
+/// The `os.lazy.net.stack.v1` client: addresses, routes, statistics and ping
+/// against the `netd` stack service.
+pub mod netstack;

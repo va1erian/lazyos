@@ -155,6 +155,7 @@ mod service_suite;
 mod signal_suite;
 mod slab_suite;
 mod spawn_argv_suite;
+mod spurious_fault_suite;
 mod stats_suite;
 mod string_io_suite;
 mod sysinfo_suite;
@@ -196,6 +197,7 @@ const SUITE: &[&[(&str, Test)]] = &[
     boot_trace_suite::CASES,
     boot_io_suite::CASES,
     string_io_suite::CASES,
+    spurious_fault_suite::CASES,
     ramdisk_suite::CASES,
     dev_suite::CORE,
     dev_suite::IRQ,
@@ -205,6 +207,7 @@ const SUITE: &[&[(&str, Test)]] = &[
     dev_suite::SYSCALL,
     dev_suite::SYSCALL_GUARD,
     dev_suite::SYSCALL_OPS,
+    dev_suite::SYSCALL_POLICY,
     dev_suite::SYSCALL_CFG,
     dev_suite::TEARDOWN,
     dev_suite::DMA,

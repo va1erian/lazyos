@@ -727,6 +727,119 @@
     ]
   },
   {
+    "interface": "os.lazy.net.nic.v1",
+    "interface_id": "0x6748c83c2024715b",
+    "methods": [
+      {
+        "name": "Info",
+        "id": 266462757,
+        "oneway": false
+      },
+      {
+        "name": "SetRxMode",
+        "id": 506115710,
+        "oneway": false
+      },
+      {
+        "name": "AttachRing",
+        "id": 62355614,
+        "oneway": false
+      },
+      {
+        "name": "DetachRing",
+        "id": 162562056,
+        "oneway": false
+      },
+      {
+        "name": "Stats",
+        "id": 267161228,
+        "oneway": false
+      },
+      {
+        "name": "Kick",
+        "id": 754690623,
+        "oneway": true
+      },
+      {
+        "name": "Notify",
+        "id": 314575196,
+        "oneway": true
+      }
+    ],
+    "topics": [
+      {
+        "name": "system/net/+/link",
+        "source": "system/net/{nic}/link",
+        "payload": "LinkEvent",
+        "qos": "latest",
+        "retained": true,
+        "publish_permission": "publish:system/net/+/link",
+        "subscribe_permission": "subscribe:system/net/+/link"
+      }
+    ]
+  },
+  {
+    "interface": "os.lazy.net.stack.v1",
+    "interface_id": "0xb80ce5d5fc59627d",
+    "methods": [
+      {
+        "name": "Interfaces",
+        "id": 1779791769,
+        "oneway": false
+      },
+      {
+        "name": "Addresses",
+        "id": 912810883,
+        "oneway": false
+      },
+      {
+        "name": "Routes",
+        "id": 321835703,
+        "oneway": false
+      },
+      {
+        "name": "Stats",
+        "id": 267161228,
+        "oneway": false
+      },
+      {
+        "name": "Ping",
+        "id": 2142761129,
+        "oneway": false
+      },
+      {
+        "name": "Renew",
+        "id": 438534286,
+        "oneway": false
+      },
+      {
+        "name": "Reattach",
+        "id": 60999493,
+        "oneway": false
+      }
+    ],
+    "topics": [
+      {
+        "name": "system/net/+/addr",
+        "source": "system/net/{ifname}/addr",
+        "payload": "AddressEvent",
+        "qos": "latest",
+        "retained": true,
+        "publish_permission": "publish:system/net/+/addr",
+        "subscribe_permission": "subscribe:system/net/+/addr"
+      },
+      {
+        "name": "system/events/network/up",
+        "source": "system/events/network/up",
+        "payload": "AddressEvent",
+        "qos": "latest",
+        "retained": false,
+        "publish_permission": "publish:system/events/network/up",
+        "subscribe_permission": "subscribe:system/events/network/up"
+      }
+    ]
+  },
+  {
     "interface": "os.lazy.messenger.registry.v1",
     "interface_id": "0x51d501afec09806c",
     "methods": [

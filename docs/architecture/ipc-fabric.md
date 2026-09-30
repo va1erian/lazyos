@@ -64,6 +64,11 @@ Ops: 1-7 `CALL`, `REPLY`, `SEND`, `RECV`, `CANCEL`, `CLOSE_ENDPOINT`,
 `TOTALS` (v1); 13-17 `REGISTER`, `RESOLVE`, `UNREGISTER`, `LIST`,
 `AUTHORIZE_TOPIC`.
 
+- `CLOSE_ENDPOINT` takes a flags word. `CLOSE_RELEASE` (1) makes it a *release*:
+  the handle is dropped and the side closes only if no other handle names it
+  (teardown semantics), instead of ending the side for every holder. A receiver
+  that was handed someone else's endpoint must release, not close (networking
+  plan N2: `netdrv` was closing `netd`'s service endpoint).
 - ABI blocks are fixed 64-byte `MsgArgs`/`MsgResult` little-endian word arrays,
   mirrored byte-for-byte in `user/src/messenger/`; sizes are compile-time
   asserted at the bottom of `syscalls/abi.rs`.
