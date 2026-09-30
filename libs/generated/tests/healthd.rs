@@ -92,3 +92,31 @@ fn error_field_is_ignored_by_decoders() {
         StatusReply::default()
     );
 }
+
+#[test]
+fn health_topic_payloads_roundtrip_and_reject_malformed() {
+    let row = record(2);
+    let body = encode_system_health(&row).unwrap();
+    assert_eq!(decode_system_health(&body).unwrap(), row);
+    assert!(decode_system_health(&body[..body.len() - 2]).is_err());
+    assert!(decode_system_health(&[0xff, 0xff, 0xff, 0xff]).is_err());
+    assert!(decode_system_health(&[0x01]).is_err());
+
+    let body = encode_system_health_summary(&row).unwrap();
+    assert_eq!(decode_system_health_summary(&body).unwrap(), row);
+    assert!(decode_system_health_summary(&[0x01]).is_err());
+}
+
+#[test]
+fn health_topic_patterns_and_qos_are_declared() {
+    assert_eq!(TOPIC_SYSTEM_HEALTH, "system/health/+");
+    assert_eq!(TOPIC_SYSTEM_HEALTH_SUMMARY, "system/health/summary");
+    assert_eq!(
+        TOPIC_SYSTEM_HEALTH_QOS,
+        messenger_generated::topics::QOS_LATEST
+    );
+    assert_eq!(
+        TOPIC_SYSTEM_HEALTH_SUMMARY_QOS,
+        messenger_generated::topics::QOS_LATEST
+    );
+}

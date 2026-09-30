@@ -11,6 +11,15 @@ answers the query `messengerctl sessions` renders.
 |---|---|---|---|
 | Sessions | 916097772 | sync | `() -> (active: U64, sessions: Array<Session>)` |
 
+## Topics
+
+| Topic | Payload | QoS | Retained | Permissions |
+|---|---|---|---|---|
+| `system/events/login/start` | `LoginStart` | latest | yes | `publish:system/events/login/start`, `subscribe:system/events/login/start` |
+| `system/events/login/session/+` | `LoginSession` | latest | yes | `publish:system/events/login/session/+`, `subscribe:system/events/login/session/+` |
+| `system/events/login/denied` | `LoginDenied` | latest | yes | `publish:system/events/login/denied`, `subscribe:system/events/login/denied` |
+| `system/events/login/end` | `LoginEnd` | latest | yes | `publish:system/events/login/end`, `subscribe:system/events/login/end` |
+
 ## struct `Session`
 
 - `id: U64`
@@ -19,3 +28,30 @@ answers the query `messengerctl sessions` renders.
 - `pid: U64`
 - `state: String`
 - `started: U64`
+
+## struct `LoginStart`
+
+- `user: String`
+- `uid: U32`
+- `session: U64`
+- `pid: U64`
+- `state: String`
+
+## struct `LoginSession`
+
+- `user: String`
+- `uid: U32`
+- `pid: U64`
+- `state: String`
+
+## struct `LoginDenied`
+
+- `user: String`
+- `reason: String`
+
+## struct `LoginEnd`
+
+- `user: String`
+- `uid: U32`
+- `session: U64`
+- `status: U64`

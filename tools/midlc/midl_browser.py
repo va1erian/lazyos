@@ -232,7 +232,7 @@ class MidlBrowser:
             methods = [m for m in interface.methods if _matches(query, m.name, m.doc)]
             structs = [s for s in interface.structs if _matches(query, s.name, s.doc)]
             enums = [e for e in interface.enums if _matches(query, e.name)]
-            topics = [t for t in interface.topics if _matches(query, t.name, t.payload, t.doc)]
+            topics = [t for t in interface.topics if _matches(query, t.name, t.source, t.payload, t.doc, *t.permissions)]
             if not (methods or structs or enums or topics):
                 return
             shown = midlc.Interface(interface.name, interface.docs, methods, structs, enums, topics)

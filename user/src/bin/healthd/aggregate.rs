@@ -13,45 +13,29 @@ use user::sys;
 
 use super::{HealthRow, REPORT_TTL};
 
-/// One `key=value` token of an event payload.
-fn payload_field<'a>(payload: &'a str, key: &str) -> Option<&'a str> {
-    payload
-        .split_whitespace()
-        .find_map(|token| token.strip_prefix(key)?.strip_prefix('='))
-}
-
-/// Update one service's supervision phase from an event. The event carries
-/// `pid`/`restarts`; `deps` stays whatever the last reconcile learned.
+/// Update one service's supervision phase from a decoded service event. The
+/// topic already named the service; `deps` stays whatever the last reconcile
+/// learned.
 pub(crate) fn apply_state(
     rows: &mut Vec<HealthRow>,
     name: &str,
-    payload: &str,
+    event: &services::ServiceEvent,
     broker: &mut router::TopicBroker,
     summary_state: &mut Option<(String, String)>,
 ) {
-    let Some(state) = payload_field(payload, "state") else {
+    if event.state.is_empty() {
         return;
-    };
-    let stored = rows.iter().find(|row| row.name == name);
-    let pid = payload_field(payload, "pid")
-        .and_then(|value| value.parse().ok())
-        .or_else(|| stored.map(|row| row.pid))
-        .unwrap_or(0);
-    let restarts = payload_field(payload, "restarts")
-        .and_then(|value| value.parse().ok())
-        .or_else(|| stored.map(|row| row.restarts))
-        .unwrap_or(0);
-    if apply_supervision(rows, name, state, pid, restarts, None, broker) {
-        let summary = summary(rows);
-        let fingerprint = (summary.status.clone(), summary.detail.clone());
-        if summary_state.as_ref() != Some(&fingerprint) {
-            broker.publish(
-                "system/health/summary",
-                format!("status={} detail={}", summary.status, summary.detail).as_bytes(),
-                true,
-            );
-            *summary_state = Some(fingerprint);
-        }
+    }
+    if apply_supervision(
+        rows,
+        name,
+        &event.state,
+        event.pid,
+        event.restarts,
+        None,
+        broker,
+    ) {
+        publish_summary(broker, rows, summary_state);
     }
 }
 
@@ -78,14 +62,20 @@ pub(crate) fn refresh(
     if !any_change {
         return;
     }
+    publish_summary(broker, rows, summary_state);
+}
+
+/// Publish the aggregate row retained on `system/health/summary`, skipping the
+/// write while the status/detail fingerprint is unchanged.
+fn publish_summary(
+    broker: &mut router::TopicBroker,
+    rows: &[HealthRow],
+    summary_state: &mut Option<(String, String)>,
+) {
     let summary = summary(rows);
     let fingerprint = (summary.status.clone(), summary.detail.clone());
     if summary_state.as_ref() != Some(&fingerprint) {
-        broker.publish(
-            "system/health/summary",
-            format!("status={} detail={}", summary.status, summary.detail).as_bytes(),
-            true,
-        );
+        let _ = services::health::wire::publish_system_health_summary(broker, &summary);
         *summary_state = Some(fingerprint);
     }
 }
@@ -245,11 +235,11 @@ pub(crate) fn report(
     }
 }
 
-/// Publish one row retained on `system/health/<name>`.
+/// Publish one row retained on `system/health/<name>`. Best-effort: the topic
+/// name is validated by the generated helper, so a malformed service name
+/// drops the row instead of corrupting the broker.
 fn publish_row(broker: &mut router::TopicBroker, name: &str, row: &services::HealthRecord) {
-    let topic = format!("system/health/{name}");
-    let payload = format!("status={} detail={}", row.status, row.detail);
-    broker.publish(&topic, payload.as_bytes(), true);
+    let _ = services::health::wire::publish_system_health(broker, name, row);
 }
 
 /// The aggregate row: the worst status across every known service.

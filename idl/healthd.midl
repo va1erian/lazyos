@@ -23,4 +23,16 @@ interface os.lazy.healthd.v1 {
         /// Tick the row was produced.
         tick: U64
     }
+
+    /// The retained aggregate snapshot (issue #307), published on
+    /// `system/health/summary` with the same payload as a service row. It is
+    /// declared before the `{name}` pattern so the literal wins in the
+    /// declaration table; a service literally named `summary` would collide
+    /// with it, so the supervisor never names one that.
+    topic "system/health/summary" : HealthRecord retained qos=latest;
+
+    /// The retained per-service health row (issue #307): `healthd` publishes
+    /// one on `system/health/<name>`, and a late subscriber is handed the live
+    /// row instead of polling `Status`.
+    topic "system/health/{name}" : HealthRecord retained qos=latest;
 }

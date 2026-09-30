@@ -4,7 +4,6 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 use messenger_generated::topics;
-use messenger_generated::topics::Publish as _;
 use user::central;
 use user::messenger::{clipboard as wire, errno, registry, Endpoint, Error};
 use user::sys;
@@ -200,7 +199,7 @@ impl Clipboard {
         }
     }
 
-    /// Log an allowed paste and publish it on the event feed.
+    /// Log an allowed paste and publish the typed audit event.
     pub(super) fn log_paste(&mut self, cred: &sys::Cred, slot: u64, handle: &wire::BufferHandle) {
         self.pastes += 1;
         sys::write_str(&format!(
@@ -213,20 +212,21 @@ impl Clipboard {
             handle.bytes.len(),
             handle.lazy
         ));
-        let detail = format!(
-            "paste #{} uid={} session={} mime={} app={} bytes={} lazy={}",
-            self.pastes,
-            cred.uid,
-            cred.session,
-            handle.mime,
-            slot,
-            handle.bytes.len(),
-            handle.lazy
-        );
-        self.publish_event("system/events/clipboard/paste", &detail);
+        let event = wire::PasteEvent {
+            seq: self.pastes,
+            uid: cred.uid,
+            session: cred.session,
+            mime: handle.mime.clone(),
+            app: slot,
+            bytes: handle.bytes.len() as u64,
+            lazy: handle.lazy,
+        };
+        // Best-effort: the next event reconnects when the broker is
+        // unreachable, so a failed publish never corrupts the paste state.
+        let _ = wire::publish_system_events_clipboard_paste(self, &event);
     }
 
-    /// Log a refused cross-session paste and publish the denial.
+    /// Log a refused cross-session paste and publish the typed denial.
     pub(super) fn log_denial(&mut self, cred: &sys::Cred, slot: u64, mime: &str, token: u64) {
         self.denies += 1;
         sys::write_str(&format!(
@@ -234,17 +234,15 @@ impl Clipboard {
              (clipboard.read scope)\n",
             self.denies, cred.uid, cred.session, mime, slot, token
         ));
-        let detail = format!(
-            "deny #{} uid={} session={} mime={} app={} token={}",
-            self.denies, cred.uid, cred.session, mime, slot, token
-        );
-        self.publish_event("system/events/security/clipboard", &detail);
-    }
-
-    /// Best-effort audit record: publish through `messengerd`'s central
-    /// broker, reconnecting on the next event when the broker is unreachable.
-    fn publish_event(&mut self, topic: &str, detail: &str) {
-        let _ = self.publish_topic(topic, detail.as_bytes(), false);
+        let event = wire::ClipboardDenial {
+            seq: self.denies,
+            uid: cred.uid,
+            session: cred.session,
+            mime: String::from(mime),
+            app: slot,
+            token,
+        };
+        let _ = wire::publish_system_events_security_clipboard(self, &event);
     }
 }
 

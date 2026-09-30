@@ -99,9 +99,16 @@ pub(crate) fn open_path(
     let launched = session
         .map(|session| launch_via_init(&app, path, session))
         .unwrap_or(false);
-    let topic = format!("system/events/open/{app}");
-    let payload = format!("path={path} mime={mime_type} verb={verb}");
-    let published = publish_event(bus, &topic, &payload);
+    let event = wire::OpenEvent {
+        path: String::from(path),
+        mime: mime_type.clone(),
+        verb: String::from(verb),
+    };
+    let published = publish_event(bus, &app, &event);
+    // The topic comes from the generated builder, never a hand-typed
+    // `format!`; an app id the builder refuses also fails to publish, so the
+    // empty topic can never be reported as a success.
+    let topic = wire::name_system_events_open(&app).unwrap_or_default();
     Ok(mime::OpenResult {
         app,
         mime: mime_type,
@@ -160,18 +167,20 @@ fn launch_via_init(app: &str, path: &str, session: u64) -> bool {
 ///
 /// `messengerd` is the supervisor's first service but its topics name can
 /// still land a tick after this service starts, so retry while the broker is
-/// unreachable and reconnect when a cached connection goes stale.
-fn publish_event(bus: &mut Option<central::Bus>, topic: &str, payload: &str) -> bool {
+/// unreachable and reconnect when a cached connection goes stale. The generated
+/// `publish_system_events_open` helper encodes the typed `OpenEvent` and builds
+/// the concrete `system/events/open/<app>` topic.
+fn publish_event(bus: &mut Option<central::Bus>, app: &str, event: &wire::OpenEvent) -> bool {
     const ATTEMPTS: usize = 32;
     for _ in 0..ATTEMPTS {
         if bus.is_none() {
             *bus = central::Bus::connect().ok();
         }
-        let Some(active) = bus else {
+        let Some(active) = bus.as_mut() else {
             park_tick();
             continue;
         };
-        match active.publish(topic, payload.as_bytes(), false) {
+        match wire::publish_system_events_open(active, app, event) {
             Ok(_) => return true,
             Err(_) => {
                 *bus = None;

@@ -18,6 +18,12 @@ reply, so the error field is hand-written next to these stubs.
 | Launch | 936096390 | sync | `(app: String, args: String, session: U64) -> (app: String, pid: U64, session: U64)` |
 | ListApps | 1009359625 | sync | `() -> (apps: Array<AppInfo>)` |
 
+## Topics
+
+| Topic | Payload | QoS | Retained | Permissions |
+|---|---|---|---|---|
+| `system/events/service/+` | `ServiceEvent` | latest | yes | `publish:system/events/service/+`, `subscribe:system/events/service/+` |
+
 ## struct `ServiceStatus`
 
 - `name: String`
@@ -34,3 +40,12 @@ reply, so the error field is hand-written next to these stubs.
 - `path: String`
 - `restart: String`
 - `verbs: Array<String>`
+
+## struct `ServiceEvent`
+
+- `state: String`
+- `pid: U64`
+- `restarts: U64`
+- `status: U64`
+- `health: String`
+- `detail: String`

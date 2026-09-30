@@ -35,6 +35,7 @@ extern crate alloc;
 use alloc::format;
 use alloc::string::String;
 use core::panic::PanicInfo;
+use messenger_generated::os_lazy_sysmond_v1 as stats;
 use user::central;
 use user::messenger::{self, errno, registry, services, Error, Message, Parcel};
 use user::sys;
@@ -42,7 +43,7 @@ use user::sysinfo::{self, Snapshot, TaskState};
 
 /// How often the retained stats topics are republished (PIT ticks, 100 Hz).
 ///
-/// Every publish formats two payloads and re-encodes one event per
+/// Every publish encodes two typed payloads and re-encodes one event per
 /// subscriber; the user heap (`user/src/heap.rs`) recycles those same-sized
 /// blocks each tick, so the service's footprint stays flat. The `snapshot`
 /// method is the on-demand path for anything that needs a fresh value *now*.
@@ -192,19 +193,11 @@ fn publish_stats(central: &mut Option<central::Bus>, announced: bool) -> Result<
     // broker restarted), so the cached bus is dropped rather than kept: the
     // next call's `central.is_none()` check above then reconnects instead of
     // retrying a dead handle forever.
-    if let Err(error) = bus.publish(
-        "system/stats/memory",
-        memory_payload(&snapshot).as_bytes(),
-        true,
-    ) {
+    if let Err(error) = stats::publish_system_stats_memory(bus, &memory_stats(&snapshot)) {
         *central = None;
         return Err(error.errno().unwrap_or(-errno::EINVAL));
     }
-    if let Err(error) = bus.publish(
-        "system/stats/tasks",
-        tasks_payload(&snapshot).as_bytes(),
-        true,
-    ) {
+    if let Err(error) = stats::publish_system_stats_tasks(bus, &tasks_stats(&snapshot)) {
         *central = None;
         return Err(error.errno().unwrap_or(-errno::EINVAL));
     }
@@ -220,47 +213,54 @@ fn publish_stats(central: &mut Option<central::Bus>, announced: bool) -> Result<
     };
     Ok(list
         .iter()
-        .filter(|info| info.topic.starts_with("system/stats/"))
+        .filter(|info| is_stats_topic(&info.topic))
         .count() as u64)
 }
 
-/// The `system/stats/memory` payload: one `key=value` line of counters.
-fn memory_payload(snapshot: &Snapshot) -> String {
-    format!(
-        "ticks={} frames_total={} frames_live={} frames_free={} slab_live={} slab_peak={} heap_used={} heap_total={}",
-        snapshot.ticks,
-        snapshot.frames_total,
-        snapshot.frames_live,
-        snapshot.frames_free,
-        snapshot.slab_live,
-        snapshot.slab_peak,
-        snapshot.heap_used,
-        snapshot.heap_total,
-    )
+/// Whether `topic` is one of the declared `system/stats/*` topics, so the
+/// evidence count is derived from the interface constants rather than a
+/// hand-typed prefix.
+fn is_stats_topic(topic: &str) -> bool {
+    topic == stats::TOPIC_SYSTEM_STATS_MEMORY || topic == stats::TOPIC_SYSTEM_STATS_TASKS
 }
 
-/// The `system/stats/tasks` payload: a `live=N` line, then one line per live
-/// task (`key=value` fields, NUL-trimmed short name).
-fn tasks_payload(snapshot: &Snapshot) -> String {
-    let mut out = format!("live={}", snapshot.tasks_live);
-    for row in snapshot.live_tasks() {
-        let wait = if row.state == TaskState::Blocked {
-            row.wait.label()
-        } else {
-            ""
-        };
-        out.push_str(&format!(
-            "\npid={} ppid={} state={} wait={} class={} cpu={} name={}",
-            row.pid,
-            row.ppid,
-            row.state.label(),
-            wait,
-            row.class.label(),
-            row.cpu_ticks,
-            row.name(),
-        ));
+/// The `system/stats/memory` payload: the snapshot's memory counters.
+fn memory_stats(snapshot: &Snapshot) -> stats::MemoryStats {
+    stats::MemoryStats {
+        ticks: snapshot.ticks,
+        frames_total: snapshot.frames_total,
+        frames_live: snapshot.frames_live,
+        frames_free: snapshot.frames_free,
+        slab_live: snapshot.slab_live,
+        slab_peak: snapshot.slab_peak,
+        heap_used: snapshot.heap_used,
+        heap_total: snapshot.heap_total,
     }
-    out
+}
+
+/// The `system/stats/tasks` payload: the live count and one row per live task,
+/// with the short labels the text view used to print and the NUL-trimmed name.
+fn tasks_stats(snapshot: &Snapshot) -> stats::TasksStats {
+    let tasks = snapshot
+        .live_tasks()
+        .map(|row| stats::TaskRow {
+            pid: row.pid,
+            ppid: row.ppid,
+            state: String::from(row.state.label()),
+            wait: if row.state == TaskState::Blocked {
+                String::from(row.wait.label())
+            } else {
+                String::new()
+            },
+            class: String::from(row.class.label()),
+            cpu: row.cpu_ticks,
+            name: String::from(row.name()),
+        })
+        .collect();
+    stats::TasksStats {
+        live: snapshot.tasks_live,
+        tasks,
+    }
 }
 
 /// Dispatch one inbound message: a `snapshot` call on the system interface.
