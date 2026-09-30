@@ -118,6 +118,13 @@ pub fn fat_lfn_inconsistent_runs_fall_back() -> Result<(), String> {
     vol.put_slots(&mut root, &lfn_slots_units(&units, checksum(&short_g)));
     vol.put_slots(&mut root, &[short_slot(&short_g, ATTR_FILE, 0, 0)]);
 
+    // A fragment with a nonzero type byte is not a long-name entry.
+    let short_t = *b"TYPED   TXT";
+    let mut frags = lfn_slots(long, &short_t);
+    frags[0][12] = 1;
+    vol.put_slots(&mut root, &frags);
+    vol.put_slots(&mut root, &[short_slot(&short_t, ATTR_FILE, 0, 0)]);
+
     // A well-formed entry afterwards still gets its long name.
     vol.add(&mut root, Some(long), &short_ok, ATTR_FILE, 0, 0);
 
@@ -130,6 +137,7 @@ pub fn fat_lfn_inconsistent_runs_fall_back() -> Result<(), String> {
         "SURR.TXT",
         "SLASH.TXT",
         "NULMID.TXT",
+        "TYPED.TXT",
         long,
     ]
     .iter()

@@ -55,6 +55,10 @@ impl LfnRun {
 
     /// Feed one `0x0F` directory entry.
     pub(super) fn push(&mut self, raw: &[u8]) {
+        // A genuine fragment has type 0 and a zero first-cluster field.
+        if raw[12] != 0 || raw[26] != 0 || raw[27] != 0 {
+            return self.reset();
+        }
         let seq = raw[0];
         let ord = seq & 0x1F;
         if seq & LAST_FLAG != 0 {
