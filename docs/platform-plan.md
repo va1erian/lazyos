@@ -133,8 +133,11 @@ Full spec in [`messenger.md`](messenger.md). Summary:
   DMA-safe shared buffers, interrupt → event delivery through Messenger.
   Landed in D0/D1 (#239): [`architecture/devices.md`](architecture/devices.md),
   the PCI upgrade and the in-kernel device core with typed resources,
-  claim/generation ownership and a static `Driver` table; interrupts (`D2`) and
-  the userspace `dev_*` surface (`D3`) follow.
+  claim/generation ownership and a static `Driver` table; interrupts (`D2`),
+  the userspace `dev_*` surface (`D3`) and DMA (`D4`) followed. The first
+  userspace driver, `sndd` for virtio-sound, landed in D6
+  ([`architecture/audio.md`](architecture/audio.md)) with the modern virtio
+  transport it needs.
 - **SMP:** AP bring-up, spinlocks per subsystem, IPIs; designed now, enabled
   later.
 

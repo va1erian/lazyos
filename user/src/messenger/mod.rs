@@ -103,6 +103,7 @@ pub mod errno {
     pub const EPIPE: i64 = 32;
     pub const EDEADLK: i64 = 35;
     pub const EBADMSG: i64 = 74;
+    pub const ENOTSUP: i64 = 95;
     pub const ETIMEDOUT: i64 = 110;
     pub const ECANCELED: i64 = 125;
 }
@@ -402,3 +403,11 @@ pub mod confd;
 /// The time-of-day service `timed` (issue #369): the generated
 /// `os.lazy.timed.v1` stubs and a blocking [`timed::Client`].
 pub mod timed;
+
+// ---------------------------------------------------------------------------
+// Audio (docs/driver-plan.md D6)
+// ---------------------------------------------------------------------------
+
+/// The `os.lazy.audio.v1` client: streams, the shared ring and the transport
+/// controls of the `sndd` driver.
+pub mod audio;

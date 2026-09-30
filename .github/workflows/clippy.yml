@@ -46,4 +46,5 @@ jobs:
         run: |
           cargo clippy \
             -p libmessenger -p messenger-generated -p lazyos-crypto -p font-atlas -p confd -p timezone \
+            -p virtio -p virtio-snd -p pcm \
             --all-targets -- -D warnings

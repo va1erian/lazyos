@@ -1,0 +1,231 @@
+#!/usr/bin/env python3
+"""Boot LazyOS with a virtio-sound card, record what it plays, verify the tone.
+
+The proof that the sound driver works is not a log line but the recording: QEMU
+runs with `-audiodev wav` so everything the guest sends to the virtual sound
+card lands in a WAV file, which `analyze_wav.py` then measures (active length,
+peak level, pitch from zero crossings). The serial marker `SND:PLAY:PASS` only
+tells the harness when the guest finished; the verdict comes from the audio.
+
+    python tools/sound/run.py                    # build, boot, record, verify
+    python tools/sound/run.py --no-build         # reuse target/lazyos.img
+    python tools/sound/run.py --accel none       # force TCG
+    python tools/sound/run.py --services         # supervised by `init`
+    python tools/sound/run.py --smoke            # `-audiodev none`: skip the audio check
+
+The image must be built with `LAZYOS_SOUND=1` (this script does it unless
+`--no-build`). Exit status is non-zero on any failure.
+"""
+
+from __future__ import annotations
+
+import argparse
+import os
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent.parent
+sys.path.insert(0, str(ROOT / "tools" / "screenshot"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from qemu_qmp import Qmp, accel_args, build_qemu_command, find_qemu, free_port  # noqa: E402
+
+import analyze_wav  # noqa: E402
+
+#: What `sndd demo=1` plays (`user/src/bin/sndd.rs`): its own self-test tone,
+#: then a second tone through a real client, `beep` (`user/src/bin/beep.rs`).
+#: Each is 800 ms; the recording must hold both, in this order.
+DEMO_FREQS_HZ = "440,880"
+DEMO_MS = 800
+
+#: Serial markers: every PASS must appear; any FAIL (or a missing device) ends
+#: the wait early.
+PASS_MARKERS = (
+    "SND:PLAY:PASS",
+    "BEEP:PLAY:PASS",
+    "BEEP:PROBE:PASS",
+    "BEEP:INTRUDER:PASS",
+    "BEEP:SOAK:PASS",
+)
+FAIL_MARKERS = (
+    "SND:PLAY:FAIL",
+    "SND:IRQ:FAIL",
+    "BEEP:PLAY:FAIL",
+    "BEEP:PROBE:FAIL",
+    "BEEP:INTRUDER:FAIL",
+    "BEEP:SOAK:FAIL",
+    "SNDD:NODEV",
+)
+
+
+def build_image(services: bool) -> Path:
+    env = dict(os.environ, LAZYOS_SOUND="1")
+    if services:
+        env["LAZYOS_SERVICES"] = "1"
+    label = "LAZYOS_SOUND=1" + (" LAZYOS_SERVICES=1" if services else "")
+    print(f"building: {label} cargo build", flush=True)
+    result = subprocess.run(["cargo", "build"], cwd=ROOT, env=env, capture_output=True, text=True)
+    if result.returncode != 0:
+        sys.exit(f"cargo build failed:\n{result.stderr[-4000:]}")
+    image = ROOT / "target" / "lazyos.img"
+    if not image.is_file():
+        sys.exit(f"build succeeded but {image} does not exist")
+    return image
+
+
+def wait_for_marker(serial_log: Path, proc: subprocess.Popen, timeout: float) -> str:
+    """Poll the serial log until the driver reports a verdict or time runs out."""
+    deadline = time.time() + timeout
+    text = ""
+    printed = 0
+    while time.time() < deadline:
+        if serial_log.is_file():
+            text = serial_log.read_text(errors="replace")
+            lines = text.splitlines()
+            for line in lines[printed:]:
+                if line.startswith(("SND", "sndd", "BEEP")) or "PANIC" in line or "EXCEPTION" in line:
+                    print(f"  {line}", flush=True)
+            printed = len(lines)
+            if all(marker in text for marker in PASS_MARKERS) or any(
+                marker in text for marker in FAIL_MARKERS
+            ):
+                return text
+        if proc.poll() is not None:
+            break
+        time.sleep(0.25)
+    if serial_log.is_file():
+        text = serial_log.read_text(errors="replace")
+    return text
+
+
+def stop_qemu(proc: subprocess.Popen, qmp: Qmp | None) -> None:
+    """Quit through QMP so the wav backend patches its header on the way out."""
+    if qmp is not None:
+        try:
+            qmp.execute("quit")
+        except Exception:
+            pass
+        qmp.close()
+    try:
+        proc.wait(timeout=15)
+    except subprocess.TimeoutExpired:
+        proc.terminate()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--image", default=str(ROOT / "target" / "lazyos.img"))
+    parser.add_argument("--out", default="shots/sound", help="output dir (serial.log, out.wav)")
+    parser.add_argument("--qemu", help="path to qemu-system-x86_64")
+    parser.add_argument("--accel", default="auto", choices=["auto", "none", "tcg", "whpx", "kvm"])
+    parser.add_argument("--memory", default="256M")
+    parser.add_argument("--timeout", type=float, default=120.0, help="seconds to wait for the driver")
+    parser.add_argument("--machine", help="QEMU machine type, e.g. q35 (default: i440fx)")
+    parser.add_argument(
+        "--virtio-disk",
+        action="store_true",
+        help="attach the image as legacy virtio-blk instead of IDE (needed on q35, "
+        "which has no IDE controller the kernel drives)",
+    )
+    parser.add_argument("--no-build", action="store_true", help="skip the cargo build")
+    parser.add_argument("--services", action="store_true", help="build with LAZYOS_SERVICES=1 (init supervises sndd)")
+    parser.add_argument(
+        "--no-device",
+        action="store_true",
+        help="boot without a sound card: the driver must say so and exit cleanly",
+    )
+    parser.add_argument("--smoke", action="store_true", help="-audiodev none: check the driver, not the audio")
+    parser.add_argument("--freqs", default=DEMO_FREQS_HZ, help="expected tone frequencies in order (Hz, comma separated)")
+    parser.add_argument("--min-ms", type=float, default=DEMO_MS * 0.8, help="minimum duration of each tone")
+    args = parser.parse_args()
+
+    out_dir = Path(args.out) if Path(args.out).is_absolute() else ROOT / args.out
+    out_dir.mkdir(parents=True, exist_ok=True)
+    serial_log = out_dir / "serial.log"
+    wav_path = out_dir / "out.wav"
+    for stale in (serial_log, wav_path):
+        stale.unlink(missing_ok=True)
+
+    image = Path(args.image) if args.no_build else build_image(args.services)
+    if not image.is_file():
+        sys.exit(f"image not found: {image}")
+
+    qemu = find_qemu(args.qemu)
+    extra = list(accel_args(args.accel, qemu) or [])
+    if args.machine:
+        extra += ["-machine", args.machine]
+    if args.virtio_disk:
+        extra += [
+            "-drive", f"if=none,id=d0,format=raw,file={image.resolve().as_posix()}",
+            "-device", "virtio-blk-pci,drive=d0,disable-modern=on",
+        ]
+    if args.smoke:
+        extra += ["-audiodev", "none,id=a0"]
+    else:
+        # Commas in a path are doubled for QEMU's option parser.
+        path = wav_path.resolve().as_posix().replace(",", ",,")
+        extra += ["-audiodev", f"wav,id=a0,path={path}"]
+    if not args.no_device:
+        extra += ["-device", "virtio-sound-pci,audiodev=a0"]
+
+    port = free_port()
+    command = build_qemu_command(
+        qemu, None if args.virtio_disk else str(image), port, serial_log, args.memory, extra
+    )
+    print(f"launching: {' '.join(command)}", flush=True)
+    proc = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
+
+    text = ""
+    qmp: Qmp | None = None
+    try:
+        qmp = Qmp("127.0.0.1", port, min(30.0, args.timeout))
+        text = wait_for_marker(serial_log, proc, args.timeout)
+        time.sleep(1.0)  # let the backend flush the last periods
+    finally:
+        stop_qemu(proc, qmp)
+
+    if args.no_device:
+        ok = "SNDD:NODEV" in text and "SND:PLAY:FAIL" not in text
+        print("SOUND:HARNESS:" + ("PASS (no device: the driver exited cleanly)" if ok else "FAIL"))
+        return 0 if ok else 1
+    missing = [marker for marker in PASS_MARKERS if marker not in text]
+    if missing:
+        for line in text.splitlines():
+            if any(marker in line for marker in FAIL_MARKERS):
+                print(line)
+        print(f"SOUND:HARNESS:FAIL the guest never reported {', '.join(missing)}")
+        return 1
+    # Interrupts: armed lines must have delivered some; an unroutable line is
+    # a legitimate polling-only run and is reported, not failed.
+    if "SNDD:IRQ:POLLING" in text:
+        print("SOUND:IRQ:POLLING (line not routable on this machine)")
+    elif "SND:IRQ:PASS" not in text:
+        print("SOUND:HARNESS:FAIL the interrupt line was armed but the driver saw no interrupt")
+        return 1
+    else:
+        print("SOUND:IRQ:PASS")
+    if args.services and "SNDD:CRED uid=901 caps=0x100" not in text:
+        print("SOUND:HARNESS:FAIL sndd did not run as _snd (uid 901) with only CAP_DEV_CLAIM")
+        return 1
+    print("SOUND:GUEST:PASS")
+    if args.smoke:
+        print("SOUND:HARNESS:PASS (smoke, audio not recorded)")
+        return 0
+
+    if not wav_path.is_file():
+        print("SOUND:HARNESS:FAIL QEMU wrote no WAV file")
+        return 1
+    code = analyze_wav.main(
+        [str(wav_path), "--expect-freq", args.freqs, "--min-ms", str(args.min_ms)]
+    )
+    print("SOUND:HARNESS:" + ("PASS" if code == 0 else "FAIL"))
+    return code
+
+
+if __name__ == "__main__":
+    sys.exit(main())

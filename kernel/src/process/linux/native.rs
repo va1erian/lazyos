@@ -48,6 +48,8 @@ const PROGRAMS: &[(&str, &str)] = &[
     ("msgctl", "MSGCTL.ELF"),
     ("messengerctl", "MSGCTL.ELF"),
     ("faultprobe", "FAULTPRB.ELF"),
+    // The audio client (docs/driver-plan.md D6): `beep [freq_hz [ms]]`.
+    ("beep", "BEEP.ELF"),
 ];
 
 /// The directories a `$PATH` search (BusyBox `sh`'s default is

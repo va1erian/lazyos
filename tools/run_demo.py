@@ -15,6 +15,9 @@ Examples
     python tools/run_demo.py -- --cpu max    # pass extra args to QEMU
     python tools/run_demo.py --reset-data    # wipe the persistent data disk first
     python tools/run_demo.py --no-data-disk  # boot with only the boot disk
+    python tools/run_demo.py --sound         # add a virtio-sound card (host speakers)
+    python tools/run_demo.py --desktop --sound   # desktop session; type `beep` in the Terminal
+    python tools/run_demo.py --sound wav:out.wav   # ...recorded to a WAV file instead
 
 A persistent ext2 data disk (default ``target/data.img``, 64 MiB) is attached as
 a second virtio-blk device. It is created on first use and never regenerated
@@ -30,6 +33,7 @@ focused program.
 from __future__ import annotations
 
 import argparse
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -86,6 +90,19 @@ def _prepare_data_disk(path: Path, reset: bool, assume_yes: bool) -> bool:
     return True
 
 
+def sound_args(backend: str) -> list[str]:
+    """QEMU arguments for a virtio-sound card on `backend` (see `--sound`)."""
+    if backend == "auto":
+        backend = {"win32": "dsound", "darwin": "coreaudio"}.get(sys.platform, "pa")
+    if backend.startswith("wav:"):
+        # A comma in a path is doubled for QEMU's option parser.
+        path = Path(backend[4:]).resolve().as_posix().replace(",", ",,")
+        audiodev = f"wav,id=snd0,path={path}"
+    else:
+        audiodev = f"{backend},id=snd0"
+    return ["-audiodev", audiodev, "-device", "virtio-sound-pci,audiodev=snd0"]
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -113,6 +130,14 @@ def main(argv: list[str]) -> int:
                              "(asks first unless --yes)")
     parser.add_argument("--yes", "-y", action="store_true",
                         help="answer yes to the --reset-data confirmation")
+    parser.add_argument("--desktop", action="store_true",
+                        help="build the desktop profile (LAZYOS_DESKTOP=1; needs the xui apps "
+                             "from `python tools/xui/build.py`)")
+    parser.add_argument("--sound", nargs="?", const="auto", metavar="BACKEND",
+                        help="attach a virtio-sound card and build with LAZYOS_SOUND=1, "
+                             "which boots the `sndd` driver and plays its test tones. "
+                             "BACKEND is a QEMU -audiodev driver (dsound, pa, alsa, sdl, "
+                             "none, ...) or wav:PATH; default: this OS's usual one")
     parser.add_argument("qemu_args", nargs=argparse.REMAINDER,
                         help="extra QEMU args (after `--`)")
     args = parser.parse_args(argv)
@@ -126,7 +151,12 @@ def main(argv: list[str]) -> int:
             cargo.append("--release")
             profile = "release (optimized for real hardware)"
         print(f"building LazyOS [{profile}]…", flush=True)
-        result = subprocess.run(cargo, cwd=ROOT)
+        env = dict(os.environ)
+        if args.sound:
+            env["LAZYOS_SOUND"] = "1"
+        if args.desktop:
+            env["LAZYOS_DESKTOP"] = "1"
+        result = subprocess.run(cargo, cwd=ROOT, env=env)
         if result.returncode != 0:
             return result.returncode
 
@@ -155,6 +185,8 @@ def main(argv: list[str]) -> int:
         command += ["-drive", f"format=raw,file={image}"]
     if data_disk:
         command += data_disk_args(data_disk)
+    if args.sound:
+        command += sound_args(args.sound)
     command += accel_args(args.accel, qemu)
     if args.headless:
         command += ["-display", "none"]

@@ -1,0 +1,11 @@
+[package]
+name = "virtio-snd"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "virtio-sound wire protocol, PCM parameter helpers and test-tone synthesis"
+license = "GPL-3.0-or-later"
+
+[lib]
+name = "virtio_snd"
+path = "src/lib.rs"

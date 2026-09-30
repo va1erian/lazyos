@@ -22,6 +22,68 @@
     "topics": []
   },
   {
+    "interface": "os.lazy.audio.v1",
+    "interface_id": "0x536f1f4639cf07f0",
+    "methods": [
+      {
+        "name": "Info",
+        "id": 266462757,
+        "oneway": false
+      },
+      {
+        "name": "OpenStream",
+        "id": 410137073,
+        "oneway": false
+      },
+      {
+        "name": "AttachRing",
+        "id": 62355614,
+        "oneway": false
+      },
+      {
+        "name": "Commit",
+        "id": 2036391452,
+        "oneway": false
+      },
+      {
+        "name": "Start",
+        "id": 182978943,
+        "oneway": false
+      },
+      {
+        "name": "Stop",
+        "id": 1266644741,
+        "oneway": false
+      },
+      {
+        "name": "Drain",
+        "id": 101727161,
+        "oneway": false
+      },
+      {
+        "name": "Position",
+        "id": 1652503594,
+        "oneway": false
+      },
+      {
+        "name": "CloseStream",
+        "id": 973774059,
+        "oneway": false
+      }
+    ],
+    "topics": [
+      {
+        "name": "system/audio/+/event",
+        "source": "system/audio/{card}/event",
+        "payload": "AudioEvent",
+        "qos": "latest",
+        "retained": false,
+        "publish_permission": "publish:system/audio/+/event",
+        "subscribe_permission": "subscribe:system/audio/+/event"
+      }
+    ]
+  },
+  {
     "interface": "os.lazy.clipboard.v1",
     "interface_id": "0x5a8da8f22670b758",
     "methods": [

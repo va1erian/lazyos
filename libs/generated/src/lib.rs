@@ -527,6 +527,634 @@ pub mod os_lazy_accounts_v1 {
     }
 }
 
+/// `os.lazy.audio.v1` (interface id `0x536f1f4639cf07f0`).
+#[rustfmt::skip]
+pub mod os_lazy_audio_v1 {
+    use alloc::vec::Vec;
+    #[allow(unused_imports)]
+    use alloc::string::String;
+    // Not every interface needs every codec item (`Kind` is only used by nested values).
+    #[allow(unused_imports)]
+    use libmessenger::{Decoder, Encoder, Error, Kind};
+    // Only interfaces that declare topics use the shared topic runtime.
+    #[allow(unused_imports)]
+    use super::topics;
+
+    /// The interface id: the FNV-1a hash of the `.vN` interface name.
+    pub const INTERFACE_ID: u64 = 0x536f1f4639cf07f0;
+
+    /// `EventKind::Underrun` wire value.
+    pub const EVENT_KIND_UNDERRUN: u32 = 0;
+    /// `EventKind::Overrun` wire value.
+    pub const EVENT_KIND_OVERRUN: u32 = 1;
+    /// `EventKind::Drained` wire value.
+    pub const EVENT_KIND_DRAINED: u32 = 2;
+    /// `EventKind::DeviceError` wire value.
+    pub const EVENT_KIND_DEVICE_ERROR: u32 = 3;
+
+    /// `Direction::Playback` wire value.
+    pub const DIRECTION_PLAYBACK: u32 = 0;
+    /// `Direction::Capture` wire value.
+    pub const DIRECTION_CAPTURE: u32 = 1;
+
+    /// `Format::S16Le` wire value.
+    pub const FORMAT_S16_LE: u32 = 0;
+    /// `Format::S24Le` wire value.
+    pub const FORMAT_S24_LE: u32 = 1;
+    /// `Format::S32Le` wire value.
+    pub const FORMAT_S32_LE: u32 = 2;
+    /// `Format::Float32` wire value.
+    pub const FORMAT_FLOAT32: u32 = 3;
+
+    /// Card capabilities.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct AudioInfo {
+        pub streams: u32,
+        pub formats: u32,
+        pub rates: u32,
+        pub channels: u32,
+    }
+
+    pub fn encode_audio_info(value: &AudioInfo) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.streams)?;
+        target.u32(2, value.formats)?;
+        target.u32(3, value.rates)?;
+        target.u32(4, value.channels)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_audio_info(body: &[u8]) -> Result<AudioInfo, Error> {
+        let mut out = AudioInfo::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.streams = field.as_u32()?;
+                }
+                2 => {
+                    out.formats = field.as_u32()?;
+                }
+                3 => {
+                    out.rates = field.as_u32()?;
+                }
+                4 => {
+                    out.channels = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Number of concurrent playback streams.
+    /// Supported `Format` bitmap: bit *n* is set when the `Format` with
+    /// ordinal *n* is supported (bit 0 `S16Le`, 1 `S24Le`, 2 `S32Le`,
+    /// 3 `Float32`). Reserved bits are zero; a client ignores them.
+    /// Supported sample-rate bitmap: bit 0 8000 Hz, 1 11025, 2 16000,
+    /// 3 22050, 4 32000, 5 44100, 6 48000, 7 88200, 8 96000, 9 176400,
+    /// 10 192000. Reserved bits are zero.
+    /// Maximum channels per stream.
+    /// The parameters an opened stream actually runs at.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct StreamGrant {
+        pub stream: u32,
+        pub dir: u32,
+        pub format: u32,
+        pub rate: u32,
+        pub channels: u32,
+        pub period_bytes: u32,
+        pub periods: u32,
+    }
+
+    pub fn encode_stream_grant(value: &StreamGrant) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.stream)?;
+        target.u32(2, value.dir)?;
+        target.u32(3, value.format)?;
+        target.u32(4, value.rate)?;
+        target.u32(5, value.channels)?;
+        target.u32(6, value.period_bytes)?;
+        target.u32(7, value.periods)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_stream_grant(body: &[u8]) -> Result<StreamGrant, Error> {
+        let mut out = StreamGrant::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.stream = field.as_u32()?;
+                }
+                2 => {
+                    out.dir = field.as_u32()?;
+                }
+                3 => {
+                    out.format = field.as_u32()?;
+                }
+                4 => {
+                    out.rate = field.as_u32()?;
+                }
+                5 => {
+                    out.channels = field.as_u32()?;
+                }
+                6 => {
+                    out.period_bytes = field.as_u32()?;
+                }
+                7 => {
+                    out.periods = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// One stream event, the payload of `system/audio/{card}/event`.
+    /// `frames` is the stream position when it happened.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct AudioEvent {
+        pub stream: u32,
+        pub kind: u32,
+        pub frames: u64,
+    }
+
+    pub fn encode_audio_event(value: &AudioEvent) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.stream)?;
+        target.u32(2, value.kind)?;
+        target.u64(3, value.frames)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_audio_event(body: &[u8]) -> Result<AudioEvent, Error> {
+        let mut out = AudioEvent::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.stream = field.as_u32()?;
+                }
+                2 => {
+                    out.kind = field.as_u32()?;
+                }
+                3 => {
+                    out.frames = field.as_u64()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// `Info` method id.
+    pub const METHOD_INFO: u32 = 266462757;
+    /// `OpenStream` method id.
+    pub const METHOD_OPENSTREAM: u32 = 410137073;
+    /// `AttachRing` method id.
+    pub const METHOD_ATTACHRING: u32 = 62355614;
+    /// `Commit` method id.
+    pub const METHOD_COMMIT: u32 = 2036391452;
+    /// `Start` method id.
+    pub const METHOD_START: u32 = 182978943;
+    /// `Stop` method id.
+    pub const METHOD_STOP: u32 = 1266644741;
+    /// `Drain` method id.
+    pub const METHOD_DRAIN: u32 = 101727161;
+    /// `Position` method id.
+    pub const METHOD_POSITION: u32 = 1652503594;
+    /// `CloseStream` method id.
+    pub const METHOD_CLOSESTREAM: u32 = 973774059;
+
+    /// Describe the card: stream count and the formats, rates and channel
+    /// counts it accepts.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct InfoReply {
+        pub info: AudioInfo,
+    }
+
+    pub fn encode_info_reply(value: &InfoReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.raw(Kind::Struct, 1, &encode_audio_info(&value.info)?)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_info_reply(body: &[u8]) -> Result<InfoReply, Error> {
+        let mut out = InfoReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.info = decode_audio_info(field.payload)?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Open a stream. `dir` and `format` are `Direction` and `Format`
+    /// ordinals (enums travel as `U32`). The reply carries the stream index and
+    /// the granted parameters. The stream is idle until a ring is attached and
+    /// it is started.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct OpenStreamArgs {
+        pub dir: u32,
+        pub format: u32,
+        pub rate: u32,
+        pub channels: u32,
+        pub period_bytes: u32,
+    }
+
+    pub fn encode_open_stream_args(value: &OpenStreamArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.dir)?;
+        target.u32(2, value.format)?;
+        target.u32(3, value.rate)?;
+        target.u32(4, value.channels)?;
+        target.u32(5, value.period_bytes)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_open_stream_args(body: &[u8]) -> Result<OpenStreamArgs, Error> {
+        let mut out = OpenStreamArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.dir = field.as_u32()?;
+                }
+                2 => {
+                    out.format = field.as_u32()?;
+                }
+                3 => {
+                    out.rate = field.as_u32()?;
+                }
+                4 => {
+                    out.channels = field.as_u32()?;
+                }
+                5 => {
+                    out.period_bytes = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct OpenStreamReply {
+        pub grant: StreamGrant,
+    }
+
+    pub fn encode_open_stream_reply(value: &OpenStreamReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.raw(Kind::Struct, 1, &encode_stream_grant(&value.grant)?)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_open_stream_reply(body: &[u8]) -> Result<OpenStreamReply, Error> {
+        let mut out = OpenStreamReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.grant = decode_stream_grant(field.payload)?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Attach the stream's sample ring: the request's `buffers[0]`, at least
+    /// `periods * period_bytes` bytes long. Fails with `EINVAL` when it is
+    /// shorter and `EBUSY` when a ring is already attached.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct AttachRingArgs {
+        pub stream: u32,
+    }
+
+    pub fn encode_attach_ring_args(value: &AttachRingArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.stream)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_attach_ring_args(body: &[u8]) -> Result<AttachRingArgs, Error> {
+        let mut out = AttachRingArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.stream = field.as_u32()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Announce that the client has written up to `written_frames` (a total,
+    /// see the interface notes). Replies with the frames the driver has
+    /// consumed so far.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct CommitArgs {
+        pub stream: u32,
+        pub written_frames: u64,
+    }
+
+    pub fn encode_commit_args(value: &CommitArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.stream)?;
+        target.u64(2, value.written_frames)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_commit_args(body: &[u8]) -> Result<CommitArgs, Error> {
+        let mut out = CommitArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.stream = field.as_u32()?;
+                }
+                2 => {
+                    out.written_frames = field.as_u64()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct CommitReply {
+        pub consumed: u64,
+    }
+
+    pub fn encode_commit_reply(value: &CommitReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.consumed)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_commit_reply(body: &[u8]) -> Result<CommitReply, Error> {
+        let mut out = CommitReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.consumed = field.as_u64()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Start (or restart) transfer on a stream with an attached ring.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct StartArgs {
+        pub stream: u32,
+    }
+
+    pub fn encode_start_args(value: &StartArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.stream)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_start_args(body: &[u8]) -> Result<StartArgs, Error> {
+        let mut out = StartArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.stream = field.as_u32()?;
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct StartReply {
+        pub ok: bool,
+    }
+
+    pub fn encode_start_reply(value: &StartReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.bool(1, value.ok)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_start_reply(body: &[u8]) -> Result<StartReply, Error> {
+        let mut out = StartReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.ok = field.as_bool()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Stop transfer; committed periods not yet queued to the device are
+    /// discarded. The stream can be started again.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct StopArgs {
+        pub stream: u32,
+    }
+
+    pub fn encode_stop_args(value: &StopArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.stream)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_stop_args(body: &[u8]) -> Result<StopArgs, Error> {
+        let mut out = StopArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.stream = field.as_u32()?;
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct StopReply {
+        pub ok: bool,
+    }
+
+    pub fn encode_stop_reply(value: &StopReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.bool(1, value.ok)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_stop_reply(body: &[u8]) -> Result<StopReply, Error> {
+        let mut out = StopReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.ok = field.as_bool()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Play everything committed, then stop. Replies once drained.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct DrainArgs {
+        pub stream: u32,
+    }
+
+    pub fn encode_drain_args(value: &DrainArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.stream)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_drain_args(body: &[u8]) -> Result<DrainArgs, Error> {
+        let mut out = DrainArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.stream = field.as_u32()?;
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct DrainReply {
+        pub ok: bool,
+    }
+
+    pub fn encode_drain_reply(value: &DrainReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.bool(1, value.ok)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_drain_reply(body: &[u8]) -> Result<DrainReply, Error> {
+        let mut out = DrainReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.ok = field.as_bool()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Frames the device has played since the last `Start`.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct PositionArgs {
+        pub stream: u32,
+    }
+
+    pub fn encode_position_args(value: &PositionArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.stream)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_position_args(body: &[u8]) -> Result<PositionArgs, Error> {
+        let mut out = PositionArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.stream = field.as_u32()?;
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct PositionReply {
+        pub frames: u64,
+    }
+
+    pub fn encode_position_reply(value: &PositionReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.frames)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_position_reply(body: &[u8]) -> Result<PositionReply, Error> {
+        let mut out = PositionReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.frames = field.as_u64()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Close a stream and release its ring. Also implied when the owner exits.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct CloseStreamArgs {
+        pub stream: u32,
+    }
+
+    pub fn encode_close_stream_args(value: &CloseStreamArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.stream)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_close_stream_args(body: &[u8]) -> Result<CloseStreamArgs, Error> {
+        let mut out = CloseStreamArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.stream = field.as_u32()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// An `EventKind` ordinal.
+    /// Xruns and drain completion, for clients that would rather not poll
+    /// `Position`. `{card}` is the driver's card name (`virtio-snd0`).
+    /// The declared `system/audio/+/event` topic (`AudioEvent`, `latest`).
+    pub const TOPIC_SYSTEM_AUDIO_EVENT: &str = "system/audio/+/event";
+    /// The `system/audio/+/event` delivery policy.
+    pub const TOPIC_SYSTEM_AUDIO_EVENT_QOS: u32 = topics::QOS_LATEST;
+    /// Whether `system/audio/+/event` publishes are retained.
+    pub const TOPIC_SYSTEM_AUDIO_EVENT_RETAINED: bool = false;
+
+    /// Build the concrete `system/audio/+/event` name; each wildcard takes one literal segment.
+    pub fn name_system_audio_event(card: &str) -> Result<String, topics::TopicError> {
+        topics::build(TOPIC_SYSTEM_AUDIO_EVENT, &[card], topics::Mode::Publish)
+    }
+
+    /// Encode a `AudioEvent` payload for `system/audio/+/event`.
+    pub fn encode_system_audio_event(value: &AudioEvent) -> Result<Vec<u8>, Error> {
+        encode_audio_event(value)
+    }
+
+    /// Decode a `system/audio/+/event` payload; malformed bytes are an error.
+    pub fn decode_system_audio_event(body: &[u8]) -> Result<AudioEvent, Error> {
+        decode_audio_event(body)
+    }
+
+    /// Publish a typed `AudioEvent` on `system/audio/+/event`.
+    pub fn publish_system_audio_event<P>(publisher: &mut P, card: &str, value: &AudioEvent) -> Result<u64, P::Error>
+    where
+        P: topics::Publish,
+        P::Error: From<topics::TopicError>,
+    {
+        let topic = name_system_audio_event(card).map_err(P::Error::from)?;
+        let payload = encode_system_audio_event(value)
+            .map_err(|error| P::Error::from(topics::TopicError::Encode(error)))?;
+        publisher.publish_topic(&topic, &payload, TOPIC_SYSTEM_AUDIO_EVENT_RETAINED)
+    }
+
+    /// Subscribe to `system/audio/+/event` with its declared QoS.
+    pub fn subscribe_system_audio_event<S>(subscriber: &mut S, card: &str) -> Result<S::Subscription, S::Error>
+    where
+        S: topics::Subscribe,
+        S::Error: From<topics::TopicError>,
+    {
+        let filter = topics::build(TOPIC_SYSTEM_AUDIO_EVENT, &[card], topics::Mode::Subscribe)
+            .map_err(S::Error::from)?;
+        subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_AUDIO_EVENT_QOS)
+    }
+}
+
 /// `os.lazy.clipboard.v1` (interface id `0x5a8da8f22670b758`).
 #[rustfmt::skip]
 pub mod os_lazy_clipboard_v1 {
@@ -7156,6 +7784,15 @@ pub mod os_lazy_messenger_topics_subscribe_v1 {
 /// Every topic declared across the compiled `.midl` files (issue #307).
 #[rustfmt::skip]
 pub static DECLARED_TOPICS: &[topics::TopicDecl] = &[
+    topics::TopicDecl {
+        interface: "os.lazy.audio.v1",
+        name: "system/audio/+/event",
+        payload: "AudioEvent",
+        qos: topics::QOS_LATEST,
+        retained: false,
+        publish_permission: "publish:system/audio/+/event",
+        subscribe_permission: "subscribe:system/audio/+/event",
+    },
     topics::TopicDecl {
         interface: "os.lazy.clipboard.v1",
         name: "session/+/clipboard/changed",
