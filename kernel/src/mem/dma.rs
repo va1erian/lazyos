@@ -65,9 +65,7 @@ impl DmaPool {
     pub(super) fn reserve(&mut self, base: u64, pages: u32) {
         self.base = base;
         self.pages = pages;
-        for word in &mut self.free {
-            *word = 0;
-        }
+        self.free.fill(0);
         for index in 0..pages as usize {
             self.free[index / 64] |= 1 << (index % 64);
         }
