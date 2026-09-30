@@ -1,0 +1,32 @@
+[package]
+name = "lazypkg"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Reader and validator for LazyOS application packages (.lzp zip archives)"
+license = "GPL-3.0-or-later"
+
+[lib]
+name = "lazypkg"
+path = "src/lib.rs"
+
+[features]
+# Expose `fuzz::run`, the byte entry point shared by the in-tree seeded tests
+# and the cargo-fuzz target (`fuzz/`). Like `framering`, this only gates the
+# host-only test surface; the reader itself is always `no_std` + `alloc`.
+fuzz = []
+
+[dependencies]
+# TOML parsing for the manifest. `default-features = false` keeps `std` out;
+# `serde_core` is pulled in with `alloc` by the `serde` feature.
+toml = { version = "1", default-features = false, features = ["parse", "serde"] }
+serde = { version = "1", default-features = false, features = ["derive", "alloc"] }
+# Raw DEFLATE (method 8) with an allocation cap; method 0 is a plain copy.
+miniz_oxide = { version = "0.8", default-features = false, features = ["with-alloc"] }
+# CRC-32 (IEEE 802.3) of every entry, checked against the central directory.
+crc = { version = "3", default-features = false }
+# SHA-256 of the whole archive, for the install directory suffix.
+lazyos-crypto = { path = "../crypto" }
+
+[dev-dependencies]
+fuzzkit = { path = "../fuzzkit" }

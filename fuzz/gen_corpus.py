@@ -5,7 +5,9 @@ The seeds are hand-shaped scripts in each target's byte grammar (see
 `libs/framering/src/fuzz.rs` and `libs/virtio-net/src/fuzz.rs`), so libFuzzer
 starts from inputs that already reach the interesting paths - a full ring, an
 index wrap, every kind of scribble, a good and a hostile completion - instead
-of rediscovering the grammar from noise.
+of rediscovering the grammar from noise. The `lazypkg` target takes real `.lzp`
+zip archives instead, built here with `struct`/`zlib` so the bytes are
+deterministic across Python versions (Python's `zipfile` output is not).
 
     python fuzz/gen_corpus.py            # rewrite fuzz/seeds/
     python fuzz/gen_corpus.py --check    # fail if the checked-in seeds differ or extra files appear
@@ -15,6 +17,7 @@ Everything here is deterministic; the files are plain bytes.
 import argparse
 import struct
 import sys
+import zlib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent / "seeds"
@@ -180,11 +183,77 @@ def nicdrv_seeds():
     return seeds
 
 
+# ---- lazypkg zip grammar ------------------------------------------------------
+
+
+def _crc32(data):
+    return zlib.crc32(data) & 0xFFFFFFFF
+
+
+def _zip(entries):
+    """Serialize `(name, data, deflate)` tuples into a deterministic zip."""
+    local = b""
+    central = b""
+    for name, data, deflate in entries:
+        name_bytes = name.encode("utf-8")
+        crc = _crc32(data)
+        if deflate:
+            compressor = zlib.compressobj(9, zlib.DEFLATED, -15)
+            stored = compressor.compress(data) + compressor.flush()
+            method = 8
+        else:
+            stored = data
+            method = 0
+        offset = len(local)
+        local += struct.pack(
+            "<IHHHHHIIIHH",
+            0x04034B50, 20, 0, method, 0, 0, crc, len(stored), len(data), len(name_bytes), 0,
+        )
+        local += name_bytes + stored
+        central += struct.pack(
+            "<IHHHHHHIIIHHHHHII",
+            0x02014B50, 20, 20, 0, method, 0, 0, crc, len(stored), len(data),
+            len(name_bytes), 0, 0, 0, 0, 0, offset,
+        )
+        central += name_bytes
+    eocd = struct.pack(
+        "<IHHHHIIH", 0x06054B50, 0, 0, len(entries), len(entries), len(central), len(local), 0,
+    )
+    return local + central + eocd
+
+
+_MANIFEST = (
+    b'[app]\nname = "Demo"\nsystem_name = "org.lazy.demo"\nauthor = "Tester"\nversion = "1.0.0"\n'
+    b'\n[entry]\nbinary = "bin/app.elf"\n'
+)
+_PNG = b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\x0dIHDR"
+
+
+def lazypkg_seeds():
+    members = [
+        ("manifest.toml", _MANIFEST, False),
+        ("bin/app.elf", b"ELF fake binary", False),
+        ("icons/app-16.png", _PNG, False),
+        ("icons/app-32.png", _PNG, False),
+        ("icons/app-128.png", _PNG, False),
+    ]
+    valid_stored = _zip(members)
+    valid_deflated = _zip([(name, data, True) for name, data, _ in members])
+    bad_path = _zip(members + [("../evil", b"escape", False)])
+    return {
+        "valid_stored": valid_stored,
+        "valid_deflated": valid_deflated,
+        "bad_path": bad_path,
+        "truncated": valid_stored[: len(valid_stored) // 2],
+    }
+
+
 TARGETS = {
     "framering": framering_seeds,
     "framering_header": header_seeds,
     "virtio_net": virtio_net_seeds,
     "nicdrv": nicdrv_seeds,
+    "lazypkg": lazypkg_seeds,
 }
 
 
