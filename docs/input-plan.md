@@ -48,22 +48,28 @@ Not `keyd`: that service is the secrets/crypto daemon.
 
 The kernel input layer becomes device-agnostic and dumb.
 
-- Event record (fixed 24 bytes, `repr(C)`, versioned):
-  `seq: u64`, `ts_ns: u64` (monotonic), `device: u16`, `kind: u16`
-  (`Key`, `RelMotion`, `AbsMotion`, `Button`, `Scroll`, `Sync`, `Dropped`),
-  `code: u16`, `value: i32`.
+- Event record (fixed 24 bytes, `repr(C)`):
+  `seq: u64`, `ts_ns: u64` (monotonic; PIT-tick resolution today), `device: u8`,
+  `kind: u8` (`Key`, `RelMotion`, `AbsMotion`, `Button`, `Scroll`, `Sync`,
+  `Dropped`), `code: u16`, `value: i32`. (`device`/`kind` are one byte so the
+  record stays 24 bytes with a full `i32` value.)
 - **Key `code` is a physical USB HID usage** (page 0x07), not a character. PS/2
   scancode set 1/2 is translated to HID at the driver boundary (one table,
   including E0 prefixes and Pause/PrintScreen quirks). Every future device
   speaks the same vocabulary.
 - **`value`: 0 = release, 1 = press.** The kernel never synthesises repeat.
-  Hardware typematic is switched off (PS/2 command `0xF3`) so `inputd` owns rate
-  and delay.
-- Per-consumer **bounded ring**, single-producer; on overflow the oldest events are
-  dropped and a `Dropped{count}` record is inserted so the consumer can
-  resynchronise instead of guessing.
-- Access is a **capability** (`input.raw`, per device class), granted at spawn to
-  `inputd` only. This replaces "whoever binds the display grant gets everything"
+  The PS/2 tap also swallows the keyboard's own typematic make codes (a make for
+  a key already down), so the bus carries only edges and `inputd` owns rate and
+  delay. Actually switching typematic off (PS/2 command `0xF3`) waits for I5:
+  the legacy `display_input_poll` stream still relies on it.
+- Per-consumer **bounded ring** (256 events); on overflow the oldest events are
+  dropped and the next drain starts with one `Dropped` record (`seq` = first lost
+  sequence number, `value` = count) so the consumer can resynchronise instead of
+  guessing. Sequence numbers are global and gapless, so a consumer can prove it
+  missed nothing. Consumers drain with syscall 25 (`open`/`poll`/`close`).
+- Access is a **capability** (`input.raw`, kernel bit `CAP_INPUT_RAW`; per device
+  class later), granted at spawn to `inputd` only (`init` strips it from every
+  other service). This replaces "whoever binds the display grant gets everything"
   and removes ambient keylogging authority.
 - Kernel debug console keeps a minimal built-in path (US layout) for panics and
   the early boot, independent of `inputd`.

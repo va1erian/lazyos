@@ -134,6 +134,7 @@ mod fs_suite;
 mod fsops_suite;
 mod hardening_suite;
 mod heap_suite;
+mod input_bus_suite;
 mod ipc_channel_suite;
 mod ipc_shared_suite;
 mod ipc_suite;
@@ -187,6 +188,7 @@ const SUITE: &[&[(&str, Test)]] = &[
     messenger_suite::CASES,
     stats_suite::CASES,
     keyboard_suite::CASES,
+    input_bus_suite::CASES,
     registry_suite::CASES,
     confd_suite::CASES,
     block_suite::CASES,
