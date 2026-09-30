@@ -200,9 +200,9 @@ length byte ring. Revisit with a byte ring only if memory matters.
 **Points to settle before coding (the IDL is still a draft):**
 
 - *Wake-up. **Decided (N0).*** The draft's `notify: String` topic is gone. The
-  client passes a notify endpoint in `AttachRing` (`handles[0]`, with the two
-  rings as `buffers[0]` receive and `buffers[1]` transmit, and the slot count in
-  the body). Wake-ups are two one-way messages, `Notify` (driver to client) and
+  client passes a notify endpoint in `AttachRing` (`handles[0]`, with both
+  rings in one shared buffer, `buffers[0]`: receive ring at byte 0, transmit ring
+  after it, and the slot count in the body). Wake-ups are two one-way messages, `Notify` (driver to client) and
   `Kick` (client to driver), coalesced by a shared `armed` flag in each ring's
   header instead of by the kernel: a consumer arms the ring, looks once more,
   then sleeps; a producer clears the flag with one atomic exchange when it sends.
@@ -522,4 +522,10 @@ Kept current as stages land; the reasoning for each is where it is used.
 - *Extra interface members.* `NicInfo.max_frame`, a wider `NicStats` (bytes,
   runts, oversize, ring errors, interrupts), a `LinkEvent` payload for the link
   topic, and `NotifyBit`/`RxMode` enums, none of which the draft had.
+- *One buffer, not two.* The first N0 draft sent the rings as `buffers[0]` and
+  `buffers[1]`. The kernel reports only the first transferred buffer to a
+  receiver (`recv` gives a first handle and a first buffer, and the parcel bytes
+  still carry the sender's handle numbers), so the second could never be used.
+  Both rings now share one buffer of `2 * ring_bytes(slots)`. Found while reading
+  `sndd`'s `discard_transfers` for N1.
 

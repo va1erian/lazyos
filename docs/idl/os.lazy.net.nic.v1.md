@@ -21,14 +21,18 @@ a request body except the slot count.
 `AttachRing` carries, in the parcel's `handles` and `buffers` vectors (the
 TLV body has no `Handle`/`Buffer` fields, as in `os.lazy.display.v1`):
 
-* `buffers[0]`: the **receive ring** (driver produces, client consumes);
-* `buffers[1]`: the **transmit ring** (client produces, driver consumes);
+* `buffers[0]`: one shared buffer holding **both rings**, back to back: the
+**receive ring** (driver produces, client consumes) at byte 0 and the
+**transmit ring** (client produces, driver consumes) at byte
+`framering::ring_bytes(slots)`. (The kernel surfaces only the first
+transferred buffer of a request to its receiver, so two rings cannot
+travel as two buffers.)
 * `handles[0]`: the **notify endpoint**, an endpoint the client holds the
 receiving side of, to which the driver posts `Notify`.
 
-Each buffer must be exactly `framering::ring_bytes(slots)` bytes (the header
-page plus `slots` slots) or the call fails with `EINVAL`; `slots` must be a
-power of two from 16 to 1024 or it fails with `EINVAL`. Only one client may
+The buffer must be exactly `2 * framering::ring_bytes(slots)` bytes (two
+header pages plus `2 * slots` slots) or the call fails with `EINVAL`;
+`slots` must be a power of two from 16 to 1024 or it fails with `EINVAL`. Only one client may
 be attached (`EBUSY` otherwise); its owner is the kernel-stamped sender of
 `AttachRing`, and calls on the ring by anyone else fail with `EACCES`.
 

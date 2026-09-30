@@ -31,9 +31,12 @@ definitions are built and host tested; the driver (N1) and `netd` (N2) are not.
 
 **The client owns the rings** (the audio rule): replies cannot carry buffers or
 handles, and a device must never read memory a client can rewrite. So
-`AttachRing` carries the client's two shared buffers and a notify endpoint in the
-request's parcel vectors (`buffers[0]` receive, `buffers[1]` transmit,
-`handles[0]` the endpoint) and only the slot count in the body. The driver copies
+`AttachRing` carries the client's shared buffer and a notify endpoint in the
+request's parcel vectors (`buffers[0]` holds both rings, receive at byte 0 and
+transmit at `ring_bytes(slots)`; `handles[0]` is the endpoint) and only the slot
+count in the body. It is one buffer because the kernel surfaces only the first
+transferred buffer of a request to its receiver (`recv` reports a first handle
+and a first buffer; the parcel bytes keep the sender's numbers). The driver copies
 frames between those rings and its own DMA slots in both directions.
 
 **Wake-up.** The draft used a topic name; a topic puts a broker round trip on the
