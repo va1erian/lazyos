@@ -122,8 +122,13 @@ pub(super) fn open() -> Result<Claimed, Error> {
     let irq = irq_endpoint.filter(|_| dev::irq_enable(handle).is_ok());
     if irq.is_some() {
         let command = dev::cfg_read(handle, COMMAND, 2).map_err(Error::Dev)?;
-        dev::cfg_write(handle, COMMAND, 2, u64::from(command) & !COMMAND_INTX_DISABLE)
-            .map_err(Error::Dev)?;
+        dev::cfg_write(
+            handle,
+            COMMAND,
+            2,
+            u64::from(command) & !COMMAND_INTX_DISABLE,
+        )
+        .map_err(Error::Dev)?;
     }
     Ok(Claimed {
         handle,

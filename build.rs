@@ -240,8 +240,8 @@ fn main() {
     // 8.3-safe on-disk name is what the kernel's FAT reader resolves.
     println!("cargo:rerun-if-env-changed=LAZYOS_SOUND");
     // The desktop profile always ships the sound stack, so its shell has `beep`.
-    let sound = desktop
-        || std::env::var_os("LAZYOS_SOUND").as_deref() == Some(std::ffi::OsStr::new("1"));
+    let sound =
+        desktop || std::env::var_os("LAZYOS_SOUND").as_deref() == Some(std::ffi::OsStr::new("1"));
     if sound {
         let sndd =
             std::env::var_os("CARGO_BIN_FILE_USER_sndd").expect("user sndd artifact not found");

@@ -304,10 +304,10 @@ impl Card {
         let Some(irq) = self.claimed.irq else {
             return nap();
         };
-        match irq.recv_with(&mut self.irq_buf, Some(sys::clock() + 1)) {
-            Ok(message) => self.handle_irq(&message),
-            // Timeout or a transient error: the caller polls the used ring.
-            Err(_) => {}
+        // A timeout or transient error falls through: the caller polls the
+        // used ring.
+        if let Ok(message) = irq.recv_with(&mut self.irq_buf, Some(sys::clock() + 1)) {
+            self.handle_irq(&message);
         }
     }
 
@@ -325,8 +325,8 @@ impl Card {
     /// must name this device. Reading the ISR status deasserts the level
     /// interrupt before the kernel is told to unmask the line.
     fn handle_irq(&mut self, message: &user::messenger::Message) {
-        let genuine = message.sender == 0
-            && user::dev::parse_irq_body(&message.parcel.body).is_some();
+        let genuine =
+            message.sender == 0 && user::dev::parse_irq_body(&message.parcel.body).is_some();
         if !genuine {
             sys::write_str(&alloc::format!(
                 "SNDD:IRQ:REJECT sender={} body={}
