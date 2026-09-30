@@ -232,18 +232,13 @@ pub(super) fn serve_topic(
             // reply lands, so an abandoned pull (the subscriber's poll
             // deadline expired while it waited) loses nothing: its next poll
             // takes the same event.
-            // A failed reply is expected for an abandoned poll: a
-            // non-blocking poll (`EXPIRED_DEADLINE`) times out in the kernel
-            // before the reply is sent, and the desktop's pollers do that
-            // every tick. Nothing was committed, so the next poll takes the
-            // same event; logging it spammed once a second.
             for wake in outcome.wakes {
-                if endpoint.reply(wake.txn, &wake.parcel).is_ok() {
+                if delivered(endpoint, wake.txn, &wake.parcel, "topic wake") {
                     broker.commit(wake.subscription, wake.sequence);
                 }
             }
             if let (Some(txn), Some(reply)) = (message.txn, outcome.reply) {
-                if endpoint.reply(txn, &reply).is_ok() {
+                if delivered(endpoint, txn, &reply, "topic reply") {
                     if let Some(delivery) = outcome.delivery {
                         broker.commit(delivery.subscription, delivery.sequence);
                     }
@@ -255,6 +250,36 @@ pub(super) fn serve_topic(
                 let reply = topics_client::error_reply(message.method(), error);
                 let _ = endpoint.reply(txn, &reply);
             }
+        }
+    }
+}
+
+/// Send `parcel` as the reply to `txn`; `true` only if the caller received it.
+///
+/// A vanished caller (`-ENOENT`: deadline passed, canceled, exited) is an
+/// ordinary race, not a fault: a non-blocking poll (`EXPIRED_DEADLINE`) times
+/// out in the kernel before the reply is sent, and the desktop's pollers do
+/// that every tick. It is reported as `false` without logging, so the caller
+/// skips the broker commit and the next poll takes the same event. Any other
+/// error is unexpected and logged under `what`.
+fn delivered(
+    endpoint: &messenger::Endpoint,
+    txn: u64,
+    parcel: &libmessenger::Parcel,
+    what: &str,
+) -> bool {
+    match endpoint.reply(txn, parcel) {
+        Ok(()) => true,
+        Err(error) => {
+            if error.errno() != Some(-errno::ENOENT) {
+                sys::write_str("messengerd: ");
+                sys::write_str(what);
+                sys::write_str(
+                    " dropped (reply failed)
+",
+                );
+            }
+            false
         }
     }
 }
