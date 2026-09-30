@@ -262,6 +262,30 @@ jobs:
           grep -q "TERM:OUT:usage: confctl" shots/desktop/serial.log
           python tools/services/evidence.py shots/desktop/serial.log --desktop
           ! grep -q "^init: launch .* failed" shots/desktop/serial.log
+          # Keys reach the windows through `inputd` sessions (docs/input-plan.md),
+          # not the compositor's legacy KeyDown/KeyUp.
+          grep -q "xuid: attached to inputd" shots/desktop/serial.log
+          grep -q "INPUTD:SESSION:OPEN" shots/desktop/serial.log
+
+      # docs/input-plan.md: the same desktop on the French AZERTY layout. The
+      # session types *physical* keys (`qwerty` is `azerty` there) into the
+      # Editor and the Terminal, so a wrong keymap, a lost session or a key
+      # read as an arrow shows up as different text in the screenshot and on
+      # the Terminal's serial marker.
+      - name: Capture desktop session on AZERTY (Editor + Terminal)
+        if: ${{ !cancelled() && steps.app.outputs.term != '' && steps.app.outputs.editor != '' }}
+        shell: bash
+        env:
+          LAZYOS_KBD_LAYOUT: fr
+          LAZYOS_DESKTOP: "1"
+          LAZYOS_XUI_APPS: ${{ steps.app.outputs.term }}:${{ steps.app.outputs.editor }}
+          LAZYOS_XUI_AUTOSTART: term,editor
+        run: |
+          set -euo pipefail
+          cargo build
+          python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/desktop_fr             --timeout 300 --script tools/screenshot/examples/input_desktop_fr.json             --fail-on "(TERM|EDITOR):[A-Z]+:FAIL" --fail-on "INIT:AUTOSTART:FAIL"
+          grep -q "INPUTD:READY layout=fr" shots/desktop_fr/serial.log
+          grep -q "TERM:OUT:azerty" shots/desktop_fr/serial.log
 
       # The document apps (Editor, Paint, Files). Each session boots the
       # desktop profile with just that app (an explicit `LAZYOS_XUI_APPS` list,
@@ -322,7 +346,7 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
-          pngs=(shots/m0/*.png shots/m1/*.png shots/m2/*.png shots/sysmon/*.png shots/fabmon/*.png shots/client/*.png shots/sysclient/*.png shots/desktop/*.png shots/editor/*.png shots/paint/*.png shots/files/*.png)
+          pngs=(shots/m0/*.png shots/m1/*.png shots/m2/*.png shots/sysmon/*.png shots/fabmon/*.png shots/client/*.png shots/sysclient/*.png shots/desktop/*.png shots/desktop_fr/*.png shots/editor/*.png shots/paint/*.png shots/files/*.png)
           if [ ${#pngs[@]} -eq 0 ]; then
             echo "::error::no screenshots were captured"
             exit 1
