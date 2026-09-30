@@ -54,7 +54,7 @@ fn open_reply_carries_every_field() {
     let reply = OpenReply {
         app: "editor".into(),
         mime: "text/plain".into(),
-        topic: "system/events/open/editor".into(),
+        topic: name_system_events_open("editor").unwrap(),
         published: true,
         launched: false,
     };
@@ -93,4 +93,37 @@ fn decoders_ignore_unknown_fields_such_as_the_error_field() {
     body.error(15, 22, "bad").unwrap();
     let decoded = decode_guess_reply(&body.finish()).unwrap();
     assert_eq!(decoded, GuessReply::default());
+}
+
+#[test]
+fn open_event_roundtrips_and_builds_a_concrete_topic() {
+    let event = OpenEvent {
+        path: "NOTES.TXT".into(),
+        mime: "text/plain".into(),
+        verb: "open".into(),
+    };
+    assert_eq!(
+        decode_system_events_open(&encode_system_events_open(&event).unwrap()).unwrap(),
+        event
+    );
+    assert_eq!(
+        name_system_events_open("editor").unwrap(),
+        "system/events/open/editor"
+    );
+    for bad in ["", "+", "#", "a/b", "a#b"] {
+        assert!(name_system_events_open(bad).is_err(), "accepted {bad:?}");
+    }
+}
+
+#[test]
+fn malformed_open_event_payloads_are_rejected_not_panicked() {
+    let body = encode_open_event(&OpenEvent {
+        path: "A.TXT".into(),
+        mime: "text/plain".into(),
+        verb: "open".into(),
+    })
+    .unwrap();
+    assert!(decode_open_event(&body[..body.len() - 2]).is_err());
+    assert!(decode_open_event(&[0xff, 0xff, 0xff, 0xff]).is_err());
+    assert!(decode_open_event(&[0x01]).is_err());
 }

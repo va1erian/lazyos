@@ -6,6 +6,7 @@
 //! structured error field is hand-written (it is a convention every service
 //! shares, not part of the interface).
 
+use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 
@@ -224,4 +225,23 @@ pub fn decode_token(parcel: &Parcel) -> Result<u64> {
 pub fn decode_current(parcel: &Parcel) -> Result<Option<OfferInfo>> {
     let reply = wire::decode_current_reply(&parcel.body).map_err(Error::Parcel)?;
     Ok(reply.offer.map(from_wire_meta))
+}
+
+/// Render a decoded `PasteEvent` as the one-line text `logd` records, so a
+/// consumer of the typed `system/events/clipboard/paste` topic displays the
+/// same fields the hand-encoded payload used to carry.
+pub fn paste_event_text(event: &wire::PasteEvent) -> String {
+    format!(
+        "paste #{} uid={} session={} mime={} app={} bytes={} lazy={}",
+        event.seq, event.uid, event.session, event.mime, event.app, event.bytes, event.lazy
+    )
+}
+
+/// Render a decoded `ClipboardDenial` as the one-line text `logd` records for
+/// the `system/events/security/clipboard` topic.
+pub fn denial_event_text(event: &wire::ClipboardDenial) -> String {
+    format!(
+        "deny #{} uid={} session={} mime={} app={} token={}",
+        event.seq, event.uid, event.session, event.mime, event.app, event.token
+    )
 }

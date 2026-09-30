@@ -21,11 +21,14 @@ pub const NAME: &str = "os.lazy.clipboard";
 
 /// The generated `os.lazy.clipboard.v1` stubs (`idl/clipboard.midl`).
 pub use messenger_generated::os_lazy_clipboard_v1 as wire;
-/// The generated helpers for the declared `.../clipboard/changed` topic, so
-/// callers do not have to reach through [`wire`].
+/// The generated helpers and payload types for the declared clipboard topics
+/// (`.../clipboard/changed`, `system/events/clipboard/paste` and
+/// `system/events/security/clipboard`), so callers do not have to reach
+/// through [`wire`].
 pub use messenger_generated::os_lazy_clipboard_v1::{
     decode_session_clipboard_changed, publish_session_clipboard_changed,
-    subscribe_session_clipboard_changed,
+    publish_system_events_clipboard_paste, publish_system_events_security_clipboard,
+    subscribe_session_clipboard_changed, ClipboardDenial, PasteEvent,
 };
 
 /// Control interface id (`os.lazy.clipboard.v1`, from the IDL): carries

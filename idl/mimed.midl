@@ -22,4 +22,17 @@ interface os.lazy.mimed.v1 {
     /// Add or replace the app registered for `mime` and `verb`; the registry
     /// keeps the latest registration for each pair.
     method Register(mime: String, app: String, verb: String) -> ();
+
+    /// One fire-and-forget launch record: the payload of the
+    /// `system/events/open/<app>` topic. The app id is the topic's `<app>`
+    /// segment, so it is not repeated here.
+    struct OpenEvent {
+        path: String,
+        mime: String,
+        verb: String
+    }
+
+    /// Published when `Open` resolves `<app>` for `path` (issue #307). Not
+    /// retained: a launch is an event, not state.
+    topic "system/events/open/{app}" : OpenEvent qos=latest;
 }

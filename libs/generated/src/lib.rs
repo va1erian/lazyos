@@ -633,6 +633,118 @@ pub mod os_lazy_clipboard_v1 {
         Ok(out)
     }
 
+    /// One allowed paste, the payload of `system/events/clipboard/paste`
+    /// (issue #307). `seq` is the service's monotonically increasing paste
+    /// counter, `uid`/`session` the kernel-stamped caller, `app` the owner
+    /// slot, and `lazy` whether the bytes came from a lazy owner callback.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct PasteEvent {
+        pub seq: u64,
+        pub uid: u32,
+        pub session: u64,
+        pub mime: alloc::string::String,
+        pub app: u64,
+        pub bytes: u64,
+        pub lazy: bool,
+    }
+
+    pub fn encode_paste_event(value: &PasteEvent) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.seq)?;
+        target.u32(2, value.uid)?;
+        target.u64(3, value.session)?;
+        target.string(4, &value.mime)?;
+        target.u64(5, value.app)?;
+        target.u64(6, value.bytes)?;
+        target.bool(7, value.lazy)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_paste_event(body: &[u8]) -> Result<PasteEvent, Error> {
+        let mut out = PasteEvent::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.seq = field.as_u64()?;
+                }
+                2 => {
+                    out.uid = field.as_u32()?;
+                }
+                3 => {
+                    out.session = field.as_u64()?;
+                }
+                4 => {
+                    out.mime = field.as_str()?.into();
+                }
+                5 => {
+                    out.app = field.as_u64()?;
+                }
+                6 => {
+                    out.bytes = field.as_u64()?;
+                }
+                7 => {
+                    out.lazy = field.as_bool()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// One refused cross-session paste, the payload of
+    /// `system/events/security/clipboard` (issue #307): the audit record of a
+    /// token read denied by the clipboard read scope.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ClipboardDenial {
+        pub seq: u64,
+        pub uid: u32,
+        pub session: u64,
+        pub mime: alloc::string::String,
+        pub app: u64,
+        pub token: u64,
+    }
+
+    pub fn encode_clipboard_denial(value: &ClipboardDenial) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.seq)?;
+        target.u32(2, value.uid)?;
+        target.u64(3, value.session)?;
+        target.string(4, &value.mime)?;
+        target.u64(5, value.app)?;
+        target.u64(6, value.token)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_clipboard_denial(body: &[u8]) -> Result<ClipboardDenial, Error> {
+        let mut out = ClipboardDenial::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.seq = field.as_u64()?;
+                }
+                2 => {
+                    out.uid = field.as_u32()?;
+                }
+                3 => {
+                    out.session = field.as_u64()?;
+                }
+                4 => {
+                    out.mime = field.as_str()?.into();
+                }
+                5 => {
+                    out.app = field.as_u64()?;
+                }
+                6 => {
+                    out.token = field.as_u64()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
     /// `Offer` method id.
     pub const METHOD_OFFER: u32 = 1313375869;
     /// `Request` method id.
@@ -952,6 +1064,98 @@ pub mod os_lazy_clipboard_v1 {
         let filter = topics::build(TOPIC_SESSION_CLIPBOARD_CHANGED, &[session], topics::Mode::Subscribe)
             .map_err(S::Error::from)?;
         subscriber.subscribe_topic(&filter, TOPIC_SESSION_CLIPBOARD_CHANGED_QOS)
+    }
+
+    /// Published for every allowed paste, so `logd` keeps the audit trail.
+    /// The declared `system/events/clipboard/paste` topic (`PasteEvent`, `latest`).
+    pub const TOPIC_SYSTEM_EVENTS_CLIPBOARD_PASTE: &str = "system/events/clipboard/paste";
+    /// The `system/events/clipboard/paste` delivery policy.
+    pub const TOPIC_SYSTEM_EVENTS_CLIPBOARD_PASTE_QOS: u32 = topics::QOS_LATEST;
+    /// Whether `system/events/clipboard/paste` publishes are retained.
+    pub const TOPIC_SYSTEM_EVENTS_CLIPBOARD_PASTE_RETAINED: bool = false;
+
+    /// Build the concrete `system/events/clipboard/paste` name; each wildcard takes one literal segment.
+    pub fn name_system_events_clipboard_paste() -> Result<String, topics::TopicError> {
+        topics::build(TOPIC_SYSTEM_EVENTS_CLIPBOARD_PASTE, &[], topics::Mode::Publish)
+    }
+
+    /// Encode a `PasteEvent` payload for `system/events/clipboard/paste`.
+    pub fn encode_system_events_clipboard_paste(value: &PasteEvent) -> Result<Vec<u8>, Error> {
+        encode_paste_event(value)
+    }
+
+    /// Decode a `system/events/clipboard/paste` payload; malformed bytes are an error.
+    pub fn decode_system_events_clipboard_paste(body: &[u8]) -> Result<PasteEvent, Error> {
+        decode_paste_event(body)
+    }
+
+    /// Publish a typed `PasteEvent` on `system/events/clipboard/paste`.
+    pub fn publish_system_events_clipboard_paste<P>(publisher: &mut P, value: &PasteEvent) -> Result<u64, P::Error>
+    where
+        P: topics::Publish,
+        P::Error: From<topics::TopicError>,
+    {
+        let topic = name_system_events_clipboard_paste().map_err(P::Error::from)?;
+        let payload = encode_system_events_clipboard_paste(value)
+            .map_err(|error| P::Error::from(topics::TopicError::Encode(error)))?;
+        publisher.publish_topic(&topic, &payload, TOPIC_SYSTEM_EVENTS_CLIPBOARD_PASTE_RETAINED)
+    }
+
+    /// Subscribe to `system/events/clipboard/paste` with its declared QoS.
+    pub fn subscribe_system_events_clipboard_paste<S>(subscriber: &mut S) -> Result<S::Subscription, S::Error>
+    where
+        S: topics::Subscribe,
+        S::Error: From<topics::TopicError>,
+    {
+        let filter = topics::build(TOPIC_SYSTEM_EVENTS_CLIPBOARD_PASTE, &[], topics::Mode::Subscribe)
+            .map_err(S::Error::from)?;
+        subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_EVENTS_CLIPBOARD_PASTE_QOS)
+    }
+
+    /// Published for every refused cross-session paste.
+    /// The declared `system/events/security/clipboard` topic (`ClipboardDenial`, `latest`).
+    pub const TOPIC_SYSTEM_EVENTS_SECURITY_CLIPBOARD: &str = "system/events/security/clipboard";
+    /// The `system/events/security/clipboard` delivery policy.
+    pub const TOPIC_SYSTEM_EVENTS_SECURITY_CLIPBOARD_QOS: u32 = topics::QOS_LATEST;
+    /// Whether `system/events/security/clipboard` publishes are retained.
+    pub const TOPIC_SYSTEM_EVENTS_SECURITY_CLIPBOARD_RETAINED: bool = false;
+
+    /// Build the concrete `system/events/security/clipboard` name; each wildcard takes one literal segment.
+    pub fn name_system_events_security_clipboard() -> Result<String, topics::TopicError> {
+        topics::build(TOPIC_SYSTEM_EVENTS_SECURITY_CLIPBOARD, &[], topics::Mode::Publish)
+    }
+
+    /// Encode a `ClipboardDenial` payload for `system/events/security/clipboard`.
+    pub fn encode_system_events_security_clipboard(value: &ClipboardDenial) -> Result<Vec<u8>, Error> {
+        encode_clipboard_denial(value)
+    }
+
+    /// Decode a `system/events/security/clipboard` payload; malformed bytes are an error.
+    pub fn decode_system_events_security_clipboard(body: &[u8]) -> Result<ClipboardDenial, Error> {
+        decode_clipboard_denial(body)
+    }
+
+    /// Publish a typed `ClipboardDenial` on `system/events/security/clipboard`.
+    pub fn publish_system_events_security_clipboard<P>(publisher: &mut P, value: &ClipboardDenial) -> Result<u64, P::Error>
+    where
+        P: topics::Publish,
+        P::Error: From<topics::TopicError>,
+    {
+        let topic = name_system_events_security_clipboard().map_err(P::Error::from)?;
+        let payload = encode_system_events_security_clipboard(value)
+            .map_err(|error| P::Error::from(topics::TopicError::Encode(error)))?;
+        publisher.publish_topic(&topic, &payload, TOPIC_SYSTEM_EVENTS_SECURITY_CLIPBOARD_RETAINED)
+    }
+
+    /// Subscribe to `system/events/security/clipboard` with its declared QoS.
+    pub fn subscribe_system_events_security_clipboard<S>(subscriber: &mut S) -> Result<S::Subscription, S::Error>
+    where
+        S: topics::Subscribe,
+        S::Error: From<topics::TopicError>,
+    {
+        let filter = topics::build(TOPIC_SYSTEM_EVENTS_SECURITY_CLIPBOARD, &[], topics::Mode::Subscribe)
+            .map_err(S::Error::from)?;
+        subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_EVENTS_SECURITY_CLIPBOARD_QOS)
     }
 }
 
@@ -4490,6 +4694,44 @@ pub mod os_lazy_mimed_v1 {
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0x69d01278f9971fe6;
 
+    /// One fire-and-forget launch record: the payload of the
+    /// `system/events/open/<app>` topic. The app id is the topic's `<app>`
+    /// segment, so it is not repeated here.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct OpenEvent {
+        pub path: alloc::string::String,
+        pub mime: alloc::string::String,
+        pub verb: alloc::string::String,
+    }
+
+    pub fn encode_open_event(value: &OpenEvent) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.path)?;
+        target.string(2, &value.mime)?;
+        target.string(3, &value.verb)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_open_event(body: &[u8]) -> Result<OpenEvent, Error> {
+        let mut out = OpenEvent::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.path = field.as_str()?.into();
+                }
+                2 => {
+                    out.mime = field.as_str()?.into();
+                }
+                3 => {
+                    out.verb = field.as_str()?.into();
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
     /// `Guess` method id.
     pub const METHOD_GUESS: u32 = 1763202418;
     /// `Lookup` method id.
@@ -4783,6 +5025,53 @@ pub mod os_lazy_mimed_v1 {
         }
         Ok(out)
     }
+
+    /// Published when `Open` resolves `<app>` for `path` (issue #307). Not
+    /// retained: a launch is an event, not state.
+    /// The declared `system/events/open/+` topic (`OpenEvent`, `latest`).
+    pub const TOPIC_SYSTEM_EVENTS_OPEN: &str = "system/events/open/+";
+    /// The `system/events/open/+` delivery policy.
+    pub const TOPIC_SYSTEM_EVENTS_OPEN_QOS: u32 = topics::QOS_LATEST;
+    /// Whether `system/events/open/+` publishes are retained.
+    pub const TOPIC_SYSTEM_EVENTS_OPEN_RETAINED: bool = false;
+
+    /// Build the concrete `system/events/open/+` name; each wildcard takes one literal segment.
+    pub fn name_system_events_open(app: &str) -> Result<String, topics::TopicError> {
+        topics::build(TOPIC_SYSTEM_EVENTS_OPEN, &[app], topics::Mode::Publish)
+    }
+
+    /// Encode a `OpenEvent` payload for `system/events/open/+`.
+    pub fn encode_system_events_open(value: &OpenEvent) -> Result<Vec<u8>, Error> {
+        encode_open_event(value)
+    }
+
+    /// Decode a `system/events/open/+` payload; malformed bytes are an error.
+    pub fn decode_system_events_open(body: &[u8]) -> Result<OpenEvent, Error> {
+        decode_open_event(body)
+    }
+
+    /// Publish a typed `OpenEvent` on `system/events/open/+`.
+    pub fn publish_system_events_open<P>(publisher: &mut P, app: &str, value: &OpenEvent) -> Result<u64, P::Error>
+    where
+        P: topics::Publish,
+        P::Error: From<topics::TopicError>,
+    {
+        let topic = name_system_events_open(app).map_err(P::Error::from)?;
+        let payload = encode_system_events_open(value)
+            .map_err(|error| P::Error::from(topics::TopicError::Encode(error)))?;
+        publisher.publish_topic(&topic, &payload, TOPIC_SYSTEM_EVENTS_OPEN_RETAINED)
+    }
+
+    /// Subscribe to `system/events/open/+` with its declared QoS.
+    pub fn subscribe_system_events_open<S>(subscriber: &mut S, app: &str) -> Result<S::Subscription, S::Error>
+    where
+        S: topics::Subscribe,
+        S::Error: From<topics::TopicError>,
+    {
+        let filter = topics::build(TOPIC_SYSTEM_EVENTS_OPEN, &[app], topics::Mode::Subscribe)
+            .map_err(S::Error::from)?;
+        subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_EVENTS_OPEN_QOS)
+    }
 }
 
 /// `os.lazy.messenger.registry.v1` (interface id `0x51d501afec09806c`).
@@ -5044,6 +5333,166 @@ pub mod os_lazy_sysmond_v1 {
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0x5cd4605eb47c3d8f;
 
+    /// The memory counters of one snapshot: the payload of the retained
+    /// `system/stats/memory` topic.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct MemoryStats {
+        pub ticks: u64,
+        pub frames_total: u64,
+        pub frames_live: u64,
+        pub frames_free: u64,
+        pub slab_live: u64,
+        pub slab_peak: u64,
+        pub heap_used: u64,
+        pub heap_total: u64,
+    }
+
+    pub fn encode_memory_stats(value: &MemoryStats) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.ticks)?;
+        target.u64(2, value.frames_total)?;
+        target.u64(3, value.frames_live)?;
+        target.u64(4, value.frames_free)?;
+        target.u64(5, value.slab_live)?;
+        target.u64(6, value.slab_peak)?;
+        target.u64(7, value.heap_used)?;
+        target.u64(8, value.heap_total)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_memory_stats(body: &[u8]) -> Result<MemoryStats, Error> {
+        let mut out = MemoryStats::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.ticks = field.as_u64()?;
+                }
+                2 => {
+                    out.frames_total = field.as_u64()?;
+                }
+                3 => {
+                    out.frames_live = field.as_u64()?;
+                }
+                4 => {
+                    out.frames_free = field.as_u64()?;
+                }
+                5 => {
+                    out.slab_live = field.as_u64()?;
+                }
+                6 => {
+                    out.slab_peak = field.as_u64()?;
+                }
+                7 => {
+                    out.heap_used = field.as_u64()?;
+                }
+                8 => {
+                    out.heap_total = field.as_u64()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// One live scheduler slot: `state`, `wait` and `class` are the short
+    /// labels the text view used to print, and `name` the NUL-trimmed short
+    /// name.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct TaskRow {
+        pub pid: u64,
+        pub ppid: u64,
+        pub state: alloc::string::String,
+        pub wait: alloc::string::String,
+        pub class: alloc::string::String,
+        pub cpu: u64,
+        pub name: alloc::string::String,
+    }
+
+    pub fn encode_task_row(value: &TaskRow) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.pid)?;
+        target.u64(2, value.ppid)?;
+        target.string(3, &value.state)?;
+        target.string(4, &value.wait)?;
+        target.string(5, &value.class)?;
+        target.u64(6, value.cpu)?;
+        target.string(7, &value.name)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_task_row(body: &[u8]) -> Result<TaskRow, Error> {
+        let mut out = TaskRow::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.pid = field.as_u64()?;
+                }
+                2 => {
+                    out.ppid = field.as_u64()?;
+                }
+                3 => {
+                    out.state = field.as_str()?.into();
+                }
+                4 => {
+                    out.wait = field.as_str()?.into();
+                }
+                5 => {
+                    out.class = field.as_str()?.into();
+                }
+                6 => {
+                    out.cpu = field.as_u64()?;
+                }
+                7 => {
+                    out.name = field.as_str()?.into();
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// The live-task table of one snapshot: `live` is the count and `tasks`
+    /// one row per live slot. The payload of the retained
+    /// `system/stats/tasks` topic.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct TasksStats {
+        pub live: u64,
+        pub tasks: alloc::vec::Vec<TaskRow>,
+    }
+
+    pub fn encode_tasks_stats(value: &TasksStats) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.live)?;
+        let mut nested = Encoder::new();
+        for item in &value.tasks {
+            nested.raw(Kind::Struct, 1, &encode_task_row(item)?)?;
+        }
+        target.array(2, &nested)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_tasks_stats(body: &[u8]) -> Result<TasksStats, Error> {
+        let mut out = TasksStats::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.live = field.as_u64()?;
+                }
+                2 => {
+                    let mut nested = field.nested(0)?;
+                    while let Some(item) = nested.next()? {
+                        out.tasks.push(decode_task_row(item.payload)?);
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
     /// `Snapshot` method id.
     pub const METHOD_SNAPSHOT: u32 = 1312231341;
 
@@ -5068,6 +5517,100 @@ pub mod os_lazy_sysmond_v1 {
             }
         }
         Ok(out)
+    }
+
+    /// The retained memory counters (issue #307): a late subscriber is handed
+    /// the latest value immediately.
+    /// The declared `system/stats/memory` topic (`MemoryStats`, `latest`, retained).
+    pub const TOPIC_SYSTEM_STATS_MEMORY: &str = "system/stats/memory";
+    /// The `system/stats/memory` delivery policy.
+    pub const TOPIC_SYSTEM_STATS_MEMORY_QOS: u32 = topics::QOS_LATEST;
+    /// Whether `system/stats/memory` publishes are retained.
+    pub const TOPIC_SYSTEM_STATS_MEMORY_RETAINED: bool = true;
+
+    /// Build the concrete `system/stats/memory` name; each wildcard takes one literal segment.
+    pub fn name_system_stats_memory() -> Result<String, topics::TopicError> {
+        topics::build(TOPIC_SYSTEM_STATS_MEMORY, &[], topics::Mode::Publish)
+    }
+
+    /// Encode a `MemoryStats` payload for `system/stats/memory`.
+    pub fn encode_system_stats_memory(value: &MemoryStats) -> Result<Vec<u8>, Error> {
+        encode_memory_stats(value)
+    }
+
+    /// Decode a `system/stats/memory` payload; malformed bytes are an error.
+    pub fn decode_system_stats_memory(body: &[u8]) -> Result<MemoryStats, Error> {
+        decode_memory_stats(body)
+    }
+
+    /// Publish a typed `MemoryStats` on `system/stats/memory`.
+    pub fn publish_system_stats_memory<P>(publisher: &mut P, value: &MemoryStats) -> Result<u64, P::Error>
+    where
+        P: topics::Publish,
+        P::Error: From<topics::TopicError>,
+    {
+        let topic = name_system_stats_memory().map_err(P::Error::from)?;
+        let payload = encode_system_stats_memory(value)
+            .map_err(|error| P::Error::from(topics::TopicError::Encode(error)))?;
+        publisher.publish_topic(&topic, &payload, TOPIC_SYSTEM_STATS_MEMORY_RETAINED)
+    }
+
+    /// Subscribe to `system/stats/memory` with its declared QoS.
+    pub fn subscribe_system_stats_memory<S>(subscriber: &mut S) -> Result<S::Subscription, S::Error>
+    where
+        S: topics::Subscribe,
+        S::Error: From<topics::TopicError>,
+    {
+        let filter = topics::build(TOPIC_SYSTEM_STATS_MEMORY, &[], topics::Mode::Subscribe)
+            .map_err(S::Error::from)?;
+        subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_STATS_MEMORY_QOS)
+    }
+
+    /// The retained live-task table (issue #307). `live` repeats the row
+    /// count so a subscriber can show the total without scanning `tasks`.
+    /// The declared `system/stats/tasks` topic (`TasksStats`, `latest`, retained).
+    pub const TOPIC_SYSTEM_STATS_TASKS: &str = "system/stats/tasks";
+    /// The `system/stats/tasks` delivery policy.
+    pub const TOPIC_SYSTEM_STATS_TASKS_QOS: u32 = topics::QOS_LATEST;
+    /// Whether `system/stats/tasks` publishes are retained.
+    pub const TOPIC_SYSTEM_STATS_TASKS_RETAINED: bool = true;
+
+    /// Build the concrete `system/stats/tasks` name; each wildcard takes one literal segment.
+    pub fn name_system_stats_tasks() -> Result<String, topics::TopicError> {
+        topics::build(TOPIC_SYSTEM_STATS_TASKS, &[], topics::Mode::Publish)
+    }
+
+    /// Encode a `TasksStats` payload for `system/stats/tasks`.
+    pub fn encode_system_stats_tasks(value: &TasksStats) -> Result<Vec<u8>, Error> {
+        encode_tasks_stats(value)
+    }
+
+    /// Decode a `system/stats/tasks` payload; malformed bytes are an error.
+    pub fn decode_system_stats_tasks(body: &[u8]) -> Result<TasksStats, Error> {
+        decode_tasks_stats(body)
+    }
+
+    /// Publish a typed `TasksStats` on `system/stats/tasks`.
+    pub fn publish_system_stats_tasks<P>(publisher: &mut P, value: &TasksStats) -> Result<u64, P::Error>
+    where
+        P: topics::Publish,
+        P::Error: From<topics::TopicError>,
+    {
+        let topic = name_system_stats_tasks().map_err(P::Error::from)?;
+        let payload = encode_system_stats_tasks(value)
+            .map_err(|error| P::Error::from(topics::TopicError::Encode(error)))?;
+        publisher.publish_topic(&topic, &payload, TOPIC_SYSTEM_STATS_TASKS_RETAINED)
+    }
+
+    /// Subscribe to `system/stats/tasks` with its declared QoS.
+    pub fn subscribe_system_stats_tasks<S>(subscriber: &mut S) -> Result<S::Subscription, S::Error>
+    where
+        S: topics::Subscribe,
+        S::Error: From<topics::TopicError>,
+    {
+        let filter = topics::build(TOPIC_SYSTEM_STATS_TASKS, &[], topics::Mode::Subscribe)
+            .map_err(S::Error::from)?;
+        subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_STATS_TASKS_QOS)
     }
 }
 
@@ -5904,6 +6447,24 @@ pub static DECLARED_TOPICS: &[topics::TopicDecl] = &[
         subscribe_permission: "subscribe:session/+/clipboard/changed",
     },
     topics::TopicDecl {
+        interface: "os.lazy.clipboard.v1",
+        name: "system/events/clipboard/paste",
+        payload: "PasteEvent",
+        qos: topics::QOS_LATEST,
+        retained: false,
+        publish_permission: "publish:system/events/clipboard/paste",
+        subscribe_permission: "subscribe:system/events/clipboard/paste",
+    },
+    topics::TopicDecl {
+        interface: "os.lazy.clipboard.v1",
+        name: "system/events/security/clipboard",
+        payload: "ClipboardDenial",
+        qos: topics::QOS_LATEST,
+        retained: false,
+        publish_permission: "publish:system/events/security/clipboard",
+        subscribe_permission: "subscribe:system/events/security/clipboard",
+    },
+    topics::TopicDecl {
         interface: "os.lazy.confd.v1",
         name: "system/confd/changed/#",
         payload: "Change",
@@ -5974,6 +6535,33 @@ pub static DECLARED_TOPICS: &[topics::TopicDecl] = &[
         retained: true,
         publish_permission: "publish:system/events/login/end",
         subscribe_permission: "subscribe:system/events/login/end",
+    },
+    topics::TopicDecl {
+        interface: "os.lazy.mimed.v1",
+        name: "system/events/open/+",
+        payload: "OpenEvent",
+        qos: topics::QOS_LATEST,
+        retained: false,
+        publish_permission: "publish:system/events/open/+",
+        subscribe_permission: "subscribe:system/events/open/+",
+    },
+    topics::TopicDecl {
+        interface: "os.lazy.sysmond.v1",
+        name: "system/stats/memory",
+        payload: "MemoryStats",
+        qos: topics::QOS_LATEST,
+        retained: true,
+        publish_permission: "publish:system/stats/memory",
+        subscribe_permission: "subscribe:system/stats/memory",
+    },
+    topics::TopicDecl {
+        interface: "os.lazy.sysmond.v1",
+        name: "system/stats/tasks",
+        payload: "TasksStats",
+        qos: topics::QOS_LATEST,
+        retained: true,
+        publish_permission: "publish:system/stats/tasks",
+        subscribe_permission: "subscribe:system/stats/tasks",
     },
     topics::TopicDecl {
         interface: "os.lazy.timed.v1",
