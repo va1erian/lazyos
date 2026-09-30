@@ -15,7 +15,7 @@
 
 use alloc::vec::Vec;
 
-use crate::fs::{load, persist, StoreFs};
+use crate::fs::{load, persist, retire, StoreFs};
 use crate::store::{Caller, Change, Error, Store};
 use crate::value::Value;
 
@@ -95,6 +95,16 @@ fn starts_with_sys(path: &str) -> bool {
     bytes[0] == b's' && bytes[1] == b'y' && bytes[2] == b's' && bytes[3] == b'/'
 }
 
+/// What merging another store into the live one did.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct Migration {
+    /// Entries copied because the destination had no value at that path.
+    pub added: usize,
+    /// Entries left behind because they exceed a limit; when non-zero the
+    /// source store is kept so nothing is lost.
+    pub skipped: usize,
+}
+
 /// The registry state: the committed store, its backing filesystem, and the
 /// change sink.
 pub struct Confd<F: StoreFs, S: ChangeSink> {
@@ -133,6 +143,85 @@ impl<F: StoreFs, S: ChangeSink> Confd<F, S> {
     /// indirectly, its change topics through it).
     pub fn sink_mut(&mut self) -> &mut S {
         &mut self.sink
+    }
+
+    /// Moves the service onto `new_fs` (a better store that just became
+    /// usable), carrying the live settings along.
+    ///
+    /// The destination's own values win: only paths it lacks are seeded from
+    /// the live store, so a populated `/data` is never clobbered. The merged
+    /// store is persisted to `new_fs` *before* the switch; on any error the
+    /// service keeps its old backing store and state. Paths whose value
+    /// changes for readers are announced. The old store file is retired
+    /// (renamed to [`crate::MIGRATED_FILE`]) once fully merged.
+    ///
+    /// # Errors
+    ///
+    /// [`ServiceError::Io`] when `new_fs` cannot be read or written.
+    pub fn rebind(&mut self, mut new_fs: F) -> Result<Migration, ServiceError> {
+        let mut merged = load(&mut new_fs).map_err(|_| ServiceError::Io)?;
+        let before = merged.clone();
+        let (added, skipped) = merged.merge_missing(&self.store);
+        if merged != before {
+            persist(&mut new_fs, &merged).map_err(|_| ServiceError::Io)?;
+        }
+        let old_store = core::mem::replace(&mut self.store, merged);
+        let mut old_fs = core::mem::replace(&mut self.fs, new_fs);
+        if skipped == 0 {
+            retire(&mut old_fs);
+        }
+        self.announce_differences(&old_store);
+        Ok(Migration {
+            added: added.len(),
+            skipped,
+        })
+    }
+
+    /// Merges the store found in `source` (a lower-ranked location that may
+    /// hold settings written before the current one was usable) into the live
+    /// store without overwriting existing values, persists, and retires
+    /// `source` once nothing was skipped. An empty or missing source is a
+    /// no-op.
+    ///
+    /// # Errors
+    ///
+    /// [`ServiceError::Io`] when `source` cannot be read or the merged store
+    /// cannot be persisted; the live store is then unchanged.
+    pub fn absorb<G: StoreFs>(&mut self, source: &mut G) -> Result<Migration, ServiceError> {
+        let other = load(source).map_err(|_| ServiceError::Io)?;
+        if other.is_empty() {
+            return Ok(Migration::default());
+        }
+        let mut draft = self.store.clone();
+        let (added, skipped) = draft.merge_missing(&other);
+        if !added.is_empty() {
+            persist(&mut self.fs, &draft).map_err(|_| ServiceError::Io)?;
+            let old_store = core::mem::replace(&mut self.store, draft);
+            self.announce_differences(&old_store);
+        }
+        if skipped == 0 {
+            retire(source);
+        }
+        Ok(Migration {
+            added: added.len(),
+            skipped,
+        })
+    }
+
+    /// Announce every announceable path whose value differs from `old`
+    /// (best effort).
+    fn announce_differences(&mut self, old: &Store) {
+        let root = Caller { uid: 0 };
+        let changed: Vec<&str> = self
+            .store
+            .iter_raw()
+            .filter(|(path, value)| old.get(path, root).ok().flatten() != Some(*value))
+            .map(|(path, _)| path)
+            .filter(|path| announceable(path))
+            .collect();
+        for path in changed {
+            self.sink.changed(path, false);
+        }
     }
 
     /// Reads the value at `path`, or `None` when it is absent.

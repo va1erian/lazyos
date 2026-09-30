@@ -1,9 +1,13 @@
-//! Classic Mac-style window animation: a wireframe "zoom rectangle" that
-//! flies between a window and its icon (taskbar entry) while the window
-//! itself is not drawn. The compositor is single-threaded, so the animation
-//! is a short blocking loop of a few frames, well under a quarter second.
+//! Classic Mac-style window animation: an inverted (XOR) wireframe "zoom
+//! rectangle" that flies between a window and its icon (taskbar entry) while
+//! the window itself is not drawn. Every move is two-stepped: the window
+//! shrinks to an icon-sized rectangle centred on it, which then travels to the
+//! target. The compositor is single-threaded, so the animation is a short
+//! blocking loop of a few frames, well under a quarter second per step.
 
-use user::messenger::display::{Canvas, Color, Rect};
+use alloc::vec;
+use alloc::vec::Vec;
+use user::messenger::display::{Canvas, Rect};
 use user::sys;
 
 use super::compositor::Compositor;
@@ -15,16 +19,17 @@ const STEPS: i32 = 10;
 const TRAIL: i32 = 3;
 /// How far (in steps) each trailing outline lags the previous one.
 const TRAIL_LAG: i32 = 1;
-/// Outline thickness in pixels.
+/// Outline thickness in pixels. Outlines are drawn inverted (XOR), so they
+/// show on any background.
 const LINE: i32 = 2;
-const WIRE: Color = Color::rgb(236, 240, 250);
 
 impl Compositor {
     /// Fly a wireframe from `from` to `to` over the screen as composed from
     /// the surfaces. The caller keeps the animated window out of the visible
     /// set (minimized) for the duration and repaints the full screen
-    /// afterwards, which erases the last outline. Shared by minimize/restore,
-    /// open and maximize/restore.
+    /// afterwards, which erases the last outline. Each frame recomposes its
+    /// damage and then XORs the outlines onto the clean pixels, so nothing
+    /// depends on erasing an earlier outline by redrawing it.
     pub(super) fn zoom(&mut self, from: Rect, to: Rect) {
         let full = self.full();
         // The starting rectangle counts as previously drawn, so the first
@@ -46,8 +51,11 @@ impl Compositor {
             let damage =
                 Rect::new(damage.x - 1, damage.y - 1, damage.w + 2, damage.h + 2).intersect(full);
             self.compose(damage);
-            for rect in rects.iter().filter(|rect| !rect.is_empty()) {
-                outline(&mut self.screen, *rect, damage);
+            // Overlapping outlines (equal ones as the eased motion settles, but
+            // also distinct ones that share an edge) would cancel under XOR,
+            // so the trail is drawn as disjoint pieces, each pixel inverted once.
+            for piece in trail_pieces(&rects) {
+                self.screen.invert(piece, damage);
             }
             let _ = sys::display_present(damage.x, damage.y, damage.w, damage.h);
             previous = damage;
@@ -61,11 +69,10 @@ impl Compositor {
     /// sized wireframe, which then slides to the entry. `id` must already be
     /// marked minimized so the window is not composed under the wireframe.
     pub(super) fn iconify(&mut self, id: u64) {
-        let Some((window, icon, small)) = self.phases(id) else {
+        let Some((window, icon, _)) = self.phases(id) else {
             return;
         };
-        self.zoom(window, small);
-        self.zoom(small, icon);
+        self.zoom_two_step(id, window, icon);
     }
 
     /// The reverse of [`Compositor::iconify`]: the wireframe slides from the
@@ -80,17 +87,29 @@ impl Compositor {
     }
 
     /// Animate a new window opening: from `origin` (the on-screen rectangle
-    /// the app hinted at, e.g. the folder tile just double-clicked) straight
-    /// to the window, or from its taskbar entry when there is no hint.
+    /// the app hinted at, e.g. the folder tile just double-clicked) to the
+    /// window in two steps through an icon-sized rectangle centred on the
+    /// window, or from its taskbar entry when there is no hint.
     pub(super) fn open_zoom(&mut self, id: u64, origin: Option<Rect>) {
         let Some(from) = origin else {
             self.deiconify(id);
             return;
         };
-        if let Some(surface) = self.surfaces.iter().find(|surface| surface.id == id) {
-            let window = surface.window();
-            self.zoom(from, window);
+        if let Some((window, _, small)) = self.phases(id) {
+            self.zoom(from, small);
+            self.zoom(small, window);
         }
+    }
+
+    /// Move or resize `id` from `from` to `to` in two steps, like iconify:
+    /// `from` shrinks to an icon-sized rectangle centred on it, which then
+    /// travels to `to`. Used by maximize and restore; `id` must already be
+    /// hidden (minimized) for the duration.
+    pub(super) fn zoom_two_step(&mut self, id: u64, from: Rect, to: Rect) {
+        let icon = self.icon(id);
+        let small = small_rect(from, icon.w, icon.h, self.full());
+        self.zoom(from, small);
+        self.zoom(small, to);
     }
 
     /// Hide or show surface `id` without any other side effect.
@@ -100,28 +119,44 @@ impl Compositor {
         }
     }
 
-    /// The window, its icon rectangle, and the icon-sized rectangle centred on
-    /// the window that joins them.
-    fn phases(&self, id: u64) -> Option<(Rect, Rect, Rect)> {
-        let surface = self.surfaces.iter().find(|surface| surface.id == id)?;
-        let window = surface.window();
-        let icon = icon_rect(
+    /// Surface `id`'s icon (taskbar entry) rectangle.
+    fn icon(&self, id: u64) -> Rect {
+        icon_rect(
             &self.surfaces,
             self.screen.width(),
             self.screen.height(),
             id,
-        );
-        let small = Rect::new(
-            window.x + (window.w - icon.w) / 2,
-            window.y + (window.h - icon.h) / 2,
-            icon.w,
-            icon.h,
-        );
-        // A mostly off-screen window centres `small` off screen too; keep it
-        // visible so the minimize animation does not fly off the edge.
-        let small = super::geometry::clamp_into(small, self.full());
-        Some((window, icon, small))
+        )
     }
+
+    /// The window, its icon rectangle, and the icon-sized rectangle centred on
+    /// the window that joins them.
+    fn phases(&self, id: u64) -> Option<(Rect, Rect, Rect)> {
+        let window = self
+            .surfaces
+            .iter()
+            .find(|surface| surface.id == id)?
+            .window();
+        let icon = self.icon(id);
+        Some((
+            window,
+            icon,
+            small_rect(window, icon.w, icon.h, self.full()),
+        ))
+    }
+}
+
+/// The `w` x `h` rectangle centred on `window`, kept inside `bounds`: a
+/// mostly off-screen window would otherwise centre it off screen too, and the
+/// animation would fly off the edge.
+fn small_rect(window: Rect, w: i32, h: i32, bounds: Rect) -> Rect {
+    let small = Rect::new(
+        window.x + (window.w - w) / 2,
+        window.y + (window.h - h) / 2,
+        w,
+        h,
+    );
+    super::geometry::clamp_into(small, bounds)
 }
 
 /// The rectangle `at`/[`STEPS`] of the way from `from` to `to`, eased out so
@@ -138,19 +173,153 @@ fn lerp(from: Rect, to: Rect, at: i32) -> Rect {
     )
 }
 
-/// Draw a hollow rectangle.
-pub(super) fn outline(screen: &mut Canvas, rect: Rect, clip: Rect) {
+/// The four disjoint strips of a hollow rectangle (top, bottom, then left and
+/// right between them). They must not overlap: XOR drawing would cancel the
+/// overlap, leaving gaps in the corners.
+fn outline_strips(rect: Rect) -> [Rect; 4] {
     let t = LINE.min(rect.w / 2).min(rect.h / 2).max(1);
-    screen.fill(Rect::new(rect.x, rect.y, rect.w, t), clip, WIRE);
-    screen.fill(
+    let inner = (rect.h - 2 * t).max(0);
+    [
+        Rect::new(rect.x, rect.y, rect.w, t),
         Rect::new(rect.x, rect.y + rect.h - t, rect.w, t),
-        clip,
-        WIRE,
-    );
-    screen.fill(Rect::new(rect.x, rect.y, t, rect.h), clip, WIRE);
-    screen.fill(
-        Rect::new(rect.x + rect.w - t, rect.y, t, rect.h),
-        clip,
-        WIRE,
-    );
+        Rect::new(rect.x, rect.y + t, t, inner),
+        Rect::new(rect.x + rect.w - t, rect.y + t, t, inner),
+    ]
+}
+
+/// `rect` minus `cut`: up to four disjoint rectangles covering what remains.
+fn subtract(rect: Rect, cut: Rect, out: &mut Vec<Rect>) {
+    let hit = rect.intersect(cut);
+    if hit.is_empty() {
+        out.push(rect);
+        return;
+    }
+    let (right, bottom) = (rect.x + rect.w, rect.y + rect.h);
+    let (hit_right, hit_bottom) = (hit.x + hit.w, hit.y + hit.h);
+    for piece in [
+        Rect::new(rect.x, rect.y, rect.w, hit.y - rect.y),
+        Rect::new(rect.x, hit_bottom, rect.w, bottom - hit_bottom),
+        Rect::new(rect.x, hit.y, hit.x - rect.x, hit.h),
+        Rect::new(hit_right, hit.y, right - hit_right, hit.h),
+    ] {
+        if !piece.is_empty() {
+            out.push(piece);
+        }
+    }
+}
+
+/// The union of the trail's outlines as pairwise-disjoint rectangles, so
+/// inverting each once never cancels where outlines overlap. Empty rectangles
+/// are skipped.
+fn trail_pieces(rects: &[Rect]) -> Vec<Rect> {
+    let mut covered: Vec<Rect> = Vec::new();
+    for rect in rects.iter().filter(|rect| !rect.is_empty()) {
+        for strip in outline_strips(*rect) {
+            let mut fresh = Vec::from([strip]);
+            for done in &covered {
+                let mut next = Vec::new();
+                for piece in &fresh {
+                    subtract(*piece, *done, &mut next);
+                }
+                fresh = next;
+            }
+            covered.extend(fresh);
+        }
+    }
+    covered
+}
+
+/// Draw a hollow rectangle by inverting the pixels under it, so it is visible
+/// on any background.
+pub(super) fn outline(screen: &mut Canvas, rect: Rect, clip: Rect) {
+    for strip in outline_strips(rect) {
+        screen.invert(strip, clip);
+    }
+}
+
+/// Boot check of the animation geometry and the XOR outline:
+/// `XUID:ANIM:PASS` or `XUID:ANIM:FAIL`.
+pub(super) fn selftest_anim() -> &'static str {
+    let from = Rect::new(10, 20, 200, 100);
+    let to = Rect::new(300, 200, 400, 300);
+    let ends = lerp(from, to, STEPS) == to;
+    // The eased motion starts past the linear midpoint.
+    let mid = lerp(from, to, STEPS / 2);
+    let eased = mid.x > (from.x + to.x) / 2 && mid.w > (from.w + to.w) / 2;
+
+    // The icon-sized middle rectangle is centred on the window and clamped.
+    let bounds = Rect::new(0, 0, 800, 600);
+    let centred =
+        small_rect(Rect::new(100, 100, 300, 200), 100, 20, bounds) == Rect::new(200, 190, 100, 20);
+    let off = small_rect(Rect::new(-500, 100, 300, 200), 100, 20, bounds);
+    let clamped = off.x >= bounds.x && off.x + off.w <= bounds.x + bounds.w;
+
+    // The outline strips tile the frame's ring exactly: none overlap.
+    let frame = Rect::new(5, 6, 30, 20);
+    let strips = outline_strips(frame);
+    let area: i32 = strips.iter().map(|s| s.w * s.h).sum();
+    let disjoint = strips
+        .iter()
+        .enumerate()
+        .all(|(i, a)| strips[i + 1..].iter().all(|b| a.intersect(*b).is_empty()));
+    let tiled = area == 30 * 20 - (30 - 2 * LINE) * (20 - 2 * LINE);
+
+    // Inverting touches exactly the strips and is its own inverse.
+    let (w, h) = (40, 32);
+    let mut buf = vec![0x40u8; (w * h * 4) as usize];
+    let clip = Rect::new(0, 0, w, h);
+    // SAFETY: `buf` holds w*h*4 bytes and outlives each `canvas`, which is the
+    // only thing touching it while it lives.
+    let mut canvas = unsafe { Canvas::new(buf.as_mut_ptr() as u64, w, h) };
+    outline(&mut canvas, frame, clip);
+    let rgb = |buf: &[u8]| buf.iter().step_by(4).copied().collect::<Vec<u8>>();
+    let once = rgb(&buf).iter().filter(|v| **v == 0xbf).count() as i32 == area
+        && rgb(&buf).iter().all(|v| *v == 0x40 || *v == 0xbf);
+    // SAFETY: as above; the previous canvas is dead, so access is exclusive.
+    let mut canvas = unsafe { Canvas::new(buf.as_mut_ptr() as u64, w, h) };
+    outline(&mut canvas, frame, clip);
+    let twice = rgb(&buf).iter().all(|v| *v == 0x40);
+
+    // Distinct outlines sharing most of an edge still invert each pixel once.
+    let pair = [Rect::new(10, 10, 20, 8), Rect::new(12, 10, 20, 8)];
+    let pieces = trail_pieces(&pair);
+    let apart = pieces
+        .iter()
+        .enumerate()
+        .all(|(i, a)| pieces[i + 1..].iter().all(|b| a.intersect(*b).is_empty()));
+    buf.fill(0x40);
+    // SAFETY: as above; the previous canvas is dead, so access is exclusive.
+    let mut canvas = unsafe { Canvas::new(buf.as_mut_ptr() as u64, w, h) };
+    for piece in &pieces {
+        canvas.invert(*piece, clip);
+    }
+    let in_trail = |x: i32, y: i32| {
+        pair.iter().any(|r| {
+            outline_strips(*r)
+                .iter()
+                .any(|s| x >= s.x && x < s.x + s.w && y >= s.y && y < s.y + s.h)
+        })
+    };
+    let overlap_once = (0..h).all(|y| {
+        (0..w).all(|x| {
+            let v = buf[((y * w + x) * 4) as usize];
+            v == if in_trail(x, y) { 0xbf } else { 0x40 }
+        })
+    });
+
+    if ends
+        && eased
+        && centred
+        && clamped
+        && disjoint
+        && tiled
+        && once
+        && twice
+        && apart
+        && overlap_once
+    {
+        "XUID:ANIM:PASS\n"
+    } else {
+        "XUID:ANIM:FAIL\n"
+    }
 }

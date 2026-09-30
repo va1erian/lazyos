@@ -117,6 +117,28 @@ fn size_hints_and_configure_roundtrip() {
 }
 
 #[test]
+fn request_size_is_appended_after_configure_and_roundtrips() {
+    assert_eq!(METHOD_REQUESTSIZE, 34);
+    for (width, height) in [(0, 0), (200, 90), (u32::MAX, 1)] {
+        roundtrip!(
+            RequestSizeArgs {
+                surface: 7,
+                width,
+                height
+            },
+            encode_request_size_args,
+            decode_request_size_args
+        );
+    }
+    // A malformed request decodes to a zero size, which the compositor clamps
+    // to the declared minimum rather than treating as a resize to nothing.
+    assert_eq!(
+        decode_request_size_args(&[]).unwrap(),
+        RequestSizeArgs::default()
+    );
+}
+
+#[test]
 fn surface_calls_roundtrip() {
     for title in [String::new(), "xdemo".to_string(), "T".repeat(4000)] {
         roundtrip!(

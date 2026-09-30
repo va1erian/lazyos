@@ -69,11 +69,6 @@ impl TakenSlots {
         self.0.iter().all(|word| *word == 0)
     }
 
-    /// Number of marked slots.
-    pub fn len(&self) -> usize {
-        self.0.iter().map(|word| word.count_ones() as usize).sum()
-    }
-
     /// The marked slots in ascending order.
     pub fn iter(&self) -> impl Iterator<Item = usize> + '_ {
         (0..MAX_TASKS).filter(|slot| self.0[slot / 64] & (1 << (slot % 64)) != 0)

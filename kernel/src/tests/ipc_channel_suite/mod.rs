@@ -94,11 +94,13 @@ fn shared_clients(shared: u64, count: usize) -> Result<Vec<(usize, u64)>, String
 }
 
 mod echo_and_calls;
+mod poll;
 mod release;
 mod resilience;
 mod targeted_wake;
 
 pub(super) use echo_and_calls::*;
+pub(super) use poll::*;
 pub(super) use release::*;
 pub(super) use resilience::*;
 pub(super) use targeted_wake::*;
@@ -112,6 +114,17 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("ipc_channel_deadline_timeout", deadline_timeout),
     ("ipc_channel_deadline_reply_race", deadline_reply_race),
     ("ipc_channel_call_deadline_zero", call_deadline_zero),
+    ("ipc_channel_poll_answered", poll_answered_in_service_turn),
+    (
+        "ipc_channel_poll_abandoned",
+        poll_unanswered_ends_on_next_recv,
+    ),
+    ("ipc_channel_poll_grace", poll_grace_bounds_unreceived),
+    (
+        "ipc_channel_poll_received_outlives_grace",
+        poll_received_outlives_grace,
+    ),
+    ("ipc_channel_poll_soak", poll_soak),
     ("ipc_channel_cancel_wakes", cancel_wakes),
     ("ipc_channel_peer_died", peer_died),
     (

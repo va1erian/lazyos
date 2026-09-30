@@ -12,11 +12,11 @@ use alloc::vec::Vec;
 const DEFAULT_APPS: &[(&str, &str, &[&str])] = &[
     ("text/plain", "editor", &["open", "edit"]),
     ("text/plain", "files", &["reveal"]),
-    ("text/markdown", "editor", &["open", "edit"]),
-    // The Docs app (litehtml) renders Markdown. It is shipped only when the
-    // build had the zig toolchain, so it is a `view` verb rather than the
-    // default `open`: an image without it still opens `.md` files in the Editor.
-    ("text/markdown", "docs", &["view"]),
+    // Markdown opens in the Docs renderer, which is zig-built and therefore
+    // optional; `edit` stays with the Editor so the file remains editable, and
+    // [`DEFAULT_FALLBACKS`] names the Editor for `open` when Docs is absent.
+    ("text/markdown", "docs", &["open", "view"]),
+    ("text/markdown", "editor", &["edit"]),
     ("text/x-rust", "editor", &["open", "edit"]),
     ("text/x-shellscript", "editor", &["open", "edit"]),
     ("image/png", "paint", &["open", "edit"]),
@@ -25,11 +25,18 @@ const DEFAULT_APPS: &[(&str, &str, &[&str])] = &[
     ("application/octet-stream", "files", &["reveal"]),
 ];
 
-/// One open-with registration.
+/// Fallback apps for a `(mime, verb)` whose primary the image does not ship:
+/// `(mime, verb, app)`. The open path swaps to the fallback when `init` reports
+/// the primary's ELF is not installed (see `handlers::open_path`).
+const DEFAULT_FALLBACKS: &[(&str, &str, &str)] = &[("text/markdown", "open", "editor")];
+
+/// One open-with registration: the app for `(mime, verb)`, plus an optional
+/// fallback to use when the primary's ELF is not shipped.
 struct Registration {
     mime: String,
     verb: String,
     app: String,
+    fallback: Option<String>,
 }
 
 /// The open-with registry: `(mime, verb)` to app. Re-registering a pair
@@ -45,35 +52,71 @@ impl AppRegistry {
         }
     }
 
-    /// Add or replace the app for `(mime, verb)`.
+    /// Add or replace the app for `(mime, verb)`. Any fallback the pair had is
+    /// cleared: the new policy has not named one.
     pub(crate) fn register(&mut self, mime_type: &str, app: &str, verb: &str) {
+        self.register_with_fallback(mime_type, app, verb, None);
+    }
+
+    /// [`register`](Self::register), naming the app to use when `app` is not
+    /// shipped.
+    fn register_with_fallback(
+        &mut self,
+        mime_type: &str,
+        app: &str,
+        verb: &str,
+        fallback: Option<&str>,
+    ) {
         let mime_type = mime_type.trim().to_ascii_lowercase();
         let verb = verb.trim().to_ascii_lowercase();
         let app = app.trim();
+        let fallback = fallback.map(str::trim);
         if let Some(entry) = self
             .entries
             .iter_mut()
             .find(|entry| entry.mime == mime_type && entry.verb == verb)
         {
             entry.app = app.to_string();
+            entry.fallback = fallback.map(str::to_string);
         } else {
             self.entries.push(Registration {
                 mime: mime_type,
                 verb,
                 app: app.to_string(),
+                fallback: fallback.map(str::to_string),
             });
+        }
+    }
+
+    /// Name the fallback for an already-registered `(mime, verb)`; a no-op for
+    /// a pair that was never registered.
+    fn set_fallback(&mut self, mime_type: &str, verb: &str, fallback: &str) {
+        let mime_type = mime_type.trim().to_ascii_lowercase();
+        let verb = verb.trim().to_ascii_lowercase();
+        if let Some(entry) = self
+            .entries
+            .iter_mut()
+            .find(|entry| entry.mime == mime_type && entry.verb == verb)
+        {
+            entry.fallback = Some(fallback.trim().to_string());
         }
     }
 
     /// The app registered for a type and verb (both case-insensitive).
     pub(crate) fn lookup(&self, mime_type: &str, verb: &str) -> Option<&str> {
+        self.resolve(mime_type, verb).map(|(app, _)| app)
+    }
+
+    /// The app registered for a type and verb, plus its fallback app when the
+    /// registration names one. Both keys are matched case-insensitively.
+    pub(crate) fn resolve(&self, mime_type: &str, verb: &str) -> Option<(&str, Option<&str>)> {
         self.entries
             .iter()
             .find(|entry| {
                 entry.mime.eq_ignore_ascii_case(mime_type.trim())
                     && entry.verb.eq_ignore_ascii_case(verb.trim())
             })
-            .map(|entry| entry.app.as_str())
+            .map(|entry| (entry.app.as_str(), entry.fallback.as_deref()))
     }
 
     /// The verbs registered for a type, in registration order.
@@ -88,11 +131,28 @@ impl AppRegistry {
     }
 }
 
-/// Seed the open-with defaults.
+/// The app to use given whether the primary is shipped: the fallback when the
+/// primary is not, else the primary. Pure, so the fallback policy is testable
+/// without a running `init`.
+pub(crate) fn choose<'a>(
+    primary: &'a str,
+    fallback: Option<&'a str>,
+    primary_shipped: bool,
+) -> &'a str {
+    match fallback {
+        Some(fallback) if !primary_shipped => fallback,
+        _ => primary,
+    }
+}
+
+/// Seed the open-with defaults and their fallbacks.
 pub(crate) fn seed_default_apps(apps: &mut AppRegistry) {
     for (mime_type, app, verbs) in DEFAULT_APPS {
         for verb in *verbs {
             apps.register(mime_type, app, verb);
         }
+    }
+    for (mime_type, verb, fallback) in DEFAULT_FALLBACKS {
+        apps.set_fallback(mime_type, verb, fallback);
     }
 }

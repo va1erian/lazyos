@@ -165,7 +165,10 @@ extern "x86-interrupt" fn alignment_check_handler(stack: InterruptStackFrame, er
 // `SIGSEGV` frame, and the `x86-interrupt` ABI does not expose them, so #PF
 // (and #DE/#UD/#GP, issue #246) use naked stubs like the timer: push the
 // registers, call into Rust with the frame pointer, resume at the (possibly
-// rewritten) frame.
+// rewritten) frame. Like the timer they clear the direction flag first
+// (issue #405): a page fault inside a user `memmove` arrives with DF set, and
+// the COW/demand-zero paths copy and zero whole frames with `rep movs`/`stos`.
+// The `x86-interrupt` handlers need no such care: LLVM emits `cld` for them.
 global_asm!(
     r#"
     .macro exception_isr name, vector, has_error
@@ -187,6 +190,7 @@ global_asm!(
         push r14
         push r15
 
+        cld                         /* see task::switch: DF may be set */
         mov rdi, rsp
         mov rsi, \vector
         /* the CPU aligns RSP only before its own push: force the ABI's 16 */
@@ -241,6 +245,7 @@ global_asm!(
         push r14
         push r15
 
+        cld                         /* see task::switch: DF may be set */
         mov rdi, rsp
         call page_fault_dispatch
         mov rsp, rax

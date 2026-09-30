@@ -16,6 +16,16 @@
 //! so the saved frame layout (r15 .. rax, then the CPU's interrupt frame) is
 //! identical for both gates and a task parked by one can be resumed by the
 //! other.
+//!
+//! Both gates clear the direction flag before calling into Rust (issue #405):
+//! an interrupt gate leaves `RFLAGS.DF` as the interrupted code had it, and
+//! user code legitimately runs with it set (musl's `memmove` copies backwards
+//! with `std; rep movsb; cld`). The kernel's `memcpy`/`memset` are
+//! `rep movs`/`rep stos` that assume DF clear, so a tick landing in that
+//! window made every struct move in `schedule` write *below* its destination,
+//! smashing return addresses on the kernel stack. `iretq` restores the
+//! caller's flags, so the clear is invisible to the interrupted code. The
+//! `syscall` entry needs nothing: `IA32_FMASK` clears DF (`arch::linux`).
 
 use core::arch::global_asm;
 
@@ -53,6 +63,12 @@ global_asm!(
         push r14
         push r15
 
+        /* The interrupted code may run with the direction flag set (musl's
+           memmove does `std; rep movsb; cld`); the kernel's memcpy/memset
+           assume it clear. A hardware gate does not clear DF and iretq
+           restores the caller's flags, so clearing it here costs nothing
+           (issue #405). */
+        cld
         mov rdi, rsp
         mov esi, eax
         call schedule

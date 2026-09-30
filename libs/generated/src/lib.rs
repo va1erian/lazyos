@@ -2449,6 +2449,8 @@ pub mod os_lazy_display_v1 {
     pub const METHOD_SETSIZEHINTS: u32 = 32;
     /// `Configure` method id.
     pub const METHOD_CONFIGURE: u32 = 33;
+    /// `RequestSize` method id.
+    pub const METHOD_REQUESTSIZE: u32 = 34;
 
     /// Create a surface of `width` x `height` pixels titled `title`. `role` is
     /// a `Role` value: a decorated window (also the meaning of an absent
@@ -3619,6 +3621,49 @@ pub mod os_lazy_display_v1 {
                 }
                 4 => {
                     out.state = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Ask the compositor to change `surface`'s content size to `width` x
+    /// `height`, keeping its top-left corner (a compact/expanded toggle). Only
+    /// the creator may call it (`EACCES`; `ENOENT` for an unknown surface) and
+    /// only a surface that declared `SetSizeHints` and is neither maximized nor
+    /// minimized (`EINVAL` otherwise). The size is clamped to the declared
+    /// bounds and to the screen; the compositor answers by sending a
+    /// `Configure` with the size it actually applied (also when that equals
+    /// the current size), which is the only confirmation the client needs.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct RequestSizeArgs {
+        pub surface: u64,
+        pub width: u32,
+        pub height: u32,
+    }
+
+    pub fn encode_request_size_args(value: &RequestSizeArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.surface)?;
+        target.u32(2, value.width)?;
+        target.u32(3, value.height)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_request_size_args(body: &[u8]) -> Result<RequestSizeArgs, Error> {
+        let mut out = RequestSizeArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.surface = field.as_u64()?;
+                }
+                2 => {
+                    out.width = field.as_u32()?;
+                }
+                3 => {
+                    out.height = field.as_u32()?;
                 }
                 _ => {}
             }

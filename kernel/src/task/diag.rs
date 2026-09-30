@@ -132,3 +132,79 @@ fn write_task(out: &mut impl Write, slot: usize, task: &Task, current: bool) -> 
 unsafe fn frame_word(rsp: u64, index: u64) -> u64 {
     core::ptr::read_volatile((rsp + index * 8) as *const u64)
 }
+
+/// The kernel stack holding `addr`, as `(slot, top)`.
+pub fn kstack_of(addr: u64) -> Option<(usize, u64)> {
+    (0..super::MAX_TASKS).find_map(|slot| {
+        let top = super::kstack_top(slot);
+        (addr >= top - super::KSTACK_SIZE as u64 && addr < top).then_some((slot, top))
+    })
+}
+
+/// Bytes of `slot`'s kernel stack that were ever written: the distance from
+/// its top to the lowest non-zero word. The stacks are zero at boot and never
+/// cleared, so this is an all-time high-water mark; a value equal to the stack
+/// size means the stack was used (or overflowed) down to its last word.
+pub fn kstack_high_water(slot: usize) -> u64 {
+    let top = super::kstack_top(slot);
+    let mut addr = top - super::KSTACK_SIZE as u64;
+    while addr < top {
+        // SAFETY: `addr` stays inside the static `KSTACKS` array.
+        if unsafe { core::ptr::read_volatile(addr as *const u64) } != 0 {
+            return top - addr;
+        }
+        addr += 8;
+    }
+    0
+}
+
+/// Stack words printed above a fatal fault's frame (the frame itself is 21
+/// words; what sat above it is what a smashed return address came from).
+const FAULT_STACK_WORDS: u64 = 128;
+
+/// Print, for a fatal ring-0 fault with its saved frame at `frame`, which
+/// kernel stack the frame is on, the high-water marks of that stack and its
+/// neighbours (an overflow of slot `n + 1` lands on the top of slot `n`), and
+/// the words from the frame towards the stack top. Serial only and without
+/// the heap (the faulting code may hold its lock); the kernel halts right
+/// after.
+pub fn print_kstack_report(frame: u64) {
+    let Some((slot, top)) = kstack_of(frame) else {
+        crate::serial_println!("kernel: frame {frame:#x} is on no task kernel stack");
+        return;
+    };
+    crate::serial_println!(
+        "kernel: frame on kstack slot={slot} top={top:#x} depth={} size={}",
+        top - frame,
+        super::KSTACK_SIZE
+    );
+    for neighbour in slot.saturating_sub(1)..=(slot + 1).min(super::MAX_TASKS - 1) {
+        crate::serial_println!(
+            "kernel: kstack slot={neighbour} high_water={} of {}",
+            kstack_high_water(neighbour),
+            super::KSTACK_SIZE
+        );
+    }
+    let end = top.min(frame + FAULT_STACK_WORDS * 8);
+    let mut addr = frame;
+    while addr + 4 * 8 <= end {
+        // SAFETY: `[frame, top)` is the live part of this kernel stack.
+        let words: [u64; 4] = core::array::from_fn(|index| unsafe {
+            core::ptr::read_volatile((addr + index as u64 * 8) as *const u64)
+        });
+        crate::serial_println!(
+            "kernel: stack {addr:#x}: {:#018x} {:#018x} {:#018x} {:#018x}",
+            words[0],
+            words[1],
+            words[2],
+            words[3]
+        );
+        addr += 4 * 8;
+    }
+    while addr < end {
+        // SAFETY: as above; the tail of the range, under four words.
+        let word = unsafe { core::ptr::read_volatile(addr as *const u64) };
+        crate::serial_println!("kernel: stack {addr:#x}: {word:#018x}");
+        addr += 8;
+    }
+}

@@ -347,3 +347,101 @@ pub fn snapshot() -> Result<Snapshot, i64> {
     }
     decode_words(&words).ok_or(-EINVAL)
 }
+
+/// The two counters CPU load is computed from: uptime and the CPU ticks the
+/// scheduler charged to tasks, both in 100 Hz PIT ticks.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct CpuSample {
+    /// PIT ticks since boot.
+    pub ticks: u64,
+    /// CPU ticks charged to every live task so far.
+    pub busy: u64,
+}
+
+impl Snapshot {
+    /// The counters [`cpu_percent`] compares between two snapshots.
+    pub fn cpu_sample(&self) -> CpuSample {
+        CpuSample {
+            ticks: self.ticks,
+            busy: self
+                .live_tasks()
+                .fold(0u64, |sum, row| sum.saturating_add(row.cpu_ticks)),
+        }
+    }
+}
+
+/// CPU load in whole percent (0..=100) between two samples.
+///
+/// Uptime is diffed with `wrapping_sub`, so a wrapped tick counter still gives
+/// the right interval. The busy counter is a sum over live tasks, so it drops
+/// when a task exits; that interval reads as idle (saturating) rather than as
+/// a wrapped, enormous load. No elapsed ticks is 0 rather than a division by
+/// zero, and the result is capped at 100 in case several tasks were charged
+/// within one tick.
+pub fn cpu_percent(prev: CpuSample, cur: CpuSample) -> u32 {
+    let elapsed = cur.ticks.wrapping_sub(prev.ticks);
+    if elapsed == 0 {
+        return 0;
+    }
+    let busy = cur.busy.saturating_sub(prev.busy);
+    (u128::from(busy) * 100 / u128::from(elapsed)).min(100) as u32
+}
+
+#[cfg(test)]
+mod cpu_tests {
+    use super::*;
+
+    const fn sample(ticks: u64, busy: u64) -> CpuSample {
+        CpuSample { ticks, busy }
+    }
+
+    #[test]
+    fn half_busy_is_fifty_percent() {
+        assert_eq!(cpu_percent(sample(100, 10), sample(200, 60)), 50);
+    }
+
+    #[test]
+    fn no_elapsed_ticks_is_zero_not_a_division_by_zero() {
+        assert_eq!(cpu_percent(sample(500, 5), sample(500, 50)), 0);
+    }
+
+    #[test]
+    fn a_wrapped_tick_counter_still_measures_the_interval() {
+        let prev = sample(u64::MAX - 49, 0);
+        let cur = sample(50, 50);
+        // 100 ticks elapsed across the wrap, 50 of them busy.
+        assert_eq!(cpu_percent(prev, cur), 50);
+    }
+
+    #[test]
+    fn an_exited_task_shrinking_the_busy_sum_reads_idle() {
+        assert_eq!(cpu_percent(sample(100, 90), sample(200, 40)), 0);
+    }
+
+    #[test]
+    fn the_load_is_capped_at_one_hundred() {
+        assert_eq!(cpu_percent(sample(0, 0), sample(10, 500)), 100);
+        assert_eq!(cpu_percent(sample(0, 0), sample(u64::MAX, u64::MAX)), 100);
+    }
+
+    #[test]
+    fn a_snapshot_sums_only_live_tasks() {
+        let mut snapshot = decode_words(&{
+            let mut words = [0u64; WORDS];
+            words[header::VERSION] = VERSION;
+            words[header::TICKS] = 1234;
+            words
+        })
+        .expect("decodes");
+        let row = |state, cpu_ticks| TaskRow {
+            present: true,
+            state,
+            cpu_ticks,
+            ..TaskRow::EMPTY
+        };
+        snapshot.tasks[0] = row(TaskState::Runnable, 7);
+        snapshot.tasks[1] = row(TaskState::Done, 1000);
+        snapshot.tasks[2] = row(TaskState::Runnable, 5);
+        assert_eq!(snapshot.cpu_sample(), sample(1234, 12));
+    }
+}

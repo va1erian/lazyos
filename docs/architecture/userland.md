@@ -40,8 +40,12 @@ See [processes.md](processes.md) and [display.md](display.md).
   generated `idl/topics.midl` stubs, as `registry` uses `idl/registry.midl`), `router` (interim
   userspace topic router), `services` (init/healthd/logd shapes), `keyd`,
   `accounts`, `logind`, `display` (`os.lazy.display.v1`), `mime`, `clipboard`.
-- `EXPIRED_DEADLINE = 1` implements non-blocking polls via the kernel deadline
-  sweep; long loops must use the `*_with` buffer variants because the bump heap
+- `EXPIRED_DEADLINE = 1` implements non-blocking polls. For `recv` it is an
+  already-expired deadline the kernel sweep reports as `-ETIMEDOUT`. For a
+  *call* it marks a poll transaction that the callee may answer during its
+  service turn (see `ipc-core.md`, *Poll calls*), which is how
+  `Subscription::recv_with`/`poll_event` get a queued event from `messengerd`
+  without blocking; long loops must use the `*_with` buffer variants because the bump heap
   never frees.
 
 **Async layer** (`messenger_async.rs`, issue #91)
