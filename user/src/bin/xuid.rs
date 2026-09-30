@@ -115,6 +115,8 @@ mod layout;
 mod maximize;
 #[path = "xuid/menu.rs"]
 mod menu;
+#[path = "xuid/menuitems.rs"]
+mod menuitems;
 #[path = "xuid/origin.rs"]
 mod origin;
 #[path = "xuid/present.rs"]
