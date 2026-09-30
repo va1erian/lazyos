@@ -253,6 +253,10 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("fs_root_prefers_fat_over_ext2", root_prefers_fat_over_ext2),
     ("fs_ext2_soak_state_generations", soak_state_generations),
     ("fs_ext2_rmdir_rules", rmdir_rules),
+    (
+        "fs_ext2_rmdir_failure_keeps_parent_links",
+        rmdir_failure_keeps_parent_links,
+    ),
     ("fs_ext2_rmdir_survives_remount", rmdir_survives_remount),
     ("fs_ext2_soak_rmdir_generations", rmdir_soak_generations),
     (

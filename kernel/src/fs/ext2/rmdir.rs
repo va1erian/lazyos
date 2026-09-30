@@ -27,15 +27,18 @@ impl Ext2 {
             return Err(FsError::NotEmpty);
         }
         self.remove_entry(parent_ino, &mut parent, name)?;
+        // The entry is gone, so the child's `..` link on the parent is too:
+        // persist that before the freeing steps, which can fail and would
+        // otherwise leave the parent counting a subdirectory that no longer
+        // exists (`rename` orders its parent update the same way).
+        let links = le16(&parent, INO_LINKS).saturating_sub(1);
+        put16(&mut parent, INO_LINKS, links);
+        self.write_inode(parent_ino, &parent)?;
         // An empty directory holds two links (`.` and the parent's entry); the
-        // parent's entry is gone, so the inode dies and takes the child's `..`
-        // link on the parent with it.
+        // parent's entry is gone, so the inode dies.
         put16(&mut child, INO_LINKS, 0);
         put32(&mut child, INO_DTIME, now());
         self.free_inode_blocks(child_ino, &mut child)?;
-        self.free_inode(child_ino, true)?;
-        let links = le16(&parent, INO_LINKS).saturating_sub(1);
-        put16(&mut parent, INO_LINKS, links);
-        self.write_inode(parent_ino, &parent)
+        self.free_inode(child_ino, true)
     }
 }

@@ -126,3 +126,69 @@ pub fn rmdir_soak_generations() -> Result<(), String> {
     );
     check_volume(disk, BLOCKS)
 }
+
+/// The link count of inode `ino` as stored on the disk right now (one-group
+/// fixture, 1 KiB blocks).
+fn raw_links(disk: &FakeDisk, ino: usize) -> u16 {
+    let data = disk.data.lock();
+    let u32_at =
+        |at: usize| u32::from_le_bytes([data[at], data[at + 1], data[at + 2], data[at + 3]]);
+    let block_size = 1024usize << u32_at(SUPER + 0x18);
+    let gd = (u32_at(SUPER + 0x14) as usize + 1) * block_size;
+    let inode_size = usize::from(u16::from_le_bytes([data[SUPER + 0x58], data[SUPER + 0x59]]));
+    let at = u32_at(gd + 8) as usize * block_size + (ino - 1) * inode_size + 0x1A;
+    u16::from_le_bytes([data[at], data[at + 1]])
+}
+
+/// A device write failing at any point of `rmdir` never leaves the parent
+/// counting a subdirectory whose entry is already gone. The first three
+/// writes cover the entry's removal and the parent's link update; a failure
+/// in any freeing step after them must find the parent already persisted.
+pub fn rmdir_failure_keeps_parent_links() -> Result<(), String> {
+    task::register_kernel();
+    let mut freeing_failures = 0;
+    let mut trace = String::new();
+    for nth in 1..=12u32 {
+        let (fs, mut vfs, disk) = mounted(1024, BLOCKS)?;
+        let root = Id::ROOT;
+        vfs.mkdir(root, "/d", 0o755).map_err(fs_error)?;
+        vfs.mkdir(root, "/d/e", 0o755).map_err(fs_error)?;
+        // First directory made: inode 11 (`.`, the root's entry, and `e`'s `..`).
+        check!(
+            raw_links(disk, 11) == 3,
+            "setup: /d has {} links",
+            raw_links(disk, 11)
+        );
+        disk.fail_nth_write(nth);
+        let outcome = vfs.rmdir(root, "/d/e");
+        disk.fail_nth_write(u32::MAX);
+        // Judge by the raw sectors, as a reboot would see them.
+        drop(vfs);
+        drop(fs);
+        let (_fs, mut vfs) = remount_disk(disk)?;
+        let gone = vfs.stat(root, "/d/e").is_err();
+        let links = raw_links(disk, 11);
+        trace.push_str(&format!(
+            " [{nth}:err={} gone={gone} links={links}]",
+            outcome.is_err()
+        ));
+        if outcome.is_err() && gone && nth > 3 {
+            freeing_failures += 1;
+            check!(
+                links == 2,
+                "write {nth} failed after the entry went: parent has {links} links"
+            );
+        }
+        if outcome.is_ok() {
+            check!(
+                links == 2,
+                "rmdir succeeded but the parent has {links} links"
+            );
+        }
+    }
+    check!(
+        freeing_failures > 0,
+        "no injected failure landed in the freeing steps:{trace}"
+    );
+    Ok(())
+}
