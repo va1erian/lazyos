@@ -8,6 +8,8 @@ use std::path::PathBuf;
 mod drivers;
 #[path = "build_support/elf_trim.rs"]
 mod elf_trim;
+#[path = "build_support/lazyrad_embed.rs"]
+mod lazyrad_embed;
 #[path = "build_support/rhai_embed.rs"]
 mod rhai_embed;
 
@@ -346,6 +348,10 @@ fn main() {
     // The `rhai` scripting command (issue #319), resolved from `sh` as RHAI.ELF.
     println!("cargo:rerun-if-changed=build_support/rhai_embed.rs");
     rhai_embed::embed(&mut builder, &manifest_dir);
+    // The `lazyrad` runtime (`LAZYOS_LAZYRAD=1`), embedded as LRPLAY.ELF and
+    // LAZYRAD.ELF, plus the sample projects in `LAZYRAD_SAMPLES`.
+    println!("cargo:rerun-if-changed=build_support/lazyrad_embed.rs");
+    lazyrad_embed::embed(&mut builder, &manifest_dir);
     builder
         .create_bios_image(&bios_image)
         .expect("failed to create BIOS disk image");
