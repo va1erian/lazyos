@@ -3,7 +3,7 @@
 //! The portable explorer core lives in `xui-explorer`; this file supplies the
 //! LazyOS platform: `StdPlatform` over the Linux shim's `std::fs`, the
 //! [`LazyLauncher`] (a `mimed.Open` client that launches through `init`), and
-//! the start folder (a path on the command line, else `$HOME`, else `/`).
+//! the start folder (a path on the command line, else the filesystem root `/`).
 //!
 //! Every folder opens its own window (a `xuid` surface); closing the last
 //! window ends the process.
@@ -49,16 +49,15 @@ impl Launcher for ReportingLauncher {
     }
 }
 
-/// The folder to start in: an argument, else the home directory, else `/`.
-fn start_dir(platform: &dyn Platform) -> PathBuf {
-    argv::file_arg(std::env::args_os())
-        .or_else(|| platform.home().filter(|home| !home.as_os_str().is_empty()))
-        .unwrap_or_else(|| PathBuf::from("/"))
+/// The folder to start in: an argument, else the filesystem root `/` (Files
+/// is the way to browse the whole volume, not just a home directory).
+fn start_dir() -> PathBuf {
+    argv::file_arg(std::env::args_os()).unwrap_or_else(|| PathBuf::from("/"))
 }
 
 fn main() -> std::process::ExitCode {
     let platform = Rc::new(StdPlatform::new());
-    let start = start_dir(platform.as_ref());
+    let start = start_dir();
     let explorer = Explorer::new(platform as Rc<dyn Platform>, Rc::new(ReportingLauncher));
 
     let backend = match LazyOSBackend::connect() {

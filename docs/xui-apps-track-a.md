@@ -43,7 +43,7 @@ the Track A checklist and the evidence gathered while finishing the branch.
 - **P2 the three bins.** `xui-editor` (upstream notepad promoted: File/Edit
   menus, find/replace bar, status bar, dirty-state prompt, atomic save, `argv`
   open), `xui-paint` (`PaintApp` + `PngStorage`, `argv` open), `xui-files`
-  (`Explorer` + `LazyLauncher`, start at `argv` path / `$HOME` / `/`).
+  (`Explorer` + `LazyLauncher`, start at `argv` path / `/`).
   `platform/argv.rs` validates every argument (absolute, NUL-free, bounded) and
   skips the `--client`/`attempt=` tokens.
 - **P3 (app side).** Host tests for the copied crates and the platform impls;
