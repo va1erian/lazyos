@@ -232,26 +232,21 @@ pub(super) fn serve_topic(
             // reply lands, so an abandoned pull (the subscriber's poll
             // deadline expired while it waited) loses nothing: its next poll
             // takes the same event.
+            // A failed reply is expected for an abandoned poll: a
+            // non-blocking poll (`EXPIRED_DEADLINE`) times out in the kernel
+            // before the reply is sent, and the desktop's pollers do that
+            // every tick. Nothing was committed, so the next poll takes the
+            // same event; logging it spammed once a second.
             for wake in outcome.wakes {
-                match endpoint.reply(wake.txn, &wake.parcel) {
-                    Ok(()) => broker.commit(wake.subscription, wake.sequence),
-                    // Expected for an abandoned poll; see the reply path below.
-                    Err(_) => {}
+                if endpoint.reply(wake.txn, &wake.parcel).is_ok() {
+                    broker.commit(wake.subscription, wake.sequence);
                 }
             }
             if let (Some(txn), Some(reply)) = (message.txn, outcome.reply) {
-                match endpoint.reply(txn, &reply) {
-                    Ok(()) => {
-                        if let Some(delivery) = outcome.delivery {
-                            broker.commit(delivery.subscription, delivery.sequence);
-                        }
+                if endpoint.reply(txn, &reply).is_ok() {
+                    if let Some(delivery) = outcome.delivery {
+                        broker.commit(delivery.subscription, delivery.sequence);
                     }
-                    // Expected, not an error: a non-blocking poll
-                    // (`EXPIRED_DEADLINE`) times out in the kernel before
-                    // this reply is sent, and the desktop's pollers do that
-                    // every tick. Nothing was committed, so the next poll
-                    // takes the same event; logging it spammed once a second.
-                    Err(_) => {}
                 }
             }
         }
