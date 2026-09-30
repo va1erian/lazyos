@@ -34,6 +34,12 @@ pub enum Event {
     KeyDown { key: u32 },
     /// A key was released.
     KeyUp { key: u32 },
+    /// The window manager resized the surface's content to `width` x `height`
+    /// (`state` is a `wire::WINDOW_STATE_*` value). Only surfaces that called
+    /// [`super::Client::set_size_hints`] receive it; the client should attach
+    /// a buffer of the new size and redraw, and until it does the compositor
+    /// shows the old buffer cropped or padded.
+    Configure { width: u32, height: u32, state: u32 },
 }
 
 /// Decode an input event from a received message, or `None` when the
@@ -78,6 +84,14 @@ pub fn decode_event(message: &Message) -> Option<Event> {
         wire::METHOD_KEYUP => Event::KeyUp {
             key: wire::decode_key_up_args(body).ok()?.key,
         },
+        wire::METHOD_CONFIGURE => {
+            let args = wire::decode_configure_args(body).ok()?;
+            Event::Configure {
+                width: args.width,
+                height: args.height,
+                state: args.state,
+            }
+        }
         _ => return None,
     })
 }

@@ -211,7 +211,10 @@ impl Client {
     /// `SetSizeHints`: declare `surface` resizable within the given content
     /// bounds (a `max` of 0 means the screen). Only the surface's creator may
     /// call it. An older compositor answers `EINVAL`; callers may ignore it,
-    /// leaving the window fixed-size.
+    /// leaving the window fixed-size. A caller that opts in must handle
+    /// [`super::Event::Configure`]: allocate a buffer of the new size, attach
+    /// it (`attach_buffer`, or `attach_slot` on a non-current slot), and
+    /// redraw; the compositor refuses an attach smaller than the new size.
     pub fn set_size_hints(
         &self,
         surface: u64,
