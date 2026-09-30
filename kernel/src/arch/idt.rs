@@ -324,6 +324,12 @@ extern "C" fn page_fault_dispatch(rsp: u64) -> u64 {
     // SAFETY: `rsp` is the frame `page_fault_isr` saved; CS is word 17 (after
     // the 15 registers, the error code and RIP).
     let saved_cs = unsafe { core::ptr::read_volatile((rsp + 17 * 8) as *const u64) };
+    // A hypervisor-fabricated fault on the emulated `rep insw` (its CR2 and
+    // error code are garbage) aborts that transfer; it must be caught before
+    // the COW/demand-zero paths act on the bogus CR2.
+    if crate::arch::string_io::recover(rsp) {
+        return rsp;
+    }
     if let Ok(fault) = addr {
         let table = crate::mem::kernel_table();
         // A write to a present copy-on-write user page takes a private copy.
@@ -365,12 +371,21 @@ extern "C" fn page_fault_dispatch(rsp: u64) -> u64 {
             format_args!("address {addr:?} ({error:?}), rip {rip:#x}"),
         )
     };
+    // SAFETY: as above; RFLAGS is word 18, after CS.
+    let rflags = unsafe { core::ptr::read_volatile((rsp + 18 * 8) as *const u64) };
     serial_println!(
-        "EXCEPTION: page fault at {:?} ({:?}), frame {:#x}",
+        "EXCEPTION: page fault at {:?} ({:?}, raw {:#x}), rip {:#x}, cs {:#x}, rflags {:#x}, frame {:#x}",
         addr,
         error,
+        raw_error,
+        rip,
+        saved_cs,
+        rflags,
         rsp
     );
+    if let Ok(fault) = addr {
+        crate::arch::kernel_fault_report::print(rsp, fault.as_u64());
+    }
     crate::halt();
 }
 

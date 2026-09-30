@@ -96,10 +96,12 @@ pub(super) fn read_u64(addr: u64) -> u64 {
     unsafe { user_ptr::read::<u64>(addr) }
 }
 
-/// Line up the frame below `stack_top`, leaving the red zone free. `None` when
-/// the stack cannot hold it (tiny `rsp`, or not a user address).
+/// Line up the frame below `stack_top`, leaving the red zone free, at the
+/// handler-entry alignment `pretcode` needs (it plays the return address of a
+/// `call`). `None` when the stack cannot hold it (tiny `rsp`, or not a user
+/// address).
 pub(super) fn frame_base(stack_top: u64) -> Option<u64> {
-    harden::frame_below(stack_top, RED_ZONE + LINUX_FRAME_SIZE)
+    harden::handler_frame_below(stack_top, RED_ZONE + LINUX_FRAME_SIZE)
 }
 
 /// Build the Linux `rt_sigframe` at the top of `stack_top`. Writes the
@@ -195,7 +197,8 @@ pub(super) const NATIVE_FRAME_SIZE: u64 = NATIVE_FRAME_WORDS * 8;
 /// to the interrupted instruction (register state is not restored; native
 /// programs have no restorer yet).
 pub fn build_native_frame(stack_top: u64, regs: &UserRegs, sig: u8) -> Option<FrameResult> {
-    let frame = harden::frame_below(stack_top, RED_ZONE + NATIVE_FRAME_SIZE)?;
+    // `old_rip` is the return address a bare `ret` pops: align as for `call`.
+    let frame = harden::handler_frame_below(stack_top, RED_ZONE + NATIVE_FRAME_SIZE)?;
     write_u64(frame, regs.rip);
     write_u64(frame + 8, regs.rsp);
     write_u64(frame + 16, regs.rflags);

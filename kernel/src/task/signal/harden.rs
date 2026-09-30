@@ -61,6 +61,16 @@ pub fn frame_below(stack_top: u64, reserve: u64) -> Option<u64> {
     (base >= MIN_FRAME_ADDR).then_some(base)
 }
 
+/// Where a handler's `rsp` points on entry: the base of a frame of `reserve`
+/// bytes below `stack_top`, 8 bytes past a 16-byte boundary. The SysV ABI
+/// enters every function as if by `call` (`rsp + 8` 16-aligned), and compiled
+/// handlers rely on it: Rust std's `SIGSEGV` handler zeroes locals with
+/// `movaps`, which raises `#GP` on a misaligned stack. Linux's `get_sigframe`
+/// does the same `round_down(sp, 16) - 8`. `None` as for [`frame_below`].
+pub fn handler_frame_below(stack_top: u64, reserve: u64) -> Option<u64> {
+    frame_below(stack_top, reserve.checked_add(8)?).map(|base| base + 8)
+}
+
 /// The top of an enabled alternate stack, or `None` if `sp + size` wraps or
 /// leaves user space.
 pub fn altstack_top(sp: u64, size: u64) -> Option<u64> {

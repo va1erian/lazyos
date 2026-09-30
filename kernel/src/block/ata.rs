@@ -23,7 +23,11 @@ const LBA_MID: u16 = 0x1F4;
 const LBA_HI: u16 = 0x1F5;
 const DRIVE: u16 = 0x1F6;
 const STATUS: u16 = 0x1F7;
+/// Alternate status when read, device control when written.
 const ALT_STATUS: u16 = 0x3F6;
+const DEVICE_CONTROL: u16 = ALT_STATUS;
+/// Device control: software reset of both drives on the channel.
+const CONTROL_SRST: u8 = 0x04;
 const COMMAND_IDENTIFY: u8 = 0xEC;
 const COMMAND_READ: u8 = 0x20;
 
@@ -81,15 +85,72 @@ fn wait_for_data() -> bool {
 /// bits (0 means 256); 128 keeps a run to 64 KiB and the maths obvious.
 pub const MAX_RUN: usize = 128;
 
+/// Times one run is issued before its read fails with [`BlockError::Io`]
+/// when the transfer keeps being aborted (see [`RunError::Aborted`]).
+pub const RUN_ATTEMPTS: usize = 4;
+
+/// Runs re-issued after an aborted transfer, since boot.
+static RETRIED_RUNS: AtomicU64 = AtomicU64::new(0);
+
+/// Why a run failed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RunError {
+    /// The device reported an error or never became ready.
+    Device,
+    /// The hypervisor aborted a `rep insw` mid-transfer (a spurious fault the
+    /// kernel recovered, see `arch::string_io`). Port data may have been
+    /// consumed, so the device is out of step: reset it and re-issue.
+    Aborted,
+}
+
+/// Runs re-issued after an aborted transfer, since boot.
+#[cfg(lazyos_tests)]
+pub fn retried_runs() -> u64 {
+    RETRIED_RUNS.load(Ordering::Relaxed)
+}
+
+/// Read one run, re-issuing it after an aborted transfer (up to
+/// [`RUN_ATTEMPTS`] issues). Callers hold [`IO`].
+fn read_run(lba: u32, buf: &mut [u8]) -> Result<(), BlockError> {
+    for _ in 0..RUN_ATTEMPTS {
+        match pio_read_run(lba, buf) {
+            Ok(()) => return Ok(()),
+            Err(RunError::Device) => return Err(BlockError::Io),
+            Err(RunError::Aborted) => {
+                RETRIED_RUNS.fetch_add(1, Ordering::Relaxed);
+                if !reset_channel() {
+                    return Err(BlockError::Io);
+                }
+            }
+        }
+    }
+    Err(BlockError::Io)
+}
+
+/// Software-reset the channel, abandoning the command in flight and any
+/// sector data still in the device's buffer. Returns false if the drive does
+/// not come back ready.
+fn reset_channel() -> bool {
+    // Safety: SRST is the documented way to abort a command; the driver
+    // re-selects the drive and reprograms every register for the next one.
+    unsafe { outb(DEVICE_CONTROL, CONTROL_SRST) };
+    delay_400ns();
+    // Safety: as above; clearing SRST ends the reset (interrupts stay as the
+    // driver found them: nIEN clear, and the driver polls regardless).
+    unsafe { outb(DEVICE_CONTROL, 0) };
+    delay_400ns();
+    wait_not_busy()
+}
+
 /// Read `buf.len() / 512` consecutive sectors (1..=[`MAX_RUN`]) with a single
 /// `READ SECTORS` command. One command per run instead of per sector saves
 /// the register setup and the 400ns delay, and the data goes straight into
 /// `buf` with `rep insw` (one VM exit per string instruction under a
 /// hypervisor rather than one per word). Callers hold [`IO`].
-fn pio_read_run(lba: u32, buf: &mut [u8]) -> bool {
+fn pio_read_run(lba: u32, buf: &mut [u8]) -> Result<(), RunError> {
     let count = buf.len() / SECTOR_SIZE;
     if count == 0 || count > MAX_RUN || !buf.len().is_multiple_of(SECTOR_SIZE) {
-        return false;
+        return Err(RunError::Device);
     }
     // Safety: this is the documented ATA PIO read protocol, in order:
     // select the drive/LBA-high nibble, load the sector count and LBA, then
@@ -110,14 +171,14 @@ fn pio_read_run(lba: u32, buf: &mut [u8]) -> bool {
     for sector in buf.as_chunks_mut::<SECTOR_SIZE>().0 {
         // The device raises DRQ once per sector of the run.
         if !wait_not_busy() || !wait_for_data() {
-            return false;
+            return Err(RunError::Device);
         }
         // Safety: the data port is read-many within one sector transfer;
         // `wait_for_data` above confirmed the device has a sector ready, and
         // `sector` is exactly the 512 bytes it will supply.
-        unsafe { insw_bytes(DATA, &mut sector[..]) };
+        unsafe { insw_bytes(DATA, &mut sector[..]) }.map_err(|_| RunError::Aborted)?;
     }
-    true
+    Ok(())
 }
 
 /// Ask the primary master for its identity. Returns the sector count, or
@@ -188,9 +249,7 @@ impl BlockDevice for AtaPio {
         let _guard = IO.lock();
         for (index, run) in buf.chunks_mut(MAX_RUN * SECTOR_SIZE).enumerate() {
             let start = lba as u32 + (index * MAX_RUN) as u32;
-            if !pio_read_run(start, run) {
-                return Err(BlockError::Io);
-            }
+            read_run(start, run)?;
         }
         Ok(())
     }

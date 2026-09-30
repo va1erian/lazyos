@@ -123,7 +123,8 @@ fn check_frame(v: &Victim, name: &str) -> Result<bool, String> {
         return Ok(false);
     }
     check!(!pending, "{name}: entered, but SIGUSR1 is still pending");
-    let expected = signal::harden::frame_below(v.rsp, FRAME_RESERVE).ok_or("frame arithmetic")?;
+    let expected =
+        signal::harden::handler_frame_below(v.rsp, FRAME_RESERVE).ok_or("frame arithmetic")?;
     check!(
         regs.rsp == expected && regs.rdi == signal::SIGUSR1 as u64,
         "{name}: handler entry rsp={:#x} rdi={:#x}, expected rsp {expected:#x}",

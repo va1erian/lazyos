@@ -27,8 +27,9 @@ pub enum Via {
     SyscallReturn,
     /// The scheduler, for a task preempted in user mode.
     TimerSweep,
-    /// A synchronous CPU fault turned into a signal.
-    Fault,
+    /// A synchronous CPU fault turned into a signal; carries the `siginfo`
+    /// address (the faulting address for `SIGSEGV`/`SIGBUS`, else the `rip`).
+    Fault { addr: u64 },
 }
 
 impl Via {
@@ -37,7 +38,7 @@ impl Via {
         match self {
             Via::SyscallReturn => "syscall return",
             Via::TimerSweep => "timer sweep",
-            Via::Fault => "fault",
+            Via::Fault { .. } => "fault",
         }
     }
 }
