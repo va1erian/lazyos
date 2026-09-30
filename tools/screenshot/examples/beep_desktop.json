@@ -1,0 +1,7 @@
+[
+  {"at": 20.0, "shot": "desktop"},
+  {"at": 21.0, "type": "beep 660 600"},
+  {"at": 21.5, "key": "enter"},
+  {"at": 25.0, "shot": "after"},
+  {"at": 27.0, "quit": true}
+]

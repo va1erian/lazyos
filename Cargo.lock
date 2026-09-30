@@ -521,6 +521,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "pcm"
+version = "0.1.0"
+
+[[package]]
 name = "pin-project-lite"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -834,8 +838,11 @@ dependencies = [
  "lazyos-crypto",
  "libmessenger",
  "messenger-generated",
+ "pcm",
  "surfbuf",
  "timezone",
+ "virtio",
+ "virtio-snd",
 ]
 
 [[package]]
@@ -854,6 +861,14 @@ name = "version_check"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
+
+[[package]]
+name = "virtio"
+version = "0.1.0"
+
+[[package]]
+name = "virtio-snd"
+version = "0.1.0"
 
 [[package]]
 name = "volatile"

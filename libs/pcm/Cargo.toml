@@ -1,0 +1,11 @@
+[package]
+name = "pcm"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "PCM sample helpers for LazyOS audio programs: a fixed-point test-tone generator"
+license = "GPL-3.0-or-later"
+
+[lib]
+name = "pcm"
+path = "src/lib.rs"

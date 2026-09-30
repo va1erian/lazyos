@@ -286,13 +286,16 @@ change published on `system/net/<nic>/link`. A future stack service is just
 another client of this interface (and can be the only holder of the ring
 buffers).
 
-**`os.lazy.audio.v1`**:
+**`os.lazy.audio.v1`** (`idl/audio.midl`, as built):
 `Info() → {streams, formats, rates, channels}`,
-`OpenStream(dir, format, rate, channels, period_bytes) → {stream, buffer}`,
-`Start/Stop/Drain(stream)`, `Position(stream)`; playback/capture data in a
-shared ring buffer with a position fence; underrun/xrun on
-`system/audio/<card>/event`. Mixing and per-app volume are a later `audiod`
-service, not the driver's job.
+`OpenStream(dir, format, rate, channels, period_bytes) → StreamGrant` (closest
+supported parameters), `AttachRing(stream)` (the request carries the shared
+ring), `Commit(stream, frames) → consumed`, `Start/Stop/Drain(stream)`,
+`Position(stream)`, `CloseStream(stream)`; underrun/xrun on
+`system/audio/<card>/event` (declared, not yet published). **The client owns the
+ring and the driver copies out of it**: replies cannot carry buffers, and this
+is also section 3.4's rule that driver rings stay driver-owned. Mixing and
+per-app volume are a later `audiod` service, not the driver's job.
 
 ## 4. QEMU first candidates
 
@@ -363,15 +366,24 @@ bus-master off before frame reuse at teardown, `DEV:DMA:PASS` boot line. Tests
 `dev_dma_teardown_releases_all`, `dev_dma_busmaster_ordering`,
 `dev_stress_dma_pool_alloc_free_soak`, `dev_stress_dma_spawn_kill_soak`.
 
-**Stage D5 — virtio transport + first NIC driver.** Modern virtio-PCI library,
+**Stage D5 — virtio transport + first NIC driver.** *Transport landed with D6
+(`libs/virtio`); the NIC driver, `devd` and the manifest are still open.* Modern virtio-PCI library,
 `virtio-net` userspace driver, `devd`, driver manifest, `_net` uid, init
 manifest row, `os.lazy.net.nic.v1` served. Demo: `nicctl` tool prints MAC and
 link; frame TX/RX loopback test against `filter-dump`. Boot evidence
 `NET:NIC:PASS`, plus an ABI-bench-style QEMU check in CI.
 
-**Stage D6 — Sound driver.** `virtio-snd` userspace driver on the same
-transport, `os.lazy.audio.v1`, `_snd` uid, `beep`/`play` tool, WAV-based CI
-assertion. Boot evidence `SND:PLAY:PASS`.
+**Stage D6 — Sound driver (done).** `virtio-snd` userspace driver on the same
+transport (`user/src/bin/sndd.rs`), `os.lazy.audio.v1`, `_snd` uid (901, only
+`CAP_DEV_CLAIM`, under `init`), the `beep` client, and a WAV-based assertion:
+`python tools/sound/run.py` boots QEMU with `-audiodev wav` and requires both the
+driver's own 440 Hz tone and `beep`'s 880 Hz tone, in order, in the recording.
+Boot evidence `SND:PLAY:PASS` and `BEEP:PLAY:PASS`, plus `BEEP:PROBE:PASS` (26
+hostile-input checks and an intruder task), `BEEP:SOAK:PASS` (40 stream
+lifecycles), and `SND:IRQ:PASS` (the driver arms its INTx line and takes real
+interrupts, with polling as the fallback). Details, the DMA-lifetime lesson and
+what is not done:
+[`architecture/audio.md`](architecture/audio.md).
 
 **Stage D7 — Genericity proof and hardening.** e1000 and intel-hda (or AC97)
 drivers built with *no* new syscall ops; if one is needed, the core is fixed

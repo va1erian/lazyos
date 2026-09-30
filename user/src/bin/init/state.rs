@@ -55,6 +55,26 @@ pub(super) const AUTOSTART_ATTEMPTS: u64 = 40;
 /// currently holds or will reclaim a slot without another cap check.
 pub(super) const LAUNCH_CAP_PER_SESSION: usize = 2;
 
+/// The `sndd` driver's identity (docs/driver-plan.md D3): a dedicated system
+/// uid holding only `CAP_DEV_CLAIM`, so a compromised driver has the device it
+/// claimed and nothing else: no `CAP_SETUID`, no path to uid 0.
+#[cfg(lazyos_sound)]
+const SND_CRED: SysCred = SysCred::new(SND_UID, SND_UID, user::dev::CAP_DEV_CLAIM, 0, 0);
+/// The `_snd` system user.
+#[cfg(lazyos_sound)]
+const SND_UID: u32 = 901;
+
+/// Credentials a manifest row is spawned with; `None` inherits this
+/// supervisor's identity, which is what the platform services need.
+fn manifest_cred(name: &str) -> Option<SysCred> {
+    #[cfg(lazyos_sound)]
+    if name == "sndd" {
+        return Some(SND_CRED);
+    }
+    let _ = name;
+    None
+}
+
 /// Whether this is the desktop profile (`LAZYOS_DESKTOP=1`, issue #217): the
 /// image is a user-facing session, not an evidence boot. `init` keeps the
 /// demo-only programs out of it — the deliberate-crash service, the clipboard
@@ -218,6 +238,19 @@ pub(super) const MANIFEST: &[ServiceSpec] = &[
         restart: Restart::OnFailure,
         deps: &["healthd"],
     },
+    // The virtio-sound userspace driver (docs/driver-plan.md D6), present only
+    // on `LAZYOS_SOUND=1` images. It needs nothing but the device syscall.
+    // `demo=1` plays a test tone that the sound harness records and checks;
+    // a machine without the device makes it exit cleanly, so `OnFailure`
+    // restarts it only after a real crash.
+    #[cfg(lazyos_sound)]
+    ServiceSpec {
+        name: "sndd",
+        path: "SNDD.ELF",
+        args: "demo=1",
+        restart: Restart::OnFailure,
+        deps: &[],
+    },
     // The system monitor (issue #144): `sysmond` wraps the kernel's
     // system-stats syscall as `os.lazy.system.v1` and republishes retained
     // `system/stats/*` topics. It needs only the kernel name registry, like
@@ -325,7 +358,7 @@ impl Service {
             },
             restart: spec.restart,
             deps: spec.deps,
-            cred: None,
+            cred: manifest_cred(spec.name),
             launched: false,
             linux: false,
             autostart: false,

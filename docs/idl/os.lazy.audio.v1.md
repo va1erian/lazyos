@@ -2,38 +2,92 @@
 
 Interface id: `0x536f1f4639cf07f0`
 
-An audio card's control and data-plane interface. The driver owns one or more
-streams; playback/capture data flows through a shared ring buffer with a
-position fence, and underrun/xrun is published on `system/audio/<card>/event`.
-Mixing and per-app volume are a later `audiod` service, not the driver's job.
-See [`docs/driver-plan.md`](../driver-plan.md) §3.7.
+An audio card's control and data-plane interface (docs/driver-plan.md §3.8).
+
+A userspace audio driver (`sndd`, virtio-sound first) owns one card and
+serves this interface. Control is request/reply; sample data flows through a
+shared ring buffer per stream, so the wire never carries audio. Mixing,
+resampling and per-app volume are a later `audiod` service, not the
+driver's job: a stream has exactly one owner, the task that opened it.
+
+**The client owns the ring.** Replies cannot carry buffers (the kernel
+refuses transfers in a reply), and the driver must not trust memory a
+client can rewrite while the device reads it, so the driver keeps its own DMA
+slots and copies committed periods out of the client's ring. A playback
+client therefore: `OpenStream` (learn the granted parameters), create a
+shared buffer of at least `periods * period_bytes` bytes, `AttachRing` it
+(`buffers[0]` of the request), write interleaved samples into it, `Commit`
+how many frames it has written, `Start`, and finally `Drain` and
+`CloseStream`.
+
+Frame *n* of the stream lives at ring byte `(n mod ring_frames) *
+frame_bytes`, where `ring_frames = periods * period_bytes / frame_bytes`.
+`Commit` carries the **total** frames written since the ring was attached
+(frame numbering restarts at 0 after `Stop`); it must never go backwards and
+never run more than `ring_frames` ahead of the `consumed` count the driver
+last reported (`consumed` is what it has already copied out of the ring, so
+those frames are safe to overwrite), or the call fails with `EINVAL`.
+`Position`, which counts frames the device has *played*, never exceeds
+`consumed`, so a client that paces itself on `Position` is always safe. The
+driver consumes whole periods as they are committed, plus a final short
+period during `Drain`. If the device runs out of committed data it plays
+silence and the stream keeps running.
+
+The driver grants the closest supported parameters and reports them in the
+reply, never failing for a merely unsupported rate or period size. A
+request outside `AudioInfo` (unknown format, zero or oversized channel
+count, a zero period) fails with `EINVAL`; a stream the card cannot provide
+(capture, today) with `ENOTSUP`; a busy card with `EBUSY`. Calls on a stream
+by anyone but its owner fail with `EACCES`. Failures are returned as a
+the shared structured error field (see `services::error_field`) instead of
+the declared reply fields.
 
 ## Methods
 
 | Method | Id | Kind | Signature |
 |---|---|---|---|
 | Info | 266462757 | sync | `() -> (info: AudioInfo)` |
-| OpenStream | 410137073 | sync | `(dir: Direction, format: Format, rate: U32, channels: U32, period_bytes: U32) -> (stream: U32, buffer: Buffer)` |
+| OpenStream | 410137073 | sync | `(dir: U32, format: U32, rate: U32, channels: U32, period_bytes: U32) -> (grant: StreamGrant)` |
+| AttachRing | 62355614 | sync | `(stream: U32) -> ()` |
+| Commit | 2036391452 | sync | `(stream: U32, written_frames: U64) -> (consumed: U64)` |
 | Start | 182978943 | sync | `(stream: U32) -> (ok: Bool)` |
 | Stop | 1266644741 | sync | `(stream: U32) -> (ok: Bool)` |
 | Drain | 101727161 | sync | `(stream: U32) -> (ok: Bool)` |
 | Position | 1652503594 | sync | `(stream: U32) -> (frames: U64)` |
+| CloseStream | 973774059 | sync | `(stream: U32) -> ()` |
 
-`OpenStream` returns a `Buffer` handle for the stream's ring plus its index;
-the caller maps it at the returned offset and fences against the position.
+## Topics
+
+| Topic | Payload | QoS | Retained | Permissions |
+|---|---|---|---|---|
+| `system/audio/+/event` | `AudioEvent` | latest | no | `publish:system/audio/+/event`, `subscribe:system/audio/+/event` |
 
 ## struct `AudioInfo`
 
-- `streams: U32` — number of concurrent streams
-- `formats: U32` — supported [`Format`](#enum-format) bitmap: bit *n* is set
-  when the `Format` with ordinal *n* is supported (bit 0 `S16Le`, 1 `S24Le`,
-  2 `S32Le`, 3 `Float32`)
-- `rates: U32` — supported sample-rate bitmap: bit 0 8000 Hz, 1 11025, 2 16000,
-  3 22050, 4 32000, 5 44100, 6 48000, 7 88200, 8 96000, 9 176400, 10 192000
+- `streams: U32`
+- `formats: U32`
+- `rates: U32`
+- `channels: U32`
 
-Bits not listed are reserved: a driver sets them to zero and a client ignores
-them.
-- `channels: U32` — maximum channels
+## struct `StreamGrant`
+
+- `stream: U32`
+- `dir: U32`
+- `format: U32`
+- `rate: U32`
+- `channels: U32`
+- `period_bytes: U32`
+- `periods: U32`
+
+## struct `AudioEvent`
+
+- `stream: U32`
+- `kind: U32`
+- `frames: U64`
+
+## enum `EventKind`
+
+- Underrun, Overrun, Drained, DeviceError
 
 ## enum `Direction`
 

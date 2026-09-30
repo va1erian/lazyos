@@ -150,6 +150,9 @@ def simple_config(base: dict, build: str, interface: str) -> dict:
         "extra": base.get("extra", ""),
         "busybox": "",
         "cli": not desktop,
+        # The desktop gets a sound card (type `beep` in the Terminal); the CLI
+        # image stays quiet, since a sound card there means boot-time test tones.
+        "sound": desktop,
         # Desktop = the single `LAZYOS_DESKTOP=1` profile (issue #217): services
         # suite + compositor + the xui apps as its clients (`init` opens the
         # Terminal at boot; the viewers, Editor, Files and Paint are embedded
@@ -206,6 +209,11 @@ def build_plan(cfg: dict) -> list[dict]:
             argv += ["--data-disk", cfg.get("data_path") or DATA_IMAGE]
         else:
             argv.append("--no-data-disk")
+        # A virtio-sound card on the host's audio backend. run_demo also builds
+        # with LAZYOS_SOUND=1; the desktop profile ships the sound stack anyway,
+        # and on other images the driver plays its boot tones.
+        if cfg.get("sound"):
+            argv.append("--sound")
         if cfg["qemu"]:
             argv += ["--qemu", cfg["qemu"]]
         if cfg["extra"]:

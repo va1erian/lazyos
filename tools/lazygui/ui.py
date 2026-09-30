@@ -59,6 +59,7 @@ class Launcher:
             "skip_build": b(value=False),
             "headless": b(value=False),
             "tablet": b(value=False),
+            "sound": b(value=True),
             "abi_build": b(value=False),
             "data_disk": b(value=True),
             "desktop": b(value=False),
@@ -117,6 +118,7 @@ class Launcher:
             "skip_build": self.v["skip_build"].get(),
             "headless": self.v["headless"].get(),
             "tablet": self.v["tablet"].get(),
+            "sound": self.v["sound"].get(),
             "abi_build": self.v["abi_build"].get(),
             "desktop": self.v["desktop"].get(),
             "services": self.v["services"].get(),
@@ -215,6 +217,7 @@ class Launcher:
         ttk.Checkbutton(row, text="Skip build", variable=self.v["skip_build"]).pack(side="left")
         ttk.Checkbutton(row, text="Headless", variable=self.v["headless"]).pack(side="left", padx=12)
         ttk.Checkbutton(row, text="USB tablet", variable=self.v["tablet"]).pack(side="left")
+        ttk.Checkbutton(row, text="Sound card", variable=self.v["sound"]).pack(side="left", padx=12)
         row = ttk.Frame(g); row.pack(fill="x", padx=6, pady=2)
         ttk.Label(row, text="ABI at (s):").pack(side="left")
         ttk.Entry(row, textvariable=self.v["abi_time"], width=5).pack(side="left", padx=4)

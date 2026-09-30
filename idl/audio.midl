@@ -1,0 +1,121 @@
+/// An audio card's control and data-plane interface (docs/driver-plan.md §3.8).
+///
+/// A userspace audio driver (`sndd`, virtio-sound first) owns one card and
+/// serves this interface. Control is request/reply; sample data flows through a
+/// shared ring buffer per stream, so the wire never carries audio. Mixing,
+/// resampling and per-app volume are a later `audiod` service, not the
+/// driver's job: a stream has exactly one owner, the task that opened it.
+///
+/// **The client owns the ring.** Replies cannot carry buffers (the kernel
+/// refuses transfers in a reply), and the driver must not trust memory a
+/// client can rewrite while the device reads it, so the driver keeps its own DMA
+/// slots and copies committed periods out of the client's ring. A playback
+/// client therefore: `OpenStream` (learn the granted parameters), create a
+/// shared buffer of at least `periods * period_bytes` bytes, `AttachRing` it
+/// (`buffers[0]` of the request), write interleaved samples into it, `Commit`
+/// how many frames it has written, `Start`, and finally `Drain` and
+/// `CloseStream`.
+///
+/// Frame *n* of the stream lives at ring byte `(n mod ring_frames) *
+/// frame_bytes`, where `ring_frames = periods * period_bytes / frame_bytes`.
+/// `Commit` carries the **total** frames written since the ring was attached
+/// (frame numbering restarts at 0 after `Stop`); it must never go backwards and
+/// never run more than `ring_frames` ahead of the `consumed` count the driver
+/// last reported (`consumed` is what it has already copied out of the ring, so
+/// those frames are safe to overwrite), or the call fails with `EINVAL`.
+/// `Position`, which counts frames the device has *played*, never exceeds
+/// `consumed`, so a client that paces itself on `Position` is always safe. The
+/// driver consumes whole periods as they are committed, plus a final short
+/// period during `Drain`. If the device runs out of committed data it plays
+/// silence and the stream keeps running.
+///
+/// The driver grants the closest supported parameters and reports them in the
+/// reply, never failing for a merely unsupported rate or period size. A
+/// request outside `AudioInfo` (unknown format, zero or oversized channel
+/// count, a zero period) fails with `EINVAL`; a stream the card cannot provide
+/// (capture, today) with `ENOTSUP`; a busy card with `EBUSY`. Calls on a stream
+/// by anyone but its owner fail with `EACCES`. Failures are returned as a
+/// the shared structured error field (see `services::error_field`) instead of
+/// the declared reply fields.
+interface os.lazy.audio.v1 {
+    /// Describe the card: stream count and the formats, rates and channel
+    /// counts it accepts.
+    method Info() -> (info: AudioInfo);
+    /// Open a stream. `dir` and `format` are `Direction` and `Format`
+    /// ordinals (enums travel as `U32`). The reply carries the stream index and
+    /// the granted parameters. The stream is idle until a ring is attached and
+    /// it is started.
+    method OpenStream(dir: U32, format: U32, rate: U32, channels: U32, period_bytes: U32) -> (grant: StreamGrant);
+    /// Attach the stream's sample ring: the request's `buffers[0]`, at least
+    /// `periods * period_bytes` bytes long. Fails with `EINVAL` when it is
+    /// shorter and `EBUSY` when a ring is already attached.
+    method AttachRing(stream: U32) -> ();
+    /// Announce that the client has written up to `written_frames` (a total,
+    /// see the interface notes). Replies with the frames the driver has
+    /// consumed so far.
+    method Commit(stream: U32, written_frames: U64) -> (consumed: U64);
+    /// Start (or restart) transfer on a stream with an attached ring.
+    method Start(stream: U32) -> (ok: Bool);
+    /// Stop transfer; committed periods not yet queued to the device are
+    /// discarded. The stream can be started again.
+    method Stop(stream: U32) -> (ok: Bool);
+    /// Play everything committed, then stop. Replies once drained.
+    method Drain(stream: U32) -> (ok: Bool);
+    /// Frames the device has played since the last `Start`.
+    method Position(stream: U32) -> (frames: U64);
+    /// Close a stream and release its ring. Also implied when the owner exits.
+    method CloseStream(stream: U32) -> ();
+
+    /// Card capabilities.
+    struct AudioInfo {
+        /// Number of concurrent playback streams.
+        streams: U32,
+        /// Supported `Format` bitmap: bit *n* is set when the `Format` with
+        /// ordinal *n* is supported (bit 0 `S16Le`, 1 `S24Le`, 2 `S32Le`,
+        /// 3 `Float32`). Reserved bits are zero; a client ignores them.
+        formats: U32,
+        /// Supported sample-rate bitmap: bit 0 8000 Hz, 1 11025, 2 16000,
+        /// 3 22050, 4 32000, 5 44100, 6 48000, 7 88200, 8 96000, 9 176400,
+        /// 10 192000. Reserved bits are zero.
+        rates: U32,
+        /// Maximum channels per stream.
+        channels: U32
+    }
+
+    /// The parameters an opened stream actually runs at.
+    struct StreamGrant {
+        stream: U32,
+        /// A `Direction` ordinal.
+        dir: U32,
+        /// A `Format` ordinal.
+        format: U32,
+        rate: U32,
+        channels: U32,
+        period_bytes: U32,
+        /// Periods in the ring; the ring is `periods * period_bytes` bytes.
+        periods: U32
+    }
+
+    /// Why a stream event was published.
+    enum EventKind { Underrun, Overrun, Drained, DeviceError }
+
+    /// One stream event, the payload of `system/audio/{card}/event`.
+    /// `frames` is the stream position when it happened.
+    struct AudioEvent {
+        stream: U32,
+        /// An `EventKind` ordinal.
+        kind: U32,
+        frames: U64
+    }
+
+    /// Xruns and drain completion, for clients that would rather not poll
+    /// `Position`. `{card}` is the driver's card name (`virtio-snd0`).
+    topic "system/audio/{card}/event" : AudioEvent qos=latest;
+
+    /// Stream direction.
+    enum Direction { Playback, Capture }
+
+    /// Sample formats. Ordinals are the `AudioInfo.formats` bit numbers, so
+    /// new formats are append-only.
+    enum Format { S16Le, S24Le, S32Le, Float32 }
+}
