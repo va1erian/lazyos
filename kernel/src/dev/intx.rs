@@ -243,6 +243,25 @@ impl Claims {
         }
     }
 
+    /// Take `id`'s claim out of interrupt delivery without removing it: it no
+    /// longer listens, owes an ack, or holds a round open, and its line masks
+    /// if nobody else is armed on it.
+    pub(super) fn silence(&mut self, id: DeviceId) {
+        let Some(claim) = self.get_mut(id) else {
+            return;
+        };
+        claim.armed = false;
+        claim.pending = false;
+        claim.missed = false;
+        let line = claim.line;
+        if let Some(line) = line {
+            let mut round = self.rounds[usize::from(line)];
+            round.waiting &= !(1 << id.0);
+            self.set_round(line, round.waiting, round.deadline);
+            self.settle(line);
+        }
+    }
+
     /// Remove `id`'s claim, taking it out of interrupt delivery first.
     pub(super) fn detach(&mut self, id: DeviceId) -> Option<Claim> {
         let claim = self.slots.get_mut(usize::from(id.0))?.take()?;
@@ -328,6 +347,9 @@ pub fn service() {
 
 /// [`service`] with an explicit clock, so tests can step time.
 pub fn service_at(now: u64) {
+    if super::teardown::exits_pending() {
+        super::teardown::silence_exited();
+    }
     let raised = irq::take_raised();
     if raised == 0 && ACTIVE_ROUNDS.load(Ordering::Acquire) == 0 && !RETRY.load(Ordering::Acquire) {
         return;

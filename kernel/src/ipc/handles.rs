@@ -151,6 +151,16 @@ impl Table {
         self.open(entry.kind, rights, entry.object_id)
     }
 
+    fn drop_rights(&mut self, handle: u64, drop: u32) -> Result<(), Error> {
+        match self.slots.get_mut(handle as usize) {
+            Some(Some(entry)) => {
+                entry.rights &= !drop;
+                Ok(())
+            }
+            _ => Err(Error::InvalidHandle),
+        }
+    }
+
     fn close(&mut self, handle: u64) -> Result<(), Error> {
         match self.slots.get_mut(handle as usize) {
             Some(slot) if slot.is_some() => {
@@ -244,6 +254,14 @@ pub fn close_for_task(slot: usize, handle: u64) -> Result<(), Error> {
         release_handle(slot, 1);
     }
     result
+}
+
+/// Permanently remove the rights in `drop` from a handle in task `slot`'s
+/// table. Kernel-side only; rights can only ever be narrowed.
+pub fn drop_rights_for_task(slot: usize, handle: u64, drop: u32) -> Result<(), Error> {
+    let mut tables = TABLES.lock();
+    let table = tables.get_mut(slot).ok_or(Error::BadTask)?;
+    table.drop_rights(handle, drop)
 }
 
 /// How many handles, across every task's table, still name `object_id`.

@@ -43,7 +43,9 @@ mask back and restores the original value, with memory and I/O decode switched
 off for the duration (PCI requires this) and the command register restored, so
 enumeration leaves the device as it found it; an I/O BAR that implements only
 16 address bits is sized correctly; the pair of registers that a 64-bit BAR occupies is sized as one
-window. The `Irq`/`Msi` seam is what later interrupt work (D2) and MMCONFIG hang
+window. A BAR that reads 0 is *unassigned*, not absent: it is sized as a
+32-bit memory BAR and reported with base 0 and its length (a BAR whose sizing
+finds no window is skipped). The `Irq`/`Msi` seam is what later interrupt work (D2) and MMCONFIG hang
 off.
 
 **In-kernel drivers.** `DRIVERS` is a static `&[&'static dyn Driver]`; nothing
@@ -89,7 +91,21 @@ subtree shared by every address space); its leaves carry software PTE bit 10
 device frame is never freed, shared or inherited. `ipc::teardown_task`
 releases every claim first: interrupts masked and the claimant dropped from
 rounds, decode/bus-master cleared with INTx disabled, MMIO unmapped and
-uncharged, generation bumped, one audit record.
+uncharged, generation bumped, one audit record. A task that has *exited* but
+is not yet reaped is a zombie whose address space (and MMIO mappings) lives on
+until the parent reaps it, so the claim is released then; but the dangerous
+part is stopped at exit: `process::finish` marks the slot and
+`dev::silence_exited` (run from the interrupt bottom half and from `finish`)
+takes its claims out of interrupt delivery, masks a line nobody else listens
+on, and clears the function's decode/bus-master enables.
+
+**The interrupt endpoint is private.** Kernel-stamped `os.kernel.dev` messages
+are posted into the inbox of the channel side named at `claim`, and whoever
+holds that side reads them. `claim` therefore requires the side to be held by
+exactly that one handle (a name resolve gives every client a handle to the
+same side, so a resolved service endpoint is refused with `EBADF`), and drops
+its `DUPLICATE`/`TRANSFER` rights once the claim succeeds, so a driver cannot
+make another service receive kernel-stamped messages.
 
 **IRQ routing on QEMU (observed).** The boot log prints one
 `dev: irq route ...` line per PCI function (pin, Interrupt Line, verdict). A
@@ -114,14 +130,19 @@ real ISR runs, one message reaches its endpoint from the kernel, and `irq_ack`
 unmasks the line. It passed on both machines (the CI image has no such
 function and only logs the routing). Reproduce with
 `qemu-system-x86_64 ... -netdev user,id=n0 -device virtio-net-pci,netdev=n0,disable-modern=on`
-(add `-machine q35` and a virtio-blk disk, since q35 has no IDE). A line that
+(add `-machine q35` and a virtio-blk disk, since q35 has no IDE); CI runs the
+suite three ways (`default`, `--nic`, and `--machine q35 --virtio-disk --nic`
+through `tools/test/run.py`), and the ATA-specific tests skip with an `INFO`
+line when the machine has no ATA disk. A line that
 is reserved or out of range (or a function with no pin) is not routable: the
 claim succeeds and `irq_enable` returns `ENOSYS`, the polling fallback; the
 suite covers it with the reserved mouse line and a `0xFF` line.
 
 **Boot line.** On a successful enumeration the kernel prints
 `DEV:ENUM:PASS:<n> devices (<pci> PCI, <drivers> attached)`; an enumeration that
-found no PCI function prints `DEV:ENUM:FAIL:no PCI devices enumerated`.
+found no PCI function prints `DEV:ENUM:FAIL:no PCI devices enumerated`, and one
+that found more functions than the 32-entry table holds prints
+`DEV:ENUM:FAIL:device table full, <n> PCI function(s) dropped`.
 
 Two more boot lines come from `dev::selfcheck` after the IDT is loaded:
 `DEV:IRQ:PASS:16 vectors installed, <r>/<w> INTx-wired PCI functions on routable

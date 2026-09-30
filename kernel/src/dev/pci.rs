@@ -205,16 +205,43 @@ pub fn read_bar(address: Address, index: u8) -> Option<(Bar, u8)> {
     if index >= 6 {
         return None;
     }
-    let raw = bar_raw(address, index);
-    if raw == 0 {
-        return None;
-    }
+    decode_bar(
+        index,
+        bar_raw(address, index),
+        || bar_raw(address, index + 1),
+        |io, is_64| {
+            with_decode_off(address, || {
+                if io {
+                    size_io(address, index)
+                } else {
+                    size_mem(address, index, is_64)
+                }
+            })
+        },
+    )
+}
+
+/// The pure half of [`read_bar`]: classify `raw` and fill in the window from
+/// `high` (the next register, read only for a 64-bit BAR) and `size` (`io`,
+/// `is_64` -> length, `None` when the BAR describes no window).
+///
+/// A raw value of 0 is not necessarily an absent BAR: firmware may simply have
+/// left a real window unassigned. It can only be a 32-bit memory BAR (an I/O
+/// BAR reads bit 0 set, a 64-bit one has type bits set), so it is sized like
+/// one and reported with a zero base and its length; only a BAR whose sizing
+/// finds no window is `None` (issue #274).
+pub(crate) fn decode_bar(
+    index: u8,
+    raw: u32,
+    high: impl FnOnce() -> u32,
+    size: impl FnOnce(bool, bool) -> Option<u64>,
+) -> Option<(Bar, u8)> {
     if raw & 1 == 1 {
         let bar = Bar {
             index,
             kind: BarKind::Io,
             base: u64::from(raw & !0x3),
-            len: with_decode_off(address, || size_io(address, index)).unwrap_or(0),
+            len: size(true, false).unwrap_or(0),
             is_64: false,
             prefetchable: false,
         };
@@ -224,13 +251,17 @@ pub fn read_bar(address: Address, index: u8) -> Option<(Bar, u8)> {
     let is_64 = type_bits == 0x2;
     let mut base = u64::from(raw & !0xF);
     if is_64 {
-        base |= u64::from(bar_raw(address, index + 1)) << 32;
+        base |= u64::from(high()) << 32;
+    }
+    let len = size(false, is_64);
+    if raw == 0 && len.is_none() {
+        return None;
     }
     let bar = Bar {
         index,
         kind: BarKind::Mem,
         base,
-        len: with_decode_off(address, || size_mem(address, index, is_64)).unwrap_or(0),
+        len: len.unwrap_or(0),
         is_64,
         prefetchable: type_bits == 0x1,
     };

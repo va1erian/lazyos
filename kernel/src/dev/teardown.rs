@@ -7,8 +7,15 @@
 //! unmapped and its quota returned, the device unowned with a bumped
 //! generation so any old handle fails closed, and one audit record.
 //!
+//! A task that has *died* but not been reaped is a zombie: its address space
+//! (and so its MMIO mappings) lives on until the parent reaps it, so the claim
+//! itself is released then. The dangerous part, a live interrupt line and a
+//! device that can still DMA, is stopped at exit by [`silence_exited`].
+//!
 //! There is no function-level reset yet (driver-plan risk 5): quiescing is the
 //! command-register clear, which is what stops a device from touching memory.
+
+use core::sync::atomic::{AtomicU64, Ordering};
 
 use x86_64::PhysAddr;
 
@@ -70,5 +77,43 @@ pub fn teardown_task(slot: usize, table: u64) {
     let (ids, count) = CLAIMS.lock().owned_by(slot);
     for id in ids.iter().take(count).flatten() {
         release_claim(*id, slot, reason::TEARDOWN, table);
+    }
+}
+
+/// Bit per task slot that died since the last [`silence_exited`].
+static EXITED: AtomicU64 = AtomicU64::new(0);
+
+/// Record that task `slot` has just died. Lock-free, so the scheduler can call
+/// it from the timer sweep with its own locks held; [`silence_exited`] does the
+/// work later, from task context.
+pub fn note_task_exited(slot: usize) {
+    if slot < 64 {
+        EXITED.fetch_or(1 << slot, Ordering::AcqRel);
+    }
+}
+
+/// Whether a dead task's claims still wait to be silenced.
+pub fn exits_pending() -> bool {
+    EXITED.load(Ordering::Acquire) != 0
+}
+
+/// Stop every device claimed by a task that died since the last call (issue
+/// #283): take the claim out of interrupt delivery, mask a line nobody else
+/// listens on, and clear the function's decode and bus-master enables. The
+/// claim, its mappings and its quota stay until the zombie is reaped, when
+/// [`teardown_task`] frees them. Idempotent.
+pub fn silence_exited() {
+    let mut dead = EXITED.swap(0, Ordering::AcqRel);
+    while dead != 0 {
+        let slot = dead.trailing_zeros() as usize;
+        dead &= dead - 1;
+        let (ids, count) = CLAIMS.lock().owned_by(slot);
+        for id in ids.iter().take(count).flatten() {
+            CLAIMS.lock().silence(*id);
+            let info = table().lock().get(*id);
+            if let Some(info) = &info {
+                quiesce(info);
+            }
+        }
     }
 }

@@ -10,8 +10,18 @@ pub trait Bus {
     /// Short name for logs.
     fn name(&self) -> &'static str;
 
-    /// Enumerate into `table`, returning how many devices were inserted.
-    fn enumerate(&self, table: &mut super::table::DeviceTable) -> usize;
+    /// Enumerate into `table`, reporting how many devices were inserted and
+    /// how many did not fit.
+    fn enumerate(&self, table: &mut super::table::DeviceTable) -> Enumerated;
+}
+
+/// The outcome of one bus enumeration.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub struct Enumerated {
+    pub inserted: usize,
+    /// Functions found but not recorded because the table was full (issue
+    /// #274): a driver for one of them would never be probed.
+    pub dropped: usize,
 }
 
 /// The PCI bus, over legacy config mechanism 1.
@@ -22,14 +32,16 @@ impl Bus for PciBus {
         "pci"
     }
 
-    fn enumerate(&self, table: &mut super::table::DeviceTable) -> usize {
-        let mut count = 0;
+    fn enumerate(&self, table: &mut super::table::DeviceTable) -> Enumerated {
+        let mut found = Enumerated::default();
         pci::for_each(|function| {
             if table.insert(device_info(function)).is_ok() {
-                count += 1;
+                found.inserted += 1;
+            } else {
+                found.dropped += 1;
             }
         });
-        count
+        found
     }
 }
 

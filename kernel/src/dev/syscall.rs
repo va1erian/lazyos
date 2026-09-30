@@ -303,7 +303,7 @@ fn claim(slot: usize, id_raw: u64, endpoint: u64, flags: u64) -> Result<u64, Err
         if granted & rights::DEV_IRQ == 0 {
             return Err(deny(slot, Some(&info), reason::NO_RIGHTS, EPERM));
         }
-        let (channel, side) = channels::endpoint_of_task(slot, endpoint)
+        let (channel, side) = channels::private_endpoint_of_task(slot, endpoint)
             .map_err(|_| deny(slot, Some(&info), reason::BAD_ENDPOINT, EBADF))?;
         Some(IrqBinding {
             channel,
@@ -361,6 +361,9 @@ fn claim(slot: usize, id_raw: u64, endpoint: u64, flags: u64) -> Result<u64, Err
             InstallError::Occupied => reason::BUSY,
         };
         return Err(deny(slot, Some(&info), why, EBUSY));
+    }
+    if binding.is_some() {
+        channels::seal_endpoint(slot, endpoint);
     }
     quiesce(&info);
     report::record(
