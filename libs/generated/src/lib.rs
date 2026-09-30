@@ -2868,6 +2868,108 @@ pub mod os_lazy_healthd_v1 {
         }
         Ok(out)
     }
+
+    /// Service name (`summary` for the aggregate row).
+    /// Health status (`ok`/`degraded`/`down`).
+    /// Human-readable detail.
+    /// Tick the row was produced.
+    /// The retained aggregate snapshot (issue #307), published on
+    /// `system/health/summary` with the same payload as a service row. It is
+    /// declared before the `{name}` pattern so the literal wins in the
+    /// declaration table; a service literally named `summary` would collide
+    /// with it, so the supervisor never names one that.
+    /// The declared `system/health/summary` topic (`HealthRecord`, `latest`, retained).
+    pub const TOPIC_SYSTEM_HEALTH_SUMMARY: &str = "system/health/summary";
+    /// The `system/health/summary` delivery policy.
+    pub const TOPIC_SYSTEM_HEALTH_SUMMARY_QOS: u32 = topics::QOS_LATEST;
+    /// Whether `system/health/summary` publishes are retained.
+    pub const TOPIC_SYSTEM_HEALTH_SUMMARY_RETAINED: bool = true;
+
+    /// Build the concrete `system/health/summary` name; each wildcard takes one literal segment.
+    pub fn name_system_health_summary() -> Result<String, topics::TopicError> {
+        topics::build(TOPIC_SYSTEM_HEALTH_SUMMARY, &[], topics::Mode::Publish)
+    }
+
+    /// Encode a `HealthRecord` payload for `system/health/summary`.
+    pub fn encode_system_health_summary(value: &HealthRecord) -> Result<Vec<u8>, Error> {
+        encode_health_record(value)
+    }
+
+    /// Decode a `system/health/summary` payload; malformed bytes are an error.
+    pub fn decode_system_health_summary(body: &[u8]) -> Result<HealthRecord, Error> {
+        decode_health_record(body)
+    }
+
+    /// Publish a typed `HealthRecord` on `system/health/summary`.
+    pub fn publish_system_health_summary<P>(publisher: &mut P, value: &HealthRecord) -> Result<u64, P::Error>
+    where
+        P: topics::Publish,
+        P::Error: From<topics::TopicError>,
+    {
+        let topic = name_system_health_summary().map_err(P::Error::from)?;
+        let payload = encode_system_health_summary(value)
+            .map_err(|error| P::Error::from(topics::TopicError::Encode(error)))?;
+        publisher.publish_topic(&topic, &payload, TOPIC_SYSTEM_HEALTH_SUMMARY_RETAINED)
+    }
+
+    /// Subscribe to `system/health/summary` with its declared QoS.
+    pub fn subscribe_system_health_summary<S>(subscriber: &mut S) -> Result<S::Subscription, S::Error>
+    where
+        S: topics::Subscribe,
+        S::Error: From<topics::TopicError>,
+    {
+        let filter = topics::build(TOPIC_SYSTEM_HEALTH_SUMMARY, &[], topics::Mode::Subscribe)
+            .map_err(S::Error::from)?;
+        subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_HEALTH_SUMMARY_QOS)
+    }
+
+    /// The retained per-service health row (issue #307): `healthd` publishes
+    /// one on `system/health/<name>`, and a late subscriber is handed the live
+    /// row instead of polling `Status`.
+    /// The declared `system/health/+` topic (`HealthRecord`, `latest`, retained).
+    pub const TOPIC_SYSTEM_HEALTH: &str = "system/health/+";
+    /// The `system/health/+` delivery policy.
+    pub const TOPIC_SYSTEM_HEALTH_QOS: u32 = topics::QOS_LATEST;
+    /// Whether `system/health/+` publishes are retained.
+    pub const TOPIC_SYSTEM_HEALTH_RETAINED: bool = true;
+
+    /// Build the concrete `system/health/+` name; each wildcard takes one literal segment.
+    pub fn name_system_health(name: &str) -> Result<String, topics::TopicError> {
+        topics::build(TOPIC_SYSTEM_HEALTH, &[name], topics::Mode::Publish)
+    }
+
+    /// Encode a `HealthRecord` payload for `system/health/+`.
+    pub fn encode_system_health(value: &HealthRecord) -> Result<Vec<u8>, Error> {
+        encode_health_record(value)
+    }
+
+    /// Decode a `system/health/+` payload; malformed bytes are an error.
+    pub fn decode_system_health(body: &[u8]) -> Result<HealthRecord, Error> {
+        decode_health_record(body)
+    }
+
+    /// Publish a typed `HealthRecord` on `system/health/+`.
+    pub fn publish_system_health<P>(publisher: &mut P, name: &str, value: &HealthRecord) -> Result<u64, P::Error>
+    where
+        P: topics::Publish,
+        P::Error: From<topics::TopicError>,
+    {
+        let topic = name_system_health(name).map_err(P::Error::from)?;
+        let payload = encode_system_health(value)
+            .map_err(|error| P::Error::from(topics::TopicError::Encode(error)))?;
+        publisher.publish_topic(&topic, &payload, TOPIC_SYSTEM_HEALTH_RETAINED)
+    }
+
+    /// Subscribe to `system/health/+` with its declared QoS.
+    pub fn subscribe_system_health<S>(subscriber: &mut S, name: &str) -> Result<S::Subscription, S::Error>
+    where
+        S: topics::Subscribe,
+        S::Error: From<topics::TopicError>,
+    {
+        let filter = topics::build(TOPIC_SYSTEM_HEALTH, &[name], topics::Mode::Subscribe)
+            .map_err(S::Error::from)?;
+        subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_HEALTH_QOS)
+    }
 }
 
 /// `os.lazy.init.v1` (interface id `0xa549dce4687b08e`).
@@ -2990,6 +3092,65 @@ pub mod os_lazy_init_v1 {
                     while let Some(item) = nested.next()? {
                         out.verbs.push(item.as_str()?.into());
                     }
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// App id: the lowercase program stem (`top` -> `TOP.ELF`).
+    /// Display name for menus.
+    /// On-disk ELF path.
+    /// Default restart policy (`always`/`on-failure`/`once`).
+    /// MIME verbs the app handles, in registration order.
+    /// One service lifecycle event (issue #307): the payload of
+    /// `system/events/service/<name>`. The topic carries the service name, so
+    /// it is not repeated here; `health` is the service's retained health
+    /// topic, for display by a consumer that only logs the event.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ServiceEvent {
+        pub state: alloc::string::String,
+        pub pid: u64,
+        pub restarts: u64,
+        pub status: u64,
+        pub health: alloc::string::String,
+        pub detail: alloc::string::String,
+    }
+
+    pub fn encode_service_event(value: &ServiceEvent) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.state)?;
+        target.u64(2, value.pid)?;
+        target.u64(3, value.restarts)?;
+        target.u64(4, value.status)?;
+        target.string(5, &value.health)?;
+        target.string(6, &value.detail)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_service_event(body: &[u8]) -> Result<ServiceEvent, Error> {
+        let mut out = ServiceEvent::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.state = field.as_str()?.into();
+                }
+                2 => {
+                    out.pid = field.as_u64()?;
+                }
+                3 => {
+                    out.restarts = field.as_u64()?;
+                }
+                4 => {
+                    out.status = field.as_u64()?;
+                }
+                5 => {
+                    out.health = field.as_str()?.into();
+                }
+                6 => {
+                    out.detail = field.as_str()?.into();
                 }
                 _ => {}
             }
@@ -3137,6 +3298,61 @@ pub mod os_lazy_init_v1 {
             }
         }
         Ok(out)
+    }
+
+    /// Supervision phase (`pending`/`running`/`restarting`/`stopped`/`failed`).
+    /// Task slot of the running child, or 0.
+    /// Restart count.
+    /// Exit status of the last run (0 while running).
+    /// The service's retained health topic (`system/health/<name>`).
+    /// Human-readable detail, empty when there is none.
+    /// The retained service lifecycle topic (issue #307): `init` publishes one
+    /// on `system/events/service/<name>` for every supervision transition, so
+    /// `healthd` (which derives its rows from it) and `logd` observe the state
+    /// without polling.
+    /// The declared `system/events/service/+` topic (`ServiceEvent`, `latest`, retained).
+    pub const TOPIC_SYSTEM_EVENTS_SERVICE: &str = "system/events/service/+";
+    /// The `system/events/service/+` delivery policy.
+    pub const TOPIC_SYSTEM_EVENTS_SERVICE_QOS: u32 = topics::QOS_LATEST;
+    /// Whether `system/events/service/+` publishes are retained.
+    pub const TOPIC_SYSTEM_EVENTS_SERVICE_RETAINED: bool = true;
+
+    /// Build the concrete `system/events/service/+` name; each wildcard takes one literal segment.
+    pub fn name_system_events_service(name: &str) -> Result<String, topics::TopicError> {
+        topics::build(TOPIC_SYSTEM_EVENTS_SERVICE, &[name], topics::Mode::Publish)
+    }
+
+    /// Encode a `ServiceEvent` payload for `system/events/service/+`.
+    pub fn encode_system_events_service(value: &ServiceEvent) -> Result<Vec<u8>, Error> {
+        encode_service_event(value)
+    }
+
+    /// Decode a `system/events/service/+` payload; malformed bytes are an error.
+    pub fn decode_system_events_service(body: &[u8]) -> Result<ServiceEvent, Error> {
+        decode_service_event(body)
+    }
+
+    /// Publish a typed `ServiceEvent` on `system/events/service/+`.
+    pub fn publish_system_events_service<P>(publisher: &mut P, name: &str, value: &ServiceEvent) -> Result<u64, P::Error>
+    where
+        P: topics::Publish,
+        P::Error: From<topics::TopicError>,
+    {
+        let topic = name_system_events_service(name).map_err(P::Error::from)?;
+        let payload = encode_system_events_service(value)
+            .map_err(|error| P::Error::from(topics::TopicError::Encode(error)))?;
+        publisher.publish_topic(&topic, &payload, TOPIC_SYSTEM_EVENTS_SERVICE_RETAINED)
+    }
+
+    /// Subscribe to `system/events/service/+` with its declared QoS.
+    pub fn subscribe_system_events_service<S>(subscriber: &mut S, name: &str) -> Result<S::Subscription, S::Error>
+    where
+        S: topics::Subscribe,
+        S::Error: From<topics::TopicError>,
+    {
+        let filter = topics::build(TOPIC_SYSTEM_EVENTS_SERVICE, &[name], topics::Mode::Subscribe)
+            .map_err(S::Error::from)?;
+        subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_EVENTS_SERVICE_QOS)
     }
 }
 
@@ -3846,6 +4062,185 @@ pub mod os_lazy_logind_v1 {
         Ok(out)
     }
 
+    /// Session id minted by `logind`.
+    /// Account name.
+    /// User id stamped on the session.
+    /// Task slot of the session's shell (`0` until spawned).
+    /// `active` while the shell runs, `exited` after it is reaped.
+    /// Tick the session started.
+    /// A session began (issue #307): the payload of `system/events/login/start`.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct LoginStart {
+        pub user: alloc::string::String,
+        pub uid: u32,
+        pub session: u64,
+        pub pid: u64,
+        pub state: alloc::string::String,
+    }
+
+    pub fn encode_login_start(value: &LoginStart) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.user)?;
+        target.u32(2, value.uid)?;
+        target.u64(3, value.session)?;
+        target.u64(4, value.pid)?;
+        target.string(5, &value.state)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_login_start(body: &[u8]) -> Result<LoginStart, Error> {
+        let mut out = LoginStart::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.user = field.as_str()?.into();
+                }
+                2 => {
+                    out.uid = field.as_u32()?;
+                }
+                3 => {
+                    out.session = field.as_u64()?;
+                }
+                4 => {
+                    out.pid = field.as_u64()?;
+                }
+                5 => {
+                    out.state = field.as_str()?.into();
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Account name.
+    /// User id stamped on the session.
+    /// Session id minted by `logind`.
+    /// Task slot of the shell.
+    /// Session state (`active`).
+    /// One session's state (issue #307): the payload of
+    /// `system/events/login/session/<id>`.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct LoginSession {
+        pub user: alloc::string::String,
+        pub uid: u32,
+        pub pid: u64,
+        pub state: alloc::string::String,
+    }
+
+    pub fn encode_login_session(value: &LoginSession) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.user)?;
+        target.u32(2, value.uid)?;
+        target.u64(3, value.pid)?;
+        target.string(4, &value.state)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_login_session(body: &[u8]) -> Result<LoginSession, Error> {
+        let mut out = LoginSession::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.user = field.as_str()?.into();
+                }
+                2 => {
+                    out.uid = field.as_u32()?;
+                }
+                3 => {
+                    out.pid = field.as_u64()?;
+                }
+                4 => {
+                    out.state = field.as_str()?.into();
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Account name.
+    /// User id stamped on the session.
+    /// Task slot of the shell.
+    /// Session state (`active`/`exited`).
+    /// A refused attempt (issue #307): the payload of
+    /// `system/events/login/denied`. The reason is a short, non-secret word
+    /// (`unknown-user`, `bad-secret`, `spawn-failed`), never the secret.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct LoginDenied {
+        pub user: alloc::string::String,
+        pub reason: alloc::string::String,
+    }
+
+    pub fn encode_login_denied(value: &LoginDenied) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.user)?;
+        target.string(2, &value.reason)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_login_denied(body: &[u8]) -> Result<LoginDenied, Error> {
+        let mut out = LoginDenied::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.user = field.as_str()?.into();
+                }
+                2 => {
+                    out.reason = field.as_str()?.into();
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Account name offered.
+    /// Why the attempt was refused.
+    /// A session ended (issue #307): the payload of `system/events/login/end`.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct LoginEnd {
+        pub user: alloc::string::String,
+        pub uid: u32,
+        pub session: u64,
+        pub status: u64,
+    }
+
+    pub fn encode_login_end(value: &LoginEnd) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.user)?;
+        target.u32(2, value.uid)?;
+        target.u64(3, value.session)?;
+        target.u64(4, value.status)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_login_end(body: &[u8]) -> Result<LoginEnd, Error> {
+        let mut out = LoginEnd::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.user = field.as_str()?.into();
+                }
+                2 => {
+                    out.uid = field.as_u32()?;
+                }
+                3 => {
+                    out.session = field.as_u64()?;
+                }
+                4 => {
+                    out.status = field.as_u64()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
     /// `Sessions` method id.
     pub const METHOD_SESSIONS: u32 = 916097772;
 
@@ -3885,6 +4280,197 @@ pub mod os_lazy_logind_v1 {
             }
         }
         Ok(out)
+    }
+
+    /// Account name.
+    /// User id stamped on the session.
+    /// Session id minted by `logind`.
+    /// Exit status of the shell.
+    /// The login lifecycle topics (issue #307). `logind` publishes all four
+    /// retained, matching its current call sites, so a late `logd` still sees
+    /// the latest session state.
+    /// The declared `system/events/login/start` topic (`LoginStart`, `latest`, retained).
+    pub const TOPIC_SYSTEM_EVENTS_LOGIN_START: &str = "system/events/login/start";
+    /// The `system/events/login/start` delivery policy.
+    pub const TOPIC_SYSTEM_EVENTS_LOGIN_START_QOS: u32 = topics::QOS_LATEST;
+    /// Whether `system/events/login/start` publishes are retained.
+    pub const TOPIC_SYSTEM_EVENTS_LOGIN_START_RETAINED: bool = true;
+
+    /// Build the concrete `system/events/login/start` name; each wildcard takes one literal segment.
+    pub fn name_system_events_login_start() -> Result<String, topics::TopicError> {
+        topics::build(TOPIC_SYSTEM_EVENTS_LOGIN_START, &[], topics::Mode::Publish)
+    }
+
+    /// Encode a `LoginStart` payload for `system/events/login/start`.
+    pub fn encode_system_events_login_start(value: &LoginStart) -> Result<Vec<u8>, Error> {
+        encode_login_start(value)
+    }
+
+    /// Decode a `system/events/login/start` payload; malformed bytes are an error.
+    pub fn decode_system_events_login_start(body: &[u8]) -> Result<LoginStart, Error> {
+        decode_login_start(body)
+    }
+
+    /// Publish a typed `LoginStart` on `system/events/login/start`.
+    pub fn publish_system_events_login_start<P>(publisher: &mut P, value: &LoginStart) -> Result<u64, P::Error>
+    where
+        P: topics::Publish,
+        P::Error: From<topics::TopicError>,
+    {
+        let topic = name_system_events_login_start().map_err(P::Error::from)?;
+        let payload = encode_system_events_login_start(value)
+            .map_err(|error| P::Error::from(topics::TopicError::Encode(error)))?;
+        publisher.publish_topic(&topic, &payload, TOPIC_SYSTEM_EVENTS_LOGIN_START_RETAINED)
+    }
+
+    /// Subscribe to `system/events/login/start` with its declared QoS.
+    pub fn subscribe_system_events_login_start<S>(subscriber: &mut S) -> Result<S::Subscription, S::Error>
+    where
+        S: topics::Subscribe,
+        S::Error: From<topics::TopicError>,
+    {
+        let filter = topics::build(TOPIC_SYSTEM_EVENTS_LOGIN_START, &[], topics::Mode::Subscribe)
+            .map_err(S::Error::from)?;
+        subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_EVENTS_LOGIN_START_QOS)
+    }
+
+    /// One retained event per session id, so a late subscriber sees the
+    /// newest state of each live session.
+    /// The declared `system/events/login/session/+` topic (`LoginSession`, `latest`, retained).
+    pub const TOPIC_SYSTEM_EVENTS_LOGIN_SESSION: &str = "system/events/login/session/+";
+    /// The `system/events/login/session/+` delivery policy.
+    pub const TOPIC_SYSTEM_EVENTS_LOGIN_SESSION_QOS: u32 = topics::QOS_LATEST;
+    /// Whether `system/events/login/session/+` publishes are retained.
+    pub const TOPIC_SYSTEM_EVENTS_LOGIN_SESSION_RETAINED: bool = true;
+
+    /// Build the concrete `system/events/login/session/+` name; each wildcard takes one literal segment.
+    pub fn name_system_events_login_session(id: &str) -> Result<String, topics::TopicError> {
+        topics::build(TOPIC_SYSTEM_EVENTS_LOGIN_SESSION, &[id], topics::Mode::Publish)
+    }
+
+    /// Encode a `LoginSession` payload for `system/events/login/session/+`.
+    pub fn encode_system_events_login_session(value: &LoginSession) -> Result<Vec<u8>, Error> {
+        encode_login_session(value)
+    }
+
+    /// Decode a `system/events/login/session/+` payload; malformed bytes are an error.
+    pub fn decode_system_events_login_session(body: &[u8]) -> Result<LoginSession, Error> {
+        decode_login_session(body)
+    }
+
+    /// Publish a typed `LoginSession` on `system/events/login/session/+`.
+    pub fn publish_system_events_login_session<P>(publisher: &mut P, id: &str, value: &LoginSession) -> Result<u64, P::Error>
+    where
+        P: topics::Publish,
+        P::Error: From<topics::TopicError>,
+    {
+        let topic = name_system_events_login_session(id).map_err(P::Error::from)?;
+        let payload = encode_system_events_login_session(value)
+            .map_err(|error| P::Error::from(topics::TopicError::Encode(error)))?;
+        publisher.publish_topic(&topic, &payload, TOPIC_SYSTEM_EVENTS_LOGIN_SESSION_RETAINED)
+    }
+
+    /// Subscribe to `system/events/login/session/+` with its declared QoS.
+    pub fn subscribe_system_events_login_session<S>(subscriber: &mut S, id: &str) -> Result<S::Subscription, S::Error>
+    where
+        S: topics::Subscribe,
+        S::Error: From<topics::TopicError>,
+    {
+        let filter = topics::build(TOPIC_SYSTEM_EVENTS_LOGIN_SESSION, &[id], topics::Mode::Subscribe)
+            .map_err(S::Error::from)?;
+        subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_EVENTS_LOGIN_SESSION_QOS)
+    }
+
+    /// The most recent refusal (retained, as published today).
+    /// The declared `system/events/login/denied` topic (`LoginDenied`, `latest`, retained).
+    pub const TOPIC_SYSTEM_EVENTS_LOGIN_DENIED: &str = "system/events/login/denied";
+    /// The `system/events/login/denied` delivery policy.
+    pub const TOPIC_SYSTEM_EVENTS_LOGIN_DENIED_QOS: u32 = topics::QOS_LATEST;
+    /// Whether `system/events/login/denied` publishes are retained.
+    pub const TOPIC_SYSTEM_EVENTS_LOGIN_DENIED_RETAINED: bool = true;
+
+    /// Build the concrete `system/events/login/denied` name; each wildcard takes one literal segment.
+    pub fn name_system_events_login_denied() -> Result<String, topics::TopicError> {
+        topics::build(TOPIC_SYSTEM_EVENTS_LOGIN_DENIED, &[], topics::Mode::Publish)
+    }
+
+    /// Encode a `LoginDenied` payload for `system/events/login/denied`.
+    pub fn encode_system_events_login_denied(value: &LoginDenied) -> Result<Vec<u8>, Error> {
+        encode_login_denied(value)
+    }
+
+    /// Decode a `system/events/login/denied` payload; malformed bytes are an error.
+    pub fn decode_system_events_login_denied(body: &[u8]) -> Result<LoginDenied, Error> {
+        decode_login_denied(body)
+    }
+
+    /// Publish a typed `LoginDenied` on `system/events/login/denied`.
+    pub fn publish_system_events_login_denied<P>(publisher: &mut P, value: &LoginDenied) -> Result<u64, P::Error>
+    where
+        P: topics::Publish,
+        P::Error: From<topics::TopicError>,
+    {
+        let topic = name_system_events_login_denied().map_err(P::Error::from)?;
+        let payload = encode_system_events_login_denied(value)
+            .map_err(|error| P::Error::from(topics::TopicError::Encode(error)))?;
+        publisher.publish_topic(&topic, &payload, TOPIC_SYSTEM_EVENTS_LOGIN_DENIED_RETAINED)
+    }
+
+    /// Subscribe to `system/events/login/denied` with its declared QoS.
+    pub fn subscribe_system_events_login_denied<S>(subscriber: &mut S) -> Result<S::Subscription, S::Error>
+    where
+        S: topics::Subscribe,
+        S::Error: From<topics::TopicError>,
+    {
+        let filter = topics::build(TOPIC_SYSTEM_EVENTS_LOGIN_DENIED, &[], topics::Mode::Subscribe)
+            .map_err(S::Error::from)?;
+        subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_EVENTS_LOGIN_DENIED_QOS)
+    }
+
+    /// The most recent logout (retained, as published today).
+    /// The declared `system/events/login/end` topic (`LoginEnd`, `latest`, retained).
+    pub const TOPIC_SYSTEM_EVENTS_LOGIN_END: &str = "system/events/login/end";
+    /// The `system/events/login/end` delivery policy.
+    pub const TOPIC_SYSTEM_EVENTS_LOGIN_END_QOS: u32 = topics::QOS_LATEST;
+    /// Whether `system/events/login/end` publishes are retained.
+    pub const TOPIC_SYSTEM_EVENTS_LOGIN_END_RETAINED: bool = true;
+
+    /// Build the concrete `system/events/login/end` name; each wildcard takes one literal segment.
+    pub fn name_system_events_login_end() -> Result<String, topics::TopicError> {
+        topics::build(TOPIC_SYSTEM_EVENTS_LOGIN_END, &[], topics::Mode::Publish)
+    }
+
+    /// Encode a `LoginEnd` payload for `system/events/login/end`.
+    pub fn encode_system_events_login_end(value: &LoginEnd) -> Result<Vec<u8>, Error> {
+        encode_login_end(value)
+    }
+
+    /// Decode a `system/events/login/end` payload; malformed bytes are an error.
+    pub fn decode_system_events_login_end(body: &[u8]) -> Result<LoginEnd, Error> {
+        decode_login_end(body)
+    }
+
+    /// Publish a typed `LoginEnd` on `system/events/login/end`.
+    pub fn publish_system_events_login_end<P>(publisher: &mut P, value: &LoginEnd) -> Result<u64, P::Error>
+    where
+        P: topics::Publish,
+        P::Error: From<topics::TopicError>,
+    {
+        let topic = name_system_events_login_end().map_err(P::Error::from)?;
+        let payload = encode_system_events_login_end(value)
+            .map_err(|error| P::Error::from(topics::TopicError::Encode(error)))?;
+        publisher.publish_topic(&topic, &payload, TOPIC_SYSTEM_EVENTS_LOGIN_END_RETAINED)
+    }
+
+    /// Subscribe to `system/events/login/end` with its declared QoS.
+    pub fn subscribe_system_events_login_end<S>(subscriber: &mut S) -> Result<S::Subscription, S::Error>
+    where
+        S: topics::Subscribe,
+        S::Error: From<topics::TopicError>,
+    {
+        let filter = topics::build(TOPIC_SYSTEM_EVENTS_LOGIN_END, &[], topics::Mode::Subscribe)
+            .map_err(S::Error::from)?;
+        subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_EVENTS_LOGIN_END_QOS)
     }
 }
 
@@ -5325,6 +5911,69 @@ pub static DECLARED_TOPICS: &[topics::TopicDecl] = &[
         retained: false,
         publish_permission: "publish:system/confd/changed/#",
         subscribe_permission: "subscribe:system/confd/changed/#",
+    },
+    topics::TopicDecl {
+        interface: "os.lazy.healthd.v1",
+        name: "system/health/summary",
+        payload: "HealthRecord",
+        qos: topics::QOS_LATEST,
+        retained: true,
+        publish_permission: "publish:system/health/summary",
+        subscribe_permission: "subscribe:system/health/summary",
+    },
+    topics::TopicDecl {
+        interface: "os.lazy.healthd.v1",
+        name: "system/health/+",
+        payload: "HealthRecord",
+        qos: topics::QOS_LATEST,
+        retained: true,
+        publish_permission: "publish:system/health/+",
+        subscribe_permission: "subscribe:system/health/+",
+    },
+    topics::TopicDecl {
+        interface: "os.lazy.init.v1",
+        name: "system/events/service/+",
+        payload: "ServiceEvent",
+        qos: topics::QOS_LATEST,
+        retained: true,
+        publish_permission: "publish:system/events/service/+",
+        subscribe_permission: "subscribe:system/events/service/+",
+    },
+    topics::TopicDecl {
+        interface: "os.lazy.logind.v1",
+        name: "system/events/login/start",
+        payload: "LoginStart",
+        qos: topics::QOS_LATEST,
+        retained: true,
+        publish_permission: "publish:system/events/login/start",
+        subscribe_permission: "subscribe:system/events/login/start",
+    },
+    topics::TopicDecl {
+        interface: "os.lazy.logind.v1",
+        name: "system/events/login/session/+",
+        payload: "LoginSession",
+        qos: topics::QOS_LATEST,
+        retained: true,
+        publish_permission: "publish:system/events/login/session/+",
+        subscribe_permission: "subscribe:system/events/login/session/+",
+    },
+    topics::TopicDecl {
+        interface: "os.lazy.logind.v1",
+        name: "system/events/login/denied",
+        payload: "LoginDenied",
+        qos: topics::QOS_LATEST,
+        retained: true,
+        publish_permission: "publish:system/events/login/denied",
+        subscribe_permission: "subscribe:system/events/login/denied",
+    },
+    topics::TopicDecl {
+        interface: "os.lazy.logind.v1",
+        name: "system/events/login/end",
+        payload: "LoginEnd",
+        qos: topics::QOS_LATEST,
+        retained: true,
+        publish_permission: "publish:system/events/login/end",
+        subscribe_permission: "subscribe:system/events/login/end",
     },
     topics::TopicDecl {
         interface: "os.lazy.timed.v1",

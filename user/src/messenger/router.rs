@@ -363,6 +363,39 @@ impl Bus {
     }
 }
 
+/// The transport the generated `topic` helpers publish through: the interim
+/// broker's publish is infallible and returns the fanout sequence, so the
+/// generated result is always `Ok`.
+impl messenger_generated::topics::Publish for TopicBroker {
+    type Error = Error;
+
+    fn publish_topic(&mut self, topic: &str, payload: &[u8], retained: bool) -> Result<u64> {
+        Ok(self.publish(topic, payload, retained))
+    }
+}
+
+/// The transport the generated `topic` helpers publish through when the
+/// publisher is a client of someone else's broker (e.g. `logind` publishing on
+/// `init`'s). The interim `Bus::publish` discards the broker's fanout count.
+impl messenger_generated::topics::Publish for Bus {
+    type Error = Error;
+
+    fn publish_topic(&mut self, topic: &str, payload: &[u8], retained: bool) -> Result<u64> {
+        self.publish(topic, payload, retained).map(|()| 0)
+    }
+}
+
+/// The transport the generated `topic` helpers subscribe through. The interim
+/// router has no QoS queues, so the declared `qos` is accepted and ignored.
+impl messenger_generated::topics::Subscribe for Bus {
+    type Error = Error;
+    type Subscription = Subscriber;
+
+    fn subscribe_topic(&mut self, filter: &str, _qos: u32) -> Result<Subscriber> {
+        self.subscribe(filter)
+    }
+}
+
 /// A subscriber's receiving end.
 pub struct Subscriber {
     endpoint: Endpoint,

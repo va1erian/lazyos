@@ -19,4 +19,68 @@ interface os.lazy.logind.v1 {
         /// Tick the session started.
         started: U64
     }
+
+    /// A session began (issue #307): the payload of `system/events/login/start`.
+    struct LoginStart {
+        /// Account name.
+        user: String,
+        /// User id stamped on the session.
+        uid: U32,
+        /// Session id minted by `logind`.
+        session: U64,
+        /// Task slot of the shell.
+        pid: U64,
+        /// Session state (`active`).
+        state: String
+    }
+
+    /// One session's state (issue #307): the payload of
+    /// `system/events/login/session/<id>`.
+    struct LoginSession {
+        /// Account name.
+        user: String,
+        /// User id stamped on the session.
+        uid: U32,
+        /// Task slot of the shell.
+        pid: U64,
+        /// Session state (`active`/`exited`).
+        state: String
+    }
+
+    /// A refused attempt (issue #307): the payload of
+    /// `system/events/login/denied`. The reason is a short, non-secret word
+    /// (`unknown-user`, `bad-secret`, `spawn-failed`), never the secret.
+    struct LoginDenied {
+        /// Account name offered.
+        user: String,
+        /// Why the attempt was refused.
+        reason: String
+    }
+
+    /// A session ended (issue #307): the payload of `system/events/login/end`.
+    struct LoginEnd {
+        /// Account name.
+        user: String,
+        /// User id stamped on the session.
+        uid: U32,
+        /// Session id minted by `logind`.
+        session: U64,
+        /// Exit status of the shell.
+        status: U64
+    }
+
+    /// The login lifecycle topics (issue #307). `logind` publishes all four
+    /// retained, matching its current call sites, so a late `logd` still sees
+    /// the latest session state.
+    topic "system/events/login/start" : LoginStart retained qos=latest;
+
+    /// One retained event per session id, so a late subscriber sees the
+    /// newest state of each live session.
+    topic "system/events/login/session/{id}" : LoginSession retained qos=latest;
+
+    /// The most recent refusal (retained, as published today).
+    topic "system/events/login/denied" : LoginDenied retained qos=latest;
+
+    /// The most recent logout (retained, as published today).
+    topic "system/events/login/end" : LoginEnd retained qos=latest;
 }

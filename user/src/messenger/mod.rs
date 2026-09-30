@@ -223,12 +223,14 @@ pub mod router;
 ///
 /// The topic names are the platform plan's:
 ///
-/// * `system/events/service/<name>` — a service's state changed (payload:
-///   `state=... pid=... status=... restarts=...`);
+/// * `system/events/service/<name>` — a service's state changed (the typed
+///   `ServiceEvent` from `idl/init.midl`);
 /// * `system/events/security/denial` — the audit counters advanced (the
 ///   interim signal until the kernel exposes audit records to userspace);
-/// * `system/health/<name>` — retained health row published by `healthd`;
-/// * `system/health/summary` — retained aggregate (worst status wins).
+/// * `system/health/<name>` — retained health row published by `healthd` (the
+///   typed `HealthRecord` from `idl/healthd.midl`);
+/// * `system/health/summary` — retained aggregate (worst status wins), the
+///   same `HealthRecord` payload.
 pub mod services;
 
 // ---------------------------------------------------------------------------

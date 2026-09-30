@@ -7,7 +7,7 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use user::messenger::router;
+use user::messenger::{router, services};
 use user::sys;
 
 use super::state::{
@@ -262,9 +262,9 @@ pub(super) fn wake_deadline(services: &[Service], now: u64) -> u64 {
     deadline
 }
 
-/// Publish one service state event, retained per service:
-/// `system/events/service/<name>` with a `key=value` payload that carries the
-/// detail `healthd` needs (pid, restart count) without a follow-up query.
+/// Publish one service state event, retained per service, on the declared
+/// `system/events/service/<name>` topic: the typed payload carries the detail
+/// `healthd` needs (pid, restart count) without a follow-up query.
 pub(super) fn publish_state(
     broker: &mut router::TopicBroker,
     service: &Service,
@@ -274,13 +274,17 @@ pub(super) fn publish_state(
     status: u64,
     detail: &str,
 ) {
-    let topic = format!("system/events/service/{}", service.name);
-    let mut payload = format!(
-        "state={state} pid={pid} restarts={restarts} status={status} health={}",
-        service.health_topic
-    );
-    if !detail.is_empty() {
-        payload.push_str(&format!(" detail={detail}"));
-    }
-    broker.publish(&topic, payload.as_bytes(), true);
+    // The health topic is derived from the service name via the generated
+    // helper; a name the broker would refuse drops the display field rather
+    // than the whole event.
+    let health = services::health::wire::name_system_health(service.name).unwrap_or_default();
+    let event = services::ServiceEvent {
+        state: String::from(state),
+        pid,
+        restarts,
+        status,
+        health,
+        detail: String::from(detail),
+    };
+    let _ = services::init::wire::publish_system_events_service(broker, service.name, &event);
 }

@@ -49,4 +49,29 @@ interface os.lazy.init.v1 {
         /// MIME verbs the app handles, in registration order.
         verbs: Array<String>
     }
+
+    /// One service lifecycle event (issue #307): the payload of
+    /// `system/events/service/<name>`. The topic carries the service name, so
+    /// it is not repeated here; `health` is the service's retained health
+    /// topic, for display by a consumer that only logs the event.
+    struct ServiceEvent {
+        /// Supervision phase (`pending`/`running`/`restarting`/`stopped`/`failed`).
+        state: String,
+        /// Task slot of the running child, or 0.
+        pid: U64,
+        /// Restart count.
+        restarts: U64,
+        /// Exit status of the last run (0 while running).
+        status: U64,
+        /// The service's retained health topic (`system/health/<name>`).
+        health: String,
+        /// Human-readable detail, empty when there is none.
+        detail: String
+    }
+
+    /// The retained service lifecycle topic (issue #307): `init` publishes one
+    /// on `system/events/service/<name>` for every supervision transition, so
+    /// `healthd` (which derives its rows from it) and `logd` observe the state
+    /// without polling.
+    topic "system/events/service/{name}" : ServiceEvent retained qos=latest;
 }
