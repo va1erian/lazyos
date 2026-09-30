@@ -165,8 +165,8 @@ interface os.lazy.net.nic.v1 {
 /// *parked*: `netd` answers it when the echo reply arrives, or with `ETIMEDOUT`
 /// when `timeout_ms` passes, and the caller sleeps in the kernel meanwhile with
 /// its own deadline (`msg_cancel` and the caller's death clean up). One
-/// caller may have up to 8 pings outstanding; past that the call fails with
-/// `EAGAIN`. The stack's clock is the 100 Hz tick, so round trips read in
+/// caller may have up to 4 pings outstanding and all callers together 8; past
+/// either limit the call fails with `EAGAIN`. The stack's clock is the 100 Hz tick, so round trips read in
 /// multiples of 10 ms.
 interface os.lazy.net.stack.v1 {
     /// The interfaces the stack drives (one today).
@@ -180,8 +180,8 @@ interface os.lazy.net.stack.v1 {
     /// Send one ICMP echo request to `dst` (four octets) with `payload_len`
     /// bytes of payload (0 to 1400) and wait for its reply. `timeout_ms`
     /// (10 to 60000) bounds the wait. Fails with `EINVAL` for a bad argument,
-    /// `ENETUNREACH` when there is no address or route yet, `EAGAIN` when too
-    /// many pings are outstanding and `ETIMEDOUT` when no reply came.
+    /// `ENETUNREACH` when there is no address or route yet, `EAGAIN` when this
+    /// caller has 4 pings outstanding or all callers together have 8, and `ETIMEDOUT` when no reply came.
     method Ping(dst: Bytes, payload_len: U32, timeout_ms: U32) -> (result: EchoResult);
     /// Ask for a fresh DHCP lease (drops the current one). Gated by the ACL.
     method Renew() -> ();

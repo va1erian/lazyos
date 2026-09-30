@@ -109,6 +109,31 @@ fn hostile_leases_are_not_applied() {
 }
 
 #[test]
+fn a_renewal_the_stack_rejects_drops_the_old_address() {
+    let mut lan = dhcp_lan();
+    lan.gateway.lease_secs = 20;
+    // Start over with a short lease so the renewal falls inside the test.
+    lan.stack.renew();
+    assert!(lan.run_until(3000, |lan| lan.stack.state().addr.is_some()));
+    let losses = lan.stack.counters().lease_losses;
+    // The server now "renews" us onto an address we refuse.
+    lan.gateway.offer_ip = [127, 0, 0, 1];
+    assert!(
+        lan.run_until(30_000, |lan| lan.stack.state().addr.is_none()),
+        "the old address outlived a renewal the server changed"
+    );
+    assert!(lan.stack.counters().lease_losses > losses);
+    assert_eq!(lan.stack.state().gateway, None);
+    assert_eq!(lan.stack.state().dhcp, DhcpState::Discovering);
+    // And it keeps looking: a good server gets us configured again.
+    lan.gateway.offer_ip = LEASE_IP;
+    assert!(
+        lan.run_until(30_000, |lan| lan.stack.state().addr.is_some()),
+        "the stack did not go back to discovering"
+    );
+}
+
+#[test]
 fn a_bad_router_or_resolver_is_dropped_but_the_lease_stands() {
     let mut lan = Lan::new(&Mode::Dhcp);
     lan.gateway.router = Some([10, 0, 2, 15]); // our own address

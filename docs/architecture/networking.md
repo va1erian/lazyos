@@ -200,8 +200,8 @@ attachment.
 
 **Configuration.** DHCP by default. A lease is validated before it is applied
 (`accept_lease`): the address must be a usable unicast address and the prefix
-between /1 and /30, otherwise the lease is ignored and the stack stays
-unconfigured. A router that is not a usable unicast address, or is the address
+between /1 and /30, otherwise the lease is rejected: a held address is dropped
+and discovery restarts. A router that is not a usable unicast address, or is the address
 itself, is dropped; unusable resolvers are dropped and at most three are kept.
 Static configuration (`netd` arguments or `confd` `sys/net/*`) goes through the
 same checks. Randomness (initial sequence numbers, DHCP transaction ids) is drawn
@@ -211,14 +211,16 @@ from native syscall 26 once at start.
 `Stats`, `Ping(dst, payload_len, timeout_ms) -> EchoResult`, `Renew`, `Reattach`.
 `Ping` is a **parked call**: `netd` keeps the caller's transaction and replies
 when the echo reply arrives or the timeout expires, so a slow ping never blocks
-the loop. At most 8 are pending (`MAX_PINGS`), payloads are at most 1400 bytes,
+the loop. At most 8 are pending (`MAX_PINGS`) and at most 4 per caller
+(`PER_CALLER_PINGS`, `EAGAIN` past either), payloads are at most 1400 bytes,
 and a ping to an unusable address is refused up front. The retained topic
 `system/net/{ifname}/addr` carries the address, and `system/events/network/up`
 fires when the first address is bound.
 
 **Access rules** (`libs/netpolicy`, loaded into the real ACL by the kernel test
 `net_call_rules_decide_who_may_call_what`): `_netd` and root may call everything
-on `nic.v1`, everyone else only `Info` and `Stats`; on `stack.v1` everyone may
+on `nic.v1`, everyone else only `Info` and `Stats`, plus `_net` (the driver) may
+send its own `Notify` wake-up; on `stack.v1` everyone may
 read and `Ping`, only `_netd` and root may `Renew` or `Reattach`. Like the N1
 rules these refuse nothing today (no policy loader), so the driver's own owner
 check is what stops a second client.
@@ -255,9 +257,10 @@ accepted this; a finer clock is N6.
   host test primes the neighbour first; on the wire the requester has just
   resolved us, so it does not matter.
 * smoltcp cannot report a lease length without a buffer to keep the DHCP reply
-  in; `Stack` owns a 1 KiB buffer for the socket. An earlier draft leaked it, and
-  libFuzzer's leak detector caught that because the target builds a stack per
-  input.
+  in; `Stack` owns a 1 KiB buffer for the socket (as a raw pointer freed in
+  `Drop` after the socket is removed, so no `Box` is retagged under the
+  socket's borrow). An earlier draft leaked it, and libFuzzer's leak detector
+  caught that because the target builds a stack per input.
 
 ## Verification
 

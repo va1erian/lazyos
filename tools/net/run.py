@@ -243,11 +243,17 @@ def main(argv: list[str] | None = None) -> int:
         return 0 if ok else 1
 
     missing = [marker for marker in pass_markers if marker not in text]
-    if missing:
+    # A failure marker fails the run even when every pass marker also appeared
+    # (`wait_for_marker` only stops early on one; it does not judge).
+    failed = [marker for marker in fail_markers if marker in text]
+    if missing or failed:
         for line in text.splitlines():
             if any(marker in line for marker in fail_markers):
                 print(line)
-        print(f"NET:HARNESS:FAIL the guest never reported {', '.join(missing)}")
+        if failed:
+            print(f"NET:HARNESS:FAIL the guest reported {', '.join(failed)}")
+        else:
+            print(f"NET:HARNESS:FAIL the guest never reported {', '.join(missing)}")
         return 1
     # Interrupts: armed lines must have delivered some; `--poll` and an
     # unroutable line are legitimate polling-only runs and are reported.

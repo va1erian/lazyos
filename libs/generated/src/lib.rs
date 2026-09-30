@@ -7585,8 +7585,8 @@ pub mod os_lazy_net_stack_v1 {
     /// Send one ICMP echo request to `dst` (four octets) with `payload_len`
     /// bytes of payload (0 to 1400) and wait for its reply. `timeout_ms`
     /// (10 to 60000) bounds the wait. Fails with `EINVAL` for a bad argument,
-    /// `ENETUNREACH` when there is no address or route yet, `EAGAIN` when too
-    /// many pings are outstanding and `ETIMEDOUT` when no reply came.
+    /// `ENETUNREACH` when there is no address or route yet, `EAGAIN` when this
+    /// caller has 4 pings outstanding or all callers together have 8, and `ETIMEDOUT` when no reply came.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct PingArgs {
         pub dst: alloc::vec::Vec<u8>,

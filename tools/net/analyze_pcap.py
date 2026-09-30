@@ -291,7 +291,8 @@ def check_ping(frames: list[Frame], guest_mac: bytes, gateway_ip: bytes, min_pai
     A request is an ICMP echo request (type 8, code 0) sent by the guest to the
     gateway; its reply is the *next unmatched* echo reply (type 0) from the
     gateway with the same identifier and sequence number, later in the
-    capture, carrying byte-for-byte the same payload and correct checksums. An
+    capture, addressed (IPv4 destination) to the address the request came from,
+    carrying byte-for-byte the same payload and correct checksums. An
     echo request from the guest to an address that cannot be a host
     (unspecified, loopback, multicast, broadcast) is a failure: the stack must
     refuse those before anything reaches the wire.
@@ -320,9 +321,16 @@ def check_ping(frames: list[Frame], guest_mac: bytes, gateway_ip: bytes, min_pai
         )
     pairs = 0
     unused = list(replies)
-    for frame, _packet, echo in requests:
+    for frame, packet, echo in requests:
         match = next(
-            (r for r in unused if r[0].index > frame.index and r[2].ident == echo.ident and r[2].seq == echo.seq),
+            (
+                r
+                for r in unused
+                if r[0].index > frame.index
+                and r[2].ident == echo.ident
+                and r[2].seq == echo.seq
+                and r[1].dst == packet.src
+            ),
             None,
         )
         if match is None:

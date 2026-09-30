@@ -95,13 +95,28 @@ pub struct Stack {
     counters: Counters,
     /// Bumped whenever the address state changes, so a caller can publish it.
     epoch: u64,
-    /// The DHCP socket's reply buffer. The socket (in `sockets`) borrows it, so
-    /// it is declared after `sockets` and dropped after it; see `Stack::new`.
-    _dhcp_reply: Option<alloc::boxed::Box<[u8]>>,
+    /// The DHCP socket's reply buffer, owned as a raw pointer because the socket
+    /// (in `sockets`) holds a `'static` borrow of it; `Drop` removes the socket
+    /// and then frees the buffer. See `Stack::new`.
+    dhcp_reply: Option<core::ptr::NonNull<[u8]>>,
 }
 
 fn octets(address: Ipv4Address) -> [u8; 4] {
     address.octets()
+}
+
+impl Drop for Stack {
+    fn drop(&mut self) {
+        // The socket borrows the reply buffer: it goes first.
+        if let Some(handle) = self.dhcp.take() {
+            drop(self.sockets.remove(handle));
+        }
+        if let Some(reply) = self.dhcp_reply.take() {
+            // SAFETY: `reply` is the pointer `Box::into_raw` returned in `new`,
+            // freed exactly once (`take`), after its only borrower is gone.
+            drop(unsafe { alloc::boxed::Box::from_raw(reply.as_ptr()) });
+        }
+    }
 }
 
 impl Stack {
@@ -141,23 +156,23 @@ impl Stack {
             results: Vec::new(),
             counters: Counters::default(),
             epoch: 0,
-            _dhcp_reply: None,
+            dhcp_reply: None,
         };
         match mode {
             Mode::Dhcp => {
                 let mut socket = dhcpv4::Socket::new();
                 // Without a buffer to keep the last reply in, the socket cannot
                 // tell us the lease length. The stack owns the buffer.
-                let mut reply = vec![0u8; 1024].into_boxed_slice();
-                // SAFETY: the slice lives on the heap, so moving the `Box` (and
-                // the `Stack`) does not move it; `_dhcp_reply` is declared after
-                // `sockets`, so the socket holding this borrow is dropped first;
-                // nothing else ever touches the buffer, so the `&mut` is unique.
-                let borrowed: &'static mut [u8] = unsafe {
-                    &mut *core::ptr::slice_from_raw_parts_mut(reply.as_mut_ptr(), reply.len())
-                };
+                let reply: *mut [u8] =
+                    alloc::boxed::Box::into_raw(vec![0u8; 1024].into_boxed_slice());
+                // SAFETY: `reply` came from `Box::into_raw`, so it is valid and
+                // nothing owns it as a `Box` (no retag can invalidate this
+                // borrow when the `Stack` moves). The socket is the only user
+                // and `Stack::drop` removes the socket before freeing the
+                // buffer, so the `&mut` is unique and outlives every use.
+                let borrowed: &'static mut [u8] = unsafe { &mut *reply };
                 socket.set_receive_packet_buffer(borrowed);
-                stack._dhcp_reply = Some(reply);
+                stack.dhcp_reply = core::ptr::NonNull::new(reply);
                 stack.dhcp = Some(stack.sockets.add(socket));
             }
             Mode::Static(config) => {
@@ -360,7 +375,17 @@ impl Stack {
         let addr = octets(address.address());
         let prefix = address.prefix_len();
         if !is_usable_unicast(addr) || !(1..=30).contains(&prefix) {
-            // A hostile or broken server: stay unconfigured and keep looking.
+            // A hostile or broken server: drop whatever we held (the socket
+            // already considers itself configured, so the old address would
+            // otherwise outlive the server's say-so) and look again.
+            if self.state.addr.is_some() {
+                self.counters.lease_losses += 1;
+                self.clear();
+            }
+            if let Some(handle) = self.dhcp {
+                self.sockets.get_mut::<dhcpv4::Socket>(handle).reset();
+            }
+            self.state.dhcp = DhcpState::Discovering;
             return;
         }
         let gateway = router

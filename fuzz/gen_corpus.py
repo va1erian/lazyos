@@ -196,8 +196,17 @@ def ns_step(delay=9, mutations=b"\0\0\0\0\0\0"):
     return bytes([100, delay]) + mutations
 
 
-def ns_ping(dst_kind=0, length=56, timeout=50):
-    return bytes([150, dst_kind]) + struct.pack(">H", length) + bytes([timeout])
+#: Destination bytes each selector reads before the length (`fuzz.rs`): 0 is the
+#: gateway, 1 four free octets, 2 the last octet of 10.0.2.x, 3 the last two of
+#: 192.168.x.y.
+NS_DST_BYTES = {0: 0, 1: 4, 2: 1, 3: 2}
+
+
+def ns_ping(dst_kind=0, length=56, timeout=50, dst=None):
+    if dst is None:
+        dst = {0: b"", 1: bytes([127, 0, 0, 1]), 2: bytes([2]), 3: bytes([1, 1])}[dst_kind]
+    assert len(dst) == NS_DST_BYTES[dst_kind], "destination bytes do not match the selector"
+    return bytes([150, dst_kind]) + dst + struct.pack(">H", length) + bytes([timeout])
 
 
 def netstack_seeds():
@@ -218,7 +227,13 @@ def netstack_seeds():
         # Raw frames of arbitrary bytes, including an oversize one.
         "raw_frames": ns_header() + bytes([0, 0, 60, 7]) + bytes(range(60)) + bytes([0, 6, 200, 1]) + bytes(range(200)) * 2 + ns_step() * 4,
         # Pings to invalid, off-link and unanswered addresses, then the cap.
-        "ping_abuse": ns_header() + ns_step() * 12 + b"".join(ns_ping(dst_kind=k, length=n, timeout=t) for k, n, t in ((1, 8, 10), (2, 0, 50), (3, 1400, 255), (0, 1500, 1), (2, 8, 255), (2, 8, 255), (2, 8, 255), (2, 8, 255), (2, 8, 255), (2, 8, 255), (2, 8, 255), (2, 8, 255), (2, 8, 255))) + ns_step() * 8,
+        "ping_abuse": ns_header() + ns_step() * 12
+        + ns_ping(dst_kind=1, length=8, timeout=10)  # loopback: refused up front
+        + ns_ping(dst_kind=2, length=0, timeout=50)  # the gateway's neighbour, empty payload
+        + ns_ping(dst_kind=3, length=1400, timeout=255)  # off-link, largest payload
+        + ns_ping(dst_kind=0, length=1500, timeout=1)  # one over the payload limit
+        + b"".join(ns_ping(dst_kind=2, dst=bytes([100 + i]), length=8, timeout=255) for i in range(9))  # past the cap
+        + ns_step() * 8,
         # Cancel a ping, flip the gateway's echo behaviour.
         "cancel_and_mute": ns_header() + ns_step() * 12 + ns_ping() + bytes([182, 0, 0]) + bytes([172, 1]) + ns_ping() + ns_step() * 8,
         "empty": b"",

@@ -280,13 +280,13 @@ def dhcp_exchange(xid: int = 0xABCD0001) -> list[bytes]:
 
 
 def echo_frame(kind: int, ident: int, seq: int, data: bytes, *, from_guest: bool, bad_checksum: bool = False,
-               dst: bytes = GATEWAY_IP, bad_ip: bool = False) -> bytes:
+               dst: bytes = GATEWAY_IP, bad_ip: bool = False, reply_to: bytes = GUEST_ADDR) -> bytes:
     icmp = bytearray(struct.pack(">BBHHH", kind, 0, 0, ident, seq) + data)
     checksum = pcap.ipv4_checksum(bytes(icmp))
     struct.pack_into(">H", icmp, 2, checksum ^ 0x0F0F if bad_checksum else checksum)
     if from_guest:
         return GATEWAY_MAC + GUEST + b"\x08\x00" + ip_packet(GUEST_ADDR, dst, 1, bytes(icmp), bad_checksum=bad_ip)
-    return GUEST + GATEWAY_MAC + b"\x08\x00" + ip_packet(GATEWAY_IP, GUEST_ADDR, 1, bytes(icmp), bad_checksum=bad_ip)
+    return GUEST + GATEWAY_MAC + b"\x08\x00" + ip_packet(GATEWAY_IP, reply_to, 1, bytes(icmp), bad_checksum=bad_ip)
 
 
 def ping_pair(ident: int = 0x4242, seq: int = 1, data: bytes = b"payload!") -> list[bytes]:
@@ -372,6 +372,16 @@ class Echo(unittest.TestCase):
         self.assertTrue(report.ok, text(report))
         self.assertIn("NET:PCAP:PING:PASS pairs=3", text(report))
         self.assertIn("NET:PCAP:IP:PASS", text(report))
+
+    def test_a_reply_addressed_to_another_ip_fails(self):
+        # Right MAC, identifier, sequence, payload and checksums, wrong IPv4 destination.
+        frames = [
+            echo_frame(8, 7, 1, b"abcdefgh", from_guest=True),
+            echo_frame(0, 7, 1, b"abcdefgh", from_guest=False, reply_to=bytes([10, 0, 2, 99])),
+        ]
+        report = analyze_n2(frames, pings=1)
+        self.assertFalse(report.ok)
+        self.assertIn("has no reply after it", text(report))
 
     def test_a_missing_reply_fails(self):
         report = analyze_n2(ping_pair()[:1], pings=1)

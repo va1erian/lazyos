@@ -17,8 +17,8 @@ field (`services::error_field`) instead of the declared reply fields.
 *parked*: `netd` answers it when the echo reply arrives, or with `ETIMEDOUT`
 when `timeout_ms` passes, and the caller sleeps in the kernel meanwhile with
 its own deadline (`msg_cancel` and the caller's death clean up). One
-caller may have up to 8 pings outstanding; past that the call fails with
-`EAGAIN`. The stack's clock is the 100 Hz tick, so round trips read in
+caller may have up to 4 pings outstanding and all callers together 8; past
+either limit the call fails with `EAGAIN`. The stack's clock is the 100 Hz tick, so round trips read in
 multiples of 10 ms.
 
 ## Methods

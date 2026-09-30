@@ -455,7 +455,7 @@ network) builds on the same interfaces.
 |---|---|
 | N0 | **Built.** `idl/net.midl` (`os.lazy.net.nic.v1`), `libs/framering`, `libs/virtio-net`, `libs/fuzzkit`, the 256-entry queue cap, the `fuzz/` cargo-fuzz crate, `.github/workflows/net.yml`, `tools/net/README.md` |
 | N1 | **Built.** `netdrv` (`user/src/bin/netdrv.rs`), `libs/nicdrv` (its host-tested core), `nicctl`, `user/src/messenger/net.rs`, the `_net` uid (902) and `init` row, `LAZYOS_NET=1`, `libs/netpolicy` (class rules, loaded by a kernel test), `tools/net/run.py` + `analyze_pcap.py` + their tests, `--net` in `run_demo.py`. Evidence: a 42-exchange ARP capture, frame-policy and probe frames checked on the wire, in five harness variants |
-| N2 | **Built.** `libs/netstack` (smoltcp 0.14), `netd` (`user/src/bin/netd.rs`), `os.lazy.net.stack.v1` (`idl/net.midl`), `netctl`, native `ping`, the `_netd` uid (903, no capabilities) and `init` row, `LAZYOS_NETD=1`, `libs/netpolicy` call rules (loaded by a kernel test), native syscall 26 and `CLOSE_RELEASE`. Evidence: a capture with 6 DHCP exchanges and 46 echo pairs (checksums valid) in default, `--services`, q35, `--poll` and `--no-device` runs; kernel suite 569/569 |
+| N2 | **Built.** `libs/netstack` (smoltcp 0.14), `netd` (`user/src/bin/netd.rs`), `os.lazy.net.stack.v1` (`idl/net.midl`), `netctl`, native `ping`, the `_netd` uid (903, no capabilities) and `init` row, `LAZYOS_NETD=1`, `libs/netpolicy` call rules (loaded by a kernel test), native syscall 26 and `CLOSE_RELEASE`. Evidence: a capture with 6 DHCP exchanges and 46 echo pairs (checksums valid) in the default, `--services`, q35 and `--poll` runs; `--no-device` is an idle-state check only (no capture is analysed: `netd` and the driver must idle cleanly); kernel suite 569/569 |
 | N3 to N6 | Not built (out of scope for the current work) |
 
 ## 11. Risks and open questions
@@ -601,8 +601,15 @@ Kept current as stages land; the reasoning for each is where it is used.
   times out with its packet queued. Cost: a reply to a ping that already timed
   out is discarded.
 - *Leases are validated.* The plan assumed DHCP could be trusted. A lease with
-  an unusable address or a prefix outside /1 to /30 is ignored; unusable
-  routers and resolvers are dropped and at most three resolvers are kept.
+  an unusable address or a prefix outside /1 to /30 is rejected: any address
+  held is dropped and the DHCP client restarts discovery (resetting smoltcp's
+  socket, which otherwise believes it is configured until the lease expires);
+  unusable routers and resolvers are dropped and at most three resolvers are
+  kept. A server that keeps offering a bad lease keeps the client discovering,
+  at the network's round-trip pace; there is no backoff yet.
+- *`Notify` needs a rule.* The driver's wake-up is judged as a call from `_net`
+  on `nic.v1`, so `NIC_CLIENT_RULES` allows `_net` exactly that method (and no
+  other uid may send it).
 - *10 ms clock accepted* as the plan said: RTTs are 0 or 10 ms; the first ping
   (ARP first) takes about 90 ms.
 - *Not done in N2:* DNS queries (resolvers are kept, not used), non-owner call

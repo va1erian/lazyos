@@ -85,6 +85,9 @@ pub const NIC_CLIENT_RULES: &[RuleSpec] = &[
     allow(ROOT_UID, NIC_INTERFACE, ANY_METHOD),
     allow(ANY_ACTOR, NIC_INTERFACE, "Info"),
     allow(ANY_ACTOR, NIC_INTERFACE, "Stats"),
+    // The driver's own wake-up to the client: `Notify` is sent *by* `_net`, to
+    // the notify endpoint the client handed it, and is judged like any call.
+    allow(NET_UID, NIC_INTERFACE, "Notify"),
     deny(ANY_ACTOR, NIC_INTERFACE, ANY_METHOD),
 ];
 
@@ -207,6 +210,16 @@ mod tests {
             // class except by earlier, more specific allows: no allow follows it.
             assert!(rules.iter().rev().skip(1).all(|r| r.allow));
         }
+    }
+
+    #[test]
+    fn the_driver_may_send_its_wake_up_and_nothing_else_of_the_clients() {
+        let allowed: std::vec::Vec<_> = NIC_CLIENT_RULES
+            .iter()
+            .filter(|r| r.allow && r.actor == NET_UID)
+            .map(|r| r.method)
+            .collect();
+        assert_eq!(allowed, ["Notify"]);
     }
 
     #[test]

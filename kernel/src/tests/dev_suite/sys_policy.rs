@@ -161,7 +161,6 @@ pub fn net_call_rules_decide_who_may_call_what() -> Result<(), String> {
             "AttachRing",
             "DetachRing",
             "Kick",
-            "Notify",
             "NoSuchMethod",
         ] {
             check!(
@@ -169,6 +168,18 @@ pub fn net_call_rules_decide_who_may_call_what() -> Result<(), String> {
                 "uid {uid} may call {method} on the NIC"
             );
         }
+    }
+    // `Notify` is the driver's wake-up to its client, sent as `_net`: the
+    // driver may send it, nobody else may pose as the driver.
+    check!(
+        allowed(net, nic, "Notify"),
+        "_net refused Notify on the NIC"
+    );
+    for uid in [app, stranger] {
+        check!(
+            !allowed(uid, nic, "Notify"),
+            "uid {uid} may send the driver's Notify"
+        );
     }
 
     // The stack service: anyone reads and pings; only `_netd` and root change it.
