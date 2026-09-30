@@ -311,7 +311,7 @@ fn bump_for_pml4(pml4: u64) -> (u64, u64) {
         .unwrap_or((0, 0))
 }
 
-fn kstack_top(index: usize) -> u64 {
+pub(crate) fn kstack_top(index: usize) -> u64 {
     // Safety: fixed-size static array.
     unsafe { (core::ptr::addr_of!(KSTACKS[index]) as u64) + KSTACK_SIZE as u64 }
 }

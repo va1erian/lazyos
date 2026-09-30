@@ -44,6 +44,29 @@ pub fn sysret_selectors_rpl3() -> Result<(), String> {
     Ok(())
 }
 
+/// The syscall entry stub must reach `call linux_dispatch` with `rsp`
+/// 16-aligned. The stub pushes [`ENTRY_PUSHED_QWORDS`] qwords onto the task's
+/// kernel stack; optimised (release) builds use aligned SSE stores on their
+/// frames, so an 8-byte skew corrupted the first Linux-ABI syscall's
+/// formatting and froze the release desktop, while debug builds hid it. The
+/// harness has no scheduler, so this checks the arithmetic the stub is
+/// assembled from against every real kernel stack top.
+///
+/// [`ENTRY_PUSHED_QWORDS`]: crate::arch::linux::ENTRY_PUSHED_QWORDS
+pub fn syscall_entry_call_alignment() -> Result<(), String> {
+    use crate::arch::linux::{ENTRY_CALL_PAD, ENTRY_PUSHED_QWORDS};
+    for slot in 0..crate::task::MAX_TASKS {
+        let top = crate::task::kstack_top(slot);
+        check!(top % 16 == 0, "kernel stack top of slot {slot} ({top:#x}) is not 16-aligned");
+        let at_call = top - ENTRY_PUSHED_QWORDS * 8 - ENTRY_CALL_PAD;
+        check!(
+            at_call % 16 == 0,
+            "slot {slot}: rsp at `call linux_dispatch` is {at_call:#x} (misaligned)"
+        );
+    }
+    Ok(())
+}
+
 /// Run `f` with interrupts enabled but every PIC line masked, so the
 /// IRQ-shared helpers see `IF=1` (as the kernel mux does) without any
 /// interrupt actually firing into the scheduler-less harness.
@@ -136,6 +159,7 @@ pub fn soak_irq_shared_locks() -> Result<(), String> {
 }
 
 pub(super) const CASES: &[(&str, Test)] = &[
+    ("arch_syscall_entry_call_alignment", syscall_entry_call_alignment),
     ("arch_sysret_selectors_rpl3", sysret_selectors_rpl3),
     (
         "arch_irq_shared_locks_disable_interrupts",

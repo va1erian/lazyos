@@ -99,6 +99,14 @@ pub fn set_saved_register(slot: usize, value: u64) {
     }
 }
 
+/// Qwords `linux_syscall_entry` pushes onto the kernel stack before the call:
+/// user RSP, RFLAGS, RIP, then 12 registers (see [`set_saved_register`]).
+pub const ENTRY_PUSHED_QWORDS: u64 = 15;
+/// Padding the stub inserts so `rsp` is 16-aligned at `call linux_dispatch`
+/// (the SysV ABI; optimised code uses aligned SSE stores on its frame). The
+/// kernel stack tops are 16-aligned, so only the push count matters.
+pub const ENTRY_CALL_PAD: u64 = (16 - (ENTRY_PUSHED_QWORDS * 8) % 16) % 16;
+
 global_asm!(
     r#"
     .global linux_syscall_entry
@@ -147,11 +155,9 @@ global_asm!(
         mov rdx, rsi
         mov rsi, rdi
         mov rdi, rax
-        /* 15 pushes leave rsp 8 mod 16, but the SysV ABI wants it 16-aligned
-           at the `call`: optimised code uses aligned SSE stores on its frame. */
-        sub rsp, 8
+        sub rsp, {pad}                  /* 16-align rsp for the call */
         call linux_dispatch
-        add rsp, 8
+        add rsp, {pad}
         pop r10
         pop r9
         pop r8
@@ -168,7 +174,8 @@ global_asm!(
         pop r11
         pop rsp                         /* rsp = user RSP (rax holds result) */
         sysretq
-    "#
+    "#,
+    pad = const ENTRY_CALL_PAD,
 );
 
 extern "C" {
