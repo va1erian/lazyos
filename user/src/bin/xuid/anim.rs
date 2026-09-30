@@ -138,7 +138,11 @@ impl Compositor {
             .find(|surface| surface.id == id)?
             .window();
         let icon = self.icon(id);
-        Some((window, icon, small_rect(window, icon.w, icon.h, self.full())))
+        Some((
+            window,
+            icon,
+            small_rect(window, icon.w, icon.h, self.full()),
+        ))
     }
 }
 
@@ -203,8 +207,8 @@ pub(super) fn selftest_anim() -> &'static str {
 
     // The icon-sized middle rectangle is centred on the window and clamped.
     let bounds = Rect::new(0, 0, 800, 600);
-    let centred = small_rect(Rect::new(100, 100, 300, 200), 100, 20, bounds)
-        == Rect::new(200, 190, 100, 20);
+    let centred =
+        small_rect(Rect::new(100, 100, 300, 200), 100, 20, bounds) == Rect::new(200, 190, 100, 20);
     let off = small_rect(Rect::new(-500, 100, 300, 200), 100, 20, bounds);
     let clamped = off.x >= bounds.x && off.x + off.w <= bounds.x + bounds.w;
 
@@ -226,7 +230,11 @@ pub(super) fn selftest_anim() -> &'static str {
     // only thing touching it while it lives.
     let mut canvas = unsafe { Canvas::new(buf.as_mut_ptr() as u64, w, h) };
     outline(&mut canvas, frame, clip);
-    let rgb = |buf: &[u8]| buf.chunks_exact(4).map(|px| px[0]).collect::<alloc::vec::Vec<u8>>();
+    let rgb = |buf: &[u8]| {
+        buf.chunks_exact(4)
+            .map(|px| px[0])
+            .collect::<alloc::vec::Vec<u8>>()
+    };
     let once = rgb(&buf).iter().filter(|v| **v == 0xbf).count() as i32 == area
         && rgb(&buf).iter().all(|v| *v == 0x40 || *v == 0xbf);
     // SAFETY: as above; the previous canvas is dead, so access is exclusive.
