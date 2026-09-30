@@ -223,6 +223,10 @@ impl Backend for LazyOSBackend {
         self.with_node(id, |node| node.visible = visible);
     }
 
+    fn raise(&self, id: WidgetId) {
+        self.raise_node(id);
+    }
+
     fn set_enabled(&self, id: WidgetId, enabled: bool) {
         self.with_node(id, |node| node.enabled = enabled);
     }

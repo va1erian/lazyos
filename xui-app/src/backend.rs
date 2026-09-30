@@ -34,6 +34,7 @@ mod input;
 mod node;
 mod pointer;
 mod render;
+mod zorder;
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
