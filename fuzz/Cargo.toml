@@ -18,6 +18,7 @@ cargo-fuzz = true
 libfuzzer-sys = "0.4"
 framering = { path = "../libs/framering", features = ["fuzz"] }
 virtio-net = { path = "../libs/virtio-net", features = ["fuzz"] }
+nicdrv = { path = "../libs/nicdrv", features = ["fuzz"] }
 
 [workspace]
 
@@ -31,6 +32,13 @@ bench = false
 [[bin]]
 name = "framering_header"
 path = "fuzz_targets/framering_header.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "nicdrv"
+path = "fuzz_targets/nicdrv.rs"
 test = false
 doc = false
 bench = false

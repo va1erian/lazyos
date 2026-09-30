@@ -1,9 +1,10 @@
 # LazyOS networking — exploration and plan
 
-Status: **N0 built** (2026-09-30): the NIC interface is real MIDL, `libs/framering`
-and `libs/virtio-net` exist with host tests and fuzzing, and the queue cap is
-resolved. N1 and later are not built; see §10.1 for the state of each stage and
-§13 for what the plan got wrong. What is built is described in
+Status: **N0 and N1 built** (2026-09-30): the NIC interface is real MIDL,
+`libs/framering`, `libs/virtio-net` and `libs/nicdrv` exist with host tests and
+fuzzing, the queue cap is resolved, and `netdrv` brings up a virtio-net card in
+QEMU with a packet-capture-judged harness. N2 and later are not built; see
+§10.1 for the state of each stage and §13 for what the plan got wrong. What is built is described in
 [architecture/networking.md](architecture/networking.md).
 Scope: the shortest credible path from "no network" to basic tools working
 (`ping`, a netcat equivalent, an FTP client, name lookups), and the three
@@ -453,7 +454,7 @@ network) builds on the same interfaces.
 | Stage | State |
 |---|---|
 | N0 | **Built.** `idl/net.midl` (`os.lazy.net.nic.v1`), `libs/framering`, `libs/virtio-net`, `libs/fuzzkit`, the 256-entry queue cap, the `fuzz/` cargo-fuzz crate, `.github/workflows/net.yml`, `tools/net/README.md` |
-| N1 | Not built |
+| N1 | **Built.** `netdrv` (`user/src/bin/netdrv.rs`), `libs/nicdrv` (its host-tested core), `nicctl`, `user/src/messenger/net.rs`, the `_net` uid (902) and `init` row, `LAZYOS_NET=1`, `libs/netpolicy` (class rules, loaded by a kernel test), `tools/net/run.py` + `analyze_pcap.py` + their tests, `--net` in `run_demo.py`. Evidence: a 42-exchange ARP capture, frame-policy and probe frames checked on the wire, in five harness variants |
 | N2 | Not built |
 | N3 to N6 | Not built (out of scope for the current work) |
 
@@ -528,4 +529,53 @@ Kept current as stages land; the reasoning for each is where it is used.
   still carry the sender's handle numbers), so the second could never be used.
   Both rings now share one buffer of `2 * ring_bytes(slots)`. Found while reading
   `sndd`'s `discard_transfers` for N1.
+
+**N1**
+
+- *Interrupts share the service endpoint.* The claim names the driver's own
+  service endpoint (the unpublished side of its channel pair, which the kernel
+  accepts because it is held by exactly one handle), so the kernel's interrupt
+  messages and client calls land in one inbox and one `recv` with a deadline
+  serves both. The plan's "single-wait event loop" holds for the driver as well
+  as for `netd`, and no second endpoint or selector is needed. The line is
+  claimed `FLAG_SHARED_IRQ` (it is shared with the polled virtio-blk on both QEMU
+  machine types); `irq_mode=poll`, an unroutable line or a refused endpoint fall
+  back to polling.
+- *The driver core is a library.* Everything whose bug could hurt a neighbour
+  (the virtqueue slot pools, the attached client, the frame policy, the
+  receive filter, the statistics) is `libs/nicdrv`, host tested against a fake
+  virtio-net device and a hostile client, with a model-checked fuzz entry point.
+  The plan's file list (`device.rs`, `queues.rs`, `rings.rs`, `service.rs`) maps
+  onto `netdrv/` for the parts that touch the machine and `nicdrv` for the rest.
+- *`SetRxMode` is software.* Without the control queue the device filters
+  nothing, so `Filtered` (the default) is a destination-MAC check in the driver
+  (ours, broadcast or multicast), `Promiscuous` passes everything, `Off` drops
+  everything; every mode is "applied", so `ok` is always true. The draft allowed
+  `Filtered` to degrade to promiscuous and answer false.
+- *Idle, not exit, without a device.* `sndd` exits 0 on a machine with no card;
+  `netdrv` parks, because its `init` row restarts it on any exit (a restart-class
+  setting change exits 0 by design) and a restart loop on a missing device would
+  end in `Failed`.
+- *Class ACL rules are data plus a kernel test.* There is no policy loader yet
+  (`acl::load` has no caller but tests), so a rule table in some service would
+  be dead code. `libs/netpolicy` holds the rules (`_net`: claim, map and DMA on
+  `os.kernel.dev.net`), host tests pin their spelling to the `midlc` ids, and
+  `dev_sys_net_driver_policy_is_exactly_the_class_rules` loads them into the real
+  ACL and checks the decisions, including that root is refused the class. The
+  rules for `nic.v1` itself (`_netd` the only client) land with `netd` in N2.
+- *Two kernel facts the plan did not know.* `recv` reports only the first
+  transferred buffer and handle (see N0), and a driver's per-call allocation
+  lands in a recycling heap only below 64 KiB, so every hot path in the driver
+  and `nicctl` reuses its buffers.
+- *Queue sizes follow the device.* `Transport::queue_max` reads the device's
+  limit per queue; the driver uses the smaller of the setting and that limit
+  (QEMU offers 256), rounded down to a power of two.
+- *Evidence had to wait for the interrupt message.* The self-test can find its
+  ARP reply by polling before the kernel's interrupt message has been read, so
+  it gives the message a few ticks before judging `NET:IRQ`. `delivered=1` after
+  one exchange is normal: the kernel keeps one message outstanding per claim.
+- *Not done in N1:* `devd` (out of scope by the brief), MSI, offloads, jumbo
+  frames, a second driver, and a shared module for the PCI bring-up code that
+  `sndd` and `netdrv` now both carry (the two copies of `device.rs`/`dma.rs`
+  differ only in the error type and the device id).
 

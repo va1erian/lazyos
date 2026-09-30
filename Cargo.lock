@@ -412,6 +412,7 @@ dependencies = [
  "libmessenger",
  "linked_list_allocator",
  "messenger-generated",
+ "netpolicy",
  "spin",
  "surfbuf",
  "timezone",
@@ -516,6 +517,23 @@ name = "messenger-generated"
 version = "0.1.0"
 dependencies = [
  "libmessenger",
+]
+
+[[package]]
+name = "netpolicy"
+version = "0.1.0"
+dependencies = [
+ "messenger-generated",
+]
+
+[[package]]
+name = "nicdrv"
+version = "0.1.0"
+dependencies = [
+ "framering",
+ "fuzzkit",
+ "virtio",
+ "virtio-net",
 ]
 
 [[package]]
@@ -857,15 +875,19 @@ version = "0.1.0"
 dependencies = [
  "confd",
  "font-atlas",
+ "framering",
  "inputmap",
  "lazyos-crypto",
  "libmessenger",
  "messenger-generated",
+ "netpolicy",
+ "nicdrv",
  "pcm",
  "surfbuf",
  "timezone",
  "uitheme",
  "virtio",
+ "virtio-net",
  "virtio-snd",
 ]
 

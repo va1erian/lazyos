@@ -42,6 +42,8 @@ members = [
     # fuzz-style tests use. Pure `no_std` logic (fuzzkit is host only).
     "libs/framering",
     "libs/virtio-net",
+    "libs/nicdrv",
+    "libs/netpolicy",
     "libs/fuzzkit",
 ]
 # The xui app is an ordinary static-musl `std` program with its own workspace:

@@ -1,0 +1,256 @@
+#!/usr/bin/env python3
+"""Boot LazyOS with a virtio-net card, capture the wire, and judge the capture.
+
+The proof that the network driver works is not a log line but the packets: QEMU
+runs with `-netdev user` and a `filter-dump` on the netdev, so every frame the
+guest's NIC sends or receives lands in a pcap, which `analyze_pcap.py` then
+checks (a complete ARP exchange with the gateway, repeated; no frame outside the
+14..1514-byte policy; the hostile-input probe's boundary frames). The serial
+markers (`NET:NIC:PASS`, `NICCTL:*:PASS`) only tell the harness when the guest
+is done; the verdict comes from the capture.
+
+    python tools/net/run.py                      # build, boot, capture, verify
+    python tools/net/run.py --no-build           # reuse target/lazyos.img
+    python tools/net/run.py --accel none         # force TCG
+    python tools/net/run.py --services           # supervised by `init` as _net
+    python tools/net/run.py --machine q35 --virtio-disk
+    python tools/net/run.py --no-device          # no NIC: the driver must say so and idle
+    python tools/net/run.py --poll               # interrupts off: the driver polls
+
+The image must be built with `LAZYOS_NET=1` (this script does it unless
+`--no-build`). Exit status is non-zero on any failure.
+"""
+
+from __future__ import annotations
+
+import argparse
+import os
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent.parent
+sys.path.insert(0, str(ROOT / "tools" / "screenshot"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from qemu_qmp import Qmp, accel_args, build_qemu_command, find_qemu, free_port  # noqa: E402
+
+import analyze_pcap  # noqa: E402
+import pcap  # noqa: E402
+
+#: The soak's iteration count (`netdrv`'s `DEMO_CLIENTS`): one ARP exchange each.
+SOAK_ITERATIONS = 40
+#: ARP exchanges the demo makes with the gateway: the driver's self-test, the
+#: `nicctl arp` client, and one per soak iteration.
+MIN_ARP_PAIRS = 1 + 1 + SOAK_ITERATIONS
+
+#: Serial markers: every PASS must appear; any FAIL (or a missing device) ends
+#: the wait early.
+PASS_MARKERS = (
+    "NET:NIC:PASS",
+    "NICCTL:INFO:PASS",
+    "NICCTL:ARP:PASS",
+    "NICCTL:PROBE:PASS",
+    "NICCTL:INTRUDER:PASS",
+    "NICCTL:SOAK:PASS",
+)
+FAIL_MARKERS = (
+    "NET:NIC:FAIL",
+    "NET:IRQ:FAIL",
+    "NICCTL:FAIL",
+    "NETDRV:NODEV",
+)
+LOG_PREFIXES = ("NET", "netdrv", "NICCTL", "NETDRV")
+
+
+def build_image(services: bool, poll: bool) -> Path:
+    env = dict(os.environ, LAZYOS_NET="1")
+    if services:
+        env["LAZYOS_SERVICES"] = "1"
+    if poll:
+        env["LAZYOS_NET_ARGS"] = "demo=1 irq=poll"
+    else:
+        env.pop("LAZYOS_NET_ARGS", None)
+    label = "LAZYOS_NET=1" + (" LAZYOS_SERVICES=1" if services else "") + (" LAZYOS_NET_ARGS='demo=1 irq=poll'" if poll else "")
+    print(f"building: {label} cargo build", flush=True)
+    result = subprocess.run(["cargo", "build"], cwd=ROOT, env=env, capture_output=True, text=True)
+    if result.returncode != 0:
+        sys.exit(f"cargo build failed:\n{result.stderr[-4000:]}")
+    image = ROOT / "target" / "lazyos.img"
+    if not image.is_file():
+        sys.exit(f"build succeeded but {image} does not exist")
+    return image
+
+
+def wait_for_marker(serial_log: Path, proc: subprocess.Popen, timeout: float, done) -> str:
+    """Poll the serial log until `done(text)` or a failure marker, or time runs out."""
+    deadline = time.time() + timeout
+    text = ""
+    printed = 0
+    while time.time() < deadline:
+        if serial_log.is_file():
+            text = serial_log.read_text(errors="replace")
+            lines = text.splitlines()
+            for line in lines[printed:]:
+                if line.startswith(LOG_PREFIXES) or "PANIC" in line or "EXCEPTION" in line:
+                    print(f"  {line}", flush=True)
+            printed = len(lines)
+            if done(text) or any(marker in text for marker in FAIL_MARKERS):
+                return text
+        if proc.poll() is not None:
+            break
+        time.sleep(0.25)
+    if serial_log.is_file():
+        text = serial_log.read_text(errors="replace")
+    return text
+
+
+def stop_qemu(proc: subprocess.Popen, qmp: Qmp | None) -> None:
+    """Quit through QMP so the capture file is closed on the way out."""
+    if qmp is not None:
+        try:
+            qmp.execute("quit")
+        except Exception:
+            pass
+        qmp.close()
+    try:
+        proc.wait(timeout=15)
+    except subprocess.TimeoutExpired:
+        proc.terminate()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+
+
+def qemu_args(args, image: Path, pcap_path: Path, qemu: str) -> list[str]:
+    extra = list(accel_args(args.accel, qemu) or [])
+    if args.machine:
+        extra += ["-machine", args.machine]
+    if args.virtio_disk:
+        extra += [
+            "-drive", f"if=none,id=d0,format=raw,file={image.resolve().as_posix()}",
+            "-device", "virtio-blk-pci,drive=d0,disable-modern=on",
+        ]
+    if args.no_device:
+        extra += ["-nic", "none"]
+    else:
+        # Commas in a path are doubled for QEMU's option parser.
+        path = pcap_path.resolve().as_posix().replace(",", ",,")
+        extra += [
+            "-netdev", "user,id=n0",
+            "-device", "virtio-net-pci,netdev=n0",
+            "-object", f"filter-dump,id=f0,netdev=n0,file={path}",
+        ]
+    return extra
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--image", default=str(ROOT / "target" / "lazyos.img"))
+    parser.add_argument("--out", default="shots/net", help="output dir (serial.log, net.pcap)")
+    parser.add_argument("--qemu", help="path to qemu-system-x86_64")
+    parser.add_argument("--accel", default="auto", choices=["auto", "none", "tcg", "whpx", "kvm"])
+    parser.add_argument("--memory", default="256M")
+    parser.add_argument("--timeout", type=float, default=150.0, help="seconds to wait for the guest")
+    parser.add_argument("--machine", help="QEMU machine type, e.g. q35 (default: i440fx)")
+    parser.add_argument(
+        "--virtio-disk",
+        action="store_true",
+        help="attach the image as legacy virtio-blk instead of IDE (needed on q35, "
+        "which has no IDE controller the kernel drives)",
+    )
+    parser.add_argument("--no-build", action="store_true", help="skip the cargo build")
+    parser.add_argument("--services", action="store_true", help="build with LAZYOS_SERVICES=1 (init supervises netdrv)")
+    parser.add_argument("--no-device", action="store_true", help="boot without a NIC: the driver must say so and idle")
+    parser.add_argument("--poll", action="store_true", help="interrupts off: build with `irq=poll`, expect polling")
+    parser.add_argument("--min-arp-pairs", type=int, default=MIN_ARP_PAIRS)
+    args = parser.parse_args(argv)
+
+    out_dir = Path(args.out) if Path(args.out).is_absolute() else ROOT / args.out
+    out_dir.mkdir(parents=True, exist_ok=True)
+    serial_log = out_dir / "serial.log"
+    pcap_path = out_dir / "net.pcap"
+    for stale in (serial_log, pcap_path):
+        stale.unlink(missing_ok=True)
+
+    image = Path(args.image) if args.no_build else build_image(args.services, args.poll)
+    if not image.is_file():
+        sys.exit(f"image not found: {image}")
+
+    qemu = find_qemu(args.qemu)
+    extra = qemu_args(args, image, pcap_path, qemu)
+    port = free_port()
+    command = build_qemu_command(qemu, None if args.virtio_disk else str(image), port, serial_log, args.memory, extra)
+    print(f"launching: {' '.join(command)}", flush=True)
+    proc = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
+
+    text = ""
+    qmp: Qmp | None = None
+    if args.no_device:
+        done = lambda t: "NETDRV:NODEV" in t  # noqa: E731
+    else:
+        done = lambda t: all(marker in t for marker in PASS_MARKERS)  # noqa: E731
+    try:
+        qmp = Qmp("127.0.0.1", port, min(30.0, args.timeout))
+        text = wait_for_marker(serial_log, proc, args.timeout, done)
+        time.sleep(1.0)  # let the capture see the last frames
+    finally:
+        stop_qemu(proc, qmp)
+
+    if args.no_device:
+        ok = "NETDRV:NODEV" in text and "NET:NIC:FAIL" not in text and "NICCTL:FAIL" not in text
+        print("NET:HARNESS:" + ("PASS (no device: the driver idled cleanly)" if ok else "FAIL"))
+        return 0 if ok else 1
+
+    missing = [marker for marker in PASS_MARKERS if marker not in text]
+    if missing:
+        for line in text.splitlines():
+            if any(marker in line for marker in FAIL_MARKERS):
+                print(line)
+        print(f"NET:HARNESS:FAIL the guest never reported {', '.join(missing)}")
+        return 1
+    # Interrupts: armed lines must have delivered some; `--poll` and an
+    # unroutable line are legitimate polling-only runs and are reported.
+    if args.poll:
+        if "NETDRV:IRQ:POLLING" not in text or "NET:IRQ:PASS" in text:
+            print("NET:HARNESS:FAIL --poll, but the driver did not report polling")
+            return 1
+        print("NET:IRQ:POLLING (forced by --poll)")
+    elif "NETDRV:IRQ:POLLING" in text:
+        print("NET:IRQ:POLLING (line not routable on this machine)")
+    elif "NET:IRQ:PASS" not in text:
+        print("NET:HARNESS:FAIL the interrupt line was armed but the driver saw no interrupt")
+        return 1
+    else:
+        print(next(line for line in text.splitlines() if line.startswith("NET:IRQ:PASS")))
+    if args.services and "NETDRV:CRED uid=902 caps=0x100" not in text:
+        print("NET:HARNESS:FAIL netdrv did not run as _net (uid 902) with only CAP_DEV_CLAIM")
+        return 1
+    print("NET:GUEST:PASS")
+
+    if not pcap_path.is_file():
+        print("NET:HARNESS:FAIL QEMU wrote no capture")
+        return 1
+    try:
+        frames = pcap.read_pcap(pcap_path)
+    except pcap.PcapError as exc:
+        print(f"NET:PCAP:FAIL {exc}")
+        print("NET:HARNESS:FAIL")
+        return 1
+    mac = next((m for m in (line.split("mac=")[1].split()[0] for line in text.splitlines() if line.startswith("NETDRV:CARD") and "mac=" in line)), None)
+    report = analyze_pcap.analyze(
+        frames,
+        guest_mac=pcap.parse_mac(mac or analyze_pcap.DEFAULT_GUEST_MAC),
+        gateway_ip=pcap.parse_ip(analyze_pcap.DEFAULT_GATEWAY),
+        min_arp_pairs=args.min_arp_pairs,
+        expect_probe=True,
+        min_frames=2 * args.min_arp_pairs,
+    )
+    print("\n".join(report.lines))
+    print("NET:HARNESS:" + ("PASS" if report.ok else "FAIL"))
+    return 0 if report.ok else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
