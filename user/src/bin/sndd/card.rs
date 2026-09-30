@@ -170,9 +170,9 @@ impl Card {
         ])?;
         self.claimed.transport.notify(self.control.kick);
         let deadline = sys::clock() + TIMEOUT_TICKS;
-        let written = loop {
+        loop {
             match self.control.vq.pop_used()? {
-                Some(used) if used.head == head => break used.len as usize,
+                Some(used) if used.head == head => break,
                 Some(_) => return Err(Error::Virtio(virtio::Error::DeviceError)),
                 None if sys::clock() >= deadline => {
                     let code = wire::parse_status(request).unwrap_or(0);
@@ -184,10 +184,14 @@ impl Card {
                 }
                 None => self.wait_event(),
             }
-        };
-        // The device's `len` is untrusted: clamp it to the reply buffer.
-        let written = written.min(response_len);
-        let reply = self.core.bytes(CTRL_RESP, written)?.to_vec();
+        }
+        // Read the whole reply buffer, not the length the device put in the
+        // used ring: that length is untrusted, and devices differ in what they
+        // report (QEMU 8.2 counts only the status word for `PCM_INFO` even
+        // though it wrote every record). The buffer was zeroed before the
+        // request, so a device that wrote less leaves zeros, which parse as a
+        // stream with no formats and fail closed in `params::grant`.
+        let reply = self.core.bytes(CTRL_RESP, response_len)?.to_vec();
         match wire::parse_status(&reply) {
             Some(status::OK) => Ok(reply),
             Some(other) => Err(Error::Status(other)),
