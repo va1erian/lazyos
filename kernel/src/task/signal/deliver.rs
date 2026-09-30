@@ -1,6 +1,9 @@
-//! Signal delivery at the user boundary: arming handlers, default actions and the sweep.
+//! Signal delivery at the syscall boundary: arming handlers, default actions
+//! and the frame built on the way out of a Linux syscall. The scheduler-side
+//! boundary (the timer sweep and delivery on resume) is `sweep.rs`.
 
 use super::*;
+use crate::task::trace;
 
 // ---------------------------------------------------------------------------
 // Delivery
@@ -258,6 +261,7 @@ pub(super) fn apply_action(
             let Some(result) = prepare_handler(regs, sig, &armed, false) else {
                 die_with_segv();
             };
+            trace::record_signal(slot, sig, trace::Via::SyscallReturn, regs.rip, regs.rsp);
             regs.rip = result.rip;
             regs.rsp = result.rsp;
             regs.rdi = sig as u64;
@@ -320,137 +324,4 @@ pub fn deliver_linux(result: u64) {
     // `rt_sigsuspend` woke without a handler frame consuming its saved mask (the
     // signal's action ignored it): the original mask comes back now.
     suspend_end_for(pml4, slot);
-}
-
-/// One task the timer sweep ended, to be finished with its side effects after
-/// the task table lock is dropped.
-#[derive(Clone, Copy)]
-pub struct SweepFinish {
-    /// The task that was ended (diagnostics).
-    #[allow(dead_code)]
-    pub slot: usize,
-    /// Its parent, to receive `SIGCHLD` once the table lock is dropped.
-    pub parent: usize,
-    /// The exit status recorded (diagnostics).
-    #[allow(dead_code)]
-    pub status: u64,
-}
-
-pub(super) const NO_FINISH: SweepFinish = SweepFinish {
-    slot: 0,
-    parent: 0,
-    status: 0,
-};
-
-/// Apply default actions and handler frames to every runnable task whose saved
-/// frame is a user frame. Runs on the scheduler's lock, so it mutates the task
-/// table in place and returns the terminations (with their length) for
-/// post-processing after the lock is dropped.
-///
-/// # Safety
-/// `tasks` must be the live task table; each `Task::rsp` must point at an
-/// interrupt frame (the scheduler stores exactly that).
-pub unsafe fn sweep(tasks: &mut [Option<Task>; MAX_TASKS]) -> ([SweepFinish; MAX_TASKS], usize) {
-    let mut finished = [NO_FINISH; MAX_TASKS];
-    let mut finished_len = 0;
-    for slot in 1..MAX_TASKS {
-        let (pml4, kind, rsp) = {
-            let Some(task) = tasks[slot].as_ref() else {
-                continue;
-            };
-            if task.state != TaskState::Runnable {
-                continue;
-            }
-            (task.pml4, task.kind, task.rsp)
-        };
-        // Only a frame saved from ring 3 can take a user handler; a task parked
-        // inside the kernel (woken wait) is delivered by its syscall return.
-        if !frame_is_user(rsp, FRAME_RIP_INDEX) {
-            continue;
-        }
-        while let Some((sig, disposition)) = next_deliverable(pml4) {
-            if disposition == Disposition::Ignore {
-                clear_pending(pml4, sig);
-                continue;
-            }
-            if disposition == Disposition::Default {
-                match default_action(sig) {
-                    DefaultAction::Ignore | DefaultAction::Cont => {
-                        clear_pending(pml4, sig);
-                        continue;
-                    }
-                    DefaultAction::Stop => {
-                        // INVARIANT: `tasks[slot]` was `Some` at the top of
-                        // this iteration (line above) and `tasks` is held
-                        // exclusively for the whole `sweep` call, so the slot
-                        // is still occupied here. Same single-CPU caveat as
-                        // the scheduler unwraps in `task/mod.rs`.
-                        let task = tasks[slot].as_mut().unwrap();
-                        task.state = TaskState::Blocked {
-                            wait: WaitKind::Signal,
-                            deadline: None,
-                        };
-                        task.wake_reason = None;
-                        break;
-                    }
-                    DefaultAction::Term | DefaultAction::Core => {
-                        let status = 128 + sig as u64;
-                        if let Some(parent) = process::finish_locked(tasks, slot, status) {
-                            finished[finished_len] = SweepFinish {
-                                slot,
-                                parent,
-                                status,
-                            };
-                            finished_len += 1;
-                        }
-                        break;
-                    }
-                }
-            }
-            // Handler: rewrite the saved frame in place.
-            let Some(armed) = arm_handler(pml4, slot, sig) else {
-                break;
-            };
-            let mut regs = regs_from_frame(rsp, FRAME_RIP_INDEX);
-            let Some(result) = prepare_handler(&regs, sig, &armed, kind != Kind::Linux) else {
-                // No frame can be built: end the task like an unhandled
-                // `SIGSEGV`, under the table lock this function already holds.
-                let status = 128 + SIGSEGV as u64;
-                if let Some(parent) = process::finish_locked(tasks, slot, status) {
-                    finished[finished_len] = SweepFinish {
-                        slot,
-                        parent,
-                        status,
-                    };
-                    finished_len += 1;
-                }
-                break;
-            };
-            regs.rip = result.rip;
-            regs.rsp = result.rsp;
-            regs.rdi = sig as u64;
-            if kind == Kind::Linux && armed.flags & SA_SIGINFO != 0 {
-                regs.rsi = result.info;
-                regs.rdx = result.ucontext;
-            }
-            apply_regs_to_frame(rsp, &regs, FRAME_RIP_INDEX);
-            break;
-        }
-    }
-    (finished, finished_len)
-}
-
-/// Finish a sweep's terminations: repaint, wake `wait4`, and post `SIGCHLD`.
-/// Must be called with the task table lock released.
-pub fn finish_sweep(finished: &[SweepFinish]) {
-    if finished.is_empty() {
-        return;
-    }
-    NEEDS_REDRAW.store(true, core::sync::atomic::Ordering::Relaxed);
-    for done in finished {
-        if done.parent != KERNEL_TASK && done.parent != 0 {
-            post_sigchld(done.parent);
-        }
-    }
-    crate::task::wait::CHILD_EXIT.notify_all();
 }

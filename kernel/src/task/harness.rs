@@ -150,7 +150,7 @@ pub fn simulate_tick() -> usize {
 /// selection or a context switch (issue #338).
 pub fn on_entry(tick: bool) {
     let mut tasks = TASKS.lock();
-    super::on_entry(&mut tasks, super::current(), tick);
+    super::schedule::on_entry(&mut tasks, super::current(), tick);
 }
 
 /// The PML4 physical address of task `index`.
@@ -167,4 +167,64 @@ pub fn expire_deadlines(now: u64) {
 /// Consume the recorded wake reason, as a wait loop does on resume.
 pub fn take_wake_reason(index: usize) -> Option<WakeReason> {
     super::take_wake_reason(index)
+}
+
+/// Make `slot`'s saved frame look like a task preempted in user mode at
+/// `rip` with stack pointer `user_rsp` (the frame's `CS` already says ring 3
+/// for a spawned task). Returns whether the slot holds a task.
+pub fn set_user_frame(slot: usize, rip: u64, user_rsp: u64) -> bool {
+    let Some(frame) = frame_of(slot) else {
+        return false;
+    };
+    // SAFETY: `frame` is the interrupt frame `spawn_fork` built on the slot's
+    // own kernel stack; RIP and RSP sit at the timer-frame indices.
+    unsafe {
+        super::sys::put_frame_word(frame, super::signal::FRAME_RIP_INDEX, rip);
+        super::sys::put_frame_word(frame, super::signal::FRAME_RIP_INDEX + 3, user_rsp);
+    }
+    true
+}
+
+/// The registers `slot` would resume with, read from its saved frame.
+pub fn frame_regs(slot: usize) -> Option<super::signal::UserRegs> {
+    let frame = frame_of(slot)?;
+    // SAFETY: `frame` is an interrupt frame the kernel saved (see
+    // `set_user_frame`), so it has the timer-frame layout.
+    Some(unsafe { super::signal::regs_from_frame(frame, super::signal::FRAME_RIP_INDEX) })
+}
+
+/// The saved-frame pointer of `slot`.
+fn frame_of(slot: usize) -> Option<u64> {
+    TASKS.lock()[slot].as_ref().map(|task| task.rsp)
+}
+
+/// Run the scheduler's signal sweep once, exactly as a timer tick does with
+/// the installed page table: default actions for every runnable task with a
+/// user frame, handler frames for those in the installed address space, then
+/// the post-lock side effects (`SIGCHLD`, `wait4` wakeups).
+pub fn run_sweep() {
+    let (finished, count) = {
+        let mut tasks = TASKS.lock();
+        // SAFETY: `tasks` is the live table and every `Task::rsp` in it is a
+        // frame the kernel built (`spawn_*`) or saved (the scheduler ISRs).
+        unsafe { super::signal::sweep(&mut tasks, crate::mem::kernel_table().as_u64()) }
+    };
+    super::signal::finish_sweep(&finished[..count]);
+}
+
+/// Deliver to `slot` as the scheduler does when it resumes it: with the
+/// task's own table installed (restored afterwards). Returns whether the
+/// delivery ended the task.
+pub fn resume_delivery(slot: usize) -> bool {
+    let Some(pml4) = pml4(slot) else {
+        return false;
+    };
+    let previous = crate::mem::kernel_table();
+    crate::mem::switch_to(x86_64::PhysAddr::new(pml4));
+    let ended = super::signal::deliver_on_resume(slot);
+    crate::mem::switch_to(previous);
+    if let Some(ended) = ended {
+        super::signal::finish_sweep(&[ended]);
+    }
+    ended.is_some()
 }

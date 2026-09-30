@@ -24,10 +24,13 @@
 //!   the way out of every Linux syscall. It rebuilds the signal frame from the
 //!   context captured at `syscall` entry (plus the syscall result, which is the
 //!   value `rt_sigreturn` must restore when the handler returns).
-//! * [`sweep`] runs from the timer scheduler for tasks whose saved frame is a
+//! * [`sweep`] runs from the scheduler for tasks whose saved frame is a
 //!   user frame, covering native `int 0x80` programs (whose syscall stub is not
 //!   part of this issue's scope) and Linux tasks preempted in user mode. It
-//!   applies default actions and delivers handler frames in place.
+//!   applies default actions to all of them, but writes a handler frame only
+//!   through the installed page table, i.e. for the interrupted task's own
+//!   process; every other task gets its frame from [`deliver_on_resume`] once
+//!   the scheduler has installed its table (issue #375).
 //!
 //! Linux frames follow `struct rt_sigframe` exactly (restorer pointer,
 //! `ucontext_t`, `siginfo_t`); `rt_sigreturn` parses the same layout back.
@@ -48,9 +51,11 @@ mod fault;
 mod frames;
 pub mod harden;
 mod send;
+mod sweep;
 mod types;
 
 pub use fault::{deliver_exception, deliver_fault, Exception};
+pub use sweep::{deliver_on_resume, finish_sweep, sweep};
 
 pub use harden::{die_with_segv, restore_frame};
 pub use send::{kill, send_tid};
@@ -403,7 +408,6 @@ pub mod harness {
     }
 
     /// Number of process entries (leak check for tests).
-    #[allow(dead_code)] // kept for a future registry leak test
     pub fn registry_len() -> usize {
         super::SIGNALS.lock().len()
     }

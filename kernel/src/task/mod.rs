@@ -66,6 +66,7 @@ mod snapshot;
 pub use snapshot::{fd_set_len, prepare_fd_write};
 pub mod switch;
 pub mod sys;
+pub mod trace;
 pub mod wait;
 pub use linux_spawn::{spawn_linux, spawn_linux_args, spawn_linux_child};
 
@@ -80,6 +81,7 @@ pub mod harness;
 mod lifecycle;
 mod memstate;
 mod sched;
+mod schedule;
 mod spawn;
 mod stats;
 mod waiting;
@@ -357,107 +359,4 @@ pub fn set_clear_child_tid(value: u64) {
     if let Some(task) = TASKS.lock()[current()].as_mut() {
         task.clear_child_tid = value;
     }
-}
-
-/// Context switch: called from the scheduler ISRs with the interrupted `rsp`.
-///
-/// `tick` is 1 from the PIT gate and 0 from the voluntary-reschedule gate
-/// ([`switch::yield_now`]). Only a real tick advances the clock, acknowledges
-/// IRQ0 and charges CPU time (issue #338); deadline expiry and selection run
-/// on both paths.
-///
-/// Returns the `rsp` to resume (the next task's saved context).
-#[no_mangle]
-pub extern "C" fn schedule(current_rsp: u64, tick: u32) -> u64 {
-    let tick = tick != 0;
-    if tick {
-        crate::arch::idt::TICKS.fetch_add(1, Ordering::Relaxed);
-        // SAFETY: `tick` is set only by `timer_isr`, i.e. we are in the
-        // IRQ0 handler and the PIC has IRQ0 in service.
-        unsafe { crate::arch::pic::end_of_interrupt(0) };
-    }
-
-    let mut tasks = TASKS.lock();
-    let cur = CURRENT.load(Ordering::Relaxed);
-    if let Some(task) = tasks[cur].as_mut() {
-        task.rsp = current_rsp;
-    }
-    on_entry(&mut tasks, cur, tick);
-
-    // Apply pending signals at the boundary back to user mode: a handler frame
-    // is written into the task's saved interrupt frame, a term/core default
-    // marks the thread group Done. This is what reaches native `int 0x80`
-    // programs, whose syscall stub is outside the signal layer. Terminations
-    // are post-processed once the table lock is dropped.
-    // Safety: every `Task::rsp` is an interrupt frame saved by this ISR.
-    let (sweep_finished, sweep_count) = unsafe { signal::sweep(&mut tasks) };
-
-    // Flag finished parentless tasks for reclamation: a thread or a
-    // kernel-started program has no parent to `wait4` it, so its slot and
-    // address space would otherwise leak (issue #133). The interrupted task is
-    // left for the tick that switches away from it; `reclaim_pending` frees
-    // the flagged slots from task context.
-    for slot in 1..MAX_TASKS {
-        if slot != cur {
-            mark_finished(&tasks, slot);
-        }
-    }
-
-    // Pick the highest class with a runnable task, then the fairest member
-    // within it. A task that is blocked or done is never selected.
-    // `select_next` falls back to `cur` when nothing is runnable at all;
-    // resuming `cur` there just re-enters its wait loop instead of stalling
-    // the CPU.
-    let next = select_next(&mut tasks, cur);
-    if next == cur {
-        drop(tasks);
-        signal::finish_sweep(&sweep_finished[..sweep_count]);
-        return current_rsp;
-    }
-
-    // `cur` fully leaves the CPU on this tick: its finished slot can be
-    // reclaimed too (from task context, on a later syscall or mux iteration).
-    mark_finished(&tasks, cur);
-    CURRENT.store(next, Ordering::Relaxed);
-    // INVARIANT: `select_next` only ever returns an index whose slot is
-    // `Some` (that is its definition of "runnable"), and `tasks` has been
-    // locked continuously since it was called, so the slot cannot have been
-    // cleared in between on today's single-CPU scheduler. Revisit if SMP
-    // (platform-plan.md S8) introduces a window where another core can clear
-    // a slot without holding this same lock across the whole span.
-    let task = tasks[next].as_ref().unwrap();
-    let (pml4, kstack_top, rsp, fs_base) = (task.pml4, task.kstack_top, task.rsp, task.fs_base);
-    drop(tasks);
-    signal::finish_sweep(&sweep_finished[..sweep_count]);
-
-    // Switch address space and the ring0 stack used for the next user trap.
-    mem::switch_to(PhysAddr::new(pml4));
-    if kstack_top != 0 {
-        gdt::set_kernel_stack(kstack_top);
-        crate::arch::linux::set_kernel_stack(kstack_top);
-    }
-    // Restore this task's user thread pointer.
-    crate::arch::msr::write(crate::arch::msr::IA32_FS_BASE, fs_base);
-    rsp
-}
-
-/// Per-entry bookkeeping shared by both scheduler gates (and the test
-/// harness): charge a real tick to the task that consumed it, then time out
-/// waiters whose deadline has passed.
-///
-/// Expiry runs here, on the scheduler's lock, so a timed-out task is runnable
-/// before this entry's selection runs and the wait path needs no separate
-/// timer callback. It also runs on voluntary entries: a deadline that passed
-/// while the CPU was busy is honoured at the next scheduling decision.
-pub(crate) fn on_entry(tasks: &mut [Option<Task>; MAX_TASKS], cur: usize, tick: bool) {
-    if tick {
-        if let Some(task) = tasks[cur].as_mut() {
-            // Charge the tick to the task that consumed it, so `cpu_usage`
-            // reports real per-task CPU time even across ticks without a
-            // switch. Voluntary entries consume no timer period.
-            task.cpu_ticks = task.cpu_ticks.saturating_add(1);
-        }
-    }
-    let now = crate::arch::idt::TICKS.load(Ordering::Relaxed);
-    expire_deadlines(tasks, now);
 }

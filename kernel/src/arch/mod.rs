@@ -2,6 +2,7 @@
 
 pub mod cpu;
 pub mod fault;
+pub mod fault_report;
 pub mod gdt;
 pub mod idt;
 pub mod io;

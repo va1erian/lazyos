@@ -1,0 +1,7 @@
+[
+  {"wait_for": "/ #", "timeout": 240},
+  {"type": "n=0; while [ $n -lt 150 ]; do echo hi | cat | cat | grep -c hi >/dev/null; ls / | wc -l >/dev/null; n=$((n+1)); done; echo STRESS:DONE:$n"},
+  {"key": "enter", "until": "STRESS:DONE:150", "timeout": 900, "retries": 1},
+  {"shot": "01_done"},
+  {"quit": true}
+]
