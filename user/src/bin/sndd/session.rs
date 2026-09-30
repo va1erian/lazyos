@@ -274,9 +274,14 @@ impl Session {
     }
 
     /// Whether the driver should reclaim this stream: the owner has been
-    /// silent for a long time and nothing is left to play.
+    /// silent for a long time and nothing is left to play. A stream that was
+    /// never started has nothing playing even if frames were committed to it
+    /// (`pump` does nothing before `Start`), so those pending frames must not
+    /// keep it alive: otherwise an owner that commits and then dies would hold
+    /// the card (every later `OpenStream` gets `EBUSY`) forever.
     pub(super) fn abandoned(&self) -> bool {
-        let idle = self.committed == self.consumed && !self.stream.has_busy();
+        let idle = self.state == State::Idle
+            || (self.committed == self.consumed && !self.stream.has_busy());
         idle && sys::clock().saturating_sub(self.last_active) > IDLE_RECLAIM_TICKS
     }
 
