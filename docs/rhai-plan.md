@@ -27,9 +27,9 @@ from LazyRAD scripts**, reached through these steps:
 | Step | What | State |
 |---|---|---|
 | R0 | `rhai` command (static musl), `os` module, REPL, `RHAI.ELF` in the image (#319) | done (#326) |
-| Build | `python tools/rhai/run.py` builds `rhai`, BusyBox and the image, boots it and judges the serial markers in one command; `tools/run_demo.py` rebuilds `rhai` before every image | done (this PR) |
-| R3a | `midlc --schema`: every IDL interface as a data table (`libs/rhai-lazy/src/msg/idl.rs`); `msg` module: `msg::connect(interface)`, method sugar (`confd.info()`), `invoke`, one-way sends, structured service errors as catchable Rhai errors; the real `int 0x80` transport (`msg::gate`) | done (this PR) |
-| R3b | Topics: `msg::subscribe`, `msg::publish`, `msg::on(filter, fn)` and `msg::run()`; services written in Rhai (`msg::serve`) | next PR |
+| Build | `python tools/rhai/run.py` builds `rhai`, BusyBox and the image, boots it and judges the serial markers in one command; `tools/run_demo.py` rebuilds `rhai` before every image | done (#450) |
+| R3a | `midlc --schema`: every IDL interface as a data table (`libs/rhai-lazy/src/msg/idl.rs`); `msg` module: `msg::connect(interface)`, method sugar (`confd.info()`), `invoke`, one-way sends, structured service errors as catchable Rhai errors; the real `int 0x80` transport (`msg::gate`) | done (#450) |
+| R3b | Topics: `msg::subscribe`, `msg::publish` (declared payload types; the platform wrapper parcel), `msg::on(filter, fn)`, `msg::run([ms])`, `msg::stop()`; services written in Rhai (`msg::serve`) | done (this PR) |
 | LazyRAD | `msg` inside LazyRAD form scripts: a `Platform` hook in `lazyrad-runtime` that the LazyOS player (`lazyrad-os`) fills with `rhai_lazy::msg::install` | after R3b; needs the LazyRAD P0 branch ([`lazyrad-plan.md`](lazyrad-plan.md)) |
 | R2, R4-R6 | Shell layer, security integration, xui apps, developer experience | later |
 

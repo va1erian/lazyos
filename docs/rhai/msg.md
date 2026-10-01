@@ -67,6 +67,71 @@ confd.invoke("Info");                                   // generic, no arguments
 | enum | the variant name as a string (an `int` index is accepted when sending) |
 | `Handle`, `Buffer` | received as `int` or a map; scripts cannot send them |
 
+## Topics
+
+```rhai
+let s = msg::subscribe("system/confd/changed/sys/#");   // returns a Subscription
+let e = s.next(2000);              // wait up to 2 s; () when nothing arrived
+print(e.topic + " " + e.payload.path);
+msg::publish("demo/rhai/x", "hi");                      // returns how many subscribers it reached
+```
+
+- `msg::subscribe(filter[, #{ qos: "buffered", depth: 16 }])` takes `+` (one
+  segment) and a trailing `#` (the rest). The QoS (`latest`, `buffered`,
+  `conflate`, `reliable`) defaults to the topic's declaration in the IDL, or
+  `buffered` for an undeclared topic. `depth` (1 to 64) applies to `buffered`.
+- `sub.next()` waits up to `msg::timeout()`, and `sub.next(ms)` waits up to
+  `ms` (`0` waits forever). An event is a map with `topic`, `publisher`,
+  `sequence`, `retained`, `payload` and `bytes`. On a reliable subscription,
+  `sub.ack(event.sequence)` retires events, and `sub.close()` unsubscribes.
+- **Payloads.** A topic declared in an IDL file (`topic "..." : Type`) carries
+  that type, so `payload` is a map (or an enum's variant name) and
+  `msg::publish` encodes your map the same way. Any other topic carries bytes:
+  publish a string or blob, and read `payload` as a blob. `bytes` is always
+  the raw payload.
+- `msg::publish(topic, value, retained)` overrides the declared retained flag.
+- On the broker, payloads travel in the same one-field wrapper parcel the
+  native services use (`user/src/central.rs`). That lets a script read
+  `confd`'s change events, and lets native subscribers read a script's events.
+
+## The event loop
+
+Rhai runs one thing at a time, so a script that reacts to the fabric
+registers handlers and then hands control to `msg::run`:
+
+```rhai
+msg::on("demo/#", |e| print(e.topic));                     // subscribe + handler
+msg::on("jobs/#", #{ qos: "reliable" }, |e| process(e));   // acked after the handler returns
+msg::run();          // until msg::stop() is called from a handler
+msg::run(10000);     // or for at most 10 s; returns how many events and calls were handled
+```
+
+An error thrown by a topic handler ends `msg::run` with that error.
+
+## Writing a service in Rhai
+
+```rhai
+msg::serve("demo.rhai", "os.lazy.echo.v1", #{
+    Echo: |text, count| { let r = ""; for i in 0..count { r += text } r },
+    ping: || true,
+});
+msg::run();
+```
+
+- `msg::serve(name, interface, handlers)` registers `name` with the kernel.
+  `msg::serve(interface, handlers)` uses the default name (`os.lazy.echo`).
+  Handler keys are IDL method names in either spelling. A key the interface
+  does not have is an error, so typos are caught.
+- A handler receives the decoded arguments in IDL order. Its return value is
+  the reply: the value itself for one return value, or a map for several.
+- A handler that throws answers with a structured error, which the caller sees
+  as a catchable error. `throw "text"` sends `EIO` with that text.
+  `throw #{ code: 13, message: "denied" }` sends a chosen errno.
+- A call to a method without a handler is answered with `ENOSYS`. One-way
+  methods run their handler and send no reply.
+- Names under `os.lazy.` are reserved for system services. An unlabelled
+  process may register other names, such as `demo.rhai`.
+
 ## Errors
 
 Every failure is an ordinary Rhai error that `try`/`catch` can handle, phrased
@@ -96,8 +161,11 @@ try {
   `messenger-generated` codecs, so the schema codec is cross-checked against
   the compiled one.
 - Guest: `python tools/rhai/run.py --desktop` (or `--msg-only`) boots the
-  desktop and runs `tools/screenshot/examples/rhai_msg.json` in the Terminal:
-  list services, `confd` `Info`, a `Set`/`Get` round trip, the topics broker,
-  a refused call and a missing service.
+  desktop and runs two sessions in the Terminal.
+  `tools/screenshot/examples/rhai_msg.json` covers: list services, `confd`
+  `Info`, a `Set`/`Get` round trip, the topics broker, a refused call and a
+  missing service. `rhai_msg_loop.json` covers: a topic round trip through the
+  broker, a `confd` change event reaching a script, and a service written in
+  Rhai, run in the background, answering another script.
 - Generated table: `python tools/midlc/midlc.py --check --schema
   libs/rhai-lazy/src/msg/idl.rs idl/*.midl` (CI runs it).

@@ -166,6 +166,11 @@ jobs:
             --timeout 300 --script tools/screenshot/examples/rhai_msg.json \
             --fail-on "TERM:(BIND|RUN|SPAWN|PANIC)" --fail-on "TERM:OUT:RHAI:msg:[0-5]$"
           grep -aq "TERM:OUT:RHAI:msg:6" shots/rhai_msg/serial.log
+          # Topics, a confd change event and a service written in Rhai.
+          python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/rhai_msg_loop \
+            --timeout 300 --script tools/screenshot/examples/rhai_msg_loop.json \
+            --fail-on "TERM:(BIND|RUN|SPAWN|PANIC)" --fail-on "TERM:OUT:RHAI:msg2:[0-3]$"
+          grep -aq "TERM:OUT:RHAI:msg2:4" shots/rhai_msg_loop/serial.log
 
       - name: Verify screenshots are non-blank
         if: steps.rhai.outputs.built == 'true'
@@ -173,7 +178,7 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
-          pngs=(shots/rhai/*.png shots/rhai_desktop/*.png shots/rhai_msg/*.png)
+          pngs=(shots/rhai/*.png shots/rhai_desktop/*.png shots/rhai_msg/*.png shots/rhai_msg_loop/*.png)
           [ ${#pngs[@]} -gt 0 ] || { echo "::error::no screenshots captured"; exit 1; }
           python tools/screenshot/pngstats.py "${pngs[@]}" --min-nonblack 0.01 --min-colors 4
 
@@ -191,4 +196,6 @@ jobs:
             shots/rhai_desktop/summary.json
             shots/rhai_msg/*.png
             shots/rhai_msg/serial.log
+            shots/rhai_msg_loop/*.png
+            shots/rhai_msg_loop/serial.log
           if-no-files-found: warn
