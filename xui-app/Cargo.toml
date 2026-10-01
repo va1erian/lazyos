@@ -109,3 +109,7 @@ path = "src/bin/settings.rs"
 [[bin]]
 name = "xui-confd"
 path = "src/bin/confd_editor.rs"
+
+[[bin]]
+name = "xui-installer"
+path = "src/bin/installer.rs"

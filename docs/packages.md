@@ -389,3 +389,43 @@ interfaces the app resolves, `os.lazy.display.v1` and `os.lazy.input.v1`).
   enforced; both are the kernel's current granularity, not the compiler's.
 * An upgrade does not stop running instances; they keep running from memory and
   the next launch uses the new version.
+
+## 8. The installer app
+
+The GUI installer (`xui-installer`, `xui-app/src/bin/installer.rs`) is an
+unprivileged `pkgd` client. It opens on the installed list: one row per app
+(name, version, system name) with a `Remove` button, an "open a package" text
+field and an `Inspect` button (there is no file picker in v1). Opening a `.lzp`
+from Files or the desktop passes its path as the app's argument, so the consent
+screen appears immediately.
+
+The consent screen is the whole point: it shows the package's name, version and
+`Author (unverified)`, its description, the MIME types it handles, and its
+requested permissions **grouped by risk (high first)** with the friendly
+explanation `pkgd` supplied. The install directory and the short archive digest
+are shown too, so the same archive can be recognised later. `Install` forwards
+the user's yes to `pkgd`; `Cancel` (or `Esc`) returns to the list. When
+`PackageInfo.problems` is non-empty the package cannot be installed, so the
+screen lists every problem and offers only `Close`.
+
+Everything the package declares is untrusted: the installer strips control
+characters and elides long names, explanations and problems before showing
+them, and it never treats an `Inspect`/`Install` reply as trusted. A missing
+`pkgd` is a friendly banner, not a crash, and a package is only ever shown as
+installed after `pkgd`'s `Install` reply confirms it.
+
+Keyboard and mouse both reach every action: `Tab` cycles focus, `Enter`
+activates, `Esc` cancels/backs out, and `q` quits from the list. A screenshot
+session can follow the flow from the serial markers, one per line:
+
+```text
+INSTALLER:UP:PASS
+INSTALLER:LIST:PASS count=<n>            INSTALLER:LIST:FAIL <reason>
+INSTALLER:INSPECT:PASS <system_name>     INSTALLER:INSPECT:FAIL <reason>
+INSTALLER:CONSENT:SHOWN perms=<n> problems=<n>
+INSTALLER:INSTALL:PASS <system_name>     INSTALLER:INSTALL:FAIL <reason>
+INSTALLER:REMOVE:PASS <system_name>      INSTALLER:REMOVE:FAIL <reason>
+```
+
+`tools/screenshot/examples/xui_installer.json` waits for `INSTALLER:UP:PASS`,
+captures the list and quits; the install flow is asserted once `pkgd` ships.

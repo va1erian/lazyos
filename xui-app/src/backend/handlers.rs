@@ -174,10 +174,31 @@ impl Backend for LazyOSBackend {
                 painter: None,
             },
         ));
+        // A new node has to reach the screen even when nothing else repaints:
+        // an app that swaps one screen for another builds the new widgets in
+        // one update, and the compositor only refreshes what was damaged.
+        self.dirty.store(true, Ordering::Relaxed);
+        if self.is_client() && spec.visible {
+            if let Some((window, bounds)) = self.absolute_damage(id) {
+                self.add_damage(window, bounds);
+            }
+        }
         Ok(id)
     }
 
     fn destroy(&self, id: WidgetId) {
+        // The pixels the node covered must be repainted by whatever is left
+        // underneath (an app swapping one screen for another relies on it), so
+        // its damage is recorded before the node is forgotten.
+        let damage = if self.is_client() {
+            self.absolute_damage(id)
+        } else {
+            None
+        };
+        self.dirty.store(true, Ordering::Relaxed);
+        if let Some((window, bounds)) = damage {
+            self.add_damage(window, bounds);
+        }
         let mut nodes = self.nodes.borrow_mut();
         nodes.retain(|(node_id, _)| *node_id != id);
         if self.focused.get() == Some(id) {

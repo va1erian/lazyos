@@ -25,6 +25,8 @@ const BUILTIN_TYPES: &[(&str, &str)] = &[
     ("json", "application/json"),
     ("sh", "text/x-shellscript"),
     ("toml", "application/toml"),
+    // Application packages (docs/packages.md); the installer shows consent.
+    ("lzp", "application/x-lazyos-package"),
     ("c", "text/x-c"),
     ("h", "text/x-c"),
 ];

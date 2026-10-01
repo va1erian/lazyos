@@ -75,6 +75,9 @@ BINS = {
     "xui-settings": "xui-settings.elf",
     # The Config app (generic confd registry editor).
     "xui-confd": "xui-confd.elf",
+    # The Installer app (`.lzp` package consent and removal, `docs/packages.md`).
+    # `xui_disk_name` derives the 8.3 name XINSTALL.ELF from this path.
+    "xui-installer": "xui-installer.elf",
 }
 
 

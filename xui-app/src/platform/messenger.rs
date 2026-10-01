@@ -115,6 +115,20 @@ impl Service {
         error_id: u16,
         body: Vec<u8>,
     ) -> Result<Parcel, i64> {
+        self.call_detailed(interface, method, error_id, body)
+            .map_err(|error| error.code)
+    }
+
+    /// [`Service::call`] keeping the service's friendly error text, for a
+    /// caller that shows the refusal to the user (the package installer shows
+    /// why `pkgd` declined).
+    pub fn call_detailed(
+        &self,
+        interface: u64,
+        method: u32,
+        error_id: u16,
+        body: Vec<u8>,
+    ) -> Result<Parcel, CallError> {
         let parcel = Parcel {
             header: Header {
                 version: VERSION,
@@ -138,23 +152,37 @@ impl Service {
                 if code == -errno::EPIPE || code == -errno::ENOENT {
                     forget(self.name);
                 }
-                return Err(code);
+                return Err(CallError {
+                    code,
+                    message: String::new(),
+                });
             }
         };
         match error_field(&reply, error_id) {
-            Some(code) => Err(code),
+            Some(error) => Err(error),
             None => Ok(reply),
         }
     }
 }
 
-/// The structured error code in a reply, when a service refused the call.
-fn error_field(parcel: &Parcel, error_id: u16) -> Option<i64> {
+/// A refused or failed call: the negative errno and, when the service sent
+/// one, its friendly text (empty for a transport failure).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CallError {
+    pub code: i64,
+    pub message: String,
+}
+
+/// The structured error in a reply, when a service refused the call.
+fn error_field(parcel: &Parcel, error_id: u16) -> Option<CallError> {
     let mut decoder = Decoder::new(&parcel.body);
     while let Ok(Some(field)) = decoder.next() {
         if field.kind == Kind::Error && field.id == error_id {
-            let (code, _message) = field.error_parts().ok()?;
-            return Some(-(code as i64));
+            let (code, message) = field.error_parts().ok()?;
+            return Some(CallError {
+                code: -(code as i64),
+                message: message.to_owned(),
+            });
         }
     }
     None

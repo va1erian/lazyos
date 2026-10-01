@@ -1,0 +1,168 @@
+[
+ {
+  "wait_for": "TERM:UP:PASS",
+  "timeout": 240
+ },
+ {
+  "wait": 2.0
+ },
+ {
+  "type": "pkgctl"
+ },
+ {
+  "wait": 0.8
+ },
+ {
+  "type": " open "
+ },
+ {
+  "wait": 0.8
+ },
+ {
+  "type": "/pkgde"
+ },
+ {
+  "wait": 0.8
+ },
+ {
+  "type": "mo.lzp"
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "shot": "01_typed"
+ },
+ {
+  "key": "enter",
+  "until": "INSTALLER:CONSENT:SHOWN",
+  "timeout": 90,
+  "retries": 1
+ },
+ {
+  "wait": 8.0
+ },
+ {
+  "shot": "02_consent"
+ },
+ {
+  "mouse_move": [
+   2000,
+   2000
+  ]
+ },
+ {
+  "wait": 0.3
+ },
+ {
+  "mouse_move": [
+   -716,
+   -139
+  ]
+ },
+ {
+  "wait": 0.5
+ },
+ {
+  "mouse_click": "left",
+  "until": "INSTALLER:INSTALL:",
+  "timeout": 120,
+  "retries": 1
+ },
+ {
+  "wait": 5.0
+ },
+ {
+  "shot": "03_after_install"
+ },
+ {
+  "mouse_move": [
+   2000,
+   2000
+  ]
+ },
+ {
+  "wait": 0.3
+ },
+ {
+  "mouse_move": [
+   -603,
+   -139
+  ]
+ },
+ {
+  "wait": 0.5
+ },
+ {
+  "mouse_click": "left"
+ },
+ {
+  "wait": 4.0
+ },
+ {
+  "shot": "04_list_installed"
+ },
+ {
+  "mouse_move": [
+   2000,
+   2000
+  ]
+ },
+ {
+  "wait": 0.3
+ },
+ {
+  "mouse_move": [
+   -604,
+   -530
+  ]
+ },
+ {
+  "wait": 0.5
+ },
+ {
+  "mouse_click": "left"
+ },
+ {
+  "wait": 4.0
+ },
+ {
+  "shot": "05_confirm_remove"
+ },
+ {
+  "mouse_move": [
+   2000,
+   2000
+  ]
+ },
+ {
+  "wait": 0.3
+ },
+ {
+  "mouse_move": [
+   -716,
+   -139
+  ]
+ },
+ {
+  "wait": 0.5
+ },
+ {
+  "mouse_click": "left",
+  "until": "INSTALLER:REMOVE:",
+  "timeout": 120,
+  "retries": 1
+ },
+ {
+  "wait": 5.0
+ },
+ {
+  "shot": "06_after_remove"
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "quit": true
+ }
+]
