@@ -392,8 +392,9 @@ def main(argv: list[str] | None = None) -> int:
             tcp_streams, udp_datagrams = peers.snapshot()
             peers.close()
         if ftp_server is not None:
-            ftp_commands = list(ftp_server.commands)
-            ftp_transfers = list(ftp_server.transfers)
+            with ftp_server._lock:
+                ftp_commands = list(ftp_server.commands)
+                ftp_transfers = list(ftp_server.transfers)
             ftp_server.close()
 
     if args.no_device:

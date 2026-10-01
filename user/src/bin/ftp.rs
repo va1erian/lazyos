@@ -172,7 +172,7 @@ fn open_transfer(c: &mut Control, verb: &str, argument: Option<&str>) -> Result<
 
 fn cmd_ls(c: &mut Control, args: &[String]) -> Result<(), String> {
     let data = open_transfer(c, "LIST", args.first().map(String::as_str))?;
-    let bytes = drain(&data, MAX_LISTING, |chunk| sys::write(chunk))?;
+    let bytes = drain(&data, MAX_LISTING, sys::write)?;
     drop(data);
     c.finish_transfer()?;
     sys::write_str(&format!("FTP:LS bytes={bytes}\n"));
