@@ -25,6 +25,10 @@ xui-app = { path = "../xui-app" }
 # `fcntl(O_NONBLOCK)` for the player launcher's pipes (already in the graph via
 # `xui-app`).
 libc = "0.2"
+# The same Messenger codec and generated stubs `xui-app` uses; the `pkgd` and
+# `init` clients encode with the stubs, never by hand.
+libmessenger = { path = "../libs/messenger" }
+messenger-generated = { path = "../libs/generated" }
 
 # LazyRAD, from its own repository, `default-features = false` so the `desktop`
 # features (winit, rfd, directories, dark-light, local time) stay off.
@@ -35,6 +39,7 @@ libc = "0.2"
 # and the dev-dependency packager) to the merge commit.
 lazyrad-runtime = { git = "https://github.com/va1erian/lazyrad", rev = "f8e1a2e9ef02121df60927c9ebe7c9a000c85970", default-features = false }
 lazyrad-ide = { git = "https://github.com/va1erian/lazyrad", rev = "f8e1a2e9ef02121df60927c9ebe7c9a000c85970", default-features = false }
+lazyrad-packager = { git = "https://github.com/va1erian/lazyrad", rev = "f8e1a2e9ef02121df60927c9ebe7c9a000c85970", default-features = false }
 lazyrad-player = { git = "https://github.com/va1erian/lazyrad", rev = "f8e1a2e9ef02121df60927c9ebe7c9a000c85970", default-features = false }
 
 [dev-dependencies]
@@ -42,7 +47,6 @@ lazyrad-player = { git = "https://github.com/va1erian/lazyrad", rev = "f8e1a2e9e
 # LazyRAD's packager are re-opened with LazyOS's own reader. `libs/lazypkg` is
 # PR #431; the packager is pinned like the other LazyRAD crates.
 lazypkg = { path = "../libs/lazypkg" }
-lazyrad-packager = { git = "https://github.com/va1erian/lazyrad", rev = "f8e1a2e9ef02121df60927c9ebe7c9a000c85970", default-features = false }
 
 [lib]
 name = "lazyrad_os"
