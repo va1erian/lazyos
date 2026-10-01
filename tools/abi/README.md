@@ -67,6 +67,7 @@ runner isolates one fixture per boot.
 ```bash
 python tools/abi/build.py                 # build fixtures + fetch/build BusyBox (skips if no musl cc)
 python tools/abi/run.py --only hello --at 8
+python tools/abi/run.py --jobs 3          # boot three rows side by side (CI); images still build one at a time
 python tools/abi/coverage.py
 ```
 

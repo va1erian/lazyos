@@ -81,8 +81,17 @@ BINS = {
 }
 
 
-def run(cmd: list[str], env: dict[str, str] | None = None) -> subprocess.CompletedProcess:
-    return subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, env=env)
+def run(
+    cmd: list[str], env: dict[str, str] | None = None, stream: bool = False
+) -> subprocess.CompletedProcess:
+    """Run a tool; stdout is always captured (this script's own stdout is the
+    JSON result). With `stream` its stderr goes straight to ours, so a long
+    cargo build shows its progress (and timing) in a CI log instead of nothing
+    until it ends; `stderr` is then `None` on the result."""
+    return subprocess.run(
+        cmd, cwd=ROOT, stdout=subprocess.PIPE, stderr=None if stream else subprocess.PIPE,
+        text=True, env=env,
+    )
 
 
 def ensure_target() -> bool:
@@ -152,10 +161,9 @@ def build_docs(debug: bool) -> str | None:
     ]
     if not debug:
         cargo.append("--release")
-    build = run(cargo, env=env)
+    build = run(cargo, env=env, stream=True)
     if build.returncode != 0:
         print(f"error: {DOCS_PACKAGE} build failed", file=sys.stderr)
-        print(build.stderr[-2000:], file=sys.stderr)
         raise SystemExit(1)
     source = DOCS_TARGET_DIR / TARGET / ("debug" if debug else "release") / DOCS_PACKAGE
     return str(source) if source.is_file() else None
@@ -202,12 +210,11 @@ def main() -> int:
     ]
     if not args.debug:
         command.append("--release")
-    build = run(command, env=build_env())
+    build = run(command, env=build_env(), stream=True)
     if build.returncode != 0:
         # Only a missing toolchain/target is a skip (handled above); a real
         # compile error must fail CI instead of silently skipping the run.
         print("error: xui app build failed", file=sys.stderr)
-        print(build.stderr[-2000:], file=sys.stderr)
         print(json.dumps(built))
         return 1
 
