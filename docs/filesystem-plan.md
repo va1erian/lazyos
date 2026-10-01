@@ -135,6 +135,17 @@ and passes `python tools/test/run.py --accel none` (see `AGENTS.md`).
 
 - One-shot migration of an existing `data.img`: `/data/home` to `home.img`,
   `/data/confd` to `/conf`, `/data/apps` to `/apps`, `/data/log` to `/logs`.
+  Home directories map by account, not by name:
+  - `/data/home/alice` (uid/gid 1000) becomes `user/` on the home volume.
+    `user` keeps uid/gid 1000, so files keep their owner as stored, and
+    nothing is re-chowned.
+  - Any other `/data/home/<name>` (no such account exists after the rename)
+    goes to `admin/migrated/<name>/`, owners unchanged.
+  - The seeded `data.img` has no `/data/home/root`; do not assume one exists.
+  - Collisions never overwrite: if the target already has an entry of that
+    name, the source entry lands in `<target>/migrated-<unix time>/` instead
+    and the tool reports it.
+  - The source volume is only read, so a failed migration can be re-run.
 - Remove `/data`, the short-name code paths, and `--data-disk`; FAT shrinks to
   a read-only driver for `/boot`.
 - Update `architecture/filesystem.md`, `packages.md`, `AGENTS.md` and the tools'
