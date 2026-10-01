@@ -126,15 +126,24 @@ compositor demo. Target toolkit design: [xui-plan.md](../xui-plan.md).
   window below). `xui-app` turns it into `Event::MouseWheel` for the widget under
   the pointer, one notch being `120` (Windows' `WHEEL_DELTA`, which xui's
   widgets and `xui-litehtml` expect). Horizontal wheels are not reported.
-- **Pointer on the raw bus** ([../usb-hid-plan.md](../usb-hid-plan.md), P0/P1).
+- **Pointer from `inputd`** ([../usb-hid-plan.md](../usb-hid-plan.md), P0-P2).
   Each PS/2 packet is also published on the raw input bus by
   `kernel/src/input/mouse_tap.rs` (`device::PS2_MOUSE`; screen-oriented
   `REL_MOTION`, `BUTTON` edges, an up-positive `SCROLL`), and `inputd` keeps
   the one cursor every pointing device moves (`inputmap::Pointer`). It reports
   `PointerEvent` (absolute position, button mask, wheel) on
-  `os.lazy.input.shell.v1`, but only to a compositor that has called
-  `SetBounds` or `GetPointer`; `xuid` does not yet, so it still takes the
-  pointer from the display stream described above.
+  `os.lazy.input.shell.v1`, but only to a compositor whose `SetBounds` or
+  `GetPointer` succeeded. `xuid` makes both calls when it attaches
+  (`xuid/inputlink.rs`) and turns each event into its usual internal
+  move / wheel / press / release (`xuid/pointer_feed.rs`, boot self-test
+  `XUID:POINTER:PASS`), so hit-testing, drags and the `display.v1` events
+  below are unchanged. While attached it drops the pointer records of the
+  display stream described above and keeps only its keys; if `inputd` dies it
+  releases the buttons it held, uses the display stream again, and takes the
+  pointer back once `inputd` is restarted (`xuid: pointer from inputd` /
+  `xuid: pointer back on the kernel stream`; session
+  `tools/screenshot/examples/xuid_pointer_restart.json`). The added hop costs
+  at most one `inputd` bus poll (2 ticks) over the direct path.
 - **Keyboard focus routing** (issue #151) is mode-independent: a pointer press
   on a focus stop moves the backend focus, `SetFocus`/`KillFocus` reach the
   widgets, and `KeyDown`/`KeyUp`/`Char` target the focused node, not the node
