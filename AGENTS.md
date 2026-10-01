@@ -140,6 +140,7 @@ and reports:
 python tools/test/run.py                 # build + run; writes docs/test/report.md
 python tools/test/run.py --accel none    # force TCG (CI uses auto: KVM when usable)
 python tools/test/run.py --no-build      # re-run the current image
+python tools/test/run.py --ide-disk      # boot from IDE (ATA) instead of the default virtio-blk
 ```
 
 While working on one subsystem, `LAZYOS_TEST_FILTER=<text> python tools/test/run.py
@@ -249,6 +250,8 @@ regressions, not kernel-internal correctness or resource leaks.
   authority, every `unsafe` block minimal with a `// SAFETY:` comment),
   readable and elegant (small single-purpose functions, comments explain why).
   See the "Code standards" section of `README.md`.
+- Well-known paths and boot-volume file names come from `libs/fhs`; never write
+  one as a literal (`python tools/fhs/check_literals.py` enforces it).
 - Keep source files **under 500 lines**; split by responsibility instead of
   growing a file past it. Existing oversized files are tracked in issue #194;
   never make one bigger, extract a module when touching it.

@@ -154,7 +154,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     // can host it (the console shell, `logind`, the desktop Terminal), not to
     // replace the whole session.
     if cfg!(busybox_test) {
-        match fs::read("BUSYBOX") {
+        match fs::read(fhs::boot::BUSYBOX) {
             Some(bytes) => {
                 serial_println!("LazyOS: launching busybox sh (bench)");
                 // `df` and `mount` list what `/proc/mounts` says; with a data
@@ -174,9 +174,9 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
                     Err(err) => serial_println!("ABI:busybox:FAIL:{err}"),
                 }
             }
-            None => serial_println!("ABI:busybox:FAIL:no BUSYBOX on image"),
+            None => serial_println!("ABI:busybox:FAIL:no {} on image", fhs::boot::BUSYBOX),
         }
-    } else if let Some(bytes) = fs::read("INIT.ELF") {
+    } else if let Some(bytes) = fs::read(fhs::boot::INIT_ELF) {
         // The ABI bench's injected fixture owns the boot. Checked before the
         // demo profile so a stray `BUSYBOX` on an image cannot shadow a fixture.
         serial_println!("ABI:INIT:START");
@@ -192,28 +192,28 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         // and the service event log from here on. `SUPER.ELF` (not `INIT.ELF`)
         // keeps the ABI bench's fixture hook above untouched.
         #[cfg(services_mode)]
-        spawn_program("init", "SUPER.ELF");
+        spawn_program("init", fhs::boot::SUPER_ELF);
 
         // With `LAZYOS_MESSENGERCTL=1` too, the fabric tool also boots, so a
         // scripted session can query the new `services`/`health`/`log`
         // commands against the running supervisor (issue #93).
         #[cfg(all(services_mode, messengerctl_demo))]
-        spawn_program("messengerctl", "MSGCTL.ELF");
+        spawn_program("messengerctl", fhs::boot::MSGCTL_ELF);
 
         // Issue #89: `LAZYOS_MESSENGERD=1` starts the registry daemon before
         // the demo programs. It claims the bootstrap channel and serves name
         // requests for the life of the system. The on-disk name is 8.3-safe
         // (`MSGRD.ELF`: the kernel's FAT reader has no long-name support).
         #[cfg(all(messengerd_service, not(services_mode)))]
-        spawn_program("messengerd", "MSGRD.ELF");
+        spawn_program("messengerd", fhs::boot::MSGRD_ELF);
 
         // `LAZYOS_MESSENGERCTL=1` swaps the hello window for the fabric
         // snapshot tool (issue #70); the default demo is unchanged. The file
         // name is 8.3: the kernel FAT reader has no long-name support.
         #[cfg(all(messengerctl_demo, not(services_mode)))]
-        spawn_program("messengerctl", "MSGCTL.ELF");
+        spawn_program("messengerctl", fhs::boot::MSGCTL_ELF);
         #[cfg(all(not(messengerctl_demo), not(services_mode), not(cli_mode)))]
-        spawn_program("hello", "HELLO.ELF");
+        spawn_program("hello", fhs::boot::HELLO_ELF);
         #[cfg(not(services_mode))]
         spawn_console_shell();
 
@@ -258,19 +258,19 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         // registry, so a desktop session runs several of them (Terminal,
         // System Monitor, ...) side by side.
         #[cfg(all(xuid_demo, not(xui_app), not(xui_desktop)))]
-        spawn_program("xuid", "XUID.ELF");
+        spawn_program("xuid", fhs::boot::XUID_ELF);
         #[cfg(all(xuid_demo, not(xui_app), not(xui_desktop)))]
-        spawn_program("xdemo", "XDEMO.ELF");
+        spawn_program("xdemo", fhs::boot::XDEMO_ELF);
         #[cfg(all(xuid_demo, not(xui_app), not(xui_desktop)))]
-        spawn_program("xdemo", "XDEMO.ELF");
+        spawn_program("xdemo", fhs::boot::XDEMO_ELF);
         #[cfg(all(xuid_demo, xui_desktop, not(xui_app)))]
-        spawn_program("xuid", "XUID.ELF");
+        spawn_program("xuid", fhs::boot::XUID_ELF);
         #[cfg(all(xui_app, not(xui_client)))]
-        spawn_linux_program("xapp", "XAPP.ELF");
+        spawn_linux_program("xapp", fhs::boot::XAPP_ELF);
         #[cfg(xui_client)]
-        spawn_program("xuid", "XUID.ELF");
+        spawn_program("xuid", fhs::boot::XUID_ELF);
         #[cfg(xui_client)]
-        spawn_linux_program("xapp", "XAPP.ELF");
+        spawn_linux_program("xapp", fhs::boot::XAPP_ELF);
 
         // Issue #145: the drag & drop demo pair. `dragdemo` is a launcher that
         // starts a drag source and a drop target child, so a scripted session
@@ -281,7 +281,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         // xui app owns the display grant, so the demo skips that image; with
         // 64 task slots (issue #204) it fits next to the services too.
         #[cfg(all(xuid_demo, not(xui_app), not(xui_desktop)))]
-        spawn_program("dragdemo", "DRAGDMO.ELF");
+        spawn_program("dragdemo", fhs::boot::DRAGDMO_ELF);
 
         // Issue #167: the shell-protocol evidence client. The
         // `LAZYOS_SHELLPROBE=1` demo hook keeps the default `xuid` sessions
@@ -289,7 +289,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         // surface, subscribes to the shell events, and logs the
         // `SHELLPROBE:*:PASS` markers.
         #[cfg(all(xuid_demo, shellprobe_demo, not(xui_app), not(xui_desktop)))]
-        spawn_program("shellprobe", "SHELLPRB.ELF");
+        spawn_program("shellprobe", fhs::boot::SHELLPRB_ELF);
     }
 
     let stats = mem::frame_stats();
@@ -348,8 +348,8 @@ fn spawn_program(name: &'static str, path: &str) {
 /// otherwise), so a scripted boot plays the harness's test tone.
 #[cfg(all(sound_demo, not(services_mode)))]
 fn spawn_sound_demo() {
-    let Some(bytes) = fs::read("SNDD.ELF") else {
-        serial_println!("LazyOS: SNDD.ELF not found");
+    let Some(bytes) = fs::read(fhs::boot::SNDD_ELF) else {
+        serial_println!("LazyOS: {} not found", fhs::boot::SNDD_ELF);
         return;
     };
     match task::spawn("sndd", &bytes) {
@@ -375,8 +375,8 @@ fn spawn_net_demo() {
         None if cfg!(netd_demo) => "selftest=1",
         None => "demo=1",
     };
-    let Some(bytes) = fs::read("NETDRV.ELF") else {
-        serial_println!("LazyOS: NETDRV.ELF not found");
+    let Some(bytes) = fs::read(fhs::boot::NETDRV_ELF) else {
+        serial_println!("LazyOS: {} not found", fhs::boot::NETDRV_ELF);
         return;
     };
     match task::spawn("netdrv", &bytes) {
@@ -392,8 +392,8 @@ fn spawn_net_demo() {
 /// hostile-input probe and the soak as real clients.
 #[cfg(all(netd_demo, not(services_mode)))]
 fn spawn_netd_demo() {
-    let Some(bytes) = fs::read("NETD.ELF") else {
-        serial_println!("LazyOS: NETD.ELF not found");
+    let Some(bytes) = fs::read(fhs::boot::NETD_ELF) else {
+        serial_println!("LazyOS: {} not found", fhs::boot::NETD_ELF);
         return;
     };
     match task::spawn("netd", &bytes) {
@@ -425,7 +425,7 @@ fn spawn_linux_program(name: &'static str, path: &str) {
 /// one rather than crashing.
 #[cfg(not(services_mode))]
 fn spawn_console_shell() {
-    match fs::read("BUSYBOX") {
+    match fs::read(fhs::boot::BUSYBOX) {
         Some(bytes) => {
             serial_println!("LazyOS: launching busybox sh");
             match task::spawn_linux_args("sh", &bytes, &["sh"]) {
@@ -434,7 +434,8 @@ fn spawn_console_shell() {
             }
         }
         None => serial_println!(
-            "LazyOS: no BUSYBOX on the image; no console shell (build it with tools/abi/build.py)"
+            "LazyOS: no {} on the image; no console shell (build it with tools/abi/build.py)",
+            fhs::boot::BUSYBOX
         ),
     }
 }

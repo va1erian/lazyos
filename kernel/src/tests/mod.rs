@@ -144,8 +144,10 @@ mod linux_suite;
 mod loader_suite;
 mod mem_suite;
 mod messenger_suite;
+mod mount_suite;
 mod native_exec_suite;
 mod overlay_suite;
+mod partition_suite;
 mod pipe_suite;
 mod preempt_lock_suite;
 mod quota_suite;
@@ -164,6 +166,7 @@ mod task_suite;
 mod timed_suite;
 mod topics_gate_suite;
 mod topics_suite;
+mod virtio_suite;
 mod wallclock_suite;
 
 /// Every suite, run in the order listed. See the module doc for why the
@@ -196,6 +199,9 @@ const SUITE: &[&[(&str, Test)]] = &[
     registry_suite::CASES,
     confd_suite::CASES,
     block_suite::CASES,
+    virtio_suite::CASES,
+    partition_suite::CASES,
+    mount_suite::CASES,
     boot_trace_suite::CASES,
     boot_io_suite::CASES,
     string_io_suite::CASES,

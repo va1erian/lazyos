@@ -11,6 +11,8 @@ license = "GPL-3.0-or-later"
 unused_dependencies = "allow"
 
 [dependencies]
+# Well-known paths and boot-volume names (docs/filesystem-plan.md F0).
+fhs = { path = "../libs/fhs", features = ["alloc"] }
 # The parcel codec, shared with the kernel, so client/server parcels round-trip
 # through one implementation (issue #69).
 libmessenger = { path = "../libs/messenger" }

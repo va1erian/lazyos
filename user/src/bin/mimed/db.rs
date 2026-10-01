@@ -43,7 +43,7 @@ const BUILTIN_NAMES: &[(&str, &str)] = &[
 /// `/etc/mime.types` path (an ext2 volume can carry it); the second is the
 /// 8.3-safe name the FAT boot image ships, because the FAT reader only
 /// resolves short names in the root directory.
-const OVERRIDE_PATHS: &[&str] = &["/etc/mime.types", "MIME.TYP"];
+const OVERRIDE_PATHS: &[&str] = &["/etc/mime.types", fhs::boot::MIME_TYP];
 
 /// Largest override file read at boot.
 pub(crate) const OVERRIDE_BUFFER: usize = 4096;

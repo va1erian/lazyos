@@ -80,6 +80,9 @@ pub(super) fn spawn_program(cmdline_ptr: u64, cred: Option<Cred>, assign_label: 
     let Some(spawn_line::SpawnLine { linux, path, args }) = spawn_line::parse(&line) else {
         return -EINVAL;
     };
+    if fs::mount_flags(path).noexec {
+        return -EACCES;
+    }
     // A Linux program may be a BusyBox applet alias (`sh`, `/bin/ls`), which the
     // Linux loader resolves to the `BUSYBOX` file; a native program is always a
     // real FAT entry.

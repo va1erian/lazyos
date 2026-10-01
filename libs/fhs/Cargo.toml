@@ -1,0 +1,15 @@
+[package]
+name = "fhs"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Every well-known LazyOS path and boot-volume file name, in one place (docs/filesystem-plan.md F0)"
+license = "GPL-3.0-or-later"
+
+[lib]
+name = "fhs"
+path = "src/lib.rs"
+
+[features]
+# `install_path`, for code that already allocates strings.
+alloc = []

@@ -46,6 +46,12 @@ mod pathops;
 mod pipes;
 mod procctl;
 mod procfs;
+
+/// A fabricated `/proc` file's bytes, for the mount suite.
+#[cfg(lazyos_tests)]
+pub fn proc_file_for_test(path: &str) -> Option<alloc::vec::Vec<u8>> {
+    procfs::contents(path)
+}
 mod sendfile;
 mod sig;
 mod socket;

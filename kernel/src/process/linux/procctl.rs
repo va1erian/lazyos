@@ -191,6 +191,9 @@ pub(super) fn sys_execve(path_ptr: u64, argv_ptr: u64, envp_ptr: u64) -> u64 {
     }
 
     let target = resolve_exe(&path);
+    if crate::fs::abi_mount_flags(target).noexec {
+        return fs_err(FsError::Access);
+    }
     // Executables need the execute bit. Applet aliases and paths with no VFS
     // node fall through to `load_file`; root bypasses the check as usual.
     match crate::fs::abi_check(Id::current(), target, vfs::EXECUTE) {

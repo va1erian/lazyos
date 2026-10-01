@@ -182,7 +182,7 @@ pub fn topic(entry: &str) -> Explained {
 }
 
 /// Where per-user data lives; rules inside it are the gentler ones.
-const HOME: &str = "/data/home";
+const HOME: &str = fhs::state::HOME_ROOT;
 
 fn in_home(path: &str) -> bool {
     path == HOME

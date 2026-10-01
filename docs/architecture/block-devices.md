@@ -40,7 +40,7 @@ trait, a fixed registry with a selected boot device, and three drivers.
 | Driver | Transport | Read | Write | Notes |
 |---|---|---|---|---|
 | `ata` | PIO, ports 0x1F0-0x1F7 | yes | no (default `ReadOnly`) | 28-bit LBA, polled, `IDENTIFY DEVICE` for geometry; `IO` mutex serializes |
-| `virtio` | legacy PCI, BAR0 I/O window | yes | yes | per function (up to 4, `virtio0`..`virtio3`): own queue 0 split virtqueue in static memory, one request at a time, 4 KiB bounce page, `is_writable` = attached |
+| `virtio` | legacy PCI, BAR0 I/O window | yes | yes | per function (up to 4, `virtio0`..`virtio3`): own queue 0 split virtqueue in static memory, one request at a time (up to 64 KiB, a descriptor per 4 KiB page of the 16-page bounce region), `is_writable` = attached |
 | `pci` | config mechanism 1 (`kernel/src/dev/pci.rs`) | - | - | enumerate bus/device/function, match vendor/device, decode + size BARs (32/64-bit), command register, capability walk, interrupt line; no MMCONFIG/MSI |
 
 - ATA is read-only because the write path was not needed for the FAT boot image;
@@ -52,9 +52,30 @@ trait, a fixed registry with a selected boot device, and three drivers.
 - Virtio negotiates no feature bits and detects but does not drive modern-only
   devices (`1af4:1042`), which need BAR mapping in the kernel page table (next
   step, `virtio.rs` module docs).
-- DMA buffers must be physically contiguous: virtio copies through a `'static`
-  4 KiB bounce page because the kernel heap maps scattered frames; ATA PIO has
-  no such constraint.
+- DMA buffers need physical addresses: virtio copies through a `'static`
+  bounce region because the kernel heap maps scattered frames, and the request
+  path never assumes that region is physically contiguous. One request is a
+  descriptor chain of the header, one descriptor per 4 KiB page (each address
+  translated with `virt_to_phys` at attach), and the status byte; at most
+  `MAX_REQUEST_BYTES` (64 KiB) per request, one request in flight, polled. A
+  queue too small for the 18-descriptor chain is refused at attach. ATA PIO has
+  no such constraint. The driver is split into `virtio.rs` (request path and
+  device), `virtio/io.rs` (ports and attach) and `virtio/queue.rs` (ring
+  memory and descriptors).
+
+**Partitions (`block/partition.rs`, plan F1).** After the drivers attach,
+`block::init` reads the MBR of every whole disk (not `ram0`, not partitions) and
+registers each entry of type `0x83` or FAT (`01 04 06 0B 0C`) as `<disk>p<n>`,
+1-based like the MBR slot (`virtio0p3`). The table is hostile input: an entry
+must have `sectors > 0`, `lba >= 1` and `lba + sectors <= disk` (checked add);
+overlapping entries are both dropped, extended (`05`, `0F`) and protective
+(`EE`) entries are logged and skipped, and nothing is clamped. `Partition`
+implements `BlockDevice` by delegation: `check_range` against the partition,
+then the offset is added with `checked_add`. Slots are a static pool
+(`MAX_PARTITIONS = 16`, names in static storage), so the registry still holds
+`&'static dyn BlockDevice` with no heap; a full pool or registry is logged.
+`Ext2::open` of a whole disk with a partition table fails on the superblock
+magic and must keep doing so. Tests: `partition_*` in `tests/partition_suite.rs`.
 
 **Ramdisk fallback (#5).** With `LAZYOS_RAMDISK=<fat image>` the build hands
 the image to the bootloader; `kernel_main` registers `BootInfo.ramdisk_*` as

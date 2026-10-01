@@ -8,8 +8,12 @@ use alloc::sync::Arc;
 /// A fresh VFS with ramfs mounted at `/`.
 fn ram_vfs() -> Vfs {
     let mut vfs = Vfs::new();
-    vfs.mount("/", Arc::new(RamFs::new()))
-        .expect("mount ramfs at /");
+    vfs.mount(
+        "/",
+        Arc::new(RamFs::new()),
+        crate::fs::vfs::MountFlags::default(),
+    )
+    .expect("mount ramfs at /");
     vfs
 }
 
@@ -20,7 +24,7 @@ fn fs_error(error: FsError) -> String {
 
 mod attrs;
 mod fat_corruption;
-mod fat_image;
+pub(super) mod fat_image;
 mod fat_lfn;
 mod ramfs_and_permissions;
 mod ramfs_limits;

@@ -12,6 +12,8 @@ license = "GPL-3.0-or-later"
 unused_dependencies = "allow"
 
 [dependencies]
+# Well-known paths and boot-volume names (docs/filesystem-plan.md F0).
+fhs = { path = "../libs/fhs" }
 bootloader_api = "0.11.17"
 # Issue #102: the in-kernel suite runs the crypto wrapper's round-trip and
 # SHARE_ONLY key-isolation checks against the same crate `keyd` links.

@@ -9,7 +9,8 @@ pub fn enospc_limits() -> Result<(), String> {
     let lower = lower_fixture()?;
     let overlay = Arc::new(Overlay::with_limits(lower, 8, 4));
     let mut vfs = Vfs::new();
-    vfs.mount("/", overlay.clone()).map_err(fs_error)?;
+    vfs.mount("/", overlay.clone(), crate::fs::vfs::MountFlags::default())
+        .map_err(fs_error)?;
     let root = Id::ROOT;
     let baseline = overlay.usage();
 

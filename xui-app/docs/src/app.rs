@@ -11,7 +11,7 @@ use std::cell::Cell;
 use std::path::PathBuf;
 use std::rc::Rc;
 
-use xui_app::platform::dialog_fs::LazyFileSystem;
+use xui_core::widget::StdFileSystem;
 use xui_core::app::{App, Ui};
 use xui_core::backend::Result;
 use xui_core::widget::{Button, FileDialog, HasText, Label};
@@ -89,7 +89,7 @@ impl Docs {
         let dialog_open = Rc::new(Cell::new(false));
         let closed = Rc::clone(&dialog_open);
         let open_dialog = FileDialog::open_file(ui, "Open")?
-            .file_system(LazyFileSystem::shared())
+            .file_system(Rc::new(StdFileSystem))
             .initial_dir(START_DIR)
             .filter("Markdown", &["md", "markdown"])
             .filter("All files", &[])

@@ -1,0 +1,13 @@
+# Deliberate path literals outside libs/fhs. One entry per line:
+#   path:reason          the whole file
+#   path:LINE:reason     one line
+# Prefer a constant from libs/fhs; add an entry only when the literal is the
+# thing under test or the build host cannot depend on the crate yet.
+build.rs:image build script on the host, names the files it places on the volume (moves onto libs/fhs with F2)
+build_support/drivers.rs:image build script on the host, names the driver ELFs it embeds (moves onto libs/fhs with F2)
+build_support/lazyrad_embed.rs:image build script on the host, names the lazyrad files it embeds (moves onto libs/fhs with F2)
+build_support/rhai_embed.rs:image build script on the host, names the rhai files it embeds (moves onto libs/fhs with F2)
+user/src/bin/init/selftest.rs:153:test data for launch-argument quoting, not a layout path
+user/src/bin/init/selftest.rs:155:test data for launch-argument quoting, not a layout path
+user/src/bin/mimed/selftest.rs:22:test data for MIME guessing by extension, not a boot file
+xui-app/crates/explorer/src/testing.rs:168:fixture directory name of an in-memory test platform

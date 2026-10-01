@@ -126,6 +126,9 @@ checksum = "3d7b894f5411737b7867f4827955924d7c254fc9f4d91a6aad6b097804b1018b"
 [[package]]
 name = "confd"
 version = "0.1.0"
+dependencies = [
+ "fhs",
+]
 
 [[package]]
 name = "const-random"
@@ -230,6 +233,10 @@ checksum = "1e6853b52649d4ac5c0bd02320cddc5ba956bdb407c4b75a2c6b75bf51500f8c"
 dependencies = [
  "simd-adler32",
 ]
+
+[[package]]
+name = "fhs"
+version = "0.1.0"
 
 [[package]]
 name = "find-msvc-tools"
@@ -1075,6 +1082,7 @@ checksum = "1ebf944e87a7c253233ad6766e082e3cd714b5d03812acc24c318f549614536e"
 name = "xui-app"
 version = "0.1.0"
 dependencies = [
+ "fhs",
  "libc",
  "libmessenger",
  "messenger-generated",

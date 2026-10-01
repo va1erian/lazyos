@@ -37,7 +37,8 @@ fn lower_fixture() -> Result<Arc<RamFs>, String> {
 fn mounted_overlay(lower: Arc<RamFs>) -> Result<(Vfs, Arc<Overlay>), String> {
     let overlay = Arc::new(Overlay::new(lower));
     let mut vfs = Vfs::new();
-    vfs.mount("/", overlay.clone()).map_err(fs_error)?;
+    vfs.mount("/", overlay.clone(), crate::fs::vfs::MountFlags::default())
+        .map_err(fs_error)?;
     Ok((vfs, overlay))
 }
 

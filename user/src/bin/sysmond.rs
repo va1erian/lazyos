@@ -51,7 +51,7 @@ const PUBLISH_TICKS: u64 = 500;
 /// How long the service sleeps between message polls.
 const IDLE_TICKS: u64 = 5;
 /// The evidence program `demo=1` spawns once the first snapshot is retained.
-const DEMO_PROGRAM: &str = "TOP.ELF";
+const DEMO_PROGRAM: &str = fhs::boot::TOP_ELF;
 
 #[no_mangle]
 pub extern "C" fn _start() -> ! {
