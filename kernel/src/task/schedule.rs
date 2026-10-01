@@ -137,13 +137,30 @@ fn install(slot: usize) -> u64 {
 /// while the CPU was busy is honoured at the next scheduling decision.
 pub(crate) fn on_entry(tasks: &mut [Option<Task>; MAX_TASKS], cur: usize, tick: bool) {
     if tick {
-        if let Some(task) = tasks[cur].as_mut() {
-            // Charge the tick to the task that consumed it, so `cpu_usage`
-            // reports real per-task CPU time even across ticks without a
-            // switch. Voluntary entries consume no timer period.
-            task.cpu_ticks = task.cpu_ticks.saturating_add(1);
-        }
+        charge_tick(tasks, cur);
     }
     let now = crate::arch::idt::TICKS.load(Ordering::Relaxed);
     expire_deadlines(tasks, now);
+}
+
+/// Book one timer period to whoever consumed it: the current task when it
+/// was runnable, otherwise the idle counter.
+///
+/// There is no idle task. When nothing is runnable, `pick_next` resumes the
+/// parked task so it can `hlt` in its wait loop, and the CPU sits there with
+/// `CURRENT` pointing at a `Blocked` slot. Charging that slot would make a
+/// sleeping task look busy and every monitor read 100 % load, so a tick that
+/// lands on a blocked task is idle time (`IDLE_TICKS`) instead. Voluntary
+/// entries consume no timer period and are not charged at all.
+pub(crate) fn charge_tick(tasks: &mut [Option<Task>; MAX_TASKS], cur: usize) {
+    match tasks[cur].as_mut() {
+        Some(task) if !matches!(task.state, TaskState::Blocked { .. }) => {
+            // Charge across ticks without a switch too, so `cpu_usage`
+            // reports real per-task CPU time.
+            task.cpu_ticks = task.cpu_ticks.saturating_add(1);
+        }
+        _ => {
+            super::IDLE_TICKS.fetch_add(1, Ordering::Relaxed);
+        }
+    }
 }

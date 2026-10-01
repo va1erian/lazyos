@@ -82,6 +82,8 @@ pub mod op {
     /// Ask the kernel policy engine about every segment of a topic or filter
     /// (issue #92); the daemon uses this on behalf of a requesting client.
     pub const AUTHORIZE_TOPIC: u64 = 17;
+    /// Replace every rule of one label (`CAP_IPC_CONTROL`; see [`super::policy`]).
+    pub const ACL_LOAD: u64 = 18;
 }
 
 /// `MsgArgs::txn_id` marker for registry ops: act on the calling task. A
@@ -134,6 +136,9 @@ pub mod errno {
 /// it each received parcel and the kernel-stamped sender slot, and sends the
 /// returned parcel back as the reply.
 pub mod registry;
+
+/// The kernel policy loader for label-keyed rules (`acl_load`).
+pub mod policy;
 
 // ---------------------------------------------------------------------------
 // Pub/sub topics (issue #92)

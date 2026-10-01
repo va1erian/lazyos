@@ -84,6 +84,7 @@ mod lifecycle;
 mod memstate;
 mod sched;
 mod schedule;
+pub mod slotmask;
 mod spawn;
 mod stats;
 mod waiting;
@@ -104,15 +105,15 @@ pub use fs_base::{set_fs_base, valid_fs_base};
 
 /// Slots: 0 is the kernel (multiplexer), 1.. are user programs/threads.
 ///
-/// 64 is a plain constant, not a design: the table, the kernel stacks
-/// (`KSTACKS`, 2 MiB at this size) and every per-slot registry stay static
+/// 256 is a plain constant, not a design: the table, the kernel stacks
+/// (`KSTACKS`, 8 MiB at this size) and every per-slot registry stay static
 /// arrays, and the snapshot ABIs (`ipc::stats`, `sysinfo`, `task::introspect`)
-/// carry one row per slot, so raising it bumps their versions (issue #204).
-pub const MAX_TASKS: usize = 64;
-const _: () = assert!(
-    MAX_TASKS <= u64::BITS as usize,
-    "PENDING_RECLAIM is a u64 slot mask"
-);
+/// carry one row per slot, so raising it bumps their versions (issue #204 took
+/// it to 64; the application package system to 256, so a few dozen installed
+/// apps and their helpers fit beside the boot services). Slot bitmasks use
+/// [`slotmask::SlotMask`] and large per-slot snapshots live on the heap, since
+/// a kernel stack is only [`KSTACK_SIZE`].
+pub const MAX_TASKS: usize = 256;
 /// Index of the kernel task.
 pub const KERNEL_TASK: usize = 0;
 /// Size of each task's kernel stack.
@@ -137,7 +138,7 @@ static SCHEDULING: AtomicBool = AtomicBool::new(false);
 /// hold that lock (the multiplexer clones window output with interrupts
 /// enabled). `schedule` only sets a bit; [`reclaim_pending`] does the freeing
 /// from a syscall entry or the mux loop, where the current task holds no lock.
-static PENDING_RECLAIM: AtomicU64 = AtomicU64::new(0);
+static PENDING_RECLAIM: slotmask::SlotMask = slotmask::SlotMask::new();
 
 /// Which syscall ABI a task uses.
 #[derive(Clone, Copy, PartialEq)]
@@ -352,6 +353,16 @@ pub fn free_slots() -> usize {
 /// The PIT tick counter (100 Hz). Wait deadlines are absolute tick values.
 pub fn ticks() -> u64 {
     crate::arch::idt::TICKS.load(Ordering::Relaxed)
+}
+
+/// Timer ticks that found the CPU idle: the current task was parked in its
+/// wait loop because nothing was runnable (see `schedule::charge_tick`).
+/// `ticks() - idle_ticks()` is the CPU time charged to tasks.
+pub static IDLE_TICKS: AtomicU64 = AtomicU64::new(0);
+
+/// [`IDLE_TICKS`] as a value.
+pub fn idle_ticks() -> u64 {
+    IDLE_TICKS.load(Ordering::Relaxed)
 }
 
 /// The current task's `clear_child_tid` address.

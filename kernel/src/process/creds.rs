@@ -2,6 +2,8 @@
 
 use super::spawn::spawn_program;
 use super::*;
+use crate::ipc::credentials::LabelStamp;
+use crate::ipc::labels;
 
 /// Error values the credential gate returns; the same x86_64 Linux numbering
 /// the Messenger syscall uses, so userspace handling is uniform.
@@ -21,7 +23,17 @@ pub mod cred_op {
     pub const GET: u64 = 1;
     /// Spawn an ELF with a credential block, stamped before it can run.
     pub const SPAWN: u64 = 2;
+    /// Spawn an ELF labelled with a label string (`a2` points at a seven-word
+    /// block: the credential words, then the label pointer and length).
+    pub const SPAWN_LABELLED: u64 = 3;
+    /// Copy the label string for id `a1` into `a2`, a [`LABEL_BUF_BYTES`]
+    /// buffer: one length word, then the bytes.
+    pub const LABEL_NAME: u64 = 4;
 }
+
+/// Size of the buffer [`cred_op::LABEL_NAME`] fills: an 8-byte length word and
+/// room for the longest label.
+pub const LABEL_BUF_BYTES: usize = 8 + crate::ipc::labels::MAX_LABEL_BYTES;
 
 /// Two's-complement `-errno` in the syscall return register.
 pub(super) fn syscall_error(code: i64) -> u64 {
@@ -34,6 +46,7 @@ pub(super) fn transition_error(error: TransitionError) -> u64 {
         TransitionError::NotPrivileged => EPERM,
         TransitionError::Widening => EACCES,
         TransitionError::BadTarget => ESRCH,
+        TransitionError::LabelLocked => EPERM,
     })
 }
 
@@ -82,14 +95,72 @@ pub(super) fn sys_creds(op: u64, a1: u64, a2: u64) -> u64 {
             if let Err(error) = credentials::check(task::current(), cred) {
                 return transition_error(error);
             }
-            let code = spawn_program(a1, Some(cred));
+            let code = spawn_program(a1, Some(cred), false);
             if code < 0 {
                 syscall_error(-code)
             } else {
                 code as u64
             }
         }
+        cred_op::SPAWN_LABELLED => spawn_labelled(a1, a2),
+        cred_op::LABEL_NAME => label_name(a1, a2),
         _ => syscall_error(EINVAL),
+    }
+}
+
+/// [`cred_op::SPAWN_LABELLED`]: validate the stamp (the label is assigned, not
+/// kept) before a task exists, intern the label, then spawn the child holding
+/// it. Interning is the only side effect of a refused spawn, and it is bounded
+/// by the table capacity.
+fn spawn_labelled(cmdline_ptr: u64, block_ptr: u64) -> u64 {
+    let Some((mut cred, label)) = credio::read_labelled(block_ptr) else {
+        return syscall_error(EFAULT);
+    };
+    let actor = task::current();
+    // Privilege first: an unprivileged caller must not learn anything about
+    // the label table (full, duplicate) through the error it gets back.
+    if let Err(error) = credentials::check_stamp(
+        actor,
+        LabelStamp::Keep { current: 0 },
+        Cred {
+            label_id: 0,
+            ..cred
+        },
+    ) {
+        return transition_error(error);
+    }
+    let Ok(id) = labels::intern(&label) else {
+        return syscall_error(EINVAL);
+    };
+    cred.label_id = id;
+    if let Err(error) = credentials::check_stamp(actor, LabelStamp::Assign, cred) {
+        return transition_error(error);
+    }
+    let code = spawn_program(cmdline_ptr, Some(cred), true);
+    if code < 0 {
+        syscall_error(-code)
+    } else {
+        code as u64
+    }
+}
+
+/// [`cred_op::LABEL_NAME`]: copy a label string out to the caller.
+fn label_name(id: u64, buf: u64) -> u64 {
+    let Ok(id) = u32::try_from(id) else {
+        return syscall_error(EINVAL);
+    };
+    let name = match labels::read_name(task::current(), id) {
+        Ok(Some(name)) => name,
+        Ok(None) => return syscall_error(ENOENT),
+        Err(error) => return transition_error(error),
+    };
+    let mut block = [0u8; LABEL_BUF_BYTES];
+    block[..8].copy_from_slice(&(name.len() as u64).to_le_bytes());
+    block[8..8 + name.len()].copy_from_slice(name.as_bytes());
+    if buf != 0 && user_ptr::try_copy_to(buf, &block).is_ok() {
+        0
+    } else {
+        syscall_error(EFAULT)
     }
 }
 

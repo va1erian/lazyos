@@ -69,6 +69,57 @@ pub fn yield_does_not_tick() -> Result<(), String> {
     Ok(())
 }
 
+/// A tick that lands on a parked task is idle time, not CPU time. There is
+/// no idle task: when nothing is runnable the parked task stays current
+/// while the CPU halts, so charging it would make a quiet system read 100 %
+/// busy. Soaks both directions (blocked, then runnable again) many times so
+/// the counters are shown to move in lock-step with the state, never both.
+pub fn tick_on_parked_task_is_idle() -> Result<(), String> {
+    fresh();
+    const TICKS: u64 = 10_000;
+    let me = task::KERNEL_TASK;
+    let (cpu_parked, idle_parked, cpu_running, idle_running, cpu_start, idle_start) =
+        with_irqs_off(|| {
+            let cpu_start = task::cpu_ticks(me);
+            let idle_start = task::idle_ticks();
+            task::set_blocked(true);
+            for _ in 0..TICKS {
+                task::harness::on_entry(true);
+            }
+            let parked = (task::cpu_ticks(me), task::idle_ticks());
+            task::set_blocked(false);
+            for _ in 0..TICKS {
+                task::harness::on_entry(true);
+            }
+            let running = (task::cpu_ticks(me), task::idle_ticks());
+            // Simulated ticks never advanced uptime: put the idle counter
+            // back so it stays a share of `ticks()` for the sysinfo checks.
+            task::IDLE_TICKS.store(idle_start, core::sync::atomic::Ordering::Relaxed);
+            (
+                parked.0, parked.1, running.0, running.1, cpu_start, idle_start,
+            )
+        });
+    check!(
+        cpu_parked == cpu_start,
+        "{TICKS} ticks on a parked task charged it CPU time {cpu_start} -> {cpu_parked}"
+    );
+    check!(
+        idle_parked == idle_start + TICKS,
+        "{TICKS} ticks on a parked task moved IDLE_TICKS {idle_start} -> {idle_parked}"
+    );
+    check!(
+        cpu_running == cpu_parked + TICKS,
+        "{TICKS} ticks on a runnable task charged {} instead of {TICKS}",
+        cpu_running - cpu_parked
+    );
+    check!(
+        idle_running == idle_parked,
+        "ticks on a runnable task moved IDLE_TICKS {idle_parked} -> {idle_running}"
+    );
+    task::harness::reset();
+    Ok(())
+}
+
 /// Parks whose deadline has already passed return `TimedOut` through the
 /// voluntary path alone: expiry runs on every scheduler entry, so the
 /// waiter needs no PIT tick, and the parks still leave `TICKS` unchanged.

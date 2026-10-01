@@ -19,6 +19,7 @@ libfuzzer-sys = "0.4"
 framering = { path = "../libs/framering", features = ["fuzz"] }
 virtio-net = { path = "../libs/virtio-net", features = ["fuzz"] }
 nicdrv = { path = "../libs/nicdrv", features = ["fuzz"] }
+lazypkg = { path = "../libs/lazypkg", features = ["fuzz"] }
 netstack = { path = "../libs/netstack", features = ["fuzz"] }
 
 [workspace]
@@ -54,6 +55,13 @@ bench = false
 [[bin]]
 name = "virtio_net"
 path = "fuzz_targets/virtio_net.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "lazypkg"
+path = "fuzz_targets/lazypkg.rs"
 test = false
 doc = false
 bench = false

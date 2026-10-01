@@ -6,10 +6,10 @@ use crate::sys::{self, msg_op, MsgArgs, MsgResult};
 use super::error::{E2BIG, EINVAL};
 
 /// Task slots in the per-slot arrays; mirrors `kernel::task::MAX_TASKS`.
-pub const FABRIC_TASKS: usize = 64;
+pub const FABRIC_TASKS: usize = 256;
 
-/// Bytes in the version-3 `FabricStats` block: 22 scalar words, 64 per-task
-/// handle words, 8 ACL/audit words, and 64 four-word task rows.
+/// Bytes in the version-4 `FabricStats` block: 22 scalar words, 256 per-task
+/// handle words, 8 ACL/audit words, and 256 four-word task rows.
 pub const FABRIC_STATS_SIZE: usize = (22 + FABRIC_TASKS + 8 + FABRIC_TASKS * 4) * 8;
 
 /// Per-slot usage row of a [`FabricStats`] snapshot.
@@ -25,11 +25,12 @@ pub struct TaskUsage {
     pub buffer_bytes: u64,
 }
 
-/// The versioned fabric snapshot (stats ABI v3): channels, messages, buffers,
+/// The versioned fabric snapshot (stats ABI v4): channels, messages, buffers,
 /// handles, fences, ACL/audit state, and per-slot usage in one block.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct FabricStats {
-    /// ABI version; the kernel writes version 3 for a big-enough buffer.
+    /// ABI version; the kernel writes version 4 for a big-enough buffer, and
+    /// this mirror decodes exactly that layout (see [`FabricStats::VERSION`]).
     pub version: u64,
     /// Kernel-side services registered with the fabric.
     pub services: u64,
@@ -126,11 +127,13 @@ impl Default for FabricStats {
 }
 
 impl FabricStats {
-    /// The ABI version this mirror understands (3: 64 per-slot rows, #204).
-    pub const VERSION: u64 = 3;
+    /// The ABI version this mirror understands (4: 256 per-slot rows; 3 had 64, #204).
+    pub const VERSION: u64 = 4;
 
     /// Decode the little-endian word stream written by the `stats` op. `None`
-    /// when the length is wrong or the version is newer than this mirror.
+    /// when the length is wrong or the version is not exactly this mirror's:
+    /// an older stream has fewer rows, so its ACL and task words sit at other
+    /// offsets and must not be read with this layout.
     pub fn from_bytes(bytes: &[u8]) -> Option<FabricStats> {
         if bytes.len() != FABRIC_STATS_SIZE {
             return None;
@@ -181,7 +184,7 @@ impl FabricStats {
             audit_total: word(acl + 6)?,
             tasks,
         };
-        if stats.version > Self::VERSION {
+        if stats.version != Self::VERSION {
             return None;
         }
         Some(stats)

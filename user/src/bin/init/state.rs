@@ -43,17 +43,19 @@ pub(super) const AUTOSTART_STAGGER: u64 = 40;
 /// Autostart retries per app while the task table is full.
 pub(super) const AUTOSTART_ATTEMPTS: u64 = 40;
 /// Launched rows one session may hold reserved at once (issue #177). The
-/// boot manifest's own services already run the task table
-/// (`kernel/src/task/mod.rs`'s `MAX_TASKS`) close to full for the life of the
-/// boot, so the cap is a small fixed number rather than derived from the
-/// live table: it must hold room for supervised restarts and new logins even
-/// when nothing else has freed a slot yet. A row still reserves its slot
+/// cap is a fixed number, not derived from the live task table
+/// (`kernel/src/task/mod.rs`'s `MAX_TASKS`): it stops one session looping
+/// `launch` until the table is full and supervised restarts and new logins
+/// starve. The application package system raised both to 256 so a session can
+/// hold many installed apps; the boot services and other sessions share the
+/// same 256 slots, so the kernel table, not this cap, is what runs out first
+/// when several sessions are busy. A row still reserves its slot
 /// while `Restarting`: [`spawn_service`] respawns it from the main loop's
 /// backoff sweep, not through [`launch`], so a crashed row that stopped
 /// counting here could let a session accumulate more rows than the cap once
 /// they all came back up. [`running_in_session`] counts every phase that
 /// currently holds or will reclaim a slot without another cap check.
-pub(super) const LAUNCH_CAP_PER_SESSION: usize = 2;
+pub(super) const LAUNCH_CAP_PER_SESSION: usize = 256;
 
 /// The `sndd` driver's identity (docs/driver-plan.md D3): a dedicated system
 /// uid holding only `CAP_DEV_CLAIM`, so a compromised driver has the device it
