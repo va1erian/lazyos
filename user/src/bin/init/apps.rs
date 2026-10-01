@@ -168,6 +168,9 @@ pub static APPS: &[AppSpec] = &[
     xui_app("widget", "CPU & Memory", "XWIDGET.ELF"),
     xui_app("counter", "Counter", "XCOUNTR.ELF"),
     xui_app_verbs("docs", "Docs", "XDOCS.ELF", &["open", "view"]),
+    // The LazyRAD IDE (`LAZYOS_LAZYRAD=1` embeds it and lists it in
+    // `XAPPS.LST`); apps it builds are installed packages, not rows here.
+    xui_app("lazyrad", "LazyRAD", "LAZYRAD.ELF"),
     // The package installer (docs/packages.md section 8); `mimed` routes
     // `application/x-lazyos-package` to it, so opening a `.lzp` shows consent.
     xui_app_verbs(

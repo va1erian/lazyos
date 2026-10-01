@@ -259,6 +259,18 @@ regressions, not kernel-internal correctness or resource leaks.
   for a service, topic, or capability interface, and no copying a protocol into
   another crate by hand. Touching a legacy hand-rolled protocol means migrating
   it to MIDL, or at minimum not extending it by hand.
+- **Every application must be launchable from both front ends**: the Python
+  GUI launcher (`python tools/lazyos_gui.py`, `tools/lazygui/`) and the CLI
+  (`python tools/run_demo.py`). A new app or optional image feature is not done
+  until it has (a) a build switch the image build understands (an env var in
+  `build.rs`/`build_support/`, e.g. `LAZYOS_LAZYRAD=1`), (b) a `run_demo.py`
+  flag that builds its artifacts and sets that switch, (c) a control in the GUI
+  (the Simple tab for what a normal user wants, the Advanced tab for the raw
+  switch) wired through `tools/lazygui/catalog.py` (`build_env`, `build_plan`)
+  with tests in `tools/lazygui/test_catalog.py`, and (d) for a desktop app, an
+  `init` registry row (`user/src/bin/init/apps.rs`) plus an `XAPPS.LST` line so
+  Settings -> Menu offers it. Verify it by starting it through the launcher or
+  `run_demo.py`, not only by hand-built env vars.
 - Prefer verifying with the existing scripts over ad-hoc commands so results are
   comparable across runs.
 
