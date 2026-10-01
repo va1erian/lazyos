@@ -2244,6 +2244,8 @@ pub mod os_lazy_display_v1 {
     pub const ROLE_WINDOW: u32 = 0;
     /// `Role::Desktop` wire value.
     pub const ROLE_DESKTOP: u32 = 1;
+    /// `Role::Panel` wire value.
+    pub const ROLE_PANEL: u32 = 2;
 
     /// `Change::Unspecified` wire value.
     pub const CHANGE_UNSPECIFIED: u32 = 0;
@@ -2453,6 +2455,20 @@ pub mod os_lazy_display_v1 {
     pub const METHOD_REQUESTSIZE: u32 = 34;
     /// `Ping` method id.
     pub const METHOD_PING: u32 = 35;
+    /// `PlaceSurface` method id.
+    pub const METHOD_PLACESURFACE: u32 = 36;
+    /// `ActivateSurface` method id.
+    pub const METHOD_ACTIVATESURFACE: u32 = 37;
+    /// `MinimizeSurface` method id.
+    pub const METHOD_MINIMIZESURFACE: u32 = 38;
+    /// `SetWorkArea` method id.
+    pub const METHOD_SETWORKAREA: u32 = 39;
+    /// `SetIconGeometry` method id.
+    pub const METHOD_SETICONGEOMETRY: u32 = 40;
+    /// `HintLaunchOrigin` method id.
+    pub const METHOD_HINTLAUNCHORIGIN: u32 = 41;
+    /// `Dismiss` method id.
+    pub const METHOD_DISMISS: u32 = 42;
 
     /// Create a surface of `width` x `height` pixels titled `title`. `role` is
     /// a `Role` value: a decorated window (also the meaning of an absent
@@ -2962,8 +2978,9 @@ pub mod os_lazy_display_v1 {
         Ok(out)
     }
 
-    /// Every surface in z-order (bottom first), including the desktop.
-    /// Compositor-privileged.
+    /// Every surface in z-order (bottom first), including the desktop and
+    /// panels. Shell-only (the `shell` subscriber's task, uid 0 or
+    /// `CAP_SETUID`).
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct ListSurfacesReply {
         pub surfaces: alloc::vec::Vec<SurfaceRow>,
@@ -2993,8 +3010,9 @@ pub mod os_lazy_display_v1 {
         Ok(out)
     }
 
-    /// The rectangle available to windows: the whole screen when a shell is
-    /// subscribed, otherwise the screen minus the fallback taskbar strip.
+    /// The rectangle available to windows: what the shell set with
+    /// `SetWorkArea`, or the whole screen (xuid paints no desktop UI of its
+    /// own since issue #157).
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct GetWorkAreaReply {
         pub x: i32,
@@ -3035,10 +3053,17 @@ pub mod os_lazy_display_v1 {
         Ok(out)
     }
 
-    /// Register this task as the shell subscriber under `subscriber_role`;
-    /// the parcel transfers the event endpoint for the shell events. The role
-    /// `shell` (privileged) also hides the built-in taskbar. Registering again
-    /// replaces the previous endpoint.
+    /// Register this task as a subscriber under `subscriber_role`; the parcel
+    /// transfers the event endpoint for the shell events. The role `shell`
+    /// makes the task *the* shell (it may then create desktop and panel
+    /// surfaces and call the shell-only methods). It is accepted from uid 0 or
+    /// `CAP_SETUID`, or from a task in the session that owns the display: the
+    /// first session whose task subscribed as `shell` (kernel-stamped
+    /// `cred.session`, never session 0). A shell from that same session (a
+    /// restart) replaces the previous one. Any other role is an observer slot
+    /// that requires uid 0 or `CAP_SETUID` and never replaces the shell
+    /// (issue #447). Registering again replaces the caller's previous
+    /// endpoint.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct SubscribeArgs {
         pub subscriber_role: alloc::string::String,
@@ -3666,6 +3691,234 @@ pub mod os_lazy_display_v1 {
                 }
                 3 => {
                     out.height = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Move a `Panel` surface so its top-left corner is at screen `(x, y)`.
+    /// Only the surface's creator may call it (`EACCES`), only for a panel
+    /// (`EINVAL` for any other role; `ENOENT` for an unknown surface). The
+    /// position is clamped so the panel stays on screen. A new panel opens at
+    /// `(0, 0)`, so a shell places it before its first `Commit`.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct PlaceSurfaceArgs {
+        pub surface: u64,
+        pub x: i32,
+        pub y: i32,
+    }
+
+    pub fn encode_place_surface_args(value: &PlaceSurfaceArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.surface)?;
+        target.i32(2, value.x)?;
+        target.i32(3, value.y)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_place_surface_args(body: &[u8]) -> Result<PlaceSurfaceArgs, Error> {
+        let mut out = PlaceSurfaceArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.surface = field.as_u64()?;
+                }
+                2 => {
+                    out.x = field.as_i32()?;
+                }
+                3 => {
+                    out.y = field.as_i32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Shell-only: restore `surface` if minimized, raise it and give it focus
+    /// (a taskbar entry click). `ENOENT` for an unknown surface, `EINVAL` for
+    /// a desktop or panel.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ActivateSurfaceArgs {
+        pub surface: u64,
+    }
+
+    pub fn encode_activate_surface_args(value: &ActivateSurfaceArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.surface)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_activate_surface_args(body: &[u8]) -> Result<ActivateSurfaceArgs, Error> {
+        let mut out = ActivateSurfaceArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.surface = field.as_u64()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Shell-only: minimize `surface` (a click on the focused taskbar entry).
+    /// The zoom animation flies to the rectangle `SetIconGeometry` gave for
+    /// it. `ENOENT` for an unknown surface, `EINVAL` for a desktop or panel.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct MinimizeSurfaceArgs {
+        pub surface: u64,
+    }
+
+    pub fn encode_minimize_surface_args(value: &MinimizeSurfaceArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.surface)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_minimize_surface_args(body: &[u8]) -> Result<MinimizeSurfaceArgs, Error> {
+        let mut out = MinimizeSurfaceArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.surface = field.as_u64()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Shell-only: the rectangle windows may occupy (the screen minus the
+    /// shell's taskbar). Clamped to the screen; an empty result is `EINVAL`.
+    /// Maximized windows are re-fitted to it. When the shell goes away the
+    /// work area returns to the whole screen.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct SetWorkAreaArgs {
+        pub x: i32,
+        pub y: i32,
+        pub w: i32,
+        pub h: i32,
+    }
+
+    pub fn encode_set_work_area_args(value: &SetWorkAreaArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.i32(1, value.x)?;
+        target.i32(2, value.y)?;
+        target.i32(3, value.w)?;
+        target.i32(4, value.h)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_set_work_area_args(body: &[u8]) -> Result<SetWorkAreaArgs, Error> {
+        let mut out = SetWorkAreaArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.x = field.as_i32()?;
+                }
+                2 => {
+                    out.y = field.as_i32()?;
+                }
+                3 => {
+                    out.w = field.as_i32()?;
+                }
+                4 => {
+                    out.h = field.as_i32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Shell-only: where `surface`'s taskbar entry is on screen, so the
+    /// minimize/restore zoom flies to and from it. A window without one zooms
+    /// to a small rectangle at the bottom-left of the screen. `ENOENT` for an
+    /// unknown surface; an empty rectangle forgets the geometry.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct SetIconGeometryArgs {
+        pub surface: u64,
+        pub x: i32,
+        pub y: i32,
+        pub w: i32,
+        pub h: i32,
+    }
+
+    pub fn encode_set_icon_geometry_args(value: &SetIconGeometryArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.surface)?;
+        target.i32(2, value.x)?;
+        target.i32(3, value.y)?;
+        target.i32(4, value.w)?;
+        target.i32(5, value.h)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_set_icon_geometry_args(body: &[u8]) -> Result<SetIconGeometryArgs, Error> {
+        let mut out = SetIconGeometryArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.surface = field.as_u64()?;
+                }
+                2 => {
+                    out.x = field.as_i32()?;
+                }
+                3 => {
+                    out.y = field.as_i32()?;
+                }
+                4 => {
+                    out.w = field.as_i32()?;
+                }
+                5 => {
+                    out.h = field.as_i32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Shell-only: the next window *any* task creates within about two seconds
+    /// zooms open from this screen rectangle (the start-menu row or desktop
+    /// icon the user just activated) instead of from its taskbar entry. The
+    /// shell sends it right before asking `init` to launch an app. A task's
+    /// own `HintOpenOrigin` wins over it. An empty rectangle is ignored.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct HintLaunchOriginArgs {
+        pub x: i32,
+        pub y: i32,
+        pub w: u32,
+        pub h: u32,
+    }
+
+    pub fn encode_hint_launch_origin_args(value: &HintLaunchOriginArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.i32(1, value.x)?;
+        target.i32(2, value.y)?;
+        target.u32(3, value.w)?;
+        target.u32(4, value.h)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_hint_launch_origin_args(body: &[u8]) -> Result<HintLaunchOriginArgs, Error> {
+        let mut out = HintLaunchOriginArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.x = field.as_i32()?;
+                }
+                2 => {
+                    out.y = field.as_i32()?;
+                }
+                3 => {
+                    out.w = field.as_u32()?;
+                }
+                4 => {
+                    out.h = field.as_u32()?;
                 }
                 _ => {}
             }
@@ -9994,6 +10247,315 @@ pub mod os_lazy_messenger_registry_v1 {
                 while let Some(item) = nested.next()? {
                     out.entries.push(decode_entry(item.payload)?);
                 }
+            }
+        }
+        Ok(out)
+    }
+}
+
+/// `os.lazy.shell.v1` (interface id `0x591939ff6e05f1c8`).
+#[rustfmt::skip]
+pub mod os_lazy_shell_v1 {
+    use alloc::vec::Vec;
+    #[allow(unused_imports)]
+    use alloc::string::String;
+    // Not every interface needs every codec item (`Kind` is only used by nested values).
+    #[allow(unused_imports)]
+    use libmessenger::{Decoder, Encoder, Error, Kind};
+    // Only interfaces that declare topics use the shared topic runtime.
+    #[allow(unused_imports)]
+    use super::topics;
+
+    /// The interface id: the FNV-1a hash of the `.vN` interface name.
+    pub const INTERFACE_ID: u64 = 0x591939ff6e05f1c8;
+
+    /// One taskbar entry.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct TaskbarEntry {
+        pub surface: u64,
+        pub title: alloc::string::String,
+        pub minimized: bool,
+    }
+
+    pub fn encode_taskbar_entry(value: &TaskbarEntry) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.surface)?;
+        target.string(2, &value.title)?;
+        target.bool(3, value.minimized)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_taskbar_entry(body: &[u8]) -> Result<TaskbarEntry, Error> {
+        let mut out = TaskbarEntry::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.surface = field.as_u64()?;
+                }
+                2 => {
+                    out.title = field.as_str()?.into();
+                }
+                3 => {
+                    out.minimized = field.as_bool()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// The compositor's surface id.
+    /// The window title.
+    /// Whether the window is minimized.
+    /// One start-menu row or desktop icon: the `init` registry app it
+    /// launches and the label it shows.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct Launcher {
+        pub app: alloc::string::String,
+        pub label: alloc::string::String,
+    }
+
+    pub fn encode_launcher(value: &Launcher) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.app)?;
+        target.string(2, &value.label)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_launcher(body: &[u8]) -> Result<Launcher, Error> {
+        let mut out = Launcher::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.app = field.as_str()?.into();
+                }
+                2 => {
+                    out.label = field.as_str()?.into();
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// `Status` method id.
+    pub const METHOD_STATUS: u32 = 1;
+    /// `ShowStartMenu` method id.
+    pub const METHOD_SHOWSTARTMENU: u32 = 2;
+    /// `Launch` method id.
+    pub const METHOD_LAUNCH: u32 = 3;
+    /// `Refresh` method id.
+    pub const METHOD_REFRESH: u32 = 4;
+    /// `Activate` method id.
+    pub const METHOD_ACTIVATE: u32 = 5;
+
+    /// What the shell shows right now: the taskbar's window entries (in
+    /// taskbar order), the focused window, whether the start menu is open, the
+    /// start-menu rows and the desktop icons.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct StatusReply {
+        pub windows: alloc::vec::Vec<TaskbarEntry>,
+        pub focused: core::option::Option<u64>,
+        pub menu_open: bool,
+        pub menu: alloc::vec::Vec<Launcher>,
+        pub desktop: alloc::vec::Vec<Launcher>,
+    }
+
+    pub fn encode_status_reply(value: &StatusReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        let mut nested = Encoder::new();
+        for item in &value.windows {
+            nested.raw(Kind::Struct, 1, &encode_taskbar_entry(item)?)?;
+        }
+        target.array(1, &nested)?;
+        match &value.focused {
+            Some(item) => {
+                let mut nested = Encoder::new();
+                nested.u64(1, *item)?;
+                target.option(2, Some(&nested))?;
+            }
+            None => {
+                target.option(2, None)?;
+            }
+        }
+        target.bool(3, value.menu_open)?;
+        let mut nested = Encoder::new();
+        for item in &value.menu {
+            nested.raw(Kind::Struct, 1, &encode_launcher(item)?)?;
+        }
+        target.array(4, &nested)?;
+        let mut nested = Encoder::new();
+        for item in &value.desktop {
+            nested.raw(Kind::Struct, 1, &encode_launcher(item)?)?;
+        }
+        target.array(5, &nested)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_status_reply(body: &[u8]) -> Result<StatusReply, Error> {
+        let mut out = StatusReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    let mut nested = field.nested(0)?;
+                    while let Some(item) = nested.next()? {
+                        out.windows.push(decode_taskbar_entry(item.payload)?);
+                    }
+                }
+                2 => {
+                    if field.payload.is_empty() {
+                        out.focused = None;
+                    } else {
+                        let mut nested = field.nested(0)?;
+                        let item = nested.next()?.ok_or(Error::BadValue)?;
+                        out.focused = Some(item.as_u64()?);
+                    }
+                }
+                3 => {
+                    out.menu_open = field.as_bool()?;
+                }
+                4 => {
+                    let mut nested = field.nested(0)?;
+                    while let Some(item) = nested.next()? {
+                        out.menu.push(decode_launcher(item.payload)?);
+                    }
+                }
+                5 => {
+                    let mut nested = field.nested(0)?;
+                    while let Some(item) = nested.next()? {
+                        out.desktop.push(decode_launcher(item.payload)?);
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Open (`open` true) or close the start menu.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ShowStartMenuArgs {
+        pub open: bool,
+    }
+
+    pub fn encode_show_start_menu_args(value: &ShowStartMenuArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.bool(1, value.open)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_show_start_menu_args(body: &[u8]) -> Result<ShowStartMenuArgs, Error> {
+        let mut out = ShowStartMenuArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.open = field.as_bool()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Launch the registry app `app` through `init.Launch` in the shell's
+    /// session, exactly as clicking its start-menu row would (including the
+    /// launch-origin zoom). `ENOENT` when the app is unknown or not shipped.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct LaunchArgs {
+        pub app: alloc::string::String,
+    }
+
+    pub fn encode_launch_args(value: &LaunchArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.app)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_launch_args(body: &[u8]) -> Result<LaunchArgs, Error> {
+        let mut out = LaunchArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.app = field.as_str()?.into();
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct LaunchReply {
+        pub pid: u64,
+    }
+
+    pub fn encode_launch_reply(value: &LaunchReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.pid)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_launch_reply(body: &[u8]) -> Result<LaunchReply, Error> {
+        let mut out = LaunchReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.pid = field.as_u64()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Re-read the start menu (`sys/ui/menu` plus installed apps) and the
+    /// desktop icons (`sys/ui/desktop`); returns how many rows each has.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct RefreshReply {
+        pub menu: u32,
+        pub desktop: u32,
+    }
+
+    pub fn encode_refresh_reply(value: &RefreshReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.menu)?;
+        target.u32(2, value.desktop)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_refresh_reply(body: &[u8]) -> Result<RefreshReply, Error> {
+        let mut out = RefreshReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.menu = field.as_u32()?;
+                }
+                2 => {
+                    out.desktop = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Activate (restore, raise, focus) the window `surface` as a click on its
+    /// taskbar entry would. `ENOENT` when the taskbar has no such entry.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ActivateArgs {
+        pub surface: u64,
+    }
+
+    pub fn encode_activate_args(value: &ActivateArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.surface)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_activate_args(body: &[u8]) -> Result<ActivateArgs, Error> {
+        let mut out = ActivateArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.surface = field.as_u64()?;
             }
         }
         Ok(out)

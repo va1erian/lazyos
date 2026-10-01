@@ -73,6 +73,13 @@ fields, which never use that id.
 | Configure | 33 | oneway | `(surface: U64, width: U32, height: U32, state: U32) -> ()` |
 | RequestSize | 34 | sync | `(surface: U64, width: U32, height: U32) -> ()` |
 | Ping | 35 | oneway | `() -> ()` |
+| PlaceSurface | 36 | sync | `(surface: U64, x: I32, y: I32) -> ()` |
+| ActivateSurface | 37 | sync | `(surface: U64) -> ()` |
+| MinimizeSurface | 38 | sync | `(surface: U64) -> ()` |
+| SetWorkArea | 39 | sync | `(x: I32, y: I32, w: I32, h: I32) -> ()` |
+| SetIconGeometry | 40 | sync | `(surface: U64, x: I32, y: I32, w: I32, h: I32) -> ()` |
+| HintLaunchOrigin | 41 | sync | `(x: I32, y: I32, w: U32, h: U32) -> ()` |
+| Dismiss | 42 | oneway | `() -> ()` |
 
 ## struct `Rect`
 
@@ -96,7 +103,7 @@ fields, which never use that id.
 
 ## enum `Role`
 
-- Window, Desktop
+- Window, Desktop, Panel
 
 ## enum `Change`
 

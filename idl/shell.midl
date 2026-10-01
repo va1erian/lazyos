@@ -1,0 +1,49 @@
+/// LazyShell, the desktop shell (issue #157), published on Messenger under the
+/// name `os.lazy.shell`.
+///
+/// LazyShell is a UI client of the compositor (`os.lazy.display.v1`), `init`
+/// (app registry, `Launch`) and `confd` (`sys/ui/*`); it decides nothing about
+/// authority. This interface lets scripts, tests and other session programs
+/// drive the desktop the way a user would (open the start menu, launch an app
+/// as if its menu row or desktop icon was activated, reload the menu and the
+/// desktop icons) and read what the shell currently shows.
+///
+/// Callers must be uid 0 or share the shell's uid (kernel-stamped
+/// credentials); anyone else gets `EACCES`. Failures are returned as a
+/// structured error field (id 15, errno-style code plus friendly text) instead
+/// of the declared reply fields.
+interface os.lazy.shell.v1 {
+    /// What the shell shows right now: the taskbar's window entries (in
+    /// taskbar order), the focused window, whether the start menu is open, the
+    /// start-menu rows and the desktop icons.
+    method Status() -> (windows: Array<TaskbarEntry>, focused: Option<U64>, menu_open: Bool, menu: Array<Launcher>, desktop: Array<Launcher>) = 1;
+    /// Open (`open` true) or close the start menu.
+    method ShowStartMenu(open: Bool) -> () = 2;
+    /// Launch the registry app `app` through `init.Launch` in the shell's
+    /// session, exactly as clicking its start-menu row would (including the
+    /// launch-origin zoom). `ENOENT` when the app is unknown or not shipped.
+    method Launch(app: String) -> (pid: U64) = 3;
+    /// Re-read the start menu (`sys/ui/menu` plus installed apps) and the
+    /// desktop icons (`sys/ui/desktop`); returns how many rows each has.
+    method Refresh() -> (menu: U32, desktop: U32) = 4;
+    /// Activate (restore, raise, focus) the window `surface` as a click on its
+    /// taskbar entry would. `ENOENT` when the taskbar has no such entry.
+    method Activate(surface: U64) -> () = 5;
+
+    /// One taskbar entry.
+    struct TaskbarEntry {
+        /// The compositor's surface id.
+        surface: U64,
+        /// The window title.
+        title: String,
+        /// Whether the window is minimized.
+        minimized: Bool
+    }
+
+    /// One start-menu row or desktop icon: the `init` registry app it
+    /// launches and the label it shows.
+    struct Launcher {
+        app: String,
+        label: String
+    }
+}
