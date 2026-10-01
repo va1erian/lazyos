@@ -491,3 +491,10 @@ fn present_rejects_truncated_bodies_and_ignores_unknown_fields() {
     }
     assert_eq!(decode_present_args(&[]).unwrap(), PresentArgs::default());
 }
+
+#[test]
+fn ping_is_appended_after_request_size() {
+    // The compositor's liveness probe (`xuid` reaps a window whose event
+    // endpoint answers `EPIPE`): appended, so every earlier id stays put.
+    assert_eq!(METHOD_PING, 35);
+}

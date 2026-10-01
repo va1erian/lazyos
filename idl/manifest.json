@@ -358,6 +358,11 @@
         "name": "RequestSize",
         "id": 34,
         "oneway": false
+      },
+      {
+        "name": "Ping",
+        "id": 35,
+        "oneway": true
       }
     ],
     "topics": []
