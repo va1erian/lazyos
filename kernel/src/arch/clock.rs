@@ -32,14 +32,32 @@ fn rdtsc() -> u64 {
     unsafe { core::arch::x86_64::_rdtsc() }
 }
 
-/// Periods represented by `elapsed` TSC cycles, rounded to nearest and never
-/// below 1 (an entry is by definition at least one period). 1 when
-/// uncalibrated.
-pub fn periods_in(elapsed: u64, cycles_per_tick: u64) -> u64 {
+/// Slack (1/8 period) for TSC/PIT calibration error when flooring a gap.
+const TOLERANCE_DIV: u64 = 8;
+
+/// Periods in the gap `last..now` and the stamp to carry forward.
+///
+/// A single period snaps the stamp to `now`, so a small calibration error
+/// cannot accumulate. A longer gap is floored, and the stamp advances by whole
+/// periods only: the fraction of a period already elapsed (a late-delivered
+/// IRQ0) stays credited to the next entry instead of being counted twice.
+/// Never fewer than 1 period; 1 and `now` when uncalibrated.
+pub fn advance(last: u64, now: u64, cycles_per_tick: u64) -> (u64, u64) {
     if cycles_per_tick == 0 {
-        return 1;
+        return (1, now);
     }
-    ((elapsed + cycles_per_tick / 2) / cycles_per_tick).max(1)
+    let elapsed = now.wrapping_sub(last);
+    let n = ((elapsed + cycles_per_tick / TOLERANCE_DIV) / cycles_per_tick).max(1);
+    if n == 1 {
+        return (1, now);
+    }
+    let stamp = last.wrapping_add(n * cycles_per_tick);
+    // A remainder over one period is unexplained skew, not a late IRQ.
+    if now.wrapping_sub(stamp) > cycles_per_tick {
+        (n, now)
+    } else {
+        (n, stamp)
+    }
 }
 
 /// Time PIT channel 2 for ~10 ms against the TSC and record the cycles per
@@ -76,11 +94,10 @@ pub unsafe fn calibrate(tick_hz: u32) {
 /// PIT entry, with interrupts off.
 pub fn periods_since_last() -> u64 {
     let now = rdtsc();
-    let last = LAST_TSC.swap(now, Ordering::Relaxed);
-    periods_in(
-        now.wrapping_sub(last),
-        CYCLES_PER_TICK.load(Ordering::Relaxed),
-    )
+    let last = LAST_TSC.load(Ordering::Relaxed);
+    let (periods, stamp) = advance(last, now, CYCLES_PER_TICK.load(Ordering::Relaxed));
+    LAST_TSC.store(stamp, Ordering::Relaxed);
+    periods
 }
 
 /// Calibrated cycles per timer period (0 when calibration failed).

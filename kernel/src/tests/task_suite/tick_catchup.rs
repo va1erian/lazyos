@@ -5,15 +5,37 @@
 use super::*;
 use crate::arch::{clock, pic};
 
-/// The rounding rule: nearest period, at least one, one when uncalibrated.
+/// The catch-up rule: floor with slack, at least one, remainder credited.
 pub fn clock_periods_rounding() -> Result<(), String> {
     const P: u64 = 1_000;
-    check!(clock::periods_in(0, P) == 1, "an empty gap is not one period");
-    check!(clock::periods_in(P - 1, P) == 1, "just under a period");
-    check!(clock::periods_in(P + P / 4, P) == 1, "a period and a quarter");
-    check!(clock::periods_in(5 * P + P / 3, P) == 5, "five and a third");
-    check!(clock::periods_in(5 * P + 2 * P / 3, P) == 6, "five and two thirds");
-    check!(clock::periods_in(u64::MAX / 2, 0) == 1, "uncalibrated must be 1");
+    check!(clock::advance(0, 0, P) == (1, 0), "an empty gap");
+    check!(clock::advance(0, P - 1, P).0 == 1, "just under a period");
+    check!(
+        clock::advance(0, P + P / 4, P).0 == 1,
+        "a period and a quarter"
+    );
+    check!(
+        clock::advance(0, 5 * P + P / 3, P).0 == 5,
+        "five and a third"
+    );
+    check!(
+        clock::advance(0, 5 * P + 2 * P / 3, P).0 == 5,
+        "five and two thirds"
+    );
+    check!(clock::advance(0, 2 * P - 20, P).0 == 2, "calibration slack");
+    check!(
+        clock::advance(0, u64::MAX / 2, 0).0 == 1,
+        "uncalibrated must be 1"
+    );
+    // A late entry followed by the next real PIT edge: three periods have
+    // elapsed by 3000, so the clock must advance by three, not four.
+    let (n1, stamp) = clock::advance(0, 2_600, P);
+    let (n2, _) = clock::advance(stamp, 3_000, P);
+    check!(
+        n1 + n2 == 3,
+        "delayed entry then recovery counted {}",
+        n1 + n2
+    );
     Ok(())
 }
 
@@ -68,9 +90,7 @@ fn lost_then_caught_up(periods: u64) -> Option<u64> {
             // SAFETY: `rdtsc` only reads the time-stamp counter.
             let start = unsafe { core::arch::x86_64::_rdtsc() };
             // SAFETY: as above.
-            while unsafe { core::arch::x86_64::_rdtsc() }.wrapping_sub(start)
-                < periods * per_tick
-            {
+            while unsafe { core::arch::x86_64::_rdtsc() }.wrapping_sub(start) < periods * per_tick {
                 core::hint::spin_loop();
             }
         });
