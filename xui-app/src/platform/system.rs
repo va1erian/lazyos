@@ -1,0 +1,151 @@
+//! The Settings app's [`System`] on LazyOS: the clock and zone through `timed`
+//! (`os.lazy.timed.v1`), the store location through `confd`'s `Info`, uptime
+//! from the kernel `sysinfo` block and the version from `uname`.
+//!
+//! Bodies come from the generated `messenger-generated` stubs; a failure is
+//! reported as text for the status line.
+
+use messenger_generated::os_lazy_timed_v1 as wire;
+use xui_confd_editor::store::ConfStore;
+use xui_settings::system::{Now, StoreStatus, System};
+
+use super::confd_store::ConfdStore;
+use super::messenger::Service;
+use crate::sys::errno;
+
+/// `timed`'s registered service name.
+const NAME: &str = "os.lazy.timed";
+/// The structured-error field id `timed` replies with.
+const ERROR_FIELD: u16 = 15;
+/// PIT ticks per second.
+const HZ: u64 = 100;
+
+/// The live system.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct OsSystem;
+
+impl OsSystem {
+    pub const fn new() -> OsSystem {
+        OsSystem
+    }
+
+    fn call(&self, method: u32, body: Vec<u8>) -> Result<libmessenger::Parcel, String> {
+        let service =
+            Service::connect(NAME).map_err(|_| String::from("time service unavailable"))?;
+        service
+            .call(wire::INTERFACE_ID, method, ERROR_FIELD, body)
+            .map_err(describe)
+    }
+}
+
+/// A `timed` error code as status-line text.
+fn describe(code: i64) -> String {
+    match -code {
+        errno::EPERM => String::from("permission denied (needs CAP_SYS_TIME)"),
+        errno::EINVAL => String::from("value refused"),
+        _ => format!("time service error {code}"),
+    }
+}
+
+/// `sysname release (machine)` from `uname`, e.g. `LazyOS 0.1.0 (x86_64)`.
+#[cfg(target_os = "linux")]
+fn uname() -> Option<String> {
+    // SAFETY: `utsname` is plain bytes, so all-zero is a valid value, and
+    // `uname` only writes into the struct it is handed.
+    let mut info: libc::utsname = unsafe { std::mem::zeroed() };
+    // SAFETY: `info` is a valid, writable `utsname` for the duration of the call.
+    if unsafe { libc::uname(&mut info) } != 0 {
+        return None;
+    }
+    let field = |raw: &[libc::c_char]| -> String {
+        let bytes: Vec<u8> = raw
+            .iter()
+            .take_while(|c| **c != 0)
+            .map(|c| *c as u8)
+            .collect();
+        String::from_utf8_lossy(&bytes).into_owned()
+    };
+    Some(format!(
+        "{} {} ({})",
+        field(&info.sysname),
+        field(&info.release),
+        field(&info.machine)
+    ))
+}
+
+/// Host builds (tests) have no LazyOS kernel to ask.
+#[cfg(not(target_os = "linux"))]
+fn uname() -> Option<String> {
+    None
+}
+
+impl System for OsSystem {
+    fn now(&self) -> Option<Now> {
+        let reply = self.call(wire::METHOD_NOW, Vec::new()).ok()?;
+        let now = wire::decode_now_reply(&reply.body).ok()?;
+        Some(Now {
+            unix: now.unix_ms.div_euclid(1000),
+            offset: now.tz_offset_s,
+            zone: now.tz_name,
+        })
+    }
+
+    fn set_time(&self, unix: i64) -> Result<(), String> {
+        let body = wire::encode_set_time_args(&wire::SetTimeArgs { unix_secs: unix })
+            .map_err(|_| String::from("bad time"))?;
+        self.call(wire::METHOD_SETTIME, body).map(|_| ())
+    }
+
+    fn set_zone(&self, zone: &str) -> Result<(), String> {
+        let body = wire::encode_set_zone_args(&wire::SetZoneArgs {
+            name: zone.to_owned(),
+        })
+        .map_err(|_| String::from("bad zone name"))?;
+        self.call(wire::METHOD_SETZONE, body).map(|_| ())
+    }
+
+    fn os_version(&self) -> String {
+        uname().unwrap_or_else(|| String::from("LazyOS"))
+    }
+
+    fn uptime_secs(&self) -> Option<u64> {
+        crate::sysinfo::snapshot()
+            .ok()
+            .map(|snapshot| snapshot.ticks / HZ)
+    }
+
+    fn store_status(&self) -> Option<StoreStatus> {
+        ConfStore::info(&ConfdStore::new())
+            .ok()
+            .map(|info| StoreStatus {
+                dir: info.store_dir,
+                persistent: info.persistent,
+            })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn errors_read_as_text() {
+        assert!(describe(-errno::EPERM).contains("CAP_SYS_TIME"));
+        assert!(describe(-errno::EINVAL).contains("refused"));
+        assert!(describe(-99).contains("-99"));
+    }
+
+    #[test]
+    fn the_now_reply_round_trips() {
+        let body = wire::encode_now_reply(&wire::NowReply {
+            unix_ms: 1_790_715_899_500,
+            tz_offset_s: 7200,
+            tz_name: "Europe/Paris".into(),
+            dst: true,
+        })
+        .unwrap();
+        let now = wire::decode_now_reply(&body).unwrap();
+        assert_eq!(now.unix_ms.div_euclid(1000), 1_790_715_899);
+        assert_eq!(now.tz_name, "Europe/Paris");
+    }
+}

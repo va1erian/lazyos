@@ -4,7 +4,7 @@
 //! accessor reading the current value.
 
 use core::sync::atomic::{AtomicU32, Ordering};
-use uitheme::Palette;
+use uitheme::{Mode, Palette};
 use user::messenger::display::Color;
 
 /// Title-bar height in pixels.
@@ -70,9 +70,9 @@ pub(super) const DRAG_GHOST_BG: Color = Color::rgb(28, 24, 12);
 
 /// One slot per [`Palette`] field, in declaration order. `xuid` is a single
 /// task, so relaxed atomics are only there to keep the static safe.
-static SLOTS: [AtomicU32; 16] = [const { AtomicU32::new(0) }; 16];
+static SLOTS: [AtomicU32; 20] = [const { AtomicU32::new(0) }; 20];
 
-fn slots(p: &Palette) -> [u32; 16] {
+fn slots(p: &Palette) -> [u32; 20] {
     [
         p.background,
         p.window_bg,
@@ -90,6 +90,10 @@ fn slots(p: &Palette) -> [u32; 16] {
         p.overlay_border,
         p.overlay_selected,
         p.overlay_text,
+        p.title_text_focus,
+        p.empty_text,
+        p.accent,
+        u32::from(p.mode == Mode::Light),
     ]
 }
 
@@ -102,9 +106,19 @@ pub(super) fn set_palette(palette: &Palette) -> bool {
     changed
 }
 
-fn color(index: usize) -> Color {
-    let v = SLOTS[index].load(Ordering::Relaxed);
+fn unpack(v: u32) -> Color {
     Color::rgb((v >> 16) as u8, (v >> 8) as u8, v as u8)
+}
+
+fn color(index: usize) -> Color {
+    unpack(SLOTS[index].load(Ordering::Relaxed))
+}
+
+/// Readable text on `background`, whatever colour the user picked for it.
+pub(super) fn text_on(background: Color) -> Color {
+    let packed =
+        (u32::from(background.r) << 16) | (u32::from(background.g) << 8) | u32::from(background.b);
+    unpack(uitheme::text_on(packed))
 }
 
 pub(super) fn background() -> Color {
@@ -119,8 +133,29 @@ pub(super) fn title_bg() -> Color {
 pub(super) fn title_bg_focus() -> Color {
     color(3)
 }
+/// Text on an inactive title bar.
 pub(super) fn title_text() -> Color {
     color(4)
+}
+/// Text on the focused title bar.
+pub(super) fn title_text_focus() -> Color {
+    color(16)
+}
+/// Text on the empty-window placeholder.
+pub(super) fn empty_text() -> Color {
+    color(17)
+}
+/// The accent colour in effect.
+pub(super) fn accent() -> Color {
+    color(18)
+}
+/// The desktop preset in effect.
+pub(super) fn mode() -> Mode {
+    if SLOTS[19].load(Ordering::Relaxed) == 1 {
+        Mode::Light
+    } else {
+        Mode::Dark
+    }
 }
 pub(super) fn border_color() -> Color {
     color(5)

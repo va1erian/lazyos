@@ -128,14 +128,20 @@ impl Settings {
     }
 }
 
-/// Concrete colours (`0xRRGGBB`) for every themed surface.
+/// Concrete colours (`0xRRGGBB`) for every themed surface, plus the mode and
+/// accent they were resolved from (reported to apps by `GetTheme`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Palette {
+    pub mode: Mode,
+    pub accent: u32,
     pub background: u32,
     pub window_bg: u32,
     pub title_bg: u32,
     pub title_bg_focus: u32,
+    /// Text on the inactive title bar ([`text_on`] its background).
     pub title_text: u32,
+    /// Text on the focused title bar ([`text_on`] its background).
+    pub title_text_focus: u32,
     pub border: u32,
     pub border_focus: u32,
     pub empty_bg: u32,
@@ -147,6 +153,8 @@ pub struct Palette {
     pub overlay_border: u32,
     pub overlay_selected: u32,
     pub overlay_text: u32,
+    /// Ink for text on the empty-window placeholder.
+    pub empty_text: u32,
 }
 
 const fn rgb(r: u32, g: u32, b: u32) -> u32 {
@@ -158,6 +166,32 @@ pub const DEFAULT_ACCENT: u32 = rgb(44, 112, 74);
 
 fn channel(color: u32, shift: u32) -> u32 {
     (color >> shift) & 0xFF
+}
+
+/// Text drawn on a light surface (the light preset's ink).
+pub const DARK_TEXT: u32 = rgb(20, 24, 36);
+/// Text drawn on a dark surface (the dark preset's ink).
+pub const LIGHT_TEXT: u32 = rgb(228, 232, 245);
+/// Perceived brightness (`0..=255`) at or above which a surface takes
+/// [`DARK_TEXT`]. A little above the midpoint, because saturated mid-tone
+/// accents (green, orange, red) read better with light text.
+const LIGHT_SURFACE: u32 = 150;
+
+/// Perceived brightness of `color` (ITU-R BT.601 luma), `0..=255`.
+pub fn luma(color: u32) -> u32 {
+    (299 * channel(color, 16) + 587 * channel(color, 8) + 114 * channel(color, 0)) / 1000
+}
+
+/// The text colour that stays readable on `background`: dark ink on light
+/// surfaces, light ink on dark ones. A user-chosen accent or title colour can
+/// be anything, so chrome text is always picked from what it sits on rather
+/// than from the mode.
+pub fn text_on(background: u32) -> u32 {
+    if luma(background) >= LIGHT_SURFACE {
+        DARK_TEXT
+    } else {
+        LIGHT_TEXT
+    }
 }
 
 /// Blend `color` toward `toward` by `num/den`.
@@ -175,6 +209,7 @@ struct Base {
     background: u32,
     window_bg: u32,
     title: u32,
+    /// Ink for the mode's own neutral surfaces (the empty-window placeholder).
     text: u32,
     border: u32,
     empty: u32,
@@ -190,7 +225,7 @@ const DARK: Base = Base {
     background: rgb(18, 22, 36),
     window_bg: rgb(30, 36, 54),
     title: rgb(52, 60, 92),
-    text: rgb(228, 232, 245),
+    text: LIGHT_TEXT,
     border: rgb(92, 106, 152),
     empty: rgb(16, 18, 28),
     taskbar: rgb(24, 28, 44),
@@ -205,7 +240,7 @@ const LIGHT: Base = Base {
     background: rgb(214, 220, 232),
     window_bg: rgb(244, 246, 250),
     title: rgb(150, 160, 190),
-    text: rgb(20, 24, 36),
+    text: DARK_TEXT,
     border: rgb(120, 132, 168),
     empty: rgb(232, 235, 242),
     taskbar: rgb(196, 203, 220),
@@ -223,12 +258,17 @@ pub fn resolve(settings: &Settings) -> Palette {
         Mode::Dark => &DARK,
         Mode::Light => &LIGHT,
     };
+    let title_bg = settings.title_inactive.unwrap_or(base.title);
+    let title_bg_focus = settings.title_active.unwrap_or(accent);
     Palette {
+        mode: settings.mode,
+        accent,
         background: settings.bg.unwrap_or(base.background),
         window_bg: base.window_bg,
-        title_bg: settings.title_inactive.unwrap_or(base.title),
-        title_bg_focus: settings.title_active.unwrap_or(accent),
-        title_text: base.text,
+        title_bg,
+        title_bg_focus,
+        title_text: text_on(title_bg),
+        title_text_focus: text_on(title_bg_focus),
         border: base.border,
         border_focus: mix(accent, rgb(255, 255, 255), 1, 2),
         empty_bg: base.empty,
@@ -240,6 +280,7 @@ pub fn resolve(settings: &Settings) -> Palette {
         overlay_border: base.overlay_border,
         overlay_selected: accent,
         overlay_text: base.overlay_text,
+        empty_text: base.text,
     }
 }
 
@@ -311,6 +352,38 @@ mod tests {
         s.apply(KEY_MODE, Some(&text("neon")));
         s.apply("sys/ui/unknown", Some(&Value::U64(1)));
         assert_eq!(s, Settings::default());
+    }
+
+    #[test]
+    fn title_text_follows_its_background_not_the_mode() {
+        // The issue: light mode with the default green accent drew dark text
+        // on the dark focused title bar.
+        let light = resolve(&Settings {
+            mode: Mode::Light,
+            ..Settings::default()
+        });
+        assert_eq!(light.title_text_focus, LIGHT_TEXT);
+        assert_eq!(light.title_text, DARK_TEXT);
+        let dark = resolve(&Settings::default());
+        assert_eq!(
+            (dark.title_text, dark.title_text_focus),
+            (LIGHT_TEXT, LIGHT_TEXT)
+        );
+        // A pale custom title takes dark ink even in dark mode.
+        let pale = resolve(&Settings {
+            title_active: Some(0xDCCEAA),
+            ..Settings::default()
+        });
+        assert_eq!(pale.title_text_focus, DARK_TEXT);
+    }
+
+    #[test]
+    fn text_on_picks_the_higher_contrast_ink() {
+        assert_eq!(text_on(0x000000), LIGHT_TEXT);
+        assert_eq!(text_on(0xFFFFFF), DARK_TEXT);
+        assert_eq!(text_on(DEFAULT_ACCENT), LIGHT_TEXT);
+        assert_eq!(luma(0xFFFFFF), 255);
+        assert_eq!(luma(0x000000), 0);
     }
 
     #[test]

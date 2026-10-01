@@ -281,6 +281,21 @@ impl Filesystem for Ext2 {
         let (child_ino, _) = self.find_entry(from_parent_ino, from_name)?;
         let mut child = self.read_inode(child_ino)?;
         let child_kind = kind_from_mode(le16(&child, INO_MODE)).ok_or(FsError::NotSupported)?;
+        if child_kind == FileKind::File {
+            // Crash-ordered (see `rename.rs`); the rest of this function is
+            // the directory path.
+            let from = rename::Side {
+                parent_ino: from_parent_ino,
+                parent: &mut from_parent,
+                name: from_name,
+            };
+            let to = rename::Side {
+                parent_ino: to_parent_ino,
+                parent: &mut to_parent,
+                name: to_name,
+            };
+            return self.rename_file(from, to, child_ino, &mut child);
+        }
         // Moving a directory below itself would make a cycle.
         if child_kind == FileKind::Dir && self.is_within(child_ino, to_parent_ino)? {
             return Err(FsError::Invalid);

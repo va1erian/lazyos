@@ -26,19 +26,21 @@ fn main() -> std::process::ExitCode {
     let (width, height) = backend.window_size(WINDOW);
     backend.on_first_frame(|| println!("CONFDED:UP:PASS"));
 
+    // Match the desktop's light/dark mode and accent (Settings).
+    let theme = backend.desktop_theme();
     let spec = PlatformSpec::new("Config").size(Dip(width as f32), Dip(height as f32));
-    let outcome =
-        run_app(
-            Rc::clone(&backend) as Rc<dyn Backend>,
-            spec,
-            |ui| match ConfdEditorApp::build(ui, Rc::new(ConfdStore::new())) {
-                Ok(app) => app,
-                Err(error) => {
-                    println!("CONFDED:BUILD:FAIL:{error}");
-                    std::process::exit(1);
-                }
-            },
-        );
+    let outcome = run_app(Rc::clone(&backend) as Rc<dyn Backend>, spec, |ui| {
+        if let Some(theme) = theme {
+            ui.set_theme(theme);
+        }
+        match ConfdEditorApp::build(ui, Rc::new(ConfdStore::new())) {
+            Ok(app) => app,
+            Err(error) => {
+                println!("CONFDED:BUILD:FAIL:{error}");
+                std::process::exit(1);
+            }
+        }
+    });
     backend.unbind();
     match outcome {
         Ok(()) => std::process::ExitCode::SUCCESS,

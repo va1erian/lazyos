@@ -44,6 +44,8 @@ pub const EXPIRED_DEADLINE: u64 = 1;
 
 /// Linux errno values used by the parcel helpers (positive forms).
 pub mod errno {
+    /// Not permitted (a capability is missing).
+    pub const EPERM: i64 = 1;
     /// No such file or directory / service.
     pub const ENOENT: i64 = 2;
     /// The receive buffer is too small.

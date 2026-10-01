@@ -53,6 +53,8 @@ xui-paint = { path = "crates/paint" }
 xui-explorer = { path = "crates/explorer", features = ["village-icons"] }
 # The Settings app core (sections, config seam, UI); the binary supplies confd.
 xui-settings = { path = "crates/settings" }
+# The desktop theme schema (`GetTheme`'s `mode` names), shared with `xuid`.
+uitheme = { path = "../libs/uitheme" }
 # The Config app core (registry tree editor); the binary supplies confd.
 xui-confd-editor = { path = "crates/confd-editor" }
 
