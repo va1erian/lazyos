@@ -17,8 +17,8 @@ resolver = "2"
 # Cargo.toml and docs/xui-plan.md "Bumping the pinned rev"). LazyRAD's own
 # workspace pins the same revision. `default-features = false` keeps
 # winit/softbuffer/glutin/glow/arboard/xui-gpu out of the image.
-xui-core = { git = "https://github.com/va1erian/xui", rev = "58c1a6ea1a2dc1e5bb81463ff8dba82329a4f080" }
-xui-canvas = { git = "https://github.com/va1erian/xui", rev = "58c1a6ea1a2dc1e5bb81463ff8dba82329a4f080", default-features = false }
+xui-core = { git = "https://github.com/va1erian/xui", rev = "7e31d5d6d120fb479e1ff0731bd6a44601acafee" }
+xui-canvas = { git = "https://github.com/va1erian/xui", rev = "7e31d5d6d120fb479e1ff0731bd6a44601acafee", default-features = false }
 # The LazyOS backend (xuid client), fonts, clipboardd client and the portable
 # file-dialog plumbing.
 xui-app = { path = "../xui-app" }
@@ -33,16 +33,16 @@ libc = "0.2"
 # adds the platform seam, the `.lzp` packager and the IDE run options. When that
 # PR merges, set `rev` on EVERY va1erian/lazyrad line below (runtime, player, ide
 # and the dev-dependency packager) to the merge commit.
-lazyrad-runtime = { git = "https://github.com/va1erian/lazyrad", rev = "ad4d52e76bc11a980542d46e73eb6439ff1c5548", default-features = false }
-lazyrad-ide = { git = "https://github.com/va1erian/lazyrad", rev = "ad4d52e76bc11a980542d46e73eb6439ff1c5548", default-features = false }
-lazyrad-player = { git = "https://github.com/va1erian/lazyrad", rev = "ad4d52e76bc11a980542d46e73eb6439ff1c5548", default-features = false }
+lazyrad-runtime = { git = "https://github.com/va1erian/lazyrad", rev = "f8e1a2e9ef02121df60927c9ebe7c9a000c85970", default-features = false }
+lazyrad-ide = { git = "https://github.com/va1erian/lazyrad", rev = "f8e1a2e9ef02121df60927c9ebe7c9a000c85970", default-features = false }
+lazyrad-player = { git = "https://github.com/va1erian/lazyrad", rev = "f8e1a2e9ef02121df60927c9ebe7c9a000c85970", default-features = false }
 
 [dev-dependencies]
 # The `.lzp` conformance suite (tests/lzp_conformance.rs): packages built by
 # LazyRAD's packager are re-opened with LazyOS's own reader. `libs/lazypkg` is
 # PR #431; the packager is pinned like the other LazyRAD crates.
 lazypkg = { path = "../libs/lazypkg" }
-lazyrad-packager = { git = "https://github.com/va1erian/lazyrad", rev = "ad4d52e76bc11a980542d46e73eb6439ff1c5548", default-features = false }
+lazyrad-packager = { git = "https://github.com/va1erian/lazyrad", rev = "f8e1a2e9ef02121df60927c9ebe7c9a000c85970", default-features = false }
 
 [lib]
 name = "lazyrad_os"

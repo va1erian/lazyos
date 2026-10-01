@@ -89,7 +89,7 @@ pub(crate) fn paint(
     theme: &Theme,
     _dpi: u32,
 ) -> bool {
-    use xui_icons::{Palette, Tone, Village, draw};
+    use xui_icons::{Icon, Palette, Tone, draw};
 
     /// The Global Village palette on a light surface.
     const LIGHT: Palette = Palette::GLOBAL_VILLAGE;
@@ -100,12 +100,12 @@ pub(crate) fn paint(
     const DARK_INK: xui_core::backend::Rgba = xui_core::backend::Rgba::rgb(0xEC, 0xE6, 0xFF);
 
     let icon = match FileClass::of(entry) {
-        FileClass::Folder if flashing => Village::FolderOpen,
-        FileClass::Folder => Village::Folder,
-        FileClass::Image => Village::Image,
-        FileClass::Music => Village::Music,
-        FileClass::Archive => Village::Archive,
-        FileClass::Code | FileClass::Document => Village::Document,
+        FileClass::Folder if flashing => Icon::FolderOpen,
+        FileClass::Folder => Icon::Folder,
+        FileClass::Image => Icon::Image,
+        FileClass::Music => Icon::Music,
+        FileClass::Archive => Icon::Archive,
+        FileClass::Code | FileClass::Document => Icon::Document,
     };
     let palette = if theme.is_dark { &DARK } else { &LIGHT };
     draw(canvas, icon, rect, palette);
