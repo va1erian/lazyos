@@ -66,6 +66,7 @@ SCRIPTS = [
     ("xui_paint.json", "XUI app: Paint (draw, save PNG)", ("desktop",), "paint"),
     ("xui_files.json", "XUI app: Files (browse, open)", ("desktop",), "files"),
     ("xui_settings.json", "XUI app: Settings (menu, colours, layout)", ("desktop",), None),
+    ("shell_demo.json", "LazyShell (taskbar, start menu, restart)", ("desktop",), "term"),
 ]
 
 # Simple mode: (label, cargo profile) and (label, description) choices.
@@ -75,7 +76,8 @@ SIMPLE_INTERFACES = [
      "A basic terminal screen with the system shell (busybox sh) connected to it."),
     ("Desktop",
      "The full services suite (init, messengerd, logd, healthd, keyd, accounts, "
-     "clipboardd, ...) plus the xuid compositor and an XUI app window."),
+     "clipboardd, ...) plus the xuid compositor, the LazyShell desktop and an XUI "
+     "app window."),
 ]
 
 XUI_VIEWERS = ["(none)", "m0", "counter", "sysmon", "fabricmon", "client", "term",
@@ -99,6 +101,10 @@ def build_env(cfg: dict) -> dict[str, str]:
         # One switch expands to the desktop recipe (issue #217): the image
         # build and `init` derive the rest from it.
         env["LAZYOS_DESKTOP"] = "1"
+        # LazyShell (issue #157) is part of the profile; unchecking it opts out
+        # (the compositor then shows background and windows only).
+        if not cfg.get("shell", True):
+            env["LAZYOS_SHELL"] = "0"
     else:
         if cfg["services"]:
             env["LAZYOS_SERVICES"] = "1"
@@ -131,12 +137,14 @@ def build_env(cfg: dict) -> dict[str, str]:
     return env
 
 
-def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False) -> dict:
+def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
+                  shell: bool = True) -> dict:
     """The full configuration for a Simple-mode choice.
 
     ``build`` is a cargo profile (``dev``/``release``) and ``interface`` is
     ``CLI`` or ``Desktop``; ``lazyrad`` adds the LazyRAD IDE to a Desktop
-    image (it is an xui app, so it means nothing on the CLI). Machine settings (accelerator, memory, QEMU path)
+    image (it is an xui app, so it means nothing on the CLI), and ``shell``
+    keeps the LazyShell desktop (taskbar, start menu) on it. Machine settings (accelerator, memory, QEMU path)
     come from ``base``; every image switch is decided here so stale Advanced
     checkboxes cannot leak into a Simple boot.
     """
@@ -172,6 +180,7 @@ def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False)
         "xui_app": "(none)",
         "prebuild_xui": desktop,
         "lazyrad": desktop and lazyrad,
+        "shell": desktop and shell,
     })
     return cfg
 
@@ -215,6 +224,9 @@ def build_plan(cfg: dict) -> list[dict]:
             argv.append("--release")
         if cfg["skip_build"]:
             argv.append("--no-build")
+        elif cfg.get("desktop") and not cfg.get("shell", True):
+            # Also set by `build_env`; the flag keeps the command line honest.
+            argv.append("--no-shell")
         if cfg["headless"]:
             argv.append("--headless")
         argv += ["--accel", cfg["accel"], "--memory", cfg["memory"],
