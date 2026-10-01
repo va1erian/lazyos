@@ -27,6 +27,8 @@ on:
       - "build_support/**"
       - "libs/ext2fs/**"
       - "libs/fhs/**"
+      - "tools/ci/check_*image.sh"
+      - "tools/mkdisk/**"
       - ".github/workflows/image.yml"
   workflow_dispatch:
 

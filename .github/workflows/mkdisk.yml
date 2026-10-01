@@ -75,6 +75,6 @@ jobs:
           debugfs -R "stat /alice" /tmp/home.img | grep -E "Mode: +0755"
           debugfs -R "ls -p /" /tmp/home.img | tee /tmp/home.ls
           grep -q "/alice/" /tmp/home.ls
-          ! grep -E "/(home|tmp)/" /tmp/home.ls
+          if grep -E "/(home|tmp)/" /tmp/home.ls; then exit 1; fi
           python -m tools.mkdisk /tmp/home4k.img --home-volume --block-size 1024 --size 40M
           e2fsck -fn /tmp/home4k.img

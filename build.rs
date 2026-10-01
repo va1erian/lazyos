@@ -229,7 +229,7 @@ fn main() {
         // `Shutdown` from the shell (`shutdown`, `poweroff`, `halt`, `reboot`).
         let powerctl = std::env::var_os("CARGO_BIN_FILE_USER_powerctl")
             .expect("user powerctl artifact not found");
-        builder.set_file(String::from("POWERCTL.ELF"), PathBuf::from(powerctl));
+        files.add_file("POWERCTL.ELF", PathBuf::from(powerctl));
 
         // The MIME database and open-with registry (issue #116). `init`
         // starts it from its manifest; `MIMED.ELF` is the on-disk
