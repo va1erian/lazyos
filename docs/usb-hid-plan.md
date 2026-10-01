@@ -2,8 +2,10 @@
 
 > **Status: in progress, revision 2 (2026-10-01).** P0 (pointer records and
 > tail merging on the raw bus, the PS/2 mouse tap) and P1 (`inputmap::Pointer`,
-> `inputd` pointer glue, `SetBounds`/`GetPointer`/`PointerEvent`) are
-> implemented; P2 onward are not. Builds on
+> `inputd` pointer glue, `SetBounds`/`GetPointer`/`PointerEvent`), P2 (`xuid`
+> takes the pointer from `inputd`), U0 (`libs/usbhid`, `libs/xhci`) and U1
+> (input sources on syscall 25, `CAP_INPUT_SOURCE`) are implemented; U2
+> onward are not. Builds on
 > [input-plan.md](input-plan.md) (the raw event bus, `inputd`) and
 > [driver-plan.md](driver-plan.md) (the device core, userspace drivers). It
 > lists USB as a non-goal of the driver plan; this plan lifts that for HID only.
