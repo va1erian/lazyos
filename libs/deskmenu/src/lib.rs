@@ -57,7 +57,7 @@ impl Entry {
 /// The built-in list: what the menu shows when confd has nothing usable.
 /// Terminal first.
 pub fn defaults() -> Vec<Entry> {
-    const ITEMS: [(&str, &str); 11] = [
+    const ITEMS: [(&str, &str); 12] = [
         ("terminal", "Terminal"),
         ("sysmon", "System Monitor"),
         ("fabricmon", "Fabric Monitor"),
@@ -73,6 +73,7 @@ pub fn defaults() -> Vec<Entry> {
         // click by coordinate.
         ("widget", "CPU & Memory"),
         ("confd", "Config"),
+        ("installer", "Package Installer"),
     ];
     ITEMS
         .iter()
@@ -171,7 +172,7 @@ mod tests {
     #[test]
     fn defaults_are_valid_and_start_with_terminal() {
         let list = defaults();
-        assert_eq!(list.len(), 11);
+        assert_eq!(list.len(), 12);
         assert_eq!(list[0].app, "terminal");
         assert_eq!(parse(&encode(&list), &any), list);
     }

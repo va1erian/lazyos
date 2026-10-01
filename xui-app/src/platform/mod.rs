@@ -11,4 +11,5 @@ pub mod dialog_fs;
 pub mod files_fs;
 pub mod launcher;
 pub mod messenger;
+pub mod pkg;
 pub mod storage;

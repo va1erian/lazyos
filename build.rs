@@ -469,6 +469,9 @@ const DOCUMENT_XUI_APPS: &[&str] = &[
     "xui-paint.elf",
     "xui-settings.elf",
     "xui-confd.elf",
+    // The package installer (docs/packages.md section 8): the consent screen
+    // for `.lzp` packages, opened from the menu or by open-with.
+    "xui-installer.elf",
 ];
 
 /// Desktop apps embedded when their ELF exists, and skipped (with a build

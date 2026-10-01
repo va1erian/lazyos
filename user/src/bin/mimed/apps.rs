@@ -22,6 +22,11 @@ const DEFAULT_APPS: &[(&str, &str, &[&str])] = &[
     ("image/png", "paint", &["open", "edit"]),
     ("image/png", "files", &["reveal"]),
     ("application/x-elf", "runner", &["open"]),
+    (
+        "application/x-lazyos-package",
+        "installer",
+        &["open", "install"],
+    ),
     ("application/octet-stream", "files", &["reveal"]),
 ];
 

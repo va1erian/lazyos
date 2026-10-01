@@ -22,14 +22,16 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::panic::PanicInfo;
 
+use user::messenger::mime;
 use user::messenger::pkgd::{Client, Failure, Installed, PackageInfo};
 use user::sys;
 
-const USAGE: &str = "usage: pkgctl <inspect|install|remove|list> [args]\n\
+const USAGE: &str = "usage: pkgctl <inspect|install|remove|list|open> [args]\n\
     inspect <path>\n\
     install <path>\n\
     remove <system-name>\n\
-    list\n";
+    list\n\
+    open <path>      hand the package to the GUI installer through mimed\n";
 
 /// Attempts to reach `pkgd`: it is a supervised service that may be starting,
 /// or restarting to recycle its memory.
@@ -67,8 +69,14 @@ fn failed(failure: Failure) -> String {
 
 fn run(args: &[String]) -> Result<(), String> {
     let command = args.first().map(String::as_str);
-    if !matches!(command, Some("inspect" | "install" | "remove" | "list")) {
+    if !matches!(
+        command,
+        Some("inspect" | "install" | "remove" | "list" | "open")
+    ) {
         return Err(String::from(USAGE.trim_end()));
+    }
+    if command == Some("open") {
+        return open_with_installer(arg(args, "open <path>")?);
     }
     let client = Client::connect_retry(CONNECT_ATTEMPTS).map_err(|error| {
         format!(
@@ -106,6 +114,26 @@ fn run(args: &[String]) -> Result<(), String> {
             Ok(())
         }
     }
+}
+
+/// `pkgctl open <path>`: the route Files takes for a `.lzp`, `mimed.Open` with
+/// the `install` verb, so the GUI installer starts with the package path as its
+/// argument and shows the consent screen. A Terminal session script types a
+/// shell line reliably where typing into a GUI field under TCG drops keys.
+fn open_with_installer(path: &str) -> Result<(), String> {
+    let mimed = mime::Client::connect()
+        .map_err(|error| format!("pkgctl: mimed is not running: {}", error.message()))?;
+    let opened = mimed
+        .open(path, "install")
+        .map_err(|error| format!("pkgctl: open failed: {}", error.message()))?;
+    if !opened.launched {
+        return Err(format!(
+            "pkgctl: {} handles {} but init did not launch it",
+            opened.app, opened.mime
+        ));
+    }
+    say(&format!("PKGCTL:OPEN:PASS {} {}", opened.app, opened.mime));
+    Ok(())
 }
 
 fn arg<'a>(args: &'a [String], usage: &str) -> Result<&'a str, String> {

@@ -20,6 +20,7 @@ pub mod fabric;
 pub mod font;
 pub mod format;
 pub mod input;
+pub mod installer;
 pub mod launch;
 pub mod platform;
 pub mod sys;

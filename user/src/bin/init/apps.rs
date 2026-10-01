@@ -168,6 +168,14 @@ pub static APPS: &[AppSpec] = &[
     xui_app("widget", "CPU & Memory", "XWIDGET.ELF"),
     xui_app("counter", "Counter", "XCOUNTR.ELF"),
     xui_app_verbs("docs", "Docs", "XDOCS.ELF", &["open", "view"]),
+    // The package installer (docs/packages.md section 8); `mimed` routes
+    // `application/x-lazyos-package` to it, so opening a `.lzp` shows consent.
+    xui_app_verbs(
+        "installer",
+        "Package Installer",
+        "XINSTALL.ELF",
+        &["open", "install"],
+    ),
     native_app(
         "top",
         "System Monitor (text)",
