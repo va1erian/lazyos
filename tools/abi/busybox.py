@@ -99,8 +99,13 @@ def _download(archive: Path) -> bool:
 
 
 def _fetch() -> bool:
-    if SOURCE.is_dir():
+    # The Makefile, not the directory, proves a usable tree: a restored build
+    # cache (CI's rust-cache of `target/`) can leave the directory behind with
+    # its files pruned, and `make defconfig` then fails with "No rule to make
+    # target". Re-extract over such a husk.
+    if (SOURCE / "Makefile").is_file():
         return True
+    shutil.rmtree(SOURCE, ignore_errors=True)
     BUILD_ROOT.mkdir(parents=True, exist_ok=True)
     archive = BUILD_ROOT / f"busybox-{VERSION}.tar.bz2"
     # A cached archive is re-verified too: it may predate the pin or be corrupt.
@@ -118,7 +123,7 @@ def _fetch() -> bool:
         shutil.rmtree(SOURCE, ignore_errors=True)
         archive.unlink(missing_ok=True)
         return False
-    return SOURCE.is_dir()
+    return (SOURCE / "Makefile").is_file()
 
 
 def _safe_extract(tar: tarfile.TarFile, dest: Path) -> None:
