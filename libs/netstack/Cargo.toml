@@ -31,6 +31,9 @@ smoltcp = { version = "0.14", default-features = false, features = [
     "socket-icmp",
     "socket-udp",
     "socket-tcp",
+    "socket-dns",
+    "dns-max-server-count-3",
+    "dns-max-result-count-4",
     "auto-icmp-echo-reply",
 ] }
 

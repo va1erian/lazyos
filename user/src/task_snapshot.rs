@@ -48,6 +48,21 @@ impl TaskSnapshot {
     /// Number of bytes the snapshot occupies on the wire.
     pub const SIZE: usize = Self::WORDS * 8;
 
+    /// The pid of the live task in `slot` of a raw snapshot block, without
+    /// decoding (or allocating for) every row. `None` for a free slot, a
+    /// slot out of range or a block of the wrong length.
+    pub fn live_pid(bytes: &[u8], slot: usize) -> Option<u64> {
+        if bytes.len() != Self::SIZE || slot >= MAX_TASKS {
+            return None;
+        }
+        let word = |index: usize| -> Option<u64> {
+            let at = index * 8;
+            Some(u64::from_le_bytes(bytes[at..at + 8].try_into().ok()?))
+        };
+        let base = Self::HEADER_WORDS + slot * Self::ROW_WORDS;
+        (word(base)? != 0).then(|| word(base + 1)).flatten()
+    }
+
     /// Decode the block the kernel's `sys_tasks` writes. `None` when the
     /// length is not exactly [`TaskSnapshot::SIZE`].
     pub fn from_bytes(bytes: &[u8]) -> Option<TaskSnapshot> {

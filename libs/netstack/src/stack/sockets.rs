@@ -236,6 +236,14 @@ impl Sockets {
             .count()
     }
 
+    /// Every owner of an open socket, each once.
+    pub fn owners(&self) -> Vec<u64> {
+        let mut owners: Vec<u64> = self.slots.iter().flatten().map(|e| e.owner).collect();
+        owners.sort_unstable();
+        owners.dedup();
+        owners
+    }
+
     /// Streams closed by their owner and still finishing on the wire.
     pub fn closing_count(&self) -> usize {
         self.closing.len()
@@ -459,7 +467,9 @@ impl Sockets {
         while i < self.closing.len() {
             let (handle, since) = self.closing[i];
             let socket = sockets.get_mut::<tcp::Socket>(handle);
-            let done = socket.state() == tcp::State::Closed;
+            // TIME-WAIT is over for our purposes: `retire` does not hold a
+            // socket there either, and a late segment is answered with a reset.
+            let done = matches!(socket.state(), tcp::State::Closed | tcp::State::TimeWait);
             let stale = now_ms - since > CLOSING_MS;
             if done || stale {
                 if stale && !done {
@@ -475,9 +485,12 @@ impl Sockets {
 
     /// Every stream entry, for the per-poll state observation.
     pub(super) fn streams_mut(&mut self) -> impl Iterator<Item = (&mut StreamState, SocketHandle)> {
-        self.slots.iter_mut().flatten().filter_map(|e| match &mut e.inner {
-            Inner::Tcp { handle, state } => Some((state, *handle)),
-            _ => None,
-        })
+        self.slots
+            .iter_mut()
+            .flatten()
+            .filter_map(|e| match &mut e.inner {
+                Inner::Tcp { handle, state } => Some((state, *handle)),
+                _ => None,
+            })
     }
 }

@@ -179,9 +179,10 @@ FUZZ_CASES=20000 cargo test -p framering -p virtio-net -p nicdrv -p netstack fuz
 FUZZ_SEED=0x<seed> cargo test -p framering clean_scripts                # replay a printed failing seed
 python fuzz/gen_corpus.py --check                                       # the checked-in fuzz seeds are current
 python tools/net/test_analyze_pcap.py                                   # the capture judge fails when it should
+python tools/net/test_sockets_pcap.py                                   # the TCP/UDP/DNS judge fails when it should
 python tools/net/run.py                                                 # build (LAZYOS_NET=1), boot QEMU, judge the pcap
 python tools/net/run.py --services | --poll | --no-device | --machine q35 --virtio-disk   # variants
-python tools/net/run.py --netd                                          # stage N2: netd, DHCP, ping; judged from the pcap (combines with the variants)
+python tools/net/run.py --netd                                          # stages N2+N3: netd, DHCP, ping, nslookup, nc and the socket probe/soak; judged from the pcap and the host echo servers (combines with the variants)
 mkdir -p fuzz/corpus/netstack; cargo fuzz run netstack --fuzz-dir fuzz fuzz/corpus/netstack fuzz/seeds/netstack -- -max_total_time=60   # Linux
 mkdir -p fuzz/corpus/framering                                          # once; libFuzzer's working corpus (git-ignored)
 cargo fuzz run framering --fuzz-dir fuzz fuzz/corpus/framering fuzz/seeds/framering -- -max_total_time=60  # Linux; CI runs it

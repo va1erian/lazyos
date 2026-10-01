@@ -26,11 +26,18 @@ pub mod device;
 pub mod fuzz;
 pub mod stack;
 #[cfg(any(test, feature = "fuzz"))]
+pub mod testdns;
+#[cfg(any(test, feature = "fuzz"))]
 pub mod testnet;
+#[cfg(any(test, feature = "fuzz"))]
+pub mod testpair;
 
 #[cfg(test)]
 mod tests;
 
 pub use config::Mode;
 pub use device::{DeviceStats, RingDevice};
-pub use stack::{Counters, DhcpState, PingError, PingOutcome, PingResult, Source, Stack, State};
+pub use stack::{
+    ready, valid_host_name, Counters, DhcpState, Kind, LookupOutcome, LookupResult, PingError,
+    PingOutcome, PingResult, ResolveError, SockAddr, SockError, Source, Stack, State,
+};
