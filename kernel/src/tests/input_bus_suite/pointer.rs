@@ -84,9 +84,9 @@ pub fn encoding_round_trips() -> Result<(), String> {
 pub fn tail_merging() -> Result<(), String> {
     fresh();
     let owner = consumer()?;
-    rel(1, 2);
+    rel(1, -2);
     rel(3, -4);
-    rel(-10, 0);
+    rel(10, 0);
     bus::publish(MOUSE, kind::SCROLL, pointer::VERTICAL, 1);
     bus::publish(MOUSE, kind::SCROLL, pointer::VERTICAL, 2);
     bus::publish(MOUSE, kind::ABS_MOTION, 0, pointer::pack_abs(5, 6));
@@ -96,7 +96,7 @@ pub fn tail_merging() -> Result<(), String> {
     check!(
         shape(&records)
             == [
-                (kind::REL_MOTION, 0, pointer::pack_rel(-6, -2)),
+                (kind::REL_MOTION, 0, pointer::pack_rel(14, -6)),
                 (kind::SCROLL, pointer::VERTICAL, 3),
                 (kind::ABS_MOTION, 0, pointer::pack_abs(700, 800)),
                 (kind::KEY, 0x04, 1),
@@ -192,6 +192,68 @@ pub fn merge_is_all_or_nothing() -> Result<(), String> {
         shape(&b_all)
     );
     gapless(&b_all, 1)?;
+    bus::reset();
+    Ok(())
+}
+
+/// Motion that turns back on an axis keeps its own record while the ring has
+/// room, so `inputd` clamps each leg: homing into the corner and then moving
+/// out must not collapse into one delta that the clamp at 0 swallows.
+pub fn turns_are_not_merged() -> Result<(), String> {
+    fresh();
+    let owner = consumer()?;
+    rel(-300, -300);
+    rel(-300, -300);
+    rel(128, 131);
+    rel(722, 269);
+    rel(0, 5);
+    rel(-1, 0);
+    let records = drain_all(owner, 16)?;
+    check!(
+        shape(&records)
+            == [
+                (kind::REL_MOTION, 0, pointer::pack_rel(-600, -600)),
+                (kind::REL_MOTION, 0, pointer::pack_rel(850, 405)),
+                (kind::REL_MOTION, 0, pointer::pack_rel(-1, 0)),
+            ],
+        "records {:?}",
+        records
+            .iter()
+            .map(|r| pointer::unpack_rel(r.value))
+            .collect::<Vec<_>>()
+    );
+    gapless(&records, 1)?;
+    bus::reset();
+    Ok(())
+}
+
+/// A starved consumer still cannot be flooded by a jittering mouse: once its
+/// ring is deep, turning motion merges again and the total is conserved.
+pub fn turns_merge_under_pressure() -> Result<(), String> {
+    fresh();
+    let owner = consumer()?;
+    let (mut sent_x, mut sent_y) = (0i64, 0i64);
+    for index in 0..10_000 {
+        let dx = if index % 2 == 0 { 4 } else { -3 };
+        rel(dx, 1);
+        sent_x += i64::from(dx);
+        sent_y += 1;
+    }
+    let records = drain_all(owner, 512)?;
+    check!(
+        records.len() < RING_CAP / 4,
+        "{} records from a jittering flood",
+        records.len()
+    );
+    let (got_x, got_y) = records.iter().fold((0i64, 0i64), |(x, y), r| {
+        let (dx, dy) = pointer::unpack_rel(r.value);
+        (x + i64::from(dx), y + i64::from(dy))
+    });
+    check!(
+        (got_x, got_y) == (sent_x, sent_y),
+        "motion ({got_x}, {got_y}), sent ({sent_x}, {sent_y})"
+    );
+    gapless(&records, 1)?;
     bus::reset();
     Ok(())
 }

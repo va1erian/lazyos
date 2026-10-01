@@ -126,6 +126,14 @@ pub(super) const CASES: &[(&str, Test)] = &[
         pointer::merge_is_all_or_nothing,
     ),
     (
+        "input_pointer_turns_are_not_merged",
+        pointer::turns_are_not_merged,
+    ),
+    (
+        "input_pointer_turns_merge_under_pressure",
+        pointer::turns_merge_under_pressure,
+    ),
+    (
         "input_pointer_motion_flood_keeps_keys",
         pointer::motion_flood_keeps_keys,
     ),
