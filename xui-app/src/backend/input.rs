@@ -167,7 +167,7 @@ impl LazyOSBackend {
     /// size, resize the painting surface, and tell `xui-core` through a
     /// window-level `Resize` so its layouts re-flow. A failed
     /// reconfigure (a newer Configure raced) keeps the old buffer and waits.
-    fn apply_configure(&self, window: WindowId, width: i32, height: i32) {
+    pub(super) fn apply_configure(&self, window: WindowId, width: i32, height: i32) {
         if width <= 0 || height <= 0 {
             return;
         }

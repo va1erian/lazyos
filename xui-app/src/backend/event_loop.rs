@@ -41,6 +41,7 @@ impl LazyOSBackend {
                     .map(|surface| (surface.events, surface.input.map(|s| s.events)))
                     .unzip();
                 if let Some(events) = events {
+                    self.replay_open_configure(window);
                     self.pump_client_input(window, events);
                 }
                 if let Some(Some(session)) = session {
@@ -57,6 +58,21 @@ impl LazyOSBackend {
         self.deliver(window, WidgetId::NONE, &Event::Wake);
         if self.needs_present(window) {
             self.present(window);
+        }
+    }
+
+    /// Hand the app the `Configure` that `ClientWindow::open` consumed to
+    /// size the first buffer, so it re-flows exactly as if it had arrived
+    /// after startup.
+    fn replay_open_configure(&self, window: WindowId) {
+        let pending = self
+            .windows
+            .borrow_mut()
+            .get_mut(&window.raw())
+            .and_then(|entry| entry.client.as_mut())
+            .and_then(|surface| surface.pending_configure.take());
+        if let Some((width, height)) = pending {
+            self.apply_configure(window, width, height);
         }
     }
 
