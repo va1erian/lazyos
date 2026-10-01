@@ -3,6 +3,7 @@
 //! the display protocol and the fabric panels share.
 
 use libmessenger::{Encoder, Header, Parcel, VERSION};
+use messenger_generated::os_lazy_messenger_registry_v1 as registry;
 
 use super::{errno, native, SYS_MESSENGER};
 
@@ -10,14 +11,21 @@ use super::{errno, native, SYS_MESSENGER};
 pub mod msg_op {
     /// Call a method and block until the reply arrives.
     pub const CALL: u64 = 1;
+    /// Answer a received call (the server side).
+    pub const REPLY: u64 = 2;
     /// Receive one queued message.
     pub const RECV: u64 = 4;
     /// Close an endpoint handle.
     pub const CLOSE_ENDPOINT: u64 = 6;
+    /// `CLOSE_ENDPOINT` flag: release this task's handle only, leaving the
+    /// channel side open for its other holders.
+    pub const CLOSE_RELEASE: u64 = 1;
     /// Create a fresh channel pair; both handles open in this task.
     pub const CREATE_PAIR: u64 = 7;
     /// Read the versioned fabric snapshot (`FabricStats`).
     pub const STATS: u64 = 8;
+    /// Publish an endpoint under a service name.
+    pub const REGISTER: u64 = 13;
     /// Resolve a service name to a new handle.
     pub const RESOLVE: u64 = 14;
     /// Snapshot the name table into the caller's buffer.
@@ -209,4 +217,54 @@ pub fn msg_recv(handle: u64, buf: &mut [u8], deadline: u64) -> Result<MsgResult,
         return Err(-errno::E2BIG);
     }
     Ok(result)
+}
+
+/// Publish `endpoint` (a handle in this task) under `name` as a permanent
+/// registration implementing `interfaces`; this task becomes the owner. The
+/// body comes from the generated `os.lazy.messenger.registry.v1` stubs.
+pub fn msg_register(name: &str, endpoint: u64, interfaces: &[u64]) -> Result<(), i64> {
+    let body = registry::encode_register_args(&registry::RegisterArgs {
+        name: name.into(),
+        endpoint: Some(endpoint),
+        interfaces: interfaces.to_vec(),
+        lease_ticks: 0,
+    })
+    .map_err(|_| -errno::EINVAL)?;
+    let parcel = Parcel {
+        header: Header {
+            version: VERSION,
+            flags: libmessenger::flags::ALLOW_NESTED,
+            interface_id: registry::INTERFACE_ID,
+            method: registry::METHOD_REGISTER,
+            txn_id: 0,
+            reply_to: 0,
+            deadline_ns: 0,
+        },
+        body,
+        handles: Vec::new(),
+        buffers: Vec::new(),
+    };
+    let mut bytes = Vec::new();
+    parcel.encode(&mut bytes).map_err(|_| -errno::EINVAL)?;
+    let args = MsgArgs {
+        txn_id: REGISTRY_TARGET_SELF,
+        parcel_ptr: bytes.as_ptr() as u64,
+        parcel_len: bytes.len() as u64,
+        ..MsgArgs::default()
+    };
+    messenger_syscall(msg_op::REGISTER, &args, &mut MsgResult::default())
+}
+
+/// Answer the call `txn` (from a [`msg_recv`] on a server endpoint) with
+/// `reply`.
+pub fn msg_reply(txn: u64, reply: &Parcel) -> Result<(), i64> {
+    let mut bytes = Vec::new();
+    reply.encode(&mut bytes).map_err(|_| -errno::EINVAL)?;
+    let args = MsgArgs {
+        txn_id: txn,
+        parcel_ptr: bytes.as_ptr() as u64,
+        parcel_len: bytes.len() as u64,
+        ..MsgArgs::default()
+    };
+    messenger_syscall(msg_op::REPLY, &args, &mut MsgResult::default())
 }

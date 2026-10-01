@@ -416,6 +416,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "lazyshell"
+version = "0.1.0"
+dependencies = [
+ "confd",
+ "deskmenu",
+ "timezone",
+]
+
+[[package]]
 name = "libc"
 version = "0.2.189"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -898,6 +907,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4568d7e143ec86d2021c338bae2afa88699e84b8e0af523626654fe6f03a1748"
 
 [[package]]
+name = "timezone"
+version = "0.1.0"
+
+[[package]]
 name = "tiny-keccak"
 version = "2.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1082,15 +1095,20 @@ checksum = "1ebf944e87a7c253233ad6766e082e3cd714b5d03812acc24c318f549614536e"
 name = "xui-app"
 version = "0.1.0"
 dependencies = [
+ "confd",
+ "deskmenu",
  "fhs",
+ "lazyshell",
  "libc",
  "libmessenger",
  "messenger-generated",
+ "uitheme",
  "xui-canvas",
  "xui-code-editor",
  "xui-confd-editor",
  "xui-core",
  "xui-explorer",
+ "xui-icons",
  "xui-paint",
  "xui-settings",
 ]
