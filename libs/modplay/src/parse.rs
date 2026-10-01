@@ -44,7 +44,7 @@ fn sample_header(bytes: &[u8], index: usize) -> (usize, i8, u8, usize, usize) {
     )
 }
 
-fn parse_note(cell: &[u8]) -> Note {
+fn parse_note(cell: &[u8; 4]) -> Note {
     Note {
         period: (u16::from(cell[0] & 0x0F) << 8) | u16::from(cell[1]),
         sample: (cell[0] & 0xF0) | (cell[2] >> 4),
@@ -78,7 +78,9 @@ pub fn parse(bytes: &[u8]) -> Result<Module, ModError> {
         return Err(ModError::TruncatedPatterns);
     }
     let patterns: Vec<Note> = bytes[HEADER..patterns_end]
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .map(parse_note)
         .collect();
 

@@ -102,7 +102,7 @@ pub fn mix(
     interpolate: bool,
     out: &mut [i16],
 ) {
-    for frame in out.chunks_exact_mut(2) {
+    for frame in out.as_chunks_mut::<2>().0 {
         let (mut left, mut right) = (0i32, 0i32);
         for (voice, &(wl, wr)) in voices.iter_mut().zip(pan.0.iter()) {
             let value = voice.next(samples, interpolate);

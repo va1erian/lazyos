@@ -43,7 +43,7 @@ fn tone() -> ModBuilder {
 }
 
 fn left(samples: &[i16]) -> Vec<i16> {
-    samples.chunks_exact(2).map(|f| f[0]).collect()
+    samples.as_chunks::<2>().0.iter().map(|f| f[0]).collect()
 }
 
 fn crossings(channel: &[i16]) -> usize {
@@ -210,7 +210,9 @@ fn volume_and_hard_pan() {
         .build();
     let peak = |bytes: &[u8], channel: usize| {
         render_all(bytes, hard())
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|f| i32::from(f[channel]).abs())
             .max()
             .unwrap()
@@ -235,7 +237,7 @@ fn mono_separation_mixes_both_sides() {
             ..Options::default()
         },
     );
-    assert!(out.chunks_exact(2).all(|f| f[0] == f[1]));
+    assert!(out.as_chunks::<2>().0.iter().all(|f| f[0] == f[1]));
     assert!(out.iter().any(|&s| s != 0));
 }
 

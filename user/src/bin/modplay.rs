@@ -49,7 +49,8 @@ struct Args {
     options: Options,
 }
 
-const USAGE: &str = "usage: modplay <file.mod> [loops=<n>] [sep=<0-100>]\n       modplay selftest\n";
+const USAGE: &str =
+    "usage: modplay <file.mod> [loops=<n>] [sep=<0-100>]\n       modplay selftest\n";
 
 fn parse_args() -> Option<Args> {
     let mut buffer = [0u8; 256];

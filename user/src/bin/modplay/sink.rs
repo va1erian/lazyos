@@ -129,7 +129,9 @@ impl Sink {
     }
 
     fn start(&mut self) -> Result<(), String> {
-        self.client.start(self.grant.stream).map_err(fail("start"))?;
+        self.client
+            .start(self.grant.stream)
+            .map_err(fail("start"))?;
         self.started = true;
         Ok(())
     }
