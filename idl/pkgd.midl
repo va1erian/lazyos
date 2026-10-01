@@ -1,0 +1,101 @@
+/// The application package manager (`docs/packages.md`, phase 3 of the
+/// package system).
+///
+/// `pkgd` is the only task that writes `/data/apps`, records installed apps in
+/// `confd`, registers their MIME verbs with `mimed` and loads their Messenger
+/// policy into the kernel (`acl_load`, `CAP_IPC_CONTROL`). A GUI installer is
+/// an unprivileged client: it calls `Inspect`, shows the user what the package
+/// asks for, and forwards the user's yes as `Install`. Failures are returned
+/// as a structured error field (errno-style code, friendly text), not as a
+/// typed reply; a package that fails validation reports every problem in
+/// `PackageInfo.problems` instead of an error so the installer can list them.
+interface os.lazy.pkgd.v1 {
+    /// Open and validate the `.lzp` at `path` (an absolute path the caller may
+    /// read) without changing anything. `problems` is empty for a package that
+    /// could be installed; otherwise it lists every reason it cannot be.
+    method Inspect(path: String) -> (info: PackageInfo);
+    /// Install the package at `path`: extract it to its install directory,
+    /// record it, register its MIME verbs, load its policy, then publish
+    /// `system/events/pkg/install`. Fails if the same `system_name` is already
+    /// installed at this version and digest. Needs the caller to be the
+    /// session owner or root; `pkgd` audits who asked.
+    method Install(path: String) -> (app: Installed);
+    /// Remove `system_name`: stop its running instances, unregister its MIME
+    /// verbs, revoke its policy, delete its install directory, then publish
+    /// `system/events/pkg/remove`. User data under `/data/home` is kept.
+    method Remove(system_name: String) -> ();
+    /// Every installed app, in install order.
+    method List() -> (apps: Array<Installed>);
+    /// One installed app by `system_name`, if present.
+    method Installed(system_name: String) -> (app: Option<Installed>);
+
+    /// What a package declares, as the consent screen shows it.
+    struct PackageInfo {
+        name: String,
+        system_name: String,
+        author: String,
+        version: String,
+        description: String,
+        /// Lowercase hex SHA-256 of the archive.
+        digest: String,
+        /// Where it would be installed, relative to `/data/apps`.
+        install_dir: String,
+        mime: Array<MimeHandler>,
+        permissions: Array<Permission>,
+        /// Empty when the package can be installed.
+        problems: Array<String>
+    }
+
+    /// One handled file type.
+    struct MimeHandler {
+        mime_type: String,
+        verbs: Array<String>,
+        /// Whether the package ships icons for this type.
+        has_icon: Bool
+    }
+
+    /// One requested permission with the friendly explanation the installer
+    /// shows. `kind` is `interface`, `topic`, `file` or `network`; `risk` is
+    /// `low`, `medium` or `high`. `explanation` comes from `pkgd`'s table
+    /// keyed by MIDL interface name, so every client shows the same words.
+    struct Permission {
+        kind: String,
+        value: String,
+        risk: String,
+        explanation: String
+    }
+
+    /// An installed app, as `confd` records it under `sys/apps/<system_name>`.
+    struct Installed {
+        system_name: String,
+        name: String,
+        version: String,
+        /// Install directory relative to `/data/apps`.
+        install_dir: String,
+        digest: String,
+        /// Entry binary, relative to the install directory (`bin/<name>.elf`).
+        binary: String,
+        /// Kernel ticks at install time.
+        installed_at: U64
+    }
+
+    /// One audit record: the payload of `system/events/pkg/<op>`, where `op`
+    /// is `install`, `remove` or `denied`. The same record, hex-encoded with
+    /// a chained SHA-256, is appended to `/data/log/pkg.log`.
+    struct PkgEvent {
+        op: String,
+        system_name: String,
+        version: String,
+        install_dir: String,
+        digest: String,
+        /// uid of the task that asked.
+        actor_uid: U64,
+        ok: Bool,
+        /// Friendly text: the error for a failure, empty on success.
+        detail: String
+    }
+
+    /// Published on every install, removal and refused request. Not retained:
+    /// `List` is the state, the events are the trail.
+    topic "system/events/pkg/{op}" : PkgEvent qos=latest;
+}

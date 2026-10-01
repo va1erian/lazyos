@@ -932,6 +932,48 @@
     "topics": []
   },
   {
+    "interface": "os.lazy.pkgd.v1",
+    "interface_id": "0x2e65545739956542",
+    "methods": [
+      {
+        "name": "Inspect",
+        "id": 1027767735,
+        "oneway": false
+      },
+      {
+        "name": "Install",
+        "id": 890027328,
+        "oneway": false
+      },
+      {
+        "name": "Remove",
+        "id": 564498461,
+        "oneway": false
+      },
+      {
+        "name": "List",
+        "id": 220805025,
+        "oneway": false
+      },
+      {
+        "name": "Installed",
+        "id": 1755800129,
+        "oneway": false
+      }
+    ],
+    "topics": [
+      {
+        "name": "system/events/pkg/+",
+        "source": "system/events/pkg/{op}",
+        "payload": "PkgEvent",
+        "qos": "latest",
+        "retained": false,
+        "publish_permission": "publish:system/events/pkg/+",
+        "subscribe_permission": "subscribe:system/events/pkg/+"
+      }
+    ]
+  },
+  {
     "interface": "os.lazy.messenger.policy.v1",
     "interface_id": "0xe625b4ee97525d37",
     "methods": [
