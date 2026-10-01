@@ -258,13 +258,10 @@ fn newest_configure(events: u64, kept: &mut Vec<Event>) -> Result<Option<(i32, i
                 if parcel.header.method == display::METHOD_WINDOW_CLOSE {
                     return Err("window closed while opening".into());
                 }
-                if let Some(Event::Configure { width, height, .. }) = display::decode_event(&parcel)
-                {
-                    newest = Some((width, height));
-                } else if let Some(event) = display::decode_event(&parcel) {
-                    if kept.len() < MAX_KEPT_EVENTS {
-                        kept.push(event);
-                    }
+                match display::decode_event(&parcel) {
+                    Some(Event::Configure { width, height, .. }) => newest = Some((width, height)),
+                    Some(event) => keep_event(kept, event),
+                    None => {}
                 }
                 // Anything still queued is already here; do not wait again.
                 wait = 0;
@@ -272,5 +269,55 @@ fn newest_configure(events: u64, kept: &mut Vec<Event>) -> Result<Option<(i32, i
             Err(code) if code == -errno::ETIMEDOUT => return Ok(newest),
             Err(code) => return Err(format!("event drain: errno {code}")),
         }
+    }
+}
+
+/// Keep `event` for replay, bounded by [`MAX_KEPT_EVENTS`]. When full, pointer
+/// motion is the expendable input: a new move is dropped, and any other event
+/// (a key or button transition, which cannot be reconstructed) evicts the
+/// oldest queued move to make room.
+fn keep_event(kept: &mut Vec<Event>, event: Event) {
+    if kept.len() < MAX_KEPT_EVENTS {
+        kept.push(event);
+    } else if matches!(event, Event::PointerMove { .. }) {
+        // Dropped: the next move supersedes it.
+    } else if let Some(at) = kept
+        .iter()
+        .position(|kept| matches!(kept, Event::PointerMove { .. }))
+    {
+        kept.remove(at);
+        kept.push(event);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn mv(x: i32) -> Event {
+        Event::PointerMove { x, y: 0 }
+    }
+
+    #[test]
+    fn a_full_buffer_drops_moves_but_keeps_key_transitions() {
+        let mut kept: Vec<Event> = (0..MAX_KEPT_EVENTS as i32).map(mv).collect();
+        keep_event(&mut kept, mv(999));
+        assert_eq!(kept.len(), MAX_KEPT_EVENTS);
+        assert!(!kept.contains(&mv(999)), "a new move is dropped when full");
+
+        keep_event(&mut kept, Event::KeyDown { key: 7 });
+        assert_eq!(kept.len(), MAX_KEPT_EVENTS);
+        assert_eq!(kept.last(), Some(&Event::KeyDown { key: 7 }));
+        assert!(!kept.contains(&mv(0)), "the oldest move made room");
+    }
+
+    #[test]
+    fn with_no_move_to_evict_a_full_buffer_is_left_alone() {
+        let mut kept: Vec<Event> = (0..MAX_KEPT_EVENTS as u32)
+            .map(|key| Event::KeyDown { key })
+            .collect();
+        keep_event(&mut kept, Event::KeyUp { key: 1 });
+        assert_eq!(kept.len(), MAX_KEPT_EVENTS);
+        assert!(!kept.contains(&Event::KeyUp { key: 1 }));
     }
 }
