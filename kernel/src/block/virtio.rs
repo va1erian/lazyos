@@ -24,6 +24,7 @@
 //! buffer may be a stack slice or a heap buffer without any physical-layout
 //! requirement.
 
+use super::virtio_diag as diag;
 use super::{BlockDevice, BlockError, SECTOR_SIZE};
 use crate::arch::io::{inb, inl, inw, outb, outl, outw};
 use crate::dev::pci;
@@ -38,6 +39,11 @@ const MAX_QUEUE: usize = 256;
 const MAX_USED_OFF: usize = 8192;
 const MAX_USED_BYTES: usize = 6 + MAX_QUEUE * 8;
 const QUEUE_BYTES: usize = MAX_USED_OFF + MAX_USED_BYTES;
+
+/// A request must complete within this many 100 Hz ticks (10 s).
+const TIMEOUT_TICKS: u64 = 1000;
+/// Spin bound used when the tick counter is not advancing (interrupts masked).
+const SPIN_BACKSTOP: u64 = 4_000_000_000;
 
 /// One request moves at most this many sectors through the bounce page.
 const REQUEST_SECTORS: usize = 8;
@@ -113,6 +119,8 @@ struct State {
     used_off: usize,
     avail_idx: u16,
     used_idx: u16,
+    /// A request was submitted and its completion not yet consumed (it timed out).
+    outstanding: bool,
     header_phys: u64,
     data_phys: u64,
     status_phys: u64,
@@ -290,6 +298,7 @@ unsafe fn attach(slot: &Slot, io: u16) -> Option<State> {
         used_off,
         avail_idx: 0,
         used_idx: 0,
+        outstanding: false,
         header_phys,
         data_phys,
         status_phys: header_phys + 16,
@@ -306,6 +315,48 @@ unsafe fn write_desc(queue: *mut u8, index: usize, addr: u64, len: u32, flags: u
 }
 
 impl State {
+    /// Poll the used ring until the outstanding request completes; returns the
+    /// spin count, or `None` on timeout. The wall-clock deadline is what bounds
+    /// a wedged device: a spin count is not a duration, and a host stalled by
+    /// load or by writing a fresh sparse image easily out-waits any fixed one.
+    /// `ticks()` cannot advance with interrupts masked, so a very large spin
+    /// count is the backstop for that case.
+    fn wait_used(&self, slot: &Slot) -> Option<u64> {
+        let start = crate::task::ticks();
+        let mut spins = 0u64;
+        loop {
+            fence(Ordering::Acquire);
+            // Safety: the used index is a device-written u16 in our queue.
+            let seen = unsafe {
+                ((slot.queue.0.get() as *const u8).add(self.used_off + 2) as *const u16)
+                    .read_volatile()
+            };
+            if seen != self.used_idx {
+                return Some(spins);
+            }
+            spins += 1;
+            if spins.is_multiple_of(4096)
+                && (crate::task::ticks().wrapping_sub(start) >= TIMEOUT_TICKS
+                    || spins >= SPIN_BACKSTOP)
+            {
+                return None;
+            }
+            core::hint::spin_loop();
+        }
+    }
+
+    /// Finish a request that timed out earlier. Until the device reports it,
+    /// it may still read the bounce page or write the status byte, so nothing
+    /// may reuse them. Errors when the device is still silent.
+    fn drain(&mut self, slot: &Slot) -> Result<(), BlockError> {
+        if self.outstanding {
+            self.wait_used(slot).ok_or(BlockError::Io)?;
+            self.outstanding = false;
+            self.used_idx = self.used_idx.wrapping_add(1); // the late completion
+        }
+        Ok(())
+    }
+
     /// Submit one request for `bytes` (already copied into the bounce page for
     /// writes) and wait for the used ring to report it. The caller holds the
     /// driver lock, so exactly one request is outstanding.
@@ -319,6 +370,7 @@ impl State {
         if bytes == 0 || bytes > REQUEST_BYTES || !bytes.is_multiple_of(SECTOR_SIZE) {
             return Err(BlockError::Unsupported);
         }
+        debug_assert!(!self.outstanding, "drain() must run before a new request");
         // Header: request type, reserved, starting sector.
         // Safety: the control block is exclusively ours while the lock is held.
         unsafe {
@@ -351,32 +403,31 @@ impl State {
         fence(Ordering::Release);
         out16(self.io + QUEUE_NOTIFY, 0);
 
-        // Poll the used ring. The spin bound turns a wedged device into an
-        // error instead of a hang.
-        let mut spins = 0u32;
-        loop {
-            fence(Ordering::Acquire);
-            // Safety: the used index is a device-written u16 in our queue.
-            let seen = unsafe {
-                ((slot.queue.0.get() as *const u8).add(self.used_off + 2) as *const u16)
-                    .read_volatile()
-            };
-            if seen != self.used_idx {
-                break;
-            }
-            spins += 1;
-            if spins == 10_000_000 {
+        self.outstanding = true;
+        let spins = match self.wait_used(slot) {
+            Some(spins) => spins,
+            None => {
+                // The device still owns the descriptors, the bounce page and the
+                // status byte. `outstanding` stays set so the next request drains
+                // this one first instead of mistaking its late completion for its own.
+                diag::log(self.io, write, lba, bytes, "timeout", 0);
                 return Err(BlockError::Io);
             }
-            core::hint::spin_loop();
-        }
+        };
+        // Consume the completion before anything else, so the next request
+        // (including the next chunk of this transfer) waits for its own.
+        self.outstanding = false;
         self.used_idx = self.used_idx.wrapping_add(1);
+        if spins >= diag::SLOW_SPINS {
+            diag::log(self.io, write, lba, bytes, "slow (completed)", spins);
+        }
         // Safety: as above, the status byte is device-written.
         let status = unsafe { (*slot.control.0.get()).status };
         let _ = in8(self.io + ISR); // deassert the legacy interrupt
         if status == 0 {
             Ok(())
         } else {
+            diag::log(self.io, write, lba, bytes, "status", u64::from(status));
             Err(BlockError::Io)
         }
     }
@@ -396,6 +447,7 @@ impl BlockDevice for VirtioBlk {
         let mut guard = self.state.lock();
         let state = guard.as_mut().ok_or(BlockError::Io)?;
         super::check_range(SECTOR_SIZE, state.sectors, lba, buf.len())?;
+        state.drain(slot)?;
         let mut sector = 0u64;
         for chunk in buf.chunks_mut(REQUEST_BYTES) {
             state.complete(slot, false, lba + sector, chunk.len())?;
@@ -414,6 +466,7 @@ impl BlockDevice for VirtioBlk {
         let mut guard = self.state.lock();
         let state = guard.as_mut().ok_or(BlockError::Io)?;
         super::check_range(SECTOR_SIZE, state.sectors, lba, buf.len())?;
+        state.drain(slot)?;
         let mut sector = 0u64;
         for chunk in buf.chunks(REQUEST_BYTES) {
             // Safety: the bounce page is exclusively ours while the lock is held.
