@@ -119,6 +119,7 @@ pub(super) fn put32(buf: &mut [u8], offset: usize, value: u32) {
 /// device keeps its friendly `EROFS`; everything else is a corrupt or missing
 /// backing store.
 pub(super) fn io_error(error: BlockError) -> FsError {
+    log_block_error(error);
     match error {
         BlockError::ReadOnly => FsError::ReadOnly,
         _ => FsError::Invalid,
@@ -175,4 +176,15 @@ pub(super) fn split_parent(path: &str) -> Result<(&str, &str), FsError> {
         return Err(FsError::NameTooLong);
     }
     Ok((parent, name))
+}
+
+/// Report the first failure of each kind on serial. `io_error` folds them all
+/// into `EINVAL`, which hid a flaky virtio device behind "invalid argument".
+fn log_block_error(error: BlockError) {
+    use core::sync::atomic::{AtomicU32, Ordering};
+    static SEEN: AtomicU32 = AtomicU32::new(0);
+    let bit = 1u32 << (error as u32 % 32);
+    if SEEN.fetch_or(bit, Ordering::Relaxed) & bit == 0 {
+        serial_println!("ext2: block layer error {:?} (reported once per kind)", error);
+    }
 }

@@ -22,6 +22,7 @@
 pub mod ata;
 pub mod mem;
 pub mod virtio;
+mod virtio_diag;
 
 use alloc::vec::Vec;
 use spin::Mutex;
