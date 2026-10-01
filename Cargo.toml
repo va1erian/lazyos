@@ -27,6 +27,8 @@ members = [
     "libs/timed",
     # Desktop theme schema + palette resolution shared by xuid and Settings.
     "libs/uitheme",
+    # Desktop context-menu schema (sys/ui/menu) shared by xuid and Settings.
+    "libs/deskmenu",
     # Modern virtio-PCI transport + split virtqueues, and the virtio-sound
     # protocol, for userspace drivers (docs/driver-plan.md D5/D6). Pure `no_std`
     # logic with host tests.
@@ -37,13 +39,27 @@ members = [
     # Keymaps, modifier/lock state, repeat and hotkey matching for `inputd`
     # (docs/input-plan.md): pure `no_std` logic with host tests.
     "libs/inputmap",
+    # Networking libraries (docs/networking-plan.md N0): the shared frame ring,
+    # the virtio-net wire definitions, and the seeded-input helper the in-tree
+    # fuzz-style tests use. Pure `no_std` logic (fuzzkit is host only).
+    "libs/framering",
+    "libs/virtio-net",
+    "libs/nicdrv",
+    "libs/netpolicy",
+    "libs/netstack",
+    "libs/fuzzkit",
+    # Application package (`.lzp`) reader (docs/packages.md): pure `no_std` +
+    # `alloc` zip/manifest parsing and validation shared by the installer and
+    # host tests.
+    "libs/lazypkg",
 ]
 # The xui app is an ordinary static-musl `std` program with its own workspace:
 # it is built by `tools/xui/build.py` and embedded in the image, never by the
 # OS workspace's `cargo build`. `rhai-host` (the `rhai` command, issue #319)
 # is the same shape, built by `tools/rhai/build.py`; `libs/rhai-lazy` is its
 # host-testable bindings crate and must not pull Rhai into the OS workspace.
-exclude = ["xui-app", "rhai-host", "libs/rhai-lazy"]
+# `fuzz` holds the cargo-fuzz targets (libFuzzer, Linux CI only).
+exclude = ["xui-app", "rhai-host", "libs/rhai-lazy", "fuzz"]
 resolver = "2"
 
 [build-dependencies]

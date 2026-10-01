@@ -1,0 +1,443 @@
+/// A network interface card, **link layer only** (docs/driver-plan.md §3.8,
+/// docs/networking-plan.md §5). No IP, ARP or DHCP: those belong to the stack
+/// service `netd`, which is just another client of this interface and, by
+/// policy, the only one. A NIC driver (`netdrv`, virtio-net first) serves it and
+/// never parses a payload.
+///
+/// **The client owns the rings.** Replies cannot carry buffers or handles (the
+/// kernel refuses transfers in a reply), and the driver must not let its device
+/// read memory a client can rewrite, so the client creates two shared buffers
+/// and the driver copies frames between them and its own DMA slots, in both
+/// directions (the audio rule, see `os.lazy.audio.v1`). A ring is the
+/// single-producer/single-consumer frame ring of `libs/framering`: fixed
+/// 2048-byte slots, a `u16` length then the frame, a power-of-two slot count,
+/// free-running `u32` indices in a header page. Nothing about the wire lives in
+/// a request body except the slot count.
+///
+/// `AttachRing` carries, in the parcel's `handles` and `buffers` vectors (the
+/// TLV body has no `Handle`/`Buffer` fields, as in `os.lazy.display.v1`):
+///
+/// * `buffers[0]`: one shared buffer holding **both rings**, back to back: the
+///   **receive ring** (driver produces, client consumes) at byte 0 and the
+///   **transmit ring** (client produces, driver consumes) at byte
+///   `framering::ring_bytes(slots)`. (The kernel surfaces only the first
+///   transferred buffer of a request to its receiver, so two rings cannot
+///   travel as two buffers.)
+/// * `handles[0]`: the **notify endpoint**, an endpoint the client holds the
+///   receiving side of, to which the driver posts `Notify`.
+///
+/// The buffer must be exactly `2 * framering::ring_bytes(slots)` bytes (two
+/// header pages plus `2 * slots` slots) or the call fails with `EINVAL`;
+/// `slots` must be a power of two from 16 to 1024 or it fails with `EINVAL`. Only one client may
+/// be attached (`EBUSY` otherwise); its owner is the kernel-stamped sender of
+/// `AttachRing`, and calls on the ring by anyone else fail with `EACCES`.
+///
+/// **Wake-up.** This interface replaces the draft's `notify: String` topic: a
+/// topic would put a broker round trip on the receive path. Instead each
+/// direction has one one-way message and one shared flag, so a waiter needs a
+/// single wait on a single endpoint and a burst costs one message, not one per
+/// frame (the rule the kernel uses for interrupt messages):
+///
+/// * driver to client, `Notify`: posted to the notify endpoint when frames
+///   arrive in the receive ring, when the transmit ring gains space after
+///   being full, or when the link changes;
+/// * client to driver, `Kick`: sent to the driver's endpoint after the client
+///   queues frames in the transmit ring.
+///
+/// A message is sent only when the consumer of that ring has *armed* it: the
+/// consumer sets the ring's `armed` flag before it sleeps (after a final look at
+/// the ring, so a frame that lands in between is never missed) and the producer
+/// clears it with one atomic exchange when it sends. That coalesces a burst to
+/// at most one outstanding message per ring, with no kernel help. A consumer
+/// that never arms simply polls; it can only harm itself.
+///
+/// Both sides treat the other as hostile: every index and length read from
+/// shared memory is validated and read exactly once, and a frame is copied out
+/// before it is looked at. A ring whose peer breaks the protocol (an index
+/// that claims more frames than the ring holds, an oversized length) is
+/// poisoned: the driver counts it in `NicStats.ring_errors` and detaches the
+/// client. A frame shorter than the 14-byte Ethernet header or longer than
+/// `NicInfo.max_frame` is dropped and counted, never truncated.
+///
+/// Failures of calls are returned as the shared structured error field
+/// (`services::error_field`) instead of the declared reply fields.
+interface os.lazy.net.nic.v1 {
+    /// Describe the card: MAC, MTU, link state and the negotiated feature set.
+    method Info() -> (info: NicInfo);
+    /// Choose which received frames reach the client: an `RxMode` ordinal.
+    /// The reply says whether the driver applied it (a device without a
+    /// filter table treats `Filtered` as `Promiscuous` and answers `false`).
+    /// Only the attached client may change it.
+    method SetRxMode(mode: U32) -> (ok: Bool);
+    /// Attach the client's rings and notify endpoint (see the interface
+    /// notes for what the parcel carries). `slots` is the slot count of both
+    /// rings. The reply is the ring id later calls name.
+    method AttachRing(slots: U32) -> (ring: U32);
+    /// Release the rings; the driver stops reading and writing them. Also
+    /// implied when the owner exits or its notify endpoint reports the peer
+    /// gone.
+    method DetachRing(ring: U32) -> ();
+    /// Frame and error counters since the driver started.
+    method Stats() -> (stats: NicStats);
+    /// Event, client to driver: the client queued frames in the transmit ring
+    /// of `ring`. Ignored from anyone but the owner.
+    method Kick(ring: U32) -> () oneway;
+    /// Event, driver to client: something needs the client's attention.
+    /// `events` is a bitmap: bit *n* is set for the `NotifyBit` with ordinal
+    /// *n*. Reserved bits are zero; a client ignores them.
+    method Notify(ring: U32, events: U32) -> () oneway;
+
+    /// Card description.
+    struct NicInfo {
+        /// Six octets, network order.
+        mac: Bytes,
+        /// Payload bytes of the largest frame the card carries.
+        mtu: U32,
+        /// Largest complete frame (`mtu` plus the 14-byte Ethernet header),
+        /// the bound the driver enforces in both directions.
+        max_frame: U32,
+        link: Bool,
+        /// Capability bitmap, zero if none: bit 0 receive checksum offload,
+        /// bit 1 transmit checksum offload, bit 2 VLAN tag insert/strip. Other
+        /// bits are reserved: a driver sets them to zero and a client ignores
+        /// them.
+        features: U32
+    }
+
+    /// Counters since the driver started.
+    struct NicStats {
+        rx_frames: U64,
+        tx_frames: U64,
+        rx_bytes: U64,
+        tx_bytes: U64,
+        /// Frames dropped on receive for any reason (no ring, ring full, and
+        /// the invalid frames below).
+        rx_dropped: U64,
+        /// Frames dropped on transmit for any reason (queue full, and the
+        /// invalid frames below).
+        tx_dropped: U64,
+        /// Frames shorter than the 14-byte Ethernet header, either direction.
+        runts: U64,
+        /// Frames longer than `max_frame`, either direction.
+        oversize: U64,
+        /// Rings poisoned by a peer that broke the protocol, plus device
+        /// used-ring entries the driver rejected.
+        ring_errors: U64,
+        /// Interrupt messages the driver handled (0 when polling).
+        interrupts: U64,
+        link_changes: U32
+    }
+
+    /// The payload of `system/net/{nic}/link`.
+    struct LinkEvent {
+        up: Bool,
+        /// Link changes since the driver started, so a subscriber can tell a
+        /// flap from a repeat.
+        changes: U32
+    }
+
+    /// Published by the driver whenever the link changes, and once at start.
+    /// `{nic}` is the driver's card name (`virtio-net0`).
+    topic "system/net/{nic}/link" : LinkEvent retained qos=latest;
+
+    /// Reasons for a `Notify`; ordinals are the `events` bit numbers, so new
+    /// ones are append-only. `RxReady`: frames arrived in the receive ring.
+    /// `TxSpace`: the transmit ring gained space after being full.
+    /// `LinkChange`: the link went up or down.
+    enum NotifyBit { RxReady, TxSpace, LinkChange }
+
+    /// Which received frames reach the client.
+    enum RxMode { Off, Filtered, Promiscuous }
+}
+
+/// The network stack service `netd` (docs/networking-plan.md N2): address
+/// configuration, routes, statistics and ping, over the one interface the
+/// stack drives (`os.lazy.net.nic.v1`). `netd` runs as the `_netd` user with no
+/// capabilities, is the only client of the NIC driver, and parses every frame
+/// the network sends it: nothing here is authority over a device.
+///
+/// **Nothing names a caller.** Who is asking is the kernel-stamped sender of the
+/// call; `Renew` and other changes are gated by the ACL (`libs/netpolicy`), not
+/// by a field in a request. Failures are returned as the shared structured error
+/// field (`services::error_field`) instead of the declared reply fields.
+///
+/// **Blocking without threads.** `Ping` is a synchronous call whose reply is
+/// *parked*: `netd` answers it when the echo reply arrives, or with `ETIMEDOUT`
+/// when `timeout_ms` passes, and the caller sleeps in the kernel meanwhile with
+/// its own deadline (`msg_cancel` and the caller's death clean up). One
+/// caller may have up to 4 pings outstanding and all callers together 8; past
+/// either limit the call fails with `EAGAIN`. The stack's clock is the 100 Hz tick, so round trips read in
+/// multiples of 10 ms. `Resolve` (N3) parks the same way: the answer comes
+/// when the resolver replies, `ETIMEDOUT` when `timeout_ms` passes.
+interface os.lazy.net.stack.v1 {
+    /// The interfaces the stack drives (one today).
+    method Interfaces() -> (list: Array<InterfaceInfo>);
+    /// The addresses configured on every interface.
+    method Addresses() -> (list: Array<AddressInfo>);
+    /// The routing table.
+    method Routes() -> (list: Array<RouteInfo>);
+    /// Stack counters since it started.
+    method Stats() -> (stats: StackStats);
+    /// Send one ICMP echo request to `dst` (four octets) with `payload_len`
+    /// bytes of payload (0 to 1400) and wait for its reply. `timeout_ms`
+    /// (10 to 60000) bounds the wait. Fails with `EINVAL` for a bad argument,
+    /// `ENETUNREACH` when there is no address or route yet, `EAGAIN` when this
+    /// caller has 4 pings outstanding or all callers together have 8, and `ETIMEDOUT` when no reply came.
+    method Ping(dst: Bytes, payload_len: U32, timeout_ms: U32) -> (result: EchoResult);
+    /// Look `name` up (A records) at the resolvers DHCP or the static
+    /// configuration gave. `name` is a host name of at most 253 bytes made of
+    /// dot-separated labels of 1 to 63 letters, digits and hyphens (`EINVAL`
+    /// otherwise); `timeout_ms` is 10 to 60000. Fails with `ENETUNREACH` when
+    /// there is no address or no resolver, `EAGAIN` when this caller has 4
+    /// lookups outstanding or all callers together have 8, `ENOENT` when the
+    /// resolver says the name has no address, and `ETIMEDOUT` when no answer
+    /// came. The reply lists the addresses found, four octets each. Until
+    /// the DNS half of N3 lands, `netd` answers `ENOSYS`, so a caller can
+    /// tell "not served yet" from a bad name.
+    method Resolve(name: String, timeout_ms: U32) -> (addrs: Array<Bytes>);
+    /// Ask for a fresh DHCP lease (drops the current one). Gated by the ACL.
+    method Renew() -> ();
+    /// Drop the attachment to the NIC driver and establish it again, as after
+    /// a driver restart: the stack keeps its lease and timers. A recovery and
+    /// test call; gated by the ACL.
+    method Reattach() -> ();
+
+    /// One network interface.
+    struct InterfaceInfo {
+        /// The interface name (`eth0`).
+        name: String,
+        /// Six octets, network order.
+        mac: Bytes,
+        mtu: U32,
+        /// The driver reports the link up.
+        link: Bool,
+        /// A `ConfigMode` ordinal: how the interface is configured.
+        mode: U32,
+        /// A `DhcpState` ordinal (`Off` for a static interface).
+        dhcp: U32
+    }
+
+    /// One configured IPv4 address.
+    struct AddressInfo {
+        interface: String,
+        /// Four octets, network order.
+        addr: Bytes,
+        prefix_len: U32,
+        /// An `AddrSource` ordinal.
+        source: U32,
+        /// Seconds of lease left when asked (0 when static or unknown).
+        lease_secs: U32
+    }
+
+    /// One IPv4 route.
+    struct RouteInfo {
+        interface: String,
+        /// Four octets; all zero with `prefix_len` 0 is the default route.
+        dest: Bytes,
+        prefix_len: U32,
+        /// Four octets; all zero for an on-link route.
+        gateway: Bytes
+    }
+
+    /// Stack counters since it started.
+    struct StackStats {
+        /// Frames read from and written to the NIC rings.
+        rx_frames: U64,
+        tx_frames: U64,
+        rx_bytes: U64,
+        tx_bytes: U64,
+        /// Frames the stack wanted to send but the transmit ring had no room for.
+        tx_dropped: U64,
+        /// Frames the driver's ring delivered with an impossible length.
+        rx_bad_length: U64,
+        /// Times the NIC ring or the driver went away and was re-attached.
+        nic_resets: U64,
+        /// DHCP leases acquired and lost.
+        leases: U64,
+        lease_losses: U64,
+        /// Pings started, answered, and timed out.
+        pings_sent: U64,
+        pings_answered: U64,
+        pings_timed_out: U64,
+        /// Name lookups started, answered with at least one address, and
+        /// failed or timed out.
+        lookups_sent: U64,
+        lookups_answered: U64,
+        lookups_failed: U64
+    }
+
+    /// The answer to one echo request.
+    struct EchoResult {
+        /// Round trip in milliseconds (10 ms resolution).
+        rtt_ms: U32,
+        /// Four octets: who answered.
+        source: Bytes,
+        /// Bytes of echo payload returned.
+        bytes: U32
+    }
+
+    /// The address `netd` currently holds on an interface, retained so a late
+    /// subscriber sees it. `{ifname}` is the interface name.
+    topic "system/net/{ifname}/addr" : AddressEvent retained qos=latest;
+
+    /// Published once when the stack first has an address (and again after a
+    /// lease is lost and regained).
+    topic "system/events/network/up" : AddressEvent qos=latest;
+
+    /// An interface's address state.
+    struct AddressEvent {
+        interface: String,
+        /// Four octets; all zero when there is no address.
+        addr: Bytes,
+        prefix_len: U32,
+        /// Four octets; all zero when there is no gateway.
+        gateway: Bytes
+    }
+
+    /// How an interface is configured.
+    enum ConfigMode { Dhcp, Static }
+
+    /// Where an address came from.
+    enum AddrSource { Dhcp, Static }
+
+    /// The DHCP client's state as the stack can observe it: a lease is held
+    /// (`Bound`) or it is being looked for (`Discovering`, which includes asking
+    /// the server to confirm an offer).
+    enum DhcpState { Off, Discovering, Bound }
+}
+
+/// Sockets (docs/networking-plan.md N3), served by `netd` next to
+/// `os.lazy.net.stack.v1`: TCP streams and UDP datagrams over IPv4.
+///
+/// **Ownership.** A socket belongs to the kernel-stamped sender of the `Open`
+/// that made it (or of the `Accept` that returned it); every call on it by
+/// anyone else fails with `EACCES`. Nothing in a request names a caller. A
+/// socket whose owner exits is reclaimed by `netd` (it watches the task
+/// table), so a client need not `Close` before it dies, but a well-behaved
+/// one does. One owner may hold at most 8 sockets and everybody together 64;
+/// past either limit `Open` and `Accept` fail with `EMFILE` and `ENFILE`.
+///
+/// **Blocking without threads.** `Connect`, `Accept`, `Recv`, `RecvFrom`,
+/// `Send` (when the send buffer is full) and `Poll` are *parked*: `netd` keeps
+/// the transaction and answers it when the socket is ready, or with
+/// `ETIMEDOUT` when `timeout_ms` (10 to 60000; 0 means the longest wait, 60 s)
+/// passes. A client that wants to wait longer calls again. A caller may have
+/// at most 4 parked calls at once and everyone together 32 (`EAGAIN` past
+/// either). Because the caller sleeps in the kernel with its own deadline,
+/// `msg_cancel` and its death end the wait on its side; `netd` finds out when
+/// it tries to reply.
+///
+/// **Bytes travel in parcels.** A `Send` carries at most 16384 bytes and
+/// `Recv` returns at most `max` (1 to 16384) bytes; each socket has a 16 KiB
+/// buffer each way (TCP) or room for 8 datagrams of up to 1472 bytes (UDP).
+/// `Recv` refuses `max = 0` with `EINVAL`, so an empty reply on a stream
+/// socket always means the peer closed its side.
+///
+/// **Ports.** `Bind` with port 0, or no `Bind` at all before `Connect`,
+/// `SendTo` or `Listen`, takes an ephemeral port (49152 to 65535). Ports
+/// below 1024 are refused with `EACCES` to every caller: `netd` runs without
+/// the capability that would let it read a caller's `CAP_NET_BIND`, so until
+/// the policy loader lands nobody binds a privileged port. A `Bind` to a port
+/// another socket of the same kind holds fails with `EADDRINUSE`.
+///
+/// **Errors** come back as the shared structured error field
+/// (`services::error_field`): `EBADF` for a socket id that is not open,
+/// `EINVAL` for an argument or a state the call does not fit (a `Listen` on a
+/// connected socket, a `Recv` on a listener), `ENETUNREACH` when there is no
+/// address or no route, `ECONNREFUSED` when the peer reset a connection
+/// attempt, `ECONNRESET` when it reset an open one, `ENOTCONN` for stream I/O
+/// before `Connect`, `EPIPE` for a `Send` after the stream was shut for
+/// writing, `EMSGSIZE` for a datagram that does not fit.
+interface os.lazy.net.socket.v1 {
+    /// Make a socket of `kind` (a `SockKind` ordinal). The reply is the id
+    /// every other call names.
+    method Open(kind: U32) -> (sock: U32);
+    /// Choose the local address and port. `addr.addr` must be all zeros (any)
+    /// or the interface's own address; port 0 picks an ephemeral one.
+    method Bind(sock: U32, addr: SockAddr) -> ();
+    /// Stream: open a connection to `addr`; parks until it is established or
+    /// refused. Datagram: fix the peer `Send`/`Recv` use (never parks).
+    method Connect(sock: U32, addr: SockAddr, timeout_ms: U32) -> ();
+    /// Stream only: accept connections on the bound port. `backlog` (1 to 8)
+    /// is how many connections may complete before `Accept` collects them.
+    method Listen(sock: U32, backlog: U32) -> ();
+    /// Stream only: take one established connection off a listener as a new
+    /// socket owned by the caller; parks until one is there.
+    method Accept(sock: U32, timeout_ms: U32) -> (conn: U32, peer: SockAddr);
+    /// Queue `data` (at most 16384 bytes) on a connected socket. Returns how
+    /// many bytes were taken (possibly fewer than sent); parks while no byte
+    /// would fit.
+    method Send(sock: U32, data: Bytes, timeout_ms: U32) -> (sent: U32);
+    /// Take up to `max` (1 to 16384) bytes from a connected socket; parks
+    /// until at least one is there. An empty reply is the end of the stream.
+    method Recv(sock: U32, max: U32, timeout_ms: U32) -> (data: Bytes);
+    /// Datagram: send `data` (at most 1472 bytes) to `addr`. Never parks: a
+    /// full send queue is `EAGAIN`.
+    method SendTo(sock: U32, addr: SockAddr, data: Bytes) -> (sent: U32);
+    /// Datagram: take the next datagram, cut to `max` bytes (1 to 16384), and
+    /// where it came from; parks until one is there.
+    method RecvFrom(sock: U32, max: U32, timeout_ms: U32) -> (data: Bytes, from: SockAddr);
+    /// Wait until any bit of `interest` (a bitmap of `Ready` ordinals) is
+    /// ready; the reply is the bitmap of what is. `Closed` and `Error` are
+    /// always of interest. Parks until then.
+    method Poll(sock: U32, interest: U32, timeout_ms: U32) -> (ready: U32);
+    /// Stream: end one or both directions (a `Shutdown` ordinal). `Write`
+    /// sends FIN after the queued bytes; the socket stays open for reading.
+    method Shutdown(sock: U32, how: U32) -> ();
+    /// The socket's own address and port (`EINVAL` before `Bind`/`Connect`).
+    method LocalAddr(sock: U32) -> (addr: SockAddr);
+    /// The peer's address and port (`ENOTCONN` when there is none).
+    method PeerAddr(sock: U32) -> (addr: SockAddr);
+    /// Release the socket. A stream closes gracefully (FIN); a parked call on
+    /// it is answered with `EBADF`.
+    method Close(sock: U32) -> ();
+    /// Counters since `netd` started; anyone may read them.
+    method Stats() -> (stats: SocketStats);
+
+    /// An IPv4 address and port. `addr` is four octets, network order; all
+    /// zero is "any" where that is allowed.
+    struct SockAddr {
+        addr: Bytes,
+        port: U32
+    }
+
+    /// Counters since `netd` started.
+    struct SocketStats {
+        /// Sockets open right now, and ever opened (`Open` and `Accept`).
+        open: U32,
+        opened: U64,
+        /// Sockets released by `Close` and reclaimed from an owner that exited.
+        closed: U64,
+        reclaimed: U64,
+        /// Connections established (outgoing and accepted), refused or reset.
+        connected: U64,
+        accepted: U64,
+        refused: U64,
+        resets: U64,
+        /// Payload bytes taken from and given to clients.
+        tx_bytes: U64,
+        rx_bytes: U64,
+        /// Datagrams sent and received.
+        tx_datagrams: U64,
+        rx_datagrams: U64,
+        /// Parked calls started, and ended by their timeout.
+        parked: U64,
+        park_timeouts: U64,
+        /// Calls refused because the caller did not own the socket.
+        not_owner: U64
+    }
+
+    /// What `Open` makes: a TCP stream or a UDP datagram socket. Ordinals are
+    /// append-only.
+    enum SockKind { Stream, Datagram }
+
+    /// Readiness bits (`Poll`): ordinal *n* is bit *n*. `Readable`: `Recv` or
+    /// `RecvFrom` would return at once (data, or the end of the stream);
+    /// `Writable`: `Send` would take at least one byte; `Acceptable`: a
+    /// listener has a connection waiting; `Closed`: the connection is fully
+    /// closed or was reset; `Error`: the last attempt failed (refused).
+    enum Ready { Readable, Writable, Acceptable, Closed, Error }
+
+    /// Which direction `Shutdown` ends.
+    enum Shutdown { Read, Write, Both }
+}

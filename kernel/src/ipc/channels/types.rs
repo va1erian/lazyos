@@ -183,6 +183,10 @@ pub(super) struct Endpoint {
     /// and a waiter that returns (message, timeout, error) unregisters, so
     /// the list only ever holds tasks currently inside `recv`.
     pub(super) waiters: Vec<usize>,
+    /// Poll transactions (see [`POLL_DEADLINE`]) this side has received and
+    /// not yet finished serving: the receiver's next `recv` on this side
+    /// ends any that are still unanswered with `TimedOut`.
+    pub(super) serving_polls: Vec<u64>,
 }
 
 /// A duplex channel: two endpoints, their transactions, and their meters.

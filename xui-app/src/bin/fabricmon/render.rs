@@ -5,6 +5,7 @@
 //! Split out of `fabricmon.rs`, which was over the file-size budget. The
 //! painter reads [`State`] and draws; it mutates nothing.
 
+use xui_app::compact;
 use xui_app::dashboard as dash;
 use xui_app::fabric::{errno_text, FabricStats, Topics};
 use xui_app::format::{bytes, clip, hex_id};
@@ -16,8 +17,13 @@ use super::State;
 pub(super) fn paint(canvas: &mut dyn Canvas, state: &State) {
     let theme = Theme::light();
     let bounds = canvas.bounds();
+    if compact::is_compact(bounds.width(), bounds.height()) {
+        crate::compact_view::paint(canvas, theme, state);
+        compact::paint_chip(canvas, theme, bounds);
+        return;
+    }
     let subtitle = format!(
-        "native syscall 5 · registry list · topics broker · {}×{} · [r] refresh  [q] quit",
+        "native syscall 5 · registry list · topics broker · {}×{} · [r] refresh  [c] compact  [q] quit",
         bounds.width(),
         bounds.height()
     );
@@ -41,6 +47,7 @@ pub(super) fn paint(canvas: &mut dyn Canvas, state: &State) {
     paint_fabric(canvas, theme, left, state);
     paint_registry(canvas, theme, right, state);
     paint_footer(canvas, theme, content, state);
+    compact::paint_chip(canvas, theme, bounds);
 }
 
 /// The fabric counters card.
@@ -50,7 +57,7 @@ fn paint_fabric(canvas: &mut dyn Canvas, theme: Theme, rect: Rect, state: &State
         canvas,
         theme,
         Rect::new(rect.left + 16, rect.top + 8, rect.right - 16, rect.top + 32),
-        "Fabric — stats ABI v3",
+        "Fabric — stats ABI v4",
     );
 
     let Some(stats) = &state.stats else {
@@ -469,7 +476,7 @@ fn paint_footer(canvas: &mut dyn Canvas, theme: Theme, content: Rect, state: &St
         content.bottom,
     );
     let text = format!(
-        "tick {} · {} refresh(es) · stats ABI v3 via syscall 5",
+        "tick {} · {} refresh(es) · stats ABI v4 via syscall 5",
         xui_app::sys::clock_ticks(),
         state.refreshes
     );

@@ -68,15 +68,19 @@ fn finish_and_reap_all(slots: &[usize]) -> Result<(), String> {
     Ok(())
 }
 
+mod direction_flag;
 mod fpu_state;
 mod lifecycle;
 mod process_tree;
+mod reclaim;
 mod wait_queue;
 mod yield_clock;
 
+pub(super) use direction_flag::*;
 pub(super) use fpu_state::*;
 pub(super) use lifecycle::*;
 pub(super) use process_tree::*;
+pub(super) use reclaim::*;
 pub(super) use wait_queue::*;
 pub(super) use yield_clock::*;
 
@@ -92,6 +96,8 @@ pub(super) const CASES: &[(&str, Test)] = &[
         "task_soak_thread_exit_generations",
         soak_thread_exit_generations,
     ),
+    ("task_reclaim_wakes_pipe_peer", reclaim_wakes_pipe_peer),
+    ("task_reclaim_pipe_close_soak", reclaim_pipe_close_soak),
     ("task_futex_wait_mismatch", futex_wait_mismatch),
     ("task_fd_table", fd_table),
     ("task_wait_queue_block_wake", wait_queue_block_wake),
@@ -108,6 +114,15 @@ pub(super) const CASES: &[(&str, Test)] = &[
         wait_queue_blocked_not_scheduled,
     ),
     ("task_yield_does_not_tick", yield_does_not_tick),
+    (
+        "task_tick_on_parked_task_is_idle",
+        tick_on_parked_task_is_idle,
+    ),
+    (
+        "task_entry_clears_direction_flag",
+        entry_clears_direction_flag,
+    ),
+    ("task_entry_direction_flag_soak", entry_direction_flag_soak),
     ("task_fpu_reset_is_default", fpu_reset_is_default),
     (
         "task_fpu_switch_keeps_each_tasks_state",

@@ -350,3 +350,22 @@ Audit everything that assumed windows are on screen, and fix what breaks:
   frame) until the client handles its `Configure` and attaches again; a stale
   smaller one is refused with `EINVAL`.
 - **`zoom`/`outline`** were made `pub(super)` rather than adding a wrapper.
+
+## Client-requested size (`RequestSize`, method 34)
+
+A client can ask for a size instead of waiting for a drag: `RequestSize(surface,
+width, height)`, appended after `Configure`. It exists for the dashboard
+compact/expanded toggle (`sysmon`, `fabricmon`; `xui-app/src/compact.rs`).
+
+- **Who and when.** Creator only (`EACCES`; `ENOENT` unknown). The surface must
+  have called `SetSizeHints` and be neither maximized nor minimized, else
+  `EINVAL`.
+- **Geometry.** `xuid` `geometry::requested_rect` keeps the top-left corner and
+  clamps the content size to the declared bounds and the screen.
+- **Confirmation.** The compositor always answers with `Configure` carrying the
+  size it applied (even if unchanged), so the client needs no extra handshake:
+  it re-lays out and re-attaches as for a drag resize. Apps derive the compact
+  view purely from the window size (`compact::is_compact`), so a drag, the `c`
+  key and the chip all converge on the same state.
+- **Client API.** `LazyOSBackend::request_size(w, h)` (xui-app) and
+  `Client::request_size` (display client).

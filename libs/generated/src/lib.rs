@@ -2449,6 +2449,8 @@ pub mod os_lazy_display_v1 {
     pub const METHOD_SETSIZEHINTS: u32 = 32;
     /// `Configure` method id.
     pub const METHOD_CONFIGURE: u32 = 33;
+    /// `RequestSize` method id.
+    pub const METHOD_REQUESTSIZE: u32 = 34;
 
     /// Create a surface of `width` x `height` pixels titled `title`. `role` is
     /// a `Role` value: a decorated window (also the meaning of an absent
@@ -3619,6 +3621,49 @@ pub mod os_lazy_display_v1 {
                 }
                 4 => {
                     out.state = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Ask the compositor to change `surface`'s content size to `width` x
+    /// `height`, keeping its top-left corner (a compact/expanded toggle). Only
+    /// the creator may call it (`EACCES`; `ENOENT` for an unknown surface) and
+    /// only a surface that declared `SetSizeHints` and is neither maximized nor
+    /// minimized (`EINVAL` otherwise). The size is clamped to the declared
+    /// bounds and to the screen; the compositor answers by sending a
+    /// `Configure` with the size it actually applied (also when that equals
+    /// the current size), which is the only confirmation the client needs.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct RequestSizeArgs {
+        pub surface: u64,
+        pub width: u32,
+        pub height: u32,
+    }
+
+    pub fn encode_request_size_args(value: &RequestSizeArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.surface)?;
+        target.u32(2, value.width)?;
+        target.u32(3, value.height)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_request_size_args(body: &[u8]) -> Result<RequestSizeArgs, Error> {
+        let mut out = RequestSizeArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.surface = field.as_u64()?;
+                }
+                2 => {
+                    out.width = field.as_u32()?;
+                }
+                3 => {
+                    out.height = field.as_u32()?;
                 }
                 _ => {}
             }
@@ -6621,6 +6666,2239 @@ pub mod os_lazy_mimed_v1 {
     }
 }
 
+/// `os.lazy.net.nic.v1` (interface id `0x6748c83c2024715b`).
+#[rustfmt::skip]
+pub mod os_lazy_net_nic_v1 {
+    use alloc::vec::Vec;
+    #[allow(unused_imports)]
+    use alloc::string::String;
+    // Not every interface needs every codec item (`Kind` is only used by nested values).
+    #[allow(unused_imports)]
+    use libmessenger::{Decoder, Encoder, Error, Kind};
+    // Only interfaces that declare topics use the shared topic runtime.
+    #[allow(unused_imports)]
+    use super::topics;
+
+    /// The interface id: the FNV-1a hash of the `.vN` interface name.
+    pub const INTERFACE_ID: u64 = 0x6748c83c2024715b;
+
+    /// `NotifyBit::RxReady` wire value.
+    pub const NOTIFY_BIT_RX_READY: u32 = 0;
+    /// `NotifyBit::TxSpace` wire value.
+    pub const NOTIFY_BIT_TX_SPACE: u32 = 1;
+    /// `NotifyBit::LinkChange` wire value.
+    pub const NOTIFY_BIT_LINK_CHANGE: u32 = 2;
+
+    /// `RxMode::Off` wire value.
+    pub const RX_MODE_OFF: u32 = 0;
+    /// `RxMode::Filtered` wire value.
+    pub const RX_MODE_FILTERED: u32 = 1;
+    /// `RxMode::Promiscuous` wire value.
+    pub const RX_MODE_PROMISCUOUS: u32 = 2;
+
+    /// Card description.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct NicInfo {
+        pub mac: alloc::vec::Vec<u8>,
+        pub mtu: u32,
+        pub max_frame: u32,
+        pub link: bool,
+        pub features: u32,
+    }
+
+    pub fn encode_nic_info(value: &NicInfo) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.bytes(1, &value.mac)?;
+        target.u32(2, value.mtu)?;
+        target.u32(3, value.max_frame)?;
+        target.bool(4, value.link)?;
+        target.u32(5, value.features)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_nic_info(body: &[u8]) -> Result<NicInfo, Error> {
+        let mut out = NicInfo::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.mac = field.as_bytes().to_vec();
+                }
+                2 => {
+                    out.mtu = field.as_u32()?;
+                }
+                3 => {
+                    out.max_frame = field.as_u32()?;
+                }
+                4 => {
+                    out.link = field.as_bool()?;
+                }
+                5 => {
+                    out.features = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Six octets, network order.
+    /// Payload bytes of the largest frame the card carries.
+    /// Largest complete frame (`mtu` plus the 14-byte Ethernet header),
+    /// the bound the driver enforces in both directions.
+    /// Capability bitmap, zero if none: bit 0 receive checksum offload,
+    /// bit 1 transmit checksum offload, bit 2 VLAN tag insert/strip. Other
+    /// bits are reserved: a driver sets them to zero and a client ignores
+    /// them.
+    /// Counters since the driver started.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct NicStats {
+        pub rx_frames: u64,
+        pub tx_frames: u64,
+        pub rx_bytes: u64,
+        pub tx_bytes: u64,
+        pub rx_dropped: u64,
+        pub tx_dropped: u64,
+        pub runts: u64,
+        pub oversize: u64,
+        pub ring_errors: u64,
+        pub interrupts: u64,
+        pub link_changes: u32,
+    }
+
+    pub fn encode_nic_stats(value: &NicStats) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.rx_frames)?;
+        target.u64(2, value.tx_frames)?;
+        target.u64(3, value.rx_bytes)?;
+        target.u64(4, value.tx_bytes)?;
+        target.u64(5, value.rx_dropped)?;
+        target.u64(6, value.tx_dropped)?;
+        target.u64(7, value.runts)?;
+        target.u64(8, value.oversize)?;
+        target.u64(9, value.ring_errors)?;
+        target.u64(10, value.interrupts)?;
+        target.u32(11, value.link_changes)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_nic_stats(body: &[u8]) -> Result<NicStats, Error> {
+        let mut out = NicStats::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.rx_frames = field.as_u64()?;
+                }
+                2 => {
+                    out.tx_frames = field.as_u64()?;
+                }
+                3 => {
+                    out.rx_bytes = field.as_u64()?;
+                }
+                4 => {
+                    out.tx_bytes = field.as_u64()?;
+                }
+                5 => {
+                    out.rx_dropped = field.as_u64()?;
+                }
+                6 => {
+                    out.tx_dropped = field.as_u64()?;
+                }
+                7 => {
+                    out.runts = field.as_u64()?;
+                }
+                8 => {
+                    out.oversize = field.as_u64()?;
+                }
+                9 => {
+                    out.ring_errors = field.as_u64()?;
+                }
+                10 => {
+                    out.interrupts = field.as_u64()?;
+                }
+                11 => {
+                    out.link_changes = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Frames dropped on receive for any reason (no ring, ring full, and
+    /// the invalid frames below).
+    /// Frames dropped on transmit for any reason (queue full, and the
+    /// invalid frames below).
+    /// Frames shorter than the 14-byte Ethernet header, either direction.
+    /// Frames longer than `max_frame`, either direction.
+    /// Rings poisoned by a peer that broke the protocol, plus device
+    /// used-ring entries the driver rejected.
+    /// Interrupt messages the driver handled (0 when polling).
+    /// The payload of `system/net/{nic}/link`.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct LinkEvent {
+        pub up: bool,
+        pub changes: u32,
+    }
+
+    pub fn encode_link_event(value: &LinkEvent) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.bool(1, value.up)?;
+        target.u32(2, value.changes)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_link_event(body: &[u8]) -> Result<LinkEvent, Error> {
+        let mut out = LinkEvent::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.up = field.as_bool()?;
+                }
+                2 => {
+                    out.changes = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// `Info` method id.
+    pub const METHOD_INFO: u32 = 266462757;
+    /// `SetRxMode` method id.
+    pub const METHOD_SETRXMODE: u32 = 506115710;
+    /// `AttachRing` method id.
+    pub const METHOD_ATTACHRING: u32 = 62355614;
+    /// `DetachRing` method id.
+    pub const METHOD_DETACHRING: u32 = 162562056;
+    /// `Stats` method id.
+    pub const METHOD_STATS: u32 = 267161228;
+    /// `Kick` method id.
+    pub const METHOD_KICK: u32 = 754690623;
+    /// `Notify` method id.
+    pub const METHOD_NOTIFY: u32 = 314575196;
+
+    /// Describe the card: MAC, MTU, link state and the negotiated feature set.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct InfoReply {
+        pub info: NicInfo,
+    }
+
+    pub fn encode_info_reply(value: &InfoReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.raw(Kind::Struct, 1, &encode_nic_info(&value.info)?)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_info_reply(body: &[u8]) -> Result<InfoReply, Error> {
+        let mut out = InfoReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.info = decode_nic_info(field.payload)?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Choose which received frames reach the client: an `RxMode` ordinal.
+    /// The reply says whether the driver applied it (a device without a
+    /// filter table treats `Filtered` as `Promiscuous` and answers `false`).
+    /// Only the attached client may change it.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct SetRxModeArgs {
+        pub mode: u32,
+    }
+
+    pub fn encode_set_rx_mode_args(value: &SetRxModeArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.mode)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_set_rx_mode_args(body: &[u8]) -> Result<SetRxModeArgs, Error> {
+        let mut out = SetRxModeArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.mode = field.as_u32()?;
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct SetRxModeReply {
+        pub ok: bool,
+    }
+
+    pub fn encode_set_rx_mode_reply(value: &SetRxModeReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.bool(1, value.ok)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_set_rx_mode_reply(body: &[u8]) -> Result<SetRxModeReply, Error> {
+        let mut out = SetRxModeReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.ok = field.as_bool()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Attach the client's rings and notify endpoint (see the interface
+    /// notes for what the parcel carries). `slots` is the slot count of both
+    /// rings. The reply is the ring id later calls name.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct AttachRingArgs {
+        pub slots: u32,
+    }
+
+    pub fn encode_attach_ring_args(value: &AttachRingArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.slots)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_attach_ring_args(body: &[u8]) -> Result<AttachRingArgs, Error> {
+        let mut out = AttachRingArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.slots = field.as_u32()?;
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct AttachRingReply {
+        pub ring: u32,
+    }
+
+    pub fn encode_attach_ring_reply(value: &AttachRingReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.ring)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_attach_ring_reply(body: &[u8]) -> Result<AttachRingReply, Error> {
+        let mut out = AttachRingReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.ring = field.as_u32()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Release the rings; the driver stops reading and writing them. Also
+    /// implied when the owner exits or its notify endpoint reports the peer
+    /// gone.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct DetachRingArgs {
+        pub ring: u32,
+    }
+
+    pub fn encode_detach_ring_args(value: &DetachRingArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.ring)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_detach_ring_args(body: &[u8]) -> Result<DetachRingArgs, Error> {
+        let mut out = DetachRingArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.ring = field.as_u32()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Frame and error counters since the driver started.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct StatsReply {
+        pub stats: NicStats,
+    }
+
+    pub fn encode_stats_reply(value: &StatsReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.raw(Kind::Struct, 1, &encode_nic_stats(&value.stats)?)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_stats_reply(body: &[u8]) -> Result<StatsReply, Error> {
+        let mut out = StatsReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.stats = decode_nic_stats(field.payload)?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Event, client to driver: the client queued frames in the transmit ring
+    /// of `ring`. Ignored from anyone but the owner.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct KickArgs {
+        pub ring: u32,
+    }
+
+    pub fn encode_kick_args(value: &KickArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.ring)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_kick_args(body: &[u8]) -> Result<KickArgs, Error> {
+        let mut out = KickArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.ring = field.as_u32()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Event, driver to client: something needs the client's attention.
+    /// `events` is a bitmap: bit *n* is set for the `NotifyBit` with ordinal
+    /// *n*. Reserved bits are zero; a client ignores them.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct NotifyArgs {
+        pub ring: u32,
+        pub events: u32,
+    }
+
+    pub fn encode_notify_args(value: &NotifyArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.ring)?;
+        target.u32(2, value.events)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_notify_args(body: &[u8]) -> Result<NotifyArgs, Error> {
+        let mut out = NotifyArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.ring = field.as_u32()?;
+                }
+                2 => {
+                    out.events = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Link changes since the driver started, so a subscriber can tell a
+    /// flap from a repeat.
+    /// Published by the driver whenever the link changes, and once at start.
+    /// `{nic}` is the driver's card name (`virtio-net0`).
+    /// The declared `system/net/+/link` topic (`LinkEvent`, `latest`, retained).
+    pub const TOPIC_SYSTEM_NET_LINK: &str = "system/net/+/link";
+    /// The `system/net/+/link` delivery policy.
+    pub const TOPIC_SYSTEM_NET_LINK_QOS: u32 = topics::QOS_LATEST;
+    /// Whether `system/net/+/link` publishes are retained.
+    pub const TOPIC_SYSTEM_NET_LINK_RETAINED: bool = true;
+
+    /// Build the concrete `system/net/+/link` name; each wildcard takes one literal segment.
+    pub fn name_system_net_link(nic: &str) -> Result<String, topics::TopicError> {
+        topics::build(TOPIC_SYSTEM_NET_LINK, &[nic], topics::Mode::Publish)
+    }
+
+    /// Encode a `LinkEvent` payload for `system/net/+/link`.
+    pub fn encode_system_net_link(value: &LinkEvent) -> Result<Vec<u8>, Error> {
+        encode_link_event(value)
+    }
+
+    /// Decode a `system/net/+/link` payload; malformed bytes are an error.
+    pub fn decode_system_net_link(body: &[u8]) -> Result<LinkEvent, Error> {
+        decode_link_event(body)
+    }
+
+    /// Publish a typed `LinkEvent` on `system/net/+/link`.
+    pub fn publish_system_net_link<P>(publisher: &mut P, nic: &str, value: &LinkEvent) -> Result<u64, P::Error>
+    where
+        P: topics::Publish,
+        P::Error: From<topics::TopicError>,
+    {
+        let topic = name_system_net_link(nic).map_err(P::Error::from)?;
+        let payload = encode_system_net_link(value)
+            .map_err(|error| P::Error::from(topics::TopicError::Encode(error)))?;
+        publisher.publish_topic(&topic, &payload, TOPIC_SYSTEM_NET_LINK_RETAINED)
+    }
+
+    /// Subscribe to `system/net/+/link` with its declared QoS.
+    pub fn subscribe_system_net_link<S>(subscriber: &mut S, nic: &str) -> Result<S::Subscription, S::Error>
+    where
+        S: topics::Subscribe,
+        S::Error: From<topics::TopicError>,
+    {
+        let filter = topics::build(TOPIC_SYSTEM_NET_LINK, &[nic], topics::Mode::Subscribe)
+            .map_err(S::Error::from)?;
+        subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_NET_LINK_QOS)
+    }
+}
+
+/// `os.lazy.net.stack.v1` (interface id `0xb80ce5d5fc59627d`).
+#[rustfmt::skip]
+pub mod os_lazy_net_stack_v1 {
+    use alloc::vec::Vec;
+    #[allow(unused_imports)]
+    use alloc::string::String;
+    // Not every interface needs every codec item (`Kind` is only used by nested values).
+    #[allow(unused_imports)]
+    use libmessenger::{Decoder, Encoder, Error, Kind};
+    // Only interfaces that declare topics use the shared topic runtime.
+    #[allow(unused_imports)]
+    use super::topics;
+
+    /// The interface id: the FNV-1a hash of the `.vN` interface name.
+    pub const INTERFACE_ID: u64 = 0xb80ce5d5fc59627d;
+
+    /// `ConfigMode::Dhcp` wire value.
+    pub const CONFIG_MODE_DHCP: u32 = 0;
+    /// `ConfigMode::Static` wire value.
+    pub const CONFIG_MODE_STATIC: u32 = 1;
+
+    /// `AddrSource::Dhcp` wire value.
+    pub const ADDR_SOURCE_DHCP: u32 = 0;
+    /// `AddrSource::Static` wire value.
+    pub const ADDR_SOURCE_STATIC: u32 = 1;
+
+    /// `DhcpState::Off` wire value.
+    pub const DHCP_STATE_OFF: u32 = 0;
+    /// `DhcpState::Discovering` wire value.
+    pub const DHCP_STATE_DISCOVERING: u32 = 1;
+    /// `DhcpState::Bound` wire value.
+    pub const DHCP_STATE_BOUND: u32 = 2;
+
+    /// One network interface.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct InterfaceInfo {
+        pub name: alloc::string::String,
+        pub mac: alloc::vec::Vec<u8>,
+        pub mtu: u32,
+        pub link: bool,
+        pub mode: u32,
+        pub dhcp: u32,
+    }
+
+    pub fn encode_interface_info(value: &InterfaceInfo) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.name)?;
+        target.bytes(2, &value.mac)?;
+        target.u32(3, value.mtu)?;
+        target.bool(4, value.link)?;
+        target.u32(5, value.mode)?;
+        target.u32(6, value.dhcp)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_interface_info(body: &[u8]) -> Result<InterfaceInfo, Error> {
+        let mut out = InterfaceInfo::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.name = field.as_str()?.into();
+                }
+                2 => {
+                    out.mac = field.as_bytes().to_vec();
+                }
+                3 => {
+                    out.mtu = field.as_u32()?;
+                }
+                4 => {
+                    out.link = field.as_bool()?;
+                }
+                5 => {
+                    out.mode = field.as_u32()?;
+                }
+                6 => {
+                    out.dhcp = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// The interface name (`eth0`).
+    /// Six octets, network order.
+    /// The driver reports the link up.
+    /// A `ConfigMode` ordinal: how the interface is configured.
+    /// A `DhcpState` ordinal (`Off` for a static interface).
+    /// One configured IPv4 address.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct AddressInfo {
+        pub interface: alloc::string::String,
+        pub addr: alloc::vec::Vec<u8>,
+        pub prefix_len: u32,
+        pub source: u32,
+        pub lease_secs: u32,
+    }
+
+    pub fn encode_address_info(value: &AddressInfo) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.interface)?;
+        target.bytes(2, &value.addr)?;
+        target.u32(3, value.prefix_len)?;
+        target.u32(4, value.source)?;
+        target.u32(5, value.lease_secs)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_address_info(body: &[u8]) -> Result<AddressInfo, Error> {
+        let mut out = AddressInfo::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.interface = field.as_str()?.into();
+                }
+                2 => {
+                    out.addr = field.as_bytes().to_vec();
+                }
+                3 => {
+                    out.prefix_len = field.as_u32()?;
+                }
+                4 => {
+                    out.source = field.as_u32()?;
+                }
+                5 => {
+                    out.lease_secs = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Four octets, network order.
+    /// An `AddrSource` ordinal.
+    /// Seconds of lease left when asked (0 when static or unknown).
+    /// One IPv4 route.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct RouteInfo {
+        pub interface: alloc::string::String,
+        pub dest: alloc::vec::Vec<u8>,
+        pub prefix_len: u32,
+        pub gateway: alloc::vec::Vec<u8>,
+    }
+
+    pub fn encode_route_info(value: &RouteInfo) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.interface)?;
+        target.bytes(2, &value.dest)?;
+        target.u32(3, value.prefix_len)?;
+        target.bytes(4, &value.gateway)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_route_info(body: &[u8]) -> Result<RouteInfo, Error> {
+        let mut out = RouteInfo::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.interface = field.as_str()?.into();
+                }
+                2 => {
+                    out.dest = field.as_bytes().to_vec();
+                }
+                3 => {
+                    out.prefix_len = field.as_u32()?;
+                }
+                4 => {
+                    out.gateway = field.as_bytes().to_vec();
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Four octets; all zero with `prefix_len` 0 is the default route.
+    /// Four octets; all zero for an on-link route.
+    /// Stack counters since it started.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct StackStats {
+        pub rx_frames: u64,
+        pub tx_frames: u64,
+        pub rx_bytes: u64,
+        pub tx_bytes: u64,
+        pub tx_dropped: u64,
+        pub rx_bad_length: u64,
+        pub nic_resets: u64,
+        pub leases: u64,
+        pub lease_losses: u64,
+        pub pings_sent: u64,
+        pub pings_answered: u64,
+        pub pings_timed_out: u64,
+        pub lookups_sent: u64,
+        pub lookups_answered: u64,
+        pub lookups_failed: u64,
+    }
+
+    pub fn encode_stack_stats(value: &StackStats) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.rx_frames)?;
+        target.u64(2, value.tx_frames)?;
+        target.u64(3, value.rx_bytes)?;
+        target.u64(4, value.tx_bytes)?;
+        target.u64(5, value.tx_dropped)?;
+        target.u64(6, value.rx_bad_length)?;
+        target.u64(7, value.nic_resets)?;
+        target.u64(8, value.leases)?;
+        target.u64(9, value.lease_losses)?;
+        target.u64(10, value.pings_sent)?;
+        target.u64(11, value.pings_answered)?;
+        target.u64(12, value.pings_timed_out)?;
+        target.u64(13, value.lookups_sent)?;
+        target.u64(14, value.lookups_answered)?;
+        target.u64(15, value.lookups_failed)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_stack_stats(body: &[u8]) -> Result<StackStats, Error> {
+        let mut out = StackStats::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.rx_frames = field.as_u64()?;
+                }
+                2 => {
+                    out.tx_frames = field.as_u64()?;
+                }
+                3 => {
+                    out.rx_bytes = field.as_u64()?;
+                }
+                4 => {
+                    out.tx_bytes = field.as_u64()?;
+                }
+                5 => {
+                    out.tx_dropped = field.as_u64()?;
+                }
+                6 => {
+                    out.rx_bad_length = field.as_u64()?;
+                }
+                7 => {
+                    out.nic_resets = field.as_u64()?;
+                }
+                8 => {
+                    out.leases = field.as_u64()?;
+                }
+                9 => {
+                    out.lease_losses = field.as_u64()?;
+                }
+                10 => {
+                    out.pings_sent = field.as_u64()?;
+                }
+                11 => {
+                    out.pings_answered = field.as_u64()?;
+                }
+                12 => {
+                    out.pings_timed_out = field.as_u64()?;
+                }
+                13 => {
+                    out.lookups_sent = field.as_u64()?;
+                }
+                14 => {
+                    out.lookups_answered = field.as_u64()?;
+                }
+                15 => {
+                    out.lookups_failed = field.as_u64()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Frames read from and written to the NIC rings.
+    /// Frames the stack wanted to send but the transmit ring had no room for.
+    /// Frames the driver's ring delivered with an impossible length.
+    /// Times the NIC ring or the driver went away and was re-attached.
+    /// DHCP leases acquired and lost.
+    /// Pings started, answered, and timed out.
+    /// Name lookups started, answered with at least one address, and
+    /// failed or timed out.
+    /// The answer to one echo request.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct EchoResult {
+        pub rtt_ms: u32,
+        pub source: alloc::vec::Vec<u8>,
+        pub bytes: u32,
+    }
+
+    pub fn encode_echo_result(value: &EchoResult) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.rtt_ms)?;
+        target.bytes(2, &value.source)?;
+        target.u32(3, value.bytes)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_echo_result(body: &[u8]) -> Result<EchoResult, Error> {
+        let mut out = EchoResult::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.rtt_ms = field.as_u32()?;
+                }
+                2 => {
+                    out.source = field.as_bytes().to_vec();
+                }
+                3 => {
+                    out.bytes = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// An interface's address state.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct AddressEvent {
+        pub interface: alloc::string::String,
+        pub addr: alloc::vec::Vec<u8>,
+        pub prefix_len: u32,
+        pub gateway: alloc::vec::Vec<u8>,
+    }
+
+    pub fn encode_address_event(value: &AddressEvent) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.interface)?;
+        target.bytes(2, &value.addr)?;
+        target.u32(3, value.prefix_len)?;
+        target.bytes(4, &value.gateway)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_address_event(body: &[u8]) -> Result<AddressEvent, Error> {
+        let mut out = AddressEvent::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.interface = field.as_str()?.into();
+                }
+                2 => {
+                    out.addr = field.as_bytes().to_vec();
+                }
+                3 => {
+                    out.prefix_len = field.as_u32()?;
+                }
+                4 => {
+                    out.gateway = field.as_bytes().to_vec();
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// `Interfaces` method id.
+    pub const METHOD_INTERFACES: u32 = 1779791769;
+    /// `Addresses` method id.
+    pub const METHOD_ADDRESSES: u32 = 912810883;
+    /// `Routes` method id.
+    pub const METHOD_ROUTES: u32 = 321835703;
+    /// `Stats` method id.
+    pub const METHOD_STATS: u32 = 267161228;
+    /// `Ping` method id.
+    pub const METHOD_PING: u32 = 2142761129;
+    /// `Resolve` method id.
+    pub const METHOD_RESOLVE: u32 = 1645633795;
+    /// `Renew` method id.
+    pub const METHOD_RENEW: u32 = 438534286;
+    /// `Reattach` method id.
+    pub const METHOD_REATTACH: u32 = 60999493;
+
+    /// The interfaces the stack drives (one today).
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct InterfacesReply {
+        pub list: alloc::vec::Vec<InterfaceInfo>,
+    }
+
+    pub fn encode_interfaces_reply(value: &InterfacesReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        let mut nested = Encoder::new();
+        for item in &value.list {
+            nested.raw(Kind::Struct, 1, &encode_interface_info(item)?)?;
+        }
+        target.array(1, &nested)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_interfaces_reply(body: &[u8]) -> Result<InterfacesReply, Error> {
+        let mut out = InterfacesReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                let mut nested = field.nested(0)?;
+                while let Some(item) = nested.next()? {
+                    out.list.push(decode_interface_info(item.payload)?);
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// The addresses configured on every interface.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct AddressesReply {
+        pub list: alloc::vec::Vec<AddressInfo>,
+    }
+
+    pub fn encode_addresses_reply(value: &AddressesReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        let mut nested = Encoder::new();
+        for item in &value.list {
+            nested.raw(Kind::Struct, 1, &encode_address_info(item)?)?;
+        }
+        target.array(1, &nested)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_addresses_reply(body: &[u8]) -> Result<AddressesReply, Error> {
+        let mut out = AddressesReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                let mut nested = field.nested(0)?;
+                while let Some(item) = nested.next()? {
+                    out.list.push(decode_address_info(item.payload)?);
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// The routing table.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct RoutesReply {
+        pub list: alloc::vec::Vec<RouteInfo>,
+    }
+
+    pub fn encode_routes_reply(value: &RoutesReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        let mut nested = Encoder::new();
+        for item in &value.list {
+            nested.raw(Kind::Struct, 1, &encode_route_info(item)?)?;
+        }
+        target.array(1, &nested)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_routes_reply(body: &[u8]) -> Result<RoutesReply, Error> {
+        let mut out = RoutesReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                let mut nested = field.nested(0)?;
+                while let Some(item) = nested.next()? {
+                    out.list.push(decode_route_info(item.payload)?);
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// Stack counters since it started.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct StatsReply {
+        pub stats: StackStats,
+    }
+
+    pub fn encode_stats_reply(value: &StatsReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.raw(Kind::Struct, 1, &encode_stack_stats(&value.stats)?)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_stats_reply(body: &[u8]) -> Result<StatsReply, Error> {
+        let mut out = StatsReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.stats = decode_stack_stats(field.payload)?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Send one ICMP echo request to `dst` (four octets) with `payload_len`
+    /// bytes of payload (0 to 1400) and wait for its reply. `timeout_ms`
+    /// (10 to 60000) bounds the wait. Fails with `EINVAL` for a bad argument,
+    /// `ENETUNREACH` when there is no address or route yet, `EAGAIN` when this
+    /// caller has 4 pings outstanding or all callers together have 8, and `ETIMEDOUT` when no reply came.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct PingArgs {
+        pub dst: alloc::vec::Vec<u8>,
+        pub payload_len: u32,
+        pub timeout_ms: u32,
+    }
+
+    pub fn encode_ping_args(value: &PingArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.bytes(1, &value.dst)?;
+        target.u32(2, value.payload_len)?;
+        target.u32(3, value.timeout_ms)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_ping_args(body: &[u8]) -> Result<PingArgs, Error> {
+        let mut out = PingArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.dst = field.as_bytes().to_vec();
+                }
+                2 => {
+                    out.payload_len = field.as_u32()?;
+                }
+                3 => {
+                    out.timeout_ms = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct PingReply {
+        pub result: EchoResult,
+    }
+
+    pub fn encode_ping_reply(value: &PingReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.raw(Kind::Struct, 1, &encode_echo_result(&value.result)?)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_ping_reply(body: &[u8]) -> Result<PingReply, Error> {
+        let mut out = PingReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.result = decode_echo_result(field.payload)?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Look `name` up (A records) at the resolvers DHCP or the static
+    /// configuration gave. `name` is a host name of at most 253 bytes made of
+    /// dot-separated labels of 1 to 63 letters, digits and hyphens (`EINVAL`
+    /// otherwise); `timeout_ms` is 10 to 60000. Fails with `ENETUNREACH` when
+    /// there is no address or no resolver, `EAGAIN` when this caller has 4
+    /// lookups outstanding or all callers together have 8, `ENOENT` when the
+    /// resolver says the name has no address, and `ETIMEDOUT` when no answer
+    /// came. The reply lists the addresses found, four octets each. Until
+    /// the DNS half of N3 lands, `netd` answers `ENOSYS`, so a caller can
+    /// tell "not served yet" from a bad name.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ResolveArgs {
+        pub name: alloc::string::String,
+        pub timeout_ms: u32,
+    }
+
+    pub fn encode_resolve_args(value: &ResolveArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.name)?;
+        target.u32(2, value.timeout_ms)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_resolve_args(body: &[u8]) -> Result<ResolveArgs, Error> {
+        let mut out = ResolveArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.name = field.as_str()?.into();
+                }
+                2 => {
+                    out.timeout_ms = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ResolveReply {
+        pub addrs: alloc::vec::Vec<alloc::vec::Vec<u8>>,
+    }
+
+    pub fn encode_resolve_reply(value: &ResolveReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        let mut nested = Encoder::new();
+        for item in &value.addrs {
+            nested.bytes(1, item)?;
+        }
+        target.array(1, &nested)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_resolve_reply(body: &[u8]) -> Result<ResolveReply, Error> {
+        let mut out = ResolveReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                let mut nested = field.nested(0)?;
+                while let Some(item) = nested.next()? {
+                    out.addrs.push(item.as_bytes().to_vec());
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// Round trip in milliseconds (10 ms resolution).
+    /// Four octets: who answered.
+    /// Bytes of echo payload returned.
+    /// The address `netd` currently holds on an interface, retained so a late
+    /// subscriber sees it. `{ifname}` is the interface name.
+    /// The declared `system/net/+/addr` topic (`AddressEvent`, `latest`, retained).
+    pub const TOPIC_SYSTEM_NET_ADDR: &str = "system/net/+/addr";
+    /// The `system/net/+/addr` delivery policy.
+    pub const TOPIC_SYSTEM_NET_ADDR_QOS: u32 = topics::QOS_LATEST;
+    /// Whether `system/net/+/addr` publishes are retained.
+    pub const TOPIC_SYSTEM_NET_ADDR_RETAINED: bool = true;
+
+    /// Build the concrete `system/net/+/addr` name; each wildcard takes one literal segment.
+    pub fn name_system_net_addr(ifname: &str) -> Result<String, topics::TopicError> {
+        topics::build(TOPIC_SYSTEM_NET_ADDR, &[ifname], topics::Mode::Publish)
+    }
+
+    /// Encode a `AddressEvent` payload for `system/net/+/addr`.
+    pub fn encode_system_net_addr(value: &AddressEvent) -> Result<Vec<u8>, Error> {
+        encode_address_event(value)
+    }
+
+    /// Decode a `system/net/+/addr` payload; malformed bytes are an error.
+    pub fn decode_system_net_addr(body: &[u8]) -> Result<AddressEvent, Error> {
+        decode_address_event(body)
+    }
+
+    /// Publish a typed `AddressEvent` on `system/net/+/addr`.
+    pub fn publish_system_net_addr<P>(publisher: &mut P, ifname: &str, value: &AddressEvent) -> Result<u64, P::Error>
+    where
+        P: topics::Publish,
+        P::Error: From<topics::TopicError>,
+    {
+        let topic = name_system_net_addr(ifname).map_err(P::Error::from)?;
+        let payload = encode_system_net_addr(value)
+            .map_err(|error| P::Error::from(topics::TopicError::Encode(error)))?;
+        publisher.publish_topic(&topic, &payload, TOPIC_SYSTEM_NET_ADDR_RETAINED)
+    }
+
+    /// Subscribe to `system/net/+/addr` with its declared QoS.
+    pub fn subscribe_system_net_addr<S>(subscriber: &mut S, ifname: &str) -> Result<S::Subscription, S::Error>
+    where
+        S: topics::Subscribe,
+        S::Error: From<topics::TopicError>,
+    {
+        let filter = topics::build(TOPIC_SYSTEM_NET_ADDR, &[ifname], topics::Mode::Subscribe)
+            .map_err(S::Error::from)?;
+        subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_NET_ADDR_QOS)
+    }
+
+    /// Published once when the stack first has an address (and again after a
+    /// lease is lost and regained).
+    /// The declared `system/events/network/up` topic (`AddressEvent`, `latest`).
+    pub const TOPIC_SYSTEM_EVENTS_NETWORK_UP: &str = "system/events/network/up";
+    /// The `system/events/network/up` delivery policy.
+    pub const TOPIC_SYSTEM_EVENTS_NETWORK_UP_QOS: u32 = topics::QOS_LATEST;
+    /// Whether `system/events/network/up` publishes are retained.
+    pub const TOPIC_SYSTEM_EVENTS_NETWORK_UP_RETAINED: bool = false;
+
+    /// Build the concrete `system/events/network/up` name; each wildcard takes one literal segment.
+    pub fn name_system_events_network_up() -> Result<String, topics::TopicError> {
+        topics::build(TOPIC_SYSTEM_EVENTS_NETWORK_UP, &[], topics::Mode::Publish)
+    }
+
+    /// Encode a `AddressEvent` payload for `system/events/network/up`.
+    pub fn encode_system_events_network_up(value: &AddressEvent) -> Result<Vec<u8>, Error> {
+        encode_address_event(value)
+    }
+
+    /// Decode a `system/events/network/up` payload; malformed bytes are an error.
+    pub fn decode_system_events_network_up(body: &[u8]) -> Result<AddressEvent, Error> {
+        decode_address_event(body)
+    }
+
+    /// Publish a typed `AddressEvent` on `system/events/network/up`.
+    pub fn publish_system_events_network_up<P>(publisher: &mut P, value: &AddressEvent) -> Result<u64, P::Error>
+    where
+        P: topics::Publish,
+        P::Error: From<topics::TopicError>,
+    {
+        let topic = name_system_events_network_up().map_err(P::Error::from)?;
+        let payload = encode_system_events_network_up(value)
+            .map_err(|error| P::Error::from(topics::TopicError::Encode(error)))?;
+        publisher.publish_topic(&topic, &payload, TOPIC_SYSTEM_EVENTS_NETWORK_UP_RETAINED)
+    }
+
+    /// Subscribe to `system/events/network/up` with its declared QoS.
+    pub fn subscribe_system_events_network_up<S>(subscriber: &mut S) -> Result<S::Subscription, S::Error>
+    where
+        S: topics::Subscribe,
+        S::Error: From<topics::TopicError>,
+    {
+        let filter = topics::build(TOPIC_SYSTEM_EVENTS_NETWORK_UP, &[], topics::Mode::Subscribe)
+            .map_err(S::Error::from)?;
+        subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_EVENTS_NETWORK_UP_QOS)
+    }
+}
+
+/// `os.lazy.net.socket.v1` (interface id `0x5cbc5b5a07e2bb16`).
+#[rustfmt::skip]
+pub mod os_lazy_net_socket_v1 {
+    use alloc::vec::Vec;
+    #[allow(unused_imports)]
+    use alloc::string::String;
+    // Not every interface needs every codec item (`Kind` is only used by nested values).
+    #[allow(unused_imports)]
+    use libmessenger::{Decoder, Encoder, Error, Kind};
+    // Only interfaces that declare topics use the shared topic runtime.
+    #[allow(unused_imports)]
+    use super::topics;
+
+    /// The interface id: the FNV-1a hash of the `.vN` interface name.
+    pub const INTERFACE_ID: u64 = 0x5cbc5b5a07e2bb16;
+
+    /// `SockKind::Stream` wire value.
+    pub const SOCK_KIND_STREAM: u32 = 0;
+    /// `SockKind::Datagram` wire value.
+    pub const SOCK_KIND_DATAGRAM: u32 = 1;
+
+    /// `Ready::Readable` wire value.
+    pub const READY_READABLE: u32 = 0;
+    /// `Ready::Writable` wire value.
+    pub const READY_WRITABLE: u32 = 1;
+    /// `Ready::Acceptable` wire value.
+    pub const READY_ACCEPTABLE: u32 = 2;
+    /// `Ready::Closed` wire value.
+    pub const READY_CLOSED: u32 = 3;
+    /// `Ready::Error` wire value.
+    pub const READY_ERROR: u32 = 4;
+
+    /// `Shutdown::Read` wire value.
+    pub const SHUTDOWN_READ: u32 = 0;
+    /// `Shutdown::Write` wire value.
+    pub const SHUTDOWN_WRITE: u32 = 1;
+    /// `Shutdown::Both` wire value.
+    pub const SHUTDOWN_BOTH: u32 = 2;
+
+    /// An IPv4 address and port. `addr` is four octets, network order; all
+    /// zero is "any" where that is allowed.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct SockAddr {
+        pub addr: alloc::vec::Vec<u8>,
+        pub port: u32,
+    }
+
+    pub fn encode_sock_addr(value: &SockAddr) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.bytes(1, &value.addr)?;
+        target.u32(2, value.port)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_sock_addr(body: &[u8]) -> Result<SockAddr, Error> {
+        let mut out = SockAddr::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.addr = field.as_bytes().to_vec();
+                }
+                2 => {
+                    out.port = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Counters since `netd` started.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct SocketStats {
+        pub open: u32,
+        pub opened: u64,
+        pub closed: u64,
+        pub reclaimed: u64,
+        pub connected: u64,
+        pub accepted: u64,
+        pub refused: u64,
+        pub resets: u64,
+        pub tx_bytes: u64,
+        pub rx_bytes: u64,
+        pub tx_datagrams: u64,
+        pub rx_datagrams: u64,
+        pub parked: u64,
+        pub park_timeouts: u64,
+        pub not_owner: u64,
+    }
+
+    pub fn encode_socket_stats(value: &SocketStats) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.open)?;
+        target.u64(2, value.opened)?;
+        target.u64(3, value.closed)?;
+        target.u64(4, value.reclaimed)?;
+        target.u64(5, value.connected)?;
+        target.u64(6, value.accepted)?;
+        target.u64(7, value.refused)?;
+        target.u64(8, value.resets)?;
+        target.u64(9, value.tx_bytes)?;
+        target.u64(10, value.rx_bytes)?;
+        target.u64(11, value.tx_datagrams)?;
+        target.u64(12, value.rx_datagrams)?;
+        target.u64(13, value.parked)?;
+        target.u64(14, value.park_timeouts)?;
+        target.u64(15, value.not_owner)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_socket_stats(body: &[u8]) -> Result<SocketStats, Error> {
+        let mut out = SocketStats::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.open = field.as_u32()?;
+                }
+                2 => {
+                    out.opened = field.as_u64()?;
+                }
+                3 => {
+                    out.closed = field.as_u64()?;
+                }
+                4 => {
+                    out.reclaimed = field.as_u64()?;
+                }
+                5 => {
+                    out.connected = field.as_u64()?;
+                }
+                6 => {
+                    out.accepted = field.as_u64()?;
+                }
+                7 => {
+                    out.refused = field.as_u64()?;
+                }
+                8 => {
+                    out.resets = field.as_u64()?;
+                }
+                9 => {
+                    out.tx_bytes = field.as_u64()?;
+                }
+                10 => {
+                    out.rx_bytes = field.as_u64()?;
+                }
+                11 => {
+                    out.tx_datagrams = field.as_u64()?;
+                }
+                12 => {
+                    out.rx_datagrams = field.as_u64()?;
+                }
+                13 => {
+                    out.parked = field.as_u64()?;
+                }
+                14 => {
+                    out.park_timeouts = field.as_u64()?;
+                }
+                15 => {
+                    out.not_owner = field.as_u64()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// `Open` method id.
+    pub const METHOD_OPEN: u32 = 1401622761;
+    /// `Bind` method id.
+    pub const METHOD_BIND: u32 = 816668494;
+    /// `Connect` method id.
+    pub const METHOD_CONNECT: u32 = 1535748249;
+    /// `Listen` method id.
+    pub const METHOD_LISTEN: u32 = 1745080006;
+    /// `Accept` method id.
+    pub const METHOD_ACCEPT: u32 = 1353867593;
+    /// `Send` method id.
+    pub const METHOD_SEND: u32 = 1921914063;
+    /// `Recv` method id.
+    pub const METHOD_RECV: u32 = 1829805133;
+    /// `SendTo` method id.
+    pub const METHOD_SENDTO: u32 = 1246690602;
+    /// `RecvFrom` method id.
+    pub const METHOD_RECVFROM: u32 = 81212541;
+    /// `Poll` method id.
+    pub const METHOD_POLL: u32 = 1454776152;
+    /// `Shutdown` method id.
+    pub const METHOD_SHUTDOWN: u32 = 1911669355;
+    /// `LocalAddr` method id.
+    pub const METHOD_LOCALADDR: u32 = 444792203;
+    /// `PeerAddr` method id.
+    pub const METHOD_PEERADDR: u32 = 838739718;
+    /// `Close` method id.
+    pub const METHOD_CLOSE: u32 = 1300671683;
+    /// `Stats` method id.
+    pub const METHOD_STATS: u32 = 267161228;
+
+    /// Make a socket of `kind` (a `SockKind` ordinal). The reply is the id
+    /// every other call names.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct OpenArgs {
+        pub kind: u32,
+    }
+
+    pub fn encode_open_args(value: &OpenArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.kind)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_open_args(body: &[u8]) -> Result<OpenArgs, Error> {
+        let mut out = OpenArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.kind = field.as_u32()?;
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct OpenReply {
+        pub sock: u32,
+    }
+
+    pub fn encode_open_reply(value: &OpenReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.sock)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_open_reply(body: &[u8]) -> Result<OpenReply, Error> {
+        let mut out = OpenReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.sock = field.as_u32()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Choose the local address and port. `addr.addr` must be all zeros (any)
+    /// or the interface's own address; port 0 picks an ephemeral one.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct BindArgs {
+        pub sock: u32,
+        pub addr: SockAddr,
+    }
+
+    pub fn encode_bind_args(value: &BindArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.sock)?;
+        target.raw(Kind::Struct, 2, &encode_sock_addr(&value.addr)?)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_bind_args(body: &[u8]) -> Result<BindArgs, Error> {
+        let mut out = BindArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.sock = field.as_u32()?;
+                }
+                2 => {
+                    out.addr = decode_sock_addr(field.payload)?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Stream: open a connection to `addr`; parks until it is established or
+    /// refused. Datagram: fix the peer `Send`/`Recv` use (never parks).
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ConnectArgs {
+        pub sock: u32,
+        pub addr: SockAddr,
+        pub timeout_ms: u32,
+    }
+
+    pub fn encode_connect_args(value: &ConnectArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.sock)?;
+        target.raw(Kind::Struct, 2, &encode_sock_addr(&value.addr)?)?;
+        target.u32(3, value.timeout_ms)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_connect_args(body: &[u8]) -> Result<ConnectArgs, Error> {
+        let mut out = ConnectArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.sock = field.as_u32()?;
+                }
+                2 => {
+                    out.addr = decode_sock_addr(field.payload)?;
+                }
+                3 => {
+                    out.timeout_ms = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Stream only: accept connections on the bound port. `backlog` (1 to 8)
+    /// is how many connections may complete before `Accept` collects them.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ListenArgs {
+        pub sock: u32,
+        pub backlog: u32,
+    }
+
+    pub fn encode_listen_args(value: &ListenArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.sock)?;
+        target.u32(2, value.backlog)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_listen_args(body: &[u8]) -> Result<ListenArgs, Error> {
+        let mut out = ListenArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.sock = field.as_u32()?;
+                }
+                2 => {
+                    out.backlog = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Stream only: take one established connection off a listener as a new
+    /// socket owned by the caller; parks until one is there.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct AcceptArgs {
+        pub sock: u32,
+        pub timeout_ms: u32,
+    }
+
+    pub fn encode_accept_args(value: &AcceptArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.sock)?;
+        target.u32(2, value.timeout_ms)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_accept_args(body: &[u8]) -> Result<AcceptArgs, Error> {
+        let mut out = AcceptArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.sock = field.as_u32()?;
+                }
+                2 => {
+                    out.timeout_ms = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct AcceptReply {
+        pub conn: u32,
+        pub peer: SockAddr,
+    }
+
+    pub fn encode_accept_reply(value: &AcceptReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.conn)?;
+        target.raw(Kind::Struct, 2, &encode_sock_addr(&value.peer)?)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_accept_reply(body: &[u8]) -> Result<AcceptReply, Error> {
+        let mut out = AcceptReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.conn = field.as_u32()?;
+                }
+                2 => {
+                    out.peer = decode_sock_addr(field.payload)?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Queue `data` (at most 16384 bytes) on a connected socket. Returns how
+    /// many bytes were taken (possibly fewer than sent); parks while no byte
+    /// would fit.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct SendArgs {
+        pub sock: u32,
+        pub data: alloc::vec::Vec<u8>,
+        pub timeout_ms: u32,
+    }
+
+    pub fn encode_send_args(value: &SendArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.sock)?;
+        target.bytes(2, &value.data)?;
+        target.u32(3, value.timeout_ms)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_send_args(body: &[u8]) -> Result<SendArgs, Error> {
+        let mut out = SendArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.sock = field.as_u32()?;
+                }
+                2 => {
+                    out.data = field.as_bytes().to_vec();
+                }
+                3 => {
+                    out.timeout_ms = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct SendReply {
+        pub sent: u32,
+    }
+
+    pub fn encode_send_reply(value: &SendReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.sent)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_send_reply(body: &[u8]) -> Result<SendReply, Error> {
+        let mut out = SendReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.sent = field.as_u32()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Take up to `max` (1 to 16384) bytes from a connected socket; parks
+    /// until at least one is there. An empty reply is the end of the stream.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct RecvArgs {
+        pub sock: u32,
+        pub max: u32,
+        pub timeout_ms: u32,
+    }
+
+    pub fn encode_recv_args(value: &RecvArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.sock)?;
+        target.u32(2, value.max)?;
+        target.u32(3, value.timeout_ms)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_recv_args(body: &[u8]) -> Result<RecvArgs, Error> {
+        let mut out = RecvArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.sock = field.as_u32()?;
+                }
+                2 => {
+                    out.max = field.as_u32()?;
+                }
+                3 => {
+                    out.timeout_ms = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct RecvReply {
+        pub data: alloc::vec::Vec<u8>,
+    }
+
+    pub fn encode_recv_reply(value: &RecvReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.bytes(1, &value.data)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_recv_reply(body: &[u8]) -> Result<RecvReply, Error> {
+        let mut out = RecvReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.data = field.as_bytes().to_vec();
+            }
+        }
+        Ok(out)
+    }
+
+    /// Datagram: send `data` (at most 1472 bytes) to `addr`. Never parks: a
+    /// full send queue is `EAGAIN`.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct SendToArgs {
+        pub sock: u32,
+        pub addr: SockAddr,
+        pub data: alloc::vec::Vec<u8>,
+    }
+
+    pub fn encode_send_to_args(value: &SendToArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.sock)?;
+        target.raw(Kind::Struct, 2, &encode_sock_addr(&value.addr)?)?;
+        target.bytes(3, &value.data)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_send_to_args(body: &[u8]) -> Result<SendToArgs, Error> {
+        let mut out = SendToArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.sock = field.as_u32()?;
+                }
+                2 => {
+                    out.addr = decode_sock_addr(field.payload)?;
+                }
+                3 => {
+                    out.data = field.as_bytes().to_vec();
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct SendToReply {
+        pub sent: u32,
+    }
+
+    pub fn encode_send_to_reply(value: &SendToReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.sent)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_send_to_reply(body: &[u8]) -> Result<SendToReply, Error> {
+        let mut out = SendToReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.sent = field.as_u32()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Datagram: take the next datagram, cut to `max` bytes (1 to 16384), and
+    /// where it came from; parks until one is there.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct RecvFromArgs {
+        pub sock: u32,
+        pub max: u32,
+        pub timeout_ms: u32,
+    }
+
+    pub fn encode_recv_from_args(value: &RecvFromArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.sock)?;
+        target.u32(2, value.max)?;
+        target.u32(3, value.timeout_ms)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_recv_from_args(body: &[u8]) -> Result<RecvFromArgs, Error> {
+        let mut out = RecvFromArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.sock = field.as_u32()?;
+                }
+                2 => {
+                    out.max = field.as_u32()?;
+                }
+                3 => {
+                    out.timeout_ms = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct RecvFromReply {
+        pub data: alloc::vec::Vec<u8>,
+        pub from: SockAddr,
+    }
+
+    pub fn encode_recv_from_reply(value: &RecvFromReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.bytes(1, &value.data)?;
+        target.raw(Kind::Struct, 2, &encode_sock_addr(&value.from)?)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_recv_from_reply(body: &[u8]) -> Result<RecvFromReply, Error> {
+        let mut out = RecvFromReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.data = field.as_bytes().to_vec();
+                }
+                2 => {
+                    out.from = decode_sock_addr(field.payload)?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Wait until any bit of `interest` (a bitmap of `Ready` ordinals) is
+    /// ready; the reply is the bitmap of what is. `Closed` and `Error` are
+    /// always of interest. Parks until then.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct PollArgs {
+        pub sock: u32,
+        pub interest: u32,
+        pub timeout_ms: u32,
+    }
+
+    pub fn encode_poll_args(value: &PollArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.sock)?;
+        target.u32(2, value.interest)?;
+        target.u32(3, value.timeout_ms)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_poll_args(body: &[u8]) -> Result<PollArgs, Error> {
+        let mut out = PollArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.sock = field.as_u32()?;
+                }
+                2 => {
+                    out.interest = field.as_u32()?;
+                }
+                3 => {
+                    out.timeout_ms = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct PollReply {
+        pub ready: u32,
+    }
+
+    pub fn encode_poll_reply(value: &PollReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.ready)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_poll_reply(body: &[u8]) -> Result<PollReply, Error> {
+        let mut out = PollReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.ready = field.as_u32()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Stream: end one or both directions (a `Shutdown` ordinal). `Write`
+    /// sends FIN after the queued bytes; the socket stays open for reading.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ShutdownArgs {
+        pub sock: u32,
+        pub how: u32,
+    }
+
+    pub fn encode_shutdown_args(value: &ShutdownArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.sock)?;
+        target.u32(2, value.how)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_shutdown_args(body: &[u8]) -> Result<ShutdownArgs, Error> {
+        let mut out = ShutdownArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.sock = field.as_u32()?;
+                }
+                2 => {
+                    out.how = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// The socket's own address and port (`EINVAL` before `Bind`/`Connect`).
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct LocalAddrArgs {
+        pub sock: u32,
+    }
+
+    pub fn encode_local_addr_args(value: &LocalAddrArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.sock)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_local_addr_args(body: &[u8]) -> Result<LocalAddrArgs, Error> {
+        let mut out = LocalAddrArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.sock = field.as_u32()?;
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct LocalAddrReply {
+        pub addr: SockAddr,
+    }
+
+    pub fn encode_local_addr_reply(value: &LocalAddrReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.raw(Kind::Struct, 1, &encode_sock_addr(&value.addr)?)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_local_addr_reply(body: &[u8]) -> Result<LocalAddrReply, Error> {
+        let mut out = LocalAddrReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.addr = decode_sock_addr(field.payload)?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// The peer's address and port (`ENOTCONN` when there is none).
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct PeerAddrArgs {
+        pub sock: u32,
+    }
+
+    pub fn encode_peer_addr_args(value: &PeerAddrArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.sock)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_peer_addr_args(body: &[u8]) -> Result<PeerAddrArgs, Error> {
+        let mut out = PeerAddrArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.sock = field.as_u32()?;
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct PeerAddrReply {
+        pub addr: SockAddr,
+    }
+
+    pub fn encode_peer_addr_reply(value: &PeerAddrReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.raw(Kind::Struct, 1, &encode_sock_addr(&value.addr)?)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_peer_addr_reply(body: &[u8]) -> Result<PeerAddrReply, Error> {
+        let mut out = PeerAddrReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.addr = decode_sock_addr(field.payload)?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Release the socket. A stream closes gracefully (FIN); a parked call on
+    /// it is answered with `EBADF`.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct CloseArgs {
+        pub sock: u32,
+    }
+
+    pub fn encode_close_args(value: &CloseArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.sock)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_close_args(body: &[u8]) -> Result<CloseArgs, Error> {
+        let mut out = CloseArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.sock = field.as_u32()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Counters since `netd` started; anyone may read them.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct StatsReply {
+        pub stats: SocketStats,
+    }
+
+    pub fn encode_stats_reply(value: &StatsReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.raw(Kind::Struct, 1, &encode_socket_stats(&value.stats)?)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_stats_reply(body: &[u8]) -> Result<StatsReply, Error> {
+        let mut out = StatsReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.stats = decode_socket_stats(field.payload)?;
+            }
+        }
+        Ok(out)
+    }
+}
+
+/// `os.lazy.messenger.policy.v1` (interface id `0xe625b4ee97525d37`).
+#[rustfmt::skip]
+pub mod os_lazy_messenger_policy_v1 {
+    use alloc::vec::Vec;
+    #[allow(unused_imports)]
+    use alloc::string::String;
+    // Not every interface needs every codec item (`Kind` is only used by nested values).
+    #[allow(unused_imports)]
+    use libmessenger::{Decoder, Encoder, Error, Kind};
+    // Only interfaces that declare topics use the shared topic runtime.
+    #[allow(unused_imports)]
+    use super::topics;
+
+    /// The interface id: the FNV-1a hash of the `.vN` interface name.
+    pub const INTERFACE_ID: u64 = 0xe625b4ee97525d37;
+
+    /// One rule. `interface_id` and `method` accept the wildcards
+    /// `0xFFFFFFFFFFFFFFFF` and `0xFFFFFFFF`; `allow` of `false` is an
+    /// explicit deny that shadows later rules.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct LabelRule {
+        pub interface_id: u64,
+        pub method: u32,
+        pub allow: bool,
+    }
+
+    pub fn encode_label_rule(value: &LabelRule) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.interface_id)?;
+        target.u32(2, value.method)?;
+        target.bool(3, value.allow)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_label_rule(body: &[u8]) -> Result<LabelRule, Error> {
+        let mut out = LabelRule::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.interface_id = field.as_u64()?;
+                }
+                2 => {
+                    out.method = field.as_u32()?;
+                }
+                3 => {
+                    out.allow = field.as_bool()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// `LoadLabel` method id.
+    pub const METHOD_LOADLABEL: u32 = 888159937;
+
+    /// Replace every rule of `label` with `rules` (first match wins, anything
+    /// unmatched is denied). An empty list revokes the label's grants. The
+    /// label is interned if new; a malformed label or more rules than the
+    /// kernel stores per label (256) fails with `EINVAL`.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct LoadLabelArgs {
+        pub label: alloc::string::String,
+        pub rules: alloc::vec::Vec<LabelRule>,
+    }
+
+    pub fn encode_load_label_args(value: &LoadLabelArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.label)?;
+        let mut nested = Encoder::new();
+        for item in &value.rules {
+            nested.raw(Kind::Struct, 1, &encode_label_rule(item)?)?;
+        }
+        target.array(2, &nested)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_load_label_args(body: &[u8]) -> Result<LoadLabelArgs, Error> {
+        let mut out = LoadLabelArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.label = field.as_str()?.into();
+                }
+                2 => {
+                    let mut nested = field.nested(0)?;
+                    while let Some(item) = nested.next()? {
+                        out.rules.push(decode_label_rule(item.payload)?);
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+}
+
+/// `os.lazy.messenger.names.resolve.v1` (interface id `0x51c42ba74885199f`).
+#[rustfmt::skip]
+pub mod os_lazy_messenger_names_resolve_v1 {
+    use alloc::vec::Vec;
+    #[allow(unused_imports)]
+    use alloc::string::String;
+    // Not every interface needs every codec item (`Kind` is only used by nested values).
+    #[allow(unused_imports)]
+    use libmessenger::{Decoder, Encoder, Error, Kind};
+    // Only interfaces that declare topics use the shared topic runtime.
+    #[allow(unused_imports)]
+    use super::topics;
+
+    /// The interface id: the FNV-1a hash of the `.vN` interface name.
+    pub const INTERFACE_ID: u64 = 0x51c42ba74885199f;
+
+    /// `Resolve` method id.
+    pub const METHOD_RESOLVE: u32 = 1645633795;
+
+    /// Check that the actor may resolve `name`.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ResolveArgs {
+        pub name: alloc::string::String,
+    }
+
+    pub fn encode_resolve_args(value: &ResolveArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.name)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_resolve_args(body: &[u8]) -> Result<ResolveArgs, Error> {
+        let mut out = ResolveArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.name = field.as_str()?.into();
+            }
+        }
+        Ok(out)
+    }
+}
+
 /// `os.lazy.messenger.registry.v1` (interface id `0x51d501afec09806c`).
 #[rustfmt::skip]
 pub mod os_lazy_messenger_registry_v1 {
@@ -8100,6 +10378,33 @@ pub static DECLARED_TOPICS: &[topics::TopicDecl] = &[
         retained: false,
         publish_permission: "publish:system/events/open/+",
         subscribe_permission: "subscribe:system/events/open/+",
+    },
+    topics::TopicDecl {
+        interface: "os.lazy.net.nic.v1",
+        name: "system/net/+/link",
+        payload: "LinkEvent",
+        qos: topics::QOS_LATEST,
+        retained: true,
+        publish_permission: "publish:system/net/+/link",
+        subscribe_permission: "subscribe:system/net/+/link",
+    },
+    topics::TopicDecl {
+        interface: "os.lazy.net.stack.v1",
+        name: "system/net/+/addr",
+        payload: "AddressEvent",
+        qos: topics::QOS_LATEST,
+        retained: true,
+        publish_permission: "publish:system/net/+/addr",
+        subscribe_permission: "subscribe:system/net/+/addr",
+    },
+    topics::TopicDecl {
+        interface: "os.lazy.net.stack.v1",
+        name: "system/events/network/up",
+        payload: "AddressEvent",
+        qos: topics::QOS_LATEST,
+        retained: false,
+        publish_permission: "publish:system/events/network/up",
+        subscribe_permission: "subscribe:system/events/network/up",
     },
     topics::TopicDecl {
         interface: "os.lazy.sysmond.v1",

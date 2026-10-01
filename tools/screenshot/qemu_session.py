@@ -48,7 +48,10 @@ session has already quit. Gate on what the guest *reports* instead:
 
 blocks until the serial log contains that text (a plain substring; add
 ``"regex": true`` for a regular expression) and fails the session if it does
-not appear within ``timeout`` seconds (default ``--wait-timeout``). Any input
+not appear within ``timeout`` seconds (default ``--wait-timeout``). Add
+``"occurrence": N`` to wait for the *N-th* match instead of the first, so a
+marker printed once per launch (e.g. a second ``EDITOR:UP:PASS``) can be gated
+on; it must be an integer ``>= 1`` and defaults to ``1``. Any input
 action can carry ``until`` to confirm the guest handled it, re-sending the
 input when it did not (a dropped keystroke or click under load):
 
@@ -129,23 +132,27 @@ class SerialLog:
                 raise StepFailed(f"--fail-on {pattern.pattern!r} matched: {line.strip()}")
 
     def wait_for(self, marker: str, timeout: float, regex: bool = False,
-                 since: int = 0) -> float:
-        """Block until ``marker`` appears at or after offset ``since``.
+                 since: int = 0, occurrence: int = 1) -> float:
+        """Block until the ``occurrence``-th ``marker`` appears at/after ``since``.
 
         Returns the seconds waited; raises :class:`StepFailed` on timeout or
-        when a ``--fail-on`` pattern shows up first.
+        when a ``--fail-on`` pattern shows up first. ``occurrence`` defaults to
+        the first match, so an ``until`` gate (which passes ``since``) is
+        unchanged; a caller waits for a later launch by asking for the N-th
+        match. Matches are counted non-overlapping from ``since``.
         """
         pattern = re.compile(marker if regex else re.escape(marker))
         begun = time.time()
         deadline = begun + timeout
         while True:
             text = self.text()
-            if pattern.search(text, since):
+            if sum(1 for _ in pattern.finditer(text, since)) >= occurrence:
                 return time.time() - begun
             self.check_failures(text)
             if time.time() >= deadline:
+                waited = repr(marker) if occurrence == 1 else f"{marker!r} occurrence {occurrence}"
                 raise StepFailed(
-                    f"timed out after {timeout:g}s waiting for {marker!r} on serial"
+                    f"timed out after {timeout:g}s waiting for {waited} on serial"
                 )
             time.sleep(_POLL_SECONDS)
 
@@ -268,8 +275,14 @@ def run_steps(qmp: Qmp, steps: list[dict], out_dir: Path, started: float,
             continue
 
         if action == "wait_for":
+            occurrence = step.get("occurrence", 1)
+            if isinstance(occurrence, bool) or not isinstance(occurrence, int) or occurrence < 1:
+                raise SystemExit(
+                    f"step {index}: 'occurrence' must be an integer >= 1: {step}"
+                )
             try:
-                serial.wait_for(step["wait_for"], timeout, bool(step.get("regex")))
+                serial.wait_for(step["wait_for"], timeout, bool(step.get("regex")),
+                                occurrence=occurrence)
             except StepFailed as failure:
                 raise StepFailed(f"step {index} (wait_for): {failure}") from None
             origin = time.time()

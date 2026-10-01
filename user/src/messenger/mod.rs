@@ -56,6 +56,9 @@ pub mod op {
     pub const CANCEL: u64 = 5;
     /// Close an endpoint handle.
     pub const CLOSE_ENDPOINT: u64 = 6;
+    /// `flags` of [`CLOSE_ENDPOINT`]: release the handle, and close the side
+    /// only if no other handle names it.
+    pub const CLOSE_RELEASE: u64 = 1;
     /// Create a fresh channel pair; both handles open in this task.
     pub const CREATE_PAIR: u64 = 7;
     /// Read channel counters (`handle = 0` means every live channel).
@@ -79,6 +82,8 @@ pub mod op {
     /// Ask the kernel policy engine about every segment of a topic or filter
     /// (issue #92); the daemon uses this on behalf of a requesting client.
     pub const AUTHORIZE_TOPIC: u64 = 17;
+    /// Replace every rule of one label (`CAP_IPC_CONTROL`; see [`super::policy`]).
+    pub const ACL_LOAD: u64 = 18;
 }
 
 /// `MsgArgs::txn_id` marker for registry ops: act on the calling task. A
@@ -131,6 +136,9 @@ pub mod errno {
 /// it each received parcel and the kernel-stamped sender slot, and sends the
 /// returned parcel back as the reply.
 pub mod registry;
+
+/// The kernel policy loader for label-keyed rules (`acl_load`).
+pub mod policy;
 
 // ---------------------------------------------------------------------------
 // Pub/sub topics (issue #92)
@@ -411,3 +419,15 @@ pub mod timed;
 /// The `os.lazy.audio.v1` client: streams, the shared ring and the transport
 /// controls of the `sndd` driver.
 pub mod audio;
+
+// ---------------------------------------------------------------------------
+// Networking (docs/networking-plan.md N1)
+// ---------------------------------------------------------------------------
+
+/// The `os.lazy.net.nic.v1` client: control calls on the `netdrv` driver and
+/// the client's side of its frame rings.
+pub mod net;
+
+/// The `os.lazy.net.stack.v1` client: addresses, routes, statistics and ping
+/// against the `netd` stack service.
+pub mod netstack;

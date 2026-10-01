@@ -20,7 +20,7 @@ syscall shim.
 
 - `pid == scheduler slot`; slots are recycled. `pgid` and `sid` hold the pid of
   the leader. The tree is derived by scanning for `parent == slot` (cheap at
-  `MAX_TASKS = 64`) rather than stored as child lists.
+  `MAX_TASKS = 256`) rather than stored as child lists.
 - `finish` is the single death path: marks `Done`, records `exit_status`,
   re-parents children to the kernel task (`KERNEL_TASK`, pid 0), posts
   `SIGCHLD` and notifies `CHILD_EXIT`.
@@ -41,7 +41,7 @@ syscall shim.
 | 7 | `wait(deadline)` | reap a child; returns packed pid/status, or `-1` on timeout |
 | 8 | `clock()` | PIT ticks (100 Hz) for backoff and polls |
 | 9 | `args(buf, len)` | copy the manifest argument string |
-| 10 | `creds(op, a1, a2)` | audited credential gate (see [ipc-security.md](ipc-security.md)) |
+| 10 | `creds(op, a1, a2)` | audited credential gate: `set`, `get`, `spawn`, labelled `spawn` and label-name read (see [ipc-security.md](ipc-security.md)) |
 | 11 | `quota(buf)` | per-uid usage/limit block |
 | 12 | `display(op, ...)` | display grant (see [display.md](display.md)) |
 | 13 | `tasks(buf)` | read-only scheduler snapshot (`task/introspect.rs`; MCP bridge phase 2) |
@@ -52,13 +52,24 @@ syscall shim.
 | 23 | `dev(op, a1, a2, a3, a4)` | userspace driver access: list, claim, map_bar, pio, cfg, irq, release; `CAP_DEV_CLAIM` (`dev/syscall.rs`, #240; see [devices.md](devices.md)) |
 | 24 | `wall_time(op, a1)` | UTC wall clock for native services: `get` returns centiseconds since the epoch, `set` steps it to `a1` seconds (`CAP_SYS_TIME`, checked before the argument; `process/wallsys.rs`, #369) |
 | 25 | `input_raw(op, a1, a2)` | the raw input event bus for `inputd`: `open`, `poll` (24-byte HID-coded key events with a gapless `seq` and `Dropped` markers), `close`; `CAP_INPUT_RAW` (`input/rawsys.rs`; see [../input-plan.md](../input-plan.md)) |
+| 26 | `random(buf, len)` | up to 256 bytes from the kernel CSPRNG (`entropy.rs`) for native services such as `netd`; open to every task, no capability, `-EFAULT` on a bad destination (`process/randsys.rs`, networking plan N2) |
 
 - `spawn` reads the ELF from the FAT image, leaks one interned `&'static str`
   per distinct service name (at most 64; later spellings share the name
   `service`), and gives the child a copy of the *caller's* credentials before it
   can run; `SERVICE_ARGS` is keyed by slot and cleared on reuse. `fork`, `clone`
   and threads inherit the same way, and only a program the kernel itself starts
-  begins as root. `load_image`
+  begins as root. The credential gate (syscall 10) has five ops: `0` set,
+  `1` get, `2` spawn-with-credentials, `3` **spawn labelled** (`a1` = command
+  line, `a2` -> seven words: the five credential words, then a pointer and byte
+  length of the label string; the block's `label_id` word is ignored, the
+  kernel interns the string and stamps the id) and `4` **label name** (`a1` = a
+  label id, `a2` -> a `8 + 160` byte buffer that receives a length word and the
+  label bytes; needs `CAP_SETUID`, or the id must be the caller's own label).
+  A label only ever goes from `0` to a value, once, on a child being created
+  by a `CAP_SETUID` holder that is unlabelled (or already in that label); ops
+  `0` and `2` must keep the label they land on, so a task cannot relabel or
+  unlabel itself or hand a peer another label (`-EPERM`). `load_image`
   maps `PT_LOAD` segments (prot from `PF_W`/`PF_X`, `File` VMA) and the stack
   eagerly at `USER_HEAP_BASE = 0x60_0000` / `USER_STACK_TOP = 0x80_0000`
   (`USER_STACK_SIZE = 0x2_0000`).

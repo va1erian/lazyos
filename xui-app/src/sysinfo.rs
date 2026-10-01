@@ -14,14 +14,14 @@
 use crate::sys::{self, system_stats_op};
 
 /// ABI version this client understands.
-pub const VERSION: u64 = 2;
+pub const VERSION: u64 = 4;
 
 /// Words in the header (mirrors `kernel::sysinfo::HEADER_WORDS`).
-pub const HEADER_WORDS: usize = 23;
+pub const HEADER_WORDS: usize = 24;
 /// Words in one task row (mirrors `kernel::sysinfo::TASK_ROW_WORDS`).
 pub const TASK_ROW_WORDS: usize = 10;
 /// Scheduler slots in the task table (mirrors `kernel::task::MAX_TASKS`).
-pub const MAX_TASKS: usize = 64;
+pub const MAX_TASKS: usize = 256;
 /// Words in the whole block.
 pub const WORDS: usize = HEADER_WORDS + MAX_TASKS * TASK_ROW_WORDS;
 /// Bytes in the whole block.
@@ -69,6 +69,8 @@ pub mod header {
     pub const HEAP_USED: usize = 19;
     /// Bytes on the kernel heap's free list.
     pub const HEAP_FREE: usize = 20;
+    /// PIT ticks that found the CPU idle (no task runnable).
+    pub const IDLE_TICKS: usize = 23;
 }
 
 /// Task row word indices (relative to the row's base).
@@ -226,6 +228,8 @@ pub struct Snapshot {
     pub version: u64,
     /// PIT ticks since boot (100 Hz).
     pub ticks: u64,
+    /// PIT ticks that found the CPU idle (no task runnable).
+    pub idle_ticks: u64,
     /// Occupied slots whose state is not done.
     pub tasks_live: u64,
     /// Frames the allocator can hand out.
@@ -300,6 +304,7 @@ pub fn decode_words(words: &[u64; WORDS]) -> Option<Snapshot> {
     Some(Snapshot {
         version: word(header::VERSION),
         ticks: word(header::TICKS),
+        idle_ticks: word(header::IDLE_TICKS),
         tasks_live: word(header::TASKS_LIVE),
         frames_total: word(header::FRAMES_TOTAL),
         frames_live: word(header::FRAMES_LIVE),
@@ -346,4 +351,110 @@ pub fn snapshot() -> Result<Snapshot, i64> {
         return Err(code);
     }
     decode_words(&words).ok_or(-EINVAL)
+}
+
+/// The two counters CPU load is computed from: uptime and the ticks the
+/// scheduler found the CPU idle, both in 100 Hz PIT ticks.
+///
+/// Idle time comes from the kernel's own counter rather than from summing
+/// per-task CPU ticks: the kernel has no idle task, so a summed figure would
+/// count the ticks spent halted inside a parked task's wait loop as busy and
+/// read 100 % on a quiet system.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct CpuSample {
+    /// PIT ticks since boot.
+    pub ticks: u64,
+    /// PIT ticks that found the CPU idle.
+    pub idle: u64,
+}
+
+impl Snapshot {
+    /// The counters [`cpu_percent`] compares between two snapshots.
+    pub fn cpu_sample(&self) -> CpuSample {
+        CpuSample {
+            ticks: self.ticks,
+            idle: self.idle_ticks,
+        }
+    }
+}
+
+/// CPU load in whole percent (0..=100) between two samples.
+///
+/// Both counters are diffed with `wrapping_sub`, so wrapped counters still
+/// give the right interval. Idle is clamped to the elapsed ticks (the two
+/// words are read at slightly different moments), so the busy share never
+/// goes negative or above 100. No elapsed ticks is 0 rather than a division
+/// by zero.
+pub fn cpu_percent(prev: CpuSample, cur: CpuSample) -> u32 {
+    let elapsed = cur.ticks.wrapping_sub(prev.ticks);
+    if elapsed == 0 {
+        return 0;
+    }
+    let idle = cur.idle.wrapping_sub(prev.idle).min(elapsed);
+    let busy = elapsed - idle;
+    (u128::from(busy) * 100 / u128::from(elapsed)) as u32
+}
+
+#[cfg(test)]
+mod cpu_tests {
+    use super::*;
+
+    const fn sample(ticks: u64, idle: u64) -> CpuSample {
+        CpuSample { ticks, idle }
+    }
+
+    #[test]
+    fn half_idle_is_fifty_percent() {
+        assert_eq!(cpu_percent(sample(100, 10), sample(200, 60)), 50);
+    }
+
+    #[test]
+    fn a_fully_idle_interval_is_zero_percent() {
+        assert_eq!(cpu_percent(sample(100, 40), sample(200, 140)), 0);
+    }
+
+    #[test]
+    fn no_idle_ticks_is_one_hundred_percent() {
+        assert_eq!(cpu_percent(sample(100, 40), sample(200, 40)), 100);
+    }
+
+    #[test]
+    fn no_elapsed_ticks_is_zero_not_a_division_by_zero() {
+        assert_eq!(cpu_percent(sample(500, 5), sample(500, 50)), 0);
+    }
+
+    #[test]
+    fn wrapped_counters_still_measure_the_interval() {
+        let prev = sample(u64::MAX - 49, u64::MAX - 24);
+        let cur = sample(50, 25);
+        // 100 ticks elapsed across the wrap, 50 of them idle.
+        assert_eq!(cpu_percent(prev, cur), 50);
+    }
+
+    #[test]
+    fn idle_is_clamped_to_the_elapsed_ticks() {
+        // The idle word was read a tick later than the uptime word.
+        assert_eq!(cpu_percent(sample(0, 0), sample(10, 11)), 0);
+        // A snapshot from before a counter reset cannot go negative either.
+        assert_eq!(cpu_percent(sample(0, 5), sample(10, 3)), 0);
+    }
+
+    #[test]
+    fn a_snapshot_samples_the_idle_counter_not_the_task_rows() {
+        let mut snapshot = decode_words(&{
+            let mut words = [0u64; WORDS];
+            words[header::VERSION] = VERSION;
+            words[header::TICKS] = 1234;
+            words[header::IDLE_TICKS] = 1000;
+            words
+        })
+        .expect("decodes");
+        snapshot.tasks[0] = TaskRow {
+            present: true,
+            state: TaskState::Runnable,
+            cpu_ticks: 1234,
+            ..TaskRow::EMPTY
+        };
+        assert_eq!(snapshot.cpu_sample(), sample(1234, 1000));
+    }
 }

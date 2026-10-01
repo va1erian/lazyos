@@ -2,6 +2,7 @@
 //! task table and the footer. Kept in a sibling module of `sysmon.rs` so each
 //! source file stays small; the state it reads lives in the parent module.
 
+use xui_app::compact;
 use xui_app::dashboard as dash;
 use xui_app::format::{bytes, uptime};
 use xui_app::sysinfo::{self, Snapshot, MAX_TASKS};
@@ -13,8 +14,13 @@ use crate::{State, CARD_GAP, CARD_H, CARD_MIN_H, FOOTER_H, TABLE_GAP};
 pub(super) fn paint(canvas: &mut dyn Canvas, state: &State) {
     let theme = Theme::light();
     let bounds = canvas.bounds();
+    if compact::is_compact(bounds.width(), bounds.height()) {
+        crate::compact_view::paint(canvas, theme, state);
+        compact::paint_chip(canvas, theme, bounds);
+        return;
+    }
     let subtitle = format!(
-        "native syscall 14 · {}×{} · 1 s refresh · [r] refresh  [q] quit",
+        "native syscall 14 · {}×{} · 1 s refresh · [r] refresh  [c] compact  [q] quit",
         bounds.width(),
         bounds.height()
     );
@@ -22,6 +28,7 @@ pub(super) fn paint(canvas: &mut dyn Canvas, state: &State) {
 
     let Some(snapshot) = &state.snapshot else {
         paint_unavailable(canvas, theme, content, state.error.unwrap_or(-22));
+        compact::paint_chip(canvas, theme, bounds);
         return;
     };
 
@@ -42,6 +49,7 @@ pub(super) fn paint(canvas: &mut dyn Canvas, state: &State) {
         snapshot,
     );
     paint_footer(canvas, theme, content, state, snapshot);
+    compact::paint_chip(canvas, theme, bounds);
 }
 
 /// The memory-card height for `content`: between [`CARD_MIN_H`] and
@@ -95,7 +103,7 @@ fn paint_memory(
 }
 
 /// `live / total` as a percentage of the total (`0.0` when the total is 0).
-fn share(part: u64, total: u64) -> f64 {
+pub(crate) fn share(part: u64, total: u64) -> f64 {
     if total == 0 {
         0.0
     } else {
@@ -104,7 +112,7 @@ fn share(part: u64, total: u64) -> f64 {
 }
 
 /// The gauge colour: accent normally, warning close to full, danger at full.
-fn gauge_color(theme: Theme, fraction: f64) -> Color {
+pub(crate) fn gauge_color(theme: Theme, fraction: f64) -> Color {
     if fraction >= 0.98 {
         theme.danger
     } else if fraction >= 0.85 {

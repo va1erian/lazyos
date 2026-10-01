@@ -46,5 +46,5 @@ jobs:
         run: |
           cargo clippy \
             -p libmessenger -p messenger-generated -p lazyos-crypto -p font-atlas -p confd -p timezone \
-            -p virtio -p virtio-snd -p pcm \
+            -p virtio -p virtio-snd -p pcm -p framering -p virtio-net -p nicdrv -p netstack -p netpolicy -p fuzzkit \
             --all-targets -- -D warnings

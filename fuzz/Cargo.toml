@@ -1,0 +1,67 @@
+[package]
+name = "lazyos-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+description = "Coverage-guided fuzz targets for the LazyOS host-testable libraries (cargo-fuzz)"
+license = "GPL-3.0-or-later"
+
+# Outside the OS workspace (see the root Cargo.toml `exclude`), like the other
+# host-only crates: it needs libFuzzer and `std`, and it must never be built by
+# the OS's own `cargo build`. Run it with `cargo fuzz` on Linux; see
+# tools/net/README.md. Each target calls the same `fuzz::run` entry point the
+# in-tree seeded tests drive, so a crash replays under plain `cargo test`.
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+framering = { path = "../libs/framering", features = ["fuzz"] }
+virtio-net = { path = "../libs/virtio-net", features = ["fuzz"] }
+nicdrv = { path = "../libs/nicdrv", features = ["fuzz"] }
+lazypkg = { path = "../libs/lazypkg", features = ["fuzz"] }
+netstack = { path = "../libs/netstack", features = ["fuzz"] }
+
+[workspace]
+
+[[bin]]
+name = "framering"
+path = "fuzz_targets/framering.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "framering_header"
+path = "fuzz_targets/framering_header.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "nicdrv"
+path = "fuzz_targets/nicdrv.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "netstack"
+path = "fuzz_targets/netstack.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "virtio_net"
+path = "fuzz_targets/virtio_net.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "lazypkg"
+path = "fuzz_targets/lazypkg.rs"
+test = false
+doc = false
+bench = false

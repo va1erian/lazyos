@@ -185,6 +185,28 @@ impl Store {
         Ok(paths)
     }
 
+    /// Copies every entry of `other` whose path is absent here; existing
+    /// values always win. Returns the paths added and how many entries did not
+    /// fit a limit (they are skipped, never partially applied).
+    ///
+    /// Runs as root: a merge moves already-authorised data between stores and
+    /// is not a caller operation.
+    pub(crate) fn merge_missing(&mut self, other: &Store) -> (Vec<String>, usize) {
+        let root = Caller { uid: 0 };
+        let mut added = Vec::new();
+        let mut skipped = 0;
+        for (path, value) in other.iter_raw() {
+            if self.entries.contains_key(path) {
+                continue;
+            }
+            match self.set(path, value.clone(), root) {
+                Ok(_) => added.push(String::from(path)),
+                Err(_) => skipped += 1,
+            }
+        }
+        (added, skipped)
+    }
+
     /// Iterates all entries. Crate-internal because `decode` needs the map
     /// order for a deterministic encoding; the service API is `get`/`list`.
     pub(crate) fn iter_raw(&self) -> impl Iterator<Item = (&str, &Value)> {

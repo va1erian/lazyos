@@ -182,9 +182,10 @@ pub fn transition_rejects_widening() -> Result<(), String> {
         "the last widening refusal is not in the audit ring"
     );
 
-    // Toward less privilege is exactly what the gate is for; keep the
+    // Toward less privilege is exactly what the gate is for (a label is not
+    // one: labels are write-once, see `label_suite`); keep the
     // capability so the next check reaches the target rule.
-    let downgraded = Cred::new(1000, 100, credentials::CAP_SETUID, 4, 9);
+    let downgraded = Cred::new(1000, 100, credentials::CAP_SETUID, 0, 9);
     check!(
         credentials::transition(task::current(), task::current(), downgraded) == Ok(downgraded),
         "a legal downgrade was refused"

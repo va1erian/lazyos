@@ -13,8 +13,12 @@ use core::sync::atomic::{fence, Ordering};
 
 use crate::Error;
 
-/// Largest queue this implementation drives. Bounds the in-struct free list.
-pub const MAX_QUEUE: usize = 64;
+/// Largest queue this implementation drives. Bounds the in-struct free list
+/// (768 bytes of bookkeeping at the cap). 256 is the default ring size of
+/// `docs/driver-config-plan.md` and what QEMU's virtio-net offers; a device that
+/// offers less is driven at its own size, and a setting above the cap is
+/// clamped to it. (It was 64 while only virtio-sound used the crate.)
+pub const MAX_QUEUE: usize = 256;
 
 const DESC_SIZE: usize = 16;
 /// Descriptor flag: `next` is valid.
@@ -378,7 +382,7 @@ mod tests {
     fn rejects_bad_sizes_and_alignment() {
         let mut block = std::vec![0u32; 1024];
         let mem = block.as_mut_ptr() as *mut u8;
-        for size in [0u16, 3, 128] {
+        for size in [0u16, 3, 257, 512, 1024] {
             // SAFETY: never dereferenced: the size check fails first.
             assert!(unsafe { Virtqueue::new(mem, 0x1000, size) }.is_err());
         }
@@ -419,6 +423,53 @@ mod tests {
         assert!(rig.queue.add(&[out(0x5000, 4)]).is_ok());
         rig.device_complete(0);
         assert_eq!(rig.queue.pop_used().unwrap().unwrap().head, b);
+    }
+
+    #[test]
+    fn the_default_ring_of_256_entries_fills_drains_and_wraps() {
+        let mut rig = Rig::new(256);
+        assert_eq!(rig.queue.size() as usize, MAX_QUEUE);
+        assert_eq!(Layout::new(256).total, 6670);
+        for round in 0..5u32 {
+            let mut heads = Vec::new();
+            for i in 0..256u32 {
+                heads.push(
+                    rig.queue
+                        .add(&[inn(0x10_0000 + u64::from(i) * 0x800, 2048)])
+                        .expect("add"),
+                );
+            }
+            assert_eq!(rig.queue.num_free(), 0);
+            assert_eq!(rig.queue.add(&[inn(0, 1)]), Err(Error::QueueFull));
+            for (i, head) in heads.iter().enumerate() {
+                assert_eq!(rig.device_complete(60 + round), Some(*head));
+                assert_eq!(
+                    rig.queue.pop_used(),
+                    Ok(Some(Used {
+                        head: *head,
+                        len: 60 + round
+                    })),
+                    "{i}"
+                );
+            }
+            assert_eq!(rig.queue.num_free(), 256);
+        }
+    }
+
+    #[test]
+    fn a_255_descriptor_chain_fits_the_bookkeeping() {
+        let mut rig = Rig::new(256);
+        let chain = [out(0x1000, 4); 255];
+        let head = rig.queue.add(&chain).expect("chain");
+        assert_eq!(rig.queue.num_free(), 1);
+        assert_eq!(
+            rig.queue.add(&[out(0, 1); 256]),
+            Err(Error::BadRequest),
+            "a chain of 256 is refused"
+        );
+        rig.device_complete(0);
+        assert_eq!(rig.queue.pop_used().unwrap().unwrap().head, head);
+        assert_eq!(rig.queue.num_free(), 256);
     }
 
     #[test]

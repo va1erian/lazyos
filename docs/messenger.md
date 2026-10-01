@@ -161,6 +161,33 @@ enforces it.
 **Timeouts:** every call should carry a deadline. The kernel drops/returns
 expired transactions and meters queue depth per sender.
 
+**Poll calls:** a call whose deadline is `EXPIRED_DEADLINE` (absolute tick 1,
+`POLL_DEADLINE` in the kernel) is a *poll*: "answer now if you can, otherwise
+tell me nothing is ready". It is not treated as already expired, because the
+caller would then time out inside `msg_call` before the callee ever ran and the
+callee's reply would be refused as "caller gone" (this is what made
+`messengerd` log `topic reply dropped` once a second and never deliver the
+event a poll found queued). Instead the transaction stays `Pending` through the
+callee's **service turn**:
+
+1. The callee receives the request (`recv`/`try_recv` on that endpoint).
+2. It either replies (the poll returns the reply) or defers it, for example by
+   parking a long-poll such as `NextEvent` for later.
+3. When the callee returns to `recv` on the endpoint, any received poll it has
+   not answered ends with `ERR_TIMEOUT`, so a poll never waits for a deferred
+   answer. A reply to it is then refused like any late reply.
+
+A callee that never receives the poll (busy, wedged) cannot stall the caller:
+the poll also expires `POLL_GRACE_TICKS` (3 ticks, 30 ms) after it was sent.
+Once the callee has received it that grace no longer applies, so a slow service
+turn can still reply; it is replaced by `POLL_SERVICE_TICKS` (100 ticks, 1 s),
+which only bounds a callee that wedges mid-request.
+Nothing else about the transaction changes: cancel and peer death end it as
+usual. One endpoint shared by several server threads can end a poll early (any
+thread returning to `recv` ends polls another is still serving); that degrades
+to the old behaviour, a spurious "nothing ready", never to a lost message,
+because a service commits a delivery only after its reply is accepted.
+
 ---
 
 ## 7. Asynchronous: one-way and pub/sub

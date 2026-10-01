@@ -138,6 +138,11 @@ def main(argv: list[str]) -> int:
                              "which boots the `sndd` driver and plays its test tones. "
                              "BACKEND is a QEMU -audiodev driver (dsound, pa, alsa, sdl, "
                              "none, ...) or wav:PATH; default: this OS's usual one")
+    parser.add_argument("--net", action="store_true",
+                        help="attach a virtio-net card on QEMU's user-mode network and build "
+                             "with LAZYOS_NET=1, which boots the `netdrv` driver (an ARP "
+                             "self-test and the `nicctl` clients; `nicctl` also runs from the "
+                             "shell). The packet-capture-judged run is `python tools/net/run.py`")
     parser.add_argument("qemu_args", nargs=argparse.REMAINDER,
                         help="extra QEMU args (after `--`)")
     args = parser.parse_args(argv)
@@ -154,6 +159,8 @@ def main(argv: list[str]) -> int:
         env = dict(os.environ)
         if args.sound:
             env["LAZYOS_SOUND"] = "1"
+        if args.net:
+            env["LAZYOS_NET"] = "1"
         if args.desktop:
             env["LAZYOS_DESKTOP"] = "1"
         result = subprocess.run(cargo, cwd=ROOT, env=env)
@@ -187,6 +194,8 @@ def main(argv: list[str]) -> int:
         command += data_disk_args(data_disk)
     if args.sound:
         command += sound_args(args.sound)
+    if args.net:
+        command += ["-netdev", "user,id=n0", "-device", "virtio-net-pci,netdev=n0"]
     command += accel_args(args.accel, qemu)
     if args.headless:
         command += ["-display", "none"]

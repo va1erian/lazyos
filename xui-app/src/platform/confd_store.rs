@@ -5,12 +5,15 @@
 //! by uid 0, which is what every desktop app runs as today.
 
 use messenger_generated::os_lazy_confd_v1 as wire;
-use xui_settings::store::{ConfigStore, StoreError, Value};
+use messenger_generated::os_lazy_init_v1 as init_wire;
+use xui_settings::store::{AppChoice, ConfigStore, StoreError, Value};
 
 use super::messenger::Service;
 
 /// The registered service name (not the interface name).
 const NAME: &str = "os.lazy.confd";
+/// `init`'s registered service name (owner of the app registry).
+const INIT_NAME: &str = "os.lazy.init";
 /// The structured-error field id `confd` replies with.
 const ERROR_FIELD: u16 = 15;
 
@@ -105,6 +108,33 @@ impl ConfigStore for ConfdStore {
         })
         .map_err(|_| String::from("path too long"))?;
         self.call(wire::METHOD_DELETE, body).map(|_| ())
+    }
+
+    /// The apps `init` can launch (its registry); empty when `init` cannot be
+    /// reached, in which case the menu editor only reorders and renames.
+    fn apps(&self) -> Vec<AppChoice> {
+        let Ok(service) = Service::connect(INIT_NAME) else {
+            return Vec::new();
+        };
+        let Ok(reply) = service.call(
+            init_wire::INTERFACE_ID,
+            init_wire::METHOD_LISTAPPS,
+            ERROR_FIELD,
+            Vec::new(),
+        ) else {
+            return Vec::new();
+        };
+        init_wire::decode_list_apps_reply(&reply.body)
+            .map(|list| {
+                list.apps
+                    .into_iter()
+                    .map(|app| AppChoice {
+                        id: app.id,
+                        name: app.name,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
     /// Whether confd chose a persistent directory, as it reports itself: it

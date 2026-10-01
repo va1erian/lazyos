@@ -18,6 +18,11 @@ path = "src/lib.rs"
 name = "xui-docs"
 path = "src/main.rs"
 
+[build-dependencies]
+# litehtml-sys compiles ~80 C/C++ files through cc-rs; without this feature
+# it does so one at a time. Host features unify, so it applies there too.
+cc = { version = "1", features = ["parallel"] }
+
 [dependencies]
 xui-app = { path = ".." }
 xui-core = { git = "https://github.com/va1erian/xui", rev = "58c1a6ea1a2dc1e5bb81463ff8dba82329a4f080" }

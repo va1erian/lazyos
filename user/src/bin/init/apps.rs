@@ -164,6 +164,7 @@ pub static APPS: &[AppSpec] = &[
     linux_console_app("shell", "Console Shell", "sh"),
     xui_app("sysmon", "System Monitor", "XSYSMON.ELF"),
     xui_app("fabricmon", "Fabric Monitor", "XFABMON.ELF"),
+    xui_app("widget", "CPU & Memory", "XWIDGET.ELF"),
     xui_app("counter", "Counter", "XCOUNTR.ELF"),
     xui_app_verbs("docs", "Docs", "XDOCS.ELF", &["open", "view"]),
     native_app(

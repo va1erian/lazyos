@@ -63,6 +63,7 @@ BINS = {
     "xui-counter": "xui-counter.elf",
     "xui-sysmon": "xui-sysmon.elf",
     "xui-fabricmon": "xui-fabricmon.elf",
+    "xui-widget": "xui-widget.elf",
     "xui-client": "xui-client.elf",
     "xui-term": "xui-term.elf",
     # The migrated portable apps (issues #162/#159); every desktop image ships

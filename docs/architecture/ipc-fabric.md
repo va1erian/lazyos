@@ -50,9 +50,11 @@ syscall surface (including the bootstrap channel).
 
 **Fabric stats** (`stats.rs`)
 
-- `FABRIC_STATS_VERSION = 3`; `FabricStats::SIZE` is 22 scalar words, a
-  `MAX_TASKS` (64) slot handle table, 8 ACL/audit words, then 64 four-word
-  per-slot rows (version 2 had 16 of each). It aggregates
+- `FABRIC_STATS_VERSION = 4`; `FabricStats::SIZE` is 22 scalar words, a
+  `MAX_TASKS` (256) slot handle table, 8 ACL/audit words, then 256 four-word
+  per-slot rows (version 3 had 64 of each, version 2 had 16). `snapshot()`
+  returns a `Box` filled in place: the block is ~10 KiB, too much to pass by
+  value through a 32 KiB kernel stack. It aggregates
   channels/endpoints/queues, message counters, buffers/fences, handles per slot,
   ACL state, and audit counters and chain head. `snapshot()` takes each subsystem
   lock in turn (never two at once); fields are little-endian `u64` in order.
@@ -64,6 +66,11 @@ Ops: 1-7 `CALL`, `REPLY`, `SEND`, `RECV`, `CANCEL`, `CLOSE_ENDPOINT`,
 `TOTALS` (v1); 13-17 `REGISTER`, `RESOLVE`, `UNREGISTER`, `LIST`,
 `AUTHORIZE_TOPIC`.
 
+- `CLOSE_ENDPOINT` takes a flags word. `CLOSE_RELEASE` (1) makes it a *release*:
+  the handle is dropped and the side closes only if no other handle names it
+  (teardown semantics), instead of ending the side for every holder. A receiver
+  that was handed someone else's endpoint must release, not close (networking
+  plan N2: `netdrv` was closing `netd`'s service endpoint).
 - ABI blocks are fixed 64-byte `MsgArgs`/`MsgResult` little-endian word arrays,
   mirrored byte-for-byte in `user/src/messenger/`; sizes are compile-time
   asserted at the bottom of `syscalls/abi.rs`.

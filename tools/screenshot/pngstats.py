@@ -26,6 +26,9 @@ import json
 import struct
 import sys
 import zlib
+from collections import Counter
+from concurrent.futures import ProcessPoolExecutor
+from itertools import repeat
 from pathlib import Path
 
 _PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
@@ -119,29 +122,36 @@ def decode_png(path: Path) -> tuple[int, int, int, bytes]:
 def analyse(width: int, height: int, channels: int, pixels: bytes,
             bg: tuple[int, int, int] = (0, 0, 0), threshold: int = 12) -> dict:
     total = width * height
-    luminance_sum = 0
-    non_background = 0
-    colours: set[tuple[int, int, int]] = set()
-    min_lum, max_lum = 255, 0
+    # Tally identical pixels instead of walking every one: an image has far
+    # fewer distinct colours than pixels, and the counters make the sums below
+    # cheap. Fully transparent pixels are counted as black, like before.
+    if channels >= 3:
+        if channels == 4:
+            counts = Counter(
+                (0, 0, 0) if alpha == 0 else (r, g, b)
+                for r, g, b, alpha in zip(
+                    pixels[0::channels], pixels[1::channels],
+                    pixels[2::channels], pixels[3::channels],
+                )
+            )
+        else:
+            counts = Counter(zip(pixels[0::channels], pixels[1::channels],
+                                 pixels[2::channels]))
+    elif channels == 2:  # grey+alpha (type 4)
+        counts = Counter(
+            (0, 0, 0) if alpha == 0 else (v, v, v)
+            for v, alpha in zip(pixels[0::channels], pixels[1::channels])
+        )
+    else:  # greyscale (type 0)
+        counts = Counter((v, v, v) for v in pixels[0::channels])
 
-    for i in range(total):
-        o = i * channels
-        if channels >= 3:
-            r, g, b = pixels[o], pixels[o + 1], pixels[o + 2]
-            alpha = pixels[o + 3] if channels == 4 else 255
-        else:  # greyscale (type 0) or grey+alpha (type 4)
-            r = g = b = pixels[o]
-            alpha = pixels[o + 1] if channels == 2 else 255
-        # Treat fully transparent pixels as background.
-        if alpha == 0:
-            r = g = b = 0
-        luminance_sum += r + g + b
-        lum = (r * 299 + g * 587 + b * 114) // 1000
-        min_lum = min(min_lum, lum)
-        max_lum = max(max_lum, lum)
-        if abs(r - bg[0]) + abs(g - bg[1]) + abs(b - bg[2]) > threshold:
-            non_background += 1
-        colours.add((r >> 4, g >> 4, b >> 4))
+    luminance_sum = sum((r + g + b) * count for (r, g, b), count in counts.items())
+    non_background = sum(
+        count for (r, g, b), count in counts.items()
+        if abs(r - bg[0]) + abs(g - bg[1]) + abs(b - bg[2]) > threshold
+    )
+    colours = {(r >> 4, g >> 4, b >> 4) for r, g, b in counts}
+    lums = [(r * 299 + g * 587 + b * 114) // 1000 for r, g, b in counts]
 
     return {
         "width": width,
@@ -150,9 +160,44 @@ def analyse(width: int, height: int, channels: int, pixels: bytes,
         "mean_rgb": round(luminance_sum / (total * 3), 3),
         "nonbackground_ratio": round(non_background / total, 5),
         "distinct_colors_q4": len(colours),
-        "min_luminance": min_lum,
-        "max_luminance": max_lum,
+        "min_luminance": min(lums) if lums else 255,
+        "max_luminance": max(lums) if lums else 0,
     }
+
+
+def analyse_file(name: str, expect_width: int | None, expect_height: int | None,
+                 min_nonblack: float | None, min_colors: int | None,
+                 max_mean: float | None) -> tuple[str, dict, list[str]]:
+    """Decode and check one file, returning ``(key, stats, failures)``.
+
+    Top-level and argument-only so a process pool can map it; it never raises,
+    so a broken file is reported for itself and cannot abort the other files.
+    """
+    path = Path(name)
+    try:
+        width, height, channels, pixels = decode_png(path)
+        stats = analyse(width, height, channels, pixels)
+    except (ValueError, OSError, zlib.error, struct.error) as exc:
+        # Any decode failure (bad signature, unsupported variant, truncated
+        # chunks, corrupt zlib data) is this file's problem, not the batch's.
+        return str(path), {"error": str(exc)}, [f"{path}: {exc}"]
+
+    failures: list[str] = []
+    if expect_width is not None and width != expect_width:
+        failures.append(f"{path}: width {width} != expected {expect_width}")
+    if expect_height is not None and height != expect_height:
+        failures.append(f"{path}: height {height} != expected {expect_height}")
+    if min_nonblack is not None and stats["nonbackground_ratio"] < min_nonblack:
+        failures.append(
+            f"{path}: non-background ratio {stats['nonbackground_ratio']} < {min_nonblack}"
+        )
+    if min_colors is not None and stats["distinct_colors_q4"] < min_colors:
+        failures.append(
+            f"{path}: distinct colours {stats['distinct_colors_q4']} < {min_colors}"
+        )
+    if max_mean is not None and stats["mean_rgb"] > max_mean:
+        failures.append(f"{path}: mean RGB {stats['mean_rgb']} > {max_mean}")
+    return str(path), stats, failures
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -171,36 +216,26 @@ def main(argv: list[str] | None = None) -> int:
                         help="fail if mean RGB exceeds this (detect all-white)")
     args = parser.parse_args(argv)
 
-    results = {}
+    # Decode and check one file per worker. `map` yields results in argument
+    # order, so the printed order and the reported failures do not depend on
+    # which worker finishes first; `analyse_file` never raises, so a broken
+    # file is reported for itself and the rest still run.
+    with ProcessPoolExecutor() as pool:
+        outcomes = list(pool.map(
+            analyse_file,
+            args.files,
+            repeat(args.expect_width),
+            repeat(args.expect_height),
+            repeat(args.min_nonblack),
+            repeat(args.min_colors),
+            repeat(args.max_mean),
+        ))
+
+    results: dict[str, dict] = {}
     failures: list[str] = []
-
-    for name in args.files:
-        path = Path(name)
-        try:
-            width, height, channels, pixels = decode_png(path)
-            stats = analyse(width, height, channels, pixels)
-        except (ValueError, OSError) as exc:
-            failures.append(f"{path}: {exc}")
-            results[str(path)] = {"error": str(exc)}
-            continue
-
-        results[str(path)] = stats
-
-        if args.expect_width is not None and width != args.expect_width:
-            failures.append(f"{path}: width {width} != expected {args.expect_width}")
-        if args.expect_height is not None and height != args.expect_height:
-            failures.append(f"{path}: height {height} != expected {args.expect_height}")
-        if args.min_nonblack is not None and stats["nonbackground_ratio"] < args.min_nonblack:
-            failures.append(
-                f"{path}: non-background ratio {stats['nonbackground_ratio']} "
-                f"< {args.min_nonblack}"
-            )
-        if args.min_colors is not None and stats["distinct_colors_q4"] < args.min_colors:
-            failures.append(
-                f"{path}: distinct colours {stats['distinct_colors_q4']} < {args.min_colors}"
-            )
-        if args.max_mean is not None and stats["mean_rgb"] > args.max_mean:
-            failures.append(f"{path}: mean RGB {stats['mean_rgb']} > {args.max_mean}")
+    for key, stats, file_failures in outcomes:
+        results[key] = stats
+        failures.extend(file_failures)
 
     if args.json:
         print(json.dumps(results, indent=2))

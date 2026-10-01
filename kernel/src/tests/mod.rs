@@ -139,6 +139,7 @@ mod ipc_channel_suite;
 mod ipc_shared_suite;
 mod ipc_suite;
 mod keyboard_suite;
+mod label_suite;
 mod linux_suite;
 mod loader_suite;
 mod mem_suite;
@@ -155,6 +156,7 @@ mod service_suite;
 mod signal_suite;
 mod slab_suite;
 mod spawn_argv_suite;
+mod spurious_fault_suite;
 mod stats_suite;
 mod string_io_suite;
 mod sysinfo_suite;
@@ -184,6 +186,7 @@ const SUITE: &[&[(&str, Test)]] = &[
     ipc_channel_suite::CASES,
     acl_suite::CASES,
     credentials_suite::CASES,
+    label_suite::CASES,
     ipc_shared_suite::CASES,
     crypto_suite::CASES,
     messenger_suite::CASES,
@@ -196,6 +199,7 @@ const SUITE: &[&[(&str, Test)]] = &[
     boot_trace_suite::CASES,
     boot_io_suite::CASES,
     string_io_suite::CASES,
+    spurious_fault_suite::CASES,
     ramdisk_suite::CASES,
     dev_suite::CORE,
     dev_suite::IRQ,
@@ -205,6 +209,7 @@ const SUITE: &[&[(&str, Test)]] = &[
     dev_suite::SYSCALL,
     dev_suite::SYSCALL_GUARD,
     dev_suite::SYSCALL_OPS,
+    dev_suite::SYSCALL_POLICY,
     dev_suite::SYSCALL_CFG,
     dev_suite::TEARDOWN,
     dev_suite::DMA,

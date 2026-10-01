@@ -67,7 +67,7 @@ impl Stats {
 
 /// Task slots in the [`FabricStats`] per-slot arrays; mirrors the kernel's
 /// `task::MAX_TASKS`.
-pub const FABRIC_TASKS: usize = 64;
+pub const FABRIC_TASKS: usize = 256;
 
 /// Per-slot usage row of a [`FabricStats`] snapshot.
 #[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
@@ -82,7 +82,7 @@ pub struct TaskUsage {
     pub buffer_bytes: u64,
 }
 
-/// The versioned fabric snapshot (stats ABI version 3): channels, messages,
+/// The versioned fabric snapshot (stats ABI version 4): channels, messages,
 /// buffers, handles, ACL/audit state, and per-slot usage in one block. Mirrors
 /// `kernel/src/ipc/stats.rs` field for field; [`FabricStats::from_bytes`]
 /// decodes the little-endian word stream the kernel writes.
@@ -194,8 +194,8 @@ impl Default for FabricStats {
 }
 
 impl FabricStats {
-    /// The ABI version this mirror understands (3: 64 per-slot rows, #204).
-    pub const VERSION: u64 = 3;
+    /// The ABI version this mirror understands (4: 256 per-slot rows; 3 had 64, #204).
+    pub const VERSION: u64 = 4;
     /// Number of bytes the kernel writes for a snapshot.
     pub const SIZE: usize = (22 + FABRIC_TASKS + 8 + FABRIC_TASKS * 4) * 8;
 
@@ -464,4 +464,10 @@ pub const DEFAULT_BUFFER: usize = 16 * 1024;
 /// spot and reports `-ETIMEDOUT` instead of blocking for a message. Tick 1 is
 /// in the past after the first 10 ms of boot, so [`Endpoint::poll_recv`] is
 /// immediate from then on; before the first tick it waits at most one tick.
+///
+/// As the deadline of a *call* it means "poll": the kernel keeps the
+/// transaction open while the callee serves it, so the callee's reply is
+/// accepted, and ends it with `-ETIMEDOUT` when the callee returns to `recv`
+/// without answering or after a few ticks if it never receives it
+/// (`kernel::ipc::channels::POLL_DEADLINE`, `docs/messenger.md` section 6).
 pub const EXPIRED_DEADLINE: u64 = 1;

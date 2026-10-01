@@ -60,12 +60,13 @@
   {"mouse_move": [12, 94], "at": 30.5},
   {"shot": "10_menu_editor_hover", "at": 31.0},
   {"mouse_click": "left", "until": "XUID:MENU:LAUNCH:", "timeout": 30, "retries": 1, "at": 31.5},
-  {"at": 76.5, "shot": "11_second_editor_up"},
-  {"at": 77.0, "mouse_move": [-580, -90]},
-  {"at": 77.5, "mouse_click": "left"},
-  {"key_down": "ctrl", "at": 78.0},
-  {"key": "v", "at": 78.5},
-  {"key_up": "ctrl", "at": 79.0},
-  {"at": 80.0, "shot": "12_second_editor_pasted"},
-  {"at": 81.0, "quit": true}
+  {"wait_for": "EDITOR:UP:PASS", "occurrence": 2, "timeout": 120},
+  {"at": 2.0, "shot": "11_second_editor_up"},
+  {"at": 2.5, "mouse_move": [-580, -90]},
+  {"at": 3.0, "mouse_click": "left"},
+  {"key_down": "ctrl", "at": 3.5},
+  {"key": "v", "at": 4.0},
+  {"key_up": "ctrl", "at": 4.5},
+  {"at": 5.5, "shot": "12_second_editor_pasted"},
+  {"at": 6.5, "quit": true}
 ]

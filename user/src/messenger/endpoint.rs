@@ -246,6 +246,19 @@ impl Endpoint {
         syscall(op::CLOSE_ENDPOINT, &args, &mut MsgResult::default())
     }
 
+    /// Release this task's handle to the endpoint. Unlike [`Endpoint::close`],
+    /// which ends the channel side for everyone, this closes the side only when
+    /// no other handle names it: the right call for an endpoint received from
+    /// another task or obtained by name, which other holders still depend on.
+    pub fn release(self) -> Result<()> {
+        let args = MsgArgs {
+            handle: self.handle,
+            flags: op::CLOSE_RELEASE,
+            ..MsgArgs::default()
+        };
+        syscall(op::CLOSE_ENDPOINT, &args, &mut MsgResult::default())
+    }
+
     /// Counters for this endpoint's channel.
     pub fn stats(&self) -> Result<Stats> {
         stats_call(self.handle)

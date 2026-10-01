@@ -72,6 +72,12 @@ are `sys/dev/...`; values use the `confd` types (`bool`, `i64`, `u64`,
 | `audio/<drv>/period_bytes`, `periods` | u64 | 4096, 4 | period power of two 256..65536; count 2..16 | restart | admin | driver |
 | `audio/<drv>/volume_pct` | u64 | 100 | clamp 0..100 | live | admin | driver |
 
+**Networking (N0) narrows two ranges**, because the code behind them has fixed
+sizes: `rx_ring_entries`/`tx_ring_entries` clamp to 16..=256 (the virtio queue
+cap, also the default) and `net/<drv>/mtu` to 576..=1500 (a frame slot is 2048
+bytes). The clamping is `libs/virtio-net/src/settings.rs`; see
+[networking-plan.md](networking-plan.md) section 13.
+
 Ownership is uniform: **administrators (uid 0 via `confctl`, installers) write,
 services only read.** Drivers and `devd` write nothing to `confd`. `<drv>` is the
 driver's program stem (`virtio-net`, `virtio-snd`, `e1000`).

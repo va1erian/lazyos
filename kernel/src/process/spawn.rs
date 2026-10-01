@@ -52,7 +52,7 @@ pub(super) fn intern_service_name(name: &str) -> &'static str {
 /// task's pid (its slot), or `u64::MAX` when the file is missing, the ELF is
 /// invalid, or no slot/frame is free.
 pub(super) fn sys_spawn(cmdline_ptr: u64) -> u64 {
-    let code = spawn_program(cmdline_ptr, None);
+    let code = spawn_program(cmdline_ptr, None, false);
     if code < 0 {
         u64::MAX
     } else {
@@ -69,9 +69,11 @@ pub(super) fn sys_spawn(cmdline_ptr: u64) -> u64 {
 /// are no more privileged than itself. On the credential-gate path the
 /// requested credential is then stamped while interrupts are off in the
 /// `int 0x80` gate, so the child never runs with any identity but the one
-/// the gate approved. Negative return values are errno codes; a positive
+/// the gate approved. `assign_label` is the labelled-spawn flavour: the
+/// request's `label_id` is given to the child instead of having to match the
+/// inherited one. Negative return values are errno codes; a positive
 /// value is the new child's pid.
-pub(super) fn spawn_program(cmdline_ptr: u64, cred: Option<Cred>) -> i64 {
+pub(super) fn spawn_program(cmdline_ptr: u64, cred: Option<Cred>, assign_label: bool) -> i64 {
     let Ok(line) = user_cstr(cmdline_ptr) else {
         return -EFAULT;
     };
@@ -112,7 +114,14 @@ pub(super) fn spawn_program(cmdline_ptr: u64, cred: Option<Cred>) -> i64 {
         // the child would keep the identity it inherited from the caller (no
         // more privileged than the caller) and the gate would still audit the
         // refusal, which is the loudest signal available here.
-        let _ = credentials::transition(task::current(), slot, cred);
+        let label = if assign_label {
+            credentials::LabelStamp::Assign
+        } else {
+            credentials::LabelStamp::Keep {
+                current: credentials::of(slot).label_id,
+            }
+        };
+        let _ = credentials::transition_with(task::current(), slot, cred, label);
     }
     SERVICE_ARGS.lock()[slot] = Some(args.as_bytes().to_vec());
     slot as i64
