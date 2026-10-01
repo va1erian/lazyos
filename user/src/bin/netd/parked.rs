@@ -183,7 +183,9 @@ impl Netd {
     pub(super) fn sweep_owners(&mut self, tick: u64, now_ms: i64) -> usize {
         let mut reclaimed = 0;
         for owner in self.stack.socket_owners() {
-            if self.tasks.alive(owner, tick) {
+            // Sockets of Linux programs have owners of their own (the kernel
+            // frees those when the application closes them), not task owners.
+            if owner >= super::inet::OWNER_BASE || self.tasks.alive(owner, tick) {
                 continue;
             }
             let count = self.stack.sockets_close_owner(owner, now_ms);

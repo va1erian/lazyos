@@ -62,6 +62,26 @@ pub(crate) fn selftest(db: &MimeDb, apps: &mut AppRegistry) {
         sys::write_str("MIME:REGISTER:FAIL lookup or verbs mismatch\n");
     }
 
+    // Withdrawing a registration (the package manager's removal path): the
+    // handler it replaced takes over again, and a registration someone else
+    // made later is never undone.
+    apps.register("text/x-lazy-unreg", "first", "open");
+    apps.register("text/x-lazy-unreg", "second", "open");
+    let swapped = apps.lookup("text/x-lazy-unreg", "open") == Some("second");
+    apps.unregister("text/x-lazy-unreg", "second", "open");
+    let restored = apps.lookup("text/x-lazy-unreg", "open") == Some("first");
+    apps.unregister("text/x-lazy-unreg", "ghost", "open");
+    let untouched = apps.lookup("text/x-lazy-unreg", "open") == Some("first");
+    apps.unregister("text/x-lazy-unreg", "first", "open");
+    let dropped = apps.lookup("text/x-lazy-unreg", "open").is_none();
+    if swapped && restored && untouched && dropped {
+        sys::write_str("MIME:UNREGISTER:PASS\n");
+    } else {
+        sys::write_str(&format!(
+            "MIME:UNREGISTER:FAIL swapped={swapped} restored={restored} untouched={untouched} dropped={dropped}\n"
+        ));
+    }
+
     // The seeded file-type defaults (issue #116): plain text opens in the
     // Editor, PNGs in Paint, Markdown in the Docs renderer. The registry is
     // seeded the same in every image, so the mapping is asserted directly.

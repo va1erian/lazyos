@@ -44,6 +44,18 @@ pub struct Entry {
     pub binary: String,
     #[serde(default)]
     pub args: Vec<String>,
+    /// The program's ABI: `native` (the default, a LazyOS program) or `linux`
+    /// (a static musl program the Linux ABI personality runs). An ELF header
+    /// cannot tell the two apart, so the package says which one it is.
+    #[serde(default)]
+    pub abi: Option<String>,
+}
+
+impl Entry {
+    /// Whether the program runs under the Linux ABI personality.
+    pub fn is_linux(&self) -> bool {
+        self.abi.as_deref() == Some("linux")
+    }
 }
 
 /// `[[mime]]`: one handled file type.

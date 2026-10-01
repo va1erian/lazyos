@@ -202,6 +202,9 @@ mod affinity;
 mod brk_stack;
 mod creds;
 mod epoll;
+mod inet_calls;
+mod inet_core;
+mod inet_soak;
 mod mmap_reuse;
 mod mremap_eventfd;
 mod nanosleep_clock;
@@ -213,6 +216,9 @@ pub(super) use affinity::*;
 pub(super) use brk_stack::*;
 pub(super) use creds::*;
 pub(super) use epoll::*;
+pub(super) use inet_calls::*;
+pub(super) use inet_core::*;
+pub(super) use inet_soak::*;
 pub(super) use mmap_reuse::*;
 pub(super) use mremap_eventfd::*;
 pub(super) use nanosleep_clock::*;
@@ -221,6 +227,42 @@ pub(super) use sendfile::*;
 pub(super) use seqpacket_unix::*;
 
 pub(super) const CASES: &[(&str, Test)] = &[
+    ("linux_inet_requests_and_states", inet_requests_and_states),
+    ("linux_inet_pump_moves_bytes", inet_pump_moves_bytes),
+    (
+        "linux_inet_net_error",
+        inet_net_error_reaches_the_application,
+    ),
+    ("linux_inet_request_wire_form", inet_request_wire_form),
+    ("linux_inet_pump_authority", inet_pump_authority),
+    ("linux_inet_pump_hostile_input", inet_pump_hostile_input),
+    ("linux_inet_bad_pointers", inet_bad_pointers),
+    ("linux_inet_socket_creation", inet_socket_creation),
+    ("linux_inet_argument_checks", inet_argument_checks),
+    ("linux_inet_tcp_client", inet_tcp_client),
+    ("linux_inet_nonblocking_connect", inet_nonblocking_connect),
+    ("linux_inet_listen_accept", inet_listen_accept),
+    (
+        "linux_inet_accept_queue_bounded",
+        inet_accept_queue_is_bounded,
+    ),
+    ("linux_inet_udp_messages", inet_udp_messages),
+    ("linux_inet_poll_and_epoll", inet_poll_and_epoll),
+    ("linux_inet_socket_options", inet_socket_options),
+    ("linux_inet_dup_keeps_the_socket", inet_dup_keeps_the_socket),
+    (
+        "linux_inet_socket_table_bounded",
+        inet_socket_table_is_bounded,
+    ),
+    ("linux_inet_connection_soak", inet_connection_soak),
+    ("linux_inet_datagram_soak", inet_datagram_soak),
+    ("linux_inet_bulk_transfer", inet_bulk_transfer),
+    (
+        "linux_inet_close_after_write",
+        inet_close_after_write_loses_nothing,
+    ),
+    ("linux_inet_netd_restart", inet_netd_restart),
+    ("linux_inet_random_calls", inet_random_calls),
     (
         "linux_getuid_family_reports_credentials",
         getuid_family_reports_credentials,

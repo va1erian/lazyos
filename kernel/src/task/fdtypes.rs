@@ -42,6 +42,9 @@ pub enum Fd {
     UnixListener { listener: Arc<Listener> },
     /// A socket created by `socket(2)` but not yet bound or connected.
     Unbound { kind: SocketKind, nonblock: bool },
+    /// An `AF_INET` socket, served by `netd` (`crate::ipc::inet`). Once it has
+    /// a connection its data path is a socket pair, driven like `Socket`.
+    Inet { sock: Arc<InetSock> },
 }
 
 impl Fd {
@@ -119,6 +122,7 @@ impl Fd {
             }
             Fd::UnixListener { listener } => listener.poll_gen(events),
             Fd::Unbound { .. } => (0, 0),
+            Fd::Inet { sock } => sock.poll_gen(events),
         }
     }
 }
@@ -151,6 +155,9 @@ impl Clone for Fd {
             Fd::Unbound { kind, nonblock } => Fd::Unbound {
                 kind: *kind,
                 nonblock: *nonblock,
+            },
+            Fd::Inet { sock } => Fd::Inet {
+                sock: Arc::clone(sock),
             },
         }
     }
@@ -191,6 +198,8 @@ pub enum FdKind {
     Listener,
     /// A socket not yet bound or connected.
     Unbound,
+    /// An `AF_INET` socket in any state.
+    Inet,
 }
 
 pub(super) fn new_fds() -> [Fd; FD_COUNT] {

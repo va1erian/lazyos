@@ -52,7 +52,10 @@ syscall shim.
 | 23 | `dev(op, a1, a2, a3, a4)` | userspace driver access: list, claim, map_bar, pio, cfg, irq, release; `CAP_DEV_CLAIM` (`dev/syscall.rs`, #240; see [devices.md](devices.md)) |
 | 24 | `wall_time(op, a1)` | UTC wall clock for native services: `get` returns centiseconds since the epoch, `set` steps it to `a1` seconds (`CAP_SYS_TIME`, checked before the argument; `process/wallsys.rs`, #369) |
 | 25 | `input_raw(op, a1, a2)` | the raw input event bus for `inputd`: `open`, `poll` (24-byte HID-coded key events with a gapless `seq` and `Dropped` markers), `close`; `CAP_INPUT_RAW` (`input/rawsys.rs`; see [../input-plan.md](../input-plan.md)) |
+| 27 | `inet(op, a1, a2, a3)` | the `AF_INET` pump: `netd` (root or `_netd` only) fetches the socket requests the kernel queued for Linux programs, answers them, and moves bytes through the kernel's side of each socket (`process/inetsys.rs`, `ipc/inet/`, networking plan N5) |
 | 26 | `random(buf, len)` | up to 256 bytes from the kernel CSPRNG (`entropy.rs`) for native services such as `netd`; open to every task, no capability, `-EFAULT` on a bad destination (`process/randsys.rs`, networking plan N2) |
+| 28 | `append_file(path, data, len)` | append up to 1 MiB to the end of a file, creating it when absent (`process/fsops.rs`); `write_file` of the first chunk plus one append per further chunk writes a file larger than one call, which the package manager `pkgd` needs for binaries |
+| 29 | `kill(slot, sig)` | end one task by slot (what `spawn` returned) with signal 0 (probe), `SIGTERM` or `SIGKILL`; the sender must share the target's uid or hold `CAP_KILL`; `-ESRCH`/`-EPERM`/`-EINVAL`, no group or broadcast form (`process/killsys.rs`); `init` uses it to stop an app being removed |
 
 - `spawn` reads the ELF from the FAT image, leaks one interned `&'static str`
   per distinct service name (at most 64; later spellings share the name
@@ -71,7 +74,7 @@ syscall shim.
   `0` and `2` must keep the label they land on, so a task cannot relabel or
   unlabel itself or hand a peer another label (`-EPERM`). `load_image`
   maps `PT_LOAD` segments (prot from `PF_W`/`PF_X`, `File` VMA) and the stack
-  eagerly at `USER_HEAP_BASE = 0x60_0000` / `USER_STACK_TOP = 0x80_0000`
+  eagerly at `USER_HEAP_BASE = 0x60_0000` / `USER_STACK_TOP = 0x0800_0000`
   (`USER_STACK_SIZE = 0x2_0000`).
 
 **User faults** (`arch/fault.rs`, `arch/idt.rs`, #7). Every CPU exception is

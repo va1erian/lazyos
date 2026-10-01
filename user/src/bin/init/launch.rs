@@ -12,6 +12,7 @@ use user::messenger::{self, logind, router, services, Message};
 use user::sys::{self, Cred as SysCred};
 
 use super::apps::{find_app, is_available};
+use super::installed::{report_label, InstalledApp, InstalledApps};
 use super::state::{Phase, Service, CAP_SETUID, LAUNCH_CAP_PER_SESSION, SESSION_CAPS};
 use super::supervise::{command_line, publish_state};
 
@@ -119,20 +120,55 @@ pub(super) fn launch_path_arg(args: &str) -> messenger::Result<String> {
 
 /// Launch an app as a supervised child of this task (issue #158).
 ///
-/// The checks run in order: the app id must be in [`APPS`]; the caller must
-/// pass [`authorize`] for the target session; the target session must have
-/// fewer than [`LAUNCH_CAP_PER_SESSION`] launched rows reserved (see
-/// [`running_in_session`]); the target session's credentials must resolve.
-/// The row then spawns
-/// immediately with `spawn_as`, and from there the ordinary supervision loop
-/// owns it: restart policy, backoff, health topic and service event.
+/// The app id is a built-in registry row ([`find_app`]) or, failing that, an
+/// app the package manager installed ([`InstalledApps`], re-read from `confd`
+/// here so an install a moment ago is launchable at once). Either way the same
+/// checks run in the same order ([`admit`]): the caller must pass [`authorize`]
+/// for the target session; the argument must be one absolute path; the target
+/// session must have fewer than [`LAUNCH_CAP_PER_SESSION`] launched rows
+/// reserved (see [`running_in_session`]); the target session's credentials must
+/// resolve. The row then spawns immediately, and from there the ordinary
+/// supervision loop owns it: restart policy, backoff, health topic and service
+/// event. An installed app is spawned stamped with its label (`app:<system
+/// name>`), so the kernel applies the policy `pkgd` loaded for it from its first
+/// instruction.
 pub(super) fn launch(
     services: &mut Vec<Service>,
     broker: &mut router::TopicBroker,
+    installed: &mut InstalledApps,
     request: &services::LaunchRequest,
     caller: &SysCred,
 ) -> messenger::Result<services::LaunchResult> {
+    if find_app(&request.app).is_none() {
+        installed.refresh();
+        if let Some(app) = installed.find(&request.app) {
+            return launch_installed(services, broker, app, request, caller);
+        }
+    }
     launch_row(services, broker, request, caller, false)
+}
+
+/// The checks every launch passes before anything spawns: the session policy,
+/// the argument, the per-session cap (unless `init` itself opens the app) and
+/// the credentials to stamp. Returns `(path argument, credentials, session)`.
+fn admit(
+    services: &[Service],
+    request: &services::LaunchRequest,
+    caller: &SysCred,
+    autostart: bool,
+) -> messenger::Result<(String, SysCred, u64)> {
+    let target_session = if request.session == 0 {
+        caller.session
+    } else {
+        request.session
+    };
+    authorize(caller, target_session)?;
+    let path_arg = launch_path_arg(&request.args)?;
+    if !autostart && running_in_session(services, target_session) >= LAUNCH_CAP_PER_SESSION {
+        return Err(messenger::Error::Errno(-messenger::errno::EAGAIN));
+    }
+    let cred = target_cred(caller, target_session)?;
+    Ok((path_arg, cred, target_session))
 }
 
 /// [`launch`], for either a client request or `init`'s own autostart. An
@@ -151,47 +187,75 @@ pub(super) fn launch_row(
     if !is_available(app) {
         return Err(messenger::Error::Errno(-messenger::errno::ENOENT));
     }
-    let target_session = if request.session == 0 {
-        caller.session
-    } else {
-        request.session
-    };
-    authorize(caller, target_session)?;
-    let path_arg = launch_path_arg(&request.args)?;
-    if !autostart && running_in_session(services, target_session) >= LAUNCH_CAP_PER_SESSION {
-        return Err(messenger::Error::Errno(-messenger::errno::EAGAIN));
-    }
-    let cred = target_cred(caller, target_session)?;
-    // A stopped or failed launched row for the same app is superseded: the
-    // registry keeps the supervision table bounded (manifest rows stay).
+    let (path_arg, cred, session) = admit(services, request, caller, autostart)?;
+    retire_stopped(services, app.id);
+    let row = Service::from_app(app, &path_arg, cred);
+    start_row(services, broker, row, &cred, session, autostart)
+}
+
+/// Launch one installed app: [`launch_row`]'s path with the installed row, its
+/// label and its own program.
+fn launch_installed(
+    services: &mut Vec<Service>,
+    broker: &mut router::TopicBroker,
+    app: &InstalledApp,
+    request: &services::LaunchRequest,
+    caller: &SysCred,
+) -> messenger::Result<services::LaunchResult> {
+    let (path_arg, cred, session) = admit(services, request, caller, false)?;
+    retire_stopped(services, app.id);
+    let row = Service::from_installed(app, &path_arg, cred);
+    let result = start_row(services, broker, row, &cred, session, false)?;
+    report_label(result.pid, app.id);
+    Ok(result)
+}
+
+/// A stopped or failed launched row for the same app is superseded: the
+/// registry keeps the supervision table bounded (manifest rows stay).
+fn retire_stopped(services: &mut Vec<Service>, id: &str) {
     services.retain(|service| {
         !(service.launched
-            && service.name == app.id
+            && service.name == id
             && matches!(service.phase, Phase::Stopped | Phase::Failed))
     });
-    let mut row = Service::from_app(app, &path_arg, cred);
+}
+
+/// Spawn `row` stamped with `cred` (and its label, for an installed app) and
+/// adopt it as a supervised child.
+fn start_row(
+    services: &mut Vec<Service>,
+    broker: &mut router::TopicBroker,
+    mut row: Service,
+    cred: &SysCred,
+    session: u64,
+    autostart: bool,
+) -> messenger::Result<services::LaunchResult> {
     row.autostart = autostart;
     let command = command_line(&row, 0);
-    let Some(pid) = sys::spawn_as(&command, &cred) else {
+    let spawned = match row.label {
+        Some(label) => sys::spawn_as_labelled(&command, cred, label),
+        None => sys::spawn_as(&command, cred),
+    };
+    let Some(pid) = spawned else {
         sys::write_str(&format!(
             "init: launch {} failed: {} (session {})\n",
-            app.id, app.path, target_session
+            row.name, row.path, session
         ));
         return Err(messenger::Error::Errno(-messenger::errno::ENOENT));
     };
     row.pid = pid;
     row.phase = Phase::Running;
     row.started_tick = sys::clock();
+    let id = row.name;
     let index = services.len();
     services.push(row);
     sys::write_str(&format!(
-        "INIT:LAUNCH:PASS app={} pid={pid} session={target_session}\n",
-        app.id
+        "INIT:LAUNCH:PASS app={id} pid={pid} session={session}\n"
     ));
     publish_state(broker, &services[index], "running", pid, 0, 0, "");
     Ok(services::LaunchResult {
-        app: app.id.to_string(),
+        app: id.to_string(),
         pid,
-        session: target_session,
+        session,
     })
 }

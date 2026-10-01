@@ -330,6 +330,10 @@ security suite, benchmarks); docs portal generated from IDL + design docs.
 **Acceptance:** one-command boot of a release image; CI publishes all artifacts
 and the compatibility matrix; `doctor` explains common failures.
 
+USB boot media (BIOS and UEFI images from one build) and the minimal feature
+set for booting on a physical PC are planned in
+[`real-pc-boot-plan.md`](real-pc-boot-plan.md).
+
 ---
 
 ## 6. Testing & CI strategy

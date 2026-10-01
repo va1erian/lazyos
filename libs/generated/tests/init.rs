@@ -33,6 +33,7 @@ fn app(i: u64) -> AppInfo {
         } else {
             Vec::new()
         },
+        installed: i.is_multiple_of(3),
     }
 }
 
@@ -184,4 +185,21 @@ fn service_event_topic_pattern_and_qos_are_declared() {
         TOPIC_SYSTEM_EVENTS_SERVICE_QOS,
         messenger_generated::topics::QOS_LATEST
     );
+}
+
+#[test]
+fn stop_args_and_reply_roundtrip() {
+    let args = StopArgs {
+        app: "org.lazy.counter".into(),
+    };
+    assert_eq!(
+        decode_stop_args(&encode_stop_args(&args).unwrap()).unwrap(),
+        args
+    );
+    let reply = StopReply { stopped: 3 };
+    assert_eq!(
+        decode_stop_reply(&encode_stop_reply(&reply).unwrap()).unwrap(),
+        reply
+    );
+    assert_eq!(decode_stop_args(&[]).unwrap(), StopArgs::default());
 }

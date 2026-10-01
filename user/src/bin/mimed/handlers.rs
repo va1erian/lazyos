@@ -67,8 +67,26 @@ pub(crate) fn dispatch(
             apps.register(&args.mime, &args.app, &args.verb);
             Ok(mime::ok_reply(wire::METHOD_REGISTER))
         }
+        wire::METHOD_UNREGISTER => {
+            let args = wire::decode_unregister_args(body).map_err(parse)?;
+            // Only the package manager (root) may withdraw a registration.
+            if !caller_is_root(message) {
+                return Err(Error::Errno(-errno::EPERM));
+            }
+            if !valid_mime(&args.mime) || !valid_app_id(&args.app) || !valid_token(&args.verb) {
+                return Err(Error::Errno(-errno::EINVAL));
+            }
+            apps.unregister(&args.mime, &args.app, &args.verb);
+            Ok(mime::ok_reply(wire::METHOD_UNREGISTER))
+        }
         _ => Err(Error::Errno(-errno::EINVAL)),
     }
+}
+
+/// Whether the sender is uid 0 and unlabelled (kernel-stamped).
+fn caller_is_root(message: &Message) -> bool {
+    let mut cred = sys::Cred::default();
+    sys::cred_get(Some(message.sender), &mut cred).is_ok() && cred.uid == 0 && cred.label_id == 0
 }
 
 /// Frame an encoded reply body as a parcel of `method`.

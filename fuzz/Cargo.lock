@@ -256,6 +256,7 @@ dependencies = [
  "inputmap",
  "lazypkg",
  "libfuzzer-sys",
+ "modplay",
  "netstack",
  "nicdrv",
  "virtio-net",
@@ -302,6 +303,10 @@ checksum = "1fa76a2c86f704bdb222d66965fb3d63269ce38518b83cb0575fca855ebb6316"
 dependencies = [
  "adler2",
 ]
+
+[[package]]
+name = "modplay"
+version = "0.1.0"
 
 [[package]]
 name = "netstack"

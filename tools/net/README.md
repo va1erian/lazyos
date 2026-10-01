@@ -169,6 +169,19 @@ server that saw different bytes than the wire shows.
 server's own record of commands and transfers; see `docs/architecture/networking.md`.
 `cargo test -p ftpwire` tests the parser; `python tools/net/test_sockets_pcap.py` the judge.
 
+## Stage N5: Linux programs
+
+`run.py --netd` first builds the Linux fixtures (`tools/abi/build.py`; on a host without `cc` it links with
+`rust-lld`) and embeds `netfix` in the image as `NETFIX.ELF`; without a musl toolchain the N5 checks are
+skipped. `netd demo=1` runs it as `linux:NETFIX.ELF`: `std::net` only, no libc extras. It needs the harness
+(the echo servers, and a second port forward to its listener on guest port 47774), so it is not part of
+`tools/abi/run.py`. The capture adds 3 TCP flows and 22 datagram echoes to the totals of stage N3, and a
+second inbound connection of 100 000 bytes. The kernel's side is tested without a network:
+
+```bash
+LAZYOS_TEST_FILTER=inet python tools/test/run.py --accel none    # the 24 AF_INET tests (touch kernel/src/main.rs to force a rebuild after changing the filter)
+```
+
 `nc` options (a bad option prints the usage line): `-u` UDP, `-l` listen for one connection, `-i`
 line relay (native programs have a blocking `read_char` and no end-of-input, so no
 streaming both ways), `-n` no trailing newline, `-w secs` idle limit (default 3),

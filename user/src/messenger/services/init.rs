@@ -19,7 +19,7 @@ pub use messenger_generated::os_lazy_init_v1 as wire;
 pub const INTERFACE: u64 = wire::INTERFACE_ID;
 
 /// The generated method ids.
-pub use wire::{METHOD_LAUNCH, METHOD_LISTAPPS, METHOD_SERVICES};
+pub use wire::{METHOD_LAUNCH, METHOD_LISTAPPS, METHOD_SERVICES, METHOD_STOP};
 
 /// One row of `init`'s supervision table (the generated `ServiceStatus`).
 pub use wire::ServiceStatus;
@@ -238,6 +238,49 @@ pub fn launch_by(
         return Err(Error::Init(code));
     }
     decode_launch(&reply)
+}
+
+/// `init`'s `Stop` request: stop every running instance of `app`.
+pub fn stop_request(app: &str) -> Result<Parcel> {
+    let body = wire::encode_stop_args(&wire::StopArgs {
+        app: alloc::string::String::from(app),
+    })
+    .map_err(Error::Parcel)?;
+    Ok(Parcel {
+        header: header(INTERFACE, wire::METHOD_STOP),
+        body,
+        ..Parcel::default()
+    })
+}
+
+/// Encode `init`'s `Stop` reply.
+pub fn stop_reply(stopped: u64) -> Result<Parcel> {
+    let body = wire::encode_stop_reply(&wire::StopReply { stopped }).map_err(Error::Parcel)?;
+    Ok(Parcel {
+        header: header(INTERFACE, wire::METHOD_STOP),
+        body,
+        ..Parcel::default()
+    })
+}
+
+/// Decode a `Stop` request; an empty app id is rejected like a `Launch`'s.
+pub fn decode_stop_request(parcel: &Parcel) -> Result<wire::StopArgs> {
+    let request = wire::decode_stop_args(&parcel.body).map_err(Error::Parcel)?;
+    if request.app.is_empty() {
+        return Err(Error::Errno(-crate::messenger::errno::EINVAL));
+    }
+    Ok(request)
+}
+
+/// Call `init`'s `Stop`: how many running instances of `app` it ended.
+pub fn stop(endpoint: &Endpoint, app: &str) -> Result<u64> {
+    let reply = endpoint.call(&stop_request(app)?, None)?;
+    if let Some(code) = error_field(&reply)? {
+        return Err(Error::Init(code));
+    }
+    Ok(wire::decode_stop_reply(&reply.body)
+        .map_err(Error::Parcel)?
+        .stopped)
 }
 
 /// Resolve [`INIT_NAME`] and launch `app` (a convenience for CLI callers;

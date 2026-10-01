@@ -45,13 +45,25 @@ impl SocketPair {
     pub fn new_with(mode: Mode) -> Option<Arc<SocketPair>> {
         let ab = Pipe::new_with(mode)?;
         let ba = Pipe::new_with(mode)?;
-        Some(Arc::new(SocketPair {
+        Some(Self::from_pipes(ab, ba))
+    }
+
+    /// Build a pair of small-ring pipes (an `AF_INET` socket's data path), or
+    /// `None` at the small-ring cap.
+    pub fn new_small(mode: Mode) -> Option<Arc<SocketPair>> {
+        let ab = Pipe::new_small(mode)?;
+        let ba = Pipe::new_small(mode)?;
+        Some(Self::from_pipes(ab, ba))
+    }
+
+    fn from_pipes(ab: Arc<Pipe>, ba: Arc<Pipe>) -> Arc<SocketPair> {
+        Arc::new(SocketPair {
             ab,
             ba,
             open: [AtomicUsize::new(0), AtomicUsize::new(0)],
             nonblock: [AtomicBool::new(false), AtomicBool::new(false)],
             shut: [AtomicU8::new(0), AtomicU8::new(0)],
-        }))
+        })
     }
 
     /// This pair's framing.

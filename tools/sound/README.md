@@ -67,6 +67,16 @@ python tools/sound/test_analyze_wav.py
 cargo test -p virtio -p virtio-snd -p pcm     # the driver libraries
 ```
 
+## Tracker player: `--modplay`
+
+`python tools/sound/run.py --modplay` builds with `LAZYOS_SOUND_MODPLAY=1`, so
+`sndd demo=1` runs `modplay selftest` (a built-in single-voice melody,
+`libs/modplay/examples/gen_selftest.rs`) instead of the `beep` clients. The
+recording must hold the driver's 440 Hz tone and then the melody's seven notes
+(259, 389, 518, 389, 259, 518, 389 Hz) in order; the marker is
+`MODPLAY:PLAY:PASS frames=<n> ...`. `modplay <file.mod>` plays any four-channel
+ProTracker module from the desktop Terminal.
+
 ## Desktop: the `beep` command
 
 The desktop profile (`LAZYOS_DESKTOP=1`) always ships the sound stack: `sndd` in

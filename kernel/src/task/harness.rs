@@ -146,6 +146,7 @@ pub fn fd_kind_at(slot: usize, fd: usize) -> super::FdKind {
             super::Fd::Epoll { .. } => super::FdKind::Epoll,
             super::Fd::UnixListener { .. } => super::FdKind::Listener,
             super::Fd::Unbound { .. } => super::FdKind::Unbound,
+            super::Fd::Inet { .. } => super::FdKind::Inet,
         },
         _ => super::FdKind::Closed,
     }

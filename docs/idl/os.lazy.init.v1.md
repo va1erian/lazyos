@@ -17,6 +17,7 @@ reply, so the error field is hand-written next to these stubs.
 | Services | 1672675413 | sync | `() -> (services: Array<ServiceStatus>)` |
 | Launch | 936096390 | sync | `(app: String, args: String, session: U64) -> (app: String, pid: U64, session: U64)` |
 | ListApps | 1009359625 | sync | `() -> (apps: Array<AppInfo>)` |
+| Stop | 1266644741 | sync | `(app: String) -> (stopped: U64)` |
 
 ## Topics
 
@@ -40,6 +41,7 @@ reply, so the error field is hand-written next to these stubs.
 - `path: String`
 - `restart: String`
 - `verbs: Array<String>`
+- `installed: Bool`
 
 ## struct `ServiceEvent`
 

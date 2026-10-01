@@ -736,9 +736,17 @@ pub static INTERFACES: &[Interface] = &[
                 name: "ListApps",
                 id: 1009359625,
                 oneway: false,
-                doc: "Enumerate the built-in app registry.",
+                doc: "Enumerate the app registry: the built-in apps first, then the apps the\npackage manager installed (`AppInfo.installed`), read afresh from the\nconfiguration registry on every call.",
                 params: &[],
                 returns: &[Field { name: "apps", ty: Ty::Array(&Ty::Struct("AppInfo")) }],
+            },
+            Method {
+                name: "Stop",
+                id: 1266644741,
+                oneway: false,
+                doc: "Stop every running instance of the app `app` (the app id, as `Launch`\ntakes it): each is killed and its supervision row retired without a\nrestart. `stopped` is how many were running. Only root, a holder of\n`CAP_SETUID` (the package manager) or the session owner may stop; an\nowner reaches only instances in their own session. Unknown or idle apps\nare not an error, `stopped` is just 0.",
+                params: &[Field { name: "app", ty: Ty::String }],
+                returns: &[Field { name: "stopped", ty: Ty::U64 }],
             },
         ],
         structs: &[
@@ -750,11 +758,11 @@ pub static INTERFACES: &[Interface] = &[
             Struct {
                 name: "AppInfo",
                 doc: "Service name.\nService phase (`pending`/`running`/`restarting`/`stopped`/`failed`).\nTask slot the supervisor started, or 0.\nRestart count.\nComma-separated dependency names.\nLast known health string for the service.\nOne row of `init`'s built-in app registry (issue #158): the S5 start\nmenu's enumeration unit and the resolution table `Launch` uses.",
-                fields: &[Field { name: "id", ty: Ty::String }, Field { name: "name", ty: Ty::String }, Field { name: "path", ty: Ty::String }, Field { name: "restart", ty: Ty::String }, Field { name: "verbs", ty: Ty::Array(&Ty::String) }],
+                fields: &[Field { name: "id", ty: Ty::String }, Field { name: "name", ty: Ty::String }, Field { name: "path", ty: Ty::String }, Field { name: "restart", ty: Ty::String }, Field { name: "verbs", ty: Ty::Array(&Ty::String) }, Field { name: "installed", ty: Ty::Bool }],
             },
             Struct {
                 name: "ServiceEvent",
-                doc: "App id: the lowercase program stem (`top` -> `TOP.ELF`).\nDisplay name for menus.\nOn-disk ELF path.\nDefault restart policy (`always`/`on-failure`/`once`).\nMIME verbs the app handles, in registration order.\nOne service lifecycle event (issue #307): the payload of\n`system/events/service/<name>`. The topic carries the service name, so\nit is not repeated here; `health` is the service's retained health\ntopic, for display by a consumer that only logs the event.",
+                doc: "App id: the lowercase program stem (`top` -> `TOP.ELF`).\nDisplay name for menus.\nOn-disk ELF path.\nDefault restart policy (`always`/`on-failure`/`once`).\nMIME verbs the app handles, in registration order.\nWhether the package manager installed the app (`id` is then its\n`system_name`) rather than the image shipping it.\nOne service lifecycle event (issue #307): the payload of\n`system/events/service/<name>`. The topic carries the service name, so\nit is not repeated here; `health` is the service's retained health\ntopic, for display by a consumer that only logs the event.",
                 fields: &[Field { name: "state", ty: Ty::String }, Field { name: "pid", ty: Ty::U64 }, Field { name: "restarts", ty: Ty::U64 }, Field { name: "status", ty: Ty::U64 }, Field { name: "health", ty: Ty::String }, Field { name: "detail", ty: Ty::String }],
             },
         ],
@@ -1221,6 +1229,14 @@ pub static INTERFACES: &[Interface] = &[
                 params: &[Field { name: "mime", ty: Ty::String }, Field { name: "app", ty: Ty::String }, Field { name: "verb", ty: Ty::String }],
                 returns: &[],
             },
+            Method {
+                name: "Unregister",
+                id: 1480320227,
+                oneway: false,
+                doc: "Withdraw `app`'s registration for `mime` and `verb`, so removing an\ninstalled app leaves no dangling handler. Only the caller's root\nidentity may withdraw (the package manager); the registration is\ndropped only while `app` still holds it, so a later registration by\nanother app is never undone, and the registration `app` had replaced\ntakes over again. Withdrawing a registration that is not there is not\nan error.",
+                params: &[Field { name: "mime", ty: Ty::String }, Field { name: "app", ty: Ty::String }, Field { name: "verb", ty: Ty::String }],
+                returns: &[],
+            },
         ],
         structs: &[
             Struct {
@@ -1601,6 +1617,90 @@ pub static INTERFACES: &[Interface] = &[
             Enum { name: "Shutdown", variants: &["Read", "Write", "Both"] },
         ],
         topics: &[],
+    },
+    Interface {
+        name: "os.lazy.pkgd.v1",
+        id: 0x2e65545739956542,
+        doc: "The application package manager (`docs/packages.md`, phase 3 of the\npackage system).\n\n`pkgd` is the only task that writes `/data/apps`, records installed apps in\n`confd`, registers their MIME verbs with `mimed` and loads their Messenger\npolicy into the kernel (`acl_load`, `CAP_IPC_CONTROL`). A GUI installer is\nan unprivileged client: it calls `Inspect`, shows the user what the package\nasks for, and forwards the user's yes as `Install`. Failures are returned\nas a structured error field (errno-style code, friendly text), not as a\ntyped reply; a package that fails validation reports every problem in\n`PackageInfo.problems` instead of an error so the installer can list them.",
+        methods: &[
+            Method {
+                name: "Inspect",
+                id: 1027767735,
+                oneway: false,
+                doc: "Open and validate the `.lzp` at `path` (an absolute path the caller may\nread) without changing anything. `problems` is empty for a package that\ncould be installed; otherwise it lists every reason it cannot be.",
+                params: &[Field { name: "path", ty: Ty::String }],
+                returns: &[Field { name: "info", ty: Ty::Struct("PackageInfo") }],
+            },
+            Method {
+                name: "Install",
+                id: 890027328,
+                oneway: false,
+                doc: "Install the package at `path`: extract it to its install directory,\nrecord it, register its MIME verbs, load its policy, then publish\n`system/events/pkg/install`. Fails if the same `system_name` is already\ninstalled at this version and digest. Needs the caller to be the\nsession owner or root; `pkgd` audits who asked.",
+                params: &[Field { name: "path", ty: Ty::String }],
+                returns: &[Field { name: "app", ty: Ty::Struct("Installed") }],
+            },
+            Method {
+                name: "Remove",
+                id: 564498461,
+                oneway: false,
+                doc: "Remove `system_name`: stop its running instances, unregister its MIME\nverbs, revoke its policy, delete its install directory, then publish\n`system/events/pkg/remove`. User data under `/data/home` is kept.",
+                params: &[Field { name: "system_name", ty: Ty::String }],
+                returns: &[],
+            },
+            Method {
+                name: "List",
+                id: 220805025,
+                oneway: false,
+                doc: "Every installed app, in install order.",
+                params: &[],
+                returns: &[Field { name: "apps", ty: Ty::Array(&Ty::Struct("Installed")) }],
+            },
+            Method {
+                name: "Installed",
+                id: 1755800129,
+                oneway: false,
+                doc: "One installed app by `system_name`, if present.",
+                params: &[Field { name: "system_name", ty: Ty::String }],
+                returns: &[Field { name: "app", ty: Ty::Option(&Ty::Struct("Installed")) }],
+            },
+        ],
+        structs: &[
+            Struct {
+                name: "PackageInfo",
+                doc: "What a package declares, as the consent screen shows it.",
+                fields: &[Field { name: "name", ty: Ty::String }, Field { name: "system_name", ty: Ty::String }, Field { name: "author", ty: Ty::String }, Field { name: "version", ty: Ty::String }, Field { name: "description", ty: Ty::String }, Field { name: "digest", ty: Ty::String }, Field { name: "install_dir", ty: Ty::String }, Field { name: "mime", ty: Ty::Array(&Ty::Struct("MimeHandler")) }, Field { name: "permissions", ty: Ty::Array(&Ty::Struct("Permission")) }, Field { name: "problems", ty: Ty::Array(&Ty::String) }],
+            },
+            Struct {
+                name: "MimeHandler",
+                doc: "Lowercase hex SHA-256 of the archive.\nWhere it would be installed, relative to `/data/apps`.\nEmpty when the package can be installed.\nOne handled file type.",
+                fields: &[Field { name: "mime_type", ty: Ty::String }, Field { name: "verbs", ty: Ty::Array(&Ty::String) }, Field { name: "has_icon", ty: Ty::Bool }],
+            },
+            Struct {
+                name: "Permission",
+                doc: "Whether the package ships icons for this type.\nOne requested permission with the friendly explanation the installer\nshows. `kind` is `interface`, `topic`, `file` or `network`; `risk` is\n`low`, `medium` or `high`. `explanation` comes from `pkgd`'s table\nkeyed by MIDL interface name, so every client shows the same words.",
+                fields: &[Field { name: "kind", ty: Ty::String }, Field { name: "value", ty: Ty::String }, Field { name: "risk", ty: Ty::String }, Field { name: "explanation", ty: Ty::String }],
+            },
+            Struct {
+                name: "Installed",
+                doc: "An installed app, as `confd` records it under `sys/apps/<system_name>`.",
+                fields: &[Field { name: "system_name", ty: Ty::String }, Field { name: "name", ty: Ty::String }, Field { name: "version", ty: Ty::String }, Field { name: "install_dir", ty: Ty::String }, Field { name: "digest", ty: Ty::String }, Field { name: "binary", ty: Ty::String }, Field { name: "installed_at", ty: Ty::U64 }, Field { name: "abi", ty: Ty::String }, Field { name: "args", ty: Ty::Array(&Ty::String) }],
+            },
+            Struct {
+                name: "PkgEvent",
+                doc: "Install directory relative to `/data/apps`.\nEntry binary, relative to the install directory (`bin/<name>.elf`).\nKernel ticks at install time.\nThe program's ABI, `native` or `linux`: `init` needs it to pick the\nspawn personality, and an ELF header cannot tell them apart.\nThe manifest's fixed `entry.args`, passed before any launch path.\nOne audit record: the payload of `system/events/pkg/<op>`, where `op`\nis `install`, `remove` or `denied`. The same record, hex-encoded with\na chained SHA-256, is appended to `/data/log/pkg.log`.",
+                fields: &[Field { name: "op", ty: Ty::String }, Field { name: "system_name", ty: Ty::String }, Field { name: "version", ty: Ty::String }, Field { name: "install_dir", ty: Ty::String }, Field { name: "digest", ty: Ty::String }, Field { name: "actor_uid", ty: Ty::U64 }, Field { name: "ok", ty: Ty::Bool }, Field { name: "detail", ty: Ty::String }],
+            },
+        ],
+        enums: &[],
+        topics: &[
+            Topic {
+                pattern: "system/events/pkg/+",
+                payload: "PkgEvent",
+                qos: 0,
+                retained: false,
+                doc: "uid of the task that asked.\nFriendly text: the error for a failure, empty on success.\nPublished on every install, removal and refused request. Not retained:\n`List` is the state, the events are the trail.",
+            },
+        ],
     },
     Interface {
         name: "os.lazy.messenger.policy.v1",

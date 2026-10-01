@@ -72,14 +72,20 @@ extern crate alloc;
 mod apps;
 #[path = "init/autostart.rs"]
 mod autostart;
+#[path = "init/installed.rs"]
+mod installed;
 #[path = "init/launch.rs"]
 mod launch;
 #[path = "init/protocol.rs"]
 mod protocol;
 #[path = "init/selftest.rs"]
 mod selftest;
+#[path = "init/service.rs"]
+mod service;
 #[path = "init/state.rs"]
 mod state;
+#[path = "init/stop.rs"]
+mod stop;
 #[path = "init/supervise.rs"]
 mod supervise;
 
@@ -90,6 +96,7 @@ use user::messenger::{self, registry, router, services};
 use user::sys;
 
 use autostart::Autostart;
+use installed::InstalledApps;
 use protocol::{serve_pending, StatusCache};
 use selftest::{selftest_launch_args, selftest_launch_cap, selftest_launch_policy, LaunchSelftest};
 use state::{Phase, Service, BOOT_EVIDENCE, BOOT_SELFTESTS, MANIFEST};
@@ -143,6 +150,7 @@ fn run() -> messenger::Result<()> {
     let mut cache = StatusCache::default();
     let mut selftest = LaunchSelftest::new();
     let mut autostart = Autostart::new();
+    let mut installed = InstalledApps::new();
 
     loop {
         // A restart whose backoff elapsed.
@@ -166,7 +174,14 @@ fn run() -> messenger::Result<()> {
             // The exit may unblock dependents (only a stop can; still cheap).
             start_ready(&mut services, &mut broker);
         }
-        serve_pending(&mut services, &mut broker, &server, &mut buffer, &mut cache)?;
+        serve_pending(
+            &mut services,
+            &mut broker,
+            &mut installed,
+            &server,
+            &mut buffer,
+            &mut cache,
+        )?;
     }
 }
 

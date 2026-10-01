@@ -71,6 +71,16 @@ SOCK_TCP_FLOWS = 2 + SOCK_SOAK_ITERATIONS
 SOCK_UDP_PAIRS = 1 + SOCK_SOAK_ITERATIONS
 #: Demo clients `netd` runs in all (`DEMO_CLIENTS` in `user/src/bin/netd.rs`).
 NETD_DEMO_CLIENTS = 13
+#: Stage N5: the Linux fixture `netfix` (`tools/abi/fixtures/src/netfix.rs`,
+#: `std::net` over the kernel's `AF_INET` shim) runs as one more demo client when
+#: the image has it. It adds TCP flows to the echo port (the 200 000-byte echo,
+#: the timed connect, the address check), 22 datagram echoes, and a listener on
+#: guest port 47774 the harness connects into through a second port forward.
+NETFIX_ELF = ROOT / "target" / "abi" / "fixtures" / "netfix.elf"
+NETFIX_TCP_FLOWS = 3
+NETFIX_UDP_PAIRS = 22
+NETFIX_LISTEN_PORT = 47774
+NETFIX_INBOUND_BYTES = 100_000
 #: The bytes the harness sends into the guest's listener.
 INBOUND_BYTES = 150_000
 #: Stage N4: the `ftp` client's session with the host's FTP server. The files
@@ -103,6 +113,7 @@ NETD_FAIL_MARKERS = (
     "NC:FAIL",
     "NSLOOKUP:FAIL",
     "FTP:FAIL",
+    "ABI:netfix:FAIL",
     "NETD:FAIL",
     "NETDRV:NODEV",
 )
@@ -123,7 +134,16 @@ FAIL_MARKERS = (
     "NICCTL:FAIL",
     "NETDRV:NODEV",
 )
-LOG_PREFIXES = ("NET", "netdrv", "netd", "NICCTL", "NETDRV", "NETD", "NETCTL", "PING", "NC:", "NSLOOKUP", "Looking up", "FTP:", "< ", "> ")
+LOG_PREFIXES = ("NET", "netdrv", "netd", "NICCTL", "NETDRV", "NETD", "NETCTL", "PING", "NC:", "NSLOOKUP", "Looking up", "FTP:", "< ", "> ", "NETFIX:", "ABI:netfix")
+
+
+def build_netfix() -> bool:
+    """Build the Linux fixtures (`tools/abi/build.py`); whether `netfix` exists.
+    Without a musl toolchain it does not, and the stage N5 checks are skipped."""
+    NETFIX_ELF.unlink(missing_ok=True)  # never judge a fixture built from older sources
+    result = subprocess.run([sys.executable, str(ROOT / "tools" / "abi" / "build.py")], cwd=ROOT,
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return result.returncode == 0 and NETFIX_ELF.is_file()
 
 
 def build_image(services: bool, poll: bool, netd: bool = False) -> Path:
@@ -190,18 +210,19 @@ def stop_qemu(proc: subprocess.Popen, qmp: Qmp | None) -> None:
             proc.kill()
 
 
-def netd_done(text: str) -> bool:
+def netd_done(text: str, netfix: bool = False) -> bool:
     """Stage N3's end of the demo: every marker, a lookup that got an answer,
     the three clients and the listener, and all twelve demo clients reaped."""
     return (
         all(marker in text for marker in NETD_PASS_MARKERS)
         and ("NSLOOKUP:PASS" in text or "NSLOOKUP:NXDOMAIN" in text)
         and text.count("NC:PASS") >= 4
-        and text.count("NETD:DEMO:EXIT") >= NETD_DEMO_CLIENTS
+        and text.count("NETD:DEMO:EXIT") >= NETD_DEMO_CLIENTS + int(netfix)
+        and (not netfix or "ABI:netfix:PASS" in text)
     )
 
 
-def qemu_args(args, image: Path, pcap_path: Path, qemu: str, forward_port: int = 0) -> list[str]:
+def qemu_args(args, image: Path, pcap_path: Path, qemu: str, forwards: tuple[tuple[int, int], ...] = ()) -> list[str]:
     extra = list(accel_args(args.accel, qemu) or [])
     if args.machine:
         extra += ["-machine", args.machine]
@@ -216,8 +237,8 @@ def qemu_args(args, image: Path, pcap_path: Path, qemu: str, forward_port: int =
         # Commas in a path are doubled for QEMU's option parser.
         path = pcap_path.resolve().as_posix().replace(",", ",,")
         extra += [
-            "-netdev", "user,id=n0" + (
-                f",hostfwd=tcp:127.0.0.1:{forward_port}-:{hostpeers.GUEST_LISTEN_PORT}" if forward_port else ""
+            "-netdev", "user,id=n0" + "".join(
+                f",hostfwd=tcp:127.0.0.1:{host}-:{guest}" for host, guest in forwards
             ),
             "-device", "virtio-net-pci,netdev=n0",
             "-object", f"filter-dump,id=f0,netdev=n0,file={path}",
@@ -233,7 +254,7 @@ def guest_address(text: str) -> bytes:
     return pcap.parse_ip("10.0.2.15")
 
 
-def judge_sockets(frames, guest_mac: bytes, text: str, tcp_streams, udp_datagrams, probe) -> bool:
+def judge_sockets(frames, guest_mac: bytes, text: str, tcp_streams, udp_datagrams, probe, netfix=None) -> bool:
     """Stage N3's verdict from the capture, the host servers and the harness's
     own client: the TCP/UDP/DNS checks of `sockets_pcap.py`."""
     guest_ip = guest_address(text)
@@ -250,11 +271,15 @@ def judge_sockets(frames, guest_mac: bytes, text: str, tcp_streams, udp_datagram
             print(f"NET:PCAP:{name}:PASS {detail}".rstrip())
 
     report("CHECKSUMS", "every TCP segment and UDP datagram from the guest", sockets_pcap.check_checksums(frames, guest_mac))
-    count, problems = sockets_pcap.check_echo_flows(frames, guest_ip, gateway, hostpeers.TCP_PORT, SOCK_TCP_FLOWS, tcp_streams)
+    extra_tcp = NETFIX_TCP_FLOWS if netfix is not None else 0
+    extra_udp = NETFIX_UDP_PAIRS if netfix is not None else 0
+    count, problems = sockets_pcap.check_echo_flows(frames, guest_ip, gateway, hostpeers.TCP_PORT,
+                                                    SOCK_TCP_FLOWS + extra_tcp, tcp_streams)
     report("TCP", f"flows={count} streams match the host server, bytes={sum(len(s) for s in tcp_streams)}", problems)
     count, problems = sockets_pcap.check_refused(frames, guest_ip, gateway, 47_999, SOCK_REFUSALS)
     report("REFUSED", f"no connection to the closed port was established, resets={count}", problems)
-    count, problems = sockets_pcap.check_udp_echo(frames, guest_ip, gateway, hostpeers.UDP_PORT, SOCK_UDP_PAIRS, udp_datagrams)
+    count, problems = sockets_pcap.check_udp_echo(frames, guest_ip, gateway, hostpeers.UDP_PORT,
+                                             SOCK_UDP_PAIRS + extra_udp, udp_datagrams)
     report("UDP", f"echo pairs={count}", problems)
     detail, problems = sockets_pcap.check_dns(frames, guest_ip, "localhost")
     report("DNS", detail, problems)
@@ -267,6 +292,12 @@ def judge_sockets(frames, guest_mac: bytes, text: str, tcp_streams, udp_datagram
         else:
             count = 0
         report("INBOUND", f"bytes={count} sent into the guest and echoed back", problems)
+    if netfix is not None:
+        problems = netfix.verdict()
+        count = 0
+        if not problems:
+            count, problems = sockets_pcap.check_inbound_flow(frames, guest_ip, gateway, NETFIX_LISTEN_PORT, netfix.payload)
+        report("NETFIX", f"a Linux program accepted a connection and echoed {count} bytes", problems)
     return ok
 
 
@@ -339,6 +370,8 @@ def main(argv: list[str] | None = None) -> int:
     for stale in (serial_log, pcap_path):
         stale.unlink(missing_ok=True)
 
+    # The Linux fixture goes into the image, so it is built first.
+    netfix = args.netd and not args.no_device and (NETFIX_ELF.is_file() if args.no_build else build_netfix())
     image = Path(args.image) if args.no_build else build_image(args.services, args.poll, args.netd)
     if not image.is_file():
         sys.exit(f"image not found: {image}")
@@ -349,7 +382,8 @@ def main(argv: list[str] | None = None) -> int:
     ftp_transfers: list = []
     tcp_streams: list[bytes] = []
     udp_datagrams: list[bytes] = []
-    forward_port = 0
+    forwards: tuple[tuple[int, int], ...] = ()
+    netfix_probe = None
     if args.netd and not args.no_device:
         try:
             peers = hostpeers.EchoServers()
@@ -359,7 +393,12 @@ def main(argv: list[str] | None = None) -> int:
                      f"{hostpeers.FTP_PORT}: {exc}")
         forward_port = free_port()
         probe = hostpeers.InboundProbe(forward_port, hostpeers.pattern(INBOUND_BYTES))
-    extra = qemu_args(args, image, pcap_path, qemu, forward_port)
+        forwards = ((forward_port, hostpeers.GUEST_LISTEN_PORT),)
+        if netfix:
+            second = free_port()
+            netfix_probe = hostpeers.InboundProbe(second, hostpeers.pattern(NETFIX_INBOUND_BYTES, seed=0x77))
+            forwards += ((second, NETFIX_LISTEN_PORT),)
+    extra = qemu_args(args, image, pcap_path, qemu, forwards)
     port = free_port()
     command = build_qemu_command(qemu, None if args.virtio_disk else str(image), port, serial_log, args.memory, extra)
     print(f"launching: {' '.join(command)}", flush=True)
@@ -377,7 +416,9 @@ def main(argv: list[str] | None = None) -> int:
         def done(t: str) -> bool:
             if probe is not None and f"NC:LISTENING port={hostpeers.GUEST_LISTEN_PORT}" in t:
                 probe.start()
-            return netd_done(t)
+            if netfix_probe is not None and f"NETFIX:LISTENING port={NETFIX_LISTEN_PORT}" in t:
+                netfix_probe.start()
+            return netd_done(t, netfix)
     else:
         done = lambda t: all(marker in t for marker in pass_markers)  # noqa: E731
     try:
@@ -385,6 +426,8 @@ def main(argv: list[str] | None = None) -> int:
         text = wait_for_marker(serial_log, proc, args.timeout, done, fail_markers)
         if probe is not None:
             probe.done.wait(timeout=10)
+        if netfix_probe is not None:
+            netfix_probe.done.wait(timeout=10)
         time.sleep(1.0)  # let the capture see the last frames
     finally:
         stop_qemu(proc, qmp)
@@ -411,6 +454,8 @@ def main(argv: list[str] | None = None) -> int:
             missing.append("NSLOOKUP:PASS|NSLOOKUP:NXDOMAIN")
         if text.count("NC:PASS") < 4:
             missing.append(f"NC:PASS x4 (saw {text.count('NC:PASS')})")
+        if netfix and "ABI:netfix:PASS" not in text:
+            missing.append("ABI:netfix:PASS")
     # A failure marker fails the run even when every pass marker also appeared
     # (`wait_for_marker` only stops early on one; it does not judge).
     failed = [marker for marker in fail_markers if marker in text]
@@ -475,7 +520,7 @@ def main(argv: list[str] | None = None) -> int:
     print("\n".join(report.lines))
     if args.netd:
         guest_mac = pcap.parse_mac(mac or analyze_pcap.DEFAULT_GUEST_MAC)
-        ok = judge_sockets(frames, guest_mac, text, tcp_streams, udp_datagrams, probe) and ok
+        ok = judge_sockets(frames, guest_mac, text, tcp_streams, udp_datagrams, probe, netfix_probe) and ok
         ok = judge_ftp(frames, text, ftp_commands, ftp_transfers) and ok
     print("NET:HARNESS:" + ("PASS" if ok else "FAIL"))
     return 0 if ok else 1

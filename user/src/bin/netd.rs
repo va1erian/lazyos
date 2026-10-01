@@ -42,6 +42,8 @@ use user::sys;
 
 #[path = "netd/config.rs"]
 mod config;
+#[path = "netd/inet.rs"]
+mod inet;
 #[path = "netd/nic.rs"]
 mod nic;
 #[path = "netd/owners.rs"]
@@ -67,6 +69,8 @@ const PLACEHOLDER_MAC: [u8; 6] = [0x02, 0x4C, 0x5A, 0x00, 0x00, 0x01];
 
 /// Longest park in the loop with nothing scheduled, ticks.
 const IDLE_TICKS: u64 = 100;
+/// Longest park while the kernel may have a Linux socket request for us, ticks.
+const INET_IDLE_TICKS: u64 = 5;
 /// Ticks the demo waits for an address before starting its clients anyway.
 const DEMO_ADDRESS_TICKS: u64 = 2000;
 
@@ -75,7 +79,7 @@ const DEMO_ADDRESS_TICKS: u64 = 2000;
 /// servers on the gateway (`tools/net/run.py`): TCP 47771, UDP 47772, an FTP
 /// server on 47780, and a guest listener on 47773 the harness reaches through
 /// a port forward.
-const DEMO_CLIENTS: [&[u8]; 13] = [
+const DEMO_CLIENTS: [&[u8]; 14] = [
     b"NETCTL.ELF\0",
     b"PING.ELF 10.0.2.2 4\0",
     b"NETCTL.ELF probe=1\0",
@@ -89,6 +93,9 @@ const DEMO_CLIENTS: [&[u8]; 13] = [
     b"FTP.ELF 10.0.2.2:47780 user=lazy pass=os pwd ; cd pub ; cd / ; ls ; get hello.txt ! ; get big.bin ! ; put -g 150000 up.bin ; size up.bin ; get up.bin ! ; quit\0",
     b"NC.ELF -l -x -w 20 47773\0",
     b"NETCTL.ELF sockets\0",
+    // A Linux `std::net` program over the kernel's `AF_INET` shim (stage N5),
+    // when the image has the fixture; it listens on 47774 for the harness.
+    b"linux:NETFIX.ELF\0",
 ];
 
 struct Args {
@@ -218,6 +225,7 @@ fn run(args: &Args) -> Result<(), alloc::string::String> {
         netd.finish_pings(&server);
         netd.finish_lookups(&server);
         netd.service_parked(&server, now_ms);
+        netd.inet.pump(&mut netd.stack, tick, now_ms);
         for (txn, parcel) in core::mem::take(&mut netd.outbox) {
             let _ = server.reply_or_drop(txn, &parcel);
         }
@@ -266,6 +274,9 @@ fn run(args: &Args) -> Result<(), alloc::string::String> {
         if netd.stack.socket_open_count() > 0 {
             wait = wait.min(next_sweep.saturating_sub(tick));
         }
+        // The kernel never wakes this loop for a Linux program's socket, so
+        // look again soon: at once when there is work, otherwise now and then.
+        wait = wait.min(if netd.inet.busy() { 1 } else { INET_IDLE_TICKS });
         let received = if pending || wait == 0 {
             server.poll_recv_with(&mut buffer)
         } else {

@@ -35,6 +35,8 @@ virtio = { path = "../libs/virtio" }
 virtio-snd = { path = "../libs/virtio-snd" }
 # Test-tone synthesis for `sndd`'s self-test and the `beep` client.
 pcm = { path = "../libs/pcm" }
+# ProTracker module parser and mixer for the `modplay` client (docs/tracker-plan.md).
+modplay = { path = "../libs/modplay" }
 # virtio-net for `netdrv` (docs/networking-plan.md N1): the wire definitions, the
 # host-tested driver core and the frame ring shared with the stack.
 virtio-net = { path = "../libs/virtio-net" }
@@ -47,6 +49,10 @@ netstack = { path = "../libs/netstack" }
 ftpwire = { path = "../libs/ftpwire" }
 # Keymaps, modifier/lock state and key repeat for `inputd` (docs/input-plan.md).
 inputmap = { path = "../libs/inputmap" }
+# The application package manager `pkgd` (docs/packages.md): the `.lzp` reader,
+# and the host-tested policy/audit/layout logic built on it.
+lazypkg = { path = "../libs/lazypkg" }
+pkgstore = { path = "../libs/pkgstore" }
 
 # Build-time only: rasterizes the bundled Droid Sans / Droid Serif into the
 # proportional glyph atlases `xuid` draws its chrome text with.
@@ -354,5 +360,28 @@ bench = false
 [[bin]]
 name = "beep"
 path = "src/bin/beep.rs"
+test = false
+bench = false
+
+# `modplay` (docs/tracker-plan.md) plays ProTracker modules through `sndd`: the
+# audio stack's showcase client. On-disk name `MODPLAY.ELF`.
+[[bin]]
+name = "modplay"
+path = "src/bin/modplay.rs"
+
+# `pkgd` (docs/packages.md phase 3) is the application package manager: it
+# extracts `.lzp` packages under `/data/apps`, records them in `confd`,
+# registers their file types with `mimed` and loads their Messenger policy.
+# `init` starts it from its manifest; the on-disk name is `PKGD.ELF` (8.3).
+# `pkgctl` is its command line (`PKGCTL.ELF`).
+[[bin]]
+name = "pkgd"
+path = "src/bin/pkgd.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "pkgctl"
+path = "src/bin/pkgctl.rs"
 test = false
 bench = false

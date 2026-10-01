@@ -11,6 +11,7 @@
 //! | 20 | `rename` | from | to | - | 0 |
 //! | 21 | `power` | op | - | - | (see [`super::power`]) |
 //! | 22 | `fsync` | path | - | - | 0 |
+//! | 28 | `append_file` | path | data | data length | bytes written |
 //!
 //! Every call goes through the native VFS as the calling task, so the
 //! permission checks, the read-only FAT boot volume (`-EROFS`) and the writable
@@ -86,7 +87,7 @@ fn path_arg(ptr: u64) -> Result<String, u64> {
     Ok(path)
 }
 
-/// Dispatch native syscall `nr` (15-22).
+/// Dispatch native syscall `nr` (15-22, and 28 `append_file`).
 pub fn dispatch(nr: u64, a1: u64, a2: u64, a3: u64) -> u64 {
     let outcome = match nr {
         15 => stat(a1, a2),
@@ -99,6 +100,7 @@ pub fn dispatch(nr: u64, a1: u64, a2: u64, a3: u64) -> u64 {
             .and_then(|(from, to)| rename(&from, &to)),
         21 => return super::power::dispatch(a1),
         22 => path_arg(a1).and_then(|path| fsync(&path)),
+        28 => append_file(a1, a2, a3),
         _ => return u64::MAX,
     };
     outcome.unwrap_or_else(|code| code)
@@ -159,6 +161,36 @@ fn write_file(path_ptr: u64, data_ptr: u64, len: u64) -> Result<u64, u64> {
     }
     fs::vfs_truncate(id, &path, 0).map_err(|e| failed(errno_of(e)))?;
     let written = fs::vfs_write(id, &path, 0, &data).map_err(|e| failed(errno_of(e)))?;
+    Ok(written as u64)
+}
+
+/// Append the caller's bytes to the end of `path`, creating it when absent.
+///
+/// `write_file` replaces a whole file and is capped at [`MAX_WRITE`], so a
+/// larger file (the package installer's 3 MiB binary) is written as one
+/// `write_file` of the first chunk and an `append_file` per further chunk. Like
+/// `write_file` the data is read before anything is touched, so a bad pointer
+/// never creates or grows a file. Chunks already appended stay if a later one
+/// fails: the caller owns cleanup.
+fn append_file(path_ptr: u64, data_ptr: u64, len: u64) -> Result<u64, u64> {
+    let path = path_arg(path_ptr)?;
+    if len > MAX_WRITE {
+        return Err(failed(ENOSPC));
+    }
+    let data: Vec<u8> = user_ptr::try_bytes(data_ptr, len as usize)
+        .map_err(|_| failed(EFAULT))?
+        .to_vec();
+    let id = Id::current();
+    let end = match fs::vfs_stat(id, &path) {
+        Ok(meta) if meta.kind == FileKind::Dir => return Err(failed(EISDIR)),
+        Ok(meta) => meta.size,
+        Err(FsError::NotFound) => {
+            fs::vfs_create(id, &path, FILE_MODE).map_err(|e| failed(errno_of(e)))?;
+            0
+        }
+        Err(error) => return Err(failed(errno_of(error))),
+    };
+    let written = fs::vfs_write(id, &path, end, &data).map_err(|e| failed(errno_of(e)))?;
     Ok(written as u64)
 }
 

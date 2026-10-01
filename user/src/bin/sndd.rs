@@ -69,11 +69,21 @@ const AMPLITUDE_Q15: i32 = 16000;
 /// The evidence clients `demo=1` runs, one after another, once the service is
 /// up: a real tone (the recording proves it), a hostile-input probe, and a
 /// stream-lifecycle soak of silence. See `user/src/bin/beep.rs`.
-const DEMO_CLIENTS: [&[u8]; 3] = [
+const BEEP_CLIENTS: [&[u8]; 3] = [
     b"BEEP.ELF freq=880 ms=800\0",
     b"BEEP.ELF probe=1\0",
     b"BEEP.ELF soak=40\0",
 ];
+
+/// `LAZYOS_SOUND_MODPLAY=1` at build time swaps them for the tracker player's
+/// self-test melody (`user/src/bin/modplay.rs`, `tools/sound/run.py --modplay`).
+const MODPLAY_CLIENTS: [&[u8]; 1] = [b"MODPLAY.ELF selftest\0"];
+
+const DEMO_CLIENTS: &[&[u8]] = if option_env!("LAZYOS_SOUND_MODPLAY").is_some() {
+    &MODPLAY_CLIENTS
+} else {
+    &BEEP_CLIENTS
+};
 
 /// Longest park in the serve loop while no stream is running (PIT ticks).
 const IDLE_TICKS: u64 = 100;
@@ -261,7 +271,7 @@ fn spawn_demo_client(command: &[u8]) -> Option<u64> {
     let pid = sys::spawn(command);
     match pid {
         Some(pid) => sys::write_str(&format!("SNDD:DEMO:SPAWN pid={pid}\n")),
-        None => sys::write_str("SNDD:DEMO:SPAWN failed (BEEP.ELF missing?)\n"),
+        None => sys::write_str("SNDD:DEMO:SPAWN failed (client ELF missing?)\n"),
     }
     pid
 }

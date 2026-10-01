@@ -50,6 +50,11 @@ const PROGRAMS: &[(&str, &str)] = &[
     ("faultprobe", "FAULTPRB.ELF"),
     // The audio client (docs/driver-plan.md D6): `beep [freq_hz [ms]]`.
     ("beep", "BEEP.ELF"),
+    // The tracker-module player (docs/tracker-plan.md): `modplay <file.mod>`.
+    ("modplay", "MODPLAY.ELF"),
+    // The package manager's command line (docs/packages.md): `pkgctl inspect |
+    // install | remove | list`.
+    ("pkgctl", "PKGCTL.ELF"),
     // The NIC control tool (docs/networking-plan.md N1): `nicctl [arp]` shows
     // the card and its counters. On the image only with `LAZYOS_NET=1`.
     ("nicctl", "NICCTL.ELF"),

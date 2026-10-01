@@ -18,6 +18,7 @@ use user::messenger::netstack::{self as api, wire};
 use user::messenger::{errno, services, Endpoint, Error as MsgError, Message, Parcel};
 use user::sys;
 
+use super::inet::Inet;
 use super::nic::Nic;
 use super::owners::Tasks;
 use super::parked::Parked as ParkedSock;
@@ -52,6 +53,8 @@ pub(super) struct Netd {
     pub(super) parked_socks: Vec<ParkedSock>,
     pub(super) sock_stats: SockStats,
     pub(super) tasks: Tasks,
+    /// The pump for Linux programs' sockets (stage N5).
+    pub(super) inet: Inet,
     /// Replies the event loop sends before it waits again.
     pub(super) outbox: Vec<(u64, Parcel)>,
     /// Times the NIC attachment was dropped and made again.
@@ -89,6 +92,7 @@ impl Netd {
             parked_socks: Vec::new(),
             sock_stats: SockStats::default(),
             tasks: Tasks::new(),
+            inet: Inet::new(),
             outbox: Vec::new(),
             nic_resets: 0,
             reattach: false,

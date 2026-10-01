@@ -22,6 +22,14 @@ interface os.lazy.mimed.v1 {
     /// Add or replace the app registered for `mime` and `verb`; the registry
     /// keeps the latest registration for each pair.
     method Register(mime: String, app: String, verb: String) -> ();
+    /// Withdraw `app`'s registration for `mime` and `verb`, so removing an
+    /// installed app leaves no dangling handler. Only the caller's root
+    /// identity may withdraw (the package manager); the registration is
+    /// dropped only while `app` still holds it, so a later registration by
+    /// another app is never undone, and the registration `app` had replaced
+    /// takes over again. Withdrawing a registration that is not there is not
+    /// an error.
+    method Unregister(mime: String, app: String, verb: String) -> ();
 
     /// One fire-and-forget launch record: the payload of the
     /// `system/events/open/<app>` topic. The app id is the topic's `<app>`

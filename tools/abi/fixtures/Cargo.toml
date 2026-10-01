@@ -75,3 +75,9 @@ path = "src/cwd.rs"
 [[bin]]
 name = "fsops"
 path = "src/fsops.rs"
+
+# Needs a network (the echo servers of `tools/net/run.py`): run by `netd demo=1`
+# as `linux:NETFIX.ELF`, never by the ABI bench (`tools/abi/run.py`).
+[[bin]]
+name = "netfix"
+path = "src/netfix.rs"

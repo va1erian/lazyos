@@ -16,6 +16,7 @@ const SYS_UNLINK: u64 = 19;
 const SYS_RENAME: u64 = 20;
 const SYS_POWER: u64 = 21;
 const SYS_FSYNC: u64 = 22;
+const SYS_APPEND_FILE: u64 = 28;
 
 /// Largest file `write_file` accepts (mirrors the kernel's `MAX_WRITE`).
 pub const MAX_FILE: usize = 1 << 20;
@@ -122,11 +123,19 @@ fn parse_entry(line: &str) -> Option<Entry> {
 
 /// The whole contents of a file (at most [`MAX_FILE`] bytes).
 pub fn read_all(path: &str) -> Result<Vec<u8>, i64> {
+    read_up_to(path, MAX_FILE)
+}
+
+/// The whole contents of a file of at most `limit` bytes; `EFBIG` for a larger
+/// one, checked before any buffer is allocated. Reading has no per-call cap
+/// (`read_file` fills whatever buffer it is given), so a service that handles
+/// big files, such as a package, sets its own limit.
+pub fn read_up_to(path: &str, limit: usize) -> Result<Vec<u8>, i64> {
     let (size, kind) = stat(path)?;
     if kind == Kind::Dir {
         return Err(21); // EISDIR
     }
-    if size as usize > MAX_FILE {
+    if size as usize > limit {
         return Err(27); // EFBIG
     }
     let mut data = vec![0u8; size as usize];
@@ -150,6 +159,32 @@ pub fn write_file(path: &str, data: &[u8]) -> Result<(), i64> {
         data.len() as u64,
     ))
     .map(|_| ())
+}
+
+/// Append `data` (at most [`MAX_FILE`] bytes) to the end of `path`, creating it
+/// when absent.
+pub fn append_file(path: &str, data: &[u8]) -> Result<(), i64> {
+    let path = nul_terminated(path);
+    check(syscall(
+        SYS_APPEND_FILE,
+        path.as_ptr() as u64,
+        data.as_ptr() as u64,
+        data.len() as u64,
+    ))
+    .map(|_| ())
+}
+
+/// Create or replace `path` with `data` of any length: the first chunk is a
+/// [`write_file`] (so an existing file is replaced), the rest [`append_file`]s.
+/// A failure part-way leaves the bytes written so far; the caller removes the
+/// file.
+pub fn write_large(path: &str, data: &[u8]) -> Result<(), i64> {
+    let mut chunks = data.chunks(MAX_FILE);
+    write_file(path, chunks.next().unwrap_or(&[]))?;
+    for chunk in chunks {
+        append_file(path, chunk)?;
+    }
+    Ok(())
 }
 
 pub fn mkdir(path: &str) -> Result<(), i64> {

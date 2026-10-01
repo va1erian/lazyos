@@ -156,6 +156,8 @@ pub fn value_from_wire(value: &wire::Value) -> Result<confd::Value> {
 /// A blocking client of the `confd` service.
 pub struct Client {
     endpoint: Endpoint,
+    /// Ticks each call may wait for the reply; `None` waits as long as it takes.
+    timeout: Option<u64>,
 }
 
 impl Client {
@@ -163,6 +165,7 @@ impl Client {
     pub fn connect() -> Result<Client> {
         Ok(Client {
             endpoint: registry::resolve(NAME)?,
+            timeout: None,
         })
     }
 
@@ -173,7 +176,12 @@ impl Client {
         let mut last = Error::Errno(-errno::ENOENT);
         for _ in 0..attempts {
             match registry::resolve(NAME) {
-                Ok(endpoint) => return Ok(Client { endpoint }),
+                Ok(endpoint) => {
+                    return Ok(Client {
+                        endpoint,
+                        timeout: None,
+                    })
+                }
                 Err(error) => last = error,
             }
             park_tick();
@@ -183,7 +191,17 @@ impl Client {
 
     /// Wrap an already-resolved endpoint.
     pub fn from_endpoint(endpoint: Endpoint) -> Client {
-        Client { endpoint }
+        Client {
+            endpoint,
+            timeout: None,
+        }
+    }
+
+    /// Bound every call to `ticks` PIT ticks (the reply is then `-ETIMEDOUT`),
+    /// for a caller that must not hang on `confd`, such as the supervisor.
+    pub fn with_timeout(mut self, ticks: u64) -> Client {
+        self.timeout = Some(ticks);
+        self
     }
 
     /// The underlying service endpoint (diagnostics).
@@ -193,7 +211,8 @@ impl Client {
 
     /// Run one request and turn a `CONFD_*` error reply into [`Error::Confd`].
     fn call(&self, method: u32, body: Vec<u8>) -> Result<Parcel> {
-        let reply = self.endpoint.call(&parcel(method, body), None)?;
+        let deadline = self.timeout.map(|ticks| crate::sys::clock() + ticks);
+        let reply = self.endpoint.call(&parcel(method, body), deadline)?;
         if let Some(code) = error_code(&reply) {
             return Err(Error::Confd(code));
         }

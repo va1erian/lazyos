@@ -207,6 +207,18 @@ impl Stack {
         id: u32,
         owner: u64,
     ) -> Result<Option<(u32, SockAddr)>, SockError> {
+        self.socket_accept_as(id, owner, owner)
+    }
+
+    /// [`Stack::socket_accept`] with the new socket given to `new_owner`
+    /// (the kernel's `AF_INET` pump keeps one owner per socket, so a busy
+    /// listener's connections do not share its quota).
+    pub fn socket_accept_as(
+        &mut self,
+        id: u32,
+        owner: u64,
+        new_owner: u64,
+    ) -> Result<Option<(u32, SockAddr)>, SockError> {
         let entry = self.socks.entry(id, owner)?;
         let Inner::Listener { port, backlog } = &entry.inner else {
             return Err(SockError::InvalidState);
@@ -221,7 +233,7 @@ impl Stack {
             return Ok(None);
         };
         // The connection stays in the backlog until the caller has room.
-        self.socks.check_quota(owner)?;
+        self.socks.check_quota(new_owner)?;
         let peer = self
             .sockets
             .get::<tcp::Socket>(handle)
@@ -240,7 +252,7 @@ impl Stack {
             established: true,
             ..Default::default()
         };
-        let conn = self.socks.insert(owner, Inner::Tcp { handle, state });
+        let conn = self.socks.insert(new_owner, Inner::Tcp { handle, state });
         self.socks.counters.accepted += 1;
         Ok(Some((conn, peer)))
     }

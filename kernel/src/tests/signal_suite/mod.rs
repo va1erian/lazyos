@@ -28,12 +28,14 @@ fn send(target: usize, sig: u8) -> Result<(), String> {
 mod delivery;
 mod hardening;
 mod linux_abi;
+mod native_kill;
 mod suspend;
 mod sweep_space;
 
 pub(super) use delivery::*;
 pub(super) use hardening::*;
 pub(super) use linux_abi::*;
+pub(super) use native_kill::*;
 pub(super) use suspend::*;
 pub(super) use sweep_space::*;
 
@@ -72,6 +74,8 @@ pub(super) const CASES: &[(&str, Test)] = &[
         kill_all_spares_init_and_respects_permissions,
     ),
     ("task_signal_soak_kill_permissions", soak_kill_permissions),
+    ("task_signal_native_kill_syscall", native_kill_syscall_rules),
+    ("task_signal_soak_native_kill", soak_native_kill),
     (
         "task_signal_suspend_swaps_and_restores_the_mask",
         suspend_swaps_and_restores_the_mask,

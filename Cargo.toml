@@ -36,6 +36,8 @@ members = [
     "libs/virtio-snd",
     # PCM sample helpers (test-tone synthesis) shared by `sndd` and its clients.
     "libs/pcm",
+    # ProTracker .mod parser and fixed-point player (docs/tracker-plan.md).
+    "libs/modplay",
     # Keymaps, modifier/lock state, repeat and hotkey matching for `inputd`
     # (docs/input-plan.md): pure `no_std` logic with host tests.
     "libs/inputmap",
@@ -53,6 +55,10 @@ members = [
     # `alloc` zip/manifest parsing and validation shared by the installer and
     # host tests.
     "libs/lazypkg",
+    # The pure logic of the package manager `pkgd` (docs/packages.md phase 3):
+    # policy compilation, the permission explanation table, the audit chain
+    # and install paths, host-tested.
+    "libs/pkgstore",
 ]
 # The xui app is an ordinary static-musl `std` program with its own workspace:
 # it is built by `tools/xui/build.py` and embedded in the image, never by the

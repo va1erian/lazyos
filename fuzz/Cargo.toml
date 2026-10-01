@@ -20,6 +20,7 @@ framering = { path = "../libs/framering", features = ["fuzz"] }
 virtio-net = { path = "../libs/virtio-net", features = ["fuzz"] }
 nicdrv = { path = "../libs/nicdrv", features = ["fuzz"] }
 lazypkg = { path = "../libs/lazypkg", features = ["fuzz"] }
+modplay = { path = "../libs/modplay", features = ["fuzz"] }
 netstack = { path = "../libs/netstack", features = ["fuzz"] }
 inputmap = { path = "../libs/inputmap", features = ["fuzz"] }
 
@@ -70,6 +71,13 @@ bench = false
 [[bin]]
 name = "inputmap_pointer"
 path = "fuzz_targets/inputmap_pointer.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "modplay"
+path = "fuzz_targets/modplay.rs"
 test = false
 doc = false
 bench = false

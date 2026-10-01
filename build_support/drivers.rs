@@ -22,6 +22,17 @@ fn add(builder: &mut bootloader::DiskImageBuilder, name: &str, bin: &str) {
     builder.set_file(String::from(name), PathBuf::from(path));
 }
 
+/// The `netfix` fixture: `LAZYOS_NETFIX`, or the one `tools/abi/build.py` left
+/// in `target/abi/fixtures`.
+fn netfix() -> Option<PathBuf> {
+    if let Some(path) = std::env::var_os("LAZYOS_NETFIX").map(PathBuf::from) {
+        return path.is_file().then_some(path);
+    }
+    let root = PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR")?);
+    let path = root.join("target/abi/fixtures/netfix.elf");
+    path.is_file().then_some(path)
+}
+
 /// Embed the drivers this build asked for. The desktop profile always ships the
 /// sound stack, so its shell has `beep`.
 pub fn embed(builder: &mut bootloader::DiskImageBuilder, desktop: bool) {
@@ -29,6 +40,8 @@ pub fn embed(builder: &mut bootloader::DiskImageBuilder, desktop: bool) {
         add(builder, "SNDD.ELF", "sndd");
         // `beep`, the smallest audio client: `sndd` spawns it under `demo=1`.
         add(builder, "BEEP.ELF", "beep");
+        // `modplay`, the tracker-module player (docs/tracker-plan.md).
+        add(builder, "MODPLAY.ELF", "modplay");
     }
     // `LAZYOS_NETD=1` adds the stack service and its tools, and needs the driver.
     let netd = enabled("LAZYOS_NETD");
@@ -48,5 +61,13 @@ pub fn embed(builder: &mut bootloader::DiskImageBuilder, desktop: bool) {
         add(builder, "NSLOOKUP.ELF", "nslookup");
         // `ftp`, the passive-mode client (stage N4).
         add(builder, "FTP.ELF", "ftp");
+        // `netfix`, the `std::net` Linux fixture the `AF_INET` shim is judged
+        // by (stage N5), when the harness built one (`tools/abi/build.py`);
+        // without a musl toolchain the image simply lacks it.
+        println!("cargo:rerun-if-env-changed=LAZYOS_NETFIX");
+        if let Some(path) = netfix() {
+            println!("cargo:rerun-if-changed={}", path.display());
+            builder.set_file(String::from("NETFIX.ELF"), path);
+        }
     }
 }

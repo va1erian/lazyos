@@ -19,6 +19,7 @@ as a typed reply.
 | Verbs | 1649509833 | sync | `(mime: String) -> (verbs: Array<String>)` |
 | Open | 1401622761 | sync | `(path: String, verb: String) -> (app: String, mime: String, topic: String, published: Bool, launched: Bool)` |
 | Register | 658098656 | sync | `(mime: String, app: String, verb: String) -> ()` |
+| Unregister | 1480320227 | sync | `(mime: String, app: String, verb: String) -> ()` |
 
 ## Topics
 

@@ -351,3 +351,16 @@ fn manifest_error_messages_are_one_line() {
     assert!(!text.contains('\n'));
     assert_eq!(text, "manifest: first; second");
 }
+
+#[test]
+fn parse_manifest_reads_a_stored_manifest_without_an_archive() {
+    let text = String::from_utf8(testzip::manifest("bin/app.elf")).unwrap();
+    let manifest = crate::parse_manifest(&text).expect("valid");
+    assert_eq!(manifest.app.system_name, "org.lazy.demo");
+    assert_eq!(manifest.entry.binary, "bin/app.elf");
+    // No archive means no file-existence judgement, but every other rule holds.
+    let bad = text.replace("1.0.0", "one");
+    let error = crate::parse_manifest(&bad).expect_err("bad version");
+    assert!(format!("{error}").contains("version"), "{error}");
+    assert!(crate::parse_manifest("").is_err());
+}

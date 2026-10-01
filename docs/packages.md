@@ -108,6 +108,7 @@ description = "A tiny raster painter"   # optional, at most 1024 chars
 [entry]
 binary = "bin/paint.elf"             # must exist in the archive
 args = []                            # optional list of strings, each at most 256 bytes, at most 16 of them
+abi = "native"                       # optional: "native" (default, a LazyOS program) or "linux" (a static musl program)
 
 [[mime]]                             # zero or more
 type = "image/png"
@@ -139,6 +140,9 @@ show them all at once.
 * **`files`** — `read:` or `write:` followed by an absolute path whose segments
   are `[A-Za-z0-9_.-]+` or `*`, with no `..`.
 * **`network`** — empty or exactly `["outbound"]`.
+* **`entry.abi`** — absent, `native` or `linux`. The ELF header cannot tell a LazyOS
+  program from a static musl one (both are static x86_64 executables), so the
+  package says which personality `init` must start it under (`linux:` spawn).
 * **`entry.binary`** and every MIME `icon` prefix must resolve to files in the
   archive.
 
@@ -159,6 +163,11 @@ impl<'a> Package<'a> {
     pub fn digest(&self) -> [u8; 32];        // SHA-256 of the whole archive
     pub fn install_dir(&self) -> alloc::string::String;
 }
+
+/// Parse and validate a stored `manifest.toml` outside an archive (file
+/// existence is not judged); `pkgd` uses it to rebuild an installed app's
+/// policy and MIME registrations at boot.
+pub fn parse_manifest(text: &str) -> Result<Manifest, ManifestError>;
 ```
 
 `Package::open` returns either a fully validated package or an error; no
@@ -209,3 +218,174 @@ random bytes, and every truncation of a valid archive) run under plain
 `cargo test`; `fuzz/fuzz_targets/lazypkg.rs` is the libFuzzer target and
 `fuzz/seeds/lazypkg/` the checked-in corpus. See
 [`../tools/pkg/README.md`](../tools/pkg/README.md).
+
+---
+
+## 7. Installing: `pkgd`
+
+`pkgd` (`user/src/bin/pkgd.rs`, `PKGD.ELF`) is the only task that installs and
+removes applications. It serves `os.lazy.pkgd.v1` ([`idl/pkgd.midl`](../idl/pkgd.midl),
+[reference](idl/os.lazy.pkgd.v1.md)) and `init` starts it after `confd` and
+`mimed`. Its pure logic (policy compilation, the permission explanation table,
+the audit chain, install paths, who may ask for what) is `libs/pkgstore`, which
+has host tests; the service is the thin syscall layer on top.
+
+`pkgctl` (`PKGCTL.ELF`) is its command line, and makes the same calls a GUI
+installer does:
+
+```text
+pkgctl inspect /PKGDEMO.LZP     # what it declares and asks for; changes nothing
+pkgctl install /PKGDEMO.LZP
+pkgctl remove org.lazy.counter
+pkgctl list
+```
+
+### Where things live
+
+| What | Where |
+|---|---|
+| The extracted package | `/data/apps/<system_name>/<version>-<digest8>/` (the `install_dir`), `manifest.toml` included as received |
+| One record per installed app | `confd` key `sys/apps/<system_name>`: the generated `Installed` record, encoded once |
+| The app's policy | the kernel, label `app:<system_name>` (`acl_load`); memory only, so replayed at startup |
+| The app's file types | `mimed`, registered with the app id `<system_name>` |
+| The audit trail | `/data/log/pkg.log`, plus `system/events/pkg/<op>` events |
+
+`/data` is the ext2 data volume (`docs/architecture/filesystem.md`); without a
+disk attached `pkgd` still answers `Inspect` and `List` and refuses `Install`
+with "there is no writable data disk" (`PKGD:STORE:ABSENT` on serial).
+
+### `Inspect` and `Install`
+
+`Inspect(path)` reads the whole file (at most **8 MiB**: the kernel reads a file
+into its 16 MiB heap to serve the read; the package may still expand to
+`MAX_TOTAL_UNCOMPRESSED`), opens it with `lazypkg`, and fills `PackageInfo`. A
+package that fails validation is *not* an error: every problem is in
+`PackageInfo.problems`, so an installer can list them all. Permissions are
+expanded through the explanation table (`pkgstore::explain`, keyed by MIDL
+interface name; a test fails when `idl/` declares an interface the table does
+not know): one entry per interface, topic, file rule and `network` entry, each
+with a risk (`low`/`medium`/`high`) and a one-sentence explanation. An interface
+the table does not know is `high`: "An interface this system does not know:
+<name>". At most 24 permission entries are allowed, so the consent screen can
+list every one of them.
+
+`Install(path)` never trusts an earlier `Inspect`: it re-checks the caller,
+re-reads and re-validates the package, then **builds everything before
+switching**:
+
+1. extract every entry under the new install directory (directories first, each
+   file written and its size verified);
+2. record the `Installed` row in `confd`;
+3. register every `[[mime]]` verb with `mimed` (`Register(mime, <system_name>, verb)`);
+4. compile and load the policy (`load_label("app:<system_name>", rules)`);
+5. append the audit record and publish `system/events/pkg/install`.
+
+A failure at any step undoes the earlier ones and says which step failed
+("Installing failed while writing bin/app.elf: no space left"). Installing the
+same `system_name` at the same digest is refused; a different digest is an
+**upgrade**: the new directory is installed beside the old one, the row and
+policy switch, and only then is the old directory deleted (and the file types the
+new version no longer handles are withdrawn). `Remove(system_name)` asks `init`
+to stop every running instance (`init.Stop`), withdraws the file types
+(`mimed.Unregister`, which hands a type back to the handler it replaced), revokes
+the policy (an empty `load_label`), deletes the install directory and the record,
+and audits it. User data under `/data/home` is never touched.
+
+Files larger than the 1 MiB a single `write_file` takes are written as one
+`write_file` plus `append_file` (native syscall 28) per further MiB.
+
+### Privilege and who may ask
+
+`pkgd` is spawned by `init` with `init`'s identity: **root with every capability
+but raw input**. The privilege is needed and is the reason this is one small
+service: `CAP_IPC_CONTROL` for the kernel's `acl_load`, uid 0 for `/data/apps`
+and the `sys/` part of `confd`, and uid 0 for `mimed`'s `Register`/`Unregister`.
+Because it is root, it checks every request against the kernel-stamped identity
+of the sender (`pkgstore::access`):
+
+* only root or the owner of a login session may `Install` or `Remove`; a task
+  carrying an app label never may;
+* it reads a package *as root*, so for an unprivileged caller it only accepts
+  paths that are readable by design (the boot volume root, `/tmp`, the caller's
+  own home directory); root may name any absolute path. There is no "open as
+  uid" call, and without this a user could install, and so copy out into
+  world-readable `/data/apps`, a package they cannot read;
+* refusals are answered with a structured error (errno-style code plus a
+  friendly sentence) and audited as `denied`.
+
+### What a manifest compiles to
+
+`pkgstore::rules::compile` is the one function from manifest to kernel rules, so
+the consent screen and the enforcement come from the same data:
+
+* an `interfaces` entry allows every method of the interface and the
+  *resolution* of each name it is served under (the interface name, the name
+  without `.vN`, and the service name where that differs, e.g.
+  `os.lazy.accounts.v1` is served as `os.lazy.accountsd`);
+* a `publish:`/`subscribe:` topic allows each *segment* of the pattern for that
+  direction (the kernel authorizes a topic segment by segment, so segments
+  granted for different topics combine), plus the topics broker's name and the
+  methods the direction needs; the app's own `app/<system_name>/` namespace needs
+  no rule;
+* `network = ["outbound"]` allows the socket interface of the network stack;
+* `files` rules are **consent only** today: there is no file sandbox in the
+  kernel yet, so they are recorded and shown but compile to nothing.
+
+A label carries at most 256 rules; a manifest that needs more is refused.
+
+### Audit
+
+Every install, removal and refusal is one line of `/data/log/pkg.log`:
+
+```text
+<seq> <prev_hash_hex> <hex of the PkgEvent bytes> <sha256_hex over prev_hash||event>
+```
+
+`seq` starts at 1 and the first `prev_hash` is 32 zero bytes, so removing,
+reordering or editing a line breaks the chain from there on. At startup `pkgd`
+verifies the chain and prints `PKGD:AUDIT:PASS n=<count>`; a broken log prints
+`PKGD:AUDIT:FAIL <why>`, is kept aside as `pkg.log.bad-<ticks>`, and a new chain
+starts with a record that says so. Every event is also published on
+`system/events/pkg/<op>` (`install`, `remove`, `denied`), which `logd` retains
+independently of the file. The chain is tamper-*evident*: someone who can rewrite
+the whole file can rebuild it, which is what the published copy is for.
+
+### Boot, `init` and the menu
+
+The kernel's policy and `mimed`'s registrations live in memory, so at startup
+`pkgd` replays every installed app (its stored `manifest.toml`, parsed with
+`lazypkg::parse_manifest`) through the same activation an install uses
+(`PKGD:RECONCILE:PASS`).
+
+`init` lists installed apps from `confd`, not through `pkgd`: `Remove` calls
+`init.Stop`, and `init` is a single task, so `init` waiting on `pkgd` while `pkgd`
+waits on `init` would deadlock. They follow the built-ins in `ListApps`
+(`AppInfo.installed`; the id is the `system_name`), re-read on every call, and
+`Launch(<system_name>)` spawns `/data/apps/<install_dir>/<binary>` under the
+label `app:<system_name>`, with the manifest's `entry.args`, in the Linux
+personality when `entry.abi = "linux"`, as the launching session's user with no
+capabilities. A restarted app is stamped again, so a crash does not launder the
+sandbox. `init` prints `PKGD:LAUNCH:LABEL app:<system_name> pid=<n>`, the label
+read back from the kernel. The desktop right-click menu appends the installed
+apps after its configured entries, re-read each time it opens.
+
+### Sample package and end-to-end check
+
+`tools/pkg/samples/counter/` is the Counter demo as a package
+(`system_name = "org.lazy.counter"`, `abi = "linux"`, requesting exactly the two
+interfaces the app resolves, `os.lazy.display.v1` and `os.lazy.input.v1`).
+`python tools/pkg/build_samples.py` (run by `tools/xui/build.py`) builds it into
+`target/pkg/PKGDEMO.LZP`, which the root `build.rs` embeds in the FAT root.
+`tools/pkg/make_icons.py` generates its icons. The visual check is
+`tools/screenshot/examples/pkg_install.json`.
+
+### Limits worth knowing
+
+* The package file limit is 8 MiB and the user heap never returns blocks over
+  64 KiB, so `pkgd` restarts itself (`PKGD:RECYCLE`, `init` starts a new one) once
+  its heap has grown by 32 MiB and it is idle. A client that connects during that
+  moment retries (`pkgctl` does).
+* Topic permissions are per segment (see above) and file permissions are not
+  enforced; both are the kernel's current granularity, not the compiler's.
+* An upgrade does not stop running instances; they keep running from memory and
+  the next launch uses the new version.

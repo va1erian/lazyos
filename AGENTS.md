@@ -142,6 +142,10 @@ python tools/test/run.py --accel none    # force TCG (CI uses auto: KVM when usa
 python tools/test/run.py --no-build      # re-run the current image
 ```
 
+While working on one subsystem, `LAZYOS_TEST_FILTER=<text> python tools/test/run.py
+--accel none` runs only the tests whose name contains the text (touch
+`kernel/src/main.rs` after changing the filter: the build does not notice an
+environment variable on its own). Run the whole suite before you finish.
 The runner exits non-zero on any failure, a missing summary, or a stale
 non-test image. Normal boots are unaffected: without `LAZYOS_TESTS=1` the suite
 is not compiled. Test-only hooks live behind `cfg(lazyos_tests)`; add new tests
