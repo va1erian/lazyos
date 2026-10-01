@@ -1,9 +1,10 @@
 //! The PS/2 mouse driver's tap onto the raw event bus.
 //!
 //! [`MouseTap`] turns each decoded packet into device-independent pointer
-//! records (`bus::pointer`): one `REL_MOTION` when the mouse moved, a
-//! `BUTTON` edge per button that changed, and one vertical `SCROLL` when the
-//! wheel turned, in that order, so a press lands at the packet's position.
+//! records (`bus::pointer`): one `REL_MOTION` when the mouse moved, one
+//! vertical `SCROLL` when the wheel turned, and a `BUTTON` edge per button
+//! that changed, in that order, so a press lands at the packet's position and
+//! after its wheel, as `PointerEvent` promises.
 //! It carries no policy: no cursor, no clamping, no acceleration (that is
 //! `inputd`, `docs/usb-hid-plan.md` decision 1). It runs beside the legacy
 //! display-grant stream in `mouse.rs` until that path is retired.
@@ -47,6 +48,9 @@ impl MouseTap {
         if dx != 0 || dy != 0 {
             emit(kind::REL_MOTION, 0, pointer::pack_rel(dx, dy));
         }
+        if packet.wheel != 0 {
+            emit(kind::SCROLL, pointer::VERTICAL, packet.wheel);
+        }
         let now =
             u8::from(packet.left) | u8::from(packet.right) << 1 | u8::from(packet.middle) << 2;
         for (bit, usage) in BUTTONS.iter().enumerate() {
@@ -61,9 +65,6 @@ impl MouseTap {
             }
         }
         self.held = now;
-        if packet.wheel != 0 {
-            emit(kind::SCROLL, pointer::VERTICAL, packet.wheel);
-        }
     }
 }
 

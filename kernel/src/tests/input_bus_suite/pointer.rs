@@ -228,7 +228,8 @@ pub fn motion_flood_keeps_keys() -> Result<(), String> {
 }
 
 /// Bytes through the real IRQ12 entry point reach the bus as pointer records:
-/// screen-oriented motion, button edges, an up-positive wheel.
+/// screen-oriented motion, an up-positive wheel, then button edges (so the
+/// wheel lands before the press it came with).
 pub fn ps2_mouse_reaches_bus() -> Result<(), String> {
     fresh();
     TAP.lock().reset();
@@ -253,8 +254,8 @@ pub fn ps2_mouse_reaches_bus() -> Result<(), String> {
         shape(&records)
             == [
                 (kind::REL_MOTION, 0, pointer::pack_rel(5, -3)),
-                (kind::BUTTON, LEFT, 1),
                 (kind::SCROLL, pointer::VERTICAL, 1),
+                (kind::BUTTON, LEFT, 1),
                 (kind::BUTTON, LEFT, 0),
                 (kind::BUTTON, RIGHT, 1),
                 (kind::REL_MOTION, 0, pointer::pack_rel(-10, 0)),
