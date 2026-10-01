@@ -434,7 +434,11 @@ fn register_helpers() {
     assert_eq!(regs::interrupt_interval(Speed::Full, 1), 3);
     assert_eq!(regs::interrupt_interval(Speed::Full, 255), 10);
     assert_eq!(regs::interrupt_interval(Speed::High, 7), 6);
-    assert_eq!(regs::interrupt_interval(Speed::High, 0), 0);
+    // A high-speed device cannot ask for more than 1000 polls a second.
+    assert_eq!(regs::interrupt_interval(Speed::High, 0), 3);
+    assert_eq!(regs::interrupt_interval(Speed::High, 1), 3);
+    assert_eq!(regs::interrupt_interval(Speed::Super, 4), 3);
+    assert_eq!(regs::interrupt_interval(Speed::High, 5), 4);
     assert_eq!(regs::interrupt_interval(Speed::High, 200), 15);
     assert_eq!(Speed::of_port(3 << 10 | portsc::CCS), Some(Speed::High));
     assert_eq!(Speed::of_port(0), None);

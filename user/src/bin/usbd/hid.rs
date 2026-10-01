@@ -63,9 +63,9 @@ impl Hid {
         })
     }
 
-    /// Decode one report and publish what it means. `trace` echoes each edge
-    /// on serial for the harness.
-    pub(super) fn report(&mut self, report: &[u8], trace: bool) {
+    /// Decode one report and publish what it means; returns whether it
+    /// pressed a key. `trace` echoes each edge on serial for the harness.
+    pub(super) fn report(&mut self, report: &[u8], trace: bool) -> bool {
         if trace {
             let hex: alloc::string::String = report.iter().map(|b| format!("{b:02x}")).collect();
             sys::write_str(&format!("USBD:REPORT {hex}\n"));
@@ -90,6 +90,9 @@ impl Hid {
             }
         }
         self.publish(&records);
+        records
+            .iter()
+            .any(|r| r.kind == raw_kind::KEY && r.value == 1)
     }
 
     /// Whether this is an absolute pointer (a tablet).

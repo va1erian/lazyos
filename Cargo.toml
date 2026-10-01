@@ -55,6 +55,7 @@ members = [
     "libs/nicdrv",
     "libs/ftpwire",
     "libs/netpolicy",
+    "libs/usbpolicy",
     "libs/netstack",
     "libs/fuzzkit",
     # Application package (`.lzp`) reader (docs/packages.md): pure `no_std` +

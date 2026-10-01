@@ -215,7 +215,7 @@ capability is required for the raw, unfocused device (console/login only).
 | **I2** | `idl/input.midl` (`os.lazy.input.v1`, `os.lazy.input.shell.v1`) is generated with `midlc`; `xuid` becomes a shell client (focus, surface registration, hotkeys) and stops carrying keystrokes; apps `Open` a session and receive `KeyEvent`/`TextInput`/`KeyboardEnter/Leave` directly from `inputd`; `KeyDown/KeyUp` are synthesised for legacy surfaces only. xui backend migrated to `TextInput` for text widgets. | Existing display suite (`kernel/src/tests/display_suite/`) must still pass unchanged; new focus-change, stuck-key and grab tests |
 | **I3** | Poll bitmap buffer; keyboard grab + escape chord; Doom (`lazydoom`) adopts `KeyEvent` + bitmap. | Screenshot session driving WASD, fire, automap in the Doom title/demos; grab/escape scenario |
 | **I4** | `/dev/input/event*` on the Linux shim; `input` ABI fixture (`ABI:input:PASS`). | Fixture: open, `EVIOCG*` ioctls, read events under injected QMP keys, focus-gated reads, `EVIOCGRAB` |
-| **I5** | Remove the kernel layout code and the old bound-consumer path; USB HID / virtio-input drivers plug into the bus with no other changes; `logind` console login moves onto `inputd`. | Full `tools/test/run.py --accel none`, desktop screenshots, login session |
+| **I5** | Remove the kernel layout code and the old bound-consumer path; USB HID / virtio-input drivers plug into the bus with no other changes (USB HID already does: `usbd` publishes through syscall-25 input sources, [usb-hid-plan.md](usb-hid-plan.md) U1-U5); `logind` console login moves onto `inputd`. | Full `tools/test/run.py --accel none`, desktop screenshots, login session |
 
 Each phase is independently shippable and reversible until I5.
 
@@ -240,7 +240,7 @@ that can be added behind that boundary later is deferred.
 | Keymap format | **Compiled-in tables** in `inputd` for US and FR (ported from `layout.rs`); layout chosen by a `confd` key | `.kmap` files under `/etc/keymaps`, XKB import, dead keys/compose |
 | Key repeat | In **`inputd`**, fixed delay/rate constants | Configurable via `confd`, per-device rates |
 | Secure attention sequence | **Out of scope** for now | Follows the session/lock-screen work in `security-model.md` |
-| Pointer devices | **Being migrated** by [usb-hid-plan.md](usb-hid-plan.md): the PS/2 mouse publishes `RelMotion`/`Button`/`Scroll` on the bus (tail-merged so motion cannot evict keys) and `inputd` owns the one cursor (P0, P1), which `xuid` takes from it, falling back to the legacy display stream only while `inputd` is away (P2); the kernel cursor state is removed with I5 | Pointer capture via the grant mechanism |
+| Pointer devices | **Migrated** by [usb-hid-plan.md](usb-hid-plan.md): the PS/2 mouse publishes `RelMotion`/`Button`/`Scroll` on the bus (tail-merged so motion cannot evict keys; a turn merges only under ring pressure) and `inputd` owns the one cursor (P0, P1), which `xuid` takes from it, falling back to the legacy display stream only while `inputd` is away (P2). USB keyboards, mice and tablets (`usbd`, U2-U5) publish through kernel input sources into the same bus and cursor. The kernel cursor state is removed with I5 | Pointer capture via the grant mechanism |
 
 ## Minimal first cut (what "v1" means)
 

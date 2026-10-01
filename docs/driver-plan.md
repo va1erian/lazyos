@@ -422,7 +422,10 @@ and the plan revised. Then: modern-virtio block on the transport, fuzz the
 
 ## 8. Explicit non-goals
 
-Hot-load/unload modules, ACPI namespace/power management, USB, GPU, SMP
-interrupt routing, MSI-X, IOMMU implementation, any protocol above the NIC
-link layer, audio mixing/resampling, and Linux ABI device nodes (`/dev/*`,
-ioctl) — the Linux ABI can later front these class interfaces.
+Hot-load/unload modules, ACPI namespace/power management, USB (beyond HID:
+[usb-hid-plan.md](usb-hid-plan.md) adds `usbd`, an xHCI driver for keyboards,
+mice and tablets, under the `os.kernel.dev.usb` class; mass storage, hubs and
+everything else on the bus stay out), GPU, SMP interrupt routing, MSI-X,
+IOMMU implementation, any protocol above the NIC link layer, audio
+mixing/resampling, and Linux ABI device nodes (`/dev/*`, ioctl) — the Linux
+ABI can later front these class interfaces.

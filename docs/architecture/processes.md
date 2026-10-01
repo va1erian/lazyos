@@ -189,6 +189,14 @@ runnable by hand from BusyBox `sh` (see "Native programs from `sh`" below).
   PML4 when it has no other users. The ABI bench injects `INIT.ELF` via
   `LAZYOS_INIT`; `BUSYBOX` runs BusyBox `sh` on the shim, and results are
   generated into `docs/compat/` (git-ignored) by `tools/abi/run.py`.
+- `execve` of a `#!` script (`process/linux/shebang.rs`, issue #491) runs the
+  interpreter named on its first line with argv `[interp, (one-arg), script,
+  argv[1..]]`, Linux `binfmt_script` style: the line is capped at 256 bytes,
+  blanks (and the carriage return of a CRLF line) are trimmed, and an empty,
+  NUL-carrying, over-long or non-UTF-8-interpreter line is `ENOEXEC`. Interpreters may be scripts up to
+  4 hops deep (`ELOOP` past that); every hop gets the `noexec` and execute-bit
+  checks, and a missing interpreter is `ENOENT`. This is what makes
+  `chmod +x s.rhai; ./s.rhai` run under `#!/bin/rhai`.
 
 **Native programs from `sh`** (`process/linux/native.rs`, issue #315)
 

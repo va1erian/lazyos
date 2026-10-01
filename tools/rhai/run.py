@@ -43,7 +43,7 @@ SESSION = ROOT / "tools" / "screenshot" / "qemu_session.py"
 EXAMPLES = ROOT / "tools" / "screenshot" / "examples"
 IMAGE = ROOT / "target" / "lazyos.img"
 #: The console session reports this many distinct checks (see rhai_demo.json).
-MIN_CONSOLE_PASSES = 25
+MIN_CONSOLE_PASSES = 34
 #: Lines the desktop Terminal must echo to serial (rhai_desktop.json).
 DESKTOP_OUTPUT = ("TERM:OUT:42", "TERM:OUT:HI", "TERM:OUT:123", "TERM:OUT:144", "TERM:OUT:RHAI:desktop:42")
 #: rhai_msg.json builds /tmp/m from short lines (the Terminal logs one

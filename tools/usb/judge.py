@@ -12,6 +12,13 @@ pointer record can have come from PS/2.
     python tools/usb/judge.py shots/usb/serial.log [--mouse]
     python tools/usb/judge.py shots/usb/serial.log --hotplug 200
     python tools/usb/judge.py shots/usb/serial.log --tablet
+    python tools/usb/judge.py shots/usb/serial.log --restart
+
+`--restart` (U5) judges `run.py --restart`: the crash-test build of `usbd`
+exited holding `x`; `inputd` saw `x` released before the restarted `usbd`
+was ready (the kernel released it when the source's owner died); `init`
+restarted `usbd` as `_usb`, which reset the controller and bound both
+devices again; and the keys typed afterwards arrived, with nothing held.
 
 `--tablet` (U4) judges `run.py --tablet`: the `usb-tablet` was bound as a
 tablet from its report descriptor (QEMU's, byte for byte), and each absolute
@@ -204,16 +211,54 @@ def judge_tablet(log: str) -> list[str]:
     return failures + judge_keys(log)
 
 
+#: `_usb` with `CAP_DEV_CLAIM | CAP_INPUT_SOURCE` (`libs/usbpolicy`).
+USB_CRED = "USBD:CRED uid=904 caps=0x500"
+
+
+def judge_restart(log: str) -> list[str]:
+    """Every reason a `run.py --restart` log fails; empty means it passes."""
+    failures = [f"driver error: {line}" for line in log.splitlines() if re.search(r"USBD:(FATAL|PANIC|PORT:FAIL|SLOT:LEAK)", line)]
+    crash = log.find("USBD:CRASH:TEST")
+    if crash < 0:
+        return failures + ["usbd never crashed (is this the LAZYOS_USB_CRASH_TEST build?)"]
+    if "INIT:RESTART:PASS name=usbd" not in log[crash:]:
+        failures.append("init did not restart usbd")
+    readies = [m.start() for m in re.finditer(r"USBD:READY", log)]
+    if len(readies) < 2 or readies[-1] < crash:
+        return failures + ["the restarted usbd never became ready"]
+    if log.count(USB_CRED) < 2:
+        failures.append(f"usbd did not run as _usb both times ({USB_CRED!r})")
+    released = re.search(r"INPUTD:KEY code=0x1b \S+ \S+ up", log[crash:])
+    if not released or crash + released.start() > readies[-1]:
+        failures.append("the key held when usbd died was not released before it came back")
+    after = log[readies[-1]:]
+    kinds = [kind for kind, _ in HID.findall(log[crash:])]
+    if "KBD" not in kinds or "MOUSE" not in kinds:
+        failures.append(f"devices bound after the restart: {kinds}, want KBD and MOUSE")
+    edges = [(int(code, 16), state) for code, state in INPUTD_KEY.findall(after)]
+    downs = [code for code, state in edges if state == "down"]
+    if downs[-len(TYPED_KEYS):] != TYPED_KEYS:
+        failures.append(f"typed after the restart: {downs[-len(TYPED_KEYS):]}, want {TYPED_KEYS}")
+    all_edges = [(int(code, 16), state) for code, state in INPUTD_KEY.findall(log)]
+    for code in {code for code, _ in all_edges}:
+        if [state for c, state in all_edges if c == code][-1] != "up":
+            failures.append(f"key {code:#x} is still held at the end")
+    return failures
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("log", type=Path)
     parser.add_argument("--mouse", action="store_true", help="also judge the mouse steps")
     parser.add_argument("--tablet", action="store_true", help="judge a `run.py --tablet` log")
+    parser.add_argument("--restart", action="store_true", help="judge a `run.py --restart` log")
     parser.add_argument("--hotplug", type=int, default=0, metavar="N",
                         help="judge a `run.py --hotplug N` log instead")
     args = parser.parse_args()
     log = args.log.read_text(errors="replace")
-    if args.hotplug:
+    if args.restart:
+        failures = judge_restart(log)
+    elif args.hotplug:
         failures = judge_hotplug(log, args.hotplug)
     elif args.tablet:
         failures = judge_tablet(log)

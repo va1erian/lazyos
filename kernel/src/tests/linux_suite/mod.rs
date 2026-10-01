@@ -211,6 +211,7 @@ mod nanosleep_clock;
 mod random;
 mod sendfile;
 mod seqpacket_unix;
+mod shebang;
 
 pub(super) use affinity::*;
 pub(super) use brk_stack::*;
@@ -225,6 +226,7 @@ pub(super) use nanosleep_clock::*;
 pub(super) use random::*;
 pub(super) use sendfile::*;
 pub(super) use seqpacket_unix::*;
+pub(super) use shebang::*;
 
 pub(super) const CASES: &[(&str, Test)] = &[
     ("linux_inet_requests_and_states", inet_requests_and_states),
@@ -369,4 +371,13 @@ pub(super) const CASES: &[(&str, Test)] = &[
         "linux_sched_getaffinity_soak_bounds",
         sched_getaffinity_soak_bounds,
     ),
+    ("linux_shebang_parse_lines", shebang_parse_lines),
+    ("linux_shebang_rewrites_argv", shebang_rewrites_argv),
+    ("linux_shebang_recursion_limit", shebang_recursion_limit),
+    ("linux_shebang_execve_errors", shebang_execve_errors),
+    (
+        "linux_shebang_permissions_every_hop",
+        shebang_permissions_every_hop,
+    ),
+    ("linux_shebang_soak", shebang_soak),
 ];

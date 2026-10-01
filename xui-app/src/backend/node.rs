@@ -1,6 +1,7 @@
 //! Node-table helpers: widget-id allocation, lookup, and event delivery.
 
 use std::cell::Cell;
+use std::sync::atomic::Ordering;
 
 use xui_core::backend::{Event, WidgetId, WindowId};
 use xui_core::Rect;
@@ -40,6 +41,17 @@ impl LazyOSBackend {
         let nodes = self.nodes.borrow();
         let window = nodes.iter().find(|(node_id, _)| *node_id == id)?.1.window;
         Some((window, absolute_bounds(&nodes, id)?))
+    }
+
+    /// Mark `id` for repaint: the loop presents, and a client repaints and
+    /// presents only the node's window-absolute bounds.
+    pub(super) fn damage_node(&self, id: WidgetId) {
+        self.dirty.store(true, Ordering::Relaxed);
+        if self.is_client() {
+            if let Some((window, bounds)) = self.absolute_damage(id) {
+                self.add_damage(window, bounds);
+            }
+        }
     }
 
     pub(super) fn with_node<R>(&self, id: WidgetId, f: impl FnOnce(&mut Node) -> R) -> Option<R> {

@@ -499,6 +499,7 @@ dependencies = [
  "timezone",
  "tiny-skia",
  "uart_16550",
+ "usbpolicy",
  "x86_64",
  "xmas-elf",
 ]
@@ -1091,6 +1092,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "usbpolicy"
+version = "0.1.0"
+
+[[package]]
 name = "user"
 version = "0.1.0"
 dependencies = [
@@ -1115,6 +1120,7 @@ dependencies = [
  "timezone",
  "uitheme",
  "usbhid",
+ "usbpolicy",
  "virtio",
  "virtio-net",
  "virtio-snd",
