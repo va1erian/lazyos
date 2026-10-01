@@ -13,3 +13,4 @@ user/src/bin/init/selftest.rs:153:test data for launch-argument quoting, not a l
 user/src/bin/init/selftest.rs:155:test data for launch-argument quoting, not a layout path
 user/src/bin/mimed/selftest.rs:22:test data for MIME guessing by extension, not a boot file
 xui-app/crates/explorer/src/testing.rs:168:fixture directory name of an in-memory test platform
+libs/ext2fs/examples/mkimage.rs:CI image fixture: fixed paths so the e2fsck/debugfs checks can assert them, independent of libs/fhs
