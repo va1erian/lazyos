@@ -64,9 +64,12 @@ Disable Slot that fails keeps its memory out of reuse (`USBD:SLOT:LEAK`).
   records with device ids of its own, so it cannot impersonate another device.
 - **Class rules.** USB host controllers are their own ACL class,
   `os.kernel.dev.usb`; `libs/usbpolicy` grants `_usb` claim, map and DMA on it
-  and nothing else, and no other uid that class (pinned by
-  `dev_suite::sys_usb_driver_policy_is_exactly_the_class_rules`). Like every
-  class rule today it takes effect once a policy loads.
+  and nothing else, and no other uid that class. `libs/usbpolicy`'s host
+  test pins the table (every rule's actor is `_usb`, its interface the USB
+  class, no wildcard); `dev_suite::sys_usb_driver_policy_is_exactly_the_class_rules`
+  loads it into the real ACL and checks the decisions, refusing other system
+  uids, a driver uid and root. Like every class rule today it takes effect
+  once a policy loads.
 - **Untrusted devices.** A USB device can be hostile. Every descriptor and
   report is parsed from a copy, every length checked, every loop bounded by its
   input; the parsers are fuzzed (`usbdesc`, `hidreport`, `hidreportdesc`).
