@@ -3,6 +3,7 @@
 use std::sync::atomic::Ordering;
 
 use xui_core::backend::{Event, TimerId, WidgetId, WindowId};
+use xui_core::Rect;
 
 use crate::sys;
 
@@ -63,7 +64,9 @@ impl LazyOSBackend {
 
     /// Hand the app the `Configure` that `ClientWindow::open` consumed to
     /// size the first buffer, so it re-flows exactly as if it had arrived
-    /// after startup.
+    /// after startup. The buffer and painting surface were already created at
+    /// that size, so only the `Resize` is delivered: attaching another buffer
+    /// could fail and lose the event for nothing.
     fn replay_open_configure(&self, window: WindowId) {
         let pending = self
             .windows
@@ -72,7 +75,9 @@ impl LazyOSBackend {
             .and_then(|entry| entry.client.as_mut())
             .and_then(|surface| surface.pending_configure.take());
         if let Some((width, height)) = pending {
-            self.apply_configure(window, width, height);
+            self.deliver(window, WidgetId::NONE, &Event::Resize { width, height });
+            self.add_damage(window, Rect::new(0, 0, width, height));
+            self.dirty.store(true, Ordering::Relaxed);
         }
     }
 
@@ -96,7 +101,6 @@ mod tests {
     use crate::client_window::ClientState;
     use crate::display::Client;
     use crate::sys::DisplayInfo;
-    use xui_core::Rect;
 
     fn client_backend() -> LazyOSBackend {
         LazyOSBackend::with_mode(Mode::Client(std::cell::RefCell::new(ClientState::new(
