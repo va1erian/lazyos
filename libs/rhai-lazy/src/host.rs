@@ -6,6 +6,7 @@
 //! implement this trait. Fallible operations return a [`HostError`] carrying a
 //! ready-to-show message; the bindings turn it into a catchable Rhai error.
 
+use alloc::rc::Rc;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::fmt;
@@ -85,4 +86,10 @@ pub trait Host {
     fn write_out(&self, text: &str) -> Result<(), HostError>;
     /// Write to standard error (`debug`). Best effort.
     fn write_err(&self, text: &str);
+    /// The Messenger fabric, when this process can reach one. With `Some`,
+    /// the engine gets the `msg` module; a host without a fabric (a plain
+    /// Linux build, most tests) leaves it out.
+    fn bus(&self) -> Option<Rc<dyn crate::msg::Bus>> {
+        None
+    }
 }

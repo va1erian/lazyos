@@ -13,7 +13,9 @@ description = "The `rhai` command for LazyOS: a static-musl std host around libs
 resolver = "2"
 
 [dependencies]
-rhai-lazy = { path = "../libs/rhai-lazy" }
+# `lazyos`: the real Messenger gate for the `msg` module (installed only when
+# the kernel says it is LazyOS).
+rhai-lazy = { path = "../libs/rhai-lazy", features = ["lazyos"] }
 # No `libc`: everything the command needs is in `std` (files, stdio, clock,
 # sleep), which keeps the Linux-ABI surface it touches small and audited.
 

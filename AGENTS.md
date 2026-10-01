@@ -93,6 +93,23 @@ warning and every other app still builds. `python tools/xui/test_zig.py` tests
 the toolchain helper. Screenshot sessions: `tools/screenshot/examples/xui_docs.json`
 (wheel scrolling) and `xui_docs_open.json` (Open dialog and `/TESTDOC.MD`).
 
+## Rhai scripting (`rhai` command and `msg` module)
+
+`rhai` (`rhai-host/`, bindings in `libs/rhai-lazy/`) is a static-musl command
+embedded as `RHAI.ELF`; the plan is [`docs/rhai-plan.md`](docs/rhai-plan.md).
+Its `msg` module calls any Messenger service from a script, driven by a table
+`midlc --schema` generates from `idl/` ([`docs/rhai/msg.md`](docs/rhai/msg.md)).
+One command builds `rhai`, BusyBox and the image, boots it and judges it:
+
+```bash
+python tools/rhai/run.py              # console checks (rhai_demo.json)
+python tools/rhai/run.py --desktop    # plus the desktop Terminal and the msg session
+cargo test --manifest-path libs/rhai-lazy/Cargo.toml   # bindings vs an in-memory fabric
+python tools/midlc/midlc.py --schema libs/rhai-lazy/src/msg/idl.rs idl/*.midl   # after an IDL change
+```
+
+`python tools/run_demo.py` rebuilds `rhai` before each image (`--no-rhai` skips it).
+
 ## Linux ABI conformance bench
 
 Compatibility with Linux (`x86_64-unknown-linux-musl`) binaries is tracked by a

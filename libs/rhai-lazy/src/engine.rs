@@ -1,4 +1,5 @@
-//! Engine construction: limits, output routing, sandbox switch, `os` module.
+//! Engine construction: limits, output routing, sandbox switch, the `os`
+//! module and, when the host reaches a fabric, the `msg` module.
 
 use alloc::format;
 use alloc::rc::Rc;
@@ -69,6 +70,9 @@ pub fn build_engine<H: Host + 'static>(host: Rc<H>, config: &Config) -> Engine {
     let mut engine = Engine::new();
     apply_limits(&mut engine, &config.limits);
     route_output(&mut engine, &host);
+    if let Some(bus) = host.bus() {
+        crate::msg::install(&mut engine, bus);
+    }
     os::install(&mut engine, host, config.limits);
     if config.sandbox {
         engine.disable_symbol("eval");

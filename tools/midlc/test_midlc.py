@@ -440,6 +440,59 @@ class OutputAtomicityTests(unittest.TestCase):
             self.assertFalse(docs.exists())
 
 
+class SchemaTests(unittest.TestCase):
+    """The `--schema` backend (Rhai `msg` module): data, not codecs."""
+
+    TEXT = """
+    /// Demo "quoted" doc.
+    interface os.lazy.demo.v1 {
+        method Put(items: Array<Point>, tag: Option<String>, level: Level) -> (n: U64);
+        method Fire() -> () oneway;
+        struct Point { x: I32, y: I32 }
+        enum Level { Low, High }
+        topic "demo/{who}/moved" : Point retained qos=reliable;
+    }
+    """
+
+    def schema(self) -> str:
+        interfaces = midlc.Parser(midlc.lex(self.TEXT)).parse_interfaces()
+        return midlc.emit_schema(interfaces)
+
+    def test_types_resolve_to_structs_enums_and_containers(self) -> None:
+        text = self.schema()
+        self.assertIn('Field { name: "items", ty: Ty::Array(&Ty::Struct("Point")) }', text)
+        self.assertIn('Field { name: "tag", ty: Ty::Option(&Ty::String) }', text)
+        self.assertIn('Field { name: "level", ty: Ty::Enum("Level") }', text)
+        self.assertIn('variants: &["Low", "High"]', text)
+
+    def test_ids_docs_and_topics_are_carried(self) -> None:
+        text = self.schema()
+        interface = midlc.Parser(midlc.lex(self.TEXT)).parse_interfaces()[0]
+        self.assertIn(f"id: {interface.id:#x},", text)
+        self.assertIn(f"id: {interface.methods[0].method_id},", text)
+        self.assertIn('doc: "Demo \\"quoted\\" doc."', text)
+        self.assertIn('pattern: "demo/+/moved"', text)
+        self.assertIn("qos: 3,", text)  # reliable
+        self.assertIn("retained: true,", text)
+        self.assertIn("oneway: true,", text)
+        self.assertIn("params: &[],", text)
+
+    def test_schema_check_reports_staleness(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "demo.midl"
+            source.write_text(self.TEXT, encoding="utf-8")
+            schema = Path(tmp) / "idl.rs"
+            write = ["midlc.py", "--schema", str(schema), str(source)]
+            check = ["midlc.py", "--check", "--schema", str(schema), str(source)]
+            with mock.patch.object(sys, "argv", write):
+                self.assertEqual(midlc.main(), 0)
+            with mock.patch.object(sys, "argv", check):
+                self.assertEqual(midlc.main(), 0)
+            schema.write_text("stale", encoding="utf-8")
+            with mock.patch.object(sys, "argv", check):
+                self.assertEqual(midlc.main(), 1)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
 

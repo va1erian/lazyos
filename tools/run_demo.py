@@ -44,6 +44,9 @@ from qemu_qmp import accel_args, data_disk_args, find_qemu  # noqa: E402
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import mkdisk  # noqa: E402
 
+sys.path.insert(0, str(Path(__file__).resolve().parent / "abi"))
+import busybox  # noqa: E402
+
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_IMAGE = ROOT / "target" / "lazyos.img"
 
@@ -103,6 +106,19 @@ def sound_args(backend: str) -> list[str]:
     return ["-audiodev", audiodev, "-device", "virtio-sound-pci,audiodev=snd0"]
 
 
+def build_rhai() -> None:
+    """Rebuild `target/rhai/rhai.elf` so the image never embeds a stale or
+    missing `rhai` (issue #319). Optional: a host without the musl target
+    still boots, just without the command, which `build.py` explains."""
+    print("building rhai (tools/rhai/build.py)…", flush=True)
+    script = ROOT / "tools" / "rhai" / "build.py"
+    result = subprocess.run([sys.executable, str(script)], cwd=ROOT,
+                            stdout=subprocess.DEVNULL)
+    if result.returncode != 0:
+        print("warning: rhai did not build; the image will have no `rhai` command",
+              file=sys.stderr)
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -143,6 +159,9 @@ def main(argv: list[str]) -> int:
                              "with LAZYOS_NET=1, which boots the `netdrv` driver (an ARP "
                              "self-test and the `nicctl` clients; `nicctl` also runs from the "
                              "shell). The packet-capture-judged run is `python tools/net/run.py`")
+    parser.add_argument("--no-rhai", action="store_true",
+                        help="do not (re)build the `rhai` command before the image "
+                             "(tools/rhai/build.py; incremental, so cheap when unchanged)")
     parser.add_argument("qemu_args", nargs=argparse.REMAINDER,
                         help="extra QEMU args (after `--`)")
     args = parser.parse_args(argv)
@@ -155,8 +174,13 @@ def main(argv: list[str]) -> int:
         if args.release:
             cargo.append("--release")
             profile = "release (optimized for real hardware)"
-        print(f"building LazyOS [{profile}]…", flush=True)
         env = dict(os.environ)
+        # The console shell (issue #254): cached after the first build, and a
+        # git worktree reuses the main checkout's; `build.rs` warns if absent.
+        busybox.ensure_busybox()
+        if not args.no_rhai:
+            build_rhai()
+        print(f"building LazyOS [{profile}]…", flush=True)
         if args.sound:
             env["LAZYOS_SOUND"] = "1"
         if args.net:
