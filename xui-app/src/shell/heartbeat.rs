@@ -13,8 +13,11 @@ const ZONE_TICKS: u64 = 6000;
 const ZONE_RETRY_TICKS: u64 = 500;
 /// The desktop launchers are re-read every ten seconds.
 const LAUNCHER_TICKS: u64 = 1000;
-/// A failed taskbar panel is retried every five seconds.
+/// A failed taskbar panel is retried every five seconds...
 const BAR_RETRY_TICKS: u64 = 500;
+/// ...a few times: a compositor that refuses panels for good (one older than
+/// issue #157) would otherwise flash a refused surface forever.
+const BAR_RETRIES: u32 = 5;
 /// A failed service registration (the old owner not reaped yet) is retried
 /// every two seconds.
 const REGISTER_RETRY_TICKS: u64 = 200;
@@ -25,6 +28,7 @@ pub struct Heartbeat {
     next_zone: u64,
     next_launchers: u64,
     next_bar: u64,
+    bar_retries: u32,
     next_register: u64,
     reported: bool,
 }
@@ -37,6 +41,7 @@ impl Heartbeat {
             next_zone: 0,
             next_launchers: 0,
             next_bar: now.saturating_add(BAR_RETRY_TICKS),
+            bar_retries: 0,
             next_register: 0,
             reported: false,
         }
@@ -75,7 +80,11 @@ impl Heartbeat {
 
     /// Whether a missing taskbar should be tried again now.
     pub fn retry_bar(&mut self) -> bool {
-        due(&mut self.next_bar, BAR_RETRY_TICKS)
+        if self.bar_retries >= BAR_RETRIES || !due(&mut self.next_bar, BAR_RETRY_TICKS) {
+            return false;
+        }
+        self.bar_retries += 1;
+        true
     }
 
     /// Whether the service registration should be tried (again) now.
