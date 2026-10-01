@@ -268,10 +268,7 @@ impl Denial {
 
 /// Decode a flat word buffer of `count` rows (as the ops fill it).
 pub fn rows<const N: usize>(words: &[u64], count: usize) -> impl Iterator<Item = [u64; N]> + '_ {
-    words
-        .chunks_exact(N)
-        .take(count)
-        .map(|chunk| <[u64; N]>::try_from(chunk).unwrap_or([0; N]))
+    words.as_chunks::<N>().0.iter().take(count).copied()
 }
 
 #[cfg(test)]
@@ -297,7 +294,7 @@ mod tests {
     #[test]
     fn rows_decode_like_the_kernel_encodes_them() {
         let device = Device::from_words(&[
-            7 | 0x02 << 16 | 0x00 << 24,
+            7 | 0x02 << 16,
             0x1AF4 | 0x1000 << 16,
             fnv1a64("os.kernel.dev.net"),
             u64::from(netpolicy::NET_UID) | u64::from(rights::MMIO | rights::DMA) << 32,
