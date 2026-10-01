@@ -10,7 +10,7 @@
 //!   through the grant. DPI is fixed at 96 and the window is the screen.
 //! * **Client mode** ([`LazyOSBackend::new_client`], issue #168): the app
 //!   resolves `xuid`, creates a surface through `os.lazy.display.v1`, attaches
-//!   a shared pixel buffer, commits damage rectangles, and receives
+//!   double-buffered pixel slots, presents damage rectangles, and receives
 //!   pointer/key/close events on its event endpoint. The window manager (drag,
 //!   minimize, taskbar, close) runs in `xuid`; closing the surface ends the
 //!   loop.
@@ -85,8 +85,8 @@ pub struct LazyOSBackend {
     primary: Cell<Option<WindowId>>,
     /// Set whenever a node is invalidated; the loop repaints and clears it.
     dirty: Arc<AtomicBool>,
-    /// Client mode: the rectangles invalidated since the last commit, one per
-    /// window (the compositor commits a damage rectangle per surface).
+    /// Client mode: the rectangles invalidated since the last present, one per
+    /// window: only they are repainted, copied and presented.
     damage: RefCell<HashMap<u64, Rect>>,
     /// Set by [`Backend::quit`].
     quit: Arc<AtomicBool>,
@@ -140,7 +140,13 @@ struct Timer {
 }
 
 struct Window {
+    /// The painting surface. Only the damaged rectangle of it is meaningful
+    /// after a composite: painters run unclipped, so a node that straddles
+    /// the damage also overdraws its neighbours outside it.
     surface: Surface,
+    /// The composed frame (top-down RGBA, the window's size): the damaged
+    /// rectangles of `surface`, accumulated. Presents copy from it.
+    frame: Vec<u8>,
     sink: Option<Rc<dyn WidgetHost>>,
     background: Color,
     dpi: u32,
@@ -243,6 +249,20 @@ impl LazyOSBackend {
         }
     }
 
+    /// The desktop's widget theme (`GetTheme` mode and accent) as an xui
+    /// [`Theme`](xui_core::Theme); `None` in owner mode (no compositor) or
+    /// when the compositor does not answer, and the app keeps xui's default.
+    pub fn desktop_theme(&self) -> Option<xui_core::Theme> {
+        let Mode::Client(state) = &self.mode else {
+            return None;
+        };
+        let client = state.borrow().client;
+        let reply = client.get_theme().ok()?;
+        // A compositor that predates the fields sends neither: keep the default.
+        let mode = uitheme::Mode::parse(&reply.mode)?;
+        Some(xui_settings::theme_ops::xui_theme(mode, reply.accent))
+    }
+
     /// Whether this backend is a compositor client.
     pub fn is_client(&self) -> bool {
         matches!(self.mode, Mode::Client(_))
@@ -261,13 +281,13 @@ impl LazyOSBackend {
         }
     }
 
-    /// Registers a callback run once, after the first present (owner mode) or
-    /// the first commit (client mode).
+    /// Registers a callback run once, after the first frame was presented
+    /// (through the display grant or to `xuid`).
     pub fn on_first_frame(&self, callback: impl FnOnce() + 'static) {
         *self.on_first_frame.borrow_mut() = Some(Box::new(callback));
     }
 
-    /// Frames presented through the display grant, or committed to `xuid`.
+    /// Frames presented through the display grant, or to `xuid`.
     pub fn frames(&self) -> u64 {
         self.frames.get()
     }
@@ -321,6 +341,7 @@ mod test_support {
         pub(super) fn for_tests(sink: Rc<dyn WidgetHost>) -> Window {
             Window {
                 surface: Surface::new(64, 64),
+                frame: Vec::new(),
                 sink: Some(sink),
                 background: xui_core::Theme::light().background,
                 dpi: DEFAULT_DPI,

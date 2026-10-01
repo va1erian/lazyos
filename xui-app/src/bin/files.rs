@@ -84,8 +84,13 @@ fn main() -> std::process::ExitCode {
     backend.set_size_hints(360, 240, 0, 0);
     backend.on_first_frame(|| println!("FILES:UP:PASS"));
 
+    // Match the desktop's light/dark mode and accent (Settings).
+    let theme = backend.desktop_theme();
     let spec = PlatformSpec::new("Files").size(Dip(width as f32), Dip(height as f32));
     let outcome = run_app(Rc::clone(&backend) as Rc<dyn Backend>, spec, move |ui| {
+        if let Some(theme) = theme {
+            ui.set_theme(theme);
+        }
         explorer.open_root(ui, start)
     });
     backend.unbind();

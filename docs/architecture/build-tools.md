@@ -41,7 +41,7 @@
 | `messenger.yml` | `cargo test -p libmessenger` |
 | `midlc.yml` | `test_midlc.py`, `midlc.py --check`, `cargo test -p messenger-generated` |
 | `clippy.yml` | `cargo clippy -p kernel` with `-D clippy::undocumented_unsafe_blocks` (issue #124 gate); host libraries with `--all-targets -D warnings` (issue #247) |
-| `xui.yml` | Builds the xui apps, boots the owner (`m0`, `counter`, `sysmon`, `fabricmon` over `LAZYOS_SERVICES=1`), client sessions and the `LAZYOS_DESKTOP=1` session headless, checks `XUIAPP:*`/`SYSMON:*`/`FABMON:*` markers and pixels |
+| `xui.yml` | Builds the xui apps, boots the owner (`m0`, `counter`, then `sysmon` and `fabricmon` over `LAZYOS_SERVICES=1`), client sessions and the `LAZYOS_DESKTOP=1` session headless, checks `XUIAPP:*`/`SYSMON:*`/`FABMON:*` markers and pixels |
 | `mcp-bridge.yml` | `tools/mcp/test_debug_bridge.py` (serial-line matcher; no QEMU) |
 
 **Invariants**

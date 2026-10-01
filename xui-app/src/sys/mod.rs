@@ -21,8 +21,8 @@ pub use display::{
     EVENT_BYTES,
 };
 pub use messenger::{
-    messenger, msg_call, msg_create_pair, msg_op, msg_queued, msg_recv, msg_resolve, MsgArgs,
-    MsgResult, REGISTRY_TARGET_SELF,
+    messenger, msg_call, msg_create_pair, msg_op, msg_queued, msg_recv, msg_resolve, msg_send,
+    MsgArgs, MsgResult, REGISTRY_TARGET_SELF,
 };
 
 use core::arch::asm;
@@ -44,10 +44,14 @@ pub const EXPIRED_DEADLINE: u64 = 1;
 
 /// Linux errno values used by the parcel helpers (positive forms).
 pub mod errno {
+    /// Not permitted (a capability is missing).
+    pub const EPERM: i64 = 1;
     /// No such file or directory / service.
     pub const ENOENT: i64 = 2;
     /// The receive buffer is too small.
     pub const E2BIG: i64 = 7;
+    /// Try again later.
+    pub const EAGAIN: i64 = 11;
     /// Invalid argument.
     pub const EINVAL: i64 = 22;
     /// The peer endpoint is gone.

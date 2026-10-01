@@ -59,13 +59,15 @@ SCRIPTS = [
     ("xuid_wm.json", "XUID window manager", ("xuid",), None),
     ("xuid_shell.json", "XUID shell protocol (Alt+F4/Tab)", ("xuid", "shellprobe"), None),
     ("xui_counter.json", "XUI app: counter (click to increment)", ("xuid",), "counter"),
-    ("xui_sysmon.json", "XUI app: sysmon dashboard", ("xuid",), "sysmon"),
+    ("xui_sysmon.json", "XUI app: sysmon (tasks, memory, services)", ("xuid", "services"), "sysmon"),
     ("xui_fabricmon.json", "XUI app: fabricmon (services)", ("xuid", "services"), "fabricmon"),
     ("xui_client.json", "XUI app: compositor client (window/focus)", ("xuid", "xui_client"), "client"),
     ("xui_editor.json", "XUI app: Editor (type, save)", ("desktop",), "editor"),
     ("xui_paint.json", "XUI app: Paint (draw, save PNG)", ("desktop",), "paint"),
     ("xui_files.json", "XUI app: Files (browse, open)", ("desktop",), "files"),
     ("xui_settings.json", "XUI app: Settings (menu, colours, layout)", ("desktop",), None),
+    ("xui_settings_time.json", "XUI app: Settings (time, clock format, light mode)",
+     ("desktop",), None),
 ]
 
 # Simple mode: (label, cargo profile) and (label, description) choices.

@@ -249,6 +249,22 @@ impl Swapchain {
         }
     }
 
+    /// Undo the most recent [`Swapchain::submit`] (`slot`, numbered `seq`)
+    /// when its `Present` never left the client: the compositor will neither
+    /// release the slot nor finish the frame. `false` (nothing changes) for
+    /// anything but the latest submit.
+    pub fn cancel(&mut self, slot: u32, seq: u64) -> bool {
+        let Some(index) = index_of(slot).filter(|&i| i < self.count) else {
+            return false;
+        };
+        if seq != self.submitted || seq <= self.done || self.owner[index] != Owner::Compositor {
+            return false;
+        }
+        self.owner[index] = Owner::Client;
+        self.submitted -= 1;
+        true
+    }
+
     /// Fold in a `FrameDone`; frames complete in order, so anything but the
     /// next outstanding seq is refused (`false`).
     pub fn frame_done(&mut self, seq: u64) -> bool {
@@ -391,6 +407,22 @@ mod tests {
         assert!(chain.frame_done(2));
         assert!(!chain.frame_done(3));
         assert_eq!(chain.in_flight(), 0);
+    }
+
+    #[test]
+    fn a_cancelled_submit_frees_the_slot_and_its_seq() {
+        let mut chain = Swapchain::new(2);
+        assert_eq!(chain.submit(0), Some(1));
+        assert_eq!(chain.submit(1), Some(2));
+        assert!(!chain.cancel(0, 1), "only the latest submit can be undone");
+        assert!(!chain.cancel(1, 3));
+        assert!(chain.cancel(1, 2));
+        assert_eq!(chain.in_flight(), 1);
+        assert_eq!(chain.acquire(), Some(1));
+        assert_eq!(chain.submit(1), Some(2), "the seq is reused");
+        assert!(chain.frame_done(1));
+        assert!(chain.frame_done(2));
+        assert!(!chain.cancel(1, 2), "a finished frame cannot be undone");
     }
 
     #[test]

@@ -10,7 +10,7 @@ use super::protocol::{
     color_u32, drop_rejected_handle, empty_reply, error_reply, is_privileged, typed_reply,
 };
 use super::shell::ShellSub;
-use super::theme::{border_color, taskbar_bg, title_bg, title_bg_focus, title_text};
+use super::theme::{accent, border_color, mode, taskbar_bg, title_bg, title_bg_focus, title_text};
 use super::window::surface_by_id;
 
 impl Compositor {
@@ -139,6 +139,8 @@ pub(super) fn get_theme(message: &Message) -> Parcel {
             border: color_u32(border_color()),
             taskbar: color_u32(taskbar_bg()),
             text: color_u32(title_text()),
+            mode: mode().as_str().into(),
+            accent: color_u32(accent()),
         }),
     )
 }

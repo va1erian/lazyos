@@ -7,7 +7,8 @@
 //! (HSV field, hue slider, HEX/RGB boxes) for any of the five themed colours.
 //! Every change is written straight to the [`ConfigStore`] (confd on LazyOS),
 //! where `xuid` and `inputd` pick it up live, and the status line reports the
-//! outcome.
+//! outcome. The clock, the zone and the About facts go through [`System`].
+//! The window itself follows the theme it edits ([`theme_ops::xui_theme_for`]).
 
 use std::rc::Rc;
 
@@ -15,15 +16,18 @@ use uitheme::Mode;
 use xui_core::app::{App, Ui};
 use xui_core::backend::Result;
 use xui_core::widget::{
-    Button, ColorPanel, ColorPicker, Edit, IconView, Label, ListView, Panel, RadioGroup,
+    Button, CheckBox, ColorPanel, ColorPicker, Edit, IconView, Label, ListView, Panel, RadioGroup,
 };
 use xui_core::{Color, HasText, Rect};
 
+use crate::about_page::AboutPage;
 use crate::keyboard;
 use crate::menu_page::{MenuMsg, MenuPage};
 use crate::sections::{Section, SectionsModel};
 use crate::store::ConfigStore;
+use crate::system::System;
 use crate::theme_ops::{self, ACCENTS, BACKGROUNDS};
+use crate::time_page::{TimeMsg, TimePage};
 
 /// Window size (DIP) the app asks for.
 pub const WINDOW: (i32, i32) = (640, 440);
@@ -49,6 +53,8 @@ pub enum Msg {
     /// A swatch was picked: `0xRRGGBB`.
     Accent(u32),
     Background(u32),
+    /// The animations checkbox changed.
+    Anim(bool),
     ResetAppearance,
     Target(usize),
     /// The colour panel committed `0xRRGGBB` for the selected target.
@@ -56,6 +62,8 @@ pub enum Msg {
     UseDefault,
     Layout(usize),
     Menu(MenuMsg),
+    Time(TimeMsg),
+    AboutRefresh,
     /// The compositor asked the window to close.
     Close,
 }
@@ -71,7 +79,10 @@ struct Pages {
     windows: Panel<Msg>,
     keyboard: Panel<Msg>,
     menu: MenuPage,
+    time: TimePage,
+    about: AboutPage,
     mode: RadioGroup<Msg>,
+    anim: CheckBox<Msg>,
     accent: ColorPicker<Msg>,
     background: ColorPicker<Msg>,
     _target: ListView<Msg>,
@@ -87,6 +98,7 @@ struct Pages {
 /// The Settings app.
 pub struct SettingsApp {
     store: Rc<dyn ConfigStore>,
+    system: Rc<dyn System>,
     _sidebar: IconView<Msg>,
     pages: Pages,
     status: Label<Msg>,
@@ -108,8 +120,12 @@ fn swatches<M: 'static>(
 }
 
 impl SettingsApp {
-    /// Builds the window's widgets over `store`.
-    pub fn build(ui: &mut Ui<Msg>, store: Rc<dyn ConfigStore>) -> Result<SettingsApp> {
+    /// Builds the window's widgets over `store` and `system`.
+    pub fn build(
+        ui: &mut Ui<Msg>,
+        store: Rc<dyn ConfigStore>,
+        system: Rc<dyn System>,
+    ) -> Result<SettingsApp> {
         let sidebar = IconView::with_model(ui, rect(0, 0, SIDEBAR_W, WINDOW.1), SectionsModel)?
             .multi_select(false)
             .on_select(|index| Some(Msg::Section(index)));
@@ -121,7 +137,7 @@ impl SettingsApp {
         let mut buttons = Vec::new();
 
         let appearance = Panel::new(ui, page)?;
-        let (mode, accent, background) = {
+        let (mode, accent, background, anim) = {
             let p = appearance.ui();
             labels.push(Label::new(p, rect(20, 14, 200, 20), "Theme")?);
             let mode = RadioGroup::new(p, rect(20, 38, 200, 52), &["Dark", "Light"])?
@@ -132,11 +148,13 @@ impl SettingsApp {
             labels.push(Label::new(p, rect(20, 196, 300, 20), "Desktop background")?);
             let background = swatches(p, rect(20, 220, 260, 40), BACKGROUNDS.iter().map(|b| b.1))?
                 .on_select(|c| Some(Msg::Background(pack(c))));
+            let anim = CheckBox::new(p, rect(20, 268, 260, 24), "Window animations")?
+                .on_toggle(|on| Some(Msg::Anim(on)));
             buttons.push(
                 Button::new(p, rect(20, 300, 170, 30), "Reset to defaults")?
                     .on_click(|| Some(Msg::ResetAppearance)),
             );
-            (mode, accent, background)
+            (mode, accent, background, anim)
         };
 
         let windows = Panel::new(ui, page)?;
@@ -173,6 +191,8 @@ impl SettingsApp {
         };
 
         let menu = MenuPage::build(ui, page)?;
+        let time = TimePage::build(ui, page)?;
+        let about = AboutPage::build(ui, page)?;
 
         let status = Label::new(
             ui,
@@ -182,13 +202,17 @@ impl SettingsApp {
 
         let mut app = SettingsApp {
             store,
+            system,
             _sidebar: sidebar,
             pages: Pages {
                 appearance,
                 windows,
                 keyboard,
                 menu,
+                time,
+                about,
                 mode,
+                anim,
                 accent,
                 background,
                 _target: target,
@@ -204,6 +228,7 @@ impl SettingsApp {
         };
         app.show(Section::Appearance);
         app.load_state();
+        app.retheme(ui);
         if !app.store.persistent() {
             app.status
                 .set_text("Settings are not persistent: no data volume is mounted.");
@@ -211,13 +236,27 @@ impl SettingsApp {
         Ok(app)
     }
 
-    /// Show `section`'s page and hide the others.
+    /// Show `section`'s page and hide the others. The Time & Date and About
+    /// pages show live values, so they are re-read each time they appear.
     fn show(&self, section: Section) {
         let p = &self.pages;
         p.appearance.set_visible(section == Section::Appearance);
         p.windows.set_visible(section == Section::Windows);
+        p.time.set_visible(section == Section::Time);
         p.keyboard.set_visible(section == Section::Keyboard);
         p.menu.set_visible(section == Section::Menu);
+        p.about.set_visible(section == Section::About);
+        match section {
+            Section::Time => p.time.load(self.store.as_ref(), self.system.as_ref()),
+            Section::About => p.about.load(self.system.as_ref()),
+            _ => {}
+        }
+    }
+
+    /// Match this window's widgets to the stored desktop theme.
+    fn retheme(&self, ui: &Ui<Msg>) {
+        let settings = theme_ops::load(self.store.as_ref());
+        ui.set_theme(theme_ops::xui_theme_for(&settings));
     }
 
     /// Point every control at the stored values (no events are raised).
@@ -225,6 +264,7 @@ impl SettingsApp {
         let settings = theme_ops::load(self.store.as_ref());
         let p = &self.pages;
         p.mode.select(usize::from(settings.mode == Mode::Light));
+        p.anim.set_checked(settings.anim);
         // A custom colour matches no swatch, which clears the selection.
         let accent = settings.accent.unwrap_or(uitheme::DEFAULT_ACCENT);
         p.accent.select(Color::hex(accent));
@@ -290,12 +330,14 @@ impl App for SettingsApp {
                 self.report(theme_ops::set_mode(store, mode), "Theme changed.");
                 // A mode change clears the overrides: show the presets again.
                 self.load_state();
+                self.retheme(ui);
             }
             Msg::Accent(rgb) => {
                 self.report(
                     theme_ops::set_color(store, uitheme::KEY_ACCENT, Some(rgb)),
                     "Accent color changed.",
                 );
+                self.retheme(ui);
             }
             Msg::Background(rgb) => {
                 self.report(
@@ -303,9 +345,18 @@ impl App for SettingsApp {
                     "Background changed.",
                 );
             }
+            Msg::Anim(on) => self.report(
+                theme_ops::set_animations(store, on),
+                if on {
+                    "Animations on."
+                } else {
+                    "Animations off."
+                },
+            ),
             Msg::ResetAppearance => {
                 self.report(theme_ops::reset(store), "Appearance reset to defaults.");
                 self.load_state();
+                self.retheme(ui);
             }
             Msg::Target(i) => self.load_target(i.min(TARGETS.len() - 1)),
             Msg::Commit(rgb) => {
@@ -322,6 +373,7 @@ impl App for SettingsApp {
                 self.pages
                     .background
                     .select(Color::hex(settings.bg.unwrap_or(u32::MAX)));
+                self.retheme(ui);
             }
             Msg::UseDefault => {
                 let (name, key) = TARGETS[self.target];
@@ -330,6 +382,7 @@ impl App for SettingsApp {
                     &format!("{name} reset to default."),
                 );
                 self.load_state();
+                self.retheme(ui);
             }
             Msg::Layout(i) => {
                 self.report(keyboard::set(store, i), "Keyboard layout changed.");
@@ -337,6 +390,13 @@ impl App for SettingsApp {
                     self.pages.layout_hint.set_text(&format!("Active: {name}"));
                 }
             }
+            Msg::Time(msg) => {
+                let text = self.pages.time.update(msg, store, self.system.as_ref());
+                if !text.is_empty() {
+                    self.status.set_text(&text);
+                }
+            }
+            Msg::AboutRefresh => self.pages.about.load(self.system.as_ref()),
             Msg::Menu(msg) => {
                 let text = self.pages.menu.update(msg, store);
                 if !text.is_empty() {

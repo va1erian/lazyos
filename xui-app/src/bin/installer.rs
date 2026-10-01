@@ -282,19 +282,21 @@ fn main() -> ExitCode {
     backend.on_first_frame(|| println!("INSTALLER:UP:PASS"));
 
     let start = argv::file_arg(std::env::args_os());
+    // Match the desktop's light/dark mode and accent (Settings).
+    let theme = backend.desktop_theme();
     let spec = PlatformSpec::new("Installer").size(Dip(width as f32), Dip(height as f32));
-    let outcome =
-        run_app(
-            Rc::clone(&backend) as Rc<dyn Backend>,
-            spec,
-            move |ui| match Installer::build(ui, start) {
-                Ok(app) => app,
-                Err(error) => {
-                    println!("INSTALLER:BUILD:FAIL:{error}");
-                    std::process::exit(1);
-                }
-            },
-        );
+    let outcome = run_app(Rc::clone(&backend) as Rc<dyn Backend>, spec, move |ui| {
+        if let Some(theme) = theme {
+            ui.set_theme(theme);
+        }
+        match Installer::build(ui, start) {
+            Ok(app) => app,
+            Err(error) => {
+                println!("INSTALLER:BUILD:FAIL:{error}");
+                std::process::exit(1);
+            }
+        }
+    });
     backend.unbind();
     match outcome {
         Ok(()) => ExitCode::SUCCESS,

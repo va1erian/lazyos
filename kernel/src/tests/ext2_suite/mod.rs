@@ -166,6 +166,7 @@ pub(super) fn mounted_in(
     Ok((fs, vfs, disk))
 }
 
+mod confd_store;
 pub(super) mod data_fds;
 mod fixtures;
 mod format_and_roundtrip;
@@ -178,6 +179,7 @@ mod rmdir;
 mod sync_state;
 mod truncate;
 
+use confd_store::*;
 use fixtures::*;
 pub(super) use format_and_roundtrip::*;
 pub(super) use integrity::*;
@@ -210,6 +212,18 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("fs_ext2_rejects_corruption", rejects_corruption),
     ("fs_ext2_mount_device_wiring", mount_device_wiring),
     ("fs_ext2_files_survive_remount", files_survive_remount),
+    (
+        "fs_ext2_confd_store_survives_remount",
+        confd_store_survives_remount,
+    ),
+    (
+        "fs_ext2_confd_store_power_cut_sweep",
+        confd_store_power_cut_sweep,
+    ),
+    (
+        "fs_ext2_confd_store_soak_generations",
+        confd_store_soak_generations,
+    ),
     ("fs_ext2_soak_remount_generations", soak_remount_generations),
     (
         "fs_ext2_truncate_shrink_grow_zero",

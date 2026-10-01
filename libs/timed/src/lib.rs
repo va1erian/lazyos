@@ -14,6 +14,7 @@ pub mod civil;
 pub mod format;
 pub mod zones;
 
+pub use format::ClockFormat;
 pub use zones::{default_zone, find, local, Local, Zone, ZONES};
 
 /// The zone used when `confd` has no `sys/time/zone` value.
@@ -21,6 +22,13 @@ pub const DEFAULT_ZONE: &str = "UTC";
 
 /// The `confd` key holding the zone name (root-writable, world-readable).
 pub const ZONE_KEY: &str = "sys/time/zone";
+
+/// The `confd` key choosing a 24-hour (`true`, the default) or 12-hour
+/// (`false`) taskbar clock.
+pub const CLOCK24_KEY: &str = "sys/time/clock24";
+
+/// The `confd` key that adds seconds to the taskbar clock (default `false`).
+pub const SHOW_SECONDS_KEY: &str = "sys/time/show_seconds";
 
 /// The retained topic `timed` publishes each minute.
 pub const TICK_TOPIC: &str = "time/tick";
@@ -43,6 +51,12 @@ mod tests {
         assert_eq!(next_tick_after(59), 60);
         assert_eq!(next_tick_after(60), 120);
         assert_eq!(next_tick_after(-1), 0);
+    }
+
+    #[test]
+    fn clock_keys_are_valid_confd_paths() {
+        assert!(confd::validate_path(CLOCK24_KEY).is_ok());
+        assert!(confd::validate_path(SHOW_SECONDS_KEY).is_ok());
     }
 
     #[test]

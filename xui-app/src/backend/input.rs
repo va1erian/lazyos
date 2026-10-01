@@ -10,7 +10,7 @@ use xui_core::{Key, Modifiers, MouseButton, Rect};
 use crate::display::{self, Event as DisplayEvent};
 use crate::sys::{self, button, errno, event, key, EVENT_BYTES};
 
-use super::{LazyOSBackend, Mode, CLIENT_INPUT_BYTES, CLIENT_POLL_TICKS, INPUT_BATCH};
+use super::{LazyOSBackend, CLIENT_INPUT_BYTES, CLIENT_POLL_TICKS, INPUT_BATCH};
 
 impl LazyOSBackend {
     /// Route one key press: focus navigation first, then the focused widget.
@@ -128,7 +128,9 @@ impl LazyOSBackend {
                         self.deliver(window, WidgetId::NONE, &Event::Close);
                         continue;
                     }
-                    if let Some(event) = display::decode_event(&parcel) {
+                    if let Some(frame) = display::decode_frame_event(&parcel) {
+                        self.frame_event(window, frame);
+                    } else if let Some(event) = display::decode_event(&parcel) {
                         self.route_client_event(window, event);
                     }
                 }
@@ -163,19 +165,14 @@ impl LazyOSBackend {
         }
     }
 
-    /// Apply a `Configure`: swap the window's shared buffer for one of the new
-    /// size, resize the painting surface, and tell `xui-core` through a
-    /// window-level `Resize` so its layouts re-flow. A failed
-    /// reconfigure (a newer Configure raced) keeps the old buffer and waits.
+    /// Apply a `Configure`: resize the painting surface (the buffer slots
+    /// follow as they are next drawn into), and tell `xui-core` through a
+    /// window-level `Resize` so its layouts re-flow and repaint in full.
     fn apply_configure(&self, window: WindowId, width: i32, height: i32) {
         if width <= 0 || height <= 0 {
             return;
         }
-        let Mode::Client(state) = &self.mode else {
-            return;
-        };
-        let client = state.borrow().client;
-        let applied = {
+        {
             let mut windows = self.windows.borrow_mut();
             let Some(entry) = windows.get_mut(&window.raw()) else {
                 return;
@@ -183,22 +180,14 @@ impl LazyOSBackend {
             let Some(surface) = entry.client.as_mut() else {
                 return;
             };
-            if surface
-                .reconfigure(client, width as u32, height as u32)
-                .is_err()
-            {
-                return;
-            }
+            surface.resize(width, height);
             entry.width = width;
             entry.height = height;
             entry.surface = Surface::new(width as u32, height as u32);
-            true
-        };
-        if applied {
-            self.deliver(window, WidgetId::NONE, &Event::Resize { width, height });
-            self.add_damage(window, Rect::new(0, 0, width, height));
-            self.dirty.store(true, Ordering::Relaxed);
         }
+        self.deliver(window, WidgetId::NONE, &Event::Resize { width, height });
+        self.add_damage(window, Rect::new(0, 0, width, height));
+        self.dirty.store(true, Ordering::Relaxed);
     }
 }
 

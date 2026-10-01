@@ -1,5 +1,6 @@
-//! Painting for the `sysmon` window: the header, the three memory gauges, the
-//! task table and the footer. Kept in a sibling module of `sysmon.rs` so each
+//! Painting for the `sysmon` window: the header and tab strip, then the
+//! Overview tab (the three memory gauges, the task table and the footer) or
+//! the Services tab (`services_view.rs`). Kept in a sibling module of `sysmon.rs` so each
 //! source file stays small; the state it reads lives in the parent module.
 
 use xui_app::compact;
@@ -8,6 +9,7 @@ use xui_app::format::{bytes, uptime};
 use xui_app::sysinfo::{self, Snapshot, MAX_TASKS};
 use xui_core::{Canvas, Color, Point, Rect, Theme};
 
+use crate::services_view::{self, View, TABS_H};
 use crate::{State, CARD_GAP, CARD_H, CARD_MIN_H, FOOTER_H, TABLE_GAP};
 
 /// Paint the whole dashboard.
@@ -20,11 +22,23 @@ pub(super) fn paint(canvas: &mut dyn Canvas, state: &State) {
         return;
     }
     let subtitle = format!(
-        "native syscall 14 · {}×{} · 1 s refresh · [r] refresh  [c] compact  [q] quit",
+        "{}×{} · 1 s refresh · [r] refresh  [c] compact  [q] quit",
         bounds.width(),
         bounds.height()
     );
-    let content = dash::frame(canvas, theme, "sysmon", &subtitle);
+    let framed = dash::frame(canvas, theme, "sysmon", &subtitle);
+    services_view::paint_tabs(canvas, theme, bounds, state.view);
+    let content = Rect::new(
+        framed.left,
+        framed.top + TABS_H,
+        framed.right,
+        framed.bottom,
+    );
+    if state.view == View::Services {
+        services_view::paint(canvas, theme, content, state);
+        compact::paint_chip(canvas, theme, bounds);
+        return;
+    }
 
     let Some(snapshot) = &state.snapshot else {
         paint_unavailable(canvas, theme, content, state.error.unwrap_or(-22));

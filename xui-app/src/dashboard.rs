@@ -44,6 +44,9 @@ pub fn cell_end_style(color: Color) -> TextStyle {
     style
 }
 
+/// The top of the content rectangle [`frame`] returns, below the header rule.
+pub const CONTENT_TOP: i32 = 76;
+
 /// Clears the page, paints the title/subtitle header and rule, and returns the
 /// content rectangle (inside the margins).
 pub fn frame(canvas: &mut dyn Canvas, theme: Theme, title: &str, subtitle: &str) -> Rect {
@@ -77,7 +80,7 @@ pub fn frame(canvas: &mut dyn Canvas, theme: Theme, title: &str, subtitle: &str)
     );
     Rect::new(
         bounds.left + MARGIN,
-        76,
+        CONTENT_TOP,
         bounds.right - MARGIN,
         bounds.bottom - 16,
     )
