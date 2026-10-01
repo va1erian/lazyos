@@ -32,8 +32,8 @@ directories are a **separate volume**.
 
 | Path | Backing | Flags | Contents / owner |
 |---|---|---|---|
-| `/` | OS volume (ext2, partition 2 of the boot disk) | rw | the OS |
-| `/boot` | FAT partition 1 of the boot disk | ro at runtime | bootloader, kernel, `lazyos.cfg` |
+| `/` | OS volume (ext2, MBR entry 3 of the boot disk) | rw | the OS |
+| `/boot` | FAT, MBR entry 2 of the boot disk (entry 1 is the bootloader's stage 2) | ro at runtime | bootloader, kernel, `lazyos.cfg` |
 | `/system` | directory on `/` | root-owned, written only by updates | `bin/` (core binaries and services), `share/` (fonts, icons, `mime.types`), `etc/` (`passwd`), `packages/*.lzp` (core apps) |
 | `/apps` | directory on `/` | written only by `pkgd` | every app, core apps included: `/apps/<system_name>/<version>-<digest8>/` |
 | `/conf` | directory on `/` | root/confd only | confd store; `/conf/svc/<name>/` for non key-value service state |
@@ -74,14 +74,15 @@ and passes `python tools/test/run.py --accel none` (see `AGENTS.md`).
 
 ### F1: kernel mounts on virtio-blk
 
-- MBR parsing; one block device per partition (`virtio0p1`, `virtio0p2`).
+- MBR parsing; one block device per partition (`virtio0p2`, `virtio0p3`).
 - A mount table with flags (`ro`, `noexec`, `nosuid`), filled from
   `/boot/lazyos.cfg` (root, home and boot UUIDs).
 - `readdir` lists mount points; drop `ROOT_MOUNTS` from the xui apps.
 - Recovery boot: no OS volume found means FAT `/boot` plus ramfs only, logged.
 - virtio-blk throughput, since the whole OS now loads through it:
-  multi-sector requests with chained descriptors, a larger bounce region (or
-  DMA into page-aligned buffers), several requests in flight.
+  requests of up to 64 KiB as chained per-page descriptors over a larger
+  bounce region. DMA into caller buffers and several requests in flight come
+  later.
 - Every launcher and CI job boots from virtio-blk.
 
 ### F2: one ext2 implementation, image built by the build
