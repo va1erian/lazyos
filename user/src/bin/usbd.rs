@@ -13,7 +13,8 @@
 //! records with device ids of their own.
 //!
 //! Serial evidence: `USBD:XHCI` (controller up), `USBD:PORT` (a device),
-//! `USBD:DESC:*` (its descriptors, hex), `USBD:HID:KBD` / `USBD:HID:MOUSE`
+//! `USBD:DESC:*` (its descriptors, hex), `USBD:HID:KBD` / `USBD:HID:MOUSE` /
+//! `USBD:HID:TABLET` (a report-protocol absolute pointer, U4)
 //! (configured and publishing), `USBD:READY`, `USBD:DETACH` (unplugged:
 //! keys and buttons released, slot disabled); with `trace=1`, one
 //! `USBD:KEY` line per key edge. Devices come and go at runtime (U3): a
@@ -236,7 +237,7 @@ fn attach_port(hc: &mut Hc, port: u8) -> Option<Bound> {
             return None;
         }
     };
-    let hid = match Hid::new(device.hid.protocol) {
+    let hid = match Hid::new(device.hid.protocol, device.layout) {
         Ok(hid) => hid,
         Err(error) => {
             sys::write_str(&format!("USBD:PORT:FAIL port={port} {error}\n"));
@@ -246,6 +247,7 @@ fn attach_port(hc: &mut Hc, port: u8) -> Option<Bound> {
     };
     let what = match device.hid.protocol {
         Protocol::Keyboard => "KBD",
+        _ if hid.tablet() => "TABLET",
         _ => "MOUSE",
     };
     sys::write_str(&format!(

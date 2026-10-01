@@ -8,6 +8,7 @@
 use alloc::format;
 
 use usbhid::desc::{self, Config, DeviceDescriptor, HidInterface, Protocol};
+use usbhid::report::{self, Pointer};
 use user::sys;
 use xhci::context::{EndpointContext, EndpointType, InputContext, SlotContext, INPUT_CONTEXTS};
 use xhci::regs::{self, portsc, Speed};
@@ -41,6 +42,9 @@ pub(super) struct Device {
     pub(super) slot: u8,
     pub(super) descriptor: DeviceDescriptor,
     pub(super) hid: HidInterface,
+    /// Report-protocol devices (a tablet): where X, Y, wheel and buttons are
+    /// in a report. `None` for boot keyboards and mice.
+    pub(super) layout: Option<Pointer>,
     /// The interrupt endpoint's Device Context Index.
     pub(super) dci: u8,
     mem: Region,
@@ -132,6 +136,7 @@ impl Device {
                 report_len: 0,
                 endpoint: None,
             },
+            layout: None,
             dci: 0,
             mem,
             ep0,
@@ -164,7 +169,9 @@ impl Device {
         hc.command(trb::address_device(self.mem.bus(INPUT), self.slot, false))?;
         self.read_descriptors(hc, speed)?;
         let config = self.read_config(hc)?;
-        let Some(hid) = config.first_boot() else {
+        // A boot keyboard or mouse, else any HID interface whose report
+        // descriptor holds a pointer (a tablet has no boot protocol).
+        let Some(hid) = config.first_boot().or_else(|| config.first_hid()) else {
             return Ok(false);
         };
         self.hid = hid;
@@ -241,11 +248,18 @@ impl Device {
         desc::parse_config(chain).map_err(|_| Error::Descriptor("config chain"))
     }
 
-    /// SET_CONFIGURATION, the boot protocol, then the interrupt endpoint.
+    /// SET_CONFIGURATION, the boot protocol (or, for a report-protocol
+    /// device, its report descriptor), then the interrupt endpoint.
     fn configure(&mut self, hc: &mut Hc, config: &Config, speed: Speed) -> Result<(), Error> {
         let endpoint = self.hid.endpoint.ok_or(Error::Descriptor("endpoint"))?;
         self.control_out(hc, request::set_configuration(config.value))?;
-        self.control_out(hc, request::set_protocol(self.hid.number, true))?;
+        if self.hid.protocol == Protocol::None {
+            // Report protocol is the default; SET_PROTOCOL is only for boot
+            // devices (QEMU's tablet stalls it).
+            self.layout = Some(self.read_report_layout(hc)?);
+        } else {
+            self.control_out(hc, request::set_protocol(self.hid.number, true))?;
+        }
         if self.hid.protocol == Protocol::Keyboard {
             // Report only on change. Mice may stall it, so only keyboards
             // (which must support it) get it.
@@ -279,6 +293,24 @@ impl Device {
         }
         hc.command(trb::configure_endpoint(self.mem.bus(INPUT), self.slot))?;
         self.queue_report(hc)
+    }
+
+    /// The interface's report descriptor, parsed for a pointer.
+    fn read_report_layout(&mut self, hc: &mut Hc) -> Result<Pointer, Error> {
+        let len = usize::from(self.hid.report_len);
+        if len == 0 || len > DATA_BYTES {
+            return Err(Error::Descriptor("report descriptor length"));
+        }
+        let mut bytes = [0u8; DATA_BYTES];
+        let setup = request::get_report_descriptor(self.hid.number, len as u16);
+        self.control_in(hc, setup, &mut bytes[..len])?;
+        sys::write_str(&format!(
+            "USBD:DESC:REPORT port={} {}\n",
+            self.port,
+            hex(&bytes[..len])
+        ));
+        report::parse_pointer(&bytes[..len])
+            .map_err(|_| Error::Descriptor("no pointer in the report descriptor"))
     }
 
     /// Queue the next interrupt-IN transfer.

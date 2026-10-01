@@ -221,6 +221,18 @@ pub mod request {
         }
     }
 
+    /// GET_DESCRIPTOR(REPORT) of HID `interface`, for `length` bytes: the
+    /// recipient is the interface, not the device (HID 1.11 7.1.1).
+    pub fn get_report_descriptor(interface: u8, length: u16) -> SetupPacket {
+        SetupPacket {
+            request_type: 0x81,
+            request: GET_DESCRIPTOR,
+            value: 0x22 << 8,
+            index: u16::from(interface),
+            length,
+        }
+    }
+
     pub fn set_configuration(value: u8) -> SetupPacket {
         SetupPacket {
             request_type: 0x00,

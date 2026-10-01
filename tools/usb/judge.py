@@ -11,6 +11,12 @@ pointer record can have come from PS/2.
 
     python tools/usb/judge.py shots/usb/serial.log [--mouse]
     python tools/usb/judge.py shots/usb/serial.log --hotplug 200
+    python tools/usb/judge.py shots/usb/serial.log --tablet
+
+`--tablet` (U4) judges `run.py --tablet`: the `usb-tablet` was bound as a
+tablet from its report descriptor (QEMU's, byte for byte), and each absolute
+position the session sent put `inputd`'s cursor on the pixel it maps to on
+the default 1280x720 screen, where it then clicked and scrolled.
 
 `--hotplug N` judges `run.py --hotplug N` instead (U3): N keyboard and
 N/10 mouse unplug/replug cycles all detached and re-attached, the key and
@@ -44,6 +50,25 @@ GOLDEN = {
 MOUSE_CLICK = (40, 30)
 MOUSE_WHEEL = 2
 
+#: QEMU's `usb-tablet` report descriptors (`hw/usb/dev-hid.c`), as
+#: `USBD:DESC:REPORT` hex: current QEMU reports five buttons, older releases
+#: (and distribution builds) three with five bits of padding.
+TABLET_REPORT = (
+    "05010902a1010901a10005091901290515002501950575018102950175038101"
+    "050109300931150026ff7f350046ff7f751095028102050109381581257f3500"
+    "4500750895018106c0c0"
+)
+TABLET_REPORT_3 = (
+    "05010902a1010901a10005091901290315002501950375018102950175058101"
+    "050109300931150026ff7f350046ff7f751095028102050109381581257f3500"
+    "4500750895018106c0c0"
+)
+TABLET_REPORTS = (TABLET_REPORT, TABLET_REPORT_3)
+REPORT_DESC = re.compile(r"USBD:DESC:REPORT port=(\d+) ([0-9a-f]+)")
+#: `run.py`'s TABLET_POINTS, and `inputd`'s screen when no compositor set one.
+TABLET_POINTS = [(0, 0), (0x7FFF, 0x7FFF), (0x4000, 0x2000)]
+SCREEN = (1280, 720)
+
 FATAL = re.compile(r"USBD:(FATAL|PANIC|PORT:FAIL|SLOT:LEAK)")
 DETACH = re.compile(r"USBD:DETACH port=(\d+) slot=(\d+) regions=(\d+)")
 REGIONS = re.compile(r"USBD:HID:\w+ .* regions=(\d+)")
@@ -52,7 +77,7 @@ MAX_SLOTS = 8
 #: Usages `run.py --hotplug` holds across the first unplug, and then types.
 HELD_KEY = 0x1B  # x
 TYPED_KEYS = [0x04, 0x05, 0x06]  # a, b, c
-HID = re.compile(r"USBD:HID:(KBD|MOUSE) port=(\d+)")
+HID = re.compile(r"USBD:HID:(KBD|MOUSE|TABLET) port=(\d+)")
 DESC = re.compile(r"USBD:DESC:(DEVICE|CONFIG) port=(\d+) ([0-9a-f]+)")
 USB_KEY = re.compile(r"USBD:KEY usage=0x([0-9a-f]+) (down|up)")
 INPUTD_KEY = re.compile(r"INPUTD:KEY code=0x([0-9a-f]+) sym=\S+ mods=\S+ (down|up)")
@@ -147,15 +172,53 @@ def judge_hotplug(log: str, cycles: int) -> list[str]:
     return failures
 
 
+def tablet_pixel(value: int, pixels: int) -> int:
+    """Where QMP absolute `value` (0..=0x7fff) lands: usbd scales the tablet's
+    0..=0x7fff to 0..=0xffff, inputd scales that onto the screen."""
+    normalized = value * 0xFFFF // 0x7FFF
+    return normalized * (pixels - 1) // 0xFFFF
+
+
+def judge_tablet(log: str) -> list[str]:
+    """Every reason a `run.py --tablet` log fails; empty means it passes."""
+    failures = [f"driver error: {line}" for line in log.splitlines() if FATAL.search(line)]
+    bound = {kind: port for kind, port in HID.findall(log)}
+    if "TABLET" not in bound:
+        return failures + ["no USBD:HID:TABLET: the tablet was not bound"]
+    reports = {port: hex_ for port, hex_ in REPORT_DESC.findall(log)}
+    if reports.get(bound["TABLET"]) not in TABLET_REPORTS:
+        failures.append(f"tablet report descriptor {reports.get(bound['TABLET'])} is not QEMU's")
+    states = [tuple(int(v, 16) if i == 2 else int(v) for i, v in enumerate(m)) for m in POINTER.findall(log)]
+    width, height = SCREEN
+    for x, y in TABLET_POINTS:
+        want = (tablet_pixel(x, width), tablet_pixel(y, height))
+        if not any(abs(s[0] - want[0]) <= 1 and abs(s[1] - want[1]) <= 1 for s in states):
+            failures.append(f"the cursor never reached {want} (sent {x:#x},{y:#x})")
+    last = (tablet_pixel(TABLET_POINTS[-1][0], width), tablet_pixel(TABLET_POINTS[-1][1], height))
+    if not any(abs(s[0] - last[0]) <= 1 and abs(s[1] - last[1]) <= 1 and s[2] == 1 for s in states):
+        failures.append(f"no left press at {last}")
+    if not any(s[3] == MOUSE_WHEEL for s in states):
+        failures.append(f"no {MOUSE_WHEEL}-notch wheel event")
+    if states and states[-1][2] != 0:
+        failures.append("a button is still held at the end")
+    return failures + judge_keys(log)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("log", type=Path)
     parser.add_argument("--mouse", action="store_true", help="also judge the mouse steps")
+    parser.add_argument("--tablet", action="store_true", help="judge a `run.py --tablet` log")
     parser.add_argument("--hotplug", type=int, default=0, metavar="N",
                         help="judge a `run.py --hotplug N` log instead")
     args = parser.parse_args()
     log = args.log.read_text(errors="replace")
-    failures = judge_hotplug(log, args.hotplug) if args.hotplug else judge(log, args.mouse)
+    if args.hotplug:
+        failures = judge_hotplug(log, args.hotplug)
+    elif args.tablet:
+        failures = judge_tablet(log)
+    else:
+        failures = judge(log, args.mouse)
     for failure in failures:
         print(f"FAIL: {failure}")
     print("usb judge: " + ("FAIL" if failures else "PASS"))

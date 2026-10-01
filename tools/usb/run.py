@@ -18,6 +18,7 @@ notches. The verdict:
     python tools/usb/run.py --no-mouse       # keyboard only
     python tools/usb/run.py --accel none     # force TCG (paces input for a slow guest)
     python tools/usb/run.py --hotplug 200    # U3: unplug/replug cycles over QMP
+    python tools/usb/run.py --tablet         # U4: a usb-tablet instead of the mouse
 
 `--hotplug N` (docs/usb-hid-plan.md U3) unplugs and replugs the keyboard N
 times (the mouse every tenth cycle) with QMP `device_del`/`device_add`. The
@@ -68,6 +69,23 @@ def mouse_steps(corner_wait: float) -> list[dict]:
     ]
 
 
+#: Where `--tablet` puts the cursor, in QMP absolute units (`0..=0x7fff`):
+#: the corner, the far corner, then a point inside where it clicks and
+#: scrolls. `judge.py --tablet` holds the same list.
+TABLET_POINTS = [(0, 0), (0x7FFF, 0x7FFF), (0x4000, 0x2000)]
+
+
+def tablet_steps(pace: float) -> list[dict]:
+    steps: list[dict] = []
+    for x, y in TABLET_POINTS:
+        steps += [{"wait": max(pace, 2.0)}, {"mouse_abs": [x, y]}]
+    return steps + [
+        {"wait": max(pace, 2.0)}, {"mouse_click": "left"},
+        {"wait": max(pace, 2.0)}, {"mouse_scroll": 2},
+        {"wait": max(pace, 3.0)},
+    ]
+
+
 #: Keys typed on the keyboard after the last replug (usages a, b, c).
 HOTPLUG_KEYS = ["a", "b", "c"]
 
@@ -115,7 +133,8 @@ def build() -> None:
         sys.exit("cargo build failed")
 
 
-def session_script(mouse: bool, pace: float, settle: float, slow: bool, hotplug: int) -> list[dict]:
+def session_script(mouse: bool, pace: float, settle: float, slow: bool, hotplug: int,
+                   tablet: bool = False) -> list[dict]:
     if hotplug:
         ready = [{"wait_for": "USBD:READY", "timeout": 600}, {"wait": settle}]
         return ready + hotplug_steps(hotplug, pace) + [{"quit": True}]
@@ -126,7 +145,9 @@ def session_script(mouse: bool, pace: float, settle: float, slow: bool, hotplug:
             step["wait"] = max(step["wait"], pace)
     # Wait for the driver too, not only `inputd`, then let the boot settle.
     steps[:0] = [{"wait_for": "USBD:READY", "timeout": 600}, {"wait": settle}]
-    if mouse:
+    if tablet:
+        steps += tablet_steps(pace)
+    elif mouse:
         steps += mouse_steps(60.0 if slow else 5.0)
     return steps + [{"quit": True}]
 
@@ -142,6 +163,8 @@ def main() -> int:
     parser.add_argument("--timeout", type=float, default=1200.0)
     parser.add_argument("--pace", type=float, help="shortest wait between keys, seconds")
     parser.add_argument("--settle", type=float, help="seconds to wait after USBD:READY")
+    parser.add_argument("--tablet", action="store_true",
+                        help="a usb-tablet instead of the usb-mouse (U4)")
     parser.add_argument("--hotplug", type=int, default=0, metavar="N",
                         help="unplug/replug cycles instead of the typing session (U3)")
     args = parser.parse_args()
@@ -153,9 +176,11 @@ def main() -> int:
         build()
     args.out.mkdir(parents=True, exist_ok=True)
     script = args.out / "session.json"
-    script.write_text(json.dumps(session_script(mouse, pace, settle, slow, args.hotplug), indent=1))
+    script.write_text(json.dumps(session_script(mouse, pace, settle, slow, args.hotplug, args.tablet), indent=1))
     extra = ["-device", "qemu-xhci", "-device", "usb-kbd,id=kbd"]
-    if mouse:
+    if args.tablet:
+        extra += ["-device", "usb-tablet,id=tablet"]
+    elif mouse:
         extra += ["-device", "usb-mouse,id=mouse"]
     if not args.ps2:
         extra = ["-machine", "pc,i8042=off"] + extra
@@ -180,6 +205,8 @@ def main() -> int:
     judge = [sys.executable, str(Path(__file__).parent / "judge.py"), str(log)]
     if args.hotplug:
         judge += ["--hotplug", str(args.hotplug)]
+    elif args.tablet:
+        judge.append("--tablet")
     elif mouse:
         judge.append("--mouse")
     verdicts.append(subprocess.run(judge).returncode == 0)

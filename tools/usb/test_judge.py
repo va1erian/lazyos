@@ -132,5 +132,54 @@ class Hotplug(unittest.TestCase):
         self.assertFails(good.replace("code=0x6 sym=0x63 mods=0x40 down", "code=0x7 sym=0x64 mods=0x40 down"))
 
 
+def tablet_log() -> str:
+    """A passing `run.py --tablet` log on the default 1280x720 screen."""
+    px = judge.tablet_pixel
+    lines = [
+        "USBD:XHCI version=0x100 ports=8 slots=8 scratchpads=0 csz64=false",
+        f"USBD:DESC:REPORT port=6 {judge.TABLET_REPORT}",
+        "USBD:HID:TABLET port=6 slot=2 vendor=0x0627 product=0x0001 interface=0 dci=3 regions=2",
+        "USBD:KEY usage=0x14 down",
+        "INPUTD:KEY code=0x14 sym=0x71 mods=0x40 down",
+        "USBD:KEY usage=0x14 up",
+        "INPUTD:KEY code=0x14 sym=0x71 mods=0x40 up",
+    ]
+    for x, y in judge.TABLET_POINTS:
+        lines.append(f"INPUTD:POINTER x={px(x, 1280)} y={px(y, 720)} buttons=0x0 wheel=0,0")
+    x, y = px(0x4000, 1280), px(0x2000, 720)
+    lines += [
+        f"INPUTD:POINTER x={x} y={y} buttons=0x1 wheel=0,0",
+        f"INPUTD:POINTER x={x} y={y} buttons=0x0 wheel=0,0",
+        f"INPUTD:POINTER x={x} y={y} buttons=0x0 wheel=2,0",
+    ]
+    return "\n".join(lines) + "\n"
+
+
+class Tablet(unittest.TestCase):
+    def test_good_log_passes(self):
+        self.assertEqual(judge.judge_tablet(tablet_log()), [])
+        older = tablet_log().replace(judge.TABLET_REPORT, judge.TABLET_REPORT_3)
+        self.assertEqual(judge.judge_tablet(older), [], "the three-button QEMU tablet")
+
+    def test_scaling(self):
+        self.assertEqual(judge.tablet_pixel(0, 1280), 0)
+        self.assertEqual(judge.tablet_pixel(0x7FFF, 1280), 1279)
+        self.assertEqual(judge.tablet_pixel(0x7FFF, 720), 719)
+
+    def assertFails(self, log):
+        self.assertNotEqual(judge.judge_tablet(log), [], "the judge passed a bad log")
+
+    def test_not_bound_or_wrong_descriptor(self):
+        self.assertFails(tablet_log().replace("USBD:HID:TABLET", "USBD:HID:MOUSE"))
+        self.assertFails(tablet_log().replace(judge.TABLET_REPORT, judge.TABLET_REPORT[:-2] + "c1"))
+
+    def test_cursor_misplaced(self):
+        log = tablet_log()
+        self.assertFails(log.replace("x=1279 y=719", "x=1279 y=700"))
+        self.assertFails(log.replace("buttons=0x1", "buttons=0x0"))
+        self.assertFails(log.replace("wheel=2,0", "wheel=1,0"))
+        self.assertFails(log + "INPUTD:POINTER x=640 y=180 buttons=0x1 wheel=0,0\n")
+
+
 if __name__ == "__main__":
     unittest.main()

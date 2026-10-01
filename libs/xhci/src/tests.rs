@@ -254,6 +254,11 @@ fn control_transfer_layout() {
         request::set_idle(2).immediate_bytes(),
         [0x21, 0x0A, 0, 0, 2, 0, 0, 0]
     );
+    // The report descriptor is asked of the interface (bmRequestType 0x81).
+    assert_eq!(
+        request::get_report_descriptor(1, 74).immediate_bytes(),
+        [0x81, 0x06, 0, 0x22, 1, 0, 74, 0]
+    );
 }
 
 #[test]

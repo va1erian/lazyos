@@ -1,5 +1,9 @@
-//! A configured boot keyboard or mouse, publishing onto the raw input bus
-//! through its own kernel source (`docs/usb-hid-plan.md` U1).
+//! A configured keyboard, mouse or tablet, publishing onto the raw input bus
+//! through its own kernel source (`docs/usb-hid-plan.md` U1, U4). Boot
+//! keyboards and mice are decoded by their fixed boot reports; a
+//! report-protocol pointer (a tablet) by the layout its report descriptor
+//! gave, as absolute positions (`ABS_MOTION`, `0..=0xFFFF`) or, for a
+//! relative one, motion.
 //!
 //! Each HID interface is one source of its class, so the kernel stamps a
 //! device id of its own and refuses records the class may not carry. The
@@ -11,14 +15,16 @@ use alloc::vec::Vec;
 
 use usbhid::boot::{parse_mouse, BootKeyboard, BootMouse, KeyEdge, MouseOut};
 use usbhid::desc::Protocol;
+use usbhid::report::{self, Out, Pointer};
 use user::sys::{self, raw_kind, source_class, SourceRecord, SOURCE_MAX_BATCH};
 
 use super::Error;
 
-/// The decoder for one interface's boot reports.
+/// The decoder for one interface's reports.
 enum Decoder {
     Keyboard(BootKeyboard),
     Mouse(BootMouse),
+    Report(report::Decoder),
 }
 
 pub(super) struct Hid {
@@ -29,15 +35,25 @@ pub(super) struct Hid {
 }
 
 impl Hid {
-    /// Register a source for a boot `protocol` interface.
-    pub(super) fn new(protocol: Protocol) -> Result<Hid, Error> {
-        let (class, decoder) = match protocol {
-            Protocol::Keyboard => (
+    /// Register a source for a boot `protocol` interface, or for the
+    /// report-protocol pointer `layout` describes.
+    pub(super) fn new(protocol: Protocol, layout: Option<Pointer>) -> Result<Hid, Error> {
+        let (class, decoder) = match (protocol, layout) {
+            (Protocol::Keyboard, _) => (
                 source_class::KEYBOARD,
                 Decoder::Keyboard(BootKeyboard::new()),
             ),
-            Protocol::Mouse => (source_class::POINTER, Decoder::Mouse(BootMouse::new())),
-            Protocol::None => return Err(Error::Descriptor("not a boot interface")),
+            (Protocol::Mouse, _) => (source_class::POINTER, Decoder::Mouse(BootMouse::new())),
+            (Protocol::None, Some(layout)) => {
+                let decoder = report::Decoder::new(layout);
+                let class = if decoder.absolute() {
+                    source_class::TABLET
+                } else {
+                    source_class::POINTER
+                };
+                (class, Decoder::Report(decoder))
+            }
+            (Protocol::None, None) => return Err(Error::Descriptor("no boot or report layout")),
         };
         let source = sys::input_source_register(class).map_err(Error::Source)?;
         Ok(Hid {
@@ -69,8 +85,16 @@ impl Hid {
                     mouse.feed(&parsed, |out| records.push(pointer(out)));
                 }
             }
+            Decoder::Report(decoder) => {
+                decoder.feed(report, |out| records.push(report_out(out)));
+            }
         }
         self.publish(&records);
+    }
+
+    /// Whether this is an absolute pointer (a tablet).
+    pub(super) fn tablet(&self) -> bool {
+        matches!(&self.decoder, Decoder::Report(decoder) if decoder.absolute())
     }
 
     fn publish(&mut self, records: &[SourceRecord]) {
@@ -94,6 +118,7 @@ impl Hid {
                 records.push(key(edge));
             }),
             Decoder::Mouse(mouse) => mouse.release_all(|out| records.push(pointer(out))),
+            Decoder::Report(decoder) => decoder.release_all(|out| records.push(report_out(out))),
         }
         self.publish(&records);
         let _ = sys::input_source_close(self.source);
@@ -136,5 +161,18 @@ fn pointer(out: MouseOut) -> SourceRecord {
             code: usage,
             value: i32::from(pressed),
         },
+    }
+}
+
+/// A report-protocol pointer's output: a position (`ABS_MOTION`, packed
+/// `x | y << 16`, both `0..=0xFFFF`) or what a boot mouse would send.
+fn report_out(out: Out) -> SourceRecord {
+    match out {
+        Out::Position { x, y } => SourceRecord {
+            kind: raw_kind::ABS_MOTION,
+            code: 0,
+            value: (u32::from(x) | u32::from(y) << 16) as i32,
+        },
+        Out::Mouse(out) => pointer(out),
     }
 }

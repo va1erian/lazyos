@@ -8,7 +8,11 @@
 > syscall 25, `CAP_INPUT_SOURCE`), U2 (`usbd`: boot keyboards and mice on
 > `qemu-xhci`, `tools/usb/run.py`) and U3 (hot-plug: port-status-change
 > events, detach with Disable Slot, per-slot DMA reuse, `run.py --hotplug`)
-> are implemented; U4 (report protocol, tablet) onward are not. Builds on
+> and U4 (`libs/usbhid::report`: report descriptors, `usb-tablet` as
+> `ABS_MOTION`, `run.py --tablet`) are implemented; U5 (supervision, `usbctl`,
+> `docs/architecture/usb.md`) is not. U4 checks the cursor on `inputd`'s
+> default 1280x720 screen; positions at other sizes are the `inputmap` scaling
+> its host tests already cover. Builds on
 > [input-plan.md](input-plan.md) (the raw event bus, `inputd`) and
 > [driver-plan.md](driver-plan.md) (the device core, userspace drivers). It
 > lists USB as a non-goal of the driver plan; this plan lifts that for HID only.

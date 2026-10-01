@@ -60,6 +60,9 @@ jobs:
           # first), bounded DMA, nothing stuck, typing on the last keyboard.
           - name: hotplug
             args: "--hotplug 200"
+          # U4: a usb-tablet (report protocol, absolute) instead of the mouse.
+          - name: tablet
+            args: "--tablet"
     steps:
       - uses: actions/checkout@v4
 

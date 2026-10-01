@@ -15,6 +15,7 @@ python tools/usb/run.py --ps2            # keep the i8042: PS/2 and USB side by 
 python tools/usb/run.py --no-mouse       # keyboard only
 python tools/usb/run.py --accel none     # TCG: paced for a slow guest (see below)
 python tools/usb/run.py --hotplug 200    # U3: unplug/replug cycles over QMP
+python tools/usb/run.py --tablet         # U4: usb-tablet (absolute) instead of the mouse
 python tools/usb/test_judge.py           # the judge fails when it should
 cargo test -p usbhid -p xhci             # the libraries (host, seeded fuzz)
 ```
@@ -29,6 +30,16 @@ Verdict (all must pass):
   descriptors (`USBD:DESC:*`) are QEMU's, byte for byte (the golden bytes
   `libs/usbhid` is tested against); no `USBD:FATAL`, `USBD:PANIC` or
   `USBD:PORT:FAIL`.
+
+**Tablet** (`--tablet`, U4) swaps the `usb-mouse` for a `usb-tablet`. It
+has no boot protocol, so `usbd` reads its report descriptor
+(`USBD:DESC:REPORT`), finds X/Y/wheel/buttons with `libs/usbhid::report` and
+publishes absolute positions (`ABS_MOTION`, scaled to `0..=0xFFFF`) from a
+tablet-class source (`USBD:HID:TABLET`). The session sends QMP absolute moves
+to the corner, the far corner and an inner point, clicks and scrolls there;
+`judge.py --tablet` checks the descriptor is QEMU's (five- or three-button
+variant) and that `inputd`'s cursor landed on the exact pixel each position
+maps to on its default 1280x720 screen.
 
 **Hot-plug** (`--hotplug N`, U3) replaces the typing session: QMP
 `device_del`/`device_add` unplug and replug the keyboard N times and the mouse
