@@ -12,7 +12,7 @@ use user::sys;
 use super::compositor::Compositor;
 use super::geometry::{self, SizeHints};
 use super::layout::place_window;
-use super::present::attach;
+use super::present::{attach, detach};
 use super::protocol::{drop_rejected_handle, empty_reply, error_reply, is_privileged, typed_reply};
 use super::surface::Surface;
 use super::theme::{BORDER, TITLE_H};
@@ -30,6 +30,7 @@ impl Compositor {
             wire::METHOD_CREATESURFACE => self.create_surface(message, body),
             wire::METHOD_ATTACHBUFFER => self.attach_buffer(message, body),
             wire::METHOD_ATTACHBUFFERSLOT => self.attach_buffer_slot(message, body),
+            wire::METHOD_DETACHBUFFERSLOT => self.detach_buffer_slot(message, body),
             wire::METHOD_COMMIT => self.commit(message, body),
             wire::METHOD_DESTROYSURFACE => self.destroy_surface(message, body),
             wire::METHOD_DRAGSTART => self.drag_start(message, body),
@@ -161,6 +162,16 @@ impl Compositor {
     fn attach_buffer_slot(&mut self, message: &Message, body: &[u8]) -> Parcel {
         let args = wire::decode_attach_buffer_slot_args(body).unwrap_or_default();
         match attach(message, &mut self.surfaces, args.surface, Some(args.slot)) {
+            Ok(()) => empty_reply(message.method()),
+            Err(code) => error_reply(message.method(), code),
+        }
+    }
+
+    /// `DetachBufferSlot` (issue #372): unmap a slot that is not on screen,
+    /// so the client's close frees the buffer at once.
+    fn detach_buffer_slot(&mut self, message: &Message, body: &[u8]) -> Parcel {
+        let args = wire::decode_detach_buffer_slot_args(body).unwrap_or_default();
+        match detach(message, &mut self.surfaces, args.surface, args.slot) {
             Ok(()) => empty_reply(message.method()),
             Err(code) => error_reply(message.method(), code),
         }

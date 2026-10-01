@@ -258,6 +258,32 @@ impl Rng {
     }
 }
 
+/// `DetachBufferSlot` (issue #372): a non-current slot empties and can be
+/// attached again; the current slot and out-of-range ids are refused and
+/// leave the table unchanged.
+pub fn slots_detach_rules() -> Result<(), String> {
+    let mut table = full_table()?;
+    check!(
+        table.detach(MAX_SLOTS as u32) == Err(AttachError::BadSlot),
+        "out-of-range detach"
+    );
+    table.present(2).map_err(|_| "present slot 2")?;
+    check!(
+        table.detach(2) == Err(AttachError::Busy),
+        "the current slot must be Busy"
+    );
+    check!(table.current() == Some(&2), "a refused detach kept the screen");
+    check!(table.detach(1) == Ok(Some(1)), "detach returns the mapping");
+    check!(table.detach(1) == Ok(None), "an empty slot detaches to nothing");
+    check!(
+        table.present(1) == Err(PresentError::BadSlot),
+        "a detached slot cannot be presented"
+    );
+    check!(table.attach(1, 9) == Ok(None), "a detached slot reattaches");
+    check!(table.present(1) == Ok(Some(2)), "and presents again");
+    Ok(())
+}
+
 /// Client and compositor exchange hundreds of thousands of frames with the
 /// compositor lagging behind a random amount and hostile calls mixed in. The
 /// "memory" of each slot is a generation tag: the client only writes slots the
@@ -290,6 +316,16 @@ pub fn slots_present_soak() -> Result<(), String> {
                                 && !pending.iter().any(|p| p.0 == slot),
                             "client handed slot {slot} the compositor may read"
                         );
+                        // Now and then the client reallocates the slot (a
+                        // resize): detach, then attach a fresh buffer. A free
+                        // slot is never current, so neither is refused.
+                        if rng.next() % 8 == 0 {
+                            check!(table.detach(slot).is_ok(), "detach free slot {slot}");
+                            check!(
+                                table.attach(slot, slot) == Ok(None),
+                                "reattach detached slot {slot}"
+                            );
+                        }
                         generation += 1;
                         memory[slot as usize] = generation;
                         let seq = chain.submit(slot).ok_or("submit refused a free slot")?;
@@ -340,6 +376,10 @@ pub fn slots_present_soak() -> Result<(), String> {
                         check!(
                             table.attach(current, current) == Err(AttachError::Busy),
                             "attach into the current slot must be Busy"
+                        );
+                        check!(
+                            table.detach(current) == Err(AttachError::Busy),
+                            "detach of the current slot must be Busy"
                         );
                         check!(
                             memory[current as usize] == shown_tag.unwrap_or(0),

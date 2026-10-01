@@ -184,6 +184,14 @@ interface os.lazy.display.v1 {
     /// removes the window. Clients ignore it (an old client drops an unknown
     /// event), so there is nothing to answer.
     method Ping() -> () = 35 oneway;
+    /// Detach buffer slot `slot` of `surface`: the compositor unmaps the
+    /// buffer and drops its reference, so the client's close then frees it
+    /// (and its quota) at once. A client reallocating a slot after a
+    /// `Configure` detaches the old buffer first, so a resize never holds
+    /// three window-sized buffers. Only the creator may detach (`EACCES`;
+    /// `ENOENT` for an unknown surface); the current slot is `EBUSY` and an
+    /// out-of-range slot `EINVAL`. Detaching an empty slot is a no-op.
+    method DetachBufferSlot(surface: U64, slot: U32) -> () = 36;
 
     /// What a surface is. Numeric values are the wire values.
     enum Role { Window, Desktop }

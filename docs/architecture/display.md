@@ -437,7 +437,10 @@ Every `xui-app` window presents this way (issue #372,
 `xui-app/src/client_window/slots.rs`): two slots, a frame drawn only while
 one is free (so the compositor's `BufferRelease` paces repaints and the app
 never blocks on a reply), and a slot reallocated at the window size when it
-is next drawn after a `Configure`. The backend repaints only the window's
+is next drawn after a `Configure`; it first sends `DetachBufferSlot` (36),
+which makes `xuid` unmap that non-current slot (`EBUSY` for the current one),
+so closing the client's handle frees the old buffer and its quota at once
+and a resize never holds three window-sized buffers. The backend repaints only the window's
 accumulated damage rectangle (issue #487): it clears it, runs just the
 painters of nodes within two pixels of it, unclipped (a `SkiaCanvas` clip
 trims shapes before stroking them, which would draw borders along the damage

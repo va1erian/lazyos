@@ -125,15 +125,19 @@ impl Slots {
         };
         let entry = &mut self.slots[slot as usize];
         if !entry.fits(width, height) {
-            // A free slot is not the compositor's current one, so its old
-            // buffer can go first: freeing it before allocating keeps a
-            // resize inside the per-process buffer quota.
             let now = sys::clock_ticks();
             if matches!(self.failed, Some((size, until)) if size == (width, height) && now < until)
             {
                 return Err(-errno::EAGAIN);
             }
             if entry.buffer != 0 {
+                // A free slot is not the compositor's current one, so its old
+                // buffer can go first. The quota is released with the last
+                // reference, so the compositor must drop its own (detach)
+                // before this close frees it: otherwise a resize briefly
+                // holds three window-sized buffers. An older compositor
+                // cannot detach; the attach below then replaces the buffer.
+                let _ = client.detach_slot(surface, slot);
                 let _ = sys::display_close_buffer(entry.buffer);
             }
             *entry = Slot::default();

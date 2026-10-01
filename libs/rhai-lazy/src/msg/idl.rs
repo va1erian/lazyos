@@ -610,6 +610,14 @@ pub static INTERFACES: &[Interface] = &[
                 params: &[],
                 returns: &[],
             },
+            Method {
+                name: "DetachBufferSlot",
+                id: 36,
+                oneway: false,
+                doc: "Detach buffer slot `slot` of `surface`: the compositor unmaps the\nbuffer and drops its reference, so the client's close then frees it\n(and its quota) at once. A client reallocating a slot after a\n`Configure` detaches the old buffer first, so a resize never holds\nthree window-sized buffers. Only the creator may detach (`EACCES`;\n`ENOENT` for an unknown surface); the current slot is `EBUSY` and an\nout-of-range slot `EINVAL`. Detaching an empty slot is a no-op.",
+                params: &[Field { name: "surface", ty: Ty::U64 }, Field { name: "slot", ty: Ty::U32 }],
+                returns: &[],
+            },
         ],
         structs: &[
             Struct {

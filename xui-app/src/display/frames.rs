@@ -55,6 +55,18 @@ impl Client {
         self.call(&parcel).map(|_| ())
     }
 
+    /// `DetachBufferSlot`: have the compositor unmap slot `slot` of
+    /// `surface`, so closing this task's handle frees the buffer and its
+    /// quota at once. The compositor refuses its current slot (`EBUSY`); an
+    /// older compositor answers `EINVAL` (unknown method).
+    pub fn detach_slot(&self, surface: u64, slot: u32) -> Result<(), i64> {
+        let body =
+            wire::encode_detach_buffer_slot_args(&wire::DetachBufferSlotArgs { surface, slot })
+                .map_err(|_| -errno::EINVAL)?;
+        let parcel = request(wire::METHOD_DETACHBUFFERSLOT, body, Vec::new(), Vec::new());
+        self.call(&parcel).map(|_| ())
+    }
+
     /// `Present` (one-way): make `slot` the surface's current buffer and
     /// composite `damage` (content-relative). The answer arrives later as
     /// [`FrameEvent`]s; nothing here waits for the compositor.

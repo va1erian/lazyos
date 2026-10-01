@@ -2453,6 +2453,8 @@ pub mod os_lazy_display_v1 {
     pub const METHOD_REQUESTSIZE: u32 = 34;
     /// `Ping` method id.
     pub const METHOD_PING: u32 = 35;
+    /// `DetachBufferSlot` method id.
+    pub const METHOD_DETACHBUFFERSLOT: u32 = 36;
 
     /// Create a surface of `width` x `height` pixels titled `title`. `role` is
     /// a `Role` value: a decorated window (also the meaning of an absent
@@ -3666,6 +3668,43 @@ pub mod os_lazy_display_v1 {
                 }
                 3 => {
                     out.height = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Detach buffer slot `slot` of `surface`: the compositor unmaps the
+    /// buffer and drops its reference, so the client's close then frees it
+    /// (and its quota) at once. A client reallocating a slot after a
+    /// `Configure` detaches the old buffer first, so a resize never holds
+    /// three window-sized buffers. Only the creator may detach (`EACCES`;
+    /// `ENOENT` for an unknown surface); the current slot is `EBUSY` and an
+    /// out-of-range slot `EINVAL`. Detaching an empty slot is a no-op.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct DetachBufferSlotArgs {
+        pub surface: u64,
+        pub slot: u32,
+    }
+
+    pub fn encode_detach_buffer_slot_args(value: &DetachBufferSlotArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.surface)?;
+        target.u32(2, value.slot)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_detach_buffer_slot_args(body: &[u8]) -> Result<DetachBufferSlotArgs, Error> {
+        let mut out = DetachBufferSlotArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.surface = field.as_u64()?;
+                }
+                2 => {
+                    out.slot = field.as_u32()?;
                 }
                 _ => {}
             }

@@ -79,6 +79,17 @@ impl<T> SlotTable<T> {
         Ok(self.slots[index].replace(value))
     }
 
+    /// Empty `slot` (`DetachBufferSlot`). Returns the payload it held, which
+    /// the caller must unmap, or `None` for an empty slot. The current slot
+    /// cannot be detached.
+    pub fn detach(&mut self, slot: u32) -> Result<Option<T>, AttachError> {
+        let index = index_of(slot).ok_or(AttachError::BadSlot)?;
+        if self.current == Some(index) {
+            return Err(AttachError::Busy);
+        }
+        Ok(self.slots[index].take())
+    }
+
     /// The legacy `AttachBuffer`: `value` replaces slot 0 and becomes current
     /// at once, even if the compositor was reading the old one (the tear-prone
     /// behaviour the slot API exists to avoid). Returns the payload to unmap.
@@ -302,6 +313,21 @@ mod tests {
         assert_eq!(table.attach(0, 11), Err(AttachError::Busy));
         assert_eq!(table.attach(1, 12), Ok(None));
         assert_eq!(table.attach(1, 13), Ok(Some(12)));
+    }
+
+    #[test]
+    fn detach_rules() {
+        let mut table = SlotTable::new();
+        assert_eq!(table.detach(4), Err(AttachError::BadSlot));
+        assert_eq!(table.detach(1), Ok(None), "an empty slot");
+        table.attach(0, 10).unwrap();
+        table.attach(1, 11).unwrap();
+        table.present(0).unwrap();
+        assert_eq!(table.detach(0), Err(AttachError::Busy));
+        assert_eq!(table.current(), Some(&10));
+        assert_eq!(table.detach(1), Ok(Some(11)));
+        assert_eq!(table.present(1), Err(PresentError::BadSlot), "now empty");
+        assert_eq!(table.attach(1, 12), Ok(None), "reattachable");
     }
 
     #[test]

@@ -136,6 +136,30 @@ fn try_attach(
     Ok(())
 }
 
+/// Serve `DetachBufferSlot`: unmap `slot` of surface `id` unless it is the
+/// current one. Errors are positive errno values.
+pub(super) fn detach(
+    message: &Message,
+    surfaces: &mut [Surface],
+    id: u64,
+    slot: u32,
+) -> Result<(), i64> {
+    let Some(surface) = surfaces.iter_mut().find(|surface| surface.id == id) else {
+        return Err(messenger::errno::ENOENT);
+    };
+    if surface.owner != message.sender {
+        return Err(messenger::errno::EACCES);
+    }
+    let detached = surface.slots.detach(slot).map_err(|error| match error {
+        surfbuf::AttachError::BadSlot => messenger::errno::EINVAL,
+        surfbuf::AttachError::Busy => messenger::errno::EBUSY,
+    })?;
+    if let Some(mapping) = detached {
+        mapping.unmap();
+    }
+    Ok(())
+}
+
 impl Compositor {
     /// Serve a one-way `Present`: swap in the slot, composite the damage,
     /// then answer with `BufferRelease` (if the current slot changed) and
