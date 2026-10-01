@@ -43,6 +43,10 @@ pub fn embed(builder: &mut bootloader::DiskImageBuilder, desktop: bool) {
         // `modplay`, the tracker-module player (docs/tracker-plan.md).
         add(builder, "MODPLAY.ELF", "modplay");
     }
+    // The USB HID driver (docs/usb-hid-plan.md U2).
+    if enabled("LAZYOS_USB") {
+        add(builder, "USBD.ELF", "usbd");
+    }
     // `LAZYOS_NETD=1` adds the stack service and its tools, and needs the driver.
     let netd = enabled("LAZYOS_NETD");
     if netd || enabled("LAZYOS_NET") {

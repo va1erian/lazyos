@@ -38,9 +38,13 @@ impl Trace {
                         KeyState::Up => "up",
                         KeyState::Repeat => "repeat",
                     };
+                    // `t=`: the tick it was decoded, to place a late key.
                     sys::write_str(&format!(
-                        "INPUTD:KEY code={:#x} sym={:#x} mods={:#x} {state}\n",
-                        key.code, key.sym, key.mods
+                        "INPUTD:KEY code={:#x} sym={:#x} mods={:#x} {state} t={}\n",
+                        key.code,
+                        key.sym,
+                        key.mods,
+                        sys::clock()
                     ));
                 }
                 Output::Text(text) => {

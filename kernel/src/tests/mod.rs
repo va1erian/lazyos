@@ -208,6 +208,7 @@ const SUITE: &[&[(&str, Test)]] = &[
     spurious_fault_suite::CASES,
     ramdisk_suite::CASES,
     dev_suite::CORE,
+    dev_suite::CLASS_MAP,
     dev_suite::IRQ,
     dev_suite::IRQ_SHARED,
     dev_suite::IRQ_EDGE,

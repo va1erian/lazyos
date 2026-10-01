@@ -62,6 +62,32 @@ const SND_CRED: SysCred = SysCred::new(SND_UID, SND_UID, user::dev::CAP_DEV_CLAI
 #[cfg(lazyos_sound)]
 const SND_UID: u32 = 901;
 
+/// `usbd`'s arguments. `trace=1` echoes every report and key edge on serial,
+/// which would put typed passwords on the console, so only the USB harness's
+/// test images (`LAZYOS_USB_TRACE=1`, `tools/usb/run.py`) turn it on.
+#[cfg(lazyos_usb)]
+const USBD_ARGS: &str = if cfg!(lazyos_usb_trace) {
+    "trace=1"
+} else {
+    ""
+};
+
+/// The `usbd` driver's identity (docs/usb-hid-plan.md U2): a dedicated system
+/// uid holding only `CAP_DEV_CLAIM` (the controller) and `CAP_INPUT_SOURCE`
+/// (publishing its devices' input). It cannot read the input bus, and the
+/// kernel stamps its records with device ids of their own.
+#[cfg(lazyos_usb)]
+const USB_CRED: SysCred = SysCred::new(
+    USB_UID,
+    USB_UID,
+    user::dev::CAP_DEV_CLAIM | user::sys::CAP_INPUT_SOURCE,
+    0,
+    0,
+);
+/// The `_usb` system user (901 `_snd`, 902 `_net`, 903 `_netd`).
+#[cfg(lazyos_usb)]
+const USB_UID: u32 = 904;
+
 /// The `netdrv` driver's identity (docs/networking-plan.md N1): a dedicated
 /// system uid holding only `CAP_DEV_CLAIM`, exactly like `sndd`'s.
 #[cfg(lazyos_net)]
@@ -97,6 +123,10 @@ pub(super) fn manifest_cred(name: &str) -> Option<SysCred> {
     #[cfg(lazyos_sound)]
     if name == "sndd" {
         return Some(SND_CRED);
+    }
+    #[cfg(lazyos_usb)]
+    if name == "usbd" {
+        return Some(USB_CRED);
     }
     #[cfg(lazyos_net)]
     if name == "netdrv" {
@@ -311,6 +341,17 @@ pub(super) const MANIFEST: &[ServiceSpec] = &[
         args: "demo=1",
         restart: Restart::OnFailure,
         deps: &[],
+    },
+    // The USB HID driver (docs/usb-hid-plan.md U2), present only on
+    // `LAZYOS_USB=1` images. A machine without an xHCI controller makes it
+    // exit cleanly, so `OnFailure` restarts it only after a crash.
+    #[cfg(lazyos_usb)]
+    ServiceSpec {
+        name: "usbd",
+        path: fhs::boot::USBD_ELF,
+        args: USBD_ARGS,
+        restart: Restart::OnFailure,
+        deps: &["inputd"],
     },
     // The virtio-net userspace driver (docs/networking-plan.md N1), present only
     // on `LAZYOS_NET=1` images. It needs nothing but the device syscall (and

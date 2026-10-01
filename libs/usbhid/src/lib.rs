@@ -11,6 +11,9 @@
 //!   first boot-capable HID interface with an interrupt-IN endpoint.
 //! * [`boot`] turns successive boot keyboard and mouse reports into key and
 //!   button edges (a report is a *state*; the bus carries *edges*).
+//! * [`report`] reads enough of a HID report descriptor to find a pointer's
+//!   X, Y, wheel and buttons (a tablet has no boot protocol), and reads them
+//!   out of its reports.
 //!
 //! Pure `no_std` logic with host tests; nothing touches a controller.
 
@@ -23,6 +26,7 @@ pub mod boot;
 pub mod desc;
 #[cfg(any(test, feature = "fuzz"))]
 pub mod fuzz;
+pub mod report;
 #[cfg(test)]
 mod tests;
 

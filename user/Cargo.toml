@@ -43,6 +43,10 @@ modplay = { path = "../libs/modplay" }
 # host-tested driver core and the frame ring shared with the stack.
 virtio-net = { path = "../libs/virtio-net" }
 nicdrv = { path = "../libs/nicdrv" }
+# USB for `usbd` (docs/usb-hid-plan.md U2): xHCI rings and contexts, and the
+# descriptor and boot-report parsers for hostile device input.
+xhci = { path = "../libs/xhci" }
+usbhid = { path = "../libs/usbhid" }
 # The `_net` uid `init` spawns the driver as, shared with the ACL rules.
 netpolicy = { path = "../libs/netpolicy" }
 framering = { path = "../libs/framering" }
@@ -288,6 +292,14 @@ bench = false
 [[bin]]
 name = "sndd"
 path = "src/bin/sndd.rs"
+test = false
+bench = false
+
+# The USB HID driver (docs/usb-hid-plan.md U2): xHCI, boot keyboards and mice,
+# published onto the raw input bus. Embedded as `USBD.ELF`.
+[[bin]]
+name = "usbd"
+path = "src/bin/usbd.rs"
 test = false
 bench = false
 

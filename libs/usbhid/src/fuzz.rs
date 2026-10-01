@@ -1,5 +1,6 @@
 //! Fuzz entry points, shared by the seeded tests below and the cargo-fuzz
-//! targets (`fuzz/fuzz_targets/usbdesc.rs`, `hidreport.rs`), so a crash found
+//! targets (`fuzz/fuzz_targets/usbdesc.rs`, `hidreport.rs`,
+//! `hidreportdesc.rs`), so a crash found
 //! by one replays under the other.
 //!
 //! * [`run_desc`]: any bytes as a device descriptor and as a configuration
@@ -9,12 +10,16 @@
 //!   are checked against a naive model after every report: the held set is
 //!   exactly the last accepted report's, every edge is a real change, and no
 //!   edge carries a usage the bus would refuse.
+//! * [`run_pointer_desc`]: any bytes as a HID report descriptor, then a
+//!   report read through the layout found. Every placed field must fit a
+//!   64-byte report, and normalized positions stay in `0..=0xFFFF`.
 
 use std::collections::BTreeSet;
 use std::vec::Vec;
 
 use crate::boot::{parse_mouse, BootKeyboard, BootMouse, MouseOut, MOUSE_BUTTONS};
 use crate::desc::{parse_config, parse_device, Protocol};
+use crate::report::{parse_pointer, Field, MAX_REPORT};
 
 /// Parse `data` both ways; panics on an inconsistent result.
 pub fn run_desc(data: &[u8]) {
@@ -36,6 +41,42 @@ pub fn run_desc(data: &[u8]) {
     if let Some(boot) = config.first_boot() {
         assert!(boot.protocol != Protocol::None && boot.endpoint.is_some());
     }
+}
+
+/// Split `data` into a report descriptor and a report (its first byte is the
+/// report's length, the report is the tail), parse and read; panics on an
+/// inconsistent layout.
+pub fn run_pointer_desc(data: &[u8]) {
+    let Some((&len, rest)) = data.split_first() else {
+        return;
+    };
+    let split = rest.len().saturating_sub(usize::from(len % 70));
+    let (descriptor, report) = rest.split_at(split);
+    let Ok(pointer) = parse_pointer(descriptor) else {
+        return;
+    };
+    let fields = [pointer.x, pointer.y, pointer.wheel]
+        .into_iter()
+        .chain(pointer.buttons)
+        .flatten();
+    for field in fields {
+        check_field(&field);
+    }
+    let (x, y) = (pointer.x.expect("x"), pointer.y.expect("y"));
+    if let Some(read) = pointer.read(report) {
+        // Normalizing can never leave the bus's range (it is a u16), but it
+        // must not panic either, whatever the logical range.
+        let _ = (x.normalize(read.x), y.normalize(read.y));
+    }
+}
+
+fn check_field(field: &Field) {
+    assert!((1..=32).contains(&field.bits), "field width {}", field.bits);
+    let end = field.bit + u32::from(field.bits);
+    assert!(
+        end as usize <= (MAX_REPORT - 1) * 8,
+        "field past the report"
+    );
 }
 
 /// Run a report script: each record is a selector byte, a length byte and
@@ -152,6 +193,31 @@ mod seeded {
     fn checked_in_seeds_replay() {
         replay("usbdesc", run_desc);
         replay("hidreport", run_report);
+        replay("hidreportdesc", run_pointer_desc);
+    }
+
+    /// Mutations of QEMU's tablet and mouse report descriptors.
+    #[test]
+    fn mutated_report_descriptors() {
+        let golden: [&[u8]; 2] = [
+            &crate::tests::golden::TABLET_REPORT,
+            &crate::tests::golden::MOUSE_REPORT,
+        ];
+        for_seeds(
+            "usbhid::fuzz::mutated_report_descriptors",
+            |_, rng: &mut Rng| {
+                let mut data = std::vec![rng.byte()];
+                data.extend_from_slice(golden[rng.below(2) as usize]);
+                for _ in 0..1 + rng.below(4) {
+                    let at = 1 + rng.below(data.len() as u64 - 1) as usize;
+                    data[at] = rng.byte();
+                }
+                for _ in 0..rng.below(12) {
+                    data.push(rng.byte());
+                }
+                run_pointer_desc(&data);
+            },
+        );
     }
 
     /// Mutations of the golden configurations: mostly valid structure with

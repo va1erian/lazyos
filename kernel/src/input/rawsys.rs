@@ -6,7 +6,8 @@
 //!   op 2 (close): release the ring
 //!   op 3 (display_owner): the task slot holding the display grant, or -ENOENT
 //!   op 4 (register_source): rsi = class -> source id; -EPERM without
-//!        CAP_INPUT_SOURCE, -EINVAL bad class, -EBUSY table full
+//!        CAP_INPUT_SOURCE, -EINVAL bad class, -EBUSY table full; raises
+//!        the caller to the Interactive scheduling class (never lowers it)
 //!   op 5 (publish): rsi -> records, rdx = source id << 16 | count -> records
 //!        accepted; -EBADF not the caller's source, -EINVAL count, -EFAULT
 //!   op 6 (close_source): rsi = source id; releases what it held
@@ -80,7 +81,14 @@ pub fn dispatch(operation: u64, buf: u64, capacity: u64) -> u64 {
             None => negative(ENOENT),
         },
         op::REGISTER_SOURCE => match u8::try_from(buf).map(|class| sources::register(me, class)) {
-            Ok(Ok(id)) => id,
+            Ok(Ok(id)) => {
+                // An input driver is latency-critical: a polled device (USB
+                // HID) holds only a few events, and a driver left behind a
+                // console repaint loses keys. Raise it to the class of the
+                // multiplexer it would otherwise wait on, never lowering it.
+                task::raise_priority(me, task::PriorityClass::Interactive);
+                id
+            }
             Ok(Err(sources::Error::Full)) => negative(EBUSY),
             _ => negative(EINVAL),
         },

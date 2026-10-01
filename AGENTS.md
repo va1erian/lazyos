@@ -171,6 +171,25 @@ Do not claim an audio change works from the serial markers alone; the verdict is
 the recording. See `tools/sound/README.md` and `docs/architecture/audio.md`
 (including why a driver must never free a DMA buffer while its device runs).
 
+## USB harness
+
+The USB HID driver (`usbd`, [`docs/usb-hid-plan.md`](docs/usb-hid-plan.md)) is
+verified by what reached `inputd`: QEMU runs with `qemu-xhci`, a USB keyboard
+and mouse and no i8042, and the judge checks every key edge `inputd` saw came
+from `usbd` and that the descriptors are QEMU's. See `tools/usb/README.md`.
+
+```bash
+python tools/usb/run.py                  # build (LAZYOS_SERVICES=1 LAZYOS_USB=1), boot, judge
+python tools/usb/run.py --ps2            # PS/2 and USB side by side
+python tools/usb/run.py --hotplug 200    # unplug/replug over QMP: nothing stuck, DMA bounded
+python tools/usb/run.py --tablet         # usb-tablet: report descriptor, absolute cursor
+python tools/usb/test_judge.py           # the judge fails when it should
+cargo test -p usbhid -p xhci             # descriptor/report parsers and xHCI rings (host)
+```
+
+Under TCG the harness paces input (USB is polled; see the README): KVM runs are
+the verdict.
+
 ## Network tooling
 
 Networking (`docs/networking-plan.md`) is verified like audio: serial markers
@@ -243,6 +262,18 @@ regressions, not kernel-internal correctness or resource leaks.
   for a service, topic, or capability interface, and no copying a protocol into
   another crate by hand. Touching a legacy hand-rolled protocol means migrating
   it to MIDL, or at minimum not extending it by hand.
+- **Every application must be launchable from both front ends**: the Python
+  GUI launcher (`python tools/lazyos_gui.py`, `tools/lazygui/`) and the CLI
+  (`python tools/run_demo.py`). A new app or optional image feature is not done
+  until it has (a) a build switch the image build understands (an env var in
+  `build.rs`/`build_support/`, e.g. `LAZYOS_LAZYRAD=1`), (b) a `run_demo.py`
+  flag that builds its artifacts and sets that switch, (c) a control in the GUI
+  (the Simple tab for what a normal user wants, the Advanced tab for the raw
+  switch) wired through `tools/lazygui/catalog.py` (`build_env`, `build_plan`)
+  with tests in `tools/lazygui/test_catalog.py`, and (d) for a desktop app, an
+  `init` registry row (`user/src/bin/init/apps.rs`) plus an `XAPPS.LST` line so
+  Settings -> Menu offers it. Verify it by starting it through the launcher or
+  `run_demo.py`, not only by hand-built env vars.
 - Prefer verifying with the existing scripts over ad-hoc commands so results are
   comparable across runs.
 

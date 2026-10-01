@@ -111,6 +111,12 @@ pub const XWIDGET_ELF: &str = "XWIDGET.ELF";
 /// The Counter xui app. Written by the image build. Target (F3): "/system/bin/counter".
 pub const XCOUNTR_ELF: &str = "XCOUNTR.ELF";
 
+/// `usbd`, the USB HID driver (`LAZYOS_USB=1` images). Written by the image build. Target (F3): "/system/bin/usbd".
+pub const USBD_ELF: &str = "USBD.ELF";
+
+/// The LazyRAD IDE xui app (`LAZYOS_LAZYRAD=1` images). Written by the image build. Target (F3): "/system/bin/lazyrad".
+pub const LAZYRAD_ELF: &str = "LAZYRAD.ELF";
+
 /// The Docs xui app. Written by the image build. Target (F3): "/system/bin/docs".
 pub const XDOCS_ELF: &str = "XDOCS.ELF";
 

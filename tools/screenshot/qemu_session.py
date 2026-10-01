@@ -35,7 +35,9 @@ modifier across steps, e.g. Alt+Tab or Ctrl+Esc), ``mouse_move`` ([dx, dy]),
 ``mouse_down`` / ``mouse_up`` (left|middle|right; separate transitions, so a
 caller can hold a button across steps, e.g. through a drag & drop),
 ``mouse_scroll`` (int), ``mouse_abs`` ([x, y]), ``wait``
-(seconds), ``wait_for`` (serial marker), ``quit``.
+(seconds), ``wait_for`` (serial marker), ``qmp`` (a raw QMP command with
+optional ``args``, e.g. hot-plugging a device:
+``{"qmp": "device_add", "args": {"driver": "usb-kbd", "id": "kbd"}}``), ``quit``.
 
 Readiness gating
 ----------------
@@ -94,7 +96,7 @@ from qemu_qmp import (Qmp, accel_args, add_data_disk_option, build_qemu_command,
 _ACTIONS = {
     "shot", "type", "key", "keys", "key_down", "key_up", "mouse_move",
     "mouse_click", "mouse_down", "mouse_up", "mouse_scroll", "mouse_abs",
-    "wait", "wait_for", "quit",
+    "wait", "wait_for", "qmp", "quit",
 }
 # Actions that send input and so may carry an `until` confirmation.
 _INPUT_ACTIONS = {
@@ -294,6 +296,9 @@ def run_steps(qmp: Qmp, steps: list[dict], out_dir: Path, started: float,
             print(f"[{entry['t']:7.2f}s] captured {shot}", flush=True)
         elif action == "wait":
             time.sleep(float(step["wait"]))
+        elif action == "qmp":
+            qmp.execute(step["qmp"], **step.get("args", {}))
+            print(f"[{entry['t']:7.2f}s] qmp {step['qmp']} {step.get('args', {})}", flush=True)
         elif action == "quit":
             try:
                 qmp.execute("quit")
