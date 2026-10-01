@@ -7,11 +7,13 @@ networking: a userspace NIC driver serves `os.lazy.net.nic.v1` over Messenger,
 and a userspace stack service is its only client, exactly as `sndd` and
 `os.lazy.audio.v1` split audio ([`audio.md`](audio.md)).
 
-**Status: stages N0, N1 and N2.** The interface, the frame ring, the virtio-net
+**Status: stages N0, N1, N2 and N3.** The interface, the frame ring, the virtio-net
 wire definitions, the `netdrv` driver, `nicctl`, the packet-capture harness, the
 stack library `netstack`, the stack service `netd`, `netctl` and `ping` are built
-and verified: `ping 10.0.2.2` is answered and the replies are in the capture.
-Sockets (N3) are not.
+and verified: `ping 10.0.2.2` is answered and the replies are in the capture. N3
+adds TCP and UDP sockets, name lookups, `nc` and `nslookup`: bytes round-trip
+with a host echo server both ways, and the capture agrees with the server
+byte for byte. The `ftp` client (N4) and the Linux `AF_INET` shim (N5) are not built.
 
 **Key files**
 
@@ -31,11 +33,15 @@ Sockets (N3) are not.
 | `idl/net.midl` (second interface) | `os.lazy.net.stack.v1`, compiled into `docs/idl/os.lazy.net.stack.v1.md` |
 | `user/src/bin/netd.rs`, `netd/` | The stack service: `nic.rs` (finds the driver, attaches rings, re-attaches), `config.rs` (`confd` keys), `service.rs` (`stack.v1`, parked `Ping` calls, address topics) |
 | `user/src/messenger/netstack.rs` | Blocking client of `stack.v1` |
-| `user/src/bin/netctl.rs`, `netctl/`, `ping.rs` | `netctl` (show, `renew`, `probe=1`, `soak=<n>`) and the native `ping` |
+| `user/src/bin/netctl.rs`, `netctl/`, `ping.rs` | `netctl` (show, `sockets`, `renew`, `probe=1`, `soak=<n>`, `sockprobe=1`, `socksoak=<n>`) and the native `ping` (names resolve) |
+| `libs/netstack/src/stack/` (N3) | `sockets.rs`, `tcp.rs`, `udp.rs`, `dns.rs`, `observe.rs`: the socket table and its operations, name lookups; `testpair.rs` (two stacks back to back) and `testdns.rs` for the tests |
+| `user/src/bin/netd/` (N3) | `sock.rs` (`socket.v1` dispatch), `parked.rs` (parked calls), `resolve.rs` (`Resolve`), `owners.rs` (callers by slot) |
+| `user/src/messenger/netsock.rs`, `netstd.rs` | Blocking client of `socket.v1`; `TcpStream`, `TcpListener`, `UdpSocket` over it |
+| `user/src/bin/nc.rs`, `nslookup.rs` | The tools |
 | `kernel/src/process/randsys.rs` | Native syscall 26, random bytes for services (with `CLOSE_RELEASE`, N2's only new kernel surface) |
-| `kernel/src/process/linux/native.rs` | `nicctl`, `netctl` and `ping` in the table of native programs a shell may run |
+| `kernel/src/process/linux/native.rs` | `nicctl`, `netctl`, `ping`, `nc` and `nslookup` in the table of native programs a shell may run |
 | `fuzz/` | The cargo-fuzz crate (outside the OS workspace) and its checked-in seeds |
-| `tools/net/` | `run.py` the harness, `analyze_pcap.py` + `pcap.py` the capture judge and `test_analyze_pcap.py` its tests |
+| `tools/net/` | `run.py` the harness, `analyze_pcap.py` + `pcap.py` the capture judge and `test_analyze_pcap.py` its tests; N3: `hostpeers.py` (the host's echo servers and inbound client), `sockets_pcap.py` (the TCP/UDP/DNS judge) and `test_sockets_pcap.py` |
 | `.github/workflows/net.yml` | Host tests, lints, seeds drift check, bounded fuzz runs, the harness in ten variants (five for the driver, five with `netd`) |
 
 ## The interface
@@ -321,17 +327,151 @@ answered, nothing dropped, every renewal and reattachment counted).
 | End to end | The capture-judged run | `python tools/net/run.py --netd` |
 | Variants | `--netd --services` (`_netd` uid 903, no caps), `--netd --machine q35 --virtio-disk`, `--netd --poll`, `--netd --no-device` (`netd` prints `NETD:NIC:WAIT` and idles) | see `tools/net/README.md` |
 
+## Sockets and names (N3)
+
+```
+nc / nslookup / ping --socket.v1, stack.v1--> netd (smoltcp sockets, DNS) --nic.v1--> netdrv
+```
+
+**Where the code is.** `libs/netstack/src/stack/` holds the socket layer, all host
+tested: `sockets.rs` (the table, ids, quotas, ports, closing), `tcp.rs` (connect,
+listen, accept, send, receive, shutdown, readiness), `udp.rs` (bind, connect, `SendTo`,
+`RecvFrom`), `dns.rs` (lookups), `observe.rs` (what the wire did to each stream, once
+per poll). `user/src/bin/netd/` adds the service side: `sock.rs` (dispatch and parked
+calls), `resolve.rs` (parked lookups), `owners.rs` (who is calling). The client side is
+`user/src/messenger/netsock.rs` (one method per call) and `netstd.rs` (`TcpStream`,
+`TcpListener`, `UdpSocket`, named after `std::net`). The interface is `idl/net.midl`
+(`os.lazy.net.socket.v1`; docs in `docs/idl/`).
+
+**One endpoint, two interfaces.** The socket interface is served on the stack
+service's endpoint (`os.lazy.net.stack`, registered with both interface ids); `netd`
+tells them apart by id. The receive buffer is 20 KiB so a full 16 KiB `Send` and its
+framing fit; a request too large for it (no legal one is) is consumed by the kernel
+but unreadable, so it is dropped without a reply and counted
+(`NETD:OVERSIZE`), and the sender's own deadline ends the wait. The probe found this:
+`netd` used to exit on it.
+
+**Ownership is the sender's task slot.** Messenger stamps a request with the sender's
+slot. The owner id is `pid << 16 | slot`, with the pid read from the scheduler's task
+list (syscall 13, refreshed at most once per tick, decoded without allocating:
+`TaskSnapshot::live_pid`). **Known gap:** the kernel's pid is the slot number, so the
+pid adds nothing yet and a task that lands in a dead owner's slot before the sweep has
+reclaimed its sockets is taken for that owner. The remedy is a per-slot spawn counter
+in the task snapshot (a kernel ABI change with its own tests); the owner id already
+has the field for it. Every call on a socket goes through the table's `entry`,
+which refuses anyone but the owner (`EACCES`, counted in `not_owner` and logged as
+`NETD:DENY` for the first sixteen). A sweep every 20 ticks reclaims the sockets of
+owners no longer alive (`NETD:RECLAIM`), so a crashed client leaks nothing; if the
+task list cannot be read, nobody is reclaimed.
+
+**Parked calls.** `Connect`, `Accept`, `Send` (buffer full), `Recv`, `RecvFrom` and
+`Poll` try the operation first; if it cannot finish, the transaction is kept (at most
+4 per owner, 32 in all, `EAGAIN` past either) and retried after every poll of the
+stack. A parked call ends with its result, with `ETIMEDOUT` at its deadline (10 ms to
+60 s, 0 meaning 60 s), or with `EBADF` if its socket is closed under it. The event
+loop's wait is the minimum of smoltcp's next timer, the nearest parked deadline and
+the next sweep. A `Connect` that timed out leaves the handshake running; calling again
+waits for the same attempt.
+
+**Limits.** 64 sockets, 8 per owner, 16 KiB of buffer each way per stream (8
+datagrams of 1472 bytes for UDP), a listener's backlog is at most 8 smoltcp sockets
+(one connection each), at most 32 closed streams finishing in the background (the
+oldest is aborted past that, and any stream lingers at most 30 s). Nothing is sized
+by a client. Port numbers below 1024 are refused to everyone (`netd` cannot read a
+caller's `CAP_NET_BIND` yet); ephemeral ports start at a seeded offset.
+
+**Names.** `Resolve(name, timeout_ms)` is a parked call on `stack.v1`: the name is
+validated (`valid_host_name`), a dotted quad is answered at once, anything else goes to
+the first resolver DHCP gave through smoltcp's DNS socket, with a deadline of its own.
+At most 8 lookups run (4 per caller). `ENOENT` is the resolver saying the name has no
+address, `ENETUNREACH` is no address or no resolver. `ping` resolves names through it,
+and `nslookup` is a thin client.
+
+**Tools.** `nc [-u] [-l] [-i] [-n] [-x] [-w secs] [-g bytes] <host> <port> [text...]`:
+connects (or listens for one connection), sends the text and a newline, prints what
+comes back until the peer closes or `-w` idle seconds pass. `-g` sends a deterministic
+byte stream and `-x` checks the echo against it (`-l -x` is an echo server). Native
+programs have only a blocking `read_char`, no end-of-input, so `-i` relays one typed
+line at a time (an empty line ends it) and there is no streaming both ways.
+
+**Access rules.** `libs/netpolicy` now names the `socket.v1` methods and `Resolve`:
+every method is open to every caller for now (N6 narrows it per profile); the kernel
+test `net_call_rules_decide_who_may_call_what` loads the table into the real ACL.
+Ownership and quotas are `netd`'s own and hold whatever the table says.
+
+### N3 evidence
+
+`python tools/net/run.py --netd` goes on after the N2 clients with `nslookup
+localhost`, three `nc -x` clients against the harness's echo servers on the gateway
+(TCP 47771: a line and 200 000 generated bytes; UDP 47772: a datagram),
+`netctl sockprobe=1`, `netctl socksoak=40`, and an `nc -l -x` listener on 47773 that the
+harness reaches through a `hostfwd` rule and feeds 150 000 bytes. The verdict is the
+capture (`sockets_pcap.py`) next to what the host servers recorded:
+
+* every TCP flow to the echo port has a complete handshake, valid checksums, streams
+  that reassemble without a gap, the same bytes echoed back, and a FIN from both sides;
+  the set of (length, SHA-256) of the guest's streams equals the server's;
+* connections to the closed port (the probe's and the soak's every eighth) are never
+  established; resets are reported, not required (QEMU stays silent on some hosts);
+* every UDP datagram is echoed with the same payload and the server saw exactly those;
+* a well-formed A query for `localhost` left for the resolver (its answer is reported
+  when the host network gave one);
+* the harness's inbound connection: handshake, its bytes in, the same bytes out.
+
+`python tools/net/test_sockets_pcap.py` feeds the checker broken captures (a flipped
+byte, a short echo, a lost segment, a missing FIN, no handshake, a bad checksum, an
+unanswered datagram, a query for the wrong name, a server that saw other bytes).
+
+| Layer | What | Run |
+|---|---|---|
+| Host unit | `netstack` (60 tests): TCP transfer both ways, 100 kB in order, full buffers and recovery, close and shutdown, refusal, ownership, hostile arguments, port reuse, quotas, listener, UDP both ways, truncation, connected UDP, reclaim, 300 connect/close cycles with no leak, 2 000 datagrams, name lookups (answer, NXDOMAIN, silent resolver, literals, hostile names, limits, 200 in a row) | `cargo test -p netstack` |
+| Seeded fuzz | Random socket calls (valid and invalid ids, every call in every state) between two stacks, bounds checked every step | `cargo test -p netstack random_socket` (`FUZZ_CASES=N` for longer) |
+| Probe | `netctl sockprobe=1`: foreign interface and method, garbage and empty bodies, ids that name nothing, every bad argument, quotas, the parked-call cap and honest timeouts, `Close` under a waiter, a second task refused on every call, an oversized request, a refused connection | in the demo |
+| Soak | `netctl socksoak=40`: connect, echo, close, UDP echo, listener open/close and a refused connection per round; sockets open back to the start, opened = closed, byte counters, and `netd`'s handles and buffers unchanged | in the demo |
+| Harness unit | The TCP/UDP/DNS judge must fail when it should | `python tools/net/test_sockets_pcap.py` |
+| End to end | The capture-judged run with the host servers | `python tools/net/run.py --netd` |
+
+### What testing found (N3)
+
+* The first part of N3 had landed `sockets.rs` and `tcp.rs` without wiring them into
+  the stack (no `mod`, no table field, no UDP half), so nothing had compiled them.
+  The back-to-back host tests (`testpair.rs`) are what made them real.
+* A closing stream was only reaped once smoltcp said `Closed`; the side that closes
+  first sits in TIME-WAIT, so every socket the soak closed stayed in the closing list
+  until the 32-entry cap aborted the oldest. `reap_closing` now treats TIME-WAIT as
+  done (`retire` already did).
+* The probe's 48 KiB `Send` made `netd` exit: a request larger than the receive buffer
+  fails the `recv` with `E2BIG` after the kernel has consumed it, and the loop treated
+  every receive error as fatal. It now counts the request, logs `NETD:OVERSIZE` and carries on.
+* Slots are reused, so a socket keyed by the sender's slot can pass to the next task
+  there. Review caught that the pid does not prevent this (it is the slot); the
+  owner id is shaped for a spawn counter but the kernel does not supply one yet.
+* On this Windows host QEMU's user networking never answers a SYN to a closed host
+  port, where Linux hosts reset it. A connection that must fail therefore ends in
+  `ECONNREFUSED` or `ETIMEDOUT`, and the capture check requires only that none was established.
+* An empty `Open` body is a valid stream `Open` (all fields default); the probe had
+  wrongly expected it to be refused.
+
 ## Not done
 
-Sockets, `nc`, `ftp`, the Linux `AF_INET` shim (N3 to N5); DNS lookups (the stack
-keeps the resolvers it is told about; nothing queries them yet); refusing
-`nic.v1` and `stack.v1` calls from non-owners in the ACL (waits for a policy
-loader, so `Renew` and `Reattach` are callable by anyone today); releasing a
-parked `Ping` when its caller cancels, times out or dies (`netd` learns of the
-end only when the stack reports a result, so an abandoned ping holds one of the
-8 slots until its timeout, at most 60 s, which two callers can use to make
-others see `EAGAIN` for that long); a shared module for the PCI bring-up that `sndd` and `netdrv` both carry,
-and `sndd`'s `discard_transfers` leaving extra transferred handles open; `devd` (the driver is started by `init`'s manifest or
-the kernel directly); MSI/MSI-X (INTx only); checksum/segmentation offload and
-jumbo frames; a second NIC driver (e1000); a tickless serve loop (the loop wakes
-every 2 ticks while a client is attached, and every 20 otherwise).
+The `ftp` client (N4); the Linux `AF_INET` shim (N5); per-profile tightening of the
+socket rules and a policy loader (the ACL refuses nothing today, so `Renew` and
+`Reattach` are callable by anyone); `CAP_NET_BIND` (nobody binds a port below
+1024) and `CAP_NET_RAW`; loopback (a socket cannot connect to this machine's own
+address); IPv6; a shared-ring data plane (bytes travel in parcels, one copy each
+way); `Poll` over many sockets in one call; a request-size limit that answers
+instead of dropping (a request over about 20 KiB is consumed by the kernel and
+cannot be read, so the sender waits for its own deadline); a parked `Ping` or
+`Resolve` is not released when its caller cancels or dies (`netd` learns of the end only when the stack
+reports a result, so an abandoned one holds a slot until its timeout, at most
+60 s, which two callers can use to make others see `EAGAIN` for that long; parked
+*socket* calls are tidied when their owner is reclaimed); the host-dependence of
+the refused-connection evidence (QEMU's user networking answers a connection to a
+closed host port with a reset on Linux and with silence on Windows, so the
+harness requires only that no such connection was established); a shared module
+for the PCI bring-up that `sndd` and `netdrv` both carry, and `sndd`'s
+`discard_transfers` leaving extra transferred handles open; `devd` (the driver is
+started by `init`'s manifest or the kernel directly); MSI/MSI-X (INTx only);
+checksum/segmentation offload and jumbo frames; a second NIC driver (e1000); a
+tickless serve loop (the loop wakes every 2 ticks while a client is attached, and
+every 20 otherwise).

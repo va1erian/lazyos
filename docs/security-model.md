@@ -12,7 +12,9 @@ identity, and explained if denied.**
 
 This document is the target model. As of 2026-09-28 the kernel and services
 implement the following; everything else below is specification
-([`architecture/ipc-security.md`](architecture/ipc-security.md) has the detail):
+([`architecture/ipc-security.md`](architecture/ipc-security.md) has the detail;
+[`security-hardening-plan.md`](security-hardening-plan.md) is the plan to close
+the gap):
 
 | Implemented | Specified only |
 |---|---|
