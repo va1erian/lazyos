@@ -58,6 +58,9 @@ const PROGRAMS: &[(&str, &str)] = &[
     // The NIC control tool (docs/networking-plan.md N1): `nicctl [arp]` shows
     // the card and its counters. On the image only with `LAZYOS_NET=1`.
     ("nicctl", fhs::boot::NICCTL_ELF),
+    // The device viewer (issue #481): `devctl [devices | rules | denials]`.
+    // On the image with any userspace driver.
+    ("devctl", fhs::boot::DEVCTL_ELF),
     // The network stack's tools (docs/networking-plan.md N2): `netctl [addr |
     // route | stats | ...]` and `ping <a.b.c.d> [count]`. On the image only
     // with `LAZYOS_NETD=1`.

@@ -23,6 +23,7 @@ interface (see [`docs/driver-plan.md`](../driver-plan.md)).
 | `kernel/src/dev/claims.rs` | Userspace claims: rights, `Device` handle, interrupt binding and state, BAR mappings |
 | `kernel/src/dev/grant.rs`, `class.rs` | The grant rule; PCI class to `os.kernel.dev.<class>` ids and method ids |
 | `kernel/src/dev/syscall.rs`, `ops.rs`, `dma.rs` | Syscall 23: `list`/`claim`/`release`/`irq_*`; `map_bar`/`pio`/`cfg_*`; `dma_alloc` |
+| `kernel/src/dev/policy.rs`, `inspect.rs` | The driver class rules installed at boot (#481); the read-only `inventory`/`policy`/`denials` ops |
 | `kernel/src/dev/teardown.rs`, `report.rs`, `selfcheck.rs` | Release on exit; audit records; the `DEV:IRQ`/`DEV:SYSCALL`/`DEV:DMA` boot lines and routing log |
 | `kernel/src/mem/dma.rs` | Boot-time contiguous DMA pool: bitmap, first-fit with alignment, stats |
 | `kernel/src/ipc/shared/dma.rs` | `create_from_frames`: a Buffer over an existing contiguous run, `DmaOwner` |
@@ -100,6 +101,33 @@ part is stopped at exit: `process::finish` marks the slot and
 `dev::silence_exited` (run from the interrupt bottom half and from `finish`)
 takes its claims out of interrupt delivery, masks a line nobody else listens
 on, and clears the function's decode/bus-master enables.
+
+**Driver class rules (#481).** Each driver's device-class rules are data in
+its own crate (`libs/netpolicy`, `libs/usbpolicy`, `libs/sndpolicy`: claim,
+map and DMA on its one class). `dev::policy::install_boot_policy` compiles
+them in and installs them right after enumeration (`DEV:POLICY rules=9`),
+before `init` can start a driver. The set is separate from the Messenger uid
+policy, which is still in its bootstrap window: loading the driver rules there
+would default-deny every other Messenger call. `claim` must pass both; once
+installed, a non-root uid may claim, map or DMA a class only if a rule allows
+it (first match wins), and a refusal is audited as `CLASS_DENIED` (`0x22`).
+Root keeps its ambient authority (the harness images boot drivers as root, and
+root can become any driver uid anyway); the in-kernel drivers and the PS/2 and
+display paths never call `claim`. The kernel suite installs the same policy
+(`dev_sys_boot_policy_*`), and each driver proves it on a real boot under its
+harness flag: `user::dev::inspect::cross_class_probe` tries every device of
+another class and prints `DEV:CROSSCLAIM:<snd|net|usb>:PASS` when all were
+refused with `EACCES`; the sound, net and USB judges require it in their
+`--services` runs.
+
+**Seeing it (#481).** Three read-only ops (10-12, `dev/inspect.rs`, layouts
+in `libs/devinspect`) show the inventory with each owner's uid and rights,
+the installed rules, and the refused claims (`CAP_AUDIT_READ`). Nothing can
+edit the rules at run time, on purpose. `devctl [devices|rules|denials]` prints
+them from a shell; the **Devices** desktop app (`xui-app/src/bin/devices.rs`,
+Start menu, or `python tools/run_demo.py --devices` to open it at boot) shows
+the same and refreshes every two seconds
+(`tools/screenshot/examples/devices_desktop.json` drives both).
 
 **The interrupt endpoint (partly hardened, #283).** Kernel-stamped
 `os.kernel.dev` messages are posted into the inbox of the channel side named at

@@ -36,7 +36,16 @@ fn netfix() -> Option<PathBuf> {
 /// Embed the drivers this build asked for. The desktop profile always ships the
 /// sound stack, so its shell has `beep`.
 pub fn embed(builder: &mut bootloader::DiskImageBuilder, desktop: bool) {
-    if desktop || enabled("LAZYOS_SOUND") {
+    let sound = desktop || enabled("LAZYOS_SOUND");
+    let usb = enabled("LAZYOS_USB");
+    let netd = enabled("LAZYOS_NETD");
+    let net = netd || enabled("LAZYOS_NET");
+    // `devctl` (issue #481) shows the devices, who owns them and the class
+    // rules that confine each driver: wherever there is a driver to look at.
+    if sound || usb || net {
+        add(builder, "DEVCTL.ELF", "devctl");
+    }
+    if sound {
         add(builder, "SNDD.ELF", "sndd");
         // `beep`, the smallest audio client: `sndd` spawns it under `demo=1`.
         add(builder, "BEEP.ELF", "beep");
@@ -44,12 +53,11 @@ pub fn embed(builder: &mut bootloader::DiskImageBuilder, desktop: bool) {
         add(builder, "MODPLAY.ELF", "modplay");
     }
     // The USB HID driver (docs/usb-hid-plan.md U2).
-    if enabled("LAZYOS_USB") {
+    if usb {
         add(builder, "USBD.ELF", "usbd");
     }
     // `LAZYOS_NETD=1` adds the stack service and its tools, and needs the driver.
-    let netd = enabled("LAZYOS_NETD");
-    if netd || enabled("LAZYOS_NET") {
+    if net {
         add(builder, "NETDRV.ELF", "netdrv");
         // `nicctl` prints the card and carries the evidence clients the driver
         // spawns under `demo=1`.

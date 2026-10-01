@@ -168,6 +168,8 @@ pub static APPS: &[AppSpec] = &[
     linux_console_app("shell", "Console Shell", "sh"),
     xui_app("sysmon", "System Monitor", fhs::boot::XSYSMON_ELF),
     xui_app("fabricmon", "Fabric Monitor", fhs::boot::XFABMON_ELF),
+    // Devices, owners, rights and the driver class rules (issue #481).
+    xui_app("devices", "Devices", fhs::boot::XDEVICES_ELF),
     xui_app("widget", "CPU & Memory", fhs::boot::XWIDGET_ELF),
     xui_app("counter", "Counter", fhs::boot::XCOUNTR_ELF),
     xui_app_verbs("docs", "Docs", fhs::boot::XDOCS_ELF, &["open", "view"]),

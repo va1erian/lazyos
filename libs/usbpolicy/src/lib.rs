@@ -3,11 +3,12 @@
 //!
 //! Policy is a list of `(actor uid, interface, method, allow)` rules the kernel
 //! evaluates first-match, default deny once a policy is installed
-//! (`docs/architecture/ipc-security.md`). Like `libs/netpolicy`, these rules
-//! refuse nothing until a loader exists: they are named and tested now so that
-//! `usbd` keeps its controller and nothing else gets one the moment policy
-//! loads. The kernel test suite loads exactly this table and checks the
-//! decisions it yields (`dev_suite::sys_usb_driver_policy_is_exactly_the_class_rules`).
+//! (`docs/architecture/ipc-security.md`). The kernel installs this table at
+//! boot with every other driver's class rules (`dev::policy`, issue #481), so
+//! `usbd` keeps its controller and no other driver uid gets one. The kernel
+//! test suite checks the decisions it yields
+//! (`dev_suite::sys_usb_driver_policy_is_exactly_the_class_rules`,
+//! `dev_suite::sys_boot_policy_confines_each_driver_to_its_class`).
 
 #![no_std]
 

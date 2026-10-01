@@ -52,6 +52,9 @@ pub mod reason {
     pub const DMA_RECORD_FULL: u32 = 0x20;
     /// The bus-address copy-out to userspace faulted; the allocation was undone.
     pub const DMA_FAULT: u32 = 0x21;
+    /// The driver class rules (`dev::policy`) do not give the caller's uid
+    /// this device class.
+    pub const CLASS_DENIED: u32 = 0x22;
 }
 
 /// Tag in the correlation id marking it as a device id, not a transaction.

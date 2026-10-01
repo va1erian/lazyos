@@ -169,6 +169,8 @@ fn run(args: &Args) -> Result<(), Error> {
         ));
     }
     if args.demo {
+        // Boot evidence (issue #481): `_snd` cannot claim another class.
+        user::dev::inspect::cross_class_probe("snd");
         self_test(&mut card, &infos, args)?;
     }
     serve(card, &infos, args.demo)

@@ -559,9 +559,10 @@ Kept current as stages land; the reasoning for each is where it is used.
   `netdrv` parks, because its `init` row restarts it on any exit (a restart-class
   setting change exits 0 by design) and a restart loop on a missing device would
   end in `Failed`.
-- *Class ACL rules are data plus a kernel test.* There is no policy loader yet
-  (`acl::load` has no caller but tests), so a rule table in some service would
-  be dead code. `libs/netpolicy` holds the rules (`_net`: claim, map and DMA on
+- *Class ACL rules are data the kernel installs at boot.* `libs/netpolicy`
+  holds the rules, and since issue #481 `dev::policy` installs them (with
+  `_usb`'s and `_snd`'s) before `init` starts any driver, default deny for
+  every other non-root uid (`dev_sys_boot_policy_confines_each_driver_to_its_class`). The rules (`_net`: claim, map and DMA on
   `os.kernel.dev.net`), host tests pin their spelling to the `midlc` ids, and
   `dev_sys_net_driver_policy_is_exactly_the_class_rules` loads them into the real
   ACL and checks the decisions, including that root is refused the class. The

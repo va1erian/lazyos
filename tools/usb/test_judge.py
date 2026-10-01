@@ -14,6 +14,7 @@ KBD = judge.GOLDEN["KBD"]
 MOUSE = judge.GOLDEN["MOUSE"]
 
 GOOD = f"""usbd: USB HID driver
+DEV:CROSSCLAIM:usb:PASS uid=904 own=1 refused=6
 USBD:XHCI version=0x100 ports=8 slots=8 scratchpads=0 csz64=false
 USBD:PORT port=5 speed=High
 USBD:DESC:DEVICE port=5 {KBD[0]}
@@ -43,6 +44,13 @@ class Judge(unittest.TestCase):
 
     def assertFails(self, log, mouse=True):
         self.assertNotEqual(judge.judge(log, mouse), [], "the judge passed a bad log")
+
+    def test_crossclaim(self):
+        self.assertFails(GOOD.replace("DEV:CROSSCLAIM:usb:PASS", "DEV:CROSSCLAIM:usb:SKIP"))
+        self.assertFails(GOOD.replace(
+            "DEV:CROSSCLAIM:usb:PASS uid=904 own=1 refused=6",
+            "DEV:CROSSCLAIM:usb:FAIL uid=904 claimed device 3 (net)",
+        ))
 
     def test_missing_controller(self):
         self.assertFails(GOOD.replace("USBD:XHCI ", "USBD:XHCX "))

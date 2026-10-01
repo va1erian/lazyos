@@ -111,7 +111,19 @@ def judge(log: str, mouse: bool) -> list[str]:
     failures += judge_keys(log)
     if mouse:
         failures += judge_pointer(log)
+    failures += judge_crossclaim(log)
     return failures
+
+
+def judge_crossclaim(log: str) -> list[str]:
+    """The boot class rules (issue #481): `usbd` (`trace=1`) tried to claim
+    every device of another class as `_usb`, and every claim was refused."""
+    if "DEV:CROSSCLAIM:usb:FAIL" in log:
+        line = next(l for l in log.splitlines() if "DEV:CROSSCLAIM:usb:FAIL" in l)
+        return [f"_usb is not confined to the usb class: {line}"]
+    if "DEV:CROSSCLAIM:usb:PASS" not in log:
+        return ["no DEV:CROSSCLAIM:usb:PASS: _usb was not shown to be confined to its class"]
+    return []
 
 
 def judge_keys(log: str) -> list[str]:

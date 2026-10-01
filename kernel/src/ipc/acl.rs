@@ -80,7 +80,7 @@ pub struct Rule {
 
 impl Rule {
     /// Whether this rule covers the call. Wildcards match anything.
-    fn matches(&self, authority: u32, interface_id: u64, method: u32) -> bool {
+    pub(crate) fn matches(&self, authority: u32, interface_id: u64, method: u32) -> bool {
         (self.actor == ANY_ACTOR || self.actor == authority)
             && (self.interface_id == ANY_INTERFACE || self.interface_id == interface_id)
             && (self.method == ANY_METHOD || self.method == method)

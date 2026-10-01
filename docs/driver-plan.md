@@ -152,6 +152,9 @@ user wrappers are `user/src/dev.rs`.
 | `irq_enable(dev, 0)` / `irq_ack(dev, 0)` | arm / acknowledge (unmask) | right `IRQ`; `ENOSYS` when the line is not PIC-routable |
 | `dma_alloc(dev, len, flags, out)` | physically contiguous frames as a **Buffer handle**; writes the bus address to `*out` | right `DMA`, quota `DmaMemory`; `flags` bit 0 `SHARE_ONLY`, bit 1 64-bit address OK; `len` 1..=4 MiB |
 | `release(dev)` | quiesce + free | owner |
+| `inventory(buf, rows)` (10) | read-only: each device's id, class, PCI ids, owner uid and claim rights | `os.kernel.dev` `inventory` (labelled apps refused) |
+| `policy(buf, rows)` (11) | read-only: the driver class rules installed at boot (`ENOENT` before) | `os.kernel.dev` `policy` |
+| `denials(buf, rows)` (12) | read-only: refused claims still in the audit ring, newest first | `CAP_AUDIT_READ`, `os.kernel.dev` `denials` |
 
 Every op re-checks the handle against the device table and the claim table
 (owner, generation), so a handle from another task, an earlier claim or a

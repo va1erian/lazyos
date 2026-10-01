@@ -26,6 +26,8 @@ Verdict (all must pass):
 
 - `tools/input/verify_trace.py --layout us`: `inputd` typed the expected text,
   modifiers, locks and key repeat (the same check the PS/2 input session uses);
+- `judge.py` requires `DEV:CROSSCLAIM:usb:PASS`: `usbd` (`trace=1`), as
+  `_usb`, tried every device of another class and each was refused (#481).
 - `judge.py`: every key edge `inputd` decoded is one `usbd` sent (`USBD:KEY`,
   same usage and direction, same order); the cursor reached the corner, pressed
   left at (40, 30) and scrolled two notches; the device and configuration

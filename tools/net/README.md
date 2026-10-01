@@ -74,6 +74,7 @@ manifest with `LAZYOS_SERVICES=1`). The guest prints, in order:
 | `NICCTL:ARP:PASS` | a real client attached rings and exchanged ARP with the gateway |
 | `NICCTL:PROBE:PASS checks=40` | malformed and hostile requests were all refused correctly and the frame-length policy held; the driver survived a client that corrupted its own ring |
 | `NICCTL:INTRUDER:PASS checks=5` | a second task was refused on the owner's ring |
+| `DEV:CROSSCLAIM:net:PASS` | `--services`: as `_net`, every device of another class was refused (`SKIP` as root) |
 | `NICCTL:SOAK:PASS iterations=40` | 40 attach/exchange/detach cycles leaked no handle, endpoint, buffer or mapping |
 
 The harness waits for all of them (or any `FAIL`), stops QEMU through QMP so the

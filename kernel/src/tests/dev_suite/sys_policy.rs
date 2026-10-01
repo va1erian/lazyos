@@ -3,9 +3,10 @@
 //! `claim`, and the call rules for the NIC driver and the stack service through
 //! the kernel's own evaluation.
 //!
-//! The rules live in a host-tested data crate because nothing loads a policy at
-//! boot yet; these tests prove the tables do what their docs say when something
-//! does: `_net` may claim, map and DMA a net-class device and nothing else, no
+//! The rules live in a host-tested data crate; the kernel installs the class
+//! rules at boot (`dev::policy`, tested in `sys_boot_policy`), and the call
+//! rules wait for a Messenger policy loader. These tests load the tables into
+//! the Messenger ACL itself and prove they do what their docs say: `_net` may claim, map and DMA a net-class device and nothing else, no
 //! other uid gets the net class, `_netd` is the NIC driver's client, and an
 //! application can read the network and ping but not attach to the card.
 
