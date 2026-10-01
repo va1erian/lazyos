@@ -9,7 +9,7 @@
 //! | 18 | `mkdir` | path | - | - | 0 |
 //! | 19 | `unlink` | path | - | - | 0 |
 //! | 20 | `rename` | from | to | - | 0 |
-//! | 21 | `power` | op | - | - | (see [`super::power`]) |
+//! | 21 | `power` | op | arg | - | (see [`super::power`]) |
 //! | 22 | `fsync` | path | - | - | 0 |
 //! | 28 | `append_file` | path | data | data length | bytes written |
 //!
@@ -98,7 +98,7 @@ pub fn dispatch(nr: u64, a1: u64, a2: u64, a3: u64) -> u64 {
         20 => path_arg(a1)
             .and_then(|from| Ok((from, path_arg(a2)?)))
             .and_then(|(from, to)| rename(&from, &to)),
-        21 => return super::power::dispatch(a1),
+        21 => return super::power::dispatch(a1, a2),
         22 => path_arg(a1).and_then(|path| fsync(&path)),
         28 => append_file(a1, a2, a3),
         _ => return u64::MAX,

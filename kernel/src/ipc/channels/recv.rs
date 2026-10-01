@@ -201,6 +201,13 @@ pub fn recv(handle: u64, deadline: Option<u64>) -> Result<Message, Error> {
         if reason == WakeReason::TimedOut {
             return Err(Error::TimedOut);
         }
+        // A fatal signal (a supervisor's `SIGTERM` during an orderly
+        // shutdown) must reach the syscall return, where the native gate ends
+        // the task; parking again would keep it alive until `SIGKILL`. The
+        // task never sees this error.
+        if reason == WakeReason::Interrupted && task::signal::native_fatal_pending(me).is_some() {
+            return Err(Error::Canceled);
+        }
     }
 }
 

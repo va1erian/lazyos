@@ -159,6 +159,11 @@ pub const NETCTL_ELF: &str = "NETCTL.ELF";
 /// `timectl`, the time service client. Written by the image build. Target (F3): "/system/bin/timectl".
 pub const TIMECTL_ELF: &str = "TIMECTL.ELF";
 
+/// `powerctl`, the orderly shutdown/reboot command (docs/shutdown.md): the
+/// shell's `shutdown`, `poweroff`, `halt` and `reboot` run it. Written by the
+/// image build. Target (F3): "/system/bin/powerctl".
+pub const POWERCTL_ELF: &str = "POWERCTL.ELF";
+
 /// `ping`. Written by the image build. Target (F3): "/system/bin/ping".
 pub const PING_ELF: &str = "PING.ELF";
 

@@ -13,6 +13,7 @@ use super::{errno, registry, Endpoint, Error, Result};
 
 pub mod health;
 pub mod init;
+pub mod lifecycle;
 pub mod logd;
 pub mod sysmond;
 
@@ -21,8 +22,9 @@ pub use init::{
     decode_apps, decode_launch, decode_launch_request, decode_stop_request, error_field,
     fetch_apps, fetch_apps_with, fetch_services, fetch_services_with, init_error_reply, launch,
     launch_app, launch_by, launch_reply, launch_request, list_apps_reply, list_apps_request,
-    service_event_name, services_reply, services_request, stop, stop_reply, stop_request, AppInfo,
-    LaunchRequest, LaunchResult, ServiceEvent, ServiceStatus,
+    service_event_name, services_reply, services_request, shutdown, shutdown_reply, shutdown_request,
+    stop, stop_reply, stop_request, AppInfo, LaunchRequest, LaunchResult, PowerState, ServiceEvent,
+    ServiceStatus, POWER_MODE_POWER_OFF, POWER_MODE_REBOOT,
 };
 pub use logd::{
     decode_log_records, fetch_log_count, fetch_log_tail, fetch_log_verify, log_count_reply,

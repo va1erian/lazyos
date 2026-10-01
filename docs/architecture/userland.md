@@ -69,7 +69,8 @@ See [processes.md](processes.md) and [display.md](display.md).
 
 | Binary | Image | Role | Started by |
 |---|---|---|---|
-| `init` / `messengerd` | `SUPER` / `MSGRD.ELF` | Supervisor (manifest, spawn/wait, restart backoff, app registry + `Launch`; `XAPPS.LST` decides which registered apps the image ships, and `autostart` rows open at boot as the desktop's apps, #215/#216) / bootstrap registry proxy and topics broker | kernel / `init` |
+| `init` / `messengerd` | `SUPER` / `MSGRD.ELF` | Supervisor (manifest, spawn/wait, restart backoff, app registry + `Launch`; `XAPPS.LST` decides which registered apps the image ships, and `autostart` rows open at boot as the desktop's apps, #215/#216; the orderly `Shutdown`: apps, then services in reverse dependency order, then the kernel's `power`, see [../shutdown.md](../shutdown.md)) / bootstrap registry proxy and topics broker | kernel / `init` |
+| `powerctl` | `POWERCTL.ELF` | `powerctl poweroff\|reboot [-f] [reason]`: asks `init` for an orderly stop; the shell's `shutdown`, `poweroff`, `halt` and `reboot` run it ([../shutdown.md](../shutdown.md)) | shell (`sh` native exec) |
 | `logd` / `healthd` | `LOGD` / `HEALTHD.ELF` | Hash-chained event log / retained `system/health/*` aggregation | `init` |
 | `keyd` / `accountsd` / `logind` | `KEYD` / `ACCTD` / `LOGIND.ELF` | Secrets and crypto (#102) / accounts (#101) / console login and credentialed spawn | `init` |
 | `clipboardd` / `mimed` / `flaky` | `CLIPD` / `MIMED` / `FLAKY.ELF` | Per-session clipboard (#115) / MIME and open-with (#116) / crash-test service (#93, never started by `LAZYOS_DESKTOP=1`) | `init` |
@@ -89,7 +90,10 @@ See [processes.md](processes.md) and [display.md](display.md).
 (`messengerctl`) and `faultprobe` are reachable by name from BusyBox `sh` (console
 and desktop Terminal); the kernel's `execve` runs them as a native child of the
 shell's fork child. `top` is not shipped in the `LAZYOS_DESKTOP=1` image (`not
-found` there). Details and limits: [processes.md](processes.md).
+found` there). `shutdown`, `poweroff`, `halt` and `reboot` run `powerctl` with
+the mode as its first argument, so they reach `init`'s orderly shutdown instead
+of BusyBox's applets ([../shutdown.md](../shutdown.md)). Details and limits:
+[processes.md](processes.md).
 
 **The `rhai` command** (issue #319, step R0 of the
 [Rhai plan](../rhai-plan.md)). An

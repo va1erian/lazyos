@@ -134,6 +134,11 @@ impl Compositor {
             draw_alt_tab(screen, surfaces, tab, damage);
         }
         super::menu::draw(screen, damage);
+        // The shutting-down screen covers everything, cursor included.
+        if super::powerfeed::active() {
+            super::powerfeed::draw(screen, damage);
+            return;
+        }
         screen.cursor(self.pointer.0, self.pointer.1, damage);
     }
 }

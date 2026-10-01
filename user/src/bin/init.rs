@@ -61,6 +61,14 @@
 //! argument string on every spawn, so a service can distinguish a restart; that
 //! is how `FLAKY.ELF` crashes exactly once.
 //!
+//! # Shutdown and reboot
+//!
+//! `Shutdown(mode, reason, force)` is the only way the machine stops: `init`
+//! stops the session apps, then the services in reverse dependency order
+//! (`stop_order`), and calls the kernel's `power` last (`shutdown`;
+//! docs/shutdown.md). From the request on, nothing restarts and `Launch` is
+//! refused with `-EBUSY`.
+//!
 //! Boot it with `LAZYOS_SERVICES=1` (see the kernel build script).
 
 #![no_std]
@@ -82,10 +90,14 @@ mod protocol;
 mod selftest;
 #[path = "init/service.rs"]
 mod service;
+#[path = "init/shutdown.rs"]
+mod shutdown;
 #[path = "init/state.rs"]
 mod state;
 #[path = "init/stop.rs"]
 mod stop;
+#[path = "init/stop_order.rs"]
+mod stop_order;
 #[path = "init/supervise.rs"]
 mod supervise;
 
@@ -97,7 +109,7 @@ use user::sys;
 
 use autostart::Autostart;
 use installed::InstalledApps;
-use protocol::{serve_pending, StatusCache};
+use protocol::{serve_pending, StatusCache, Supervisor};
 use selftest::{selftest_launch_args, selftest_launch_cap, selftest_launch_policy, LaunchSelftest};
 use state::{Phase, Service, BOOT_EVIDENCE, BOOT_SELFTESTS, MANIFEST};
 use supervise::{child_exited, spawn_service, start_ready, wake_deadline};
@@ -141,6 +153,7 @@ fn run() -> messenger::Result<()> {
         selftest_launch_policy();
         selftest_launch_cap();
         selftest_launch_args();
+        stop_order::selftest_stop_order();
     }
     start_ready(&mut services, &mut broker);
     // One receive buffer for the whole life of the supervisor: the user bump
@@ -151,37 +164,52 @@ fn run() -> messenger::Result<()> {
     let mut selftest = LaunchSelftest::new();
     let mut autostart = Autostart::new();
     let mut installed = InstalledApps::new();
+    // Set by a `Shutdown` request; from then on nothing starts or restarts and
+    // the loop steps the shutdown instead (docs/shutdown.md).
+    let mut shutdown: Option<shutdown::Shutdown> = None;
 
     loop {
-        // A restart whose backoff elapsed.
         let now = sys::clock();
-        for index in 0..services.len() {
-            if services[index].phase == Phase::Restarting && services[index].next_start <= now {
-                spawn_service(&mut services, index, &mut broker);
+        if shutdown.is_none() {
+            // A restart whose backoff elapsed.
+            for index in 0..services.len() {
+                if services[index].phase == Phase::Restarting && services[index].next_start <= now
+                {
+                    spawn_service(&mut services, index, &mut broker);
+                }
             }
+            // The boot launch self-test: spawn `TOP.ELF` through the real
+            // launch path once a task slot is free (the manifest's one-shot
+            // `top` exits around here), proving `Launch` end to end in a
+            // headless boot.
+            if BOOT_EVIDENCE {
+                selftest.step(&mut services, &mut broker, now);
+            }
+            // The desktop's apps (issue #215): open the shipped `autostart` rows.
+            autostart.step(&mut services, &mut broker, now);
         }
-        // The boot launch self-test: spawn `TOP.ELF` through the real launch
-        // path once a task slot is free (the manifest's one-shot `top` exits
-        // around here), proving `Launch` end to end in a headless boot.
-        if BOOT_EVIDENCE {
-            selftest.step(&mut services, &mut broker, now);
-        }
-        // The desktop's apps (issue #215): open the shipped `autostart` rows.
-        autostart.step(&mut services, &mut broker, now);
         // Reap one exit (or time out to serve requests).
         if let Some((pid, status)) = sys::wait(wake_deadline(&services, now)) {
             child_exited(&mut services, pid, status, &mut broker);
             // The exit may unblock dependents (only a stop can; still cheap).
-            start_ready(&mut services, &mut broker);
+            if shutdown.is_none() {
+                start_ready(&mut services, &mut broker);
+            }
         }
         serve_pending(
-            &mut services,
-            &mut broker,
-            &mut installed,
+            &mut Supervisor {
+                services: &mut services,
+                broker: &mut broker,
+                installed: &mut installed,
+                cache: &mut cache,
+                shutdown: &mut shutdown,
+            },
             &server,
             &mut buffer,
-            &mut cache,
         )?;
+        if let Some(running) = &mut shutdown {
+            running.step(&mut services, &mut broker);
+        }
     }
 }
 

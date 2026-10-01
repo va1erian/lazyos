@@ -125,6 +125,14 @@ pub fn cwd_holders(slot: usize) -> usize {
         .map_or(0, alloc::sync::Arc::strong_count)
 }
 
+/// Give a test task the personality `spawn` would (`spawn_fork` makes Linux
+/// tasks; the native syscall paths need native ones).
+pub fn set_kind(index: usize, kind: super::Kind) {
+    if let Some(task) = TASKS.lock()[index].as_mut() {
+        task.kind = kind;
+    }
+}
+
 /// The state of task `index`.
 pub fn state(index: usize) -> Option<TaskState> {
     TASKS.lock()[index].as_ref().map(|task| task.state)

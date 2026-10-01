@@ -45,6 +45,7 @@ delivery.
 | Boundary | Path | Covers |
 |---|---|---|
 | Linux syscall return | `deliver_linux` (`signal/deliver.rs`) | any Linux task; result recorded as `rax` in the frame |
+| Native syscall return | `deliver_native` (`signal/native.rs`) | native `int 0x80` tasks: a pending default-fatal signal (term/core) ends the task before it returns to user mode, and a Messenger `recv` woken by one returns instead of parking again, so a service blocked in `recv` dies on `SIGTERM` (the orderly shutdown, [../shutdown.md](../shutdown.md)) rather than waiting for a tick to catch it in user mode |
 | Scheduler sweep | `sweep` (`signal/sweep.rs`) | native `int 0x80` tasks and Linux tasks preempted in user mode: default actions for all of them, handler frames only for the interrupted task's own process (the installed page table is the only one the frame can be written through) |
 | Scheduler resume | `deliver_on_resume` (`signal/sweep.rs`) | the task the scheduler switches to, once its table is installed: handler frames the sweep had to leave pending (#375) |
 | Page fault | `deliver_fault` (`signal/fault.rs`) | `SIGSEGV` with `SEGV_MAPERR`/`SEGV_ACCERR` |

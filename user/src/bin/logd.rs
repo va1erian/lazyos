@@ -23,6 +23,10 @@
 //! `false` and the in-memory ring is used. The decision lives in one place so
 //! the store plugs in where the S3 volume lands.
 //!
+//! On `init`'s lifecycle `Shutdown` (docs/shutdown.md) it drains its feeds a
+//! last time, prints `LOGD:STOP` with the record count and the chain's
+//! verdict, and exits 0; with a writable store that is where it would flush.
+//!
 //! Declared payloads are decoded back to their historic `key=value` text by
 //! [`payload`], with the raw-bytes fallback kept for undeclared topics.
 
@@ -40,6 +44,7 @@ use alloc::format;
 use alloc::vec::Vec;
 use core::panic::PanicInfo;
 use user::central;
+use user::messenger::services::lifecycle;
 use user::messenger::{self, registry, router, services, topics_client, Error, Message, Parcel};
 use user::sys;
 
@@ -81,7 +86,7 @@ fn run() -> messenger::Result<()> {
     registry::register(
         services::LOGD_NAME,
         &published,
-        &[services::LOGD_INTERFACE],
+        &[services::LOGD_INTERFACE, lifecycle::INTERFACE],
         0,
     )?;
     if WRITABLE_STORE {
@@ -199,6 +204,18 @@ fn run() -> messenger::Result<()> {
 
         match server.recv_with(&mut buffer, Some(sys::clock() + POLL_TICKS)) {
             Ok(message) => {
+                // An orderly shutdown (docs/shutdown.md): take in what the
+                // feeds still hold (the services' last stop events), then go.
+                if let Some(reason) = lifecycle::stop_requested(&message) {
+                    drain(&mut ring, &events, &mut printed, &mut buffer);
+                    drain(&mut ring, &health, &mut printed, &mut buffer);
+                    sys::write_str(&format!(
+                        "LOGD:STOP records={} verified={} reason=\"{reason}\"\n",
+                        ring.total,
+                        ring.verify().0
+                    ));
+                    return Ok(());
+                }
                 let reply = match dispatch(&ring, &message) {
                     Ok(parcel) => parcel,
                     Err(_) => services::log_count_reply(ring.total).unwrap_or_default(),

@@ -1,7 +1,8 @@
 //! The desktop context menu (issue #323): a compositor-owned popup, like the
 //! Alt+Tab overlay, opened by a right press on the bare desktop. Its entries
 //! come from confd ([`menuitems`](super::menuitems)) followed by the apps the
-//! package manager installed, and each launches an `init` registry app.
+//! package manager installed, and each launches an `init` registry app; the
+//! last rows restart or shut down the machine ([`powermenu`](super::powermenu)).
 //!
 //! The compositor is one task, so the open state lives in relaxed atomics
 //! (as `SHELL_DEAD` does) instead of being threaded through every `repaint`
@@ -14,6 +15,7 @@ use user::sys;
 
 use super::compositor::Compositor;
 use super::menuitems;
+use super::powermenu::{self, Outcome};
 use super::theme::{overlay_bg, overlay_border, overlay_selected, overlay_text, TASKBAR_H};
 use super::window::contains;
 
@@ -85,12 +87,15 @@ pub(super) fn open(at: (i32, i32), screen: (i32, i32)) -> Rect {
     rect(screen)
 }
 
-/// Close the menu; returns the damage to repaint (empty if it was closed).
+/// Close the menu (dropping a pending confirmation); returns the damage to
+/// repaint (empty if it was closed).
 pub(super) fn close(screen: (i32, i32)) -> Rect {
     if !OPEN.swap(false, Ordering::Relaxed) {
         return Rect::new(0, 0, 0, 0);
     }
-    rect(screen)
+    let damage = rect(screen);
+    menuitems::clear_confirm();
+    damage
 }
 
 /// Track the pointer; returns the damage when the highlight changed.
@@ -109,17 +114,20 @@ pub(super) fn hit(point: (i32, i32), screen: (i32, i32)) -> bool {
     is_open() && contains(rect(screen), point)
 }
 
-/// Activate the item under `point`, if any: launch it. The caller closes the
-/// menu either way.
-pub(super) fn activate(point: (i32, i32), screen: (i32, i32)) {
+/// Activate the item under `point`, if any: launch it, or act on a power row.
+/// Returns what the menu does next.
+pub(super) fn activate(point: (i32, i32), screen: (i32, i32)) -> Outcome {
     let count = menuitems::with(|items| items.len());
     let Some(index) = item_at(rect(screen), point, count) else {
-        return;
+        return Outcome::Close;
     };
     let Some(app) = menuitems::with(|items| items.get(index).map(|entry| entry.app.clone())) else {
-        return;
+        return Outcome::Close;
     };
     let app = app.as_str();
+    if powermenu::is_power_row(app) {
+        return powermenu::activate(app);
+    }
     let deadline = Some(sys::clock() + LAUNCH_TIMEOUT_TICKS);
     let result = services::resolve_service(INIT_NAME)
         .and_then(|init| services::launch_by(&init, app, "", 0, deadline));
@@ -138,6 +146,7 @@ pub(super) fn activate(point: (i32, i32), screen: (i32, i32)) {
             ));
         }
     }
+    Outcome::Close
 }
 
 /// Paint the menu over `clip` (no-op when closed).
@@ -208,11 +217,27 @@ impl Compositor {
         }
         let dims = (self.screen.width(), self.screen.height());
         let on_menu = hit(point, dims);
-        if on_menu && button == display::button::LEFT {
-            activate(point, dims);
+        let before = rect(dims);
+        let outcome = if on_menu && button == display::button::LEFT {
+            activate(point, dims)
+        } else {
+            Outcome::Close
+        };
+        match outcome {
+            Outcome::KeepOpen => {
+                // The rows changed (a confirmation): repaint old and new.
+                HOVER.store(-1, Ordering::Relaxed);
+                self.repaint(before.union(rect(dims)));
+            }
+            Outcome::Close => {
+                let damage = close(dims);
+                self.repaint(damage);
+            }
+            Outcome::CloseAndRepaint => {
+                close(dims);
+                self.repaint_full();
+            }
         }
-        let damage = close(dims);
-        self.repaint(damage);
         on_menu
     }
 
