@@ -33,6 +33,7 @@ messenger-generated = { path = "../libs/generated" }
 # The networking stack's access rules (docs/networking-plan.md N1): the in-kernel
 # suite loads this table into the real ACL and checks what it decides.
 netpolicy = { path = "../libs/netpolicy" }
+usbpolicy = { path = "../libs/usbpolicy" }
 libm = "0.2"
 libmessenger = { path = "../libs/messenger" }
 linked_list_allocator = "0.10"

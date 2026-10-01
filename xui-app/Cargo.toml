@@ -40,6 +40,9 @@ messenger-generated = { path = "../libs/generated" }
 libc = "0.2"
 # Well-known paths and boot-volume names (docs/filesystem-plan.md F0).
 fhs = { path = "../libs/fhs" }
+# The client half of the pipelined `Present` (issue #372): the same pure slot
+# state machine `xdemo` and the kernel display suite drive.
+surfbuf = { path = "../libs/surfbuf" }
 # The three portable apps, copied from `va1erian/xui` (unchanged by the canvas
 # bump) into `crates/`. Each is a workspace member so its own test suite runs on
 # the host; the `xui-editor`/`xui-paint`/`xui-files` binaries in `src/bin`

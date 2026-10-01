@@ -38,7 +38,7 @@ sessions (S6); GPU acceleration (S8).
 | Display protocol | `os.lazy.display.v1` methods 1-24: surfaces/buffers/commit, `Pointer*`/`Key*`, `WindowClose` (10), drag & drop (11-17), shell protocol (18-24: `ListSurfaces`, `GetWorkArea`, `Subscribe`, `GetTheme`, `SurfaceChanged`, `FocusChanged`, `StartMenu`) in `user/src/messenger/` (`display` module), defined in `idl/display.midl` | theme *write* path, resize |
 | XUI apps | `xui-app/` M0-M2 run the Counter on the display grant (#114); client mode runs xui apps in `xuid` windows with keyboard focus routing (#168, #151); `sysmon`/`fabricmon` viewers (#153) | LazyShell and the S5 apps themselves, timers/resize/DPI |
 | Session | `logind` console login spawns the user's shell with kernel-stamped uid/gid/session; `SESSION_CAPS` is empty; `os.lazy.logind` exposes the session table (`user/src/bin/logind.rs`) | per-session compositor/clipboard/topic grants, graphical session bundle, session end reaping |
-| Services | `messengerd` (#89, #92, #169 central broker), `init`/`logd`/`healthd` (#93), `keyd`/`accountsd`/`logind` (#101, #102), `clipboardd` (#115), `mimed` (#116), `sysmond` (#144); `init` app registry + `os.lazy.init.Launch` with session-owner check and supervision (#158) | `mimed.Open` still only publishes `system/events/open/<app>`; the task table (16 slots) is full under the services image |
+| Services | `messengerd` (#89, #92, #169 central broker), `init`/`logd`/`healthd` (#93), `keyd`/`accountsd`/`logind` (#101, #102), `clipboardd` (#115), `mimed` (#116), `confd` (#260), `timed` (#369), `inputd`, `pkgd`, `sysmond` (#144); `init` app registry + `os.lazy.init.Launch`/`Stop` with session-owner check and supervision (#158) | `mimed.Open` still only publishes `system/events/open/<app>` |
 | Shell/apps | native `sh` + BusyBox; the xuid fallback taskbar; `shellprobe` proves the shell protocol; no desktop, start menu, Files, Settings | all of S5's user-visible surface |
 | Theme | xuid hard-codes its palette; the vendored XUI backend has a `set_theme` seam | one theme format, Win95 + dark, live selection |
 | Evidence | `qemu_shot`/`qemu_session` + `pngstats.py`; the kernel test harness | scripted desktop sessions, golden captures, theme pairs |
@@ -102,9 +102,9 @@ The shell owns no device grants; it is one more policy-checked Messenger client.
 | Desktop/taskbar/menu surfaces, input events, close/raise | `os.lazy.display.v1` (`display` in `user/src/messenger/`) | exists; S5 adds desktop role, window-list/focus events, hotkeys |
 | Copy/paste | `os.lazy.clipboard` + `os.lazy.clipboard.write.v1`/`.read.v1` | landed (#115) |
 | Open with / resolve an app | `os.lazy.mimed` (`Guess`, `Lookup`, `Verbs`, `Open`, `Register`) | landed (#116); `Open` publishes `system/events/open/<app>` |
-| Launch/supervise apps | `os.lazy.init` (new `Launch`) | no launch method yet |
+| Launch/supervise apps | `os.lazy.init` (`Services`, `ListApps`, `Launch`, `Stop`) | landed (#158) |
 | Session/account info | `os.lazy.logind`, `os.lazy.accountsd` | queries exist |
-| Health, log, audit panels | `os.lazy.healthd`, `os.lazy.logd`, `os.lazy.audit.v1`, `system/health/*` | health topics and `logd` queries exist; `os.lazy.audit.v1` is spec |
+| Health, log, audit panels | `os.lazy.healthd`, `os.lazy.logd`, `os.lazy.audit.v1`, `system/health/*` | health topics and `logd` queries exist, `sysmon`'s Services tab shows health (#489); `os.lazy.audit.v1` is spec |
 | Task Manager numbers | `os.lazy.sysmond`, `system/stats/{memory,tasks}` | landed (#144) |
 | Discovery/introspection | `os.lazy.messenger.registry`, `os.lazy.messenger.topics` | S1/S2 |
 | File content for Files/Editor | native `read_file` plus the Linux ABI fd layer (`getdents64`) today; an `os.lazy.fs` reader/writer service is the target | no fs service yet |
@@ -123,8 +123,9 @@ The shell owns no device grants; it is one more policy-checked Messenger client.
   snapshot from `sysmond`).
 - **Core apps (S5.3).** Editor (open-with target for `text/*`), Terminal
   (spawns `sh`/BusyBox under the session credentials), Paint (xui-skia canvas),
-  Task Manager (`sysmond` snapshots plus the `messengerctl` views), Help (a docs
-  viewer). Each registers open-with verbs in `mimed` and appears in the start
+  Task Manager (`sysmon`: the syscall-14 snapshot, plus a Services tab joining
+  `init.Services` with `healthd.Status`, #489; `fabricmon` for the fabric),
+  Help (a docs viewer). Each registers open-with verbs in `mimed` and appears in the start
   menu through that registry.
 
 ## 7. Theming
@@ -277,7 +278,7 @@ Same policy as `platform-plan.md` section 6 and `AGENTS.md`:
 | The shell needs surface events the protocol lacks | land the append-only display-protocol additions before the taskbar, and test both with and without a shell |
 | No app launch path (`init` has no launch method) | resolved: `os.lazy.init.Launch` with the session-owner check landed (#158) |
 | XUI keyboard focus gap (#151) | resolved: focus routing landed with client mode (#168); the scripted session types into an `Edit` |
-| The 16-slot task table | the services image already fills it; LazyShell + `xuid` + apps need `MAX_TASKS` raised or a leaner manifest first |
+| The task table filling up | resolved: `MAX_TASKS` is 256 (#204 and later), so the services, `xuid` and the desktop apps fit together |
 | Heavy `std`/xui binaries and slow TCG boot | keep LazyShell lean (no app code linked in), measure boot in CI, use late capture timestamps |
 | Session grants too broad or a session leak | default deny, an explicit tested session set, and a logout test that proves child reaping |
 | Theme/DPI divergence | one theme format, fixed 96 DPI in S5; scaling is best-effort in S5.3 |

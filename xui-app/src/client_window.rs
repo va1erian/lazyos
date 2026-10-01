@@ -1,7 +1,8 @@
 //! The compositor-side state of a client-mode window (`xuid` surface).
 //!
-//! One [`ClientWindow`] owns the handles of one surface — its event endpoint,
-//! the shared pixel buffer and its mapping — so the backend can keep a
+//! One [`ClientWindow`] owns the handles of one surface — its event endpoint
+//! and the shared pixel buffers presented through it ([`Slots`]) — so the
+//! backend can keep a
 //! `ClientWindow` **per open window** and support several at once (the Files
 //! explorer opens one window per folder). The connection shared by all of them
 //! is [`ClientState`].
@@ -15,6 +16,10 @@
 use crate::display::{self, Client, Event};
 use crate::input;
 use crate::sys::{self, errno};
+
+mod slots;
+
+pub use slots::{copy_rect, Slots};
 
 /// How many times the first attach is retried at a newer compositor size.
 const ATTACH_RETRIES: usize = 4;
@@ -38,19 +43,14 @@ impl ClientState {
     }
 }
 
-/// One open window's surface: the event channel, the attached buffer and its
-/// mapping.
+/// One open window's surface: the event channel and the buffer slots.
 pub struct ClientWindow {
     /// This task's end of the surface's event channel.
     pub events: u64,
     /// The surface id from `CreateSurface`.
     pub surface: u64,
-    /// The shared pixel buffer handle; closed with the surface.
-    pub buffer: u64,
-    /// The shared pixel buffer mapping.
-    pub va: u64,
-    /// The mapping length in bytes.
-    pub size: u64,
+    /// The shared pixel buffers; closed with the surface.
+    pub slots: Slots,
     /// The surface size in pixels.
     pub rect: (i32, i32),
     /// The title the compositor currently shows, so an unchanged title is not
@@ -98,15 +98,20 @@ impl ClientWindow {
             }
         };
         let (width, height) = first.size;
+        let mut slots = Slots::new(first.buffer, first.va, width as i32, height as i32);
+        if let Err(code) = slots.reserve(client, surface) {
+            slots.close();
+            let _ = client.destroy_surface(surface);
+            let _ = display::close(events);
+            return Err(format!("attach_slot: errno {code}"));
+        }
         // Best effort: `xuid` registered the surface with `inputd` before it
         // answered `CreateSurface`, so the session can be opened right away.
         let input = input::Session::open(surface).ok();
         Ok(ClientWindow {
             events,
             surface,
-            buffer: first.buffer,
-            va: first.va,
-            size: width as u64 * height as u64 * 4,
+            slots,
             rect: (width as i32, height as i32),
             title: title.to_owned(),
             input,
@@ -115,31 +120,12 @@ impl ClientWindow {
         })
     }
 
-    /// Resize the surface to `width` x `height`: allocate and attach the new
-    /// buffer **before** closing the old one, so a failed attach leaves the
-    /// window drawable with its previous buffer (failure
-    /// atomicity). On `EINVAL` the compositor saw a newer size than this
-    /// Configure carried; keep the old buffer and wait for the next event.
-    pub fn reconfigure(&mut self, client: Client, width: u32, height: u32) -> Result<(), String> {
-        if width == 0 || height == 0 {
-            return Err("reconfigure: zero size".into());
-        }
-        let size = width as u64 * height as u64 * 4;
-        let (buffer, va, _) = sys::display_create_buffer(size)
-            .map_err(|code| format!("create_buffer: errno {code}"))?;
-        if let Err(code) = client.attach_buffer(self.surface, buffer, size) {
-            // The new buffer is not used; release it and keep the old one.
-            let _ = sys::display_close_buffer(buffer);
-            return Err(format!("attach_buffer: errno {code}"));
-        }
-        if self.buffer != 0 {
-            let _ = sys::display_close_buffer(self.buffer);
-        }
-        self.buffer = buffer;
-        self.va = va;
-        self.size = size;
-        self.rect = (width as i32, height as i32);
-        Ok(())
+    /// Follow a `Configure` to `width` x `height`. The buffers catch up as
+    /// each slot is next drawn into ([`Slots::acquire`]): the slot the
+    /// compositor reads cannot be replaced, and until a new-size frame is
+    /// presented the compositor shows the old one cropped or padded.
+    pub fn resize(&mut self, width: i32, height: i32) {
+        self.rect = (width, height);
     }
 
     /// Destroy the surface and close its event channel and buffer. Safe to call
@@ -154,11 +140,9 @@ impl ClientWindow {
         if self.events != 0 {
             let _ = display::close(self.events);
         }
-        if self.buffer != 0 {
-            // The compositor holds its own reference to the attached buffer,
-            // so this only releases the client's mapping and quota charge.
-            let _ = sys::display_close_buffer(self.buffer);
-        }
+        // The compositor holds its own reference to the attached buffers,
+        // so this only releases the client's mappings and quota charge.
+        self.slots.close();
     }
 }
 
@@ -171,18 +155,18 @@ enum AttachError {
     Failed(String),
 }
 
-/// Allocate a shared buffer, attach it to `surface`, return its handle and
-/// mapping. A failed attach closes the buffer again so it does not count
-/// against the per-process quota until task exit.
+/// Allocate a shared buffer, attach it as slot 0 of `surface`, return its
+/// handle and mapping. A failed attach closes the buffer again so it does not
+/// count against the per-process quota until task exit.
 fn attach_new_buffer(client: Client, surface: u64, size: u64) -> Result<(u64, u64), AttachError> {
     let (buffer, va, _) = sys::display_create_buffer(size)
         .map_err(|code| AttachError::Failed(format!("create_buffer: errno {code}")))?;
-    if let Err(code) = client.attach_buffer(surface, buffer, size) {
+    if let Err(code) = client.attach_slot(surface, 0, buffer, size) {
         let _ = sys::display_close_buffer(buffer);
         return Err(if code == -errno::EINVAL {
             AttachError::Refused
         } else {
-            AttachError::Failed(format!("attach_buffer: errno {code}"))
+            AttachError::Failed(format!("attach_slot: errno {code}"))
         });
     }
     Ok((buffer, va))
@@ -204,7 +188,7 @@ struct FirstBuffer {
 /// surface (maximize, a resize drag, a size request) between `CreateSurface`
 /// and this attach, and then refuses a buffer sized for the old geometry.
 /// `Configure` carries the surface's current size, so follow it and retry,
-/// the same recovery [`ClientWindow::reconfigure`] does for a live window.
+/// the same recovery a live window gets from the next `Configure`.
 fn attach_first_buffer(
     client: Client,
     events: u64,
@@ -236,7 +220,7 @@ fn attach_first_buffer(
             },
         }
     }
-    Err(format!("attach_buffer: errno {}", -errno::EINVAL))
+    Err(format!("attach_slot: errno {}", -errno::EINVAL))
 }
 
 /// The newest `Configure` queued on `events`, waiting briefly for the first
