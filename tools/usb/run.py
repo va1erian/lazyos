@@ -134,6 +134,27 @@ def build() -> None:
         sys.exit("cargo build failed")
 
 
+#: How long the session holds `x` for `verify_trace`'s key-repeat check
+#: (at least 8 repeats after the 500 ms delay). The script holds it 1.5 s of
+#: wall time, but the guest's tick clock can run at 60% of wall time on a
+#: loaded KVM runner (a CI trace measured 97 ticks for a 1.61 s hold), which
+#: leaves too few repeats. 2 s gives enough on a slow guest clock and stays
+#: under the 60-repeat cap on a true one.
+REPEAT_HOLD = 2.0
+
+
+def stretch_repeat_hold(steps: list[dict]) -> None:
+    """Lengthen the wait right after `x` goes down to REPEAT_HOLD seconds."""
+    for index, step in enumerate(steps):
+        if step.get("key_down") == "x":
+            for later in steps[index + 1:]:
+                if "key_up" in later:
+                    return
+                if "wait" in later and later["wait"] >= 1.0:
+                    later["wait"] = max(later["wait"], REPEAT_HOLD)
+                    return
+
+
 def session_script(mouse: bool, pace: float, settle: float, slow: bool, hotplug: int,
                    tablet: bool = False) -> list[dict]:
     if hotplug:
@@ -144,6 +165,7 @@ def session_script(mouse: bool, pace: float, settle: float, slow: bool, hotplug:
     for step in steps:
         if "wait" in step:
             step["wait"] = max(step["wait"], pace)
+    stretch_repeat_hold(steps)
     # Wait for the driver too, not only `inputd`, then let the boot settle.
     steps[:0] = [{"wait_for": "USBD:READY", "timeout": 600}, {"wait": settle}]
     if tablet:
