@@ -17,6 +17,7 @@ use lazyrad_ide::{IdeEvent, RunOptions};
 use lazyrad_os::args;
 use lazyrad_os::launcher::PollingLauncher;
 use lazyrad_os::marker::Markers;
+use lazyrad_os::pkgd::PkgdInstaller;
 use lazyrad_os::platform::LazyOsPlatform;
 use xui_app::backend::LazyOSBackend;
 use xui_core::backend::{Backend, PlatformSpec};
@@ -78,6 +79,13 @@ fn main() -> ExitCode {
         IdeEvent::ProjectOpened(name) => MARK.pass_with("OPEN", name),
         IdeEvent::RunStarted(name) => MARK.pass_with("RUN", name),
         IdeEvent::RunExited(code) => MARK.pass_with("CHILD", &format!("exit={code:?}")),
+        IdeEvent::PackageReviewed(id, n) => {
+            MARK.pass_with("PKG:REVIEW", &format!("{id} permissions={n}"))
+        }
+        IdeEvent::PackageInstalled(id, true) => MARK.pass_with("PKG:INSTALL", id),
+        IdeEvent::PackageInstalled(id, false) => MARK.pass_with("PKG:SAVED", id),
+        IdeEvent::PackageFailed(why) => MARK.fail("PKG:INSTALL", why),
+        IdeEvent::AppLaunched(id) => MARK.pass_with("PKG:LAUNCH", id),
         IdeEvent::DocumentEdited(name, chars) => MARK.pass_with("EDIT", &format!("{name} {chars}")),
     });
     let options = RunOptions {
@@ -85,6 +93,8 @@ fn main() -> ExitCode {
         open,
         observer: Some(observer),
         launcher: Some(Rc::new(PollingLauncher)),
+        installer: Some(Rc::new(PkgdInstaller::on_lazyos())),
+        author: std::env::var("USER").unwrap_or_else(|_| "lazyos".to_owned()),
     };
     match lazyrad_ide::run_with_options(Rc::new(backend) as Rc<dyn Backend>, options) {
         Ok(()) => {

@@ -1,0 +1,161 @@
+[
+ {
+  "wait_for": "TERM:UP:PASS",
+  "timeout": 240
+ },
+ {
+  "wait_for": "PKGD:AUDIT:PASS",
+  "timeout": 120
+ },
+ {
+  "at": 2.0,
+  "mouse_move": [
+   -300,
+   -300
+  ]
+ },
+ {
+  "at": 2.2,
+  "mouse_move": [
+   -300,
+   -300
+  ]
+ },
+ {
+  "at": 2.4,
+  "mouse_move": [
+   -300,
+   -300
+  ]
+ },
+ {
+  "at": 3.0,
+  "mouse_move": [
+   200,
+   300
+  ]
+ },
+ {
+  "at": 3.4,
+  "mouse_click": "left"
+ },
+ {
+  "at": 1.0,
+  "type": "cp -r /LAZYRAD/hello /tmp/hello && echo copied"
+ },
+ {
+  "at": 0.5,
+  "key": "enter",
+  "until": "TERM:CMD:cp -r /LAZYRAD/hello /tmp/hello && echo copied",
+  "timeout": 30,
+  "retries": 2
+ },
+ {
+  "wait_for": "TERM:OUT:copied",
+  "timeout": 60
+ },
+ {
+  "at": 1.5,
+  "type": "/LAZYRAD.ELF --client /tmp/hello &"
+ },
+ {
+  "at": 0.5,
+  "key": "enter",
+  "until": "TERM:CMD:/LAZYRAD.ELF --client /tmp/hello &",
+  "timeout": 30,
+  "retries": 2
+ },
+ {
+  "wait_for": "LRIDE:OPEN:PASS:hello",
+  "timeout": 180
+ },
+ {
+  "at": 3.0,
+  "shot": "01_open"
+ },
+ {
+  "at": 3.0,
+  "mouse_move": [
+   320,
+   40
+  ]
+ },
+ {
+  "at": 2.0,
+  "mouse_click": "left"
+ },
+ {
+  "at": 3.0,
+  "mouse_move": [
+   -385,
+   -239
+  ]
+ },
+ {
+  "at": 2.0,
+  "mouse_click": "left"
+ },
+ {
+  "at": 7.0,
+  "shot": "02_file_menu"
+ },
+ {
+  "at": 3.0,
+  "mouse_move": [
+   53,
+   217
+  ]
+ },
+ {
+  "at": 2.0,
+  "mouse_click": "left"
+ },
+ {
+  "wait_for": "LRIDE:PKG:REVIEW:PASS:user.",
+  "timeout": 120
+ },
+ {
+  "at": 7.0,
+  "shot": "03_consent"
+ },
+ {
+  "at": 1.0,
+  "key": "enter"
+ },
+ {
+  "wait_for": "LRIDE:PKG:INSTALL:PASS:user.",
+  "timeout": 180
+ },
+ {
+  "wait_for": "PKGD:INSTALL:PASS user.",
+  "timeout": 60
+ },
+ {
+  "at": 7.0,
+  "shot": "04_installed_run_offer"
+ },
+ {
+  "at": 1.0,
+  "key": "enter"
+ },
+ {
+  "wait_for": "LRIDE:PKG:LAUNCH:PASS:user.",
+  "timeout": 120
+ },
+ {
+  "wait_for": "PKGD:LAUNCH:LABEL app:user.",
+  "timeout": 120
+ },
+ {
+  "wait_for": "LRPLAY:UP:PASS",
+  "timeout": 120
+ },
+ {
+  "at": 6.0,
+  "shot": "05_installed_app_running"
+ },
+ {
+  "at": 1.0,
+  "quit": true
+ }
+]
