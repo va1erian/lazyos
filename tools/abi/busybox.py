@@ -99,8 +99,12 @@ def _download(archive: Path) -> bool:
 
 
 def _fetch() -> bool:
-    if SOURCE.is_dir():
+    if (SOURCE / "Makefile").is_file():
         return True
+    # A directory without a Makefile is a half-extracted tree (a CI run that
+    # was cancelled mid-extract and cached its `target/`): rebuild it rather
+    # than let `make defconfig` fail on it forever.
+    shutil.rmtree(SOURCE, ignore_errors=True)
     BUILD_ROOT.mkdir(parents=True, exist_ok=True)
     archive = BUILD_ROOT / f"busybox-{VERSION}.tar.bz2"
     # A cached archive is re-verified too: it may predate the pin or be corrupt.
