@@ -316,15 +316,15 @@ Design notes:
 - **Multiplexing.** `nc` needs "socket or stdin, whichever first": it issues
   `Recv` with `begin_call`, polls stdin, and collects the reply with
   `await_reply` (or uses `messenger_async`). `Poll` covers many sockets.
-- **Lifetime is the open problem.** `netd` must reclaim a dead client's
-  sockets, and socket ids in one shared endpoint give it no death signal.
-  Preferred fix: the client creates a channel pair and passes one end in the
-  `Open` request (requests can carry endpoints; replies cannot), so each socket
-  is its own channel and kernel teardown of the client closes it. This depends
-  on `netd` being able to observe "peer closed" on a channel it is not
-  currently calling; if that is not available yet, fall back to an idle
-  reclaim timer like `sndd`'s and track the gap with the "per-connection
-  channels" item in [architecture/ipc-core.md](architecture/ipc-core.md).
+- **Lifetime. *Decided (N3).*** A socket is an id on the one shared endpoint, and
+  `netd` reclaims a dead client's sockets by watching the scheduler's task list
+  (native syscall 13, no kernel change): the owner is the sender's task slot (the kernel's
+  pid is the slot, so a task landing in a dead owner's slot before the sweep is
+  not told apart yet), and a sweep every 20 ticks closes what a dead owner left. The
+  per-socket-channel design (the kernel closing a channel when its client dies)
+  stays the better answer and is still tracked by the "per-connection channels"
+  item in [architecture/ipc-core.md](architecture/ipc-core.md); nothing in the
+  interface depends on which one is behind it.
 - **Client library.** `user/src/messenger/net.rs`: the generated client plus
   thin `TcpStream`, `TcpListener`, `UdpSocket` wrappers named after `std::net`,
   so tools read conventionally and a future native `std` port (rust-std.md
@@ -389,7 +389,7 @@ run them (as `beep` was).
 |---|---|---|
 | `nicctl` | MAC, link, frame counters | NIC driver only |
 | `netctl` | `netctl addr`, `route`, `stats`, `dhcp renew` | `stack.v1` |
-| `ping <host> [count]` | ICMP echo with sequence, loss and RTT | `IcmpEcho` socket, `Resolve` |
+| `ping <host> [count]` | ICMP echo with sequence, loss and RTT; the host is a name or a dotted quad | `Ping`, `Resolve` |
 | `nslookup <name>` | A-record lookup | `Resolve` |
 | `nc <host> <port>`, `nc -l <port>`, `-u` | stdin/stdout to a TCP or UDP socket, client or listener | `Stream`/`Datagram` sockets, stdin multiplexing |
 | `ftp <host>` | Passive mode only (`PASV`), binary transfers: `ls`, `cd`, `pwd`, `get`, `put`, `quit`; files through the VFS (`/tmp`, `/data`) | two TCP sockets; a small host-tested reply parser in `libs/` |
@@ -456,7 +456,8 @@ network) builds on the same interfaces.
 | N0 | **Built.** `idl/net.midl` (`os.lazy.net.nic.v1`), `libs/framering`, `libs/virtio-net`, `libs/fuzzkit`, the 256-entry queue cap, the `fuzz/` cargo-fuzz crate, `.github/workflows/net.yml`, `tools/net/README.md` |
 | N1 | **Built.** `netdrv` (`user/src/bin/netdrv.rs`), `libs/nicdrv` (its host-tested core), `nicctl`, `user/src/messenger/net.rs`, the `_net` uid (902) and `init` row, `LAZYOS_NET=1`, `libs/netpolicy` (class rules, loaded by a kernel test), `tools/net/run.py` + `analyze_pcap.py` + their tests, `--net` in `run_demo.py`. Evidence: a 42-exchange ARP capture, frame-policy and probe frames checked on the wire, in five harness variants |
 | N2 | **Built.** `libs/netstack` (smoltcp 0.14), `netd` (`user/src/bin/netd.rs`), `os.lazy.net.stack.v1` (`idl/net.midl`), `netctl`, native `ping`, the `_netd` uid (903, no capabilities) and `init` row, `LAZYOS_NETD=1`, `libs/netpolicy` call rules (loaded by a kernel test), native syscall 26 and `CLOSE_RELEASE`. Evidence: a capture with 6 DHCP exchanges and 46 echo pairs (checksums valid) in the default, `--services`, q35 and `--poll` runs; `--no-device` is an idle-state check only (no capture is analysed: `netd` and the driver must idle cleanly). Kernel: `python tools/test/run.py --accel none`, 589/589, which includes the syscall 26 tests (bounds, bad pointers, distinct output, soak), the `CLOSE_RELEASE` tests (channel and syscall level, 20 000-round soak) and the `nic.v1`/`stack.v1` call-rule test |
-| N3 to N6 | Not built (out of scope for the current work) |
+| N3 | **Built.** `os.lazy.net.socket.v1` (`idl/net.midl`) and `Resolve` on `stack.v1`; the socket layer in `libs/netstack` (table, TCP, UDP, DNS; 60 host tests, a 300-cycle connect/close soak, a seeded random-call fuzz); `netd` serving them with parked calls, per-owner and total limits, ownership by task slot (a spawn counter to tell slot reuse apart is future kernel work) and reclaim of dead owners; the client `user/src/messenger/netsock.rs` and `netstd.rs` (`TcpStream`, `TcpListener`, `UdpSocket`); `nc`, `nslookup`, `ping` with names; `netctl sockets`, `sockprobe=1` and `socksoak=<n>`; the `socket.v1` and `Resolve` rules in `libs/netpolicy` (loaded by the kernel test). Evidence (`tools/net/run.py --netd`): 42 TCP flows to the host echo server (215 618 bytes) whose streams reassemble from the capture to exactly what the server received, 41 UDP echo pairs, a DNS query for `localhost` that was answered, and a 150 000-byte stream the harness sent into the guest's `nc -l` through a port forward and got back unchanged; the checker has its own tests (`tools/net/test_sockets_pcap.py`) |
+| N4 to N6 | Not built (out of scope for the current work) |
 
 ## 11. Risks and open questions
 

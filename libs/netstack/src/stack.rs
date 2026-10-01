@@ -74,12 +74,26 @@ pub struct Counters {
     pub pings_sent: u64,
     pub pings_answered: u64,
     pub pings_timed_out: u64,
+    pub lookups_sent: u64,
+    pub lookups_answered: u64,
+    pub lookups_failed: u64,
 }
 
+mod dns;
+mod observe;
 mod ping;
+mod sockets;
+mod tcp;
+mod udp;
 
+use dns::{dns_socket, Lookup};
+pub use dns::{valid_host_name, LookupOutcome, LookupResult, ResolveError, MAX_LOOKUPS};
 use ping::{icmp_socket, Pending};
 pub use ping::{PingError, PingOutcome, PingResult};
+pub use sockets::{ready, Kind, SockAddr, SockError, SocketCounters, Sockets};
+pub use sockets::{
+    EPHEMERAL_FIRST, MAX_BACKLOG, MAX_CHUNK, MAX_CLOSING, MAX_PER_OWNER, MAX_SOCKETS, UDP_PAYLOAD,
+};
 
 pub struct Stack {
     device: RingDevice,
@@ -87,6 +101,11 @@ pub struct Stack {
     sockets: SocketSet<'static>,
     dhcp: Option<SocketHandle>,
     icmp: SocketHandle,
+    dns: SocketHandle,
+    lookups: Vec<Lookup>,
+    lookup_results: Vec<LookupResult>,
+    next_lookup: u32,
+    socks: Sockets,
     state: State,
     ident: u16,
     next_seq: u16,
@@ -134,6 +153,7 @@ impl Stack {
         // cannot forge another caller's echo.
         let ident = (seed >> 16) as u16 | 1;
         let icmp = sockets.add(icmp_socket(ident));
+        let sockets_dns = sockets.add(dns_socket());
 
         let mut stack = Stack {
             device,
@@ -141,6 +161,11 @@ impl Stack {
             sockets,
             dhcp: None,
             icmp,
+            dns: sockets_dns,
+            lookups: Vec::new(),
+            lookup_results: Vec::new(),
+            next_lookup: 1,
+            socks: Sockets::new(seed),
             state: State {
                 addr: None,
                 prefix_len: 0,
@@ -259,6 +284,7 @@ impl Stack {
         self.state.dns = dns;
         self.state.lease_ends_ms = lease_ends_ms;
         self.epoch += 1;
+        self.sync_resolvers();
     }
 
     /// Forget the address (a lease ended).
@@ -271,6 +297,7 @@ impl Stack {
         self.state.dns.clear();
         self.state.lease_ends_ms = None;
         self.epoch += 1;
+        self.sync_resolvers();
     }
 
     /// Ask for a fresh lease: the current one is dropped.
@@ -310,6 +337,8 @@ impl Stack {
         }
         self.handle_dhcp(now_ms);
         self.handle_icmp(now_ms);
+        self.handle_dns(now_ms);
+        self.observe_streams(now_ms);
     }
 
     /// Milliseconds until the stack next needs a `poll` even if nothing
@@ -325,10 +354,8 @@ impl Stack {
             .iter()
             .map(|p| (p.deadline_ms - now_ms).max(0) as u64)
             .min();
-        match (stack, ping) {
-            (Some(a), Some(b)) => Some(a.min(b)),
-            (a, b) => a.or(b),
-        }
+        let lookup = self.lookup_delay_ms(now_ms);
+        [stack, ping, lookup].into_iter().flatten().min()
     }
 
     fn handle_dhcp(&mut self, now_ms: i64) {

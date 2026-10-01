@@ -7715,9 +7715,8 @@ pub mod os_lazy_net_stack_v1 {
     /// there is no address or no resolver, `EAGAIN` when this caller has 4
     /// lookups outstanding or all callers together have 8, `ENOENT` when the
     /// resolver says the name has no address, and `ETIMEDOUT` when no answer
-    /// came. The reply lists the addresses found, four octets each. Until
-    /// the DNS half of N3 lands, `netd` answers `ENOSYS`, so a caller can
-    /// tell "not served yet" from a bad name.
+    /// came. The reply lists the addresses found, four octets each. A dotted
+    /// quad needs no query and is answered at once.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct ResolveArgs {
         pub name: alloc::string::String,
