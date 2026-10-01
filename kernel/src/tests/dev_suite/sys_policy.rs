@@ -185,7 +185,14 @@ pub fn net_call_rules_decide_who_may_call_what() -> Result<(), String> {
 
     // The stack service: anyone reads and pings; only `_netd` and root change it.
     for uid in [netd, root, app, stranger, net] {
-        for method in ["Interfaces", "Addresses", "Routes", "Stats", "Ping", "Resolve"] {
+        for method in [
+            "Interfaces",
+            "Addresses",
+            "Routes",
+            "Stats",
+            "Ping",
+            "Resolve",
+        ] {
             check!(
                 allowed(uid, stack, method),
                 "uid {uid} refused {method} on the stack"
