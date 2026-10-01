@@ -335,7 +335,7 @@ impl State {
                 return Some(spins);
             }
             spins += 1;
-            if spins % 4096 == 0
+            if spins.is_multiple_of(4096)
                 && (crate::task::ticks().wrapping_sub(start) >= TIMEOUT_TICKS
                     || spins >= SPIN_BACKSTOP)
             {
@@ -414,6 +414,10 @@ impl State {
                 return Err(BlockError::Io);
             }
         };
+        // Consume the completion before anything else, so the next request
+        // (including the next chunk of this transfer) waits for its own.
+        self.outstanding = false;
+        self.used_idx = self.used_idx.wrapping_add(1);
         if spins >= diag::SLOW_SPINS {
             diag::log(self.io, write, lba, bytes, "slow (completed)", spins);
         }

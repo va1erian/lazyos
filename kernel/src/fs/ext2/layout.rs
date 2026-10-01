@@ -185,6 +185,9 @@ fn log_block_error(error: BlockError) {
     static SEEN: AtomicU32 = AtomicU32::new(0);
     let bit = 1u32 << (error as u32 % 32);
     if SEEN.fetch_or(bit, Ordering::Relaxed) & bit == 0 {
-        serial_println!("ext2: block layer error {:?} (reported once per kind)", error);
+        serial_println!(
+            "ext2: block layer error {:?} (reported once per kind)",
+            error
+        );
     }
 }
