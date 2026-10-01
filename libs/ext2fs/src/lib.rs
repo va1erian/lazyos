@@ -77,6 +77,7 @@ mod orphans;
 mod populate;
 mod readdir;
 mod rename;
+mod rename_file;
 mod rmdir;
 mod state;
 mod truncate;

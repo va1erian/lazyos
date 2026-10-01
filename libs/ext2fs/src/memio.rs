@@ -15,6 +15,10 @@ struct Shared {
     /// Sector writes still allowed; `u64::MAX` means no limit.
     write_budget: AtomicU64,
     flushes: AtomicU64,
+    /// Write calls seen since `fail_write_number` armed a one-shot failure.
+    write_calls: AtomicU64,
+    /// The write call that fails once (`u64::MAX`: none armed).
+    fail_call: AtomicU64,
 }
 
 /// A RAM disk of 512-byte sectors.
@@ -38,6 +42,8 @@ impl MemIo {
                 writable: AtomicBool::new(true),
                 write_budget: AtomicU64::new(u64::MAX),
                 flushes: AtomicU64::new(0),
+                write_calls: AtomicU64::new(0),
+                fail_call: AtomicU64::new(u64::MAX),
             }),
         }
     }
@@ -61,6 +67,18 @@ impl MemIo {
     /// that dies part-way through an operation.
     pub fn fail_writes_after(&self, sectors: u64) {
         self.shared.write_budget.store(sectors, Ordering::Relaxed);
+    }
+
+    /// Fail exactly the `n`th write call from now (0 is the next one) and no
+    /// other: a transient error part-way through an operation.
+    pub fn fail_write_number(&self, n: u64) {
+        self.shared.write_calls.store(0, Ordering::Relaxed);
+        self.shared.fail_call.store(n, Ordering::Relaxed);
+    }
+
+    /// Write calls since `fail_write_number` last reset the count.
+    pub fn write_calls(&self) -> u64 {
+        self.shared.write_calls.load(Ordering::Relaxed)
     }
 
     /// How many times the volume asked the device to flush.
@@ -102,6 +120,10 @@ impl BlockIo for MemIo {
         }
         let mut bytes = self.shared.bytes.lock().unwrap();
         let range = self.span(lba, buf.len(), bytes.len())?;
+        let call = self.shared.write_calls.fetch_add(1, Ordering::Relaxed);
+        if call == self.shared.fail_call.load(Ordering::Relaxed) {
+            return Err(IoError::Failed);
+        }
         let sectors = (buf.len() / SECTOR_SIZE) as u64;
         let budget = self.shared.write_budget.load(Ordering::Relaxed);
         if budget != u64::MAX {
