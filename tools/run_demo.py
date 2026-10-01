@@ -147,6 +147,17 @@ def build_xui_apps() -> bool:
     return result.returncode == 0
 
 
+def with_devices(autostart: str | None) -> str:
+    """`LAZYOS_XUI_AUTOSTART` with the Devices app added: an existing list
+    (`editor`) keeps its apps and gains `devices` once; no list means
+    [`DEVICES_AUTOSTART`], the Terminal first. Mirrors `lazygui.catalog`."""
+    if not autostart:
+        return DEVICES_AUTOSTART
+    if "devices" in [item.strip() for item in autostart.split(",")]:
+        return autostart
+    return f"{autostart},devices"
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -194,8 +205,9 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--devices", action="store_true",
                         help="the desktop profile with the Devices app open at boot "
                              "(devices, owners, rights and the driver class rules): "
-                             "builds the xui apps, then LAZYOS_DESKTOP=1 "
-                             f"LAZYOS_XUI_AUTOSTART={DEVICES_AUTOSTART}")
+                             "builds the xui apps, then LAZYOS_DESKTOP=1 and adds "
+                             "`devices` to LAZYOS_XUI_AUTOSTART (default "
+                             f"{DEVICES_AUTOSTART})")
     parser.add_argument("--no-rhai", action="store_true",
                         help="do not (re)build the `rhai` command before the image "
                              "(tools/rhai/build.py; incremental, so cheap when unchanged)")
@@ -233,7 +245,7 @@ def main(argv: list[str]) -> int:
         if args.devices:
             if not build_xui_apps():
                 return 1
-            env["LAZYOS_XUI_AUTOSTART"] = DEVICES_AUTOSTART
+            env["LAZYOS_XUI_AUTOSTART"] = with_devices(env.get("LAZYOS_XUI_AUTOSTART"))
         result = subprocess.run(cargo, cwd=ROOT, env=env)
         if result.returncode != 0:
             return result.returncode

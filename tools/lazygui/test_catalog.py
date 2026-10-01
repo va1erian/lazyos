@@ -191,6 +191,15 @@ class DevicesAppTests(unittest.TestCase):
         import run_demo  # noqa: E402
         self.assertEqual(run_demo.DEVICES_AUTOSTART, catalog.DEVICES_AUTOSTART)
 
+    def test_run_demo_keeps_an_existing_autostart_list(self) -> None:
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+        import run_demo  # noqa: E402
+        self.assertEqual(run_demo.with_devices(None), "term,devices")
+        self.assertEqual(run_demo.with_devices(""), "term,devices")
+        self.assertEqual(run_demo.with_devices("editor"), "editor,devices")
+        self.assertEqual(run_demo.with_devices("editor,devices"), "editor,devices")
+        self.assertEqual(run_demo.with_devices("term, devices"), "term, devices")
+
 
 class ResetTests(unittest.TestCase):
     """The Reset button regenerates the seeded layout, and says so first."""
