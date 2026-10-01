@@ -409,7 +409,8 @@ capture (`sockets_pcap.py`) next to what the host servers recorded:
 * every TCP flow to the echo port has a complete handshake, valid checksums, streams
   that reassemble without a gap, the same bytes echoed back, and a FIN from both sides;
   the set of (length, SHA-256) of the guest's streams equals the server's;
-* refused connections (the probe's and the soak's every eighth) are answered with a reset;
+* connections to the closed port (the probe's and the soak's every eighth) are never
+  established; resets are reported, not required (QEMU stays silent on some hosts);
 * every UDP datagram is echoed with the same payload and the server saw exactly those;
 * a well-formed A query for `localhost` left for the resolver (its answer is reported
   when the host network gave one);

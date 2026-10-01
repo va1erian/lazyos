@@ -10,7 +10,7 @@ use alloc::vec::Vec;
 use smoltcp::socket::udp::{self, UdpMetadata};
 use smoltcp::wire::{IpAddress, IpEndpoint, IpListenEndpoint, Ipv4Address};
 
-use super::sockets::{Inner, Kind, SockAddr, SockError, UDP_PAYLOAD};
+use super::sockets::{Inner, Kind, SockAddr, SockError, MAX_CHUNK, UDP_PAYLOAD};
 use super::tcp::sock_addr;
 use super::Stack;
 
@@ -148,7 +148,7 @@ impl Stack {
         owner: u64,
         max: usize,
     ) -> Result<Option<(Vec<u8>, SockAddr)>, SockError> {
-        if max == 0 || max > UDP_PAYLOAD * 11 {
+        if max == 0 || max > MAX_CHUNK {
             return Err(SockError::BadAddress);
         }
         self.udp_recv(id, owner, max)
