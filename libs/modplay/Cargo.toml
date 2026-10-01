@@ -1,0 +1,19 @@
+[package]
+name = "modplay"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "ProTracker .mod parser and fixed-point player for LazyOS audio demos"
+license = "GPL-3.0-or-later"
+
+[lib]
+name = "modplay"
+path = "src/lib.rs"
+
+[features]
+# Expose `fuzz::run` and `synth`, shared by the in-tree seeded tests and the
+# cargo-fuzz target (`fuzz/`). The player itself is always `no_std` + `alloc`.
+fuzz = []
+
+[dev-dependencies]
+fuzzkit = { path = "../fuzzkit" }

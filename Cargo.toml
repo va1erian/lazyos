@@ -36,6 +36,8 @@ members = [
     "libs/virtio-snd",
     # PCM sample helpers (test-tone synthesis) shared by `sndd` and its clients.
     "libs/pcm",
+    # ProTracker .mod parser and fixed-point player (docs/tracker-plan.md).
+    "libs/modplay",
     # Keymaps, modifier/lock state, repeat and hotkey matching for `inputd`
     # (docs/input-plan.md): pure `no_std` logic with host tests.
     "libs/inputmap",
