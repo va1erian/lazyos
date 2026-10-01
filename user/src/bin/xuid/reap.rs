@@ -51,8 +51,10 @@ impl Compositor {
         for id in &dead {
             if surface_by_id(&self.surfaces, *id).is_some() {
                 self.forget_surface(*id);
-                sys::write_str(&alloc::format!("XUID:REAP:SURFACE:{id}
-"));
+                sys::write_str(&alloc::format!(
+                    "XUID:REAP:SURFACE:{id}
+"
+                ));
             }
         }
         if !dead.is_empty() {
