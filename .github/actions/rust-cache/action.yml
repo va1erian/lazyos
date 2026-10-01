@@ -1,0 +1,29 @@
+name: Rust cache
+description: >-
+  Restore the cargo registry and the dependency artifacts of the given
+  workspaces (Swatinem/rust-cache). Caches are written only from `main`, so
+  every pull request restores the same warm set instead of each branch saving
+  its own copy and evicting the others; a job that fails still saves, so a
+  retry does not pay the build again. Workspace crates (the kernel, `user`,
+  the apps) are never cached: they are what the run is testing.
+
+inputs:
+  key:
+    description: >-
+      Shared cache key: jobs that build the same workspaces with the same
+      lockfiles share one entry.
+    required: true
+  workspaces:
+    description: One `<workspace> -> <target dir>` per line.
+    required: false
+    default: ". -> target"
+
+runs:
+  using: composite
+  steps:
+    - uses: Swatinem/rust-cache@v2
+      with:
+        shared-key: ${{ inputs.key }}
+        workspaces: ${{ inputs.workspaces }}
+        cache-on-failure: "true"
+        save-if: ${{ github.ref == 'refs/heads/main' }}

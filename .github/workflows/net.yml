@@ -39,9 +39,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - uses: ./.github/actions/rust-cache
         with:
-          python-version: "3.x"
+          key: host
 
       # rust-toolchain.toml pins the nightly toolchain; rustup installs it.
       # CI=1 makes the corpus replay tests insist that seeds exist.
@@ -73,8 +73,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: ./.github/actions/rust-cache
+        with:
+          key: fuzz
+          workspaces: |
+            fuzz -> target
+
+      # cargo-fuzz is a host program independent of the nightly it drives;
+      # building it from source cost every fuzz job a minute.
+      - uses: actions/cache@v4
+        id: cargo-fuzz
+        with:
+          path: ~/.cargo/bin/cargo-fuzz
+          key: cargo-fuzz-0.13.2-${{ runner.os }}
       - name: Install cargo-fuzz
-        run: cargo install cargo-fuzz --locked
+        if: steps.cargo-fuzz.outputs.cache-hit != 'true'
+        run: cargo install cargo-fuzz --locked --version 0.13.2
 
       - name: Fuzz for a bounded time
         run: |
@@ -131,19 +145,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install QEMU
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y qemu-system-x86
+      - uses: ./.github/actions/qemu
 
-      # Hosted runners expose /dev/kvm but not to the runner user; open it up
-      # so `--accel auto` picks KVM (it falls back to TCG if KVM is unusable).
-      - name: Enable KVM (best effort)
-        run: bash tools/ci/enable_kvm.sh
-
-      - uses: actions/setup-python@v5
+      - uses: ./.github/actions/rust-cache
         with:
-          python-version: "3.x"
+          key: os-image
+          workspaces: |
+            . -> target
+            tools/abi/fixtures -> target
+
+      # The `--netd` rows build the Linux fixtures (`netfix`) with
+      # `tools/abi/build.py`, which also provides BusyBox; the cache spares
+      # its download and compile.
+      - uses: ./.github/actions/busybox
 
       - name: Boot, capture and verify
         run: python tools/net/run.py --out shots/net ${{ matrix.args }}

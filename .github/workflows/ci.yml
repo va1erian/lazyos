@@ -36,6 +36,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: ./.github/actions/rust-cache
+        with:
+          key: host
       - name: Clippy (kernel and user programs, no_std target)
         run: |
           cargo clippy -p kernel -p user --target x86_64-unknown-none \
@@ -58,22 +61,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install QEMU
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y qemu-system-x86 musl-tools
-
-      - name: Enable KVM (best effort)
-        run: bash tools/ci/enable_kvm.sh
-
-      - uses: actions/setup-python@v5
+      - uses: ./.github/actions/qemu
         with:
-          python-version: "3.x"
+          packages: qemu-system-x86 musl-tools
 
-      # The system shell is BusyBox `sh` (issue #254); build the pinned static
-      # musl binary so `build.rs` embeds it in the demo image.
-      - name: Build BusyBox (system shell)
-        run: python tools/abi/busybox.py
+      - uses: ./.github/actions/rust-cache
+        with:
+          key: os-image
+
+      # The system shell is BusyBox `sh` (issue #254); the pinned static musl
+      # binary is embedded in the demo image by `build.rs`.
+      - uses: ./.github/actions/busybox
 
       # Builds the BIOS disk image and copies it to target/lazyos.img.
       - name: Build

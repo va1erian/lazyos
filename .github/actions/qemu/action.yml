@@ -1,0 +1,74 @@
+name: Install QEMU
+description: >-
+  Install qemu-system-x86 (plus any extra apt packages) from a cache of the
+  .deb files, falling back to the mirror on a miss, then make /dev/kvm usable.
+  Without the cache every QEMU job paid an `apt-get update` + install that
+  took anywhere from 20 s to 10 minutes depending on the mirror; with it the
+  install is a local `dpkg -i`. Recommended packages (the GTK/SDL/spice front
+  ends, gstreamer, ...) are skipped: the harnesses run `-display none`.
+
+inputs:
+  packages:
+    description: apt packages to install (space separated)
+    required: false
+    default: qemu-system-x86
+
+runs:
+  using: composite
+  steps:
+    # The runner image (ImageVersion) decides which library versions are
+    # already installed, so a .deb set is only valid for the image it was
+    # downloaded on.
+    - name: Cache key
+      id: key
+      shell: bash
+      env:
+        PACKAGES: ${{ inputs.packages }}
+      run: |
+        set -euo pipefail
+        hash="$(printf '%s' "$PACKAGES" | sha256sum | cut -c1-16)"
+        echo "key=apt-${ImageOS:-linux}-${ImageVersion:-0}-${hash}" >> "$GITHUB_OUTPUT"
+
+    - uses: actions/cache@v4
+      id: debs
+      with:
+        path: ~/.cache/lazyos-apt
+        key: ${{ steps.key.outputs.key }}
+
+    - name: Install packages
+      shell: bash
+      env:
+        PACKAGES: ${{ inputs.packages }}
+        CACHE_HIT: ${{ steps.debs.outputs.cache-hit }}
+      run: |
+        set -euo pipefail
+        cache="$HOME/.cache/lazyos-apt"
+        if [ "$CACHE_HIT" = "true" ] && ls "$cache"/*.deb >/dev/null 2>&1; then
+          # One dpkg run over the whole set: it unpacks everything first, then
+          # configures in dependency order, so no network and no apt lists.
+          if sudo dpkg -i "$cache"/*.deb; then
+            echo "installed $(ls "$cache"/*.deb | wc -l) cached packages"
+            exit 0
+          fi
+          echo "::warning::cached packages did not install; falling back to apt"
+        fi
+        rm -rf "$cache"
+        mkdir -p "$cache"
+        # Start from an empty archive so the copy below is exactly the set this
+        # install needed (apt-get keeps what it downloads).
+        sudo apt-get clean
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends $PACKAGES
+        # (`find`, not a glob: a set that was already installed downloads nothing.)
+        find /var/cache/apt/archives -maxdepth 1 -name '*.deb' -exec cp {} "$cache"/ \;
+        echo "cached $(find "$cache" -name '*.deb' | wc -l) packages for the next run"
+
+    - name: Check the emulator
+      shell: bash
+      run: qemu-system-x86_64 --version
+
+    # Hosted runners expose /dev/kvm but not to the runner user; open it up so
+    # `--accel auto` picks KVM (it falls back to TCG if KVM is unusable).
+    - name: Enable KVM (best effort)
+      shell: bash
+      run: bash tools/ci/enable_kvm.sh

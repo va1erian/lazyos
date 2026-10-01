@@ -17,6 +17,25 @@ name: rhai
 # are skipped (`tools/rhai/build.py` exits 0); a real compile error fails.
 
 on:
+  # Also on `main`, so the caches this job saves (cargo dependencies, BusyBox)
+  # are the warm set every pull request restores; a cache saved on a pull
+  # request branch is visible to that branch alone.
+  push:
+    branches: [main]
+    paths:
+      - "rhai-host/**"
+      - "libs/rhai-lazy/**"
+      - "idl/**"
+      - "tools/midlc/**"
+      - "libs/messenger/**"
+      - "libs/generated/**"
+      - "tools/rhai/**"
+      - "tools/screenshot/**"
+      - "build_support/**"
+      - "build.rs"
+      - "kernel/src/process/linux/**"
+      - ".github/workflows/rhai.yml"
+      - ".github/actions/**"
   pull_request:
     paths:
       - "rhai-host/**"
@@ -32,6 +51,7 @@ on:
       - "build.rs"
       - "kernel/src/process/linux/**"
       - ".github/workflows/rhai.yml"
+      - ".github/actions/**"
   workflow_dispatch:
 
 permissions:
@@ -51,17 +71,20 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install QEMU and musl
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y qemu-system-x86 musl-tools
-
-      - name: Enable KVM (best effort)
-        run: bash tools/ci/enable_kvm.sh
-
-      - uses: actions/setup-python@v5
+      - uses: ./.github/actions/qemu
         with:
-          python-version: "3.x"
+          packages: qemu-system-x86 musl-tools
+
+      # Four workspaces with their own lockfiles and target dirs: the OS, the
+      # bindings crate, the musl host and the xui apps the desktop run embeds.
+      - uses: ./.github/actions/rust-cache
+        with:
+          key: rhai
+          workspaces: |
+            . -> target
+            libs/rhai-lazy -> target
+            rhai-host -> target
+            xui-app -> target
 
       # The two crates are standalone workspaces (excluded from the OS
       # workspace), so each is tested and linted on its own.
@@ -95,9 +118,8 @@ jobs:
           fi
 
       # BusyBox is the system shell the console and Terminal run.
-      - name: Build BusyBox (system shell)
+      - uses: ./.github/actions/busybox
         if: steps.rhai.outputs.built == 'true'
-        run: python tools/abi/busybox.py
 
       # One boot, no retries: a shell that dies (`user: task N killed by`, the
       # #375 wild jump that used to be retried away here) fails the job, and

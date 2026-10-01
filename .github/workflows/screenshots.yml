@@ -40,24 +40,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install QEMU
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y qemu-system-x86 musl-tools
-
-      # Hosted runners expose /dev/kvm but not to the runner user; open it up
-      # so `--accel auto` picks KVM (it falls back to TCG if KVM is unusable).
-      - name: Enable KVM (best effort)
-        run: bash tools/ci/enable_kvm.sh
-
-      - uses: actions/setup-python@v5
+      - uses: ./.github/actions/qemu
         with:
-          python-version: "3.x"
+          packages: qemu-system-x86 musl-tools
+
+      - uses: ./.github/actions/rust-cache
+        with:
+          key: os-image
 
       # The console shell is BusyBox `sh` (issue #254); without it the image
-      # boots to a blank console. Build the pinned static musl binary first.
-      - name: Build BusyBox (system shell)
-        run: python tools/abi/busybox.py
+      # boots to a blank console.
+      - uses: ./.github/actions/busybox
 
       - name: Build disk image (if the OS project exists)
         id: build

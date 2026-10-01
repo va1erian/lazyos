@@ -1,0 +1,30 @@
+name: BusyBox
+description: >-
+  Provide the pinned static-musl BusyBox the image ships as its shell
+  (`tools/abi/busybox.py`), from a cache keyed on the script that pins the
+  version and digest. A miss downloads and compiles the release (about a
+  minute) and seeds the cache; a hit is a copy.
+
+runs:
+  using: composite
+  steps:
+    # `tools/abi/busybox.py` prefers a prebuilt `tools/abi/busybox` (git-ignored)
+    # over re-downloading and compiling the pinned release.
+    - uses: actions/cache@v4
+      id: busybox
+      with:
+        path: tools/abi/busybox
+        key: busybox-${{ hashFiles('tools/abi/busybox.py') }}
+
+    - name: Build BusyBox (system shell)
+      shell: bash
+      env:
+        CACHE_HIT: ${{ steps.busybox.outputs.cache-hit }}
+      run: |
+        python tools/abi/busybox.py
+        # Seed the cache from a fresh build. A host that could not build
+        # BusyBox leaves nothing to copy; the image then boots without a
+        # shell, as before, and the guest steps report it.
+        if [ "$CACHE_HIT" != "true" ] && [ -f target/abi/busybox/busybox ]; then
+          cp target/abi/busybox/busybox tools/abi/busybox
+        fi

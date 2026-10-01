@@ -12,20 +12,29 @@ classify the result from the log:
     (no marker)                   -> not-run
 
 Outputs `docs/compat/matrix.md` and `docs/compat/compat.json`.
+
+Every image is built first (one `cargo build` each, sequential: they share the
+target directory), then the boots run `--jobs` at a time: each row waits a fixed
+`--at` seconds, so on a multi-core host the guests overlap instead of queueing.
 """
 
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 FIXTURE_DIR = ROOT / "target" / "abi" / "fixtures"
+# One image per row, copied out of `target/lazyos.img` after its build, so the
+# boots can run side by side while the next row's image is built.
+IMAGE_DIR = ROOT / "target" / "abi" / "images"
 SHOTS = ROOT / "shots" / "abi"
 COMPAT = ROOT / "docs" / "compat"
 IMAGE = ROOT / "target" / "lazyos.img"
@@ -61,7 +70,8 @@ TWO_BOOT = {"persist": "WROTE"}
 ONE_BOOT_WITH_DATA = {"cwd": ("/tmp", "/data"), "fsops": ("/tmp", "/", "/data")}
 
 
-def build_image(fixture_path: Path, busybox: bool = False) -> bool:
+def build_image(fixture_path: Path, busybox: bool = False) -> Path | None:
+    """Build the image with the fixture embedded; its per-row copy, or `None`."""
     env = dict(os.environ)
     # Never let a caller's exports leak between rows: a `BUSYBOX` embedded for
     # another fixture would shadow its `INIT.ELF`, and vice versa.
@@ -78,10 +88,16 @@ def build_image(fixture_path: Path, busybox: bool = False) -> bool:
     if result.returncode != 0:
         print(f"warning: image build failed for {fixture_path.name}", file=sys.stderr)
         print(result.stderr[-1500:], file=sys.stderr)
-    return result.returncode == 0
+        return None
+    IMAGE_DIR.mkdir(parents=True, exist_ok=True)
+    image = IMAGE_DIR / f"{fixture_path.stem}.img"
+    shutil.copyfile(IMAGE, image)
+    return image
 
 
-def capture(name: str, at: str, accel: str = "auto", data_disk: Path | None = None) -> str:
+def capture(
+    name: str, image: Path, at: str, accel: str = "auto", data_disk: Path | None = None
+) -> str:
     out = SHOTS / name
     command = [
         sys.executable,
@@ -93,7 +109,7 @@ def capture(name: str, at: str, accel: str = "auto", data_disk: Path | None = No
         "--accel",
         accel,
         "--image",
-        str(IMAGE),
+        str(image),
     ]
     if data_disk:
         command += ["--data-disk", str(data_disk)]
@@ -141,7 +157,7 @@ def new_data_disk(name: str) -> Path | None:
     return path if result.returncode == 0 else None
 
 
-def run_two_boots(name: str, at: str, accel: str) -> tuple[str, str]:
+def run_two_boots(name: str, image: Path, at: str, accel: str) -> tuple[str, str]:
     """Boot the same image twice on one data disk; the second boot must PASS.
 
     Boot 1 must report its marker first: a fixture that fails while writing is
@@ -152,17 +168,17 @@ def run_two_boots(name: str, at: str, accel: str) -> tuple[str, str]:
     disk = new_data_disk(name)
     if disk is None:
         return "fail", "could not format the data disk"
-    first, detail = classify(name, capture(f"{name}-boot1", at, accel, disk), TWO_BOOT[name])
+    first, detail = classify(name, capture(f"{name}-boot1", image, at, accel, disk), TWO_BOOT[name])
     if first != "pass":
         return first, f"boot 1: {detail}".rstrip(": ")
-    serial = capture(name, at, accel, disk)
+    serial = capture(name, image, at, accel, disk)
     status, detail = classify(name, serial)
     if status != "pass" and re.search(rf"ABI:{re.escape(name)}:{TWO_BOOT[name]}", serial):
         return "fail", "boot 2: the file written by boot 1 was gone"  # started over
     return status, f"boot 2: {detail}" if detail else ""
 
 
-def run_with_data_disk(name: str, at: str, accel: str) -> tuple[str, str]:
+def run_with_data_disk(name: str, image: Path, at: str, accel: str) -> tuple[str, str]:
     """A single-boot row that also exercises `/data` when the tooling exists.
 
     Without the data-disk tooling only the always-available directories count;
@@ -173,7 +189,7 @@ def run_with_data_disk(name: str, at: str, accel: str) -> tuple[str, str]:
         disk = new_data_disk(name)
         if disk is None:
             return "fail", "could not format the data disk"
-    serial = capture(name, at, accel, disk)
+    serial = capture(name, image, at, accel, disk)
     status, detail = classify(name, serial)
     if status != "pass":
         return status, detail
@@ -187,7 +203,7 @@ def run_with_data_disk(name: str, at: str, accel: str) -> tuple[str, str]:
     return "pass", ""
 
 
-def run_busybox(at: str, accel: str) -> tuple[str, str]:
+def run_busybox(image: Path, at: str, accel: str) -> tuple[str, str]:
     """The BusyBox row: `sh` runs, and `df` and `mount` list the `/data` volume.
 
     The kernel's bench command is `echo ABI:busybox:PASS; df; mount`. With a
@@ -201,7 +217,7 @@ def run_busybox(at: str, accel: str) -> tuple[str, str]:
         disk = new_data_disk("busybox")
         if disk is None:
             return "fail", "could not format the data disk"
-    serial = capture("busybox", at, accel, disk)
+    serial = capture("busybox", image, at, accel, disk)
     status, detail = classify("busybox", serial)
     if status != "pass" or disk is None:
         return status, detail
@@ -239,43 +255,68 @@ def check_busybox_cwd(serial: str) -> tuple[str, str]:
     return "pass", ""
 
 
+def run_row(name: str, image: Path, at: str, accel: str) -> tuple[str, str]:
+    """Boot one row's image and judge it; safe to run alongside other rows
+    (its own image copy, data disk, output directory and QMP port)."""
+    if name in TWO_BOOT:
+        return run_two_boots(name, image, at, accel)
+    if name in ONE_BOOT_WITH_DATA:
+        return run_with_data_disk(name, image, at, accel)
+    if name == "busybox":
+        return run_busybox(image, at, accel)
+    return classify(name, capture(name, image, at, accel))
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--at", default="8", help="capture time in seconds (default 8)")
     parser.add_argument("--only", help="comma-separated fixture names to run")
     parser.add_argument("--accel", default="auto",
                         help="QEMU accelerator: auto (kvm/whpx if usable, else TCG), kvm, whpx, none")
+    parser.add_argument("--jobs", type=int, default=1,
+                        help="guests to boot side by side (default 1; the images are "
+                             "always built one at a time)")
     args = parser.parse_args()
+    if args.jobs < 1:
+        parser.error("--jobs must be at least 1")
 
     COMPAT.mkdir(parents=True, exist_ok=True)
     SHOTS.mkdir(parents=True, exist_ok=True)
 
     wanted = set(args.only.split(",")) if args.only else set(ORDER)
-    results: list[dict] = []
+    rows = [name for name in ORDER if name in wanted]
+    results: dict[str, dict] = {}
 
-    for name in ORDER:
-        if name not in wanted:
-            continue
+    def record(name: str, status: str, detail: str) -> None:
+        results[name] = {"fixture": name, "status": status, "detail": detail}
+        print(f"{name}: {status} {detail}".rstrip(), flush=True)
+
+    # Build every image first (the builds share `target/`, so they are
+    # sequential), then boot `--jobs` of them at a time.
+    images: dict[str, Path] = {}
+    for name in rows:
         fixture = FIXTURE_DIR / f"{name}.elf"
         if not fixture.is_file():
-            results.append({"fixture": name, "status": "unavailable", "detail": "fixture not built"})
+            record(name, "unavailable", "fixture not built")
             continue
-        if not build_image(fixture, busybox=(name == "busybox")):
-            results.append({"fixture": name, "status": "fail", "detail": "image build failed"})
+        image = build_image(fixture, busybox=(name == "busybox"))
+        if image is None:
+            record(name, "fail", "image build failed")
             continue
-        if name in TWO_BOOT:
-            status, detail = run_two_boots(name, args.at, args.accel)
-        elif name in ONE_BOOT_WITH_DATA:
-            status, detail = run_with_data_disk(name, args.at, args.accel)
-        elif name == "busybox":
-            status, detail = run_busybox(args.at, args.accel)
-        else:
-            status, detail = classify(name, capture(name, args.at, args.accel))
-        results.append({"fixture": name, "status": status, "detail": detail})
-        print(f"{name}: {status} {detail}".rstrip())
+        images[name] = image
 
+    with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as pool:
+        futures = {
+            pool.submit(run_row, name, image, args.at, args.accel): name
+            for name, image in images.items()
+        }
+        for future in concurrent.futures.as_completed(futures):
+            record(futures[future], *future.result())
+
+    # The matrix keeps the fixture order however the boots finished.
+    rows_out = [results[name] for name in rows]
     readme = ROOT / "docs" / "compat" / "compat.json"
-    readme.write_text(json.dumps(results, indent=2), encoding="utf-8")
+    readme.write_text(json.dumps(rows_out, indent=2), encoding="utf-8")
 
     icons = {"pass": "PASS", "fail": "FAIL", "skip": "skip", "unavailable": "n/a", "not-run": "not-run"}
     lines = [
@@ -286,13 +327,13 @@ def main() -> int:
         "| Fixture | Status | Detail |",
         "|---|---|---|",
     ]
-    for row in results:
+    for row in rows_out:
         status = icons.get(row["status"], row["status"])
         lines.append(f"| {row['fixture']} | {status} | {row['detail']} |")
     (COMPAT / "matrix.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
-    passed = sum(1 for r in results if r["status"] == "pass")
-    print(f"\n{passed}/{len(results)} fixtures passing")
+    passed = sum(1 for r in rows_out if r["status"] == "pass")
+    print(f"\n{passed}/{len(rows_out)} fixtures passing")
     return 0
 
 

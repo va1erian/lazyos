@@ -32,26 +32,29 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install QEMU
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y qemu-system-x86 musl-tools
-
-      # Hosted runners expose /dev/kvm but not to the runner user; open it up
-      # so `--accel auto` picks KVM (it falls back to TCG if KVM is unusable).
-      - name: Enable KVM (best effort)
-        run: bash tools/ci/enable_kvm.sh
-
-      - uses: actions/setup-python@v5
+      - uses: ./.github/actions/qemu
         with:
-          python-version: "3.x"
+          packages: qemu-system-x86 musl-tools
+
+      - uses: ./.github/actions/rust-cache
+        with:
+          key: abi
+          workspaces: |
+            . -> target
+            tools/abi/fixtures -> target
+
+      # `build.py` also provides the BusyBox row's shell; the cache spares the
+      # download and compile of the pinned release.
+      - uses: ./.github/actions/busybox
 
       # build.py adds the musl target itself (nightly, per rust-toolchain.toml).
       - name: Build fixtures (static musl)
         run: python tools/abi/build.py
 
+      # Three guests at a time: the runner has four cores and every boot is a
+      # fixed `--at` wait, so the rows overlap instead of queueing.
       - name: Run the conformance bench
-        run: python tools/abi/run.py --at 8
+        run: python tools/abi/run.py --at 8 --jobs 3
 
       - name: Syscall coverage
         run: python tools/abi/coverage.py
