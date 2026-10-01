@@ -88,14 +88,25 @@ handoff (see Risks). The seams for all of these are left open.
    PC share, and it needs no companion controllers. UHCI/OHCI/EHCI are not
    worth a driver each for a hobby OS.
 6. **A new, narrow source capability on the raw bus.** Add syscall 25 ops
-   `register_source(kind) -> device_id` and `publish(buf, n)`, gated by a new
+   `register_source(class) -> device_id` and `publish(buf, n)`, gated by a new
    capability bit `input.source` (next free bit in `credentials.rs`; held
    only by `usbd`, stripped from everyone else exactly as `CAP_INPUT_RAW` is).
    - The **kernel assigns the device id** at `register_source` and stamps it on
      every event, so a driver can never impersonate the PS/2 keyboard, the PS/2
      mouse or another device (input-plan security property 5).
-   - `publish` validates every record: kind matches the registered source;
-     key `code` in `0x04..=0xE7`; button `code` in `1..=5`; `value` in
+   - `class` is a **source class**, not an event kind. Each class has a fixed
+     set of permitted record kinds, enforced by the kernel:
+
+     | Class | Permitted record kinds |
+     |---|---|
+     | `Keyboard` | `KEY` |
+     | `Pointer` (relative) | `REL_MOTION`, `BUTTON`, `SCROLL` |
+     | `Tablet` (absolute) | `ABS_MOTION`, `BUTTON`, `SCROLL` |
+
+     `usbd` registers **one source per HID interface**, so a composite
+     keyboard-plus-mouse device is two sources and each stays inside its own
+     class. `publish` rejects (drops and counts) any record whose kind is not in
+     the registering source's class, then validates the rest: key `code` in `0x04..=0xE7`; button `code` in `1..=5`; `value` in
      `{0,1}` for edges; scroll and motion magnitudes bounded; bounded batch
      size; per-task rate limit. Anything else is dropped and counted.
    - The kernel tracks held keys **and held buttons** per source; **closing a
@@ -162,9 +173,14 @@ keyboard engine; no Messenger, no clock), so the state machine is deterministic:
 - **Input:** one raw pointer record. `REL_MOTION` adds counts (1:1 with today's
   kernel behaviour; acceleration is a later `confd` setting); `ABS_MOTION`
   scales `0..=0xFFFF` to the bounds; `BUTTON` sets or clears; `SCROLL`
-  accumulates notches. A `Dropped` marker clears nothing about position (the
-  cursor is state, not an edge stream) but reconciles buttons against the next
-  record per source, so a lost release cannot stick a button.
+  accumulates notches. A `Dropped` marker leaves the position alone (the
+  cursor is state, not an edge stream) but **releases every held button**,
+  emitting a `PointerEvent` with the button mask cleared. `Dropped` carries no
+  device or button snapshot, and button records are edges only, so a lost
+  release could otherwise stick a button forever. This mirrors what the
+  keyboard engine does (release every held key); the cost is that a button
+  physically still held during an overflow reads as released until it is
+  pressed again, which fails safe.
 - **Output:** `PointerOut { x, y, buttons, wheel_v, wheel_h, ts_ns, seq }` after
   each applied record, with motion coalesced per drain so a burst yields one
   move.
@@ -203,10 +219,10 @@ pipeline before `usbd` exists.
 | Phase | Deliverable | Tests |
 |---|---|---|
 | **P0** Bus pointer records | Encoding from decision 2 in `kernel/src/input/bus.rs`, `device::PS2_MOUSE`, tail merging for `REL_MOTION`/`SCROLL`/`ABS_MOTION`, and the PS/2 mouse tap publishing after `decode_packet`. The legacy display stream is unchanged and fed in parallel. | New `input_bus_suite` cases: encode/decode round-trips including negative and saturated deltas, merging only at the tail and never across a key or button record, `seq` stays gapless across merges, no key loss or spurious `Dropped` under a motion flood. Stress: millions of mixed key and pointer records across producers |
-| **P1** `inputd` pointer | `libs/inputmap/src/pointer.rs`, `inputd/pointer.rs`, `source.rs` consuming the pointer kinds, `idl/input.midl` additions (`SetBounds`, `GetPointer`, `PointerEvent`), `libs/generated` regenerated with `midlc`, and `rhai-lazy`'s schema regenerated (`tools/midlc/midlc.py --schema ...`). | `cargo test -p inputmap -p messenger-generated`: clamping at all four edges, absolute scaling, two-device button counting, `Dropped` reconciliation, wheel accumulation, malformed records dropped and counted. A seeded fuzz entry for the pointer state machine under `fuzz/` with checked-in seeds (`fuzz/gen_corpus.py --check` stays green) |
+| **P1** `inputd` pointer | `libs/inputmap/src/pointer.rs`, `inputd/pointer.rs`, `source.rs` consuming the pointer kinds, `idl/input.midl` additions (`SetBounds`, `GetPointer`, `PointerEvent`), `libs/generated` regenerated with `midlc`, and `rhai-lazy`'s schema regenerated (`tools/midlc/midlc.py --schema ...`). | `cargo test -p inputmap -p messenger-generated`: clamping at all four edges, absolute scaling, two-device button counting, `Dropped` releasing every held button, wheel accumulation, malformed records dropped and counted. A seeded fuzz entry for the pointer state machine under `fuzz/` with checked-in seeds (`fuzz/gen_corpus.py --check` stays green) |
 | **P2** `xuid` switches over | `xuid` calls `SetBounds` and `GetPointer` on attach and takes pointer from `PointerEvent`; it stops draining pointer records from `display_input_poll` once `inputd` is attached, and falls back to the kernel path only when no `inputd` is running. Hit-testing, drags, focus-on-click and `display.v1` events are untouched. | The existing `display_suite` passes unchanged; desktop screenshot sessions (move, click, drag a window, wheel in the Docs app, `xui_docs.json`) before and after must match; a latency check that cursor motion is not slower than the old direct path (one extra Messenger hop) |
 | **U0** Libraries | `libs/xhci` (register/TRB/context layouts, command and event ring state machines behind an MMIO/DMA trait so they run on the host) and `libs/usbhid` (device/config/interface/endpoint descriptor parser, boot keyboard and mouse decoders, previous-report diff to press/release edges, ignoring the `0x01` rollover-error report). Added to the workspace. | `cargo test -p xhci -p usbhid`: golden descriptors from QEMU devices, ring wrap-around, cycle-bit handling. Seeded fuzz for `usbdesc` and `hidreport` with checked-in seeds |
-| **U1** Kernel source op | Syscall 25 `register_source`/`publish`/`close_source`, the `input.source` capability, kernel-stamped device ids, release of held keys **and buttons** on close, validation of every record kind. `init` grants the bit to `usbd` only. | New `input_bus_suite` cases: capability gate, forged or out-of-range codes dropped and counted, per-source release on close and on task death, two sources interleaved. Stress: repeated register/close generations, many producers |
+| **U1** Kernel source op | Syscall 25 `register_source(class)`/`publish`/`close_source`, the `input.source` capability, kernel-stamped device ids, release of held keys **and buttons** on close, validation of every record against its source class. `init` grants the bit to `usbd` only. | New `input_bus_suite` cases: capability gate, forged or out-of-range codes dropped and counted, per-source release on close and on task death, two sources interleaved. Stress: repeated register/close generations, many producers |
 | **U2** `usbd` keyboard | Claim the xHCI function (class `0C0330`), reset and start the controller, scratchpad, DCBAA, command and event rings (polled, as in `sndd`), detect connected root ports, reset, `Enable Slot`, `Address Device`, read descriptors, `Configure Endpoint`, `SET_PROTOCOL(boot)`, `SET_IDLE(0)`, interrupt-IN polling, publish key edges. Boot markers `USBD:XHCI`, `USBD:PORT`, `USBD:HID:KBD`. | `tools/usb/run.py` (below): QEMU with `qemu-xhci` + `usb-kbd` and **no PS/2 input**, type text over QMP, verify the serial trace `tools/input/verify_trace.py` checks today, plus a Terminal screenshot. Kernel `dev_suite` gains an xHCI class-mapping check |
 | **U3** USB mouse and hot-plug | Boot mouse decoding (3 or 4 byte, wheel, buttons) published as `REL_MOTION`/`BUTTON`/`SCROLL`; port-status-change events; `device_add`/`device_del` at runtime; detach releases keys and buttons; slot and endpoint teardown frees DMA only after the controller has stopped using it (the `sndd` DMA-lifetime lesson in `architecture/audio.md`). `usbd` contains **no pointer policy**: no cursor, no clamping. | QMP `device_add usb-kbd`/`usb-mouse` and `device_del` mid-session: type, unplug while a key or button is held (nothing stuck), replug; mouse move/click/scroll screenshot with the PS/2 mouse also present (two devices, one cursor). Stress: 200 plug/unplug cycles with no DMA or slot leak (`DmaMemory` returns to baseline) |
 | **U4** Report protocol, tablet | Minimal HID report-descriptor parser (Input items; Generic Desktop X/Y/Wheel, Button, Keyboard pages; logical min/max), `usb-tablet` published as `ABS_MOTION` normalized to `0..=0xFFFF`. This is what makes `qemu_session.py --tablet` / `mouse_abs` position the guest cursor, and the cursor lands in the same `inputd` pointer module as every other device. | Descriptor parser unit and fuzz tests; screenshot session using `mouse_abs` to click a known desktop target at several screen sizes |
