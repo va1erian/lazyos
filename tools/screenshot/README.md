@@ -110,7 +110,7 @@ or since the latest `wait_for` gate) and one action:
 | scroll | `{"mouse_scroll": 3}` |
 | absolute pointer | `{"mouse_abs": [x, y]}` (needs `--tablet`) |
 | wait / quit | `{"wait": 1.5}` / `{"quit": true}` |
-| wait for a serial marker | `{"wait_for": "SYSMON:UP:PASS", "timeout": 240}` |
+| wait for a serial marker (N-th match) | `{"wait_for": "SYSMON:UP:PASS", "timeout": 240, "occurrence": 2}` |
 | confirm an input was handled | `{"key": "r", "until": "SYSMON:REFRESH:PASS", "timeout": 60, "retries": 2}` |
 
 ### Readiness gating (prefer it to fixed `at` times)
@@ -122,7 +122,9 @@ guest prints instead:
 
 - `wait_for` blocks until the serial log contains the text (a substring, or a
   regular expression with `"regex": true`) and fails the session after
-  `timeout` seconds (default `--wait-timeout`, 240).
+  `timeout` seconds (default `--wait-timeout`, 240). `"occurrence": N` (an
+  integer `>= 1`, default 1) waits for the N-th match, so a marker printed once
+  per launch (e.g. a second `EDITOR:UP:PASS`) can be gated on.
 - `until` on any input action waits for a marker printed *after* the input was
   sent, and re-sends the input up to `retries` times if it does not appear.
 - After a `wait_for`, later `at` values count from that gate, so a timed

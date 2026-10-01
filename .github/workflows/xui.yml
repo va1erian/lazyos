@@ -69,6 +69,32 @@ jobs:
         with:
           python-version: "3.x"
 
+      # The job re-pays a cold cargo build on every run: the OS workspace (`.`)
+      # and the standalone app workspace (`xui-app`) have separate lockfiles and
+      # target dirs, so both are listed. `cache-on-failure` keeps the build when
+      # a capture step is red, so a retry does not pay it again. rust-cache
+      # recurses into nested target dirs (the Docs app's `target/xui-zig`), so no
+      # extra entry is needed; it also sets CARGO_INCREMENTAL=0, which CI wants.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target
+            xui-app -> target
+          cache-on-failure: "true"
+          key: xui
+
+      # zig builds libc++/libc++abi/libunwind/musl for the Docs app on first use
+      # and stores them in its global cache; pin that location and cache it so a
+      # warm run skips those compiles. The env var must be set before the first
+      # zig invocation. Bump the key with `zig.ZIG_VERSION` (tools/xui/zig.py).
+      - name: Pin and cache the zig global cache
+        shell: bash
+        run: echo "ZIG_GLOBAL_CACHE_DIR=$HOME/.cache/zig" >> "$GITHUB_ENV"
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/zig
+          key: zig-0.16.0-${{ runner.os }}
+
       # The Docs app embeds litehtml (C++), built with zig for the musl target
       # (`tools/xui/zig.py`, docs/xui-docs.md). Without it `build.py` skips the
       # app with a warning, so the pin here is what makes CI exercise it.
@@ -116,11 +142,29 @@ jobs:
           echo "docs=$docs" >> "$GITHUB_OUTPUT"
           ls -l target/xui/*.elf || true
 
+      # `tools/abi/busybox.py` prefers a prebuilt `tools/abi/busybox` (git-ignored)
+      # over re-downloading and compiling the pinned release every run. Key on the
+      # script that pins the version and digest. Placed after rust-cache because
+      # post-steps run in reverse order and this save must run before rust-cache's
+      # cleanup, not the other way round.
+      - uses: actions/cache@v4
+        id: busybox
+        with:
+          path: tools/abi/busybox
+          key: busybox-${{ hashFiles('tools/abi/busybox.py') }}
+
       # The Terminal hosts BusyBox `sh` (issue #254); build the pinned static
       # musl binary so `build.rs` embeds it in the desktop image.
       - name: Build BusyBox (system shell)
         shell: bash
-        run: python tools/abi/busybox.py
+        run: |
+          python tools/abi/busybox.py
+          # Seed the cache from a fresh build. A host that could not build
+          # BusyBox leaves nothing to copy; the image then boots without a
+          # shell, as before, and the desktop steps report it.
+          if [ "${{ steps.busybox.outputs.cache-hit }}" != "true" ] && [ -f target/abi/busybox/busybox ]; then
+            cp target/abi/busybox/busybox tools/abi/busybox
+          fi
 
       # M0: the gradient proves bind/present from a static musl program.
       - name: Capture M0 (gradient present)
