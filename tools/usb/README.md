@@ -55,8 +55,9 @@ fails keeps its memory out of reuse and is reported.
 Serial markers: `USBD:XHCI` (controller up), `USBD:PORT`, `USBD:DESC:DEVICE`,
 `USBD:DESC:CONFIG`, `USBD:HID:KBD` / `USBD:HID:MOUSE`, `USBD:READY devices=N`,
 `USBD:DETACH port= slot= regions=` (an unplug or a failed pipe);
-with `trace=1` (debug services images) `USBD:REPORT <hex>` and `USBD:KEY` per
-report and edge. A machine without xHCI prints `USBD:XHCI:NONE` and exits 0.
+with `trace=1` (only on `LAZYOS_USB_TRACE=1` test images, which `run.py`
+builds: the trace carries every keystroke, so ordinary USB images never
+enable it) `USBD:REPORT <hex>` and `USBD:KEY` per report and edge. A machine without xHCI prints `USBD:XHCI:NONE` and exits 0.
 
 **TCG.** USB input is polled, and QEMU's `usb-kbd` queues only 16 keycodes.
 Under TCG each keystroke makes the text console redraw for about a second, and

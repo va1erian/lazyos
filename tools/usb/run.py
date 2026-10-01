@@ -126,8 +126,9 @@ def hotplug_steps(cycles: int, pace: float) -> list[dict]:
 
 
 def build() -> None:
-    env = dict(os.environ, LAZYOS_SERVICES="1", LAZYOS_USB="1")
-    print("building: LAZYOS_SERVICES=1 LAZYOS_USB=1 cargo build", flush=True)
+    # LAZYOS_USB_TRACE: usbd echoes key edges for the judge (test images only).
+    env = dict(os.environ, LAZYOS_SERVICES="1", LAZYOS_USB="1", LAZYOS_USB_TRACE="1")
+    print("building: LAZYOS_SERVICES=1 LAZYOS_USB=1 LAZYOS_USB_TRACE=1 cargo build", flush=True)
     result = subprocess.run(["cargo", "build"], cwd=ROOT, env=env)
     if result.returncode != 0:
         sys.exit("cargo build failed")

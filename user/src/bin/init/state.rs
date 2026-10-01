@@ -62,6 +62,16 @@ const SND_CRED: SysCred = SysCred::new(SND_UID, SND_UID, user::dev::CAP_DEV_CLAI
 #[cfg(lazyos_sound)]
 const SND_UID: u32 = 901;
 
+/// `usbd`'s arguments. `trace=1` echoes every report and key edge on serial,
+/// which would put typed passwords on the console, so only the USB harness's
+/// test images (`LAZYOS_USB_TRACE=1`, `tools/usb/run.py`) turn it on.
+#[cfg(lazyos_usb)]
+const USBD_ARGS: &str = if cfg!(lazyos_usb_trace) {
+    "trace=1"
+} else {
+    ""
+};
+
 /// The `usbd` driver's identity (docs/usb-hid-plan.md U2): a dedicated system
 /// uid holding only `CAP_DEV_CLAIM` (the controller) and `CAP_INPUT_SOURCE`
 /// (publishing its devices' input). It cannot read the input bus, and the
@@ -334,13 +344,12 @@ pub(super) const MANIFEST: &[ServiceSpec] = &[
     },
     // The USB HID driver (docs/usb-hid-plan.md U2), present only on
     // `LAZYOS_USB=1` images. A machine without an xHCI controller makes it
-    // exit cleanly, so `OnFailure` restarts it only after a crash. `trace=1`
-    // (boot evidence images) echoes each key edge for the harness.
+    // exit cleanly, so `OnFailure` restarts it only after a crash.
     #[cfg(lazyos_usb)]
     ServiceSpec {
         name: "usbd",
         path: "USBD.ELF",
-        args: "trace=1",
+        args: USBD_ARGS,
         restart: Restart::OnFailure,
         deps: &["inputd"],
     },
