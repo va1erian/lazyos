@@ -18,12 +18,21 @@ reply, so the error field is hand-written next to these stubs.
 | Launch | 936096390 | sync | `(app: String, args: String, session: U64) -> (app: String, pid: U64, session: U64)` |
 | ListApps | 1009359625 | sync | `() -> (apps: Array<AppInfo>)` |
 | Stop | 1266644741 | sync | `(app: String) -> (stopped: U64)` |
+| Shutdown | 1911669355 | sync | `(mode: U32, reason: String, force: Bool) -> (accepted: Bool, phase: String)` |
 
 ## Topics
 
 | Topic | Payload | QoS | Retained | Permissions |
 |---|---|---|---|---|
+| `system/power/state` | `PowerState` | latest | yes | `publish:system/power/state`, `subscribe:system/power/state` |
 | `system/events/service/+` | `ServiceEvent` | latest | yes | `publish:system/events/service/+`, `subscribe:system/events/service/+` |
+
+## struct `PowerState`
+
+- `phase: String`
+- `mode: U32`
+- `reason: String`
+- `deadline: U64`
 
 ## struct `ServiceStatus`
 
@@ -51,3 +60,7 @@ reply, so the error field is hand-written next to these stubs.
 - `status: U64`
 - `health: String`
 - `detail: String`
+
+## enum `PowerMode`
+
+- PowerOff, Reboot

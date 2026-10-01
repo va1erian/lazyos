@@ -151,6 +151,12 @@ Full spec in [`messenger.md`](messenger.md). Summary:
 - **Supervision:** `init` starts system services, restarts crashes with backoff,
   tracks dependencies, exposes status/health; socket/service activation
   (start-on-first-call) via `messengerd`.
+- **Shutdown and reboot:** `init` is the one orchestrator: on `Shutdown` it
+  stops the session apps, then the services in reverse dependency order (the
+  ones holding durable state last, through the `os.lazy.lifecycle.v1` stop
+  message), and only then calls the kernel's `power`, which syncs and stops.
+  Every step has a deadline and a kernel watchdog backs the whole sequence; see
+  [`shutdown.md`](shutdown.md).
 - **Service accounts:** least-privilege UIDs for daemons; no root by default.
 
 ### 4.4 Storage

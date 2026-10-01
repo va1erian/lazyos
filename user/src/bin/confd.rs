@@ -38,6 +38,13 @@
 //! leak it to every subscriber; the reviewer-approved fallback for #260 is to
 //! stay silent on that subtree. Subscribers should `Get`/`List` after any
 //! change and re-read on reconnect.
+//!
+//! # Shutdown
+//!
+//! `confd` serves `os.lazy.lifecycle.v1` (docs/shutdown.md): on `init`'s
+//! `Shutdown` it flushes the store's volume, prints `CONFD:STOP` and exits 0.
+//! It is one of the last services stopped, after every service that could
+//! still write a setting.
 
 #![no_std]
 #![no_main]
@@ -57,6 +64,7 @@ use confd::{dir, ChangeSink, Confd};
 use messenger_generated::topics;
 use user::central;
 use user::messenger::confd as api;
+use user::messenger::services::lifecycle;
 use user::messenger::{self, errno, registry, services, Error, Message, Parcel};
 use user::sys;
 
@@ -152,7 +160,12 @@ fn run() -> messenger::Result<()> {
     seed_from_lower(&mut service, &dir);
 
     let (published, server) = messenger::create_pair()?;
-    registry::register(api::NAME, &published, &[api::INTERFACE], 0)?;
+    registry::register(
+        api::NAME,
+        &published,
+        &[api::INTERFACE, lifecycle::INTERFACE],
+        0,
+    )?;
 
     let detail = if persistent {
         format!("store={dir}")
@@ -191,6 +204,12 @@ fn run() -> messenger::Result<()> {
         };
         match server.recv_with(&mut buffer, deadline) {
             Ok(message) => {
+                // An orderly shutdown (docs/shutdown.md): every write is
+                // synchronous, so none is in flight between two messages.
+                if let Some(reason) = lifecycle::stop_requested(&message) {
+                    stop(&dir, &reason);
+                    return Ok(());
+                }
                 let method = message.method();
                 let reply = match dispatch(&mut service, &message, &dir, persistent) {
                     Ok(parcel) => parcel,
@@ -225,6 +244,19 @@ fn run() -> messenger::Result<()> {
             sys::write_str("CONFD:CTL:EXIT\n");
         }
     }
+}
+
+/// The lifecycle stop: flush the volume holding the store (its last
+/// `store.tmp` -> fsync -> rename finished before this message was read), so
+/// the store is durable before the machine stops.
+fn stop(dir: &str, reason: &str) {
+    let synced = match user::files::fsync(dir) {
+        Ok(()) => String::from("ok"),
+        Err(code) => format!("errno {code}"),
+    };
+    sys::write_str(&format!(
+        "CONFD:STOP dir={dir} sync={synced} reason=\"{reason}\"\n"
+    ));
 }
 
 /// Whether the manifest asked for the `confctl` self-test (`demo=1`).

@@ -194,6 +194,28 @@ python fuzz/gen_corpus.py --check                # the checked-in seeds are curr
 The kernel's `ext2_suite` still runs unchanged against the adapter, and
 `mount_library_formatted_root` mounts a library-made image at `/` through `lazyos.cfg`.
 
+## Shutdown and reboot
+
+Only `init` stops the machine ([`docs/shutdown.md`](docs/shutdown.md)): its
+`Shutdown` method stops the apps, then the services in reverse dependency
+order, then calls the kernel's `power` (syscall 21). Never call `power()` from
+anything else; ask `init` (`powerctl`, or `services::shutdown`). A service
+that holds durable state serves `os.lazy.lifecycle.v1` (`idl/lifecycle.midl`)
+and is listed in `user/src/bin/init/shutdown.rs` (`GRACEFUL`). The harness
+boots the desktop twice (power-off from the shell, reboot from the menu) and
+judges the serial logs; the session scripts drive the same paths by hand:
+
+```bash
+python tools/shutdown/run.py             # build, boot twice, judge (tools/shutdown/README.md)
+python tools/shutdown/test_judge.py      # the judge fails when it should
+python tools/screenshot/qemu_session.py --image target/lazyos.img \
+    --out shots/shutdown --script tools/screenshot/examples/shutdown_shell.json \
+    --extra-arg=-no-shutdown
+python tools/screenshot/qemu_session.py --image target/lazyos.img \
+    --out shots/reboot --script tools/screenshot/examples/shutdown_menu.json \
+    --extra-arg=-no-shutdown
+```
+
 ## Sound harness
 
 The virtio-sound driver (`sndd`) is verified by listening: QEMU records what the

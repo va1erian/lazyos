@@ -159,3 +159,104 @@ pub fn soak_native_kill() -> Result<(), String> {
     check!(after <= before + 8, "frames leaked: {before} -> {after}");
     Ok(())
 }
+
+/// A fresh native child of the kernel task, running as `alice`.
+fn native_child() -> Result<usize, String> {
+    let child = task::spawn_fork().map_err(|error| format!("spawn: {error}"))?;
+    task::harness::set_kind(child, task::Kind::Native);
+    credentials::set(child, alice());
+    Ok(child)
+}
+
+/// A native task's pending `SIGTERM` is fatal at its next syscall return
+/// (docs/shutdown.md): the gate's decision names it, signals that do nothing
+/// are consumed on the way, and a Linux task is left to its own path.
+pub fn native_sigterm_fatal_at_syscall_return() -> Result<(), String> {
+    fresh()?;
+    reset_creds();
+    let child = native_child()?;
+    check!(
+        signal::native_fatal_pending(child).is_none(),
+        "nothing pending, yet a fatal signal was reported"
+    );
+    // SIGCHLD's default is to ignore: consumed, never fatal.
+    signal::send_to_slot(
+        task::KERNEL_TASK,
+        child,
+        signal::SIGCHLD,
+        signal::SigInfo::kernel(),
+    )
+    .map_err(|error| format!("SIGCHLD: {error:?}"))?;
+    check!(
+        signal::native_fatal_pending(child).is_none(),
+        "SIGCHLD was treated as fatal"
+    );
+    check!(
+        signal::pending(child) & (1 << signal::SIGCHLD) == 0,
+        "an ignored SIGCHLD stayed pending"
+    );
+    signal::send_to_slot(
+        task::KERNEL_TASK,
+        child,
+        signal::SIGTERM,
+        signal::SigInfo::kernel(),
+    )
+    .map_err(|error| format!("SIGTERM: {error:?}"))?;
+    check!(
+        signal::native_fatal_pending(child) == Some(signal::SIGTERM),
+        "a pending SIGTERM was not fatal for a native task"
+    );
+    // The same signal on a Linux task is its own syscall return's business.
+    task::harness::set_kind(child, task::Kind::Linux);
+    check!(
+        signal::native_fatal_pending(child).is_none(),
+        "the native path claimed a Linux task's signal"
+    );
+    task::harness::set_kind(child, task::Kind::Native);
+    // What `deliver_native` does with the answer (without halting the suite).
+    let pml4 = task::harness::pml4(child).ok_or("no pml4")?;
+    signal::terminate_process(pml4, 128 + signal::SIGTERM as u64);
+    check!(
+        task::harness::state(child) == Some(TaskState::Done),
+        "the terminated task is still live"
+    );
+    while task::reap_child().is_some() {}
+    reset_creds();
+    task::harness::reset();
+    signal::harness::reset();
+    Ok(())
+}
+
+/// Soak: many native children ended by `SIGTERM` through the syscall-return
+/// decision leave no task slot, frame or pending signal behind.
+pub fn soak_native_sigterm() -> Result<(), String> {
+    use crate::process::killsys;
+    fresh()?;
+    reset_creds();
+    let before = crate::mem::frame_stats().live();
+    for round in 0..1500u32 {
+        let child = native_child().map_err(|error| format!("round {round}: {error}"))?;
+        check!(
+            killsys::dispatch(child as u64, signal::SIGTERM as u64) == 0,
+            "round {round}: SIGTERM refused"
+        );
+        let sig = signal::native_fatal_pending(child);
+        check!(
+            sig == Some(signal::SIGTERM),
+            "round {round}: SIGTERM not fatal ({sig:?})"
+        );
+        let pml4 = task::harness::pml4(child).ok_or("no pml4")?;
+        signal::terminate_process(pml4, 128 + signal::SIGTERM as u64);
+        while task::reap_child().is_some() {}
+        check!(
+            killsys::dispatch(child as u64, 0) == 3u64.wrapping_neg(),
+            "round {round}: the reaped slot still answers"
+        );
+    }
+    reset_creds();
+    task::harness::reset();
+    signal::harness::reset();
+    let after = crate::mem::frame_stats().live();
+    check!(after <= before + 8, "frames leaked: {before} -> {after}");
+    Ok(())
+}

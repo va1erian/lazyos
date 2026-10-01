@@ -69,7 +69,8 @@ See [processes.md](processes.md) and [display.md](display.md).
 
 | Binary | Image | Role | Started by |
 |---|---|---|---|
-| `init` / `messengerd` | `SUPER` / `MSGRD.ELF` | Supervisor serving `os.lazy.init.v1` (`idl/init.midl`): the manifest, spawn/wait, restart backoff, the `Services` table, the app registry with `ListApps`/`Launch`/`Stop`; `XAPPS.LST` decides which registered apps the image ships, and `autostart` rows open at boot as the desktop's apps (#215/#216) / bootstrap registry proxy and central topics broker | kernel / `init` |
+| `init` / `messengerd` | `SUPER` / `MSGRD.ELF` | Supervisor serving `os.lazy.init.v1` (`idl/init.midl`): the manifest, spawn/wait, restart backoff, the `Services` table, the app registry with `ListApps`/`Launch`/`Stop`; `XAPPS.LST` decides which registered apps the image ships, and `autostart` rows open at boot as the desktop's apps (#215/#216); `Shutdown` stops the apps, then the services in reverse dependency order, then calls the kernel's `power` ([../shutdown.md](../shutdown.md)) / bootstrap registry proxy and central topics broker | kernel / `init` |
+| `powerctl` | `POWERCTL.ELF` | `powerctl poweroff\|reboot [-f] [reason]`: asks `init` for an orderly stop; the shell's `shutdown`, `poweroff`, `halt` and `reboot` run it ([../shutdown.md](../shutdown.md)) | shell (`sh` native exec) |
 | `logd` / `healthd` | `LOGD` / `HEALTHD.ELF` | Hash-chained event log / health aggregation serving `os.lazy.healthd.v1` (`idl/healthd.midl`): one row per supervised service, retained on `system/health/<name>`, plus the aggregate on `system/health/summary` | `init` |
 | `confd` / `confctl` | `CONFD` / `CONFCTL.ELF` | Configuration registry `os.lazy.confd.v1` (`idl/confd.midl`, #260; [confd-plan](../confd-plan.md)) / its command line and `demo=1` self-test | `init` (after `messengerd`) / shell or `confd` (`demo=1`) |
 | `pkgd` / `pkgctl` | `PKGD` / `PKGCTL.ELF` | Application package manager `os.lazy.pkgd.v1` (`idl/pkgd.midl`; [packages.md](../packages.md)): owns `/data/apps`, records installs in `confd`, registers types with `mimed`, loads app policy into the kernel / its command line | `init` (after `confd` and `mimed`) / shell |
@@ -92,7 +93,10 @@ See [processes.md](processes.md) and [display.md](display.md).
 (`messengerctl`) and `faultprobe` are reachable by name from BusyBox `sh` (console
 and desktop Terminal); the kernel's `execve` runs them as a native child of the
 shell's fork child. `top` is not shipped in the `LAZYOS_DESKTOP=1` image (`not
-found` there). Details and limits: [processes.md](processes.md).
+found` there). `shutdown`, `poweroff`, `halt` and `reboot` run `powerctl` with
+the mode as its first argument, so they reach `init`'s orderly shutdown instead
+of BusyBox's applets ([../shutdown.md](../shutdown.md)). Details and limits:
+[processes.md](processes.md).
 
 **The `rhai` command** (issue #319, step R0 of the
 [Rhai plan](../rhai-plan.md)). An

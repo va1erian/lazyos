@@ -149,6 +149,7 @@ mod native_exec_suite;
 mod overlay_suite;
 mod partition_suite;
 mod pipe_suite;
+mod power_suite;
 mod preempt_lock_suite;
 mod quota_suite;
 mod ramdisk_suite;
@@ -228,6 +229,7 @@ const SUITE: &[&[(&str, Test)]] = &[
     dev_suite::STRESS,
     fs_suite::CASES,
     fsops_suite::CASES,
+    power_suite::CASES,
     overlay_suite::CASES,
     ext2_suite::CASES,
     ext2_suite::data_fds::CASES,
