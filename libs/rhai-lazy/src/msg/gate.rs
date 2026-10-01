@@ -145,11 +145,16 @@ fn decode(buf: &[u8], len: u64) -> Result<Parcel, BusError> {
 pub struct Gate;
 
 /// Linux `uname(2)`; LazyOS answers it with sysname `LazyOS`.
+#[cfg(target_os = "linux")]
 const SYS_UNAME: u64 = 63;
 /// `struct utsname`: six 65-byte fields, sysname first.
+#[cfg(target_os = "linux")]
 const UTS_FIELD: usize = 65;
 
-/// The running kernel's `sysname`, through the Linux syscall ABI.
+/// The running kernel's `sysname`, through the Linux syscall ABI. Only built
+/// for Linux-ABI targets (the static-musl programs): on any other OS the
+/// `syscall` instruction means something else entirely.
+#[cfg(target_os = "linux")]
 fn sysname() -> Option<String> {
     let mut uts = [0u8; UTS_FIELD * 6];
     let code: i64;
@@ -178,9 +183,17 @@ fn sysname() -> Option<String> {
 
 impl Gate {
     /// The gate, when this process runs on LazyOS; `None` elsewhere, so a
-    /// host build of a LazyOS program never issues `int 0x80`.
+    /// host build of a LazyOS program never issues `int 0x80`. A Linux-ABI
+    /// (musl) program asks the kernel its name; a native LazyOS program
+    /// (`target_os = "none"`) is on LazyOS by construction; anything else
+    /// (a Windows or macOS host build) never is.
     pub fn detect() -> Option<Gate> {
-        (sysname().as_deref() == Some("LazyOS")).then_some(Gate)
+        #[cfg(target_os = "linux")]
+        return (sysname().as_deref() == Some("LazyOS")).then_some(Gate);
+        #[cfg(target_os = "none")]
+        return Some(Gate);
+        #[cfg(not(any(target_os = "linux", target_os = "none")))]
+        return None;
     }
 
     /// An absolute PIT deadline `ms` from now; `0` waits forever.
