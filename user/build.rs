@@ -92,6 +92,15 @@ fn main() {
     if env::var_os("LAZYOS_USB_TRACE").as_deref() == Some(std::ffi::OsStr::new("1")) {
         println!("cargo:rustc-cfg=lazyos_usb_trace");
     }
+    // `LAZYOS_USB_CRASH_TEST=1` (U5 restart test, `tools/usb/run.py
+    // --restart`): `usbd` exits with status 3 right after publishing its first
+    // key press, on its first attempt only, so `init` restarts it and the
+    // kernel must have released the held key.
+    println!("cargo:rerun-if-env-changed=LAZYOS_USB_CRASH_TEST");
+    println!("cargo:rustc-check-cfg=cfg(lazyos_usb_crash_test)");
+    if env::var_os("LAZYOS_USB_CRASH_TEST").as_deref() == Some(std::ffi::OsStr::new("1")) {
+        println!("cargo:rustc-cfg=lazyos_usb_crash_test");
+    }
 
     // virtio-net driver (docs/networking-plan.md N1): `LAZYOS_NET=1` adds the
     // `netdrv` row to `init`'s manifest (the ELFs are embedded by the root

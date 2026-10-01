@@ -16,6 +16,8 @@ python tools/usb/run.py --no-mouse       # keyboard only
 python tools/usb/run.py --accel none     # TCG: paced for a slow guest (see below)
 python tools/usb/run.py --hotplug 200    # U3: unplug/replug cycles over QMP
 python tools/usb/run.py --tablet         # U4: usb-tablet (absolute) instead of the mouse
+python tools/usb/run.py --restart        # U5: usbd dies holding a key; init restarts it
+python tools/usb/run.py --machine q35 --virtio-disk   # U5: on q35
 python tools/usb/test_judge.py           # the judge fails when it should
 cargo test -p usbhid -p xhci             # the libraries (host, seeded fuzz)
 ```
@@ -30,6 +32,14 @@ Verdict (all must pass):
   descriptors (`USBD:DESC:*`) are QEMU's, byte for byte (the golden bytes
   `libs/usbhid` is tested against); no `USBD:FATAL`, `USBD:PANIC` or
   `USBD:PORT:FAIL`.
+
+**Restart** (`--restart`, U5) builds `usbd` with `LAZYOS_USB_CRASH_TEST=1`:
+on its first attempt it exits (status 3) right after publishing a key press.
+The session holds `x`; `judge.py --restart` checks `usbd` crashed
+(`USBD:CRASH:TEST`), `inputd` saw `x` released before the restarted `usbd`
+was ready (the kernel releases a dead source's keys), `init` restarted it
+(`INIT:RESTART:PASS name=usbd`) as `_usb` both times (`USBD:CRED`), both
+devices were bound again, and the keys typed afterwards arrived.
 
 **Tablet** (`--tablet`, U4) swaps the `usb-mouse` for a `usb-tablet`. It
 has no boot protocol, so `usbd` reads its report descriptor
@@ -61,7 +71,8 @@ enable it) `USBD:REPORT <hex>` and `USBD:KEY` per report and edge. A machine wit
 
 **TCG.** USB input is polled, and QEMU's `usb-kbd` queues only 16 keycodes.
 Under TCG each keystroke makes the text console redraw for about a second, and
-`usbd` (a Normal-class task) waits for the CPU meanwhile, so fast typing
+`usbd` (Interactive, like the console it shares the CPU with) gets only its
+turn meanwhile, so fast typing
 overruns QEMU's queue and a press and its release can land more than the
 500 ms repeat delay apart. `--accel none` therefore paces the keys (3 s) and
 settles after boot (120 s); the repeat can still show up. KVM runs (CI,

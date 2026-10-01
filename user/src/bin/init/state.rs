@@ -86,7 +86,7 @@ const USB_CRED: SysCred = SysCred::new(
 );
 /// The `_usb` system user (901 `_snd`, 902 `_net`, 903 `_netd`).
 #[cfg(lazyos_usb)]
-const USB_UID: u32 = 904;
+const USB_UID: u32 = usbpolicy::USB_UID;
 
 /// The `netdrv` driver's identity (docs/networking-plan.md N1): a dedicated
 /// system uid holding only `CAP_DEV_CLAIM`, exactly like `sndd`'s.
