@@ -56,8 +56,8 @@
  {
   "at": 3.4,
   "mouse_move": [
-   30,
-   703
+   400,
+   58
   ]
  },
  {
@@ -164,22 +164,22 @@
  {
   "at": 1.0,
   "mouse_move": [
-   870,
-   -500
+   -356,
+   646
   ]
  },
  {
   "at": 1.0,
-  "mouse_click": "right",
-  "until": "XUID:MENU:OPEN",
+  "mouse_click": "left",
+  "until": "SHELL:MENU:OPEN",
   "timeout": 30,
   "retries": 2
  },
  {
   "at": 1.0,
   "mouse_move": [
-   40,
-   214
+   90,
+   -320
   ]
  },
  {
@@ -189,7 +189,7 @@
  {
   "at": 0.5,
   "mouse_click": "left",
-  "until": "XUID:MENU:LAUNCH:org.lazy.counter",
+  "until": "SHELL:LAUNCH:PASS app=org.lazy.counter",
   "timeout": 60,
   "retries": 1
  },
@@ -208,8 +208,8 @@
  {
   "at": 0.5,
   "mouse_move": [
-   -540,
-   -359
+   266,
+   -326
   ]
  },
  {
@@ -262,14 +262,14 @@
  {
   "at": 0.5,
   "mouse_move": [
-   500,
-   142
+   -356,
+   646
   ]
  },
  {
   "at": 1.0,
-  "mouse_click": "right",
-  "until": "XUID:MENU:OPEN",
+  "mouse_click": "left",
+  "until": "SHELL:MENU:OPEN",
   "timeout": 30,
   "retries": 2
  },
