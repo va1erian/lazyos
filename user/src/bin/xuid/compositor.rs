@@ -11,6 +11,7 @@ use super::clock::{self, Clock};
 use super::drag::DragSession;
 use super::inputlink::InputLink;
 use super::origin::OpenHint;
+use super::powerfeed::PowerFeed;
 use super::resize::ResizeDrag;
 use super::shell::{taskbar_visible, AltTab, Modifiers, ShellSub};
 use super::surface::{Drag, Surface};
@@ -58,6 +59,8 @@ pub(super) struct Compositor {
     pub(super) clock: Clock,
     /// The live `sys/ui/*` theme follower.
     pub(super) themefeed: ThemeFeed,
+    /// `init`'s shutdown progress (the shutting-down overlay).
+    pub(super) powerfeed: PowerFeed,
     /// The compositor's side of `inputd` (`docs/input-plan.md`).
     pub(super) input: InputLink,
     /// Pending open-origin hints, at most one per task.
@@ -88,6 +91,7 @@ impl Compositor {
             scratch: Vec::with_capacity(64),
             clock: Clock::new(),
             themefeed: ThemeFeed::new(),
+            powerfeed: PowerFeed::new(),
             input: InputLink::new(),
             hints: Vec::new(),
             next_probe: 0,
@@ -128,6 +132,13 @@ impl Compositor {
     /// Follow the confd theme and repaint the whole screen when it changed.
     pub(super) fn tick_theme(&mut self) {
         if self.themefeed.poll() {
+            self.repaint_full();
+        }
+    }
+
+    /// Follow `init`'s shutdown and repaint everything when the overlay rises.
+    pub(super) fn tick_power(&mut self) {
+        if self.powerfeed.poll() {
             self.repaint_full();
         }
     }

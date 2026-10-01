@@ -1,6 +1,8 @@
 //! The desktop menu's entries: the configured list from `confd` (`sys/ui/menu`,
 //! schema in the `deskmenu` crate), then the apps the package manager installed
-//! (`init`'s `ListApps`, rows with `installed` set).
+//! (`init`'s `ListApps`, rows with `installed` set), then the power rows
+//! ([`powermenu`](super::powermenu)). While a power row is being confirmed the
+//! menu shows the confirmation rows instead.
 //!
 //! The configured part is user-editable (Settings) and validated against
 //! `init`'s app registry; the installed part is not configurable, it simply
@@ -31,8 +33,12 @@ struct Lists {
     configured: Vec<Entry>,
     /// The installed apps, as of the last [`refresh_installed`].
     installed: Vec<Entry>,
-    /// `configured` then `installed`: what the menu paints and launches.
+    /// `configured`, `installed`, then the power rows: what the menu paints
+    /// and launches.
     merged: Vec<Entry>,
+    /// The confirmation rows while a power row is being confirmed; empty
+    /// otherwise.
+    confirm: Vec<Entry>,
     /// The cached `init` endpoint for [`refresh_installed`].
     init: Option<Endpoint>,
 }
@@ -49,6 +55,7 @@ static ITEMS: Items = Items(UnsafeCell::new(Lists {
     configured: Vec::new(),
     installed: Vec::new(),
     merged: Vec::new(),
+    confirm: Vec::new(),
     init: None,
 }));
 static INIT: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
@@ -68,11 +75,28 @@ fn lists() -> &'static mut Lists {
 fn rebuild(lists: &mut Lists) {
     lists.merged = lists.configured.clone();
     lists.merged.extend(lists.installed.iter().cloned());
+    lists.merged.extend(super::powermenu::entries());
 }
 
-/// Run `f` over the current list (the defaults until a load succeeds).
+/// Run `f` over the current list (the defaults until a load succeeds), or the
+/// confirmation rows while one is pending.
 pub(super) fn with<R>(f: impl FnOnce(&[Entry]) -> R) -> R {
-    f(&lists().merged)
+    let lists = lists();
+    if lists.confirm.is_empty() {
+        f(&lists.merged)
+    } else {
+        f(&lists.confirm)
+    }
+}
+
+/// Show `rows` instead of the list until [`clear_confirm`].
+pub(super) fn set_confirm(rows: Vec<Entry>) {
+    lists().confirm = rows;
+}
+
+/// Back to the full list.
+pub(super) fn clear_confirm() {
+    lists().confirm.clear();
 }
 
 /// Install `next` as the configured list; `true` when it differs.

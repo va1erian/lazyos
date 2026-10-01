@@ -47,7 +47,7 @@ syscall shim.
 | 13 | `tasks(buf)` | read-only scheduler snapshot (`task/introspect.rs`; MCP bridge phase 2) |
 | 14 | `system_stats(op, buf, cap)` | uptime, frame/slab/heap counters and the task table for `top`/`sysmond` (`sysinfo.rs`, #144) |
 | 15-20 | `stat`, `readdir`, `write_file`, `mkdir`, `unlink`, `rename` (path args) | path-based native VFS calls for the shell (`process/fsops.rs`, #6); FAT is read-only (`-EROFS`), `/tmp` is writable; `-errno` on failure |
-| 21 | `power(op)` | `reboot`/`shutdown`, `CAP_SYS_ADMIN` only (`process/power.rs`, #6) |
+| 21 | `power(op, arg)` | `0` reboot, `1` power-off (sync, then stop), `2` arm the shutdown watchdog (`arg` = the stop the kernel forces 30 s later if the machine is still up); `CAP_SYS_ADMIN` only, checked before the op; `init` is the only caller, after its orderly shutdown ([../shutdown.md](../shutdown.md); `process/power.rs`, `power_watchdog.rs`) |
 | 22 | `fsync(path)` | flush the mount holding the file to its block device (`process/fsops.rs`, #260) |
 | 23 | `dev(op, a1, a2, a3, a4)` | userspace driver access: list, claim, map_bar, pio, cfg, irq, release; `CAP_DEV_CLAIM` (`dev/syscall.rs`, #240; see [devices.md](devices.md)) |
 | 24 | `wall_time(op, a1)` | UTC wall clock for native services: `get` returns centiseconds since the epoch, `set` steps it to `a1` seconds (`CAP_SYS_TIME`, checked before the argument; `process/wallsys.rs`, #369) |

@@ -176,6 +176,12 @@ fn main() {
             .expect("user timectl artifact not found");
         builder.set_file(String::from("TIMECTL.ELF"), PathBuf::from(timectl));
 
+        // The orderly shutdown/reboot command (docs/shutdown.md): `init`'s
+        // `Shutdown` from the shell (`shutdown`, `poweroff`, `halt`, `reboot`).
+        let powerctl = std::env::var_os("CARGO_BIN_FILE_USER_powerctl")
+            .expect("user powerctl artifact not found");
+        builder.set_file(String::from("POWERCTL.ELF"), PathBuf::from(powerctl));
+
         // The MIME database and open-with registry (issue #116). `init`
         // starts it from its manifest; `MIMED.ELF` is the 8.3-safe on-disk
         // name. `MIME.TYP` is the `/etc/mime.types`-style override the

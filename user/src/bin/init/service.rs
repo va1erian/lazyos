@@ -23,6 +23,9 @@ pub(super) enum Phase {
     Running,
     /// Exited; a restart is scheduled at `next_start`.
     Restarting,
+    /// Asked to stop by an orderly shutdown; its exit is due by
+    /// `stop_deadline`, after which it is killed.
+    Stopping,
     /// Exited and will not be restarted.
     Stopped,
     /// Gave up after too many rapid crashes.
@@ -35,6 +38,7 @@ impl Phase {
             Phase::Pending => "pending",
             Phase::Running => "running",
             Phase::Restarting => "restarting",
+            Phase::Stopping => "stopping",
             Phase::Stopped => "stopped",
             Phase::Failed => "failed",
         }
@@ -88,6 +92,10 @@ pub(super) struct Service {
     pub(super) next_start: u64,
     /// Exit status of the last run.
     pub(super) last_status: Option<u64>,
+    /// Absolute tick a `Stopping` row must have exited by.
+    pub(super) stop_deadline: u64,
+    /// Whether the shutdown already sent this row `SIGKILL`.
+    pub(super) killed: bool,
 }
 
 impl Service {
@@ -116,6 +124,8 @@ impl Service {
             started_tick: 0,
             next_start: 0,
             last_status: None,
+            stop_deadline: 0,
+            killed: false,
         }
     }
 
@@ -146,6 +156,8 @@ impl Service {
             started_tick: 0,
             next_start: 0,
             last_status: None,
+            stop_deadline: 0,
+            killed: false,
         }
     }
 
@@ -178,6 +190,8 @@ impl Service {
             started_tick: 0,
             next_start: 0,
             last_status: None,
+            stop_deadline: 0,
+            killed: false,
         }
     }
 }

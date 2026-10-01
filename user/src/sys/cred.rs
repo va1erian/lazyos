@@ -31,6 +31,11 @@ pub const CAP_SETUID: u32 = 1 << 6;
 /// system clock.
 pub const CAP_SYS_TIME: u32 = 1 << 3;
 
+/// Mirrors `kernel::ipc::credentials::CAP_SYS_ADMIN`: system administration,
+/// including stopping the machine (`power`) and a service (the lifecycle
+/// `Shutdown` message).
+pub const CAP_SYS_ADMIN: u32 = 1 << 2;
+
 /// A task's kernel-stamped identity (issue #101), the userspace mirror of
 /// `kernel/src/ipc/credentials.rs::Cred`.
 ///

@@ -1,5 +1,5 @@
-//! `init`: the supervisor's `Services` snapshot, and `Launch`/`ListApps`
-//! (issue #158).
+//! `init`: the supervisor's `Services` snapshot, `Launch`/`ListApps`
+//! (issue #158) and the orderly `Shutdown` (docs/shutdown.md).
 //!
 //! The wire shapes are the `midlc`-generated `os.lazy.init.v1` stubs
 //! (`idl/init.midl`). Only the structured error field is hand-written.
@@ -19,7 +19,13 @@ pub use messenger_generated::os_lazy_init_v1 as wire;
 pub const INTERFACE: u64 = wire::INTERFACE_ID;
 
 /// The generated method ids.
-pub use wire::{METHOD_LAUNCH, METHOD_LISTAPPS, METHOD_SERVICES, METHOD_STOP};
+pub use wire::{METHOD_LAUNCH, METHOD_LISTAPPS, METHOD_SERVICES, METHOD_SHUTDOWN, METHOD_STOP};
+
+/// The `Shutdown` modes (`PowerMode`).
+pub use wire::{POWER_MODE_POWER_OFF, POWER_MODE_REBOOT};
+
+/// The shutdown progress payload of the retained `system/power/state` topic.
+pub use wire::PowerState;
 
 /// One row of `init`'s supervision table (the generated `ServiceStatus`).
 pub use wire::ServiceStatus;
@@ -281,6 +287,57 @@ pub fn stop(endpoint: &Endpoint, app: &str) -> Result<u64> {
     Ok(wire::decode_stop_reply(&reply.body)
         .map_err(Error::Parcel)?
         .stopped)
+}
+
+/// `init`'s `Shutdown` request (docs/shutdown.md).
+pub fn shutdown_request(mode: u32, reason: &str, force: bool) -> Result<Parcel> {
+    let body = wire::encode_shutdown_args(&wire::ShutdownArgs {
+        mode,
+        reason: alloc::string::String::from(reason),
+        force,
+    })
+    .map_err(Error::Parcel)?;
+    Ok(Parcel {
+        header: header(INTERFACE, wire::METHOD_SHUTDOWN),
+        body,
+        ..Parcel::default()
+    })
+}
+
+/// Encode `init`'s `Shutdown` reply: whether a shutdown is running and its
+/// phase.
+pub fn shutdown_reply(accepted: bool, phase: &str) -> Result<Parcel> {
+    let body = wire::encode_shutdown_reply(&wire::ShutdownReply {
+        accepted,
+        phase: alloc::string::String::from(phase),
+    })
+    .map_err(Error::Parcel)?;
+    Ok(Parcel {
+        header: header(INTERFACE, wire::METHOD_SHUTDOWN),
+        body,
+        ..Parcel::default()
+    })
+}
+
+/// Call `init`'s `Shutdown`: returns the phase the shutdown is in. The reply
+/// comes before anything stops, so a caller may print it; `deadline` bounds
+/// the wait for callers that must not block on the supervisor.
+pub fn shutdown(
+    endpoint: &Endpoint,
+    mode: u32,
+    reason: &str,
+    force: bool,
+    deadline: Option<u64>,
+) -> Result<alloc::string::String> {
+    let reply = endpoint.call(&shutdown_request(mode, reason, force)?, deadline)?;
+    if let Some(code) = error_field(&reply)? {
+        return Err(Error::Init(code));
+    }
+    let reply = wire::decode_shutdown_reply(&reply.body).map_err(Error::Parcel)?;
+    if !reply.accepted {
+        return Err(Error::Errno(-crate::messenger::errno::EAGAIN));
+    }
+    Ok(reply.phase)
 }
 
 /// Resolve [`INIT_NAME`] and launch `app` (a convenience for CLI callers;

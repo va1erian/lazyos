@@ -360,11 +360,11 @@ pub fn power_is_capability_gated() -> Result<(), String> {
         "the gate leaked which ops exist: {bogus:#x}"
     );
     check!(
-        power::authorize(power::REBOOT) == Ok(power::REBOOT),
+        power::authorize(power::REBOOT, 0) == Ok(power::REBOOT),
         "root was refused a reboot"
     );
     check!(
-        power::authorize(99) == Err(power::Refusal::BadOp),
+        power::authorize(99, 0) == Err(power::Refusal::BadOp),
         "root's bogus op was accepted"
     );
     Ok(())

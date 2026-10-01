@@ -29,6 +29,38 @@ interface os.lazy.init.v1 {
     /// are not an error, `stopped` is just 0.
     method Stop(app: String) -> (stopped: U64);
 
+    /// Begin an orderly shutdown (docs/shutdown.md): `mode` is a `PowerMode`
+    /// value. The reply is immediate; `init` then stops the session apps, the
+    /// services in reverse dependency order, syncs and calls the kernel's
+    /// `power`. `reason` is logged (at most 128 bytes, no control character).
+    /// Root or any caller in a login session may ask; a labelled (installed)
+    /// app is refused with `EPERM`, and an unknown mode is `EINVAL`. A request
+    /// while a shutdown is already running is not an error: `accepted` is true
+    /// and `phase` is the current phase. `force` skips the graceful stop: every
+    /// remaining child is killed at once and the machine stops.
+    method Shutdown(mode: U32, reason: String, force: Bool) -> (accepted: Bool, phase: String);
+
+    /// What the machine does once userspace is quiesced (`Shutdown`'s `mode`).
+    enum PowerMode { PowerOff, Reboot }
+
+    /// The shutdown's progress: the payload of `system/power/state`.
+    struct PowerState {
+        /// Phase name: `stopping` (requested), `apps`, `services`,
+        /// `quiesced`, then `power` just before the kernel call.
+        phase: String,
+        /// A `PowerMode` value.
+        mode: U32,
+        /// The requester's reason text.
+        reason: String,
+        /// Absolute tick (100 Hz) by which `init` forces the stop.
+        deadline: U64
+    }
+
+    /// The retained shutdown progress topic: absent until a shutdown starts,
+    /// then one value per phase, so the compositor can paint the
+    /// shutting-down screen and a test can follow the phases.
+    topic "system/power/state" : PowerState retained qos=latest;
+
     /// One row of `init`'s supervision table.
     struct ServiceStatus {
         /// Service name.

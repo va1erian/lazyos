@@ -68,6 +68,11 @@ pub fn lookup_maps_names_to_files() -> Result<(), String> {
         ("pkgctl", "PKGCTL.ELF"),
         ("/usr/bin/pkgctl", "PKGCTL.ELF"),
         ("/pkgctl.elf", "PKGCTL.ELF"),
+        ("powerctl", "POWERCTL.ELF"),
+        ("shutdown", "POWERCTL.ELF"),
+        ("/sbin/poweroff", "POWERCTL.ELF"),
+        ("/bin/halt", "POWERCTL.ELF"),
+        ("reboot", "POWERCTL.ELF"),
     ] {
         check!(
             native::lookup(path) == Some(file),
@@ -95,11 +100,28 @@ pub fn lookup_maps_names_to_files() -> Result<(), String> {
         "/bin/init",
         "/tmp/beep",
         "/bin/beepx",
+        "/tmp/reboot",
+        "/bin/rebootx",
     ] {
         check!(
             native::lookup(path).is_none(),
             "lookup({path:?}) = {:?}, expected no native program",
             native::lookup(path)
+        );
+    }
+    for (path, preset) in [
+        ("shutdown", "poweroff"),
+        ("/sbin/poweroff", "poweroff"),
+        ("halt", "poweroff"),
+        ("/usr/sbin/reboot", "reboot"),
+        ("powerctl", ""),
+        ("/POWERCTL.ELF", ""),
+        ("top", ""),
+    ] {
+        check!(
+            native::preset_args(path) == preset,
+            "preset_args({path:?}) = {:?}, expected {preset:?}",
+            native::preset_args(path)
         );
     }
     Ok(())

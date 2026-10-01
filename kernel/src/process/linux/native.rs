@@ -73,6 +73,21 @@ const PROGRAMS: &[(&str, &str)] = &[
     ("nslookup", fhs::boot::NSLOOKUP_ELF),
     // The FTP client (N4): `ftp <host>[:port] [cmd ; cmd ...]`.
     ("ftp", fhs::boot::FTP_ELF),
+    // The power command (docs/shutdown.md): `powerctl poweroff|reboot [-f]
+    // [reason]` asks `init` for an orderly stop.
+    ("powerctl", fhs::boot::POWERCTL_ELF),
+];
+
+/// Short names that run a native program with a fixed first argument:
+/// `(name typed at the prompt, boot-volume file, argument)`. The power
+/// commands all go through `powerctl` to `init`'s orderly shutdown
+/// (docs/shutdown.md); BusyBox's own `reboot`/`poweroff` applets would signal
+/// a pid 1 that LazyOS does not have, so they are never reached.
+const PRESETS: &[(&str, &str, &str)] = &[
+    ("shutdown", fhs::boot::POWERCTL_ELF, "poweroff"),
+    ("poweroff", fhs::boot::POWERCTL_ELF, "poweroff"),
+    ("halt", fhs::boot::POWERCTL_ELF, "poweroff"),
+    ("reboot", fhs::boot::POWERCTL_ELF, "reboot"),
 ];
 
 /// The directories a `$PATH` search (BusyBox `sh`'s default is
@@ -108,13 +123,37 @@ pub(crate) fn lookup(path: &str) -> Option<&'static str> {
             return Some(file);
         }
     }
-    let alias = PROGRAMS.iter().find(|(name, _)| *name == base)?;
+    let file = PROGRAMS
+        .iter()
+        .map(|&(name, file)| (name, file))
+        .chain(PRESETS.iter().map(|&(name, file, _)| (name, file)))
+        .find(|(name, _)| *name == base)?
+        .1;
     let in_bin_dir = dir.is_empty() || BIN_DIRS.contains(&dir);
     let real_file_exists = !matches!(
         crate::fs::abi_stat(Id::current(), path),
         Err(FsError::NotFound)
     );
-    (in_bin_dir && !real_file_exists).then_some(alias.1)
+    (in_bin_dir && !real_file_exists).then_some(file)
+}
+
+/// The fixed first argument a [`PRESETS`] short name adds (`reboot` ->
+/// `"reboot"`); empty for every other path, boot-volume file names included.
+pub(crate) fn preset_args(path: &str) -> &'static str {
+    let base = path.rsplit('/').next().unwrap_or(path);
+    PRESETS
+        .iter()
+        .find(|(name, _, _)| *name == base)
+        .map_or("", |&(_, _, args)| args)
+}
+
+/// [`args_line`] with a preset's fixed argument in front.
+fn with_preset(preset: &str, args: String) -> String {
+    match (preset.is_empty(), args.is_empty()) {
+        (true, _) => args,
+        (false, true) => String::from(preset),
+        (false, false) => alloc::format!("{preset} {args}"),
+    }
 }
 
 /// Join `argv[1..]` into the single string native programs receive through
@@ -211,6 +250,7 @@ pub(crate) fn try_exec(path: &str, argv: &[Vec<u8>]) -> Option<u64> {
     let Some(args) = args_line(argv) else {
         return Some(err(E2BIG));
     };
+    let args = with_preset(preset_args(path), args);
     let slot = match spawn(file, &elf, &args) {
         Ok(slot) => slot,
         Err(errno) => return Some(err(errno)),
