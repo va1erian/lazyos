@@ -65,6 +65,10 @@ pub fn generations() -> Result<(), String> {
     for cycle in 0..CYCLES {
         let driver = drivers[(cycle % 3) as usize];
         task::harness::switch_current(driver);
+        if cycle % 256 == 0 {
+            // Buckets outlive their sources; stand in for time passing.
+            sources::refill_all();
+        }
         let id = register(class::KEYBOARD)?;
         let usage = 0x04 + (cycle % 0x60) as u16;
         check!(
@@ -134,8 +138,9 @@ fn fits(source_class: u8, record: &RawEvent) -> bool {
     }
 }
 
-/// Six sources across three tasks publish a million records; each is
-/// re-registered before its bucket runs dry. Every record on the bus fits
+/// Six sources across three tasks publish a million records; each is closed
+/// and re-registered before its bucket runs dry, and the buckets are then
+/// refilled (re-registering alone no longer does that). Every record on the bus fits
 /// its source, the stream is gapless, and closing everything leaves nothing
 /// held.
 pub fn many_producers() -> Result<(), String> {
@@ -176,13 +181,18 @@ pub fn many_producers() -> Result<(), String> {
         let (owner, id, used) = live[n];
         task::harness::switch_current(owner);
         if used + MAX_BATCH as u64 > u64::from(BURST) {
-            // Fresh bucket: close (releasing what it held) and re-register.
+            // Close (releasing what it held), re-register, then let time
+            // refill the buckets.
             check!(call(op::CLOSE_SOURCE, id, 0) == 0, "close");
             let records = drain_all(reader, 128)?;
             expected = gapless(&records, expected)?.0;
             records.iter().for_each(|r| held.take(r));
             let id = register(CLASSES[n])?;
             device_class.insert(sources::device_of((id & 0xFF) as usize), CLASSES[n]);
+            sources::refill_all();
+            for entry in live.iter_mut() {
+                entry.2 = 0;
+            }
             live[n] = (owner, id, 0);
             continue;
         }

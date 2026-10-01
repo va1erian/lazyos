@@ -103,9 +103,23 @@ struct Source {
     refilled_at: u64,
 }
 
+/// A slot's token bucket while no source holds it. It outlives the source,
+/// so closing and re-registering cannot buy a fresh burst.
+#[derive(Clone, Copy)]
+struct Bucket {
+    tokens: u32,
+    refilled_at: u64,
+}
+
+const FULL: Bucket = Bucket {
+    tokens: BURST,
+    refilled_at: 0,
+};
+
 struct Table {
     slots: [Option<Source>; MAX_SOURCES],
     generations: [u16; MAX_SOURCES],
+    buckets: [Bucket; MAX_SOURCES],
     /// Totals over the table's life, for tests and diagnostics.
     rejected: u64,
     throttled: u64,
@@ -114,6 +128,7 @@ struct Table {
 static TABLE: Mutex<Table> = Mutex::new(Table {
     slots: [None; MAX_SOURCES],
     generations: [0; MAX_SOURCES],
+    buckets: [FULL; MAX_SOURCES],
     rejected: 0,
     throttled: 0,
 });
@@ -152,15 +167,18 @@ pub fn register(owner: usize, source_class: u8) -> Result<u64, Error> {
         release(table, index);
         let generation = table.generations[index].wrapping_add(1).max(1);
         table.generations[index] = generation;
-        table.slots[index] = Some(Source {
+        let bucket = table.buckets[index];
+        let mut source = Source {
             owner,
             class: source_class,
             generation,
             keys: [0; 4],
             buttons: 0,
-            tokens: BURST,
-            refilled_at: task::ticks(),
-        });
+            tokens: bucket.tokens,
+            refilled_at: bucket.refilled_at,
+        };
+        refill(&mut source, task::ticks());
+        table.slots[index] = Some(source);
         Ok(id_of(index, generation))
     })
 }
@@ -229,6 +247,10 @@ pub fn teardown_task(slot: usize) {
 fn release(table: &mut Table, index: usize) {
     let Some(source) = table.slots[index].take() else {
         return;
+    };
+    table.buckets[index] = Bucket {
+        tokens: source.tokens,
+        refilled_at: source.refilled_at,
     };
     let device = device_of(index);
     for (word, &held) in source.keys.iter().enumerate() {
@@ -310,7 +332,19 @@ pub fn counters() -> (u64, u64) {
 pub fn reset() {
     locked(|table| {
         table.slots = [None; MAX_SOURCES];
+        table.buckets = [FULL; MAX_SOURCES];
         table.rejected = 0;
         table.throttled = 0;
+    });
+}
+
+/// Test hook: refill every bucket, standing in for time passing.
+#[cfg(lazyos_tests)]
+pub fn refill_all() {
+    locked(|table| {
+        table.buckets = [FULL; MAX_SOURCES];
+        for source in table.slots.iter_mut().flatten() {
+            source.tokens = BURST;
+        }
     });
 }

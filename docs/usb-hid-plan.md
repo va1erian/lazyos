@@ -284,13 +284,16 @@ the guest *did*, not that a marker printed:
    `GetPointer`; a restart test covers this in P2.
 4. **Ring pressure from the pointer.** Tail merging (decision 3) is the first
    defence; a dedicated pointer ring is the planned escalation. The P0 flood
-   test is what decides. Merging has one visible cost, seen in a loaded TCG
-   guest: deltas summed before `inputd` clamps them, so motion that pushes past
-   an edge and comes back *within one drain* lands short of where per-packet
-   clamping would put it (`-2000` then `+30` from the corner stays at 0
-   instead of 30). With `inputd` draining every 20 ms this needs a very fast
-   flick; if it is ever noticeable, the producer can stop merging when a delta
-   changes sign.
+   test is what decides. Summing deltas before `inputd` clamps them has a
+   cost: motion that pushes past an edge and comes back *within one drain*
+   lands short of where per-packet clamping puts it (`-300` into the corner
+   then `+850` landed ~170 px short). The `input_symbols` session hit this
+   when the guest was loaded: it homes the pointer into the corner, then
+   clicks the Editor, and the click landed on the Terminal. So the bus no
+   longer merges motion that turns back on an axis. Same-direction steps
+   still merge, and clamping their sum equals clamping each one. A starved
+   consumer is the exception: once its ring holds 32 records, turns merge
+   too (`TURN_PRESSURE`), so a jittering mouse still cannot evict key edges.
 5. **Rate limit and DMA trust.** An xHCI driver holds a `DMA` right, so it is
    trusted like the kernel until an IOMMU exists (driver-plan D5). This plan
    adds no new exposure but should not be oversold as sandboxing.

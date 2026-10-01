@@ -67,12 +67,17 @@ impl TrbMem for RawMem {
         // them behind the compiler's back.
         unsafe {
             let at = self.base.add(index * 4);
+            // The control word (with the cycle bit) first: the controller
+            // writes it last, so a body read after it and the fence is the
+            // body that cycle bit vouches for.
+            let control = at.add(3).read_volatile();
+            fence(Ordering::Acquire);
             let lo = at.read_volatile();
             let hi = at.add(1).read_volatile();
             Trb {
                 parameter: u64::from(lo) | u64::from(hi) << 32,
                 status: at.add(2).read_volatile(),
-                control: at.add(3).read_volatile(),
+                control,
             }
         }
     }
@@ -174,6 +179,9 @@ impl<M: TrbMem> ProducerRing<M> {
         if self.enqueue == self.mem.len() - 1 {
             // Hand the Link over with the current cycle, then flip.
             let mut link = trb::link(self.mem.phys(), true);
+            // A TD that continues past the Link chains through it (xHCI
+            // 4.11.5.1), or the controller ends it at the Link.
+            link.control |= trb.control & trb::CHAIN;
             if self.cycle {
                 link.control |= CYCLE;
             }

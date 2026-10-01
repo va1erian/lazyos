@@ -413,6 +413,17 @@ pub fn rate_limited() -> Result<(), String> {
         .map(|r| i64::from(pointer::unpack_rel(r.value).0))
         .sum();
     check!(dx == i64::from(BURST), "motion sum {dx}");
+    // Closing and re-registering does not buy a fresh burst: the slot's
+    // bucket stays empty except for what elapsed ticks refill.
+    let before = task::ticks();
+    check!(call(op::CLOSE_SOURCE, mouse, 0) == 0, "close");
+    let again = register(class::POINTER)?;
+    let refilled = publish(again, &motion);
+    let earned = (task::ticks() - before) * u64::from(sources::REFILL_PER_TICK);
+    check!(
+        refilled <= earned,
+        "re-registering refilled {refilled} tokens ({earned} earned)"
+    );
     clean();
     Ok(())
 }

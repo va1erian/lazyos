@@ -43,10 +43,12 @@ impl TrbMem for VecMem {
 }
 
 /// The controller's side of a producer ring: consume what the cycle bit
-/// hands over, follow Links, toggle on Toggle Cycle.
+/// hands over, follow Links, toggle on Toggle Cycle. A Link met inside a
+/// chained TD must chain too (xHCI 4.11.5.1), or the TD would end there.
 struct Consumer {
     index: usize,
     cycle: bool,
+    in_td: bool,
 }
 
 impl Consumer {
@@ -54,6 +56,7 @@ impl Consumer {
         Consumer {
             index: 0,
             cycle: true,
+            in_td: false,
         }
     }
 
@@ -66,6 +69,7 @@ impl Consumer {
             }
             if trb.kind() == kind::LINK {
                 assert_eq!(trb.parameter, mem.phys(), "link target");
+                assert_eq!(trb.control & CHAIN != 0, self.in_td, "link chain bit");
                 self.index = 0;
                 if trb.control & trb::TOGGLE_CYCLE != 0 {
                     self.cycle = !self.cycle;
@@ -74,6 +78,7 @@ impl Consumer {
             }
             let at = mem.phys() + self.index as u64 * 16;
             self.index += 1;
+            self.in_td = trb.control & CHAIN != 0;
             return Some((at, trb));
         }
         panic!("two links in a row");
