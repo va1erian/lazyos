@@ -81,6 +81,11 @@ pub const CAP_DEV_CLAIM: u32 = 1 << 8;
 /// keystroke on the machine passes through it, so `init` stamps it onto
 /// `inputd` alone and strips it from every other service it starts.
 pub const CAP_INPUT_RAW: u32 = 1 << 9;
+/// Publish onto the raw input bus as a registered source (syscall 25 ops
+/// 4-6, `docs/usb-hid-plan.md` U1): what an input driver (`usbd`) needs. It
+/// grants no reading; the kernel stamps each source's device id, so a holder
+/// cannot pose as another device.
+pub const CAP_INPUT_SOURCE: u32 = 1 << 10;
 /// Every capability bit defined today.
 pub const CAP_ALL: u32 = CAP_NET_BIND
     | CAP_NET_RAW
@@ -91,7 +96,8 @@ pub const CAP_ALL: u32 = CAP_NET_BIND
     | CAP_SETUID
     | CAP_KILL
     | CAP_DEV_CLAIM
-    | CAP_INPUT_RAW;
+    | CAP_INPUT_RAW
+    | CAP_INPUT_SOURCE;
 
 /// Audit interface id for credential transitions (issue #101). The ring keys on
 /// this so `auditd` can separate login/elevation records from Messenger policy

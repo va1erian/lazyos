@@ -69,6 +69,16 @@ The kernel input layer becomes device-agnostic and dumb.
   sequence number, `value` = count) so the consumer can resynchronise instead of
   guessing. Sequence numbers are global and gapless, so a consumer can prove it
   missed nothing. Consumers drain with syscall 25 (`open`/`poll`/`close`).
+- **Driver sources** ([usb-hid-plan.md](usb-hid-plan.md) U1): a task holding
+  `CAP_INPUT_SOURCE` (bit 10, which grants no reading) registers a source of
+  a class (keyboard, pointer, tablet) with syscall 25 op 4 and publishes 8-byte
+  `(kind, 0, code, value)` records with op 5 (`rdx = id << 16 | count`, at
+  most 64). The kernel stamps the source's device id (`0x10 + slot`, so a
+  driver cannot pose as the PS/2 devices or another driver), drops and counts
+  records of the wrong kind for the class or out of range, and rate-limits
+  each source (512 burst, 64 per tick). It remembers held keys and buttons per
+  source and publishes their releases when the source is closed (op 6) or its
+  task dies. Ids carry a generation, so a stale id fails with `-EBADF`.
 - **Pointer records** (`RelMotion`, `AbsMotion`, `Button`, `Scroll`) use the
   encoding in [usb-hid-plan.md](usb-hid-plan.md) (decision 2): packed `i16`
   deltas or normalised `u16` positions, HID button usages, signed notches. A
@@ -251,7 +261,7 @@ I0, I1 and I2 are in. Where the code differs from the sketch above:
 
 | Area | As built |
 |---|---|
-| Kernel bus | `kernel/src/input/{hid,raw_tap,bus,rawsys}.rs`; syscall 25 (`open`/`poll`/`close`) gated by `CAP_INPUT_RAW` (bit 9). Records are 24 bytes with `device: u8`, `kind: u8` (see layer 1). Timestamps have PIT-tick (10 ms) resolution; ordering is by `seq`. Pause is reported as an immediate press+release (it has no break code). The legacy `display_input_poll` stream is unchanged and fed in parallel. |
+| Kernel bus | `kernel/src/input/{hid,raw_tap,bus,rawsys,sources}.rs`; syscall 25 (`open`/`poll`/`close`) gated by `CAP_INPUT_RAW` (bit 9), driver sources (ops 4-6) by `CAP_INPUT_SOURCE` (bit 10). Records are 24 bytes with `device: u8`, `kind: u8` (see layer 1). Timestamps have PIT-tick (10 ms) resolution; ordering is by `seq`. Pause is reported as an immediate press+release (it has no break code). The legacy `display_input_poll` stream is unchanged and fed in parallel. |
 | Capability | `init` starts `inputd` with `CAP_INPUT_RAW` only and strips the bit from every other manifest service; the kernel strips it from every boot-spawned program except `init` (`credentials::drop_caps`). |
 | `inputd` | `user/src/bin/inputd*`, logic in `libs/inputmap` (host-tested: keymaps cross-checked against the kernel's old tables, modifier/lock state, repeat, hotkeys, resync after `Dropped`, session/focus routing). Compiled-in US and FR keymaps; layout from `confd` key `sys/input/layout`, boot default `LAZYOS_KBD_LAYOUT`. Repeat: 500 ms delay, 30 ms interval, fixed. NumLock starts on; LEDs are not driven. |
 | Keysyms | Unicode scalars for character keys, X11 `0xFFxx` values otherwise. With Ctrl held a letter's `sym` is its unshifted form. `mods` is the state *after* the event. |

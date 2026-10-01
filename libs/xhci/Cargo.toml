@@ -1,0 +1,11 @@
+[package]
+name = "xhci"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "xHCI register, TRB and context layouts and ring state machines for the LazyOS usbd driver"
+license = "GPL-3.0-or-later"
+
+[lib]
+name = "xhci"
+path = "src/lib.rs"

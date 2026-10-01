@@ -23,8 +23,9 @@
 //! sits at the tail of every live ring (see [`merge_tail`]). The merged record
 //! keeps its `seq`, so the stream stays gapless and identical in every ring;
 //! keys and buttons are edges and never merge. Encodings are in [`pointer`].
-//! (Merged deltas reach `inputd` summed, so it clamps the sum, not each step;
-//! `docs/usb-hid-plan.md`, risk 4.)
+//! Motion that turns back on an axis is merged only under ring pressure:
+//! `inputd` clamps the cursor at the edges, and a summed delta clamps
+//! differently from its steps (`docs/usb-hid-plan.md`, risk 4).
 //!
 //! Locking: one leaf spin lock guards sequence assignment and every ring, so
 //! records reach all rings in the same order. The producer runs in IRQ
@@ -41,6 +42,12 @@ pub const RAW_EVENT_BYTES: usize = 24;
 
 /// Events one consumer ring retains. A power of two so the index wrap is a mask.
 pub const RING_CAP: usize = 256;
+
+/// Queued records past which motion that turns back merges anyway. `inputd`
+/// drains every 20 ms, so a ring this deep means it is starved: 32 turns per
+/// drain is more than a 1000 Hz mouse sends, and the rest of the ring stays
+/// free for key edges.
+const TURN_PRESSURE: usize = RING_CAP / 8;
 
 /// Independent consumers the bus serves (the capability gate is what keeps
 /// this to `inputd`; more than one slot lets tests prove ring independence).
@@ -138,6 +145,19 @@ pub mod pointer {
             kind::SCROLL => older.saturating_add(newer),
             _ => newer,
         }
+    }
+
+    /// Whether relative motion `newer` turns back on an axis from `older`.
+    /// `inputd` clamps the cursor at the screen edges, and clamping a sum
+    /// equals clamping each step only while the steps share a direction
+    /// (`-300` into the corner then `+128` must land at 128, not at 0).
+    pub fn turns(kind: u8, older: i32, newer: i32) -> bool {
+        if kind != kind::REL_MOTION {
+            return false;
+        }
+        let ((ax, ay), (bx, by)) = (unpack_rel(older), unpack_rel(newer));
+        let opposed = |a: i16, b: i16| (a < 0 && b > 0) || (a > 0 && b < 0);
+        opposed(ax, bx) || opposed(ay, by)
     }
 }
 
@@ -347,12 +367,31 @@ fn merge_tail(bus: &mut Bus, device: u8, kind: u8, code: u16, value: i32, ts_ns:
             tail.seq == last && tail.device == device && tail.kind == kind && tail.code == code
         })
     };
-    if live.peek().is_none() || !live.all(at_tail) {
+    // Every live tail is the same record, so the first one decides.
+    let Some(older) = live
+        .peek()
+        .and_then(|slot| slot.ring.tail())
+        .map(|t| t.value)
+    else {
+        return false;
+    };
+    if !live.all(at_tail) {
         return false;
     }
+    // A turn is kept as its own record while there is room, so `inputd`
+    // clamps each leg; under pressure it merges anyway, because evicting a
+    // key edge costs more than a cursor that lands a little short.
+    let pressed = bus
+        .slots
+        .iter()
+        .any(|slot| slot.owner.is_some() && slot.ring.len >= TURN_PRESSURE);
+    if pointer::turns(kind, older, value) && !pressed {
+        return false;
+    }
+    let merged = pointer::merge(kind, older, value);
     for slot in bus.slots.iter_mut().filter(|slot| slot.owner.is_some()) {
         if let Some(tail) = slot.ring.tail_mut() {
-            tail.value = pointer::merge(kind, tail.value, value);
+            tail.value = merged;
             tail.ts_ns = ts_ns;
         }
     }

@@ -363,6 +363,61 @@ def inputmap_pointer_seeds():
     }
 
 
+# ---- usbhid (libs/usbhid/src/fuzz.rs) ---------------------------------------
+#
+# `usbdesc` takes raw descriptor bytes; the QEMU HID devices' high-speed
+# configurations (libs/usbhid/src/tests/golden.rs) plus hostile edits.
+
+KBD_CONFIG = bytes([9, 2, 34, 0, 1, 1, 8, 0xA0, 50, 9, 4, 0, 0, 1, 3, 1, 1, 0,
+                    9, 0x21, 0x11, 0x01, 0, 1, 0x22, 0x3F, 0, 7, 5, 0x81, 3, 8, 0, 7])
+MOUSE_CONFIG = bytes([9, 2, 34, 0, 1, 1, 6, 0xA0, 50, 9, 4, 0, 0, 1, 3, 1, 2, 0,
+                      9, 0x21, 0x01, 0x00, 0, 1, 0x22, 52, 0, 7, 5, 0x81, 3, 4, 0, 7])
+TABLET_CONFIG = bytes([9, 2, 34, 0, 1, 1, 7, 0xA0, 50, 9, 4, 0, 0, 1, 3, 0, 0, 0,
+                       9, 0x21, 0x01, 0x00, 0, 1, 0x22, 74, 0, 7, 5, 0x81, 3, 8, 0, 4])
+KBD_DEVICE = bytes([18, 1, 0x00, 0x02, 0, 0, 0, 64, 0x27, 0x06, 0x01, 0x00, 0, 0, 1, 4, 11, 1])
+
+
+def _patched(data, at, value):
+    out = bytearray(data)
+    out[at] = value
+    return bytes(out)
+
+
+def usbdesc_seeds():
+    return {
+        "kbd_config": KBD_CONFIG,
+        "mouse_config": MOUSE_CONFIG,
+        "tablet_config": TABLET_CONFIG,
+        "kbd_device": KBD_DEVICE,
+        "zero_blength": _patched(KBD_CONFIG, 9, 0),
+        "record_overrun": _patched(KBD_CONFIG, 27, 9),
+        "total_past_end": _patched(KBD_CONFIG, 2, 200),
+        # A composite device: keyboard then mouse interface in one chain.
+        "composite": bytes([9, 2, 59, 0, 2, 1, 0, 0xA0, 50]) + KBD_CONFIG[9:] + MOUSE_CONFIG[9:11]
+        + bytes([1]) + MOUSE_CONFIG[12:],
+        "empty": b"",
+    }
+
+
+def _report(selector, data):
+    return bytes([selector, len(data)]) + bytes(data)
+
+
+def hidreport_seeds():
+    kbd, mouse = 0, 1
+    return {
+        "typing": _report(kbd, [0x02, 0, 0x04, 0, 0, 0, 0, 0]) + _report(kbd, [0x02, 0, 0x04, 0x05, 0, 0, 0, 0])
+        + _report(kbd, [0, 0, 0x05, 0, 0, 0, 0, 0]) + _report(kbd, [0, 0, 0, 0, 0, 0, 0, 0]),
+        "rollover": _report(kbd, [0, 0, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09]) + _report(kbd, [0, 0, 1, 1, 1, 1, 1, 1])
+        + _report(kbd, [0, 0, 0, 0, 0, 0, 0, 0]),
+        "hostile_keys": _report(kbd, [0xFF, 0, 0xFF, 0xE8, 0x03, 0x04, 0, 0]) + _report(kbd, [0x00])
+        + _report(kbd, [0x01, 0, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x05, 0x06, 0x07]),
+        "mouse": _report(mouse, [0x01, 5, 0xFB, 0x01]) + _report(mouse, [0x03, 0, 0]) + _report(mouse, [0xFF, 0x80, 0x7F, 0x80])
+        + _report(mouse, [0, 0]) + _report(mouse, [0, 0, 0, 0]),
+        "empty": b"",
+    }
+
+
 TARGETS = {
     "framering": framering_seeds,
     "framering_header": header_seeds,
@@ -371,6 +426,8 @@ TARGETS = {
     "lazypkg": lazypkg_seeds,
     "netstack": netstack_seeds,
     "inputmap_pointer": inputmap_pointer_seeds,
+    "usbdesc": usbdesc_seeds,
+    "hidreport": hidreport_seeds,
 }
 
 

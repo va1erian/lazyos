@@ -1,0 +1,20 @@
+[package]
+name = "usbhid"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "USB descriptor parsing and HID boot-protocol report decoding for the LazyOS usbd driver"
+license = "GPL-3.0-or-later"
+
+[lib]
+name = "usbhid"
+path = "src/lib.rs"
+
+[features]
+# Expose `fuzz::run_desc` and `fuzz::run_report`, the byte-script entry points
+# shared by the in-tree seeded tests and the cargo-fuzz targets (`fuzz/`).
+# Needs `std`.
+fuzz = []
+
+[dev-dependencies]
+fuzzkit = { path = "../fuzzkit" }

@@ -5,17 +5,27 @@
 //!   op 1 (poll):  rsi -> record buffer, rdx = capacity in bytes -> count
 //!   op 2 (close): release the ring
 //!   op 3 (display_owner): the task slot holding the display grant, or -ENOENT
+//!   op 4 (register_source): rsi = class -> source id; -EPERM without
+//!        CAP_INPUT_SOURCE, -EINVAL bad class, -EBUSY table full
+//!   op 5 (publish): rsi -> records, rdx = source id << 16 | count -> records
+//!        accepted; -EBADF not the caller's source, -EINVAL count, -EFAULT
+//!   op 6 (close_source): rsi = source id; releases what it held
 //! ```
 //!
-//! Every return is a count/zero or `-errno`. Records are
-//! [`RAW_EVENT_BYTES`]-byte little-endian [`RawEvent`]s. Opening is gated on
+//! Every return is a count/zero or `-errno`. Consumer records are
+//! [`RAW_EVENT_BYTES`]-byte little-endian `RawEvent`s; published records are
+//! [`sources::RECORD_BYTES`]-byte `(kind, 0, code, value)` and the kernel adds
+//! the sequence number, time and device id. Ops 0-3 are gated on
 //! `CAP_INPUT_RAW` so ambient authority no longer grants a keylogger: only the
-//! task `init` stamps the bit onto (`inputd`) can read the stream.
+//! task `init` stamps the bit onto (`inputd`) can read the stream. Ops 4-6 are
+//! gated on `CAP_INPUT_SOURCE` (`docs/usb-hid-plan.md` U1), held by input
+//! drivers; neither bit implies the other.
 
 use alloc::vec::Vec;
 
 use super::bus::{self, RAW_EVENT_BYTES};
-use crate::ipc::credentials::{self, CAP_INPUT_RAW};
+use super::sources::{self, Record, MAX_BATCH, RECORD_BYTES};
+use crate::ipc::credentials::{self, CAP_INPUT_RAW, CAP_INPUT_SOURCE};
 use crate::{task, user_ptr};
 
 pub mod op {
@@ -24,6 +34,9 @@ pub mod op {
     pub const CLOSE: u64 = 2;
     /// The compositor's task slot (the display grant holder).
     pub const DISPLAY_OWNER: u64 = 3;
+    pub const REGISTER_SOURCE: u64 = 4;
+    pub const PUBLISH: u64 = 5;
+    pub const CLOSE_SOURCE: u64 = 6;
 }
 
 const EPERM: i64 = 1;
@@ -40,7 +53,11 @@ fn negative(code: i64) -> u64 {
 /// The syscall entry point.
 pub fn dispatch(operation: u64, buf: u64, capacity: u64) -> u64 {
     let me = task::current();
-    if me == task::KERNEL_TASK || !credentials::of(me).has_cap(CAP_INPUT_RAW) {
+    let needed = match operation {
+        op::REGISTER_SOURCE | op::PUBLISH | op::CLOSE_SOURCE => CAP_INPUT_SOURCE,
+        _ => CAP_INPUT_RAW,
+    };
+    if me == task::KERNEL_TASK || !credentials::of(me).has_cap(needed) {
         return negative(EPERM);
     }
     match operation {
@@ -62,7 +79,51 @@ pub fn dispatch(operation: u64, buf: u64, capacity: u64) -> u64 {
             Some(slot) => slot as u64,
             None => negative(ENOENT),
         },
+        op::REGISTER_SOURCE => match u8::try_from(buf).map(|class| sources::register(me, class)) {
+            Ok(Ok(id)) => id,
+            Ok(Err(sources::Error::Full)) => negative(EBUSY),
+            _ => negative(EINVAL),
+        },
+        op::PUBLISH => publish(me, buf, capacity),
+        op::CLOSE_SOURCE => match sources::close(buf, me) {
+            Ok(()) => 0,
+            Err(_) => negative(EBADF),
+        },
         _ => negative(EINVAL),
+    }
+}
+
+/// Copy a batch of records in and publish them from the caller's source.
+/// Nothing is published unless the whole buffer could be read.
+fn publish(me: usize, ptr: u64, packed: u64) -> u64 {
+    let (id, count) = (packed >> 16, (packed & 0xFFFF) as usize);
+    if count == 0 || count > MAX_BATCH {
+        return negative(EINVAL);
+    }
+    let len = count * RECORD_BYTES;
+    let mut bytes = [0u8; MAX_BATCH * RECORD_BYTES];
+    let bytes = &mut bytes[..len];
+    if ptr == 0 {
+        return negative(EFAULT);
+    }
+    // Copy out of user memory once and decode the copy.
+    match user_ptr::try_bytes(ptr, len) {
+        Ok(user) => bytes.copy_from_slice(user),
+        Err(_) => return negative(EFAULT),
+    }
+    let mut records = [Record {
+        kind: 0,
+        code: 0,
+        value: 0,
+    }; MAX_BATCH];
+    for (index, record) in records[..count].iter_mut().enumerate() {
+        if let Some(decoded) = Record::decode(bytes, index) {
+            *record = decoded;
+        }
+    }
+    match sources::publish(id, me, &records[..count]) {
+        Ok(outcome) => outcome.accepted as u64,
+        Err(_) => negative(EBADF),
     }
 }
 

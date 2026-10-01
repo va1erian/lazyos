@@ -11,6 +11,8 @@ mod hid_table;
 mod pointer;
 mod pointer_stress;
 mod ring;
+mod source;
+mod source_stress;
 mod stress;
 mod syscall;
 
@@ -124,6 +126,14 @@ pub(super) const CASES: &[(&str, Test)] = &[
         pointer::merge_is_all_or_nothing,
     ),
     (
+        "input_pointer_turns_are_not_merged",
+        pointer::turns_are_not_merged,
+    ),
+    (
+        "input_pointer_turns_merge_under_pressure",
+        pointer::turns_merge_under_pressure,
+    ),
+    (
         "input_pointer_motion_flood_keeps_keys",
         pointer::motion_flood_keeps_keys,
     ),
@@ -138,5 +148,39 @@ pub(super) const CASES: &[(&str, Test)] = &[
     (
         "input_pointer_stress_mixed_producers",
         pointer_stress::mixed_producers,
+    ),
+    ("input_source_capability_gate", source::capability_gate),
+    (
+        "input_source_device_ids_are_stamped",
+        source::device_ids_are_stamped,
+    ),
+    (
+        "input_source_class_and_ranges_enforced",
+        source::class_and_ranges_enforced,
+    ),
+    (
+        "input_source_ownership_and_stale_ids",
+        source::ownership_and_stale_ids,
+    ),
+    (
+        "input_source_close_releases_held",
+        source::close_releases_held,
+    ),
+    (
+        "input_source_task_death_releases_held",
+        source::task_death_releases_held,
+    ),
+    (
+        "input_source_table_bound_and_reclaim",
+        source::table_bound_and_reclaim,
+    ),
+    ("input_source_rate_limited", source::rate_limited),
+    (
+        "input_source_stress_generations",
+        source_stress::generations,
+    ),
+    (
+        "input_source_stress_many_producers",
+        source_stress::many_producers,
     ),
 ];
