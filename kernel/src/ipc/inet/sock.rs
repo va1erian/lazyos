@@ -34,6 +34,11 @@ pub(super) struct Inner {
     pub done: Option<Result<(), i32>>,
     /// A failure to report through `SO_ERROR` (a non-blocking `connect`).
     pub so_error: i32,
+    /// A `connect` returned (`EINPROGRESS`, interrupted, timed out) before
+    /// `netd` answered: nobody will collect the answer, so a failure goes to
+    /// `SO_ERROR` and `poll`, whatever the socket's mode is by then (std's
+    /// `connect_timeout` switches the socket back to blocking right away).
+    pub detached: bool,
 }
 
 pub struct InetSock {
@@ -64,6 +69,7 @@ impl InetSock {
                 pending: None,
                 done: None,
                 so_error: 0,
+                detached: false,
             }),
             wq: WaitQueue::new(WaitKind::Pipe),
             nonblock: AtomicBool::new(false),
@@ -158,6 +164,7 @@ impl InetSock {
             // Only `connect` returns early on a non-blocking socket: bind and
             // listen are a short round trip to `netd` whatever the flags.
             if self.nonblock() && matches!(ticket.0, Op::Connect(_)) {
+                self.inner.lock().detached = true;
                 return Err(EINPROGRESS);
             }
             // The in-kernel suite has no scheduler, so it plays `netd` here.
@@ -173,10 +180,18 @@ impl InetSock {
             }
             match self.wq.wait(task::current(), Some(deadline)) {
                 WakeReason::Woken => {}
-                WakeReason::TimedOut => return Err(ETIMEDOUT),
-                WakeReason::Interrupted => return Err(EINTR),
+                WakeReason::TimedOut => return Err(self.detach(ticket, ETIMEDOUT)),
+                WakeReason::Interrupted => return Err(self.detach(ticket, EINTR)),
             }
         }
+    }
+
+    /// The caller gives up on `ticket` with `error`; a `connect` goes on.
+    fn detach(&self, ticket: Ticket, error: i32) -> i32 {
+        if matches!(ticket.0, Op::Connect(_)) {
+            self.inner.lock().detached = true;
+        }
+        error
     }
 
     // ---- the calls ------------------------------------------------------------

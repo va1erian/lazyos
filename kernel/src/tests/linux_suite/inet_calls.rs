@@ -264,6 +264,25 @@ pub fn inet_nonblocking_connect() -> Result<(), String> {
     check!(so_error(fd) == 111, "SO_ERROR is ECONNREFUSED");
     check!(so_error(fd) == 0, "and is cleared by reading it");
     check!(close(fd) == 0, "close");
+    // std's connect_timeout switches the socket back to blocking right after
+    // connect returns EINPROGRESS: a later failure must still reach SO_ERROR.
+    let fd = sys6(41, [AF_INET, 1 | SOCK_NONBLOCK, 0, 0, 0, 0]);
+    check!(
+        connect(fd, [10, 0, 2, 2], 7) == neg(115),
+        "EINPROGRESS once more"
+    );
+    check!(task::fd_set_status(fd as usize, false), "back to blocking");
+    fake_netd();
+    let events = poll_one(fd, POLLOUT);
+    check!(
+        events & POLLERR != 0,
+        "the failure is reported to poll: {events:#x}"
+    );
+    check!(
+        so_error(fd) == 111,
+        "and to SO_ERROR, though the socket is blocking now"
+    );
+    check!(close(fd) == 0, "close");
     inet_done("inet_nonblocking_connect")
 }
 

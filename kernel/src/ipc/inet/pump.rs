@@ -138,11 +138,15 @@ pub fn complete(id: u32, status: i32, local: Addr, peer: Addr) -> Result<(), i32
     if outcome.is_err() && inner.state == State::Connecting {
         inner.state = State::Fresh;
     }
-    // A non-blocking `connect` has nobody waiting: the answer is `SO_ERROR`.
+    // A `connect` whose caller already left has nobody waiting: the answer is
+    // `SO_ERROR` (and `poll`).
     if let Err(e) = outcome {
-        if sock.nonblock() && matches!(op, Op::Connect(_)) {
+        if inner.detached && matches!(op, Op::Connect(_)) {
             inner.so_error = e;
         }
+    }
+    if matches!(op, Op::Connect(_)) {
+        inner.detached = false;
     }
     inner.done = Some(outcome);
     drop(inner);
