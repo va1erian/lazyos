@@ -86,7 +86,7 @@ impl Compositor {
         }
         // A minimized window has no on-screen content to start from, and the
         // desktop layer has no window to open "from".
-        if surface.minimized || surface.desktop {
+        if surface.minimized || surface.is_desktop() {
             return empty_reply(message.method());
         }
         if let Some(from) = translate(

@@ -7,16 +7,17 @@ use user::sys;
 
 use super::compositor::Compositor;
 use super::geometry;
-use super::layout::{cursor_rect, taskbar_hit};
+use super::layout::cursor_rect;
 use super::protocol::{Event, EventKind};
 use super::surface::Drag;
-use super::theme::{DOUBLE_CLICK_SLOP, DOUBLE_CLICK_TICKS, RESIZE_OUT, TASKBAR_H};
+use super::theme::{DOUBLE_CLICK_SLOP, DOUBLE_CLICK_TICKS, RESIZE_OUT};
 use super::window::{contains, forward, raise, relative, surface_by_id};
 
 impl Compositor {
-    /// Route one input event: window-management actions first (taskbar,
-    /// title-bar buttons, drag, raise), then focus/cursor updates, then
-    /// forward the event to the focused surface's event endpoint. While a drag
+    /// Route one input event: the shell's panels first, then window-management
+    /// actions (title-bar buttons, drag, raise), then focus/cursor updates,
+    /// then forward the event to the focused surface's event endpoint (or the
+    /// desktop, outside every window). While a drag
     /// & drop session is live (issue #145) the compositor owns the pointer and
     /// routes it through the drag section instead.
     pub(super) fn handle_event(&mut self, event: Event) {
@@ -33,11 +34,6 @@ impl Compositor {
     /// The pointer moved to `new`.
     fn pointer_move(&mut self, new: (i32, i32)) {
         let old = self.pointer;
-        if super::menu::is_open() && self.drag_session.is_none() {
-            self.pointer = new;
-            self.menu_pointer_moved(old);
-            return;
-        }
         // A drag & drop session owns the pointer (issue #145): the surface
         // under it gets enter/over/leave, and the source hears nothing until
         // the session ends.
@@ -59,10 +55,16 @@ impl Compositor {
         if let Some(active) = self.drag {
             // A title-bar drag: place the window so the grabbed point stays
             // under the pointer (exact even if events were coalesced),
-            // clamped to the screen and the space above the taskbar.
+            // keeping its title bar reachable in the work area.
             damage = damage.union(self.move_dragged_window(active, new));
             // The matching press was consumed by the title bar, so the moves
             // stay in the compositor: the app never saw the grab.
+            self.repaint(damage);
+            return;
+        }
+        // The desktop and panels see the pointer while it is over them; a
+        // press on one keeps every move until release.
+        if self.layer_move(new) {
             self.repaint(damage);
             return;
         }
@@ -112,41 +114,30 @@ impl Compositor {
     fn pointer_down(&mut self, button: u32) {
         // `consumed` bit for the button in a press/release event.
         let button_bit = 1u32 << (button & 31);
-        let (screen_w, screen_h) = (self.screen.width(), self.screen.height());
-        let bar = self.taskbar();
         self.button_down = true;
         if self.drag_session.is_some() {
             // A second press while a drag & drop session is live is ignored;
             // the session ends on the first release.
             return;
         }
-        let point = self.pointer;
-        if self.menu_press(point, button) {
-            self.consumed |= button_bit;
+        // Panels paint above every window, so they hit-test first; a layer
+        // that grabbed the pointer gets every further button too.
+        if self.layer_down(button) {
             return;
         }
-        // The fallback taskbar paints above every window, so it hit-tests
-        // first; with a shell registered it is hidden and not hit-tested.
-        if bar {
-            if let Some(id) = taskbar_hit(&self.surfaces, screen_w, screen_h, point) {
-                self.consumed |= button_bit;
-                self.restore_and_focus(id);
-                self.repaint_full();
-                return;
-            }
-        }
-        // A press outside every window is a desktop click: ignore it. The
-        // window rectangle is inflated by the outer half of the resize grip so
-        // a press just outside a resizable frame still grabs its edge.
+        // Anywhere else, the shell closes its popups.
+        self.notify_dismiss();
+        let point = self.pointer;
+        // The window rectangle is inflated by the outer half of the resize
+        // grip so a press just outside a resizable frame still grabs its edge.
         let Some(index) = self.surfaces.iter().rposition(|surface| {
-            !surface.desktop
+            surface.is_window()
                 && !surface.minimized
                 && contains(geometry::inflate(surface.window(), RESIZE_OUT), point)
         }) else {
-            self.consumed |= button_bit;
-            let over_bar = bar && point.1 >= screen_h - TASKBAR_H;
-            if button == display::button::RIGHT && !over_bar {
-                self.menu_open_at(point);
+            // Outside every window: the desktop's, or nobody's.
+            if !self.desktop_down(button) {
+                self.consumed |= button_bit;
             }
             return;
         };
@@ -187,8 +178,8 @@ impl Compositor {
             return;
         }
         // An interactive resize, before the title-bar move handle. It never
-        // starts during a drag & drop session, an open menu, Alt+Tab or an
-        // existing drag, and never on a maximized window.
+        // starts during a drag & drop session, Alt+Tab or an existing drag,
+        // and never on a maximized window.
         if left
             && resizable
             && !maximized
@@ -261,10 +252,13 @@ impl Compositor {
             self.drag_finish();
             return;
         }
+        if self.layer_up(button) {
+            return;
+        }
         if self.consumed & button_bit != 0 {
-            // The matching press was the compositor's (taskbar, window
-            // button, title bar, resize frame or desktop): swallow its
-            // release, and end a resize or title-bar drag it started.
+            // The matching press was the compositor's (window button, title
+            // bar, resize frame or bare background): swallow its release,
+            // and end a resize or title-bar drag it started.
             self.consumed &= !button_bit;
             if button == display::button::LEFT {
                 if self.resize.is_some() {

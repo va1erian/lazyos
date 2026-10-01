@@ -1,5 +1,5 @@
-//! xuid UI constants (issue #194 split): window/taskbar geometry and the
-//! chrome colour palette. The palette is live: `themefeed` resolves the
+//! xuid UI constants (issue #194 split): window geometry and the chrome
+//! colour palette. The palette is live: `themefeed` resolves the
 //! `sys/ui/*` settings (`libs/uitheme`) into it, and every colour below is an
 //! accessor reading the current value.
 
@@ -13,8 +13,6 @@ pub(super) const TITLE_H: i32 = 22;
 pub(super) const BORDER: i32 = 2;
 /// Where the first window's top-left sits.
 pub(super) const PAD: i32 = 48;
-/// Taskbar height in pixels.
-pub(super) const TASKBAR_H: i32 = 28;
 /// Gap between tiled windows (issue #250).
 pub(super) const WINDOW_GAP: i32 = 16;
 /// Offset added per full grid of windows when placement must cascade (issue
@@ -23,16 +21,10 @@ pub(super) const CASCADE_STEP: i32 = 32;
 /// The width of a cascaded window kept on screen: enough to show its title
 /// bar and grab it, even when the window itself is past the right edge.
 pub(super) const CASCADE_VISIBLE_W: i32 = 240;
-/// Taskbar entry height in pixels.
-pub(super) const ENTRY_H: i32 = 20;
-/// Horizontal gap between taskbar entries.
-pub(super) const ENTRY_GAP: i32 = 4;
-/// Taskbar margin before the first and after the last entry.
-pub(super) const ENTRY_MARGIN: i32 = 6;
-/// Horizontal padding inside a taskbar entry, per side.
-pub(super) const ENTRY_PAD: i32 = 8;
-/// Smallest taskbar entry width.
-pub(super) const ENTRY_MIN_W: i32 = 48;
+/// The size of the rectangle a window without shell icon geometry
+/// (`SetIconGeometry`) zooms to and from, at the screen's bottom-left.
+pub(super) const ICON_W: i32 = 48;
+pub(super) const ICON_H: i32 = 20;
 /// Title-bar button size in pixels.
 pub(super) const BUTTON: i32 = 16;
 /// Gap between the two title-bar buttons.
@@ -68,11 +60,12 @@ pub(super) const DRAG_ACCENT: Color = Color::rgb(245, 196, 84);
 /// The drag label's chip background.
 pub(super) const DRAG_GHOST_BG: Color = Color::rgb(28, 24, 12);
 
-/// One slot per [`Palette`] field, in declaration order. `xuid` is a single
-/// task, so relaxed atomics are only there to keep the static safe.
-static SLOTS: [AtomicU32; 16] = [const { AtomicU32::new(0) }; 16];
+/// One slot per [`Palette`] field `xuid` uses, in declaration order. `xuid`
+/// is a single task, so relaxed atomics are only there to keep the static
+/// safe.
+static SLOTS: [AtomicU32; 13] = [const { AtomicU32::new(0) }; 13];
 
-fn slots(p: &Palette) -> [u32; 16] {
+fn slots(p: &Palette) -> [u32; 13] {
     [
         p.background,
         p.window_bg,
@@ -83,9 +76,6 @@ fn slots(p: &Palette) -> [u32; 16] {
         p.border_focus,
         p.empty_bg,
         p.taskbar_bg,
-        p.taskbar_entry,
-        p.taskbar_entry_min,
-        p.taskbar_entry_focus,
         p.overlay_bg,
         p.overlay_border,
         p.overlay_selected,
@@ -131,27 +121,20 @@ pub(super) fn border_color_focus() -> Color {
 pub(super) fn empty_bg() -> Color {
     color(7)
 }
+/// The theme's taskbar colour: `xuid` paints no taskbar since issue #157,
+/// but `GetTheme` still reports it so the shell can match.
 pub(super) fn taskbar_bg() -> Color {
     color(8)
 }
-pub(super) fn taskbar_entry() -> Color {
+pub(super) fn overlay_bg() -> Color {
     color(9)
 }
-pub(super) fn taskbar_entry_min() -> Color {
+pub(super) fn overlay_border() -> Color {
     color(10)
 }
-pub(super) fn taskbar_entry_focus() -> Color {
+pub(super) fn overlay_selected() -> Color {
     color(11)
 }
-pub(super) fn overlay_bg() -> Color {
-    color(12)
-}
-pub(super) fn overlay_border() -> Color {
-    color(13)
-}
-pub(super) fn overlay_selected() -> Color {
-    color(14)
-}
 pub(super) fn overlay_text() -> Color {
-    color(15)
+    color(12)
 }

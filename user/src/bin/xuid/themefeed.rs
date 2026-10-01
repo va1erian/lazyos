@@ -19,7 +19,7 @@ use user::messenger::topics_client::Qos;
 use user::messenger::DEFAULT_BUFFER;
 use user::sys;
 
-use super::{menuitems, theme};
+use super::theme;
 
 /// Ticks (100 Hz) between looks at the change topic.
 const POLL_TICKS: u64 = 25;
@@ -59,12 +59,6 @@ impl ThemeFeed {
             settings,
             buffer: alloc::vec![0u8; DEFAULT_BUFFER],
         }
-    }
-
-    /// Whether the desktop animations are enabled.
-    #[allow(dead_code)]
-    pub(super) fn animations(&self) -> bool {
-        self.settings.anim
     }
 
     /// Follow confd; `true` when the palette changed and the screen needs a
@@ -135,19 +129,9 @@ impl ThemeFeed {
         any
     }
 
-    /// Re-read every key: the palette, and the desktop menu's entry list.
-    /// `true` when either changed what is on screen.
+    /// Re-read the theme keys and install the resulting palette; `true` when
+    /// it changed what is on screen.
     fn reload(&mut self) -> bool {
-        let Some(client) = &self.client else {
-            return false;
-        };
-        // An open menu is part of the picture; a closed one repaints nothing.
-        let menu = menuitems::reload(client) && super::menu::is_open();
-        self.reload_theme() || menu
-    }
-
-    /// Re-read the theme keys and install the resulting palette.
-    fn reload_theme(&mut self) -> bool {
         let Some(client) = &self.client else {
             return false;
         };

@@ -36,8 +36,9 @@ pub const INTERFACE: u64 = wire::INTERFACE_ID;
 /// message use ids 1..=10, so this never collides with a success payload.
 pub const ERROR_FIELD: u16 = 15;
 
-/// The subscriber role that asks xuid to hide its built-in taskbar
-/// (issue #167).
+/// The subscriber role that makes a task the desktop shell (issues #167,
+/// #157): it may then create the desktop and panels and use the shell-only
+/// calls.
 pub const ROLE_SHELL: &str = "shell";
 
 /// Longest MIME string the compositor accepts in a `DragStart`.

@@ -43,16 +43,16 @@ impl Compositor {
             return error_reply(message.method(), messenger::errno::EACCES);
         }
         let title = sanitize(&args.title);
-        // The desktop layer has no chrome, and an empty result keeps the old
-        // name rather than blanking the taskbar entry.
-        if surface.desktop || title.is_empty() || title == surface.title {
+        // The desktop and panels have no chrome, and an empty result keeps
+        // the old name rather than blanking the shell's taskbar entry.
+        if !surface.is_window() || title.is_empty() || title == surface.title {
             return empty_reply(message.method());
         }
         if let Some(surface) = self.surfaces.iter_mut().find(|s| s.id == args.surface) {
             surface.title = title;
         }
         self.notify_surface(args.surface, wire::CHANGE_TITLE);
-        // The taskbar and the Alt+Tab list are laid out from the titles.
+        // The title bar and the Alt+Tab list show it.
         self.repaint_full();
         empty_reply(message.method())
     }

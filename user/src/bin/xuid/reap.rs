@@ -25,18 +25,20 @@ pub(super) const PROBE_INTERVAL_TICKS: u64 = 100;
 pub(super) fn dead_surfaces(surfaces: &[Surface], scratch: &mut Vec<u8>) -> Vec<u64> {
     surfaces
         .iter()
-        .filter(|surface| surface.events != 0)
-        .filter(|surface| {
-            let sent = display::send_event(
-                &Endpoint::from_raw(surface.events),
-                scratch,
-                wire::METHOD_PING,
-                Ok(Vec::new()),
-            );
-            matches!(sent, Err(messenger::Error::Errno(code)) if code == -messenger::errno::EPIPE)
-        })
+        .filter(|surface| surface.events != 0 && !alive(surface.events, scratch))
         .map(|surface| surface.id)
         .collect()
+}
+
+/// Ping the event endpoint `events`; `false` when its peer is gone.
+fn alive(events: u64, scratch: &mut Vec<u8>) -> bool {
+    let sent = display::send_event(
+        &Endpoint::from_raw(events),
+        scratch,
+        wire::METHOD_PING,
+        Ok(Vec::new()),
+    );
+    !matches!(sent, Err(messenger::Error::Errno(code)) if code == -messenger::errno::EPIPE)
 }
 
 impl Compositor {
@@ -47,6 +49,12 @@ impl Compositor {
             return;
         }
         self.next_probe = now + PROBE_INTERVAL_TICKS;
+        // The shell and observer are probed too, so a dead shell's work area
+        // is given back within a second even when no event is sent to it.
+        let subscribers = [self.shell.as_mut(), self.observer.as_mut()];
+        for sub in subscribers.into_iter().flatten() {
+            sub.dead |= !alive(sub.events, &mut self.scratch);
+        }
         let dead = dead_surfaces(&self.surfaces, &mut self.scratch);
         for id in &dead {
             if surface_by_id(&self.surfaces, *id).is_some() {

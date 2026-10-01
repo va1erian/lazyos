@@ -357,7 +357,7 @@ pub(super) fn selftest_geometry() -> &'static str {
     let off_top = keep(100, -100) == (100, 0);
     let off_bottom = keep(100, 1000) == (100, 572 - TITLE_H);
 
-    // Maximized fills the work area, with and without the fallback taskbar.
+    // Maximized fills the work area, the whole screen or less a shell taskbar.
     let with_bar = maximized_rect(Rect::new(0, 0, 800, 600 - 28)) == Rect::new(0, 0, 800, 572);
     let no_bar = maximized_rect(Rect::new(0, 0, 800, 600)) == Rect::new(0, 0, 800, 600);
     let clamped = clamp_into(Rect::new(-40, -40, 16, 16), Rect::new(0, 0, 800, 600))

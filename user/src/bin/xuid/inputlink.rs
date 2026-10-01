@@ -20,6 +20,7 @@ use user::messenger::input::{ShellEvent, ShellLink};
 use user::sys;
 
 use super::compositor::Compositor;
+use super::pointer_feed::MAX_EVENTS;
 
 /// Ticks (100 Hz) between attempts to reach `inputd`.
 const RETRY_TICKS: u64 = 100;
@@ -135,6 +136,11 @@ impl Compositor {
     /// Apply queued `inputd` events. `false` when the link is dead.
     fn apply_input_events(&mut self) -> bool {
         loop {
+            if !self.held.is_empty() && self.held.room() < MAX_EVENTS {
+                // An animation filled the held queue: leave the rest queued
+                // in `inputd` until the main loop has handled it.
+                return true;
+            }
             let Some(link) = self.input.link.as_mut() else {
                 return false;
             };
@@ -153,6 +159,30 @@ impl Compositor {
         }
     }
 
+    /// During an animation frame: hold the pointer events `inputd` queued,
+    /// in order, so the cursor keeps moving (`held.rs`). Session changes are
+    /// applied at once; they only flip a delivery flag. A dead link is left
+    /// for [`Compositor::sync_input`] to notice.
+    pub(super) fn hold_inputd_pointer(&mut self) {
+        while self.held.room() >= MAX_EVENTS {
+            let Some(link) = self.input.link.as_mut() else {
+                return;
+            };
+            match link.poll_event() {
+                Ok(Some(ShellEvent::SessionOpened(surface))) => self.set_session(surface, true),
+                Ok(Some(ShellEvent::SessionClosed(surface))) => self.set_session(surface, false),
+                Ok(Some(ShellEvent::Pointer(state))) => {
+                    let (events, count) = self.translate_pointer(&state);
+                    for event in &events[..count] {
+                        self.held.push(*event);
+                    }
+                }
+                Ok(Some(_)) => {}
+                Ok(None) | Err(_) => return,
+            }
+        }
+    }
+
     fn set_session(&mut self, surface: u64, open: bool) {
         if let Some(found) = self.surfaces.iter_mut().find(|s| s.id == surface) {
             found.input_session = open;
@@ -165,7 +195,7 @@ impl Compositor {
         let Some(link) = self.input.link.as_ref() else {
             return false;
         };
-        for surface in self.surfaces.iter().filter(|s| !s.desktop) {
+        for surface in self.surfaces.iter().filter(|s| s.is_window()) {
             if !self.input.registered.contains(&surface.id) {
                 if link.register_surface(surface.id, surface.owner).is_err() {
                     return false;

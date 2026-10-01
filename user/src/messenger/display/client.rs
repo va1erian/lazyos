@@ -73,8 +73,22 @@ impl Client {
         self.create_surface_role(width, height, title, events, wire::ROLE_DESKTOP)
     }
 
-    /// The shared body of [`Client::create_surface`] and
-    /// [`Client::create_desktop_surface`].
+    /// A `CreateSurface` with [`wire::ROLE_PANEL`] (issue #157): a shell-only,
+    /// chromeless surface painted above every window (a taskbar, a start
+    /// menu). It opens at `(0, 0)`; move it with [`Client::place_surface`]
+    /// before its first commit. It never takes focus but receives the pointer
+    /// events over it.
+    pub fn create_panel_surface(
+        &self,
+        width: u64,
+        height: u64,
+        title: &str,
+        events: &Endpoint,
+    ) -> Result<u64> {
+        self.create_surface_role(width, height, title, events, wire::ROLE_PANEL)
+    }
+
+    /// The shared body of the `create_*surface` calls.
     fn create_surface_role(
         &self,
         width: u64,
@@ -106,11 +120,12 @@ impl Client {
         Ok(surface)
     }
 
-    /// `Subscribe(role, events)`: register this task as the shell
-    /// subscriber (issue #167). The event endpoint is moved to the
-    /// compositor, which sends one-way [`super::ShellEvent`]s there. The role
-    /// [`super::ROLE_SHELL`] also hides xuid's built-in taskbar; any other
-    /// role keeps the fallback chrome. Registering again replaces the
+    /// `Subscribe(role, events)`: register this task for the shell events
+    /// (issues #167, #157). The event endpoint is moved to the compositor,
+    /// which sends one-way [`super::ShellEvent`]s there. The role
+    /// [`super::ROLE_SHELL`] makes this task *the* shell (privileged, or the
+    /// session that owns the display); any other role is a privileged
+    /// observer that never replaces the shell. Registering again replaces the
     /// endpoint.
     pub fn subscribe(&self, role: &str, events: &Endpoint) -> Result<()> {
         let body = wire::encode_subscribe_args(&wire::SubscribeArgs {
@@ -126,8 +141,8 @@ impl Client {
         .map(|_| ())
     }
 
-    /// `ListSurfaces`: every surface the compositor knows, in its z-order
-    /// (bottom first). Desktop surfaces are included and their rows show
+    /// `ListSurfaces` (shell-only): every surface the compositor knows,
+    /// bottom first (the desktop, the windows in z-order, the panels), with
     /// the composited geometry (issue #167).
     pub fn list_surfaces(&self) -> Result<Vec<SurfaceInfo>> {
         let parcel = request(
@@ -145,10 +160,8 @@ impl Client {
             .surfaces)
     }
 
-    /// `GetWorkArea`: the rectangle windows may occupy. While the built-in
-    /// fallback taskbar is visible the bar's strip is excluded; with a
-    /// shell registered (`Subscribe("shell", ..)`) the bar is hidden and
-    /// the work area is the whole screen (issue #167).
+    /// `GetWorkArea`: the rectangle windows may occupy: what the shell set
+    /// with [`Client::set_work_area`], else the whole screen.
     pub fn get_work_area(&self) -> Result<Rect> {
         let reply = self.call(request(
             wire::METHOD_GETWORKAREA,
@@ -334,6 +347,73 @@ impl Client {
             Vec::new(),
         ))
         .map(|_| ())
+    }
+
+    /// `PlaceSurface`: move this task's panel so its top-left is at screen
+    /// `(x, y)` (clamped on screen).
+    pub fn place_surface(&self, surface: u64, x: i32, y: i32) -> Result<()> {
+        let body = wire::encode_place_surface_args(&wire::PlaceSurfaceArgs { surface, x, y });
+        self.call_unit(wire::METHOD_PLACESURFACE, body)
+    }
+
+    /// `ActivateSurface` (shell-only): restore, raise and focus a window.
+    pub fn activate_surface(&self, surface: u64) -> Result<()> {
+        let body = wire::encode_activate_surface_args(&wire::ActivateSurfaceArgs { surface });
+        self.call_unit(wire::METHOD_ACTIVATESURFACE, body)
+    }
+
+    /// `MinimizeSurface` (shell-only): minimize a window, like its title-bar
+    /// button.
+    pub fn minimize_surface(&self, surface: u64) -> Result<()> {
+        let body = wire::encode_minimize_surface_args(&wire::MinimizeSurfaceArgs { surface });
+        self.call_unit(wire::METHOD_MINIMIZESURFACE, body)
+    }
+
+    /// `SetWorkArea` (shell-only): where windows may go, e.g. the screen
+    /// minus the shell's taskbar.
+    pub fn set_work_area(&self, area: Rect) -> Result<()> {
+        let (x, y, w, h) = (area.x, area.y, area.w, area.h);
+        let body = wire::encode_set_work_area_args(&wire::SetWorkAreaArgs { x, y, w, h });
+        self.call_unit(wire::METHOD_SETWORKAREA, body)
+    }
+
+    /// `SetIconGeometry` (shell-only): where `surface`'s taskbar entry is,
+    /// so its minimize/restore zoom flies there; an empty rect forgets it.
+    pub fn set_icon_geometry(&self, surface: u64, rect: Rect) -> Result<()> {
+        let (x, y, w, h) = (rect.x, rect.y, rect.w, rect.h);
+        let args = wire::SetIconGeometryArgs {
+            surface,
+            x,
+            y,
+            w,
+            h,
+        };
+        let body = wire::encode_set_icon_geometry_args(&args);
+        self.call_unit(wire::METHOD_SETICONGEOMETRY, body)
+    }
+
+    /// `HintLaunchOrigin` (shell-only): the next window any task opens soon
+    /// zooms out of `rect` (the menu row or icon that launched it).
+    pub fn hint_launch_origin(&self, rect: Rect) -> Result<()> {
+        let args = wire::HintLaunchOriginArgs {
+            x: rect.x,
+            y: rect.y,
+            w: rect.w.max(0) as u32,
+            h: rect.h.max(0) as u32,
+        };
+        let body = wire::encode_hint_launch_origin_args(&args);
+        self.call_unit(wire::METHOD_HINTLAUNCHORIGIN, body)
+    }
+
+    /// A call with an encoded `body` and nothing in the reply.
+    fn call_unit(
+        &self,
+        method: u32,
+        body: core::result::Result<Vec<u8>, libmessenger::Error>,
+    ) -> Result<()> {
+        let body = body.map_err(Error::Parcel)?;
+        self.call(request(method, body, Vec::new(), Vec::new()))
+            .map(|_| ())
     }
 
     /// One synchronous call; a structured error reply becomes

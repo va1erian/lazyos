@@ -1,5 +1,6 @@
-//! Mouse wheel routing: the wheel goes to the window under the pointer, not
-//! the focused one, and only when the pointer is over the window's content.
+//! Mouse wheel routing: the wheel goes to what is under the pointer, not the
+//! focused window: a shell panel, else the topmost window when the pointer is
+//! over its content, else the desktop when no window covers the point.
 
 use user::messenger::display::wire;
 
@@ -7,31 +8,35 @@ use super::compositor::Compositor;
 use super::surface::Surface;
 use super::window::{contains, forward, relative};
 
-/// The id of the window that receives a wheel roll at `point`: the topmost
-/// visible window under it, provided the point is in that window's content.
-/// A point on a title bar or border, or over no window, yields `None` (the
-/// wheel never falls through to a window below the one it is over).
+/// The id of the surface that receives a wheel roll at `point`. A point on a
+/// window's title bar or border yields `None`: the wheel never falls through
+/// to whatever lies below the window it is over.
 pub(super) fn wheel_target(surfaces: &[Surface], point: (i32, i32)) -> Option<u64> {
-    surfaces
-        .iter()
-        .rev()
-        .find(|surface| !surface.desktop && !surface.minimized && contains(surface.window(), point))
-        .filter(|surface| contains(surface.content(), point))
-        .map(|surface| surface.id)
+    let under = |keep: fn(&Surface) -> bool| {
+        surfaces
+            .iter()
+            .rev()
+            .find(move |surface| keep(surface) && contains(surface.window(), point))
+    };
+    if let Some(panel) = under(Surface::is_panel) {
+        return Some(panel.id);
+    }
+    match under(|surface| surface.is_window() && !surface.minimized) {
+        Some(window) => contains(window.content(), point).then_some(window.id),
+        None => under(Surface::is_desktop).map(|desktop| desktop.id),
+    }
 }
 
 impl Compositor {
-    /// The wheel rolled `delta` notches (positive scrolls up). An open menu or
-    /// a drag (window or drag & drop) owns the pointer, so the wheel is ignored.
+    /// The wheel rolled `delta` notches (positive scrolls up). A drag (window
+    /// or drag & drop) owns the pointer, so the wheel is ignored; a desktop or
+    /// panel holding the pointer grab gets it.
     pub(super) fn pointer_wheel(&mut self, delta: i32) {
-        if delta == 0
-            || self.drag.is_some()
-            || self.drag_session.is_some()
-            || super::menu::is_open()
-        {
+        if delta == 0 || self.drag.is_some() || self.drag_session.is_some() {
             return;
         }
-        let Some(id) = wheel_target(&self.surfaces, self.pointer) else {
+        let grabbed = self.grab.map(|(id, _)| id);
+        let Some(id) = grabbed.or_else(|| wheel_target(&self.surfaces, self.pointer)) else {
             return;
         };
         let (x, y) = relative(&self.surfaces, id, self.pointer);
@@ -50,6 +55,7 @@ impl Compositor {
 /// `XUID:WHEEL:FAIL`.
 pub(super) fn selftest_wheel_routing() -> &'static str {
     use super::window::test_surface;
+    use user::messenger::display::Rect;
 
     // Two overlapping windows: `1` below `2`. A window at (x, y) with a 10x10
     // content is `10 + 2*BORDER` wide; probe its content and its title bar.
@@ -62,7 +68,7 @@ pub(super) fn selftest_wheel_routing() -> &'static str {
     let stack = alloc::vec![below, above];
     let above_content = stack[1].content();
     let above_title = stack[1].title_bar();
-    let inside = |rect: user::messenger::display::Rect| (rect.x + 1, rect.y + 1);
+    let inside = |rect: Rect| (rect.x + 1, rect.y + 1);
 
     // Over the top window's content: the top window, even where it overlaps.
     let top = wheel_target(&stack, inside(above_content)) == Some(2);
@@ -74,15 +80,24 @@ pub(super) fn selftest_wheel_routing() -> &'static str {
     // Over nothing.
     let nothing = wheel_target(&stack, (5000, 5000)).is_none();
 
-    // A minimized window and a desktop never receive it.
+    // A minimized window never receives it; the desktop under it does.
     let mut hidden = test_surface(3, true, false);
     hidden.x = 100;
     let mut desktop = test_surface(4, false, true);
-    desktop.x = 100;
+    (desktop.w, desktop.h) = (800, 600);
     let probe = inside(hidden.content());
-    let skipped = wheel_target(&[hidden, desktop], probe).is_none();
+    let layers = alloc::vec![desktop, hidden];
+    let to_desktop = wheel_target(&layers, probe) == Some(4);
 
-    if top && title && lower && nothing && skipped {
+    // A panel over a window's content takes it.
+    let mut panel = test_surface(5, false, false);
+    panel.role = wire::ROLE_PANEL;
+    (panel.w, panel.h) = (50, 50);
+    let mut covered = stack;
+    covered.insert(0, panel);
+    let to_panel = wheel_target(&covered, inside(above_content)) == Some(5);
+
+    if top && title && lower && nothing && to_desktop && to_panel {
         "XUID:WHEEL:PASS\n"
     } else {
         "XUID:WHEEL:FAIL\n"
