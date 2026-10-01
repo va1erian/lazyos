@@ -13,9 +13,11 @@
 //! through its own widgets instead of a blocking call (see `bin/lazyrad.rs`).
 
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 
 use lazyrad_runtime::platform::Platform;
 use lazyrad_runtime::{Access, FsPolicy, Sandbox};
+use xui_app::platform::dialog_fs::LazyFileSystem;
 
 /// Where installed apps live (`docs/packages.md`: `install_dir` is relative to
 /// this).
@@ -58,7 +60,17 @@ pub fn data_root(exe: &Path, data_volume_present: bool) -> PathBuf {
 /// [`data_root`], plus read-only access to the project itself.
 pub fn player_policy(exe: &Path, project: &Path, data_volume_present: bool) -> FsPolicy {
     let root = data_root(exe, data_volume_present);
-    FsPolicy::Sandboxed(Sandbox::new(root).allow(project, Access::Read))
+    FsPolicy::Sandboxed(Sandbox::new(root).allow(project.to_path_buf(), Access::Read))
+}
+
+/// The folder the file dialog starts in: [`PROJECTS_DIR`], else `/data`, else
+/// `/tmp` (the first `exists` answers yes for), else `/`.
+pub fn start_dir(exists: impl Fn(&Path) -> bool) -> PathBuf {
+    [PROJECTS_DIR, "/data", "/tmp"]
+        .iter()
+        .map(Path::new)
+        .find(|path| exists(path))
+        .map_or_else(|| PathBuf::from("/"), Path::to_path_buf)
 }
 
 /// What the player and the IDE share on LazyOS.
@@ -76,7 +88,7 @@ impl LazyOsPlatform {
     /// [`PROJECTS_DIR`] only.
     pub fn ide() -> LazyOsPlatform {
         LazyOsPlatform {
-            policy: FsPolicy::Sandboxed(Sandbox::new(PROJECTS_DIR)),
+            policy: FsPolicy::Sandboxed(Sandbox::new(PathBuf::from(PROJECTS_DIR))),
         }
     }
 }
@@ -100,6 +112,16 @@ impl Platform for LazyOsPlatform {
 
     fn player_executable(&self) -> Option<PathBuf> {
         Some(PathBuf::from(PLAYER_PATH))
+    }
+
+    /// The portable dialog over `LazyFileSystem`, which also lists the root
+    /// mount points (`/tmp`, `/data`) the VFS omits from `/`.
+    fn file_system(&self) -> Option<Rc<dyn xui_core::widget::FileSystem>> {
+        Some(LazyFileSystem::shared())
+    }
+
+    fn projects_dir(&self) -> PathBuf {
+        start_dir(|path| path.is_dir())
     }
 }
 
@@ -141,25 +163,50 @@ mod tests {
 
     #[test]
     fn the_player_policy_is_private_data_plus_a_read_only_project() {
-        let exe = Path::new(APP_EXE);
-        let project = Path::new("/data/apps/user.me.todo/1.0.0-abcd1234/resources/project");
-        let policy = player_policy(exe, project, true);
+        // A directory grant needs the directory to exist, so use a real one.
+        let project =
+            std::env::temp_dir().join(format!("lazyrad-os-policy-{}", std::process::id()));
+        std::fs::create_dir_all(&project).unwrap();
+        let file = project.join("main.lfm");
+        std::fs::write(&file, "x").unwrap();
+        let file = file.to_string_lossy().into_owned();
+
+        let policy = player_policy(Path::new(APP_EXE), &project, true);
         let own = policy
             .resolve("notes.txt", Access::Write)
             .expect("own data");
-        assert!(own.starts_with("/data/apps/user.me.todo/data"));
-        let read = policy.resolve(
-            "/data/apps/user.me.todo/1.0.0-abcd1234/resources/project/main.lfm",
-            Access::Read,
+        let own = own.to_string_lossy().replace('\\', "/");
+        assert!(
+            own.ends_with("/data/apps/user.me.todo/data/notes.txt"),
+            "{own}"
         );
-        assert!(read.is_ok(), "the project is readable");
-        let write = policy.resolve(
-            "/data/apps/user.me.todo/1.0.0-abcd1234/resources/project/main.lfm",
-            Access::Write,
+        assert!(
+            policy.resolve(&file, Access::Read).is_ok(),
+            "the project is readable"
         );
-        assert!(write.is_err(), "the project is read-only");
+        assert!(
+            policy.resolve(&file, Access::Write).is_err(),
+            "the project is read-only"
+        );
         assert!(policy.resolve("/etc/passwd", Access::Read).is_err());
         assert!(policy.resolve("../other/data/x", Access::Read).is_err());
+        let _ = std::fs::remove_dir_all(&project);
+    }
+
+    #[test]
+    fn the_dialog_starts_in_the_first_existing_place() {
+        assert_eq!(start_dir(|_| true), Path::new(PROJECTS_DIR));
+        assert_eq!(start_dir(|p| p == Path::new("/data")), Path::new("/data"));
+        assert_eq!(start_dir(|p| p == Path::new("/tmp")), Path::new("/tmp"));
+        assert_eq!(start_dir(|_| false), Path::new("/"));
+    }
+
+    #[test]
+    fn the_ide_platform_offers_an_in_window_filesystem() {
+        let platform = LazyOsPlatform::ide();
+        let fs = platform.file_system().expect("LazyOS has painted dialogs");
+        // The root lists the mount points the VFS omits, through the wrapper.
+        let _ = fs.list(Path::new("/"));
     }
 
     #[test]

@@ -302,3 +302,56 @@ are built on a host, which is a useful interim state.
 4. **Permissions enforcement depth:** is player-level enforcement (P2) acceptable
    until `messengerd` compiles sandbox profiles from manifests, or should the
    kernel-level profile work gate shipping user apps?
+
+---
+
+## 8. Implementation status and findings (P0-P3)
+
+Status: P0 (LazyRAD seam), P1 (`lrplay`), P2 (`.lzp` packager) and the P3 IDE
+client are implemented; P4 onward is not. The LazyRAD half lives on LazyRAD's
+`lazyos-p0` branch; `lazyrad-os/README.md` explains the rev pin.
+
+**Resolved `(verify)` items**
+
+- **Installer path resolution (D1): the installer does not exist yet, so the
+  player does not depend on it.** `lrplay` resolves a relative `--project` (and
+  the default `resources/project`) against its *install directory*, found from
+  `argv[0]`. `std::env::current_exe()` is **false on LazyOS**: the kernel hard-codes
+  `/proc/self/exe` to `/busybox` (`kernel/src/process/linux/pathops.rs`).
+  Requirement for `pkgd`/`init`: start an installed app with its absolute path as
+  `argv[0]`, or with the install dir as cwd, or pass an absolute `--project`.
+  Verified: `LRPLAY:PROJECT:PASS:/tmp/app/resources/project` for `bin/lrplay.elf
+  --project resources/project` run from `/tmp/app`.
+- **A `bin/` ELF may be a Linux-ABI xui client: true.** `LRPLAY.ELF` is a static
+  musl `xuid` client and runs from the Terminal and from the IDE.
+- **A process spawned by a `xuid` client can open its own window: true** (with
+  `--client`; without it the player first tries to bind the display as owner and
+  panicked, so the IDE launcher passes `--client`).
+- **D4 pipes: spawning works, but the portable launcher does not.** LazyOS does
+  not share a descriptor table between threads, so reader/exit-watcher threads
+  lose the pipe and the wait status (the IDE saw an instant "exit" and killed the
+  player). `lazyrad-os::launcher::PollingLauncher` polls non-blocking pipes on the
+  window timer instead; no Messenger transport was needed.
+- **Debugger: not available upstream.** LazyRAD's IDE and player have no debug
+  protocol yet (its M4), so `lazyrad_debug.json` / `LRIDE:BREAK:PASS` are not done.
+- **Clipboard:** needs no LazyRAD seam; xui routes it through the backend.
+- **Rhai/getrandom:** with `default-features = false` only a build-time proc-macro
+  pulls `getrandom`; nothing at runtime. One xui rev (`58c1a6e`) and one Rhai
+  (`=1.26.1`) in both repos.
+
+**Other findings**
+
+- `/tmp` (kernel-heap ramfs) cannot hold a 5 MiB player copy (`cp: Out of memory`).
+- Sizes (release, `opt-level = "z"`, fat LTO): `lrplay.elf` about 5.3 MiB (2.1 MiB
+  deflated in a package), `lazyrad.elf` about 7.3 MiB.
+- IDE responsiveness is low (input reflected after seconds when the window is
+  large); typing into a 2000-line, 150 KB module updates the document within
+  about 20 ms to 270 ms per key (`lazyrad_typing.json`), repaint not separately
+  timed. Session scripts therefore pace steps 2-3 s apart.
+- The in-window file dialog (painted `FileDialog` over `LazyFileSystem`) is
+  implemented and renders, but **typing a path into it panicked on LazyOS**
+  (`xui-core listview/api.rs:39` `RefCell already borrowed`, xui rev `58c1a6e`);
+  not reproduced on the host. The IDE therefore also takes a project on its
+  command line (`lazyrad [--client] <dir | .lrp>`), which the sessions use.
+- Property-grid scrolling did not repaint rows in one probe (scrollbar moved,
+  content did not); not investigated.

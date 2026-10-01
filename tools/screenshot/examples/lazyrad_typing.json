@@ -1,0 +1,194 @@
+[
+ {
+  "wait_for": "TERM:UP:PASS",
+  "timeout": 240
+ },
+ {
+  "at": 2.0,
+  "mouse_move": [
+   -300,
+   -300
+  ]
+ },
+ {
+  "at": 2.2,
+  "mouse_move": [
+   -300,
+   -300
+  ]
+ },
+ {
+  "at": 2.4,
+  "mouse_move": [
+   -300,
+   -300
+  ]
+ },
+ {
+  "at": 3.0,
+  "mouse_move": [
+   200,
+   300
+  ]
+ },
+ {
+  "at": 3.4,
+  "mouse_click": "left"
+ },
+ {
+  "at": 1.0,
+  "type": "cp -r /LAZYRAD/perf2000 /tmp/perf && echo copied"
+ },
+ {
+  "at": 0.5,
+  "key": "enter",
+  "until": "TERM:CMD:cp -r /LAZYRAD/perf2000 /tmp/perf && echo copied",
+  "timeout": 30,
+  "retries": 2
+ },
+ {
+  "wait_for": "TERM:OUT:copied",
+  "timeout": 60
+ },
+ {
+  "at": 1.5,
+  "type": "/LAZYRAD.ELF --client /tmp/perf &"
+ },
+ {
+  "at": 0.5,
+  "key": "enter",
+  "until": "TERM:CMD:/LAZYRAD.ELF --client /tmp/perf &",
+  "timeout": 30,
+  "retries": 2
+ },
+ {
+  "wait_for": "LRIDE:UP:PASS",
+  "timeout": 180
+ },
+ {
+  "wait_for": "LRIDE:OPEN:PASS:perf",
+  "timeout": 60
+ },
+ {
+  "at": 3.0,
+  "shot": "01_perf_project_open"
+ },
+ {
+  "at": 2.5,
+  "mouse_move": [
+   856,
+   -28
+  ]
+ },
+ {
+  "at": 1.0,
+  "mouse_click": "left"
+ },
+ {
+  "at": 1.5,
+  "key": "enter"
+ },
+ {
+  "at": 4.0,
+  "shot": "02_module_opened"
+ },
+ {
+  "at": 2.5,
+  "mouse_move": [
+   -456,
+   28
+  ]
+ },
+ {
+  "at": 1.0,
+  "mouse_click": "left"
+ },
+ {
+  "at": 1.5,
+  "key_down": "ctrl"
+ },
+ {
+  "at": 0.3,
+  "key": "end"
+ },
+ {
+  "at": 0.3,
+  "key_up": "ctrl"
+ },
+ {
+  "at": 2.0,
+  "shot": "03_editor_end"
+ },
+ {
+  "at": 2.0,
+  "type": "a"
+ },
+ {
+  "wait_for": "LRIDE:EDIT:PASS:big 149781",
+  "timeout": 60
+ },
+ {
+  "at": 2.0,
+  "type": "b"
+ },
+ {
+  "wait_for": "LRIDE:EDIT:PASS:big 149782",
+  "timeout": 60
+ },
+ {
+  "at": 2.0,
+  "type": "c"
+ },
+ {
+  "wait_for": "LRIDE:EDIT:PASS:big 149783",
+  "timeout": 60
+ },
+ {
+  "at": 2.0,
+  "type": "d"
+ },
+ {
+  "wait_for": "LRIDE:EDIT:PASS:big 149784",
+  "timeout": 60
+ },
+ {
+  "at": 2.0,
+  "type": "e"
+ },
+ {
+  "wait_for": "LRIDE:EDIT:PASS:big 149785",
+  "timeout": 60
+ },
+ {
+  "at": 2.0,
+  "type": "f"
+ },
+ {
+  "wait_for": "LRIDE:EDIT:PASS:big 149786",
+  "timeout": 60
+ },
+ {
+  "at": 2.0,
+  "type": "g"
+ },
+ {
+  "wait_for": "LRIDE:EDIT:PASS:big 149787",
+  "timeout": 60
+ },
+ {
+  "at": 2.0,
+  "type": "h"
+ },
+ {
+  "wait_for": "LRIDE:EDIT:PASS:big 149788",
+  "timeout": 60
+ },
+ {
+  "at": 2.0,
+  "shot": "04_typed"
+ },
+ {
+  "at": 1.0,
+  "quit": true
+ }
+]
