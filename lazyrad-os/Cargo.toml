@@ -33,14 +33,13 @@ messenger-generated = { path = "../libs/generated" }
 # LazyRAD, from its own repository, `default-features = false` so the `desktop`
 # features (winit, rfd, directories, dark-light, local time) stay off.
 #
-# PIN: `rev` is the tip of LazyRAD PR va1erian/lazyrad#81 (branch `lazyos-p0`), which
-# adds the platform seam, the `.lzp` packager and the IDE run options. When that
-# PR merges, set `rev` on EVERY va1erian/lazyrad line below (runtime, player, ide
-# and the dev-dependency packager) to the merge commit.
-lazyrad-runtime = { git = "https://github.com/va1erian/lazyrad", rev = "92c14b76020e3e217ff38d9355cc25c896a5f008", default-features = false }
-lazyrad-ide = { git = "https://github.com/va1erian/lazyrad", rev = "92c14b76020e3e217ff38d9355cc25c896a5f008", default-features = false }
-lazyrad-packager = { git = "https://github.com/va1erian/lazyrad", rev = "92c14b76020e3e217ff38d9355cc25c896a5f008", default-features = false }
-lazyrad-player = { git = "https://github.com/va1erian/lazyrad", rev = "92c14b76020e3e217ff38d9355cc25c896a5f008", default-features = false }
+# PIN: `rev` is LazyRAD `main` after the LazyOS port (#81) and Make LazyOS App (#85)
+# merged. Bump `rev` on EVERY va1erian/lazyrad line below (runtime, player, ide and
+# the dev-dependency packager) together, then regenerate the lockfile.
+lazyrad-runtime = { git = "https://github.com/va1erian/lazyrad", rev = "bb45402d5d8f6bfb7ba97f0a159cea93c7995d90", default-features = false }
+lazyrad-ide = { git = "https://github.com/va1erian/lazyrad", rev = "bb45402d5d8f6bfb7ba97f0a159cea93c7995d90", default-features = false }
+lazyrad-packager = { git = "https://github.com/va1erian/lazyrad", rev = "bb45402d5d8f6bfb7ba97f0a159cea93c7995d90", default-features = false }
+lazyrad-player = { git = "https://github.com/va1erian/lazyrad", rev = "bb45402d5d8f6bfb7ba97f0a159cea93c7995d90", default-features = false }
 
 [dev-dependencies]
 # The `.lzp` conformance suite (tests/lzp_conformance.rs): packages built by
