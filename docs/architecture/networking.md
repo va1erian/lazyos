@@ -35,7 +35,7 @@ byte for byte. The `ftp` client (N4) and the Linux `AF_INET` shim (N5) are not b
 | `user/src/messenger/netstack.rs` | Blocking client of `stack.v1` |
 | `user/src/bin/netctl.rs`, `netctl/`, `ping.rs` | `netctl` (show, `sockets`, `renew`, `probe=1`, `soak=<n>`, `sockprobe=1`, `socksoak=<n>`) and the native `ping` (names resolve) |
 | `libs/netstack/src/stack/` (N3) | `sockets.rs`, `tcp.rs`, `udp.rs`, `dns.rs`, `observe.rs`: the socket table and its operations, name lookups; `testpair.rs` (two stacks back to back) and `testdns.rs` for the tests |
-| `user/src/bin/netd/` (N3) | `sock.rs` (`socket.v1` dispatch), `parked.rs` (parked calls), `resolve.rs` (`Resolve`), `owners.rs` (callers by slot and pid) |
+| `user/src/bin/netd/` (N3) | `sock.rs` (`socket.v1` dispatch), `parked.rs` (parked calls), `resolve.rs` (`Resolve`), `owners.rs` (callers by slot) |
 | `user/src/messenger/netsock.rs`, `netstd.rs` | Blocking client of `socket.v1`; `TcpStream`, `TcpListener`, `UdpSocket` over it |
 | `user/src/bin/nc.rs`, `nslookup.rs` | The tools |
 | `kernel/src/process/randsys.rs` | Native syscall 26, random bytes for services (with `CLOSE_RELEASE`, N2's only new kernel surface) |
@@ -351,12 +351,14 @@ but unreadable, so it is dropped without a reply and counted
 (`NETD:OVERSIZE`), and the sender's own deadline ends the wait. The probe found this:
 `netd` used to exit on it.
 
-**Ownership is the sender's task slot and its pid.** Messenger stamps a request with
-the sender's slot, and slots are reused, so a socket keyed by slot alone would pass
-to the next task in that slot. The owner id is `pid << 16 | slot`, with the pid read
-from the scheduler's task list (syscall 13, refreshed at most once per tick, decoded
-without allocating: `TaskSnapshot::live_pid`). A reused slot has a new pid and so owns
-nothing of its predecessor's. Every call on a socket goes through the table's `entry`,
+**Ownership is the sender's task slot.** Messenger stamps a request with the sender's
+slot. The owner id is `pid << 16 | slot`, with the pid read from the scheduler's task
+list (syscall 13, refreshed at most once per tick, decoded without allocating:
+`TaskSnapshot::live_pid`). **Known gap:** the kernel's pid is the slot number, so the
+pid adds nothing yet and a task that lands in a dead owner's slot before the sweep has
+reclaimed its sockets is taken for that owner. The remedy is a per-slot spawn counter
+in the task snapshot (a kernel ABI change with its own tests); the owner id already
+has the field for it. Every call on a socket goes through the table's `entry`,
 which refuses anyone but the owner (`EACCES`, counted in `not_owner` and logged as
 `NETD:DENY` for the first sixteen). A sweep every 20 ticks reclaims the sockets of
 owners no longer alive (`NETD:RECLAIM`), so a crashed client leaks nothing; if the
@@ -441,8 +443,9 @@ unanswered datagram, a query for the wrong name, a server that saw other bytes).
 * The probe's 48 KiB `Send` made `netd` exit: a request larger than the receive buffer
   fails the `recv` with `E2BIG` after the kernel has consumed it, and the loop treated
   every receive error as fatal. It now counts the request, logs `NETD:OVERSIZE` and carries on.
-* Slots are reused, so keying a socket by the sender's slot would hand a dead client's
-  sockets to the next task there; owners are `(pid << 16) | slot`.
+* Slots are reused, so a socket keyed by the sender's slot can pass to the next task
+  there. Review caught that the pid does not prevent this (it is the slot); the
+  owner id is shaped for a spawn counter but the kernel does not supply one yet.
 * On this Windows host QEMU's user networking never answers a SYN to a closed host
   port, where Linux hosts reset it. A connection that must fail therefore ends in
   `ECONNREFUSED` or `ETIMEDOUT`, and the capture check requires only that none was established.

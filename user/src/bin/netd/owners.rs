@@ -2,10 +2,14 @@
 //!
 //! Messenger stamps a request with the sender's **task slot**, and slots are
 //! reused: a socket keyed by the slot alone would pass to whichever task next
-//! lands there. So the owner of a socket is `(pid << 16) | slot`, with the pid
-//! read from the scheduler's task list at the time of the call. A reused slot
-//! has a new pid, hence a new owner id, and a previous owner's sockets are
-//! reclaimed by [`Tasks::alive`] saying no.
+//! lands there. The owner of a socket is `(pid << 16) | slot`, with the pid
+//! read from the scheduler's task list at the time of the call.
+//!
+//! **Known gap.** Today the kernel's pid *is* the slot number, so the pid adds
+//! nothing: a task that lands in a dead owner's slot before the sweep has run
+//! (or while its predecessor's sockets are still open) is taken for that owner.
+//! The fix is a per-slot spawn counter in the task snapshot; the owner id is
+//! already shaped to carry it (the pid field) and nothing else here changes.
 //!
 //! The task list is one syscall and a 22 KiB copy; it is refreshed at most
 //! once per tick, however many requests arrive.

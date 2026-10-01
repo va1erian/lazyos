@@ -311,9 +311,10 @@ interface os.lazy.net.stack.v1 {
 /// **Ownership.** A socket belongs to the kernel-stamped sender of the `Open`
 /// that made it (or of the `Accept` that returned it); every call on it by
 /// anyone else fails with `EACCES` (and is audited). Nothing in a request
-/// names a caller. The owner is the sender's task slot *and* the pid the
-/// scheduler's task list shows in it, so a task that reuses a dead owner's
-/// slot owns none of its sockets. A socket whose owner exits is reclaimed by
+/// names a caller. The owner is the sender's task slot (and the pid the
+/// scheduler's task list shows in it, which today is the slot number). Until
+/// the kernel stamps tasks with a spawn counter, a task that lands in a dead
+/// owner's slot before `netd` has reclaimed its sockets is taken for it. A socket whose owner exits is reclaimed by
 /// `netd` within a fraction of a second, so a client need not `Close` before
 /// it dies, but a well-behaved one does. One owner may hold at most 8 sockets
 /// and everybody together 64; past either limit `Open` and `Accept` fail with
