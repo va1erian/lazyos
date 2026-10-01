@@ -9,7 +9,7 @@
 /// attached) is preferred: on the shipped image `/system` is the read-only FAT
 /// boot volume, so `/system/confd` cannot be created there and is kept only as
 /// the planned home for when a writable system volume exists.
-pub const PERSISTENT_DIRS: [&str; 2] = ["/data/confd", "/system/confd"];
+pub const PERSISTENT_DIRS: [&str; 2] = [fhs::state::CONFD_DIRS[0], fhs::state::CONFD_DIRS[1]];
 
 /// The preferred store directory: once the service is bound to it, nothing
 /// better can appear.
@@ -28,7 +28,7 @@ pub fn seed_sources(chosen: &str) -> &'static [&'static str] {
 }
 
 /// ramfs fallback used when no persistent location is writable.
-pub const FALLBACK_DIR: &str = "/tmp/confd";
+pub const FALLBACK_DIR: &str = fhs::state::CONFD_DIRS[2];
 
 /// The chosen directory and whether it survives a reboot.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]

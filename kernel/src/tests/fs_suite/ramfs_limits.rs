@@ -7,8 +7,12 @@ use crate::fs::vfs::Filesystem;
 /// A ramfs mounted at `/tmp` under a root ramfs, like the real layout.
 fn tmp_vfs() -> Vfs {
     let mut vfs = ram_vfs();
-    vfs.mount("/tmp", Arc::new(RamFs::new()))
-        .expect("mount ramfs at /tmp");
+    vfs.mount(
+        "/tmp",
+        Arc::new(RamFs::new()),
+        crate::fs::vfs::MountFlags::default(),
+    )
+    .expect("mount ramfs at /tmp");
     vfs
 }
 

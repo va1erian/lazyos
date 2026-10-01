@@ -2,9 +2,7 @@
 //! a path lands on. Split from `vfs.rs` because none of them touch a node, only
 //! the filesystem that holds it, and to keep that file under the size limit.
 
-use alloc::string::String;
-
-use super::{FsError, Id, Path, StatFs, Vfs};
+use super::{FsError, Id, MountFlags, Path, StatFs, Vfs};
 
 impl Vfs {
     /// Flush the filesystem holding `path` to stable storage (`fsync(2)`).
@@ -41,11 +39,18 @@ impl Vfs {
         self.mounts[mount].fs.statfs()
     }
 
-    /// The mount point (`"/"`, `"/data"`, ...) whose filesystem holds `path`,
-    /// judged lexically: the path need not exist. Callers use it to tell a
-    /// path on the copy-up root from one on a mount of its own.
-    pub fn mount_point(&self, path: &str) -> Option<String> {
+    /// The flags of the mount holding `path`, judged lexically like
+    /// [`Vfs::mount_point`]. A path no mount covers has no restrictions.
+    pub fn mount_flags(&self, path: &str) -> MountFlags {
+        self.resolve_mount(&Path::parse(path)).map_or_else(
+            |_| MountFlags::default(),
+            |(mount, _)| self.mounts[mount].flags,
+        )
+    }
+
+    /// The short name of the filesystem holding `path` (`"ext2 (rw)"`, ...).
+    pub fn mount_fs_name(&self, path: &str) -> Option<&'static str> {
         let (mount, _) = self.resolve_mount(&Path::parse(path)).ok()?;
-        Some(self.mounts[mount].point.to_path_string())
+        Some(self.mounts[mount].fs.name())
     }
 }

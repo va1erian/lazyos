@@ -45,7 +45,7 @@ fn main() -> ExitCode {
         "PROJECT",
         &format!("{} exe={}", project.display(), exe.display()),
     );
-    let data_volume = std::path::Path::new("/data").is_dir();
+    let data_volume = std::path::Path::new(fhs::mount::DATA).is_dir();
     let policy = player_policy(&exe, &project, data_volume);
     // Best effort: a read-only `/data` only means `file_write_text` reports an
     // error to the script.

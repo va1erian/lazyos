@@ -129,7 +129,7 @@ impl MemStore {
     pub fn new() -> MemStore {
         MemStore {
             persistent: Cell::new(true),
-            store_dir: RefCell::new("/data/confd".into()),
+            store_dir: RefCell::new(confd::dir::PREFERRED_DIR.into()),
             ..MemStore::default()
         }
     }

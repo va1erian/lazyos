@@ -32,6 +32,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -47,6 +48,8 @@ RE_RESULT = re.compile(r"^TEST:([^:]+):(PASS|FAIL)(?::(.*))?$")
 RE_INFO = re.compile(r"^TEST:([^:]+):(INFO|PROGRESS):(.*)$")
 
 TEST_BANNER = "kernel test mode"
+# Must match `SCRATCH_SECTORS` in kernel/src/tests/virtio_suite.rs.
+SCRATCH_BYTES = 16 * 1024 * 1024
 
 
 def build_test_image(image: Path) -> None:
@@ -222,10 +225,15 @@ def main() -> int:
         help="QEMU machine type, e.g. q35 (default: QEMU's default, i440fx)",
     )
     parser.add_argument(
+        "--ide-disk",
+        action="store_true",
+        help="attach the image as IDE (ATA) instead of the default legacy "
+        "virtio-blk, so the ATA driver is exercised",
+    )
+    parser.add_argument(
         "--virtio-disk",
         action="store_true",
-        help="attach the image as legacy virtio-blk instead of IDE, so the guest "
-        "has no ATA disk (issue #283)",
+        help="accepted for old scripts: virtio-blk is the default (issue #283)",
     )
     parser.add_argument(
         "--nic",
@@ -256,13 +264,25 @@ def main() -> int:
             "-netdev", "user,id=n0",
             "-device", "virtio-net-pci,netdev=n0,disable-modern=on",
         ]
-    if args.virtio_disk:
+    scratch: Path | None = None
+    if not args.ide_disk:
+        # A blank 16 MiB virtio disk for the virtio request-path tests, which
+        # write to it; the boot image is never touched. Not attached with
+        # --ide-disk: a virtio disk would take the boot slot from ATA.
+        # A fresh unique file, so `--image` can never be truncated by accident.
+        with tempfile.NamedTemporaryFile(
+            dir=out_dir, prefix="scratch-", suffix=".img", delete=False
+        ) as handle:
+            scratch = Path(handle.name).resolve()
+            if scratch == image:
+                sys.exit(f"scratch disk {scratch} is the boot image")
+            handle.truncate(SCRATCH_BYTES)
         extra += [
-            "-drive", f"if=none,id=d0,format=raw,file={image.as_posix()}",
-            "-device", "virtio-blk-pci,drive=d0,disable-modern=on",
+            "-drive", f"if=none,id=scratch,format=raw,file={scratch.as_posix()}",
+            "-device", "virtio-blk-pci,drive=scratch,disable-modern=on",
         ]
     command = build_qemu_command(
-        qemu, None if args.virtio_disk else str(image), port, serial_log, args.memory, extra
+        qemu, str(image), port, serial_log, args.memory, extra, ide=args.ide_disk
     )
     print(f"launching: {' '.join(command)}", flush=True)
     proc = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
@@ -276,6 +296,8 @@ def main() -> int:
         print(f"warning: QMP session failed: {exc}", file=sys.stderr)
     finally:
         stop_qemu(proc, qmp)
+        if scratch is not None:
+            scratch.unlink(missing_ok=True)
 
     if serial_log.is_file():
         text = serial_log.read_text(errors="replace")

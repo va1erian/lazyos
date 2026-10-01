@@ -24,7 +24,7 @@ pub(super) fn second_task_is_refused(client: &Client) -> Result<bool, String> {
         .open(wire::SOCK_KIND_DATAGRAM)
         .map_err(fail("open"))?;
     client.bind(mine, Addr::ANY).map_err(fail("bind"))?;
-    let cmdline = format!("NETCTL.ELF sockowner={mine}\0");
+    let cmdline = format!("{} sockowner={mine}\0", fhs::boot::NETCTL_ELF);
     let pid = sys::spawn(cmdline.as_bytes())
         .ok_or_else(|| String::from("cannot start the second task"))?;
     let deadline = sys::clock() + 1500;

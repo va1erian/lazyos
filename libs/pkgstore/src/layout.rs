@@ -11,13 +11,13 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 /// The data volume's mount point.
-pub const DATA_ROOT: &str = "/data";
+pub const DATA_ROOT: &str = fhs::mount::DATA;
 /// Installed applications, one directory per `system_name` per version.
-pub const APPS_ROOT: &str = "/data/apps";
+pub const APPS_ROOT: &str = fhs::state::APPS_ROOT;
 /// Where `pkgd` keeps its audit log.
-pub const LOG_DIR: &str = "/data/log";
+pub const LOG_DIR: &str = fhs::state::PKG_LOG_DIR;
 /// The hash-chained audit log (`crate::audit`).
-pub const LOG_FILE: &str = "/data/log/pkg.log";
+pub const LOG_FILE: &str = fhs::state::PKG_LOG_FILE;
 /// The `confd` subtree holding one record per installed app.
 pub const CONFD_PREFIX: &str = "sys/apps";
 /// The stored manifest inside an install directory.

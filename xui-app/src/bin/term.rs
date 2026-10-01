@@ -39,7 +39,7 @@ use std::rc::Rc;
 
 /// The shell to host: a bare applet name the kernel's Linux loader aliases to
 /// the shipped `BUSYBOX`.
-const SHELL: &str = "/busybox";
+const SHELL: &str = fhs::boot::BUSYBOX_PATH;
 /// Window size when a compositor lays the app out; as the display owner the
 /// terminal fills the screen instead.
 const WINDOW: (i32, i32) = (640, 400);

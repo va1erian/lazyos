@@ -242,8 +242,12 @@ pub fn vfs_parent_directory_needs_search_bit() -> Result<(), String> {
     let root = Id::ROOT;
     let user = Id::new(1000, 1000);
     let mut vfs = Vfs::new();
-    vfs.mount("/", Arc::new(RamFs::new()))
-        .map_err(|e| e.message())?;
+    vfs.mount(
+        "/",
+        Arc::new(RamFs::new()),
+        crate::fs::vfs::MountFlags::default(),
+    )
+    .map_err(|e| e.message())?;
     vfs.set_umask(0);
     // Others may write but not search `/wo`; they may do both in `/wx`.
     vfs.mkdir(root, "/wo", 0o722).map_err(|e| e.message())?;

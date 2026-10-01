@@ -9,3 +9,7 @@ license = "GPL-3.0-or-later"
 [lib]
 name = "confd"
 path = "src/lib.rs"
+
+[dependencies]
+# The store directory candidates (`fhs::state::CONFD_DIRS`).
+fhs = { path = "../fhs" }

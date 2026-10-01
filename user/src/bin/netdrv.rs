@@ -309,7 +309,10 @@ fn run_demo(child: &mut Option<u64>, next: &mut usize) {
         let pid = sys::spawn(DEMO_CLIENTS[*next]);
         match pid {
             Some(pid) => sys::write_str(&format!("NETDRV:DEMO:SPAWN pid={pid}\n")),
-            None => sys::write_str("NETDRV:DEMO:SPAWN failed (NICCTL.ELF missing?)\n"),
+            None => sys::write_str(&format!(
+                "NETDRV:DEMO:SPAWN failed ({} missing?)\n",
+                fhs::boot::NICCTL_ELF
+            )),
         }
         *child = pid;
         // A client that cannot start ends the sequence: the harness then

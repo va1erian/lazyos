@@ -111,11 +111,13 @@ pub(crate) fn app_selftest() {
             // listed only when an image ships their ELF, so they are not
             // required here.
             let has_top = apps.iter().any(|app| {
-                app.id == "top" && app.path == "TOP.ELF" && app.verbs.iter().any(|v| v == "open")
+                app.id == "top"
+                    && app.path == fhs::boot::TOP_ELF
+                    && app.verbs.iter().any(|v| v == "open")
             });
             let has_self = apps
                 .iter()
-                .any(|app| app.id == "messengerctl" && app.path == "MSGCTL.ELF");
+                .any(|app| app.id == "messengerctl" && app.path == fhs::boot::MSGCTL_ELF);
             if has_top && has_self {
                 sys::write_str(&format!("MSGCTL:APPS:PASS count={}\n", apps.len()));
             } else {

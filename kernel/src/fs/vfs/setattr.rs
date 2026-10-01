@@ -53,7 +53,7 @@ impl Vfs {
         if change.is_empty() {
             return Ok(meta); // e.g. `chown(-1, -1)`: nothing to write
         }
-        let (mount, rel) = self.resolve_mount(path)?;
+        let (mount, rel) = self.resolve_writable(path)?;
         let fs = Arc::clone(&self.mounts[mount].fs);
         let result = fs.setattr(&rel, &change);
         // Invalidate even on failure: the overlay may have copied the node

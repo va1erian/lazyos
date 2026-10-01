@@ -99,7 +99,8 @@ pub(super) fn block_allocated(disk: &FakeDisk, block: u32) -> bool {
 pub(super) fn remount_disk(disk: &'static FakeDisk) -> Result<(Arc<Ext2>, Vfs), String> {
     let fs = Arc::new(Ext2::open(disk).map_err(fs_error)?);
     let mut vfs = Vfs::new();
-    vfs.mount("/", fs.clone()).map_err(fs_error)?;
+    vfs.mount("/", fs.clone(), crate::fs::vfs::MountFlags::default())
+        .map_err(fs_error)?;
     Ok((fs, vfs))
 }
 

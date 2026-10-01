@@ -244,7 +244,10 @@ fn spawn_demo() -> u64 {
             1
         }
         None => {
-            sys::write_str("CONFD:CTL:FAIL: cannot spawn CONFCTL.ELF\n");
+            sys::write_str(&format!(
+                "CONFD:CTL:FAIL: cannot spawn {}\n",
+                fhs::boot::CONFCTL_ELF
+            ));
             0
         }
     }

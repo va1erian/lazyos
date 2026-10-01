@@ -222,3 +222,20 @@ pub(super) fn read_all(fs: &Fat16, path: &str) -> Result<Vec<u8>, String> {
     buf.truncate(got);
     Ok(buf)
 }
+
+/// A bare FAT12 image with one root file, for suites outside `fs_suite` that
+/// need a boot volume (the mount suite's `lazyos.cfg`).
+pub(in crate::tests) fn image_with_file(short: &[u8; 11], data: &[u8]) -> Vec<u8> {
+    let mut vol = Vol::new();
+    let cluster = vol.file_data(data);
+    let mut root = vol.root();
+    vol.add(
+        &mut root,
+        None,
+        short,
+        ATTR_FILE,
+        cluster,
+        data.len() as u32,
+    );
+    vol.img
+}

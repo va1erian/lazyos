@@ -19,7 +19,7 @@ use std::rc::Rc;
 
 use xui_app::backend::LazyOSBackend;
 use xui_app::platform::argv;
-use xui_app::platform::dialog_fs::LazyFileSystem;
+use xui_core::widget::StdFileSystem;
 use xui_app::platform::storage::PngStorage;
 use xui_core::app::run_app;
 use xui_core::backend::{Backend, PlatformSpec};
@@ -35,7 +35,7 @@ const WINDOW: (i32, i32) = (800, 600);
 fn default_path() -> PathBuf {
     match std::env::var_os("HOME") {
         Some(home) if !home.is_empty() => PathBuf::from(home).join("xpaint.png"),
-        _ => PathBuf::from("/tmp/xpaint.png"),
+        _ => PathBuf::from(fhs::mount::TMP).join("xpaint.png"),
     }
 }
 
@@ -130,7 +130,7 @@ fn main() -> std::process::ExitCode {
 
     let spec = PlatformSpec::new("Paint").size(Dip(width as f32), Dip(height as f32));
     let outcome = run_app(Rc::clone(&backend) as Rc<dyn Backend>, spec, move |ui| {
-        let app = PaintApp::build_with_files(ui, storage.clone(), LazyFileSystem::shared())
+        let app = PaintApp::build_with_files(ui, storage.clone(), Rc::new(StdFileSystem))
             .expect("the paint widgets built");
         app.set_start_dir(start_dir(requested.as_deref()));
         if requested.is_some() {

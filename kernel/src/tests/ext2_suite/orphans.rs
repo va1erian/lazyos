@@ -149,7 +149,11 @@ pub fn lookalikes_are_left_alone() -> Result<(), String> {
 fn table_with_root() -> Result<Vfs, String> {
     let mut table = Vfs::new();
     table
-        .mount("/", Arc::new(crate::fs::ramfs::RamFs::new()))
+        .mount(
+            "/",
+            Arc::new(crate::fs::ramfs::RamFs::new()),
+            crate::fs::vfs::MountFlags::default(),
+        )
         .map_err(fs_error)?;
     Ok(table)
 }
