@@ -148,6 +148,52 @@ class BuildTests(unittest.TestCase):
                 build.build(root, Path(tmp) / "dist")
             self.assertIn("bin/app.elf", str(caught.exception))
 
+    def test_building_the_same_tree_twice_gives_the_same_archive(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "src"
+            make_tree(root)
+            first = build.build(root, Path(tmp) / "a").read_bytes()
+            second = build.build(root, Path(tmp) / "b").read_bytes()
+            self.assertEqual(first, second)
+
+    def test_the_counter_sample_builds_with_a_stand_in_binary(self):
+        import build_samples  # noqa: E402
+
+        with tempfile.TemporaryDirectory() as tmp:
+            xui = Path(tmp) / "xui"
+            xui.mkdir()
+            (xui / "xui-counter.elf").write_bytes(b"\x7fELF stand-in")
+            out = Path(tmp) / "pkg"
+            archive = build_samples.build_sample("counter", xui, out)
+            self.assertEqual(archive.name, "COUNTER.LZP")
+            with zipfile.ZipFile(archive) as zf:
+                names = set(zf.namelist())
+                manifest = tomllib.loads(zf.read("manifest.toml").decode("utf-8"))
+            self.assertEqual(manifest["app"]["system_name"], "org.lazy.counter")
+            self.assertEqual(manifest["entry"]["abi"], "linux")
+            self.assertEqual(
+                manifest["permissions"]["interfaces"],
+                ["os.lazy.display.v1", "os.lazy.input.v1"],
+            )
+            for icon in ("icons/app-16.png", "icons/app-32.png", "icons/app-128.png"):
+                self.assertIn(icon, names)
+            self.assertIn("bin/counter.elf", names)
+
+    def test_a_missing_sample_binary_is_skipped_not_an_error(self):
+        import build_samples  # noqa: E402
+
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertIsNone(build_samples.build_sample("counter", Path(tmp), Path(tmp) / "out"))
+
+    def test_entry_abi_is_native_or_linux(self):
+        for abi, ok in [("native", True), ("linux", True), ("windows", False)]:
+            with self.subTest(abi=abi):
+                manifest = MANIFEST + f'abi = "{abi}"\n'
+                problems = build.validate_manifest(tomllib.loads(manifest))
+                self.assertEqual(problems == [], ok, problems)
+                if not ok:
+                    self.assertTrue(any("entry.abi" in p for p in problems), problems)
+
     def test_every_problem_is_reported(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "src"

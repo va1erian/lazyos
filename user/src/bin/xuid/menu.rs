@@ -1,7 +1,7 @@
 //! The desktop context menu (issue #323): a compositor-owned popup, like the
 //! Alt+Tab overlay, opened by a right press on the bare desktop. Its entries
-//! come from confd ([`menuitems`](super::menuitems)) and each launches an
-//! `init` registry app.
+//! come from confd ([`menuitems`](super::menuitems)) followed by the apps the
+//! package manager installed, and each launches an `init` registry app.
 //!
 //! The compositor is one task, so the open state lives in relaxed atomics
 //! (as `SHELL_DEAD` does) instead of being threaded through every `repaint`
@@ -77,6 +77,9 @@ pub(super) fn open(at: (i32, i32), screen: (i32, i32)) -> Rect {
     ORIGIN_X.store(at.0, Ordering::Relaxed);
     ORIGIN_Y.store(at.1, Ordering::Relaxed);
     HOVER.store(-1, Ordering::Relaxed);
+    // The installed apps are part of the menu: one `ListApps` as it opens, so
+    // an app installed or removed a moment ago is already (or no longer) there.
+    menuitems::refresh_installed();
     OPEN.store(true, Ordering::Relaxed);
     sys::write_str("XUID:MENU:OPEN\n");
     rect(screen)

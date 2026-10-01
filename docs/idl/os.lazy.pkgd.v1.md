@@ -65,6 +65,8 @@ typed reply; a package that fails validation reports every problem in
 - `digest: String`
 - `binary: String`
 - `installed_at: U64`
+- `abi: String`
+- `args: Array<String>`
 
 ## struct `PkgEvent`
 

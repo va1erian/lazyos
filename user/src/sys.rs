@@ -49,6 +49,7 @@ mod display;
 mod inetpump;
 mod input;
 mod introspect;
+mod kill;
 mod random;
 mod wall;
 
@@ -57,6 +58,7 @@ pub use display::*;
 pub use inetpump::*;
 pub use input::*;
 pub use introspect::*;
+pub use kill::*;
 pub use random::*;
 pub use wall::*;
 

@@ -70,7 +70,12 @@ pub(super) fn spawn_service(
         .cred
         .or_else(|| manifest_cred(services[index].name))
     {
-        Some(cred) => sys::spawn_as(&command, &cred),
+        // A restarted installed app keeps its label: the kernel stamps it again
+        // at the spawn, so a crash never launders the sandbox.
+        Some(cred) => match services[index].label {
+            Some(label) => sys::spawn_as_labelled(&command, &cred, label),
+            None => sys::spawn_as(&command, &cred),
+        },
         None => sys::spawn(&command),
     };
     match spawned {

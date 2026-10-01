@@ -120,6 +120,7 @@ mod creds;
 pub mod fsops;
 mod gate;
 pub mod inetsys;
+pub mod killsys;
 pub mod linux;
 pub mod loader;
 pub mod power;
@@ -136,8 +137,12 @@ pub use loader::load_segments;
 
 /// Base of the user heap (grows up toward the stack).
 pub const USER_HEAP_BASE: u64 = 0x60_0000;
-/// Top of the user stack (grows down).
-pub const USER_STACK_TOP: u64 = 0x80_0000;
+/// Top of the user stack (grows down). The heap lives between
+/// [`USER_HEAP_BASE`] and the stack, so this is also the heap's ceiling: 128 MiB
+/// leaves a native service about 126 MiB of `sbrk` room (pages are demand-zero,
+/// so an unused ceiling costs nothing). It was 8 MiB (a 2 MiB heap) until the
+/// package manager had to hold a package and its largest file at once.
+pub const USER_STACK_TOP: u64 = 0x0800_0000;
 /// User stack size.
 pub const USER_STACK_SIZE: u64 = 0x2_0000;
 

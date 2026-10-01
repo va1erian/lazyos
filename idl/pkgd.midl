@@ -76,7 +76,12 @@ interface os.lazy.pkgd.v1 {
         /// Entry binary, relative to the install directory (`bin/<name>.elf`).
         binary: String,
         /// Kernel ticks at install time.
-        installed_at: U64
+        installed_at: U64,
+        /// The program's ABI, `native` or `linux`: `init` needs it to pick the
+        /// spawn personality, and an ELF header cannot tell them apart.
+        abi: String,
+        /// The manifest's fixed `entry.args`, passed before any launch path.
+        args: Array<String>
     }
 
     /// One audit record: the payload of `system/events/pkg/<op>`, where `op`

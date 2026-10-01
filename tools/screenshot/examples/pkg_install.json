@@ -1,0 +1,284 @@
+[
+ {
+  "wait_for": "TERM:UP:PASS",
+  "timeout": 300
+ },
+ {
+  "wait_for": "PKGD:UP:PASS",
+  "timeout": 120
+ },
+ {
+  "wait_for": "PKGD:RECONCILE:PASS",
+  "timeout": 120
+ },
+ {
+  "at": 2.0,
+  "mouse_move": [
+   -300,
+   -300
+  ]
+ },
+ {
+  "at": 2.2,
+  "mouse_move": [
+   -300,
+   -300
+  ]
+ },
+ {
+  "at": 2.4,
+  "mouse_move": [
+   -300,
+   -300
+  ]
+ },
+ {
+  "at": 2.6,
+  "mouse_move": [
+   -300,
+   -300
+  ]
+ },
+ {
+  "at": 2.8,
+  "mouse_move": [
+   -300,
+   -300
+  ]
+ },
+ {
+  "at": 3.0,
+  "mouse_move": [
+   -300,
+   -300
+  ]
+ },
+ {
+  "at": 3.4,
+  "mouse_move": [
+   30,
+   703
+  ]
+ },
+ {
+  "at": 3.8,
+  "mouse_click": "left"
+ },
+ {
+  "at": 4.6,
+  "shot": "01_terminal"
+ },
+ {
+  "at": 0.4,
+  "type": "pkgctl"
+ },
+ {
+  "at": 0.4,
+  "type": " inspe"
+ },
+ {
+  "at": 0.4,
+  "type": "ct /co"
+ },
+ {
+  "at": 0.4,
+  "type": "unter."
+ },
+ {
+  "at": 0.4,
+  "type": "lzp"
+ },
+ {
+  "at": 0.8,
+  "key": "enter",
+  "until": "TERM:CMD:pkgctl inspect /counter.lzp",
+  "timeout": 30,
+  "retries": 2
+ },
+ {
+  "wait_for": "TERM:OUT:PKGCTL:INSPECT:org.lazy.counter",
+  "timeout": 60
+ },
+ {
+  "at": 1.0,
+  "shot": "02_inspect"
+ },
+ {
+  "at": 0.4,
+  "type": "pkgctl"
+ },
+ {
+  "at": 0.4,
+  "type": " insta"
+ },
+ {
+  "at": 0.4,
+  "type": "ll /co"
+ },
+ {
+  "at": 0.4,
+  "type": "unter."
+ },
+ {
+  "at": 0.4,
+  "type": "lzp"
+ },
+ {
+  "at": 0.8,
+  "key": "enter",
+  "until": "TERM:CMD:pkgctl install /counter.lzp",
+  "timeout": 30,
+  "retries": 2
+ },
+ {
+  "wait_for": "PKGD:INSTALL:PASS org.lazy.counter",
+  "timeout": 180
+ },
+ {
+  "wait_for": "TERM:OUT:PKGCTL:INSTALL:PASS",
+  "timeout": 60
+ },
+ {
+  "at": 1.0,
+  "shot": "03_installed"
+ },
+ {
+  "at": 0.4,
+  "type": "pkgctl"
+ },
+ {
+  "at": 0.4,
+  "type": " list"
+ },
+ {
+  "at": 0.8,
+  "key": "enter",
+  "until": "TERM:CMD:pkgctl list",
+  "timeout": 30,
+  "retries": 2
+ },
+ {
+  "wait_for": "TERM:OUT:PKGCTL:LIST:1",
+  "timeout": 60
+ },
+ {
+  "at": 1.0,
+  "mouse_move": [
+   870,
+   -500
+  ]
+ },
+ {
+  "at": 1.0,
+  "mouse_click": "right",
+  "until": "XUID:MENU:OPEN",
+  "timeout": 30,
+  "retries": 2
+ },
+ {
+  "at": 1.0,
+  "mouse_move": [
+   40,
+   214
+  ]
+ },
+ {
+  "at": 1.0,
+  "shot": "04_menu_with_installed_app"
+ },
+ {
+  "at": 0.5,
+  "mouse_click": "left",
+  "until": "XUID:MENU:LAUNCH:org.lazy.counter",
+  "timeout": 60,
+  "retries": 1
+ },
+ {
+  "wait_for": "PKGD:LAUNCH:LABEL app:org.lazy.counter",
+  "timeout": 60
+ },
+ {
+  "wait_for": "XUIAPP:COUNTER:PASS",
+  "timeout": 120
+ },
+ {
+  "at": 3.0,
+  "shot": "05_counter_running"
+ },
+ {
+  "at": 0.5,
+  "mouse_move": [
+   -540,
+   -359
+  ]
+ },
+ {
+  "at": 1.0,
+  "mouse_click": "left"
+ },
+ {
+  "at": 4.0,
+  "shot": "05b_terminal_refocused"
+ },
+ {
+  "at": 0.4,
+  "type": "pkgctl"
+ },
+ {
+  "at": 0.4,
+  "type": " remov"
+ },
+ {
+  "at": 0.4,
+  "type": "e org."
+ },
+ {
+  "at": 0.4,
+  "type": "lazy.c"
+ },
+ {
+  "at": 0.4,
+  "type": "ounter"
+ },
+ {
+  "at": 0.8,
+  "key": "enter",
+  "until": "TERM:CMD:pkgctl remove org.lazy.counter",
+  "timeout": 30,
+  "retries": 2
+ },
+ {
+  "wait_for": "PKGD:REMOVE:PASS org.lazy.counter",
+  "timeout": 180
+ },
+ {
+  "wait_for": "INIT:STOP:PASS app=org.lazy.counter stopped=1",
+  "timeout": 30
+ },
+ {
+  "at": 2.0,
+  "shot": "06_removed"
+ },
+ {
+  "at": 0.5,
+  "mouse_move": [
+   500,
+   142
+  ]
+ },
+ {
+  "at": 1.0,
+  "mouse_click": "right",
+  "until": "XUID:MENU:OPEN",
+  "timeout": 30,
+  "retries": 2
+ },
+ {
+  "at": 1.5,
+  "shot": "07_menu_after_remove"
+ },
+ {
+  "at": 1.0,
+  "quit": true
+ }
+]

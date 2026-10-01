@@ -4191,6 +4191,7 @@ pub mod os_lazy_init_v1 {
         pub path: alloc::string::String,
         pub restart: alloc::string::String,
         pub verbs: alloc::vec::Vec<alloc::string::String>,
+        pub installed: bool,
     }
 
     pub fn encode_app_info(value: &AppInfo) -> Result<Vec<u8>, Error> {
@@ -4204,6 +4205,7 @@ pub mod os_lazy_init_v1 {
             nested.string(1, item)?;
         }
         target.array(5, &nested)?;
+        target.bool(6, value.installed)?;
         Ok(target.finish())
     }
 
@@ -4230,6 +4232,9 @@ pub mod os_lazy_init_v1 {
                         out.verbs.push(item.as_str()?.into());
                     }
                 }
+                6 => {
+                    out.installed = field.as_bool()?;
+                }
                 _ => {}
             }
         }
@@ -4241,6 +4246,8 @@ pub mod os_lazy_init_v1 {
     /// On-disk ELF path.
     /// Default restart policy (`always`/`on-failure`/`once`).
     /// MIME verbs the app handles, in registration order.
+    /// Whether the package manager installed the app (`id` is then its
+    /// `system_name`) rather than the image shipping it.
     /// One service lifecycle event (issue #307): the payload of
     /// `system/events/service/<name>`. The topic carries the service name, so
     /// it is not repeated here; `health` is the service's retained health
@@ -4301,6 +4308,8 @@ pub mod os_lazy_init_v1 {
     pub const METHOD_LAUNCH: u32 = 936096390;
     /// `ListApps` method id.
     pub const METHOD_LISTAPPS: u32 = 1009359625;
+    /// `Stop` method id.
+    pub const METHOD_STOP: u32 = 1266644741;
 
     /// Snapshot the supervision table.
     #[derive(Clone, Debug, Default, PartialEq)]
@@ -4407,7 +4416,9 @@ pub mod os_lazy_init_v1 {
         Ok(out)
     }
 
-    /// Enumerate the built-in app registry.
+    /// Enumerate the app registry: the built-in apps first, then the apps the
+    /// package manager installed (`AppInfo.installed`), read afresh from the
+    /// configuration registry on every call.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct ListAppsReply {
         pub apps: alloc::vec::Vec<AppInfo>,
@@ -4432,6 +4443,56 @@ pub mod os_lazy_init_v1 {
                 while let Some(item) = nested.next()? {
                     out.apps.push(decode_app_info(item.payload)?);
                 }
+            }
+        }
+        Ok(out)
+    }
+
+    /// Stop every running instance of the app `app` (the app id, as `Launch`
+    /// takes it): each is killed and its supervision row retired without a
+    /// restart. `stopped` is how many were running. Only root, a holder of
+    /// `CAP_SETUID` (the package manager) or the session owner may stop; an
+    /// owner reaches only instances in their own session. Unknown or idle apps
+    /// are not an error, `stopped` is just 0.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct StopArgs {
+        pub app: alloc::string::String,
+    }
+
+    pub fn encode_stop_args(value: &StopArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.app)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_stop_args(body: &[u8]) -> Result<StopArgs, Error> {
+        let mut out = StopArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.app = field.as_str()?.into();
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct StopReply {
+        pub stopped: u64,
+    }
+
+    pub fn encode_stop_reply(value: &StopReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.stopped)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_stop_reply(body: &[u8]) -> Result<StopReply, Error> {
+        let mut out = StopReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.stopped = field.as_u64()?;
             }
         }
         Ok(out)
@@ -6334,6 +6395,8 @@ pub mod os_lazy_mimed_v1 {
     pub const METHOD_OPEN: u32 = 1401622761;
     /// `Register` method id.
     pub const METHOD_REGISTER: u32 = 658098656;
+    /// `Unregister` method id.
+    pub const METHOD_UNREGISTER: u32 = 1480320227;
 
     /// MIME type for `path` from the database; a path the database has no
     /// entry for reports `application/octet-stream`.
@@ -6600,6 +6663,48 @@ pub mod os_lazy_mimed_v1 {
 
     pub fn decode_register_args(body: &[u8]) -> Result<RegisterArgs, Error> {
         let mut out = RegisterArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.mime = field.as_str()?.into();
+                }
+                2 => {
+                    out.app = field.as_str()?.into();
+                }
+                3 => {
+                    out.verb = field.as_str()?.into();
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Withdraw `app`'s registration for `mime` and `verb`, so removing an
+    /// installed app leaves no dangling handler. Only the caller's root
+    /// identity may withdraw (the package manager); the registration is
+    /// dropped only while `app` still holds it, so a later registration by
+    /// another app is never undone, and the registration `app` had replaced
+    /// takes over again. Withdrawing a registration that is not there is not
+    /// an error.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct UnregisterArgs {
+        pub mime: alloc::string::String,
+        pub app: alloc::string::String,
+        pub verb: alloc::string::String,
+    }
+
+    pub fn encode_unregister_args(value: &UnregisterArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.mime)?;
+        target.string(2, &value.app)?;
+        target.string(3, &value.verb)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_unregister_args(body: &[u8]) -> Result<UnregisterArgs, Error> {
+        let mut out = UnregisterArgs::default();
         let mut decoder = Decoder::new(body);
         while let Some(field) = decoder.next()? {
             match field.id {
@@ -8965,6 +9070,8 @@ pub mod os_lazy_pkgd_v1 {
         pub digest: alloc::string::String,
         pub binary: alloc::string::String,
         pub installed_at: u64,
+        pub abi: alloc::string::String,
+        pub args: alloc::vec::Vec<alloc::string::String>,
     }
 
     pub fn encode_installed(value: &Installed) -> Result<Vec<u8>, Error> {
@@ -8976,6 +9083,12 @@ pub mod os_lazy_pkgd_v1 {
         target.string(5, &value.digest)?;
         target.string(6, &value.binary)?;
         target.u64(7, value.installed_at)?;
+        target.string(8, &value.abi)?;
+        let mut nested = Encoder::new();
+        for item in &value.args {
+            nested.string(1, item)?;
+        }
+        target.array(9, &nested)?;
         Ok(target.finish())
     }
 
@@ -9005,6 +9118,15 @@ pub mod os_lazy_pkgd_v1 {
                 7 => {
                     out.installed_at = field.as_u64()?;
                 }
+                8 => {
+                    out.abi = field.as_str()?.into();
+                }
+                9 => {
+                    let mut nested = field.nested(0)?;
+                    while let Some(item) = nested.next()? {
+                        out.args.push(item.as_str()?.into());
+                    }
+                }
                 _ => {}
             }
         }
@@ -9014,6 +9136,9 @@ pub mod os_lazy_pkgd_v1 {
     /// Install directory relative to `/data/apps`.
     /// Entry binary, relative to the install directory (`bin/<name>.elf`).
     /// Kernel ticks at install time.
+    /// The program's ABI, `native` or `linux`: `init` needs it to pick the
+    /// spawn personality, and an ELF header cannot tell them apart.
+    /// The manifest's fixed `entry.args`, passed before any launch path.
     /// One audit record: the payload of `system/events/pkg/<op>`, where `op`
     /// is `install`, `remove` or `denied`. The same record, hex-encoded with
     /// a chained SHA-256, is appended to `/data/log/pkg.log`.

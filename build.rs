@@ -185,6 +185,18 @@ fn main() {
         let mimed =
             std::env::var_os("CARGO_BIN_FILE_USER_mimed").expect("user mimed artifact not found");
         builder.set_file(String::from("MIMED.ELF"), PathBuf::from(mimed));
+
+        // The application package manager (docs/packages.md phase 3). `init`
+        // starts `PKGD.ELF` from its manifest (after `confd` and `mimed`);
+        // `PKGCTL.ELF` is its command line, run from the Terminal. Both names
+        // are 8.3-safe for the kernel's short-name FAT reader.
+        let pkgd =
+            std::env::var_os("CARGO_BIN_FILE_USER_pkgd").expect("user pkgd artifact not found");
+        builder.set_file(String::from("PKGD.ELF"), PathBuf::from(pkgd));
+        let pkgctl =
+            std::env::var_os("CARGO_BIN_FILE_USER_pkgctl").expect("user pkgctl artifact not found");
+        builder.set_file(String::from("PKGCTL.ELF"), PathBuf::from(pkgctl));
+        embed_sample_packages(&mut builder);
         builder.set_file_contents(
             String::from("MIME.TYP"),
             b"# LazyOS MIME overrides, /etc/mime.types style: <mime> <ext>...\n\
@@ -560,4 +572,32 @@ fn embed_xui_apps(builder: &mut bootloader::DiskImageBuilder, desktop: bool) {
         builder.set_file(disk, app);
     }
     builder.set_file_contents(String::from("XAPPS.LST"), manifest.into_bytes());
+}
+
+/// Embed the sample `.lzp` packages as 8.3 names in the FAT root, when
+/// `tools/pkg/build_samples.py` produced them (`tools/xui/build.py` runs it
+/// after building the xui apps): `COUNTER.LZP` is the Counter demo as an
+/// installable package, installed with `pkgctl install /COUNTER.LZP`. A missing
+/// sample only means a smaller image, so it warns instead of failing.
+fn embed_sample_packages(builder: &mut bootloader::DiskImageBuilder) {
+    let dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("manifest dir"))
+        .join("target")
+        .join("pkg");
+    for disk_name in ["COUNTER.LZP"] {
+        let path = dir.join(disk_name);
+        // Tracked even when missing, so building it later is picked up.
+        println!("cargo:rerun-if-changed={}", path.display());
+        if path.is_file() {
+            println!(
+                "cargo:warning=sample package embedded: {} as {disk_name}",
+                path.display()
+            );
+            builder.set_file(String::from(disk_name), path);
+        } else {
+            println!(
+                "cargo:warning=sample package {disk_name} not built \
+                 (`python tools/xui/build.py` or `python tools/pkg/build_samples.py`)"
+            );
+        }
+    }
 }

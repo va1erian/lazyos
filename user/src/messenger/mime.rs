@@ -160,6 +160,19 @@ impl Client {
         wire::decode_open_reply(&reply.body).map_err(Error::Parcel)
     }
 
+    /// Withdraw `app`'s registration for `mime` and `verb` (root only; the
+    /// package manager's removal path).
+    pub fn unregister(&self, mime: &str, app: &str, verb: &str) -> Result<()> {
+        let body = wire::encode_unregister_args(&wire::UnregisterArgs {
+            mime: String::from(mime),
+            app: String::from(app),
+            verb: String::from(verb),
+        })
+        .map_err(Error::Parcel)?;
+        self.call(wire::METHOD_UNREGISTER, body)?;
+        Ok(())
+    }
+
     /// Add or replace the app registered for `mime` and `verb`.
     pub fn register(&self, mime: &str, app: &str, verb: &str) -> Result<()> {
         let body = wire::encode_register_args(&wire::RegisterArgs {

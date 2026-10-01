@@ -158,6 +158,22 @@ def build_docs(debug: bool) -> str | None:
     return str(source) if source.is_file() else None
 
 
+def build_sample_packages() -> None:
+    """Build the sample `.lzp` packages the image ships (`COUNTER.LZP`).
+
+    They are made from the apps just built (`tools/pkg/build_samples.py`) and
+    embedded by the root `build.rs`. Output goes to stderr: stdout is the JSON
+    result of this script. A failure only warns; the apps themselves built.
+    """
+    sys.path.insert(0, str(ROOT / "tools" / "pkg"))
+    try:
+        import build_samples
+
+        build_samples.build_sample_all(OUT_DIR, ROOT / "target" / "pkg")
+    except Exception as error:  # noqa: BLE001 - a sample must never fail the app build
+        print(f"warning: sample packages not built: {error}", file=sys.stderr)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -207,6 +223,7 @@ def main() -> int:
         dest.write_bytes(Path(docs).read_bytes())
         built[DOCS_PACKAGE] = str(dest)
 
+    build_sample_packages()
     print(json.dumps(built, indent=2))
     return 0
 

@@ -122,3 +122,18 @@ pub fn mmap_family_rejects_overflowing_lengths() -> Result<(), String> {
 
     Ok(())
 }
+
+/// The native heap has room for a service that holds a package and its largest
+/// file at once (`pkgd`), and heap and stack cannot overlap.
+pub fn native_heap_has_room() -> Result<(), String> {
+    let heap = process::USER_STACK_TOP - process::USER_STACK_SIZE - process::USER_HEAP_BASE;
+    check!(
+        heap >= 64 * 1024 * 1024,
+        "the native heap is only {heap:#x} bytes"
+    );
+    check!(
+        process::USER_HEAP_BASE < process::USER_STACK_TOP - process::USER_STACK_SIZE,
+        "the heap base is above the stack"
+    );
+    Ok(())
+}
