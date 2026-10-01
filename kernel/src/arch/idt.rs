@@ -89,6 +89,7 @@ pub fn init_hardware() {
     unsafe {
         pic::init();
         pic::init_pit(100);
+        super::clock::calibrate(100);
     }
     init();
 }

@@ -73,6 +73,7 @@ mod fpu_state;
 mod lifecycle;
 mod process_tree;
 mod reclaim;
+mod tick_catchup;
 mod wait_queue;
 mod yield_clock;
 
@@ -81,6 +82,7 @@ pub(super) use fpu_state::*;
 pub(super) use lifecycle::*;
 pub(super) use process_tree::*;
 pub(super) use reclaim::*;
+pub(super) use tick_catchup::*;
 pub(super) use wait_queue::*;
 pub(super) use yield_clock::*;
 
@@ -114,6 +116,12 @@ pub(super) const CASES: &[(&str, Test)] = &[
         wait_queue_blocked_not_scheduled,
     ),
     ("task_yield_does_not_tick", yield_does_not_tick),
+    ("task_clock_periods_rounding", clock_periods_rounding),
+    (
+        "task_interrupts_off_spin_keeps_clock",
+        interrupts_off_spin_keeps_clock,
+    ),
+    ("task_interrupts_off_spin_soak", interrupts_off_spin_soak),
     (
         "task_tick_on_parked_task_is_idle",
         tick_on_parked_task_is_idle,
