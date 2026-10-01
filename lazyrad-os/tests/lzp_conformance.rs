@@ -66,14 +66,25 @@ fn sample_projects() -> Vec<PathBuf> {
         return Vec::new();
     };
     std::env::split_paths(&list)
-        .filter_map(|dir| {
-            fs::read_dir(dir)
-                .ok()?
+        .map(|dir| {
+            // A configured sample that cannot be read must fail the run, not
+            // silently shrink it to the generated projects.
+            let entries = fs::read_dir(&dir)
+                .unwrap_or_else(|e| panic!("LAZYRAD_SAMPLES entry {}: {e}", dir.display()));
+            entries
                 .filter_map(Result::ok)
                 .map(|e| e.path())
                 .find(|p| p.extension().is_some_and(|x| x == "lrp"))
+                .unwrap_or_else(|| panic!("LAZYRAD_SAMPLES entry {} has no .lrp", dir.display()))
         })
         .collect()
+}
+
+/// A fresh subdirectory of `dir`, so generated projects never share files.
+fn subdir(dir: &Path, name: &str) -> PathBuf {
+    let sub = dir.join(name);
+    fs::create_dir_all(&sub).unwrap();
+    sub
 }
 
 fn package(lrp: &Path, player: &[u8], author: &str) -> BuiltPackage {
@@ -124,8 +135,8 @@ fn every_project_is_accepted_by_lazypkg() {
     let player = player();
     let dir = scratch("reader");
     let mut projects = sample_projects();
-    let plain = generated(&dir, "plain", 3, false);
-    let storage = generated(&dir, "stores", 2, true);
+    let plain = generated(&subdir(&dir, "plain"), "plain", 3, false);
+    let storage = generated(&subdir(&dir, "stores"), "stores", 2, true);
     projects.extend([plain, storage]);
     for lrp in &projects {
         let built = package(lrp, &player, "Ada Lovelace");

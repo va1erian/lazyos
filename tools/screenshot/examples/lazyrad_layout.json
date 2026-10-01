@@ -59,6 +59,17 @@
  },
  {
   "at": 1.0,
+  "type": "cp /LRPLAY.ELF /tmp/app/bin/lrplay.elf"
+ },
+ {
+  "at": 0.5,
+  "key": "enter",
+  "until": "TERM:CMD:cp /LRPLAY.ELF /tmp/app/bin/lrplay.elf",
+  "timeout": 30,
+  "retries": 2
+ },
+ {
+  "at": 1.0,
   "type": "cd /tmp/app && bin/lrplay.elf --client --project resources/project &"
  },
  {
