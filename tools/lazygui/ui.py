@@ -405,6 +405,9 @@ class Launcher:
         except ValueError as exc:  # e.g. an unmatched quote in the QEMU args
             self._log(f"(plan error: {exc})\n", "fail")
             return
+        if not datavol.confirm_reset_os(self.cfg()):
+            self._log("OS volume reset cancelled.\n", "fail")
+            return
         if not steps:
             self._log("Nothing to run.\n", "fail")
             return

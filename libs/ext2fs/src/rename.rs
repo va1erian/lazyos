@@ -84,37 +84,66 @@ impl Ext2 {
 
         // Directory bookkeeping: the old parent loses a child directory, the
         // new parent gains one, and the moved directory's `..` follows.
-        if child_kind == FileKind::Dir && from_parent_ino != to_parent_ino {
+        //
+        // The fallible `add_entry` runs first (it can run out of space), and
+        // it persists the new parent's link count with the entry. Only then
+        // does the `..` move, and the old entry go: a failure at either step
+        // undoes the add, so no link count or `..` is left half-changed.
+        let moves_dir = child_kind == FileKind::Dir && from_parent_ino != to_parent_ino;
+        let to_links_before = le16(&to_parent, INO_LINKS);
+        if moves_dir {
             let from_links = le16(&from_parent, INO_LINKS).saturating_sub(1);
             put16(&mut from_parent, INO_LINKS, from_links);
-            let to_links = le16(&to_parent, INO_LINKS)
-                .checked_add(1)
-                .ok_or(Ext2Error::Invalid)?;
+            let to_links = to_links_before.checked_add(1).ok_or(Ext2Error::Invalid)?;
             put16(&mut to_parent, INO_LINKS, to_links);
-            self.set_dotdot(child_ino, &mut child, to_parent_ino)?;
         }
-        if child_kind == FileKind::File {
-            touch(&mut child, self.now());
-            self.write_inode(child_ino, &child)?;
-        }
-
-        self.remove_entry(from_parent_ino, &mut from_parent, from_name)?;
         let file_type = if child_kind == FileKind::Dir {
             FT_DIRECTORY
         } else {
             FT_REGULAR
         };
-        if let Err(error) =
-            self.add_entry(to_parent_ino, &mut to_parent, to_name, child_ino, file_type)
-        {
-            // Put the source entry back so a failure leaves the tree intact.
-            let _ = self.add_entry(
-                from_parent_ino,
-                &mut from_parent,
-                from_name,
-                child_ino,
-                file_type,
-            );
+        self.add_entry(to_parent_ino, &mut to_parent, to_name, child_ino, file_type)?;
+        if from_parent_ino == to_parent_ino {
+            // One inode, two in-memory copies: the add may have grown it.
+            from_parent = to_parent;
+        }
+        let moved = self.finish_move(
+            from_parent_ino,
+            &mut from_parent,
+            from_name,
+            (child_ino, &mut child, child_kind),
+            moves_dir.then_some(to_parent_ino),
+        );
+        if let Err(error) = moved {
+            put16(&mut to_parent, INO_LINKS, to_links_before);
+            let _ = self.remove_entry(to_parent_ino, &mut to_parent, to_name);
+            return Err(error);
+        }
+        Ok(())
+    }
+
+    /// The steps of a rename that follow adding the new entry: repoint `..`
+    /// (when a directory changes parent), then drop the old entry.
+    fn finish_move(
+        &self,
+        from_parent_ino: u32,
+        from_parent: &mut [u8; INODE_CORE_SIZE],
+        from_name: &str,
+        child: (u32, &mut [u8; INODE_CORE_SIZE], FileKind),
+        new_dotdot: Option<u32>,
+    ) -> Result<(), Ext2Error> {
+        let (child_ino, child, kind) = child;
+        if let Some(parent) = new_dotdot {
+            self.set_dotdot(child_ino, child, parent)?;
+        }
+        if kind == FileKind::File {
+            touch(child, self.now());
+            self.write_inode(child_ino, child)?;
+        }
+        if let Err(error) = self.remove_entry(from_parent_ino, from_parent, from_name) {
+            if new_dotdot.is_some() {
+                let _ = self.set_dotdot(child_ino, child, from_parent_ino);
+            }
             return Err(error);
         }
         Ok(())

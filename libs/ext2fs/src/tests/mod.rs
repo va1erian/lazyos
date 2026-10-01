@@ -16,6 +16,7 @@ mod malformed;
 mod ops;
 mod ops_state;
 mod populate_tests;
+mod review_fixes;
 mod seeded;
 mod soak;
 

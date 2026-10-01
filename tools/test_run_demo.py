@@ -40,6 +40,13 @@ class PrepareHomeDiskTests(unittest.TestCase):
         self.assertTrue(run_demo.prepare_home_disk(self.path, False, False))
         self.assertEqual(self.path.read_bytes(), b"precious")
 
+    def test_existing_volume_does_not_build_the_plan(self) -> None:
+        self.path.write_bytes(b"precious")
+        plan = mock.Mock(side_effect=AssertionError("planned for nothing"))
+        self.assertTrue(run_demo.prepare_volume("home disk", self.path, False, False, plan,
+                                                "lazyhome"))
+        plan.assert_not_called()
+
     def test_reset_asks_and_a_decline_leaves_the_volume(self) -> None:
         self.path.write_bytes(b"precious")
         with mock.patch.object(run_demo, "confirm", return_value=False) as ask, \
@@ -126,8 +133,33 @@ class MainTests(unittest.TestCase):
         self.assertEqual(self.home.read_bytes()[LABEL_OFFSET:LABEL_OFFSET + 8], b"lazyhome")
 
     def test_reset_os_sets_the_build_variable(self) -> None:
-        code, _ = self.run_main("--reset-os")
+        code, _ = self.run_main("--reset-os", "--yes")
         self.assertEqual(code, 0)
+        self.assertEqual(self.builds[-1].get("LAZYOS_RESET_OS"), "1")
+
+    def test_reset_os_without_a_tty_declines_before_building(self) -> None:
+        code, _ = self.run_main("--reset-os")  # stdin is not a TTY under test
+        self.assertEqual(code, 1)
+        self.assertEqual(self.builds, [])
+
+    def test_reset_os_asks_and_a_no_stops_the_build(self) -> None:
+        with mock.patch.object(run_demo, "confirm", return_value=False) as ask:
+            code, _ = self.run_main("--reset-os")
+        self.assertEqual(code, 1)
+        self.assertEqual(self.builds, [])
+        self.assertIn("OS volume", ask.call_args.args[0])
+
+    def test_reset_os_with_a_yes_answer_builds(self) -> None:
+        with mock.patch.object(run_demo, "confirm", return_value=True):
+            code, _ = self.run_main("--reset-os")
+        self.assertEqual(code, 0)
+        self.assertEqual(self.builds[-1].get("LAZYOS_RESET_OS"), "1")
+
+    def test_reset_os_with_no_existing_image_has_nothing_to_confirm(self) -> None:
+        self.image.unlink()
+        with mock.patch.object(run_demo, "confirm") as ask:
+            self.run_main("--reset-os")
+        ask.assert_not_called()
         self.assertEqual(self.builds[-1].get("LAZYOS_RESET_OS"), "1")
 
     def test_build_leaves_reset_os_unset_by_default(self) -> None:

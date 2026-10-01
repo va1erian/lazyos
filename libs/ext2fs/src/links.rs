@@ -25,7 +25,10 @@ impl Ext2 {
         let time = self.now();
         put32(&mut inode, INO_ATIME, time);
         touch(&mut inode, time);
-        self.write_inode(ino, &inode)?;
+        if let Err(error) = self.write_inode(ino, &inode) {
+            let _ = self.free_inode(ino, false);
+            return Err(error);
+        }
         match self.add_entry(parent_ino, &mut parent, name, ino, FT_REGULAR) {
             Ok(()) => self.meta_of(ino),
             Err(error) => {
@@ -49,6 +52,11 @@ impl Ext2 {
             return Err(Ext2Error::Exists);
         }
         check_owner(owner)?;
+        // The new child makes the parent worth one more link; check before
+        // allocating so a full link count leaks nothing.
+        let parent_links = le16(&parent, INO_LINKS)
+            .checked_add(1)
+            .ok_or(Ext2Error::Invalid)?;
         let ino = self.alloc_inode(true)?;
         let block = match self.alloc_block() {
             Ok(block) => block,
@@ -62,13 +70,14 @@ impl Ext2 {
         put32(&mut dir, DE_INO, ino);
         put16(&mut dir, DE_REC_LEN, 12);
         dir[DE_NAME_LEN] = 1;
-        dir[DE_FILE_TYPE] = FT_DIRECTORY;
+        let dir_type = if self.has_file_type { FT_DIRECTORY } else { 0 };
+        dir[DE_FILE_TYPE] = dir_type;
         dir[DE_HEADER] = b'.';
         let dotdot = DE_HEADER + 4; // aligned start of the `..` record
         put32(&mut dir, dotdot + DE_INO, parent_ino);
         put16(&mut dir, dotdot + DE_REC_LEN, (size - dotdot) as u16);
         dir[dotdot + DE_NAME_LEN] = 2;
-        dir[dotdot + DE_FILE_TYPE] = FT_DIRECTORY;
+        dir[dotdot + DE_FILE_TYPE] = dir_type;
         dir[dotdot + DE_HEADER] = b'.';
         dir[dotdot + DE_HEADER + 1] = b'.';
         if let Err(error) = self.write_block(u64::from(block), &dir[..size]) {
@@ -88,13 +97,13 @@ impl Ext2 {
         let time = self.now();
         put32(&mut inode, INO_ATIME, time);
         touch(&mut inode, time);
-        self.write_inode(ino, &inode)?;
+        if let Err(error) = self.write_inode(ino, &inode) {
+            let _ = self.free_block(block);
+            let _ = self.free_inode(ino, true);
+            return Err(error);
+        }
 
-        // The new child makes the parent worth one more link.
-        let links = le16(&parent, INO_LINKS)
-            .checked_add(1)
-            .ok_or(Ext2Error::Invalid)?;
-        put16(&mut parent, INO_LINKS, links);
+        put16(&mut parent, INO_LINKS, parent_links);
         match self.add_entry(parent_ino, &mut parent, name, ino, FT_DIRECTORY) {
             Ok(()) => self.meta_of(ino),
             Err(error) => {

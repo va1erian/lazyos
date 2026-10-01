@@ -15,17 +15,20 @@ impl Ext2 {
             if desc.free_blocks == 0 {
                 continue;
             }
-            let base = self.first_data_block + group * self.blocks_per_group;
+            let base = group
+                .checked_mul(self.blocks_per_group)
+                .and_then(|offset| offset.checked_add(self.first_data_block))
+                .ok_or(Ext2Error::Invalid)?;
             if base >= self.blocks_count {
                 continue;
             }
             let bits = min(self.blocks_per_group, self.blocks_count - base);
             let mut bitmap = [0u8; MAX_BLOCK_SIZE];
             self.read_block(u64::from(desc.block_bitmap), &mut bitmap[..size])?;
-            let Some(index) = Self::bitmap_find_zero(&bitmap[..size], 0, bits) else {
+            let Some(index) = Self::bitmap_find_zero(&bitmap[..size], 0, bits)? else {
                 continue; // counts and bitmap disagree; try the next group
             };
-            Self::bitmap_set(&mut bitmap[..size], index);
+            Self::bitmap_set(&mut bitmap[..size], index)?;
             self.write_block(u64::from(desc.block_bitmap), &bitmap[..size])?;
             let mut updated = desc;
             updated.free_blocks = updated
@@ -53,10 +56,10 @@ impl Ext2 {
         let size = self.block_size as usize;
         let mut bitmap = [0u8; MAX_BLOCK_SIZE];
         self.read_block(u64::from(desc.block_bitmap), &mut bitmap[..size])?;
-        if !Self::bitmap_test(&bitmap[..size], index) {
+        if !Self::bitmap_test(&bitmap[..size], index)? {
             return Err(Ext2Error::Invalid); // double free: the image is inconsistent
         }
-        Self::bitmap_clear(&mut bitmap[..size], index);
+        Self::bitmap_clear(&mut bitmap[..size], index)?;
         self.write_block(u64::from(desc.block_bitmap), &bitmap[..size])?;
         let mut updated = desc;
         updated.free_blocks = updated
@@ -78,7 +81,9 @@ impl Ext2 {
             if desc.free_inodes == 0 {
                 continue;
             }
-            let base = group * self.inodes_per_group;
+            let base = group
+                .checked_mul(self.inodes_per_group)
+                .ok_or(Ext2Error::Invalid)?;
             if base >= self.inodes_count {
                 continue;
             }
@@ -94,10 +99,10 @@ impl Ext2 {
             }
             let mut bitmap = [0u8; MAX_BLOCK_SIZE];
             self.read_block(u64::from(desc.inode_bitmap), &mut bitmap[..size])?;
-            let Some(index) = Self::bitmap_find_zero(&bitmap[..size], start, bits) else {
+            let Some(index) = Self::bitmap_find_zero(&bitmap[..size], start, bits)? else {
                 continue;
             };
-            Self::bitmap_set(&mut bitmap[..size], index);
+            Self::bitmap_set(&mut bitmap[..size], index)?;
             self.write_block(u64::from(desc.inode_bitmap), &bitmap[..size])?;
             let mut updated = desc;
             updated.free_inodes = updated
@@ -129,10 +134,10 @@ impl Ext2 {
         let size = self.block_size as usize;
         let mut bitmap = [0u8; MAX_BLOCK_SIZE];
         self.read_block(u64::from(desc.inode_bitmap), &mut bitmap[..size])?;
-        if !Self::bitmap_test(&bitmap[..size], local) {
+        if !Self::bitmap_test(&bitmap[..size], local)? {
             return Err(Ext2Error::Invalid); // double free
         }
-        Self::bitmap_clear(&mut bitmap[..size], local);
+        Self::bitmap_clear(&mut bitmap[..size], local)?;
         self.write_block(u64::from(desc.inode_bitmap), &bitmap[..size])?;
         let mut updated = desc;
         updated.free_inodes = updated
@@ -198,20 +203,39 @@ impl Ext2 {
     }
 
     /// Whether bit `index` of a bitmap is set.
-    pub(super) fn bitmap_test(buf: &[u8], index: u32) -> bool {
-        buf[(index / 8) as usize] & (1 << (index % 8)) != 0
+    /// A bit past the end of the buffer is corruption, never a panic.
+    pub(super) fn bitmap_test(buf: &[u8], index: u32) -> Result<bool, Ext2Error> {
+        let byte = buf.get((index / 8) as usize).ok_or(Ext2Error::Invalid)?;
+        Ok(byte & (1 << (index % 8)) != 0)
     }
 
-    fn bitmap_set(buf: &mut [u8], index: u32) {
-        buf[(index / 8) as usize] |= 1 << (index % 8);
+    pub(super) fn bitmap_set(buf: &mut [u8], index: u32) -> Result<(), Ext2Error> {
+        let byte = buf
+            .get_mut((index / 8) as usize)
+            .ok_or(Ext2Error::Invalid)?;
+        *byte |= 1 << (index % 8);
+        Ok(())
     }
 
-    fn bitmap_clear(buf: &mut [u8], index: u32) {
-        buf[(index / 8) as usize] &= !(1 << (index % 8));
+    pub(super) fn bitmap_clear(buf: &mut [u8], index: u32) -> Result<(), Ext2Error> {
+        let byte = buf
+            .get_mut((index / 8) as usize)
+            .ok_or(Ext2Error::Invalid)?;
+        *byte &= !(1 << (index % 8));
+        Ok(())
     }
 
     /// The first clear bit in `start..bits`, scanning in allocation order.
-    fn bitmap_find_zero(buf: &[u8], start: u32, bits: u32) -> Option<u32> {
-        (start..bits).find(|&index| !Self::bitmap_test(buf, index))
+    pub(super) fn bitmap_find_zero(
+        buf: &[u8],
+        start: u32,
+        bits: u32,
+    ) -> Result<Option<u32>, Ext2Error> {
+        for index in start..bits {
+            if !Self::bitmap_test(buf, index)? {
+                return Ok(Some(index));
+            }
+        }
+        Ok(None)
     }
 }

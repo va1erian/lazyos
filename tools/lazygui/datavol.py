@@ -79,3 +79,18 @@ def reset(path: str, busy: bool) -> tuple[bool, str] | None:
     except (OSError, ValueError) as exc:  # e.g. QEMU still has the file open
         return False, f"Reset failed: {exc}"
     return True, f"Home volume reset: {mkdisk.status(target).describe()}"
+
+
+def confirm_reset_os(cfg: dict) -> bool:
+    """Ask before a run that recreates the OS volume; ``True`` when the run may go on.
+
+    Mirrors the plan rule in ``catalog.build_plan``: the flag only takes effect
+    in the interactive demo, and not with "Skip build".
+    """
+    if not (cfg.get("reset_os") and not cfg.get("skip_build")
+            and cfg.get("mode") == "Interactive demo"):
+        return True
+    return messagebox.askyesno(
+        "Recreate the OS volume",
+        "Erase the OS volume in target/lazyos.img and rebuild it?\n\n"
+        "Installed apps, settings, logs and /data are lost. This cannot be undone.")

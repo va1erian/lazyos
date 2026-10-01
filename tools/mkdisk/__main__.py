@@ -63,6 +63,9 @@ def main(argv: list[str]) -> int:
     if args.path.exists() and not args.force:
         print(f"{args.path} already exists; pass --force to replace it.", file=sys.stderr)
         return 1
+    if args.label is not None and not args.label.strip():
+        print("mkdisk: --label must not be empty", file=sys.stderr)
+        return 1
     label = args.label or (volume.HOME_LABEL if args.home_volume else volume.DEFAULT_LABEL)
     try:
         plan = build_layout(args)

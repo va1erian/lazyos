@@ -50,6 +50,8 @@ use super::*;
 pub const MAX_SCAN_DIRS: usize = 4096;
 /// Deepest directory nesting the walk enters (the root is depth 0).
 const MAX_SCAN_DEPTH: usize = 32;
+/// Most failures [`OrphanReport::failed`] records; the rest are dropped.
+pub const MAX_FAILED: usize = 256;
 
 /// What one [`Ext2::reclaim_orphans`] walk did, for the host to report (the
 /// library has no log of its own).
@@ -57,7 +59,8 @@ const MAX_SCAN_DEPTH: usize = 32;
 pub struct OrphanReport {
     /// Parked files deleted.
     pub reclaimed: usize,
-    /// Parked files that could not be deleted, with why; left for the next mount.
+    /// Parked files that could not be deleted, with why; left for the next
+    /// mount. At most [`MAX_FAILED`] are listed.
     pub failed: Vec<(String, Ext2Error)>,
     /// Set when the walk hit [`MAX_SCAN_DIRS`] and stopped early.
     pub scan_truncated: bool,
@@ -84,7 +87,16 @@ impl Ext2 {
                 break;
             }
             visited += 1;
-            self.scan_dir(&dir, depth, reserved_prefix, &mut pending, &mut report);
+            // Room left in the queue before the walk's directory budget is spent.
+            let room = MAX_SCAN_DIRS.saturating_sub(visited + pending.len());
+            self.scan_dir(
+                &dir,
+                depth,
+                reserved_prefix,
+                room,
+                &mut pending,
+                &mut report,
+            );
         }
         report
     }
@@ -95,6 +107,7 @@ impl Ext2 {
         dir: &str,
         depth: usize,
         prefix: &str,
+        mut room: usize,
         pending: &mut Vec<(String, usize)>,
         report: &mut OrphanReport,
     ) {
@@ -107,11 +120,20 @@ impl Ext2 {
             match entry.kind {
                 FileKind::File if reserved => match self.unlink_parked(&path) {
                     Ok(()) => report.reclaimed += 1,
-                    Err(error) => report.failed.push((path, error)),
+                    Err(error) => {
+                        if report.failed.len() < MAX_FAILED {
+                            report.failed.push((path, error));
+                        }
+                    }
                 },
                 // A reserved *directory* is not ours to look inside.
                 FileKind::Dir if !reserved && depth < MAX_SCAN_DEPTH => {
-                    pending.push((path, depth + 1));
+                    if room == 0 {
+                        report.scan_truncated = true; // never queue past the budget
+                    } else {
+                        room -= 1;
+                        pending.push((path, depth + 1));
+                    }
                 }
                 _ => {}
             }
@@ -142,10 +164,13 @@ impl Ext2 {
 
     /// Free every block `inode` reaches that is still allocated (step 1).
     fn release_orphan_blocks(&self, inode: &[u8; INODE_CORE_SIZE]) -> Result<(), Ext2Error> {
+        // One budget for the whole inode: a hostile image cannot make a
+        // table visit more blocks than the volume has.
+        let mut budget = self.blocks_count;
         for slot in 0..BLOCK_SLOTS {
             let root = Self::direct_ptr(inode, slot);
             if root != 0 {
-                self.release_tree(root, slot_depth(slot))?;
+                self.release_tree(root, slot_depth(slot), &mut budget)?;
             }
         }
         Ok(())
@@ -154,12 +179,20 @@ impl Ext2 {
     /// Free the tree of pointer tables rooted at `block`, children before the
     /// table that names them, skipping blocks a previous run already freed.
     /// The recursion is at most [`MAX_DEPTH`] deep, so a cyclic pointer in a
-    /// malformed image ends instead of looping.
-    fn release_tree(&self, block: u32, depth: usize) -> Result<(), Ext2Error> {
+    /// malformed image ends instead of looping, and `budget` bounds the total
+    /// number of blocks visited (a table whose entries all name one block
+    /// would otherwise be walked a thousand times per level).
+    fn release_tree(&self, block: u32, depth: usize, budget: &mut u32) -> Result<(), Ext2Error> {
+        *budget = budget.checked_sub(1).ok_or(Ext2Error::Invalid)?;
+        // Children are freed before the table that names them, so a table
+        // that is already free has had its whole subtree released.
+        if !self.block_allocated(block)? {
+            return Ok(());
+        }
         if depth > 0 {
             for child in self.read_table(block)? {
                 if child != 0 {
-                    self.release_tree(child, depth - 1)?;
+                    self.release_tree(child, depth - 1, budget)?;
                 }
             }
         }
@@ -195,7 +228,7 @@ impl Ext2 {
         let size = self.block_size as usize;
         let mut bitmap = [0u8; MAX_BLOCK_SIZE];
         self.read_block(u64::from(desc.block_bitmap), &mut bitmap[..size])?;
-        Ok(Self::bitmap_test(&bitmap[..size], index))
+        Self::bitmap_test(&bitmap[..size], index)
     }
 
     /// Whether the inode bitmap marks `ino` used.
@@ -208,10 +241,7 @@ impl Ext2 {
         let size = self.block_size as usize;
         let mut bitmap = [0u8; MAX_BLOCK_SIZE];
         self.read_block(u64::from(desc.inode_bitmap), &mut bitmap[..size])?;
-        Ok(Self::bitmap_test(
-            &bitmap[..size],
-            index % self.inodes_per_group,
-        ))
+        Self::bitmap_test(&bitmap[..size], index % self.inodes_per_group)
     }
 }
 

@@ -501,6 +501,9 @@ def ext2fs_seeds():
         "corrupt_magic": bytes([1]) + e2_poke(sb + 0x38, 0),
         "corrupt_log_block_size": bytes([1]) + e2_poke(sb + 0x18, 3),
         "corrupt_counts": bytes([1]) + e2_poke(sb + 0x07, 0x7F) + e2_poke(sb + 0x0F, 0xFF),
+        # Groups with more bits than one bitmap block holds (must be refused at mount).
+        "corrupt_blocks_per_group": bytes([1]) + e2_poke(sb + 0x21, 0xFF) + e2_poke(sb + 0x22, 0x01),
+        "corrupt_inodes_per_group": bytes([1]) + e2_poke(sb + 0x29, 0x80),
         "corrupt_incompat": bytes([1]) + e2_poke(sb + 0x60, 0x42),
         "corrupt_inode_table": bytes([1]) + e2_poke(gdt + 8, 0xFF) + e2_poke(gdt + 11, 0x7F),
         "corrupt_bitmaps": bytes([1]) + e2_poke(gdt + 0, 0x01) + e2_poke(gdt + 4, 0x01),

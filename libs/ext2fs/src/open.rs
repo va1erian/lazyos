@@ -53,10 +53,17 @@ impl Ext2 {
         if free_blocks > blocks_count || free_inodes > inodes_count {
             return Err(Ext2Error::Invalid);
         }
-        if first_data_block > 1 {
+        if first_data_block != u32::from(block_size == 1024) {
             return Err(Ext2Error::Invalid); // 1 for 1K blocks, 0 otherwise
         }
-        if blocks_per_group == 0 || inodes_per_group == 0 {
+        // One bitmap block covers a group, so a group may not have more bits
+        // than that block (the bitmap helpers index it by bit number).
+        let bitmap_bits = block_size * 8;
+        if blocks_per_group == 0
+            || inodes_per_group == 0
+            || blocks_per_group > bitmap_bits
+            || inodes_per_group > bitmap_bits
+        {
             return Err(Ext2Error::Invalid);
         }
         if inode_size < INODE_CORE_SIZE as u16

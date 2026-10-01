@@ -249,8 +249,10 @@ def build_plan(cfg: dict) -> list[dict]:
             argv += ["--data-disk", cfg.get("data_path") or DATA_IMAGE]
         # Recreate the OS volume (apps, settings, logs, /data) instead of the
         # in-place update; it needs a build, so "Skip build" wins.
+        # run_demo asks before erasing and has no terminal here, so the GUI asks
+        # first (datavol.confirm_reset_os) and passes --yes on its behalf.
         if cfg.get("reset_os") and not cfg["skip_build"]:
-            argv.append("--reset-os")
+            argv += ["--reset-os", "--yes"]
         # A virtio-sound card on the host's audio backend. run_demo also builds
         # with LAZYOS_SOUND=1; the desktop profile ships the sound stack anyway,
         # and on other images the driver plays its boot tones.

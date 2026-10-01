@@ -306,6 +306,13 @@ class CommandLineTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn("label 'other'", out)
 
+    def test_empty_label_is_an_error_not_a_silent_default(self) -> None:
+        for label in ("", "  "):
+            code, _, err = self.run_main("--label", label)
+            self.assertEqual(code, 1)
+            self.assertIn("--label must not be empty", err)
+            self.assertFalse(self.path.exists())
+
     def test_default_label_without_home_volume(self) -> None:
         code, out, _ = self.run_main()
         self.assertEqual(code, 0)

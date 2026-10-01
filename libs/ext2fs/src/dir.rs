@@ -2,6 +2,9 @@
 
 use super::*;
 
+/// Most `..` hops [`Ext2::is_within`] follows before calling the image corrupt.
+const MAX_DOTDOT_STEPS: u32 = 4096;
+
 impl Ext2 {
     /// The physical blocks a directory owns, in logical order. Directories are
     /// dense: a hole is corruption (there is no path that creates one).
@@ -152,6 +155,8 @@ impl Ext2 {
         if needed > size {
             return Err(Ext2Error::NameTooLong);
         }
+        // Without the FILETYPE feature the type byte must stay zero.
+        let file_type = if self.has_file_type { file_type } else { 0 };
         let blocks = self.dir_blocks(dir)?;
         for block in blocks {
             let mut buf = [0u8; MAX_BLOCK_SIZE];
@@ -212,6 +217,10 @@ impl Ext2 {
         if index >= DIRECT_BLOCKS + self.ptrs_per_block {
             return Err(Ext2Error::NoSpace);
         }
+        // Check the size update first: a failure after allocating would leak.
+        let new_size = le32(dir, INO_SIZE)
+            .checked_add(self.block_size)
+            .ok_or(Ext2Error::NoSpace)?;
         let (block, fresh) = self.ensure_block(dir, index)?;
         let mut buf = [0u8; MAX_BLOCK_SIZE];
         if !fresh {
@@ -223,9 +232,6 @@ impl Ext2 {
         buf[DE_FILE_TYPE] = file_type;
         buf[DE_HEADER..DE_HEADER + name.len()].copy_from_slice(name.as_bytes());
         self.write_block(u64::from(block), &buf[..size])?;
-        let new_size = le32(dir, INO_SIZE)
-            .checked_add(self.block_size)
-            .ok_or(Ext2Error::NoSpace)?;
         put32(dir, INO_SIZE, new_size);
         touch(dir, self.now());
         self.write_inode(dir_ino, dir)
@@ -349,8 +355,8 @@ impl Ext2 {
             }
             current = self.find_entry(current, "..")?.0;
             steps += 1;
-            if steps > self.inodes_count {
-                return Err(Ext2Error::Invalid); // a `..` cycle
+            if steps > MAX_DOTDOT_STEPS {
+                return Err(Ext2Error::Invalid); // a `..` cycle (or an absurdly deep tree)
             }
         }
         Ok(false)

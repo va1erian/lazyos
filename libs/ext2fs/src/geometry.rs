@@ -151,11 +151,12 @@ fn with_groups(geometry: &Geometry, blocks: u32, first_data_block: u32, groups: 
     let block_size = geometry.block_size;
     let inodes_per_block = block_size / INODE_CORE_SIZE as u32;
     let wanted = u64::from(blocks) * u64::from(block_size) / u64::from(geometry.bytes_per_inode);
-    let wanted = wanted.max(u64::from(DEFAULT_FIRST_INO)) as u32;
-    let per_group = wanted.div_ceil(groups);
+    let wanted = wanted.max(u64::from(DEFAULT_FIRST_INO));
+    let per_group = wanted.div_ceil(u64::from(groups));
     // Whole inode-table blocks per group; the driver rejects a ragged tail.
-    let per_group = per_group.div_ceil(inodes_per_block) * inodes_per_block;
-    let per_group = per_group.min(block_size * 8); // one inode-bitmap block
+    // Clamp in u64 (a tiny `bytes_per_inode` asks for billions of inodes).
+    let per_group = per_group.div_ceil(u64::from(inodes_per_block)) * u64::from(inodes_per_block);
+    let per_group = per_group.min(u64::from(block_size * 8)) as u32; // one inode-bitmap block
     Plan {
         block_size,
         blocks_count: blocks,

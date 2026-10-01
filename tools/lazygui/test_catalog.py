@@ -64,6 +64,23 @@ class ResetOsPlanTests(unittest.TestCase):
     def test_passed_when_building(self) -> None:
         self.assertIn("--reset-os", demo_argv(skip_build=False, reset_os=True))
 
+    def test_the_gui_confirms_so_the_plan_passes_yes(self) -> None:
+        argv = demo_argv(skip_build=False, reset_os=True)
+        self.assertIn("--yes", argv)
+        self.assertNotIn("--yes", demo_argv(skip_build=False))
+
+    def test_confirmation_asks_only_when_the_reset_will_happen(self) -> None:
+        with mock.patch.object(datavol.messagebox, "askyesno", return_value=False) as ask:
+            self.assertFalse(datavol.confirm_reset_os(demo_config(skip_build=False, reset_os=True)))
+            ask.assert_called_once()
+            ask.reset_mock()
+            for cfg in (demo_config(skip_build=False), demo_config(reset_os=True),
+                        demo_config(mode="Screenshots", skip_build=False, reset_os=True)):
+                self.assertTrue(datavol.confirm_reset_os(cfg))
+            ask.assert_not_called()
+        with mock.patch.object(datavol.messagebox, "askyesno", return_value=True):
+            self.assertTrue(datavol.confirm_reset_os(demo_config(skip_build=False, reset_os=True)))
+
     def test_never_combined_with_skip_build(self) -> None:
         self.assertNotIn("--reset-os", demo_argv(skip_build=True, reset_os=True))
 

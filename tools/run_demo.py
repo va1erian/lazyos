@@ -14,7 +14,7 @@ Examples
     python tools/run_demo.py --no-build      # boot the existing target/lazyos.img
     python tools/run_demo.py -- --cpu max    # pass extra args to QEMU
     python tools/run_demo.py --reset-home    # wipe the home volume (target/home.img) first
-    python tools/run_demo.py --reset-os      # wipe the OS volume too (LAZYOS_RESET_OS=1 build)
+    python tools/run_demo.py --reset-os      # wipe the OS volume too (asks first; LAZYOS_RESET_OS=1 build)
     python tools/run_demo.py --no-home-disk  # boot with only the boot disk
     python tools/run_demo.py --sound         # add a virtio-sound card (host speakers)
     python tools/run_demo.py --desktop --sound   # desktop session; type `beep` in the Terminal
@@ -103,8 +103,11 @@ def prepare_volume(what: str, path: Path, reset: bool, assume_yes: bool, plan,
 
 def _prepare_volume(what: str, path: Path, reset: bool, assume_yes: bool, plan,
                     label: str) -> bool:
-    layout = plan() if callable(plan) else plan
-    if reset and path.exists():
+    exists = path.exists()
+    if exists and not reset:
+        return True  # nothing to create or reset: do not even read the plan
+    layout = plan() if callable(plan) else plan  # only now, so a bad source cannot block a boot
+    if reset and exists:
         question = (f"Erase {path} and format a fresh volume containing:\n"
                     f"{mkdisk.describe(layout)}\nProceed?")
         if not assume_yes and not confirm(question):
@@ -220,7 +223,8 @@ def main(argv: list[str]) -> int:
                         help="regenerate the data volume with the seeded layout "
                              "(asks first unless --yes; attaches it if --data-disk is unset)")
     parser.add_argument("--yes", "-y", action="store_true",
-                        help="answer yes to the --reset-home / --reset-data confirmation")
+                        help="answer yes to the --reset-home / --reset-data / --reset-os "
+                             "confirmation")
     parser.add_argument("--desktop", action="store_true",
                         help="build the desktop profile (LAZYOS_DESKTOP=1; needs the xui apps "
                              "from `python tools/xui/build.py`)")
@@ -267,6 +271,11 @@ def main(argv: list[str]) -> int:
             profile = "release (optimized for real hardware)"
         env = dict(os.environ)
         if args.reset_os:
+            if Path(args.image).exists() and not args.yes and not confirm(
+                    f"Recreate the OS volume in {args.image}? Installed apps, settings, "
+                    "logs and /data are erased.\nProceed?"):
+                print("OS volume left untouched; aborting.", file=sys.stderr)
+                return 1
             env["LAZYOS_RESET_OS"] = "1"
             print("--reset-os: the OS volume will be recreated "
                   "(apps, settings, logs and /data are erased)", flush=True)
