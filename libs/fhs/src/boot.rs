@@ -210,3 +210,9 @@ pub const LRPLAY_PATH: &str = "/LRPLAY.ELF";
 /// resolves applet names onto it (`process/linux/path.rs`). Target (F3):
 /// `"/system/bin/busybox"`.
 pub const BUSYBOX_PATH: &str = "/BUSYBOX";
+
+/// The `argv[0]` BusyBox must be started under to treat its first argument as
+/// an applet (`busybox sh -i`). BusyBox matches the program's base name
+/// case-sensitively, so a caller that runs [`BUSYBOX_PATH`] sets this
+/// explicitly instead of letting the stored `BUSYBOX` become `argv[0]`.
+pub const BUSYBOX_ARGV0: &str = "busybox";
