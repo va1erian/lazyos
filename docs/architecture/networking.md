@@ -452,9 +452,50 @@ unanswered datagram, a query for the wrong name, a server that saw other bytes).
 * An empty `Open` body is a valid stream `Open` (all fields default); the probe had
   wrongly expected it to be refused.
 
+## The FTP client (N4)
+
+`ftp <host>[:port] [user=NAME] [pass=SECRET] [cmd ; cmd ...]` (`user/src/bin/ftp.rs`,
+`ftp/session.rs`) is a passive-mode, binary-only client over `TcpStream`. Commands:
+`pwd`, `cd`, `ls`, `size`, `get <remote> [- | !]`, `put <local> [remote]`,
+`put -g <bytes> <remote>`, `quit`; with no commands a prompt reads lines (a failed
+command does not end the session). `-q` silences the dialogue.
+
+**Everything a server controls goes through `libs/ftpwire`.** `ReplyParser` takes
+bytes in any chunking and returns whole replies, multi-line ones included; a line over
+1024 bytes, a reply over 64 lines, a malformed code, a different code inside a
+multi-line reply or a bare CR is an error and the parser stays failed (a control
+connection that lost sync is not trusted again). Reply text is reduced to printable
+ASCII before it reaches the console. `parse_pasv` accepts only a well-formed
+`(h1,h2,h3,h4,p1,p2)`, and the client **ignores the address in it**: the data
+connection goes to the control peer, so a server cannot send the client to a third
+host. `command()` refuses an argument holding CR, LF or NUL, so a file name cannot
+carry a second command.
+
+**Files.** Native programs have no file-write syscall. `get x -` writes the bytes to
+standard output (redirect it), `get x !` counts and checksums them, and `put local`
+reads a file with `read_file` (up to 4 MiB) while `put -g N name` sends the `nc -g`
+stream. End of a download is the server closing the data connection; end of an upload
+is the client's FIN, after which the final `226` is read. Markers: `FTP:LOGIN`,
+`FTP:GET name bytes=N crc=...`, `FTP:PUT ...`, `FTP:LS bytes=N`, `FTP:PASS` or `FTP:FAIL`.
+
+### N4 evidence
+
+`netd demo=1` runs the client against `hostpeers.FtpServer` on the gateway (port
+47780, a small passive server that records every command and every transfer):
+`pwd ; cd pub ; cd / ; ls ; get hello.txt ! ; get big.bin ! ; put -g 150000 up.bin ;
+size up.bin ; get up.bin ! ; quit`. `sockets_pcap.check_ftp` requires: one control
+connection, closed from both sides, whose client commands equal the server's record
+(and the harness's expected list); one data connection per recorded transfer, to its
+passive port, whose bytes in the transfer's direction equal the file (and nothing
+flows the other way), closed by FINs from both sides; no connection to any port that is
+not part of the session. The CRC-32s the client printed must match the bytes the
+harness knows. Tests: `cargo test -p ftpwire`, `python tools/net/test_sockets_pcap.py`
+(the checker fails on a flipped byte, a short upload, an injected command, a missing
+FIN, a transfer with no connection, an unrelated connection, bytes the wrong way).
+
 ## Not done
 
-The `ftp` client (N4); the Linux `AF_INET` shim (N5); per-profile tightening of the
+The Linux `AF_INET` shim (N5); per-profile tightening of the
 socket rules and a policy loader (the ACL refuses nothing today, so `Renew` and
 `Reattach` are callable by anyone); `CAP_NET_BIND` (nobody binds a port below
 1024) and `CAP_NET_RAW`; loopback (a socket cannot connect to this machine's own

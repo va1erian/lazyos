@@ -174,7 +174,7 @@ and fuzzing tooling ships with every stage; the full description is
 `tools/net/README.md`.
 
 ```bash
-cargo test -p framering -p virtio-net -p nicdrv -p netstack -p netpolicy -p virtio -p messenger-generated   # host unit + seeded fuzz
+cargo test -p framering -p virtio-net -p nicdrv -p netstack -p ftpwire -p netpolicy -p virtio -p messenger-generated   # host unit + seeded fuzz
 FUZZ_CASES=20000 cargo test -p framering -p virtio-net -p nicdrv -p netstack fuzz::   # a longer seeded soak
 FUZZ_SEED=0x<seed> cargo test -p framering clean_scripts                # replay a printed failing seed
 python fuzz/gen_corpus.py --check                                       # the checked-in fuzz seeds are current

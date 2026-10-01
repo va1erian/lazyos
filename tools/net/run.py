@@ -70,9 +70,20 @@ SOCK_TCP_FLOWS = 2 + SOCK_SOAK_ITERATIONS
 #: UDP echo pairs: one `nc -u` and one per soak round.
 SOCK_UDP_PAIRS = 1 + SOCK_SOAK_ITERATIONS
 #: Demo clients `netd` runs in all (`DEMO_CLIENTS` in `user/src/bin/netd.rs`).
-NETD_DEMO_CLIENTS = 12
+NETD_DEMO_CLIENTS = 13
 #: The bytes the harness sends into the guest's listener.
 INBOUND_BYTES = 150_000
+#: Stage N4: the `ftp` client's session with the host's FTP server. The files
+#: the server starts with, what `put -g` sends, and the commands the client is
+#: expected to issue (the capture must show exactly the server's record, and
+#: this is what that record must be).
+FTP_UPLOAD_BYTES = 150_000
+FTP_FILES = {
+    "hello.txt": b"hello from the host ftp server" + bytes([10]),
+    "big.bin": hostpeers.pattern(120_000),
+}
+FTP_EXPECTED_VERBS = ["USER", "PASS", "TYPE", "PWD", "CWD", "CWD", "PASV", "LIST", "PASV", "RETR", "PASV",
+                      "RETR", "PASV", "STOR", "SIZE", "PASV", "RETR", "QUIT"]
 NETD_PASS_MARKERS = (
     "NET:NIC:PASS",
     "NETCTL:INFO:PASS",
@@ -82,6 +93,7 @@ NETD_PASS_MARKERS = (
     "NETCTL:SOCKPROBE:PASS",
     "NETCTL:SOCKOWNER:PASS",
     "NETCTL:SOCKSOAK:PASS",
+    "FTP:PASS",
 )
 NETD_FAIL_MARKERS = (
     "NET:NIC:FAIL",
@@ -90,6 +102,7 @@ NETD_FAIL_MARKERS = (
     "PING:FAIL",
     "NC:FAIL",
     "NSLOOKUP:FAIL",
+    "FTP:FAIL",
     "NETD:FAIL",
     "NETDRV:NODEV",
 )
@@ -110,7 +123,7 @@ FAIL_MARKERS = (
     "NICCTL:FAIL",
     "NETDRV:NODEV",
 )
-LOG_PREFIXES = ("NET", "netdrv", "netd", "NICCTL", "NETDRV", "NETD", "NETCTL", "PING", "NC:", "NSLOOKUP", "Looking up")
+LOG_PREFIXES = ("NET", "netdrv", "netd", "NICCTL", "NETDRV", "NETD", "NETCTL", "PING", "NC:", "NSLOOKUP", "Looking up", "FTP:", "< ", "> ")
 
 
 def build_image(services: bool, poll: bool, netd: bool = False) -> Path:
@@ -257,6 +270,44 @@ def judge_sockets(frames, guest_mac: bytes, text: str, tcp_streams, udp_datagram
     return ok
 
 
+def judge_ftp(frames, text: str, commands, transfers) -> bool:
+    """Stage N4's verdict: the FTP session on the wire (`sockets_pcap.check_ftp`)
+    and the checksums the client printed against the bytes the server holds."""
+    guest_ip = guest_address(text)
+    gateway = pcap.parse_ip(analyze_pcap.DEFAULT_GATEWAY)
+    problems: list[str] = []
+    verbs = [v for v, _ in commands]
+    if verbs != FTP_EXPECTED_VERBS:
+        problems.append(f"the server saw the commands {verbs}, expected {FTP_EXPECTED_VERBS}")
+    count, wire_problems = sockets_pcap.check_ftp(frames, guest_ip, gateway, hostpeers.FTP_PORT, commands, transfers)
+    problems += wire_problems
+    upload = hostpeers.xorshift_pattern(FTP_UPLOAD_BYTES)
+    expected = {
+        "PUT up.bin": (FTP_UPLOAD_BYTES, upload),
+        "GET up.bin": (FTP_UPLOAD_BYTES, upload),
+    }
+    for name, body in FTP_FILES.items():
+        expected[f"GET {name}"] = (len(body), body)
+    import re
+    import zlib
+    for key, (size, body) in expected.items():
+        verb, name = key.split()
+        match = re.search(rf"FTP:{verb} {re.escape(name)} bytes=(\d+) crc=([0-9a-f]{{8}})", text)
+        if not match:
+            problems.append(f"the client never reported {key}")
+        elif (int(match.group(1)), match.group(2)) != (size, f"{zlib.crc32(body):08x}"):
+            problems.append(f"{key}: the client reported {match.group(1)} bytes crc {match.group(2)}, "
+                            f"expected {size} bytes crc {zlib.crc32(body):08x}")
+    if not any(t[1] == "up" and t[2] == upload for t in transfers):
+        problems.append("the server never received the uploaded stream")
+    if problems:
+        for problem in problems[:10]:
+            print(f"NET:PCAP:FTP:FAIL {problem}")
+        return False
+    print(f"NET:PCAP:FTP:PASS commands={len(commands)} transfers={count} download and upload match byte for byte")
+    return True
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--image", default=str(ROOT / "target" / "lazyos.img"))
@@ -293,15 +344,19 @@ def main(argv: list[str] | None = None) -> int:
         sys.exit(f"image not found: {image}")
 
     qemu = find_qemu(args.qemu)
-    peers = probe = None
+    peers = probe = ftp_server = None
+    ftp_commands: list = []
+    ftp_transfers: list = []
     tcp_streams: list[bytes] = []
     udp_datagrams: list[bytes] = []
     forward_port = 0
     if args.netd and not args.no_device:
         try:
             peers = hostpeers.EchoServers()
+            ftp_server = hostpeers.FtpServer(files=FTP_FILES)
         except OSError as exc:
-            sys.exit(f"cannot start the host echo servers on ports {hostpeers.TCP_PORT}/{hostpeers.UDP_PORT}: {exc}")
+            sys.exit(f"cannot start the host servers on ports {hostpeers.TCP_PORT}/{hostpeers.UDP_PORT}/"
+                     f"{hostpeers.FTP_PORT}: {exc}")
         forward_port = free_port()
         probe = hostpeers.InboundProbe(forward_port, hostpeers.pattern(INBOUND_BYTES))
     extra = qemu_args(args, image, pcap_path, qemu, forward_port)
@@ -336,6 +391,11 @@ def main(argv: list[str] | None = None) -> int:
         if peers is not None:
             tcp_streams, udp_datagrams = peers.snapshot()
             peers.close()
+        if ftp_server is not None:
+            with ftp_server._lock:
+                ftp_commands = list(ftp_server.commands)
+                ftp_transfers = list(ftp_server.transfers)
+            ftp_server.close()
 
     if args.no_device:
         ok = "NETDRV:NODEV" in text and "NET:NIC:FAIL" not in text and "NICCTL:FAIL" not in text
@@ -414,8 +474,9 @@ def main(argv: list[str] | None = None) -> int:
     ok = report.ok
     print("\n".join(report.lines))
     if args.netd:
-        ok = judge_sockets(frames, pcap.parse_mac(mac or analyze_pcap.DEFAULT_GUEST_MAC), text,
-                           tcp_streams, udp_datagrams, probe) and ok
+        guest_mac = pcap.parse_mac(mac or analyze_pcap.DEFAULT_GUEST_MAC)
+        ok = judge_sockets(frames, guest_mac, text, tcp_streams, udp_datagrams, probe) and ok
+        ok = judge_ftp(frames, text, ftp_commands, ftp_transfers) and ok
     print("NET:HARNESS:" + ("PASS" if ok else "FAIL"))
     return 0 if ok else 1
 

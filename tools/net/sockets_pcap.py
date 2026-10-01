@@ -333,3 +333,85 @@ def check_inbound_flow(frames: list[Frame], guest_ip: bytes, gateway_ip: bytes, 
     if any(not s.checksum_ok for s in flow.segments):
         problems.append("a segment of the inbound connection has a wrong checksum")
     return len(incoming), problems
+
+
+# ---- FTP (stage N4) --------------------------------------------------------------
+
+
+def ftp_commands(stream: bytes) -> list[tuple[str, str]]:
+    """The `(VERB, argument)` lines of a control-connection stream sent by the
+    client; the password is kept (the server saw it too)."""
+    out = []
+    for line in stream.split(b"\r\n"):
+        if not line:
+            continue
+        verb, _, arg = line.decode("latin-1").partition(" ")
+        out.append((verb.upper(), arg))
+    return out
+
+
+def check_ftp(frames: list[Frame], guest_ip: bytes, gateway_ip: bytes, control_port: int,
+              server_commands: list[tuple[str, str]], transfers: list[tuple[int, str, bytes]]
+              ) -> tuple[int, list[str]]:
+    """The FTP session on the wire.
+
+    * the control connection: handshake, valid checksums, closed by a FIN from
+      both sides, and the commands the client sent are exactly the ones the
+      host server recorded (so nothing was injected or lost between them);
+    * every data transfer the server recorded appears as its own connection to
+      its passive port, closed in order, whose bytes are the file (a download:
+      server to guest) or the upload (guest to server) byte for byte;
+    * no connection from the guest to the gateway on a port that is neither the
+      control port nor a recorded passive port (the client must not have been
+      sent anywhere else).
+    """
+    problems: list[str] = []
+    all_flows = flows(frames)
+    control = [f for f in all_flows if f.initiator[0] == guest_ip and f.responder == (gateway_ip, control_port)]
+    if len(control) != 1:
+        return 0, [f"{len(control)} control connections to port {control_port}, 1 expected"]
+    flow = control[0]
+    if not flow.handshake_ok():
+        problems.append("the control connection has no complete handshake")
+    if not (flow.closed_by(True) and flow.closed_by(False)):
+        problems.append("the control connection was not closed by a FIN from both sides")
+    sent, a = flow.stream(True)
+    _, b = flow.stream(False)
+    problems += [f"control: {p}" for p in a + b]
+    wire_commands = ftp_commands(sent)
+    if wire_commands != server_commands:
+        problems.append(f"the commands on the wire {wire_commands} differ from what the server recorded "
+                        f"{server_commands}")
+    data_ports = {port for port, _, _ in transfers}
+    for n, (port, direction, body) in enumerate(transfers):
+        mine = [f for f in all_flows if f.initiator[0] == guest_ip and f.responder == (gateway_ip, port)]
+        name = f"transfer {n} ({direction}, port {port}, {len(body)} bytes)"
+        if len(mine) != 1:
+            problems.append(f"{name}: {len(mine)} connections to its port, 1 expected")
+            continue
+        data = mine[0]
+        if not data.handshake_ok():
+            problems.append(f"{name}: no complete handshake")
+        up, up_problems = data.stream(True)
+        down, down_problems = data.stream(False)
+        problems += [f"{name}: {p}" for p in up_problems + down_problems]
+        wire = down if direction == "down" else up
+        other = up if direction == "down" else down
+        if wire != body:
+            problems.append(f"{name}: {len(wire)} bytes on the wire, {len(body)} expected"
+                            + ("" if len(wire) != len(body) else " (the bytes differ)"))
+        if other:
+            problems.append(f"{name}: {len(other)} bytes flowed the wrong way")
+        if not (data.closed_by(True) and data.closed_by(False)):
+            problems.append(f"{name}: not closed by a FIN from both sides")
+        if any(not s.checksum_ok for s in data.segments):
+            problems.append(f"{name}: a segment has a wrong checksum")
+    for f in all_flows:
+        if f.initiator[0] == guest_ip and f.responder[0] == gateway_ip:
+            port = f.responder[1]
+            if port == control_port or port in data_ports:
+                continue
+            if port in (47771, 47773, 47999):  # the other tools' ports
+                continue
+            problems.append(f"a connection to the gateway's port {port}, which is not part of the FTP session")
+    return len(transfers), problems

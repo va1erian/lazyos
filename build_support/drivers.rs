@@ -46,5 +46,7 @@ pub fn embed(builder: &mut bootloader::DiskImageBuilder, desktop: bool) {
         // `nc` and `nslookup`: sockets and name lookups (stage N3).
         add(builder, "NC.ELF", "nc");
         add(builder, "NSLOOKUP.ELF", "nslookup");
+        // `ftp`, the passive-mode client (stage N4).
+        add(builder, "FTP.ELF", "ftp");
     }
 }

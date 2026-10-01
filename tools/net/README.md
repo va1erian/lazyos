@@ -161,6 +161,14 @@ a wrong TCP or UDP checksum, a datagram echoed with other bytes or not at all, a
 query for the wrong name or of another type, a short inbound receive, and a host
 server that saw different bytes than the wire shows.
 
+## Stage N4: ftp
+
+`run.py --netd` also starts `hostpeers.FtpServer` (127.0.0.1:47780, user `lazy`, password
+`os`, files `hello.txt` and `big.bin`) and the guest runs `ftp` against it
+(`FTP:PASS`). `sockets_pcap.check_ftp` judges the session from the capture against the
+server's own record of commands and transfers; see `docs/architecture/networking.md`.
+`cargo test -p ftpwire` tests the parser; `python tools/net/test_sockets_pcap.py` the judge.
+
 `nc` options (a bad option prints the usage line): `-u` UDP, `-l` listen for one connection, `-i`
 line relay (native programs have a blocking `read_char` and no end-of-input, so no
 streaming both ways), `-n` no trailing newline, `-w secs` idle limit (default 3),

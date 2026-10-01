@@ -63,6 +63,8 @@ const PROGRAMS: &[(&str, &str)] = &[
     // `LAZYOS_NETD=1`.
     ("nc", "NC.ELF"),
     ("nslookup", "NSLOOKUP.ELF"),
+    // The FTP client (N4): `ftp <host>[:port] [cmd ; cmd ...]`.
+    ("ftp", "FTP.ELF"),
 ];
 
 /// The directories a `$PATH` search (BusyBox `sh`'s default is
