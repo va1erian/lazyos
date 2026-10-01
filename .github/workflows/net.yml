@@ -46,12 +46,12 @@ jobs:
       # rust-toolchain.toml pins the nightly toolchain; rustup installs it.
       # CI=1 makes the corpus replay tests insist that seeds exist.
       - name: Libraries (host, includes the seeded fuzz tests)
-        run: cargo test -p framering -p virtio-net -p nicdrv -p netstack -p netpolicy -p virtio -p fuzzkit -p messenger-generated
+        run: cargo test -p framering -p virtio-net -p nicdrv -p netstack -p ftpwire -p netpolicy -p virtio -p fuzzkit -p messenger-generated
         env:
           FUZZ_CASES: "2000"
 
       - name: Lints
-        run: cargo clippy -p framering -p virtio-net -p nicdrv -p netstack -p netpolicy -p virtio -p fuzzkit --all-targets --features framering/fuzz,virtio-net/fuzz,nicdrv/fuzz,netstack/fuzz -- -D warnings
+        run: cargo clippy -p framering -p virtio-net -p nicdrv -p netstack -p ftpwire -p netpolicy -p virtio -p fuzzkit --all-targets --features framering/fuzz,virtio-net/fuzz,nicdrv/fuzz,netstack/fuzz -- -D warnings
 
       - name: Fuzz seed corpus is current
         run: python fuzz/gen_corpus.py --check

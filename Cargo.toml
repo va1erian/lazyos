@@ -45,6 +45,7 @@ members = [
     "libs/framering",
     "libs/virtio-net",
     "libs/nicdrv",
+    "libs/ftpwire",
     "libs/netpolicy",
     "libs/netstack",
     "libs/fuzzkit",
