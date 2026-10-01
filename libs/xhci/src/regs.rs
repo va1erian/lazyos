@@ -222,16 +222,22 @@ pub fn dci(address: u8) -> u8 {
     }
 }
 
+/// The shortest interrupt `Interval` a device gets: 2^3 microframes (1 ms),
+/// however fast its descriptor asks to be polled. Input drivers run in the
+/// Interactive class, so this bounds how often a hostile device can wake
+/// one (1000 reports a second, each also rate-limited by its input source).
+pub const MIN_INTERRUPT_INTERVAL: u8 = 3;
+
 /// The endpoint context `Interval` for an interrupt endpoint (6.2.3.6):
 /// a power-of-two exponent of 125 us microframes. Full/low speed `bInterval`
 /// counts 1 ms frames; high speed and above encode `2^(bInterval-1)`
-/// microframes.
+/// microframes. Never below [`MIN_INTERRUPT_INTERVAL`].
 pub fn interrupt_interval(speed: Speed, b_interval: u8) -> u8 {
     match speed {
         Speed::Low | Speed::Full => {
             let microframes = u32::from(b_interval.max(1)) * 8;
-            (31 - microframes.leading_zeros()).clamp(3, 10) as u8
+            (31 - microframes.leading_zeros()).clamp(u32::from(MIN_INTERRUPT_INTERVAL), 10) as u8
         }
-        _ => b_interval.clamp(1, 16) - 1,
+        _ => (b_interval.clamp(1, 16) - 1).max(MIN_INTERRUPT_INTERVAL),
     }
 }

@@ -6,8 +6,9 @@ description = "LazyOS ring-3 user runtime and programs"
 license = "GPL-3.0-or-later"
 
 [lints.cargo]
-# `netpolicy` is only referenced by `init` under `cfg(lazyos_net)` (the `_net`
-# uid), so a default build looks like it never uses it.
+# `netpolicy` and `usbpolicy` are only referenced by `init` under
+# `cfg(lazyos_net)` / `cfg(lazyos_usb)` (the `_net` and `_usb` uids), so a
+# default build looks like it never uses them.
 unused_dependencies = "allow"
 
 [dependencies]
@@ -47,6 +48,7 @@ xhci = { path = "../libs/xhci" }
 usbhid = { path = "../libs/usbhid" }
 # The `_net` uid `init` spawns the driver as, shared with the ACL rules.
 netpolicy = { path = "../libs/netpolicy" }
+usbpolicy = { path = "../libs/usbpolicy" }
 framering = { path = "../libs/framering" }
 # The stack `netd` runs: smoltcp over the frame rings, DHCP, the echo path.
 netstack = { path = "../libs/netstack" }

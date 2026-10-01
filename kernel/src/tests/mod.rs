@@ -211,6 +211,7 @@ const SUITE: &[&[(&str, Test)]] = &[
     dev_suite::SYSCALL_GUARD,
     dev_suite::SYSCALL_OPS,
     dev_suite::SYSCALL_POLICY,
+    dev_suite::SYSCALL_USB_POLICY,
     dev_suite::SYSCALL_CFG,
     dev_suite::TEARDOWN,
     dev_suite::DMA,

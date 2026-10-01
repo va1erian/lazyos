@@ -60,6 +60,10 @@ pub static AUDIO: Class = class!("audio");
 pub static MULTIMEDIA: Class = class!("multimedia");
 pub static BRIDGE: Class = class!("bridge");
 pub static SERIAL: Class = class!("serial");
+/// USB host controllers (xHCI, EHCI, UHCI, OHCI): `usbd`'s class, kept apart
+/// from other serial-bus functions so its rule grants exactly the controllers
+/// (`docs/usb-hid-plan.md` U5).
+pub static USB: Class = class!("usb");
 pub static SYSTEM: Class = class!("system");
 pub static OTHER: Class = class!("other");
 
@@ -77,6 +81,7 @@ pub fn class_of(info: &DeviceInfo) -> &'static Class {
         (0x04, _) => &MULTIMEDIA,
         (PCI_CLASS_BRIDGE, _) => &BRIDGE,
         (0x08, _) => &SYSTEM,
+        (0x0C, 0x03) => &USB,
         (0x0C, _) => &SERIAL,
         _ => &OTHER,
     }

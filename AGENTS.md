@@ -173,7 +173,7 @@ the recording. See `tools/sound/README.md` and `docs/architecture/audio.md`
 ## USB harness
 
 The USB HID driver (`usbd`, [`docs/usb-hid-plan.md`](docs/usb-hid-plan.md)) is
-verified by what reached `inputd`: QEMU runs with `qemu-xhci`, a USB keyboard
+verified by what reached `inputd` (architecture: `docs/architecture/usb.md`): QEMU runs with `qemu-xhci`, a USB keyboard
 and mouse and no i8042, and the judge checks every key edge `inputd` saw came
 from `usbd` and that the descriptors are QEMU's. See `tools/usb/README.md`.
 
@@ -182,6 +182,7 @@ python tools/usb/run.py                  # build (LAZYOS_SERVICES=1 LAZYOS_USB=1
 python tools/usb/run.py --ps2            # PS/2 and USB side by side
 python tools/usb/run.py --hotplug 200    # unplug/replug over QMP: nothing stuck, DMA bounded
 python tools/usb/run.py --tablet         # usb-tablet: report descriptor, absolute cursor
+python tools/usb/run.py --restart        # usbd crashes holding a key: released, restarted, re-enumerated
 python tools/usb/test_judge.py           # the judge fails when it should
 cargo test -p usbhid -p xhci             # descriptor/report parsers and xHCI rings (host)
 ```
