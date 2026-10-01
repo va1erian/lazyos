@@ -192,6 +192,11 @@ impl Netd {
                 pings_sent: c.pings_sent,
                 pings_answered: c.pings_answered,
                 pings_timed_out: c.pings_timed_out,
+                // Name lookups arrive with the DNS half of N3; the fields
+                // exist so the wire shape is final.
+                lookups_sent: 0,
+                lookups_answered: 0,
+                lookups_failed: 0,
             },
         })
         .map_err(MsgError::Parcel)
