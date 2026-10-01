@@ -9,6 +9,7 @@
 
 use super::*;
 
+mod class_map;
 mod fixture;
 mod irq;
 mod irq_edge;
@@ -27,6 +28,7 @@ mod sys_teardown;
 mod table_core;
 
 pub(super) const CORE: &[(&str, Test)] = table_core::CASES;
+pub(super) const CLASS_MAP: &[(&str, Test)] = class_map::CASES;
 pub(super) const IRQ: &[(&str, Test)] = irq::CASES;
 pub(super) const IRQ_EDGE: &[(&str, Test)] = irq_edge::CASES;
 pub(super) const IRQ_REAL: &[(&str, Test)] = irq_real::CASES;
