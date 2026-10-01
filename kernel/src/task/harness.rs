@@ -176,9 +176,7 @@ pub fn next_runnable() -> usize {
 pub fn simulate_tick() -> usize {
     let mut tasks = TASKS.lock();
     let cur = super::current();
-    if let Some(task) = tasks[cur].as_mut() {
-        task.cpu_ticks = task.cpu_ticks.saturating_add(1);
-    }
+    super::schedule::charge_tick(&mut tasks, cur);
     // Same flagging the real tick does (issue #133): finished parentless
     // tasks are handed to `reclaim_pending`, the current one only when the
     // tick actually switches away from it.
