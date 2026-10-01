@@ -5,10 +5,9 @@
   {"key": "r", "until": "SYSMON:REFRESH:PASS", "timeout": 60, "retries": 2},
   {"wait": 2.0},
   {"shot": "sysmon_refreshed"},
-  {"key": "s", "until": "SYSMON:VIEW:services", "timeout": 60, "retries": 2},
-  {"wait_for": "SYSMON:SERVICES:PASS", "timeout": 90},
+  {"key": "s", "until": "SYSMON:SERVICES:NONE", "timeout": 60, "retries": 2},
   {"wait": 1.0},
-  {"shot": "sysmon_services"},
+  {"shot": "sysmon_services_unavailable"},
   {"key": "o", "until": "SYSMON:VIEW:overview", "timeout": 60, "retries": 2},
   {"key": "q", "until": "SYSMON:QUIT:PASS", "timeout": 60, "retries": 2},
   {"quit": true}
