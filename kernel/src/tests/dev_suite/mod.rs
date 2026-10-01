@@ -25,6 +25,7 @@ mod sys_guard;
 mod sys_ops;
 mod sys_policy;
 mod sys_teardown;
+mod sys_usb_policy;
 mod table_core;
 
 pub(super) const CORE: &[(&str, Test)] = table_core::CASES;
@@ -38,6 +39,7 @@ pub(super) const SYSCALL_CFG: &[(&str, Test)] = sys_cfg::CASES;
 pub(super) const SYSCALL_GUARD: &[(&str, Test)] = sys_guard::CASES;
 pub(super) const SYSCALL_OPS: &[(&str, Test)] = sys_ops::CASES;
 pub(super) const SYSCALL_POLICY: &[(&str, Test)] = sys_policy::CASES;
+pub(super) const SYSCALL_USB_POLICY: &[(&str, Test)] = sys_usb_policy::CASES;
 pub(super) const TEARDOWN: &[(&str, Test)] = sys_teardown::CASES;
 pub(super) const DMA: &[(&str, Test)] = sys_dma::CASES;
 pub(super) const DMA_LIFE: &[(&str, Test)] = sys_dma_life::CASES;

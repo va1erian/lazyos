@@ -97,11 +97,24 @@ struct Driver {
     /// to come up): left alone until it is unplugged.
     skipped: Vec<u8>,
     trace: bool,
+    /// The restart test (`LAZYOS_USB_CRASH_TEST`): exit after publishing the
+    /// first key press, holding it.
+    crash_on_key: bool,
 }
 
 #[no_mangle]
 pub extern "C" fn _start() -> ! {
     sys::write_str("usbd: USB HID driver\n");
+    // The identity the kernel stamped on this task: `_usb` with only
+    // `CAP_DEV_CLAIM | CAP_INPUT_SOURCE` under `init`.
+    let mut cred = sys::Cred::default();
+    match sys::cred_get(None, &mut cred) {
+        Ok(()) => sys::write_str(&format!(
+            "USBD:CRED uid={} caps={:#x}\n",
+            cred.uid, cred.caps
+        )),
+        Err(errno) => sys::write_str(&format!("USBD:CRED unavailable (errno {errno})\n")),
+    }
     match run() {
         Ok(()) => sys::exit(0),
         Err(Error::NoController) => {
@@ -116,14 +129,35 @@ pub extern "C" fn _start() -> ! {
     }
 }
 
-fn trace_enabled() -> bool {
-    let mut buf = [0u8; 64];
-    let len = sys::service_args(&mut buf);
-    let args = core::str::from_utf8(&buf[..len.min(buf.len())]).unwrap_or("");
-    args.split_whitespace().any(|arg| arg == "trace=1")
+/// The service arguments `init` passed: `trace=1`, and the `attempt=<n>` it
+/// appends to every spawn.
+struct Args {
+    trace: bool,
+    attempt: u32,
+}
+
+impl Args {
+    fn from_service() -> Args {
+        let mut buf = [0u8; 64];
+        let len = sys::service_args(&mut buf);
+        let text = core::str::from_utf8(&buf[..len.min(buf.len())]).unwrap_or("");
+        let mut args = Args {
+            trace: false,
+            attempt: 1,
+        };
+        for arg in text.split_whitespace() {
+            match arg.split_once('=') {
+                Some(("trace", "1")) => args.trace = true,
+                Some(("attempt", n)) => args.attempt = n.parse().unwrap_or(1),
+                _ => {}
+            }
+        }
+        args
+    }
 }
 
 fn run() -> Result<(), Error> {
+    let args = Args::from_service();
     let hc = Hc::open()?;
     let info = hc.info;
     sys::write_str(&format!(
@@ -134,7 +168,8 @@ fn run() -> Result<(), Error> {
         hc,
         bound: Vec::new(),
         skipped: Vec::new(),
-        trace: trace_enabled(),
+        trace: args.trace,
+        crash_on_key: cfg!(lazyos_usb_crash_test) && args.attempt == 1,
     };
     // A device present at boot is handled like one plugged in later.
     for port in 1..=info.ports {
@@ -193,7 +228,14 @@ impl Driver {
         let entry = &mut self.bound[index];
         match entry.device.take_report(event, &mut report) {
             Some(len) => {
-                entry.hid.report(&report[..len], self.trace);
+                let pressed = entry.hid.report(&report[..len], self.trace);
+                if pressed && self.crash_on_key {
+                    // The kernel releases the key on our death; `init`
+                    // restarts us, and the controller is reset and every
+                    // device re-enumerated.
+                    sys::write_str("USBD:CRASH:TEST exiting with a key held\n");
+                    sys::exit(3);
+                }
                 if entry.device.queue_reports(&mut self.hc).is_ok() {
                     return;
                 }

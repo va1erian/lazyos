@@ -1,0 +1,11 @@
+[package]
+name = "usbpolicy"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "The access-control rules of the USB HID driver: which system uid may claim a USB host controller"
+license = "GPL-3.0-or-later"
+
+[lib]
+name = "usbpolicy"
+path = "src/lib.rs"

@@ -1,18 +1,20 @@
 # Plan: basic USB HID support (keyboard, mouse, tablet) with pointer handling in `inputd`
 
-> **Status: in progress, revision 2 (2026-10-01).** P0 (pointer records and
+> **Status: implemented, revision 2 (2026-10-01).** P0 (pointer records and
 > tail merging on the raw bus, the PS/2 mouse tap), P1 (`inputmap::Pointer`,
 > `inputd` pointer glue, `SetBounds`/`GetPointer`/`PointerEvent`), P2 (`xuid`
 > takes the pointer from `inputd`, falling back to the kernel stream while
 > `inputd` is away), U0 (`libs/usbhid`, `libs/xhci`), U1 (input sources on
 > syscall 25, `CAP_INPUT_SOURCE`), U2 (`usbd`: boot keyboards and mice on
 > `qemu-xhci`, `tools/usb/run.py`) and U3 (hot-plug: port-status-change
-> events, detach with Disable Slot, per-slot DMA reuse, `run.py --hotplug`)
-> and U4 (`libs/usbhid::report`: report descriptors, `usb-tablet` as
-> `ABS_MOTION`, `run.py --tablet`) are implemented; U5 (supervision, `usbctl`,
-> `docs/architecture/usb.md`) is not. U4 checks the cursor on `inputd`'s
-> default 1280x720 screen; positions at other sizes are the `inputmap` scaling
-> its host tests already cover. Builds on
+> events, detach with Disable Slot, per-slot DMA reuse, `run.py --hotplug`),
+> U4 (`libs/usbhid::report`: report descriptors, `usb-tablet` as
+> `ABS_MOTION`, `run.py --tablet`) and U5 (the `os.kernel.dev.usb` class and
+> `libs/usbpolicy`, `run.py --restart`, q35 variant, `USBD:CRED`,
+> [architecture/usb.md](architecture/usb.md)) are implemented. Left out: the
+> optional `usbctl`/`idl/usb.midl`. U4 checks the cursor on `inputd`'s
+> default 1280x720 screen; other sizes are the `inputmap` scaling its host
+> tests cover. The plan's `usb-hid.yml` is `.github/workflows/usb.yml`. Builds on
 > [input-plan.md](input-plan.md) (the raw event bus, `inputd`) and
 > [driver-plan.md](driver-plan.md) (the device core, userspace drivers). It
 > lists USB as a non-goal of the driver plan; this plan lifts that for HID only.
@@ -322,11 +324,15 @@ the guest *did*, not that a marker printed:
 10. **Input drivers and the scheduler** (found in U2). USB input is polled, so
     a driver starved of CPU loses input a PS/2 IRQ would not: QEMU's
     `usb-kbd` queues 16 keycodes, and under TCG each keystroke's console
-    redraw kept `usbd` (Normal class) off the CPU for about a second. Classes
-    are strict, so simply making input drivers `Interactive` would let a
-    hostile device that floods reports starve `inputd`; the fix wants a
-    driver class with a CPU budget, or `usbd` interrupt-driven so it only runs
-    when the controller has something. Under KVM the effect does not show.
+    redraw kept `usbd` (Normal class) off the CPU for about a second. KVM
+    showed it too: a CI run lost three key edges with `usbd` waiting 7-8
+    ticks per report behind the Interactive console. **Resolved:**
+    registering an input source raises the driver to `Interactive` (the
+    console's class, never above it). The flood risk of a strict class is
+    bounded instead of removed: every interrupt endpoint is polled at most
+    once per millisecond (`xhci::regs::MIN_INTERRUPT_INTERVAL`), and every
+    source is rate-limited by the kernel. A driver class with a CPU budget,
+    or an interrupt-driven `usbd`, remains the better long-term answer.
 11. **Naming.** `input.source` vs a per-class split is a judgement call to
     settle with the security-model owner before U1 lands.
 

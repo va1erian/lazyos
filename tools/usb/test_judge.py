@@ -181,5 +181,50 @@ class Tablet(unittest.TestCase):
         self.assertFails(log + "INPUTD:POINTER x=640 y=180 buttons=0x1 wheel=0,0\n")
 
 
+def restart_log() -> str:
+    """A passing `run.py --restart` log."""
+    bind = [
+        judge.USB_CRED,
+        "USBD:HID:KBD port=5 slot=1 vendor=0x0627 product=0x0001 interface=0 dci=3 regions=1",
+        "USBD:HID:MOUSE port=6 slot=2 vendor=0x0627 product=0x0001 interface=0 dci=3 regions=2",
+        "USBD:READY devices=2",
+    ]
+    lines = bind + [
+        "USBD:KEY usage=0x1b down",
+        "INPUTD:KEY code=0x1b sym=0x78 mods=0x40 down",
+        "USBD:CRASH:TEST exiting with a key held",
+        "INPUTD:KEY code=0x1b sym=0x78 mods=0x40 up",
+        "INIT:RESTART:PASS name=usbd status=3 attempt=1 delay=10",
+    ] + bind
+    for usage, sym in ((0x04, 0x61), (0x05, 0x62), (0x06, 0x63)):
+        for state in ("down", "up"):
+            lines.append(f"USBD:KEY usage={usage:#x} {state}")
+            lines.append(f"INPUTD:KEY code={usage:#x} sym={sym:#x} mods=0x40 {state}")
+    return "\n".join(lines) + "\n"
+
+
+class Restart(unittest.TestCase):
+    def test_good_log_passes(self):
+        self.assertEqual(judge.judge_restart(restart_log()), [])
+
+    def assertFails(self, log):
+        self.assertNotEqual(judge.judge_restart(log), [], "the judge passed a bad log")
+
+    def test_no_crash_or_restart(self):
+        self.assertFails(restart_log().replace("USBD:CRASH:TEST", "USBD:NOTHING"))
+        self.assertFails(restart_log().replace("INIT:RESTART:PASS name=usbd", "INIT:RESTART:PASS name=sndd"))
+
+    def test_held_key_not_released(self):
+        self.assertFails(restart_log().replace("INPUTD:KEY code=0x1b sym=0x78 mods=0x40 up\n", ""))
+
+    def test_not_rebound_or_wrong_identity(self):
+        log = restart_log()
+        self.assertFails(log[: log.rfind("USBD:READY")])
+        self.assertFails(log.replace(judge.USB_CRED, "USBD:CRED uid=0 caps=0xffffffff", 1))
+
+    def test_typing_after_restart(self):
+        self.assertFails(restart_log().replace("code=0x6 sym=0x63 mods=0x40 down", "code=0x7 sym=0x64 mods=0x40 down"))
+
+
 if __name__ == "__main__":
     unittest.main()

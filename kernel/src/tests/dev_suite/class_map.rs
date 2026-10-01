@@ -1,8 +1,9 @@
 //! PCI class codes to ACL device classes (`dev::class::class_of`): the class a
 //! driver's claim is authorized against. `usbd` claims the xHCI controller
-//! (`0C/03/30`, docs/usb-hid-plan.md U2), which must land in `serial` with
-//! every other serial-bus controller and never in a class another driver's
-//! rules already cover.
+//! (`0C/03/30`, docs/usb-hid-plan.md U2), which lands in `usb` with every
+//! other USB host controller (U5): a class of its own, so `_usb`'s rule grants
+//! exactly those, never another serial-bus function or another driver's
+//! devices.
 
 use super::*;
 use crate::dev::class::{self, class_of};
@@ -24,20 +25,18 @@ fn info(class_code: u8, subclass: u8, prog_if: u8) -> DeviceInfo {
     }
 }
 
-/// xHCI, EHCI, UHCI and OHCI (`0C/03/xx`) are all `serial`, as is any other
-/// serial-bus function; audio, network and storage keep their own classes.
-pub fn usb_controllers_are_serial() -> Result<(), String> {
+/// xHCI, EHCI, UHCI and OHCI (`0C/03/xx`) are all `usb`; every other
+/// serial-bus function stays `serial`; audio, network and storage keep their
+/// own classes.
+pub fn usb_controllers_are_usb() -> Result<(), String> {
     for prog_if in [0x00, 0x10, 0x20, 0x30, 0xFE] {
         let got = class_of(&info(0x0C, 0x03, prog_if)).name;
-        check!(
-            got == class::SERIAL.name,
-            "USB prog-if {prog_if:#x} -> {got}"
-        );
+        check!(got == class::USB.name, "USB prog-if {prog_if:#x} -> {got}");
     }
-    check!(
-        class_of(&info(0x0C, 0x05, 0)).name == "serial",
-        "SMBus is not serial"
-    );
+    for subclass in [0x00, 0x04, 0x05, 0x80] {
+        let got = class_of(&info(0x0C, subclass, 0)).name;
+        check!(got == class::SERIAL.name, "0C/{subclass:#x} -> {got}");
+    }
     for (code, sub, want) in [
         (0x04, 0x03, class::AUDIO.name),
         (0x02, 0x00, class::NET.name),
@@ -48,14 +47,16 @@ pub fn usb_controllers_are_serial() -> Result<(), String> {
         check!(got == want, "{code:#x}/{sub:#x} -> {got}, want {want}");
     }
     check!(
-        class::SERIAL.interface == "os.kernel.dev.serial",
-        "serial interface name {}",
-        class::SERIAL.interface
+        class::USB.interface == "os.kernel.dev.usb",
+        "usb interface name {}",
+        class::USB.interface
+    );
+    check!(
+        class::USB.interface_id != class::SERIAL.interface_id,
+        "usb and serial share an interface id"
     );
     Ok(())
 }
 
-pub(super) const CASES: &[(&str, Test)] = &[(
-    "dev_class_usb_controllers_are_serial",
-    usb_controllers_are_serial,
-)];
+pub(super) const CASES: &[(&str, Test)] =
+    &[("dev_class_usb_controllers_are_usb", usb_controllers_are_usb)];

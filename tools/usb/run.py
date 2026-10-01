@@ -19,6 +19,8 @@ notches. The verdict:
     python tools/usb/run.py --accel none     # force TCG (paces input for a slow guest)
     python tools/usb/run.py --hotplug 200    # U3: unplug/replug cycles over QMP
     python tools/usb/run.py --tablet         # U4: a usb-tablet instead of the mouse
+    python tools/usb/run.py --restart        # U5: usbd dies holding a key, init restarts it
+    python tools/usb/run.py --machine q35 --virtio-disk   # U5: on q35 (virtio-blk boot disk)
 
 `--hotplug N` (docs/usb-hid-plan.md U3) unplugs and replugs the keyboard N
 times (the mouse every tenth cycle) with QMP `device_del`/`device_add`. The
@@ -86,6 +88,21 @@ def tablet_steps(pace: float) -> list[dict]:
     ]
 
 
+def restart_steps(pace: float) -> list[dict]:
+    """Hold `x`: the crash-test build of usbd exits right after publishing it.
+    Wait for init to restart usbd and the devices to come back, then type."""
+    steps: list[dict] = [
+        {"key_down": "x"},
+        {"wait_for": "INIT:RESTART:PASS name=usbd", "timeout": 120},
+        {"wait_for": "USBD:READY", "occurrence": 2, "timeout": 300},
+        {"wait": max(pace, 1.0)},
+        {"key_up": "x"},
+    ]
+    for key in HOTPLUG_KEYS:
+        steps += [{"wait": max(pace, 0.5)}, {"key": key}]
+    return steps + [{"wait_for": r"INPUTD:KEY code=0x6 \S+ \S+ up", "regex": True, "timeout": 120}]
+
+
 #: Keys typed on the keyboard after the last replug (usages a, b, c).
 HOTPLUG_KEYS = ["a", "b", "c"]
 
@@ -125,10 +142,13 @@ def hotplug_steps(cycles: int, pace: float) -> list[dict]:
     return steps + [{"wait_for": r"INPUTD:KEY code=0x6 \S+ \S+ up", "regex": True, "timeout": 120}]
 
 
-def build() -> None:
+def build(crash_test: bool = False) -> None:
     # LAZYOS_USB_TRACE: usbd echoes key edges for the judge (test images only).
     env = dict(os.environ, LAZYOS_SERVICES="1", LAZYOS_USB="1", LAZYOS_USB_TRACE="1")
-    print("building: LAZYOS_SERVICES=1 LAZYOS_USB=1 LAZYOS_USB_TRACE=1 cargo build", flush=True)
+    # Always set, so a plain build after a --restart one drops the crash.
+    env["LAZYOS_USB_CRASH_TEST"] = "1" if crash_test else "0"
+    print("building: LAZYOS_SERVICES=1 LAZYOS_USB=1 LAZYOS_USB_TRACE=1 "
+          f"LAZYOS_USB_CRASH_TEST={int(crash_test)} cargo build", flush=True)
     result = subprocess.run(["cargo", "build"], cwd=ROOT, env=env)
     if result.returncode != 0:
         sys.exit("cargo build failed")
@@ -156,7 +176,10 @@ def stretch_repeat_hold(steps: list[dict]) -> None:
 
 
 def session_script(mouse: bool, pace: float, settle: float, slow: bool, hotplug: int,
-                   tablet: bool = False) -> list[dict]:
+                   tablet: bool = False, restart: bool = False) -> list[dict]:
+    if restart:
+        ready = [{"wait_for": "USBD:READY", "timeout": 600}, {"wait": settle}]
+        return ready + restart_steps(pace) + [{"quit": True}]
     if hotplug:
         ready = [{"wait_for": "USBD:READY", "timeout": 600}, {"wait": settle}]
         return ready + hotplug_steps(hotplug, pace) + [{"quit": True}]
@@ -186,6 +209,11 @@ def main() -> int:
     parser.add_argument("--timeout", type=float, default=1200.0)
     parser.add_argument("--pace", type=float, help="shortest wait between keys, seconds")
     parser.add_argument("--settle", type=float, help="seconds to wait after USBD:READY")
+    parser.add_argument("--restart", action="store_true",
+                        help="usbd exits holding a key; init restarts it (U5, crash-test build)")
+    parser.add_argument("--machine", help="QEMU machine type, e.g. q35 (default: pc)")
+    parser.add_argument("--virtio-disk", action="store_true",
+                        help="boot disk on virtio-blk (needed on q35, which has no IDE the kernel drives)")
     parser.add_argument("--tablet", action="store_true",
                         help="a usb-tablet instead of the usb-mouse (U4)")
     parser.add_argument("--hotplug", type=int, default=0, metavar="N",
@@ -196,20 +224,27 @@ def main() -> int:
     settle = args.settle if args.settle is not None else (120.0 if slow else 3.0)
     mouse = not args.no_mouse or args.hotplug > 0
     if not args.no_build:
-        build()
+        build(crash_test=args.restart)
     args.out.mkdir(parents=True, exist_ok=True)
     script = args.out / "session.json"
-    script.write_text(json.dumps(session_script(mouse, pace, settle, slow, args.hotplug, args.tablet), indent=1))
+    script.write_text(json.dumps(session_script(mouse, pace, settle, slow, args.hotplug, args.tablet, args.restart), indent=1))
     extra = ["-device", "qemu-xhci", "-device", "usb-kbd,id=kbd"]
     if args.tablet:
         extra += ["-device", "usb-tablet,id=tablet"]
     elif mouse:
         extra += ["-device", "usb-mouse,id=mouse"]
+    machine = args.machine or "pc"
     if not args.ps2:
-        extra = ["-machine", "pc,i8042=off"] + extra
+        machine += ",i8042=off"
+    extra = ["-machine", machine] + extra
+    image = ["--image", str(args.image)]
+    if args.virtio_disk:
+        image = []
+        extra += ["-drive", f"if=none,id=d0,format=raw,file={args.image.resolve().as_posix()}",
+                  "-device", "virtio-blk-pci,drive=d0,disable-modern=on"]
     command = [
         sys.executable, str(ROOT / "tools/screenshot/qemu_session.py"),
-        "--image", str(args.image), "--out", str(args.out), "--script", str(script),
+        *image, "--out", str(args.out), "--script", str(script),
         "--accel", args.accel, "--timeout", str(args.timeout),
         "--fail-on", "USBD:(FATAL|PANIC)",
     ] + [f"--extra-arg={arg}" for arg in extra]
@@ -222,11 +257,13 @@ def main() -> int:
     verdicts = [session.returncode == 0]
     if session.returncode != 0:
         print(f"FAIL: the session failed (exit {session.returncode}); see {args.out}/summary.json")
-    if not args.hotplug:
+    if not (args.hotplug or args.restart):
         trace = subprocess.run([sys.executable, str(ROOT / "tools/input/verify_trace.py"), str(log), "--layout", "us"])
         verdicts.append(trace.returncode == 0)
     judge = [sys.executable, str(Path(__file__).parent / "judge.py"), str(log)]
-    if args.hotplug:
+    if args.restart:
+        judge.append("--restart")
+    elif args.hotplug:
         judge += ["--hotplug", str(args.hotplug)]
     elif args.tablet:
         judge.append("--tablet")
