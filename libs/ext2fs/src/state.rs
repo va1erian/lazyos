@@ -18,29 +18,23 @@ use core::sync::atomic::Ordering;
 use super::*;
 
 impl Ext2 {
-    /// Log what the previous stop left behind. A mount never repairs anything
-    /// (no fsck here); it only makes the situation visible.
-    pub(super) fn report_mount_state(device: &str, state: u16) {
-        if state & STATE_VALID == 0 {
-            crate::serial_println!("ext2: {device} was not cleanly unmounted (unclean stop)");
-        }
-        if state & STATE_ERROR != 0 {
-            crate::serial_println!("ext2: {device} has recorded filesystem errors");
-        }
-    }
-
-    /// Whether the volume was flagged clean when it was mounted.
-    #[cfg_attr(not(lazyos_tests), allow(dead_code))] // diagnostics/tests
+    /// Whether the volume was flagged clean when it was mounted. A mount never
+    /// repairs anything (no fsck here); the host decides how to report it.
     pub fn was_clean_at_mount(&self) -> bool {
         self.mount_state & STATE_VALID != 0
     }
 
+    /// Whether the superblock carried recorded filesystem errors when mounted.
+    pub fn had_errors_at_mount(&self) -> bool {
+        self.mount_state & STATE_ERROR != 0
+    }
+
     /// Persist `s_state = state` (and the write time) in the superblock.
-    fn store_state(&self, state: u16) -> Result<(), FsError> {
+    fn store_state(&self, state: u16) -> Result<(), Ext2Error> {
         let mut raw = [0u8; 1024];
         self.read_super_raw(&mut raw)?;
         put16(&mut raw, SB_STATE, state);
-        put32(&mut raw, SB_WTIME, now());
+        put32(&mut raw, SB_WTIME, self.now());
         self.write_super_raw(&raw)
     }
 
@@ -50,13 +44,13 @@ impl Ext2 {
     /// so the superblock write below does not re-enter this path, and flips
     /// back if the marker cannot be made durable: then the mutation that
     /// asked for it fails instead of proceeding behind a clean flag.
-    pub(super) fn mark_dirty(&self) -> Result<(), FsError> {
+    pub(super) fn mark_dirty(&self) -> Result<(), Ext2Error> {
         if !self.clean.swap(false, Ordering::Relaxed) {
             return Ok(());
         }
         let marked = self
             .store_state(self.mount_state & !STATE_VALID)
-            .and_then(|()| self.device.flush().map_err(io_error));
+            .and_then(|()| self.io.flush().map_err(io_error));
         if marked.is_err() {
             self.clean.store(true, Ordering::Relaxed);
         }
@@ -68,14 +62,14 @@ impl Ext2 {
     /// The clean marker is written only when this mount had dirtied the volume,
     /// and it restores the state found at mount: a volume that arrived unclean
     /// (or with recorded errors) is not laundered by our own shutdown.
-    pub(super) fn sync_volume(&self) -> Result<(), FsError> {
+    pub(super) fn sync_volume(&self) -> Result<(), Ext2Error> {
         let _guard = self.lock.lock();
-        self.device.flush().map_err(io_error)?; // 1. data and metadata durable
+        self.io.flush().map_err(io_error)?; // 1. data and metadata durable
         if self.read_only || self.clean.load(Ordering::Relaxed) {
             return Ok(()); // nothing of ours to vouch for
         }
         self.store_state(self.mount_state)?; // 2. the clean marker...
-        self.device.flush().map_err(io_error)?; // 3. ...made durable
+        self.io.flush().map_err(io_error)?; // 3. ...made durable
         self.clean
             .store(self.mount_state & STATE_VALID != 0, Ordering::Relaxed);
         Ok(())

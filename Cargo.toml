@@ -71,6 +71,10 @@ members = [
     # Every well-known path and boot-volume file name, defined once
     # (docs/filesystem-plan.md F0); `tools/fhs/check_literals.py` guards it.
     "libs/fhs",
+    # The ext2 driver, formatter and image populator (docs/filesystem-plan.md F2):
+    # `no_std` + `alloc` over a `BlockIo` seam, shared by the kernel and the host
+    # image build, with host tests, a soak and a fuzz entry point.
+    "libs/ext2fs",
 ]
 # The xui app is an ordinary static-musl `std` program with its own workspace:
 # it is built by `tools/xui/build.py` and embedded in the image, never by the

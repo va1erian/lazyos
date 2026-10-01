@@ -11,6 +11,7 @@ use crate::block::SECTOR_SIZE;
 mod config;
 mod flags;
 mod layout;
+mod library_image;
 
 pub(super) const CASES: &[(&str, Test)] = &[
     ("mount_cfg_parses_every_key", config::parses_every_key),
@@ -41,6 +42,10 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("mount_configured_layout_missing_home", layout::missing_home),
     ("mount_readonly_device_root", layout::readonly_device_root),
     ("mount_cycles_soak", layout::mount_cycles_soak),
+    (
+        "mount_library_formatted_root",
+        library_image::library_formatted_root_mounts,
+    ),
 ];
 
 /// A UUID whose bytes are `seed` repeated, with the matching text form.

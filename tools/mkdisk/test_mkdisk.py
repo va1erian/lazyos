@@ -22,7 +22,7 @@ from mkdisk import ext2, geometry, volume  # noqa: E402
 
 MIB = 1 << 20
 ROOT_INO, LOST_FOUND_INO = geometry.ROOT_INO, geometry.LOST_FOUND_INO
-# Layout limits copied from kernel/src/fs/ext2/layout.rs.
+# Layout limits copied from libs/ext2fs/src/layout.rs.
 KERNEL_MAX_GROUPS = 4096
 KERNEL_FEATURE_INCOMPAT = 0x0002
 KERNEL_FEATURE_RO = 0x0001 | 0x0002

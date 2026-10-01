@@ -26,7 +26,7 @@ impl Ext2 {
 
     /// Locate logical block `index`: peel off the direct slots, then walk the
     /// indirect depths, each of which covers `ptrs_per_block` times the last.
-    fn locate(&self, index: u32) -> Result<BlockPath, FsError> {
+    fn locate(&self, index: u32) -> Result<BlockPath, Ext2Error> {
         if index < DIRECT_BLOCKS {
             return Ok(BlockPath {
                 slot: index,
@@ -54,14 +54,14 @@ impl Ext2 {
             rest -= span;
             span *= ptrs;
         }
-        Err(FsError::NoSpace)
+        Err(Ext2Error::NoSpace)
     }
 
-    /// The logical block holding byte `position`, or [`FsError::NotSupported`]
+    /// The logical block holding byte `position`, or [`Ext2Error::NotSupported`]
     /// when the position lies beyond what the block map can address. A plain
     /// `as u32` would silently alias a huge offset onto a low block.
-    pub(super) fn block_index(&self, position: u64) -> Result<u32, FsError> {
-        u32::try_from(position / u64::from(self.block_size)).map_err(|_| FsError::NotSupported)
+    pub(super) fn block_index(&self, position: u64) -> Result<u32, Ext2Error> {
+        u32::try_from(position / u64::from(self.block_size)).map_err(|_| Ext2Error::NotSupported)
     }
 
     /// Resolve logical block `index`; `0` means a hole. Indices beyond the
@@ -70,8 +70,8 @@ impl Ext2 {
         &self,
         inode: &[u8; INODE_CORE_SIZE],
         index: u32,
-    ) -> Result<u32, FsError> {
-        let path = self.locate(index).map_err(|_| FsError::NotSupported)?;
+    ) -> Result<u32, Ext2Error> {
+        let path = self.locate(index).map_err(|_| Ext2Error::NotSupported)?;
         let size = self.block_size as usize;
         let mut table = [0u8; MAX_BLOCK_SIZE];
         let mut block = Self::direct_ptr(inode, path.slot);
@@ -89,11 +89,11 @@ impl Ext2 {
     pub(super) fn add_inode_sectors(
         &self,
         inode: &mut [u8; INODE_CORE_SIZE],
-    ) -> Result<(), FsError> {
+    ) -> Result<(), Ext2Error> {
         let sectors = self.block_size / SECTOR_SIZE as u32;
         let value = le32(inode, INO_BLOCKS)
             .checked_add(sectors)
-            .ok_or(FsError::Invalid)?;
+            .ok_or(Ext2Error::Invalid)?;
         put32(inode, INO_BLOCKS, value);
         Ok(())
     }
@@ -101,7 +101,7 @@ impl Ext2 {
     /// Allocate a block and zero it on disk. Zeroing happens before the block
     /// is linked anywhere (see [`Ext2::zero_block`]); a failure returns the
     /// block so it is not leaked.
-    fn alloc_zeroed(&self) -> Result<u32, FsError> {
+    fn alloc_zeroed(&self) -> Result<u32, Ext2Error> {
         let block = self.alloc_block()?;
         if let Err(error) = self.zero_block(u64::from(block)) {
             let _ = self.free_block(block);
@@ -122,9 +122,9 @@ impl Ext2 {
         &self,
         inode: &mut [u8; INODE_CORE_SIZE],
         index: u32,
-    ) -> Result<(u32, bool), FsError> {
+    ) -> Result<(u32, bool), Ext2Error> {
         if self.read_only {
-            return Err(FsError::ReadOnly);
+            return Err(Ext2Error::ReadOnly);
         }
         let path = self.locate(index)?;
         let mut block = Self::direct_ptr(inode, path.slot);
@@ -149,7 +149,7 @@ impl Ext2 {
         table_block: u32,
         table_is_new: bool,
         offset: u32,
-    ) -> Result<(u32, bool), FsError> {
+    ) -> Result<(u32, bool), Ext2Error> {
         let size = self.block_size as usize;
         let mut table = [0u8; MAX_BLOCK_SIZE];
         if !table_is_new {
@@ -172,10 +172,10 @@ impl Ext2 {
 }
 
 /// How many of `len` bytes written at `offset` fit under [`MAX_FILE_SIZE`]: a
-/// write straddling the cap is short, one wholly past it is [`FsError::NoSpace`].
-pub(super) fn writable_len(offset: u64, len: usize) -> Result<usize, FsError> {
+/// write straddling the cap is short, one wholly past it is [`Ext2Error::NoSpace`].
+pub(super) fn writable_len(offset: u64, len: usize) -> Result<usize, Ext2Error> {
     if offset >= MAX_FILE_SIZE {
-        return Err(FsError::NoSpace);
+        return Err(Ext2Error::NoSpace);
     }
     Ok(len.min((MAX_FILE_SIZE - offset) as usize))
 }

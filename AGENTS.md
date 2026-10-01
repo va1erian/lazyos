@@ -153,6 +153,25 @@ is not compiled. Test-only hooks live behind `cfg(lazyos_tests)`; add new tests
 under `kernel/src/tests/` (`mem_suite` is where allocator-specific tests go). CI
 is `.github/workflows/kernel-tests.yml`; see `tools/test/README.md`.
 
+## ext2 library
+
+The ext2 driver is `libs/ext2fs` (`no_std` + `alloc`, depends only on `spin`), shared by
+the kernel (`kernel/src/fs/ext2.rs` and `ext2/fsimpl.rs` are the adapter) and the host
+image build. It also holds the formatter and populator (`format`, `mkdir_p`,
+`write_file`, `remove_tree`). It is tested on the host over an in-memory `BlockIo`,
+with an independent fsck-style checker (`src/check.rs`), a 1k-cycle soak and a seeded
+fuzz entry point shared with the cargo-fuzz target (`fuzz/fuzz_targets/ext2fs.rs`):
+
+```bash
+cargo test -p ext2fs
+FUZZ_CASES=30000 cargo test -p ext2fs seeded     # a longer seeded soak
+FUZZ_SEED=0x<seed> cargo test -p ext2fs <test>   # replay a printed failing seed
+python fuzz/gen_corpus.py --check                # the checked-in seeds are current
+```
+
+The kernel's `ext2_suite` still runs unchanged against the adapter, and
+`mount_library_formatted_root` mounts a library-made image at `/` through `lazyos.cfg`.
+
 ## Sound harness
 
 The virtio-sound driver (`sndd`) is verified by listening: QEMU records what the

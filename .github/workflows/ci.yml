@@ -67,6 +67,12 @@ jobs:
         run: cargo test -p usbhid -p xhci -p usbpolicy
       - name: Clippy (usbhid and xhci, tests and fuzz entry points)
         run: cargo clippy -p usbhid -p xhci -p usbpolicy --all-targets --features usbhid/fuzz -- -D warnings -D clippy::undocumented_unsafe_blocks
+      - name: ext2 driver, formatter and populator (host tests, soak and seeded fuzz)
+        run: cargo test -p ext2fs
+        env:
+          FUZZ_CASES: "2000"
+      - name: Clippy (ext2fs, tests and fuzz entry point)
+        run: cargo clippy -p ext2fs --all-targets --features fuzz -- -D warnings -D clippy::undocumented_unsafe_blocks
 
   build-and-boot:
     runs-on: ubuntu-latest

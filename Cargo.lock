@@ -293,6 +293,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "ext2fs"
+version = "0.1.0"
+dependencies = [
+ "fuzzkit",
+ "spin",
+]
+
+[[package]]
 name = "fastrand"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -495,6 +503,7 @@ version = "0.1.0"
 dependencies = [
  "bootloader_api",
  "confd",
+ "ext2fs",
  "fhs",
  "font-atlas",
  "lazyos-crypto",

@@ -14,7 +14,7 @@ from .accounts import Account, demo_accounts
 
 MODE_MAX = 0o7777
 # The driver keeps only the low 16 bits of i_uid/i_gid (`check_owner` in
-# kernel/src/fs/ext2/layout.rs refuses more), so the formatter must too.
+# libs/ext2fs/src/layout.rs refuses more), so the formatter must too.
 ID_MAX = 0xFFFF
 NAME_MAX = 255
 STICKY_WORLD_WRITABLE = 0o1777

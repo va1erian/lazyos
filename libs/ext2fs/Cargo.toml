@@ -1,0 +1,22 @@
+[package]
+name = "ext2fs"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Read/write ext2 driver, formatter and image populator over a BlockIo seam, shared by the kernel and the host build"
+license = "GPL-3.0-or-later"
+
+[lib]
+name = "ext2fs"
+path = "src/lib.rs"
+
+[features]
+# Expose `fuzz::run`, the byte-script entry point shared by the in-tree seeded
+# tests and the cargo-fuzz target (`fuzz/`). Needs `std`.
+fuzz = []
+
+[dependencies]
+spin = "0.9"
+
+[dev-dependencies]
+fuzzkit = { path = "../fuzzkit" }
