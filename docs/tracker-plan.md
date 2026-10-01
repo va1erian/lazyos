@@ -133,6 +133,12 @@ Per `AGENTS.md`, audio claims are judged by the recording, not serial markers.
 7. **Screenshot session** for M4 only: `qemu_session.py` script capturing the
    pattern view mid-song.
 
+## Status
+
+- M0 done: `libs/modplay` (27 unit and seeded-fuzz tests, `fuzz/` target, host `render_wav` example).
+- M2 done: `modplay` guest program, `tools/sound/run.py --modplay` verifies the recorded note sequence in QEMU. Loading a module from the VFS (`modplay <path>`) is implemented but only the built-in self-test is covered by the harness until #454 ships a file.
+- M1, M3, M4 open.
+
 ## Phases
 
 | Phase | Deliverable | Depends on |

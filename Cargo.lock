@@ -1067,6 +1067,7 @@ dependencies = [
  "lazyos-crypto",
  "libmessenger",
  "messenger-generated",
+ "modplay",
  "netpolicy",
  "netstack",
  "nicdrv",

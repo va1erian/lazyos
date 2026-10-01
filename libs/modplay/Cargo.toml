@@ -17,3 +17,8 @@ fuzz = []
 
 [dev-dependencies]
 fuzzkit = { path = "../fuzzkit" }
+
+# Writes the guest self-test song (`user/src/bin/modplay/selftest.mod`).
+[[example]]
+name = "gen_selftest"
+required-features = ["fuzz"]
