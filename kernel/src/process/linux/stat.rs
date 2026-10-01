@@ -114,7 +114,7 @@ pub(super) fn fd_attrs(fd: u64) -> Result<Attrs, u64> {
         FdKind::Vfs => super::vfsfd::meta_of(fd).map(|meta| Attrs::of(&meta)),
         FdKind::Terminal => Ok(Attrs::anonymous(S_IFCHR | 0o620, 0, 0)),
         FdKind::Pipe => Ok(Attrs::anonymous(S_IFIFO | 0o600, 0, fd)),
-        FdKind::Socket | FdKind::Listener | FdKind::Unbound => {
+        FdKind::Socket | FdKind::Listener | FdKind::Unbound | FdKind::Inet => {
             Ok(Attrs::anonymous(S_IFSOCK | 0o600, 0, fd))
         }
         // eventfd/epoll fds are anonymous inodes; a regular-file mode is the

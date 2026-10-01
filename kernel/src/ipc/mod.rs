@@ -20,6 +20,7 @@ pub mod credentials;
 pub mod epoll;
 pub mod eventfd;
 pub mod handles;
+pub mod inet;
 pub mod labels;
 pub mod pipe;
 pub mod policy;

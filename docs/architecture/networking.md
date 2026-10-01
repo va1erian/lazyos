@@ -7,13 +7,14 @@ networking: a userspace NIC driver serves `os.lazy.net.nic.v1` over Messenger,
 and a userspace stack service is its only client, exactly as `sndd` and
 `os.lazy.audio.v1` split audio ([`audio.md`](audio.md)).
 
-**Status: stages N0, N1, N2 and N3.** The interface, the frame ring, the virtio-net
+**Status: stages N0 to N5.** The interface, the frame ring, the virtio-net
 wire definitions, the `netdrv` driver, `nicctl`, the packet-capture harness, the
 stack library `netstack`, the stack service `netd`, `netctl` and `ping` are built
 and verified: `ping 10.0.2.2` is answered and the replies are in the capture. N3
 adds TCP and UDP sockets, name lookups, `nc` and `nslookup`: bytes round-trip
 with a host echo server both ways, and the capture agrees with the server
-byte for byte. The `ftp` client (N4) and the Linux `AF_INET` shim (N5) are not built.
+byte for byte. N4 adds the `ftp` client (byte-exact against a host server) and N5 the Linux `AF_INET` shim, so a
+static musl program using only `std::net` talks through the same stack.
 
 **Key files**
 
@@ -493,9 +494,90 @@ harness knows. Tests: `cargo test -p ftpwire`, `python tools/net/test_sockets_pc
 (the checker fails on a flipped byte, a short upload, an injected command, a missing
 FIN, a transfer with no connection, an unrelated connection, bytes the wrong way).
 
+## Linux sockets (N5)
+
+```
+musl / std::net / BusyBox --socket(AF_INET)--> kernel InetSock <-- syscall 27 --> netd --> netstack --> netdrv
+                                        (side B of a small ring pair)   (side A, polled on netd's tick)
+```
+
+Static musl programs issue raw `socket`/`connect`/`sendto` syscalls, so the kernel has
+to front `netd` (docs/networking-plan.md §7.2). This is the plan's option **L2**: the
+kernel holds a socket object whose data path is the existing `SocketPair`, and `netd`
+serves the other side. Per-call proxying (L1) was rejected for four reasons that the
+tree confirmed: `poll`/`epoll` rescan `Fd::poll()` synchronously and could not round-trip
+to a service; `netd` keys sockets by the calling task, so a forked child (which `nc -l -e`,
+`httpd`, `telnetd` and `ftpd` all use) would get `EACCES`; `Fd::drop` cannot block, so a
+`Close` could not be a call; and a blocking call inside a syscall cannot be tested in the
+in-kernel suite, which has no scheduler.
+
+**Where the code is.**
+
+| Path | Role |
+|---|---|
+| `kernel/src/ipc/inet/mod.rs` | The table of up to 64 sockets (id = slot plus generation), the request queue, `reset` |
+| `kernel/src/ipc/inet/sock.rs` | `InetSock`: states, `begin_*`/`finish` for the control calls, accept queue, `poll_gen`, close on drop |
+| `kernel/src/ipc/inet/pump.rs` | What `netd` calls: `next_request`, `complete`, `accepted`, `net_read`, `net_write`, `net_eof`, `net_error`, `close_ack`, and the wire form of a request |
+| `kernel/src/process/inetsys.rs` | Native syscall 27, the userspace face of the pump |
+| `kernel/src/process/linux/inet.rs` | `socket`, `bind`, `connect`, `listen`, `accept`/`accept4`, `shutdown`, `getsockname`/`getpeername`, `sendto`/`recvfrom`, `read`/`write`, `setsockopt`/`getsockopt` for `AF_INET` |
+| `kernel/src/ipc/pipe/small.rs` | 32 KiB rings (the kernel heap is 16 MiB; a socket's pair is 64 KiB, the cap is 128 rings) |
+| `user/src/bin/netd/inet.rs`, `inet/flow.rs`, `user/src/sys/inetpump.rs` | The pump in `netd` and its syscall wrapper |
+| `tools/abi/fixtures/src/netfix.rs` | The Linux `std::net` program the shim is judged by |
+
+**Control calls are requests.** `bind`, `connect` and `listen` queue a request and park on
+the socket's wait queue; `netd` fetches the request (`NEXT`), runs it against the stack, and
+answers (`COMPLETE`) with the status and the addresses the stack chose. A connection's data
+path (a `SOCK_STREAM` pair, or `SOCK_SEQPACKET` for a datagram socket) appears with the
+answer. A non-blocking `connect` returns `EINPROGRESS` and completes in the background,
+reported through `poll` and `SO_ERROR`; an interrupted or timed-out call leaves the request
+running (`EALREADY` on a retry). Connections `netd` accepts are handed in (`ACCEPTED`) and
+wait in the listener's queue (16 at most).
+
+**Bytes.** The application reads and writes side B with the ordinary socket code, so `read`,
+`write`, `poll`, `epoll` (edges included), `dup`, `fork` and `shutdown` need nothing from
+`netd`. `netd` polls side A each tick (the kernel never wakes a service; the loop waits one
+tick when sockets are open or requests queued, five otherwise): up to 16 KiB per socket per
+direction per pass. A datagram socket's messages carry the peer's address in front (6 bytes),
+so `sendto`/`recvfrom` prepend and strip it. Closing the last descriptor queues a close; `netd`
+first sends the bytes the application wrote, then closes the stack socket and acknowledges, and
+the kernel frees the slot only then.
+
+**Authority.** Syscall 27 is for the stack alone: `ATTACH` needs uid 0 or `_netd` (903),
+and every other op needs the attached task. Attaching again (a restarted `netd`) discards every
+socket of the old one: their applications read end of stream and get `EPIPE`.
+
+**Limits and gaps.** Per-call `MSG_DONTWAIT` and `MSG_PEEK` are ignored (the descriptor's
+`O_NONBLOCK` is honoured); `sendmsg`/`recvmsg`, `select` and `ppoll` are not implemented (musl's
+resolver and `std` do not need them here); `setsockopt` accepts the usual options and ignores
+them; `AF_INET6`, raw sockets and netlink are still `EAFNOSUPPORT`; port numbers below 1024 are
+refused by `netd` as for Messenger clients; a `netd` that dies leaves open sockets to see end
+of stream only when the new one attaches; latency is a tick per control step (about 10 ms per
+`connect`) and throughput is bounded by the 16 KiB chunk per tick per direction.
+
+### N5 evidence
+
+* **In-kernel (`LAZYOS_TEST_FILTER=inet`)**: 24 tests under `kernel/src/tests/linux_suite/inet_*.rs`
+  with a fake `netd` standing where a sleeping caller would wait. Correctness: request and state
+  machine, the wire form, the pump's authority and hostile input (stale ids, calls out of order,
+  bad pointers), every syscall's argument checks, a TCP client and a refused connection, a
+  non-blocking connect (success and failure), listen/accept/accept4, the bounded accept queue,
+  datagrams (addresses, truncation, connected UDP), `poll` and edge-triggered `epoll`, socket
+  options, `dup` and `close`. Stress: 3 000 connect/exchange/close rounds, 5 000 datagrams of every
+  length, a megabyte each way through the 32 KiB rings byte for byte, a close right after a write,
+  a `netd` restart with sockets open, and six seeds of 2 000 random calls with bounds checked at
+  every step; each test ends by checking that no descriptor, socket slot, queued request or ring
+  was left.
+* **End to end (`python tools/net/run.py --netd`)**: `netd demo=1` runs `linux:NETFIX.ELF`, a static
+  musl Rust program using only `std::net`: a 200 000-byte echo through a duplicated socket and a
+  half-close, a timed (non-blocking) connect, a connect that must fail, address queries, 22 UDP
+  echoes including the 1472-byte limit, and a server that accepts a connection the harness opens
+  through a port forward and echoes 100 000 bytes. The capture is judged with the same checks as
+  the native tools: the extra TCP flows and datagrams are in the server's record byte for byte, and
+  the inbound connection carries the harness's bytes both ways.
+
 ## Not done
 
-The Linux `AF_INET` shim (N5); per-profile tightening of the
+BusyBox `nc`/`wget`/`ftpget` as clients of the shim (no BusyBox in the local build; the CI bench has one), `/etc/resolv.conf` and `/etc/hosts` for musl's resolver, sockets used from a second thread (the shim gives a thread a descriptor table of its own: `thread::spawn` after `socket` cannot share it), `sendmsg`/`recvmsg`/`select`/`ppoll`, `MSG_DONTWAIT`/`MSG_PEEK`, a kernel wake-up for `netd` instead of its tick; per-profile tightening of the
 socket rules and a policy loader (the ACL refuses nothing today, so `Renew` and
 `Reattach` are callable by anyone); `CAP_NET_BIND` (nobody binds a port below
 1024) and `CAP_NET_RAW`; loopback (a socket cannot connect to this machine's own

@@ -242,8 +242,15 @@ pub fn run() -> ! {
 
     let mut pass = 0usize;
     let mut fail = 0usize;
+    // `LAZYOS_TEST_FILTER=inet cargo build` (or `tools/test/run.py` with the
+    // variable set) runs only the tests whose name contains the text, for a
+    // quick turn while working on one subsystem. Unset, everything runs.
+    let filter = option_env!("LAZYOS_TEST_FILTER").unwrap_or("");
     for suite in SUITE {
         for (name, test) in *suite {
+            if !name.contains(filter) {
+                continue;
+            }
             match test() {
                 Ok(()) => {
                     pass += 1;

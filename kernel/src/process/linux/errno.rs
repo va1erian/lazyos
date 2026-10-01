@@ -27,6 +27,7 @@ pub(super) const EINTR: u64 = 4;
 pub(super) const ETIMEDOUT: u64 = 110;
 pub(super) const EMFILE: u64 = 24;
 pub(super) const ENOTSOCK: u64 = 88;
+pub(super) const ENOPROTOOPT: u64 = 92;
 pub(super) const EMSGSIZE: u64 = 90;
 pub(super) const EAFNOSUPPORT: u64 = 97;
 pub(super) const EADDRINUSE: u64 = 98;

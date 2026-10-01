@@ -6,7 +6,7 @@
 use crate::task;
 use crate::user_ptr;
 
-use super::errno::{err, EINVAL, ENOTTY};
+use super::errno::{err, EBADF, EFAULT, EINVAL, ENOTTY};
 
 pub(super) fn sys_arch_prctl(code: u64, addr: u64) -> u64 {
     match code {
@@ -42,6 +42,26 @@ pub(super) fn sys_ioctl(fd: u64, request: u64, arg: u64) -> u64 {
             0
         }
         0x5410 => 0, // TIOCSPGRP
+        0x5421 => {
+            // FIONBIO: the nonblocking switch std::net uses on sockets and pipes
+            // (`set_nonblocking`), the ioctl twin of `fcntl(F_SETFL, O_NONBLOCK)`.
+            let Ok(on) = user_ptr::try_read::<i32>(arg) else {
+                return err(EFAULT);
+            };
+            if task::fd_set_status(fd as usize, on != 0) {
+                0
+            } else {
+                err(EBADF)
+            }
+        }
+        0x5451 | 0x5450 => {
+            // FIOCLEX / FIONCLEX: set or clear close-on-exec.
+            if task::fd_set_cloexec(fd as usize, request == 0x5451) {
+                0
+            } else {
+                err(EBADF)
+            }
+        }
         0x5413 => {
             // TIOCGWINSZ: 24 rows x 80 columns.
             // Safety: user `struct winsize` (the syscall ABI's contract).

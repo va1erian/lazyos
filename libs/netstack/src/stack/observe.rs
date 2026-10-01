@@ -23,6 +23,22 @@ impl Stack {
         *self.socks.counters()
     }
 
+    /// Give socket `id` to `new_owner` (the kernel `AF_INET` pump learns a
+    /// connection's final owner only after it has been accepted). Refused when
+    /// `new_owner` is at its quota.
+    pub fn socket_chown(
+        &mut self,
+        id: u32,
+        owner: u64,
+        new_owner: u64,
+    ) -> Result<(), super::SockError> {
+        if owner != new_owner {
+            self.socks.check_quota(new_owner)?;
+        }
+        self.socks.entry(id, owner)?.owner = new_owner;
+        Ok(())
+    }
+
     /// Who owns at least one socket, each once.
     pub fn socket_owners(&self) -> alloc::vec::Vec<u64> {
         self.socks.owners()
