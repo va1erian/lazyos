@@ -165,7 +165,7 @@ class BuildTests(unittest.TestCase):
             (xui / "xui-counter.elf").write_bytes(b"\x7fELF stand-in")
             out = Path(tmp) / "pkg"
             archive = build_samples.build_sample("counter", xui, out)
-            self.assertEqual(archive.name, "COUNTER.LZP")
+            self.assertEqual(archive.name, "PKGDEMO.LZP")
             with zipfile.ZipFile(archive) as zf:
                 names = set(zf.namelist())
                 manifest = tomllib.loads(zf.read("manifest.toml").decode("utf-8"))

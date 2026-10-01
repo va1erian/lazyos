@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Build the sample packages the disk image ships (`COUNTER.LZP`).
+"""Build the sample packages the disk image ships (`PKGDEMO.LZP`).
 
 A sample is a source tree under `tools/pkg/samples/<name>/` whose binary is not
 checked in: this copies the built program into a scratch copy of the tree,
 builds the archive with `tools/pkg/build.py` (the same checks the OS reader
 makes) and writes it as an 8.3 name under `target/pkg/`, where the root
 `build.rs` picks it up and embeds it in the FAT boot volume. The file is
-installed from the Terminal with `pkgctl install /COUNTER.LZP`.
+installed from the Terminal with `pkgctl install /PKGDEMO.LZP`.
 
 `tools/xui/build.py` runs this after building the xui apps (the Counter ELF is
 one of them); run it by hand after a `cargo build` of `xui-app` only if you do
@@ -34,7 +34,7 @@ import build  # noqa: E402
 # name -> (the built program under --xui-dir, where it goes in the package,
 #          the 8.3 name the archive is embedded as)
 SAMPLES = {
-    "counter": ("xui-counter.elf", "bin/counter.elf", "COUNTER.LZP"),
+    "counter": ("xui-counter.elf", "bin/counter.elf", "PKGDEMO.LZP"),
 }
 
 

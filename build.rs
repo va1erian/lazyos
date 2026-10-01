@@ -576,14 +576,14 @@ fn embed_xui_apps(builder: &mut bootloader::DiskImageBuilder, desktop: bool) {
 
 /// Embed the sample `.lzp` packages as 8.3 names in the FAT root, when
 /// `tools/pkg/build_samples.py` produced them (`tools/xui/build.py` runs it
-/// after building the xui apps): `COUNTER.LZP` is the Counter demo as an
-/// installable package, installed with `pkgctl install /COUNTER.LZP`. A missing
+/// after building the xui apps): `PKGDEMO.LZP` is the Counter demo as an
+/// installable package, installed with `pkgctl install /PKGDEMO.LZP`. A missing
 /// sample only means a smaller image, so it warns instead of failing.
 fn embed_sample_packages(builder: &mut bootloader::DiskImageBuilder) {
     let dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("manifest dir"))
         .join("target")
         .join("pkg");
-    for disk_name in ["COUNTER.LZP"] {
+    for disk_name in ["PKGDEMO.LZP"] {
         let path = dir.join(disk_name);
         // Tracked even when missing, so building it later is picked up.
         println!("cargo:rerun-if-changed={}", path.display());

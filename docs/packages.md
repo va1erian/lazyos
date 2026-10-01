@@ -234,8 +234,8 @@ has host tests; the service is the thin syscall layer on top.
 installer does:
 
 ```text
-pkgctl inspect /COUNTER.LZP     # what it declares and asks for; changes nothing
-pkgctl install /COUNTER.LZP
+pkgctl inspect /PKGDEMO.LZP     # what it declares and asks for; changes nothing
+pkgctl install /PKGDEMO.LZP
 pkgctl remove org.lazy.counter
 pkgctl list
 ```
@@ -375,7 +375,7 @@ apps after its configured entries, re-read each time it opens.
 (`system_name = "org.lazy.counter"`, `abi = "linux"`, requesting exactly the two
 interfaces the app resolves, `os.lazy.display.v1` and `os.lazy.input.v1`).
 `python tools/pkg/build_samples.py` (run by `tools/xui/build.py`) builds it into
-`target/pkg/COUNTER.LZP`, which the root `build.rs` embeds in the FAT root.
+`target/pkg/PKGDEMO.LZP`, which the root `build.rs` embeds in the FAT root.
 `tools/pkg/make_icons.py` generates its icons. The visual check is
 `tools/screenshot/examples/pkg_install.json`.
 

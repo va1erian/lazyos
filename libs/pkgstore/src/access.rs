@@ -134,7 +134,7 @@ mod tests {
 
     #[test]
     fn well_formed_paths() {
-        for good in ["/COUNTER.LZP", "/tmp/a.lzp", "/data/home/alice/a b.lzp"] {
+        for good in ["/PKGDEMO.LZP", "/tmp/a.lzp", "/data/home/alice/a b.lzp"] {
             assert!(well_formed(good), "{good}");
         }
         for bad in [
@@ -162,15 +162,15 @@ mod tests {
     fn a_user_is_confined_to_readable_by_design_places() {
         let home = Some("/data/home/alice");
         for good in [
-            "/COUNTER.LZP",
-            "/tmp/counter.lzp",
-            "/data/home/alice/Downloads/counter.lzp",
+            "/PKGDEMO.LZP",
+            "/tmp/pkgdemo.lzp",
+            "/data/home/alice/Downloads/pkgdemo.lzp",
         ] {
             assert!(source_allowed(&ALICE, home, good).is_ok(), "{good}");
         }
         for bad in [
-            "/data/home/bob/counter.lzp",
-            "/data/home/alicia/counter.lzp",
+            "/data/home/bob/pkgdemo.lzp",
+            "/data/home/alicia/pkgdemo.lzp",
             "/data/home/alice",
             "/data/confd/store",
             "/data/apps/org.lazy.x.y/1.0.0-00000000/manifest.toml",

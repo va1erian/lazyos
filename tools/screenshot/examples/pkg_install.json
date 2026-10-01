@@ -91,7 +91,7 @@
  {
   "at": 0.8,
   "key": "enter",
-  "until": "TERM:CMD:pkgctl inspect /counter.lzp",
+  "until": "TERM:CMD:pkgctl inspect /pkgdemo.lzp",
   "timeout": 30,
   "retries": 2
  },
@@ -126,7 +126,7 @@
  {
   "at": 0.8,
   "key": "enter",
-  "until": "TERM:CMD:pkgctl install /counter.lzp",
+  "until": "TERM:CMD:pkgctl install /pkgdemo.lzp",
   "timeout": 30,
   "retries": 2
  },

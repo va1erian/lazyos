@@ -159,7 +159,7 @@ def build_docs(debug: bool) -> str | None:
 
 
 def build_sample_packages() -> None:
-    """Build the sample `.lzp` packages the image ships (`COUNTER.LZP`).
+    """Build the sample `.lzp` packages the image ships (`PKGDEMO.LZP`).
 
     They are made from the apps just built (`tools/pkg/build_samples.py`) and
     embedded by the root `build.rs`. Output goes to stderr: stdout is the JSON
