@@ -183,7 +183,7 @@ impl Driver {
         }
     }
 
-    /// An interrupt-IN completion: publish the report and queue the next.
+    /// An interrupt-IN completion: publish the report and queue another.
     fn transfer(&mut self, event: &Trb) {
         // Events of a detached slot are already dropped (`release`).
         let Some(index) = self.bound.iter().position(|b| b.device.owns(event)) else {
@@ -194,7 +194,7 @@ impl Driver {
         match entry.device.take_report(event, &mut report) {
             Some(len) => {
                 entry.hid.report(&report[..len], self.trace);
-                if entry.device.queue_report(&mut self.hc).is_ok() {
+                if entry.device.queue_reports(&mut self.hc).is_ok() {
                     return;
                 }
                 self.detach(index, "requeue failed");
