@@ -6,7 +6,8 @@ committed blob. `ensure_busybox()` returns a path to a static
 `x86_64-unknown-linux-musl` binary, preferring, in order:
 
 1. `tools/abi/busybox` — a binary dropped by hand (or by CI) for an offline run;
-2. `target/abi/busybox/busybox` — a cached build from a previous run;
+2. `target/abi/busybox/busybox` — a cached build from a previous run (in a git
+   worktree, the main checkout's cached build is copied here first);
 3. a fresh build from the pinned source tarball, when the host is Linux with
    `musl-gcc` (and the Debian/Ubuntu `linux-libc-dev` headers) available;
 4. the same build inside an Alpine container (Alpine's `gcc` is natively musl),
@@ -65,10 +66,36 @@ and the desktop Terminal / console shell report TERM:SPAWN:FAIL. To fix it, eith
     point LAZYOS_BUSYBOX at it, then re-run `cargo build`."""
 
 
+def _main_checkout_build() -> Path | None:
+    """The main checkout's cached build when this tree is a git worktree, so a
+    fresh worktree reuses it instead of needing musl-gcc or Docker again."""
+    try:
+        common = subprocess.run(
+            ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
+            cwd=ROOT, capture_output=True, text=True, check=False,
+        ).stdout.strip()
+    except OSError:
+        return None
+    if not common:
+        return None
+    main_root = Path(common).parent
+    if main_root.resolve() == ROOT.resolve():
+        return None
+    candidate = main_root / OUTPUT.relative_to(ROOT)
+    return candidate if candidate.is_file() else None
+
+
 def _cached() -> Path | None:
     for candidate in (MANUAL, OUTPUT):
         if candidate.is_file():
             return candidate
+    shared = _main_checkout_build()
+    if shared is not None:
+        # Copied, not referenced: `build.rs` only searches this tree.
+        OUTPUT.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(shared, OUTPUT)
+        print(f"busybox: reused {shared}", file=sys.stderr)
+        return OUTPUT
     return None
 
 
