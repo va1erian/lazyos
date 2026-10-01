@@ -78,11 +78,11 @@
  },
  {
   "at": 0.4,
-  "type": "ct /co"
+  "type": "ct /pk"
  },
  {
   "at": 0.4,
-  "type": "unter."
+  "type": "gdemo."
  },
  {
   "at": 0.4,
@@ -113,11 +113,11 @@
  },
  {
   "at": 0.4,
-  "type": "ll /co"
+  "type": "ll /pk"
  },
  {
   "at": 0.4,
-  "type": "unter."
+  "type": "gdemo."
  },
  {
   "at": 0.4,
