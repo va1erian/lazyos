@@ -270,6 +270,16 @@ restore, between close and minimize) and interactive resize edges.
   `xuid` keeps the top-left corner, clamps to the hints and the screen, and
   replies with `Configure` carrying the applied size (even if unchanged). Used
   by the `sysmon`/`fabricmon` compact toggle; see `docs/window-resize-plan.md`.
+- **Dead clients (`Ping`, method 35).** A client that is killed or crashes never calls
+  `DestroySurface`. About once a second `xuid` sends every surface a one-way
+  `Ping` on its event endpoint; a send that fails with `EPIPE` means the peer
+  is gone, so `xuid` removes the surface exactly as `DestroySurface` would
+  (`forget_surface`: shell `Destroyed`, focus, drag and Alt+Tab state, closed
+  endpoint, released buffers) and repaints once (`reap.rs`, serial marker
+  `XUID:REAP:SURFACE:<id>`). Clients ignore the event. Boot self-test
+  `XUID:REAP:PASS`; session `tools/screenshot/examples/xui_reap.json` (needs a
+  BusyBox image: `LAZYOS_DESKTOP=1 LAZYOS_XUI_AUTOSTART=term`; `init` restarts the
+  killed Counter, so the window that reappears is a new surface).
 - **Off-screen movement.** A title drag clamps the origin so at least
   `TITLE_REACHABLE_W` pixels of the title bar stay on screen horizontally and
   the title bar never goes above the work-area top or below its bottom; the

@@ -178,6 +178,12 @@ interface os.lazy.display.v1 {
     /// `Configure` with the size it actually applied (also when that equals
     /// the current size), which is the only confirmation the client needs.
     method RequestSize(surface: U64, width: U32, height: U32) -> () = 34;
+    /// Event: a liveness probe. The compositor sends it to each window's
+    /// event endpoint about once a second; a send that fails with `EPIPE`
+    /// tells it the client died without calling `DestroySurface`, and it
+    /// removes the window. Clients ignore it (an old client drops an unknown
+    /// event), so there is nothing to answer.
+    method Ping() -> () = 35 oneway;
 
     /// What a surface is. Numeric values are the wire values.
     enum Role { Window, Desktop }

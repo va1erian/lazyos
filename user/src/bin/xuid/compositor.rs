@@ -62,6 +62,8 @@ pub(super) struct Compositor {
     pub(super) input: InputLink,
     /// Pending open-origin hints, at most one per task.
     pub(super) hints: Vec<OpenHint>,
+    /// PIT tick at which the next client liveness probe is due.
+    pub(super) next_probe: u64,
 }
 
 impl Compositor {
@@ -88,6 +90,7 @@ impl Compositor {
             themefeed: ThemeFeed::new(),
             input: InputLink::new(),
             hints: Vec::new(),
+            next_probe: 0,
         }
     }
 

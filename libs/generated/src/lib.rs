@@ -2451,6 +2451,8 @@ pub mod os_lazy_display_v1 {
     pub const METHOD_CONFIGURE: u32 = 33;
     /// `RequestSize` method id.
     pub const METHOD_REQUESTSIZE: u32 = 34;
+    /// `Ping` method id.
+    pub const METHOD_PING: u32 = 35;
 
     /// Create a surface of `width` x `height` pixels titled `title`. `role` is
     /// a `Role` value: a decorated window (also the meaning of an absent

@@ -123,6 +123,8 @@ mod origin;
 mod present;
 #[path = "xuid/protocol.rs"]
 mod protocol;
+#[path = "xuid/reap.rs"]
+mod reap;
 #[path = "xuid/region.rs"]
 mod region;
 #[path = "xuid/render.rs"]
@@ -225,6 +227,7 @@ fn run() -> ! {
     sys::write_str(geometry::selftest_geometry());
     sys::write_str(anim::selftest_anim());
     sys::write_str(wheel::selftest_wheel_routing());
+    sys::write_str(reap::selftest_reap());
 
     loop {
         // 0. `inputd`: register new surfaces, report focus, apply the
@@ -240,6 +243,7 @@ fn run() -> ! {
         comp.reap_dead_shell();
         comp.tick_clock();
         comp.tick_theme();
+        comp.reap_dead_surfaces(sys::clock());
 
         // 2. Requests: serve one, then loop (the deadline bounds the nap when
         //    nothing is pending, keeping input latency at a couple of ticks).

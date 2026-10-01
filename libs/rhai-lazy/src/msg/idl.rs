@@ -602,6 +602,14 @@ pub static INTERFACES: &[Interface] = &[
                 params: &[Field { name: "surface", ty: Ty::U64 }, Field { name: "width", ty: Ty::U32 }, Field { name: "height", ty: Ty::U32 }],
                 returns: &[],
             },
+            Method {
+                name: "Ping",
+                id: 35,
+                oneway: true,
+                doc: "Event: a liveness probe. The compositor sends it to each window's\nevent endpoint about once a second; a send that fails with `EPIPE`\ntells it the client died without calling `DestroySurface`, and it\nremoves the window. Clients ignore it (an old client drops an unknown\nevent), so there is nothing to answer.",
+                params: &[],
+                returns: &[],
+            },
         ],
         structs: &[
             Struct {

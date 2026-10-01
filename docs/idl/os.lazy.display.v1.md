@@ -72,6 +72,7 @@ fields, which never use that id.
 | SetSizeHints | 32 | sync | `(surface: U64, min_w: U32, min_h: U32, max_w: U32, max_h: U32) -> ()` |
 | Configure | 33 | oneway | `(surface: U64, width: U32, height: U32, state: U32) -> ()` |
 | RequestSize | 34 | sync | `(surface: U64, width: U32, height: U32) -> ()` |
+| Ping | 35 | oneway | `() -> ()` |
 
 ## struct `Rect`
 
