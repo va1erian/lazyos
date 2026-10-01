@@ -48,6 +48,10 @@ jobs:
         run: cargo test -p inputmap
       - name: Clippy (inputmap tests and its fuzz entry point)
         run: cargo clippy -p inputmap --all-targets --features fuzz -- -D warnings
+      - name: USB descriptor and HID report tests (usbd, docs/usb-hid-plan.md U0)
+        run: cargo test -p usbhid
+      - name: Clippy (usbhid tests and its fuzz entry points)
+        run: cargo clippy -p usbhid --all-targets --features fuzz -- -D warnings
 
   build-and-boot:
     runs-on: ubuntu-latest
