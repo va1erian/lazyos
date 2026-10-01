@@ -1104,9 +1104,11 @@ dependencies = [
  "surfbuf",
  "timezone",
  "uitheme",
+ "usbhid",
  "virtio",
  "virtio-net",
  "virtio-snd",
+ "xhci",
 ]
 
 [[package]]

@@ -170,6 +170,25 @@ Do not claim an audio change works from the serial markers alone; the verdict is
 the recording. See `tools/sound/README.md` and `docs/architecture/audio.md`
 (including why a driver must never free a DMA buffer while its device runs).
 
+## USB harness
+
+The USB HID driver (`usbd`, [`docs/usb-hid-plan.md`](docs/usb-hid-plan.md)) is
+verified by what reached `inputd`: QEMU runs with `qemu-xhci`, a USB keyboard
+and mouse and no i8042, and the judge checks every key edge `inputd` saw came
+from `usbd` and that the descriptors are QEMU's. See `tools/usb/README.md`.
+
+```bash
+python tools/usb/run.py                  # build (LAZYOS_SERVICES=1 LAZYOS_USB=1), boot, judge
+python tools/usb/run.py --ps2            # PS/2 and USB side by side
+python tools/usb/run.py --hotplug 200    # unplug/replug over QMP: nothing stuck, DMA bounded
+python tools/usb/run.py --tablet         # usb-tablet: report descriptor, absolute cursor
+python tools/usb/test_judge.py           # the judge fails when it should
+cargo test -p usbhid -p xhci             # descriptor/report parsers and xHCI rings (host)
+```
+
+Under TCG the harness paces input (USB is polled; see the README): KVM runs are
+the verdict.
+
 ## Network tooling
 
 Networking (`docs/networking-plan.md`) is verified like audio: serial markers

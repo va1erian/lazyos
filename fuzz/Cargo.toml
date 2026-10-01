@@ -96,3 +96,10 @@ path = "fuzz_targets/hidreport.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "hidreportdesc"
+path = "fuzz_targets/hidreportdesc.rs"
+test = false
+doc = false
+bench = false

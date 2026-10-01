@@ -77,6 +77,22 @@ fn main() {
         println!("cargo:rustc-cfg=lazyos_sound");
     }
 
+    // USB HID driver (docs/usb-hid-plan.md U2): `LAZYOS_USB=1` adds the `usbd`
+    // row to `init`'s manifest (the ELF is embedded by the root build script).
+    println!("cargo:rerun-if-env-changed=LAZYOS_USB");
+    println!("cargo:rustc-check-cfg=cfg(lazyos_usb)");
+    if env::var_os("LAZYOS_USB").as_deref() == Some(std::ffi::OsStr::new("1")) {
+        println!("cargo:rustc-cfg=lazyos_usb");
+    }
+    // `LAZYOS_USB_TRACE=1` (test images only, set by `tools/usb/run.py`):
+    // `usbd` echoes every report and key edge on serial for the harness's
+    // judge. Never on by default: the trace would carry typed passwords.
+    println!("cargo:rerun-if-env-changed=LAZYOS_USB_TRACE");
+    println!("cargo:rustc-check-cfg=cfg(lazyos_usb_trace)");
+    if env::var_os("LAZYOS_USB_TRACE").as_deref() == Some(std::ffi::OsStr::new("1")) {
+        println!("cargo:rustc-cfg=lazyos_usb_trace");
+    }
+
     // virtio-net driver (docs/networking-plan.md N1): `LAZYOS_NET=1` adds the
     // `netdrv` row to `init`'s manifest (the ELFs are embedded by the root
     // build script), so a services boot supervises the driver.

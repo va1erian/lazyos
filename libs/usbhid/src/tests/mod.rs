@@ -8,6 +8,7 @@ use crate::desc::{config_total_len, parse_config, parse_device, Endpoint, Protoc
 use crate::Error;
 
 pub(crate) mod golden;
+mod report;
 
 use golden::*;
 
