@@ -199,7 +199,9 @@ command.
   topics are the fast path.
 - *Observing it.* `sysmon`'s **Services** tab (`s`, issue #489) joins
   `init.Services` with `healthd.Status` through the generated stubs
-  (`xui-app/src/services.rs`) and refreshes every second;
+  (`xui-app/src/services.rs`), adds each service's resident memory from
+  the syscall-14 task row with its pid (version 5; only that task, not the
+  children it spawns), and refreshes every second;
   `messengerctl` (`msgctl`) has the `services` and `health` commands;
   a Rhai script can call `msg::connect("os.lazy.init.v1").services()` (see
   [`docs/rhai/msg.md`](../rhai/msg.md)); and the serial log carries

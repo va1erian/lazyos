@@ -8,6 +8,9 @@
 use super::*;
 use crate::sysinfo;
 
+mod resident;
+use resident::{snapshot_reports_resident_pages, soak_snapshot_resident_pages};
+
 /// Two's-complement `-errno`, the syscall error encoding.
 fn failed(code: i64) -> u64 {
     (code as u64).wrapping_neg()
@@ -374,4 +377,12 @@ pub(super) const CASES: &[(&str, Test)] = &[
         snapshot_reflects_spawned_task,
     ),
     ("sysinfo_soak_snapshot_task_churn", soak_snapshot_task_churn),
+    (
+        "sysinfo_snapshot_reports_resident_pages",
+        snapshot_reports_resident_pages,
+    ),
+    (
+        "sysinfo_soak_snapshot_resident_pages",
+        soak_snapshot_resident_pages,
+    ),
 ];

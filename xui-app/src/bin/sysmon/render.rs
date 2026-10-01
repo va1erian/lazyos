@@ -6,6 +6,7 @@
 use xui_app::compact;
 use xui_app::dashboard as dash;
 use xui_app::format::{bytes, uptime};
+use xui_app::services::PAGE_BYTES;
 use xui_app::sysinfo::{self, Snapshot, MAX_TASKS};
 use xui_core::{Canvas, Color, Point, Rect, Theme};
 
@@ -260,7 +261,7 @@ fn paint_heap_card(canvas: &mut dyn Canvas, theme: Theme, rect: Rect, snapshot: 
     );
 }
 
-/// The task table: pid, state, class, CPU ticks, name. Rows are limited to
+/// The task table: pid, state, class, CPU ticks, resident memory, name. Rows are limited to
 /// what fits between `top` and `bottom` so the footer below never overlaps
 /// them (issue #251).
 fn paint_tasks(
@@ -330,7 +331,14 @@ fn paint_tasks(
         );
         dash::cell(
             canvas,
-            Rect::new(rect.left + 430, y, rect.right, rect.bottom),
+            Rect::new(rect.left + 430, y, rect.left + 520, rect.bottom),
+            &bytes(row.resident_pages.saturating_mul(PAGE_BYTES)),
+            color,
+            true,
+        );
+        dash::cell(
+            canvas,
+            Rect::new(rect.left + 540, y, rect.right, rect.bottom),
             &format!("{} (ppid {})", row.name(), row.ppid),
             color,
             false,
@@ -354,12 +362,13 @@ fn paint_tasks(
 
 /// The aligned task-table header.
 fn draw_task_header(canvas: &mut dyn Canvas, theme: Theme, rect: Rect) {
-    let columns: [(&str, i32, i32, bool); 5] = [
+    let columns: [(&str, i32, i32, bool); 6] = [
         ("pid", 0, 70, true),
         ("state", 80, 170, false),
         ("class", 190, 290, false),
         ("cpu", 310, 420, true),
-        ("name", 430, rect.width(), false),
+        ("memory", 430, 520, true),
+        ("name", 540, rect.width(), false),
     ];
     for (label, left, right, end) in columns {
         let cell = Rect::new(rect.left + left, rect.top, rect.left + right, rect.bottom);
@@ -392,7 +401,7 @@ fn paint_footer(
         content.right,
         content.bottom,
     );
-    let status = "snapshot v2 via syscall 14";
+    let status = "snapshot v5 via syscall 14";
     let text = format!(
         "uptime {} · tick {} · {} refresh(es) · {status}",
         uptime(snapshot.ticks),

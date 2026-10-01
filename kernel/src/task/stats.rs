@@ -59,6 +59,10 @@ pub struct StatsRow {
     pub cpu_ticks: u64,
     /// Task name (already interned to `'static`).
     pub name: &'static str,
+    /// Present 4 KiB user pages in the task's address space (its RSS). A
+    /// `clone(CLONE_VM)` thread reports the space it shares, and a COW page
+    /// counts once per space that maps it, as Linux RSS does.
+    pub resident_pages: usize,
 }
 
 impl StatsRow {
@@ -72,6 +76,7 @@ impl StatsRow {
         weight: 0,
         cpu_ticks: 0,
         name: "",
+        resident_pages: 0,
     };
 }
 
@@ -83,10 +88,27 @@ pub struct TaskStats {
     pub live: usize,
 }
 
-/// Snapshot the task table (one row per slot, no allocation). Takes only the
-/// task-table lock, so it can never nest inside another subsystem's lock.
+/// Snapshot the task table (one row per slot). Takes only the task-table
+/// lock, so it can never nest inside another subsystem's lock.
+///
+/// Resident pages are counted *under* that lock, which is what makes the
+/// page-table walk safe: an address space is freed only after no task in the
+/// table references it (`lifecycle::release_address_space`, `set_pml4`), so
+/// every `pml4` seen here stays allocated until the lock is dropped, and
+/// intermediate tables are reaped only at that teardown, never by `munmap`.
+/// The walk is a read of present entries; the lock is held with interrupts
+/// off (the timer ISR takes it too) for the walk's few hundred microseconds.
 pub fn stats_snapshot() -> TaskStats {
+    x86_64::instructions::interrupts::without_interrupts(stats_snapshot_locked)
+}
+
+fn stats_snapshot_locked() -> TaskStats {
     let tasks = TASKS.lock();
+    // The kernel task's own table, not `mem::kernel_table()`: that reads the
+    // *active* CR3, which during the syscall is the caller's address space.
+    let kernel_table = tasks[KERNEL_TASK].as_ref().map_or(0, |task| task.pml4);
+    // Threads share an address space: walk each one once.
+    let mut walked: Vec<(u64, usize)> = Vec::new();
     let mut snapshot = TaskStats {
         // On the heap: 256 rows would take over half of a kernel stack.
         rows: alloc::vec![StatsRow::EMPTY; MAX_TASKS],
@@ -103,10 +125,25 @@ pub fn stats_snapshot() -> TaskStats {
             weight: task.weight,
             cpu_ticks: task.cpu_ticks,
             name: task.name,
+            resident_pages: resident_pages(task.pml4, kernel_table, &mut walked),
         };
         if task.state != TaskState::Done {
             snapshot.live += 1;
         }
     }
     snapshot
+}
+
+/// The resident user pages of `pml4`, from `walked` when another row already
+/// counted it. Kernel tasks run on the kernel table and own no user pages.
+fn resident_pages(pml4: u64, kernel_table: u64, walked: &mut Vec<(u64, usize)>) -> usize {
+    if pml4 == 0 || pml4 == kernel_table {
+        return 0;
+    }
+    if let Some(&(_, pages)) = walked.iter().find(|(table, _)| *table == pml4) {
+        return pages;
+    }
+    let pages = mem::user_table_frame_count(PhysAddr::new(pml4));
+    walked.push((pml4, pages));
+    pages
 }

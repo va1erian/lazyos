@@ -45,7 +45,7 @@ syscall shim.
 | 11 | `quota(buf)` | per-uid usage/limit block |
 | 12 | `display(op, ...)` | display grant (see [display.md](display.md)) |
 | 13 | `tasks(buf)` | read-only scheduler snapshot (`task/introspect.rs`; MCP bridge phase 2) |
-| 14 | `system_stats(op, buf, cap)` | uptime, frame/slab/heap counters and the task table for `top`/`sysmond` (`sysinfo.rs`, #144) |
+| 14 | `system_stats(op, buf, cap)` | uptime, frame/slab/heap counters and the task table (with each task's resident user pages since version 5) for `top`/`sysmond`/`sysmon` (`sysinfo.rs`, #144) |
 | 15-20 | `stat`, `readdir`, `write_file`, `mkdir`, `unlink`, `rename` (path args) | path-based native VFS calls for the shell (`process/fsops.rs`, #6); FAT is read-only (`-EROFS`), `/tmp` is writable; `-errno` on failure |
 | 21 | `power(op)` | `reboot`/`shutdown`, `CAP_SYS_ADMIN` only (`process/power.rs`, #6) |
 | 22 | `fsync(path)` | flush the mount holding the file to its block device (`process/fsops.rs`, #260) |

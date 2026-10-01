@@ -160,9 +160,10 @@ Landed in `xui-app/` (a standalone static-musl workspace built by
   move/down/up, key/char) and routed to the node under the pointer; a real
   left click increments the Counter and prints `XUIAPP:INPUT:PASS`.
 - **Viewers** (issue #153) — `src/bin/sysmon.rs` (syscall-14 dashboard:
-  frame/slab/heap gauges, uptime, task table; a Services tab, issue #489,
-  lists `init`'s supervised services with `healthd`'s health through the
-  generated stubs in `src/services.rs`) and `src/bin/fabricmon.rs`
+  frame/slab/heap gauges, uptime, task table with resident memory; a
+  Services tab, issue #489, lists `init`'s supervised services with
+  `healthd`'s health and each one's resident memory, through the generated
+  stubs in `src/services.rs`) and `src/bin/fabricmon.rs`
   (syscall-5 panel: registry names with owners/interfaces, topics-broker
   counts, shared buffers/fences/handles, per-task usage; the registry and
   topics wires come from the generated `messenger-generated` stubs, issue #302,

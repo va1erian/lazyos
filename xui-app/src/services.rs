@@ -18,6 +18,7 @@ use messenger_generated::os_lazy_init_v1 as init_wire;
 
 use crate::platform::messenger::Service;
 use crate::sys::errno;
+use crate::sysinfo::TaskRow;
 
 /// The supervisor's registered name.
 const INIT_NAME: &str = "os.lazy.init";
@@ -249,6 +250,23 @@ pub fn merge(
     rows
 }
 
+/// Bytes in one resident page of the snapshot's `resident_pages` word.
+pub const PAGE_BYTES: u64 = 4096;
+
+/// The resident memory of the running task `pid` in a system snapshot's task
+/// rows, or `None` when the service has no running task (pid 0) or the
+/// snapshot no longer lists it. Only that task is counted, not the children
+/// it spawned.
+pub fn resident_bytes(pid: u64, tasks: &[TaskRow]) -> Option<u64> {
+    if pid == 0 {
+        return None;
+    }
+    tasks
+        .iter()
+        .find(|task| task.present && task.pid == pid)
+        .map(|task| task.resident_pages.saturating_mul(PAGE_BYTES))
+}
+
 /// The first visible row after moving `first` by `delta` rows, for a table of
 /// `len` rows showing `page` at a time: never past the last full page, never
 /// negative. Also re-validates an offset after a refresh shrank the table.
@@ -339,6 +357,28 @@ mod tests {
         assert_eq!(
             (rows[1].health.as_str(), rows[1].detail.as_str()),
             ("down", "crashed")
+        );
+    }
+
+    #[test]
+    fn memory_comes_from_the_task_row_with_the_services_pid() {
+        let task = |pid, pages, present| TaskRow {
+            present,
+            pid,
+            resident_pages: pages,
+            ..TaskRow::EMPTY
+        };
+        let tasks = [task(3, 10, true), task(7, 2, false), task(9, 300, true)];
+        assert_eq!(resident_bytes(9, &tasks), Some(300 * PAGE_BYTES));
+        assert_eq!(resident_bytes(3, &tasks), Some(10 * PAGE_BYTES));
+        // A stopped service, an empty slot and a pid the snapshot lacks.
+        assert_eq!(resident_bytes(0, &tasks), None);
+        assert_eq!(resident_bytes(7, &tasks), None);
+        assert_eq!(resident_bytes(42, &tasks), None);
+        // A hostile page count saturates instead of wrapping.
+        assert_eq!(
+            resident_bytes(1, &[task(1, u64::MAX, true)]),
+            Some(u64::MAX)
         );
     }
 

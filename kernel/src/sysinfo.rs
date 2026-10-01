@@ -13,11 +13,12 @@
 //! [`WORDS`] little-endian `u64`s are written in one fixed order: a
 //! [`HEADER_WORDS`]-word header (version, sizes, uptime, memory counters) and
 //! then one [`TASK_ROW_WORDS`]-word row per scheduler slot. [`SYSTEM_STATS_VERSION`]
-//! is `4` (version 1 carried 16 rows, version 2 had 64 after issue #204,
-//! version 3 has 256 for the application package system, and version 4
+//! is `5` (version 1 carried 16 rows, version 2 had 64 after issue #204,
+//! version 3 has 256 for the application package system, version 4
 //! appends the idle tick counter to the header so a monitor can tell idle
-//! time from CPU time charged to tasks); a caller must reject a header
-//! version it does not know. A buffer
+//! time from CPU time charged to tasks, and version 5 appends each task's
+//! resident user pages to its row, so the Task Manager can show what a
+//! service holds); a caller must reject a header version it does not know. A buffer
 //! smaller than [`SIZE`] is refused with `-E2BIG` (like the Messenger stats
 //! op), a null buffer with `-EFAULT`, an unknown op with `-EINVAL`. The
 //! `snapshot` op fills one stack array in place (never returned by value: at
@@ -30,7 +31,8 @@
 //! Readable by every task, including unprivileged ones: this is the system
 //! monitor, and the whole point is that a shell user can run `top`. The
 //! snapshot is therefore limited to non-sensitive aggregate state — counters,
-//! pids, states, classes, CPU ticks and task names. It deliberately excludes
+//! pids, states, classes, CPU ticks, task names and resident page *counts*
+//! (how much memory, as `ps` shows any Linux user; never where). It deliberately excludes
 //! page-table physical addresses, `fs_base`, heap breaks, credentials and
 //! anything else that would leak an address or a secret; adding a field that
 //! identifies *where* memory is or *who* a task is must be a new version with
@@ -45,7 +47,7 @@ use crate::mem;
 use crate::task::{self, PriorityClass, TaskState, WaitKind};
 
 /// ABI version of the block written by the `snapshot` op.
-pub const SYSTEM_STATS_VERSION: u64 = 4;
+pub const SYSTEM_STATS_VERSION: u64 = 5;
 
 /// Native system-stats ops (syscall 14).
 pub mod op {
@@ -141,7 +143,7 @@ pub const H_IDLE_TICKS: usize = 23;
 /// Words in the header.
 pub const HEADER_WORDS: usize = 24;
 /// Words in one task row.
-pub const TASK_ROW_WORDS: usize = 10;
+pub const TASK_ROW_WORDS: usize = 11;
 
 /// Task row word indices (relative to the row's base).
 pub const R_PRESENT: usize = 0;
@@ -163,6 +165,8 @@ pub const R_CPU_TICKS: usize = 7;
 pub const R_NAME_HASH: usize = 8;
 /// Up to eight name bytes, packed little-endian and NUL-padded.
 pub const R_NAME8: usize = 9;
+/// Present 4 KiB user pages in the task's address space (RSS). Version 5.
+pub const R_RESIDENT_PAGES: usize = 10;
 
 /// Words in the whole block.
 pub const WORDS: usize = HEADER_WORDS + task::MAX_TASKS * TASK_ROW_WORDS;
@@ -270,6 +274,7 @@ pub fn snapshot_words(words: &mut [u64; WORDS]) {
         words[base + R_CPU_TICKS] = row.cpu_ticks;
         words[base + R_NAME_HASH] = fnv1a64(row.name.as_bytes());
         words[base + R_NAME8] = u64::from_le_bytes(short_name(row.name));
+        words[base + R_RESIDENT_PAGES] = row.resident_pages as u64;
     }
 }
 

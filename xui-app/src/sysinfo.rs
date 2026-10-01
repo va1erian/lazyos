@@ -14,12 +14,12 @@
 use crate::sys::{self, system_stats_op};
 
 /// ABI version this client understands.
-pub const VERSION: u64 = 4;
+pub const VERSION: u64 = 5;
 
 /// Words in the header (mirrors `kernel::sysinfo::HEADER_WORDS`).
 pub const HEADER_WORDS: usize = 24;
 /// Words in one task row (mirrors `kernel::sysinfo::TASK_ROW_WORDS`).
-pub const TASK_ROW_WORDS: usize = 10;
+pub const TASK_ROW_WORDS: usize = 11;
 /// Scheduler slots in the task table (mirrors `kernel::task::MAX_TASKS`).
 pub const MAX_TASKS: usize = 256;
 /// Words in the whole block.
@@ -95,6 +95,8 @@ pub mod row {
     pub const NAME_HASH: usize = 8;
     /// Up to eight name bytes, little-endian and NUL-padded.
     pub const NAME8: usize = 9;
+    /// Present 4 KiB user pages in the task's address space (RSS). Version 5.
+    pub const RESIDENT_PAGES: usize = 10;
 }
 
 /// A task's scheduler-visible state.
@@ -190,6 +192,9 @@ pub struct TaskRow {
     pub cpu_ticks: u64,
     /// Up to eight name bytes, NUL-padded.
     pub short_name: [u8; 8],
+    /// Present 4 KiB user pages in the task's address space (its RSS; a
+    /// thread reports the space it shares).
+    pub resident_pages: u64,
 }
 
 impl TaskRow {
@@ -203,6 +208,7 @@ impl TaskRow {
         weight: 0,
         cpu_ticks: 0,
         short_name: [0; 8],
+        resident_pages: 0,
     };
 
     /// Whether the slot holds a task that is not done.
@@ -298,6 +304,7 @@ pub fn decode_words(words: &[u64; WORDS]) -> Option<Snapshot> {
             weight: words[base + row::WEIGHT],
             cpu_ticks: words[base + row::CPU_TICKS],
             short_name: words[base + row::NAME8].to_le_bytes(),
+            resident_pages: words[base + row::RESIDENT_PAGES],
         };
     }
     let word = |index: usize| words[index];

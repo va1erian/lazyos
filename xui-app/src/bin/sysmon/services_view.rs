@@ -4,7 +4,8 @@
 //! the Overview tab.
 
 use xui_app::dashboard as dash;
-use xui_app::services::{Services, Tone};
+use xui_app::format::bytes;
+use xui_app::services::{resident_bytes, Services, Tone};
 use xui_core::backend::TextAlign;
 use xui_core::{Canvas, Color, Point, Rect, TextStyle, Theme};
 
@@ -93,14 +94,15 @@ fn tone_color(theme: Theme, tone: Tone) -> Color {
 
 /// The table columns: label, left, right (relative to the content) and
 /// whether the cell is right-aligned. `detail` takes the rest of the width.
-const COLUMNS: [(&str, i32, i32, bool); 7] = [
+const COLUMNS: [(&str, i32, i32, bool); 8] = [
     ("service", 0, 130, false),
     ("state", 140, 230, false),
     ("pid", 230, 280, true),
     ("restarts", 290, 350, true),
-    ("health", 366, 446, false),
-    ("depends on", 456, 560, false),
-    ("detail", 570, i32::MAX, false),
+    ("memory", 360, 440, true),
+    ("health", 456, 526, false),
+    ("depends on", 536, 640, false),
+    ("detail", 650, i32::MAX, false),
 ];
 
 fn column(rect: Rect, index: usize) -> Rect {
@@ -127,9 +129,19 @@ pub(crate) fn paint(canvas: &mut dyn Canvas, theme: Theme, content: Rect, state:
         return;
     };
     let (good, warn, bad) = view.counts();
+    let tasks = state
+        .snapshot
+        .as_ref()
+        .map_or(&[][..], |snapshot| &snapshot.tasks[..]);
+    let total: u64 = view
+        .rows
+        .iter()
+        .filter_map(|row| resident_bytes(row.pid, tasks))
+        .sum();
     let heading = format!(
-        "Services — {} listed · {good} ok · {warn} degraded · {bad} down",
-        view.rows.len()
+        "Services — {} listed · {good} ok · {warn} degraded · {bad} down · {} resident",
+        view.rows.len(),
+        bytes(total)
     );
     dash::section(
         canvas,
@@ -212,6 +224,10 @@ fn paint_table(
     // change it, so clamp again for this paint.
     let first = xui_app::services::scroll(state.scroll, 0, view.rows.len(), capacity);
     let shown = (view.rows.len() - first).min(capacity);
+    let tasks = state
+        .snapshot
+        .as_ref()
+        .map_or(&[][..], |snapshot| &snapshot.tasks[..]);
     for (index, row) in view.rows.iter().skip(first).take(shown).enumerate() {
         let y = rows_top + index as i32 * dash::ROW;
         let rect = Rect::new(content.left, y, content.right, y + dash::ROW);
@@ -222,16 +238,18 @@ fn paint_table(
         } else {
             &row.state
         };
+        let memory = resident_bytes(row.pid, tasks).map_or(String::from("—"), bytes);
         let pid = if row.pid == 0 {
             String::from("—")
         } else {
             row.pid.to_string()
         };
-        let cells: [(&str, Color, bool); 7] = [
+        let cells: [(&str, Color, bool); 8] = [
             (&row.name, theme.text, false),
             (state, state_color, false),
             (&pid, theme.text, true),
             (&row.restarts.to_string(), theme.text, true),
+            (&memory, theme.text, true),
             (&row.health, health_color, false),
             (&row.deps, theme.text_secondary, false),
             (&row.detail, theme.text_secondary, false),
