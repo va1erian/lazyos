@@ -182,7 +182,8 @@ pub fn embed_xui_apps(builder: &mut bootloader::DiskImageBuilder, desktop: bool,
                     Some(path)
                 } else {
                     println!(
-                        "cargo:warning=optional xui app {name} not built (needs zig:                          `pip install ziglang==0.16.0`, then `python tools/xui/build.py`)"
+                        "cargo:warning=optional xui app {name} not built (needs zig: \
+                         `pip install ziglang==0.16.0`, then `python tools/xui/build.py`)"
                     );
                     None
                 }
