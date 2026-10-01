@@ -305,11 +305,18 @@ fn register_sugar(engine: &mut Engine) {
 /// Install `msg::*` and the `Service` type on `engine`, bound to `bus`.
 pub fn install(engine: &mut Engine, bus: Rc<dyn Bus>) -> Rc<Fabric> {
     let fabric = Rc::new(Fabric::new(bus));
-    engine.register_static_module("msg", namespace(&fabric).into());
-    register_service_type(engine);
-    register_subscription_type(engine, &fabric);
-    register_sugar(engine);
+    install_fabric(engine, &fabric);
     fabric
+}
+
+/// Install `msg` on `engine` over an existing `fabric`. A host with several
+/// engines (the LazyRAD player builds one per form) shares one fabric, so a
+/// service is resolved once per process: resolved handles are never closed.
+pub fn install_fabric(engine: &mut Engine, fabric: &Rc<Fabric>) {
+    engine.register_static_module("msg", namespace(fabric).into());
+    register_service_type(engine);
+    register_subscription_type(engine, fabric);
+    register_sugar(engine);
 }
 
 /// Interface names, for completion and `help`.

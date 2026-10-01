@@ -12,8 +12,13 @@ disk image as `LRPLAY.ELF` and `LAZYRAD.ELF` (`LAZYOS_LAZYRAD=1`).
 
 The library (`src/lib.rs`) holds the LazyOS glue shared by both: command-line
 parsing (`args`), the `lazyrad_runtime::platform::Platform` LazyOS installs
-(`platform`: script file sandbox, config dir, player path) and the serial
-evidence markers (`marker`: `LRPLAY:UP|EVENT|EXIT`, `LRIDE:*`).
+(`platform`: script file sandbox, config dir, player path), the serial
+evidence markers (`marker`: `LRPLAY:UP|EVENT|EXIT`, `LRIDE:*`) and Messenger
+for form scripts (`messenger`). That module registers `rhai_lazy::msg` as a
+LazyRAD script extension (LazyRAD `lazyrad_runtime::extensions`), so
+`msg::connect("os.lazy.confd.v1").info()` works in any form script; see
+[`docs/rhai/msg.md`](../docs/rhai/msg.md). The player prints `LRPLAY:MSG:PASS` once it is
+installed.
 
 ## Running
 
@@ -43,6 +48,9 @@ packager) lives on LazyRAD's `lazyos-p0` branch.
 develop against a local checkout by appending a patch to the LazyOS repo's
 `.cargo/config.toml` (cargo reads config from the working directory, which
 `tools/lazyrad/build.py` sets to the repo root; do not commit it):
+
+The `msg` integration also needs LazyRAD's `lazyrad_runtime::extensions`
+(va1erian/lazyrad#82); point the patch at a checkout that has both.
 
 ```toml
 [patch."https://github.com/va1erian/lazyrad"]

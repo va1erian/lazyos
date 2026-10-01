@@ -58,7 +58,7 @@ pub fn data_root(exe: &Path, data_volume_present: bool) -> PathBuf {
 /// [`data_root`], plus read-only access to the project itself.
 pub fn player_policy(exe: &Path, project: &Path, data_volume_present: bool) -> FsPolicy {
     let root = data_root(exe, data_volume_present);
-    FsPolicy::Sandboxed(Sandbox::new(root).allow(project, Access::Read))
+    FsPolicy::Sandboxed(Sandbox::new(root).allow(project.to_path_buf(), Access::Read))
 }
 
 /// What the player and the IDE share on LazyOS.
@@ -76,7 +76,7 @@ impl LazyOsPlatform {
     /// [`PROJECTS_DIR`] only.
     pub fn ide() -> LazyOsPlatform {
         LazyOsPlatform {
-            policy: FsPolicy::Sandboxed(Sandbox::new(PROJECTS_DIR)),
+            policy: FsPolicy::Sandboxed(Sandbox::new(PathBuf::from(PROJECTS_DIR))),
         }
     }
 }

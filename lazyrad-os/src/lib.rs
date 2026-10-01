@@ -10,8 +10,11 @@
 //! * [`platform`]: the [`lazyrad_runtime::platform::Platform`] LazyOS installs
 //!   (config directory, script file sandbox, where the player lives);
 //! * [`marker`]: the `LRPLAY:*` / `LRIDE:*` serial evidence lines the
-//!   screenshot sessions grep for.
+//!   screenshot sessions grep for;
+//! * [`messenger`]: the `msg` module for form scripts (Messenger calls,
+//!   topics, services), registered as a LazyRAD script extension.
 
 pub mod args;
 pub mod marker;
+pub mod messenger;
 pub mod platform;
