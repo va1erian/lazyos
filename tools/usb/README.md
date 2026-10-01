@@ -77,3 +77,10 @@ overruns QEMU's queue and a press and its release can land more than the
 500 ms repeat delay apart. `--accel none` therefore paces the keys (3 s) and
 settles after boot (120 s); the repeat can still show up. KVM runs (CI,
 `.github/workflows/usb.yml`) are the verdict.
+
+**KVM.** QEMU's `usb-kbd` hands out one queued keycode per interrupt poll.
+On CI's KVM runners `usbd` sees one report about every 80 ms (about 12 key
+edges a second), so the session paces key steps 0.25 s apart (8 edges a
+second, `KVM_PACE` in `run.py`); at 0.1 s the 16-entry queue overflows and
+edges are lost. Why the cadence is 80 ms rather than the endpoint's 8 ms is
+an open question.

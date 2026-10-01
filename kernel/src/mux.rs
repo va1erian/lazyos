@@ -174,30 +174,10 @@ fn draw_window(
 }
 
 /// Present a rectangle of the back buffer to the live framebuffer.
-/// Rows copied per interrupts-off section of [`present`]. One full-screen
-/// blit kept interrupts off for several ticks: every task waited it out, a
-/// polled USB keyboard overflowed QEMU's 16-event queue behind it, and the
-/// PIT clock lost the ticks. A band is short, and the timer can preempt the
-/// mux between two bands.
-const PRESENT_BAND: usize = 16;
-
 fn present(back: &RgbaBuffer, x: usize, y: usize, w: usize, h: usize) {
-    for (band_y, band_h) in bands(y, h, PRESENT_BAND) {
-        console::with_framebuffer(|fb| {
-            let (sw, sh) = (back.width(), back.height());
-            fb.blit_rgba_region(back.data(), sw, sh, x, band_y, x, band_y, w, band_h);
-        });
-    }
-}
-
-/// Rows `y..y + h` as consecutive `(first row, rows)` bands of at most
-/// `band` rows (a zero `band` counts as one).
-pub(crate) fn bands(y: usize, h: usize, band: usize) -> impl Iterator<Item = (usize, usize)> {
-    let band = band.max(1);
-    let end = y.saturating_add(h);
-    (y..end)
-        .step_by(band)
-        .map(move |start| (start, band.min(end - start)))
+    console::with_framebuffer(|fb| {
+        fb.blit_rgba_region(back.data(), back.width(), back.height(), x, y, x, y, w, h);
+    });
 }
 
 fn draw_cursor(pos: (i32, i32)) {

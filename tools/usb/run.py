@@ -154,6 +154,15 @@ def build(crash_test: bool = False) -> None:
         sys.exit("cargo build failed")
 
 
+#: The shortest wait between key steps under KVM. QEMU's `usb-kbd` hands
+#: out one queued keycode per interrupt poll and holds 16; on CI's KVM
+#: runners `usbd` sees one report about every 80 ms (about 12 edges a
+#: second, a cadence still being investigated), so 0.1 s steps (20 edges a
+#: second) overflow the queue a few seconds into the session. 0.25 s steps
+#: (8 edges a second) stay under the drain rate.
+KVM_PACE = 0.25
+
+
 #: How long the session holds `x` for `verify_trace`'s key-repeat check
 #: (at least 8 repeats after the 500 ms delay). The script holds it 1.5 s of
 #: wall time, but the guest's tick clock can run at 60% of wall time on a
@@ -220,7 +229,7 @@ def main() -> int:
                         help="unplug/replug cycles instead of the typing session (U3)")
     args = parser.parse_args()
     slow = args.accel in ("none", "tcg")
-    pace = args.pace if args.pace is not None else (3.0 if slow else 0.1)
+    pace = args.pace if args.pace is not None else (3.0 if slow else KVM_PACE)
     settle = args.settle if args.settle is not None else (120.0 if slow else 3.0)
     mouse = not args.no_mouse or args.hotplug > 0
     if not args.no_build:

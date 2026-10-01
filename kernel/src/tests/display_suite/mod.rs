@@ -40,7 +40,6 @@ mod bind_and_input;
 mod buffers;
 mod keys;
 mod modifiers;
-mod mux_bands;
 mod present;
 mod slots;
 mod wheel;
@@ -54,11 +53,6 @@ pub(super) use slots::*;
 pub(super) use wheel::*;
 
 pub(super) const CASES: &[(&str, Test)] = &[
-    (
-        "mux_bands_cover_the_damage_exactly",
-        mux_bands::bands_cover_the_damage_exactly,
-    ),
-    ("mux_bands_stress_shapes", mux_bands::bands_stress_shapes),
     ("display_kernel_bind_refused", kernel_bind_refused),
     (
         "display_bind_input_present_roundtrip",
