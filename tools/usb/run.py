@@ -157,7 +157,7 @@ def build(crash_test: bool = False) -> None:
 #: The shortest wait between key steps under KVM. QEMU's `usb-kbd` hands
 #: out one queued keycode per interrupt poll and holds 16; on CI's KVM
 #: runners `usbd` sees one report about every 80 ms (about 12 edges a
-#: second, a cadence still being investigated), so 0.1 s steps (20 edges a
+#: second, a cadence tracked in issue #480), so 0.1 s steps (20 edges a
 #: second) overflow the queue a few seconds into the session. 0.25 s steps
 #: (8 edges a second) stay under the drain rate.
 KVM_PACE = 0.25

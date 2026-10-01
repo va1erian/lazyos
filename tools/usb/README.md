@@ -83,4 +83,4 @@ On CI's KVM runners `usbd` sees one report about every 80 ms (about 12 key
 edges a second), so the session paces key steps 0.25 s apart (8 edges a
 second, `KVM_PACE` in `run.py`); at 0.1 s the 16-entry queue overflows and
 edges are lost. Why the cadence is 80 ms rather than the endpoint's 8 ms is
-an open question.
+issue #480.
