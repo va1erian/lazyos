@@ -210,12 +210,14 @@ compositor demo. Target toolkit design: [xui-plan.md](../xui-plan.md).
   mirrors every constant plus `with_modifiers`/`CODE_MASK`.
 - Issue #153 adds the first windowed system-state viewers on that backend:
   `sysmon` renders the syscall-14 snapshot (frame/slab/heap gauges, uptime, the
-  task table) and `fabricmon` renders the syscall-5 fabric (registry names with
+  task table) on its Overview tab and, on its Services tab (issue #489), the
+  services `init` supervises with `healthd`'s health for each, and `fabricmon` renders the syscall-5 fabric (registry names with
   owners/interfaces, topics-broker counts, buffers/fences/handles, per-task
   usage). Each is one owner-drawn node with a one-second `ui` timer and `r`/`q`
-  keys, prints `SYSMON:*`/`FABMON:*` serial markers, and is captured in
-  `.github/workflows/xui.yml` as the display owner in turn (fabricmon over the
-  `LAZYOS_SERVICES=1` session, so the registry and broker are live).
+  keys (`sysmon` adds `o`/`s` and clickable tabs), prints `SYSMON:*`/`FABMON:*` serial markers, and is captured in
+  `.github/workflows/xui.yml` as the display owner in turn (both over the
+  `LAZYOS_SERVICES=1` session, so the registry, broker and supervisor are
+  live).
 - Window management (issue #143) lives in `xuid`: the `surfaces` vector is the
   z-order (tail paints last), a title-bar press drags the window (which may hang
   off the left, right and bottom edges, keeping `TITLE_REACHABLE_W` of its
