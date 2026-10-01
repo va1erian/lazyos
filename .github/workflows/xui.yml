@@ -268,7 +268,7 @@ jobs:
           set -euo pipefail
           cargo build
           python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/sysclient \
-            --timeout 300 --script tools/screenshot/examples/xui_sysmon.json \
+            --timeout 300 --script tools/screenshot/examples/xui_sysmon_noservices.json \
             --fail-on "SYSMON:(BIND|UP|RUN):FAIL"
           grep -q "XUID:UP:PASS" shots/sysclient/serial.log
           grep -q "SYSMON:UP:PASS" shots/sysclient/serial.log

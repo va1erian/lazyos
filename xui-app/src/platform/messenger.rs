@@ -129,6 +129,40 @@ impl Service {
         error_id: u16,
         body: Vec<u8>,
     ) -> Result<Parcel, CallError> {
+        self.call_at(interface, method, error_id, body, 0)
+    }
+
+    /// [`Service::call`] that gives up with `-ETIMEDOUT` after `ticks` PIT
+    /// ticks, for a caller on the UI thread that must not wait forever on a
+    /// peer that accepted the request but never answers (the Task Manager's
+    /// once-a-second snapshots).
+    pub fn call_within(
+        &self,
+        interface: u64,
+        method: u32,
+        error_id: u16,
+        body: Vec<u8>,
+        ticks: u64,
+    ) -> Result<Parcel, i64> {
+        // An absolute deadline, never 0 ("forever") or `EXPIRED_DEADLINE` (a
+        // poll the callee may answer only during its own service turn).
+        let deadline = sys::clock_ticks()
+            .saturating_add(ticks.max(1))
+            .max(sys::EXPIRED_DEADLINE + 1);
+        self.call_at(interface, method, error_id, body, deadline)
+            .map_err(|error| error.code)
+    }
+
+    /// One call bounded by `deadline` (an absolute PIT tick; `0` waits
+    /// forever).
+    fn call_at(
+        &self,
+        interface: u64,
+        method: u32,
+        error_id: u16,
+        body: Vec<u8>,
+        deadline: u64,
+    ) -> Result<Parcel, CallError> {
         let parcel = Parcel {
             header: Header {
                 version: VERSION,
@@ -146,7 +180,7 @@ impl Service {
             buffers: Vec::new(),
         };
         let mut buf = vec![0u8; REPLY_BUF];
-        let reply = match sys::msg_call(self.endpoint, &parcel, &mut buf, 0) {
+        let reply = match sys::msg_call(self.endpoint, &parcel, &mut buf, deadline) {
             Ok(reply) => reply,
             Err(code) => {
                 if code == -errno::EPIPE || code == -errno::ENOENT {

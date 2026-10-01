@@ -9,7 +9,9 @@
 //!
 //! Neither service exists in an image built without `LAZYOS_SERVICES=1`, so a
 //! missing name is resolved once per refresh and reported as an errno instead
-//! of blocking the UI thread (`Service::try_connect`).
+//! of blocking the UI thread (`Service::try_connect`). Both calls run on the
+//! UI thread, so each is bounded by [`CALL_TICKS`]: a peer that accepts the
+//! request and never answers costs one refresh, not the whole window.
 
 use messenger_generated::os_lazy_healthd_v1 as health_wire;
 use messenger_generated::os_lazy_init_v1 as init_wire;
@@ -24,6 +26,10 @@ const HEALTHD_NAME: &str = "os.lazy.healthd";
 /// The structured-error field id every service uses (see
 /// `user/src/messenger/services/mod.rs`).
 const ERROR_FIELD: u16 = 15;
+/// How long one snapshot call may wait for its reply (PIT ticks, 100 Hz): half
+/// of the 1 s refresh period, so a stuck peer never stalls the event loop for
+/// longer than a frame or two of input.
+pub const CALL_TICKS: u64 = 50;
 
 /// The most rows the view keeps; `init` supervises a few dozen at most, so a
 /// longer reply is a broken or hostile peer, not a bigger system.
@@ -151,7 +157,7 @@ pub fn fetch() -> Services {
 fn call(name: &'static str, interface: u64, method: u32) -> Result<Vec<u8>, i64> {
     let service = Service::try_connect(name).ok_or(-errno::ENOENT)?;
     service
-        .call(interface, method, ERROR_FIELD, Vec::new())
+        .call_within(interface, method, ERROR_FIELD, Vec::new(), CALL_TICKS)
         .map(|reply| reply.body)
 }
 
@@ -185,19 +191,27 @@ fn split<T>(result: Result<T, i64>) -> (Option<T>, Option<i64>) {
 /// Join the supervision table with the health rows by name: every supervised
 /// service in `init`'s order, then any service only `healthd` knows. At most
 /// [`MAX_ROWS`] rows; a duplicate name keeps its first row.
+///
+/// The join key is the name exactly as the peer sent it, never the cleaned
+/// display name: two long names that share a truncated prefix (installed app
+/// ids reach 128 bytes, and `healthd` takes any reporter's name) must stay two
+/// rows, each with its own health.
 pub fn merge(
     table: &[init_wire::ServiceStatus],
     records: &[health_wire::HealthRecord],
 ) -> Vec<ServiceRow> {
     let mut rows: Vec<ServiceRow> = Vec::new();
+    // `keys[i]` is the raw name of `rows[i]`.
+    let mut keys: Vec<&str> = Vec::new();
     for status in table {
         let name = clean(&status.name, MAX_FIELD);
-        if name.is_empty() || rows.iter().any(|row| row.name == name) {
+        if name.is_empty() || keys.contains(&status.name.as_str()) {
             continue;
         }
         if rows.len() == MAX_ROWS {
             break;
         }
+        keys.push(&status.name);
         rows.push(ServiceRow {
             name,
             state: clean(&status.state, MAX_FIELD),
@@ -215,13 +229,15 @@ pub fn merge(
         }
         let health = clean(&record.status, MAX_FIELD);
         let detail = clean(&record.detail, MAX_DETAIL);
-        if let Some(row) = rows.iter_mut().find(|row| row.name == name) {
+        if let Some(index) = keys.iter().position(|key| *key == record.name) {
             // `healthd` folds heartbeats into the phase, so its word wins.
+            let row = &mut rows[index];
             if !health.is_empty() {
                 row.health = health;
             }
             row.detail = detail;
         } else if rows.len() < MAX_ROWS {
+            keys.push(&record.name);
             rows.push(ServiceRow {
                 name,
                 health,
@@ -231,6 +247,14 @@ pub fn merge(
         }
     }
     rows
+}
+
+/// The first visible row after moving `first` by `delta` rows, for a table of
+/// `len` rows showing `page` at a time: never past the last full page, never
+/// negative. Also re-validates an offset after a refresh shrank the table.
+pub fn scroll(first: usize, delta: i64, len: usize, page: usize) -> usize {
+    let last = len.saturating_sub(page.max(1)) as i64;
+    (first as i64).saturating_add(delta).clamp(0, last) as usize
 }
 
 /// `text` without control characters, cut to `max` characters with an
@@ -289,6 +313,46 @@ mod tests {
         // A heartbeat-only service is listed after the supervised ones.
         assert_eq!(rows[2].name, "netd");
         assert!(rows[2].state.is_empty());
+    }
+
+    #[test]
+    fn names_sharing_a_truncated_prefix_stay_separate_rows() {
+        let prefix = "a".repeat(MAX_FIELD + 10);
+        let first = format!("{prefix}-one");
+        let second = format!("{prefix}-two");
+        let rows = merge(
+            &[
+                status(&first, "running", "ok"),
+                status(&second, "failed", "down"),
+            ],
+            &[
+                record(&second, "down", "crashed"),
+                record(&first, "ok", "fine"),
+            ],
+        );
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].name, rows[1].name, "both display the same prefix");
+        assert_eq!(
+            (rows[0].health.as_str(), rows[0].detail.as_str()),
+            ("ok", "fine")
+        );
+        assert_eq!(
+            (rows[1].health.as_str(), rows[1].detail.as_str()),
+            ("down", "crashed")
+        );
+    }
+
+    #[test]
+    fn scrolling_stays_within_the_table() {
+        // 20 rows, 8 visible: the first row ranges over 0..=12.
+        assert_eq!(scroll(0, 1, 20, 8), 1);
+        assert_eq!(scroll(0, -5, 20, 8), 0);
+        assert_eq!(scroll(10, 8, 20, 8), 12);
+        assert_eq!(scroll(0, i64::MAX, 20, 8), 12);
+        assert_eq!(scroll(5, i64::MIN, 20, 8), 0);
+        // A table that fits, or a refresh that shrank it, pins the offset to 0.
+        assert_eq!(scroll(7, 0, 5, 8), 0);
+        assert_eq!(scroll(3, 0, 0, 0), 0);
     }
 
     #[test]

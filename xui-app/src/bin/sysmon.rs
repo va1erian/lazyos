@@ -6,8 +6,9 @@
 //! state, class, CPU ticks, name) and a footer with uptime; Services (issue
 //! #489) lists the services `init` supervises with the health `healthd`
 //! retains for each. A one-second `ui` timer refreshes whichever tab is shown;
-//! `o`/`s` (or a click on a tab) switch tabs, `r` refreshes immediately and `q`
-//! quits. Text uses the bundled Droid Sans through the backend's font.
+//! `o`/`s` (or a click on a tab) switch tabs, Up/Down, PageUp/PageDown,
+//! Home/End and the wheel scroll the services table, `r` refreshes
+//! immediately and `q` quits. Text uses the bundled Droid Sans through the backend's font.
 //!
 //! Serial evidence: `SYSMON:UP:PASS` after the first frame (or
 //! `SYSMON:UP:FAIL:<errno>` when the snapshot is unreadable),
@@ -15,11 +16,12 @@
 //! switch, `SYSMON:SERVICES:PASS services=<n> ok=<n> degraded=<n> down=<n>`
 //! the first time the Services tab shows both sources after a switch to it
 //! (`SYSMON:SERVICES:NONE:init=<errno> healthd=<errno>` once when it
-//! cannot yet), `SYSMON:SIZE:<w>x<h>` after every resize (`c` or
+//! cannot yet), `SYSMON:SCROLL:<first row>` when the services table moves,
+//! `SYSMON:SIZE:<w>x<h>` after every resize (`c` or
 //! the chip toggles the compact view by asking the compositor for a size), `SYSMON:QUIT:PASS` on `q` (or the window close button), and a
 //! `SYSMON:DATA:...` line with the headline counters.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use xui_app::backend::LazyOSBackend;
@@ -28,6 +30,7 @@ use xui_app::services::{self, Services};
 use xui_app::sysinfo::{self, Snapshot};
 use xui_core::app::{run_app, App, Ui};
 use xui_core::backend::{Backend, Event, NodeKind, NodeSpec, PlatformSpec, WidgetId};
+use xui_core::message::Key;
 use xui_core::{Control, MouseButton};
 
 #[path = "sysmon/compact.rs"]
@@ -57,6 +60,10 @@ const FOOTER_H: i32 = 26;
 
 /// How often the snapshot refreshes.
 const REFRESH_MILLIS: u32 = 1000;
+/// Services-table rows one wheel notch scrolls.
+const WHEEL_ROWS: i64 = 3;
+/// The wheel delta of one notch.
+const WHEEL_NOTCH: i64 = 120;
 
 /// One application message.
 enum Msg {
@@ -72,6 +79,15 @@ enum Msg {
     Resized,
     /// The user picked a tab (key or click).
     Show(View),
+    /// The user scrolled the services table.
+    Scroll(Step),
+}
+
+/// How far a scroll moves the services table.
+#[derive(Clone, Copy)]
+enum Step {
+    Rows(i64),
+    Pages(i64),
 }
 
 /// What the services marker has said since the last switch to the tab.
@@ -92,6 +108,11 @@ struct State {
     /// The last services refresh; only read while the Services tab is shown.
     services: Option<Services>,
     reported: Reported,
+    /// The first services row shown.
+    scroll: usize,
+    /// How many services rows the last paint fitted, so a page scroll and
+    /// the scroll bounds follow the window size.
+    page: Cell<usize>,
 }
 
 impl State {
@@ -104,6 +125,8 @@ impl State {
             view: View::Overview,
             services: None,
             reported: Reported::Nothing,
+            scroll: 0,
+            page: Cell::new(1),
         };
         state.reload();
         state
@@ -117,6 +140,8 @@ impl State {
         if self.view == View::Services {
             self.services = Some(services::fetch());
             self.report_services();
+            // A refresh can shrink the table; keep the offset on a real row.
+            self.scroll_by(Step::Rows(0));
         }
         match sysinfo::snapshot() {
             Ok(snapshot) => {
@@ -129,6 +154,17 @@ impl State {
 }
 
 impl State {
+    /// Move the services table, clamped to its rows.
+    fn scroll_by(&mut self, step: Step) {
+        let page = self.page.get().max(1);
+        let delta = match step {
+            Step::Rows(rows) => rows,
+            Step::Pages(pages) => pages.saturating_mul(page as i64),
+        };
+        let len = self.services.as_ref().map_or(0, |view| view.rows.len());
+        self.scroll = services::scroll(self.scroll, delta, len, page);
+    }
+
     /// Say once per switch whether the Services tab has both sources.
     fn report_services(&mut self) {
         let Some(view) = &self.services else {
@@ -193,6 +229,20 @@ impl App for Sysmon {
                 ui.invalidate(self.root.id());
                 println!("SYSMON:VIEW:{}", view.marker());
             }
+            Msg::Scroll(step) => {
+                let mut state = self.state.borrow_mut();
+                if state.view != View::Services {
+                    return;
+                }
+                let before = state.scroll;
+                state.scroll_by(step);
+                let after = state.scroll;
+                drop(state);
+                if after != before {
+                    ui.invalidate(self.root.id());
+                    println!("SYSMON:SCROLL:{after}");
+                }
+            }
             Msg::Quit => {
                 println!("SYSMON:QUIT:PASS");
                 ui.quit();
@@ -219,6 +269,32 @@ impl App for Sysmon {
             }
         }
     }
+}
+
+/// The scroll a navigation key asks for.
+fn scroll_key(key: Key) -> Option<Step> {
+    match key {
+        Key::UP => Some(Step::Rows(-1)),
+        Key::DOWN => Some(Step::Rows(1)),
+        Key::PAGE_UP => Some(Step::Pages(-1)),
+        Key::PAGE_DOWN => Some(Step::Pages(1)),
+        Key::HOME => Some(Step::Rows(i64::MIN)),
+        Key::END => Some(Step::Rows(i64::MAX)),
+        _ => None,
+    }
+}
+
+/// The scroll a wheel delta asks for: a positive delta is away from the user,
+/// which shows earlier rows. A partial notch still moves one row.
+fn wheel_step(delta: i16) -> Step {
+    let rows = if delta > 0 {
+        -(i64::from(delta) * WHEEL_ROWS / WHEEL_NOTCH).max(1)
+    } else if delta < 0 {
+        (i64::from(-delta) * WHEEL_ROWS / WHEEL_NOTCH).max(1)
+    } else {
+        0
+    };
+    Step::Rows(rows)
 }
 
 fn main() {
@@ -271,6 +347,12 @@ fn main() {
             Event::Char('c') => Some(Msg::ToggleCompact),
             Event::Char('o') => Some(Msg::Show(View::Overview)),
             Event::Char('s') => Some(Msg::Show(View::Services)),
+            Event::KeyDown { key, .. } => scroll_key(*key).map(Msg::Scroll),
+            Event::MouseWheel {
+                delta,
+                horizontal: false,
+                ..
+            } => Some(Msg::Scroll(wheel_step(*delta))),
             Event::MouseDown {
                 x,
                 y,

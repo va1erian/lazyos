@@ -8,6 +8,8 @@ use xui_app::services::{Services, Tone};
 use xui_core::backend::TextAlign;
 use xui_core::{Canvas, Color, Point, Rect, TextStyle, Theme};
 
+use crate::State;
+
 /// Height the tab strip takes from the top of the content area.
 pub(crate) const TABS_H: i32 = 36;
 /// One tab's size.
@@ -111,9 +113,10 @@ fn column(rect: Rect, index: usize) -> Rect {
     Rect::new((rect.left + left).min(right), rect.top, right, rect.bottom)
 }
 
-/// Paint the Services tab into `content` (below the tab strip).
-pub(crate) fn paint(canvas: &mut dyn Canvas, theme: Theme, content: Rect, view: Option<&Services>) {
-    let Some(view) = view else {
+/// Paint the Services tab into `content` (below the tab strip), starting at
+/// row `state.scroll`, and record how many rows fit in `state.page`.
+pub(crate) fn paint(canvas: &mut dyn Canvas, theme: Theme, content: Rect, state: &State) {
+    let Some(view) = state.services.as_ref() else {
         notice(
             canvas,
             theme,
@@ -161,7 +164,7 @@ pub(crate) fn paint(canvas: &mut dyn Canvas, theme: Theme, content: Rect, view: 
         );
         return;
     }
-    paint_table(canvas, theme, content, top, view);
+    paint_table(canvas, theme, content, top, view, state);
 }
 
 /// Which source failed, for the line under the heading.
@@ -176,8 +179,17 @@ fn source_errors(view: &Services) -> Option<String> {
     (!parts.is_empty()).then(|| parts.join(" · "))
 }
 
-/// The header and as many rows as fit above `content.bottom`.
-fn paint_table(canvas: &mut dyn Canvas, theme: Theme, content: Rect, top: i32, view: &Services) {
+/// The header and as many rows as fit above `content.bottom`, from row
+/// `state.scroll` on; when they do not all fit, the last line says which rows
+/// are shown and how to scroll.
+fn paint_table(
+    canvas: &mut dyn Canvas,
+    theme: Theme,
+    content: Rect,
+    top: i32,
+    view: &Services,
+    state: &State,
+) {
     let header = dash::table_header_rect(content, top);
     for (index, (label, _, _, end)) in COLUMNS.iter().enumerate() {
         let style = if *end {
@@ -192,11 +204,15 @@ fn paint_table(canvas: &mut dyn Canvas, theme: Theme, content: Rect, top: i32, v
     let rows_top = header.bottom;
     let mut capacity = ((content.bottom - rows_top) / dash::ROW).max(0) as usize;
     if view.rows.len() > capacity {
-        // Keep the last line for the overflow note.
+        // Keep the last line for the scroll note.
         capacity = capacity.saturating_sub(1);
     }
-    let shown = view.rows.len().min(capacity);
-    for (index, row) in view.rows.iter().take(shown).enumerate() {
+    state.page.set(capacity.max(1));
+    // The offset was clamped against the previous page size; a resize can
+    // change it, so clamp again for this paint.
+    let first = xui_app::services::scroll(state.scroll, 0, view.rows.len(), capacity);
+    let shown = (view.rows.len() - first).min(capacity);
+    for (index, row) in view.rows.iter().skip(first).take(shown).enumerate() {
         let y = rows_top + index as i32 * dash::ROW;
         let rect = Rect::new(content.left, y, content.right, y + dash::ROW);
         let state_color = tone_color(theme, Tone::of_state(&row.state));
@@ -221,13 +237,20 @@ fn paint_table(canvas: &mut dyn Canvas, theme: Theme, content: Rect, top: i32, v
             (&row.detail, theme.text_secondary, false),
         ];
         for (index, (text, color, end)) in cells.iter().enumerate() {
-            dash::cell(canvas, column(rect, index), text, *color, *end);
+            let cell = column(rect, index);
+            dash::cell(canvas, cell, &fit(text, cell.width()), *color, *end);
         }
         rule(canvas, theme, rect);
     }
     if shown < view.rows.len() {
+        let note = format!(
+            "rows {}–{} of {} · Up/Down, PgUp/PgDn, Home/End or the wheel to scroll",
+            first + 1,
+            first + shown,
+            view.rows.len()
+        );
         canvas.draw_text(
-            &format!("… {} more below", view.rows.len() - shown),
+            &note,
             Rect::new(
                 content.left,
                 content.bottom - 20,
@@ -237,6 +260,21 @@ fn paint_table(canvas: &mut dyn Canvas, theme: Theme, content: Rect, top: i32, v
             &dash::heading_end(theme.text_secondary, dash::LABEL),
         );
     }
+}
+
+/// Widest average glyph of the body font, in pixels: a conservative bound
+/// so a cut cell never runs into its neighbour (the canvas does not clip).
+const GLYPH_W: i32 = 7;
+
+/// `text` shortened with an ellipsis to what fits `width` pixels.
+fn fit(text: &str, width: i32) -> String {
+    let max = (width / GLYPH_W).max(1) as usize;
+    if text.chars().count() <= max {
+        return text.to_owned();
+    }
+    let mut out: String = text.chars().take(max - 1).collect();
+    out.push('…');
+    out
 }
 
 fn rule(canvas: &mut dyn Canvas, theme: Theme, rect: Rect) {

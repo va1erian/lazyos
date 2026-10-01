@@ -35,7 +35,7 @@ pub(super) fn paint(canvas: &mut dyn Canvas, state: &State) {
         framed.bottom,
     );
     if state.view == View::Services {
-        services_view::paint(canvas, theme, content, state.services.as_ref());
+        services_view::paint(canvas, theme, content, state);
         compact::paint_chip(canvas, theme, bounds);
         return;
     }
