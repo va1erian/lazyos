@@ -26,14 +26,14 @@ concurrency:
 
 jobs:
   fmt:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
       - uses: actions/checkout@v4
       # rust-toolchain.toml pins the nightly toolchain (with rustfmt/clippy).
       - run: cargo fmt --all -- --check
 
   lint:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
       - uses: actions/checkout@v4
       - name: Clippy (kernel and user programs, no_std target)
@@ -54,7 +54,7 @@ jobs:
         run: cargo clippy -p usbhid -p xhci --all-targets --features usbhid/fuzz -- -D warnings -D clippy::undocumented_unsafe_blocks
 
   build-and-boot:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
       - uses: actions/checkout@v4
 
