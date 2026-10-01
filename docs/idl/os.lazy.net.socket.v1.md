@@ -7,11 +7,15 @@ Sockets (docs/networking-plan.md N3), served by `netd` next to
 
 **Ownership.** A socket belongs to the kernel-stamped sender of the `Open`
 that made it (or of the `Accept` that returned it); every call on it by
-anyone else fails with `EACCES`. Nothing in a request names a caller. A
-socket whose owner exits is reclaimed by `netd` (it watches the task
-table), so a client need not `Close` before it dies, but a well-behaved
-one does. One owner may hold at most 8 sockets and everybody together 64;
-past either limit `Open` and `Accept` fail with `EMFILE` and `ENFILE`.
+anyone else fails with `EACCES` (and is audited). Nothing in a request
+names a caller. The owner is the sender's task slot *and* the pid the
+scheduler's task list shows in it, so a task that reuses a dead owner's
+slot owns none of its sockets. A socket whose owner exits is reclaimed by
+`netd` within a fraction of a second, so a client need not `Close` before
+it dies, but a well-behaved one does. One owner may hold at most 8 sockets
+and everybody together 64; past either limit `Open` and `Accept` fail with
+`EMFILE` and `ENFILE`. The interface is served on the stack service's
+endpoint (`os.lazy.net.stack`); `netd` tells the interfaces apart by id.
 
 **Blocking without threads.** `Connect`, `Accept`, `Recv`, `RecvFrom`,
 `Send` (when the send buffer is full) and `Poll` are *parked*: `netd` keeps
@@ -21,13 +25,16 @@ passes. A client that wants to wait longer calls again. A caller may have
 at most 4 parked calls at once and everyone together 32 (`EAGAIN` past
 either). Because the caller sleeps in the kernel with its own deadline,
 `msg_cancel` and its death end the wait on its side; `netd` finds out when
-it tries to reply.
+it tries to reply. `Close` answers a call parked on that socket with
+`EBADF`.
 
 **Bytes travel in parcels.** A `Send` carries at most 16384 bytes and
 `Recv` returns at most `max` (1 to 16384) bytes; each socket has a 16 KiB
 buffer each way (TCP) or room for 8 datagrams of up to 1472 bytes (UDP).
 `Recv` refuses `max = 0` with `EINVAL`, so an empty reply on a stream
-socket always means the peer closed its side.
+socket always means the peer closed its side. A request too large for
+`netd`'s receive buffer (about 20 KiB, so only a malformed one) is dropped
+without a reply and the caller's own deadline ends the wait.
 
 **Ports.** `Bind` with port 0, or no `Bind` at all before `Connect`,
 `SendTo` or `Listen`, takes an ephemeral port (49152 to 65535). Ports

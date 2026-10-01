@@ -43,6 +43,9 @@ pub struct Gateway {
     pub echo_ident_override: Option<u16>,
     /// Answer from another address than the one pinged.
     pub echo_source_override: Option<[u8; 4]>,
+    /// Answer queries to port 53 from `dns_records` (NXDOMAIN for the rest).
+    pub answer_dns: bool,
+    pub dns_records: Vec<(&'static str, [u8; 4])>,
     pub requests_seen: Vec<&'static str>,
 }
 
@@ -60,6 +63,8 @@ impl Default for Gateway {
             mangle_echo: false,
             echo_ident_override: None,
             echo_source_override: None,
+            answer_dns: true,
+            dns_records: Vec::new(),
             requests_seen: Vec::new(),
         }
     }
@@ -251,6 +256,9 @@ impl Gateway {
         let Ok(udp) = UdpPacket::new_checked(packet.payload()) else {
             return Vec::new();
         };
+        if udp.dst_port() == 53 {
+            return self.react_dns(packet, &udp);
+        }
         if udp.dst_port() != 67 {
             return Vec::new();
         }
@@ -270,6 +278,31 @@ impl Gateway {
             return Vec::new();
         }
         std::vec![self.dhcp_reply(answer, &request)]
+    }
+
+    fn react_dns(&mut self, packet: &Ipv4Packet<&[u8]>, udp: &UdpPacket<&[u8]>) -> Vec<Vec<u8>> {
+        self.requests_seen.push("dns");
+        let Some(response) = self
+            .answer_dns
+            .then(|| crate::testdns::answer(udp.payload(), &self.dns_records))
+            .flatten()
+        else {
+            return Vec::new();
+        };
+        let mut to = [0u8; 4];
+        to.copy_from_slice(&packet.src_addr().octets());
+        let mut from = [0u8; 4];
+        from.copy_from_slice(&packet.dst_addr().octets());
+        // The stack learned our MAC from the ARP exchange; unicast back to it.
+        std::vec![udp_frame(
+            STACK_MAC,
+            GW_MAC,
+            from,
+            to,
+            53,
+            udp.src_port(),
+            &response
+        )]
     }
 
     fn react_icmp(

@@ -36,6 +36,8 @@ pub const ANY_METHOD: &str = "*";
 pub const NIC_INTERFACE: &str = "os.lazy.net.nic.v1";
 /// The stack service's interface (`idl/net.midl`).
 pub const STACK_INTERFACE: &str = "os.lazy.net.stack.v1";
+/// The socket interface `netd` serves next to it (`idl/net.midl`, stage N3).
+pub const SOCKET_INTERFACE: &str = "os.lazy.net.socket.v1";
 
 /// One rule. `actor` is a uid.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -99,9 +101,57 @@ pub const STACK_CLIENT_RULES: &[RuleSpec] = &[
     allow(ANY_ACTOR, STACK_INTERFACE, "Routes"),
     allow(ANY_ACTOR, STACK_INTERFACE, "Stats"),
     allow(ANY_ACTOR, STACK_INTERFACE, "Ping"),
+    allow(ANY_ACTOR, STACK_INTERFACE, "Resolve"),
     allow(NETD_UID, STACK_INTERFACE, ANY_METHOD),
     allow(ROOT_UID, STACK_INTERFACE, ANY_METHOD),
     deny(ANY_ACTOR, STACK_INTERFACE, ANY_METHOD),
+];
+
+/// The socket methods, in the order of the interface. Each is its own rule so
+/// that a profile can later grant `Connect` without `Listen` (stage N6 narrows
+/// who gets which; until then any caller may use sockets, and `netd` enforces
+/// ownership of each socket and its own quotas whatever this table says).
+pub const SOCKET_METHODS: &[&str] = &[
+    "Open",
+    "Bind",
+    "Connect",
+    "Listen",
+    "Accept",
+    "Send",
+    "Recv",
+    "SendTo",
+    "RecvFrom",
+    "Poll",
+    "Shutdown",
+    "LocalAddr",
+    "PeerAddr",
+    "Close",
+    "Stats",
+];
+
+const fn socket_allow(method: &'static str) -> RuleSpec {
+    allow(ANY_ACTOR, SOCKET_INTERFACE, method)
+}
+
+/// Who may call the socket service: every method is open to every caller for
+/// now, and anything that is not a socket method is refused.
+pub const SOCKET_CLIENT_RULES: &[RuleSpec] = &[
+    socket_allow("Open"),
+    socket_allow("Bind"),
+    socket_allow("Connect"),
+    socket_allow("Listen"),
+    socket_allow("Accept"),
+    socket_allow("Send"),
+    socket_allow("Recv"),
+    socket_allow("SendTo"),
+    socket_allow("RecvFrom"),
+    socket_allow("Poll"),
+    socket_allow("Shutdown"),
+    socket_allow("LocalAddr"),
+    socket_allow("PeerAddr"),
+    socket_allow("Close"),
+    socket_allow("Stats"),
+    deny(ANY_ACTOR, SOCKET_INTERFACE, ANY_METHOD),
 ];
 
 #[cfg(test)]
@@ -160,6 +210,46 @@ mod tests {
             fnv1a64(STACK_INTERFACE),
             messenger_generated::os_lazy_net_stack_v1::INTERFACE_ID
         );
+        assert_eq!(
+            fnv1a64(SOCKET_INTERFACE),
+            messenger_generated::os_lazy_net_socket_v1::INTERFACE_ID
+        );
+    }
+
+    #[test]
+    fn the_socket_rules_name_every_method_of_the_interface_and_only_those() {
+        use messenger_generated::os_lazy_net_socket_v1 as socket;
+        let ids = [
+            ("Open", socket::METHOD_OPEN),
+            ("Bind", socket::METHOD_BIND),
+            ("Connect", socket::METHOD_CONNECT),
+            ("Listen", socket::METHOD_LISTEN),
+            ("Accept", socket::METHOD_ACCEPT),
+            ("Send", socket::METHOD_SEND),
+            ("Recv", socket::METHOD_RECV),
+            ("SendTo", socket::METHOD_SENDTO),
+            ("RecvFrom", socket::METHOD_RECVFROM),
+            ("Poll", socket::METHOD_POLL),
+            ("Shutdown", socket::METHOD_SHUTDOWN),
+            ("LocalAddr", socket::METHOD_LOCALADDR),
+            ("PeerAddr", socket::METHOD_PEERADDR),
+            ("Close", socket::METHOD_CLOSE),
+            ("Stats", socket::METHOD_STATS),
+        ];
+        assert_eq!(ids.len(), SOCKET_METHODS.len());
+        for ((name, id), listed) in ids.iter().zip(SOCKET_METHODS) {
+            assert_eq!(name, listed);
+            assert_eq!(fnv1a32(name), *id, "{name}");
+        }
+        let allowed: std::vec::Vec<_> = SOCKET_CLIENT_RULES
+            .iter()
+            .filter(|r| r.allow)
+            .map(|r| r.method)
+            .collect();
+        assert_eq!(allowed, SOCKET_METHODS);
+        assert!(SOCKET_CLIENT_RULES
+            .iter()
+            .all(|r| r.interface == SOCKET_INTERFACE));
     }
 
     #[test]
@@ -183,6 +273,7 @@ mod tests {
             ("Ping", stack::METHOD_PING),
             ("Renew", stack::METHOD_RENEW),
             ("Reattach", stack::METHOD_REATTACH),
+            ("Resolve", stack::METHOD_RESOLVE),
         ];
         for (name, id) in nic_methods.iter().chain(stack_methods.iter()) {
             assert_eq!(fnv1a32(name), *id, "{name}");
@@ -203,7 +294,7 @@ mod tests {
 
     #[test]
     fn every_ruleset_ends_in_an_explicit_deny() {
-        for rules in [NIC_CLIENT_RULES, STACK_CLIENT_RULES] {
+        for rules in [NIC_CLIENT_RULES, STACK_CLIENT_RULES, SOCKET_CLIENT_RULES] {
             let last = rules.last().unwrap();
             assert!(!last.allow && last.actor == ANY_ACTOR && last.method == ANY_METHOD);
             // Nothing after an allow can be reached by the wildcard deny's actor

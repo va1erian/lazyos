@@ -122,6 +122,7 @@ pub fn net_call_rules_decide_who_may_call_what() -> Result<(), String> {
     let _fx = Fixture::new()?;
     let mut rules = compile(netpolicy::NIC_CLIENT_RULES);
     rules.extend(compile(netpolicy::STACK_CLIENT_RULES));
+    rules.extend(compile(netpolicy::SOCKET_CLIENT_RULES));
     acl::load(&rules);
     let allowed = |uid: u32, interface: &str, method: &str| {
         !acl_rules::evaluate(uid, fnv1a64(interface), fnv1a32(method)).denied()
@@ -184,7 +185,7 @@ pub fn net_call_rules_decide_who_may_call_what() -> Result<(), String> {
 
     // The stack service: anyone reads and pings; only `_netd` and root change it.
     for uid in [netd, root, app, stranger, net] {
-        for method in ["Interfaces", "Addresses", "Routes", "Stats", "Ping"] {
+        for method in ["Interfaces", "Addresses", "Routes", "Stats", "Ping", "Resolve"] {
             check!(
                 allowed(uid, stack, method),
                 "uid {uid} refused {method} on the stack"
@@ -206,6 +207,22 @@ pub fn net_call_rules_decide_who_may_call_what() -> Result<(), String> {
                 "uid {uid} refused {method} on the stack"
             );
         }
+    }
+
+    // The socket service: every socket method is open to every caller (stage
+    // N6 narrows it per profile); a method that is not one is refused.
+    let socket = netpolicy::SOCKET_INTERFACE;
+    for uid in [netd, root, app, stranger, net] {
+        for method in netpolicy::SOCKET_METHODS {
+            check!(
+                allowed(uid, socket, method),
+                "uid {uid} refused {method} on the socket service"
+            );
+        }
+        check!(
+            !allowed(uid, socket, "NoSuchMethod"),
+            "uid {uid} may call a method the socket service does not have"
+        );
     }
 
     // Default deny: an interface the rules do not name is refused to everyone.
