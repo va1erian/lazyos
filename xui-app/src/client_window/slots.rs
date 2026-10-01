@@ -20,6 +20,11 @@ use crate::sys::{self, errno};
 /// Slots per window: one on screen, one being drawn.
 pub const SLOTS: usize = 2;
 
+/// PIT ticks (100 Hz) before a buffer allocation that failed at a size is
+/// tried again at that same size. Out of quota, every frame would otherwise
+/// create and close a buffer; a new size (a newer `Configure`) retries at once.
+const RETRY_TICKS: u64 = 50;
+
 /// One shared pixel buffer attached as a slot.
 #[derive(Clone, Copy, Default)]
 struct Slot {
@@ -52,6 +57,12 @@ pub struct Slots {
     /// newer present replaces it, so a release of this one means it refused
     /// the present and never showed the frame.
     last: Option<u32>,
+    /// `last` before the latest submit, restored when that submit is
+    /// cancelled.
+    before: Option<u32>,
+    /// The size an allocation last failed at, and the tick before which
+    /// [`Slots::acquire`] does not try that size again.
+    failed: Option<((i32, i32), u64)>,
 }
 
 impl Slots {
@@ -70,7 +81,29 @@ impl Slots {
             slots,
             chain: Swapchain::new(SLOTS),
             last: None,
+            before: None,
+            failed: None,
         }
+    }
+
+    /// Give every bufferless slot a buffer of slot 0's size, so a window
+    /// that cannot be double-buffered (no buffer quota) fails to open instead
+    /// of freezing after its first frame.
+    pub fn reserve(&mut self, client: Client, surface: u64) -> Result<(), i64> {
+        let (width, height) = (self.slots[0].width, self.slots[0].height);
+        for (slot, entry) in self.slots.iter_mut().enumerate() {
+            if entry.buffer == 0 {
+                let (buffer, va) = attach_slot(client, surface, slot as u32, width, height)?;
+                *entry = Slot {
+                    buffer,
+                    va,
+                    width,
+                    height,
+                    stale: Some(Rect::new(0, 0, width, height)),
+                };
+            }
+        }
+        Ok(())
     }
 
     /// A slot the app may fill now, holding a `width` x `height` buffer
@@ -78,7 +111,8 @@ impl Slots {
     /// last used). `Ok(None)` while the compositor holds every slot: the next
     /// `BufferRelease` frees one. An error (no quota, or `EINVAL` when a newer
     /// `Configure` is on its way) leaves the slot bufferless and free, so a
-    /// later frame simply tries again.
+    /// later frame tries again: at once for a new size, after
+    /// [`RETRY_TICKS`] for the same one (`EAGAIN` until then).
     pub fn acquire(
         &mut self,
         client: Client,
@@ -94,12 +128,22 @@ impl Slots {
             // A free slot is not the compositor's current one, so its old
             // buffer can go first: freeing it before allocating keeps a
             // resize inside the per-process buffer quota.
+            let now = sys::clock_ticks();
+            if matches!(self.failed, Some((size, until)) if size == (width, height) && now < until)
+            {
+                return Err(-errno::EAGAIN);
+            }
             if entry.buffer != 0 {
                 let _ = sys::display_close_buffer(entry.buffer);
             }
             *entry = Slot::default();
-            let (buffer, va) = attach_slot(client, surface, slot, width, height)?;
-            *entry = Slot {
+            let attached = attach_slot(client, surface, slot, width, height);
+            let Ok((buffer, va)) = attached else {
+                self.failed = Some(((width, height), now.saturating_add(RETRY_TICKS)));
+                return attached.map(|_| None);
+            };
+            self.failed = None;
+            self.slots[slot as usize] = Slot {
                 buffer,
                 va,
                 width,
@@ -146,8 +190,19 @@ impl Slots {
     /// or `None` when the slot was not free.
     pub fn submit(&mut self, slot: u32) -> Option<u64> {
         let seq = self.chain.submit(slot)?;
-        self.last = Some(slot);
+        self.before = self.last.replace(slot);
         Some(seq)
+    }
+
+    /// Take back `slot`, submitted as `seq`, whose `Present` never reached
+    /// the compositor: no `BufferRelease` will free it. Its pixels stay in
+    /// sync, so a retry only needs the damage presented again.
+    pub fn cancel(&mut self, slot: u32, seq: u64) -> bool {
+        if !self.chain.cancel(slot, seq) {
+            return false;
+        }
+        self.last = self.before.take();
+        true
     }
 
     /// Fold in a `BufferRelease`. Returns `true` when it refused the present
@@ -340,6 +395,19 @@ mod tests {
         assert!(!slots.sync(0, &[5; 16]));
         assert!(slots.is_stale(0), "a refused sync keeps the slot stale");
         assert!(a.iter().all(|&byte| byte == 0));
+    }
+
+    #[test]
+    fn a_cancelled_present_frees_the_slot_and_keeps_refusal_tracking() {
+        let (mut a, mut b) = (image(0), image(0));
+        let mut slots = Slots::for_tests([&mut a, &mut b], W, H);
+        assert_eq!(slots.submit(0), Some(1));
+        assert_eq!(slots.submit(1), Some(2));
+        assert!(slots.cancel(1, 2));
+        assert!(!slots.cancel(1, 2), "only once");
+        // Slot 0 is the newest present again: its release is a refusal.
+        assert!(slots.released(0));
+        assert_eq!(slots.submit(1), Some(2), "slot 1 is free again");
     }
 
     #[test]

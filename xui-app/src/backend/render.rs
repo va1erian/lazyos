@@ -179,7 +179,21 @@ impl LazyOSBackend {
             self.add_damage(window, full);
             return false;
         };
-        client.present(surface, slot, seq, damage).is_ok()
+        if client.present(surface, slot, seq, damage).is_ok() {
+            return true;
+        }
+        // The compositor never saw this present, so it would never release
+        // the slot: take it back and keep the damage for the next tick.
+        if let Some(surface) = self
+            .windows
+            .borrow_mut()
+            .get_mut(&window.raw())
+            .and_then(|entry| entry.client.as_mut())
+        {
+            surface.slots.cancel(slot, seq);
+        }
+        self.add_damage(window, damage);
+        false
     }
 
     /// Fold a `BufferRelease` or `FrameDone` for `window` into its slots. A

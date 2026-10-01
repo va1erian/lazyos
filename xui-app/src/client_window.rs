@@ -98,13 +98,20 @@ impl ClientWindow {
             }
         };
         let (width, height) = first.size;
+        let mut slots = Slots::new(first.buffer, first.va, width as i32, height as i32);
+        if let Err(code) = slots.reserve(client, surface) {
+            slots.close();
+            let _ = client.destroy_surface(surface);
+            let _ = display::close(events);
+            return Err(format!("attach_slot: errno {code}"));
+        }
         // Best effort: `xuid` registered the surface with `inputd` before it
         // answered `CreateSurface`, so the session can be opened right away.
         let input = input::Session::open(surface).ok();
         Ok(ClientWindow {
             events,
             surface,
-            slots: Slots::new(first.buffer, first.va, width as i32, height as i32),
+            slots,
             rect: (width as i32, height as i32),
             title: title.to_owned(),
             input,

@@ -48,6 +48,8 @@ pub mod errno {
     pub const ENOENT: i64 = 2;
     /// The receive buffer is too small.
     pub const E2BIG: i64 = 7;
+    /// Try again later.
+    pub const EAGAIN: i64 = 11;
     /// Invalid argument.
     pub const EINVAL: i64 = 22;
     /// The peer endpoint is gone.
