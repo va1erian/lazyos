@@ -295,6 +295,10 @@ def ensure_busybox() -> Path | None:
             return None
     except Exception as error:  # noqa: BLE001 - any tool failure is "unavailable"
         print(f"busybox: build unavailable: {error}", file=sys.stderr)
+        # `capture_output` hides why make failed; the tail is the diagnosis.
+        detail = (getattr(error, "stderr", "") or "").strip()
+        if detail:
+            print(f"busybox: tool stderr (tail):\n{detail[-2000:]}", file=sys.stderr)
         return None
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(SOURCE / "busybox", OUTPUT)
