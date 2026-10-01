@@ -231,8 +231,8 @@ jobs:
       # Client mode (issue #168): `xuid` runs the compositor and the app is a
       # client in a decorated window. The session clicks the text field, types
       # with the pointer away, focuses the counter by key cycling, drives it
-      # with Space, then exercises the WM (drag, minimize, taskbar restore,
-      # close).
+      # with Space, then exercises the WM (drag, minimize, Alt+Tab restore,
+      # close). This image has no LazyShell, so there is no taskbar.
       - name: Capture client mode (window, focus routing, WM)
         if: ${{ !cancelled() && steps.app.outputs.client != '' }}
         shell: bash
@@ -579,7 +579,22 @@ jobs:
             echo "::error::no screenshots were captured"
             exit 1
           fi
-          python tools/screenshot/pngstats.py "${pngs[@]}" --min-nonblack 0.01 --min-colors 4
+          # Client mode has no LazyShell, and xuid itself paints no taskbar
+          # (issue #157): once the window is minimized or closed the frame is
+          # the background plus the cursor, three colours. Those two shots are
+          # checked on their own for exactly that (the compositor still draws
+          # the cursor); every other shot keeps the four-colour floor.
+          empty=(shots/client/shot_05_minimized.png shots/client/shot_08_closed.png)
+          rest=()
+          for png in "${pngs[@]}"; do
+            case " ${empty[*]} " in *" $png "*) ;; *) rest+=("$png") ;; esac
+          done
+          python tools/screenshot/pngstats.py "${rest[@]}" --min-nonblack 0.01 --min-colors 4
+          present=()
+          for png in "${empty[@]}"; do [ -f "$png" ] && present+=("$png"); done
+          if [ ${#present[@]} -gt 0 ]; then
+            python tools/screenshot/pngstats.py "${present[@]}" --min-nonblack 0.01 --min-colors 3
+          fi
 
       # On a red run, show what each boot reached: the app markers, the session
       # outcome (which gate failed and when) and the serial tail.
