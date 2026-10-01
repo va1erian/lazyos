@@ -83,6 +83,16 @@ jobs:
       - name: Boot on USB input and judge it
         run: python tools/usb/run.py ${{ matrix.args }}
 
+      # On failure, print the evidence in the log itself: every key edge usbd
+      # sent and inputd decoded, the driver's lifecycle lines, and when each
+      # session step ran, so a lost or late key can be placed without the
+      # artifact.
+      - name: Dump the key trace and session timeline
+        if: ${{ failure() }}
+        run: |
+          grep -anE "USBD:(KEY|XHCI|PORT|HID|READY|DETACH|CRASH|FATAL|PANIC|SLOT)|INPUTD:(KEY|READY)|INIT:RESTART|HANG:" shots/usb/serial.log || true
+          python -c "import json; [print(step) for step in json.load(open('shots/usb/summary.json'))['timeline']]" || true
+
       - name: Upload the session
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
