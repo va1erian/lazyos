@@ -264,6 +264,15 @@ class MainTests(unittest.TestCase):
                 self.assertEqual(build.main([]), 0)
             self.assertEqual(json.loads(stdout.getvalue()), {})
 
+class NoLinkerTests(unittest.TestCase):
+    def test_matches_cargos_missing_linker_message(self):
+        self.assertTrue(build.no_linker("error: linker `x86_64-linux-musl-gcc` not found"))
+        self.assertTrue(build.no_linker("error: could not exec the linker `cc`"))
+
+    def test_unrelated_not_found_is_a_real_failure(self):
+        self.assertFalse(build.no_linker("error: linking with `cc` failed\nld: x.o: No such file"))
+        self.assertFalse(build.no_linker("error[E0432]: unresolved import `linker`: not found"))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -31,6 +31,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -125,10 +126,14 @@ def build_env(
 
 
 def no_linker(stderr: str) -> bool:
-    """True when cargo failed only because no linker could be run."""
-    lowered = stderr.lower()
-    return "linker" in lowered and (
-        "not found" in lowered or "could not exec" in lowered or "no such file" in lowered
+    """True when cargo failed only because no linker could be run.
+
+    Matches cargo's own diagnostic rather than any stderr that mentions a linker
+    next to an unrelated "not found", so a real compile or link error still fails.
+    """
+    return (
+        re.search(r"error: linker `[^`]+` not found", stderr) is not None
+        or "could not exec the linker" in stderr.lower()
     )
 
 
