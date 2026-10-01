@@ -37,7 +37,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from qemu_qmp import Qmp, accel_args, build_qemu_command, find_qemu, free_port  # noqa: E402
 
 import analyze_pcap  # noqa: E402
+import hostpeers  # noqa: E402
 import pcap  # noqa: E402
+import sockets_pcap  # noqa: E402
 
 #: The soak's iteration count (`netdrv`'s `DEMO_CLIENTS`): one ARP exchange each.
 SOAK_ITERATIONS = 40
@@ -54,18 +56,40 @@ NETD_MIN_DHCP = 1 + 1 + SOAK_RENEWALS
 #: Echo exchanges with the gateway: `ping 10.0.2.2 4`, the probe's two, and one
 #: per soak round.
 NETD_MIN_PINGS = 4 + 2 + SOAK_ITERATIONS
+#: Stage N3: `netd demo=1` goes on to a name lookup, three `nc` clients against
+#: the host's echo servers, the socket probe, the socket soak, and a guest
+#: listener the harness connects into. `NC:PASS` is printed by each of the
+#: three clients and the listener.
+SOCK_SOAK_ITERATIONS = 40
+#: Connection attempts to the closed port: every eighth soak round, plus the
+#: probe's own. Whether the host's user networking answers them with a reset or
+#: with silence differs by host, so the resets are reported, never required.
+SOCK_REFUSALS = 1 + SOCK_SOAK_ITERATIONS // 8
+#: TCP flows to the echo port: two `nc` runs and one per soak round.
+SOCK_TCP_FLOWS = 2 + SOCK_SOAK_ITERATIONS
+#: UDP echo pairs: one `nc -u` and one per soak round.
+SOCK_UDP_PAIRS = 1 + SOCK_SOAK_ITERATIONS
+#: Demo clients `netd` runs in all (`DEMO_CLIENTS` in `user/src/bin/netd.rs`).
+NETD_DEMO_CLIENTS = 12
+#: The bytes the harness sends into the guest's listener.
+INBOUND_BYTES = 150_000
 NETD_PASS_MARKERS = (
     "NET:NIC:PASS",
     "NETCTL:INFO:PASS",
     "PING:PASS",
     "NETCTL:PROBE:PASS",
     "NETCTL:SOAK:PASS",
+    "NETCTL:SOCKPROBE:PASS",
+    "NETCTL:SOCKOWNER:PASS",
+    "NETCTL:SOCKSOAK:PASS",
 )
 NETD_FAIL_MARKERS = (
     "NET:NIC:FAIL",
     "NET:IRQ:FAIL",
     "NETCTL:FAIL",
     "PING:FAIL",
+    "NC:FAIL",
+    "NSLOOKUP:FAIL",
     "NETD:FAIL",
     "NETDRV:NODEV",
 )
@@ -86,7 +110,7 @@ FAIL_MARKERS = (
     "NICCTL:FAIL",
     "NETDRV:NODEV",
 )
-LOG_PREFIXES = ("NET", "netdrv", "netd", "NICCTL", "NETDRV", "NETD", "NETCTL", "PING")
+LOG_PREFIXES = ("NET", "netdrv", "netd", "NICCTL", "NETDRV", "NETD", "NETCTL", "PING", "NC:", "NSLOOKUP", "Looking up")
 
 
 def build_image(services: bool, poll: bool, netd: bool = False) -> Path:
@@ -153,7 +177,18 @@ def stop_qemu(proc: subprocess.Popen, qmp: Qmp | None) -> None:
             proc.kill()
 
 
-def qemu_args(args, image: Path, pcap_path: Path, qemu: str) -> list[str]:
+def netd_done(text: str) -> bool:
+    """Stage N3's end of the demo: every marker, a lookup that got an answer,
+    the three clients and the listener, and all twelve demo clients reaped."""
+    return (
+        all(marker in text for marker in NETD_PASS_MARKERS)
+        and ("NSLOOKUP:PASS" in text or "NSLOOKUP:NXDOMAIN" in text)
+        and text.count("NC:PASS") >= 4
+        and text.count("NETD:DEMO:EXIT") >= NETD_DEMO_CLIENTS
+    )
+
+
+def qemu_args(args, image: Path, pcap_path: Path, qemu: str, forward_port: int = 0) -> list[str]:
     extra = list(accel_args(args.accel, qemu) or [])
     if args.machine:
         extra += ["-machine", args.machine]
@@ -168,11 +203,58 @@ def qemu_args(args, image: Path, pcap_path: Path, qemu: str) -> list[str]:
         # Commas in a path are doubled for QEMU's option parser.
         path = pcap_path.resolve().as_posix().replace(",", ",,")
         extra += [
-            "-netdev", "user,id=n0",
+            "-netdev", "user,id=n0" + (
+                f",hostfwd=tcp:127.0.0.1:{forward_port}-:{hostpeers.GUEST_LISTEN_PORT}" if forward_port else ""
+            ),
             "-device", "virtio-net-pci,netdev=n0",
             "-object", f"filter-dump,id=f0,netdev=n0,file={path}",
         ]
     return extra
+
+
+def guest_address(text: str) -> bytes:
+    """The address `netd` announced (`NETD:ADDR 10.0.2.15/24 ...`)."""
+    for line in text.splitlines():
+        if line.startswith("NETD:ADDR ") and "/" in line:
+            return pcap.parse_ip(line.split()[1].split("/")[0])
+    return pcap.parse_ip("10.0.2.15")
+
+
+def judge_sockets(frames, guest_mac: bytes, text: str, tcp_streams, udp_datagrams, probe) -> bool:
+    """Stage N3's verdict from the capture, the host servers and the harness's
+    own client: the TCP/UDP/DNS checks of `sockets_pcap.py`."""
+    guest_ip = guest_address(text)
+    gateway = pcap.parse_ip(analyze_pcap.DEFAULT_GATEWAY)
+    ok = True
+
+    def report(name: str, detail: str, problems: list[str]) -> None:
+        nonlocal ok
+        if problems:
+            ok = False
+            for problem in problems[:10]:
+                print(f"NET:PCAP:{name}:FAIL {problem}")
+        else:
+            print(f"NET:PCAP:{name}:PASS {detail}".rstrip())
+
+    report("CHECKSUMS", "every TCP segment and UDP datagram from the guest", sockets_pcap.check_checksums(frames, guest_mac))
+    count, problems = sockets_pcap.check_echo_flows(frames, guest_ip, gateway, hostpeers.TCP_PORT, SOCK_TCP_FLOWS, tcp_streams)
+    report("TCP", f"flows={count} streams match the host server, bytes={sum(len(s) for s in tcp_streams)}", problems)
+    count, problems = sockets_pcap.check_refused(frames, guest_ip, gateway, 47_999, SOCK_REFUSALS)
+    report("REFUSED", f"no connection to the closed port was established, resets={count}", problems)
+    count, problems = sockets_pcap.check_udp_echo(frames, guest_ip, gateway, hostpeers.UDP_PORT, SOCK_UDP_PAIRS, udp_datagrams)
+    report("UDP", f"echo pairs={count}", problems)
+    detail, problems = sockets_pcap.check_dns(frames, guest_ip, "localhost")
+    report("DNS", detail, problems)
+    if probe is None:
+        report("INBOUND", "", ["the harness never connected into the guest"])
+    else:
+        problems = probe.verdict()
+        if not problems:
+            count, problems = sockets_pcap.check_inbound_flow(frames, guest_ip, gateway, hostpeers.GUEST_LISTEN_PORT, probe.payload)
+        else:
+            count = 0
+        report("INBOUND", f"bytes={count} sent into the guest and echoed back", problems)
+    return ok
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -211,7 +293,18 @@ def main(argv: list[str] | None = None) -> int:
         sys.exit(f"image not found: {image}")
 
     qemu = find_qemu(args.qemu)
-    extra = qemu_args(args, image, pcap_path, qemu)
+    peers = probe = None
+    tcp_streams: list[bytes] = []
+    udp_datagrams: list[bytes] = []
+    forward_port = 0
+    if args.netd and not args.no_device:
+        try:
+            peers = hostpeers.EchoServers()
+        except OSError as exc:
+            sys.exit(f"cannot start the host echo servers on ports {hostpeers.TCP_PORT}/{hostpeers.UDP_PORT}: {exc}")
+        forward_port = free_port()
+        probe = hostpeers.InboundProbe(forward_port, hostpeers.pattern(INBOUND_BYTES))
+    extra = qemu_args(args, image, pcap_path, qemu, forward_port)
     port = free_port()
     command = build_qemu_command(qemu, None if args.virtio_disk else str(image), port, serial_log, args.memory, extra)
     print(f"launching: {' '.join(command)}", flush=True)
@@ -225,14 +318,24 @@ def main(argv: list[str] | None = None) -> int:
         # `netd` must keep running and waiting for a driver that never comes.
         done = lambda t: "NETDRV:NODEV" in t and (not args.netd or "NETD:NIC:WAIT" in t)  # noqa: E731
         fail_markers = ()
+    elif args.netd:
+        def done(t: str) -> bool:
+            if probe is not None and f"NC:LISTENING port={hostpeers.GUEST_LISTEN_PORT}" in t:
+                probe.start()
+            return netd_done(t)
     else:
         done = lambda t: all(marker in t for marker in pass_markers)  # noqa: E731
     try:
         qmp = Qmp("127.0.0.1", port, min(30.0, args.timeout))
         text = wait_for_marker(serial_log, proc, args.timeout, done, fail_markers)
+        if probe is not None:
+            probe.done.wait(timeout=10)
         time.sleep(1.0)  # let the capture see the last frames
     finally:
         stop_qemu(proc, qmp)
+        if peers is not None:
+            tcp_streams, udp_datagrams = peers.snapshot()
+            peers.close()
 
     if args.no_device:
         ok = "NETDRV:NODEV" in text and "NET:NIC:FAIL" not in text and "NICCTL:FAIL" not in text
@@ -243,6 +346,11 @@ def main(argv: list[str] | None = None) -> int:
         return 0 if ok else 1
 
     missing = [marker for marker in pass_markers if marker not in text]
+    if args.netd:
+        if not ("NSLOOKUP:PASS" in text or "NSLOOKUP:NXDOMAIN" in text):
+            missing.append("NSLOOKUP:PASS|NSLOOKUP:NXDOMAIN")
+        if text.count("NC:PASS") < 4:
+            missing.append(f"NC:PASS x4 (saw {text.count('NC:PASS')})")
     # A failure marker fails the run even when every pass marker also appeared
     # (`wait_for_marker` only stops early on one; it does not judge).
     failed = [marker for marker in fail_markers if marker in text]
@@ -303,9 +411,13 @@ def main(argv: list[str] | None = None) -> int:
         min_arp_pairs=arp_pairs,
         **extra,
     )
+    ok = report.ok
     print("\n".join(report.lines))
-    print("NET:HARNESS:" + ("PASS" if report.ok else "FAIL"))
-    return 0 if report.ok else 1
+    if args.netd:
+        ok = judge_sockets(frames, pcap.parse_mac(mac or analyze_pcap.DEFAULT_GUEST_MAC), text,
+                           tcp_streams, udp_datagrams, probe) and ok
+    print("NET:HARNESS:" + ("PASS" if ok else "FAIL"))
+    return 0 if ok else 1
 
 
 if __name__ == "__main__":

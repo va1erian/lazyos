@@ -4,8 +4,8 @@
 //! Usage: `ping <a.b.c.d> [count]` (default 4 requests, one per second, 56
 //! bytes of payload). Each request is one `Ping` call on
 //! `os.lazy.net.stack.v1`; `netd` answers it when the reply arrives or the
-//! two-second timeout passes. Names are not resolved yet (`Resolve` is stage
-//! N3), so the host is a dotted quad.
+//! two-second timeout passes. A host name is resolved first (`Resolve`, stage
+//! N3), so the host is a name or a dotted quad.
 //!
 //! The system clock ticks at 100 Hz, so round trips read in multiples of 10 ms
 //! (`time=0 ms` means under 10). Prints `PING:PASS sent=N received=N` when
@@ -78,17 +78,21 @@ fn run() -> Result<(u32, u32), String> {
     let text = core::str::from_utf8(&buffer[..len]).unwrap_or("");
     let mut words = text.split_whitespace();
     let Some(host) = words.next() else {
-        return Err(String::from("usage: ping <a.b.c.d> [count]"));
+        return Err(String::from("usage: ping <host> [count]"));
     };
-    let dst = parse_ipv4(host)
-        .ok_or_else(|| format!("{host}: not an IPv4 address (names are not resolved yet)"))?;
+    let client = connect()?;
+    let dst = match parse_ipv4(host) {
+        Some(addr) => addr,
+        None => client
+            .lookup_host(host, TIMEOUT_MS)
+            .map_err(|error| format!("{host}: cannot resolve ({})", describe(&error)))?,
+    };
     let count = words
         .next()
         .and_then(|c| c.parse().ok())
         .unwrap_or(DEFAULT_COUNT)
         .clamp(1, MAX_COUNT);
 
-    let client = connect()?;
     sys::write_str(&format!("PING {host}: {PAYLOAD} data bytes\n"));
     let mut received = 0;
     for seq in 1..=count {

@@ -58,6 +58,11 @@ const PROGRAMS: &[(&str, &str)] = &[
     // with `LAZYOS_NETD=1`.
     ("netctl", "NETCTL.ELF"),
     ("ping", "PING.ELF"),
+    // Sockets and names (docs/networking-plan.md N3): `nc [-u] [-l] <host>
+    // <port> [text]` and `nslookup <name>`. On the image only with
+    // `LAZYOS_NETD=1`.
+    ("nc", "NC.ELF"),
+    ("nslookup", "NSLOOKUP.ELF"),
 ];
 
 /// The directories a `$PATH` search (BusyBox `sh`'s default is
