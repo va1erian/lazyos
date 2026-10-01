@@ -32,6 +32,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -263,13 +264,18 @@ def main() -> int:
             "-netdev", "user,id=n0",
             "-device", "virtio-net-pci,netdev=n0,disable-modern=on",
         ]
+    scratch: Path | None = None
     if not args.ide_disk:
         # A blank 16 MiB virtio disk for the virtio request-path tests, which
         # write to it; the boot image is never touched. Not attached with
         # --ide-disk: a virtio disk would take the boot slot from ATA.
-        scratch = out_dir / "scratch.img"
-        scratch.write_bytes(b"")
-        with scratch.open("r+b") as handle:
+        # A fresh unique file, so `--image` can never be truncated by accident.
+        with tempfile.NamedTemporaryFile(
+            dir=out_dir, prefix="scratch-", suffix=".img", delete=False
+        ) as handle:
+            scratch = Path(handle.name).resolve()
+            if scratch == image:
+                sys.exit(f"scratch disk {scratch} is the boot image")
             handle.truncate(SCRATCH_BYTES)
         extra += [
             "-drive", f"if=none,id=scratch,format=raw,file={scratch.as_posix()}",
@@ -290,6 +296,8 @@ def main() -> int:
         print(f"warning: QMP session failed: {exc}", file=sys.stderr)
     finally:
         stop_qemu(proc, qmp)
+        if scratch is not None:
+            scratch.unlink(missing_ok=True)
 
     if serial_log.is_file():
         text = serial_log.read_text(errors="replace")

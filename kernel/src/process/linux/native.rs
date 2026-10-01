@@ -192,6 +192,10 @@ pub(crate) fn wait_for(slot: usize) -> u64 {
 /// On success it never returns: the caller exits with the program's status.
 pub(crate) fn try_exec(path: &str, argv: &[Vec<u8>]) -> Option<u64> {
     let file = lookup(path)?;
+    // The boot volume file is what runs, so its mount decides `noexec`.
+    if crate::fs::mount_flags(file).noexec {
+        return Some(fs_err(FsError::Access));
+    }
     // Like the Linux path: a real node must be executable; the boot volume
     // file usually has no node in the ABI VFS (`NotFound` is fine).
     match crate::fs::abi_check(Id::current(), file, vfs::EXECUTE) {

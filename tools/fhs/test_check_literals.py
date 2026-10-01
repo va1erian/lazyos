@@ -73,6 +73,28 @@ class CheckLiterals(unittest.TestCase):
         source = 'const A: &str = "/home";\n#[cfg(test)]\nmod tests {\n const B: &str = "/data";\n}\n'
         self.assertEqual([hit[1] for hit in self.found(source)], [1])
 
+    def test_escaped_char_literals_do_not_swallow_the_line(self):
+        for char in [r"'\"'", r"'\''", r"'\'", r"'\n'", r"'\x41'", r"'\u{1F600}'"]:
+            with self.subTest(char=char):
+                self.assertEqual(len(self.found(f'let q = {char}; let p = "/data";\n')), 1)
+        # A lifetime has no closing quote and must not start a char literal.
+        self.assertEqual(len(self.found("fn f<'a>(x: &'a str) { let p = \"/data\"; }\n")), 1)
+
+    def test_production_code_after_a_test_module_is_scanned(self):
+        source = ('#[cfg(test)]\nmod tests {\n    const B: &str = "/data}";\n'
+                  '    fn t() { if true { } }\n}\nconst A: &str = "/data";\n')
+        self.assertEqual([hit[1] for hit in self.found(source)], [6])
+
+    def test_malformed_allowlist_entries_are_rejected(self):
+        for entry in ["user/src/a.rs:2:", "user/src/a.rs:", "user/src/a.rs:2:   ", "user/src/a.rs"]:
+            with self.subTest(entry=entry):
+                with self.assertRaises(ValueError):
+                    self.tree.check(entry + "\n")
+        self.tree.write("user/src/a.rs", 'const A: &str = "/logs";\n')
+        (self.tree.root / "bad.txt").write_text("user/src/a.rs:2:\n", encoding="utf-8")
+        argv = ["--root", str(self.tree.root), "--allowlist", str(self.tree.root / "bad.txt")]
+        self.assertEqual(chk.main(argv), 2)
+
     def test_allowlisted_file_and_line_pass(self):
         source = 'const A: &str = "/data";\nconst B: &str = "/docs";\n'
         self.assertEqual(len(self.found(source)), 2)

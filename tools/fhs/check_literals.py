@@ -18,6 +18,14 @@ from pathlib import Path
 PREFIXES = ("/data", "/tmp/", "/docs", "/home", "/conf", "/apps", "/logs")
 BOOT_NAME = re.compile(r"\b[A-Z0-9]{1,8}\.(ELF|LST|TYP)\b|\b(PASSWD|BUSYBOX)\b")
 
+# `'x'`, `'\n'`, `'\x41'`, `'\u{1F600}'`; a lifetime (`'a`) has no closing quote.
+CHAR_BODY = r"(?:\\(?:u\{[0-9a-fA-F_]+\}|x[0-9a-fA-F]{2}|.)|[^'\\])"
+CHAR_LITERAL = re.compile("'" + CHAR_BODY + "'")
+# Comments and literals, to blank out before counting braces.
+MASKABLE = re.compile(
+    r'//[^\n]*|/\*.*?\*/|b?r#*".*?"#*|b?"(?:\\.|[^"\\])*"|' + CHAR_LITERAL.pattern, re.S
+)
+
 SKIP_DIRS = {"target", ".git", ".claude", "shots", "node_modules", "fhs", "generated"}
 SKIP_FILES = {"libs/rhai-lazy/src/msg/idl.rs"}
 SKIP_TREES = ("libs/generated/", "libs/fhs/", "tools/abi/fixtures/", "kernel/src/tests/", "fuzz/")
@@ -64,8 +72,8 @@ def literals(src):
             line += src.count("\n", i, j)
             i = j + 1
         elif c == "'":
-            m = re.match(r"'(\.[^']*|[^\'])'", src[i:i + 12])
-            i += m.end() if m else 1  # a char literal such as '"', or a lifetime
+            m = CHAR_LITERAL.match(src, i)
+            i = m.end() if m else i + 1  # a char literal such as '"', or a lifetime
         else:
             i += 1
 
@@ -84,24 +92,47 @@ def is_test_file(rel):
     return "/tests/" in "/" + rel or name in ("tests.rs", "test.rs") or name.endswith("_tests.rs")
 
 
-def test_cutoff(src):
-    """Line from which an inline `#[cfg(test)] mod` runs to the end of the file."""
-    m = re.search(r"^\s*#\[cfg\(test\)\]\s*\n\s*(pub\s+)?mod\b", src, re.M)
-    return src.count("\n", 0, m.start()) + 1 if m else None
+def test_ranges(src):
+    """(first, last) lines of each inline `#[cfg(test)] mod { .. }`.
+
+    Braces are counted on a copy with comments and literals blanked, so a brace
+    in a string cannot end the module early, and code after the module is
+    scanned like any other.
+    """
+    masked = MASKABLE.sub(lambda m: re.sub(r"[^\n]", " ", m.group()), src)
+    ranges = []
+    for m in re.finditer(r"^\s*#\[cfg\(test\)\]\s*\n\s*(?:pub\s+)?mod\b[^{;]*\{", masked, re.M):
+        depth, end = 1, m.end()
+        while end < len(masked) and depth:
+            depth += {"{": 1, "}": -1}.get(masked[end], 0)
+            end += 1
+        ranges.append((src.count("\n", 0, m.start()) + 1, src.count("\n", 0, end) + 1))
+    return ranges
+
+
+ENTRY = re.compile(r"^(?P<path>[^:]+):(?:(?P<line>\d+):)?(?P<reason>.*)$")
 
 
 def load_allowlist(path):
+    """`path:reason` (whole file) and `path:LINE:reason` (one line) entries.
+
+    A malformed entry, such as a line entry with no reason, is an error: it must
+    not quietly widen into a whole-file exemption.
+    """
     whole, lines = {}, {}
     if path.exists():
-        for raw in path.read_text(encoding="utf-8").splitlines():
+        for number, raw in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
             raw = raw.strip()
             if not raw or raw.startswith("#"):
                 continue
-            m = re.match(r"^(.*?):(\d+):(.+)$", raw)
-            if m:
-                lines[(m.group(1), int(m.group(2)))] = m.group(3)
+            m = ENTRY.match(raw)
+            # `path:2:` is a line entry that lost its reason, never `path` + "2:".
+            if not m or not m.group("reason").strip() or re.fullmatch(r"\d+:?", m.group("reason").strip()):
+                raise ValueError(f"{path}:{number}: malformed allowlist entry {raw!r}")
+            if m.group("line"):
+                lines[(m.group("path"), int(m.group("line")))] = m.group("reason")
             else:
-                whole[raw.split(":", 1)[0]] = raw
+                whole[m.group("path")] = m.group("reason")
     return whole, lines
 
 
@@ -115,10 +146,10 @@ def scan(root, allowlist):
                 or is_test_file(rel) or rel in whole):
             continue
         src = path.read_text(encoding="utf-8", errors="replace")
-        cutoff = test_cutoff(src)
+        tests = test_ranges(src)
         for line, text in literals(src):
-            if cutoff and line >= cutoff:
-                break
+            if any(first <= line <= last for first, last in tests):
+                continue
             if offends(text) and (rel, line) not in lines:
                 found.append((rel, line, text))
     return found
@@ -129,7 +160,11 @@ def main(argv=None):
     ap.add_argument("--root", default=Path(__file__).resolve().parents[2], type=Path)
     ap.add_argument("--allowlist", type=Path)
     args = ap.parse_args(argv)
-    allow = load_allowlist(args.allowlist or args.root / "tools/fhs/allowlist.txt")
+    try:
+        allow = load_allowlist(args.allowlist or args.root / "tools/fhs/allowlist.txt")
+    except ValueError as error:
+        print(error, file=sys.stderr)
+        return 2
     found = scan(args.root, allow)
     for rel, line, text in found:
         print(f"{rel}:{line}: path literal {text!r}: use libs/fhs")
