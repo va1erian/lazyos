@@ -22,6 +22,23 @@ name: xui-app
 # code, gets write access to push screenshots and comment.
 
 on:
+  # Also on `main`, so the caches this job saves (cargo dependencies, the zig
+  # global cache, BusyBox) are the warm set every pull request restores; a
+  # cache saved on a pull request branch is visible to that branch alone.
+  push:
+    branches: [main]
+    paths:
+      - "xui-app/**"
+      - "tools/xui/**"
+      - "tools/screenshot/**"
+      - "tools/ci/**"
+      - "kernel/**"
+      - "libs/**"
+      - "user/**"
+      - "build.rs"
+      - "Cargo.toml"
+      - ".github/workflows/xui.yml"
+      - ".github/actions/**"
   pull_request:
     paths:
       - "xui-app/**"
@@ -34,6 +51,7 @@ on:
       - "build.rs"
       - "Cargo.toml"
       - ".github/workflows/xui.yml"
+      - ".github/actions/**"
   workflow_dispatch:
 
 permissions:
@@ -55,33 +73,20 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install QEMU
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y qemu-system-x86 musl-tools
-
-      # Hosted runners expose /dev/kvm but not to the runner user; open it up
-      # so `--accel auto` picks KVM (it falls back to TCG if KVM is unusable).
-      - name: Enable KVM (best effort)
-        run: bash tools/ci/enable_kvm.sh
-
-      - uses: actions/setup-python@v5
+      - uses: ./.github/actions/qemu
         with:
-          python-version: "3.x"
+          packages: qemu-system-x86 musl-tools
 
-      # The job re-pays a cold cargo build on every run: the OS workspace (`.`)
-      # and the standalone app workspace (`xui-app`) have separate lockfiles and
-      # target dirs, so both are listed. `cache-on-failure` keeps the build when
-      # a capture step is red, so a retry does not pay it again. rust-cache
-      # recurses into nested target dirs (the Docs app's `target/xui-zig`), so no
-      # extra entry is needed; it also sets CARGO_INCREMENTAL=0, which CI wants.
-      - uses: Swatinem/rust-cache@v2
+      # The OS workspace (`.`) and the standalone app workspace (`xui-app`)
+      # have separate lockfiles and target dirs, so both are listed. rust-cache
+      # recurses into nested target dirs (the Docs app's `target/xui-zig`), so
+      # no extra entry is needed; it also sets CARGO_INCREMENTAL=0.
+      - uses: ./.github/actions/rust-cache
         with:
+          key: xui
           workspaces: |
             . -> target
             xui-app -> target
-          cache-on-failure: "true"
-          key: xui
 
       # zig builds libc++/libc++abi/libunwind/musl for the Docs app on first use
       # and stores them in its global cache; pin that location and cache it so a
@@ -142,29 +147,9 @@ jobs:
           echo "docs=$docs" >> "$GITHUB_OUTPUT"
           ls -l target/xui/*.elf || true
 
-      # `tools/abi/busybox.py` prefers a prebuilt `tools/abi/busybox` (git-ignored)
-      # over re-downloading and compiling the pinned release every run. Key on the
-      # script that pins the version and digest. Placed after rust-cache because
-      # post-steps run in reverse order and this save must run before rust-cache's
-      # cleanup, not the other way round.
-      - uses: actions/cache@v4
-        id: busybox
-        with:
-          path: tools/abi/busybox
-          key: busybox-${{ hashFiles('tools/abi/busybox.py') }}
-
-      # The Terminal hosts BusyBox `sh` (issue #254); build the pinned static
-      # musl binary so `build.rs` embeds it in the desktop image.
-      - name: Build BusyBox (system shell)
-        shell: bash
-        run: |
-          python tools/abi/busybox.py
-          # Seed the cache from a fresh build. A host that could not build
-          # BusyBox leaves nothing to copy; the image then boots without a
-          # shell, as before, and the desktop steps report it.
-          if [ "${{ steps.busybox.outputs.cache-hit }}" != "true" ] && [ -f target/abi/busybox/busybox ]; then
-            cp target/abi/busybox/busybox tools/abi/busybox
-          fi
+      # The Terminal hosts BusyBox `sh` (issue #254); the pinned static musl
+      # binary is embedded in the desktop image by `build.rs`.
+      - uses: ./.github/actions/busybox
 
       # M0: the gradient proves bind/present from a static musl program.
       - name: Capture M0 (gradient present)
@@ -345,31 +330,12 @@ jobs:
           grep -q "init: started inputd (pid 7, attempt 2)" shots/pointer_restart/serial.log
           test "$(grep -c "xuid: pointer from inputd" shots/pointer_restart/serial.log)" -ge 2
 
-      # docs/input-plan.md: the same desktop on the French AZERTY layout. The
-      # session types *physical* keys (`qwerty` is `azerty` there) into the
-      # Editor and the Terminal, so a wrong keymap, a lost session or a key
-      # read as an arrow shows up as different text in the screenshot and on
-      # the Terminal's serial marker.
-      - name: Capture desktop session on AZERTY (Editor + Terminal)
-        if: ${{ !cancelled() && steps.app.outputs.term != '' && steps.app.outputs.editor != '' }}
-        shell: bash
-        env:
-          LAZYOS_KBD_LAYOUT: fr
-          LAZYOS_DESKTOP: "1"
-          LAZYOS_XUI_APPS: ${{ steps.app.outputs.term }}:${{ steps.app.outputs.editor }}
-          LAZYOS_XUI_AUTOSTART: term,editor
-        run: |
-          set -euo pipefail
-          cargo build
-          python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/desktop_fr             --timeout 300 --script tools/screenshot/examples/input_desktop_fr.json             --fail-on "(TERM|EDITOR):[A-Z]+:FAIL" --fail-on "INIT:AUTOSTART:FAIL"
-          grep -q "INPUTD:READY layout=fr" shots/desktop_fr/serial.log
-          grep -q "TERM:OUT:azerty" shots/desktop_fr/serial.log
-
       # Symbols that share their code with navigation keys in the Windows
       # virtual-key vocabulary (`& " ' ( % $ #`) must type, not move the caret.
       # The Editor screenshot shows the text in order; the Terminal marker is
-      # checked on serial. Same symbols on US and (physical keys) AZERTY.
-      - name: Capture symbol typing (US and AZERTY)
+      # checked on serial. Same symbols on US here and, with physical keys,
+      # on AZERTY in the last capture step.
+      - name: Capture symbol typing (US)
         if: ${{ !cancelled() && steps.app.outputs.term != '' && steps.app.outputs.editor != '' }}
         shell: bash
         env:
@@ -381,9 +347,6 @@ jobs:
           cargo build
           python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/symbols_us --timeout 300 --script tools/screenshot/examples/input_symbols_us.json --fail-on "(TERM|EDITOR):[A-Z]+:FAIL"
           grep -qF 'TERM:OUT:&"(%$#' shots/symbols_us/serial.log
-          LAZYOS_KBD_LAYOUT=fr cargo build
-          python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/symbols_fr --timeout 300 --script tools/screenshot/examples/input_symbols_fr.json --fail-on "(TERM|EDITOR):[A-Z]+:FAIL"
-          grep -qF 'TERM:OUT:&"(%$#' shots/symbols_fr/serial.log
 
       # The document apps (Editor, Paint, Files). Each session boots the
       # desktop profile with just that app (an explicit `LAZYOS_XUI_APPS` list,
@@ -531,6 +494,45 @@ jobs:
               sys.exit(f"the opened document's viewport is nearly blank ({len(pixels)} colours)")
           PY
           ! grep -q "^init: launch .* failed" shots/docs_open/serial.log
+
+      # docs/input-plan.md: the same desktop on the French AZERTY layout. The
+      # session types *physical* keys (`qwerty` is `azerty` there) into the
+      # Editor and the Terminal, so a wrong keymap, a lost session or a key
+      # read as an arrow shows up as different text in the screenshot and on
+      # the Terminal's serial marker. Runs after the US captures (see the
+      # next step for why).
+      - name: Capture desktop session on AZERTY (Editor + Terminal)
+        if: ${{ !cancelled() && steps.app.outputs.term != '' && steps.app.outputs.editor != '' }}
+        shell: bash
+        env:
+          LAZYOS_KBD_LAYOUT: fr
+          LAZYOS_DESKTOP: "1"
+          LAZYOS_XUI_APPS: ${{ steps.app.outputs.term }}:${{ steps.app.outputs.editor }}
+          LAZYOS_XUI_AUTOSTART: term,editor
+        run: |
+          set -euo pipefail
+          cargo build
+          python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/desktop_fr             --timeout 300 --script tools/screenshot/examples/input_desktop_fr.json             --fail-on "(TERM|EDITOR):[A-Z]+:FAIL" --fail-on "INIT:AUTOSTART:FAIL"
+          grep -q "INPUTD:READY layout=fr" shots/desktop_fr/serial.log
+          grep -q "TERM:OUT:azerty" shots/desktop_fr/serial.log
+
+      # The same symbols on AZERTY (physical keys). This and the AZERTY
+      # desktop step above are the last captures: `LAZYOS_KBD_LAYOUT` is a
+      # `user` crate switch, so every other capture shares one US build and
+      # the French `user` is compiled once instead of toggled back and forth.
+      - name: Capture symbol typing (AZERTY)
+        if: ${{ !cancelled() && steps.app.outputs.term != '' && steps.app.outputs.editor != '' }}
+        shell: bash
+        env:
+          LAZYOS_KBD_LAYOUT: fr
+          LAZYOS_DESKTOP: "1"
+          LAZYOS_XUI_APPS: ${{ steps.app.outputs.term }}:${{ steps.app.outputs.editor }}
+          LAZYOS_XUI_AUTOSTART: term,editor
+        run: |
+          set -euo pipefail
+          cargo build
+          python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/symbols_fr --timeout 300 --script tools/screenshot/examples/input_symbols_fr.json --fail-on "(TERM|EDITOR):[A-Z]+:FAIL"
+          grep -qF 'TERM:OUT:&"(%$#' shots/symbols_fr/serial.log
 
       - name: Verify screenshots are non-blank
         if: steps.app.outputs.counter != ''

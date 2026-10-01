@@ -33,6 +33,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: ./.github/actions/rust-cache
+        with:
+          key: host
+
       # rust-toolchain.toml pins the nightly toolchain, target, and the
       # clippy component; rustup installs it on first use.
       - name: Clippy (kernel, unsafe-comment lint denied)

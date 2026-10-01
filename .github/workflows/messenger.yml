@@ -28,6 +28,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: ./.github/actions/rust-cache
+        with:
+          key: host
+
       - name: Run the parcel codec tests
         run: cargo test -p libmessenger
 

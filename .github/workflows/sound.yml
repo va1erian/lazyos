@@ -30,9 +30,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - uses: ./.github/actions/rust-cache
         with:
-          python-version: "3.x"
+          key: host
 
       # rust-toolchain.toml pins the nightly toolchain; rustup installs it.
       - name: Driver libraries (host)
@@ -65,19 +65,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install QEMU
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y qemu-system-x86
+      - uses: ./.github/actions/qemu
 
-      # Hosted runners expose /dev/kvm but not to the runner user; open it up
-      # so `--accel auto` picks KVM (it falls back to TCG if KVM is unusable).
-      - name: Enable KVM (best effort)
-        run: bash tools/ci/enable_kvm.sh
-
-      - uses: actions/setup-python@v5
+      - uses: ./.github/actions/rust-cache
         with:
-          python-version: "3.x"
+          key: os-image
 
       - name: Boot, record and verify
         run: python tools/sound/run.py --out shots/sound ${{ matrix.args }}
