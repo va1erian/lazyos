@@ -132,6 +132,13 @@ pub(super) fn draw(screen: &mut Canvas, clip: Rect) {
     for (row, text) in [message, detail].into_iter().enumerate() {
         let x = frame.x + (frame.w - Face::Sans.width(text)) / 2;
         let y = frame.y + gap + (gap + line_h) * row as i32;
-        screen.text_face(x, y, text, Face::Sans, overlay_text(), frame.intersect(clip));
+        screen.text_face(
+            x,
+            y,
+            text,
+            Face::Sans,
+            overlay_text(),
+            frame.intersect(clip),
+        );
     }
 }

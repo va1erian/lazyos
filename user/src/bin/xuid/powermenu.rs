@@ -77,11 +77,19 @@ fn request(mode: u32) -> Outcome {
     powerfeed::show(mode);
     let deadline = Some(sys::clock() + REQUEST_TICKS);
     let result = services::resolve_service(INIT_NAME).and_then(|init| {
-        services::shutdown(&init, mode, "requested from the desktop menu", false, deadline)
+        services::shutdown(
+            &init,
+            mode,
+            "requested from the desktop menu",
+            false,
+            deadline,
+        )
     });
     match result {
         Ok(phase) => {
-            sys::write_str(&alloc::format!("XUID:POWER:REQUEST mode={mode} phase={phase}\n"));
+            sys::write_str(&alloc::format!(
+                "XUID:POWER:REQUEST mode={mode} phase={phase}\n"
+            ));
         }
         Err(error) => {
             powerfeed::hide();

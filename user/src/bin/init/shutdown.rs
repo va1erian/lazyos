@@ -157,7 +157,9 @@ fn begin(
         args.reason
     ));
     if let Err(code) = files::power_arm(kernel_op(args.mode)) {
-        sys::write_str(&format!("init: shutdown watchdog not armed (errno {code})\n"));
+        sys::write_str(&format!(
+            "init: shutdown watchdog not armed (errno {code})\n"
+        ));
     }
     // Nothing waiting to start or restart will: those rows hold no task.
     for row in services.iter_mut() {
@@ -178,7 +180,11 @@ impl Shutdown {
         if (self.force || now >= self.deadline)
             && matches!(self.stage, Stage::Apps | Stage::Services)
         {
-            let why = if self.force { "forced" } else { "deadline passed" };
+            let why = if self.force {
+                "forced"
+            } else {
+                "deadline passed"
+            };
             sys::write_str(&format!("init: shutdown {why}; killing what is left\n"));
             self.kill_all(services, broker, now);
             self.stage = Stage::Quiesced;
@@ -276,7 +282,10 @@ impl Shutdown {
             now.saturating_sub(self.started)
         ));
         self.publish(broker, "power");
-        sys::write_str(&format!("INIT:SHUTDOWN:POWER mode={}\n", mode_name(self.mode)));
+        sys::write_str(&format!(
+            "INIT:SHUTDOWN:POWER mode={}\n",
+            mode_name(self.mode)
+        ));
         if let Err(code) = files::power(kernel_op(self.mode)) {
             sys::write_str(&format!("INIT:SHUTDOWN:FAIL power errno={code}\n"));
             self.publish(broker, "failed");
@@ -346,7 +355,15 @@ fn ask_to_stop(row: &mut Service, broker: &mut router::TopicBroker, signal: u64,
 fn mark_stopping(row: &mut Service, broker: &mut router::TopicBroker, deadline: u64) {
     row.phase = Phase::Stopping;
     row.stop_deadline = deadline;
-    publish_state(broker, row, "stopping", row.pid, row.restarts, 0, "shutdown");
+    publish_state(
+        broker,
+        row,
+        "stopping",
+        row.pid,
+        row.restarts,
+        0,
+        "shutdown",
+    );
 }
 
 /// A row whose task is gone (or given up on): `Stopped`, never restarted.

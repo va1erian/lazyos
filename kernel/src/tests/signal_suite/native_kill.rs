@@ -180,8 +180,13 @@ pub fn native_sigterm_fatal_at_syscall_return() -> Result<(), String> {
         "nothing pending, yet a fatal signal was reported"
     );
     // SIGCHLD's default is to ignore: consumed, never fatal.
-    signal::send_to_slot(task::KERNEL_TASK, child, signal::SIGCHLD, signal::SigInfo::kernel())
-        .map_err(|error| format!("SIGCHLD: {error:?}"))?;
+    signal::send_to_slot(
+        task::KERNEL_TASK,
+        child,
+        signal::SIGCHLD,
+        signal::SigInfo::kernel(),
+    )
+    .map_err(|error| format!("SIGCHLD: {error:?}"))?;
     check!(
         signal::native_fatal_pending(child).is_none(),
         "SIGCHLD was treated as fatal"
@@ -190,8 +195,13 @@ pub fn native_sigterm_fatal_at_syscall_return() -> Result<(), String> {
         signal::pending(child) & (1 << signal::SIGCHLD) == 0,
         "an ignored SIGCHLD stayed pending"
     );
-    signal::send_to_slot(task::KERNEL_TASK, child, signal::SIGTERM, signal::SigInfo::kernel())
-        .map_err(|error| format!("SIGTERM: {error:?}"))?;
+    signal::send_to_slot(
+        task::KERNEL_TASK,
+        child,
+        signal::SIGTERM,
+        signal::SigInfo::kernel(),
+    )
+    .map_err(|error| format!("SIGTERM: {error:?}"))?;
     check!(
         signal::native_fatal_pending(child) == Some(signal::SIGTERM),
         "a pending SIGTERM was not fatal for a native task"

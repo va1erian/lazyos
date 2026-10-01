@@ -11,11 +11,11 @@ use super::clock::{self, Clock};
 use super::drag::DragSession;
 use super::inputlink::InputLink;
 use super::origin::OpenHint;
+use super::powerfeed::PowerFeed;
 use super::resize::ResizeDrag;
 use super::shell::{taskbar_visible, AltTab, Modifiers, ShellSub};
 use super::surface::{Drag, Surface};
 use super::theme::TASKBAR_H;
-use super::powerfeed::PowerFeed;
 use super::themefeed::ThemeFeed;
 
 /// The session compositor's whole mutable state.

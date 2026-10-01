@@ -173,8 +173,7 @@ fn run() -> messenger::Result<()> {
         if shutdown.is_none() {
             // A restart whose backoff elapsed.
             for index in 0..services.len() {
-                if services[index].phase == Phase::Restarting && services[index].next_start <= now
-                {
+                if services[index].phase == Phase::Restarting && services[index].next_start <= now {
                     spawn_service(&mut services, index, &mut broker);
                 }
             }

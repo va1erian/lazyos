@@ -34,8 +34,14 @@ pub fn arm_is_capability_gated() -> Result<(), String> {
     let bogus = call(power::ARM_WATCHDOG, 99);
     credentials::reset_for_task(me);
     check!(valid == EPERM, "an unprivileged arm -> {valid:#x}");
-    check!(bogus == EPERM, "the gate leaked the argument check: {bogus:#x}");
-    check!(watchdog::armed().is_none(), "a refused arm armed the watchdog");
+    check!(
+        bogus == EPERM,
+        "the gate leaked the argument check: {bogus:#x}"
+    );
+    check!(
+        watchdog::armed().is_none(),
+        "a refused arm armed the watchdog"
+    );
     Ok(())
 }
 
@@ -101,7 +107,10 @@ pub fn expiry_fires_once() -> Result<(), String> {
         !watchdog::arm(power::SHUTDOWN, deadline),
         "a fired watchdog was armed again"
     );
-    check!(watchdog::armed().is_none(), "a fired watchdog still reads armed");
+    check!(
+        watchdog::armed().is_none(),
+        "a fired watchdog still reads armed"
+    );
     watchdog::reset_for_tests();
     Ok(())
 }
@@ -109,7 +118,10 @@ pub fn expiry_fires_once() -> Result<(), String> {
 /// An arm at the end of time cannot overflow the packed deadline.
 pub fn deadline_saturates() -> Result<(), String> {
     fresh();
-    check!(watchdog::arm(power::SHUTDOWN, u64::MAX), "arm at u64::MAX failed");
+    check!(
+        watchdog::arm(power::SHUTDOWN, u64::MAX),
+        "arm at u64::MAX failed"
+    );
     let (deadline, op) = watchdog::armed().ok_or("not armed")?;
     check!(op == power::SHUTDOWN, "the op was corrupted: {op}");
     check!(deadline > 0, "the deadline wrapped to {deadline}");
@@ -150,7 +162,10 @@ pub fn soak_arm_expire_generations() -> Result<(), String> {
             .wrapping_add(1_442_695_040_888_963_407);
         let now = seed >> 24;
         let op = generation & 1;
-        check!(watchdog::arm(op, now), "generation {generation}: arm failed");
+        check!(
+            watchdog::arm(op, now),
+            "generation {generation}: arm failed"
+        );
         let deadline = now + watchdog::TIMEOUT_TICKS;
         check!(
             !watchdog::arm(op ^ 1, now + (seed & 0xff)),
@@ -187,8 +202,14 @@ pub fn soak_refused_calls() -> Result<(), String> {
         }
     }
     credentials::reset_for_task(me);
-    check!(refused == 10_000, "only {refused} of 10000 calls were refused");
-    check!(watchdog::armed().is_none(), "a refused call armed the watchdog");
+    check!(
+        refused == 10_000,
+        "only {refused} of 10000 calls were refused"
+    );
+    check!(
+        watchdog::armed().is_none(),
+        "a refused call armed the watchdog"
+    );
     Ok(())
 }
 
