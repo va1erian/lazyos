@@ -11,23 +11,30 @@ pub enum Section {
     Windows,
     Keyboard,
     Menu,
+    Time,
+    About,
 }
 
 impl Section {
-    /// Sidebar order.
-    pub const ALL: [Section; 4] = [
+    /// Sidebar order. Append new sections: session scripts
+    /// (`xui_settings.json`) click rows by position.
+    pub const ALL: [Section; 6] = [
         Section::Appearance,
         Section::Windows,
         Section::Keyboard,
         Section::Menu,
+        Section::Time,
+        Section::About,
     ];
 
     pub const fn label(self) -> &'static str {
         match self {
             Section::Appearance => "Appearance",
             Section::Windows => "Windows",
+            Section::Time => "Time & Date",
             Section::Keyboard => "Keyboard",
             Section::Menu => "Menu",
+            Section::About => "About",
         }
     }
 
@@ -35,8 +42,10 @@ impl Section {
         match self {
             Section::Appearance => Lucide::Monitor,
             Section::Windows => Lucide::AppWindow,
+            Section::Time => Lucide::History,
             Section::Keyboard => Lucide::TextCursorInput,
             Section::Menu => Lucide::List,
+            Section::About => Lucide::Info,
         }
     }
 

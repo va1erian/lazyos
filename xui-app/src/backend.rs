@@ -249,6 +249,20 @@ impl LazyOSBackend {
         }
     }
 
+    /// The desktop's widget theme (`GetTheme` mode and accent) as an xui
+    /// [`Theme`](xui_core::Theme); `None` in owner mode (no compositor) or
+    /// when the compositor does not answer, and the app keeps xui's default.
+    pub fn desktop_theme(&self) -> Option<xui_core::Theme> {
+        let Mode::Client(state) = &self.mode else {
+            return None;
+        };
+        let client = state.borrow().client;
+        let reply = client.get_theme().ok()?;
+        // A compositor that predates the fields sends neither: keep the default.
+        let mode = uitheme::Mode::parse(&reply.mode)?;
+        Some(xui_settings::theme_ops::xui_theme(mode, reply.accent))
+    }
+
     /// Whether this backend is a compositor client.
     pub fn is_client(&self) -> bool {
         matches!(self.mode, Mode::Client(_))

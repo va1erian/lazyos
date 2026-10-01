@@ -902,6 +902,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4568d7e143ec86d2021c338bae2afa88699e84b8e0af523626654fe6f03a1748"
 
 [[package]]
+name = "timezone"
+version = "0.1.0"
+
+[[package]]
 name = "tiny-keccak"
 version = "2.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1090,6 +1094,7 @@ dependencies = [
  "libc",
  "libmessenger",
  "messenger-generated",
+ "uitheme",
  "surfbuf",
  "xui-canvas",
  "xui-code-editor",
@@ -1203,6 +1208,7 @@ version = "0.1.0"
 dependencies = [
  "confd",
  "deskmenu",
+ "timezone",
  "uitheme",
  "xui-canvas",
  "xui-core",

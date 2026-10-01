@@ -70,23 +70,41 @@ pub fn persist<F: StoreFs>(fs: &mut F, store: &Store) -> Result<(), F::Error> {
 
 /// Loads the committed store, recovering from interrupted writes.
 ///
-/// A leftover [`TMP_FILE`] from an interrupted [`persist`] is removed first.
-/// A missing store is an empty store. A store that fails to decode is moved
-/// to [`CORRUPT_FILE`] (replacing any older one) and an empty store is
-/// returned, matching the plan's "start empty and keep the bad file"
-/// behaviour.
+/// A leftover [`TMP_FILE`] next to a store is an interrupted [`persist`] and
+/// is removed. A [`TMP_FILE`] with *no* store is the newest commit cut off
+/// inside its rename: [`persist`] fsyncs the temporary file first, and a
+/// filesystem may drop the destination entry before linking the new one
+/// (ext2 does). If it decodes (the CRC proves it complete) it is promoted to
+/// the store; otherwise it is removed. A missing store is an empty store. A
+/// store that fails to decode is moved to [`CORRUPT_FILE`] (replacing any
+/// older one) and an empty store is returned, matching the plan's "start
+/// empty and keep the bad file" behaviour.
 pub fn load<F: StoreFs>(fs: &mut F) -> Result<Store, F::Error> {
-    fs.remove(TMP_FILE)?;
     match fs.read_file(STORE_FILE)? {
-        None => Ok(Store::new()),
-        Some(bytes) => match decode(&bytes) {
-            Ok(store) => Ok(store),
-            Err(_) => {
-                fs.rename(STORE_FILE, CORRUPT_FILE)?;
-                Ok(Store::new())
+        None => recover_tmp(fs),
+        Some(bytes) => {
+            fs.remove(TMP_FILE)?;
+            match decode(&bytes) {
+                Ok(store) => Ok(store),
+                Err(_) => {
+                    fs.rename(STORE_FILE, CORRUPT_FILE)?;
+                    Ok(Store::new())
+                }
             }
-        },
+        }
     }
+}
+
+/// Promote a complete [`TMP_FILE`] left without a store (see [`load`]).
+fn recover_tmp<F: StoreFs>(fs: &mut F) -> Result<Store, F::Error> {
+    if let Some(bytes) = fs.read_file(TMP_FILE)? {
+        if let Ok(store) = decode(&bytes) {
+            fs.rename(TMP_FILE, STORE_FILE)?;
+            return Ok(store);
+        }
+        fs.remove(TMP_FILE)?;
+    }
+    Ok(Store::new())
 }
 
 /// Marks the store in `fs` as merged elsewhere (best effort: a failure only

@@ -66,6 +66,8 @@ SCRIPTS = [
     ("xui_paint.json", "XUI app: Paint (draw, save PNG)", ("desktop",), "paint"),
     ("xui_files.json", "XUI app: Files (browse, open)", ("desktop",), "files"),
     ("xui_settings.json", "XUI app: Settings (menu, colours, layout)", ("desktop",), None),
+    ("xui_settings_time.json", "XUI app: Settings (time, clock format, light mode)",
+     ("desktop",), None),
 ]
 
 # Simple mode: (label, cargo profile) and (label, description) choices.

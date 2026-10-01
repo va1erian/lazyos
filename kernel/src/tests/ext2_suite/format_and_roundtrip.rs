@@ -113,12 +113,15 @@ pub fn create_write_read_rename_unlink() -> Result<(), String> {
     vfs.mkdir(root, "/docs/sub", 0o755).map_err(fs_error)?;
     vfs.create(root, "/docs/sub/inner", 0o644)
         .map_err(fs_error)?;
-    let names: Vec<String> = vfs
+    let mut names: Vec<String> = vfs
         .readdir(root, "/docs")
         .map_err(fs_error)?
         .into_iter()
         .map(|entry| entry.name)
         .collect();
+    // Directory order is unspecified (a rename links the new name before it
+    // drops the old one, so slots shift).
+    names.sort();
     check!(names == ["memo.txt", "sub"], "readdir is {names:?}");
     vfs.rename(root, "/docs/sub", "/docs/moved")
         .map_err(fs_error)?;

@@ -30,7 +30,13 @@ impl Compositor {
     /// afterwards, which erases the last outline. Each frame recomposes its
     /// damage and then XORs the outlines onto the clean pixels, so nothing
     /// depends on erasing an earlier outline by redrawing it.
+    ///
+    /// With animations switched off (`sys/ui/anim`) this draws nothing: every
+    /// caller already repaints the final state, so the change is instant.
     pub(super) fn zoom(&mut self, from: Rect, to: Rect) {
+        if !self.themefeed.animations() {
+            return;
+        }
         let full = self.full();
         // The starting rectangle counts as previously drawn, so the first
         // frame also erases the window that was just hidden.

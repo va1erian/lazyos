@@ -350,7 +350,7 @@ older peers, and the no-shell sessions above are unchanged.
 | 18 | `ListSurfaces` | shell → compositor | reply: `surfaces`, an `Array<SurfaceRow>` (`id`, `title`, `x`/`y`/`w`/`h`, `minimized`, `focused`, `role`: 0 window, 1 desktop) |
 | 19 | `GetWorkArea` | shell → compositor | reply: `x`/`y`/`w`/`h` available to windows |
 | 20 | `Subscribe` | shell → compositor | `subscriber_role` string + transferred event endpoint |
-| 21 | `GetTheme` | shell → compositor | reply: `title_bg_active`, `title_bg_inactive`, `border`, `taskbar`, `text` as `0xRRGGBB` |
+| 21 | `GetTheme` | shell or app → compositor | reply: `title_bg_active`, `title_bg_inactive`, `border`, `taskbar`, `text` (ink on the inactive title) as `0xRRGGBB`, `mode` (`dark`/`light`) and `accent`; xui apps map the last two onto their widget theme |
 | 22 | `SurfaceChanged` | compositor → shell | `surface`, `kind` (`Change`: created/destroyed/moved/minimized/restored/title), geometry + flags, `role`, optional `title` on create |
 | 23 | `FocusChanged` | compositor → shell | `surface` (optional; absent = none) |
 | 24 | `StartMenu` | compositor → shell | – (the Ctrl+Esc/Super hotkey fired) |

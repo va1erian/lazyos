@@ -12,6 +12,9 @@ xui-core = { git = "https://github.com/va1erian/xui", rev = "7e31d5d6d120fb479e1
 uitheme = { path = "../../../libs/uitheme" }
 deskmenu = { path = "../../../libs/deskmenu" }
 confd = { path = "../../../libs/confd" }
+# The zone table, civil-date maths and the taskbar clock format keys, shared
+# with `timed` and `xuid`.
+timezone = { path = "../../../libs/timed" }
 
 [dev-dependencies]
 xui-canvas = { git = "https://github.com/va1erian/xui", rev = "7e31d5d6d120fb479e1ff0731bd6a44601acafee", default-features = false }

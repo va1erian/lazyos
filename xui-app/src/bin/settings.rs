@@ -3,8 +3,9 @@
 //!
 //! The portable window lives in `crates/settings`; this file supplies the
 //! platform: a [`ConfdStore`] over `os.lazy.confd` that persists to the data
-//! volume, so `xuid` (theme) and `inputd` (keyboard layout) pick changes up
-//! live.
+//! volume, so `xuid` (theme, clock format) and `inputd` (keyboard layout)
+//! pick changes up live, and an [`OsSystem`] over `timed`, `confd` and
+//! `sysinfo` for the Time & Date and About pages.
 //!
 //! Serial evidence: `SETTINGS:UP:PASS` after the first frame.
 
@@ -12,6 +13,7 @@ use std::rc::Rc;
 
 use xui_app::backend::LazyOSBackend;
 use xui_app::platform::confd_store::ConfdStore;
+use xui_app::platform::system::OsSystem;
 use xui_core::app::run_app;
 use xui_core::backend::{Backend, PlatformSpec};
 use xui_core::units::Dip;
@@ -33,7 +35,8 @@ fn main() -> std::process::ExitCode {
         run_app(
             Rc::clone(&backend) as Rc<dyn Backend>,
             spec,
-            |ui| match SettingsApp::build(ui, Rc::new(ConfdStore::new())) {
+            |ui| match SettingsApp::build(ui, Rc::new(ConfdStore::new()), Rc::new(OsSystem::new()))
+            {
                 Ok(app) => app,
                 Err(error) => {
                     println!("SETTINGS:BUILD:FAIL:{error}");
