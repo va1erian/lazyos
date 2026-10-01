@@ -617,6 +617,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "modplay"
+version = "0.1.0"
+dependencies = [
+ "fuzzkit",
+]
+
+[[package]]
 name = "netpolicy"
 version = "0.1.0"
 dependencies = [
@@ -1068,6 +1075,7 @@ dependencies = [
  "lazyos-crypto",
  "libmessenger",
  "messenger-generated",
+ "modplay",
  "netpolicy",
  "netstack",
  "nicdrv",

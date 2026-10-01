@@ -40,6 +40,8 @@ pub fn embed(builder: &mut bootloader::DiskImageBuilder, desktop: bool) {
         add(builder, "SNDD.ELF", "sndd");
         // `beep`, the smallest audio client: `sndd` spawns it under `demo=1`.
         add(builder, "BEEP.ELF", "beep");
+        // `modplay`, the tracker-module player (docs/tracker-plan.md).
+        add(builder, "MODPLAY.ELF", "modplay");
     }
     // `LAZYOS_NETD=1` adds the stack service and its tools, and needs the driver.
     let netd = enabled("LAZYOS_NETD");

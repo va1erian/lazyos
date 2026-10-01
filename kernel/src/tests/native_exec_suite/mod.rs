@@ -63,6 +63,8 @@ pub fn lookup_maps_names_to_files() -> Result<(), String> {
         ("beep", "BEEP.ELF"),
         ("/usr/bin/beep", "BEEP.ELF"),
         ("/beep.elf", "BEEP.ELF"),
+        ("modplay", "MODPLAY.ELF"),
+        ("/usr/bin/modplay", "MODPLAY.ELF"),
     ] {
         check!(
             native::lookup(path) == Some(file),

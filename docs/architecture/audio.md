@@ -23,7 +23,8 @@ are still open.
 | `user/src/bin/sndd.rs`, `sndd/` | The driver: `device.rs` claim + BAR mapping, `card.rs` queues and control/transmit paths, `stream.rs` slots and DMA staging, `session.rs` ownership/ring/commit logic, `service.rs` request dispatch |
 | `user/src/messenger/audio.rs` | Blocking client of the interface |
 | `user/src/bin/beep.rs`, `beep/` | Tone client, hostile-input probe, intruder and soak modes |
-| `kernel/src/process/linux/native.rs` | `beep` in the table of native programs a shell may run, so the desktop Terminal has a `beep [freq_hz [ms]]` command |
+| `user/src/bin/modplay.rs`, `modplay/` | ProTracker module player over a blocking ring sink; `libs/modplay` does the parsing and mixing (`docs/tracker-plan.md`) |
+| `kernel/src/process/linux/native.rs` | `beep` and `modplay` in the table of native programs a shell may run, so the desktop Terminal has a `beep [freq_hz [ms]]` command |
 | `tools/sound/` | The harness: `run.py` boots QEMU with `-audiodev wav`, `analyze_wav.py` judges the recording |
 
 ## How a sound gets out
