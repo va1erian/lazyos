@@ -6,15 +6,19 @@
 //! (`idl/display.midl`, consumed through `messenger-generated`) instead of a
 //! copy of the wire. In client mode ([`crate::backend::LazyOSBackend::new_client`])
 //! an app never binds the display grant; it resolves `xuid`, creates a surface
-//! with its event endpoint, attaches a shared pixel buffer created through the
-//! display syscall, and commits damage rectangles. Input arrives as one-way
-//! messages on the event endpoint; pointer coordinates are surface-relative and
-//! presses carry the button id.
+//! with its event endpoint, attaches shared pixel buffers created through the
+//! display syscall as buffer slots, and presents damage rectangles
+//! ([`frames`]). Input arrives as one-way messages on the event endpoint;
+//! pointer coordinates are surface-relative and presses carry the button id.
 
 use libmessenger::{BufferDesc, Decoder, Header, Kind, Parcel, VERSION};
 use messenger_generated::os_lazy_display_v1 as wire;
 
 use crate::sys::{self, errno, msg_op, MsgArgs, MsgResult};
+
+mod frames;
+
+pub use frames::{decode_frame_event, FrameEvent};
 
 /// Well-known compositor name.
 pub const NAME: &str = "os.lazy.display.v1";
@@ -172,35 +176,6 @@ impl Client {
             Ok(reply) if reply.surface != 0 => Ok(reply.surface),
             _ => Err(-errno::EINVAL),
         }
-    }
-
-    /// Attach `buffer` (a handle from the display syscall's `create_buffer`)
-    /// as `surface`'s pixels; the sender keeps its handle and mapping.
-    pub fn attach_buffer(&self, surface: u64, buffer: u64, len: u64) -> Result<(), i64> {
-        let body = wire::encode_attach_buffer_args(&wire::AttachBufferArgs { surface })
-            .map_err(|_| -errno::EINVAL)?;
-        let buffers = vec![BufferDesc {
-            handle: buffer,
-            offset: 0,
-            len,
-            flags: 0,
-        }];
-        let parcel = request(wire::METHOD_ATTACHBUFFER, body, Vec::new(), buffers);
-        self.call(&parcel).map(|_| ())
-    }
-
-    /// Tell the compositor the `damage` rectangle of `surface` is ready.
-    pub fn commit(&self, surface: u64, damage: (i32, i32, i32, i32)) -> Result<(), i64> {
-        let body = wire::encode_commit_args(&wire::CommitArgs {
-            surface,
-            x: damage.0.max(0) as u32,
-            y: damage.1.max(0) as u32,
-            w: damage.2.max(0) as u32,
-            h: damage.3.max(0) as u32,
-        })
-        .map_err(|_| -errno::EINVAL)?;
-        let parcel = request(wire::METHOD_COMMIT, body, Vec::new(), Vec::new());
-        self.call(&parcel).map(|_| ())
     }
 
     /// `SetTitle`: rename `surface`'s window. An older compositor answers
