@@ -63,7 +63,7 @@ pub fn format(value: &Value) -> String {
         Value::Bool(flag) => if *flag { "true" } else { "false" }.to_owned(),
         Value::I64(number) => number.to_string(),
         Value::U64(number) => number.to_string(),
-        Value::Str(text) => text.clone(),
+        Value::Str(text) => escape(text),
         Value::Bytes(bytes) => bytes
             .iter()
             .map(|byte| format!("{byte:02x}"))
@@ -83,34 +83,113 @@ pub fn parse(kind: Kind, text: &str) -> Result<Value, String> {
         Kind::I64 => parse_i64(text),
         Kind::U64 => parse_u64(text),
         Kind::Str => {
+            let text = unescape(text)?;
             if text.len() > MAX_VALUE_LEN {
                 Err(format!(
                     "the string is {} bytes; the limit is {MAX_VALUE_LEN}",
                     text.len()
                 ))
             } else {
-                Ok(Value::Str(text.to_owned()))
+                Ok(Value::Str(text))
             }
         }
         Kind::Bytes => parse_bytes(text),
     }
 }
 
+/// The longest preview, in characters, before it is cut with an ellipsis.
+const PREVIEW_CHARS: usize = 48;
+
+/// Escapes backslashes and control characters so a multi-line string (such as
+/// `sys/ui/menu`) stays on the single line of an `Edit`. [`unescape`] is the
+/// inverse, so what the user sees is exactly what is stored.
+fn escape(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for ch in text.chars() {
+        match ch {
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if c.is_control() => out.push_str(&format!("\\u{{{:x}}}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out
+}
+
+/// Reverses [`escape`]; an unknown or unfinished escape is an error rather
+/// than being stored by accident.
+fn unescape(text: &str) -> Result<String, String> {
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars();
+    while let Some(ch) = chars.next() {
+        if ch != '\\' {
+            out.push(ch);
+            continue;
+        }
+        match chars.next() {
+            Some('\\') => out.push('\\'),
+            Some('n') => out.push('\n'),
+            Some('r') => out.push('\r'),
+            Some('t') => out.push('\t'),
+            Some('u') => out.push(unicode_escape(&mut chars)?),
+            Some(other) => {
+                return Err(format!(
+                    "unknown escape \\{other}; write \\\\ for a backslash"
+                ))
+            }
+            None => return Err("a string cannot end in a lone backslash (use \\\\)".into()),
+        }
+    }
+    Ok(out)
+}
+
+/// Parses the `{hex}` after `\u` in a string escape.
+fn unicode_escape(chars: &mut std::str::Chars<'_>) -> Result<char, String> {
+    let bad = || "a \\u escape looks like \\u{1f}".to_owned();
+    if chars.next() != Some('{') {
+        return Err(bad());
+    }
+    let mut digits = String::new();
+    loop {
+        match chars.next() {
+            Some('}') => break,
+            Some(c) if c.is_ascii_hexdigit() && digits.len() < 6 => digits.push(c),
+            _ => return Err(bad()),
+        }
+    }
+    u32::from_str_radix(&digits, 16)
+        .ok()
+        .and_then(char::from_u32)
+        .ok_or_else(bad)
+}
+
+/// Cuts `text` to [`PREVIEW_CHARS`] characters (never mid-character).
+fn truncate(text: String) -> String {
+    match text.char_indices().nth(PREVIEW_CHARS) {
+        Some((end, _)) => format!("{}\u{2026}", &text[..end]),
+        None => text,
+    }
+}
+
 /// A one-line rendering of a stored value for the preview label.
 ///
-/// A byte string that is not UTF-8 is shown as hex with a note, so an opaque
-/// value is never silently rendered as replacement characters.
+/// Strings are escaped and long ones truncated, so a multi-line value cannot
+/// spill over the controls below the label. A byte string that is not UTF-8
+/// is shown as hex with a note, so an opaque value is never silently rendered
+/// as replacement characters.
 pub fn preview(value: &Value) -> String {
-    match value {
+    truncate(match value {
         Value::Str(text) if text.is_empty() => "(empty string)".into(),
-        Value::Str(text) => text.clone(),
+        Value::Str(text) => escape(text),
         Value::Bytes(bytes) if bytes.is_empty() => "(empty bytes)".into(),
         Value::Bytes(bytes) => match std::str::from_utf8(bytes) {
-            Ok(text) => text.to_owned(),
+            Ok(text) => escape(text),
             Err(_) => format!("{} ({} bytes, not UTF-8)", format(value), bytes.len()),
         },
         other => format(other),
-    }
+    })
 }
 
 fn parse_i64(text: &str) -> Result<Value, String> {
@@ -280,6 +359,39 @@ mod tests {
             assert_eq!(parse(Kind::from_value(&value), &text), Ok(value));
         }
         assert_eq!(format(&Value::Bytes(vec![1, 0xff])), "01 ff");
+    }
+
+    #[test]
+    fn multiline_strings_round_trip_through_the_edit_text() {
+        let value = Value::Str("terminal\tTerminal\nsys\\mon\r\u{1}".into());
+        let text = format(&value);
+        assert!(!text.contains('\n') && !text.contains('\t'));
+        assert_eq!(text, "terminal\\tTerminal\\nsys\\\\mon\\r\\u{1}");
+        assert_eq!(parse(Kind::Str, &text), Ok(value));
+    }
+
+    #[test]
+    fn bad_string_escapes_are_errors_not_stored() {
+        for bad in ["a\\", "a\\q", "\\u12", "\\u{zz}", "\\u{110000}", "\\u{}"] {
+            assert!(parse(Kind::Str, bad).is_err(), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn the_byte_limit_applies_after_unescaping() {
+        // 4096 escaped newlines are 8192 characters but only 4096 bytes.
+        assert!(parse(Kind::Str, &"\\n".repeat(MAX_VALUE_LEN)).is_ok());
+        assert!(parse(Kind::Str, &"\\n".repeat(MAX_VALUE_LEN + 1)).is_err());
+    }
+
+    #[test]
+    fn preview_is_one_short_line() {
+        let shown = preview(&Value::Str("line\n".repeat(100)));
+        assert!(!shown.contains('\n'));
+        assert_eq!(shown.chars().count(), PREVIEW_CHARS + 1);
+        assert!(shown.ends_with('\u{2026}'));
+        // Truncation lands on a character boundary.
+        assert!(preview(&Value::Str("\u{e9}".repeat(200))).ends_with('\u{2026}'));
     }
 
     #[test]
