@@ -119,6 +119,19 @@ def build_rhai() -> None:
               file=sys.stderr)
 
 
+def build_lazyrad() -> bool:
+    """Build the LazyRAD IDE and player (`tools/lazyrad/build.py`) for the image.
+    Explicitly requested with `--lazyrad`, so a failure stops the run."""
+    print("building LazyRAD (tools/lazyrad/build.py)…", flush=True)
+    script = ROOT / "tools" / "lazyrad" / "build.py"
+    result = subprocess.run([sys.executable, str(script)], cwd=ROOT,
+                            stdout=subprocess.DEVNULL)
+    if result.returncode != 0:
+        print("error: LazyRAD did not build (run `python tools/lazyrad/build.py`)",
+              file=sys.stderr)
+    return result.returncode == 0
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -159,6 +172,10 @@ def main(argv: list[str]) -> int:
                              "with LAZYOS_NET=1, which boots the `netdrv` driver (an ARP "
                              "self-test and the `nicctl` clients; `nicctl` also runs from the "
                              "shell). The packet-capture-judged run is `python tools/net/run.py`")
+    parser.add_argument("--lazyrad", action="store_true",
+                        help="build the LazyRAD IDE and player and embed them "
+                             "(LAZYOS_LAZYRAD=1); with --desktop it is offered by "
+                             "Settings -> Menu")
     parser.add_argument("--no-rhai", action="store_true",
                         help="do not (re)build the `rhai` command before the image "
                              "(tools/rhai/build.py; incremental, so cheap when unchanged)")
@@ -180,6 +197,10 @@ def main(argv: list[str]) -> int:
         busybox.ensure_busybox()
         if not args.no_rhai:
             build_rhai()
+        if args.lazyrad:
+            if not build_lazyrad():
+                return 1
+            env["LAZYOS_LAZYRAD"] = "1"
         print(f"building LazyOS [{profile}]…", flush=True)
         if args.sound:
             env["LAZYOS_SOUND"] = "1"

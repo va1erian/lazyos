@@ -121,13 +121,17 @@ class LazyRadTests(unittest.TestCase):
         self.assertFalse(cli["lazyrad"])
         self.assertFalse(catalog.simple_config(demo_config(), "dev", "Desktop")["lazyrad"])
 
-    def test_it_is_built_before_the_image(self) -> None:
-        cfg = demo_config(lazyrad=True, skip_build=False, prebuild_xui=True)
+    def test_the_demo_passes_the_run_demo_flag(self) -> None:
+        # run_demo.py builds LazyRAD itself, so the GUI and the CLI agree.
+        self.assertIn("--lazyrad", demo_argv(lazyrad=True))
+        self.assertNotIn("--lazyrad", demo_argv())
+
+    def test_session_modes_build_it_before_the_image(self) -> None:
+        cfg = {"mode": "Headless screenshots", "profile": "dev", "skip_build": False,
+               "accel": "auto", "memory": "256M", "qemu": "", "out": "shots",
+               "times": "10", "lazyrad": True}
         labels = [step["label"] for step in catalog.build_plan(cfg)]
-        self.assertEqual(labels, ["Build xui apps (static musl)", "Build LazyRAD (static musl)",
-                                  "Interactive demo"])
-        none = [s["label"] for s in catalog.build_plan(demo_config())]
-        self.assertNotIn("Build LazyRAD (static musl)", none)
+        self.assertEqual(labels[:2], ["Build LazyRAD (static musl)", "Build image (cargo build)"])
 
     def test_the_build_mode_builds_it_too(self) -> None:
         plan = catalog.build_plan({"mode": "Build xui app", "lazyrad": True})
