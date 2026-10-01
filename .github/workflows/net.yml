@@ -71,7 +71,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [framering, framering_header, virtio_net, nicdrv, netstack]
+        # ext2fs: the F2 filesystem driver's mutate-and-check script target; this
+        # is the only cargo-fuzz job in CI, so it lives with the others.
+        target: [framering, framering_header, virtio_net, nicdrv, netstack, ext2fs]
     steps:
       - uses: actions/checkout@v4
 

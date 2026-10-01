@@ -41,6 +41,10 @@ jobs:
           python tools/test_run_demo.py
           python tools/screenshot/test_qmp_disks.py
 
+      # The Rust formatter (libs/ext2fs) writes the same bytes as the Python one.
+      - name: Rust and Python formatters are byte-identical
+        run: python tools/mkdisk/test_parity.py -v
+
       # The default image carries the seeded /home/<user> and sticky /tmp
       # (issue #347); the variants cover the root flags, a bare volume and
       # several block sizes, including multi-group sizes.
