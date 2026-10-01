@@ -57,6 +57,10 @@ pub struct AppSpec {
     pub args: &'static str,
     /// Whether the image is guaranteed to carry the ELF.
     pub ship: Ship,
+    /// Whether `ListApps` reports the row. Only the desktop shell is unlisted:
+    /// it is the start menu, not an entry in it, and Settings -> Menu offers
+    /// whatever `ListApps` returns. `Launch` still resolves it by id.
+    pub listed: bool,
 }
 
 /// A desktop (xui) app: Linux ABI, `xuid` client, listed in `XAPPS.LST`.
@@ -70,6 +74,7 @@ const fn xui_app(id: &'static str, name: &'static str, path: &'static str) -> Ap
         linux: true,
         args: "--client",
         ship: Ship::Manifest,
+        listed: true,
     }
 }
 
@@ -104,6 +109,7 @@ const fn native_app(
         linux: false,
         args: "",
         ship,
+        listed: true,
     }
 }
 
@@ -121,8 +127,26 @@ const fn linux_console_app(id: &'static str, name: &'static str, path: &'static 
         linux: true,
         args: "",
         ship: Ship::Always,
+        listed: true,
     }
 }
+
+/// The desktop shell (issue #157): an [`xui_app`] that is never listed and
+/// always restarted. The image builder tags its `XAPPS.LST` line `autostart`
+/// whatever `LAZYOS_XUI_AUTOSTART` says, and it is the first row, so
+/// [`autostart_ids`] opens it before the apps. A graphical login asks for it by
+/// id (`logind`), with the session's credentials.
+const fn shell_app(id: &'static str, name: &'static str, path: &'static str) -> AppSpec {
+    AppSpec {
+        restart: Restart::Always,
+        verbs: &[],
+        listed: false,
+        ..xui_app(id, name, path)
+    }
+}
+
+/// The desktop shell's registry id (`Launch("lazyshell", ...)`).
+pub const SHELL_APP_ID: &str = "lazyshell";
 
 /// The built-in app registry. `editor`, `files`, `paint`, `viewer` and
 /// `runner` are the ids `mimed`'s open-with defaults register, so an `Open`
@@ -135,6 +159,9 @@ const fn linux_console_app(id: &'static str, name: &'static str, path: &'static 
 /// A `static`, not a `const`: [`is_available`] identifies a row by address, so
 /// the table must have one stable storage location.
 pub static APPS: &[AppSpec] = &[
+    // First: autostart opens rows in registry order, and the shell must be up
+    // before the apps so their windows land on its taskbar from the start.
+    shell_app(SHELL_APP_ID, "LazyShell", fhs::boot::XSHELL_ELF),
     xui_app_verbs(
         "editor",
         "Editor",
@@ -277,10 +304,11 @@ pub fn load_manifest() {
     apply_manifest(text);
 }
 
-/// The registry as wire rows for `ListApps`: shipped apps only.
+/// The registry as wire rows for `ListApps`: shipped, listed apps only (the
+/// desktop shell is launchable but never offered as a menu entry).
 pub fn app_infos() -> Vec<services::AppInfo> {
     APPS.iter()
-        .filter(|app| is_available(app))
+        .filter(|app| app.listed && is_available(app))
         .map(|app| services::AppInfo {
             id: app.id.to_string(),
             name: app.name.to_string(),
@@ -325,7 +353,13 @@ pub fn selftest_apps() -> String {
         .iter()
         .filter(|app| app.linux && !is_console_alias(app))
         .all(|app| app.args == "--client" && app.ship == Ship::Manifest);
-    ok &= has_editor && has_top && desktop_ok;
+    // The shell is the first row, unlisted and always restarted; every other
+    // row is listed.
+    let shell_ok = APPS
+        .first()
+        .is_some_and(|app| app.id == SHELL_APP_ID && !app.listed && app.restart == Restart::Always)
+        && APPS.iter().skip(1).all(|app| app.listed);
+    ok &= has_editor && has_top && desktop_ok && shell_ok;
     let shipped = APPS.iter().filter(|app| is_available(app)).count();
     if ok {
         alloc::format!(

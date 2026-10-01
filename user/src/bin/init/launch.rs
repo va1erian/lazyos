@@ -13,6 +13,7 @@ use user::sys::{self, Cred as SysCred};
 
 use super::apps::{find_app, is_available};
 use super::installed::{report_label, InstalledApp, InstalledApps};
+use super::sessions;
 use super::state::{Phase, Service, CAP_SETUID, LAUNCH_CAP_PER_SESSION, SESSION_CAPS};
 use super::supervise::{command_line, publish_state};
 
@@ -77,8 +78,13 @@ fn target_cred(caller: &SysCred, target_session: u64) -> messenger::Result<SysCr
 }
 
 /// The uid of an active `logind` session; `ENOENT` when the service is
-/// unreachable or the session is unknown.
+/// unreachable or the session is unknown. A session `logind` announced on the
+/// broker is answered from [`sessions::owner`] without a call, which is what
+/// lets `logind` itself launch into a session it just created.
 fn lookup_session_uid(session: u64) -> messenger::Result<u32> {
+    if let Some(uid) = sessions::owner(session) {
+        return Ok(uid);
+    }
     let endpoint = services::resolve_service(logind::NAME)
         .map_err(|_| messenger::Error::Errno(-messenger::errno::ENOENT))?;
     let (_, sessions) = logind::fetch_sessions(&endpoint)

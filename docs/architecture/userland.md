@@ -69,9 +69,9 @@ See [processes.md](processes.md) and [display.md](display.md).
 
 | Binary | Image | Role | Started by |
 |---|---|---|---|
-| `init` / `messengerd` | `SUPER` / `MSGRD.ELF` | Supervisor (manifest, spawn/wait, restart backoff, app registry + `Launch`; `XAPPS.LST` decides which registered apps the image ships, and `autostart` rows open at boot as the desktop's apps, #215/#216) / bootstrap registry proxy and topics broker | kernel / `init` |
+| `init` / `messengerd` | `SUPER` / `MSGRD.ELF` | Supervisor (manifest, spawn/wait, restart backoff, app registry + `Launch`; `XAPPS.LST` decides which registered apps the image ships, and `autostart` rows open at boot as the desktop's apps, #215/#216; the `lazyshell` row, `XSHELL.ELF`, is unlisted in `ListApps`, autostarted first and restarted `Always`, #157) / bootstrap registry proxy and topics broker | kernel / `init` |
 | `logd` / `healthd` | `LOGD` / `HEALTHD.ELF` | Hash-chained event log / retained `system/health/*` aggregation | `init` |
-| `keyd` / `accountsd` / `logind` | `KEYD` / `ACCTD` / `LOGIND.ELF` | Secrets and crypto (#102) / accounts (#101) / console login and credentialed spawn | `init` |
+| `keyd` / `accountsd` / `logind` | `KEYD` / `ACCTD` / `LOGIND.ELF` | Secrets and crypto (#102) / accounts (#101) / console login and credentialed spawn; with the confd key `sys/session/mode` = `graphical` a login asks `init` to `Launch("lazyshell", "", <session>)` instead of spawning `sh` (#157) | `init` |
 | `clipboardd` / `mimed` / `flaky` | `CLIPD` / `MIMED` / `FLAKY.ELF` | Per-session clipboard (#115) / MIME and open-with (#116) / crash-test service (#93, never started by `LAZYOS_DESKTOP=1`) | `init` |
 | `clipcopy` / `clippaste` / `messengerctl` | `CLIPCP` / `CLIPPS` / `MSGCTL.ELF` | Clipboard demo pair (#115, `demo=1` only) / fabric+services views (#70/#89/#93) | `clipboardd`, kernel flag |
 | `netd` / `netctl` / `ping` | `NETD.ELF` / `NETCTL.ELF` / `PING.ELF` | The network stack service (smoltcp in `libs/netstack`): DHCP, ARP, echo, `os.lazy.net.stack.v1` (`idl/net.midl`), supervised by `init` as `_netd` (uid 903, no capabilities); the only client of `netdrv`. `netctl` shows and drives it, `ping` is the native ping. `LAZYOS_NETD=1` ships them; see [networking.md](networking.md) | `init` / shell (`sh` native exec) or `netd` (`demo=1`) |

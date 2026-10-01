@@ -16,6 +16,11 @@
 //!    (the machine-parseable lines a headless session captures) and publishes
 //!    to `system/events/login/{start,denied,end}`, which `logd` records.
 //!
+//! A graphical session (issue #157, `graphical.rs`) replaces step 4: when the
+//! confd key `sys/session/mode` is `graphical`, `init` launches the desktop
+//! shell (LazyShell) into the session instead, and a failure falls back to the
+//! console shell. The console path is unchanged.
+//!
 //! Failed attempts wait [`FAIL_DELAY_TICKS`] before the next prompt (the
 //! documented rate-limit), and the session capabilities are empty
 //! ([`SESSION_CAPS`]): a console session starts with no ambient authority, and
@@ -25,6 +30,9 @@
 #![no_main]
 
 extern crate alloc;
+
+#[path = "logind/graphical.rs"]
+mod graphical;
 
 use alloc::format;
 use alloc::string::String;
@@ -44,7 +52,9 @@ const SESSION_CAPS: u32 = 0;
 /// Longest name/secret line the prompt accepts.
 const LINE_MAX: usize = 64;
 
-/// The session whose shell is currently running.
+/// The session whose shell is currently running. A graphical session's shell
+/// is `init`'s child, not ours, so its exit is never reaped here: the session
+/// stays active (there is no logout yet).
 struct ActiveSession {
     /// Index into the session table.
     index: usize,
@@ -145,17 +155,21 @@ fn prompt_login(
     // system learns about it through Messenger.
     *next_session += 1;
     let id = *next_session;
-    let cred = Cred::new(user.uid, user.gid, SESSION_CAPS, 0, id);
-    // Start the login shell. The passwd shell field is the bare `sh`
-    // (issue #254): prefixing it with `linux:` selects the Linux ABI, and the
-    // kernel aliases `sh` to the shipped BusyBox. No arguments are passed (the
-    // session identity is already kernel-stamped, and BusyBox would treat a
-    // trailing word as a script name).
-    let mut command = format!("linux:{}", user.shell).into_bytes();
-    command.push(0);
-    let Some(pid) = sys::spawn_as(&command, &cred) else {
-        deny(bus, &name, "spawn-failed");
-        return None;
+    // A graphical session: `init` launches the desktop shell into it.
+    let desktop = if graphical::requested() {
+        graphical::start(bus, &user.name, user.uid, id)
+    } else {
+        None
+    };
+    let pid = match desktop {
+        Some(pid) => pid,
+        None => match spawn_console_shell(&user.shell, user.uid, user.gid, id) {
+            Some(pid) => pid,
+            None => {
+                deny(bus, &name, "spawn-failed");
+                return None;
+            }
+        },
     };
     let started = sys::clock();
     sessions.push(logind::SessionRecord {
@@ -180,16 +194,21 @@ fn prompt_login(
             state: String::from("active"),
         };
         let _ = logind::wire::publish_system_events_login_start(bus, &start);
-        let session = logind::wire::LoginSession {
-            user: user.name.clone(),
-            uid: user.uid,
-            pid,
-            state: String::from("active"),
-        };
-        let id_text = format!("{id}");
-        let _ = logind::wire::publish_system_events_login_session(bus, &id_text, &session);
     }
+    graphical::publish_session(bus, &user.name, user.uid, id, pid, "active");
     Some(ActiveSession { index, pid })
+}
+
+/// Spawn the user's console shell stamped with the session's credentials.
+/// The passwd shell field is the bare `sh` (issue #254): prefixing it with
+/// `linux:` selects the Linux ABI, and the kernel aliases `sh` to the shipped
+/// BusyBox. No arguments are passed (the session identity is already
+/// kernel-stamped, and BusyBox would treat a trailing word as a script name).
+fn spawn_console_shell(shell: &str, uid: u32, gid: u32, session: u64) -> Option<u64> {
+    let cred = Cred::new(uid, gid, SESSION_CAPS, 0, session);
+    let mut command = format!("linux:{shell}").into_bytes();
+    command.push(0);
+    sys::spawn_as(&command, &cred)
 }
 
 /// Record a refused attempt, print its serial marker, and rate-limit the next

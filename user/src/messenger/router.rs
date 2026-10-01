@@ -423,6 +423,17 @@ impl Subscriber {
     }
 }
 
+/// The `(topic, payload)` of a `PUBLISH` request, for a broker host that acts
+/// on what one trusted publisher says (`init` learns session owners from
+/// `logind`'s login events); `None` for any other message.
+pub fn published(message: &Message) -> Option<(String, Vec<u8>)> {
+    if message.interface_id() != INTERFACE || message.method() != method::PUBLISH {
+        return None;
+    }
+    let topic = string_field(&message.parcel, field::TOPIC).ok()?;
+    Some((topic, bytes_field(&message.parcel, field::PAYLOAD)))
+}
+
 /// The first string field with `id`.
 fn string_field(parcel: &Parcel, id: u16) -> Result<String> {
     let mut decoder = Decoder::new(&parcel.body);
