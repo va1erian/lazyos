@@ -29,25 +29,20 @@ libc = "0.2"
 # LazyRAD, from its own repository, `default-features = false` so the `desktop`
 # features (winit, rfd, directories, dark-light, local time) stay off.
 #
-# TODO rev: once LazyRAD branch `lazyos-p0` (tip ad4d52e, unpushed when this was
-# written) is merged, set `rev` on EVERY va1erian/lazyrad line below (runtime,
-# player, ide, and the dev-dependency packager) to the merge commit.
-#
-# PIN: `rev` is LazyRAD's `main` before the LazyOS platform seam (P0) landed.
-# Until the P0 pull request is merged, builds need the local override in
-# `lazyrad-os/README.md` ("Developing against a local LazyRAD checkout"). After
-# the merge, set `rev` to the merge commit of the LazyRAD P0 PR on every line
-# below and delete the override.
-lazyrad-runtime = { git = "https://github.com/va1erian/lazyrad", rev = "495b0a6f95a9d3e3a91867dc6c96a842617d2f4f", default-features = false }
-lazyrad-ide = { git = "https://github.com/va1erian/lazyrad", rev = "495b0a6f95a9d3e3a91867dc6c96a842617d2f4f", default-features = false }
-lazyrad-player = { git = "https://github.com/va1erian/lazyrad", rev = "495b0a6f95a9d3e3a91867dc6c96a842617d2f4f", default-features = false }
+# PIN: `rev` is the tip of LazyRAD PR va1erian/lazyrad#81 (branch `lazyos-p0`), which
+# adds the platform seam, the `.lzp` packager and the IDE run options. When that
+# PR merges, set `rev` on EVERY va1erian/lazyrad line below (runtime, player, ide
+# and the dev-dependency packager) to the merge commit.
+lazyrad-runtime = { git = "https://github.com/va1erian/lazyrad", rev = "ad4d52e76bc11a980542d46e73eb6439ff1c5548", default-features = false }
+lazyrad-ide = { git = "https://github.com/va1erian/lazyrad", rev = "ad4d52e76bc11a980542d46e73eb6439ff1c5548", default-features = false }
+lazyrad-player = { git = "https://github.com/va1erian/lazyrad", rev = "ad4d52e76bc11a980542d46e73eb6439ff1c5548", default-features = false }
 
 [dev-dependencies]
 # The `.lzp` conformance suite (tests/lzp_conformance.rs): packages built by
 # LazyRAD's packager are re-opened with LazyOS's own reader. `libs/lazypkg` is
 # PR #431; the packager is pinned like the other LazyRAD crates.
 lazypkg = { path = "../libs/lazypkg" }
-lazyrad-packager = { git = "https://github.com/va1erian/lazyrad", rev = "495b0a6f95a9d3e3a91867dc6c96a842617d2f4f", default-features = false }
+lazyrad-packager = { git = "https://github.com/va1erian/lazyrad", rev = "ad4d52e76bc11a980542d46e73eb6439ff1c5548", default-features = false }
 
 [lib]
 name = "lazyrad_os"
