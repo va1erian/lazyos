@@ -514,7 +514,7 @@ dependencies = [
 [[package]]
 name = "lazyrad-designer"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/lazyrad?rev=f8e1a2e9ef02121df60927c9ebe7c9a000c85970#f8e1a2e9ef02121df60927c9ebe7c9a000c85970"
+source = "git+https://github.com/va1erian/lazyrad?rev=bb45402d5d8f6bfb7ba97f0a159cea93c7995d90#bb45402d5d8f6bfb7ba97f0a159cea93c7995d90"
 dependencies = [
  "lazyrad-project",
  "thiserror",
@@ -526,7 +526,7 @@ dependencies = [
 [[package]]
 name = "lazyrad-ide"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/lazyrad?rev=f8e1a2e9ef02121df60927c9ebe7c9a000c85970#f8e1a2e9ef02121df60927c9ebe7c9a000c85970"
+source = "git+https://github.com/va1erian/lazyrad?rev=bb45402d5d8f6bfb7ba97f0a159cea93c7995d90#bb45402d5d8f6bfb7ba97f0a159cea93c7995d90"
 dependencies = [
  "embed-resource",
  "lazyrad-designer",
@@ -553,6 +553,8 @@ dependencies = [
  "lazyrad-player",
  "lazyrad-runtime",
  "libc",
+ "libmessenger",
+ "messenger-generated",
  "xui-app",
  "xui-canvas",
  "xui-core",
@@ -561,7 +563,7 @@ dependencies = [
 [[package]]
 name = "lazyrad-packager"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/lazyrad?rev=f8e1a2e9ef02121df60927c9ebe7c9a000c85970#f8e1a2e9ef02121df60927c9ebe7c9a000c85970"
+source = "git+https://github.com/va1erian/lazyrad?rev=bb45402d5d8f6bfb7ba97f0a159cea93c7995d90#bb45402d5d8f6bfb7ba97f0a159cea93c7995d90"
 dependencies = [
  "editpe",
  "lazyrad-project",
@@ -575,7 +577,7 @@ dependencies = [
 [[package]]
 name = "lazyrad-player"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/lazyrad?rev=f8e1a2e9ef02121df60927c9ebe7c9a000c85970#f8e1a2e9ef02121df60927c9ebe7c9a000c85970"
+source = "git+https://github.com/va1erian/lazyrad?rev=bb45402d5d8f6bfb7ba97f0a159cea93c7995d90#bb45402d5d8f6bfb7ba97f0a159cea93c7995d90"
 dependencies = [
  "embed-resource",
  "lazyrad-packager",
@@ -588,7 +590,7 @@ dependencies = [
 [[package]]
 name = "lazyrad-project"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/lazyrad?rev=f8e1a2e9ef02121df60927c9ebe7c9a000c85970#f8e1a2e9ef02121df60927c9ebe7c9a000c85970"
+source = "git+https://github.com/va1erian/lazyrad?rev=bb45402d5d8f6bfb7ba97f0a159cea93c7995d90#bb45402d5d8f6bfb7ba97f0a159cea93c7995d90"
 dependencies = [
  "libc",
  "serde",
@@ -600,7 +602,7 @@ dependencies = [
 [[package]]
 name = "lazyrad-runtime"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/lazyrad?rev=f8e1a2e9ef02121df60927c9ebe7c9a000c85970#f8e1a2e9ef02121df60927c9ebe7c9a000c85970"
+source = "git+https://github.com/va1erian/lazyrad?rev=bb45402d5d8f6bfb7ba97f0a159cea93c7995d90#bb45402d5d8f6bfb7ba97f0a159cea93c7995d90"
 dependencies = [
  "lazyrad-project",
  "rhai",
@@ -1502,6 +1504,7 @@ dependencies = [
  "messenger-generated",
  "xui-canvas",
  "xui-code-editor 0.1.0",
+ "xui-confd-editor",
  "xui-core",
  "xui-explorer",
  "xui-paint",
@@ -1538,6 +1541,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "xui-confd-editor"
+version = "0.1.0"
+dependencies = [
+ "confd",
+ "xui-core",
+]
+
+[[package]]
 name = "xui-core"
 version = "0.1.0"
 source = "git+https://github.com/va1erian/xui?rev=7e31d5d6d120fb479e1ff0731bd6a44601acafee#7e31d5d6d120fb479e1ff0731bd6a44601acafee"
@@ -1557,7 +1568,7 @@ dependencies = [
 [[package]]
 name = "xui-form"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/lazyrad?rev=f8e1a2e9ef02121df60927c9ebe7c9a000c85970#f8e1a2e9ef02121df60927c9ebe7c9a000c85970"
+source = "git+https://github.com/va1erian/lazyrad?rev=bb45402d5d8f6bfb7ba97f0a159cea93c7995d90#bb45402d5d8f6bfb7ba97f0a159cea93c7995d90"
 dependencies = [
  "serde",
  "thiserror",
@@ -1583,7 +1594,7 @@ dependencies = [
 [[package]]
 name = "xui-rhai"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/lazyrad?rev=f8e1a2e9ef02121df60927c9ebe7c9a000c85970#f8e1a2e9ef02121df60927c9ebe7c9a000c85970"
+source = "git+https://github.com/va1erian/lazyrad?rev=bb45402d5d8f6bfb7ba97f0a159cea93c7995d90#bb45402d5d8f6bfb7ba97f0a159cea93c7995d90"
 dependencies = [
  "rhai",
  "xui-core",

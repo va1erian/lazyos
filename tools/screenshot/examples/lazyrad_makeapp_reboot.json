@@ -1,0 +1,108 @@
+[
+ {
+  "wait_for": "TERM:UP:PASS",
+  "timeout": 240
+ },
+ {
+  "wait_for": "PKGD:AUDIT:PASS n=1",
+  "timeout": 120
+ },
+ {
+  "wait_for": "PKGD:RECONCILE:PASS n=1",
+  "timeout": 120
+ },
+ {
+  "at": 0.3,
+  "mouse_move": [
+   -300,
+   -300
+  ]
+ },
+ {
+  "at": 0.3,
+  "mouse_move": [
+   -300,
+   -300
+  ]
+ },
+ {
+  "at": 0.3,
+  "mouse_move": [
+   -300,
+   -300
+  ]
+ },
+ {
+  "at": 0.3,
+  "mouse_move": [
+   -300,
+   -300
+  ]
+ },
+ {
+  "at": 0.3,
+  "mouse_move": [
+   -300,
+   -300
+  ]
+ },
+ {
+  "at": 0.3,
+  "mouse_move": [
+   -300,
+   -300
+  ]
+ },
+ {
+  "at": 1.0,
+  "mouse_move": [
+   870,
+   -500
+  ]
+ },
+ {
+  "at": 1.0,
+  "mouse_click": "right",
+  "until": "XUID:MENU:OPEN",
+  "timeout": 30,
+  "retries": 2
+ },
+ {
+  "at": 2.0,
+  "shot": "01_menu_after_reboot"
+ },
+ {
+  "at": 1.0,
+  "mouse_move": [
+   30,
+   233
+  ]
+ },
+ {
+  "at": 1.0,
+  "shot": "02_hello_entry"
+ },
+ {
+  "at": 0.5,
+  "mouse_click": "left",
+  "until": "XUID:MENU:LAUNCH:user.lazyos.hello",
+  "timeout": 60,
+  "retries": 1
+ },
+ {
+  "wait_for": "PKGD:LAUNCH:LABEL app:user.lazyos.hello",
+  "timeout": 60
+ },
+ {
+  "wait_for": "LRPLAY:UP:PASS",
+  "timeout": 120
+ },
+ {
+  "at": 4.0,
+  "shot": "03_installed_app_after_reboot"
+ },
+ {
+  "at": 1.0,
+  "quit": true
+ }
+]

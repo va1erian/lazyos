@@ -355,3 +355,47 @@ client are implemented; P4 onward is not. The LazyRAD half lives on LazyRAD's
   command line (`lazyrad [--client] <dir | .lrp>`), which the sessions use.
 - Property-grid scrolling did not repaint rows in one probe (scrollbar moved,
   content did not); not investigated.
+
+## 9. P4: Make LazyOS App and the `pkgd` client (verified)
+
+File → **Make LazyOS App…** (shown only when the platform gives the IDE an
+installer): save, compile check, build the `.lzp` with the same player the IDE
+runs programs with, `pkgd.Inspect` (the platform's own permission wording and every
+`problems` entry), a consent dialog listing each permission with its risk, then
+`pkgd.Install`, then an offer to run it through `init.Launch`. Code:
+`lazyrad-os/src/pkgd.rs` (client, over the generated stubs, mock-tested),
+LazyRAD `lazyrad-ide/src/make_app.rs` plus the `Installer::review/launch` seam.
+
+**Staging path.** `pkgd` reads packages as root and, for an unprivileged caller,
+only from the boot volume root, `/tmp` or the caller's home. The installer
+stages `/tmp/lazyrad-<system_name>-<version>.lzp` (about 2 MiB deflated, within
+`/tmp`'s limits and `Inspect`'s 8 MiB cap), calls `pkgd`, and deletes it.
+`/data/packages` is not readable by `pkgd` for a normal user and is not used.
+
+**Resolved questions**
+- `init` starts an installed app with `argv[0]` = the absolute
+  `/data/apps/<system_name>/<version>-<digest8>/bin/lrplay.elf`
+  (`LRPLAY:PROJECT:PASS:.../resources/project exe=/data/.../bin/lrplay.elf`), so
+  the player's `argv[0]`-based install-dir lookup works and the fixed
+  `entry.args = ["--project","resources/project"]` resolves under it. Both a
+  launch from the IDE (`init.Launch`) and from the desktop right-click menu work.
+- The manifest must say `abi = "linux"` (`pkgd` records it, `init` picks the
+  Linux personality); the packager now writes it.
+- The app runs as the launching session's user under the label
+  `app:<system_name>` (`PKGD:LAUNCH:LABEL`).
+- It survives a reboot: a second boot on the same data disk replays it
+  (`PKGD:RECONCILE:PASS n=1`), the menu lists it and it launches.
+
+**Sessions** (data disk required: `python -m tools.mkdisk target/lr-data.img`):
+`lazyrad_makeapp.json` (serial `LRIDE:PKG:REVIEW|INSTALL|LAUNCH:PASS`,
+`PKGD:INSTALL:PASS`, `PKGD:LAUNCH:LABEL`, `LRPLAY:UP:PASS`) and, on the same disk,
+`lazyrad_makeapp_reboot.json` (`PKGD:RECONCILE:PASS n=1`, the menu entry, launch).
+
+**Caveats found**
+- Intermittently the data volume is unusable at boot (`confd: /data/confd not
+  usable: probe write failed (errno 22)`, then `PKGD:STORE:ABSENT`); retrying the
+  boot works. The sessions wait for `PKGD:AUDIT:PASS` first so a bad boot fails
+  early. Not investigated (kernel/ext2 side). An install on such a boot reports
+  the friendly "no writable data disk" message (observed once).
+- The install blocks the IDE's UI thread for its duration.
+- "Manage Apps" (list/remove) is not done.
