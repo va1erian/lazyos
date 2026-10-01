@@ -38,7 +38,7 @@ hand-written method ids or TLV encoders).
 | `store.rs` | `ConfStore` trait, `StoreError` (the `CONFD_*` codes + `Transport`), `StoreInfo`, and the `MemStore` fake |
 | `tree.rs` | pure flat-paths → folder-tree projection, expand state keyed by full path, filter + flattened rows |
 | `value_edit.rs` | pure per-kind parse/format/preview; the 4 KiB limit is enforced in **bytes** |
-| `sections.rs` | the right-pane state machines: `KeyEditor` (lazy load, dirty, two-step delete, external-change) and `NewKeyEditor` (validated create, two-step overwrite) |
+| `sections/mod.rs` (tests in `sections/tests.rs`) | the right-pane state machines: `KeyEditor` (lazy load, dirty, two-step delete, external-change) and `NewKeyEditor` (validated create, two-step overwrite) |
 | `app.rs` | the ~720×500 window: left `ListView` tree + filter, right kind/value/buttons |
 
 **Selection is path-tied.** The edit buffer is only ever loaded for the selected
