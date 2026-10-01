@@ -24,8 +24,6 @@ use user::sys;
 
 use super::state::Restart;
 
-/// The image builder's list of shipped optional apps.
-const MANIFEST_FILE: &str = "XAPPS.LST\0";
 /// The most bytes of the manifest read (a few 8.3 names per line).
 const MANIFEST_BYTES: usize = 1024;
 
@@ -137,15 +135,20 @@ const fn linux_console_app(id: &'static str, name: &'static str, path: &'static 
 /// A `static`, not a `const`: [`is_available`] identifies a row by address, so
 /// the table must have one stable storage location.
 pub static APPS: &[AppSpec] = &[
-    xui_app_verbs("editor", "Editor", "XEDITOR.ELF", &["open", "edit"]),
-    xui_app_verbs("files", "Files", "XFILES.ELF", &["open", "reveal"]),
-    xui_app_verbs("paint", "Paint", "XPAINT.ELF", &["open", "edit"]),
-    xui_app("settings", "Settings", "XSETTNG.ELF"),
-    xui_app("confd", "Config", "XCONFD.ELF"),
+    xui_app_verbs(
+        "editor",
+        "Editor",
+        fhs::boot::XEDITOR_ELF,
+        &["open", "edit"],
+    ),
+    xui_app_verbs("files", "Files", fhs::boot::XFILES_ELF, &["open", "reveal"]),
+    xui_app_verbs("paint", "Paint", fhs::boot::XPAINT_ELF, &["open", "edit"]),
+    xui_app("settings", "Settings", fhs::boot::XSETTNG_ELF),
+    xui_app("confd", "Config", fhs::boot::XCONFD_ELF),
     native_app(
         "viewer",
         "Image Viewer",
-        "VIEW.ELF",
+        fhs::boot::VIEW_ELF,
         Restart::OnFailure,
         &["open", "reveal"],
         Ship::Manifest,
@@ -153,7 +156,7 @@ pub static APPS: &[AppSpec] = &[
     native_app(
         "runner",
         "Program Runner",
-        "RUNNER.ELF",
+        fhs::boot::RUNNER_ELF,
         Restart::Once,
         &["open"],
         Ship::Manifest,
@@ -161,25 +164,25 @@ pub static APPS: &[AppSpec] = &[
     // The desktop Terminal hosts the shell in a `xuid` window; `shell` is the
     // console shell (BusyBox `sh`; it draws in `init`'s mux window, so it is
     // only useful in a console session).
-    xui_app("terminal", "Terminal", "XTERM.ELF"),
+    xui_app("terminal", "Terminal", fhs::boot::XTERM_ELF),
     linux_console_app("shell", "Console Shell", "sh"),
-    xui_app("sysmon", "System Monitor", "XSYSMON.ELF"),
-    xui_app("fabricmon", "Fabric Monitor", "XFABMON.ELF"),
-    xui_app("widget", "CPU & Memory", "XWIDGET.ELF"),
-    xui_app("counter", "Counter", "XCOUNTR.ELF"),
-    xui_app_verbs("docs", "Docs", "XDOCS.ELF", &["open", "view"]),
+    xui_app("sysmon", "System Monitor", fhs::boot::XSYSMON_ELF),
+    xui_app("fabricmon", "Fabric Monitor", fhs::boot::XFABMON_ELF),
+    xui_app("widget", "CPU & Memory", fhs::boot::XWIDGET_ELF),
+    xui_app("counter", "Counter", fhs::boot::XCOUNTR_ELF),
+    xui_app_verbs("docs", "Docs", fhs::boot::XDOCS_ELF, &["open", "view"]),
     // The package installer (docs/packages.md section 8); `mimed` routes
     // `application/x-lazyos-package` to it, so opening a `.lzp` shows consent.
     xui_app_verbs(
         "installer",
         "Package Installer",
-        "XINSTALL.ELF",
+        fhs::boot::XINSTALL_ELF,
         &["open", "install"],
     ),
     native_app(
         "top",
         "System Monitor (text)",
-        "TOP.ELF",
+        fhs::boot::TOP_ELF,
         Restart::Once,
         &["open"],
         Ship::Always,
@@ -187,7 +190,7 @@ pub static APPS: &[AppSpec] = &[
     native_app(
         "messengerctl",
         "Messenger Console",
-        "MSGCTL.ELF",
+        fhs::boot::MSGCTL_ELF,
         Restart::OnFailure,
         &[],
         Ship::Always,
@@ -235,7 +238,7 @@ pub fn apply_manifest(text: &str) {
         // `top` is the boot launch self-test's target: normally always shipped,
         // but the desktop profile (`LAZYOS_DESKTOP=1`) leaves its ELF out, so
         // its row must not advertise a program the image does not carry.
-        let desktop_skip = cfg!(lazyos_desktop) && app.path == "TOP.ELF";
+        let desktop_skip = cfg!(lazyos_desktop) && app.path == fhs::boot::TOP_ELF;
         if app.ship == Ship::Always && !desktop_skip {
             available |= 1 << index;
         }
@@ -262,7 +265,9 @@ pub fn apply_manifest(text: &str) {
 /// file ships no optional apps.
 pub fn load_manifest() {
     let mut buffer = [0u8; MANIFEST_BYTES];
-    let text = match sys::read_file(MANIFEST_FILE.as_bytes(), &mut buffer) {
+    // The image builder's list of shipped optional apps, NUL-terminated.
+    let manifest_z = alloc::format!("{}\0", fhs::boot::XAPPS_LST);
+    let text = match sys::read_file(manifest_z.as_bytes(), &mut buffer) {
         Some(count) => core::str::from_utf8(&buffer[..count.min(MANIFEST_BYTES)]).unwrap_or(""),
         None => "",
     };
@@ -311,7 +316,7 @@ pub fn selftest_apps() -> String {
         .unwrap_or(false);
     let has_top = APPS
         .iter()
-        .any(|app| app.id == "top" && app.path == "TOP.ELF");
+        .any(|app| app.id == "top" && app.path == fhs::boot::TOP_ELF);
     // The desktop rows must be launchable as `xuid` clients.
     let desktop_ok = APPS
         .iter()

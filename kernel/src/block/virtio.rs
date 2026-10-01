@@ -24,30 +24,31 @@
 //! buffer may be a stack slice or a heap buffer without any physical-layout
 //! requirement.
 
+mod io;
+mod queue;
+
 use super::virtio_diag as diag;
 use super::{BlockDevice, BlockError, SECTOR_SIZE};
-use crate::arch::io::{inb, inl, inw, outb, outl, outw};
-use crate::dev::pci;
 use core::cell::UnsafeCell;
 use core::sync::atomic::{fence, Ordering};
+pub use io::attach_function;
+use io::{in8, out16, ISR, QUEUE_NOTIFY};
+use queue::{write_desc, Control, ControlCell, Queue, QUEUE_BYTES};
 use spin::Mutex;
-use x86_64::VirtAddr;
-
-/// Legacy virtqueue size: QEMU reports 256 descriptors for virtio-blk.
-const MAX_QUEUE: usize = 256;
-/// The legacy spec requires the used ring 4096-aligned; 8192 = align(4096+518).
-const MAX_USED_OFF: usize = 8192;
-const MAX_USED_BYTES: usize = 6 + MAX_QUEUE * 8;
-const QUEUE_BYTES: usize = MAX_USED_OFF + MAX_USED_BYTES;
 
 /// A request must complete within this many 100 Hz ticks (10 s).
 const TIMEOUT_TICKS: u64 = 1000;
 /// Spin bound used when the tick counter is not advancing (interrupts masked).
 const SPIN_BACKSTOP: u64 = 4_000_000_000;
 
-/// One request moves at most this many sectors through the bounce page.
-const REQUEST_SECTORS: usize = 8;
-const REQUEST_BYTES: usize = REQUEST_SECTORS * SECTOR_SIZE;
+/// DMA granule: one descriptor per page, each page translated on its own
+/// because neither statics nor the heap are promised to be physically contiguous.
+const PAGE: usize = 4096;
+/// One request moves at most this many bytes through the bounce region.
+const MAX_REQUEST_BYTES: usize = 64 * 1024;
+const BOUNCE_PAGES: usize = MAX_REQUEST_BYTES / PAGE;
+/// Header + one descriptor per page + status.
+const MAX_CHAIN: usize = BOUNCE_PAGES + 2;
 
 // Descriptor flags (virtio 0.9.5).
 const DESC_NEXT: u16 = 1;
@@ -56,54 +57,14 @@ const DESC_WRITE: u16 = 2;
 const BLK_IN: u32 = 0;
 const BLK_OUT: u32 = 1;
 
-// Legacy virtio PCI register offsets from the I/O BAR.
-const GUEST_FEATURES: u16 = 4;
-const QUEUE_ADDRESS: u16 = 8;
-const QUEUE_SIZE_REG: u16 = 12;
-const QUEUE_SELECT: u16 = 14;
-const QUEUE_NOTIFY: u16 = 16;
-const DEVICE_STATUS: u16 = 18;
-const ISR: u16 = 19;
-const DEVICE_CONFIG: u16 = 20;
-
-// Device status bits.
-const STATUS_ACK: u8 = 1;
-const STATUS_DRIVER: u8 = 2;
-const STATUS_DRIVER_OK: u8 = 4;
-
 /// How many virtio-blk functions can be driven at once (one [`Slot`] each).
 const MAX_VIRTIO: usize = 4;
 /// Registry names, indexed by slot.
 const NAMES: [&str; MAX_VIRTIO] = ["virtio0", "virtio1", "virtio2", "virtio3"];
 
-/// The split virtqueue and rings. `static` memory is one contiguous region of
-/// the loaded kernel image, which is what the legacy queue-address register
-/// (a physical page frame number) requires.
+/// The bounce region for request payloads: [`BOUNCE_PAGES`] page-aligned pages.
 #[repr(C, align(4096))]
-struct Queue(UnsafeCell<[u8; QUEUE_BYTES]>);
-
-// Safety: every access goes through `VirtioBlk::state`, whose mutex is held
-// from the first descriptor write until the completion status is read.
-unsafe impl Sync for Queue {}
-
-/// The request header (16 bytes) plus the status byte. Kept on one page so
-/// both DMA targets are physically contiguous.
-#[repr(C)]
-struct Control {
-    header: [u8; 16],
-    status: u8,
-}
-
-#[repr(C, align(64))]
-struct ControlCell(UnsafeCell<Control>);
-
-// Safety: like `Queue`, only touched under the driver's mutex.
-unsafe impl Sync for ControlCell {}
-
-/// The bounce page for request payloads: page-aligned and exactly one page,
-/// so its physical address covers the whole transfer.
-#[repr(C, align(4096))]
-struct Bounce(UnsafeCell<[u8; REQUEST_BYTES]>);
+struct Bounce(UnsafeCell<[u8; MAX_REQUEST_BYTES]>);
 
 // Safety: like `Queue`, only touched under the driver's mutex.
 unsafe impl Sync for Bounce {}
@@ -122,7 +83,8 @@ struct State {
     /// A request was submitted and its completion not yet consumed (it timed out).
     outstanding: bool,
     header_phys: u64,
-    data_phys: u64,
+    /// Physical address of each bounce page, translated once at attach.
+    page_phys: [u64; BOUNCE_PAGES],
     status_phys: u64,
 }
 
@@ -147,7 +109,7 @@ impl Slot {
     const fn new(index: usize) -> Slot {
         Slot {
             queue: Queue(UnsafeCell::new([0; QUEUE_BYTES])),
-            bounce: Bounce(UnsafeCell::new([0; REQUEST_BYTES])),
+            bounce: Bounce(UnsafeCell::new([0; MAX_REQUEST_BYTES])),
             control: ControlCell(UnsafeCell::new(Control {
                 header: [0; 16],
                 status: 0,
@@ -161,158 +123,6 @@ impl Slot {
 }
 
 static SLOTS: [Slot; MAX_VIRTIO] = [Slot::new(0), Slot::new(1), Slot::new(2), Slot::new(3)];
-
-// The virtio legacy I/O window is plain memory-mapped-as-ports register
-// space: every offset is documented (virtio 0.9.5 spec) as either a status
-// register (safe to read repeatedly) or a control register this driver
-// writes in the documented order, so the raw `arch::io` ops apply directly.
-
-fn out8(port: u16, value: u8) {
-    // Safety: see the module note above.
-    unsafe { outb(port, value) };
-}
-
-fn out16(port: u16, value: u16) {
-    // Safety: see the module note above.
-    unsafe { outw(port, value) };
-}
-
-fn out32(port: u16, value: u32) {
-    // Safety: see the module note above.
-    unsafe { outl(port, value) };
-}
-
-fn in8(port: u16) -> u8 {
-    // Safety: see the module note above.
-    unsafe { inb(port) }
-}
-
-fn in16(port: u16) -> u16 {
-    // Safety: see the module note above.
-    unsafe { inw(port) }
-}
-
-fn in32(port: u16) -> u32 {
-    // Safety: see the module note above.
-    unsafe { inl(port) }
-}
-
-/// A 64-bit device register is two little-endian 32-bit halves.
-fn in64(port: u16) -> u64 {
-    let low = u64::from(in32(port));
-    let high = u64::from(in32(port + 4));
-    (high << 32) | low
-}
-
-/// Bring up one virtio-blk function in a free slot and return its device for
-/// registration. `None` when the function is modern-only, cannot be set up, or
-/// every slot is taken.
-pub fn attach_function(function: pci::Function) -> Option<&'static dyn BlockDevice> {
-    let address = function.address;
-    let bar0 = pci::bar_raw(address, 0);
-    if bar0 & 1 == 0 {
-        serial_println!(
-            "virtio-blk: 1af4:{:04x} is modern-only (no legacy I/O BAR); \
-             capability-based setup is not implemented",
-            function.id
-        );
-        return None;
-    }
-    let Some(slot) = SLOTS.iter().find(|slot| slot.device.state.lock().is_none()) else {
-        serial_println!(
-            "virtio-blk: no free slot for bus {}.{}",
-            address.bus,
-            address.device
-        );
-        return None;
-    };
-    let io = (bar0 & !0x3) as u16;
-    // Safety: `io` is the legacy window of a virtio function we were handed.
-    let state = unsafe { attach(slot, io) }?;
-    serial_println!(
-        "virtio-blk: {} 1af4:{:04x} bus {}.{} io {:#x}",
-        NAMES[slot.device.index],
-        function.id,
-        address.bus,
-        address.device,
-        io
-    );
-    *slot.device.state.lock() = Some(state);
-    Some(&slot.device)
-}
-
-/// Reset the device, pick queue 0, point it at the slot's queue, and go.
-///
-/// # Safety
-/// `io` must be the legacy I/O window of a virtio device, and `slot` must not
-/// already be driving another one.
-unsafe fn attach(slot: &Slot, io: u16) -> Option<State> {
-    out8(io + DEVICE_STATUS, 0); // reset
-    out8(io + DEVICE_STATUS, STATUS_ACK);
-    out8(io + DEVICE_STATUS, STATUS_ACK | STATUS_DRIVER);
-    // Accept no feature bits: the base block commands are all the FAT reader
-    // needs, and the legacy interface has no FEATURES_OK step.
-    out32(io + GUEST_FEATURES, 0);
-    out16(io + QUEUE_SELECT, 0);
-    let qsize = in16(io + QUEUE_SIZE_REG);
-    if qsize == 0 || usize::from(qsize) > MAX_QUEUE {
-        return None;
-    }
-    let avail_off = usize::from(qsize) * 16;
-    let used_off = (avail_off + 6 + usize::from(qsize) * 2 + 4095) & !4095;
-    if used_off + 6 + usize::from(qsize) * 8 > QUEUE_BYTES {
-        return None;
-    }
-
-    // Zero the rings before the device can write them, then hand over the
-    // page frame number the legacy queue-address register wants.
-    core::ptr::write_bytes(slot.queue.0.get() as *mut u8, 0, QUEUE_BYTES);
-    let queue_phys = super::virt_to_phys(VirtAddr::from_ptr(slot.queue.0.get()))?.as_u64();
-    if queue_phys >= 1 << 32 {
-        return None; // the legacy register holds a 32-bit PFN
-    }
-    out32(io + QUEUE_ADDRESS, (queue_phys >> 12) as u32);
-
-    // Legacy device config starts at offset 20: capacity in 512-byte sectors.
-    let sectors = in64(io + DEVICE_CONFIG);
-    if sectors == 0 {
-        return None;
-    }
-
-    let header_phys =
-        super::virt_to_phys(VirtAddr::from_ptr(slot.control.0.get() as *const u8))?.as_u64();
-    let data_phys =
-        super::virt_to_phys(VirtAddr::from_ptr(slot.bounce.0.get() as *const u8))?.as_u64();
-
-    out8(
-        io + DEVICE_STATUS,
-        STATUS_ACK | STATUS_DRIVER | STATUS_DRIVER_OK,
-    );
-    let _ = in8(io + ISR); // clear any stale interrupt
-
-    Some(State {
-        io,
-        sectors,
-        qsize,
-        avail_off,
-        used_off,
-        avail_idx: 0,
-        used_idx: 0,
-        outstanding: false,
-        header_phys,
-        data_phys,
-        status_phys: header_phys + 16,
-    })
-}
-
-/// Write descriptor `index`.
-unsafe fn write_desc(queue: *mut u8, index: usize, addr: u64, len: u32, flags: u16, next: u16) {
-    let desc = queue.add(index * 16);
-    (desc as *mut u64).write_volatile(addr);
-    (desc.add(8) as *mut u32).write_volatile(len);
-    (desc.add(12) as *mut u16).write_volatile(flags);
-    (desc.add(14) as *mut u16).write_volatile(next);
-}
 
 impl State {
     /// Poll the used ring until the outstanding request completes; returns the
@@ -367,7 +177,7 @@ impl State {
         lba: u64,
         bytes: usize,
     ) -> Result<(), BlockError> {
-        if bytes == 0 || bytes > REQUEST_BYTES || !bytes.is_multiple_of(SECTOR_SIZE) {
+        if bytes == 0 || bytes > MAX_REQUEST_BYTES || !bytes.is_multiple_of(SECTOR_SIZE) {
             return Err(BlockError::Unsupported);
         }
         debug_assert!(!self.outstanding, "drain() must run before a new request");
@@ -384,14 +194,28 @@ impl State {
             (*control).status = 0xFF;
         }
 
-        // Chain: header (device readable), data (writable for BLK_IN), status.
-        // Safety: the queue static is exclusively ours while the lock is held.
+        // Chain: header (device readable), one descriptor per bounce page
+        // (writable for BLK_IN), status.
+        // Safety: the queue static is exclusively ours while the lock is held,
+        // and `attach` checked the queue holds `MAX_CHAIN` descriptors.
         unsafe {
             let queue = slot.queue.0.get() as *mut u8;
+            let data_flags = if write { 0 } else { DESC_WRITE };
             write_desc(queue, 0, self.header_phys, 16, DESC_NEXT, 1);
-            let data_flags = DESC_NEXT | if write { 0 } else { DESC_WRITE };
-            write_desc(queue, 1, self.data_phys, bytes as u32, data_flags, 2);
-            write_desc(queue, 2, self.status_phys, 1, DESC_WRITE, 0);
+            let pages = bytes.div_ceil(PAGE);
+            for (page, phys) in self.page_phys[..pages].iter().enumerate() {
+                let len = (bytes - page * PAGE).min(PAGE);
+                let next = page as u16 + 2;
+                write_desc(
+                    queue,
+                    page + 1,
+                    *phys,
+                    len as u32,
+                    DESC_NEXT | data_flags,
+                    next,
+                );
+            }
+            write_desc(queue, pages + 1, self.status_phys, 1, DESC_WRITE, 0);
 
             let avail = queue.add(self.avail_off);
             let slot = usize::from(self.avail_idx % self.qsize);
@@ -449,7 +273,7 @@ impl BlockDevice for VirtioBlk {
         super::check_range(SECTOR_SIZE, state.sectors, lba, buf.len())?;
         state.drain(slot)?;
         let mut sector = 0u64;
-        for chunk in buf.chunks_mut(REQUEST_BYTES) {
+        for chunk in buf.chunks_mut(MAX_REQUEST_BYTES) {
             state.complete(slot, false, lba + sector, chunk.len())?;
             // Safety: the bounce page was filled by the completed request.
             let bounce = unsafe {
@@ -468,7 +292,7 @@ impl BlockDevice for VirtioBlk {
         super::check_range(SECTOR_SIZE, state.sectors, lba, buf.len())?;
         state.drain(slot)?;
         let mut sector = 0u64;
-        for chunk in buf.chunks(REQUEST_BYTES) {
+        for chunk in buf.chunks(MAX_REQUEST_BYTES) {
             // Safety: the bounce page is exclusively ours while the lock is held.
             let bounce = unsafe {
                 core::slice::from_raw_parts_mut(slot.bounce.0.get() as *mut u8, chunk.len())

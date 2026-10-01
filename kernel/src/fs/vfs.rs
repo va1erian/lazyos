@@ -46,6 +46,7 @@ use alloc::vec::Vec;
 mod attr;
 mod cache;
 mod filesystem;
+mod flags;
 mod meta;
 mod mountops;
 mod path;
@@ -55,6 +56,7 @@ pub use attr::{now, AttrRequest, SetAttr, Stamp, Times};
 pub use cache::CacheStats;
 use cache::Dentry;
 pub use filesystem::Filesystem;
+pub use flags::MountFlags;
 pub use meta::*;
 pub use path::Path;
 #[cfg_attr(not(lazyos_tests), allow(unused_imports))] // the rules, for unit tests
@@ -64,6 +66,7 @@ pub use setattr::authorize;
 struct Mount {
     point: Path,
     fs: Arc<dyn Filesystem>,
+    flags: MountFlags,
 }
 
 /// The filesystem root: mount table, caches, and set-once operation surface.
@@ -93,13 +96,19 @@ impl Vfs {
         }
     }
 
-    /// Mount `fs` at `point`. A duplicate mount point is [`FsError::Exists`].
-    pub fn mount(&mut self, point: &str, fs: Arc<dyn Filesystem>) -> Result<(), FsError> {
+    /// Mount `fs` at `point` under `flags`. A duplicate mount point is
+    /// [`FsError::Exists`].
+    pub fn mount(
+        &mut self,
+        point: &str,
+        fs: Arc<dyn Filesystem>,
+        flags: MountFlags,
+    ) -> Result<(), FsError> {
         let point = Path::parse(point);
         if self.mounts.iter().any(|mount| mount.point == point) {
             return Err(FsError::Exists);
         }
-        self.mounts.push(Mount { point, fs });
+        self.mounts.push(Mount { point, fs, flags });
         self.stats.mounts = self.mounts.len();
         Ok(())
     }
@@ -202,7 +211,7 @@ impl Vfs {
         if meta.kind != FileKind::File {
             return Err(FsError::IsDir);
         }
-        let (mount, rel) = self.resolve_mount(&path)?;
+        let (mount, rel) = self.resolve_writable(&path)?;
         let fs = Arc::clone(&self.mounts[mount].fs);
         let written = fs.write(&rel, offset, data)?;
         if let Ok(updated) = fs.stat(&rel) {
@@ -218,7 +227,7 @@ impl Vfs {
         if meta.kind != FileKind::File {
             return Err(FsError::IsDir);
         }
-        let (mount, rel) = self.resolve_mount(&path)?;
+        let (mount, rel) = self.resolve_writable(&path)?;
         let fs = Arc::clone(&self.mounts[mount].fs);
         fs.truncate(&rel, size)?;
         if let Ok(updated) = fs.stat(&rel) {
@@ -235,7 +244,7 @@ impl Vfs {
         }
         self.check_path(id, &path.parent(), WRITE | EXECUTE)?;
         let mode = mode & !self.umask & 0o7777;
-        let (mount, rel) = self.resolve_mount(&path)?;
+        let (mount, rel) = self.resolve_writable(&path)?;
         let meta = self.mounts[mount].fs.create(&rel, mode, id)?;
         self.insert_cache(mount, &rel, meta);
         Ok(meta)
@@ -249,7 +258,7 @@ impl Vfs {
         }
         self.check_path(id, &path.parent(), WRITE | EXECUTE)?;
         let mode = mode & !self.umask & 0o7777;
-        let (mount, rel) = self.resolve_mount(&path)?;
+        let (mount, rel) = self.resolve_writable(&path)?;
         let meta = self.mounts[mount].fs.mkdir(&rel, mode, id)?;
         self.insert_cache(mount, &rel, meta);
         Ok(meta)
@@ -268,7 +277,7 @@ impl Vfs {
             return Err(FsError::IsDir);
         }
         check_sticky(&dir, &target, id)?;
-        let (mount, rel) = self.resolve_mount(&path)?;
+        let (mount, rel) = self.resolve_writable(&path)?;
         self.mounts[mount].fs.unlink(&rel)?;
         self.invalidate_mount_path(mount, &rel);
         Ok(())
@@ -287,7 +296,7 @@ impl Vfs {
             return Err(FsError::NotDir);
         }
         check_sticky(&dir, &target, id)?;
-        let (mount, rel) = self.resolve_mount(&path)?;
+        let (mount, rel) = self.resolve_writable(&path)?;
         self.mounts[mount].fs.rmdir(&rel)?;
         self.invalidate_mount_path(mount, &rel);
         Ok(())
@@ -314,8 +323,8 @@ impl Vfs {
         if let Ok(existing) = self.stat_path(&to) {
             check_sticky(&to_dir, &existing, id)?;
         }
-        let (from_mount, from_rel) = self.resolve_mount(&from)?;
-        let (to_mount, to_rel) = self.resolve_mount(&to)?;
+        let (from_mount, from_rel) = self.resolve_writable(&from)?;
+        let (to_mount, to_rel) = self.resolve_writable(&to)?;
         if from_mount != to_mount {
             return Err(FsError::NotSupported); // no cross-mount rename yet
         }
@@ -333,7 +342,32 @@ impl Vfs {
             return Err(FsError::NotDir);
         }
         let (mount, rel) = self.resolve_mount(&path)?;
-        self.mounts[mount].fs.readdir(&rel)
+        let mut entries = self.mounts[mount].fs.readdir(&rel)?;
+        self.append_mount_points(&path, &mut entries);
+        Ok(entries)
+    }
+
+    /// Add every mount point directly below `dir` that the backend did not
+    /// list itself (a mount point need not exist as a directory underneath).
+    fn append_mount_points(&mut self, dir: &Path, entries: &mut Vec<DirEntry>) {
+        let points: Vec<Path> = self
+            .mounts
+            .iter()
+            .filter(|mount| mount.point.len() == dir.len() + 1 && mount.point.starts_with(dir))
+            .map(|mount| mount.point.clone())
+            .collect();
+        for point in points {
+            let name = &point.parts[dir.len()];
+            if entries.iter().any(|entry| &entry.name == name) {
+                continue;
+            }
+            let ino = self.stat_path(&point).map_or(0, |meta| meta.ino);
+            entries.push(DirEntry {
+                name: name.clone(),
+                ino,
+                kind: FileKind::Dir,
+            });
+        }
     }
 
     /// Walk ancestors for search and the path itself for `mask`.
@@ -366,6 +400,16 @@ impl Vfs {
         let index = best.ok_or(FsError::NotFound)?;
         let mount = &self.mounts[index];
         let rel = path.parts[mount.point.len()..].join("/");
+        Ok((index, rel))
+    }
+
+    /// [`Vfs::resolve_mount`] for an operation that mutates: a read-only
+    /// mount refuses before its filesystem is called.
+    fn resolve_writable(&self, path: &Path) -> Result<(usize, String), FsError> {
+        let (index, rel) = self.resolve_mount(path)?;
+        if self.mounts[index].flags.ro {
+            return Err(FsError::ReadOnly);
+        }
         Ok((index, rel))
     }
 }

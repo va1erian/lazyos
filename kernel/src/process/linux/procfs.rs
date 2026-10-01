@@ -48,6 +48,8 @@ struct Mount {
     point: String,
     fs_type: &'static str,
     read_only: bool,
+    /// Extra option words from the mount flags (`,noexec,nosuid`).
+    options: String,
 }
 
 impl Mount {
@@ -57,7 +59,7 @@ impl Mount {
     /// (`"ext2 (rw)"`, `"fat16 (ro)"`, `"ramfs"`, `"overlay (abi rw)"`): its
     /// first word is the type and a `(ro)` marks a mount that cannot be
     /// written. The type is reported under the name Linux tools know it by.
-    fn from_vfs(point: String, name: &'static str) -> Mount {
+    fn from_vfs(point: String, name: &'static str, flags: vfs::MountFlags) -> Mount {
         let fs_type = match name.split(' ').next().unwrap_or(name) {
             "fat16" => "vfat",
             other => other,
@@ -65,7 +67,8 @@ impl Mount {
         Mount {
             point,
             fs_type,
-            read_only: name.contains("(ro)"),
+            read_only: name.contains("(ro)") || flags.ro,
+            options: flags.proc_suffix(),
         }
     }
 
@@ -82,7 +85,10 @@ impl Mount {
 fn mount_table() -> Vec<Mount> {
     crate::fs::abi_mounts()
         .into_iter()
-        .map(|(point, name)| Mount::from_vfs(point, name))
+        .map(|(point, name)| {
+            let flags = crate::fs::abi_mount_flags(&point);
+            Mount::from_vfs(point, name, flags)
+        })
         .collect()
 }
 
@@ -107,11 +113,12 @@ fn render_mounts(table: &[Mount]) -> String {
     let mut out = String::new();
     for mount in table {
         out.push_str(&format!(
-            "{} {} {} {} 0 0\n",
+            "{} {} {} {}{} 0 0\n",
             mount.fs_type,
             escape(&mount.point),
             mount.fs_type,
-            mount.access()
+            mount.access(),
+            mount.options
         ));
     }
     out
@@ -126,9 +133,10 @@ fn render_mountinfo(table: &[Mount]) -> String {
         let id = index + 1;
         let parent = if index == 0 { id } else { 1 };
         out.push_str(&format!(
-            "{id} {parent} 0:{id} / {} {access} - {ty} {ty} {access}\n",
+            "{id} {parent} 0:{id} / {} {access}{extra} - {ty} {ty} {access}\n",
             escape(&mount.point),
             access = mount.access(),
+            extra = mount.options,
             ty = mount.fs_type,
         ));
     }

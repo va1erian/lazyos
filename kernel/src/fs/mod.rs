@@ -20,6 +20,13 @@
 //! reboot; native tasks do not see ABI writes. `/tmp` is one shared ramfs
 //! mounted in both tables, so scratch files are visible to both.
 //!
+//! # Layouts
+//!
+//! [`mounts`] picks between two: the legacy one below (FAT at `/`, ext2 data
+//! disk at `/data`) and, when `lazyos.cfg` on the boot volume names an ext2
+//! root by UUID ([`bootcfg`]), ext2 at `/` with FAT read-only at `/boot`. Each
+//! mount carries [`vfs::MountFlags`] (`ro`, `noexec`, `nosuid`).
+//!
 //! # The data volume
 //!
 //! A second block device carrying ext2 is mounted read/write at `/data` in both
@@ -27,10 +34,12 @@
 //! shutdown hook that makes it consistent on disk.
 
 mod abi_attr;
+pub mod bootcfg;
 pub mod ext2;
 pub mod fallible;
 pub mod fat;
 pub mod hidden;
+pub(crate) mod mounts;
 pub mod openfile;
 pub mod overlay;
 pub mod ramfs;
@@ -43,7 +52,11 @@ use spin::Mutex;
 
 use crate::block;
 pub use abi_attr::{abi_setattr, abi_setattr_open};
-use vfs::{DirEntry, Filesystem, FsError, Id, Meta, Vfs};
+#[cfg_attr(not(lazyos_tests), allow(unused_imports))] // probed by the suite
+pub(crate) use mounts::{mount_data_volume, select_root};
+#[cfg(lazyos_tests)]
+use vfs::Filesystem;
+use vfs::{DirEntry, FsError, Id, Meta, MountFlags, Vfs};
 
 /// The native kernel VFS: mount table, caches, and whether the boot volume
 /// mounted. `None` until [`init`] runs.
@@ -54,130 +67,29 @@ static FS: Mutex<Option<(Vfs, bool)>> = Mutex::new(None);
 /// [`init`]; `None` until the boot volumes are mounted.
 static ABI_FS: Mutex<Option<Vfs>> = Mutex::new(None);
 
-/// Pick the volume that becomes `/`: the first FAT12/16 volume on any device,
-/// and only when there is none, the first ext2 one (issue #99). FAT is the
-/// shipped boot format, so it wins regardless of enumeration order; otherwise
-/// an ext2 data disk enumerated ahead of the boot disk (an IDE data disk before
-/// a virtio boot disk, say) would take `/` and leave the boot volume unmounted.
-pub(crate) fn select_root(
-    devices: &[&'static dyn block::BlockDevice],
-) -> Option<(Arc<dyn Filesystem>, &'static str)> {
-    let fat = devices.iter().find_map(|device| {
-        let volume = fat::Fat16::open(*device)?;
-        Some((Arc::new(volume) as Arc<dyn Filesystem>, device.name()))
-    });
-    fat.or_else(|| {
-        devices.iter().find_map(|device| {
-            let volume = ext2::Ext2::open(*device).ok()?;
-            Some((Arc::new(volume) as Arc<dyn Filesystem>, device.name()))
-        })
-    })
-}
-
-/// Probe the block layer, mount the boot volume at `/`, and a fresh ramfs at
-/// `/tmp`. Returns whether a filesystem volume was found (the ramfs mount
-/// always succeeds). Idempotent: a second call reports the first call's
-/// boot-volume result without remounting.
+/// Probe the block layer and build the mount tables ([`mounts`] explains the
+/// two layouts). Returns whether a root volume was found (the scratch ramfs
+/// always mounts). Idempotent: a second call reports the first call's result
+/// without remounting.
 ///
-/// Device selection runs through the block registry (issue #100); see
-/// [`select_root`] for how `/` is chosen. Both readers open the device they are
-/// handed and keep that handle (issue #244), so a probe on one disk cannot
-/// read from another.
+/// Device selection runs through the block registry (issue #100). Both readers
+/// open the device they are handed and keep that handle (issue #244), so a
+/// probe on one disk cannot read from another.
 pub fn init() -> bool {
     let mut global = FS.lock();
     if let Some((_, mounted)) = global.as_ref() {
         return *mounted;
     }
     block::init();
-    let mut vfs = Vfs::new();
-    let devices = block::devices();
-    let (root, root_device) = match select_root(&devices) {
-        Some((volume, name)) => (Some(volume), Some(name)),
-        None => (None, None),
-    };
-    let mounted = root.is_some();
-    if let Some(volume) = &root {
-        let _ = vfs.mount("/", Arc::clone(volume));
-    } else {
-        serial_println!("fs: no FAT or ext2 volume on any block device");
-    }
-    // `/tmp` is the scratch filesystem: writable, in memory, and discarded on
-    // reboot. Mounting it even when FAT is missing keeps the VFS usable. The
-    // ABI table below mounts the same instance so both views agree.
-    let tmp: Arc<dyn Filesystem> = Arc::new(ramfs::RamFs::new());
-    let _ = vfs.mount("/tmp", Arc::clone(&tmp));
-    for (point, name) in vfs.mounts() {
-        crate::serial_println!("fs: mounted {name} at {point}");
-    }
-    let data = mount_data_volume(&mut vfs, root_device, &devices);
-
-    // The Linux ABI sees a writable root: a copy-up overlay over the read-only
-    // boot volume. Upper-layer contents live in memory and are discarded on
-    // reboot; native tasks keep the raw mounts above.
-    let mut abi = Vfs::new();
-    let abi_root: Arc<dyn Filesystem> = match root {
-        Some(volume) => Arc::new(overlay::Overlay::new(volume)),
-        None => Arc::new(ramfs::RamFs::new()),
-    };
-    let _ = abi.mount("/", abi_root);
-    let _ = abi.mount("/tmp", tmp);
-    if let Some(volume) = data {
-        let _ = abi.mount("/data", volume);
-    }
-    for (point, name) in abi.mounts() {
-        crate::serial_println!("fs: abi mounted {name} at {point}");
-    }
+    let mounts::Tables {
+        native,
+        abi,
+        mounted,
+    } = mounts::build(&block::devices());
     *ABI_FS.lock() = Some(abi);
-
-    *global = Some((vfs, mounted));
+    *global = Some((native, mounted));
     mounted
 }
-
-/// Mount the first ext2 volume that is not the root device at `/data`.
-///
-/// This is the one place the data volume is mounted (there is no mount
-/// syscall). A missing device is not an error: a session without a data disk
-/// simply has no `/data`. Every volume is opened at most once, and a device
-/// that fails to open as ext2 is skipped, never guessed at. Returns the
-/// mounted volume so the caller can share it with the Linux ABI table.
-pub(crate) fn mount_data_volume(
-    vfs: &mut Vfs,
-    root_device: Option<&str>,
-    devices: &[&'static dyn block::BlockDevice],
-) -> Option<Arc<dyn Filesystem>> {
-    for device in devices {
-        if Some(device.name()) == root_device {
-            continue;
-        }
-        let Ok(volume) = ext2::Ext2::open(*device) else {
-            continue;
-        };
-        // Before the volume is visible: finish what an unclean stop left.
-        reclaim_orphans(&volume, DATA_MOUNT);
-        let volume: Arc<dyn Filesystem> = Arc::new(volume);
-        if vfs.mount(DATA_MOUNT, Arc::clone(&volume)).is_err() {
-            return None;
-        }
-        crate::serial_println!("fs: mounted {} at {DATA_MOUNT}", device.name());
-        if !device.is_writable() {
-            crate::serial_println!("fs: {DATA_MOUNT} is read-only (device cannot be written)");
-        }
-        return Some(volume);
-    }
-    None
-}
-
-/// Delete the orphaned `.unlinked-*` files an unclean stop left on `volume`
-/// (it does nothing on a cleanly unmounted one) and say how many there were.
-fn reclaim_orphans(volume: &ext2::Ext2, point: &str) {
-    let reclaimed = volume.reclaim_orphans();
-    if reclaimed > 0 {
-        crate::serial_println!("fs: {point}: reclaimed {reclaimed} orphaned files");
-    }
-}
-
-/// Where the durable ext2 data volume lives.
-const DATA_MOUNT: &str = "/data";
 
 /// Flush every mounted filesystem to stable storage and mark clean volumes
 /// clean. Called on the way to power-off/reboot; a filesystem that fails is
@@ -195,15 +107,22 @@ pub fn mount_device(point: &str, device: &str) -> Result<(), FsError> {
     // A FAT volume is bound to the device it was opened from, so any device
     // may carry one (issue #244); a non-FAT device fails the BPB checks.
     if let Some(volume) = fat::Fat16::open(device) {
-        return with(|vfs| vfs.mount(point, Arc::new(volume))).unwrap_or(Err(FsError::NotFound));
+        return with(|vfs| vfs.mount(point, Arc::new(volume), MountFlags::default()))
+            .unwrap_or(Err(FsError::NotFound));
     }
     match ext2::Ext2::open(device) {
         Ok(volume) => {
-            reclaim_orphans(&volume, point);
-            with(|vfs| vfs.mount(point, Arc::new(volume))).unwrap_or(Err(FsError::NotFound))
+            mounts::reclaim_orphans(&volume, point);
+            with(|vfs| vfs.mount(point, Arc::new(volume), MountFlags::default()))
+                .unwrap_or(Err(FsError::NotFound))
         }
         Err(_) => Err(FsError::NotSupported),
     }
+}
+
+/// The flags of the native mount holding `path`.
+pub fn mount_flags(path: &str) -> MountFlags {
+    with(|vfs| vfs.mount_flags(path)).unwrap_or_default()
 }
 
 /// Run `f` against the global VFS, if it is mounted.
@@ -328,6 +247,11 @@ pub fn abi_mounts() -> Vec<(String, &'static str)> {
     abi_with(|vfs| vfs.mounts()).unwrap_or_default()
 }
 
+/// The flags of the Linux ABI mount holding `path`.
+pub fn abi_mount_flags(path: &str) -> MountFlags {
+    abi_with(|vfs| vfs.mount_flags(path)).unwrap_or_default()
+}
+
 /// Metadata through the Linux ABI VFS (permission-checked).
 pub fn abi_stat(id: Id, path: &str) -> Result<Meta, FsError> {
     abi_with(|vfs| vfs.stat(id, path)).unwrap_or(Err(FsError::NotFound))
@@ -409,12 +333,14 @@ pub fn abi_statfs(id: Id, path: &str) -> Result<vfs::StatFs, FsError> {
     abi_with(|vfs| vfs.statfs(id, path)).unwrap_or(Err(FsError::NotFound))
 }
 
-/// Whether `path` lives on the durable data volume, whose files a Linux
-/// descriptor reads and writes in place ([`openfile::OpenFile`]) instead of
-/// through a snapshot. False when no data volume is mounted: `/data` is then
-/// an ordinary directory of the copy-up root.
+/// Whether `path` lives on an ext2 volume (the data volume, or an ext2 root and
+/// home), whose files a Linux descriptor reads and writes in place
+/// ([`openfile::OpenFile`]) instead of through a snapshot. False when `path` is
+/// on the copy-up root or a ramfs.
 pub fn abi_persistent(path: &str) -> bool {
-    abi_with(|vfs| vfs.mount_point(path)).flatten().as_deref() == Some(DATA_MOUNT)
+    abi_with(|vfs| vfs.mount_fs_name(path))
+        .flatten()
+        .is_some_and(|name| name.starts_with("ext2"))
 }
 
 /// Remove an empty directory through the Linux ABI VFS.
@@ -464,8 +390,16 @@ pub fn abi_set_umask(mask: u16) -> u16 {
 #[cfg(lazyos_tests)]
 pub fn install_abi_ramfs_for_test() {
     let mut abi = Vfs::new();
-    let _ = abi.mount("/", Arc::new(ramfs::RamFs::new()));
-    let _ = abi.mount("/tmp", Arc::new(ramfs::RamFs::new()));
+    let _ = abi.mount(
+        fhs::mount::ROOT,
+        Arc::new(ramfs::RamFs::new()),
+        MountFlags::default(),
+    );
+    let _ = abi.mount(
+        fhs::mount::TMP,
+        Arc::new(ramfs::RamFs::new()),
+        MountFlags::default(),
+    );
     *ABI_FS.lock() = Some(abi);
 }
 
@@ -476,10 +410,24 @@ pub fn install_abi_ramfs_for_test() {
 #[cfg(lazyos_tests)]
 pub fn install_abi_data_for_test(volume: Arc<dyn Filesystem>) -> Option<Vfs> {
     let mut abi = Vfs::new();
-    let _ = abi.mount("/", Arc::new(ramfs::RamFs::new()));
-    let _ = abi.mount("/tmp", Arc::new(ramfs::RamFs::new()));
-    let _ = abi.mount(DATA_MOUNT, volume);
+    let _ = abi.mount(
+        fhs::mount::ROOT,
+        Arc::new(ramfs::RamFs::new()),
+        MountFlags::default(),
+    );
+    let _ = abi.mount(
+        fhs::mount::TMP,
+        Arc::new(ramfs::RamFs::new()),
+        MountFlags::default(),
+    );
+    let _ = abi.mount(mounts::DATA_MOUNT, volume, MountFlags::default());
     ABI_FS.lock().replace(abi)
+}
+
+/// Swap in `table` as the Linux ABI mount table, returning the one it replaced.
+#[cfg(lazyos_tests)]
+pub fn install_abi_for_test(table: Vfs) -> Option<Vfs> {
+    ABI_FS.lock().replace(table)
 }
 
 /// Put back the table [`install_abi_data_for_test`] returned.

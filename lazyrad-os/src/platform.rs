@@ -17,23 +17,23 @@ use std::rc::Rc;
 
 use lazyrad_runtime::platform::Platform;
 use lazyrad_runtime::{Access, FsPolicy, Sandbox};
-use xui_app::platform::dialog_fs::LazyFileSystem;
+use xui_core::widget::StdFileSystem;
 
 /// Where installed apps live (`docs/packages.md`: `install_dir` is relative to
 /// this).
-pub const APPS_ROOT: &str = "/data/apps";
+pub const APPS_ROOT: &str = fhs::state::APPS_ROOT;
 
 /// The player on the boot volume (`LRPLAY.ELF`, an 8.3 name).
-pub const PLAYER_PATH: &str = "/LRPLAY.ELF";
+pub const PLAYER_PATH: &str = fhs::boot::LRPLAY_PATH;
 
 /// The IDE's settings directory.
-pub const CONFIG_DIR: &str = "/data/config/lazyrad";
+pub const CONFIG_DIR: &str = fhs::state::LAZYRAD_CONFIG;
 
 /// Where the IDE keeps projects by default.
-pub const PROJECTS_DIR: &str = "/data/projects";
+pub const PROJECTS_DIR: &str = fhs::state::LAZYRAD_PROJECTS;
 
 /// Scratch space for a player that is not an installed app and has no `/data`.
-pub const SCRATCH_DIR: &str = "/tmp/lazyrad";
+pub const SCRATCH_DIR: &str = fhs::state::LAZYRAD_TMP;
 
 /// The app id of `exe` when it runs from an installed package
 /// (`/data/apps/<id>/<version>-<hash>/bin/<elf>`), else `None`.
@@ -51,7 +51,7 @@ pub fn installed_app_id(exe: &Path) -> Option<String> {
 pub fn data_root(exe: &Path, data_volume_present: bool) -> PathBuf {
     match installed_app_id(exe) {
         Some(id) => Path::new(APPS_ROOT).join(id).join("data"),
-        None if data_volume_present => PathBuf::from("/data/lazyrad-data"),
+        None if data_volume_present => PathBuf::from(fhs::state::LAZYRAD_DATA),
         None => PathBuf::from(SCRATCH_DIR),
     }
 }
@@ -66,7 +66,7 @@ pub fn player_policy(exe: &Path, project: &Path, data_volume_present: bool) -> F
 /// The folder the file dialog starts in: [`PROJECTS_DIR`], else `/data`, else
 /// `/tmp` (the first `exists` answers yes for), else `/`.
 pub fn start_dir(exists: impl Fn(&Path) -> bool) -> PathBuf {
-    [PROJECTS_DIR, "/data", "/tmp"]
+    [PROJECTS_DIR, fhs::mount::DATA, fhs::mount::TMP]
         .iter()
         .map(Path::new)
         .find(|path| exists(path))
@@ -114,10 +114,10 @@ impl Platform for LazyOsPlatform {
         Some(PathBuf::from(PLAYER_PATH))
     }
 
-    /// The portable dialog over `LazyFileSystem`, which also lists the root
-    /// mount points (`/tmp`, `/data`) the VFS omits from `/`.
+    /// The portable dialog over the shim's `std::fs`; the VFS lists mount
+    /// points in `/` itself.
     fn file_system(&self) -> Option<Rc<dyn xui_core::widget::FileSystem>> {
-        Some(LazyFileSystem::shared())
+        Some(Rc::new(StdFileSystem))
     }
 
     fn projects_dir(&self) -> PathBuf {

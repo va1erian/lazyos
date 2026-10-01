@@ -123,7 +123,8 @@ pub fn rejects_corruption() -> Result<(), String> {
     disk.data.lock().copy_from_slice(&bad);
     let fs = Arc::new(Ext2::open(disk).map_err(fs_error)?);
     let mut vfs = Vfs::new();
-    vfs.mount("/", fs).map_err(fs_error)?;
+    vfs.mount("/", fs, crate::fs::vfs::MountFlags::default())
+        .map_err(fs_error)?;
     check!(
         vfs.stat(Id::ROOT, "/").err() == Some(FsError::Invalid),
         "an out-of-range group pointer was accepted"
@@ -138,7 +139,8 @@ pub fn rejects_corruption() -> Result<(), String> {
     disk.data.lock().copy_from_slice(&bad);
     let fs = Arc::new(Ext2::open(disk).map_err(fs_error)?);
     let mut vfs = Vfs::new();
-    vfs.mount("/", fs).map_err(fs_error)?;
+    vfs.mount("/", fs, crate::fs::vfs::MountFlags::default())
+        .map_err(fs_error)?;
     check!(
         vfs.readdir(Id::ROOT, "/").err() == Some(FsError::Invalid),
         "a corrupt directory record was accepted"

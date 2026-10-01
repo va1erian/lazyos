@@ -33,9 +33,18 @@ pub fn path_resolution_and_mounts() -> Result<(), String> {
 
     let root = Id::ROOT;
     let mut vfs = Vfs::new();
-    vfs.mount("/", Arc::new(RamFs::new())).map_err(fs_error)?;
-    vfs.mount("/tmp", Arc::new(RamFs::new()))
-        .map_err(fs_error)?;
+    vfs.mount(
+        "/",
+        Arc::new(RamFs::new()),
+        crate::fs::vfs::MountFlags::default(),
+    )
+    .map_err(fs_error)?;
+    vfs.mount(
+        "/tmp",
+        Arc::new(RamFs::new()),
+        crate::fs::vfs::MountFlags::default(),
+    )
+    .map_err(fs_error)?;
 
     // A file written under /tmp lands in the /tmp filesystem, not the root.
     vfs.create(root, "/tmp/scratch.txt", 0o644)
@@ -55,8 +64,12 @@ pub fn path_resolution_and_mounts() -> Result<(), String> {
     );
 
     // The longest mount point wins: /tmp/nested is its own filesystem.
-    vfs.mount("/tmp/nested", Arc::new(RamFs::new()))
-        .map_err(fs_error)?;
+    vfs.mount(
+        "/tmp/nested",
+        Arc::new(RamFs::new()),
+        crate::fs::vfs::MountFlags::default(),
+    )
+    .map_err(fs_error)?;
     vfs.create(root, "/tmp/nested/inner.txt", 0o644)
         .map_err(fs_error)?;
     check!(

@@ -64,7 +64,7 @@ const SERIALIZE_DEADLINE: u64 = 100;
 /// How long the serve loop parks between housekeeping checks (PIT ticks).
 const POLL_TICKS: u64 = 5;
 /// The evidence programs `demo=1` spawns at startup and reaps.
-const DEMO_PROGRAMS: [&str; 2] = ["CLIPCP.ELF", "CLIPPS.ELF"];
+const DEMO_PROGRAMS: [&str; 2] = [fhs::boot::CLIPCP_ELF, fhs::boot::CLIPPS_ELF];
 
 #[no_mangle]
 pub extern "C" fn _start() -> ! {

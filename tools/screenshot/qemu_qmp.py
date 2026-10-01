@@ -166,8 +166,14 @@ def build_qemu_command(
     memory: str = "256M",
     extra_args: list[str] | None = None,
     data_disk: str | Path | None = None,
+    ide: bool = False,
 ) -> list[str]:
-    """Build a headless QEMU command line with a QMP socket and serial log."""
+    """Build a headless QEMU command line with a QMP socket and serial log.
+
+    The boot ``image`` is attached as legacy virtio-blk (``disable-modern=on``,
+    the interface the kernel drives), the way every launcher boots LazyOS; pass
+    ``ide=True`` to attach it as IDE so the ATA driver is exercised instead.
+    """
     command = [
         qemu,
         "-display", "none",
@@ -177,7 +183,12 @@ def build_qemu_command(
         "-m", memory,
     ]
     if image:
-        command += ["-drive", f"format=raw,file={Path(image).resolve().as_posix()}"]
+        file = Path(image).resolve().as_posix()
+        if ide:
+            command += ["-drive", f"format=raw,file={file}"]
+        else:
+            command += ["-drive", f"if=none,id=boot,format=raw,file={file}",
+                        "-device", "virtio-blk-pci,drive=boot,disable-modern=on"]
     if data_disk:
         command += data_disk_args(data_disk)
     command += extra_args or []

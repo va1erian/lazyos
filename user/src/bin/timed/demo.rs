@@ -91,7 +91,7 @@ impl Demo {
                 sys::write_str(&format!("TIMED:CLIENT:START pid={pid}\n"));
                 self.phase = Phase::Client(now + TIMEOUT_TICKS);
             }
-            None => self.fail("cannot spawn TIMECTL.ELF"),
+            None => self.fail(&format!("cannot spawn {}", fhs::boot::TIMECTL_ELF)),
         }
     }
 

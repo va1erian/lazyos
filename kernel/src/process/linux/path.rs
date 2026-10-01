@@ -159,6 +159,10 @@ fn load_file_as(id: Id, path: &str) -> Result<Vec<u8>, FsError> {
 /// The FAT root only holds 8.3 names, so longer names never match, and the
 /// mandatory `.ELF` keeps data files (`PASSWD`, `HELLO.TXT`) from shadowing a
 /// BusyBox applet of the same name.
+///
+/// The runtime uppercasing and `.ELF` suffix are the FAT 8.3 convention that
+/// `fhs::boot` names; F3 (docs/filesystem-plan.md) turns this into a lookup in
+/// `/system/bin`.
 fn root_elf_path(path: &str) -> Option<String> {
     let base = applet_name(path)?;
     (base.len() <= 8).then(|| format!("/{}.ELF", base.to_ascii_uppercase()))

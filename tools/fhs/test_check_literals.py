@@ -1,0 +1,91 @@
+#!/usr/bin/env python3
+"""Tests for check_literals.py: python tools/fhs/test_check_literals.py"""
+import tempfile
+import unittest
+from pathlib import Path
+
+import check_literals as chk
+
+
+class Tree:
+    """A throwaway source tree with `write(rel, text)`."""
+
+    def __init__(self):
+        self._dir = tempfile.TemporaryDirectory()
+        self.root = Path(self._dir.name)
+
+    def write(self, rel, text):
+        path = self.root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+
+    def check(self, allow=""):
+        (self.root / "allow.txt").write_text(allow, encoding="utf-8")
+        return chk.scan(self.root, chk.load_allowlist(self.root / "allow.txt"))
+
+    def cleanup(self):
+        self._dir.cleanup()
+
+
+class CheckLiterals(unittest.TestCase):
+    def setUp(self):
+        self.tree = Tree()
+        self.addCleanup(self.tree.cleanup)
+
+    def found(self, source, rel="user/src/a.rs", allow=""):
+        self.tree.write(rel, source)
+        return self.tree.check(allow)
+
+    def test_offending_literals_are_caught(self):
+        for text in ['"/data/apps"', '"/tmp/x"', '"/docs"', '"/home/u"', '"/conf"',
+                     '"/apps"', '"/logs"', '"INIT.ELF"', '"XAPPS.LST"', '"MIME.TYP"',
+                     '"PASSWD"', '"BUSYBOX"', 'r#"/data"#', '"cannot spawn TOP.ELF"']:
+            with self.subTest(text=text):
+                self.assertEqual(len(self.found(f"const A: &str = {text};\n")), 1)
+
+    def test_the_line_is_reported(self):
+        hits = self.found('fn a() {}\n\nconst A: &str = "/data";\n')
+        self.assertEqual(hits, [("user/src/a.rs", 3, "/data")])
+
+    def test_clean_literals_pass(self):
+        self.assertEqual(self.found('const A: &str = "/dev/null"; // "/data"\n'), [])
+        self.assertEqual(self.found("const A: &str = fhs::mount::DATA;\n"), [])
+        self.assertEqual(self.found('const A: &str = "/tmp";\n'), [])
+
+    def test_comments_are_ignored(self):
+        source = '// "/data/apps"\n/// "/data" and INIT.ELF\n/* "/home" /* "/docs" */ "/apps" */\nfn a() {}\n'
+        self.assertEqual(self.found(source), [])
+
+    def test_a_char_literal_does_not_swallow_the_line(self):
+        self.assertEqual(len(self.found("""let q = '"'; let p = "/data";\n""")), 1)
+
+    def test_byte_strings_are_spawn_lines_and_pass(self):
+        self.assertEqual(self.found('const A: &[u8] = b"TOP.ELF arg\0";\n'), [])
+
+    def test_test_code_and_generated_files_are_skipped(self):
+        bad = 'const A: &str = "/data";\n'
+        for rel in ["kernel/src/tests/x.rs", "libs/x/tests/y.rs", "libs/x/src/tests.rs",
+                    "libs/generated/src/lib.rs", "libs/fhs/src/state.rs", "target/x.rs"]:
+            with self.subTest(rel=rel):
+                self.assertEqual(self.found(bad, rel), [])
+
+    def test_an_inline_test_module_is_skipped(self):
+        source = 'const A: &str = "/home";\n#[cfg(test)]\nmod tests {\n const B: &str = "/data";\n}\n'
+        self.assertEqual([hit[1] for hit in self.found(source)], [1])
+
+    def test_allowlisted_file_and_line_pass(self):
+        source = 'const A: &str = "/data";\nconst B: &str = "/docs";\n'
+        self.assertEqual(len(self.found(source)), 2)
+        self.assertEqual(self.tree.check("user/src/a.rs:the whole file\n"), [])
+        left = self.tree.check("# note\nuser/src/a.rs:2:a fixture\n")
+        self.assertEqual([hit[1] for hit in left], [1])
+
+    def test_main_reports_and_fails(self):
+        self.tree.write("user/src/a.rs", 'const A: &str = "/logs";\n')
+        self.assertEqual(chk.main(["--root", str(self.tree.root), "--allowlist", str(self.tree.root / "none")]), 1)
+        self.tree.write("user/src/a.rs", "const A: u8 = 1;\n")
+        self.assertEqual(chk.main(["--root", str(self.tree.root), "--allowlist", str(self.tree.root / "none")]), 0)
+
+
+if __name__ == "__main__":
+    unittest.main()

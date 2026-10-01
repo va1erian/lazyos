@@ -43,33 +43,33 @@ use super::procctl::sys_exit_group;
 /// file)`. Only programs that make sense from a command line belong here;
 /// services (`SUPER.ELF`, `KEYD.ELF`, ...) are started by `init`.
 const PROGRAMS: &[(&str, &str)] = &[
-    ("top", "TOP.ELF"),
-    ("confctl", "CONFCTL.ELF"),
-    ("msgctl", "MSGCTL.ELF"),
-    ("messengerctl", "MSGCTL.ELF"),
-    ("faultprobe", "FAULTPRB.ELF"),
+    ("top", fhs::boot::TOP_ELF),
+    ("confctl", fhs::boot::CONFCTL_ELF),
+    ("msgctl", fhs::boot::MSGCTL_ELF),
+    ("messengerctl", fhs::boot::MSGCTL_ELF),
+    ("faultprobe", fhs::boot::FAULTPRB_ELF),
     // The audio client (docs/driver-plan.md D6): `beep [freq_hz [ms]]`.
-    ("beep", "BEEP.ELF"),
+    ("beep", fhs::boot::BEEP_ELF),
     // The tracker-module player (docs/tracker-plan.md): `modplay <file.mod>`.
-    ("modplay", "MODPLAY.ELF"),
+    ("modplay", fhs::boot::MODPLAY_ELF),
     // The package manager's command line (docs/packages.md): `pkgctl inspect |
     // install | remove | list`.
-    ("pkgctl", "PKGCTL.ELF"),
+    ("pkgctl", fhs::boot::PKGCTL_ELF),
     // The NIC control tool (docs/networking-plan.md N1): `nicctl [arp]` shows
     // the card and its counters. On the image only with `LAZYOS_NET=1`.
-    ("nicctl", "NICCTL.ELF"),
+    ("nicctl", fhs::boot::NICCTL_ELF),
     // The network stack's tools (docs/networking-plan.md N2): `netctl [addr |
     // route | stats | ...]` and `ping <a.b.c.d> [count]`. On the image only
     // with `LAZYOS_NETD=1`.
-    ("netctl", "NETCTL.ELF"),
-    ("ping", "PING.ELF"),
+    ("netctl", fhs::boot::NETCTL_ELF),
+    ("ping", fhs::boot::PING_ELF),
     // Sockets and names (docs/networking-plan.md N3): `nc [-u] [-l] <host>
     // <port> [text]` and `nslookup <name>`. On the image only with
     // `LAZYOS_NETD=1`.
-    ("nc", "NC.ELF"),
-    ("nslookup", "NSLOOKUP.ELF"),
+    ("nc", fhs::boot::NC_ELF),
+    ("nslookup", fhs::boot::NSLOOKUP_ELF),
     // The FTP client (N4): `ftp <host>[:port] [cmd ; cmd ...]`.
-    ("ftp", "FTP.ELF"),
+    ("ftp", fhs::boot::FTP_ELF),
 ];
 
 /// The directories a `$PATH` search (BusyBox `sh`'s default is

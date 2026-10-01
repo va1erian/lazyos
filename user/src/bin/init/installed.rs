@@ -130,7 +130,7 @@ impl InstalledApps {
 
     fn app_of(&mut self, row: pkgd::Installed) -> InstalledApp {
         let id = self.intern(&row.system_name);
-        let path = self.intern(&format!("/data/apps/{}/{}", row.install_dir, row.binary));
+        let path = self.intern(&fhs::install_path(&row.install_dir, &row.binary));
         let label = self.intern(&format!("app:{}", row.system_name));
         InstalledApp {
             id,

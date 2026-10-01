@@ -21,6 +21,7 @@
 
 pub mod ata;
 pub mod mem;
+pub mod partition;
 pub mod virtio;
 mod virtio_diag;
 
@@ -32,9 +33,9 @@ use x86_64::{PhysAddr, VirtAddr};
 /// Sector size every device in this tree speaks.
 pub const SECTOR_SIZE: usize = 512;
 
-/// How many devices the registry can hold. Enough for the boot disk, an
-/// optional virtio disk, and a few test doubles.
-const MAX_DEVICES: usize = 8;
+/// How many devices the registry can hold: whole disks, their partitions
+/// ([`partition::MAX_PARTITIONS`]), and a few test doubles.
+const MAX_DEVICES: usize = 24;
 
 /// Block-layer failures. Filesystems map these to their own errors.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -112,6 +113,12 @@ pub trait BlockDevice: Send + Sync {
     #[cfg_attr(not(lazyos_tests), allow(dead_code))] // no kernel writer yet
     fn flush(&self) -> Result<(), BlockError> {
         Ok(())
+    }
+
+    /// Whether this is a window onto another device ([`partition`]). Boot-time
+    /// probing looks at whole disks only.
+    fn is_partition(&self) -> bool {
+        false
     }
 
     /// Whether [`BlockDevice::write_sectors`] can succeed.
@@ -202,6 +209,7 @@ pub fn clear_boot_device() {
 /// as before. Safe to call from [`crate::fs::init`] on every boot path.
 pub fn init() {
     crate::dev::init();
+    partition::scan_all();
     if boot_device().is_none() {
         serial_println!("block: no block device found");
     }

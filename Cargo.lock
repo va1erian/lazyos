@@ -165,6 +165,9 @@ checksum = "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600"
 [[package]]
 name = "confd"
 version = "0.1.0"
+dependencies = [
+ "fhs",
+]
 
 [[package]]
 name = "const_fn"
@@ -296,6 +299,10 @@ dependencies = [
  "byteorder",
  "log",
 ]
+
+[[package]]
+name = "fhs"
+version = "0.1.0"
 
 [[package]]
 name = "foldhash"
@@ -479,6 +486,7 @@ version = "0.1.0"
 dependencies = [
  "bootloader_api",
  "confd",
+ "fhs",
  "font-atlas",
  "lazyos-crypto",
  "libm",
@@ -683,6 +691,7 @@ checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
 name = "pkgstore"
 version = "0.1.0"
 dependencies = [
+ "fhs",
  "lazyos-crypto",
  "lazypkg",
  "messenger-generated",
@@ -1087,6 +1096,7 @@ version = "0.1.0"
 dependencies = [
  "confd",
  "deskmenu",
+ "fhs",
  "font-atlas",
  "framering",
  "ftpwire",

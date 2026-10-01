@@ -168,8 +168,10 @@ pub fn sync_all_flushes_every_mount() -> Result<(), String> {
     let (fs_b, _unused, disk_b) = mounted_in(1, 1024, 512)?;
     let root = Id::ROOT;
     let mut vfs = Vfs::new();
-    vfs.mount("/", fs_a.clone()).map_err(fs_error)?;
-    vfs.mount("/data", fs_b.clone()).map_err(fs_error)?;
+    vfs.mount("/", fs_a.clone(), crate::fs::vfs::MountFlags::default())
+        .map_err(fs_error)?;
+    vfs.mount("/data", fs_b.clone(), crate::fs::vfs::MountFlags::default())
+        .map_err(fs_error)?;
     vfs.create(root, "/x", 0o644).map_err(fs_error)?;
     vfs.create(root, "/data/y", 0o644).map_err(fs_error)?;
     check!(
@@ -219,8 +221,12 @@ pub fn data_volume_probe() -> Result<(), String> {
     let root = Id::ROOT;
 
     let mut vfs = Vfs::new();
-    vfs.mount("/", Arc::new(crate::fs::ramfs::RamFs::new()))
-        .map_err(fs_error)?;
+    vfs.mount(
+        "/",
+        Arc::new(crate::fs::ramfs::RamFs::new()),
+        crate::fs::vfs::MountFlags::default(),
+    )
+    .map_err(fs_error)?;
     let volume = crate::fs::mount_data_volume(&mut vfs, Some(root_disk.name()), &devices);
     check!(volume.is_some(), "no data volume was mounted");
     check!(

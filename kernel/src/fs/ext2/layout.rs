@@ -65,6 +65,8 @@ pub(super) const SB_FIRST_INO: usize = 0x54;
 pub(super) const SB_INODE_SIZE: usize = 0x58;
 pub(super) const SB_FEATURE_INCOMPAT: usize = 0x60;
 pub(super) const SB_FEATURE_RO_COMPAT: usize = 0x64;
+pub(super) const SB_UUID: usize = 0x68;
+pub(super) const SB_VOLUME_NAME: usize = 0x78;
 
 /// `s_state` bits: the volume was cleanly unmounted / errors were recorded.
 pub(super) const STATE_VALID: u16 = 0x0001;
@@ -190,4 +192,11 @@ fn log_block_error(error: BlockError) {
             error
         );
     }
+}
+
+/// 16 bytes at `offset` (a UUID or a NUL-padded label).
+pub(super) fn array16(buf: &[u8], offset: usize) -> [u8; 16] {
+    let mut out = [0u8; 16];
+    out.copy_from_slice(&buf[offset..offset + 16]);
+    out
 }

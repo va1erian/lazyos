@@ -56,10 +56,20 @@ impl RamFs {
     /// A ramfs with explicit caps; writes and creations past them fail with
     /// [`FsError::NoSpace`]. Tests use tiny values.
     pub fn with_limits(max_bytes: usize, max_nodes: usize) -> RamFs {
+        RamFs::build(max_bytes, max_nodes, 0o755)
+    }
+
+    /// A scratch filesystem for `/tmp`-style use: the default caps, and a
+    /// sticky world-writable root (`1777`) so users keep to their own files.
+    pub fn scratch() -> RamFs {
+        RamFs::build(DEFAULT_MAX_BYTES, DEFAULT_MAX_NODES, 0o1777)
+    }
+
+    fn build(max_bytes: usize, max_nodes: usize, root_mode: u16) -> RamFs {
         let mut nodes = BTreeMap::new();
         nodes.insert(
             ROOT_INO,
-            Node::new(String::from("/"), FileKind::Dir, 0o755, Id::ROOT),
+            Node::new(String::from("/"), FileKind::Dir, root_mode, Id::ROOT),
         );
         RamFs {
             inner: Mutex::new(Inner {

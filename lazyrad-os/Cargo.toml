@@ -25,6 +25,8 @@ xui-app = { path = "../xui-app" }
 # `fcntl(O_NONBLOCK)` for the player launcher's pipes (already in the graph via
 # `xui-app`).
 libc = "0.2"
+# Well-known paths and boot-volume names (docs/filesystem-plan.md F0).
+fhs = { path = "../libs/fhs" }
 # The same Messenger codec and generated stubs `xui-app` uses; the `pkgd` and
 # `init` clients encode with the stubs, never by hand.
 libmessenger = { path = "../libs/messenger" }
