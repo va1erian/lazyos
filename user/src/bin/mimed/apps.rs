@@ -37,7 +37,14 @@ struct Registration {
     verb: String,
     app: String,
     fallback: Option<String>,
+    /// Registrations this one replaced, oldest first, so withdrawing the
+    /// replacing app (an installed app being removed) gives the type back to
+    /// the handler it took it from instead of leaving it with none.
+    shadowed: Vec<(String, Option<String>)>,
 }
+
+/// Most replaced registrations remembered per `(mime, verb)`.
+const MAX_SHADOWED: usize = 8;
 
 /// The open-with registry: `(mime, verb)` to app. Re-registering a pair
 /// replaces its app, so a later policy wins.
@@ -76,6 +83,14 @@ impl AppRegistry {
             .iter_mut()
             .find(|entry| entry.mime == mime_type && entry.verb == verb)
         {
+            if entry.app != app {
+                let replaced = (core::mem::take(&mut entry.app), entry.fallback.take());
+                entry.shadowed.retain(|(shadowed, _)| shadowed != app);
+                entry.shadowed.push(replaced);
+                if entry.shadowed.len() > MAX_SHADOWED {
+                    entry.shadowed.remove(0);
+                }
+            }
             entry.app = app.to_string();
             entry.fallback = fallback.map(str::to_string);
         } else {
@@ -84,7 +99,42 @@ impl AppRegistry {
                 verb,
                 app: app.to_string(),
                 fallback: fallback.map(str::to_string),
+                shadowed: Vec::new(),
             });
+        }
+    }
+
+    /// Withdraw `app`'s registration for `(mime, verb)`. If `app` holds it, the
+    /// registration it replaced (if any) takes over again, else the pair is
+    /// dropped; if another app holds it, only `app`'s shadowed claim goes, so a
+    /// later registration is never undone. Returns whether anything changed.
+    pub(crate) fn unregister(&mut self, mime_type: &str, app: &str, verb: &str) -> bool {
+        let mime_type = mime_type.trim().to_ascii_lowercase();
+        let verb = verb.trim().to_ascii_lowercase();
+        let app = app.trim();
+        let Some(index) = self
+            .entries
+            .iter()
+            .position(|entry| entry.mime == mime_type && entry.verb == verb)
+        else {
+            return false;
+        };
+        let entry = &mut self.entries[index];
+        if entry.app == app {
+            match entry.shadowed.pop() {
+                Some((previous, fallback)) => {
+                    entry.app = previous;
+                    entry.fallback = fallback;
+                }
+                None => {
+                    self.entries.remove(index);
+                }
+            }
+            true
+        } else {
+            let before = entry.shadowed.len();
+            entry.shadowed.retain(|(shadowed, _)| shadowed != app);
+            entry.shadowed.len() != before
         }
     }
 

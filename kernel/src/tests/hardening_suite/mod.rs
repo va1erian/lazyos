@@ -227,6 +227,7 @@ pub(super) const CASES: &[(&str, Test)] = &[
         "hardening_lseek_overflow_and_past_eof",
         lseek_overflow_and_past_eof,
     ),
+    ("hardening_native_heap_has_room", native_heap_has_room),
     (
         "hardening_mmap_family_rejects_overflowing_lengths",
         mmap_family_rejects_overflowing_lengths,

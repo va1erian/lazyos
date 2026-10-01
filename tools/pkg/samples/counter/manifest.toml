@@ -1,0 +1,25 @@
+# The Counter demo app as an installable package (docs/packages.md).
+#
+# `bin/counter.elf` is not checked in: `tools/pkg/build_samples.py` copies the
+# built `target/xui/xui-counter.elf` into the tree before it builds the archive.
+
+[app]
+name = "Packaged Counter"
+system_name = "org.lazy.counter"
+author = "LazyOS"
+version = "1.0.0"
+description = "The Counter demo, installed from a package and run in its own sandbox"
+
+[entry]
+binary = "bin/counter.elf"
+# A desktop app is a client of the `xuid` compositor, not the display owner.
+args = ["--client"]
+# A static musl program: `init` starts it under the Linux ABI personality.
+abi = "linux"
+
+[permissions]
+# Exactly what the app resolves and calls: it connects to the compositor
+# (`os.lazy.display.v1`) to create its window and to the input service
+# (`os.lazy.input.v1`) for its keyboard session. It subscribes to no topics, so
+# it needs neither the topics broker nor any `topics` rule.
+interfaces = ["os.lazy.display.v1", "os.lazy.input.v1"]

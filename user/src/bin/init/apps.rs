@@ -271,6 +271,7 @@ pub fn app_infos() -> Vec<services::AppInfo> {
             path: app.path.to_string(),
             restart: app.restart.label().to_string(),
             verbs: app.verbs.iter().map(|verb| verb.to_string()).collect(),
+            installed: false,
         })
         .collect()
 }

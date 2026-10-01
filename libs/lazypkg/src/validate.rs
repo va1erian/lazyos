@@ -28,6 +28,17 @@ const MAX_VERB: usize = 16;
 
 /// Validate the manifest against the file names in the archive.
 pub(crate) fn validate(manifest: &Manifest, files: &BTreeSet<&str>) -> Vec<Problem> {
+    validate_with(manifest, Some(files))
+}
+
+/// Validate everything the manifest says on its own: no archive to check file
+/// names against, so the existence of `entry.binary` and the MIME icons is not
+/// judged. This is what a manifest read back from an install directory gets.
+pub(crate) fn validate_standalone(manifest: &Manifest) -> Vec<Problem> {
+    validate_with(manifest, None)
+}
+
+fn validate_with(manifest: &Manifest, files: Option<&BTreeSet<&str>>) -> Vec<Problem> {
     let mut problems = Vec::new();
     check_app(manifest, &mut problems);
     check_entry(manifest, files, &mut problems);
@@ -76,16 +87,23 @@ fn check_app(manifest: &Manifest, problems: &mut Vec<Problem>) {
     }
 }
 
-fn check_entry(manifest: &Manifest, files: &BTreeSet<&str>, problems: &mut Vec<Problem>) {
+fn check_entry(manifest: &Manifest, files: Option<&BTreeSet<&str>>, problems: &mut Vec<Problem>) {
     let binary = &manifest.entry.binary;
     if !binary.ends_with(".elf") {
         problems.push(Problem::new(format!(
             "entry.binary {binary:?} must name a .elf file"
         )));
-    } else if !files.contains(binary.as_str()) {
+    } else if files.is_some_and(|files| !files.contains(binary.as_str())) {
         problems.push(Problem::new(format!(
             "entry.binary {binary:?} is missing from the package"
         )));
+    }
+    if let Some(abi) = &manifest.entry.abi {
+        if abi != "native" && abi != "linux" {
+            problems.push(Problem::new(format!(
+                "entry.abi {abi:?} must be \"native\" or \"linux\""
+            )));
+        }
     }
     if manifest.entry.args.len() > MAX_ARGS {
         problems.push(Problem::new(format!(
@@ -104,7 +122,7 @@ fn check_entry(manifest: &Manifest, files: &BTreeSet<&str>, problems: &mut Vec<P
 fn check_mime(
     index: usize,
     mime: &crate::manifest::MimeHandler,
-    files: &BTreeSet<&str>,
+    files: Option<&BTreeSet<&str>>,
     problems: &mut Vec<Problem>,
 ) {
     if !valid_mime_type(&mime.mime_type) {
@@ -134,7 +152,7 @@ fn check_mime(
         } else {
             for size in ["16", "32", "128"] {
                 let path = format!("{prefix}-{size}.png");
-                if !files.contains(path.as_str()) {
+                if files.is_some_and(|files| !files.contains(path.as_str())) {
                     problems.push(Problem::new(format!(
                         "mime[{index}].icon {path:?} is missing from the package"
                     )));
@@ -425,6 +443,37 @@ mod tests {
         ];
         good.permissions.network = vec!["outbound".into()];
         assert!(validate(&good, &files(&["bin/app.elf"])).is_empty());
+    }
+
+    #[test]
+    fn abi_must_be_native_or_linux() {
+        let mut m = minimal();
+        assert!(validate(&m, &files(&["bin/app.elf"])).is_empty());
+        for abi in ["native", "linux"] {
+            m.entry.abi = Some(abi.into());
+            assert!(validate(&m, &files(&["bin/app.elf"])).is_empty(), "{abi}");
+        }
+        m.entry.abi = Some("windows".into());
+        let problems = validate(&m, &files(&["bin/app.elf"]));
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(problems[0].message().contains("entry.abi"));
+        assert!(!minimal().entry.is_linux());
+        m.entry.abi = Some("linux".into());
+        assert!(m.entry.is_linux());
+    }
+
+    #[test]
+    fn standalone_validation_skips_file_existence_only() {
+        let mut m = minimal();
+        m.mime.push(manifest::MimeHandler {
+            mime_type: "image/png".into(),
+            verbs: vec!["open".into()],
+            icon: Some("icons/png".into()),
+        });
+        assert!(validate_standalone(&m).is_empty());
+        m.entry.binary = "bin/app.exe".into();
+        m.app.version = "x".into();
+        assert_eq!(validate_standalone(&m).len(), 2);
     }
 
     #[test]

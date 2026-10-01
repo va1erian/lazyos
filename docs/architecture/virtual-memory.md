@@ -52,7 +52,7 @@ present, plus the Linux `mmap`/`brk`/`mprotect`/`munmap` paths built on it.
 |---|---|---|
 | Heap (`brk`) | `USER_HEAP_BASE = 0x60_0000`, `sbrk` only | `BRK_BASE = 0x0100_0000` .. `BRK_LIMIT = 0x1f00_0000` |
 | mmap bump | - | `MMAP_BASE = 0x4000_0000` .. `MMAP_LIMIT = 0x7000_0000` |
-| Stack | `USER_STACK_TOP = 0x80_0000`, 128 KiB | `STACK_TOP = 0x0200_0000`, 1 MiB |
+| Stack | `USER_STACK_TOP = 0x0800_0000`, 128 KiB (the heap ceiling: about 126 MiB of `sbrk`) | `STACK_TOP = 0x0200_0000`, 1 MiB |
 
 - `mmap` supports `MAP_ANONYMOUS` and `MAP_FIXED` (`linux.rs:237`); it records an
   `Anon` VMA and charges per-uid `UserMemory` quota. `mprotect` privatizes COW

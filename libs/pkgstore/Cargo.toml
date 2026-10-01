@@ -1,0 +1,20 @@
+[package]
+name = "pkgstore"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Pure logic of the LazyOS package manager pkgd: policy compilation, the permission explanation table, the hash-chained audit log, and install paths"
+license = "GPL-3.0-or-later"
+
+[lib]
+name = "pkgstore"
+path = "src/lib.rs"
+
+[dependencies]
+# The validated manifest the rules and explanations are derived from.
+lazypkg = { path = "../lazypkg" }
+# SHA-256 for the audit chain, hex for the log lines.
+lazyos-crypto = { path = "../crypto" }
+# The generated `os.lazy.pkgd.v1` records (`PkgEvent`, `Permission`) and the
+# kernel policy rule type: the wire shapes are never re-declared here.
+messenger-generated = { path = "../generated" }

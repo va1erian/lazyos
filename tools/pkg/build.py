@@ -156,12 +156,15 @@ def validate_manifest(manifest):
         problems.append(f"app.description must be at most {MAX_DESCRIPTION} characters")
 
     entry = manifest.get("entry")
-    _check_keys(entry, {"binary", "args"}, "entry", problems)
+    _check_keys(entry, {"binary", "args", "abi"}, "entry", problems)
     if not isinstance(entry, dict):
         return problems + ["entry must be a table"]
     binary = entry.get("binary")
     if not isinstance(binary, str) or not binary.endswith(".elf"):
         problems.append(f"entry.binary {binary!r} must name a .elf file")
+    abi = entry.get("abi")
+    if abi is not None and abi not in ("native", "linux"):
+        problems.append(f'entry.abi {abi!r} must be "native" or "linux"')
     args = entry.get("args", [])
     if not isinstance(args, list) or len(args) > MAX_ARGS:
         problems.append(f"entry.args may hold at most {MAX_ARGS} items")
@@ -294,6 +297,10 @@ def _check_references(manifest, files, problems):
                     problems.append(f"mime[{index}].icon {path!r} is missing from the package")
 
 
+# The earliest timestamp a zip can hold.
+FIXED_TIME = (1980, 1, 1, 0, 0, 0)
+
+
 def build(root, out_dir):
     """Validate `root` and write `<system_name>-<version>.lzp`; return its path."""
     root = Path(root)
@@ -326,7 +333,13 @@ def build(root, out_dir):
     with zipfile.ZipFile(archive, "w") as zf:
         for name, path in sorted(files.items()):
             compression = zipfile.ZIP_STORED if name.endswith(".png") else zipfile.ZIP_DEFLATED
-            zf.writestr(name, path.read_bytes(), compress_type=compression)
+            # A fixed timestamp makes the archive a pure function of the tree, so
+            # building the same tree twice gives the same digest (and so the same
+            # install directory, which is what "already installed" keys on).
+            info = zipfile.ZipInfo(name, date_time=FIXED_TIME)
+            info.compress_type = compression
+            info.external_attr = 0o644 << 16
+            zf.writestr(info, path.read_bytes())
     return archive
 
 

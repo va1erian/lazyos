@@ -21,7 +21,12 @@ pub(crate) fn valid_token(text: &str) -> bool {
 /// that, once, rather than every `OPEN` paying for 32 failed publish
 /// attempts.
 pub(crate) fn valid_app_id(text: &str) -> bool {
-    valid_token(text) && !text.contains('+') && !text.contains('#')
+    // An installed app's id is its `system_name`, up to 128 bytes.
+    !text.is_empty()
+        && text.len() <= 128
+        && text
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.'))
 }
 
 /// A MIME type: `type/subtype`, no whitespace.

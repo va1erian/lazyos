@@ -172,6 +172,21 @@ impl<'a> Package<'a> {
     }
 }
 
+/// Parse and validate a `manifest.toml` read back from an install directory
+/// (or anywhere else outside an archive). Everything the manifest says about
+/// itself is checked; whether `entry.binary` and the icons exist is not, because
+/// there is no archive to look in. The installer uses this to rebuild an app's
+/// policy and MIME registrations at boot from the manifest it stored.
+pub fn parse_manifest(text: &str) -> Result<Manifest, ManifestError> {
+    let manifest = manifest::parse(text)?;
+    let problems = validate::validate_standalone(&manifest);
+    if problems.is_empty() {
+        Ok(manifest)
+    } else {
+        Err(ManifestError::new(problems))
+    }
+}
+
 /// Read and CRC-check one entry. Bounds were validated at open; the checked
 /// arithmetic here is a belt-and-braces guard that must never fire.
 fn extract(bytes: &[u8], entry: &ZipEntry<'_>) -> Result<Vec<u8>, ReadError> {

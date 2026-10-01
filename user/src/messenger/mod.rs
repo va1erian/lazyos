@@ -438,3 +438,20 @@ pub mod netsock;
 /// `TcpStream`, `TcpListener` and `UdpSocket` over [`netsock`], named after
 /// `std::net`.
 pub mod netstd;
+
+/// Sleep one PIT tick by parking on a private channel pair with an expired
+/// deadline (userspace has no sleep syscall); the pair is closed again, so no
+/// channel leaks. For retry loops that wait for a service to appear or for a
+/// shared endpoint to be free (`-EDEADLK`).
+pub fn park_tick() {
+    if let Ok((probe, peer)) = create_pair() {
+        let mut scratch = [0u8; 16];
+        let _ = probe.recv_into(&mut scratch, Some(EXPIRED_DEADLINE));
+        let _ = probe.close();
+        let _ = peer.close();
+    }
+}
+
+/// Client and wire shapes for `pkgd`, the application package manager
+/// (`docs/packages.md`, `idl/pkgd.midl`).
+pub mod pkgd;

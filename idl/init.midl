@@ -16,8 +16,18 @@ interface os.lazy.init.v1 {
     /// `argv` item; any other value is refused with `EINVAL`.
     method Launch(app: String, args: String, session: U64) -> (app: String, pid: U64, session: U64);
 
-    /// Enumerate the built-in app registry.
+    /// Enumerate the app registry: the built-in apps first, then the apps the
+    /// package manager installed (`AppInfo.installed`), read afresh from the
+    /// configuration registry on every call.
     method ListApps() -> (apps: Array<AppInfo>);
+
+    /// Stop every running instance of the app `app` (the app id, as `Launch`
+    /// takes it): each is killed and its supervision row retired without a
+    /// restart. `stopped` is how many were running. Only root, a holder of
+    /// `CAP_SETUID` (the package manager) or the session owner may stop; an
+    /// owner reaches only instances in their own session. Unknown or idle apps
+    /// are not an error, `stopped` is just 0.
+    method Stop(app: String) -> (stopped: U64);
 
     /// One row of `init`'s supervision table.
     struct ServiceStatus {
@@ -47,7 +57,10 @@ interface os.lazy.init.v1 {
         /// Default restart policy (`always`/`on-failure`/`once`).
         restart: String,
         /// MIME verbs the app handles, in registration order.
-        verbs: Array<String>
+        verbs: Array<String>,
+        /// Whether the package manager installed the app (`id` is then its
+        /// `system_name`) rather than the image shipping it.
+        installed: Bool
     }
 
     /// One service lifecycle event (issue #307): the payload of

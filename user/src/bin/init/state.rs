@@ -4,11 +4,7 @@
 //!
 //! Split out of `init.rs` (issue #194); a pure move, no behavior change.
 
-use alloc::string::{String, ToString};
-
 use user::sys::Cred as SysCred;
-
-use super::apps::AppSpec;
 
 /// Serve subscriptions and due restarts at least this often (PIT ticks).
 pub(super) const POLL_TICKS: u64 = 5;
@@ -97,7 +93,7 @@ const NETD_UID: u32 = netpolicy::NETD_UID;
 
 /// Credentials a manifest row is spawned with; `None` inherits this
 /// supervisor's identity, which is what the platform services need.
-fn manifest_cred(name: &str) -> Option<SysCred> {
+pub(super) fn manifest_cred(name: &str) -> Option<SysCred> {
     #[cfg(lazyos_sound)]
     if name == "sndd" {
         return Some(SND_CRED);
@@ -160,10 +156,10 @@ impl Restart {
 /// the generated `system/health/{name}` helper, so it is not stored here.
 pub(super) struct ServiceSpec {
     pub(super) name: &'static str,
-    path: &'static str,
-    args: &'static str,
-    restart: Restart,
-    deps: &'static [&'static str],
+    pub(super) path: &'static str,
+    pub(super) args: &'static str,
+    pub(super) restart: Restart,
+    pub(super) deps: &'static [&'static str],
 }
 
 /// The boot manifest. `messengerd` is first because it owns the bootstrap
@@ -282,6 +278,20 @@ pub(super) const MANIFEST: &[ServiceSpec] = &[
         restart: Restart::Always,
         deps: &[],
     },
+    // The application package manager (docs/packages.md phase 3). It records
+    // installed apps in `confd`, registers their file types with `mimed` and
+    // loads their Messenger policy into the kernel, so it needs both running.
+    // It inherits this supervisor's identity (root, `CAP_IPC_CONTROL`): that is
+    // the privilege `acl_load` needs, see `user/src/bin/pkgd.rs`. `Always`
+    // because it also restarts itself, on purpose, to give back heap the user
+    // allocator never returns.
+    ServiceSpec {
+        name: "pkgd",
+        path: "PKGD.ELF",
+        args: "",
+        restart: Restart::Always,
+        deps: &["confd", "mimed"],
+    },
     ServiceSpec {
         name: "flaky",
         path: "FLAKY.ELF",
@@ -348,134 +358,6 @@ pub(super) const MANIFEST: &[ServiceSpec] = &[
     },
 ];
 
-/// Runtime phase of a service; `label` is the word published in events and
-/// shown by `messengerctl services`.
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub(super) enum Phase {
-    /// Waiting for its dependencies.
-    Pending,
-    /// Started and not yet reaped.
-    Running,
-    /// Exited; a restart is scheduled at `next_start`.
-    Restarting,
-    /// Exited and will not be restarted.
-    Stopped,
-    /// Gave up after too many rapid crashes.
-    Failed,
-}
-
-impl Phase {
-    pub(super) fn label(self) -> &'static str {
-        match self {
-            Phase::Pending => "pending",
-            Phase::Running => "running",
-            Phase::Restarting => "restarting",
-            Phase::Stopped => "stopped",
-            Phase::Failed => "failed",
-        }
-    }
-
-    /// The health word this phase implies for the `Services` table.
-    pub(super) fn health(self) -> &'static str {
-        match self {
-            Phase::Running => "ok",
-            Phase::Restarting => "degraded",
-            _ => "down",
-        }
-    }
-}
-
-/// One supervised service instance. Manifest rows and launched apps share the
-/// same record; a launched row carries the stamped credentials and the app's
-/// runtime argument string.
-pub(super) struct Service {
-    /// Name published in events and shown by `messengerctl services`.
-    pub(super) name: &'static str,
-    /// On-disk ELF path.
-    pub(super) path: &'static str,
-    /// Argument string (manifest default, or the `Launch` request's args).
-    pub(super) args: String,
-    /// Restart policy applied to exits.
-    pub(super) restart: Restart,
-    /// Service names that must be `Running` before this row starts.
-    pub(super) deps: &'static [&'static str],
-    /// Credentials for `spawn_as`; `None` inherits this supervisor's identity
-    /// (the manifest path).
-    pub(super) cred: Option<SysCred>,
-    /// Whether the row came from `Launch` (vs the boot manifest).
-    pub(super) launched: bool,
-    /// Whether the program is a Linux-ABI binary (spawned with `linux:`).
-    pub(super) linux: bool,
-    /// Whether `init` itself opened the row at boot (the desktop's apps); it
-    /// does not count against the session's launch cap.
-    pub(super) autostart: bool,
-    pub(super) phase: Phase,
-    /// Task slot of the running child; `0` between runs.
-    pub(super) pid: u64,
-    /// Rapid-crash counter (reset once a run is [`STABLE_TICKS`] old).
-    pub(super) restarts: u64,
-    /// Tick the current run started at.
-    pub(super) started_tick: u64,
-    /// Absolute tick the next restart is due at.
-    pub(super) next_start: u64,
-    /// Exit status of the last run.
-    pub(super) last_status: Option<u64>,
-}
-
-impl Service {
-    /// A row for one manifest entry (spawned with this task's identity).
-    pub(super) fn from_manifest(spec: &'static ServiceSpec) -> Service {
-        Service {
-            name: spec.name,
-            path: spec.path,
-            // `soak=`/`demo=` only drive boot evidence; release and desktop
-            // boots skip them.
-            args: if BOOT_EVIDENCE {
-                spec.args.to_string()
-            } else {
-                String::new()
-            },
-            restart: spec.restart,
-            deps: spec.deps,
-            cred: manifest_cred(spec.name),
-            launched: false,
-            linux: false,
-            autostart: false,
-            phase: Phase::Pending,
-            pid: 0,
-            restarts: 0,
-            started_tick: 0,
-            next_start: 0,
-            last_status: None,
-        }
-    }
-
-    /// A row for one app launch, stamped with the target session's credentials.
-    /// The registry's default arguments come first, then the request's.
-    pub(super) fn from_app(app: &'static AppSpec, args: &str, cred: SysCred) -> Service {
-        let mut all_args = String::from(app.args);
-        if !args.is_empty() {
-            if !all_args.is_empty() {
-                all_args.push(' ');
-            }
-            all_args.push_str(args);
-        }
-        Service {
-            name: app.id,
-            path: app.path,
-            args: all_args,
-            restart: app.restart,
-            deps: &[],
-            cred: Some(cred),
-            launched: true,
-            linux: app.linux,
-            autostart: false,
-            phase: Phase::Pending,
-            pid: 0,
-            restarts: 0,
-            started_tick: 0,
-            next_start: 0,
-            last_status: None,
-        }
-    }
-}
+// The runtime rows (`Phase`, `Service`) live in `service.rs`; re-exported so
+// the supervisor modules keep one import path.
+pub(super) use super::service::{Phase, Service};

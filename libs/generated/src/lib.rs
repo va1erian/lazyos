@@ -4191,6 +4191,7 @@ pub mod os_lazy_init_v1 {
         pub path: alloc::string::String,
         pub restart: alloc::string::String,
         pub verbs: alloc::vec::Vec<alloc::string::String>,
+        pub installed: bool,
     }
 
     pub fn encode_app_info(value: &AppInfo) -> Result<Vec<u8>, Error> {
@@ -4204,6 +4205,7 @@ pub mod os_lazy_init_v1 {
             nested.string(1, item)?;
         }
         target.array(5, &nested)?;
+        target.bool(6, value.installed)?;
         Ok(target.finish())
     }
 
@@ -4230,6 +4232,9 @@ pub mod os_lazy_init_v1 {
                         out.verbs.push(item.as_str()?.into());
                     }
                 }
+                6 => {
+                    out.installed = field.as_bool()?;
+                }
                 _ => {}
             }
         }
@@ -4241,6 +4246,8 @@ pub mod os_lazy_init_v1 {
     /// On-disk ELF path.
     /// Default restart policy (`always`/`on-failure`/`once`).
     /// MIME verbs the app handles, in registration order.
+    /// Whether the package manager installed the app (`id` is then its
+    /// `system_name`) rather than the image shipping it.
     /// One service lifecycle event (issue #307): the payload of
     /// `system/events/service/<name>`. The topic carries the service name, so
     /// it is not repeated here; `health` is the service's retained health
@@ -4301,6 +4308,8 @@ pub mod os_lazy_init_v1 {
     pub const METHOD_LAUNCH: u32 = 936096390;
     /// `ListApps` method id.
     pub const METHOD_LISTAPPS: u32 = 1009359625;
+    /// `Stop` method id.
+    pub const METHOD_STOP: u32 = 1266644741;
 
     /// Snapshot the supervision table.
     #[derive(Clone, Debug, Default, PartialEq)]
@@ -4407,7 +4416,9 @@ pub mod os_lazy_init_v1 {
         Ok(out)
     }
 
-    /// Enumerate the built-in app registry.
+    /// Enumerate the app registry: the built-in apps first, then the apps the
+    /// package manager installed (`AppInfo.installed`), read afresh from the
+    /// configuration registry on every call.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct ListAppsReply {
         pub apps: alloc::vec::Vec<AppInfo>,
@@ -4432,6 +4443,56 @@ pub mod os_lazy_init_v1 {
                 while let Some(item) = nested.next()? {
                     out.apps.push(decode_app_info(item.payload)?);
                 }
+            }
+        }
+        Ok(out)
+    }
+
+    /// Stop every running instance of the app `app` (the app id, as `Launch`
+    /// takes it): each is killed and its supervision row retired without a
+    /// restart. `stopped` is how many were running. Only root, a holder of
+    /// `CAP_SETUID` (the package manager) or the session owner may stop; an
+    /// owner reaches only instances in their own session. Unknown or idle apps
+    /// are not an error, `stopped` is just 0.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct StopArgs {
+        pub app: alloc::string::String,
+    }
+
+    pub fn encode_stop_args(value: &StopArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.app)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_stop_args(body: &[u8]) -> Result<StopArgs, Error> {
+        let mut out = StopArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.app = field.as_str()?.into();
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct StopReply {
+        pub stopped: u64,
+    }
+
+    pub fn encode_stop_reply(value: &StopReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.stopped)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_stop_reply(body: &[u8]) -> Result<StopReply, Error> {
+        let mut out = StopReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.stopped = field.as_u64()?;
             }
         }
         Ok(out)
@@ -6334,6 +6395,8 @@ pub mod os_lazy_mimed_v1 {
     pub const METHOD_OPEN: u32 = 1401622761;
     /// `Register` method id.
     pub const METHOD_REGISTER: u32 = 658098656;
+    /// `Unregister` method id.
+    pub const METHOD_UNREGISTER: u32 = 1480320227;
 
     /// MIME type for `path` from the database; a path the database has no
     /// entry for reports `application/octet-stream`.
@@ -6600,6 +6663,48 @@ pub mod os_lazy_mimed_v1 {
 
     pub fn decode_register_args(body: &[u8]) -> Result<RegisterArgs, Error> {
         let mut out = RegisterArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.mime = field.as_str()?.into();
+                }
+                2 => {
+                    out.app = field.as_str()?.into();
+                }
+                3 => {
+                    out.verb = field.as_str()?.into();
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Withdraw `app`'s registration for `mime` and `verb`, so removing an
+    /// installed app leaves no dangling handler. Only the caller's root
+    /// identity may withdraw (the package manager); the registration is
+    /// dropped only while `app` still holds it, so a later registration by
+    /// another app is never undone, and the registration `app` had replaced
+    /// takes over again. Withdrawing a registration that is not there is not
+    /// an error.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct UnregisterArgs {
+        pub mime: alloc::string::String,
+        pub app: alloc::string::String,
+        pub verb: alloc::string::String,
+    }
+
+    pub fn encode_unregister_args(value: &UnregisterArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.mime)?;
+        target.string(2, &value.app)?;
+        target.string(3, &value.verb)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_unregister_args(body: &[u8]) -> Result<UnregisterArgs, Error> {
+        let mut out = UnregisterArgs::default();
         let mut decoder = Decoder::new(body);
         while let Some(field) = decoder.next()? {
             match field.id {
@@ -8756,6 +8861,619 @@ pub mod os_lazy_net_socket_v1 {
     }
 }
 
+/// `os.lazy.pkgd.v1` (interface id `0x2e65545739956542`).
+#[rustfmt::skip]
+pub mod os_lazy_pkgd_v1 {
+    use alloc::vec::Vec;
+    #[allow(unused_imports)]
+    use alloc::string::String;
+    // Not every interface needs every codec item (`Kind` is only used by nested values).
+    #[allow(unused_imports)]
+    use libmessenger::{Decoder, Encoder, Error, Kind};
+    // Only interfaces that declare topics use the shared topic runtime.
+    #[allow(unused_imports)]
+    use super::topics;
+
+    /// The interface id: the FNV-1a hash of the `.vN` interface name.
+    pub const INTERFACE_ID: u64 = 0x2e65545739956542;
+
+    /// What a package declares, as the consent screen shows it.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct PackageInfo {
+        pub name: alloc::string::String,
+        pub system_name: alloc::string::String,
+        pub author: alloc::string::String,
+        pub version: alloc::string::String,
+        pub description: alloc::string::String,
+        pub digest: alloc::string::String,
+        pub install_dir: alloc::string::String,
+        pub mime: alloc::vec::Vec<MimeHandler>,
+        pub permissions: alloc::vec::Vec<Permission>,
+        pub problems: alloc::vec::Vec<alloc::string::String>,
+    }
+
+    pub fn encode_package_info(value: &PackageInfo) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.name)?;
+        target.string(2, &value.system_name)?;
+        target.string(3, &value.author)?;
+        target.string(4, &value.version)?;
+        target.string(5, &value.description)?;
+        target.string(6, &value.digest)?;
+        target.string(7, &value.install_dir)?;
+        let mut nested = Encoder::new();
+        for item in &value.mime {
+            nested.raw(Kind::Struct, 1, &encode_mime_handler(item)?)?;
+        }
+        target.array(8, &nested)?;
+        let mut nested = Encoder::new();
+        for item in &value.permissions {
+            nested.raw(Kind::Struct, 1, &encode_permission(item)?)?;
+        }
+        target.array(9, &nested)?;
+        let mut nested = Encoder::new();
+        for item in &value.problems {
+            nested.string(1, item)?;
+        }
+        target.array(10, &nested)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_package_info(body: &[u8]) -> Result<PackageInfo, Error> {
+        let mut out = PackageInfo::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.name = field.as_str()?.into();
+                }
+                2 => {
+                    out.system_name = field.as_str()?.into();
+                }
+                3 => {
+                    out.author = field.as_str()?.into();
+                }
+                4 => {
+                    out.version = field.as_str()?.into();
+                }
+                5 => {
+                    out.description = field.as_str()?.into();
+                }
+                6 => {
+                    out.digest = field.as_str()?.into();
+                }
+                7 => {
+                    out.install_dir = field.as_str()?.into();
+                }
+                8 => {
+                    let mut nested = field.nested(0)?;
+                    while let Some(item) = nested.next()? {
+                        out.mime.push(decode_mime_handler(item.payload)?);
+                    }
+                }
+                9 => {
+                    let mut nested = field.nested(0)?;
+                    while let Some(item) = nested.next()? {
+                        out.permissions.push(decode_permission(item.payload)?);
+                    }
+                }
+                10 => {
+                    let mut nested = field.nested(0)?;
+                    while let Some(item) = nested.next()? {
+                        out.problems.push(item.as_str()?.into());
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Lowercase hex SHA-256 of the archive.
+    /// Where it would be installed, relative to `/data/apps`.
+    /// Empty when the package can be installed.
+    /// One handled file type.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct MimeHandler {
+        pub mime_type: alloc::string::String,
+        pub verbs: alloc::vec::Vec<alloc::string::String>,
+        pub has_icon: bool,
+    }
+
+    pub fn encode_mime_handler(value: &MimeHandler) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.mime_type)?;
+        let mut nested = Encoder::new();
+        for item in &value.verbs {
+            nested.string(1, item)?;
+        }
+        target.array(2, &nested)?;
+        target.bool(3, value.has_icon)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_mime_handler(body: &[u8]) -> Result<MimeHandler, Error> {
+        let mut out = MimeHandler::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.mime_type = field.as_str()?.into();
+                }
+                2 => {
+                    let mut nested = field.nested(0)?;
+                    while let Some(item) = nested.next()? {
+                        out.verbs.push(item.as_str()?.into());
+                    }
+                }
+                3 => {
+                    out.has_icon = field.as_bool()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Whether the package ships icons for this type.
+    /// One requested permission with the friendly explanation the installer
+    /// shows. `kind` is `interface`, `topic`, `file` or `network`; `risk` is
+    /// `low`, `medium` or `high`. `explanation` comes from `pkgd`'s table
+    /// keyed by MIDL interface name, so every client shows the same words.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct Permission {
+        pub kind: alloc::string::String,
+        pub value: alloc::string::String,
+        pub risk: alloc::string::String,
+        pub explanation: alloc::string::String,
+    }
+
+    pub fn encode_permission(value: &Permission) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.kind)?;
+        target.string(2, &value.value)?;
+        target.string(3, &value.risk)?;
+        target.string(4, &value.explanation)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_permission(body: &[u8]) -> Result<Permission, Error> {
+        let mut out = Permission::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.kind = field.as_str()?.into();
+                }
+                2 => {
+                    out.value = field.as_str()?.into();
+                }
+                3 => {
+                    out.risk = field.as_str()?.into();
+                }
+                4 => {
+                    out.explanation = field.as_str()?.into();
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// An installed app, as `confd` records it under `sys/apps/<system_name>`.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct Installed {
+        pub system_name: alloc::string::String,
+        pub name: alloc::string::String,
+        pub version: alloc::string::String,
+        pub install_dir: alloc::string::String,
+        pub digest: alloc::string::String,
+        pub binary: alloc::string::String,
+        pub installed_at: u64,
+        pub abi: alloc::string::String,
+        pub args: alloc::vec::Vec<alloc::string::String>,
+    }
+
+    pub fn encode_installed(value: &Installed) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.system_name)?;
+        target.string(2, &value.name)?;
+        target.string(3, &value.version)?;
+        target.string(4, &value.install_dir)?;
+        target.string(5, &value.digest)?;
+        target.string(6, &value.binary)?;
+        target.u64(7, value.installed_at)?;
+        target.string(8, &value.abi)?;
+        let mut nested = Encoder::new();
+        for item in &value.args {
+            nested.string(1, item)?;
+        }
+        target.array(9, &nested)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_installed(body: &[u8]) -> Result<Installed, Error> {
+        let mut out = Installed::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.system_name = field.as_str()?.into();
+                }
+                2 => {
+                    out.name = field.as_str()?.into();
+                }
+                3 => {
+                    out.version = field.as_str()?.into();
+                }
+                4 => {
+                    out.install_dir = field.as_str()?.into();
+                }
+                5 => {
+                    out.digest = field.as_str()?.into();
+                }
+                6 => {
+                    out.binary = field.as_str()?.into();
+                }
+                7 => {
+                    out.installed_at = field.as_u64()?;
+                }
+                8 => {
+                    out.abi = field.as_str()?.into();
+                }
+                9 => {
+                    let mut nested = field.nested(0)?;
+                    while let Some(item) = nested.next()? {
+                        out.args.push(item.as_str()?.into());
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Install directory relative to `/data/apps`.
+    /// Entry binary, relative to the install directory (`bin/<name>.elf`).
+    /// Kernel ticks at install time.
+    /// The program's ABI, `native` or `linux`: `init` needs it to pick the
+    /// spawn personality, and an ELF header cannot tell them apart.
+    /// The manifest's fixed `entry.args`, passed before any launch path.
+    /// One audit record: the payload of `system/events/pkg/<op>`, where `op`
+    /// is `install`, `remove` or `denied`. The same record, hex-encoded with
+    /// a chained SHA-256, is appended to `/data/log/pkg.log`.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct PkgEvent {
+        pub op: alloc::string::String,
+        pub system_name: alloc::string::String,
+        pub version: alloc::string::String,
+        pub install_dir: alloc::string::String,
+        pub digest: alloc::string::String,
+        pub actor_uid: u64,
+        pub ok: bool,
+        pub detail: alloc::string::String,
+    }
+
+    pub fn encode_pkg_event(value: &PkgEvent) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.op)?;
+        target.string(2, &value.system_name)?;
+        target.string(3, &value.version)?;
+        target.string(4, &value.install_dir)?;
+        target.string(5, &value.digest)?;
+        target.u64(6, value.actor_uid)?;
+        target.bool(7, value.ok)?;
+        target.string(8, &value.detail)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_pkg_event(body: &[u8]) -> Result<PkgEvent, Error> {
+        let mut out = PkgEvent::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.op = field.as_str()?.into();
+                }
+                2 => {
+                    out.system_name = field.as_str()?.into();
+                }
+                3 => {
+                    out.version = field.as_str()?.into();
+                }
+                4 => {
+                    out.install_dir = field.as_str()?.into();
+                }
+                5 => {
+                    out.digest = field.as_str()?.into();
+                }
+                6 => {
+                    out.actor_uid = field.as_u64()?;
+                }
+                7 => {
+                    out.ok = field.as_bool()?;
+                }
+                8 => {
+                    out.detail = field.as_str()?.into();
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// `Inspect` method id.
+    pub const METHOD_INSPECT: u32 = 1027767735;
+    /// `Install` method id.
+    pub const METHOD_INSTALL: u32 = 890027328;
+    /// `Remove` method id.
+    pub const METHOD_REMOVE: u32 = 564498461;
+    /// `List` method id.
+    pub const METHOD_LIST: u32 = 220805025;
+    /// `Installed` method id.
+    pub const METHOD_INSTALLED: u32 = 1755800129;
+
+    /// Open and validate the `.lzp` at `path` (an absolute path the caller may
+    /// read) without changing anything. `problems` is empty for a package that
+    /// could be installed; otherwise it lists every reason it cannot be.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct InspectArgs {
+        pub path: alloc::string::String,
+    }
+
+    pub fn encode_inspect_args(value: &InspectArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.path)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_inspect_args(body: &[u8]) -> Result<InspectArgs, Error> {
+        let mut out = InspectArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.path = field.as_str()?.into();
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct InspectReply {
+        pub info: PackageInfo,
+    }
+
+    pub fn encode_inspect_reply(value: &InspectReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.raw(Kind::Struct, 1, &encode_package_info(&value.info)?)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_inspect_reply(body: &[u8]) -> Result<InspectReply, Error> {
+        let mut out = InspectReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.info = decode_package_info(field.payload)?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Install the package at `path`: extract it to its install directory,
+    /// record it, register its MIME verbs, load its policy, then publish
+    /// `system/events/pkg/install`. Fails if the same `system_name` is already
+    /// installed at this version and digest. Needs the caller to be the
+    /// session owner or root; `pkgd` audits who asked.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct InstallArgs {
+        pub path: alloc::string::String,
+    }
+
+    pub fn encode_install_args(value: &InstallArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.path)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_install_args(body: &[u8]) -> Result<InstallArgs, Error> {
+        let mut out = InstallArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.path = field.as_str()?.into();
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct InstallReply {
+        pub app: Installed,
+    }
+
+    pub fn encode_install_reply(value: &InstallReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.raw(Kind::Struct, 1, &encode_installed(&value.app)?)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_install_reply(body: &[u8]) -> Result<InstallReply, Error> {
+        let mut out = InstallReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.app = decode_installed(field.payload)?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Remove `system_name`: stop its running instances, unregister its MIME
+    /// verbs, revoke its policy, delete its install directory, then publish
+    /// `system/events/pkg/remove`. User data under `/data/home` is kept.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct RemoveArgs {
+        pub system_name: alloc::string::String,
+    }
+
+    pub fn encode_remove_args(value: &RemoveArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.system_name)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_remove_args(body: &[u8]) -> Result<RemoveArgs, Error> {
+        let mut out = RemoveArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.system_name = field.as_str()?.into();
+            }
+        }
+        Ok(out)
+    }
+
+    /// Every installed app, in install order.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ListReply {
+        pub apps: alloc::vec::Vec<Installed>,
+    }
+
+    pub fn encode_list_reply(value: &ListReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        let mut nested = Encoder::new();
+        for item in &value.apps {
+            nested.raw(Kind::Struct, 1, &encode_installed(item)?)?;
+        }
+        target.array(1, &nested)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_list_reply(body: &[u8]) -> Result<ListReply, Error> {
+        let mut out = ListReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                let mut nested = field.nested(0)?;
+                while let Some(item) = nested.next()? {
+                    out.apps.push(decode_installed(item.payload)?);
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// One installed app by `system_name`, if present.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct InstalledArgs {
+        pub system_name: alloc::string::String,
+    }
+
+    pub fn encode_installed_args(value: &InstalledArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.system_name)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_installed_args(body: &[u8]) -> Result<InstalledArgs, Error> {
+        let mut out = InstalledArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.system_name = field.as_str()?.into();
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct InstalledReply {
+        pub app: core::option::Option<Installed>,
+    }
+
+    pub fn encode_installed_reply(value: &InstalledReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        match &value.app {
+            Some(item) => {
+                let mut nested = Encoder::new();
+                nested.raw(Kind::Struct, 1, &encode_installed(item)?)?;
+                target.option(1, Some(&nested))?;
+            }
+            None => {
+                target.option(1, None)?;
+            }
+        }
+        Ok(target.finish())
+    }
+
+    pub fn decode_installed_reply(body: &[u8]) -> Result<InstalledReply, Error> {
+        let mut out = InstalledReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                if field.payload.is_empty() {
+                    out.app = None;
+                } else {
+                    let mut nested = field.nested(0)?;
+                    let item = nested.next()?.ok_or(Error::BadValue)?;
+                    out.app = Some(decode_installed(item.payload)?);
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// uid of the task that asked.
+    /// Friendly text: the error for a failure, empty on success.
+    /// Published on every install, removal and refused request. Not retained:
+    /// `List` is the state, the events are the trail.
+    /// The declared `system/events/pkg/+` topic (`PkgEvent`, `latest`).
+    pub const TOPIC_SYSTEM_EVENTS_PKG: &str = "system/events/pkg/+";
+    /// The `system/events/pkg/+` delivery policy.
+    pub const TOPIC_SYSTEM_EVENTS_PKG_QOS: u32 = topics::QOS_LATEST;
+    /// Whether `system/events/pkg/+` publishes are retained.
+    pub const TOPIC_SYSTEM_EVENTS_PKG_RETAINED: bool = false;
+
+    /// Build the concrete `system/events/pkg/+` name; each wildcard takes one literal segment.
+    pub fn name_system_events_pkg(op: &str) -> Result<String, topics::TopicError> {
+        topics::build(TOPIC_SYSTEM_EVENTS_PKG, &[op], topics::Mode::Publish)
+    }
+
+    /// Encode a `PkgEvent` payload for `system/events/pkg/+`.
+    pub fn encode_system_events_pkg(value: &PkgEvent) -> Result<Vec<u8>, Error> {
+        encode_pkg_event(value)
+    }
+
+    /// Decode a `system/events/pkg/+` payload; malformed bytes are an error.
+    pub fn decode_system_events_pkg(body: &[u8]) -> Result<PkgEvent, Error> {
+        decode_pkg_event(body)
+    }
+
+    /// Publish a typed `PkgEvent` on `system/events/pkg/+`.
+    pub fn publish_system_events_pkg<P>(publisher: &mut P, op: &str, value: &PkgEvent) -> Result<u64, P::Error>
+    where
+        P: topics::Publish,
+        P::Error: From<topics::TopicError>,
+    {
+        let topic = name_system_events_pkg(op).map_err(P::Error::from)?;
+        let payload = encode_system_events_pkg(value)
+            .map_err(|error| P::Error::from(topics::TopicError::Encode(error)))?;
+        publisher.publish_topic(&topic, &payload, TOPIC_SYSTEM_EVENTS_PKG_RETAINED)
+    }
+
+    /// Subscribe to `system/events/pkg/+` with its declared QoS.
+    pub fn subscribe_system_events_pkg<S>(subscriber: &mut S, op: &str) -> Result<S::Subscription, S::Error>
+    where
+        S: topics::Subscribe,
+        S::Error: From<topics::TopicError>,
+    {
+        let filter = topics::build(TOPIC_SYSTEM_EVENTS_PKG, &[op], topics::Mode::Subscribe)
+            .map_err(S::Error::from)?;
+        subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_EVENTS_PKG_QOS)
+    }
+}
+
 /// `os.lazy.messenger.policy.v1` (interface id `0xe625b4ee97525d37`).
 #[rustfmt::skip]
 pub mod os_lazy_messenger_policy_v1 {
@@ -10404,6 +11122,15 @@ pub static DECLARED_TOPICS: &[topics::TopicDecl] = &[
         retained: false,
         publish_permission: "publish:system/events/network/up",
         subscribe_permission: "subscribe:system/events/network/up",
+    },
+    topics::TopicDecl {
+        interface: "os.lazy.pkgd.v1",
+        name: "system/events/pkg/+",
+        payload: "PkgEvent",
+        qos: topics::QOS_LATEST,
+        retained: false,
+        publish_permission: "publish:system/events/pkg/+",
+        subscribe_permission: "subscribe:system/events/pkg/+",
     },
     topics::TopicDecl {
         interface: "os.lazy.sysmond.v1",

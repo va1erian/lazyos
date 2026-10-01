@@ -1,45 +1,150 @@
-//! The desktop menu's entries, loaded from `confd` (`sys/ui/menu`, schema in
-//! the `deskmenu` crate) and validated against `init`'s app registry.
+//! The desktop menu's entries: the configured list from `confd` (`sys/ui/menu`,
+//! schema in the `deskmenu` crate), then the apps the package manager installed
+//! (`init`'s `ListApps`, rows with `installed` set).
 //!
-//! The compositor is one task, so the list lives in a single-threaded cell
-//! that [`menu`](super::menu) and [`themefeed`](super::themefeed) share; it
-//! starts as the built-in defaults, so a late or absent `confd` costs nothing.
+//! The configured part is user-editable (Settings) and validated against
+//! `init`'s app registry; the installed part is not configurable, it simply
+//! follows what is installed, appended after the configured entries so the
+//! built-ins keep their order and positions. [`refresh_installed`] re-reads it
+//! each time the menu opens: one `ListApps` call, bounded by a deadline.
+//!
+//! The compositor is one task, so the lists live in a single-threaded cell that
+//! [`menu`](super::menu) and [`themefeed`](super::themefeed) share; they start
+//! as the built-in defaults, so a late or absent `confd` or `init` costs nothing.
 
+use alloc::string::String;
 use alloc::vec::Vec;
 use core::cell::UnsafeCell;
 use deskmenu::Entry;
 use user::messenger::confd::Client;
+use user::messenger::services::{self, INIT_NAME};
+use user::messenger::Endpoint;
 use user::sys;
 
-struct Items(UnsafeCell<Vec<Entry>>);
+/// Most installed apps shown after the configured entries.
+const MAX_INSTALLED: usize = 16;
+/// The longest `init` may take to list apps (100 Hz): a quarter second.
+const LIST_TICKS: u64 = 25;
+
+struct Lists {
+    /// The `sys/ui/menu` entries (or the defaults).
+    configured: Vec<Entry>,
+    /// The installed apps, as of the last [`refresh_installed`].
+    installed: Vec<Entry>,
+    /// `configured` then `installed`: what the menu paints and launches.
+    merged: Vec<Entry>,
+    /// The cached `init` endpoint for [`refresh_installed`].
+    init: Option<Endpoint>,
+}
+
+struct Items(UnsafeCell<Lists>);
 
 // SAFETY: `xuid` runs its compositor on a single task and never shares this
-// across threads; every access goes through `with`/`replace` below, which
-// never hold a reference across a call back into this module.
+// across threads; every access goes through `with`/`replace`/
+// `refresh_installed` below, which never hold a reference across a call back
+// into this module.
 unsafe impl Sync for Items {}
 
-static ITEMS: Items = Items(UnsafeCell::new(Vec::new()));
+static ITEMS: Items = Items(UnsafeCell::new(Lists {
+    configured: Vec::new(),
+    installed: Vec::new(),
+    merged: Vec::new(),
+    init: None,
+}));
 static INIT: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
+
+/// The state, seeding the defaults on first use.
+fn lists() -> &'static mut Lists {
+    // SAFETY: single-task access (see `Items`); callers drop the borrow before
+    // calling back into this module.
+    let lists = unsafe { &mut *ITEMS.0.get() };
+    if !INIT.swap(true, core::sync::atomic::Ordering::Relaxed) {
+        lists.configured = deskmenu::defaults();
+        rebuild(lists);
+    }
+    lists
+}
+
+fn rebuild(lists: &mut Lists) {
+    lists.merged = lists.configured.clone();
+    lists.merged.extend(lists.installed.iter().cloned());
+}
 
 /// Run `f` over the current list (the defaults until a load succeeds).
 pub(super) fn with<R>(f: impl FnOnce(&[Entry]) -> R) -> R {
-    // SAFETY: single-task access (see `Items`); the borrow ends with `f`.
-    let list = unsafe { &mut *ITEMS.0.get() };
-    if !INIT.swap(true, core::sync::atomic::Ordering::Relaxed) {
-        *list = deskmenu::defaults();
-    }
-    f(list)
+    f(&lists().merged)
 }
 
-/// Install `next`; `true` when it differs from the current list.
+/// Install `next` as the configured list; `true` when it differs.
 fn replace(next: Vec<Entry>) -> bool {
-    with(|_| ());
-    // SAFETY: as in `with`; no other borrow is live here.
-    let list = unsafe { &mut *ITEMS.0.get() };
-    if *list == next {
+    let lists = lists();
+    if lists.configured == next {
         return false;
     }
-    *list = next;
+    lists.configured = next;
+    rebuild(lists);
+    true
+}
+
+/// A menu entry for an installed app: its id launches it, its manifest name
+/// labels it (capped and cleaned like any other label).
+fn installed_entry(id: &str, name: &str) -> Option<Entry> {
+    if id.is_empty() {
+        return None;
+    }
+    let label: String = name
+        .chars()
+        .filter(|c| !c.is_control())
+        .take(deskmenu::MAX_LABEL)
+        .collect();
+    Some(Entry {
+        app: String::from(id),
+        label: if label.trim().is_empty() {
+            String::from(id)
+        } else {
+            label
+        },
+    })
+}
+
+/// Re-read the installed apps from `init` and rebuild the list. Returns `true`
+/// when the visible list changed. An unreachable or slow `init` keeps the
+/// previous list.
+pub(super) fn refresh_installed() -> bool {
+    let lists = lists();
+    if lists.init.is_none() {
+        lists.init = services::resolve_service(INIT_NAME).ok();
+    }
+    let Some(init) = lists.init else {
+        return false;
+    };
+    let mut buffer = alloc::vec![0u8; user::messenger::DEFAULT_BUFFER];
+    let deadline = Some(sys::clock() + LIST_TICKS);
+    let reply = match init.call_with(&services::list_apps_request(), &mut buffer, deadline) {
+        Ok(reply) => reply,
+        Err(_) => {
+            // A dead or wedged endpoint is dropped, so the next open resolves
+            // afresh.
+            if let Some(stale) = lists.init.take() {
+                let _ = stale.release();
+            }
+            return false;
+        }
+    };
+    let Ok(apps) = services::decode_apps(&reply) else {
+        return false;
+    };
+    let next: Vec<Entry> = apps
+        .iter()
+        .filter(|app| app.installed)
+        .filter_map(|app| installed_entry(&app.id, &app.name))
+        .take(MAX_INSTALLED)
+        .collect();
+    if lists.installed == next {
+        return false;
+    }
+    lists.installed = next;
+    rebuild(lists);
     true
 }
 

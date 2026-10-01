@@ -65,6 +65,9 @@ pub fn lookup_maps_names_to_files() -> Result<(), String> {
         ("/beep.elf", "BEEP.ELF"),
         ("modplay", "MODPLAY.ELF"),
         ("/usr/bin/modplay", "MODPLAY.ELF"),
+        ("pkgctl", "PKGCTL.ELF"),
+        ("/usr/bin/pkgctl", "PKGCTL.ELF"),
+        ("/pkgctl.elf", "PKGCTL.ELF"),
     ] {
         check!(
             native::lookup(path) == Some(file),

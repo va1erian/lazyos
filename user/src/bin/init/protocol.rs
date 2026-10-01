@@ -12,8 +12,10 @@ use user::messenger::{self, router, services, Endpoint, Message, Parcel};
 use user::sys;
 
 use super::apps::app_infos;
+use super::installed::InstalledApps;
 use super::launch::{actor, launch};
 use super::state::{Service, LAUNCH_CAP_PER_SESSION};
+use super::stop::stop_app;
 
 /// Cached `Services` reply.
 ///
@@ -56,6 +58,7 @@ impl StatusCache {
 pub(super) fn serve_pending(
     services: &mut Vec<Service>,
     broker: &mut router::TopicBroker,
+    installed: &mut InstalledApps,
     server: &Endpoint,
     buffer: &mut [u8],
     cache: &mut StatusCache,
@@ -63,7 +66,7 @@ pub(super) fn serve_pending(
     while let Some(message) = server.poll_recv_with(buffer)? {
         let interface = message.interface_id();
         let method = message.method();
-        let reply = match dispatch(services, broker, &message, cache) {
+        let reply = match dispatch(services, broker, installed, &message, cache) {
             Ok(parcel) => parcel,
             // A malformed request still gets an answer, or its caller would
             // wait forever. A structured error is the useful one on the
@@ -85,6 +88,7 @@ pub(super) fn serve_pending(
 fn dispatch(
     services: &mut Vec<Service>,
     broker: &mut router::TopicBroker,
+    installed: &mut InstalledApps,
     message: &Message,
     cache: &mut StatusCache,
 ) -> messenger::Result<Parcel> {
@@ -92,11 +96,24 @@ fn dispatch(
         router::INTERFACE => broker.handle(message),
         services::INIT_INTERFACE => match message.method() {
             services::init::METHOD_SERVICES => cache.parcel(services),
-            services::init::METHOD_LISTAPPS => services::list_apps_reply(&app_infos()),
+            services::init::METHOD_LISTAPPS => {
+                // Built-ins first, in registry order, then what the package
+                // manager installed, read afresh so the menu is never stale.
+                installed.refresh();
+                let mut apps = app_infos();
+                apps.extend(installed.infos());
+                services::list_apps_reply(&apps)
+            }
+            services::init::METHOD_STOP => {
+                let request = services::decode_stop_request(&message.parcel)?;
+                let caller = actor(message)?;
+                let stopped = stop_app(services, broker, &request.app, &caller)?;
+                services::stop_reply(stopped)
+            }
             services::init::METHOD_LAUNCH => {
                 let request = services::decode_launch_request(&message.parcel)?;
                 let caller = actor(message)?;
-                match launch(services, broker, &request, &caller) {
+                match launch(services, broker, installed, &request, &caller) {
                     Ok(result) => services::launch_reply(&result),
                     Err(error) => {
                         let target = if request.session == 0 {
