@@ -33,6 +33,10 @@ xui-app = { path = "../xui-app" }
 # below and delete the override.
 lazyrad-runtime = { git = "https://github.com/va1erian/lazyrad", rev = "495b0a6f95a9d3e3a91867dc6c96a842617d2f4f", default-features = false }
 lazyrad-player = { git = "https://github.com/va1erian/lazyrad", rev = "495b0a6f95a9d3e3a91867dc6c96a842617d2f4f", default-features = false }
+# The `msg` module (Messenger from scripts, docs/rhai/msg.md) with the real
+# `int 0x80` transport, registered as a LazyRAD script extension. Same exact
+# Rhai pin as LazyRAD, so one Rhai links.
+rhai-lazy = { path = "../libs/rhai-lazy", features = ["lazyos"] }
 
 [dev-dependencies]
 # The `.lzp` conformance suite (tests/lzp_conformance.rs): packages built by

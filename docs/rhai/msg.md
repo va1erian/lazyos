@@ -132,6 +132,25 @@ msg::run();
 - Names under `os.lazy.` are reserved for system services. An unlabelled
   process may register other names, such as `demo.rhai`.
 
+## In LazyRAD form scripts
+
+The LazyRAD player on LazyOS (`lrplay`, `lazyrad-os/`) registers `msg` as a
+LazyRAD script extension (`lazyrad_runtime::extensions`), so every form script
+has the module. All the player's forms share one connection to the fabric.
+
+```rhai
+fn form_load() {
+    let confd = msg::connect("os.lazy.confd.v1");
+    info_label.text = "confd: " + confd.info().store_dir;
+}
+```
+
+The player prints `LRPLAY:MSG:PASS` on serial once `msg` is installed. The
+guest check is `tools/screenshot/examples/lazyrad_msg.json`. It writes a small
+project to `/tmp/p` from the Terminal and runs it. The form sets a confd key
+over `msg`, and a separate `rhai` script reads the key back
+(`RHAI:lrmsg:ok`).
+
 ## Errors
 
 Every failure is an ordinary Rhai error that `try`/`catch` can handle, phrased
