@@ -15,9 +15,12 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use smoltcp::socket::tcp;
+use smoltcp::socket::udp as udp_socket;
 use smoltcp::wire::{IpAddress, IpEndpoint, IpListenEndpoint, Ipv4Address};
 
-use super::sockets::{new_tcp_socket, ready, Inner, Kind, SockAddr, SockError, MAX_BACKLOG, MAX_CHUNK};
+use super::sockets::{
+    new_tcp_socket, ready, Inner, Kind, SockAddr, SockError, MAX_BACKLOG, MAX_CHUNK,
+};
 use super::Stack;
 use crate::config::{is_usable_unicast, same_subnet};
 
@@ -199,7 +202,11 @@ impl Stack {
 
     /// `Accept`: one established connection as a new socket of `owner`, or
     /// `Ok(None)` when none is waiting.
-    pub fn socket_accept(&mut self, id: u32, owner: u64) -> Result<Option<(u32, SockAddr)>, SockError> {
+    pub fn socket_accept(
+        &mut self,
+        id: u32,
+        owner: u64,
+    ) -> Result<Option<(u32, SockAddr)>, SockError> {
         let entry = self.socks.entry(id, owner)?;
         let Inner::Listener { port, backlog } = &entry.inner else {
             return Err(SockError::InvalidState);
@@ -247,7 +254,7 @@ impl Stack {
         let entry = self.socks.entry(id, owner)?;
         let handle = match &entry.inner {
             Inner::Tcp { handle, state } => {
-                self.stream_io_check(state)?;
+                Stack::stream_io_check(state)?;
                 if state.shut_write {
                     return Err(SockError::Pipe);
                 }
@@ -271,7 +278,7 @@ impl Stack {
     }
 
     /// What every stream I/O call checks first.
-    fn stream_io_check(&self, state: &super::sockets::StreamState) -> Result<(), SockError> {
+    fn stream_io_check(state: &super::sockets::StreamState) -> Result<(), SockError> {
         if state.reset {
             return Err(SockError::Reset);
         }
@@ -290,7 +297,12 @@ impl Stack {
 
     /// `Recv` on a stream: up to `max` bytes, an empty vector at the end of
     /// the stream, `Ok(None)` when nothing is there yet.
-    pub fn socket_recv(&mut self, id: u32, owner: u64, max: usize) -> Result<Option<Vec<u8>>, SockError> {
+    pub fn socket_recv(
+        &mut self,
+        id: u32,
+        owner: u64,
+        max: usize,
+    ) -> Result<Option<Vec<u8>>, SockError> {
         if max == 0 || max > MAX_CHUNK {
             return Err(SockError::BadAddress);
         }
@@ -300,7 +312,7 @@ impl Stack {
                 if state.reset && !state.fin_seen {
                     return Err(SockError::Reset);
                 }
-                self.stream_io_check(state)?;
+                Stack::stream_io_check(state)?;
                 (*handle, state.shut_read)
             }
             Inner::Udp { .. } => {
@@ -326,7 +338,13 @@ impl Stack {
     }
 
     /// `Shutdown`: end reading (`read`), writing (`write`) or both.
-    pub fn socket_shutdown(&mut self, id: u32, owner: u64, read: bool, write: bool) -> Result<(), SockError> {
+    pub fn socket_shutdown(
+        &mut self,
+        id: u32,
+        owner: u64,
+        read: bool,
+        write: bool,
+    ) -> Result<(), SockError> {
         let entry = self.socks.entry(id, owner)?;
         let Inner::Tcp { handle, state } = &mut entry.inner else {
             return Err(SockError::InvalidState);
@@ -347,13 +365,19 @@ impl Stack {
         let addr = self.state.addr.unwrap_or([0; 4]);
         let entry = self.socks.entry(id, owner)?;
         let port = match &entry.inner {
-            Inner::Tcp { handle, state } => match self.sockets.get::<tcp::Socket>(*handle).local_endpoint() {
-                Some(ep) => return Ok(sock_addr(ep)),
-                None => state.bound_port.ok_or(SockError::InvalidState)?,
-            },
+            Inner::Tcp { handle, state } => {
+                match self.sockets.get::<tcp::Socket>(*handle).local_endpoint() {
+                    Some(ep) => return Ok(sock_addr(ep)),
+                    None => state.bound_port.ok_or(SockError::InvalidState)?,
+                }
+            }
             Inner::Listener { port, .. } => *port,
             Inner::Udp { handle, .. } => {
-                let port = self.sockets.get::<udp_socket::Socket>(*handle).endpoint().port;
+                let port = self
+                    .sockets
+                    .get::<udp_socket::Socket>(*handle)
+                    .endpoint()
+                    .port;
                 if port == 0 {
                     return Err(SockError::InvalidState);
                 }
@@ -433,51 +457,4 @@ impl Stack {
     pub fn sockets_close_owner(&mut self, owner: u64, now_ms: i64) -> usize {
         self.socks.close_owner(&mut self.sockets, owner, now_ms)
     }
-
-    /// Once per poll: notice what the wire did to each stream, so the
-    /// per-socket state and the counters are right before clients ask.
-    pub(super) fn observe_streams(&mut self, now_ms: i64) {
-        let (mut refused, mut connected, mut resets) = (0u64, 0u64, 0u64);
-        for (state, handle) in self.socks.streams_mut() {
-            let socket = self.sockets.get::<tcp::Socket>(handle);
-            let tcp_state = socket.state();
-            if state.connecting {
-                match tcp_state {
-                    tcp::State::Closed => {
-                        state.connecting = false;
-                        state.refused = true;
-                        refused += 1;
-                    }
-                    tcp::State::SynSent => {}
-                    _ => {
-                        state.connecting = false;
-                        state.established = true;
-                        connected += 1;
-                    }
-                }
-            }
-            if state.established {
-                if matches!(
-                    tcp_state,
-                    tcp::State::CloseWait
-                        | tcp::State::Closing
-                        | tcp::State::LastAck
-                        | tcp::State::TimeWait
-                ) || (!socket.may_recv() && tcp_state != tcp::State::Closed)
-                {
-                    state.fin_seen = true;
-                }
-                if tcp_state == tcp::State::Closed && !state.fin_seen && !state.reset {
-                    state.reset = true;
-                    resets += 1;
-                }
-            }
-        }
-        self.socks.counters.refused += refused;
-        self.socks.counters.connected += connected;
-        self.socks.counters.resets += resets;
-        self.socks.reap_closing(&mut self.sockets, now_ms);
-    }
 }
-
-use smoltcp::socket::udp as udp_socket;

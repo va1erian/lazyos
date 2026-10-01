@@ -3,6 +3,7 @@
 use std::sync::atomic::Ordering;
 
 use xui_core::backend::{Event, TimerId, WidgetId, WindowId};
+use xui_core::Rect;
 
 use crate::sys;
 
@@ -41,6 +42,7 @@ impl LazyOSBackend {
                     .map(|surface| (surface.events, surface.input.map(|s| s.events)))
                     .unzip();
                 if let Some(events) = events {
+                    self.replay_open_configure(window);
                     self.pump_client_input(window, events);
                 }
                 if let Some(Some(session)) = session {
@@ -57,6 +59,36 @@ impl LazyOSBackend {
         self.deliver(window, WidgetId::NONE, &Event::Wake);
         if self.needs_present(window) {
             self.present(window);
+        }
+    }
+
+    /// Hand the app the `Configure` that `ClientWindow::open` consumed to
+    /// size the first buffer, so it re-flows exactly as if it had arrived
+    /// after startup. The buffer and painting surface were already created at
+    /// that size, so only the `Resize` is delivered: attaching another buffer
+    /// could fail and lose the event for nothing.
+    fn replay_open_configure(&self, window: WindowId) {
+        let (pending, events) = {
+            let mut windows = self.windows.borrow_mut();
+            let Some(surface) = windows
+                .get_mut(&window.raw())
+                .and_then(|entry| entry.client.as_mut())
+            else {
+                return;
+            };
+            (
+                surface.pending_configure.take(),
+                std::mem::take(&mut surface.pending_events),
+            )
+        };
+        if let Some((width, height)) = pending {
+            self.deliver(window, WidgetId::NONE, &Event::Resize { width, height });
+            self.add_damage(window, Rect::new(0, 0, width, height));
+            self.dirty.store(true, Ordering::Relaxed);
+        }
+        // Input that raced the open, after the resize it was typed against.
+        for event in events {
+            self.route_client_event(window, event);
         }
     }
 
@@ -80,7 +112,6 @@ mod tests {
     use crate::client_window::ClientState;
     use crate::display::Client;
     use crate::sys::DisplayInfo;
-    use xui_core::Rect;
 
     fn client_backend() -> LazyOSBackend {
         LazyOSBackend::with_mode(Mode::Client(std::cell::RefCell::new(ClientState::new(

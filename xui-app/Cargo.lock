@@ -1080,6 +1080,7 @@ dependencies = [
  "messenger-generated",
  "xui-canvas",
  "xui-code-editor",
+ "xui-confd-editor",
  "xui-core",
  "xui-explorer",
  "xui-paint",
@@ -1097,7 +1098,7 @@ dependencies = [
 [[package]]
 name = "xui-canvas"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/xui?rev=58c1a6ea1a2dc1e5bb81463ff8dba82329a4f080#58c1a6ea1a2dc1e5bb81463ff8dba82329a4f080"
+source = "git+https://github.com/va1erian/xui?rev=7e31d5d6d120fb479e1ff0731bd6a44601acafee#7e31d5d6d120fb479e1ff0731bd6a44601acafee"
 dependencies = [
  "cosmic-text",
  "tiny-skia",
@@ -1117,9 +1118,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "xui-confd-editor"
+version = "0.1.0"
+dependencies = [
+ "confd",
+ "xui-canvas",
+ "xui-core",
+]
+
+[[package]]
 name = "xui-core"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/xui?rev=58c1a6ea1a2dc1e5bb81463ff8dba82329a4f080#58c1a6ea1a2dc1e5bb81463ff8dba82329a4f080"
+source = "git+https://github.com/va1erian/xui?rev=7e31d5d6d120fb479e1ff0731bd6a44601acafee#7e31d5d6d120fb479e1ff0731bd6a44601acafee"
 dependencies = [
  "png 0.17.16",
  "zune-jpeg",
@@ -1149,7 +1159,7 @@ dependencies = [
 [[package]]
 name = "xui-icons"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/xui?rev=58c1a6ea1a2dc1e5bb81463ff8dba82329a4f080#58c1a6ea1a2dc1e5bb81463ff8dba82329a4f080"
+source = "git+https://github.com/va1erian/xui?rev=7e31d5d6d120fb479e1ff0731bd6a44601acafee#7e31d5d6d120fb479e1ff0731bd6a44601acafee"
 dependencies = [
  "xui-core",
 ]
@@ -1157,7 +1167,7 @@ dependencies = [
 [[package]]
 name = "xui-litehtml"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/xui?rev=58c1a6ea1a2dc1e5bb81463ff8dba82329a4f080#58c1a6ea1a2dc1e5bb81463ff8dba82329a4f080"
+source = "git+https://github.com/va1erian/xui?rev=7e31d5d6d120fb479e1ff0731bd6a44601acafee#7e31d5d6d120fb479e1ff0731bd6a44601acafee"
 dependencies = [
  "image",
  "litehtml",
@@ -1237,3 +1247,4 @@ checksum = "27bc9d5b815bc103f142aa054f561d9187d191692ec7c2d1e2b4737f8dbd7296"
 dependencies = [
  "zune-core",
 ]
+

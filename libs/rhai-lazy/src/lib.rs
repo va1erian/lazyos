@@ -8,7 +8,9 @@
 //! in-memory `mock::MockHost`.
 //!
 //! * [`build_engine`] makes an [`Engine`] with limits, `print`/`debug` routed
-//!   to the host, and the [`os`] module installed.
+//!   to the host, the [`os`] module and (when the host has a fabric) the
+//!   [`msg`] module installed. [`msg::install`] also works on an engine built
+//!   elsewhere (the LazyRAD player's).
 //! * [`eval_source`] runs a script and classifies the result ([`Outcome`]).
 //! * [`repl::Repl`] is the line-at-a-time REPL state machine.
 //!
@@ -24,6 +26,7 @@ pub mod host;
 pub mod limits;
 #[cfg(test)]
 pub mod mock;
+pub mod msg;
 pub mod os;
 pub mod outcome;
 pub mod repl;

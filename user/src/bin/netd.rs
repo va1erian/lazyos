@@ -35,6 +35,7 @@ use core::panic::PanicInfo;
 
 use netstack::{RingDevice, Stack};
 use user::messenger::net::wire as nic_wire;
+use user::messenger::netsock as sock_api;
 use user::messenger::netstack::{self as api};
 use user::messenger::{self, errno, registry, services, Error as MsgError};
 use user::sys;
@@ -43,8 +44,16 @@ use user::sys;
 mod config;
 #[path = "netd/nic.rs"]
 mod nic;
+#[path = "netd/owners.rs"]
+mod owners;
+#[path = "netd/parked.rs"]
+mod parked;
+#[path = "netd/resolve.rs"]
+mod resolve;
 #[path = "netd/service.rs"]
 mod service;
+#[path = "netd/sock.rs"]
+mod sock;
 
 use nic::{Nic, DRIVER_INTERFACE};
 use service::{Netd, IFNAME};
@@ -61,12 +70,25 @@ const IDLE_TICKS: u64 = 100;
 /// Ticks the demo waits for an address before starting its clients anyway.
 const DEMO_ADDRESS_TICKS: u64 = 2000;
 
-/// The clients `demo=1` runs, one after another. See `netctl.rs` and `ping.rs`.
-const DEMO_CLIENTS: [&[u8]; 4] = [
+/// The clients `demo=1` runs, one after another. See `netctl.rs`, `ping.rs`,
+/// `nslookup.rs` and `nc.rs`. The socket clients talk to the harness's echo
+/// servers on the gateway (`tools/net/run.py`): TCP 47771, UDP 47772, an FTP
+/// server on 47780, and a guest listener on 47773 the harness reaches through
+/// a port forward.
+const DEMO_CLIENTS: [&[u8]; 13] = [
     b"NETCTL.ELF\0",
     b"PING.ELF 10.0.2.2 4\0",
     b"NETCTL.ELF probe=1\0",
     b"NETCTL.ELF soak=40\0",
+    b"NSLOOKUP.ELF localhost\0",
+    b"NC.ELF -x 10.0.2.2 47771 hello from lazyos\0",
+    b"NC.ELF -x -g 200000 10.0.2.2 47771\0",
+    b"NC.ELF -x -u 10.0.2.2 47772 a datagram\0",
+    b"NETCTL.ELF sockprobe=1\0",
+    b"NETCTL.ELF socksoak=40\0",
+    b"FTP.ELF 10.0.2.2:47780 user=lazy pass=os pwd ; cd pub ; cd / ; ls ; get hello.txt ! ; get big.bin ! ; put -g 150000 up.bin ; size up.bin ; get up.bin ! ; quit\0",
+    b"NC.ELF -l -x -w 20 47773\0",
+    b"NETCTL.ELF sockets\0",
 ];
 
 struct Args {
@@ -119,7 +141,8 @@ fn run(args: &Args) -> Result<(), alloc::string::String> {
     let (mut config, mut mode) = config::Config::load(IFNAME);
     let fail = |error: MsgError| alloc::string::String::from(error.message());
     let (published, server) = messenger::create_pair().map_err(fail)?;
-    registry::register(NAME, &published, &[api::INTERFACE], 0).map_err(fail)?;
+    registry::register(NAME, &published, &[api::INTERFACE, sock_api::INTERFACE], 0)
+        .map_err(fail)?;
     sys::write_str(&format!(
         "NETD:READY name={NAME} interface={:#x}\n",
         api::INTERFACE
@@ -140,8 +163,11 @@ fn run(args: &Args) -> Result<(), alloc::string::String> {
     let mut demo_child: Option<u64> = None;
     let mut attach_errors = 0u32;
     // One receive buffer for the life of the service (per-call buffers of the
-    // bump region are never reclaimed).
-    let mut buffer = vec![0u8; messenger::DEFAULT_BUFFER];
+    // bump region are never reclaimed). Room for a full 16 KiB `Send` and its
+    // framing.
+    let mut buffer = vec![0u8; sock_api::MAX_CHUNK + 4096];
+    let mut next_sweep = sys::clock() + sock::SWEEP_TICKS;
+    let mut oversize = 0u32;
 
     loop {
         let tick = sys::clock();
@@ -190,6 +216,18 @@ fn run(args: &Args) -> Result<(), alloc::string::String> {
         // The work: the stack, the answers it produced, what it announces.
         netd.stack.poll(now_ms);
         netd.finish_pings(&server);
+        netd.finish_lookups(&server);
+        netd.service_parked(&server, now_ms);
+        for (txn, parcel) in core::mem::take(&mut netd.outbox) {
+            let _ = server.reply_or_drop(txn, &parcel);
+        }
+        // A client that exited leaves its sockets behind; take them back.
+        if tick >= next_sweep {
+            next_sweep = tick + sock::SWEEP_TICKS;
+            if netd.stack.socket_open_count() > 0 {
+                netd.sweep_owners(tick, now_ms);
+            }
+        }
         netd.publish_if_changed();
         if netd.stack.device_mut().take_tx_notify() {
             netd.nic.kick(&mut netd.stack);
@@ -218,18 +256,41 @@ fn run(args: &Args) -> Result<(), alloc::string::String> {
         );
 
         // The single wait.
-        let wait = match netd.stack.poll_delay_ms(now_ms) {
+        let mut wait = match netd.stack.poll_delay_ms(now_ms) {
             Some(ms) => ms.div_ceil(10).min(IDLE_TICKS),
             None => IDLE_TICKS,
         };
-        let message = if pending || wait == 0 {
-            server.poll_recv_with(&mut buffer).map_err(fail)?
+        if let Some(ms) = netd.parked_delay_ms(now_ms) {
+            wait = wait.min(ms.div_ceil(10));
+        }
+        if netd.stack.socket_open_count() > 0 {
+            wait = wait.min(next_sweep.saturating_sub(tick));
+        }
+        let received = if pending || wait == 0 {
+            server.poll_recv_with(&mut buffer)
         } else {
             match server.recv_with(&mut buffer, Some(tick + wait)) {
-                Ok(message) => Some(message),
-                Err(MsgError::Errno(code)) if code == -errno::ETIMEDOUT => None,
-                Err(error) => return Err(fail(error)),
+                Ok(message) => Ok(Some(message)),
+                Err(MsgError::Errno(code)) if code == -errno::ETIMEDOUT => Ok(None),
+                Err(error) => Err(error),
             }
+        };
+        let message = match received {
+            Ok(message) => message,
+            // A request bigger than the buffer (no legal one is) was consumed
+            // by the kernel but cannot be read, so it cannot be answered: its
+            // sender's own deadline ends the wait. The service carries on.
+            Err(MsgError::Errno(code)) if code == -errno::E2BIG => {
+                oversize += 1;
+                if oversize.is_power_of_two() {
+                    sys::write_str(&format!(
+                        "NETD:OVERSIZE dropped {oversize} oversized request(s)
+"
+                    ));
+                }
+                continue;
+            }
+            Err(error) => return Err(fail(error)),
         };
         let Some(message) = message else { continue };
 

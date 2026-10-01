@@ -9,9 +9,12 @@
 //!   over, parsed without trusting it;
 //! * [`platform`]: the [`lazyrad_runtime::platform::Platform`] LazyOS installs
 //!   (config directory, script file sandbox, where the player lives);
+//! * [`launcher`]: starting the player from the IDE with pipes polled on the UI
+//!   thread (LazyOS threads cannot share descriptors);
 //! * [`marker`]: the `LRPLAY:*` / `LRIDE:*` serial evidence lines the
 //!   screenshot sessions grep for.
 
 pub mod args;
+pub mod launcher;
 pub mod marker;
 pub mod platform;

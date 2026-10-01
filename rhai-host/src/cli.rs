@@ -24,7 +24,10 @@ options:
   -V, --version          show the version
 
 The script sees os::args() (the ARGs), env(), exit(n), clock(), sleep(ms),
-read(path), write(path, text), ls(path) and stdin_text().
+read(path), write(path, text), ls(path) and stdin_text(). On LazyOS it also
+sees msg::: msg::interfaces(), msg::services(), msg::describe(name) and
+msg::connect(interface[, service]), whose methods call the service
+(msg::connect(\"os.lazy.confd.v1\").info()).
 exit status: the script's exit(n), else 0 on success, 1 on error, 2 on misuse.";
 
 /// The deepest call nesting a flag may request. The guest's main thread has a

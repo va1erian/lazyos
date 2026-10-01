@@ -2,11 +2,13 @@
 //! stdin and captured stdout/stderr, with switches for the failure paths.
 
 use alloc::collections::BTreeMap;
+use alloc::rc::Rc;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::cell::{Cell, RefCell};
 
 use crate::host::{DirEntry, EntryKind, Host, HostError};
+use crate::msg::Bus;
 
 /// The fake process. Interior mutability because [`Host`] takes `&self`.
 #[derive(Default)]
@@ -24,6 +26,8 @@ pub struct MockHost {
     /// Every `write_out` fails, as when the reader of a pipe went away.
     pub stdout_closed: Cell<bool>,
     pub clock: Cell<f64>,
+    /// The fabric `msg` talks to; `None` leaves the `msg` module out.
+    pub bus: Option<Rc<dyn Bus>>,
 }
 
 impl MockHost {
@@ -47,6 +51,11 @@ impl MockHost {
         self.env
             .borrow_mut()
             .insert(key.to_string(), value.to_string());
+        self
+    }
+
+    pub fn with_bus(mut self, bus: Rc<dyn Bus>) -> Self {
+        self.bus = Some(bus);
         self
     }
 
@@ -142,6 +151,10 @@ impl Host for MockHost {
 
     fn write_err(&self, text: &str) {
         self.stderr.borrow_mut().push_str(text);
+    }
+
+    fn bus(&self) -> Option<Rc<dyn Bus>> {
+        self.bus.clone()
     }
 }
 

@@ -1,0 +1,172 @@
+[
+ {
+  "wait_for": "TERM:UP:PASS",
+  "timeout": 240
+ },
+ {
+  "at": 2.0,
+  "mouse_move": [
+   -300,
+   -300
+  ]
+ },
+ {
+  "at": 2.2,
+  "mouse_move": [
+   -300,
+   -300
+  ]
+ },
+ {
+  "at": 2.4,
+  "mouse_move": [
+   -300,
+   -300
+  ]
+ },
+ {
+  "at": 3.0,
+  "mouse_move": [
+   200,
+   300
+  ]
+ },
+ {
+  "at": 3.4,
+  "mouse_click": "left"
+ },
+ {
+  "at": 1.0,
+  "type": "cp -r /LAZYRAD/hello /tmp/hello && echo copied"
+ },
+ {
+  "at": 0.5,
+  "key": "enter",
+  "until": "TERM:CMD:cp -r /LAZYRAD/hello /tmp/hello && echo copied",
+  "timeout": 30,
+  "retries": 2
+ },
+ {
+  "wait_for": "TERM:OUT:copied",
+  "timeout": 60
+ },
+ {
+  "at": 1.5,
+  "type": "/LAZYRAD.ELF --client /tmp/hello &"
+ },
+ {
+  "at": 0.5,
+  "key": "enter",
+  "until": "TERM:CMD:/LAZYRAD.ELF --client /tmp/hello &",
+  "timeout": 30,
+  "retries": 2
+ },
+ {
+  "wait_for": "LRIDE:UP:PASS",
+  "timeout": 180
+ },
+ {
+  "wait_for": "LRIDE:OPEN:PASS:hello",
+  "timeout": 60
+ },
+ {
+  "at": 3.0,
+  "shot": "01_hello_open"
+ },
+ {
+  "at": 3.0,
+  "mouse_move": [
+   320,
+   40
+  ]
+ },
+ {
+  "at": 2.0,
+  "mouse_click": "left"
+ },
+ {
+  "at": 3.0,
+  "mouse_move": [
+   -278,
+   -239
+  ]
+ },
+ {
+  "at": 2.0,
+  "mouse_click": "left"
+ },
+ {
+  "at": 3.0,
+  "mouse_move": [
+   11,
+   28
+  ]
+ },
+ {
+  "at": 2.0,
+  "mouse_click": "left"
+ },
+ {
+  "at": 3.0,
+  "shot": "02_code_view"
+ },
+ {
+  "at": 3.0,
+  "mouse_move": [
+   347,
+   171
+  ]
+ },
+ {
+  "at": 2.0,
+  "mouse_click": "left"
+ },
+ {
+  "at": 2.0,
+  "key_down": "ctrl"
+ },
+ {
+  "at": 0.5,
+  "key": "end"
+ },
+ {
+  "at": 0.5,
+  "key_up": "ctrl"
+ },
+ {
+  "at": 1.5,
+  "key": "enter"
+ },
+ {
+  "at": 2.0,
+  "type": "fn form_load() { result_label.text = \"Edited on LazyOS\"; }"
+ },
+ {
+  "wait_for": "LRIDE:EDIT:PASS:main_form",
+  "timeout": 60
+ },
+ {
+  "at": 4.0,
+  "shot": "03_code_typed"
+ },
+ {
+  "at": 1.0,
+  "key": "f5"
+ },
+ {
+  "wait_for": "LRIDE:RUN:PASS:hello",
+  "timeout": 60
+ },
+ {
+  "wait_for": "LRPLAY:UP:PASS",
+  "timeout": 120
+ },
+ {
+  "at": 4.0,
+  "shot": "04_edited_app_running"
+ },
+ {
+  "at": 1.0,
+  "quit": true
+ }
+]

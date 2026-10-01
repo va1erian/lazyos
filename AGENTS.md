@@ -93,6 +93,23 @@ warning and every other app still builds. `python tools/xui/test_zig.py` tests
 the toolchain helper. Screenshot sessions: `tools/screenshot/examples/xui_docs.json`
 (wheel scrolling) and `xui_docs_open.json` (Open dialog and `/TESTDOC.MD`).
 
+## Rhai scripting (`rhai` command and `msg` module)
+
+`rhai` (`rhai-host/`, bindings in `libs/rhai-lazy/`) is a static-musl command
+embedded as `RHAI.ELF`; the plan is [`docs/rhai-plan.md`](docs/rhai-plan.md).
+Its `msg` module calls any Messenger service from a script, driven by a table
+`midlc --schema` generates from `idl/` ([`docs/rhai/msg.md`](docs/rhai/msg.md)).
+One command builds `rhai`, BusyBox and the image, boots it and judges it:
+
+```bash
+python tools/rhai/run.py              # console checks (rhai_demo.json)
+python tools/rhai/run.py --desktop    # plus the desktop Terminal and the msg session
+cargo test --manifest-path libs/rhai-lazy/Cargo.toml   # bindings vs an in-memory fabric
+python tools/midlc/midlc.py --schema libs/rhai-lazy/src/msg/idl.rs idl/*.midl   # after an IDL change
+```
+
+`python tools/run_demo.py` rebuilds `rhai` before each image (`--no-rhai` skips it).
+
 ## Linux ABI conformance bench
 
 Compatibility with Linux (`x86_64-unknown-linux-musl`) binaries is tracked by a
@@ -157,14 +174,15 @@ and fuzzing tooling ships with every stage; the full description is
 `tools/net/README.md`.
 
 ```bash
-cargo test -p framering -p virtio-net -p nicdrv -p netstack -p netpolicy -p virtio -p messenger-generated   # host unit + seeded fuzz
+cargo test -p framering -p virtio-net -p nicdrv -p netstack -p ftpwire -p netpolicy -p virtio -p messenger-generated   # host unit + seeded fuzz
 FUZZ_CASES=20000 cargo test -p framering -p virtio-net -p nicdrv -p netstack fuzz::   # a longer seeded soak
 FUZZ_SEED=0x<seed> cargo test -p framering clean_scripts                # replay a printed failing seed
 python fuzz/gen_corpus.py --check                                       # the checked-in fuzz seeds are current
 python tools/net/test_analyze_pcap.py                                   # the capture judge fails when it should
+python tools/net/test_sockets_pcap.py                                   # the TCP/UDP/DNS judge fails when it should
 python tools/net/run.py                                                 # build (LAZYOS_NET=1), boot QEMU, judge the pcap
 python tools/net/run.py --services | --poll | --no-device | --machine q35 --virtio-disk   # variants
-python tools/net/run.py --netd                                          # stage N2: netd, DHCP, ping; judged from the pcap (combines with the variants)
+python tools/net/run.py --netd                                          # stages N2+N3: netd, DHCP, ping, nslookup, nc and the socket probe/soak; judged from the pcap and the host echo servers (combines with the variants)
 mkdir -p fuzz/corpus/netstack; cargo fuzz run netstack --fuzz-dir fuzz fuzz/corpus/netstack fuzz/seeds/netstack -- -max_total_time=60   # Linux
 mkdir -p fuzz/corpus/framering                                          # once; libFuzzer's working corpus (git-ignored)
 cargo fuzz run framering --fuzz-dir fuzz fuzz/corpus/framering fuzz/seeds/framering -- -max_total_time=60  # Linux; CI runs it

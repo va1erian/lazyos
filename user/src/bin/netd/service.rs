@@ -13,11 +13,16 @@ use alloc::vec::Vec;
 use netstack::config::Mode;
 use netstack::{DhcpState, PingError, PingOutcome, PingResult, Source, Stack};
 use user::central;
+use user::messenger::netsock as sock_api;
 use user::messenger::netstack::{self as api, wire};
 use user::messenger::{errno, services, Endpoint, Error as MsgError, Message, Parcel};
 use user::sys;
 
 use super::nic::Nic;
+use super::owners::Tasks;
+use super::parked::Parked as ParkedSock;
+use super::resolve::ParkedLookup;
+use super::sock::SockStats;
 
 type Result<T> = core::result::Result<T, MsgError>;
 
@@ -27,8 +32,6 @@ pub(super) const IFNAME: &str = "eth0";
 const PER_CALLER_PINGS: usize = 4;
 /// `ENETUNREACH`: no address or no route yet.
 const ENETUNREACH: i64 = 101;
-/// `ENOSYS`: a declared method this build does not serve yet.
-const ENOSYS: i64 = 38;
 
 fn err(code: i64) -> MsgError {
     MsgError::Errno(-code)
@@ -45,6 +48,12 @@ pub(super) struct Netd {
     pub(super) nic: Nic,
     pub(super) mode: Mode,
     parked: Vec<Parked>,
+    pub(super) lookups: Vec<ParkedLookup>,
+    pub(super) parked_socks: Vec<ParkedSock>,
+    pub(super) sock_stats: SockStats,
+    pub(super) tasks: Tasks,
+    /// Replies the event loop sends before it waits again.
+    pub(super) outbox: Vec<(u64, Parcel)>,
     /// Times the NIC attachment was dropped and made again.
     pub(super) nic_resets: u64,
     /// A `Reattach` call asked for the attachment to be rebuilt.
@@ -76,6 +85,11 @@ impl Netd {
             nic,
             mode,
             parked: Vec::new(),
+            lookups: Vec::new(),
+            parked_socks: Vec::new(),
+            sock_stats: SockStats::default(),
+            tasks: Tasks::new(),
+            outbox: Vec::new(),
             nic_resets: 0,
             reattach: false,
             bus: None,
@@ -87,6 +101,9 @@ impl Netd {
     /// Route one request. `Ok(Some)` is the reply; `Ok(None)` means the call
     /// was parked and will be answered later; `Err` becomes the error reply.
     pub(super) fn dispatch(&mut self, message: &Message, now_ms: i64) -> Result<Option<Parcel>> {
+        if message.interface_id() == sock_api::INTERFACE {
+            return self.dispatch_socket(message, now_ms);
+        }
         if message.interface_id() != api::INTERFACE {
             return Err(err(errno::EINVAL));
         }
@@ -97,9 +114,7 @@ impl Netd {
             wire::METHOD_ROUTES => self.routes()?,
             wire::METHOD_STATS => self.stats()?,
             wire::METHOD_PING => return self.ping(message, now_ms),
-            // Declared in the N3 interface, served once the DNS half lands:
-            // a distinct error, so a caller can tell "not yet" from a bad name.
-            wire::METHOD_RESOLVE => return Err(err(ENOSYS)),
+            wire::METHOD_RESOLVE => return self.resolve(message, now_ms),
             wire::METHOD_RENEW => {
                 self.stack.renew();
                 Vec::new()
@@ -197,11 +212,9 @@ impl Netd {
                 pings_sent: c.pings_sent,
                 pings_answered: c.pings_answered,
                 pings_timed_out: c.pings_timed_out,
-                // Name lookups arrive with the DNS half of N3; the fields
-                // exist so the wire shape is final.
-                lookups_sent: 0,
-                lookups_answered: 0,
-                lookups_failed: 0,
+                lookups_sent: c.lookups_sent,
+                lookups_answered: c.lookups_answered,
+                lookups_failed: c.lookups_failed,
             },
         })
         .map_err(MsgError::Parcel)

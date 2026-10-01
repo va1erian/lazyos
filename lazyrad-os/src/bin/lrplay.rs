@@ -28,6 +28,7 @@ use xui_core::backend::Backend;
 const MARK: Markers = Markers::PLAYER;
 
 fn main() -> ExitCode {
+    MARK.install_panic_hook();
     let parsed = match args::parse_player(std::env::args_os().skip(1)) {
         Ok(parsed) => parsed,
         Err(error) => return fail("ARGS", &error.to_string()),

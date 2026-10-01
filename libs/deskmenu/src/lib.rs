@@ -57,7 +57,7 @@ impl Entry {
 /// The built-in list: what the menu shows when confd has nothing usable.
 /// Terminal first.
 pub fn defaults() -> Vec<Entry> {
-    const ITEMS: [(&str, &str); 10] = [
+    const ITEMS: [(&str, &str); 11] = [
         ("terminal", "Terminal"),
         ("sysmon", "System Monitor"),
         ("fabricmon", "Fabric Monitor"),
@@ -72,6 +72,7 @@ pub fn defaults() -> Vec<Entry> {
         // Last, so the rows above keep the positions the screenshot sessions
         // click by coordinate.
         ("widget", "CPU & Memory"),
+        ("confd", "Config"),
     ];
     ITEMS
         .iter()
@@ -170,7 +171,7 @@ mod tests {
     #[test]
     fn defaults_are_valid_and_start_with_terminal() {
         let list = defaults();
-        assert_eq!(list.len(), 10);
+        assert_eq!(list.len(), 11);
         assert_eq!(list[0].app, "terminal");
         assert_eq!(parse(&encode(&list), &any), list);
     }

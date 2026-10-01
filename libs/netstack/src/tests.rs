@@ -8,7 +8,10 @@ use crate::config::{Mode, StaticConfig};
 use crate::stack::{DhcpState, Source};
 use crate::testnet::*;
 
+mod dns;
 mod ping;
+mod sockets;
+mod sockets_stress;
 
 pub(super) fn dhcp_lan() -> Lan {
     let mut lan = Lan::new(&Mode::Dhcp);

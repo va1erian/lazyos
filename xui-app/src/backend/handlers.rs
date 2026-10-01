@@ -85,6 +85,11 @@ impl Backend for LazyOSBackend {
             ),
             Mode::Owner { .. } => None,
         };
+        // The compositor may have resized the surface before the first attach;
+        // the painting surface must match the buffer that was attached.
+        let (width, height) = client.as_ref().map_or((width, height), |window| {
+            (window.rect.0 as u32, window.rect.1 as u32)
+        });
         // Declare the window resizable (if the app opted in) right after
         // `CreateSurface`, before any input can reach it.
         if let (Some((min_w, min_h, max_w, max_h)), Some(surface), Mode::Client(state)) =

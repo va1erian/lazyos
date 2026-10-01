@@ -6,7 +6,8 @@ committed blob. `ensure_busybox()` returns a path to a static
 `x86_64-unknown-linux-musl` binary, preferring, in order:
 
 1. `tools/abi/busybox` — a binary dropped by hand (or by CI) for an offline run;
-2. `target/abi/busybox/busybox` — a cached build from a previous run;
+2. `target/abi/busybox/busybox` — a cached build from a previous run (in a git
+   worktree, the main checkout's cached build is copied here first);
 3. a fresh build from the pinned source tarball, when the host is Linux with
    `musl-gcc` (and the Debian/Ubuntu `linux-libc-dev` headers) available;
 4. the same build inside an Alpine container (Alpine's `gcc` is natively musl),
@@ -65,10 +66,36 @@ and the desktop Terminal / console shell report TERM:SPAWN:FAIL. To fix it, eith
     point LAZYOS_BUSYBOX at it, then re-run `cargo build`."""
 
 
+def _main_checkout_build() -> Path | None:
+    """The main checkout's cached build when this tree is a git worktree, so a
+    fresh worktree reuses it instead of needing musl-gcc or Docker again."""
+    try:
+        common = subprocess.run(
+            ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
+            cwd=ROOT, capture_output=True, text=True, check=False,
+        ).stdout.strip()
+    except OSError:
+        return None
+    if not common:
+        return None
+    main_root = Path(common).parent
+    if main_root.resolve() == ROOT.resolve():
+        return None
+    candidate = main_root / OUTPUT.relative_to(ROOT)
+    return candidate if candidate.is_file() else None
+
+
 def _cached() -> Path | None:
     for candidate in (MANUAL, OUTPUT):
         if candidate.is_file():
             return candidate
+    shared = _main_checkout_build()
+    if shared is not None:
+        # Copied, not referenced: `build.rs` only searches this tree.
+        OUTPUT.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(shared, OUTPUT)
+        print(f"busybox: reused {shared}", file=sys.stderr)
+        return OUTPUT
     return None
 
 
@@ -98,9 +125,19 @@ def _download(archive: Path) -> bool:
     return True
 
 
+# Written into a source tree only after a full extraction, then the tree is
+# moved into place; a tree without it is partial and is never trusted.
+EXTRACTED_MARK = ".lazyos-extracted"
+
+
 def _fetch() -> bool:
-    if SOURCE.is_dir():
+    if (SOURCE / EXTRACTED_MARK).is_file():
         return True
+    # Anything else at SOURCE is a half-extracted tree (a CI run cancelled
+    # mid-extract that cached its `target/`; the `Makefile` is among the first
+    # files extracted, so its presence proves nothing): rebuild it rather than
+    # let `make defconfig` fail on it forever.
+    shutil.rmtree(SOURCE, ignore_errors=True)
     BUILD_ROOT.mkdir(parents=True, exist_ok=True)
     archive = BUILD_ROOT / f"busybox-{VERSION}.tar.bz2"
     # A cached archive is re-verified too: it may predate the pin or be corrupt.
@@ -109,15 +146,27 @@ def _fetch() -> bool:
         archive.unlink()
     if not archive.is_file() and not _download(archive):
         return False
+    # Extract beside the final location and publish with one rename, so SOURCE
+    # either does not exist or is complete.
+    staging = BUILD_ROOT / f".extract-{os.getpid()}"
     try:
+        shutil.rmtree(staging, ignore_errors=True)
+        staging.mkdir()
         with tarfile.open(archive, "r:bz2") as tar:
-            _safe_extract(tar, BUILD_ROOT)
+            _safe_extract(tar, staging)
+        extracted = staging / SOURCE.name
+        if not (extracted / "Makefile").is_file():
+            raise ValueError("the archive has no top-level Makefile")
+        (extracted / EXTRACTED_MARK).write_text("ok\n", encoding="utf-8")
+        extracted.rename(SOURCE)
     except Exception as error:  # noqa: BLE001 - a bad archive is "unavailable"
         print(f"busybox: extract failed: {error}", file=sys.stderr)
         # Never leave a half-extracted tree or a bad archive to poison a retry.
         shutil.rmtree(SOURCE, ignore_errors=True)
         archive.unlink(missing_ok=True)
         return False
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
     return SOURCE.is_dir()
 
 
@@ -273,6 +322,10 @@ def ensure_busybox() -> Path | None:
             return None
     except Exception as error:  # noqa: BLE001 - any tool failure is "unavailable"
         print(f"busybox: build unavailable: {error}", file=sys.stderr)
+        # `capture_output` hides why make failed; the tail is the diagnosis.
+        detail = (getattr(error, "stderr", "") or "").strip()
+        if detail:
+            print(f"busybox: tool stderr (tail):\n{detail[-2000:]}", file=sys.stderr)
         return None
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(SOURCE / "busybox", OUTPUT)

@@ -46,6 +46,7 @@ netpolicy = { path = "../libs/netpolicy" }
 framering = { path = "../libs/framering" }
 # The stack `netd` runs: smoltcp over the frame rings, DHCP, the echo path.
 netstack = { path = "../libs/netstack" }
+ftpwire = { path = "../libs/ftpwire" }
 # Keymaps, modifier/lock state and key repeat for `inputd` (docs/input-plan.md).
 inputmap = { path = "../libs/inputmap" }
 
@@ -323,6 +324,29 @@ bench = false
 [[bin]]
 name = "ping"
 path = "src/bin/ping.rs"
+test = false
+bench = false
+
+# Stage N3: `nc` (TCP and UDP clients and a one-connection listener over
+# `os.lazy.net.socket.v1`) and `nslookup` (`Resolve`). `NC.ELF` and
+# `NSLOOKUP.ELF` on the image.
+[[bin]]
+name = "nc"
+path = "src/bin/nc.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "nslookup"
+path = "src/bin/nslookup.rs"
+test = false
+bench = false
+
+# Stage N4: a passive-mode FTP client over `os.lazy.net.socket.v1`.
+# `FTP.ELF` on the image.
+[[bin]]
+name = "ftp"
+path = "src/bin/ftp.rs"
 test = false
 bench = false
 

@@ -46,18 +46,21 @@ jobs:
       # rust-toolchain.toml pins the nightly toolchain; rustup installs it.
       # CI=1 makes the corpus replay tests insist that seeds exist.
       - name: Libraries (host, includes the seeded fuzz tests)
-        run: cargo test -p framering -p virtio-net -p nicdrv -p netstack -p netpolicy -p virtio -p fuzzkit -p messenger-generated
+        run: cargo test -p framering -p virtio-net -p nicdrv -p netstack -p ftpwire -p netpolicy -p virtio -p fuzzkit -p messenger-generated
         env:
           FUZZ_CASES: "2000"
 
       - name: Lints
-        run: cargo clippy -p framering -p virtio-net -p nicdrv -p netstack -p netpolicy -p virtio -p fuzzkit --all-targets --features framering/fuzz,virtio-net/fuzz,nicdrv/fuzz,netstack/fuzz -- -D warnings
+        run: cargo clippy -p framering -p virtio-net -p nicdrv -p netstack -p ftpwire -p netpolicy -p virtio -p fuzzkit --all-targets --features framering/fuzz,virtio-net/fuzz,nicdrv/fuzz,netstack/fuzz -- -D warnings
 
       - name: Fuzz seed corpus is current
         run: python fuzz/gen_corpus.py --check
 
       - name: Pcap analyzer (it must fail when it should)
         run: python tools/net/test_analyze_pcap.py
+
+      - name: Socket evidence checker (TCP, UDP and DNS; it must fail when it should)
+        run: python tools/net/test_sockets_pcap.py
 
   fuzz:
     name: fuzz (${{ matrix.target }})
@@ -112,7 +115,9 @@ jobs:
           # No NIC: the driver must say so and idle.
           - name: no-device
             args: "--no-device"
-          # Stage N2: netd, DHCP and ping, judged from the capture.
+          # Stages N2 and N3: netd, DHCP, ping, name lookups and sockets (nc against
+          # the harness's echo servers and a port-forwarded listener), judged from
+          # the capture.
           - name: netd
             args: "--netd"
           - name: netd-services

@@ -34,6 +34,12 @@ mod common;
 mod probe;
 #[path = "netctl/soak.rs"]
 mod soak;
+#[path = "netctl/sockowner.rs"]
+mod sockowner;
+#[path = "netctl/sockprobe.rs"]
+mod sockprobe;
+#[path = "netctl/socksoak.rs"]
+mod socksoak;
 
 use common::{connect, fail, ip_text, mac_text, wait_for_address};
 
@@ -47,6 +53,10 @@ enum Mode {
     Reattach,
     Probe,
     Soak(u32),
+    SockProbe,
+    SockSoak(u32),
+    SockOwner(u32),
+    Sockets,
 }
 
 fn parse_args() -> Result<Mode, String> {
@@ -59,11 +69,15 @@ fn parse_args() -> Result<Mode, String> {
             Some(("probe", "1")) => Mode::Probe,
             // Bounded so a hostile argument cannot hold the stack for minutes.
             Some(("soak", value)) => Mode::Soak(value.parse().unwrap_or(0).clamp(1, 200)),
+            Some(("sockprobe", "1")) => Mode::SockProbe,
+            Some(("socksoak", value)) => Mode::SockSoak(value.parse().unwrap_or(0).clamp(1, 400)),
+            Some(("sockowner", value)) => Mode::SockOwner(value.parse().unwrap_or(0)),
             _ => match part {
                 "if" | "interfaces" => Mode::Interfaces,
                 "addr" | "address" => Mode::Addr,
                 "route" => Mode::Route,
                 "stats" => Mode::Stats,
+                "sockets" => Mode::Sockets,
                 "renew" => Mode::Renew,
                 "reattach" => Mode::Reattach,
                 "-h" | "--help" | "help" => {
@@ -152,8 +166,39 @@ fn show_stats(client: &Client) -> Result<(), String> {
         s.rx_frames, s.rx_bytes, s.rx_bad_length, s.tx_frames, s.tx_bytes, s.tx_dropped
     ));
     sys::write_str(&format!(
-        "dhcp     {} leases, {} lost\nping     {} sent, {} answered, {} timed out\nnic      {} resets\n",
-        s.leases, s.lease_losses, s.pings_sent, s.pings_answered, s.pings_timed_out, s.nic_resets
+        "dhcp     {} leases, {} lost\nping     {} sent, {} answered, {} timed out\nlookups  {} sent, {} answered, {} failed\nnic      {} resets\n",
+        s.leases, s.lease_losses, s.pings_sent, s.pings_answered, s.pings_timed_out,
+        s.lookups_sent, s.lookups_answered, s.lookups_failed, s.nic_resets
+    ));
+    Ok(())
+}
+
+/// The modes that talk to the socket interface.
+fn run_sockets(mode: Mode) -> Result<(), String> {
+    // The stack service first: it registers both interfaces, and an address
+    // must exist before any traffic.
+    let stack = connect()?;
+    wait_for_address(&stack)?;
+    let sockets =
+        alloc::rc::Rc::new(user::messenger::netsock::Client::connect().map_err(fail("sockets"))?);
+    match mode {
+        Mode::SockProbe => sockprobe::run(&sockets)
+            .map(|n| sys::write_str(&format!("NETCTL:SOCKPROBE:PASS checks={n}\n"))),
+        Mode::SockSoak(n) => socksoak::run(&sockets, n)
+            .map(|n| sys::write_str(&format!("NETCTL:SOCKSOAK:PASS iterations={n}\n"))),
+        Mode::SockOwner(id) => sockowner::foreign_owner(&sockets, id)
+            .map(|n| sys::write_str(&format!("NETCTL:SOCKOWNER:PASS refusals={n}\n"))),
+        _ => show_sockets(&sockets),
+    }
+}
+
+fn show_sockets(client: &user::messenger::netsock::Client) -> Result<(), String> {
+    let s = client.stats().map_err(fail("socket stats"))?;
+    sys::write_str(&format!(
+        "sockets  {} open, {} opened, {} closed, {} reclaimed\nstreams  {} connected, {} accepted, {} refused, {} reset\ndata     {} bytes out, {} bytes in, {} datagrams out, {} in\nwaits    {} parked, {} timed out, {} refused for ownership\n",
+        s.open, s.opened, s.closed, s.reclaimed, s.connected, s.accepted, s.refused, s.resets,
+        s.tx_bytes, s.rx_bytes, s.tx_datagrams, s.rx_datagrams, s.parked, s.park_timeouts,
+        s.not_owner
     ));
     Ok(())
 }
@@ -166,6 +211,9 @@ fn run(mode: Mode) -> Result<(), String> {
         Mode::Soak(n) => {
             return soak::run(n)
                 .map(|n| sys::write_str(&format!("NETCTL:SOAK:PASS iterations={n}\n")))
+        }
+        Mode::SockProbe | Mode::SockSoak(_) | Mode::SockOwner(_) | Mode::Sockets => {
+            return run_sockets(mode)
         }
         _ => {}
     }
@@ -202,7 +250,12 @@ fn run(mode: Mode) -> Result<(), String> {
             ));
             Ok(())
         }
-        Mode::Probe | Mode::Soak(_) => Ok(()),
+        Mode::Probe
+        | Mode::Soak(_)
+        | Mode::SockProbe
+        | Mode::SockSoak(_)
+        | Mode::SockOwner(_)
+        | Mode::Sockets => Ok(()),
     }
 }
 

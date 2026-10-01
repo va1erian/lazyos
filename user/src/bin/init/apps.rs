@@ -141,6 +141,7 @@ pub static APPS: &[AppSpec] = &[
     xui_app_verbs("files", "Files", "XFILES.ELF", &["open", "reveal"]),
     xui_app_verbs("paint", "Paint", "XPAINT.ELF", &["open", "edit"]),
     xui_app("settings", "Settings", "XSETTNG.ELF"),
+    xui_app("confd", "Config", "XCONFD.ELF"),
     native_app(
         "viewer",
         "Image Viewer",

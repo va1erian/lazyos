@@ -92,7 +92,7 @@ shell's fork child. `top` is not shipped in the `LAZYOS_DESKTOP=1` image (`not
 found` there). Details and limits: [processes.md](processes.md).
 
 **The `rhai` command** (issue #319, step R0 of the
-[Rhai plan](https://github.com/va1erian/lazyos/wiki/Rhai-in-LazyOS)). An
+[Rhai plan](../rhai-plan.md)). An
 ordinary static `x86_64-unknown-linux-musl` `std` program, not part of the OS
 workspace: `rhai-host/` (thin wrapper: argv, stdio, files, clock) around
 `libs/rhai-lazy/` (`no_std` + `alloc`, host-tested bindings against a mock
@@ -101,6 +101,9 @@ self-contained on Windows, no C compiler; it reports "unavailable" and exits 0
 when the musl target cannot be installed) to `target/rhai/rhai.elf`; the root
 `build.rs` (`build_support/rhai_embed.rs`) embeds it as `RHAI.ELF` when present
 (`LAZYOS_RHAI` overrides; the ABI bench's `LAZYOS_INIT` skips it).
+`tools/run_demo.py` runs `build.py` before every image build, and
+`python tools/rhai/run.py [--desktop]` does build, image, boot and verdict in one
+command.
 
 - **Usage.** `rhai -e 'expr'` (prints the value unless `()`), `rhai script.rhai
   [args]` (a `#!` first line is ignored), `rhai - [args]` (script from stdin),
@@ -150,8 +153,14 @@ when the musl target cannot be installed) to `target/rhai/rhai.elf`; the root
   reads); the guest run is `tools/screenshot/examples/rhai_demo.json` (serial
   markers `RHAI:<name>:PASS|FAIL`, CI in `.github/workflows/rhai.yml`).
   Release ELF: see the PR description for the stripped size and the image
-  delta. Out of scope here: Messenger bindings, the `Cmd` pipeline type, xui
-  bindings, and Rhai as login shell.
+  delta. Out of scope so far: the `Cmd` pipeline type, xui bindings, and Rhai
+  as login shell.
+- **Messenger (`msg`).** On LazyOS (`uname` sysname `LazyOS`) the host
+  installs `rhai_lazy::msg` over the native `int 0x80` gate
+  (`libs/rhai-lazy/src/msg/gate.rs`, feature `lazyos`). Calls are encoded from
+  the `midlc --schema` table, so every IDL interface is scriptable; see
+  [`docs/rhai/msg.md`](../rhai/msg.md). Guest check:
+  `tools/screenshot/examples/rhai_msg.json` in the desktop Terminal.
 
 The `init` manifest (`user/src/bin/init/state.rs`) declares dependencies and restart
 policy: `messengerd` is `Once` (bootstrap can be claimed once per boot), the

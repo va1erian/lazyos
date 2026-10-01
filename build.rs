@@ -10,6 +10,8 @@ mod docs_embed;
 mod drivers;
 #[path = "build_support/elf_trim.rs"]
 mod elf_trim;
+#[path = "build_support/lazyrad_embed.rs"]
+mod lazyrad_embed;
 #[path = "build_support/rhai_embed.rs"]
 mod rhai_embed;
 
@@ -352,6 +354,10 @@ fn main() {
     // read by the Docs app and the Editor.
     println!("cargo:rerun-if-changed=build_support/docs_embed.rs");
     docs_embed::embed(&mut builder, &manifest_dir);
+    // The `lazyrad` runtime (`LAZYOS_LAZYRAD=1`), embedded as LRPLAY.ELF and
+    // LAZYRAD.ELF, plus the sample projects in `LAZYRAD_SAMPLES`.
+    println!("cargo:rerun-if-changed=build_support/lazyrad_embed.rs");
+    lazyrad_embed::embed(&mut builder, &manifest_dir);
     builder
         .create_bios_image(&bios_image)
         .expect("failed to create BIOS disk image");
@@ -411,6 +417,7 @@ fn xui_disk_name(path: &std::path::Path) -> (String, String) {
         "paint" => "XPAINT".to_string(),
         "files" => "XFILES".to_string(),
         "settings" => "XSETTNG".to_string(),
+        "confd" => "XCONFD".to_string(),
         "client" => "XCLIENT".to_string(),
         other => {
             let short: String = other
@@ -449,6 +456,7 @@ const DOCUMENT_XUI_APPS: &[&str] = &[
     "xui-files.elf",
     "xui-paint.elf",
     "xui-settings.elf",
+    "xui-confd.elf",
 ];
 
 /// Desktop apps embedded when their ELF exists, and skipped (with a build
