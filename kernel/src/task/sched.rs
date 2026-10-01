@@ -123,6 +123,23 @@ pub fn set_priority(slot: usize, class: PriorityClass) -> bool {
     }
 }
 
+/// Raise a task to at least `class`, never lowering it: a task already in
+/// `class` or above keeps its class and weight. Returns whether the slot
+/// holds a task.
+pub fn raise_priority(slot: usize, class: PriorityClass) -> bool {
+    let mut tasks = TASKS.lock();
+    match tasks.get_mut(slot).and_then(|task| task.as_mut()) {
+        Some(task) => {
+            if task.class.rank() < class.rank() {
+                task.class = class;
+                task.weight = class.default_weight();
+            }
+            true
+        }
+        None => false,
+    }
+}
+
 /// A task's scheduling class, or `None` for an empty or invalid slot.
 #[allow(dead_code)] // tool/test API; callers arrive with the scheduler features
 pub fn priority(slot: usize) -> Option<PriorityClass> {

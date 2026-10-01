@@ -12,6 +12,7 @@ mod pointer;
 mod pointer_stress;
 mod ring;
 mod source;
+mod source_priority;
 mod source_stress;
 mod stress;
 mod syscall;
@@ -175,6 +176,14 @@ pub(super) const CASES: &[(&str, Test)] = &[
         source::table_bound_and_reclaim,
     ),
     ("input_source_rate_limited", source::rate_limited),
+    (
+        "input_source_register_raises_driver",
+        source_priority::register_raises_driver,
+    ),
+    (
+        "input_source_priority_stress_generations",
+        source_priority::priority_stress_generations,
+    ),
     (
         "input_source_stress_generations",
         source_stress::generations,
