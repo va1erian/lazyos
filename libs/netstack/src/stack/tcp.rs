@@ -205,15 +205,16 @@ impl Stack {
             return Err(SockError::InvalidState);
         };
         let port = *port;
-        let Some(at) = backlog
+        let Some((at, handle)) = backlog
             .iter()
-            .position(|h| connection_ready(self.sockets.get::<tcp::Socket>(*h)))
+            .copied()
+            .enumerate()
+            .find(|(_, h)| connection_ready(self.sockets.get::<tcp::Socket>(*h)))
         else {
             return Ok(None);
         };
         // The connection stays in the backlog until the caller has room.
         self.socks.check_quota(owner)?;
-        let handle = backlog[at];
         let peer = self
             .sockets
             .get::<tcp::Socket>(handle)
@@ -436,6 +437,7 @@ impl Stack {
     /// Once per poll: notice what the wire did to each stream, so the
     /// per-socket state and the counters are right before clients ask.
     pub(super) fn observe_streams(&mut self, now_ms: i64) {
+        let (mut refused, mut connected, mut resets) = (0u64, 0u64, 0u64);
         for (state, handle) in self.socks.streams_mut() {
             let socket = self.sockets.get::<tcp::Socket>(handle);
             let tcp_state = socket.state();
@@ -444,13 +446,13 @@ impl Stack {
                     tcp::State::Closed => {
                         state.connecting = false;
                         state.refused = true;
-                        self.socks_counters_refused += 1;
+                        refused += 1;
                     }
                     tcp::State::SynSent => {}
                     _ => {
                         state.connecting = false;
                         state.established = true;
-                        self.socks_counters_connected += 1;
+                        connected += 1;
                     }
                 }
             }
@@ -467,13 +469,13 @@ impl Stack {
                 }
                 if tcp_state == tcp::State::Closed && !state.fin_seen && !state.reset {
                     state.reset = true;
-                    self.socks_counters_resets += 1;
+                    resets += 1;
                 }
             }
         }
-        self.socks.counters.refused += core::mem::take(&mut self.socks_counters_refused);
-        self.socks.counters.connected += core::mem::take(&mut self.socks_counters_connected);
-        self.socks.counters.resets += core::mem::take(&mut self.socks_counters_resets);
+        self.socks.counters.refused += refused;
+        self.socks.counters.connected += connected;
+        self.socks.counters.resets += resets;
         self.socks.reap_closing(&mut self.sockets, now_ms);
     }
 }

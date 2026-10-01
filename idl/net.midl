@@ -191,7 +191,9 @@ interface os.lazy.net.stack.v1 {
     /// there is no address or no resolver, `EAGAIN` when this caller has 4
     /// lookups outstanding or all callers together have 8, `ENOENT` when the
     /// resolver says the name has no address, and `ETIMEDOUT` when no answer
-    /// came. The reply lists the addresses found, four octets each.
+    /// came. The reply lists the addresses found, four octets each. Until
+    /// the DNS half of N3 lands, `netd` answers `ENOSYS`, so a caller can
+    /// tell "not served yet" from a bad name.
     method Resolve(name: String, timeout_ms: U32) -> (addrs: Array<Bytes>);
     /// Ask for a fresh DHCP lease (drops the current one). Gated by the ACL.
     method Renew() -> ();

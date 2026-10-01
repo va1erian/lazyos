@@ -27,6 +27,8 @@ pub(super) const IFNAME: &str = "eth0";
 const PER_CALLER_PINGS: usize = 4;
 /// `ENETUNREACH`: no address or no route yet.
 const ENETUNREACH: i64 = 101;
+/// `ENOSYS`: a declared method this build does not serve yet.
+const ENOSYS: i64 = 38;
 
 fn err(code: i64) -> MsgError {
     MsgError::Errno(-code)
@@ -95,6 +97,9 @@ impl Netd {
             wire::METHOD_ROUTES => self.routes()?,
             wire::METHOD_STATS => self.stats()?,
             wire::METHOD_PING => return self.ping(message, now_ms),
+            // Declared in the N3 interface, served once the DNS half lands:
+            // a distinct error, so a caller can tell "not yet" from a bad name.
+            wire::METHOD_RESOLVE => return Err(err(ENOSYS)),
             wire::METHOD_RENEW => {
                 self.stack.renew();
                 Vec::new()

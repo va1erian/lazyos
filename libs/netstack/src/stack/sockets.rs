@@ -286,7 +286,7 @@ impl Sockets {
             .expect("check_quota passed: a slot is free");
         let id = (slot as u32) | (self.generation << 8);
         // The generation never reaches zero again: a wrap skips it.
-        self.generation = self.generation.wrapping_add(1).max(1) & 0x00FF_FFFF;
+        self.generation = (self.generation.wrapping_add(1) & 0x00FF_FFFF).max(1);
         self.slots[slot] = Some(Entry { id, owner, inner });
         self.counters.opened += 1;
         id
