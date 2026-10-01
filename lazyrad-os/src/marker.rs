@@ -57,6 +57,24 @@ impl Markers {
         emit(&self.fail_line(stage, detail));
     }
 
+    /// Reports a panic as a `PANIC` failure marker on the console before the
+    /// default hook runs. The program's stderr is usually a pipe to a Terminal
+    /// window (or nowhere), so without this a crash leaves no serial evidence.
+    pub fn install_panic_hook(self) {
+        let previous = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            self.fail("PANIC", &info.to_string());
+            // Raw return addresses: the binary is static and not position
+            // independent, so they symbolize offline against an unstripped build
+            // (`CARGO_PROFILE_RELEASE_STRIP=none CARGO_PROFILE_RELEASE_DEBUG=1`).
+            let trace = std::backtrace::Backtrace::force_capture().to_string();
+            for line in trace.lines() {
+                emit(&format!("{}:PANIC:BT:{}", self.prefix, line.trim()));
+            }
+            previous(info);
+        }));
+    }
+
     /// A one-shot for `stage`: the returned closure prints the pass line the
     /// first time it is called and does nothing afterwards.
     pub fn once(&self, stage: &'static str) -> impl Fn() {

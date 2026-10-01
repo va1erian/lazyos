@@ -22,9 +22,16 @@ xui-canvas = { git = "https://github.com/va1erian/xui", rev = "58c1a6ea1a2dc1e5b
 # The LazyOS backend (xuid client), fonts, clipboardd client and the portable
 # file-dialog plumbing.
 xui-app = { path = "../xui-app" }
+# `fcntl(O_NONBLOCK)` for the player launcher's pipes (already in the graph via
+# `xui-app`).
+libc = "0.2"
 
 # LazyRAD, from its own repository, `default-features = false` so the `desktop`
 # features (winit, rfd, directories, dark-light, local time) stay off.
+#
+# TODO rev: once LazyRAD branch `lazyos-p0` (tip ad4d52e, unpushed when this was
+# written) is merged, set `rev` on EVERY va1erian/lazyrad line below (runtime,
+# player, ide, and the dev-dependency packager) to the merge commit.
 #
 # PIN: `rev` is LazyRAD's `main` before the LazyOS platform seam (P0) landed.
 # Until the P0 pull request is merged, builds need the local override in
@@ -32,6 +39,7 @@ xui-app = { path = "../xui-app" }
 # the merge, set `rev` to the merge commit of the LazyRAD P0 PR on every line
 # below and delete the override.
 lazyrad-runtime = { git = "https://github.com/va1erian/lazyrad", rev = "495b0a6f95a9d3e3a91867dc6c96a842617d2f4f", default-features = false }
+lazyrad-ide = { git = "https://github.com/va1erian/lazyrad", rev = "495b0a6f95a9d3e3a91867dc6c96a842617d2f4f", default-features = false }
 lazyrad-player = { git = "https://github.com/va1erian/lazyrad", rev = "495b0a6f95a9d3e3a91867dc6c96a842617d2f4f", default-features = false }
 
 [dev-dependencies]
