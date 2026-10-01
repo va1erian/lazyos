@@ -172,7 +172,22 @@ fn open_transfer(c: &mut Control, verb: &str, argument: Option<&str>) -> Result<
 
 fn cmd_ls(c: &mut Control, args: &[String]) -> Result<(), String> {
     let data = open_transfer(c, "LIST", args.first().map(String::as_str))?;
-    let bytes = drain(&data, MAX_LISTING, sys::write)?;
+    // A listing is text from the server: control characters (escape sequences
+    // that could rewrite the terminal) are shown as `?`; only line and tab
+    // characters pass.
+    let bytes = drain(&data, MAX_LISTING, |chunk| {
+        let safe: Vec<u8> = chunk
+            .iter()
+            .map(|&b| {
+                if matches!(b, 10 | 13 | 9 | 0x20..=0x7E) {
+                    b
+                } else {
+                    b'?'
+                }
+            })
+            .collect();
+        sys::write(&safe);
+    })?;
     drop(data);
     c.finish_transfer()?;
     sys::write_str(&format!("FTP:LS bytes={bytes}\n"));
