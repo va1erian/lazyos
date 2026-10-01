@@ -5,14 +5,17 @@
 //! checks that the schema-driven codec and the compiled one agree on the wire.
 
 use alloc::boxed::Box;
+use alloc::collections::VecDeque;
 use alloc::rc::Rc;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::cell::{Cell, RefCell};
 
-use messenger_generated::{os_lazy_confd_v1 as confd, os_lazy_echo_v1 as echo};
+use messenger_generated::{
+    os_lazy_confd_v1 as confd, os_lazy_echo_v1 as echo, os_lazy_messenger_topics_v1 as topics,
+};
 
-use crate::msg::{Bus, BusError};
+use crate::msg::{schema, Bus, BusError, Incoming};
 
 /// One queued one-way message: `(endpoint, interface, method, body)`.
 pub type Sent = (u64, u64, u32, Vec<u8>);
@@ -31,6 +34,14 @@ pub struct MockBus {
     pub kill_once: Cell<Option<u64>>,
     /// Every call times out.
     pub stalled: Cell<bool>,
+    /// The fake clock; a timed-out wait advances it by its timeout.
+    pub clock: Cell<u64>,
+    /// Requests waiting on endpoints a script serves: `(endpoint, request)`.
+    pub inbox: RefCell<VecDeque<(u64, Incoming)>>,
+    /// Replies the script sent: `(txn, body)`.
+    pub replies: RefCell<Vec<(u64, Vec<u8>)>>,
+    /// Names registered by the script: `(name, server endpoint, interfaces)`.
+    pub registered: RefCell<Vec<(String, u64, Vec<u64>)>>,
 }
 
 impl MockBus {
@@ -71,10 +82,11 @@ impl Bus for MockBus {
         iface: u64,
         method: u32,
         body: &[u8],
-        _ms: u64,
+        ms: u64,
     ) -> Result<Vec<u8>, BusError> {
         self.calls.set(self.calls.get() + 1);
         if self.stalled.get() {
+            self.clock.set(self.clock.get() + ms);
             return Err(BusError::errno(-110));
         }
         if self.kill_once.get() == Some(ep) {
@@ -86,7 +98,11 @@ impl Bus for MockBus {
             .iter()
             .find(|(e, _)| *e == ep)
             .ok_or_else(|| BusError::errno(-32))?;
-        handler(iface, method, body)
+        let result = handler(iface, method, body);
+        if matches!(&result, Err(e) if e.is_timeout()) {
+            self.clock.set(self.clock.get() + ms);
+        }
+        result
     }
 
     fn send(&self, ep: u64, iface: u64, method: u32, body: &[u8]) -> Result<(), BusError> {
@@ -99,6 +115,116 @@ impl Bus for MockBus {
     fn names(&self) -> Result<Vec<String>, BusError> {
         Ok(self.names.borrow().iter().map(|(n, _)| n.clone()).collect())
     }
+
+    fn register(&self, name: &str, interfaces: &[u64]) -> Result<u64, BusError> {
+        if self.names.borrow().iter().any(|(n, _)| n == name) {
+            return Err(BusError::errno(-17));
+        }
+        let server = 900 + self.registered.borrow().len() as u64;
+        self.names.borrow_mut().push((name.to_string(), server));
+        self.registered
+            .borrow_mut()
+            .push((name.to_string(), server, interfaces.to_vec()));
+        Ok(server)
+    }
+
+    fn recv(&self, endpoint: u64, ms: u64) -> Result<Option<Incoming>, BusError> {
+        let mut inbox = self.inbox.borrow_mut();
+        match inbox.iter().position(|(ep, _)| *ep == endpoint) {
+            Some(index) => Ok(inbox.remove(index).map(|(_, request)| request)),
+            None => {
+                self.clock.set(self.clock.get() + ms.max(1));
+                Ok(None)
+            }
+        }
+    }
+
+    fn reply(&self, txn: u64, _iface: u64, _method: u32, body: &[u8]) -> Result<(), BusError> {
+        self.replies.borrow_mut().push((txn, body.to_vec()));
+        Ok(())
+    }
+
+    fn clock_ms(&self) -> u64 {
+        self.clock.get()
+    }
+}
+
+/// One subscription of the fake broker and its queued events.
+struct Sub {
+    id: u64,
+    filter: String,
+    queue: VecDeque<topics::Event>,
+}
+
+/// `os.lazy.messenger.topics`: subscriptions, publish fan-out and pulls, with
+/// the compiled topics codec. `NextEvent` on an empty queue times out.
+pub fn topics_service(bus: &MockBus) -> Rc<RefCell<Vec<u64>>> {
+    let acks = Rc::new(RefCell::new(Vec::new()));
+    let seen = acks.clone();
+    let subs: RefCell<Vec<Sub>> = RefCell::new(Vec::new());
+    let sequence = Cell::new(0u64);
+    bus.serve("os.lazy.messenger.topics", move |iface, method, body| {
+        assert_eq!(iface, topics::INTERFACE_ID);
+        let bad = |_| BusError::errno(-22);
+        match method {
+            topics::METHOD_SUBSCRIBE => {
+                let args = topics::decode_subscribe_args(body).map_err(bad)?;
+                let id = subs.borrow().len() as u64 + 1;
+                subs.borrow_mut().push(Sub {
+                    id,
+                    filter: args.filter,
+                    queue: VecDeque::new(),
+                });
+                topics::encode_subscribe_reply(&topics::SubscribeReply { subscription: id })
+                    .map_err(bad)
+            }
+            topics::METHOD_PUBLISH => {
+                let args = topics::decode_publish_args(body).map_err(bad)?;
+                sequence.set(sequence.get() + 1);
+                let mut matched = 0;
+                for sub in subs.borrow_mut().iter_mut() {
+                    if schema::topic_matches(&sub.filter, &args.topic) {
+                        matched += 1;
+                        sub.queue.push_back(topics::Event {
+                            topic: args.topic.clone(),
+                            publisher: 7,
+                            sequence: sequence.get(),
+                            retained: args.retained,
+                            payload: args.payload.clone(),
+                        });
+                    }
+                }
+                topics::encode_publish_reply(&topics::PublishReply { matched }).map_err(bad)
+            }
+            topics::METHOD_NEXTEVENT => {
+                let args = topics::decode_next_event_args(body).map_err(bad)?;
+                let mut subs = subs.borrow_mut();
+                let sub = subs
+                    .iter_mut()
+                    .find(|s| s.id == args.subscription)
+                    .ok_or(BusError::errno(-2))?;
+                match sub.queue.pop_front() {
+                    Some(event) => {
+                        topics::encode_next_event_reply(&topics::NextEventReply { event })
+                            .map_err(bad)
+                    }
+                    None => Err(BusError::errno(-110)),
+                }
+            }
+            topics::METHOD_ACK => {
+                let args = topics::decode_ack_args(body).map_err(bad)?;
+                seen.borrow_mut().push(args.sequence);
+                Ok(Vec::new())
+            }
+            topics::METHOD_UNSUBSCRIBE => {
+                let args = topics::decode_unsubscribe_args(body).map_err(bad)?;
+                subs.borrow_mut().retain(|s| s.id != args.subscription);
+                Ok(Vec::new())
+            }
+            _ => Ok(error_reply(38, "no such method")),
+        }
+    });
+    acks
 }
 
 fn parcel_error(_: libmessenger::Error) -> BusError {

@@ -9,6 +9,7 @@ use crate::mock::MockHost;
 use crate::{build_engine, eval_source, Config, Outcome, Scope};
 
 mod engine_tests;
+mod msg_loop_tests;
 mod msg_mock;
 mod msg_tests;
 mod os_tests;

@@ -26,6 +26,16 @@ use super::schema::{Interface, Method};
 
 pub(crate) type Fallible<T> = Result<T, alloc::boxed::Box<EvalAltResult>>;
 
+/// Stand-in for error text when the method lookup itself is what failed.
+const NO_METHOD: Method = Method {
+    name: "?",
+    id: 0,
+    oneway: false,
+    doc: "",
+    params: &[],
+    returns: &[],
+};
+
 /// Default time a call waits for its reply.
 pub const DEFAULT_TIMEOUT_MS: u64 = 5_000;
 
@@ -39,6 +49,10 @@ pub struct Fabric {
     bus: Rc<dyn Bus>,
     endpoints: RefCell<Vec<(String, u64)>>,
     timeout_ms: Cell<u64>,
+    /// What `msg::run` waits on (`msg::on`, `msg::serve`).
+    pub(crate) sources: RefCell<Vec<super::runloop::Source>>,
+    /// Set by `msg::stop()`; cleared when `msg::run` starts.
+    pub(crate) stop: Cell<bool>,
 }
 
 impl Fabric {
@@ -47,6 +61,8 @@ impl Fabric {
             bus,
             endpoints: RefCell::new(Vec::new()),
             timeout_ms: Cell::new(DEFAULT_TIMEOUT_MS),
+            sources: RefCell::new(Vec::new()),
+            stop: Cell::new(false),
         }
     }
 
@@ -184,6 +200,23 @@ impl Service {
 
     /// Call `method` with already-shaped `args` (see [`Service::encode`]).
     pub fn invoke(&self, method: &str, args: Dynamic) -> Fallible<Dynamic> {
+        let timeout = self.fabric.timeout_ms();
+        self.invoke_within(method, args, timeout)?.ok_or_else(|| {
+            self.fail(
+                self.method(method).unwrap_or(&NO_METHOD),
+                BusError::errno(-110),
+            )
+        })
+    }
+
+    /// [`Service::invoke`] with an explicit timeout; `Ok(None)` when the
+    /// reply did not arrive in time (a topic pull that found no event).
+    pub fn invoke_within(
+        &self,
+        method: &str,
+        args: Dynamic,
+        timeout_ms: u64,
+    ) -> Fallible<Option<Dynamic>> {
         let method = self.method(method)?;
         let body = self.encode(method, args)?;
         let fabric = &self.fabric;
@@ -193,27 +226,28 @@ impl Service {
                     fabric.bus().send(ep, self.interface.id, method.id, &body)
                 })
                 .map_err(|e| self.fail(method, e))?;
-            return Ok(Dynamic::UNIT);
+            return Ok(Some(Dynamic::UNIT));
         }
-        let timeout = fabric.timeout_ms();
-        let reply = fabric
-            .with_endpoint(&self.name, |ep| {
-                fabric
-                    .bus()
-                    .call(ep, self.interface.id, method.id, &body, timeout)
-            })
-            .map_err(|e| self.fail(method, e))?;
+        let reply = match fabric.with_endpoint(&self.name, |ep| {
+            fabric
+                .bus()
+                .call(ep, self.interface.id, method.id, &body, timeout_ms)
+        }) {
+            Ok(reply) => reply,
+            Err(error) if error.is_timeout() => return Ok(None),
+            Err(error) => return Err(self.fail(method, error)),
+        };
         if let Some((code, message)) = codec::reply_error(&reply) {
             let name = errno_name(code.into()).map_or("error", |(name, _)| name);
             return Err(self.fail(method, format!("{message} ({name}, code {code})")));
         }
         let mut map = codec::decode_named(self.interface, method.returns, &reply, 0)
             .map_err(|e| self.fail(method, format!("bad reply: {e}")))?;
-        Ok(match method.returns {
+        Ok(Some(match method.returns {
             [] => Dynamic::UNIT,
             [only] => map.remove(only.name).unwrap_or(Dynamic::UNIT),
             _ => Dynamic::from_map(map),
-        })
+        }))
     }
 
     /// Like [`Service::invoke`] but refuses a method that expects a reply,

@@ -23,8 +23,10 @@ pub mod codec;
 #[cfg(all(feature = "lazyos", target_arch = "x86_64"))]
 pub mod gate;
 mod idl;
+pub mod runloop;
 pub mod schema;
 pub mod service;
+pub mod topics;
 
 use alloc::format;
 use alloc::rc::Rc;
@@ -32,10 +34,14 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::any::TypeId;
 
-use rhai::{Array, Dynamic, Engine, FuncRegistration, ImmutableString, Map, Module, INT};
+use rhai::{
+    Array, Dynamic, Engine, FnPtr, FuncRegistration, ImmutableString, Map, Module,
+    NativeCallContext, INT,
+};
 
-pub use bus::{Bus, BusError};
+pub use bus::{Bus, BusError, Incoming};
 pub use service::{Fabric, Service};
+pub use topics::Subscription;
 
 use service::{script_error, signature, Fallible};
 
@@ -129,7 +135,103 @@ fn namespace(fabric: &Rc<Fabric>) -> Module {
         f.set_timeout_ms(ms);
         Ok(())
     });
+    register_topics(&mut m, fabric);
+    register_loop(&mut m, fabric);
     m
+}
+
+/// `msg::publish`, `msg::subscribe`.
+fn register_topics(m: &mut Module, fabric: &Rc<Fabric>) {
+    let f = fabric.clone();
+    register!(
+        m,
+        "subscribe",
+        move |filter: ImmutableString| -> Fallible<Subscription> {
+            topics::subscribe(&f, &filter, &Map::new())
+        }
+    );
+    let f = fabric.clone();
+    register!(m, "subscribe", move |filter: ImmutableString,
+                                    opts: Map|
+          -> Fallible<Subscription> {
+        topics::subscribe(&f, &filter, &opts)
+    });
+    let f = fabric.clone();
+    register!(m, "publish", move |topic: ImmutableString,
+                                  value: Dynamic|
+          -> Fallible<INT> {
+        topics::publish(&f, &topic, &value, None)
+    });
+    let f = fabric.clone();
+    register!(m, "publish", move |topic: ImmutableString,
+                                  value: Dynamic,
+                                  retained: bool|
+          -> Fallible<INT> {
+        topics::publish(&f, &topic, &value, Some(retained))
+    });
+}
+
+/// `msg::on`, `msg::serve`, `msg::run`, `msg::stop`.
+fn register_loop(m: &mut Module, fabric: &Rc<Fabric>) {
+    let f = fabric.clone();
+    register!(m, "on", move |filter: ImmutableString,
+                             handler: FnPtr|
+          -> Fallible<Subscription> {
+        runloop::on(&f, &filter, &Map::new(), handler)
+    });
+    let f = fabric.clone();
+    register!(m, "on", move |filter: ImmutableString,
+                             opts: Map,
+                             handler: FnPtr|
+          -> Fallible<Subscription> {
+        runloop::on(&f, &filter, &opts, handler)
+    });
+    let f = fabric.clone();
+    register!(m, "serve", move |name: ImmutableString,
+                                interface: ImmutableString,
+                                handlers: Map|
+          -> Fallible<()> {
+        runloop::serve(&f, &name, &interface, handlers)
+    });
+    let f = fabric.clone();
+    register!(m, "serve", move |interface: ImmutableString,
+                                handlers: Map|
+          -> Fallible<()> {
+        let name =
+            schema::interface(&interface).map_or(interface.as_str(), |i| i.default_service());
+        runloop::serve(&f, name, &interface, handlers)
+    });
+    let f = fabric.clone();
+    register!(m, "run", move |ctx: NativeCallContext| -> Fallible<INT> {
+        runloop::run(&ctx, &f, None)
+    });
+    let f = fabric.clone();
+    register!(m, "run", move |ctx: NativeCallContext,
+                              ms: INT|
+          -> Fallible<INT> {
+        let ms = u64::try_from(ms).map_err(|_| script_error("msg::run: negative duration"))?;
+        runloop::run(&ctx, &f, Some(ms))
+    });
+    let f = fabric.clone();
+    register!(m, "stop", move || f.stop.set(true));
+}
+
+/// `sub.next([ms])`, `sub.ack(seq)`, `sub.close()` and the getters.
+fn register_subscription_type(engine: &mut Engine, fabric: &Rc<Fabric>) {
+    engine
+        .register_type_with_name::<Subscription>("Subscription")
+        .register_get("filter", |s: &mut Subscription| s.filter.clone())
+        .register_get("id", |s: &mut Subscription| s.id)
+        .register_fn("to_string", |s: &mut Subscription| format!("{s:?}"))
+        .register_fn("to_debug", |s: &mut Subscription| format!("{s:?}"))
+        .register_fn("ack", |s: &mut Subscription, seq: INT| s.ack(seq))
+        .register_fn("close", |s: &mut Subscription| s.close())
+        .register_fn("next", |s: &mut Subscription, ms: INT| {
+            let ms = u64::try_from(ms).map_err(|_| script_error("next: negative timeout"))?;
+            s.next(ms)
+        });
+    let f = fabric.clone();
+    engine.register_fn("next", move |s: &mut Subscription| s.next(f.timeout_ms()));
 }
 
 /// `svc.invoke(..)`, `svc.invoke_oneway(..)`, the getters and printing.
@@ -205,6 +307,7 @@ pub fn install(engine: &mut Engine, bus: Rc<dyn Bus>) -> Rc<Fabric> {
     let fabric = Rc::new(Fabric::new(bus));
     engine.register_static_module("msg", namespace(&fabric).into());
     register_service_type(engine);
+    register_subscription_type(engine, &fabric);
     register_sugar(engine);
     fabric
 }
