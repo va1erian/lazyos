@@ -1,0 +1,84 @@
+name: usb
+
+# USB HID (docs/usb-hid-plan.md): host tests for the xHCI and USB HID libraries
+# and the harness judge, then the end-to-end harness, which boots QEMU with
+# `qemu-xhci`, a USB keyboard and mouse and no i8042, types and points over QMP,
+# and judges what reached `inputd`, not just the driver's serial markers.
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+  pull_request:
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: usb-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit:
+    name: unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: USB libraries (host, includes the seeded fuzz tests)
+        run: cargo test -p usbhid -p xhci
+
+      - name: Harness judge (it must fail when it should)
+        run: python tools/usb/test_judge.py
+
+  harness:
+    name: harness (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # No i8042: every key and pointer record must come through `usbd`.
+          - name: usb-only
+            args: ""
+          # PS/2 and USB side by side: one cursor, one keyboard stream.
+          - name: with-ps2
+            args: "--ps2"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install QEMU
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-x86
+
+      # Hosted runners expose /dev/kvm but not to the runner user; open it up
+      # so `--accel auto` picks KVM (it falls back to TCG if KVM is unusable).
+      - name: Enable KVM (best effort)
+        run: bash tools/ci/enable_kvm.sh
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Boot on USB input and judge it
+        run: python tools/usb/run.py ${{ matrix.args }}
+
+      - name: Upload the session
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: usb-${{ matrix.name }}
+          path: shots/usb
+          if-no-files-found: ignore

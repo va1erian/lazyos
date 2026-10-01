@@ -4,8 +4,10 @@
 > tail merging on the raw bus, the PS/2 mouse tap), P1 (`inputmap::Pointer`,
 > `inputd` pointer glue, `SetBounds`/`GetPointer`/`PointerEvent`), P2 (`xuid`
 > takes the pointer from `inputd`, falling back to the kernel stream while
-> `inputd` is away), U0 (`libs/usbhid`, `libs/xhci`) and U1 (input sources on
-> syscall 25, `CAP_INPUT_SOURCE`) are implemented; U2 onward are not. Builds on
+> `inputd` is away), U0 (`libs/usbhid`, `libs/xhci`), U1 (input sources on
+> syscall 25, `CAP_INPUT_SOURCE`) and U2 (`usbd`: boot keyboards and mice on
+> `qemu-xhci`, `tools/usb/run.py`) are implemented; U3 (hot-plug) onward are
+> not. Builds on
 > [input-plan.md](input-plan.md) (the raw event bus, `inputd`) and
 > [driver-plan.md](driver-plan.md) (the device core, userspace drivers). It
 > lists USB as a non-goal of the driver plan; this plan lifts that for HID only.
@@ -304,7 +306,15 @@ the guest *did*, not that a marker printed:
 9. **Multiple pointing devices.** Relative devices simply sum into one cursor.
    A tablet and a mouse together is well-defined (the last report wins for
    position); per-device cursors and seats are out of scope.
-10. **Naming.** `input.source` vs a per-class split is a judgement call to
+10. **Input drivers and the scheduler** (found in U2). USB input is polled, so
+    a driver starved of CPU loses input a PS/2 IRQ would not: QEMU's
+    `usb-kbd` queues 16 keycodes, and under TCG each keystroke's console
+    redraw kept `usbd` (Normal class) off the CPU for about a second. Classes
+    are strict, so simply making input drivers `Interactive` would let a
+    hostile device that floods reports starve `inputd`; the fix wants a
+    driver class with a CPU budget, or `usbd` interrupt-driven so it only runs
+    when the controller has something. Under KVM the effect does not show.
+11. **Naming.** `input.source` vs a per-class split is a judgement call to
     settle with the security-model owner before U1 lands.
 
 ## Suggested order of work
