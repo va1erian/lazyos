@@ -1,7 +1,7 @@
 # Plan: basic USB HID support (keyboard, mouse, tablet) with pointer handling in `inputd`
 
 > **Status: in progress, revision 2 (2026-10-01).** P0 (pointer records and
-> tail merging on the raw bus, the PS/2 mouse tap) and P1 (`inputmap::Pointer`,
+> tail merging on the raw bus, the PS/2 mouse tap), P1 (`inputmap::Pointer`,
 > `inputd` pointer glue, `SetBounds`/`GetPointer`/`PointerEvent`), P2 (`xuid`
 > takes the pointer from `inputd`, falling back to the kernel stream while
 > `inputd` is away), U0 (`libs/usbhid`, `libs/xhci`) and U1 (input sources on
