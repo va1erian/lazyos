@@ -22,6 +22,8 @@ const ATTACH_RETRIES: usize = 4;
 const CONFIGURE_WAIT_TICKS: u64 = 5;
 /// Receive buffer for the event drain; events are far smaller.
 const EVENT_BYTES: usize = 4096;
+/// Most events kept for replay; a flood of pointer moves must not grow it.
+const MAX_KEPT_EVENTS: usize = 256;
 
 /// A live compositor connection, shared by a backend's windows.
 pub struct ClientState {
@@ -61,6 +63,9 @@ pub struct ClientWindow {
     /// first buffer. The app has not seen it yet, so the backend replays it as
     /// a `Resize` on the first tick.
     pub pending_configure: Option<(i32, i32)>,
+    /// Key and pointer events that arrived while `open` waited for that
+    /// `Configure`; replayed after the `Resize` so no startup input is lost.
+    pub pending_events: Vec<Event>,
 }
 
 impl ClientWindow {
@@ -106,6 +111,7 @@ impl ClientWindow {
             title: title.to_owned(),
             input,
             pending_configure: first.resized,
+            pending_events: first.events,
         })
     }
 
@@ -190,6 +196,8 @@ struct FirstBuffer {
     size: (u32, u32),
     /// The `Configure` consumed to learn that size, if the surface changed.
     resized: Option<(i32, i32)>,
+    /// Input drained while waiting for the `Configure`, oldest first.
+    events: Vec<Event>,
 }
 
 /// Attach the window's first buffer. The compositor may resize the new
@@ -205,6 +213,7 @@ fn attach_first_buffer(
     mut height: u32,
 ) -> Result<FirstBuffer, String> {
     let mut resized = None;
+    let mut kept = Vec::new();
     for _ in 0..ATTACH_RETRIES {
         let size = width as u64 * height as u64 * 4;
         match attach_new_buffer(client, surface, size) {
@@ -214,10 +223,11 @@ fn attach_first_buffer(
                     va,
                     size: (width, height),
                     resized,
+                    events: kept,
                 })
             }
             Err(AttachError::Failed(message)) => return Err(message),
-            Err(AttachError::Refused) => match newest_configure(events)? {
+            Err(AttachError::Refused) => match newest_configure(events, &mut kept)? {
                 Some((w, h)) if w > 0 && h > 0 => {
                     (width, height) = (w as u32, h as u32);
                     resized = Some((w, h));
@@ -230,10 +240,11 @@ fn attach_first_buffer(
 }
 
 /// The newest `Configure` queued on `events`, waiting briefly for the first
-/// one. Other events are dropped (nothing has been drawn yet, so pointer and
-/// key events carry no meaning), but a close request is an error: the window
-/// is already gone.
-fn newest_configure(events: u64) -> Result<Option<(i32, i32)>, String> {
+/// one. Other events are pushed to `kept` (bounded) for the backend to replay,
+/// since `xuid` focuses a new surface before `CreateSurface` returns and early
+/// keystrokes can be queued here. A close request is an error: the window is
+/// already gone.
+fn newest_configure(events: u64, kept: &mut Vec<Event>) -> Result<Option<(i32, i32)>, String> {
     let mut buf = [0u8; EVENT_BYTES];
     let mut newest = None;
     let mut wait = CONFIGURE_WAIT_TICKS;
@@ -250,6 +261,10 @@ fn newest_configure(events: u64) -> Result<Option<(i32, i32)>, String> {
                 if let Some(Event::Configure { width, height, .. }) = display::decode_event(&parcel)
                 {
                     newest = Some((width, height));
+                } else if let Some(event) = display::decode_event(&parcel) {
+                    if kept.len() < MAX_KEPT_EVENTS {
+                        kept.push(event);
+                    }
                 }
                 // Anything still queued is already here; do not wait again.
                 wait = 0;

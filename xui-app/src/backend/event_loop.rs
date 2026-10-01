@@ -68,16 +68,27 @@ impl LazyOSBackend {
     /// that size, so only the `Resize` is delivered: attaching another buffer
     /// could fail and lose the event for nothing.
     fn replay_open_configure(&self, window: WindowId) {
-        let pending = self
-            .windows
-            .borrow_mut()
-            .get_mut(&window.raw())
-            .and_then(|entry| entry.client.as_mut())
-            .and_then(|surface| surface.pending_configure.take());
+        let (pending, events) = {
+            let mut windows = self.windows.borrow_mut();
+            let Some(surface) = windows
+                .get_mut(&window.raw())
+                .and_then(|entry| entry.client.as_mut())
+            else {
+                return;
+            };
+            (
+                surface.pending_configure.take(),
+                std::mem::take(&mut surface.pending_events),
+            )
+        };
         if let Some((width, height)) = pending {
             self.deliver(window, WidgetId::NONE, &Event::Resize { width, height });
             self.add_damage(window, Rect::new(0, 0, width, height));
             self.dirty.store(true, Ordering::Relaxed);
+        }
+        // Input that raced the open, after the resize it was typed against.
+        for event in events {
+            self.route_client_event(window, event);
         }
     }
 

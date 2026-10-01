@@ -145,7 +145,7 @@ impl LazyOSBackend {
 
     /// Route one decoded compositor event. Pointer coordinates are already
     /// surface-relative and presses carry their button id.
-    fn route_client_event(&self, window: WindowId, event: DisplayEvent) {
+    pub(super) fn route_client_event(&self, window: WindowId, event: DisplayEvent) {
         match event {
             DisplayEvent::PointerMove { x, y } => self.pointer_move(window, x, y),
             DisplayEvent::PointerDown { x, y, button } => {
