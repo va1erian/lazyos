@@ -51,12 +51,34 @@ impl LazyOSBackend {
     pub(super) fn pointer_move(&self, window: WindowId, x: i32, y: i32) {
         self.pointer.set((x, y));
         let target = self.pointer_target(window, x, y);
+        self.track_leave(window, x, y, target.map(|(id, _)| id));
         let event = Event::MouseMove {
             x,
             y,
             modifiers: Modifiers::NONE,
         };
         self.deliver_pointer(window, target, event);
+    }
+
+    /// Tell the node under the pointer it was left when a move lands outside
+    /// the window with no capture: the compositor sends a panel exactly one
+    /// such move when the pointer leaves it, so hover highlights can clear.
+    fn track_leave(&self, window: WindowId, x: i32, y: i32, target: Option<WidgetId>) {
+        let size = self
+            .windows
+            .borrow()
+            .get(&window.raw())
+            .map(|entry| (entry.width, entry.height));
+        let outside = size.is_some_and(|(w, h)| x < 0 || y < 0 || x >= w || y >= h);
+        if !(outside && target.is_none()) {
+            self.hovered.set(target.map(|id| (window, id)));
+        } else if let Some((owner, left)) = self.hovered.get() {
+            // Only the window the pointer left; another window's hover stays.
+            if owner == window {
+                self.hovered.set(None);
+                self.deliver(window, left, &Event::MouseLeave);
+            }
+        }
     }
 
     /// Route a wheel roll of `notches` (positive scrolls up) at window point
@@ -327,5 +349,32 @@ mod tests {
             assert_eq!(*target, id(2));
             assert!(matches!(event, Event::MouseWheel { delta, .. } if *delta == want));
         }
+    }
+
+    #[test]
+    fn leaving_the_window_tells_the_hovered_node_once() {
+        let (backend, log) = rig();
+        backend.pointer_move(W, 10, 40);
+        let hovered = last(&log).0;
+        // The compositor's last move for a panel the pointer left lands
+        // outside the window and on no node.
+        let before = log.0.borrow().len();
+        backend.pointer_move(W, -5, 40);
+        assert!(log.0.borrow()[before..].contains(&(hovered, Event::MouseLeave)));
+        let count = log.0.borrow().len();
+        backend.pointer_move(W, -6, 40);
+        let leaves = log.0.borrow()[count..]
+            .iter()
+            .filter(|(_, event)| *event == Event::MouseLeave)
+            .count();
+        assert_eq!(leaves, 0, "told once");
+    }
+
+    #[test]
+    fn another_windows_outside_move_leaves_this_hover_alone() {
+        let (backend, log) = rig();
+        backend.pointer_move(W, 10, 40);
+        backend.pointer_move(WindowId::from_raw(2), -5, 40);
+        assert!(!log.0.borrow().iter().any(|(_, e)| *e == Event::MouseLeave));
     }
 }

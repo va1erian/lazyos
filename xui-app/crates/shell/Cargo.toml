@@ -1,0 +1,17 @@
+[package]
+name = "lazyshell"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "LazyShell's pure models (taskbar, start menu, desktop launchers, clock) with headless host tests (issue #157)"
+
+# Pure logic only: no xui, no syscalls. The `xui-shell` binary
+# (`xui-app/src/bin/lazyshell.rs`) feeds these models from the compositor,
+# `init`, `confd` and `timed`, and paints them.
+[dependencies]
+# The `sys/ui/menu` schema shared with the Settings app; the desktop launchers
+# (`sys/ui/desktop`) use the same line format.
+deskmenu = { path = "../../../libs/deskmenu" }
+confd = { path = "../../../libs/confd" }
+# The zone table and clock text `xuid`'s clock used (`libs/timed`).
+timezone = { path = "../../../libs/timed" }

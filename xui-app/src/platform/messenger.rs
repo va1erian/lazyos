@@ -129,6 +129,32 @@ impl Service {
         error_id: u16,
         body: Vec<u8>,
     ) -> Result<Parcel, CallError> {
+        self.call_bounded(interface, method, error_id, body, 0)
+    }
+
+    /// [`Service::call`] that gives up at `deadline` (an absolute PIT tick;
+    /// `0` waits forever) with `-ETIMEDOUT`, for a caller whose UI must not
+    /// freeze behind a stalled service (the desktop shell).
+    pub fn call_until(
+        &self,
+        interface: u64,
+        method: u32,
+        error_id: u16,
+        body: Vec<u8>,
+        deadline: u64,
+    ) -> Result<Parcel, i64> {
+        self.call_bounded(interface, method, error_id, body, deadline)
+            .map_err(|error| error.code)
+    }
+
+    fn call_bounded(
+        &self,
+        interface: u64,
+        method: u32,
+        error_id: u16,
+        body: Vec<u8>,
+        deadline: u64,
+    ) -> Result<Parcel, CallError> {
         let parcel = Parcel {
             header: Header {
                 version: VERSION,
@@ -146,7 +172,7 @@ impl Service {
             buffers: Vec::new(),
         };
         let mut buf = vec![0u8; REPLY_BUF];
-        let reply = match sys::msg_call(self.endpoint, &parcel, &mut buf, 0) {
+        let reply = match sys::msg_call(self.endpoint, &parcel, &mut buf, deadline) {
             Ok(reply) => reply,
             Err(code) => {
                 if code == -errno::EPIPE || code == -errno::ENOENT {
