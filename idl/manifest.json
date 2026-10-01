@@ -353,6 +353,11 @@
         "name": "Configure",
         "id": 33,
         "oneway": true
+      },
+      {
+        "name": "RequestSize",
+        "id": 34,
+        "oneway": false
       }
     ],
     "topics": []
@@ -808,6 +813,11 @@
         "oneway": false
       },
       {
+        "name": "Resolve",
+        "id": 1645633795,
+        "oneway": false
+      },
+      {
         "name": "Renew",
         "id": 438534286,
         "oneway": false
@@ -838,6 +848,88 @@
         "subscribe_permission": "subscribe:system/events/network/up"
       }
     ]
+  },
+  {
+    "interface": "os.lazy.net.socket.v1",
+    "interface_id": "0x5cbc5b5a07e2bb16",
+    "methods": [
+      {
+        "name": "Open",
+        "id": 1401622761,
+        "oneway": false
+      },
+      {
+        "name": "Bind",
+        "id": 816668494,
+        "oneway": false
+      },
+      {
+        "name": "Connect",
+        "id": 1535748249,
+        "oneway": false
+      },
+      {
+        "name": "Listen",
+        "id": 1745080006,
+        "oneway": false
+      },
+      {
+        "name": "Accept",
+        "id": 1353867593,
+        "oneway": false
+      },
+      {
+        "name": "Send",
+        "id": 1921914063,
+        "oneway": false
+      },
+      {
+        "name": "Recv",
+        "id": 1829805133,
+        "oneway": false
+      },
+      {
+        "name": "SendTo",
+        "id": 1246690602,
+        "oneway": false
+      },
+      {
+        "name": "RecvFrom",
+        "id": 81212541,
+        "oneway": false
+      },
+      {
+        "name": "Poll",
+        "id": 1454776152,
+        "oneway": false
+      },
+      {
+        "name": "Shutdown",
+        "id": 1911669355,
+        "oneway": false
+      },
+      {
+        "name": "LocalAddr",
+        "id": 444792203,
+        "oneway": false
+      },
+      {
+        "name": "PeerAddr",
+        "id": 838739718,
+        "oneway": false
+      },
+      {
+        "name": "Close",
+        "id": 1300671683,
+        "oneway": false
+      },
+      {
+        "name": "Stats",
+        "id": 267161228,
+        "oneway": false
+      }
+    ],
+    "topics": []
   },
   {
     "interface": "os.lazy.messenger.policy.v1",

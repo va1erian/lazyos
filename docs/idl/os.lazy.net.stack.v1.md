@@ -19,7 +19,8 @@ when `timeout_ms` passes, and the caller sleeps in the kernel meanwhile with
 its own deadline (`msg_cancel` and the caller's death clean up). One
 caller may have up to 4 pings outstanding and all callers together 8; past
 either limit the call fails with `EAGAIN`. The stack's clock is the 100 Hz tick, so round trips read in
-multiples of 10 ms.
+multiples of 10 ms. `Resolve` (N3) parks the same way: the answer comes
+when the resolver replies, `ETIMEDOUT` when `timeout_ms` passes.
 
 ## Methods
 
@@ -30,6 +31,7 @@ multiples of 10 ms.
 | Routes | 321835703 | sync | `() -> (list: Array<RouteInfo>)` |
 | Stats | 267161228 | sync | `() -> (stats: StackStats)` |
 | Ping | 2142761129 | sync | `(dst: Bytes, payload_len: U32, timeout_ms: U32) -> (result: EchoResult)` |
+| Resolve | 1645633795 | sync | `(name: String, timeout_ms: U32) -> (addrs: Array<Bytes>)` |
 | Renew | 438534286 | sync | `() -> ()` |
 | Reattach | 60999493 | sync | `() -> ()` |
 
@@ -78,6 +80,9 @@ multiples of 10 ms.
 - `pings_sent: U64`
 - `pings_answered: U64`
 - `pings_timed_out: U64`
+- `lookups_sent: U64`
+- `lookups_answered: U64`
+- `lookups_failed: U64`
 
 ## struct `EchoResult`
 
