@@ -45,7 +45,9 @@ pub(super) fn start_ready(services: &mut [Service], broker: &mut router::TopicBr
 /// The credentials a manifest service runs with. Only `inputd` may hold the
 /// raw input bus (`CAP_INPUT_RAW`): it gets exactly that capability, and every
 /// other service inherits this supervisor's identity minus it, so a compromised
-/// service cannot read the keystroke stream. `None` (plain inherit) when this
+/// service cannot read the keystroke stream. Publishing onto the bus
+/// (`CAP_INPUT_SOURCE`) is stripped too: no service holds it until the USB
+/// driver gets a manifest row (`docs/usb-hid-plan.md` U5). `None` (plain inherit) when this
 /// task's own credentials cannot be read.
 fn manifest_cred(name: &str) -> Option<sys::Cred> {
     let mut own = sys::Cred::default();
@@ -53,7 +55,7 @@ fn manifest_cred(name: &str) -> Option<sys::Cred> {
     if name == "inputd" {
         return Some(sys::Cred::new(0, 0, sys::CAP_INPUT_RAW, own.label_id, 0));
     }
-    own.caps &= !sys::CAP_INPUT_RAW;
+    own.caps &= !(sys::CAP_INPUT_RAW | sys::CAP_INPUT_SOURCE);
     Some(own)
 }
 

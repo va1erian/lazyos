@@ -41,6 +41,12 @@ members = [
     # Keymaps, modifier/lock state, repeat and hotkey matching for `inputd`
     # (docs/input-plan.md): pure `no_std` logic with host tests.
     "libs/inputmap",
+    # USB descriptors and HID boot reports for `usbd` (docs/usb-hid-plan.md
+    # U0): pure `no_std` parsers of hostile device input, with host tests.
+    "libs/usbhid",
+    # xHCI registers, TRBs, contexts and ring state machines for `usbd`
+    # (docs/usb-hid-plan.md U0): pure `no_std` logic with host tests.
+    "libs/xhci",
     # Networking libraries (docs/networking-plan.md N0): the shared frame ring,
     # the virtio-net wire definitions, and the seeded-input helper the in-tree
     # fuzz-style tests use. Pure `no_std` logic (fuzzkit is host only).

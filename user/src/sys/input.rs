@@ -1,7 +1,8 @@
 //! The raw input event bus (`docs/input-plan.md`), wrapping syscall 25.
 //!
-//! Only a task holding `CAP_INPUT_RAW` (`inputd`) may use it; everyone else
-//! gets `-EPERM`.
+//! Only a task holding `CAP_INPUT_RAW` (`inputd`) may read it; an input
+//! driver holding `CAP_INPUT_SOURCE` may publish onto it as a registered
+//! source (`docs/usb-hid-plan.md` U1); everyone else gets `-EPERM`.
 
 use core::arch::asm;
 
@@ -14,12 +15,39 @@ pub const RAW_EVENT_BYTES: usize = 24;
 /// Capability bit that authorises the raw bus (kernel `ipc::credentials`).
 pub const CAP_INPUT_RAW: u32 = 1 << 9;
 
+/// Capability bit that authorises publishing as a source.
+pub const CAP_INPUT_SOURCE: u32 = 1 << 10;
+
+/// Source classes (`kernel/src/input/sources.rs`): what a source may publish.
+pub mod source_class {
+    /// `KEY` records.
+    pub const KEYBOARD: u8 = 1;
+    /// `REL_MOTION`, `BUTTON`, `SCROLL`.
+    pub const POINTER: u8 = 2;
+    /// `ABS_MOTION`, `BUTTON`, `SCROLL`.
+    pub const TABLET: u8 = 3;
+}
+
+/// Records one [`input_source_publish`] call may carry.
+pub const SOURCE_MAX_BATCH: usize = 64;
+
+/// One record a source publishes; the kernel adds sequence, time and device.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SourceRecord {
+    pub kind: u8,
+    pub code: u16,
+    pub value: i32,
+}
+
 /// Raw-bus op codes, mirroring `kernel/src/input/rawsys.rs`.
 pub mod input_op {
     pub const OPEN: u64 = 0;
     pub const POLL: u64 = 1;
     pub const CLOSE: u64 = 2;
     pub const DISPLAY_OWNER: u64 = 3;
+    pub const REGISTER_SOURCE: u64 = 4;
+    pub const PUBLISH: u64 = 5;
+    pub const CLOSE_SOURCE: u64 = 6;
 }
 
 /// Raw event kinds (`kernel/src/input/bus.rs`).
@@ -116,5 +144,46 @@ pub fn input_display_owner() -> Result<u64, i64> {
         Ok(code as u64)
     } else {
         Err(code)
+    }
+}
+
+/// Register a source of `class` ([`source_class`]); returns its id.
+/// `Err(-EPERM)` without `CAP_INPUT_SOURCE`, `Err(-EBUSY)` when full.
+pub fn input_source_register(class: u8) -> Result<u64, i64> {
+    let code = input_syscall(input_op::REGISTER_SOURCE, u64::from(class), 0);
+    if code >= 0 {
+        Ok(code as u64)
+    } else {
+        Err(code)
+    }
+}
+
+/// Publish up to [`SOURCE_MAX_BATCH`] records from source `id`; returns how
+/// many the kernel accepted (the rest were the wrong kind for the class, out
+/// of range, or over the rate limit).
+pub fn input_source_publish(id: u64, records: &[SourceRecord]) -> Result<usize, i64> {
+    if records.is_empty() || records.len() > SOURCE_MAX_BATCH {
+        return Err(-22);
+    }
+    let mut bytes = [0u8; SOURCE_MAX_BATCH * 8];
+    for (record, out) in records.iter().zip(bytes.as_chunks_mut::<8>().0) {
+        out[0] = record.kind;
+        out[2..4].copy_from_slice(&record.code.to_le_bytes());
+        out[4..8].copy_from_slice(&record.value.to_le_bytes());
+    }
+    let packed = id << 16 | records.len() as u64;
+    let code = input_syscall(input_op::PUBLISH, bytes.as_ptr() as u64, packed);
+    if code >= 0 {
+        Ok(code as usize)
+    } else {
+        Err(code)
+    }
+}
+
+/// Close source `id`; the kernel releases every key and button it held.
+pub fn input_source_close(id: u64) -> Result<(), i64> {
+    match input_syscall(input_op::CLOSE_SOURCE, id, 0) {
+        0 => Ok(()),
+        code => Err(code),
     }
 }

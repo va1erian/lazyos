@@ -49,6 +49,9 @@ pub fn teardown_task(slot: usize, table: u64, table_shared: bool) {
     // mask its IRQs, stop DMA, unmap MMIO from the dying address space, and free
     // the device for the next driver, before anything else can observe it.
     crate::dev::teardown_task(slot, table);
+    // A dead input driver's sources release every key and button they held
+    // (`docs/usb-hid-plan.md` U1), so a crash cannot leave one stuck.
+    crate::input::sources::teardown_task(slot);
     registry::release_owner(slot);
     for (handle, entry) in handles::entries_for_task(slot) {
         match entry.kind {
