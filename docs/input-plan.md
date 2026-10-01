@@ -230,7 +230,7 @@ that can be added behind that boundary later is deferred.
 | Keymap format | **Compiled-in tables** in `inputd` for US and FR (ported from `layout.rs`); layout chosen by a `confd` key | `.kmap` files under `/etc/keymaps`, XKB import, dead keys/compose |
 | Key repeat | In **`inputd`**, fixed delay/rate constants | Configurable via `confd`, per-device rates |
 | Secure attention sequence | **Out of scope** for now | Follows the session/lock-screen work in `security-model.md` |
-| Pointer devices | **Being migrated** by [usb-hid-plan.md](usb-hid-plan.md): the PS/2 mouse publishes `RelMotion`/`Button`/`Scroll` on the bus (tail-merged so motion cannot evict keys) and `inputd` owns the one cursor (P0, P1); `xuid` still reads the legacy display stream until P2 | Pointer capture via the grant mechanism |
+| Pointer devices | **Being migrated** by [usb-hid-plan.md](usb-hid-plan.md): the PS/2 mouse publishes `RelMotion`/`Button`/`Scroll` on the bus (tail-merged so motion cannot evict keys) and `inputd` owns the one cursor (P0, P1), which `xuid` takes from it, falling back to the legacy display stream only while `inputd` is away (P2); the kernel cursor state is removed with I5 | Pointer capture via the grant mechanism |
 
 ## Minimal first cut (what "v1" means)
 

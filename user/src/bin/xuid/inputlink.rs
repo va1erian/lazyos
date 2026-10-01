@@ -6,6 +6,9 @@
 //! keeps synthesising the frozen `KeyDown`/`KeyUp` only for legacy surfaces
 //! (those without an `inputd` session), and keeps its own hotkeys.
 //!
+//! It also takes the pointer from `inputd` once attached (`pointer_feed.rs`):
+//! one cursor for every pointing device, clamped to the bounds sent here.
+//!
 //! The link is best-effort: `inputd` starts after the compositor, so it is
 //! connected lazily and every failure just drops it to be retried; a session
 //! that cannot register simply stays on legacy delivery.
@@ -31,6 +34,10 @@ pub(super) struct InputLink {
     /// The last failure logged, so a changing error is reported but retries
     /// of the same one stay quiet.
     reported: Option<Option<i64>>,
+    /// The pointer comes from `inputd`, not the kernel's display stream.
+    pub(super) owns_pointer: bool,
+    /// The forwarded buttons `inputd` last reported held.
+    pub(super) buttons: u32,
 }
 
 impl InputLink {
@@ -41,6 +48,8 @@ impl InputLink {
             registered: BTreeSet::new(),
             told_focus: None,
             reported: None,
+            owns_pointer: false,
+            buttons: 0,
         }
     }
 }
@@ -70,6 +79,7 @@ impl Compositor {
                 self.input.told_focus = None;
                 sys::write_str("xuid: attached to inputd\n");
                 self.register_chords();
+                self.adopt_inputd_pointer();
                 true
             }
             Err(error) => {
@@ -103,6 +113,25 @@ impl Compositor {
         }
     }
 
+    /// Hand the pointer to `inputd`: give it the screen bounds and seed the
+    /// cursor from it. On failure the kernel stream stays the source.
+    fn adopt_inputd_pointer(&mut self) {
+        let (width, height) = (self.screen.width() as u32, self.screen.height() as u32);
+        let Some(link) = self.input.link.as_ref() else {
+            return;
+        };
+        let seed = link
+            .set_bounds(width, height)
+            .and_then(|()| link.get_pointer());
+        let Ok(seed) = seed else {
+            sys::write_str("xuid: pointer stays on the kernel stream\n");
+            return;
+        };
+        self.input.owns_pointer = true;
+        self.apply_pointer(&seed);
+        sys::write_str("xuid: pointer from inputd\n");
+    }
+
     /// Apply queued `inputd` events. `false` when the link is dead.
     fn apply_input_events(&mut self) -> bool {
         loop {
@@ -112,6 +141,9 @@ impl Compositor {
             match link.poll_event() {
                 Ok(Some(ShellEvent::SessionOpened(surface))) => self.set_session(surface, true),
                 Ok(Some(ShellEvent::SessionClosed(surface))) => self.set_session(surface, false),
+                Ok(Some(ShellEvent::Pointer(state))) if self.input.owns_pointer => {
+                    self.apply_pointer(&state)
+                }
                 // Hotkeys, grants and the escape chord are not used yet: the
                 // compositor keeps its own hotkey table until they are.
                 Ok(Some(_)) => {}
@@ -164,10 +196,15 @@ impl Compositor {
     }
 
     /// `inputd` went away: forget the link (retried later) and fall back to
-    /// legacy key delivery for every surface.
+    /// legacy key delivery for every surface and the kernel pointer.
     fn drop_input_link(&mut self) {
         if let Some(link) = self.input.link.take() {
             link.close();
+        }
+        if self.input.owns_pointer {
+            self.release_pointer();
+            self.input.owns_pointer = false;
+            sys::write_str("xuid: pointer back on the kernel stream\n");
         }
         self.input.next_try = sys::clock() + RETRY_TICKS;
         for surface in self.surfaces.iter_mut() {

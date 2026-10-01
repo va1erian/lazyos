@@ -40,6 +40,13 @@ pub(super) enum EventKind {
     PointerWheel,
 }
 
+impl EventKind {
+    /// Whether this is a pointer record (not a key).
+    pub(super) fn is_pointer(self) -> bool {
+        !matches!(self, EventKind::KeyDown | EventKind::KeyUp)
+    }
+}
+
 /// One raw kernel input record: `a`/`b` carry the pointer `(x, y)`, the button
 /// id, the wheel notches (`a`) or the key code depending on the kind. Screen-absolute; `xuid`
 /// translates to surface coordinates before forwarding.
