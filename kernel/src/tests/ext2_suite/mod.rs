@@ -220,6 +220,7 @@ pub(super) const CASES: &[(&str, Test)] = &[
         "fs_ext2_confd_store_power_cut_sweep",
         confd_store_power_cut_sweep,
     ),
+    ("fs_ext2_rename_io_error_sweep", rename_io_error_sweep),
     (
         "fs_ext2_confd_store_soak_generations",
         confd_store_soak_generations,

@@ -244,3 +244,62 @@ pub fn confd_store_soak_generations() -> Result<(), String> {
     }
     Ok(())
 }
+
+/// Fail one write of a rename-over-existing at a time (an I/O error, not a
+/// power cut: later writes succeed). Whatever the rename reported, every name
+/// left must reach its file's data, and unlinking one name must never free
+/// the blocks of a file another name still points at.
+pub fn rename_io_error_sweep() -> Result<(), String> {
+    task::register_kernel();
+    let (fs, mut vfs, disk) = mounted(1024, 512)?;
+    let root = Id::ROOT;
+    vfs.create(root, "/old", 0o644).map_err(fs_error)?;
+    vfs.write(root, "/old", 0, b"old contents")
+        .map_err(fs_error)?;
+    vfs.create(root, "/new.tmp", 0o644).map_err(fs_error)?;
+    vfs.write(root, "/new.tmp", 0, b"new contents")
+        .map_err(fs_error)?;
+    fs.flush().map_err(fs_error)?;
+    drop((fs, vfs));
+    let pristine = disk.data.lock().clone();
+
+    let mut completed = false;
+    for k in 1..60 {
+        disk.data.lock().copy_from_slice(&pristine);
+        let (fs, mut vfs) = remount_disk(disk)?;
+        disk.fail_nth_write(k);
+        let finished = vfs.rename(root, "/new.tmp", "/old").is_ok();
+        disk.fail_nth_write(u32::MAX);
+        drop((fs, vfs));
+
+        let (fs, mut vfs) = remount_disk(disk)?;
+        let names: Vec<&str> = ["/old", "/new.tmp"]
+            .into_iter()
+            .filter(|name| vfs.stat(root, name).is_ok())
+            .collect();
+        check!(!names.is_empty(), "write {k} failed: both names are gone");
+        for (index, name) in names.iter().enumerate() {
+            let data = vfs.read_file(root, name).map_err(fs_error)?;
+            check!(
+                data == b"old contents" || data == b"new contents",
+                "write {k} failed: {name} reads {data:?}"
+            );
+            // Every other name must keep its blocks once this one is gone.
+            vfs.unlink(root, name).map_err(fs_error)?;
+            for other in &names[index + 1..] {
+                let block = fs.mapped_block(other, 0).map_err(fs_error)?;
+                // Block 0 means the inode itself was freed and cleared.
+                check!(
+                    block != 0 && block_allocated(disk, block),
+                    "write {k} failed: unlinking {name} freed {other}'s data"
+                );
+            }
+        }
+        if finished {
+            completed = true;
+            break;
+        }
+    }
+    check!(completed, "the rename never completed within 60 writes");
+    Ok(())
+}

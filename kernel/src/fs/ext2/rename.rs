@@ -68,9 +68,21 @@ impl Ext2 {
             None => self.add_entry(to.parent_ino, to.parent, to.name, child_ino, FT_REGULAR),
         };
         if let Err(error) = linked {
-            put16(child, INO_LINKS, links);
-            let _ = self.write_inode(child_ino, child);
-            return Err(error);
+            // The entry block can land before a later write (the directory
+            // inode) fails, so the error alone does not say whether the new
+            // name exists. Drop the extra link only when the disk shows it
+            // does not: two names on one link would let an unlink free a file
+            // the other name still points at.
+            match self.find_entry(to.parent_ino, to.name) {
+                Ok((ino, _)) if ino == child_ino => {} // committed: finish the move
+                Ok(_) | Err(FsError::NotFound) => {
+                    put16(child, INO_LINKS, links);
+                    let _ = self.write_inode(child_ino, child);
+                    return Err(error);
+                }
+                // Unknown: keep the extra link (at worst a leaked count).
+                Err(_) => return Err(error),
+            }
         }
         if same_dir {
             // Two in-memory copies of one inode: `add_entry` may have grown
