@@ -119,6 +119,8 @@ mod menu;
 mod menuitems;
 #[path = "xuid/origin.rs"]
 mod origin;
+#[path = "xuid/pointer_feed.rs"]
+mod pointer_feed;
 #[path = "xuid/present.rs"]
 mod present;
 #[path = "xuid/protocol.rs"]
@@ -228,6 +230,7 @@ fn run() -> ! {
     sys::write_str(anim::selftest_anim());
     sys::write_str(wheel::selftest_wheel_routing());
     sys::write_str(reap::selftest_reap());
+    sys::write_str(pointer_feed::selftest_pointer_feed());
 
     loop {
         // 0. `inputd`: register new surfaces, report focus, apply the
@@ -236,7 +239,7 @@ fn run() -> ! {
 
         // 1. Input: drain the whole kernel queue first so pointer moves
         //    coalesce across poll calls, then handle what is left in order.
-        drain_input(&mut input);
+        drain_input(&mut input, comp.input.owns_pointer);
         for event in input.drain(..) {
             comp.handle_event(event);
         }
@@ -287,8 +290,10 @@ const MAX_INPUT: usize = 256;
 /// Drain the kernel input queue into `batch`, collapsing each run of pointer
 /// moves into its last record (issue #339). Draining before handling adds no
 /// latency and lets a run split across two poll calls still collapse;
-/// [`MAX_INPUT`] records bound one drain.
-fn drain_input(batch: &mut Vec<Event>) {
+/// [`MAX_INPUT`] records bound one drain. While `inputd` owns the pointer
+/// (`pointer_feed.rs`) the kernel's pointer records are read and dropped, so
+/// only keys come from this stream.
+fn drain_input(batch: &mut Vec<Event>, inputd_pointer: bool) {
     let mut records = [0u8; EVENT_BYTES * INPUT_BATCH];
     let mut read = 0;
     while read + INPUT_BATCH <= MAX_INPUT {
@@ -301,6 +306,9 @@ fn drain_input(batch: &mut Vec<Event>) {
         read += count;
         for index in 0..count {
             if let Some(event) = decode_event(&records, index) {
+                if inputd_pointer && event.kind.is_pointer() {
+                    continue;
+                }
                 push_coalesced(batch, event);
             }
         }

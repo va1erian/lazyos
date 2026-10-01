@@ -83,6 +83,21 @@ pub enum ShellEvent {
     SessionOpened(u64),
     /// `surface`'s last input session ended.
     SessionClosed(u64),
+    /// The pointer changed (`docs/usb-hid-plan.md`): screen-absolute position,
+    /// the held-button mask (`1 << (usage - 1)`), and wheel notches since the
+    /// previous event (positive is up / right). Position and wheel apply
+    /// before the button change.
+    Pointer(PointerState),
+}
+
+/// One `PointerEvent` from `inputd`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct PointerState {
+    pub x: i32,
+    pub y: i32,
+    pub buttons: u32,
+    pub wheel: i32,
+    pub wheel_h: i32,
 }
 
 /// Decode one shell event; `None` for anything unknown or malformed.
@@ -105,6 +120,16 @@ pub fn decode_shell_event(parcel: &Parcel) -> Option<ShellEvent> {
         }
         shell_wire::METHOD_SESSIONCLOSED => {
             ShellEvent::SessionClosed(shell_wire::decode_session_closed_args(body).ok()?.surface)
+        }
+        shell_wire::METHOD_POINTEREVENT => {
+            let args = shell_wire::decode_pointer_event_args(body).ok()?;
+            ShellEvent::Pointer(PointerState {
+                x: args.x,
+                y: args.y,
+                buttons: args.buttons,
+                wheel: args.wheel,
+                wheel_h: args.wheel_h,
+            })
         }
         _ => return None,
     })
@@ -204,6 +229,27 @@ impl ShellLink {
         Ok(shell_wire::decode_register_hotkey_reply(&reply.body)
             .map_err(Error::Parcel)?
             .id)
+    }
+
+    /// Clamp the cursor to a `width` x `height` screen; it also subscribes this
+    /// compositor to `PointerEvent`.
+    pub fn set_bounds(&self, width: u32, height: u32) -> Result<()> {
+        let body = shell_wire::encode_set_bounds_args(&shell_wire::SetBoundsArgs { width, height })
+            .map_err(Error::Parcel)?;
+        self.shell_call(shell_wire::METHOD_SETBOUNDS, body)
+            .map(|_| ())
+    }
+
+    /// The cursor position and held buttons, to seed the compositor's cursor.
+    pub fn get_pointer(&self) -> Result<PointerState> {
+        let reply = self.shell_call(shell_wire::METHOD_GETPOINTER, Vec::new())?;
+        let seed = shell_wire::decode_get_pointer_reply(&reply.body).map_err(Error::Parcel)?;
+        Ok(PointerState {
+            x: seed.x,
+            y: seed.y,
+            buttons: seed.buttons,
+            ..PointerState::default()
+        })
     }
 
     /// The next queued shell event, without blocking. `Err` means the link is
