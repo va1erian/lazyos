@@ -1238,34 +1238,3 @@ dependencies = [
  "zune-core",
 ]
 
-[[patch.unused]]
-name = "lazyrad-designer"
-version = "0.1.0"
-
-[[patch.unused]]
-name = "lazyrad-ide"
-version = "0.1.0"
-
-[[patch.unused]]
-name = "lazyrad-packager"
-version = "0.1.0"
-
-[[patch.unused]]
-name = "lazyrad-player"
-version = "0.1.0"
-
-[[patch.unused]]
-name = "lazyrad-project"
-version = "0.1.0"
-
-[[patch.unused]]
-name = "lazyrad-runtime"
-version = "0.1.0"
-
-[[patch.unused]]
-name = "xui-form"
-version = "0.1.0"
-
-[[patch.unused]]
-name = "xui-rhai"
-version = "0.1.0"
