@@ -30,6 +30,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
+  # Hermetic CI: every image is created fresh (docs/filesystem-plan.md F2).
+  LAZYOS_RESET_OS: "1"
   FUZZ_SECONDS: ${{ github.event.inputs.fuzz_seconds || '60' }}
 
 jobs:

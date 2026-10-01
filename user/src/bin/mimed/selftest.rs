@@ -17,7 +17,7 @@ use super::handlers::open_path;
 pub(crate) fn selftest(db: &MimeDb, apps: &mut AppRegistry) {
     for (path, expected) in [
         ("NOTES.TXT", "text/plain"),
-        ("README.MD", "text/markdown"),
+        (fhs::docs::README, "text/markdown"),
         ("MAIN.RS", "text/x-rust"),
         ("APP.ELF", "application/x-elf"),
         ("LOGO.PNG", "image/png"),

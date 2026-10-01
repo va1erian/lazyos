@@ -75,6 +75,9 @@ members = [
     # `no_std` + `alloc` over a `BlockIo` seam, shared by the kernel and the host
     # image build, with host tests, a soak and a fuzz entry point.
     "libs/ext2fs",
+    # Host tests of the image build (`build_support/os_*.rs`, docs_embed): the
+    # layout table, the manifest diff, the 64 MiB guard and create-vs-update.
+    "build_support/tests",
 ]
 # The xui app is an ordinary static-musl `std` program with its own workspace:
 # it is built by `tools/xui/build.py` and embedded in the image, never by the
@@ -93,6 +96,9 @@ kernel = { path = "kernel", artifact = "bin", target = "x86_64-unknown-none" }
 # The user program is built as a static ELF and added to the disk image.
 user = { path = "user", artifact = "bin", target = "x86_64-unknown-none" }
 bootloader = "0.11.17"
+# The OS volume is formatted and updated with the same ext2 code the kernel
+# reads it with (docs/filesystem-plan.md F2).
+ext2fs = { path = "libs/ext2fs" }
 
 [profile.dev]
 panic = "abort"

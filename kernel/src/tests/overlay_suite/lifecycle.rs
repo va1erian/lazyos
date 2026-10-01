@@ -131,12 +131,19 @@ pub fn abi_syscalls() -> Result<(), String> {
     task::register_kernel();
     check!(crate::fs::init(), "the boot volume did not mount");
 
+    // The legacy layout gives the ABI a copy-up overlay over the FAT root; the
+    // configured one shares the ext2 OS volume with the native table, so
+    // every mutation below is real and the native FAT volume is `/boot`.
     let mounts = crate::fs::abi_mounts();
+    let overlay = mounts
+        .iter()
+        .any(|(point, name)| point == "/" && *name == "overlay (abi rw)");
     check!(
-        mounts
-            .iter()
-            .any(|(point, name)| point == "/" && *name == "overlay (abi rw)"),
-        "ABI root is not the overlay: {mounts:?}"
+        overlay
+            || mounts
+                .iter()
+                .any(|(point, name)| point == "/" && name.starts_with("ext2")),
+        "ABI root is neither the overlay nor ext2: {mounts:?}"
     );
     check!(
         mounts
@@ -217,25 +224,37 @@ pub fn abi_syscalls() -> Result<(), String> {
         crate::fs::vfs_stat(Id::ROOT, "/ABIDIR").err() == Some(FsError::NotFound),
         "ABIDIR leaked into the native table"
     );
+    let native_ro = if overlay {
+        "/NATIVE.TXT"
+    } else {
+        "/boot/NATIVE.TXT"
+    };
     check!(
-        crate::fs::vfs_create(Id::ROOT, "/NATIVE.TXT", 0o644).err() == Some(FsError::ReadOnly),
-        "the native FAT root is no longer read-only"
+        crate::fs::vfs_create(Id::ROOT, native_ro, 0o644).err() == Some(FsError::ReadOnly),
+        "the native FAT volume is no longer read-only"
     );
     Ok(())
 }
 
-/// `unlink` while a descriptor is open: the fd snapshot keeps reading, the
-/// path stops resolving, and a later write through the orphan answers
-/// ENOENT (the documented snapshot-model gap).
+/// `unlink` while a descriptor is open: the path stops resolving and the fd
+/// keeps reading its data. On the overlay (a snapshot descriptor) a later write
+/// through the orphan answers ENOENT, the documented snapshot-model gap; on the
+/// ext2 root (an in-place descriptor on a hidden `.unlinked-*` entry) it
+/// succeeds, as POSIX says.
 pub fn unlink_while_open() -> Result<(), String> {
     const AT_FDCWD: u64 = (-100i64) as u64;
-    const O_WRONLY: u64 = 1;
+    // Read-write: the in-place descriptor enforces the access mode (reading a
+    // write-only one is EBADF), where the snapshot one did not.
+    const O_RDWR: u64 = 2;
     const O_CREAT: u64 = 0o100;
     const O_TRUNC: u64 = 0o1000;
     let enoent = (-2i64) as u64;
 
     task::register_kernel();
     check!(crate::fs::init(), "the boot volume did not mount");
+    let overlay = crate::fs::abi_mounts()
+        .iter()
+        .any(|(point, name)| point == "/" && *name == "overlay (abi rw)");
     let path = b"/ABIOPEN.TXT\0";
     let _ = crate::fs::abi_unlink(Id::ROOT, "/ABIOPEN.TXT");
 
@@ -243,7 +262,7 @@ pub fn unlink_while_open() -> Result<(), String> {
         257,
         AT_FDCWD,
         path.as_ptr() as u64,
-        O_WRONLY | O_CREAT | O_TRUNC,
+        O_RDWR | O_CREAT | O_TRUNC,
     );
     check!(
         (3..task::FD_COUNT as u64).contains(&fd),
@@ -285,10 +304,12 @@ pub fn unlink_while_open() -> Result<(), String> {
         read == payload.len() as u64 && &buf[..payload.len()] == payload,
         "the open fd lost its snapshot: read={read}"
     );
-    // ...but a write through the orphan has no backing path.
+    // ...and a write through the orphan has no backing path on the overlay,
+    // while the ext2 descriptor keeps writing its hidden entry.
+    let wrote = process::linux::dispatch_for_test(1, fd, payload.as_ptr() as u64, 1);
     check!(
-        process::linux::dispatch_for_test(1, fd, payload.as_ptr() as u64, 1) == enoent,
-        "writing through an unlinked fd did not answer ENOENT"
+        wrote == if overlay { enoent } else { 1 },
+        "writing through an unlinked fd answered {wrote:#x}"
     );
     check!(
         process::linux::dispatch_for_test(3, fd, 0, 0) == 0,

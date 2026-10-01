@@ -56,8 +56,8 @@ LazyOS is built around **Messenger**, a kernel-mediated, capability-based
 IPC/pub-sub fabric, with userspace system services (`messengerd`, `init`,
 `logd`, `healthd`, `keyd`, `accounts`, `clipboardd`, the `xuid` display
 compositor, and more) running over a preemptive multitasking kernel with a
-VFS (FAT boot volume, ramfs `/tmp`, an ext2 read/write driver that only the
-kernel test suite exercises so far). The authoritative description of the
+VFS (an ext2 read/write OS volume at `/`, a read-only FAT `/boot`, ramfs
+`/transient` and `/tmp`, an optional ext2 home volume). The authoritative description of the
 current architecture and the staged roadmap (S0–S9) is
 [`docs/platform-plan.md`](docs/platform-plan.md), with per-subsystem detail in
 [`docs/architecture/`](docs/architecture) (boot, memory, tasks, filesystem,
@@ -87,6 +87,24 @@ a session script instead:
 python tools/screenshot/qemu_session.py --image target/lazyos.img \
     --out shots/demo --script tools/screenshot/examples/multitask_demo.json
 ```
+
+### The disk image
+
+`cargo build` writes `target/lazyos.img` as an MBR disk with three partitions:
+the bootloader's stage 2, a FAT `/boot` (only the kernel and a generated
+`lazyos.cfg`), and an ext2 OS volume at LBA 131072 (64 MiB; `LAZYOS_OS_SIZE`,
+default `512M`, minimum `128M`) that holds every other file at the flat names
+it always had (`SUPER.ELF`, `PASSWD`, `docs/...`) plus `/data`. The volume is
+written by `libs/ext2fs`, the code the kernel mounts it with (`build_support/os_*.rs`).
+A rebuild **updates the OS volume in place**: installed apps, settings, logs
+and your own files survive, and only paths listed in `/system/.image-manifest`
+are replaced or deleted. `LAZYOS_RESET_OS=1 cargo build` (or
+`python tools/run_demo.py --reset-os`) recreates it with a new UUID; so does an
+image that fails validation, with a `cargo:warning=` giving the reason. Changing
+`LAZYOS_OS_SIZE` on an existing image needs the reset. Do not rebuild while QEMU
+has the image open (the build fails with a message). CI sets `LAZYOS_RESET_OS=1`
+everywhere. ext2 is case-sensitive: look names up exactly as stored, through
+`libs/fhs`. Host tests: `cargo test -p build-support-tests`.
 
 ## Docs app and the C++ toolchain
 

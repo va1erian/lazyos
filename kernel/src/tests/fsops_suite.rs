@@ -245,14 +245,21 @@ pub fn errors_are_reported() -> Result<(), String> {
         call(STAT, unterminated.as_ptr() as u64, 0, 0) == failed(ENAMETOOLONG),
         "an unterminated path was accepted"
     );
-    // The FAT boot volume stays read-only.
+    // The FAT boot volume stays read-only: `/boot` in the configured layout
+    // (the OS volume at `/` is writable), the root in the legacy one.
     if crate::fs::init() {
+        let configured = crate::fs::vfs_stat(crate::fs::vfs::Id::ROOT, "/boot/lazyos.cfg").is_ok();
+        let (dir, file) = if configured {
+            ("/boot/NEWDIR", "/boot/lazyos.cfg")
+        } else {
+            ("/NEWDIR", "/HELLO.TXT")
+        };
         check!(
-            path_call(MKDIR, "/NEWDIR") != 0,
+            path_call(MKDIR, dir) != 0,
             "mkdir succeeded on the read-only boot volume"
         );
         check!(
-            put("/HELLO.TXT", b"x") != 5,
+            put(file, b"x") != 5,
             "overwrote a file on the read-only boot volume"
         );
     }

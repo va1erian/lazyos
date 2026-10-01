@@ -4,10 +4,12 @@
 //! build artifact, never committed), so like BusyBox it is embedded whenever it
 //! is available. It is stored as `RHAI.ELF`: the kernel's Linux loader maps
 //! `rhai` typed at the `sh` prompt (or `/usr/local/bin/rhai`) to the image-root
-//! `RHAI.ELF` (`kernel/src/process/linux/path.rs`), and the 8.3 name is what
-//! the kernel's short-name FAT reader resolves.
+//! `RHAI.ELF` (`kernel/src/process/linux/path.rs`). ext2 is case-sensitive, so the
+//! stored name and that lookup must agree exactly (both are uppercase).
 
 use std::path::{Path, PathBuf};
+
+use crate::os_image::Sink;
 
 /// Where the built command may appear.
 const BUILT: &str = "target/rhai/rhai.elf";
@@ -23,7 +25,7 @@ pub fn find(manifest_dir: &Path) -> Option<PathBuf> {
 
 /// Add `RHAI.ELF` to the image when the command is available. The ABI bench
 /// (`LAZYOS_INIT`) keeps its baseline image size and boot time, so it skips it.
-pub fn embed(builder: &mut bootloader::DiskImageBuilder, manifest_dir: &Path) {
+pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path) {
     println!("cargo:rerun-if-env-changed=LAZYOS_RHAI");
     // Watched even when missing: an ELF built later triggers an image rebuild.
     println!(
@@ -37,7 +39,7 @@ pub fn embed(builder: &mut bootloader::DiskImageBuilder, manifest_dir: &Path) {
         Some(path) => {
             println!("cargo:warning=LAZYOS_RHAI embedded: {}", path.display());
             println!("cargo:rerun-if-changed={}", path.display());
-            builder.set_file(String::from("RHAI.ELF"), path);
+            sink.add_file("RHAI.ELF", path);
         }
         None => println!(
             "cargo:warning=rhai unavailable; the image will have no `rhai` command \

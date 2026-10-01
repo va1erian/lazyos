@@ -1,27 +1,23 @@
-//! Embed the documentation tree in the FAT boot volume.
+//! Embed the documentation tree in the OS volume.
 //!
 //! Every `*.md` under `docs/` (recursively, so `docs/architecture/boot.md`
 //! included) and the repository `README.md` are stored under `docs/<same
-//! relative path>` on the boot disk, so the Docs app and the Editor can read
+//! relative path>` on the OS volume, so the Docs app and the Editor can read
 //! them through the VFS at `/docs/...` (the root `README.md` becomes
 //! `/docs/README.md`).
 //!
-//! **Builder support.** The pinned `bootloader` 0.11.17 builds its FAT volume
-//! with the `fatfs` crate: `add_files_to_image` (`bootloader/src/fat.rs`)
-//! creates each destination's parent directories and hands the full
-//! `/`-separated relative path to `Dir::create_file`, and `fatfs` 0.3.6 walks
-//! those paths, writes VFAT long-name entries and generates an 8.3 short alias
-//! for any name that does not fit (its `ShortNameGenerator`). So subdirectories
-//! and names longer than 8.3 are supported on the builder side; no flattening
-//! is needed. The kernel's FAT reader resolves both the long and the short name
-//! case-insensitively (`kernel/src/fs/fat/resolve.rs`), so the same tree is
-//! reachable as written.
+//! **Case.** The OS volume is ext2, which is case-sensitive: the Docs app and the
+//! Editor open `/docs/README.md` by exactly that spelling (`fhs::docs`), so the
+//! destination keeps the case the source file has, and `docs/` wins over the
+//! root `README.md` under any case. Directories and long names are created as
+//! needed by the image composer.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-/// The on-disk directory the docs tree is copied to (the image root is the FAT
-/// root, which the kernel mounts at `/`).
+use crate::os_image::Sink;
+
+/// The directory the docs tree is copied to, under the OS volume root.
 const DISK_ROOT: &str = "docs";
 
 /// The repository README, embedded as `docs/README.md`.
@@ -53,8 +49,9 @@ pub fn collect(manifest_dir: &Path) -> Result<Vec<Doc>, String> {
 
     let readme = manifest_dir.join(README);
     if readme.is_file() {
-        // The FAT volume is case-insensitive, so a real `docs/readme.MD` (any
-        // case) wins over the root README; both would otherwise write one file.
+        // A real `docs/readme.MD` (any case) wins over the root README: two
+        // spellings of one document must not both reach the volume, since
+        // the readers open `/docs/README.md` by exactly that name.
         let dest = format!("{DISK_ROOT}/{README}");
         if !found.keys().any(|key| key.eq_ignore_ascii_case(&dest)) {
             found.insert(dest, readme);
@@ -78,8 +75,8 @@ pub fn collect(manifest_dir: &Path) -> Result<Vec<Doc>, String> {
 /// destination). A missing top-level directory is fine, but an unreadable
 /// directory or entry is an error (a build must not silently lose documents); a
 /// symlinked directory is not followed, so the walk cannot loop. Two files that
-/// differ only by case would collide on the case-insensitive FAT volume, so the
-/// second is skipped with a warning.
+/// differ only by case would be two spellings of one document (and collide on a
+/// case-folding host checkout), so the second is skipped with a warning.
 fn collect_dir(
     dir: &Path,
     manifest_dir: &Path,
@@ -134,7 +131,7 @@ fn is_markdown(path: &Path) -> bool {
 
 /// The `/`-separated image destination for a path under `manifest_dir`
 /// (`...\docs\architecture\boot.md` -> `docs/architecture/boot.md`). `None`
-/// when a path component is not valid UTF-8 and so cannot name a FAT entry.
+/// when a path component is not valid UTF-8 and so cannot name an image path.
 fn destination(path: &Path, manifest_dir: &Path) -> Option<String> {
     let relative = path.strip_prefix(manifest_dir).ok()?;
     let mut dest = String::new();
@@ -169,11 +166,8 @@ fn read_file(path: &Path) -> Result<Vec<u8>, String> {
 
 /// Add the docs tree to the image.
 ///
-/// Cargo does not run tests inside a build script, so `embed` (and its
-/// `bootloader` dependency) is compiled out under `cfg(test)`; the host tests
-/// below exercise the dependency-free [`collect`] directly.
-#[cfg(not(test))]
-pub fn embed(builder: &mut bootloader::DiskImageBuilder, manifest_dir: &Path) {
+/// The host tests (`build_support/tests`) exercise [`collect`] and this.
+pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path) {
     // A directory is watched recursively, so an added or removed doc triggers a
     // rebuild; the README is watched separately (it lives outside `docs/`).
     println!(
@@ -195,7 +189,7 @@ pub fn embed(builder: &mut bootloader::DiskImageBuilder, manifest_dir: &Path) {
     }
     let count = docs.len();
     for doc in docs {
-        builder.set_file_contents(doc.dest, doc.bytes);
+        sink.add_bytes(&doc.dest, doc.bytes);
     }
     println!("cargo:warning=docs: embedded {count} markdown file(s) at /{DISK_ROOT}/");
 }

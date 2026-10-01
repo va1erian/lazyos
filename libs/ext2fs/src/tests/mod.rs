@@ -14,6 +14,7 @@ use crate::{Ext2, Geometry};
 mod format_tests;
 mod malformed;
 mod ops;
+mod ops_state;
 mod populate_tests;
 mod seeded;
 mod soak;

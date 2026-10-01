@@ -189,7 +189,7 @@ pub const RHAI_ELF: &str = "RHAI.ELF";
 /// The `lazyrad` player. Written by the image build. Target (F3): "/system/bin/lrplay".
 pub const LRPLAY_ELF: &str = "LRPLAY.ELF";
 
-/// BusyBox, the console shell and applets (the Linux ABI sees it as `/busybox`). Written by the image build. Target (F3): "/system/bin/busybox".
+/// BusyBox, the console shell and applets (the Linux ABI sees it as `/BUSYBOX`). Written by the image build. Target (F3): "/system/bin/busybox".
 pub const BUSYBOX: &str = "BUSYBOX";
 
 /// The account database. Written by the image build. Target (F3): "/system/etc/passwd".
@@ -205,7 +205,8 @@ pub const XAPPS_LST: &str = "XAPPS.LST";
 /// `"/system/bin/lrplay"`.
 pub const LRPLAY_PATH: &str = "/LRPLAY.ELF";
 
-/// The path the Linux ABI gives BusyBox: the kernel resolves a lowercase root
-/// name onto the uppercase file (`process/linux/path.rs`). Target (F3):
+/// The path of BusyBox at the root, spelled exactly as it is stored: the root is
+/// case-sensitive ext2, so `/busybox` would not find `BUSYBOX`. The kernel
+/// resolves applet names onto it (`process/linux/path.rs`). Target (F3):
 /// `"/system/bin/busybox"`.
-pub const BUSYBOX_PATH: &str = "/busybox";
+pub const BUSYBOX_PATH: &str = "/BUSYBOX";

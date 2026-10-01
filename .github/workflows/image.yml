@@ -1,0 +1,64 @@
+name: image
+
+# The build-made OS image (docs/filesystem-plan.md F2): `cargo build` creates
+# target/lazyos.img with three MBR entries, and a second build updates the ext2
+# OS volume in place. `e2fsck -fn` and `debugfs` check both, independently of
+# the libs/ext2fs code that wrote them.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "build.rs"
+      - "build_support/**"
+      - "libs/ext2fs/**"
+      - "libs/fhs/**"
+      - ".github/workflows/image.yml"
+  pull_request:
+    paths:
+      - "build.rs"
+      - "build_support/**"
+      - "libs/ext2fs/**"
+      - "libs/fhs/**"
+      - ".github/workflows/image.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: image-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    env:
+      # A small OS volume keeps the job quick; the minimum is 128M.
+      LAZYOS_OS_SIZE: 128M
+    steps:
+      - uses: actions/checkout@v4
+
+      # rust-toolchain.toml pins the nightly toolchain.
+      - name: Install e2fsprogs
+        run: sudo apt-get update && sudo apt-get install -y e2fsprogs
+
+      - name: Image build tests
+        run: cargo test -p build-support-tests
+
+      - name: Fresh image (LAZYOS_RESET_OS=1)
+        run: LAZYOS_RESET_OS=1 cargo build
+
+      - name: Check the fresh image
+        run: bash tools/ci/check_os_image.sh target/lazyos.img fresh
+
+      # No LAZYOS_RESET_OS here: the second build must update in place and
+      # keep the volume's UUID.
+      - name: Rebuild in place
+        run: |
+          touch build.rs
+          env -u LAZYOS_RESET_OS cargo build 2>&1 | tee target/update.log
+          grep -q "updated in place" target/update.log
+
+      - name: Check the updated image
+        run: bash tools/ci/check_os_image.sh target/lazyos.img updated

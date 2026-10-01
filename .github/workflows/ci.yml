@@ -24,6 +24,11 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# F2 (docs/filesystem-plan.md): `cargo build` updates target/lazyos.img in place when it
+# exists; CI is hermetic, so every image is created fresh.
+env:
+  LAZYOS_RESET_OS: "1"
+
 jobs:
   fmt:
     runs-on: ubuntu-latest
@@ -73,6 +78,10 @@ jobs:
           FUZZ_CASES: "2000"
       - name: Clippy (ext2fs, tests and fuzz entry point)
         run: cargo clippy -p ext2fs --all-targets --features fuzz -- -D warnings -D clippy::undocumented_unsafe_blocks
+      - name: Image build modules (layout, manifest diff, 64 MiB guard, create vs update)
+        run: cargo test -p build-support-tests
+      - name: Clippy (image build modules)
+        run: cargo clippy -p build-support-tests --all-targets -- -D warnings
 
   build-and-boot:
     runs-on: ubuntu-latest
