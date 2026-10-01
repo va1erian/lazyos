@@ -15,6 +15,7 @@ members = [
     "crates/paint",
     "crates/explorer",
     "crates/settings",
+    "crates/confd-editor",
     "crates/testkit",
 ]
 
@@ -50,6 +51,8 @@ xui-paint = { path = "crates/paint" }
 xui-explorer = { path = "crates/explorer", features = ["village-icons"] }
 # The Settings app core (sections, config seam, UI); the binary supplies confd.
 xui-settings = { path = "crates/settings" }
+# The Config app core (registry tree editor); the binary supplies confd.
+xui-confd-editor = { path = "crates/confd-editor" }
 
 [[bin]]
 name = "xui-m0"
@@ -102,3 +105,7 @@ strip = "symbols"
 [[bin]]
 name = "xui-settings"
 path = "src/bin/settings.rs"
+
+[[bin]]
+name = "xui-confd"
+path = "src/bin/confd_editor.rs"

@@ -1,12 +1,17 @@
-//! The Settings app's [`ConfigStore`] over `confd` (`os.lazy.confd.v1`).
+//! The [`ConfigStore`] the Settings app and the [`ConfStore`] the Config app
+//! use over `confd` (`os.lazy.confd.v1`).
 //!
 //! Bodies come from the generated `messenger-generated` stubs; only the
 //! wire-`Value` <-> `confd::Value` glue lives here. `sys/**` is writable only
-//! by uid 0, which is what every desktop app runs as today.
+//! by uid 0, which is what every desktop app runs as today. The two traits
+//! differ in error handling: Settings ignores failures (`Option`/`String`),
+//! while Config maps the `CONFD_*` codes onto [`ConfStoreError`] so it can tell
+//! `DENIED` from `NOT_FOUND`.
 
 use messenger_generated::os_lazy_confd_v1 as wire;
 use messenger_generated::os_lazy_init_v1 as init_wire;
-use xui_settings::store::{AppChoice, ConfigStore, StoreError, Value};
+use xui_confd_editor::store::{ConfStore, StoreError as ConfStoreError, StoreInfo};
+use xui_settings::store::{AppChoice, ConfigStore, StoreError as SettingsError, Value};
 
 use super::messenger::Service;
 
@@ -32,12 +37,19 @@ impl ConfdStore {
         ConfdStore
     }
 
-    fn call(&self, method: u32, body: Vec<u8>) -> Result<libmessenger::Parcel, StoreError> {
+    fn call(&self, method: u32, body: Vec<u8>) -> Result<libmessenger::Parcel, SettingsError> {
         let service =
             Service::connect(NAME).map_err(|code| format!("confd unavailable ({code})"))?;
         service
             .call(wire::INTERFACE_ID, method, ERROR_FIELD, body)
             .map_err(|code| format!("confd error {code}"))
+    }
+
+    /// The same call with the raw code kept, so the Config app can map the
+    /// `CONFD_*` codes onto [`ConfStoreError`] instead of a display string.
+    fn call_raw(&self, method: u32, body: Vec<u8>) -> Result<libmessenger::Parcel, i64> {
+        let service = Service::connect(NAME)?;
+        service.call(wire::INTERFACE_ID, method, ERROR_FIELD, body)
     }
 }
 
@@ -93,7 +105,7 @@ impl ConfigStore for ConfdStore {
         from_wire(&decoded.value?)
     }
 
-    fn set(&self, key: &str, value: Value) -> Result<(), StoreError> {
+    fn set(&self, key: &str, value: Value) -> Result<(), SettingsError> {
         let body = wire::encode_set_args(&wire::SetArgs {
             path: key.to_owned(),
             value: to_wire(&value),
@@ -102,7 +114,7 @@ impl ConfigStore for ConfdStore {
         self.call(wire::METHOD_SET, body).map(|_| ())
     }
 
-    fn delete(&self, key: &str) -> Result<(), StoreError> {
+    fn delete(&self, key: &str) -> Result<(), SettingsError> {
         let body = wire::encode_delete_args(&wire::DeleteArgs {
             path: key.to_owned(),
         })
@@ -149,6 +161,68 @@ impl ConfigStore for ConfdStore {
     }
 }
 
+/// The Config app's richer view of the same service: `List`/`Info` and the
+/// `CONFD_*` error codes preserved, so the editor can tell `DENIED` from an
+/// absent key and show a read-only state instead of a crash.
+impl ConfStore for ConfdStore {
+    fn list(&self, prefix: &str) -> Result<Vec<String>, ConfStoreError> {
+        let body = wire::encode_list_args(&wire::ListArgs {
+            prefix: prefix.to_owned(),
+        })
+        .map_err(|_| ConfStoreError::BadValue)?;
+        let reply = self
+            .call_raw(wire::METHOD_LIST, body)
+            .map_err(ConfStoreError::from_confd_code)?;
+        wire::decode_list_reply(&reply.body)
+            .map(|reply| reply.paths)
+            .map_err(|_| ConfStoreError::BadValue)
+    }
+
+    fn get(&self, path: &str) -> Result<Option<Value>, ConfStoreError> {
+        let body = wire::encode_get_args(&wire::GetArgs {
+            path: path.to_owned(),
+        })
+        .map_err(|_| ConfStoreError::BadValue)?;
+        let reply = self
+            .call_raw(wire::METHOD_GET, body)
+            .map_err(ConfStoreError::from_confd_code)?;
+        let decoded = wire::decode_get_reply(&reply.body).map_err(|_| ConfStoreError::BadValue)?;
+        Ok(decoded.value.as_ref().and_then(from_wire))
+    }
+
+    fn set(&self, path: &str, value: Value) -> Result<(), ConfStoreError> {
+        let body = wire::encode_set_args(&wire::SetArgs {
+            path: path.to_owned(),
+            value: to_wire(&value),
+        })
+        .map_err(|_| ConfStoreError::TooLarge)?;
+        self.call_raw(wire::METHOD_SET, body)
+            .map_err(ConfStoreError::from_confd_code)
+            .map(|_| ())
+    }
+
+    fn delete(&self, path: &str) -> Result<(), ConfStoreError> {
+        let body = wire::encode_delete_args(&wire::DeleteArgs {
+            path: path.to_owned(),
+        })
+        .map_err(|_| ConfStoreError::BadPath)?;
+        self.call_raw(wire::METHOD_DELETE, body)
+            .map_err(ConfStoreError::from_confd_code)
+            .map(|_| ())
+    }
+
+    fn info(&self) -> Result<StoreInfo, ConfStoreError> {
+        let reply = self
+            .call_raw(wire::METHOD_INFO, Vec::new())
+            .map_err(ConfStoreError::from_confd_code)?;
+        let info = wire::decode_info_reply(&reply.body).map_err(|_| ConfStoreError::BadValue)?;
+        Ok(StoreInfo {
+            store_dir: info.store_dir,
+            persistent: info.persistent,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -182,8 +256,10 @@ mod tests {
 
     #[test]
     fn a_kind_without_its_payload_is_rejected() {
-        let mut v = wire::Value::default();
-        v.kind = KIND_STR;
+        let mut v = wire::Value {
+            kind: KIND_STR,
+            ..wire::Value::default()
+        };
         assert_eq!(from_wire(&v), None);
         v.kind = 99;
         assert_eq!(from_wire(&v), None);

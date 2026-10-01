@@ -1,0 +1,15 @@
+[package]
+name = "xui-confd-editor"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "The Config app core: a registry-style confd tree editor (host-testable)"
+
+[dependencies]
+xui-core = { git = "https://github.com/va1erian/xui", rev = "58c1a6ea1a2dc1e5bb81463ff8dba82329a4f080" }
+# Path validation, the size limits and the typed `Value` are the service's own
+# contract, reused client-side so the editor never re-implements them.
+confd = { path = "../../../libs/confd" }
+
+[dev-dependencies]
+xui-canvas = { git = "https://github.com/va1erian/xui", rev = "58c1a6ea1a2dc1e5bb81463ff8dba82329a4f080", default-features = false }
