@@ -25,7 +25,9 @@ use crate::client_window::SurfaceRole;
 /// The heartbeat period. The backend's loop parks about a tick per window, so
 /// this is roughly every pass.
 const TICK_MILLIS: u32 = 30;
-/// Inset of the launcher column from the screen's top-left corner.
+/// Inset of the launcher column from the screen's top-right corner. The column
+/// sits on the right because the compositor places new windows from the
+/// top-left, where they would cover the icons and their labels.
 const ICONS_INSET: i32 = 12;
 /// Width of the launcher column: one medium tile wide.
 const ICONS_W: i32 = 210;
@@ -120,7 +122,8 @@ impl DesktopApp {
         let dark = ctx.theme.borrow().is_dark();
         ui.set_theme(desktop_theme(&ctx.theme.borrow().palette(), dark));
         let bottom = ctx.screen.1 - BAR_H - ICONS_INSET;
-        let area = Rect::new(ICONS_INSET, ICONS_INSET, ICONS_INSET + ICONS_W, bottom);
+        let right = ctx.screen.0 - ICONS_INSET;
+        let area = Rect::new(right - ICONS_W, ICONS_INSET, right, bottom);
         let model = Launchers {
             entries: ctx.launchers.borrow().clone(),
             dark,
