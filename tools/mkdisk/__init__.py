@@ -6,10 +6,10 @@ sticky ``/tmp``, see :mod:`mkdisk.layout`). :mod:`mkdisk.volume` holds the entry
 points the launchers use; ``python -m tools.mkdisk`` is the command line.
 """
 
-from .layout import EMPTY, DirSpec, Layout, describe, seeded
-from .volume import (DEFAULT_LABEL, DEFAULT_PATH, DEFAULT_SIZE, ensure_volume, format_image,
-                     format_size, parse_size, status)
+from .layout import EMPTY, DirSpec, Layout, describe, home_volume, seeded
+from .volume import (DEFAULT_HOME_PATH, DEFAULT_LABEL, DEFAULT_PATH, DEFAULT_SIZE, HOME_LABEL,
+                     ensure_volume, format_image, format_size, parse_size, status)
 
-__all__ = ["DEFAULT_LABEL", "DEFAULT_PATH", "DEFAULT_SIZE", "EMPTY", "DirSpec", "Layout",
-           "describe", "ensure_volume", "format_image", "format_size", "parse_size", "seeded",
-           "status"]
+__all__ = ["DEFAULT_HOME_PATH", "DEFAULT_LABEL", "DEFAULT_PATH", "DEFAULT_SIZE", "EMPTY",
+           "HOME_LABEL", "DirSpec", "Layout", "describe", "ensure_volume", "format_image",
+           "format_size", "home_volume", "parse_size", "seeded", "status"]

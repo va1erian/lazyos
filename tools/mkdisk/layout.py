@@ -117,6 +117,22 @@ def seeded(root_mode: int = 0o755, root_uid: int = 0, root_gid: int = 0,
     return Layout(root_mode, root_uid, root_gid, tuple(dirs))
 
 
+def home_volume(root_mode: int = 0o755, root_uid: int = 0, root_gid: int = 0,
+                accounts: list[Account] | None = None) -> Layout:
+    """The home volume: ``<user>/`` at the volume root, no ``/home`` and no ``/tmp``.
+
+    The volume is mounted at ``/home``, so the volume root *is* ``/home`` and each
+    user directory has the owner and mode of today's ``/home/<user>``. ``/tmp``
+    belongs to the OS volume (``libs/fhs``), never to a home volume.
+    """
+    users = demo_accounts() if accounts is None else accounts
+    dirs = tuple(
+        DirSpec(f"/{account.name}", 0o755, account.uid, account.gid)
+        for account in users
+        if account.home == f"{HOMES}/{account.name}")
+    return Layout(root_mode, root_uid, root_gid, dirs)
+
+
 def describe(layout: Layout) -> str:
     """One line per directory a format will create, for confirmations and the GUI."""
     lines = [f"/ (mode {layout.root_mode:04o}, uid {layout.root_uid}, gid {layout.root_gid})"]

@@ -1,4 +1,4 @@
-"""The "Data volume" group: show the persistent ext2 disk, reset it, toggle it.
+"""The "Home volume" group: show the persistent ext2 home disk, reset it, toggle it.
 
 Formatting happens in-process through :mod:`mkdisk` (the same code behind
 ``run_demo.py --reset-data``), never by shelling out: Windows has no
@@ -20,17 +20,18 @@ def status_text(path: str) -> str:
 
 
 def seed_summary() -> str:
-    """One line saying what a reset creates (``/home/alice``, ``/tmp`` ...).
+    """One line saying what a reset creates (``/alice`` ...).
 
     Shown before the click so nobody discovers the layout by surprise; the
     accounts come from ``accountsd``'s source, the same place the formatter reads.
     """
     try:
-        plan = mkdisk.seeded()
+        plan = mkdisk.home_volume()
     except (OSError, ValueError) as exc:  # e.g. accountsd.rs was restructured
         return f"Reset layout unavailable: {exc}"
     dirs = ", ".join(f"{spec.path} ({spec.mode:o})" for spec in plan.dirs)
-    return f"Reset creates an empty volume with: {dirs}. Existing data is erased."
+    return (f"Reset creates an empty volume (label {mkdisk.HOME_LABEL}, mounted at /home) "
+            f"with: {dirs}. Existing data is erased.")
 
 
 def build_group(parent: ttk.Frame, path_var, attach_var, on_reset: Callable[[], None]) -> ttk.Label:
@@ -62,19 +63,19 @@ def reset(path: str, busy: bool) -> tuple[bool, str] | None:
     Refused while a run is active because QEMU may hold the file.
     """
     if busy:
-        return False, "Cannot reset the data volume while a run is active; stop it first."
+        return False, "Cannot reset the home volume while a run is active; stop it first."
     target = Path(path)
     try:
-        plan = mkdisk.seeded()
+        plan = mkdisk.home_volume()
     except (OSError, ValueError) as exc:
         return False, f"Reset failed: {exc}"
     if target.exists() and not messagebox.askyesno(
-            "Reset data volume",
+            "Reset home volume",
             f"Erase everything on {target} and format a fresh volume containing:\n\n"
             f"{mkdisk.describe(plan)}\n\nThis cannot be undone."):
         return None
     try:
-        mkdisk.format_image(target, layout=plan)
+        mkdisk.format_image(target, label=mkdisk.HOME_LABEL, layout=plan)
     except (OSError, ValueError) as exc:  # e.g. QEMU still has the file open
         return False, f"Reset failed: {exc}"
-    return True, f"Data volume reset: {mkdisk.status(target).describe()}"
+    return True, f"Home volume reset: {mkdisk.status(target).describe()}"

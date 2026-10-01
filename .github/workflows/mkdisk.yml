@@ -38,6 +38,8 @@ jobs:
           python tools/mkdisk/test_mkdisk.py -v
           python tools/mkdisk/test_seed.py -v
           python tools/lazygui/test_catalog.py
+          python tools/test_run_demo.py
+          python tools/screenshot/test_qmp_disks.py
 
       # The default image carries the seeded /home/<user> and sticky /tmp
       # (issue #347); the variants cover the root flags, a bare volume and
@@ -56,3 +58,19 @@ jobs:
           e2fsck -fn /tmp/k1.img
           python -m tools.mkdisk /tmp/big.img --size 200M
           e2fsck -fn /tmp/big.img
+
+      # The home volume (filesystem plan F2): <user>/ at the volume root, owned
+      # by the account, and neither /home nor /tmp. Label `lazyhome` is what
+      # `home=LABEL=lazyhome` in lazyos.cfg resolves.
+      - name: Home volume is fsck-clean and seeded as designed
+        run: |
+          python -m tools.mkdisk /tmp/home.img --home-volume
+          e2fsck -fn /tmp/home.img
+          dumpe2fs -h /tmp/home.img 2>/dev/null | grep -E "Filesystem volume name: +lazyhome"
+          debugfs -R "stat /alice" /tmp/home.img | grep -E "User: +1000 +Group: +1000"
+          debugfs -R "stat /alice" /tmp/home.img | grep -E "Mode: +0755"
+          debugfs -R "ls -p /" /tmp/home.img | tee /tmp/home.ls
+          grep -q "/alice/" /tmp/home.ls
+          ! grep -E "/(home|tmp)/" /tmp/home.ls
+          python -m tools.mkdisk /tmp/home4k.img --home-volume --block-size 1024 --size 40M
+          e2fsck -fn /tmp/home4k.img

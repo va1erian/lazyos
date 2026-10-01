@@ -17,7 +17,9 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 PY = sys.executable
 CARGO = shutil.which("cargo") or "cargo"
 IMAGE = os.path.join(ROOT, "target", "lazyos.img")
-# The persistent ext2 data volume; `run_demo.py` creates it on first use.
+# The persistent ext2 home volume (mounted at /home); `run_demo.py` creates it
+# on first use. The legacy data volume is opt-in and mounted nowhere new.
+HOME_IMAGE = os.path.join(ROOT, "target", "home.img")
 DATA_IMAGE = os.path.join(ROOT, "target", "data.img")
 
 MODES = [
@@ -239,10 +241,16 @@ def build_plan(cfg: dict) -> list[dict]:
                  "--disk", cfg.get("disk", "virtio")]
         # Only the interactive demo persists state; the scripted modes stay
         # hermetic unless a script asks for a volume itself.
-        if cfg.get("data_disk", True):
-            argv += ["--data-disk", cfg.get("data_path") or DATA_IMAGE]
+        if cfg.get("home_disk", True):
+            argv += ["--home-disk", cfg.get("home_path") or HOME_IMAGE]
         else:
-            argv.append("--no-data-disk")
+            argv.append("--no-home-disk")
+        if cfg.get("data_disk", False):
+            argv += ["--data-disk", cfg.get("data_path") or DATA_IMAGE]
+        # Recreate the OS volume (apps, settings, logs, /data) instead of the
+        # in-place update; it needs a build, so "Skip build" wins.
+        if cfg.get("reset_os") and not cfg["skip_build"]:
+            argv.append("--reset-os")
         # A virtio-sound card on the host's audio backend. run_demo also builds
         # with LAZYOS_SOUND=1; the desktop profile ships the sound stack anyway,
         # and on other images the driver plays its boot tones.
