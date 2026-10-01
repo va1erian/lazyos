@@ -126,11 +126,14 @@ impl Hid {
 }
 
 /// The harness's evidence for one key edge `usbd` published.
+/// `t=` is the tick (10 ms) it was published, so a harness can tell `usbd`'s
+/// delivery latency from `inputd`'s (which stamps its own lines the same way).
 fn trace_key(edge: &KeyEdge) {
     sys::write_str(&format!(
-        "USBD:KEY usage={:#x} {}\n",
+        "USBD:KEY usage={:#x} {} t={}\n",
         edge.usage,
-        if edge.pressed { "down" } else { "up" }
+        if edge.pressed { "down" } else { "up" },
+        sys::clock()
     ));
 }
 
