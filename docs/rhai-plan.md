@@ -89,7 +89,8 @@ The script-facing reference is [`rhai/msg.md`](rhai/msg.md).
   #315's minimum).
 - **Prerequisite status:** P1 n/a for the musl host; P2 satisfied via the ABI;
   P3 satisfied for Linux-ABI processes; P4 pipes exist (shim); P5 `#!` lookup
-  must be verified in the shim's `execve`; P6 signals exist, interactive
+  landed in the shim's `execve` (#491; `rhai_demo.json` runs `#!/bin/rhai`
+  scripts directly); P6 signals exist, interactive
   Ctrl-C/job control needs the pty.
 - **Suggested reordering:** the highest-leverage step is R3's
   `midlc --emit rhai`, because every current and future service becomes
@@ -177,7 +178,7 @@ host later (see phase R5).
 | P2 | Native file I/O: `open`/`read`/`write`/`close`/`stat`/`readdir` | `read_file` is whole-file, read-only, 8.3 names. Scripts, modules and the shell (`ls`, `cd`, redirection) need the VFS/ext2 the kernel already has. | kernel has it, native ABI lacks it |
 | P3 | `argv`/`env`/`cwd` for native processes | Scripts take arguments; the shell needs `cd`. `service_args` covers services only. | partial |
 | P4 | Pipes between native processes | `ls | grep` in the shell. Messenger channels or a kernel pipe object. | exists for the Linux shim |
-| P5 | `#!` interpreter lookup in `spawn` | `spawn("tool.rhai")` should exec `RHAI.ELF tool.rhai`. | missing |
+| P5 | `#!` interpreter lookup in `spawn` | `spawn("tool.rhai")` should exec `RHAI.ELF tool.rhai`. | done for Linux-ABI `execve` ([#491](https://github.com/va1erian/lazyos/issues/491)) |
 | P6 | Interrupt delivery to a native task | Ctrl-C in the REPL must stop a runaway loop (wired to Rhai's `on_progress`). | signals exist for the shim |
 | P7 | Long file names in the image | `.rhai` doesn't fit 8.3; scripts belong on ext2. | ext2 exists |
 

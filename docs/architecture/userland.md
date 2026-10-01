@@ -111,12 +111,12 @@ command.
   compile/runtime/I/O error, 2 on misuse. It reads stdin and writes
   stdout/stderr, so `echo hi | rhai -e 'print(stdin_text())' | grep HI` works.
   Kernel gaps that limit its use from `sh` today (all independent of `rhai`,
-  reproduced with BusyBox applets): a script cannot run through a `#!/bin/rhai`
-  line (`execve` has no shebang support, `chmod` is `ENOSYS`); command
-  substitution `$(...)` never returns; an external program's stdout redirected
+  reproduced with BusyBox applets): command substitution `$(...)` never returns; an external program's stdout redirected
   to a file (`rhai -e ... > f`, `ls > f`) writes nothing (`os::write` and the
   shell's own redirections work); and the interactive `sh` can die at an idle
-  prompt after several command lines. Use pipelines and `rhai script.rhai`.
+  prompt after several command lines. A script with a `#!/bin/rhai` (or
+  `#!/usr/bin/env rhai`) line runs directly once it is `chmod +x` (issue #491);
+  the line may carry one option, e.g. `#!/bin/rhai --sandbox`.
 - **`os` module** (Rust-registered, also available as plain globals):
   `args()`, `env(k)` / `env()`, `exit([n])` (not catchable), `clock()` (seconds
   since start), `sleep(ms)`, `read(path)`, `write(path, text)`,

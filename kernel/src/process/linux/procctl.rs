@@ -4,7 +4,6 @@
 
 use alloc::vec::Vec;
 
-use crate::fs::vfs::{self, FsError, Id};
 use crate::mem::vma::{Kind, Prot};
 use crate::process::{load_segments, map_range_kind};
 use crate::task::process::GroupError;
@@ -13,12 +12,9 @@ use crate::user_ptr;
 
 use super::cwd::{read_path, resolve_at, AT_FDCWD};
 use super::elf::{build_start_stack, phdr_size, program_header_addr, LOAD_RESERVED};
-use super::errno::{
-    err, fs_err, ECHILD, EINTR, EINVAL, ENOENT, ENOEXEC, ENOMEM, ENOSYS, EPERM, ESRCH,
-};
+use super::errno::{err, ECHILD, EINTR, EINVAL, ENOEXEC, ENOMEM, ENOSYS, EPERM, ESRCH};
 use super::fd::close_cloexec_fds;
 use super::futex::futex_wake;
-use super::path::load_executable;
 use super::uaccess::{write_u32, write_u64};
 use super::{BRK_BASE, MMAP_BASE, STACK_SIZE, STACK_TOP};
 
@@ -125,14 +121,6 @@ fn read_str_ptr_array(arr: u64) -> Vec<Vec<u8>> {
     out
 }
 
-/// Map special process paths to a real FAT entry (`/proc/self/exe` -> busybox).
-fn resolve_exe(path: &str) -> &str {
-    match path {
-        "/proc/self/exe" => "busybox",
-        other => other.trim_start_matches('/'),
-    }
-}
-
 pub(super) fn sys_fork() -> u64 {
     match task::spawn_fork() {
         Ok(index) => index as u64,
@@ -165,8 +153,8 @@ pub(super) fn sys_wait4(_pid: u64, status: u64, options: u64) -> u64 {
     }
 }
 
-/// `execve(path, argv, envp)`: replace the current image with `path`'s ELF and
-/// resume at its entry point.
+/// `execve(path, argv, envp)`: replace the current image with `path`'s ELF (or,
+/// for a `#!` script, its interpreter's) and resume at its entry point.
 pub(super) fn sys_execve(path_ptr: u64, argv_ptr: u64, envp_ptr: u64) -> u64 {
     let raw = match read_path(path_ptr) {
         Ok(raw) => raw,
@@ -190,21 +178,13 @@ pub(super) fn sys_execve(path_ptr: u64, argv_ptr: u64, envp_ptr: u64) -> u64 {
         return code;
     }
 
-    let target = resolve_exe(&path);
-    if crate::fs::abi_mount_flags(target).noexec {
-        return fs_err(FsError::Access);
-    }
-    // Executables need the execute bit. Applet aliases and paths with no VFS
-    // node fall through to `load_file`; root bypasses the check as usual.
-    match crate::fs::abi_check(Id::current(), target, vfs::EXECUTE) {
-        Ok(_) | Err(FsError::NotFound) => {}
-        Err(error) => return fs_err(error),
-    }
-    let elf = match load_executable(target) {
-        Ok(elf) => elf,
-        Err(FsError::NotFound) => return err(ENOENT),
-        Err(error) => return fs_err(error),
+    // A `#!` script runs its interpreter instead (issue #491); `image` is the
+    // ELF at the end of that chain, with argv rewritten for it.
+    let image = match super::shebang::resolve(path, raw.into_bytes(), argv) {
+        Ok(image) => image,
+        Err(code) => return code,
     };
+    let (elf, argv) = (image.elf, image.argv);
     let Some(table) = crate::mem::new_user_table() else {
         return err(ENOMEM);
     };

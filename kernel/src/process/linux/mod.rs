@@ -46,6 +46,7 @@ mod pathops;
 mod pipes;
 mod procctl;
 mod procfs;
+pub(crate) mod shebang;
 
 /// A fabricated `/proc` file's bytes, for the mount suite.
 #[cfg(lazyos_tests)]
