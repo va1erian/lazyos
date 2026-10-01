@@ -73,6 +73,11 @@ ONE_BOOT_WITH_DATA = {"cwd": ("/tmp", "/data"), "fsops": ("/tmp", "/", "/data")}
 def build_image(fixture_path: Path, busybox: bool = False) -> Path | None:
     """Build the image with the fixture embedded; its per-row copy, or `None`."""
     env = dict(os.environ)
+    # Each row builds a fresh image with its own `INIT.ELF` and copies it: keep
+    # the OS volume small (it only needs the fixture and BusyBox) and never
+    # update a developer's persistent one in place.
+    env.setdefault("LAZYOS_OS_SIZE", "128M")
+    env.setdefault("LAZYOS_RESET_OS", "1")
     # Never let a caller's exports leak between rows: a `BUSYBOX` embedded for
     # another fixture would shadow its `INIT.ELF`, and vice versa.
     for key in ("LAZYOS_INIT", "LAZYOS_BUSYBOX", "LAZYOS_BUSYBOX_TEST"):
@@ -221,10 +226,12 @@ def run_busybox(image: Path, at: str, accel: str) -> tuple[str, str]:
     status, detail = classify("busybox", serial)
     if status != "pass" or disk is None:
         return status, detail
-    if not re.search(r"^\s*\S+\s+\d+\s+\d+\s+\d+\s+\d+%\s+/data\s*$", serial, re.M):
-        return "fail", "df does not list /data"
-    if not re.search(r"\bon /data type ext2 \(rw", serial):
-        return "fail", "mount does not list /data as ext2 (rw)"
+    # `/data` is a directory on the ext2 OS volume at `/` (F2), so `df` and
+    # `mount` name `/`, the volume that holds it.
+    if not re.search(r"^\s*\S+\s+\d+\s+\d+\s+\d+\s+\d+%\s+/\s*$", serial, re.M):
+        return "fail", "df does not list the ext2 root /"
+    if not re.search(r"\bon / type ext2 \(rw", serial):
+        return "fail", "mount does not list / as ext2 (rw)"
     return check_busybox_cwd(serial)
 
 

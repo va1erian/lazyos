@@ -34,7 +34,7 @@ expect() { # path, mode regex, uid
   grep -Eq "Mode: +$2" <<<"$out" || { echo "$1: wrong mode"; echo "$out"; exit 1; }
   grep -Eq "User: +$3 " <<<"$out" || { echo "$1: wrong owner"; echo "$out"; exit 1; }
 }
-expect /data/tmp 1777 0
+expect /data/tmp 01777 0
 expect /data/home/alice 0755 1000
 expect /system 0755 0
 for dir in /boot /home /transient /apps /conf /logs /data; do expect "$dir" 0755 0; done
