@@ -37,6 +37,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: ./.github/actions/rust-cache
+        with:
+          key: host
       - run: python tools/fhs/check_literals.py
       - run: python -m unittest discover -s tools/fhs -p "test_*.py"
       - run: cargo test -p fhs --features alloc
