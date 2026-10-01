@@ -187,13 +187,16 @@ jobs:
           grep -q "XUIAPP:INPUT:PASS" shots/m2/serial.log
 
       # sysmon: the system-state dashboard (syscall 14) with a 1 s timer and
-      # the r/q keys driven by the session script.
-      - name: Capture sysmon (dashboard)
+      # the r/s/o/q keys driven by the session script. The image boots the
+      # service session (`LAZYOS_SERVICES=1`) so the Services tab (issue #489)
+      # lists what `init` supervises with `healthd`'s health for each.
+      - name: Capture sysmon (dashboard + services)
         if: ${{ !cancelled() && steps.app.outputs.sysmon != '' }}
         shell: bash
         env:
           LAZYOS_XUID: "1"
           LAZYOS_XUI_APP: ${{ steps.app.outputs.sysmon }}
+          LAZYOS_SERVICES: "1"
         run: |
           set -euo pipefail
           cargo build
@@ -202,6 +205,8 @@ jobs:
             --fail-on "SYSMON:(BIND|UP|RUN):FAIL"
           grep -q "SYSMON:UP:PASS" shots/sysmon/serial.log
           grep -q "SYSMON:REFRESH:PASS" shots/sysmon/serial.log
+          grep -q "SYSMON:SERVICES:PASS" shots/sysmon/serial.log
+          grep -q "SYSMON:VIEW:overview" shots/sysmon/serial.log
           grep -q "SYSMON:QUIT:PASS" shots/sysmon/serial.log
 
       # fabricmon: the Messenger fabric panel (syscall 5). The image boots the
@@ -249,7 +254,9 @@ jobs:
 
       # Issue #215: sysmon (owner-mode by design) falls back to client mode when
       # `xuid` already holds the display grant, so the same binary runs in a
-      # desktop window. The session drives it with the r/q keys through xuid.
+      # desktop window. The session drives it with the r/s/o/q keys through
+      # xuid; this image has no services, so the Services tab shows why
+      # (`SYSMON:SERVICES:NONE`) instead of hanging on a missing `init`.
       - name: Capture sysmon as a xuid client (owner-mode fallback)
         if: ${{ !cancelled() && steps.app.outputs.sysmon != '' }}
         shell: bash
@@ -266,6 +273,7 @@ jobs:
           grep -q "XUID:UP:PASS" shots/sysclient/serial.log
           grep -q "SYSMON:UP:PASS" shots/sysclient/serial.log
           grep -q "SYSMON:REFRESH:PASS" shots/sysclient/serial.log
+          grep -q "SYSMON:SERVICES:NONE" shots/sysclient/serial.log
           grep -q "SYSMON:QUIT:PASS" shots/sysclient/serial.log
 
       # Issues #215/#216/#217: the desktop session. One `LAZYOS_DESKTOP=1`
