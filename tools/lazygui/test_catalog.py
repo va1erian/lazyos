@@ -140,6 +140,58 @@ class LazyRadTests(unittest.TestCase):
         self.assertEqual(plan[-1]["argv"][1:], ["tools/lazyrad/build.py"])
 
 
+class DevicesAppTests(unittest.TestCase):
+    """The Devices app (issue #481): shipped with every desktop, opened at
+    boot on request, from the Simple tab, the Advanced tab and run_demo."""
+
+    def base(self) -> dict:
+        return {"services": False, "xuid": False, "xui_client": False, "xui_app": "(none)",
+                "shellprobe": False, "msgctl": False, "msgrd": False, "busybox": ""}
+
+    def test_the_switch_opens_it_at_boot_after_the_terminal(self) -> None:
+        env = catalog.build_env({**self.base(), "desktop": True, "devices": True})
+        self.assertEqual(env["LAZYOS_XUI_AUTOSTART"], catalog.DEVICES_AUTOSTART)
+        self.assertEqual(catalog.DEVICES_AUTOSTART.split(",")[0], "term")
+
+    def test_it_joins_a_session_autostart_once(self) -> None:
+        env = catalog.build_env({**self.base(), "desktop": True, "devices": True,
+                                 "xui_autostart": "editor"})
+        self.assertEqual(env["LAZYOS_XUI_AUTOSTART"], "editor,devices")
+        env = catalog.build_env({**self.base(), "desktop": True, "devices": True,
+                                 "xui_autostart": "devices"})
+        self.assertEqual(env["LAZYOS_XUI_AUTOSTART"], "devices")
+
+    def test_off_by_default_and_only_on_a_desktop(self) -> None:
+        self.assertNotIn("LAZYOS_XUI_AUTOSTART", catalog.build_env({**self.base(), "desktop": True}))
+        self.assertNotIn("LAZYOS_XUI_AUTOSTART",
+                         catalog.build_env({**self.base(), "desktop": False, "devices": True}))
+
+    def test_simple_desktop_can_open_it_and_cli_cannot(self) -> None:
+        desktop = catalog.simple_config(demo_config(), "dev", "Desktop", devices=True)
+        self.assertTrue(desktop["devices"])
+        self.assertFalse(catalog.simple_config(demo_config(), "dev", "CLI", devices=True)["devices"])
+        self.assertFalse(catalog.simple_config(demo_config(), "dev", "Desktop")["devices"])
+
+    def test_the_demo_passes_the_run_demo_flag(self) -> None:
+        self.assertIn("--devices", demo_argv(devices=True, desktop=True, skip_build=False))
+        self.assertNotIn("--devices", demo_argv(desktop=True, skip_build=False))
+        self.assertNotIn("--devices", demo_argv(devices=True, desktop=True, skip_build=True))
+        plan = catalog.build_plan(catalog.simple_config(demo_config(), "dev", "Desktop",
+                                                        devices=True))
+        self.assertIn("--devices", plan[-1]["argv"])
+
+    def test_it_is_an_xui_viewer_too(self) -> None:
+        self.assertIn("devices", catalog.XUI_VIEWERS)
+        env = catalog.build_env({**self.base(), "desktop": False, "xuid": True,
+                                 "xui_app": "devices"})
+        self.assertTrue(env["LAZYOS_XUI_APP"].endswith("xui-devices.elf"))
+
+    def test_run_demo_uses_the_same_autostart(self) -> None:
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+        import run_demo  # noqa: E402
+        self.assertEqual(run_demo.DEVICES_AUTOSTART, catalog.DEVICES_AUTOSTART)
+
+
 class ResetTests(unittest.TestCase):
     """The Reset button regenerates the seeded layout, and says so first."""
 

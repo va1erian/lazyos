@@ -16,8 +16,8 @@ use crate::ipc::credentials::{self, CAP_AUDIT_READ};
 use crate::ipc::topics::fnv1a32;
 use crate::user_ptr;
 
-use super::class::{class_of, method, DEV_INTERFACE};
 use super::claims::CLAIMS;
+use super::class::{class_of, method, DEV_INTERFACE};
 use super::errno::*;
 use super::report;
 use super::table;

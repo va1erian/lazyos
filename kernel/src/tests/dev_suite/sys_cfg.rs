@@ -330,7 +330,11 @@ pub fn sys_small_ops() -> Result<(), String> {
             "dma_alloc with a null bus-address pointer",
         )?;
     }
-    expect_errno(sys(OP_DENIALS + 1, 0, 0, 0, 0), EINVAL, "the first unknown op")?;
+    expect_errno(
+        sys(OP_DENIALS + 1, 0, 0, 0, 0),
+        EINVAL,
+        "the first unknown op",
+    )?;
     expect_errno(sys(u64::MAX, 0, 0, 0, 0), EINVAL, "op -1")?;
     // The whole call goes through the syscall gate's routing too.
     let via_gate = process::dispatch_for_test(23, OP_DENIALS + 1, 0, 0) as i64;

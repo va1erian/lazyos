@@ -53,7 +53,10 @@ mod tests {
         for rule in SND_DRIVER_CLASS_RULES {
             assert!(rule.allow);
             assert_eq!(rule.actor, SND_UID);
-            assert_eq!(rule.interface, AUDIO_CLASS, "no other device class is named");
+            assert_eq!(
+                rule.interface, AUDIO_CLASS,
+                "no other device class is named"
+            );
             assert_ne!(rule.method, "*", "no wildcard grants");
         }
     }

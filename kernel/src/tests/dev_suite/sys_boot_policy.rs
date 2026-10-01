@@ -73,7 +73,10 @@ fn claim_full(device: DeviceId, what: &str) -> Result<u64, String> {
     let granted = handles::get(handle)
         .map_err(|e| e.message().to_string())?
         .rights;
-    check!(granted == FULL, "{what}: granted {granted:#x}, want {FULL:#x}");
+    check!(
+        granted == FULL,
+        "{what}: granted {granted:#x}, want {FULL:#x}"
+    );
     Ok(handle)
 }
 
@@ -208,7 +211,11 @@ pub fn sys_boot_policy_stress_claim_release() -> Result<(), String> {
             enter(slots[index])?;
             expect_ok(sys(OP_RELEASE, handle, 0, 0, 0), "release")?;
             enter(thief)?;
-            expect_errno(claim_plain(own), EACCES, "a driver on a free foreign device")?;
+            expect_errno(
+                claim_plain(own),
+                EACCES,
+                "a driver on a free foreign device",
+            )?;
         }
     }
     for device in devices.all() {

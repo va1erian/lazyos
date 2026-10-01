@@ -40,6 +40,8 @@ messenger-generated = { path = "../libs/generated" }
 libc = "0.2"
 # Well-known paths and boot-volume names (docs/filesystem-plan.md F0).
 fhs = { path = "../libs/fhs" }
+# Row layouts and names of the device inspection ops (the Devices app, #481).
+devinspect = { path = "../libs/devinspect" }
 # The three portable apps, copied from `va1erian/xui` (unchanged by the canvas
 # bump) into `crates/`. Each is a workspace member so its own test suite runs on
 # the host; the `xui-editor`/`xui-paint`/`xui-files` binaries in `src/bin`
@@ -71,6 +73,10 @@ path = "src/bin/client.rs"
 [[bin]]
 name = "xui-sysmon"
 path = "src/bin/sysmon.rs"
+
+[[bin]]
+name = "xui-devices"
+path = "src/bin/devices.rs"
 
 [[bin]]
 name = "xui-widget"

@@ -78,6 +78,9 @@ BINS = {
     # The Installer app (`.lzp` package consent and removal, `docs/packages.md`).
     # `xui_disk_name` derives the 8.3 name XINSTALL.ELF from this path.
     "xui-installer": "xui-installer.elf",
+    # The Devices app (issue #481): owners, rights and the driver class rules.
+    # `xui_disk_name` derives the 8.3 name XDEVICES.ELF from this path.
+    "xui-devices": "xui-devices.elf",
 }
 
 

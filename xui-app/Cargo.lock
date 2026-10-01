@@ -212,6 +212,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "devinspect"
+version = "0.1.0"
+dependencies = [
+ "netpolicy",
+ "sndpolicy",
+ "usbpolicy",
+]
+
+[[package]]
 name = "encoding_rs"
 version = "0.8.42"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -519,6 +528,10 @@ name = "multiversion_no_op"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "743fb55ba31b18fb1ecef6bdc9aa2743314978ac084044301a7eee33fb99a20d"
+
+[[package]]
+name = "netpolicy"
+version = "0.1.0"
 
 [[package]]
 name = "num-traits"
@@ -832,6 +845,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4aaa7368fcf4852a4c2dd92df0cace6a71f2091ca0a23391ce7f3a31833f1523"
 
 [[package]]
+name = "sndpolicy"
+version = "0.1.0"
+
+[[package]]
 name = "static_assertions"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -991,6 +1008,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c6f5d3c3b1bf09027a88a6bc961fc00497d651009560b5463668dc81b0fa87a8"
 
 [[package]]
+name = "usbpolicy"
+version = "0.1.0"
+
+[[package]]
 name = "version_check"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1082,6 +1103,7 @@ checksum = "1ebf944e87a7c253233ad6766e082e3cd714b5d03812acc24c318f549614536e"
 name = "xui-app"
 version = "0.1.0"
 dependencies = [
+ "devinspect",
  "fhs",
  "libc",
  "libmessenger",

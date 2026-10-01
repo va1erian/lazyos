@@ -18,6 +18,8 @@ use core::arch::asm;
 
 use libmessenger::{Decoder, Parcel};
 
+pub mod inspect;
+
 /// The device syscall number.
 pub const SYS_DEV: u64 = 23;
 
@@ -60,6 +62,7 @@ pub mod row_flag {
 /// Errno values the device syscall returns.
 pub mod errno {
     pub const EPERM: i64 = 1;
+    pub const ENOENT: i64 = 2;
     pub const EBADF: i64 = 9;
     pub const ENOMEM: i64 = 12;
     pub const EACCES: i64 = 13;

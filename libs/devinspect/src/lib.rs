@@ -48,7 +48,8 @@ pub mod rights {
 pub const ANY_ACTOR: u32 = u32::MAX;
 pub const ANY_METHOD: u32 = u32::MAX;
 
-/// The FNV-1a hashes every Messenger id uses (`tools/midlc`).
+/// The FNV-1a hashes every Messenger id uses (`tools/midlc`): 64-bit for
+/// interfaces, 32-bit with the top bit cleared for methods (`ipc::topics`).
 pub const fn fnv1a64(text: &str) -> u64 {
     let bytes = text.as_bytes();
     let mut hash = 0xcbf2_9ce4_8422_2325u64;
@@ -70,7 +71,7 @@ pub const fn fnv1a32(text: &str) -> u32 {
         hash = hash.wrapping_mul(0x0100_0193);
         i += 1;
     }
-    hash
+    hash & 0x7FFF_FFFF
 }
 
 /// The device classes (`dev::class`), as `(short name, interface id)`.
@@ -285,7 +286,8 @@ mod tests {
         // FNV-1a test vectors.
         assert_eq!(fnv1a64(""), 0xcbf2_9ce4_8422_2325);
         assert_eq!(fnv1a64("a"), 0xaf63_dc4c_8601_ec8c);
-        assert_eq!(fnv1a32("a"), 0xe40c_292c);
+        // The 31-bit method id: FNV-1a-32 of "a" is 0xe40c292c.
+        assert_eq!(fnv1a32("a"), 0x640c_292c);
         assert_eq!(class_name(fnv1a64("os.kernel.dev.usb")), "usb");
         assert_eq!(class_name(1), "?");
         assert_eq!(method_name(fnv1a32("dma")), "dma");
@@ -308,7 +310,11 @@ mod tests {
         assert_eq!(free.owner, None);
         assert_eq!(free.rights.to_string(), "-");
 
-        let rule = Rule::from_words(&[904, fnv1a64("os.kernel.dev.usb"), u64::from(fnv1a32("claim")) | 1 << 32]);
+        let rule = Rule::from_words(&[
+            904,
+            fnv1a64("os.kernel.dev.usb"),
+            u64::from(fnv1a32("claim")) | 1 << 32,
+        ]);
         assert!(rule.allow);
         assert_eq!(Uid(rule.actor).to_string(), "_usb(904)");
         assert_eq!(method_name(rule.method), "claim");

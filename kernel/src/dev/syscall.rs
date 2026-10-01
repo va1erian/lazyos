@@ -46,7 +46,9 @@ use super::irq;
 use super::pci::{self, COMMAND_BUS_MASTER, COMMAND_INTX_DISABLE, COMMAND_IO, COMMAND_MEMORY};
 use super::report::{self, reason};
 use super::resources::MAX_BARS;
-use super::{dma, inspect, intx, ops, table, teardown, BarKind, BusId, DeviceId, DeviceInfo, TaskSlot};
+use super::{
+    dma, inspect, intx, ops, table, teardown, BarKind, BusId, DeviceId, DeviceInfo, TaskSlot,
+};
 
 pub const OP_LIST: u64 = 0;
 pub const OP_CLAIM: u64 = 1;

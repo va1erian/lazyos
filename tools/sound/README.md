@@ -45,6 +45,7 @@ and starts `sndd demo=1` (from the kernel, or from `init`'s manifest with
 | `BEEP:PLAY:PASS freq=880 ...` | a real client played a tone through the service |
 | `BEEP:PROBE:PASS checks=28` | malformed and hostile requests were all refused correctly, and the driver survived |
 | `BEEP:INTRUDER:PASS` | a second task was refused on the owner's stream |
+| `DEV:CROSSCLAIM:snd:PASS` | `--services`: as `_snd`, every device of another class was refused (`SKIP` as root) |
 | `BEEP:SOAK:PASS iterations=40` | 40 open/play/close cycles leaked nothing |
 
 The harness waits for all of them (or any `FAIL`), stops QEMU through QMP so the

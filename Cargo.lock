@@ -1115,6 +1115,7 @@ version = "0.1.0"
 dependencies = [
  "confd",
  "deskmenu",
+ "devinspect",
  "fhs",
  "font-atlas",
  "framering",

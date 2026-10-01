@@ -56,14 +56,23 @@ pub fn sys_inspect_reports_owners_rules_and_denials() -> Result<(), String> {
 
     crate::dev::policy::install_boot_policy();
     let net_uid = netpolicy::NET_UID;
-    enter(spawn_driver(Cred::new(net_uid, net_uid, CAP_DEV_CLAIM, 0, 1))?)?;
+    enter(spawn_driver(Cred::new(
+        net_uid,
+        net_uid,
+        CAP_DEV_CLAIM,
+        0,
+        1,
+    ))?)?;
     expect_ok(claim_plain(nic), "_net claims the NIC")?;
     expect_errno(claim_plain(usb), EACCES, "_net claiming the controller")?;
 
     // A plain user reads the inventory and the rules.
     enter(spawn_driver(user())?)?;
     let (count, rows) = read(OP_INVENTORY, total, INVENTORY_WORDS)?;
-    check!(count == total as u64, "inventory reported {count} of {total}");
+    check!(
+        count == total as u64,
+        "inventory reported {count} of {total}"
+    );
     let row = |id: DeviceId| &rows[usize::from(id.0) * INVENTORY_WORDS..][..INVENTORY_WORDS];
     let nic_row = row(nic);
     check!(
@@ -173,9 +182,7 @@ pub fn sys_inspect_stress_during_claims() -> Result<(), String> {
         0,
         1,
     ))?;
-    let owner_of = |words: &[u64]| {
-        words[usize::from(audio.0) * INVENTORY_WORDS + 3] & 0xFFFF_FFFF
-    };
+    let owner_of = |words: &[u64]| words[usize::from(audio.0) * INVENTORY_WORDS + 3] & 0xFFFF_FFFF;
     for round in 0..ROUNDS {
         enter(snd)?;
         let handle = expect_ok(claim_plain(audio), "_snd claims")?;
