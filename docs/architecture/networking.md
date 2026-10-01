@@ -165,10 +165,11 @@ first of each kind, so a request carrying several leaves the extras open until
 the client's own quotas stop it; the same gap `sndd` documents).
 
 **Access rules.** `libs/netpolicy` names what `_net` may do to a device: claim,
-map and DMA on the `os.kernel.dev.net` class, nothing else. Nothing loads a
-policy at boot yet (the fabric is still in its bootstrap-allow window), so the
-rules refuse nothing today; the kernel suite loads exactly this table into the
-real ACL and checks that `_net` gets a NIC with every right, is refused other
+map and DMA on the `os.kernel.dev.net` class, nothing else. The kernel
+installs these class rules at boot with every other driver's (`dev::policy`,
+issue #481): from then on a non-root uid claims, maps or DMAs a device class
+only if a rule gives it that class (`dev_sys_boot_policy_confines_each_driver_to_its_class`). The kernel suite also
+loads this table into the Messenger ACL and checks that `_net` gets a NIC with every right, is refused other
 device classes, and that no other uid (root included) is granted the net class
 (`dev_sys_net_driver_policy_is_exactly_the_class_rules`).
 
@@ -228,8 +229,9 @@ fires when the first address is bound.
 `net_call_rules_decide_who_may_call_what`): `_netd` and root may call everything
 on `nic.v1`, everyone else only `Info` and `Stats`, plus `_net` (the driver) may
 send its own `Notify` wake-up; on `stack.v1` everyone may
-read and `Ping`, only `_netd` and root may `Renew` or `Reattach`. Like the N1
-rules these refuse nothing today (no policy loader), so the driver's own owner
+read and `Ping`, only `_netd` and root may `Renew` or `Reattach`. Unlike the N1
+class rules these call rules refuse nothing today (no Messenger policy
+loader), so the driver's own owner
 check is what stops a second client.
 
 **Clock.** The kernel tick is 100 Hz, so the stack's clock is 10 ms and a ping

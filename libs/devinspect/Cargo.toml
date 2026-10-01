@@ -1,0 +1,17 @@
+[package]
+name = "devinspect"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Decoders and names for the device syscall's read-only inspection ops (inventory, class rules, refused claims)"
+license = "GPL-3.0-or-later"
+
+[lib]
+name = "devinspect"
+path = "src/lib.rs"
+
+[dependencies]
+# The driver uids the names come from, so a renumbering cannot drift.
+netpolicy = { path = "../netpolicy" }
+usbpolicy = { path = "../usbpolicy" }
+sndpolicy = { path = "../sndpolicy" }

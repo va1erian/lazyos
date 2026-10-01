@@ -94,6 +94,11 @@ numbering at 0.
 - **DMA is trusted.** A driver with `DMA` can write any physical memory until an
   IOMMU exists (`docs/driver-plan.md` D5); the uid, the class ACL and the audit
   ring limit who can be that driver.
+- **Class rules.** `libs/sndpolicy` gives `_snd` claim, map and DMA on
+  `os.kernel.dev.audio` and nothing else. The kernel installs it at boot with
+  every other driver's class rules (`dev::policy`, issue #481), so `_snd`
+  cannot claim a NIC or a USB controller and no other non-root uid can claim
+  the sound card (`dev_sys_boot_policy_confines_each_driver_to_its_class`).
 
 ## A lesson worth keeping: never free a DMA buffer while the device runs
 
@@ -119,9 +124,7 @@ harness when the guest is done; the verdict is the recording.
 
 ## Not done
 
-The class ACL rule for `os.kernel.dev.audio` (the fabric is still in its
-bootstrap-allow window; once a policy loads, the `_snd` label needs claim, map
-and DMA rules), capture (`OpenStream` for capture is `ENOTSUP`), the `system/audio/<card>/event`
+Capture (`OpenStream` for capture is `ENOTSUP`), the `system/audio/<card>/event`
 topic (declared in the IDL, not yet published), MSI/MSI-X (INTx only), a
 tickless serve loop (interrupts wake control waits, but the loop still ticks at
 100 Hz while a stream runs), mixing (a later `audiod`), volume, `devd` matching and a

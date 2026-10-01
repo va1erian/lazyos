@@ -1,0 +1,11 @@
+[package]
+name = "sndpolicy"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "The access-control rules of the virtio-sound driver: which system uid may claim an audio device"
+license = "GPL-3.0-or-later"
+
+[lib]
+name = "sndpolicy"
+path = "src/lib.rs"

@@ -107,6 +107,9 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     #[cfg(lazyos_tests)]
     tests::run();
 
+    // Driver class rules (issue #481), before `init` can start any driver.
+    dev::policy::install_boot_policy();
+
     // Issue #5: a bootloader ramdisk (a FAT image) is a fallback block device,
     // so the OS still boots with no ATA/virtio disk attached. Probing the real
     // disks first keeps them ahead of it in the mount order.

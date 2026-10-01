@@ -20,6 +20,9 @@
 //!   DMA_ALLOC(9)   a1 = handle, a2 = length in bytes, a3 = flags
 //!                  (bit 0 share-only, bit 1 64-bit address OK), a4 -> u64
 //!                  bus address   -> Buffer handle
+//!   INVENTORY(10)  a1 -> rows, a2 = capacity   -> total (read-only, [`super::inspect`])
+//!   POLICY(11)     a1 -> rows, a2 = capacity   -> total class rules, ENOENT if none
+//!   DENIALS(12)    a1 -> rows, a2 = capacity   -> total refused claims (CAP_AUDIT_READ)
 //! ```
 //!
 //! No operation takes a raw physical or port address: everything is resolved
@@ -43,7 +46,7 @@ use super::irq;
 use super::pci::{self, COMMAND_BUS_MASTER, COMMAND_INTX_DISABLE, COMMAND_IO, COMMAND_MEMORY};
 use super::report::{self, reason};
 use super::resources::MAX_BARS;
-use super::{dma, intx, ops, table, teardown, BarKind, BusId, DeviceId, DeviceInfo, TaskSlot};
+use super::{dma, inspect, intx, ops, table, teardown, BarKind, BusId, DeviceId, DeviceInfo, TaskSlot};
 
 pub const OP_LIST: u64 = 0;
 pub const OP_CLAIM: u64 = 1;
@@ -55,6 +58,9 @@ pub const OP_IRQ_ENABLE: u64 = 6;
 pub const OP_IRQ_ACK: u64 = 7;
 pub const OP_RELEASE: u64 = 8;
 pub const OP_DMA_ALLOC: u64 = 9;
+pub const OP_INVENTORY: u64 = 10;
+pub const OP_POLICY: u64 = 11;
+pub const OP_DENIALS: u64 = 12;
 
 /// `claim` flag: the claimant accepts sharing its interrupt line.
 pub const FLAG_SHARED_IRQ: u64 = 1;
@@ -87,6 +93,9 @@ pub fn dispatch(op: u64, a1: u64, a2: u64, a3: u64, a4: u64) -> u64 {
         OP_IRQ_ACK => with_handle(slot, a1, rights::DEV_IRQ, |r| irq_ack(r, a2)),
         OP_RELEASE => release(slot, a1),
         OP_DMA_ALLOC => with_handle(slot, a1, rights::DEV_DMA, |r| dma::dma_alloc(r, a2, a3, a4)),
+        OP_INVENTORY => inspect::inventory(slot, a1, a2),
+        OP_POLICY => inspect::policy(slot, a1, a2),
+        OP_DENIALS => inspect::denials(slot, a1, a2),
         _ => Err(EINVAL),
     };
     match result {
@@ -293,6 +302,11 @@ fn claim(slot: usize, id_raw: u64, endpoint: u64, flags: u64) -> Result<u64, Err
     );
     if verdict.denied() {
         return Err(EACCES);
+    }
+    // The driver class rules installed at boot (issue #481): a driver uid
+    // gets its own class and nothing else.
+    if !super::policy::allows(&cred, class, method::CLAIM) {
+        return Err(deny(slot, Some(&info), reason::CLASS_DENIED, EACCES));
     }
     let granted = grant::resource_rights(&info) & grant::policy_rights(&cred, class);
     if granted == 0 {

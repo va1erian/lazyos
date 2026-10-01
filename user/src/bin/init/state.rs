@@ -60,7 +60,7 @@ pub(super) const LAUNCH_CAP_PER_SESSION: usize = 256;
 const SND_CRED: SysCred = SysCred::new(SND_UID, SND_UID, user::dev::CAP_DEV_CLAIM, 0, 0);
 /// The `_snd` system user.
 #[cfg(lazyos_sound)]
-const SND_UID: u32 = 901;
+const SND_UID: u32 = sndpolicy::SND_UID;
 
 /// `usbd`'s arguments. `trace=1` echoes every report and key edge on serial,
 /// which would put typed passwords on the console, so only the USB harness's

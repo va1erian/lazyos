@@ -155,6 +155,7 @@ impl Fixture {
             crate::ipc::credentials::reset_for_task(slot);
         }
         acl::load(&[]);
+        crate::dev::policy::clear_for_tests();
         audit::reset();
         intx::reset_for_test();
         // Room for the many claims one test makes; individual tests lower it.
@@ -187,6 +188,7 @@ impl Drop for Fixture {
         intx::reset_for_test();
         crate::dev::table().lock().truncate_for_test(self.base_len);
         acl::load(&[]);
+        crate::dev::policy::clear_for_tests();
         quota::reset();
         channels::reset();
         for (line, was_masked) in [LINE_A, LINE_B, LINE_C].into_iter().zip(self.masks) {
