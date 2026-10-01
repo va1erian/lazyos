@@ -1,6 +1,7 @@
 //! Frame composition and chrome painting (issue #194 split): the
-//! occlusion-aware [`Compositor::repaint`] pass and the
-//! desktop/window/taskbar/overlay drawing.
+//! occlusion-aware [`Compositor::repaint`] pass and the desktop, window,
+//! panel and overlay drawing. `xuid` paints no desktop UI of its own (issue
+//! #157): the taskbar and menus are the shell's panels.
 
 use user::messenger::display::{Canvas, Face, Rect};
 use user::sys;
@@ -8,28 +9,26 @@ use user::sys;
 use super::compositor::Compositor;
 use super::drag::draw_drag;
 use super::icons;
-use super::layout::for_each_entry;
 use super::region::Region;
 use super::shell::AltTab;
 use super::surface::Surface;
 use super::theme::{
     background, border_color, border_color_focus, empty_bg, overlay_bg, overlay_border,
-    overlay_selected, overlay_text, taskbar_bg, taskbar_entry, taskbar_entry_focus,
-    taskbar_entry_min, title_bg, title_bg_focus, title_text, window_bg, BUTTON, BUTTON_GAP,
-    BUTTON_MARGIN, ENTRY_H, ENTRY_PAD, TASKBAR_H, TITLE_H,
+    overlay_selected, overlay_text, title_bg, title_bg_focus, title_text, window_bg, BUTTON,
+    BUTTON_GAP, BUTTON_MARGIN, TITLE_H,
 };
 use super::window::surface_by_id;
 
 impl Compositor {
     /// Compose `damage` from the background, the desktop surface, every
-    /// visible window in z-order, the fallback taskbar, the Alt+Tab overlay,
+    /// visible window in z-order, the shell's panels, the Alt+Tab overlay,
     /// the active drag & drop session (if any), and the cursor, then present
     /// exactly that rectangle.
     ///
     /// Only pixels a later layer would not overwrite are painted (issue #360):
-    /// the taskbar, Alt+Tab panel, context menu and each window are opaque, so
-    /// each layer draws only where nothing opaque lies above it inside the
-    /// damage. The result is pixel-identical to painting every layer in full.
+    /// panels, the Alt+Tab panel and each window are opaque, so each layer
+    /// draws only where nothing opaque lies above it inside the damage. The
+    /// result is pixel-identical to painting every layer in full.
     pub(super) fn repaint(&mut self, damage: Rect) {
         // A window may hang off the screen, so damage rectangles derived from
         // its geometry can too; never compose or present off screen.
@@ -48,48 +47,45 @@ impl Compositor {
         if damage.is_empty() {
             return;
         }
-        let taskbar = self.taskbar();
+        let cursor = self.held.pointer(self.pointer);
         let screen = &mut self.screen;
         let surfaces = &self.surfaces;
         let focused = self.focused;
         let dims = (screen.width(), screen.height());
-        let clock = self.clock.text();
 
-        // Opaque layers above every window.
-        let mut overlays = [Rect::new(0, 0, 0, 0); 3];
-        let mut overlay_count = 0;
-        let mut push_overlay = |rect: Rect| {
-            overlays[overlay_count] = rect;
-            overlay_count += 1;
-        };
-        if taskbar {
-            push_overlay(taskbar_rect(dims));
-        }
-        if let Some(panel) = self
+        let alt_tab = self
             .alt_tab
             .as_ref()
             .and_then(|tab| alt_tab_panel(dims, surfaces, tab))
-        {
-            push_overlay(panel);
-        }
-        if super::menu::is_open() {
-            push_overlay(super::menu::rect(dims));
-        }
-        let overlays = &overlays[..overlay_count];
+            .unwrap_or(Rect::new(0, 0, 0, 0));
         let windows = || {
             surfaces
                 .iter()
-                .filter(|surface| !surface.desktop && !surface.minimized)
+                .filter(|surface| surface.is_window() && !surface.minimized)
         };
-        let desktop = surfaces.iter().find(|surface| surface.desktop);
+        // Panels with pixels, in creation (paint) order; one without pixels
+        // shows nothing and hides nothing.
+        let panels = || {
+            surfaces
+                .iter()
+                .filter(|surface| surface.is_panel() && has_pixels(surface))
+        };
+        // Everything opaque above the windows.
+        let overlays = |region: &mut Region| {
+            region.subtract(alt_tab);
+            for panel in panels() {
+                region.subtract(panel.window());
+            }
+        };
+        let desktop = surfaces.iter().find(|surface| surface.is_desktop());
         // The desktop hides the background only where it really has pixels.
         let desktop_area = desktop
             .filter(|surface| has_pixels(surface))
-            .map(|surface| Rect::new(surface.x, surface.y, surface.w, surface.h));
+            .map(Surface::window);
 
         // Background: only where no desktop, window or overlay lies on top.
         let mut visible = Region::new(damage);
-        subtract_all(&mut visible, overlays);
+        overlays(&mut visible);
         for window in windows() {
             visible.subtract(window.window());
         }
@@ -101,22 +97,20 @@ impl Compositor {
         }
         // The desktop paints above the background and below every window.
         if let Some(desktop) = desktop {
-            let mut visible = Region::new(
-                Rect::new(desktop.x, desktop.y, desktop.w, desktop.h).intersect(damage),
-            );
-            subtract_all(&mut visible, overlays);
+            let mut visible = Region::new(desktop.window().intersect(damage));
+            overlays(&mut visible);
             for window in windows() {
                 visible.subtract(window.window());
             }
             for piece in visible.rects() {
-                draw_desktop(screen, desktop, *piece);
+                draw_chromeless(screen, desktop, *piece);
             }
         }
         // Windows bottom-up, each clipped to what the windows and overlays
         // above it leave visible.
         for (index, surface) in windows().enumerate() {
             let mut visible = Region::new(surface.window().intersect(damage));
-            subtract_all(&mut visible, overlays);
+            overlays(&mut visible);
             for above in windows().skip(index + 1) {
                 visible.subtract(above.window());
             }
@@ -124,30 +118,25 @@ impl Compositor {
                 draw_surface(screen, surface, focused == Some(surface.id), *piece);
             }
         }
-        if taskbar {
-            draw_taskbar(screen, surfaces, focused, clock, damage);
+        // Panels above every window, in creation order, below Alt+Tab.
+        for (index, panel) in panels().enumerate() {
+            let mut visible = Region::new(panel.window().intersect(damage));
+            visible.subtract(alt_tab);
+            for above in panels().skip(index + 1) {
+                visible.subtract(above.window());
+            }
+            for piece in visible.rects() {
+                draw_chromeless(screen, panel, *piece);
+            }
         }
         if let Some(session) = self.drag_session.as_ref() {
-            draw_drag(screen, surfaces, session, self.pointer, damage);
+            draw_drag(screen, surfaces, session, cursor, damage);
         }
         if let Some(tab) = self.alt_tab.as_ref() {
             draw_alt_tab(screen, surfaces, tab, damage);
         }
-        super::menu::draw(screen, damage);
-        screen.cursor(self.pointer.0, self.pointer.1, damage);
+        screen.cursor(cursor.0, cursor.1, damage);
     }
-}
-
-/// Remove every rectangle in `covers` from `region`.
-fn subtract_all(region: &mut Region, covers: &[Rect]) {
-    for cover in covers {
-        region.subtract(*cover);
-    }
-}
-
-/// The fallback taskbar's rectangle on a screen of `dims`.
-fn taskbar_rect(dims: (i32, i32)) -> Rect {
-    Rect::new(0, dims.1 - TASKBAR_H, dims.0, TASKBAR_H)
 }
 
 /// Whether the surface has a mapped buffer big enough for the dimensions it
@@ -160,22 +149,19 @@ fn has_pixels(surface: &Surface) -> bool {
         && surface.bytes >= (surface.buf_w as u64 * surface.buf_h as u64 * 4)
 }
 
-/// Blit the desktop surface's pixels across its rectangle; no chrome, no
-/// fallback placeholder text (a desktop without pixels is just the background).
-fn draw_desktop(screen: &mut Canvas, surface: &Surface, clip: Rect) {
-    let area = Rect::new(surface.x, surface.y, surface.w, surface.h);
-    if area.intersect(clip).is_empty() {
+/// Blit a desktop or panel's pixels across its rectangle; no chrome, no
+/// fallback placeholder (one without pixels just shows what is below).
+fn draw_chromeless(screen: &mut Canvas, surface: &Surface, clip: Rect) {
+    let area = surface.window();
+    if area.intersect(clip).is_empty() || !has_pixels(surface) {
         return;
     }
-    if has_pixels(surface) {
-        // SAFETY: the mapping was installed by `display_map_buffer` for this
-        // buffer; `bytes` is at least `buf_w * buf_h * 4` (see `has_pixels`),
-        // so the slice describes exactly the source `blit` reads.
-        let pixels = unsafe {
-            core::slice::from_raw_parts(surface.pixels as *const u8, surface.bytes as usize)
-        };
-        screen.blit(pixels, surface.buf_w, surface.buf_h, area, clip);
-    }
+    // SAFETY: the mapping was installed by `display_map_buffer` for this
+    // buffer; `bytes` is at least `buf_w * buf_h * 4` (see `has_pixels`), so
+    // the slice describes exactly the source `blit` reads.
+    let pixels =
+        unsafe { core::slice::from_raw_parts(surface.pixels as *const u8, surface.bytes as usize) };
+    screen.blit(pixels, surface.buf_w, surface.buf_h, area, clip);
 }
 
 /// The Alt+Tab panel rectangle centered on a screen of `dims`, or `None` when
@@ -383,61 +369,4 @@ fn draw_surface(screen: &mut Canvas, surface: &Surface, focused: bool, clip: Rec
             clip,
         );
     }
-}
-
-/// Draw the bottom taskbar: one entry per live surface in creation order, with
-/// the focused entry highlighted and minimized ones dimmed.
-fn draw_taskbar(
-    screen: &mut Canvas,
-    surfaces: &[Surface],
-    focused: Option<u64>,
-    clock: &str,
-    clip: Rect,
-) {
-    let (screen_w, screen_h) = (screen.width(), screen.height());
-    let bar = Rect::new(0, screen_h - TASKBAR_H, screen_w, TASKBAR_H);
-    if bar.intersect(clip).is_empty() {
-        return;
-    }
-    screen.fill(bar, clip, taskbar_bg());
-    screen.fill(Rect::new(bar.x, bar.y, bar.w, 1), clip, border_color());
-    for_each_entry(surfaces, screen_w, screen_h, |surface, rect| {
-        let background = if focused == Some(surface.id) {
-            taskbar_entry_focus()
-        } else if surface.minimized {
-            taskbar_entry_min()
-        } else {
-            taskbar_entry()
-        };
-        screen.fill(rect, clip, background);
-        let accent = if focused == Some(surface.id) {
-            border_color_focus()
-        } else {
-            border_color()
-        };
-        screen.fill(
-            Rect::new(rect.x, rect.y + rect.h - 2, rect.w, 2),
-            clip,
-            accent,
-        );
-        screen.text_face(
-            rect.x + ENTRY_PAD,
-            rect.y + (ENTRY_H - Face::Sans.height()) / 2,
-            &surface.title,
-            Face::Sans,
-            title_text(),
-            rect.intersect(clip),
-        );
-    });
-    // Date and time, right-aligned in the space `for_each_entry` reserved.
-    let slot = super::clock::rect((screen_w, screen_h));
-    let width = Face::Serif.width(clock);
-    screen.text_face(
-        slot.x + slot.w - width - super::clock::PAD,
-        slot.y + (TASKBAR_H - Face::Serif.height()) / 2,
-        clock,
-        Face::Serif,
-        title_text(),
-        bar.intersect(clip),
-    );
 }

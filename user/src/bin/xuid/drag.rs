@@ -34,15 +34,21 @@ pub(super) struct DragSession {
     /// Surface currently under the pointer, if any (never the source).
     pub(super) target: Option<u64>,
 }
-/// The topmost visible surface whose content contains `point`, ignoring
-/// `source` and the desktop.
+/// The topmost visible window whose content contains `point`, ignoring
+/// `source`; nothing under a shell panel (panels paint above every window).
 fn drag_target_at(surfaces: &[Surface], source: u64, point: (i32, i32)) -> Option<u64> {
+    if surfaces
+        .iter()
+        .any(|surface| surface.is_panel() && contains(surface.window(), point))
+    {
+        return None;
+    }
     surfaces
         .iter()
         .rev()
         .find(|surface| {
             !surface.minimized
-                && !surface.desktop
+                && surface.is_window()
                 && surface.id != source
                 && contains(surface.content(), point)
         })

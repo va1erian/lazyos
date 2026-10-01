@@ -184,14 +184,10 @@ impl Compositor {
         } else {
             ([Area::default(); surfbuf::MAX_DAMAGE], 0)
         };
-        // A window's damage is relative to its content origin; the desktop
-        // has no chrome, so its origin is the surface origin.
-        let origin = if surface.desktop {
-            (surface.x, surface.y)
-        } else {
-            let content = surface.content();
-            (content.x, content.y)
-        };
+        // Damage is relative to the content origin (a chromeless surface's
+        // content is all of it).
+        let content = surface.content();
+        let origin = (content.x, content.y);
         for area in &rects[..count] {
             // Clipped to the surface, which is bounded by the screen, so
             // these fit `i32`.

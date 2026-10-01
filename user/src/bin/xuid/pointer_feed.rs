@@ -8,8 +8,6 @@
 //! a move when the position changed, then the wheel, then one press or
 //! release per button whose bit flipped, in the order `PointerEvent` promises.
 
-use alloc::vec::Vec;
-
 use user::messenger::input::PointerState;
 
 use super::compositor::Compositor;
@@ -18,19 +16,27 @@ use super::protocol::{Event, EventKind};
 /// Display button ids `xuid` forwards: 1 left, 2 right, 3 middle (the ids
 /// `display.v1` documents; bit `n` of the mask is button `n + 1`).
 const BUTTONS: u32 = 3;
+/// The most events one `PointerEvent` becomes: a move, the wheel and one
+/// edge per forwarded button.
+pub(super) const MAX_EVENTS: usize = 2 + BUTTONS as usize;
+
+/// The events one `PointerEvent` became, in order, and how many. A fixed
+/// array: pointer events arrive at input rates and the user bump allocator
+/// never reclaims.
+pub(super) type Translated = ([Event; MAX_EVENTS], usize);
 
 /// The events that take the compositor from `(pointer, held)` to `state`.
-pub(super) fn translate(
-    pointer: (i32, i32),
-    held: u32,
-    state: &PointerState,
-    out: &mut Vec<Event>,
-) {
+pub(super) fn translate(pointer: (i32, i32), held: u32, state: &PointerState) -> Translated {
+    let mut out = ([event(EventKind::PointerMove, 0, 0); MAX_EVENTS], 0);
+    let mut push = |event: Event| {
+        out.0[out.1] = event;
+        out.1 += 1;
+    };
     if (state.x, state.y) != pointer {
-        out.push(event(EventKind::PointerMove, state.x, state.y));
+        push(event(EventKind::PointerMove, state.x, state.y));
     }
     if state.wheel != 0 {
-        out.push(event(EventKind::PointerWheel, state.wheel, 0));
+        push(event(EventKind::PointerWheel, state.wheel, 0));
     }
     for button in 1..=BUTTONS {
         let bit = 1 << (button - 1);
@@ -40,9 +46,10 @@ pub(super) fn translate(
             } else {
                 EventKind::PointerUp
             };
-            out.push(event(kind, button as i32, 0));
+            push(event(kind, button as i32, 0));
         }
     }
+    out
 }
 
 fn event(kind: EventKind, a: i32, b: i32) -> Event {
@@ -59,25 +66,34 @@ pub(super) fn forwarded(buttons: u32) -> u32 {
 }
 
 impl Compositor {
-    /// Apply one `PointerEvent` (or the `GetPointer` seed) from `inputd`.
-    pub(super) fn apply_pointer(&mut self, state: &PointerState) {
-        let mut events = Vec::new();
-        translate(self.pointer, self.input.buttons, state, &mut events);
+    /// The events a `PointerEvent` from `inputd` means, relative to the
+    /// newest pointer state seen (held input included), recording its
+    /// buttons as the new held mask.
+    pub(super) fn translate_pointer(&mut self, state: &PointerState) -> Translated {
+        let from = self.held.pointer(self.pointer);
+        let events = translate(from, self.input.buttons, state);
         self.input.buttons = forwarded(state.buttons);
-        for event in events {
-            self.handle_event(event);
+        events
+    }
+
+    /// Apply one `PointerEvent` (or the `GetPointer` seed) from `inputd`,
+    /// behind any input an animation held.
+    pub(super) fn apply_pointer(&mut self, state: &PointerState) {
+        let (events, count) = self.translate_pointer(state);
+        for event in &events[..count] {
+            self.dispatch(*event);
         }
     }
 
     /// `inputd` stopped owning the pointer: release what it held, so nothing
     /// stays pressed while the kernel stream takes over again.
     pub(super) fn release_pointer(&mut self) {
-        let released = PointerState {
-            x: self.pointer.0,
-            y: self.pointer.1,
+        let (x, y) = self.held.pointer(self.pointer);
+        self.apply_pointer(&PointerState {
+            x,
+            y,
             ..PointerState::default()
-        };
-        self.apply_pointer(&released);
+        });
     }
 }
 
@@ -94,7 +110,7 @@ pub(super) fn selftest_pointer_feed() -> &'static str {
         wheel,
         wheel_h: 0,
     };
-    let cases: [Case; 5] = [
+    let cases: [Case; 6] = [
         // Nothing changed: nothing to do.
         ((5, 5), 0, state(5, 5, 0, 0), &[]),
         // Move, wheel, then the press, in that order.
@@ -120,12 +136,24 @@ pub(super) fn selftest_pointer_feed() -> &'static str {
             state(3, 4, 4, -1),
             &[(PointerWheel, -1), (PointerDown, 3)],
         ),
+        // The fullest case fits the fixed buffer.
+        (
+            (0, 0),
+            0,
+            state(1, 1, 7, 1),
+            &[
+                (PointerMove, 1),
+                (PointerWheel, 1),
+                (PointerDown, 1),
+                (PointerDown, 2),
+                (PointerDown, 3),
+            ],
+        ),
     ];
     for (pointer, held, input, want) in cases {
-        let mut out = Vec::new();
-        translate(pointer, held, &input, &mut out);
-        let got: Vec<(EventKind, i64)> = out.iter().map(|e| (e.kind, e.a)).collect();
-        if got != want {
+        let (out, count) = translate(pointer, held, &input);
+        let got = &out[..count];
+        if got.len() != want.len() || got.iter().zip(want).any(|(e, w)| (e.kind, e.a) != *w) {
             return "XUID:POINTER:FAIL translate\n";
         }
     }

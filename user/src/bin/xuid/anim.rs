@@ -11,7 +11,8 @@ use user::messenger::display::{Canvas, Rect};
 use user::sys;
 
 use super::compositor::Compositor;
-use super::layout::icon_rect;
+use super::layout::{cursor_rect, icon_rect};
+use super::region::Region;
 
 /// Frames per phase (one PIT tick, 10 ms, each).
 const STEPS: i32 = 10;
@@ -30,13 +31,23 @@ impl Compositor {
     /// afterwards, which erases the last outline. Each frame recomposes its
     /// damage and then XORs the outlines onto the clean pixels, so nothing
     /// depends on erasing an earlier outline by redrawing it.
+    ///
+    /// The loop blocks the main loop, so every frame also reads the pending
+    /// input into the held queue (`held.rs`) and moves the cursor to the
+    /// newest pointer position, drawn above the outlines: the pointer never
+    /// freezes during an animation, and no event is lost or reordered.
     pub(super) fn zoom(&mut self, from: Rect, to: Rect) {
         let full = self.full();
         // The starting rectangle counts as previously drawn, so the first
         // frame also erases the window that was just hidden.
         let mut previous = from;
+        let mut cursor = self.held.pointer(self.pointer);
         for step in 1..=STEPS + TRAIL_LAG * (TRAIL - 1) {
             let deadline = sys::clock() + 1;
+            self.hold_pending_input();
+            let moved_to = self.held.pointer(self.pointer);
+            let pointer_damage = cursor_rect(cursor).union(cursor_rect(moved_to));
+            cursor = moved_to;
             let mut rects = [Rect::new(0, 0, 0, 0); TRAIL as usize];
             let mut damage = previous;
             for (index, slot) in rects.iter_mut().enumerate() {
@@ -50,14 +61,24 @@ impl Compositor {
             // One pixel of slack so the outlines' edges are always inside.
             let damage =
                 Rect::new(damage.x - 1, damage.y - 1, damage.w + 2, damage.h + 2).intersect(full);
+            let pointer_damage = pointer_damage.intersect(full);
             self.compose(damage);
+            self.compose(pointer_damage);
             // Overlapping outlines (equal ones as the eased motion settles, but
             // also distinct ones that share an edge) would cancel under XOR,
             // so the trail is drawn as disjoint pieces, each pixel inverted once.
-            for piece in trail_pieces(&rects) {
-                self.screen.invert(piece, damage);
+            let mut pieces = [Rect::new(0, 0, 0, 0); MAX_PIECES];
+            let count = trail_pieces(&rects, &mut pieces);
+            for piece in &pieces[..count] {
+                self.screen.invert(*piece, damage);
             }
-            let _ = sys::display_present(damage.x, damage.y, damage.w, damage.h);
+            // The cursor stays above the outlines.
+            for clip in [damage, pointer_damage] {
+                self.screen.cursor(cursor.0, cursor.1, clip);
+            }
+            for shown in [damage, pointer_damage].iter().filter(|r| !r.is_empty()) {
+                let _ = sys::display_present(shown.x, shown.y, shown.w, shown.h);
+            }
             previous = damage;
             // Pace the frames: `wait` with no children just sleeps to the
             // deadline.
@@ -121,12 +142,7 @@ impl Compositor {
 
     /// Surface `id`'s icon (taskbar entry) rectangle.
     fn icon(&self, id: u64) -> Rect {
-        icon_rect(
-            &self.surfaces,
-            self.screen.width(),
-            self.screen.height(),
-            id,
-        )
+        icon_rect(&self.surfaces, self.screen.height(), id)
     }
 
     /// The window, its icon rectangle, and the icon-sized rectangle centred on
@@ -187,46 +203,32 @@ fn outline_strips(rect: Rect) -> [Rect; 4] {
     ]
 }
 
-/// `rect` minus `cut`: up to four disjoint rectangles covering what remains.
-fn subtract(rect: Rect, cut: Rect, out: &mut Vec<Rect>) {
-    let hit = rect.intersect(cut);
-    if hit.is_empty() {
-        out.push(rect);
-        return;
-    }
-    let (right, bottom) = (rect.x + rect.w, rect.y + rect.h);
-    let (hit_right, hit_bottom) = (hit.x + hit.w, hit.y + hit.h);
-    for piece in [
-        Rect::new(rect.x, rect.y, rect.w, hit.y - rect.y),
-        Rect::new(rect.x, hit_bottom, rect.w, bottom - hit_bottom),
-        Rect::new(rect.x, hit.y, hit.x - rect.x, hit.h),
-        Rect::new(hit_right, hit.y, right - hit_right, hit.h),
-    ] {
-        if !piece.is_empty() {
-            out.push(piece);
-        }
-    }
-}
+/// The most disjoint pieces a trail is cut into. Three outlines of four
+/// strips each need far fewer; a full buffer only drops pieces of the
+/// outline, never memory (frames must not allocate: the bump allocator never
+/// reclaims).
+const MAX_PIECES: usize = 64;
 
-/// The union of the trail's outlines as pairwise-disjoint rectangles, so
-/// inverting each once never cancels where outlines overlap. Empty rectangles
-/// are skipped.
-fn trail_pieces(rects: &[Rect]) -> Vec<Rect> {
-    let mut covered: Vec<Rect> = Vec::new();
+/// The union of the trail's outlines as pairwise-disjoint rectangles written
+/// to `out`, so inverting each once never cancels where outlines overlap;
+/// returns how many. Empty rectangles are skipped.
+fn trail_pieces(rects: &[Rect], out: &mut [Rect; MAX_PIECES]) -> usize {
+    let mut count = 0;
     for rect in rects.iter().filter(|rect| !rect.is_empty()) {
         for strip in outline_strips(*rect) {
-            let mut fresh = Vec::from([strip]);
-            for done in &covered {
-                let mut next = Vec::new();
-                for piece in &fresh {
-                    subtract(*piece, *done, &mut next);
-                }
-                fresh = next;
+            let mut fresh = Region::new(strip);
+            for done in &out[..count] {
+                fresh.subtract(*done);
             }
-            covered.extend(fresh);
+            for piece in fresh.rects() {
+                if count < MAX_PIECES {
+                    out[count] = *piece;
+                    count += 1;
+                }
+            }
         }
     }
-    covered
+    count
 }
 
 /// Draw a hollow rectangle by inverting the pixels under it, so it is visible
@@ -282,7 +284,9 @@ pub(super) fn selftest_anim() -> &'static str {
 
     // Distinct outlines sharing most of an edge still invert each pixel once.
     let pair = [Rect::new(10, 10, 20, 8), Rect::new(12, 10, 20, 8)];
-    let pieces = trail_pieces(&pair);
+    let mut buffer = [Rect::new(0, 0, 0, 0); MAX_PIECES];
+    let count = trail_pieces(&pair, &mut buffer);
+    let pieces = &buffer[..count];
     let apart = pieces
         .iter()
         .enumerate()
@@ -290,7 +294,7 @@ pub(super) fn selftest_anim() -> &'static str {
     buf.fill(0x40);
     // SAFETY: as above; the previous canvas is dead, so access is exclusive.
     let mut canvas = unsafe { Canvas::new(buf.as_mut_ptr() as u64, w, h) };
-    for piece in &pieces {
+    for piece in pieces {
         canvas.invert(*piece, clip);
     }
     let in_trail = |x: i32, y: i32| {

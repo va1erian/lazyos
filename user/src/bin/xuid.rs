@@ -21,12 +21,12 @@
 //!
 //! Window management (issue #143) is built on the same model:
 //!
-//! * the `surfaces` vector *is* the z-order — its tail paints last, and a click
-//!   raises that surface to the tail and focuses it;
+//! * the `surfaces` vector *is* the z-order of the windows — its tail paints
+//!   last, and a click raises that window to the tail and focuses it;
 //! * the title bar is a drag handle: a left press on it grabs the window and
 //!   subsequent pointer movement moves the origin. A window may be pushed
 //!   partly off the left, right and bottom edges; [`geometry::keep_reachable`]
-//!   keeps enough of its title bar on screen to grab it again;
+//!   keeps enough of its title bar inside the work area to grab it again;
 //! * a resizable window (one that called `SetSizeHints`, method 32) can be
 //!   resized by dragging an edge or corner: the compositor draws a wireframe
 //!   outline during the drag and applies the size, via a one-way `Configure`
@@ -35,36 +35,37 @@
 //!   `WindowClose` event), minimize (`-`, hides the surface) and — for a
 //!   resizable window — maximize/restore buttons. A double-click on the title
 //!   bar toggles maximize; the transition uses the same wireframe zoom as
-//!   minimize;
-//! * a bottom taskbar strip lists every live surface by title in creation
-//!   order; clicking an entry focuses/raises it, and restores it when minimized.
-//!   The focused entry is highlighted;
-//! * `Tab` cycles focus across visible surfaces only, skipping minimized ones.
+//!   minimize. The zooms read input every frame, so the cursor keeps moving
+//!   and no event is lost (`held.rs`);
+//! * `Tab` cycles focus across visible windows only, skipping minimized ones.
 //!
 //! Issue #145 adds compositor-mediated drag & drop (methods 11–17): a source
 //! hands over a clipboard token with `DragStart`, the compositor owns the
 //! pointer while the button is held, and the surface under it receives
 //! `DragEnter`/`DragOver`/`DragLeave` and finally `Drop` (with the token) or a
-//! cancelled `DragEnded`. Escape cancels. See the "Drag & drop" section below
-//! and `docs/architecture/display.md`.
+//! cancelled `DragEnded`. Escape cancels. See `drag.rs` and
+//! `docs/architecture/display.md`.
 //!
-//! Issue #167 adds the shell protocol (S5.0), append-only on top of the above:
+//! The desktop itself — taskbar, clock, start menu, wallpaper — is not here:
+//! it is LazyShell, a client (issue #157). `xuid` keeps the mechanism and the
+//! policy the shell builds on (issues #167, #157, #447):
 //!
-//! * a `DESKTOP` role on `CreateSurface`: the surface paints at the bottom of
-//!   the z-order, above the background colour and below every window, with no
-//!   chrome, focus, taskbar entry, or Alt+Tab entry; creating another desktop
-//!   replaces the current one;
-//! * `ListSurfaces` (one row per surface: id, title, geometry, minimized,
-//!   focused), `GetWorkArea` (the window rectangle above the fallback taskbar),
-//!   `GetTheme` (the chrome palette), and `Subscribe(role, events)` — the
-//!   subscriber receives one-way `SurfaceChanged`, `FocusChanged`, and
-//!   `StartMenu` events. A `"shell"` subscriber hides the built-in taskbar and
-//!   expands the work area to the whole screen, but the fallback bar (and the
-//!   old no-shell sessions) keep working;
-//! * global hotkeys: `Alt+Tab` opens a centered window overlay, repeated Tab
-//!   cycles the selection, releasing Alt commits; `Ctrl+Esc` and `Super` send
+//! * `Subscribe("shell", events)` makes a task *the* shell (privileged, or
+//!   the session that owns the display; a restart from that session replaces
+//!   it). It receives one-way `SurfaceChanged`, `FocusChanged`, `StartMenu`
+//!   and `Dismiss` events. Other roles are a privileged observer slot that
+//!   never displaces the shell;
+//! * the shell alone may create the `Desktop` surface (bottom layer) and
+//!   `Panel` surfaces (chromeless, above every window, placed with
+//!   `PlaceSurface`), list surfaces, and activate, minimize, set the work
+//!   area, the icon geometry and the launch origin (methods 36–41). Panels and
+//!   the desktop get the pointer while it is over them (`layers.rs`);
+//! * global hotkeys: `Alt+Tab` opens a centered window overlay (minimized
+//!   windows included, restored on commit), repeated Tab cycles the
+//!   selection, releasing Alt commits; `Ctrl+Esc` and `Super` send
 //!   `StartMenu` to the shell; `Alt+F4` sends `WindowClose` to the focused
-//!   surface; `Escape` still cancels a drag & drop.
+//!   surface; `Escape` still cancels a drag & drop. With no shell, `xuid`
+//!   paints the background and windows, and Alt+Tab reaches every window.
 //!
 //! Boot it with `LAZYOS_XUID=1`; the kernel starts this program and `xdemo`.
 //! The shell-probe evidence client (`shellprobe`) boots too when the
@@ -76,8 +77,8 @@
 //! are layout changes and repaint the full screen (a title-bar drag repaints
 //! the union of the old and new window rectangles). Inside the damage only
 //! pixels no opaque layer above would overwrite are painted: windows fully
-//! hidden by a window, the taskbar, the Alt+Tab panel or the menu are skipped
-//! (issue #360, `region.rs`). All state lives in one `Compositor` (`compositor.rs`).
+//! hidden by a window, a panel or the Alt+Tab panel are skipped (issue #360,
+//! `region.rs`). All state lives in one `Compositor` (`compositor.rs`).
 //! The app buffer handoff is already zero-copy
 //! (the compositor reads the same frames the app writes); fences and double
 //! buffering are the S8 follow-up that turns `Commit` into a tear-free
@@ -93,8 +94,6 @@ extern crate alloc;
 
 #[path = "xuid/anim.rs"]
 mod anim;
-#[path = "xuid/clock.rs"]
-mod clock;
 #[path = "xuid/compositor.rs"]
 mod compositor;
 #[path = "xuid/drag.rs"]
@@ -103,20 +102,20 @@ mod drag;
 mod event;
 #[path = "xuid/geometry.rs"]
 mod geometry;
+#[path = "xuid/held.rs"]
+mod held;
 #[path = "xuid/icons.rs"]
 mod icons;
 #[path = "xuid/inputlink.rs"]
 mod inputlink;
 #[path = "xuid/keys.rs"]
 mod keys;
+#[path = "xuid/layers.rs"]
+mod layers;
 #[path = "xuid/layout.rs"]
 mod layout;
 #[path = "xuid/maximize.rs"]
 mod maximize;
-#[path = "xuid/menu.rs"]
-mod menu;
-#[path = "xuid/menuitems.rs"]
-mod menuitems;
 #[path = "xuid/origin.rs"]
 mod origin;
 #[path = "xuid/pointer_feed.rs"]
@@ -139,6 +138,8 @@ mod request_shell;
 mod resize;
 #[path = "xuid/shell.rs"]
 mod shell;
+#[path = "xuid/shellcalls.rs"]
+mod shellcalls;
 #[path = "xuid/surface.rs"]
 mod surface;
 #[path = "xuid/theme.rs"]
@@ -159,7 +160,7 @@ use user::messenger::{self, registry};
 use user::sys;
 
 use compositor::Compositor;
-use protocol::{decode_event, push_coalesced, Event};
+use protocol::{push_coalesced, Event};
 
 /// The serial marker the evidence session greps for.
 const UP_MARKER: &str = "XUID:UP:PASS\n";
@@ -217,34 +218,48 @@ fn run() -> ! {
     let mut input: Vec<Event> = Vec::with_capacity(MAX_INPUT);
 
     // First frame: the previous mux pixels are still on screen, so paint the
-    // desktop and present before announcing readiness.
+    // background and present before announcing readiness.
     comp.repaint_full();
     sys::write_str(UP_MARKER);
     sys::write_str(WM_MARKER);
     sys::write_str(SHELL_MARKER);
-    sys::write_str(keys::selftest_key_encoding());
-    sys::write_str(title::selftest_titles());
-    sys::write_str(window::selftest_focus_on_create());
-    sys::write_str(origin::selftest_open_origin());
-    sys::write_str(geometry::selftest_geometry());
-    sys::write_str(anim::selftest_anim());
-    sys::write_str(wheel::selftest_wheel_routing());
-    sys::write_str(reap::selftest_reap());
-    sys::write_str(pointer_feed::selftest_pointer_feed());
+    for selftest in [
+        keys::selftest_key_encoding,
+        title::selftest_titles,
+        window::selftest_focus_on_create,
+        origin::selftest_open_origin,
+        geometry::selftest_geometry,
+        anim::selftest_anim,
+        wheel::selftest_wheel_routing,
+        reap::selftest_reap,
+        pointer_feed::selftest_pointer_feed,
+        held::selftest_held,
+        shellcalls::selftest_shell_calls,
+    ] {
+        sys::write_str(selftest());
+    }
 
     loop {
+        // Input an animation held comes before anything newer.
+        comp.handle_held();
+
         // 0. `inputd`: register new surfaces, report focus, apply the
         //    sessions it opened (keys for those windows come from it).
         comp.sync_input();
 
         // 1. Input: drain the whole kernel queue first so pointer moves
         //    coalesce across poll calls, then handle what is left in order.
-        drain_input(&mut input, comp.input.owns_pointer);
+        //    Coalescing keeps a run of pointer moves at one entry, so a
+        //    pointer moving as fast as the queue is drained cannot keep this
+        //    loop from returning to serve requests (issue #339).
+        held::drain_kernel(comp.input.owns_pointer, MAX_INPUT, |event| {
+            push_coalesced(&mut input, event)
+        });
         for event in input.drain(..) {
             comp.handle_event(event);
         }
+        comp.handle_held();
         comp.reap_dead_shell();
-        comp.tick_clock();
         comp.tick_theme();
         comp.reap_dead_surfaces(sys::clock());
 
@@ -275,45 +290,10 @@ fn run() -> ! {
     }
 }
 
-/// Kernel input records fetched per `display_input_poll` call.
-const INPUT_BATCH: usize = 32;
-/// The size of one kernel input record.
-const EVENT_BYTES: usize = 16;
 /// The most kernel records one drain reads before `xuid` handles them (the
-/// kernel's own queue bound). The bound counts records read, not events kept:
-/// coalescing keeps a run of pointer moves at one entry, so a pointer moving
-/// as fast as the queue is drained cannot keep this loop from returning to
-/// dispatch input and serve requests. The batch is allocated once, since the
-/// user bump allocator never reclaims.
-const MAX_INPUT: usize = 256;
-
-/// Drain the kernel input queue into `batch`, collapsing each run of pointer
-/// moves into its last record (issue #339). Draining before handling adds no
-/// latency and lets a run split across two poll calls still collapse;
-/// [`MAX_INPUT`] records bound one drain. While `inputd` owns the pointer
-/// (`pointer_feed.rs`) the kernel's pointer records are read and dropped, so
-/// only keys come from this stream.
-fn drain_input(batch: &mut Vec<Event>, inputd_pointer: bool) {
-    let mut records = [0u8; EVENT_BYTES * INPUT_BATCH];
-    let mut read = 0;
-    while read + INPUT_BATCH <= MAX_INPUT {
-        let Ok(count) = sys::display_input_poll(&mut records) else {
-            break;
-        };
-        if count == 0 {
-            break;
-        }
-        read += count;
-        for index in 0..count {
-            if let Some(event) = decode_event(&records, index) {
-                if inputd_pointer && event.kind.is_pointer() {
-                    continue;
-                }
-                push_coalesced(batch, event);
-            }
-        }
-    }
-}
+/// kernel's own queue bound). The batch is allocated once, since the user
+/// bump allocator never reclaims.
+const MAX_INPUT: usize = held::CAPACITY;
 
 /// Report a fatal startup failure on serial, then exit.
 fn fail(what: &str, code: i64) -> ! {

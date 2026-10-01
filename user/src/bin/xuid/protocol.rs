@@ -17,17 +17,24 @@ pub(super) fn drop_rejected_handle(message: &Message) {
     }
 }
 
-/// Whether `sender`'s kernel-stamped credentials authorize the compositor's
-/// administrative operations (issue #175): claiming the `"shell"` role,
-/// replacing the desktop, and listing every surface. Mirrors accountsd's
-/// admin check: uid 0, or `CAP_SETUID` for a delegated system service. A
-/// refusal or a read error is "not authorized".
-pub(super) fn is_privileged(sender: u64) -> bool {
+/// `sender`'s kernel-stamped credentials, or `None` when they cannot be read
+/// (which every caller treats as "not authorized").
+pub(super) fn sender_cred(sender: u64) -> Option<sys::Cred> {
     let mut cred = sys::Cred::default();
-    match sys::cred_get(Some(sender), &mut cred) {
-        Ok(()) => cred.uid == 0 || cred.caps & sys::CAP_SETUID != 0,
-        Err(_) => false,
-    }
+    sys::cred_get(Some(sender), &mut cred).ok().map(|()| cred)
+}
+
+/// Whether `cred` authorizes the compositor's administrative operations
+/// (issue #175) on its own: any subscription role, the shell-only calls.
+/// Mirrors accountsd's admin check: uid 0, or `CAP_SETUID` for a delegated
+/// system service.
+pub(super) fn privileged(cred: &sys::Cred) -> bool {
+    cred.uid == 0 || cred.caps & sys::CAP_SETUID != 0
+}
+
+/// [`privileged`] for `sender`; a read error is "not authorized".
+pub(super) fn is_privileged(sender: u64) -> bool {
+    sender_cred(sender).is_some_and(|cred| privileged(&cred))
 }
 /// The kind of a raw kernel input record.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
