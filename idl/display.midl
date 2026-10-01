@@ -79,16 +79,25 @@ interface os.lazy.display.v1 {
     method Drop(x: I32, y: I32, token: U64, mime: String) -> () = 16 oneway;
     /// Event to the drag's source: the drag ended (`dropped`) or was cancelled.
     method DragEnded(dropped: Bool) -> () = 17 oneway;
-    /// Every surface in z-order (bottom first), including the desktop.
-    /// Compositor-privileged.
+    /// Every surface in z-order (bottom first), including the desktop and
+    /// panels. Shell-only (the `shell` subscriber's task, uid 0 or
+    /// `CAP_SETUID`).
     method ListSurfaces() -> (surfaces: Array<SurfaceRow>) = 18;
-    /// The rectangle available to windows: the whole screen when a shell is
-    /// subscribed, otherwise the screen minus the fallback taskbar strip.
+    /// The rectangle available to windows: what the shell set with
+    /// `SetWorkArea`, or the whole screen (xuid paints no desktop UI of its
+    /// own since issue #157).
     method GetWorkArea() -> (x: I32, y: I32, w: I32, h: I32) = 19;
-    /// Register this task as the shell subscriber under `subscriber_role`;
-    /// the parcel transfers the event endpoint for the shell events. The role
-    /// `shell` (privileged) also hides the built-in taskbar. Registering again
-    /// replaces the previous endpoint.
+    /// Register this task as a subscriber under `subscriber_role`; the parcel
+    /// transfers the event endpoint for the shell events. The role `shell`
+    /// makes the task *the* shell (it may then create desktop and panel
+    /// surfaces and call the shell-only methods). It is accepted from uid 0 or
+    /// `CAP_SETUID`, or from a task in the session that owns the display: the
+    /// first session whose task subscribed as `shell` (kernel-stamped
+    /// `cred.session`, never session 0). A shell from that same session (a
+    /// restart) replaces the previous one. Any other role is an observer slot
+    /// that requires uid 0 or `CAP_SETUID` and never replaces the shell
+    /// (issue #447). Registering again replaces the caller's previous
+    /// endpoint.
     method Subscribe(subscriber_role: String) -> () = 20;
     /// The compositor's chrome palette as `0xRRGGBB` colours.
     method GetTheme() -> (title_bg_active: U32, title_bg_inactive: U32, border: U32, taskbar: U32, text: U32) = 21;
@@ -185,8 +194,56 @@ interface os.lazy.display.v1 {
     /// event), so there is nothing to answer.
     method Ping() -> () = 35 oneway;
 
-    /// What a surface is. Numeric values are the wire values.
-    enum Role { Window, Desktop }
+    // ---------------------------------------------------------------------
+    // LazyShell (issue #157): the desktop UI lives in the shell process, so
+    // what the old in-compositor taskbar and menu read from compositor state
+    // is reachable here. "Shell-only" below means the caller is the task that
+    // holds the `shell` subscription (or is uid 0 / `CAP_SETUID`, for the
+    // probes); anyone else gets `EACCES`.
+    // ---------------------------------------------------------------------
+
+    /// Move a `Panel` surface so its top-left corner is at screen `(x, y)`.
+    /// Only the surface's creator may call it (`EACCES`), only for a panel
+    /// (`EINVAL` for any other role; `ENOENT` for an unknown surface). The
+    /// position is clamped so the panel stays on screen. A new panel opens at
+    /// `(0, 0)`, so a shell places it before its first `Commit`.
+    method PlaceSurface(surface: U64, x: I32, y: I32) -> () = 36;
+    /// Shell-only: restore `surface` if minimized, raise it and give it focus
+    /// (a taskbar entry click). `ENOENT` for an unknown surface, `EINVAL` for
+    /// a desktop or panel.
+    method ActivateSurface(surface: U64) -> () = 37;
+    /// Shell-only: minimize `surface` (a click on the focused taskbar entry).
+    /// The zoom animation flies to the rectangle `SetIconGeometry` gave for
+    /// it. `ENOENT` for an unknown surface, `EINVAL` for a desktop or panel.
+    method MinimizeSurface(surface: U64) -> () = 38;
+    /// Shell-only: the rectangle windows may occupy (the screen minus the
+    /// shell's taskbar). Clamped to the screen; an empty result is `EINVAL`.
+    /// Maximized windows are re-fitted to it. When the shell goes away the
+    /// work area returns to the whole screen.
+    method SetWorkArea(x: I32, y: I32, w: I32, h: I32) -> () = 39;
+    /// Shell-only: where `surface`'s taskbar entry is on screen, so the
+    /// minimize/restore zoom flies to and from it. A window without one zooms
+    /// to a small rectangle at the bottom-left of the screen. `ENOENT` for an
+    /// unknown surface; an empty rectangle forgets the geometry.
+    method SetIconGeometry(surface: U64, x: I32, y: I32, w: I32, h: I32) -> () = 40;
+    /// Shell-only: the next window *any* task creates within about two seconds
+    /// zooms open from this screen rectangle (the start-menu row or desktop
+    /// icon the user just activated) instead of from its taskbar entry. The
+    /// shell sends it right before asking `init` to launch an app. A task's
+    /// own `HintOpenOrigin` wins over it. An empty rectangle is ignored.
+    method HintLaunchOrigin(x: I32, y: I32, w: U32, h: U32) -> () = 41;
+    /// Shell event: a pointer button went down outside every `Panel` surface
+    /// (on a window, the desktop or the bare background), so the shell closes
+    /// any open popup panel such as the start menu.
+    method Dismiss() -> () = 42 oneway;
+
+    /// What a surface is. Numeric values are the wire values. A `Panel`
+    /// (issue #157) is a shell-owned, chromeless surface painted above every
+    /// window (the taskbar, the start menu); it never takes keyboard focus,
+    /// has no taskbar or Alt+Tab entry, receives the pointer events over it,
+    /// and is positioned with `PlaceSurface`. Like the desktop it is
+    /// shell-only.
+    enum Role { Window, Desktop, Panel }
 
     /// The `SurfaceChanged` event kinds. `Unspecified` (0) is what a missing
     /// field decodes to, so a malformed event never reads as `Created`.
