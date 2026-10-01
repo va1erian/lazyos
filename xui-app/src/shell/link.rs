@@ -145,13 +145,13 @@ pub fn pump<M: 'static>(ctx: &Rc<Ctx>, ui: &Ui<M>) {
     }
 }
 
-/// The subscription failed (the compositor died): the shell cannot work
-/// without it, so it exits and `init` restarts it against the new compositor.
+/// The event channel failed (the compositor died, or the channel broke): the
+/// shell cannot follow the windows without it, so it exits and `init`
+/// restarts it with a fresh subscription. Only a timeout is transient, and
+/// `pump` handles that before calling here.
 fn lost(ctx: &Ctx, code: i64) {
     ctx.note("link-lost", || format!("SHELL:LINK:LOST err={}", -code));
-    if code == -errno::EPIPE {
-        std::process::exit(1);
-    }
+    std::process::exit(1);
 }
 
 fn handle<M: 'static>(ctx: &Rc<Ctx>, ui: &Ui<M>, event: ShellEvent) {

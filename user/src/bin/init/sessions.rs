@@ -66,10 +66,12 @@ pub(super) fn observe(services: &[Service], message: &Message) {
     let Ok(record) = logind::wire::decode_login_session(&payload) else {
         return;
     };
-    if record.state == "exited" {
-        forget(id);
-    } else {
+    // Only a live session has an owner; any other state (exited, or one this
+    // table does not know) forgets it, so no stale owner outlives its session.
+    if matches!(record.state.as_str(), "starting" | "active") {
         remember(id, record.uid);
+    } else {
+        forget(id);
     }
 }
 

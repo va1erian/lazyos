@@ -36,7 +36,7 @@ pub struct Ctx {
     /// Screen size in pixels.
     pub screen: (i32, i32),
     /// This shell's kernel-stamped uid (the service's caller rule).
-    pub uid: u32,
+    pub uid: Option<u32>,
     /// This task's end of the `shell` subscription's event channel.
     pub events: u64,
     pub taskbar: RefCell<Taskbar>,
@@ -66,7 +66,7 @@ impl Ctx {
         backend: Rc<LazyOSBackend>,
         client: Client,
         screen: (i32, i32),
-        uid: u32,
+        uid: Option<u32>,
         events: u64,
     ) -> Ctx {
         Ctx {

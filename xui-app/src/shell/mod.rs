@@ -64,8 +64,9 @@ pub fn run() -> i32 {
         println!("SHELL:UP:FAIL screen={}x{}", screen.0, screen.1);
         return 1;
     }
-    // The shell's own uid: the service lets root and this user in.
-    let uid = sys::cred_get(None).map_or(0, |cred| cred.uid);
+    // The shell's own uid: the service lets root and this user in. Unknown
+    // (`None`) refuses every call rather than guessing an identity.
+    let uid = sys::cred_get(None).ok().map(|cred| cred.uid);
     let ctx = Rc::new(ctx::Ctx::new(
         Rc::clone(&backend),
         client,

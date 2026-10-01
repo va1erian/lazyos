@@ -165,12 +165,15 @@ impl Compositor {
     pub(super) fn take_open_origin(&mut self, owner: u64) -> Option<Rect> {
         let now = sys::clock();
         let own = super::origin::take(&mut self.hints, owner, now);
-        let launch = self
-            .launch_hint
+        if own.is_some() {
+            // The task's own hint wins and leaves the shell's launch hint for
+            // the window the shell actually launched.
+            return own;
+        }
+        self.launch_hint
             .take()
             .filter(|hint| hint.expires > now)
-            .map(|hint| hint.from);
-        own.or(launch)
+            .map(|hint| hint.from)
     }
 }
 
