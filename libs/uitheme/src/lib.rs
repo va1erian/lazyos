@@ -172,22 +172,63 @@ fn channel(color: u32, shift: u32) -> u32 {
 pub const DARK_TEXT: u32 = rgb(20, 24, 36);
 /// Text drawn on a dark surface (the dark preset's ink).
 pub const LIGHT_TEXT: u32 = rgb(228, 232, 245);
-/// Perceived brightness (`0..=255`) at or above which a surface takes
-/// [`DARK_TEXT`]. A little above the midpoint, because saturated mid-tone
-/// accents (green, orange, red) read better with light text.
-const LIGHT_SURFACE: u32 = 150;
+/// sRGB channel value -> linear light, scaled to `0..=65535` (the WCAG
+/// transfer curve, precomputed: `no_std` has no `powf`).
+#[rustfmt::skip]
+const LINEAR: [u16; 256] = [
+    0, 20, 40, 60, 80, 99, 119, 139, 159, 179, 199, 219,
+    241, 264, 288, 313, 340, 367, 396, 427, 458, 491, 526, 562,
+    599, 637, 677, 718, 761, 805, 851, 898, 947, 997, 1048, 1101,
+    1156, 1212, 1270, 1330, 1391, 1453, 1517, 1583, 1651, 1720, 1790, 1863,
+    1937, 2013, 2090, 2170, 2250, 2333, 2418, 2504, 2592, 2681, 2773, 2866,
+    2961, 3058, 3157, 3258, 3360, 3464, 3570, 3678, 3788, 3900, 4014, 4129,
+    4247, 4366, 4488, 4611, 4736, 4864, 4993, 5124, 5257, 5392, 5530, 5669,
+    5810, 5953, 6099, 6246, 6395, 6547, 6700, 6856, 7014, 7174, 7335, 7500,
+    7666, 7834, 8004, 8177, 8352, 8528, 8708, 8889, 9072, 9258, 9445, 9635,
+    9828, 10022, 10219, 10417, 10619, 10822, 11028, 11235, 11446, 11658, 11873, 12090,
+    12309, 12530, 12754, 12980, 13209, 13440, 13673, 13909, 14146, 14387, 14629, 14874,
+    15122, 15371, 15623, 15878, 16135, 16394, 16656, 16920, 17187, 17456, 17727, 18001,
+    18277, 18556, 18837, 19121, 19407, 19696, 19987, 20281, 20577, 20876, 21177, 21481,
+    21787, 22096, 22407, 22721, 23038, 23357, 23678, 24002, 24329, 24658, 24990, 25325,
+    25662, 26001, 26344, 26688, 27036, 27386, 27739, 28094, 28452, 28813, 29176, 29542,
+    29911, 30282, 30656, 31033, 31412, 31794, 32179, 32567, 32957, 33350, 33745, 34143,
+    34544, 34948, 35355, 35764, 36176, 36591, 37008, 37429, 37852, 38278, 38706, 39138,
+    39572, 40009, 40449, 40891, 41337, 41785, 42236, 42690, 43147, 43606, 44069, 44534,
+    45002, 45473, 45947, 46423, 46903, 47385, 47871, 48359, 48850, 49344, 49841, 50341,
+    50844, 51349, 51858, 52369, 52884, 53401, 53921, 54445, 54971, 55500, 56032, 56567,
+    57105, 57646, 58190, 58737, 59287, 59840, 60396, 60955, 61517, 62082, 62650, 63221,
+    63795, 64372, 64952, 65535
+];
 
-/// Perceived brightness of `color` (ITU-R BT.601 luma), `0..=255`.
-pub fn luma(color: u32) -> u32 {
-    (299 * channel(color, 16) + 587 * channel(color, 8) + 114 * channel(color, 0)) / 1000
+/// WCAG relative luminance of `color`, scaled to `0..=65535`.
+pub fn relative_luminance(color: u32) -> u32 {
+    let lin = |shift| u32::from(LINEAR[channel(color, shift) as usize]);
+    (2126 * lin(16) + 7152 * lin(8) + 722 * lin(0)) / 10_000
 }
 
-/// The text colour that stays readable on `background`: dark ink on light
-/// surfaces, light ink on dark ones. A user-chosen accent or title colour can
-/// be anything, so chrome text is always picked from what it sits on rather
-/// than from the mode.
+/// `true` when `a` on `b` has more contrast than `c` on `b`, comparing WCAG
+/// ratios `(L1 + 0.05) / (L2 + 0.05)` without division.
+fn more_contrast(a: u32, c: u32, background: u32) -> bool {
+    // 0.05 in the 0..=65535 scale.
+    const FLARE: u64 = 3277;
+    let ratio = |ink: u32| {
+        let (ink, bg) = (relative_luminance(ink), relative_luminance(background));
+        let (hi, lo) = (
+            u64::from(ink.max(bg)) + FLARE,
+            u64::from(ink.min(bg)) + FLARE,
+        );
+        (hi, lo)
+    };
+    let ((a_hi, a_lo), (c_hi, c_lo)) = (ratio(a), ratio(c));
+    a_hi * c_lo > c_hi * a_lo
+}
+
+/// The text colour that stays readable on `background`: whichever of
+/// [`DARK_TEXT`] and [`LIGHT_TEXT`] has the higher WCAG contrast ratio on it.
+/// A user-chosen accent or title colour can be anything, so chrome text is
+/// always picked from what it sits on rather than from the mode.
 pub fn text_on(background: u32) -> u32 {
-    if luma(background) >= LIGHT_SURFACE {
+    if more_contrast(DARK_TEXT, LIGHT_TEXT, background) {
         DARK_TEXT
     } else {
         LIGHT_TEXT
@@ -382,8 +423,39 @@ mod tests {
         assert_eq!(text_on(0x000000), LIGHT_TEXT);
         assert_eq!(text_on(0xFFFFFF), DARK_TEXT);
         assert_eq!(text_on(DEFAULT_ACCENT), LIGHT_TEXT);
-        assert_eq!(luma(0xFFFFFF), 255);
-        assert_eq!(luma(0x000000), 0);
+        assert_eq!(relative_luminance(0xFFFFFF), 65535);
+        assert_eq!(relative_luminance(0x000000), 0);
+    }
+
+    /// WCAG ratio of `ink` on `background`, for the regression checks.
+    fn ratio(ink: u32, background: u32) -> f64 {
+        let l = |c| f64::from(relative_luminance(c)) / 65535.0;
+        let (a, b) = (l(ink), l(background));
+        (a.max(b) + 0.05) / (a.min(b) + 0.05)
+    }
+
+    #[test]
+    fn mid_tone_accents_get_the_readable_ink() {
+        // Orange has BT.601 luma ~127 but takes dark ink (~4.7:1, light ~3.1:1).
+        assert_eq!(text_on(0xC46E1E), DARK_TEXT);
+        // Every preset and some saturated custom colours: the chosen ink is
+        // never the lower-contrast one, and the presets meet WCAG AA (4.5:1).
+        for accent in [DEFAULT_ACCENT, 0x336699, 0xC46E1E, 0x6E46A0, 0xAA3232] {
+            assert!(ratio(text_on(accent), accent) >= 4.5, "{accent:06x}");
+        }
+        for color in [
+            0xFF0000, 0x00FF00, 0x0000FF, 0xFFFF00, 0x00FFFF, 0xFF00FF, 0x808080,
+        ] {
+            let other = if text_on(color) == DARK_TEXT {
+                LIGHT_TEXT
+            } else {
+                DARK_TEXT
+            };
+            assert!(
+                ratio(text_on(color), color) >= ratio(other, color),
+                "{color:06x}"
+            );
+        }
     }
 
     #[test]

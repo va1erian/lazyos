@@ -78,8 +78,16 @@ impl Ext2 {
             *from.parent = *to.parent;
         }
 
-        // 3. Drop the old name and the extra link.
-        self.remove_entry(from.parent_ino, from.parent, from.name)?;
+        // 3. Drop the old name and the extra link. If the old name cannot be
+        // removed, the file keeps both names (and both links), but the new
+        // name is committed: the victim lost its entry, so it is released
+        // before the error is returned instead of leaking until an fsck.
+        if let Err(error) = self.remove_entry(from.parent_ino, from.parent, from.name) {
+            if let Some((existing, mut inode)) = victim {
+                let _ = self.release_link(existing, &mut inode);
+            }
+            return Err(error);
+        }
         put16(child, INO_LINKS, links);
         self.write_inode(child_ino, child)?;
 
