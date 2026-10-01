@@ -123,8 +123,10 @@ class LazyRadTests(unittest.TestCase):
 
     def test_the_demo_passes_the_run_demo_flag(self) -> None:
         # run_demo.py builds LazyRAD itself, so the GUI and the CLI agree.
-        self.assertIn("--lazyrad", demo_argv(lazyrad=True))
-        self.assertNotIn("--lazyrad", demo_argv())
+        self.assertIn("--lazyrad", demo_argv(lazyrad=True, skip_build=False))
+        self.assertNotIn("--lazyrad", demo_argv(skip_build=False))
+        # "Skip build" boots the existing image: no LazyRAD build is requested.
+        self.assertNotIn("--lazyrad", demo_argv(lazyrad=True, skip_build=True))
 
     def test_session_modes_build_it_before_the_image(self) -> None:
         cfg = {"mode": "Headless screenshots", "profile": "dev", "skip_build": False,

@@ -537,6 +537,8 @@ fn embed_xui_apps(builder: &mut bootloader::DiskImageBuilder, desktop: bool) {
                 .chain(optional)
                 .collect()
         }
+        // No xui apps requested, but the IDE still needs its `XAPPS.LST` line.
+        None if !lazyrad_embed::manifest_lines().is_empty() => Vec::new(),
         None => return,
     };
     let autostart = std::env::var("LAZYOS_XUI_AUTOSTART").ok();

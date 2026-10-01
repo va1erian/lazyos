@@ -11,7 +11,7 @@ from tkinter import filedialog, ttk
 from . import datavol
 from .catalog import (ACCELS, CARGO, DATA_IMAGE, DISKS, MODES, PY, ROOT,
                       SCRIPTS, SIMPLE_BUILDS, SIMPLE_INTERFACES, XUI_VIEWERS, build_env, build_plan,
-                      cargo_step, format_plan, simple_config)
+                      cargo_step, format_plan, lazyrad_step, simple_config)
 from .runner import Runner, open_path
 from .simple import build_simple_tab, simple_choice
 
@@ -393,8 +393,10 @@ class Launcher:
         """Build just target/lazyos.img with the current switches."""
         if self.runner.busy:
             return
-        self._begin(1, "Build image")
-        self.runner.start([cargo_step(self.cfg())], build_env(self.cfg()), ROOT)
+        cfg = self.cfg()
+        steps = lazyrad_step(cfg) + [cargo_step(cfg)]
+        self._begin(len(steps), "Build image")
+        self.runner.start(steps, build_env(cfg), ROOT)
 
     def _begin(self, count: int, title: str) -> None:
         """Log a run banner and switch the buttons into the busy state."""

@@ -207,8 +207,9 @@ def build_plan(cfg: dict) -> list[dict]:
             steps.append({"label": "Build xui apps (static musl)",
                           "argv": [PY, "tools/xui/build.py"]})
         argv = [PY, "tools/run_demo.py"]
-        if cfg.get("lazyrad"):
-            # run_demo builds LazyRAD and sets LAZYOS_LAZYRAD itself.
+        if cfg.get("lazyrad") and not cfg["skip_build"]:
+            # run_demo builds LazyRAD and sets LAZYOS_LAZYRAD itself; with
+            # "Skip build" the existing image is booted as it is.
             argv.append("--lazyrad")
         if cfg["profile"] == "release":
             argv.append("--release")
