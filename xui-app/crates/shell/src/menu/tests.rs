@@ -93,7 +93,16 @@ fn installed_rows_come_from_the_registry_flag() {
         ("snake", "  Snake\u{7} ", true),
         ("chess", "", true),
         ("Bad Id", "x", true),
+        // A package id is its reverse-DNS system name (pkg_install.json).
+        ("org.lazy.counter", "Packaged Counter", true),
     ];
     let rows = installed_entries(apps);
-    assert_eq!(rows, vec![entry("snake", "Snake"), entry("chess", "chess")]);
+    let packaged = Entry {
+        app: String::from("org.lazy.counter"),
+        label: String::from("Packaged Counter"),
+    };
+    assert_eq!(
+        rows,
+        vec![entry("snake", "Snake"), entry("chess", "chess"), packaged]
+    );
 }

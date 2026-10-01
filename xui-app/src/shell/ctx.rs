@@ -194,7 +194,10 @@ impl Ctx {
                 ),
                 Some(apps.iter().map(|app| app.id.clone()).collect::<Vec<_>>()),
             ),
-            Err(_) => (Vec::new(), None),
+            Err(code) => {
+                self.note("list-apps", || format!("SHELL:MENU:APPS:FAIL err={}", -code));
+                (Vec::new(), None)
+            }
         };
         let shipped = match &ids {
             Some(ids) => lazyshell::menu::Shipped::Known(ids),

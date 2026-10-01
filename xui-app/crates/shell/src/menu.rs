@@ -137,6 +137,9 @@ impl Menu {
     }
 }
 
+/// Longest installed-app id: a package `system_name` (`docs/packages.md`).
+const MAX_INSTALLED_ID: usize = 128;
+
 /// The installed-app rows from `init`'s registry rows `(id, name, installed)`:
 /// installed ones only, labelled with their manifest name (cleaned, falling
 /// back to the id).
@@ -145,8 +148,31 @@ pub fn installed_entries<'a>(
 ) -> Vec<Entry> {
     apps.into_iter()
         .filter(|(_, _, installed)| *installed)
-        .filter_map(|(id, name, _)| Entry::new(id, name))
+        .filter_map(|(id, name, _)| installed_entry(id, name))
         .collect()
+}
+
+/// One installed-app row. Its id is the package's reverse-DNS `system_name`
+/// (`org.lazy.counter`), which `deskmenu`'s registry-stem rule rejects for
+/// its dots, so the id is checked against the system-name alphabet here.
+fn installed_entry(id: &str, name: &str) -> Option<Entry> {
+    let id_ok = !id.is_empty()
+        && id.len() <= MAX_INSTALLED_ID
+        && id.bytes().all(|b| {
+            b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'.' | b'-' | b'_')
+        });
+    if !id_ok {
+        return None;
+    }
+    let label = deskmenu::clean_label(name);
+    Some(Entry {
+        app: String::from(id),
+        label: if label.is_empty() {
+            String::from(id)
+        } else {
+            label
+        },
+    })
 }
 
 #[cfg(test)]
