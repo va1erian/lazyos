@@ -68,8 +68,10 @@ Disable Slot that fails keeps its memory out of reuse (`USBD:SLOT:LEAK`).
   test pins the table (every rule's actor is `_usb`, its interface the USB
   class, no wildcard); `dev_suite::sys_usb_driver_policy_is_exactly_the_class_rules`
   loads it into the real ACL and checks the decisions, refusing other system
-  uids, a driver uid and root. Like every class rule today it takes effect
-  once a policy loads.
+  uids, a driver uid and root. The kernel installs the table at boot with
+  every other driver's (`dev::policy`, issue #481), so on every boot `_usb`
+  can claim a USB controller and nothing else, and no other non-root uid
+  can claim one (`dev_sys_boot_policy_confines_each_driver_to_its_class`).
 - **Untrusted devices.** A USB device can be hostile. Every descriptor and
   report is parsed from a copy, every length checked, every loop bounded by its
   input; the parsers are fuzzed (`usbdesc`, `hidreport`, `hidreportdesc`).
@@ -106,4 +108,3 @@ crash-test build that exits while holding a key.
   ([usb-hid-plan.md](../usb-hid-plan.md) risk 10).
 - `usbctl` and `idl/usb.midl` (a read-only device list): optional in the plan,
   not built yet; the serial markers are the only device listing.
-- The class rules wait for a policy loader, like every driver's.

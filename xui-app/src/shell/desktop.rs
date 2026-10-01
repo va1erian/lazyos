@@ -17,7 +17,7 @@ use xui_core::{Dip, Rect, Theme};
 use xui_icons::{Icon, Palette, Tone};
 
 use super::ctx::Ctx;
-use super::taskbar::BarApp;
+use super::taskbar::{self, BarApp};
 use super::theme::desktop_theme;
 use super::{heartbeat, link, menu, service};
 use crate::client_window::SurfaceRole;
@@ -195,6 +195,11 @@ impl DesktopApp {
             let dark = self.ctx.theme.borrow().is_dark();
             ui.set_theme(desktop_theme(&self.ctx.theme.borrow().palette(), dark));
             self.rebuild_icons();
+            // A new clock format (Settings, Time & Date) changes the width
+            // the clock reserves, so the entries move.
+            if self.ctx.bar.borrow().is_some() && taskbar::measure_clock(&self.ctx, ui) {
+                self.ctx.bar_changed();
+            }
             self.ctx.repaint_bar();
             self.ctx.repaint_menu();
         }

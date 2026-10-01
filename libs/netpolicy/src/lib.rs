@@ -2,13 +2,15 @@
 //!
 //! Policy is a list of `(actor uid, interface, method, allow)` rules the kernel
 //! evaluates first-match, default deny once a policy is installed
-//! (`docs/architecture/ipc-security.md`). Today the fabric is still in its
-//! bootstrap-allow window and nothing loads a policy, so these rules refuse
-//! nothing yet; they are defined, named and tested now so that the moment a
-//! loader exists (`messengerd`, `docs/security-model.md`) the network services
-//! keep working and everything else is refused. The kernel test suite loads
-//! exactly this table and checks the decisions it yields
-//! (`dev_suite::sys_net_driver_policy_is_exactly_the_class_rules`).
+//! (`docs/architecture/ipc-security.md`). The device-class rules
+//! ([`NET_DRIVER_CLASS_RULES`]) are installed by the kernel at boot
+//! (`dev::policy`, issue #481), so `_net` gets the net class and nothing else
+//! on every boot. The call rules wait for a Messenger policy loader
+//! (`messengerd`, `docs/security-model.md`): the fabric is still in its
+//! bootstrap-allow window, so they refuse nothing yet. The kernel test suite
+//! loads these tables and checks the decisions they yield
+//! (`dev_suite::sys_net_driver_policy_is_exactly_the_class_rules`,
+//! `dev_suite::sys_boot_policy_confines_each_driver_to_its_class`).
 //!
 //! Interfaces and methods are spelled as names; the loader hashes them the way
 //! every Messenger id is hashed (`tools/midlc`), and a host test here pins the

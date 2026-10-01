@@ -1,0 +1,14 @@
+[
+  {"wait_for": "SYSMON:UP:PASS", "timeout": 240},
+  {"wait": 2.0},
+  {"shot": "sysmon_initial"},
+  {"key": "r", "until": "SYSMON:REFRESH:PASS", "timeout": 60, "retries": 2},
+  {"wait": 2.0},
+  {"shot": "sysmon_refreshed"},
+  {"key": "s", "until": "SYSMON:SERVICES:NONE", "timeout": 60, "retries": 2},
+  {"wait": 1.0},
+  {"shot": "sysmon_services_unavailable"},
+  {"key": "o", "until": "SYSMON:VIEW:overview", "timeout": 60, "retries": 2},
+  {"key": "q", "until": "SYSMON:QUIT:PASS", "timeout": 60, "retries": 2},
+  {"quit": true}
+]

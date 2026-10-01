@@ -6,9 +6,10 @@ use super::ctx::Ctx;
 use super::services;
 use crate::sys;
 
-/// The zone is re-read once a minute once known (the clock itself follows the
-/// kernel's UTC every heartbeat, so only a zone change waits for this).
-const ZONE_TICKS: u64 = 6000;
+/// The zone is re-read every three seconds, the cadence of the theme and
+/// clock-format keys, so a zone picked in Settings shows almost at once (the
+/// clock itself follows the kernel's UTC every heartbeat).
+const ZONE_TICKS: u64 = 300;
 /// While `timed` is unreachable, try again every five seconds.
 const ZONE_RETRY_TICKS: u64 = 500;
 /// The desktop launchers are re-read every ten seconds.
@@ -60,7 +61,8 @@ impl Heartbeat {
             }
         }
         let unix = lazyshell::clock::unix_from_centis(sys::wall_centis());
-        let text = lazyshell::clock::text(unix, self.zone.as_deref());
+        let format = ctx.theme.borrow().clock_format();
+        let text = lazyshell::clock::text(unix, self.zone.as_deref(), format);
         let changed = *ctx.clock.borrow() != text;
         if changed {
             *ctx.clock.borrow_mut() = text;

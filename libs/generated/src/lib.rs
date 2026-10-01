@@ -3086,7 +3086,10 @@ pub mod os_lazy_display_v1 {
         Ok(out)
     }
 
-    /// The compositor's chrome palette as `0xRRGGBB` colours.
+    /// The compositor's chrome palette as `0xRRGGBB` colours. `text` is the
+    /// ink on the inactive title bar. `mode` is the desktop preset (`dark` or
+    /// `light`, the `sys/ui/mode` setting) and `accent` the accent colour in
+    /// effect, so an app can match its own widgets to the desktop.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct GetThemeReply {
         pub title_bg_active: u32,
@@ -3094,6 +3097,8 @@ pub mod os_lazy_display_v1 {
         pub border: u32,
         pub taskbar: u32,
         pub text: u32,
+        pub mode: alloc::string::String,
+        pub accent: u32,
     }
 
     pub fn encode_get_theme_reply(value: &GetThemeReply) -> Result<Vec<u8>, Error> {
@@ -3103,6 +3108,8 @@ pub mod os_lazy_display_v1 {
         target.u32(3, value.border)?;
         target.u32(4, value.taskbar)?;
         target.u32(5, value.text)?;
+        target.string(6, &value.mode)?;
+        target.u32(7, value.accent)?;
         Ok(target.finish())
     }
 
@@ -3125,6 +3132,12 @@ pub mod os_lazy_display_v1 {
                 }
                 5 => {
                     out.text = field.as_u32()?;
+                }
+                6 => {
+                    out.mode = field.as_str()?.into();
+                }
+                7 => {
+                    out.accent = field.as_u32()?;
                 }
                 _ => {}
             }

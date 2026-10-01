@@ -494,9 +494,9 @@ pub static INTERFACES: &[Interface] = &[
                 name: "GetTheme",
                 id: 21,
                 oneway: false,
-                doc: "The compositor's chrome palette as `0xRRGGBB` colours.",
+                doc: "The compositor's chrome palette as `0xRRGGBB` colours. `text` is the\nink on the inactive title bar. `mode` is the desktop preset (`dark` or\n`light`, the `sys/ui/mode` setting) and `accent` the accent colour in\neffect, so an app can match its own widgets to the desktop.",
                 params: &[],
-                returns: &[Field { name: "title_bg_active", ty: Ty::U32 }, Field { name: "title_bg_inactive", ty: Ty::U32 }, Field { name: "border", ty: Ty::U32 }, Field { name: "taskbar", ty: Ty::U32 }, Field { name: "text", ty: Ty::U32 }],
+                returns: &[Field { name: "title_bg_active", ty: Ty::U32 }, Field { name: "title_bg_inactive", ty: Ty::U32 }, Field { name: "border", ty: Ty::U32 }, Field { name: "taskbar", ty: Ty::U32 }, Field { name: "text", ty: Ty::U32 }, Field { name: "mode", ty: Ty::String }, Field { name: "accent", ty: Ty::U32 }],
             },
             Method {
                 name: "SurfaceChanged",

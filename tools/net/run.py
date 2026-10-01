@@ -116,6 +116,7 @@ NETD_FAIL_MARKERS = (
     "ABI:netfix:FAIL",
     "NETD:FAIL",
     "NETDRV:NODEV",
+    "DEV:CROSSCLAIM:net:FAIL",
 )
 
 #: Serial markers: every PASS must appear; any FAIL (or a missing device) ends
@@ -133,8 +134,10 @@ FAIL_MARKERS = (
     "NET:IRQ:FAIL",
     "NICCTL:FAIL",
     "NETDRV:NODEV",
+    # `_net` claimed (or was refused for the wrong reason) another class.
+    "DEV:CROSSCLAIM:net:FAIL",
 )
-LOG_PREFIXES = ("NET", "netdrv", "netd", "NICCTL", "NETDRV", "NETD", "NETCTL", "PING", "NC:", "NSLOOKUP", "Looking up", "FTP:", "< ", "> ", "NETFIX:", "ABI:netfix")
+LOG_PREFIXES = ("NET", "DEV:CROSSCLAIM", "netdrv", "netd", "NICCTL", "NETDRV", "NETD", "NETCTL", "PING", "NC:", "NSLOOKUP", "Looking up", "FTP:", "< ", "> ", "NETFIX:", "ABI:netfix")
 
 
 def build_netfix() -> bool:
@@ -485,6 +488,12 @@ def main(argv: list[str] | None = None) -> int:
     if args.services and "NETDRV:CRED uid=902 caps=0x100" not in text:
         print("NET:HARNESS:FAIL netdrv did not run as _net (uid 902) with only CAP_DEV_CLAIM")
         return 1
+    # The boot class rules (issue #481): as `_net`, every other class is refused.
+    if args.services:
+        if "DEV:CROSSCLAIM:net:PASS" not in text:
+            print("NET:HARNESS:FAIL _net was not shown to be confined to the net class")
+            return 1
+        print("NET:CROSSCLAIM:PASS")
     if args.netd and args.services and "NETD:CRED uid=903 caps=0x0" not in text:
         print("NET:HARNESS:FAIL netd did not run as _netd (uid 903) with no capabilities")
         return 1

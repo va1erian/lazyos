@@ -85,9 +85,10 @@ compositor demo. Target toolkit design: [xui-plan.md](../xui-plan.md).
   (`xui-app/src/bin/client.rs`): with `LAZYOS_XUI_CLIENT=1` as well, the
   kernel boots `xuid` *and* the app, which never binds the grant.
   `LazyOSBackend::new_client` resolves `os.lazy.display.v1` over the raw
-  syscall-5 shim, creates a surface, attaches a display shared buffer
-  (`create_buffer`), commits per-node damage rectangles, and consumes
-  `POINTER_*`, `KEY_*` and `WINDOW_CLOSE` events from its event endpoint. The
+  syscall-5 shim, creates a surface, attaches two display shared buffers
+  (`create_buffer`) as buffer slots, presents per-node damage through the
+  pipelined `Present` (see below), and consumes `POINTER_*`, `KEY_*`,
+  `WINDOW_CLOSE` and frame events from its event endpoint. The
   WM (drag, minimize, close) runs in `xuid` and works on the app
   window; the session is scripted in
   `tools/screenshot/examples/xui_client.json` and captured by the workflow.
@@ -211,12 +212,14 @@ compositor demo. Target toolkit design: [xui-plan.md](../xui-plan.md).
   mirrors every constant plus `with_modifiers`/`CODE_MASK`.
 - Issue #153 adds the first windowed system-state viewers on that backend:
   `sysmon` renders the syscall-14 snapshot (frame/slab/heap gauges, uptime, the
-  task table) and `fabricmon` renders the syscall-5 fabric (registry names with
+  task table) on its Overview tab and, on its Services tab (issue #489), the
+  services `init` supervises with `healthd`'s health for each, and `fabricmon` renders the syscall-5 fabric (registry names with
   owners/interfaces, topics-broker counts, buffers/fences/handles, per-task
   usage). Each is one owner-drawn node with a one-second `ui` timer and `r`/`q`
-  keys, prints `SYSMON:*`/`FABMON:*` serial markers, and is captured in
-  `.github/workflows/xui.yml` as the display owner in turn (fabricmon over the
-  `LAZYOS_SERVICES=1` session, so the registry and broker are live).
+  keys (`sysmon` adds `o`/`s` and clickable tabs), prints `SYSMON:*`/`FABMON:*` serial markers, and is captured in
+  `.github/workflows/xui.yml` as the display owner in turn (both over the
+  `LAZYOS_SERVICES=1` session, so the registry, broker and supervisor are
+  live).
 - Window management (issue #143) lives in `xuid`: the `surfaces` vector is the
   z-order (tail paints last), a title-bar press drags the window (which may hang
   off the left, right and bottom edges, keeping `TITLE_REACHABLE_W` of its
@@ -354,7 +357,7 @@ older peers, and the no-shell sessions above are unchanged.
 | 18 | `ListSurfaces` | shell → compositor | reply: `surfaces`, an `Array<SurfaceRow>` (`id`, `title`, `x`/`y`/`w`/`h`, `minimized`, `focused`, `role`: 0 window, 1 desktop, 2 panel), desktop first, panels last |
 | 19 | `GetWorkArea` | shell → compositor | reply: `x`/`y`/`w`/`h` available to windows |
 | 20 | `Subscribe` | shell → compositor | `subscriber_role` string + transferred event endpoint |
-| 21 | `GetTheme` | shell → compositor | reply: `title_bg_active`, `title_bg_inactive`, `border`, `taskbar`, `text` as `0xRRGGBB` |
+| 21 | `GetTheme` | shell or app → compositor | reply: `title_bg_active`, `title_bg_inactive`, `border`, `taskbar`, `text` (ink on the inactive title) as `0xRRGGBB`, `mode` (`dark`/`light`) and `accent`; xui apps map the last two onto their widget theme |
 | 22 | `SurfaceChanged` | compositor → shell | `surface`, `kind` (`Change`: created/destroyed/moved/minimized/restored/title), geometry + flags, `role`, optional `title` on create |
 | 23 | `FocusChanged` | compositor → shell | `surface` (optional; absent = none) |
 | 24 | `StartMenu` | compositor → shell | – (the Ctrl+Esc/Super hotkey fired) |
@@ -479,6 +482,21 @@ and a present from a non-owner is dropped. The rules live in
 `libs/surfbuf` (`SlotTable` for the compositor, `Swapchain` for the client),
 exercised by `display_slots_*` in the kernel suite; `xdemo` is the reference
 double-buffered client. The legacy `AttachBuffer` is "slot 0, current at once".
+
+Every `xui-app` window presents this way (issue #372,
+`xui-app/src/client_window/slots.rs`): two slots, a frame drawn only while
+one is free (so the compositor's `BufferRelease` paces repaints and the app
+never blocks on a reply), and a slot reallocated at the window size when it
+is next drawn after a `Configure`. The backend repaints only the window's
+accumulated damage rectangle (issue #487): it clears it, runs just the
+painters of nodes within two pixels of it, unclipped (a `SkiaCanvas` clip
+trims shapes before stroking them, which would draw borders along the damage
+edge), and copies only that rectangle into the window's composed frame. Each
+slot tracks which of its pixels are older than that frame, so filling a slot
+copies the damage of the frame it missed as well as the current one. A new window, a resize and a
+theme change damage the whole window. `dragdemo` and `shellprobe` stay on
+`AttachBuffer`/`Commit`: `dragdemo` redraws only on a drop, and `shellprobe`
+is what exercises the legacy path.
 
 **Retitling a window (`SetTitle`, method 29)**
 

@@ -59,7 +59,7 @@ SCRIPTS = [
     ("xuid_wm.json", "XUID window manager", ("xuid",), None),
     ("xuid_shell.json", "XUID shell protocol (Alt+F4/Tab)", ("xuid", "shellprobe"), None),
     ("xui_counter.json", "XUI app: counter (click to increment)", ("xuid",), "counter"),
-    ("xui_sysmon.json", "XUI app: sysmon dashboard", ("xuid",), "sysmon"),
+    ("xui_sysmon.json", "XUI app: sysmon (tasks, memory, services)", ("xuid", "services"), "sysmon"),
     ("xui_fabricmon.json", "XUI app: fabricmon (services)", ("xuid", "services"), "fabricmon"),
     ("xui_client.json", "XUI app: compositor client (window/focus)", ("xuid", "xui_client"), "client"),
     ("xui_editor.json", "XUI app: Editor (type, save)", ("desktop",), "editor"),
@@ -67,6 +67,8 @@ SCRIPTS = [
     ("xui_files.json", "XUI app: Files (browse, open)", ("desktop",), "files"),
     ("xui_settings.json", "XUI app: Settings (menu, colours, layout)", ("desktop",), None),
     ("shell_demo.json", "LazyShell (taskbar, start menu, restart)", ("desktop",), "term"),
+    ("xui_settings_time.json", "XUI app: Settings (time, clock format, light mode)",
+     ("desktop",), None),
 ]
 
 # Simple mode: (label, cargo profile) and (label, description) choices.
@@ -81,7 +83,11 @@ SIMPLE_INTERFACES = [
 ]
 
 XUI_VIEWERS = ["(none)", "m0", "counter", "sysmon", "fabricmon", "client", "term",
-               "editor", "paint", "files", "settings"]
+               "editor", "paint", "files", "settings", "devices"]
+# What the desktop opens at boot when the Devices app is asked for (issue
+# #481): the Terminal first (it takes the focus), then Devices. Matches
+# `run_demo.py --devices`.
+DEVICES_AUTOSTART = "term,devices"
 # The desktop session's apps (issues #215/#216): embedded side by side, opened
 # by `init` as `xuid` clients. The Terminal comes first so it takes the focus.
 # The document apps ship with every desktop image (`build.rs`
@@ -124,6 +130,12 @@ def build_env(cfg: dict) -> dict[str, str]:
         # A document-app session: the desktop profile opens just this app, but
         # the full app set is embedded (Files' open-with needs the Editor).
         env["LAZYOS_XUI_AUTOSTART"] = cfg["xui_autostart"]
+    if cfg.get("devices") and cfg.get("desktop"):
+        # The Devices app ships with every desktop image; this opens it at
+        # boot, next to whatever else the session opens.
+        current = env.get("LAZYOS_XUI_AUTOSTART", "term")
+        if "devices" not in current.split(","):
+            env["LAZYOS_XUI_AUTOSTART"] = f"{current},devices"
     if cfg["busybox"]:
         env["LAZYOS_BUSYBOX"] = cfg["busybox"]
     if cfg.get("cli"):
@@ -138,13 +150,14 @@ def build_env(cfg: dict) -> dict[str, str]:
 
 
 def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
-                  shell: bool = True) -> dict:
+                  shell: bool = True, devices: bool = False) -> dict:
     """The full configuration for a Simple-mode choice.
 
     ``build`` is a cargo profile (``dev``/``release``) and ``interface`` is
     ``CLI`` or ``Desktop``; ``lazyrad`` adds the LazyRAD IDE to a Desktop
-    image (it is an xui app, so it means nothing on the CLI), and ``shell``
-    keeps the LazyShell desktop (taskbar, start menu) on it. Machine settings (accelerator, memory, QEMU path)
+    image (it is an xui app, so it means nothing on the CLI), ``shell``
+    keeps the LazyShell desktop (taskbar, start menu) on it, and ``devices``
+    opens the Devices app at boot (likewise Desktop only). Machine settings (accelerator, memory, QEMU path)
     come from ``base``; every image switch is decided here so stale Advanced
     checkboxes cannot leak into a Simple boot.
     """
@@ -181,6 +194,7 @@ def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
         "prebuild_xui": desktop,
         "lazyrad": desktop and lazyrad,
         "shell": desktop and shell,
+        "devices": desktop and devices,
     })
     return cfg
 
@@ -220,6 +234,9 @@ def build_plan(cfg: dict) -> list[dict]:
             # run_demo builds LazyRAD and sets LAZYOS_LAZYRAD itself; with
             # "Skip build" the existing image is booted as it is.
             argv.append("--lazyrad")
+        if cfg.get("devices") and cfg.get("desktop") and not cfg["skip_build"]:
+            # run_demo builds the xui apps and opens Devices at boot itself.
+            argv.append("--devices")
         if cfg["profile"] == "release":
             argv.append("--release")
         if cfg["skip_build"]:

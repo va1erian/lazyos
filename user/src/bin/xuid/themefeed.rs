@@ -1,4 +1,5 @@
 //! Live theme: follows the `sys/ui/*` settings in `confd` (issue: Settings app).
+//! The clock format (`sys/time/*`) belongs to the LazyShell taskbar (#157).
 //!
 //! On the first successful poll the feed reads every key, then subscribes to
 //! `system/confd/changed/sys/ui/#`; any change event triggers a re-read
@@ -59,6 +60,11 @@ impl ThemeFeed {
             settings,
             buffer: alloc::vec![0u8; DEFAULT_BUFFER],
         }
+    }
+
+    /// Whether the desktop animations are enabled (`sys/ui/anim`).
+    pub(super) fn animations(&self) -> bool {
+        self.settings.anim
     }
 
     /// Follow confd; `true` when the palette changed and the screen needs a

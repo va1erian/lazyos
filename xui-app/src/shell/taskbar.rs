@@ -38,18 +38,27 @@ pub struct BarApp {
     root: Control<BarMsg>,
 }
 
-/// The clock's text style.
+/// The clock's text style: readable on the bar whatever its colour.
 fn clock_style(ctx: &Ctx) -> TextStyle {
     let palette = ctx.theme.borrow().palette();
-    TextStyle::new(color(palette.title_text), TEXT).middle()
+    TextStyle::new(color(uitheme::text_on(palette.taskbar_bg)), TEXT).middle()
+}
+
+/// Reserve the width of the widest line the current clock format produces,
+/// so the entries never shift as the digits change; `true` when it changed
+/// (the entries must then be laid out again).
+pub fn measure_clock<M: 'static>(ctx: &Ctx, ui: &Ui<M>) -> bool {
+    let format = ctx.theme.borrow().clock_format();
+    let widest = lazyshell::clock::widest(format);
+    let width = ui.measure_text(widest, &clock_style(ctx), ui.dpi()).width;
+    ctx.clock_w.replace(width) != width
 }
 
 impl BarApp {
     /// Build the bar: measure the clock so the entries never shift, and
     /// create the painted node that covers the whole panel.
     pub fn build(ctx: Rc<Ctx>, ui: &mut Ui<BarMsg>) -> BarApp {
-        let widest = ui.measure_text(lazyshell::clock::WIDEST, &clock_style(&ctx), ui.dpi());
-        ctx.clock_w.set(widest.width);
+        measure_clock(&ctx, ui);
         let root = Control::new(ui, &NodeSpec::new(NodeKind::Custom, ui.client_rect()))
             .expect("taskbar node");
         {
@@ -146,7 +155,6 @@ fn paint(canvas: &mut dyn Canvas, ctx: &Ctx) {
         color(palette.overlay_border),
     );
     let hover = ctx.bar_hover.get();
-    let text = TextStyle::new(color(palette.title_text), TEXT).middle();
 
     let menu_open = ctx.menu_window.borrow().is_some();
     let start_fill = if menu_open || hover == Some(BarHover::Start) {
@@ -155,10 +163,11 @@ fn paint(canvas: &mut dyn Canvas, ctx: &Ctx) {
         palette.taskbar_entry
     };
     canvas.fill_rounded_rect(rect(START_BUTTON), 4.0, color(start_fill));
+    let start_ink = color(uitheme::text_on(start_fill));
     canvas.draw_text(
         "LazyOS",
         rect(START_BUTTON),
-        &text.clone().bold().centered(),
+        &TextStyle::new(start_ink, TEXT).middle().bold().centered(),
     );
 
     let bar = ctx.taskbar.borrow();
@@ -184,10 +193,11 @@ fn paint(canvas: &mut dyn Canvas, ctx: &Ctx) {
         if hover == Some(BarHover::Entry(index)) {
             canvas.stroke_rounded_rect(area, 3.0, color(palette.overlay_border), 1.0);
         }
+        // Readable on the entry whatever colour the user picked (#502).
         let ink = if window.minimized {
-            uitheme::mix(palette.title_text, fill, 1, 2)
+            uitheme::mix(uitheme::text_on(fill), fill, 1, 2)
         } else {
-            palette.title_text
+            uitheme::text_on(fill)
         };
         let label = Rect::new(
             area.left + ENTRY_PAD,
@@ -205,5 +215,5 @@ fn paint(canvas: &mut dyn Canvas, ctx: &Ctx) {
     }
 
     let clock = rect(ctx.clock_rect());
-    canvas.draw_text(&ctx.clock.borrow(), clock, &text.centered());
+    canvas.draw_text(&ctx.clock.borrow(), clock, &clock_style(ctx).centered());
 }

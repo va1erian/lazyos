@@ -4,6 +4,7 @@
 //! individual colours are then optional overrides on top of it.
 
 use uitheme::{Mode, Settings};
+use xui_core::{Color, Theme};
 
 use crate::store::{ConfigStore, StoreError, Value};
 
@@ -59,6 +60,32 @@ pub fn reset(store: &dyn ConfigStore) -> Result<(), StoreError> {
         store.delete(key)?;
     }
     Ok(())
+}
+
+/// Switch the desktop animations on or off (`sys/ui/anim`, followed by
+/// `xuid`). On is the default, so it is stored as a plain bool either way.
+pub fn set_animations(store: &dyn ConfigStore, on: bool) -> Result<(), StoreError> {
+    store.set(uitheme::KEY_ANIM, Value::Bool(on))
+}
+
+/// The xui widget theme matching the desktop: xui's own light or dark palette
+/// with the desktop accent, so apps look like part of the same desktop. Text
+/// on the accent is picked from the accent itself, which may be any colour.
+pub fn xui_theme(mode: Mode, accent: u32) -> Theme {
+    let mut theme = match mode {
+        Mode::Light => Theme::light(),
+        Mode::Dark => Theme::dark(),
+    };
+    let accent = accent & 0x00FF_FFFF;
+    theme.accent = Color::hex(accent);
+    theme.border_focused = Color::hex(accent);
+    theme.text_on_accent = Color::hex(uitheme::text_on(accent));
+    theme
+}
+
+/// The xui theme for the stored settings.
+pub fn xui_theme_for(settings: &Settings) -> Theme {
+    xui_theme(settings.mode, uitheme::resolve(settings).accent)
 }
 
 /// The accent preset in effect, by index into [`ACCENTS`].
@@ -138,6 +165,31 @@ mod tests {
             ..Settings::default()
         };
         assert_eq!(background_index(&s), Some(2));
+    }
+
+    #[test]
+    fn xui_theme_follows_mode_and_accent() {
+        let dark = xui_theme(Mode::Dark, 0x336699);
+        assert!(dark.is_dark);
+        assert_eq!(dark.accent, Color::hex(0x336699));
+        assert_eq!(dark.text_on_accent, Color::hex(uitheme::LIGHT_TEXT));
+        let light = xui_theme(Mode::Light, 0xDCCEAA);
+        assert!(!light.is_dark);
+        assert_eq!(light.text_on_accent, Color::hex(uitheme::DARK_TEXT));
+        // The default settings give dark with the default accent.
+        let theme = xui_theme_for(&Settings::default());
+        assert!(theme.is_dark);
+        assert_eq!(theme.accent, Color::hex(uitheme::DEFAULT_ACCENT));
+    }
+
+    #[test]
+    fn animations_toggle_round_trips() {
+        let store = MemStore::new();
+        assert!(load(&store).anim);
+        set_animations(&store, false).unwrap();
+        assert!(!load(&store).anim);
+        set_animations(&store, true).unwrap();
+        assert!(load(&store).anim);
     }
 
     #[test]

@@ -21,7 +21,7 @@ fn installed_apps_come_first_then_the_configured_entries() {
     let menu = Menu::build(&installed, &configured, Shipped::Known(&shipped), H);
     assert_eq!(ids(&menu)[0], "snake");
     assert_eq!(ids(&menu)[1], "terminal");
-    assert_eq!(menu.rows().len(), 13);
+    assert_eq!(menu.rows().len(), 14);
     assert!(menu.rows()[0].enabled);
     assert!(menu.rows()[1].enabled, "terminal is shipped");
     let docs = menu.find("docs").unwrap();
@@ -36,8 +36,8 @@ fn unknown_shipping_enables_every_row() {
 
 #[test]
 fn configured_rows_keep_the_contract_centres() {
-    // Default m = 12: Terminal (j = 0) at y = H-312, Package Installer (j =
-    // 11) at y = H-48, x = 134; with or without installed rows above them.
+    // Default m = 13: Terminal (j = 0) at y = H-336, Devices (j = 12) at
+    // y = H-48, x = 134; with or without installed rows above them.
     for installed in [
         vec![],
         vec![entry("snake", "Snake"), entry("chess", "Chess")],
@@ -49,8 +49,9 @@ fn configured_rows_keep_the_contract_centres() {
             let rect = menu.row_rect(menu.find(app).unwrap()).unwrap();
             (ox + rect.x + rect.w / 2, oy + rect.y + rect.h / 2)
         };
-        assert_eq!(centre("terminal"), (134, H - 312));
-        assert_eq!(centre("installer"), (134, H - 48));
+        assert_eq!(centre("terminal"), (134, H - 336));
+        assert_eq!(centre("installer"), (134, H - 72));
+        assert_eq!(centre("devices"), (134, H - 48));
     }
 }
 
@@ -66,9 +67,9 @@ fn a_configured_app_is_not_listed_twice() {
 fn rows_that_do_not_fit_drop_installed_apps_first() {
     let installed: Vec<Entry> = (0..20).map(|i| entry(&format!("app{i}"), "x")).collect();
     let menu = Menu::build(&installed, &deskmenu::defaults(), Shipped::Unknown, 400);
-    // (400 - 32 - 8) / 24 = 15 rows: 12 configured + 3 installed.
+    // (400 - 32 - 8) / 24 = 15 rows: 13 configured + 2 installed.
     assert_eq!(menu.rows().len(), 15);
-    assert_eq!(menu.rows()[3].app, "terminal");
+    assert_eq!(menu.rows()[2].app, "terminal");
     assert!(menu.origin(400).1 >= 0);
     let roomy = Menu::build(&installed, &[], Shipped::Unknown, 2000);
     assert_eq!(roomy.rows().len(), MAX_INSTALLED);
@@ -83,7 +84,7 @@ fn row_hit_testing_skips_the_banner_and_padding() {
     assert_eq!(menu.row_at(100, 1), None, "top padding");
     assert_eq!(menu.row_at(100, menu.height() - 2), None, "bottom padding");
     assert_eq!(menu.row_at(WIDTH, PAD + 5), None);
-    assert_eq!(menu.row_rect(12), None);
+    assert_eq!(menu.row_rect(13), None);
 }
 
 #[test]

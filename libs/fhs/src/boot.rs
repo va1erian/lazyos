@@ -105,6 +105,9 @@ pub const XSYSMON_ELF: &str = "XSYSMON.ELF";
 /// The Fabric Monitor xui app. Written by the image build. Target (F3): "/system/bin/fabricmon".
 pub const XFABMON_ELF: &str = "XFABMON.ELF";
 
+/// The Devices xui app (issue #481). Written by the image build. Target (F3): "/system/bin/devices".
+pub const XDEVICES_ELF: &str = "XDEVICES.ELF";
+
 /// The CPU and Memory widget xui app. Written by the image build. Target (F3): "/system/bin/widget".
 pub const XWIDGET_ELF: &str = "XWIDGET.ELF";
 
@@ -158,6 +161,9 @@ pub const NICCTL_ELF: &str = "NICCTL.ELF";
 
 /// `netctl`, the network stack tool. Written by the image build. Target (F3): "/system/bin/netctl".
 pub const NETCTL_ELF: &str = "NETCTL.ELF";
+
+/// `devctl`, the device inventory and class-rule viewer. Written by the image build. Target (F3): "/system/bin/devctl".
+pub const DEVCTL_ELF: &str = "DEVCTL.ELF";
 
 /// `timectl`, the time service client. Written by the image build. Target (F3): "/system/bin/timectl".
 pub const TIMECTL_ELF: &str = "TIMECTL.ELF";

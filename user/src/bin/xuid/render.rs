@@ -13,9 +13,9 @@ use super::region::Region;
 use super::shell::AltTab;
 use super::surface::Surface;
 use super::theme::{
-    background, border_color, border_color_focus, empty_bg, overlay_bg, overlay_border,
-    overlay_selected, overlay_text, title_bg, title_bg_focus, title_text, window_bg, BUTTON,
-    BUTTON_GAP, BUTTON_MARGIN, TITLE_H,
+    background, border_color, border_color_focus, empty_bg, empty_text, overlay_bg, overlay_border,
+    overlay_selected, overlay_text, title_bg, title_bg_focus, title_text, title_text_focus,
+    window_bg, BUTTON, BUTTON_GAP, BUTTON_MARGIN, TITLE_H,
 };
 use super::window::surface_by_id;
 
@@ -283,15 +283,12 @@ fn draw_surface(screen: &mut Canvas, surface: &Surface, focused: bool, clip: Rec
         border,
     );
     // Title bar.
-    screen.fill(
-        surface.title_bar(),
-        clip,
-        if focused {
-            title_bg_focus()
-        } else {
-            title_bg()
-        },
-    );
+    let (title_fill, ink) = if focused {
+        (title_bg_focus(), title_text_focus())
+    } else {
+        (title_bg(), title_text())
+    };
+    screen.fill(surface.title_bar(), clip, title_fill);
     screen.fill(
         Rect::new(window.x, surface.y + TITLE_H, window.w, 1),
         clip,
@@ -313,22 +310,22 @@ fn draw_surface(screen: &mut Canvas, surface: &Surface, focused: bool, clip: Rec
         surface.y + (TITLE_H - Face::Sans.height()) / 2,
         &surface.title,
         Face::Sans,
-        title_text(),
+        ink,
         title_clip,
     );
     // Close, maximize (resizable only) and minimize glyphs sit directly on the
     // title bar, in its text colour, so they match the chrome instead of
     // adding coloured tiles.
-    icons::draw_close(screen, surface.close_button(), title_text(), clip);
+    icons::draw_close(screen, surface.close_button(), ink, clip);
     if surface.resizable() {
         let button = surface.maximize_button();
         if surface.maximized.is_some() {
-            icons::draw_restore(screen, button, title_text(), clip);
+            icons::draw_restore(screen, button, ink, clip);
         } else {
-            icons::draw_maximize(screen, button, title_text(), clip);
+            icons::draw_maximize(screen, button, ink, clip);
         }
     }
-    icons::draw_minimize(screen, surface.minimize_button(), title_text(), clip);
+    icons::draw_minimize(screen, surface.minimize_button(), ink, clip);
 
     // The app's pixels, or an explicit placeholder before AttachBuffer.
     let content = surface.content();
@@ -365,7 +362,7 @@ fn draw_surface(screen: &mut Canvas, surface: &Surface, focused: bool, clip: Rec
             content.y + 10,
             "Waiting for buffer...",
             Face::Serif,
-            title_text(),
+            empty_text(),
             clip,
         );
     }

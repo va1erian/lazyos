@@ -44,7 +44,8 @@ class Launcher:
                                            self.v["simple_iface"].get())
             return simple_config(self._advanced_cfg(), profile, iface,
                                  self.v["simple_lazyrad"].get(),
-                                 self.v["simple_shell"].get())
+                                 self.v["simple_shell"].get(),
+                                 self.v["simple_devices"].get())
         return self._advanced_cfg()
 
     def _advanced_cfg(self) -> dict:
@@ -83,6 +84,7 @@ class Launcher:
             "lazyrad": self.v["lazyrad"].get(),
             "shell": self.v["shell"].get(),
             "lazyrad_samples": self.v["lazyrad_samples"].get().strip(),
+            "devices": self.v["devices"].get(),
             "script": SCRIPTS.index(names[0]) if names else 0,
         }
 
@@ -107,7 +109,7 @@ class Launcher:
         self.notebook.add(tab_adv, text="Advanced")
         build_simple_tab(self.tab_simple, self.v["simple_build"],
                          self.v["simple_iface"], self.v["simple_lazyrad"],
-                         self.v["simple_shell"], self._run)
+                         self.v["simple_shell"], self.v["simple_devices"], self._run)
         self._build_left(self._scrollable(tab_adv))
         self._build_right(right)
 
@@ -130,6 +132,8 @@ class Launcher:
         self._check(g, "Messengerd daemon (LAZYOS_MESSENGERD)", "msgrd")
         self._check(g, "Compositor client (+ LAZYOS_XUI_CLIENT)", "xui_client")
         self._check(g, "LazyRAD IDE + player (LAZYOS_LAZYRAD)", "lazyrad")
+        self._check(g, "Devices app at boot (desktop; LAZYOS_XUI_AUTOSTART += devices)",
+                    "devices")
         row = ttk.Frame(g); row.pack(fill="x", padx=6, pady=2)
         ttk.Label(row, text="LazyRAD samples:").pack(side="left")
         ttk.Entry(row, textvariable=self.v["lazyrad_samples"]).pack(side="left", fill="x",

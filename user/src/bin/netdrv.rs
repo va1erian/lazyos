@@ -169,6 +169,8 @@ fn run(args: &Args) -> Result<(), Error> {
         if card.irq_armed() { "armed" } else { "polling" }
     ));
     if args.selftest {
+        // Boot evidence (issue #481): `_net` cannot claim another class.
+        user::dev::inspect::cross_class_probe("net");
         selftest_and_report(&mut card, &server);
     }
     registry::register(api::NAME, &published, &[api::INTERFACE], 0).map_err(fail)?;

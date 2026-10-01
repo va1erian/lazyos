@@ -52,6 +52,8 @@ ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_IMAGE = ROOT / "target" / "lazyos.img"
 # LazyShell, the desktop shell (`tools/xui/build.py` output, issue #157).
 XUI_SHELL = ROOT / "target" / "xui" / "xui-shell.elf"
+# The desktop apps `--devices` opens at boot: the Terminal, then Devices.
+DEVICES_AUTOSTART = "term,devices"
 
 
 def confirm(question: str) -> bool:
@@ -154,6 +156,30 @@ def build_lazyrad() -> bool:
     return result.returncode == 0
 
 
+def build_xui_apps() -> bool:
+    """Build the desktop's xui apps (`tools/xui/build.py`), which include the
+    Devices app. Explicitly requested with `--devices`, so a failure stops."""
+    print("building the xui apps (tools/xui/build.py)…", flush=True)
+    script = ROOT / "tools" / "xui" / "build.py"
+    result = subprocess.run([sys.executable, str(script)], cwd=ROOT,
+                            stdout=subprocess.DEVNULL)
+    if result.returncode != 0:
+        print("error: the xui apps did not build (run `python tools/xui/build.py`)",
+              file=sys.stderr)
+    return result.returncode == 0
+
+
+def with_devices(autostart: str | None) -> str:
+    """`LAZYOS_XUI_AUTOSTART` with the Devices app added: an existing list
+    (`editor`) keeps its apps and gains `devices` once; no list means
+    [`DEVICES_AUTOSTART`], the Terminal first. Mirrors `lazygui.catalog`."""
+    if not autostart:
+        return DEVICES_AUTOSTART
+    if "devices" in [item.strip() for item in autostart.split(",")]:
+        return autostart
+    return f"{autostart},devices"
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -202,12 +228,20 @@ def main(argv: list[str]) -> int:
                         help="build the LazyRAD IDE and player and embed them "
                              "(LAZYOS_LAZYRAD=1); with --desktop it is offered by "
                              "Settings -> Menu")
+    parser.add_argument("--devices", action="store_true",
+                        help="the desktop profile with the Devices app open at boot "
+                             "(devices, owners, rights and the driver class rules): "
+                             "builds the xui apps, then LAZYOS_DESKTOP=1 and adds "
+                             "`devices` to LAZYOS_XUI_AUTOSTART (default "
+                             f"{DEVICES_AUTOSTART})")
     parser.add_argument("--no-rhai", action="store_true",
                         help="do not (re)build the `rhai` command before the image "
                              "(tools/rhai/build.py; incremental, so cheap when unchanged)")
     parser.add_argument("qemu_args", nargs=argparse.REMAINDER,
                         help="extra QEMU args (after `--`)")
     args = parser.parse_args(argv)
+    # The Devices app is a desktop app: `--devices` implies `--desktop`.
+    args.desktop = args.desktop or args.devices
     if args.no_data_disk and args.reset_data:
         parser.error("--reset-data conflicts with --no-data-disk")
 
@@ -234,6 +268,10 @@ def main(argv: list[str]) -> int:
             env["LAZYOS_NET"] = "1"
         if args.desktop:
             env["LAZYOS_DESKTOP"] = "1"
+        if args.devices:
+            if not build_xui_apps():
+                return 1
+            env["LAZYOS_XUI_AUTOSTART"] = with_devices(env.get("LAZYOS_XUI_AUTOSTART"))
         if args.no_shell:
             env["LAZYOS_SHELL"] = "0"
         elif args.desktop and env.get("LAZYOS_SHELL") != "0" and not build_xui_shell():

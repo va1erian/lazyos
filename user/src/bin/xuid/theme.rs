@@ -4,7 +4,7 @@
 //! accessor reading the current value.
 
 use core::sync::atomic::{AtomicU32, Ordering};
-use uitheme::Palette;
+use uitheme::{Mode, Palette};
 use user::messenger::display::Color;
 
 /// Title-bar height in pixels.
@@ -60,12 +60,12 @@ pub(super) const DRAG_ACCENT: Color = Color::rgb(245, 196, 84);
 /// The drag label's chip background.
 pub(super) const DRAG_GHOST_BG: Color = Color::rgb(28, 24, 12);
 
-/// One slot per [`Palette`] field `xuid` uses, in declaration order. `xuid`
-/// is a single task, so relaxed atomics are only there to keep the static
-/// safe.
-static SLOTS: [AtomicU32; 13] = [const { AtomicU32::new(0) }; 13];
+/// One slot per [`Palette`] field `xuid` uses, in declaration order (plus
+/// the mode as a flag). `xuid` is a single task, so relaxed atomics are only
+/// there to keep the static safe.
+static SLOTS: [AtomicU32; 17] = [const { AtomicU32::new(0) }; 17];
 
-fn slots(p: &Palette) -> [u32; 13] {
+fn slots(p: &Palette) -> [u32; 17] {
     [
         p.background,
         p.window_bg,
@@ -80,6 +80,10 @@ fn slots(p: &Palette) -> [u32; 13] {
         p.overlay_border,
         p.overlay_selected,
         p.overlay_text,
+        p.title_text_focus,
+        p.empty_text,
+        p.accent,
+        u32::from(p.mode == Mode::Light),
     ]
 }
 
@@ -92,9 +96,12 @@ pub(super) fn set_palette(palette: &Palette) -> bool {
     changed
 }
 
-fn color(index: usize) -> Color {
-    let v = SLOTS[index].load(Ordering::Relaxed);
+fn unpack(v: u32) -> Color {
     Color::rgb((v >> 16) as u8, (v >> 8) as u8, v as u8)
+}
+
+fn color(index: usize) -> Color {
+    unpack(SLOTS[index].load(Ordering::Relaxed))
 }
 
 pub(super) fn background() -> Color {
@@ -109,8 +116,29 @@ pub(super) fn title_bg() -> Color {
 pub(super) fn title_bg_focus() -> Color {
     color(3)
 }
+/// Text on an inactive title bar.
 pub(super) fn title_text() -> Color {
     color(4)
+}
+/// Text on the focused title bar.
+pub(super) fn title_text_focus() -> Color {
+    color(13)
+}
+/// Text on the empty-window placeholder.
+pub(super) fn empty_text() -> Color {
+    color(14)
+}
+/// The accent colour in effect.
+pub(super) fn accent() -> Color {
+    color(15)
+}
+/// The desktop preset in effect.
+pub(super) fn mode() -> Mode {
+    if SLOTS[16].load(Ordering::Relaxed) == 1 {
+        Mode::Light
+    } else {
+        Mode::Dark
+    }
 }
 pub(super) fn border_color() -> Color {
     color(5)

@@ -6,8 +6,8 @@ description = "LazyOS ring-3 user runtime and programs"
 license = "GPL-3.0-or-later"
 
 [lints.cargo]
-# `netpolicy` and `usbpolicy` are only referenced by `init` under
-# `cfg(lazyos_net)` / `cfg(lazyos_usb)` (the `_net` and `_usb` uids), so a
+# `netpolicy`, `usbpolicy` and `sndpolicy` are only referenced by `init` under
+# `cfg(lazyos_net)` / `cfg(lazyos_usb)` / `cfg(lazyos_sound)` (the driver uids), so a
 # default build looks like it never uses them.
 unused_dependencies = "allow"
 
@@ -50,6 +50,9 @@ usbhid = { path = "../libs/usbhid" }
 # The `_net` uid `init` spawns the driver as, shared with the ACL rules.
 netpolicy = { path = "../libs/netpolicy" }
 usbpolicy = { path = "../libs/usbpolicy" }
+sndpolicy = { path = "../libs/sndpolicy" }
+# Row layouts and names of the device inspection ops (`devctl`, issue #481).
+devinspect = { path = "../libs/devinspect" }
 framering = { path = "../libs/framering" }
 # The stack `netd` runs: smoltcp over the frame rings, DHCP, the echo path.
 netstack = { path = "../libs/netstack" }
@@ -211,6 +214,14 @@ bench = false
 [[bin]]
 name = "sysmond"
 path = "src/bin/sysmond.rs"
+test = false
+bench = false
+
+# `devctl` (issue #481): the read-only device inventory, driver class rules
+# and refused claims; embedded with the drivers (`build_support/drivers.rs`).
+[[bin]]
+name = "devctl"
+path = "src/bin/devctl.rs"
 test = false
 bench = false
 

@@ -69,8 +69,10 @@ See [processes.md](processes.md) and [display.md](display.md).
 
 | Binary | Image | Role | Started by |
 |---|---|---|---|
-| `init` / `messengerd` | `SUPER` / `MSGRD.ELF` | Supervisor (manifest, spawn/wait, restart backoff, app registry + `Launch`; `XAPPS.LST` decides which registered apps the image ships, and `autostart` rows open at boot as the desktop's apps, #215/#216; the `lazyshell` row, `XSHELL.ELF`, is unlisted in `ListApps`, autostarted first and restarted `Always`, #157) / bootstrap registry proxy and topics broker | kernel / `init` |
-| `logd` / `healthd` | `LOGD` / `HEALTHD.ELF` | Hash-chained event log / retained `system/health/*` aggregation | `init` |
+| `init` / `messengerd` | `SUPER` / `MSGRD.ELF` | Supervisor serving `os.lazy.init.v1` (`idl/init.midl`): the manifest, spawn/wait, restart backoff, the `Services` table, the app registry with `ListApps`/`Launch`/`Stop`; `XAPPS.LST` decides which registered apps the image ships, and `autostart` rows open at boot as the desktop's apps (#215/#216); the `lazyshell` row, `XSHELL.ELF`, is unlisted in `ListApps`, autostarted first and restarted `Always` (#157) / bootstrap registry proxy and central topics broker | kernel / `init` |
+| `logd` / `healthd` | `LOGD` / `HEALTHD.ELF` | Hash-chained event log / health aggregation serving `os.lazy.healthd.v1` (`idl/healthd.midl`): one row per supervised service, retained on `system/health/<name>`, plus the aggregate on `system/health/summary` | `init` |
+| `confd` / `confctl` | `CONFD` / `CONFCTL.ELF` | Configuration registry `os.lazy.confd.v1` (`idl/confd.midl`, #260; [confd-plan](../confd-plan.md)) / its command line and `demo=1` self-test | `init` (after `messengerd`) / shell or `confd` (`demo=1`) |
+| `pkgd` / `pkgctl` | `PKGD` / `PKGCTL.ELF` | Application package manager `os.lazy.pkgd.v1` (`idl/pkgd.midl`; [packages.md](../packages.md)): owns `/data/apps`, records installs in `confd`, registers types with `mimed`, loads app policy into the kernel / its command line | `init` (after `confd` and `mimed`) / shell |
 | `keyd` / `accountsd` / `logind` | `KEYD` / `ACCTD` / `LOGIND.ELF` | Secrets and crypto (#102) / accounts (#101) / console login and credentialed spawn; with the confd key `sys/session/mode` = `graphical` a login asks `init` to `Launch("lazyshell", "", <session>)` instead of spawning `sh` (#157) | `init` |
 | `clipboardd` / `mimed` / `flaky` | `CLIPD` / `MIMED` / `FLAKY.ELF` | Per-session clipboard (#115) / MIME and open-with (#116) / crash-test service (#93, never started by `LAZYOS_DESKTOP=1`) | `init` |
 | `clipcopy` / `clippaste` / `messengerctl` | `CLIPCP` / `CLIPPS` / `MSGCTL.ELF` | Clipboard demo pair (#115, `demo=1` only) / fabric+services views (#70/#89/#93) | `clipboardd`, kernel flag |
@@ -79,7 +81,8 @@ See [processes.md](processes.md) and [display.md](display.md).
 | `sndd` / `beep` | `SNDD` / `BEEP.ELF` | virtio-sound driver serving `os.lazy.audio.v1` (`idl/audio.midl`), supervised by `init` as `_snd`; `beep [freq_hz [ms]]` is its shell command and the sound harness's client. `LAZYOS_SOUND=1` or the desktop profile ships them; see [audio.md](audio.md) | `init` / shell (`sh` native exec) or `sndd` (`demo=1`) |
 | `timed` / `timectl` | `TIMED` / `TIMECTL.ELF` | Time-of-day service `os.lazy.timed.v1` (`idl/timed.midl`, #369): UTC from syscall 24, zone from `confd` `sys/time/zone` (UTC when unset, follows change notifications), retained `time/tick` topic each minute; zone/DST tables and resolution live in `libs/timed` (`timezone`). `timectl` is its command line and `demo=1` self-test | `init` (after `messengerd` and `confd`) / `timed` (`demo=1`) |
 | `inputd` | `INPUTD.ELF` | Input policy service (`docs/input-plan.md`): the only holder of the kernel `input.raw` capability. Drains the raw HID-coded key bus (syscall 25), applies the compiled-in US/FR keymap (`libs/inputmap`; `confd` key `sys/input/layout`, boot default `LAZYOS_KBD_LAYOUT`), modifier/lock state, key repeat (500 ms delay, 30 ms interval, flagged `Repeat`) and hotkeys, and serves `os.lazy.input.v1` (client sessions) and `os.lazy.input.shell.v1` (the compositor: surface registration, focus, hotkeys) from `idl/input.midl`. `trace=1` (debug images) echoes `INPUTD:KEY`/`INPUTD:TEXT` to serial (`tools/input/verify_trace.py`) | `init` (after `confd`, with only `CAP_INPUT_RAW`) |
-| `sysmond` / `top` | `SYSD` / `TOP.ELF` | System-stats service over syscall 14 with `system/stats/*` topics / one-shot text client (#144); services image only, `top` left out of `LAZYOS_DESKTOP=1` | `init` / `sysmond` (`demo=1`) or `init` `Launch` |
+| `sysmond` / `top` | `SYSD` / `TOP.ELF` | System-stats service `os.lazy.sysmond.v1` (`idl/sysmond.midl`) over syscall 14 with retained `system/stats/*` topics / one-shot text client (#144); services image only, `top` left out of `LAZYOS_DESKTOP=1` | `init` / `sysmond` (`demo=1`) or `init` `Launch` |
+| `usbd` | `USBD.ELF` | xHCI USB HID driver feeding `inputd` (keyboard, mouse, tablet, hot-plug; [usb-hid-plan](../usb-hid-plan.md)). `LAZYOS_USB=1` ships it | `init` (after `inputd`, `OnFailure`) |
 | `hello` / `xuid` / `xdemo` | `HELLO` / `XUID` / `XDEMO.ELF` | demo / compositor and display demo (#113). The system shell is BusyBox `sh` (`BUSYBOX`, a Linux-ABI binary built by `tools/abi/busybox.py`, #254) | kernel |
 | `faultprobe` | `FAULTPRB.ELF` | Deliberate ring-3 faults (#7); run by hand from `sh` (`faultprobe null`, `kernel`, `priv`, `div`, `ud`) | - |
 | `dragdemo` / `shellprobe` | `DRAGDMO` / `SHELLPRB.ELF` | Drag & drop evidence pair (#145) / shell-protocol evidence client (#167); `LAZYOS_XUID=1` images | kernel |
@@ -162,13 +165,51 @@ command.
   [`docs/rhai/msg.md`](../rhai/msg.md). Guest check:
   `tools/screenshot/examples/rhai_msg.json` in the desktop Terminal.
 
-The `init` manifest (`user/src/bin/init/state.rs`) declares dependencies and restart
-policy: `messengerd` is `Once` (bootstrap can be claimed once per boot), the
-rest `Always`, and rapid crashes back off up to `MAX_RESTARTS = 5`.
+**Supervision and health** (issues #93, #307, #489)
+
+- *Manifest.* `MANIFEST` in `user/src/bin/init/state.rs` lists every service
+  with its ELF, arguments, restart policy and dependencies; a row starts only
+  once all its dependencies are `running`. Boot order today: `messengerd`
+  (`Once`: the kernel's bootstrap channel can be claimed once per boot), then
+  `keyd`, `confd`, `logd`, `healthd` (after `messengerd`), `timed` (after
+  `messengerd` and `confd`), `inputd` (after `confd`), `accountsd` then
+  `logind`, `clipboardd`, `mimed`, `pkgd` (after `confd` and `mimed`),
+  `sysmond`, and the evidence-only `flaky` (after `healthd`, `OnFailure`,
+  absent from the desktop profile). The device drivers `sndd`, `usbd`,
+  `netdrv` and `netd` are compiled into the manifest only by their image
+  switches (`LAZYOS_SOUND`/`USB`/`NET`/`NETD`). Apps started through
+  `Launch` (and `autostart`) get supervision rows of their own next to these.
+- *Restarts.* A crash moves the row to `restarting` and retries after
+  `BACKOFF_BASE` (10 ticks) doubled per rapid crash, capped at `BACKOFF_MAX`
+  (3 s); `MAX_RESTARTS` (5) rapid crashes make it `failed`. A child that stays
+  up `STABLE_TICKS` (1 s) has its counter reset, so occasional crashes never
+  exhaust the budget. `Stop` retires an app's rows without a restart.
+- *Phases and events.* A row is `pending`, `running`, `restarting`, `stopped`
+  or `failed`. Every transition is published retained on
+  `system/events/service/<name>` (`ServiceEvent`), which `healthd` and `logd`
+  consume instead of polling.
+- *Health.* `healthd` derives one row per service from those events: `running`
+  and `stopped` are `ok`, `pending`/`restarting` `degraded`, anything else
+  `down`, and a dependency that is not `ok` degrades its dependents. A service
+  may also send a `Report` heartbeat, which wins for `REPORT_TTL` (2.5 s)
+  unless the derived row is worse. The aggregate on `system/health/summary`
+  is the worst status of any row, with an `N/M services ok` detail.
+  `healthd` reconciles against `init`'s `Services` only every 200 s as a
+  safety net (the bump heap never frees, so a fast poll would leak); the event
+  topics are the fast path.
+- *Observing it.* `sysmon`'s **Services** tab (`s`, issue #489) joins
+  `init.Services` with `healthd.Status` through the generated stubs
+  (`xui-app/src/services.rs`) and refreshes every second;
+  `messengerctl` (`msgctl`) has the `services` and `health` commands;
+  a Rhai script can call `msg::connect("os.lazy.init.v1").services()` (see
+  [`docs/rhai/msg.md`](../rhai/msg.md)); and the serial log carries
+  `HEALTH:SVC:PASS <name>` / `HEALTH:SVC:FAIL <name> (<status>)` per
+  transition. `tools/screenshot/examples/services_demo.json` and
+  `xui_sysmon.json` (with `LAZYOS_SERVICES=1`) are the scripted checks.
 
 **Status.** Working: all bins build; services boot under `LAZYOS_SERVICES=1`
-(the manifest fills the 16-slot task table, which is why the drag & drop and
-shell-probe demos only boot without it), and the `LAZYOS_DESKTOP=1` profile
+(the task table has 256 slots, so the drag & drop and shell-probe demos fit
+next to the services), and the `LAZYOS_DESKTOP=1` profile
 (#217) runs the same services plus the compositor and its apps while keeping the
 demo/evidence programs out; sync and async Messenger APIs plus
 generated stubs have host tests. Open: async examples wiring, IDL coverage

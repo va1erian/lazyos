@@ -325,7 +325,9 @@ fn shell_calls_roundtrip() {
             title_bg_inactive: 0,
             border: 0x0012_3456,
             taskbar: 7,
-            text: 0x00ab_cdef
+            text: 0x00ab_cdef,
+            mode: "light".into(),
+            accent: 0x0033_6699
         },
         encode_get_theme_reply,
         decode_get_theme_reply

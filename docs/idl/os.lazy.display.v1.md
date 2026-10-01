@@ -58,7 +58,7 @@ fields, which never use that id.
 | ListSurfaces | 18 | sync | `() -> (surfaces: Array<SurfaceRow>)` |
 | GetWorkArea | 19 | sync | `() -> (x: I32, y: I32, w: I32, h: I32)` |
 | Subscribe | 20 | sync | `(subscriber_role: String) -> ()` |
-| GetTheme | 21 | sync | `() -> (title_bg_active: U32, title_bg_inactive: U32, border: U32, taskbar: U32, text: U32)` |
+| GetTheme | 21 | sync | `() -> (title_bg_active: U32, title_bg_inactive: U32, border: U32, taskbar: U32, text: U32, mode: String, accent: U32)` |
 | SurfaceChanged | 22 | oneway | `(surface: U64, kind: U32, x: I32, y: I32, w: I32, h: I32, minimized: Bool, focused: Bool, title: Option<String>, role: U32, maximized: Bool) -> ()` |
 | FocusChanged | 23 | oneway | `(surface: Option<U64>) -> ()` |
 | StartMenu | 24 | oneway | `() -> ()` |

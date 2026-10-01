@@ -9,12 +9,15 @@
 //! `softbuffer` or GL.
 //!
 //! [`sysinfo`] and [`fabric`] are read-only native-syscall clients (14 and 5)
-//! for the windowed system-state viewers (`sysmon`, `fabricmon`).
+//! for the windowed system-state viewers (`sysmon`, `fabricmon`); [`services`]
+//! joins `init`'s supervision table with `healthd`'s rows for `sysmon`'s
+//! Services view.
 
 pub mod backend;
 pub mod client_window;
 pub mod compact;
 pub mod dashboard;
+pub mod devinfo;
 pub mod display;
 pub mod fabric;
 pub mod font;
@@ -24,6 +27,7 @@ pub mod installer;
 pub mod launch;
 pub mod platform;
 pub mod server;
+pub mod services;
 pub mod shell;
 pub mod sys;
 pub mod sysinfo;

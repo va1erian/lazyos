@@ -212,6 +212,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "devinspect"
+version = "0.1.0"
+dependencies = [
+ "netpolicy",
+ "sndpolicy",
+ "usbpolicy",
+]
+
+[[package]]
 name = "encoding_rs"
 version = "0.8.42"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -530,6 +539,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "743fb55ba31b18fb1ecef6bdc9aa2743314978ac084044301a7eee33fb99a20d"
 
 [[package]]
+name = "netpolicy"
+version = "0.1.0"
+
+[[package]]
 name = "num-traits"
 version = "0.2.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -841,6 +854,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4aaa7368fcf4852a4c2dd92df0cace6a71f2091ca0a23391ce7f3a31833f1523"
 
 [[package]]
+name = "sndpolicy"
+version = "0.1.0"
+
+[[package]]
 name = "static_assertions"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -857,6 +874,10 @@ name = "strict-num"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6637bab7722d379c8b41ba849228d680cc12d0a45ba1fa2b48f2a30577a06731"
+
+[[package]]
+name = "surfbuf"
+version = "0.1.0"
 
 [[package]]
 name = "swash"
@@ -1004,6 +1025,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c6f5d3c3b1bf09027a88a6bc961fc00497d651009560b5463668dc81b0fa87a8"
 
 [[package]]
+name = "usbpolicy"
+version = "0.1.0"
+
+[[package]]
 name = "version_check"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1097,11 +1122,13 @@ version = "0.1.0"
 dependencies = [
  "confd",
  "deskmenu",
+ "devinspect",
  "fhs",
  "lazyshell",
  "libc",
  "libmessenger",
  "messenger-generated",
+ "surfbuf",
  "uitheme",
  "xui-canvas",
  "xui-code-editor",
@@ -1216,6 +1243,7 @@ version = "0.1.0"
 dependencies = [
  "confd",
  "deskmenu",
+ "timezone",
  "uitheme",
  "xui-canvas",
  "xui-core",

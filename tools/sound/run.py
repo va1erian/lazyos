@@ -47,7 +47,13 @@ DEMO_MS = 800
 MODPLAY_FREQS_HZ = "440,259,389,518,389,259,518,389"
 MODPLAY_MIN_MS = 250
 MODPLAY_PASS_MARKERS = ("SND:PLAY:PASS", "MODPLAY:PLAY:PASS")
-MODPLAY_FAIL_MARKERS = ("SND:PLAY:FAIL", "SND:IRQ:FAIL", "MODPLAY:PLAY:FAIL", "SNDD:NODEV")
+MODPLAY_FAIL_MARKERS = (
+    "SND:PLAY:FAIL",
+    "SND:IRQ:FAIL",
+    "MODPLAY:PLAY:FAIL",
+    "SNDD:NODEV",
+    "DEV:CROSSCLAIM:snd:FAIL",
+)
 
 #: Serial markers: every PASS must appear; any FAIL (or a missing device) ends
 #: the wait early.
@@ -66,6 +72,8 @@ FAIL_MARKERS = (
     "BEEP:INTRUDER:FAIL",
     "BEEP:SOAK:FAIL",
     "SNDD:NODEV",
+    # `_snd` claimed (or was refused for the wrong reason) another class.
+    "DEV:CROSSCLAIM:snd:FAIL",
 )
 
 
@@ -241,6 +249,12 @@ def main() -> int:
     if args.services and "SNDD:CRED uid=901 caps=0x100" not in text:
         print("SOUND:HARNESS:FAIL sndd did not run as _snd (uid 901) with only CAP_DEV_CLAIM")
         return 1
+    # The boot class rules (issue #481): as `_snd`, every other class is refused.
+    if args.services and not args.modplay:
+        if "DEV:CROSSCLAIM:snd:PASS" not in text:
+            print("SOUND:HARNESS:FAIL _snd was not shown to be confined to the audio class")
+            return 1
+        print("SOUND:CROSSCLAIM:PASS")
     print("SOUND:GUEST:PASS")
     if args.smoke:
         print("SOUND:HARNESS:PASS (smoke, audio not recorded)")

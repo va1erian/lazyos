@@ -46,13 +46,17 @@ pub fn resource_rights(info: &DeviceInfo) -> u32 {
     granted
 }
 
-/// The rights class policy grants `cred` on `class`, given that the `claim`
+/// The rights class policy (the Messenger ACL and the driver class rules of
+/// [`super::policy`]) grants `cred` on `class`, given that the `claim`
 /// method itself was already allowed: `claim` alone yields `CONFIG` and `IRQ`,
 /// `map` adds `MMIO`/`PIO`, `dma` adds `DMA`. These extra lookups use the
 /// non-recording evaluator: a driver that is not entitled to DMA is not a
 /// denial worth an audit record on every claim.
 pub fn policy_rights(cred: &Cred, class: &Class) -> u32 {
-    let allowed = |method| !acl::evaluate(cred.authority(), class.interface_id, method).denied();
+    let allowed = |method| {
+        !acl::evaluate(cred.authority(), class.interface_id, method).denied()
+            && super::policy::allows(cred, class, method)
+    };
     let mut granted = rights::DEV_CONFIG | rights::DEV_IRQ;
     if allowed(method::MAP) {
         granted |= rights::DEV_MMIO | rights::DEV_PIO;

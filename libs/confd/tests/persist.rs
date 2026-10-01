@@ -52,6 +52,30 @@ fn load_discards_a_leftover_temporary_file() {
 }
 
 #[test]
+fn load_promotes_a_complete_temporary_file_left_without_a_store() {
+    // A power cut inside a rename that dropped the destination entry first
+    // (ext2): the fsynced new store survives only as the temporary file.
+    let mut fs = MemoryFs::new();
+    let store = new_store();
+    fs.put(TMP_FILE, &confd::encode(&store));
+
+    assert_eq!(load(&mut fs).unwrap(), store);
+    assert_eq!(fs.file(TMP_FILE), None);
+    assert_eq!(load(&mut fs).unwrap(), store, "the promotion is durable");
+}
+
+#[test]
+fn load_drops_an_incomplete_temporary_file_left_without_a_store() {
+    let mut fs = MemoryFs::new();
+    let bytes = confd::encode(&new_store());
+    fs.put(TMP_FILE, &bytes[..bytes.len() - 1]);
+
+    assert_eq!(load(&mut fs).unwrap(), Store::new());
+    assert_eq!(fs.file(TMP_FILE), None);
+    assert_eq!(fs.file(STORE_FILE), None);
+}
+
+#[test]
 fn load_moves_a_corrupt_store_aside() {
     let mut fs = MemoryFs::new();
     fs.put(STORE_FILE, b"CONFD not really an encoded store");
@@ -76,7 +100,11 @@ fn load_replaces_an_older_corrupt_copy() {
 
 #[test]
 fn load_propagates_filesystem_errors() {
+    // Clearing a leftover temporary file next to a store must not fail
+    // silently.
     let mut fs = MemoryFs::new();
+    fs.put(STORE_FILE, &confd::encode(&old_store()));
+    fs.put(TMP_FILE, b"half-written garbage");
     fs.fail_removes();
     assert!(load(&mut fs).is_err());
 

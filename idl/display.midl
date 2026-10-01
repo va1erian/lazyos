@@ -99,8 +99,11 @@ interface os.lazy.display.v1 {
     /// (issue #447). Registering again replaces the caller's previous
     /// endpoint.
     method Subscribe(subscriber_role: String) -> () = 20;
-    /// The compositor's chrome palette as `0xRRGGBB` colours.
-    method GetTheme() -> (title_bg_active: U32, title_bg_inactive: U32, border: U32, taskbar: U32, text: U32) = 21;
+    /// The compositor's chrome palette as `0xRRGGBB` colours. `text` is the
+    /// ink on the inactive title bar. `mode` is the desktop preset (`dark` or
+    /// `light`, the `sys/ui/mode` setting) and `accent` the accent colour in
+    /// effect, so an app can match its own widgets to the desktop.
+    method GetTheme() -> (title_bg_active: U32, title_bg_inactive: U32, border: U32, taskbar: U32, text: U32, mode: String, accent: U32) = 21;
     /// Shell event: surface `surface` changed. `kind` is a `Change` value;
     /// `title` is set on `Created` and `Title`. `role` is a `Role` value.
     method SurfaceChanged(surface: U64, kind: U32, x: I32, y: I32, w: I32, h: I32, minimized: Bool, focused: Bool, title: Option<String>, role: U32, maximized: Bool) -> () = 22 oneway;

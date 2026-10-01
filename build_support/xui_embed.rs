@@ -125,6 +125,9 @@ const DOCUMENT_XUI_APPS: &[&str] = &[
     // The package installer (docs/packages.md section 8): the consent screen
     // for `.lzp` packages, opened from the menu or by open-with.
     "xui-installer.elf",
+    // The Devices app (issue #481): devices, their owners and the driver
+    // class rules, read-only; opened from the menu.
+    "xui-devices.elf",
 ];
 
 /// Desktop apps embedded when their ELF exists, and skipped (with a build

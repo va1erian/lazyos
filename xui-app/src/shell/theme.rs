@@ -2,9 +2,14 @@
 //! `libs/uitheme`, the same palette the compositor paints window chrome with,
 //! so the taskbar, the menu and the wallpaper always match the windows.
 //!
-//! The settings are re-read every [`POLL_TICKS`] (seven bounded `Get`s); a
-//! missing `confd` keeps the defaults (or the last palette read).
+//! The feed also follows the taskbar clock format (`sys/time/clock24`,
+//! `sys/time/show_seconds`, the Settings app's Time & Date page), which `xuid`
+//! followed while it painted the taskbar.
+//!
+//! The settings are re-read every [`POLL_TICKS`] (a few bounded `Get`s); a
+//! missing `confd` keeps the defaults (or the last values read).
 
+use lazyshell::clock::{self, ClockFormat};
 use uitheme::{Mode, Palette, Settings};
 use xui_core::{Color, Theme};
 
@@ -14,9 +19,10 @@ use crate::sys;
 /// How often the settings are re-read (100 Hz ticks): three seconds.
 const POLL_TICKS: u64 = 300;
 
-/// Follows `sys/ui/*`.
+/// Follows `sys/ui/*` and the clock format.
 pub struct ThemeFeed {
     settings: Settings,
+    clock: ClockFormat,
     next_poll: u64,
 }
 
@@ -25,6 +31,7 @@ impl ThemeFeed {
     pub fn new() -> ThemeFeed {
         ThemeFeed {
             settings: Settings::default(),
+            clock: ClockFormat::default(),
             next_poll: 0,
         }
     }
@@ -32,6 +39,11 @@ impl ThemeFeed {
     /// The palette for the current settings.
     pub fn palette(&self) -> Palette {
         uitheme::resolve(&self.settings)
+    }
+
+    /// The taskbar clock format in effect.
+    pub fn clock_format(&self) -> ClockFormat {
+        self.clock
     }
 
     /// Whether the dark preset is selected.
@@ -54,8 +66,16 @@ impl ThemeFeed {
                 Err(_) => return false,
             }
         }
-        let changed = next != self.settings;
+        let format = match (
+            services::confd_get(clock::CLOCK24_KEY),
+            services::confd_get(clock::SHOW_SECONDS_KEY),
+        ) {
+            (Ok(hour24), Ok(seconds)) => clock::format_from(hour24.as_ref(), seconds.as_ref()),
+            _ => self.clock,
+        };
+        let changed = next != self.settings || format != self.clock;
         self.settings = next;
+        self.clock = format;
         changed
     }
 }

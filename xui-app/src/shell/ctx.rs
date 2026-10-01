@@ -195,7 +195,9 @@ impl Ctx {
                 Some(apps.iter().map(|app| app.id.clone()).collect::<Vec<_>>()),
             ),
             Err(code) => {
-                self.note("list-apps", || format!("SHELL:MENU:APPS:FAIL err={}", -code));
+                self.note("list-apps", || {
+                    format!("SHELL:MENU:APPS:FAIL err={}", -code)
+                });
                 (Vec::new(), None)
             }
         };

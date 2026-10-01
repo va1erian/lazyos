@@ -159,6 +159,10 @@ impl Args {
 fn run() -> Result<(), Error> {
     let args = Args::from_service();
     let hc = Hc::open()?;
+    if args.trace {
+        // Harness evidence (issue #481): `_usb` cannot claim another class.
+        user::dev::inspect::cross_class_probe("usb");
+    }
     let info = hc.info;
     sys::write_str(&format!(
         "USBD:XHCI version={:#x} ports={} slots={} scratchpads={} csz64={}\n",

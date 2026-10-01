@@ -41,6 +41,11 @@ messenger-generated = { path = "../libs/generated" }
 libc = "0.2"
 # Well-known paths and boot-volume names (docs/filesystem-plan.md F0).
 fhs = { path = "../libs/fhs" }
+# Row layouts and names of the device inspection ops (the Devices app, #481).
+devinspect = { path = "../libs/devinspect" }
+# The client half of the pipelined `Present` (issue #372): the same pure slot
+# state machine `xdemo` and the kernel display suite drive.
+surfbuf = { path = "../libs/surfbuf" }
 # The three portable apps, copied from `va1erian/xui` (unchanged by the canvas
 # bump) into `crates/`. Each is a workspace member so its own test suite runs on
 # the host; the `xui-editor`/`xui-paint`/`xui-files` binaries in `src/bin`
@@ -54,13 +59,15 @@ xui-paint = { path = "crates/paint" }
 xui-explorer = { path = "crates/explorer", features = ["village-icons"] }
 # The Settings app core (sections, config seam, UI); the binary supplies confd.
 xui-settings = { path = "crates/settings" }
+# The desktop theme schema (`GetTheme`'s `mode` names), shared with `xuid`.
+uitheme = { path = "../libs/uitheme" }
 # The Config app core (registry tree editor); the binary supplies confd.
 xui-confd-editor = { path = "crates/confd-editor" }
 # LazyShell (issue #157): the pure taskbar/menu/desktop/clock models; the
 # `xui-shell` binary paints them and talks to xuid, init, confd and timed.
 lazyshell = { path = "crates/shell" }
-# The shell themes its surfaces from the same `sys/ui/*` palette as xuid.
-uitheme = { path = "../libs/uitheme" }
+# The shell themes its surfaces from the same `sys/ui/*` palette as xuid
+# (through the `uitheme` dependency above).
 confd = { path = "../libs/confd" }
 deskmenu = { path = "../libs/deskmenu" }
 # The desktop's launcher icons (the Global Village set the Files app ships).
@@ -81,6 +88,10 @@ path = "src/bin/client.rs"
 [[bin]]
 name = "xui-sysmon"
 path = "src/bin/sysmon.rs"
+
+[[bin]]
+name = "xui-devices"
+path = "src/bin/devices.rs"
 
 [[bin]]
 name = "xui-widget"

@@ -1,5 +1,6 @@
 //! Raw native-syscall shim for the display grant (12), the Messenger fabric
-//! (5), the PIT clock (8) and the system-stats snapshot (14).
+//! (5), the PIT clock (8), the system-stats snapshot (14) and the read-only
+//! device inspection ops (23).
 //!
 //! Besides the raw `int 0x80` helpers, this module carries the small
 //! libmessenger-based plumbing the display protocol client ([`crate::display`])
@@ -25,7 +26,7 @@ pub use display::{
 };
 pub use messenger::{
     messenger, msg_call, msg_create_pair, msg_op, msg_queued, msg_recv, msg_register, msg_reply,
-    msg_resolve, MsgArgs, MsgResult, REGISTRY_TARGET_SELF,
+    msg_resolve, msg_send, MsgArgs, MsgResult, REGISTRY_TARGET_SELF,
 };
 
 use core::arch::asm;
@@ -47,10 +48,14 @@ pub const EXPIRED_DEADLINE: u64 = 1;
 
 /// Linux errno values used by the parcel helpers (positive forms).
 pub mod errno {
+    /// Not permitted (a capability is missing).
+    pub const EPERM: i64 = 1;
     /// No such file or directory / service.
     pub const ENOENT: i64 = 2;
     /// The receive buffer is too small.
     pub const E2BIG: i64 = 7;
+    /// Try again later.
+    pub const EAGAIN: i64 = 11;
     /// Permission denied.
     pub const EACCES: i64 = 13;
     /// The name is already registered.
@@ -94,6 +99,12 @@ fn native(nr: u64, a1: u64, a2: u64, a3: u64) -> i64 {
 /// The PIT tick counter (100 Hz). `0` before the first tick.
 pub fn clock_ticks() -> u64 {
     native(SYS_CLOCK, 0, 0, 0) as u64
+}
+
+/// One read-only device inspection op (syscall 23, `devinspect::op`): the row
+/// count, or a negative errno.
+pub fn dev_inspect(op: u64, buf: u64, capacity: u64) -> i64 {
+    native(devinspect::SYS_DEV, op, buf, capacity)
 }
 
 /// One `system_stats` syscall; `SIZE`, 0 or a negative errno.

@@ -99,9 +99,9 @@ fn remember(session: u64, uid: u32) {
 
 /// Drop `session` (it ended).
 fn forget(session: u64) {
-    for slot in 0..SLOTS {
-        if SESSION[slot].load(Ordering::Relaxed) == session {
-            SESSION[slot].store(0, Ordering::Relaxed);
+    for slot in &SESSION {
+        if slot.load(Ordering::Relaxed) == session {
+            slot.store(0, Ordering::Relaxed);
         }
     }
 }

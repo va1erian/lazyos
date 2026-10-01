@@ -206,8 +206,13 @@ pub struct Theme {
     pub border: Color,
     /// The theme's taskbar colour (for the shell's taskbar).
     pub taskbar: Color,
-    /// Chrome text (window titles).
+    /// Text on an inactive title bar.
     pub text: Color,
+    /// Whether the desktop uses the light preset (`sys/ui/mode`); a
+    /// compositor that predates the field reports dark.
+    pub light: bool,
+    /// The accent colour in effect.
+    pub accent: Color,
 }
 
 impl Theme {
@@ -219,6 +224,8 @@ impl Theme {
             border: color_from_u32(reply.border),
             taskbar: color_from_u32(reply.taskbar),
             text: color_from_u32(reply.text),
+            light: reply.mode == "light",
+            accent: color_from_u32(reply.accent),
         }
     }
 }
