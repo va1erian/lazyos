@@ -5,7 +5,9 @@ name: rhai
 # musl host (`rhai-host`), builds the static-musl program, embeds it in the
 # image as `RHAI.ELF`, and boots LazyOS twice: on the console (BusyBox `sh`
 # runs `rhai -e`, script files, pipelines and the REPL) and in the desktop
-# Terminal (the pipe-pair terminal without a pty).
+# Terminal (the pipe-pair terminal without a pty), where the `msg` module also
+# calls the real Messenger services. `python tools/rhai/run.py --desktop` runs
+# the same guest checks locally in one command.
 #
 # The console run asserts the serial markers `RHAI:<name>:PASS|FAIL` printed by
 # the commands themselves (the marker text is assembled from `$m` so the typed,
@@ -19,6 +21,11 @@ on:
     paths:
       - "rhai-host/**"
       - "libs/rhai-lazy/**"
+      # The `msg` module is generated from the IDL and speaks the parcel codec.
+      - "idl/**"
+      - "tools/midlc/**"
+      - "libs/messenger/**"
+      - "libs/generated/**"
       - "tools/rhai/**"
       - "tools/screenshot/**"
       - "build_support/**"
@@ -62,7 +69,10 @@ jobs:
         run: |
           cargo test --manifest-path libs/rhai-lazy/Cargo.toml
           cargo clippy --manifest-path libs/rhai-lazy/Cargo.toml --all-targets -- -D warnings
+          cargo clippy --manifest-path libs/rhai-lazy/Cargo.toml --all-targets --features lazyos -- -D warnings
           cargo check --manifest-path libs/rhai-lazy/Cargo.toml --no-default-features --features no_std
+          rustup target add x86_64-unknown-none
+          cargo check --manifest-path libs/rhai-lazy/Cargo.toml --no-default-features --features no_std,lazyos --target x86_64-unknown-none
 
       - name: Host tests and clippy (rhai-host)
         run: |
@@ -143,13 +153,27 @@ jobs:
           grep -aq "TERM:OUT:144" shots/rhai_desktop/serial.log
           grep -aq "TERM:OUT:RHAI:desktop:42" shots/rhai_desktop/serial.log
 
+      # The `msg` module against the real services of the same desktop image
+      # (docs/rhai/msg.md): the session writes a script from short lines and
+      # runs it; it prints how many of its six checks passed, with the marker
+      # assembled from parts so the echoed line can never satisfy the gate.
+      - name: Guest run of the msg module (Messenger services)
+        if: steps.rhai.outputs.built == 'true' && steps.xui.outputs.built == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/rhai_msg \
+            --timeout 300 --script tools/screenshot/examples/rhai_msg.json \
+            --fail-on "TERM:(BIND|RUN|SPAWN|PANIC)" --fail-on "TERM:OUT:RHAI:msg:[0-5]$"
+          grep -aq "TERM:OUT:RHAI:msg:6" shots/rhai_msg/serial.log
+
       - name: Verify screenshots are non-blank
         if: steps.rhai.outputs.built == 'true'
         shell: bash
         run: |
           set -euo pipefail
           shopt -s nullglob
-          pngs=(shots/rhai/*.png shots/rhai_desktop/*.png)
+          pngs=(shots/rhai/*.png shots/rhai_desktop/*.png shots/rhai_msg/*.png)
           [ ${#pngs[@]} -gt 0 ] || { echo "::error::no screenshots captured"; exit 1; }
           python tools/screenshot/pngstats.py "${pngs[@]}" --min-nonblack 0.01 --min-colors 4
 
@@ -165,4 +189,6 @@ jobs:
             shots/rhai_desktop/*.png
             shots/rhai_desktop/serial.log
             shots/rhai_desktop/summary.json
+            shots/rhai_msg/*.png
+            shots/rhai_msg/serial.log
           if-no-files-found: warn

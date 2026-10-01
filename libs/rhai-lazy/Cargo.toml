@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 publish = false
 license = "GPL-3.0-or-later"
-description = "LazyOS bindings for the Rhai scripting engine: the os module, engine limits and REPL logic (issue #319)"
+description = "LazyOS bindings for the Rhai scripting engine: the os and msg modules, engine limits and REPL logic (issue #319)"
 
 # A standalone workspace, like `xui-app`: the OS workspace (`x86_64-unknown-none`)
 # must not resolve Rhai. `rhai-host` (the static-musl program) depends on this
@@ -18,6 +18,10 @@ std = ["rhai/std"]
 # Forwards to Rhai's own `no_std` mode so the bindings can later be linked into
 # a native `x86_64-unknown-none` host. Off for the musl `std` host.
 no_std = ["rhai/no_std"]
+# The real Messenger transport (`msg::gate`): the native `int 0x80` gate a
+# static-musl or native LazyOS program reaches the fabric through. Off for host
+# tests, which run the `msg` module against an in-memory fabric.
+lazyos = ["dep:messenger-generated"]
 
 [dependencies]
 # Pinned exactly (supply chain): a Rhai bump is a reviewed change to this line
@@ -29,3 +33,15 @@ no_std = ["rhai/no_std"]
 # Rhai's own default also enables `ahash/runtime-rng`; it is left off, so map
 # hashing uses ahash's fixed keys and no `getrandom` is needed at startup.
 rhai = { version = "=1.26.1", default-features = false }
+# The parcel codec shared with the kernel and every service (`no_std` + `alloc`).
+# The `msg` module builds bodies from the generated schema with it, so it never
+# hand-writes a wire format.
+libmessenger = { path = "../messenger" }
+# The compiled registry stubs, for the gate's `Resolve` request and name-table
+# `List` reply.
+messenger-generated = { path = "../generated", optional = true }
+
+[dev-dependencies]
+# The tests cross-check the schema-driven codec against the compiled codecs:
+# what one encodes, the other must decode.
+messenger-generated = { path = "../generated" }

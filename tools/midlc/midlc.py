@@ -5,14 +5,18 @@ Reads `.midl` interface definitions (docs/messenger.md section 11) and emits:
 
   * Rust wire helpers (encode/decode over the `libmessenger` parcel codec),
   * a Markdown reference per interface (signatures, types),
-  * a machine-readable manifest (method ids and the interface hash).
+  * a machine-readable manifest (method ids and the interface hash),
+  * a schema table (`--schema`): every interface as static data for dynamic
+    clients such as the Rhai `msg` module (`midlc_schema`).
 
 Usage:
     python tools/midlc/midlc.py --out libs/generated/src/lib.rs idl/echo.midl
     python tools/midlc/midlc.py --check --out libs/generated/src/lib.rs idl/echo.midl
     python tools/midlc/midlc.py --manifest build/manifest.json idl/echo.midl
+    python tools/midlc/midlc.py --schema libs/rhai-lazy/src/msg/idl.rs idl/*.midl
 
-`--check` regenerates in memory and fails if the committed file differs, so
+`--check` regenerates in memory and fails if the committed `--out` (and, when
+given, `--schema`) file differs, so
 generated code cannot silently drift; CI runs it on every pull request.
 
 Grammar (small on purpose):
@@ -60,6 +64,7 @@ from midlc_model import (
     snake_case,
 )
 from midlc_parser import Parser, check_type, validate
+from midlc_schema import emit_schema
 from midlc_rust import (
     DECODE_EXPR,
     ITEM_EXPR,
@@ -88,10 +93,15 @@ HEADER = (
 )
 
 
-def generate(inputs: list[Path]) -> tuple[str, list[dict], dict[str, str]]:
+def parse_all(inputs: list[Path]) -> list[Interface]:
     interfaces = []
     for path in inputs:
         interfaces += Parser(lex(path.read_text(encoding="utf-8"))).parse_interfaces()
+    return interfaces
+
+
+def generate(inputs: list[Path]) -> tuple[str, list[dict], dict[str, str]]:
+    interfaces = parse_all(inputs)
     modules = "\n\n".join(emit_rust(i) for i in interfaces)
     # The shared topic runtime comes before the modules that use it, and the
     # crate-level declaration table after them.
@@ -105,33 +115,42 @@ def main() -> int:
     parser.add_argument("--out", type=Path, help="write generated Rust here")
     parser.add_argument("--manifest", type=Path, help="write the JSON manifest here")
     parser.add_argument("--docs", type=Path, help="write Markdown docs into this directory")
-    parser.add_argument("--check", action="store_true", help="fail if --out would change")
+    parser.add_argument("--schema", type=Path, help="write the interface schema table here")
+    parser.add_argument("--check", action="store_true", help="fail if --out/--schema would change")
     args = parser.parse_args()
 
     try:
         rust, manifests, docs = generate(args.inputs)
+        schema = emit_schema(parse_all(args.inputs)) if args.schema else ""
     except MidlError as error:
         print(f"midlc: {error}", file=sys.stderr)
         return 1
 
     if args.check:
-        if not args.out or not args.out.is_file():
-            print(f"midlc: --check needs an existing --out file ({args.out})", file=sys.stderr)
+        targets = [(flag, path, text) for flag, path, text in
+                   (("--out", args.out, rust), ("--schema", args.schema, schema)) if path]
+        if not targets:
+            print("midlc: --check needs --out and/or --schema", file=sys.stderr)
             return 1
-        if args.out.read_text(encoding="utf-8") != rust:
-            print(
-                f"midlc: {args.out} is out of date; regenerate with:\n"
-                f"  python tools/midlc/midlc.py --out {args.out} {' '.join(str(p) for p in args.inputs)}",
-                file=sys.stderr,
-            )
-            return 1
-        print(f"midlc: {args.out} is up to date ({len(manifests)} interface(s))")
+        for flag, path, text in targets:
+            if not path.is_file() or path.read_text(encoding="utf-8") != text:
+                print(
+                    f"midlc: {path} is out of date; regenerate with:\n"
+                    f"  python tools/midlc/midlc.py {flag} {path} {' '.join(str(p) for p in args.inputs)}",
+                    file=sys.stderr,
+                )
+                return 1
+            print(f"midlc: {path} is up to date ({len(manifests)} interface(s))")
         return 0
 
     if args.out:
         args.out.parent.mkdir(parents=True, exist_ok=True)
         args.out.write_text(rust, encoding="utf-8")
         print(f"midlc: wrote {args.out}")
+    if args.schema:
+        args.schema.parent.mkdir(parents=True, exist_ok=True)
+        args.schema.write_text(schema, encoding="utf-8")
+        print(f"midlc: wrote {args.schema}")
     if args.manifest:
         args.manifest.parent.mkdir(parents=True, exist_ok=True)
         args.manifest.write_text(json.dumps(manifests, indent=2) + "\n", encoding="utf-8")

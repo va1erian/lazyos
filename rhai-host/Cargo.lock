@@ -118,6 +118,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3eaf3ede3fee6db1a4c2ee091bf8a8b4dccdc6d17f656fb07896ee72867612f2"
 
 [[package]]
+name = "libmessenger"
+version = "0.1.0"
+
+[[package]]
+name = "messenger-generated"
+version = "0.1.0"
+dependencies = [
+ "libmessenger",
+]
+
+[[package]]
 name = "num-traits"
 version = "0.2.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -193,6 +204,8 @@ dependencies = [
 name = "rhai-lazy"
 version = "0.1.0"
 dependencies = [
+ "libmessenger",
+ "messenger-generated",
  "rhai",
 ]
 

@@ -3,14 +3,17 @@
 
 use std::fs::{self, File};
 use std::io::{self, Read, Write};
+use std::rc::Rc;
 use std::time::{Duration, Instant};
 
+use rhai_lazy::msg::Bus;
 use rhai_lazy::{DirEntry, EntryKind, Host, HostError};
 
 /// The running process as a script sees it.
 pub struct StdHost {
     args: Vec<String>,
     started: Instant,
+    bus: Option<Rc<dyn Bus>>,
 }
 
 impl StdHost {
@@ -18,8 +21,20 @@ impl StdHost {
         Self {
             args,
             started: Instant::now(),
+            bus: fabric(),
         }
     }
+}
+
+/// The Messenger fabric when running on LazyOS (the `msg` module), else none.
+#[cfg(target_arch = "x86_64")]
+fn fabric() -> Option<Rc<dyn Bus>> {
+    rhai_lazy::msg::gate::Gate::detect().map(|gate| Rc::new(gate) as Rc<dyn Bus>)
+}
+
+#[cfg(not(target_arch = "x86_64"))]
+fn fabric() -> Option<Rc<dyn Bus>> {
+    None
 }
 
 fn error(err: io::Error) -> HostError {
@@ -117,6 +132,10 @@ impl Host for StdHost {
     fn write_err(&self, text: &str) {
         // Best effort: nothing useful can be done if stderr is gone.
         let _ = io::stderr().lock().write_all(text.as_bytes());
+    }
+
+    fn bus(&self) -> Option<Rc<dyn Bus>> {
+        self.bus.clone()
     }
 }
 

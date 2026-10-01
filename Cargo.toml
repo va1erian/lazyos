@@ -60,7 +60,8 @@ members = [
 # is the same shape, built by `tools/rhai/build.py`; `libs/rhai-lazy` is its
 # host-testable bindings crate and must not pull Rhai into the OS workspace.
 # `fuzz` holds the cargo-fuzz targets (libFuzzer, Linux CI only).
-exclude = ["xui-app", "rhai-host", "libs/rhai-lazy", "fuzz"]
+# `lazyrad-os` is the same shape, built by `tools/lazyrad/build.py`.
+exclude = ["xui-app", "rhai-host", "libs/rhai-lazy", "fuzz", "lazyrad-os"]
 resolver = "2"
 
 [build-dependencies]
