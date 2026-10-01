@@ -59,11 +59,7 @@ impl Hid {
             Decoder::Keyboard(keyboard) => {
                 let _ = keyboard.feed(report, |edge: KeyEdge| {
                     if trace {
-                        sys::write_str(&format!(
-                            "USBD:KEY usage={:#x} {}\n",
-                            edge.usage,
-                            if edge.pressed { "down" } else { "up" }
-                        ));
+                        trace_key(&edge);
                     }
                     records.push(key(edge));
                 });
@@ -88,15 +84,29 @@ impl Hid {
 
     /// Detach: release what the device held. The kernel would do the same
     /// on close; doing it through the decoder keeps both views in step.
-    pub(super) fn close(mut self) {
+    pub(super) fn close(mut self, trace: bool) {
         let mut records = Vec::new();
         match &mut self.decoder {
-            Decoder::Keyboard(keyboard) => keyboard.release_all(|edge| records.push(key(edge))),
+            Decoder::Keyboard(keyboard) => keyboard.release_all(|edge| {
+                if trace {
+                    trace_key(&edge);
+                }
+                records.push(key(edge));
+            }),
             Decoder::Mouse(mouse) => mouse.release_all(|out| records.push(pointer(out))),
         }
         self.publish(&records);
         let _ = sys::input_source_close(self.source);
     }
+}
+
+/// The harness's evidence for one key edge `usbd` published.
+fn trace_key(edge: &KeyEdge) {
+    sys::write_str(&format!(
+        "USBD:KEY usage={:#x} {}\n",
+        edge.usage,
+        if edge.pressed { "down" } else { "up" }
+    ));
 }
 
 fn key(edge: KeyEdge) -> SourceRecord {

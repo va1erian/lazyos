@@ -75,5 +75,62 @@ class Judge(unittest.TestCase):
         self.assertFails("\n".join(line for line in GOOD.splitlines() if "POINTER" not in line))
 
 
+def hotplug_log(cycles: int) -> str:
+    """A passing `run.py --hotplug` log: x and the left button held across
+    the first unplug, every cycle detached and re-attached, a b c typed."""
+    lines = [
+        "USBD:HID:KBD port=5 slot=1 vendor=0x0627 product=0x0001 interface=0 dci=3 regions=1",
+        "USBD:HID:MOUSE port=6 slot=2 vendor=0x0627 product=0x0001 interface=0 dci=3 regions=2",
+        "USBD:READY devices=2",
+        "USBD:KEY usage=0x1b down",
+        "INPUTD:KEY code=0x1b sym=0x78 mods=0x40 down",
+        "INPUTD:POINTER x=0 y=0 buttons=0x1 wheel=0,0",
+    ]
+    for cycle in range(cycles):
+        lines.append("USBD:KEY usage=0x1b up" if cycle == 0 else "")
+        lines.append("INPUTD:KEY code=0x1b sym=0x78 mods=0x40 up" if cycle == 0 else "")
+        lines.append("USBD:DETACH port=5 slot=1 regions=2 (unplugged)")
+        lines.append("USBD:HID:KBD port=5 slot=1 vendor=0x0627 product=0x0001 interface=0 dci=3 regions=2")
+        if cycle % 10 == 0:
+            lines.append("INPUTD:POINTER x=0 y=0 buttons=0x0 wheel=0,0" if cycle == 0 else "")
+            lines.append("USBD:DETACH port=6 slot=2 regions=2 (unplugged)")
+            lines.append("USBD:HID:MOUSE port=6 slot=2 vendor=0x0627 product=0x0001 interface=0 dci=3 regions=2")
+    for usage, sym in ((0x04, 0x61), (0x05, 0x62), (0x06, 0x63)):
+        for state in ("down", "up"):
+            lines.append(f"USBD:KEY usage={usage:#x} {state}")
+            lines.append(f"INPUTD:KEY code={usage:#x} sym={sym:#x} mods=0x40 {state}")
+    return "\n".join(line for line in lines if line) + "\n"
+
+
+class Hotplug(unittest.TestCase):
+    CYCLES = 12
+
+    def test_good_log_passes(self):
+        self.assertEqual(judge.judge_hotplug(hotplug_log(self.CYCLES), self.CYCLES), [])
+
+    def assertFails(self, log):
+        self.assertNotEqual(judge.judge_hotplug(log, self.CYCLES), [], "the judge passed a bad log")
+
+    def test_missing_cycle(self):
+        good = hotplug_log(self.CYCLES)
+        self.assertFails(good.replace("USBD:DETACH port=5 slot=1 regions=2 (unplugged)\n", "", 1))
+        self.assertFails(good.replace("USBD:HID:MOUSE port=6", "USBD:HID:OTHER port=6", 1))
+
+    def test_dma_leak(self):
+        self.assertFails(hotplug_log(self.CYCLES) + "USBD:DETACH port=5 slot=1 regions=9 (unplugged)\n")
+
+    def test_driver_errors(self):
+        self.assertFails(hotplug_log(self.CYCLES) + "USBD:SLOT:LEAK slot=1 disable failed\n")
+
+    def test_stuck_key_and_button(self):
+        good = hotplug_log(self.CYCLES)
+        self.assertFails(good.replace("INPUTD:KEY code=0x1b sym=0x78 mods=0x40 up\n", ""))
+        self.assertFails(good.replace("INPUTD:POINTER x=0 y=0 buttons=0x0 wheel=0,0\n", ""))
+
+    def test_typing_after_replug(self):
+        good = hotplug_log(self.CYCLES)
+        self.assertFails(good.replace("code=0x6 sym=0x63 mods=0x40 down", "code=0x7 sym=0x64 mods=0x40 down"))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -180,6 +180,7 @@ from `usbd` and that the descriptors are QEMU's. See `tools/usb/README.md`.
 ```bash
 python tools/usb/run.py                  # build (LAZYOS_SERVICES=1 LAZYOS_USB=1), boot, judge
 python tools/usb/run.py --ps2            # PS/2 and USB side by side
+python tools/usb/run.py --hotplug 200    # unplug/replug over QMP: nothing stuck, DMA bounded
 python tools/usb/test_judge.py           # the judge fails when it should
 cargo test -p usbhid -p xhci             # descriptor/report parsers and xHCI rings (host)
 ```

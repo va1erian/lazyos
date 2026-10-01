@@ -3,7 +3,8 @@ name: usb
 # USB HID (docs/usb-hid-plan.md): host tests for the xHCI and USB HID libraries
 # and the harness judge, then the end-to-end harness, which boots QEMU with
 # `qemu-xhci`, a USB keyboard and mouse and no i8042, types and points over QMP,
-# and judges what reached `inputd`, not just the driver's serial markers.
+# and judges what reached `inputd`, not just the driver's serial markers; the
+# hotplug run unplugs and replugs the devices over QMP.
 
 on:
   push:
@@ -55,6 +56,10 @@ jobs:
           # PS/2 and USB side by side: one cursor, one keyboard stream.
           - name: with-ps2
             args: "--ps2"
+          # U3: 200 unplug/replug cycles (a key and a button held across the
+          # first), bounded DMA, nothing stuck, typing on the last keyboard.
+          - name: hotplug
+            args: "--hotplug 200"
     steps:
       - uses: actions/checkout@v4
 

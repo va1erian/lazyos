@@ -17,6 +17,15 @@ notches. The verdict:
     python tools/usb/run.py --ps2            # keep the i8042 (PS/2 and USB side by side)
     python tools/usb/run.py --no-mouse       # keyboard only
     python tools/usb/run.py --accel none     # force TCG (paces input for a slow guest)
+    python tools/usb/run.py --hotplug 200    # U3: unplug/replug cycles over QMP
+
+`--hotplug N` (docs/usb-hid-plan.md U3) unplugs and replugs the keyboard N
+times (the mouse every tenth cycle) with QMP `device_del`/`device_add`. The
+first cycle holds a key and a mouse button while it unplugs, so the judge can
+check nothing stays stuck; the last types a few keys on the replugged
+keyboard. `judge.py --hotplug N` then checks every cycle detached and
+re-attached, `usbd`'s DMA allocations stayed bounded, and every key and
+button ended up released.
 
 USB input is polled, and QEMU's `usb-kbd` queues only 16 keycodes before it
 drops events. Under TCG every keystroke makes the console redraw for about a
@@ -59,6 +68,45 @@ def mouse_steps(corner_wait: float) -> list[dict]:
     ]
 
 
+#: Keys typed on the keyboard after the last replug (usages a, b, c).
+HOTPLUG_KEYS = ["a", "b", "c"]
+
+
+def hotplug_steps(cycles: int, pace: float) -> list[dict]:
+    """Unplug and replug the keyboard `cycles` times (the mouse every tenth)."""
+    kbd = {"driver": "usb-kbd", "id": "kbd"}
+    mouse = {"driver": "usb-mouse", "id": "mouse"}
+    steps: list[dict] = [
+        # Hold a key and a button across the first unplug.
+        {"key_down": "x"}, {"mouse_down": "left"}, {"wait": max(pace, 1.0)},
+    ]
+    detached = attached_kbd = attached_mouse = 0
+    for cycle in range(cycles):
+        devices = [("kbd", kbd)] + ([("mouse", mouse)] if cycle % 10 == 0 else [])
+        for name, device in devices:
+            steps.append({"qmp": "device_del", "args": {"id": name}})
+            detached += 1
+            steps.append({"wait_for": "USBD:DETACH", "occurrence": detached, "timeout": 120})
+            steps.append({"qmp": "device_add", "args": device})
+            if name == "kbd":
+                attached_kbd += 1
+                marker = "USBD:HID:KBD"
+                count = attached_kbd
+            else:
+                attached_mouse += 1
+                marker = "USBD:HID:MOUSE"
+                count = attached_mouse
+            steps.append({"wait_for": marker, "occurrence": count + 1, "timeout": 120})
+            if cycle == 0:
+                # Let QEMU forget the held input; the fresh device reports
+                # nothing held, so this makes no edge in the guest.
+                steps.append({"key_up": "x"} if name == "kbd" else {"mouse_up": "left"})
+    for key in HOTPLUG_KEYS:
+        steps += [{"wait": max(pace, 0.5)}, {"key": key}]
+    # Quit only once `inputd` has the last release (slow under TCG).
+    return steps + [{"wait_for": r"INPUTD:KEY code=0x6 \S+ \S+ up", "regex": True, "timeout": 120}]
+
+
 def build() -> None:
     env = dict(os.environ, LAZYOS_SERVICES="1", LAZYOS_USB="1")
     print("building: LAZYOS_SERVICES=1 LAZYOS_USB=1 cargo build", flush=True)
@@ -67,7 +115,10 @@ def build() -> None:
         sys.exit("cargo build failed")
 
 
-def session_script(mouse: bool, pace: float, settle: float, slow: bool) -> list[dict]:
+def session_script(mouse: bool, pace: float, settle: float, slow: bool, hotplug: int) -> list[dict]:
+    if hotplug:
+        ready = [{"wait_for": "USBD:READY", "timeout": 600}, {"wait": settle}]
+        return ready + hotplug_steps(hotplug, pace) + [{"quit": True}]
     steps = json.loads(KEYS_SCRIPT.read_text())
     steps = [step for step in steps if not step.get("quit")]
     for step in steps:
@@ -91,19 +142,21 @@ def main() -> int:
     parser.add_argument("--timeout", type=float, default=1200.0)
     parser.add_argument("--pace", type=float, help="shortest wait between keys, seconds")
     parser.add_argument("--settle", type=float, help="seconds to wait after USBD:READY")
+    parser.add_argument("--hotplug", type=int, default=0, metavar="N",
+                        help="unplug/replug cycles instead of the typing session (U3)")
     args = parser.parse_args()
     slow = args.accel in ("none", "tcg")
     pace = args.pace if args.pace is not None else (3.0 if slow else 0.1)
     settle = args.settle if args.settle is not None else (120.0 if slow else 3.0)
-    mouse = not args.no_mouse
+    mouse = not args.no_mouse or args.hotplug > 0
     if not args.no_build:
         build()
     args.out.mkdir(parents=True, exist_ok=True)
     script = args.out / "session.json"
-    script.write_text(json.dumps(session_script(mouse, pace, settle, slow), indent=1))
-    extra = ["-device", "qemu-xhci", "-device", "usb-kbd"]
+    script.write_text(json.dumps(session_script(mouse, pace, settle, slow, args.hotplug), indent=1))
+    extra = ["-device", "qemu-xhci", "-device", "usb-kbd,id=kbd"]
     if mouse:
-        extra += ["-device", "usb-mouse"]
+        extra += ["-device", "usb-mouse,id=mouse"]
     if not args.ps2:
         extra = ["-machine", "pc,i8042=off"] + extra
     command = [
@@ -121,9 +174,14 @@ def main() -> int:
     verdicts = [session.returncode == 0]
     if session.returncode != 0:
         print(f"FAIL: the session failed (exit {session.returncode}); see {args.out}/summary.json")
-    trace = subprocess.run([sys.executable, str(ROOT / "tools/input/verify_trace.py"), str(log), "--layout", "us"])
-    verdicts.append(trace.returncode == 0)
-    judge = [sys.executable, str(Path(__file__).parent / "judge.py"), str(log)] + (["--mouse"] if mouse else [])
+    if not args.hotplug:
+        trace = subprocess.run([sys.executable, str(ROOT / "tools/input/verify_trace.py"), str(log), "--layout", "us"])
+        verdicts.append(trace.returncode == 0)
+    judge = [sys.executable, str(Path(__file__).parent / "judge.py"), str(log)]
+    if args.hotplug:
+        judge += ["--hotplug", str(args.hotplug)]
+    elif mouse:
+        judge.append("--mouse")
     verdicts.append(subprocess.run(judge).returncode == 0)
     ok = all(verdicts)
     print("usb harness: " + ("PASS" if ok else "FAIL"))

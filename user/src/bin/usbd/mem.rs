@@ -3,9 +3,10 @@
 //! [`Bar`] implements [`xhci::regs::Mmio`] over BAR 0 with bounds-checked
 //! volatile accesses. [`Region`] is physically contiguous DMA memory: the
 //! controller reaches it by bus address, the driver by mapped address. Like
-//! `sndd`'s, a region lives until the driver exits: the kernel treats freeing
-//! a DMA buffer as stopping the device, and a running controller may still
-//! read anything it was ever given.
+//! `sndd`'s, a region is never freed while the driver runs: the kernel treats
+//! freeing a DMA buffer as stopping the device. A detached device's region
+//! goes back to a per-slot pool instead (`Hc::give_region`), so hot-plug
+//! churn reuses memory rather than growing it.
 
 use core::sync::atomic::{fence, Ordering};
 
@@ -111,6 +112,16 @@ impl Region {
         let words = self.dwords(offset, 2);
         words[0] = value as u32;
         words[1] = (value >> 32) as u32;
+    }
+
+    /// Clear the whole region before it serves another device. Only called
+    /// once the controller has let go of it (after Disable Slot).
+    pub(super) fn zero(&mut self) {
+        for offset in (0..self.len).step_by(4) {
+            // SAFETY: inside the region and dword-aligned (its length is a
+            // whole number of pages); volatile like every DMA access.
+            unsafe { self.va.add(offset).cast::<u32>().write_volatile(0) };
+        }
     }
 
     /// Copy `out.len()` bytes the device wrote at `offset`. The copy is what

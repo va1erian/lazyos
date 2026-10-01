@@ -68,6 +68,12 @@ pub(super) struct Hc {
     pending: VecDeque<Trb>,
     /// Events dropped because nobody took them in time.
     pub(super) dropped: u64,
+    /// Device regions by slot id, kept across detach and reused on the next
+    /// attach that gets the same slot (freeing one would stop the device).
+    pool: [Option<Region>; MAX_SLOTS as usize + 1],
+    /// Device regions ever allocated: bounded by the slot count, whatever
+    /// the hot-plug churn (the harness checks it).
+    pub(super) regions: u32,
 }
 
 /// Sleep one PIT tick (userspace has no sleep syscall; `wait` doubles as one).
@@ -134,6 +140,8 @@ impl Hc {
             events,
             pending: VecDeque::new(),
             dropped: 0,
+            pool: [const { None }; MAX_SLOTS as usize + 1],
+            regions: 0,
         };
         hc.reset()?;
         hc.configure()?;
@@ -235,6 +243,30 @@ impl Hc {
         self.command(trb::no_op_command()).map(|_| ())
     }
 
+    /// A zeroed region of `len` bytes for the device in `slot`: the slot's
+    /// pooled one when it has one (every device region is the same size),
+    /// else a new allocation.
+    pub(super) fn take_region(&mut self, slot: u8, len: usize) -> Result<Region, Error> {
+        let entry = self
+            .pool
+            .get_mut(usize::from(slot))
+            .ok_or(Error::Completion(kind::ENABLE_SLOT, 0))?;
+        if let Some(mut region) = entry.take() {
+            region.zero();
+            return Ok(region);
+        }
+        self.regions += 1;
+        Region::alloc(self.handle, len)
+    }
+
+    /// Return a detached device's region for its slot's next device. Only
+    /// after Disable Slot: the controller no longer reads or writes it.
+    pub(super) fn give_region(&mut self, slot: u8, region: Region) {
+        if let Some(entry) = self.pool.get_mut(usize::from(slot)) {
+            *entry = Some(region);
+        }
+    }
+
     /// Point DCBAA entry `slot` at a device context.
     pub(super) fn set_device_context(&mut self, slot: u8, context: u64) {
         self.core.write_u64(DCBAA + usize::from(slot) * 8, context);
@@ -295,6 +327,15 @@ impl Hc {
             let at = self.rt + rt::INTERRUPTERS + rt::ERDP;
             self.bar.write64(at, erdp);
         }
+    }
+
+    /// Drop every queued transfer event of `slot`. Called after Disable Slot:
+    /// the slot's next device reuses its memory at the same bus addresses,
+    /// so a stale completion could otherwise look like one of its own.
+    pub(super) fn discard_slot(&mut self, slot: u8) {
+        self.pump();
+        self.pending
+            .retain(|event| !(event.kind() == kind::TRANSFER_EVENT && event.slot() == slot));
     }
 
     /// Take the oldest pending event, if any.

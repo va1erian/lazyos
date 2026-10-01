@@ -14,6 +14,7 @@ python tools/usb/run.py --no-build       # reuse target/lazyos.img
 python tools/usb/run.py --ps2            # keep the i8042: PS/2 and USB side by side
 python tools/usb/run.py --no-mouse       # keyboard only
 python tools/usb/run.py --accel none     # TCG: paced for a slow guest (see below)
+python tools/usb/run.py --hotplug 200    # U3: unplug/replug cycles over QMP
 python tools/usb/test_judge.py           # the judge fails when it should
 cargo test -p usbhid -p xhci             # the libraries (host, seeded fuzz)
 ```
@@ -29,8 +30,20 @@ Verdict (all must pass):
   `libs/usbhid` is tested against); no `USBD:FATAL`, `USBD:PANIC` or
   `USBD:PORT:FAIL`.
 
+**Hot-plug** (`--hotplug N`, U3) replaces the typing session: QMP
+`device_del`/`device_add` unplug and replug the keyboard N times and the mouse
+every tenth cycle, with a key (`x`) and the left button held across the first
+unplug; then `a b c` is typed on the last keyboard. `judge.py --hotplug N`
+checks every cycle detached and re-attached, the held key and button were
+released (by `usbd` on detach, traced as `USBD:KEY ... up`), `inputd` saw
+exactly `usbd`'s key edges, the typing arrived, and the DMA allocation count
+`regions=` never exceeded the 8 slots `usbd` enables (no leak; regions are
+reused per slot, never freed). No `USBD:SLOT:LEAK` either: a Disable Slot that
+fails keeps its memory out of reuse and is reported.
+
 Serial markers: `USBD:XHCI` (controller up), `USBD:PORT`, `USBD:DESC:DEVICE`,
-`USBD:DESC:CONFIG`, `USBD:HID:KBD` / `USBD:HID:MOUSE`, `USBD:READY devices=N`;
+`USBD:DESC:CONFIG`, `USBD:HID:KBD` / `USBD:HID:MOUSE`, `USBD:READY devices=N`,
+`USBD:DETACH port= slot= regions=` (an unplug or a failed pipe);
 with `trace=1` (debug services images) `USBD:REPORT <hex>` and `USBD:KEY` per
 report and edge. A machine without xHCI prints `USBD:XHCI:NONE` and exits 0.
 

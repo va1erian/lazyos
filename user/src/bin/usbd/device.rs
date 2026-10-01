@@ -81,33 +81,38 @@ pub(super) fn reset_port(hc: &mut Hc, port: u8) -> Option<Speed> {
 impl Device {
     /// Address the device on `port`, read and check its descriptors, and
     /// configure its first boot HID interface. `Ok(None)` for a device that
-    /// is not a boot keyboard or mouse (reported, then left alone).
+    /// is not a boot keyboard or mouse (reported, then left alone). Every
+    /// failure gives the slot and its memory back.
     pub(super) fn attach(hc: &mut Hc, port: u8, speed: Speed) -> Result<Option<Device>, Error> {
         let slot = hc.command(trb::enable_slot())?.slot();
         if slot == 0 {
             return Err(Error::Completion(kind::ENABLE_SLOT, 0));
         }
-        let mut mem = Region::alloc(hc.handle, DEVICE_BYTES)?;
+        let mem = match hc.take_region(slot, DEVICE_BYTES) {
+            Ok(mem) => mem,
+            Err(error) => {
+                let _ = hc.command(trb::disable_slot(slot));
+                return Err(error);
+            }
+        };
+        let mut device = Device::new(port, slot, mem)?;
+        match device.bring_up(hc, speed) {
+            Ok(true) => Ok(Some(device)),
+            Ok(false) => {
+                device.release(hc);
+                Ok(None)
+            }
+            Err(error) => {
+                device.release(hc);
+                Err(error)
+            }
+        }
+    }
+
+    fn new(port: u8, slot: u8, mem: Region) -> Result<Device, Error> {
         let ep0 = ProducerRing::new(mem.ring(EP0_RING, RING_TRBS)).map_err(Error::Xhci)?;
         let interrupt = ProducerRing::new(mem.ring(INT_RING, RING_TRBS)).map_err(Error::Xhci)?;
-        hc.set_device_context(slot, mem.bus(OUTPUT));
-        let max_packet0 = speed.default_max_packet0();
-        {
-            let mut input = input_context(&mut mem, hc.info.context_64)?;
-            input
-                .slot(&SlotContext {
-                    route: 0,
-                    speed,
-                    entries: 1,
-                    root_port: port,
-                })
-                .map_err(Error::Xhci)?;
-            input
-                .endpoint(1, &ep0_context(max_packet0, ep0.dequeue_pointer()))
-                .map_err(Error::Xhci)?;
-        }
-        hc.command(trb::address_device(mem.bus(INPUT), slot, false))?;
-        let mut device = Device {
+        Ok(Device {
             port,
             slot,
             descriptor: DeviceDescriptor {
@@ -133,15 +138,56 @@ impl Device {
             interrupt,
             report_len: 0,
             in_flight: None,
-        };
-        device.read_descriptors(hc, speed)?;
-        let config = device.read_config(hc)?;
+        })
+    }
+
+    /// Address the device, read its descriptors and configure it; `false`
+    /// when it has no boot interface.
+    fn bring_up(&mut self, hc: &mut Hc, speed: Speed) -> Result<bool, Error> {
+        hc.set_device_context(self.slot, self.mem.bus(OUTPUT));
+        let max_packet0 = speed.default_max_packet0();
+        let dequeue = self.ep0.dequeue_pointer();
+        {
+            let mut input = input_context(&mut self.mem, hc.info.context_64)?;
+            input
+                .slot(&SlotContext {
+                    route: 0,
+                    speed,
+                    entries: 1,
+                    root_port: self.port,
+                })
+                .map_err(Error::Xhci)?;
+            input
+                .endpoint(1, &ep0_context(max_packet0, dequeue))
+                .map_err(Error::Xhci)?;
+        }
+        hc.command(trb::address_device(self.mem.bus(INPUT), self.slot, false))?;
+        self.read_descriptors(hc, speed)?;
+        let config = self.read_config(hc)?;
         let Some(hid) = config.first_boot() else {
-            return Ok(None);
+            return Ok(false);
         };
-        device.hid = hid;
-        device.configure(hc, &config, speed)?;
-        Ok(Some(device))
+        self.hid = hid;
+        self.configure(hc, &config, speed)?;
+        Ok(true)
+    }
+
+    /// Give the slot back: Disable Slot stops every endpoint and the
+    /// controller lets go of the contexts and rings, after which the memory
+    /// can serve the slot's next device. If the command fails the
+    /// controller may still own the memory, so it is never reused.
+    pub(super) fn release(self, hc: &mut Hc) {
+        let slot = self.slot;
+        match hc.command(trb::disable_slot(slot)) {
+            Ok(_) => {
+                hc.discard_slot(slot);
+                hc.set_device_context(slot, 0);
+                hc.give_region(slot, self.mem);
+            }
+            Err(error) => sys::write_str(&format!(
+                "USBD:SLOT:LEAK slot={slot} disable failed: {error}\n"
+            )),
+        }
     }
 
     /// The device descriptor, fixing endpoint 0's packet size first.

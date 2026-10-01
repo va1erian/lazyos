@@ -5,9 +5,10 @@
 > `inputd` pointer glue, `SetBounds`/`GetPointer`/`PointerEvent`), P2 (`xuid`
 > takes the pointer from `inputd`, falling back to the kernel stream while
 > `inputd` is away), U0 (`libs/usbhid`, `libs/xhci`), U1 (input sources on
-> syscall 25, `CAP_INPUT_SOURCE`) and U2 (`usbd`: boot keyboards and mice on
-> `qemu-xhci`, `tools/usb/run.py`) are implemented; U3 (hot-plug) onward are
-> not. Builds on
+> syscall 25, `CAP_INPUT_SOURCE`), U2 (`usbd`: boot keyboards and mice on
+> `qemu-xhci`, `tools/usb/run.py`) and U3 (hot-plug: port-status-change
+> events, detach with Disable Slot, per-slot DMA reuse, `run.py --hotplug`)
+> are implemented; U4 (report protocol, tablet) onward are not. Builds on
 > [input-plan.md](input-plan.md) (the raw event bus, `inputd`) and
 > [driver-plan.md](driver-plan.md) (the device core, userspace drivers). It
 > lists USB as a non-goal of the driver plan; this plan lifts that for HID only.
@@ -299,7 +300,12 @@ the guest *did*, not that a marker printed:
    adds no new exposure but should not be oversold as sandboxing.
 6. **DMA pool pressure.** Rings and contexts are small (tens of KiB), well
    inside the 4 MiB-per-allocation and 16 MiB pool limits, but U3's churn test
-   exists to prove nothing leaks.
+   exists to prove nothing leaks. As built, `usbd` never frees DMA while it
+   runs (the kernel treats a freed DMA buffer as stopping the whole
+   controller): a detached device's 12 KiB region goes back to a per-slot
+   pool after Disable Slot and serves that slot's next device, so memory is
+   bounded by the slot count (8) however long the churn. The harness checks
+   the allocation count (`regions=`) rather than the kernel's pool.
 7. **Keyboard LEDs and typematic.** `inputd` does not drive LEDs yet; USB
    `SET_REPORT` output is a trivial add once it does. Typematic is a non-issue
    because USB keyboards report state, not repeats.
