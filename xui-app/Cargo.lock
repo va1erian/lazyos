@@ -1080,6 +1080,7 @@ dependencies = [
  "messenger-generated",
  "xui-canvas",
  "xui-code-editor",
+ "xui-confd-editor",
  "xui-core",
  "xui-explorer",
  "xui-paint",
@@ -1112,6 +1113,15 @@ dependencies = [
  "rhai",
  "ropey",
  "xui-app-testkit",
+ "xui-canvas",
+ "xui-core",
+]
+
+[[package]]
+name = "xui-confd-editor"
+version = "0.1.0"
+dependencies = [
+ "confd",
  "xui-canvas",
  "xui-core",
 ]
