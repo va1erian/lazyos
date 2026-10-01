@@ -51,8 +51,9 @@ file (or welcome.md) --pulldown-cmark--> HTML --litehtml (worker thread)--> disp
   `/TESTDOC.MD` (embedded by `build.rs`). It covers every construct the viewer
   draws and is long enough to scroll; the unit tests render it and
   `tools/screenshot/examples/xui_docs_open.json` opens it through the dialog.
-* **Desktop menu.** The right-click desktop menu lists Docs next to the other
-  apps (`user/src/bin/xuid/menu.rs`). An image built without zig does not ship
+* **Start menu.** LazyShell's start menu lists Docs next to the other apps
+  (the `sys/ui/menu` defaults; it was `xuid`'s right-click menu before issue
+  #157). An image built without zig does not ship
   the app, and the launch is answered as unavailable like any unshipped app.
 
 ## The C++ toolchain (zig)

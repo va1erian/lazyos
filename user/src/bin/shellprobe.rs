@@ -6,7 +6,9 @@
 //! `SHELLPROBE:*:PASS` serial markers a scripted session greps for. The global
 //! hotkeys themselves live in `xuid`; the probe observes their effects
 //! (`StartMenu` on Ctrl+Esc/Super, `FocusChanged` when the Alt+Tab selection
-//! commits).
+//! commits). It also drives the LazyShell additions (issue #157, `checks.rs`):
+//! a panel, the work area, the window-management calls, and the
+//! authorization negatives in child processes of itself.
 //!
 //! Boot it with `LAZYOS_XUID=1` plus the `LAZYOS_SHELLPROBE=1` demo hook; the
 //! kernel then starts `XUID.ELF` and this program (`SHELLPRB.ELF`). Without the
@@ -16,6 +18,9 @@
 #![no_main]
 
 extern crate alloc;
+
+#[path = "shellprobe/checks.rs"]
+mod checks;
 
 use core::panic::PanicInfo;
 use user::messenger;
@@ -31,18 +36,19 @@ const DESKTOP_MARKER: &str = "SHELLPROBE:DESKTOP:PASS\n";
 const LIST_MARKER: &str = "SHELLPROBE:LIST:PASS\n";
 const FOCUS_MARKER: &str = "SHELLPROBE:FOCUS:PASS\n";
 const HOTKEY_MARKER: &str = "SHELLPROBE:HOTKEY:PASS\n";
-const DENIED_MARKER: &str = "SHELLPROBE:DENIED:PASS\n";
-
-/// Session id the unprivileged probe child runs under.
-const PROBE_SESSION: u64 = 4243;
 
 #[no_mangle]
 pub extern "C" fn _start() -> ! {
     sys::write_str("shellprobe: shell-protocol evidence client starting (issue #167)\n");
-    let mut args = [0u8; 16];
+    let mut args = [0u8; 32];
     let len = sys::service_args(&mut args).min(args.len());
-    if &args[..len] == b"denied" {
-        denied_probe()
+    let args = core::str::from_utf8(&args[..len]).unwrap_or("");
+    let args = args.trim_end_matches('\0');
+    if args == "observer" {
+        checks::observer_child()
+    }
+    if let Some(panel) = args.strip_prefix("denied ") {
+        checks::denied_child(panel.parse().unwrap_or(0))
     }
     run()
 }
@@ -77,8 +83,9 @@ fn run() -> ! {
         Err(error) => fail("connect", error.errno().unwrap_or(0)),
     };
 
-    // Subscribe first: registering the `"shell"` role hides xuid's fallback
-    // taskbar, which expands the work area to the whole screen.
+    // Claim the display for the probe's session, then subscribe as the
+    // shell before creating the desktop and panels (they are shell-only).
+    checks::claim_session();
     let (shell_events, shell_published) = match messenger::create_pair() {
         Ok(pair) => pair,
         Err(error) => fail("create_pair", error.errno().unwrap_or(0)),
@@ -145,7 +152,7 @@ fn run() -> ! {
 
     // Replacing an existing desktop is allowed: a second desktop takes the
     // bottom layer and the first one is gone (the list check proves it).
-    let (_replacement_events, replacement_published) = match messenger::create_pair() {
+    let (desktop_events, replacement_published) = match messenger::create_pair() {
         Ok(pair) => pair,
         Err(error) => fail("create_pair", error.errno().unwrap_or(0)),
     };
@@ -240,17 +247,28 @@ fn run() -> ! {
         }
     }
 
+    // The LazyShell calls (issue #157); `work` is still the whole screen.
+    let (panel, panel_events) = checks::panel(&client, work).unzip();
+    let panel = panel.unwrap_or(0);
+    checks::work_area(&client, work);
+    let kept = checks::evict(&client, work);
+    let (_, heard) = checks::window_management(&client, &shell_events, (window, desktop, panel));
+    checks::verdict("EVICT", kept && heard);
+
     // Prove the administrative operations refuse an unprivileged client. The
     // credential drop cannot be undone, so it runs in a short-lived child.
-    if sys::spawn(b"SHELLPRB.ELF denied\0").is_none() {
+    let denied = alloc::format!("{} denied {panel}\0", fhs::boot::SHELLPRB_ELF);
+    if sys::spawn(denied.as_bytes()).is_none() {
         sys::write_str("SHELLPROBE:DENIED:FAIL:could not start the probe\n");
     }
+    let _ = sys::wait(sys::clock() + 500);
 
     // A borrowed lifetime is not available on the endpoints (`create_pair`
     // hands out owned values) and the compositor never closes its end, so the
     // shell channel is the blocking one and the window channel is polled.
     let mut shell_buf = alloc::vec![0u8; 4096];
     let mut window_buf = alloc::vec![0u8; 4096];
+    let mut layer_buf = alloc::vec![0u8; 512];
     let mut focus_seen = false;
     let mut hotkey_seen = false;
     loop {
@@ -261,6 +279,7 @@ fn run() -> ! {
                     focus_seen = true;
                     sys::write_str(FOCUS_MARKER);
                 }
+                Some(ShellEvent::Dismiss) => sys::write_str("SHELLPROBE:DISMISS\n"),
                 Some(ShellEvent::StartMenu) if !hotkey_seen => {
                     hotkey_seen = true;
                     sys::write_str(HOTKEY_MARKER);
@@ -277,69 +296,20 @@ fn run() -> ! {
 
         // The window manager's close button (or Alt+F4) asks the probe's
         // window to go away; take the desktop down with it and exit.
+        checks::log_layer("DESKTOP", &desktop_events, &mut layer_buf);
+        if let Some(events) = &panel_events {
+            checks::log_layer("PANELPTR", events, &mut layer_buf);
+        }
         if let Ok(Some(message)) = window_events.poll_recv_with(&mut window_buf) {
             if message.method() == display::wire::METHOD_WINDOWCLOSE {
                 let _ = client.destroy_surface(window);
+                let _ = client.destroy_surface(panel);
                 let _ = client.destroy_surface(desktop);
                 sys::write_str("shellprobe: closed by the window manager\n");
                 sys::exit(0);
             }
         }
     }
-}
-
-/// The unprivileged child (issue #175): after dropping to a plain user it must
-/// be refused the shell role, a desktop surface, and the surface list, each
-/// with `-EACCES`; only then does it log the pass marker.
-fn denied_probe() -> ! {
-    let plain = sys::Cred::new(1000, 1000, 0, 0, PROBE_SESSION);
-    if sys::cred_set(None, &plain).is_err() {
-        sys::write_str("SHELLPROBE:DENIED:FAIL:could not drop privilege\n");
-        sys::exit(1);
-    }
-    let refused = |what: &str, result: Result<(), messenger::Error>| -> bool {
-        match result {
-            Err(messenger::Error::Errno(code)) if code == -messenger::errno::EACCES => true,
-            other => {
-                sys::write_str(&alloc::format!(
-                    "SHELLPROBE:DENIED:FAIL:{what} was not refused ({:?})\n",
-                    other.err().and_then(|error| error.errno())
-                ));
-                false
-            }
-        }
-    };
-    let client = match Client::connect() {
-        Ok(client) => client,
-        Err(_) => {
-            sys::write_str("SHELLPROBE:DENIED:FAIL:connect\n");
-            sys::exit(1)
-        }
-    };
-    // A refused call still consumes the transferred endpoint, so each gets its
-    // own pair.
-    let (Ok((_shell_events, shell_end)), Ok((_desktop_events, desktop_end))) =
-        (messenger::create_pair(), messenger::create_pair())
-    else {
-        sys::write_str(
-            "SHELLPROBE:DENIED:FAIL:create_pair
-",
-        );
-        sys::exit(1)
-    };
-    let ok = refused(
-        "subscribe",
-        client.subscribe(display::ROLE_SHELL, &shell_end),
-    ) && refused(
-        "desktop",
-        client
-            .create_desktop_surface(64, 64, "evil", &desktop_end)
-            .map(|_| ()),
-    ) && refused("list", client.list_surfaces().map(|_| ()));
-    if ok {
-        sys::write_str(DENIED_MARKER);
-    }
-    sys::exit(if ok { 0 } else { 1 })
 }
 
 /// Paint the desktop wallpaper: a teal backdrop with a dotted grid and a
