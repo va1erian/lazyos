@@ -4,7 +4,7 @@
 
 use alloc::format;
 
-use inputmap::{KeyState, Layout, Output};
+use inputmap::{KeyState, Layout, Output, PointerOut};
 use user::sys;
 
 pub(super) struct Trace {
@@ -49,6 +49,18 @@ impl Trace {
                 }
                 Output::Hotkey(id) => sys::write_str(&format!("INPUTD:HOTKEY {id}\n")),
             }
+        }
+    }
+
+    pub(super) fn pointer(&self, outputs: &[PointerOut]) {
+        if !self.on {
+            return;
+        }
+        for out in outputs {
+            sys::write_str(&format!(
+                "INPUTD:POINTER x={} y={} buttons={:#x} wheel={},{}\n",
+                out.x, out.y, out.buttons, out.wheel_v, out.wheel_h
+            ));
         }
     }
 }

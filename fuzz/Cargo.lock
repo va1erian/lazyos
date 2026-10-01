@@ -225,6 +225,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "inputmap"
+version = "0.1.0"
+
+[[package]]
 name = "jobserver"
 version = "0.1.35"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -249,6 +253,7 @@ name = "lazyos-fuzz"
 version = "0.0.0"
 dependencies = [
  "framering",
+ "inputmap",
  "lazypkg",
  "libfuzzer-sys",
  "modplay",

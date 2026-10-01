@@ -44,8 +44,10 @@ jobs:
         run: cargo clippy -p libmessenger -p messenger-generated -p lazyos-crypto -p font-atlas -p confd -p timezone -p inputmap -- -D warnings
       - name: Zone and DST resolution tests (timed)
         run: cargo test -p timezone
-      - name: Keymap, modifier and repeat tests (inputd)
+      - name: Keymap, modifier, repeat and pointer tests (inputd, includes the seeded pointer fuzz)
         run: cargo test -p inputmap
+      - name: Clippy (inputmap tests and its fuzz entry point)
+        run: cargo clippy -p inputmap --all-targets --features fuzz -- -D warnings
 
   build-and-boot:
     runs-on: ubuntu-latest

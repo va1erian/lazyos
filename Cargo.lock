@@ -452,6 +452,9 @@ dependencies = [
 [[package]]
 name = "inputmap"
 version = "0.1.0"
+dependencies = [
+ "fuzzkit",
+]
 
 [[package]]
 name = "itoa"

@@ -126,6 +126,15 @@ compositor demo. Target toolkit design: [xui-plan.md](../xui-plan.md).
   window below). `xui-app` turns it into `Event::MouseWheel` for the widget under
   the pointer, one notch being `120` (Windows' `WHEEL_DELTA`, which xui's
   widgets and `xui-litehtml` expect). Horizontal wheels are not reported.
+- **Pointer on the raw bus** ([../usb-hid-plan.md](../usb-hid-plan.md), P0/P1).
+  Each PS/2 packet is also published on the raw input bus by
+  `kernel/src/input/mouse_tap.rs` (`device::PS2_MOUSE`; screen-oriented
+  `REL_MOTION`, `BUTTON` edges, an up-positive `SCROLL`), and `inputd` keeps
+  the one cursor every pointing device moves (`inputmap::Pointer`). It reports
+  `PointerEvent` (absolute position, button mask, wheel) on
+  `os.lazy.input.shell.v1`, but only to a compositor that has called
+  `SetBounds` or `GetPointer`; `xuid` does not yet, so it still takes the
+  pointer from the display stream described above.
 - **Keyboard focus routing** (issue #151) is mode-independent: a pointer press
   on a focus stop moves the backend focus, `SetFocus`/`KillFocus` reach the
   widgets, and `KeyDown`/`KeyUp`/`Char` target the focused node, not the node

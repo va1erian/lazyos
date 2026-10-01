@@ -1,6 +1,9 @@
 # Plan: basic USB HID support (keyboard, mouse, tablet) with pointer handling in `inputd`
 
-> **Status: draft proposal, revision 2 (2026-10-01).** Builds on
+> **Status: in progress, revision 2 (2026-10-01).** P0 (pointer records and
+> tail merging on the raw bus, the PS/2 mouse tap) and P1 (`inputmap::Pointer`,
+> `inputd` pointer glue, `SetBounds`/`GetPointer`/`PointerEvent`) are
+> implemented; P2 onward are not. Builds on
 > [input-plan.md](input-plan.md) (the raw event bus, `inputd`) and
 > [driver-plan.md](driver-plan.md) (the device core, userspace drivers). It
 > lists USB as a non-goal of the driver plan; this plan lifts that for HID only.
@@ -277,7 +280,13 @@ the guest *did*, not that a marker printed:
    `GetPointer`; a restart test covers this in P2.
 4. **Ring pressure from the pointer.** Tail merging (decision 3) is the first
    defence; a dedicated pointer ring is the planned escalation. The P0 flood
-   test is what decides.
+   test is what decides. Merging has one visible cost, seen in a loaded TCG
+   guest: deltas summed before `inputd` clamps them, so motion that pushes past
+   an edge and comes back *within one drain* lands short of where per-packet
+   clamping would put it (`-2000` then `+30` from the corner stays at 0
+   instead of 30). With `inputd` draining every 20 ms this needs a very fast
+   flick; if it is ever noticeable, the producer can stop merging when a delta
+   changes sign.
 5. **Rate limit and DMA trust.** An xHCI driver holds a `DMA` right, so it is
    trusted like the kernel until an IOMMU exists (driver-plan D5). This plan
    adds no new exposure but should not be oversold as sandboxing.
