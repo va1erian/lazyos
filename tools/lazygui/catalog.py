@@ -122,14 +122,21 @@ def build_env(cfg: dict) -> dict[str, str]:
         env["LAZYOS_BUSYBOX"] = cfg["busybox"]
     if cfg.get("cli"):
         env["LAZYOS_CLI"] = "1"
+    if cfg.get("lazyrad"):
+        # Embeds LRPLAY.ELF and LAZYRAD.ELF (built by `tools/lazyrad/build.py`)
+        # and lists the IDE in XAPPS.LST so Settings -> Menu offers it.
+        env["LAZYOS_LAZYRAD"] = "1"
+        if cfg.get("lazyrad_samples"):
+            env["LAZYRAD_SAMPLES"] = cfg["lazyrad_samples"]
     return env
 
 
-def simple_config(base: dict, build: str, interface: str) -> dict:
+def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False) -> dict:
     """The full configuration for a Simple-mode choice.
 
     ``build`` is a cargo profile (``dev``/``release``) and ``interface`` is
-    ``CLI`` or ``Desktop``. Machine settings (accelerator, memory, QEMU path)
+    ``CLI`` or ``Desktop``; ``lazyrad`` adds the LazyRAD IDE to a Desktop
+    image (it is an xui app, so it means nothing on the CLI). Machine settings (accelerator, memory, QEMU path)
     come from ``base``; every image switch is decided here so stale Advanced
     checkboxes cannot leak into a Simple boot.
     """
@@ -164,6 +171,7 @@ def simple_config(base: dict, build: str, interface: str) -> dict:
         "xui_client": False,
         "xui_app": "(none)",
         "prebuild_xui": desktop,
+        "lazyrad": desktop and lazyrad,
     })
     return cfg
 
@@ -174,6 +182,14 @@ def cargo_step(cfg: dict) -> dict:
     if cfg["profile"] == "release":
         argv.append("--release")
     return {"label": "Build image (cargo build)", "argv": argv}
+
+
+def lazyrad_step(cfg: dict) -> list[dict]:
+    """The step that builds LazyRAD's static-musl ELFs, when the image embeds them."""
+    if not cfg.get("lazyrad"):
+        return []
+    return [{"label": "Build LazyRAD (static musl)",
+             "argv": [PY, "tools/lazyrad/build.py"]}]
 
 
 def _script(cfg: dict) -> tuple:
@@ -191,6 +207,10 @@ def build_plan(cfg: dict) -> list[dict]:
             steps.append({"label": "Build xui apps (static musl)",
                           "argv": [PY, "tools/xui/build.py"]})
         argv = [PY, "tools/run_demo.py"]
+        if cfg.get("lazyrad") and not cfg["skip_build"]:
+            # run_demo builds LazyRAD and sets LAZYOS_LAZYRAD itself; with
+            # "Skip build" the existing image is booted as it is.
+            argv.append("--lazyrad")
         if cfg["profile"] == "release":
             argv.append("--release")
         if cfg["skip_build"]:
@@ -218,6 +238,7 @@ def build_plan(cfg: dict) -> list[dict]:
 
     elif mode == "Headless screenshots":
         if not cfg["skip_build"]:
+            steps += lazyrad_step(cfg)
             steps.append(cargo_step(cfg))
         argv = [PY, "tools/screenshot/qemu_shot.py", "--out", cfg["out"],
                 "--at", cfg["times"], "--accel", cfg["accel"],
@@ -232,6 +253,7 @@ def build_plan(cfg: dict) -> list[dict]:
             steps.append({"label": "Build xui app (static musl)",
                           "argv": [PY, "tools/xui/build.py"]})
         if not cfg["skip_build"]:
+            steps += lazyrad_step(cfg)
             steps.append(cargo_step(cfg))
         script = os.path.join(ROOT, "tools", "screenshot", "examples", file)
         argv = [PY, "tools/screenshot/qemu_session.py", "--image", IMAGE,
@@ -262,6 +284,7 @@ def build_plan(cfg: dict) -> list[dict]:
 
     elif mode == "Build xui app":
         steps.append({"label": "Build xui app (static musl)", "argv": [PY, "tools/xui/build.py"]})
+        steps += lazyrad_step(cfg)
 
     return steps
 

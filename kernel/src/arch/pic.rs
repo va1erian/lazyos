@@ -81,6 +81,11 @@ pub fn set_masked(line: u8, masked: bool) {
         return;
     }
     let (port, bit) = mask_port(line);
+    if line == 0 && !masked {
+        // Time with the timer masked is not "lost" to a long syscall: start
+        // counting periods from now (issue #344).
+        super::clock::resync();
+    }
     x86_64::instructions::interrupts::without_interrupts(|| {
         // SAFETY: the IMR ports are owned by this module and the RMW is atomic
         // with respect to interrupts on this single CPU.

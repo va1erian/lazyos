@@ -40,8 +40,6 @@ use core::panic::PanicInfo;
 use user::messenger::{self, accounts, keyd, registry, Error, Message, Parcel};
 use user::sys;
 
-/// The passwd-style file read from the boot volume, if present.
-const PASSWD_FILE: &[u8] = b"PASSWD\0";
 /// Largest passwd file the daemon reads.
 const PASSWD_MAX: usize = 1024;
 /// The built-in table when no file is present (the same content the image
@@ -104,7 +102,7 @@ fn run() -> messenger::Result<()> {
         "accountsd: {} account(s) from {} (issue #101)\n",
         table.len(),
         if from_file {
-            "PASSWD"
+            fhs::boot::PASSWD
         } else if WRITABLE_STORE {
             "the writable store"
         } else {
@@ -133,7 +131,10 @@ fn run() -> messenger::Result<()> {
 /// Returns the table and whether it came from the file.
 fn load_table() -> (Vec<Account>, bool) {
     let mut bytes = alloc::vec![0u8; PASSWD_MAX];
-    let table: Vec<Account> = if let Some(length) = sys::read_file(PASSWD_FILE, &mut bytes) {
+    // The passwd-style file on the boot volume, NUL-terminated for the syscall.
+    let passwd_z = alloc::format!("{}\0", fhs::boot::PASSWD);
+    let table: Vec<Account> = if let Some(length) = sys::read_file(passwd_z.as_bytes(), &mut bytes)
+    {
         let text = core::str::from_utf8(&bytes[..length]).unwrap_or("");
         text.lines().filter_map(Account::parse).collect()
     } else {

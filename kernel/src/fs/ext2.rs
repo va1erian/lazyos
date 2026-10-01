@@ -107,6 +107,9 @@ pub struct Ext2 {
     /// volume that was already unclean (or errored) stays flagged until an
     /// fsck, rather than being blessed by our own clean shutdown.
     mount_state: u16,
+    /// `s_uuid` and `s_volume_name` (NUL-padded) from the superblock.
+    uuid: [u8; 16],
+    label: [u8; 16],
     /// Whether the on-disk `s_state` currently says clean. Only touched under
     /// `lock`; see `state.rs` for the ordering rules.
     clean: AtomicBool,
@@ -237,9 +240,21 @@ impl Ext2 {
             has_large_file: feature_ro & FEATURE_RO_LARGE_FILE != 0,
             read_only,
             mount_state,
+            uuid: array16(&superblock, SB_UUID),
+            label: array16(&superblock, SB_VOLUME_NAME),
             clean: AtomicBool::new(!read_only && mount_state & STATE_VALID != 0),
             lock: Mutex::new(()),
         })
+    }
+
+    /// The superblock's volume UUID (`s_uuid`), as stored.
+    pub fn uuid(&self) -> [u8; 16] {
+        self.uuid
+    }
+
+    /// The superblock's volume label (`s_volume_name`), NUL-padded.
+    pub fn label(&self) -> [u8; 16] {
+        self.label
     }
 
     /// Bytes per filesystem block.

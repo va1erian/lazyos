@@ -209,14 +209,14 @@ pub(super) const MANIFEST: &[ServiceSpec] = &[
         // daemon's serve loop and prints `MSGRD:SOAK`/`MSGRD:TOPICS` evidence
         // (issue #169); it costs a fraction of a second and doubles as a
         // liveness check.
-        path: "MSGRD.ELF",
+        path: fhs::boot::MSGRD_ELF,
         args: "soak=4096",
         restart: Restart::Once,
         deps: &[],
     },
     ServiceSpec {
         name: "keyd",
-        path: "KEYD.ELF",
+        path: fhs::boot::KEYD_ELF,
         args: "",
         restart: Restart::Always,
         deps: &["messengerd"],
@@ -228,7 +228,7 @@ pub(super) const MANIFEST: &[ServiceSpec] = &[
     // real Messenger transport and prints `CONFCTL:SELFTEST:PASS`.
     ServiceSpec {
         name: "confd",
-        path: "CONFD.ELF",
+        path: fhs::boot::CONFD_ELF,
         args: "demo=1",
         restart: Restart::Always,
         deps: &["messengerd"],
@@ -239,7 +239,7 @@ pub(super) const MANIFEST: &[ServiceSpec] = &[
     // through `confd` and prints `TIMED:DEMO:PASS` once the service followed.
     ServiceSpec {
         name: "timed",
-        path: "TIMED.ELF",
+        path: fhs::boot::TIMED_ELF,
         args: "demo=1",
         restart: Restart::Always,
         deps: &["messengerd", "confd"],
@@ -251,35 +251,35 @@ pub(super) const MANIFEST: &[ServiceSpec] = &[
     // events to serial as boot evidence; the desktop profile stays quiet.
     ServiceSpec {
         name: "inputd",
-        path: "INPUTD.ELF",
+        path: fhs::boot::INPUTD_ELF,
         args: if BOOT_EVIDENCE { "trace=1" } else { "" },
         restart: Restart::Always,
         deps: &["confd"],
     },
     ServiceSpec {
         name: "accountsd",
-        path: "ACCTD.ELF",
+        path: fhs::boot::ACCTD_ELF,
         args: "",
         restart: Restart::Always,
         deps: &[],
     },
     ServiceSpec {
         name: "logind",
-        path: "LOGIND.ELF",
+        path: fhs::boot::LOGIND_ELF,
         args: "",
         restart: Restart::Always,
         deps: &["accountsd"],
     },
     ServiceSpec {
         name: "logd",
-        path: "LOGD.ELF",
+        path: fhs::boot::LOGD_ELF,
         args: "",
         restart: Restart::Always,
         deps: &["messengerd"],
     },
     ServiceSpec {
         name: "healthd",
-        path: "HEALTHD.ELF",
+        path: fhs::boot::HEALTHD_ELF,
         args: "",
         restart: Restart::Always,
         deps: &["messengerd"],
@@ -293,7 +293,7 @@ pub(super) const MANIFEST: &[ServiceSpec] = &[
     // adding two more ELF loads to this manifest's boot pass.
     ServiceSpec {
         name: "clipboardd",
-        path: "CLIPD.ELF",
+        path: fhs::boot::CLIPD_ELF,
         args: "history=1 demo=1",
         restart: Restart::Always,
         deps: &[],
@@ -303,7 +303,7 @@ pub(super) const MANIFEST: &[ServiceSpec] = &[
     // directly; it talks to `init`'s topic router to publish launch events.
     ServiceSpec {
         name: "mimed",
-        path: "MIMED.ELF",
+        path: fhs::boot::MIMED_ELF,
         args: "",
         restart: Restart::Always,
         deps: &[],
@@ -317,14 +317,14 @@ pub(super) const MANIFEST: &[ServiceSpec] = &[
     // allocator never returns.
     ServiceSpec {
         name: "pkgd",
-        path: "PKGD.ELF",
+        path: fhs::boot::PKGD_ELF,
         args: "",
         restart: Restart::Always,
         deps: &["confd", "mimed"],
     },
     ServiceSpec {
         name: "flaky",
-        path: "FLAKY.ELF",
+        path: fhs::boot::FLAKY_ELF,
         args: "",
         restart: Restart::OnFailure,
         deps: &["healthd"],
@@ -337,7 +337,7 @@ pub(super) const MANIFEST: &[ServiceSpec] = &[
     #[cfg(lazyos_sound)]
     ServiceSpec {
         name: "sndd",
-        path: "SNDD.ELF",
+        path: fhs::boot::SNDD_ELF,
         args: "demo=1",
         restart: Restart::OnFailure,
         deps: &[],
@@ -348,7 +348,7 @@ pub(super) const MANIFEST: &[ServiceSpec] = &[
     #[cfg(lazyos_usb)]
     ServiceSpec {
         name: "usbd",
-        path: "USBD.ELF",
+        path: fhs::boot::USBD_ELF,
         args: USBD_ARGS,
         restart: Restart::OnFailure,
         deps: &["inputd"],
@@ -362,7 +362,7 @@ pub(super) const MANIFEST: &[ServiceSpec] = &[
     #[cfg(lazyos_net)]
     ServiceSpec {
         name: "netdrv",
-        path: "NETDRV.ELF",
+        path: fhs::boot::NETDRV_ELF,
         args: NET_ARGS,
         restart: Restart::Always,
         deps: &[],
@@ -376,7 +376,7 @@ pub(super) const MANIFEST: &[ServiceSpec] = &[
     #[cfg(lazyos_netd)]
     ServiceSpec {
         name: "netd",
-        path: "NETD.ELF",
+        path: fhs::boot::NETD_ELF,
         args: "demo=1",
         restart: Restart::Always,
         deps: &[],
@@ -392,7 +392,7 @@ pub(super) const MANIFEST: &[ServiceSpec] = &[
     // pair.
     ServiceSpec {
         name: "sysmond",
-        path: "SYSD.ELF",
+        path: fhs::boot::SYSD_ELF,
         args: "demo=1",
         restart: Restart::Always,
         deps: &[],

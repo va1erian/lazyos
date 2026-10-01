@@ -364,7 +364,7 @@ impl<T: Transport> Installer for PkgdInstaller<T> {
             system_name: app.system_name,
             version: app.version,
             state: InstallState::Installed,
-            location: Some(PathBuf::from("/data/apps").join(app.install_dir)),
+            location: Some(PathBuf::from(fhs::state::APPS_ROOT).join(app.install_dir)),
         })
     }
 

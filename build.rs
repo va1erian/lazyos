@@ -537,6 +537,8 @@ fn embed_xui_apps(builder: &mut bootloader::DiskImageBuilder, desktop: bool) {
                 .chain(optional)
                 .collect()
         }
+        // No xui apps requested, but the IDE still needs its `XAPPS.LST` line.
+        None if !lazyrad_embed::manifest_lines().is_empty() => Vec::new(),
         None => return,
     };
     let autostart = std::env::var("LAZYOS_XUI_AUTOSTART").ok();
@@ -574,6 +576,9 @@ fn embed_xui_apps(builder: &mut bootloader::DiskImageBuilder, desktop: bool) {
         manifest.push_str(&format!("{disk}{suffix}\n"));
         builder.set_file(disk, app);
     }
+    // The IDE is embedded by `lazyrad_embed` under its own 8.3 name, not as an
+    // `xui-*` app, so its manifest line is added here.
+    manifest.push_str(lazyrad_embed::manifest_lines());
     builder.set_file_contents(String::from("XAPPS.LST"), manifest.into_bytes());
 }
 

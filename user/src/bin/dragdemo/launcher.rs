@@ -18,7 +18,7 @@ pub(super) fn launcher() -> ! {
     ensure_clipboard();
     let mut started = 0u64;
     for role in ["source", "target"] {
-        let command = format!("DRAGDMO.ELF {role}\0");
+        let command = format!("{} {role}\0", fhs::boot::DRAGDMO_ELF);
         match sys::spawn(command.as_bytes()) {
             Some(pid) => {
                 started += 1;

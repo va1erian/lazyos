@@ -15,7 +15,10 @@ use super::*;
 pub extern "C" fn schedule(current_rsp: u64, tick: u32) -> u64 {
     let tick = tick != 0;
     if tick {
-        crate::arch::idt::TICKS.fetch_add(1, Ordering::Relaxed);
+        // Periods lost to interrupts-off stretches are caught up here
+        // (issue #344); a normal entry is exactly one.
+        let periods = crate::arch::clock::periods_since_last();
+        crate::arch::idt::TICKS.fetch_add(periods, Ordering::Relaxed);
         // SAFETY: `tick` is set only by `timer_isr`, i.e. we are in the
         // IRQ0 handler and the PIC has IRQ0 in service.
         unsafe { crate::arch::pic::end_of_interrupt(0) };

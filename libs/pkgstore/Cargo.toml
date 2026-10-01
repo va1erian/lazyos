@@ -11,6 +11,8 @@ name = "pkgstore"
 path = "src/lib.rs"
 
 [dependencies]
+# Where installed apps, the audit log and home directories live.
+fhs = { path = "../fhs" }
 # The validated manifest the rules and explanations are derived from.
 lazypkg = { path = "../lazypkg" }
 # SHA-256 for the audit chain, hex for the log lines.

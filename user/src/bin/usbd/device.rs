@@ -5,6 +5,7 @@
 //! Everything the device returns is parsed from a copy with `libs/usbhid`;
 //! a device that answers nonsense is reported and left unconfigured.
 
+use alloc::collections::VecDeque;
 use alloc::format;
 
 use usbhid::desc::{self, Config, DeviceDescriptor, HidInterface, Protocol};
@@ -33,6 +34,15 @@ const REPORT: usize = DATA + DATA_BYTES;
 const DEVICE_BYTES: usize = 3 * PAGE;
 /// Largest report this driver reads (boot reports are 8 bytes).
 pub(super) const MAX_REPORT: usize = 64;
+/// Interrupt-IN transfers kept queued, each into a report buffer of its own.
+/// With one transfer in flight a report cost a whole driver round trip (the
+/// next poll, then a doorbell), and QEMU's `usb-kbd` hands out one keycode
+/// per report, so fast typing overran its 16-entry queue (issue #480). With
+/// several queued the controller completes one per endpoint interval on its
+/// own and the driver drains them in batches.
+const REPORTS: usize = 8;
+const _: () = assert!(REPORT + REPORTS * MAX_REPORT <= DEVICE_BYTES);
+const _: () = assert!(REPORTS < RING_TRBS);
 /// Ticks a port reset may take.
 const RESET_TICKS: u64 = 100;
 
@@ -51,8 +61,11 @@ pub(super) struct Device {
     ep0: ProducerRing<RawMem>,
     interrupt: ProducerRing<RawMem>,
     report_len: u16,
-    /// The interrupt TRB in flight.
-    in_flight: Option<u64>,
+    /// The interrupt TRBs in flight, oldest first: the TRB's bus address and
+    /// the report buffer it fills.
+    in_flight: VecDeque<(u64, usize)>,
+    /// The buffer the next interrupt TRB fills (see [`Device::queue_reports`]).
+    next_buffer: usize,
 }
 
 /// Reset `port` if it is a USB 2 port (USB 3 ports enable themselves) and
@@ -142,7 +155,8 @@ impl Device {
             ep0,
             interrupt,
             report_len: 0,
-            in_flight: None,
+            in_flight: VecDeque::new(),
+            next_buffer: 0,
         })
     }
 
@@ -292,7 +306,7 @@ impl Device {
                 .map_err(Error::Xhci)?;
         }
         hc.command(trb::configure_endpoint(self.mem.bus(INPUT), self.slot))?;
-        self.queue_report(hc)
+        self.queue_reports(hc)
     }
 
     /// The interface's report descriptor, parsed for a pointer.
@@ -313,15 +327,27 @@ impl Device {
             .map_err(|_| Error::Descriptor("no pointer in the report descriptor"))
     }
 
-    /// Queue the next interrupt-IN transfer.
-    pub(super) fn queue_report(&mut self, hc: &mut Hc) -> Result<(), Error> {
-        let transfer = trb::interrupt_in(self.mem.bus(REPORT), self.report_len);
-        let pointer = self
-            .interrupt
-            .enqueue(&[transfer], false)
-            .map_err(Error::Xhci)?;
-        self.in_flight = Some(pointer);
-        hc.doorbell(self.slot, self.dci);
+    /// Top the interrupt ring up to [`REPORTS`] transfers and ring once.
+    ///
+    /// Transfers complete in ring order and at most `REPORTS` are in flight,
+    /// so TRB `n` and TRB `n + REPORTS` share a buffer only after TRB `n`
+    /// completed and its report was read ([`Device::take_report`]).
+    pub(super) fn queue_reports(&mut self, hc: &mut Hc) -> Result<(), Error> {
+        let mut added = false;
+        while self.in_flight.len() < REPORTS {
+            let buffer = REPORT + self.next_buffer * MAX_REPORT;
+            let transfer = trb::interrupt_in(self.mem.bus(buffer), self.report_len);
+            let pointer = self
+                .interrupt
+                .enqueue(&[transfer], false)
+                .map_err(Error::Xhci)?;
+            self.in_flight.push_back((pointer, buffer));
+            self.next_buffer = (self.next_buffer + 1) % REPORTS;
+            added = true;
+        }
+        if added {
+            hc.doorbell(self.slot, self.dci);
+        }
         Ok(())
     }
 
@@ -335,7 +361,7 @@ impl Device {
     /// Take a completed report into `out`; returns its length, or `None` for
     /// a failed transfer (the caller decides whether to give up on the device).
     pub(super) fn take_report(&mut self, event: &Trb, out: &mut [u8; MAX_REPORT]) -> Option<usize> {
-        let pointer = self.in_flight.take()?;
+        let (pointer, buffer) = self.in_flight.pop_front()?;
         if event.parameter != pointer || self.interrupt.retire(pointer).is_err() {
             return None;
         }
@@ -344,7 +370,7 @@ impl Device {
         }
         let residual = event.residual().min(u32::from(self.report_len)) as usize;
         let len = usize::from(self.report_len) - residual;
-        self.mem.read(REPORT, &mut out[..len]);
+        self.mem.read(buffer, &mut out[..len]);
         Some(len)
     }
 

@@ -351,8 +351,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--virtio-disk",
         action="store_true",
-        help="attach the image as legacy virtio-blk instead of IDE (needed on q35, "
-        "which has no IDE controller the kernel drives)",
+        help="accepted for old scripts: the image is always attached as legacy "
+        "virtio-blk (the only disk a q35 machine can boot)",
     )
     parser.add_argument("--no-build", action="store_true", help="skip the cargo build")
     parser.add_argument("--services", action="store_true", help="build with LAZYOS_SERVICES=1 (init supervises netdrv)")

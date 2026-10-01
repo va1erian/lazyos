@@ -9,10 +9,10 @@ use alloc::sync::Arc;
 use core::sync::atomic::Ordering;
 
 /// Sectors in every test disk (512 KiB at 512 bytes per sector).
-const DISK_SECTORS: usize = 1024;
+pub(super) const DISK_SECTORS: usize = 1024;
 
 /// Byte offset of the ext2 superblock (fixed by the format).
-const SUPER: usize = 1024;
+pub(super) const SUPER: usize = 1024;
 
 fn put16(image: &mut [u8], offset: usize, value: u16) {
     image[offset..offset + 2].copy_from_slice(&value.to_le_bytes());
@@ -32,7 +32,7 @@ fn fs_error(error: FsError) -> String {
 /// structures `Ext2::open` validates, so the suite exercises the real
 /// on-disk format with no disk image and no userspace tool. Returns the
 /// raw image for `total_blocks` blocks of the requested size.
-fn mkfs(block_size: u32, total_blocks: u32, inode_count: u32) -> Vec<u8> {
+pub(super) fn mkfs(block_size: u32, total_blocks: u32, inode_count: u32) -> Vec<u8> {
     let mut image = vec![0u8; DISK_SECTORS * SECTOR_SIZE];
     let bs = block_size as usize;
     let inode_size = 128usize;
@@ -161,7 +161,8 @@ pub(super) fn mounted_in(
     disk.data.lock().copy_from_slice(&image);
     let fs = Arc::new(Ext2::open(disk).map_err(fs_error)?);
     let mut vfs = Vfs::new();
-    vfs.mount("/", fs.clone()).map_err(fs_error)?;
+    vfs.mount("/", fs.clone(), crate::fs::vfs::MountFlags::default())
+        .map_err(fs_error)?;
     Ok((fs, vfs, disk))
 }
 
