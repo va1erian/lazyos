@@ -283,7 +283,9 @@ impl InetSock {
             if inner.so_error != 0 {
                 revents |= POLLERR | POLLHUP;
             }
-            return (revents, gen ^ own);
+            // Separate bit ranges: a pair event and a socket event that land
+            // together must not cancel (an XOR of two even counters would).
+            return (revents, gen.wrapping_add(own << 32));
         }
         let mut revents = 0;
         match inner.state {

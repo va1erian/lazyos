@@ -128,8 +128,8 @@ pub fn inet_argument_checks() -> Result<(), String> {
     );
     let (a, _b) = socketpair(AF_UNIX | SOCK_STREAM)?;
     check!(
-        sys6(54, [a, 1, 2, 0, 0, 0]) == neg(38),
-        "setsockopt on a unix socket stays ENOSYS"
+        sys6(54, [a, 1, 2, 0, 0, 0]) == neg(92),
+        "setsockopt on a unix socket is ENOPROTOOPT"
     );
     check!(close(fd) == 0 && close(a) == 0 && close(_b) == 0, "close");
     // datagram specifics

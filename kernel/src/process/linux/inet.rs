@@ -14,7 +14,7 @@ use crate::ipc::inet::{self, Addr, InetSock, Kind, State, DGRAM_HEADER, MAX_DGRA
 use crate::task::{self, Fd, FdKind};
 use crate::user_ptr;
 
-use super::errno::{err, EBADF, EFAULT, EINVAL, EMFILE, EMSGSIZE, ENOTSOCK};
+use super::errno::{err, EBADF, EFAULT, EINVAL, EMFILE, EMSGSIZE, ENOPROTOOPT, ENOTSOCK};
 use super::flags::{SOCK_CLOEXEC, SOCK_NONBLOCK, SOCK_STREAM};
 use super::io::{read_stream, write_stream};
 
@@ -27,7 +27,7 @@ const SOCKADDR_IN: usize = 16;
 
 /// Errno values Linux uses that `errno.rs` does not carry (positive).
 const EPROTONOSUPPORT: u64 = 93;
-const ENOPROTOOPT: u64 = 92;
+
 const EDESTADDRREQ: u64 = 89;
 const ENFILE: u64 = 23;
 const ENOTCONN: u64 = 107;

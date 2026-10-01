@@ -140,9 +140,10 @@ LOG_PREFIXES = ("NET", "netdrv", "netd", "NICCTL", "NETDRV", "NETD", "NETCTL", "
 def build_netfix() -> bool:
     """Build the Linux fixtures (`tools/abi/build.py`); whether `netfix` exists.
     Without a musl toolchain it does not, and the stage N5 checks are skipped."""
-    subprocess.run([sys.executable, str(ROOT / "tools" / "abi" / "build.py")], cwd=ROOT,
-                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    return NETFIX_ELF.is_file()
+    NETFIX_ELF.unlink(missing_ok=True)  # never judge a fixture built from older sources
+    result = subprocess.run([sys.executable, str(ROOT / "tools" / "abi" / "build.py")], cwd=ROOT,
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return result.returncode == 0 and NETFIX_ELF.is_file()
 
 
 def build_image(services: bool, poll: bool, netd: bool = False) -> Path:

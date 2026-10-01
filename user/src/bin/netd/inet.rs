@@ -373,7 +373,18 @@ impl Inet {
                     self.stats.accepts += 1;
                     let mut entry = Entry::new(new_id, Kind::Stream);
                     // Hand the socket to its own owner so its quota is its own.
-                    let _ = stack.socket_chown(conn, placeholder, entry.owner());
+                    // If that fails the placeholder still owns it: release it
+                    // and tell the kernel, rather than strand a connection no
+                    // later call could reach.
+                    if stack
+                        .socket_chown(conn, placeholder, entry.owner())
+                        .is_err()
+                    {
+                        let _ = stack.socket_close(conn, placeholder, 0);
+                        let _ = sys::inet_error(new_id, ECONNRESET);
+                        let _ = sys::inet_eof(new_id);
+                        continue;
+                    }
                     entry.stack = Some(conn);
                     entry.phase = Phase::Established;
                     self.entries.push(entry);

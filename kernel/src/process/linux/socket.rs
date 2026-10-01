@@ -15,7 +15,7 @@ use crate::user_ptr;
 
 use super::errno::{
     err, EADDRINUSE, EAFNOSUPPORT, EAGAIN, EBADF, ECONNREFUSED, EINTR, EINVAL, EMFILE, ENOENT,
-    ENOSYS, ENOTCONN, ENOTSOCK,
+    ENOPROTOOPT, ENOTCONN, ENOTSOCK,
 };
 use super::flags::{AF_UNIX, SOCK_CLOEXEC, SOCK_NONBLOCK, SOCK_SEQPACKET, SOCK_STREAM};
 use super::io::{read_stream, write_stream};
@@ -313,7 +313,7 @@ pub(super) fn sys_setsockopt(fd: u64, level: u64, name: u64, value: u64, len: u6
     match task::fd_kind(fd as usize) {
         FdKind::Inet => super::inet::sys_setsockopt(fd, level, name, value, len),
         FdKind::Closed => err(EBADF),
-        _ => err(ENOSYS),
+        kind => err(no_option(kind)),
     }
 }
 
@@ -322,6 +322,15 @@ pub(super) fn sys_getsockopt(fd: u64, level: u64, name: u64, value: u64, lenptr:
     match task::fd_kind(fd as usize) {
         FdKind::Inet => super::inet::sys_getsockopt(fd, level, name, value, lenptr),
         FdKind::Closed => err(EBADF),
-        _ => err(ENOSYS),
+        kind => err(no_option(kind)),
+    }
+}
+
+/// What a descriptor that is not an `AF_INET` socket answers to an option call:
+/// the other sockets have no such option, everything else is not a socket.
+fn no_option(kind: FdKind) -> u64 {
+    match kind {
+        FdKind::Socket | FdKind::Listener | FdKind::Unbound => ENOPROTOOPT,
+        _ => ENOTSOCK,
     }
 }
