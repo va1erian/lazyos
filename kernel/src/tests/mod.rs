@@ -252,6 +252,9 @@ pub fn run() -> ! {
             if !name.contains(filter) {
                 continue;
             }
+            // The harness runs with interrupts off between tests; that gap is
+            // not time lost to a syscall, so do not catch it up (issue #344).
+            crate::arch::clock::resync();
             match test() {
                 Ok(()) => {
                     pass += 1;
