@@ -17,6 +17,7 @@ Examples
     python tools/run_demo.py --no-data-disk  # boot with only the boot disk
     python tools/run_demo.py --sound         # add a virtio-sound card (host speakers)
     python tools/run_demo.py --desktop --sound   # desktop session; type `beep` in the Terminal
+    python tools/run_demo.py --desktop --no-shell  # desktop without LazyShell (bare compositor)
     python tools/run_demo.py --sound wav:out.wav   # ...recorded to a WAV file instead
 
 A persistent ext2 data disk (default ``target/data.img``, 64 MiB) is attached as
@@ -49,6 +50,8 @@ import busybox  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_IMAGE = ROOT / "target" / "lazyos.img"
+# LazyShell, the desktop shell (`tools/xui/build.py` output, issue #157).
+XUI_SHELL = ROOT / "target" / "xui" / "xui-shell.elf"
 
 
 def confirm(question: str) -> bool:
@@ -104,6 +107,25 @@ def sound_args(backend: str) -> list[str]:
     else:
         audiodev = f"{backend},id=snd0"
     return ["-audiodev", audiodev, "-device", "virtio-sound-pci,audiodev=snd0"]
+
+
+def build_xui_shell() -> bool:
+    """Build the xui apps when LazyShell's binary is missing.
+
+    The desktop profile embeds `target/xui/xui-shell.elf` (issue #157) and the
+    image build fails without it, so a first `--desktop` run builds the apps
+    here instead of failing; afterwards `python tools/xui/build.py` rebuilds
+    them on demand, as before.
+    """
+    if XUI_SHELL.is_file():
+        return True
+    print("building the xui apps (LazyShell is missing)…", flush=True)
+    result = subprocess.run([sys.executable, str(ROOT / "tools" / "xui" / "build.py")], cwd=ROOT)
+    if result.returncode != 0 or not XUI_SHELL.is_file():
+        print(f"{XUI_SHELL} was not built; pass --no-shell to boot the desktop without it",
+              file=sys.stderr)
+        return False
+    return True
 
 
 def build_rhai() -> None:
@@ -162,6 +184,10 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--desktop", action="store_true",
                         help="build the desktop profile (LAZYOS_DESKTOP=1; needs the xui apps "
                              "from `python tools/xui/build.py`)")
+    parser.add_argument("--no-shell", action="store_true",
+                        help="with --desktop, leave LazyShell (taskbar, start menu, desktop "
+                             "icons) out of the image (LAZYOS_SHELL=0): the compositor then "
+                             "shows background and windows only")
     parser.add_argument("--sound", nargs="?", const="auto", metavar="BACKEND",
                         help="attach a virtio-sound card and build with LAZYOS_SOUND=1, "
                              "which boots the `sndd` driver and plays its test tones. "
@@ -208,6 +234,10 @@ def main(argv: list[str]) -> int:
             env["LAZYOS_NET"] = "1"
         if args.desktop:
             env["LAZYOS_DESKTOP"] = "1"
+        if args.no_shell:
+            env["LAZYOS_SHELL"] = "0"
+        elif args.desktop and env.get("LAZYOS_SHELL") != "0" and not build_xui_shell():
+            return 1
         result = subprocess.run(cargo, cwd=ROOT, env=env)
         if result.returncode != 0:
             return result.returncode

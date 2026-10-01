@@ -7,7 +7,8 @@ build.rs:image build script on the host, names the files it places on the volume
 build_support/drivers.rs:image build script on the host, names the driver ELFs it embeds (moves onto libs/fhs with F2)
 build_support/lazyrad_embed.rs:image build script on the host, names the lazyrad files it embeds (moves onto libs/fhs with F2)
 build_support/rhai_embed.rs:image build script on the host, names the rhai files it embeds (moves onto libs/fhs with F2)
-user/src/bin/init/selftest.rs:153:test data for launch-argument quoting, not a layout path
-user/src/bin/init/selftest.rs:155:test data for launch-argument quoting, not a layout path
+build_support/xui_embed.rs:image build script on the host, names the xui app files and XAPPS.LST it writes (moves onto libs/fhs with F2)
+user/src/bin/init/selftest.rs:154:test data for launch-argument quoting, not a layout path
+user/src/bin/init/selftest.rs:156:test data for launch-argument quoting, not a layout path
 user/src/bin/mimed/selftest.rs:22:test data for MIME guessing by extension, not a boot file
 xui-app/crates/explorer/src/testing.rs:168:fixture directory name of an in-memory test platform

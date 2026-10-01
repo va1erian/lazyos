@@ -64,6 +64,45 @@ class SoundPlanTests(unittest.TestCase):
         self.assertNotIn("--sound", demo_argv())
 
 
+class ShellSwitchTests(unittest.TestCase):
+    """LazyShell (issue #157): on with the desktop profile, opt out with LAZYOS_SHELL=0."""
+
+    def env(self, **overrides) -> dict[str, str]:
+        cfg = {"desktop": True, "services": False, "xuid": False, "xui_client": False,
+               "xui_app": "(none)", "shellprobe": False, "msgctl": False, "msgrd": False,
+               "busybox": ""}
+        cfg.update(overrides)
+        return catalog.build_env(cfg)
+
+    def test_desktop_keeps_the_shell_by_default(self) -> None:
+        self.assertNotIn("LAZYOS_SHELL", self.env())
+        self.assertNotIn("LAZYOS_SHELL", self.env(shell=True))
+
+    def test_unchecking_opts_out(self) -> None:
+        self.assertEqual(self.env(shell=False)["LAZYOS_SHELL"], "0")
+
+    def test_non_desktop_images_never_set_it(self) -> None:
+        self.assertNotIn("LAZYOS_SHELL", self.env(desktop=False, services=True, xuid=True,
+                                                   shell=False))
+
+    def test_simple_desktop_toggle(self) -> None:
+        on = catalog.simple_config(demo_config(), "dev", "Desktop")
+        self.assertTrue(on["shell"])
+        self.assertNotIn("--no-shell", catalog.build_plan(on)[-1]["argv"])
+        off = catalog.simple_config(demo_config(skip_build=False), "dev", "Desktop", shell=False)
+        self.assertEqual(catalog.build_env(off).get("LAZYOS_SHELL"), "0")
+        self.assertIn("--no-shell", catalog.build_plan(off)[-1]["argv"])
+        cli = catalog.simple_config(demo_config(), "dev", "CLI", shell=True)
+        self.assertFalse(cli["shell"])
+
+    def test_shell_demo_is_a_desktop_session(self) -> None:
+        entry = [s for s in catalog.SCRIPTS if s[0] == "shell_demo.json"]
+        self.assertEqual(len(entry), 1)
+        self.assertEqual(entry[0][2], ("desktop",))
+        script = os.path.join(catalog.ROOT, "tools", "screenshot", "examples", "shell_demo.json")
+        self.assertTrue(os.path.isfile(script))
+
+
 class DocumentAppSessionTests(unittest.TestCase):
     """Editor/Paint/Files scripts boot the desktop profile, autostarting one app."""
 
