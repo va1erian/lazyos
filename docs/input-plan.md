@@ -69,6 +69,14 @@ The kernel input layer becomes device-agnostic and dumb.
   sequence number, `value` = count) so the consumer can resynchronise instead of
   guessing. Sequence numbers are global and gapless, so a consumer can prove it
   missed nothing. Consumers drain with syscall 25 (`open`/`poll`/`close`).
+- **Pointer records** (`RelMotion`, `AbsMotion`, `Button`, `Scroll`) use the
+  encoding in [usb-hid-plan.md](usb-hid-plan.md) (decision 2): packed `i16`
+  deltas or normalised `u16` positions, HID button usages, signed notches. A
+  motion or scroll record is **merged into the newest queued record** when that
+  is the bus's last publication from the same device, kind and code and still
+  sits at the tail of every live ring; it then consumes no `seq`. Keys and
+  buttons are edges and never merge, so a mouse flood costs one slot instead
+  of evicting key events.
 - Access is a **capability** (`input.raw`, kernel bit `CAP_INPUT_RAW`; per device
   class later), granted at spawn to `inputd` only (`init` strips it from every
   other service). This replaces "whoever binds the display grant gets everything"
@@ -222,7 +230,7 @@ that can be added behind that boundary later is deferred.
 | Keymap format | **Compiled-in tables** in `inputd` for US and FR (ported from `layout.rs`); layout chosen by a `confd` key | `.kmap` files under `/etc/keymaps`, XKB import, dead keys/compose |
 | Key repeat | In **`inputd`**, fixed delay/rate constants | Configurable via `confd`, per-device rates |
 | Secure attention sequence | **Out of scope** for now | Follows the session/lock-screen work in `security-model.md` |
-| Pointer devices | Event schema **reserves** `RelMotion`/`Button`/`Scroll` kinds so the bus is not keyboard-only; the pointer path is **not migrated** | Move mouse onto the bus, pointer capture via the grant mechanism |
+| Pointer devices | **Being migrated** by [usb-hid-plan.md](usb-hid-plan.md): the PS/2 mouse publishes `RelMotion`/`Button`/`Scroll` on the bus (tail-merged so motion cannot evict keys) and `inputd` owns the one cursor (P0, P1); `xuid` still reads the legacy display stream until P2 | Pointer capture via the grant mechanism |
 
 ## Minimal first cut (what "v1" means)
 

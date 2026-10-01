@@ -308,6 +308,61 @@ def netstack_seeds():
     }
 
 
+# ---- inputmap pointer grammar -------------------------------------------------
+#
+# `libs/inputmap/src/fuzz.rs`: width and height (u16 LE), then ops. Each op is
+# a byte (low 3 bits select it, bit 7 flushes after it) and a device byte.
+
+P_REL, P_ABS, P_BUTTON, P_SCROLL, P_DROPPED, P_BOUNDS, P_RAW = 0, 1, 2, 4, 5, 6, 7
+P_FLUSH = 0x80
+
+
+def p_screen(width, height):
+    return struct.pack("<HH", width, height)
+
+
+def p_rel(dx, dy, device=2, flush=False):
+    return bytes([P_REL | (P_FLUSH if flush else 0), device]) + struct.pack("<hh", dx, dy)
+
+
+def p_abs(x, y, device=3):
+    return bytes([P_ABS, device]) + struct.pack("<HH", x, y)
+
+
+def p_button(usage, value, device=2):
+    return bytes([P_BUTTON, device, usage, value])
+
+
+def p_scroll(axis, notches, device=2):
+    return bytes([P_SCROLL, device, axis]) + struct.pack("<b", notches)
+
+
+def p_raw(kind, code, value, device=2):
+    return bytes([P_RAW, device, kind]) + struct.pack("<Hi", code, value)
+
+
+def inputmap_pointer_seeds():
+    return {
+        # Every edge of an 800x600 screen.
+        "edges": p_screen(800, 600) + b"".join(p_rel(dx, dy, flush=True) for dx, dy in
+                                                ((-32768, 0), (0, -32768), (32767, 0), (0, 32767), (-5, -5))),
+        # Absolute corners, then a resize that re-clamps.
+        "absolute_resize": p_screen(1024, 768) + p_abs(0xFFFF, 0xFFFF) + p_abs(0, 0) + p_abs(0x8000, 0x8000)
+        + bytes([P_BOUNDS, 0]) + struct.pack("<HH", 320, 200) + p_abs(0xFFFF, 0xFFFF),
+        # Two devices hold one button; a loss marker releases everything.
+        "two_devices_dropped": p_screen(640, 480) + p_button(1, 1, 2) + p_button(1, 1, 3) + p_button(1, 0, 2)
+        + p_rel(3, 3) + bytes([P_DROPPED, 0]) + p_button(1, 0, 3),
+        # Wheel on both axes around button edges.
+        "wheel": p_screen(640, 480) + p_scroll(0, 3) + p_button(2, 1) + p_scroll(0, -1) + p_scroll(1, 2)
+        + p_button(2, 0) + p_rel(0, 0, flush=True),
+        # Hostile records: wrong codes, non-edge values, foreign kinds.
+        "hostile": p_screen(1, 1) + p_raw(4, 0, 1) + p_raw(4, 6, 1) + p_raw(4, 1, 2) + p_raw(5, 2, 1)
+        + p_raw(2, 1, 5) + p_raw(1, 4, 1) + p_raw(200, 0xFFFF, -1) + p_raw(5, 0, 0x7FFFFFFF),
+        "degenerate_screen": p_screen(0, 0) + p_rel(100, 100, flush=True) + p_abs(0xFFFF, 0xFFFF),
+        "empty": b"",
+    }
+
+
 TARGETS = {
     "framering": framering_seeds,
     "framering_header": header_seeds,
@@ -315,6 +370,7 @@ TARGETS = {
     "nicdrv": nicdrv_seeds,
     "lazypkg": lazypkg_seeds,
     "netstack": netstack_seeds,
+    "inputmap_pointer": inputmap_pointer_seeds,
 }
 
 

@@ -2,7 +2,8 @@
 
 use alloc::vec::Vec;
 
-use inputmap::RawKey;
+use inputmap::pointer::raw;
+use inputmap::{RawKey, RawPointer};
 use user::sys::{self, raw_kind, RawEvent, RAW_EVENT_BYTES};
 
 /// Records drained per syscall.
@@ -11,6 +12,8 @@ const BATCH: usize = 64;
 /// One thing the bus told us.
 pub(super) enum Item {
     Key(RawKey),
+    /// Motion, a button edge or the wheel (validated by `inputmap::Pointer`).
+    Pointer(RawPointer),
     /// The consumer ring overflowed: the events from `seq` on are gone.
     Dropped {
         ts_ns: u64,
@@ -47,8 +50,8 @@ impl Source {
     }
 }
 
-/// Keep key edges and loss markers; every other kind is reserved for devices
-/// this service does not consume yet.
+/// Keep key edges, pointer records and loss markers; `SYNC` and unknown kinds
+/// have no consumer.
 fn item_of(event: RawEvent) -> Option<Item> {
     match event.kind {
         raw_kind::KEY if matches!(event.value, 0 | 1) => Some(Item::Key(RawKey {
@@ -56,6 +59,14 @@ fn item_of(event: RawEvent) -> Option<Item> {
             ts_ns: event.ts_ns,
             usage: event.code,
             pressed: event.value == 1,
+        })),
+        kind if raw::is_pointer(kind) => Some(Item::Pointer(RawPointer {
+            seq: event.seq,
+            ts_ns: event.ts_ns,
+            device: event.device,
+            kind,
+            code: event.code,
+            value: event.value,
         })),
         raw_kind::DROPPED => Some(Item::Dropped {
             ts_ns: event.ts_ns,

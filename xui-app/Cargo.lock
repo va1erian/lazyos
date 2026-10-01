@@ -1078,10 +1078,10 @@ dependencies = [
  "libc",
  "libmessenger",
  "messenger-generated",
- "xui-canvas",
+ "xui-canvas 0.1.0 (git+https://github.com/va1erian/xui?rev=7e31d5d6d120fb479e1ff0731bd6a44601acafee)",
  "xui-code-editor",
  "xui-confd-editor",
- "xui-core",
+ "xui-core 0.1.0 (git+https://github.com/va1erian/xui?rev=7e31d5d6d120fb479e1ff0731bd6a44601acafee)",
  "xui-explorer",
  "xui-paint",
  "xui-settings",
@@ -1091,8 +1091,18 @@ dependencies = [
 name = "xui-app-testkit"
 version = "0.1.0"
 dependencies = [
- "xui-canvas",
- "xui-core",
+ "xui-canvas 0.1.0 (git+https://github.com/va1erian/xui?rev=7e31d5d6d120fb479e1ff0731bd6a44601acafee)",
+ "xui-core 0.1.0 (git+https://github.com/va1erian/xui?rev=7e31d5d6d120fb479e1ff0731bd6a44601acafee)",
+]
+
+[[package]]
+name = "xui-canvas"
+version = "0.1.0"
+source = "git+https://github.com/va1erian/xui?rev=58c1a6ea1a2dc1e5bb81463ff8dba82329a4f080#58c1a6ea1a2dc1e5bb81463ff8dba82329a4f080"
+dependencies = [
+ "cosmic-text",
+ "tiny-skia",
+ "xui-core 0.1.0 (git+https://github.com/va1erian/xui?rev=58c1a6ea1a2dc1e5bb81463ff8dba82329a4f080)",
 ]
 
 [[package]]
@@ -1102,7 +1112,7 @@ source = "git+https://github.com/va1erian/xui?rev=7e31d5d6d120fb479e1ff0731bd6a4
 dependencies = [
  "cosmic-text",
  "tiny-skia",
- "xui-core",
+ "xui-core 0.1.0 (git+https://github.com/va1erian/xui?rev=7e31d5d6d120fb479e1ff0731bd6a44601acafee)",
 ]
 
 [[package]]
@@ -1113,8 +1123,8 @@ dependencies = [
  "rhai",
  "ropey",
  "xui-app-testkit",
- "xui-canvas",
- "xui-core",
+ "xui-canvas 0.1.0 (git+https://github.com/va1erian/xui?rev=7e31d5d6d120fb479e1ff0731bd6a44601acafee)",
+ "xui-core 0.1.0 (git+https://github.com/va1erian/xui?rev=7e31d5d6d120fb479e1ff0731bd6a44601acafee)",
 ]
 
 [[package]]
@@ -1122,8 +1132,17 @@ name = "xui-confd-editor"
 version = "0.1.0"
 dependencies = [
  "confd",
- "xui-canvas",
- "xui-core",
+ "xui-canvas 0.1.0 (git+https://github.com/va1erian/xui?rev=58c1a6ea1a2dc1e5bb81463ff8dba82329a4f080)",
+ "xui-core 0.1.0 (git+https://github.com/va1erian/xui?rev=58c1a6ea1a2dc1e5bb81463ff8dba82329a4f080)",
+]
+
+[[package]]
+name = "xui-core"
+version = "0.1.0"
+source = "git+https://github.com/va1erian/xui?rev=58c1a6ea1a2dc1e5bb81463ff8dba82329a4f080#58c1a6ea1a2dc1e5bb81463ff8dba82329a4f080"
+dependencies = [
+ "png 0.17.16",
+ "zune-jpeg",
 ]
 
 [[package]]
@@ -1142,7 +1161,7 @@ dependencies = [
  "cc",
  "pulldown-cmark",
  "xui-app",
- "xui-core",
+ "xui-core 0.1.0 (git+https://github.com/va1erian/xui?rev=7e31d5d6d120fb479e1ff0731bd6a44601acafee)",
  "xui-litehtml",
 ]
 
@@ -1151,8 +1170,8 @@ name = "xui-explorer"
 version = "0.1.0"
 dependencies = [
  "xui-app-testkit",
- "xui-canvas",
- "xui-core",
+ "xui-canvas 0.1.0 (git+https://github.com/va1erian/xui?rev=7e31d5d6d120fb479e1ff0731bd6a44601acafee)",
+ "xui-core 0.1.0 (git+https://github.com/va1erian/xui?rev=7e31d5d6d120fb479e1ff0731bd6a44601acafee)",
  "xui-icons",
 ]
 
@@ -1161,7 +1180,7 @@ name = "xui-icons"
 version = "0.1.0"
 source = "git+https://github.com/va1erian/xui?rev=7e31d5d6d120fb479e1ff0731bd6a44601acafee#7e31d5d6d120fb479e1ff0731bd6a44601acafee"
 dependencies = [
- "xui-core",
+ "xui-core 0.1.0 (git+https://github.com/va1erian/xui?rev=7e31d5d6d120fb479e1ff0731bd6a44601acafee)",
 ]
 
 [[package]]
@@ -1172,7 +1191,7 @@ dependencies = [
  "image",
  "litehtml",
  "log",
- "xui-core",
+ "xui-core 0.1.0 (git+https://github.com/va1erian/xui?rev=7e31d5d6d120fb479e1ff0731bd6a44601acafee)",
 ]
 
 [[package]]
@@ -1180,8 +1199,8 @@ name = "xui-paint"
 version = "0.0.0"
 dependencies = [
  "xui-app-testkit",
- "xui-canvas",
- "xui-core",
+ "xui-canvas 0.1.0 (git+https://github.com/va1erian/xui?rev=7e31d5d6d120fb479e1ff0731bd6a44601acafee)",
+ "xui-core 0.1.0 (git+https://github.com/va1erian/xui?rev=7e31d5d6d120fb479e1ff0731bd6a44601acafee)",
 ]
 
 [[package]]
@@ -1191,8 +1210,8 @@ dependencies = [
  "confd",
  "deskmenu",
  "uitheme",
- "xui-canvas",
- "xui-core",
+ "xui-canvas 0.1.0 (git+https://github.com/va1erian/xui?rev=7e31d5d6d120fb479e1ff0731bd6a44601acafee)",
+ "xui-core 0.1.0 (git+https://github.com/va1erian/xui?rev=7e31d5d6d120fb479e1ff0731bd6a44601acafee)",
 ]
 
 [[package]]
@@ -1247,4 +1266,3 @@ checksum = "27bc9d5b815bc103f142aa054f561d9187d191692ec7c2d1e2b4737f8dbd7296"
 dependencies = [
  "zune-core",
 ]
-

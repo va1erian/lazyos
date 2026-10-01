@@ -539,6 +539,16 @@
         "oneway": false
       },
       {
+        "name": "SetBounds",
+        "id": 8,
+        "oneway": false
+      },
+      {
+        "name": "GetPointer",
+        "id": 9,
+        "oneway": false
+      },
+      {
         "name": "HotkeyFired",
         "id": 20,
         "oneway": true
@@ -561,6 +571,11 @@
       {
         "name": "SessionClosed",
         "id": 24,
+        "oneway": true
+      },
+      {
+        "name": "PointerEvent",
+        "id": 25,
         "oneway": true
       }
     ],

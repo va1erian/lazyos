@@ -208,8 +208,18 @@ impl ShellLink {
 
     /// The next queued shell event, without blocking. `Err` means the link is
     /// dead (`inputd` went away).
+    ///
+    /// Events this build does not know (a newer `inputd`) or cannot decode are
+    /// skipped, so `Ok(None)` always means the queue is empty.
     pub fn poll_event(&mut self) -> Result<Option<ShellEvent>> {
-        let message: Option<Message> = self.events.poll_recv_with(&mut self.buffer)?;
-        Ok(message.and_then(|message| decode_shell_event(&message.parcel)))
+        loop {
+            let message: Option<Message> = self.events.poll_recv_with(&mut self.buffer)?;
+            let Some(message) = message else {
+                return Ok(None);
+            };
+            if let Some(event) = decode_shell_event(&message.parcel) {
+                return Ok(Some(event));
+            }
+        }
     }
 }

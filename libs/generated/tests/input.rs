@@ -30,13 +30,16 @@ fn interface_ids_differ_and_method_ids_are_pinned() {
             shell::METHOD_REGISTERHOTKEY,
             shell::METHOD_UNREGISTERHOTKEY,
             shell::METHOD_APPROVEGRANT,
+            shell::METHOD_SETBOUNDS,
+            shell::METHOD_GETPOINTER,
             shell::METHOD_HOTKEYFIRED,
             shell::METHOD_GRANTREQUESTED,
             shell::METHOD_ESCAPECHORD,
             shell::METHOD_SESSIONOPENED,
             shell::METHOD_SESSIONCLOSED,
+            shell::METHOD_POINTEREVENT,
         ],
-        [1, 2, 3, 4, 5, 6, 7, 20, 21, 22, 23, 24]
+        [1, 2, 3, 4, 5, 6, 7, 8, 9, 20, 21, 22, 23, 24, 25]
     );
     assert_eq!(
         [
@@ -158,6 +161,36 @@ fn shell_events_roundtrip() {
     let fired = shell::HotkeyFiredArgs { id: 77 };
     let body = shell::encode_hotkey_fired_args(&fired).unwrap();
     assert_eq!(shell::decode_hotkey_fired_args(&body).unwrap(), fired);
+}
+
+#[test]
+fn pointer_calls_and_events_roundtrip() {
+    let bounds = shell::SetBoundsArgs {
+        width: 1920,
+        height: 1080,
+    };
+    let body = shell::encode_set_bounds_args(&bounds).unwrap();
+    assert_eq!(shell::decode_set_bounds_args(&body).unwrap(), bounds);
+    let seed = shell::GetPointerReply {
+        x: 0,
+        y: i32::MAX,
+        buttons: 0x1F,
+    };
+    let body = shell::encode_get_pointer_reply(&seed).unwrap();
+    assert_eq!(shell::decode_get_pointer_reply(&body).unwrap(), seed);
+    for (wheel, wheel_h) in [(0, 0), (-3, 2), (i32::MIN, i32::MAX)] {
+        let event = shell::PointerEventArgs {
+            x: 1919,
+            y: 0,
+            buttons: 5,
+            wheel,
+            wheel_h,
+            ts_ns: u64::MAX,
+            seq: 1 << 40,
+        };
+        let body = shell::encode_pointer_event_args(&event).unwrap();
+        assert_eq!(shell::decode_pointer_event_args(&body).unwrap(), event);
+    }
 }
 
 /// A cut-off body is refused. An *empty* body is not: missing fields decode

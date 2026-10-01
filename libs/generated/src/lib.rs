@@ -4831,6 +4831,10 @@ pub mod os_lazy_input_shell_v1 {
     pub const METHOD_UNREGISTERHOTKEY: u32 = 6;
     /// `ApproveGrant` method id.
     pub const METHOD_APPROVEGRANT: u32 = 7;
+    /// `SetBounds` method id.
+    pub const METHOD_SETBOUNDS: u32 = 8;
+    /// `GetPointer` method id.
+    pub const METHOD_GETPOINTER: u32 = 9;
     /// `HotkeyFired` method id.
     pub const METHOD_HOTKEYFIRED: u32 = 20;
     /// `GrantRequested` method id.
@@ -4841,6 +4845,8 @@ pub mod os_lazy_input_shell_v1 {
     pub const METHOD_SESSIONOPENED: u32 = 23;
     /// `SessionClosed` method id.
     pub const METHOD_SESSIONCLOSED: u32 = 24;
+    /// `PointerEvent` method id.
+    pub const METHOD_POINTEREVENT: u32 = 25;
 
     /// Move keyboard focus to `surface` (absent: nobody is focused and no key
     /// content is delivered). The previous holder gets `KeyboardLeave`, the new
@@ -5049,6 +5055,76 @@ pub mod os_lazy_input_shell_v1 {
         Ok(out)
     }
 
+    /// The screen size the cursor is clamped to (each side `1..=16384`, else
+    /// `EINVAL`). `inputd` re-clamps the cursor at once and, if that moved it,
+    /// sends a `PointerEvent`. It replaces the kernel's own cursor bounds.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct SetBoundsArgs {
+        pub width: u32,
+        pub height: u32,
+    }
+
+    pub fn encode_set_bounds_args(value: &SetBoundsArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.width)?;
+        target.u32(2, value.height)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_set_bounds_args(body: &[u8]) -> Result<SetBoundsArgs, Error> {
+        let mut out = SetBoundsArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.width = field.as_u32()?;
+                }
+                2 => {
+                    out.height = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// The cursor position and held `buttons` (as in `PointerEvent`), to seed
+    /// the compositor's cursor after `Attach`.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct GetPointerReply {
+        pub x: i32,
+        pub y: i32,
+        pub buttons: u32,
+    }
+
+    pub fn encode_get_pointer_reply(value: &GetPointerReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.i32(1, value.x)?;
+        target.i32(2, value.y)?;
+        target.u32(3, value.buttons)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_get_pointer_reply(body: &[u8]) -> Result<GetPointerReply, Error> {
+        let mut out = GetPointerReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.x = field.as_i32()?;
+                }
+                2 => {
+                    out.y = field.as_i32()?;
+                }
+                3 => {
+                    out.buttons = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
     /// Shell event: a registered chord was pressed.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct HotkeyFiredArgs {
@@ -5146,6 +5222,69 @@ pub mod os_lazy_input_shell_v1 {
         while let Some(field) = decoder.next()? {
             if field.id == 1 {
                 out.surface = field.as_u64()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Shell event: the pointer changed. One cursor for every pointing device
+    /// (`docs/usb-hid-plan.md`): `x`, `y` are screen pixels inside the bounds,
+    /// `buttons` the bits held after this event (`1` left, `2` right,
+    /// `4` middle, `8` back, `0x10` forward; diff it for the edge), `wheel` and
+    /// `wheel_h` the notches since the previous event (positive is up / right).
+    /// Motion is coalesced; the position and wheel apply *before* the button
+    /// change. Only the compositor receives it: the window under the cursor is
+    /// its decision. `ts_ns`/`seq` are the newest raw record's.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct PointerEventArgs {
+        pub x: i32,
+        pub y: i32,
+        pub buttons: u32,
+        pub wheel: i32,
+        pub wheel_h: i32,
+        pub ts_ns: u64,
+        pub seq: u64,
+    }
+
+    pub fn encode_pointer_event_args(value: &PointerEventArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.i32(1, value.x)?;
+        target.i32(2, value.y)?;
+        target.u32(3, value.buttons)?;
+        target.i32(4, value.wheel)?;
+        target.i32(5, value.wheel_h)?;
+        target.u64(6, value.ts_ns)?;
+        target.u64(7, value.seq)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_pointer_event_args(body: &[u8]) -> Result<PointerEventArgs, Error> {
+        let mut out = PointerEventArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.x = field.as_i32()?;
+                }
+                2 => {
+                    out.y = field.as_i32()?;
+                }
+                3 => {
+                    out.buttons = field.as_u32()?;
+                }
+                4 => {
+                    out.wheel = field.as_i32()?;
+                }
+                5 => {
+                    out.wheel_h = field.as_i32()?;
+                }
+                6 => {
+                    out.ts_ns = field.as_u64()?;
+                }
+                7 => {
+                    out.seq = field.as_u64()?;
+                }
+                _ => {}
             }
         }
         Ok(out)
