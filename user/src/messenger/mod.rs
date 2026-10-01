@@ -431,3 +431,10 @@ pub mod net;
 /// The `os.lazy.net.stack.v1` client: addresses, routes, statistics and ping
 /// against the `netd` stack service.
 pub mod netstack;
+
+/// The `os.lazy.net.socket.v1` client: TCP and UDP sockets served by `netd`.
+pub mod netsock;
+
+/// `TcpStream`, `TcpListener` and `UdpSocket` over [`netsock`], named after
+/// `std::net`.
+pub mod netstd;

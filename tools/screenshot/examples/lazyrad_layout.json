@@ -1,0 +1,98 @@
+[
+ {
+  "wait_for": "TERM:UP:PASS",
+  "timeout": 240
+ },
+ {
+  "at": 2.0,
+  "mouse_move": [
+   -300,
+   -300
+  ]
+ },
+ {
+  "at": 2.2,
+  "mouse_move": [
+   -300,
+   -300
+  ]
+ },
+ {
+  "at": 2.4,
+  "mouse_move": [
+   -300,
+   -300
+  ]
+ },
+ {
+  "at": 3.0,
+  "mouse_move": [
+   200,
+   300
+  ]
+ },
+ {
+  "at": 3.4,
+  "mouse_click": "left"
+ },
+ {
+  "at": 1.0,
+  "type": "mkdir -p /tmp/app/bin /tmp/app/resources"
+ },
+ {
+  "at": 0.5,
+  "key": "enter",
+  "until": "TERM:CMD:mkdir -p /tmp/app/bin /tmp/app/resources",
+  "timeout": 30,
+  "retries": 2
+ },
+ {
+  "at": 1.0,
+  "type": "cp -r /LAZYRAD/hello /tmp/app/resources/project"
+ },
+ {
+  "at": 0.5,
+  "key": "enter",
+  "until": "TERM:CMD:cp -r /LAZYRAD/hello /tmp/app/resources/project",
+  "timeout": 30,
+  "retries": 2
+ },
+ {
+  "at": 1.0,
+  "type": "cp /LRPLAY.ELF /tmp/app/bin/lrplay.elf"
+ },
+ {
+  "at": 0.5,
+  "key": "enter",
+  "until": "TERM:CMD:cp /LRPLAY.ELF /tmp/app/bin/lrplay.elf",
+  "timeout": 30,
+  "retries": 2
+ },
+ {
+  "at": 1.0,
+  "type": "cd /tmp/app && bin/lrplay.elf --client --project resources/project &"
+ },
+ {
+  "at": 0.5,
+  "key": "enter",
+  "until": "TERM:CMD:cd /tmp/app && bin/lrplay.elf --client --project resources/project &",
+  "timeout": 30,
+  "retries": 2
+ },
+ {
+  "wait_for": "LRPLAY:PROJECT:PASS:/tmp/app/resources/project",
+  "timeout": 60
+ },
+ {
+  "wait_for": "LRPLAY:UP:PASS",
+  "timeout": 60
+ },
+ {
+  "at": 2.0,
+  "shot": "01_installed_layout"
+ },
+ {
+  "at": 1.0,
+  "quit": true
+ }
+]

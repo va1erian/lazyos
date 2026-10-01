@@ -134,6 +134,36 @@ impl Client {
             .result)
     }
 
+    /// Look `name` up (A records); parks until the resolver answers.
+    /// `ENOENT` means the resolver says the name has no address.
+    pub fn resolve(&self, name: &str, timeout_ms: u32) -> Result<Vec<[u8; 4]>> {
+        let body = wire::encode_resolve_args(&wire::ResolveArgs {
+            name: name.into(),
+            timeout_ms,
+        })
+        .map_err(Error::Parcel)?;
+        let deadline = sys::clock() + u64::from(timeout_ms) / 10 + DEADLINE_SLACK_TICKS;
+        let reply = self.call_parcel(parcel(wire::METHOD_RESOLVE, body), Some(deadline))?;
+        let reply = wire::decode_resolve_reply(&reply.body).map_err(Error::Parcel)?;
+        Ok(reply
+            .addrs
+            .iter()
+            .filter_map(|a| <[u8; 4]>::try_from(a.as_slice()).ok())
+            .collect())
+    }
+
+    /// The first address of `host`: a dotted quad as it is, anything else
+    /// through [`Client::resolve`].
+    pub fn lookup_host(&self, host: &str, timeout_ms: u32) -> Result<[u8; 4]> {
+        if let Some(addr) = super::netstd::parse_ipv4(host) {
+            return Ok(addr);
+        }
+        self.resolve(host, timeout_ms)?
+            .first()
+            .copied()
+            .ok_or(Error::Errno(-super::errno::ENOENT))
+    }
+
     /// Drop the DHCP lease and ask for a new one.
     pub fn renew(&self) -> Result<()> {
         self.simple(wire::METHOD_RENEW).map(|_| ())

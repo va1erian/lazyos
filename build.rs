@@ -411,6 +411,7 @@ fn xui_disk_name(path: &std::path::Path) -> (String, String) {
         "paint" => "XPAINT".to_string(),
         "files" => "XFILES".to_string(),
         "settings" => "XSETTNG".to_string(),
+        "confd" => "XCONFD".to_string(),
         "client" => "XCLIENT".to_string(),
         other => {
             let short: String = other
@@ -449,6 +450,7 @@ const DOCUMENT_XUI_APPS: &[&str] = &[
     "xui-files.elf",
     "xui-paint.elf",
     "xui-settings.elf",
+    "xui-confd.elf",
 ];
 
 /// Desktop apps embedded when their ELF exists, and skipped (with a build

@@ -1,0 +1,116 @@
+[
+ {
+  "wait_for": "TERM:UP:PASS",
+  "timeout": 240
+ },
+ {
+  "at": 2.0,
+  "mouse_move": [
+   -300,
+   -300
+  ]
+ },
+ {
+  "at": 2.2,
+  "mouse_move": [
+   -300,
+   -300
+  ]
+ },
+ {
+  "at": 2.4,
+  "mouse_move": [
+   -300,
+   -300
+  ]
+ },
+ {
+  "at": 3.0,
+  "mouse_move": [
+   200,
+   300
+  ]
+ },
+ {
+  "at": 3.4,
+  "mouse_click": "left"
+ },
+ {
+  "at": 4.0,
+  "type": "/LRPLAY.ELF --client /LAZYRAD/hello &"
+ },
+ {
+  "at": 4.5,
+  "key": "enter",
+  "until": "TERM:CMD:/LRPLAY.ELF --client /LAZYRAD/hello &",
+  "timeout": 30,
+  "retries": 2
+ },
+ {
+  "wait_for": "LRPLAY:UP:PASS",
+  "timeout": 120
+ },
+ {
+  "at": 2.0,
+  "shot": "01_hello_window"
+ },
+ {
+  "at": 2.4,
+  "mouse_move": [
+   645,
+   -175
+  ]
+ },
+ {
+  "at": 2.8,
+  "mouse_click": "left"
+ },
+ {
+  "at": 3.2,
+  "type": "LazyOS"
+ },
+ {
+  "at": 3.8,
+  "shot": "02_name_typed"
+ },
+ {
+  "at": 4.2,
+  "mouse_move": [
+   -40,
+   68
+  ]
+ },
+ {
+  "at": 4.6,
+  "mouse_click": "left",
+  "until": "LRPLAY:EVENT:PASS",
+  "timeout": 30,
+  "retries": 2
+ },
+ {
+  "at": 6.0,
+  "shot": "03_after_click"
+ },
+ {
+  "at": 7.0,
+  "mouse_move": [
+   236,
+   -135
+  ]
+ },
+ {
+  "at": 7.4,
+  "mouse_click": "left",
+  "until": "LRPLAY:EXIT:PASS",
+  "timeout": 30,
+  "retries": 2
+ },
+ {
+  "at": 8.5,
+  "shot": "04_closed"
+ },
+ {
+  "at": 9.0,
+  "quit": true
+ }
+]

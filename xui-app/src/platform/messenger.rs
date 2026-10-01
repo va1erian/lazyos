@@ -23,6 +23,13 @@ use crate::sys::{self, errno};
 /// PIT ticks to wait for a service's name to appear (10 s at 100 Hz).
 const CONNECT_TICKS: u64 = 1000;
 
+/// The reply buffer a platform call offers. `confd`'s `List` of a real tree or
+/// a 4 KiB value does not fit the old 4 KiB buffer (the kernel answers `E2BIG`
+/// when the reply overflows it), so this is sized well above any reply the
+/// platform services send today; the kernel itself allows parcels up to
+/// `libmessenger::MAX_PARCEL_BYTES` (1 MiB).
+const REPLY_BUF: usize = 64 * 1024;
+
 /// One resolved endpoint, kept open for the process lifetime.
 struct Cached {
     name: &'static str,
@@ -124,7 +131,7 @@ impl Service {
             handles: Vec::new(),
             buffers: Vec::new(),
         };
-        let mut buf = [0u8; 4096];
+        let mut buf = vec![0u8; REPLY_BUF];
         let reply = match sys::msg_call(self.endpoint, &parcel, &mut buf, 0) {
             Ok(reply) => reply,
             Err(code) => {

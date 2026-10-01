@@ -98,13 +98,18 @@ def _download(archive: Path) -> bool:
     return True
 
 
+# Written into a source tree only after a full extraction, then the tree is
+# moved into place; a tree without it is partial and is never trusted.
+EXTRACTED_MARK = ".lazyos-extracted"
+
+
 def _fetch() -> bool:
-    # The Makefile, not the directory, proves a usable tree: a restored build
-    # cache (CI's rust-cache of `target/`) can leave the directory behind with
-    # its files pruned, and `make defconfig` then fails with "No rule to make
-    # target". Re-extract over such a husk.
-    if (SOURCE / "Makefile").is_file():
+    if (SOURCE / EXTRACTED_MARK).is_file():
         return True
+    # Anything else at SOURCE is a half-extracted tree (a CI run cancelled
+    # mid-extract that cached its `target/`; the `Makefile` is among the first
+    # files extracted, so its presence proves nothing): rebuild it rather than
+    # let `make defconfig` fail on it forever.
     shutil.rmtree(SOURCE, ignore_errors=True)
     BUILD_ROOT.mkdir(parents=True, exist_ok=True)
     archive = BUILD_ROOT / f"busybox-{VERSION}.tar.bz2"
@@ -114,16 +119,28 @@ def _fetch() -> bool:
         archive.unlink()
     if not archive.is_file() and not _download(archive):
         return False
+    # Extract beside the final location and publish with one rename, so SOURCE
+    # either does not exist or is complete.
+    staging = BUILD_ROOT / f".extract-{os.getpid()}"
     try:
+        shutil.rmtree(staging, ignore_errors=True)
+        staging.mkdir()
         with tarfile.open(archive, "r:bz2") as tar:
-            _safe_extract(tar, BUILD_ROOT)
+            _safe_extract(tar, staging)
+        extracted = staging / SOURCE.name
+        if not (extracted / "Makefile").is_file():
+            raise ValueError("the archive has no top-level Makefile")
+        (extracted / EXTRACTED_MARK).write_text("ok\n", encoding="utf-8")
+        extracted.rename(SOURCE)
     except Exception as error:  # noqa: BLE001 - a bad archive is "unavailable"
         print(f"busybox: extract failed: {error}", file=sys.stderr)
         # Never leave a half-extracted tree or a bad archive to poison a retry.
         shutil.rmtree(SOURCE, ignore_errors=True)
         archive.unlink(missing_ok=True)
         return False
-    return (SOURCE / "Makefile").is_file()
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
+    return SOURCE.is_dir()
 
 
 def _safe_extract(tar: tarfile.TarFile, dest: Path) -> None:

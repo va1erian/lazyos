@@ -73,6 +73,8 @@ BINS = {
     "xui-files": "xui-files.elf",
     # The Settings app (confd-backed configuration panel).
     "xui-settings": "xui-settings.elf",
+    # The Config app (generic confd registry editor).
+    "xui-confd": "xui-confd.elf",
 }
 
 

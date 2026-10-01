@@ -43,5 +43,8 @@ pub fn embed(builder: &mut bootloader::DiskImageBuilder, desktop: bool) {
         // `netctl` and `ping`, the stack's shell commands and evidence clients.
         add(builder, "NETCTL.ELF", "netctl");
         add(builder, "PING.ELF", "ping");
+        // `nc` and `nslookup`: sockets and name lookups (stage N3).
+        add(builder, "NC.ELF", "nc");
+        add(builder, "NSLOOKUP.ELF", "nslookup");
     }
 }
