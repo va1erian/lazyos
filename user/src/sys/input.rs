@@ -25,6 +25,10 @@ pub mod input_op {
 /// Raw event kinds (`kernel/src/input/bus.rs`).
 pub mod raw_kind {
     pub const KEY: u8 = 1;
+    pub const REL_MOTION: u8 = 2;
+    pub const ABS_MOTION: u8 = 3;
+    pub const BUTTON: u8 = 4;
+    pub const SCROLL: u8 = 5;
     pub const DROPPED: u8 = 7;
 }
 

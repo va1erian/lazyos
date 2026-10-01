@@ -4,7 +4,9 @@
 //! else. `inputd` is the only task holding `CAP_INPUT_RAW` and owns everything
 //! that used to be hard-wired in the kernel: the keymap (compiled-in US and FR,
 //! chosen by `confd` key `sys/input/layout`), modifier and lock state, key
-//! repeat, hotkeys and the resync after a `Dropped` marker. (Not `keyd`: that
+//! repeat, hotkeys and the resync after a `Dropped` marker. It also owns the
+//! one cursor every pointing device moves (`docs/usb-hid-plan.md`), which it
+//! reports to the compositor alone. (Not `keyd`: that
 //! is the secrets and crypto service.)
 //!
 //! Boot lines: `INPUTD:READY layout=<name>`; with `trace=1` every decoded
@@ -19,7 +21,7 @@ use alloc::format;
 use alloc::vec::Vec;
 use core::panic::PanicInfo;
 
-use inputmap::Output;
+use inputmap::{Output, PointerOut};
 use user::messenger::input as api;
 use user::messenger::{self, errno, registry, Error};
 use user::sys;
@@ -28,6 +30,8 @@ use user::sys;
 mod config;
 #[path = "inputd/hub.rs"]
 mod hub;
+#[path = "inputd/pointer.rs"]
+mod pointer;
 #[path = "inputd/source.rs"]
 mod source;
 #[path = "inputd/trace.rs"]
@@ -66,6 +70,7 @@ fn run() -> Result<(), &'static str> {
     let mut config = config::Config::new();
     let trace = trace::Trace::from_args();
     let mut outputs: Vec<Output> = Vec::new();
+    let mut pointer_outputs: Vec<PointerOut> = Vec::new();
     let mut buffer = alloc::vec![0u8; messenger::DEFAULT_BUFFER];
     sys::write_str(&format!(
         "INPUTD:READY layout={} interfaces={:#x},{:#x}
@@ -85,8 +90,17 @@ fn run() -> Result<(), &'static str> {
         let now = sys::clock();
         source.drain(|item| match item {
             Item::Key(raw) => hub.engine.feed(raw, now, &mut outputs),
-            Item::Dropped { ts_ns, seq } => hub.engine.resync(ts_ns, seq, &mut outputs),
+            Item::Pointer(raw) => hub.pointer.engine.apply(raw, &mut pointer_outputs),
+            Item::Dropped { ts_ns, seq } => {
+                hub.engine.resync(ts_ns, seq, &mut outputs);
+                hub.pointer.engine.resync(ts_ns, seq, &mut pointer_outputs);
+            }
         });
+        // One coalesced move per drain, after the edges it carried.
+        hub.pointer.engine.flush(&mut pointer_outputs);
+        trace.pointer(&pointer_outputs);
+        hub.deliver_pointer(&pointer_outputs);
+        pointer_outputs.clear();
         hub.engine.tick(now, &mut outputs);
         trace.outputs(&outputs);
         hub.deliver(&outputs);

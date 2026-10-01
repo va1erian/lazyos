@@ -87,6 +87,13 @@ interface os.lazy.input.shell.v1 {
     /// this is refused with `ENOSYS`; the method is reserved so the interface
     /// does not change when they land.
     method ApproveGrant(session: U64, allow: Bool) -> () = 7;
+    /// The screen size the cursor is clamped to (each side `1..=16384`, else
+    /// `EINVAL`). `inputd` re-clamps the cursor at once and, if that moved it,
+    /// sends a `PointerEvent`. It replaces the kernel's own cursor bounds.
+    method SetBounds(width: U32, height: U32) -> () = 8;
+    /// The cursor position and held `buttons` (as in `PointerEvent`), to seed
+    /// the compositor's cursor after `Attach`.
+    method GetPointer() -> (x: I32, y: I32, buttons: U32) = 9;
     /// Shell event: a registered chord was pressed.
     method HotkeyFired(id: U64) -> () = 20 oneway;
     /// Shell event: a client asked for a grab (reserved; never sent yet).
@@ -99,4 +106,13 @@ interface os.lazy.input.shell.v1 {
     /// Shell event: the last input session of `surface` ended; legacy key
     /// delivery applies again.
     method SessionClosed(surface: U64) -> () = 24 oneway;
+    /// Shell event: the pointer changed. One cursor for every pointing device
+    /// (`docs/usb-hid-plan.md`): `x`, `y` are screen pixels inside the bounds,
+    /// `buttons` the bits held after this event (`1` left, `2` right,
+    /// `4` middle, `8` back, `0x10` forward; diff it for the edge), `wheel` and
+    /// `wheel_h` the notches since the previous event (positive is up / right).
+    /// Motion is coalesced; the position and wheel apply *before* the button
+    /// change. Only the compositor receives it: the window under the cursor is
+    /// its decision. `ts_ns`/`seq` are the newest raw record's.
+    method PointerEvent(x: I32, y: I32, buttons: U32, wheel: I32, wheel_h: I32, ts_ns: U64, seq: U64) -> () = 25 oneway;
 }

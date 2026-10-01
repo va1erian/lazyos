@@ -20,6 +20,8 @@ use user::messenger::input::{self as api, shell_wire, wire};
 use user::messenger::{errno, services, Endpoint, Error, Message, Parcel, Result};
 use user::sys;
 
+use super::pointer::Cursor;
+
 /// Most hotkey chords the compositor may register.
 const MAX_HOTKEYS: usize = 64;
 
@@ -49,6 +51,8 @@ pub(super) struct Hub {
     /// Sessions that missed an event and must be resynchronised first.
     lagging: BTreeSet<u64>,
     shell: Option<Shell>,
+    /// The cursor every pointing device moves (`pointer.rs`).
+    pub(super) pointer: Cursor,
 }
 
 impl Hub {
@@ -59,6 +63,7 @@ impl Hub {
             endpoints: BTreeMap::new(),
             lagging: BTreeSet::new(),
             shell: None,
+            pointer: Cursor::new(),
         }
     }
 
@@ -223,6 +228,9 @@ impl Hub {
             }
             // Keyboard grabs are a later phase; the method is reserved.
             shell_wire::METHOD_APPROVEGRANT => Err(Error::Errno(-ENOSYS)),
+            shell_wire::METHOD_SETBOUNDS | shell_wire::METHOD_GETPOINTER => {
+                self.pointer_call(method, body)
+            }
             _ => Err(Error::Errno(-errno::EINVAL)),
         }
     }
@@ -371,7 +379,7 @@ impl Hub {
         }
     }
 
-    fn shell_event(&mut self, method: u32, body: Encoded) {
+    pub(super) fn shell_event(&mut self, method: u32, body: Encoded) {
         let (Some(shell), Ok(body)) = (&self.shell, body) else {
             return;
         };
@@ -388,6 +396,7 @@ impl Hub {
     /// Forget the attached compositor: close its event endpoint and remove
     /// the chords it registered (a re-attach registers them again).
     fn drop_shell(&mut self) {
+        self.pointer.subscribed = false;
         if let Some(old) = self.shell.take() {
             let _ = old.events.close();
             for id in old.hotkeys {

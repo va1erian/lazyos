@@ -3,9 +3,17 @@ name = "inputmap"
 version = "0.1.0"
 edition = "2021"
 publish = false
-description = "Keymaps, modifier/lock state, key repeat and hotkey matching for the LazyOS inputd service"
+description = "Keymaps, modifier/lock state, key repeat, hotkey matching and pointer state for the LazyOS inputd service"
 license = "GPL-3.0-or-later"
 
 [lib]
 name = "inputmap"
 path = "src/lib.rs"
+
+[features]
+# Expose `fuzz::run`, the byte-script entry point shared by the in-tree seeded
+# tests and the cargo-fuzz target (`fuzz/`). Needs `std`.
+fuzz = []
+
+[dev-dependencies]
+fuzzkit = { path = "../fuzzkit" }

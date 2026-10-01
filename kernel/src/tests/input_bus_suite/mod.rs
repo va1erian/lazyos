@@ -1,12 +1,15 @@
 //! The raw input event bus: HID translation, per-consumer rings, the
 //! `input.raw` capability gate, and the syscall front end
-//! (`docs/input-plan.md`, phase I0).
+//! (`docs/input-plan.md`, phase I0), and pointer records with tail merging
+//! (`docs/usb-hid-plan.md`, phase P0).
 
 use super::*;
 use crate::input::bus::{self, kind, RawEvent, RING_CAP};
 use crate::input::hid::{Set1Decoder, Step};
 
 mod hid_table;
+mod pointer;
+mod pointer_stress;
 mod ring;
 mod stress;
 mod syscall;
@@ -106,4 +109,34 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("input_bus_stress_no_silent_loss", stress::no_silent_loss),
     ("input_bus_stress_many_producers", stress::many_producers),
     ("input_raw_stress_scancode_storm", stress::scancode_storm),
+    (
+        "input_pointer_encoding_round_trips",
+        pointer::encoding_round_trips,
+    ),
+    ("input_pointer_tail_merging", pointer::tail_merging),
+    ("input_pointer_merge_boundaries", pointer::merge_boundaries),
+    (
+        "input_pointer_no_merge_after_drain",
+        pointer::no_merge_after_drain,
+    ),
+    (
+        "input_pointer_merge_is_all_or_nothing",
+        pointer::merge_is_all_or_nothing,
+    ),
+    (
+        "input_pointer_motion_flood_keeps_keys",
+        pointer::motion_flood_keeps_keys,
+    ),
+    (
+        "input_pointer_ps2_mouse_reaches_bus",
+        pointer::ps2_mouse_reaches_bus,
+    ),
+    (
+        "input_pointer_tap_edges_only",
+        pointer::mouse_tap_edges_only,
+    ),
+    (
+        "input_pointer_stress_mixed_producers",
+        pointer_stress::mixed_producers,
+    ),
 ];

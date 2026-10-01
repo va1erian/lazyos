@@ -198,6 +198,9 @@ pub fn push_byte(byte: u8) {
     let decoded = decode_packet(&packet.data, len == 4);
     packet.index = 0;
     drop(packet);
+    // The raw bus gets every packet; the legacy stream below runs beside it
+    // until the compositor takes its pointer from `inputd`.
+    super::mouse_tap::TAP.lock().feed(&decoded);
     let Decoded {
         dx,
         dy,

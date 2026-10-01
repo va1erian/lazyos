@@ -18,8 +18,11 @@ someone else's behalf. Everything is per kernel-stamped sender, never per reques
 | RegisterHotkey | 5 | sync | `(code: U32, mods: U32) -> (id: U64)` |
 | UnregisterHotkey | 6 | sync | `(id: U64) -> ()` |
 | ApproveGrant | 7 | sync | `(session: U64, allow: Bool) -> ()` |
+| SetBounds | 8 | sync | `(width: U32, height: U32) -> ()` |
+| GetPointer | 9 | sync | `() -> (x: I32, y: I32, buttons: U32)` |
 | HotkeyFired | 20 | oneway | `(id: U64) -> ()` |
 | GrantRequested | 21 | oneway | `(session: U64, kind: U32) -> ()` |
 | EscapeChord | 22 | oneway | `() -> ()` |
 | SessionOpened | 23 | oneway | `(surface: U64) -> ()` |
 | SessionClosed | 24 | oneway | `(surface: U64) -> ()` |
+| PointerEvent | 25 | oneway | `(x: I32, y: I32, buttons: U32, wheel: I32, wheel_h: I32, ts_ns: U64, seq: U64) -> ()` |
