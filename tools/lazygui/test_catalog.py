@@ -90,6 +90,49 @@ class DocumentAppSessionTests(unittest.TestCase):
     def test_no_autostart_without_a_document_script(self) -> None:
         self.assertNotIn("LAZYOS_XUI_AUTOSTART", self.env(""))
 
+class LazyRadTests(unittest.TestCase):
+    """The launcher can put the LazyRAD IDE on the image (Settings -> Menu offers it)."""
+
+    def base(self) -> dict:
+        return {"services": False, "xuid": False, "xui_client": False, "xui_app": "(none)",
+                "shellprobe": False, "msgctl": False, "msgrd": False, "busybox": ""}
+
+    def test_the_switch_sets_the_embed_variable(self) -> None:
+        env = catalog.build_env({**self.base(), "desktop": True, "lazyrad": True})
+        self.assertEqual(env["LAZYOS_LAZYRAD"], "1")
+        self.assertNotIn("LAZYRAD_SAMPLES", env)
+
+    def test_samples_are_passed_only_with_the_switch(self) -> None:
+        on = catalog.build_env({**self.base(), "desktop": True, "lazyrad": True,
+                                "lazyrad_samples": "C:\a;C:\b"})
+        self.assertEqual(on["LAZYRAD_SAMPLES"], "C:\a;C:\b")
+        off = catalog.build_env({**self.base(), "desktop": True, "lazyrad": False,
+                                 "lazyrad_samples": "C:\a"})
+        self.assertNotIn("LAZYOS_LAZYRAD", off)
+        self.assertNotIn("LAZYRAD_SAMPLES", off)
+
+    def test_off_by_default(self) -> None:
+        self.assertNotIn("LAZYOS_LAZYRAD", catalog.build_env({**self.base(), "desktop": True}))
+
+    def test_simple_desktop_can_include_it_and_cli_cannot(self) -> None:
+        desktop = catalog.simple_config(demo_config(), "dev", "Desktop", lazyrad=True)
+        self.assertTrue(desktop["lazyrad"])
+        cli = catalog.simple_config(demo_config(), "dev", "CLI", lazyrad=True)
+        self.assertFalse(cli["lazyrad"])
+        self.assertFalse(catalog.simple_config(demo_config(), "dev", "Desktop")["lazyrad"])
+
+    def test_it_is_built_before_the_image(self) -> None:
+        cfg = demo_config(lazyrad=True, skip_build=False, prebuild_xui=True)
+        labels = [step["label"] for step in catalog.build_plan(cfg)]
+        self.assertEqual(labels, ["Build xui apps (static musl)", "Build LazyRAD (static musl)",
+                                  "Interactive demo"])
+        none = [s["label"] for s in catalog.build_plan(demo_config())]
+        self.assertNotIn("Build LazyRAD (static musl)", none)
+
+    def test_the_build_mode_builds_it_too(self) -> None:
+        plan = catalog.build_plan({"mode": "Build xui app", "lazyrad": True})
+        self.assertEqual(plan[-1]["argv"][1:], ["tools/lazyrad/build.py"])
+
 
 class ResetTests(unittest.TestCase):
     """The Reset button regenerates the seeded layout, and says so first."""

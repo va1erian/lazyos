@@ -71,6 +71,9 @@ class Launcher:
             "xui_client": b(value=False),
             "xui_app": s(value="(none)"),
             "xui_autostart": s(value=""),
+            "lazyrad": b(value=False),
+            "lazyrad_samples": s(value=""),
+            "simple_lazyrad": b(value=False),
             "script": s(value=SCRIPTS[0][1]),
             "simple_build": s(value=SIMPLE_BUILDS[0][0]),
             "simple_iface": s(value=SIMPLE_INTERFACES[0][0]),
@@ -93,7 +96,8 @@ class Launcher:
         if self.notebook.select() == str(self.tab_simple):
             profile, iface = simple_choice(self.v["simple_build"].get(),
                                            self.v["simple_iface"].get())
-            return simple_config(self._advanced_cfg(), profile, iface)
+            return simple_config(self._advanced_cfg(), profile, iface,
+                                 self.v["simple_lazyrad"].get())
         return self._advanced_cfg()
 
     def _advanced_cfg(self) -> dict:
@@ -129,6 +133,8 @@ class Launcher:
             "xui_client": self.v["xui_client"].get(),
             "xui_app": self.v["xui_app"].get(),
             "xui_autostart": self.v["xui_autostart"].get(),
+            "lazyrad": self.v["lazyrad"].get(),
+            "lazyrad_samples": self.v["lazyrad_samples"].get().strip(),
             "script": SCRIPTS.index(names[0]) if names else 0,
         }
 
@@ -152,7 +158,7 @@ class Launcher:
         self.notebook.add(self.tab_simple, text="Simple")
         self.notebook.add(tab_adv, text="Advanced")
         build_simple_tab(self.tab_simple, self.v["simple_build"],
-                         self.v["simple_iface"], self._run)
+                         self.v["simple_iface"], self.v["simple_lazyrad"], self._run)
         self._build_left(self._scrollable(tab_adv))
         self._build_right(right)
 
@@ -173,6 +179,11 @@ class Launcher:
         self._check(g, "Messengerctl demo (LAZYOS_MESSENGERCTL)", "msgctl")
         self._check(g, "Messengerd daemon (LAZYOS_MESSENGERD)", "msgrd")
         self._check(g, "Compositor client (+ LAZYOS_XUI_CLIENT)", "xui_client")
+        self._check(g, "LazyRAD IDE + player (LAZYOS_LAZYRAD)", "lazyrad")
+        row = ttk.Frame(g); row.pack(fill="x", padx=6, pady=2)
+        ttk.Label(row, text="LazyRAD samples:").pack(side="left")
+        ttk.Entry(row, textvariable=self.v["lazyrad_samples"]).pack(side="left", fill="x",
+                                                                   expand=True, padx=6)
         row = ttk.Frame(g); row.pack(fill="x", padx=6, pady=2)
         ttk.Label(row, text="XUI app:").pack(side="left")
         ttk.Combobox(row, textvariable=self.v["xui_app"], state="readonly",
