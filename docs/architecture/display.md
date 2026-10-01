@@ -85,9 +85,10 @@ compositor demo. Target toolkit design: [xui-plan.md](../xui-plan.md).
   (`xui-app/src/bin/client.rs`): with `LAZYOS_XUI_CLIENT=1` as well, the
   kernel boots `xuid` *and* the app, which never binds the grant.
   `LazyOSBackend::new_client` resolves `os.lazy.display.v1` over the raw
-  syscall-5 shim, creates a surface, attaches a display shared buffer
-  (`create_buffer`), commits per-node damage rectangles, and consumes
-  `POINTER_*`, `KEY_*` and `WINDOW_CLOSE` events from its event endpoint. The
+  syscall-5 shim, creates a surface, attaches two display shared buffers
+  (`create_buffer`) as buffer slots, presents per-node damage through the
+  pipelined `Present` (see below), and consumes `POINTER_*`, `KEY_*`,
+  `WINDOW_CLOSE` and frame events from its event endpoint. The
   WM (drag, minimize, taskbar, close) runs in `xuid` and works on the app
   window; the session is scripted in
   `tools/screenshot/examples/xui_client.json` and captured by the workflow.
@@ -433,6 +434,21 @@ and a present from a non-owner is dropped. The rules live in
 `libs/surfbuf` (`SlotTable` for the compositor, `Swapchain` for the client),
 exercised by `display_slots_*` in the kernel suite; `xdemo` is the reference
 double-buffered client. The legacy `AttachBuffer` is "slot 0, current at once".
+
+Every `xui-app` window presents this way (issue #372,
+`xui-app/src/client_window/slots.rs`): two slots, a frame drawn only while
+one is free (so the compositor's `BufferRelease` paces repaints and the app
+never blocks on a reply), and a slot reallocated at the window size when it
+is next drawn after a `Configure`. The backend repaints only the window's
+accumulated damage rectangle (issue #487): it clears it, runs just the
+painters of nodes within two pixels of it, unclipped (a `SkiaCanvas` clip
+trims shapes before stroking them, which would draw borders along the damage
+edge), and copies only that rectangle into the window's composed frame. Each
+slot tracks which of its pixels are older than that frame, so filling a slot
+copies the damage of the frame it missed as well as the current one. A new window, a resize and a
+theme change damage the whole window. `dragdemo` and `shellprobe` stay on
+`AttachBuffer`/`Commit`: `dragdemo` redraws only on a drop, and `shellprobe`
+is what exercises the legacy path.
 
 **Retitling a window (`SetTitle`, method 29)**
 

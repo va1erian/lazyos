@@ -21,8 +21,8 @@ pub use display::{
     EVENT_BYTES,
 };
 pub use messenger::{
-    messenger, msg_call, msg_create_pair, msg_op, msg_queued, msg_recv, msg_resolve, MsgArgs,
-    MsgResult, REGISTRY_TARGET_SELF,
+    messenger, msg_call, msg_create_pair, msg_op, msg_queued, msg_recv, msg_resolve, msg_send,
+    MsgArgs, MsgResult, REGISTRY_TARGET_SELF,
 };
 
 use core::arch::asm;
@@ -48,6 +48,8 @@ pub mod errno {
     pub const ENOENT: i64 = 2;
     /// The receive buffer is too small.
     pub const E2BIG: i64 = 7;
+    /// Try again later.
+    pub const EAGAIN: i64 = 11;
     /// Invalid argument.
     pub const EINVAL: i64 = 22;
     /// The peer endpoint is gone.

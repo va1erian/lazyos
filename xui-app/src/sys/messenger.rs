@@ -10,6 +10,8 @@ use super::{errno, native, SYS_MESSENGER};
 pub mod msg_op {
     /// Call a method and block until the reply arrives.
     pub const CALL: u64 = 1;
+    /// Send a one-way message; no reply is expected.
+    pub const SEND: u64 = 3;
     /// Receive one queued message.
     pub const RECV: u64 = 4;
     /// Close an endpoint handle.
@@ -164,6 +166,20 @@ pub fn msg_call(
         return Err(-errno::E2BIG);
     }
     Parcel::decode(&buf[..len]).map_err(|_| -errno::EINVAL)
+}
+
+/// Send `parcel` one-way on `handle` (it must carry `flags::ONE_WAY`); the
+/// receiver never replies, so this returns once the kernel queued it.
+pub fn msg_send(handle: u64, parcel: &Parcel) -> Result<(), i64> {
+    let mut bytes = Vec::new();
+    parcel.encode(&mut bytes).map_err(|_| -errno::EINVAL)?;
+    let args = MsgArgs {
+        handle,
+        parcel_ptr: bytes.as_ptr() as u64,
+        parcel_len: bytes.len() as u64,
+        ..MsgArgs::default()
+    };
+    messenger_syscall(msg_op::SEND, &args, &mut MsgResult::default())
 }
 
 /// How many messages are queued on `handle`'s channel, without parking.

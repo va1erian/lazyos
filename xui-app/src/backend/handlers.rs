@@ -105,6 +105,7 @@ impl Backend for LazyOSBackend {
             id.raw(),
             Window {
                 surface: Surface::new(width, height),
+                frame: Vec::new(),
                 sink: None,
                 background: Theme::light().background,
                 dpi,
@@ -276,6 +277,7 @@ impl Backend for LazyOSBackend {
 
     fn set_enabled(&self, id: WidgetId, enabled: bool) {
         self.with_node(id, |node| node.enabled = enabled);
+        self.damage_node(id);
     }
 
     fn set_clip(&self, id: WidgetId, rect: Option<Rect>) {
@@ -315,25 +317,16 @@ impl Backend for LazyOSBackend {
     }
 
     fn invalidate(&self, id: WidgetId) {
-        self.dirty.store(true, Ordering::Relaxed);
-        if self.is_client() {
-            if let Some((window, bounds)) = self.absolute_damage(id) {
-                self.add_damage(window, bounds);
-            }
-        }
+        self.damage_node(id);
     }
 
     fn invalidate_rect(&self, id: WidgetId, _rect: Rect) {
-        self.dirty.store(true, Ordering::Relaxed);
-        if self.is_client() {
-            if let Some((window, bounds)) = self.absolute_damage(id) {
-                self.add_damage(window, bounds);
-            }
-        }
+        self.damage_node(id);
     }
 
     fn set_painter(&self, id: WidgetId, painter: Painter) {
         self.with_node(id, |node| node.painter = Some(painter));
+        self.damage_node(id);
     }
 
     fn bounds(&self, id: WidgetId) -> Rect {
@@ -388,8 +381,19 @@ impl Backend for LazyOSBackend {
     }
 
     fn set_theme(&self, window: WindowId, theme: &Theme) {
-        if let Some(entry) = self.windows.borrow_mut().get_mut(&window.raw()) {
+        let full = {
+            let mut windows = self.windows.borrow_mut();
+            let Some(entry) = windows.get_mut(&window.raw()) else {
+                return;
+            };
             entry.background = theme.background;
+            Rect::new(0, 0, entry.width, entry.height)
+        };
+        // Only damaged pixels are repainted, and the background is under all
+        // of them.
+        if self.is_client() {
+            self.add_damage(window, full);
+            self.dirty.store(true, Ordering::Relaxed);
         }
     }
 
