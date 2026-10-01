@@ -46,6 +46,7 @@ pub const SERVICE_ERROR: u64 = u64::MAX;
 
 mod cred;
 mod display;
+mod inetpump;
 mod input;
 mod introspect;
 mod random;
@@ -53,6 +54,7 @@ mod wall;
 
 pub use cred::*;
 pub use display::*;
+pub use inetpump::*;
 pub use input::*;
 pub use introspect::*;
 pub use random::*;

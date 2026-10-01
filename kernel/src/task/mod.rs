@@ -50,6 +50,7 @@ use crate::input::keyboard::Key;
 use crate::ipc::credentials;
 use crate::ipc::epoll::Epoll;
 use crate::ipc::eventfd::EventFd;
+use crate::ipc::inet::InetSock;
 use crate::ipc::pipe::{self, End, Pipe, Side, SocketPair};
 use crate::ipc::unix::Listener;
 use crate::mem;

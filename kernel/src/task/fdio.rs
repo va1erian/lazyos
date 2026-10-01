@@ -22,6 +22,11 @@ pub fn fd_stream_read(fd: usize, dst: &mut [u8]) -> Result<usize, pipe::Error> {
                 Source::Socket(Arc::clone(pair), *side),
                 pair.nonblock(*side),
             ),
+            Fd::Inet { sock } => {
+                let pair = sock.pair().ok_or(pipe::Error::BadEnd)?;
+                let nonblock = pair.nonblock(Side::B);
+                (Source::Socket(pair, Side::B), nonblock)
+            }
             _ => return Err(pipe::Error::BadEnd),
         }
     };
@@ -39,6 +44,7 @@ pub fn fd_stream_nonblock(fd: usize) -> Option<bool> {
     match task.fds.get(fd)? {
         Fd::Pipe { pipe, end } => Some(pipe.nonblock(*end)),
         Fd::Socket { pair, side } => Some(pair.nonblock(*side)),
+        Fd::Inet { sock } => Some(sock.nonblock()),
         _ => None,
     }
 }
@@ -59,6 +65,11 @@ pub fn fd_stream_write(fd: usize, src: &[u8]) -> Result<usize, pipe::Error> {
             Fd::Pipe { pipe, end } => (Sink::Pipe(Arc::clone(pipe), *end), pipe.nonblock(*end)),
             Fd::Socket { pair, side } => {
                 (Sink::Socket(Arc::clone(pair), *side), pair.nonblock(*side))
+            }
+            Fd::Inet { sock } => {
+                let pair = sock.pair().ok_or(pipe::Error::BadEnd)?;
+                let nonblock = pair.nonblock(Side::B);
+                (Sink::Socket(pair, Side::B), nonblock)
             }
             _ => return Err(pipe::Error::BadEnd),
         }

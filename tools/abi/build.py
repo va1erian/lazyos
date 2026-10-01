@@ -12,6 +12,8 @@ Output: target/abi/fixtures/<name>.elf and a JSON map on stdout.
 from __future__ import annotations
 
 import json
+import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -40,11 +42,24 @@ NAMES = [
     "statxio",
     "cwd",
     "fsops",
+    # Needs a network: run by `tools/net/run.py --netd`, not by the ABI bench.
+    "netfix",
 ]
 
 
-def run(cmd: list[str]) -> subprocess.CompletedProcess:
-    return subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True)
+def run(cmd: list[str], env: dict | None = None) -> subprocess.CompletedProcess:
+    return subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, env=env)
+
+
+def linker_env() -> dict:
+    """The environment to build for musl with: a host without a C compiler
+    (Windows) links with the toolchain's own `rust-lld` instead of `cc`."""
+    env = dict(os.environ)
+    if shutil.which("cc") is None:
+        env["CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER"] = "rust-lld"
+        flags = "-C linker-flavor=ld.lld -C link-self-contained=yes"
+        env["RUSTFLAGS"] = (env.get("RUSTFLAGS", "") + " " + flags).strip()
+    return env
 
 
 def ensure_target() -> bool:
@@ -72,7 +87,8 @@ def build_fixtures() -> dict[str, str]:
             "--target",
             TARGET,
             "--release",
-        ]
+        ],
+        env=linker_env(),
     )
     if build.returncode != 0:
         print("warning: fixture build failed", file=sys.stderr)

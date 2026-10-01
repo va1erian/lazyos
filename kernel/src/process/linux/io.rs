@@ -92,6 +92,7 @@ pub(super) fn sys_write(fd: u64, ptr: u64, len: u64) -> u64 {
     match task::fd_kind(fd as usize) {
         FdKind::Terminal => write_terminal(ptr, len),
         FdKind::Pipe | FdKind::Socket => write_stream(fd, ptr, len),
+        FdKind::Inet => super::inet::sys_write(fd, ptr, len),
         FdKind::File => write_file(fd, ptr, len, None),
         FdKind::Vfs => vfsfd::with_file(fd, |file| vfsfd::write(file, ptr, len)),
         FdKind::EventFd => write_eventfd(fd, ptr, len),
@@ -170,6 +171,18 @@ pub(super) fn write_stream(fd: u64, ptr: u64, len: u64) -> u64 {
     }
 }
 
+/// The errno for a failed stream call (`-errno`, as the ABI returns it).
+pub(super) fn pipe_error(error: pipe::Error) -> u64 {
+    match error {
+        pipe::Error::WouldBlock => err(EAGAIN),
+        pipe::Error::BrokenPipe => err(EPIPE),
+        pipe::Error::Interrupted => err(EINTR),
+        pipe::Error::MessageTooLong => err(EMSGSIZE),
+        pipe::Error::Invalid => err(EINVAL),
+        pipe::Error::BadEnd => err(EBADF),
+    }
+}
+
 /// `eventfd` write: exactly one 8-byte little-endian value to add.
 fn write_eventfd(fd: u64, ptr: u64, len: u64) -> u64 {
     if len != 8 {
@@ -193,6 +206,7 @@ pub(super) fn sys_read(fd: u64, ptr: u64, len: u64) -> u64 {
         FdKind::File => read_file_bytes(fd, ptr, len),
         FdKind::Vfs => vfsfd::with_file(fd, |file| vfsfd::read(file, ptr, len)),
         FdKind::Pipe | FdKind::Socket => read_stream(fd, ptr, len),
+        FdKind::Inet => super::inet::sys_read(fd, ptr, len),
         FdKind::EventFd => read_eventfd(fd, ptr, len),
         FdKind::Unbound => err(ENOTCONN),
         FdKind::Closed | FdKind::Epoll | FdKind::Listener => err(EBADF),

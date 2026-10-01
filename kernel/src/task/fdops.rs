@@ -93,6 +93,7 @@ pub fn fd_kind(fd: usize) -> FdKind {
             Fd::Epoll { .. } => FdKind::Epoll,
             Fd::UnixListener { .. } => FdKind::Listener,
             Fd::Unbound { .. } => FdKind::Unbound,
+            Fd::Inet { .. } => FdKind::Inet,
         },
         _ => FdKind::Closed,
     }
@@ -167,6 +168,7 @@ pub fn fd_status(fd: usize) -> Option<u64> {
         Fd::Epoll { epoll } => Some(2 | (u64::from(epoll.nonblock()) * O_NONBLOCK)),
         Fd::UnixListener { listener } => Some(2 | (u64::from(listener.nonblock()) * O_NONBLOCK)),
         Fd::Unbound { nonblock: flag, .. } => Some(2 | (u64::from(*flag) * O_NONBLOCK)),
+        Fd::Inet { sock } => Some(2 | (u64::from(sock.nonblock()) * O_NONBLOCK)),
     }
 }
 
@@ -206,6 +208,10 @@ pub fn fd_set_status(fd: usize, nonblock: bool) -> bool {
         }
         Fd::Unbound { nonblock: flag, .. } => {
             *flag = nonblock;
+            true
+        }
+        Fd::Inet { sock } => {
+            sock.set_nonblock(nonblock);
             true
         }
     }

@@ -1,4 +1,4 @@
-//! Unix-domain sockets: `socket`, `bind`, `listen`, `connect`, `accept`/
+//! Unix-domain sockets (and the `AF_INET` dispatch to `inet.rs`): `socket`, `bind`, `listen`, `connect`, `accept`/
 //! `accept4`, `shutdown`, `getsockname`/`getpeername`, and `sendto`/`recvfrom`
 //! (musl's `send`/`recv`). `AF_UNIX` is the only family; a socket is unbound
 //! until `bind` or `connect` turns it into a listener or a connected pair
@@ -15,7 +15,7 @@ use crate::user_ptr;
 
 use super::errno::{
     err, EADDRINUSE, EAFNOSUPPORT, EAGAIN, EBADF, ECONNREFUSED, EINTR, EINVAL, EMFILE, ENOENT,
-    ENOTCONN, ENOTSOCK,
+    ENOSYS, ENOTCONN, ENOTSOCK,
 };
 use super::flags::{AF_UNIX, SOCK_CLOEXEC, SOCK_NONBLOCK, SOCK_SEQPACKET, SOCK_STREAM};
 use super::io::{read_stream, write_stream};
@@ -28,6 +28,9 @@ const SHUT_RDWR: u64 = 2;
 /// `socket(domain, type, protocol)`: only `AF_UNIX`; the descriptor stays
 /// unbound until `bind` or `connect`.
 pub(super) fn sys_socket(domain: u64, kind: u64, protocol: u64) -> u64 {
+    if domain == super::inet::AF_INET {
+        return super::inet::sys_socket(kind, protocol);
+    }
     if domain != AF_UNIX {
         return err(EAFNOSUPPORT);
     }
@@ -103,6 +106,9 @@ fn write_unix_name(addr: u64, addrlen: u64, name: &[u8]) {
 /// `bind(fd, addr, len)`: attach the unbound socket to a name and turn it into
 /// a listener.
 pub(super) fn sys_bind(fd: u64, addr: u64, len: u64) -> u64 {
+    if super::inet::is_inet(fd) {
+        return super::inet::sys_bind(fd, addr, len);
+    }
     let Some(target) = task::fd_clone(fd as usize) else {
         return err(EBADF);
     };
@@ -130,7 +136,10 @@ pub(super) fn sys_bind(fd: u64, addr: u64, len: u64) -> u64 {
 }
 
 /// `listen(fd, backlog)`: mark a bound socket connectable (backlog ignored).
-pub(super) fn sys_listen(fd: u64, _backlog: u64) -> u64 {
+pub(super) fn sys_listen(fd: u64, backlog: u64) -> u64 {
+    if super::inet::is_inet(fd) {
+        return super::inet::sys_listen(fd, backlog);
+    }
     match task::fd_clone(fd as usize).as_ref() {
         Some(Fd::UnixListener { listener }) => {
             listener.listen();
@@ -145,6 +154,9 @@ pub(super) fn sys_listen(fd: u64, _backlog: u64) -> u64 {
 /// The connection is a fresh [`SocketPair`]; the server half waits in the
 /// listener for `accept`.
 pub(super) fn sys_connect(fd: u64, addr: u64, len: u64) -> u64 {
+    if super::inet::is_inet(fd) {
+        return super::inet::sys_connect(fd, addr, len);
+    }
     let Some(target) = task::fd_clone(fd as usize) else {
         return err(EBADF);
     };
@@ -184,6 +196,9 @@ pub(super) fn sys_connect(fd: u64, addr: u64, len: u64) -> u64 {
 /// `accept` (43) and `accept4` (288): take the next pending connection from a
 /// listener, parking while none is pending unless non-blocking.
 pub(super) fn sys_accept(fd: u64, addr: u64, addrlen: u64, flags: u64) -> u64 {
+    if super::inet::is_inet(fd) {
+        return super::inet::sys_accept(fd, addr, addrlen, flags);
+    }
     let Some(target) = task::fd_clone(fd as usize) else {
         return err(EBADF);
     };
@@ -223,6 +238,9 @@ pub(super) fn sys_accept(fd: u64, addr: u64, addrlen: u64, flags: u64) -> u64 {
 
 /// `shutdown(fd, how)`: close one direction of a connected socket pair.
 pub(super) fn sys_shutdown(fd: u64, how: u64) -> u64 {
+    if super::inet::is_inet(fd) {
+        return super::inet::sys_shutdown(fd, how);
+    }
     if how != SHUT_RD && how != SHUT_WR && how != SHUT_RDWR {
         return err(EINVAL);
     }
@@ -239,7 +257,10 @@ pub(super) fn sys_shutdown(fd: u64, how: u64) -> u64 {
 
 /// `getsockname`/`getpeername`: a bound listener reports its name, a connected
 /// pair reports an empty path (peer names are not tracked).
-pub(super) fn sys_get_sockname(fd: u64, addr: u64, addrlen: u64) -> u64 {
+pub(super) fn sys_get_sockname(fd: u64, addr: u64, addrlen: u64, peer: bool) -> u64 {
+    if super::inet::is_inet(fd) {
+        return super::inet::sys_name(fd, addr, addrlen, peer);
+    }
     let Some(target) = task::fd_clone(fd as usize) else {
         return err(EBADF);
     };
@@ -264,7 +285,10 @@ pub(super) fn sys_get_sockname(fd: u64, addr: u64, addrlen: u64) -> u64 {
 /// sockets are connected `AF_UNIX` pairs, so the destination is ignored (std
 /// passes a null address) and this is a stream write; a non-socket fd is
 /// `-ENOTSOCK`, as Linux reports.
-pub(super) fn sys_sendto(fd: u64, buf: u64, len: u64) -> u64 {
+pub(super) fn sys_sendto(fd: u64, buf: u64, len: u64, addr: u64, addrlen: u64) -> u64 {
+    if super::inet::is_inet(fd) {
+        return super::inet::sys_sendto(fd, buf, len, addr, addrlen);
+    }
     match task::fd_kind(fd as usize) {
         FdKind::Socket => write_stream(fd, buf, len),
         _ => err(ENOTSOCK),
@@ -274,9 +298,30 @@ pub(super) fn sys_sendto(fd: u64, buf: u64, len: u64) -> u64 {
 /// `recvfrom(fd, buf, len, flags, addr, addrlen)`: musl's `recv`. Source
 /// addresses do not exist for connected pairs (std passes null), so this is a
 /// stream read; a non-socket fd is `-ENOTSOCK`.
-pub(super) fn sys_recvfrom(fd: u64, buf: u64, len: u64) -> u64 {
+pub(super) fn sys_recvfrom(fd: u64, buf: u64, len: u64, addr: u64, addrlen: u64) -> u64 {
+    if super::inet::is_inet(fd) {
+        return super::inet::sys_recvfrom(fd, buf, len, addr, addrlen);
+    }
     match task::fd_kind(fd as usize) {
         FdKind::Socket => read_stream(fd, buf, len),
         _ => err(ENOTSOCK),
+    }
+}
+
+/// `setsockopt` (54): only `AF_INET` sockets take options so far.
+pub(super) fn sys_setsockopt(fd: u64, level: u64, name: u64, value: u64, len: u64) -> u64 {
+    match task::fd_kind(fd as usize) {
+        FdKind::Inet => super::inet::sys_setsockopt(fd, level, name, value, len),
+        FdKind::Closed => err(EBADF),
+        _ => err(ENOSYS),
+    }
+}
+
+/// `getsockopt` (55): see [`sys_setsockopt`].
+pub(super) fn sys_getsockopt(fd: u64, level: u64, name: u64, value: u64, lenptr: u64) -> u64 {
+    match task::fd_kind(fd as usize) {
+        FdKind::Inet => super::inet::sys_getsockopt(fd, level, name, value, lenptr),
+        FdKind::Closed => err(EBADF),
+        _ => err(ENOSYS),
     }
 }

@@ -39,8 +39,11 @@ use spin::Mutex;
 use crate::task::wait::WaitQueue;
 use crate::task::{WaitKind, WakeReason};
 
+mod small;
 mod socketpair;
 
+#[cfg_attr(not(lazyos_tests), allow(unused_imports))] // the tests check the cap
+pub use small::{MAX_SMALL_PIPES, SMALL_CAPACITY};
 pub use socketpair::SocketPair;
 
 /// Bytes a pipe buffers before writers block (Linux's default, 64 KiB).
@@ -176,6 +179,8 @@ pub struct Pipe {
     /// Events that made the write end fresh (a read, or the last reader
     /// closing), mirroring [`read_events`](Pipe::read_events).
     write_events: AtomicU64,
+    /// Allocated from the small-ring budget (`small.rs`), not `MAX_PIPES`.
+    small: bool,
 }
 
 impl Pipe {
@@ -203,7 +208,12 @@ impl Pipe {
             return None;
         }
         buf.resize(CAPACITY, 0);
-        Some(Arc::new(Pipe {
+        Some(Arc::new(Pipe::with_buffer(mode, buf, false)))
+    }
+
+    /// A pipe over an allocated ring (the budget has been charged already).
+    fn with_buffer(mode: Mode, buf: Vec<u8>, small: bool) -> Pipe {
+        Pipe {
             state: Mutex::new(Ring {
                 buf,
                 head: 0,
@@ -219,7 +229,8 @@ impl Pipe {
             write_nonblock: AtomicBool::new(false),
             read_events: AtomicU64::new(0),
             write_events: AtomicU64::new(0),
-        }))
+            small,
+        }
     }
 
     /// Number of live one-way pipes (test/soak observable).
@@ -479,6 +490,11 @@ impl Pipe {
 
 impl Drop for Pipe {
     fn drop(&mut self) {
-        LIVE_PIPES.fetch_sub(1, Ordering::AcqRel);
+        let counter = if self.small {
+            &small::LIVE_SMALL
+        } else {
+            &LIVE_PIPES
+        };
+        counter.fetch_sub(1, Ordering::AcqRel);
     }
 }

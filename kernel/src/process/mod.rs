@@ -119,6 +119,7 @@ mod credio;
 mod creds;
 pub mod fsops;
 mod gate;
+pub mod inetsys;
 pub mod linux;
 pub mod loader;
 pub mod power;

@@ -35,6 +35,7 @@ mod filerw;
 mod filesys;
 mod flags;
 mod futex;
+mod inet;
 mod io;
 mod iov;
 mod mem;
@@ -135,6 +136,8 @@ fn syscall_name(nr: u64) -> &'static str {
         50 => "listen",
         51 => "getsockname",
         52 => "getpeername",
+        54 => "setsockopt",
+        55 => "getsockopt",
         53 => "socketpair",
         56 => "clone",
         57 => "fork",
@@ -334,13 +337,15 @@ extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
         41 => socket::sys_socket(a1, a2, a3), // socket(domain, type, protocol)
         42 => socket::sys_connect(a1, a2, a3), // connect(fd, addr, len)
         43 => socket::sys_accept(a1, a2, a3, 0), // accept(fd, addr, addrlen)
-        44 => socket::sys_sendto(a1, a2, a3), // sendto (musl's send)
-        45 => socket::sys_recvfrom(a1, a2, a3), // recvfrom (musl's recv)
+        44 => socket::sys_sendto(a1, a2, a3, a5, a6), // sendto(fd, buf, len, flags, addr, alen)
+        45 => socket::sys_recvfrom(a1, a2, a3, a5, a6), // recvfrom(fd, buf, len, flags, addr, alen)
         48 => socket::sys_shutdown(a1, a2), // shutdown(fd, how)
         49 => socket::sys_bind(a1, a2, a3), // bind(fd, addr, len)
         50 => socket::sys_listen(a1, a2),   // listen(fd, backlog)
-        51 => socket::sys_get_sockname(a1, a2, a3), // getsockname
-        52 => socket::sys_get_sockname(a1, a2, a3), // getpeername (connected pair: same answer)
+        51 => socket::sys_get_sockname(a1, a2, a3, false), // getsockname
+        52 => socket::sys_get_sockname(a1, a2, a3, true), // getpeername
+        54 => socket::sys_setsockopt(a1, a2, a3, a4, a5), // setsockopt(fd, level, name, val, len)
+        55 => socket::sys_getsockopt(a1, a2, a3, a4, a5), // getsockopt(fd, level, name, val, lenp)
         53 => pipes::sys_socketpair(a1, a2, a3, a4), // socketpair(domain, type, proto, sv)
         56 => procctl::sys_clone(a1, a2, a3, a4, a5), // clone(flags, stack, ptid, ctid, tls)
         57 => procctl::sys_fork(),
