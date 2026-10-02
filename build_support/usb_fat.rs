@@ -111,7 +111,7 @@ fn cluster_range(bpb: &Bpb, cluster: usize, len: usize) -> Result<std::ops::Rang
 }
 
 fn relabel_root(root: &mut [u8]) {
-    for entry in root.chunks_exact_mut(ENTRY) {
+    for entry in root.as_chunks_mut::<ENTRY>().0 {
         if entry[0] == 0 {
             break;
         }
@@ -161,7 +161,13 @@ fn walk(
 
 /// Move `.` and `..` to slots 0 and 1 when long-name entries precede them.
 fn fix_dots(cluster: &mut [u8]) -> bool {
-    let slots: Vec<&[u8]> = cluster.chunks_exact(ENTRY).take(4).collect();
+    let slots: Vec<&[u8]> = cluster
+        .as_chunks::<ENTRY>()
+        .0
+        .iter()
+        .take(4)
+        .map(|slot| slot.as_slice())
+        .collect();
     let is = |slot: &[u8], name: &[u8; 11]| slot[..11] == *name && slot[11] & ATTR_DIR != 0;
     let lfn = |slot: &[u8]| slot[11] == ATTR_LFN && slot[0] != DELETED;
     if slots.len() < 4

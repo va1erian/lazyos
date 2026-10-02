@@ -325,7 +325,7 @@ fn the_stick_requires_usb_input_and_init() {
     let usbd = file(fhs::bin::USBD, b"\x7fELF".to_vec());
     let other = file(fhs::bin::INIT, b"\x7fELF".to_vec());
     assert!(usb_stick::check_profile(true, true, &[other.clone(), usbd.clone()]).is_ok());
-    let missing = usb_stick::check_profile(false, true, &[usbd.clone()]).unwrap_err();
+    let missing = usb_stick::check_profile(false, true, std::slice::from_ref(&usbd)).unwrap_err();
     assert!(missing.contains("LAZYOS_USB=1"), "{missing}");
     assert!(usb_stick::check_profile(true, false, &[usbd]).is_err());
     let absent = usb_stick::check_profile(true, true, &[other]).unwrap_err();
