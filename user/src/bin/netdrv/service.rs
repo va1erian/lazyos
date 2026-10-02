@@ -223,7 +223,7 @@ impl Service {
             .buffers
             .first()
             .ok_or_else(|| err(errno::EINVAL))?;
-        if message.buffers == 0 || message.handles == 0 {
+        if !message.carries(wire::ATTACH_RING_TRANSFERS) {
             return Err(err(errno::EINVAL));
         }
         if self.card.engine.attached().is_some() {

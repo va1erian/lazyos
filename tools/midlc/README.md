@@ -10,7 +10,9 @@
   interface hash.
 
 The grammar and versioning rules are described in
-[`docs/messenger.md`](../../docs/messenger.md) section 11; topic declarations
+[`docs/messenger.md`](../../docs/messenger.md) section 11; topic declarations,
+`transfers (...)` clauses (the handles and shared buffers a request carries
+outside its body) and `ring` declarations (shared-memory rings for bulk data)
 are documented in [`docs/midl.md`](../../docs/midl.md). Method ids are stable:
 an explicit `= 7` wins, otherwise a deterministic hash of the method name is
 used, and adding a method never renumbers existing ones.
@@ -33,6 +35,8 @@ python tools/midlc/midlc.py --check --out libs/generated/src/lib.rs idl/echo.mid
 
 # Compiler tests.
 python tools/midlc/test_midlc.py
+python tools/midlc/test_midlc_transfers.py
+python tools/midlc/test_midlc_rings.py
 
 # Generated-code round trips (host).
 cargo test -p messenger-generated

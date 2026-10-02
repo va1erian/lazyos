@@ -136,7 +136,7 @@ impl Hub {
         let args = wire::decode_open_args(&message.parcel.body).map_err(Error::Parcel)?;
         // A session without a surface is reserved for the login console.
         let surface = args.surface.ok_or(Error::Errno(-errno::EINVAL))?;
-        if message.handles == 0 {
+        if !message.carries(wire::OPEN_TRANSFERS) {
             return Err(Error::Errno(-errno::EINVAL));
         }
         let opened = self
@@ -238,7 +238,7 @@ impl Hub {
     /// `Attach`: only the display grant's holder (the compositor) may become
     /// the shell client.
     fn attach(&mut self, message: &Message) -> Result<Vec<u8>> {
-        if message.handles == 0 {
+        if !message.carries(shell_wire::ATTACH_TRANSFERS) {
             return Err(Error::Errno(-errno::EINVAL));
         }
         if !is_compositor(message.sender) {

@@ -152,7 +152,8 @@ impl Session {
                 return Err(-errno::EINVAL);
             }
         };
-        let reply = call(service, wire::METHOD_OPEN, body, vec![peer]);
+        let (handles, _) = wire::encode_open_transfers(&wire::OpenTransfers { events: peer });
+        let reply = call(service, wire::METHOD_OPEN, body, handles);
         match reply
             .and_then(|parcel| wire::decode_open_reply(&parcel.body).map_err(|_| -errno::EINVAL))
         {

@@ -154,12 +154,10 @@ impl ShellLink {
             events,
             buffer: alloc::vec![0u8; DEFAULT_BUFFER],
         };
-        let parcel = request(
-            SHELL_INTERFACE,
-            shell_wire::METHOD_ATTACH,
-            Vec::new(),
-            alloc::vec![peer.handle()],
-        );
+        let (handles, _) = shell_wire::encode_attach_transfers(&shell_wire::AttachTransfers {
+            events: peer.handle(),
+        });
+        let parcel = request(SHELL_INTERFACE, shell_wire::METHOD_ATTACH, Vec::new(), handles);
         if let Err(error) = link.call(&parcel) {
             // The peer may or may not have moved; closing a stale handle only
             // fails harmlessly.

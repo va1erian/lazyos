@@ -199,7 +199,7 @@ impl Service {
             .buffers
             .first()
             .ok_or_else(|| err(errno::EINVAL))?;
-        if message.buffers == 0 {
+        if !message.carries(wire::ATTACH_RING_TRANSFERS) {
             return Err(err(errno::EINVAL));
         }
         owned(&mut self.session, message, stream)?.attach(message.first_buffer, desc)

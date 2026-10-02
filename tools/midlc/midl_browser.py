@@ -27,6 +27,7 @@ from tkinter import filedialog, ttk
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import midlc  # noqa: E402
+import midlc_transfers  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SKIP_DIRS = {".git", ".claude", "target", "node_modules", "__pycache__", ".venv"}
@@ -96,7 +97,7 @@ def load(paths: list[Path]) -> list[Loaded]:
 def signature(method: midlc.Method) -> str:
     args = ", ".join(f"{p.name}: {p.ty}" for p in method.params)
     rets = ", ".join(f"{p.name}: {p.ty}" for p in method.returns)
-    return f"({args}) -> ({rets})"
+    return f"({args}) -> ({rets}){midlc_transfers.signature(method)}"
 
 
 def kind_of(method: midlc.Method) -> str:
@@ -394,6 +395,10 @@ class MidlBrowser:
             self._put(f"\nReturns ({len(method.returns)})\n", "section")
             for p in method.returns:
                 self._put(f"  {p.name}: {p.ty}\n", "code")
+        if method.transfers:
+            self._put(f"\nTransfers ({len(method.transfers)})\n", "section")
+            for t in method.transfers:
+                self._put(f"  {t.name}: {midlc_transfers.describe(t)}\n", "code")
 
     def _render_struct(self, node: Node) -> None:
         struct: midlc.Struct = node.payload  # type: ignore[assignment]

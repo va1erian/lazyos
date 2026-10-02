@@ -29,7 +29,8 @@ interface os.lazy.input.v1 {
     /// the login console and refused with `EINVAL` for now. The parcel transfers the event
     /// endpoint (`handles[0]`) that receives every event below. A task may hold
     /// several sessions, one per surface.
-    method Open(surface: Option<U64>) -> (session: U64) = 1;
+    method Open(surface: Option<U64>) -> (session: U64) = 1
+        transfers (events: Channel<os.lazy.input.v1>);
     /// End a session. Only the task that opened it may.
     method Close(session: U64) -> () = 2;
     /// The current layout name, modifier and lock bits (`mods` as in
@@ -66,7 +67,8 @@ interface os.lazy.input.v1 {
 interface os.lazy.input.shell.v1 {
     /// Become the shell client; the parcel transfers the endpoint (`handles[0]`)
     /// that receives the shell events below. Attaching again replaces it.
-    method Attach() -> () = 1;
+    method Attach() -> () = 1
+        transfers (events: Channel<os.lazy.input.shell.v1>);
     /// Move keyboard focus to `surface` (absent: nobody is focused and no key
     /// content is delivered). The previous holder gets `KeyboardLeave`, the new
     /// one `KeyboardEnter`; repeat is cancelled.

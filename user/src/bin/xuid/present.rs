@@ -110,7 +110,8 @@ fn try_attach(
         .buffers
         .first()
         .map_or(0, |buffer| buffer.len);
-    if message.buffers == 0 || claimed < expected {
+    // `AttachBuffer` and `AttachBufferSlot` both declare one buffer.
+    if !message.carries(wire::request_transfers(message.method())) || claimed < expected {
         return Err(messenger::errno::EINVAL);
     }
     let va = sys::display_map_buffer(message.first_buffer).map_err(|code| -code)?;

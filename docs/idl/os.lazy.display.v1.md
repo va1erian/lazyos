@@ -38,8 +38,8 @@ fields, which never use that id.
 
 | Method | Id | Kind | Signature |
 |---|---|---|---|
-| CreateSurface | 1 | sync | `(width: U32, height: U32, title: String, role: U32) -> (surface: U64)` |
-| AttachBuffer | 2 | sync | `(surface: U64) -> ()` |
+| CreateSurface | 1 | sync | `(width: U32, height: U32, title: String, role: U32) -> (surface: U64) transfers (events: Channel<os.lazy.display.v1>)` |
+| AttachBuffer | 2 | sync | `(surface: U64) -> () transfers (pixels: Buffer)` |
 | Commit | 3 | sync | `(surface: U64, x: U32, y: U32, w: U32, h: U32) -> ()` |
 | DestroySurface | 4 | sync | `(surface: U64) -> ()` |
 | PointerMove | 5 | oneway | `(x: I32, y: I32) -> ()` |
@@ -57,12 +57,12 @@ fields, which never use that id.
 | DragEnded | 17 | oneway | `(dropped: Bool) -> ()` |
 | ListSurfaces | 18 | sync | `() -> (surfaces: Array<SurfaceRow>)` |
 | GetWorkArea | 19 | sync | `() -> (x: I32, y: I32, w: I32, h: I32)` |
-| Subscribe | 20 | sync | `(subscriber_role: String) -> ()` |
+| Subscribe | 20 | sync | `(subscriber_role: String) -> () transfers (events: Channel<os.lazy.display.v1>)` |
 | GetTheme | 21 | sync | `() -> (title_bg_active: U32, title_bg_inactive: U32, border: U32, taskbar: U32, text: U32, mode: String, accent: U32)` |
 | SurfaceChanged | 22 | oneway | `(surface: U64, kind: U32, x: I32, y: I32, w: I32, h: I32, minimized: Bool, focused: Bool, title: Option<String>, role: U32, maximized: Bool) -> ()` |
 | FocusChanged | 23 | oneway | `(surface: Option<U64>) -> ()` |
 | StartMenu | 24 | oneway | `() -> ()` |
-| AttachBufferSlot | 25 | sync | `(surface: U64, slot: U32) -> ()` |
+| AttachBufferSlot | 25 | sync | `(surface: U64, slot: U32) -> () transfers (pixels: Buffer)` |
 | Present | 26 | oneway | `(surface: U64, slot: U32, seq: U64, damage: Array<Rect>) -> ()` |
 | BufferRelease | 27 | oneway | `(surface: U64, slot: U32) -> ()` |
 | FrameDone | 28 | oneway | `(surface: U64, seq: U64) -> ()` |
@@ -80,6 +80,18 @@ fields, which never use that id.
 | SetIconGeometry | 40 | sync | `(surface: U64, x: I32, y: I32, w: I32, h: I32) -> ()` |
 | HintLaunchOrigin | 41 | sync | `(x: I32, y: I32, w: U32, h: U32) -> ()` |
 | Dismiss | 42 | oneway | `() -> ()` |
+
+## Transfers
+
+Objects a request carries outside its body, in the parcel's
+`handles` and `buffers` vectors.
+
+| Method | Name | Slot |
+|---|---|---|
+| CreateSurface | `events` | `handles[0]`, a channel the receiver sends `os.lazy.display.v1` on |
+| AttachBuffer | `pixels` | `buffers[0]`, a shared buffer |
+| Subscribe | `events` | `handles[0]`, a channel the receiver sends `os.lazy.display.v1` on |
+| AttachBufferSlot | `pixels` | `buffers[0]`, a shared buffer |
 
 ## struct `Rect`
 

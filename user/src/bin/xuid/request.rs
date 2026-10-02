@@ -90,7 +90,7 @@ impl Compositor {
             self.screen.width().max(0) as u64,
             self.screen.height().max(0) as u64,
         );
-        if width == 0 || height == 0 || width > max_w || height > max_h || message.handles == 0 {
+        if width == 0 || height == 0 || width > max_w || height > max_h || !message.carries(wire::CREATE_SURFACE_TRANSFERS) {
             drop_rejected_handle(message);
             return error_reply(message.method(), messenger::errno::EINVAL);
         }

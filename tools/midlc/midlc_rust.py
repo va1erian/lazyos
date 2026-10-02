@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from midlc_model import Interface, Param, SCALARS, Topic, Type, snake_case
 from midlc_topics import qos_rust_expr
+from midlc_rings import emit_method_rings, emit_ring_decls
+from midlc_transfers import emit_method_transfers, emit_request_transfers
 
 # Topic codegen lives here; the shared Rust runtime (`TOPIC_SUPPORT`) is in
 # `midlc_topic_support` to keep this file small.
@@ -351,6 +353,10 @@ def emit_rust(interface: Interface) -> str:
         "    // Only interfaces that declare topics use the shared topic runtime.",
         "    #[allow(unused_imports)]",
         "    use super::topics;",
+        "    use super::transfers;",
+        "    // Only interfaces that declare rings use the ring descriptors.",
+        "    #[allow(unused_imports)]",
+        "    use super::rings;",
         "",
         "    /// The interface id: the FNV-1a hash of the `.vN` interface name.",
         f"    pub const INTERFACE_ID: u64 = {interface.id:#x};",
@@ -381,6 +387,15 @@ def emit_rust(interface: Interface) -> str:
         if method.returns:
             lines += emit_message(method.name, "reply", method.returns).splitlines()
             lines.append("")
+        if method.transfers:
+            lines += emit_method_transfers(method)
+            lines.append("")
+        if any(t.kind == "rings" for t in method.transfers):
+            lines += emit_method_rings(method)
+            lines.append("")
+    lines += emit_request_transfers(interface)
+    lines.append("")
+    lines += emit_ring_decls(interface)
     for topic in interface.topics:
         lines += emit_topic(interface, topic)
         lines.append("")

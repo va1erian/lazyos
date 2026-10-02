@@ -68,7 +68,8 @@ impl Server {
     pub(super) fn dispatch(&mut self, message: &Message) -> Option<Parcel> {
         let interface = message.interface_id();
         let method = message.method();
-        let wants_ring = interface == api::INTERFACE && method == wire::METHOD_ATTACHRING;
+        // Only a method that declares a buffer in `audio.midl` adopts one.
+        let wants_ring = interface == api::INTERFACE && wire::request_transfers(method).buffers > 0;
         let ring = take_ring(message, wants_ring);
         close_endpoint(message);
         let outcome = service::handle(

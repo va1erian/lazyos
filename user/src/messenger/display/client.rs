@@ -1,7 +1,6 @@
 //! [`Client`]: an app's connection to the compositor, built on the generated
 //! `os.lazy.display.v1` stubs.
 
-use alloc::vec;
 use alloc::vec::Vec;
 
 use libmessenger::{flags, BufferDesc, Parcel};
@@ -104,12 +103,11 @@ impl Client {
             role,
         })
         .map_err(Error::Parcel)?;
-        let reply = self.call(request(
-            wire::METHOD_CREATESURFACE,
-            body,
-            vec![events.handle()],
-            Vec::new(),
-        ))?;
+        let (handles, buffers) =
+            wire::encode_create_surface_transfers(&wire::CreateSurfaceTransfers {
+                events: events.handle(),
+            });
+        let reply = self.call(request(wire::METHOD_CREATESURFACE, body, handles, buffers))?;
         let surface = wire::decode_create_surface_reply(&reply.body)
             .map_err(Error::Parcel)?
             .surface;
@@ -132,13 +130,11 @@ impl Client {
             subscriber_role: role.into(),
         })
         .map_err(Error::Parcel)?;
-        self.call(request(
-            wire::METHOD_SUBSCRIBE,
-            body,
-            vec![events.handle()],
-            Vec::new(),
-        ))
-        .map(|_| ())
+        let (handles, buffers) = wire::encode_subscribe_transfers(&wire::SubscribeTransfers {
+            events: events.handle(),
+        });
+        self.call(request(wire::METHOD_SUBSCRIBE, body, handles, buffers))
+            .map(|_| ())
     }
 
     /// `ListSurfaces` (shell-only): every surface the compositor knows,
@@ -192,16 +188,13 @@ impl Client {
     pub fn attach_buffer(&self, surface: u64, buffer: u64, len: u64) -> Result<()> {
         let body = wire::encode_attach_buffer_args(&wire::AttachBufferArgs { surface })
             .map_err(Error::Parcel)?;
-        let buffers = vec![BufferDesc {
-            handle: buffer,
-            offset: 0,
-            len,
-            flags: 0,
-        }];
+        let (handles, buffers) = wire::encode_attach_buffer_transfers(&wire::AttachBufferTransfers {
+            pixels: whole(buffer, len),
+        });
         self.call(request(
             wire::METHOD_ATTACHBUFFER,
             body,
-            Vec::new(),
+            handles,
             buffers,
         ))
         .map(|_| ())
@@ -260,16 +253,14 @@ impl Client {
         let body =
             wire::encode_attach_buffer_slot_args(&wire::AttachBufferSlotArgs { surface, slot })
                 .map_err(Error::Parcel)?;
-        let buffers = vec![BufferDesc {
-            handle: buffer,
-            offset: 0,
-            len,
-            flags: 0,
-        }];
+        let (handles, buffers) =
+            wire::encode_attach_buffer_slot_transfers(&wire::AttachBufferSlotTransfers {
+                pixels: whole(buffer, len),
+            });
         self.call(request(
             wire::METHOD_ATTACHBUFFERSLOT,
             body,
-            Vec::new(),
+            handles,
             buffers,
         ))
         .map(|_| ())
@@ -426,5 +417,15 @@ impl Client {
             Some(code) => Err(Error::Errno(-code)),
             None => Ok(reply),
         }
+    }
+}
+
+/// The first `len` bytes of shared buffer `buffer`, as a transfer.
+fn whole(buffer: u64, len: u64) -> BufferDesc {
+    BufferDesc {
+        handle: buffer,
+        offset: 0,
+        len,
+        flags: 0,
     }
 }

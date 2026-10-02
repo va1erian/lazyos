@@ -15,7 +15,7 @@ Field ids are not written: a parameter or struct field's wire id is its
 
 from __future__ import annotations
 
-from midlc_model import SCALARS, Interface, Param, Type
+from midlc_model import SCALARS, Interface, Method, Param, Type
 from midlc_topics import QOS_VALUES
 
 SCHEMA_HEADER = (
@@ -25,7 +25,7 @@ SCHEMA_HEADER = (
     "//\n"
     "// Every Messenger interface as data, for dynamic clients (the Rhai `msg`\n"
     "// module). Wire field ids are 1-based positions in each field list.\n"
-    "use super::schema::{Enum, Field, Interface, Method, Struct, Topic, Ty};\n\n"
+    "use super::schema::{Enum, Field, Interface, Method, Struct, Topic, Transfer, Ty};\n\n"
 )
 
 # Builtin MIDL type -> `Ty` variant (scalars plus the leaf kinds).
@@ -64,6 +64,19 @@ def fields_expr(fields: list[Param], interface: Interface) -> str:
     return f"&[{items}]"
 
 
+def transfers_expr(method: Method) -> str:
+    """The `Transfer` list of `method`: a channel names its interface."""
+    if not method.transfers:
+        return "&[]"
+    items = ", ".join(
+        f"Transfer {{ name: {rust_str(t.name)}, channel: "
+        + (f"Some({rust_str(t.interface)})" if t.kind == "channel" else "None")
+        + " }"
+        for t in method.transfers
+    )
+    return f"&[{items}]"
+
+
 def section(name: str, items: list[str]) -> list[str]:
     """`name: &[ ... ],` with one item block per entry, or `&[]` when empty."""
     if not items:
@@ -88,6 +101,7 @@ def emit_interface(interface: Interface) -> list[str]:
             f"                doc: {rust_str(method.doc)},",
             f"                params: {fields_expr(method.params, interface)},",
             f"                returns: {fields_expr(method.returns, interface)},",
+            f"                transfers: {transfers_expr(method)},",
             "            },",
         ]
     lines += section("methods", methods)

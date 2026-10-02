@@ -301,6 +301,13 @@ impl Message {
     pub fn interface_id(&self) -> u64 {
         self.parcel.header.interface_id
     }
+
+    /// Whether the delivery carries exactly the handles and buffers its
+    /// method declares in `.midl` (`transfers (...)`), e.g.
+    /// `message.carries(wire::OPEN_TRANSFERS)`.
+    pub fn carries(&self, declared: messenger_generated::transfers::Transfers) -> bool {
+        declared.matches(self.handles, self.buffers)
+    }
 }
 
 /// Claim the boot-time client endpoint. Only the first userspace task can; a

@@ -184,15 +184,20 @@ impl Client {
             return Err(Error::Errno(-super::errno::EINVAL));
         }
         let one = ring_bytes(slots);
-        let len = one * 2;
+        // `net.midl` declares the buffer as `Ring<Rx, Tx>`: the generated
+        // layout places them back to back and sizes the whole buffer.
+        let layout =
+            wire::attach_ring_rings(one as u64).ok_or(Error::Errno(-super::errno::EINVAL))?;
+        let len = layout.total as usize;
         let (buffer, va) =
             sys::display_create_buffer(len as u64).map_err(|code| Error::Errno(-code))?;
         let base = va as *mut u8;
-        // SAFETY: the kernel mapped `len` zeroed bytes at `va`; both rings lie
-        // inside and the mapping lives until `Attachment::close`.
+        // SAFETY: the kernel mapped `len` zeroed bytes at `va`; each ring is
+        // `one` bytes at an offset the layout keeps inside `len`, and the
+        // mapping lives until `Attachment::close`.
         let (rx, tx) = unsafe {
-            let rx = Ring::create(base, one, slots);
-            let tx = Ring::create(base.add(one), one, slots);
+            let rx = Ring::create(base.add(layout.rx as usize), one, slots);
+            let tx = Ring::create(base.add(layout.tx as usize), one, slots);
             (rx, tx)
         };
         let (Ok(rx), Ok(tx)) = (rx, tx) else {
@@ -201,18 +206,16 @@ impl Client {
         };
         let body = wire::encode_attach_ring_args(&wire::AttachRingArgs { slots })
             .map_err(Error::Parcel)?;
-        let descriptor = BufferDesc {
-            handle: buffer,
-            offset: 0,
-            len: len as u64,
-            flags: 0,
-        };
-        let request = parcel(
-            wire::METHOD_ATTACHRING,
-            body,
-            vec![transfer],
-            vec![descriptor],
-        );
+        let (handles, buffers) = wire::encode_attach_ring_transfers(&wire::AttachRingTransfers {
+            rings: BufferDesc {
+                handle: buffer,
+                offset: 0,
+                len: len as u64,
+                flags: 0,
+            },
+            notify: transfer,
+        });
+        let request = parcel(wire::METHOD_ATTACHRING, body, handles, buffers);
         match self.call(request, None) {
             Ok(reply) => {
                 let ring = wire::decode_attach_ring_reply(&reply.body)
