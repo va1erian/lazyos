@@ -144,8 +144,8 @@ python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/do
 
 The Terminal reports one `TERM:OUT` per command, and a command that wraps past
 80 columns reports its own tail instead: keep typed commands short (`doom.json`
-sets `PS1='# '` first). Shell command substitution (`$(...)`) currently hangs
-the desktop Terminal's shell; avoid it in session scripts.
+sets `PS1='# '` first). Shell command substitution (`$(...)`) works since #518
+(`cmdsubst_console.json`, `cmdsubst_desktop.json`).
 
 ## Rhai scripting (`rhai` command and `msg` module)
 
