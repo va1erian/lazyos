@@ -80,6 +80,11 @@ pub const INTERFACES: &[(&str, &str, &str)] = &[
         "Use the stored secrets and encryption keys",
     ),
     (
+        "os.lazy.lifecycle.v1",
+        HIGH,
+        "Ask system services to save their state and stop",
+    ),
+    (
         "os.lazy.logd.v1",
         MEDIUM,
         "Read the system event log, which records what other apps did",
@@ -124,6 +129,11 @@ pub const INTERFACES: &[(&str, &str, &str)] = &[
         "os.lazy.messenger.registry.v1",
         HIGH,
         "Publish system services and list the ones that exist",
+    ),
+    (
+        "os.lazy.shell.v1",
+        HIGH,
+        "Control the desktop: open the start menu and start apps as you would",
     ),
     ("os.lazy.sysmond.v1", LOW, "Read CPU and memory statistics"),
     ("os.lazy.timed.v1", LOW, "Read the time and the time zone"),
@@ -184,24 +194,57 @@ pub fn topic(entry: &str) -> Explained {
 /// Where per-user data lives; rules inside it are the gentler ones.
 const HOME: &str = fhs::state::HOME_ROOT;
 
-fn in_home(path: &str) -> bool {
-    path == HOME
-        || path
-            .strip_prefix(HOME)
-            .is_some_and(|rest| rest.starts_with('/'))
+/// The per-user folder of an app inside `$HOME`: `$HOME/.apps/<system_name>`.
+const HOME_APPS: &str = ".apps";
+
+/// `path` is `root` or below it.
+fn within(path: &str, root: &str) -> bool {
+    path.strip_prefix(root)
+        .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
 }
 
-/// The explanation of one `read:<path>` or `write:<path>` entry. Writing is
-/// medium inside `/data/home` and high anywhere else; reading is low inside
-/// `/data/home` and medium anywhere else.
-pub fn file(entry: &str) -> Explained {
+/// Where a file rule points, which sets its risk.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Place {
+    /// The app's own folder, `$HOME/.apps/<own system_name>/...`.
+    OwnData,
+    /// The user's personal data: anything else under `$HOME` or `/data/home`.
+    Personal,
+    /// Anywhere else on the system.
+    System,
+}
+
+fn place(path: &str, system_name: &str) -> Place {
+    let own = format!("{}/{HOME_APPS}/{system_name}", lazypkg::HOME_VAR);
+    if within(path, &own) {
+        Place::OwnData
+    } else if within(path, lazypkg::HOME_VAR) || within(path, HOME) {
+        Place::Personal
+    } else {
+        Place::System
+    }
+}
+
+/// The explanation of one `read:<path>` or `write:<path>` entry of the package
+/// `system_name`. The app's own `$HOME/.apps/<system_name>` folder is low risk
+/// either way. Other personal data (`$HOME/...`, `/data/home/...`) is low to
+/// read and medium to write; anywhere else it is medium to read and high to
+/// write.
+pub fn file(entry: &str, system_name: &str) -> Explained {
     match entry.split_once(':') {
         Some(("write", path)) => Explained {
-            risk: if in_home(path) { MEDIUM } else { HIGH },
+            risk: match place(path, system_name) {
+                Place::OwnData => LOW,
+                Place::Personal => MEDIUM,
+                Place::System => HIGH,
+            },
             text: format!("Create, change and delete files in {path}"),
         },
         Some(("read", path)) => Explained {
-            risk: if in_home(path) { LOW } else { MEDIUM },
+            risk: match place(path, system_name) {
+                Place::OwnData | Place::Personal => LOW,
+                Place::System => MEDIUM,
+            },
             text: format!("Read files in {path}"),
         },
         _ => Explained {
@@ -248,7 +291,8 @@ pub fn permissions(manifest: &Manifest) -> Vec<Permission> {
         out.push(permission("topic", entry, topic(entry)));
     }
     for entry in &requested.files {
-        out.push(permission("file", entry, file(entry)));
+        let explained = file(entry, &manifest.app.system_name);
+        out.push(permission("file", entry, explained));
     }
     for entry in &requested.network {
         out.push(permission("network", entry, network(entry)));
@@ -339,6 +383,7 @@ mod tests {
 
     #[test]
     fn file_risk_depends_on_read_write_and_location() {
+        let file = |entry| file(entry, "org.lazy.demo");
         assert_eq!(file("read:/data/home/*/pictures").risk, LOW);
         assert_eq!(file("write:/data/home/*/pictures").risk, MEDIUM);
         assert_eq!(file("read:/etc/passwd").risk, MEDIUM);
@@ -346,6 +391,24 @@ mod tests {
         // A sibling that merely starts with the home path is not inside it.
         assert_eq!(file("write:/data/homework").risk, HIGH);
         assert_eq!(file("exec:/bin/sh").risk, HIGH);
+    }
+
+    #[test]
+    fn home_rules_are_personal_data_except_the_apps_own_folder() {
+        let file = |entry| file(entry, "org.lazy.demo");
+        assert_eq!(file("write:$HOME/.apps/org.lazy.demo").risk, LOW);
+        assert_eq!(file("write:$HOME/.apps/org.lazy.demo/data/*").risk, LOW);
+        assert_eq!(file("read:$HOME/.apps/org.lazy.demo/data").risk, LOW);
+        // Another app's folder, or one whose name merely starts with ours.
+        assert_eq!(file("write:$HOME/.apps/org.lazy.other/x").risk, MEDIUM);
+        assert_eq!(file("write:$HOME/.apps/org.lazy.demo2/x").risk, MEDIUM);
+        assert_eq!(file("write:$HOME/.apps/*").risk, MEDIUM);
+        assert_eq!(file("write:$HOME/Documents/*").risk, MEDIUM);
+        assert_eq!(file("read:$HOME/Documents/*").risk, LOW);
+        assert_eq!(
+            file("write:$HOME/Documents/*").text,
+            "Create, change and delete files in $HOME/Documents/*"
+        );
     }
 
     #[test]

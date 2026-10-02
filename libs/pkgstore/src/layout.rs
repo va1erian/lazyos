@@ -67,6 +67,8 @@ pub fn valid_system_name(name: &str) -> bool {
 }
 
 /// `<system_name>/<version>-<8 lowercase hex>`, the shape `lazypkg` builds.
+/// The version is a [`lazypkg::Version`], whose grammar has no `/` and no
+/// empty or `..` component, so it cannot step out of the app's directory.
 pub fn valid_install_dir(install_dir: &str) -> bool {
     let Some((system_name, leaf)) = install_dir.split_once('/') else {
         return false;
@@ -74,12 +76,8 @@ pub fn valid_install_dir(install_dir: &str) -> bool {
     let Some((version, digest)) = leaf.rsplit_once('-') else {
         return false;
     };
-    let parts: Vec<&str> = version.split('.').collect();
     valid_system_name(system_name)
-        && parts.len() == 3
-        && parts.iter().all(|part| {
-            !part.is_empty() && part.len() <= 5 && part.bytes().all(|b| b.is_ascii_digit())
-        })
+        && lazypkg::Version::parse(version).is_ok()
         && digest.len() == DIGEST_CHARS
         && digest
             .bytes()
@@ -208,13 +206,21 @@ mod tests {
 
     #[test]
     fn install_dirs_have_the_lazypkg_shape() {
-        assert!(valid_install_dir("org.lazy.counter/1.0.0-0a1b2c3d"));
+        for good in [
+            "org.lazy.counter/1.0.0-0a1b2c3d",
+            "org.lazy.counter/1.0-0a1b2c3d",
+            "org.lazy.counter/1.0.0-rc-1-0a1b2c3d",
+        ] {
+            assert!(valid_install_dir(good), "{good}");
+        }
         for bad in [
             "org.lazy.counter",
             "org.lazy.counter/1.0.0",
             "org.lazy.counter/1.0.0-0A1B2C3D",
             "org.lazy.counter/1.0.0-0a1b2c3",
-            "org.lazy.counter/1.0-0a1b2c3d",
+            "org.lazy.counter/1-0a1b2c3d",
+            "org.lazy.counter/1.0.0--0a1b2c3d",
+            "org.lazy.counter/1..0-0a1b2c3d",
             "org.lazy.counter/../x-0a1b2c3d",
             "org.lazy.counter/1.0.0-0a1b2c3d/x",
             "../1.0.0-0a1b2c3d",
