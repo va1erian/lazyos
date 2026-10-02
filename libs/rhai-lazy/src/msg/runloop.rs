@@ -1,11 +1,18 @@
-//! The event loop: `msg::on(filter, |event| ...)`, `msg::serve(...)` and
-//! `msg::run()`.
+//! Sources and their work: `msg::on(filter, |event| ...)`, `msg::serve(...)`
+//! and the blocking `msg::run()`.
 //!
 //! Rhai is single-threaded, so a script that reacts to the fabric registers
 //! *sources* (topic subscriptions with a handler, served endpoints with a
-//! handler per method) and then hands control to `msg::run()`, which waits on
-//! all of them and calls the handlers. A handler can end the loop with
-//! `msg::stop()`; `msg::run(ms)` also ends after `ms` milliseconds.
+//! handler per method). Something then waits on them and runs the handlers:
+//! `msg::run()` in the `rhai` command, which blocks until `msg::stop()` or its
+//! time budget, or a LazyRAD form's window timer (`super::events`), which
+//! takes only what is ready so the window keeps painting. Both go through
+//! [`poll`] and [`handle`], so they answer services, ack reliable topics and
+//! turn thrown values into structured errors the same way.
+//!
+//! Every source has an *owner*: the form whose script registered it (empty
+//! for the `rhai` command). A window pumps only its own form's sources and
+//! releases them when it closes.
 //!
 //! Serving: `msg::serve(name, interface, #{ Echo: |text, count| ... })`
 //! registers `name` with the kernel and answers each call by running the
@@ -15,19 +22,25 @@
 //! error: the thrown text with `EIO`, or `#{ code: 13, message: "..." }` for a
 //! specific errno. One-way methods run their handler and send nothing back.
 
+use alloc::boxed::Box;
 use alloc::format;
 use alloc::rc::Rc;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
+use core::cell::Cell;
 
 use libmessenger::Encoder;
 use rhai::{Dynamic, EvalAltResult, FnPtr, Map, NativeCallContext, INT};
 
-use super::bus::Incoming;
+use super::bus::{Incoming, Wait};
 use super::codec;
 use super::schema::{self, Interface, Method};
 use super::service::{script_error, Fabric, Fallible};
 use super::topics::Subscription;
+
+/// Runs a handler: `FnPtr::call_within_context` inside `msg::run`, the form's
+/// engine and AST when a window pumps.
+pub type Call<'a> = dyn FnMut(&FnPtr, Vec<Dynamic>) -> Result<Dynamic, Box<EvalAltResult>> + 'a;
 
 /// Longest single wait when only one source is registered, so `run(ms)`
 /// still notices its own deadline promptly.
@@ -39,8 +52,8 @@ const ERROR_FIELD: u16 = 15;
 const EIO: u32 = 5;
 const ENOSYS: u32 = 38;
 
-/// Something `msg::run` waits on.
-pub enum Source {
+/// Something a handler waits on.
+pub enum SourceKind {
     Topic {
         subscription: Subscription,
         handler: FnPtr,
@@ -53,18 +66,50 @@ pub enum Source {
     },
 }
 
+/// A registered source and the script that registered it.
+pub struct Source {
+    pub(crate) owner: String,
+    pub(crate) kind: SourceKind,
+    /// Consecutive failed passes, so a handler failing on every event is
+    /// reported once rather than once per event (`super::events`).
+    pub(crate) failures: Cell<u32>,
+}
+
+impl Source {
+    fn new(owner: &str, kind: SourceKind) -> Self {
+        Self {
+            owner: owner.to_string(),
+            kind,
+            failures: Cell::new(0),
+        }
+    }
+}
+
 /// `msg::on(filter, handler)`: subscribe and remember the handler.
-pub fn on(fabric: &Rc<Fabric>, filter: &str, opts: &Map, handler: FnPtr) -> Fallible<Subscription> {
+pub fn on(
+    fabric: &Rc<Fabric>,
+    owner: &str,
+    filter: &str,
+    opts: &Map,
+    handler: FnPtr,
+) -> Fallible<Subscription> {
     let subscription = super::topics::subscribe(fabric, filter, opts)?;
-    fabric.sources.borrow_mut().push(Source::Topic {
+    let kind = SourceKind::Topic {
         subscription: subscription.clone(),
         handler,
-    });
+    };
+    fabric.sources.borrow_mut().push(Source::new(owner, kind));
     Ok(subscription)
 }
 
 /// `msg::serve(name, interface, handlers)`: register and remember.
-pub fn serve(fabric: &Rc<Fabric>, name: &str, interface: &str, handlers: Map) -> Fallible<()> {
+pub fn serve(
+    fabric: &Rc<Fabric>,
+    owner: &str,
+    name: &str,
+    interface: &str,
+    handlers: Map,
+) -> Fallible<()> {
     let iface = schema::interface(interface)
         .ok_or_else(|| script_error(format!("msg::serve: unknown interface `{interface}`")))?;
     let mut table = Vec::new();
@@ -83,18 +128,19 @@ pub fn serve(fabric: &Rc<Fabric>, name: &str, interface: &str, handlers: Map) ->
         .bus()
         .register(name, &[iface.id])
         .map_err(|e| script_error(format!("msg::serve: cannot register `{name}`: {e}")))?;
-    fabric.sources.borrow_mut().push(Source::Service {
+    let kind = SourceKind::Service {
         name: name.into(),
         endpoint,
         interface: iface,
         handlers: table,
-    });
+    };
+    fabric.sources.borrow_mut().push(Source::new(owner, kind));
     Ok(())
 }
 
 /// What one pass over a source produced, taken out of the source list so no
 /// borrow is held while a handler runs (a handler may call `msg::on` too).
-enum Work {
+pub(crate) enum Work {
     Event(Subscription, FnPtr, Dynamic),
     Request(
         &'static Interface,
@@ -103,22 +149,23 @@ enum Work {
     ),
 }
 
-fn poll(fabric: &Fabric, index: usize, wait_ms: u64) -> Fallible<Option<Work>> {
+/// The next piece of work from source `index`, waiting as `wait` allows.
+pub(crate) fn poll(fabric: &Fabric, index: usize, wait: Wait) -> Fallible<Option<Work>> {
     let sources = fabric.sources.borrow();
     let Some(source) = sources.get(index) else {
         return Ok(None);
     };
-    match source {
-        Source::Topic {
+    match &source.kind {
+        SourceKind::Topic {
             subscription,
             handler,
         } => {
             let (subscription, handler) = (subscription.clone(), handler.clone());
             drop(sources);
-            let event = subscription.next(wait_ms)?;
+            let event = subscription.next(wait)?;
             Ok((!event.is_unit()).then(|| Work::Event(subscription, handler, event)))
         }
-        Source::Service {
+        SourceKind::Service {
             name,
             endpoint,
             interface,
@@ -126,8 +173,8 @@ fn poll(fabric: &Fabric, index: usize, wait_ms: u64) -> Fallible<Option<Work>> {
         } => {
             let incoming = fabric
                 .bus()
-                .recv(*endpoint, wait_ms)
-                .map_err(|e| script_error(format!("msg::run: {name}: {e}")))?;
+                .recv(*endpoint, wait)
+                .map_err(|e| script_error(format!("msg: serving {name}: {e}")))?;
             Ok(incoming.map(|request| {
                 let handler = interface
                     .method_by_id(request.method)
@@ -168,7 +215,7 @@ fn error_body(code: u32, message: &str) -> Vec<u8> {
 
 /// Answer one request: decode, run the handler, encode the reply or error.
 fn answer(
-    ctx: &NativeCallContext,
+    call: &mut Call,
     iface: &'static Interface,
     handler: Option<(&'static Method, FnPtr)>,
     request: &Incoming,
@@ -184,8 +231,7 @@ fn answer(
             .collect::<Vec<_>>(),
         Err(e) => return error_body(22, &format!("bad arguments: {e}")),
     };
-    let result: Result<Dynamic, _> = handler.call_within_context(ctx, args);
-    let value = match result {
+    let value = match call(&handler, args) {
         Ok(value) => value,
         Err(error) => {
             let (code, message) = thrown(&error);
@@ -211,56 +257,70 @@ fn answer(
     })
 }
 
-fn handle(ctx: &NativeCallContext, fabric: &Fabric, work: Work) -> Fallible<()> {
+/// Run one piece of work. A topic handler's error comes back to the caller
+/// *after* a reliable event is acked: the event reached the script, and
+/// redelivering it would only fail again. A service handler's error is the
+/// reply the caller gets, so it is not an error here.
+pub(crate) fn handle(fabric: &Fabric, work: Work, call: &mut Call) -> Fallible<()> {
     match work {
         Work::Event(subscription, handler, event) => {
             let sequence = event
                 .read_lock::<Map>()
                 .and_then(|m| m.get("sequence").and_then(|s| s.as_int().ok()));
             // A topic handler's value has no reader.
-            let _ = handler.call_within_context::<Dynamic>(ctx, (event,))?;
+            let outcome = call(&handler, alloc::vec![event]).map(|_| ());
             if let (true, Some(sequence)) = (subscription.is_reliable(), sequence) {
                 subscription.ack(sequence)?;
             }
-            Ok(())
+            outcome
         }
         Work::Request(iface, handler, request) => {
-            let body = answer(ctx, iface, handler, &request);
+            let body = answer(call, iface, handler, &request);
             if let Some(txn) = request.txn {
                 fabric
                     .bus()
                     .reply(txn, request.interface, request.method, &body)
-                    .map_err(|e| script_error(format!("msg::run: reply: {e}")))?;
+                    .map_err(|e| script_error(format!("msg: reply: {e}")))?;
             }
             Ok(())
         }
     }
 }
 
-/// `msg::run([ms])`: wait on every source and run handlers until `msg::stop()`
-/// or, with `ms`, until that much time has passed. Returns the number of
-/// events and requests handled.
-pub fn run(ctx: &NativeCallContext, fabric: &Rc<Fabric>, budget_ms: Option<u64>) -> Fallible<INT> {
+/// `msg::run([ms])`: wait on `owner`'s sources and run handlers until
+/// `msg::stop()` or, with `ms`, until that much time has passed. Returns the
+/// number of events and requests handled.
+pub fn run(
+    ctx: &NativeCallContext,
+    fabric: &Rc<Fabric>,
+    owner: &str,
+    budget_ms: Option<u64>,
+) -> Fallible<INT> {
     let now_ms = || fabric.bus().clock_ms();
-    if fabric.sources.borrow().is_empty() {
+    let mine = |fabric: &Fabric| -> Vec<usize> {
+        let sources = fabric.sources.borrow();
+        (0..sources.len()).filter(|&i| sources[i].owner == owner).collect()
+    };
+    if mine(fabric).is_empty() {
         return Err(script_error(
             "msg::run: nothing to wait for (use msg::on or msg::serve first)",
         ));
     }
+    let mut call = |handler: &FnPtr, args: Vec<Dynamic>| handler.call_within_context(ctx, args);
     fabric.stop.set(false);
     let started = now_ms();
     let mut handled: INT = 0;
     loop {
-        let count = fabric.sources.borrow().len();
-        for index in 0..count {
+        let indices = mine(fabric);
+        for &index in &indices {
             let remaining = budget_ms.map(|b| b.saturating_sub(now_ms().saturating_sub(started)));
             if fabric.stop.get() || remaining == Some(0) {
                 return Ok(handled);
             }
-            let slice = if count == 1 { SLICE_MS } else { POLL_MS };
-            let wait = remaining.map_or(slice, |r| r.min(slice)).max(1);
+            let slice = if indices.len() == 1 { SLICE_MS } else { POLL_MS };
+            let wait = Wait::Ms(remaining.map_or(slice, |r| r.min(slice)).max(1));
             if let Some(work) = poll(fabric, index, wait)? {
-                handle(ctx, fabric, work)?;
+                handle(fabric, work, &mut call)?;
                 handled += 1;
             }
         }

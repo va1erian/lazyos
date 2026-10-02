@@ -15,7 +15,7 @@ use messenger_generated::{
     os_lazy_confd_v1 as confd, os_lazy_echo_v1 as echo, os_lazy_messenger_topics_v1 as topics,
 };
 
-use crate::msg::{schema, Bus, BusError, Incoming};
+use crate::msg::{schema, Bus, BusError, Incoming, Wait};
 
 /// One queued one-way message: `(endpoint, interface, method, body)`.
 pub type Sent = (u64, u64, u32, Vec<u8>);
@@ -42,6 +42,10 @@ pub struct MockBus {
     pub replies: RefCell<Vec<(u64, Vec<u8>)>>,
     /// Names registered by the script: `(name, server endpoint, interfaces)`.
     pub registered: RefCell<Vec<(String, u64, Vec<u64>)>>,
+    /// Names the script withdrew: `(name, server endpoint)`.
+    pub unregistered: RefCell<Vec<(String, u64)>>,
+    /// How each call was allowed to wait, in order.
+    pub waits: RefCell<Vec<Wait>>,
 }
 
 impl MockBus {
@@ -82,9 +86,11 @@ impl Bus for MockBus {
         iface: u64,
         method: u32,
         body: &[u8],
-        ms: u64,
+        wait: Wait,
     ) -> Result<Vec<u8>, BusError> {
+        let ms = wait.millis();
         self.calls.set(self.calls.get() + 1);
+        self.waits.borrow_mut().push(wait);
         if self.stalled.get() {
             self.clock.set(self.clock.get() + ms);
             return Err(BusError::errno(-110));
@@ -128,7 +134,8 @@ impl Bus for MockBus {
         Ok(server)
     }
 
-    fn recv(&self, endpoint: u64, ms: u64) -> Result<Option<Incoming>, BusError> {
+    fn recv(&self, endpoint: u64, wait: Wait) -> Result<Option<Incoming>, BusError> {
+        let ms = wait.millis();
         let mut inbox = self.inbox.borrow_mut();
         match inbox.iter().position(|(ep, _)| *ep == endpoint) {
             Some(index) => Ok(inbox.remove(index).map(|(_, request)| request)),
@@ -141,6 +148,14 @@ impl Bus for MockBus {
 
     fn reply(&self, txn: u64, _iface: u64, _method: u32, body: &[u8]) -> Result<(), BusError> {
         self.replies.borrow_mut().push((txn, body.to_vec()));
+        Ok(())
+    }
+
+    fn unregister(&self, name: &str, endpoint: u64) -> Result<(), BusError> {
+        self.names.borrow_mut().retain(|(n, _)| n != name);
+        self.unregistered
+            .borrow_mut()
+            .push((name.to_string(), endpoint));
         Ok(())
     }
 

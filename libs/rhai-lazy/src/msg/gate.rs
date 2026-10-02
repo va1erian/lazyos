@@ -19,7 +19,7 @@ use core::arch::asm;
 use libmessenger::{flags, Header, Parcel, VERSION};
 use messenger_generated::os_lazy_messenger_registry_v1 as registry;
 
-use super::bus::{Bus, BusError, Incoming};
+use super::bus::{Bus, BusError, Incoming, Wait};
 
 /// `messenger(op, args, result)`.
 const SYS_MESSENGER: u64 = 5;
@@ -33,14 +33,18 @@ mod op {
     pub const REPLY: u64 = 2;
     pub const SEND: u64 = 3;
     pub const RECV: u64 = 4;
+    pub const CLOSE_ENDPOINT: u64 = 6;
     pub const CREATE_PAIR: u64 = 7;
     pub const REGISTER: u64 = 13;
     pub const RESOLVE: u64 = 14;
+    pub const UNREGISTER: u64 = 15;
     pub const LIST: u64 = 16;
 }
 
-/// `recv` deadline that is already in the past: a poll (the kernel checks the
-/// inbox first, then wakes with `ETIMEDOUT` on the next tick).
+/// The poll deadline (`EXPIRED_DEADLINE` in the native library): a `recv`
+/// takes what is queued, and a `call` is answered if the callee can do so in
+/// its current service turn (a topic pull with no event), otherwise
+/// `ETIMEDOUT` without blocking for long (`kernel/src/ipc/channels.rs`).
 const EXPIRED_DEADLINE: u64 = 1;
 const ETIMEDOUT: i64 = 110;
 const ENOENT: i64 = 2;
@@ -206,13 +210,31 @@ impl Gate {
         return None;
     }
 
-    /// An absolute PIT deadline `ms` from now; `0` waits forever.
-    fn deadline(ms: u64) -> u64 {
-        if ms == 0 {
-            return 0;
+    /// The kernel deadline for `wait`: `0` waits forever, [`EXPIRED_DEADLINE`]
+    /// polls, anything else is an absolute PIT tick.
+    fn deadline(wait: Wait) -> u64 {
+        match wait {
+            Wait::Forever => 0,
+            Wait::Poll => EXPIRED_DEADLINE,
+            Wait::Ms(ms) => {
+                let now = native(SYS_CLOCK, 0, 0, 0) as u64;
+                now.saturating_add(ms.div_ceil(TICK_MS).max(1))
+            }
         }
-        let now = native(SYS_CLOCK, 0, 0, 0) as u64;
-        now.saturating_add(ms.div_ceil(TICK_MS).max(1))
+    }
+
+    /// One registry op (`REGISTER`, `UNREGISTER`) on this task's behalf.
+    fn registry_op(op: u64, method: u32, body: &[u8]) -> Result<MsgResult, BusError> {
+        let request = encode(registry::INTERFACE_ID, method, 0, body)?;
+        let args = MsgArgs {
+            txn_id: TARGET_SELF,
+            parcel_ptr: request.as_ptr() as u64,
+            parcel_len: request.len() as u64,
+            ..MsgArgs::default()
+        };
+        let mut result = MsgResult::default();
+        messenger(op, &args, &mut result)?;
+        Ok(result)
     }
 }
 
@@ -238,7 +260,7 @@ impl Bus for Gate {
         interface: u64,
         method: u32,
         body: &[u8],
-        timeout_ms: u64,
+        wait: Wait,
     ) -> Result<Vec<u8>, BusError> {
         // `ALLOW_NESTED`: a script may be parked on another transaction of
         // the same channel (a topic pull) when it calls again.
@@ -250,7 +272,7 @@ impl Bus for Gate {
             parcel_len: request.len() as u64,
             buf_ptr: buf.as_mut_ptr() as u64,
             buf_cap: buf.len() as u64,
-            deadline: Self::deadline(timeout_ms),
+            deadline: Self::deadline(wait),
             ..MsgArgs::default()
         };
         let mut result = MsgResult::default();
@@ -301,24 +323,27 @@ impl Bus for Gate {
             lease_ticks: 0,
         })
         .map_err(invalid)?;
-        let request = encode(registry::INTERFACE_ID, registry::METHOD_REGISTER, 0, &body)?;
-        let args = MsgArgs {
-            txn_id: TARGET_SELF,
-            parcel_ptr: request.as_ptr() as u64,
-            parcel_len: request.len() as u64,
-            ..MsgArgs::default()
-        };
-        messenger(op::REGISTER, &args, &mut MsgResult::default())?;
+        Self::registry_op(op::REGISTER, registry::METHOD_REGISTER, &body)?;
         Ok(server)
     }
 
-    fn recv(&self, endpoint: u64, timeout_ms: u64) -> Result<Option<Incoming>, BusError> {
-        let mut buf = vec![0u8; REPLY_BUFFER];
-        let deadline = if timeout_ms == 0 {
-            EXPIRED_DEADLINE
-        } else {
-            Self::deadline(timeout_ms)
+    fn unregister(&self, name: &str, endpoint: u64) -> Result<(), BusError> {
+        let body = registry::encode_unregister_args(&registry::UnregisterArgs { name: name.into() })
+            .map_err(invalid)?;
+        let withdrawn = Self::registry_op(op::UNREGISTER, registry::METHOD_UNREGISTER, &body);
+        // Close the receive side even when the name was already gone, so
+        // callers holding the old endpoint fail with `EPIPE` at once.
+        let args = MsgArgs {
+            handle: endpoint,
+            ..MsgArgs::default()
         };
+        let closed = messenger(op::CLOSE_ENDPOINT, &args, &mut MsgResult::default());
+        withdrawn.and(closed)
+    }
+
+    fn recv(&self, endpoint: u64, wait: Wait) -> Result<Option<Incoming>, BusError> {
+        let mut buf = vec![0u8; REPLY_BUFFER];
+        let deadline = Self::deadline(wait);
         let args = MsgArgs {
             handle: endpoint,
             buf_ptr: buf.as_mut_ptr() as u64,

@@ -7,16 +7,19 @@ Reads `.midl` interface definitions (docs/messenger.md section 11) and emits:
   * a Markdown reference per interface (signatures, types),
   * a machine-readable manifest (method ids and the interface hash),
   * a schema table (`--schema`): every interface as static data for dynamic
-    clients such as the Rhai `msg` module (`midlc_schema`).
+    clients such as the Rhai `msg` module (`midlc_schema`),
+  * Rhai API modules (`--rhai-api DIR`): one `sys::<alias>` module per
+    interface, their Rust index and reference page (`midlc_rhai`).
 
 Usage:
     python tools/midlc/midlc.py --out libs/generated/src/lib.rs idl/echo.midl
     python tools/midlc/midlc.py --check --out libs/generated/src/lib.rs idl/echo.midl
     python tools/midlc/midlc.py --manifest build/manifest.json idl/echo.midl
     python tools/midlc/midlc.py --schema libs/rhai-lazy/src/msg/idl.rs idl/*.midl
+    python tools/midlc/midlc.py --rhai-api libs/rhai-lazy/api idl/*.midl
 
 `--check` regenerates in memory and fails if the committed `--out` (and, when
-given, `--schema`) file differs, so
+given, `--schema` or `--rhai-api`) output differs, so
 generated code cannot silently drift; CI runs it on every pull request.
 
 Grammar (small on purpose):
@@ -70,6 +73,7 @@ from midlc_model import (
 )
 from midlc_parser import Parser, check_type, validate
 from midlc_schema import emit_schema
+from midlc_rhai import emit_rhai_api
 from midlc_rust import (
     DECODE_EXPR,
     ITEM_EXPR,
@@ -118,6 +122,26 @@ def generate(inputs: list[Path]) -> tuple[str, list[dict], dict[str, str]]:
     return rust, [emit_manifest(i) for i in interfaces], {i.name: emit_markdown(i) for i in interfaces}
 
 
+def stale_files(directory: Path, files: dict[str, str]) -> list[str]:
+    """Generated-looking files in `directory` that `files` no longer holds
+    (a module of a removed or renamed interface)."""
+    if not directory.is_dir():
+        return []
+    return sorted(
+        p.name for p in directory.iterdir()
+        if p.suffix in (".rhai", ".rs", ".md") and p.name not in files
+    )
+
+
+def write_rhai_api(directory: Path, files: dict[str, str]) -> None:
+    directory.mkdir(parents=True, exist_ok=True)
+    for name in stale_files(directory, files):
+        (directory / name).unlink()
+    for name, text in files.items():
+        (directory / name).write_text(text, encoding="utf-8", newline="\n")
+    print(f"midlc: wrote {len(files)} file(s) to {directory}")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("inputs", nargs="+", type=Path, help=".midl files")
@@ -125,12 +149,14 @@ def main() -> int:
     parser.add_argument("--manifest", type=Path, help="write the JSON manifest here")
     parser.add_argument("--docs", type=Path, help="write Markdown docs into this directory")
     parser.add_argument("--schema", type=Path, help="write the interface schema table here")
-    parser.add_argument("--check", action="store_true", help="fail if --out/--schema would change")
+    parser.add_argument("--rhai-api", type=Path, help="write the Rhai API modules into this directory")
+    parser.add_argument("--check", action="store_true", help="fail if --out/--schema/--rhai-api would change")
     args = parser.parse_args()
 
     try:
         rust, manifests, docs = generate(args.inputs)
         schema = emit_schema(parse_all(args.inputs)) if args.schema else ""
+        rhai_api = emit_rhai_api(parse_all(args.inputs)) if args.rhai_api else {}
     except MidlError as error:
         print(f"midlc: {error}", file=sys.stderr)
         return 1
@@ -138,8 +164,14 @@ def main() -> int:
     if args.check:
         targets = [(flag, path, text) for flag, path, text in
                    (("--out", args.out, rust), ("--schema", args.schema, schema)) if path]
+        if args.rhai_api:
+            targets += [("--rhai-api", args.rhai_api / name, text) for name, text in sorted(rhai_api.items())]
         if not targets:
-            print("midlc: --check needs --out and/or --schema", file=sys.stderr)
+            print("midlc: --check needs --out, --schema and/or --rhai-api", file=sys.stderr)
+            return 1
+        stale = stale_files(args.rhai_api, rhai_api) if args.rhai_api else []
+        if stale:
+            print(f"midlc: {args.rhai_api} has files midlc no longer generates: {', '.join(stale)}", file=sys.stderr)
             return 1
         for flag, path, text in targets:
             if not path.is_file() or path.read_text(encoding="utf-8") != text:
@@ -160,6 +192,8 @@ def main() -> int:
         args.schema.parent.mkdir(parents=True, exist_ok=True)
         args.schema.write_text(schema, encoding="utf-8")
         print(f"midlc: wrote {args.schema}")
+    if args.rhai_api:
+        write_rhai_api(args.rhai_api, rhai_api)
     if args.manifest:
         args.manifest.parent.mkdir(parents=True, exist_ok=True)
         args.manifest.write_text(json.dumps(manifests, indent=2) + "\n", encoding="utf-8")

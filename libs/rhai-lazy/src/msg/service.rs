@@ -18,9 +18,9 @@ use alloc::vec::Vec;
 use core::cell::{Cell, RefCell};
 use core::fmt;
 
-use rhai::{Dynamic, EvalAltResult, Map, Position};
+use rhai::{Dynamic, EvalAltResult, Map, Module, Position, Shared};
 
-use super::bus::{errno_name, Bus, BusError};
+use super::bus::{errno_name, Bus, BusError, Wait};
 use super::codec;
 use super::schema::{Interface, Method};
 
@@ -54,6 +54,8 @@ pub struct Fabric {
     pub(crate) sources: RefCell<Vec<super::runloop::Source>>,
     /// Set by `msg::stop()`; cleared when `msg::run` starts.
     pub(crate) stop: Cell<bool>,
+    /// The compiled `sys::*` modules (`super::api`), shared by every engine.
+    api: RefCell<Option<Shared<Module>>>,
 }
 
 impl Fabric {
@@ -64,7 +66,21 @@ impl Fabric {
             timeout_ms: Cell::new(DEFAULT_TIMEOUT_MS),
             sources: RefCell::new(Vec::new()),
             stop: Cell::new(false),
+            api: RefCell::new(None),
         }
+    }
+
+    /// The `sys` namespace, built by `build` the first time it is asked for.
+    pub(crate) fn api_namespace(
+        &self,
+        build: impl FnOnce() -> Result<Shared<Module>, String>,
+    ) -> Result<Shared<Module>, String> {
+        if let Some(sys) = self.api.borrow().as_ref() {
+            return Ok(sys.clone());
+        }
+        let sys = build()?;
+        *self.api.borrow_mut() = Some(sys.clone());
+        Ok(sys)
     }
 
     pub fn bus(&self) -> &dyn Bus {
@@ -201,8 +217,8 @@ impl Service {
 
     /// Call `method` with already-shaped `args` (see [`Service::encode`]).
     pub fn invoke(&self, method: &str, args: Dynamic) -> Fallible<Dynamic> {
-        let timeout = self.fabric.timeout_ms();
-        self.invoke_within(method, args, timeout)?.ok_or_else(|| {
+        let wait = Wait::from_timeout_ms(self.fabric.timeout_ms());
+        self.invoke_within(method, args, wait)?.ok_or_else(|| {
             self.fail(
                 self.method(method).unwrap_or(&NO_METHOD),
                 BusError::errno(-110),
@@ -210,13 +226,13 @@ impl Service {
         })
     }
 
-    /// [`Service::invoke`] with an explicit timeout; `Ok(None)` when the
+    /// [`Service::invoke`] waiting as `wait` allows; `Ok(None)` when the
     /// reply did not arrive in time (a topic pull that found no event).
     pub fn invoke_within(
         &self,
         method: &str,
         args: Dynamic,
-        timeout_ms: u64,
+        wait: Wait,
     ) -> Fallible<Option<Dynamic>> {
         let method = self.method(method)?;
         if !method.transfers.is_empty() {
@@ -237,7 +253,7 @@ impl Service {
         let reply = match fabric.with_endpoint(&self.name, |ep| {
             fabric
                 .bus()
-                .call(ep, self.interface.id, method.id, &body, timeout_ms)
+                .call(ep, self.interface.id, method.id, &body, wait)
         }) {
             Ok(reply) => reply,
             Err(error) if error.is_timeout() => return Ok(None),

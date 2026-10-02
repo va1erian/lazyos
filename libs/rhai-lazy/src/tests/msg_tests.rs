@@ -353,7 +353,7 @@ fn engines_sharing_a_fabric_resolve_a_service_once() {
     let shared = Rc::new(crate::msg::Fabric::new(bus.clone()));
     for _ in 0..3 {
         let mut engine = rhai::Engine::new();
-        crate::msg::install_fabric(&mut engine, &shared);
+        crate::msg::install_fabric(&mut engine, &shared).unwrap();
         let alive: bool = engine
             .eval(r#"msg::connect("os.lazy.echo.v1").ping()"#)
             .unwrap();

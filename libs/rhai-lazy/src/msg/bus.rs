@@ -71,6 +71,38 @@ pub fn errno_name(code: u64) -> Option<(&'static str, &'static str)> {
     })
 }
 
+/// How long a call or a receive may wait.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Wait {
+    /// Until the reply or request comes.
+    Forever,
+    /// At most this many milliseconds.
+    Ms(u64),
+    /// Not at all: take what is ready now (the kernel's poll deadline). A
+    /// window's timer uses this, so a form never stops painting.
+    Poll,
+}
+
+impl Wait {
+    /// A script's timeout: `0` waits forever.
+    pub fn from_timeout_ms(ms: u64) -> Wait {
+        if ms == 0 {
+            Wait::Forever
+        } else {
+            Wait::Ms(ms)
+        }
+    }
+
+    /// The bounded wait in milliseconds (`0` for [`Wait::Forever`] and
+    /// [`Wait::Poll`]).
+    pub fn millis(self) -> u64 {
+        match self {
+            Wait::Ms(ms) => ms,
+            Wait::Forever | Wait::Poll => 0,
+        }
+    }
+}
+
 /// One request received on a served endpoint.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Incoming {
@@ -88,15 +120,15 @@ pub trait Bus {
     /// handle must stay open for the life of the process (closing it is peer
     /// death for the service), so callers cache it.
     fn resolve(&self, name: &str) -> Result<u64, BusError>;
-    /// Call `method` and wait at most `timeout_ms` (`0` = forever) for the
-    /// reply body.
+    /// Call `method` and wait for the reply body as `wait` allows; a reply
+    /// that did not come in time is an `ETIMEDOUT` error.
     fn call(
         &self,
         endpoint: u64,
         interface: u64,
         method: u32,
         body: &[u8],
-        timeout_ms: u64,
+        wait: Wait,
     ) -> Result<Vec<u8>, BusError>;
     /// Send a one-way message; returns once it is queued.
     fn send(&self, endpoint: u64, interface: u64, method: u32, body: &[u8])
@@ -107,12 +139,15 @@ pub trait Bus {
     /// Serving: create an endpoint pair, publish one side under `name`
     /// (declaring `interfaces`), and return the side to receive on.
     fn register(&self, name: &str, interfaces: &[u64]) -> Result<u64, BusError>;
-    /// Serving: the next request on `endpoint`, waiting at most `timeout_ms`
-    /// (`0` = poll); `Ok(None)` when nothing arrived in time.
-    fn recv(&self, endpoint: u64, timeout_ms: u64) -> Result<Option<Incoming>, BusError>;
+    /// Serving: the next request on `endpoint`, waiting as `wait` allows;
+    /// `Ok(None)` when nothing arrived in time.
+    fn recv(&self, endpoint: u64, wait: Wait) -> Result<Option<Incoming>, BusError>;
     /// Serving: answer transaction `txn` with `body`. A caller that already
     /// gave up is not an error (the reply is dropped).
     fn reply(&self, txn: u64, interface: u64, method: u32, body: &[u8]) -> Result<(), BusError>;
+    /// Serving: withdraw `name` (registered by [`Bus::register`]) and close
+    /// its receive side, so callers fail fast instead of timing out.
+    fn unregister(&self, name: &str, endpoint: u64) -> Result<(), BusError>;
     /// Milliseconds on a monotonic clock (for `msg::run(ms)`).
     fn clock_ms(&self) -> u64;
 }

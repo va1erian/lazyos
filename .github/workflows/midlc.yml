@@ -1,7 +1,7 @@
 name: midlc
 
 # Messenger IDL compiler (issue #90): compiler unit tests, generated-code
-# drift check (stubs and the Rhai schema table), and host round-trip tests for the generated stubs.
+# drift check (stubs, the Rhai schema table and the Rhai API modules), and host round-trip tests for the generated stubs.
 
 on:
   push:
@@ -35,14 +35,18 @@ jobs:
       - name: Ring declaration tests
         run: python tools/midlc/test_midlc_rings.py
 
+      - name: Rhai API backend tests
+        run: python tools/midlc/test_midlc_rhai.py
+
       # Headless model tests; the Tk smoke test skips without a display.
       - name: MIDL browser tests
         run: python tools/midlc/test_midl_browser.py
 
-      # The Rust stubs and the schema table the Rhai `msg` module reads
-      # (`docs/rhai/msg.md`) are both generated from `idl/`.
-      - name: Generated stubs and schema are up to date
-        run: python tools/midlc/midlc.py --check --out libs/generated/src/lib.rs --schema libs/rhai-lazy/src/msg/idl.rs idl/*.midl
+      # The Rust stubs, the schema table the Rhai `msg` module reads
+      # (`docs/rhai/msg.md`) and the `sys::*` Rhai modules
+      # (`libs/rhai-lazy/api/README.md`) are all generated from `idl/`.
+      - name: Generated stubs, schema and Rhai API are up to date
+        run: python tools/midlc/midlc.py --check --out libs/generated/src/lib.rs --schema libs/rhai-lazy/src/msg/idl.rs --rhai-api libs/rhai-lazy/api idl/*.midl
 
       - name: Generated stubs round-trip
         run: cargo test -p messenger-generated

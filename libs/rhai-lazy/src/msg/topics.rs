@@ -21,7 +21,9 @@ use alloc::vec::Vec;
 use libmessenger::{Decoder, Encoder, Header, Kind, Parcel, VERSION};
 use rhai::{Blob, Dynamic, ImmutableString, Map, INT};
 
+use super::bus::Wait;
 use super::codec;
+use super::runloop::SourceKind;
 use super::schema::{self, Topic};
 use super::service::{script_error, Fabric, Fallible, Service};
 
@@ -239,12 +241,12 @@ fn event_map(event: Dynamic) -> Fallible<Dynamic> {
 }
 
 impl Subscription {
-    /// The next event, waiting at most `timeout_ms` (`0` = forever); `()`
+    /// The next event, waiting as `wait` allows; `()`
     /// when none arrived in time.
-    pub fn next(&self, timeout_ms: u64) -> Fallible<Dynamic> {
+    pub fn next(&self, wait: Wait) -> Fallible<Dynamic> {
         match self
             .broker
-            .invoke_within("NextEvent", Dynamic::from_int(self.id), timeout_ms)?
+            .invoke_within("NextEvent", Dynamic::from_int(self.id), wait)?
         {
             Some(event) => event_map(event),
             None => Ok(Dynamic::UNIT),
@@ -260,8 +262,12 @@ impl Subscription {
         self.broker.invoke("Ack", args).map(|_| ())
     }
 
-    /// Drop the subscription; later publishes stop matching it.
+    /// Drop the subscription; later publishes stop matching it, and a handler
+    /// registered with `msg::on` stops running.
     pub fn close(&self) -> Fallible<()> {
+        self.broker.fabric.sources.borrow_mut().retain(|source| {
+            !matches!(&source.kind, SourceKind::Topic { subscription, .. } if subscription.id == self.id)
+        });
         self.broker
             .invoke("Unsubscribe", Dynamic::from_int(self.id))
             .map(|_| ())
