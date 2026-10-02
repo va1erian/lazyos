@@ -1,8 +1,10 @@
 /// The structured, hash-chained event log service (issue #93).
 ///
 /// Every record chains over the previous record's hash, so `Verify` detects
-/// tampering with any retained record. Failures are returned as a structured
-/// error field (errno-style code, friendly text), not as a typed reply.
+/// tampering with any retained record. Records are also appended to one
+/// persistent journal per source, `/logs/<source>.log` (issue #508), read back
+/// with `Sources` and `TailFile`. Failures are returned as a structured error
+/// field (errno-style code, friendly text), not as a typed reply.
 interface os.lazy.logd.v1 {
     /// Return the newest `count` records; an absent `count` means `10`.
     method Tail(count: Option<U64>) -> (records: Array<LogRecord>);
@@ -13,6 +15,17 @@ interface os.lazy.logd.v1 {
     /// Recompute the hash chain and report `ok`/first bad `index` (the record
     /// count when the chain is intact).
     method Verify() -> (ok: Bool, index: U64);
+
+    /// The sources that have a persisted journal (`/logs/<source>.log`),
+    /// sorted; empty when the store is absent. Served to uid 0 only, like
+    /// `TailFile`: the journals carry every user's activity.
+    method Sources() -> (sources: Array<String>);
+
+    /// The newest `count` lines of `/logs/<source>.log` (records of earlier
+    /// boots included), oldest first. Served to uid 0 only (`EACCES`
+    /// otherwise); a source outside `[a-z0-9_-]{1,32}` fails with `EINVAL`
+    /// and one without a journal with `ENOENT`.
+    method TailFile(source: String, count: U64) -> (lines: Array<String>);
 
     /// One hash-chained log record.
     struct LogRecord {

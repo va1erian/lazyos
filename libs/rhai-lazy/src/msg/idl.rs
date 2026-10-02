@@ -1178,7 +1178,7 @@ pub static INTERFACES: &[Interface] = &[
     Interface {
         name: "os.lazy.logd.v1",
         id: 0x9c5197a46ce8a872,
-        doc: "The structured, hash-chained event log service (issue #93).\n\nEvery record chains over the previous record's hash, so `Verify` detects\ntampering with any retained record. Failures are returned as a structured\nerror field (errno-style code, friendly text), not as a typed reply.",
+        doc: "The structured, hash-chained event log service (issue #93).\n\nEvery record chains over the previous record's hash, so `Verify` detects\ntampering with any retained record. Records are also appended to one\npersistent journal per source, `/logs/<source>.log` (issue #508), read back\nwith `Sources` and `TailFile`. Failures are returned as a structured error\nfield (errno-style code, friendly text), not as a typed reply.",
         methods: &[
             Method {
                 name: "Tail",
@@ -1203,6 +1203,22 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Recompute the hash chain and report `ok`/first bad `index` (the record\ncount when the chain is intact).",
                 params: &[],
                 returns: &[Field { name: "ok", ty: Ty::Bool }, Field { name: "index", ty: Ty::U64 }],
+            },
+            Method {
+                name: "Sources",
+                id: 583496657,
+                oneway: false,
+                doc: "The sources that have a persisted journal (`/logs/<source>.log`),\nsorted; empty when the store is absent. Served to uid 0 only, like\n`TailFile`: the journals carry every user's activity.",
+                params: &[],
+                returns: &[Field { name: "sources", ty: Ty::Array(&Ty::String) }],
+            },
+            Method {
+                name: "TailFile",
+                id: 571114525,
+                oneway: false,
+                doc: "The newest `count` lines of `/logs/<source>.log` (records of earlier\nboots included), oldest first. Served to uid 0 only (`EACCES`\notherwise); a source outside `[a-z0-9_-]{1,32}` fails with `EINVAL`\nand one without a journal with `ENOENT`.",
+                params: &[Field { name: "source", ty: Ty::String }, Field { name: "count", ty: Ty::U64 }],
+                returns: &[Field { name: "lines", ty: Ty::Array(&Ty::String) }],
             },
         ],
         structs: &[
