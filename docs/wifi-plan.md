@@ -183,7 +183,8 @@ driver cannot be used under GPL-3.0-or-later; their OpenBSD drivers can.
 - **USB passthrough works**: `-device qemu-xhci -device
   usb-host,vendorid=0x0846,productid=0x9072` (or `hostbus`/`hostaddr`, or
   `hostport` to survive re-plugs) on a KVM Linux host with the host driver
-  unbound. QEMU calls it experimental; it needs KVM, not TCG.
+  unbound. QEMU calls it experimental; it runs under TCG too, but slowly,
+  so KVM is the practical choice.
 - **PCIe passthrough** of the M.2 card needs VFIO: an IOMMU on in firmware
   and kernel, the card's whole IOMMU group bound to `vfio-pci`, and the host
   loses its Wi-Fi while the guest has it. Laptop M.2 slots often share a
@@ -341,8 +342,9 @@ Two defensible routes; the plan takes the first.
 - **Rust rewrite with `mt76` as the specification (chosen).** The
   hardware-facing part is ~7 kLOC of protocol code (firmware load, MCU TLVs,
   USB framing, descriptors) with the Linux driver as a complete, permissively
-  licensed, executable specification; FreeBSD's successful port proves the
-  driver has no hidden dependency on Linux internals that matters. Every
+  licensed, executable specification; FreeBSD's port is build evidence that
+  the driver compiles against a non-Linux 802.11 layer, and its `mt7921`
+  passes packets, but MT7925 runtime behaviour there is unverified. Every
   struct keeps a comment naming the `mt76` file, function and pinned commit
   it was derived from, and `THIRD_PARTY.md` carries the Clear-BSD notice,
   because a close translation is a derived work and should say so. It keeps
