@@ -17,8 +17,9 @@
 //! **Corruption mode** (low bit set). A small populated volume has bytes of
 //! its metadata overwritten as the script says, then is mounted and exercised
 //! (listing, reading, creating, writing, renaming, removing). Nothing may
-//! panic or loop, whatever the bytes. No consistency is promised for a volume
-//! that was corrupted, only safety.
+//! panic or loop, whatever the bytes, including [`Ext2::repair`]. No
+//! consistency is promised for a volume that was corrupted, only safety. In
+//! model mode the repair must find nothing to do on the finished volume.
 
 use std::collections::BTreeMap;
 use std::string::{String, ToString};
@@ -107,6 +108,13 @@ fn model_mode(io: &MemIo, script: &[u8], cached: bool) {
     let problems = fsck(&io.snapshot());
     assert!(problems.is_empty(), "fsck: {problems:?}");
     compare_tree(&open(io), &model);
+    // A consistent volume gives the crash repair nothing to do or write.
+    let before = io.snapshot();
+    assert_eq!(open(io).repair(), Ok(crate::RepairReport::default()));
+    assert!(
+        io.snapshot() == before,
+        "repairing a consistent volume wrote"
+    );
 }
 
 /// Apply one operation to the volume and the model; `false` on `NoSpace`.
@@ -318,6 +326,12 @@ fn corruption_mode(io: &MemIo, script: &[u8]) {
     let _ = fs.rename("/a", "/new/a");
     let _ = fs.truncate("/new/x", 10);
     let _ = fs.reclaim_orphans(".unlinked-");
+    // The crash repair must refuse or repair, never panic or loop; what it
+    // leaves must still be usable.
+    if fs.repair().is_ok() {
+        let mut budget = WALK_BUDGET;
+        exercise(&fs, "/", 0, &mut budget);
+    }
     let _ = fs.remove_tree("/new");
     let _ = fs.remove_tree("/d0");
     let _ = fs.flush();

@@ -21,6 +21,8 @@ mod ops_state;
 mod populate_tests;
 mod recover;
 mod rename_file;
+mod repair;
+mod repair_crash;
 mod review_fixes;
 mod seeded;
 mod soak;

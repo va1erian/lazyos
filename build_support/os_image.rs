@@ -425,17 +425,23 @@ fn update(
 /// Check a volume that stopped uncleanly (a QEMU window closed, a crash) so
 /// the update's closing flush can mark it clean again. The kernel never does:
 /// it has no fsck, and restores the state it found at every shutdown, so
-/// without this one unclean stop would flag the image for good. A volume that
-/// fails the check stays flagged, with a warning; nothing is deleted.
+/// without this one unclean stop would flag the image for good. What a crash
+/// can leave (leaks, stale counters, link counts, dead entries) is repaired
+/// first and summarised; a volume with any other damage stays flagged, with a
+/// warning, and nothing of it is freed.
 fn recover(volume: &mut Ext2) -> Result<(), String> {
     match volume
         .recover(ext2fs::ORPHAN_PREFIX)
         .map_err(|e| volume_error("check", e))?
     {
         Recovery::WasClean => {}
-        Recovery::Recovered { reclaimed } => println!(
+        Recovery::Recovered { reclaimed, repairs } if repairs.is_empty() => println!(
             "cargo:warning=the OS volume was not cleanly unmounted; checked it, \
              reclaimed {reclaimed} orphaned file(s), and it is clean again"
+        ),
+        Recovery::Recovered { reclaimed, repairs } => println!(
+            "cargo:warning=the OS volume was not cleanly unmounted; re-certified it \
+             after repairing {repairs} (reclaimed {reclaimed} orphaned file(s))"
         ),
         Recovery::StillUnclean(reason) => println!(
             "cargo:warning=the OS volume was not cleanly unmounted and stays flagged: \

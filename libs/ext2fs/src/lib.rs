@@ -90,6 +90,7 @@ mod populate;
 mod readdir;
 mod rename;
 mod rename_file;
+mod repair;
 mod rmdir;
 mod state;
 mod truncate;
@@ -117,6 +118,7 @@ pub use layout::MAX_FILE_SIZE;
 pub use orphans::{OrphanReport, MAX_SCAN_DIRS};
 #[cfg(any(test, feature = "check"))]
 pub use recover::Recovery;
+pub use repair::{Listed, RepairError, RepairReport, LISTED};
 
 /// The reserved name prefix of files parked by an unlink-while-open
 /// (`.unlinked-<n>`): what [`Ext2::reclaim_orphans`] is handed by the kernel

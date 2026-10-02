@@ -124,12 +124,12 @@ truncates are rare next to writes. Uncached, `barrier` does nothing.
 
 ## Crash semantics
 
-ext2 has no journal and LazyOS has no fsck yet, so this is what a power cut
-can leave. The volume's `s_state` is marked dirty, durably, before the first
-change of a session reaches the cache (unchanged: "dirty first"), and is only
-marked clean by a sync after everything is on disk ("clean last"); so any image
-a crash leaves between two syncs mounts as *not cleanly unmounted*, and is
-logged.
+ext2 has no journal, so this is what a power cut can leave, and what the
+repair after it does ([below](#recovery-what-is-repaired-and-how)). The
+volume's `s_state` is marked dirty, durably, before the first change of a
+session reaches the cache (unchanged: "dirty first"), and is only marked clean
+by a sync after everything is on disk ("clean last"); so any image a crash
+leaves between two syncs mounts as *not cleanly unmounted*, and is logged.
 
 - **Loss window.** Changes since the last commit are lost: at most about 5 s
   of work (the flusher), less under write pressure (the dirty limit). Before
@@ -140,8 +140,10 @@ logged.
   descriptors and superblock that disagree with the bitmaps; link counts and
   `i_blocks` out of step; a directory size that disagrees with its blocks; a
   directory entry naming an inode whose initialisation did not land (it reads
-  as an unsupported type); a renamed file under both names (link count two,
-  exactly as without the cache).
+  as an unsupported type), or whose deletion landed ahead of the entry's
+  removal (no links, a deletion time); a renamed file under both names (link
+  count two, exactly as without the cache); a moved directory under both
+  names, or under its new name with `..` still naming the old parent.
 - **What it cannot leave**: a block or inode that is reachable and marked free,
   a block claimed by two inodes, a garbled directory block, or a file showing
   bytes that belonged to another file (or to a deleted one), a renamed file or
@@ -165,6 +167,46 @@ the direct driver's per-operation orderings ("zero, then link", "detach, then
 free", the rename and orphan orders) are kept by the phases, the deferred frees
 and the barriers rather than by synchronous writes. Nothing changes for a
 cleanly stopped system.
+
+### Recovery: what is repaired, and how
+
+`Ext2::repair` (`libs/ext2fs/src/repair/`) repairs exactly the list above and
+refuses the "cannot leave" list. The image build runs it from
+`Ext2::recover` when an in-place update finds the OS volume unclean and the
+independent checker finds problems; the volume is certified (and marked clean
+by the closing flush) only if the checker then passes. It is `no_std` and
+works through the driver's own cache, so the kernel can reuse it at mount.
+The rules, the ones `e2fsck -p` follows where they apply:
+
+| Found | Repair | Why |
+|---|---|---|
+| An entry naming an allocated inode that is dead: an unsupported type (its initialisation never landed), or no links or a deletion time (a delete whose name removal did not land) | the entry is removed, then the inode freed | the create or delete was in flight; finishing the delete or undoing the create loses only work inside the loss window |
+| An entry naming a *free* inode | refused | not a crash shape (alloc lands before the inode, frees after the detach) |
+| A directory under two names (a rename cut short) | the name its `..` agrees with stays, the other goes | a directory has one parent; the rename's own promise ("at least one name") holds |
+| A directory with one name and a `..` naming another directory | `..` follows the name | a rename whose `..` update did not land |
+| An unreachable inode that is dead, an empty file, or a directory with only `.` and `..` | freed | nothing in it to save |
+| An unreachable inode with data (a file whose name did not land, a directory subtree) | linked as `/lost+found/#<ino>` (a subtree by its top directory only, its `..` repointed) | fsck's rule: the name was lost, the data need not be |
+| A block marked used that nothing reaches | freed | a leak: deferred frees, or an allocation whose pointer did not land |
+| A link count different from the entries naming the inode | set to the entries, in both directions | fsck's rule: a count above the entries leaks the inode at its last unlink, one below frees it while still named |
+| `i_blocks`, a directory `i_size`, group free/directory counts, superblock free counts | recomputed from the blocks owned and the bitmaps | pure bookkeeping |
+| A reachable block or inode marked free, a block claimed twice or by metadata, an out-of-range pointer, a garbled directory record, a directory with a hole, a bad `.`, a reserved inode owning blocks, unknown compatible features or an extended-attribute block | refused, nothing written | not a crash shape; left for a real fsck (`LAZYOS_RESET_OS=1` for the OS image) |
+
+It runs in rounds, each from a fresh scan, with a barrier between them:
+entry fixes, then the `/lost+found` links, then the frees and counts. Nothing
+is freed while an entry still needs fixing, so a power cut during the repair
+leaves a volume the next repair accepts. Every repair is reported
+(`RepairReport`: a count and the first 16 inode or block numbers of each
+kind); its `Display` is the one-line summary the build prints as
+`cargo:warning=... re-certified it after repairing ...`.
+
+Host tests: `tests/repair.rs` builds each class by hand (repaired, checker
+clean, every reachable file's bytes unchanged by inode number) and each
+refused class (refused, nothing written, volume stays flagged);
+`tests/repair_crash.rs` cuts random workloads and every write of a rename
+sequence through the cache (unflushed dirty blocks lost), recovers, and also
+cuts the repair's own writes and recovers again; the fuzz entry point runs
+the repair on corrupted images (never panics or loops) and on every finished
+model volume (nothing to do, nothing written).
 
 ## Errors
 

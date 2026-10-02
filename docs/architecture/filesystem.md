@@ -186,11 +186,18 @@ ext2 keeps no journal, so `s_state` says whether the last stop was clean:
   the kernel; the image build is the check. When `cargo build` updates an OS
   volume in place that was not cleanly unmounted, `Ext2::recover`
   (`libs/ext2fs/src/recover.rs`, feature `check`) reclaims its `.unlinked-*`
-  orphans, runs the independent checker over the whole volume and, only when
-  it finds nothing, lets the update's closing flush mark it clean. A volume
-  that fails the check (or carries the error bit) stays flagged, with a
-  `cargo:warning=`; `LAZYOS_RESET_OS=1` recreates it. Without this one unclean
-  stop (a closed QEMU window) would flag the image on every later boot.
+  orphans and runs the independent checker over the whole volume. If the
+  checker finds problems, `Ext2::repair` (`libs/ext2fs/src/repair/`, `no_std`,
+  usable by the kernel later) repairs exactly the inconsistencies a crash can
+  leave (listed in [`block-cache.md`](block-cache.md#crash-semantics), with
+  the repair rules) and the checker runs again. Only a volume it then passes is
+  marked clean by the update's closing flush, and the build says what was
+  repaired (`re-certified it after repairing 2 leaked blocks (...), 1 link count
+  (312: 2->1), ...`). Damage no crash leaves (a reachable block marked free, a
+  block claimed twice, a garbled directory, ...) is refused with nothing
+  written: that volume, or one with the error bit, stays flagged with a
+  `cargo:warning=`, and `LAZYOS_RESET_OS=1` recreates it. Without this one
+  unclean stop (a closed QEMU window) would flag the image on every later boot.
 
 Every kernel ext2 mount goes through the write-back block cache
 ([`block-cache.md`](block-cache.md)): writes stay in memory until a commit,
@@ -205,8 +212,8 @@ the next `fsync`/`sync` and leaves the error bit in `s_state`.
 `Filesystem::truncate` grows sparsely (no allocation) and shrinks by *detach,
 then free*: the inode (or parent table) is rewritten without the pointers before
 the blocks go back to the bitmaps, and the bytes about to be cut inside a kept
-block are zeroed first. A stop in between leaks blocks (the dirty flag lets an
-fsck reclaim them) but never leaves a block both free and reachable; the kernel
+block are zeroed first. A stop in between leaks blocks (the dirty flag lets the
+next recovery reclaim them) but never leaves a block both free and reachable; the kernel
 suite sweeps every write of a truncate and an unlink to prove it. The block map
 covers direct, single, double and triple indirect blocks with one generic path
 walk; files are capped at 2 GiB - 1 (32-bit `i_size`), a write straddling the cap

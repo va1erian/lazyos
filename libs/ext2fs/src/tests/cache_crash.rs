@@ -38,14 +38,14 @@ const CASES: usize = 40;
 const POINTS: usize = 40;
 
 /// Every block written, in order, as (first sector, bytes).
-type BlockLog = Arc<Mutex<Vec<(u64, Vec<u8>)>>>;
+pub(super) type BlockLog = Arc<Mutex<Vec<(u64, Vec<u8>)>>>;
 
 /// A disk that remembers every block it was asked to write, in order.
 #[derive(Clone)]
-struct Recorder {
-    disk: MemIo,
-    block_size: usize,
-    log: BlockLog,
+pub(super) struct Recorder {
+    pub disk: MemIo,
+    pub block_size: usize,
+    pub log: BlockLog,
 }
 
 impl BlockIo for Recorder {
@@ -85,7 +85,7 @@ impl BlockIo for Recorder {
 }
 
 /// `base` with the first `count` logged block writes applied.
-fn image_at(base: &[u8], log: &[(u64, Vec<u8>)], count: usize) -> Vec<u8> {
+pub(super) fn image_at(base: &[u8], log: &[(u64, Vec<u8>)], count: usize) -> Vec<u8> {
     let mut image = base.to_vec();
     for (lba, block) in &log[..count] {
         let at = *lba as usize * SECTOR_SIZE;
