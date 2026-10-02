@@ -8,6 +8,11 @@
 /// `"/transient/conf"` as the degraded fallback.
 pub const CONFD_DIRS: [&str; 3] = ["/data/confd", "/system/confd", "/tmp/confd"];
 
+/// `logd`'s persistent journals, one `<source>.log` (plus `.1`/`.2` rotations)
+/// per source, on the OS volume. Written by `logd`; `pkgd`'s log moves here
+/// too (F4).
+pub const LOGS_ROOT: &str = "/logs";
+
 /// Installed apps, one directory per `system_name` per version. Written by
 /// `pkgd`. Target (F4): `"/apps"`.
 pub const APPS_ROOT: &str = "/data/apps";
