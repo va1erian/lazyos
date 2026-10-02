@@ -40,7 +40,7 @@ use core::sync::atomic::Ordering;
 
 use super::signal;
 use super::wait::CHILD_EXIT;
-use super::{Task, TaskState, KERNEL_TASK, MAX_TASKS, NEEDS_REDRAW, TASKS};
+use super::{Task, TaskState, KERNEL_TASK, MAX_TASKS, NEEDS_REDRAW, PENDING_CLOSE, TASKS};
 
 /// Exit status recorded for a member terminated by [`kill_group`]: the
 /// conventional `128 + SIGKILL(9)`. The signal layer terminates processes one
@@ -168,6 +168,9 @@ pub(crate) fn finish(slot: usize, status: u64) -> bool {
     let Some(parent) = parent else {
         return false;
     };
+    // The dead task's pipe ends close now, so a reader that has not reaped it
+    // yet still sees end-of-file.
+    super::close_exited_fds();
     NEEDS_REDRAW.store(true, Ordering::Relaxed);
     crate::dev::silence_exited();
     // The child-exit event is both a `SIGCHLD` and a wait-queue notification:
@@ -198,9 +201,11 @@ pub(crate) fn finish_locked(
         task.exit_status = status;
         task.parent
     };
-    // Stop the dead task's devices (interrupt line, DMA) before its parent can
-    // be slow to reap it; the actual work runs later in task context.
+    // Stop the dead task's devices (interrupt line, DMA) and close its
+    // descriptors before its parent can be slow to reap it; the actual work
+    // runs later in task context, outside this lock.
     crate::dev::note_task_exited(slot);
+    PENDING_CLOSE.set(slot);
     let reparented = reparent_children_locked(tasks, slot, KERNEL_TASK);
     if reparented > 0 {
         serial_println!("proc: task {slot} died; re-parented {reparented} task(s) to init");
@@ -237,6 +242,7 @@ pub fn kill_group(pgid: usize) -> usize {
         (parents.len(), parents)
     };
     if killed > 0 {
+        super::close_exited_fds();
         NEEDS_REDRAW.store(true, Ordering::Relaxed);
         // See `finish`: queue before task table, and the table is now unlocked.
         for parent in parents {

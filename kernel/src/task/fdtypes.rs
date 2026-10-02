@@ -163,8 +163,34 @@ impl Clone for Fd {
     }
 }
 
+impl Fd {
+    /// Whether two descriptors name the same open file (what `dup` and `fork`
+    /// share). A socket not yet bound has no shared object, so it never
+    /// matches.
+    pub fn same_file(&self, other: &Fd) -> bool {
+        match (self, other) {
+            (Fd::Terminal, Fd::Terminal) => true,
+            (Fd::File { data: a, .. }, Fd::File { data: b, .. }) => Arc::ptr_eq(a, b),
+            (Fd::Vfs { file: a }, Fd::Vfs { file: b }) => Arc::ptr_eq(a, b),
+            (Fd::Pipe { pipe: a, end: x }, Fd::Pipe { pipe: b, end: y }) => {
+                Arc::ptr_eq(a, b) && x == y
+            }
+            (Fd::Socket { pair: a, side: x }, Fd::Socket { pair: b, side: y }) => {
+                Arc::ptr_eq(a, b) && x == y
+            }
+            (Fd::Event { event: a }, Fd::Event { event: b }) => Arc::ptr_eq(a, b),
+            (Fd::Epoll { epoll: a }, Fd::Epoll { epoll: b }) => Arc::ptr_eq(a, b),
+            (Fd::UnixListener { listener: a }, Fd::UnixListener { listener: b }) => {
+                Arc::ptr_eq(a, b)
+            }
+            (Fd::Inet { sock: a }, Fd::Inet { sock: b }) => Arc::ptr_eq(a, b),
+            _ => false,
+        }
+    }
+}
+
 /// Releasing a descriptor drops its reference. This fires on `close`, on
-/// `dup2` replacing a slot, and when a reaped task's table is dropped; the
+/// `dup2` replacing a slot, and when an exited task's table is dropped; the
 /// drop must happen with the task table unlocked because the last reference
 /// wakes a wait queue (queue-before-table lock order). The fd helpers below
 /// take the old entry out under the lock and drop it after releasing it.
