@@ -46,9 +46,11 @@ fn io_err(error: pipe::Error) -> String {
 }
 
 mod basic;
+mod exit;
 mod lifecycle;
 
 pub(super) use basic::*;
+pub(super) use exit::*;
 pub(super) use lifecycle::*;
 
 pub(super) const CASES: &[(&str, Test)] = &[
@@ -58,6 +60,9 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("pipe_eof_epipe_nonblock", eof_epipe_nonblock),
     ("pipe_dup_fork_cloexec", dup_fork_cloexec),
     ("pipe_vfork_clone_child", vfork_clone_child),
+    ("pipe_eof_on_unreaped_exit", eof_on_unreaped_exit),
+    ("pipe_eof_on_killed_writer", eof_on_killed_writer),
+    ("pipe_soak_unreaped_exit", soak_unreaped_exit),
     (
         "pipe_soak_throughput_and_lifecycle",
         soak_throughput_and_lifecycle,

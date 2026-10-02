@@ -137,6 +137,8 @@ pub(super) fn mark_finished(tasks: &[Option<Task>; MAX_TASKS], slot: usize) {
 /// table between two slots; a thread removed while a sibling is still
 /// pending sees the space as shared, and the sibling's removal frees it.
 pub fn reclaim_pending() {
+    // A task the timer sweep ended has its descriptors closed here too.
+    close_exited_fds();
     let pending = PENDING_RECLAIM.take();
     if pending.is_empty() {
         return;
@@ -170,6 +172,31 @@ pub fn reclaim_pending() {
         // A `clone` sleeping on table pressure can return early. Queue before
         // task table order holds: no table lock is held here.
         wait::SLOT.notify_all();
+    }
+}
+
+/// Close the descriptors of every finished task flagged in [`PENDING_CLOSE`],
+/// as Linux does at exit: the last write end of a pipe gives its reader
+/// end-of-file even while the writer waits, unreaped, as a zombie.
+///
+/// Must run in task context with the task table unlocked: dropping a pipe end
+/// wakes its peer, which takes the table (queue-before-table order, issue
+/// #404), and other descriptors take the heap lock. A slot that was reaped and
+/// reused before this ran holds a live task and is skipped, so a new task's
+/// descriptors are never closed.
+pub fn close_exited_fds() {
+    for slot in PENDING_CLOSE.take().iter() {
+        let fds = {
+            let mut tasks = TASKS.lock();
+            match tasks[slot].as_mut() {
+                Some(task) if task.state == TaskState::Done => {
+                    task.fd_flags = [0; FD_COUNT];
+                    core::mem::replace(&mut task.fds, core::array::from_fn(|_| Fd::Closed))
+                }
+                _ => continue,
+            }
+        };
+        drop(fds);
     }
 }
 
