@@ -518,6 +518,7 @@ dependencies = [
  "libm",
  "libmessenger",
  "linked_list_allocator",
+ "logstore",
  "messenger-generated",
  "netpolicy",
  "sndpolicy",
@@ -615,6 +616,13 @@ name = "log"
 version = "0.4.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
+
+[[package]]
+name = "logstore"
+version = "0.1.0"
+dependencies = [
+ "ext2fs",
+]
 
 [[package]]
 name = "managed"
@@ -1142,6 +1150,7 @@ dependencies = [
  "lazyos-crypto",
  "lazypkg",
  "libmessenger",
+ "logstore",
  "messenger-generated",
  "modplay",
  "netpolicy",

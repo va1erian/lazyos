@@ -113,7 +113,8 @@ and passes `python tools/test/run.py --accel none` (see `AGENTS.md`).
 
 - **confd** stores in `/conf`; `/transient/conf` remains the degraded fallback.
 - **logd** writes persistent journals to `/logs/<service>.log` with size caps
-  and rotation.
+  and rotation (done: `libs/logstore`, 256 KiB per file, `.1`/`.2`, an 8 MiB
+  budget excluding `pkg.log`; `Sources`/`TailFile` for uid 0).
 - **accountsd** reads `/system/etc/passwd` (`admin`, `user`); rename `root` and
   `alice` across code, tests and tools.
 - **pkgd** installs to `/apps`, logs to `/logs/pkg.log`, writes package docs to

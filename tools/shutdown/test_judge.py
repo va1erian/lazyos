@@ -25,7 +25,7 @@ INIT:SHUTDOWN:APPS asked=3
 INIT:SHUTDOWN:PHASE services
 INIT:SHUTDOWN:SERVICES
 init: stopping keyd (SIGTERM)
-LOGD:STOP records=40 verified=true reason="x"
+LOGD:STOP records=40 verified=true persisted=40 reason="x"
 CONFD:STOP dir=/data/confd sync=ok reason="x"
 init: userspace quiesced (killed=0)
 INIT:SHUTDOWN:QUIESCED killed=0 ticks=120
@@ -63,6 +63,15 @@ class JudgeTest(unittest.TestCase):
     def test_a_failed_sync_or_chain(self):
         self.assertTrue(judge(GOOD.replace("sync=ok", "sync=errno -5"), "poweroff"))
         self.assertTrue(judge(GOOD.replace("verified=true", "verified=false"), "poweroff"))
+
+    def test_logd_must_persist_on_a_desktop_boot(self):
+        none = GOOD.replace("persisted=40", "persisted=0")
+        self.assertTrue(any("persisted no records" in f for f in judge(none, "poweroff")))
+        old = GOOD.replace(" persisted=40", "")
+        self.assertTrue(any("persisted=<n>" in f for f in judge(old, "poweroff")))
+        # A console boot (no OS volume) is not held to it.
+        self.assertEqual(judge(none, "poweroff", desktop=False), [])
+        self.assertEqual(judge(old, "poweroff", desktop=False), [])
 
     def test_kills_and_restarts_during_the_stop(self):
         killed = GOOD.replace("QUIESCED killed=0", "QUIESCED killed=2")

@@ -371,8 +371,8 @@ selection logic and only its sink changed, to an OS file list
 (`OsFile { path, source, mode }`; the mode follows the directory: 0755 under
 `/system/bin`, 0644 everywhere else, all root-owned). `build_support/os_layout.rs` is the declarative directory table:
 the mount points `/boot`, `/home`, `/transient`; `/system` with `bin`, `etc`,
-`share` and `packages` (empty until F5); `/apps`, `/conf`, `/logs` (empty
-until F4); and the transitional `/data` with
+`share` and `packages` (empty until F5); `/apps`, `/conf` (empty
+until F4), `/logs` (`logd`'s journals since F4, `libs/logstore`); and the transitional `/data` with
 `/data/home/<user>` (the embedded `/system/etc/passwd` account's uid/gid, 0755) and
 `/data/tmp` (1777), mirroring `tools/mkdisk/layout.py`, so `pkgd`, `confd` and
 `lazyrad` find `/data` on `/` and are persistent without a data disk. Since F3

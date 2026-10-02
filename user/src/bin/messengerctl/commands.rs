@@ -8,13 +8,15 @@ use super::clients::{open_path, print_clipboard, print_keys, print_mime};
 use super::names::{print_registry, resolve};
 use super::render::{print_report, print_report_json, print_tasks_json};
 use super::supervisor::{launch_app, print_apps, print_services};
-use super::system::{print_health, print_log, print_sessions, verify_log};
+use super::system::{
+    print_health, print_log, print_log_file, print_log_sources, print_sessions, verify_log,
+};
 use super::topics::{print_topics, tail};
 
 /// The interactive command set, printed at startup and by `help`.
 pub(crate) const HELP: &str = "commands: list | resolve <name> | services | health | sessions | \
                     apps | launch <app> [args] | \
-                    log [tail [n]] | log verify | topics | tail <filter> [count] | \
+                    log [tail [n]] | log verify | log sources | log file <source> [n] | topics | tail <filter> [count] | \
                     mime <path> | open <path> [verb] | keys | clipboard | stats | stats-json | \
                     tasks-json | help | quit\n";
 
@@ -38,6 +40,7 @@ pub(crate) fn commands() -> ! {
             "apps" => print_apps(),
             "log" => print_log(10),
             "log verify" => verify_log(),
+            "log sources" => print_log_sources(),
             "stats" => match messenger::fabric_stats() {
                 Ok(stats) => print_report(&stats),
                 Err(error) => report(error.message()),
@@ -55,6 +58,7 @@ pub(crate) fn commands() -> ! {
             "clipboard" => print_clipboard(),
             _ if text.starts_with("resolve ") => resolve(text[8..].trim()),
             _ if text.starts_with("launch ") => launch_app(text[7..].trim()),
+            _ if text.starts_with("log file ") => print_log_file(&text[9..]),
             _ if text.starts_with("log tail") => {
                 let count = text[8..].trim().parse().unwrap_or(10);
                 print_log(count)

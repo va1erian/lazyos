@@ -6353,6 +6353,10 @@ pub mod os_lazy_logd_v1 {
     pub const METHOD_COUNT: u32 = 1642576020;
     /// `Verify` method id.
     pub const METHOD_VERIFY: u32 = 761007172;
+    /// `Sources` method id.
+    pub const METHOD_SOURCES: u32 = 583496657;
+    /// `TailFile` method id.
+    pub const METHOD_TAILFILE: u32 = 571114525;
 
     /// Return the newest `count` records; an absent `count` means `10`.
     #[derive(Clone, Debug, Default, PartialEq)]
@@ -6471,6 +6475,101 @@ pub mod os_lazy_logd_v1 {
                     out.index = field.as_u64()?;
                 }
                 _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// The sources that have a persisted journal (`/logs/<source>.log`),
+    /// sorted; empty when the store is absent. Served to uid 0 only, like
+    /// `TailFile`: the journals carry every user's activity.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct SourcesReply {
+        pub sources: alloc::vec::Vec<alloc::string::String>,
+    }
+
+    pub fn encode_sources_reply(value: &SourcesReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        let mut nested = Encoder::new();
+        for item in &value.sources {
+            nested.string(1, item)?;
+        }
+        target.array(1, &nested)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_sources_reply(body: &[u8]) -> Result<SourcesReply, Error> {
+        let mut out = SourcesReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                let mut nested = field.nested(0)?;
+                while let Some(item) = nested.next()? {
+                    out.sources.push(item.as_str()?.into());
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// The newest `count` lines of `/logs/<source>.log` (records of earlier
+    /// boots included), oldest first. Served to uid 0 only (`EACCES`
+    /// otherwise); a source outside `[a-z0-9_-]{1,32}` fails with `EINVAL`
+    /// and one without a journal with `ENOENT`.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct TailFileArgs {
+        pub source: alloc::string::String,
+        pub count: u64,
+    }
+
+    pub fn encode_tail_file_args(value: &TailFileArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.source)?;
+        target.u64(2, value.count)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_tail_file_args(body: &[u8]) -> Result<TailFileArgs, Error> {
+        let mut out = TailFileArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.source = field.as_str()?.into();
+                }
+                2 => {
+                    out.count = field.as_u64()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct TailFileReply {
+        pub lines: alloc::vec::Vec<alloc::string::String>,
+    }
+
+    pub fn encode_tail_file_reply(value: &TailFileReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        let mut nested = Encoder::new();
+        for item in &value.lines {
+            nested.string(1, item)?;
+        }
+        target.array(1, &nested)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_tail_file_reply(body: &[u8]) -> Result<TailFileReply, Error> {
+        let mut out = TailFileReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                let mut nested = field.nested(0)?;
+                while let Some(item) = nested.next()? {
+                    out.lines.push(item.as_str()?.into());
+                }
             }
         }
         Ok(out)

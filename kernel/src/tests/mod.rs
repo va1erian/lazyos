@@ -236,6 +236,7 @@ const SUITE: &[&[(&str, Test)]] = &[
     overlay_suite::CASES,
     ext2_suite::CASES,
     ext2_suite::data_fds::CASES,
+    ext2_suite::logd_store::CASES,
     topics_suite::CASES,
     topics_gate_suite::CASES,
     service_suite::CASES,

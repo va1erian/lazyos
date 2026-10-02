@@ -722,6 +722,16 @@
         "name": "Verify",
         "id": 761007172,
         "oneway": false
+      },
+      {
+        "name": "Sources",
+        "id": 583496657,
+        "oneway": false
+      },
+      {
+        "name": "TailFile",
+        "id": 571114525,
+        "oneway": false
       }
     ],
     "topics": []

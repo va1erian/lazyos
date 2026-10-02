@@ -25,6 +25,9 @@ lazyos-crypto = { path = "../libs/crypto" }
 # `os.lazy.confd.v1` stubs (issue #260): the `confd` service and `confctl` drive
 # the same store the kernel test suite exercises.
 confd = { path = "../libs/confd" }
+# `logd`'s persistent journals under `/logs` (issue #508): the store the kernel
+# test suite drives against ext2.
+logstore = { path = "../libs/logstore" }
 # Display buffer-slot state machines (issue #361), shared by `xuid` and clients.
 surfbuf = { path = "../libs/surfbuf" }
 messenger-generated = { path = "../libs/generated" }
