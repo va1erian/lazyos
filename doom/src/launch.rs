@@ -49,7 +49,11 @@ pub struct Launch {
 pub fn parse(args: &[String], cwd: &str) -> Launch {
     let argv0 = args.first().map(String::as_str).unwrap_or("");
     let mut mode = Mode::Window;
-    let mut engine_args = vec![if argv0.is_empty() { "doom".to_string() } else { argv0.to_string() }];
+    let mut engine_args = vec![if argv0.is_empty() {
+        "doom".to_string()
+    } else {
+        argv0.to_string()
+    }];
     let mut iwad = None;
     let mut rest = args.iter().skip(1);
     while let Some(arg) = rest.next() {
@@ -129,7 +133,7 @@ pub fn install_dir(exe: &str) -> String {
 pub fn config_dir(home: Option<&str>) -> String {
     match home.filter(|home| home.starts_with('/') && *home != "/") {
         Some(home) => join(home, ".doom"),
-        None => "/tmp/doom".to_string(),
+        None => fhs::state::DOOM_TMP.to_string(),
     }
 }
 
@@ -156,7 +160,16 @@ mod tests {
     #[test]
     fn engine_flags_pass_through_and_wrapper_flags_do_not() {
         let launch = parse(
-            &args(&["doom.elf", "-headless", "-frames", "35", "-timedemo", "demo1", "-iwad", "/w/x.wad"]),
+            &args(&[
+                "doom.elf",
+                "-headless",
+                "-frames",
+                "35",
+                "-timedemo",
+                "demo1",
+                "-iwad",
+                "/w/x.wad",
+            ]),
             "/tmp",
         );
         assert_eq!(launch.mode, Mode::Headless { frames: Some(35) });
@@ -192,7 +205,10 @@ mod tests {
         let mut list = vec!["doom.elf".to_string(), "x".repeat(MAX_ARG_BYTES + 1)];
         list.extend((0..200).map(|i| format!("-a{i}")));
         let launch = parse(&list, "/");
-        assert!(launch.engine_args.iter().all(|arg| arg.len() <= MAX_ARG_BYTES));
+        assert!(launch
+            .engine_args
+            .iter()
+            .all(|arg| arg.len() <= MAX_ARG_BYTES));
         assert!(launch.engine_args.len() <= MAX_ARGS + 2);
         assert_eq!(parse(&[], "/").engine_args[0], "doom");
     }

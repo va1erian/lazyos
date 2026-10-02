@@ -44,7 +44,11 @@ pub fn run() {
         },
         Mode::Headless { frames } => Backend::Headless(Headless::new(frames)),
     };
-    let mode = if matches!(backend, Backend::Window(_)) { "window" } else { "headless" };
+    let mode = if matches!(backend, Backend::Window(_)) {
+        "window"
+    } else {
+        "headless"
+    };
     println!("DOOM:UP:PASS mode={mode} iwad={}", launch.iwad);
     hooks::install(backend);
     start(&launch.engine_args);
@@ -79,7 +83,9 @@ fn enter_config_dir() {
     let dir = launch::config_dir(home.as_deref());
     let fallback = launch::config_dir(None);
     for candidate in [dir, fallback] {
-        if std::fs::create_dir_all(&candidate).is_ok() && std::env::set_current_dir(&candidate).is_ok() {
+        if std::fs::create_dir_all(&candidate).is_ok()
+            && std::env::set_current_dir(&candidate).is_ok()
+        {
             return;
         }
     }

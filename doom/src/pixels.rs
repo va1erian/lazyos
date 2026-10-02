@@ -40,7 +40,10 @@ pub fn blit(src: &[u32], src_w: usize, src_h: usize, dst: &mut [u8], dst_w: usiz
     let black = [0, 0, 0, 0xff];
     for (y, row) in dst.chunks_exact_mut(dst_w * 4).enumerate() {
         if y < top || y >= top + height {
-            row.as_chunks_mut::<4>().0.iter_mut().for_each(|pixel| *pixel = black);
+            row.as_chunks_mut::<4>()
+                .0
+                .iter_mut()
+                .for_each(|pixel| *pixel = black);
             continue;
         }
         let src_row = &src[(y - top) * src_h / height * src_w..][..src_w];

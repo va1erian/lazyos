@@ -22,6 +22,8 @@ fn main() {
 /// The game only runs on LazyOS; host builds exist for `cargo test`.
 #[cfg(not(all(target_os = "linux", target_env = "musl")))]
 fn main() {
-    eprintln!("lazydoom runs on LazyOS (x86_64-unknown-linux-musl); build it with tools/doom/build.py");
+    eprintln!(
+        "lazydoom runs on LazyOS (x86_64-unknown-linux-musl); build it with tools/doom/build.py"
+    );
     std::process::exit(2);
 }

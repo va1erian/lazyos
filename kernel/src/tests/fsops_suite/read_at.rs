@@ -34,13 +34,19 @@ pub(super) fn read_at_semantics() -> Result<(), String> {
     check!(read_at("/tmp/ra/f", &mut buf, 4950) == 50, "short tail");
     check!(buf[..50] == data[4950..], "tail differs");
     check!(read_at("/tmp/ra/f", &mut buf, 5000) == 0, "read at EOF");
-    check!(read_at("/tmp/ra/f", &mut buf, u64::MAX) == 0, "read far past EOF");
+    check!(
+        read_at("/tmp/ra/f", &mut buf, u64::MAX) == 0,
+        "read far past EOF"
+    );
     check!(read_at("/tmp/ra/f", &mut [], 10) == 0, "an empty read");
     check!(
         read_at("/tmp/ra/missing", &mut buf, 0) == failed(ENOENT),
         "read a missing file"
     );
-    check!(read_at("/tmp/ra", &mut buf, 0) == failed(21), "read a directory");
+    check!(
+        read_at("/tmp/ra", &mut buf, 0) == failed(21),
+        "read a directory"
+    );
     // One call never returns more than MAX_WRITE, whatever `len` says.
     let cap = process::fsops::MAX_WRITE as usize;
     let big = pattern(cap + 4096);
@@ -51,9 +57,15 @@ pub(super) fn read_at_semantics() -> Result<(), String> {
         "append big tail"
     );
     let mut whole = vec![0u8; cap + 4096];
-    check!(read_at("/tmp/ra/big", &mut whole, 0) == cap as u64, "capped read");
+    check!(
+        read_at("/tmp/ra/big", &mut whole, 0) == cap as u64,
+        "capped read"
+    );
     check!(whole[..cap] == big[..cap], "capped read differs");
-    check!(read_at("/tmp/ra/big", &mut whole, cap as u64) == 4096, "after the cap");
+    check!(
+        read_at("/tmp/ra/big", &mut whole, cap as u64) == 4096,
+        "after the cap"
+    );
     check!(whole[..4096] == big[cap..], "data after the cap differs");
     // Bad pointers are EFAULT: the request, then the destination buffer.
     strict(|| -> Result<(), String> {
@@ -89,7 +101,10 @@ pub(super) fn soak_read_at_stream() -> Result<(), String> {
         while offset < data.len() {
             let n = read_at("/tmp/rasoak/f", &mut chunk[..step], offset as u64) as usize;
             let expect = step.min(data.len() - offset);
-            check!(n == expect, "pass {pass} at {offset}: read {n}, wanted {expect}");
+            check!(
+                n == expect,
+                "pass {pass} at {offset}: read {n}, wanted {expect}"
+            );
             check!(
                 chunk[..n] == data[offset..offset + n],
                 "pass {pass} at {offset}: bytes differ"

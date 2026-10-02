@@ -36,6 +36,9 @@ pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path) {
             path.display()
         );
     }
-    println!("cargo:warning=LAZYOS_DOOM embedded: {} as /{DISK_NAME}", path.display());
+    println!(
+        "cargo:warning=LAZYOS_DOOM embedded: {} as /{DISK_NAME}",
+        path.display()
+    );
     sink.add_file(DISK_NAME, path);
 }

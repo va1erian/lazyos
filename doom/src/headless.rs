@@ -16,7 +16,7 @@ use lazydoom::crc;
 
 /// Where the verdict line is written (removed at start-up, so a stale one
 /// never passes a check).
-pub const RESULT_FILE: &str = "/tmp/doom-result.txt";
+pub const RESULT_FILE: &str = fhs::state::DOOM_RESULT;
 
 pub struct Headless {
     frames: u32,
@@ -41,10 +41,18 @@ impl Headless {
             println!("DOOM:FRAME:{}:{:08x}", self.frames, self.last);
         }
         if self.limit == Some(self.frames) {
-            let verdict = format!("DOOM:HEADLESS:PASS frames={} crc={:08x}", self.frames, self.last);
+            let verdict = format!(
+                "DOOM:HEADLESS:PASS frames={} crc={:08x}",
+                self.frames, self.last
+            );
             println!("{verdict}");
-            let _ = std::fs::write(RESULT_FILE, format!("{verdict}
-"));
+            let _ = std::fs::write(
+                RESULT_FILE,
+                format!(
+                    "{verdict}
+"
+                ),
+            );
             std::process::exit(0);
         }
     }

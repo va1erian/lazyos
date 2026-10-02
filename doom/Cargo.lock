@@ -254,6 +254,7 @@ name = "lazydoom"
 version = "0.1.0"
 dependencies = [
  "cc",
+ "fhs",
  "libmessenger",
  "xui-app",
  "xui-core",

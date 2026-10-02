@@ -184,10 +184,8 @@ pub fn read_large(path: &str, limit: usize, data: &mut Vec<u8>) -> Result<(), i6
     let mut filled = 0;
     while filled < data.len() {
         let end = data.len().min(filled + MAX_FILE);
-        let read = read_at(path, filled as u64, &mut data[filled..end]).map_err(|code| {
-            data.clear();
-            code
-        })?;
+        let read =
+            read_at(path, filled as u64, &mut data[filled..end]).inspect_err(|_| data.clear())?;
         if read == 0 {
             data.clear();
             return Err(22); // EINVAL: the file shrank under the read

@@ -31,8 +31,13 @@ impl Window {
     /// Connect to `xuid` and open a `width` x `height` window.
     pub fn open(width: usize, height: usize, title: &str) -> Result<Window, String> {
         let client = Client::connect().map_err(|code| format!("connect: errno {code}"))?;
-        let mut window =
-            ClientWindow::open(client, width as u32, height as u32, title, SurfaceRole::Window)?;
+        let mut window = ClientWindow::open(
+            client,
+            width as u32,
+            height as u32,
+            title,
+            SurfaceRole::Window,
+        )?;
         let (w, h) = window.rect;
         let pending = std::mem::take(&mut window.pending_events);
         let configure = window.pending_configure.take();
@@ -56,7 +61,14 @@ impl Window {
     pub fn draw(&mut self, frame: &[u32], frame_w: usize, frame_h: usize) {
         self.pump();
         let (w, h) = self.window.rect;
-        pixels::blit(frame, frame_w, frame_h, &mut self.image, w as usize, h as usize);
+        pixels::blit(
+            frame,
+            frame_w,
+            frame_h,
+            &mut self.image,
+            w as usize,
+            h as usize,
+        );
         let surface = self.window.surface;
         let slots = &mut self.window.slots;
         let Ok(Some(slot)) = slots.acquire(self.client, surface, w, h) else {
@@ -109,7 +121,9 @@ impl Window {
         };
         while let Some(parcel) = next_message(session.events, &mut buf) {
             match input::decode_event(&parcel) {
-                Some(InputEvent::Key { code, sym, state, .. }) => {
+                Some(InputEvent::Key {
+                    code, sym, state, ..
+                }) => {
                     let Some(key) = keymap::from_session(code, sym) else {
                         continue;
                     };
