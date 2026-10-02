@@ -41,7 +41,7 @@ class CheckLiterals(unittest.TestCase):
                      '"/apps"', '"/logs"', '"INIT.ELF"', '"XAPPS.LST"', '"MIME.TYP"',
                      '"PASSWD"', '"BUSYBOX"', 'r#"/data"#', '"cannot spawn TOP.ELF"',
                      '"/system/bin/top"', '"/system"', '"/etc/mime.types"',
-                     '"/transient/x"', '"PKGDEMO.LZP"']:
+                     '"/transient/x"', '"PKGDEMO.LZP"', '"/tmp"']:
             with self.subTest(text=text):
                 self.assertEqual(len(self.found(f"const A: &str = {text};\n")), 1)
 
@@ -52,7 +52,8 @@ class CheckLiterals(unittest.TestCase):
     def test_clean_literals_pass(self):
         self.assertEqual(self.found('const A: &str = "/dev/null"; // "/data"\n'), [])
         self.assertEqual(self.found("const A: &str = fhs::mount::DATA;\n"), [])
-        self.assertEqual(self.found('const A: &str = "/tmp";\n'), [])
+        self.assertEqual(self.found('const A: &str = "/tmpfs";\n'), [])
+        self.assertEqual(self.found('const A: &str = "/tmp2/x";\n'), [])
 
     def test_comments_are_ignored(self):
         source = '// "/data/apps"\n/// "/data" and INIT.ELF\n/* "/home" /* "/docs" */ "/apps" */\nfn a() {}\n'

@@ -17,7 +17,7 @@ import re
 import sys
 from pathlib import Path
 
-PREFIXES = ("/data", "/tmp/", "/docs", "/home", "/conf", "/apps", "/logs",
+PREFIXES = ("/data", "/docs", "/home", "/conf", "/apps", "/logs",
             "/system", "/transient", "/etc")
 # The flat 8.3 names of the F2 image root: none may come back (F3).
 BOOT_NAME = re.compile(r"\b[A-Z0-9]{1,8}\.(ELF|LST|TYP|LZP)\b|\b(PASSWD|BUSYBOX)\b")
@@ -82,8 +82,12 @@ def literals(src):
 
 
 
+# `/tmp` itself and anything below it, but not `/tmpfs` or `/tmp2`.
+TMP = re.compile(r"/tmp(?:/|$)")
+
+
 def offends(text):
-    return text.startswith(PREFIXES) or bool(BOOT_NAME.search(text))
+    return text.startswith(PREFIXES) or bool(TMP.match(text)) or bool(BOOT_NAME.search(text))
 
 
 def is_test_file(rel):

@@ -13,3 +13,7 @@ path = "src/lib.rs"
 [features]
 # `install_path`, for code that already allocates strings.
 alloc = []
+
+[dev-dependencies]
+# `cargo test -p fhs` covers the `alloc` helpers too.
+fhs = { path = ".", features = ["alloc"] }

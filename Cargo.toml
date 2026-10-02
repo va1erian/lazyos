@@ -104,7 +104,7 @@ bootloader = "0.11.17"
 ext2fs = { path = "libs/ext2fs" }
 # Every destination the build writes names its `libs/fhs` constant
 # (docs/filesystem-plan.md F3).
-fhs = { path = "libs/fhs" }
+fhs = { path = "libs/fhs", features = ["alloc"] }
 
 [profile.dev]
 panic = "abort"

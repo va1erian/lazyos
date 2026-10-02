@@ -34,5 +34,5 @@ pub mod state;
 pub mod system;
 
 #[cfg(feature = "alloc")]
-pub use install::install_path;
+pub use install::{app_data_dir, home_of, install_path};
 pub use system::{SYSTEM, SYSTEM_BIN, SYSTEM_ETC, SYSTEM_PACKAGES, SYSTEM_SHARE};
