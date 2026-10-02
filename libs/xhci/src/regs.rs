@@ -88,6 +88,9 @@ pub mod portsc {
     pub const PED: u32 = 1 << 1;
     /// Port Reset.
     pub const PR: u32 = 1 << 4;
+    /// Port Link State, bits 5..=8 (USB 3 link states, USB 2 L0/L1/L2/L3).
+    pub const PLS_SHIFT: u32 = 5;
+    pub const PLS_MASK: u32 = 0xF << PLS_SHIFT;
     /// Port Power.
     pub const PP: u32 = 1 << 9;
     /// Port Speed, bits 10..=13.
@@ -103,6 +106,25 @@ pub mod portsc {
     pub const PLC: u32 = 1 << 22;
     pub const CEC: u32 = 1 << 23;
     pub const CHANGES: u32 = CSC | PEC | WRC | OCC | PRC | PLC | CEC;
+    /// Warm Port Reset (USB 3 ports only; reads 0).
+    pub const WPR: u32 = 1 << 31;
+
+    /// Link states (Table 5-27) the driver acts on.
+    pub mod link {
+        pub const U0: u32 = 0;
+        pub const DISABLED: u32 = 4;
+        pub const RX_DETECT: u32 = 5;
+        /// SS.Inactive: the link failed; only a warm reset recovers it.
+        pub const INACTIVE: u32 = 6;
+        pub const POLLING: u32 = 7;
+        /// Compliance Mode: entered by a bad link-training; warm reset.
+        pub const COMPLIANCE: u32 = 10;
+    }
+
+    /// The link state in `portsc`.
+    pub fn link_state(portsc: u32) -> u32 {
+        (portsc & PLS_MASK) >> PLS_SHIFT
+    }
     /// Bits a read-modify-write must not echo back: the change bits (writing
     /// 1 clears them), `PED` (writing 1 disables) and `PR` (writing 1 resets).
     pub const NO_ECHO: u32 = CHANGES | PED | PR | (0xF << 5);
@@ -162,8 +184,11 @@ impl Speed {
     /// (USB 2.0 5.5.3; 512 for SuperSpeed).
     pub fn default_max_packet0(self) -> u16 {
         match self {
-            Speed::Low | Speed::Full => 8,
-            Speed::High => 64,
+            // Full speed may be 8, 16, 32 or 64: start at 64 and read only
+            // the first 8 bytes, which fit in one packet whatever the real
+            // size, then fix it with Evaluate Context (as Linux does).
+            Speed::Low => 8,
+            Speed::Full | Speed::High => 64,
             Speed::Super | Speed::SuperPlus => 512,
         }
     }
@@ -197,6 +222,17 @@ pub fn scratchpad_count(hcsparams2: u32) -> u16 {
 /// Whether `HCCPARAMS1` selects 64-byte contexts (CSZ).
 pub fn context_64(hccparams1: u32) -> bool {
     hccparams1 & (1 << 2) != 0
+}
+
+/// Whether the controller can address 64-bit memory (`HCCPARAMS1.AC64`).
+pub fn addressing_64(hccparams1: u32) -> bool {
+    hccparams1 & 1 != 0
+}
+
+/// Whether ports have power switches (`HCCPARAMS1.PPC`): their `PP` bit
+/// must be set before a device can show up.
+pub fn port_power_control(hccparams1: u32) -> bool {
+    hccparams1 & (1 << 3) != 0
 }
 
 /// The first extended capability, as a byte offset from the BAR base

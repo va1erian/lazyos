@@ -21,6 +21,19 @@ notches. The verdict:
     python tools/usb/run.py --tablet         # U4: a usb-tablet instead of the mouse
     python tools/usb/run.py --restart        # U5: usbd dies holding a key, init restarts it
     python tools/usb/run.py --machine q35 --virtio-disk   # U5: on q35 (virtio-blk boot disk)
+    python tools/usb/run.py --hub            # H3: keyboard and mouse behind a usb-hub, then the hub unplugged
+    python tools/usb/run.py --full-speed     # H3: full-speed (USB 1.1) keyboard and mouse on root ports
+    python tools/usb/run.py --controllers 2  # H3: two xHCI controllers, keyboard on the second
+
+`--hub` (docs/real-pc-boot-plan.md H3) puts QEMU's `usb-hub` (a full-speed
+USB 1.1 hub) on root port 1 and the keyboard and mouse on its ports 1 and 2,
+so both enumerate at full speed with a route string; after the typing and
+mouse steps the hub is unplugged over QMP and both must detach with it.
+`--full-speed` attaches `usb_version=1` devices straight to root ports
+(endpoint 0 of 8 bytes, fixed by Evaluate Context; full-speed interval
+encoding). `--controllers N` adds N `qemu-xhci` controllers and puts the
+keyboard on the last one and the mouse on the first, so input works
+whichever controller a port belongs to.
 
 `--hotplug N` (docs/usb-hid-plan.md U3) unplugs and replugs the keyboard N
 times (the mouse every tenth cycle) with QMP `device_del`/`device_add`. The
@@ -175,8 +188,37 @@ def stretch_repeat_hold(steps: list[dict]) -> None:
                     return
 
 
+#: How `--hub` ends: unplug the hub, both devices behind it detach with it.
+HUB_UNPLUG = [
+    {"qmp": "device_del", "args": {"id": "hub"}},
+    {"wait_for": r"USBD:DETACH port=\S+ slot=\d+ regions=\d+ functions=hub ", "regex": True,
+     "timeout": 120},
+]
+
+
+def usb_devices(mouse: bool, tablet: bool, hub: bool, full_speed: bool,
+                controllers: int) -> list[str]:
+    """The QEMU `-device` arguments of the controllers and the devices."""
+    names = [f"xhci{n}" for n in range(max(controllers, 1))]
+    extra: list[str] = []
+    for name in names:
+        extra += ["-device", f"qemu-xhci,id={name}"]
+    speed = ",usb_version=1" if full_speed else ""
+    pointer = "usb-tablet,id=tablet" if tablet else ("usb-mouse,id=mouse" if mouse else None)
+    if hub:
+        extra += ["-device", f"usb-hub,id=hub,bus={names[0]}.0,port=1"]
+        extra += ["-device", f"usb-kbd,id=kbd,bus={names[0]}.0,port=1.1{speed}"]
+        if pointer:
+            extra += ["-device", f"{pointer},bus={names[0]}.0,port=1.2{speed}"]
+        return extra
+    extra += ["-device", f"usb-kbd,id=kbd,bus={names[-1]}.0{speed}"]
+    if pointer:
+        extra += ["-device", f"{pointer},bus={names[0]}.0{speed}"]
+    return extra
+
+
 def session_script(mouse: bool, pace: float, settle: float, slow: bool, hotplug: int,
-                   tablet: bool = False, restart: bool = False) -> list[dict]:
+                   tablet: bool = False, restart: bool = False, hub: bool = False) -> list[dict]:
     if restart:
         ready = [{"wait_for": "USBD:READY", "timeout": 600}, {"wait": settle}]
         return ready + restart_steps(pace) + [{"quit": True}]
@@ -195,6 +237,8 @@ def session_script(mouse: bool, pace: float, settle: float, slow: bool, hotplug:
         steps += tablet_steps(pace)
     elif mouse:
         steps += mouse_steps(60.0 if slow else 5.0)
+    if hub:
+        steps += HUB_UNPLUG
     return steps + [{"quit": True}]
 
 
@@ -218,7 +262,15 @@ def main() -> int:
                         help="a usb-tablet instead of the usb-mouse (U4)")
     parser.add_argument("--hotplug", type=int, default=0, metavar="N",
                         help="unplug/replug cycles instead of the typing session (U3)")
+    parser.add_argument("--hub", action="store_true",
+                        help="keyboard and mouse behind a usb-hub; the hub is unplugged at the end (H3)")
+    parser.add_argument("--full-speed", action="store_true",
+                        help="USB 1.1 (full-speed) keyboard and mouse on root ports (H3)")
+    parser.add_argument("--controllers", type=int, default=1, metavar="N",
+                        help="N qemu-xhci controllers; keyboard on the last, mouse on the first (H3)")
     args = parser.parse_args()
+    if args.hub and (args.hotplug or args.restart):
+        parser.error("--hub runs the typing session; it does not combine with --hotplug or --restart")
     slow = args.accel in ("none", "tcg")
     pace = args.pace if args.pace is not None else (3.0 if slow else 0.1)
     settle = args.settle if args.settle is not None else (120.0 if slow else 3.0)
@@ -227,12 +279,9 @@ def main() -> int:
         build(crash_test=args.restart)
     args.out.mkdir(parents=True, exist_ok=True)
     script = args.out / "session.json"
-    script.write_text(json.dumps(session_script(mouse, pace, settle, slow, args.hotplug, args.tablet, args.restart), indent=1))
-    extra = ["-device", "qemu-xhci", "-device", "usb-kbd,id=kbd"]
-    if args.tablet:
-        extra += ["-device", "usb-tablet,id=tablet"]
-    elif mouse:
-        extra += ["-device", "usb-mouse,id=mouse"]
+    script.write_text(json.dumps(session_script(mouse, pace, settle, slow, args.hotplug, args.tablet,
+                                                args.restart, args.hub), indent=1))
+    extra = usb_devices(mouse, args.tablet, args.hub, args.full_speed, args.controllers)
     machine = args.machine or "pc"
     if not args.ps2:
         machine += ",i8042=off"
@@ -269,6 +318,12 @@ def main() -> int:
         judge.append("--tablet")
     elif mouse:
         judge.append("--mouse")
+    if args.hub:
+        judge.append("--hub")
+    if args.full_speed:
+        judge.append("--full-speed")
+    if args.controllers > 1:
+        judge += ["--controllers", str(args.controllers)]
     verdicts.append(subprocess.run(judge).returncode == 0)
     ok = all(verdicts)
     print("usb harness: " + ("PASS" if ok else "FAIL"))

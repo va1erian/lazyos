@@ -1,25 +1,30 @@
-//! `usbd` (`/system/bin/usbd`): the USB HID driver (`docs/usb-hid-plan.md`, U2).
+//! `usbd` (`/system/bin/usbd`): the USB driver (`docs/usb-hid-plan.md`, U2;
+//! real hardware: `docs/real-pc-boot-plan.md` H3).
 //!
-//! An ordinary ring-3 program, like `sndd`: it claims the xHCI controller
-//! through the device syscall (23), maps BAR 0, allocates DMA memory for the
-//! rings and contexts, and drives the controller with `libs/xhci` by polling.
-//! Each connected root port is reset and its device addressed; a boot
-//! keyboard or mouse is configured (`libs/usbhid` parses every descriptor and
-//! report) and published onto the raw input bus as a kernel input source of
-//! its class, so `inputd` sees it exactly like the PS/2 devices.
+//! An ordinary ring-3 program, like `sndd`: it claims **every** xHCI
+//! controller through the device syscall (23) (a desktop has a chipset one
+//! and often a CPU-side or add-in one), takes each from the BIOS, maps BAR
+//! 0, allocates DMA memory for the rings and contexts, and drives them with
+//! `libs/xhci` by polling. Each connected port, on the root hub or on an
+//! external hub, is reset and its device addressed and bound to its class
+//! (`usbd/class.rs`): a boot keyboard or mouse (any interface of a composite
+//! device) or a report-protocol pointer is published onto the raw input bus
+//! as a kernel input source of its class, so `inputd` sees it exactly like
+//! the PS/2 devices; a hub has its ports powered and watched.
 //!
 //! It holds `CAP_DEV_CLAIM` and `CAP_INPUT_SOURCE` and nothing else (`init`
 //! runs it as `_usb`); it cannot read the bus and the kernel stamps its
 //! records with device ids of their own.
 //!
-//! Serial evidence: `USBD:XHCI` (controller up), `USBD:PORT` (a device),
-//! `USBD:DESC:*` (its descriptors, hex), `USBD:HID:KBD` / `USBD:HID:MOUSE` /
-//! `USBD:HID:TABLET` (a report-protocol absolute pointer, U4)
-//! (configured and publishing), `USBD:READY`, `USBD:DETACH` (unplugged:
-//! keys and buttons released, slot disabled); with `trace=1`, one
-//! `USBD:KEY` line per key edge. Devices come and go at runtime (U3): a
-//! port-status-change event attaches or detaches, and a detached device's
-//! DMA memory serves its slot's next device (`regions=` counts allocations).
+//! Serial evidence: `USBD:XHCI hc=<n>` (a controller up, with its BIOS
+//! handoff and port protocols), `USBD:PORT port=<hc>-<root>[.<hub port>...]`
+//! (a device), `USBD:DESC:*` (its descriptors, hex), `USBD:HUB` (a hub),
+//! `USBD:HID:KBD` / `USBD:HID:MOUSE` / `USBD:HID:TABLET` (configured and
+//! publishing), `USBD:READY`, `USBD:DETACH` (unplugged: keys and buttons
+//! released, slot disabled, children first); with `trace=1`, one `USBD:KEY`
+//! line per key edge. Devices come and go at runtime (U3): a port change
+//! attaches or detaches, and a detached device's DMA memory serves its
+//! slot's next device (`regions=` counts allocations per controller).
 
 #![no_std]
 #![no_main]
@@ -30,23 +35,29 @@ use alloc::format;
 use alloc::vec::Vec;
 use core::panic::PanicInfo;
 
-use usbhid::desc::Protocol;
 use user::sys;
-use xhci::regs::portsc;
-use xhci::trb::{kind, Trb};
 
+#[path = "usbd/bus.rs"]
+mod bus;
+#[path = "usbd/class.rs"]
+mod class;
 #[path = "usbd/device.rs"]
 mod device;
 #[path = "usbd/hc.rs"]
 mod hc;
 #[path = "usbd/hid.rs"]
 mod hid;
+#[path = "usbd/hub.rs"]
+mod hub;
 #[path = "usbd/mem.rs"]
 mod mem;
+#[path = "usbd/pipe.rs"]
+mod pipe;
+#[path = "usbd/port.rs"]
+mod port;
 
-use device::{Device, MAX_REPORT};
+use bus::Controller;
 use hc::Hc;
-use hid::Hid;
 
 /// Why the driver stopped, or a device was given up on.
 pub(crate) enum Error {
@@ -83,28 +94,18 @@ impl core::fmt::Display for Error {
     }
 }
 
-/// A device and the source it publishes through.
-struct Bound {
-    device: Device,
-    hid: Hid,
-}
-
-/// The controller and everything bound to its ports.
-struct Driver {
-    hc: Hc,
-    bound: Vec<Bound>,
-    /// Ports whose device is not driven (not a boot HID device, or it failed
-    /// to come up): left alone until it is unplugged.
-    skipped: Vec<u8>,
-    trace: bool,
+/// How the driver was started.
+pub(crate) struct Settings {
+    /// Echo every report and key edge on serial (test images only).
+    pub(crate) trace: bool,
     /// The restart test (`LAZYOS_USB_CRASH_TEST`): exit after publishing the
     /// first key press, holding it.
-    crash_on_key: bool,
+    pub(crate) crash_on_key: bool,
 }
 
 #[no_mangle]
 pub extern "C" fn _start() -> ! {
-    sys::write_str("usbd: USB HID driver\n");
+    sys::write_str("usbd: USB driver\n");
     // The identity the kernel stamped on this task: `_usb` with only
     // `CAP_DEV_CLAIM | CAP_INPUT_SOURCE` under `init`.
     let mut cred = sys::Cred::default();
@@ -158,154 +159,86 @@ impl Args {
 
 fn run() -> Result<(), Error> {
     let args = Args::from_service();
-    let hc = Hc::open()?;
-    if args.trace {
-        // Harness evidence (issue #481): `_usb` cannot claim another class.
-        user::dev::inspect::cross_class_probe("usb");
+    let rows = hc::find_all()?;
+    if rows.is_empty() {
+        return Err(Error::NoController);
     }
-    let info = hc.info;
-    sys::write_str(&format!(
-        "USBD:XHCI version={:#x} ports={} slots={} scratchpads={} csz64={}\n",
-        info.version, info.ports, info.slots, info.scratchpads, info.context_64
-    ));
-    let mut driver = Driver {
-        hc,
-        bound: Vec::new(),
-        skipped: Vec::new(),
+    let settings = Settings {
         trace: args.trace,
         crash_on_key: cfg!(lazyos_usb_crash_test) && args.attempt == 1,
     };
-    // A device present at boot is handled like one plugged in later.
-    for port in 1..=info.ports {
-        driver.port_changed(port);
+    // One controller failing (a claim refused, a reset that never ends)
+    // must not cost the keyboard on another.
+    let mut controllers = Vec::new();
+    let mut last_error = None;
+    for (index, row) in rows.iter().enumerate() {
+        match Hc::open(row, index) {
+            Ok(hc) => {
+                report(&hc, row);
+                controllers.push(Controller::new(hc));
+            }
+            Err(error) => {
+                sys::write_str(&format!(
+                    "USBD:XHCI:FAIL hc={index} vendor={:#06x} device={:#06x} {error}\n",
+                    row.vendor, row.device
+                ));
+                last_error = Some(error);
+            }
+        }
     }
-    sys::write_str(&format!("USBD:READY devices={}\n", driver.bound.len()));
+    if controllers.is_empty() {
+        return Err(last_error.unwrap_or(Error::NoController));
+    }
+    if args.trace {
+        // Harness evidence (issue #481): `_usb` cannot claim another class.
+        // After the claims: the probe skips the classes this task owns.
+        user::dev::inspect::cross_class_probe("usb");
+    }
+    for controller in &mut controllers {
+        controller.scan(&settings);
+    }
+    let devices: usize = controllers.iter().map(Controller::devices).sum();
+    sys::write_str(&format!(
+        "USBD:READY devices={devices} controllers={}\n",
+        controllers.len()
+    ));
     loop {
-        let Some(event) = driver.hc.next_event() else {
+        let mut busy = false;
+        for controller in &mut controllers {
+            busy |= controller.poll(&settings);
+        }
+        if !busy {
             hc::nap();
-            continue;
-        };
-        match event.kind() {
-            kind::PORT_STATUS_CHANGE => driver.port_changed(event.port()),
-            kind::TRANSFER_EVENT => driver.transfer(&event),
+        }
+    }
+}
+
+/// The `USBD:XHCI` line: what the controller is and how it came up.
+fn report(hc: &Hc, row: &user::dev::Row) {
+    let info = hc.info;
+    let mut usb2 = 0;
+    let mut usb3 = 0;
+    for port in 1..=info.ports {
+        match hc.ports.major(port) {
+            Some(2) => usb2 += 1,
+            Some(3) => usb3 += 1,
             _ => {}
         }
     }
-}
-
-impl Driver {
-    /// Bring `port` in line with what is plugged into it: attach a new
-    /// device, detach one that went away (or was swapped for another).
-    fn port_changed(&mut self, port: u8) {
-        if port == 0 || port > self.hc.info.ports {
-            return;
-        }
-        let status = self.hc.portsc(port);
-        self.hc.set_portsc(port, portsc::ack_changes(status));
-        let connected = status & portsc::CCS != 0;
-        let index = self.bound.iter().position(|b| b.device.port == port);
-        // A disconnect, or a connect change while bound (unplugged and
-        // replugged between two looks), ends the current device.
-        if !connected || status & portsc::CSC != 0 {
-            self.skipped.retain(|&p| p != port);
-            if let Some(index) = index {
-                self.detach(index, "unplugged");
-            }
-        } else if index.is_some() {
-            return;
-        }
-        if connected && !self.skipped.contains(&port) {
-            match attach_port(&mut self.hc, port) {
-                Some(found) => self.bound.push(found),
-                None => self.skipped.push(port),
-            }
-        }
-    }
-
-    /// An interrupt-IN completion: publish the report and queue another.
-    fn transfer(&mut self, event: &Trb) {
-        // Events of a detached slot are already dropped (`release`).
-        let Some(index) = self.bound.iter().position(|b| b.device.owns(event)) else {
-            return;
-        };
-        let mut report = [0u8; MAX_REPORT];
-        let entry = &mut self.bound[index];
-        match entry.device.take_report(event, &mut report) {
-            Some(len) => {
-                let pressed = entry.hid.report(&report[..len], self.trace);
-                if pressed && self.crash_on_key {
-                    // The kernel releases the key on our death; `init`
-                    // restarts us, and the controller is reset and every
-                    // device re-enumerated.
-                    sys::write_str("USBD:CRASH:TEST exiting with a key held\n");
-                    sys::exit(3);
-                }
-                if entry.device.queue_reports(&mut self.hc).is_ok() {
-                    return;
-                }
-                self.detach(index, "requeue failed");
-            }
-            None => {
-                let why = format!("transfer code={}", event.completion_code());
-                self.detach(index, &why);
-            }
-        }
-    }
-
-    /// Release what the device held, then give its slot and memory back.
-    fn detach(&mut self, index: usize, why: &str) {
-        let gone = self.bound.swap_remove(index);
-        let (port, slot) = (gone.device.port, gone.device.slot);
-        gone.hid.close(self.trace);
-        gone.device.release(&mut self.hc);
-        sys::write_str(&format!(
-            "USBD:DETACH port={port} slot={slot} regions={} ({why})\n",
-            self.hc.regions
-        ));
-    }
-}
-
-/// Reset `port`, address its device and bind it if it is a boot keyboard or
-/// mouse. Failures are reported per port and never stop the driver.
-fn attach_port(hc: &mut Hc, port: u8) -> Option<Bound> {
-    let speed = device::reset_port(hc, port)?;
-    sys::write_str(&format!("USBD:PORT port={port} speed={speed:?}\n"));
-    let device = match Device::attach(hc, port, speed) {
-        Ok(Some(device)) => device,
-        Ok(None) => {
-            sys::write_str(&format!(
-                "USBD:PORT:SKIP port={port} not a boot HID device\n"
-            ));
-            return None;
-        }
-        Err(error) => {
-            sys::write_str(&format!("USBD:PORT:FAIL port={port} {error}\n"));
-            return None;
-        }
-    };
-    let hid = match Hid::new(device.hid.protocol, device.layout) {
-        Ok(hid) => hid,
-        Err(error) => {
-            sys::write_str(&format!("USBD:PORT:FAIL port={port} {error}\n"));
-            device.release(hc);
-            return None;
-        }
-    };
-    let what = match device.hid.protocol {
-        Protocol::Keyboard => "KBD",
-        _ if hid.tablet() => "TABLET",
-        _ => "MOUSE",
-    };
     sys::write_str(&format!(
-        "USBD:HID:{what} port={port} slot={} vendor={:#06x} product={:#06x} interface={} dci={} regions={}\n",
-        device.slot,
-        device.descriptor.vendor,
-        device.descriptor.product,
-        device.hid.number,
-        device.dci,
-        hc.regions
+        "USBD:XHCI hc={} vendor={:#06x} device={:#06x} version={:#x} ports={} usb2={usb2} usb3={usb3} slots={} scratchpads={} csz64={} ac64={} ppc={} handoff={:?}\n",
+        hc.index,
+        row.vendor,
+        row.device,
+        info.version,
+        info.ports,
+        info.slots,
+        info.scratchpads,
+        info.context_64,
+        info.addressing_64,
+        info.port_power,
+        info.handoff
     ));
-    Some(Bound { device, hid })
 }
 
 #[panic_handler]

@@ -74,6 +74,17 @@ jobs:
           # U5: the same session on q35 (boot disk on virtio-blk).
           - name: q35
             args: "--machine q35 --virtio-disk"
+          # H3: keyboard and mouse behind a usb-hub (full speed, route
+          # string), then the hub unplugged: everything below it detaches.
+          - name: hub
+            args: "--hub"
+          # H3: USB 1.1 devices on root ports (endpoint 0 fixed by Evaluate
+          # Context, full-speed intervals).
+          - name: full-speed
+            args: "--full-speed"
+          # H3: two xHCI controllers, keyboard and mouse on different ones.
+          - name: two-controllers
+            args: "--controllers 2"
     steps:
       - uses: actions/checkout@v4
 
@@ -93,7 +104,7 @@ jobs:
       - name: Dump the key trace and session timeline
         if: ${{ failure() }}
         run: |
-          grep -anE "USBD:(KEY|XHCI|PORT|HID|READY|DETACH|CRASH|FATAL|PANIC|SLOT)|INPUTD:(KEY|READY)|INIT:RESTART|HANG:" shots/usb/serial.log || true
+          grep -anE "USBD:(KEY|XHCI|PORT|HID|HUB|READY|DETACH|CRASH|FATAL|PANIC|SLOT)|INPUTD:(KEY|READY)|INIT:RESTART|HANG:" shots/usb/serial.log || true
           python -c "import json; [print(step) for step in json.load(open('shots/usb/summary.json'))['timeline']]" || true
 
       - name: Upload the session

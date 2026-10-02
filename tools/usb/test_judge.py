@@ -125,7 +125,8 @@ class Hotplug(unittest.TestCase):
         self.assertFails(good.replace("USBD:HID:MOUSE port=6", "USBD:HID:OTHER port=6", 1))
 
     def test_dma_leak(self):
-        self.assertFails(hotplug_log(self.CYCLES) + "USBD:DETACH port=5 slot=1 regions=9 (unplugged)\n")
+        leak = judge.MAX_SLOTS + 1
+        self.assertFails(hotplug_log(self.CYCLES) + f"USBD:DETACH port=5 slot=1 regions={leak} (unplugged)\n")
 
     def test_driver_errors(self):
         self.assertFails(hotplug_log(self.CYCLES) + "USBD:SLOT:LEAK slot=1 disable failed\n")
@@ -232,6 +233,56 @@ class Restart(unittest.TestCase):
 
     def test_typing_after_restart(self):
         self.assertFails(restart_log().replace("code=0x6 sym=0x63 mods=0x40 down", "code=0x7 sym=0x64 mods=0x40 down"))
+
+
+FS_KBD = judge.GOLDEN_FULL["KBD"]
+FS_MOUSE = judge.GOLDEN_FULL["MOUSE"]
+
+#: `run.py --hub`, as usbd and inputd log it: a hub on root port 5, the
+#: keyboard and mouse on its ports 1 and 2 at full speed, then the hub
+#: unplugged (children detach first).
+HUB = GOOD.replace("port=5", "port=0-5.1").replace("port=6", "port=0-5.2").replace(
+    KBD[0], FS_KBD[0]).replace(KBD[1], FS_KBD[1]).replace(MOUSE[0], FS_MOUSE[0]).replace(
+    MOUSE[1], FS_MOUSE[1]).replace(
+    "USBD:PORT port=0-5.1", "USBD:HUB port=0-5 slot=1 ports=8 reported=8 speed=Full mtt=false depth=0\n"
+    "USBD:PORT port=0-5.1", 1) + """USBD:DETACH port=0-5.1 slot=2 regions=3 functions=hid (its hub went away)
+USBD:DETACH port=0-5.2 slot=3 regions=3 functions=hid (its hub went away)
+USBD:DETACH port=0-5 slot=1 regions=3 functions=hub (unplugged)
+"""
+
+#: `run.py --controllers 2`: mouse on controller 0, keyboard on controller 1.
+MULTI = GOOD.replace("USBD:XHCI version", "USBD:XHCI hc=0 version").replace(
+    "USBD:READY", "USBD:XHCI hc=1 version=0x100 ports=8\nUSBD:READY").replace(
+    "port=5", "port=1-5").replace("port=6", "port=0-5")
+
+
+class RealHardwareVariants(unittest.TestCase):
+    def test_good_logs_pass(self):
+        self.assertEqual(judge.judge(HUB, True, full_speed=True) + judge.judge_hub(HUB, True), [])
+        self.assertEqual(judge.judge(MULTI, True) + judge.judge_controllers(MULTI, 2, True), [])
+
+    def test_full_speed_descriptors_required(self):
+        # High-speed descriptors in a full-speed run (and the other way round).
+        self.assertNotEqual(judge.judge(GOOD, True, full_speed=True), [])
+        self.assertNotEqual(judge.judge(HUB, True, full_speed=False), [])
+
+    def test_hub_missing_or_devices_not_behind_it(self):
+        self.assertNotEqual(judge.judge_hub(HUB.replace("USBD:HUB", "USBD:HUX"), True), [])
+        moved = HUB.replace("USBD:HID:KBD port=0-5.1", "USBD:HID:KBD port=0-6")
+        self.assertNotEqual(judge.judge_hub(moved, True), [])
+
+    def test_hub_unplug(self):
+        self.assertNotEqual(judge.judge_hub(HUB.replace("USBD:DETACH port=0-5 slot=1", "USBD:GONE port=0-5 slot=1"), True), [])
+        # A child that outlived its hub.
+        late = HUB.replace("USBD:DETACH port=0-5.2 slot=3 regions=3 functions=hid (its hub went away)\n", "")
+        late += "USBD:DETACH port=0-5.2 slot=3 regions=3 functions=hid (unplugged)\n"
+        self.assertNotEqual(judge.judge_hub(late, True), [])
+
+    def test_controllers(self):
+        self.assertNotEqual(judge.judge_controllers(MULTI.replace("hc=1", "hc=3"), 2, True), [])
+        same = MULTI.replace("port=1-5", "port=0-7")
+        self.assertNotEqual(judge.judge_controllers(same, 2, True), [])
+        self.assertNotEqual(judge.judge_controllers(MULTI.replace("port=0-5", "port=1-6"), 2, True), [])
 
 
 if __name__ == "__main__":

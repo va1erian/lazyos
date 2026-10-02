@@ -207,6 +207,16 @@ impl<M: TrbMem> ProducerRing<M> {
         Ok(())
     }
 
+    /// Give up on everything in flight (the endpoint halted or was
+    /// stopped): the returned pointer, the enqueue position with the cycle
+    /// state in bit 0, is what Set TR Dequeue Pointer takes so the
+    /// controller resumes at the next TRB the driver writes.
+    pub fn abandon(&mut self) -> u64 {
+        self.head = self.enqueue;
+        self.in_flight = 0;
+        (self.mem.phys() + self.enqueue as u64 * TRB_BYTES) | u64::from(self.cycle)
+    }
+
     /// TRBs written and not yet completed.
     pub fn in_flight(&self) -> usize {
         self.in_flight

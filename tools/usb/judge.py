@@ -13,6 +13,17 @@ pointer record can have come from PS/2.
     python tools/usb/judge.py shots/usb/serial.log --hotplug 200
     python tools/usb/judge.py shots/usb/serial.log --tablet
     python tools/usb/judge.py shots/usb/serial.log --restart
+    python tools/usb/judge.py shots/usb/serial.log --mouse --hub
+    python tools/usb/judge.py shots/usb/serial.log --mouse --full-speed
+    python tools/usb/judge.py shots/usb/serial.log --mouse --controllers 2
+
+`--hub`, `--full-speed` and `--controllers N` (docs/real-pc-boot-plan.md H3)
+add to the typing verdict: the keyboard and mouse were bound behind a
+`usb-hub` (`USBD:HUB`, port paths one tier deep, full-speed descriptors) and
+both detached with the hub when it was unplugged; or they were bound at full
+speed on root ports (QEMU's USB 1.1 descriptors, endpoint 0 of 8 bytes); or
+N controllers came up and the keyboard and mouse were bound on different
+ones.
 
 `--restart` (U5) judges `run.py --restart`: the crash-test build of `usbd`
 exited holding `x`; `inputd` saw `x` released before the restarted `usbd`
@@ -51,6 +62,19 @@ GOLDEN = {
         "09022200010106a03209040000010301020009210100000122340007058103040007",
     ),
 }
+#: The same devices at full speed (behind QEMU's USB 1.1 `usb-hub`, or with
+#: `usb_version=1`): endpoint 0 of 8 bytes (fixed by Evaluate Context after
+#: the first read at 64) and 10 ms intervals; QEMU keeps bcdUSB 2.0.
+GOLDEN_FULL = {
+    "KBD": (
+        "120100020000000827060100000001040b01",
+        "09022200010108a032090400000103010100092111010001223f000705810308000a",
+    ),
+    "MOUSE": (
+        "120100020000000827060100000001020901",
+        "09022200010106a0320904000001030102000921010000012234000705810304000a",
+    ),
+}
 
 #: Where `run.py`'s mouse steps leave the cursor: corner, then +40,+30,
 #: a left click there, then two wheel notches up.
@@ -71,28 +95,32 @@ TABLET_REPORT_3 = (
     "4500750895018106c0c0"
 )
 TABLET_REPORTS = (TABLET_REPORT, TABLET_REPORT_3)
-REPORT_DESC = re.compile(r"USBD:DESC:REPORT port=(\d+) ([0-9a-f]+)")
+REPORT_DESC = re.compile(r"USBD:DESC:REPORT port=(\S+) ([0-9a-f]+)")
 #: `run.py`'s TABLET_POINTS, and `inputd`'s screen when no compositor set one.
 TABLET_POINTS = [(0, 0), (0x7FFF, 0x7FFF), (0x4000, 0x2000)]
 SCREEN = (1280, 720)
 
 FATAL = re.compile(r"USBD:(FATAL|PANIC|PORT:FAIL|SLOT:LEAK)")
-DETACH = re.compile(r"USBD:DETACH port=(\d+) slot=(\d+) regions=(\d+)")
+DETACH = re.compile(r"USBD:DETACH port=(\S+) slot=(\d+) regions=(\d+)")
 REGIONS = re.compile(r"USBD:HID:\w+ .* regions=(\d+)")
-#: `usbd` enables at most this many slots, so it never needs more regions.
-MAX_SLOTS = 8
+#: `usbd` enables at most this many slots per controller, so it never needs
+#: more regions (`MAX_SLOTS` in `user/src/bin/usbd/hc.rs`).
+MAX_SLOTS = 12
+HUB = re.compile(r"USBD:HUB port=(\S+) slot=(\d+) ports=(\d+)")
+XHCI = re.compile(r"USBD:XHCI hc=(\d+) ")
 #: Usages `run.py --hotplug` holds across the first unplug, and then types.
 HELD_KEY = 0x1B  # x
 TYPED_KEYS = [0x04, 0x05, 0x06]  # a, b, c
-HID = re.compile(r"USBD:HID:(KBD|MOUSE|TABLET) port=(\d+)")
-DESC = re.compile(r"USBD:DESC:(DEVICE|CONFIG) port=(\d+) ([0-9a-f]+)")
+HID = re.compile(r"USBD:HID:(KBD|MOUSE|TABLET) port=(\S+)")
+DESC = re.compile(r"USBD:DESC:(DEVICE|CONFIG) port=(\S+) ([0-9a-f]+)")
 USB_KEY = re.compile(r"USBD:KEY usage=0x([0-9a-f]+) (down|up)")
 INPUTD_KEY = re.compile(r"INPUTD:KEY code=0x([0-9a-f]+) sym=\S+ mods=\S+ (down|up)")
 POINTER = re.compile(r"INPUTD:POINTER x=(-?\d+) y=(-?\d+) buttons=0x([0-9a-f]+) wheel=(-?\d+),(-?\d+)")
 
 
-def judge(log: str, mouse: bool) -> list[str]:
-    """Every reason the log fails; empty means it passes."""
+def judge(log: str, mouse: bool, full_speed: bool = False) -> list[str]:
+    """Every reason the log fails; empty means it passes. `full_speed`:
+    the devices ran at full speed (their USB 1.1 descriptors)."""
     failures = [f"driver error: {line}" for line in log.splitlines() if FATAL.search(line)]
     if "USBD:XHCI " not in log:
         failures.append("the controller never came up (no USBD:XHCI)")
@@ -103,7 +131,7 @@ def judge(log: str, mouse: bool) -> list[str]:
             failures.append(f"no USBD:HID:{kind}: the device was not configured")
             continue
         descriptors = {what: hex_ for what, port, hex_ in DESC.findall(log) if port == bound[kind]}
-        device, config = GOLDEN[kind]
+        device, config = (GOLDEN_FULL if full_speed else GOLDEN)[kind]
         if descriptors.get("DEVICE") != device:
             failures.append(f"{kind} device descriptor {descriptors.get('DEVICE')} != {device}")
         if descriptors.get("CONFIG") != config:
@@ -112,6 +140,47 @@ def judge(log: str, mouse: bool) -> list[str]:
     if mouse:
         failures += judge_pointer(log)
     failures += judge_crossclaim(log)
+    return failures
+
+
+def judge_hub(log: str, mouse: bool) -> list[str]:
+    """`run.py --hub`: a hub on a root port, the keyboard (and mouse) one tier
+    below it, and everything detached with the hub when it was unplugged."""
+    hubs = HUB.findall(log)
+    if not hubs:
+        return ["no USBD:HUB: the hub was not configured"]
+    hub_path, hub_slot, ports = hubs[0]
+    failures = []
+    if int(ports) < 2:
+        failures.append(f"the hub reported {ports} ports")
+    bound = {kind: path for kind, path in HID.findall(log)}
+    for kind in ["KBD", "MOUSE"] if mouse else ["KBD"]:
+        path = bound.get(kind, "")
+        if not path.startswith(hub_path + "."):
+            failures.append(f"{kind} at {path or 'nowhere'}, not behind the hub at {hub_path}")
+    detached = DETACH.findall(log)
+    paths = [path for path, _, _ in detached]
+    if hub_path not in paths:
+        failures.append("the hub never detached when it was unplugged")
+    else:
+        for kind, path in bound.items():
+            if path not in paths[:paths.index(hub_path)]:
+                failures.append(f"{kind} at {path} did not detach before its hub")
+    return failures
+
+
+def judge_controllers(log: str, count: int, mouse: bool) -> list[str]:
+    """`run.py --controllers N`: N controllers up, the keyboard on the last
+    and the mouse on the first."""
+    up = sorted({int(n) for n in XHCI.findall(log)})
+    failures = []
+    if up != list(range(count)):
+        failures.append(f"controllers up: {up}, want {list(range(count))}")
+    bound = {kind: path for kind, path in HID.findall(log)}
+    if not bound.get("KBD", "").startswith(f"{count - 1}-"):
+        failures.append(f"keyboard at {bound.get('KBD')}, not on controller {count - 1}")
+    if mouse and not bound.get("MOUSE", "").startswith("0-"):
+        failures.append(f"mouse at {bound.get('MOUSE')}, not on controller 0")
     return failures
 
 
@@ -266,6 +335,10 @@ def main() -> int:
     parser.add_argument("--restart", action="store_true", help="judge a `run.py --restart` log")
     parser.add_argument("--hotplug", type=int, default=0, metavar="N",
                         help="judge a `run.py --hotplug N` log instead")
+    parser.add_argument("--hub", action="store_true", help="the devices sat behind a usb-hub")
+    parser.add_argument("--full-speed", action="store_true", help="the devices ran at full speed")
+    parser.add_argument("--controllers", type=int, default=1, metavar="N",
+                        help="N controllers, keyboard on the last, mouse on the first")
     args = parser.parse_args()
     log = args.log.read_text(errors="replace")
     if args.restart:
@@ -275,7 +348,11 @@ def main() -> int:
     elif args.tablet:
         failures = judge_tablet(log)
     else:
-        failures = judge(log, args.mouse)
+        failures = judge(log, args.mouse, args.full_speed or args.hub)
+    if args.hub:
+        failures += judge_hub(log, args.mouse)
+    if args.controllers > 1:
+        failures += judge_controllers(log, args.controllers, args.mouse)
     for failure in failures:
         print(f"FAIL: {failure}")
     print("usb judge: " + ("FAIL" if failures else "PASS"))
