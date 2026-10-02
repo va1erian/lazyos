@@ -62,6 +62,7 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("pipe_vfork_clone_child", vfork_clone_child),
     ("pipe_eof_on_unreaped_exit", eof_on_unreaped_exit),
     ("pipe_eof_on_killed_writer", eof_on_killed_writer),
+    ("pipe_exit_drops_epoll_interest", exit_drops_epoll_interest),
     ("pipe_soak_unreaped_exit", soak_unreaped_exit),
     (
         "pipe_soak_throughput_and_lifecycle",

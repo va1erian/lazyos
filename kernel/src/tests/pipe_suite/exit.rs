@@ -220,3 +220,67 @@ pub fn soak_unreaped_exit() -> Result<(), String> {
     signal::harness::reset();
     Ok(())
 }
+
+/// `epoll_ctl(ADD)` as the current task, watching `fd` for `EPOLLIN`.
+fn epoll_add(epfd: usize, fd: usize) -> u64 {
+    let mut event = [0u8; 12]; // packed `struct epoll_event`
+    event[..4].copy_from_slice(&1u32.to_le_bytes());
+    process::linux::dispatch_args_for_test(233, epfd as u64, 1, fd as u64, event.as_ptr() as u64)
+}
+
+/// An epoll instance shared across `fork`: the child registers its write end
+/// and exits. The interest goes with the child's descriptor (as `close`
+/// would drop it), so the parent's reader still gets end-of-file; the
+/// parent's own interest in its read end, which the child also inherited
+/// under the same number, stays registered.
+pub fn exit_drops_epoll_interest() -> Result<(), String> {
+    fresh()?;
+    task::harness::reset();
+    let epfd = process::linux::dispatch_for_test(291, 0, 0, 0) as usize;
+    check!(
+        (3..task::FD_COUNT).contains(&epfd),
+        "epoll_create1 returned {epfd:#x}"
+    );
+    let (child, r, w) = fork_writer()?;
+    let ret = epoll_add(epfd, r);
+    check!(
+        ret == 0,
+        "the parent's ADD of its read end returned {ret:#x}"
+    );
+
+    // As the child (the harness cannot dispatch a syscall from a forked
+    // task, which has no syscall-entry frame): what `epoll_ctl(ADD)` does.
+    task::harness::switch_current(child);
+    let epoll = match task::fd_clone(epfd) {
+        Some(task::Fd::Epoll { ref epoll }) => Arc::clone(epoll),
+        _ => return Err(String::from("the child did not inherit the epoll fd")),
+    };
+    let target = task::fd_clone(w).ok_or("the child has no write end")?;
+    let added = crate::ipc::epoll::Epoll::add(&epoll, w, target, 1, 0);
+    task::harness::switch_current(task::KERNEL_TASK);
+    drop(epoll);
+    check!(added.is_ok(), "the child's ADD of its write end failed");
+    child_writes(child, w, b"e")?;
+    task::harness::finish(child, 0);
+    read_to_eof(r, b"e")?;
+
+    // EPOLL_CTL_DEL succeeds only for a registered descriptor.
+    let del = |fd: usize| process::linux::dispatch_args_for_test(233, epfd as u64, 2, fd as u64, 0);
+    check!(
+        del(r) == 0,
+        "the parent's interest in its read end was dropped"
+    );
+    check!(
+        del(w) != 0,
+        "the exited child's interest in its write end survived"
+    );
+    check!(task::reap_child().is_some(), "the child is not reapable");
+    check!(task::fd_close(r) && task::fd_close(epfd), "cleanup failed");
+    check!(
+        pipe::Pipe::live() == 0,
+        "{} pipes leaked",
+        pipe::Pipe::live()
+    );
+    check!(fds_clean(), "a descriptor was left open");
+    Ok(())
+}

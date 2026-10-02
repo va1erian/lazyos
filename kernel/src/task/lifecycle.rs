@@ -184,20 +184,64 @@ pub fn reclaim_pending() {
 /// #404), and other descriptors take the heap lock. A slot that was reaped and
 /// reused before this ran holds a live task and is skipped, so a new task's
 /// descriptors are never closed.
+///
+/// Like `fd_close`, each closed descriptor leaves the epoll instances in the
+/// table that registered it, unless a live task sharing the instance still
+/// holds the same file under that number (see [`orphaned_interests`]).
+/// Otherwise an epoll inherited across `fork` would keep the exited child's
+/// pipe write end open and its reader would never see end-of-file.
 pub fn close_exited_fds() {
     for slot in PENDING_CLOSE.take().iter() {
-        let fds = {
+        let (fds, orphaned) = {
             let mut tasks = TASKS.lock();
-            match tasks[slot].as_mut() {
+            let fds = match tasks[slot].as_mut() {
                 Some(task) if task.state == TaskState::Done => {
                     task.fd_flags = [0; FD_COUNT];
                     core::mem::replace(&mut task.fds, core::array::from_fn(|_| Fd::Closed))
                 }
                 _ => continue,
-            }
+            };
+            let orphaned = orphaned_interests(&tasks, &fds);
+            (fds, orphaned)
         };
+        for (epoll, fd) in &orphaned {
+            Epoll::drop_fd_if(epoll, *fd, &fds[*fd]);
+        }
+        drop(orphaned);
         drop(fds);
     }
+}
+
+/// The `(epoll, descriptor)` interests an exited task's table `dead` leaves
+/// without an owner: for each epoll instance in `dead` and each descriptor
+/// `dead` held, no live task holds both that instance and the same file at
+/// that number.
+fn orphaned_interests(
+    tasks: &[Option<Task>; MAX_TASKS],
+    dead: &[Fd; FD_COUNT],
+) -> Vec<(Arc<Epoll>, usize)> {
+    let mut orphaned = Vec::new();
+    for entry in dead {
+        let Fd::Epoll { epoll } = entry else {
+            continue;
+        };
+        for fd in (0..FD_COUNT).filter(|&fd| !matches!(dead[fd], Fd::Closed)) {
+            let still_owned = tasks
+                .iter()
+                .flatten()
+                .filter(|task| task.state != TaskState::Done)
+                .any(|task| {
+                    task.fds[fd].same_file(&dead[fd])
+                        && task.fds.iter().any(
+                            |held| matches!(held, Fd::Epoll { epoll: other } if Arc::ptr_eq(other, epoll)),
+                        )
+                });
+            if !still_owned {
+                orphaned.push((Arc::clone(epoll), fd));
+            }
+        }
+    }
+    orphaned
 }
 
 /// Take a finished child of the current task, freeing its slot and address
