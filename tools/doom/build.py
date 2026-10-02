@@ -11,7 +11,7 @@ Steps (``docs/doom-port-plan.md``, ``doom/README.md``):
    ``resources/freedoom1.wad`` + the licence files) and build it with
    ``tools/pkg/build.py`` -> ``target/pkg/doom.lzp``, which the image embeds
    when ``LAZYOS_DOOM=1`` as ``/system/share/samples/doom.lzp``. Install it on
-   LazyOS as a user package: copy it to ``/transient`` and run ``pkgctl install``
+   LazyOS as a user package: copy it to your home and run ``pkgctl install``
    on the copy (or open it in Files).
 
 Usage::

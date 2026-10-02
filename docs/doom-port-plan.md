@@ -9,7 +9,7 @@
 > - **Packaging is a `.lzp`, not an image-embedded ELF.** `LAZYOS_DOOM=1`
 >   (`run_demo.py --doom`, the launcher's Doom switch) only places
 >   the package at `/system/share/samples/doom.lzp` (fs F3/F5: a user package,
->   in the `games` menu category); a user copies it to `/transient` and
+>   in the `games` menu category); a user copies it to their home and
 >   `pkgctl install` (or the Installer) installs it, and `init` lists it with
 >   the installed apps. No `init` registry
 >   row or `XAPPS.LST` line is needed.

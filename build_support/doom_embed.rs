@@ -6,8 +6,7 @@
 //! `LAZYOS_DOOM=1` it is placed with the other samples as
 //! `/system/share/samples/doom.lzp` (`fhs::share::DOOM_LZP`): a *user*
 //! package, not a core one, so nothing is pre-installed. A user copies it to
-//! `/transient` (or their home) and installs it with `pkgctl install` or the
-//! Installer; `init` then lists it with the other installed apps. With the
+//! their home and installs it with `pkgctl install` or the Installer; `init` then lists it with the other installed apps. With the
 //! switch unset the image is unchanged (the package adds about 10 MiB).
 
 use std::ffi::OsStr;

@@ -17,7 +17,8 @@ pub const TESTDOC: &str = "/system/share/samples/testdoc.md";
 pub const PKGDEMO: &str = "/system/share/samples/pkgdemo.lzp";
 
 /// The Doom package (`org.lazy.doom`, `LAZYOS_DOOM=1` images): a user
-/// package, copied to `/transient` and installed with `pkgctl install`.
+/// package, copied to the user's home (the ramfs `/transient` is too small
+/// for its 10 MiB) and installed from there with `pkgctl install`.
 /// Written by the image build.
 pub const DOOM_LZP: &str = "/system/share/samples/doom.lzp";
 

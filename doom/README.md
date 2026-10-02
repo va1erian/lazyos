@@ -13,10 +13,10 @@ python tools/run_demo.py --doom   # the desktop with /system/share/samples/doom.
 ```
 
 Doom is a user package, not a core one. In the desktop Terminal, copy it to
-`/transient` (or your home) and install the copy, as a user installs anything
-(`cp /system/share/samples/doom.lzp /transient/ && pkgctl install
-/transient/doom.lzp`), or open the copy in Files: the Installer shows the
-consent screen. Doom then appears in the start
+your home and install the copy, as a user installs anything
+(`cp /system/share/samples/doom.lzp ~/ && pkgctl install ~/doom.lzp`; the
+ramfs `/transient` is too small for its 10 MiB), or open the copy in Files:
+the Installer shows the consent screen. Doom then appears in the start
 menu with the other installed apps. The OS volume keeps installed apps across
 boots; `run_demo.py --reset-os` starts over.
 
