@@ -65,7 +65,9 @@ pub(crate) fn prepare_volume() -> Result<(), i64> {
 /// (the user heap never returns blocks this large, so a service that read every
 /// package into a fresh `Vec` would grow by the package size each time).
 /// `Err` is an errno; a file over [`MAX_PACKAGE_FILE`] is `EFBIG`, and a file
-/// that changed under the read is `EINVAL` (never a torn package).
+/// that changed size during the read is `EINVAL`. A same-size rewrite during
+/// the read is not detected here; it fails validation instead (`lazypkg`
+/// checks every entry's CRC-32 as it is read).
 pub(crate) fn read_package(buffer: &mut Vec<u8>, path: &str) -> Result<(), i64> {
     files::read_large(path, MAX_PACKAGE_FILE, buffer)
 }

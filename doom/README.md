@@ -37,7 +37,10 @@ SHA-256 and cached under `target/doom/`. Neither is ever committed.
 
 The game finds its IWAD from `argv[0]` (`init` starts it by its absolute path
 in the install directory): `<install>/resources/freedoom1.wad`. Config and
-saves go to `$HOME/.doom`, or `/tmp/doom` without a home.
+saves go to `<home>/.doom`: `$HOME` when set, else the directory under `/home`
+(or `/data/home`) that the player's uid owns, since `init` starts installed
+apps with no environment. Only with no home at all do they go to `/tmp/doom`,
+which a reboot clears.
 
 ## Checks
 

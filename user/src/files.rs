@@ -169,8 +169,11 @@ pub fn read_at(path: &str, offset: u64, buf: &mut [u8]) -> Result<usize, i64> {
 /// Fill `data` with the whole file at `path` (at most `limit` bytes; `EFBIG`
 /// for a larger one), reusing `data`'s allocation. Read in [`MAX_FILE`] ranges
 /// through [`read_at`], so the kernel never holds more than one range of it,
-/// whatever the file's size. A file that changes size under the read is
-/// `EINVAL` and leaves `data` empty, never a torn copy.
+/// whatever the file's size. A file whose size changes during the read (it
+/// shrank under a range, or its size differs afterwards) is `EINVAL` and
+/// leaves `data` empty. A rewrite that keeps the size cannot be seen here (the
+/// native `stat` has no modification time): callers that need integrity check
+/// the content, as `pkgd` does through `lazypkg`'s per-entry CRC-32.
 pub fn read_large(path: &str, limit: usize, data: &mut Vec<u8>) -> Result<(), i64> {
     let (size, kind) = stat(path)?;
     if kind == Kind::Dir {
@@ -191,6 +194,10 @@ pub fn read_large(path: &str, limit: usize, data: &mut Vec<u8>) -> Result<(), i6
             return Err(22); // EINVAL: the file shrank under the read
         }
         filled += read;
+    }
+    if !matches!(stat(path), Ok((after, Kind::File)) if after == size) {
+        data.clear();
+        return Err(22); // EINVAL: the file changed size during the read
     }
     Ok(())
 }

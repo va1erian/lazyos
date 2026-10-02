@@ -28,7 +28,8 @@ Corresponding source
 The complete corresponding source of `bin/doom.elf` is:
 
 * the LazyOS tree at the revision this package was built from (`doom/`,
-  `xui-app/`, `libs/messenger/`, `libs/generated/`, `tools/doom/`), and
+  `xui-app/`, `libs/messenger/`, `libs/fhs/`, `libs/generated/`,
+  `tools/doom/`), and
 * doomgeneric at the commit pinned in `tools/doom/fetch.py`
   (`DOOMGENERIC_REV`), fetched unmodified and compiled by `doom/build.rs`.
 

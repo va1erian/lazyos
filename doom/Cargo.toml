@@ -38,6 +38,8 @@ xui-app = { path = "../xui-app" }
 libmessenger = { path = "../libs/messenger" }
 # Every well-known path (`/tmp/doom`, the headless result file) lives here.
 fhs = { path = "../libs/fhs" }
+# `getuid`, to find the player's home when `init` passes no `HOME`.
+libc = "0.2"
 # `Rect` for buffer-slot damage; the same revision `xui-app` pins, so one
 # `xui_core` links.
 xui-core = { git = "https://github.com/va1erian/xui", rev = "7e31d5d6d120fb479e1ff0731bd6a44601acafee" }

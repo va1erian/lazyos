@@ -25,7 +25,9 @@ Without the input service (`inputd`) the window only receives plain keys, so
 ## Files
 
 Settings (`default.cfg`) and saved games (`.savegame/`) are kept in
-`~/.doom`, so they survive reinstalling the package.
+`~/.doom` (your home directory), so they survive reboots and reinstalling the
+package. A session with no home directory keeps them in `/tmp/doom` instead,
+which is cleared at reboot.
 
 ## Licences
 

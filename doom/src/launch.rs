@@ -128,8 +128,23 @@ pub fn install_dir(exe: &str) -> String {
     }
 }
 
+/// The home directory among `(directory, owner uid)` candidates that belongs
+/// to `uid`: the first one, in sorted order, so the choice is stable. `init`
+/// starts an installed app with no environment (no `HOME`), so the game finds
+/// its player's home by ownership instead. Root is never matched: its home is
+/// not under the per-user roots.
+pub fn owned_home(candidates: &[(String, u32)], uid: u32) -> Option<String> {
+    let mut owned: Vec<&String> = candidates
+        .iter()
+        .filter(|(dir, owner)| uid != 0 && *owner == uid && dir.starts_with('/'))
+        .map(|(dir, _)| dir)
+        .collect();
+    owned.sort();
+    owned.first().map(|dir| dir.to_string())
+}
+
 /// Where the engine keeps `default.cfg` and `.savegame/` (it uses its working
-/// directory): `$HOME/.doom` when there is a home, `/tmp/doom` otherwise.
+/// directory): `<home>/.doom` when there is a home, `/tmp/doom` otherwise.
 pub fn config_dir(home: Option<&str>) -> String {
     match home.filter(|home| home.starts_with('/') && *home != "/") {
         Some(home) => join(home, ".doom"),
@@ -219,6 +234,23 @@ mod tests {
         assert_eq!(config_dir(Some("/")), "/tmp/doom");
         assert_eq!(config_dir(Some("relative")), "/tmp/doom");
         assert_eq!(config_dir(None), "/tmp/doom");
+    }
+
+    #[test]
+    fn the_home_is_the_directory_the_player_owns() {
+        let candidates = vec![
+            ("/home/bob".to_string(), 1001),
+            ("/home/alice".to_string(), 1000),
+            ("/data/home/alice".to_string(), 1000),
+        ];
+        assert_eq!(
+            owned_home(&candidates, 1000),
+            Some("/data/home/alice".to_string())
+        );
+        assert_eq!(owned_home(&candidates, 1001), Some("/home/bob".to_string()));
+        assert_eq!(owned_home(&candidates, 1002), None);
+        assert_eq!(owned_home(&[("/home/x".to_string(), 0)], 0), None);
+        assert_eq!(owned_home(&[("rel".to_string(), 5)], 5), None);
     }
 
     #[test]

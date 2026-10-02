@@ -22,6 +22,6 @@ abi = "linux"
 
 [permissions]
 # The compositor for its window and `inputd` for its keyboard session; nothing
-# else. Its config and saves go to `$HOME/.doom`.
+# else. Its config and saves go to `.doom` in the player's home.
 interfaces = ["os.lazy.display.v1", "os.lazy.input.v1"]
-files = ["write:/home/*/.doom"]
+files = ["write:/home/*/.doom", "write:/data/home/*/.doom"]

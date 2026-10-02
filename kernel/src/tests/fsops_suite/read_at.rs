@@ -2,6 +2,7 @@
 //! streams big archives with. Split out of `fsops_suite.rs`.
 
 use super::*;
+use crate::tests::hardening_suite::in_space;
 
 const READ_AT: u64 = 30;
 
@@ -67,20 +68,58 @@ pub(super) fn read_at_semantics() -> Result<(), String> {
         "after the cap"
     );
     check!(whole[..4096] == big[cap..], "data after the cap differs");
-    // Bad pointers are EFAULT: the request, then the destination buffer.
-    strict(|| -> Result<(), String> {
-        let path = cstr("/tmp/ra/f");
-        check!(
-            call(READ_AT, path.as_ptr() as u64, 0, 0) == failed(EFAULT),
-            "a null request was accepted"
-        );
-        let request = [0xFFFF_8000_0000_0000u64, 16, 0];
-        check!(
-            call(READ_AT, path.as_ptr() as u64, request.as_ptr() as u64, 0) == failed(EFAULT),
-            "read_at wrote kernel memory"
-        );
-        Ok(())
-    })?;
+    strict(|| in_space(|| bad_pointers(&data)))?;
+    Ok(())
+}
+
+/// With validation on and the path and request in real user pages, so each
+/// check reaches the pointer it names: a request in kernel memory and a
+/// destination in kernel memory are `EFAULT` (the latter untouched), and the
+/// same call with a user destination succeeds, proving the setup itself works.
+fn bad_pointers(data: &[u8]) -> Result<(), String> {
+    use crate::tests::hardening_suite::SPACE;
+    let (path, request, dest) = (SPACE, SPACE + 0x100, SPACE + 0x1000);
+    let put_user = |at: u64, bytes: &[u8]| {
+        // SAFETY: `in_space` maps `SPACE` (8 pages) writable while this runs,
+        // and every write here stays inside the first two pages.
+        unsafe { core::ptr::copy_nonoverlapping(bytes.as_ptr(), at as *mut u8, bytes.len()) }
+    };
+    let put_request = |buf: u64, len: u64| {
+        let words = [buf, len, 0u64];
+        let bytes: Vec<u8> = words.iter().flat_map(|word| word.to_le_bytes()).collect();
+        put_user(request, &bytes);
+    };
+    put_user(path, b"/tmp/ra/f\0");
+    let kernel_request = [dest, 16, 0];
+    check!(
+        call(READ_AT, path, kernel_request.as_ptr() as u64, 0) == failed(EFAULT),
+        "a request in kernel memory was read"
+    );
+    check!(
+        call(READ_AT, path, 0, 0) == failed(EFAULT),
+        "a null request was accepted"
+    );
+    let canary = vec![0xA5u8; 16];
+    put_request(canary.as_ptr() as u64, 16);
+    check!(
+        call(READ_AT, path, request, 0) == failed(EFAULT),
+        "read_at accepted a kernel destination"
+    );
+    check!(
+        canary.iter().all(|&byte| byte == 0xA5),
+        "read_at wrote kernel memory"
+    );
+    put_request(dest, 16);
+    check!(
+        call(READ_AT, path, request, 0) == 16,
+        "a user destination was refused"
+    );
+    // SAFETY: `dest` is inside the mapped `SPACE`; the call just wrote it.
+    let back = unsafe { core::slice::from_raw_parts(dest as *const u8, 16) };
+    check!(
+        back == &data[..16],
+        "user destination holds the wrong bytes"
+    );
     Ok(())
 }
 
