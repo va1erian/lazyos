@@ -172,6 +172,8 @@ mod fixtures;
 mod format_and_roundtrip;
 mod integrity;
 mod large_files;
+// `logd`'s journals on ext2 (issue #508), run as their own table.
+pub(super) mod logd_store;
 mod orphan_crash;
 mod orphans;
 mod persistence;

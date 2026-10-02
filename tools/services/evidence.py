@@ -43,6 +43,7 @@ REQUIRED: list[tuple[str, str]] = [
     ("open-with publish fallback", r"^MIME:OPEN:PASS"),
     ("timed serving (issue #369)", r"TIMED:READY unix=\d+ "),
     ("timed published time/tick", r"TIMED:TICK:PASS unix=\d+ offset=-?\d+ zone=\S+$"),
+    ("logd journals in /logs (issue #508)", r"^LOGD:STORE:READY dir=/logs boot=[0-9a-f]{16} "),
 ]
 
 #: Markers a desktop-profile boot (`LAZYOS_DESKTOP=1`, issue #217) still
@@ -59,6 +60,7 @@ DESKTOP: list[tuple[str, str]] = [
     ("open-with publish fallback", r"^MIME:OPEN:PASS"),
     ("timed serving (issue #369)", r"TIMED:READY unix=\d+ "),
     ("timed published time/tick", r"TIMED:TICK:PASS unix=\d+ offset=-?\d+ zone=\S+$"),
+    ("logd journals in /logs (issue #508)", r"^LOGD:STORE:READY dir=/logs boot=[0-9a-f]{16} "),
 ]
 
 #: Lines that must NOT appear (issue #216): `init` refuses a registered app whose
