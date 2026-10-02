@@ -44,7 +44,11 @@ interface os.lazy.logind.v1 {
         /// Task slot of the shell.
         pid: U64,
         /// Session state (`active`/`exited`).
-        state: String
+        state: String,
+        /// The account's home directory (issue #508): `init` gives the
+        /// session's apps `HOME` from it, so it never looks the account up
+        /// again per launch.
+        home: String
     }
 
     /// A refused attempt (issue #307): the payload of

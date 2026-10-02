@@ -135,11 +135,6 @@ mod tests {
         session: 0,
         label_id: 0,
     };
-    const ALICE: Caller = Caller {
-        uid: 1000,
-        session: 3,
-        label_id: 0,
-    };
     const DAEMON: Caller = Caller {
         uid: 901,
         session: 0,
@@ -154,7 +149,7 @@ mod tests {
     #[test]
     fn root_and_session_owners_manage_apps() {
         assert!(may_manage(&ROOT).is_ok());
-        assert!(may_manage(&ALICE).is_ok());
+        assert!(may_manage(&USER).is_ok());
         assert!(may_manage(&DAEMON).is_err());
         let sandboxed_root = Caller {
             uid: 0,
@@ -166,7 +161,7 @@ mod tests {
 
     #[test]
     fn a_sandboxed_app_may_not_even_inspect() {
-        assert!(may_inspect(&ALICE).is_ok());
+        assert!(may_inspect(&USER).is_ok());
         assert!(may_inspect(&DAEMON).is_ok());
         assert!(may_inspect(&SANDBOXED).is_err());
     }

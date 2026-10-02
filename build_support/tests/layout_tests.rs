@@ -5,7 +5,8 @@ use crate::os_image::{OsFile, Sink, Source};
 use crate::os_layout::{dirs, file_mode, parse_passwd, DirSpec};
 use crate::os_manifest::{clean_path, Kind, Manifest};
 
-const PASSWD: &str = "root:0:0:toor:/root:sh\nalice:1000:1000:lazy:/home/alice:sh\n";
+/// The account file the image ships (the single copy, issue #508).
+const PASSWD: &str = include_str!("../passwd");
 
 fn spec<'a>(all: &'a [DirSpec], path: &str) -> &'a DirSpec {
     all.iter()
@@ -33,12 +34,18 @@ fn layout_has_the_mount_points_and_each_service_s_place() {
         assert_eq!((dir.mode, dir.uid, dir.gid), (mode, 0, 0), "{path}");
     }
     // A home per passwd account living in /home, private to its owner.
-    let alice = spec(&all, "/home/alice");
-    assert_eq!((alice.mode, alice.uid, alice.gid), (0o700, 1000, 1000));
-    // root's /root is not under /home; nothing is seeded under /data any more.
-    assert!(all
+    let admin = spec(&all, "/home/admin");
+    assert_eq!((admin.mode, admin.uid, admin.gid), (0o700, 0, 0));
+    let user = spec(&all, "/home/user");
+    assert_eq!((user.mode, user.uid, user.gid), (0o700, 1000, 1000));
+    // Exactly the two accounts' homes; nothing is seeded under /data any more.
+    let homes: Vec<&str> = all
         .iter()
-        .all(|dir| dir.path != "/home/root" && dir.path != "/root"));
+        .map(|dir| dir.path.as_str())
+        .filter(|path| path.starts_with("/home/"))
+        .collect();
+    assert_eq!(homes, ["/home/admin", "/home/user"]);
+    assert!(all.iter().all(|dir| dir.path != "/root"));
     assert!(all.iter().all(|dir| !dir.path.starts_with("/data/")));
     let mut seen: Vec<&str> = all.iter().map(|dir| dir.path.as_str()).collect();
     seen.sort();
@@ -60,7 +67,7 @@ fn homes_follow_the_passwd_table() {
 
 /// The directory table of an F2 or F3 build, before F4 moved the services:
 /// `/apps`, `/conf` and `/logs` 0755, and the transitional `/data` tree with
-/// `/data/home/alice` (1000:1000, 0755) and `/data/tmp` (1777).
+/// `/data/home/user` (1000:1000, 0755) and `/data/tmp` (1777).
 pub fn pre_f4_layout() -> Vec<DirSpec> {
     let dir = |path: &str, mode: u16, owner: u32| DirSpec {
         path: path.into(),
@@ -86,7 +93,7 @@ pub fn pre_f4_layout() -> Vec<DirSpec> {
     .iter()
     .map(|path| dir(path, 0o755, 0))
     .collect();
-    out.push(dir("/data/home/alice", 0o755, 1000));
+    out.push(dir("/data/home/user", 0o755, 1000));
     out.push(dir("/data/tmp", 0o1777, 0));
     out
 }

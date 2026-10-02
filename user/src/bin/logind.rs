@@ -51,6 +51,11 @@ const FAIL_DELAY_TICKS: u64 = 30;
 const SESSION_CAPS: u32 = 0;
 /// Longest name/secret line the prompt accepts.
 const LINE_MAX: usize = 64;
+/// The login screen's help: the default accounts of `/system/etc/passwd`
+/// (`build_support/passwd`), documented in `docs/security-model.md` section 3.
+/// Bring-up plaintext secrets until #447 hashes them.
+const LOGIN_HELP: &str = "Default accounts: admin (password nimda, uid 0) and \
+                          user (password lazy, uid 1000).\n";
 
 /// The session whose shell is currently running. A graphical session's shell
 /// is `init`'s child, not ours, so its exit is never reaped here: the session
@@ -95,6 +100,7 @@ fn run() -> messenger::Result<()> {
             accountsd = registry::resolve(accounts::NAME).ok();
             if accountsd.is_some() {
                 sys::write_str("logind: accounts service ready; login enabled\n");
+                sys::write_str(LOGIN_HELP);
             }
         }
         if bus.is_none() {
@@ -139,9 +145,23 @@ fn prompt_login(
     let secret = read_line(false);
     sys::write_str("\n");
 
-    let Some(user) = accounts::lookup_name(endpoint, &name).ok().flatten() else {
-        deny(bus, &name, "unknown-user");
-        return None;
+    let user = match accounts::lookup_name(endpoint, &name) {
+        Ok(Some(user)) => user,
+        Ok(None) => {
+            deny(bus, &name, "unknown-user");
+            return None;
+        }
+        Err(_) => {
+            // `accountsd` has no account file (or cannot be reached): no login
+            // can succeed, and saying "wrong password" would be a lie.
+            sys::write_str(&format!(
+                "Login unavailable: the account database ({}) did not load.\n\
+                 This system needs recovery; see docs/security-model.md section 3.\n",
+                fhs::etc::PASSWD
+            ));
+            deny(bus, &name, "no-accounts");
+            return None;
+        }
     };
     let matched = accounts::authenticate(endpoint, &name, &secret).unwrap_or(false);
     if !matched {
@@ -157,7 +177,7 @@ fn prompt_login(
     let id = *next_session;
     // A graphical session: `init` launches the desktop shell into it.
     let desktop = if graphical::requested() {
-        graphical::start(bus, &user.name, user.uid, id)
+        graphical::start(bus, &user, id)
     } else {
         None
     };
@@ -195,30 +215,38 @@ fn prompt_login(
         };
         let _ = logind::wire::publish_system_events_login_start(bus, &start);
     }
-    graphical::publish_session(bus, &user.name, user.uid, id, pid, "active");
+    graphical::publish_session(bus, &user, id, pid, "active");
     Some(ActiveSession { index, pid })
 }
 
 /// Spawn the user's console shell stamped with the session's credentials.
 /// The passwd shell field is the bare `sh` (issue #254): the Linux personality
-/// makes the kernel alias `sh` to the shipped BusyBox. `argv` is the shell
-/// alone (the session identity is already kernel-stamped, and BusyBox would
-/// treat a trailing word as a script name); the environment names the user
-/// and their home directory from the account record.
+/// makes the kernel alias `sh` to the shipped BusyBox. The environment is the
+/// session's ([`accounts::session_env`]: `HOME`, `USER`, `PATH`).
+///
+/// A login starts in the home directory, as on any Unix. `logind` is native and
+/// has no working directory to hand down, so a short `-c` script changes to
+/// `$HOME` and then `exec`s the login shell (`$0`, the passwd field, passed as
+/// an argument so it is never parsed as shell text). A missing home is
+/// reported and the shell starts in `/`.
 fn spawn_console_shell(user: &accounts::UserRecord, session: u64) -> Option<u64> {
     let cred = Cred::new(user.uid, user.gid, SESSION_CAPS, 0, session);
-    let home = format!("HOME={}", user.home);
-    let name = format!("USER={}", user.name);
+    let env = accounts::session_env(&user.name, &user.home);
+    let env: Vec<&str> = env.iter().map(String::as_str).collect();
     let shell = user.shell.as_str();
     sys::spawnv(
         shell,
-        &[shell],
-        &[&home, &name],
+        &[shell, "-c", LOGIN_SCRIPT, shell],
+        &env,
         sys::Personality::Linux,
         sys::SpawnCred::As(cred),
     )
     .ok()
 }
+
+/// The console login's `-c` script (see [`spawn_console_shell`]).
+const LOGIN_SCRIPT: &str =
+    "cd \"$HOME\" 2>/dev/null || echo \"login: no home directory $HOME; starting in /\"; exec \"$0\"";
 
 /// Record a refused attempt, print its serial marker, and rate-limit the next
 /// prompt.

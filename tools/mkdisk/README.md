@@ -17,7 +17,8 @@ python -m tools.mkdisk [PATH] [--size 64M] [--label NAME] [--block-size N] [--fo
 in `lazyos.cfg`; filesystem plan F1/F2). `--home-volume` formats it: the label
 defaults to `lazyhome`, and `<user>/` directories sit at the **volume root**
 (the root is `/home` once mounted) with the owner and mode `/home/<user>` has
-in the seeded layout (`0700`, that account's `uid:gid`; today `/alice`). There
+in the seeded layout (`0700`, that account's `uid:gid`: `/admin` for uid 0 and
+`/user` for uid 1000). There
 is no `/home` and no `/tmp` inside it: `/tmp` belongs to the OS volume.
 `run_demo.py` creates it on first use (`--home-disk`, `--no-home-disk`,
 `--reset-home`), and the launcher's **Home volume** group manages it.
@@ -31,17 +32,19 @@ formatted. By default the volume gets:
 |------|------|-------|-----|
 | `/data` (root) | `0755` | `root:root` | Safe default; nothing but root can add top-level entries |
 | `/data/home` | `0755` | `root:root` | Parent of the user homes |
-| `/data/home/<user>` | `0700` | that account's `uid:gid` | One per demo account whose home is `/home/<user>` (today `alice`) |
+| `/data/home/<user>` | `0700` | that account's `uid:gid` | One per demo account whose home is `/home/<user>` (`admin`, `user`) |
 | `/data/tmp` | `1777` | `root:root` | World-writable with the sticky bit, so users cannot delete each other's files |
 
 `--root-mode/--root-uid/--root-gid` change the `/data` root itself (for example
 `--root-mode 1777` for a shared drop box). `--no-seed` writes only the root and
 `lost+found`.
 
-The accounts are **not** copied: `accounts.py` parses the built-in passwd table
-out of `user/src/bin/accountsd.rs`, and `test_seed.py` fails if that table and
-the `/system/etc/passwd` file `build.rs` puts on the OS volume ever differ. ids are limited
-to 16 bits because that is all the kernel's ext2 driver stores.
+The accounts are **not** copied: `accounts.py` reads `build_support/passwd`, the
+one account file, which `build.rs` installs byte for byte as the OS volume's
+`/system/etc/passwd` (the only account source `accountsd` reads, issue #508).
+`test_seed.py` checks that the build still embeds that file and that the home
+volume's owners are exactly its accounts'. ids are limited to 16 bits because
+that is all the kernel's ext2 driver stores.
 
 ## Persistence rule
 
@@ -63,7 +66,8 @@ python tools/lazygui/test_catalog.py # launcher plan flags and Reset
 
 CI (`.github/workflows/mkdisk.yml`) also runs `e2fsck -fn` over the default
 seeded image and several block sizes, root modes and multi-group sizes, and
-`e2fsck`/`debugfs` over a `--home-volume` image (label, `/alice` owner and mode,
+`e2fsck`/`debugfs` over a `--home-volume` image (label, `/admin` and `/user`
+owners and modes,
 no `/home` or `/tmp`).
 
 ## Files
@@ -72,7 +76,7 @@ no `/home` or `/tmp`).
 |------|------|
 | `geometry.py` | Block, group and inode placement from the requested size |
 | `layout.py` | `Layout` / `DirSpec`: root attributes, the seeded and home-volume directories |
-| `accounts.py` | Reads the demo accounts from `accountsd.rs` |
+| `accounts.py` | Reads the demo accounts from `build_support/passwd` |
 | `tree.py` | Directory inodes and blocks for the root and the seeded tree |
 | `ext2.py` | Superblock, descriptors, bitmaps, `lost+found`; assembles the extents |
 | `volume.py` | `format_image`, `ensure_volume`, `status` used by the launchers |

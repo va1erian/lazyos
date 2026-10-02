@@ -60,7 +60,7 @@ pub fn intern_dedup_and_charset() -> Result<(), String> {
         "app:com.",
         "app:-com",
         "app:com..example",
-        "user:alice",
+        "user:admin",
         "appcom.example",
         "app:\u{e9}",
         &too_long,

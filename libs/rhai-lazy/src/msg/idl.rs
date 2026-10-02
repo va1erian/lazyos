@@ -1259,11 +1259,11 @@ pub static INTERFACES: &[Interface] = &[
             Struct {
                 name: "LoginSession",
                 doc: "Account name.\nUser id stamped on the session.\nSession id minted by `logind`.\nTask slot of the shell.\nSession state (`active`).\nOne session's state (issue #307): the payload of\n`system/events/login/session/<id>`.",
-                fields: &[Field { name: "user", ty: Ty::String }, Field { name: "uid", ty: Ty::U32 }, Field { name: "pid", ty: Ty::U64 }, Field { name: "state", ty: Ty::String }],
+                fields: &[Field { name: "user", ty: Ty::String }, Field { name: "uid", ty: Ty::U32 }, Field { name: "pid", ty: Ty::U64 }, Field { name: "state", ty: Ty::String }, Field { name: "home", ty: Ty::String }],
             },
             Struct {
                 name: "LoginDenied",
-                doc: "Account name.\nUser id stamped on the session.\nTask slot of the shell.\nSession state (`active`/`exited`).\nA refused attempt (issue #307): the payload of\n`system/events/login/denied`. The reason is a short, non-secret word\n(`unknown-user`, `bad-secret`, `spawn-failed`), never the secret.",
+                doc: "Account name.\nUser id stamped on the session.\nTask slot of the shell.\nSession state (`active`/`exited`).\nThe account's home directory (issue #508): `init` gives the\nsession's apps `HOME` from it, so it never looks the account up\nagain per launch.\nA refused attempt (issue #307): the payload of\n`system/events/login/denied`. The reason is a short, non-secret word\n(`unknown-user`, `bad-secret`, `spawn-failed`), never the secret.",
                 fields: &[Field { name: "user", ty: Ty::String }, Field { name: "reason", ty: Ty::String }],
             },
             Struct {

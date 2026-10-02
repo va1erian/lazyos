@@ -12,7 +12,8 @@ use crate::os_image::{write_volume, OsFile, Source};
 use crate::os_layout::{dirs, parse_passwd};
 
 const STAMP: i64 = 1_700_000_000;
-const PASSWD: &str = "root:0:0:toor:/root:sh\nalice:1000:1000:lazy:/home/alice:sh\n";
+/// The account file the image ships (the single copy, issue #508).
+const PASSWD: &str = include_str!("../passwd");
 
 fn volume() -> (MemIo, Ext2) {
     let io = MemIo::new(8 << 20);
@@ -43,12 +44,12 @@ fn mode_owner(volume: &Ext2, path: &str) -> (u16, u32, u32) {
 fn an_update_keeps_non_empty_data_dirs_and_drops_empty_ones() {
     let (io, volume) = volume();
     let old = write_volume(&volume, None, &pre_f4_layout(), &files(), STAMP).unwrap();
-    assert!(old.entries.contains_key("/data/home/alice"));
+    assert!(old.entries.contains_key("/data/home/user"));
     // The user's file in the old home, and settings and an app on /data the
     // way a data-disk-era image kept them.
     volume
         .write_file(
-            "/data/home/alice/note.txt",
+            "/data/home/user/note.txt",
             b"mine",
             0o644,
             1000,
@@ -73,7 +74,7 @@ fn an_update_keeps_non_empty_data_dirs_and_drops_empty_ones() {
 
     // Non-empty: kept with its contents. Empty: removed. Never seeded again.
     assert_eq!(
-        volume.read_file("/data/home/alice/note.txt").unwrap(),
+        volume.read_file("/data/home/user/note.txt").unwrap(),
         b"mine"
     );
     assert_eq!(volume.read_file("/data/confd/store").unwrap(), b"settings");
@@ -89,7 +90,7 @@ fn an_update_keeps_non_empty_data_dirs_and_drops_empty_ones() {
     assert_eq!(mode_owner(&volume, "/logs"), (0o750, 0, 0));
     assert_eq!(mode_owner(&volume, "/apps"), (0o755, 0, 0));
     assert_eq!(mode_owner(&volume, "/docs/apps"), (0o755, 0, 0));
-    assert_eq!(mode_owner(&volume, "/home/alice"), (0o700, 1000, 1000));
+    assert_eq!(mode_owner(&volume, "/home/user"), (0o700, 1000, 1000));
     volume.flush().unwrap();
     drop(volume);
     let problems = ext2fs::check::fsck(&io.snapshot());
@@ -108,14 +109,14 @@ fn a_second_update_changes_nothing_and_keeps_user_state() {
         .write_file("/logs/pkg.log", b"1 00 00 00\n", 0o644, 0, 0, STAMP)
         .unwrap();
     volume
-        .write_file("/home/alice/notes.txt", b"mine", 0o600, 1000, 1000, STAMP)
+        .write_file("/home/user/notes.txt", b"mine", 0o600, 1000, 1000, STAMP)
         .unwrap();
     let second = write_volume(&volume, Some(&first), &layout, &files(), STAMP).unwrap();
     assert_eq!(first, second);
     for (path, bytes) in [
         ("/conf/store", &b"k=v"[..]),
         ("/logs/pkg.log", b"1 00 00 00\n"),
-        ("/home/alice/notes.txt", b"mine"),
+        ("/home/user/notes.txt", b"mine"),
     ] {
         assert_eq!(volume.read_file(path).unwrap(), bytes, "{path}");
     }

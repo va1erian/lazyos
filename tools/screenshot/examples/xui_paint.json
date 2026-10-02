@@ -23,7 +23,7 @@
   {"at": 8.6, "mouse_move": [84, 0]},
   {"at": 9.0, "mouse_click": "left"},
   {"at": 10.5, "shot": "05_paint_save_dialog"},
-  {"at": 10.8, "keys": ["backspace", "backspace", "backspace", "backspace", "backspace", "backspace", "backspace", "backspace", "backspace", "backspace", "backspace", "backspace", "backspace", "backspace", "backspace", "backspace"]},
+  {"at": 10.8, "keys": ["backspace", "backspace", "backspace", "backspace", "backspace", "backspace", "backspace", "backspace", "backspace", "backspace", "backspace", "backspace", "backspace", "backspace", "backspace", "backspace", "backspace", "backspace", "backspace", "backspace", "backspace", "backspace", "backspace", "backspace", "backspace", "backspace", "backspace", "backspace", "backspace", "backspace", "backspace", "backspace", "backspace", "backspace", "backspace", "backspace", "backspace", "backspace", "backspace", "backspace"]},
   {"at": 11.0, "type": "/tmp/xpaint.png"},
   {"at": 11.5, "key": "enter", "until": "PAINT:SAVE:PASS", "timeout": 60, "retries": 2},
   {"at": 12.5, "shot": "06_paint_saved"},

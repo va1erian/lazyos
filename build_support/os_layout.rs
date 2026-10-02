@@ -86,7 +86,7 @@ pub fn parse_passwd(text: &str) -> Vec<Account> {
 /// * a home for each account of the embedded passwd whose home is
 ///   `/home/<name>`: 0700, owned by the account's uid and gid. These are the
 ///   homes without a home volume; a mounted `/home` volume hides them.
-///   Accounts whose home lies elsewhere (`/root`) get none.
+///   Accounts whose home lies elsewhere (a service account's, say) get none.
 pub fn dirs(accounts: &[Account]) -> Vec<DirSpec> {
     let mut out: Vec<DirSpec> = [
         fhs::mount::BOOT,

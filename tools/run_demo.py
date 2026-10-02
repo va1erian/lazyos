@@ -27,8 +27,8 @@ recreates it from scratch. A persistent ext2 home volume (default
 ``target/home.img``, label ``lazyhome``, 64 MiB) is attached as a second
 virtio-blk device and mounted at ``/home``. It is created on first use and never
 regenerated unless you pass ``--reset-home``. A fresh volume holds ``<user>/``
-for the demo accounts (owned by them) and nothing else, so log in as ``alice``
-to write to your own home. ``--data-disk PATH`` still attaches a legacy ext2
+for the demo accounts (owned by them) and nothing else, so log in as ``user``
+(password ``lazy``) or ``admin`` (password ``nimda``) to write to your own home. ``--data-disk PATH`` still attaches a legacy ext2
 data volume (not mounted anywhere new); it is off by default.
 
 In the demo: two windows run concurrently (a demo program and the `sh`

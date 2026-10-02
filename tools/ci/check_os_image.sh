@@ -45,7 +45,8 @@ done
 expect /conf 0700 0
 expect /conf/svc 0700 0
 expect /logs 0750 0
-expect /home/alice 0700 1000
+expect /home/admin 0700 0
+expect /home/user 0700 1000
 if stat /data/tmp | grep -q "Mode:"; then echo "/data/tmp is still seeded"; exit 1; fi
 expect /system/bin/hello 0755 0
 expect /system/share/samples/hello.txt 0644 0

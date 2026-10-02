@@ -98,7 +98,7 @@ EMPTY = Layout()
 def home_dirs(accounts: list[Account]) -> tuple[DirSpec, ...]:
     """``/home/<user>`` for every account whose home lives under ``/home``.
 
-    root's ``/root`` and any service account are skipped on purpose: the data
+    An account homed elsewhere (a service's ``/``) is skipped on purpose: the data
     volume hosts *user* homes, and a directory nobody logs in to is clutter.
     """
     return tuple(
@@ -112,7 +112,8 @@ def seeded(root_mode: int = 0o755, root_uid: int = 0, root_gid: int = 0,
     """The demo layout: user homes plus a sticky world-writable ``/tmp``.
 
     ``/data`` itself stays root's (safe by default). ``accounts`` defaults to the
-    ones ``accountsd`` boots with, so the seed follows the source of truth.
+    ones in ``build_support/passwd`` (the system's ``/system/etc/passwd``), so the
+    seed follows the source of truth.
     """
     users = demo_accounts() if accounts is None else accounts
     dirs = [DirSpec(HOMES), *home_dirs(users), DirSpec("/tmp", STICKY_WORLD_WRITABLE)]

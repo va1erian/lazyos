@@ -28,6 +28,11 @@ confd = { path = "../libs/confd" }
 # `logd`'s persistent journals under `/logs` (issue #508): the store the kernel
 # test suite drives against ext2.
 logstore = { path = "../libs/logstore" }
+# The account file `/system/etc/passwd`, parsed strictly by `accountsd`
+# (issue #508): the same parser the image build checks the file with.
+passwd = { path = "../libs/passwd" }
+# `init`'s session table (account name and home per session, issue #508).
+spin = "0.9"
 # Display buffer-slot state machines (issue #361), shared by `xuid` and clients.
 surfbuf = { path = "../libs/surfbuf" }
 messenger-generated = { path = "../libs/generated" }

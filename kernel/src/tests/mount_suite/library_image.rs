@@ -31,7 +31,7 @@ fn make_volume(device: &'static dyn BlockDevice, uuid: [u8; 16]) -> Result<(), S
     ext2fs::format(&device, geometry, "lazyos-root", uuid, STAMP).map_err(lib_error)?;
     let volume = ext2fs::Ext2::open(Box::new(device), crate::fs::vfs::now).map_err(lib_error)?;
     volume
-        .mkdir_p("/data/home/alice", 0o755, 1000, 1000)
+        .mkdir_p("/home/user", 0o700, 1000, 1000)
         .map_err(lib_error)?;
     volume
         .mkdir_p("/data/tmp", 0o1777, 0, 0)
@@ -40,7 +40,7 @@ fn make_volume(device: &'static dyn BlockDevice, uuid: [u8; 16]) -> Result<(), S
         volume.mkdir_p(dir, 0o755, 0, 0).map_err(lib_error)?;
     }
     volume
-        .write_file(fhs::etc::PASSWD, b"root:x:0:0\n", 0o644, 0, 0, STAMP)
+        .write_file(fhs::etc::PASSWD, b"admin:x:0:0\n", 0o644, 0, 0, STAMP)
         .map_err(lib_error)?;
     let elf = [0x7F, b'E', b'L', b'F', 2, 1, 1, 0];
     volume
@@ -74,11 +74,11 @@ pub fn library_formatted_root_mounts() -> Result<(), String> {
 
     let id = Id::ROOT;
     let native = &mut tables.native;
-    let alice = native.stat(id, "/data/home/alice").map_err(fs_error)?;
+    let home = native.stat(id, "/home/user").map_err(fs_error)?;
     check!(
-        (alice.uid, alice.gid, alice.mode & 0o7777) == (1000, 1000, 0o755),
-        "alice's home is {:?}",
-        (alice.uid, alice.gid, alice.mode & 0o7777)
+        (home.uid, home.gid, home.mode & 0o7777) == (1000, 1000, 0o700),
+        "user's home is {:?}",
+        (home.uid, home.gid, home.mode & 0o7777)
     );
     let tmp = native.stat(id, "/data/tmp").map_err(fs_error)?;
     check!(tmp.mode & 0o7777 == 0o1777, "/data/tmp mode {:o}", tmp.mode);
@@ -92,7 +92,7 @@ pub fn library_formatted_root_mounts() -> Result<(), String> {
         .read(id, fhs::etc::PASSWD, 0, &mut passwd)
         .map_err(fs_error)?;
     check!(
-        &passwd[..read] == b"root:x:0:0\n",
+        &passwd[..read] == b"admin:x:0:0\n",
         "passwd reads back wrong"
     );
     let stats = native.statfs(id, "/").map_err(fs_error)?;
@@ -102,10 +102,10 @@ pub fn library_formatted_root_mounts() -> Result<(), String> {
     );
 
     native
-        .create(id, "/data/home/alice/note", 0o600)
+        .create(id, "/home/user/note", 0o600)
         .map_err(fs_error)?;
     native
-        .write(id, "/data/home/alice/note", 0, b"written by the kernel")
+        .write(id, "/home/user/note", 0, b"written by the kernel")
         .map_err(fs_error)?;
     native.sync_all().map_err(fs_error)?;
 
@@ -116,7 +116,7 @@ pub fn library_formatted_root_mounts() -> Result<(), String> {
         "the sync did not leave the volume clean"
     );
     let note = volume
-        .read_file("/data/home/alice/note")
+        .read_file("/home/user/note")
         .map_err(lib_error)?;
     check!(
         note == b"written by the kernel",

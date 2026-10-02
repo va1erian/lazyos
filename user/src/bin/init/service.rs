@@ -76,6 +76,10 @@ pub(super) struct Service {
     /// The policy label (`app:<system_name>`) an installed app's child is
     /// stamped with, on every respawn too; `None` for built-in rows.
     pub(super) label: Option<&'static str>,
+    /// The child's environment, on every respawn too: a launched app's
+    /// session `HOME`, `USER` and `PATH` (`sessions::env`, issue #508); empty
+    /// for a manifest service.
+    pub(super) env: Vec<String>,
     /// Whether the row came from `Launch` (vs the boot manifest).
     pub(super) launched: bool,
     /// Whether the program is a Linux-ABI binary (the Linux personality).
@@ -117,6 +121,7 @@ impl Service {
             deps: spec.deps,
             cred: manifest_cred(spec.name),
             label: None,
+            env: Vec::new(),
             launched: false,
             linux: false,
             autostart: false,
@@ -148,6 +153,7 @@ impl Service {
             deps: &[],
             cred: Some(cred),
             label: None,
+            env: Vec::new(),
             launched: true,
             linux: app.linux,
             autostart: false,
@@ -180,6 +186,7 @@ impl Service {
             deps: &[],
             cred: Some(cred),
             label: Some(app.label),
+            env: Vec::new(),
             launched: true,
             linux: app.linux,
             autostart: false,

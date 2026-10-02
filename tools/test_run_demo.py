@@ -32,7 +32,7 @@ class PrepareHomeDiskTests(unittest.TestCase):
             self.assertTrue(run_demo.prepare_home_disk(self.path, False, False))
         image = self.path.read_bytes()
         self.assertEqual(image[LABEL_OFFSET:LABEL_OFFSET + 8], b"lazyhome")
-        self.assertIn(b"alice", image)
+        self.assertIn(b"admin", image)
         self.assertNotIn(b"tmp\0", image[:1 << 20])
 
     def test_existing_volume_is_never_regenerated_implicitly(self) -> None:
@@ -52,7 +52,7 @@ class PrepareHomeDiskTests(unittest.TestCase):
         with mock.patch.object(run_demo, "confirm", return_value=False) as ask, \
                 redirect_stderr(io.StringIO()):
             self.assertFalse(run_demo.prepare_home_disk(self.path, True, False))
-        self.assertIn("/alice (mode 0700", ask.call_args.args[0])
+        self.assertIn("/user (mode 0700", ask.call_args.args[0])
         self.assertEqual(self.path.read_bytes(), b"precious")
 
     def test_reset_with_yes_skips_the_question(self) -> None:

@@ -42,12 +42,14 @@ label ACL engine. What makes the result pretend is how they are wired:
    accept forged data; anyone can subscribe to `#`.
 5. **No persistent home.** `/` is read-only FAT (every file `0555 root`);
    writable storage is the optional ext2 `/data` disk, which `cargo run` does
-   not attach. Accounts say `/home/alice`, the directory is
-   `/data/home/alice`, and logind ignores the field. Passwords are plaintext in
+   not attach. Accounts named a home under `/home`, the directory was under
+   `/data/home`, and logind ignored the field. Passwords were plaintext in
    the boot volume's `PASSWD` file. *(Since filesystem F4, #508: `/` is the
-   ext2 OS volume and the home is the account's own `/home/<name>`, 0700, on
-   the home volume or the OS volume; logind still ignores the field and the
-   passwords are still plaintext, in `/system/etc/passwd`.)*
+   ext2 OS volume, the accounts are `admin` (uid 0) and `user` (uid 1000) in
+   `/system/etc/passwd`, the only account source (accountsd fails closed
+   without it), and each home is the account's own `/home/<name>`, 0700, on
+   the home volume or the OS volume. A login starts in it with `HOME`, `USER`
+   and `PATH` set. The passwords are still plaintext.)*
 6. **Callers are identified by task slot.** Reading a sender's credentials
    needs `CAP_SETUID` (hence every service holds it), and slots are reused
    without a generation.
@@ -168,8 +170,8 @@ Split into two parallel issues over disjoint files.
 3. Subscribing to `system/audit/#` and `system/security/#` needs
    `CAP_AUDIT_READ`.
 
-**Phase 5.** A red-team session script logs in as `alice` and tries, each of
-which must be refused and audited: read `/data/home/bob`, register
+**Phase 5.** A red-team session script logs in as `user` and tries, each of
+which must be refused and audited: read `/home/admin`, register
 `os.lazy.keyd`, call keyd `Provision`, subscribe to `#`, signal confd, call
 timed `SetZone`, write `/data/var/confd`. It runs in CI, and the status table
 in [security-model.md](security-model.md) section 0 is updated to match.
