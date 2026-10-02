@@ -29,7 +29,7 @@ fn roundtrip(disk: &dyn BlockDevice, lba: u64, sectors: usize, seed: u8) -> Resu
         .map_err(|e| format!("write {lba}+{sectors}: {e:?}"))?;
     let stored = with_fake(|fake| {
         let start = lba as usize * SECTOR_SIZE;
-        fake.data[start..start + out.len()] == out[..]
+        fake.data.matches(start, &out)
     });
     check!(stored, "the provider stored other bytes at {lba}+{sectors}");
     let mut back = vec![0u8; out.len()];
@@ -370,13 +370,17 @@ pub fn late_home_mount() -> Result<(), String> {
     result
 }
 
+/// The part of the disk the stress test works on (512 KiB: twice the
+/// largest request, and a small heap footprint for it and its shadow).
+const STRESS_SECTORS: u64 = 1024;
+
 /// Thousands of mixed requests against a provider that fails one in seven:
 /// every failure is clean, every success matches a shadow copy, the disk stays
 /// alive, and the heap does not grow.
 pub fn stress() -> Result<(), String> {
     let disk = setup(Mode::FlakyEvery(7))?;
     let result = (|| {
-        let mut shadow = vec![0u8; SECTORS as usize * SECTOR_SIZE];
+        let mut shadow = super::Store::new(STRESS_SECTORS as usize * SECTOR_SIZE);
         let mut buf = vec![0u8; 160 * SECTOR_SIZE];
         let mut seed = 0x2545_F491_4F6C_DD1Du64;
         let measure = || crate::mem::slab::stats().live_bytes + crate::mem::heap_stats().used;
@@ -390,7 +394,7 @@ pub fn stress() -> Result<(), String> {
             seed ^= seed >> 7;
             seed ^= seed << 17;
             let sectors = 1 + (seed % 160) as usize;
-            let lba = (seed >> 16) % (SECTORS - sectors as u64);
+            let lba = (seed >> 16) % (STRESS_SECTORS - sectors as u64);
             let range = lba as usize * SECTOR_SIZE..(lba as usize + sectors) * SECTOR_SIZE;
             let chunk = &mut buf[..sectors * SECTOR_SIZE];
             let outcome = match seed >> 60 {
@@ -400,20 +404,19 @@ pub fn stress() -> Result<(), String> {
                     }
                     let result = disk.write_sectors(lba, chunk);
                     if result.is_ok() {
-                        shadow[range].copy_from_slice(chunk);
+                        shadow.write(range.start, chunk);
                     } else {
                         // A failed write may have landed partly (earlier
                         // chunks): take the provider's word for it.
-                        with_fake(|fake| {
-                            shadow[range.clone()].copy_from_slice(&fake.data[range.clone()])
-                        });
+                        with_fake(|fake| fake.data.read(range.start, chunk));
+                        shadow.write(range.start, chunk);
                     }
                     result
                 }
                 7 => disk.flush(),
                 _ => {
                     let result = disk.read_sectors(lba, chunk);
-                    if result.is_ok() && chunk[..] != shadow[range] {
+                    if result.is_ok() && !shadow.matches(range.start, chunk) {
                         return Err(format!("round {round}: read {lba}+{sectors} differs"));
                     }
                     result

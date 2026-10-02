@@ -197,8 +197,8 @@ fn serve_sys(index: usize) {
     let fake = guard.as_mut().expect("fake provider");
     fake.served += 1;
     match operation {
-        1 => data[..bytes as usize].copy_from_slice(&fake.data[start..end]),
-        2 => fake.data[start..end].copy_from_slice(&data[..bytes as usize]),
+        1 => fake.data.read(start, &mut data[..end - start]),
+        2 => fake.data.write(start, &data[..end - start]),
         _ => fake.flushes += 1,
     }
     let done = if trick == Trick::BadData {

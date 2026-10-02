@@ -35,11 +35,78 @@ enum Mode {
     FlakyEvery(u64),
 }
 
+/// A disk's bytes in 64 KiB chunks, each allocated when first written
+/// (unwritten ones read as zeros). The suite runs late in the full kernel
+/// run, on a heap the earlier suites left fragmented and well used: a 2 MiB
+/// disk held in one piece could not be allocated there.
+struct Store {
+    chunks: Vec<Option<Vec<u8>>>,
+}
+
+const CHUNK: usize = 64 * 1024;
+
+impl Store {
+    fn new(len: usize) -> Store {
+        Store {
+            chunks: (0..len.div_ceil(CHUNK)).map(|_| None).collect(),
+        }
+    }
+
+    /// The pieces of `start..start + len`: (chunk, offset in it, length).
+    fn pieces(start: usize, len: usize) -> impl Iterator<Item = (usize, usize, usize)> {
+        let mut at = start;
+        let end = start + len;
+        core::iter::from_fn(move || {
+            if at >= end {
+                return None;
+            }
+            let (chunk, offset) = (at / CHUNK, at % CHUNK);
+            let take = (CHUNK - offset).min(end - at);
+            at += take;
+            Some((chunk, offset, take))
+        })
+    }
+
+    fn read(&self, start: usize, out: &mut [u8]) {
+        let mut done = 0;
+        for (chunk, offset, take) in Self::pieces(start, out.len()) {
+            match &self.chunks[chunk] {
+                Some(bytes) => {
+                    out[done..done + take].copy_from_slice(&bytes[offset..offset + take])
+                }
+                None => out[done..done + take].fill(0),
+            }
+            done += take;
+        }
+    }
+
+    fn write(&mut self, start: usize, data: &[u8]) {
+        let mut done = 0;
+        for (chunk, offset, take) in Self::pieces(start, data.len()) {
+            let bytes = self.chunks[chunk].get_or_insert_with(|| vec![0u8; CHUNK]);
+            bytes[offset..offset + take].copy_from_slice(&data[done..done + take]);
+            done += take;
+        }
+    }
+
+    fn matches(&self, start: usize, data: &[u8]) -> bool {
+        let mut done = 0;
+        Self::pieces(start, data.len()).all(|(chunk, offset, take)| {
+            let theirs = &data[done..done + take];
+            done += take;
+            match &self.chunks[chunk] {
+                Some(bytes) => bytes[offset..offset + take] == *theirs,
+                None => theirs.iter().all(|&byte| byte == 0),
+            }
+        })
+    }
+}
+
 struct Fake {
     disk: usize,
     owner: usize,
     mode: Mode,
-    data: Vec<u8>,
+    data: Store,
     served: u64,
     flushes: u64,
     last: Option<provider::Request>,
@@ -74,7 +141,7 @@ fn setup(mode: Mode) -> Result<&'static dyn BlockDevice, String> {
         disk,
         owner,
         mode,
-        data: vec![0u8; SECTORS as usize * SECTOR_SIZE],
+        data: Store::new(SECTORS as usize * SECTOR_SIZE),
         served: 0,
         flushes: 0,
         last: None,
@@ -152,14 +219,14 @@ fn serve(index: usize) {
     let start = request.lba as usize * SECTOR_SIZE;
     if code == status::OK {
         match request.op {
-            Op::Write => fake.data[start..start + written.len()].copy_from_slice(&written),
+            Op::Write => fake.data.write(start, &written),
             Op::Flush => fake.flushes += 1,
             Op::Read => {}
         }
     }
     let data = &fake.data;
     let result = provider::complete(index, fake.owner, request.tag, code, &mut |bounce| {
-        bounce.copy_from_slice(&data[start..start + bounce.len()]);
+        data.read(start, bounce);
         Ok(())
     });
     assert!(result.is_ok(), "completion refused: {result:?}");
