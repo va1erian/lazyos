@@ -274,7 +274,10 @@ re-reads and re-validates the package, then **builds everything before
 switching**:
 
 1. extract every entry under the new install directory (directories first, each
-   file written and its size verified);
+   file written, its size verified and its mode set with the native `chmod`,
+   syscall 31: `0755` for files under `bin/`, `0644` for everything else,
+   because native spawn needs an `x` bit, root included; see
+   `pkgstore::layout::file_mode`);
 2. record the `Installed` row in `confd`;
 3. register every `[[mime]]` verb with `mimed` (`Register(mime, <system_name>, verb)`);
 4. compile and load the policy (`load_label("app:<system_name>", rules)`);
