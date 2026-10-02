@@ -2,10 +2,11 @@
 //!
 //! `rhai` is a static-musl `std` program built by `tools/rhai/build.py` (a
 //! build artifact, never committed), so like BusyBox it is embedded whenever it
-//! is available. It is stored as `RHAI.ELF`: the kernel's Linux loader maps
-//! `rhai` typed at the `sh` prompt (or `/usr/local/bin/rhai`) to the image-root
-//! `RHAI.ELF` (`kernel/src/process/linux/path.rs`). ext2 is case-sensitive, so the
-//! stored name and that lookup must agree exactly (both are uppercase).
+//! is available. It is stored as `/system/bin/rhai` (`fhs::bin::RHAI`): the
+//! kernel's Linux loader maps `rhai` typed at the `sh` prompt (or
+//! `/usr/local/bin/rhai`) to `/system/bin/rhai`
+//! (`kernel/src/process/linux/path.rs`). ext2 is case-sensitive, so the stored
+//! name and that lookup agree byte for byte.
 
 use std::path::{Path, PathBuf};
 
@@ -23,7 +24,7 @@ pub fn find(manifest_dir: &Path) -> Option<PathBuf> {
     explicit.or_else(|| Some(manifest_dir.join(BUILT)).filter(|path| path.is_file()))
 }
 
-/// Add `RHAI.ELF` to the image when the command is available. The ABI bench
+/// Add `rhai` to `/system/bin` when the command is available. The ABI bench
 /// (`LAZYOS_INIT`) keeps its baseline image size and boot time, so it skips it.
 pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path) {
     println!("cargo:rerun-if-env-changed=LAZYOS_RHAI");
@@ -39,7 +40,7 @@ pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path) {
         Some(path) => {
             println!("cargo:warning=LAZYOS_RHAI embedded: {}", path.display());
             println!("cargo:rerun-if-changed={}", path.display());
-            sink.add_file("RHAI.ELF", path);
+            sink.add_file(fhs::bin::RHAI, path);
         }
         None => println!(
             "cargo:warning=rhai unavailable; the image will have no `rhai` command \

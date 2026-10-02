@@ -2,8 +2,10 @@
 //! declarative table of path, mode, uid and gid, so the layout is reviewed as
 //! data rather than inferred from code.
 //!
-//! The ext2 root keeps today's flat file names (F3 renames them); this table
-//! only adds the directories around them. `/data` and what is below it mirrors
+//! Every file the build places lives below a directory of this table (F3:
+//! programs in `/system/bin`, data in `/system/etc` and `/system/share`, the
+//! documentation in `/docs/os`); nothing but directories sits at the root.
+//! `/data` and what is below it mirrors
 //! `tools/mkdisk/layout.py` so `pkgd`, `confd` and `lazyrad` find the same
 //! tree on the root volume that they found on the data disk.
 
@@ -31,7 +33,7 @@ impl DirSpec {
 pub const STICKY_WORLD_WRITABLE: u16 = 0o1777;
 
 /// Where the build puts the manifest of the paths it placed.
-pub const MANIFEST_PATH: &str = "/system/.image-manifest";
+pub const MANIFEST_PATH: &str = fhs::system::IMAGE_MANIFEST;
 
 /// One account of the embedded `PASSWD`.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -72,23 +74,28 @@ pub fn parse_passwd(text: &str) -> Vec<Account> {
 /// Every directory the image creates, parents before children.
 ///
 /// * the mount points `/boot`, `/home` and `/transient` (root, 0755);
-/// * `/system` (empty until F3) and `/apps`, `/conf`, `/logs` (empty until F4,
-///   which also adjusts the owners to the uid each service runs under);
+/// * `/system` with `bin`, `etc`, `share` and `packages` (root, 0755; F5 fills
+///   `packages`) and `/apps`, `/conf`, `/logs` (empty until F4, which also
+///   adjusts the owners to the uid each service runs under);
 /// * the transitional `/data`: `/data/home/<user>` for each account whose home
 ///   is `/home/<user>` (the account's uid and gid, 0755) and `/data/tmp`
 ///   (1777). root's `/root` and service accounts get none: nobody logs in
 ///   there.
 pub fn dirs(accounts: &[Account]) -> Vec<DirSpec> {
     let mut out: Vec<DirSpec> = [
-        "/boot",
-        "/home",
-        "/transient",
-        "/system",
+        fhs::mount::BOOT,
+        fhs::mount::HOME,
+        fhs::mount::TRANSIENT,
+        fhs::SYSTEM,
+        fhs::SYSTEM_BIN,
+        fhs::SYSTEM_ETC,
+        fhs::SYSTEM_SHARE,
+        fhs::SYSTEM_PACKAGES,
         "/apps",
         "/conf",
         "/logs",
-        "/data",
-        "/data/home",
+        fhs::mount::DATA,
+        fhs::state::HOME_ROOT,
     ]
     .iter()
     .map(|path| DirSpec::new(path, 0o755, 0, 0))
@@ -107,11 +114,16 @@ pub fn dirs(accounts: &[Account]) -> Vec<DirSpec> {
     out
 }
 
-/// The mode of a file the build places: executables (`*.ELF`, `BUSYBOX`) are
-/// 0755, everything else 0644. Both are root-owned.
+/// The mode of a file the build places, from where it goes: 0755 for anything
+/// under `/system/bin` (the programs), 0644 for everything else. Both are
+/// root-owned. A name never decides it, so a data file cannot become
+/// executable by being called `*.ELF`.
 pub fn file_mode(path: &str) -> u16 {
-    let name = path.rsplit('/').next().unwrap_or(path);
-    if name == "BUSYBOX" || name.ends_with(".ELF") {
+    let in_bin = path
+        .trim_start_matches('/')
+        .strip_prefix(fhs::SYSTEM_BIN.trim_start_matches('/'))
+        .is_some_and(|rest| rest.starts_with('/') && rest.len() > 1);
+    if in_bin {
         0o755
     } else {
         0o644

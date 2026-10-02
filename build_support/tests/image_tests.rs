@@ -412,4 +412,18 @@ fn a_built_image_is_consistent() {
         manifest.entries.len()
     );
     assert_fsck_clean(&image);
+    // F3: every build-placed file is below a directory, so nothing the
+    // manifest lists sits at the root.
+    let at_root: Vec<&String> = manifest
+        .entries
+        .iter()
+        .filter(|(path, kind)| {
+            **kind == crate::os_manifest::Kind::File && path.rfind('/') == Some(0)
+        })
+        .map(|(path, _)| path)
+        .collect();
+    assert!(
+        at_root.is_empty(),
+        "build-placed files at the root: {at_root:?}"
+    );
 }

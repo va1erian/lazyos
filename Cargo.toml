@@ -99,6 +99,9 @@ bootloader = "0.11.17"
 # The OS volume is formatted and updated with the same ext2 code the kernel
 # reads it with (docs/filesystem-plan.md F2).
 ext2fs = { path = "libs/ext2fs" }
+# Every destination the build writes names its `libs/fhs` constant
+# (docs/filesystem-plan.md F3).
+fhs = { path = "libs/fhs" }
 
 [profile.dev]
 panic = "abort"

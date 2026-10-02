@@ -12,3 +12,5 @@ path = "lib.rs"
 [dependencies]
 # `fuzz` brings the in-memory device and the independent fsck-style checker.
 ext2fs = { path = "../../libs/ext2fs", features = ["fuzz"] }
+# The destinations the image build modules name.
+fhs = { path = "../../libs/fhs" }

@@ -1,7 +1,7 @@
 //! The xui desktop apps, the LazyShell desktop shell (issue #157) and the
 //! sample packages embedded in the OS volume (issues #215/#216): which
-//! binaries ship, their flat uppercase names, and the `XAPPS.LST` manifest
-//! `init` reads. Split out of `build.rs`.
+//! binaries ship, where they go in `/system/bin`, and the
+//! `/system/etc/xapps.lst` manifest `init` reads. Split out of `build.rs`.
 
 use std::ffi::OsStr;
 use std::path::PathBuf;
@@ -10,7 +10,7 @@ use crate::lazyrad_embed;
 use crate::os_image::Sink;
 
 /// LazyShell's binary under `target/xui/` (`tools/xui/build.py` builds it from
-/// `xui-app/src/bin/lazyshell.rs`); stored as `XSHELL.ELF`.
+/// `xui-app/src/bin/lazyshell.rs`); stored as `fhs::bin::LAZYSHELL`.
 const SHELL_XUI_APP: &str = "xui-shell.elf";
 
 /// Whether the image ships LazyShell (issue #157). `LAZYOS_SHELL` defaults to
@@ -35,7 +35,7 @@ pub fn shell_enabled(desktop: bool, services: bool, xuid: bool) -> bool {
     }
 }
 
-/// Embed `xui-shell.elf` as `XSHELL.ELF` and return its `XAPPS.LST` line. The
+/// Embed `xui-shell.elf` as `lazyshell` and return its `xapps.lst` line. The
 /// line always carries `autostart`, whatever `LAZYOS_XUI_AUTOSTART` says
 /// (that switch lists the *apps*): `init` opens it first, as the desktop's
 /// shell, and restarts it when it dies. A missing binary fails the build: a
@@ -53,47 +53,59 @@ fn embed_shell(sink: &mut dyn Sink) -> String {
             path.display()
         );
     }
-    let (_, disk) = xui_disk_name(&path);
     println!(
-        "cargo:warning=LazyShell embedded: {} as {disk}",
-        path.display()
+        "cargo:warning=LazyShell embedded: {} as {}",
+        path.display(),
+        fhs::bin::LAZYSHELL
     );
-    sink.add_file(&disk, path);
-    format!("{disk} autostart\n")
+    sink.add_file(fhs::bin::LAZYSHELL, path);
+    format!("{} autostart\n", fhs::bin::LAZYSHELL)
 }
 
-/// The on-disk name for an xui app binary (`xui-sysmon.elf` -> `XSYSMON.ELF`),
-/// which `init`'s app registry (`user/src/bin/init/apps.rs`) refers to by that
-/// exact (uppercase) spelling.
-/// Returns `(stem, disk_name)`.
-fn xui_disk_name(path: &std::path::Path) -> (String, String) {
+/// The xui apps `tools/xui/build.py` builds, by the stem of their binary
+/// (`xui-<stem>.elf`), with their `fhs::bin` destination. `init`'s app
+/// registry (`user/src/bin/init/apps.rs`) names the same constants.
+const XUI_DESTINATIONS: &[(&str, &str)] = &[
+    ("term", fhs::bin::TERMINAL),
+    ("sysmon", fhs::bin::SYSMON),
+    ("fabricmon", fhs::bin::FABRICMON),
+    ("widget", fhs::bin::WIDGET),
+    ("counter", fhs::bin::COUNTER),
+    ("editor", fhs::bin::EDITOR),
+    ("files", fhs::bin::FILES),
+    ("paint", fhs::bin::PAINT),
+    ("settings", fhs::bin::SETTINGS),
+    ("confd", fhs::bin::CONFD_EDITOR),
+    ("installer", fhs::bin::INSTALLER),
+    ("devices", fhs::bin::DEVICES),
+    ("docs", fhs::bin::DOCS),
+    ("shell", fhs::bin::LAZYSHELL),
+];
+
+/// The stem of an xui app binary (`xui-sysmon.elf` -> `sysmon`).
+fn xui_stem(path: &std::path::Path) -> String {
     let stem = path
         .file_stem()
         .and_then(|stem| stem.to_str())
         .unwrap_or("app")
         .to_ascii_lowercase();
-    let stem = stem.strip_prefix("xui-").unwrap_or(&stem).to_string();
-    let base = match stem.as_str() {
-        "sysmon" => "XSYSMON".to_string(),
-        "fabricmon" => "XFABMON".to_string(),
-        "counter" => "XCOUNTR".to_string(),
-        "term" => "XTERM".to_string(),
-        "editor" => "XEDITOR".to_string(),
-        "paint" => "XPAINT".to_string(),
-        "files" => "XFILES".to_string(),
-        "settings" => "XSETTNG".to_string(),
-        "confd" => "XCONFD".to_string(),
-        "client" => "XCLIENT".to_string(),
-        other => {
-            let short: String = other
-                .chars()
-                .filter(char::is_ascii_alphanumeric)
-                .take(7)
-                .collect();
-            format!("X{}", short.to_ascii_uppercase())
-        }
-    };
-    (stem, format!("{base}.ELF"))
+    stem.strip_prefix("xui-").unwrap_or(&stem).to_string()
+}
+
+/// Where an xui app goes: its `fhs::bin` constant, or `/system/bin/<stem>` for
+/// an app `init` has no registry row for (`xui-client.elf`, a hand-built one).
+/// `None` when that fallback would be empty or would replace another program
+/// of the image (`xui-init.elf` must never become `/system/bin/init`).
+fn xui_destination(stem: &str) -> Option<String> {
+    if let Some((_, path)) = XUI_DESTINATIONS.iter().find(|(name, _)| *name == stem) {
+        return Some((*path).to_string());
+    }
+    let name: String = stem
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+        .collect();
+    let path = format!("{}/{name}", fhs::SYSTEM_BIN);
+    (!name.is_empty() && !fhs::bin::ALL.contains(&path.as_str())).then_some(path)
 }
 
 /// The desktop profile's default xui app set, in the order `init` opens them
@@ -147,8 +159,9 @@ const DEFAULT_AUTOSTART_STEM: &str = "term";
 /// `LAZYOS_XUI_APPS` is a platform path list (`;` on Windows, `:` elsewhere)
 /// of binaries built by `tools/xui/build.py`. With `LAZYOS_DESKTOP=1` and no
 /// explicit list, the [`DESKTOP_XUI_APPS`] defaults under `target/xui/` are
-/// used, so one switch is enough. Each is stored under its flat uppercase name, and
-/// `XAPPS.LST` lists the shipped ones so `init` marks every other registry row
+/// used, so one switch is enough. Each is stored at its `/system/bin` path
+/// ([`xui_destination`]), and `/system/etc/xapps.lst` lists the shipped ones by
+/// that path so `init` marks every other registry row
 /// unavailable instead of failing to launch it. Rows named in
 /// `LAZYOS_XUI_AUTOSTART` (comma-separated stems such as `term,sysmon`; the
 /// default is the Terminal only, `none` disables it) are tagged `autostart`,
@@ -229,43 +242,52 @@ pub fn embed_xui_apps(sink: &mut dyn Sink, desktop: bool, shell: bool) {
             );
             continue;
         }
-        let (stem, disk) = xui_disk_name(&app);
+        let stem = xui_stem(&app);
+        let Some(destination) = xui_destination(&stem) else {
+            println!(
+                "cargo:warning=LAZYOS_XUI_APPS entry {} has no usable name; skipped",
+                app.display()
+            );
+            continue;
+        };
         println!(
-            "cargo:warning=LAZYOS_XUI_APPS embedded: {} as {disk}",
+            "cargo:warning=LAZYOS_XUI_APPS embedded: {} as {destination}",
             app.display()
         );
         let suffix = if wanted(&stem) { " autostart" } else { "" };
-        manifest.push_str(&format!("{disk}{suffix}\n"));
-        sink.add_file(&disk, app);
+        manifest.push_str(&format!("{destination}{suffix}\n"));
+        sink.add_file(&destination, app);
     }
-    // The IDE is embedded by `lazyrad_embed` under its own 8.3 name, not as an
-    // `xui-*` app, so its manifest line is added here.
-    manifest.push_str(lazyrad_embed::manifest_lines());
-    sink.add_bytes("XAPPS.LST", manifest.into_bytes());
+    // The IDE is embedded by `lazyrad_embed`, not as an `xui-*` app, so its
+    // manifest line is added here.
+    manifest.push_str(&lazyrad_embed::manifest_lines());
+    sink.add_bytes(fhs::system::XAPPS_LST, manifest.into_bytes());
 }
 
-/// Embed the sample `.lzp` packages in the volume root, when
+/// Embed the sample `.lzp` packages in `/system/share/samples`, when
 /// `tools/pkg/build_samples.py` produced them (`tools/xui/build.py` runs it
-/// after building the xui apps): `PKGDEMO.LZP` is the Counter demo as an
-/// installable package, installed with `pkgctl install /PKGDEMO.LZP`. A missing
-/// sample only means a smaller image, so it warns instead of failing.
+/// after building the xui apps): `pkgdemo.lzp` is the Counter demo as an
+/// installable package, installed with `pkgctl install
+/// /system/share/samples/pkgdemo.lzp`. A missing sample only means a smaller
+/// image, so it warns instead of failing.
 pub fn embed_sample_packages(sink: &mut dyn Sink) {
     let dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("manifest dir"))
         .join("target")
         .join("pkg");
-    for disk_name in ["PKGDEMO.LZP"] {
-        let path = dir.join(disk_name);
+    // (what `build_samples.py` writes, where the image keeps it)
+    for (built, destination) in [("PKGDEMO.LZP", fhs::share::PKGDEMO)] {
+        let path = dir.join(built);
         // Tracked even when missing, so building it later is picked up.
         println!("cargo:rerun-if-changed={}", path.display());
         if path.is_file() {
             println!(
-                "cargo:warning=sample package embedded: {} as {disk_name}",
+                "cargo:warning=sample package embedded: {} as {destination}",
                 path.display()
             );
-            sink.add_file(disk_name, path);
+            sink.add_file(destination, path);
         } else {
             println!(
-                "cargo:warning=sample package {disk_name} not built \
+                "cargo:warning=sample package {built} not built \
                  (`python tools/xui/build.py` or `python tools/pkg/build_samples.py`)"
             );
         }

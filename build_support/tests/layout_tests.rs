@@ -63,11 +63,11 @@ fn passwd_parsing_skips_bad_lines_and_hostile_names() {
 }
 
 #[test]
-fn modes_follow_the_file_name() {
-    assert_eq!(file_mode("/SUPER.ELF"), 0o755);
-    assert_eq!(file_mode("/BUSYBOX"), 0o755);
-    assert_eq!(file_mode("/docs/README.md"), 0o644);
-    assert_eq!(file_mode("/PASSWD"), 0o644);
+fn modes_follow_the_directory() {
+    assert_eq!(file_mode("/system/bin/init"), 0o755);
+    assert_eq!(file_mode("system/bin/busybox"), 0o755);
+    assert_eq!(file_mode("/docs/os/README.md"), 0o644);
+    assert_eq!(file_mode("/system/etc/passwd"), 0o644);
 }
 
 #[test]

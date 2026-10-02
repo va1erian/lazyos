@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Independent check of the OS volume in target/lazyos.img (docs/filesystem-plan.md
-# F2): e2fsck must be clean, and debugfs must show the modes, owners and the
-# manifest the build promises. `fresh` records the UUID; `updated` checks that
-# an in-place update kept it.
+# F2/F3): e2fsck must be clean, and debugfs must show the modes, owners and the
+# manifest the build promises: programs at 0755 in /system/bin, data at 0644,
+# and no regular file at the root. `fresh` records the UUID; `updated` checks
+# that an in-place update kept it.
 #
 #   bash tools/ci/check_os_image.sh target/lazyos.img fresh|updated
 set -euo pipefail
@@ -37,11 +38,24 @@ expect() { # path, mode regex, uid
 expect /data/tmp 01777 0
 expect /data/home/alice 0755 1000
 expect /system 0755 0
-for dir in /boot /home /transient /apps /conf /logs /data; do expect "$dir" 0755 0; done
-expect /HELLO.ELF 0755 0
-expect /HELLO.TXT 0644 0
+for dir in /boot /home /transient /apps /conf /logs /data \
+           /system/bin /system/etc /system/share /system/packages; do
+  expect "$dir" 0755 0
+done
+expect /system/bin/hello 0755 0
+expect /system/share/samples/hello.txt 0644 0
 expect /system/.image-manifest 0644 0
-debugfs -R "cat /system/.image-manifest" "$part" 2>/dev/null | grep -q "^f /HELLO.ELF$"
+debugfs -R "cat /system/.image-manifest" "$part" 2>/dev/null | grep -q "^f /system/bin/hello$"
+
+# Every program is 0755 root, and nothing but directories sits at the root
+# (`ls -p` prints /inode/mode/uid/gid/name/size/; regular files are 100xxx).
+debugfs -R "ls -p /system/bin" "$part" 2>/dev/null | awk -F/ '
+  $6 != "." && $6 != ".." && $3 != "100755" { print "/system/bin/" $6 ": mode " $3; bad = 1 }
+  $6 != "." && $6 != ".." && $4 != "0" { print "/system/bin/" $6 ": owner " $4; bad = 1 }
+  END { exit bad }'
+root_files=$(debugfs -R "ls -p /" "$part" 2>/dev/null | awk -F/ '$3 ~ /^100/ { print $6 }')
+[ -z "$root_files" ] || { echo "regular files at the root: $root_files" >&2; exit 1; }
+
 
 uuid=$(dumpe2fs -h "$part" 2>/dev/null | sed -n 's/^Filesystem UUID: *//p')
 echo "OS volume UUID $uuid ($stage)"

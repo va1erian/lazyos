@@ -3,8 +3,8 @@
 //! (`LAZYOS_NET=1`, docs/networking-plan.md N1).
 //!
 //! Without a supervisor the kernel boots a driver directly; with
-//! `LAZYOS_SERVICES=1` `init` starts it from its manifest instead. The 8.3-safe
-//! on-disk names are the flat names of the OS volume root.
+//! `LAZYOS_SERVICES=1` `init` starts it from its manifest instead. Each goes to
+//! its `fhs::bin` path in `/system/bin`.
 
 use std::ffi::OsStr;
 use std::path::PathBuf;
@@ -16,12 +16,12 @@ fn enabled(variable: &str) -> bool {
     std::env::var_os(variable).as_deref() == Some(OsStr::new("1"))
 }
 
-/// Add the ELF built for the `user` binary `bin` to the image as `name`.
-fn add(sink: &mut dyn Sink, name: &str, bin: &str) {
+/// Add the ELF built for the `user` binary `bin` to the image at `path`.
+fn add(sink: &mut dyn Sink, path: &str, bin: &str) {
     let variable = format!("CARGO_BIN_FILE_USER_{bin}");
-    let path =
+    let artifact =
         std::env::var_os(&variable).unwrap_or_else(|| panic!("user {bin} artifact not found"));
-    sink.add_file(name, PathBuf::from(path));
+    sink.add_file(path, PathBuf::from(artifact));
 }
 
 /// The `netfix` fixture: `LAZYOS_NETFIX`, or the one `tools/abi/build.py` left
@@ -45,43 +45,43 @@ pub fn embed(sink: &mut dyn Sink, desktop: bool) {
     // `devctl` (issue #481) shows the devices, who owns them and the class
     // rules that confine each driver: wherever there is a driver to look at.
     if sound || usb || net {
-        add(sink, "DEVCTL.ELF", "devctl");
+        add(sink, fhs::bin::DEVCTL, "devctl");
     }
     if sound {
-        add(sink, "SNDD.ELF", "sndd");
+        add(sink, fhs::bin::SNDD, "sndd");
         // `beep`, the smallest audio client: `sndd` spawns it under `demo=1`.
-        add(sink, "BEEP.ELF", "beep");
+        add(sink, fhs::bin::BEEP, "beep");
         // `modplay`, the tracker-module player (docs/tracker-plan.md).
-        add(sink, "MODPLAY.ELF", "modplay");
+        add(sink, fhs::bin::MODPLAY, "modplay");
     }
     // The USB HID driver (docs/usb-hid-plan.md U2).
     if usb {
-        add(sink, "USBD.ELF", "usbd");
+        add(sink, fhs::bin::USBD, "usbd");
     }
     // `LAZYOS_NETD=1` adds the stack service and its tools, and needs the driver.
     if net {
-        add(sink, "NETDRV.ELF", "netdrv");
+        add(sink, fhs::bin::NETDRV, "netdrv");
         // `nicctl` prints the card and carries the evidence clients the driver
         // spawns under `demo=1`.
-        add(sink, "NICCTL.ELF", "nicctl");
+        add(sink, fhs::bin::NICCTL, "nicctl");
     }
     if netd {
-        add(sink, "NETD.ELF", "netd");
+        add(sink, fhs::bin::NETD, "netd");
         // `netctl` and `ping`, the stack's shell commands and evidence clients.
-        add(sink, "NETCTL.ELF", "netctl");
-        add(sink, "PING.ELF", "ping");
+        add(sink, fhs::bin::NETCTL, "netctl");
+        add(sink, fhs::bin::PING, "ping");
         // `nc` and `nslookup`: sockets and name lookups (stage N3).
-        add(sink, "NC.ELF", "nc");
-        add(sink, "NSLOOKUP.ELF", "nslookup");
+        add(sink, fhs::bin::NC, "nc");
+        add(sink, fhs::bin::NSLOOKUP, "nslookup");
         // `ftp`, the passive-mode client (stage N4).
-        add(sink, "FTP.ELF", "ftp");
+        add(sink, fhs::bin::FTP, "ftp");
         // `netfix`, the `std::net` Linux fixture the `AF_INET` shim is judged
         // by (stage N5), when the harness built one (`tools/abi/build.py`);
         // without a musl toolchain the image simply lacks it.
         println!("cargo:rerun-if-env-changed=LAZYOS_NETFIX");
         if let Some(path) = netfix() {
             println!("cargo:rerun-if-changed={}", path.display());
-            sink.add_file("NETFIX.ELF", path);
+            sink.add_file(fhs::bin::NETFIX, path);
         }
     }
 }

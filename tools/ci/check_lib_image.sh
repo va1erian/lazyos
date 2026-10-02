@@ -86,4 +86,8 @@ else
   ! grep -q '^f /system/bin/tool$' <<<"$manifest" || fail "manifest still lists /system/bin/tool"
   ! grep -q '/bin/' <<<"$listing" || fail "/system/bin survived remove_tree"
 fi
+# 5. Nothing but directories at the root (F3); `ls -p` prints
+# /inode/mode/uid/gid/name/size/ and regular files are mode 100xxx.
+root_files=$(dbg "ls -p /" | awk -F/ '$3 ~ /^100/ { print $6 }')
+[ -z "$root_files" ] || fail "regular files at the root: $root_files"
 echo "OK: $image ($stage) is e2fsck-clean with the expected modes, owners and contents"

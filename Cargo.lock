@@ -143,6 +143,7 @@ name = "build-support-tests"
 version = "0.1.0"
 dependencies = [
  "ext2fs",
+ "fhs",
 ]
 
 [[package]]
@@ -536,6 +537,7 @@ version = "0.1.0"
 dependencies = [
  "bootloader",
  "ext2fs",
+ "fhs",
  "kernel",
  "user",
 ]
