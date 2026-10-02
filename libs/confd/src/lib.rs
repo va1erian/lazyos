@@ -37,7 +37,10 @@ pub mod store;
 pub mod value;
 
 pub use codec::{decode, encode, DecodeError, MAX_ENCODED_LEN};
-pub use fs::{load, persist, retire, StoreFs, CORRUPT_FILE, MIGRATED_FILE, STORE_FILE, TMP_FILE};
+pub use fs::{
+    load, load_read_only, persist, retire, StoreFs, CORRUPT_FILE, MIGRATED_FILE, STORE_FILE,
+    TMP_FILE,
+};
 pub use path::validate_path;
 pub use service::{announceable, ChangeSink, Confd, Migration, ServiceError};
 pub use store::{Caller, Change, Error, Store};

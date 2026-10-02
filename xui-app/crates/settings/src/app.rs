@@ -231,7 +231,7 @@ impl SettingsApp {
         app.retheme(ui);
         if !app.store.persistent() {
             app.status
-                .set_text("Settings are not persistent: no data volume is mounted.");
+                .set_text("Settings are not persistent: /conf is not writable.");
         }
         Ok(app)
     }

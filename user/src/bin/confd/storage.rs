@@ -98,9 +98,32 @@ pub fn seed_from_lower<S: ChangeSink>(service: &mut Confd<VfsStoreFs, S>, chosen
             )),
         }
     }
+    if let Some(legacy) = dir::legacy_seed_for(chosen) {
+        seed_legacy(service, legacy);
+    }
 }
 
-/// If `/data/confd` is now usable, move the running service onto it (merging
+/// Seed the live store from the F0 to F3 store in `legacy` (`/data/confd`)
+/// once: `Confd::seed_once` writes `/conf/.seeded-from-data` afterwards and
+/// never reads `legacy` again. `legacy` is only read. A failure is logged and
+/// retried on the next start.
+fn seed_legacy<S: ChangeSink>(service: &mut Confd<VfsStoreFs, S>, legacy: &str) {
+    let mut source =
+        matches!(files::stat(legacy), Ok((_, Kind::Dir))).then(|| VfsStoreFs::new(legacy));
+    match service.seed_once(source.as_mut()) {
+        Ok(Some(report)) => sys::write_str(&format!(
+            "CONFD:SEED:ONCE from={legacy} added={} skipped={}\n",
+            report.added, report.skipped
+        )),
+        Ok(None) => {}
+        Err(error) => sys::write_str(&format!(
+            "confd: cannot seed from {legacy}: {}\n",
+            error.message()
+        )),
+    }
+}
+
+/// If `/conf` is now usable (a recovery boot whose `/` became writable), move the running service onto it (merging
 /// the live settings in without clobbering existing values). Returns `true`
 /// once the service is bound to the preferred store.
 pub fn try_upgrade<S: ChangeSink>(service: &mut Confd<VfsStoreFs, S>) -> bool {
@@ -133,7 +156,7 @@ pub fn try_upgrade<S: ChangeSink>(service: &mut Confd<VfsStoreFs, S>) -> bool {
 /// The store directory and whether it is persistent.
 ///
 /// A persistent candidate is only accepted if it can be created (or already
-/// is a directory) *and* a probe write succeeds. Otherwise `/tmp/confd`
+/// is a directory) *and* a probe write succeeds. Otherwise `/transient/conf`
 /// (ramfs) is used and the service reports degraded.
 pub fn pick_dir() -> (String, bool) {
     let choice = dir::choose(&dir::PERSISTENT_DIRS, |d| match check_dir(d) {

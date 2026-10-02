@@ -123,7 +123,7 @@
  },
  {
   "at": 3.0,
-  "type": "/tmp/confd"
+  "type": "/system/share"
  },
  {
   "at": 3.0,

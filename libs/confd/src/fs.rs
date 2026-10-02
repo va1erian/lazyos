@@ -95,6 +95,20 @@ pub fn load<F: StoreFs>(fs: &mut F) -> Result<Store, F::Error> {
     }
 }
 
+/// Reads the store in `fs` without changing anything there: for a seed source
+/// that must never be written (`/data/confd`). A missing store falls back to
+/// a complete [`TMP_FILE`]; one that does not decode contributes nothing, and
+/// is left where it is.
+pub fn load_read_only<F: StoreFs>(fs: &mut F) -> Result<Store, F::Error> {
+    let bytes = match fs.read_file(STORE_FILE)? {
+        Some(bytes) => Some(bytes),
+        None => fs.read_file(TMP_FILE)?,
+    };
+    Ok(bytes
+        .and_then(|bytes| decode(&bytes).ok())
+        .unwrap_or_default())
+}
+
 /// Promote a complete [`TMP_FILE`] left without a store (see [`load`]).
 fn recover_tmp<F: StoreFs>(fs: &mut F) -> Result<Store, F::Error> {
     if let Some(bytes) = fs.read_file(TMP_FILE)? {

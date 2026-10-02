@@ -1,4 +1,4 @@
-//! `confd`'s store on the ext2 data volume (`/data/confd`, issue #407).
+//! `confd`'s store on the ext2 OS volume (`/conf`, issues #407 and #508).
 //!
 //! `confd_suite` drives the service over an in-memory [`StoreFs`]; this suite
 //! binds the same `confd::Confd` to the real ext2 driver through the VFS, the
@@ -10,25 +10,33 @@
 use super::*;
 use confd::{Caller, ChangeSink, Confd, StoreFs, Value, TMP_FILE};
 
-/// The data-volume store directory `confd` prefers when `/system` is absent.
-const DIR: &str = confd::dir::PERSISTENT_DIRS[1];
+/// The store directory `confd` prefers: `/conf` on the OS volume.
+pub(super) const DIR: &str = confd::dir::PREFERRED_DIR;
 const ROOT: Caller = Caller { uid: 0 };
 const ALICE: Caller = Caller { uid: 1000 };
 
 /// [`StoreFs`] over a VFS directory: what the binary does with its syscalls.
-struct VfsStore {
-    vfs: Vfs,
+pub(super) struct VfsStore {
+    pub(super) vfs: Vfs,
+    /// The directory holding the store files ([`DIR`], or a seed source).
+    pub(super) dir: &'static str,
 }
 
 fn path(name: &str) -> String {
     format!("{DIR}/{name}")
 }
 
+impl VfsStore {
+    fn file(&self, name: &str) -> String {
+        format!("{}/{name}", self.dir)
+    }
+}
+
 impl StoreFs for VfsStore {
     type Error = FsError;
 
     fn read_file(&mut self, name: &str) -> Result<Option<Vec<u8>>, FsError> {
-        match self.vfs.read_file(Id::ROOT, &path(name)) {
+        match self.vfs.read_file(Id::ROOT, &self.file(name)) {
             Ok(data) => Ok(Some(data)),
             Err(FsError::NotFound) => Ok(None),
             Err(error) => Err(error),
@@ -36,7 +44,7 @@ impl StoreFs for VfsStore {
     }
 
     fn write_file(&mut self, name: &str, data: &[u8]) -> Result<(), FsError> {
-        let path = path(name);
+        let path = self.file(name);
         match self.vfs.create(Id::ROOT, &path, 0o600) {
             Ok(_) => {}
             Err(FsError::Exists) => self.vfs.truncate(Id::ROOT, &path, 0)?,
@@ -46,15 +54,15 @@ impl StoreFs for VfsStore {
     }
 
     fn fsync(&mut self, name: &str) -> Result<(), FsError> {
-        self.vfs.flush(Id::ROOT, &path(name))
+        self.vfs.flush(Id::ROOT, &self.file(name))
     }
 
     fn rename(&mut self, from: &str, to: &str) -> Result<(), FsError> {
-        self.vfs.rename(Id::ROOT, &path(from), &path(to))
+        self.vfs.rename(Id::ROOT, &self.file(from), &self.file(to))
     }
 
     fn remove(&mut self, name: &str) -> Result<(), FsError> {
-        match self.vfs.unlink(Id::ROOT, &path(name)) {
+        match self.vfs.unlink(Id::ROOT, &self.file(name)) {
             Ok(()) | Err(FsError::NotFound) => Ok(()),
             Err(error) => Err(error),
         }
@@ -62,36 +70,35 @@ impl StoreFs for VfsStore {
 }
 
 /// Announcements are `confd_suite`'s business; this suite only persists.
-struct Quiet;
+pub(super) struct Quiet;
 
 impl ChangeSink for Quiet {
     fn changed(&mut self, _path: &str, _deleted: bool) {}
 }
 
-type Service = Confd<VfsStore, Quiet>;
+pub(super) type Service = Confd<VfsStore, Quiet>;
 
-fn fail(error: confd::ServiceError) -> String {
+pub(super) fn fail(error: confd::ServiceError) -> String {
     String::from(error.message())
 }
 
-/// A fresh volume with the store directory made, as the image build does.
-fn volume() -> Result<(Arc<Ext2>, Vfs, &'static FakeDisk), String> {
+/// A fresh volume with the store directory made 0700, as the image build
+/// does (`build_support/os_layout.rs`), at a test mount of the OS volume.
+pub(super) fn volume() -> Result<(Arc<Ext2>, Vfs, &'static FakeDisk), String> {
     let (fs, mut vfs, disk) = mounted(1024, 512)?;
-    let parent = &DIR[..DIR.rfind('/').unwrap_or(0)];
-    vfs.mkdir(Id::ROOT, parent, 0o755).map_err(fs_error)?;
     vfs.mkdir(Id::ROOT, DIR, 0o700).map_err(fs_error)?;
     fs.flush().map_err(fs_error)?;
     Ok((fs, vfs, disk))
 }
 
 /// Start `confd` on a fresh mount of `disk`, as a boot would.
-fn boot(disk: &'static FakeDisk) -> Result<(Arc<Ext2>, Service), String> {
+pub(super) fn boot(disk: &'static FakeDisk) -> Result<(Arc<Ext2>, Service), String> {
     let (fs, vfs) = remount_disk(disk)?;
-    let service = Confd::load(VfsStore { vfs }, Quiet).map_err(fail)?;
+    let service = Confd::load(VfsStore { vfs, dir: DIR }, Quiet).map_err(fail)?;
     Ok((fs, service))
 }
 
-fn value(service: &Service, key: &str, caller: Caller) -> Result<Option<Value>, String> {
+pub(super) fn value(service: &Service, key: &str, caller: Caller) -> Result<Option<Value>, String> {
     Ok(service.get(key, caller).map_err(fail)?.cloned())
 }
 

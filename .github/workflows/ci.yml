@@ -117,7 +117,8 @@ jobs:
           python tools/screenshot/pngstats.py shots/boot/*.png --min-nonblack 0.01
 
       # Issue #260: the services image starts `confd`, which spawns one
-      # `confctl` self-test at boot. The session gates on `CONFD:READY` and
+      # `confctl` self-test at boot. The session gates on
+      # `CONFD:READY dir=/conf persistent=true` (the store on the OS volume) and
       # `CONFCTL:SELFTEST:PASS`, so the store, the VFS `StoreFs` (write tmp ->
       # fsync -> rename) and the change publisher are exercised over the real
       # Messenger transport, not just in the unit suite.

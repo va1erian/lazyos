@@ -244,12 +244,12 @@ mod tests {
     fn the_info_reply_round_trips() {
         for persistent in [true, false] {
             let body = wire::encode_info_reply(&wire::InfoReply {
-                store_dir: "/data/confd".to_owned(),
+                store_dir: "/conf".to_owned(),
                 persistent,
             })
             .unwrap();
             let info = wire::decode_info_reply(&body).unwrap();
-            assert_eq!(info.store_dir, "/data/confd");
+            assert_eq!(info.store_dir, "/conf");
             assert_eq!(info.persistent, persistent);
         }
     }

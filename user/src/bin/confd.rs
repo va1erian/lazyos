@@ -16,20 +16,26 @@
 //!
 //! # Storage
 //!
-//! The plan's `/system/confd/store` needs a persistent writable volume. On the
-//! shipped image `/system` is the read-only FAT boot volume and `/tmp` is
-//! volatile ramfs, so the store lives on the ext2 data volume when a data disk
-//! is attached. The first writable directory of `/data/confd`,
-//! `/system/confd` (not writable yet) and `/tmp/confd` wins. The kernel mounts
-//! `/data` before userspace starts, but a volume attached later is picked up:
-//! while on a lower-ranked location the serve loop re-probes `/data/confd`
-//! and, once usable, migrates the live settings there (existing `/data` values
-//! win; the old store file is renamed `store.migrated`). Stores left in
-//! lower-ranked locations by an earlier run are merged in at startup the same
-//! way. A persistent location is reported **ok**; falling
-//! back to `/tmp/confd` logs a warning and reports **degraded** to `healthd`.
-//! The store is safe across a `confd` restart either way (the ramfs outlives
-//! the task), but only a persistent location survives a reboot.
+//! The store lives in `/conf` (`fhs::state::CONF_ROOT`) on the OS volume,
+//! 0700 root: only `confd` reads the raw store, every other reader goes
+//! through this service. `/system` is written only by image updates and is
+//! never a store. When `/conf` cannot be created or written (a recovery boot
+//! with a read-only `/`), the store falls back to `/transient/conf` (ramfs),
+//! `confd` logs why and reports **degraded** to `healthd`; the serve loop then
+//! re-probes `/conf` and, once it is usable, migrates the live settings there
+//! (existing `/conf` values win; the ramfs store is renamed `store.migrated`).
+//! A store left on the ramfs by an earlier run is merged in at startup the
+//! same way. A persistent `/conf` is reported **ok** with
+//! `CONFD:READY dir=/conf persistent=true`.
+//!
+//! The F0 to F3 store, `/data/confd` (`fhs::state::LEGACY_DATA_CONFD`), is a
+//! **seed**: the first start on `/conf` merges it in without overwriting
+//! anything, writes `/conf/.seeded-from-data` and never reads it again, so a
+//! setting deleted after the migration does not come back. `/data/confd` is
+//! never written; F7 removes it.
+//!
+//! `/conf/svc/<service>/` is the home of service state that is not
+//! key/value (`fhs::state::CONF_SVC`); `confd` creates nothing there.
 //!
 //! # Change topics
 //!
@@ -72,7 +78,7 @@ use storage::{pick_dir, seed_from_lower, try_upgrade, VfsStoreFs};
 
 /// How long the serve loop parks between demo-child reaps (PIT ticks).
 const POLL_TICKS: u64 = 5;
-/// How long the serve loop waits before re-probing `/data/confd` while the
+/// How long the serve loop waits before re-probing `/conf` while the
 /// store sits on a lower-ranked location (PIT ticks).
 const UPGRADE_TICKS: u64 = 200;
 /// The evidence client `demo=1` spawns at boot.
@@ -156,7 +162,8 @@ fn run() -> messenger::Result<()> {
     let fs = VfsStoreFs::new(&dir);
     let mut service = Service::load(fs, TopicSink::new()).map_err(|_| Error::Errno(-errno::EIO))?;
     // Settings written while a better store was unreachable (an earlier run on
-    // `/tmp/confd`) are merged in, never overwriting what is already here.
+    // `/transient/conf`) are merged in, never overwriting what is already
+    // here; on `/conf`, so is `/data/confd` once.
     seed_from_lower(&mut service, &dir);
 
     let (published, server) = messenger::create_pair()?;
@@ -185,15 +192,15 @@ fn run() -> messenger::Result<()> {
     let mut demo_pending = demo_from_args();
     let mut demo_children = 0u64;
     // Absolute, so steady client traffic (which never lets a receive time out)
-    // cannot postpone the move to `/data/confd` forever.
+    // cannot postpone the move to `/conf` forever.
     let mut next_upgrade = sys::clock().saturating_add(UPGRADE_TICKS);
     loop {
         if demo_pending {
             demo_children = spawn_demo();
             demo_pending = false;
         }
-        // While the store is not on the preferred `/data/confd`, wake up
-        // periodically to see whether the data volume has become usable.
+        // While the store is not on the preferred `/conf`, wake up
+        // periodically to see whether `/conf` has become writable.
         let upgrade_due = dir != dir::PREFERRED_DIR;
         let deadline = if demo_children > 0 {
             Some(sys::clock().saturating_add(POLL_TICKS))
@@ -230,6 +237,7 @@ fn run() -> messenger::Result<()> {
             if try_upgrade(&mut service) {
                 dir = String::from(dir::PREFERRED_DIR);
                 persistent = true;
+                seed_from_lower(&mut service, &dir);
                 service
                     .sink_mut()
                     .report_health("ok", &format!("store={dir}"));
