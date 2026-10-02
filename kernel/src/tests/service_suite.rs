@@ -242,7 +242,7 @@ pub fn linux_load_executable_prefers_system_bin() -> Result<(), String> {
     install_exec_files(&[
         (fhs::bin::BUSYBOX, &busybox),
         (fhs::bin::RHAI, b"rhai-program"),
-        (fhs::etc::PASSWD, b"root:0:0"),
+        (fhs::etc::PASSWD, b"admin:0:0"),
         ("/rhai2", b"exact-file"),
         ("/system/bin/longer-name", b"long-name"),
     ])?;
@@ -285,7 +285,7 @@ pub fn linux_load_executable_prefers_system_bin() -> Result<(), String> {
         "a name longer than 8 characters was not found in /system/bin"
     );
     // Misses: no program and no BusyBox means nothing to run.
-    install_exec_files(&[(fhs::etc::PASSWD, b"root:0:0")])?;
+    install_exec_files(&[(fhs::etc::PASSWD, b"admin:0:0")])?;
     check!(
         process::linux::load_executable("rhai").is_none(),
         "`rhai` resolved with neither /system/bin/rhai nor BusyBox present"

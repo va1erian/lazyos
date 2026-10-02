@@ -33,7 +33,7 @@
 use alloc::format;
 use alloc::string::String;
 
-use user::messenger::{self, confd, logind, router, services};
+use user::messenger::{self, accounts, confd, logind, router, services};
 use user::sys;
 
 /// The confd key that selects the session kind.
@@ -56,13 +56,19 @@ pub fn requested() -> bool {
     )
 }
 
-/// Start the graphical session `session` for `user`/`uid`: announce it, then
+/// Start the graphical session `session` for `account`: announce it, then
 /// have `init` launch LazyShell into it. Returns the shell's pid, or `None`
 /// (after printing `LOGIN:GRAPHICAL:FAIL`) when the caller should fall back to
 /// the console shell.
-pub fn start(bus: &mut Option<router::Bus>, user: &str, uid: u32, session: u64) -> Option<u64> {
-    // The owner `init` stamps the shell with, announced before the launch.
-    publish_session(bus, user, uid, session, 0, "starting");
+pub fn start(
+    bus: &mut Option<router::Bus>,
+    account: &accounts::UserRecord,
+    session: u64,
+) -> Option<u64> {
+    let user = account.name.as_str();
+    // The owner `init` stamps the shell with (and the session environment it
+    // gives its apps), announced before the launch.
+    publish_session(bus, account, session, 0, "starting");
     let Ok(init) = services::resolve_service(services::INIT_NAME) else {
         return fail(session, "init-unreachable");
     };
@@ -87,21 +93,23 @@ pub fn start(bus: &mut Option<router::Bus>, user: &str, uid: u32, session: u64) 
     }
 }
 
-/// Publish the retained `system/events/login/session/<id>` record.
+/// Publish the retained `system/events/login/session/<id>` record. It carries
+/// the account's home, so `init` can give the session's apps their
+/// environment without looking the account up again (issue #508).
 pub fn publish_session(
     bus: &mut Option<router::Bus>,
-    user: &str,
-    uid: u32,
+    account: &accounts::UserRecord,
     session: u64,
     pid: u64,
     state: &str,
 ) {
     if let Some(bus) = bus.as_mut() {
         let record = logind::wire::LoginSession {
-            user: String::from(user),
-            uid,
+            user: account.name.clone(),
+            uid: account.uid,
             pid,
             state: String::from(state),
+            home: account.home.clone(),
         };
         let id = format!("{session}");
         let _ = logind::wire::publish_system_events_login_session(bus, &id, &record);

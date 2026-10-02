@@ -6738,6 +6738,7 @@ pub mod os_lazy_logind_v1 {
         pub uid: u32,
         pub pid: u64,
         pub state: alloc::string::String,
+        pub home: alloc::string::String,
     }
 
     pub fn encode_login_session(value: &LoginSession) -> Result<Vec<u8>, Error> {
@@ -6746,6 +6747,7 @@ pub mod os_lazy_logind_v1 {
         target.u32(2, value.uid)?;
         target.u64(3, value.pid)?;
         target.string(4, &value.state)?;
+        target.string(5, &value.home)?;
         Ok(target.finish())
     }
 
@@ -6766,6 +6768,9 @@ pub mod os_lazy_logind_v1 {
                 4 => {
                     out.state = field.as_str()?.into();
                 }
+                5 => {
+                    out.home = field.as_str()?.into();
+                }
                 _ => {}
             }
         }
@@ -6776,6 +6781,9 @@ pub mod os_lazy_logind_v1 {
     /// User id stamped on the session.
     /// Task slot of the shell.
     /// Session state (`active`/`exited`).
+    /// The account's home directory (issue #508): `init` gives the
+    /// session's apps `HOME` from it, so it never looks the account up
+    /// again per launch.
     /// A refused attempt (issue #307): the payload of
     /// `system/events/login/denied`. The reason is a short, non-secret word
     /// (`unknown-user`, `bad-secret`, `spawn-failed`), never the secret.

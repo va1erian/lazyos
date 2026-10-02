@@ -58,7 +58,7 @@ fn bios(fill: u8) -> Vec<u8> {
 }
 
 fn layout() -> Vec<DirSpec> {
-    dirs(&parse_passwd("alice:1000:1000:x:/home/alice:sh\n"))
+    dirs(&parse_passwd("user:1000:1000:x:/home/user:sh\n"))
 }
 
 fn file(path: &str, bytes: &[u8], mode: u16) -> OsFile {
@@ -72,7 +72,7 @@ fn file(path: &str, bytes: &[u8], mode: u16) -> OsFile {
 fn first_files() -> Vec<OsFile> {
     vec![
         file("/SUPER.ELF", b"super v1", 0o755),
-        file("/PASSWD", b"root:0:0\n", 0o644),
+        file("/PASSWD", b"admin:0:0\n", 0o644),
         file("/OLD.ELF", b"old", 0o755),
         file("/docs/README.md", b"# readme", 0o644),
         file("/docs/gone/page.md", b"page", 0o644),
@@ -130,7 +130,7 @@ fn a_missing_image_is_created_with_three_mbr_entries_and_a_clean_volume() {
     let meta = volume.lookup("/SUPER.ELF").unwrap();
     assert_eq!((meta.mode & 0o7777, meta.uid, meta.gid), (0o755, 0, 0));
     for (path, mode, owner) in [
-        ("/home/alice", 0o700, 1000),
+        ("/home/user", 0o700, 1000),
         ("/conf", 0o700, 0),
         ("/logs", 0o750, 0),
         ("/apps", 0o755, 0),
@@ -163,7 +163,7 @@ fn an_update_keeps_the_uuid_and_user_files_and_applies_the_manifest_diff() {
         .write_file("/apps/demo/app.bin", b"installed", 0o755, 1000, 1000, STAMP)
         .unwrap();
     volume
-        .write_file("/home/alice/note.txt", b"mine", 0o644, 1000, 1000, STAMP)
+        .write_file("/home/user/note.txt", b"mine", 0o644, 1000, 1000, STAMP)
         .unwrap();
     volume
         .write_file("/conf/settings", b"k=v", 0o600, 0, 0, STAMP)
@@ -178,7 +178,7 @@ fn an_update_keeps_the_uuid_and_user_files_and_applies_the_manifest_diff() {
     // NEW.ELF added.
     let second_files = vec![
         file("/SUPER.ELF", b"super v2 is a bit longer", 0o755),
-        file("/PASSWD", b"root:0:0\n", 0o644),
+        file("/PASSWD", b"admin:0:0\n", 0o644),
         file("/NEW.ELF", b"new", 0o755),
         file("/docs/README.md", b"# readme", 0o644),
     ];
@@ -208,7 +208,7 @@ fn an_update_keeps_the_uuid_and_user_files_and_applies_the_manifest_diff() {
     // Files in neither manifest survive, and so does the directory holding one.
     for (path, bytes) in [
         ("/apps/demo/app.bin", &b"installed"[..]),
-        ("/home/alice/note.txt", b"mine"),
+        ("/home/user/note.txt", b"mine"),
         ("/conf/settings", b"k=v"),
         ("/docs/gone/mine.txt", b"keep me"),
     ] {

@@ -56,11 +56,10 @@ JOURNAL = "/logs/service.log"
 
 
 def session_home() -> str:
-    """The home of the desktop's session account (uid 1000) in the passwd the
-    build embeds (`build.rs`, `PASSWD`), so an account rename moves it too."""
-    text = (ROOT / "build.rs").read_text(encoding="utf-8")
-    passwd = re.search(r'const PASSWD: &\[u8\] = b"([^"]*)";', text).group(1)
-    for row in passwd.split("\\n"):
+    """The home of the desktop's session account (uid 1000) in the account file
+    the build installs (`build_support/passwd`), so an account rename moves it too."""
+    passwd = (ROOT / "build_support" / "passwd").read_text(encoding="utf-8")
+    for row in passwd.splitlines():
         fields = row.split(":")
         if len(fields) >= 5 and fields[1] == "1000":
             return fields[4]

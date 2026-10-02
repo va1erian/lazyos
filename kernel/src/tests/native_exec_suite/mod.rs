@@ -101,6 +101,11 @@ pub fn lookup_maps_names_to_files() -> Result<(), String> {
         ("/sbin/poweroff", fhs::bin::POWERCTL),
         ("/bin/halt", fhs::bin::POWERCTL),
         ("reboot", fhs::bin::POWERCTL),
+        // A session's PATH is /system/bin (issue #508): the aliases resolve
+        // there too, since no file of that name exists.
+        ("/system/bin/msgctl", fhs::bin::MESSENGERCTL),
+        ("/system/bin/shutdown", fhs::bin::POWERCTL),
+        ("/system/bin/reboot", fhs::bin::POWERCTL),
     ] {
         check!(
             native::lookup(path) == Some(file),
@@ -139,8 +144,10 @@ pub fn lookup_maps_names_to_files() -> Result<(), String> {
         "/beep.elf",
         "/system/bin/TOP",
         "/system/bin/top.elf",
-        "/system/bin/msgctl",
-        "/system/bin/reboot",
+        // Only alias names resolve in /system/bin without a file; a near miss
+        // or a nested bin directory does not.
+        "/system/bin/rebootx",
+        "/system/bin/system/bin/top",
         // Linux programs in /system/bin, and natives this image lacks.
         "/system/bin/busybox",
         "rhai",
@@ -159,6 +166,7 @@ pub fn lookup_maps_names_to_files() -> Result<(), String> {
         ("/sbin/poweroff", "poweroff"),
         ("halt", "poweroff"),
         ("/usr/sbin/reboot", "reboot"),
+        ("/system/bin/shutdown", "poweroff"),
         ("powerctl", ""),
         (fhs::bin::POWERCTL, ""),
         ("top", ""),
@@ -195,6 +203,18 @@ pub fn lookup_never_shadows_real_files() -> Result<(), String> {
     check!(
         native::lookup("/bin/top") == Some(fhs::bin::TOP),
         "the other search directories stopped resolving"
+    );
+    // The same in `/system/bin`, the session PATH (issue #508): a real
+    // `reboot` there is run as itself, not as `powerctl reboot`.
+    check!(
+        native::lookup("/system/bin/reboot") == Some(fhs::bin::POWERCTL),
+        "an alias in /system/bin should resolve"
+    );
+    crate::fs::abi_create(id, "/system/bin/reboot", 0o755)
+        .map_err(|e| format!("create: {}", e.message()))?;
+    check!(
+        native::lookup("/system/bin/reboot").is_none(),
+        "a real file in /system/bin was shadowed by the alias"
     );
 
     Ok(())

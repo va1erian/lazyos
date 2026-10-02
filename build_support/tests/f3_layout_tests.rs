@@ -10,7 +10,8 @@ use crate::os_image::{write_volume, OsFile, OsFiles, Sink, Source};
 use crate::os_layout::{dirs, file_mode, parse_passwd, DirSpec};
 
 const STAMP: i64 = 1_700_000_000;
-const PASSWD: &str = "root:0:0:toor:/root:sh\nalice:1000:1000:lazy:/home/alice:sh\n";
+/// The account file the image ships (the single copy, issue #508).
+const PASSWD: &str = include_str!("../passwd");
 
 fn bytes(path: &str, mode: u16) -> OsFile {
     OsFile {
@@ -144,7 +145,7 @@ fn an_f2_image_updated_by_the_f3_build_has_a_clean_root() {
     // The user's own files: in a home, and one dropped at the root by hand.
     volume
         .write_file(
-            "/data/home/alice/note.txt",
+            "/data/home/user/note.txt",
             b"mine",
             0o644,
             1000,
@@ -164,7 +165,7 @@ fn an_f2_image_updated_by_the_f3_build_has_a_clean_root() {
     assert_eq!(root_files(&volume), ["USER.TXT"]);
     assert_eq!(volume.read_file("/USER.TXT").unwrap(), b"by hand");
     assert_eq!(
-        volume.read_file("/data/home/alice/note.txt").unwrap(),
+        volume.read_file("/data/home/user/note.txt").unwrap(),
         b"mine"
     );
     for entry in volume.readdir(fhs::SYSTEM_BIN).unwrap() {

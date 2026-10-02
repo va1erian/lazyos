@@ -193,7 +193,7 @@ fn populate(fs: &Ext2, now: i64) -> Result<(), Ext2Error> {
         0,
         now,
     )?;
-    fs.mkdir_p("/data/home/alice", 0o755, 1000, 1000)?;
+    fs.mkdir_p("/home/user", 0o755, 1000, 1000)?;
     fs.mkdir_p("/data/tmp", 0o1777, 0, 0)?;
     Ok(())
 }
@@ -213,13 +213,13 @@ fn update(fs: &Ext2, now: i64) -> Result<(), Ext2Error> {
         0,
         later,
     )?;
-    // User data under /data must survive an update untouched, and may grow.
+    // User data in a home must survive an update untouched, and may grow.
     let owner = Owner {
         uid: 1000,
         gid: 1000,
     };
-    fs.create("/data/home/alice/notes.txt", 0o600, owner)?;
-    fs.write("/data/home/alice/notes.txt", 0, b"keep me\n")?;
+    fs.create("/home/user/notes.txt", 0o600, owner)?;
+    fs.write("/home/user/notes.txt", 0, b"keep me\n")?;
     Ok(())
 }
 

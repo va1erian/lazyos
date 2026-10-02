@@ -32,17 +32,35 @@ mod xui_embed;
 
 use os_image::Sink;
 
-/// The passwd-style account database (issue #101), `name:uid:gid:secret:home:
-/// shell`. This branch has no writable store, so accountsd reads this
-/// read-only fallback; the secret is plaintext *on purpose* for bring-up and is
-/// replaced by keyd + Argon2id (`docs/security-model.md` section 3). The shell
-/// is BusyBox `sh` (the `sh` applet alias the kernel's Linux loader resolves to
-/// `/system/bin/busybox`, issue #254); `logind` prefixes it with `linux:` when it spawns
-/// the login shell. `root` keeps the system identity for admin operations,
-/// `alice` is the unprivileged demo login a headless session uses. The image
-/// layout also takes the `/data/home/<user>` directories from it
-/// (`tools/mkdisk/accounts.py` reads this literal).
-const PASSWD: &[u8] = b"root:0:0:toor:/root:sh\nalice:1000:1000:lazy:/home/alice:sh\n";
+/// The account file (issues #101, #508), `name:uid:gid:secret:home:shell`,
+/// installed as `/system/etc/passwd`: the **only** account source. `accountsd`
+/// has no built-in table and fails closed without it. `build_support/passwd` is
+/// the single copy: the image layout takes the `/home/<name>` directories from
+/// it, and `tools/mkdisk/accounts.py` reads the same file for the home volume.
+/// `admin` (uid 0) is the administrator, `user` (uid 1000) the unprivileged
+/// demo login. The secret is plaintext *on purpose* for bring-up; hashes and
+/// `/system/etc/shadow` are #447's (`docs/security-model.md` section 3). The
+/// shell is BusyBox `sh` (the `sh` applet alias the kernel's Linux loader
+/// resolves to `/system/bin/busybox`, issue #254).
+const PASSWD: &[u8] = include_bytes!("build_support/passwd");
+
+/// The account file to install: [`PASSWD`], checked with the parser
+/// `accountsd` loads it with, so a file the daemon would refuse never ships.
+/// `LAZYOS_OMIT_PASSWD=1` leaves it out, for the fail-closed check (an image
+/// on which `accountsd` reports `failed` and no login succeeds).
+fn account_file() -> Option<&'static [u8]> {
+    println!("cargo:rerun-if-changed=build_support/passwd");
+    println!("cargo:rerun-if-env-changed=LAZYOS_OMIT_PASSWD");
+    if let Err(error) = passwd::parse(PASSWD) {
+        panic!("build_support/passwd: accountsd would refuse it: {error}");
+    }
+    let omit = std::env::var_os("LAZYOS_OMIT_PASSWD").as_deref() == Some(std::ffi::OsStr::new("1"));
+    if omit {
+        println!("cargo:warning=LAZYOS_OMIT_PASSWD=1: no account file; no login will succeed");
+        return None;
+    }
+    Some(PASSWD)
+}
 
 fn main() {
     let out_dir = PathBuf::from(std::env::var_os("OUT_DIR").expect("OUT_DIR"));
@@ -256,7 +274,9 @@ fn main() {
         );
 
         // The account database `accountsd` reads (see [`PASSWD`]).
-        files.add_bytes(fhs::etc::PASSWD, PASSWD.to_vec());
+        if let Some(passwd) = account_file() {
+            files.add_bytes(fhs::etc::PASSWD, passwd.to_vec());
+        }
 
         // The system monitor (issue #144). `init` starts `sysmond` from its
         // manifest; the service wraps the native system-stats syscall (14) and

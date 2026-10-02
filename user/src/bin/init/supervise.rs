@@ -141,12 +141,9 @@ pub(super) fn argv(service: &Service, restarts: u64) -> Vec<String> {
 /// for an installed app) or inheriting this task's identity when `None`.
 ///
 /// A restarted installed app keeps its label: the kernel stamps it again at
-/// the spawn, so a crash never launders the sandbox.
-//
-// TODO(#508 section 3): a launched app should find its session's `HOME`,
-// `USER` and `PATH` in `envp`. `init` resolves only the session's uid (no
-// account record) when it launches, so the environment stays empty until
-// that lookup exists.
+/// the spawn, so a crash never launders the sandbox. The environment is the
+/// row's own (a launched app's session `HOME`, `USER` and `PATH`, fixed at
+/// launch), so a respawn sees the same one.
 pub(super) fn spawn_row(service: &Service, restarts: u64, cred: Option<sys::Cred>) -> Option<u64> {
     let argv = argv(service, restarts);
     let argv: Vec<&str> = argv.iter().map(String::as_str).collect();
@@ -160,7 +157,8 @@ pub(super) fn spawn_row(service: &Service, restarts: u64, cred: Option<sys::Cred
         (Some(cred), None) => sys::SpawnCred::As(cred),
         (None, _) => sys::SpawnCred::Inherit,
     };
-    sys::spawnv(service.path, &argv, &[], personality, stamp).ok()
+    let env: Vec<&str> = service.env.iter().map(String::as_str).collect();
+    sys::spawnv(service.path, &argv, &env, personality, stamp).ok()
 }
 
 /// A service exited: apply its restart policy and publish the event.

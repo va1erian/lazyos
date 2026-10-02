@@ -12,9 +12,7 @@
 //!
 //! `pkgd` reads a package *as root*, so for an unprivileged caller it only
 //! accepts `/transient` and the caller's own home
-//! (`libs/pkgstore/src/access.rs`). `/data/packages` (the dev fallback's
-//! directory) is therefore **not** readable by `pkgd` for a normal user. The
-//! installer stages the file as `/transient/lazyrad-<sn>-<version>.lzp`,
+//! (`libs/pkgstore/src/access.rs`). The installer stages the file as `/transient/lazyrad-<sn>-<version>.lzp`,
 //! calls `pkgd`, and deletes it afterwards. `Inspect` reads at most 8 MiB, so a
 //! package larger than that is refused here with a clear message instead of
 //! staging it.
@@ -178,8 +176,10 @@ pub fn friendly(failure: &Failure) -> String {
         return format!("The package manager (pkgd) is not available: {text}");
     }
     if failure.code == ENODEV || lower.contains("cannot be installed:") {
-        return format!("Apps cannot be installed because the system volume is not writable \
-                        (a recovery boot?): {text}");
+        return format!(
+            "Apps cannot be installed because the system volume is not writable \
+                        (a recovery boot?): {text}"
+        );
     }
     match failure.code {
         EPERM | EACCES => format!(
@@ -512,7 +512,10 @@ mod tests {
             (failure(13, "denied"), "Only the person logged in"),
             (failure(17, "already installed"), "already installed"),
             (
-                failure(19, "Applications cannot be installed: /apps is not writable"),
+                failure(
+                    19,
+                    "Applications cannot be installed: /apps is not writable",
+                ),
                 "system volume is not writable",
             ),
             (failure(2, "package not found"), "package not found"),

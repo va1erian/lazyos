@@ -15,6 +15,35 @@ parsing (`args`), the `lazyrad_runtime::platform::Platform` LazyOS installs
 (`platform`: script file sandbox, config dir, player path) and the serial
 evidence markers (`marker`: `LRPLAY:UP|EVENT|EXIT`, `LRIDE:*`).
 
+## Where LazyRAD writes
+
+Everything lives in the home of the user running it (`$HOME`, which `init`
+passes to every session app; filesystem plan F4). Nothing is written under
+`/data`, and installed apps never write inside `/apps` (`pkgd` owns it).
+
+| What | Where |
+|---|---|
+| IDE settings | `$HOME/.apps/lazyrad/config/` |
+| projects (the file dialog's first stop) | `$HOME/projects/`, created by the IDE |
+| data of a project run from the IDE or a shell | `$HOME/.apps/lazyrad/data/` |
+| data of an installed app | `$HOME/.apps/<system_name>/` (manifest `read:`/`write:/home/*/.apps/<system_name>`) |
+| packages staged for `pkgd` | `/transient/lazyrad-<system_name>-<version>.lzp`, deleted afterwards |
+
+Without `$HOME` (a program started outside a session) the home is
+`/transient/lazyrad` on the ramfs, so nothing survives a reboot; both programs
+say so with `LRPLAY:HOME:WARN` / `LRIDE:HOME:WARN` on serial and stderr.
+`lrplay` reports the folder its scripts may write as `LRPLAY:DATA:PASS:<dir>`.
+
+Three sessions, run in order on one image (built with `LAZYOS_RESET_OS=1`, so
+nothing is installed yet), check it end to end: `lazyrad_home.json` makes and
+installs a copy of `hello` whose `form_load` writes `proof.txt`
+(`LRPLAY:DATA:PASS:/home/admin/.apps/user.admin.hello`), then after a reboot
+`lazyrad_home_project.json` reads that file back and creates `MyApp` with
+File -> New Project (the dialog opens in `/home/admin/projects`), and after
+another reboot `lazyrad_home_reboot.json` finds
+`/home/admin/projects/MyApp/MyApp.lrp` and `proof.txt`, and nothing under
+`/apps/<id>/*/data`.
+
 ## Running
 
 ```bash
@@ -24,6 +53,11 @@ LAZYOS_LAZYRAD=1 LAZYRAD_SAMPLES="<lazyrad>/examples/hello;<lazyrad>/examples/ca
 python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/lrplay \
     --script tools/screenshot/examples/lazyrad_hello.json --fail-on "LRPLAY:[A-Z]+:FAIL"
 ```
+
+The `lazyrad_*.json` sessions need the samples: an image built without
+`LAZYRAD_SAMPLES` has no `/system/share/lazyrad/hello`, and `lrplay` then stops
+with `LRPLAY:ARGS:FAIL:no project at ...`. From the CLI front end:
+`python tools/run_demo.py --desktop --lazyrad-samples "<lazyrad>/examples/hello;<lazyrad>/examples/calculator;lazyrad-os/samples/perf2000"`.
 
 In the Terminal: `/system/bin/lrplay --client /system/share/lazyrad/hello &`. Command line:
 `lrplay [--client] [--project <dir> | <dir>] [attempt=N]`; see `src/args.rs` for

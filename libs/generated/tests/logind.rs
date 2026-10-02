@@ -17,7 +17,7 @@ fn session(id: u64, user: &str, state: &str) -> Session {
 fn sessions_reply_roundtrips_in_order() {
     let reply = SessionsReply {
         active: 1,
-        sessions: vec![session(1, "root", "exited"), session(2, "guest", "active")],
+        sessions: vec![session(1, "admin", "exited"), session(2, "guest", "active")],
     };
     let body = encode_sessions_reply(&reply).unwrap();
     assert_eq!(decode_sessions_reply(&body).unwrap(), reply);
@@ -45,7 +45,7 @@ fn many_sessions_roundtrip() {
 fn truncated_body_is_rejected() {
     let reply = SessionsReply {
         active: 1,
-        sessions: vec![session(1, "root", "active")],
+        sessions: vec![session(1, "admin", "active")],
     };
     let body = encode_sessions_reply(&reply).unwrap();
     assert!(decode_sessions_reply(&body[..body.len() - 3]).is_err());
@@ -54,7 +54,7 @@ fn truncated_body_is_rejected() {
 #[test]
 fn login_topic_payloads_roundtrip() {
     let start = LoginStart {
-        user: "alice".into(),
+        user: "user".into(),
         uid: 1000,
         session: 3,
         pid: 42,
@@ -64,10 +64,11 @@ fn login_topic_payloads_roundtrip() {
     assert_eq!(decode_system_events_login_start(&body).unwrap(), start);
 
     let session = LoginSession {
-        user: "alice".into(),
+        user: "user".into(),
         uid: 1000,
         pid: 42,
         state: "exited".into(),
+        home: "/home/user".into(),
     };
     let body = encode_system_events_login_session(&session).unwrap();
     assert_eq!(decode_system_events_login_session(&body).unwrap(), session);
@@ -80,7 +81,7 @@ fn login_topic_payloads_roundtrip() {
     assert_eq!(decode_system_events_login_denied(&body).unwrap(), denied);
 
     let end = LoginEnd {
-        user: "alice".into(),
+        user: "user".into(),
         uid: 1000,
         session: 3,
         status: 0,

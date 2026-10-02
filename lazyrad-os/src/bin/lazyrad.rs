@@ -2,7 +2,8 @@
 //!
 //! A `xuid` desktop client running the portable `lazyrad-ide` on
 //! `xui_app::backend::LazyOSBackend`, with the LazyOS platform installed
-//! (docs/lazyrad-plan.md, P3). Serial evidence: `LRIDE:UP:PASS` after the first
+//! (docs/lazyrad-plan.md, P3). Serial evidence: `LRIDE:HOME:PASS:<home>` (or
+//! `LRIDE:HOME:WARN` when `$HOME` is unset), `LRIDE:UP:PASS` after the first
 //! frame reached the compositor, `LRIDE:OPEN:PASS:<project>` when a project
 //! opened, `LRIDE:RUN:PASS:<project>` when Run started the player and
 //! `LRIDE:CHILD:PASS:exit=<code>` when it ended, `LRIDE:EXIT:PASS` after a clean
@@ -18,7 +19,7 @@ use lazyrad_os::args;
 use lazyrad_os::launcher::PollingLauncher;
 use lazyrad_os::marker::Markers;
 use lazyrad_os::pkgd::PkgdInstaller;
-use lazyrad_os::platform::LazyOsPlatform;
+use lazyrad_os::platform::{Home, LazyOsPlatform};
 use xui_app::backend::LazyOSBackend;
 use xui_core::backend::{Backend, PlatformSpec};
 use xui_core::units::Dip;
@@ -55,7 +56,16 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    if lazyrad_runtime::platform::install(Box::new(LazyOsPlatform::ide())).is_err() {
+    let home = Home::from_env();
+    if let Some(warning) = home.fallback_warning() {
+        MARK.warn("HOME", &warning);
+    }
+    // The projects folder is the dialog's first stop and the designer
+    // preview's sandbox; a fresh home does not have it yet. Best effort: an
+    // unwritable home only means the dialog starts in the home instead.
+    let _ = std::fs::create_dir_all(home.projects_dir());
+    MARK.pass_with("HOME", &home.path().to_string_lossy());
+    if lazyrad_runtime::platform::install(Box::new(LazyOsPlatform::ide(home))).is_err() {
         MARK.fail("PLATFORM", "a platform was already installed");
         return ExitCode::FAILURE;
     }

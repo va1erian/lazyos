@@ -20,7 +20,7 @@ fn verify_and_provision_roundtrip() {
         );
     }
     let provision = ProvisionArgs {
-        user: "alice".into(),
+        user: "user".into(),
         secret: "pw".into(),
     };
     assert_eq!(

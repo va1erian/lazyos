@@ -410,7 +410,7 @@ ERR_DENIED
   you cannot call os.lazy.fs.reader.Read because app "com.example.editor"
   was not granted the "files.read" permission
   hint: approve it in Settings > Apps > Editor > Permissions, or run:
-        lazyosctl grant com.example.editor files.read /home/alice/docs
+        lazyosctl grant com.example.editor files.read /home/user/docs
   docs: err.messenger.denied
 ```
 

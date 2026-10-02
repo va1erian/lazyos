@@ -123,8 +123,8 @@ pub(super) fn launch_argument(args: &str) -> messenger::Result<Option<String>> {
 /// The app id is a built-in registry row ([`find_app`]) or, failing that, an
 /// app the package manager installed ([`InstalledApps`], re-read from `confd`
 /// here so an install a moment ago is launchable at once): since F5 every
-/// desktop app is one, and a core app also answers to its bare short id. Either way the same
-/// checks run in the same order ([`admit`]): the caller must pass [`authorize`]
+/// desktop app is one, and a core app also answers to its bare short id.
+/// Either way the same checks run in the same order ([`admit`]): the caller must pass [`authorize`]
 /// for the target session; the argument must be one absolute path; the target
 /// session must have fewer than [`LAUNCH_CAP_PER_SESSION`] launched rows
 /// reserved (see [`running_in_session`]); the target session's credentials must
@@ -132,7 +132,8 @@ pub(super) fn launch_argument(args: &str) -> messenger::Result<Option<String>> {
 /// supervision loop owns it: restart policy, backoff, health topic and service
 /// event. An installed app is spawned stamped with its label (`app:<system
 /// name>`), so the kernel applies the policy `pkgd` loaded for it from its first
-/// instruction.
+/// instruction. Both kinds start with the session's environment (`HOME`,
+/// `USER`, `PATH`; [`sessions::env`]).
 pub(super) fn launch(
     services: &mut Vec<Service>,
     broker: &mut router::TopicBroker,
@@ -191,7 +192,8 @@ pub(super) fn launch_row(
     }
     let (path_arg, cred, session) = admit(services, request, caller, autostart)?;
     retire_stopped(services, app.id);
-    let row = Service::from_app(app, path_arg, cred);
+    let mut row = Service::from_app(app, path_arg, cred);
+    row.env = sessions::env(session, cred.uid);
     start_row(services, broker, row, &cred, session, autostart)
 }
 
@@ -208,7 +210,8 @@ fn launch_installed(
 ) -> messenger::Result<services::LaunchResult> {
     let (path_arg, cred, session) = admit(services, request, caller, autostart)?;
     retire_stopped(services, app.id);
-    let row = Service::from_installed(app, path_arg, cred);
+    let mut row = Service::from_installed(app, path_arg, cred);
+    row.env = sessions::env(session, cred.uid);
     let result = start_row(services, broker, row, &cred, session, autostart)?;
     report_label(result.pid, app.id);
     Ok(result)

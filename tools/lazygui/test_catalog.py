@@ -324,7 +324,8 @@ class ResetTests(unittest.TestCase):
 
     def test_summary_names_the_home_directories(self) -> None:
         text = datavol.seed_summary()
-        self.assertIn("/alice (700)", text)
+        self.assertIn("/admin (700)", text)
+        self.assertIn("/user (700)", text)
         self.assertIn("lazyhome", text)
         self.assertNotIn("/tmp", text)
 
@@ -332,14 +333,14 @@ class ResetTests(unittest.TestCase):
         outcome = datavol.reset(str(self.path), busy=False)  # no file yet: no prompt
         self.assertTrue(outcome and outcome[0])
         image = self.path.read_bytes()
-        self.assertIn(b"alice", image)
+        self.assertIn(b"admin", image)
         self.assertEqual(image[1024 + 120:1024 + 128], b"lazyhome")
 
     def test_confirmation_lists_what_will_be_created_and_can_decline(self) -> None:
         self.path.write_bytes(b"precious")
         with mock.patch.object(datavol.messagebox, "askyesno", return_value=False) as ask:
             self.assertIsNone(datavol.reset(str(self.path), busy=False))
-        self.assertIn("/alice (mode 0700, uid 1000, gid 1000)", ask.call_args.args[1])
+        self.assertIn("/user (mode 0700, uid 1000, gid 1000)", ask.call_args.args[1])
         self.assertEqual(self.path.read_bytes(), b"precious")
 
     def test_refused_while_a_run_is_active(self) -> None:

@@ -27,8 +27,8 @@ recreates it from scratch. A persistent ext2 home volume (default
 ``target/home.img``, label ``lazyhome``, 64 MiB) is attached as a second
 virtio-blk device and mounted at ``/home``. It is created on first use and never
 regenerated unless you pass ``--reset-home``. A fresh volume holds ``<user>/``
-for the demo accounts (owned by them) and nothing else, so log in as ``alice``
-to write to your own home. ``--data-disk PATH`` still attaches a legacy ext2
+for the demo accounts (owned by them) and nothing else, so log in as ``user``
+(password ``lazy``) or ``admin`` (password ``nimda``) to write to your own home. ``--data-disk PATH`` still attaches a legacy ext2
 data volume (not mounted anywhere new); it is off by default.
 
 In the demo: two windows run concurrently (a demo program and the `sh`
@@ -282,6 +282,11 @@ def main(argv: list[str]) -> int:
                         help="build the LazyRAD IDE and player and embed them "
                              "(LAZYOS_LAZYRAD=1); with --desktop it is offered by "
                              "Settings -> Menu")
+    parser.add_argument("--lazyrad-samples", metavar="DIRS",
+                        help="sample project directories to copy under "
+                             "/system/share/lazyrad/ (LAZYRAD_SAMPLES; `;` on Windows, "
+                             "`:` elsewhere), e.g. <lazyrad>/examples/hello; the "
+                             "lazyrad_*.json sessions need them. Implies --lazyrad")
     parser.add_argument("--devices", action="store_true",
                         help="the desktop profile with the Devices app open at boot "
                              "(devices, owners, rights and the driver class rules): "
@@ -296,6 +301,8 @@ def main(argv: list[str]) -> int:
     args = parser.parse_args(argv)
     # The Devices app is a desktop app: `--devices` implies `--desktop`.
     args.desktop = args.desktop or args.devices
+    # Samples are only embedded with the runtime that plays them.
+    args.lazyrad = args.lazyrad or bool(args.lazyrad_samples)
     if args.no_data_disk and (args.reset_data or args.data_disk):
         parser.error("--no-data-disk conflicts with --data-disk / --reset-data")
     if args.no_home_disk and args.reset_home:
@@ -328,6 +335,8 @@ def main(argv: list[str]) -> int:
             if not build_lazyrad():
                 return 1
             env["LAZYOS_LAZYRAD"] = "1"
+            if args.lazyrad_samples:
+                env["LAZYRAD_SAMPLES"] = args.lazyrad_samples
         print(f"building LazyOS [{profile}]…", flush=True)
         if args.sound:
             env["LAZYOS_SOUND"] = "1"

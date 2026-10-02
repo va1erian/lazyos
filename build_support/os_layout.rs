@@ -81,12 +81,13 @@ pub fn parse_passwd(text: &str) -> Vec<Account> {
 /// * `/system` with `bin`, `etc`, `share` and `packages` (root, 0755; F5 fills
 ///   `packages`);
 /// * each service's state (the table below);
-/// * the transitional `/data` itself (root, 0755; `lazyrad` still writes
-///   below it until it moves to the home, F7 removes it);
+/// * the transitional `/data` itself (root, 0755; nothing writes below it
+///   since F4, it stays the opt-in data disk's mount point and the `confd`
+///   seed until F7 removes it);
 /// * a home for each account of the embedded passwd whose home is
 ///   `/home/<name>`: 0700, owned by the account's uid and gid. These are the
 ///   homes without a home volume; a mounted `/home` volume hides them.
-///   Accounts whose home lies elsewhere (`/root`) get none.
+///   Accounts whose home lies elsewhere (a service account's, say) get none.
 pub fn dirs(accounts: &[Account]) -> Vec<DirSpec> {
     let mut out: Vec<DirSpec> = [
         fhs::mount::BOOT,

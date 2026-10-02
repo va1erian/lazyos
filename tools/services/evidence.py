@@ -45,6 +45,8 @@ REQUIRED: list[tuple[str, str]] = [
     ("timed published time/tick", r"TIMED:TICK:PASS unix=\d+ offset=-?\d+ zone=\S+$"),
     ("logd journals in /logs (issue #508)", r"^LOGD:STORE:READY dir=/logs boot=[0-9a-f]{16} "),
     ("confd store in /conf (issue #508)", r"^CONFD:READY dir=/conf persistent=true$"),
+    ("accountsd loaded 2 rows from /system/etc/passwd (issue #508)",
+     r"^ACCOUNTS:LOAD:PASS rows=2 file=/system/etc/passwd$"),
     ("mime overrides from /system/share/mime.types (issue #508)",
      r"^MIME:GUESS:PASS SAMPLE\.LZT \S+ \(/system/share/mime\.types\)$"),
 ]
@@ -65,6 +67,8 @@ DESKTOP: list[tuple[str, str]] = [
     ("timed published time/tick", r"TIMED:TICK:PASS unix=\d+ offset=-?\d+ zone=\S+$"),
     ("logd journals in /logs (issue #508)", r"^LOGD:STORE:READY dir=/logs boot=[0-9a-f]{16} "),
     ("confd store in /conf (issue #508)", r"^CONFD:READY dir=/conf persistent=true$"),
+    ("accountsd loaded 2 rows from /system/etc/passwd (issue #508)",
+     r"^ACCOUNTS:LOAD:PASS rows=2 file=/system/etc/passwd$"),
     ("mime overrides from /system/share/mime.types (issue #508)",
      r"^MIME:GUESS:PASS SAMPLE\.LZT \S+ \(/system/share/mime\.types\)$"),
 ]
@@ -78,6 +82,7 @@ FORBIDDEN: list[tuple[str, str]] = [
     ("mimed found its override file", r"^MIME:GUESS:INFO no override file"),
     ("pkgd's store (/apps, /docs/apps, /logs) is writable", r"^PKGD:STORE:ABSENT"),
     ("confd did not fall back to the ramfs", r"^CONFD:READY dir=\S+ persistent=false"),
+    ("accountsd loaded its account file", r"^ACCOUNTS:LOAD:FAIL"),
 ]
 
 #: Markers of the demo/evidence programs the desktop profile excludes (issue

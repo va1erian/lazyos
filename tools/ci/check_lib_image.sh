@@ -52,7 +52,7 @@ expect /lost+found 0700 0 0
 expect /system 0755 0 0
 expect /system/big.bin 0644 0 0
 expect /system/.image-manifest 0644 0 0
-expect /data/home/alice 0755 1000 1000
+expect /home/user 0755 1000 1000
 expect /data/tmp 1777 0 0
 
 # 4. Contents. mkimage writes byte i of a file as (i*31 + seed) mod 256.
@@ -80,8 +80,8 @@ else
   check_pattern /system/big.bin 70000 3
   check_pattern /system/sbin/tool2 9000 4
   expect /system/sbin/tool2 0755 0 0
-  expect /data/home/alice/notes.txt 0600 1000 1000
-  [ "$(dbg 'cat /data/home/alice/notes.txt')" = "keep me" ] || fail "notes.txt contents"
+  expect /home/user/notes.txt 0600 1000 1000
+  [ "$(dbg 'cat /home/user/notes.txt')" = "keep me" ] || fail "notes.txt contents"
   grep -q '^f /system/sbin/tool2$' <<<"$manifest" || fail "manifest lacks /system/sbin/tool2"
   ! grep -q '^f /system/bin/tool$' <<<"$manifest" || fail "manifest still lists /system/bin/tool"
   ! grep -q '/bin/' <<<"$listing" || fail "/system/bin survived remove_tree"

@@ -6,7 +6,7 @@ use crate::{Ext2Error, FileKind, S_IFDIR, S_IFREG};
 #[test]
 fn mkdir_p_creates_missing_components_only() {
     let (io, fs) = fresh(2 * 1024 * 1024, 4096);
-    let meta = fs.mkdir_p("/data/home/alice", 0o755, 1000, 1000).unwrap();
+    let meta = fs.mkdir_p("/data/home/user", 0o755, 1000, 1000).unwrap();
     assert_eq!(
         (meta.mode, meta.uid, meta.gid),
         (S_IFDIR | 0o755, 1000, 1000)
@@ -24,7 +24,7 @@ fn mkdir_p_creates_missing_components_only() {
     assert_eq!(fs.lookup("/data").unwrap().mode, S_IFDIR | 0o700);
     assert_eq!(fs.lookup("/data/tmp").unwrap().mode, S_IFDIR | 0o1777);
     assert_eq!(
-        fs.mkdir_p("/data/home/alice", 0o700, 5, 5).unwrap().mode,
+        fs.mkdir_p("/data/home/user", 0o700, 5, 5).unwrap().mode,
         S_IFDIR | 0o755
     );
     assert_eq!(fs.mkdir_p("/", 0o755, 0, 0).unwrap().ino, 2);
