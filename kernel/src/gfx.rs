@@ -17,6 +17,17 @@ impl Color {
     }
 }
 
+/// A blit's pixel packing: the common 3- and 4-byte RGB/BGR modes, or any
+/// other mode (through `encode`/`store`).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Packing {
+    Rgb3,
+    Rgb4,
+    Bgr3,
+    Bgr4,
+    Other,
+}
+
 /// A raw linear framebuffer handed over by the bootloader.
 pub struct Framebuffer {
     base: usize,
@@ -208,6 +219,10 @@ impl Framebuffer {
         let stride = self.info.stride;
         let base = self.base as *mut u8;
         let (fbw, fbh) = (self.width(), self.height());
+        // Resolved once: this loop runs for every pixel of every present,
+        // with interrupts off, so the common RGB/BGR modes get plain stores
+        // with no per-pixel format dispatch.
+        let packing = self.packing();
 
         for row in 0..h {
             let syy = sy + row;
@@ -227,13 +242,54 @@ impl Framebuffer {
                     break;
                 }
                 let i = col * 4;
-                let pixel = self.encode(src[i], src[i + 1], src[i + 2]);
                 // Safety: `dxx < fbw` was just checked, so this pixel is
                 // within the mapped framebuffer row.
                 let p = unsafe { drow.add(dxx * bpp) };
-                // Safety: within the framebuffer row; bpp is 3 or 4.
-                unsafe { self.store(p, pixel) };
+                let (r, g, b) = (src[i], src[i + 1], src[i + 2]);
+                match packing {
+                    Packing::Rgb4 | Packing::Bgr4 => {
+                        let pixel = if packing == Packing::Bgr4 {
+                            u32::from_le_bytes([b, g, r, 0xFF])
+                        } else {
+                            u32::from_le_bytes([r, g, b, 0xFF])
+                        };
+                        // SAFETY: `p` starts a whole 4-byte pixel inside the
+                        // framebuffer row (checked above); unaligned is fine.
+                        unsafe { p.cast::<u32>().write_unaligned(pixel) };
+                    }
+                    Packing::Rgb3 | Packing::Bgr3 => {
+                        let (c0, c2) = if packing == Packing::Bgr3 {
+                            (b, r)
+                        } else {
+                            (r, b)
+                        };
+                        // SAFETY: `p` starts a whole 3-byte pixel inside the
+                        // framebuffer row (checked above).
+                        unsafe {
+                            p.write(c0);
+                            p.add(1).write(g);
+                            p.add(2).write(c2);
+                        }
+                    }
+                    Packing::Other => {
+                        let pixel = self.encode(r, g, b);
+                        // SAFETY: `p` starts a whole `bpp`-byte pixel inside
+                        // the framebuffer row (checked above).
+                        unsafe { self.store(p, pixel) };
+                    }
+                }
             }
+        }
+    }
+
+    /// How [`Self::blit_rgba_region`] packs a pixel, decided once per blit.
+    fn packing(&self) -> Packing {
+        match (self.info.pixel_format, self.info.bytes_per_pixel) {
+            (PixelFormat::Rgb, 3) => Packing::Rgb3,
+            (PixelFormat::Rgb, 4) => Packing::Rgb4,
+            (PixelFormat::Bgr, 3) => Packing::Bgr3,
+            (PixelFormat::Bgr, 4) => Packing::Bgr4,
+            _ => Packing::Other,
         }
     }
 

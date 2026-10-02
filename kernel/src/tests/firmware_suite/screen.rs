@@ -106,6 +106,7 @@ pub fn view_blits_stay_inside() -> Result<(), String> {
         (4, PixelFormat::Bgr),
         (4, PixelFormat::Rgb),
         (3, PixelFormat::Rgb),
+        (3, PixelFormat::Bgr),
     ] {
         let mut fake = FakeFb::new(960, 540, 1000, bpp, format);
         let (vx, vy, vw, vh) = (240, 135, 480, 270);
