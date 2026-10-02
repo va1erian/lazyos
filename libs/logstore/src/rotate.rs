@@ -5,7 +5,8 @@
 //! buffered for it) and [`Ledger::plan`] says what has to happen before an
 //! append of `n` bytes so that
 //!
-//! * no live file grows past [`FILE_CAP`]: the source is rotated first
+//! * no live file grows past [`FILE_CAP`] (the cap of [`Limits`]): the
+//!   source is rotated first
 //!   (`.2` deleted, `.1` -> `.2`, live -> `.1`);
 //! * the sum over every owned file stays within [`BUDGET`]: the largest
 //!   source (by its three files together) gives up its oldest generation
@@ -28,6 +29,30 @@ pub const FILE_CAP: u64 = 256 * 1024;
 pub const BUDGET: u64 = 8 * 1024 * 1024;
 /// Files per source: the live one and two rotations.
 pub const GENERATIONS: usize = 3;
+
+/// The cap and the budget a [`Ledger`] enforces. `logd` uses
+/// [`Limits::DEFAULT`]; tests on small volumes scale both down.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Limits {
+    /// Largest live file.
+    pub file_cap: u64,
+    /// Largest total over every owned file.
+    pub budget: u64,
+}
+
+impl Limits {
+    /// [`FILE_CAP`] and [`BUDGET`].
+    pub const DEFAULT: Limits = Limits {
+        file_cap: FILE_CAP,
+        budget: BUDGET,
+    };
+}
+
+impl Default for Limits {
+    fn default() -> Limits {
+        Limits::DEFAULT
+    }
+}
 
 /// File name of `source`'s generation `generation` (`0` = live).
 pub fn file_name(source: &str, generation: usize) -> String {
@@ -98,11 +123,25 @@ pub enum Action {
 pub struct Ledger {
     files: BTreeMap<String, Footprint>,
     total: u64,
+    limits: Limits,
 }
 
 impl Ledger {
+    /// An empty ledger with [`Limits::DEFAULT`].
     pub fn new() -> Ledger {
         Ledger::default()
+    }
+
+    /// An empty ledger enforcing `limits`.
+    pub fn with_limits(limits: Limits) -> Ledger {
+        Ledger {
+            limits,
+            ..Ledger::default()
+        }
+    }
+
+    pub fn limits(&self) -> Limits {
+        self.limits
     }
 
     /// Record one file from a directory listing; foreign names are ignored.
@@ -165,12 +204,13 @@ impl Ledger {
 
     /// Whether an append of `bytes` to `source` needs no step at all.
     pub fn fits(&self, source: &str, bytes: u64) -> bool {
-        self.footprint(source).live() + bytes <= FILE_CAP && self.total + bytes <= BUDGET
+        self.footprint(source).live() + bytes <= self.limits.file_cap
+            && self.total + bytes <= self.limits.budget
     }
 
     /// The steps that make room for `bytes` more in `source`'s live file,
     /// in order. Empty when the append already fits. `bytes` larger than
-    /// [`FILE_CAP`] cannot fit any file; the caller clips records well below
+    /// the file cap cannot fit any file; the caller clips records well below
     /// it.
     pub fn plan(&self, source: &str, bytes: u64) -> Vec<Action> {
         let mut actions = Vec::new();
@@ -178,12 +218,13 @@ impl Ledger {
             return actions;
         }
         let mut model = self.clone();
-        if model.footprint(source).live() > 0 && model.footprint(source).live() + bytes > FILE_CAP {
+        let live = model.footprint(source).live();
+        if live > 0 && live + bytes > self.limits.file_cap {
             let action = Action::Rotate(String::from(source));
             model.apply(&action);
             actions.push(action);
         }
-        while model.total + bytes > BUDGET {
+        while model.total + bytes > self.limits.budget {
             let Some(action) = model.shed() else {
                 break;
             };

@@ -11,7 +11,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use crate::line::{boot_detail, clip, format_line, record_hash, BOOT_TOPIC, MAX_LINE};
-use crate::rotate::{file_name, parse_any, Action, Ledger};
+use crate::rotate::{file_name, parse_any, Action, Ledger, Limits};
 use crate::source::{owned_source, source_of, SYSTEM};
 
 /// Records buffered before a flush.
@@ -86,8 +86,18 @@ pub struct Store<F: JournalFs> {
 impl<F: JournalFs> Store<F> {
     /// Open the directory `fs` stands for: list it so the sizes of earlier
     /// boots' journals count towards the caps and the budget.
-    pub fn open(mut fs: F, boot_id: u64, now: u64) -> Result<Store<F>, F::Error> {
-        let mut ledger = Ledger::new();
+    pub fn open(fs: F, boot_id: u64, now: u64) -> Result<Store<F>, F::Error> {
+        Store::open_with(fs, boot_id, now, Limits::DEFAULT)
+    }
+
+    /// [`Store::open`] with a scaled cap and budget (tests on small volumes).
+    pub fn open_with(
+        mut fs: F,
+        boot_id: u64,
+        now: u64,
+        limits: Limits,
+    ) -> Result<Store<F>, F::Error> {
+        let mut ledger = Ledger::with_limits(limits);
         for (name, size) in fs.list()? {
             ledger.insert(&name, size);
         }

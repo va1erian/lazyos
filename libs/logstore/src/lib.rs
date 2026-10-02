@@ -21,6 +21,6 @@ pub mod source;
 pub mod store;
 
 pub use line::{parse_line, verify, Broken, Line};
-pub use rotate::{file_name, Action, Footprint, Ledger, BUDGET, FILE_CAP};
+pub use rotate::{file_name, Action, Footprint, Ledger, Limits, BUDGET, FILE_CAP};
 pub use source::{source_of, valid_source};
 pub use store::{JournalFs, Store, TailError, FLUSH_RECORDS, FLUSH_TICKS, MAX_SOURCES};
