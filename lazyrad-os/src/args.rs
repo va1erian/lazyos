@@ -164,34 +164,34 @@ fn is_absolute(path: &Path) -> bool {
 
 /// The project directory to run: see the module documentation for the rules.
 ///
-/// `project_exists` answers whether the implied default directory exists (so the
-/// function stays pure and testable).
+/// `project_exists` answers whether a resolved project (a directory or an
+/// `.lrp` file) exists, so the function stays pure and testable. Every path is
+/// checked, not only the implied default: a missing project is reported here as
+/// `LRPLAY:ARGS:FAIL:no project at <path>` instead of reaching the player,
+/// which would only print the reason on stderr and exit with code 1.
 pub fn resolve_project(
     requested: Option<&Path>,
     exe: &Path,
     project_exists: impl Fn(&Path) -> bool,
 ) -> Result<PathBuf, ArgError> {
     let install = install_dir(exe);
-    match requested {
-        Some(path) if is_absolute(path) => Ok(path.to_path_buf()),
+    let project = match requested {
+        Some(path) if is_absolute(path) => path.to_path_buf(),
         Some(path) => {
             let clean = path
                 .components()
                 .all(|c| matches!(c, Component::Normal(_) | Component::CurDir));
-            if clean {
-                Ok(install.join(path))
-            } else {
-                Err(ArgError::Escapes(path.display().to_string()))
+            if !clean {
+                return Err(ArgError::Escapes(path.display().to_string()));
             }
+            install.join(path)
         }
-        None => {
-            let default = install.join(DEFAULT_PROJECT);
-            if project_exists(&default) {
-                Ok(default)
-            } else {
-                Err(ArgError::NoProject(default))
-            }
-        }
+        None => install.join(DEFAULT_PROJECT),
+    };
+    if project_exists(&project) {
+        Ok(project)
+    } else {
+        Err(ArgError::NoProject(project))
     }
 }
 
@@ -280,7 +280,7 @@ mod tests {
     #[test]
     fn a_relative_project_resolves_against_the_install_directory() {
         let exe = Path::new("/data/apps/a.b.c/1.0.0-ff/bin/lrplay.elf");
-        let got = resolve_project(Some(Path::new("resources/project")), exe, |_| false).unwrap();
+        let got = resolve_project(Some(Path::new("resources/project")), exe, |_| true).unwrap();
         assert_eq!(
             got,
             Path::new("/data/apps/a.b.c/1.0.0-ff/resources/project")
@@ -302,10 +302,33 @@ mod tests {
     fn an_absolute_project_is_used_as_given() {
         let exe = Path::new("/system/bin/lrplay");
         let got = resolve_project(Some(Path::new("/system/share/lazyrad/hello")), exe, |_| {
-            false
+            true
         })
         .unwrap();
         assert_eq!(got, Path::new("/system/share/lazyrad/hello"));
+    }
+
+    #[test]
+    fn a_named_project_that_does_not_exist_is_refused_before_the_player_runs() {
+        // An image built without `LAZYRAD_SAMPLES` has no
+        // `/system/share/lazyrad/hello`: say so on serial (`LRPLAY:ARGS:FAIL`)
+        // rather than let the player exit with an unexplained code 1.
+        let exe = Path::new("/system/bin/lrplay");
+        let hello = Path::new("/system/share/lazyrad/hello");
+        assert_eq!(
+            resolve_project(Some(hello), exe, |_| false),
+            Err(ArgError::NoProject(hello.to_path_buf()))
+        );
+        let packaged = Path::new("/data/apps/a.b.c/1.0.0-ff/bin/lrplay.elf");
+        assert_eq!(
+            resolve_project(Some(Path::new("resources/project")), packaged, |_| false),
+            Err(ArgError::NoProject(PathBuf::from(
+                "/data/apps/a.b.c/1.0.0-ff/resources/project"
+            )))
+        );
+        // A `.lrp` file is a project too: existence, not "is a directory".
+        let lrp = Path::new("/home/me/todo/todo.lrp");
+        assert_eq!(resolve_project(Some(lrp), exe, |p| p == lrp), Ok(lrp.to_path_buf()));
     }
 
     #[test]

@@ -168,6 +168,21 @@ class MainTests(unittest.TestCase):
             self.run_main()
         self.assertNotIn("LAZYOS_RESET_OS", self.builds[-1])
 
+    def test_lazyrad_samples_are_passed_to_the_build_and_imply_lazyrad(self) -> None:
+        with mock.patch.object(run_demo, "build_lazyrad", return_value=True) as built:
+            code, _ = self.run_main("--lazyrad-samples", "C:\lr\hello;C:\lr\calc")
+        self.assertEqual(code, 0)
+        built.assert_called_once()
+        self.assertEqual(self.builds[-1].get("LAZYOS_LAZYRAD"), "1")
+        self.assertEqual(self.builds[-1].get("LAZYRAD_SAMPLES"), "C:\lr\hello;C:\lr\calc")
+
+    def test_lazyrad_alone_embeds_no_samples(self) -> None:
+        with mock.patch.dict(os.environ, {}, clear=False),                 mock.patch.object(run_demo, "build_lazyrad", return_value=True):
+            os.environ.pop("LAZYRAD_SAMPLES", None)
+            self.run_main("--lazyrad")
+        self.assertEqual(self.builds[-1].get("LAZYOS_LAZYRAD"), "1")
+        self.assertNotIn("LAZYRAD_SAMPLES", self.builds[-1])
+
     def test_reset_os_cannot_combine_with_no_build(self) -> None:
         with self.assertRaises(SystemExit), redirect_stderr(io.StringIO()):
             self.run_main("--no-build", "--reset-os")

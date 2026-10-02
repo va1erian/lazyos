@@ -36,7 +36,7 @@ fn main() -> ExitCode {
     // Not `current_exe()`: the kernel answers `/busybox` (see `lazyrad_os::args`).
     let cwd = std::env::current_dir().unwrap_or_else(|_| "/".into());
     let exe = args::exe_from_argv0(std::env::args_os().next().as_deref(), &cwd);
-    let project = match args::resolve_project(parsed.project.as_deref(), &exe, |p| p.is_dir()) {
+    let project = match args::resolve_project(parsed.project.as_deref(), &exe, |p| p.exists()) {
         Ok(project) => project,
         Err(error) => return fail("ARGS", &error.to_string()),
     };
