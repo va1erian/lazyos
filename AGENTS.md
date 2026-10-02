@@ -203,6 +203,16 @@ python fuzz/gen_corpus.py --check                # the checked-in seeds are curr
 The kernel's `ext2_suite` still runs unchanged against the adapter, and
 `mount_library_formatted_root` mounts a library-made image at `/` through `lazyos.cfg`.
 
+Real mounts (and the host build) go through the library's write-back block cache
+([`docs/architecture/block-cache.md`](docs/architecture/block-cache.md)): writes reach
+the disk at a commit (sync, fsync, every 5 s, memory pressure), in a crash-safe phase
+order. `Ext2::open` stays uncached for tests that judge the disk after every write;
+anything that needs one step on disk before the next inside an operation calls
+`Ext2::barrier`. `cargo test -p ext2fs cache` covers it (crash prefixes, byte-identical
+images), the kernel side is `LAZYOS_TEST_FILTER=bcache`, and
+`cargo test -p ext2fs --release bench -- --ignored --nocapture` prints the I/O cost of a
+30 MB tree. `LAZYOS_BLOCK_CACHE_KB=0` builds a kernel that mounts uncached.
+
 ## Shutdown and reboot
 
 Only `init` stops the machine ([`docs/shutdown.md`](docs/shutdown.md)): its

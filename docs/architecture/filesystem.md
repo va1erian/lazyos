@@ -184,6 +184,14 @@ ext2 keeps no journal, so `s_state` says whether the last stop was clean:
   (`ext2: <dev> was not cleanly unmounted`) and stays that way: a clean sync
   restores the mount-time state rather than blessing it. There is no fsck here.
 
+Every kernel ext2 mount goes through the write-back block cache
+([`block-cache.md`](block-cache.md)): writes stay in memory until a commit,
+`flush` writes the cache back before the clean marker, and `fs::flusher`
+commits every mount at least every 5 s (the volume stays flagged dirty until a
+sync). The loss window after a crash and the inconsistencies an interrupted
+writeback can leave are documented there; a failed writeback is reported by
+the next `fsync`/`sync` and leaves the error bit in `s_state`.
+
 **Truncate and large files** (`ext2/truncate.rs`, `ext2/indirect.rs`)
 
 `Filesystem::truncate` grows sparsely (no allocation) and shrinks by *detach,

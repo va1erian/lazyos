@@ -173,5 +173,17 @@ and passes `python tools/test/run.py --accel none` (see `AGENTS.md`).
 
 Account management (`CreateUser`, password changes, persistent account
 database), crash safety (boot-time consistency check, then a journal), ext2
-symlinks, quotas on `/home` and `/logs`, a block cache, and AHCI/NVMe for real
-hardware.
+symlinks, quotas on `/home` and `/logs`, and AHCI/NVMe for real hardware.
+
+**Block cache: done** ([`architecture/block-cache.md`](architecture/block-cache.md)).
+A write-back cache inside `libs/ext2fs`, used by every kernel ext2 mount and
+the host image build: frames as pages, writeback in a crash-safe phase order
+(fresh blocks, bitmaps, inode tables, other content, superblock) coalesced into
+64 KiB virtio requests, frees deferred to the commit, barriers where an
+operation needs an order the phases cannot give (renames, orphan deletes,
+unaligned truncates), and a periodic flusher bounding the loss window to about
+5 s. First-boot provisioning went from 139.6 s to about 4 s under WHPX. It makes
+the missing fsck more pressing, not less: a crash between syncs now leaves a
+wider (documented) set of repairable inconsistencies, and is still flagged by
+`s_state`. Next for the block layer: DMA into the cache's frames (no bounce
+copy) and several requests in flight.
