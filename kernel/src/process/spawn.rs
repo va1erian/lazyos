@@ -1,17 +1,7 @@
-//! Native `spawn`: service argument strings, name interning and the spawn gate.
+//! Native `spawn`: name interning and the command-line spawn gate.
 
 use super::creds::*;
 use super::*;
-
-/// Service argument strings, keyed by task slot (issue #93).
-///
-/// Native programs receive no `argv`/`argc` stack, so `spawn` stores the
-/// manifest argument string here and syscall 9 (or `sys::service_args`) copies
-/// it out. The entry is overwritten on the slot's next state-changing spawn and
-/// only read by that slot, so a re-used slot cannot observe stale arguments of
-/// a *different* program (a plain kernel `spawn` clears the slot).
-pub(super) static SERVICE_ARGS: Mutex<[Option<Vec<u8>>; task::MAX_TASKS]> =
-    Mutex::new([const { None }; task::MAX_TASKS]);
 
 /// Distinct spellings [`intern_service_name`] will leak before it falls back to
 /// [`OVERFLOW_NAME`]; a real manifest has a few dozen services.
@@ -50,7 +40,8 @@ pub(super) fn intern_service_name(name: &str) -> &'static str {
 /// syscall 6: start `"PATH.ELF [args...]"` as a child of the calling task.
 ///
 /// The command line is NUL-terminated. The first whitespace-separated token is
-/// the file name (a path on the root volume), the remainder is stored for syscall 9. Returns the new
+/// the file name (a path on the root volume), the remainder is split into the
+/// `argv` block syscall 9 returns. Returns the new
 /// task's pid (its slot), or `u64::MAX` when the file is missing, the ELF is
 /// invalid, or no slot/frame is free.
 pub(super) fn sys_spawn(cmdline_ptr: u64) -> u64 {
@@ -128,6 +119,7 @@ pub(super) fn spawn_program(cmdline_ptr: u64, cred: Option<Cred>, assign_label: 
         };
         let _ = credentials::transition_with(task::current(), slot, cred, label);
     }
-    SERVICE_ARGS.lock()[slot] = Some(args.as_bytes().to_vec());
+    // syscall 9 hands a native child its `argv` block (`argstore`).
+    super::argstore::set_legacy(slot, path, args.as_bytes());
     slot as i64
 }

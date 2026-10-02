@@ -8,8 +8,8 @@ use core::arch::global_asm;
 use x86_64::structures::idt::HandlerFunc;
 
 use super::{
-    exit, fsops, sys_args, sys_clock, sys_creds, sys_quota, sys_read_char, sys_read_file, sys_sbrk,
-    sys_spawn, sys_tasks, sys_wait, sys_write,
+    argstore::sys_args, exit, fsops, spawnv::sys_spawnv, sys_clock, sys_creds, sys_quota,
+    sys_read_char, sys_read_file, sys_sbrk, sys_spawn, sys_tasks, sys_wait, sys_write,
 };
 use crate::task;
 
@@ -91,7 +91,8 @@ extern "C" fn syscall_dispatch(regs: *mut Regs) {
         6 => sys_spawn(regs.rdi),
         7 => sys_wait(regs.rdi),
         8 => sys_clock(),
-        9 => sys_args(regs.rdi, regs.rsi),
+        // 9: `args(buf, len, which)`, the caller's argv/envp block.
+        9 => sys_args(regs.rdi, regs.rsi, regs.rdx),
         // 10: the credential gate (issue #101), see the module docs.
         10 => sys_creds(regs.rdi, regs.rsi, regs.rdx),
         // 11: per-uid quota introspection (issue #103), read-only.
@@ -127,6 +128,9 @@ extern "C" fn syscall_dispatch(regs: *mut Regs) {
         // 29: `kill(slot, sig)`, a supervisor ending one task it started
         // (`init` stops an app the package manager is removing).
         29 => super::killsys::dispatch(regs.rdi, regs.rsi),
+        // 30: `spawnv(req)`, the argv-vector spawn (fs F3), see
+        // `super::spawnv`.
+        30 => sys_spawnv(regs.rdi),
         _ => u64::MAX,
     };
     // A default-fatal signal (a supervisor's `SIGTERM`) that arrived while the
@@ -151,7 +155,7 @@ pub fn dispatch_for_test(nr: u64, a1: u64, a2: u64, a3: u64) -> u64 {
         6 => sys_spawn(a1),
         7 => sys_wait(a1),
         8 => sys_clock(),
-        9 => sys_args(a1, a2),
+        9 => sys_args(a1, a2, a3),
         10 => sys_creds(a1, a2, a3),
         11 => sys_quota(a1),
         12 => crate::display::dispatch(a1, a2, a3),
@@ -165,6 +169,7 @@ pub fn dispatch_for_test(nr: u64, a1: u64, a2: u64, a3: u64) -> u64 {
         27 => super::inetsys::dispatch(a1, a2, a3, 0),
         28 => fsops::dispatch(nr, a1, a2, a3),
         29 => super::killsys::dispatch(a1, a2),
+        30 => sys_spawnv(a1),
         _ => u64::MAX,
     }
 }

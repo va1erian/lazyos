@@ -1,7 +1,8 @@
 //! Creating Linux-ABI tasks from a static ELF image: the kernel's own
 //! start-up path ([`spawn_linux`]) and the supervised-child path
-//! ([`spawn_linux_child`]) that `spawn`/credentialed-`spawn` take for a
-//! `linux:` command line (`process::spawn_line`).
+//! ([`spawn_linux_child`], [`spawn_linux_child_env`]) that `spawn`/
+//! credentialed-`spawn` take for a `linux:` command line
+//! (`process::spawn_line`) and `spawnv` for the Linux personality.
 //!
 //! Split out of `task/mod.rs` so the two variants share one body instead of
 //! growing that file.
@@ -13,7 +14,7 @@ use super::*;
 /// The program is started by the kernel: it has no parent, leads its own
 /// process group and session, and runs as root.
 pub fn spawn_linux(name: &'static str, elf: &[u8], argv0: &str) -> Result<usize, &'static str> {
-    spawn_linux_in(name, elf, &[argv0], None)
+    spawn_linux_in(name, elf, &[argv0.as_bytes()], &[], None)
 }
 
 /// Create a kernel-started Linux task with a full `argv` (BusyBox's `sh -c`,
@@ -23,7 +24,7 @@ pub fn spawn_linux_args(
     elf: &[u8],
     argv: &[&str],
 ) -> Result<usize, &'static str> {
-    spawn_linux_in(name, elf, argv, None)
+    spawn_linux_in(name, elf, &as_bytes(argv), &[], None)
 }
 
 /// Create a Linux task that is a child of the calling task, with `argv`.
@@ -36,14 +37,32 @@ pub fn spawn_linux_child(
     elf: &[u8],
     argv: &[&str],
 ) -> Result<usize, &'static str> {
-    spawn_linux_in(name, elf, argv, Some(current()))
+    spawn_linux_in(name, elf, &as_bytes(argv), &[], Some(current()))
+}
+
+/// [`spawn_linux_child`] with byte-string `argv` and an environment (`spawnv`):
+/// both reach the start stack exactly as given, one item per entry, without
+/// their NUL terminators (the loader adds them).
+pub fn spawn_linux_child_env(
+    name: &'static str,
+    elf: &[u8],
+    argv: &[&[u8]],
+    envp: &[&[u8]],
+) -> Result<usize, &'static str> {
+    spawn_linux_in(name, elf, argv, envp, Some(current()))
+}
+
+/// The bytes of each `&str` item.
+fn as_bytes<'a>(items: &[&'a str]) -> Vec<&'a [u8]> {
+    items.iter().map(|item| item.as_bytes()).collect()
 }
 
 /// Shared body: load `elf` into a fresh address space and register the task.
 fn spawn_linux_in(
     name: &'static str,
     elf: &[u8],
-    argv: &[&str],
+    argv: &[&[u8]],
+    envp: &[&[u8]],
     parent: Option<usize>,
 ) -> Result<usize, &'static str> {
     let mut tasks = TASKS.lock();
@@ -62,7 +81,7 @@ fn spawn_linux_in(
     };
 
     let pml4 = mem::new_user_table().ok_or("out of memory")?;
-    let (entry, stack_top) = match user_process::linux::load(pml4, elf, argv) {
+    let (entry, stack_top) = match user_process::linux::load(pml4, elf, argv, envp) {
         Ok(loaded) => loaded,
         Err(err) => {
             // A partially loaded image still owns its frames: release them.

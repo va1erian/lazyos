@@ -22,8 +22,13 @@
 `rdi/rsi/rdx`, result in `rax`. `rcx`/`r11` are clobbered, so every wrapper
 declares `clobber_abi("sysv64")`. Numbers: 0 `exit`, 1 `write`, 2 `read_char`,
 3 `read_file`, 4 `sbrk`, 5 `messenger`, 6 `spawn`, 7 `wait`, 8 `clock`,
-9 `service_args`, 10 `cred_set`/`cred_get`/`spawn_as`, 12 `display_*`,
-13 `tasks`, 14 `system_stats`, 15-21 filesystem and `power` (`files.rs`; 11, the quota read-back, has no wrapper yet), 23 `dev_*` (`dev.rs`; it also passes arguments in `r10` and `r8`).
+9 `args()`/`env()`/`getenv()`/`service_args` (`sys/spawn.rs`: the `argv` and
+`envp` blocks, read once and kept; `service_args` joins `argv[1..]` with spaces
+for services that parse one string), 10 `cred_set`/`cred_get`/`spawn_as`, 12 `display_*`,
+13 `tasks`, 14 `system_stats`, 15-21 filesystem and `power` (`files.rs`; 11, the quota read-back, has no wrapper yet), 23 `dev_*` (`dev.rs`; it also passes arguments in `r10` and `r8`),
+30 `spawnv(path, &argv, &envp, Personality, SpawnCred)` (`sys/spawn.rs`: the
+argv-vector spawn; `SpawnCred::{Inherit, As, AsLabelled}` replaces `spawn_as`/
+`spawn_as_labelled`, `Personality::Linux` the `linux:` prefix).
 See [processes.md](processes.md) and [display.md](display.md).
 
 **Blocking Messenger client** (`messenger/`)
