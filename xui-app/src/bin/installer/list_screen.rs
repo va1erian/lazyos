@@ -1,5 +1,6 @@
-//! The list screen: the installed applications, a `Remove` button per row, and
-//! the "open a package" field.
+//! The list screen: the installed applications, a `Remove` button per row (a
+//! "Built-in" badge instead for the core apps LazyOS ships, which cannot be
+//! removed), and the "open a package" field.
 //!
 //! The rows live in a [`ScrollView`] rebuilt from the model, so a list of any
 //! length scrolls instead of overflowing; an empty list says so in words.
@@ -26,7 +27,15 @@ struct AppRow {
     _panel: Panel<Msg>,
     _name: Label<Msg>,
     _meta: Label<Msg>,
-    _remove: Button<Msg>,
+    _action: RowAction,
+}
+
+/// A row's right-hand control: Remove for a user package, the badge for a
+/// core one. Held only to keep the widget alive.
+#[allow(dead_code)]
+enum RowAction {
+    Remove(Button<Msg>),
+    BuiltIn(Label<Msg>),
 }
 
 /// The installed-list screen's widgets.
@@ -85,16 +94,24 @@ impl ListScreen {
                     ),
                 )
                 .map_err(fail)?;
-                let system_name = app.system_name.clone();
-                let remove = Button::new(cell, rect(row_w - 96, 6, 88, 28), "Remove")
-                    .map_err(fail)?
-                    .on_click(move || Some(Msg::AskRemove(system_name.clone())));
+                let action = if app.core {
+                    RowAction::BuiltIn(
+                        Label::new(cell, rect(row_w - 96, 12, 88, 16), "Built-in").map_err(fail)?,
+                    )
+                } else {
+                    let system_name = app.system_name.clone();
+                    RowAction::Remove(
+                        Button::new(cell, rect(row_w - 96, 6, 88, 28), "Remove")
+                            .map_err(fail)?
+                            .on_click(move || Some(Msg::AskRemove(system_name.clone()))),
+                    )
+                };
                 scroll.add(row.id(), Dip(ROW_H as f32));
                 rows.push(AppRow {
                     _panel: row,
                     _name: name,
                     _meta: meta,
-                    _remove: remove,
+                    _action: action,
                 });
             }
         }

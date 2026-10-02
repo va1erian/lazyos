@@ -11,5 +11,7 @@
 mod model;
 mod view;
 
-pub use model::{Installed, MimeHandler, Model, Package, Permission, Request, Screen};
+pub use model::{
+    core_removal_refused, Installed, MimeHandler, Model, Package, Permission, Request, Screen,
+};
 pub use view::{clean, elide, group_by_risk, permission_line, short_digest, Risk, RiskGroup};

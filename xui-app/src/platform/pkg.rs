@@ -114,6 +114,8 @@ fn package_from_wire(info: wire::PackageInfo) -> Package {
             .map(permission_from_wire)
             .collect(),
         problems: info.problems,
+        category: info.category,
+        autostart: info.autostart,
     }
 }
 
@@ -146,6 +148,7 @@ fn installed_from_wire(app: wire::Installed) -> Installed {
         digest: app.digest,
         binary: app.binary,
         installed_at: app.installed_at,
+        core: app.origin == wire::ORIGIN_CORE,
     }
 }
 
@@ -170,11 +173,13 @@ mod tests {
             }],
             permissions: vec![wire::Permission {
                 kind: "file".into(),
-                value: "read:/home/*".into(),
+                value: "read:$HOME/*".into(),
                 risk: "high".into(),
                 explanation: "read your documents".into(),
             }],
             problems: vec!["bad version".into()],
+            category: "graphics".into(),
+            autostart: true,
         };
         let package = package_from_wire(info);
         assert_eq!(package.name, "Paint");
@@ -184,6 +189,8 @@ mod tests {
         assert!(package.mime[0].has_icon);
         assert_eq!(package.permissions[0].risk, "high");
         assert_eq!(package.problems, vec!["bad version"]);
+        assert_eq!(package.category, "graphics");
+        assert!(package.autostart);
     }
 
     #[test]
@@ -214,5 +221,25 @@ mod tests {
         assert_eq!(app.system_name, "org.lazy.paint");
         assert_eq!(app.binary, "bin/paint.elf");
         assert_eq!(app.installed_at, 42);
+    }
+}
+
+#[cfg(test)]
+mod origin_tests {
+    use super::*;
+
+    #[test]
+    fn the_core_origin_marks_a_built_in_app() {
+        let core = installed_from_wire(wire::Installed {
+            system_name: "os.lazy.paint".into(),
+            origin: wire::ORIGIN_CORE,
+            ..wire::Installed::default()
+        });
+        assert!(core.core);
+        let user = installed_from_wire(wire::Installed {
+            origin: wire::ORIGIN_USER,
+            ..wire::Installed::default()
+        });
+        assert!(!user.core);
     }
 }

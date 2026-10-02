@@ -55,6 +55,10 @@ pub struct Package {
     pub permissions: Vec<Permission>,
     /// Non-empty when the package cannot be installed.
     pub problems: Vec<String>,
+    /// The menu group (`lazypkg::Category`).
+    pub category: String,
+    /// Whether the app asks to start when the user logs in.
+    pub autostart: bool,
 }
 
 /// One installed app, as `pkgd`'s `List`/`Install` report it.
@@ -74,6 +78,17 @@ pub struct Installed {
     pub binary: String,
     /// Kernel ticks at install time.
     pub installed_at: u64,
+    /// Shipped with LazyOS (a core package, issue #509): it cannot be
+    /// removed, only hidden from the menu in Settings.
+    pub core: bool,
+}
+
+/// Why a core app has no Remove button (the same words `pkgd` refuses with).
+pub fn core_removal_refused(name: &str) -> String {
+    format!(
+        "{} is part of LazyOS and can't be removed; you can hide it from the menu in Settings.",
+        clean(name)
+    )
 }
 
 /// Which screen the window shows.
@@ -147,6 +162,13 @@ impl Model {
         self.last_installed = None;
     }
 
+    /// The apps the user installed first, then the built-in ones, each group
+    /// in `pkgd`'s order: the rows with a Remove button stay at the top
+    /// however many core apps the image ships.
+    fn order_rows(&mut self) {
+        self.packages.sort_by_key(|app| app.core);
+    }
+
     /// Records what the user typed in the path field.
     pub fn set_path(&mut self, text: &str) {
         self.path_input = text.to_owned();
@@ -155,6 +177,7 @@ impl Model {
     /// `List` answered. Replaces the list and returns to it.
     pub fn list_loaded(&mut self, packages: Vec<Installed>) {
         self.packages = packages;
+        self.order_rows();
         self.list_loaded = true;
         self.clear_transient();
         self.screen = Screen::List;
@@ -208,6 +231,7 @@ impl Model {
             Some(slot) => *slot = app.clone(),
             None => self.packages.push(app.clone()),
         }
+        self.order_rows();
         self.last_installed = Some(app);
         self.screen = Screen::Done;
     }
@@ -220,11 +244,49 @@ impl Model {
         self.screen = Screen::Consent;
     }
 
-    /// The user asked to remove `app`: ask for confirmation first.
-    pub fn remove_asked(&mut self, app: Installed) {
+    /// The user asked to remove `app`: ask for confirmation first. A core
+    /// app is refused here, before any confirmation, whatever sent the
+    /// request (its row has no Remove button, but a message is a message);
+    /// the list stays up with the reason. Returns whether the confirmation
+    /// is now showing.
+    pub fn remove_asked(&mut self, app: Installed) -> bool {
+        let core = app.core
+            || self
+                .packages
+                .iter()
+                .any(|listed| listed.core && listed.system_name == app.system_name);
+        if core {
+            self.clear_transient();
+            self.banner = Some(core_removal_refused(&app.name));
+            self.screen = Screen::List;
+            return false;
+        }
         self.banner = None;
         self.pending_remove = Some(app);
         self.screen = Screen::ConfirmRemove;
+        true
+    }
+
+    /// The listed core app the package under consent would update, if any.
+    pub fn updates_core(&self) -> Option<&Installed> {
+        let package = self.inspected.as_ref()?;
+        self.packages
+            .iter()
+            .find(|app| app.core && app.system_name == package.system_name)
+    }
+
+    /// What the consent screen says about the package besides its
+    /// permissions: that it updates a built-in app, and that it starts when
+    /// the user logs in (honoured only because the user consents here).
+    pub fn consent_notes(&self) -> Vec<String> {
+        let mut notes = Vec::new();
+        if let Some(app) = self.updates_core() {
+            notes.push(format!("Updates built-in app {}", clean(&app.name)));
+        }
+        if self.inspected.as_ref().is_some_and(|package| package.autostart) {
+            notes.push("Starts when you log in".to_owned());
+        }
+        notes
     }
 
     /// `Remove` succeeded. The app leaves the list and the banner is cleared.
@@ -271,193 +333,4 @@ impl Model {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn installed(system_name: &str, version: &str) -> Installed {
-        Installed {
-            system_name: system_name.to_owned(),
-            name: system_name
-                .rsplit('.')
-                .next()
-                .unwrap_or(system_name)
-                .to_owned(),
-            version: version.to_owned(),
-            ..Installed::default()
-        }
-    }
-
-    fn package(system_name: &str, problems: &[&str]) -> Package {
-        Package {
-            name: "Paint".into(),
-            system_name: system_name.into(),
-            version: "1.0.0".into(),
-            problems: problems.iter().map(|p| (*p).to_owned()).collect(),
-            ..Package::default()
-        }
-    }
-
-    #[test]
-    fn a_fresh_model_is_an_empty_list() {
-        let model = Model::new();
-        assert_eq!(model.screen, Screen::List);
-        assert!(model.packages.is_empty());
-        assert!(!model.list_loaded);
-        assert!(model.banner.is_none());
-    }
-
-    #[test]
-    fn the_consent_flow_reaches_done_and_returns_to_the_list() {
-        let mut model = Model::new();
-        model.set_path("/transient/paint.lzp");
-        model.inspect_ok("/transient/paint.lzp".into(), package("org.lazy.paint", &[]));
-        assert_eq!(model.screen, Screen::Consent);
-        assert_eq!(model.inspected_path.as_deref(), Some("/transient/paint.lzp"));
-        // Inspecting clears the typed path so `q` quits again from the list.
-        assert!(model.path_input.is_empty());
-
-        model.install_started();
-        assert_eq!(model.screen, Screen::Installing);
-        assert_eq!(
-            model.pending,
-            Some(Request::Install("/transient/paint.lzp".into()))
-        );
-
-        let app = installed("org.lazy.paint", "1.0.0");
-        model.install_ok(app.clone());
-        assert_eq!(model.screen, Screen::Done);
-        assert_eq!(model.packages, vec![app.clone()]);
-        assert_eq!(model.last_installed.as_ref(), Some(&app));
-        assert!(
-            model.inspected.is_none(),
-            "the package is no longer pending"
-        );
-        assert!(model.pending.is_none());
-
-        model.done();
-        assert_eq!(model.screen, Screen::List);
-        assert!(
-            model.last_installed.is_none(),
-            "Done drops the success data"
-        );
-        assert_eq!(model.packages, vec![app], "the confirmed app stays listed");
-    }
-
-    #[test]
-    fn a_package_with_problems_offers_only_close() {
-        let mut model = Model::new();
-        model.inspect_ok(
-            "/transient/bad.lzp".into(),
-            package("org.lazy.bad", &["version \"1\" is not semver"]),
-        );
-        assert_eq!(model.screen, Screen::Consent);
-        assert_eq!(model.inspected.as_ref().unwrap().problems.len(), 1);
-        model.cancel();
-        assert_eq!(model.screen, Screen::List);
-        assert!(model.inspected.is_none(), "Close drops the package");
-    }
-
-    #[test]
-    fn inspect_failure_stays_on_the_list_with_the_reason() {
-        let mut model = Model::new();
-        model.inspect_failed("not a zip archive");
-        assert_eq!(model.screen, Screen::List);
-        assert_eq!(model.banner.as_deref(), Some("not a zip archive"));
-        assert!(model.inspected.is_none());
-    }
-
-    #[test]
-    fn inspect_again_drops_the_previous_package_and_pending_request() {
-        let mut model = Model::new();
-        model.inspect_ok("/transient/a.lzp".into(), package("org.lazy.a", &[]));
-        model.install_started();
-        assert!(model.pending.is_some());
-        // A second inspect while the first is pending must not reuse the first.
-        model.inspect_ok("/transient/b.lzp".into(), package("org.lazy.b", &[]));
-        assert_eq!(model.inspected.as_ref().unwrap().system_name, "org.lazy.b");
-        assert!(model.pending.is_none(), "the stale install was dropped");
-        assert_eq!(model.inspected_path.as_deref(), Some("/transient/b.lzp"));
-    }
-
-    #[test]
-    fn install_failure_keeps_the_package_and_shows_the_error() {
-        let mut model = Model::new();
-        model.inspect_ok("/transient/paint.lzp".into(), package("org.lazy.paint", &[]));
-        model.install_started();
-        model.install_failed("pkgd error 13");
-        assert_eq!(model.screen, Screen::Consent);
-        assert_eq!(model.banner.as_deref(), Some("pkgd error 13"));
-        assert!(model.inspected.is_some(), "the user can retry");
-        assert!(model.pending.is_none());
-        assert!(
-            model.packages.is_empty(),
-            "nothing is listed before pkgd confirms it"
-        );
-    }
-
-    #[test]
-    fn the_remove_flow_confirms_then_updates_the_list() {
-        let mut model = Model::new();
-        model.list_loaded(vec![
-            installed("org.lazy.a", "1.0.0"),
-            installed("org.lazy.b", "2.0.0"),
-        ]);
-        model.remove_asked(model.packages[0].clone());
-        assert_eq!(model.screen, Screen::ConfirmRemove);
-        assert_eq!(model.pending_remove_name().as_deref(), Some("org.lazy.a"));
-        model.remove_ok("org.lazy.a");
-        assert_eq!(model.screen, Screen::List);
-        assert_eq!(model.packages.len(), 1);
-        assert_eq!(model.packages[0].system_name, "org.lazy.b");
-        assert!(model.pending_remove.is_none());
-        assert!(model.banner.is_none());
-    }
-
-    #[test]
-    fn a_failed_remove_keeps_the_app_and_shows_the_error() {
-        let mut model = Model::new();
-        model.list_loaded(vec![installed("org.lazy.a", "1.0.0")]);
-        model.remove_asked(model.packages[0].clone());
-        model.remove_failed("permission denied");
-        assert_eq!(model.screen, Screen::List);
-        assert_eq!(model.packages.len(), 1, "the app is still installed");
-        assert_eq!(model.banner.as_deref(), Some("permission denied"));
-        assert!(model.pending_remove.is_none());
-    }
-
-    #[test]
-    fn cancel_does_not_interrupt_a_running_install() {
-        let mut model = Model::new();
-        model.inspect_ok("/transient/paint.lzp".into(), package("org.lazy.paint", &[]));
-        model.install_started();
-        model.cancel();
-        assert_eq!(model.screen, Screen::Installing);
-        assert!(model.pending.is_some());
-    }
-
-    #[test]
-    fn list_failure_keeps_the_previous_rows() {
-        let mut model = Model::new();
-        model.list_loaded(vec![installed("org.lazy.a", "1.0.0")]);
-        model.list_failed("pkgd is unavailable");
-        assert_eq!(model.screen, Screen::List);
-        assert_eq!(model.packages.len(), 1, "the last good list stays");
-        assert_eq!(model.banner.as_deref(), Some("pkgd is unavailable"));
-    }
-
-    #[test]
-    fn control_characters_never_reach_the_banner() {
-        let mut model = Model::new();
-        model.inspect_failed("bad\nreason\u{7}");
-        assert_eq!(model.banner.as_deref(), Some("badreason"));
-    }
-
-    #[test]
-    fn a_second_install_of_the_same_id_replaces_the_row() {
-        let mut model = Model::new();
-        model.list_loaded(vec![installed("org.lazy.paint", "1.0.0")]);
-        model.install_ok(installed("org.lazy.paint", "2.0.0"));
-        assert_eq!(model.packages.len(), 1);
-        assert_eq!(model.packages[0].version, "2.0.0");
-    }
-}
+mod tests;

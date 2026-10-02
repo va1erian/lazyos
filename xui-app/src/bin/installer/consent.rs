@@ -63,10 +63,17 @@ impl ConsentScreen {
         );
         let meta_label =
             Label::new(page, rect(MARGIN, 54, width - 2 * MARGIN, 16), &meta).map_err(fail)?;
+        // "Updates built-in app <name>" / "Starts when you log in" lead the
+        // description line, so the layout below does not move.
+        let mut about = model.consent_notes();
+        let description = elide(&package.description, 180);
+        if !description.is_empty() {
+            about.push(description);
+        }
         let description_label = Label::new(
             page,
             rect(MARGIN, 74, width - 2 * MARGIN, 16),
-            &elide(&package.description, 180),
+            &elide(&about.join("   ·   "), 200),
         )
         .map_err(fail)?;
 
