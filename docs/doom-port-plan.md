@@ -1,8 +1,38 @@
 # Plan: Doom (doomgeneric) + Freedoom on LazyOS
 
-> **Status: draft.** Nothing here is implemented. Written against the state of
-> `main` on 2026-09-30 (Linux ABI shim complete, `xuid` desktop with client
-> mode, MIDL display protocol).
+> **Status: D0-D4 implemented (2026-10-02); D5 partly, D6 not started.** Doom
+> ships as the `.lzp` package `org.lazy.doom` (`doom/`, `tools/doom/`,
+> `doom/README.md`) with the Freedoom IWAD inside it, installed through `pkgd`.
+> Decisions taken while implementing, which supersede the text below where they
+> differ:
+>
+> - **Packaging is a `.lzp`, not an image-embedded ELF.** `LAZYOS_DOOM=1`
+>   (`run_demo.py --doom`, the launcher's Doom switch) only places
+>   `/DOOM.LZP` on the OS volume; `pkgctl install /DOOM.LZP` (or the Installer)
+>   installs it, and `init` lists it with the installed apps. No `init` registry
+>   row or `XAPPS.LST` line is needed.
+> - **The WAD is inside the package** (`resources/freedoom1.wad`). That needed
+>   two changes: the `lazypkg` caps went to 256 MiB per entry / 1 GiB total,
+>   and `pkgd` streams packages with a new native ranged read (syscall 30
+>   `read_at`) instead of syscall 3, which loaded the whole file into the 16 MiB
+>   kernel heap. Once installed the WAD lives on the ext2 OS volume, whose
+>   descriptors read through the VFS (`Fd::Vfs`), so the engine's 28 MiB IWAD
+>   never sits in the kernel heap either.
+> - **Toolchain: `zig cc`** (`tools/xui/zig.py`, already used for the Docs app),
+>   no Docker. **License:** the engine is GPL-2.0-or-later, so it combines with
+>   the GPL-3.0-or-later wrapper; `doom/NOTICE` carries the source offer.
+> - **D2 refactor deferred:** since the plan was written `client_window` and
+>   `display` grew buffer slots and `xui_core::Rect`, so `doom/` links `xui-app`
+>   as a library (open question 3) and the raw-surface crate stays a separate
+>   change.
+> - **Input:** both paths of D3 are implemented: the `inputd` session (Ctrl
+>   fires, Shift runs, Alt strafes, focus loss releases every key) and the
+>   legacy keys (`F` fires, `R` runs).
+> - **D5:** `tools/screenshot/examples/doom.json` installs the package, runs a
+>   headless `-timedemo demo1 -frames 200` checksum, launches the game from the
+>   start menu and plays; `.github/workflows/doom.yml` runs it in CI. Still to
+>   do: the ABI-matrix row, a full-length timedemo soak and a repeated
+>   start/exit soak.
 
 **Goal:** a windowed Doom in the LazyOS desktop, launched from the app registry
 like Paint or Files, running the **Freedoom** IWAD (freely redistributable), built

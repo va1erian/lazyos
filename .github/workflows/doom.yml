@@ -1,0 +1,146 @@
+name: doom
+
+# Doom as an installable package (docs/doom-port-plan.md D5, doom/README.md).
+# Host-tests the platform layer's pure logic, builds the engine + `lazydoom`
+# with zig (doomgeneric and Freedoom are fetched at pinned SHA-256s and never
+# committed), packs `DOOM.LZP`, and boots the desktop: the session installs the
+# package through `pkgd`, runs a headless `-timedemo demo1 -frames 200` frame
+# checksum from the installed copy, launches the game from the start menu and
+# plays a few seconds of E1M1. A missing download fails the job (`--require`):
+# an unavailable WAD must never look like a pass.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "doom/**"
+      - "tools/doom/**"
+      - "tools/pkg/**"
+      - "libs/lazypkg/**"
+      - "user/src/bin/pkgd/**"
+      - "user/src/files.rs"
+      - "xui-app/src/client_window/**"
+      - "xui-app/src/display/**"
+      - "tools/screenshot/examples/doom.json"
+      - "build_support/doom_embed.rs"
+      - "kernel/src/process/linux/**"
+      - ".github/workflows/doom.yml"
+  pull_request:
+    paths:
+      - "doom/**"
+      - "tools/doom/**"
+      - "tools/pkg/**"
+      - "libs/lazypkg/**"
+      - "user/src/bin/pkgd/**"
+      - "user/src/files.rs"
+      - "xui-app/src/client_window/**"
+      - "xui-app/src/display/**"
+      - "tools/screenshot/examples/doom.json"
+      - "build_support/doom_embed.rs"
+      - "kernel/src/process/linux/**"
+      - ".github/workflows/doom.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: doom-${{ github.ref }}
+  cancel-in-progress: true
+
+# CI is hermetic: every image gets a fresh OS volume (the session installs the
+# package, which a reused volume would already have).
+env:
+  LAZYOS_RESET_OS: "1"
+
+jobs:
+  doom:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/qemu
+        with:
+          packages: qemu-system-x86 musl-tools
+
+      - uses: ./.github/actions/rust-cache
+        with:
+          key: doom
+          workspaces: |
+            . -> target
+            xui-app -> target
+            doom -> target
+
+      - name: Pin and cache the zig global cache
+        shell: bash
+        run: echo "ZIG_GLOBAL_CACHE_DIR=$HOME/.cache/zig" >> "$GITHUB_ENV"
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/zig
+          key: zig-0.16.0-${{ runner.os }}
+
+      # The pinned downloads are cached by their pins, so a warm run never
+      # touches the network for them.
+      - uses: actions/cache@v4
+        with:
+          path: |
+            target/doom/doomgeneric-*.tar.gz
+            target/doom/freedoom-*.zip
+          key: doom-inputs-${{ hashFiles('tools/doom/fetch.py') }}
+
+      - name: Install zig
+        run: python -m pip install ziglang==0.16.0
+
+      - name: Host tests (doom, lazypkg, package builder)
+        run: |
+          cargo test --manifest-path doom/Cargo.toml --lib
+          cargo clippy --manifest-path doom/Cargo.toml --lib --tests -- -D warnings
+          cargo test -p lazypkg --all-features
+          python tools/pkg/test_build.py
+
+      - name: Build the xui apps and the Doom package
+        shell: bash
+        run: |
+          set -euo pipefail
+          python tools/xui/build.py > /dev/null
+          python tools/doom/build.py --require
+          ls -l target/doom/doom.elf target/pkg/DOOM.LZP
+
+      - uses: ./.github/actions/busybox
+
+      - name: Install, headless timedemo, launch and play
+        shell: bash
+        env:
+          LAZYOS_DESKTOP: "1"
+          LAZYOS_DOOM: "1"
+        run: |
+          set -euo pipefail
+          cargo build
+          python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/doom \
+            --timeout 1800 --script tools/screenshot/examples/doom.json \
+            --fail-on "DOOM:(IWAD|WINDOW):FAIL" --fail-on "PKGD:INSTALL:FAIL" \
+            --fail-on "user: task [0-9]+ killed by"
+          grep -a "PKGD:INSTALL:PASS org.lazy.doom" shots/doom/serial.log
+          grep -a "TERM:OUT:DOOM:HEADLESS:PASS" shots/doom/serial.log
+          grep -a "DOOM:UP:PASS mode=window" shots/doom/serial.log
+
+      - name: Verify the game drew
+        shell: bash
+        run: |
+          set -euo pipefail
+          python tools/screenshot/pngstats.py shots/doom/shot_05_title.png shots/doom/shot_07_e1m1.png \
+            --min-nonblack 0.3 --min-colors 32
+
+      - name: Upload screenshots and serial log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: doom-guest
+          path: |
+            shots/doom/*.png
+            shots/doom/serial.log
+            shots/doom/summary.json
