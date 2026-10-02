@@ -95,6 +95,18 @@ pub fn service_names(interface: &str) -> Vec<String> {
     names
 }
 
+/// Policy scopes a service checks besides its own interface, by the interface
+/// that implies them. A scope is a capability name the kernel authorizes like
+/// an interface (`fnv1a64` of the name), not something an app calls, so it is
+/// not in `idl/` and a manifest does not name it: asking for the clipboard is
+/// asking to copy (`Offer`, the write scope) and paste (`Request`, the read
+/// scope), which is what its explanation says ("Read and change what you copy
+/// and paste"; `user/src/messenger/clipboard`).
+const IMPLIED_SCOPES: &[(&str, &[&str])] = &[(
+    "os.lazy.clipboard.v1",
+    &["os.lazy.clipboard.write.v1", "os.lazy.clipboard.read.v1"],
+)];
+
 /// An ordered rule list without duplicates (a duplicate would only spend the
 /// kernel's per-label budget).
 #[derive(Default)]
@@ -162,6 +174,10 @@ pub fn compile(manifest: &Manifest) -> Result<Vec<LabelRule>, CompileError> {
     let mut list = RuleList::default();
     for interface in &requested.interfaces {
         list.allow_interface(interface, None);
+        let implied = IMPLIED_SCOPES.iter().filter(|(name, _)| name == interface);
+        for scope in implied.flat_map(|(_, scopes)| scopes.iter()) {
+            list.allow(fnv1a64(scope), ANY_METHOD);
+        }
     }
     let (mut publishes, mut subscribes) = (false, false);
     for entry in &requested.topics {
@@ -375,4 +391,15 @@ mod tests {
             ]
         );
     }
+
+    #[test]
+    fn the_clipboard_brings_its_copy_and_paste_scopes() {
+        let rules = compile(&manifest("interfaces = [\"os.lazy.clipboard.v1\"]")).unwrap();
+        for scope in ["os.lazy.clipboard.write.v1", "os.lazy.clipboard.read.v1"] {
+            assert!(rules.contains(&allow(fnv1a64(scope), ANY_METHOD)), "{scope}");
+        }
+        let rules = compile(&manifest("interfaces = [\"os.lazy.display.v1\"]")).unwrap();
+        assert!(!rules.contains(&allow(fnv1a64("os.lazy.clipboard.write.v1"), ANY_METHOD)));
+    }
+
 }
