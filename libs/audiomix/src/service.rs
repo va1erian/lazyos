@@ -243,7 +243,9 @@ fn control_call<R: Ring>(mixer: Option<&mut Mixer<R>>, request: Request<'_, R>) 
         }
         control::METHOD_SETSTREAMVOLUME => {
             let args = control::decode_set_stream_volume_args(body).map_err(bad)?;
-            let mixer = mixer.ok_or(errno::ENOENT)?;
+            // No card is `ENODEV`, as for `SetMaster`; `ENOENT` is kept for
+            // an unknown stream.
+            let mixer = mixer.ok_or(errno::ENODEV)?;
             // Validate the gain before touching anything, so a bad gain
             // never half-applies (mute set, volume refused).
             Gain::new(args.gain_q16).ok_or(errno::EINVAL)?;

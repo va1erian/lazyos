@@ -430,6 +430,43 @@ fn without_a_card_streams_fail_and_the_panel_says_so() {
         call(audio::INTERFACE_ID, audio::METHOD_INFO),
         Outcome::Refuse(errno::ENODEV)
     );
+    // Setting volumes needs a card too: `ENODEV`, never `ENOENT`.
+    let set = |interface, method, body: Vec<u8>| {
+        service::handle::<CountedRing>(
+            None,
+            Request {
+                interface,
+                method,
+                body: &body,
+                sender: 1,
+                ring: None,
+                now: 0,
+            },
+        )
+    };
+    let stream = control::encode_set_stream_volume_args(&control::SetStreamVolumeArgs {
+        stream: 1,
+        gain_q16: 65536,
+        mute: false,
+    })
+    .unwrap();
+    assert_eq!(
+        set(
+            control::INTERFACE_ID,
+            control::METHOD_SETSTREAMVOLUME,
+            stream
+        ),
+        Outcome::Refuse(errno::ENODEV)
+    );
+    let master = control::encode_set_master_args(&control::SetMasterArgs {
+        gain_q16: 65536,
+        mute: false,
+    })
+    .unwrap();
+    assert_eq!(
+        set(control::INTERFACE_ID, control::METHOD_SETMASTER, master),
+        Outcome::Refuse(errno::ENODEV)
+    );
     let body = reply(call(control::INTERFACE_ID, control::METHOD_GETMASTER));
     assert!(!control::decode_get_master_reply(&body).unwrap().master.card);
     let body = reply(call(control::INTERFACE_ID, control::METHOD_LISTSTREAMS));

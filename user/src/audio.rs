@@ -50,6 +50,16 @@ impl Native {
     }
 }
 
+impl Drop for Native {
+    fn drop(&mut self) {
+        // The endpoint was obtained by name, so other holders may still use
+        // the channel: release this task's handle rather than closing it.
+        // Without this, `audiod` would leak a handle each time it reconnects
+        // to a restarted driver.
+        let _ = self.endpoint.release();
+    }
+}
+
 /// Resolve `name`, retrying for up to `ticks` while the service starts.
 pub fn connect_wait(name: &str, ticks: u64) -> Result<Native> {
     let deadline = sys::clock() + ticks;
