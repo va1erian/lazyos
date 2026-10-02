@@ -69,9 +69,9 @@ jobs:
       - name: Clippy (inputmap tests and its fuzz entry point)
         run: cargo clippy -p inputmap --all-targets --features fuzz -- -D warnings
       - name: USB libraries (usbd, docs/usb-hid-plan.md U0)
-        run: cargo test -p usbhid -p xhci -p usbpolicy
+        run: cargo test -p usbhid -p xhci -p usbpolicy -p usbmsc --features usbmsc/fuzz
       - name: Clippy (usbhid and xhci, tests and fuzz entry points)
-        run: cargo clippy -p usbhid -p xhci -p usbpolicy --all-targets --features usbhid/fuzz -- -D warnings -D clippy::undocumented_unsafe_blocks
+        run: cargo clippy -p usbhid -p xhci -p usbpolicy -p usbmsc --all-targets --features usbhid/fuzz,usbmsc/fuzz -- -D warnings -D clippy::undocumented_unsafe_blocks
       - name: ACPI table walker (golden QEMU dumps, hostile tables, seeded fuzz)
         run: cargo test -p acpi
         env:

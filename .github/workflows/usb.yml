@@ -42,7 +42,7 @@ jobs:
           key: host
 
       - name: USB libraries (host, includes the seeded fuzz tests)
-        run: cargo test -p usbhid -p xhci -p usbpolicy
+        run: cargo test -p usbhid -p xhci -p usbpolicy -p usbmsc --features usbmsc/fuzz
 
       - name: Harness judge (it must fail when it should)
         run: python tools/usb/test_judge.py

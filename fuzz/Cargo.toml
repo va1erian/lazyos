@@ -24,6 +24,7 @@ modplay = { path = "../libs/modplay", features = ["fuzz"] }
 netstack = { path = "../libs/netstack", features = ["fuzz"] }
 inputmap = { path = "../libs/inputmap", features = ["fuzz"] }
 usbhid = { path = "../libs/usbhid", features = ["fuzz"] }
+usbmsc = { path = "../libs/usbmsc", features = ["fuzz"] }
 ext2fs = { path = "../libs/ext2fs", features = ["fuzz"] }
 acpi = { path = "../libs/acpi", features = ["fuzz"] }
 
@@ -116,6 +117,27 @@ bench = false
 [[bin]]
 name = "acpi"
 path = "fuzz_targets/acpi.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "mscdesc"
+path = "fuzz_targets/mscdesc.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "mscreply"
+path = "fuzz_targets/mscreply.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "mscsession"
+path = "fuzz_targets/mscsession.rs"
 test = false
 doc = false
 bench = false

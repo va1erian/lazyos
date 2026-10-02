@@ -61,6 +61,10 @@ members = [
     # and power code (docs/real-pc-boot-plan.md H2): a pure `no_std` walker of
     # hostile firmware tables, with golden QEMU dumps and seeded fuzz.
     "libs/acpi",
+    # USB Mass Storage Bulk-Only Transport and SCSI for `usbd`
+    # (docs/architecture/usb-storage.md): pure `no_std` logic with host tests
+    # against a model device and fuzz entry points.
+    "libs/usbmsc",
     # Networking libraries (docs/networking-plan.md N0): the shared frame ring,
     # the virtio-net wire definitions, and the seeded-input helper the in-tree
     # fuzz-style tests use. Pure `no_std` logic (fuzzkit is host only).

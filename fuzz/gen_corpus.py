@@ -531,6 +531,72 @@ def acpi_seeds():
     return seeds
 
 
+# ---- usbmsc (mass storage) ------------------------------------------------------
+
+MSC_HS_CONFIG = bytes.fromhex(
+    "090220000101" "00c032"
+    "090400000208065000"
+    "07058102000200"
+    "07050202000200"
+)
+MSC_SS_CONFIG = bytes.fromhex(
+    "09022c000101" "00c032"
+    "090400000208065000"
+    "07058102000400" "06300f000000"
+    "07050202000400" "063003000000"
+)
+
+
+def mscdesc_seeds():
+    composite = bytes.fromhex(
+        "090239000201" "00a032"
+        "090400000103010100" "092111010001223f00" "07058103080007"
+        "090401000208065000" "07058302400000" "07050402400000"
+    )
+    return {
+        "hs_stick": MSC_HS_CONFIG,
+        "ss_stick": MSC_SS_CONFIG,
+        "composite": composite,
+        "alt_setting": MSC_HS_CONFIG[:12] + bytes([1]) + MSC_HS_CONFIG[13:],
+        "zero_blength": MSC_HS_CONFIG[:18] + bytes([0]) + MSC_HS_CONFIG[19:],
+        "orphan_companion": MSC_HS_CONFIG[:9] + bytes.fromhex("06300f000000") + MSC_HS_CONFIG[9:],
+        "empty": b"",
+    }
+
+
+def mscreply_seeds():
+    csw = b"USBS" + struct.pack("<II", 7, 0) + bytes([0])
+    sense = bytes([0x70, 0, 0x06]) + bytes(9) + bytes([0x28, 0]) + bytes(4)
+    return {
+        "csw_good": bytes([7]) + csw,
+        "csw_wrong_tag": bytes([8]) + csw,
+        "csw_phase": bytes([7]) + csw[:12] + bytes([2]),
+        "inquiry": bytes([0]) + bytes([0, 0x80, 5, 2, 31, 0, 0, 0]) + b"LAZYOS  MODEL STICK     1.00",
+        "sense_fixed": bytes([0]) + sense,
+        "sense_descriptor": bytes([0, 0x72, 0x02, 0x3A, 0x00]),
+        "capacity10": bytes([0]) + struct.pack(">II", 0x3FFFFF, 512),
+        "capacity10_huge": bytes([0]) + struct.pack(">II", 0xFFFFFFFF, 512),
+        "capacity16": bytes([0]) + struct.pack(">QI", (1 << 40), 4096) + bytes(20),
+        "capacity16_overflow": bytes([0]) + struct.pack(">QI", (1 << 64) - 1, 512) + bytes(20),
+        "mode_sense_wp": bytes([0, 3, 0, 0x80, 0]),
+        "empty": b"",
+    }
+
+
+def mscsession_seeds():
+    # Selector bytes with bit 6 set make plausible answers; bits 4-5 pick the
+    # CSW status (see `usbmsc::fuzz::Script`).
+    return {
+        "happy": bytes([0x44] * 600),
+        "stalls": bytes([0x40, 0x40, 0x10, 0x44, 0x44, 0x44] * 80),
+        "failed_csws": bytes([0x44, 0x44, 0x64] * 150),
+        "phase_errors": bytes([0x44, 0x44, 0x74] * 150),
+        "raw_bytes": bytes(range(256)) * 2,
+        "gone_at_once": bytes([0x82]),
+        "empty": b"",
+    }
+
+
 TARGETS = {
     "acpi": acpi_seeds,
     "ext2fs": ext2fs_seeds,
@@ -544,6 +610,9 @@ TARGETS = {
     "usbdesc": usbdesc_seeds,
     "hidreport": hidreport_seeds,
     "hidreportdesc": hidreportdesc_seeds,
+    "mscdesc": mscdesc_seeds,
+    "mscreply": mscreply_seeds,
+    "mscsession": mscsession_seeds,
 }
 
 
