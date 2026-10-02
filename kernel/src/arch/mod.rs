@@ -26,8 +26,12 @@ pub fn init() {
     gdt::init();
     idt::init_hardware();
     linux::init();
-    crate::input::mouse::init();
-    // From here on the controller's bytes are collected wherever the kernel
-    // can be busy for long, not only in IRQ1/IRQ12 (`input::ps2`).
-    crate::input::ps2::enable();
+    // Probe the controller first (`HW:I8042:PRESENT`/`ABSENT`); it enables
+    // the mouse when an auxiliary port answers. Only a controller that is
+    // there gets its bytes collected outside IRQ1/IRQ12 (`input::ps2`): a
+    // floating bus reads 0xFF forever.
+    crate::input::i8042::init();
+    if crate::input::i8042::present() {
+        crate::input::ps2::enable();
+    }
 }

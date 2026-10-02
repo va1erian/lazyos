@@ -8,12 +8,14 @@ mod heap;
 pub mod mmio;
 pub mod pte;
 mod reclaim;
+pub mod regions;
 pub use reclaim::reclaim_empty_tables;
 pub mod slab;
 mod table_guard;
 pub mod untouched;
 mod uspace;
 pub mod vma;
+pub mod wc;
 pub use cow::clone_user_table;
 pub use dma::{dma_alloc, dma_stats};
 pub use frames::*;
@@ -38,8 +40,10 @@ pub const HEAP_START: u64 = 0x_4444_4444_0000;
 /// Size of the kernel heap (16 MiB): enough for a full-screen RGBA pixmap.
 pub const HEAP_SIZE: u64 = 16 * 1024 * 1024;
 
-/// Maximum usable memory regions we track (no heap needed to bootstrap).
-pub const MAX_REGIONS: usize = 32;
+/// Maximum disjoint usable ranges we track (no heap needed to bootstrap).
+/// Touching firmware regions are coalesced first (`regions`), so a real map
+/// needs a handful; the rest is headroom for a fragmented or hostile one.
+pub const MAX_REGIONS: usize = 128;
 
 #[cfg(lazyos_tests)]
 pub use heap::harness as heap_harness;
@@ -98,37 +102,24 @@ pub fn init(boot_info: &'static mut BootInfo) {
     }
 
     // Gather the usable regions, clamping away the low megabyte that holds
-    // the kernel and the bootloader's metadata.
-    let mut starts = [0u64; MAX_REGIONS];
-    let mut ends = [0u64; MAX_REGIONS];
-    let mut count = 0;
-    let mut highest = LOWEST_FRAME;
-    for region in boot_info
-        .memory_regions
-        .iter()
-        .filter(|r| r.kind == MemoryRegionKind::Usable && r.end > LOWEST_FRAME)
-    {
-        if count == MAX_REGIONS {
-            break;
-        }
-        let start = region.start.max(LOWEST_FRAME);
-        if start + FRAME_SIZE > region.end {
-            continue;
-        }
-        starts[count] = start;
-        ends[count] = region.end;
-        count += 1;
-        highest = highest.max(region.end);
-    }
-
+    // the kernel and the bootloader's metadata, and coalescing the touching
+    // ones a UEFI map is full of (see `regions`).
+    let mut map = regions::UsableMap::collect(
+        boot_info
+            .memory_regions
+            .iter()
+            .filter(|r| r.kind == MemoryRegionKind::Usable)
+            .map(|r| (r.start, r.end)),
+    );
     // Carve the refcount table out of the first region with room: one `u32`
-    // per frame up to the highest usable address.
-    let table_entries = (highest / FRAME_SIZE) as usize;
-    let table_bytes = table_entries * core::mem::size_of::<u32>();
-    let table_frames = table_bytes.div_ceil(FRAME_SIZE as usize);
-    // Boot has no caller to propagate a placement failure to: a genuine kstop.
-    let table_phys = place_table(&starts, &ends, count, table_frames)
+    // per frame up to the highest usable address. Boot has no caller to
+    // propagate a placement failure to: a genuine kstop.
+    let (table_phys, table_frames) = map
+        .place_refcounts()
         .unwrap_or_else(|| kstop(KError::OutOfMemory, "no room for the frame refcount table"));
+    log_map(&map, boot_info.memory_regions.len());
+    let table_bytes = (map.highest() / FRAME_SIZE) as usize * core::mem::size_of::<u32>();
+    let (starts, ends, count) = (map.starts, map.ends, map.count);
 
     let mut frames = Frames {
         starts,
@@ -214,20 +205,23 @@ pub fn init(boot_info: &'static mut BootInfo) {
     unsafe { heap::init(HEAP_START as usize, HEAP_SIZE as usize) };
 }
 
-/// Find the first region with room for `frame_count` contiguous frames and
-/// return the frame-aligned physical address for the refcount table.
-fn place_table(
-    starts: &[u64; MAX_REGIONS],
-    ends: &[u64; MAX_REGIONS],
-    count: usize,
-    frame_count: usize,
-) -> Option<u64> {
-    let bytes = frame_count as u64 * FRAME_SIZE;
-    for i in 0..count {
-        let start = (starts[i] + FRAME_SIZE - 1) & !(FRAME_SIZE - 1);
-        if start + bytes <= ends[i] {
-            return Some(start);
-        }
+/// Print the usable-RAM summary: how much RAM the allocator got, from how
+/// many firmware regions, and what (if anything) did not fit.
+fn log_map(map: &regions::UsableMap, raw_regions: usize) {
+    const MIB: u64 = 1024 * 1024;
+    serial_println!(
+        "mem: map {} regions, {} usable coalesced into {} ranges, {} MiB usable, highest {:#x}",
+        raw_regions,
+        map.seen,
+        map.count,
+        map.total_bytes() / MIB,
+        map.highest()
+    );
+    if map.dropped_ranges > 0 {
+        serial_println!(
+            "mem: WARNING {} usable ranges ({} MiB) dropped",
+            map.dropped_ranges,
+            map.dropped_bytes / MIB
+        );
     }
-    None
 }

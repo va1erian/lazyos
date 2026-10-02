@@ -31,8 +31,10 @@ mod gfxlib;
 mod input;
 #[allow(dead_code)] // Kernel-side fabric; the native syscall surface landed in #69.
 mod ipc;
+mod klog;
 mod mem;
 mod mux;
+mod panic_screen;
 mod process;
 mod quota;
 mod serial;
@@ -79,6 +81,8 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         }
     };
 
+    // Firmware geometry is input: clamp it before anything sizes from it.
+    let info = gfx::sanitize(info);
     console::init(base, info);
     serial_println!(
         "LazyOS: framebuffer {}x{} {:?}",
@@ -96,6 +100,13 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     let (ramdisk_addr, ramdisk_len) = (boot_info.ramdisk_addr, boot_info.ramdisk_len);
     mem::init(boot_info);
     boot_phase!("mem_ready");
+    // Firmware usually leaves the framebuffer uncached: make it write-combining.
+    if let Some((fb_base, fb_len)) = console::framebuffer_span() {
+        match mem::wc::map_write_combining(fb_base, fb_len) {
+            Ok(pages) => serial_println!("HW:FB:WC:{pages} pages write-combining"),
+            Err(reason) => serial_println!("HW:FB:WC:SKIPPED ({reason})"),
+        }
+    }
 
     // Device core (issue #239): enumerate platform + PCI devices, attach the
     // in-kernel drivers (ATA, legacy virtio-blk) and print the `DEV:ENUM` line.
@@ -132,7 +143,8 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     boot_phase!("arch_ready");
     // Interrupt vectors and the device syscall are live: print their evidence.
     dev::selfcheck();
-    input::mouse::set_bounds(info.width as i32, info.height as i32);
+    let screen = display::logical();
+    input::mouse::set_bounds(screen.width as i32, screen.height as i32);
 
     // Register the kernel (multiplexer) task and spawn the demo programs, the
     // injected Linux fixture, or a BusyBox shell.
@@ -308,6 +320,11 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     );
 
     boot_phase!("tasks_spawned");
+    // `LAZYOS_FORCE_PANIC=1` at build time: prove the on-screen panic report
+    // (docs/real-pc-boot-plan.md H1) with a full boot log behind it.
+    if option_env!("LAZYOS_FORCE_PANIC").is_some() {
+        panic!("forced by LAZYOS_FORCE_PANIC (on-screen panic test)");
+    }
     task::start();
     serial_println!("LazyOS: scheduler started (Tab switches focus)");
     x86_64::instructions::interrupts::enable();
@@ -409,6 +426,8 @@ fn spawn_console_shell() {
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
     serial_println!("LazyOS PANIC: {}", info);
+    // A real PC has no serial port: put the reason and the boot log on screen.
+    panic_screen::show("LazyOS stopped: kernel panic", format_args!("{}", info));
     halt();
 }
 

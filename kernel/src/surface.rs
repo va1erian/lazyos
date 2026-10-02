@@ -2,7 +2,6 @@
 //! live framebuffer or an off-screen RGBA back buffer (double buffering).
 
 use crate::gfx::{Color, Framebuffer};
-use alloc::vec;
 use alloc::vec::Vec;
 
 /// Composite `fg` over `bg` using 8-bit coverage.
@@ -102,12 +101,15 @@ pub struct RgbaBuffer {
 }
 
 impl RgbaBuffer {
-    pub fn new(w: usize, h: usize) -> Self {
-        RgbaBuffer {
-            w,
-            h,
-            data: vec![0; w * h * 4],
-        }
+    /// A zeroed `w` x `h` buffer, or `None` (instead of stopping the kernel)
+    /// when it does not fit: a screen-sized buffer is the heap's largest
+    /// single allocation and may not fit a fragmented heap.
+    pub fn try_new(w: usize, h: usize) -> Option<Self> {
+        let bytes = w.checked_mul(h)?.checked_mul(4)?;
+        let mut data = Vec::new();
+        data.try_reserve_exact(bytes).ok()?;
+        data.resize(bytes, 0);
+        Some(RgbaBuffer { w, h, data })
     }
 
     pub fn data(&self) -> &[u8] {

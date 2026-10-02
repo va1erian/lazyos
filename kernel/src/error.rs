@@ -90,5 +90,9 @@ pub type KResult<T> = Result<T, KError>;
 #[cold]
 pub fn kstop(error: KError, context: &str) -> ! {
     crate::serial_println!("LazyOS KSTOP [{}]: {}", error.as_str(), context);
+    crate::panic_screen::show(
+        "LazyOS stopped (kstop)",
+        format_args!("[{}] {}", error.as_str(), context),
+    );
     halt();
 }

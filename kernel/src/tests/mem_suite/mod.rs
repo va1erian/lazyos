@@ -10,10 +10,12 @@ use super::*;
 
 mod fault_storm;
 mod frames_and_cow;
+mod regions;
 mod vma;
 
 pub(super) use fault_storm::*;
 pub(super) use frames_and_cow::*;
+pub(super) use regions::*;
 pub(super) use vma::*;
 
 pub(super) const CASES: &[(&str, Test)] = &[
@@ -36,4 +38,25 @@ pub(super) const CASES: &[(&str, Test)] = &[
         "mem_pte_chain_walks_to_the_leaf",
         pte_chain_walks_to_the_leaf,
     ),
+    (
+        "mem_regions_uefi_32g_keeps_all_ram",
+        regions_uefi_32g_keeps_all_ram,
+    ),
+    (
+        "mem_regions_unsorted_overlapping_coalesce",
+        regions_unsorted_overlapping_coalesce,
+    ),
+    (
+        "mem_regions_overflow_keeps_largest_and_counts",
+        regions_overflow_keeps_largest_and_counts,
+    ),
+    (
+        "mem_regions_absurd_range_dropped_for_table",
+        regions_absurd_range_dropped_for_table,
+    ),
+    (
+        "mem_regions_live_allocator_matches_boot_map",
+        regions_live_allocator_matches_boot_map,
+    ),
+    ("mem_soak_regions_random_maps", soak_regions_random_maps),
 ];

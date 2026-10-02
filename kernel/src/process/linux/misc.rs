@@ -6,7 +6,7 @@
 use crate::task;
 use crate::user_ptr;
 
-use super::errno::{err, EBADF, EFAULT, EINVAL, ENOTTY};
+use super::errno::{err, EBADF, EFAULT, EINVAL, ENOTTY, EPERM};
 
 pub(super) fn sys_arch_prctl(code: u64, addr: u64) -> u64 {
     match code {
@@ -104,4 +104,39 @@ pub(super) fn sys_uname(buf: u64) -> u64 {
     // syscall ABI's contract).
     unsafe { user_ptr::copy_to(buf, &data) };
     0
+}
+
+/// `syslog(action, buf, len)` (`klogctl`): the kernel log ring (`klog`), so
+/// BusyBox `dmesg` shows the boot log on a machine with no serial port.
+/// Reading is open to every task, as on a Linux with `dmesg_restrict=0`: the
+/// ring holds boot and driver messages, never user data. Clearing it is
+/// refused (`EPERM`), so nobody can erase the evidence of a boot.
+pub(super) fn sys_syslog(action: u64, buf: u64, len: u64) -> u64 {
+    const CLOSE: u64 = 0;
+    const OPEN: u64 = 1;
+    const READ_ALL: u64 = 3;
+    const SIZE_UNREAD: u64 = 9;
+    const SIZE_BUFFER: u64 = 10;
+    match action {
+        CLOSE | OPEN => 0,
+        SIZE_BUFFER => crate::klog::CAPACITY as u64,
+        SIZE_UNREAD => 0,
+        READ_ALL => {
+            if buf == 0 {
+                return err(EINVAL);
+            }
+            let want = usize::try_from(len)
+                .unwrap_or(usize::MAX)
+                .min(crate::klog::CAPACITY);
+            let mut data = alloc::vec![0u8; want];
+            let count = crate::klog::snapshot(&mut data);
+            if user_ptr::try_copy_to(buf, &data[..count]).is_err() {
+                return err(EFAULT);
+            }
+            count as u64
+        }
+        // Clear, console level/enable/disable: privileged on Linux too.
+        4..=8 => err(EPERM),
+        _ => err(EINVAL),
+    }
 }

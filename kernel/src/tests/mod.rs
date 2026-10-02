@@ -132,6 +132,7 @@ mod display_suite;
 mod exec_perm_suite;
 mod ext2_suite;
 mod fault_suite;
+mod firmware_suite;
 mod fs_suite;
 mod fsops_suite;
 mod hardening_suite;
@@ -210,6 +211,7 @@ const SUITE: &[&[(&str, Test)]] = &[
     string_io_suite::CASES,
     spurious_fault_suite::CASES,
     ramdisk_suite::CASES,
+    firmware_suite::CASES,
     dev_suite::CORE,
     dev_suite::CLASS_MAP,
     dev_suite::IRQ,
@@ -229,6 +231,7 @@ const SUITE: &[&[(&str, Test)]] = &[
     dev_suite::DMA_LIFE,
     dev_suite::DMA_STRESS,
     dev_suite::STRESS,
+    dev_suite::CAPACITY,
     fs_suite::CASES,
     fsops_suite::CASES,
     power_suite::CASES,

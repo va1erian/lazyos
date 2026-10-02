@@ -54,10 +54,11 @@ pub(super) fn release_va(va: u64, pages: u64) {
 ///
 /// Refused: a BAR that is not memory, is under a page (a page-granular mapping
 /// would expose registers of a neighbouring function), is larger than
-/// [`MAX_MAP_BYTES`], is unassigned, wraps the address space, or overlaps RAM (a
-/// misprogrammed BAR must never hand a driver the kernel's memory). One mapping
-/// per BAR. The quota is charged by uid, not through the per-address-space
-/// ledger, so a driver cannot dodge it by exiting its address space early.
+/// [`MAX_MAP_BYTES`], is unassigned, wraps the address space, lies past the
+/// CPU's physical address width, or overlaps RAM (a misprogrammed BAR must
+/// never hand a driver the kernel's memory). One mapping per BAR. The quota is
+/// charged by uid, not through the per-address-space ledger, so a driver
+/// cannot dodge it by exiting its address space early.
 pub fn map_bar(r: &Resolved, index: u64) -> Result<u64, Errno> {
     if r.rights & rights::DEV_MMIO == 0 {
         return Err(EPERM);
@@ -77,6 +78,11 @@ pub fn map_bar(r: &Resolved, index: u64) -> Result<u64, Errno> {
         return Err(EINVAL);
     }
     let end = bar.base.checked_add(bar.len).ok_or(EINVAL)?;
+    // A 64-bit BAR above 4 GiB is fine (the mapping path has no 32-bit
+    // assumption); one past what the CPU can address is not.
+    if end > mmio::phys_limit() {
+        return Err(EINVAL);
+    }
     if mmio::overlaps_ram(bar.base, end) {
         report::record(
             r.claim.owner,

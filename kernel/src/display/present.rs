@@ -71,6 +71,8 @@ pub(super) fn present(packed: u64) -> u64 {
     };
     // `rows` starts at screen row `y`, so the source row is 0 and it is `h`
     // rows tall; the destination stays at `(x, y)`.
-    console::with_framebuffer(|fb| fb.blit_rgba_region(rows, width, h, x, 0, x, y, w, h));
+    // The logical screen is a clipped view of the framebuffer at its centring
+    // offset: `(x, y)` is relative to it, and the view cannot be written past.
+    console::with_screen(|fb| fb.blit_rgba_region(rows, width, h, x, 0, x, y, w, h));
     0
 }

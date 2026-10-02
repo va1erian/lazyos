@@ -82,3 +82,16 @@ pub fn unmap_mmio(table: PhysAddr, va: u64, phys: u64, pages: u64) -> u64 {
     }
     cleared
 }
+
+/// One past the highest physical address this CPU can address (`MAXPHYADDR`
+/// from CPUID leaf 0x8000_0008, 36 bits when the leaf is missing). A 64-bit
+/// BAR is hostile input: a base above this would set reserved page-table bits
+/// (and above 52 bits `PhysAddr::new` panics), so `map_bar` refuses it.
+pub fn phys_limit() -> u64 {
+    let bits = if core::arch::x86_64::__cpuid(0x8000_0000).eax >= 0x8000_0008 {
+        core::arch::x86_64::__cpuid(0x8000_0008).eax & 0xFF
+    } else {
+        36
+    };
+    1u64 << bits.clamp(32, 52)
+}

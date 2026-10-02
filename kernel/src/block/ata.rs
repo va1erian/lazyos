@@ -66,34 +66,118 @@ const SRST_HOLD_READS: u32 = 64;
 /// spec gives the device before BSY may be trusted.
 const SRST_SETTLE_READS: u32 = 20_000;
 
-fn status() -> u8 {
-    // Safety: reading the status register has no side effect; it exists to
-    // be polled and this driver never treats it as read-to-clear.
-    unsafe { inb(STATUS) }
+/// Status reads before a wait gives up. Each read is at least ~100ns (about
+/// 1us on a real chipset), so a wait is bounded near a second.
+pub const POLL_LIMIT: u32 = 1_000_000;
+
+/// Status bits.
+const STATUS_BSY: u8 = 0x80;
+const STATUS_DRQ: u8 = 0x08;
+const STATUS_ERR: u8 = 0x01;
+/// What an undecoded port reads: no IDE controller answers at 0x1F0 (every
+/// PC whose SATA runs in AHCI mode, and chipsets with no legacy IDE at all),
+/// so the pulled-up bus floats high. BSY is set in it, so a naive "wait until
+/// not busy" would spin out its whole bound on every probe (issue #449).
+pub const FLOATING_BUS: u8 = 0xFF;
+
+/// Whether a status read right after selecting the master means nobody is
+/// there: a floating bus (`0xFF`, real hardware) or a channel with no drive
+/// (`0`, QEMU).
+pub fn status_means_absent(status: u8) -> bool {
+    status == FLOATING_BUS || status == 0
 }
 
-fn wait_not_busy() -> bool {
-    for _ in 0..1_000_000 {
-        if status() & 0x80 == 0 {
+/// The primary channel's registers, as the probe and the waits use them. The
+/// real implementation is [`Ports`]; the kernel suite drives the same code
+/// with fakes (a floating bus, a drive stuck busy) to prove every path ends.
+pub trait Channel {
+    /// Read the status register.
+    fn status(&mut self) -> u8;
+    /// Wait the 400ns a drive needs after a select or command.
+    fn delay_400ns(&mut self);
+    /// Select the master drive.
+    fn select_master(&mut self);
+    /// Clear the address registers and issue `IDENTIFY DEVICE`.
+    fn issue_identify(&mut self);
+    /// Read one data word.
+    fn read_data(&mut self) -> u16;
+}
+
+/// The real primary channel at 0x1F0/0x3F6.
+pub struct Ports;
+
+impl Channel for Ports {
+    fn status(&mut self) -> u8 {
+        // Safety: reading the status register has no side effect; it exists to
+        // be polled and this driver never treats it as read-to-clear.
+        unsafe { inb(STATUS) }
+    }
+
+    fn delay_400ns(&mut self) {
+        delay_400ns();
+    }
+
+    fn select_master(&mut self) {
+        // Safety: same ATA protocol contract as `pio_read_run`.
+        unsafe { outb(DRIVE, 0xA0) };
+    }
+
+    fn issue_identify(&mut self) {
+        // IDENTIFY takes no address and expects the count/LBA registers cleared.
+        // Safety: same ATA protocol contract as `pio_read_run`.
+        unsafe {
+            outb(SECTORS, 0);
+            outb(LBA_LO, 0);
+            outb(LBA_MID, 0);
+            outb(LBA_HI, 0);
+            outb(STATUS, COMMAND_IDENTIFY);
+        }
+    }
+
+    fn read_data(&mut self) -> u16 {
+        // Safety: the data port is read-many within one transfer; callers only
+        // read after `wait_for_data_on` confirmed a word is ready.
+        unsafe { inw(DATA) }
+    }
+}
+
+/// Poll until BSY clears. False on timeout, and at once on a floating bus.
+pub fn wait_not_busy_on(channel: &mut impl Channel) -> bool {
+    for _ in 0..POLL_LIMIT {
+        let status = channel.status();
+        if status == FLOATING_BUS {
+            return false;
+        }
+        if status & STATUS_BSY == 0 {
             return true;
         }
     }
     false
+}
+
+/// Poll until DRQ is set. False on timeout or on an error (which includes a
+/// floating bus: `0xFF` has ERR set).
+pub fn wait_for_data_on(channel: &mut impl Channel) -> bool {
+    for _ in 0..POLL_LIMIT {
+        let status = channel.status();
+        if status & STATUS_ERR != 0 {
+            return false;
+        }
+        if status & STATUS_DRQ != 0 {
+            return true;
+        }
+    }
+    false
+}
+
+fn wait_not_busy() -> bool {
+    wait_not_busy_on(&mut Ports)
 }
 
 fn wait_for_data() -> bool {
     // Once per sector: PIO runs with interrupts off (`input::ps2`).
     crate::input::ps2::service();
-    for _ in 0..1_000_000 {
-        let status = status();
-        if status & 0x08 != 0 {
-            return true;
-        }
-        if status & 0x01 != 0 {
-            return false; // error
-        }
-    }
-    false
+    wait_for_data_on(&mut Ports)
 }
 
 /// Most sectors one `READ SECTORS` command carries. The count register is 8
@@ -197,37 +281,35 @@ fn pio_read_run(lba: u32, buf: &mut [u8]) -> Result<(), RunError> {
 }
 
 /// Ask the primary master for its identity. Returns the sector count, or
-/// `None` when no drive answers (QEMU's floating bus reads as status 0).
+/// `None` when no drive answers.
 fn identify() -> Option<u64> {
     let _guard = IO.lock();
-    // Select the master; a missing drive leaves the bus floating, which QEMU
-    // reports as status 0, so the probe can bail out before the full timeout.
-    // Safety: same ATA protocol contract as `pio_read_run`.
-    unsafe {
-        outb(DRIVE, 0xA0);
-    }
-    delay_400ns();
-    if status() == 0 {
-        return None;
-    }
-    // IDENTIFY takes no address and expects the count/LBA registers cleared.
-    // Safety: same ATA protocol contract as `pio_read_run`.
-    unsafe {
-        outb(SECTORS, 0);
-        outb(LBA_LO, 0);
-        outb(LBA_MID, 0);
-        outb(LBA_HI, 0);
-        outb(STATUS, COMMAND_IDENTIFY);
-    }
-    if !wait_not_busy() || !wait_for_data() {
-        return None;
-    }
+    identify_on(&mut Ports)
+}
 
+/// [`identify`] over any [`Channel`]. Absence is decided from the first
+/// status read after the select, before any wait: a floating bus (`0xFF`, no
+/// IDE controller) or an empty channel (`0`, QEMU) returns at once. Every
+/// later wait is bounded by [`POLL_LIMIT`] reads.
+pub fn identify_on(channel: &mut impl Channel) -> Option<u64> {
+    channel.select_master();
+    channel.delay_400ns();
+    if status_means_absent(channel.status()) {
+        return None;
+    }
+    channel.issue_identify();
+    channel.delay_400ns();
+    // A device that vanished between the two reads (or a bus that only
+    // floats once driven) reads absent here too.
+    if status_means_absent(channel.status()) {
+        return None;
+    }
+    if !wait_not_busy_on(channel) || !wait_for_data_on(channel) {
+        return None;
+    }
     let mut words = [0u16; 256];
     for word in words.iter_mut() {
-        // Safety: the data port is read-many within one IDENTIFY transfer;
-        // `wait_for_data` above confirmed the device has a word ready.
-        *word = unsafe { inw(DATA) };
+        *word = channel.read_data();
     }
     // Words 60/61: total addressable sectors in 28-bit LBA mode.
     let lba28 = (u64::from(words[61]) << 16) | u64::from(words[60]);

@@ -10,9 +10,13 @@ pub const MAX_BUFFER_SIZE: u64 = 64 << 20;
 pub const MAX_BUFFERS: usize = 256;
 /// Per-process byte quota (section 9's metering, applied to buffer memory).
 /// Sized for a double-buffered window (`Present`, issue #372) as large as
-/// the biggest logical screen: two 1920x1080 RGBA slots are 15.8 MiB. The
-/// per-uid `KernelMemory` quota still bounds what all of a user's tasks hold.
-pub const MAX_BUFFER_BYTES_PER_PROCESS: u64 = 16 << 20;
+/// the biggest logical screen: two 1920x1080 RGBA slots are 15.8 MiB, plus
+/// headroom for the same process's panels and popups (the shell holds the
+/// full-screen desktop window *and* the taskbar; at 16 MiB the taskbar's
+/// 1920x32 buffer was refused on a 1080p logical screen, H1 of
+/// `docs/real-pc-boot-plan.md`). The per-uid `KernelMemory` quota still
+/// bounds what all of a user's tasks hold.
+pub const MAX_BUFFER_BYTES_PER_PROCESS: u64 = 24 << 20;
 /// Per-process live-buffer quota.
 pub const MAX_BUFFERS_PER_PROCESS: u64 = 64;
 
