@@ -98,7 +98,9 @@ interface os.lazy.init.v1 {
         /// package someone installed) or `system` (a built-in program such as
         /// the desktop shell or the installer).
         origin: String,
-        /// The menu group (`lazypkg::Category`); empty for a built-in.
+        /// The menu group (`lazypkg::Category`): the package's, `system` (or
+        /// `development` for LazyRAD) for a built-in desktop program, empty for
+        /// a console one, which the start menu leaves out.
         category: String,
         /// Whether the start menu leaves the app out for the caller: their
         /// `user/<uid>/menu/hidden/<id>`, else the machine's

@@ -6,8 +6,9 @@
 //! [`Menu::build`] sees them ([`visible`], [`installed_entries`]); they still
 //! launch and open files.
 //!
-//! Rows run top-down: the installed apps no `sys/ui/menu` entry pins, grouped
-//! by their package's menu category under a header row each ([`groups`]),
+//! Rows run top-down: the desktop apps (installed ones and the built-in
+//! desktop programs, everything `ListApps` gives a category) no `sys/ui/menu`
+//! entry pins, grouped by menu category under a header row each ([`groups`]),
 //! then the configured `sys/ui/menu` entries, then the two power rows
 //! ([`power`]). The installed section holds at most
 //! [`groups::MAX_PER_CATEGORY`] apps per category and scrolls with the wheel
@@ -235,6 +236,7 @@ pub struct Listed<'a> {
     pub name: &'a str,
     /// Installed by the package manager (`id` is a `system_name`).
     pub installed: bool,
+    /// The menu group; empty for a console program, which the menu omits.
     pub category: &'a str,
     /// Left out of the caller's menu.
     pub hidden: bool,
@@ -248,12 +250,13 @@ pub fn listed_hidden(listed: &[Listed<'_>], app: &str) -> bool {
         .any(|row| row.hidden && deskmenu::same_app(row.id, app))
 }
 
-/// The installed-app rows from `init`'s registry rows: installed and not
-/// hidden ones only, labelled with their manifest name (cleaned, falling back
-/// to the id).
+/// The menu's app rows from `init`'s registry rows: the desktop apps (every
+/// installed one, and the built-ins with a category such as the Terminal)
+/// that are not hidden, labelled with their name (cleaned, falling back to
+/// the id). Console programs (no category) stay out.
 pub fn installed_entries<'a>(apps: impl IntoIterator<Item = Listed<'a>>) -> Vec<InstalledApp> {
     apps.into_iter()
-        .filter(|row| row.installed && !row.hidden)
+        .filter(|row| (row.installed || !row.category.is_empty()) && !row.hidden)
         .filter_map(|row| {
             installed_entry(row.id, row.name).map(|entry| InstalledApp {
                 entry,

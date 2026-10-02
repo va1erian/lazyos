@@ -4591,7 +4591,9 @@ pub mod os_lazy_init_v1 {
     /// `core` (a package the image ships, not removable), `user` (a
     /// package someone installed) or `system` (a built-in program such as
     /// the desktop shell or the installer).
-    /// The menu group (`lazypkg::Category`); empty for a built-in.
+    /// The menu group (`lazypkg::Category`): the package's, `system` (or
+    /// `development` for LazyRAD) for a built-in desktop program, empty for
+    /// a console one, which the start menu leaves out.
     /// Whether the start menu leaves the app out for the caller: their
     /// `user/<uid>/menu/hidden/<id>`, else the machine's
     /// `sys/menu/hidden/<id>`. A hidden app still launches and opens files.

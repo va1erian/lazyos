@@ -54,6 +54,9 @@ pub struct AppSpec {
     /// Whether `ListApps` reports the row. Only the desktop shell is unlisted:
     /// it is the start menu, not an entry in it. `Launch` still resolves it.
     pub listed: bool,
+    /// The start-menu group (`lazypkg::Category` spelling) of a desktop
+    /// program; empty for a console one, which the menu leaves out.
+    pub category: &'static str,
 }
 
 /// An xui program that is not a package: Linux ABI, `xuid` client.
@@ -72,6 +75,7 @@ const fn xui_app(
         linux: true,
         args: &["--client"],
         listed: true,
+        category: "system",
     }
 }
 
@@ -92,6 +96,7 @@ const fn native_app(
         linux: false,
         args: &[],
         listed: true,
+        category: "",
     }
 }
 
@@ -124,7 +129,10 @@ pub static APPS: &[AppSpec] = &[
     // Devices, owners, rights and the driver class rules (issue #481).
     xui_app("devices", "Devices", fhs::bin::DEVICES, &["open"]),
     // The LazyRAD IDE (`LAZYOS_LAZYRAD=1`); apps it builds are packages.
-    xui_app("lazyrad", "LazyRAD", fhs::bin::LAZYRAD, &["open"]),
+    AppSpec {
+        category: "development",
+        ..xui_app("lazyrad", "LazyRAD", fhs::bin::LAZYRAD, &["open"])
+    },
     // `mimed`'s handler for `application/x-elf`; no image ships it yet.
     native_app(
         "runner",
@@ -137,6 +145,7 @@ pub static APPS: &[AppSpec] = &[
     // loader aliases to BusyBox); it draws in `init`'s mux window.
     AppSpec {
         args: &[],
+        category: "",
         ..xui_app("shell", "Console Shell", "sh", &["open"])
     },
     native_app(
@@ -220,7 +229,7 @@ pub fn app_infos() -> Vec<services::AppInfo> {
             verbs: app.verbs.iter().map(|verb| verb.to_string()).collect(),
             installed: false,
             origin: String::from("system"),
-            category: String::new(),
+            category: app.category.to_string(),
             // Set per caller by `InstalledApps::infos`.
             hidden: false,
             autostart: autostart_ids().contains(&app.id),

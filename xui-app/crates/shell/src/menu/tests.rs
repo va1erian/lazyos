@@ -183,7 +183,7 @@ fn installed_rows_come_from_the_registry_flag() {
         id,
         name,
         installed: *installed,
-        category: "graphics",
+        category: if *installed { "graphics" } else { "" },
         hidden: *id == "chess",
     }));
     let packaged = InstalledApp {
@@ -378,4 +378,38 @@ fn hidden_flags_from_list_apps_match_short_ids() {
     let configured = visible(deskmenu::defaults(), |id| listed_hidden(&listed, id));
     assert!(configured.iter().all(|e| e.app != "os.lazy.paint"));
     assert_eq!(configured.len(), deskmenu::defaults().len() - 1);
+}
+
+#[test]
+fn built_in_desktop_programs_are_listed_and_console_ones_are_not() {
+    let listed = [
+        Listed {
+            id: "terminal",
+            name: "Terminal",
+            installed: false,
+            category: "system",
+            hidden: false,
+        },
+        Listed {
+            id: "top",
+            name: "System Monitor (text)",
+            installed: false,
+            category: "",
+            hidden: false,
+        },
+        Listed {
+            id: "os.lazy.paint",
+            name: "Paint",
+            installed: true,
+            category: "graphics",
+            hidden: false,
+        },
+    ];
+    let rows = installed_entries(listed.iter().copied());
+    let ids: Vec<&str> = rows.iter().map(|a| a.entry.app.as_str()).collect();
+    assert_eq!(ids, ["terminal", "os.lazy.paint"]);
+    // A menu that pins neither shows the Terminal under System.
+    let menu = Menu::build(&rows, &[], Shipped::Unknown, H);
+    let labels: Vec<&str> = menu.rows().iter().map(|r| r.label.as_str()).collect();
+    assert_eq!(labels[..4], ["Graphics", "Paint", "System", "Terminal"]);
 }
