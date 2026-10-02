@@ -1,4 +1,5 @@
 [
+  {"wait_for": "PKGD:PROVISION:DONE", "timeout": 420},
   {"wait_for": "FILES:UP:PASS", "timeout": 240},
   {"at": 1.5, "shot": "01_files_root"},
   {"at": 2.0, "mouse_move": [-300, -300]},
@@ -23,6 +24,6 @@
   {"at": 16.8, "mouse_click": "left"},
   {"at": 17.3, "shot": "04_markdown_selected"},
   {"at": 17.8, "key": "enter", "until": "FILES:OPEN:PASS", "timeout": 60, "retries": 2},
-  {"at": 12.0, "shot": "05_markdown_opened"},
-  {"at": 13.0, "quit": true}
+  {"at": 32.0, "shot": "05_markdown_opened"},
+  {"at": 33.0, "quit": true}
 ]
