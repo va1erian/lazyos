@@ -86,9 +86,12 @@ def home(start: float) -> list[dict]:
 
 
 def focus_terminal() -> list[dict]:
-    """Wait for the desktop, then click into the Terminal's window (its
+    """Wait for the desktop and for `pkgd` to finish installing the core
+    packages (a fresh image provisions them at its first boot, and keys typed
+    meanwhile can be lost), then click into the Terminal's window (its
     taskbar entry would minimize it when it already has the focus)."""
     return [
+        {"wait_for": "PKGD:PROVISION:DONE", "timeout": 420},
         {"wait_for": "TERM:UP:PASS", "timeout": 240},
         {"wait_for": "INIT:AUTOSTART:PASS app=terminal", "timeout": 60},
         *home(2.0),

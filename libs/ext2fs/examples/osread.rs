@@ -7,7 +7,13 @@
 //! cargo run -q -p ext2fs --example osread -- IMAGE cat PATH
 //! cargo run -q -p ext2fs --example osread -- IMAGE stat PATH    # mode uid gid size
 //! cargo run -q -p ext2fs --example osread -- IMAGE ls PATH
+//! cargo run -q -p ext2fs --example osread -- IMAGE fsck /     # the library's checker
 //! ```
+//!
+//! `fsck` runs `ext2fs::check::fsck` (the host suite's fsck-style checker,
+//! behind the crate's `fuzz` feature: add `--features fuzz`) over the whole
+//! volume, for hosts without `e2fsck`; it prints each problem and fails when
+//! there is one.
 //!
 //! `IMAGE` is the whole disk; the OS volume starts at LBA 131072 (64 MiB,
 //! `build_support/os_disk.rs`), or at `--lba N` for a bare volume (`--lba 0`).
@@ -63,7 +69,7 @@ fn run(args: &[String]) -> Result<(), String> {
     }
     let [image, command, path] = args.as_slice() else {
         return Err(String::from(
-            "usage: osread IMAGE cat|stat|ls PATH [--lba N]",
+            "usage: osread IMAGE cat|stat|ls|fsck PATH [--lba N]",
         ));
     };
     let file = File::open(image).map_err(|error| format!("{image}: {error}"))?;
@@ -74,6 +80,9 @@ fn run(args: &[String]) -> Result<(), String> {
     let sectors = (bytes / SECTOR_SIZE as u64)
         .checked_sub(start)
         .ok_or("the image is smaller than the volume offset")?;
+    if command == "fsck" {
+        return fsck(image, start);
+    }
     let window = Window {
         file: Mutex::new(file),
         start,
@@ -104,6 +113,33 @@ fn run(args: &[String]) -> Result<(), String> {
     result
         .map_err(|error| format!("{path}: {error:?}"))?
         .map_err(|error| format!("stdout: {error}"))
+}
+
+/// Check the volume that starts at sector `start` of `image`.
+#[cfg(feature = "fuzz")]
+fn fsck(image: &str, start: u64) -> Result<(), String> {
+    let mut file = File::open(image).map_err(|error| format!("{image}: {error}"))?;
+    file.seek(SeekFrom::Start(start * SECTOR_SIZE as u64))
+        .map_err(|error| format!("{image}: {error}"))?;
+    let mut volume = Vec::new();
+    file.read_to_end(&mut volume)
+        .map_err(|error| format!("{image}: {error}"))?;
+    let problems = ext2fs::check::fsck(&volume);
+    let mut out = std::io::stdout().lock();
+    for problem in &problems {
+        writeln!(out, "{problem}").map_err(|error| format!("stdout: {error}"))?;
+    }
+    if problems.is_empty() {
+        writeln!(out, "clean").map_err(|error| format!("stdout: {error}"))?;
+        Ok(())
+    } else {
+        Err(format!("{} problem(s)", problems.len()))
+    }
+}
+
+#[cfg(not(feature = "fuzz"))]
+fn fsck(_image: &str, _start: u64) -> Result<(), String> {
+    Err(String::from("fsck needs the checker: run with --features fuzz"))
 }
 
 fn main() {
