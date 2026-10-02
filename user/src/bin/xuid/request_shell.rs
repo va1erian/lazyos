@@ -69,7 +69,10 @@ impl Compositor {
         let role = wire::decode_subscribe_args(body)
             .unwrap_or_default()
             .subscriber_role;
-        if !message.carries(wire::SUBSCRIBE_TRANSFERS) || role.is_empty() || role.len() > display::MAX_ROLE {
+        if !message.carries(wire::SUBSCRIBE_TRANSFERS)
+            || role.is_empty()
+            || role.len() > display::MAX_ROLE
+        {
             drop_rejected_handle(message);
             return error_reply(message.method(), messenger::errno::EINVAL);
         }

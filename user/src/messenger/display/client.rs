@@ -188,16 +188,12 @@ impl Client {
     pub fn attach_buffer(&self, surface: u64, buffer: u64, len: u64) -> Result<()> {
         let body = wire::encode_attach_buffer_args(&wire::AttachBufferArgs { surface })
             .map_err(Error::Parcel)?;
-        let (handles, buffers) = wire::encode_attach_buffer_transfers(&wire::AttachBufferTransfers {
-            pixels: whole(buffer, len),
-        });
-        self.call(request(
-            wire::METHOD_ATTACHBUFFER,
-            body,
-            handles,
-            buffers,
-        ))
-        .map(|_| ())
+        let (handles, buffers) =
+            wire::encode_attach_buffer_transfers(&wire::AttachBufferTransfers {
+                pixels: whole(buffer, len),
+            });
+        self.call(request(wire::METHOD_ATTACHBUFFER, body, handles, buffers))
+            .map(|_| ())
     }
 
     /// Tell the compositor the `damage` rectangle of `surface` is ready.
