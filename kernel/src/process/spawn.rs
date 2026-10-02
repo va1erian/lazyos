@@ -20,25 +20,29 @@ pub(super) const MAX_INTERNED_NAMES: usize = 64;
 /// table is full.
 pub(super) const OVERFLOW_NAME: &str = "service";
 
-/// Intern a userspace-provided service name into a `&'static str` for
-/// [`task::spawn_child`].
+/// Intern the task name of the program at `path` (its basename, exactly as
+/// spelled) into a `&'static str` for [`task::spawn_child`].
 ///
 /// `Task::name` is `&'static str`, but the name comes from the supervisor's
 /// manifest at runtime. Leaking each *distinct* name once (bounded by the
 /// manifest, not by restart count) is the smallest way to satisfy that type
 /// without adding an allocation policy to the task table.
-pub(super) fn intern_service_name(name: &str) -> &'static str {
+pub(super) fn intern_service_name(path: &str) -> &'static str {
     static NAMES: Mutex<Vec<&'static str>> = Mutex::new(Vec::new());
+    let name = path.rsplit('/').next().unwrap_or(path);
+    if name.is_empty() {
+        return OVERFLOW_NAME;
+    }
     let mut names = NAMES.lock();
     if let Some(known) = names.iter().find(|known| **known == name) {
         return known;
     }
-    // The path is caller-supplied, so distinct spellings are not bounded by
-    // the manifest: `./A.ELF` and `A.ELF` name one file but intern twice, and
-    // a caller can invent spellings that fail to resolve. (The root volume is
-    // ext2, which is case-sensitive, so `a.elf` is a different, missing file.)
-    // Past the cap every new spelling shares one generic name instead of
-    // leaking another string.
+    // Names are compared exactly: the root volume is ext2, which is
+    // case-sensitive, so `a` and `A` are different programs and intern as two
+    // names. Only the basename counts, so `/system/bin/keyd` and
+    // `./keyd` share `keyd`, but a caller can still invent names that fail to
+    // resolve. Past the cap every new name shares one generic name instead
+    // of leaking another string.
     if names.len() >= MAX_INTERNED_NAMES {
         return OVERFLOW_NAME;
     }
