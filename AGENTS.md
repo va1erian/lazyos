@@ -203,7 +203,9 @@ anything else; ask `init` (`powerctl`, or `services::shutdown`). A service
 that holds durable state serves `os.lazy.lifecycle.v1` (`idl/lifecycle.midl`)
 and is listed in `user/src/bin/init/shutdown.rs` (`GRACEFUL`). The harness
 boots the desktop twice (power-off from the shell, reboot from the menu) and
-judges the serial logs; the session scripts drive the same paths by hand:
+judges the serial logs (`logd` must report `persisted>0`, and the second boot
+finds the first one's records in `/logs/service.log`); the session scripts
+drive the same paths by hand:
 
 ```bash
 python tools/shutdown/run.py             # build, boot twice, judge (tools/shutdown/README.md)
