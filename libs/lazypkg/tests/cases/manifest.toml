@@ -1,0 +1,338 @@
+# Manifest and version cases shared by the two validators, so they cannot drift:
+#
+#   Rust    libs/lazypkg/tests/cases.rs     (lazypkg::parse_manifest, lazypkg::Version)
+#   Python  tools/pkg/test_build.py         (pkgmanifest.validate_manifest, pkgmanifest.Version)
+#
+# Each [[manifest]] case is spliced into this template (both runners build the
+# same text):
+#
+#   [app]
+#   name = "Demo"
+#   system_name = "org.lazy.demo"
+#   author = "Tester"
+#   version = "<version, default 1.0.0>"
+#   <app>
+#   [entry]
+#   binary = "bin/app.elf"
+#   <entry>
+#   [permissions]
+#   <permissions>
+#
+# `valid = true` cases may say what `category` and `autostart` read back as.
+# `valid = false` cases name a substring (`error`) that one of the reported
+# problems must contain on both sides; pick one both wordings share.
+
+# --- [app] category -----------------------------------------------------------
+
+[[manifest]]
+name = "category is optional and defaults to accessories"
+valid = true
+category = "accessories"
+autostart = false
+
+[[manifest]]
+name = "every category is accepted"
+app = 'category = "accessories"'
+valid = true
+category = "accessories"
+
+[[manifest]]
+name = "development"
+app = 'category = "development"'
+valid = true
+category = "development"
+
+[[manifest]]
+name = "graphics"
+app = 'category = "graphics"'
+valid = true
+category = "graphics"
+
+[[manifest]]
+name = "internet"
+app = 'category = "internet"'
+valid = true
+category = "internet"
+
+[[manifest]]
+name = "office"
+app = 'category = "office"'
+valid = true
+category = "office"
+
+[[manifest]]
+name = "system"
+app = 'category = "system"'
+valid = true
+category = "system"
+
+[[manifest]]
+name = "utilities"
+app = 'category = "utilities"'
+valid = true
+category = "utilities"
+
+[[manifest]]
+name = "an unknown category is an error"
+app = 'category = "games"'
+valid = false
+error = "app.category"
+
+[[manifest]]
+name = "categories are lowercase"
+app = 'category = "Graphics"'
+valid = false
+error = "app.category"
+
+[[manifest]]
+name = "an empty category is an error"
+app = 'category = ""'
+valid = false
+error = "app.category"
+
+# --- [entry] autostart --------------------------------------------------------
+
+[[manifest]]
+name = "autostart true"
+entry = "autostart = true"
+valid = true
+autostart = true
+
+[[manifest]]
+name = "autostart false"
+entry = "autostart = false"
+valid = true
+autostart = false
+
+[[manifest]]
+name = "autostart must be a boolean"
+entry = 'autostart = "yes"'
+valid = false
+error = "autostart"
+
+[[manifest]]
+name = "autostart belongs in [entry], not [app]"
+app = "autostart = true"
+valid = false
+error = "autostart"
+
+[[manifest]]
+name = "an unknown field is still an error"
+entry = "autorun = true"
+valid = false
+error = "autorun"
+
+# --- [permissions] files ------------------------------------------------------
+
+[[manifest]]
+name = "an absolute rule"
+permissions = 'files = ["read:/data/apps/org.lazy.demo/data"]'
+valid = true
+
+[[manifest]]
+name = "$HOME as the first segment"
+permissions = 'files = ["read:$HOME/Documents/*", "write:$HOME/.apps/org.lazy.demo/data"]'
+valid = true
+
+[[manifest]]
+name = "absolute home paths are still accepted until the F5 cleanup"
+permissions = 'files = ["read:/home/*/pictures"]'
+valid = true
+
+[[manifest]]
+name = "$HOME alone names no path"
+permissions = 'files = ["read:$HOME"]'
+valid = false
+error = "is not a read:/write: absolute or $HOME/ path"
+
+[[manifest]]
+name = "$HOME with a trailing slash only"
+permissions = 'files = ["read:$HOME/"]'
+valid = false
+error = "is not a read:/write: absolute or $HOME/ path"
+
+[[manifest]]
+name = "$HOME glued to a name is not $HOME"
+permissions = 'files = ["read:$HOMEDIR/x"]'
+valid = false
+error = "is not a read:/write: absolute or $HOME/ path"
+
+[[manifest]]
+name = "$HOME after the first segment"
+permissions = 'files = ["read:/data/$HOME/x"]'
+valid = false
+error = "may use $HOME only as its first segment"
+
+[[manifest]]
+name = "$HOME twice"
+permissions = 'files = ["write:$HOME/$HOME/x"]'
+valid = false
+error = "may use $HOME only as its first segment"
+
+[[manifest]]
+name = "$HOME as a later segment's prefix"
+permissions = 'files = ["write:$HOME/a/$HOMEx"]'
+valid = false
+error = "may use $HOME only as its first segment"
+
+[[manifest]]
+name = "no dot-dot under $HOME"
+permissions = 'files = ["read:$HOME/../etc"]'
+valid = false
+error = "permissions.files"
+
+[[manifest]]
+name = "a relative path is an error"
+permissions = 'files = ["read:Documents"]'
+valid = false
+error = "permissions.files"
+
+[[manifest]]
+name = "an unknown verb is an error"
+permissions = 'files = ["exec:$HOME/bin"]'
+valid = false
+error = "permissions.files"
+
+# --- app.version --------------------------------------------------------------
+
+[[manifest]]
+name = "two components"
+version = "1.0"
+valid = true
+
+[[manifest]]
+name = "four components"
+version = "1.2.3.4"
+valid = true
+
+[[manifest]]
+name = "a pre-release"
+version = "2.0.0-rc.1"
+valid = true
+
+[[manifest]]
+name = "one component is not a version"
+version = "1"
+valid = false
+error = "app.version"
+
+[[manifest]]
+name = "a leading zero is not a version"
+version = "1.02.0"
+valid = false
+error = "app.version"
+
+[[manifest]]
+name = "build metadata is not supported"
+version = "1.0.0+abc"
+valid = false
+error = "app.version"
+
+# --- Versions on their own ----------------------------------------------------
+
+[versions]
+valid = [
+    "0.0",
+    "1.0",
+    "1.0.0",
+    "1.0.0.0",
+    "65535.65535.65535.65535",
+    "1.0.0-rc1",
+    "1.0.0-rc-1",
+    "1.0.0-alpha.1.beta",
+    "1.0-0",
+    "1.0-0abc",
+    "1.0-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+]
+# Each chain is strictly ascending.
+ascending = [
+    ["1.9", "1.10", "1.10.1", "2.0"],
+    ["0.9.9", "1.0.0-rc1", "1.0.0", "1.0.1"],
+    [
+        "1.0.0-alpha",
+        "1.0.0-alpha.1",
+        "1.0.0-alpha.beta",
+        "1.0.0-beta",
+        "1.0.0-beta.2",
+        "1.0.0-beta.11",
+        "1.0.0-rc.1",
+        "1.0.0",
+    ],
+    ["1.0.0-1", "1.0.0-2", "1.0.0-10", "1.0.0-a", "1.0.0-a.0"],
+    ["1.0.0-B", "1.0.0-a"],
+    ["1.0", "1.0.0.1", "1.0.1"],
+]
+# Each pair is equal (and so neither is lower).
+equal = [
+    ["1.0", "1.0.0"],
+    ["1.0", "1.0.0.0"],
+    ["1.0-rc1", "1.0.0-rc1"],
+    ["2.5.0", "2.5"],
+]
+
+# `reason` is the Display of the lazypkg::VersionError, which pkgmanifest.py
+# raises word for word.
+[[versions.invalid]]
+text = ""
+reason = "is empty or longer than 64 bytes"
+
+[[versions.invalid]]
+# 65 bytes: one over the limit (the 64-byte one below is valid).
+text = "1.0-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+reason = "is empty or longer than 64 bytes"
+
+[[versions.invalid]]
+text = "1"
+reason = "must have two to four numbers"
+
+[[versions.invalid]]
+text = "1.2.3.4.5"
+reason = "must have two to four numbers"
+
+[[versions.invalid]]
+text = "1..0"
+reason = "has a number that is not decimal below 65536 without a leading zero"
+
+[[versions.invalid]]
+text = "01.0"
+reason = "has a number that is not decimal below 65536 without a leading zero"
+
+[[versions.invalid]]
+text = "65536.0"
+reason = "has a number that is not decimal below 65536 without a leading zero"
+
+[[versions.invalid]]
+text = "1.0.x"
+reason = "has a number that is not decimal below 65536 without a leading zero"
+
+[[versions.invalid]]
+text = "v1.0"
+reason = "has a number that is not decimal below 65536 without a leading zero"
+
+[[versions.invalid]]
+text = "1.0 "
+reason = "has a number that is not decimal below 65536 without a leading zero"
+
+[[versions.invalid]]
+text = "1.0+build"
+reason = "has a number that is not decimal below 65536 without a leading zero"
+
+[[versions.invalid]]
+text = "1.0-"
+reason = "has a pre-release part that is not dot-separated [0-9A-Za-z-] identifiers"
+
+[[versions.invalid]]
+text = "1.0-rc..1"
+reason = "has a pre-release part that is not dot-separated [0-9A-Za-z-] identifiers"
+
+[[versions.invalid]]
+text = "1.0-rc_1"
+reason = "has a pre-release part that is not dot-separated [0-9A-Za-z-] identifiers"
+
+[[versions.invalid]]
+text = "1.0-01"
+reason = "has a pre-release part that is not dot-separated [0-9A-Za-z-] identifiers"
+
+[[versions.invalid]]
+text = "1.0-rc+1"
+reason = "has a pre-release part that is not dot-separated [0-9A-Za-z-] identifiers"

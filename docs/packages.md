@@ -102,13 +102,15 @@ error (never a panic). The document must be valid UTF-8 and at most 1 MiB.
 name = "Paint"                       # display name, 1..64 chars, no control chars
 system_name = "org.lazy.paint"       # reverse-DNS id; the install dir and security label derive from it
 author = "Valerian"                  # plain string, unverified, 1..128 chars
-version = "1.2.0"
+version = "1.2.0"                    # see "Versions" below
 description = "A tiny raster painter"   # optional, at most 1024 chars
+category = "graphics"                # optional menu group, default "accessories"
 
 [entry]
 binary = "bin/paint.elf"             # must exist in the archive
 args = []                            # optional list of strings, each at most 256 bytes, at most 16 of them
 abi = "native"                       # optional: "native" (default, a LazyOS program) or "linux" (a static musl program)
+autostart = false                    # optional: start the app when the user logs in (default false)
 
 [[mime]]                             # zero or more
 type = "image/png"
@@ -118,7 +120,7 @@ icon = "icons/png"                   # optional prefix: icons/png-16.png, -32 an
 [permissions]
 interfaces = ["os.lazy.clipboard.v1", "os.lazy.fs.reader.v1"]
 topics = ["publish:app/org.lazy.paint/#", "subscribe:system/events/open/+"]
-files = ["read:/home/*/pictures", "write:/home/*/pictures"]
+files = ["read:$HOME/Pictures/*", "write:$HOME/.apps/org.lazy.paint/*"]
 network = []                         # v1: empty or ["outbound"]
 ```
 
@@ -132,19 +134,64 @@ show them all at once.
 * **`system_name`** — reverse-DNS: lowercase ASCII letters, digits and `-`
   inside labels, labels separated by `.`, at least three labels, no label
   starting or ending with `-`, at most 128 bytes.
-* **`version`** — `MAJOR.MINOR.PATCH`, each part unsigned decimal below 65536.
+* **`version`** — a [version](#versions): two to four dot-separated numbers,
+  optionally followed by `-` and a pre-release (`1.2.0`, `1.2`, `2.0.0-rc.1`).
+* **`category`** — absent or one of `accessories`, `development`, `graphics`,
+  `internet`, `office`, `system`, `utilities` (lowercase). Absent means
+  `accessories`; anything else is an error. The menu groups apps by it.
 * **MIME `type`** — `type/subtype` using `[a-z0-9.+-]` only.
 * **`interfaces`** — each matches `[a-z0-9]+(\.[a-z0-9]+)*\.v[0-9]+`.
 * **`topics`** — `publish:` or `subscribe:` followed by `/`-separated segments
   of `[a-z0-9_.-]+`, `+`, or a final `#`.
-* **`files`** — `read:` or `write:` followed by an absolute path whose segments
-  are `[A-Za-z0-9_.-]+` or `*`, with no `..`.
+* **`files`** — `read:` or `write:` followed by a path whose segments are
+  `[A-Za-z0-9_.-]+` or `*`, with no `..`. The path is absolute (`/...`) or
+  starts with `$HOME/`, the home directory of the user running the app.
+  `$HOME` may only be the **first** segment: `read:$HOME/Documents/*` is fine,
+  `read:/x/$HOME/y`, `read:$HOME/$HOME/y` and a bare `read:$HOME` are errors.
+  An app's own per-user folder is `$HOME/.apps/<system_name>/`. Absolute paths
+  under a home directory (`/home/...`) are still accepted;
+  the F5 cleanup turns them into errors pointing at `$HOME` (one switch,
+  `REJECT_ABSOLUTE_HOME`, in `libs/lazypkg/src/files.rs` and
+  `tools/pkg/pkgmanifest.py`).
 * **`network`** — empty or exactly `["outbound"]`.
 * **`entry.abi`** — absent, `native` or `linux`. The ELF header cannot tell a LazyOS
   program from a static musl one (both are static x86_64 executables), so the
   package says which personality `init` must start it under (`spawnv`'s Linux personality).
+* **`entry.autostart`** — absent or a boolean, default `false`. A user package
+  that sets it shows "starts when you log in" on the consent screen and is
+  started only after consent.
 * **`entry.binary`** and every MIME `icon` prefix must resolve to files in the
   archive.
+
+### Versions
+
+`lazypkg::Version` (`libs/lazypkg/src/version.rs`) parses and orders versions;
+`tools/pkg/pkgmanifest.py` has the same rules.
+
+```text
+version  = core [ "-" pre ]
+core     = number ( "." number ){1,3}        two to four numbers
+number   = "0" | [1-9][0-9]*                 below 65536, no leading zero
+pre      = ident ( "." ident )*
+ident    = [0-9A-Za-z-]+                     an all-digit ident has no leading zero
+```
+
+A version is at most 64 bytes. There is no `+build` part. The ordering is
+semver's:
+
+* numbers compare as numbers: `1.10 > 1.9`;
+* a missing number counts as `0`, so **`1.0` and `1.0.0` are the same
+  version** (neither is an upgrade of the other), although the install
+  directory keeps the text as written;
+* a pre-release comes before its release: `1.0.0-rc1 < 1.0.0`;
+* two pre-releases compare identifier by identifier (semver §11): numbers as
+  numbers, other identifiers in ASCII order, numbers before other identifiers,
+  and a shorter list before a longer one that starts with it
+  (`1.0.0-alpha < 1.0.0-alpha.1 < 1.0.0-beta < 1.0.0-beta.2 < 1.0.0-beta.11 < 1.0.0-rc.1`).
+
+The manifest and version cases both validators must agree on live in
+`libs/lazypkg/tests/cases/manifest.toml`; `cargo test -p lazypkg` and
+`python tools/pkg/test_build.py` both run them. A new rule gets a case there.
 
 ---
 
@@ -168,6 +215,20 @@ impl<'a> Package<'a> {
 /// existence is not judged); `pkgd` uses it to rebuild an installed app's
 /// policy and MIME registrations at boot.
 pub fn parse_manifest(text: &str) -> Result<Manifest, ManifestError>;
+
+impl App {
+    pub fn category(&self) -> Category;              // absent: Category::Accessories
+    pub fn parsed_version(&self) -> Option<Version>; // Some for every validated manifest
+}
+// `Entry::autostart: bool` is a plain field (absent: false).
+
+pub enum Category { Accessories, Development, Graphics, Internet, Office, System, Utilities }
+pub struct Version { /* parsed text; Ord/Eq as in "Versions" above */ }
+impl Version {
+    pub fn parse(text: &str) -> Result<Version, VersionError>;
+    pub fn as_str(&self) -> &str;
+    pub fn prerelease(&self) -> Option<&str>;
+}
 ```
 
 `Package::open` returns either a fully validated package or an error; no
@@ -189,7 +250,7 @@ entry "bin/../x" contains a `.` or `..` component
 entry "bin/app.elf" differs only in case from another entry
 too many entries: 1025 (maximum 1024)
 the package expands to 67108864 bytes (maximum 67108864)
-manifest: app.system_name "Bad" is not a reverse-DNS name; app.version "1" must be ...
+manifest: app.system_name "Bad" is not a reverse-DNS name; app.version "1" must have two to four numbers
 ```
 
 Manifest problems are collected in `OpenError::Manifest(ManifestError)`, whose
@@ -285,7 +346,10 @@ interface name; a test fails when `idl/` declares an interface the table does
 not know): one entry per interface, topic, file rule and `network` entry, each
 with a risk (`low`/`medium`/`high`) and a one-sentence explanation. An interface
 the table does not know is `high`: "An interface this system does not know:
-<name>". At most 24 permission entries are allowed, so the consent screen can
+<name>". A file rule's risk depends on where it points: the app's own
+`$HOME/.apps/<system_name>/` folder is `low` to read or write; other personal
+data (anything else under `$HOME`, or under `/home`) is `low` to read and
+`medium` to write; anywhere else is `medium` to read and `high` to write. At most 24 permission entries are allowed, so the consent screen can
 list every one of them.
 
 `Install(path)` never trusts an earlier `Inspect`: it re-checks the caller,

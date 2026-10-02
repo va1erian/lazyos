@@ -562,6 +562,7 @@ name = "lazypkg"
 version = "0.1.0"
 dependencies = [
  "crc",
+ "fhs",
  "fuzzkit",
  "lazyos-crypto",
  "miniz_oxide",
