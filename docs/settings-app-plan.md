@@ -68,7 +68,7 @@ preset swatches plus RGB sliders. Registration: `xui-app/Cargo.toml`,
 2. **Runtime theme in xuid** (done): `libs/uitheme` + `xuid/themefeed.rs`; verified live by `tools/screenshot/examples/theme_live.json`. `GetTheme` reports `mode` and `accent` (done).
 3. **Keyboard** (done, UI only): `inputd` applies `sys/input/layout`.
 4. **App scaffold** (done): `xui-app/crates/settings` + `xui-settings` binary, `IconView` sidebar, registered in `tools/xui/build.py`, `build.rs`, `init/apps.rs`, `xuid/menu.rs`.
-5. **Sections** (done): Appearance, Windows (full `ColorPanel`), Keyboard, Menu, Time & Date, About.
+5. **Sections** (done): Appearance, Windows (full `ColorPanel`), Keyboard, Menu, Hidden apps, Time & Date, About. Hidden apps (issue #509) writes `user/<uid>/menu/hidden/<id>` per app over the machine default `sys/menu/hidden/<id>` (`libs/deskmenu/src/hidden.rs`); LazyShell leaves those apps out of the start menu, and they still launch and open files.
 6. **Polish** (done): animations toggle (`sys/ui/anim` gates `xuid`'s zoom), 12/24-hour and seconds, title contrast.
 7. **Open**: per-user themes (`user/<uid>/...`) need confd topic policy for `user/` paths first; the system-stat dashboards (sysmon, fabricmon) and the Terminal still paint a fixed light palette.
 
@@ -81,7 +81,7 @@ Verified by `tools/screenshot/examples/xui_settings.json` (serial markers `SETTI
 - Host: `cargo test --manifest-path xui-app/Cargo.toml --workspace --lib`, `cargo test -p confd -p uitheme -p timezone`.
 - Persistence: `fs_ext2_confd_store_*` run `confd` over the real ext2 driver (remount, a power cut at every write of a commit, a 120-generation soak with a block-leak check).
 - Kernel: `python tools/test/run.py --accel none`.
-- Visual: `tools/screenshot/examples/xui_settings.json` and `xui_settings_time.json` (zone, 12-hour clock with seconds, set time, light mode title contrast, animations off; serial `SETTINGS:MSG:Time(*)`) sessions; inspect PNGs, `pngstats.py`.
+- Visual: `tools/screenshot/examples/xui_settings.json` and `xui_settings_time.json` (zone, 12-hour clock with seconds, set time, light mode title contrast, animations off; serial `SETTINGS:MSG:Time(*)`) sessions; inspect PNGs, `pngstats.py`. `xui_settings_hidden.json` hides Paint, shows the start menu without it, then resets (serial `SETTINGS:MSG:Hidden(*)`).
 - CI: clippy `-D warnings`, `cargo fmt`, `midlc --check`.
 
 ## Open risks
