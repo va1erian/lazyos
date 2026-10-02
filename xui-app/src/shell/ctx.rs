@@ -9,7 +9,8 @@
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
-use lazyshell::menu::Menu;
+use deskmenu::hidden::{self, Hidden};
+use lazyshell::menu::{visible, Menu};
 use lazyshell::taskbar::{self, Taskbar, BAR_H};
 use lazyshell::{Entry, Rect};
 use xui_core::app::WindowHandle;
@@ -20,6 +21,10 @@ use super::taskbar::BarMsg;
 use super::theme::ThemeFeed;
 use crate::backend::LazyOSBackend;
 use crate::display::Client;
+
+/// Most hidden-app keys read per layer each time the menu opens: one confd
+/// read each, so a flood of keys cannot stall the menu.
+const MAX_HIDDEN_KEYS: usize = 64;
 
 /// What the pointer is over on the taskbar.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -181,16 +186,21 @@ impl Ctx {
         result
     }
 
-    /// Re-read the start menu: `sys/ui/menu` plus `init`'s installed apps.
+    /// Re-read the start menu: `sys/ui/menu` plus `init`'s installed apps,
+    /// minus the apps this user hides.
     pub fn reload_menu(&self) {
+        let hidden = self.hidden_apps();
         let stored = services::confd_get(deskmenu::KEY).ok().flatten();
-        let configured = deskmenu::from_value(stored.as_ref(), &|_| true);
+        let configured = visible(deskmenu::from_value(stored.as_ref(), &|_| true), &hidden);
         let apps = services::list_apps();
         let (installed, ids) = match &apps {
             Ok(apps) => (
-                lazyshell::menu::installed_entries(
-                    apps.iter()
-                        .map(|app| (app.id.as_str(), app.name.as_str(), app.installed)),
+                visible(
+                    lazyshell::menu::installed_entries(
+                        apps.iter()
+                            .map(|app| (app.id.as_str(), app.name.as_str(), app.installed)),
+                    ),
+                    &hidden,
                 ),
                 Some(apps.iter().map(|app| app.id.clone()).collect::<Vec<_>>()),
             ),
@@ -207,6 +217,28 @@ impl Ctx {
         };
         *self.menu.borrow_mut() = Menu::build(&installed, &configured, shipped, self.screen.1);
         self.menu_hover.set(None);
+    }
+
+    /// The apps this shell's user hides from the menu: their own
+    /// `user/<uid>/menu/hidden/*` over the machine's `sys/menu/hidden/*`.
+    /// Listing first means a session that hides nothing costs two calls.
+    /// Nothing is hidden when the uid or confd is unknown.
+    fn hidden_apps(&self) -> Hidden {
+        let Some(uid) = self.uid else {
+            return Hidden::default();
+        };
+        let mut pairs = Vec::new();
+        for prefix in [hidden::user_prefix(uid), String::from(hidden::SYS_PREFIX)] {
+            let Ok(keys) = services::confd_list(&prefix) else {
+                continue;
+            };
+            for key in keys.into_iter().take(MAX_HIDDEN_KEYS) {
+                if let Ok(Some(value)) = services::confd_get(&key) {
+                    pairs.push((key, value));
+                }
+            }
+        }
+        Hidden::from_pairs(uid, pairs.iter().map(|(key, value)| (key.as_str(), value)))
     }
 
     /// Re-read the desktop launchers; `true` when they changed.

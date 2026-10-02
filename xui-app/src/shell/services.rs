@@ -145,6 +145,28 @@ pub fn confd_get(key: &str) -> Result<Option<Value>, i64> {
     }
 }
 
+/// `confd.List(prefix)`: the readable paths under `prefix`; empty when confd
+/// refuses (a transport failure is an error, as for [`confd_get`]).
+pub fn confd_list(prefix: &str) -> Result<Vec<String>, i64> {
+    let body = confd_wire::encode_list_args(&confd_wire::ListArgs {
+        prefix: prefix.to_owned(),
+    })
+    .map_err(|_| -errno::EINVAL)?;
+    match call(
+        CONFD,
+        confd_wire::INTERFACE_ID,
+        confd_wire::METHOD_LIST,
+        body,
+        CONFD_TICKS,
+    ) {
+        Ok(reply) => confd_wire::decode_list_reply(&reply.body)
+            .map(|reply| reply.paths)
+            .map_err(|_| -errno::EINVAL),
+        Err(code) if is_transport(code) => Err(code),
+        Err(_) => Ok(Vec::new()),
+    }
+}
+
 /// `timed.GetZone`: the configured zone name.
 pub fn zone() -> Result<String, i64> {
     let reply = call(
