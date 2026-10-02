@@ -81,6 +81,11 @@ impl Service {
             return Err(err(errno::EINVAL));
         }
         let method = message.method();
+        // Exactly what `audio.midl` declares for the method, or nothing is
+        // adopted (`dispatch` closes the objects).
+        if !message.carries(wire::request_transfers(method)) {
+            return Err(err(errno::EINVAL));
+        }
         let body = &message.parcel.body;
         let reply = match method {
             wire::METHOD_INFO => self.info()?,
@@ -141,7 +146,7 @@ impl Service {
             }
             _ => return Err(err(errno::EINVAL)),
         };
-        Ok(api::parcel(method, reply, Vec::new()))
+        Ok(api::parcel(method, reply))
     }
 
     fn info(&self) -> Result<Vec<u8>> {

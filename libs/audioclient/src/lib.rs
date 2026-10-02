@@ -33,6 +33,7 @@ mod playback;
 mod tests;
 
 pub use client::{Client, MixerControl};
+pub use libmessenger::BufferDesc;
 pub use messenger_generated::os_lazy_audio_mixer_v1 as control_wire;
 pub use messenger_generated::os_lazy_audio_v1 as wire;
 pub use playback::{Params, PlaybackStream};
@@ -101,6 +102,43 @@ pub struct RingRef {
     pub len: u64,
 }
 
+impl RingRef {
+    /// The whole ring as a transferred buffer.
+    pub fn desc(self) -> BufferDesc {
+        BufferDesc {
+            handle: self.handle,
+            offset: 0,
+            len: self.len,
+            flags: 0,
+        }
+    }
+}
+
+/// What a request carries outside its body: the parcel's `handles` and
+/// `buffers`, as the method's `transfers (...)` clause in `audio.midl`
+/// declares them. Build it with the generated `encode_*_transfers`; every
+/// other request carries [`Transfers::NONE`].
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Transfers {
+    pub handles: alloc::vec::Vec<u64>,
+    pub buffers: alloc::vec::Vec<BufferDesc>,
+}
+
+impl Transfers {
+    /// A request with nothing outside its body.
+    pub const NONE: Transfers = Transfers {
+        handles: alloc::vec::Vec::new(),
+        buffers: alloc::vec::Vec::new(),
+    };
+}
+
+impl From<(alloc::vec::Vec<u64>, alloc::vec::Vec<BufferDesc>)> for Transfers {
+    /// The pair a generated `encode_*_transfers` returns.
+    fn from((handles, buffers): (alloc::vec::Vec<u64>, alloc::vec::Vec<BufferDesc>)) -> Self {
+        Transfers { handles, buffers }
+    }
+}
+
 /// A shared buffer this task writes samples into.
 pub trait RingBuffer {
     /// How a request names it.
@@ -123,15 +161,15 @@ pub trait Transport {
     type Ring: RingBuffer;
 
     /// Send one request and return the reply body. A service failure comes
-    /// back as [`Error::Errno`] with the service's errno. `ring`, when given,
-    /// travels as the request's first buffer. `deadline` is an absolute
-    /// [`Transport::now`] tick.
+    /// back as [`Error::Errno`] with the service's errno. `transfers` travel
+    /// in the parcel's `handles` and `buffers`, in order. `deadline` is an
+    /// absolute [`Transport::now`] tick.
     fn call(
         &self,
         interface: u64,
         method: u32,
         body: alloc::vec::Vec<u8>,
-        ring: Option<RingRef>,
+        transfers: Transfers,
         deadline: Option<u64>,
     ) -> Result<alloc::vec::Vec<u8>>;
 
@@ -153,10 +191,10 @@ impl<T: Transport + ?Sized> Transport for &T {
         interface: u64,
         method: u32,
         body: alloc::vec::Vec<u8>,
-        ring: Option<RingRef>,
+        transfers: Transfers,
         deadline: Option<u64>,
     ) -> Result<alloc::vec::Vec<u8>> {
-        (**self).call(interface, method, body, ring, deadline)
+        (**self).call(interface, method, body, transfers, deadline)
     }
 
     fn create_ring(&self, bytes: usize) -> Result<Self::Ring> {

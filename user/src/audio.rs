@@ -13,8 +13,8 @@
 use alloc::vec::Vec;
 use core::ptr;
 
-use audioclient::{Error, Result, RingBuffer, RingRef, Transport};
-use libmessenger::{BufferDesc, Header, Parcel, VERSION};
+use audioclient::{Error, Result, RingBuffer, RingRef, Transfers, Transport};
+use libmessenger::{Header, Parcel, VERSION};
 
 use crate::messenger::services::error_field;
 use crate::messenger::{registry, Endpoint, Error as MsgError};
@@ -85,19 +85,9 @@ impl Transport for Native {
         interface: u64,
         method: u32,
         body: Vec<u8>,
-        ring: Option<RingRef>,
+        transfers: Transfers,
         deadline: Option<u64>,
     ) -> Result<Vec<u8>> {
-        let buffers = ring
-            .map(|ring| {
-                alloc::vec![BufferDesc {
-                    handle: ring.handle,
-                    offset: 0,
-                    len: ring.len,
-                    flags: 0,
-                }]
-            })
-            .unwrap_or_default();
         let request = Parcel {
             header: Header {
                 version: VERSION,
@@ -109,8 +99,8 @@ impl Transport for Native {
                 deadline_ns: 0,
             },
             body,
-            buffers,
-            ..Parcel::default()
+            handles: transfers.handles,
+            buffers: transfers.buffers,
         };
         let reply = self.endpoint.call(&request, deadline).map_err(error_of)?;
         match error_field(&reply).map_err(error_of)? {

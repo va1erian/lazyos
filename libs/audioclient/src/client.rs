@@ -2,7 +2,9 @@
 
 use alloc::vec::Vec;
 
-use crate::{control_wire as control, wire, Error, Grant, Info, Result, RingRef, Transport};
+use crate::{
+    control_wire as control, wire, Error, Grant, Info, Result, RingRef, Transfers, Transport,
+};
 
 fn malformed<E>(_: E) -> Error {
     Error::Malformed
@@ -24,14 +26,14 @@ impl<T: Transport> Client<T> {
 
     fn call(&self, method: u32, body: Vec<u8>) -> Result<Vec<u8>> {
         self.transport
-            .call(wire::INTERFACE_ID, method, body, None, None)
+            .call(wire::INTERFACE_ID, method, body, Transfers::NONE, None)
     }
 
-    /// Send an arbitrary request (hostile-input tests): `body` and `ring` go
-    /// out as given.
-    pub fn raw(&self, method: u32, body: Vec<u8>, ring: Option<RingRef>) -> Result<Vec<u8>> {
+    /// Send an arbitrary request (hostile-input tests): `body` and
+    /// `transfers` go out as given, declared or not.
+    pub fn raw(&self, method: u32, body: Vec<u8>, transfers: Transfers) -> Result<Vec<u8>> {
         self.transport
-            .call(wire::INTERFACE_ID, method, body, ring, None)
+            .call(wire::INTERFACE_ID, method, body, transfers, None)
     }
 
     /// `Info()`.
@@ -63,11 +65,13 @@ impl<T: Transport> Client<T> {
             .grant)
     }
 
-    /// `AttachRing(stream)` with `ring` as the request's buffer.
+    /// `AttachRing(stream)` with `ring` as the request's `Ring<Samples>`.
     pub fn attach_ring(&self, stream: u32, ring: RingRef) -> Result<()> {
         let body =
             wire::encode_attach_ring_args(&wire::AttachRingArgs { stream }).map_err(malformed)?;
-        self.raw(wire::METHOD_ATTACHRING, body, Some(ring))
+        let transfers =
+            wire::encode_attach_ring_transfers(&wire::AttachRingTransfers { ring: ring.desc() });
+        self.raw(wire::METHOD_ATTACHRING, body, transfers.into())
             .map(|_| ())
     }
 
@@ -100,7 +104,13 @@ impl<T: Transport> Client<T> {
     pub fn drain(&self, stream: u32, deadline: Option<u64>) -> Result<()> {
         let body = wire::encode_drain_args(&wire::DrainArgs { stream }).map_err(malformed)?;
         self.transport
-            .call(wire::INTERFACE_ID, wire::METHOD_DRAIN, body, None, deadline)
+            .call(
+                wire::INTERFACE_ID,
+                wire::METHOD_DRAIN,
+                body,
+                Transfers::NONE,
+                deadline,
+            )
             .map(|_| ())
     }
 
@@ -145,7 +155,7 @@ impl<T: Transport> MixerControl<T> {
 
     fn call(&self, method: u32, body: Vec<u8>) -> Result<Vec<u8>> {
         self.transport
-            .call(control::INTERFACE_ID, method, body, None, None)
+            .call(control::INTERFACE_ID, method, body, Transfers::NONE, None)
     }
 
     /// Every open stream.

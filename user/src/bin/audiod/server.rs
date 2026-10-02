@@ -9,6 +9,7 @@ use alloc::vec::Vec;
 
 use audiomix::service::{self, errno as mix_errno, Outcome, Request};
 use audiomix::{Config, Mixer};
+use messenger_generated::transfers::Transfers;
 use user::messenger::audio::{self as api, wire};
 use user::messenger::{services, Endpoint, Error as MsgError, Message, Parcel};
 use user::sys;
@@ -68,9 +69,16 @@ impl Server {
     pub(super) fn dispatch(&mut self, message: &Message) -> Option<Parcel> {
         let interface = message.interface_id();
         let method = message.method();
-        // Only a method that declares a buffer in `audio.midl` adopts one.
-        let wants_ring = interface == api::INTERFACE && wire::request_transfers(method).buffers > 0;
-        let ring = take_ring(message, wants_ring);
+        // A request carries exactly what its method declares in `audio.midl`
+        // (only `AttachRing`'s `Ring<Samples>`); anything else is closed and
+        // the request refused, so nothing undeclared crosses into the mixer.
+        let declared = declared_transfers(interface, method);
+        if !message.carries(declared) {
+            let _ = take_ring(message, false);
+            close_endpoint(message);
+            return Some(error_parcel(interface, method, mix_errno::EINVAL));
+        }
+        let ring = take_ring(message, declared.buffers > 0);
         close_endpoint(message);
         let outcome = service::handle(
             self.mixer.as_mut(),
@@ -216,6 +224,16 @@ impl Server {
 /// The error reply carrying `code` (a positive errno).
 fn error_parcel(interface: u64, method: u32, code: i64) -> Parcel {
     services::error_reply(interface, method, MsgError::Errno(-code))
+}
+
+/// What a request to `interface` declares outside its body: the playback
+/// interface's `transfers` clauses; the mixer control interface has none.
+fn declared_transfers(interface: u64, method: u32) -> Transfers {
+    if interface == api::INTERFACE {
+        wire::request_transfers(method)
+    } else {
+        api::control_wire::request_transfers(method)
+    }
 }
 
 /// The request's ring, mapped, when it is an `AttachRing` that carried one.

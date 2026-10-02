@@ -13,6 +13,8 @@ path = "src/lib.rs"
 [dependencies]
 # The `midlc`-generated codecs: no protocol constant is written by hand here.
 messenger-generated = { path = "../generated" }
+# `BufferDesc`: how a request names a transferred buffer.
+libmessenger = { path = "../messenger" }
 
 [dev-dependencies]
 # The host tests run the client against the real mixer engine and wire layer.
