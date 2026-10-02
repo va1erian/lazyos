@@ -16,8 +16,9 @@ pub fn soak_spawn_exit_cycles() -> Result<(), String> {
         let forked = task::spawn_child("fork", &service_suite::minimal_elf())
             .map_err(|e| format!("generation {generation}: fork: {e}"))?;
         task::harness::switch_current(forked);
-        let args = format!("--gen {generation}");
-        let program = native::spawn(fhs::bin::TOP, &service_suite::minimal_elf(), &args)
+        let generation_arg = format!("{generation}");
+        let argv = ["top", "--gen", &generation_arg];
+        let program = native::spawn(fhs::bin::TOP, &service_suite::minimal_elf(), &argv)
             .map_err(|e| format!("generation {generation}: spawn errno {e}"))?;
         let want = if generation.is_multiple_of(2) {
             generation & 0x7f

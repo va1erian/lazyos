@@ -138,7 +138,7 @@ pub(crate) fn app_selftest() {
     // The foreign-session probe runs in a short-lived child (see
     // [`probe_role`]): a task that has dropped to uid 1000 cannot regain
     // root, so this console task must not be the one that self-transitions.
-    match sys::spawn(&user::cmdline::native(fhs::bin::MESSENGERCTL, "probe")) {
+    match sys::spawn_native(fhs::bin::MESSENGERCTL, &["probe"]) {
         Some(pid) => reap_probe(pid),
         None => sys::write_str("MSGCTL:LAUNCH:DENIED:FAIL could not spawn the probe\n"),
     }

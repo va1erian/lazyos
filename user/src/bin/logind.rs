@@ -163,7 +163,7 @@ fn prompt_login(
     };
     let pid = match desktop {
         Some(pid) => pid,
-        None => match spawn_console_shell(&user.shell, user.uid, user.gid, id) {
+        None => match spawn_console_shell(&user, id) {
             Some(pid) => pid,
             None => {
                 deny(bus, &name, "spawn-failed");
@@ -200,15 +200,24 @@ fn prompt_login(
 }
 
 /// Spawn the user's console shell stamped with the session's credentials.
-/// The passwd shell field is the bare `sh` (issue #254): prefixing it with
-/// `linux:` selects the Linux ABI, and the kernel aliases `sh` to the shipped
-/// BusyBox. No arguments are passed (the session identity is already
-/// kernel-stamped, and BusyBox would treat a trailing word as a script name).
-fn spawn_console_shell(shell: &str, uid: u32, gid: u32, session: u64) -> Option<u64> {
-    let cred = Cred::new(uid, gid, SESSION_CAPS, 0, session);
-    let mut command = format!("linux:{shell}").into_bytes();
-    command.push(0);
-    sys::spawn_as(&command, &cred)
+/// The passwd shell field is the bare `sh` (issue #254): the Linux personality
+/// makes the kernel alias `sh` to the shipped BusyBox. `argv` is the shell
+/// alone (the session identity is already kernel-stamped, and BusyBox would
+/// treat a trailing word as a script name); the environment names the user
+/// and their home directory from the account record.
+fn spawn_console_shell(user: &accounts::UserRecord, session: u64) -> Option<u64> {
+    let cred = Cred::new(user.uid, user.gid, SESSION_CAPS, 0, session);
+    let home = format!("HOME={}", user.home);
+    let name = format!("USER={}", user.name);
+    let shell = user.shell.as_str();
+    sys::spawnv(
+        shell,
+        &[shell],
+        &[&home, &name],
+        sys::Personality::Linux,
+        sys::SpawnCred::As(cred),
+    )
+    .ok()
 }
 
 /// Record a refused attempt, print its serial marker, and rate-limit the next

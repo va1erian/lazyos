@@ -23,8 +23,7 @@ pub const SYS_READ_FILE: u64 = 3;
 pub const SYS_SBRK: u64 = 4;
 /// `messenger(op, args, result)` — the native Messenger surface (issue #69).
 pub const SYS_MESSENGER: u64 = 5;
-/// `spawn(cmdline)` — start an ELF as a child of the caller (issue #93).
-pub const SYS_SPAWN: u64 = 6;
+// 6 was `spawn(cmdline)`, the command-line spawn; `spawnv` replaced it (fs F3).
 /// `wait(deadline)` — reap a child exit, packing `(pid << 32) | status`.
 pub const SYS_WAIT: u64 = 7;
 /// `clock()` — the PIT tick counter (100 Hz), absolute deadlines.
@@ -166,29 +165,6 @@ pub fn exit(code: u32) -> ! {
             clobber_abi("sysv64"),
         );
     }
-}
-
-/// Start the program named by a **NUL-terminated** command line
-/// (`"PATH.ELF [args...]"`) as a child of the calling task. Returns the child's
-/// pid (its task slot), or `None` when the file is missing or no resource is
-/// free. The kernel splits the arguments on whitespace into the `argv` block
-/// [`args`] reads ([`service_args`] joins them back). Prefer [`spawnv`].
-pub fn spawn(cmdline_z: &[u8]) -> Option<u64> {
-    let pid: u64;
-    // Safety: `int 0x80` with syscall 6 and a valid NUL-terminated buffer.
-    unsafe {
-        asm!(
-            "int 0x80",
-            in("rax") SYS_SPAWN,
-            in("rdi") cmdline_z.as_ptr() as u64,
-            lateout("rax") pid,
-            lateout("rcx") _,
-            lateout("r11") _,
-            options(nostack),
-            clobber_abi("sysv64"),
-        );
-    }
-    (pid != SERVICE_ERROR).then_some(pid)
 }
 
 /// Wait for a child exit and reap it, up to the absolute PIT `deadline`

@@ -216,7 +216,7 @@ pub fn user_ptr_edge_cases() -> Result<(), String> {
 }
 
 /// An unterminated path that reaches the native-string cap is refused by
-/// [`process::user_cstr`], the helper `sys_read_file`/`sys_spawn` read their
+/// [`process::user_cstr`], the helper `sys_read_file` (and the other path syscalls) read their
 /// path through. Before the fix it returned the truncated prefix, which the
 /// syscalls then resolved as a different path.
 pub fn unterminated_path_is_refused() -> Result<(), String> {

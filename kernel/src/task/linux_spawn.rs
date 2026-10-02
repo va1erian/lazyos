@@ -1,8 +1,7 @@
 //! Creating Linux-ABI tasks from a static ELF image: the kernel's own
 //! start-up path ([`spawn_linux`]) and the supervised-child path
-//! ([`spawn_linux_child`], [`spawn_linux_child_env`]) that `spawn`/
-//! credentialed-`spawn` take for a `linux:` command line
-//! (`process::spawn_line`) and `spawnv` for the Linux personality.
+//! ([`spawn_linux_child`], [`spawn_linux_child_env`]) that `spawnv` takes for
+//! the Linux personality.
 //!
 //! Split out of `task/mod.rs` so the two variants share one body instead of
 //! growing that file.
@@ -32,6 +31,8 @@ pub fn spawn_linux_args(
 /// This is how the userspace `init` supervises a musl program (a desktop app):
 /// the child inherits the supervisor's credentials, process group and session,
 /// and its exit is reaped with `reap_child` exactly like a native child.
+/// The harness's `&str` shorthand; `spawnv` uses [`spawn_linux_child_env`].
+#[cfg(lazyos_tests)]
 pub fn spawn_linux_child(
     name: &'static str,
     elf: &[u8],

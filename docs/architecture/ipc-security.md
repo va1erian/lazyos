@@ -46,7 +46,7 @@ audit ring, and per-uid quotas. Spec: [security-model.md](../security-model.md).
   bytes of `[a-z0-9.:-]`, either `app:<reverse.dns.name>` or `system:<name>`,
   256 labels, append-only (`0` = unlabelled; a full table refuses new labels
   rather than evicting). The label is write-once: `LabelStamp::Assign` (the
-  labelled spawn, syscall 10 op 3) sets it on a new child for an unlabelled
+  labelled spawn, `spawnv` with `AsLabelled`) sets it on a new child for an unlabelled
   `CAP_SETUID` creator; every other stamp is `LabelStamp::Keep` and fails with
   `TransitionError::LabelLocked` if it would change it. Children inherit their
   creator's label, so an app's helpers stay in its sandbox.

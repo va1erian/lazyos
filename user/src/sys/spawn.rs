@@ -32,12 +32,14 @@ pub enum Personality {
 pub enum SpawnCred<'a> {
     /// The caller's own credentials.
     Inherit,
-    /// Stamped with this credential before it runs (`CAP_SETUID`, never wider
-    /// than the caller), as [`super::spawn_as`] does.
+    /// Stamped with this credential before it can run an instruction
+    /// (`CAP_SETUID`, never wider than the caller): the login path, a shell
+    /// that owns its user's identity from the start.
     As(Cred),
-    /// Stamped with the credential and the label string, as
-    /// [`super::spawn_as_labelled`] does (the credential's `label_id` is
-    /// ignored).
+    /// Stamped with the credential and the label string (`app:<name>` or
+    /// `system:<name>`, interned by the kernel; the credential's `label_id`
+    /// is ignored). Only an unlabelled `CAP_SETUID` holder (or one already in
+    /// that label) may, and a label never changes afterwards.
     AsLabelled(Cred, &'a str),
 }
 
@@ -110,6 +112,25 @@ pub fn spawnv(
     } else {
         Ok(code as u64)
     }
+}
+
+/// [`spawnv`] of the native program at `program`, inheriting this task's
+/// credentials, with no environment: `argv` is `program` then `args`. Returns
+/// the child's pid, or `None` when the program could not be started.
+pub fn spawn_native(program: &str, args: &[&str]) -> Option<u64> {
+    spawn_inherit(program, args, Personality::Native)
+}
+
+/// [`spawn_native`] for a static Linux-ABI (musl) program.
+pub fn spawn_linux(program: &str, args: &[&str]) -> Option<u64> {
+    spawn_inherit(program, args, Personality::Linux)
+}
+
+fn spawn_inherit(program: &str, args: &[&str], personality: Personality) -> Option<u64> {
+    let argv: Vec<&str> = core::iter::once(program)
+        .chain(args.iter().copied())
+        .collect();
+    spawnv(program, &argv, &[], personality, SpawnCred::Inherit).ok()
 }
 
 /// Each string followed by a NUL.

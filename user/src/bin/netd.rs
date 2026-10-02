@@ -79,28 +79,46 @@ const DEMO_ADDRESS_TICKS: u64 = 2000;
 /// servers on the gateway (`tools/net/run.py`): TCP 47771, UDP 47772, an FTP
 /// server on 47780, and a guest listener on 47773 the harness reaches through
 /// a port forward. Each is `(Linux personality, program, arguments)`.
-const DEMO_CLIENTS: [(bool, &str, &str); 14] = [
-    (false, fhs::bin::NETCTL, ""),
-    (false, fhs::bin::PING, "10.0.2.2 4"),
-    (false, fhs::bin::NETCTL, "probe=1"),
-    (false, fhs::bin::NETCTL, "soak=40"),
-    (false, fhs::bin::NSLOOKUP, "localhost"),
-    (false, fhs::bin::NC, "-x 10.0.2.2 47771 hello from lazyos"),
-    (false, fhs::bin::NC, "-x -g 200000 10.0.2.2 47771"),
-    (false, fhs::bin::NC, "-x -u 10.0.2.2 47772 a datagram"),
-    (false, fhs::bin::NETCTL, "sockprobe=1"),
-    (false, fhs::bin::NETCTL, "socksoak=40"),
+const DEMO_CLIENTS: [(bool, &str, &[&str]); 14] = [
+    (false, fhs::bin::NETCTL, &[]),
+    (false, fhs::bin::PING, &["10.0.2.2", "4"]),
+    (false, fhs::bin::NETCTL, &["probe=1"]),
+    (false, fhs::bin::NETCTL, &["soak=40"]),
+    (false, fhs::bin::NSLOOKUP, &["localhost"]),
+    // The text is one `argv` item; `nc` reads its arguments joined.
+    (
+        false,
+        fhs::bin::NC,
+        &["-x", "10.0.2.2", "47771", "hello from lazyos"],
+    ),
+    (
+        false,
+        fhs::bin::NC,
+        &["-x", "-g", "200000", "10.0.2.2", "47771"],
+    ),
+    (
+        false,
+        fhs::bin::NC,
+        &["-x", "-u", "10.0.2.2", "47772", "a datagram"],
+    ),
+    (false, fhs::bin::NETCTL, &["sockprobe=1"]),
+    (false, fhs::bin::NETCTL, &["socksoak=40"]),
     (
         false,
         fhs::bin::FTP,
-        "10.0.2.2:47780 user=lazy pass=os pwd ; cd pub ; cd / ; ls ; get hello.txt ! ; \
-         get big.bin ! ; put -g 150000 up.bin ; size up.bin ; get up.bin ! ; quit",
+        &[
+            "10.0.2.2:47780",
+            "user=lazy",
+            "pass=os",
+            "pwd ; cd pub ; cd / ; ls ; get hello.txt ! ; get big.bin ! ; \
+             put -g 150000 up.bin ; size up.bin ; get up.bin ! ; quit",
+        ],
     ),
-    (false, fhs::bin::NC, "-l -x -w 20 47773"),
-    (false, fhs::bin::NETCTL, "sockets"),
+    (false, fhs::bin::NC, &["-l", "-x", "-w", "20", "47773"]),
+    (false, fhs::bin::NETCTL, &["sockets"]),
     // A Linux `std::net` program over the kernel's `AF_INET` shim (stage N5),
     // when the image has the fixture; it listens on 47774 for the harness.
-    (true, fhs::bin::NETFIX, ""),
+    (true, fhs::bin::NETFIX, &[]),
 ];
 
 struct Args {
@@ -357,12 +375,11 @@ fn run_demo(netd: &Netd, child: &mut Option<u64>, next: &mut usize, waited_enoug
         }
     } else if *next < DEMO_CLIENTS.len() && (netd.stack.state().addr.is_some() || waited_enough) {
         let (linux, program, args) = DEMO_CLIENTS[*next];
-        let line = if linux {
-            user::cmdline::linux(program, args)
+        let pid = if linux {
+            sys::spawn_linux(program, args)
         } else {
-            user::cmdline::native(program, args)
+            sys::spawn_native(program, args)
         };
-        let pid = sys::spawn(&line);
         match pid {
             Some(pid) => sys::write_str(&format!("NETD:DEMO:SPAWN pid={pid}\n")),
             None => sys::write_str("NETD:DEMO:SPAWN failed (client missing?)\n"),

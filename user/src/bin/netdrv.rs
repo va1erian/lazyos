@@ -65,11 +65,11 @@ use service::Service;
 
 /// The evidence clients `demo=1` runs, one after another, once the service is
 /// up. See `user/src/bin/nicctl.rs`.
-const DEMO_CLIENTS: [(&str, &str); 4] = [
-    (fhs::bin::NICCTL, ""),
-    (fhs::bin::NICCTL, "arp"),
-    (fhs::bin::NICCTL, "probe=1"),
-    (fhs::bin::NICCTL, "soak=40"),
+const DEMO_CLIENTS: [(&str, &[&str]); 4] = [
+    (fhs::bin::NICCTL, &[]),
+    (fhs::bin::NICCTL, &["arp"]),
+    (fhs::bin::NICCTL, &["probe=1"]),
+    (fhs::bin::NICCTL, &["soak=40"]),
 ];
 
 /// Ticks the self-test waits for an interrupt message after its exchange.
@@ -309,7 +309,7 @@ fn run_demo(child: &mut Option<u64>, next: &mut usize) {
         }
     } else if *next < DEMO_CLIENTS.len() {
         let (program, args) = DEMO_CLIENTS[*next];
-        let pid = sys::spawn(&user::cmdline::native(program, args));
+        let pid = sys::spawn_native(program, args);
         match pid {
             Some(pid) => sys::write_str(&format!("NETDRV:DEMO:SPAWN pid={pid}\n")),
             None => sys::write_str(&format!(

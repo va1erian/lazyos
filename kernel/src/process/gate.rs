@@ -9,7 +9,7 @@ use x86_64::structures::idt::HandlerFunc;
 
 use super::{
     argstore::sys_args, exit, fsops, spawnv::sys_spawnv, sys_clock, sys_creds, sys_quota,
-    sys_read_char, sys_read_file, sys_sbrk, sys_spawn, sys_tasks, sys_wait, sys_write,
+    sys_read_char, sys_read_file, sys_sbrk, sys_tasks, sys_wait, sys_write,
 };
 use crate::task;
 
@@ -87,8 +87,9 @@ extern "C" fn syscall_dispatch(regs: *mut Regs) {
         // 5: the native Messenger surface (issue #69): `rdi` is the op code,
         // `rsi` points at a `MsgArgs` block and `rdx` at a `MsgResult` block.
         5 => crate::ipc::syscalls::dispatch(regs.rdi, regs.rsi, regs.rdx),
-        // 6..9: the service supervision surface (issue #93).
-        6 => sys_spawn(regs.rdi),
+        // 6..9: the service supervision surface (issue #93). 6 was the
+        // command-line `spawn`, retired for `spawnv` (30, fs F3): it falls
+        // through to the unknown-syscall failure.
         7 => sys_wait(regs.rdi),
         8 => sys_clock(),
         // 9: `args(buf, len, which)`, the caller's argv/envp block.
@@ -155,7 +156,6 @@ pub fn dispatch_for_test(nr: u64, a1: u64, a2: u64, a3: u64) -> u64 {
         3 => sys_read_file(a1, a2, a3),
         4 => sys_sbrk(a1),
         5 => crate::ipc::syscalls::dispatch(a1, a2, a3),
-        6 => sys_spawn(a1),
         7 => sys_wait(a1),
         8 => sys_clock(),
         9 => sys_args(a1, a2, a3),

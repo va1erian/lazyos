@@ -160,7 +160,6 @@ mod sched_suite;
 mod service_suite;
 mod signal_suite;
 mod slab_suite;
-mod spawn_argv_suite;
 mod spawn_suite;
 mod spurious_fault_suite;
 mod stats_suite;
@@ -241,7 +240,6 @@ const SUITE: &[&[(&str, Test)]] = &[
     topics_suite::CASES,
     topics_gate_suite::CASES,
     service_suite::CASES,
-    spawn_argv_suite::CASES,
     spawn_suite::CASES,
     native_exec_suite::CASES,
     exec_perm_suite::CASES,

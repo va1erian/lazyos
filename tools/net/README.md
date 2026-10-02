@@ -174,7 +174,7 @@ server's own record of commands and transfers; see `docs/architecture/networking
 
 `run.py --netd` first builds the Linux fixtures (`tools/abi/build.py`; on a host without `cc` it links with
 `rust-lld`) and embeds `netfix` in the image as `/system/bin/netfix`; without a musl toolchain the N5 checks are
-skipped. `netd demo=1` runs it as `linux:/system/bin/netfix`: `std::net` only, no libc extras. It needs the harness
+skipped. `netd demo=1` runs `/system/bin/netfix` under the Linux personality: `std::net` only, no libc extras. It needs the harness
 (the echo servers, and a second port forward to its listener on guest port 47774), so it is not part of
 `tools/abi/run.py`. The capture adds 3 TCP flows and 22 datagram echoes to the totals of stage N3, and a
 second inbound connection of 100 000 bytes. The kernel's side is tested without a network:

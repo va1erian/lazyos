@@ -278,7 +278,7 @@ fn demo_from_args() -> bool {
 /// Spawn the `confctl` self-test as a child of this service; returns how many
 /// children are outstanding (0 or 1).
 fn spawn_demo() -> u64 {
-    match sys::spawn(&user::cmdline::native(DEMO_PROGRAM.0, DEMO_PROGRAM.1)) {
+    match sys::spawn_native(DEMO_PROGRAM.0, &[DEMO_PROGRAM.1]) {
         Some(pid) => {
             sys::write_str(&format!("CONFD:CTL:START pid={pid}\n"));
             1

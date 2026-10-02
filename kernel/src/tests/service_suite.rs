@@ -90,56 +90,40 @@ pub fn spawn_child_rejects_bad_image() -> Result<(), String> {
     Ok(())
 }
 
-/// The native `spawn` syscall refuses a missing program with `u64::MAX`
-/// (the test harness boots before `fs::init`, so every name is missing).
-pub fn spawn_unknown_file_fails() -> Result<(), String> {
-    fresh();
-    static MISSING: &[u8] = b"/system/bin/nosuch\0";
-    let packed = process::dispatch_for_test(6, MISSING.as_ptr() as u64, 0, 0);
-    check!(
-        packed == u64::MAX,
-        "spawn of a missing file returned {packed:#x}"
-    );
-    Ok(())
+/// `spawnv` (syscall 30) of `path` with `argv` `[path]` under the given
+/// personality, inheriting the caller's credentials.
+fn spawnv(path: &str, linux: bool) -> u64 {
+    use crate::process::spawnv::{personality, REQ_WORDS};
+    let argv: Vec<u8> = path.bytes().chain([0]).collect();
+    let mut words = [0u64; REQ_WORDS];
+    words[..5].copy_from_slice(&[
+        path.as_ptr() as u64,
+        path.len() as u64,
+        argv.as_ptr() as u64,
+        argv.len() as u64,
+        1,
+    ]);
+    words[8] = if linux {
+        personality::LINUX
+    } else {
+        personality::NATIVE
+    };
+    process::dispatch_for_test(30, words.as_ptr() as u64, 0, 0)
 }
 
-/// The `linux:` prefix selects the Linux ABI; everything else is the native
-/// default. Malformed lines name no program.
-pub fn spawn_line_parses_personality() -> Result<(), String> {
-    use crate::process::spawn_line::{parse, SpawnLine};
-    let native = parse("  /system/bin/top a b  ");
+/// A native `spawnv` refuses a missing program with `-ENOENT` (the test
+/// harness boots before `fs::init`, so every name is missing), and the
+/// retired command-line `spawn` (syscall 6) is an unknown syscall.
+pub fn spawn_unknown_file_fails() -> Result<(), String> {
+    fresh();
+    let code = spawnv("/system/bin/nosuch", false);
     check!(
-        native
-            == Some(SpawnLine {
-                linux: false,
-                path: fhs::bin::TOP,
-                args: "a b"
-            }),
-        "native line parsed as {native:?}"
+        code == (2u64).wrapping_neg(),
+        "spawn of a missing file returned {code:#x}"
     );
-    let linux = parse("linux:/system/bin/terminal --client attempt=1");
-    check!(
-        linux
-            == Some(SpawnLine {
-                linux: true,
-                path: fhs::bin::TERMINAL,
-                args: "--client attempt=1"
-            }),
-        "linux line parsed as {linux:?}"
-    );
-    let spaced = parse("linux:  /system/bin/sysmon");
-    check!(
-        spaced
-            == Some(SpawnLine {
-                linux: true,
-                path: fhs::bin::SYSMON,
-                args: ""
-            }),
-        "linux line with spacing parsed as {spaced:?}"
-    );
-    for empty in ["", "   ", "linux:", "linux:   "] {
-        check!(parse(empty).is_none(), "{empty:?} parsed as a program");
-    }
+    static LINE: &[u8] = b"/system/bin/nosuch\0";
+    let retired = process::dispatch_for_test(6, LINE.as_ptr() as u64, 0, 0);
+    check!(retired == u64::MAX, "syscall 6 answered {retired:#x}");
     Ok(())
 }
 
@@ -185,15 +169,14 @@ pub fn spawn_linux_child_rejects_bad_image() -> Result<(), String> {
     Ok(())
 }
 
-/// The `linux:` spawn path refuses a missing file like the native one.
+/// The Linux personality refuses a missing file like the native one.
 pub fn spawn_linux_unknown_file_fails() -> Result<(), String> {
     fresh();
     // Dotted, so it is not applet-shaped: the BusyBox alias cannot claim it.
-    static MISSING: &[u8] = b"linux:/system/bin/no.such --client\0";
-    let packed = process::dispatch_for_test(6, MISSING.as_ptr() as u64, 0, 0);
+    let code = spawnv("/system/bin/no.such", true);
     check!(
-        packed == u64::MAX,
-        "linux spawn of a missing file returned {packed:#x}"
+        code == (2u64).wrapping_neg(),
+        "linux spawn of a missing file returned {code:#x}"
     );
     Ok(())
 }
@@ -391,10 +374,6 @@ pub(super) const CASES: &[(&str, Test)] = &[
         spawn_child_rejects_bad_image,
     ),
     ("service_spawn_unknown_file_fails", spawn_unknown_file_fails),
-    (
-        "service_spawn_line_parses_personality",
-        spawn_line_parses_personality,
-    ),
     (
         "service_spawn_linux_child_is_supervised",
         spawn_linux_child_is_supervised,

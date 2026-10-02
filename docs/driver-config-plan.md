@@ -167,7 +167,7 @@ compromised administrator key cannot make `devd` spawn an arbitrary program as
   ignores anything else. Add `devd` with its static binding table and a
   `sys/dev/policy/**` filter; add the `_net` manifest row with
   `deps: ["messengerd", "devd"]` and a per-row identity (`init` already keeps a
-  `spawn_as` credential per launched service; the manifest needs the field).
+  `spawnv` (`SpawnCred::As`) credential per launched service; the manifest needs the field).
   Publish `system/devices/<id>` from `devd`.
 - **#242 (virtio-snd and hardening):** read the `audio/<drv>/*` keys through the
   same helper; live-apply `volume_pct`, restart on period or format change with

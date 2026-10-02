@@ -15,7 +15,7 @@ use super::apps::{find_app, is_available};
 use super::installed::{report_label, InstalledApp, InstalledApps};
 use super::sessions;
 use super::state::{Phase, Service, CAP_SETUID, LAUNCH_CAP_PER_SESSION, SESSION_CAPS};
-use super::supervise::{command_line, publish_state};
+use super::supervise::{publish_state, spawn_row};
 
 /// The kernel-stamped actor for a message: the supervisor runs as root, so it
 /// holds `CAP_SETUID` and may read another task's credential block (the same
@@ -96,32 +96,26 @@ fn lookup_session_uid(session: u64) -> messenger::Result<u32> {
         .ok_or(messenger::Error::Errno(-messenger::errno::ENOENT))
 }
 
-/// The most bytes of a launch path argument (the kernel's command line is
-/// bounded at 4096 bytes; the ELF name, fixed args and quotes need room).
+/// The most bytes of a launch path argument (the kernel's `argv` block is
+/// bounded at 4096 bytes; the program path and fixed args need room).
 pub(super) const MAX_LAUNCH_PATH: usize = 1024;
 
-/// Validate the request's `args` and return the text appended to the app's
-/// fixed arguments. The only accepted form is one absolute path: it must
-/// start with `/`, be at most [`MAX_LAUNCH_PATH`] bytes and contain no NUL,
-/// control character or `"`. The result is one `argv` item: a path containing
-/// whitespace is wrapped in double quotes (the kernel's spawn splits on
-/// whitespace and keeps a quoted token whole), so there is no shell splitting
-/// and no way to smuggle a second argument. Empty `args` add nothing.
-pub(super) fn launch_path_arg(args: &str) -> messenger::Result<String> {
+/// Validate the request's `args`: empty (no argument) or one absolute path,
+/// starting with `/`, at most [`MAX_LAUNCH_PATH`] bytes, with no NUL or other
+/// control character. The path becomes exactly one `argv` item after the
+/// app's fixed arguments (`spawnv` splits nothing), so spaces and quotes are
+/// kept and there is no way to smuggle a second argument.
+pub(super) fn launch_argument(args: &str) -> messenger::Result<Option<String>> {
     if args.is_empty() {
-        return Ok(String::new());
+        return Ok(None);
     }
     let valid = args.len() <= MAX_LAUNCH_PATH
         && args.starts_with('/')
-        && !args.chars().any(|c| c.is_control() || c == '"');
+        && !args.chars().any(char::is_control);
     if !valid {
         return Err(messenger::Error::Errno(-messenger::errno::EINVAL));
     }
-    if args.contains(char::is_whitespace) {
-        Ok(format!("\"{args}\""))
-    } else {
-        Ok(args.to_string())
-    }
+    Ok(Some(args.to_string()))
 }
 
 /// Launch an app as a supervised child of this task (issue #158).
@@ -162,14 +156,14 @@ fn admit(
     request: &services::LaunchRequest,
     caller: &SysCred,
     autostart: bool,
-) -> messenger::Result<(String, SysCred, u64)> {
+) -> messenger::Result<(Option<String>, SysCred, u64)> {
     let target_session = if request.session == 0 {
         caller.session
     } else {
         request.session
     };
     authorize(caller, target_session)?;
-    let path_arg = launch_path_arg(&request.args)?;
+    let path_arg = launch_argument(&request.args)?;
     if !autostart && running_in_session(services, target_session) >= LAUNCH_CAP_PER_SESSION {
         return Err(messenger::Error::Errno(-messenger::errno::EAGAIN));
     }
@@ -195,7 +189,7 @@ pub(super) fn launch_row(
     }
     let (path_arg, cred, session) = admit(services, request, caller, autostart)?;
     retire_stopped(services, app.id);
-    let row = Service::from_app(app, &path_arg, cred);
+    let row = Service::from_app(app, path_arg, cred);
     start_row(services, broker, row, &cred, session, autostart)
 }
 
@@ -210,7 +204,7 @@ fn launch_installed(
 ) -> messenger::Result<services::LaunchResult> {
     let (path_arg, cred, session) = admit(services, request, caller, false)?;
     retire_stopped(services, app.id);
-    let row = Service::from_installed(app, &path_arg, cred);
+    let row = Service::from_installed(app, path_arg, cred);
     let result = start_row(services, broker, row, &cred, session, false)?;
     report_label(result.pid, app.id);
     Ok(result)
@@ -237,12 +231,7 @@ fn start_row(
     autostart: bool,
 ) -> messenger::Result<services::LaunchResult> {
     row.autostart = autostart;
-    let command = command_line(&row, 0);
-    let spawned = match row.label {
-        Some(label) => sys::spawn_as_labelled(&command, cred, label),
-        None => sys::spawn_as(&command, cred),
-    };
-    let Some(pid) = spawned else {
+    let Some(pid) = spawn_row(&row, 0, Some(*cred)) else {
         sys::write_str(&format!(
             "init: launch {} failed: {} (session {})\n",
             row.name, row.path, session

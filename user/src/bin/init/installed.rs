@@ -43,8 +43,8 @@ pub(super) struct InstalledApp {
     pub(super) path: &'static str,
     /// The kernel policy label, `app:<system_name>`.
     pub(super) label: &'static str,
-    /// The manifest's fixed arguments, space-joined.
-    pub(super) args: String,
+    /// The manifest's fixed arguments, one `argv` item each.
+    pub(super) args: Vec<String>,
     /// Whether it runs under the Linux ABI personality.
     pub(super) linux: bool,
 }
@@ -137,7 +137,7 @@ impl InstalledApps {
             name: row.name,
             path,
             label,
-            args: row.args.join(" "),
+            args: row.args,
             linux: row.abi == "linux",
         }
     }

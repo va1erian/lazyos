@@ -1,5 +1,5 @@
-//! The execute bit on program start (issue #507, section 5): native `spawn`,
-//! a `linux:` spawn line and Linux `execve` all refuse a file without an `x`
+//! The execute bit on program start (issue #507, section 5): `spawnv` under
+//! both personalities and Linux `execve` all refuse a file without an `x`
 //! bit for the caller (root included), a directory, and anything on a
 //! `noexec` mount, and they run a `0755` file.
 //!
@@ -21,6 +21,7 @@ mod soak;
 const ENOENT: i64 = 2;
 const EACCES: i64 = 13;
 const SYS_EXECVE: u64 = 59;
+const SYS_SPAWNV: u64 = 30;
 
 /// The files every test sees. All are root-owned.
 const PLAIN: &str = "/transient/plain"; // 0644
@@ -104,10 +105,30 @@ fn c(text: &str) -> Vec<u8> {
     out
 }
 
-/// Spawn `line` through the native spawn body; a started child is finished
-/// and reaped at once, so the result is the pid or the negative errno.
+/// Spawn `line` (a path, `linux:` in front for the Linux personality)
+/// through `spawnv` with `argv` `[path]`; a started child is finished and
+/// reaped at once, so the result is the pid or the negative errno.
 fn spawn(line: &str) -> i64 {
-    let code = process::spawn_program_for_test(&c(line));
+    use crate::process::spawnv::{personality, REQ_WORDS};
+    let (path, linux) = match line.strip_prefix("linux:") {
+        Some(path) => (path, true),
+        None => (line, false),
+    };
+    let argv = c(path);
+    let mut words = [0u64; REQ_WORDS];
+    words[..5].copy_from_slice(&[
+        path.as_ptr() as u64,
+        path.len() as u64,
+        argv.as_ptr() as u64,
+        argv.len() as u64,
+        1,
+    ]);
+    words[8] = if linux {
+        personality::LINUX
+    } else {
+        personality::NATIVE
+    };
+    let code = process::dispatch_for_test(SYS_SPAWNV, words.as_ptr() as u64, 0, 0) as i64;
     if code > 0 {
         task::harness::finish(code as usize, 0);
         let _ = task::reap_child_slot(code as usize);

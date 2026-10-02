@@ -1,5 +1,5 @@
 //! Well-formed `spawnv` requests: what each personality's child receives,
-//! the credential stamps, and the legacy spawn's equivalent `argv`.
+//! the credential stamps, and a boot spawn's `argv`.
 
 use super::*;
 use crate::ipc::labels;
@@ -125,26 +125,21 @@ pub fn cred_stamps_child() -> Result<(), String> {
     Ok(())
 }
 
-/// The command-line spawn (syscall 6) and a kernel boot spawn's argument
-/// string produce the `argv` block a `spawnv` caller would have sent:
-/// `argv[0]` then the whitespace-split arguments, and no environment.
-pub fn legacy_spawn_equivalent_argv() -> Result<(), String> {
+/// A kernel boot spawn's `argv` (`process::set_task_argv`, the per-task
+/// block `spawnv` fills) reaches the program item for item: an argument with
+/// spaces stays one item, nothing is split, and there is no environment.
+pub fn boot_spawn_argv_is_a_vector() -> Result<(), String> {
     fresh()?;
-    let line = format!("{LEGACY}  -v   key=value \0");
-    let slot = spawned(process::dispatch_for_test(6, line.as_ptr() as u64, 0, 0))?;
-    let want = block(&[LEGACY.as_bytes(), b"-v", b"key=value"]);
-    let argv = child_block(slot, 0);
-    check!(argv == want, "legacy argv block was {argv:?}");
+    let slot = spawned(Req::new(NATIVE, &[b"x"], &[], false).call())?;
+    let argv: [&str; 4] = [fhs::bin::SNDD, "demo=1", "two words", ""];
+    process::set_task_argv(slot, &argv);
+    let want = block(&argv.map(str::as_bytes));
+    let got = child_block(slot, 0);
+    check!(got == want, "boot-spawn argv block was {got:?}");
     check!(
         child_block(slot, 1).is_empty(),
-        "legacy spawn had an environment"
+        "a boot spawn had an environment"
     );
-    // A boot spawn's string: `argv[0]` is the task name.
-    process::set_service_args(slot, b"demo=1");
-    let name = task::process::name_of(slot).ok_or("no task name")?;
-    let want = block(&[name.as_bytes(), b"demo=1"]);
-    let argv = child_block(slot, 0);
-    check!(argv == want, "boot-spawn argv block was {argv:?}");
     reap(slot)?;
     Ok(())
 }

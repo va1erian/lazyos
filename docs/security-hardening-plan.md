@@ -79,7 +79,7 @@ Split into two parallel issues over disjoint files.
 - The kernel snapshots the sender's `uid/gid/caps/session` into each message
   header at send time. Services authorize without `CAP_SETUID`, and slot reuse
   can no longer misattribute a message. Everything below depends on it.
-- `spawn_as` fails closed: a failed credential stamp
+- `spawnv` (`SpawnCred::As`) fails closed: a failed credential stamp
   (`kernel/src/process/spawn.rs`) kills the child instead of leaving it with
   the caller's credentials.
 - `/tmp` is mounted `1777` (the ramfs root is `0755 root` today).
@@ -134,7 +134,7 @@ Split into two parallel issues over disjoint files.
 | `_xui` | `SYS_ADMIN` (display grant) | none |
 
 - init stays root, creates the state directories at boot and starts each
-  service through `spawn_as`.
+  service through `spawnv` (`SpawnCred::As`).
 - **Names are bound to owners.** init hands the kernel a table
   (`os.lazy.keyd -> _keyd`, ...) and the registry refuses `os.lazy.*` to any
   other uid, which ends name squatting.
