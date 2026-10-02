@@ -2,8 +2,10 @@
 //!
 //! [`validate`] returns *every* problem it finds, so the installer can show a
 //! complete list rather than making the author fix one thing at a time. The
-//! grammar mirrors `docs/packages.md`; the Python builder checks the same
-//! rules before an archive is ever written.
+//! grammar mirrors `docs/packages.md`; the Python builder
+//! (`tools/pkg/pkgmanifest.py`) checks the same rules before an archive is ever
+//! written, and both are run against the shared cases in
+//! `libs/lazypkg/tests/cases/manifest.toml`.
 
 use alloc::collections::BTreeSet;
 use alloc::format;
@@ -11,10 +13,11 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use crate::error::Problem;
-use crate::manifest::Manifest;
+use crate::files;
+use crate::grammar::{valid_interface, valid_mime_type, valid_system_name, valid_topic};
+use crate::manifest::{Category, Manifest};
+use crate::version::Version;
 
-/// Longest `system_name`, in bytes.
-const MAX_SYSTEM_NAME: usize = 128;
 /// Longest display name and author, in characters.
 const MAX_NAME: usize = 64;
 const MAX_AUTHOR: usize = 128;
@@ -72,9 +75,9 @@ fn check_app(manifest: &Manifest, problems: &mut Vec<Problem>) {
             "app.author must be 1..={MAX_AUTHOR} characters"
         )));
     }
-    if !valid_version(&app.version) {
+    if let Err(error) = Version::parse(&app.version) {
         problems.push(Problem::new(format!(
-            "app.version {:?} must be MAJOR.MINOR.PATCH with parts below 65536",
+            "app.version {:?} {error}",
             app.version
         )));
     }
@@ -82,6 +85,15 @@ fn check_app(manifest: &Manifest, problems: &mut Vec<Problem>) {
         if description.chars().count() > MAX_DESCRIPTION {
             problems.push(Problem::new(format!(
                 "app.description must be at most {MAX_DESCRIPTION} characters"
+            )));
+        }
+    }
+    if let Some(category) = &app.category {
+        if Category::parse(category).is_none() {
+            let names: Vec<&str> = Category::ALL.iter().map(|c| c.as_str()).collect();
+            problems.push(Problem::new(format!(
+                "app.category {category:?} must be one of {}",
+                names.join(", ")
             )));
         }
     }
@@ -179,10 +191,8 @@ fn check_permissions(manifest: &Manifest, problems: &mut Vec<Problem>) {
         }
     }
     for rule in &permissions.files {
-        if !valid_file_rule(rule) {
-            problems.push(Problem::new(format!(
-                "permissions.files entry {rule:?} is not a read:/write: absolute path"
-            )));
+        if let Err(error) = files::check_rule(rule) {
+            problems.push(Problem::new(error.message(rule)));
         }
     }
     if !permissions.network.is_empty()
@@ -192,143 +202,6 @@ fn check_permissions(manifest: &Manifest, problems: &mut Vec<Problem>) {
             "permissions.network must be empty or exactly [\"outbound\"]",
         )));
     }
-}
-
-/// `[a-z0-9]` labels joined by `.`, at least three, none starting or ending in
-/// `-`, at most 128 bytes.
-fn valid_system_name(name: &str) -> bool {
-    if name.is_empty() || name.len() > MAX_SYSTEM_NAME {
-        return false;
-    }
-    let mut labels = 0;
-    for label in name.split('.') {
-        labels += 1;
-        if label.is_empty() || label.starts_with('-') || label.ends_with('-') {
-            return false;
-        }
-        if !label
-            .bytes()
-            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
-        {
-            return false;
-        }
-    }
-    labels >= 3
-}
-
-/// `MAJOR.MINOR.PATCH`, each an unsigned decimal below 65536.
-fn valid_version(version: &str) -> bool {
-    let mut parts = version.split('.');
-    let major = parts.next();
-    let minor = parts.next();
-    let patch = parts.next();
-    if parts.next().is_some() {
-        return false;
-    }
-    [major, minor, patch]
-        .into_iter()
-        .all(|part| part.is_some_and(valid_component))
-}
-
-fn valid_component(part: &str) -> bool {
-    !part.is_empty()
-        && part.bytes().all(|b| b.is_ascii_digit())
-        && part.parse::<u64>().is_ok_and(|value| value < 65536)
-}
-
-/// `type/subtype` over `[a-z0-9.+-]`.
-fn valid_mime_type(mime: &str) -> bool {
-    let mut parts = mime.split('/');
-    let (Some(kind), Some(subtype), None) = (parts.next(), parts.next(), parts.next()) else {
-        return false;
-    };
-    !kind.is_empty()
-        && !subtype.is_empty()
-        && kind.bytes().all(is_mime_byte)
-        && subtype.bytes().all(is_mime_byte)
-}
-
-fn is_mime_byte(b: u8) -> bool {
-    b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'.' | b'+' | b'-')
-}
-
-/// `[a-z0-9]+(\.[a-z0-9]+)*\.v[0-9]+`.
-fn valid_interface(interface: &str) -> bool {
-    let mut parts: Vec<&str> = interface.split('.').collect();
-    let Some(version) = parts.pop() else {
-        return false;
-    };
-    if parts.is_empty() {
-        return false;
-    }
-    if !version.starts_with('v') || version.len() < 2 {
-        return false;
-    }
-    if !version[1..].bytes().all(|b| b.is_ascii_digit()) {
-        return false;
-    }
-    parts.iter().all(|part| {
-        !part.is_empty()
-            && part
-                .bytes()
-                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
-    })
-}
-
-/// `publish:`/`subscribe:` then `/`-separated segments of `[a-z0-9_.-]+`, `+`,
-/// or a final `#`.
-fn valid_topic(topic: &str) -> bool {
-    let rest = topic
-        .strip_prefix("publish:")
-        .or_else(|| topic.strip_prefix("subscribe:"));
-    let Some(rest) = rest else {
-        return false;
-    };
-    if rest.is_empty() {
-        return false;
-    }
-    let segments: Vec<&str> = rest.split('/').collect();
-    let last = segments.len() - 1;
-    segments.iter().enumerate().all(|(index, segment)| {
-        if segment.is_empty() {
-            return false;
-        }
-        if *segment == "#" {
-            return index == last;
-        }
-        if *segment == "+" {
-            return true;
-        }
-        segment.bytes().all(|b| {
-            b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'_' | b'.' | b'-')
-        })
-    })
-}
-
-/// `read:`/`write:` then an absolute path of `[A-Za-z0-9_.-]+` or `*`
-/// segments, with no `..`.
-fn valid_file_rule(rule: &str) -> bool {
-    let rest = rule
-        .strip_prefix("read:")
-        .or_else(|| rule.strip_prefix("write:"));
-    let Some(rest) = rest else {
-        return false;
-    };
-    let Some(path) = rest.strip_prefix('/') else {
-        return false;
-    };
-    if path.is_empty() {
-        return false;
-    }
-    path.split('/').all(|segment| {
-        if segment.is_empty() || segment == ".." {
-            return false;
-        }
-        segment == "*"
-            || segment
-                .bytes()
-                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b'-'))
-    })
 }
 
 #[cfg(test)]
@@ -363,6 +236,11 @@ mod tests {
             .topics
             .push("publish:app/org.lazy.demo/#".into());
         good.permissions.files.push("read:/data/home/*".into());
+        good.permissions
+            .files
+            .push("write:$HOME/Documents/*".into());
+        good.app.category = Some("office".into());
+        good.entry.autostart = true;
         let problems = validate(&good, &files(&["bin/app.elf"]));
         assert!(problems.is_empty(), "{problems:?}");
     }
@@ -389,18 +267,42 @@ mod tests {
 
     #[test]
     fn rejects_bad_versions() {
-        for version in ["1.0", "1.0.0.0", "1.0.x", "65536.0.0", "1.0.-1", ""] {
+        for version in [
+            "1",
+            "1.0.0.0.0",
+            "1.0.x",
+            "65536.0.0",
+            "1.0.-1",
+            "",
+            "01.0.0",
+            "1.0.0-",
+        ] {
             let mut bad = minimal();
             bad.app.version = version.into();
             let problems = validate(&bad, &files(&["bin/app.elf"]));
             assert!(
-                problems.iter().any(|p| p.message().contains("version")),
+                problems.iter().any(|p| p.message().contains("app.version")),
                 "{version:?} should be rejected"
             );
         }
-        let mut ok = minimal();
-        ok.app.version = "65535.65535.65535".into();
-        assert!(validate(&ok, &files(&["bin/app.elf"])).is_empty());
+        for version in ["65535.65535.65535", "1.0", "1.0.0.0", "1.0.0-rc1"] {
+            let mut ok = minimal();
+            ok.app.version = version.into();
+            assert!(
+                validate(&ok, &files(&["bin/app.elf"])).is_empty(),
+                "{version}"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_an_unknown_category() {
+        let mut bad = minimal();
+        bad.app.category = Some("games".into());
+        let problems = validate(&bad, &files(&["bin/app.elf"]));
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(problems[0].message().contains("app.category \"games\""));
+        assert!(problems[0].message().contains("accessories, development"));
     }
 
     #[test]
@@ -438,8 +340,8 @@ mod tests {
             "subscribe:system/events/open/+".into(),
         ];
         good.permissions.files = vec![
-            "read:/data/home/*/pictures".into(),
-            "write:/data/home/*/pictures".into(),
+            "read:$HOME/Pictures/*".into(),
+            "write:$HOME/.apps/org.lazy.paint/*".into(),
         ];
         good.permissions.network = vec!["outbound".into()];
         assert!(validate(&good, &files(&["bin/app.elf"])).is_empty());

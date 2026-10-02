@@ -27,6 +27,8 @@ miniz_oxide = { version = "0.8", default-features = false, features = ["with-all
 crc = { version = "3", default-features = false }
 # SHA-256 of the whole archive, for the install directory suffix.
 lazyos-crypto = { path = "../crypto" }
+# The home-directory roots a `files` rule must not spell out (use `$HOME`).
+fhs = { path = "../fhs" }
 
 [dev-dependencies]
 fuzzkit = { path = "../fuzzkit" }

@@ -33,8 +33,10 @@ extern crate std;
 extern crate alloc;
 
 mod error;
+mod files;
 #[cfg(any(test, feature = "fuzz"))]
 pub mod fuzz;
+mod grammar;
 mod inflate;
 mod layout;
 mod manifest;
@@ -44,10 +46,13 @@ mod tests;
 #[cfg(test)]
 mod testzip;
 mod validate;
+mod version;
 mod zip;
 
 pub use error::{ManifestError, OpenError, Problem, ReadError};
-pub use manifest::{App, Entry, Manifest, MimeHandler, Permissions};
+pub use files::HOME_VAR;
+pub use manifest::{App, Category, Entry, Manifest, MimeHandler, Permissions};
+pub use version::{Version, VersionError, MAX_VERSION_LEN};
 pub use zip::EntryInfo;
 
 use alloc::format;
