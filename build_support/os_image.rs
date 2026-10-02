@@ -13,7 +13,7 @@ use std::collections::BTreeMap;
 use std::fs::OpenOptions;
 use std::path::{Path, PathBuf};
 
-use ext2fs::{Ext2, Ext2Error, Geometry};
+use ext2fs::{Ext2, Ext2Error, Geometry, Recovery};
 
 use crate::os_disk::{self, FileIo, OS_START_LBA, SECTOR};
 use crate::os_layout::{self, DirSpec, MANIFEST_PATH};
@@ -391,8 +391,32 @@ fn update(
     let old_end = old_fat_end(&mut file)?;
     write_head(&mut file, head, old_end)?;
     let io = FileIo::new(file, OS_START_LBA, sectors, true);
-    let volume = Ext2::open(Box::new(io), now).map_err(|e| volume_error("open", e))?;
+    let mut volume = Ext2::open(Box::new(io), now).map_err(|e| volume_error("open", e))?;
+    recover(&mut volume)?;
     write_volume(&volume, Some(old), dirs, files, now())?;
+    Ok(())
+}
+
+/// Check a volume that stopped uncleanly (a QEMU window closed, a crash) so
+/// the update's closing flush can mark it clean again. The kernel never does:
+/// it has no fsck, and restores the state it found at every shutdown, so
+/// without this one unclean stop would flag the image for good. A volume that
+/// fails the check stays flagged, with a warning; nothing is deleted.
+fn recover(volume: &mut Ext2) -> Result<(), String> {
+    match volume
+        .recover(ext2fs::ORPHAN_PREFIX)
+        .map_err(|e| volume_error("check", e))?
+    {
+        Recovery::WasClean => {}
+        Recovery::Recovered { reclaimed } => println!(
+            "cargo:warning=the OS volume was not cleanly unmounted; checked it, \
+             reclaimed {reclaimed} orphaned file(s), and it is clean again"
+        ),
+        Recovery::StillUnclean(reason) => println!(
+            "cargo:warning=the OS volume was not cleanly unmounted and stays flagged: \
+             {reason}; {RESET_HINT}"
+        ),
+    }
     Ok(())
 }
 

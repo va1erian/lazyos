@@ -154,7 +154,17 @@ stubbed under `lazyos_tests`):
 - The shutdown's filesystem side is the existing ext2 coverage:
   `fs_ext2_sync_all_flushes_every_mount`, `fs_ext2_state_dirty_then_clean` and
   `fs_ext2_soak_state_generations` (200 write/stop/remount generations, clean
-  and unclean).
+  and unclean), plus the configured layout's own power cycle in `mount_suite`:
+  `mount_root_power_cycle_marks_clean` (writes through the native and the ABI
+  table, the native `sync_all`, a clean next boot),
+  `mount_root_unclean_stays_flagged_until_checked` and
+  `mount_root_power_cycle_soak` (200 boots, clean and unclean stops, heap
+  bounded). A clean stop restores the state found at mount, so an OS volume
+  that once stopped uncleanly is reported again at every boot until the image
+  build checks it (`Ext2::recover`, see
+  [`architecture/filesystem.md`](architecture/filesystem.md)); a harness
+  failure "the data volume was not clean after the power-off" on a reused
+  `target/lazyos.img` usually means that, and a rebuild clears it.
 
 **`init` self-test** (debug boots): `INIT:SHUTDOWN:ORDER:PASS` runs the stop
 order on the manifest's real dependency graph (every dependent before its

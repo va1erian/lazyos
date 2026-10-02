@@ -13,7 +13,7 @@
 use super::vfs::FsError;
 
 /// Names beginning with this are the kernel's to hand out.
-pub const PREFIX: &str = ".unlinked-";
+pub const PREFIX: &str = ext2fs::ORPHAN_PREFIX;
 
 /// Whether a directory-entry name lies in the reserved namespace.
 pub fn is_reserved(name: &str) -> bool {
