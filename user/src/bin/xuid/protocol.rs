@@ -8,13 +8,28 @@ use user::messenger::display::{self, Color};
 use user::messenger::{Endpoint, Message};
 use user::sys;
 
-/// Close the endpoint handle that arrived with a request we are rejecting;
-/// otherwise every refused request leaks one slot in the compositor's
+/// Close the endpoint and buffer that arrived with a request we are
+/// rejecting; otherwise every refused request leaks slots in the compositor's
 /// (immortal) handle table.
-pub(super) fn drop_rejected_handle(message: &Message) {
+pub(super) fn drop_rejected_transfers(message: &Message) {
     if message.handles != 0 {
         let _ = Endpoint::from_raw(message.first_handle).close();
     }
+    if message.buffers != 0 {
+        let _ = sys::display_close_buffer(message.first_buffer);
+    }
+}
+
+/// Whether `message` carries exactly the handles and buffers `display.midl`
+/// declares for its method (nothing, for any other interface or method).
+/// Checked before dispatch, calls and one-way messages alike.
+pub(super) fn carries_declared(message: &Message) -> bool {
+    let declared = if message.interface_id() == display::INTERFACE {
+        display::wire::request_transfers(message.method())
+    } else {
+        messenger_generated::transfers::Transfers::NONE
+    };
+    message.carries(declared)
 }
 
 /// `sender`'s kernel-stamped credentials, or `None` when they cannot be read

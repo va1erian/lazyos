@@ -10,7 +10,8 @@ use user::sys::Cred;
 
 use super::compositor::Compositor;
 use super::protocol::{
-    color_u32, drop_rejected_handle, empty_reply, error_reply, privileged, sender_cred, typed_reply,
+    color_u32, drop_rejected_transfers, empty_reply, error_reply, privileged, sender_cred,
+    typed_reply,
 };
 use super::shell::ShellSub;
 use super::shellcalls::shell_allowed;
@@ -73,7 +74,7 @@ impl Compositor {
             || role.is_empty()
             || role.len() > display::MAX_ROLE
         {
-            drop_rejected_handle(message);
+            drop_rejected_transfers(message);
             return error_reply(message.method(), messenger::errno::EINVAL);
         }
         let cred = sender_cred(message.sender);
@@ -84,7 +85,7 @@ impl Compositor {
         };
         if role != display::ROLE_SHELL {
             if !cred.is_some_and(|cred| privileged(&cred)) {
-                drop_rejected_handle(message);
+                drop_rejected_transfers(message);
                 return error_reply(message.method(), messenger::errno::EACCES);
             }
             // A re-subscribe replaces the endpoint, so close the one it
@@ -97,7 +98,7 @@ impl Compositor {
         let Some(cred) = cred.filter(|cred| self.may_be_shell(cred)) else {
             // Every window title, geometry and focus change is the shell's
             // (issue #175): anyone else's claim is refused outright.
-            drop_rejected_handle(message);
+            drop_rejected_transfers(message);
             return error_reply(message.method(), messenger::errno::EACCES);
         };
         if self.display_session.is_none() && cred.session != 0 {

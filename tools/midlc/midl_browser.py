@@ -397,10 +397,13 @@ class MidlBrowser:
             self._put(f"doorbell    {ring.doorbell} (oneway)\n", "code")
         if ring.advance:
             self._put(f"advance     {ring.advance}\n", "code")
+        # Ring names are scoped to their interface: only the interface that
+        # declares this ring object can transfer it (a file may hold several
+        # interfaces with same-named rings).
         carriers = [
             (m, t)
             for entry in self.loaded
-            if entry.interface is not None and entry.path == node.path
+            if entry.interface is not None and any(r is ring for r in entry.interface.rings)
             for m in entry.interface.methods
             for t in m.transfers
             if ring.name in t.rings

@@ -29,6 +29,18 @@ interface os.lazy.second.v1 {
 """
 
 
+TWIN_RINGS = TWO.replace(
+    """interface os.lazy.second.v1 {
+    method Ping() -> ();
+}""",
+    """interface os.lazy.second.v1 {
+    method Bind() -> () transfers (ring: Ring<Rx>);
+    method Advance() -> ();
+    ring Rx : stream producer=client advance=Advance;
+}""",
+)
+
+
 class ModelTests(unittest.TestCase):
     def setUp(self) -> None:
         self.dir = tempfile.TemporaryDirectory()
@@ -119,6 +131,19 @@ class GuiSmokeTests(unittest.TestCase):
                 self.assertIn("doorbell    Notify (oneway)", text)
                 self.assertIn("Attach: `buffers[0]`, a shared buffer holding the rings `Rx`", text)
                 self.assertIn("1 rings", browser.status.cget("text"))
+                # A same-named ring in another interface of the file is not
+                # credited to this interface's `Attach`.
+                twin = TWIN_RINGS
+                path.write_text(twin, encoding="utf-8")
+                browser.reload()
+                rings = [iid for iid, node in browser.nodes.items() if node.kind == "ring"]
+                self.assertEqual(len(rings), 2)
+                browser._render(browser.nodes[rings[1]])
+                text = browser.detail.get("1.0", "end")
+                self.assertIn("Bind: `buffers[0]`", text)
+                self.assertNotIn("Attach:", text)
+                path.write_text(TWO, encoding="utf-8")
+                browser.reload()
                 browser.query.set("second")
                 kinds = [node.kind for node in browser.nodes.values()]
                 self.assertEqual(kinds.count("interface"), 1)

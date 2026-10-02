@@ -135,6 +135,12 @@ impl Service {
             return Err(err(errno::EINVAL));
         }
         let method = message.method();
+        // Exactly what `net.midl` declares for the method (only `AttachRing`
+        // carries anything), or the request is refused before it is served;
+        // `dispatch` closes what it carried.
+        if !message.carries(wire::request_transfers(method)) {
+            return Err(err(errno::EINVAL));
+        }
         let body = &message.parcel.body;
         let reply = match method {
             wire::METHOD_INFO => self.info()?,
@@ -215,17 +221,13 @@ impl Service {
 
     /// `AttachRing`: map the client's buffer and hand it to the engine.
     fn attach(&mut self, message: &Message, slots: u32) -> Result<u32> {
-        // The rings are the request's first transferred buffer and the notify
-        // endpoint its first transferred handle; without both there is
-        // nothing to attach.
+        // The rings are the request's transferred buffer and the notify
+        // endpoint its transferred handle (`route` checked both arrived).
         let desc = message
             .parcel
             .buffers
             .first()
             .ok_or_else(|| err(errno::EINVAL))?;
-        if !message.carries(wire::ATTACH_RING_TRANSFERS) {
-            return Err(err(errno::EINVAL));
-        }
         if self.card.engine.attached().is_some() {
             return Err(err(errno::EBUSY));
         }
