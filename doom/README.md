@@ -8,7 +8,7 @@ Freedoom: Phase 1, shipped as the installable package `org.lazy.doom`
 ## Build, install, play
 
 ```bash
-python tools/doom/build.py        # engine + doom.elf + target/pkg/DOOM.LZP
+python tools/doom/build.py        # engine + doom.elf + target/pkg/doom.lzp
 python tools/run_demo.py --doom   # the desktop with /system/share/samples/doom.lzp
 ```
 

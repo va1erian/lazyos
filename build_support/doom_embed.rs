@@ -1,6 +1,6 @@
 //! Embed the Doom package in the disk image (`docs/doom-port-plan.md`).
 //!
-//! `tools/doom/build.py` builds `target/pkg/DOOM.LZP`: the doomgeneric engine
+//! `tools/doom/build.py` builds `target/pkg/doom.lzp`: the doomgeneric engine
 //! and its LazyOS platform layer, with the Freedoom IWAD inside (a build
 //! artifact holding fetched third-party code and data, never committed). With
 //! `LAZYOS_DOOM=1` it is placed with the other samples as
@@ -16,7 +16,7 @@ use std::path::Path;
 use crate::os_image::Sink;
 
 /// The package, relative to the manifest dir.
-const PACKAGE: &str = "target/pkg/DOOM.LZP";
+const PACKAGE: &str = "target/pkg/doom.lzp";
 /// Add [`fhs::share::DOOM_LZP`] when `LAZYOS_DOOM=1`. A missing package fails the build, so
 /// an image that asked for Doom never silently comes without it.
 pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path) {

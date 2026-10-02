@@ -3,7 +3,7 @@ name: doom
 # Doom as an installable package (docs/doom-port-plan.md D5, doom/README.md).
 # Host-tests the platform layer's pure logic, builds the engine + `lazydoom`
 # with zig (doomgeneric and Freedoom are fetched at pinned SHA-256s and never
-# committed), packs `DOOM.LZP`, and boots the desktop: the session installs the
+# committed), packs `doom.lzp`, and boots the desktop: the session installs the
 # package through `pkgd`, runs a headless `-timedemo demo1 -frames 200` frame
 # checksum from the installed copy, launches the game from the start menu and
 # plays a few seconds of E1M1. A missing download fails the job (`--require`):
@@ -108,7 +108,7 @@ jobs:
           set -euo pipefail
           python tools/xui/build.py > /dev/null
           python tools/doom/build.py --require
-          ls -l target/doom/doom.elf target/pkg/DOOM.LZP
+          ls -l target/doom/doom.elf target/pkg/doom.lzp
 
       - uses: ./.github/actions/busybox
 

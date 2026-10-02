@@ -3,7 +3,7 @@
 # Only this manifest, the icons and the docs are checked in: `tools/doom/build.py`
 # adds `bin/doom.elf` (the doomgeneric engine and its LazyOS platform layer),
 # `resources/freedoom1.wad` (Freedoom: Phase 1, fetched with a pinned SHA-256)
-# and the licence files before it builds `target/pkg/DOOM.LZP`.
+# and the licence files before it builds `target/pkg/doom.lzp`.
 
 [app]
 name = "Doom"

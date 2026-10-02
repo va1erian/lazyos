@@ -198,7 +198,7 @@ def build_lazyrad() -> bool:
 
 def build_doom() -> bool:
     """Build the Doom package (`tools/doom/build.py`: engine, Freedoom, then
-    `target/pkg/DOOM.LZP`). Explicitly requested with `--doom`, so a missing
+    `target/pkg/doom.lzp`). Explicitly requested with `--doom`, so a missing
     toolchain or download stops the run (`--require`)."""
     print("building Doom (tools/doom/build.py)…", flush=True)
     script = ROOT / "tools" / "doom" / "build.py"

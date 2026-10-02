@@ -332,7 +332,7 @@ bench = false
 
 # The system mixer (docs/audio-plan.md A3): serves `os.lazy.audio.v1` and
 # `os.lazy.audio.mixer.v1` under `os.lazy.audio`, mixes every client stream and
-# feeds the card's one stream. Embedded with the sound stack as `AUDIOD.ELF`.
+# feeds the card's one stream. Embedded with the sound stack as `/system/bin/audiod`.
 [[bin]]
 name = "audiod"
 path = "src/bin/audiod.rs"
@@ -340,7 +340,7 @@ test = false
 bench = false
 
 # `mixer` (docs/audio-plan.md A5): the volume control panel from the shell,
-# and the control-interface probe of the boot evidence. `MIXER.ELF`.
+# and the control-interface probe of the boot evidence. `/system/bin/mixer`.
 [[bin]]
 name = "mixer"
 path = "src/bin/mixer.rs"

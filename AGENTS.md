@@ -136,7 +136,7 @@ package `org.lazy.doom` with the Freedoom IWAD inside; see
 [`doom/README.md`](doom/README.md) and [`docs/doom-port-plan.md`](docs/doom-port-plan.md).
 
 ```bash
-python tools/doom/build.py          # target/doom/doom.elf + target/pkg/DOOM.LZP (fetches doomgeneric, Freedoom)
+python tools/doom/build.py          # target/doom/doom.elf + target/pkg/doom.lzp (fetches doomgeneric, Freedoom)
 python tools/run_demo.py --doom     # desktop with /system/share/samples/doom.lzp (a user package)
 cargo test --manifest-path doom/Cargo.toml --lib
 python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/doom     --script tools/screenshot/examples/doom.json   # needs a fresh OS volume (LAZYOS_RESET_OS=1)
