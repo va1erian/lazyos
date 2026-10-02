@@ -12,9 +12,12 @@ Two boots on one fresh ext2 data disk:
    "Restarting..." overlay is captured once QEMU (`-no-reboot -no-shutdown`)
    pauses on the reset.
 
-Each boot's serial log is judged by `judge.py`; the second boot must also
-mount the data volume clean (no "was not cleanly unmounted") and print the
-nonce. Screenshots and logs land in `shots/shutdown/`.
+Each boot's serial log is judged by `judge.py` (which requires `logd` to have
+persisted records to `/logs`); the second boot must also mount the data volume
+clean (no "was not cleanly unmounted"), print the nonce, and find the first
+boot's journal in `/logs/service.log` (its boot id, from
+`LOGD:STORE:READY ... boot=<id>`). Screenshots and logs land in
+`shots/shutdown/`.
 
     python tools/shutdown/run.py              # build the desktop image, boot twice, judge
     python tools/shutdown/run.py --no-build   # reuse target/lazyos.img
@@ -30,6 +33,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -44,6 +48,9 @@ IMAGE = ROOT / "target/lazyos.img"
 DATA = ROOT / "target/shutdown-data.img"
 BUSYBOX = ROOT / "target/abi/busybox/busybox"
 NOTE = "/data/tmp/shutdown.txt"
+#: The journal of `init`'s `system/events/service/*` records: every desktop
+#: boot writes it (docs/architecture/userland.md, `logd`).
+JOURNAL = "/logs/service.log"
 
 
 def home(start: float) -> list[dict]:
@@ -89,7 +96,7 @@ def power_off_session(nonce: str) -> list[dict]:
     ]
 
 
-def reboot_session(nonce: str) -> list[dict]:
+def reboot_session(nonce: str, boot_id: str) -> list[dict]:
     # LazyShell's start button is at (44, 704); the menu is bottom-anchored on
     # the taskbar, so "Restart..." (the second-to-last row) is at (134, 648)
     # whatever the configured rows. The confirmation swaps the power rows in
@@ -99,6 +106,8 @@ def reboot_session(nonce: str) -> list[dict]:
         *focus_terminal(),
         *command(f"cat {NOTE}", f"TERM:OUT:{nonce}"),
         {"wait_for": f"TERM:OUT:{nonce}", "timeout": 30},
+        # The first boot's records are in its journal: its boot line names it.
+        *command(f"grep -c id={boot_id} {JOURNAL}; echo journal-$?", "TERM:OUT:journal-"),
         *home(1.0),
         {"at": 2.4, "mouse_move": [44, 704]},
         {"at": 3.0, "mouse_click": "left", "until": "SHELL:MENU:OPEN", "timeout": 20,
@@ -167,13 +176,20 @@ def main() -> int:
     failures += [] if ok else ["power-off session did not complete"]
     failures += [f"power-off: {f}" for f in judge(log, "poweroff")]
 
-    ok, log = boot("reboot", reboot_session(nonce), args.out, args.accel)
+    boot_id = re.search(r"LOGD:STORE:READY \S+ boot=([0-9a-f]{16})", log)
+    if boot_id is None:
+        failures.append("power-off: logd's journals were not ready (no LOGD:STORE:READY)")
+    boot_id = boot_id.group(1) if boot_id else "0" * 16
+
+    ok, log = boot("reboot", reboot_session(nonce, boot_id), args.out, args.accel)
     failures += [] if ok else ["reboot session did not complete"]
     failures += [f"reboot: {f}" for f in judge(log, "reboot")]
     if "was not cleanly unmounted" in log:
         failures.append("the data volume was not clean after the power-off")
     if f"TERM:OUT:{nonce}" not in log:
         failures.append(f"{NOTE} did not survive the power-off")
+    if "TERM:OUT:journal-0" not in log:
+        failures.append(f"{JOURNAL} lost the first boot's records")
     if "SHELL:POWER:REQUEST mode=1 phase=" not in log:
         failures.append("LazyShell's start menu did not request the reboot")
     if "INIT:LAUNCH:PASS app=lazyshell" in log.split("INIT:SHUTDOWN:BEGIN", 1)[-1]:

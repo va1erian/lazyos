@@ -106,15 +106,17 @@ pub(super) struct Journals {
 impl Journals {
     /// Probe `/logs` and open the store, printing the store marker.
     pub(super) fn open(now: u64) -> Journals {
+        let boot = boot_id();
         let opened = probe().and_then(|()| {
-            Store::open(LogsDir, boot_id(), now)
+            Store::open(LogsDir, boot, now)
                 .map_err(|errno| format!("listing failed: {}", files::describe(errno)))
         });
         match opened {
             Ok(store) => {
                 sys::write_str(&format!(
-                    "LOGD:STORE:READY dir={LOGS_ROOT} sources={}\n",
-                    store.ledger().len()
+                    "LOGD:STORE:READY dir={LOGS_ROOT} boot={boot:016x} sources={} bytes={}\n",
+                    store.ledger().len(),
+                    store.ledger().total()
                 ));
                 Journals {
                     store: Some(store),
