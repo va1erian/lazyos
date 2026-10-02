@@ -168,6 +168,7 @@ mod string_io_suite;
 mod sysinfo_suite;
 mod task_suite;
 mod timed_suite;
+mod timer_suite;
 mod topics_gate_suite;
 mod topics_suite;
 mod virtio_suite;
@@ -252,6 +253,10 @@ const SUITE: &[&[(&str, Test)]] = &[
     sysinfo_suite::CASES,
     wallclock_suite::CASES,
     timed_suite::CASES,
+    // Runs the tick for ~15 s of real time: after the suites that step a
+    // fake clock near tick 1000 (`dev_suite`'s INTx deadlines), which a real
+    // `task::ticks()` past their deadlines would expire early.
+    timer_suite::CASES,
     hardening_suite::CASES,
 ];
 

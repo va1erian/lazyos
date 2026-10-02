@@ -1,5 +1,6 @@
-//! Architecture-specific setup: interrupts, PIC, PIT.
+//! Architecture-specific setup: interrupts, PIC, the tick (PIT or local APIC).
 
+pub mod acpi_tables;
 pub mod clock;
 pub mod cpu;
 pub mod fault;
@@ -10,15 +11,19 @@ pub mod idt;
 pub mod io;
 pub mod irq_stubs;
 pub mod kernel_fault_report;
+pub mod lapic;
 pub mod linux;
 pub mod msr;
 pub mod nmi;
 pub mod pagewalk;
 pub mod pic;
 pub mod raw_serial;
+pub mod refclock;
 pub mod rtc;
 pub mod spurious_fault;
 pub mod string_io;
+pub mod timer;
+pub mod timer_cal;
 
 /// Initialise interrupt hardware and load the IDT.
 pub fn init() {

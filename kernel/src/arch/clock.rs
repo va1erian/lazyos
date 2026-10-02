@@ -6,7 +6,9 @@
 //! asks [`periods_since_last`] how many periods passed since the previous one
 //! and advances `TICKS` by that many instead of by one.
 //!
-//! The TSC is calibrated once against PIT channel 2 before IRQs are enabled.
+//! The TSC is calibrated once before IRQs are enabled: against PIT channel 2
+//! when the PIT is the tick, or by `arch::timer` with the local APIC timer's
+//! calibration (CPUID 0x15, the PM timer or the HPET) when it is not.
 //! Only the *delta between two timer entries* is used, never an absolute
 //! TSC-derived time, so a small calibration error cannot accumulate into drift
 //! against the PIT: it can only mis-round a gap of several periods.
@@ -90,8 +92,16 @@ pub unsafe fn calibrate(tick_hz: u32) {
     LAST_TSC.store(rdtsc(), Ordering::Relaxed);
 }
 
+/// Record the TSC cycles per tick measured by `arch::timer` (0 disables
+/// the catch-up: every entry is one tick). Call once, before interrupts are
+/// enabled, instead of [`calibrate`].
+pub fn set_rate(cycles_per_tick: u64) {
+    CYCLES_PER_TICK.store(cycles_per_tick, Ordering::Relaxed);
+    LAST_TSC.store(rdtsc(), Ordering::Relaxed);
+}
+
 /// Timer periods since the previous call (at least 1). Call once per real
-/// PIT entry, with interrupts off.
+/// tick entry, with interrupts off.
 pub fn periods_since_last() -> u64 {
     let now = rdtsc();
     let last = LAST_TSC.load(Ordering::Relaxed);
@@ -106,7 +116,7 @@ pub fn cycles_per_tick() -> u64 {
     CYCLES_PER_TICK.load(Ordering::Relaxed)
 }
 
-/// Forget the gap since the last timer entry: called when IRQ0 is unmasked,
+/// Forget the gap since the last timer entry: called when the tick is unmasked,
 /// so time spent with the timer deliberately off is not caught up as ticks.
 pub fn resync() {
     LAST_TSC.store(rdtsc(), Ordering::Relaxed);

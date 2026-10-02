@@ -98,6 +98,8 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     boot_phase!("console_ready");
     // `mem::init` keeps the boot info borrowed, so read the ramdisk hand-off first.
     let (ramdisk_addr, ramdisk_len) = (boot_info.ramdisk_addr, boot_info.ramdisk_len);
+    // The ACPI tables (read by `arch::init`'s tick selection) start at the RSDP.
+    arch::acpi_tables::set_rsdp(boot_info.rsdp_addr.into_option());
     mem::init(boot_info);
     boot_phase!("mem_ready");
     // Firmware usually leaves the framebuffer uncached: make it write-combining.

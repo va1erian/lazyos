@@ -338,6 +338,10 @@ def main(argv: list[str]) -> int:
                              "builds the xui apps, then LAZYOS_DESKTOP=1 and adds "
                              "`devices` to LAZYOS_XUI_AUTOSTART (default "
                              f"{DEVICES_AUTOSTART})")
+    parser.add_argument("--timer", choices=["pit", "lapic"],
+                        help="tick source test switch (LAZYOS_TIMER): `lapic` uses the "
+                             "local APIC timer even where the PIT ticks, the path a PC "
+                             "with a clock-gated PIT takes (docs/real-pc-boot-plan.md H2)")
     parser.add_argument("--no-rhai", action="store_true",
                         help="do not (re)build the `rhai` command before the image "
                              "(tools/rhai/build.py; incremental, so cheap when unchanged)")
@@ -407,6 +411,8 @@ def main(argv: list[str]) -> int:
             if not build_xui_apps():
                 return 1
             env["LAZYOS_XUI_AUTOSTART"] = with_devices(env.get("LAZYOS_XUI_AUTOSTART"))
+        if args.timer:
+            env["LAZYOS_TIMER"] = args.timer
         if args.no_shell:
             env["LAZYOS_SHELL"] = "0"
         elif args.desktop and env.get("LAZYOS_SHELL") != "0" and not build_xui_shell():

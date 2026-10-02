@@ -76,8 +76,16 @@ const fn mask_port(line: u8) -> (u16, u8) {
 ///
 /// Unmasking a slave line (8-15) relies on the cascade (IRQ2), which [`init`]
 /// leaves unmasked.
+///
+/// Line 0 means "the scheduler tick": when the local APIC timer is the tick
+/// source (`arch::timer`), it masks that timer and the PIT's line stays
+/// masked.
 pub fn set_masked(line: u8, masked: bool) {
     if line >= 16 {
+        return;
+    }
+    if line == 0 && super::timer::lapic_tick() {
+        super::timer::set_tick_masked(masked);
         return;
     }
     let (port, bit) = mask_port(line);
@@ -107,6 +115,9 @@ pub fn set_masked(line: u8, masked: bool) {
 pub fn is_masked(line: u8) -> bool {
     if line >= 16 {
         return true;
+    }
+    if line == 0 && super::timer::lapic_tick() {
+        return super::timer::tick_masked();
     }
     let (port, bit) = mask_port(line);
     // SAFETY: reading the IMR has no side effects.
