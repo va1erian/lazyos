@@ -61,14 +61,16 @@ pub fn spawn_inherits_fds_args_and_reports_status() -> Result<(), String> {
         "an ordinary descriptor was not inherited"
     );
 
-    // Its argument string is what syscall 9 returns to it.
+    // Its argument string reaches it as the `argv` block syscall 9 returns:
+    // the task name, then the split arguments.
     task::harness::switch_current(child);
-    let mut buf = [0u8; 16];
+    let mut buf = [0u8; 32];
     let len = process::dispatch_for_test(9, buf.as_mut_ptr() as u64, buf.len() as u64, 0);
+    let want = b"TOP.ELF\0-a\0x\0";
     check!(
-        len == 4 && &buf[..4] == b"-a x",
-        "native args were {len} bytes: {:?}",
-        &buf[..len.min(16) as usize]
+        len == want.len() as u64 && &buf[..want.len()] == want,
+        "native argv block was {len} bytes: {:?}",
+        &buf[..(len as usize).min(32)]
     );
     // Its output follows fd 1 into the pipe instead of the terminal.
     let text = b"hello\n";
