@@ -21,10 +21,13 @@ input policy (no layout, no repeat, no cursor, no clamping).
 | `user/src/bin/usbd.rs`, `usbd/` | The driver: `hc.rs` (one controller: handoff, reset, rings, event pump), `port.rs` (root ports: power, debounce, reset, USB 3 training and warm reset), `bus.rs` (one controller's device tree: attach, retry, detach children first), `device.rs` (any device: address at its location, descriptors, control transfers with stall recovery, Configure Endpoint), `pipe.rs` (endpoint rings; interrupt-IN report queues), `class.rs` (class dispatch), `hub.rs` (hub class), `hid.rs` (decoders to bus records), `mem.rs` (BAR and DMA regions) |
 | `tools/usb/` | The harness: `run.py` (QEMU sessions), `judge.py` (the verdict), `test_judge.py` |
 
+USB sticks (mass storage) are served to the kernel as block devices by the
+same driver (`class.rs` binds them to `msc.rs`): [usb-storage.md](usb-storage.md).
+
 ## How a keystroke gets in
 
 1. `init` starts `usbd` as `_usb` with only `CAP_DEV_CLAIM | CAP_INPUT_SOURCE`
-   (`USBD:CRED`). It claims **every** PCI function of class `0C/03/30` (an
+   and, for sticks, `CAP_BLOCK_PROVIDER` (`USBD:CRED`). It claims **every** PCI function of class `0C/03/30` (an
    Arrow Lake desktop has a CPU-side and a chipset controller; one failing
    does not stop the others), maps BAR 0 (32- or 64-bit, any address) and,
    before any other register write, takes the controller from the BIOS:
@@ -110,7 +113,8 @@ bulk endpoint contexts from `xhci::context::EndpointContext::bulk`.
 
 ## Security
 
-- **No ambient authority.** `_usb` holds two capabilities. `CAP_INPUT_SOURCE`
+- **No ambient authority.** `_usb` holds three capabilities (the third,
+  `CAP_BLOCK_PROVIDER`, serves sticks: [usb-storage.md](usb-storage.md)). `CAP_INPUT_SOURCE`
   lets it publish but not read the bus (`CAP_INPUT_RAW`, `inputd`'s alone), so
   a compromised `usbd` cannot keylog the PS/2 keyboard. The kernel stamps its
   records with device ids of its own, so it cannot impersonate another device.
@@ -150,8 +154,8 @@ crash-test build that exits while holding a key.
 
 ## Not done
 
-- Mass storage and any class but HID and hub; keyboard LEDs (`SET_REPORT`);
-  isochronous endpoints.
+- Any class but HID, hub and mass storage ([usb-storage.md](usb-storage.md));
+  keyboard LEDs (`SET_REPORT`); isochronous endpoints.
 - Not exercised by QEMU, so proven only by host tests until a real machine
   runs it: 64-byte contexts, the BIOS handoff with a BIOS that owns the
   controller, USB 3 warm reset, high-speed hubs with transaction

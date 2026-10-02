@@ -358,6 +358,15 @@ cargo test -p usbhid -p xhci             # descriptor/report parsers and xHCI ri
 Under TCG the harness paces input (USB is polled; see the README): KVM runs are
 the verdict.
 
+USB sticks (`/home` on the boot stick, `docs/architecture/usb-storage.md`)
+have their own harness, `tools/storage/README.md`:
+
+```bash
+python tools/storage/run.py              # two boots: write /home/alice on the stick, power off, read it back; e2fsck
+python tools/storage/test_judge.py       # the judge fails when it should
+cargo test -p usbmsc --features fuzz     # Bulk-Only Transport and SCSI (host, fuzz seeds)
+```
+
 ## Network tooling
 
 Networking (`docs/networking-plan.md`) is verified like audio: serial markers
