@@ -48,10 +48,13 @@ const PROGRAMS: &[(&str, &str)] = &[
     ("msgctl", fhs::boot::MSGCTL_ELF),
     ("messengerctl", fhs::boot::MSGCTL_ELF),
     ("faultprobe", fhs::boot::FAULTPRB_ELF),
-    // The audio client (docs/driver-plan.md D6): `beep [freq_hz [ms]]`.
+    // The audio client (docs/driver-plan.md D6): `beep [freq_hz [ms [volume%]]]`.
     ("beep", fhs::boot::BEEP_ELF),
     // The tracker-module player (docs/tracker-plan.md): `modplay <file.mod>`.
     ("modplay", fhs::boot::MODPLAY_ELF),
+    // The mixer's volume control (docs/audio-plan.md): `mixer [master <%> |
+    // mute | unmute | stream <id> <%>]`.
+    ("mixer", fhs::boot::MIXER_ELF),
     // The package manager's command line (docs/packages.md): `pkgctl inspect |
     // install | remove | list`.
     ("pkgctl", fhs::boot::PKGCTL_ELF),

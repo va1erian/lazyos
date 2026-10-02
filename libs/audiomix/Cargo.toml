@@ -1,0 +1,22 @@
+[package]
+name = "audiomix"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "The system mixer's engine: per-stream rings, resampling, gain and saturating mixing"
+license = "GPL-3.0-or-later"
+
+[lib]
+name = "audiomix"
+path = "src/lib.rs"
+
+[dependencies]
+# The stream-parameter policy (`params::grant`), shared with the driver so a
+# client sees the same snapping rules from the mixer and from a card.
+virtio-snd = { path = "../virtio-snd" }
+# The `midlc`-generated `os.lazy.audio.v1` / `os.lazy.audio.mixer.v1` codecs
+# the wire layer (`service`) decodes and encodes with.
+messenger-generated = { path = "../generated" }
+
+[dev-dependencies]
+fuzzkit = { path = "../fuzzkit" }

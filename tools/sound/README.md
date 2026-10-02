@@ -1,6 +1,7 @@
 # Sound harness
 
-Proves the virtio-sound driver by **listening to it**. QEMU runs with
+Proves the virtio-sound driver and the system mixer (`audiod`,
+[`docs/audio-plan.md`](../../docs/audio-plan.md)) by **listening to them**. QEMU runs with
 `-audiodev wav`, so everything the guest sends to the virtual sound card lands in
 a WAV file; `analyze_wav.py` then finds the tones in the recording and checks
 their pitch, length and level. A serial marker alone is never the verdict.
@@ -14,8 +15,11 @@ python tools/sound/run.py
 # Reuse target/lazyos.img, force TCG
 python tools/sound/run.py --no-build --accel none
 
-# init supervises the driver as the unprivileged _snd user (uid 901)
+# init supervises the driver as _snd (uid 901) and the mixer as _audio (uid 905)
 python tools/sound/run.py --services
+
+# Two clients at once must be one chord at unity; a volume=50 tone half as loud
+python tools/sound/run.py --mix
 
 # q35 has no IDE controller the kernel drives: attach the image as virtio-blk
 python tools/sound/run.py --machine q35 --virtio-disk
@@ -33,26 +37,43 @@ QEMU is discovered like the other tools (`--qemu`, then `PATH`, then
 
 ## What a run checks
 
-The image is built with `LAZYOS_SOUND=1`, which embeds `SNDD.ELF` and `BEEP.ELF`
-and starts `sndd demo=1` (from the kernel, or from `init`'s manifest with
-`LAZYOS_SERVICES=1`). The guest then prints, in order:
+The image is built with `LAZYOS_SOUND=1`, which embeds `SNDD.ELF`, `AUDIOD.ELF`,
+`BEEP.ELF` and `MIXER.ELF` and starts `sndd demo=1` and `audiod demo=1` (from the
+kernel, or from `init`'s manifest with `LAZYOS_SERVICES=1`). The driver plays its
+own tone straight through the card; the mixer then runs the evidence clients,
+which reach the card only through it. The guest prints, in order:
 
 | Marker | Meaning |
 |---|---|
 | `SND:PLAY:PASS freq=440 ...` | the driver played a tone straight through the card |
 | `SND:IRQ:PASS delivered=N` | the armed INTx line delivered interrupts (`SNDD:IRQ:POLLING` instead when the machine's line is not routable, which the harness reports but accepts) |
-| `SNDD:READY` | `os.lazy.audio.v1` is registered |
-| `BEEP:PLAY:PASS freq=880 ...` | a real client played a tone through the service |
-| `BEEP:PROBE:PASS checks=28` | malformed and hostile requests were all refused correctly, and the driver survived |
-| `BEEP:INTRUDER:PASS` | a second task was refused on the owner's stream |
+| `SNDD:READY` | the card is registered (`os.lazy.audio.card`) |
+| `AUDIOD:CARD rate=48000 ...` | the mixer opened the card's stream |
+| `BEEP:PLAY:PASS freq=880 ...` | a real client played a tone through the mixer |
+| `BEEP:PROBE:PASS checks=<n>` | malformed and hostile requests (limits, commits, volumes, a 300-request transfer flood) were all refused correctly, and the mixer survived |
+| `BEEP:INTRUDER:PASS` | a second task was refused on the owner's stream, and got one of its own |
 | `DEV:CROSSCLAIM:snd:PASS` | `--services`: as `_snd`, every device of another class was refused (`SKIP` as root) |
 | `BEEP:SOAK:PASS iterations=40` | 40 open/play/close cycles leaked nothing |
+| `MIXER:PROBE:PASS checks=<n>` | the control panel lists streams and sets stream and master volumes, refusing bad ones |
 
 The harness waits for all of them (or any `FAIL`), stops QEMU through QMP so the
 wav backend patches its header, and requires the recording to hold exactly two
 tone segments, 440 Hz then 880 Hz, each at least 640 ms, loud enough, within 2%
 of the target pitch. With `--services` it also requires
-`SNDD:CRED uid=901 caps=0x100`.
+`SNDD:CRED uid=901 caps=0x100` and `AUDIOD:CRED uid=905 caps=0x0`.
+
+## Mixing: `--mix`
+
+`python tools/sound/run.py --mix` builds with `LAZYOS_SOUND_MIX=1`, so
+`audiod demo=1` starts two `beep`s at once (660 Hz and 990 Hz, 1.5 s each)
+and then `beep 880 800 50` (half volume). `mixcheck.py` measures each expected
+frequency per 40 ms window with a Hann-windowed Goertzel filter, labels the
+windows with the frequencies present, and requires the steps 440, 660+990, 880
+in that order, each at least 600 ms; each chord member at the level of a lone
+tone (mixing adds, it does not attenuate); and 880 Hz at half the amplitude of
+440 Hz (within 20%). `test_mixcheck.py` proves it fails for sequential tones, a
+missing partner, the wrong volume, an attenuated mix, a short chord, silence
+and garbage.
 
 ## The detector
 
@@ -71,7 +92,7 @@ cargo test -p virtio -p virtio-snd -p pcm     # the driver libraries
 ## Tracker player: `--modplay`
 
 `python tools/sound/run.py --modplay` builds with `LAZYOS_SOUND_MODPLAY=1`, so
-`sndd demo=1` runs `modplay selftest` (a built-in single-voice melody,
+`audiod demo=1` runs `modplay selftest` (a built-in single-voice melody,
 `libs/modplay/examples/gen_selftest.rs`) instead of the `beep` clients. The
 recording must hold the driver's 440 Hz tone and then the melody's seven notes
 (259, 389, 518, 389, 259, 518, 389 Hz) in order; the marker is
@@ -80,14 +101,18 @@ ProTracker module from the desktop Terminal.
 
 ## Desktop: the `beep` command
 
-The desktop profile (`LAZYOS_DESKTOP=1`) always ships the sound stack: `sndd` in
-`init`'s manifest (as `_snd`, silent, no boot tones) and `BEEP.ELF`, which the
-kernel exposes as a shell command (`kernel/src/process/linux/native.rs`). In the
-desktop Terminal:
+The desktop profile (`LAZYOS_DESKTOP=1`) always ships the sound stack: `sndd` and
+`audiod` in `init`'s manifest (as `_snd` and `_audio`, silent, no boot tones),
+and `BEEP.ELF` and `MIXER.ELF`, which the kernel exposes as shell commands
+(`kernel/src/process/linux/native.rs`). In the desktop Terminal:
 
 ```
 / # beep              # 880 Hz for 800 ms
 / # beep 440 500      # frequency in Hz, then milliseconds
+/ # beep 440 3000 & beep 660 3000   # two at once: the mixer plays both
+/ # beep 440 500 25   # a quarter of full volume
+/ # mixer             # master volume and every open stream
+/ # mixer master 50   # halve everything; `mixer mute` / `mixer unmute`
 ```
 
 It needs the xui apps and a BusyBox (`python tools/xui/build.py`,

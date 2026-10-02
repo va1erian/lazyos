@@ -1,6 +1,7 @@
 //! `os.lazy.audio.v1` (`idl/audio.midl`): request dispatch for the card.
 //!
-//! One card, one playback stream, one owner. The owner is the kernel-stamped
+//! One card, one playback stream, one owner: in practice the system mixer,
+//! `audiod`, which holds it while it runs. The owner is the kernel-stamped
 //! sender of `OpenStream`; nothing in a request body names a caller, so a
 //! client cannot act for another. Every failure leaves through
 //! [`user::messenger::services::error_reply`] as a structured errno.
@@ -119,6 +120,16 @@ impl Service {
                 let frames = owned(&mut self.session, message, args.stream)?.position();
                 wire::encode_position_reply(&wire::PositionReply { frames })
                     .map_err(MsgError::Parcel)?
+            }
+            wire::METHOD_SETVOLUME => {
+                let args = wire::decode_set_volume_args(body).map_err(MsgError::Parcel)?;
+                owned(&mut self.session, message, args.stream)?.set_volume(args.gain_q16)?;
+                Vec::new()
+            }
+            wire::METHOD_SETMUTE => {
+                let args = wire::decode_set_mute_args(body).map_err(MsgError::Parcel)?;
+                owned(&mut self.session, message, args.stream)?.set_mute(args.mute);
+                Vec::new()
             }
             wire::METHOD_CLOSESTREAM => {
                 let args = wire::decode_close_stream_args(body).map_err(MsgError::Parcel)?;

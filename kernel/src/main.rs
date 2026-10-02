@@ -220,9 +220,11 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         #[cfg(not(services_mode))]
         spawn_console_shell();
 
-        // `LAZYOS_SOUND=1` boots the virtio-sound driver directly when there is
-        // no supervisor to start it (docs/driver-plan.md D6). `sndd` plays a
-        // test tone with `demo=1`, which the sound harness records.
+        // `LAZYOS_SOUND=1` boots the virtio-sound driver and the system mixer
+        // directly when there is no supervisor to start them (docs/driver-plan.md
+        // D6, docs/audio-plan.md). `sndd` plays a test tone with `demo=1`, then
+        // `audiod demo=1` runs the evidence clients through the mixer; the
+        // sound harness records both.
         #[cfg(all(sound_demo, not(services_mode)))]
         spawn_sound_demo();
 
@@ -347,20 +349,27 @@ fn spawn_program(name: &'static str, path: &str) {
     }
 }
 
-/// Boot `sndd` with `demo=1` (kernel-spawned tasks have no argument string
-/// otherwise), so a scripted boot plays the harness's test tone.
+/// Boot `sndd` and `audiod`, each with `demo=1` (kernel-spawned tasks have no
+/// argument string otherwise), so a scripted boot plays the harness's test
+/// tone and then the clients through the mixer. The mixer waits for the card
+/// on its own, so the order does not matter.
 #[cfg(all(sound_demo, not(services_mode)))]
 fn spawn_sound_demo() {
-    let Some(bytes) = fs::read(fhs::boot::SNDD_ELF) else {
-        serial_println!("LazyOS: {} not found", fhs::boot::SNDD_ELF);
-        return;
-    };
-    match task::spawn("sndd", &bytes) {
-        Ok(index) => {
-            process::set_service_args(index, b"demo=1");
-            serial_println!("LazyOS: spawned sndd as task {index}");
+    for (name, path) in [
+        ("sndd", fhs::boot::SNDD_ELF),
+        ("audiod", fhs::boot::AUDIOD_ELF),
+    ] {
+        let Some(bytes) = fs::read(path) else {
+            serial_println!("LazyOS: {path} not found");
+            continue;
+        };
+        match task::spawn(name, &bytes) {
+            Ok(index) => {
+                process::set_service_args(index, b"demo=1");
+                serial_println!("LazyOS: spawned {name} as task {index}");
+            }
+            Err(err) => serial_println!("LazyOS: spawn {name} failed: {err}"),
         }
-        Err(err) => serial_println!("LazyOS: spawn sndd failed: {err}"),
     }
 }
 
