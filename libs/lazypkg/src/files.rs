@@ -11,12 +11,13 @@ use fhs::{mount, state};
 /// The home-directory variable a rule may start with.
 pub const HOME_VAR: &str = "$HOME";
 
-/// **F5 cleanup switch.** When `true`, an absolute path inside a home
-/// directory (`/home/...`) is refused with a pointer to
-/// `$HOME`. It stays `false` until the packages that still spell their rules
-/// that way have moved (issue #509 section 2); flip it together with
-/// `REJECT_ABSOLUTE_HOME` in `tools/pkg/pkgmanifest.py`.
-pub(crate) const REJECT_ABSOLUTE_HOME: bool = false;
+/// **F5 cleanup switch** (issue #509 section 2): an absolute path inside a
+/// home directory (`/home/...`, or the legacy `/data/home/...`) is refused
+/// with a pointer to `$HOME`, the only way a package names the running
+/// user's home. On since every packager emits `$HOME` (`lazyrad-packager`
+/// writes `$HOME/.apps/<system_name>`); `REJECT_ABSOLUTE_HOME` in
+/// `tools/pkg/pkgmanifest.py` is the same switch.
+pub(crate) const REJECT_ABSOLUTE_HOME: bool = true;
 
 /// Why a files rule is refused.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -82,11 +83,17 @@ fn valid_segment(segment: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b'-'))
 }
 
-/// Whether `path` is a home root or inside one.
+/// Whether `path` is a home root or inside one: `/home`, or the legacy data
+/// volume's `/data/home` that F4 retired.
 pub(crate) fn is_absolute_home(path: &str) -> bool {
-    [state::HOME_ROOT, mount::HOME].iter().any(|root| {
-        path.strip_prefix(root)
-            .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
+    let legacy = path
+        .strip_prefix(mount::DATA)
+        .filter(|rest| rest.starts_with('/'));
+    [Some(path), legacy].into_iter().flatten().any(|path| {
+        [state::HOME_ROOT, mount::HOME].iter().any(|root| {
+            path.strip_prefix(root)
+                .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
+        })
     })
 }
 
@@ -99,7 +106,8 @@ mod tests {
         for good in [
             "read:$HOME/Documents/*",
             "write:$HOME/.apps/org.lazy.demo/data",
-            "read:/home/*/pictures",
+            "write:$HOME/.apps/org.lazy.demo",
+            "read:/system/share/*",
         ] {
             assert_eq!(check_rule(good), Ok(()), "{good}");
         }
@@ -124,6 +132,11 @@ mod tests {
         assert!(is_absolute_home("/home/ada"));
         assert!(!is_absolute_home("/homework"));
         assert!(!is_absolute_home("/homes"));
+        assert!(is_absolute_home("/data/home/*/x"));
+        assert!(is_absolute_home("/data/home"));
+        assert!(!is_absolute_home("/data/homework"));
+        assert!(!is_absolute_home("/database/home"));
+        assert!(!is_absolute_home("/data/apps/x"));
     }
 
     #[test]
@@ -136,7 +149,18 @@ mod tests {
         assert!(RuleError::AbsoluteHome
             .message("read:/home/x")
             .contains("write it as $HOME/"));
-        // Off until the F5 cleanup (issue #509): the default accepts them.
-        assert_eq!(check_rule("read:/home/*/x"), Ok(()));
+        // On since the F5 cleanup (issue #509).
+        for rule in [
+            "read:/home/*/x",
+            "write:/home/*/.apps/org.lazy.demo",
+            "read:/home",
+        ] {
+            assert_eq!(check_rule(rule), Err(RuleError::AbsoluteHome), "{rule}");
+        }
+        assert_eq!(
+            check_rule_with("read:/home/*/x", false),
+            Ok(()),
+            "the switch is the only difference"
+        );
     }
 }

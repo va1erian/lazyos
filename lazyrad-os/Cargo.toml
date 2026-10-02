@@ -36,15 +36,17 @@ messenger-generated = { path = "../libs/generated" }
 # LazyRAD, from its own repository, `default-features = false` so the `desktop`
 # features (winit, rfd, directories, dark-light, local time) stay off.
 #
-# PIN: `rev` is LazyRAD branch `lazyos-f4-home`: `main` after the LazyOS port
-# (#81) and Make LazyOS App (#85), plus the packager granting
-# `/home/*/.apps/<id>` instead of `/data/apps/<id>/data` (filesystem F4, #508).
+# PIN: `rev` is LazyRAD branch `lazyos-f5-home` (va1erian/lazyrad#87): `main`
+# after the home-data change (#86), plus the packager granting
+# `$HOME/.apps/<id>` instead of `/home/*/.apps/<id>`, the form LazyOS's F5
+# manifest grammar requires (filesystem F5, #509). Move it to the merge commit
+# once #87 is merged.
 # Bump `rev` on EVERY va1erian/lazyrad line below (runtime, player, ide and
 # the dev-dependency packager) together, then regenerate the lockfile.
-lazyrad-runtime = { git = "https://github.com/va1erian/lazyrad", rev = "d5bae0b2b3d5b599e4545be813157b78f54500eb", default-features = false }
-lazyrad-ide = { git = "https://github.com/va1erian/lazyrad", rev = "d5bae0b2b3d5b599e4545be813157b78f54500eb", default-features = false }
-lazyrad-packager = { git = "https://github.com/va1erian/lazyrad", rev = "d5bae0b2b3d5b599e4545be813157b78f54500eb", default-features = false }
-lazyrad-player = { git = "https://github.com/va1erian/lazyrad", rev = "d5bae0b2b3d5b599e4545be813157b78f54500eb", default-features = false }
+lazyrad-runtime = { git = "https://github.com/va1erian/lazyrad", rev = "623d0df2e4e99f0d187b37fdff11e2050df43727", default-features = false }
+lazyrad-ide = { git = "https://github.com/va1erian/lazyrad", rev = "623d0df2e4e99f0d187b37fdff11e2050df43727", default-features = false }
+lazyrad-packager = { git = "https://github.com/va1erian/lazyrad", rev = "623d0df2e4e99f0d187b37fdff11e2050df43727", default-features = false }
+lazyrad-player = { git = "https://github.com/va1erian/lazyrad", rev = "623d0df2e4e99f0d187b37fdff11e2050df43727", default-features = false }
 
 [dev-dependencies]
 # The `.lzp` conformance suite (tests/lzp_conformance.rs): packages built by

@@ -424,7 +424,7 @@ mod tests {
              [entry]\nbinary = \"bin/app.elf\"\n\
              [permissions]\ninterfaces = [\"os.lazy.clipboard.v1\", \"os.lazy.keyd.v1\"]\n\
              topics = [\"subscribe:system/events/open/+\"]\n\
-             files = [\"read:/home/*/pictures\"]\nnetwork = [\"outbound\"]\n",
+             files = [\"read:$HOME/pictures\"]\nnetwork = [\"outbound\"]\n",
         )
         .expect("valid");
         let listed = permissions(&manifest);

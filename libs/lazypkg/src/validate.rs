@@ -235,7 +235,7 @@ mod tests {
         good.permissions
             .topics
             .push("publish:app/org.lazy.demo/#".into());
-        good.permissions.files.push("read:/home/*".into());
+        good.permissions.files.push("read:$HOME/*".into());
         good.permissions
             .files
             .push("write:$HOME/Documents/*".into());

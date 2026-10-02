@@ -27,11 +27,12 @@ DEFAULT_CATEGORY = CATEGORIES[0]
 # `lazypkg::HOME_VAR`: a files rule may start with it, and only there.
 HOME_VAR = "$HOME"
 # F5 cleanup switch, mirroring `files::REJECT_ABSOLUTE_HOME` in libs/lazypkg:
-# when True, an absolute path inside a home directory is refused with a pointer
-# to `$HOME`. Flip both together.
-REJECT_ABSOLUTE_HOME = False
-# `fhs::state::HOME_ROOT` and `fhs::mount::HOME`.
-HOME_ROOTS = ("/home",)
+# an absolute path inside a home directory is refused with a pointer to
+# `$HOME` (on since issue #509). The two switches move together.
+REJECT_ABSOLUTE_HOME = True
+# `fhs::state::HOME_ROOT` (`fhs::mount::HOME`), and the legacy data volume's
+# home (`fhs::mount::DATA` + `/home`) that F4 retired.
+HOME_ROOTS = ("/home", "/data/home")
 
 _SYSTEM_LABEL = re.compile(r"[a-z0-9](?:[a-z0-9-]*[a-z0-9])?")
 _MIME = re.compile(r"[a-z0-9.+-]+/[a-z0-9.+-]+")

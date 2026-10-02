@@ -144,10 +144,11 @@ fn every_project_is_accepted_by_lazypkg() {
         assert_eq!(files["bin/lrplay.elf"], player);
         let pkg = Package::open(&built.bytes).unwrap();
         if lrp.ends_with("stores.lrp") {
-            // The app's own folder in any user's home (`/home/*/.apps/<id>`),
-            // never inside `/apps` (filesystem plan F4).
+            // The app's own folder in the running user's home
+            // (`$HOME/.apps/<id>`), never inside `/apps` (filesystem plan F4),
+            // spelled with `$HOME` as the F5 grammar requires (#509).
             let id = &pkg.manifest().app.system_name;
-            let data = fhs::app_data_dir(&fhs::home_of("*"), id);
+            let data = fhs::app_data_dir(lazypkg::HOME_VAR, id);
             assert_eq!(
                 pkg.manifest().permissions.files,
                 [format!("read:{data}"), format!("write:{data}")]

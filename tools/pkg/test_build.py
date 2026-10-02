@@ -169,7 +169,7 @@ class BuildTests(unittest.TestCase):
             (xui / "xui-counter.elf").write_bytes(b"\x7fELF stand-in")
             out = Path(tmp) / "pkg"
             archive = build_samples.build_sample("counter", xui, out)
-            self.assertEqual(archive.name, "PKGDEMO.LZP")
+            self.assertEqual(archive.name, "pkgdemo.lzp")
             with zipfile.ZipFile(archive) as zf:
                 names = set(zf.namelist())
                 manifest = tomllib.loads(zf.read("manifest.toml").decode("utf-8"))
@@ -260,11 +260,16 @@ class SharedCaseTests(unittest.TestCase):
             self.assertEqual(pkgmanifest.Version(left), pkgmanifest.Version(right))
             self.assertEqual(hash(pkgmanifest.Version(left)), hash(pkgmanifest.Version(right)))
 
-    def test_the_absolute_home_switch_is_off_on_both_sides(self):
-        # Flipping it is one line in each validator (F5 cleanup, issue #509).
-        self.assertFalse(pkgmanifest.REJECT_ABSOLUTE_HOME)
+    def test_the_absolute_home_switch_is_on_on_both_sides(self):
+        # One line in each validator (F5 cleanup, issue #509).
+        self.assertTrue(pkgmanifest.REJECT_ABSOLUTE_HOME)
         rust = (CASES.parents[2] / "src" / "files.rs").read_text(encoding="utf-8")
-        self.assertIn("REJECT_ABSOLUTE_HOME: bool = false;", rust)
+        self.assertIn("REJECT_ABSOLUTE_HOME: bool = true;", rust)
+        for rule in ("read:/home/*/x", "write:/home/*/.apps/org.lazy.demo"):
+            problem = pkgmanifest.file_rule_problem(rule)
+            self.assertIsNotNone(problem, rule)
+            self.assertIn("write it as $HOME/", problem)
+        self.assertIsNone(pkgmanifest.file_rule_problem("write:$HOME/.apps/org.lazy.demo"))
         self.assertTrue(pkgmanifest.is_absolute_home("/home/*/x"))
         self.assertFalse(pkgmanifest.is_absolute_home("/homework"))
 

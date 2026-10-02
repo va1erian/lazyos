@@ -135,8 +135,20 @@ permissions = 'files = ["read:$HOME/Documents/*", "write:$HOME/.apps/org.lazy.de
 valid = true
 
 [[manifest]]
-name = "absolute home paths are still accepted until the F5 cleanup"
+name = "an absolute home path points at $HOME"
 permissions = 'files = ["read:/home/*/pictures"]'
+valid = false
+error = "write it as $HOME/"
+
+[[manifest]]
+name = "the legacy data volume's home points at $HOME too"
+permissions = 'files = ["write:/data/home/*/.apps/org.lazy.demo"]'
+valid = false
+error = "write it as $HOME/"
+
+[[manifest]]
+name = "the app's own folder in the user's home"
+permissions = 'files = ["read:$HOME/.apps/org.lazy.demo", "write:$HOME/.apps/org.lazy.demo"]'
 valid = true
 
 [[manifest]]
