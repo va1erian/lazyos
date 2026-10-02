@@ -2,9 +2,11 @@
 """Fail when a well-known path or boot-volume name is written as a literal.
 
 Every such name lives in `libs/fhs` (docs/architecture/filesystem.md, "Paths").
-A Rust string literal outside that crate that starts with a well-known mount
-directory, or that names a boot-volume file, is reported. Comments, test code,
-generated files, byte strings (`b"NAME args\0"` spawn lines) and `target/` are skipped; a deliberate exception goes in
+A Rust string literal outside that crate that starts with a well-known
+directory, or that names an old 8.3 boot-volume file, is reported. Byte
+strings count too: a spawn line (`b"/system/bin/beep role=intruder\0"`) names
+a program and must compose it from `fhs::bin`. Comments, test code, generated
+files and `target/` are skipped; a deliberate exception goes in
 `tools/fhs/allowlist.txt` as one `path:reason` line (the whole file) or
 `path:LINE:reason` (one line).
 
@@ -15,8 +17,10 @@ import re
 import sys
 from pathlib import Path
 
-PREFIXES = ("/data", "/tmp/", "/docs", "/home", "/conf", "/apps", "/logs")
-BOOT_NAME = re.compile(r"\b[A-Z0-9]{1,8}\.(ELF|LST|TYP)\b|\b(PASSWD|BUSYBOX)\b")
+PREFIXES = ("/data", "/tmp/", "/docs", "/home", "/conf", "/apps", "/logs",
+            "/system", "/transient", "/etc")
+# The flat 8.3 names of the F2 image root: none may come back (F3).
+BOOT_NAME = re.compile(r"\b[A-Z0-9]{1,8}\.(ELF|LST|TYP|LZP)\b|\b(PASSWD|BUSYBOX)\b")
 
 # `'x'`, `'\n'`, `'\x41'`, `'\u{1F600}'`; a lifetime (`'a`) has no closing quote.
 CHAR_BODY = r"(?:\\(?:u\{[0-9a-fA-F_]+\}|x[0-9a-fA-F]{2}|.)|[^'\\])"
@@ -67,8 +71,7 @@ def literals(src):
             start, j = i + 1, i + 1
             while j < n and src[j] != '"':
                 j += 2 if src[j] == "\\" else 1
-            if not is_byte_string(src, i):
-                yield line, src[start:j]
+            yield line, src[start:j]
             line += src.count("\n", i, j)
             i = j + 1
         elif c == "'":
@@ -77,10 +80,6 @@ def literals(src):
         else:
             i += 1
 
-
-def is_byte_string(src, quote):
-    """True for `b"..."`: a spawn line such as `b"TOP.ELF arg\0"` is a byte buffer, not a path."""
-    return quote >= 1 and src[quote - 1] == "b" and not (quote >= 2 and (src[quote - 2].isalnum() or src[quote - 2] == "_"))
 
 
 def offends(text):

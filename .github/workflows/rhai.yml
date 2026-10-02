@@ -3,7 +3,7 @@ name: rhai
 # Issue #319 (step R0 of the Rhai plan): the `rhai` command. Host-tests the
 # bindings crate (`libs/rhai-lazy`, mock filesystem/environment) and the thin
 # musl host (`rhai-host`), builds the static-musl program, embeds it in the
-# image as `RHAI.ELF`, and boots LazyOS twice: on the console (BusyBox `sh`
+# image as `/system/bin/rhai`, and boots LazyOS twice: on the console (BusyBox `sh`
 # runs `rhai -e`, script files, pipelines and the REPL) and in the desktop
 # Terminal (the pipe-pair terminal without a pty), where the `msg` module also
 # calls the real Messenger services. `python tools/rhai/run.py --desktop` runs

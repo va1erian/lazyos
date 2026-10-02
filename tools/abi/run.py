@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Run the Linux-ABI conformance bench and write the compatibility matrix.
 
-For each fixture: rebuild the OS image with the fixture embedded as `INIT.ELF`
+For each fixture: rebuild the OS image with the fixture embedded as `/system/bin/abi-init`
 (`LAZYOS_INIT=<path> cargo build`), boot it headless, capture the serial log, and
 classify the result from the log:
 
@@ -73,13 +73,13 @@ ONE_BOOT_WITH_DATA = {"cwd": ("/tmp", "/data"), "fsops": ("/tmp", "/", "/data")}
 def build_image(fixture_path: Path, busybox: bool = False) -> Path | None:
     """Build the image with the fixture embedded; its per-row copy, or `None`."""
     env = dict(os.environ)
-    # Each row builds a fresh image with its own `INIT.ELF` and copies it: keep
+    # Each row builds a fresh image with its own `/system/bin/abi-init` and copies it: keep
     # the OS volume small (it only needs the fixture and BusyBox) and never
     # update a developer's persistent one in place.
     env.setdefault("LAZYOS_OS_SIZE", "128M")
     env.setdefault("LAZYOS_RESET_OS", "1")
-    # Never let a caller's exports leak between rows: a `BUSYBOX` embedded for
-    # another fixture would shadow its `INIT.ELF`, and vice versa.
+    # Never let a caller's exports leak between rows: a `/system/bin/busybox` embedded for
+    # another fixture would shadow its `/system/bin/abi-init`, and vice versa.
     for key in ("LAZYOS_INIT", "LAZYOS_BUSYBOX", "LAZYOS_BUSYBOX_TEST"):
         env.pop(key, None)
     if busybox:
@@ -257,7 +257,7 @@ def check_busybox_cwd(serial: str) -> tuple[str, str]:
     if "/" not in [line.strip() for line in section("CWD2", "LS2").splitlines()]:
         return "fail", "pwd -P after cd .. is not /"
     root = section("LS2", "END").split()
-    if "cwdprobe" in root or "HELLO.TXT" not in root:
+    if "cwdprobe" in root or "system" not in root:
         return "fail", "ls after cd .. does not list the boot volume"
     return "pass", ""
 

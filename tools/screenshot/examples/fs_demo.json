@@ -4,7 +4,7 @@
   {"at": 7.0, "type": "ls"},
   {"at": 7.4, "key": "enter"},
   {"at": 8.4, "shot": "ls"},
-  {"at": 9.0, "type": "cat HELLO.TXT"},
+  {"at": 9.0, "type": "cat /system/share/samples/hello.txt"},
   {"at": 9.6, "key": "enter"},
   {"at": 10.6, "shot": "cat"},
   {"at": 11.4, "quit": true}

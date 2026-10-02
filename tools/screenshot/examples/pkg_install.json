@@ -78,20 +78,32 @@
  },
  {
   "at": 0.4,
-  "type": "ct /PK"
+  "type": "ct /sy"
  },
  {
   "at": 0.4,
-  "type": "GDEMO."
+  "type": "stem/s"
  },
  {
   "at": 0.4,
-  "type": "LZP"
+  "type": "hare/s"
+ },
+ {
+  "at": 0.4,
+  "type": "amples"
+ },
+ {
+  "at": 0.4,
+  "type": "/pkgde"
+ },
+ {
+  "at": 0.4,
+  "type": "mo.lzp"
  },
  {
   "at": 0.8,
   "key": "enter",
-  "until": "TERM:CMD:pkgctl inspect /PKGDEMO.LZP",
+  "until": "TERM:CMD:pkgctl inspect /system/share/samples/pkgdemo.lzp",
   "timeout": 30,
   "retries": 2
  },
@@ -113,20 +125,32 @@
  },
  {
   "at": 0.4,
-  "type": "ll /PK"
+  "type": "ll /sy"
  },
  {
   "at": 0.4,
-  "type": "GDEMO."
+  "type": "stem/s"
  },
  {
   "at": 0.4,
-  "type": "LZP"
+  "type": "hare/s"
+ },
+ {
+  "at": 0.4,
+  "type": "amples"
+ },
+ {
+  "at": 0.4,
+  "type": "/pkgde"
+ },
+ {
+  "at": 0.4,
+  "type": "mo.lzp"
  },
  {
   "at": 0.8,
   "key": "enter",
-  "until": "TERM:CMD:pkgctl install /PKGDEMO.LZP",
+  "until": "TERM:CMD:pkgctl install /system/share/samples/pkgdemo.lzp",
   "timeout": 30,
   "retries": 2
  },

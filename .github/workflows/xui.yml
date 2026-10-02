@@ -496,7 +496,7 @@ jobs:
           ! grep -q "^init: launch .* failed" shots/docs/serial.log
 
       # Docs Open dialog: the toolbar button and Ctrl+O each show the portable
-      # file picker (which lists the `/TESTDOC.MD` fixture the image ships), a
+      # file picker (which lists the `/system/share/samples/testdoc.md` fixture the image ships), a
       # cancelled dialog leaves the page alone, and a typed path loads the
       # document into the view.
       - name: Capture Docs (Open dialog, test document)
@@ -510,7 +510,7 @@ jobs:
           set -euo pipefail
           cargo build
           python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/docs_open             --timeout 300 --script tools/screenshot/examples/xui_docs_open.json             --fail-on "DOCS:[A-Z]+:FAIL" --fail-on "INIT:AUTOSTART:FAIL"
-          for marker in DOCS:UP:PASS DOCS:RENDER:PASS DOCS:OPEN:PASS:/TESTDOC.MD \n                        DOCS:RENDER:PASS:/TESTDOC.MD; do
+          for marker in DOCS:UP:PASS DOCS:RENDER:PASS DOCS:OPEN:PASS:/system/share/samples/testdoc.md \n                        DOCS:RENDER:PASS:/system/share/samples/testdoc.md; do
             grep -qF "$marker" shots/docs_open/serial.log
           done
           # The replacement view must have painted a document: compare decoded

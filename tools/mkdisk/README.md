@@ -40,7 +40,7 @@ formatted. By default the volume gets:
 
 The accounts are **not** copied: `accounts.py` parses the built-in passwd table
 out of `user/src/bin/accountsd.rs`, and `test_seed.py` fails if that table and
-the `PASSWD` file `build.rs` puts on the boot volume ever differ. ids are limited
+the `/system/etc/passwd` file `build.rs` puts on the OS volume ever differ. ids are limited
 to 16 bits because that is all the kernel's ext2 driver stores.
 
 ## Persistence rule

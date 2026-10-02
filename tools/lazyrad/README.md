@@ -26,11 +26,10 @@ leaving a silently empty image.
 ## Embedding in the image
 
 With `LAZYOS_LAZYRAD=1` set for the OS build, `build_support/lazyrad_embed.rs`
-adds the 8.3 names `LRPLAY.ELF` and `LAZYRAD.ELF` to the boot volume and copies
+adds `/system/bin/lrplay` and `/system/bin/lazyrad` to the OS volume and copies
 every sample project directory named by `LAZYRAD_SAMPLES` (a platform path list,
 `;` on Windows and `:` elsewhere; relative entries resolve against the repo
-root) under `/LAZYRAD/<directory>/`. Long sample names are kept; the ELFs use
-8.3 because the kernel's FAT reader resolves short names. A missing ELF fails
+root) under `/system/share/lazyrad/<directory>/`. Names are kept exactly (ext2 is case-sensitive). A missing ELF fails
 the OS build with a message to run this script. With the switch unset nothing
 changes.
 

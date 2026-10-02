@@ -143,8 +143,8 @@ def build_env(cfg: dict) -> dict[str, str]:
     if cfg.get("cli"):
         env["LAZYOS_CLI"] = "1"
     if cfg.get("lazyrad"):
-        # Embeds LRPLAY.ELF and LAZYRAD.ELF (built by `tools/lazyrad/build.py`)
-        # and lists the IDE in XAPPS.LST so Settings -> Menu offers it.
+        # Embeds /system/bin/lrplay and /system/bin/lazyrad (built by `tools/lazyrad/build.py`)
+        # and lists the IDE in /system/etc/xapps.lst so Settings -> Menu offers it.
         env["LAZYOS_LAZYRAD"] = "1"
         if cfg.get("lazyrad_samples"):
             env["LAZYRAD_SAMPLES"] = cfg["lazyrad_samples"]

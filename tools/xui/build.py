@@ -76,13 +76,13 @@ BINS = {
     # The Config app (generic confd registry editor).
     "xui-confd": "xui-confd.elf",
     # The Installer app (`.lzp` package consent and removal, `docs/packages.md`).
-    # `xui_disk_name` derives the 8.3 name XINSTALL.ELF from this path.
+    # `build_support/xui_embed.rs` places it at /system/bin/installer.
     "xui-installer": "xui-installer.elf",
     # LazyShell, the desktop shell (issue #157): `build.rs` embeds it as
-    # XSHELL.ELF on the desktop profile unless LAZYOS_SHELL=0.
+    # /system/bin/lazyshell on the desktop profile unless LAZYOS_SHELL=0.
     "xui-shell": "xui-shell.elf",
     # The Devices app (issue #481): owners, rights and the driver class rules.
-    # `xui_disk_name` derives the 8.3 name XDEVICES.ELF from this path.
+    # `build_support/xui_embed.rs` places it at /system/bin/devices.
     "xui-devices": "xui-devices.elf",
 }
 
@@ -176,7 +176,7 @@ def build_docs(debug: bool) -> str | None:
 
 
 def build_sample_packages() -> None:
-    """Build the sample `.lzp` packages the image ships (`PKGDEMO.LZP`).
+    """Build the sample `.lzp` packages the image ships (`/system/share/samples/pkgdemo.lzp`).
 
     They are made from the apps just built (`tools/pkg/build_samples.py`) and
     embedded by the root `build.rs`. Output goes to stderr: stdout is the JSON

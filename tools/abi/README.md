@@ -10,7 +10,7 @@ Tooling that measures how far LazyOS is from running prebuilt
 |------|---------|
 | `fixtures/` | Small Rust programs (std) built static for `x86_64-unknown-linux-musl`, one per contract. |
 | `build.py` | Builds the fixtures into `target/abi/fixtures/*.elf` (adds the musl target if missing; tolerant if the host can't link). |
-| `run.py` | For each fixture: embeds it as `INIT.ELF`, boots headless QEMU, parses the serial log, writes `docs/compat/matrix.md` + `compat.json`. |
+| `run.py` | For each fixture: embeds it as `/system/bin/abi-init`, boots headless QEMU, parses the serial log, writes `docs/compat/matrix.md` + `compat.json`. |
 | `coverage.py` | Scans the bench serial logs for `ENOSYS <nr> <name>` and writes `docs/compat/coverage.md` + `coverage.json`. |
 
 ## Fixtures
@@ -40,7 +40,7 @@ Tooling that measures how far LazyOS is from running prebuilt
 
 - A fixture prints `ABI:<name>:PASS` or `ABI:<name>:FAIL:<reason>` and exits
   `0`/`1`.
-- The kernel, when it sees an injected `INIT.ELF` but cannot run Linux binaries
+- The kernel, when it sees an injected `/system/bin/abi-init` but cannot run Linux binaries
   yet, logs `ABI:INIT:SKIP:<reason>`.
 - `run.py` classifies each fixture as `pass` / `fail` / `skip` / `not-run` /
   `unavailable` accordingly.
@@ -55,10 +55,10 @@ as "the file written by boot 1 was gone". The fixture tells the boots apart by
 whether its file exists, so it takes no arguments. Without the mkdisk tooling
 the row is `n/a` rather than failing.
 
-## The `INIT.ELF` hook
+## The `/system/bin/abi-init` hook
 
 `build.rs` embeds the file named by the `LAZYOS_INIT` environment variable as
-`INIT.ELF` in the disk image. The kernel, if `INIT.ELF` exists, runs *only* it
+`/system/bin/abi-init` in the disk image. The kernel, if `/system/bin/abi-init` exists, runs *only* it
 (instead of the demo programs) — so a bench run is deterministic. This is how the
 runner isolates one fixture per boot.
 

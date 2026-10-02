@@ -63,7 +63,7 @@ DESKTOP: list[tuple[str, str]] = [
 
 #: Lines that must NOT appear (issue #216): `init` refuses a registered app whose
 #: ELF the image does not ship quietly, so a boot never logs a launch failure
-#: for one (it used to print `init: launch editor failed: EDITOR.ELF`).
+#: for one (it used to print `init: launch editor failed: /system/bin/editor`).
 FORBIDDEN: list[tuple[str, str]] = [
     ("no launch failure for an unshipped app", r"^init: launch \S+ failed"),
 ]
@@ -73,8 +73,8 @@ FORBIDDEN: list[tuple[str, str]] = [
 #: that re-enables one fails the desktop job instead of passing silently.
 DESKTOP_FORBIDDEN: list[tuple[str, str]] = [
     ("no flaky crash service", r"^flaky: starting"),
-    ("no clipboard demo pair", r"^clipboardd: started demo CLIP"),
-    ("no top text client", r"^(?:sysmond: started demo TOP\.ELF|SYS:TOP:PASS|top: LazyOS)"),
+    ("no clipboard demo pair", r"^clipboardd: started demo /system/bin/clip"),
+    ("no top text client", r"^(?:sysmond: started demo top|SYS:TOP:PASS|top: LazyOS)"),
     ("no xdemo client", r"^(?:xdemo: |XDEMO:UP:PASS)"),
     ("no dragdemo launcher", r"^dragdemo: "),
 ]

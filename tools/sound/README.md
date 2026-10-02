@@ -33,7 +33,7 @@ QEMU is discovered like the other tools (`--qemu`, then `PATH`, then
 
 ## What a run checks
 
-The image is built with `LAZYOS_SOUND=1`, which embeds `SNDD.ELF` and `BEEP.ELF`
+The image is built with `LAZYOS_SOUND=1`, which embeds `/system/bin/sndd` and `/system/bin/beep`
 and starts `sndd demo=1` (from the kernel, or from `init`'s manifest with
 `LAZYOS_SERVICES=1`). The guest then prints, in order:
 
@@ -81,7 +81,7 @@ ProTracker module from the desktop Terminal.
 ## Desktop: the `beep` command
 
 The desktop profile (`LAZYOS_DESKTOP=1`) always ships the sound stack: `sndd` in
-`init`'s manifest (as `_snd`, silent, no boot tones) and `BEEP.ELF`, which the
+`init`'s manifest (as `_snd`, silent, no boot tones) and `/system/bin/beep`, which the
 kernel exposes as a shell command (`kernel/src/process/linux/native.rs`). In the
 desktop Terminal:
 

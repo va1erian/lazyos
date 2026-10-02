@@ -37,12 +37,12 @@
  },
  {
   "at": 1.0,
-  "type": "cp -r /LAZYRAD/perf2000 /tmp/perf && echo copied"
+  "type": "cp -r /system/share/lazyrad/perf2000 /tmp/perf && echo copied"
  },
  {
   "at": 0.5,
   "key": "enter",
-  "until": "TERM:CMD:cp -r /LAZYRAD/perf2000 /tmp/perf && echo copied",
+  "until": "TERM:CMD:cp -r /system/share/lazyrad/perf2000 /tmp/perf && echo copied",
   "timeout": 30,
   "retries": 2
  },
@@ -52,12 +52,12 @@
  },
  {
   "at": 1.5,
-  "type": "/LAZYRAD.ELF --client /tmp/perf &"
+  "type": "/system/bin/lazyrad --client /tmp/perf &"
  },
  {
   "at": 0.5,
   "key": "enter",
-  "until": "TERM:CMD:/LAZYRAD.ELF --client /tmp/perf &",
+  "until": "TERM:CMD:/system/bin/lazyrad --client /tmp/perf &",
   "timeout": 30,
   "retries": 2
  },

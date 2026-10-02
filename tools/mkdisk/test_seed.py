@@ -226,7 +226,7 @@ class DemoAccountsTests(unittest.TestCase):
     """The seed reads ``accountsd.rs``; these fail if the copies drift apart."""
 
     def test_accountsd_and_the_boot_image_agree(self) -> None:
-        # build.rs writes the PASSWD the boot volume carries as a second literal.
+        # build.rs writes the passwd file the OS volume carries as a second literal.
         self.assertEqual(accounts.builtin_passwd(), accounts.image_passwd())
 
     def test_demo_accounts_include_alice(self) -> None:

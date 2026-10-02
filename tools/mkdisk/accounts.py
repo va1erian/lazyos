@@ -1,7 +1,7 @@
 """The demo accounts, read from the file that defines them.
 
 ``accountsd`` keeps its built-in passwd table as a Rust string constant, and
-``build.rs`` embeds a second copy as the boot volume's ``PASSWD``. Python cannot
+``build.rs`` embeds a second copy as the OS volume's ``/system/etc/passwd``. Python cannot
 import either, and a hand-copied list here would silently go stale, so the seed
 users are parsed out of ``accountsd.rs`` and ``test_mkdisk.py`` fails if
 ``build.rs`` disagrees with it.
@@ -82,7 +82,7 @@ def builtin_passwd(source: Path = ACCOUNTSD_SOURCE) -> str:
 
 
 def image_passwd(source: Path = BUILD_SCRIPT) -> str:
-    """The raw ``PASSWD`` file ``build.rs`` puts on the boot volume."""
+    """The raw ``/system/etc/passwd`` file ``build.rs`` puts on the OS volume."""
     return _extract(_BUILD_PASSWD, source, "the PASSWD file contents")
 
 

@@ -39,7 +39,9 @@ class CheckLiterals(unittest.TestCase):
     def test_offending_literals_are_caught(self):
         for text in ['"/data/apps"', '"/tmp/x"', '"/docs"', '"/home/u"', '"/conf"',
                      '"/apps"', '"/logs"', '"INIT.ELF"', '"XAPPS.LST"', '"MIME.TYP"',
-                     '"PASSWD"', '"BUSYBOX"', 'r#"/data"#', '"cannot spawn TOP.ELF"']:
+                     '"PASSWD"', '"BUSYBOX"', 'r#"/data"#', '"cannot spawn TOP.ELF"',
+                     '"/system/bin/top"', '"/system"', '"/etc/mime.types"',
+                     '"/transient/x"', '"PKGDEMO.LZP"']:
             with self.subTest(text=text):
                 self.assertEqual(len(self.found(f"const A: &str = {text};\n")), 1)
 
@@ -59,8 +61,12 @@ class CheckLiterals(unittest.TestCase):
     def test_a_char_literal_does_not_swallow_the_line(self):
         self.assertEqual(len(self.found("""let q = '"'; let p = "/data";\n""")), 1)
 
-    def test_byte_strings_are_spawn_lines_and_pass(self):
-        self.assertEqual(self.found('const A: &[u8] = b"TOP.ELF arg\0";\n'), [])
+    def test_byte_strings_are_checked_too(self):
+        for text in [r'b"TOP.ELF arg\0"', r'b"/system/bin/beep role=intruder\0"',
+                     r'b"linux:NETFIX.ELF\0"', r'br"/etc/passwd"']:
+            with self.subTest(text=text):
+                self.assertEqual(len(self.found(f"const A: &[u8] = {text};\n")), 1)
+        self.assertEqual(self.found('const A: &[u8] = b"demo=1\\0";\n'), [])
 
     def test_test_code_and_generated_files_are_skipped(self):
         bad = 'const A: &str = "/data";\n'

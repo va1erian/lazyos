@@ -108,7 +108,7 @@ jobs:
       # the serial log must show the FAT volume listing and a file read. Every
       # step waits on a serial marker, so a hang or a wrong result fails the
       # job. (Ring-3 fault containment is covered by the `fault_*` kernel tests
-      # now that the native shell that used to launch `FAULTPRB.ELF` is gone.)
+      # now that the native shell that used to launch `/system/bin/faultprobe` is gone.)
       - name: Boot and assert on serial output
         run: |
           python tools/screenshot/qemu_session.py --image target/lazyos.img \

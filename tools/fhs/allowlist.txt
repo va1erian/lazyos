@@ -3,12 +3,9 @@
 #   path:LINE:reason     one line
 # Prefer a constant from libs/fhs; add an entry only when the literal is the
 # thing under test or the build host cannot depend on the crate yet.
-build.rs:image build script on the host, names the files it places on the volume (moves onto libs/fhs with F2)
-build_support/drivers.rs:image build script on the host, names the driver ELFs it embeds (moves onto libs/fhs with F2)
-build_support/lazyrad_embed.rs:image build script on the host, names the lazyrad files it embeds (moves onto libs/fhs with F2)
-build_support/rhai_embed.rs:image build script on the host, names the rhai files it embeds (moves onto libs/fhs with F2)
-build_support/os_layout.rs:the declarative directory table of the OS volume; it is where the layout is defined for the host build, and its paths become fhs constants as F3/F4 move the services onto them
-build_support/xui_embed.rs:image build script on the host, names the XAPPS.LST file it generates (moves onto libs/fhs with F3)
+build_support/os_layout.rs:the declarative directory table of the OS volume; it is where the layout is defined for the host build, and its paths become fhs constants as F4 moves the services onto them
+build_support/xui_embed.rs:278:the file name tools/pkg/build_samples.py writes under target/pkg on the host, not an image path
+kernel/src/process/linux/path.rs:83:the Linux ABI's synthetic /etc directory, an ABI concept rather than LazyOS layout
 user/src/bin/init/selftest.rs:154:test data for launch-argument quoting, not a layout path
 user/src/bin/init/selftest.rs:156:test data for launch-argument quoting, not a layout path
 user/src/bin/mimed/selftest.rs:22:test data for MIME guessing by extension, not a boot file

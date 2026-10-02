@@ -60,8 +60,8 @@ QEMU is discovered like the other tools (`--qemu`, then `PATH`, then
 `net.pcap`); `shots/` is git-ignored. `python tools/run_demo.py --net` boots the
 same image interactively; `nicctl` then runs from the shell.
 
-The image is built with `LAZYOS_NET=1`, which embeds `NETDRV.ELF` and
-`NICCTL.ELF` and starts `netdrv demo=1` (from the kernel, or from `init`'s
+The image is built with `LAZYOS_NET=1`, which embeds `/system/bin/netdrv` and
+`/system/bin/nicctl` and starts `netdrv demo=1` (from the kernel, or from `init`'s
 manifest with `LAZYOS_SERVICES=1`). The guest prints, in order:
 
 | Marker | Meaning |
@@ -173,8 +173,8 @@ server's own record of commands and transfers; see `docs/architecture/networking
 ## Stage N5: Linux programs
 
 `run.py --netd` first builds the Linux fixtures (`tools/abi/build.py`; on a host without `cc` it links with
-`rust-lld`) and embeds `netfix` in the image as `NETFIX.ELF`; without a musl toolchain the N5 checks are
-skipped. `netd demo=1` runs it as `linux:NETFIX.ELF`: `std::net` only, no libc extras. It needs the harness
+`rust-lld`) and embeds `netfix` in the image as `/system/bin/netfix`; without a musl toolchain the N5 checks are
+skipped. `netd demo=1` runs it as `linux:/system/bin/netfix`: `std::net` only, no libc extras. It needs the harness
 (the echo servers, and a second port forward to its listener on guest port 47774), so it is not part of
 `tools/abi/run.py`. The capture adds 3 TCP flows and 22 datagram echoes to the totals of stage N3, and a
 second inbound connection of 100 000 bytes. The kernel's side is tested without a network:
