@@ -16,6 +16,7 @@ from judge import judge  # noqa: E402
 
 GOOD = """\
 init: started confd (pid 4, attempt 1)
+init: started pkgd (pid 9, attempt 1)
 INIT:RESTART:PASS name=flaky status=1 attempt=1 delay=10
 INIT:SHUTDOWN:BEGIN mode=poweroff uid=0 session=0 reason="x"
 power: watchdog armed (power-off, deadline tick 4000)
@@ -25,8 +26,10 @@ INIT:SHUTDOWN:APPS asked=3
 INIT:SHUTDOWN:PHASE services
 INIT:SHUTDOWN:SERVICES
 init: stopping keyd (SIGTERM)
+init: stopping pkgd (lifecycle)
+PKGD:STOP sync=ok reason="x"
 LOGD:STOP records=40 verified=true persisted=40 reason="x"
-CONFD:STOP dir=/data/confd sync=ok reason="x"
+CONFD:STOP dir=/conf sync=ok reason="x"
 init: userspace quiesced (killed=0)
 INIT:SHUTDOWN:QUIESCED killed=0 ticks=120
 INIT:SHUTDOWN:PHASE power
@@ -56,9 +59,33 @@ class JudgeTest(unittest.TestCase):
         self.assertTrue(any("in order" in f for f in judge(swapped, "poweroff")))
 
     def test_confd_must_stop_inside_the_services_phase(self):
-        late = GOOD.replace('CONFD:STOP dir=/data/confd sync=ok reason="x"\n', "") + \
-            'CONFD:STOP dir=/data/confd sync=ok reason="x"\n'
+        late = GOOD.replace('CONFD:STOP dir=/conf sync=ok reason="x"\n', "") + \
+            'CONFD:STOP dir=/conf sync=ok reason="x"\n'
         self.assertTrue(any("outside" in f for f in judge(late, "poweroff")))
+
+    def test_confd_must_keep_its_store_in_conf_on_a_desktop_boot(self):
+        legacy = GOOD.replace("dir=/conf", "dir=/data/confd")
+        self.assertTrue(any("not /conf" in f for f in judge(legacy, "poweroff")))
+        fallback = GOOD.replace("dir=/conf", "dir=/transient/conf")
+        self.assertTrue(any("not /conf" in f for f in judge(fallback, "poweroff")))
+        self.assertEqual(judge(legacy, "poweroff", desktop=False), [])
+
+    def test_pkgd_must_stop_gracefully_before_confd(self):
+        missing = GOOD.replace('PKGD:STOP sync=ok reason="x"\n', "")
+        self.assertTrue(any("'PKGD:STOP'" in f for f in judge(missing, "poweroff")))
+        killed = GOOD.replace("init: stopping pkgd (lifecycle)", "init: stopping pkgd (SIGTERM)")
+        self.assertTrue(any("lifecycle" in f for f in judge(killed, "poweroff")))
+        after = GOOD.replace('PKGD:STOP sync=ok reason="x"\n', "").replace(
+            'CONFD:STOP dir=/conf sync=ok reason="x"\n',
+            'CONFD:STOP dir=/conf sync=ok reason="x"\nPKGD:STOP sync=ok reason="x"\n')
+        self.assertTrue(any("after confd" in f for f in judge(after, "poweroff")))
+        unsynced = GOOD.replace("PKGD:STOP sync=ok", "PKGD:STOP sync=errno 5")
+        self.assertTrue(any("pkg.log" in f for f in judge(unsynced, "poweroff")))
+        # No pkg.log yet is fine; an image without pkgd is not held to it.
+        self.assertEqual(judge(GOOD.replace("PKGD:STOP sync=ok", "PKGD:STOP sync=none"),
+                               "poweroff"), [])
+        without = missing.replace("init: started pkgd (pid 9, attempt 1)\n", "")
+        self.assertEqual(judge(without, "poweroff"), [])
 
     def test_a_failed_sync_or_chain(self):
         self.assertTrue(judge(GOOD.replace("sync=ok", "sync=errno -5"), "poweroff"))

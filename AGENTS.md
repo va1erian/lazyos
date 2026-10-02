@@ -96,8 +96,15 @@ the bootloader's stage 2, a FAT `/boot` (only the kernel and a generated
 default `512M`, minimum `128M`) that holds every other file: programs at their
 real names in `/system/bin` (`/system/bin/init`, `/system/bin/busybox`), data in
 `/system/etc` and `/system/share` (`/system/etc/passwd`), the docs in `/docs/os`,
-plus `/data`; no regular file sits at the root (docs/filesystem-plan.md F3). The volume is
-written by `libs/ext2fs`, the code the kernel mounts it with (`build_support/os_*.rs`).
+and each service's state at its place in the tree (F4): `confd`'s store in
+`/conf` (0700 root; an F3 image's `/data/confd` is merged in once), `logd`'s
+journals and `pkgd`'s `pkg.log` in `/logs` (0750 root), installed apps in
+`/apps` and their docs in `/docs/apps`, and a 0700 home per passwd account in
+`/home/<name>` (hidden by the home volume when one is mounted). Nothing new is
+written under `/data`; no regular file sits at the root (docs/filesystem-plan.md
+F3). The volume is written by `libs/ext2fs`, the code the kernel mounts it with
+(`build_support/os_*.rs`); `cargo run -q -p ext2fs --example osread -- target/lazyos.img
+cat /logs/service.log` reads it from the host (`/logs` is root-only in the guest).
 A rebuild **updates the OS volume in place**: installed apps, settings, logs
 and your own files survive, and only paths listed in `/system/.image-manifest`
 are replaced or deleted. `LAZYOS_RESET_OS=1 cargo build` (or
@@ -205,8 +212,10 @@ anything else; ask `init` (`powerctl`, or `services::shutdown`). A service
 that holds durable state serves `os.lazy.lifecycle.v1` (`idl/lifecycle.midl`)
 and is listed in `user/src/bin/init/shutdown.rs` (`GRACEFUL`). The harness
 boots the desktop twice (power-off from the shell, reboot from the menu) and
-judges the serial logs (`logd` must report `persisted>0`, and the second boot
-finds the first one's records in `/logs/service.log`); the session scripts
+judges the serial logs (`logd` must report `persisted>0`, `confd` must stop
+with `dir=/conf`, `pkgd` must stop through the lifecycle before `confd`, and
+the second boot finds the first one's records in `/logs/service.log`); the
+session scripts
 drive the same paths by hand:
 
 ```bash

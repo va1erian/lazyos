@@ -118,7 +118,7 @@ icon = "icons/png"                   # optional prefix: icons/png-16.png, -32 an
 [permissions]
 interfaces = ["os.lazy.clipboard.v1", "os.lazy.fs.reader.v1"]
 topics = ["publish:app/org.lazy.paint/#", "subscribe:system/events/open/+"]
-files = ["read:/data/home/*/pictures", "write:/data/home/*/pictures"]
+files = ["read:/home/*/pictures", "write:/home/*/pictures"]
 network = []                         # v1: empty or ["outbound"]
 ```
 
@@ -175,7 +175,7 @@ partially filled state is exposed. `read` verifies the entry's size and CRC-32
 against the central directory.
 
 `install_dir` is `<system_name>/<version>-<first 8 lowercase hex chars of
-digest>`, the install directory relative to `/data/apps`.
+digest>`, the install directory relative to `/apps`.
 
 ### Errors
 
@@ -244,15 +244,34 @@ pkgctl list
 
 | What | Where |
 |---|---|
-| The extracted package | `/data/apps/<system_name>/<version>-<digest8>/` (the `install_dir`), `manifest.toml` included as received |
+| The extracted package | `/apps/<system_name>/<version>-<digest8>/` (the `install_dir`), `manifest.toml` included as received |
+| Its documentation | `/docs/apps/<system_name>/`: the package's `docs/**.md`, listed by the Docs app next to `/docs/os` |
 | One record per installed app | `confd` key `sys/apps/<system_name>`: the generated `Installed` record, encoded once |
 | The app's policy | the kernel, label `app:<system_name>` (`acl_load`); memory only, so replayed at startup |
 | The app's file types | `mimed`, registered with the app id `<system_name>` |
-| The audit trail | `/data/log/pkg.log`, plus `system/events/pkg/<op>` events |
+| The audit trail | `/logs/pkg.log`, plus `system/events/pkg/<op>` events; `logd`'s rotation and budget leave it alone |
 
-`/data` is the ext2 data volume (`docs/architecture/filesystem.md`); without a
-disk attached `pkgd` still answers `Inspect` and `List` and refuses `Install`
-with "there is no writable data disk" (`PKGD:STORE:ABSENT` on serial).
+All three directories are on the ext2 OS volume (`docs/architecture/filesystem.md`):
+`/apps` and `/docs/apps` are 0755 root, written only by `pkgd`; `/logs` is 0750
+root. At startup `pkgd` probes that it can create and write in each (as `confd`
+probes `/conf`); when it cannot (a recovery boot with a read-only `/`) it still
+answers `Inspect` and `List` and refuses `Install` with "Applications cannot be
+installed: <why>" (`PKGD:STORE:ABSENT reason="<why>"` on serial). Nothing is
+written under `/data` any more; apps an F3 image installed in `/data/apps` are
+not listed until F7 migrates them.
+
+The documentation is copied whole: on install `pkgd` writes it to
+`/docs/apps/<system_name>~new` together with the extraction, and only once the
+app is active does it replace the live directory (live → `<system_name>~old`,
+`~new` → live, then the old tree is deleted), so the pages never describe a
+half-upgrade. `~` and not `.new`, because `.new` is a valid `system_name` label.
+A stop between those steps is repaired at the next start
+(`PKGD:DOCS:REPAIRED n=<k>`): a complete `~new` copy becomes live, a partial one
+is deleted. Removal deletes the directory; every deletion is confined to
+strictly below `/apps` or `/docs/apps` (`pkgstore::tree::deletable`). The same
+`pkgstore::tree` code runs in `pkgd`, in the host tests (an in-memory tree, and
+1 000 install/upgrade/remove cycles on `libs/ext2fs` with its fsck checker) and
+in the kernel suite (`ext2_suite::pkg_tree`, the same soak through the VFS).
 
 ### `Inspect` and `Install`
 
@@ -292,7 +311,7 @@ new version no longer handles are withdrawn). `Remove(system_name)` asks `init`
 to stop every running instance (`init.Stop`), withdraws the file types
 (`mimed.Unregister`, which hands a type back to the handler it replaced), revokes
 the policy (an empty `load_label`), deletes the install directory and the record,
-and audits it. User data under `/data/home` is never touched.
+and audits it. User data under `/home` is never touched.
 
 Files larger than the 1 MiB a single `write_file` takes are written as one
 `write_file` plus `append_file` (native syscall 28) per further MiB.
@@ -301,18 +320,29 @@ Files larger than the 1 MiB a single `write_file` takes are written as one
 
 `pkgd` is spawned by `init` with `init`'s identity: **root with every capability
 but raw input**. The privilege is needed and is the reason this is one small
-service: `CAP_IPC_CONTROL` for the kernel's `acl_load`, uid 0 for `/data/apps`
-and the `sys/` part of `confd`, and uid 0 for `mimed`'s `Register`/`Unregister`.
+service: `CAP_IPC_CONTROL` for the kernel's `acl_load`, uid 0 for `/apps`,
+`/docs/apps`, `/logs/pkg.log` and the `sys/` part of `confd`, and uid 0 for `mimed`'s `Register`/`Unregister`.
 Because it is root, it checks every request against the kernel-stamped identity
 of the sender (`pkgstore::access`):
 
 * only root or the owner of a login session may `Install` or `Remove`; a task
   carrying an app label never may;
 * it reads a package *as root*, so for an unprivileged caller it only accepts
-  paths that are readable by design (the boot volume root, `/tmp`, the caller's
-  own home directory); root may name any absolute path. There is no "open as
-  uid" call, and without this a user could install, and so copy out into
-  world-readable `/data/apps`, a package they cannot read;
+  paths that are readable by design:
+
+  ```text
+  allowed = under(path, /transient) || under(path, caller_home) || caller_uid == 0
+  ```
+
+  `caller_home` is the caller's home from `accountsd`'s `Lookup`. The path is
+  normalised first (`//`, `.` and `..` folded; ext2 has no symlinks) and that
+  normalised path is the one read, so `/home/user/../admin/x.lzp` is judged as
+  `/home/admin/x.lzp`. Anything else is refused with "packages can only be
+  installed from /transient or your home folder"; root may name any absolute
+  path (`pkgctl install /system/share/samples/pkgdemo.lzp` as root works, a
+  user copies the sample to `/transient` first). There is no "open as uid"
+  call, and without this a user could install, and so copy out into
+  world-readable `/apps`, a package they cannot read;
 * refusals are answered with a structured error (errno-style code plus a
   friendly sentence) and audited as `denied`.
 
@@ -338,7 +368,7 @@ A label carries at most 256 rules; a manifest that needs more is refused.
 
 ### Audit
 
-Every install, removal and refusal is one line of `/data/log/pkg.log`:
+Every install, removal and refusal is one line of `/logs/pkg.log`:
 
 ```text
 <seq> <prev_hash_hex> <hex of the PkgEvent bytes> <sha256_hex over prev_hash||event>
@@ -353,6 +383,12 @@ starts with a record that says so. Every event is also published on
 independently of the file. The chain is tamper-*evident*: someone who can rewrite
 the whole file can rebuild it, which is what the published copy is for.
 
+Every record is appended before its request is answered, and `pkgd` serves
+`os.lazy.lifecycle.v1` (`docs/shutdown.md`): on `init`'s `Shutdown` it fsyncs
+`pkg.log`, prints `PKGD:STOP sync=<ok|none|errno>` and exits, so a power-off
+never loses the tail of the chain to `SIGTERM`. It is stopped before `confd`
+and `mimed`, which it depends on.
+
 ### Boot, `init` and the menu
 
 The kernel's policy and `mimed`'s registrations live in memory, so at startup
@@ -364,7 +400,7 @@ The kernel's policy and `mimed`'s registrations live in memory, so at startup
 `init.Stop`, and `init` is a single task, so `init` waiting on `pkgd` while `pkgd`
 waits on `init` would deadlock. They follow the built-ins in `ListApps`
 (`AppInfo.installed`; the id is the `system_name`), re-read on every call, and
-`Launch(<system_name>)` spawns `/data/apps/<install_dir>/<binary>` under the
+`Launch(<system_name>)` spawns `/apps/<install_dir>/<binary>` under the
 label `app:<system_name>`, with the manifest's `entry.args`, in the Linux
 personality when `entry.abi = "linux"`, as the launching session's user with no
 capabilities. A restarted app is stamped again, so a crash does not launder the

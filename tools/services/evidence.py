@@ -44,6 +44,9 @@ REQUIRED: list[tuple[str, str]] = [
     ("timed serving (issue #369)", r"TIMED:READY unix=\d+ "),
     ("timed published time/tick", r"TIMED:TICK:PASS unix=\d+ offset=-?\d+ zone=\S+$"),
     ("logd journals in /logs (issue #508)", r"^LOGD:STORE:READY dir=/logs boot=[0-9a-f]{16} "),
+    ("confd store in /conf (issue #508)", r"^CONFD:READY dir=/conf persistent=true$"),
+    ("mime overrides from /system/share/mime.types (issue #508)",
+     r"^MIME:GUESS:PASS SAMPLE\.LZT \S+ \(/system/share/mime\.types\)$"),
 ]
 
 #: Markers a desktop-profile boot (`LAZYOS_DESKTOP=1`, issue #217) still
@@ -61,6 +64,9 @@ DESKTOP: list[tuple[str, str]] = [
     ("timed serving (issue #369)", r"TIMED:READY unix=\d+ "),
     ("timed published time/tick", r"TIMED:TICK:PASS unix=\d+ offset=-?\d+ zone=\S+$"),
     ("logd journals in /logs (issue #508)", r"^LOGD:STORE:READY dir=/logs boot=[0-9a-f]{16} "),
+    ("confd store in /conf (issue #508)", r"^CONFD:READY dir=/conf persistent=true$"),
+    ("mime overrides from /system/share/mime.types (issue #508)",
+     r"^MIME:GUESS:PASS SAMPLE\.LZT \S+ \(/system/share/mime\.types\)$"),
 ]
 
 #: Lines that must NOT appear (issue #216): `init` refuses a registered app whose
@@ -68,6 +74,10 @@ DESKTOP: list[tuple[str, str]] = [
 #: for one (it used to print `init: launch editor failed: /system/bin/editor`).
 FORBIDDEN: list[tuple[str, str]] = [
     ("no launch failure for an unshipped app", r"^init: launch \S+ failed"),
+    # Issue #508: the services keep their state on the OS volume.
+    ("mimed found its override file", r"^MIME:GUESS:INFO no override file"),
+    ("pkgd's store (/apps, /docs/apps, /logs) is writable", r"^PKGD:STORE:ABSENT"),
+    ("confd did not fall back to the ramfs", r"^CONFD:READY dir=\S+ persistent=false"),
 ]
 
 #: Markers of the demo/evidence programs the desktop profile excludes (issue

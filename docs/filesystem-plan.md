@@ -111,7 +111,9 @@ and passes `python tools/test/run.py --accel none` (see `AGENTS.md`).
 
 ### F4: services on the tree
 
-- **confd** stores in `/conf`; `/transient/conf` remains the degraded fallback.
+- **confd** stores in `/conf`; `/transient/conf` remains the degraded fallback
+  (done: `/data/confd` is merged in once, then `/conf/.seeded-from-data`;
+  `/conf/svc/<service>/` is documented for non-key/value state).
 - **logd** writes persistent journals to `/logs/<service>.log` with size caps
   and rotation (done: `libs/logstore`, 256 KiB per file, `.1`/`.2`, an 8 MiB
   budget excluding `pkg.log`; `Sources`/`TailFile` for uid 0).
@@ -119,9 +121,15 @@ and passes `python tools/test/run.py --accel none` (see `AGENTS.md`).
   `alice` across code, tests and tools.
 - **pkgd** installs to `/apps`, logs to `/logs/pkg.log`, writes package docs to
   `/docs/apps/<system_name>/`; its install-source rule ("single-component path
-  = boot volume") is replaced by `/transient` and the caller's home.
+  = boot volume") is replaced by `/transient` and the caller's home (done:
+  `pkgstore::tree` shared with the host and kernel soaks, a writability probe,
+  `pkgd` in the lifecycle contract).
+- **image layout** (done): `/conf` and `/conf/svc` 0700, `/logs` 0750,
+  `/apps` and `/docs/apps` 0755, a 0700 `/home/<name>` per passwd account;
+  `/data/home` and `/data/tmp` are no longer seeded.
 - **lazyrad** moves `/data/...` to `/home/<user>/...`.
-- **mimed** reads `/system/share/mime.types`.
+- **mimed** reads `/system/share/mime.types` (done in F3; the services evidence
+  fails on `MIME:GUESS:INFO no override file`).
 
 ### F5: every app is an lzp
 

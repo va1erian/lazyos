@@ -2,7 +2,8 @@
 """Judge an orderly shutdown or reboot from a LazyOS serial log.
 
 docs/shutdown.md. The markers are printed by `init` (`INIT:SHUTDOWN:*`), the
-persistence services (`CONFD:STOP`, `LOGD:STOP`) and the kernel (`power: ...`);
+persistence services (`CONFD:STOP`, `LOGD:STOP`, `PKGD:STOP`) and the kernel
+(`power: ...`);
 this checks they all appear, in the order the sequence promises, and that
 nothing went wrong on the way:
 
@@ -10,7 +11,11 @@ nothing went wrong on the way:
 * the phases ran in order: stopping, apps, services, quiesced, power;
 * `confd` synced and `logd`'s hash chain verified, both inside the services
   phase, and (on a desktop boot, the default) `logd` persisted records to its
-  journals in `/logs` (`LOGD:STOP ... persisted=<n>`, n > 0);
+  journals in `/logs` (`LOGD:STOP ... persisted=<n>`, n > 0) and `confd`'s
+  store is `/conf` (`CONFD:STOP dir=/conf`);
+* when `pkgd` ran, it stopped through the lifecycle contract inside the
+  services phase, synced `/logs/pkg.log` (`PKGD:STOP sync=ok|none`) and did so
+  before `confd`, which it depends on;
 * nothing was killed at a deadline, nothing restarted after the request;
 * the kernel synced the filesystems and did not fall back (no "8042 reset
   ignored", no "no ACPI power-off").
@@ -83,18 +88,28 @@ def judge(log: str, mode: str, desktop: bool = True) -> list[str]:
         position = found
     services = tail.find("INIT:SHUTDOWN:PHASE services")
     quiesced = tail.find("INIT:SHUTDOWN:QUIESCED")
-    for marker in PERSIST:
+    persist = PERSIST + (["PKGD:STOP"] if "init: started pkgd" in log else [])
+    for marker in persist:
         found = tail.find(marker)
         if found < 0:
             failures.append(f"missing {marker!r}")
         elif not services < found < quiesced:
             failures.append(f"{marker} outside the services phase")
+    if "init: started pkgd" in log:
+        if "init: stopping pkgd (lifecycle)" not in tail:
+            failures.append("pkgd was not stopped through the lifecycle contract")
+        if 0 <= tail.find("CONFD:STOP") < tail.find("PKGD:STOP"):
+            failures.append("pkgd stopped after confd, which it depends on")
+        if (match := re.search(r"PKGD:STOP sync=(\S+)", tail)) and match.group(1) not in ("ok", "none"):
+            failures.append(f"pkgd's final sync of pkg.log failed ({match.group(1)})")
     if (match := re.search(r"CONFD:STOP \S+ sync=(\S+)", tail)) and match.group(1) != "ok":
         failures.append(f"confd's final sync failed ({match.group(1)})")
     if (match := re.search(r"LOGD:STOP records=\d+ verified=(\S+)", tail)) and \
             match.group(1) != "true":
         failures.append("logd's hash chain did not verify")
     if desktop:
+        if (match := re.search(r"CONFD:STOP dir=(\S+)", tail)) and match.group(1) != "/conf":
+            failures.append(f"confd's store is {match.group(1)}, not /conf")
         match = re.search(r"LOGD:STOP records=\d+ verified=\S+ persisted=(\d+)", tail)
         if match is None:
             failures.append("LOGD:STOP does not report persisted=<n>")

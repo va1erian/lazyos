@@ -48,8 +48,8 @@ Reboot and power-off are the same sequence until that last call.
 | 0. Request | caller -> `init` | `init.Shutdown(mode, reason, force)` replies at once with the phase. | - |
 | 1. Freeze | `init` | `stopping()` is set: no restart, no autostart, `Launch` is `EBUSY`. Rows waiting to start or restart are retired. The kernel watchdog is armed (`power(ARM_WATCHDOG, op)`). Phase `stopping` is published. | - |
 | 2. Apps | `init` | Every launched app gets `SIGTERM` (phase `apps`), LazyShell included: its `Restart::Always` row is retired like any other, never restarted. `xuid` paints the shutting-down overlay as soon as it sees the topic. | 5 s each, then `SIGKILL` |
-| 3. Services | `init` | The manifest services in [`stop_order`](../user/src/bin/init/stop_order.rs) order (phase `services`): a row is stopped once no live row depends on it and no lower-tier row is live. A service that serves `os.lazy.lifecycle.v1` (`confd`, `logd`) gets its `Shutdown` message; any other gets `SIGTERM`. Independent rows stop together. | 3 s each, then `SIGKILL` |
-| 4. Persist | `confd`, `logd` | `confd` flushes its store's volume (`CONFD:STOP`); its writes are synchronous, so none is in flight. `logd` drains its feeds, flushes and fsyncs its journals in `/logs`, and verifies its chain (`LOGD:STOP records=<n> verified=<bool> persisted=<n>`; the harness requires `persisted>0` on a desktop boot). Both are in the persist tier, so they stop after every ordinary service. | (phase 3's) |
+| 3. Services | `init` | The manifest services in [`stop_order`](../user/src/bin/init/stop_order.rs) order (phase `services`): a row is stopped once no live row depends on it and no lower-tier row is live. A service that serves `os.lazy.lifecycle.v1` (`confd`, `logd`, `pkgd`) gets its `Shutdown` message; any other gets `SIGTERM`. `pkgd` (an ordinary tier, depending on `confd` and `mimed`) fsyncs `/logs/pkg.log`, the tail of its audit chain, and prints `PKGD:STOP sync=<ok|none|errno>` before `confd` is asked to stop. Independent rows stop together. | 3 s each, then `SIGKILL` |
+| 4. Persist | `confd`, `logd` | `confd` flushes its store's volume (`CONFD:STOP dir=/conf sync=ok`; the harness requires `/conf` on a desktop boot); its writes are synchronous, so none is in flight. `logd` drains its feeds, flushes and fsyncs its journals in `/logs`, and verifies its chain (`LOGD:STOP records=<n> verified=<bool> persisted=<n>`; the harness requires `persisted>0` on a desktop boot). Both are in the persist tier, so they stop after every ordinary service. | (phase 3's) |
 | 5. Quiesced | `init` | Every row is reaped; `init: userspace quiesced (killed=N)`. Phase `power` is published. | - |
 | 6. Kernel | `init` -> `power()` | `sync_all` (ext2 clean bit), then ACPI power-off or the 8042 reset, a triple fault if the 8042 ignored it, `halt()` as the last resort. | - |
 
@@ -209,8 +209,8 @@ had the VM not stopped, which the judge rejects.
 - **The lifecycle contract is opt-in.** The plan wanted the
   `messenger_async` `shutdown { method }` clause wired into every daemon. The
   real daemons are hand-written loops, not `service!` users, and most hold no
-  state worth saving, so only `confd` and `logd` serve
-  `os.lazy.lifecycle.v1`; everything else gets `SIGTERM`. Adding a service to
+  state worth saving, so only `confd`, `logd` and `pkgd` (since F4, issue
+  #508) serve `os.lazy.lifecycle.v1`; everything else gets `SIGTERM`. Adding a service to
   `shutdown::GRACEFUL` and registering the interface is all it takes.
 - **Exit, not reply.** `Shutdown` is one-way: the service's exit is the
   acknowledgement, which `init` already reaps, so `init` never blocks on a

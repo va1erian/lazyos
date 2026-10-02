@@ -369,13 +369,25 @@ FAT partition ends past LBA 131072. Everything except the kernel and
 `rhai_embed`, `lazyrad_embed`, `xui_embed`, and `build.rs` itself) keeps its
 selection logic and only its sink changed, to an OS file list
 (`OsFile { path, source, mode }`; the mode follows the directory: 0755 under
-`/system/bin`, 0644 everywhere else, all root-owned). `build_support/os_layout.rs` is the declarative directory table:
-the mount points `/boot`, `/home`, `/transient`; `/system` with `bin`, `etc`,
-`share` and `packages` (empty until F5); `/apps`, `/conf` (empty
-until F4), `/logs` (`logd`'s journals since F4, `libs/logstore`); and the transitional `/data` with
-`/data/home/<user>` (the embedded `/system/etc/passwd` account's uid/gid, 0755) and
-`/data/tmp` (1777), mirroring `tools/mkdisk/layout.py`, so `pkgd`, `confd` and
-`lazyrad` find `/data` on `/` and are persistent without a data disk. Since F3
+`/system/bin`, 0644 everywhere else, all root-owned).
+`build_support/os_layout.rs` is the declarative directory table, and an update
+applies each directory's mode and owner again so an older image converges to it:
+
+| Path | Mode, owner | What |
+|---|---|---|
+| `/boot`, `/home`, `/transient` | 0755 root | mount points |
+| `/system` (`bin`, `etc`, `share`, `packages`) | 0755 root | the build's files; `packages` empty until F5 |
+| `/conf` | 0700 root | `confd`'s store (`fhs::state::CONF_ROOT`); only `confd` reads it |
+| `/conf/svc` | 0700 root | non-key/value service state, `<service>/` each, made by its owner |
+| `/logs` | 0750 root | `logd`'s journals (`libs/logstore`) and `pkgd`'s `pkg.log`: everyone's activity, so not world-readable |
+| `/apps`, `/docs/apps` | 0755 root | installed apps and their documentation, written only by `pkgd` |
+| `/home/<name>` | 0700, the account's uid:gid | one per account of the embedded `/system/etc/passwd` whose home is `/home/<name>` (`fhs::home_of`); a mounted home volume hides them |
+| `/data` | 0755 root | transitional: nothing new is written there (but `lazyrad`'s files until it moves to the home); F7 removes it |
+
+All those services run as uid 0 today; when #446/#447 give each its own uid,
+the owners follow. F4 stopped seeding `/data/home/<user>` and `/data/tmp`: an
+update removes them only when empty, so a user's files there survive until F7
+(`build_support/tests/f4_layout_tests.rs`). Since F3
 every file sits below one of these directories: programs in `/system/bin`
 (`fhs::bin`), `passwd` and `xapps.lst` in `/system/etc`, `mime.types`, the
 samples (`/system/share/samples`) and the lazyrad projects
@@ -401,7 +413,7 @@ an update may replace or delete. `build_support/os_image.rs::plan` decides:
    unlinked, directories removed only when empty), write every file of the new
    list (truncate + write), write the manifest last, flush. A path in neither
    manifest is never touched, which is what preserves `/apps`, `/conf`, `/logs`,
-   `/data` contents and anything a user created.
+   `/docs/apps`, `/home`, `/data` contents and anything a user created.
 3. A different `LAZYOS_OS_SIZE` on a valid image is an error that says to set
    `LAZYOS_RESET_OS=1` (no resize). An update opens the file exclusively and
    fails with a "stop QEMU and retry" message when something holds it.
@@ -414,11 +426,14 @@ leading to create, locked image, size change) plus an ignored test that checks a
 real image with the independent checker in `libs/ext2fs`
 (`LAZYOS_CHECK_IMAGE=target/lazyos.img cargo test -p build-support-tests --
 --ignored`); `tools/ci/check_os_image.sh` runs `e2fsck -fn` and `debugfs` over a
-fresh and an updated image.
+fresh and an updated image. `cargo run -q -p ext2fs --example osread -- IMAGE
+cat|stat|ls PATH` reads the OS volume of an image from the host, read-only (the
+shutdown harness reads `/logs` with it, which is root-only in the guest).
 
 **The home volume (host tooling).** `target/home.img` is a persistent ext2 image
 (label `lazyhome`, found by `home=LABEL=lazyhome`) with one `<user>/` directory
-per demo account at its root and no `/home` or `/tmp`. `tools/mkdisk/` formats
+per demo account at its root (0700, the account's uid:gid) and no `/home` or
+`/tmp`. `tools/mkdisk/` formats
 it in pure Python (Windows has no `mkfs.ext2`): `python -m tools.mkdisk PATH
 --home-volume`. `tools/run_demo.py` creates it on first use and attaches it as a
 second `virtio-blk-pci` device; flags are `--home-disk PATH`, `--no-home-disk`
@@ -443,6 +458,9 @@ large files, synced on shutdown, and Linux descriptors that read and write it in
 place (`pread64`/`pwrite64`/`ftruncate`/`fsync`/`sync`/`statfs`). The in-kernel
 suite (`fs_ext2_*` over a `FakeDisk`, plus the `libs/ext2fs`-built root mounted
 from a `lazyos.cfg`) holds the correctness, crash-ordering and soak coverage.
-Open: symlinks, cross-mount rename, page cache, resizing an existing OS image,
-and the F3 to F7 moves (renames, `/conf`, `/apps`, `/logs`, packages, the ABI
-overlay, the old data disk).
+F4 (issue #508) put the services on the tree: `confd` in `/conf` (seeded once
+from `/data/confd`), `logd` journals and `pkg.log` in `/logs`, `pkgd` in `/apps`
+and `/docs/apps`. Open: symlinks, cross-mount rename, page cache, resizing an
+existing OS image, the rest of F4 (the `admin`/`user` accounts, `$HOME`,
+`lazyrad` in the home) and F5 to F7 (packages, the ABI overlay, migrating and
+removing `/data`).

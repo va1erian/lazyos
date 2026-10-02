@@ -2,22 +2,26 @@
 """Shut a desktop LazyOS down, boot it again and reboot it: the end-to-end
 check of the orderly shutdown (docs/shutdown.md).
 
-Two boots on one fresh ext2 data disk:
+Two boots of one image:
 
-1. **Shell power-off.** The Terminal writes a nonce to `/data/tmp`, then types
-   `shutdown`. QEMU (run with `-no-shutdown`) pauses at the power-off and the
-   last frame, the shutting-down overlay, is captured.
-2. **Menu reboot.** The Terminal reads the nonce back (it survived the stop),
-   then LazyShell's start menu "Restart..." is chosen and confirmed. The
-   "Restarting..." overlay is captured once QEMU (`-no-reboot -no-shutdown`)
-   pauses on the reset.
+1. **Shell power-off.** The Terminal writes a nonce to the session account's
+   home on the OS volume (`/home/<name>`; nothing is under `/data` since F4),
+   then types `shutdown`. QEMU (run with `-no-shutdown`) pauses at the
+   power-off and the last frame, the shutting-down overlay, is captured.
+2. **Menu reboot.** The Terminal reads the nonce back (it survived the stop)
+   and finds the first boot's journal, then LazyShell's start menu
+   "Restart..." is chosen and confirmed. The "Restarting..." overlay is
+   captured once QEMU (`-no-reboot -no-shutdown`) pauses on the reset.
 
 Each boot's serial log is judged by `judge.py` (which requires `logd` to have
-persisted records to `/logs`); the second boot must also mount the data volume
-clean (no "was not cleanly unmounted"), print the nonce, and find the first
-boot's journal in `/logs/service.log` (its boot id, from
-`LOGD:STORE:READY ... boot=<id>`). Screenshots and logs land in
-`shots/shutdown/`.
+persisted records to `/logs`, `confd` to keep its store in `/conf` and `pkgd`
+to stop through the lifecycle contract before `confd`). The second boot must
+also mount the volume clean (no "was not cleanly unmounted"), print the nonce
+and find the first boot's records in `/logs/service.log` (its boot id, from
+`LOGD:STORE:READY ... boot=<id>`): from the guest's Terminal (autostarted as
+root) and, after QEMU exits, from the host (`libs/ext2fs`'s `osread`
+example), which does not depend on who the Terminal runs as (`/logs` is 0750
+root). Screenshots and logs land in `shots/shutdown/`.
 
     python tools/shutdown/run.py              # build the desktop image, boot twice, judge
     python tools/shutdown/run.py --no-build   # reuse target/lazyos.img
@@ -45,12 +49,35 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from judge import judge  # noqa: E402
 
 IMAGE = ROOT / "target/lazyos.img"
-DATA = ROOT / "target/shutdown-data.img"
 BUSYBOX = ROOT / "target/abi/busybox/busybox"
-NOTE = "/data/tmp/shutdown.txt"
 #: The journal of `init`'s `system/events/service/*` records: every desktop
 #: boot writes it (docs/architecture/userland.md, `logd`).
 JOURNAL = "/logs/service.log"
+
+
+def session_home() -> str:
+    """The home of the desktop's session account (uid 1000) in the passwd the
+    build embeds (`build.rs`, `PASSWD`), so an account rename moves it too."""
+    text = (ROOT / "build.rs").read_text(encoding="utf-8")
+    passwd = re.search(r'const PASSWD: &\[u8\] = b"([^"]*)";', text).group(1)
+    for row in passwd.split("\\n"):
+        fields = row.split(":")
+        if len(fields) >= 5 and fields[1] == "1000":
+            return fields[4]
+    raise SystemExit("build.rs embeds no uid 1000 account")
+
+
+NOTE = f"{session_home()}/shutdown.txt"
+
+
+def read_journal() -> str:
+    """`JOURNAL` read from the image on the host: the session user may not."""
+    result = subprocess.run(["cargo", "run", "-q", "-p", "ext2fs", "--example", "osread", "--",
+                             str(IMAGE), "cat", JOURNAL],
+                            cwd=ROOT, capture_output=True, text=True, errors="replace")
+    if result.returncode != 0:
+        print(result.stderr[-2000:])
+    return result.stdout
 
 
 def home(start: float) -> list[dict]:
@@ -107,6 +134,8 @@ def reboot_session(nonce: str, boot_id: str) -> list[dict]:
         *command(f"cat {NOTE}", f"TERM:OUT:{nonce}"),
         {"wait_for": f"TERM:OUT:{nonce}", "timeout": 30},
         # The first boot's records are in its journal: its boot line names it.
+        # (The autostarted Terminal runs as root, session 0, so it may read
+        # `/logs`, which is 0750 root; the harness also reads it from the host.)
         *command(f"grep -q id={boot_id} {JOURNAL}; echo journal-$?", "TERM:OUT:journal-"),
         *home(1.0),
         {"at": 2.4, "mouse_move": [44, 704]},
@@ -146,7 +175,7 @@ def boot(name: str, steps: list[dict], out: Path, accel: str) -> tuple[bool, str
     session = out / name
     started = time.time()
     result = subprocess.run([sys.executable, "tools/screenshot/qemu_session.py",
-                             "--image", str(IMAGE), "--data-disk", str(DATA),
+                             "--image", str(IMAGE),
                              "--accel", accel, "--out", str(session), "--script", str(script),
                              "--extra-arg=-no-shutdown"],
                             cwd=ROOT, capture_output=True, text=True)
@@ -167,8 +196,6 @@ def main() -> int:
     args = parser.parse_args()
     if not args.no_build and not build():
         return 1
-    subprocess.run([sys.executable, "-m", "tools.mkdisk", str(DATA), "--force"],
-                   cwd=ROOT, check=True, capture_output=True)
     nonce = f"persist-{int(time.time())}"
     failures: list[str] = []
 
@@ -185,11 +212,13 @@ def main() -> int:
     failures += [] if ok else ["reboot session did not complete"]
     failures += [f"reboot: {f}" for f in judge(log, "reboot")]
     if "was not cleanly unmounted" in log:
-        failures.append("the data volume was not clean after the power-off")
+        failures.append("the OS volume was not clean after the power-off")
     if f"TERM:OUT:{nonce}" not in log:
         failures.append(f"{NOTE} did not survive the power-off")
     if "TERM:OUT:journal-0" not in log:
         failures.append(f"{JOURNAL} lost the first boot's records")
+    if f"id={boot_id}" not in read_journal():
+        failures.append(f"{JOURNAL} read from the image lacks the first boot's records")
     if "SHELL:POWER:REQUEST mode=1 phase=" not in log:
         failures.append("LazyShell's start menu did not request the reboot")
     if "INIT:LAUNCH:PASS app=lazyshell" in log.split("INIT:SHUTDOWN:BEGIN", 1)[-1]:

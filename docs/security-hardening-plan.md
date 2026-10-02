@@ -44,7 +44,10 @@ label ACL engine. What makes the result pretend is how they are wired:
    writable storage is the optional ext2 `/data` disk, which `cargo run` does
    not attach. Accounts say `/home/alice`, the directory is
    `/data/home/alice`, and logind ignores the field. Passwords are plaintext in
-   the boot volume's `PASSWD` file.
+   the boot volume's `PASSWD` file. *(Since filesystem F4, #508: `/` is the
+   ext2 OS volume and the home is the account's own `/home/<name>`, 0700, on
+   the home volume or the OS volume; logind still ignores the field and the
+   passwords are still plaintext, in `/system/etc/passwd`.)*
 6. **Callers are identified by task slot.** Reading a sender's credentials
    needs `CAP_SETUID` (hence every service holds it), and slots are reused
    without a generation.
@@ -86,12 +89,13 @@ Split into two parallel issues over disjoint files.
 
 - `/data` is attached on every boot path (`cargo run`, `qemu_shot`,
   `qemu_session`), created with `tools/mkdisk` when missing (#332).
-- Homes are `/data/home/<user>` everywhere (`build.rs` `PASSWD`, accountsd's
-  built-in table, the mkdisk seed). `/home` becomes a symlink once symlinks
-  exist; no mount or bind work is needed.
+- Homes are `/home/<user>` everywhere: the image build makes one per passwd
+  account whose home is `/home/<name>` (0700, the account's uid/gid), and
+  `tools/mkdisk --home-volume` seeds the home volume the same way (done in
+  filesystem F4, #508; the `/data/home` tree is no longer seeded).
 - No plaintext passwords: Argon2id hashes at build time, keyd verifiers
-  persisted on `/data`, no byte-compare fallback without keyd, no keyd demo
-  account.
+  persisted in `/conf/svc/keyd` (0700 root, filesystem F4), no byte-compare
+  fallback without keyd, no keyd demo account.
 - One credential table in init (the two `manifest_cred` functions merge), and
   `xuid` moves from the kernel launch path into init's manifest.
 - Kernel-started XAPP and console-shell profiles drop `CAP_INPUT_RAW`.
