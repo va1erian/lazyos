@@ -42,6 +42,8 @@ const GAP_REPORT_MS: u64 = 40;
 /// i8042 status bits.
 const STATUS_OUTPUT_FULL: u8 = 0x01;
 const STATUS_AUX: u8 = 0x20;
+/// What the status port reads with no controller behind it.
+const ABSENT: u8 = 0xFF;
 
 /// Which i8042 port a byte came from.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -153,8 +155,16 @@ static MAX_GAP: AtomicU64 = AtomicU64::new(0);
 /// Largest gap already reported, in milliseconds.
 static REPORTED_GAP_MS: AtomicU64 = AtomicU64::new(0);
 
-/// Start collecting (called once the controller and the mouse are set up).
+/// Start collecting (called once the controller and the mouse are set up),
+/// unless there is no controller: a machine without an i8042 (`i8042=off`,
+/// USB input only) floats the status port at 0xFF, which would read as an
+/// endless stream of mouse bytes.
 pub fn enable() {
+    // SAFETY: reading the i8042 status port has no side effect.
+    if unsafe { inb(0x64) } == ABSENT {
+        crate::serial_println!("ps2: no i8042, intake off");
+        return;
+    }
     LAST_SERVICE.store(rdtsc(), Ordering::Relaxed);
     READY.store(true, Ordering::Release);
 }
@@ -172,7 +182,7 @@ pub fn service() {
         for _ in 0..MAX_READS {
             // SAFETY: reading the i8042 status port has no side effect.
             let status = unsafe { inb(0x64) };
-            if status & STATUS_OUTPUT_FULL == 0 {
+            if status & STATUS_OUTPUT_FULL == 0 || status == ABSENT {
                 break;
             }
             // SAFETY: the status just reported a byte in the output buffer;
