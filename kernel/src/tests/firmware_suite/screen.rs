@@ -346,12 +346,15 @@ pub fn panic_report_renders() -> Result<(), String> {
     Ok(())
 }
 
-/// The boot remapped the framebuffer write-combining (PAT entry 7 is WC and
-/// every leaf selects it) and pixels still read back what was written; a
-/// second remap is idempotent.
+/// Remapping the framebuffer write-combining (PAT entry 7 is WC and every
+/// leaf selects it) keeps pixels reading back what was written, and a second
+/// remap is idempotent. The boot only remaps on bare metal
+/// (`mem::wc::under_hypervisor`), so the suite does it itself.
 pub fn framebuffer_is_write_combining() -> Result<(), String> {
     let (base, len) = crate::console::framebuffer_span().ok_or("no framebuffer")?;
     let pages = len.div_ceil(4096);
+    let mapped = crate::mem::wc::map_write_combining(base, len).map_err(to_string)?;
+    check!(mapped == pages, "remapped {mapped} of {pages}");
     for page in [0, pages / 2, pages - 1] {
         check!(
             crate::mem::wc::is_write_combining(base + page * 4096),

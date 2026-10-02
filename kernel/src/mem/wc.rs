@@ -42,6 +42,17 @@ fn has_pat() -> bool {
     core::arch::x86_64::__cpuid(1).edx & (1 << 16) != 0
 }
 
+/// Whether a hypervisor announces itself (CPUID.1:ECX bit 31). A virtual
+/// GPU's framebuffer is ordinary host RAM that the guest already reaches
+/// write-back; whether a guest PAT type is honoured there depends on the
+/// host (KVM on AMD honours it, KVM on Intel ignores it), and where it is
+/// honoured every present stops going through the cache. So the boot only
+/// remaps the framebuffer on bare metal, where the firmware's uncached MTRR
+/// range is what WC is for.
+pub fn under_hypervisor() -> bool {
+    core::arch::x86_64::__cpuid(1).ecx & (1 << 31) != 0
+}
+
 /// The 4 KiB leaf entry mapping `va` in the active table, or why not.
 fn leaf(va: u64) -> Result<*mut u64, &'static str> {
     let mut table = Cr3::read().0.start_address().as_u64();

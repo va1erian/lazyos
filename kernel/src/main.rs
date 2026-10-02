@@ -102,8 +102,11 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     arch::acpi_tables::set_rsdp(boot_info.rsdp_addr.into_option());
     mem::init(boot_info);
     boot_phase!("mem_ready");
-    // Firmware usually leaves the framebuffer uncached: make it write-combining.
-    if let Some((fb_base, fb_len)) = console::framebuffer_span() {
+    // Firmware usually leaves the framebuffer uncached: make it write-combining
+    // (bare metal only, see `mem::wc::under_hypervisor`).
+    if mem::wc::under_hypervisor() {
+        serial_println!("HW:FB:WC:SKIPPED (hypervisor: the framebuffer is guest RAM)");
+    } else if let Some((fb_base, fb_len)) = console::framebuffer_span() {
         match mem::wc::map_write_combining(fb_base, fb_len) {
             Ok(pages) => serial_println!("HW:FB:WC:{pages} pages write-combining"),
             Err(reason) => serial_println!("HW:FB:WC:SKIPPED ({reason})"),

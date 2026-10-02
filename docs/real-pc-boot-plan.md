@@ -211,7 +211,7 @@ and markers, not source reading.
    the firmware's MTRRs decide whether the present blit runs at write-combining
    or uncached speed; on a 4K panel the difference is a usable or an unusable
    desktop. H1 measures and, if needed, remaps the framebuffer write-combining
-   through PAT in `mem::init` (done in H1: `mem::wc`, logged as `HW:FB:WC:`). The logical-screen cap (H1) bounds the blit
+   through PAT in `mem::init` (done in H1: `mem::wc`, logged as `HW:FB:WC:`; bare metal only: under a hypervisor the framebuffer is guest RAM, and a host that honours the guest PAT (KVM on AMD) would take every present out of the cache). The logical-screen cap (H1) bounds the blit
    size; a bootloader-side maximum mode is the third lever.
 3. **Virtual-wire mode is an assumption.** H2 enables the LAPIC while keeping
    the 8259 for device interrupts. Firmware normally leaves LINT0 as ExtINT;
