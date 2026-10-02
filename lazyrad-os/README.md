@@ -34,6 +34,16 @@ Without `$HOME` (a program started outside a session) the home is
 say so with `LRPLAY:HOME:WARN` / `LRIDE:HOME:WARN` on serial and stderr.
 `lrplay` reports the folder its scripts may write as `LRPLAY:DATA:PASS:<dir>`.
 
+Three sessions, run in order on one image (built with `LAZYOS_RESET_OS=1`, so
+nothing is installed yet), check it end to end: `lazyrad_home.json` makes and
+installs a copy of `hello` whose `form_load` writes `proof.txt`
+(`LRPLAY:DATA:PASS:/home/admin/.apps/user.admin.hello`), then after a reboot
+`lazyrad_home_project.json` reads that file back and creates `MyApp` with
+File -> New Project (the dialog opens in `/home/admin/projects`), and after
+another reboot `lazyrad_home_reboot.json` finds
+`/home/admin/projects/MyApp/MyApp.lrp` and `proof.txt`, and nothing under
+`/apps/<id>/*/data`.
+
 ## Running
 
 ```bash
