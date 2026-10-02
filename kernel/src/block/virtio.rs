@@ -150,6 +150,10 @@ impl State {
                 return Some(spins);
             }
             spins += 1;
+            // The wait runs with interrupts off: keep the i8042 drained.
+            if spins.is_multiple_of(1024) {
+                crate::input::ps2::service();
+            }
             if spins.is_multiple_of(4096)
                 && (crate::task::ticks().wrapping_sub(start) >= TIMEOUT_TICKS
                     || spins >= SPIN_BACKSTOP)

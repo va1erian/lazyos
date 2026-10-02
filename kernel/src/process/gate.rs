@@ -5,6 +5,7 @@
 //! file is only the routing table.
 
 use core::arch::global_asm;
+use core::sync::atomic::{AtomicU64, Ordering};
 use x86_64::structures::idt::HandlerFunc;
 
 use super::{
@@ -63,6 +64,14 @@ pub fn syscall_gate() -> HandlerFunc {
     unsafe { core::mem::transmute::<*const (), HandlerFunc>(syscall_isr as *const ()) }
 }
 
+/// Bit set in [`LAST_SYSCALL`] for a native (`int 0x80`) syscall.
+pub const NATIVE_SYSCALL: u64 = 1 << 63;
+
+/// The syscall most recently entered (native ones tagged [`NATIVE_SYSCALL`]),
+/// for latency reports such as `PS2:GAP`: syscalls run with interrupts off,
+/// so a long interrupts-off stretch usually ends in the one recorded here.
+pub static LAST_SYSCALL: AtomicU64 = AtomicU64::new(0);
+
 #[no_mangle]
 extern "C" fn syscall_dispatch(regs: *mut Regs) {
     // Safety: the stub passes a valid pointer to saved registers.
@@ -76,6 +85,7 @@ extern "C" fn syscall_dispatch(regs: *mut Regs) {
     // deadlines (issue #240): the ISR only records the interrupt, so this is
     // the task-context half. Free when nothing is pending.
     crate::dev::intx::service();
+    LAST_SYSCALL.store(NATIVE_SYSCALL | regs.rax, Ordering::Relaxed);
     if regs.rax == 0 {
         exit(regs.rdi as u32);
     }

@@ -82,6 +82,8 @@ fn wait_not_busy() -> bool {
 }
 
 fn wait_for_data() -> bool {
+    // Once per sector: PIO runs with interrupts off (`input::ps2`).
+    crate::input::ps2::service();
     for _ in 0..1_000_000 {
         let status = status();
         if status & 0x08 != 0 {

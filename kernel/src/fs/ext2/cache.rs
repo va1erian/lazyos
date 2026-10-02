@@ -48,6 +48,9 @@ pub(crate) struct FrameMemory {
 
 impl CacheMemory for FrameMemory {
     fn alloc(&self) -> Option<Box<dyn CachePage>> {
+        // A write that fills the cache runs long with interrupts off and may
+        // never reach the device: keep the keyboard drained (`input::ps2`).
+        crate::input::ps2::service();
         if mem::frame_stats().free < self.reserve {
             return None;
         }

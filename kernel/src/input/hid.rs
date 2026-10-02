@@ -80,8 +80,7 @@ impl Set1Decoder {
         Set1Decoder { state: State::Idle }
     }
 
-    /// Forget any half-received sequence (test hook).
-    #[cfg(lazyos_tests)]
+    /// Forget any half-received sequence (after lost bytes, and in tests).
     pub fn reset(&mut self) {
         self.state = State::Idle;
     }
