@@ -42,6 +42,7 @@ NAMES = [
     "statxio",
     "cwd",
     "fsops",
+    "fdinherit",
     # Needs a network: run by `tools/net/run.py --netd`, not by the ABI bench.
     "netfix",
 ]

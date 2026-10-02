@@ -65,7 +65,10 @@ mod linux_spawn;
 pub mod process;
 pub mod signal;
 mod snapshot;
-pub use snapshot::{fd_set_len, prepare_fd_write};
+pub use snapshot::{
+    fd_advance, fd_apply_pwrite, fd_apply_write, fd_file_meta, fd_offset, fd_peek, fd_peek_at,
+    fd_read, fd_seek, fd_set_len, fd_size, prepare_fd_write, FileMeta, SnapFile,
+};
 pub mod switch;
 pub mod sys;
 pub mod trace;

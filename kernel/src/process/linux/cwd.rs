@@ -82,9 +82,8 @@ pub(super) fn dir_path_of_fd(fd: u64) -> Result<String, u64> {
     let fd = usize::try_from(fd).map_err(|_| err(EBADF))?;
     match task::fd_kind(fd) {
         FdKind::Closed => Err(err(EBADF)),
-        // A directory is a snapshot descriptor whose side-table entry records
-        // the path it was opened on; that entry is missing for a descriptor
-        // inherited across `fork`, which cannot be used as a directory yet.
+        // A directory is a snapshot descriptor whose open file description
+        // records the path it was opened on (`dup`/`fork`/`execve` keep it).
         FdKind::File => {
             let meta = fd_meta_get(fd).ok_or(err(EBADF))?;
             let is_dir = meta.mode & u32::from(vfs::S_IFMT) == u32::from(vfs::S_IFDIR);

@@ -22,9 +22,10 @@ pub enum Fd {
     Closed,
     /// stdin/stdout/stderr (and `/dev/tty`): the task's own terminal.
     Terminal,
-    /// A regular file: contents read at open time plus the current offset.
-    /// The `Arc` snapshot is shared by `dup`/`fork` and copied on first write.
-    File { data: Arc<Vec<u8>>, offset: usize },
+    /// A regular file whose contents were read at open time: one open file
+    /// description (snapshot, offset and the open's metadata) that
+    /// `dup`/`fork`/`execve` share.
+    File { file: Arc<SnapFile> },
     /// A regular file on the persistent mount, read and written in place
     /// through the VFS. `dup`/`fork` share the one open file description (and
     /// with it the offset), as POSIX requires.
@@ -134,9 +135,8 @@ impl Clone for Fd {
         match self {
             Fd::Closed => Fd::Closed,
             Fd::Terminal => Fd::Terminal,
-            Fd::File { data, offset } => Fd::File {
-                data: data.clone(),
-                offset: *offset,
+            Fd::File { file } => Fd::File {
+                file: Arc::clone(file),
             },
             Fd::Vfs { file } => Fd::Vfs {
                 file: Arc::clone(file),
@@ -207,8 +207,8 @@ pub(super) fn new_fds() -> [Fd; FD_COUNT] {
     core::array::from_fn(|i| if i < 3 { Fd::Terminal } else { Fd::Closed })
 }
 
-/// Copy a descriptor table (for `fork`; file buffers are duplicated, pipe
-/// references retained).
+/// Copy a descriptor table (for `fork`): every entry shares its open file
+/// description with the parent's, and pipe references are retained.
 pub(super) fn clone_fds(fds: &[Fd; FD_COUNT]) -> [Fd; FD_COUNT] {
     core::array::from_fn(|i| fds[i].clone())
 }

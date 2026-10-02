@@ -57,6 +57,7 @@ ORDER = [
     "statxio",
     "cwd",
     "fsops",
+    "fdinherit",
     "busybox",
 ]
 

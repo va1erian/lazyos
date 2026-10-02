@@ -8,7 +8,7 @@ use crate::task::{self, FdKind};
 use crate::user_ptr;
 
 use super::errno::{err, fs_err, EBADF, EFAULT, EINVAL, ENOMEM, ESPIPE};
-use super::fd::{fd_meta_get, fd_meta_sync_len};
+use super::fd::fd_meta_get;
 use super::vfsfd;
 
 /// Read from a snapshot descriptor into the user buffer at `ptr`.
@@ -27,11 +27,13 @@ pub(super) fn read_file_bytes(fd: u64, ptr: u64, len: u64) -> u64 {
     chunk.len() as u64
 }
 
-/// Write through a snapshot descriptor: the ABI VFS updates the backing file,
-/// then the fd's snapshot is patched so the same descriptor reads back its own
-/// writes. `O_APPEND` descriptors ignore the position and write at the current
-/// EOF. `at` is the explicit offset of a `pwrite64` (which also leaves the
-/// descriptor position alone); `None` writes at the descriptor position.
+/// Write through a snapshot descriptor: the ABI VFS updates the backing file
+/// named by the open file description, then the description's snapshot is
+/// patched so it reads back its own writes (from this descriptor, its `dup`s
+/// and the copies a `fork` or `execve` inherited). `O_APPEND` descriptors
+/// ignore the position and write at the current EOF. `at` is the explicit
+/// offset of a `pwrite64` (which also leaves the position alone); `None`
+/// writes at the descriptor position.
 pub(super) fn write_file(fd: u64, ptr: u64, len: u64, at: Option<u64>) -> u64 {
     if len == 0 {
         return 0;
@@ -61,22 +63,22 @@ pub(super) fn write_file(fd: u64, ptr: u64, len: u64, at: Option<u64>) -> u64 {
     } else {
         at.unwrap_or(position as u64)
     };
-    // Get the descriptor's snapshot ready first: once the backing file has
-    // accepted the bytes, mirroring them must not be able to fail.
+    // Reserve the snapshot's room first: once the backing file has accepted
+    // the bytes, mirroring them must not run out of memory.
     if !task::prepare_fd_write(fd as usize, offset as usize, bytes.len()) {
         return err(ENOMEM);
     }
     match crate::fs::abi_write(id, &path, offset, bytes) {
         Ok(written) => {
-            if !task::fd_apply_write(fd as usize, offset as usize, &bytes[..written]) {
+            let written_bytes = &bytes[..written];
+            // A positional write leaves the shared position alone.
+            let mirrored = match at {
+                Some(_) => task::fd_apply_pwrite(fd as usize, offset as usize, written_bytes),
+                None => task::fd_apply_write(fd as usize, offset as usize, written_bytes),
+            };
+            if !mirrored {
                 return err(ENOMEM);
             }
-            if at.is_some() {
-                // `fd_apply_write` moved the position past the write; a
-                // positional write must not.
-                task::fd_seek(fd as usize, position as i64, 0);
-            }
-            fd_meta_sync_len(fd as usize);
             written as u64
         }
         Err(error) => fs_err(error),
