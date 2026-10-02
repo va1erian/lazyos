@@ -77,12 +77,12 @@
  },
  {
   "mouse_click": "left",
-  "until": "SHELL:LAUNCH:PASS app=counter",
+  "until": "SHELL:LAUNCH:PASS app=os.lazy.counter",
   "timeout": 30,
   "retries": 1
  },
  {
-  "wait_for": "INIT:LAUNCH:PASS app=counter pid=(\\d+)",
+  "wait_for": "INIT:LAUNCH:PASS app=os.lazy.counter pid=(\\d+)",
   "regex": true,
   "capture": "counter_pid",
   "timeout": 60

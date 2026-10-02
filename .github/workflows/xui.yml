@@ -310,7 +310,7 @@ jobs:
           python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/desktop \
             --timeout 300 --script tools/screenshot/examples/xui_desktop.json \
             --fail-on "(TERM|SYSMON|FABMON):(BIND|UP|RUN):FAIL" --fail-on "TERM:SPAWN:FAIL" --fail-on "INIT:AUTOSTART:FAIL"
-          for app in terminal sysmon fabricmon counter; do
+          for app in terminal os.lazy.sysmon os.lazy.fabricmon os.lazy.counter; do
             grep -q "INIT:AUTOSTART:PASS app=$app" shots/desktop/serial.log
           done
           grep -q "TERM:CMD:echo \$((6\*7))" shots/desktop/serial.log
@@ -370,7 +370,7 @@ jobs:
           first="$(grep -o "INIT:AUTOSTART:PASS app=[a-z]*" shots/shell/serial.log | head -n 1)"
           test "$first" = "INIT:AUTOSTART:PASS app=lazyshell"
           for marker in SHELL:UP:PASS SHELL:SERVICE:PASS SHELL:DESKTOP:PASS SHELL:MENU:OPEN \
-                        "SHELL:LAUNCH:PASS app=sysmon" "INIT:LAUNCH:PASS app=sysmon" \
+                        "SHELL:LAUNCH:PASS app=os.lazy.sysmon" "INIT:LAUNCH:PASS app=os.lazy.sysmon" \
                         SHELL:TASKBAR:ADD SHELL:TASKBAR:REMOVE \
                         "INIT:RESTART:PASS name=lazyshell" SHELL:RESTART:PASS; do
             grep -q "$marker" shots/shell/serial.log
