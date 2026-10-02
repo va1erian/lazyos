@@ -70,7 +70,9 @@ pub mod switch;
 pub mod sys;
 pub mod trace;
 pub mod wait;
-pub use linux_spawn::{spawn_linux, spawn_linux_args, spawn_linux_child, spawn_linux_child_env};
+#[cfg(lazyos_tests)]
+pub use linux_spawn::spawn_linux_child;
+pub use linux_spawn::{spawn_linux, spawn_linux_args, spawn_linux_child_env};
 
 mod console;
 mod cwd;

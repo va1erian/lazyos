@@ -113,7 +113,6 @@ use crate::{fs, input::keyboard, mem};
 #[allow(unused_imports)] // part of the module ABI; referenced by tests and userspace docs
 pub use creds::cred_op;
 use creds::{sys_creds, sys_quota, sys_tasks};
-use spawn::sys_spawn;
 
 mod argstore;
 mod credio;
@@ -128,7 +127,6 @@ pub mod loader;
 pub mod power;
 pub mod randsys;
 mod spawn;
-pub mod spawn_line;
 pub mod spawnv;
 pub mod wallsys;
 
@@ -149,13 +147,13 @@ pub const USER_STACK_TOP: u64 = 0x0800_0000;
 /// User stack size.
 pub const USER_STACK_SIZE: u64 = 0x2_0000;
 
-/// Record the argument string of the task in `slot` (a kernel boot spawn, or
-/// the Linux `execve` path for native programs, `process::linux::native`):
-/// syscall 9 hands it the `argv` block of its task name followed by `args`
-/// split on whitespace, and an empty environment.
-pub(crate) fn set_service_args(slot: usize, args: &[u8]) {
-    let argv0 = task::process::name_of(slot).unwrap_or("");
-    argstore::set_legacy(slot, argv0, args);
+/// Record the `argv` of the native task in `slot`, `argv[0]` included, with an
+/// empty environment: the per-task block `spawnv` fills, for the spawns that
+/// do not come through it (the kernel's boot spawns and the Linux `execve` of
+/// a native program, `process::linux::native`). Each item is one argument as
+/// given, never split; syscall 9 hands the block to the program.
+pub(crate) fn set_task_argv<A: AsRef<[u8]>>(slot: usize, argv: &[A]) {
+    argstore::set(slot, argstore::block(argv), alloc::vec::Vec::new());
 }
 
 /// Forget the argument blocks of the task in `slot`; the task table calls
@@ -175,14 +173,6 @@ pub fn task_args_live_for_test() -> usize {
 #[cfg(lazyos_tests)]
 pub fn intern_service_name_for_test(name: &str) -> &'static str {
     spawn::intern_service_name(name)
-}
-
-/// Test-harness view of the native spawn body: `line` is a NUL-terminated
-/// spawn line; returns the child's pid or a negative errno (syscall 6 folds
-/// every error into one code, which would hide `EACCES` from `ENOENT`).
-#[cfg(lazyos_tests)]
-pub fn spawn_program_for_test(line: &[u8]) -> i64 {
-    spawn::spawn_program(line.as_ptr() as u64, None, false)
 }
 
 /// syscall 1: write bytes to the task's terminal (and the serial log).

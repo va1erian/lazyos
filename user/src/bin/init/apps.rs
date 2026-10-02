@@ -49,12 +49,12 @@ pub struct AppSpec {
     pub restart: Restart,
     /// MIME verbs the app handles.
     pub verbs: &'static [&'static str],
-    /// Whether the app is a static Linux-ABI (musl) program: the kernel's
-    /// spawn needs the `linux:` personality prefix for those.
+    /// Whether the app is a static Linux-ABI (musl) program: it is spawned
+    /// under the Linux personality.
     pub linux: bool,
     /// Arguments every launch passes first (the desktop apps are `xuid`
     /// clients: `--client` keeps them off the display grant).
-    pub args: &'static str,
+    pub args: &'static [&'static str],
     /// Whether the image is guaranteed to carry the ELF.
     pub ship: Ship,
     /// Whether `ListApps` reports the row. Only the desktop shell is unlisted:
@@ -72,7 +72,7 @@ const fn xui_app(id: &'static str, name: &'static str, path: &'static str) -> Ap
         restart: Restart::OnFailure,
         verbs: &["open"],
         linux: true,
-        args: "--client",
+        args: &["--client"],
         ship: Ship::Manifest,
         listed: true,
     }
@@ -107,7 +107,7 @@ const fn native_app(
         restart,
         verbs,
         linux: false,
-        args: "",
+        args: &[],
         ship,
         listed: true,
     }
@@ -125,7 +125,7 @@ const fn linux_console_app(id: &'static str, name: &'static str, path: &'static 
         restart: Restart::OnFailure,
         verbs: &["open"],
         linux: true,
-        args: "",
+        args: &[],
         ship: Ship::Always,
         listed: true,
     }
@@ -353,7 +353,7 @@ pub fn selftest_apps() -> String {
     let desktop_ok = APPS
         .iter()
         .filter(|app| app.linux && !is_console_alias(app))
-        .all(|app| app.args == "--client" && app.ship == Ship::Manifest);
+        .all(|app| app.args == ["--client"] && app.ship == Ship::Manifest);
     // The shell is the first row, unlisted and always restarted; every other
     // row is listed.
     let shell_ok = APPS

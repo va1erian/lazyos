@@ -69,17 +69,17 @@ const AMPLITUDE_Q15: i32 = 16000;
 /// The evidence clients `demo=1` runs, one after another, once the service is
 /// up: a real tone (the recording proves it), a hostile-input probe, and a
 /// stream-lifecycle soak of silence. See `user/src/bin/beep.rs`.
-const BEEP_CLIENTS: [(&str, &str); 3] = [
-    (fhs::bin::BEEP, "freq=880 ms=800"),
-    (fhs::bin::BEEP, "probe=1"),
-    (fhs::bin::BEEP, "soak=40"),
+const BEEP_CLIENTS: [(&str, &[&str]); 3] = [
+    (fhs::bin::BEEP, &["freq=880", "ms=800"]),
+    (fhs::bin::BEEP, &["probe=1"]),
+    (fhs::bin::BEEP, &["soak=40"]),
 ];
 
 /// `LAZYOS_SOUND_MODPLAY=1` at build time swaps them for the tracker player's
 /// self-test melody (`user/src/bin/modplay.rs`, `tools/sound/run.py --modplay`).
-const MODPLAY_CLIENTS: [(&str, &str); 1] = [(fhs::bin::MODPLAY, "selftest")];
+const MODPLAY_CLIENTS: [(&str, &[&str]); 1] = [(fhs::bin::MODPLAY, &["selftest"])];
 
-const DEMO_CLIENTS: &[(&str, &str)] = if option_env!("LAZYOS_SOUND_MODPLAY").is_some() {
+const DEMO_CLIENTS: &[(&str, &[&str])] = if option_env!("LAZYOS_SOUND_MODPLAY").is_some() {
     &MODPLAY_CLIENTS
 } else {
     &BEEP_CLIENTS
@@ -270,8 +270,8 @@ fn serve(card: Card, infos: &[PcmInfo], demo: bool) -> Result<(), Error> {
 
 /// Start one evidence client, `(program, arguments)`; `None` when its ELF is
 /// not on the image.
-fn spawn_demo_client((program, args): (&str, &str)) -> Option<u64> {
-    let pid = sys::spawn(&user::cmdline::native(program, args));
+fn spawn_demo_client((program, args): (&str, &[&str])) -> Option<u64> {
+    let pid = sys::spawn_native(program, args);
     match pid {
         Some(pid) => sys::write_str(&format!("SNDD:DEMO:SPAWN pid={pid}\n")),
         None => sys::write_str("SNDD:DEMO:SPAWN failed (client ELF missing?)\n"),

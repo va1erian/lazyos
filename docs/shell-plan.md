@@ -72,7 +72,7 @@ sessions (S6); GPU acceleration (S8).
 
 - **Login.** `logind` keeps the S3 pipeline: identify, authenticate through
   `accountsd`/`keyd` (Argon2id), mint a session id, and spawn the session
-  programs with `spawn_as` so uid/gid/session are stamped before the first
+  programs with `spawnv` (`SpawnCred::As`) so uid/gid/session are stamped before the first
   instruction.
 - **Session programs.** S5 changes the session's default program from `sh` to
   the session bundle: `xuid` binds the display grant, then LazyShell attaches as

@@ -86,7 +86,7 @@ impl Demo {
     }
 
     fn spawn_client(&mut self, now: u64) {
-        match sys::spawn(&user::cmdline::native(CLIENT.0, CLIENT.1)) {
+        match sys::spawn_native(CLIENT.0, &[CLIENT.1]) {
             Some(pid) => {
                 sys::write_str(&format!("TIMED:CLIENT:START pid={pid}\n"));
                 self.phase = Phase::Client(now + TIMEOUT_TICKS);

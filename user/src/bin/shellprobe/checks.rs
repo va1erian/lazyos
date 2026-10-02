@@ -137,8 +137,7 @@ pub(super) fn work_area(client: &Client, screen: Rect) -> bool {
 /// would have reset it), and its event channel still works (checked by
 /// [`window_management`], which waits for a `SurfaceChanged` on it).
 pub(super) fn evict(client: &Client, screen: Rect) -> bool {
-    let observer = format!("{} observer\0", fhs::bin::SHELLPROBE);
-    if sys::spawn(observer.as_bytes()).is_none() {
+    if sys::spawn_native(fhs::bin::SHELLPROBE, &["observer"]).is_none() {
         sys::write_str("SHELLPROBE:EVICT:FAIL:spawn\n");
         return false;
     }

@@ -123,11 +123,13 @@ mod arch_suite;
 mod block_suite;
 mod boot_io_suite;
 mod boot_trace_suite;
+mod chmod_suite;
 mod confd_suite;
 mod credentials_suite;
 mod crypto_suite;
 mod dev_suite;
 mod display_suite;
+mod exec_perm_suite;
 mod ext2_suite;
 mod fault_suite;
 mod fs_suite;
@@ -145,8 +147,6 @@ mod loader_suite;
 mod mem_suite;
 mod messenger_suite;
 mod mount_suite;
-mod chmod_suite;
-mod exec_perm_suite;
 mod native_exec_suite;
 mod overlay_suite;
 mod partition_suite;
@@ -160,7 +160,6 @@ mod sched_suite;
 mod service_suite;
 mod signal_suite;
 mod slab_suite;
-mod spawn_argv_suite;
 mod spawn_suite;
 mod spurious_fault_suite;
 mod stats_suite;
@@ -239,7 +238,6 @@ const SUITE: &[&[(&str, Test)]] = &[
     topics_suite::CASES,
     topics_gate_suite::CASES,
     service_suite::CASES,
-    spawn_argv_suite::CASES,
     spawn_suite::CASES,
     native_exec_suite::CASES,
     exec_perm_suite::CASES,

@@ -97,9 +97,8 @@ compositor demo. Target toolkit design: [xui-plan.md](../xui-plan.md).
   which is client mode with `--client` and otherwise tries the grant and falls
   back to client mode when `xuid` holds it. `LAZYOS_XUI_APPS` embeds a list of
   apps (`/system/bin/{terminal,sysmon,fabricmon,counter,editor,files,paint}` + `/system/etc/xapps.lst`) and `init`'s app
-  registry launches the `autostart` ones with `linux:PATH --client` (the kernel's
-  `spawn` selects the Linux ABI from the `linux:` prefix,
-  `kernel/src/process/spawn_line.rs`). The whole recipe is the single
+  registry launches the `autostart` ones with `argv` `[PATH, --client, ...]`
+  under the Linux personality (`spawnv`, `kernel/src/process/spawnv.rs`). The whole recipe is the single
   `LAZYOS_DESKTOP=1` switch (issue #217), which also drops the demo/evidence
   programs. The **Terminal** (`xui-term`) is a client
   that spawns BusyBox `sh` as a real child over a pipe pair and parses its

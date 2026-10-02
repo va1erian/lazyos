@@ -227,60 +227,84 @@ pub fn not_inherited_across_labelled_spawn() -> Result<(), String> {
     Ok(())
 }
 
-/// Write the labelled-spawn block (credential words, label pointer/length) and
-/// the label bytes into the scratch space.
+/// The program the labelled spawns name: missing, so a spawn that clears the
+/// credential checks fails only with `-ENOENT`.
+const NOSUCH: &[u8] = b"/system/bin/nosuch";
+/// Where its `argv` block (`[NOSUCH]`) sits in the scratch space.
+const ARGV: u64 = CMDLINE + 0x80;
+
+/// Write an `AsLabelled` `spawnv` request (path, `argv`, credential words,
+/// label pointer/length) and the label bytes into the scratch space.
 fn write_block(uid: u32, caps: u32, label: &str) {
-    let words: [u64; 7] = [
-        uid as u64,
-        uid as u64,
-        caps as u64,
-        0,
-        0,
-        LABEL_BYTES,
-        label.len() as u64,
-    ];
-    let mut bytes = Vec::new();
-    for word in words {
-        bytes.extend_from_slice(&word.to_le_bytes());
-    }
+    use crate::process::spawnv::{cred_mode, personality, REQ_WORDS};
+    let mut words = [0u64; REQ_WORDS];
+    words[..5].copy_from_slice(&[
+        CMDLINE,
+        NOSUCH.len() as u64,
+        ARGV,
+        NOSUCH.len() as u64 + 1,
+        1,
+    ]);
+    words[8] = personality::NATIVE;
+    words[9] = cred_mode::AS_LABELLED;
+    words[10..15].copy_from_slice(&[uid as u64, uid as u64, caps as u64, 0, 0]);
+    words[15..].copy_from_slice(&[LABEL_BYTES, label.len() as u64]);
+    let bytes: Vec<u8> = words.iter().flat_map(|word| word.to_le_bytes()).collect();
     write_bytes(BLOCK, &bytes);
     write_bytes(LABEL_BYTES, label.as_bytes());
-    write_bytes(CMDLINE, b"/system/bin/nosuch\0");
+    write_bytes(CMDLINE, NOSUCH);
+    let mut argv = NOSUCH.to_vec();
+    argv.push(0);
+    write_bytes(ARGV, &argv);
 }
 
 fn gate(op: u64, a1: u64, a2: u64) -> u64 {
     process::dispatch_for_test(10, op, a1, a2)
 }
 
-/// The native gate: labelled spawn, label-name reads and `cred_get`.
+/// `spawnv` (syscall 30) of the request [`write_block`] wrote.
+fn spawn_labelled() -> u64 {
+    process::dispatch_for_test(30, BLOCK, 0, 0)
+}
+
+/// The native gate: labelled spawn (`spawnv`), label-name reads and
+/// `cred_get`.
 pub fn gate_syscalls() -> Result<(), String> {
     fresh()?;
     in_space(|| -> Result<(), String> {
         let me = task::current();
 
+        // The retired command-line spawn ops (2 and 3) are unknown ops now.
+        write_block(1000, 0, "app:com.gate.retired");
+        for op in [2, 3] {
+            let code = gate(op, CMDLINE, BLOCK);
+            check!(code == failed(EINVAL), "retired op {op} -> {code:#x}");
+        }
+        check!(labels::count() == 0, "a retired op interned a label");
+
         // A malformed label is `-EINVAL`, before any task exists.
         write_block(1000, 0, "Bad Label");
-        let code = gate(cred_op::SPAWN_LABELLED, CMDLINE, BLOCK);
+        let code = spawn_labelled();
         check!(code == failed(EINVAL), "bad label -> {code:#x}");
         check!(labels::count() == 0, "a malformed label was interned");
 
         // A well-formed one clears the gate and fails only on the missing
         // file, proving the stamp was approved (and the label interned).
         write_block(1000, 0, "app:com.gate.ok");
-        let code = gate(cred_op::SPAWN_LABELLED, CMDLINE, BLOCK);
+        let code = spawn_labelled();
         check!(code == failed(ENOENT), "valid labelled spawn -> {code:#x}");
         let ok = labels::lookup("app:com.gate.ok").ok_or("label not interned")?;
 
         // Widening is refused even though the label is fine.
         credentials::set(me, Cred::new(1000, 1000, CAP_SETUID, 0, 0));
         write_block(1000, credentials::CAP_ALL, "app:com.gate.wide");
-        let code = gate(cred_op::SPAWN_LABELLED, CMDLINE, BLOCK);
+        let code = spawn_labelled();
         check!(code == failed(EACCES), "widening -> {code:#x}");
 
         // Without CAP_SETUID: `-EPERM`, and the label table is not probed.
         credentials::set(me, Cred::new(1000, 1000, 0, 0, 0));
         write_block(1000, 0, "app:com.gate.unpriv");
-        let code = gate(cred_op::SPAWN_LABELLED, CMDLINE, BLOCK);
+        let code = spawn_labelled();
         check!(code == failed(EPERM), "unprivileged -> {code:#x}");
         check!(
             labels::lookup("app:com.gate.unpriv").is_none(),
@@ -290,10 +314,10 @@ pub fn gate_syscalls() -> Result<(), String> {
         // A labelled caller may keep its own label but not pick another.
         credentials::set(me, Cred::new(1000, 1000, CAP_SETUID, ok, 0));
         write_block(1000, 0, "app:com.gate.ok");
-        let code = gate(cred_op::SPAWN_LABELLED, CMDLINE, BLOCK);
+        let code = spawn_labelled();
         check!(code == failed(ENOENT), "same label -> {code:#x}");
         write_block(1000, 0, "app:com.gate.other");
-        let code = gate(cred_op::SPAWN_LABELLED, CMDLINE, BLOCK);
+        let code = spawn_labelled();
         check!(code == failed(EPERM), "different label -> {code:#x}");
 
         // The plain SET cannot label the caller either.

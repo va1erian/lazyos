@@ -142,7 +142,7 @@ show them all at once.
 * **`network`** — empty or exactly `["outbound"]`.
 * **`entry.abi`** — absent, `native` or `linux`. The ELF header cannot tell a LazyOS
   program from a static musl one (both are static x86_64 executables), so the
-  package says which personality `init` must start it under (`linux:` spawn).
+  package says which personality `init` must start it under (`spawnv`'s Linux personality).
 * **`entry.binary`** and every MIME `icon` prefix must resolve to files in the
   archive.
 

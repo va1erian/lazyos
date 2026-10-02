@@ -195,26 +195,26 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         // and the service event log from here on. The ABI bench's fixture
         // lives at `/system/bin/abi-init`, so the hook above never shadows it.
         #[cfg(services_mode)]
-        spawn_program("init", fhs::bin::INIT);
+        spawn_program(fhs::bin::INIT, &[]);
 
         // With `LAZYOS_MESSENGERCTL=1` too, the fabric tool also boots, so a
         // scripted session can query the new `services`/`health`/`log`
         // commands against the running supervisor (issue #93).
         #[cfg(all(services_mode, messengerctl_demo))]
-        spawn_program("messengerctl", fhs::bin::MESSENGERCTL);
+        spawn_program(fhs::bin::MESSENGERCTL, &[]);
 
         // Issue #89: `LAZYOS_MESSENGERD=1` starts the registry daemon before
         // the demo programs. It claims the bootstrap channel and serves name
         // requests for the life of the system.
         #[cfg(all(messengerd_service, not(services_mode)))]
-        spawn_program("messengerd", fhs::bin::MESSENGERD);
+        spawn_program(fhs::bin::MESSENGERD, &[]);
 
         // `LAZYOS_MESSENGERCTL=1` swaps the hello window for the fabric
         // snapshot tool (issue #70); the default demo is unchanged.
         #[cfg(all(messengerctl_demo, not(services_mode)))]
-        spawn_program("messengerctl", fhs::bin::MESSENGERCTL);
+        spawn_program(fhs::bin::MESSENGERCTL, &[]);
         #[cfg(all(not(messengerctl_demo), not(services_mode), not(cli_mode)))]
-        spawn_program("hello", fhs::bin::HELLO);
+        spawn_program(fhs::bin::HELLO, &[]);
         #[cfg(not(services_mode))]
         spawn_console_shell();
 
@@ -222,18 +222,18 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         // no supervisor to start it (docs/driver-plan.md D6). `sndd` plays a
         // test tone with `demo=1`, which the sound harness records.
         #[cfg(all(sound_demo, not(services_mode)))]
-        spawn_sound_demo();
+        spawn_program(fhs::bin::SNDD, &["demo=1"]);
 
         // `LAZYOS_NET=1` boots the virtio-net driver directly when there is no
         // supervisor to start it (docs/networking-plan.md N1). `netdrv` runs
         // its ARP self-test and the `nicctl` evidence clients with `demo=1`.
         #[cfg(all(net_demo, not(services_mode)))]
-        spawn_net_demo();
+        spawn_program(fhs::bin::NETDRV, &net_demo_args());
         // `LAZYOS_NETD=1` adds the stack service on top of the driver
         // (docs/networking-plan.md N2); it finds the driver by name and retries,
         // so the order does not matter.
         #[cfg(all(netd_demo, not(services_mode)))]
-        spawn_netd_demo();
+        spawn_program(fhs::bin::NETD, &["demo=1"]);
 
         // Issue #113: `LAZYOS_XUID=1` boots the userspace compositor (`xuid`)
         // and two instances of the display-protocol demo app (`xdemo`).
@@ -259,17 +259,17 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         // registry, so a desktop session runs several of them (Terminal,
         // System Monitor, ...) side by side.
         #[cfg(all(xuid_demo, not(xui_app), not(xui_desktop)))]
-        spawn_program("xuid", fhs::bin::XUID);
+        spawn_program(fhs::bin::XUID, &[]);
         #[cfg(all(xuid_demo, not(xui_app), not(xui_desktop)))]
-        spawn_program("xdemo", fhs::bin::XDEMO);
+        spawn_program(fhs::bin::XDEMO, &[]);
         #[cfg(all(xuid_demo, not(xui_app), not(xui_desktop)))]
-        spawn_program("xdemo", fhs::bin::XDEMO);
+        spawn_program(fhs::bin::XDEMO, &[]);
         #[cfg(all(xuid_demo, xui_desktop, not(xui_app)))]
-        spawn_program("xuid", fhs::bin::XUID);
+        spawn_program(fhs::bin::XUID, &[]);
         #[cfg(all(xui_app, not(xui_client)))]
         spawn_linux_program("xapp", fhs::bin::XAPP);
         #[cfg(xui_client)]
-        spawn_program("xuid", fhs::bin::XUID);
+        spawn_program(fhs::bin::XUID, &[]);
         #[cfg(xui_client)]
         spawn_linux_program("xapp", fhs::bin::XAPP);
 
@@ -282,7 +282,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         // xui app owns the display grant, so the demo skips that image; with
         // 64 task slots (issue #204) it fits next to the services too.
         #[cfg(all(xuid_demo, not(xui_app), not(xui_desktop)))]
-        spawn_program("dragdemo", fhs::bin::DRAGDEMO);
+        spawn_program(fhs::bin::DRAGDEMO, &[]);
 
         // Issue #167: the shell-protocol evidence client. The
         // `LAZYOS_SHELLPROBE=1` demo hook keeps the default `xuid` sessions
@@ -290,7 +290,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         // surface, subscribes to the shell events, and logs the
         // `SHELLPROBE:*:PASS` markers.
         #[cfg(all(xuid_demo, shellprobe_demo, not(xui_app), not(xui_desktop)))]
-        spawn_program("shellprobe", fhs::bin::SHELLPROBE);
+        spawn_program(fhs::bin::SHELLPROBE, &[]);
     }
 
     let stats = mem::frame_stats();
@@ -312,98 +312,59 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     mux::run();
 }
 
-/// Load a program from the OS volume and spawn it as a task, if present.
-fn spawn_program(name: &'static str, path: &str) {
+/// Load a program from the OS volume and spawn it as a task named after its
+/// file (`/system/bin/init` runs as `init`), if present. Its `argv` is the
+/// path then `args`, recorded in the per-task block `spawnv` fills, item for
+/// item (no command line is composed or parsed).
+fn spawn_program(path: &'static str, args: &[&str]) {
+    let name = fhs::bin::name(path);
     let bytes = fs::read(path);
     boot_phase!("read_{name}");
-    match bytes {
-        Some(bytes) => match task::spawn(name, &bytes) {
-            Ok(index) => {
-                boot_phase!("spawn_{name}");
-                // Every kernel-started program is root, but only `init` may
-                // hold the raw input bus (it hands reading to `inputd` alone
-                // and publishing to input drivers).
-                if name != "init" {
-                    ipc::credentials::drop_caps(
-                        index,
-                        ipc::credentials::CAP_INPUT_RAW | ipc::credentials::CAP_INPUT_SOURCE,
-                    );
-                }
-                // The compositor is latency-sensitive like the kernel mux, and
-                // it must take the display grant before any app that would
-                // otherwise fall back to owning the screen itself: a strictly
-                // higher class makes that ordering deterministic instead of a
-                // race the stride scheduler happens to win (issue #338).
-                if name == "xuid" {
-                    task::set_priority(index, task::PriorityClass::Interactive);
-                }
-                serial_println!("LazyOS: spawned {name} as task {index}")
-            }
-            Err(err) => serial_println!("LazyOS: spawn {name} failed: {err}"),
-        },
-        None => serial_println!("LazyOS: {path} not found"),
-    }
-}
-
-/// Boot `sndd` with `demo=1` (kernel-spawned tasks have no argument string
-/// otherwise), so a scripted boot plays the harness's test tone.
-#[cfg(all(sound_demo, not(services_mode)))]
-fn spawn_sound_demo() {
-    let Some(bytes) = fs::read(fhs::bin::SNDD) else {
-        serial_println!("LazyOS: {} not found", fhs::bin::SNDD);
-        return;
+    let Some(bytes) = bytes else {
+        return serial_println!("LazyOS: {path} not found");
     };
-    match task::spawn("sndd", &bytes) {
+    match task::spawn(name, &bytes) {
         Ok(index) => {
-            process::set_service_args(index, b"demo=1");
-            serial_println!("LazyOS: spawned sndd as task {index}");
+            boot_phase!("spawn_{name}");
+            let argv: alloc::vec::Vec<&str> =
+                core::iter::once(path).chain(args.iter().copied()).collect();
+            process::set_task_argv(index, &argv);
+            // Every kernel-started program is root, but only `init` may
+            // hold the raw input bus (it hands reading to `inputd` alone
+            // and publishing to input drivers).
+            if path != fhs::bin::INIT {
+                ipc::credentials::drop_caps(
+                    index,
+                    ipc::credentials::CAP_INPUT_RAW | ipc::credentials::CAP_INPUT_SOURCE,
+                );
+            }
+            // The compositor is latency-sensitive like the kernel mux, and
+            // it must take the display grant before any app that would
+            // otherwise fall back to owning the screen itself: a strictly
+            // higher class makes that ordering deterministic instead of a
+            // race the stride scheduler happens to win (issue #338).
+            if path == fhs::bin::XUID {
+                task::set_priority(index, task::PriorityClass::Interactive);
+            }
+            serial_println!("LazyOS: spawned {name} as task {index}")
         }
-        Err(err) => serial_println!("LazyOS: spawn sndd failed: {err}"),
+        Err(err) => serial_println!("LazyOS: spawn {name} failed: {err}"),
     }
 }
 
-/// Boot `netdrv` with `demo=1` (kernel-spawned tasks have no argument string
-/// otherwise), so a scripted boot runs the network harness's evidence.
+/// The `netdrv` boot arguments: `demo=1` runs the network harness's
+/// evidence. `LAZYOS_NET_ARGS` overrides them at build time as a word list
+/// (the harness's `--poll` passes `demo=1 irq=poll`). With `netd` present
+/// the driver runs only its own ARP self-test: the evidence clients attach to
+/// the NIC, and `netd` holds the one attachment.
 #[cfg(all(net_demo, not(services_mode)))]
-fn spawn_net_demo() {
-    // `LAZYOS_NET_ARGS` overrides the argument string at build time (the
-    // network harness's `--poll` passes `demo=1 irq=poll`).
-    //
-    // With `netd` present the driver runs only its own ARP self-test: the
-    // evidence clients attach to the NIC, and `netd` holds the one attachment.
+fn net_demo_args() -> alloc::vec::Vec<&'static str> {
     const NET_ARGS: &str = match option_env!("LAZYOS_NET_ARGS") {
         Some(args) => args,
         None if cfg!(netd_demo) => "selftest=1",
         None => "demo=1",
     };
-    let Some(bytes) = fs::read(fhs::bin::NETDRV) else {
-        serial_println!("LazyOS: {} not found", fhs::bin::NETDRV);
-        return;
-    };
-    match task::spawn("netdrv", &bytes) {
-        Ok(index) => {
-            process::set_service_args(index, NET_ARGS.as_bytes());
-            serial_println!("LazyOS: spawned netdrv as task {index}");
-        }
-        Err(err) => serial_println!("LazyOS: spawn netdrv failed: {err}"),
-    }
-}
-
-/// Boot `netd` with `demo=1` so a scripted boot runs `netctl`, `ping`, the
-/// hostile-input probe and the soak as real clients.
-#[cfg(all(netd_demo, not(services_mode)))]
-fn spawn_netd_demo() {
-    let Some(bytes) = fs::read(fhs::bin::NETD) else {
-        serial_println!("LazyOS: {} not found", fhs::bin::NETD);
-        return;
-    };
-    match task::spawn("netd", &bytes) {
-        Ok(index) => {
-            process::set_service_args(index, b"demo=1");
-            serial_println!("LazyOS: spawned netd as task {index}");
-        }
-        Err(err) => serial_println!("LazyOS: spawn netd failed: {err}"),
-    }
+    NET_ARGS.split_ascii_whitespace().collect()
 }
 
 /// Load a static Linux-ABI (musl) program and spawn it, if present. The xui

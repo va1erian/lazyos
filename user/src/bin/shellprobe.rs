@@ -257,8 +257,8 @@ fn run() -> ! {
 
     // Prove the administrative operations refuse an unprivileged client. The
     // credential drop cannot be undone, so it runs in a short-lived child.
-    let denied = alloc::format!("{} denied {panel}\0", fhs::bin::SHELLPROBE);
-    if sys::spawn(denied.as_bytes()).is_none() {
+    let panel_arg = alloc::format!("{panel}");
+    if sys::spawn_native(fhs::bin::SHELLPROBE, &["denied", &panel_arg]).is_none() {
         sys::write_str("SHELLPROBE:DENIED:FAIL:could not start the probe\n");
     }
     let _ = sys::wait(sys::clock() + 500);

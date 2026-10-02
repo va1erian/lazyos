@@ -166,8 +166,8 @@ fn receive_drop(
 /// a short-lived child (same session, so it can resolve `clipboardd` first) and
 /// the target just reaps it.
 fn denial_probe(token: u64, mime: &str) {
-    let command = format!("{} probe {token} {mime}\0", fhs::bin::DRAGDEMO);
-    let Some(pid) = sys::spawn(command.as_bytes()) else {
+    let token = format!("{token}");
+    let Some(pid) = sys::spawn_native(fhs::bin::DRAGDEMO, &["probe", &token, mime]) else {
         sys::write_str("DND:DENIED:FAIL:could not start the probe\n");
         return;
     };

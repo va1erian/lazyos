@@ -569,7 +569,7 @@ of stream only when the new one attaches; latency is a tick per control step (ab
   a `netd` restart with sockets open, and six seeds of 2 000 random calls with bounds checked at
   every step; each test ends by checking that no descriptor, socket slot, queued request or ring
   was left.
-* **End to end (`python tools/net/run.py --netd`)**: `netd demo=1` runs `linux:/system/bin/netfix`, a static
+* **End to end (`python tools/net/run.py --netd`)**: `netd demo=1` runs `/system/bin/netfix` under the Linux personality, a static
   musl Rust program using only `std::net`: a 200 000-byte echo through a duplicated socket and a
   half-close, a timed (non-blocking) connect, a connect that must fail, address queries, 22 UDP
   echoes including the 1472-byte limit, and a server that accepts a connection the harness opens

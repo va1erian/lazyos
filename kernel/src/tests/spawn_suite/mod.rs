@@ -7,7 +7,7 @@
 //! `/tmp` under paths that contain spaces.
 //!
 //! * [`valid`]: argv/env reach both personalities unchanged, credential
-//!   stamps, the legacy spawn's equivalent `argv`;
+//!   stamps, a boot spawn's `argv` vector;
 //! * [`errors`]: every limit and malformed request returns its errno and
 //!   leaks nothing, the credential modes refuse an unprivileged caller;
 //! * [`soak`]: 10 000 spawn/exit cycles and 10 000 refusals leave frames,
@@ -35,8 +35,6 @@ const DIR: &str = "/tmp/spawn suite";
 const NATIVE: &str = "/tmp/spawn suite/native prog";
 /// A program path with spaces, spawned as Linux.
 const LINUX: &str = "/tmp/spawn suite/linux prog";
-/// A path without spaces for the legacy command-line spawn.
-const LEGACY: &str = "/tmp/spawnv-legacy";
 
 /// `-errno` as the syscall returns it.
 fn failed(code: i64) -> u64 {
@@ -54,7 +52,7 @@ fn fresh() -> Result<(), String> {
     let id = crate::fs::vfs::Id::ROOT;
     let _ = crate::fs::vfs_mkdir(id, DIR, 0o755);
     let elf = service_suite::minimal_elf();
-    for path in [NATIVE, LINUX, LEGACY] {
+    for path in [NATIVE, LINUX] {
         // Present from an earlier test is fine; the write must succeed.
         let _ = crate::fs::vfs_create(id, path, 0o755);
         crate::fs::vfs_write(id, path, 0, &elf).map_err(|e| format!("{path}: {}", e.message()))?;
@@ -264,8 +262,8 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("spawn_path_with_space_spawns", path_with_space_spawns),
     ("spawn_cred_stamps_child", cred_stamps_child),
     (
-        "spawn_legacy_spawn_equivalent_argv",
-        legacy_spawn_equivalent_argv,
+        "spawn_boot_spawn_argv_is_a_vector",
+        boot_spawn_argv_is_a_vector,
     ),
     ("spawn_limit_errors_leak_nothing", limit_errors_leak_nothing),
     ("spawn_malformed_requests_einval", malformed_requests_einval),

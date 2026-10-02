@@ -4,9 +4,9 @@
 //! gave it here and syscall 9 copies it out: `argv` as one block of
 //! NUL-terminated strings (`argv[0]` included), `envp` as the same shape of
 //! `KEY=VALUE` strings. `spawnv` stores the blocks exactly as the caller sent
-//! them; the legacy command-line spawns (syscall 6, the credential gate's
-//! spawn ops, the kernel's boot spawns and native `execve`) store
-//! [`legacy_argv`] of their argument string, so both paths feed one format.
+//! them; the kernel's boot spawns and the Linux `execve` of a native program
+//! store their `argv` vector through [`block`], so every path feeds one
+//! format and nothing is ever split or re-joined.
 //!
 //! Every spawn path writes the slot's entry before the child can run (the
 //! syscall gate holds interrupts off), and reaping the task forgets it
@@ -48,32 +48,18 @@ pub(super) fn set(slot: usize, argv: Vec<u8>, envp: Vec<u8>) {
     drop(previous);
 }
 
-/// Record a legacy argument string for `slot` (see [`legacy_argv`]), with an
-/// empty environment.
-pub(super) fn set_legacy(slot: usize, argv0: &str, line: &[u8]) {
-    set(slot, legacy_argv(argv0, line), Vec::new());
-}
-
 /// Forget `slot`'s blocks: the task was reaped (or the harness freed it).
 pub(crate) fn forget(slot: usize) {
     let previous = BLOCKS.lock().get_mut(slot).and_then(Option::take);
     drop(previous);
 }
 
-/// The `argv` block of a program started with a single argument string:
-/// `argv0`, then the string split on ASCII whitespace. Joining `argv[1..]`
-/// with single spaces gives the string back (up to runs of whitespace), which
-/// is what `sys::service_args` does for the services that still parse one
-/// string. No quoting is interpreted: a native program never had any.
-pub(super) fn legacy_argv(argv0: &str, line: &[u8]) -> Vec<u8> {
-    let mut block = Vec::with_capacity(argv0.len() + line.len() + 2);
-    block.extend_from_slice(argv0.as_bytes());
-    block.push(0);
-    for token in line
-        .split(u8::is_ascii_whitespace)
-        .filter(|token| !token.is_empty())
-    {
-        block.extend_from_slice(token);
+/// The block of `items`: each followed by its NUL. The caller guarantees no
+/// item contains a NUL (each is one C string or one validated argument).
+pub(super) fn block<A: AsRef<[u8]>>(items: &[A]) -> Vec<u8> {
+    let mut block = Vec::with_capacity(items.iter().map(|item| item.as_ref().len() + 1).sum());
+    for item in items {
+        block.extend_from_slice(item.as_ref());
         block.push(0);
     }
     block

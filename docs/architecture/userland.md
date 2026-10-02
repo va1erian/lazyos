@@ -21,14 +21,17 @@
 **Syscall wrappers** (`sys.rs`) - register convention: `rax` = number, args in
 `rdi/rsi/rdx`, result in `rax`. `rcx`/`r11` are clobbered, so every wrapper
 declares `clobber_abi("sysv64")`. Numbers: 0 `exit`, 1 `write`, 2 `read_char`,
-3 `read_file`, 4 `sbrk`, 5 `messenger`, 6 `spawn`, 7 `wait`, 8 `clock`,
+3 `read_file`, 4 `sbrk`, 5 `messenger`, 7 `wait`, 8 `clock`,
 9 `args()`/`env()`/`getenv()`/`service_args` (`sys/spawn.rs`: the `argv` and
 `envp` blocks, read once and kept; `service_args` joins `argv[1..]` with spaces
-for services that parse one string), 10 `cred_set`/`cred_get`/`spawn_as`, 12 `display_*`,
+for services that parse one string), 10 `cred_set`/`cred_get`/`label_name`, 12 `display_*`,
 13 `tasks`, 14 `system_stats`, 15-22 filesystem, `power` and `fsync`, 28 `append_file` and 31 `chmod` (`files.rs`; 11, the quota read-back, has no wrapper yet), 23 `dev_*` (`dev.rs`; it also passes arguments in `r10` and `r8`),
 30 `spawnv(path, &argv, &envp, Personality, SpawnCred)` (`sys/spawn.rs`: the
-argv-vector spawn; `SpawnCred::{Inherit, As, AsLabelled}` replaces `spawn_as`/
-`spawn_as_labelled`, `Personality::Linux` the `linux:` prefix).
+only spawn; `SpawnCred::{Inherit, As, AsLabelled}` stamps the child's identity
+and `Personality::Linux` selects the Linux ABI), with the shorthands
+`spawn_native(path, &args)`/`spawn_linux(path, &args)` (`argv` = the path then
+`args`, inherited identity, no environment). The command-line `spawn` (6),
+`spawn_as`, `spawn_as_labelled` and the `user::cmdline` composer are gone.
 See [processes.md](processes.md) and [display.md](display.md).
 
 **Blocking Messenger client** (`messenger/`)
@@ -157,7 +160,7 @@ command.
   (`kernel/src/process/linux/path.rs`) tries the exact path, then
   `/system/bin/<name>` for an applet-shaped name (byte for byte; only
   programs live there, so a data file such as `/system/etc/passwd` never
-  shadows the `passwd` applet), then the BusyBox alias. The `linux:` spawn path uses the same function.
+  shadows the `passwd` applet), then the BusyBox alias. A Linux-personality `spawnv` uses the same function.
 - **Feature set.** `rhai =1.26.1`, `default-features = false` (no `ahash`
   runtime RNG, so no `getrandom`), `sync` off, no `no_*` language feature; no
   `libc` dependency. Tests: `cargo test` in `libs/rhai-lazy` (bindings, limits,

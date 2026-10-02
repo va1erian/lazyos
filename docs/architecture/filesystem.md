@@ -13,8 +13,8 @@ filesystem overhaul changes a constant instead of chasing literals. Never write
 one as a string literal: `python tools/fhs/check_literals.py` (run by CI, tested
 by `test_check_literals.py`) fails on a literal outside `libs/fhs`. A deliberate
 exception goes in `tools/fhs/allowlist.txt`; test code, comments, generated
-files are exempt; byte strings are checked too, so a spawn line composes its
-program from `fhs::bin` (`user::cmdline`). Linux ABI
+files are exempt; byte strings are checked too, so a spawn names its program
+by its `fhs::bin` constant (`sys::spawnv`). Linux ABI
 synthetic paths (`/dev`, `/proc`, `/etc`, `/bin`) stay in `process/linux`.
 
 **Key files**

@@ -26,11 +26,12 @@
 //! menu, and `mimed`'s open-with registrations resolve to the same ids.
 //!
 //! `Launch(app_id, args, session)` spawns *the target session's child* with
-//! `spawn_as`, so the kernel stamps uid/gid/session before the app runs, and
+//! `spawnv` and a credential stamp, so the kernel stamps uid/gid/session
+//! before the app runs, and
 //! then supervises it exactly like a manifest service: the same restart policy,
 //! crash backoff, `system/health/<name>` and `system/events/service/<name>`.
 //! `args` is empty or one absolute path, appended after the row's fixed
-//! arguments as a single `argv` item (`launch::launch_path_arg`; anything else
+//! arguments as a single `argv` item (`launch::launch_argument`; anything else
 //! is `-EINVAL`). `session` 0 means the caller's own session. The policy is session-owner
 //! only: a task may launch into its own session; root (or a task holding
 //! `CAP_SETUID`) may launch anywhere; anyone else is refused with `-EPERM`

@@ -151,17 +151,12 @@ fn run() -> messenger::Result<()> {
 
 /// Whether the manifest asked for the `top` demo (`demo=1`).
 fn demo_from_args() -> bool {
-    let mut buffer = [0u8; 128];
-    let len = sys::service_args(&mut buffer).min(buffer.len());
-    let text = core::str::from_utf8(&buffer[..len]).unwrap_or("");
-    text.split_whitespace().any(|part| part == "demo=1")
+    sys::args().skip(1).any(|arg| arg == "demo=1")
 }
 
 /// Spawn `top` as a child of this service; returns whether it started.
 fn spawn_demo() -> bool {
-    let mut command = DEMO_PROGRAM.as_bytes().to_vec();
-    command.push(0);
-    match sys::spawn(&command) {
+    match sys::spawn_native(DEMO_PROGRAM, &[]) {
         Some(pid) => {
             let name = fhs::bin::name(DEMO_PROGRAM);
             sys::write_str(&format!("sysmond: started demo {name} (pid {pid})\n"));

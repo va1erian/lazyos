@@ -4,7 +4,7 @@
 //! but LazyOS's own programs (`top`, `confctl`, `msgctl`, ...) are *native*
 //! ELFs that speak the `int 0x80` syscall set. The two cannot be told apart
 //! from the image: both are static x86_64 executables at the same base (see
-//! `process::spawn_line`). The kernel learns a task's personality only from
+//! `process::spawnv`'s personality word). The kernel learns a task's personality only from
 //! how it was started, so `execve` decides by *name*: [`NATIVE`] lists the
 //! native programs in `/system/bin` a shell may run, matched either by the
 //! short name a user types (`top`, found through the synthetic `/bin` that
@@ -21,9 +21,9 @@
 //! (`process::sys_write`), so redirections and pipes of native *output* work;
 //! native *input* (`read_char`) follows descriptor 0 the same way
 //! (`process::sys_read_char`), so the desktop Terminal's keystrokes, which
-//! arrive on `sh`'s stdin pipe, reach the program; and
-//! arguments reach the program as one whitespace-split string (syscall 9), so
-//! an argument containing spaces is split.
+//! arrive on `sh`'s stdin pipe, reach the program; and the `argv` vector
+//! reaches the program as it was given (syscall 9's per-task block, the one
+//! `spawnv` fills), so an argument containing spaces stays one argument.
 //!
 //! Errors follow `execve(2)`: `ENOENT` when the program is not on the
 //! volume, `ENOEXEC` when it will not load, `EAGAIN` when no task slot is free,
@@ -35,6 +35,9 @@ use alloc::vec::Vec;
 
 use crate::fs::vfs::{self, FsError, Id};
 use crate::ipc::pipe;
+// A native program gets `spawnv`'s limits: the largest `argv` block (NULs
+// included) and the most strings (`E2BIG` beyond either).
+use crate::process::spawnv::{ARGC_MAX, ARGV_MAX};
 use crate::task::signal::{self, SigInfo};
 use crate::task::{self, FdKind, SpawnError, WakeReason};
 
@@ -99,10 +102,6 @@ const ALIASES: &[(&str, &str, &str)] = &[
 /// `/sbin:/usr/sbin:/bin:/usr/bin`) or a hand-typed path reaches a command
 /// through, written as `lookup` sees them: no leading slash, trailing slash.
 const BIN_DIRS: &[&str] = &["bin/", "sbin/", "usr/bin/", "usr/sbin/", "usr/local/bin/"];
-
-/// The most bytes of joined arguments a native program is given (`E2BIG`
-/// beyond it).
-const ARGS_MAX: usize = 4096;
 
 /// The exit status reported when the child vanished without being reaped (it
 /// cannot normally happen; `126` is the shell's "cannot execute").
@@ -171,32 +170,30 @@ pub(crate) fn preset_args(path: &str) -> &'static str {
         .map_or("", |&(_, _, args)| args)
 }
 
-/// [`args_line`] with a preset's fixed argument in front.
-fn with_preset(preset: &str, args: String) -> String {
-    match (preset.is_empty(), args.is_empty()) {
-        (true, _) => args,
-        (false, true) => String::from(preset),
-        (false, false) => alloc::format!("{preset} {args}"),
+/// The `argv` a native program `execve`d as `path` receives: the caller's
+/// `argv` item for item (each without its NUL terminator), with an [`ALIASES`]
+/// preset (`reboot` -> `powerctl reboot`) inserted after `argv[0]`, and
+/// `path` as `argv[0]` when the caller passed none. Nothing is split or
+/// joined. A native program reads its arguments as text, so bytes that are
+/// not UTF-8 are replaced, never refused. `None` (`E2BIG`) beyond `spawnv`'s
+/// limits.
+pub(crate) fn exec_argv(path: &str, argv: &[Vec<u8>]) -> Option<Vec<String>> {
+    let text = |arg: &[u8]| {
+        let arg = arg.split(|byte| *byte == 0).next().unwrap_or(&[]);
+        String::from_utf8_lossy(arg).into_owned()
+    };
+    let mut items = Vec::with_capacity(argv.len() + 1);
+    items.push(
+        argv.first()
+            .map_or_else(|| String::from(path), |arg0| text(arg0)),
+    );
+    let preset = preset_args(path);
+    if !preset.is_empty() {
+        items.push(String::from(preset));
     }
-}
-
-/// Join `argv[1..]` into the single string native programs receive through
-/// syscall 9. `argv[0]` (the program name) is dropped; the trailing NUL each
-/// entry carries is not part of the argument. `None` when it exceeds
-/// [`ARGS_MAX`].
-pub(crate) fn args_line(argv: &[Vec<u8>]) -> Option<String> {
-    let mut line = String::new();
-    for arg in argv.iter().skip(1) {
-        let bytes = arg.strip_suffix(&[0]).unwrap_or(arg);
-        if !line.is_empty() {
-            line.push(' ');
-        }
-        line.push_str(&String::from_utf8_lossy(bytes));
-        if line.len() > ARGS_MAX {
-            return None;
-        }
-    }
-    Some(line)
+    items.extend(argv.iter().skip(1).map(|arg| text(arg)));
+    let bytes: usize = items.iter().map(|item| item.len() + 1).sum();
+    (items.len() as u64 <= ARGC_MAX && bytes <= ARGV_MAX).then_some(items)
 }
 
 /// The errno `execve` reports for a failed native spawn.
@@ -210,14 +207,18 @@ fn spawn_errno(error: SpawnError) -> u64 {
 }
 
 /// Start `elf` (the program at `file`) as a native child of the calling task,
-/// inheriting its descriptors, and record its argument string. The task is
-/// named after the file (`/system/bin/top` runs as `top`). Returns the child's
-/// slot, or the errno (as a positive value) for a failed spawn.
-pub(crate) fn spawn(file: &'static str, elf: &[u8], args: &str) -> Result<usize, u64> {
+/// inheriting its descriptors, and record its `argv` (`argv[0]` included). The
+/// task is named after the file (`/system/bin/top` runs as `top`). Returns the
+/// child's slot, or the errno (as a positive value) for a failed spawn.
+pub(crate) fn spawn<A: AsRef<[u8]>>(
+    file: &'static str,
+    elf: &[u8],
+    argv: &[A],
+) -> Result<usize, u64> {
     let slot = task::spawn_child_inheriting_fds(fhs::bin::name(file), elf).map_err(spawn_errno)?;
     // Set before the child can run: the syscall path holds interrupts off, so
     // no tick can schedule the child between the spawn and this store.
-    crate::process::set_service_args(slot, args.as_bytes());
+    crate::process::set_task_argv(slot, argv);
     Ok(slot)
 }
 
@@ -269,11 +270,10 @@ pub(crate) fn try_exec(path: &str, argv: &[Vec<u8>]) -> Option<u64> {
     let Some(elf) = crate::fs::read(file) else {
         return Some(err(ENOENT));
     };
-    let Some(args) = args_line(argv) else {
+    let Some(argv) = exec_argv(path, argv) else {
         return Some(err(E2BIG));
     };
-    let args = with_preset(preset_args(path), args);
-    let slot = match spawn(file, &elf, &args) {
+    let slot = match spawn(file, &elf, &argv) {
         Ok(slot) => slot,
         Err(errno) => return Some(err(errno)),
     };

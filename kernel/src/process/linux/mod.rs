@@ -70,10 +70,10 @@ pub(crate) use native::{read_redirected, write_redirected};
 #[allow(unused_imports)]
 pub use fd::close_cloexec_fds;
 
-/// Resolve an executable for a native `spawn` of a Linux program: the named FAT
-/// file, the FAT-root basename, or a BusyBox applet alias. `None` when no such
-/// entry exists. `process::spawn_line` uses this so a `linux:sh` command reaches
-/// the BusyBox multiplexer as `argv[0] = "sh"` (issue #254).
+/// Resolve an executable for a `spawnv` of a Linux-personality program: the
+/// named file, `/system/bin/<base>`, or a BusyBox applet alias. `None` when no
+/// such entry exists. `process::spawnv` uses this so a Linux spawn of `sh`
+/// reaches the BusyBox multiplexer as `argv[0] = "sh"` (issue #254).
 pub fn load_executable(path: &str) -> Option<alloc::vec::Vec<u8>> {
     path::load_executable(path).ok()
 }
