@@ -510,7 +510,8 @@ jobs:
           set -euo pipefail
           cargo build
           python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/docs_open             --timeout 300 --script tools/screenshot/examples/xui_docs_open.json             --fail-on "DOCS:[A-Z]+:FAIL" --fail-on "INIT:AUTOSTART:FAIL"
-          for marker in DOCS:UP:PASS DOCS:RENDER:PASS DOCS:OPEN:PASS:/system/share/samples/testdoc.md \n                        DOCS:RENDER:PASS:/system/share/samples/testdoc.md; do
+          for marker in DOCS:UP:PASS DOCS:RENDER:PASS DOCS:OPEN:PASS:/system/share/samples/testdoc.md \
+                        DOCS:RENDER:PASS:/system/share/samples/testdoc.md; do
             grep -qF "$marker" shots/docs_open/serial.log
           done
           # The replacement view must have painted a document: compare decoded
