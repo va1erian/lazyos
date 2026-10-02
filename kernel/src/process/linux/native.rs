@@ -103,6 +103,10 @@ const ALIASES: &[(&str, &str, &str)] = &[
 /// through, written as `lookup` sees them: no leading slash, trailing slash.
 const BIN_DIRS: &[&str] = &["bin/", "sbin/", "usr/bin/", "usr/sbin/", "usr/local/bin/"];
 
+/// `fhs::SYSTEM_BIN` as `lookup` sees a directory: no leading slash, trailing
+/// slash. Only [`ALIASES`] names resolve there without a file.
+const SYSTEM_BIN_DIR: &str = "system/bin/";
+
 /// The exit status reported when the child vanished without being reaped (it
 /// cannot normally happen; `126` is the shell's "cannot execute").
 const LOST_CHILD_STATUS: u64 = 126;
@@ -124,26 +128,34 @@ pub(crate) fn lookup(path: &str) -> Option<&'static str> {
 }
 
 /// The native program a short name in a [`BIN_DIRS`] directory (or with no
-/// directory) stands for, unless a real file lives at `path`.
+/// directory) stands for, or an [`ALIASES`] name in `/system/bin`, unless a
+/// real file lives at `path`.
 fn short_name(path: &str) -> Option<&'static str> {
     let trimmed = path.trim_start_matches('/');
     let (dir, base) = match trimmed.rfind('/') {
         Some(split) => trimmed.split_at(split + 1),
         None => ("", trimmed),
     };
-    if !(dir.is_empty() || BIN_DIRS.contains(&dir)) {
+    // A session's `PATH` is `/system/bin` (issue #508), so `$PATH` lookups of
+    // an alias name reach it there too; a native program's own name there is
+    // its file already (`lookup`).
+    let in_system_bin = dir == SYSTEM_BIN_DIR;
+    if !(dir.is_empty() || in_system_bin || BIN_DIRS.contains(&dir)) {
         return None;
     }
-    let file = ALIASES
+    let alias = ALIASES
         .iter()
         .find(|(name, _, _)| *name == base)
-        .map(|&(_, file, _)| file)
-        .or_else(|| {
-            NATIVE
-                .iter()
-                .copied()
-                .find(|file| fhs::bin::name(file) == base)
-        })?;
+        .map(|&(_, file, _)| file);
+    if in_system_bin && alias.is_none() {
+        return None;
+    }
+    let file = alias.or_else(|| {
+        NATIVE
+            .iter()
+            .copied()
+            .find(|file| fhs::bin::name(file) == base)
+    })?;
     let real_file_exists = !matches!(
         crate::fs::abi_stat(Id::current(), path),
         Err(FsError::NotFound)
