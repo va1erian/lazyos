@@ -138,7 +138,7 @@ declare what its scripts use:
 
 | # | Deliverable | Verified by |
 |---|---|---|
-| M0 | Land R3b and the lrplay extension on `main` (rebased onto the current `msg`, transfers included) | `cargo test --manifest-path libs/rhai-lazy/Cargo.toml` |
+| M0 | Land R3b and the lrplay extension on `main` (rebased onto the current `msg`, transfers included) | `cargo test --manifest-path libs/rhai-lazy/Cargo.toml`; `python tools/rhai/run.py --msg-only` (`RHAI:msg:6`, `RHAI:msg2:4`) |
 | M1 | `midlc --rhai-api`, generated `sys::*` modules, shared compile, `docs/rhai/api.md` | `tools/midlc/test_midlc.py`; host tests calling generated functions against the in-memory fabric; `--check` in CI |
 | M2 | Owned sources and `Fabric::pump`; LazyRAD `add_scoped` and `EventSource`; lrplay wiring | host tests (pump, ownership, release, errors); LazyRAD runtime tests on the offscreen backend |
 | M3 | `permissions::derive`; LazyRAD `Platform::script_permissions` and `PackageRequest::permissions` | host tests; LazyRAD packager tests (manifest content) |
