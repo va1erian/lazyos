@@ -21,6 +21,7 @@ use xui_core::widget::{
 use xui_core::{Color, HasText, Rect};
 
 use crate::about_page::AboutPage;
+use crate::hidden_page::{HiddenMsg, HiddenPage};
 use crate::keyboard;
 use crate::menu_page::{MenuMsg, MenuPage};
 use crate::sections::{Section, SectionsModel};
@@ -29,8 +30,9 @@ use crate::system::System;
 use crate::theme_ops::{self, ACCENTS, BACKGROUNDS};
 use crate::time_page::{TimeMsg, TimePage};
 
-/// Window size (DIP) the app asks for.
-pub const WINDOW: (i32, i32) = (640, 440);
+/// Window size (DIP) the app asks for: tall enough for every section row in
+/// the sidebar without scrolling.
+pub const WINDOW: (i32, i32) = (640, 500);
 /// Width of the section sidebar.
 const SIDEBAR_W: i32 = 150;
 /// Height reserved under the pages for the status line.
@@ -62,6 +64,7 @@ pub enum Msg {
     UseDefault,
     Layout(usize),
     Menu(MenuMsg),
+    Hidden(HiddenMsg),
     Time(TimeMsg),
     AboutRefresh,
     /// The compositor asked the window to close.
@@ -79,6 +82,7 @@ struct Pages {
     windows: Panel<Msg>,
     keyboard: Panel<Msg>,
     menu: MenuPage,
+    hidden: HiddenPage,
     time: TimePage,
     about: AboutPage,
     mode: RadioGroup<Msg>,
@@ -191,6 +195,7 @@ impl SettingsApp {
         };
 
         let menu = MenuPage::build(ui, page)?;
+        let hidden = HiddenPage::build(ui, page)?;
         let time = TimePage::build(ui, page)?;
         let about = AboutPage::build(ui, page)?;
 
@@ -209,6 +214,7 @@ impl SettingsApp {
                 windows,
                 keyboard,
                 menu,
+                hidden,
                 time,
                 about,
                 mode,
@@ -236,19 +242,22 @@ impl SettingsApp {
         Ok(app)
     }
 
-    /// Show `section`'s page and hide the others. The Time & Date and About
-    /// pages show live values, so they are re-read each time they appear.
-    fn show(&self, section: Section) {
-        let p = &self.pages;
+    /// Show `section`'s page and hide the others. The Time & Date, Hidden
+    /// apps and About pages show live values, so they are re-read each time
+    /// they appear.
+    fn show(&mut self, section: Section) {
+        let p = &mut self.pages;
         p.appearance.set_visible(section == Section::Appearance);
         p.windows.set_visible(section == Section::Windows);
         p.time.set_visible(section == Section::Time);
         p.keyboard.set_visible(section == Section::Keyboard);
         p.menu.set_visible(section == Section::Menu);
+        p.hidden.set_visible(section == Section::Hidden);
         p.about.set_visible(section == Section::About);
         match section {
             Section::Time => p.time.load(self.store.as_ref(), self.system.as_ref()),
             Section::About => p.about.load(self.system.as_ref()),
+            Section::Hidden => p.hidden.load(self.store.as_ref()),
             _ => {}
         }
     }
@@ -399,6 +408,12 @@ impl App for SettingsApp {
             Msg::AboutRefresh => self.pages.about.load(self.system.as_ref()),
             Msg::Menu(msg) => {
                 let text = self.pages.menu.update(msg, store);
+                if !text.is_empty() {
+                    self.status.set_text(&text);
+                }
+            }
+            Msg::Hidden(msg) => {
+                let text = self.pages.hidden.update(msg, store);
                 if !text.is_empty() {
                     self.status.set_text(&text);
                 }
