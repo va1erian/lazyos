@@ -144,13 +144,13 @@ fn every_project_is_accepted_by_lazypkg() {
         assert_eq!(files["bin/lrplay.elf"], player);
         let pkg = Package::open(&built.bytes).unwrap();
         if lrp.ends_with("stores.lrp") {
+            // The app's own folder in any user's home (`/home/*/.apps/<id>`),
+            // never inside `/apps` (filesystem plan F4).
             let id = &pkg.manifest().app.system_name;
+            let data = fhs::app_data_dir(&fhs::home_of("*"), id);
             assert_eq!(
                 pkg.manifest().permissions.files,
-                [
-                    format!("read:/data/apps/{id}/data"),
-                    format!("write:/data/apps/{id}/data")
-                ]
+                [format!("read:{data}"), format!("write:{data}")]
             );
         }
     }

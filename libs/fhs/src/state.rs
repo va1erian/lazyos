@@ -49,19 +49,29 @@ pub const HOME_ROOT: &str = "/home";
 /// app.
 pub const APP_DATA_DIR: &str = ".apps";
 
-/// `lazyrad`'s settings. Written by `lazyrad`. Target (F4, lazyrad step):
-/// `"$HOME/.apps/lazyrad/config"`.
-pub const LAZYRAD_CONFIG: &str = "/data/config/lazyrad";
+/// `lazyrad`'s own data directory name inside a home: its settings and the
+/// data of projects run from the IDE live in
+/// [`app_data_dir`](crate::app_data_dir)`(home, LAZYRAD_APP)`. Written by
+/// `lazyrad` and `lrplay`.
+pub const LAZYRAD_APP: &str = "lazyrad";
 
-/// `lazyrad` projects. Written by `lazyrad`. Target (F4, lazyrad step):
-/// `"$HOME/projects"`.
-pub const LAZYRAD_PROJECTS: &str = "/data/projects";
+/// `lazyrad`'s settings, relative to its app data directory
+/// (`<home>/.apps/lazyrad/config`). Written by `lazyrad`.
+pub const LAZYRAD_CONFIG: &str = "config";
 
-/// `lazyrad`'s data directory. Written by `lazyrad`. Target (F4, lazyrad
-/// step): `"$HOME/.apps/lazyrad/data"`.
-pub const LAZYRAD_DATA: &str = "/data/lazyrad-data";
+/// The read/write directory of a project that is not an installed app,
+/// relative to `lazyrad`'s app data directory (`<home>/.apps/lazyrad/data`).
+/// An installed app writes its own `<home>/.apps/<system_name>/` instead.
+/// Written by `lrplay`.
+pub const LAZYRAD_DATA: &str = "data";
 
-/// `lazyrad`'s scratch directory on the ramfs. Written by `lazyrad`.
+/// `lazyrad` projects, relative to a home (`<home>/projects`). Written by
+/// `lazyrad`.
+pub const LAZYRAD_PROJECTS: &str = "projects";
+
+/// `lazyrad`'s home when `$HOME` is unset, on the ramfs: nothing is kept
+/// across a reboot, and `lazyrad`/`lrplay` warn about it. Written by
+/// `lazyrad`.
 pub const LAZYRAD_TMP: &str = "/transient/lazyrad";
 
 #[cfg(test)]
@@ -85,7 +95,15 @@ mod tests {
         assert_eq!(HOME_ROOT, HOME);
         assert!(CONF_FALLBACK.starts_with(TRANSIENT));
         assert!(LAZYRAD_TMP.starts_with(TRANSIENT));
-        assert!(!APP_DATA_DIR.contains('/'));
+        for name in [
+            APP_DATA_DIR,
+            LAZYRAD_APP,
+            LAZYRAD_CONFIG,
+            LAZYRAD_DATA,
+            LAZYRAD_PROJECTS,
+        ] {
+            assert!(!name.is_empty() && !name.contains('/'), "{name}");
+        }
     }
 
     #[test]

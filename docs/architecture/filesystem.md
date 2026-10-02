@@ -382,7 +382,7 @@ applies each directory's mode and owner again so an older image converges to it:
 | `/logs` | 0750 root | `logd`'s journals (`libs/logstore`) and `pkgd`'s `pkg.log`: everyone's activity, so not world-readable |
 | `/apps`, `/docs/apps` | 0755 root | installed apps and their documentation, written only by `pkgd` |
 | `/home/<name>` | 0700, the account's uid:gid | one per account of the embedded `/system/etc/passwd` whose home is `/home/<name>` (`fhs::home_of`); a mounted home volume hides them |
-| `/data` | 0755 root | transitional: nothing new is written there (but `lazyrad`'s files until it moves to the home); F7 removes it |
+| `/data` | 0755 root | transitional: nothing new is written there (`lazyrad` writes the user's home since F4); F7 removes it |
 
 All those services run as uid 0 today; when #446/#447 give each its own uid,
 the owners follow. F4 stopped seeding `/data/home/<user>` and `/data/tmp`: an
@@ -460,7 +460,8 @@ suite (`fs_ext2_*` over a `FakeDisk`, plus the `libs/ext2fs`-built root mounted
 from a `lazyos.cfg`) holds the correctness, crash-ordering and soak coverage.
 F4 (issue #508) put the services on the tree: `confd` in `/conf` (seeded once
 from `/data/confd`), `logd` journals and `pkg.log` in `/logs`, `pkgd` in `/apps`
-and `/docs/apps`. Open: symlinks, cross-mount rename, page cache, resizing an
-existing OS image, the rest of F4 (the `admin`/`user` accounts, `$HOME`,
-`lazyrad` in the home) and F5 to F7 (packages, the ABI overlay, migrating and
+and `/docs/apps`, `lazyrad` in the user's home (`$HOME/projects`,
+`$HOME/.apps/lazyrad`, an installed app's `$HOME/.apps/<system_name>`). Open:
+symlinks, cross-mount rename, page cache, resizing an existing OS image, the
+rest of F4 (the `admin`/`user` accounts, `$HOME`) and F5 to F7 (packages, the ABI overlay, migrating and
 removing `/data`).

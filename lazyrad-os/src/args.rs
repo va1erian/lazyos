@@ -10,7 +10,7 @@
 //!
 //! # Where a produced app finds its project (decision D1a)
 //!
-//! An installed `.lzp` lives at `/data/apps/<system_name>/<version>-<hash>/`
+//! An installed `.lzp` lives at `/apps/<system_name>/<version>-<hash>/`
 //! with the player at `bin/lrplay.elf` and the project at `resources/project/`.
 //! The install directory name contains a per-version hash, so a manifest cannot
 //! hard-code an absolute path. Rather than depend on the installer setting a
@@ -246,10 +246,10 @@ mod tests {
 
     #[test]
     fn the_install_directory_is_the_parent_of_bin() {
-        let exe = Path::new("/data/apps/user.me.todo/1.0.0-abcd1234/bin/lrplay.elf");
+        let exe = Path::new("/apps/user.me.todo/1.0.0-abcd1234/bin/lrplay.elf");
         assert_eq!(
             install_dir(exe),
-            Path::new("/data/apps/user.me.todo/1.0.0-abcd1234")
+            Path::new("/apps/user.me.todo/1.0.0-abcd1234")
         );
         assert_eq!(
             install_dir(Path::new(fhs::bin::LRPLAY)),
@@ -260,11 +260,8 @@ mod tests {
     #[test]
     fn the_program_is_located_from_argv0_and_the_working_directory() {
         use std::ffi::OsStr;
-        let cwd = Path::new("/data/apps/a.b.c/1.0.0-ff");
-        let abs = exe_from_argv0(
-            Some(OsStr::new("/data/apps/a.b.c/1.0.0-ff/bin/lrplay.elf")),
-            cwd,
-        );
+        let cwd = Path::new("/apps/a.b.c/1.0.0-ff");
+        let abs = exe_from_argv0(Some(OsStr::new("/apps/a.b.c/1.0.0-ff/bin/lrplay.elf")), cwd);
         assert_eq!(install_dir(&abs), cwd);
         let rel = exe_from_argv0(Some(OsStr::new("bin/lrplay.elf")), cwd);
         assert_eq!(install_dir(&rel), cwd);
@@ -279,17 +276,14 @@ mod tests {
 
     #[test]
     fn a_relative_project_resolves_against_the_install_directory() {
-        let exe = Path::new("/data/apps/a.b.c/1.0.0-ff/bin/lrplay.elf");
+        let exe = Path::new("/apps/a.b.c/1.0.0-ff/bin/lrplay.elf");
         let got = resolve_project(Some(Path::new("resources/project")), exe, |_| true).unwrap();
-        assert_eq!(
-            got,
-            Path::new("/data/apps/a.b.c/1.0.0-ff/resources/project")
-        );
+        assert_eq!(got, Path::new("/apps/a.b.c/1.0.0-ff/resources/project"));
     }
 
     #[test]
     fn a_relative_project_cannot_climb_out_of_the_install_directory() {
-        let exe = Path::new("/data/apps/a.b.c/1.0.0-ff/bin/lrplay.elf");
+        let exe = Path::new("/apps/a.b.c/1.0.0-ff/bin/lrplay.elf");
         for bad in ["../other", "resources/../../x"] {
             assert!(matches!(
                 resolve_project(Some(Path::new(bad)), exe, |_| true),
@@ -319,22 +313,25 @@ mod tests {
             resolve_project(Some(hello), exe, |_| false),
             Err(ArgError::NoProject(hello.to_path_buf()))
         );
-        let packaged = Path::new("/data/apps/a.b.c/1.0.0-ff/bin/lrplay.elf");
+        let packaged = Path::new("/apps/a.b.c/1.0.0-ff/bin/lrplay.elf");
         assert_eq!(
             resolve_project(Some(Path::new("resources/project")), packaged, |_| false),
             Err(ArgError::NoProject(PathBuf::from(
-                "/data/apps/a.b.c/1.0.0-ff/resources/project"
+                "/apps/a.b.c/1.0.0-ff/resources/project"
             )))
         );
         // A `.lrp` file is a project too: existence, not "is a directory".
         let lrp = Path::new("/home/me/todo/todo.lrp");
-        assert_eq!(resolve_project(Some(lrp), exe, |p| p == lrp), Ok(lrp.to_path_buf()));
+        assert_eq!(
+            resolve_project(Some(lrp), exe, |p| p == lrp),
+            Ok(lrp.to_path_buf())
+        );
     }
 
     #[test]
     fn no_argument_uses_the_packaged_project_when_it_exists() {
-        let exe = Path::new("/data/apps/a.b.c/1.0.0-ff/bin/lrplay.elf");
-        let want = Path::new("/data/apps/a.b.c/1.0.0-ff/resources/project");
+        let exe = Path::new("/apps/a.b.c/1.0.0-ff/bin/lrplay.elf");
+        let want = Path::new("/apps/a.b.c/1.0.0-ff/resources/project");
         assert_eq!(resolve_project(None, exe, |p| p == want).unwrap(), want);
         assert_eq!(
             resolve_project(None, exe, |_| false),

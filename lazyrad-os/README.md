@@ -15,6 +15,25 @@ parsing (`args`), the `lazyrad_runtime::platform::Platform` LazyOS installs
 (`platform`: script file sandbox, config dir, player path) and the serial
 evidence markers (`marker`: `LRPLAY:UP|EVENT|EXIT`, `LRIDE:*`).
 
+## Where LazyRAD writes
+
+Everything lives in the home of the user running it (`$HOME`, which `init`
+passes to every session app; filesystem plan F4). Nothing is written under
+`/data`, and installed apps never write inside `/apps` (`pkgd` owns it).
+
+| What | Where |
+|---|---|
+| IDE settings | `$HOME/.apps/lazyrad/config/` |
+| projects (the file dialog's first stop) | `$HOME/projects/`, created by the IDE |
+| data of a project run from the IDE or a shell | `$HOME/.apps/lazyrad/data/` |
+| data of an installed app | `$HOME/.apps/<system_name>/` (manifest `read:`/`write:/home/*/.apps/<system_name>`) |
+| packages staged for `pkgd` | `/transient/lazyrad-<system_name>-<version>.lzp`, deleted afterwards |
+
+Without `$HOME` (a program started outside a session) the home is
+`/transient/lazyrad` on the ramfs, so nothing survives a reboot; both programs
+say so with `LRPLAY:HOME:WARN` / `LRIDE:HOME:WARN` on serial and stderr.
+`lrplay` reports the folder its scripts may write as `LRPLAY:DATA:PASS:<dir>`.
+
 ## Running
 
 ```bash
