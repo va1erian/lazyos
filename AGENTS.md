@@ -56,8 +56,8 @@ LazyOS is built around **Messenger**, a kernel-mediated, capability-based
 IPC/pub-sub fabric, with userspace system services (`messengerd`, `init`,
 `logd`, `healthd`, `keyd`, `accounts`, `clipboardd`, the `xuid` display
 compositor, and more) running over a preemptive multitasking kernel with a
-VFS (FAT boot volume, ramfs `/tmp`, an ext2 read/write driver that only the
-kernel test suite exercises so far). The authoritative description of the
+VFS (an ext2 read/write OS volume at `/`, a read-only FAT `/boot`, ramfs
+`/transient` and `/tmp`, an optional ext2 home volume). The authoritative description of the
 current architecture and the staged roadmap (S0–S9) is
 [`docs/platform-plan.md`](docs/platform-plan.md), with per-subsystem detail in
 [`docs/architecture/`](docs/architecture) (boot, memory, tasks, filesystem,
@@ -76,13 +76,35 @@ python tools/run_demo.py
 QEMU hardware acceleration (WHPX on Windows, KVM on Linux) is auto-detected and
 makes rendering several times faster than TCG; force it off with `--accel none`.
 `run_demo.py` builds `target/lazyos.img` if needed (`--no-build`, `--headless`,
-`-- --cpu max` are supported). For scripted visual verification, capture a
-session script instead:
+`-- --cpu max` are supported). It also creates `target/home.img` (the `/home`
+volume, label `lazyhome`) when missing and attaches it as a second virtio-blk
+disk (`--home-disk PATH`, `--no-home-disk`, `--reset-home`; `--reset-os` rebuilds
+with `LAZYOS_RESET_OS=1`; `--data-disk` is opt-in). The screenshot tools attach
+none unless given `--home-disk PATH`. For scripted visual verification, capture
+a session script instead:
 
 ```bash
 python tools/screenshot/qemu_session.py --image target/lazyos.img \
     --out shots/demo --script tools/screenshot/examples/multitask_demo.json
 ```
+
+### The disk image
+
+`cargo build` writes `target/lazyos.img` as an MBR disk with three partitions:
+the bootloader's stage 2, a FAT `/boot` (only the kernel and a generated
+`lazyos.cfg`), and an ext2 OS volume at LBA 131072 (64 MiB; `LAZYOS_OS_SIZE`,
+default `512M`, minimum `128M`) that holds every other file at the flat names
+it always had (`SUPER.ELF`, `PASSWD`, `docs/...`) plus `/data`. The volume is
+written by `libs/ext2fs`, the code the kernel mounts it with (`build_support/os_*.rs`).
+A rebuild **updates the OS volume in place**: installed apps, settings, logs
+and your own files survive, and only paths listed in `/system/.image-manifest`
+are replaced or deleted. `LAZYOS_RESET_OS=1 cargo build` (or
+`python tools/run_demo.py --reset-os`) recreates it with a new UUID; so does an
+image that fails validation, with a `cargo:warning=` giving the reason. Changing
+`LAZYOS_OS_SIZE` on an existing image needs the reset. Do not rebuild while QEMU
+has the image open (the build fails with a message). CI sets `LAZYOS_RESET_OS=1`
+everywhere. ext2 is case-sensitive: look names up exactly as stored, through
+`libs/fhs`. Host tests: `cargo test -p build-support-tests`.
 
 ## Docs app and the C++ toolchain
 
@@ -152,6 +174,25 @@ non-test image. Normal boots are unaffected: without `LAZYOS_TESTS=1` the suite
 is not compiled. Test-only hooks live behind `cfg(lazyos_tests)`; add new tests
 under `kernel/src/tests/` (`mem_suite` is where allocator-specific tests go). CI
 is `.github/workflows/kernel-tests.yml`; see `tools/test/README.md`.
+
+## ext2 library
+
+The ext2 driver is `libs/ext2fs` (`no_std` + `alloc`, depends only on `spin`), shared by
+the kernel (`kernel/src/fs/ext2.rs` and `ext2/fsimpl.rs` are the adapter) and the host
+image build. It also holds the formatter and populator (`format`, `mkdir_p`,
+`write_file`, `remove_tree`). It is tested on the host over an in-memory `BlockIo`,
+with an independent fsck-style checker (`src/check.rs`), a 1k-cycle soak and a seeded
+fuzz entry point shared with the cargo-fuzz target (`fuzz/fuzz_targets/ext2fs.rs`):
+
+```bash
+cargo test -p ext2fs
+FUZZ_CASES=30000 cargo test -p ext2fs seeded     # a longer seeded soak
+FUZZ_SEED=0x<seed> cargo test -p ext2fs <test>   # replay a printed failing seed
+python fuzz/gen_corpus.py --check                # the checked-in seeds are current
+```
+
+The kernel's `ext2_suite` still runs unchanged against the adapter, and
+`mount_library_formatted_root` mounts a library-made image at `/` through `lazyos.cfg`.
 
 ## Shutdown and reboot
 

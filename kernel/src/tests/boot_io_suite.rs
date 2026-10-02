@@ -222,7 +222,11 @@ fn fragmented_reads(disk: &'static FakeDisk) -> Result<(), String> {
     Ok(())
 }
 
-/// The real boot volume: a big contiguous ELF read whole must equal the same
+/// The FAT file this test reads: the kernel the bootloader put on `/boot` (the
+/// image build puts every other file on the ext2 OS volume).
+const BIG_FILE: &str = "kernel-x86_64";
+
+/// The real boot volume: the big contiguous kernel ELF read whole must equal the same
 /// file assembled from small windows (which never take the coalesced path),
 /// repeatedly.
 fn fat_boot_volume_whole_matches_windows() -> Result<(), String> {
@@ -231,34 +235,40 @@ fn fat_boot_volume_whole_matches_windows() -> Result<(), String> {
     let volume =
         Fat16::open(boot).ok_or_else(|| String::from("the boot FAT volume did not open"))?;
     let meta = volume
-        .lookup("HELLO.ELF")
+        .lookup(BIG_FILE)
         .map_err(|error| format!("lookup: {error:?}"))?;
-    let size = meta.size as usize;
+    // The kernel is megabytes; its first 256 KiB cover many clusters and the
+    // coalesced path while keeping three copies well inside the test heap.
+    let size = (meta.size as usize).min(256 * 1024);
     check!(
         size > 8 * SECTOR_SIZE,
-        "HELLO.ELF is unexpectedly small ({size})"
+        "the boot kernel is unexpectedly small ({size})"
     );
     let mut whole = vec![0u8; size];
     check!(
-        volume.read("HELLO.ELF", 0, &mut whole) == Ok(size),
-        "whole read of HELLO.ELF came back short"
+        volume.read(BIG_FILE, 0, &mut whole) == Ok(size),
+        "whole read of the boot kernel came back short"
     );
-    check!(&whole[..4] == b"\x7fELF", "HELLO.ELF lost its ELF magic");
+    check!(
+        &whole[..4] == b"\x7fELF",
+        "the boot kernel lost its ELF magic"
+    );
 
     let mut assembled = Vec::with_capacity(size);
     let mut window = [0u8; 300];
     let mut offset = 0usize;
     while offset < size {
         let got = volume
-            .read("HELLO.ELF", offset as u64, &mut window)
+            .read(BIG_FILE, offset as u64, &mut window)
             .map_err(|error| format!("window at {offset}: {error:?}"))?;
         check!(got > 0, "a window read stalled at {offset}");
-        assembled.extend_from_slice(&window[..got]);
+        // The last window may run past the compared prefix.
+        assembled.extend_from_slice(&window[..got.min(size - offset)]);
         offset += got;
     }
     check!(
         assembled == whole,
-        "windowed and whole reads of HELLO.ELF differ"
+        "windowed and whole reads of the boot kernel differ"
     );
 
     // Soak: the whole file again and again, plus random ranges.
@@ -266,18 +276,20 @@ fn fat_boot_volume_whole_matches_windows() -> Result<(), String> {
     for round in 0..40 {
         let mut again = vec![0u8; size];
         check!(
-            volume.read("HELLO.ELF", 0, &mut again) == Ok(size) && again == whole,
+            volume.read(BIG_FILE, 0, &mut again) == Ok(size) && again == whole,
             "whole re-read {round} differs"
         );
         let offset = (rng.next() as usize) % size;
         let len = 1 + (rng.next() as usize) % 20_000;
         let mut part = vec![0u8; len];
         let got = volume
-            .read("HELLO.ELF", offset as u64, &mut part)
+            .read(BIG_FILE, offset as u64, &mut part)
             .map_err(|error| format!("range {round}: {error:?}"))?;
+        // The file goes on past the compared prefix, so a read near its end
+        // may return more than the prefix holds.
         let end = (offset + len).min(size);
         check!(
-            got == end - offset && part[..got] == whole[offset..end],
+            got >= end - offset && part[..end - offset] == whole[offset..end],
             "range {offset}+{len} differs from the whole read"
         );
     }

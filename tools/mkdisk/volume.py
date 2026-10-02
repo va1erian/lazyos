@@ -20,6 +20,9 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 DEFAULT_PATH = ROOT / "target" / "data.img"
 DEFAULT_SIZE = 64 * 1024 * 1024
 DEFAULT_LABEL = "lazyos-data"
+# The home volume (mounted at /home; `home=LABEL=lazyhome` in lazyos.cfg).
+DEFAULT_HOME_PATH = ROOT / "target" / "home.img"
+HOME_LABEL = "lazyhome"
 
 _UNITS = {"": 1, "K": 1 << 10, "M": 1 << 20, "G": 1 << 30}
 
@@ -71,14 +74,15 @@ def format_image(path: Path, size: int = DEFAULT_SIZE, label: str = DEFAULT_LABE
     return length
 
 
-def ensure_volume(path: Path, size: int = DEFAULT_SIZE, label: str = DEFAULT_LABEL) -> bool:
+def ensure_volume(path: Path, size: int = DEFAULT_SIZE, label: str = DEFAULT_LABEL,
+                  layout: layouts.Layout | None = None) -> bool:
     """Create the volume if it is missing; never touch an existing one.
 
     Returns ``True`` when a new volume was written.
     """
     if path.exists():
         return False
-    format_image(path, size, label)
+    format_image(path, size, label, layout=layout)
     return True
 
 

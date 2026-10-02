@@ -1,0 +1,14 @@
+[package]
+name = "build-support-tests"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Host tests of the image build modules in build_support/"
+license = "GPL-3.0-or-later"
+
+[lib]
+path = "lib.rs"
+
+[dependencies]
+# `fuzz` brings the in-memory device and the independent fsck-style checker.
+ext2fs = { path = "../../libs/ext2fs", features = ["fuzz"] }

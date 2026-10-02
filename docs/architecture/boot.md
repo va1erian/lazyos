@@ -1,7 +1,7 @@
 # Boot & image build
 
 **What it is.** Host-side build pipeline that compiles the freestanding kernel
-and ring-3 programs, packs them into an MBR + FAT boot disk, and launches QEMU.
+and ring-3 programs, packs them into an MBR disk (a FAT `/boot` plus an ext2 OS volume), and launches QEMU.
 
 **Key files**
 
@@ -10,7 +10,7 @@ and ring-3 programs, packs them into an MBR + FAT boot disk, and launches QEMU.
 | `Cargo.toml` | Workspace; `kernel` and `user` as artifact dependencies via `bootloader` |
 | `.cargo/config.toml` | `bindeps = true` (unstable artifact dependencies) |
 | `rust-toolchain.toml` | Pinned nightly; targets `x86_64-unknown-none`, `x86_64-unknown-uefi` |
-| `build.rs` | `DiskImageBuilder`: embeds kernel + files; writes `target/lazyos.img` |
+| `build.rs`, `build_support/os_*.rs` | `DiskImageBuilder` for the BIOS part (kernel + `lazyos.cfg`); every other file goes to the ext2 OS volume, created or updated in place; writes `target/lazyos.img` ([filesystem.md](filesystem.md), the OS image) |
 | `kernel/build.rs` | Rasterizes `assets/fonts/JetBrainsMono-Regular.ttf`; turns env switches into cfgs |
 | `kernel/src/main.rs` | `entry_point!(kernel_main)`; boot order below |
 | `src/main.rs` | QEMU launcher; exits 0 only on `isa-debug-exit` 0x10 |
@@ -30,7 +30,7 @@ and ring-3 programs, packs them into an MBR + FAT boot disk, and launches QEMU.
    set selected by build flags.
 9. `task::start()`, `interrupts::enable()`, `mux::run()` (kernel task).
 
-**Image contents** (`build.rs`)
+**Image contents** (`build.rs`; every file below is on the ext2 OS volume at the root, except the kernel and `lazyos.cfg` on the FAT `/boot`)
 
 | File | Source | Condition |
 |---|---|---|
@@ -47,13 +47,13 @@ and ring-3 programs, packs them into an MBR + FAT boot disk, and launches QEMU.
 | `DRAGDMO.ELF` | drag & drop demo pair | `LAZYOS_XUID=1`; dropped in the desktop profile |
 | `SHELLPRB.ELF` | shell-protocol evidence client | `LAZYOS_XUID=1` + `LAZYOS_SHELLPROBE=1` |
 | `XAPP.ELF` | `$LAZYOS_XUI_APP` (static musl xui app from `tools/xui/build.py`) | embedded whenever set; spawned only with `LAZYOS_XUID=1` |
-| `XTERM.ELF`, `XSYSMON.ELF`, `XFABMON.ELF`, `XCOUNTR.ELF`, `XEDITOR.ELF`, `XFILES.ELF`, `XPAINT.ELF`, `XAPPS.LST` | `$LAZYOS_XUI_APPS` (path list; `;` on Windows, `:` elsewhere), or the desktop default set when unset | each app under its 8.3 name; `XAPPS.LST` lists them (and which `autostart`) for `init`'s registry (#215/#216); only the Terminal autostarts by default (`LAZYOS_XUI_AUTOSTART` picks others); the viewers, Editor, Paint and Files are on demand (Start menu, right-click menu or open-with) |
+| `XTERM.ELF`, `XSYSMON.ELF`, `XFABMON.ELF`, `XCOUNTR.ELF`, `XEDITOR.ELF`, `XFILES.ELF`, `XPAINT.ELF`, `XAPPS.LST` | `$LAZYOS_XUI_APPS` (path list; `;` on Windows, `:` elsewhere), or the desktop default set when unset | each app under its flat uppercase name; `XAPPS.LST` lists them (and which `autostart`) for `init`'s registry (#215/#216); only the Terminal autostarts by default (`LAZYOS_XUI_AUTOSTART` picks others); the viewers, Editor, Paint and Files are on demand (Start menu, right-click menu or open-with) |
 | `INIT.ELF` | `$LAZYOS_INIT` | ABI bench hook |
 | `BUSYBOX` | `$LAZYOS_BUSYBOX` | Linux shim demo |
 | `RHAI.ELF` | `$LAZYOS_RHAI` | the `rhai` command (auto-embedded from `target/rhai/rhai.elf`) |
 
-FAT names are 8.3 because the kernel FAT reader resolves short names only
-(`kernel/src/fs/fat.rs`).
+The names stay flat and uppercase (F3 renames them): ext2 is case-sensitive, so
+code opens them with the exact spelling from `libs/fhs`.
 
 **Build switches** (`kernel/build.rs` -> `cfg`)
 
@@ -83,5 +83,5 @@ FAT names are 8.3 because the kernel FAT reader resolves short names only
 **Status.** Working: `python tools/run_demo.py` builds and boots the two-window
 demo; the switches above are exercised by the headless CI workflows
 (`screenshots.yml`, `xui.yml`, `kernel-tests.yml`, `abi-compat.yml`). The
-default image carries a single FAT volume on ATA; no ext2 volume is attached by
-any launcher yet.
+default image carries the FAT `/boot` and the ext2 OS volume on virtio-blk; the
+launchers also attach `target/home.img` as the `/home` volume.

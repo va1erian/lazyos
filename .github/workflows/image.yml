@@ -1,0 +1,135 @@
+name: image
+
+# The build-made OS image (docs/filesystem-plan.md F2): `cargo build` creates
+# target/lazyos.img with three MBR entries, and a second build updates the ext2
+# OS volume in place. `e2fsck -fn` and `debugfs` check both, independently of
+# the libs/ext2fs code that wrote them.
+#
+# Two jobs: `library-image` needs only libs/ext2fs (a populated volume, and the
+# same volume updated in place, both written by examples/mkimage.rs) and so
+# keeps proving the library is e2fsck-clean whatever the build composer does;
+# `image` runs the real build.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "build.rs"
+      - "build_support/**"
+      - "libs/ext2fs/**"
+      - "libs/fhs/**"
+      - "tools/ci/check_*image.sh"
+      - "tools/mkdisk/**"
+      - ".github/workflows/image.yml"
+  pull_request:
+    paths:
+      - "build.rs"
+      - "build_support/**"
+      - "libs/ext2fs/**"
+      - "libs/fhs/**"
+      - "tools/ci/check_*image.sh"
+      - "tools/mkdisk/**"
+      - ".github/workflows/image.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: image-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Hermetic CI (docs/filesystem-plan.md F2): images are created fresh unless a
+  # step deliberately unsets this to test the in-place update.
+  LAZYOS_RESET_OS: "1"
+
+jobs:
+  library-image:
+    name: library-written volume (fresh and updated in place)
+    runs-on: ubuntu-latest
+    env:
+      LABEL: lazyos-os
+      UUID: 0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install e2fsprogs
+        run: sudo apt-get update && sudo apt-get install -y e2fsprogs
+
+      # The Rust formatter must match the Python one byte for byte (mkdisk).
+      - name: Formatter parity with tools/mkdisk
+        run: python3 tools/mkdisk/test_parity.py -v
+
+      # rust-toolchain.toml pins the nightly toolchain; rustup installs it.
+      # --features fuzz adds the library's own fsck pass as a second opinion.
+      - name: Write a populated volume
+        run: >
+          cargo run --quiet -p ext2fs --features fuzz --example mkimage --
+          target/populated.img --size 64M --label "$LABEL" --uuid "$UUID"
+          --now 1700000000 --mode populated
+
+      - name: Check the populated volume (e2fsck, dumpe2fs, debugfs)
+        run: bash tools/ci/check_lib_image.sh target/populated.img populated "$UUID" "$LABEL"
+
+      # `updated` formats, populates, closes, reopens, then rewrites a file
+      # smaller, remove_trees a subtree and adds files, all in place.
+      - name: Write a volume and update it in place
+        run: >
+          cargo run --quiet -p ext2fs --features fuzz --example mkimage --
+          target/updated.img --size 64M --label "$LABEL" --uuid "$UUID"
+          --now 1700000000 --mode updated
+
+      - name: Check the updated volume (e2fsck, dumpe2fs, debugfs)
+        run: bash tools/ci/check_lib_image.sh target/updated.img updated "$UUID" "$LABEL"
+
+      # Other block sizes use other indirect-block and group arithmetic.
+      - name: 1 KiB and 2 KiB block sizes
+        run: |
+          for bs in 1024 2048; do
+            cargo run --quiet -p ext2fs --example mkimage -- "target/u$bs.img"               --size 40M --block-size "$bs" --label "$LABEL" --uuid "$UUID" --mode updated
+            bash tools/ci/check_lib_image.sh "target/u$bs.img" updated "$UUID" "$LABEL"
+          done
+
+      # TODO(F2, when the build composer lands): the `image` job below already
+      # runs the real `cargo build` and tools/ci/check_os_image.sh. Extra
+      # steps that belong with it once the composer exposes them:
+      #   1. check the home volume (label lazyhome) the same way: `e2fsck -fn`,
+      #      `dumpe2fs -h`, debugfs owners of /<user>;
+      #   2. rebuild with a changed input and assert files removed from the
+      #      manifest are gone while /data survives (seed a user file with
+      #      debugfs `write` before the second build);
+      #   3. boot the updated image headless (tools/test/run.py) and run the
+      #      guest-side mount check.
+
+  image:
+    runs-on: ubuntu-latest
+    env:
+      # A small OS volume keeps the job quick; the minimum is 128M.
+      LAZYOS_OS_SIZE: 128M
+    steps:
+      - uses: actions/checkout@v4
+
+      # rust-toolchain.toml pins the nightly toolchain.
+      - name: Install e2fsprogs
+        run: sudo apt-get update && sudo apt-get install -y e2fsprogs
+
+      - name: Image build tests
+        run: cargo test -p build-support-tests
+
+      - name: Fresh image (LAZYOS_RESET_OS=1)
+        run: LAZYOS_RESET_OS=1 cargo build
+
+      - name: Check the fresh image
+        run: bash tools/ci/check_os_image.sh target/lazyos.img fresh
+
+      # No LAZYOS_RESET_OS here: the second build must update in place and
+      # keep the volume's UUID.
+      - name: Rebuild in place
+        run: |
+          touch build.rs
+          env -u LAZYOS_RESET_OS cargo build 2>&1 | tee target/update.log
+          grep -q "updated in place" target/update.log
+
+      - name: Check the updated image
+        run: bash tools/ci/check_os_image.sh target/lazyos.img updated

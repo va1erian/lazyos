@@ -207,8 +207,8 @@ pub fn linux_load_executable_resolves_applets() -> Result<(), String> {
     // under test reads with the running identity.
     let id = crate::fs::vfs::Id::ROOT;
     let elf = minimal_elf();
-    crate::fs::abi_create(id, "/busybox", 0o755).map_err(|e| e.message())?;
-    crate::fs::abi_write(id, "/busybox", 0, &elf).map_err(|e| e.message())?;
+    crate::fs::abi_create(id, fhs::boot::BUSYBOX_PATH, 0o755).map_err(|e| e.message())?;
+    crate::fs::abi_write(id, fhs::boot::BUSYBOX_PATH, 0, &elf).map_err(|e| e.message())?;
     crate::fs::abi_create(id, "/ref", 0o644).map_err(|e| e.message())?;
     crate::fs::abi_write(id, "/ref", 0, b"ref-bytes").map_err(|e| e.message())?;
 
@@ -231,7 +231,7 @@ pub fn linux_load_executable_resolves_applets() -> Result<(), String> {
     Ok(())
 }
 
-/// Install `/busybox` and the given `(path, bytes)` files on a fresh ABI ramfs.
+/// Install BusyBox and the given `(path, bytes)` files on a fresh ABI ramfs.
 fn install_exec_files(files: &[(&str, &[u8])]) -> Result<(), String> {
     crate::fs::install_abi_ramfs_for_test();
     let id = crate::fs::vfs::Id::ROOT;
@@ -250,7 +250,7 @@ pub fn linux_load_executable_prefers_root_elf() -> Result<(), String> {
     fresh();
     let busybox = minimal_elf();
     install_exec_files(&[
-        ("/busybox", &busybox),
+        (fhs::boot::BUSYBOX_PATH, &busybox),
         ("/RHAI.ELF", b"rhai-program"),
         ("/PASSWD", b"root:0:0"),
         ("/rhai2", b"exact-file"),
@@ -302,7 +302,10 @@ pub fn linux_load_executable_prefers_root_elf() -> Result<(), String> {
 pub fn soak_linux_load_executable_repeated() -> Result<(), String> {
     fresh();
     let busybox = minimal_elf();
-    install_exec_files(&[("/busybox", &busybox), ("/RHAI.ELF", b"rhai-program")])?;
+    install_exec_files(&[
+        (fhs::boot::BUSYBOX_PATH, &busybox),
+        ("/RHAI.ELF", b"rhai-program"),
+    ])?;
     let path_dirs = ["/usr/local/bin", "/bin", "/usr/bin", "/sbin"];
     // Warm-up absorbs one-time allocations so the steady state is compared.
     let _ = process::linux::load_executable("rhai");

@@ -19,9 +19,9 @@ BUILD_SCRIPT = ROOT / "build.rs"
 
 # `const BUILTIN: &str = "root:0:0:...\nalice:...\n";` (a one-line literal).
 _BUILTIN = re.compile(r'const\s+BUILTIN\s*:\s*&str\s*=\s*"((?:[^"\\]|\\.)*)"\s*;')
-# The same table as build.rs writes it: `b"root:...\n".to_vec()` for `PASSWD`.
+# The same table as build.rs writes it: `const PASSWD: &[u8] = b"root:...\n";`.
 _BUILD_PASSWD = re.compile(
-    r'String::from\("PASSWD"\)\s*,\s*b"((?:[^"\\]|\\.)*)"\.to_vec\(\)', re.S)
+    r'const\s+PASSWD\s*:\s*&\[u8\]\s*=\s*b"((?:[^"\\]|\\.)*)"\s*;', re.S)
 _ESCAPES = {"n": "\n", "\\": "\\", '"': '"'}
 _FIELDS = 6  # name:uid:gid:secret:home:shell
 

@@ -14,6 +14,9 @@ unused_dependencies = "allow"
 [dependencies]
 # Well-known paths and boot-volume names (docs/filesystem-plan.md F0).
 fhs = { path = "../libs/fhs" }
+# The ext2 driver, shared with the host image build (docs/filesystem-plan.md F2);
+# fs/ext2/fsimpl.rs adapts it to the VFS.
+ext2fs = { path = "../libs/ext2fs" }
 bootloader_api = "0.11.17"
 # Issue #102: the in-kernel suite runs the crypto wrapper's round-trip and
 # SHARE_ONLY key-isolation checks against the same crate `keyd` links.

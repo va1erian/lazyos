@@ -22,7 +22,7 @@ pub(super) const MAX_DEPTH: usize = 3;
 /// Largest file this driver will grow: 2 GiB - 1. Sizes stay in the 32-bit
 /// `i_size`, so no length needs the large-file high word, and a signed-size
 /// reader never sees a negative length.
-pub(super) const MAX_FILE_SIZE: u64 = 0x7FFF_FFFF;
+pub const MAX_FILE_SIZE: u64 = 0x7FFF_FFFF;
 /// The revision-1 core inode is 128 bytes; larger inode tails are preserved by
 /// the read-modify-write in [`Ext2::write_inode`].
 pub(super) const INODE_CORE_SIZE: usize = 128;
@@ -68,6 +68,9 @@ pub(super) const SB_FEATURE_RO_COMPAT: usize = 0x64;
 pub(super) const SB_UUID: usize = 0x68;
 pub(super) const SB_VOLUME_NAME: usize = 0x78;
 
+/// `i_flags` bit: the directory carries an htree index (`EXT2_INDEX_FL`).
+pub(super) const INDEX_FL: u32 = 0x1000;
+
 /// `s_state` bits: the volume was cleanly unmounted / errors were recorded.
 pub(super) const STATE_VALID: u16 = 0x0001;
 pub(super) const STATE_ERROR: u16 = 0x0002;
@@ -84,6 +87,7 @@ pub(super) const INO_DTIME: usize = 0x14;
 pub(super) const INO_GID: usize = 0x18;
 pub(super) const INO_LINKS: usize = 0x1A;
 pub(super) const INO_BLOCKS: usize = 0x1C;
+pub(super) const INO_FLAGS: usize = 0x20;
 pub(super) const INO_BLOCK: usize = 0x28;
 pub(super) const INO_DIR_ACL: usize = 0x6C;
 
@@ -117,14 +121,13 @@ pub(super) fn put32(buf: &mut [u8], offset: usize, value: u32) {
     buf[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
 }
 
-/// Map a block-layer failure onto the VFS error space. A write to a read-only
-/// device keeps its friendly `EROFS`; everything else is a corrupt or missing
-/// backing store.
-pub(super) fn io_error(error: BlockError) -> FsError {
-    log_block_error(error);
+/// Map a block-layer failure onto the library's error space. A write to a
+/// read-only device keeps its friendly `ReadOnly`; everything else is a corrupt
+/// or missing backing store.
+pub(super) fn io_error(error: IoError) -> Ext2Error {
     match error {
-        BlockError::ReadOnly => FsError::ReadOnly,
-        _ => FsError::Invalid,
+        IoError::ReadOnly => Ext2Error::ReadOnly,
+        IoError::Failed => Ext2Error::Io,
     }
 }
 
@@ -138,18 +141,11 @@ pub(super) fn kind_from_mode(mode: u16) -> Option<FileKind> {
     }
 }
 
-/// The current time as an inode field holds it: the VFS clock
-/// ([`crate::fs::vfs::now`], UTC wall time from the RTC), shared with every other backend
-/// so a write and a `touch` agree.
-pub(super) fn now() -> u32 {
-    super::attr::disk_time(crate::fs::vfs::now())
-}
-
 /// Refuse an owner whose ids do not fit the 16-bit `i_uid`/`i_gid` fields.
 /// Truncating would hand a file created by uid 65536 to uid 0 (root).
-pub(super) fn check_owner(owner: Id) -> Result<(), FsError> {
+pub(super) fn check_owner(owner: Owner) -> Result<(), Ext2Error> {
     if owner.uid > u32::from(u16::MAX) || owner.gid > u32::from(u16::MAX) {
-        return Err(FsError::Invalid);
+        return Err(Ext2Error::Invalid);
     }
     Ok(())
 }
@@ -161,37 +157,23 @@ pub(super) fn touch(inode: &mut [u8; INODE_CORE_SIZE], time: u32) {
 }
 
 /// Split `path` into its parent directory path and final component. The root
-/// has no parent, so creating or removing it is [`FsError::Exists`].
-pub(super) fn split_parent(path: &str) -> Result<(&str, &str), FsError> {
+/// has no parent, so creating or removing it is [`Ext2Error::Exists`].
+pub(super) fn split_parent(path: &str) -> Result<(&str, &str), Ext2Error> {
     let path = path.trim_matches('/');
     if path.is_empty() {
-        return Err(FsError::Exists);
+        return Err(Ext2Error::Exists);
     }
     let (parent, name) = match path.rsplit_once('/') {
         Some((parent, name)) => (parent, name),
         None => ("", path),
     };
     if name.is_empty() || name == "." || name == ".." {
-        return Err(FsError::Invalid);
+        return Err(Ext2Error::Invalid);
     }
     if name.len() > MAX_NAME {
-        return Err(FsError::NameTooLong);
+        return Err(Ext2Error::NameTooLong);
     }
     Ok((parent, name))
-}
-
-/// Report the first failure of each kind on serial. `io_error` folds them all
-/// into `EINVAL`, which hid a flaky virtio device behind "invalid argument".
-fn log_block_error(error: BlockError) {
-    use core::sync::atomic::{AtomicU32, Ordering};
-    static SEEN: AtomicU32 = AtomicU32::new(0);
-    let bit = 1u32 << (error as u32 % 32);
-    if SEEN.fetch_or(bit, Ordering::Relaxed) & bit == 0 {
-        serial_println!(
-            "ext2: block layer error {:?} (reported once per kind)",
-            error
-        );
-    }
 }
 
 /// 16 bytes at `offset` (a UUID or a NUL-padded label).

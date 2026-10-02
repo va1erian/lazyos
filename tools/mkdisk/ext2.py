@@ -3,7 +3,7 @@
 The output is a list of *extents* ``(byte offset, data)`` rather than one big
 buffer: a freshly formatted volume is almost entirely zeros, so only the
 metadata is ever materialised and the rest of the file is left to the host
-(see :mod:`mkdisk.volume`). Field offsets match ``kernel/src/fs/ext2/layout.rs``.
+(see :mod:`mkdisk.volume`). Field offsets match ``libs/ext2fs/src/layout.rs``.
 """
 
 from __future__ import annotations

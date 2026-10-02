@@ -67,6 +67,7 @@ runner user. If that ever stops working the jobs silently fall back to TCG.
 | `--memory SIZE` | `256M` | Guest RAM. |
 | `--extra-arg ARG` | none | Extra QEMU arg (repeatable), e.g. `--extra-arg=-vga --extra-arg=std`. |
 | `--data-disk PATH` | none | Attach an existing ext2 volume as a second virtio-blk device (create one with `python -m tools.mkdisk PATH`). Also accepted by `qemu_session.py`. |
+| `--home-disk PATH` | none | Attach an existing home volume (`python -m tools.mkdisk PATH --home-volume`) as a virtio-blk device after the boot disk and any `--data-disk`. Off by default so CI stays hermetic; also accepted by `qemu_session.py`. |
 
 ## `pngstats.py` assertions
 

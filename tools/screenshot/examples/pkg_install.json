@@ -78,20 +78,20 @@
  },
  {
   "at": 0.4,
-  "type": "ct /co"
+  "type": "ct /PK"
  },
  {
   "at": 0.4,
-  "type": "unter."
+  "type": "GDEMO."
  },
  {
   "at": 0.4,
-  "type": "lzp"
+  "type": "LZP"
  },
  {
   "at": 0.8,
   "key": "enter",
-  "until": "TERM:CMD:pkgctl inspect /pkgdemo.lzp",
+  "until": "TERM:CMD:pkgctl inspect /PKGDEMO.LZP",
   "timeout": 30,
   "retries": 2
  },
@@ -113,20 +113,20 @@
  },
  {
   "at": 0.4,
-  "type": "ll /co"
+  "type": "ll /PK"
  },
  {
   "at": 0.4,
-  "type": "unter."
+  "type": "GDEMO."
  },
  {
   "at": 0.4,
-  "type": "lzp"
+  "type": "LZP"
  },
  {
   "at": 0.8,
   "key": "enter",
-  "until": "TERM:CMD:pkgctl install /pkgdemo.lzp",
+  "until": "TERM:CMD:pkgctl install /PKGDEMO.LZP",
   "timeout": 30,
   "retries": 2
  },
@@ -179,7 +179,7 @@
   "at": 1.0,
   "mouse_move": [
    40,
-   214
+   254
   ]
  },
  {

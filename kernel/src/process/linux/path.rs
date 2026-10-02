@@ -57,7 +57,7 @@ impl Access {
 }
 
 /// A bare applet name in a `bin` directory (or with no directory) that isn't a
-/// real FAT file aliases to the BusyBox binary.
+/// real file aliases to the BusyBox binary.
 fn applet_name(path: &str) -> Option<&str> {
     let trimmed = path.trim_start_matches('/');
     let base = trimmed.rsplit('/').next().unwrap_or(trimmed);
@@ -102,7 +102,7 @@ pub(super) fn synthetic_meta(path: &str) -> Option<Meta> {
         return Some(meta);
     }
     if applet_name(path).is_some() {
-        return crate::fs::abi_stat(Id::current(), "/busybox")
+        return crate::fs::abi_stat(Id::current(), fhs::boot::BUSYBOX_PATH)
             .ok()
             .map(|meta| Meta {
                 ino: 0,
@@ -148,7 +148,7 @@ fn load_file_as(id: Id, path: &str) -> Result<Vec<u8>, FsError> {
     match crate::fs::abi_read(id, path) {
         Ok(data) => Ok(data),
         Err(FsError::NotFound) if applet_name(path).is_some() => {
-            crate::fs::abi_read(id, "/busybox").map_err(|_| FsError::NotFound)
+            crate::fs::abi_read(id, fhs::boot::BUSYBOX_PATH).map_err(|_| FsError::NotFound)
         }
         Err(error) => Err(error),
     }
@@ -156,12 +156,14 @@ fn load_file_as(id: Id, path: &str) -> Result<Vec<u8>, FsError> {
 
 /// The image-root program an applet-shaped name stands for: `rhai`,
 /// `/usr/local/bin/rhai` and `/bin/rhai` all mean `/RHAI.ELF` (issue #319).
-/// The FAT root only holds 8.3 names, so longer names never match, and the
+/// The root holds the flat names the image build stores (`fhs::boot`: at most
+/// eight characters plus `.ELF`), so longer names never match, and the
 /// mandatory `.ELF` keeps data files (`PASSWD`, `HELLO.TXT`) from shadowing a
 /// BusyBox applet of the same name.
 ///
-/// The runtime uppercasing and `.ELF` suffix are the FAT 8.3 convention that
-/// `fhs::boot` names; F3 (docs/filesystem-plan.md) turns this into a lookup in
+/// The root is ext2, which is case-sensitive: the names are stored uppercase,
+/// so the lookup spells them uppercase to match exactly (it is not a case
+/// fold). F3 (docs/filesystem-plan.md) turns this into a lookup in
 /// `/system/bin`.
 fn root_elf_path(path: &str) -> Option<String> {
     let base = applet_name(path)?;
@@ -177,7 +179,7 @@ fn root_elf_path(path: &str) -> Option<String> {
 ///    directory;
 /// 3. the BusyBox applet alias, and — when a `$PATH` lookup names one of the
 ///    synthetic `bin` directories LazyOS does not back with files — the
-///    basename at the image root. The executable store is the flat FAT root,
+///    basename at the image root. The executable store is the flat image root,
 ///    so this is what lets `execvp("INIT.ELF")` find `/INIT.ELF` after trying
 ///    `/usr/local/bin`, `/bin` and `/usr/bin`.
 pub(super) fn load_executable(path: &str) -> Result<Vec<u8>, FsError> {

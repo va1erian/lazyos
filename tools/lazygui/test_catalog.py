@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for the launcher's data-volume plan flags and reset (issues #332, #347).
+"""Tests for the launcher's home/data-volume plan flags and reset (issues #332, #347, #475).
 
 Run: python tools/lazygui/test_catalog.py
 """
@@ -29,20 +29,60 @@ def demo_argv(**overrides) -> list[str]:
     return catalog.build_plan(demo_config(**overrides))[-1]["argv"]
 
 
-class DataDiskPlanTests(unittest.TestCase):
+class HomeDiskPlanTests(unittest.TestCase):
     def test_attached_by_default_at_the_standard_path(self) -> None:
         argv = demo_argv()
-        self.assertEqual(argv[argv.index("--data-disk") + 1], catalog.DATA_IMAGE)
-        self.assertNotIn("--no-data-disk", argv)
+        self.assertEqual(argv[argv.index("--home-disk") + 1], catalog.HOME_IMAGE)
+        self.assertTrue(catalog.HOME_IMAGE.endswith("home.img"))
+        self.assertNotIn("--no-home-disk", argv)
 
     def test_custom_path_is_passed_through(self) -> None:
-        argv = demo_argv(data_path="D:/vols/x.img")
-        self.assertEqual(argv[argv.index("--data-disk") + 1], "D:/vols/x.img")
+        argv = demo_argv(home_path="D:/vols/h.img")
+        self.assertEqual(argv[argv.index("--home-disk") + 1], "D:/vols/h.img")
 
     def test_toggle_off_detaches(self) -> None:
-        argv = demo_argv(data_disk=False)
-        self.assertIn("--no-data-disk", argv)
+        argv = demo_argv(home_disk=False)
+        self.assertIn("--no-home-disk", argv)
+        self.assertNotIn("--home-disk", argv)
+
+    def test_the_data_disk_is_off_unless_asked_for(self) -> None:
+        argv = demo_argv()
         self.assertNotIn("--data-disk", argv)
+        self.assertNotIn("--no-data-disk", argv)
+
+    def test_the_data_disk_stays_reachable(self) -> None:
+        argv = demo_argv(data_disk=True)
+        self.assertEqual(argv[argv.index("--data-disk") + 1], catalog.DATA_IMAGE)
+        argv = demo_argv(data_disk=True, data_path="D:/vols/x.img")
+        self.assertEqual(argv[argv.index("--data-disk") + 1], "D:/vols/x.img")
+
+
+class ResetOsPlanTests(unittest.TestCase):
+    def test_off_by_default(self) -> None:
+        self.assertNotIn("--reset-os", demo_argv(skip_build=False))
+
+    def test_passed_when_building(self) -> None:
+        self.assertIn("--reset-os", demo_argv(skip_build=False, reset_os=True))
+
+    def test_the_gui_confirms_so_the_plan_passes_yes(self) -> None:
+        argv = demo_argv(skip_build=False, reset_os=True)
+        self.assertIn("--yes", argv)
+        self.assertNotIn("--yes", demo_argv(skip_build=False))
+
+    def test_confirmation_asks_only_when_the_reset_will_happen(self) -> None:
+        with mock.patch.object(datavol.messagebox, "askyesno", return_value=False) as ask:
+            self.assertFalse(datavol.confirm_reset_os(demo_config(skip_build=False, reset_os=True)))
+            ask.assert_called_once()
+            ask.reset_mock()
+            for cfg in (demo_config(skip_build=False), demo_config(reset_os=True),
+                        demo_config(mode="Screenshots", skip_build=False, reset_os=True)):
+                self.assertTrue(datavol.confirm_reset_os(cfg))
+            ask.assert_not_called()
+        with mock.patch.object(datavol.messagebox, "askyesno", return_value=True):
+            self.assertTrue(datavol.confirm_reset_os(demo_config(skip_build=False, reset_os=True)))
+
+    def test_never_combined_with_skip_build(self) -> None:
+        self.assertNotIn("--reset-os", demo_argv(skip_build=True, reset_os=True))
 
 
 class SoundPlanTests(unittest.TestCase):
@@ -202,28 +242,31 @@ class DevicesAppTests(unittest.TestCase):
 
 
 class ResetTests(unittest.TestCase):
-    """The Reset button regenerates the seeded layout, and says so first."""
+    """The Reset button regenerates the home volume layout, and says so first."""
 
     def setUp(self) -> None:
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
-        self.path = Path(tmp.name) / "data.img"
+        self.path = Path(tmp.name) / "home.img"
 
-    def test_summary_names_the_seeded_directories(self) -> None:
+    def test_summary_names_the_home_directories(self) -> None:
         text = datavol.seed_summary()
-        self.assertIn("/home/alice", text)
-        self.assertIn("/tmp (1777)", text)
+        self.assertIn("/alice (755)", text)
+        self.assertIn("lazyhome", text)
+        self.assertNotIn("/tmp", text)
 
-    def test_reset_writes_the_seeded_layout(self) -> None:
+    def test_reset_writes_the_home_layout(self) -> None:
         outcome = datavol.reset(str(self.path), busy=False)  # no file yet: no prompt
         self.assertTrue(outcome and outcome[0])
-        self.assertIn(b"alice", self.path.read_bytes())
+        image = self.path.read_bytes()
+        self.assertIn(b"alice", image)
+        self.assertEqual(image[1024 + 120:1024 + 128], b"lazyhome")
 
     def test_confirmation_lists_what_will_be_created_and_can_decline(self) -> None:
         self.path.write_bytes(b"precious")
         with mock.patch.object(datavol.messagebox, "askyesno", return_value=False) as ask:
             self.assertIsNone(datavol.reset(str(self.path), busy=False))
-        self.assertIn("/home/alice (mode 0755, uid 1000, gid 1000)", ask.call_args.args[1])
+        self.assertIn("/alice (mode 0755, uid 1000, gid 1000)", ask.call_args.args[1])
         self.assertEqual(self.path.read_bytes(), b"precious")
 
     def test_refused_while_a_run_is_active(self) -> None:

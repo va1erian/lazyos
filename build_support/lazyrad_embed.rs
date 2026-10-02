@@ -2,17 +2,17 @@
 //!
 //! `lrplay` and `lazyrad` are static-musl `std` programs built by
 //! `tools/lazyrad/build.py` (build artifacts, never committed), so they are
-//! embedded only when `LAZYOS_LAZYRAD=1` is set. They are stored under the 8.3
-//! names `LRPLAY.ELF` and `LAZYRAD.ELF` because the kernel's FAT reader
-//! resolves short names. `LAZYRAD_SAMPLES` is a platform path list (`;` on
+//! embedded only when `LAZYOS_LAZYRAD=1` is set. They are stored under the flat
+//! names `LRPLAY.ELF` and `LAZYRAD.ELF` at the OS volume root. `LAZYRAD_SAMPLES` is a platform path list (`;` on
 //! Windows, `:` elsewhere) of sample project directories, each copied under
-//! `/LAZYRAD/<directory>/` (long names are kept: the kernel's LFN driver reads
-//! them).
+//! `/LAZYRAD/<directory>/` (names are kept exactly: ext2 is case-sensitive).
 //!
 //! With the switch unset nothing changes: the plain demo image is unchanged.
 
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
+
+use crate::os_image::Sink;
 
 /// The built ELFs, as (8.3 on-disk name, path relative to the manifest dir).
 const ELFS: &[(&str, &str)] = &[
@@ -35,7 +35,7 @@ pub fn manifest_lines() -> &'static str {
 }
 
 /// Add the runtime and samples when `LAZYOS_LAZYRAD=1`.
-pub fn embed(builder: &mut bootloader::DiskImageBuilder, manifest_dir: &Path) {
+pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path) {
     println!("cargo:rerun-if-env-changed=LAZYOS_LAZYRAD");
     println!("cargo:rerun-if-env-changed=LAZYRAD_SAMPLES");
     // Watched even when missing: an ELF built later triggers an image rebuild.
@@ -48,13 +48,13 @@ pub fn embed(builder: &mut bootloader::DiskImageBuilder, manifest_dir: &Path) {
     if std::env::var_os("LAZYOS_LAZYRAD").as_deref() != Some(OsStr::new("1")) {
         return;
     }
-    embed_elfs(builder, manifest_dir);
-    embed_samples(builder, manifest_dir);
+    embed_elfs(sink, manifest_dir);
+    embed_samples(sink, manifest_dir);
 }
 
 /// Embed `LRPLAY.ELF` and `LAZYRAD.ELF`. A missing one fails the build, so the
 /// image is never silently built without the runtime it asked for.
-fn embed_elfs(builder: &mut bootloader::DiskImageBuilder, manifest_dir: &Path) {
+fn embed_elfs(sink: &mut dyn Sink, manifest_dir: &Path) {
     for (disk_name, relative) in ELFS {
         let path = manifest_dir.join(relative);
         if !path.is_file() {
@@ -68,7 +68,7 @@ fn embed_elfs(builder: &mut bootloader::DiskImageBuilder, manifest_dir: &Path) {
             path.display()
         );
         println!("cargo:rerun-if-changed={}", path.display());
-        builder.set_file(String::from(*disk_name), path);
+        sink.add_file(disk_name, path);
     }
 }
 
@@ -77,7 +77,7 @@ fn embed_elfs(builder: &mut bootloader::DiskImageBuilder, manifest_dir: &Path) {
 /// Relative entries resolve against the manifest dir. A duplicate directory
 /// name is a warning: the first wins, so two projects can never silently
 /// overwrite each other in the image.
-fn embed_samples(builder: &mut bootloader::DiskImageBuilder, manifest_dir: &Path) {
+fn embed_samples(sink: &mut dyn Sink, manifest_dir: &Path) {
     let Some(list) = std::env::var_os("LAZYRAD_SAMPLES") else {
         return;
     };
@@ -109,7 +109,7 @@ fn embed_samples(builder: &mut bootloader::DiskImageBuilder, manifest_dir: &Path
             continue;
         }
         seen.push(name.clone());
-        copy_dir(builder, &source, &format!("{SAMPLES_ROOT}/{name}"));
+        copy_dir(sink, &source, &format!("{SAMPLES_ROOT}/{name}"));
     }
 }
 
@@ -126,7 +126,7 @@ fn safe_component(path: &Path) -> Option<String> {
 /// Recursively add every regular file under `source` to the image as
 /// `destination/<name>`. Symlinks are skipped so a sample tree cannot pull in
 /// files outside itself.
-fn copy_dir(builder: &mut bootloader::DiskImageBuilder, source: &Path, destination: &str) {
+fn copy_dir(sink: &mut dyn Sink, source: &Path, destination: &str) {
     let mut entries: Vec<PathBuf> = std::fs::read_dir(source)
         .unwrap_or_else(|error| panic!("read {}: {error}", source.display()))
         .map(|entry| {
@@ -152,10 +152,10 @@ fn copy_dir(builder: &mut bootloader::DiskImageBuilder, source: &Path, destinati
         };
         let target = format!("{destination}/{name}");
         if metadata.is_dir() {
-            copy_dir(builder, &path, &target);
+            copy_dir(sink, &path, &target);
         } else if metadata.is_file() {
             println!("cargo:rerun-if-changed={}", path.display());
-            builder.set_file(target, path);
+            sink.add_file(&target, path);
         }
     }
 }

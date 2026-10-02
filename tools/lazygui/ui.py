@@ -9,7 +9,7 @@ import tkinter as tk
 from tkinter import filedialog, ttk
 
 from . import datavol
-from .catalog import (ACCELS, CARGO, DATA_IMAGE, DISKS, MODES, PY, ROOT,
+from .catalog import (ACCELS, CARGO, DATA_IMAGE, DISKS, HOME_IMAGE, MODES, PY, ROOT,
                       SCRIPTS, SIMPLE_BUILDS, SIMPLE_INTERFACES, XUI_VIEWERS, build_env, build_plan,
                       cargo_step, format_plan, lazyrad_step, simple_config)
 from .runner import Runner, open_path
@@ -46,6 +46,7 @@ class Launcher:
             "profile": s(value="dev"),
             "accel": s(value="auto"),
             "disk": s(value="virtio"),
+            "home_path": s(value=HOME_IMAGE),
             "data_path": s(value=DATA_IMAGE),
             "memory": s(value="256M"),
             "times": s(value="10,14,18"),
@@ -61,7 +62,9 @@ class Launcher:
             "tablet": b(value=False),
             "sound": b(value=True),
             "abi_build": b(value=False),
-            "data_disk": b(value=True),
+            "home_disk": b(value=True),
+            "data_disk": b(value=False),
+            "reset_os": b(value=False),
             "desktop": b(value=False),
             "services": b(value=False),
             "xuid": b(value=False),
@@ -111,8 +114,11 @@ class Launcher:
             "profile": self.v["profile"].get(),
             "accel": self.v["accel"].get(),
             "disk": self.v["disk"].get(),
+            "home_path": self.v["home_path"].get().strip(),
+            "home_disk": self.v["home_disk"].get(),
             "data_path": self.v["data_path"].get().strip(),
             "data_disk": self.v["data_disk"].get(),
+            "reset_os": self.v["reset_os"].get(),
             "memory": self.v["memory"].get().strip(),
             "times": self.v["times"].get().strip(),
             "timeout": self.v["timeout"].get().strip(),
@@ -209,9 +215,18 @@ class Launcher:
         ttk.Label(self.g_test, text="Selecting a script applies the build switches it needs.",
                   foreground="#666").pack(fill="x", padx=6, pady=(0, 6))
 
-        g = self._group(parent, "Data volume (persistent ext2 disk)")
-        self.lbl_volume = datavol.build_group(g, self.v["data_path"], self.v["data_disk"],
+        g = self._group(parent, "Home volume (persistent ext2 disk mounted at /home)")
+        self.lbl_volume = datavol.build_group(g, self.v["home_path"], self.v["home_disk"],
                                               self._reset_volume)
+        row = ttk.Frame(g); row.pack(fill="x", padx=6, pady=(0, 2))
+        ttk.Checkbutton(row, text="Also attach legacy data volume:",
+                        variable=self.v["data_disk"]).pack(side="left")
+        ttk.Entry(row, textvariable=self.v["data_path"]).pack(side="left", fill="x",
+                                                              expand=True, padx=(6, 0))
+        row = ttk.Frame(g); row.pack(fill="x", padx=6, pady=(0, 6))
+        ttk.Checkbutton(row, text="Recreate the OS volume (erases installed apps, settings, "
+                        "logs and /data; needs a build)",
+                        variable=self.v["reset_os"]).pack(side="left")
 
         g = self._group(parent, "Run options")
         row = ttk.Frame(g); row.pack(fill="x", padx=6, pady=2)
@@ -336,7 +351,7 @@ class Launcher:
         self.cmb_mode.bind("<<ComboboxSelected>>", lambda e: self._on_mode())
         self.cmb_script.bind("<<ComboboxSelected>>", lambda e: self._on_script())
         self.notebook.bind("<<NotebookTabChanged>>", lambda e: self._update_plan())
-        self.v["data_path"].trace_add("write", lambda *_: self._refresh_volume())
+        self.v["home_path"].trace_add("write", lambda *_: self._refresh_volume())
         for var in self.v.values():
             var.trace_add("write", lambda *_: self._update_plan())
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -390,6 +405,9 @@ class Launcher:
         except ValueError as exc:  # e.g. an unmatched quote in the QEMU args
             self._log(f"(plan error: {exc})\n", "fail")
             return
+        if not datavol.confirm_reset_os(self.cfg()):
+            self._log("OS volume reset cancelled.\n", "fail")
+            return
         if not steps:
             self._log("Nothing to run.\n", "fail")
             return
@@ -413,8 +431,8 @@ class Launcher:
         self.btn_stop.configure(state="normal")
 
     def _reset_volume(self) -> None:
-        """Format an empty data volume after confirmation, then refresh the label."""
-        outcome = datavol.reset(self.v["data_path"].get().strip(), self.runner.busy)
+        """Format an empty home volume after confirmation, then refresh the label."""
+        outcome = datavol.reset(self.v["home_path"].get().strip(), self.runner.busy)
         if outcome:
             succeeded, message = outcome
             self._log(message + "\n", "ok" if succeeded else "fail")
@@ -422,7 +440,7 @@ class Launcher:
 
     def _refresh_volume(self) -> None:
         """Show the volume's path, size and existence under its entry."""
-        self.lbl_volume.configure(text=datavol.status_text(self.v["data_path"].get().strip()))
+        self.lbl_volume.configure(text=datavol.status_text(self.v["home_path"].get().strip()))
 
     def _stop(self) -> None:
         """Cancel the run and kill its process tree."""

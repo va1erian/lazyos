@@ -135,11 +135,10 @@ fn round(base: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Whether a data volume is mounted (`/proc/mounts` lists `/data`).
+/// Whether a durable `/data` exists: a volume mounted there, or (the OS image)
+/// a directory on the ext2 root.
 fn has_data_mount() -> bool {
-    fs::read_to_string("/proc/mounts")
-        .map(|mounts| mounts.lines().any(|line| line.split_whitespace().nth(1) == Some("/data")))
-        .unwrap_or(false)
+    Path::new("/data").is_dir()
 }
 
 fn main() {

@@ -136,6 +136,37 @@ def data_disk_args(path: str | Path) -> list[str]:
             "-device", "virtio-blk-pci,drive=data"]
 
 
+def home_disk_args(path: str | Path) -> list[str]:
+    """QEMU arguments attaching the home volume (``target/home.img``) as virtio-blk.
+
+    Attached after the boot disk and after any data disk, so the order the
+    kernel enumerates virtio devices in (PCI order) is deterministic. The kernel
+    finds the volume by its ``lazyhome`` label, not by position.
+    """
+    file = Path(path).resolve().as_posix().replace(",", ",,")
+    return ["-drive", f"format=raw,file={file},if=none,id=home",
+            "-device", "virtio-blk-pci,drive=home"]
+
+
+def add_home_disk_option(parser) -> None:
+    """Add ``--home-disk PATH`` (off by default so CI runs stay hermetic)."""
+    parser.add_argument("--home-disk", metavar="PATH",
+                        help="attach this existing home volume as a virtio-blk device after "
+                             "the boot disk (create one with "
+                             "`python -m tools.mkdisk PATH --home-volume`)")
+
+
+def existing_home_disk(value: str | None) -> Path | None:
+    """The ``--home-disk`` file, or exit with a hint if it does not exist."""
+    if not value:
+        return None
+    path = Path(value).resolve()
+    if not path.is_file():
+        raise SystemExit(f"--home-disk not found: {path}\n"
+                         f"Create it with: python -m tools.mkdisk {value} --home-volume")
+    return path
+
+
 def add_data_disk_option(parser) -> None:
     """Add ``--data-disk PATH`` (off by default so CI runs stay hermetic)."""
     parser.add_argument("--data-disk", metavar="PATH",
@@ -167,6 +198,7 @@ def build_qemu_command(
     extra_args: list[str] | None = None,
     data_disk: str | Path | None = None,
     ide: bool = False,
+    home_disk: str | Path | None = None,
 ) -> list[str]:
     """Build a headless QEMU command line with a QMP socket and serial log.
 
@@ -191,6 +223,8 @@ def build_qemu_command(
                         "-device", "virtio-blk-pci,drive=boot,disable-modern=on"]
     if data_disk:
         command += data_disk_args(data_disk)
+    if home_disk:
+        command += home_disk_args(home_disk)
     command += extra_args or []
     return command
 

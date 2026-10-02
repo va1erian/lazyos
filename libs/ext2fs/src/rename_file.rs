@@ -14,7 +14,7 @@
 //! A cut before 2 leaves the old state, after 2 the file under both names with
 //! a link count of two, so unlinking either leaves the other intact. The worst
 //! case is a leaked link count or an unreferenced victim inode (space, never
-//! data). Directories keep the general path in `fsimpl` (their link counts
+//! data). Directories keep the general path in `rename.rs` (their link counts
 //! carry `..` bookkeeping).
 
 use super::*;
@@ -36,7 +36,7 @@ impl Ext2 {
         to: Side<'_>,
         child_ino: u32,
         child: &mut [u8; INODE_CORE_SIZE],
-    ) -> Result<(), FsError> {
+    ) -> Result<(), Ext2Error> {
         let same_dir = from.parent_ino == to.parent_ino;
         let victim = match self.find_entry(to.parent_ino, to.name) {
             Ok((existing, _)) if existing == child_ino => return Ok(()), // already linked there
@@ -44,11 +44,11 @@ impl Ext2 {
                 let inode = self.read_inode(existing)?;
                 match kind_from_mode(le16(&inode, INO_MODE)) {
                     Some(FileKind::File) => Some((existing, inode)),
-                    Some(FileKind::Dir) => return Err(FsError::IsDir),
-                    None => return Err(FsError::NotSupported),
+                    Some(FileKind::Dir) => return Err(Ext2Error::IsDir),
+                    None => return Err(Ext2Error::NotSupported),
                 }
             }
-            Err(FsError::NotFound) => None,
+            Err(Ext2Error::NotFound) => None,
             Err(error) => return Err(error),
         };
 
@@ -57,9 +57,9 @@ impl Ext2 {
         put16(
             child,
             INO_LINKS,
-            links.checked_add(1).ok_or(FsError::Invalid)?,
+            links.checked_add(1).ok_or(Ext2Error::Invalid)?,
         );
-        touch(child, now());
+        touch(child, self.now());
         self.write_inode(child_ino, child)?;
 
         // 2. The new name: the commit point.
@@ -67,7 +67,15 @@ impl Ext2 {
             Some(_) => self.retarget_entry(to.parent_ino, to.parent, to.name, child_ino),
             None => self.add_entry(to.parent_ino, to.parent, to.name, child_ino, FT_REGULAR),
         };
-        if let Err(error) = linked {
+        // The entry's block write is the commit; the directory's timestamp
+        // write after it can still fail. If the name is on disk the rename
+        // has committed, so go on instead of rolling the link count back
+        // under two names.
+        let committed = matches!(
+            self.find_entry(to.parent_ino, to.name),
+            Ok((found, _)) if found == child_ino
+        );
+        if let (Err(error), false) = (linked, committed) {
             put16(child, INO_LINKS, links);
             let _ = self.write_inode(child_ino, child);
             return Err(error);
@@ -89,26 +97,27 @@ impl Ext2 {
             return Err(error);
         }
         put16(child, INO_LINKS, links);
-        self.write_inode(child_ino, child)?;
+        let settled = self.write_inode(child_ino, child);
 
-        // 4. Release what the new name replaced.
+        // 4. Release what the new name replaced, even if the link count above
+        // could not be written: the committed name must not leave it leaking.
         if let Some((existing, mut inode)) = victim {
             self.release_link(existing, &mut inode)?;
         }
-        Ok(())
+        settled
     }
 
     /// Drop one link of file `ino`, freeing it with its last name.
-    fn release_link(&self, ino: u32, inode: &mut [u8; INODE_CORE_SIZE]) -> Result<(), FsError> {
+    fn release_link(&self, ino: u32, inode: &mut [u8; INODE_CORE_SIZE]) -> Result<(), Ext2Error> {
         let links = le16(inode, INO_LINKS);
         if links <= 1 {
             put16(inode, INO_LINKS, 0);
-            put32(inode, INO_DTIME, now());
+            put32(inode, INO_DTIME, self.now());
             self.free_inode_blocks(ino, inode)?;
             self.free_inode(ino, false)
         } else {
             put16(inode, INO_LINKS, links - 1);
-            touch(inode, now());
+            touch(inode, self.now());
             self.write_inode(ino, inode)
         }
     }
@@ -121,11 +130,13 @@ impl Ext2 {
         dir: &mut [u8; INODE_CORE_SIZE],
         name: &str,
         child_ino: u32,
-    ) -> Result<(), FsError> {
+    ) -> Result<(), Ext2Error> {
         if self.read_only {
-            return Err(FsError::ReadOnly);
+            return Err(Ext2Error::ReadOnly);
         }
+        self.check_not_indexed(dir)?;
         let size = self.block_size as usize;
+        let file_type = if self.has_file_type { FT_REGULAR } else { 0 };
         for block in self.dir_blocks(dir)? {
             let mut buf = [0u8; MAX_BLOCK_SIZE];
             self.read_block(u64::from(block), &mut buf[..size])?;
@@ -139,19 +150,19 @@ impl Ext2 {
                     || offset + rec_len > size
                     || name_len > rec_len - DE_HEADER
                 {
-                    return Err(FsError::Invalid);
+                    return Err(Ext2Error::Invalid);
                 }
                 let entry_name = &buf[offset + DE_HEADER..offset + DE_HEADER + name_len];
                 if entry_ino != 0 && entry_name == name.as_bytes() {
                     put32(&mut buf, offset + DE_INO, child_ino);
-                    buf[offset + DE_FILE_TYPE] = FT_REGULAR;
+                    buf[offset + DE_FILE_TYPE] = file_type;
                     self.write_block(u64::from(block), &buf[..size])?;
-                    touch(dir, now());
+                    touch(dir, self.now());
                     return self.write_inode(dir_ino, dir);
                 }
                 offset += rec_len;
             }
         }
-        Err(FsError::NotFound)
+        Err(Ext2Error::NotFound)
     }
 }

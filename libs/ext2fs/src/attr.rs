@@ -8,16 +8,15 @@
 //! behind a dirty flag, never a torn inode behind a clean one.
 
 use super::*;
-use crate::fs::vfs::{SetAttr, Times};
 
 impl Ext2 {
     /// Apply `attr` to the inode at `path` and return its new metadata. The
     /// change is validated in full before anything is written, so a refused
     /// field (an id past 16 bits) leaves the inode untouched.
-    pub(super) fn set_attributes(&self, path: &str, attr: &SetAttr) -> Result<Meta, FsError> {
+    pub fn setattr(&self, path: &str, attr: &AttrChange) -> Result<InodeMeta, Ext2Error> {
         let _guard = self.lock.lock();
         if self.read_only {
-            return Err(FsError::ReadOnly);
+            return Err(Ext2Error::ReadOnly);
         }
         let ino = self.resolve(path)?;
         let mut inode = self.read_inode(ino)?;
@@ -28,7 +27,7 @@ impl Ext2 {
 }
 
 /// Write the selected fields of `attr` into an in-memory inode.
-fn apply(inode: &mut [u8; INODE_CORE_SIZE], attr: &SetAttr) -> Result<(), FsError> {
+fn apply(inode: &mut [u8; INODE_CORE_SIZE], attr: &AttrChange) -> Result<(), Ext2Error> {
     let uid = attr.uid.map(narrow_id).transpose()?;
     let gid = attr.gid.map(narrow_id).transpose()?;
     if let Some(mode) = attr.mode {
@@ -57,8 +56,8 @@ fn apply(inode: &mut [u8; INODE_CORE_SIZE], attr: &SetAttr) -> Result<(), FsErro
 /// high halves in `osd2` are not used by this driver), so a larger id is
 /// refused rather than truncated: truncating uid 65536 would give the file to
 /// root. The same rule [`check_owner`] applies at creation.
-fn narrow_id(id: u32) -> Result<u16, FsError> {
-    u16::try_from(id).map_err(|_| FsError::Invalid)
+fn narrow_id(id: u32) -> Result<u16, Ext2Error> {
+    u16::try_from(id).map_err(|_| Ext2Error::Invalid)
 }
 
 /// A timestamp as the 32-bit inode field holds it. Linux reads these fields
