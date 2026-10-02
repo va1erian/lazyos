@@ -122,6 +122,7 @@ mod acl_suite;
 mod arch_suite;
 mod block_suite;
 mod boot_io_suite;
+mod boot_media_suite;
 mod boot_trace_suite;
 mod chmod_suite;
 mod confd_suite;
@@ -209,6 +210,7 @@ const SUITE: &[&[(&str, Test)]] = &[
     partition_suite::CASES,
     mount_suite::CASES,
     boot_trace_suite::CASES,
+    boot_media_suite::CASES,
     boot_io_suite::CASES,
     string_io_suite::CASES,
     spurious_fault_suite::CASES,

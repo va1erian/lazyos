@@ -17,6 +17,7 @@ mod boot_trace;
 
 mod arch;
 mod block;
+mod boot_media;
 mod console;
 mod cursor;
 mod dev;
@@ -96,10 +97,12 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     display::init(info.width, info.height, info.stride, info.bytes_per_pixel);
 
     boot_phase!("console_ready");
-    // `mem::init` keeps the boot info borrowed, so read the ramdisk hand-off first.
+    // `mem::init` keeps the boot info borrowed, so read the ramdisk hand-off
+    // and the firmware type (`BOOT:MEDIA:<uefi|bios>`) first.
     let (ramdisk_addr, ramdisk_len) = (boot_info.ramdisk_addr, boot_info.ramdisk_len);
     // The ACPI tables (read by `arch::init`'s tick selection) start at the RSDP.
     arch::acpi_tables::set_rsdp(boot_info.rsdp_addr.into_option());
+    boot_media::record(&boot_info.memory_regions);
     mem::init(boot_info);
     boot_phase!("mem_ready");
     // Firmware usually leaves the framebuffer uncached: make it write-combining
@@ -126,9 +129,10 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     // Driver class rules (issue #481), before `init` can start any driver.
     dev::policy::install_boot_policy();
 
-    // Issue #5: a bootloader ramdisk (a FAT image) is a fallback block device,
-    // so the OS still boots with no ATA/virtio disk attached. Probing the real
-    // disks first keeps them ahead of it in the mount order.
+    // Issue #5: a bootloader ramdisk is registered as `ram0` and its MBR
+    // partitions as `ram0p<n>`; when it is there, `fs::init` looks for the
+    // boot volume and the root on it first (the USB stick's RAM root,
+    // docs/usb-stick.md), so a disk carrying the same volume cannot win.
     if let Optional::Some(addr) = ramdisk_addr {
         block::init();
         if block::mem::register_ramdisk(addr, ramdisk_len) {

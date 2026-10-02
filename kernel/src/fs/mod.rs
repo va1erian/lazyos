@@ -91,6 +91,7 @@ pub fn init() -> bool {
         native,
         abi,
         mounted,
+        ..
     } = mounts::build(&block::devices());
     *ABI_FS.lock() = Some(abi);
     *global = Some((native, mounted));
