@@ -256,7 +256,17 @@ pub fn linux_load_executable_prefers_root_elf() -> Result<(), String> {
         ("/rhai2", b"exact-file"),
         ("/TOOLONGNAME.ELF", b"too-long"),
     ])?;
-    for name in ["rhai", "/bin/rhai", "/usr/local/bin/rhai", "/usr/bin/RHAI"] {
+    // `/usr/local/sbin` heads BusyBox ash's default `$PATH`; an unbacked
+    // directory such as `/opt/x/bin` falls back to the basename, which must
+    // still find the image-root program before the BusyBox alias.
+    for name in [
+        "rhai",
+        "/bin/rhai",
+        "/usr/local/bin/rhai",
+        "/usr/local/sbin/rhai",
+        "/usr/bin/RHAI",
+        "/opt/x/bin/rhai",
+    ] {
         check!(
             process::linux::load_executable(name) == Some(b"rhai-program".to_vec()),
             "`{name}` did not resolve to /RHAI.ELF"
@@ -306,7 +316,13 @@ pub fn soak_linux_load_executable_repeated() -> Result<(), String> {
         (fhs::boot::BUSYBOX_PATH, &busybox),
         ("/RHAI.ELF", b"rhai-program"),
     ])?;
-    let path_dirs = ["/usr/local/bin", "/bin", "/usr/bin", "/sbin"];
+    let path_dirs = [
+        "/usr/local/sbin",
+        "/usr/local/bin",
+        "/bin",
+        "/usr/bin",
+        "/sbin",
+    ];
     // Warm-up absorbs one-time allocations so the steady state is compared.
     let _ = process::linux::load_executable("rhai");
     let frames_before = mem::frame_stats().live();
