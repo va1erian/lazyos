@@ -1,5 +1,6 @@
 [
   {"wait_for": "/ #", "timeout": 240},
+  {"at": 1.0, "key": "tab"},
   {"type": "X=$(echo hi); echo SUB:assign:$X"},
   {"key": "enter", "until": "SUB:assign:hi", "timeout": 60, "retries": 1},
   {"type": "echo SUB:inline:$(echo hi)"},
