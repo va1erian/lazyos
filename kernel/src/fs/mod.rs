@@ -162,6 +162,12 @@ pub fn vfs_stat(id: Id, path: &str) -> Result<Meta, FsError> {
     with(|vfs| vfs.stat(id, path)).unwrap_or(Err(FsError::NotFound))
 }
 
+/// Check `mask` on `path` itself through the native VFS (ancestors always
+/// need search); returns the node's metadata.
+pub fn vfs_check(id: Id, path: &str, mask: u8) -> Result<Meta, FsError> {
+    with(|vfs| vfs.check(id, path, mask)).unwrap_or(Err(FsError::NotFound))
+}
+
 /// Read a whole file through the native VFS.
 #[cfg_attr(not(lazyos_tests), allow(dead_code))] // used by tests/diagnostics
 pub fn vfs_read(id: Id, path: &str) -> Result<Vec<u8>, FsError> {
@@ -428,6 +434,20 @@ pub fn install_abi_data_for_test(volume: Arc<dyn Filesystem>) -> Option<Vfs> {
 #[cfg(lazyos_tests)]
 pub fn install_abi_for_test(table: Vfs) -> Option<Vfs> {
     ABI_FS.lock().replace(table)
+}
+
+/// Swap in `table` as the native mount table (reported as mounted), returning
+/// the one it replaced so a test can put it back with
+/// [`restore_native_for_test`].
+#[cfg(lazyos_tests)]
+pub fn install_native_for_test(table: Vfs) -> Option<(Vfs, bool)> {
+    FS.lock().replace((table, true))
+}
+
+/// Put back the table [`install_native_for_test`] returned.
+#[cfg(lazyos_tests)]
+pub fn restore_native_for_test(previous: Option<(Vfs, bool)>) {
+    *FS.lock() = previous;
 }
 
 /// Put back the table [`install_abi_data_for_test`] returned.

@@ -44,7 +44,8 @@ synthetic paths (`/dev`, `/proc`, `/etc`, `/bin`) stay in `process/linux`.
 - Every entry point takes an `Id { uid, gid }` from
   `ipc::credentials` (`Id::current`); ancestors need `EXECUTE` (search) and the
   final node the operation's `READ`/`WRITE` mask. Root (uid 0) bypasses bits
-  ([security-model.md](../security-model.md) section 4.1). The sticky bit
+  ([security-model.md](../security-model.md) section 4.1), except that
+  executing a regular file needs at least one `x` bit, as on Linux. The sticky bit
   restricts `unlink`/`rename` to root, the directory owner, or the entry owner.
 - Caches: `(mount, path) -> ino` dentry map plus `(mount, ino) -> Meta` inode
   map; mutations invalidate the path, its inode, and cached descendants.
@@ -144,7 +145,10 @@ violation ignores the whole file (`fs: lazyos.cfg ignored: <reason>`).
 mutating entry point (`write`, `truncate`, `setattr`, `create`, `mkdir`,
 `unlink`, `rmdir`, `rename`) answer `ReadOnly` before the backend is called.
 `noexec` is enforced by native spawn (`-EACCES`) and Linux `execve` (`EACCES`)
-through `fs::mount_flags` / `fs::abi_mount_flags`. `nosuid` is recorded and
+through `fs::mount_flags` / `fs::abi_mount_flags`, checked first. After it
+both check `EXECUTE` on the file (`process/exec_perm.rs`): a file without an
+`x` bit for the caller (root included) or a directory is `EACCES`, so a `0644`
+file someone wrote cannot be started by init or any root service. `nosuid` is recorded and
 reported only (no setuid-on-exec exists yet). `/proc/mounts` and `mountinfo`
 show the flags. `Vfs::readdir` appends the last component of each mount point
 directly below the directory, so `/boot`, `/home`, `/transient` are listed

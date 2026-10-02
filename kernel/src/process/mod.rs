@@ -118,6 +118,7 @@ use spawn::sys_spawn;
 mod argstore;
 mod credio;
 mod creds;
+mod exec_perm;
 pub mod fsops;
 mod gate;
 pub mod inetsys;
@@ -174,6 +175,14 @@ pub fn task_args_live_for_test() -> usize {
 #[cfg(lazyos_tests)]
 pub fn intern_service_name_for_test(name: &str) -> &'static str {
     spawn::intern_service_name(name)
+}
+
+/// Test-harness view of the native spawn body: `line` is a NUL-terminated
+/// spawn line; returns the child's pid or a negative errno (syscall 6 folds
+/// every error into one code, which would hide `EACCES` from `ENOENT`).
+#[cfg(lazyos_tests)]
+pub fn spawn_program_for_test(line: &[u8]) -> i64 {
+    spawn::spawn_program(line.as_ptr() as u64, None, false)
 }
 
 /// syscall 1: write bytes to the task's terminal (and the serial log).

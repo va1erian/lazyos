@@ -10,25 +10,29 @@ pub(super) const MAX_INTERNED_NAMES: usize = 64;
 /// table is full.
 pub(super) const OVERFLOW_NAME: &str = "service";
 
-/// Intern a userspace-provided service name into a `&'static str` for
-/// [`task::spawn_child`].
+/// Intern the task name of the program at `path` (its basename, exactly as
+/// spelled) into a `&'static str` for [`task::spawn_child`].
 ///
 /// `Task::name` is `&'static str`, but the name comes from the supervisor's
 /// manifest at runtime. Leaking each *distinct* name once (bounded by the
 /// manifest, not by restart count) is the smallest way to satisfy that type
 /// without adding an allocation policy to the task table.
-pub(super) fn intern_service_name(name: &str) -> &'static str {
+pub(super) fn intern_service_name(path: &str) -> &'static str {
     static NAMES: Mutex<Vec<&'static str>> = Mutex::new(Vec::new());
+    let name = path.rsplit('/').next().unwrap_or(path);
+    if name.is_empty() {
+        return OVERFLOW_NAME;
+    }
     let mut names = NAMES.lock();
     if let Some(known) = names.iter().find(|known| **known == name) {
         return known;
     }
-    // The path is caller-supplied, so distinct spellings are not bounded by
-    // the manifest: `./A.ELF` and `A.ELF` name one file but intern twice, and
-    // a caller can invent spellings that fail to resolve. (The root volume is
-    // ext2, which is case-sensitive, so `a.elf` is a different, missing file.)
-    // Past the cap every new spelling shares one generic name instead of
-    // leaking another string.
+    // Names are compared exactly: the root volume is ext2, which is
+    // case-sensitive, so `a` and `A` are different programs and intern as two
+    // names. Only the basename counts, so `/system/bin/keyd` and
+    // `./keyd` share `keyd`, but a caller can still invent names that fail to
+    // resolve. Past the cap every new name shares one generic name instead
+    // of leaking another string.
     if names.len() >= MAX_INTERNED_NAMES {
         return OVERFLOW_NAME;
     }
@@ -37,7 +41,7 @@ pub(super) fn intern_service_name(name: &str) -> &'static str {
     leaked
 }
 
-/// syscall 6: start `"PATH.ELF [args...]"` as a child of the calling task.
+/// syscall 6: start `"PATH [args...]"` as a child of the calling task.
 ///
 /// The command line is NUL-terminated. The first whitespace-separated token is
 /// the file name (a path on the root volume), the remainder is split into the
@@ -50,6 +54,28 @@ pub(super) fn sys_spawn(cmdline_ptr: u64) -> u64 {
         u64::MAX
     } else {
         code as u64
+    }
+}
+
+/// The gate every native-side program start passes before a byte of the
+/// image is read, as the current task: the `noexec` mount check first, then
+/// `EXECUTE` on the file (root needs an `x` bit too) and a regular file.
+/// `linux` selects the `linux:` lookup, which lets a synthetic applet name
+/// through ([`exec_perm::linux_spawn`]). `Err` is a negative errno: `EACCES`
+/// when refused, `ENOENT` when a native program is missing.
+pub(crate) fn check_exec(path: &str, linux: bool) -> Result<(), i64> {
+    if fs::mount_flags(path).noexec {
+        return Err(-EACCES);
+    }
+    let allowed = if linux {
+        exec_perm::linux_spawn(path)
+    } else {
+        exec_perm::native(path)
+    };
+    match allowed {
+        Ok(()) => Ok(()),
+        Err(fs::vfs::FsError::NotFound) => Err(-ENOENT),
+        Err(_) => Err(-EACCES),
     }
 }
 
@@ -73,12 +99,12 @@ pub(super) fn spawn_program(cmdline_ptr: u64, cred: Option<Cred>, assign_label: 
     let Some(spawn_line::SpawnLine { linux, path, args }) = spawn_line::parse(&line) else {
         return -EINVAL;
     };
-    if fs::mount_flags(path).noexec {
-        return -EACCES;
+    if let Err(errno) = check_exec(path, linux) {
+        return errno;
     }
     // A Linux program may be a BusyBox applet alias (`sh`, `/bin/ls`), which the
     // Linux loader resolves to the `BUSYBOX` file; a native program is always a
-    // real FAT entry.
+    // real file on the native mount table.
     let elf = if linux {
         linux::load_executable(path).or_else(|| fs::read(path))
     } else {
@@ -87,7 +113,7 @@ pub(super) fn spawn_program(cmdline_ptr: u64, cred: Option<Cred>, assign_label: 
     let Some(elf) = elf else {
         return -ENOENT;
     };
-    let name = intern_service_name(fhs::bin::name(path));
+    let name = intern_service_name(path);
     let started = if linux {
         // argv[0] is the program name; the rest are the split args (a
         // double-quoted token is one item, see `spawn_line::argv`).

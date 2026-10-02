@@ -32,8 +32,8 @@ use alloc::vec::Vec;
 
 use super::argstore;
 use super::creds::{approve_labelled, syscall_error, transition_error, EFAULT, EINVAL, ENOENT};
-use super::creds::{EACCES, ENOMEM};
-use super::spawn::intern_service_name;
+use super::creds::ENOMEM;
+use super::spawn::{check_exec, intern_service_name};
 use crate::fs;
 use crate::ipc::credentials::{self, Cred, LabelStamp};
 use crate::task;
@@ -255,13 +255,13 @@ fn approve(cred: CredReq) -> Result<Stamp, u64> {
     }
 }
 
-/// Read the program. Mirrors `spawn::spawn_program`: the `noexec` mount check
-/// first, then a Linux program may be a BusyBox applet alias, a native one is
-/// always a real file. (Keep the two in step until syscall 6 is retired.)
+/// Read the program after the gate every spawn path shares
+/// ([`check_exec`]: `noexec`, then `EXECUTE` on a regular file, root
+/// included). A Linux program may then be a BusyBox applet alias, a native one
+/// is always a real file.
 fn load(path: &str, linux: bool) -> Result<Vec<u8>, u64> {
-    if fs::mount_flags(path).noexec {
-        return Err(syscall_error(EACCES));
-    }
+    // `check_exec` answers a negative errno; as `u64` it is the syscall value.
+    check_exec(path, linux).map_err(|errno| errno as u64)?;
     let elf = if linux {
         super::linux::load_executable(path).or_else(|| fs::read(path))
     } else {

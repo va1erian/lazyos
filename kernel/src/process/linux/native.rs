@@ -33,7 +33,7 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use crate::fs::vfs::{self, FsError, Id};
+use crate::fs::vfs::{FsError, Id};
 use crate::ipc::pipe;
 use crate::task::signal::{self, SigInfo};
 use crate::task::{self, FdKind, SpawnError, WakeReason};
@@ -259,14 +259,12 @@ pub(crate) fn wait_for(slot: usize) -> u64 {
 /// On success it never returns: the caller exits with the program's status.
 pub(crate) fn try_exec(path: &str, argv: &[Vec<u8>]) -> Option<u64> {
     let file = lookup(path)?;
-    // The program's file is what runs, so its mount decides `noexec`.
-    if crate::fs::mount_flags(file).noexec {
-        return Some(fs_err(FsError::Access));
-    }
-    // Like the Linux path: a real node must be executable.
-    match crate::fs::abi_check(Id::current(), file, vfs::EXECUTE) {
-        Ok(_) | Err(FsError::NotFound) => {}
-        Err(error) => return Some(fs_err(error)),
+    // `file` is never a synthetic name: it is the real `/system/bin` file that
+    // runs, so it is checked where it is read (the native table), exactly as
+    // native `spawn` checks it: its mount decides `noexec` first, and a missing
+    // node is `ENOENT`, not a pass.
+    if let Err(error) = crate::process::exec_perm::native(file) {
+        return Some(fs_err(error));
     }
     let Some(elf) = crate::fs::read(file) else {
         return Some(err(ENOENT));
@@ -285,6 +283,7 @@ pub(crate) fn try_exec(path: &str, argv: &[Vec<u8>]) -> Option<u64> {
     let status = wait_for(slot);
     Some(sys_exit_group(status & 0xff))
 }
+
 /// Native syscall 1 (`write`) for a task whose descriptor 1 is not the
 /// terminal: the bytes go through the Linux descriptor path, so a pipe, socket
 /// or file the shell installed receives them. `None` means "descriptor 1 is
