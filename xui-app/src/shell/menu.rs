@@ -7,11 +7,12 @@
 //! compositor clamps a panel on screen (`PlaceSurface`), and creating one is a
 //! single surface plus one buffer. Ctrl+Esc/Super (`StartMenu`) and the button
 //! toggle it; `Dismiss` (a press outside every panel), choosing a row or the
-//! button again close it.
+//! button again close it. The power rows at the bottom first turn into a
+//! confirmation and keep the menu open ([`super::power`]).
 
 use std::rc::Rc;
 
-use lazyshell::menu::{BANNER_W, WIDTH};
+use lazyshell::menu::{Choice, BANNER_W, WIDTH};
 use lazyshell::Rect as ShellRect;
 use xui_core::app::{App, Ui};
 use xui_core::backend::{Event, NodeKind, NodeSpec, PlatformSpec, TextStyle};
@@ -33,7 +34,8 @@ pub enum MenuMsg {
     Repaint,
     Move(i32, i32),
     Leave,
-    Press(i32, i32),
+    /// A left press; `true` for the second press of a double click.
+    Press(i32, i32, bool),
 }
 
 /// Open the menu if it is closed, close it if it is open.
@@ -102,32 +104,51 @@ impl MenuApp {
                 y,
                 button: MouseButton::Left,
                 ..
-            }
-            | Event::MouseDoubleClick {
+            } => Some(MenuMsg::Press(x, y, false)),
+            Event::MouseDoubleClick {
                 x,
                 y,
                 button: MouseButton::Left,
                 ..
-            } => Some(MenuMsg::Press(x, y)),
+            } => Some(MenuMsg::Press(x, y, true)),
             _ => None,
         });
         MenuApp { ctx, root }
     }
 
-    /// Launch the enabled row under `(x, y)` and close the menu; a press on
-    /// the banner or a disabled row does nothing.
-    fn press(&self, x: i32, y: i32) {
-        let target = {
-            let menu = self.ctx.menu.borrow();
-            menu.row_at(x, y).and_then(|index| {
-                let row = menu.rows().get(index).filter(|row| row.enabled)?;
-                let (ox, oy) = menu.origin(self.ctx.screen.1);
-                Some((row.app.clone(), menu.row_rect(index)?.offset(ox, oy)))
-            })
+    /// Act on the enabled row under `(x, y)`: launch an app (closing the
+    /// menu), or step the power rows. A press on the banner or a disabled
+    /// row does nothing. Returns whether the menu must repaint.
+    fn press(&self, x: i32, y: i32, repeat: bool) -> bool {
+        let (choice, origin) = {
+            let mut menu = self.ctx.menu.borrow_mut();
+            let Some(index) = menu.row_at(x, y) else {
+                return false;
+            };
+            let (ox, oy) = menu.origin(self.ctx.screen.1);
+            let origin = menu.row_rect(index).map(|rect| rect.offset(ox, oy));
+            (menu.choose(index, repeat), origin)
         };
-        if let Some((app, origin)) = target {
-            close(&self.ctx);
-            let _ = self.ctx.launch(&app, Some(origin));
+        match choice {
+            Choice::Nothing => false,
+            Choice::Launch(app) => {
+                close(&self.ctx);
+                let _ = self.ctx.launch(&app, origin);
+                false
+            }
+            Choice::Confirming(_) => {
+                super::power::confirming();
+                true
+            }
+            Choice::Request(power) => {
+                close(&self.ctx);
+                super::power::request(power);
+                false
+            }
+            Choice::Close => {
+                close(&self.ctx);
+                false
+            }
         }
     }
 }
@@ -149,7 +170,11 @@ impl App for MenuApp {
                     ui.invalidate(self.root.id());
                 }
             }
-            MenuMsg::Press(x, y) => self.press(x, y),
+            MenuMsg::Press(x, y, repeat) => {
+                if self.press(x, y, repeat) {
+                    ui.invalidate(self.root.id());
+                }
+            }
         }
     }
 }

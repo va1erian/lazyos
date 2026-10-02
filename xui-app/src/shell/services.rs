@@ -1,5 +1,5 @@
-//! The services LazyShell is a client of: `init` (app registry, `Launch`),
-//! `confd` (`sys/ui/*`) and `timed` (the zone name).
+//! The services LazyShell is a client of: `init` (app registry, `Launch`,
+//! `Shutdown`), `confd` (`sys/ui/*`) and `timed` (the zone name).
 //!
 //! Every call is bounded, and an unregistered service is not waited for
 //! (`Service::try_connect`): the shell must keep painting while a service is
@@ -28,6 +28,9 @@ const TIMED: &str = "os.lazy.timed";
 const LIST_TICKS: u64 = 25;
 /// `Launch` replies after the spawn, which takes a moment under emulation.
 const LAUNCH_TICKS: u64 = 1000;
+/// `Shutdown`: `init` answers before it stops anything, so this is a
+/// backstop (the compositor menu's bound in #504).
+const SHUTDOWN_TICKS: u64 = 300;
 /// One `confd` read.
 const CONFD_TICKS: u64 = 50;
 /// One `timed` read.
@@ -93,6 +96,27 @@ pub fn launch(app: &str) -> Result<u64, i64> {
     )?;
     init_wire::decode_launch_reply(&reply.body)
         .map(|reply| reply.pid)
+        .map_err(|_| -errno::EINVAL)
+}
+
+/// `init.Shutdown(mode, reason, force = false)`: begin an orderly stop
+/// (docs/shutdown.md); the phase `init` reports.
+pub fn shutdown(mode: u32, reason: &str) -> Result<String, i64> {
+    let body = init_wire::encode_shutdown_args(&init_wire::ShutdownArgs {
+        mode,
+        reason: reason.to_owned(),
+        force: false,
+    })
+    .map_err(|_| -errno::EINVAL)?;
+    let reply = call(
+        INIT,
+        init_wire::INTERFACE_ID,
+        init_wire::METHOD_SHUTDOWN,
+        body,
+        SHUTDOWN_TICKS,
+    )?;
+    init_wire::decode_shutdown_reply(&reply.body)
+        .map(|reply| reply.phase)
         .map_err(|_| -errno::EINVAL)
 }
 

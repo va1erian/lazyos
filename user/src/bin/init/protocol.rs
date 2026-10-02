@@ -2,7 +2,8 @@
 //! table's wire rows, and the non-blocking dispatch of broker/registry/launch
 //! messages on the supervisor endpoint.
 //!
-//! Split out of `init.rs` (issue #194); a pure move, no behavior change.
+//! Split out of `init.rs` (issue #194); `Shutdown` and the `Launch` refusal
+//! while it runs are docs/shutdown.md.
 
 use alloc::format;
 use alloc::string::{String, ToString};
@@ -15,6 +16,7 @@ use super::apps::app_infos;
 use super::installed::InstalledApps;
 use super::launch::{actor, launch};
 use super::sessions;
+use super::shutdown::{self, Shutdown};
 use super::state::{Service, LAUNCH_CAP_PER_SESSION};
 use super::stop::stop_app;
 
@@ -55,19 +57,26 @@ impl StatusCache {
     }
 }
 
+/// What the supervisor's request handlers share: its tables and the
+/// shutdown, if one is running.
+pub(super) struct Supervisor<'a> {
+    pub(super) services: &'a mut Vec<Service>,
+    pub(super) broker: &'a mut router::TopicBroker,
+    pub(super) installed: &'a mut InstalledApps,
+    pub(super) cache: &'a mut StatusCache,
+    pub(super) shutdown: &'a mut Option<Shutdown>,
+}
+
 /// Serve queued subscriptions and control calls without blocking.
 pub(super) fn serve_pending(
-    services: &mut Vec<Service>,
-    broker: &mut router::TopicBroker,
-    installed: &mut InstalledApps,
+    state: &mut Supervisor,
     server: &Endpoint,
     buffer: &mut [u8],
-    cache: &mut StatusCache,
 ) -> messenger::Result<()> {
     while let Some(message) = server.poll_recv_with(buffer)? {
         let interface = message.interface_id();
         let method = message.method();
-        let reply = match dispatch(services, broker, installed, &message, cache) {
+        let reply = match dispatch(state, &message) {
             Ok(parcel) => parcel,
             // A malformed request still gets an answer, or its caller would
             // wait forever. A structured error is the useful one on the
@@ -84,15 +93,16 @@ pub(super) fn serve_pending(
     Ok(())
 }
 
-/// Dispatch one inbound message to the broker, the supervision table, or the
-/// app registry / launch path.
-fn dispatch(
-    services: &mut Vec<Service>,
-    broker: &mut router::TopicBroker,
-    installed: &mut InstalledApps,
-    message: &Message,
-    cache: &mut StatusCache,
-) -> messenger::Result<Parcel> {
+/// Dispatch one inbound message to the broker, the supervision table, the
+/// app registry / launch path, or the shutdown.
+fn dispatch(state: &mut Supervisor, message: &Message) -> messenger::Result<Parcel> {
+    let Supervisor {
+        services,
+        broker,
+        installed,
+        cache,
+        shutdown,
+    } = state;
     match message.interface_id() {
         router::INTERFACE => {
             // `logind`'s login events also tell the launch path who owns
@@ -115,6 +125,17 @@ fn dispatch(
                 let caller = actor(message)?;
                 let stopped = stop_app(services, broker, &request.app, &caller)?;
                 services::stop_reply(stopped)
+            }
+            services::init::METHOD_SHUTDOWN => {
+                let request = services::init::wire::decode_shutdown_args(&message.parcel.body)
+                    .map_err(messenger::Error::Parcel)?;
+                let caller = actor(message)?;
+                let phase = shutdown::request(shutdown, services, broker, &request, &caller)?;
+                services::shutdown_reply(true, &phase)
+            }
+            // Nothing new starts once the machine is going down.
+            services::init::METHOD_LAUNCH if shutdown::stopping() => {
+                Err(messenger::Error::Errno(-messenger::errno::EBUSY))
             }
             services::init::METHOD_LAUNCH => {
                 let request = services::decode_launch_request(&message.parcel)?;

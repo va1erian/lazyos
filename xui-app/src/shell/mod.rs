@@ -4,7 +4,8 @@
 //! owns the desktop UI: the wallpaper and launcher icons ([`desktop`], a
 //! `ROLE_DESKTOP` surface), the taskbar with the "LazyOS" button, the window
 //! entries and the clock ([`taskbar`], a panel), and the start menu ([`menu`],
-//! a panel created on demand). It publishes `os.lazy.shell` ([`service`]).
+//! a panel created on demand, with the restart / shut down rows). It
+//! publishes `os.lazy.shell` ([`service`]).
 //! The decisions themselves live in the host-tested `lazyshell` crate.
 //!
 //! Start-up order matters: `Subscribe("shell")` first (desktop and panel
@@ -16,13 +17,15 @@
 //! `SHELL:DESKTOP:PASS icons=<n>`, `SHELL:MENU:OPEN`/`CLOSE`,
 //! `SHELL:LAUNCH:PASS app=<id> pid=<pid>` / `FAIL app=<id> err=<errno>`,
 //! `SHELL:TASKBAR:ADD id=<surface> title=<title>` / `REMOVE id=<surface>`,
-//! `SHELL:RESTART:PASS windows=<n>`.
+//! `SHELL:RESTART:PASS windows=<n>`, and the power rows' `SHELL:POWER:*`
+//! ([`power`]).
 
 mod ctx;
 mod desktop;
 mod heartbeat;
 mod link;
 mod menu;
+mod power;
 mod service;
 mod services;
 mod taskbar;

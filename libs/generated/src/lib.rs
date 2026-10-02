@@ -4393,6 +4393,52 @@ pub mod os_lazy_init_v1 {
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0xa549dce4687b08e;
 
+    /// `PowerMode::PowerOff` wire value.
+    pub const POWER_MODE_POWER_OFF: u32 = 0;
+    /// `PowerMode::Reboot` wire value.
+    pub const POWER_MODE_REBOOT: u32 = 1;
+
+    /// The shutdown's progress: the payload of `system/power/state`.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct PowerState {
+        pub phase: alloc::string::String,
+        pub mode: u32,
+        pub reason: alloc::string::String,
+        pub deadline: u64,
+    }
+
+    pub fn encode_power_state(value: &PowerState) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.phase)?;
+        target.u32(2, value.mode)?;
+        target.string(3, &value.reason)?;
+        target.u64(4, value.deadline)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_power_state(body: &[u8]) -> Result<PowerState, Error> {
+        let mut out = PowerState::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.phase = field.as_str()?.into();
+                }
+                2 => {
+                    out.mode = field.as_u32()?;
+                }
+                3 => {
+                    out.reason = field.as_str()?.into();
+                }
+                4 => {
+                    out.deadline = field.as_u64()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
     /// One row of `init`'s supervision table.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct ServiceStatus {
@@ -4578,6 +4624,8 @@ pub mod os_lazy_init_v1 {
     pub const METHOD_LISTAPPS: u32 = 1009359625;
     /// `Stop` method id.
     pub const METHOD_STOP: u32 = 1266644741;
+    /// `Shutdown` method id.
+    pub const METHOD_SHUTDOWN: u32 = 1911669355;
 
     /// Snapshot the supervision table.
     #[derive(Clone, Debug, Default, PartialEq)]
@@ -4764,6 +4812,133 @@ pub mod os_lazy_init_v1 {
             }
         }
         Ok(out)
+    }
+
+    /// Begin an orderly shutdown (docs/shutdown.md): `mode` is a `PowerMode`
+    /// value. The reply is immediate; `init` then stops the session apps, the
+    /// services in reverse dependency order, syncs and calls the kernel's
+    /// `power`. `reason` is logged (at most 128 bytes, no control character).
+    /// Root or any caller in a login session may ask; a labelled (installed)
+    /// app is refused with `EPERM`, and an unknown mode is `EINVAL`. A request
+    /// while a shutdown is already running is not an error: `accepted` is true
+    /// and `phase` is the current phase. `force` skips the graceful stop: every
+    /// remaining child is killed at once and the machine stops.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ShutdownArgs {
+        pub mode: u32,
+        pub reason: alloc::string::String,
+        pub force: bool,
+    }
+
+    pub fn encode_shutdown_args(value: &ShutdownArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.mode)?;
+        target.string(2, &value.reason)?;
+        target.bool(3, value.force)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_shutdown_args(body: &[u8]) -> Result<ShutdownArgs, Error> {
+        let mut out = ShutdownArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.mode = field.as_u32()?;
+                }
+                2 => {
+                    out.reason = field.as_str()?.into();
+                }
+                3 => {
+                    out.force = field.as_bool()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ShutdownReply {
+        pub accepted: bool,
+        pub phase: alloc::string::String,
+    }
+
+    pub fn encode_shutdown_reply(value: &ShutdownReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.bool(1, value.accepted)?;
+        target.string(2, &value.phase)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_shutdown_reply(body: &[u8]) -> Result<ShutdownReply, Error> {
+        let mut out = ShutdownReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.accepted = field.as_bool()?;
+                }
+                2 => {
+                    out.phase = field.as_str()?.into();
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Phase name: `stopping` (requested), `apps`, `services`,
+    /// `quiesced`, then `power` just before the kernel call.
+    /// A `PowerMode` value.
+    /// The requester's reason text.
+    /// Absolute tick (100 Hz) by which `init` forces the stop.
+    /// The retained shutdown progress topic: absent until a shutdown starts,
+    /// then one value per phase, so the compositor can paint the
+    /// shutting-down screen and a test can follow the phases.
+    /// The declared `system/power/state` topic (`PowerState`, `latest`, retained).
+    pub const TOPIC_SYSTEM_POWER_STATE: &str = "system/power/state";
+    /// The `system/power/state` delivery policy.
+    pub const TOPIC_SYSTEM_POWER_STATE_QOS: u32 = topics::QOS_LATEST;
+    /// Whether `system/power/state` publishes are retained.
+    pub const TOPIC_SYSTEM_POWER_STATE_RETAINED: bool = true;
+
+    /// Build the concrete `system/power/state` name; each wildcard takes one literal segment.
+    pub fn name_system_power_state() -> Result<String, topics::TopicError> {
+        topics::build(TOPIC_SYSTEM_POWER_STATE, &[], topics::Mode::Publish)
+    }
+
+    /// Encode a `PowerState` payload for `system/power/state`.
+    pub fn encode_system_power_state(value: &PowerState) -> Result<Vec<u8>, Error> {
+        encode_power_state(value)
+    }
+
+    /// Decode a `system/power/state` payload; malformed bytes are an error.
+    pub fn decode_system_power_state(body: &[u8]) -> Result<PowerState, Error> {
+        decode_power_state(body)
+    }
+
+    /// Publish a typed `PowerState` on `system/power/state`.
+    pub fn publish_system_power_state<P>(publisher: &mut P, value: &PowerState) -> Result<u64, P::Error>
+    where
+        P: topics::Publish,
+        P::Error: From<topics::TopicError>,
+    {
+        let topic = name_system_power_state().map_err(P::Error::from)?;
+        let payload = encode_system_power_state(value)
+            .map_err(|error| P::Error::from(topics::TopicError::Encode(error)))?;
+        publisher.publish_topic(&topic, &payload, TOPIC_SYSTEM_POWER_STATE_RETAINED)
+    }
+
+    /// Subscribe to `system/power/state` with its declared QoS.
+    pub fn subscribe_system_power_state<S>(subscriber: &mut S) -> Result<S::Subscription, S::Error>
+    where
+        S: topics::Subscribe,
+        S::Error: From<topics::TopicError>,
+    {
+        let filter = topics::build(TOPIC_SYSTEM_POWER_STATE, &[], topics::Mode::Subscribe)
+            .map_err(S::Error::from)?;
+        subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_POWER_STATE_QOS)
     }
 
     /// Supervision phase (`pending`/`running`/`restarting`/`stopped`/`failed`).
@@ -6061,6 +6236,49 @@ pub mod os_lazy_keyd_v1 {
                     out.secret = field.as_str()?.into();
                 }
                 _ => {}
+            }
+        }
+        Ok(out)
+    }
+}
+
+/// `os.lazy.lifecycle.v1` (interface id `0x778a92e489f41682`).
+#[rustfmt::skip]
+pub mod os_lazy_lifecycle_v1 {
+    use alloc::vec::Vec;
+    #[allow(unused_imports)]
+    use alloc::string::String;
+    // Not every interface needs every codec item (`Kind` is only used by nested values).
+    #[allow(unused_imports)]
+    use libmessenger::{Decoder, Encoder, Error, Kind};
+    // Only interfaces that declare topics use the shared topic runtime.
+    #[allow(unused_imports)]
+    use super::topics;
+
+    /// The interface id: the FNV-1a hash of the `.vN` interface name.
+    pub const INTERFACE_ID: u64 = 0x778a92e489f41682;
+
+    /// `Shutdown` method id.
+    pub const METHOD_SHUTDOWN: u32 = 1911669355;
+
+    /// Persist and exit. `reason` is the shutdown's reason text, for the log.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ShutdownArgs {
+        pub reason: alloc::string::String,
+    }
+
+    pub fn encode_shutdown_args(value: &ShutdownArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.reason)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_shutdown_args(body: &[u8]) -> Result<ShutdownArgs, Error> {
+        let mut out = ShutdownArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.reason = field.as_str()?.into();
             }
         }
         Ok(out)
@@ -11757,6 +11975,15 @@ pub static DECLARED_TOPICS: &[topics::TopicDecl] = &[
         retained: true,
         publish_permission: "publish:system/health/+",
         subscribe_permission: "subscribe:system/health/+",
+    },
+    topics::TopicDecl {
+        interface: "os.lazy.init.v1",
+        name: "system/power/state",
+        payload: "PowerState",
+        qos: topics::QOS_LATEST,
+        retained: true,
+        publish_permission: "publish:system/power/state",
+        subscribe_permission: "subscribe:system/power/state",
     },
     topics::TopicDecl {
         interface: "os.lazy.init.v1",

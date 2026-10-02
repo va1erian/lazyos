@@ -129,6 +129,10 @@ extern "C" fn syscall_dispatch(regs: *mut Regs) {
         29 => super::killsys::dispatch(regs.rdi, regs.rsi),
         _ => u64::MAX,
     };
+    // A default-fatal signal (a supervisor's `SIGTERM`) that arrived while the
+    // task was blocked in this call ends it here, on its way back to user
+    // mode, instead of waiting for a tick to catch it there.
+    task::signal::deliver_native();
 }
 
 /// Test-harness entry into the native syscall surface (issue #62 pattern):

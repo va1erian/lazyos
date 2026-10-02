@@ -231,6 +231,15 @@ path = "src/bin/timectl.rs"
 test = false
 bench = false
 
+# The orderly shutdown/reboot command (docs/shutdown.md): asks `init` to stop
+# the machine. On disk as `POWERCTL.ELF`; the shell's `shutdown`, `poweroff`,
+# `halt` and `reboot` run it.
+[[bin]]
+name = "powerctl"
+path = "src/bin/powerctl.rs"
+test = false
+bench = false
+
 [[bin]]
 name = "top"
 path = "src/bin/top.rs"

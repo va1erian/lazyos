@@ -135,6 +135,11 @@ impl Compositor {
         if let Some(tab) = self.alt_tab.as_ref() {
             draw_alt_tab(screen, surfaces, tab, damage);
         }
+        // The shutting-down screen covers everything, cursor included.
+        if super::powerfeed::active() {
+            super::powerfeed::draw(screen, damage);
+            return;
+        }
         screen.cursor(cursor.0, cursor.1, damage);
     }
 }

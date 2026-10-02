@@ -1,0 +1,19 @@
+[
+  {"wait_for": "TERM:UP:PASS", "timeout": 240},
+  {"wait_for": "INIT:AUTOSTART:PASS app=terminal", "timeout": 60},
+  {"at": 2.0, "mouse_move": [-300, -300]},
+  {"at": 2.2, "mouse_move": [-300, -300]},
+  {"at": 2.4, "mouse_move": [-300, -300]},
+  {"at": 2.6, "mouse_move": [-300, -300]},
+  {"at": 2.8, "mouse_move": [-300, -300]},
+  {"at": 3.0, "mouse_move": [-300, -300]},
+  {"at": 3.4, "mouse_move": [400, 58]},
+  {"at": 3.8, "mouse_click": "left"},
+  {"at": 5.0, "type": "echo ready"},
+  {"at": 5.5, "key": "enter", "until": "TERM:OUT:ready", "timeout": 30, "retries": 2},
+  {"at": 1.0, "type": "shutdown"},
+  {"at": 1.5, "key": "enter", "until": "INIT:SHUTDOWN:BEGIN", "timeout": 30, "retries": 2},
+  {"wait_for": "XUID:POWER:OVERLAY", "timeout": 30},
+  {"wait_for": "power: filesystems synced", "timeout": 60},
+  {"at": 1.0, "shot": "01_shutting_down"}
+]

@@ -483,9 +483,23 @@
         "name": "Stop",
         "id": 1266644741,
         "oneway": false
+      },
+      {
+        "name": "Shutdown",
+        "id": 1911669355,
+        "oneway": false
       }
     ],
     "topics": [
+      {
+        "name": "system/power/state",
+        "source": "system/power/state",
+        "payload": "PowerState",
+        "qos": "latest",
+        "retained": true,
+        "publish_permission": "publish:system/power/state",
+        "subscribe_permission": "subscribe:system/power/state"
+      },
       {
         "name": "system/events/service/+",
         "source": "system/events/service/{name}",
@@ -674,6 +688,18 @@
         "name": "Provision",
         "id": 1596114784,
         "oneway": false
+      }
+    ],
+    "topics": []
+  },
+  {
+    "interface": "os.lazy.lifecycle.v1",
+    "interface_id": "0x778a92e489f41682",
+    "methods": [
+      {
+        "name": "Shutdown",
+        "id": 1911669355,
+        "oneway": true
       }
     ],
     "topics": []

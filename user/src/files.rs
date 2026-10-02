@@ -219,10 +219,26 @@ pub fn fsync(path: &str) -> Result<(), i64> {
     check(syscall(SYS_FSYNC, path.as_ptr() as u64, 0, 0)).map(|_| ())
 }
 
-/// Reboot or shut down; returns only when refused (`Err(EPERM)` without
-/// `CAP_SYS_ADMIN`).
+/// `power` op: sync and reset the machine.
+pub const POWER_REBOOT: u64 = 0;
+/// `power` op: sync and power the machine off.
+pub const POWER_OFF: u64 = 1;
+/// `power` op: arm the kernel's shutdown watchdog (`arg` is the stop to
+/// force).
+const POWER_ARM_WATCHDOG: u64 = 2;
+
+/// Reboot ([`POWER_REBOOT`]) or power off ([`POWER_OFF`]); returns only when
+/// refused (`Err(EPERM)` without `CAP_SYS_ADMIN`). `init` is the only caller:
+/// everyone else asks it for an orderly shutdown (docs/shutdown.md).
 pub fn power(op: u64) -> Result<(), i64> {
     check(syscall(SYS_POWER, op, 0, 0)).map(|_| ())
+}
+
+/// Arm the kernel's shutdown watchdog: if the machine is still running some
+/// 30 s later, the kernel kills every task, syncs and performs `stop`
+/// ([`POWER_REBOOT`] or [`POWER_OFF`]) itself. One-way; `CAP_SYS_ADMIN` only.
+pub fn power_arm(stop: u64) -> Result<(), i64> {
+    check(syscall(SYS_POWER, POWER_ARM_WATCHDOG, stop, 0)).map(|_| ())
 }
 
 /// Human-readable text for the errnos these calls return.

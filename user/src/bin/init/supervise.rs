@@ -1,7 +1,8 @@
 //! `init`'s supervision loop helpers: starting ready services, spawning and
 //! reaping children, restart backoff, and publishing state events.
 //!
-//! Split out of `init.rs` (issue #194); a pure move, no behavior change.
+//! Split out of `init.rs` (issue #194). An exit during a shutdown retires the
+//! row instead of applying its restart policy (docs/shutdown.md).
 
 use alloc::format;
 use alloc::string::String;
@@ -159,14 +160,19 @@ pub(super) fn child_exited(
     status: u64,
     broker: &mut router::TopicBroker,
 ) {
-    let Some(index) = services
-        .iter()
-        .position(|service| service.pid == pid && service.phase == Phase::Running)
-    else {
+    let Some(index) = services.iter().position(|service| {
+        service.pid == pid && matches!(service.phase, Phase::Running | Phase::Stopping)
+    }) else {
         // A child that was not a supervised row (or an already-handled exit):
         // nothing to supervise.
         return;
     };
+    // During a shutdown nothing restarts: the exit is the stop completing
+    // (or a crash on the way down, which is reported but not respawned).
+    if services[index].phase == Phase::Stopping || super::shutdown::stopping() {
+        stopped_for_shutdown(services, index, status, broker);
+        return;
+    }
     let name = services[index].name;
     let desired = services[index].restart;
     let launched = services[index].launched;
@@ -274,6 +280,26 @@ pub(super) fn restarts_after(policy: Restart, status: u64) -> bool {
         Restart::OnFailure => status != 0,
         Restart::Once => false,
     }
+}
+
+/// A row's task exited while the machine is shutting down: retire it.
+fn stopped_for_shutdown(
+    services: &mut [Service],
+    index: usize,
+    status: u64,
+    broker: &mut router::TopicBroker,
+) {
+    let row = &mut services[index];
+    sys::write_str(&format!(
+        "init: stopped {} (status {}{})\n",
+        row.name,
+        status,
+        if row.killed { ", killed" } else { "" }
+    ));
+    row.phase = Phase::Stopped;
+    row.pid = 0;
+    row.last_status = Some(status);
+    publish_state(broker, row, "stopped", 0, row.restarts, status, "shutdown");
 }
 
 /// Capped exponential backoff in PIT ticks.

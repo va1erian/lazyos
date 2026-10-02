@@ -812,8 +812,21 @@ pub static INTERFACES: &[Interface] = &[
                 params: &[Field { name: "app", ty: Ty::String }],
                 returns: &[Field { name: "stopped", ty: Ty::U64 }],
             },
+            Method {
+                name: "Shutdown",
+                id: 1911669355,
+                oneway: false,
+                doc: "Begin an orderly shutdown (docs/shutdown.md): `mode` is a `PowerMode`\nvalue. The reply is immediate; `init` then stops the session apps, the\nservices in reverse dependency order, syncs and calls the kernel's\n`power`. `reason` is logged (at most 128 bytes, no control character).\nRoot or any caller in a login session may ask; a labelled (installed)\napp is refused with `EPERM`, and an unknown mode is `EINVAL`. A request\nwhile a shutdown is already running is not an error: `accepted` is true\nand `phase` is the current phase. `force` skips the graceful stop: every\nremaining child is killed at once and the machine stops.",
+                params: &[Field { name: "mode", ty: Ty::U32 }, Field { name: "reason", ty: Ty::String }, Field { name: "force", ty: Ty::Bool }],
+                returns: &[Field { name: "accepted", ty: Ty::Bool }, Field { name: "phase", ty: Ty::String }],
+            },
         ],
         structs: &[
+            Struct {
+                name: "PowerState",
+                doc: "The shutdown's progress: the payload of `system/power/state`.",
+                fields: &[Field { name: "phase", ty: Ty::String }, Field { name: "mode", ty: Ty::U32 }, Field { name: "reason", ty: Ty::String }, Field { name: "deadline", ty: Ty::U64 }],
+            },
             Struct {
                 name: "ServiceStatus",
                 doc: "One row of `init`'s supervision table.",
@@ -830,8 +843,17 @@ pub static INTERFACES: &[Interface] = &[
                 fields: &[Field { name: "state", ty: Ty::String }, Field { name: "pid", ty: Ty::U64 }, Field { name: "restarts", ty: Ty::U64 }, Field { name: "status", ty: Ty::U64 }, Field { name: "health", ty: Ty::String }, Field { name: "detail", ty: Ty::String }],
             },
         ],
-        enums: &[],
+        enums: &[
+            Enum { name: "PowerMode", variants: &["PowerOff", "Reboot"] },
+        ],
         topics: &[
+            Topic {
+                pattern: "system/power/state",
+                payload: "PowerState",
+                qos: 0,
+                retained: true,
+                doc: "Phase name: `stopping` (requested), `apps`, `services`,\n`quiesced`, then `power` just before the kernel call.\nA `PowerMode` value.\nThe requester's reason text.\nAbsolute tick (100 Hz) by which `init` forces the stop.\nThe retained shutdown progress topic: absent until a shutdown starts,\nthen one value per phase, so the compositor can paint the\nshutting-down screen and a test can follow the phases.",
+            },
             Topic {
                 pattern: "system/events/service/+",
                 payload: "ServiceEvent",
@@ -1132,6 +1154,24 @@ pub static INTERFACES: &[Interface] = &[
                 fields: &[Field { name: "id", ty: Ty::U64 }, Field { name: "kind", ty: Ty::String }, Field { name: "uses", ty: Ty::U64 }, Field { name: "last_use", ty: Ty::U64 }],
             },
         ],
+        enums: &[],
+        topics: &[],
+    },
+    Interface {
+        name: "os.lazy.lifecycle.v1",
+        id: 0x778a92e489f41682,
+        doc: "The service lifecycle contract (docs/shutdown.md): the one control message\n`init` sends a supervised service during an orderly shutdown. A service\nthat serves it registers this interface next to its own; one that does not\nis sent `SIGTERM` instead.\n\nThe service finishes the request it is serving, makes its state durable\n(`confd` fsyncs its store, `logd` drains its feeds into the ring) and exits\nwith status 0. Only a sender holding `CAP_SYS_ADMIN` (the supervisor) is\nobeyed; anyone else's message is ignored. `init` waits for the exit, not\nfor a reply, and kills the service when its stop deadline passes.",
+        methods: &[
+            Method {
+                name: "Shutdown",
+                id: 1911669355,
+                oneway: true,
+                doc: "Persist and exit. `reason` is the shutdown's reason text, for the log.",
+                params: &[Field { name: "reason", ty: Ty::String }],
+                returns: &[],
+            },
+        ],
+        structs: &[],
         enums: &[],
         topics: &[],
     },

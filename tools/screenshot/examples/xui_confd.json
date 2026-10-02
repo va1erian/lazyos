@@ -42,7 +42,7 @@
  {"mouse_move": [-304, 414]},
  {"mouse_click": "left", "until": "SHELL:MENU:OPEN", "timeout": 40, "retries": 1},
  {"wait": 1.0},
- {"mouse_move": [90, -80]},
+ {"mouse_move": [90, -128]},
  {"wait": 0.3},
  {"mouse_click": "left", "until": "CONFDED:UP:PASS", "timeout": 60, "retries": 1},
  {"wait": 2.0},

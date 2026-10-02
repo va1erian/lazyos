@@ -50,6 +50,7 @@ mod deliver;
 mod fault;
 mod frames;
 pub mod harden;
+mod native;
 mod send;
 mod sweep;
 mod types;
@@ -58,6 +59,7 @@ pub use fault::{deliver_exception, deliver_fault, Exception};
 pub use sweep::{deliver_on_resume, finish_sweep, sweep};
 
 pub use harden::{die_with_segv, restore_frame};
+pub use native::{deliver_native, native_fatal_pending};
 pub use send::{kill, send_tid};
 
 pub use consts::*;

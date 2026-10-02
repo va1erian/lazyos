@@ -4,8 +4,9 @@
 //!
 //! * [`taskbar`]: the window list fed by `ListSurfaces`, `SurfaceChanged` and
 //!   `FocusChanged`, the bar geometry and the click decision.
-//! * [`menu`]: the start-menu rows (installed apps, then the configured
-//!   `sys/ui/menu` entries) and their geometry.
+//! * [`menu`]: the start-menu rows (installed apps, the configured
+//!   `sys/ui/menu` entries, then the power rows with their confirmation) and
+//!   their geometry.
 //! * [`desktop`]: the desktop launchers from `sys/ui/desktop`.
 //! * [`clock`]: the bar clock text (kernel UTC plus the `timed` zone).
 //! * [`policy`]: who may call the `os.lazy.shell` service.

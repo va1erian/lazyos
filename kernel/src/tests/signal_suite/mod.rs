@@ -77,6 +77,11 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("task_signal_native_kill_syscall", native_kill_syscall_rules),
     ("task_signal_soak_native_kill", soak_native_kill),
     (
+        "task_signal_native_sigterm_fatal_at_syscall_return",
+        native_sigterm_fatal_at_syscall_return,
+    ),
+    ("task_signal_soak_native_sigterm", soak_native_sigterm),
+    (
         "task_signal_suspend_swaps_and_restores_the_mask",
         suspend_swaps_and_restores_the_mask,
     ),

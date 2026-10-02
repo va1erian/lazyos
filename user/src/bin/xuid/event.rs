@@ -21,6 +21,10 @@ impl Compositor {
     /// & drop session is live (issue #145) the compositor owns the pointer and
     /// routes it through the drag section instead.
     pub(super) fn handle_event(&mut self, event: Event) {
+        // The machine is going down: nothing under the overlay takes input.
+        if super::powerfeed::active() {
+            return;
+        }
         match event.kind {
             EventKind::PointerMove => self.pointer_move((event.a as i32, event.b as i32)),
             EventKind::PointerDown => self.pointer_down(event.a as u32),

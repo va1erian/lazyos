@@ -23,7 +23,7 @@
   {"wait": 0.2},
   {"mouse_move": [-300, -300]},
   {"wait": 0.3},
-  {"mouse_move": [134, 408]},
+  {"mouse_move": [134, 360]},
   {"wait": 0.8},
   {"shot": "03_menu_hover_sysmon"},
   {"wait": 0.3},

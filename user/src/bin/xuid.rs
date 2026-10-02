@@ -120,6 +120,8 @@ mod maximize;
 mod origin;
 #[path = "xuid/pointer_feed.rs"]
 mod pointer_feed;
+#[path = "xuid/powerfeed.rs"]
+mod powerfeed;
 #[path = "xuid/present.rs"]
 mod present;
 #[path = "xuid/protocol.rs"]
@@ -261,6 +263,7 @@ fn run() -> ! {
         comp.handle_held();
         comp.reap_dead_shell();
         comp.tick_theme();
+        comp.tick_power();
         comp.reap_dead_surfaces(sys::clock());
 
         // 2. Requests: serve one, then loop (the deadline bounds the nap when

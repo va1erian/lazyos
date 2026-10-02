@@ -2,10 +2,12 @@
 //!
 //! Rows run top-down: the apps the package manager installed (`init`'s
 //! `ListApps` rows with `installed` set) first, then the configured
-//! `sys/ui/menu` entries. A configured entry the image does not ship stays in
-//! the list, greyed and disabled, so configured row `j` of `m` always has the
-//! same centre however the image was built (the screenshot sessions click
-//! rows by coordinate).
+//! `sys/ui/menu` entries, then the two power rows ([`power`]). A configured
+//! entry the image does not ship stays in the list, greyed and disabled, so
+//! configured row `j` of `m` always has the same centre however the image was
+//! built (the screenshot sessions click rows by coordinate): its centre is
+//! `y = H - 48 - (m + 1 - j) * 24`, and the power rows' centres are `H - 72`
+//! ("Restart...") and `H - 48` ("Shut down...").
 //!
 //! The panel is [`WIDTH`] wide, sits at `x = 0` with its bottom edge on the
 //! taskbar's top edge, and has a [`BANNER_W`]-wide vertical banner on its
@@ -14,7 +16,11 @@
 use deskmenu::Entry;
 
 use crate::taskbar::BAR_H;
+
+mod power;
+
 use crate::Rect;
+pub use power::{Action, Choice, Power, POWER_ROWS};
 
 /// Panel width.
 pub const WIDTH: i32 = 240;
@@ -36,9 +42,12 @@ pub struct Row {
     /// Whether the image ships the app; a disabled row is drawn greyed and
     /// does nothing when clicked.
     pub enabled: bool,
+    /// What choosing it does ([`Action::Launch`] for an app row; `app` is
+    /// empty for the power rows).
+    pub action: Action,
 }
 
-/// The rows, installed apps first.
+/// The rows, installed apps first, power rows last.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Menu {
     rows: Vec<Row>,
@@ -65,16 +74,19 @@ impl Shipped<'_> {
 
 impl Menu {
     /// Build the menu for a screen `screen_h` tall: `installed` (capped at
-    /// [`MAX_INSTALLED`], minus any app also configured) then `configured`.
-    /// When the rows do not fit above the taskbar, installed rows are dropped
-    /// first, so the configured rows keep their positions.
+    /// [`MAX_INSTALLED`], minus any app also configured), `configured`, then
+    /// the power rows. When the rows do not fit above the taskbar, installed
+    /// rows are dropped first, so the configured rows keep their positions;
+    /// the power rows always stay.
     pub fn build(
         installed: &[Entry],
         configured: &[Entry],
         shipped: Shipped<'_>,
         screen_h: i32,
     ) -> Menu {
-        let fit = usize::try_from((screen_h - BAR_H - PAD * 2) / ROW_H).unwrap_or(0);
+        let fit = usize::try_from((screen_h - BAR_H - PAD * 2) / ROW_H)
+            .unwrap_or(0)
+            .saturating_sub(POWER_ROWS);
         let configured = &configured[..configured.len().min(fit)];
         let room = fit - configured.len();
         let mut rows: Vec<Row> = installed
@@ -85,13 +97,16 @@ impl Menu {
                 app: entry.app.clone(),
                 label: entry.label.clone(),
                 enabled: true,
+                action: Action::Launch,
             })
             .collect();
         rows.extend(configured.iter().map(|entry| Row {
             app: entry.app.clone(),
             label: entry.label.clone(),
             enabled: shipped.has(&entry.app),
+            action: Action::Launch,
         }));
+        rows.extend(power::ask_rows());
         Menu { rows }
     }
 
@@ -133,7 +148,14 @@ impl Menu {
 
     /// The row launching `app`.
     pub fn find(&self, app: &str) -> Option<usize> {
-        self.rows.iter().position(|row| row.app == app)
+        self.rows
+            .iter()
+            .position(|row| row.action == Action::Launch && row.app == app)
+    }
+
+    /// The row with `action`.
+    pub fn find_action(&self, action: Action) -> Option<usize> {
+        self.rows.iter().position(|row| row.action == action)
     }
 }
 
