@@ -87,6 +87,26 @@ impl Registry {
         Ok(rows)
     }
 
+    /// The provisioning stamp of the last pass (`provision::STAMP_KEY`), if
+    /// one was stored.
+    pub(crate) fn stamp(&mut self) -> Result<Option<String>> {
+        let value = self.confd.run(|endpoint| {
+            ConfdClient::from_endpoint(endpoint).get(pkgstore::provision::STAMP_KEY)
+        })?;
+        Ok(match value {
+            Some(::confd::Value::Str(text)) => Some(text),
+            _ => None,
+        })
+    }
+
+    /// Record the provisioning stamp.
+    pub(crate) fn set_stamp(&mut self, stamp: &str) -> Result<()> {
+        let value = ::confd::Value::Str(String::from(stamp));
+        self.confd.run(|endpoint| {
+            ConfdClient::from_endpoint(endpoint).set(pkgstore::provision::STAMP_KEY, &value)
+        })
+    }
+
     /// Register `app` as the handler of `mime` for `verb`.
     pub(crate) fn mime_register(&mut self, mime: &str, app: &str, verb: &str) -> Result<()> {
         self.mimed

@@ -154,6 +154,7 @@ impl Image {
                         system_name: name.into(),
                         version: version.into(),
                         digest: hex::encode(&lazyos_crypto::sha256::sha256(&bytes)),
+                        autostart: false,
                     };
                     (shipped, bytes)
                 })

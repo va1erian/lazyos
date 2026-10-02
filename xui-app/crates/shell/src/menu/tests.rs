@@ -9,11 +9,11 @@ fn hidden_apps_leave_both_row_groups() {
     let hidden = Hidden::from_pairs(
         1000,
         [
-            ("user/1000/menu/hidden/paint", &t),
+            ("user/1000/menu/hidden/os.lazy.paint", &t),
             ("user/1000/menu/hidden/org.lazy.snake", &t),
-            ("sys/menu/hidden/files", &t),
-            ("sys/menu/hidden/editor", &t),
-            ("user/1000/menu/hidden/editor", &f),
+            ("sys/menu/hidden/os.lazy.files", &t),
+            ("sys/menu/hidden/os.lazy.editor", &t),
+            ("user/1000/menu/hidden/os.lazy.editor", &f),
         ],
     );
     let installed = visible(
@@ -27,10 +27,10 @@ fn hidden_apps_leave_both_row_groups() {
     let menu = Menu::build(&installed, &configured, Shipped::Unknown, H);
     let ids = ids(&menu);
     assert_eq!(ids[0], "org.lazy.dots");
-    for gone in ["paint", "files", "org.lazy.snake"] {
+    for gone in ["os.lazy.paint", "os.lazy.files", "org.lazy.snake"] {
         assert!(!ids.contains(&gone), "{gone} is hidden");
     }
-    assert!(ids.contains(&"editor"), "the user un-hid it");
+    assert!(ids.contains(&"os.lazy.editor"), "the user un-hid it");
     assert_eq!(configured.len(), deskmenu::defaults().len() - 2);
 }
 
@@ -64,7 +64,7 @@ fn installed_apps_come_first_then_the_configured_entries() {
     assert_eq!(menu.rows().len(), 16, "1 installed, 13 configured, 2 power");
     assert!(menu.rows()[0].enabled);
     assert!(menu.rows()[1].enabled, "terminal is shipped");
-    let docs = menu.find("docs").unwrap();
+    let docs = menu.find("os.lazy.docs").unwrap();
     assert!(!menu.rows()[docs].enabled, "unshipped rows stay, disabled");
 }
 
@@ -214,7 +214,7 @@ fn choosing_launches_enabled_apps_only() {
         menu.choose(terminal, true),
         Choice::Launch(String::from("terminal"))
     );
-    let docs = menu.find("docs").unwrap();
+    let docs = menu.find("os.lazy.docs").unwrap();
     assert_eq!(menu.choose(docs, false), Choice::Nothing);
     assert_eq!(menu.choose(99, false), Choice::Nothing);
 }

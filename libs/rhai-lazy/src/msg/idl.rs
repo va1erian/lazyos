@@ -800,7 +800,7 @@ pub static INTERFACES: &[Interface] = &[
                 name: "ListApps",
                 id: 1009359625,
                 oneway: false,
-                doc: "Enumerate the app registry: the built-in apps first, then the apps the\npackage manager installed (`AppInfo.installed`), read afresh from the\nconfiguration registry on every call.",
+                doc: "Enumerate the app registry: the built-in apps first, then the apps the\npackage manager installed (`AppInfo.installed`; the core packages\nfirst, then the others by `system_name`), read afresh from the\nconfiguration registry on every call. `hidden` is the caller's own.",
                 params: &[],
                 returns: &[Field { name: "apps", ty: Ty::Array(&Ty::Struct("AppInfo")) }],
             },
@@ -835,11 +835,11 @@ pub static INTERFACES: &[Interface] = &[
             Struct {
                 name: "AppInfo",
                 doc: "Service name.\nService phase (`pending`/`running`/`restarting`/`stopped`/`failed`).\nTask slot the supervisor started, or 0.\nRestart count.\nComma-separated dependency names.\nLast known health string for the service.\nOne row of `init`'s built-in app registry (issue #158): the S5 start\nmenu's enumeration unit and the resolution table `Launch` uses.",
-                fields: &[Field { name: "id", ty: Ty::String }, Field { name: "name", ty: Ty::String }, Field { name: "path", ty: Ty::String }, Field { name: "restart", ty: Ty::String }, Field { name: "verbs", ty: Ty::Array(&Ty::String) }, Field { name: "installed", ty: Ty::Bool }],
+                fields: &[Field { name: "id", ty: Ty::String }, Field { name: "name", ty: Ty::String }, Field { name: "path", ty: Ty::String }, Field { name: "restart", ty: Ty::String }, Field { name: "verbs", ty: Ty::Array(&Ty::String) }, Field { name: "installed", ty: Ty::Bool }, Field { name: "origin", ty: Ty::String }, Field { name: "category", ty: Ty::String }, Field { name: "hidden", ty: Ty::Bool }, Field { name: "autostart", ty: Ty::Bool }],
             },
             Struct {
                 name: "ServiceEvent",
-                doc: "App id: the lowercase program stem (`top` -> `/system/bin/top`).\nDisplay name for menus.\nOn-disk ELF path.\nDefault restart policy (`always`/`on-failure`/`once`).\nMIME verbs the app handles, in registration order.\nWhether the package manager installed the app (`id` is then its\n`system_name`) rather than the image shipping it.\nOne service lifecycle event (issue #307): the payload of\n`system/events/service/<name>`. The topic carries the service name, so\nit is not repeated here; `health` is the service's retained health\ntopic, for display by a consumer that only logs the event.",
+                doc: "App id: the lowercase program stem (`top` -> `/system/bin/top`).\nDisplay name for menus.\nOn-disk ELF path.\nDefault restart policy (`always`/`on-failure`/`once`).\nMIME verbs the app handles, in registration order.\nWhether the package manager installed the app (`id` is then its\n`system_name`) rather than the image shipping it.\n`core` (a package the image ships, not removable), `user` (a\npackage someone installed) or `system` (a built-in program such as\nthe desktop shell or the installer).\nThe menu group (`lazypkg::Category`); empty for a built-in.\nWhether the start menu leaves the app out for the caller: their\n`user/<uid>/menu/hidden/<id>`, else the machine's\n`sys/menu/hidden/<id>`. A hidden app still launches and opens files.\nWhether the app opens when a session starts.\nOne service lifecycle event (issue #307): the payload of\n`system/events/service/<name>`. The topic carries the service name, so\nit is not repeated here; `health` is the service's retained health\ntopic, for display by a consumer that only logs the event.",
                 fields: &[Field { name: "state", ty: Ty::String }, Field { name: "pid", ty: Ty::U64 }, Field { name: "restarts", ty: Ty::U64 }, Field { name: "status", ty: Ty::U64 }, Field { name: "health", ty: Ty::String }, Field { name: "detail", ty: Ty::String }],
             },
         ],
@@ -1783,16 +1783,29 @@ pub static INTERFACES: &[Interface] = &[
                 params: &[Field { name: "system_name", ty: Ty::String }],
                 returns: &[Field { name: "app", ty: Ty::Option(&Ty::Struct("Installed")) }],
             },
+            Method {
+                name: "Provisioned",
+                id: 1076218465,
+                oneway: false,
+                doc: "Whether this start's core package provisioning is finished, and what\nit did (`docs/packages.md`, core packages). `pkgd` answers it while it\nprovisions, so a client such as `init`'s autostart can wait for it\nwithout blocking; `Install` and `Remove` are refused with `EAGAIN`\nuntil `done`.",
+                params: &[],
+                returns: &[Field { name: "state", ty: Ty::Struct("ProvisionState") }],
+            },
         ],
         structs: &[
             Struct {
+                name: "ProvisionState",
+                doc: "Core package provisioning progress.",
+                fields: &[Field { name: "done", ty: Ty::Bool }, Field { name: "ready", ty: Ty::Bool }, Field { name: "installed", ty: Ty::U64 }, Field { name: "upgraded", ty: Ty::U64 }, Field { name: "kept", ty: Ty::U64 }, Field { name: "failed", ty: Ty::U64 }],
+            },
+            Struct {
                 name: "PackageInfo",
-                doc: "What a package declares, as the consent screen shows it.",
-                fields: &[Field { name: "name", ty: Ty::String }, Field { name: "system_name", ty: Ty::String }, Field { name: "author", ty: Ty::String }, Field { name: "version", ty: Ty::String }, Field { name: "description", ty: Ty::String }, Field { name: "digest", ty: Ty::String }, Field { name: "install_dir", ty: Ty::String }, Field { name: "mime", ty: Ty::Array(&Ty::Struct("MimeHandler")) }, Field { name: "permissions", ty: Ty::Array(&Ty::Struct("Permission")) }, Field { name: "problems", ty: Ty::Array(&Ty::String) }],
+                doc: "The pass of this start is over (successfully or not).\nThe packages that open at login (`entry.autostart`) are provisioned\n(they go first), so a session can start before `done`.\nNewer versions the user installed over a core app, left in place.\nWhat a package declares, as the consent screen shows it.",
+                fields: &[Field { name: "name", ty: Ty::String }, Field { name: "system_name", ty: Ty::String }, Field { name: "author", ty: Ty::String }, Field { name: "version", ty: Ty::String }, Field { name: "description", ty: Ty::String }, Field { name: "digest", ty: Ty::String }, Field { name: "install_dir", ty: Ty::String }, Field { name: "mime", ty: Ty::Array(&Ty::Struct("MimeHandler")) }, Field { name: "permissions", ty: Ty::Array(&Ty::Struct("Permission")) }, Field { name: "problems", ty: Ty::Array(&Ty::String) }, Field { name: "category", ty: Ty::String }, Field { name: "autostart", ty: Ty::Bool }],
             },
             Struct {
                 name: "MimeHandler",
-                doc: "Lowercase hex SHA-256 of the archive.\nWhere it would be installed, relative to `/apps`.\nEmpty when the package can be installed.\nOne handled file type.",
+                doc: "Lowercase hex SHA-256 of the archive.\nWhere it would be installed, relative to `/apps`.\nEmpty when the package can be installed.\nThe menu group (`lazypkg::Category`), `accessories` by default.\nWhether the app asks to start when the user logs in.\nOne handled file type.",
                 fields: &[Field { name: "mime_type", ty: Ty::String }, Field { name: "verbs", ty: Ty::Array(&Ty::String) }, Field { name: "has_icon", ty: Ty::Bool }],
             },
             Struct {
@@ -1803,22 +1816,24 @@ pub static INTERFACES: &[Interface] = &[
             Struct {
                 name: "Installed",
                 doc: "An installed app, as `confd` records it under `sys/apps/<system_name>`.",
-                fields: &[Field { name: "system_name", ty: Ty::String }, Field { name: "name", ty: Ty::String }, Field { name: "version", ty: Ty::String }, Field { name: "install_dir", ty: Ty::String }, Field { name: "digest", ty: Ty::String }, Field { name: "binary", ty: Ty::String }, Field { name: "installed_at", ty: Ty::U64 }, Field { name: "abi", ty: Ty::String }, Field { name: "args", ty: Ty::Array(&Ty::String) }],
+                fields: &[Field { name: "system_name", ty: Ty::String }, Field { name: "name", ty: Ty::String }, Field { name: "version", ty: Ty::String }, Field { name: "install_dir", ty: Ty::String }, Field { name: "digest", ty: Ty::String }, Field { name: "binary", ty: Ty::String }, Field { name: "installed_at", ty: Ty::U64 }, Field { name: "abi", ty: Ty::String }, Field { name: "args", ty: Ty::Array(&Ty::String) }, Field { name: "origin", ty: Ty::U32 }, Field { name: "category", ty: Ty::String }, Field { name: "autostart", ty: Ty::Bool }, Field { name: "verbs", ty: Ty::Array(&Ty::String) }],
             },
             Struct {
                 name: "PkgEvent",
-                doc: "Install directory relative to `/apps`.\nEntry binary, relative to the install directory (`bin/<name>.elf`).\nKernel ticks at install time.\nThe program's ABI, `native` or `linux`: `init` needs it to pick the\nspawn personality, and an ELF header cannot tell them apart.\nThe manifest's fixed `entry.args`, passed before any launch path.\nOne audit record: the payload of `system/events/pkg/<op>`, where `op`\nis `install`, `remove` or `denied`. The same record, hex-encoded with\na chained SHA-256, is appended to `/logs/pkg.log`.",
+                doc: "Install directory relative to `/apps`.\nEntry binary, relative to the install directory (`bin/<name>.elf`).\nKernel ticks at install time.\nThe program's ABI, `native` or `linux`: `init` needs it to pick the\nspawn personality, and an ELF header cannot tell them apart.\nThe manifest's fixed `entry.args`, passed before any launch path.\nAn `Origin` value, cached from the shipped set at provisioning and\ninstall time so readers need not open `/system/packages`.\nThe menu group (`lazypkg::Category`).\nWhether the app starts when a session opens (`entry.autostart`).\nThe manifest's `[[mime]]` verbs, de-duplicated, in manifest order.\nOne audit record: the payload of `system/events/pkg/<op>`, where `op`\nis `install`, `remove`, `denied` or `provision` (a core package\ninstalled, upgraded or re-marked at startup, or the end of a pass). The same record, hex-encoded with\na chained SHA-256, is appended to `/logs/pkg.log`.",
                 fields: &[Field { name: "op", ty: Ty::String }, Field { name: "system_name", ty: Ty::String }, Field { name: "version", ty: Ty::String }, Field { name: "install_dir", ty: Ty::String }, Field { name: "digest", ty: Ty::String }, Field { name: "actor_uid", ty: Ty::U64 }, Field { name: "ok", ty: Ty::Bool }, Field { name: "detail", ty: Ty::String }],
             },
         ],
-        enums: &[],
+        enums: &[
+            Enum { name: "Origin", variants: &["User", "Core"] },
+        ],
         topics: &[
             Topic {
                 pattern: "system/events/pkg/+",
                 payload: "PkgEvent",
                 qos: 0,
                 retained: false,
-                doc: "uid of the task that asked.\nFriendly text: the error for a failure, empty on success.\nPublished on every install, removal and refused request. Not retained:\n`List` is the state, the events are the trail.",
+                doc: "uid of the task that asked.\nFriendly text: the error for a failure, empty on success.\nPublished on every install, removal, refused request and provisioning\nstep. Not retained:\n`List` is the state, the events are the trail.",
             },
         ],
     },

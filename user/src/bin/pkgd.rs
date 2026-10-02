@@ -35,6 +35,10 @@
 //! # Boot evidence
 //!
 //! `PKGD:UP:PASS`, `PKGD:AUDIT:PASS n=<count>` (or `FAIL`), `PKGD:RECONCILE:PASS`,
+//! `PKGD:PROVISION:DONE installed=<n> upgraded=<n> kept=<n> failed=<n>` (core
+//! packages, see `provision`),
+//! `PKGD:PROVISION:DONE installed=<n> upgraded=<n> kept=<n> failed=<n>` (see
+//! `provision`),
 //! `PKGD:INSTALL:PASS <system_name> <install_dir>` / `PKGD:INSTALL:FAIL <why>`,
 //! `PKGD:REMOVE:PASS <system_name>` / `...:FAIL`, `PKGD:STORE:ABSENT reason=<..>`
 //! when `/apps`, `/docs/apps` or `/logs` cannot be written (a recovery boot
@@ -73,10 +77,14 @@ mod install;
 mod peers;
 #[path = "pkgd/policy.rs"]
 mod policy;
+#[path = "pkgd/provision.rs"]
+mod provision;
 #[path = "pkgd/reconcile.rs"]
 mod reconcile;
 #[path = "pkgd/registry.rs"]
 mod registry;
+#[path = "pkgd/remove.rs"]
+mod remove;
 #[path = "pkgd/store.rs"]
 mod store;
 
@@ -132,12 +140,23 @@ fn run() -> messenger::Result<()> {
     }
     sys::write_str("PKGD:UP:PASS\n");
     state.reconcile(volume_ok);
+    state.begin_provisioning(volume_ok);
 
     // One receive buffer for the life of the service: the heap never reclaims
     // large per-request blocks.
     let mut buffer = alloc::vec![0u8; messenger::DEFAULT_BUFFER];
     loop {
-        let message = server.recv_with(&mut buffer, None)?;
+        // While the core packages are provisioned, one step runs between two
+        // polls, so `Provisioned` (and the read-only methods) still answer.
+        let message = if state.provisioned.done {
+            server.recv_with(&mut buffer, None)?
+        } else {
+            state.provision_step();
+            match server.poll_recv_with(&mut buffer)? {
+                Some(message) => message,
+                None => continue,
+            }
+        };
         // An orderly shutdown (docs/shutdown.md): every operation is
         // synchronous, so none is in flight between two messages.
         if let Some(reason) = lifecycle::stop_requested(&message) {

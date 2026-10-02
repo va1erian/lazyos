@@ -25,6 +25,8 @@ mod os_layout;
 mod os_manifest;
 #[path = "build_support/rhai_embed.rs"]
 mod rhai_embed;
+#[path = "build_support/core_packages.rs"]
+mod core_packages;
 #[path = "build_support/xui_embed.rs"]
 mod xui_embed;
 
@@ -333,6 +335,7 @@ fn main() {
 
     // The desktop shell (issue #157), on by default with the desktop profile.
     println!("cargo:rerun-if-changed=build_support/xui_embed.rs");
+    println!("cargo:rerun-if-changed=build_support/core_packages.rs");
     let shell = xui_embed::shell_enabled(desktop, services, xuid);
     xui_embed::embed_xui_apps(&mut files, desktop, shell);
 

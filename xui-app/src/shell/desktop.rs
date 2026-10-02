@@ -92,10 +92,11 @@ impl IconModel for Launchers {
     }
 }
 
-/// The icon a launcher shows: the built-in apps get a matching picture, any
-/// other app the generic window.
+/// The icon a launcher shows: the core apps (by `system_name`, or the short id
+/// a launcher saved before F5 holds) get a matching picture, any other app
+/// the generic window.
 fn icon_for(app: &str) -> Icon {
-    match app {
+    match app.strip_prefix("os.lazy.").unwrap_or(app) {
         "files" => Icon::Folder,
         "terminal" => Icon::Terminal,
         "editor" | "docs" => Icon::Document,

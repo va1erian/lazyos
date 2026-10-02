@@ -176,7 +176,7 @@ impl Service {
             name: app.id,
             path: app.path,
             args: all_args,
-            restart: Restart::OnFailure,
+            restart: app.restart,
             deps: &[],
             cred: Some(cred),
             label: Some(app.label),

@@ -12,6 +12,8 @@ use alloc::vec::Vec;
 
 use pkgstore::access::{self, Caller};
 use pkgstore::layout;
+use pkgstore::provision::Shipped;
+use user::messenger::pkgd::wire::ProvisionState;
 use user::messenger::pkgd::{self, wire, Failure};
 use user::messenger::{accounts, Message, Parcel};
 use user::sys;
@@ -19,15 +21,22 @@ use user::sys;
 use super::audit::Audit;
 use super::inspect::assess;
 use super::peers::Peer;
+use super::provision::Pass;
 use super::registry::Registry;
 use super::store;
 
 pub(crate) const EPERM: i64 = 1;
 pub(crate) const ENOENT: i64 = 2;
 pub(crate) const EIO: i64 = 5;
+pub(crate) const EAGAIN: i64 = 11;
 pub(crate) const ENODEV: i64 = 19;
 pub(crate) const EEXIST: i64 = 17;
 pub(crate) const EINVAL: i64 = 22;
+
+/// The refusal of `Install` and `Remove` while the core packages are being
+/// provisioned at startup.
+pub(crate) const PROVISIONING: &str =
+    "the built-in applications are being set up; try again in a moment";
 
 /// A refusal or failure with its code and text.
 pub(crate) fn fail(code: i64, text: impl Into<String>) -> Failure {
@@ -46,6 +55,15 @@ pub(crate) struct Pkgd {
     /// The package file buffer, reused so a service that reads many packages
     /// does not grow by one package each time.
     pub(crate) buffer: Vec<u8>,
+    /// The extraction buffer (`pkgstore::tree::extract_with`), kept for the
+    /// same reason.
+    pub(crate) scratch: Vec<u8>,
+    /// The core set: what the image ships in `/system/packages`.
+    pub(crate) core: Vec<Shipped>,
+    /// This start's provisioning progress (`Provisioned`).
+    pub(crate) provisioned: ProvisionState,
+    /// The provisioning steps still to run.
+    pub(crate) pass: Option<Pass>,
 }
 
 impl Pkgd {
@@ -55,6 +73,39 @@ impl Pkgd {
             audit: Audit::new(),
             accounts: Peer::new(accounts::NAME),
             buffer: Vec::new(),
+            scratch: Vec::new(),
+            core: Vec::new(),
+            provisioned: ProvisionState {
+                done: false,
+                ready: false,
+                installed: 0,
+                upgraded: 0,
+                kept: 0,
+                failed: 0,
+            },
+            pass: None,
+        }
+    }
+
+    /// Whether the image ships `system_name` (a core app).
+    pub(crate) fn is_core(&self, system_name: &str) -> bool {
+        self.core.iter().any(|p| p.system_name == system_name)
+    }
+
+    /// The shipped version of a core app.
+    pub(crate) fn core_version(&self, system_name: &str) -> Option<String> {
+        self.core
+            .iter()
+            .find(|p| p.system_name == system_name)
+            .map(|p| p.version.clone())
+    }
+
+    /// The `Origin` a row of `system_name` records.
+    pub(crate) fn origin_of(&self, system_name: &str) -> u32 {
+        if self.is_core(system_name) {
+            wire::ORIGIN_CORE
+        } else {
+            wire::ORIGIN_USER
         }
     }
 
@@ -107,6 +158,10 @@ impl Pkgd {
                     .get(&args.system_name)
                     .map_err(registry_down)?;
                 wire::encode_installed_reply(&wire::InstalledReply { app }).map_err(malformed)
+            }
+            wire::METHOD_PROVISIONED => {
+                let state = self.provisioned.clone();
+                wire::encode_provisioned_reply(&wire::ProvisionedReply { state }).map_err(malformed)
             }
             _ => Err(fail(EINVAL, "that is not a package manager method")),
         }

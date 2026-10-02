@@ -13,8 +13,14 @@ pub const SYSTEM_ETC: &str = "/system/etc";
 /// Read-only data: MIME types, samples ([`crate::share`]).
 pub const SYSTEM_SHARE: &str = "/system/share";
 
-/// Core packages. Empty until F5.
+/// Core packages: one `<system_name>.lzp` per app the image ships, which
+/// `pkgd` installs into `/apps` at startup (`pkgstore::provision`).
 pub const SYSTEM_PACKAGES: &str = "/system/packages";
+
+/// The core package index the image build writes next to them: one
+/// `<system_name> <version> <sha256>` line per package, so a boot whose set
+/// did not change reads this instead of every archive.
+pub const PACKAGES_INDEX: &str = "/system/packages/index";
 
 /// The manifest of every path the image build placed: the only record of what
 /// an in-place update may replace or delete (`build_support/os_manifest.rs`).
@@ -36,6 +42,7 @@ mod tests {
             assert!(rest.starts_with('/') && !rest[1..].contains('/'), "{dir}");
         }
         assert!(IMAGE_MANIFEST.starts_with(SYSTEM));
+        assert!(PACKAGES_INDEX.starts_with(SYSTEM_PACKAGES));
         assert!(XAPPS_LST.starts_with(SYSTEM_ETC));
     }
 }

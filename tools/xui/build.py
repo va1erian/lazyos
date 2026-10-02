@@ -191,6 +191,23 @@ def build_sample_packages() -> None:
         print(f"warning: sample packages not built: {error}", file=sys.stderr)
 
 
+def build_core_packages() -> bool:
+    """Package every desktop app as a core `.lzp` (issue #509,
+    `tools/xui/core_packages.py`): `target/pkg/core/<sn>-<version>.lzp`, which
+    the root `build.rs` embeds in `/system/packages`. Unlike a sample, a core
+    package that cannot be built fails the build: the desktop would lack the
+    app. Output goes to stderr (stdout is this script's JSON result)."""
+    import core_packages
+
+    try:
+        for archive in core_packages.build_core_packages(OUT_DIR, ROOT / "target" / "pkg" / "core"):
+            print(f"core package: {archive}", file=sys.stderr)
+    except core_packages.CoreError as error:
+        print(f"error: core packages not built: {error}", file=sys.stderr)
+        return False
+    return True
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -240,6 +257,9 @@ def main() -> int:
         built[DOCS_PACKAGE] = str(dest)
 
     build_sample_packages()
+    if not build_core_packages():
+        print(json.dumps(built, indent=2))
+        return 1
     print(json.dumps(built, indent=2))
     return 0
 

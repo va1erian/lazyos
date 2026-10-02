@@ -25,17 +25,6 @@ const ELFS: &[(&str, &str)] = &[
 /// The image directory the sample projects are copied under.
 const SAMPLES_ROOT: &str = fhs::share::LAZYRAD_SAMPLES;
 
-/// The `XAPPS.LST` lines for the apps this module embeds: the IDE, so `init`
-/// marks its registry row available and the desktop menus list it. Empty
-/// unless `LAZYOS_LAZYRAD=1`.
-pub fn manifest_lines() -> String {
-    if std::env::var_os("LAZYOS_LAZYRAD").as_deref() == Some(OsStr::new("1")) {
-        format!("{}\n", fhs::bin::LAZYRAD)
-    } else {
-        String::new()
-    }
-}
-
 /// Add the runtime and samples when `LAZYOS_LAZYRAD=1`.
 pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path) {
     println!("cargo:rerun-if-env-changed=LAZYOS_LAZYRAD");

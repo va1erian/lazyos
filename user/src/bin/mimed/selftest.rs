@@ -88,8 +88,8 @@ pub(crate) fn selftest(db: &MimeDb, apps: &mut AppRegistry) {
     let plain = apps.lookup("text/plain", "open");
     let png = apps.lookup("image/png", "open");
     let markdown = apps.lookup("text/markdown", "open");
-    if plain == Some("editor") && png == Some("paint") && markdown == Some("docs") {
-        sys::write_str("MIME:DEFAULT:PASS text/plain=editor image/png=paint text/markdown=docs\n");
+    if plain == Some("os.lazy.editor") && png == Some("os.lazy.paint") && markdown == Some("os.lazy.docs") {
+        sys::write_str("MIME:DEFAULT:PASS text/plain=os.lazy.editor image/png=os.lazy.paint text/markdown=os.lazy.docs\n");
     } else {
         sys::write_str(&format!(
             "MIME:DEFAULT:FAIL text/plain={} image/png={} text/markdown={}\n",
@@ -101,8 +101,8 @@ pub(crate) fn selftest(db: &MimeDb, apps: &mut AppRegistry) {
 
     // Markdown keeps the Editor as its `edit` verb and Docs as its `view` verb,
     // and names the Editor as the fallback for `open` when Docs is not shipped.
-    let verbs_ok = apps.lookup("text/markdown", "edit") == Some("editor")
-        && apps.lookup("text/markdown", "view") == Some("docs");
+    let verbs_ok = apps.lookup("text/markdown", "edit") == Some("os.lazy.editor")
+        && apps.lookup("text/markdown", "view") == Some("os.lazy.docs");
     if verbs_ok {
         sys::write_str(
             "MIME:VIEW:PASS
@@ -121,19 +121,19 @@ pub(crate) fn selftest(db: &MimeDb, apps: &mut AppRegistry) {
     let fallback = apps
         .resolve("text/markdown", "open")
         .and_then(|(_, fallback)| fallback);
-    let fallback_ok = choose("docs", fallback, false) == "editor"
-        && choose("docs", fallback, true) == "docs"
-        && choose("editor", None, false) == "editor";
+    let fallback_ok = choose("os.lazy.docs", fallback, false) == "os.lazy.editor"
+        && choose("os.lazy.docs", fallback, true) == "os.lazy.docs"
+        && choose("os.lazy.editor", None, false) == "os.lazy.editor";
     if fallback_ok {
-        sys::write_str("MIME:FALLBACK:PASS text/markdown=docs->editor\n");
+        sys::write_str("MIME:FALLBACK:PASS text/markdown=os.lazy.docs->os.lazy.editor\n");
     } else {
         sys::write_str("MIME:FALLBACK:FAIL markdown open fallback\n");
     }
 
     let mut bus = None;
     for (path, expected) in [
-        ("NOTES.TXT", "editor"),
-        ("LOGO.PNG", "paint"),
+        ("NOTES.TXT", "os.lazy.editor"),
+        ("LOGO.PNG", "os.lazy.paint"),
         ("SAMPLE.LZT", "lazytest"),
     ] {
         // Session 0: the service's own (system) session. No open-with app is

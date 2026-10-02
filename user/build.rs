@@ -62,6 +62,24 @@ fn main() {
         println!("cargo:rustc-cfg=lazyos_desktop");
     }
 
+    // The Terminal at boot (issue #509): the desktop apps are packages whose
+    // manifest says whether they open at boot, but the Terminal is a built-in
+    // program, so `init` learns it here from the same `LAZYOS_XUI_AUTOSTART`
+    // list the image build reads (`build_support/core_packages.rs`): unset
+    // means the Terminal, `none` nothing, otherwise when `term`/`terminal` is
+    // named.
+    println!("cargo:rerun-if-env-changed=LAZYOS_XUI_AUTOSTART");
+    println!("cargo:rustc-check-cfg=cfg(lazyos_autostart_terminal)");
+    let terminal = match env::var("LAZYOS_XUI_AUTOSTART") {
+        Err(_) => true,
+        Ok(list) => list
+            .split(',')
+            .any(|item| matches!(item.trim(), "term" | "terminal")),
+    };
+    if terminal {
+        println!("cargo:rustc-cfg=lazyos_autostart_terminal");
+    }
+
     // virtio-sound driver (docs/driver-plan.md D6): `LAZYOS_SOUND=1` adds the
     // `sndd` row to `init`'s manifest (the ELF itself is embedded by the root
     // build script), so a services boot supervises the driver.

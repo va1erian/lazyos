@@ -17,8 +17,9 @@ interface os.lazy.init.v1 {
     method Launch(app: String, args: String, session: U64) -> (app: String, pid: U64, session: U64);
 
     /// Enumerate the app registry: the built-in apps first, then the apps the
-    /// package manager installed (`AppInfo.installed`), read afresh from the
-    /// configuration registry on every call.
+    /// package manager installed (`AppInfo.installed`; the core packages
+    /// first, then the others by `system_name`), read afresh from the
+    /// configuration registry on every call. `hidden` is the caller's own.
     method ListApps() -> (apps: Array<AppInfo>);
 
     /// Stop every running instance of the app `app` (the app id, as `Launch`
@@ -92,7 +93,19 @@ interface os.lazy.init.v1 {
         verbs: Array<String>,
         /// Whether the package manager installed the app (`id` is then its
         /// `system_name`) rather than the image shipping it.
-        installed: Bool
+        installed: Bool,
+        /// `core` (a package the image ships, not removable), `user` (a
+        /// package someone installed) or `system` (a built-in program such as
+        /// the desktop shell or the installer).
+        origin: String,
+        /// The menu group (`lazypkg::Category`); empty for a built-in.
+        category: String,
+        /// Whether the start menu leaves the app out for the caller: their
+        /// `user/<uid>/menu/hidden/<id>`, else the machine's
+        /// `sys/menu/hidden/<id>`. A hidden app still launches and opens files.
+        hidden: Bool,
+        /// Whether the app opens when a session starts.
+        autostart: Bool
     }
 
     /// One service lifecycle event (issue #307): the payload of

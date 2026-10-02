@@ -67,24 +67,27 @@ impl Entry {
 }
 
 /// The built-in list: what the menu shows when confd has nothing usable.
-/// Terminal first.
+/// Terminal first. The desktop apps are core packages, named by their
+/// `system_name` (issue #509); the Terminal, the Installer and Devices are
+/// built-in programs. `init` still answers the bare short ids (`editor`) a menu saved
+/// before F5 holds.
 pub fn defaults() -> Vec<Entry> {
     const ITEMS: [(&str, &str); 13] = [
         ("terminal", "Terminal"),
-        ("sysmon", "System Monitor"),
-        ("fabricmon", "Fabric Monitor"),
-        ("counter", "Counter"),
-        ("editor", "Editor"),
-        ("paint", "Paint"),
-        ("files", "Files"),
-        ("settings", "Settings"),
+        ("os.lazy.sysmon", "System Monitor"),
+        ("os.lazy.fabricmon", "Fabric Monitor"),
+        ("os.lazy.counter", "Counter"),
+        ("os.lazy.editor", "Editor"),
+        ("os.lazy.paint", "Paint"),
+        ("os.lazy.files", "Files"),
+        ("os.lazy.settings", "Settings"),
         // Shipped only when the build had the zig toolchain; an image
         // without it answers the launch as unavailable.
-        ("docs", "Docs"),
+        ("os.lazy.docs", "Docs"),
         // Last, so the rows above keep the positions the screenshot sessions
         // click by coordinate.
-        ("widget", "CPU & Memory"),
-        ("confd", "Config"),
+        ("os.lazy.widget", "CPU & Memory"),
+        ("os.lazy.confd", "Config"),
         ("installer", "Package Installer"),
         ("devices", "Devices"),
     ];

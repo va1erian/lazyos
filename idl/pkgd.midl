@@ -33,6 +33,33 @@ interface os.lazy.pkgd.v1 {
     method List() -> (apps: Array<Installed>);
     /// One installed app by `system_name`, if present.
     method Installed(system_name: String) -> (app: Option<Installed>);
+    /// Whether this start's core package provisioning is finished, and what
+    /// it did (`docs/packages.md`, core packages). `pkgd` answers it while it
+    /// provisions, so a client such as `init`'s autostart can wait for it
+    /// without blocking; `Install` and `Remove` are refused with `EAGAIN`
+    /// until `done`.
+    method Provisioned() -> (state: ProvisionState);
+
+    /// Where an installed app came from. `Core`: its `system_name` is shipped
+    /// in `/system/packages`, so it cannot be removed (a newer version the
+    /// user installed over it stays core). `User`: everything else. `User` is
+    /// 0, so a row recorded before origins existed reads as a user app until
+    /// provisioning marks it.
+    enum Origin { User, Core }
+
+    /// Core package provisioning progress.
+    struct ProvisionState {
+        /// The pass of this start is over (successfully or not).
+        done: Bool,
+        /// The packages that open at login (`entry.autostart`) are provisioned
+        /// (they go first), so a session can start before `done`.
+        ready: Bool,
+        installed: U64,
+        upgraded: U64,
+        /// Newer versions the user installed over a core app, left in place.
+        kept: U64,
+        failed: U64
+    }
 
     /// What a package declares, as the consent screen shows it.
     struct PackageInfo {
@@ -48,7 +75,11 @@ interface os.lazy.pkgd.v1 {
         mime: Array<MimeHandler>,
         permissions: Array<Permission>,
         /// Empty when the package can be installed.
-        problems: Array<String>
+        problems: Array<String>,
+        /// The menu group (`lazypkg::Category`), `accessories` by default.
+        category: String,
+        /// Whether the app asks to start when the user logs in.
+        autostart: Bool
     }
 
     /// One handled file type.
@@ -86,11 +117,21 @@ interface os.lazy.pkgd.v1 {
         /// spawn personality, and an ELF header cannot tell them apart.
         abi: String,
         /// The manifest's fixed `entry.args`, passed before any launch path.
-        args: Array<String>
+        args: Array<String>,
+        /// An `Origin` value, cached from the shipped set at provisioning and
+        /// install time so readers need not open `/system/packages`.
+        origin: U32,
+        /// The menu group (`lazypkg::Category`).
+        category: String,
+        /// Whether the app starts when a session opens (`entry.autostart`).
+        autostart: Bool,
+        /// The manifest's `[[mime]]` verbs, de-duplicated, in manifest order.
+        verbs: Array<String>
     }
 
     /// One audit record: the payload of `system/events/pkg/<op>`, where `op`
-    /// is `install`, `remove` or `denied`. The same record, hex-encoded with
+    /// is `install`, `remove`, `denied` or `provision` (a core package
+    /// installed, upgraded or re-marked at startup, or the end of a pass). The same record, hex-encoded with
     /// a chained SHA-256, is appended to `/logs/pkg.log`.
     struct PkgEvent {
         op: String,
@@ -105,7 +146,8 @@ interface os.lazy.pkgd.v1 {
         detail: String
     }
 
-    /// Published on every install, removal and refused request. Not retained:
+    /// Published on every install, removal, refused request and provisioning
+    /// step. Not retained:
     /// `List` is the state, the events are the trail.
     topic "system/events/pkg/{op}" : PkgEvent qos=latest;
 }

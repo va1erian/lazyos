@@ -31,7 +31,7 @@ const ERROR_FIELD: u16 = 15;
 /// run under the Linux shim have a small heap, so it is not larger.
 pub const REPLY_BUFFER: usize = super::DEFAULT_BUFFER;
 
-pub use wire::{Installed, PackageInfo, PkgEvent};
+pub use wire::{Installed, PackageInfo, PkgEvent, ProvisionState};
 
 /// A refused or failed request.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -178,6 +178,15 @@ impl Client {
         Ok(wire::decode_list_reply(&reply.body)
             .map_err(Error::Parcel)?
             .apps)
+    }
+
+    /// `Provisioned()`: whether this start's core package provisioning is
+    /// over, and what it did.
+    pub fn provisioned(&self) -> core::result::Result<ProvisionState, Failure> {
+        let reply = self.call(wire::METHOD_PROVISIONED, Vec::new())?;
+        Ok(wire::decode_provisioned_reply(&reply.body)
+            .map_err(Error::Parcel)?
+            .state)
     }
 
     /// `Installed(system_name)`.

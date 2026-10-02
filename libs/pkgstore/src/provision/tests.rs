@@ -9,6 +9,7 @@ fn shipped(name: &str, version: &str, seed: char) -> Shipped {
         system_name: name.into(),
         version: version.into(),
         digest: digest(seed),
+        autostart: false,
     }
 }
 
@@ -126,11 +127,15 @@ fn up_to_date_needs_the_stamp_and_every_core_row() {
 
 #[test]
 fn the_index_round_trips_and_rejects_bad_lines() {
+    let mut terminal = shipped("os.lazy.terminal", "0.1.0", 'c');
+    terminal.autostart = true;
     let ship = vec![
         shipped("os.lazy.editor", "0.1.0", 'a'),
         shipped("os.lazy.files", "0.1.0-rc.1", 'b'),
+        terminal,
     ];
     let text = format_index(&ship);
+    assert!(text.contains(" autostart\n"));
     assert_eq!(parse_index(&text), Ok(ship.clone()));
     let commented = format!("# core packages\n\n{text}");
     assert_eq!(parse_index(&commented), Ok(ship));
@@ -140,6 +145,7 @@ fn the_index_round_trips_and_rejects_bad_lines() {
         (&*format!("Editor 0.1.0 {}\n", digest('a')), 1),
         (&*format!("os.lazy.editor 01.0 {}\n", digest('a')), 1),
         (&*format!("os.lazy.editor 0.1.0 {} extra\n", digest('a')), 1),
+        (&*format!("os.lazy.editor 0.1.0 {} autostart x\n", digest('a')), 1),
         (&*format!("os.lazy.editor 0.1.0 {}\n", digest('A')), 1),
         (
             &*format!(
@@ -216,6 +222,28 @@ fn installs_come_largest_first() {
             Action::Install("os.lazy.mid".into()),
             Action::Install("os.lazy.small".into()),
             Action::Demote("os.lazy.a".into()),
+        ]
+    );
+}
+
+#[test]
+fn autostart_packages_come_first() {
+    let mut actions = vec![
+        Action::Install("os.lazy.docs".into()),
+        Action::Demote("os.lazy.old".into()),
+        Action::Install("os.lazy.terminal".into()),
+        Action::Upgrade("os.lazy.editor".into()),
+    ];
+    let autostart = |name: &str| name == "os.lazy.terminal";
+    assert_eq!(autostart_steps(&actions, autostart), 1);
+    autostart_first(&mut actions, autostart);
+    assert_eq!(
+        actions,
+        [
+            Action::Install("os.lazy.terminal".into()),
+            Action::Install("os.lazy.docs".into()),
+            Action::Demote("os.lazy.old".into()),
+            Action::Upgrade("os.lazy.editor".into()),
         ]
     );
 }

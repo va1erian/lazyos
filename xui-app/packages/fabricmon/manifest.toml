@@ -1,0 +1,31 @@
+# Fabric Monitor: a core LazyOS app, packaged by `tools/xui/build.py` (issue #509).
+#
+# `bin/fabricmon.elf` is not checked in: the build copies the built xui app into
+# a scratch copy of this tree. `version` is replaced by the workspace version
+# and `autostart` is set from `LAZYOS_XUI_AUTOSTART`.
+
+[app]
+name = "Fabric Monitor"
+system_name = "os.lazy.fabricmon"
+author = "LazyOS"
+version = "0.1.0"
+description = "Watch the Messenger services and topics live"
+category = "development"
+
+[entry]
+binary = "bin/fabricmon.elf"
+# A desktop app is a client of the `xuid` compositor, not the display owner.
+args = ["--client"]
+# A static musl program: `init` starts it under the Linux ABI personality.
+abi = "linux"
+autostart = false
+
+[permissions]
+# Derived from runs of the app under its label (`LAZYOS_LABEL_TRACE=1`, which
+# prints every refused call); see docs/packages.md, core packages.
+interfaces = [
+    "os.lazy.display.v1",
+    "os.lazy.input.v1",
+    "os.lazy.messenger.registry.v1",
+    "os.lazy.messenger.topics.v1",
+]

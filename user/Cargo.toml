@@ -66,6 +66,8 @@ inputmap = { path = "../libs/inputmap" }
 # and the host-tested policy/audit/layout logic built on it.
 lazypkg = { path = "../libs/lazypkg" }
 pkgstore = { path = "../libs/pkgstore" }
+# The hidden-app keys `init` resolves for `ListApps` (issue #509).
+deskmenu = { path = "../libs/deskmenu" }
 
 # Build-time only: rasterizes the bundled Droid Sans / Droid Serif into the
 # proportional glyph atlases `xuid` draws its chrome text with.

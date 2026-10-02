@@ -158,7 +158,7 @@ mod tests {
         let same = list.clone();
         commit(&store, &mut list, same).unwrap();
         // An app the registry does not list (not shipped) survives a reload.
-        assert!(ids(&load(&store)).contains(&"docs"));
+        assert!(ids(&load(&store)).contains(&"os.lazy.docs"));
     }
 
     #[test]
@@ -166,7 +166,7 @@ mod tests {
         let store = MemStore::new();
         let mut list = deskmenu::defaults();
         assert_eq!(move_by(&store, &mut list, 1, -1), Ok(0));
-        assert_eq!(list[0].app, "sysmon");
+        assert_eq!(list[0].app, "os.lazy.sysmon");
         assert_eq!(load(&store), list);
     }
 
@@ -244,14 +244,14 @@ mod tests {
 
     #[test]
     fn available_excludes_listed_apps_in_registry_order() {
-        let list = vec![Entry::new("paint", "Paint").unwrap()];
+        let list = vec![Entry::new("os.lazy.paint", "Paint").unwrap()];
         let apps: Vec<AppChoice> = deskmenu::defaults()
             .iter()
             .map(|e| choice(&e.app))
             .collect();
         let free = available(&list, &apps);
         assert_eq!(free.len(), apps.len() - 1);
-        assert!(free.iter().all(|a| a.id != "paint"));
+        assert!(free.iter().all(|a| a.id != "os.lazy.paint"));
         assert_eq!(free[0].id, "terminal");
     }
 

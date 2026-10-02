@@ -44,6 +44,9 @@ pub struct Shipped {
     pub version: String,
     /// Lowercase hex SHA-256 of the archive.
     pub digest: String,
+    /// Its manifest sets `autostart`: it is provisioned first, so the session
+    /// it opens in does not wait for the whole set.
+    pub autostart: bool,
 }
 
 /// What is installed for one app (its `confd` row).
@@ -184,6 +187,28 @@ pub fn largest_first(actions: &mut [Action], size: impl Fn(&str) -> usize) {
     });
 }
 
+/// Put the steps for packages that open at login (`autostart`) first, keeping
+/// the order within each group. A first boot provisions the whole set, which
+/// takes a while; the apps a session opens should not wait for it.
+pub fn autostart_first(actions: &mut [Action], autostart: impl Fn(&str) -> bool) {
+    actions.sort_by_key(|action| match action {
+        Action::Install(name) | Action::Upgrade(name) => !autostart(name),
+        _ => true,
+    });
+}
+
+/// How many of `actions` install or upgrade a package that opens at login:
+/// once they ran, the session's apps exist (`Provisioned().ready`).
+pub fn autostart_steps(actions: &[Action], autostart: impl Fn(&str) -> bool) -> usize {
+    actions
+        .iter()
+        .filter(|action| match action {
+            Action::Install(name) | Action::Upgrade(name) => autostart(name),
+            _ => false,
+        })
+        .count()
+}
+
 /// Why the index is unusable.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct IndexError {
@@ -192,7 +217,8 @@ pub struct IndexError {
 }
 
 /// Parse the image's core package index: one `<system_name> <version>
-/// <sha256 hex>` line per package, `#` comments and blank lines ignored. The
+/// <sha256 hex> [autostart]` line per package, `#` comments and blank lines
+/// ignored. The
 /// file is on `/system`, which only an image update writes, but it is still
 /// validated: a bad line fails the whole index, and `pkgd` then reads the
 /// archives themselves.
@@ -208,10 +234,14 @@ pub fn parse_index(text: &str) -> Result<Vec<Shipped>, IndexError> {
             reason,
         };
         let mut words = line.split_ascii_whitespace();
-        let (Some(name), Some(version), Some(digest), None) =
-            (words.next(), words.next(), words.next(), words.next())
+        let (Some(name), Some(version), Some(digest)) = (words.next(), words.next(), words.next())
         else {
-            return Err(bad("expected `<system_name> <version> <digest>`"));
+            return Err(bad("expected `<system_name> <version> <digest> [autostart]`"));
+        };
+        let autostart = match (words.next(), words.next()) {
+            (None, _) => false,
+            (Some("autostart"), None) => true,
+            _ => return Err(bad("expected `<system_name> <version> <digest> [autostart]`")),
         };
         if !layout::valid_system_name(name) {
             return Err(bad("malformed system_name"));
@@ -232,6 +262,7 @@ pub fn parse_index(text: &str) -> Result<Vec<Shipped>, IndexError> {
             system_name: name.to_string(),
             version: version.to_string(),
             digest: digest.to_string(),
+            autostart,
         });
     }
     Ok(out)
@@ -243,8 +274,11 @@ pub fn format_index(shipped: &[Shipped]) -> String {
     let mut text = String::new();
     for package in shipped {
         text.push_str(&format!(
-            "{} {} {}\n",
-            package.system_name, package.version, package.digest
+            "{} {} {}{}\n",
+            package.system_name,
+            package.version,
+            package.digest,
+            if package.autostart { " autostart" } else { "" }
         ));
     }
     text

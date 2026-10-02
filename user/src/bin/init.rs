@@ -81,6 +81,8 @@ extern crate alloc;
 mod apps;
 #[path = "init/autostart.rs"]
 mod autostart;
+#[path = "init/provisioning.rs"]
+mod provisioning;
 #[path = "init/installed.rs"]
 mod installed;
 #[path = "init/launch.rs"]
@@ -153,9 +155,13 @@ fn run() -> messenger::Result<()> {
         .map(Service::from_manifest)
         .collect();
     sys::write_str(&format!("init: manifest: {} service(s)\n", services.len()));
-    apps::load_manifest();
+    apps::load();
     if BOOT_SELFTESTS {
-        sys::write_str(&apps::selftest_apps());
+        // The packaged apps are checked once `pkgd` provisioned them
+        // (`autostart`); the built-ins can be checked now.
+        if !apps::selftest_builtins() {
+            sys::write_str("INIT:APPS:FAIL the built-in registry is malformed\n");
+        }
         selftest_launch_policy();
         selftest_launch_cap();
         selftest_launch_args();
@@ -193,7 +199,7 @@ fn run() -> messenger::Result<()> {
                 selftest.step(&mut services, &mut broker, now);
             }
             // The desktop's apps (issue #215): open the shipped `autostart` rows.
-            autostart.step(&mut services, &mut broker, now);
+            autostart.step(&mut services, &mut broker, &mut installed, now);
         }
         // Reap one exit (or time out to serve requests).
         if let Some((pid, status)) = sys::wait(wake_deadline(&services, now)) {

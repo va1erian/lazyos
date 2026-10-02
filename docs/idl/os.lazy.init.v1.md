@@ -51,6 +51,10 @@ reply, so the error field is hand-written next to these stubs.
 - `restart: String`
 - `verbs: Array<String>`
 - `installed: Bool`
+- `origin: String`
+- `category: String`
+- `hidden: Bool`
+- `autostart: Bool`
 
 ## struct `ServiceEvent`
 

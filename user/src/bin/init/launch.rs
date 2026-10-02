@@ -122,7 +122,8 @@ pub(super) fn launch_argument(args: &str) -> messenger::Result<Option<String>> {
 ///
 /// The app id is a built-in registry row ([`find_app`]) or, failing that, an
 /// app the package manager installed ([`InstalledApps`], re-read from `confd`
-/// here so an install a moment ago is launchable at once). Either way the same
+/// here so an install a moment ago is launchable at once): since F5 every
+/// desktop app is one, and a core app also answers to its bare short id. Either way the same
 /// checks run in the same order ([`admit`]): the caller must pass [`authorize`]
 /// for the target session; the argument must be one absolute path; the target
 /// session must have fewer than [`LAUNCH_CAP_PER_SESSION`] launched rows
@@ -138,14 +139,15 @@ pub(super) fn launch(
     installed: &mut InstalledApps,
     request: &services::LaunchRequest,
     caller: &SysCred,
+    autostart: bool,
 ) -> messenger::Result<services::LaunchResult> {
     if find_app(&request.app).is_none() {
         installed.refresh();
         if let Some(app) = installed.find(&request.app) {
-            return launch_installed(services, broker, app, request, caller);
+            return launch_installed(services, broker, app, request, caller, autostart);
         }
     }
-    launch_row(services, broker, request, caller, false)
+    launch_row(services, broker, request, caller, autostart)
 }
 
 /// The checks every launch passes before anything spawns: the session policy,
@@ -194,18 +196,20 @@ pub(super) fn launch_row(
 }
 
 /// Launch one installed app: [`launch_row`]'s path with the installed row, its
-/// label and its own program.
+/// label and its own program. The app id may be a core app's short alias
+/// (`editor`); the row is always named by its `system_name`.
 fn launch_installed(
     services: &mut Vec<Service>,
     broker: &mut router::TopicBroker,
     app: &InstalledApp,
     request: &services::LaunchRequest,
     caller: &SysCred,
+    autostart: bool,
 ) -> messenger::Result<services::LaunchResult> {
-    let (path_arg, cred, session) = admit(services, request, caller, false)?;
+    let (path_arg, cred, session) = admit(services, request, caller, autostart)?;
     retire_stopped(services, app.id);
     let row = Service::from_installed(app, path_arg, cred);
-    let result = start_row(services, broker, row, &cred, session, false)?;
+    let result = start_row(services, broker, row, &cred, session, autostart)?;
     report_label(result.pid, app.id);
     Ok(result)
 }

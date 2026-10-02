@@ -12,15 +12,16 @@ use deskmenu::Entry;
 /// The confd key, under `sys/ui/` like the theme and the menu.
 pub const KEY: &str = "sys/ui/desktop";
 
-/// The built-in launchers.
+/// The built-in launchers: core packages by `system_name` (issue #509), and
+/// the built-in Terminal.
 pub fn defaults() -> Vec<Entry> {
     const ITEMS: [(&str, &str); 6] = [
-        ("files", "Files"),
+        ("os.lazy.files", "Files"),
         ("terminal", "Terminal"),
-        ("editor", "Editor"),
-        ("settings", "Settings"),
-        ("sysmon", "System Monitor"),
-        ("paint", "Paint"),
+        ("os.lazy.editor", "Editor"),
+        ("os.lazy.settings", "Settings"),
+        ("os.lazy.sysmon", "System Monitor"),
+        ("os.lazy.paint", "Paint"),
     ];
     ITEMS
         .iter()
@@ -48,7 +49,14 @@ mod tests {
         let apps: Vec<String> = defaults().into_iter().map(|e| e.app).collect();
         assert_eq!(
             apps,
-            ["files", "terminal", "editor", "settings", "sysmon", "paint"]
+            [
+                "os.lazy.files",
+                "terminal",
+                "os.lazy.editor",
+                "os.lazy.settings",
+                "os.lazy.sysmon",
+                "os.lazy.paint"
+            ]
         );
     }
 

@@ -9,12 +9,13 @@ use alloc::format;
 use alloc::string::String;
 
 use lazypkg::Manifest;
+use user::messenger::pkgd::Installed;
 use pkgstore::{layout, tree};
 use user::files;
 use user::sys;
 
 use super::handlers::Pkgd;
-use super::install::one_line;
+use super::install::{one_line, row_of};
 use super::store::{self, describe, SysFs};
 
 /// Largest stored manifest read back (the format's own cap is 1 MiB).
@@ -56,8 +57,11 @@ impl Pkgd {
                 }
                 continue;
             }
-            let outcome =
-                stored_manifest(&row.install_dir).and_then(|manifest| self.activate(&manifest));
+            let outcome = stored_manifest(&row.install_dir).and_then(|manifest| {
+                self.activate(&manifest)?;
+                self.refresh_row(row, &manifest);
+                Ok(())
+            });
             match outcome {
                 Ok(()) => activated += 1,
                 Err(text) => sys::write_str(&format!(
@@ -71,6 +75,24 @@ impl Pkgd {
             "PKGD:RECONCILE:PASS n={activated} of={}\n",
             rows.len()
         ));
+    }
+}
+
+impl Pkgd {
+    /// Bring a row's manifest-derived fields (menu category, autostart, MIME
+    /// verbs) up to date with its stored manifest: a row recorded before they
+    /// existed gets them without a reinstall.
+    fn refresh_row(&mut self, row: &Installed, manifest: &Manifest) {
+        let fresh = row_of(
+            manifest,
+            &row.install_dir,
+            &row.digest,
+            row.installed_at,
+            row.origin,
+        );
+        if fresh != *row {
+            let _ = self.registry.put(&fresh);
+        }
     }
 }
 

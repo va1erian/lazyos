@@ -24,12 +24,22 @@ typed reply; a package that fails validation reports every problem in
 | Remove | 564498461 | sync | `(system_name: String) -> ()` |
 | List | 220805025 | sync | `() -> (apps: Array<Installed>)` |
 | Installed | 1755800129 | sync | `(system_name: String) -> (app: Option<Installed>)` |
+| Provisioned | 1076218465 | sync | `() -> (state: ProvisionState)` |
 
 ## Topics
 
 | Topic | Payload | QoS | Retained | Permissions |
 |---|---|---|---|---|
 | `system/events/pkg/+` | `PkgEvent` | latest | no | `publish:system/events/pkg/+`, `subscribe:system/events/pkg/+` |
+
+## struct `ProvisionState`
+
+- `done: Bool`
+- `ready: Bool`
+- `installed: U64`
+- `upgraded: U64`
+- `kept: U64`
+- `failed: U64`
 
 ## struct `PackageInfo`
 
@@ -43,6 +53,8 @@ typed reply; a package that fails validation reports every problem in
 - `mime: Array<MimeHandler>`
 - `permissions: Array<Permission>`
 - `problems: Array<String>`
+- `category: String`
+- `autostart: Bool`
 
 ## struct `MimeHandler`
 
@@ -68,6 +80,10 @@ typed reply; a package that fails validation reports every problem in
 - `installed_at: U64`
 - `abi: String`
 - `args: Array<String>`
+- `origin: U32`
+- `category: String`
+- `autostart: Bool`
+- `verbs: Array<String>`
 
 ## struct `PkgEvent`
 
@@ -79,3 +95,7 @@ typed reply; a package that fails validation reports every problem in
 - `actor_uid: U64`
 - `ok: Bool`
 - `detail: String`
+
+## enum `Origin`
+
+- User, Core

@@ -1,4 +1,5 @@
 [
+  {"wait_for": "PKGD:PROVISION:DONE", "timeout": 420},
   {"wait_for": "TERM:UP:PASS", "timeout": 240},
   {"wait_for": "SYSMON:UP:PASS", "timeout": 240},
   {"wait_for": "FABMON:UP:PASS", "timeout": 240},

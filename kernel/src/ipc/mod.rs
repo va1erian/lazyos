@@ -22,6 +22,8 @@ pub mod eventfd;
 pub mod handles;
 pub mod inet;
 pub mod labels;
+#[cfg(lazyos_label_trace)]
+pub mod label_trace;
 pub mod pipe;
 pub mod policy;
 pub mod registry;
@@ -111,6 +113,13 @@ pub fn authorize(actor_slot: usize, interface_id: u64, method: u32, txn_id: u64)
             reason_code,
             txn_id,
         });
+    }
+    #[cfg(lazyos_label_trace)]
+    if decision.denied() {
+        label_trace::denied(
+            cred.label_id,
+            format_args!("iface={interface_id:#018x} method={method}"),
+        );
     }
     decision
 }

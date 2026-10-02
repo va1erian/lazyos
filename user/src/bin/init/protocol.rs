@@ -108,6 +108,8 @@ fn dispatch(state: &mut Supervisor, message: &Message) -> messenger::Result<Parc
             // `logind`'s login events also tell the launch path who owns
             // each session (see `sessions.rs`).
             sessions::observe(services, message);
+            // `pkgd`'s provisioning progress, for the autostart.
+            super::provisioning::observe(services, message);
             broker.handle(message)
         }
         services::INIT_INTERFACE => match message.method() {
@@ -116,8 +118,9 @@ fn dispatch(state: &mut Supervisor, message: &Message) -> messenger::Result<Parc
                 // Built-ins first, in registry order, then what the package
                 // manager installed, read afresh so the menu is never stale.
                 installed.refresh();
+                let caller = actor(message)?;
                 let mut apps = app_infos();
-                apps.extend(installed.infos());
+                apps.extend(installed.infos(caller.uid));
                 services::list_apps_reply(&apps)
             }
             services::init::METHOD_STOP => {
@@ -140,7 +143,7 @@ fn dispatch(state: &mut Supervisor, message: &Message) -> messenger::Result<Parc
             services::init::METHOD_LAUNCH => {
                 let request = services::decode_launch_request(&message.parcel)?;
                 let caller = actor(message)?;
-                match launch(services, broker, installed, &request, &caller) {
+                match launch(services, broker, installed, &request, &caller, false) {
                     Ok(result) => services::launch_reply(&result),
                     Err(error) => {
                         let target = if request.session == 0 {

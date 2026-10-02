@@ -1,6 +1,9 @@
-//! The apps the package manager installed (`docs/packages.md`, phase 4): what
-//! `ListApps` adds after the built-ins and what `Launch` resolves an unknown id
-//! against.
+//! The apps the package manager installed (`docs/packages.md`): since F5
+//! (issue #509) the source of every desktop app, the core packages the image
+//! ships included. `ListApps` reports them after the built-ins, `Launch`
+//! resolves them (a bare `<short>` id is an alias of `os.lazy.<short>`, so
+//! menus and launchers saved before F5 keep working), and the autostart opens
+//! the ones whose manifest asks for it.
 //!
 //! The source of truth is `confd`: `pkgd` records one generated `Installed`
 //! record per app under `sys/apps/<system_name>` (`idl/pkgd.midl`). `init`
@@ -20,18 +23,25 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 use confd::Value;
+use deskmenu::hidden::{self, Hidden};
 use user::messenger::confd::Client;
 use user::messenger::pkgd::wire as pkgd;
 use user::messenger::{registry, services, Endpoint};
 use user::sys;
 
+use super::state::Restart;
+
 /// The `confd` subtree `pkgd` writes (`pkgstore::layout::CONFD_PREFIX`).
 const PREFIX: &str = "sys/apps";
+/// The namespace of the core apps' `system_name`s: `os.lazy.<short>`.
+const CORE_PREFIX: &str = "os.lazy.";
 /// Ticks one `confd` call may take (100 Hz): half a second.
 const CALL_TICKS: u64 = 50;
 /// Most installed apps `init` tracks, so a corrupt subtree cannot grow it
 /// without bound.
 const MAX_APPS: usize = 64;
+/// Most hidden-app keys read per layer for one `ListApps`.
+const MAX_HIDDEN_KEYS: usize = 64;
 
 /// One installed app, ready to launch.
 pub(super) struct InstalledApp {
@@ -39,7 +49,7 @@ pub(super) struct InstalledApp {
     pub(super) id: &'static str,
     /// Display name from the manifest.
     pub(super) name: String,
-    /// `/data/apps/<install_dir>/<binary>`.
+    /// `/apps/<install_dir>/<binary>`.
     pub(super) path: &'static str,
     /// The kernel policy label, `app:<system_name>`.
     pub(super) label: &'static str,
@@ -47,6 +57,16 @@ pub(super) struct InstalledApp {
     pub(super) args: Vec<String>,
     /// Whether it runs under the Linux ABI personality.
     pub(super) linux: bool,
+    /// The restart policy every launch of it gets.
+    pub(super) restart: Restart,
+    /// Whether the image ships it (`Origin::Core`).
+    pub(super) core: bool,
+    /// The menu group (`lazypkg::Category`).
+    pub(super) category: String,
+    /// Whether it opens when a session starts.
+    pub(super) autostart: bool,
+    /// The manifest's MIME verbs.
+    pub(super) verbs: Vec<String>,
 }
 
 /// The installed apps as of the last refresh.
@@ -68,23 +88,49 @@ impl InstalledApps {
         }
     }
 
-    /// The installed app with this id.
+    /// The installed app with this id, or with the core id it is a short
+    /// alias of (`editor` -> `os.lazy.editor`).
     pub(super) fn find(&self, id: &str) -> Option<&InstalledApp> {
-        self.apps.iter().find(|app| app.id == id.trim())
+        let id = id.trim();
+        self.apps
+            .iter()
+            .find(|app| app.id == id)
+            .or_else(|| self.apps.iter().find(|app| alias_of(app.id) == Some(id)))
     }
 
-    /// The installed apps as `ListApps` rows.
-    pub(super) fn infos(&self) -> Vec<services::AppInfo> {
+    /// Every installed app, core first, then by `system_name`.
+    pub(super) fn apps(&self) -> &[InstalledApp] {
+        &self.apps
+    }
+
+    /// The installed apps as `ListApps` rows, `hidden` for the caller `uid`.
+    pub(super) fn infos(&mut self, uid: u32) -> Vec<services::AppInfo> {
+        let hidden = self.hidden(uid);
         self.apps
             .iter()
             .map(|app| services::AppInfo {
                 id: app.id.to_string(),
                 name: app.name.clone(),
                 path: app.path.to_string(),
-                restart: String::from("on-failure"),
-                verbs: Vec::new(),
+                restart: app.restart.label().to_string(),
+                verbs: app.verbs.clone(),
                 installed: true,
+                origin: String::from(if app.core { "core" } else { "user" }),
+                category: app.category.clone(),
+                hidden: hidden.hides(app.id),
+                autostart: app.autostart,
             })
+            .collect()
+    }
+
+    /// The ids that open when a session starts: core apps first, then the
+    /// others, each group by `system_name` (the order [`refresh`] keeps).
+    /// Hiding is a menu matter only, so a hidden app still autostarts.
+    pub(super) fn autostart_ids(&self) -> Vec<&'static str> {
+        self.apps
+            .iter()
+            .filter(|app| app.autostart)
+            .map(|app| app.id)
             .collect()
     }
 
@@ -111,12 +157,34 @@ impl InstalledApps {
             }
         }
         rows.sort_by(|a, b| {
-            a.installed_at
-                .cmp(&b.installed_at)
+            let core = |row: &pkgd::Installed| row.origin != pkgd::ORIGIN_CORE;
+            core(a)
+                .cmp(&core(b))
                 .then_with(|| a.system_name.cmp(&b.system_name))
         });
         let apps = rows.into_iter().map(|row| self.app_of(row)).collect();
         self.apps = apps;
+    }
+
+    /// The caller's hidden apps: `user/<uid>/menu/hidden/*` over
+    /// `sys/menu/hidden/*` (`deskmenu::hidden`). Nothing is hidden when
+    /// `confd` does not answer.
+    fn hidden(&mut self, uid: u32) -> Hidden {
+        let Some(client) = self.client() else {
+            return Hidden::default();
+        };
+        let mut pairs: Vec<(String, Value)> = Vec::new();
+        for prefix in [hidden::user_prefix(uid), String::from(hidden::SYS_PREFIX)] {
+            let Ok(keys) = client.list(&prefix) else {
+                continue;
+            };
+            for key in keys.into_iter().take(MAX_HIDDEN_KEYS) {
+                if let Ok(Some(value)) = client.get(&key) {
+                    pairs.push((key, value));
+                }
+            }
+        }
+        Hidden::from_pairs(uid, pairs.iter().map(|(key, value)| (key.as_str(), value)))
     }
 
     /// The cached `confd` client, resolving on first use.
@@ -139,6 +207,11 @@ impl InstalledApps {
             label,
             args: row.args,
             linux: row.abi == "linux",
+            restart: Restart::OnFailure,
+            core: row.origin == pkgd::ORIGIN_CORE,
+            category: row.category,
+            autostart: row.autostart,
+            verbs: row.verbs,
         }
     }
 
@@ -150,6 +223,15 @@ impl InstalledApps {
         self.interned.push(leaked);
         leaked
     }
+}
+
+/// The short id a core `system_name` answers to (`os.lazy.editor` ->
+/// `editor`); `None` for any other app, so a user package can never claim a
+/// bare id.
+pub(super) fn alias_of(system_name: &str) -> Option<&str> {
+    system_name
+        .strip_prefix(CORE_PREFIX)
+        .filter(|short| !short.is_empty() && !short.contains('.'))
 }
 
 /// Print the label an installed app was launched under, the evidence that the

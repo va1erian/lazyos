@@ -10,7 +10,8 @@ use alloc::vec::Vec;
 use user::messenger::{self, router, services};
 use user::sys::{self, Cred as SysCred};
 
-use super::apps::{find_app, SHELL_APP_ID};
+use super::apps::{available_count, find_app, selftest_builtins, SHELL_APP_ID};
+use super::installed::{alias_of, InstalledApps};
 use super::launch::{authorize, launch_argument, launch_row, MAX_LAUNCH_PATH};
 use super::state::{
     Phase, Restart, Service, CAP_SETUID, LAUNCH_CAP_PER_SESSION, LAUNCH_SELFTEST_ATTEMPTS,
@@ -149,7 +150,7 @@ pub(super) fn selftest_launch_args() {
     let spaced = one_item("/u/my file.txt") && one_item("/u/say \"hi\".txt");
     let empty = matches!(launch_argument(""), Ok(None));
     // The row's `argv` keeps the spaced path as one item after the fixed args.
-    let whole = find_app("editor").is_none_or(|app| {
+    let whole = find_app("installer").is_none_or(|app| {
         let row = Service::from_app(app, Some(String::from("/a b/c d.txt")), SysCred::default());
         argv(&row, 0)[1..] == ["--client", "/a b/c d.txt", "attempt=1"]
     });
@@ -184,5 +185,42 @@ pub(super) fn selftest_shell_supervision() {
         sys::write_str("INIT:SHELL:PASS restart=always\n");
     } else {
         sys::write_str("INIT:SHELL:FAIL shell row is not supervised as always-restart\n");
+    }
+}
+
+/// The app registry self-test (issue #509), once `pkgd` provisioned: the
+/// built-in rows are well formed, and every core package the image ships in
+/// `/system/packages` is installed, recorded as core, answers to its short
+/// alias and has its program on disk. Prints `INIT:APPS:PASS count=<n>` (the
+/// launchable apps) and `INIT:APPS:SHIPPED count=<n>` (the core packages).
+pub(super) fn selftest_apps(installed: &InstalledApps) -> String {
+    let shipped: Vec<String> = user::files::list(fhs::SYSTEM_PACKAGES)
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|entry| pkgstore::provision::package_file_name(&entry.name))
+        .map(String::from)
+        .collect();
+    let mut missing: Vec<&str> = Vec::new();
+    for name in &shipped {
+        let ok = installed.apps().iter().any(|app| {
+            app.id == name.as_str()
+                && app.core
+                && alias_of(app.id).is_none_or(|short| installed.find(short).is_some())
+                && user::files::stat(app.path).is_ok()
+        });
+        if !ok {
+            missing.push(name);
+        }
+    }
+    let count = available_count() + installed.apps().len();
+    if !selftest_builtins() {
+        String::from("INIT:APPS:FAIL the built-in registry is malformed\n")
+    } else if !missing.is_empty() {
+        format!("INIT:APPS:FAIL core packages not installed: {missing:?}\n")
+    } else {
+        format!(
+            "INIT:APPS:PASS count={count}\nINIT:APPS:SHIPPED count={}\n",
+            shipped.len()
+        )
     }
 }

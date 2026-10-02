@@ -115,7 +115,7 @@ impl Audit {
 
     /// Publish on `system/events/pkg/<op>`; an unreachable broker drops the
     /// event after a few ticks rather than stalling the request.
-    fn publish(&mut self, event: &PkgEvent) {
+    pub(crate) fn publish(&mut self, event: &PkgEvent) {
         for _ in 0..PUBLISH_ATTEMPTS {
             if self.bus.is_none() {
                 self.bus = central::Bus::connect().ok();
