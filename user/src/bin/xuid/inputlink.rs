@@ -17,6 +17,7 @@ use alloc::collections::BTreeSet;
 use alloc::vec::Vec;
 
 use user::messenger::input::{ShellEvent, ShellLink};
+use user::messenger::{errno, Error};
 use user::sys;
 
 use super::compositor::Compositor;
@@ -190,17 +191,24 @@ impl Compositor {
     }
 
     /// Register new surfaces, forget destroyed ones and report focus.
-    /// `false` when `inputd` stopped answering.
+    /// `false` when `inputd` is gone. A call that merely timed out (a busy
+    /// first boot can keep `inputd` from answering for a while) is not a dead
+    /// link: it stays undone and is retried on the next pass, since dropping
+    /// the link would flip every window to legacy keys and back, and the
+    /// keys typed across that switch went to whichever side had just let go.
     fn push_input_state(&mut self) -> bool {
         let Some(link) = self.input.link.as_ref() else {
             return false;
         };
         for surface in self.surfaces.iter().filter(|s| s.is_window()) {
             if !self.input.registered.contains(&surface.id) {
-                if link.register_surface(surface.id, surface.owner).is_err() {
-                    return false;
+                match settled(link.register_surface(surface.id, surface.owner)) {
+                    Some(true) => {
+                        self.input.registered.insert(surface.id);
+                    }
+                    Some(false) => {}
+                    None => return false,
                 }
-                self.input.registered.insert(surface.id);
             }
         }
         let gone: Vec<u64> = self
@@ -211,16 +219,20 @@ impl Compositor {
             .filter(|id| !self.surfaces.iter().any(|s| s.id == *id))
             .collect();
         for id in gone {
-            if link.unregister_surface(id).is_err() {
-                return false;
+            match settled(link.unregister_surface(id)) {
+                Some(true) => {
+                    self.input.registered.remove(&id);
+                }
+                Some(false) => {}
+                None => return false,
             }
-            self.input.registered.remove(&id);
         }
         if self.input.told_focus != Some(self.focused) {
-            if link.set_focus(self.focused).is_err() {
-                return false;
+            match settled(link.set_focus(self.focused)) {
+                Some(true) => self.input.told_focus = Some(self.focused),
+                Some(false) => {}
+                None => return false,
             }
-            self.input.told_focus = Some(self.focused);
         }
         true
     }
@@ -240,5 +252,15 @@ impl Compositor {
         for surface in self.surfaces.iter_mut() {
             surface.input_session = false;
         }
+    }
+}
+
+/// How a link call ended: `Some(true)` done, `Some(false)` timed out (retry
+/// later, the link is fine), `None` the link is dead.
+fn settled(result: Result<(), Error>) -> Option<bool> {
+    match result {
+        Ok(()) => Some(true),
+        Err(Error::Errno(code)) if code == -errno::ETIMEDOUT => Some(false),
+        Err(_) => None,
     }
 }
