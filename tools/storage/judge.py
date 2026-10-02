@@ -3,6 +3,7 @@
 (docs/architecture/usb-storage.md).
 
     python tools/storage/judge.py serial.log --nonce N [--second] [--other]
+    python tools/storage/judge.py serial.log --unplug
 
 A boot passes when:
 
@@ -22,6 +23,8 @@ A boot passes when:
   not judged: ext2 never launders a volume that arrived unclean, so one
   interrupted run leaves `/` dirty for good).
 
+`--unplug` judges the surprise-removal boot instead (`judge_unplug`).
+
 Exit status is non-zero on any failure; each failure is one line.
 """
 
@@ -32,7 +35,7 @@ import re
 import sys
 from pathlib import Path
 
-DISK = re.compile(r"USBD:MSC:DISK port=\d+ slot=\d+ id=(usb\d+)")
+DISK = re.compile(r"USBD:MSC:DISK port=\S+ slot=\d+ id=(usb\d+)")
 LATE = re.compile(r"fs: mounted (usb\d+)p1 at /home \(late, home volume lazyhome\)")
 FORBIDDEN = [
     ("USBD:FATAL", "usbd failed"),
@@ -75,16 +78,43 @@ def judge(text: str, nonce: str, second: bool = False, other: bool = False) -> l
     return failures
 
 
+def judge_unplug(text: str) -> list[str]:
+    """The surprise-removal boot: the stick was mounted, then pulled out;
+    `usbd` reported it, the write after it returned, the system answered
+    and powered off (a failed `/home` sync is expected there)."""
+    failures = []
+    if not LATE.search(text):
+        failures.append("/home was never mounted from the stick")
+    if not re.search(r"USBD:MSC:GONE id=usb\d+ \(detached\)", text):
+        failures.append("usbd did not report the stick gone (USBD:MSC:GONE ... (detached))")
+    if not re.search(r"(?m)^after-\d+", text):
+        failures.append("a write to the removed stick never returned")
+    if not re.search(r"(?m)^alive-0", text):
+        failures.append("the shell did not answer after the removal")
+    begin = text.find("INIT:SHUTDOWN:BEGIN")
+    power = re.search(r"power: (filesystems synced|sync failed)", text[max(begin, 0):])
+    if begin < 0 or not power:
+        failures.append("no orderly power-off after the removal")
+    for marker, why in FORBIDDEN:
+        if marker not in ("USBD:MSC:FAIL", "power: sync failed") and marker in text:
+            failures.append(f"{why} ({marker})")
+    return failures
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("serial_log", type=Path)
-    parser.add_argument("--nonce", required=True)
+    parser.add_argument("--nonce", default="")
     parser.add_argument("--second", action="store_true", help="the boot after a power-off")
     parser.add_argument("--other", action="store_true", help="a second, non-home stick")
+    parser.add_argument("--unplug", action="store_true", help="the surprise-removal boot")
     args = parser.parse_args()
     text = args.serial_log.read_text(encoding="utf-8", errors="replace")
-    failures = judge(text, args.nonce, args.second, args.other)
+    if args.unplug:
+        failures = judge_unplug(text)
+    else:
+        failures = judge(text, args.nonce, args.second, args.other)
     for failure in failures:
         print(f"FAIL: {failure}")
     print("storage judge: " + ("FAIL" if failures else "PASS"))
