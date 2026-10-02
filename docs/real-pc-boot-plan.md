@@ -14,7 +14,9 @@
 > **H0 status:** landed as one hybrid MBR image instead of two images and a
 > FAT16 payload: `target/lazyos-usb.img` (`LAZYOS_USB_IMAGE=1`) boots under
 > OVMF and SeaBIOS from `usb-storage` only, its ramdisk is a whole disk (FAT
-> `lazyos.cfg` plus the ext2 OS volume) and `ram0` wins root selection; see
+> `lazyos.cfg` plus the ext2 OS volume) and `ram0` wins root selection; its
+> `lazyhome` partition is `/home`, mounted late through `usbd` and kept across
+> power-offs (`tools/boot/persist.py`); see
 > [`usb-stick.md`](usb-stick.md) for the layout, the measured sizes and boot
 > times, and `tools/boot/`.
 

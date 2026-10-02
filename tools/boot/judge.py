@@ -99,3 +99,33 @@ def milestones(stamped: list[tuple[float, str]], ready: str | None = READY) -> d
                 found[name] = round(seconds, 1)
                 break
     return found
+
+
+#: The kernel mounted the stick's own home partition late (USB storage).
+LATE_HOME = re.compile(r"fs: mounted (usb\d+)p\d+ at /home \(late, home volume lazyhome\)")
+
+
+def judge_persist(log: str, firmware: str, nonce: str, second: bool) -> list[str]:
+    """One boot of ``persist.py``: the stick booted under ``firmware`` from
+    its ramdisk, ``usbd`` served it, ``/home`` came from it, the console
+    session read ``nonce`` back and the machine powered off after a sync.
+    ``second`` (the boot after a clean power-off): the home volume was clean."""
+    failures = judge_serial(log, firmware, ready=None, usb_input=False)
+    if len(LATE_HOME.findall(log)) != 1:
+        failures.append("/home was not mounted late from the stick exactly once")
+    for marker in ("INIT:HOME mounted", "LOGIN:OK:PASS user=alice"):
+        if marker not in log:
+            failures.append(f"{marker} never appeared")
+    if not re.search(rf"(?m)^{re.escape(nonce)}\r?$", log):
+        failures.append(f"the session did not read the nonce {nonce} back")
+    begin = log.find("INIT:SHUTDOWN:BEGIN")
+    synced = log.find("power: filesystems synced")
+    if begin < 0 or synced < begin:
+        failures.append("no orderly power-off (INIT:SHUTDOWN:BEGIN, then a sync)")
+    if "power: sync failed" in log:
+        failures.append("the power-off sync failed")
+    if USB_FATAL.search(log):
+        failures.append(f"usbd error: {USB_FATAL.search(log).group(0)}")
+    if second and re.search(r"usb\d+p\d+ was not cleanly unmounted", log):
+        failures.append("the home volume was not clean after a clean power-off")
+    return failures

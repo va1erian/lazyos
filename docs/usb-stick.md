@@ -2,8 +2,9 @@
 
 One image, `target/lazyos-usb.img`, written to a USB stick, boots a real PC in
 UEFI mode (the primary target) or in legacy BIOS/CSM mode, and runs the whole
-OS from RAM. A persistent `lazyhome` partition on the stick is meant to hold
-`/home`. Plan: [`real-pc-boot-plan.md`](real-pc-boot-plan.md) H0.
+OS from RAM. A persistent `lazyhome` partition on the stick holds `/home`:
+`usbd` serves the stick it booted from as a block device and the kernel mounts
+that partition late ([`architecture/usb-storage.md`](architecture/usb-storage.md)). Plan: [`real-pc-boot-plan.md`](real-pc-boot-plan.md) H0.
 
 ## Build it
 
@@ -96,19 +97,21 @@ port the kernel logs `BOOT:MEDIA:uefi` (or `bios`) and `FS:ROOT:ram0p2`.
 | `/` (programs, `/conf` settings, `/apps` installed packages, `/logs`, `/data`) | the RAM root, loaded from the stick at every boot | **no**: every boot starts from the image's state |
 | `/boot` | the ramdisk's FAT volume (read-only) | n/a |
 | `/tmp`, `/transient` | RAM | no |
-| `/home` | the stick's `lazyhome` partition | **yes, once track 5 mounts it** (below) |
+| `/home` | the stick's `lazyhome` partition (MBR entry 3) | **yes** |
 
-This version runs entirely from RAM: the kernel has no driver for the USB stick
-(its only disk drivers are ATA PIO and legacy virtio-blk), so it cannot read
-the stick after the loader is done. The `lazyhome` partition is there and valid
-for the USB mass-storage work (`usbd` exposing the stick to the kernel, then
-`/home` mounted late from that partition and flushed at shutdown); until that
-lands `/home` is a directory on the RAM root and is lost at power-off.
+The kernel has no USB driver of its own: after the loader is done it reaches
+the stick only through `usbd`, which serves it as `usb0` (`usb0p1` to
+`usb0p3`). `lazyos.cfg` on the ramdisk says `home=LABEL=lazyhome`; the boot
+does not find it (USB is not up yet), so `init` waits (bounded) while `usbd`
+starts, and the kernel mounts `usb0p3` at `/home` late
+(`fs: mounted usb0p3 at /home (late, home volume lazyhome)`, then
+`INIT:HOME mounted`). `poweroff` syncs it before the machine stops. Pulling the
+stick out while running loses only what was not yet synced; the OS itself
+keeps running from RAM.
 
-In QEMU the partition is reachable already: booted with `--media ide` or
-`--media virtio`, the kernel sees the whole stick as a disk, still takes `/`
-from the ramdisk and mounts `/home` from `lazyhome` on the stick (read-only on
-IDE, whose driver cannot write).
+Booted in QEMU with `--media ide` or `--media virtio`, the kernel sees the whole
+stick as a disk instead, still takes `/` from the ramdisk and mounts `/home`
+from `lazyhome` at boot (read-only on IDE, whose driver cannot write).
 
 ## Image layout
 
@@ -170,11 +173,22 @@ python tools/boot/run.py                              # OVMF, usb-storage on qem
 python tools/boot/run.py --firmware bios --no-build   # SeaBIOS, usb-storage only
 python tools/boot/run.py --media ide                  # the stick as an IDE disk (+ /home from lazyhome)
 python tools/boot/run.py --media virtio               # as a legacy virtio-blk disk
-python tools/boot/test_run.py                         # the judge fails when it should
+python tools/boot/persist.py                          # /home survives power-off, OVMF and SeaBIOS
+python tools/boot/test_run.py                         # the judges fail when they should
 cargo test -p build-support-tests usb                 # the image layout, with the ext2 checker
 ```
 
-`--media usb` attaches no IDE or virtio disk and no NIC. `usbd` also claims
-the `qemu-xhci` controller, which is fine: the kernel never reads the stick.
+`--media usb` attaches no IDE or virtio disk and no NIC; a USB keyboard and
+mouse share the `qemu-xhci` controller with the stick, and the judge requires
+`USBD:HID:KBD` (the target PC may have no PS/2 port).
+
+`persist.py` builds the services profile (console login, BusyBox) with a 64 MiB
+home partition and, per firmware, boots a copy of the stick twice from
+`usb-storage` only: the first boot logs in as `alice`, writes a nonce to
+`/home/alice/usbnote` and powers off; the second must find the volume clean,
+read the nonce back and write a second file; then the host runs `e2fsck -fn`
+on partition 3 and reads both files with `debugfs`. The console steps are the
+USB storage harness's (`tools/storage/run.py`). Measured under TCG: each boot
+and session takes 200 to 235 s, OVMF and SeaBIOS alike, and all checks pass.
 OVMF comes from the distribution (`apt install ovmf`); the runner copies the
 variable store per run. The image is opened `snapshot=on` unless `--persist`.

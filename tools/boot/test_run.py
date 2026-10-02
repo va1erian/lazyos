@@ -30,6 +30,39 @@ SHELL:DESKTOP:PASS icons=6
 DESKTOP = {"nonbackground_ratio": 0.98, "distinct_colors_q4": 60}
 
 
+PERSIST = GOOD.replace("SHELL:DESKTOP:PASS icons=6\n", "") + """\
+USBD:MSC:DISK port=0-1 slot=1 id=usb0 sectors=356352
+fs: mounted usb0p3 at /home (late, home volume lazyhome)
+INIT:HOME mounted
+LOGIN:OK:PASS user=alice
+0123abcd
+INIT:SHUTDOWN:BEGIN
+power: filesystems synced
+"""
+
+
+class PersistJudge(unittest.TestCase):
+    def test_a_good_boot_passes(self):
+        self.assertEqual(judge.judge_persist(PERSIST, "uefi", "0123abcd", True), [])
+
+    def test_a_missing_late_mount_fails(self):
+        log = PERSIST.replace("fs: mounted usb0p3", "fs: skipped usb0p3")
+        self.assertTrue(judge.judge_persist(log, "uefi", "0123abcd", False))
+
+    def test_a_wrong_nonce_fails(self):
+        self.assertTrue(judge.judge_persist(PERSIST, "uefi", "ffff", False))
+
+    def test_an_unclean_second_boot_fails(self):
+        log = PERSIST + "ext2: usb0p3 was not cleanly unmounted\n"
+        self.assertEqual(judge.judge_persist(log, "uefi", "0123abcd", False), [])
+        self.assertTrue(judge.judge_persist(log, "uefi", "0123abcd", True))
+
+    def test_power_off_before_sync_order(self):
+        log = PERSIST.replace("INIT:SHUTDOWN:BEGIN\npower: filesystems synced\n",
+                              "power: filesystems synced\nINIT:SHUTDOWN:BEGIN\n")
+        self.assertTrue(judge.judge_persist(log, "uefi", "0123abcd", False))
+
+
 class SerialJudge(unittest.TestCase):
     def test_a_good_uefi_boot_passes(self):
         self.assertEqual(judge.judge_serial(GOOD, "uefi"), [])
