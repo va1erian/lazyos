@@ -359,49 +359,29 @@
  },
  {
   "at": 0.4,
-  "type": "test -"
+  "type": "ls -A "
  },
  {
   "at": 0.4,
-  "type": "e /doc"
+  "type": "/docs/"
  },
  {
   "at": 0.4,
-  "type": "s/apps"
+  "type": "apps |"
  },
  {
   "at": 0.4,
-  "type": "/org.l"
- },
- {
-  "at": 0.4,
-  "type": "azy.co"
- },
- {
-  "at": 0.4,
-  "type": "unter "
- },
- {
-  "at": 0.4,
-  "type": "|| ech"
- },
- {
-  "at": 0.4,
-  "type": "o docs"
- },
- {
-  "at": 0.4,
-  "type": "-gone"
+  "type": " wc -l"
  },
  {
   "at": 0.8,
   "key": "enter",
-  "until": "TERM:CMD:test -e /docs/apps/org.lazy.counter || echo docs-gone",
+  "until": "TERM:CMD:ls -A /docs/apps | wc -l",
   "timeout": 30,
   "retries": 2
  },
  {
-  "wait_for": "TERM:OUT:docs-gone",
+  "wait_for": "TERM:OUT:0",
   "timeout": 60
  },
  {
