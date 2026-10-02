@@ -107,7 +107,7 @@ def reboot_session(nonce: str, boot_id: str) -> list[dict]:
         *command(f"cat {NOTE}", f"TERM:OUT:{nonce}"),
         {"wait_for": f"TERM:OUT:{nonce}", "timeout": 30},
         # The first boot's records are in its journal: its boot line names it.
-        *command(f"grep -c id={boot_id} {JOURNAL}; echo journal-$?", "TERM:OUT:journal-"),
+        *command(f"grep -q id={boot_id} {JOURNAL}; echo journal-$?", "TERM:OUT:journal-"),
         *home(1.0),
         {"at": 2.4, "mouse_move": [44, 704]},
         {"at": 3.0, "mouse_click": "left", "until": "SHELL:MENU:OPEN", "timeout": 20,
