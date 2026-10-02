@@ -25,6 +25,11 @@ python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/lr
     --script tools/screenshot/examples/lazyrad_hello.json --fail-on "LRPLAY:[A-Z]+:FAIL"
 ```
 
+The `lazyrad_*.json` sessions need the samples: an image built without
+`LAZYRAD_SAMPLES` has no `/system/share/lazyrad/hello`, and `lrplay` then stops
+with `LRPLAY:ARGS:FAIL:no project at ...`. From the CLI front end:
+`python tools/run_demo.py --desktop --lazyrad-samples "<lazyrad>/examples/hello;<lazyrad>/examples/calculator;lazyrad-os/samples/perf2000"`.
+
 In the Terminal: `/system/bin/lrplay --client /system/share/lazyrad/hello &`. Command line:
 `lrplay [--client] [--project <dir> | <dir>] [attempt=N]`; see `src/args.rs` for
 how a relative `--project` and the default `resources/project` resolve (against
