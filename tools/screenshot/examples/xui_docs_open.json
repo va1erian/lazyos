@@ -1,4 +1,5 @@
 [
+  {"wait_for": "PKGD:PROVISION:DONE", "timeout": 420},
   {"wait_for": "DOCS:UP:PASS", "timeout": 240},
   {"wait_for": "DOCS:RENDER:PASS", "timeout": 240},
 

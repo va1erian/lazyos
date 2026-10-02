@@ -1,5 +1,8 @@
 [
- {"wait_for": "PKGD:PROVISION:DONE", "timeout": 420},
+ {
+  "wait_for": "PKGD:PROVISION:DONE",
+  "timeout": 420
+ },
  {
   "wait_for": "TERM:UP:PASS",
   "timeout": 300
@@ -372,12 +375,28 @@
  },
  {
   "at": 0.4,
-  "type": " wc -l"
+  "type": " grep "
+ },
+ {
+  "at": 0.4,
+  "type": "-c org"
+ },
+ {
+  "at": 0.4,
+  "type": ".lazy."
+ },
+ {
+  "at": 0.4,
+  "type": "counte"
+ },
+ {
+  "at": 0.4,
+  "type": "r"
  },
  {
   "at": 0.8,
   "key": "enter",
-  "until": "TERM:CMD:ls -A /docs/apps | wc -l",
+  "until": "TERM:CMD:ls -A /docs/apps | grep -c org.lazy.counter",
   "timeout": 30,
   "retries": 2
  },
