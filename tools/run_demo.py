@@ -332,6 +332,10 @@ def main(argv: list[str]) -> int:
                              "and a sound card: copy it to your home and install it with "
                              "`pkgctl install`, or open it in Files, then start ModPlayer "
                              "from the menu")
+    parser.add_argument("--usb-image", action="store_true",
+                        help="also write target/lazyos-usb.img, the image for a real PC's "
+                             "USB stick (LAZYOS_USB_IMAGE=1 LAZYOS_USB=1, a services session; docs/usb-stick.md); the run "
+                             "still boots target/lazyos.img (tools/boot/run.py boots the stick)")
     parser.add_argument("--devices", action="store_true",
                         help="the desktop profile with the Devices app open at boot "
                              "(devices, owners, rights and the driver class rules): "
@@ -407,6 +411,13 @@ def main(argv: list[str]) -> int:
             env["LAZYOS_NET"] = "1"
         if args.desktop:
             env["LAZYOS_DESKTOP"] = "1"
+        if args.usb_image:
+            # The stick must ship `usbd` and boot `init` to start it: the
+            # target PC may have no PS/2 port (the build refuses otherwise).
+            env["LAZYOS_USB_IMAGE"] = "1"
+            env["LAZYOS_USB"] = "1"
+            if not args.desktop:
+                env["LAZYOS_SERVICES"] = "1"
         if args.devices:
             if not build_xui_apps():
                 return 1

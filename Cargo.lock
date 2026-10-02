@@ -170,6 +170,7 @@ name = "build-support-tests"
 version = "0.1.0"
 dependencies = [
  "ext2fs",
+ "fatfs",
  "fhs",
 ]
 
@@ -570,6 +571,7 @@ version = "0.1.0"
 dependencies = [
  "bootloader",
  "ext2fs",
+ "fatfs",
  "fhs",
  "kernel",
  "passwd",

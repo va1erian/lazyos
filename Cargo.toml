@@ -118,6 +118,9 @@ bootloader = "0.11.17"
 # reads it with (docs/filesystem-plan.md F2). `check` lets an update re-certify
 # a volume that stopped uncleanly (`Ext2::recover`).
 ext2fs = { path = "libs/ext2fs", features = ["check"] }
+# The USB stick image's FAT volumes (`build_support/usb_*.rs`); the same
+# version and features `bootloader` already pulls in.
+fatfs = { version = "0.3.6", default-features = false, features = ["std", "alloc"] }
 # Every destination the build writes names its `libs/fhs` constant
 # (docs/filesystem-plan.md F3).
 fhs = { path = "libs/fhs", features = ["alloc"] }
