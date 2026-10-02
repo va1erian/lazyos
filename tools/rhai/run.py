@@ -55,7 +55,7 @@ IMAGE = ROOT / "target" / "lazyos.img"
 LAZYRAD_MARKERS = (
     "LRPLAY:MSG:PASS",
     "LRPLAY:UP:PASS",
-    "TERM:OUT:RHAI:lrserve:hihi",
+    "TERM:OUT:RHAI:lrpoke:poked:hihi",
     "LRPLAY:MSGEVENT:PASS",
 )
 #: The LazyOS-only LazyRAD samples the image embeds under /LAZYRAD/.
@@ -163,7 +163,7 @@ def lazyrad_session(env: dict[str, str], args: argparse.Namespace) -> list[str]:
             return ["cargo build (LAZYOS_DESKTOP=1 LAZYOS_LAZYRAD=1) failed"]
     out = "shots/lazyrad_msg"
     text = run_session("lazyrad_msg.json", out, args,
-                       ["TERM:(BIND|RUN|SPAWN|PANIC)", "LRPLAY:[A-Z]+:FAIL", "RHAI:lrserve:none"])
+                       ["TERM:(BIND|RUN|SPAWN|PANIC)", "LRPLAY:[A-Z]+:FAIL", "RHAI:lrpoke:no-service"])
     problems = []
     for marker in LAZYRAD_MARKERS:
         print(f"  {'ok ' if marker in text else 'missing'} {marker}")

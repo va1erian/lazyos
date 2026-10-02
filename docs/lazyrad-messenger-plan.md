@@ -164,7 +164,7 @@ All phases are implemented. The LazyRAD half is va1erian/lazyrad branch
 | M1 | `tools/midlc/midlc_rhai.py`, `midlc_rhai_docs.py`, `libs/rhai-lazy/api/`, `src/msg/api.rs` | `tools/midlc/test_midlc_rhai.py`; `src/tests/msg_api_tests.rs` (every module compiles; calls, structs, enums, topic helpers against the in-memory fabric; compiled once per fabric; about 3 ms in a release host build) |
 | M2 | `src/msg/{events,bindings}.rs`; LazyRAD `extensions.rs`, `events.rs` (`Poller`), `Msg::Poll` | `src/tests/msg_events_tests.rs` (ownership, poll-only waits, bounded batches, error suppression, reliable acks, serving, release, a 200-round soak); LazyRAD `crates/lazyrad-runtime/tests/events.rs` on the offscreen backend |
 | M3 | `src/msg/permissions.rs`, `LazyOsPlatform::script_permissions`; LazyRAD `HostPermissions`, `Platform::script_permissions` | `src/tests/msg_permissions_tests.rs`; LazyRAD packager tests; `lazyrad-os/tests/lzp_conformance.rs` (`derived_messenger_permissions_pass_the_lazyos_reader`) |
-| M4 | `lazyrad-os/samples/messenger`, `tools/screenshot/examples/lazyrad_msg.json`, `tools/rhai/run.py --lazyrad` | see below |
+| M4 | `lazyrad-os/samples/messenger`, `tools/screenshot/examples/lazyrad_msg.json`, `tools/rhai/run.py --lazyrad` | `python tools/rhai/run.py --lazyrad` passes under WHPX: `LRPLAY:MSG:PASS`, `LRPLAY:UP:PASS`, `LRPLAY:MSGEVENT:PASS`, `TERM:OUT:RHAI:lrpoke:poked:hihi`; the window shows the confd info, the change event and the served call |
 
 Findings while building it:
 

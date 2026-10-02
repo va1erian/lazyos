@@ -1,7 +1,8 @@
 // Drives the Messenger sample from outside: `rhai /LAZYRAD/messenger/poke.rhai`
 // while the form runs (as root: `sys/` is root-writable). It waits for the
 // form's service, changes the confd key the form watches, then calls the
-// service, and prints serial-checkable results.
+// service, and prints one serial-checkable line (the desktop Terminal reports
+// one line per command).
 
 let form = ();
 for attempt in 0..120 {
@@ -13,7 +14,7 @@ for attempt in 0..120 {
     }
 }
 if form == () {
-    print("RHAI:lrserve:none");
+    print("RHAI:lrpoke:no-service");
     os::exit(1);
 }
 
@@ -21,6 +22,6 @@ let value = sys::confd::new_value();
 value.kind = 3;
 value.str_value = "poked";
 sys::confd::set("sys/lazyrad/demo", value);
-print("RHAI:lrset:" + sys::confd::get("sys/lazyrad/demo").str_value);
-
-print("RHAI:lrserve:" + form.echo("hi", 2));
+let stored = sys::confd::get("sys/lazyrad/demo").str_value;
+let reply = form.echo("hi", 2);
+print("RHAI:lrpoke:" + stored + ":" + reply);
