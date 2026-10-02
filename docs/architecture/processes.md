@@ -57,6 +57,7 @@ syscall shim.
 | 28 | `append_file(path, data, len)` | append up to 1 MiB to the end of a file, creating it when absent (`process/fsops.rs`); `write_file` of the first chunk plus one append per further chunk writes a file larger than one call, which the package manager `pkgd` needs for binaries |
 | 29 | `kill(slot, sig)` | end one task by slot (what `spawn` returned) with signal 0 (probe), `SIGTERM` or `SIGKILL`; the sender must share the target's uid or hold `CAP_KILL`; `-ESRCH`/`-EPERM`/`-EINVAL`, no group or broadcast form (`process/killsys.rs`); `init` uses it to stop an app being removed |
 | 30 | `spawnv(req)` | the argv-vector spawn (fs F3): path, `argv`, `envp`, personality and credential stamp in one request block; see below (`process/spawnv.rs`) |
+| 31 | `chmod(path, mode)` | set the permission bits (`mode` holds only `0o7777` bits; any other bit is `-EINVAL`, not masked) through `Vfs::setattr`, the path the Linux `chmod` takes, so the rules are the same: owner or root (`-EPERM`), setgid dropped outside the file's group, `-EROFS` on a read-only mount, `-ENOENT`/`-EFAULT` for a bad path (`process/fsops.rs`); `pkgd` makes a package's `bin/` files `0755`, since native spawn needs an `x` bit |
 
 - `spawn` reads the ELF from the OS volume (`/system/bin/<name>`), names the task after the file's basename and leaks one interned `&'static str`
   per distinct service name (at most 64; later spellings share the name

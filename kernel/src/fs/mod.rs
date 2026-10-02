@@ -51,7 +51,7 @@ use alloc::vec::Vec;
 use spin::Mutex;
 
 use crate::block;
-pub use abi_attr::{abi_setattr, abi_setattr_open};
+pub use abi_attr::{abi_setattr, abi_setattr_open, vfs_setattr};
 #[cfg_attr(not(lazyos_tests), allow(unused_imports))] // probed by the suite
 pub(crate) use mounts::{mount_data_volume, select_root};
 #[cfg(lazyos_tests)]

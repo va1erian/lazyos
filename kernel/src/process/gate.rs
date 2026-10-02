@@ -131,6 +131,9 @@ extern "C" fn syscall_dispatch(regs: *mut Regs) {
         // 30: `spawnv(req)`, the argv-vector spawn (fs F3), see
         // `super::spawnv`.
         30 => sys_spawnv(regs.rdi),
+        // 31: `chmod(path, mode)` (fs F3), served with the other path calls;
+        // the package manager marks an app's `bin/` files executable.
+        31 => fsops::dispatch(regs.rax, regs.rdi, regs.rsi, regs.rdx),
         _ => u64::MAX,
     };
     // A default-fatal signal (a supervisor's `SIGTERM`) that arrived while the
@@ -170,6 +173,7 @@ pub fn dispatch_for_test(nr: u64, a1: u64, a2: u64, a3: u64) -> u64 {
         28 => fsops::dispatch(nr, a1, a2, a3),
         29 => super::killsys::dispatch(a1, a2),
         30 => sys_spawnv(a1),
+        31 => fsops::dispatch(nr, a1, a2, a3),
         _ => u64::MAX,
     }
 }

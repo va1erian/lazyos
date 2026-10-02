@@ -65,6 +65,16 @@ pub const INTERFACES: &[(&str, &str, &str)] = &[
         "Start programs and see which services are running",
     ),
     (
+        "os.lazy.shell.v1",
+        MEDIUM,
+        "Open the start menu, launch apps and read what the desktop shows",
+    ),
+    (
+        "os.lazy.lifecycle.v1",
+        HIGH,
+        "Ask system services to save their state and stop",
+    ),
+    (
         "os.lazy.input.v1",
         LOW,
         "Receive keyboard input while its window is focused",

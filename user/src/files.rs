@@ -1,4 +1,5 @@
-//! Ring-3 wrappers for the native filesystem syscalls 15-22 (issue #6).
+//! Ring-3 wrappers for the native filesystem syscalls 15-22 (issue #6), 28
+//! (`append_file`) and 31 (`chmod`).
 //!
 //! Paths are absolute strings; the kernel checks permissions and reports
 //! failures as `-errno`, which these wrappers hand back as `Err(errno)`.
@@ -17,6 +18,7 @@ const SYS_RENAME: u64 = 20;
 const SYS_POWER: u64 = 21;
 const SYS_FSYNC: u64 = 22;
 const SYS_APPEND_FILE: u64 = 28;
+const SYS_CHMOD: u64 = 31;
 
 /// Largest file `write_file` accepts (mirrors the kernel's `MAX_WRITE`).
 pub const MAX_FILE: usize = 1 << 20;
@@ -185,6 +187,14 @@ pub fn write_large(path: &str, data: &[u8]) -> Result<(), i64> {
         append_file(path, chunk)?;
     }
     Ok(())
+}
+
+/// Set the permission bits of `path` to `mode` (`0o7777` bits only; anything
+/// above is `Err(EINVAL)`). Only the file's owner or root may (`Err(EPERM)`),
+/// the same rule as the Linux `chmod`.
+pub fn chmod(path: &str, mode: u16) -> Result<(), i64> {
+    let path = nul_terminated(path);
+    check(syscall(SYS_CHMOD, path.as_ptr() as u64, u64::from(mode), 0)).map(|_| ())
 }
 
 pub fn mkdir(path: &str) -> Result<(), i64> {

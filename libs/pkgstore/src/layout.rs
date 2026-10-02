@@ -144,6 +144,25 @@ pub fn entry_path(install_path: &str, entry: &str) -> Result<String, PathError> 
     ))
 }
 
+/// The package directory whose files are programs.
+pub const BIN_DIR: &str = "bin";
+/// Permissions of an extracted program (anything under [`BIN_DIR`]).
+pub const EXEC_MODE: u16 = 0o755;
+/// Permissions of every other extracted file.
+pub const DATA_MODE: u16 = 0o644;
+
+/// The permission bits `pkgd` gives the extracted file `entry` (an archive
+/// file name, `bin/app.elf`): [`EXEC_MODE`] for a file under the package's
+/// top-level `bin/` directory, because native spawn needs an `x` bit (root
+/// included), and [`DATA_MODE`] for everything else, so an icon or resource
+/// can never be started as a program.
+pub fn file_mode(entry: &str) -> u16 {
+    match entry.split_once('/') {
+        Some((top, rest)) if top == BIN_DIR && !rest.is_empty() => EXEC_MODE,
+        _ => DATA_MODE,
+    }
+}
+
 /// Every directory the archive needs, parents before children, without
 /// duplicates: each explicit directory entry and every ancestor of every file.
 /// Entry names are the archive's (`dir/` for a directory, `dir/file` for a
@@ -300,5 +319,24 @@ mod tests {
             directories([("bin/../x", false)].into_iter()),
             Err(PathError::Entry)
         );
+    }
+
+    #[test]
+    fn only_files_under_bin_are_executable() {
+        for program in ["bin/app.elf", "bin/tools/helper.elf"] {
+            assert_eq!(file_mode(program), EXEC_MODE, "{program}");
+        }
+        for data in [
+            "manifest.toml",
+            "icons/app-16.png",
+            "resources/bin/x",
+            "docs/bin.md",
+            "bin",
+            "bin/",
+            "binx/app.elf",
+            "Bin/app.elf",
+        ] {
+            assert_eq!(file_mode(data), DATA_MODE, "{data}");
+        }
     }
 }

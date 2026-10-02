@@ -100,7 +100,8 @@ fn failed(step: String, code: i64) -> ExtractError {
 }
 
 /// Extract every entry of `package` under `install_path`: directories first
-/// (parents before children), then each file, verified by size after the write.
+/// (parents before children), then each file, verified by size after the write
+/// and given its mode (`layout::file_mode`: 0755 under `bin/`, 0644 elsewhere).
 /// Returns the number of files written. The caller removes `install_path` when
 /// this fails part-way.
 pub(crate) fn extract(package: &Package<'_>, install_path: &str) -> Result<usize, ExtractError> {
@@ -142,6 +143,12 @@ pub(crate) fn extract(package: &Package<'_>, install_path: &str) -> Result<usize
             }
             Err(code) => return Err(failed(format!("checking {}", entry.name), code)),
         }
+        // `write_file` creates 0644, and native spawn needs an `x` bit (root
+        // included): the package's programs become 0755, everything else is
+        // set to 0644 explicitly. This runs before activation, so the app is
+        // never registered with a program init cannot start.
+        files::chmod(&path, layout::file_mode(entry.name))
+            .map_err(|code| failed(format!("setting the mode of {}", entry.name), code))?;
         written += 1;
     }
     Ok(written)
