@@ -63,7 +63,10 @@ impl Ext2 {
             return Ok(still("not every orphaned file could be reclaimed"));
         }
         self.io.flush().map_err(io_error)?;
-        let problems = check::fsck(&self.read_volume()?);
+        let Some(volume) = self.read_volume()? else {
+            return Ok(still("the volume does not fit in memory for the check"));
+        };
+        let problems = check::fsck(&volume);
         if !problems.is_empty() {
             let quoted: Vec<&str> = problems
                 .iter()
@@ -83,16 +86,28 @@ impl Ext2 {
     }
 
     /// Every byte of the volume (`s_blocks_count` blocks), as the checker
-    /// wants it.
-    fn read_volume(&self) -> Result<Vec<u8>, Ext2Error> {
+    /// wants it, or `None` when the host cannot allocate that much.
+    ///
+    /// The checker takes the whole image on purpose: it re-reads raw bytes
+    /// and shares no code with the driver. This runs on the build host, and
+    /// only for a volume that stopped uncleanly, so the allocation is fallible
+    /// rather than streamed: a volume too large for the host stays flagged
+    /// (the build says why) instead of aborting the build.
+    fn read_volume(&self) -> Result<Option<Vec<u8>>, Ext2Error> {
         let _guard = self.lock.lock();
-        let total = self.blocks_count as usize * self.block_size as usize;
-        let mut bytes = std::vec![0u8; total];
+        let Some(total) = (self.blocks_count as usize).checked_mul(self.block_size as usize) else {
+            return Ok(None);
+        };
+        let mut bytes = Vec::new();
+        if bytes.try_reserve_exact(total).is_err() {
+            return Ok(None);
+        }
+        bytes.resize(total, 0);
         for (index, chunk) in bytes.chunks_mut(READ_CHUNK).enumerate() {
             let lba = (index * READ_CHUNK / SECTOR_SIZE) as u64;
             self.io.read_sectors(lba, chunk).map_err(io_error)?;
         }
-        Ok(bytes)
+        Ok(Some(bytes))
     }
 }
 
