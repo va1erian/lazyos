@@ -166,6 +166,7 @@ pub(super) fn mounted_in(
     Ok((fs, vfs, disk))
 }
 
+pub(super) mod block_cache;
 mod confd_seed;
 mod confd_store;
 pub(super) mod data_fds;

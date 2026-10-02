@@ -150,6 +150,29 @@ impl BlockIo for FileIo {
         file.write_all(buf).map_err(|_| IoError::Failed)
     }
 
+    /// One seek for the whole run the block cache hands over.
+    fn read_sectors_vectored(&self, lba: u64, bufs: &mut [&mut [u8]]) -> Result<(), IoError> {
+        let mut file = self.file.lock().map_err(|_| IoError::Failed)?;
+        self.seek_to(&mut file, lba, bufs.iter().map(|buf| buf.len()).sum())?;
+        for buf in bufs.iter_mut() {
+            file.read_exact(buf).map_err(|_| IoError::Failed)?;
+        }
+        Ok(())
+    }
+
+    /// One seek for the whole run the block cache hands over.
+    fn write_sectors_vectored(&self, lba: u64, bufs: &[&[u8]]) -> Result<(), IoError> {
+        if !self.writable {
+            return Err(IoError::ReadOnly);
+        }
+        let mut file = self.file.lock().map_err(|_| IoError::Failed)?;
+        self.seek_to(&mut file, lba, bufs.iter().map(|buf| buf.len()).sum())?;
+        for buf in bufs {
+            file.write_all(buf).map_err(|_| IoError::Failed)?;
+        }
+        Ok(())
+    }
+
     fn flush(&self) -> Result<(), IoError> {
         if !self.writable {
             return Ok(());

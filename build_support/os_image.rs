@@ -233,6 +233,15 @@ fn volume_error(what: &str, error: Ext2Error) -> String {
     format!("{what}: {error:?}")
 }
 
+/// Mount the OS volume for writing through a 64 MiB block cache: the build
+/// then writes each block once, in large requests, instead of rewriting the
+/// bitmaps and counters for every block it allocates.
+fn open_cached(io: FileIo) -> Result<Ext2, String> {
+    let mut config = ext2fs::CacheConfig::heap(16 * 1024);
+    config.max_request = 1 << 20;
+    Ext2::open_cached(Box::new(io), now, config).map_err(|e| volume_error("open", e))
+}
+
 /// Write the file list into `volume` and return the manifest it placed.
 ///
 /// With `old` (an update): delete what the old manifest placed and the new one
@@ -291,6 +300,9 @@ pub fn write_volume(
             .write_file(&file.path, &bytes, file.mode, 0, 0, stamp)
             .map_err(|e| volume_error(&format!("write {}", file.path), e))?;
     }
+    // Everything else is on the disk before the manifest that lists it: the
+    // cache would otherwise write them back together.
+    volume.flush().map_err(|e| volume_error("flush", e))?;
     volume
         .write_file(
             MANIFEST_PATH,
@@ -366,7 +378,7 @@ fn create(
     let io = FileIo::new(file, OS_START_LBA, sectors, true);
     let geometry = Geometry::for_size(sectors * SECTOR);
     ext2fs::format(&io, geometry, "lazyos", uuid, now()).map_err(|e| volume_error("format", e))?;
-    let volume = Ext2::open(Box::new(io), now).map_err(|e| volume_error("open", e))?;
+    let volume = open_cached(io)?;
     write_volume(&volume, None, dirs, files, now())?;
     Ok(())
 }
@@ -402,7 +414,7 @@ fn update(
     let old_end = old_fat_end(&mut file)?;
     write_head(&mut file, head, old_end)?;
     let io = FileIo::new(file, OS_START_LBA, sectors, true);
-    let volume = Ext2::open(Box::new(io), now).map_err(|e| volume_error("open", e))?;
+    let volume = open_cached(io)?;
     write_volume(&volume, Some(old), dirs, files, now())?;
     Ok(())
 }

@@ -24,14 +24,16 @@
 //! buffer may be a stack slice or a heap buffer without any physical-layout
 //! requirement.
 
+mod gather;
 mod io;
 mod queue;
 
-use super::virtio_diag as diag;
 use super::stats::IoStats;
+use super::virtio_diag as diag;
 use super::{BlockDevice, BlockError, SECTOR_SIZE};
 use core::cell::UnsafeCell;
 use core::sync::atomic::{fence, Ordering};
+use gather::Cursor;
 pub use io::attach_function;
 use io::{in8, out16, ISR, QUEUE_NOTIFY};
 use queue::{write_desc, Control, ControlCell, Queue, QUEUE_BYTES};
@@ -270,41 +272,62 @@ impl BlockDevice for VirtioBlk {
     }
 
     fn read_sectors(&self, lba: u64, buf: &mut [u8]) -> Result<(), BlockError> {
+        self.read_sectors_vectored(lba, &mut [buf])
+    }
+
+    fn write_sectors(&self, lba: u64, buf: &[u8]) -> Result<(), BlockError> {
+        self.write_sectors_vectored(lba, &[buf])
+    }
+
+    /// The segments are one byte range, moved in requests of up to
+    /// [`MAX_REQUEST_BYTES`] through the bounce region.
+    fn read_sectors_vectored(&self, lba: u64, bufs: &mut [&mut [u8]]) -> Result<(), BlockError> {
         let slot = &SLOTS[self.index];
         let mut guard = self.state.lock();
         let state = guard.as_mut().ok_or(BlockError::Io)?;
-        super::check_range(SECTOR_SIZE, state.sectors, lba, buf.len())?;
+        let total = bufs.iter().map(|buf| buf.len()).sum();
+        super::check_range(SECTOR_SIZE, state.sectors, lba, total)?;
         state.drain(slot)?;
-        let mut sector = 0u64;
-        for chunk in buf.chunks_mut(MAX_REQUEST_BYTES) {
-            state.complete(slot, false, lba + sector, chunk.len())?;
-            self.stats.count(false, chunk.len());
-            // Safety: the bounce page was filled by the completed request.
-            let bounce = unsafe {
-                core::slice::from_raw_parts(slot.bounce.0.get() as *const u8, chunk.len())
-            };
-            chunk.copy_from_slice(bounce);
-            sector += (chunk.len() / SECTOR_SIZE) as u64;
+        let mut cursor = Cursor::default();
+        let mut done = 0;
+        while done < total {
+            let len = (total - done).min(MAX_REQUEST_BYTES);
+            state.complete(slot, false, lba + (done / SECTOR_SIZE) as u64, len)?;
+            self.stats.count(false, len);
+            // Safety: the completed request filled the bounce region and the
+            // device is done with it; it is ours alone while the lock is held.
+            let bounce =
+                unsafe { core::slice::from_raw_parts(slot.bounce.0.get() as *const u8, len) };
+            cursor.scatter(bounce, bufs);
+            done += len;
         }
         Ok(())
     }
 
-    fn write_sectors(&self, lba: u64, buf: &[u8]) -> Result<(), BlockError> {
+    /// The write counterpart of [`VirtioBlk::read_sectors_vectored`].
+    fn write_sectors_vectored(&self, lba: u64, bufs: &[&[u8]]) -> Result<(), BlockError> {
         let slot = &SLOTS[self.index];
         let mut guard = self.state.lock();
         let state = guard.as_mut().ok_or(BlockError::Io)?;
-        super::check_range(SECTOR_SIZE, state.sectors, lba, buf.len())?;
+        let total = bufs.iter().map(|buf| buf.len()).sum();
+        super::check_range(SECTOR_SIZE, state.sectors, lba, total)?;
         state.drain(slot)?;
-        let mut sector = 0u64;
-        for chunk in buf.chunks(MAX_REQUEST_BYTES) {
-            // Safety: the bounce page is exclusively ours while the lock is held.
-            let bounce = unsafe {
-                core::slice::from_raw_parts_mut(slot.bounce.0.get() as *mut u8, chunk.len())
-            };
-            bounce.copy_from_slice(chunk);
-            state.complete(slot, true, lba + sector, chunk.len())?;
-            self.stats.count(true, chunk.len());
-            sector += (chunk.len() / SECTOR_SIZE) as u64;
+        let mut cursor = Cursor::default();
+        let mut done = 0;
+        while done < total {
+            let len = (total - done).min(MAX_REQUEST_BYTES);
+            {
+                // Safety: no request is outstanding (drained above, and each
+                // `complete` consumes its own), so the bounce region is ours
+                // alone while the lock is held; the borrow ends before the
+                // device is handed the region.
+                let bounce =
+                    unsafe { core::slice::from_raw_parts_mut(slot.bounce.0.get() as *mut u8, len) };
+                cursor.gather(bufs, bounce);
+            }
+            state.complete(slot, true, lba + (done / SECTOR_SIZE) as u64, len)?;
+            self.stats.count(true, len);
+            done += len;
         }
         Ok(())
     }
