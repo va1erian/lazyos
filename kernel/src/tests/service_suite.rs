@@ -90,7 +90,7 @@ pub fn spawn_child_rejects_bad_image() -> Result<(), String> {
     Ok(())
 }
 
-/// `spawnv` (syscall 30) of `path` with `argv` `[path]` under the given
+/// `spawnv` (syscall 31) of `path` with `argv` `[path]` under the given
 /// personality, inheriting the caller's credentials.
 fn spawnv(path: &str, linux: bool) -> u64 {
     use crate::process::spawnv::{personality, REQ_WORDS};
@@ -108,7 +108,7 @@ fn spawnv(path: &str, linux: bool) -> u64 {
     } else {
         personality::NATIVE
     };
-    process::dispatch_for_test(30, words.as_ptr() as u64, 0, 0)
+    process::dispatch_for_test(31, words.as_ptr() as u64, 0, 0)
 }
 
 /// A native `spawnv` refuses a missing program with `-ENOENT` (the test
@@ -246,7 +246,17 @@ pub fn linux_load_executable_prefers_system_bin() -> Result<(), String> {
         ("/rhai2", b"exact-file"),
         ("/system/bin/longer-name", b"long-name"),
     ])?;
-    for name in ["rhai", "/bin/rhai", "/usr/local/bin/rhai", fhs::bin::RHAI] {
+    // `/usr/local/sbin` heads BusyBox ash's default `$PATH`; an unbacked
+    // directory such as `/opt/x/bin` falls back to the basename, which must
+    // still find the `/system/bin` program before the BusyBox alias (#515).
+    for name in [
+        "rhai",
+        "/bin/rhai",
+        "/usr/local/bin/rhai",
+        "/usr/local/sbin/rhai",
+        "/opt/x/bin/rhai",
+        fhs::bin::RHAI,
+    ] {
         check!(
             process::linux::load_executable(name) == Some(b"rhai-program".to_vec()),
             "`{name}` did not resolve to {}",
@@ -306,7 +316,13 @@ pub fn soak_linux_load_executable_repeated() -> Result<(), String> {
         (fhs::bin::BUSYBOX, &busybox),
         (fhs::bin::RHAI, b"rhai-program"),
     ])?;
-    let path_dirs = ["/usr/local/bin", "/bin", "/usr/bin", "/sbin"];
+    let path_dirs = [
+        "/usr/local/sbin",
+        "/usr/local/bin",
+        "/bin",
+        "/usr/bin",
+        "/sbin",
+    ];
     // Warm-up absorbs one-time allocations so the steady state is compared.
     let _ = process::linux::load_executable("rhai");
     let frames_before = mem::frame_stats().live();

@@ -1,0 +1,20 @@
+[
+  {"wait_for": "PKGD:PROVISION:DONE", "timeout": 420},
+  {"wait_for": "TERM:UP:PASS", "timeout": 240},
+  {"at": 2.0, "type": "echo SUB:plain:ok"},
+  {"at": 2.5, "key": "enter", "until": "TERM:OUT:SUB:plain:ok", "timeout": 60, "retries": 2},
+  {"at": 1.0, "type": "X=$(echo hi); echo SUB:assign:$X"},
+  {"at": 1.5, "key": "enter", "until": "TERM:OUT:SUB:assign:hi", "timeout": 60},
+  {"at": 1.0, "type": "echo SUB:inline:$(echo hi)"},
+  {"at": 1.5, "key": "enter", "until": "TERM:OUT:SUB:inline:hi", "timeout": 60},
+  {"at": 1.0, "type": "echo SUB:backtick:`echo hi`"},
+  {"at": 1.5, "key": "enter", "until": "TERM:OUT:SUB:backtick:hi", "timeout": 60},
+  {"at": 1.0, "type": "D=$(echo /system/*); echo SUB:glob:$D"},
+  {"at": 1.5, "key": "enter", "until": "TERM:OUT:SUB:glob:/system/bin", "timeout": 60},
+  {"at": 1.0, "type": "cd /system; echo SUB:pwd:$(pwd)"},
+  {"at": 1.5, "key": "enter", "until": "TERM:OUT:SUB:pwd:/system", "timeout": 60},
+  {"at": 1.0, "type": "echo SUB:pipe:$(ls / | wc -l)"},
+  {"at": 1.5, "key": "enter", "until": "TERM:OUT:SUB:pipe:", "timeout": 60},
+  {"at": 3.0, "shot": "01_desktop_subst"},
+  {"at": 4.0, "quit": true}
+]

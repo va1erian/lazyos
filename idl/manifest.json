@@ -38,7 +38,17 @@
       {
         "name": "AttachRing",
         "id": 62355614,
-        "oneway": false
+        "oneway": false,
+        "transfers": [
+          {
+            "name": "ring",
+            "kind": "rings",
+            "slot": 0,
+            "rings": [
+              "Samples"
+            ]
+          }
+        ]
       },
       {
         "name": "Commit",
@@ -69,6 +79,16 @@
         "name": "CloseStream",
         "id": 973774059,
         "oneway": false
+      },
+      {
+        "name": "SetVolume",
+        "id": 1919741053,
+        "oneway": false
+      },
+      {
+        "name": "SetMute",
+        "id": 1285443642,
+        "oneway": false
       }
     ],
     "topics": [
@@ -81,7 +101,42 @@
         "publish_permission": "publish:system/audio/+/event",
         "subscribe_permission": "subscribe:system/audio/+/event"
       }
+    ],
+    "rings": [
+      {
+        "name": "Samples",
+        "layout": "stream",
+        "producer": "client",
+        "advance": "Commit"
+      }
     ]
+  },
+  {
+    "interface": "os.lazy.audio.mixer.v1",
+    "interface_id": "0x39a0c9a99b23a265",
+    "methods": [
+      {
+        "name": "ListStreams",
+        "id": 711680798,
+        "oneway": false
+      },
+      {
+        "name": "SetStreamVolume",
+        "id": 953940373,
+        "oneway": false
+      },
+      {
+        "name": "GetMaster",
+        "id": 1362695053,
+        "oneway": false
+      },
+      {
+        "name": "SetMaster",
+        "id": 301176513,
+        "oneway": false
+      }
+    ],
+    "topics": []
   },
   {
     "interface": "os.lazy.clipboard.v1",
@@ -192,12 +247,27 @@
       {
         "name": "CreateSurface",
         "id": 1,
-        "oneway": false
+        "oneway": false,
+        "transfers": [
+          {
+            "name": "events",
+            "kind": "channel",
+            "slot": 0,
+            "interface": "os.lazy.display.v1"
+          }
+        ]
       },
       {
         "name": "AttachBuffer",
         "id": 2,
-        "oneway": false
+        "oneway": false,
+        "transfers": [
+          {
+            "name": "pixels",
+            "kind": "buffer",
+            "slot": 0
+          }
+        ]
       },
       {
         "name": "Commit",
@@ -287,7 +357,15 @@
       {
         "name": "Subscribe",
         "id": 20,
-        "oneway": false
+        "oneway": false,
+        "transfers": [
+          {
+            "name": "events",
+            "kind": "channel",
+            "slot": 0,
+            "interface": "os.lazy.display.v1"
+          }
+        ]
       },
       {
         "name": "GetTheme",
@@ -312,7 +390,14 @@
       {
         "name": "AttachBufferSlot",
         "id": 25,
-        "oneway": false
+        "oneway": false,
+        "transfers": [
+          {
+            "name": "pixels",
+            "kind": "buffer",
+            "slot": 0
+          }
+        ]
       },
       {
         "name": "Present",
@@ -518,7 +603,15 @@
       {
         "name": "Open",
         "id": 1,
-        "oneway": false
+        "oneway": false,
+        "transfers": [
+          {
+            "name": "events",
+            "kind": "channel",
+            "slot": 0,
+            "interface": "os.lazy.input.v1"
+          }
+        ]
       },
       {
         "name": "Close",
@@ -565,7 +658,15 @@
       {
         "name": "Attach",
         "id": 1,
-        "oneway": false
+        "oneway": false,
+        "transfers": [
+          {
+            "name": "events",
+            "kind": "channel",
+            "slot": 0,
+            "interface": "os.lazy.input.shell.v1"
+          }
+        ]
       },
       {
         "name": "SetFocus",
@@ -849,7 +950,24 @@
       {
         "name": "AttachRing",
         "id": 62355614,
-        "oneway": false
+        "oneway": false,
+        "transfers": [
+          {
+            "name": "rings",
+            "kind": "rings",
+            "slot": 0,
+            "rings": [
+              "Rx",
+              "Tx"
+            ]
+          },
+          {
+            "name": "notify",
+            "kind": "channel",
+            "slot": 0,
+            "interface": "os.lazy.net.nic.v1"
+          }
+        ]
       },
       {
         "name": "DetachRing",
@@ -881,6 +999,20 @@
         "retained": true,
         "publish_permission": "publish:system/net/+/link",
         "subscribe_permission": "subscribe:system/net/+/link"
+      }
+    ],
+    "rings": [
+      {
+        "name": "Rx",
+        "layout": "frames",
+        "producer": "server",
+        "doorbell": "Notify"
+      },
+      {
+        "name": "Tx",
+        "layout": "frames",
+        "producer": "client",
+        "doorbell": "Kick"
       }
     ]
   },

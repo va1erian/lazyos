@@ -273,11 +273,8 @@ pub fn soak_thread_exit_generations() -> Result<(), String> {
         // buffers to drop, not just an empty shell.
         task::harness::switch_current(thread);
         task::write_output(b"thread output\n");
-        task::fd_open(task::Fd::File {
-            data: alloc::sync::Arc::new(alloc::vec![0x5a; 64]),
-            offset: 0,
-        })
-        .ok_or_else(|| format!("round {round}: fd_open failed"))?;
+        task::fd_open(task::Fd::file(alloc::vec![0x5a; 64], None))
+            .ok_or_else(|| format!("round {round}: fd_open failed"))?;
         task::harness::finish(thread, 0);
         let next = task::harness::simulate_tick();
         check!(
@@ -402,11 +399,7 @@ pub fn futex_wait_mismatch() -> Result<(), String> {
 /// Open, size, read, seek, duplicate and close a descriptor.
 pub fn fd_table() -> Result<(), String> {
     task::register_kernel();
-    let fd = task::fd_open(task::Fd::File {
-        data: alloc::sync::Arc::new(b"hello".to_vec()),
-        offset: 0,
-    })
-    .ok_or("fd_open failed")?;
+    let fd = task::fd_open(task::Fd::file(b"hello".to_vec(), None)).ok_or("fd_open failed")?;
     check!(fd >= 3, "fd_open returned reserved slot {fd}");
     check!(
         task::fd_kind(fd) == task::FdKind::File,

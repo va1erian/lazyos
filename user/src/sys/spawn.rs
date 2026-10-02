@@ -1,4 +1,4 @@
-//! The argv-vector spawn (`spawnv`, syscall 30) and this program's own
+//! The argv-vector spawn (`spawnv`, syscall 31) and this program's own
 //! arguments and environment (syscall 9), fs F3 (issue #507).
 //!
 //! The kernel keeps a native program's `argv` (with `argv[0]`) and `envp` as
@@ -92,7 +92,7 @@ pub fn spawnv(
         label.len() as u64,
     ];
     let code: u64;
-    // Safety: `int 0x80` with syscall 30; the request and every buffer it
+    // Safety: `int 0x80` with syscall 31; the request and every buffer it
     // points at live until the call returns, and the kernel validates them.
     unsafe {
         asm!(

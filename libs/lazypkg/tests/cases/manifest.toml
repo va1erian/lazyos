@@ -43,6 +43,12 @@ valid = true
 category = "development"
 
 [[manifest]]
+name = "games"
+app = 'category = "games"'
+valid = true
+category = "games"
+
+[[manifest]]
 name = "graphics"
 app = 'category = "graphics"'
 valid = true
@@ -74,7 +80,7 @@ category = "utilities"
 
 [[manifest]]
 name = "an unknown category is an error"
-app = 'category = "games"'
+app = 'category = "toys"'
 valid = false
 error = "app.category"
 

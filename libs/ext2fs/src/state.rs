@@ -29,6 +29,16 @@ impl Ext2 {
         self.mount_state & STATE_ERROR != 0
     }
 
+    /// Record that a full check found the volume consistent, so the next sync
+    /// may mark it clean even though it arrived unclean. This is the one way
+    /// out of "dirty": without it a volume found unclean stays flagged through
+    /// every later clean shutdown, as above. Only `recover` (behind a passing
+    /// fsck) calls it; recorded errors are kept.
+    #[cfg(any(test, feature = "check"))]
+    pub(crate) fn mark_checked(&mut self) {
+        self.mount_state |= STATE_VALID;
+    }
+
     /// Persist `s_state = state` (and the write time) in the superblock.
     fn store_state(&self, state: u16) -> Result<(), Ext2Error> {
         let mut raw = [0u8; 1024];

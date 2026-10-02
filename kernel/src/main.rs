@@ -218,11 +218,15 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         #[cfg(not(services_mode))]
         spawn_console_shell();
 
-        // `LAZYOS_SOUND=1` boots the virtio-sound driver directly when there is
-        // no supervisor to start it (docs/driver-plan.md D6). `sndd` plays a
-        // test tone with `demo=1`, which the sound harness records.
+        // `LAZYOS_SOUND=1` boots the virtio-sound driver and the system mixer
+        // directly when there is no supervisor to start them (docs/driver-plan.md
+        // D6, docs/audio-plan.md). `sndd` plays a test tone with `demo=1`, then
+        // `audiod demo=1` runs the evidence clients through the mixer; the
+        // sound harness records both.
         #[cfg(all(sound_demo, not(services_mode)))]
         spawn_program(fhs::bin::SNDD, &["demo=1"]);
+        #[cfg(all(sound_demo, not(services_mode)))]
+        spawn_program(fhs::bin::AUDIOD, &["demo=1"]);
 
         // `LAZYOS_NET=1` boots the virtio-net driver directly when there is no
         // supervisor to start it (docs/networking-plan.md N1). `netdrv` runs

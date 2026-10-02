@@ -11,9 +11,13 @@ name = "ext2fs"
 path = "src/lib.rs"
 
 [features]
+# Expose the fsck-style checker (`check::fsck`) and `Ext2::recover`, which
+# re-certifies a volume that stopped uncleanly. Needs `std`; the image build
+# uses it, the kernel does not.
+check = []
 # Expose `fuzz::run`, the byte-script entry point shared by the in-tree seeded
 # tests and the cargo-fuzz target (`fuzz/`). Needs `std`.
-fuzz = []
+fuzz = ["check"]
 
 [dependencies]
 spin = "0.9"

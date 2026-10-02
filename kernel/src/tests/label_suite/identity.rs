@@ -262,9 +262,9 @@ fn gate(op: u64, a1: u64, a2: u64) -> u64 {
     process::dispatch_for_test(10, op, a1, a2)
 }
 
-/// `spawnv` (syscall 30) of the request [`write_block`] wrote.
+/// `spawnv` (syscall 31) of the request [`write_block`] wrote.
 fn spawn_labelled() -> u64 {
-    process::dispatch_for_test(30, BLOCK, 0, 0)
+    process::dispatch_for_test(31, BLOCK, 0, 0)
 }
 
 /// The native gate: labelled spawn (`spawnv`), label-name reads and

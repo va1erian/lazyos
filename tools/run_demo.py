@@ -20,6 +20,7 @@ Examples
     python tools/run_demo.py --desktop --sound   # desktop session; type `beep` in the Terminal
     python tools/run_demo.py --desktop --no-shell  # desktop without LazyShell (bare compositor)
     python tools/run_demo.py --sound wav:out.wav   # ...recorded to a WAV file instead
+    python tools/run_demo.py --doom          # desktop + /system/share/samples/doom.lzp
 
 The OS lives on an ext2 volume inside ``target/lazyos.img`` that ``cargo build``
 updates in place (installed apps, settings and logs survive); ``--reset-os``
@@ -195,6 +196,19 @@ def build_lazyrad() -> bool:
     return result.returncode == 0
 
 
+def build_doom() -> bool:
+    """Build the Doom package (`tools/doom/build.py`: engine, Freedoom, then
+    `target/pkg/DOOM.LZP`). Explicitly requested with `--doom`, so a missing
+    toolchain or download stops the run (`--require`)."""
+    print("building Doom (tools/doom/build.py)…", flush=True)
+    script = ROOT / "tools" / "doom" / "build.py"
+    result = subprocess.run([sys.executable, str(script), "--require"], cwd=ROOT,
+                            stdout=subprocess.DEVNULL)
+    if result.returncode != 0:
+        print("error: Doom did not build (run `python tools/doom/build.py`)", file=sys.stderr)
+    return result.returncode == 0
+
+
 def build_xui_apps() -> bool:
     """Build the desktop's xui apps (`tools/xui/build.py`), which include the
     Devices app. Explicitly requested with `--devices`, so a failure stops."""
@@ -287,6 +301,13 @@ def main(argv: list[str]) -> int:
                              "/system/share/lazyrad/ (LAZYRAD_SAMPLES; `;` on Windows, "
                              "`:` elsewhere), e.g. <lazyrad>/examples/hello; the "
                              "lazyrad_*.json sessions need them. Implies --lazyrad")
+    parser.add_argument("--doom", action="store_true",
+                        help="the desktop profile with the Doom package at "
+                             "/system/share/samples/doom.lzp (LAZYOS_DOOM=1; builds it "
+                             "with tools/doom/build.py, which fetches doomgeneric and "
+                             "Freedoom): install it with `pkgctl install "
+                             "/system/share/samples/doom.lzp` or by opening it in Files, "
+                             "then start Doom from the menu")
     parser.add_argument("--devices", action="store_true",
                         help="the desktop profile with the Devices app open at boot "
                              "(devices, owners, rights and the driver class rules): "
@@ -300,7 +321,7 @@ def main(argv: list[str]) -> int:
                         help="extra QEMU args (after `--`)")
     args = parser.parse_args(argv)
     # The Devices app is a desktop app: `--devices` implies `--desktop`.
-    args.desktop = args.desktop or args.devices
+    args.desktop = args.desktop or args.devices or args.doom
     # Samples are only embedded with the runtime that plays them.
     args.lazyrad = args.lazyrad or bool(args.lazyrad_samples)
     if args.no_data_disk and (args.reset_data or args.data_disk):
@@ -337,6 +358,10 @@ def main(argv: list[str]) -> int:
             env["LAZYOS_LAZYRAD"] = "1"
             if args.lazyrad_samples:
                 env["LAZYRAD_SAMPLES"] = args.lazyrad_samples
+        if args.doom:
+            if not build_doom():
+                return 1
+            env["LAZYOS_DOOM"] = "1"
         print(f"building LazyOS [{profile}]…", flush=True)
         if args.sound:
             env["LAZYOS_SOUND"] = "1"

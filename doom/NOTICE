@@ -1,0 +1,38 @@
+Doom for LazyOS (the `org.lazy.doom` package)
+=============================================
+
+This package combines three works:
+
+1. The game engine: doomgeneric (https://github.com/ozkl/doomgeneric), a port
+   of Chocolate Doom, itself derived from id Software's Linux Doom source.
+   Copyright (C) 1993-1996 id Software, Inc.; (C) 2005-2014 Simon Howard;
+   and the doomgeneric contributors. Licensed under the GNU General Public
+   License, version 2 or (at your option) any later version.
+
+2. The LazyOS platform layer (`doom/` in the LazyOS tree): the Rust program
+   that implements doomgeneric's platform hooks on the LazyOS display and
+   input services. Licensed under the GNU General Public License, version 3
+   or (at your option) any later version.
+
+   The engine is statically linked into `bin/doom.elf`, so the binary as a
+   whole is distributed under the GNU GPL, version 3 or later.
+
+3. The game data: Freedoom: Phase 1 (`resources/freedoom1.wad`,
+   https://freedoom.github.io), Copyright (C) 2001-2024 the Freedoom
+   contributors, under the BSD 3-Clause licence in
+   `resources/COPYING-freedoom.txt`.
+
+Corresponding source
+--------------------
+
+The complete corresponding source of `bin/doom.elf` is:
+
+* the LazyOS tree at the revision this package was built from (`doom/`,
+  `xui-app/`, `libs/messenger/`, `libs/fhs/`, `libs/generated/`,
+  `tools/doom/`), and
+* doomgeneric at the commit pinned in `tools/doom/fetch.py`
+  (`DOOMGENERIC_REV`), fetched unmodified and compiled by `doom/build.rs`.
+
+`python tools/doom/build.py` rebuilds the package from those two sources. The
+same source is available from whoever gave you this package, on request, for
+at least three years.

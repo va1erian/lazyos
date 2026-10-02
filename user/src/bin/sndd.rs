@@ -5,17 +5,20 @@
 //! function through the device syscall (23), maps its BARs, allocates DMA
 //! memory for the virtqueues and the sample slots, and drives the device with
 //! the transport in `libs/virtio` and the protocol in `libs/virtio-snd`. It
-//! polls instead of arming the device interrupt. It serves `os.lazy.audio.v1`
-//! (`idl/audio.midl`) under [`api::NAME`]: clients open a stream, share a ring,
-//! and the driver copies committed periods into its own DMA slots.
+//! arms the device interrupt when it can and polls otherwise. It serves
+//! `os.lazy.audio.v1` (`idl/audio.midl`) under [`api::CARD_NAME`]: a client
+//! opens the stream, shares a ring, and the driver copies committed periods
+//! into its own DMA slots. That client is the system mixer, `audiod`
+//! (docs/audio-plan.md), which holds the one stream for as long as it runs;
+//! applications talk to the mixer, never to the card.
 //!
 //! Boot evidence (`demo=1`, optional `freq=<Hz>` `ms=<milliseconds>`):
 //!
 //! 1. `SNDD:CARD` and one `SNDD:PCM` per stream describe the device;
 //! 2. the driver plays a test tone *directly* and prints `SND:PLAY:PASS` once
 //!    the device reported every period consumed;
-//! 3. it registers the service (`SNDD:READY`) and spawns `beep` (`/system/bin/beep`),
-//!    a real client, which prints `BEEP:PLAY:PASS`.
+//! 3. it registers the card (`SNDD:READY`); `audiod demo=1` then runs the
+//!    evidence clients through the mixer.
 //!
 //! The host side (`tools/sound/run.py`) records the audio with QEMU's `wav`
 //! backend and checks the recording, so the markers alone are never the proof.
@@ -65,25 +68,6 @@ const PERIOD_BYTES: u32 = 8192;
 /// Peak level of the tone: about half of full scale, unmistakable and far
 /// from clipping.
 const AMPLITUDE_Q15: i32 = 16000;
-
-/// The evidence clients `demo=1` runs, one after another, once the service is
-/// up: a real tone (the recording proves it), a hostile-input probe, and a
-/// stream-lifecycle soak of silence. See `user/src/bin/beep.rs`.
-const BEEP_CLIENTS: [(&str, &[&str]); 3] = [
-    (fhs::bin::BEEP, &["freq=880", "ms=800"]),
-    (fhs::bin::BEEP, &["probe=1"]),
-    (fhs::bin::BEEP, &["soak=40"]),
-];
-
-/// `LAZYOS_SOUND_MODPLAY=1` at build time swaps them for the tracker player's
-/// self-test melody (`user/src/bin/modplay.rs`, `tools/sound/run.py --modplay`).
-const MODPLAY_CLIENTS: [(&str, &[&str]); 1] = [(fhs::bin::MODPLAY, &["selftest"])];
-
-const DEMO_CLIENTS: &[(&str, &[&str])] = if option_env!("LAZYOS_SOUND_MODPLAY").is_some() {
-    &MODPLAY_CLIENTS
-} else {
-    &BEEP_CLIENTS
-};
 
 /// Longest park in the serve loop while no stream is running (PIT ticks).
 const IDLE_TICKS: u64 = 100;
@@ -173,7 +157,7 @@ fn run(args: &Args) -> Result<(), Error> {
         user::dev::inspect::cross_class_probe("snd");
         self_test(&mut card, &infos, args)?;
     }
-    serve(card, &infos, args.demo)
+    serve(card, &infos)
 }
 
 /// Play a tone straight through the driver, without a client: the proof the
@@ -217,21 +201,20 @@ fn self_test(card: &mut Card, infos: &[PcmInfo], args: &Args) -> Result<(), Erro
     Ok(())
 }
 
-/// Register `os.lazy.audio.v1` and serve it for the life of the driver.
-fn serve(card: Card, infos: &[PcmInfo], demo: bool) -> Result<(), Error> {
+/// Register the card's `os.lazy.audio.v1` and serve it for the life of the
+/// driver.
+fn serve(card: Card, infos: &[PcmInfo]) -> Result<(), Error> {
     let fail = |error: MsgError| Error::Messenger(error.message());
     let (published, server) = messenger::create_pair().map_err(fail)?;
-    registry::register(api::NAME, &published, &[api::INTERFACE], 0).map_err(fail)?;
+    registry::register(api::CARD_NAME, &published, &[api::INTERFACE], 0).map_err(fail)?;
     sys::write_str(&format!(
-        "SNDD:READY name={} interface={:#x}\n",
-        api::NAME,
+        "SNDD:READY name={} interface={:#x}
+",
+        api::CARD_NAME,
         api::INTERFACE
     ));
 
     let mut service = Service::new(card, infos);
-    // Index of the next demo client to start, and the one running now.
-    let mut next_demo = if demo { 0 } else { DEMO_CLIENTS.len() };
-    let mut demo_child: Option<u64> = None;
     // One receive buffer for the life of the service (the heap never reclaims
     // per-call buffers).
     let mut buffer = vec![0u8; messenger::DEFAULT_BUFFER];
@@ -250,33 +233,7 @@ fn serve(card: Card, infos: &[PcmInfo], demo: bool) -> Result<(), Error> {
             Err(error) => return Err(fail(error)),
         }
         service.housekeeping();
-        if demo_child.is_some() {
-            if let Some((pid, status)) = sys::wait(sys::clock()) {
-                sys::write_str(&format!("SNDD:DEMO:EXIT pid={pid} status={status}\n"));
-                demo_child = None;
-            }
-        } else if next_demo < DEMO_CLIENTS.len() {
-            demo_child = spawn_demo_client(DEMO_CLIENTS[next_demo]);
-            // A client that cannot start ends the sequence: the harness then
-            // reports the missing marker instead of waiting for a later one.
-            next_demo = if demo_child.is_some() {
-                next_demo + 1
-            } else {
-                DEMO_CLIENTS.len()
-            };
-        }
     }
-}
-
-/// Start one evidence client, `(program, arguments)`; `None` when its ELF is
-/// not on the image.
-fn spawn_demo_client((program, args): (&str, &[&str])) -> Option<u64> {
-    let pid = sys::spawn_native(program, args);
-    match pid {
-        Some(pid) => sys::write_str(&format!("SNDD:DEMO:SPAWN pid={pid}\n")),
-        None => sys::write_str("SNDD:DEMO:SPAWN failed (client ELF missing?)\n"),
-    }
-    pid
 }
 
 #[panic_handler]

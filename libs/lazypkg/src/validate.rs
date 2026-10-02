@@ -298,10 +298,10 @@ mod tests {
     #[test]
     fn rejects_an_unknown_category() {
         let mut bad = minimal();
-        bad.app.category = Some("games".into());
+        bad.app.category = Some("toys".into());
         let problems = validate(&bad, &files(&["bin/app.elf"]));
         assert_eq!(problems.len(), 1, "{problems:?}");
-        assert!(problems[0].message().contains("app.category \"games\""));
+        assert!(problems[0].message().contains("app.category \"toys\""));
         assert!(problems[0].message().contains("accessories, development"));
     }
 

@@ -16,6 +16,11 @@ pub const TESTDOC: &str = "/system/share/samples/testdoc.md";
 /// `pkgctl install /system/share/samples/pkgdemo.lzp`.
 pub const PKGDEMO: &str = "/system/share/samples/pkgdemo.lzp";
 
+/// The Doom package (`org.lazy.doom`, `LAZYOS_DOOM=1` images): a user
+/// package, copied to `/transient` and installed with `pkgctl install`.
+/// Written by the image build.
+pub const DOOM_LZP: &str = "/system/share/samples/doom.lzp";
+
 /// The `lazyrad` sample projects (`LAZYRAD_SAMPLES`), one directory each.
 /// Written by the image build (`LAZYOS_LAZYRAD=1` images).
 pub const LAZYRAD_SAMPLES: &str = "/system/share/lazyrad";
@@ -29,7 +34,7 @@ mod tests {
         for path in [MIME_TYPES, SAMPLES, LAZYRAD_SAMPLES] {
             assert!(path.starts_with(crate::SYSTEM_SHARE), "{path}");
         }
-        for path in [TESTDOC, PKGDEMO] {
+        for path in [TESTDOC, PKGDEMO, DOOM_LZP] {
             assert!(path.starts_with(SAMPLES), "{path}");
         }
     }

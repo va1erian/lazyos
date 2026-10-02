@@ -13,15 +13,14 @@ def simple_choice(build_label: str, iface_label: str) -> tuple[str, str]:
 
 
 def build_simple_tab(parent: ttk.Frame, build_var, iface_var, lazyrad_var, shell_var,
-                     devices_var,
-                     on_start) -> None:
+                     devices_var, doom_var, on_start) -> None:
     """Populate ``parent`` with the two choices and the Start button.
 
     ``build_var``/``iface_var`` are Tk string variables holding a
     ``SIMPLE_BUILDS`` / ``SIMPLE_INTERFACES`` label; ``lazyrad_var``,
-    ``shell_var`` and ``devices_var`` are Tk booleans for the LazyRAD IDE, the
-    LazyShell desktop and opening the Devices app at boot; ``on_start`` runs
-    the plan.
+    ``shell_var``, ``devices_var`` and ``doom_var`` are Tk booleans for the
+    LazyRAD IDE, the LazyShell desktop, opening the Devices app at boot and the
+    Doom package; ``on_start`` runs the plan.
     """
     ttk.Label(parent, text="Start LazyOS", font=("TkDefaultFont", 14, "bold")
               ).pack(anchor="w", padx=10, pady=(12, 2))
@@ -54,6 +53,9 @@ def build_simple_tab(parent: ttk.Frame, build_var, iface_var, lazyrad_var, shell
                     variable=lazyrad_var).pack(anchor="w", padx=8, pady=4)
     ttk.Checkbutton(apps, text="Open the Devices app at boot (device owners and driver rules)",
                     variable=devices_var).pack(anchor="w", padx=8, pady=4)
+    ttk.Checkbutton(apps, text="Doom (builds the package; install it from "
+                               "/system/share/samples/doom.lzp)",
+                    variable=doom_var).pack(anchor="w", padx=8, pady=4)
 
     ttk.Button(parent, text="Start LazyOS", command=on_start
                ).pack(anchor="w", padx=10, pady=12)

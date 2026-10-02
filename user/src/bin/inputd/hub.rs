@@ -74,12 +74,24 @@ impl Hub {
     pub(super) fn handle(&mut self, message: &Message) -> Result<Parcel> {
         let interface = message.interface_id();
         let method = message.method();
+        // A request carries exactly what `input.midl` declares for it (`Open`
+        // and `Attach`: one channel); anything else is closed and refused
+        // before dispatch, so no path can leave it in this task's table.
+        let declared = if interface == api::SHELL_INTERFACE {
+            shell_wire::request_transfers(method)
+        } else {
+            wire::request_transfers(method)
+        };
+        if !message.carries(declared) {
+            release_transfers(message);
+            return Err(Error::Errno(-errno::EINVAL));
+        }
         let body = if interface == api::INTERFACE {
             self.client_call(message)?
         } else if interface == api::SHELL_INTERFACE {
             self.shell_call(message)?
         } else {
-            release_handle(message);
+            release_transfers(message);
             return Err(Error::Errno(-errno::EINVAL));
         };
         Ok(api::request(interface, method, body, Vec::new()))
@@ -95,7 +107,7 @@ impl Hub {
         match message.method() {
             wire::METHOD_OPEN => self.open(message),
             wire::METHOD_CLOSE => {
-                release_handle(message);
+                release_transfers(message);
                 let args = wire::decode_close_args(body).map_err(Error::Parcel)?;
                 let surface = self
                     .router
@@ -106,7 +118,7 @@ impl Hub {
                 Ok(Vec::new())
             }
             wire::METHOD_GETSTATE => {
-                release_handle(message);
+                release_transfers(message);
                 wire::encode_get_state_reply(&wire::GetStateReply {
                     layout: self.engine.layout().name().into(),
                     mods: self.engine.mods(),
@@ -116,7 +128,7 @@ impl Hub {
                 .map_err(Error::Parcel)
             }
             _ => {
-                release_handle(message);
+                release_transfers(message);
                 Err(Error::Errno(-errno::EINVAL))
             }
         }
@@ -127,7 +139,7 @@ impl Hub {
     fn open(&mut self, message: &Message) -> Result<Vec<u8>> {
         let result = self.open_inner(message);
         if result.is_err() {
-            release_handle(message);
+            release_transfers(message);
         }
         result
     }
@@ -136,7 +148,7 @@ impl Hub {
         let args = wire::decode_open_args(&message.parcel.body).map_err(Error::Parcel)?;
         // A session without a surface is reserved for the login console.
         let surface = args.surface.ok_or(Error::Errno(-errno::EINVAL))?;
-        if message.handles == 0 {
+        if !message.carries(wire::OPEN_TRANSFERS) {
             return Err(Error::Errno(-errno::EINVAL));
         }
         let opened = self
@@ -174,7 +186,7 @@ impl Hub {
         if method == shell_wire::METHOD_ATTACH {
             return self.attach(message);
         }
-        release_handle(message);
+        release_transfers(message);
         // Everything else is the attached compositor's alone.
         if self.shell.as_ref().map(|shell| shell.sender) != Some(message.sender) {
             return Err(Error::Errno(-errno::EACCES));
@@ -238,11 +250,11 @@ impl Hub {
     /// `Attach`: only the display grant's holder (the compositor) may become
     /// the shell client.
     fn attach(&mut self, message: &Message) -> Result<Vec<u8>> {
-        if message.handles == 0 {
+        if !message.carries(shell_wire::ATTACH_TRANSFERS) {
             return Err(Error::Errno(-errno::EINVAL));
         }
         if !is_compositor(message.sender) {
-            release_handle(message);
+            release_transfers(message);
             return Err(Error::Errno(-errno::EACCES));
         }
         self.drop_shell();
@@ -461,10 +473,14 @@ fn route_error(error: RouteError) -> Error {
     })
 }
 
-/// Close a handle a refused request transferred, so it does not leak.
-fn release_handle(message: &Message) {
+/// Close whatever a refused (or non-adopting) request transferred, endpoint
+/// and buffer alike, so neither leaks into this task's handle table.
+fn release_transfers(message: &Message) {
     if message.handles != 0 {
         let _ = Endpoint::from_raw(message.first_handle).close();
+    }
+    if message.buffers != 0 {
+        let _ = sys::display_close_buffer(message.first_buffer);
     }
 }
 

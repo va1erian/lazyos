@@ -25,8 +25,8 @@ declares `clobber_abi("sysv64")`. Numbers: 0 `exit`, 1 `write`, 2 `read_char`,
 9 `args()`/`env()`/`getenv()`/`service_args` (`sys/spawn.rs`: the `argv` and
 `envp` blocks, read once and kept; `service_args` joins `argv[1..]` with spaces
 for services that parse one string), 10 `cred_set`/`cred_get`/`label_name`, 12 `display_*`,
-13 `tasks`, 14 `system_stats`, 15-22 filesystem, `power` and `fsync`, 28 `append_file` and 31 `chmod` (`files.rs`; 11, the quota read-back, has no wrapper yet), 23 `dev_*` (`dev.rs`; it also passes arguments in `r10` and `r8`),
-30 `spawnv(path, &argv, &envp, Personality, SpawnCred)` (`sys/spawn.rs`: the
+13 `tasks`, 14 `system_stats`, 15-22 filesystem, `power` and `fsync`, 28 `append_file`, 30 `read_at` and 32 `chmod` (`files.rs`; 11, the quota read-back, has no wrapper yet), 23 `dev_*` (`dev.rs`; it also passes arguments in `r10` and `r8`),
+31 `spawnv(path, &argv, &envp, Personality, SpawnCred)` (`sys/spawn.rs`: the
 only spawn; `SpawnCred::{Inherit, As, AsLabelled}` stamps the child's identity
 and `Personality::Linux` selects the Linux ABI), with the shorthands
 `spawn_native(path, &args)`/`spawn_linux(path, &args)` (`argv` = the path then

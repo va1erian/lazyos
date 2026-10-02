@@ -109,7 +109,11 @@ A rebuild **updates the OS volume in place**: installed apps, settings, logs
 and your own files survive, and only paths listed in `/system/.image-manifest`
 are replaced or deleted. `LAZYOS_RESET_OS=1 cargo build` (or
 `python tools/run_demo.py --reset-os`) recreates it with a new UUID; so does an
-image that fails validation, with a `cargo:warning=` giving the reason. Changing
+image that fails validation, with a `cargo:warning=` giving the reason. An
+update also checks a volume that was not cleanly unmounted (a closed QEMU
+window) and marks it clean when the independent checker finds nothing wrong;
+the kernel never does (it has no fsck), so until a rebuild every boot of such
+an image prints `ext2: ... was not cleanly unmounted`. Changing
 `LAZYOS_OS_SIZE` on an existing image needs the reset. Do not rebuild while QEMU
 has the image open (the build fails with a message). CI sets `LAZYOS_RESET_OS=1`
 everywhere. ext2 is case-sensitive: look names up exactly as stored, through
@@ -123,6 +127,25 @@ everywhere. ext2 is case-sensitive: look names up exactly as stored, through
 warning and every other app still builds. `python tools/xui/test_zig.py` tests
 the toolchain helper. Screenshot sessions: `tools/screenshot/examples/xui_docs.json`
 (wheel scrolling) and `xui_docs_open.json` (Open dialog and `/system/share/samples/testdoc.md`).
+
+## Doom (an installable `.lzp` package)
+
+Doom is `doom/` (doomgeneric, fetched at a pinned revision and compiled with
+zig, plus a Rust platform layer on `xui-app`'s client window) shipped as the
+package `org.lazy.doom` with the Freedoom IWAD inside; see
+[`doom/README.md`](doom/README.md) and [`docs/doom-port-plan.md`](docs/doom-port-plan.md).
+
+```bash
+python tools/doom/build.py          # target/doom/doom.elf + target/pkg/DOOM.LZP (fetches doomgeneric, Freedoom)
+python tools/run_demo.py --doom     # desktop with /system/share/samples/doom.lzp (a user package)
+cargo test --manifest-path doom/Cargo.toml --lib
+python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/doom     --script tools/screenshot/examples/doom.json   # needs a fresh OS volume (LAZYOS_RESET_OS=1)
+```
+
+The Terminal reports one `TERM:OUT` per command, and a command that wraps past
+80 columns reports its own tail instead: keep typed commands short (`doom.json`
+sets `PS1='# '` first). Shell command substitution (`$(...)`) currently hangs
+the desktop Terminal's shell; avoid it in session scripts.
 
 ## Rhai scripting (`rhai` command and `msg` module)
 
@@ -260,21 +283,28 @@ python tools/screenshot/qemu_session.py --image target/lazyos.img \
 
 ## Sound harness
 
-The virtio-sound driver (`sndd`) is verified by listening: QEMU records what the
-guest plays (`-audiodev wav`) and a detector measures the recording. One command
-builds with `LAZYOS_SOUND=1`, boots headless, records and checks it:
+The virtio-sound driver (`sndd`) and the system mixer (`audiod`,
+[`docs/audio-plan.md`](docs/audio-plan.md)) are verified by listening: QEMU
+records what the guest plays (`-audiodev wav`) and a detector measures the
+recording. One command builds with `LAZYOS_SOUND=1`, boots headless, records and
+checks it:
 
 ```bash
-python tools/sound/run.py                          # driver tone + beep client tone
-python tools/sound/run.py --services               # init supervises sndd as _snd
+python tools/sound/run.py                          # driver tone + beep through the mixer
+python tools/sound/run.py --mix                    # two clients as one chord, a half-volume tone
+python tools/sound/run.py --services               # init supervises sndd (_snd) and audiod (_audio)
 python tools/sound/run.py --machine q35 --virtio-disk
-python tools/sound/test_analyze_wav.py             # the detector's own tests
+python tools/sound/test_analyze_wav.py             # the detectors' own tests
+python tools/sound/test_mixcheck.py
 cargo test -p virtio -p virtio-snd -p pcm          # the driver libraries
+cargo test -p audiomix -p audioclient              # the mixer engine and the client library
 ```
 
-Do not claim an audio change works from the serial markers alone; the verdict is
-the recording. See `tools/sound/README.md` and `docs/architecture/audio.md`
-(including why a driver must never free a DMA buffer while its device runs).
+Applications play sound through `libs/audioclient` (`PlaybackStream`), never by
+opening the card. Do not claim an audio change works from the serial markers
+alone; the verdict is the recording. See `tools/sound/README.md` and
+`docs/architecture/audio.md` (including why a driver must never free a DMA
+buffer while its device runs).
 
 ## USB harness
 

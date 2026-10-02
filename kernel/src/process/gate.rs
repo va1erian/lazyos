@@ -88,7 +88,7 @@ extern "C" fn syscall_dispatch(regs: *mut Regs) {
         // `rsi` points at a `MsgArgs` block and `rdx` at a `MsgResult` block.
         5 => crate::ipc::syscalls::dispatch(regs.rdi, regs.rsi, regs.rdx),
         // 6..9: the service supervision surface (issue #93). 6 was the
-        // command-line `spawn`, retired for `spawnv` (30, fs F3): it falls
+        // command-line `spawn`, retired for `spawnv` (31, fs F3): it falls
         // through to the unknown-syscall failure.
         7 => sys_wait(regs.rdi),
         8 => sys_clock(),
@@ -129,12 +129,15 @@ extern "C" fn syscall_dispatch(regs: *mut Regs) {
         // 29: `kill(slot, sig)`, a supervisor ending one task it started
         // (`init` stops an app the package manager is removing).
         29 => super::killsys::dispatch(regs.rdi, regs.rsi),
-        // 30: `spawnv(req)`, the argv-vector spawn (fs F3), see
+        // 30: `read_at`, a bounded read at an offset, so a reader of a big
+        // file (the package installer) never makes the kernel hold all of it.
+        30 => fsops::dispatch(regs.rax, regs.rdi, regs.rsi, regs.rdx),
+        // 31: `spawnv(req)`, the argv-vector spawn (fs F3), see
         // `super::spawnv`.
-        30 => sys_spawnv(regs.rdi),
-        // 31: `chmod(path, mode)` (fs F3), served with the other path calls;
+        31 => sys_spawnv(regs.rdi),
+        // 32: `chmod(path, mode)` (fs F3), served with the other path calls;
         // the package manager marks an app's `bin/` files executable.
-        31 => fsops::dispatch(regs.rax, regs.rdi, regs.rsi, regs.rdx),
+        32 => fsops::dispatch(regs.rax, regs.rdi, regs.rsi, regs.rdx),
         _ => u64::MAX,
     };
     // A default-fatal signal (a supervisor's `SIGTERM`) that arrived while the
@@ -170,10 +173,9 @@ pub fn dispatch_for_test(nr: u64, a1: u64, a2: u64, a3: u64) -> u64 {
         25 => crate::input::rawsys::dispatch(a1, a2, a3),
         26 => super::randsys::dispatch(a1, a2),
         27 => super::inetsys::dispatch(a1, a2, a3, 0),
-        28 => fsops::dispatch(nr, a1, a2, a3),
+        28 | 30 | 32 => fsops::dispatch(nr, a1, a2, a3),
         29 => super::killsys::dispatch(a1, a2),
-        30 => sys_spawnv(a1),
-        31 => fsops::dispatch(nr, a1, a2, a3),
+        31 => sys_spawnv(a1),
         _ => u64::MAX,
     }
 }

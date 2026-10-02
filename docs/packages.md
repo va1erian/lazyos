@@ -80,13 +80,15 @@ checked before any allocation.
 | Constant | Value | Meaning |
 |---|---|---|
 | `MAX_ENTRIES` | 1024 | most entries in a package |
-| `MAX_TOTAL_UNCOMPRESSED` | 64 MiB | most bytes all entries may expand to |
-| `MAX_ENTRY_UNCOMPRESSED` | 16 MiB | most bytes one entry may expand to |
+| `MAX_TOTAL_UNCOMPRESSED` | 1 GiB | most bytes all entries may expand to |
+| `MAX_ENTRY_UNCOMPRESSED` | 256 MiB | most bytes one entry may expand to |
 | `MAX_NAME_LEN` | 255 | longest entry name, in bytes |
 | `MAX_MANIFEST` | 1 MiB | largest `manifest.toml` |
 
-A zip bomb or a claimed 4 GiB entry is therefore refused cheaply: the declared
-sizes in the central directory are checked before any data is read.
+A claimed 4 GiB entry is therefore refused cheaply: the declared sizes in the
+central directory are checked before any data is read. The caps are generous on
+purpose, so a game can carry its data (the Doom port's 28 MiB Freedoom IWAD is a
+`resources/` entry); they bound declared sizes, not memory use.
 
 ---
 
@@ -136,8 +138,8 @@ show them all at once.
   starting or ending with `-`, at most 128 bytes.
 * **`version`** — a [version](#versions): two to four dot-separated numbers,
   optionally followed by `-` and a pre-release (`1.2.0`, `1.2`, `2.0.0-rc.1`).
-* **`category`** — absent or one of `accessories`, `development`, `graphics`,
-  `internet`, `office`, `system`, `utilities` (lowercase). Absent means
+* **`category`** — absent or one of `accessories`, `development`, `games`,
+  `graphics`, `internet`, `office`, `system`, `utilities` (lowercase). Absent means
   `accessories`; anything else is an error. The menu groups apps by it.
 * **MIME `type`** — `type/subtype` using `[a-z0-9.+-]` only.
 * **`interfaces`** — each matches `[a-z0-9]+(\.[a-z0-9]+)*\.v[0-9]+`.
@@ -339,9 +341,10 @@ in the kernel suite (`ext2_suite::pkg_tree`, the same soak through the VFS).
 
 ### `Inspect` and `Install`
 
-`Inspect(path)` reads the whole file (at most **8 MiB**: the kernel reads a file
-into its 16 MiB heap to serve the read; the package may still expand to
-`MAX_TOTAL_UNCOMPRESSED`), opens it with `lazypkg`, and fills `PackageInfo`. A
+`Inspect(path)` reads the whole file (at most **256 MiB**, streamed in 1 MiB
+ranges with the native `read_at` syscall so the kernel never holds the whole
+package; it may then expand to `MAX_TOTAL_UNCOMPRESSED`), opens it with
+`lazypkg`, and fills `PackageInfo`. A
 package that fails validation is *not* an error: every problem is in
 `PackageInfo.problems`, so an installer can list them all. Permissions are
 expanded through the explanation table (`pkgstore::explain`, keyed by MIDL
@@ -361,7 +364,7 @@ switching**:
 
 1. extract every entry under the new install directory (directories first, each
    file written, its size verified and its mode set with the native `chmod`,
-   syscall 31: `0755` for files under `bin/`, `0644` for everything else,
+   syscall 32: `0755` for files under `bin/`, `0644` for everything else,
    because native spawn needs an `x` bit, root included; see
    `pkgstore::layout::file_mode`);
 2. record the `Installed` row in `confd`;
@@ -583,7 +586,9 @@ can be installed next to the core Counter (`os.lazy.counter`) and removed.
 
 ### Limits worth knowing
 
-* The package file limit is 8 MiB and the user heap never returns blocks over
+* The package file limit is 256 MiB. `pkgd` holds the package and one inflated
+  entry in its heap at a time, so installing the Doom package needs about 40 MiB
+  of it, and the user heap never returns blocks over
   64 KiB, so `pkgd` restarts itself (`PKGD:RECYCLE`, `init` starts a new one) once
   its heap has grown by 32 MiB and it is idle. A client that connects during that
   moment retries (`pkgctl` does).

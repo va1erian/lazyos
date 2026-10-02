@@ -42,6 +42,16 @@ pub struct Method {
     pub doc: &'static str,
     pub params: &'static [Field],
     pub returns: &'static [Field],
+    /// Kernel objects the request carries outside its body (`transfers (...)`).
+    pub transfers: &'static [Transfer],
+}
+
+/// One declared transfer: a channel (`Some(interface)`, what its receiver
+/// sends on it) or a shared buffer (`None`).
+#[derive(Debug, Clone, Copy)]
+pub struct Transfer {
+    pub name: &'static str,
+    pub channel: Option<&'static str>,
 }
 
 #[derive(Debug, Clone, Copy)]

@@ -21,7 +21,7 @@ mod soak;
 const ENOENT: i64 = 2;
 const EACCES: i64 = 13;
 const SYS_EXECVE: u64 = 59;
-const SYS_SPAWNV: u64 = 30;
+const SYS_SPAWNV: u64 = 31;
 
 /// The files every test sees. All are root-owned.
 const PLAIN: &str = "/transient/plain"; // 0644

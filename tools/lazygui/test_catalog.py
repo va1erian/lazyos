@@ -253,6 +253,46 @@ class CorePackageTests(unittest.TestCase):
                                                    "Build image (cargo build)"])
 
 
+class DoomTests(unittest.TestCase):
+    """The launcher can put the Doom package on the image
+    (`/system/share/samples/doom.lzp`, then `pkgctl install`), from the Simple tab, the Advanced tab and run_demo."""
+
+    def base(self) -> dict:
+        return {"services": False, "xuid": False, "xui_client": False, "xui_app": "(none)",
+                "shellprobe": False, "msgctl": False, "msgrd": False, "busybox": ""}
+
+    def test_the_switch_sets_the_embed_variable(self) -> None:
+        env = catalog.build_env({**self.base(), "desktop": True, "doom": True})
+        self.assertEqual(env["LAZYOS_DOOM"], "1")
+        self.assertNotIn("LAZYOS_DOOM", catalog.build_env({**self.base(), "desktop": True}))
+
+    def test_simple_desktop_can_include_it_and_cli_cannot(self) -> None:
+        self.assertTrue(catalog.simple_config(demo_config(), "dev", "Desktop", doom=True)["doom"])
+        self.assertFalse(catalog.simple_config(demo_config(), "dev", "CLI", doom=True)["doom"])
+        self.assertFalse(catalog.simple_config(demo_config(), "dev", "Desktop")["doom"])
+
+    def test_the_demo_passes_the_run_demo_flag(self) -> None:
+        self.assertIn("--doom", demo_argv(doom=True, skip_build=False))
+        self.assertNotIn("--doom", demo_argv(skip_build=False))
+        self.assertNotIn("--doom", demo_argv(doom=True, skip_build=True))
+
+    def test_session_modes_build_the_package_before_the_image(self) -> None:
+        cfg = {"mode": "Scripted session", "profile": "dev", "skip_build": False,
+               "accel": "auto", "memory": "256M", "qemu": "", "out": "shots",
+               "timeout": "300", "tablet": False, "script": 0, "doom": True}
+        plan = catalog.build_plan(cfg)
+        labels = [step["label"] for step in plan]
+        at = labels.index("Build image (cargo build)")
+        self.assertEqual(labels[at - 1], "Build Doom package (engine + Freedoom)")
+        self.assertEqual(plan[at - 1]["argv"][1:], ["tools/doom/build.py", "--require"])
+
+    def test_both_optional_apps_build_in_order(self) -> None:
+        steps = catalog.app_steps({"lazyrad": True, "doom": True})
+        self.assertEqual([s["argv"][1] for s in steps],
+                         ["tools/lazyrad/build.py", "tools/doom/build.py"])
+        self.assertEqual(catalog.app_steps({}), [])
+
+
 class DevicesAppTests(unittest.TestCase):
     """The Devices app (issue #481): shipped with every desktop, opened at
     boot on request, from the Simple tab, the Advanced tab and run_demo."""

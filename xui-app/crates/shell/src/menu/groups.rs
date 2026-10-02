@@ -18,9 +18,10 @@ pub const MAX_PER_CATEGORY: usize = 16;
 /// The menu categories in order, with their header labels. The spellings are
 /// `lazypkg::Category::as_str`'s (the shell does not link the package
 /// library).
-pub const CATEGORIES: [(&str, &str); 7] = [
+pub const CATEGORIES: [(&str, &str); 8] = [
     ("accessories", "Accessories"),
     ("development", "Development"),
+    ("games", "Games"),
     ("graphics", "Graphics"),
     ("internet", "Internet"),
     ("office", "Office"),

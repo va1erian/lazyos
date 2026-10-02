@@ -20,8 +20,8 @@ demo, not a music app: 4-channel ProTracker only at first.
 |---|---|
 | `sndd` + `os.lazy.audio.v1` (`idl/audio.midl`): Open/AttachRing/Commit/Start/Stop/Drain/Position | works; `beep` is the only client |
 | Format | S16Le, 48 kHz stereo is what `beep` and its soak use; driver snaps params |
-| Mixing, volume, >1 stream per client | none; mix in-process |
-| Client library | only in the `user` crate (`user/src/messenger/audio.rs`), blocking, raw ring math left to the caller |
+| Mixing, volume, >1 stream per client | the system mixer `audiod` (docs/audio-plan.md): any number of streams, per-stream and master volume |
+| Client library | `libs/audioclient` `PlaybackStream` (#451); `modplay`'s sink is a thin wrapper over it |
 | Underrun/Drained events | declared, not published |
 | Data files on the boot volume | only `*.md` (`docs_embed`) |
 | Verification | `tools/sound/run.py` records QEMU's output; `analyze_wav.py` judges it |

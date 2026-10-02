@@ -77,13 +77,10 @@ impl Client {
             subscriber_role: role.into(),
         })
         .map_err(|_| -errno::EINVAL)?;
-        self.shell_call(request(
-            wire::METHOD_SUBSCRIBE,
-            body,
-            vec![events],
-            Vec::new(),
-        ))
-        .map(|_| ())
+        let (handles, buffers) =
+            wire::encode_subscribe_transfers(&wire::SubscribeTransfers { events });
+        self.shell_call(request(wire::METHOD_SUBSCRIBE, body, handles, buffers))
+            .map(|_| ())
     }
 
     /// `ListSurfaces`: every surface, bottom of the z-order first.

@@ -1,4 +1,4 @@
-//! The native `chmod` syscall (31, `process/fsops.rs`; fs F3, #507): the same
+//! The native `chmod` syscall (32, `process/fsops.rs`; fs F3, #507): the same
 //! owner-or-root rule as the Linux `chmod` (both go through `Vfs::setattr`),
 //! permission bits only, `EROFS` on a read-only mount, `ENOENT`/`EFAULT` for a
 //! bad path, and a soak that ten thousand calls leave the heap where it was.
@@ -13,7 +13,7 @@ use crate::fs::vfs::{AttrRequest, FsError, Id, MountFlags, Vfs};
 use crate::ipc::credentials::{self, Cred};
 use alloc::sync::Arc;
 
-const SYS_CHMOD: u64 = 31;
+const SYS_CHMOD: u64 = 32;
 
 const EPERM: i64 = 1;
 const ENOENT: i64 = 2;

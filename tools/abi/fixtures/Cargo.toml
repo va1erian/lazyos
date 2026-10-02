@@ -73,8 +73,16 @@ name = "cwd"
 path = "src/cwd.rs"
 
 [[bin]]
+name = "fdinherit"
+path = "src/fdinherit.rs"
+
+[[bin]]
 name = "fsops"
 path = "src/fsops.rs"
+
+[[bin]]
+name = "statmiss"
+path = "src/statmiss.rs"
 
 # Needs a network (the echo servers of `tools/net/run.py`): run by `netd demo=1`
 # as `linux:/system/bin/netfix`, never by the ABI bench (`tools/abi/run.py`).

@@ -49,7 +49,11 @@ pub fn embed(sink: &mut dyn Sink, desktop: bool) {
     }
     if sound {
         add(sink, fhs::bin::SNDD, "sndd");
-        // `beep`, the smallest audio client: `sndd` spawns it under `demo=1`.
+        // `audiod`, the system mixer every audio client talks to
+        // (docs/audio-plan.md), and `mixer`, its volume control command.
+        add(sink, fhs::bin::AUDIOD, "audiod");
+        add(sink, fhs::bin::MIXER, "mixer");
+        // `beep`, the smallest audio client: `audiod` spawns it under `demo=1`.
         add(sink, fhs::bin::BEEP, "beep");
         // `modplay`, the tracker-module player (docs/tracker-plan.md).
         add(sink, fhs::bin::MODPLAY, "modplay");

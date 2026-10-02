@@ -1,0 +1,16 @@
+[
+  {"wait_for": "PKGD:PROVISION:DONE", "timeout": 420},
+  {"wait_for": "TERM:UP:PASS", "timeout": 240},
+  {"at": 2.0, "type": "rhai -e 'print(\"REDIR:\" + (6*7))' >/tmp/d 2>&1; echo done $?"},
+  {"at": 2.5, "key": "enter", "until": "TERM:OUT:done 0", "timeout": 60, "retries": 2},
+  {"at": 1.0, "type": "rhai -e 'missing_var + 1' >>/tmp/d 2>&1; echo appended $?"},
+  {"at": 1.5, "key": "enter", "until": "TERM:OUT:appended", "timeout": 60, "retries": 2},
+  {"at": 1.0, "type": "head -n 1 /tmp/d"},
+  {"at": 1.5, "key": "enter", "until": "TERM:OUT:REDIR:42", "timeout": 60, "retries": 2},
+  {"at": 1.0, "type": "tail -n 1 /tmp/d"},
+  {"at": 1.5, "key": "enter", "until": "TERM:OUT:rhai: Variable not found", "timeout": 60, "retries": 2},
+  {"at": 1.0, "type": "wc -l /tmp/d"},
+  {"at": 1.5, "key": "enter", "until": "TERM:OUT:2 /tmp/d", "timeout": 60, "retries": 2},
+  {"at": 3.0, "shot": "01_redirected_output"},
+  {"at": 4.0, "quit": true}
+]

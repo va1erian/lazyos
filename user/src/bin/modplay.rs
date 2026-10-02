@@ -2,8 +2,9 @@
 //! stack's showcase client.
 //!
 //! The file is parsed and mixed in-process by `libs/modplay` (integer only,
-//! no I/O) and streamed to `sndd` over `os.lazy.audio.v1` through a blocking
-//! [`sink::Sink`]. Row timing comes from the frames mixed, not from sleeping.
+//! no I/O) and streamed to the system mixer over `os.lazy.audio.v1` through a
+//! blocking [`sink::Sink`]. Row timing comes from the frames mixed, not from
+//! sleeping.
 //!
 //! Usage from the shell: `modplay <file.mod> [loops=<n>] [sep=<0-100>]`, or
 //! `modplay selftest`, the built-in single-voice melody the sound harness

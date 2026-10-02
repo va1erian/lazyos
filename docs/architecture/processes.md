@@ -37,7 +37,7 @@ syscall shim.
 | 0 | `exit(code)` | finish current task; status visible to the supervisor |
 | 1-4 | `write`, `read_char`, `read_file`, `sbrk` | demo surface |
 | 5 | `messenger(op, args, result)` | fabric (see [ipc-fabric.md](ipc-fabric.md)) |
-| 6 | (retired) | was the command-line `spawn("PATH [args]")`; `spawnv` (30) replaced it in fs F3 and the number is now an unknown syscall |
+| 6 | (retired) | was the command-line `spawn("PATH [args]")`; `spawnv` (31) replaced it in fs F3 and the number is now an unknown syscall |
 | 7 | `wait(deadline)` | reap a child; returns packed pid/status, or `-1` on timeout |
 | 8 | `clock()` | PIT ticks (100 Hz) for backoff and polls |
 | 9 | `args(buf, len, which)` | copy the caller's `argv` (`which` 0, `argv[0]` included) or `envp` (`which` 1) block of NUL-terminated strings; returns the full length, copies at most `len`; `-EINVAL` for another `which` (`process/argstore.rs`) |
@@ -56,8 +56,9 @@ syscall shim.
 | 26 | `random(buf, len)` | up to 256 bytes from the kernel CSPRNG (`entropy.rs`) for native services such as `netd`; open to every task, no capability, `-EFAULT` on a bad destination (`process/randsys.rs`, networking plan N2) |
 | 28 | `append_file(path, data, len)` | append up to 1 MiB to the end of a file, creating it when absent (`process/fsops.rs`); `write_file` of the first chunk plus one append per further chunk writes a file larger than one call, which the package manager `pkgd` needs for binaries |
 | 29 | `kill(slot, sig)` | end one task by slot (what `spawn` returned) with signal 0 (probe), `SIGTERM` or `SIGKILL`; the sender must share the target's uid or hold `CAP_KILL`; `-ESRCH`/`-EPERM`/`-EINVAL`, no group or broadcast form (`process/killsys.rs`); `init` uses it to stop an app being removed |
-| 30 | `spawnv(req)` | the argv-vector spawn (fs F3): path, `argv`, `envp`, personality and credential stamp in one request block; see below (`process/spawnv.rs`) |
-| 31 | `chmod(path, mode)` | set the permission bits (`mode` holds only `0o7777` bits; any other bit is `-EINVAL`, not masked) through `Vfs::setattr`, the path the Linux `chmod` takes, so the rules are the same: owner or root (`-EPERM`), setgid dropped outside the file's group, `-EROFS` on a read-only mount, `-ENOENT`/`-EFAULT` for a bad path (`process/fsops.rs`); `pkgd` makes a package's `bin/` files `0755`, since native spawn needs an `x` bit |
+| 30 | `read_at(path, request)` | read up to `len` bytes of a file at `offset` into `buf`, where `request` points at three `u64`s `[buf, len, offset]`; at most 1 MiB per call, 0 at the end of the file (`process/fsops.rs`). Unlike syscall 3 it never loads the whole file into the kernel heap, so `pkgd` streams packages of any size with it (`user::files::read_large`) |
+| 31 | `spawnv(req)` | the argv-vector spawn (fs F3): path, `argv`, `envp`, personality and credential stamp in one request block; see below (`process/spawnv.rs`) |
+| 32 | `chmod(path, mode)` | set the permission bits (`mode` holds only `0o7777` bits; any other bit is `-EINVAL`, not masked) through `Vfs::setattr`, the path the Linux `chmod` takes, so the rules are the same: owner or root (`-EPERM`), setgid dropped outside the file's group, `-EROFS` on a read-only mount, `-ENOENT`/`-EFAULT` for a bad path (`process/fsops.rs`); `pkgd` makes a package's `bin/` files `0755`, since native spawn needs an `x` bit |
 
 - `spawnv` reads the ELF from the OS volume (`/system/bin/<name>`), names the task after the file's basename and leaks one interned `&'static str`
   per distinct service name (at most 64; later spellings share the name
@@ -80,7 +81,7 @@ syscall shim.
   eagerly at `USER_HEAP_BASE = 0x60_0000` / `USER_STACK_TOP = 0x0800_0000`
   (`USER_STACK_SIZE = 0x2_0000`).
 
-**`spawnv`** (syscall 30, `process/spawnv.rs`, fs F3 / issue #507). The one
+**`spawnv`** (syscall 31, `process/spawnv.rs`, fs F3 / issue #507). The one
 spawn entry point; it replaced the command-line spawns (6 and the credential
 gate's ops 2/3, deleted with their last caller). Nothing is split, so a path or
 an argument may contain spaces. `rdi` points at a 17-word (`u64`, little-endian)

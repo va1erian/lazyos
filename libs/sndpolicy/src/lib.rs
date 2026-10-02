@@ -10,6 +10,11 @@
 /// The `_snd` system user `sndd` runs as: only `CAP_DEV_CLAIM`.
 pub const SND_UID: u32 = 901;
 
+/// The `_audio` system user the mixer `audiod` runs as: no capabilities at
+/// all. It holds no device, no DMA and no authority over other tasks; it only
+/// maps the rings its clients hand it and owns the card's one stream.
+pub const AUDIO_UID: u32 = 905;
+
 /// The ACL device class of an audio function (`dev::class::AUDIO`, PCI
 /// `04/01` and `04/03`; virtio-sound is `04/01`).
 pub const AUDIO_CLASS: &str = "os.kernel.dev.audio";
@@ -59,6 +64,16 @@ mod tests {
             );
             assert_ne!(rule.method, "*", "no wildcard grants");
         }
+    }
+
+    #[test]
+    fn the_mixer_has_its_own_uid_and_no_device_rules() {
+        const { assert!(AUDIO_UID < 1000) };
+        // `_snd` 901, `_net` 902, `_netd` 903, `_usb` 904.
+        const { assert!(AUDIO_UID > 904) };
+        assert!(SND_DRIVER_CLASS_RULES
+            .iter()
+            .all(|rule| rule.actor != AUDIO_UID));
     }
 
     #[test]

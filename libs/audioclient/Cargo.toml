@@ -1,0 +1,23 @@
+[package]
+name = "audioclient"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "LazyOS audio client: typed os.lazy.audio.v1 / mixer calls and a blocking PlaybackStream over any transport"
+license = "GPL-3.0-or-later"
+
+[lib]
+name = "audioclient"
+path = "src/lib.rs"
+
+[dependencies]
+# The `midlc`-generated codecs: no protocol constant is written by hand here.
+messenger-generated = { path = "../generated" }
+# `BufferDesc`: how a request names a transferred buffer.
+libmessenger = { path = "../messenger" }
+
+[dev-dependencies]
+# The host tests run the client against the real mixer engine and wire layer.
+audiomix = { path = "../audiomix" }
+virtio-snd = { path = "../virtio-snd" }
+fuzzkit = { path = "../fuzzkit" }

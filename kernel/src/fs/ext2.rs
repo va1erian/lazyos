@@ -64,7 +64,8 @@ impl Ext2 {
             None => ext2fs::Ext2::open(io, super::vfs::now)?,
         };
         // A mount never repairs anything (no fsck here); it only makes the
-        // situation visible.
+        // situation visible. The flag survives our own clean shutdowns: only
+        // a check clears it (the image build's `Ext2::recover`).
         if !volume.was_clean_at_mount() {
             serial_println!(
                 "ext2: {} was not cleanly unmounted (unclean stop)",

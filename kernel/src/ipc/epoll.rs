@@ -252,9 +252,25 @@ impl Epoll {
     /// descriptor. Called by `task::fd_close`, so a reused descriptor number
     /// cannot inherit a stale registration.
     pub fn drop_fd(this: &Arc<Epoll>, fd: usize) {
+        Self::drop_matching(this, |interest| interest.fd == fd);
+    }
+
+    /// Drop `fd`'s interest only if it watches `target`'s open file: an exited
+    /// task's descriptor `fd` must not take away an interest that a task
+    /// sharing this instance registered for a different file under the same
+    /// number.
+    pub fn drop_fd_if(this: &Arc<Epoll>, fd: usize, target: &Fd) {
+        Self::drop_matching(this, |interest| {
+            interest.fd == fd && interest.target.same_file(target)
+        });
+    }
+
+    /// Remove the first interest `matches` accepts. The removed handle is
+    /// dropped after the list lock is released (it may be a pipe's last end).
+    fn drop_matching(this: &Arc<Epoll>, matches: impl Fn(&Interest) -> bool) {
         let removed = {
             let mut interests = this.interests.lock();
-            let Some(index) = interests.iter().position(|interest| interest.fd == fd) else {
+            let Some(index) = interests.iter().position(matches) else {
                 return;
             };
             interests.remove(index)

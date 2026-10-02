@@ -42,7 +42,7 @@ pub const SYS_TASKS: u64 = 13;
 pub const SYS_SYSTEM_STATS: u64 = 14;
 /// `spawnv(req)` — start a program with an `argv` vector, an environment and
 /// a credential stamp (fs F3); see [`spawnv`].
-pub const SYS_SPAWNV: u64 = 30;
+pub const SYS_SPAWNV: u64 = 31;
 
 /// Value returned by the service syscalls on failure/timeout.
 pub const SERVICE_ERROR: u64 = u64::MAX;

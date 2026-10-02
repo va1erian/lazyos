@@ -298,7 +298,9 @@ ring), `Commit(stream, frames) → consumed`, `Start/Stop/Drain(stream)`,
 `system/audio/<card>/event` (declared, not yet published). **The client owns the
 ring and the driver copies out of it**: replies cannot carry buffers, and this
 is also section 3.4's rule that driver rings stay driver-owned. Mixing and
-per-app volume are a later `audiod` service, not the driver's job.
+per-app volume are the `audiod` service's job, not the driver's: the mixer
+serves the same interface to applications and holds the card's one stream
+([`audio-plan.md`](audio-plan.md)).
 
 ## 4. QEMU first candidates
 

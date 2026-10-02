@@ -45,6 +45,10 @@ virtio = { path = "../libs/virtio" }
 virtio-snd = { path = "../libs/virtio-snd" }
 # Test-tone synthesis for `sndd`'s self-test and the `beep` client.
 pcm = { path = "../libs/pcm" }
+# The system mixer's engine and wire layer (`audiod`), and the audio client
+# library every player uses (docs/audio-plan.md A1-A4).
+audiomix = { path = "../libs/audiomix" }
+audioclient = { path = "../libs/audioclient" }
 # ProTracker module parser and mixer for the `modplay` client (docs/tracker-plan.md).
 modplay = { path = "../libs/modplay" }
 # virtio-net for `netdrv` (docs/networking-plan.md N1): the wire definitions, the
@@ -326,6 +330,23 @@ path = "src/bin/sndd.rs"
 test = false
 bench = false
 
+# The system mixer (docs/audio-plan.md A3): serves `os.lazy.audio.v1` and
+# `os.lazy.audio.mixer.v1` under `os.lazy.audio`, mixes every client stream and
+# feeds the card's one stream. Embedded with the sound stack as `AUDIOD.ELF`.
+[[bin]]
+name = "audiod"
+path = "src/bin/audiod.rs"
+test = false
+bench = false
+
+# `mixer` (docs/audio-plan.md A5): the volume control panel from the shell,
+# and the control-interface probe of the boot evidence. `MIXER.ELF`.
+[[bin]]
+name = "mixer"
+path = "src/bin/mixer.rs"
+test = false
+bench = false
+
 # The USB HID driver (docs/usb-hid-plan.md U2): xHCI, boot keyboards and mice,
 # published onto the raw input bus. Embedded as `USBD.ELF`.
 [[bin]]
@@ -400,7 +421,7 @@ test = false
 bench = false
 
 # `beep` (docs/driver-plan.md D6) is the smallest `os.lazy.audio.v1` client: it
-# plays a sine tone through `sndd`. `sndd` spawns it under `demo=1`; the
+# plays a sine tone through the mixer. `audiod` spawns it under `demo=1`; the
 # on-disk name is `BEEP.ELF`.
 [[bin]]
 name = "beep"
@@ -408,7 +429,7 @@ path = "src/bin/beep.rs"
 test = false
 bench = false
 
-# `modplay` (docs/tracker-plan.md) plays ProTracker modules through `sndd`: the
+# `modplay` (docs/tracker-plan.md) plays ProTracker modules through the mixer: the
 # audio stack's showcase client. On-disk name `MODPLAY.ELF`.
 [[bin]]
 name = "modplay"

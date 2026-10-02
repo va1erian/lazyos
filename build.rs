@@ -9,6 +9,8 @@ use std::path::PathBuf;
 
 #[path = "build_support/docs_embed.rs"]
 mod docs_embed;
+#[path = "build_support/doom_embed.rs"]
+mod doom_embed;
 #[path = "build_support/drivers.rs"]
 mod drivers;
 #[path = "build_support/elf_trim.rs"]
@@ -430,6 +432,9 @@ fn main() {
     // `lazyrad`, plus the sample projects in `LAZYRAD_SAMPLES`.
     println!("cargo:rerun-if-changed=build_support/lazyrad_embed.rs");
     lazyrad_embed::embed(&mut files, &manifest_dir);
+    // The Doom package (`LAZYOS_DOOM=1`) as a sample user package, installed
+    // through pkgd.
+    doom_embed::embed(&mut files, &manifest_dir);
     builder
         .create_bios_image(&bios_image)
         .expect("failed to create BIOS disk image");

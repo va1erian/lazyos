@@ -21,7 +21,7 @@ MAX_ARG = 256
 MAX_VERB = 16
 
 # `lazypkg::Category::ALL`, in menu order; the first is the default.
-CATEGORIES = ("accessories", "development", "graphics", "internet", "office", "system", "utilities")
+CATEGORIES = ("accessories", "development", "games", "graphics", "internet", "office", "system", "utilities")
 DEFAULT_CATEGORY = CATEGORIES[0]
 
 # `lazypkg::HOME_VAR`: a files rule may start with it, and only there.

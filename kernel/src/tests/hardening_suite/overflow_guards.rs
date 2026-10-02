@@ -13,11 +13,7 @@ const EINVAL: i64 = 22;
 /// legal position past EOF must stick instead of snapping back to EOF.
 pub fn lseek_overflow_and_past_eof() -> Result<(), String> {
     fresh()?;
-    let fd = task::fd_open(task::Fd::File {
-        data: alloc::sync::Arc::new(b"hello".to_vec()),
-        offset: 0,
-    })
-    .ok_or("fd_open failed")?;
+    let fd = task::fd_open(task::Fd::file(b"hello".to_vec(), None)).ok_or("fd_open failed")?;
 
     // A negative absolute position is -EINVAL, not a silent clamp to 0.
     let code = process::linux::dispatch_for_test(8, fd as u64, (-1i64) as u64, 0);

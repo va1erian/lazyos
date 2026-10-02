@@ -18,8 +18,8 @@ single-producer/single-consumer frame ring of `libs/framering`: fixed
 free-running `u32` indices in a header page. Nothing about the wire lives in
 a request body except the slot count.
 
-`AttachRing` carries, in the parcel's `handles` and `buffers` vectors (the
-TLV body has no `Handle`/`Buffer` fields, as in `os.lazy.display.v1`):
+`AttachRing` carries, in the parcel's `handles` and `buffers` vectors (its
+`transfers` clause and the `Rx`/`Tx` ring declarations say the same):
 
 * `buffers[0]`: one shared buffer holding **both rings**, back to back: the
 **receive ring** (driver produces, client consumes) at byte 0 and the
@@ -72,17 +72,34 @@ Failures of calls are returned as the shared structured error field
 |---|---|---|---|
 | Info | 266462757 | sync | `() -> (info: NicInfo)` |
 | SetRxMode | 506115710 | sync | `(mode: U32) -> (ok: Bool)` |
-| AttachRing | 62355614 | sync | `(slots: U32) -> (ring: U32)` |
+| AttachRing | 62355614 | sync | `(slots: U32) -> (ring: U32) transfers (rings: Ring<Rx, Tx>, notify: Channel<os.lazy.net.nic.v1>)` |
 | DetachRing | 162562056 | sync | `(ring: U32) -> ()` |
 | Stats | 267161228 | sync | `() -> (stats: NicStats)` |
 | Kick | 754690623 | oneway | `(ring: U32) -> ()` |
 | Notify | 314575196 | oneway | `(ring: U32, events: U32) -> ()` |
+
+## Transfers
+
+Objects a request carries outside its body, in the parcel's
+`handles` and `buffers` vectors.
+
+| Method | Name | Slot |
+|---|---|---|
+| AttachRing | `rings` | `buffers[0]`, a shared buffer holding the rings `Rx`, `Tx` back to back |
+| AttachRing | `notify` | `handles[0]`, a channel the receiver sends `os.lazy.net.nic.v1` on |
 
 ## Topics
 
 | Topic | Payload | QoS | Retained | Permissions |
 |---|---|---|---|---|
 | `system/net/+/link` | `LinkEvent` | latest | yes | `publish:system/net/+/link`, `subscribe:system/net/+/link` |
+
+## Rings
+
+| Ring | Layout | Producer | Doorbell / advance | |
+|---|---|---|---|---|
+| `Rx` | frames | server | doorbell `Notify` | The receive ring: frames the card received, driver to client. |
+| `Tx` | frames | client | doorbell `Kick` | The transmit ring: frames to send, client to driver. |
 
 ## struct `NicInfo`
 

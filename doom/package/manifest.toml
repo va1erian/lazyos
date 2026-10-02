@@ -1,0 +1,29 @@
+# Doom as an installable package (docs/packages.md, docs/doom-port-plan.md).
+#
+# Only this manifest, the icons and the docs are checked in: `tools/doom/build.py`
+# adds `bin/doom.elf` (the doomgeneric engine and its LazyOS platform layer),
+# `resources/freedoom1.wad` (Freedoom: Phase 1, fetched with a pinned SHA-256)
+# and the licence files before it builds `target/pkg/DOOM.LZP`.
+
+[app]
+name = "Doom"
+system_name = "org.lazy.doom"
+author = "LazyOS (engine: id Software, Chocolate Doom, doomgeneric; data: Freedoom)"
+version = "0.1.0"
+description = "Doom on the doomgeneric engine, playing Freedoom: Phase 1. Ctrl fires, Space opens doors, Shift runs, Alt strafes."
+category = "games"
+
+[entry]
+binary = "bin/doom.elf"
+# A desktop app is a client of the `xuid` compositor. The game finds its IWAD
+# beside its binary (`<install>/resources/freedoom1.wad`).
+args = ["--client"]
+# A static musl program: `init` starts it under the Linux ABI personality.
+abi = "linux"
+
+[permissions]
+# The compositor for its window and `inputd` for its keyboard session; nothing
+# else. Its config and saves go to its own folder in the player's home
+# (`$HOME/.apps/org.lazy.doom`).
+interfaces = ["os.lazy.display.v1", "os.lazy.input.v1"]
+files = ["write:$HOME/.apps/org.lazy.doom"]

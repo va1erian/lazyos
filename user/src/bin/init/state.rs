@@ -62,6 +62,12 @@ const SND_CRED: SysCred = SysCred::new(SND_UID, SND_UID, user::dev::CAP_DEV_CLAI
 #[cfg(lazyos_sound)]
 const SND_UID: u32 = sndpolicy::SND_UID;
 
+/// The mixer's identity (docs/audio-plan.md): its own system uid and **no
+/// capabilities at all**. It maps the rings clients hand it and owns the
+/// card's stream; it has no device, no DMA and no authority over anyone.
+#[cfg(lazyos_sound)]
+const AUDIO_CRED: SysCred = SysCred::new(sndpolicy::AUDIO_UID, sndpolicy::AUDIO_UID, 0, 0, 0);
+
 /// `usbd`'s arguments. `trace=1` echoes every report and key edge on serial,
 /// which would put typed passwords on the console, so only the USB harness's
 /// test images (`LAZYOS_USB_TRACE=1`, `tools/usb/run.py`) turn it on.
@@ -123,6 +129,10 @@ pub(super) fn manifest_cred(name: &str) -> Option<SysCred> {
     #[cfg(lazyos_sound)]
     if name == "sndd" {
         return Some(SND_CRED);
+    }
+    #[cfg(lazyos_sound)]
+    if name == "audiod" {
+        return Some(AUDIO_CRED);
     }
     #[cfg(lazyos_usb)]
     if name == "usbd" {
@@ -340,6 +350,18 @@ pub(super) const MANIFEST: &[ServiceSpec] = &[
         path: fhs::bin::SNDD,
         args: "demo=1",
         restart: Restart::OnFailure,
+        deps: &[],
+    },
+    // The system mixer (docs/audio-plan.md): every application's sound goes
+    // through it to the card. It waits for the card on its own (and outlives
+    // a driver restart), so it has no start dependency on `sndd`. `demo=1`
+    // runs the harness's evidence clients once a card is attached.
+    #[cfg(lazyos_sound)]
+    ServiceSpec {
+        name: "audiod",
+        path: fhs::bin::AUDIOD,
+        args: "demo=1",
+        restart: Restart::Always,
         deps: &[],
     },
     // The USB HID driver (docs/usb-hid-plan.md U2), present only on

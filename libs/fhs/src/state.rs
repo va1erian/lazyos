@@ -74,10 +74,19 @@ pub const LAZYRAD_PROJECTS: &str = "projects";
 /// `lazyrad`.
 pub const LAZYRAD_TMP: &str = "/transient/lazyrad";
 
+/// Doom's config and save directory when the player has no home (otherwise
+/// its per-user folder, `$HOME/.apps/org.lazy.doom`). Written by the
+/// `org.lazy.doom` package.
+pub const DOOM_TMP: &str = "/tmp/doom";
+
+/// The verdict line Doom's headless mode writes for a harness to read
+/// (`doom/src/headless.rs`).
+pub const DOOM_RESULT: &str = "/tmp/doom-result.txt";
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::mount::{DATA, HOME, TRANSIENT};
+    use crate::mount::{DATA, HOME, TMP, TRANSIENT};
 
     #[test]
     fn state_lives_in_the_target_tree() {
@@ -109,5 +118,11 @@ mod tests {
     #[test]
     fn the_legacy_confd_store_is_the_only_seed() {
         assert!(LEGACY_DATA_CONFD.starts_with(DATA));
+    }
+
+    #[test]
+    fn doom_scratch_lives_on_the_ramfs() {
+        assert!(DOOM_TMP.starts_with(TMP));
+        assert!(DOOM_RESULT.starts_with(TMP));
     }
 }

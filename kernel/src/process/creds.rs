@@ -21,7 +21,7 @@ pub mod cred_op {
     /// Read a task's credential block.
     pub const GET: u64 = 1;
     // 2 and 3 were the command-line credentialed spawns (`SPAWN`,
-    // `SPAWN_LABELLED`). `spawnv` (syscall 30) took them over with the same
+    // `SPAWN_LABELLED`). `spawnv` (syscall 31) took them over with the same
     // checks; the gate now answers them with `-EINVAL` like any unknown op.
     /// Copy the label string for id `a1` into `a2`, a [`LABEL_BUF_BYTES`]
     /// buffer: one length word, then the bytes.

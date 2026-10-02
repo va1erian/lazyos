@@ -39,6 +39,11 @@ pub const INTERFACES: &[(&str, &str, &str)] = &[
         "Play sound through the speakers",
     ),
     (
+        "os.lazy.audio.mixer.v1",
+        MEDIUM,
+        "Change the volume of every app's sound and the master volume",
+    ),
+    (
         "os.lazy.clipboard.v1",
         MEDIUM,
         "Read and change what you copy and paste",
@@ -65,16 +70,6 @@ pub const INTERFACES: &[(&str, &str, &str)] = &[
         "Start programs and see which services are running",
     ),
     (
-        "os.lazy.shell.v1",
-        MEDIUM,
-        "Open the start menu, launch apps and read what the desktop shows",
-    ),
-    (
-        "os.lazy.lifecycle.v1",
-        HIGH,
-        "Ask system services to save their state and stop",
-    ),
-    (
         "os.lazy.input.v1",
         LOW,
         "Receive keyboard input while its window is focused",
@@ -88,6 +83,11 @@ pub const INTERFACES: &[(&str, &str, &str)] = &[
         "os.lazy.keyd.v1",
         HIGH,
         "Use the stored secrets and encryption keys",
+    ),
+    (
+        "os.lazy.lifecycle.v1",
+        HIGH,
+        "Ask system services to save their state and stop, which they only obey from the system supervisor",
     ),
     (
         "os.lazy.logd.v1",
@@ -134,6 +134,11 @@ pub const INTERFACES: &[(&str, &str, &str)] = &[
         "os.lazy.messenger.registry.v1",
         HIGH,
         "Publish system services and list the ones that exist",
+    ),
+    (
+        "os.lazy.shell.v1",
+        MEDIUM,
+        "See your open windows, switch between them, open the start menu, launch apps and refresh the menu and desktop icons",
     ),
     ("os.lazy.sysmond.v1", LOW, "Read CPU and memory statistics"),
     ("os.lazy.timed.v1", LOW, "Read the time and the time zone"),

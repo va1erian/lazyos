@@ -182,7 +182,15 @@ ext2 keeps no journal, so `s_state` says whether the last stop was clean:
   back (valid), and flushes again, so "clean" is never durable ahead of the data;
 - a volume mounted unclean (or with the error bit) is logged
   (`ext2: <dev> was not cleanly unmounted`) and stays that way: a clean sync
-  restores the mount-time state rather than blessing it. There is no fsck here.
+  restores the mount-time state rather than blessing it. There is no fsck in
+  the kernel; the image build is the check. When `cargo build` updates an OS
+  volume in place that was not cleanly unmounted, `Ext2::recover`
+  (`libs/ext2fs/src/recover.rs`, feature `check`) reclaims its `.unlinked-*`
+  orphans, runs the independent checker over the whole volume and, only when
+  it finds nothing, lets the update's closing flush mark it clean. A volume
+  that fails the check (or carries the error bit) stays flagged, with a
+  `cargo:warning=`; `LAZYOS_RESET_OS=1` recreates it. Without this one unclean
+  stop (a closed QEMU window) would flag the image on every later boot.
 
 Every kernel ext2 mount goes through the write-back block cache
 ([`block-cache.md`](block-cache.md)): writes stay in memory until a commit,
@@ -254,9 +262,6 @@ user string (`EFAULT`/`ENAMETOOLONG`).
   the ext2 `rmdir` (`libs/ext2fs/src/rmdir.rs`), `/data` can lose a directory.
 - Lexical folding means `a/..` never checks that `a` exists or is a directory
   (there are no symlinks, so this differs from POSIX only for that case).
-- A directory descriptor inherited across `fork` has no side-table entry yet
-  (`fd.rs`), so `fchdir` and descriptor-relative names on it are `EBADF` in the
-  child; opening the directory again works.
 
 **Two mount tables** (`mod.rs`, issue #136)
 
@@ -280,9 +285,14 @@ either answers `NoSpace`/ENOSPC. The Linux `openat`/`mkdirat`/`unlinkat`/
 `renameat` flags (`O_CREAT`, `O_EXCL`, `O_TRUNC`, `O_APPEND`, `O_DIRECTORY`,
 `AT_REMOVEDIR`) are honoured in `process/linux/path.rs` and `process/linux/pathops.rs`; `mkdir`(83), `rename`(82),
 `unlink`(87), `rmdir`(84) and the `*at` variants are wired to the `abi_*`
-surface. Descriptor writes update the backing file and patch the fd's snapshot,
-so a descriptor reads back its own writes; unlinking while a descriptor is open
-keeps the snapshot readable (a later write through the orphan answers ENOENT).
+surface. A snapshot descriptor is one open file description (`task/snapshot.rs`:
+the snapshot, the offset and the path, access mode and `O_APPEND` the open
+recorded) that `dup`, `dup2`, `fcntl(F_DUPFD)`, `fork` and `execve` share, so
+`prog >/tmp/out 2>&1` writes stdout and stderr at one offset and a child writes
+through a descriptor its parent opened. Descriptor writes update the backing
+file and patch the description's snapshot, so it reads back its own writes;
+unlinking while a descriptor is open keeps the snapshot readable (a later
+write through the orphan answers ENOENT).
 
 **Linux descriptors on `/data`** (`openfile.rs`, issue #334)
 

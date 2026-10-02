@@ -64,6 +64,7 @@ pub enum Category {
     #[default]
     Accessories,
     Development,
+    Games,
     Graphics,
     Internet,
     Office,
@@ -73,9 +74,10 @@ pub enum Category {
 
 impl Category {
     /// Every category, in menu order.
-    pub const ALL: [Category; 7] = [
+    pub const ALL: [Category; 8] = [
         Category::Accessories,
         Category::Development,
+        Category::Games,
         Category::Graphics,
         Category::Internet,
         Category::Office,
@@ -88,6 +90,7 @@ impl Category {
         match self {
             Category::Accessories => "accessories",
             Category::Development => "development",
+            Category::Games => "games",
             Category::Graphics => "graphics",
             Category::Internet => "internet",
             Category::Office => "office",

@@ -1,4 +1,4 @@
-//! syscall 30: `spawnv`, the argv-vector spawn (fs F3, issue #507).
+//! syscall 31: `spawnv`, the argv-vector spawn (fs F3, issue #507).
 //!
 //! One entry point starts a native or Linux program as a child of the caller,
 //! with an `argv` vector, an environment and, optionally, a credential stamp.
@@ -91,7 +91,7 @@ struct Request {
     cred: CredReq,
 }
 
-/// syscall 30: see the module docs.
+/// syscall 31: see the module docs.
 pub(super) fn sys_spawnv(req_ptr: u64) -> u64 {
     match spawnv(req_ptr) {
         Ok(slot) => slot as u64,

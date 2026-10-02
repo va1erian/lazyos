@@ -1,5 +1,5 @@
 //! Attribute changes (`chmod`, `chown`, `utimensat`) through the Linux ABI
-//! mount table, and the native `chmod` (syscall 31) through the native one.
+//! mount table, and the native `chmod` (syscall 32) through the native one.
 //! Kept beside, not inside, the other `abi_*`/`vfs_*` helpers in `mod.rs` to
 //! hold that file under the size limit.
 

@@ -29,6 +29,12 @@ ISR that performs context switches.
   loop, where the current task holds no heap lock — frees its slot, buffers
   and, when it was the address space's last user, its pages (issue #133).
   Children (`parent != 0`) stay zombies until their parent reaps them.
+- A task's descriptors close when it exits, not when it is reaped (as on
+  Linux): `finish` flags the slot and `close_exited_fds` drops its `fds`
+  outside the task-table lock, at once in `finish` or, for a task the timer
+  sweep killed, at the next `reclaim_pending`. A shell reading a `$(...)`
+  substitution reaps the writer only after the pipe's end-of-file, so a
+  zombie that kept its write end hung it.
 - Per task: `pml4`, `kstack_top`/`rsp`, `class`/`weight`/`pass`, `cpu_ticks`,
   `parent`/`pgid`/`sid`, `heap_break`, `fs_base`, `fds[16]`, `output`, `input`.
 

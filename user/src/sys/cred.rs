@@ -12,7 +12,7 @@ pub mod cred_op {
     /// Read a task's credential block.
     pub const GET: u64 = 1;
     // 2 and 3 were the command-line credentialed spawns, folded into
-    // `spawnv` (syscall 30, fs F3); the kernel refuses them with `-EINVAL`.
+    // `spawnv` (syscall 31, fs F3); the kernel refuses them with `-EINVAL`.
     /// Read the label string for a label id.
     pub const LABEL_NAME: u64 = 4;
 }

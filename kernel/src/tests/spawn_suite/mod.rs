@@ -1,4 +1,4 @@
-//! `spawnv` (syscall 30, fs F3 / issue #507): the argv-vector spawn.
+//! `spawnv` (syscall 31, fs F3 / issue #507): the argv-vector spawn.
 //!
 //! The harness does not run user code, so the suite checks what a child
 //! would find when it starts: a native child's `argv`/`envp` blocks through
@@ -27,7 +27,7 @@ use valid::*;
 
 const SYS_ARGS: u64 = 9;
 const SYS_WAIT: u64 = 7;
-const SYS_SPAWNV: u64 = 30;
+const SYS_SPAWNV: u64 = 31;
 
 /// The directory holding the suite's programs; the space is deliberate.
 const DIR: &str = "/tmp/spawn suite";

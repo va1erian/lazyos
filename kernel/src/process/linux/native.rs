@@ -55,10 +55,13 @@ const NATIVE: &[&str] = &[
     fhs::bin::CONFCTL,
     fhs::bin::MESSENGERCTL,
     fhs::bin::FAULTPROBE,
-    // The audio client (docs/driver-plan.md D6): `beep [freq_hz [ms]]`.
+    // The audio client (docs/driver-plan.md D6): `beep [freq_hz [ms [volume%]]]`.
     fhs::bin::BEEP,
     // The tracker-module player (docs/tracker-plan.md): `modplay <file.mod>`.
     fhs::bin::MODPLAY,
+    // The mixer's volume control (docs/audio-plan.md): `mixer [master <%> |
+    // mute | unmute | stream <id> <%>]`.
+    fhs::bin::MIXER,
     // The package manager's command line (docs/packages.md): `pkgctl inspect |
     // install | remove | list`.
     fhs::bin::PKGCTL,
@@ -98,14 +101,23 @@ const ALIASES: &[(&str, &str, &str)] = &[
     ("reboot", fhs::bin::POWERCTL, "reboot"),
 ];
 
-/// The directories a `$PATH` search (BusyBox `sh`'s default is
-/// `/sbin:/usr/sbin:/bin:/usr/bin`) or a hand-typed path reaches a command
-/// through, written as `lookup` sees them: no leading slash, trailing slash.
-const BIN_DIRS: &[&str] = &["bin/", "sbin/", "usr/bin/", "usr/sbin/", "usr/local/bin/"];
+/// The directories a `$PATH` search (BusyBox `ash`'s default with no `$PATH`
+/// is `/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`) or a
+/// hand-typed path reaches a command through, written as `lookup` sees them:
+/// no leading slash, trailing slash. The Linux path resolver also takes these
+/// as the only directories where a BusyBox applet alias exists.
+pub(super) const BIN_DIRS: &[&str] = &[
+    "bin/",
+    "sbin/",
+    "usr/bin/",
+    "usr/sbin/",
+    "usr/local/bin/",
+    "usr/local/sbin/",
+];
 
 /// `fhs::SYSTEM_BIN` as `lookup` sees a directory: no leading slash, trailing
 /// slash. Only [`ALIASES`] names resolve there without a file.
-const SYSTEM_BIN_DIR: &str = "system/bin/";
+pub(super) const SYSTEM_BIN_DIR: &str = "system/bin/";
 
 /// The exit status reported when the child vanished without being reaped (it
 /// cannot normally happen; `126` is the shell's "cannot execute").

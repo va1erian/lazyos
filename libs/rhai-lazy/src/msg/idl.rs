@@ -4,7 +4,7 @@
 //
 // Every Messenger interface as data, for dynamic clients (the Rhai `msg`
 // module). Wire field ids are 1-based positions in each field list.
-use super::schema::{Enum, Field, Interface, Method, Struct, Topic, Ty};
+use super::schema::{Enum, Field, Interface, Method, Struct, Topic, Transfer, Ty};
 
 #[rustfmt::skip]
 pub static INTERFACES: &[Interface] = &[
@@ -20,6 +20,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Find a user by `name` or, when `name` is absent, by `uid`.\n`found` is false (and `user` empty) when no account matches.",
                 params: &[Field { name: "name", ty: Ty::Option(&Ty::String) }, Field { name: "uid", ty: Ty::Option(&Ty::U32) }],
                 returns: &[Field { name: "found", ty: Ty::Bool }, Field { name: "user", ty: Ty::Option(&Ty::Struct("User")) }],
+                transfers: &[],
             },
             Method {
                 name: "Authenticate",
@@ -28,6 +29,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Verify `secret` against the stored verifier of `name`.",
                 params: &[Field { name: "name", ty: Ty::String }, Field { name: "secret", ty: Ty::String }],
                 returns: &[Field { name: "ok", ty: Ty::Bool }],
+                transfers: &[],
             },
             Method {
                 name: "Create",
@@ -36,6 +38,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Create a user (admin only). `detail` explains a refusal.",
                 params: &[Field { name: "user", ty: Ty::Struct("NewUser") }],
                 returns: &[Field { name: "ok", ty: Ty::Bool }, Field { name: "detail", ty: Ty::String }],
+                transfers: &[],
             },
         ],
         structs: &[
@@ -56,7 +59,7 @@ pub static INTERFACES: &[Interface] = &[
     Interface {
         name: "os.lazy.audio.v1",
         id: 0x536f1f4639cf07f0,
-        doc: "An audio card's control and data-plane interface (docs/driver-plan.md §3.8).\n\nA userspace audio driver (`sndd`, virtio-sound first) owns one card and\nserves this interface. Control is request/reply; sample data flows through a\nshared ring buffer per stream, so the wire never carries audio. Mixing,\nresampling and per-app volume are a later `audiod` service, not the\ndriver's job: a stream has exactly one owner, the task that opened it.\n\n**The client owns the ring.** Replies cannot carry buffers (the kernel\nrefuses transfers in a reply), and the driver must not trust memory a\nclient can rewrite while the device reads it, so the driver keeps its own DMA\nslots and copies committed periods out of the client's ring. A playback\nclient therefore: `OpenStream` (learn the granted parameters), create a\nshared buffer of at least `periods * period_bytes` bytes, `AttachRing` it\n(`buffers[0]` of the request), write interleaved samples into it, `Commit`\nhow many frames it has written, `Start`, and finally `Drain` and\n`CloseStream`.\n\nFrame *n* of the stream lives at ring byte `(n mod ring_frames) *\nframe_bytes`, where `ring_frames = periods * period_bytes / frame_bytes`.\n`Commit` carries the **total** frames written since the ring was attached\n(frame numbering restarts at 0 after `Stop`); it must never go backwards and\nnever run more than `ring_frames` ahead of the `consumed` count the driver\nlast reported (`consumed` is what it has already copied out of the ring, so\nthose frames are safe to overwrite), or the call fails with `EINVAL`.\n`Position`, which counts frames the device has *played*, never exceeds\n`consumed`, so a client that paces itself on `Position` is always safe. The\ndriver consumes whole periods as they are committed, plus a final short\nperiod during `Drain`. If the device runs out of committed data it plays\nsilence and the stream keeps running.\n\nThe driver grants the closest supported parameters and reports them in the\nreply, never failing for a merely unsupported rate or period size. A\nrequest outside `AudioInfo` (unknown format, zero or oversized channel\ncount, a zero period) fails with `EINVAL`; a stream the card cannot provide\n(capture, today) with `ENOTSUP`; a busy card with `EBUSY`. Calls on a stream\nby anyone but its owner fail with `EACCES`. Failures are returned as the\nshared structured error field (see `services::error_field`) instead of the\ndeclared reply fields.",
+        doc: "An audio card's control and data-plane interface (docs/driver-plan.md §3.8).\n\nTwo services serve it (docs/audio-plan.md). The system mixer `audiod`\nserves it under `os.lazy.audio`, the name applications resolve: any number\nof streams from any number of clients, each resampled to the card's rate,\nscaled by its own volume and the master volume, and mixed. A userspace\naudio driver (`sndd`, virtio-sound first) serves it for one card under\n`os.lazy.audio.card`; its one stream belongs to the mixer. Control is\nrequest/reply; sample data flows through a shared ring buffer per stream,\nso the wire never carries audio. A stream has exactly one owner, the task\nthat opened it.\n\n**The client owns the ring.** Replies cannot carry buffers (the kernel\nrefuses transfers in a reply), and the driver must not trust memory a\nclient can rewrite while the device reads it, so the driver keeps its own DMA\nslots and copies committed periods out of the client's ring. A playback\nclient therefore: `OpenStream` (learn the granted parameters), create a\nshared buffer of at least `periods * period_bytes` bytes, `AttachRing` it\n(`buffers[0]` of the request), write interleaved samples into it, `Commit`\nhow many frames it has written, `Start`, and finally `Drain` and\n`CloseStream`.\n\nFrame *n* of the stream lives at ring byte `(n mod ring_frames) *\nframe_bytes`, where `ring_frames = periods * period_bytes / frame_bytes`.\n`Commit` carries the **total** frames written since the ring was attached\n(frame numbering restarts at 0 after `Stop`); it must never go backwards and\nnever run more than `ring_frames` ahead of the `consumed` count the driver\nlast reported (`consumed` is what it has already copied out of the ring, so\nthose frames are safe to overwrite), or the call fails with `EINVAL`.\n`Position`, which counts frames the device has *played*, never exceeds\n`consumed`, so a client that paces itself on `Position` is always safe. The\ndriver consumes whole periods as they are committed, plus a final short\nperiod during `Drain`. If the device runs out of committed data it plays\nsilence and the stream keeps running.\n\nThe driver grants the closest supported parameters and reports them in the\nreply, never failing for a merely unsupported rate or period size. A\nrequest outside `AudioInfo` (unknown format, zero or oversized channel\ncount, a zero period) fails with `EINVAL`; a stream the card cannot provide\n(capture, today) with `ENOTSUP`; a busy card, or a mixer at its stream\nlimit, with `EBUSY`. Calls on a stream\nby anyone but its owner fail with `EACCES`. Failures are returned as the\nshared structured error field (see `services::error_field`) instead of the\ndeclared reply fields.",
         methods: &[
             Method {
                 name: "Info",
@@ -65,6 +68,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Describe the card: stream count and the formats, rates and channel\ncounts it accepts.",
                 params: &[],
                 returns: &[Field { name: "info", ty: Ty::Struct("AudioInfo") }],
+                transfers: &[],
             },
             Method {
                 name: "OpenStream",
@@ -73,6 +77,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Open a stream. `dir` and `format` are `Direction` and `Format`\nordinals (enums travel as `U32`). The reply carries the stream index and\nthe granted parameters. The stream is idle until a ring is attached and\nit is started.",
                 params: &[Field { name: "dir", ty: Ty::U32 }, Field { name: "format", ty: Ty::U32 }, Field { name: "rate", ty: Ty::U32 }, Field { name: "channels", ty: Ty::U32 }, Field { name: "period_bytes", ty: Ty::U32 }],
                 returns: &[Field { name: "grant", ty: Ty::Struct("StreamGrant") }],
+                transfers: &[],
             },
             Method {
                 name: "AttachRing",
@@ -81,6 +86,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Attach the stream's sample ring: the request's `buffers[0]`, at least\n`periods * period_bytes` bytes long. Fails with `EINVAL` when it is\nshorter and `EBUSY` when a ring is already attached.",
                 params: &[Field { name: "stream", ty: Ty::U32 }],
                 returns: &[],
+                transfers: &[Transfer { name: "ring", channel: None }],
             },
             Method {
                 name: "Commit",
@@ -89,6 +95,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Announce that the client has written up to `written_frames` (a total,\nsee the interface notes). Replies with the frames the driver has\nconsumed so far.",
                 params: &[Field { name: "stream", ty: Ty::U32 }, Field { name: "written_frames", ty: Ty::U64 }],
                 returns: &[Field { name: "consumed", ty: Ty::U64 }],
+                transfers: &[],
             },
             Method {
                 name: "Start",
@@ -97,6 +104,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Start (or restart) transfer on a stream with an attached ring.",
                 params: &[Field { name: "stream", ty: Ty::U32 }],
                 returns: &[Field { name: "ok", ty: Ty::Bool }],
+                transfers: &[],
             },
             Method {
                 name: "Stop",
@@ -105,6 +113,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Stop transfer; committed periods not yet queued to the device are\ndiscarded. The stream can be started again.",
                 params: &[Field { name: "stream", ty: Ty::U32 }],
                 returns: &[Field { name: "ok", ty: Ty::Bool }],
+                transfers: &[],
             },
             Method {
                 name: "Drain",
@@ -113,6 +122,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Play everything committed, then stop. Replies once drained.",
                 params: &[Field { name: "stream", ty: Ty::U32 }],
                 returns: &[Field { name: "ok", ty: Ty::Bool }],
+                transfers: &[],
             },
             Method {
                 name: "Position",
@@ -121,6 +131,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Frames the device has played since the last `Start`.",
                 params: &[Field { name: "stream", ty: Ty::U32 }],
                 returns: &[Field { name: "frames", ty: Ty::U64 }],
+                transfers: &[],
             },
             Method {
                 name: "CloseStream",
@@ -129,6 +140,25 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Close a stream and release its ring. Also implied when the owner exits.",
                 params: &[Field { name: "stream", ty: Ty::U32 }],
                 returns: &[],
+                transfers: &[],
+            },
+            Method {
+                name: "SetVolume",
+                id: 1919741053,
+                oneway: false,
+                doc: "Scale the stream by `gain_q16` (16.16 fixed point: 65536 is unity, 0\nsilent, at most 262144, four times unity); larger values fail with\n`EINVAL`. Samples are scaled as they are copied out of the ring and\nsaturate instead of wrapping. A driver that cannot scale the granted\nformat fails with `ENOTSUP`.",
+                params: &[Field { name: "stream", ty: Ty::U32 }, Field { name: "gain_q16", ty: Ty::U32 }],
+                returns: &[],
+                transfers: &[],
+            },
+            Method {
+                name: "SetMute",
+                id: 1285443642,
+                oneway: false,
+                doc: "Silence the stream (`mute`) or restore its volume, without losing it.\nA muted stream keeps consuming and its position keeps moving.",
+                params: &[Field { name: "stream", ty: Ty::U32 }, Field { name: "mute", ty: Ty::Bool }],
+                returns: &[],
+                transfers: &[],
             },
         ],
         structs: &[
@@ -164,6 +194,65 @@ pub static INTERFACES: &[Interface] = &[
         ],
     },
     Interface {
+        name: "os.lazy.audio.mixer.v1",
+        id: 0x39a0c9a99b23a265,
+        doc: "The system mixer's control interface (docs/audio-plan.md stage A2).\n\n`audiod` serves it next to `os.lazy.audio.v1` under the same name,\n`os.lazy.audio`. Where `os.lazy.audio.v1` lets a stream's owner drive its\nown stream, this interface is the volume control panel of the machine: it\nlists every stream and sets any stream's volume and the master volume.\n\nIt never exposes samples, rings or the stream calls themselves, so holding\nit lets a task change *how loud* others are, never *what* they play or hear.\nWho may hold it is the Messenger policy's decision (an installed app needs\nthe permission explicitly); the service itself does not ask.\n\nGains are 16.16 fixed point: 65536 is unity, 0 silent, at most 262144\n(four times unity). Failures are returned as the shared\nstructured error field (see `services::error_field`): an unknown stream is\n`ENOENT`, an out-of-range gain `EINVAL`.",
+        methods: &[
+            Method {
+                name: "ListStreams",
+                id: 711680798,
+                oneway: false,
+                doc: "Every open stream, in opening order.",
+                params: &[],
+                returns: &[Field { name: "streams", ty: Ty::Array(&Ty::Struct("StreamStatus")) }],
+                transfers: &[],
+            },
+            Method {
+                name: "SetStreamVolume",
+                id: 953940373,
+                oneway: false,
+                doc: "Set one stream's gain and mute flag, whoever owns it.",
+                params: &[Field { name: "stream", ty: Ty::U32 }, Field { name: "gain_q16", ty: Ty::U32 }, Field { name: "mute", ty: Ty::Bool }],
+                returns: &[],
+                transfers: &[],
+            },
+            Method {
+                name: "GetMaster",
+                id: 1362695053,
+                oneway: false,
+                doc: "The master gain, the mute flag and what the card runs at.",
+                params: &[],
+                returns: &[Field { name: "master", ty: Ty::Struct("Master") }],
+                transfers: &[],
+            },
+            Method {
+                name: "SetMaster",
+                id: 301176513,
+                oneway: false,
+                doc: "Set the master gain and mute flag, applied after mixing.",
+                params: &[Field { name: "gain_q16", ty: Ty::U32 }, Field { name: "mute", ty: Ty::Bool }],
+                returns: &[],
+                transfers: &[],
+            },
+        ],
+        structs: &[
+            Struct {
+                name: "StreamStatus",
+                doc: "What one open stream is doing.",
+                fields: &[Field { name: "stream", ty: Ty::U32 }, Field { name: "owner", ty: Ty::U64 }, Field { name: "state", ty: Ty::U32 }, Field { name: "rate", ty: Ty::U32 }, Field { name: "channels", ty: Ty::U32 }, Field { name: "gain_q16", ty: Ty::U32 }, Field { name: "mute", ty: Ty::Bool }, Field { name: "frames", ty: Ty::U64 }, Field { name: "underruns", ty: Ty::U32 }],
+            },
+            Struct {
+                name: "Master",
+                doc: "The owner's task id (the kernel-stamped sender of `OpenStream`).\nA `StreamState` ordinal.\nFrames played so far (the owner's `Position`).\nTimes the stream ran dry while playing.\nThe output side of the mixer.",
+                fields: &[Field { name: "gain_q16", ty: Ty::U32 }, Field { name: "mute", ty: Ty::Bool }, Field { name: "card", ty: Ty::Bool }, Field { name: "rate", ty: Ty::U32 }, Field { name: "channels", ty: Ty::U32 }, Field { name: "streams", ty: Ty::U32 }, Field { name: "max_streams", ty: Ty::U32 }],
+            },
+        ],
+        enums: &[
+            Enum { name: "StreamState", variants: &["Idle", "Running", "Stopped", "Draining", "Drained"] },
+        ],
+        topics: &[],
+    },
+    Interface {
         name: "os.lazy.clipboard.v1",
         id: 0x5a8da8f22670b758,
         doc: "The per-session clipboard service (issue #115).\n\nA client publishes an *offer* (typed MIME payloads, eager or lazy) and\nreceives a token; a paste is a `Request` for one MIME of a token in the\ncaller's own session. The session of every call is the kernel-stamped\ncaller session, never a wire field, so a token from another session is\nrefused with `EACCES`.\n\nOne wire interface, three policy ids: MIDL gives every interface a single\nid, but the ACL layer scopes the service by capability, so a parcel's\nheader carries a *scope interface id* while its method id comes from this\nfile. `Offer` travels on `fnv1a64(\"os.lazy.clipboard.write.v1\")`,\n`Request` on `fnv1a64(\"os.lazy.clipboard.read.v1\")`, `Serialize` (served by\nan offer's owner, not the service) on the owner scope, and `Ping` and\n`Current` on this interface's own id. The scope names are ACL names, not\nwire fields, so they live as constants in `user/src/messenger/clipboard`.\nFailures reply with a structured error field (id 13) instead of the\ndeclared reply fields, which never use that id.",
@@ -175,6 +264,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Publish typed payloads for the caller's session and return the new\noffer token. An eager offer fills `data` (one bounded copy is kept); a\nlazy offer sets `sink`, the registry name of the endpoint where the\nowner serves `Serialize`, and leaves `data` empty.",
                 params: &[Field { name: "owner", ty: Ty::String }, Field { name: "sink", ty: Ty::Option(&Ty::String) }, Field { name: "mimes", ty: Ty::Array(&Ty::String) }, Field { name: "data", ty: Ty::Array(&Ty::Struct("Payload")) }],
                 returns: &[Field { name: "token", ty: Ty::U64 }],
+                transfers: &[],
             },
             Method {
                 name: "Request",
@@ -183,6 +273,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Read one MIME of an offer. `token` 0 selects the newest offer in the\ncaller's session that lists `mime`; another session's token fails with\n`EACCES` and is audited, an unknown one with `ENOENT`. The reply carries\nthe payload bytes inline until the shared-buffer mapping op lands.",
                 params: &[Field { name: "token", ty: Ty::U64 }, Field { name: "mime", ty: Ty::String }],
                 returns: &[Field { name: "token", ty: Ty::U64 }, Field { name: "mime", ty: Ty::String }, Field { name: "lazy", ty: Ty::Bool }, Field { name: "bytes", ty: Ty::Bytes }],
+                transfers: &[],
             },
             Method {
                 name: "Serialize",
@@ -191,6 +282,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Serialize one MIME of a lazy offer on demand. The service calls this on\nthe offer owner's `sink` endpoint when a paste happens.",
                 params: &[Field { name: "token", ty: Ty::U64 }, Field { name: "mime", ty: Ty::String }],
                 returns: &[Field { name: "bytes", ty: Ty::Bytes }],
+                transfers: &[],
             },
             Method {
                 name: "Ping",
@@ -199,6 +291,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Liveness probe.",
                 params: &[],
                 returns: &[],
+                transfers: &[],
             },
             Method {
                 name: "Current",
@@ -207,6 +300,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Metadata of the caller session's newest offer, never content; empty\nwhen no offer is live.",
                 params: &[],
                 returns: &[Field { name: "offer", ty: Ty::Option(&Ty::Struct("OfferMeta")) }],
+                transfers: &[],
             },
         ],
         structs: &[
@@ -268,6 +362,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Read the value at `path`. An absent path has an empty `value`.\nA path the caller may not read fails with `CONFD_DENIED`.",
                 params: &[Field { name: "path", ty: Ty::String }],
                 returns: &[Field { name: "value", ty: Ty::Option(&Ty::Struct("Value")) }],
+                transfers: &[],
             },
             Method {
                 name: "Set",
@@ -276,6 +371,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Create or overwrite `path`; the change is persisted before the reply.",
                 params: &[Field { name: "path", ty: Ty::String }, Field { name: "value", ty: Ty::Struct("Value") }],
                 returns: &[],
+                transfers: &[],
             },
             Method {
                 name: "Delete",
@@ -284,6 +380,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Remove `path`; deleting an absent path succeeds.",
                 params: &[Field { name: "path", ty: Ty::String }],
                 returns: &[],
+                transfers: &[],
             },
             Method {
                 name: "List",
@@ -292,6 +389,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Every path the caller may read under `prefix`, in sorted order.",
                 params: &[Field { name: "prefix", ty: Ty::String }],
                 returns: &[Field { name: "paths", ty: Ty::Array(&Ty::String) }],
+                transfers: &[],
             },
             Method {
                 name: "Info",
@@ -300,6 +398,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Where the store lives: the directory confd chose and whether it\nsurvives a reboot (`/conf`; `false` when it fell back to the ramfs\n`/transient/conf`).\nNot restricted by path, so any caller may ask.",
                 params: &[],
                 returns: &[Field { name: "store_dir", ty: Ty::String }, Field { name: "persistent", ty: Ty::Bool }],
+                transfers: &[],
             },
         ],
         structs: &[
@@ -337,6 +436,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Create a surface of `width` x `height` pixels titled `title`. `role` is\na `Role` value: a decorated window (also the meaning of an absent\nfield) or the full-screen desktop, which paints above the background\nand below every window, has no chrome, never takes focus and replaces\nthe previous desktop. The desktop role is compositor-privileged. The\nparcel transfers the event endpoint the compositor sends input on.",
                 params: &[Field { name: "width", ty: Ty::U32 }, Field { name: "height", ty: Ty::U32 }, Field { name: "title", ty: Ty::String }, Field { name: "role", ty: Ty::U32 }],
                 returns: &[Field { name: "surface", ty: Ty::U64 }],
+                transfers: &[Transfer { name: "events", channel: Some("os.lazy.display.v1") }],
             },
             Method {
                 name: "AttachBuffer",
@@ -345,6 +445,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Attach (or replace) `surface`'s pixel buffer with the parcel's shared\nbuffer. Only the surface's creator may attach. Refused with `EBUSY`\nonce the surface has used `Present`, which owns slot ownership from\nthen on.",
                 params: &[Field { name: "surface", ty: Ty::U64 }],
                 returns: &[],
+                transfers: &[Transfer { name: "pixels", channel: None }],
             },
             Method {
                 name: "Commit",
@@ -353,6 +454,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Signal that the damage rectangle of `surface` (content-relative) is\nready to present.",
                 params: &[Field { name: "surface", ty: Ty::U64 }, Field { name: "x", ty: Ty::U32 }, Field { name: "y", ty: Ty::U32 }, Field { name: "w", ty: Ty::U32 }, Field { name: "h", ty: Ty::U32 }],
                 returns: &[],
+                transfers: &[],
             },
             Method {
                 name: "DestroySurface",
@@ -361,6 +463,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Drop a surface; the compositor forgets it and repaints.",
                 params: &[Field { name: "surface", ty: Ty::U64 }],
                 returns: &[],
+                transfers: &[],
             },
             Method {
                 name: "PointerMove",
@@ -369,6 +472,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Event: the pointer moved to `(x, y)`, relative to the focused surface.",
                 params: &[Field { name: "x", ty: Ty::I32 }, Field { name: "y", ty: Ty::I32 }],
                 returns: &[],
+                transfers: &[],
             },
             Method {
                 name: "PointerDown",
@@ -377,6 +481,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Event: pointer button `button` went down at `(x, y)`, relative to the\nsurface.",
                 params: &[Field { name: "x", ty: Ty::I32 }, Field { name: "y", ty: Ty::I32 }, Field { name: "button", ty: Ty::U32 }],
                 returns: &[],
+                transfers: &[],
             },
             Method {
                 name: "PointerUp",
@@ -385,6 +490,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Event: pointer button `button` went up at `(x, y)`, relative to the\nsurface.",
                 params: &[Field { name: "x", ty: Ty::I32 }, Field { name: "y", ty: Ty::I32 }, Field { name: "button", ty: Ty::U32 }],
                 returns: &[],
+                transfers: &[],
             },
             Method {
                 name: "KeyDown",
@@ -393,6 +499,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Event: key `key` was pressed (a character or a non-printable code).",
                 params: &[Field { name: "key", ty: Ty::U32 }],
                 returns: &[],
+                transfers: &[],
             },
             Method {
                 name: "KeyUp",
@@ -401,6 +508,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Event: key `key` was released.",
                 params: &[Field { name: "key", ty: Ty::U32 }],
                 returns: &[],
+                transfers: &[],
             },
             Method {
                 name: "WindowClose",
@@ -409,6 +517,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Event: the window manager closed this surface (the X button or Alt+F4).\nThe app is expected to exit or re-create it.",
                 params: &[],
                 returns: &[],
+                transfers: &[],
             },
             Method {
                 name: "DragStart",
@@ -417,6 +526,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Begin a compositor-mediated drag from `surface` carrying clipboard\n`token` of type `mime`. Only the surface's creator may start one, while\na pointer button is held; one drag at a time.",
                 params: &[Field { name: "surface", ty: Ty::U64 }, Field { name: "token", ty: Ty::U64 }, Field { name: "mime", ty: Ty::String }],
                 returns: &[],
+                transfers: &[],
             },
             Method {
                 name: "DragCancel",
@@ -425,6 +535,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Cancel the drag that started at `surface`.",
                 params: &[Field { name: "surface", ty: Ty::U64 }],
                 returns: &[],
+                transfers: &[],
             },
             Method {
                 name: "DragEnter",
@@ -433,6 +544,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Event: a drag carrying `mime` entered this surface at `(x, y)`.",
                 params: &[Field { name: "x", ty: Ty::I32 }, Field { name: "y", ty: Ty::I32 }, Field { name: "mime", ty: Ty::String }],
                 returns: &[],
+                transfers: &[],
             },
             Method {
                 name: "DragOver",
@@ -441,6 +553,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Event: a drag moved inside this surface to `(x, y)`.",
                 params: &[Field { name: "x", ty: Ty::I32 }, Field { name: "y", ty: Ty::I32 }],
                 returns: &[],
+                transfers: &[],
             },
             Method {
                 name: "DragLeave",
@@ -449,6 +562,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Event: a drag left this surface.",
                 params: &[],
                 returns: &[],
+                transfers: &[],
             },
             Method {
                 name: "Drop",
@@ -457,6 +571,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Event: a drag was released over this surface at `(x, y)`; the target\npastes `token` of type `mime` through the clipboard service.",
                 params: &[Field { name: "x", ty: Ty::I32 }, Field { name: "y", ty: Ty::I32 }, Field { name: "token", ty: Ty::U64 }, Field { name: "mime", ty: Ty::String }],
                 returns: &[],
+                transfers: &[],
             },
             Method {
                 name: "DragEnded",
@@ -465,6 +580,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Event to the drag's source: the drag ended (`dropped`) or was cancelled.",
                 params: &[Field { name: "dropped", ty: Ty::Bool }],
                 returns: &[],
+                transfers: &[],
             },
             Method {
                 name: "ListSurfaces",
@@ -473,6 +589,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Every surface in z-order (bottom first), including the desktop and\npanels. Shell-only (the `shell` subscriber's task, uid 0 or\n`CAP_SETUID`).",
                 params: &[],
                 returns: &[Field { name: "surfaces", ty: Ty::Array(&Ty::Struct("SurfaceRow")) }],
+                transfers: &[],
             },
             Method {
                 name: "GetWorkArea",
@@ -481,6 +598,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "The rectangle available to windows: what the shell set with\n`SetWorkArea`, or the whole screen (xuid paints no desktop UI of its\nown since issue #157).",
                 params: &[],
                 returns: &[Field { name: "x", ty: Ty::I32 }, Field { name: "y", ty: Ty::I32 }, Field { name: "w", ty: Ty::I32 }, Field { name: "h", ty: Ty::I32 }],
+                transfers: &[],
             },
             Method {
                 name: "Subscribe",
@@ -489,6 +607,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Register this task as a subscriber under `subscriber_role`; the parcel\ntransfers the event endpoint for the shell events. The role `shell`\nmakes the task *the* shell (it may then create desktop and panel\nsurfaces and call the shell-only methods). It is accepted from uid 0 or\n`CAP_SETUID`, or from a task in the session that owns the display: the\nfirst session whose task subscribed as `shell` (kernel-stamped\n`cred.session`, never session 0). A shell from that same session (a\nrestart) replaces the previous one. Any other role is an observer slot\nthat requires uid 0 or `CAP_SETUID` and never replaces the shell\n(issue #447). Registering again replaces the caller's previous\nendpoint.",
                 params: &[Field { name: "subscriber_role", ty: Ty::String }],
                 returns: &[],
+                transfers: &[Transfer { name: "events", channel: Some("os.lazy.display.v1") }],
             },
             Method {
                 name: "GetTheme",
@@ -497,6 +616,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "The compositor's chrome palette as `0xRRGGBB` colours. `text` is the\nink on the inactive title bar. `mode` is the desktop preset (`dark` or\n`light`, the `sys/ui/mode` setting) and `accent` the accent colour in\neffect, so an app can match its own widgets to the desktop.",
                 params: &[],
                 returns: &[Field { name: "title_bg_active", ty: Ty::U32 }, Field { name: "title_bg_inactive", ty: Ty::U32 }, Field { name: "border", ty: Ty::U32 }, Field { name: "taskbar", ty: Ty::U32 }, Field { name: "text", ty: Ty::U32 }, Field { name: "mode", ty: Ty::String }, Field { name: "accent", ty: Ty::U32 }],
+                transfers: &[],
             },
             Method {
                 name: "SurfaceChanged",
@@ -505,6 +625,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Shell event: surface `surface` changed. `kind` is a `Change` value;\n`title` is set on `Created` and `Title`. `role` is a `Role` value.",
                 params: &[Field { name: "surface", ty: Ty::U64 }, Field { name: "kind", ty: Ty::U32 }, Field { name: "x", ty: Ty::I32 }, Field { name: "y", ty: Ty::I32 }, Field { name: "w", ty: Ty::I32 }, Field { name: "h", ty: Ty::I32 }, Field { name: "minimized", ty: Ty::Bool }, Field { name: "focused", ty: Ty::Bool }, Field { name: "title", ty: Ty::Option(&Ty::String) }, Field { name: "role", ty: Ty::U32 }, Field { name: "maximized", ty: Ty::Bool }],
                 returns: &[],
+                transfers: &[],
             },
             Method {
                 name: "FocusChanged",
@@ -513,6 +634,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Shell event: the focused surface changed; absent when nothing is\nfocused.",
                 params: &[Field { name: "surface", ty: Ty::Option(&Ty::U64) }],
                 returns: &[],
+                transfers: &[],
             },
             Method {
                 name: "StartMenu",
@@ -521,6 +643,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Shell event: the global start-menu hotkey (Ctrl+Esc or Super) fired.",
                 params: &[],
                 returns: &[],
+                transfers: &[],
             },
             Method {
                 name: "AttachBufferSlot",
@@ -529,6 +652,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Register a pixel buffer (the parcel's `buffers[0]`, at least\n`width * height * 4` bytes) as buffer slot `slot` (0-3) of `surface`.\nThe compositor only reads the *current* slot, so attaching to any\nother slot is tear-free; attaching to the current slot fails with\n`EBUSY`. Only the surface's creator may attach.",
                 params: &[Field { name: "surface", ty: Ty::U64 }, Field { name: "slot", ty: Ty::U32 }],
                 returns: &[],
+                transfers: &[Transfer { name: "pixels", channel: None }],
             },
             Method {
                 name: "Present",
@@ -537,6 +661,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Pipelined present (no reply): make `slot` the surface's current buffer\nand composite `damage` (content-relative, clipped to the content; an\nempty list or more than 16 rects means the whole content). `seq` is\nechoed in `FrameDone`. After compositing, the compositor sends\n`BufferRelease` for the slot this present replaced (if it changed) and\nthen `FrameDone`. A minimized surface still swaps its slot (so the\nnewest frame shows on restore and the client gets its release) but is\nnot repainted. A refused present (unattached or out-of-range slot)\nchanges nothing: the compositor sends `BufferRelease` for the\nsubmitted slot, since it never read it, and then `FrameDone`. A\npresent from a task that does not own `surface` is dropped silently.",
                 params: &[Field { name: "surface", ty: Ty::U64 }, Field { name: "slot", ty: Ty::U32 }, Field { name: "seq", ty: Ty::U64 }, Field { name: "damage", ty: Ty::Array(&Ty::Struct("Rect")) }],
                 returns: &[],
+                transfers: &[],
             },
             Method {
                 name: "BufferRelease",
@@ -545,6 +670,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Event: the compositor no longer reads `slot` of `surface`; the client\nmay write it again. Only sent to surfaces that use `Present`.",
                 params: &[Field { name: "surface", ty: Ty::U64 }, Field { name: "slot", ty: Ty::U32 }],
                 returns: &[],
+                transfers: &[],
             },
             Method {
                 name: "FrameDone",
@@ -553,6 +679,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Event: the compositor consumed the `Present` numbered `seq`. Frames\ncomplete in submission order.",
                 params: &[Field { name: "surface", ty: Ty::U64 }, Field { name: "seq", ty: Ty::U64 }],
                 returns: &[],
+                transfers: &[],
             },
             Method {
                 name: "SetTitle",
@@ -561,6 +688,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Rename `surface`'s window (its title bar, taskbar entry and switcher\nrow) to `title`, so a document window can show the file it holds. Only\nthe surface's creator may rename it (`EACCES` otherwise; `ENOENT` for\nan unknown surface). The compositor keeps at most 128 bytes (cut at a\ncharacter boundary), drops control characters and keeps the previous\ntitle when nothing printable is left, so a client cannot blank or\noverflow its own chrome. A change sends the shell a `SurfaceChanged`\nevent of kind `Title`. Clients that never call it keep the\n`CreateSurface` title, so old clients are unaffected.",
                 params: &[Field { name: "surface", ty: Ty::U64 }, Field { name: "title", ty: Ty::String }],
                 returns: &[],
+                transfers: &[],
             },
             Method {
                 name: "HintOpenOrigin",
@@ -569,6 +697,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Hint where the *next* `CreateSurface` from this task should open from:\na rectangle `(x, y, w, h)` relative to the content origin of `surface`\n(which the caller must own; `EACCES` otherwise, `ENOENT` for an unknown\nsurface), typically the tile the user just double-clicked. The\ncompositor uses it only as the start of that window's opening zoom\nanimation, in place of the taskbar entry; it never affects placement,\nfocus or anything else. The rectangle is translated to screen\ncoordinates and clamped to the screen; an empty rectangle, or one\nwholly off the screen, is ignored. There is at most one hint per task\n(a new one replaces the old) and it is consumed by the next\n`CreateSurface` from that task, or expires after about two seconds.\nMinimize and restore keep using the taskbar entry. A compositor that\npredates the method answers `EINVAL`, which callers ignore.",
                 params: &[Field { name: "surface", ty: Ty::U64 }, Field { name: "x", ty: Ty::I32 }, Field { name: "y", ty: Ty::I32 }, Field { name: "w", ty: Ty::U32 }, Field { name: "h", ty: Ty::U32 }],
                 returns: &[],
+                transfers: &[],
             },
             Method {
                 name: "PointerWheel",
@@ -577,6 +706,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Event: the mouse wheel rolled `delta` notches over this surface's\ncontent at `(x, y)` (relative to the content origin). Positive scrolls\nup (the wheel rolled away from the user), negative down. The compositor\nsends it to the topmost window under the pointer, which need not be the\nfocused one, and never to the title bar or an area outside every window.",
                 params: &[Field { name: "x", ty: Ty::I32 }, Field { name: "y", ty: Ty::I32 }, Field { name: "delta", ty: Ty::I32 }],
                 returns: &[],
+                transfers: &[],
             },
             Method {
                 name: "SetSizeHints",
@@ -585,6 +715,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Declare `surface` resizable within these content-size bounds (pixels).\nOnly the creator may call it (`EACCES`; `ENOENT` for an unknown\nsurface). A `max_*` of 0 means the largest size the screen allows.\nBounds are clamped to the compositor's minimums and the screen; a\nresulting `min` greater than its `max` is `EINVAL`. Until it is called a\nwindow is fixed-size: no resize edges and no maximize button, so old\nclients are unaffected. The bounds apply to the content size (the\ndecorated window is `BORDER` wider and `TITLE_H + BORDER` taller).",
                 params: &[Field { name: "surface", ty: Ty::U64 }, Field { name: "min_w", ty: Ty::U32 }, Field { name: "min_h", ty: Ty::U32 }, Field { name: "max_w", ty: Ty::U32 }, Field { name: "max_h", ty: Ty::U32 }],
                 returns: &[],
+                transfers: &[],
             },
             Method {
                 name: "Configure",
@@ -593,6 +724,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Event: the window manager changed the surface's content size to\n`width` x `height` (`state` is a `WindowState`). The client should\nattach buffer(s) of the new size (`AttachBuffer`, or `AttachBufferSlot`\non non-current slots for `Present` users) and present a full frame.\nUntil it does the compositor shows the old buffer cropped or padded.",
                 params: &[Field { name: "surface", ty: Ty::U64 }, Field { name: "width", ty: Ty::U32 }, Field { name: "height", ty: Ty::U32 }, Field { name: "state", ty: Ty::U32 }],
                 returns: &[],
+                transfers: &[],
             },
             Method {
                 name: "RequestSize",
@@ -601,6 +733,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Ask the compositor to change `surface`'s content size to `width` x\n`height`, keeping its top-left corner (a compact/expanded toggle). Only\nthe creator may call it (`EACCES`; `ENOENT` for an unknown surface) and\nonly a surface that declared `SetSizeHints` and is neither maximized nor\nminimized (`EINVAL` otherwise). The size is clamped to the declared\nbounds and to the screen; the compositor answers by sending a\n`Configure` with the size it actually applied (also when that equals\nthe current size), which is the only confirmation the client needs.",
                 params: &[Field { name: "surface", ty: Ty::U64 }, Field { name: "width", ty: Ty::U32 }, Field { name: "height", ty: Ty::U32 }],
                 returns: &[],
+                transfers: &[],
             },
             Method {
                 name: "Ping",
@@ -609,6 +742,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Event: a liveness probe. The compositor sends it to each window's\nevent endpoint about once a second; a send that fails with `EPIPE`\ntells it the client died without calling `DestroySurface`, and it\nremoves the window. Clients ignore it (an old client drops an unknown\nevent), so there is nothing to answer.",
                 params: &[],
                 returns: &[],
+                transfers: &[],
             },
             Method {
                 name: "PlaceSurface",
@@ -617,6 +751,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Move a `Panel` surface so its top-left corner is at screen `(x, y)`.\nOnly the surface's creator may call it (`EACCES`), only for a panel\n(`EINVAL` for any other role; `ENOENT` for an unknown surface). The\nposition is clamped so the panel stays on screen. A new panel opens at\n`(0, 0)`, so a shell places it before its first `Commit`.",
                 params: &[Field { name: "surface", ty: Ty::U64 }, Field { name: "x", ty: Ty::I32 }, Field { name: "y", ty: Ty::I32 }],
                 returns: &[],
+                transfers: &[],
             },
             Method {
                 name: "ActivateSurface",
@@ -625,6 +760,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Shell-only: restore `surface` if minimized, raise it and give it focus\n(a taskbar entry click). `ENOENT` for an unknown surface, `EINVAL` for\na desktop or panel.",
                 params: &[Field { name: "surface", ty: Ty::U64 }],
                 returns: &[],
+                transfers: &[],
             },
             Method {
                 name: "MinimizeSurface",
@@ -633,6 +769,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Shell-only: minimize `surface` (a click on the focused taskbar entry).\nThe zoom animation flies to the rectangle `SetIconGeometry` gave for\nit. `ENOENT` for an unknown surface, `EINVAL` for a desktop or panel.",
                 params: &[Field { name: "surface", ty: Ty::U64 }],
                 returns: &[],
+                transfers: &[],
             },
             Method {
                 name: "SetWorkArea",
@@ -641,6 +778,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Shell-only: the rectangle windows may occupy (the screen minus the\nshell's taskbar). Clamped to the screen; an empty result is `EINVAL`.\nMaximized windows are re-fitted to it. When the shell goes away the\nwork area returns to the whole screen.",
                 params: &[Field { name: "x", ty: Ty::I32 }, Field { name: "y", ty: Ty::I32 }, Field { name: "w", ty: Ty::I32 }, Field { name: "h", ty: Ty::I32 }],
                 returns: &[],
+                transfers: &[],
             },
             Method {
                 name: "SetIconGeometry",
@@ -649,6 +787,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Shell-only: where `surface`'s taskbar entry is on screen, so the\nminimize/restore zoom flies to and from it. A window without one zooms\nto a small rectangle at the bottom-left of the screen. `ENOENT` for an\nunknown surface; an empty rectangle forgets the geometry.",
                 params: &[Field { name: "surface", ty: Ty::U64 }, Field { name: "x", ty: Ty::I32 }, Field { name: "y", ty: Ty::I32 }, Field { name: "w", ty: Ty::I32 }, Field { name: "h", ty: Ty::I32 }],
                 returns: &[],
+                transfers: &[],
             },
             Method {
                 name: "HintLaunchOrigin",
@@ -657,6 +796,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Shell-only: the next window *any* task creates within about two seconds\nzooms open from this screen rectangle (the start-menu row or desktop\nicon the user just activated) instead of from its taskbar entry. The\nshell sends it right before asking `init` to launch an app. A task's\nown `HintOpenOrigin` wins over it. An empty rectangle is ignored.",
                 params: &[Field { name: "x", ty: Ty::I32 }, Field { name: "y", ty: Ty::I32 }, Field { name: "w", ty: Ty::U32 }, Field { name: "h", ty: Ty::U32 }],
                 returns: &[],
+                transfers: &[],
             },
             Method {
                 name: "Dismiss",
@@ -665,6 +805,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Shell event: a pointer button went down outside every `Panel` surface\n(on a window, the desktop or the bare background), so the shell closes\nany open popup panel such as the start menu.",
                 params: &[],
                 returns: &[],
+                transfers: &[],
             },
         ],
         structs: &[
@@ -698,6 +839,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Reply with `text` and the number of bytes received.",
                 params: &[Field { name: "text", ty: Ty::String }, Field { name: "count", ty: Ty::U32 }],
                 returns: &[Field { name: "reply", ty: Ty::String }],
+                transfers: &[],
             },
             Method {
                 name: "Ping",
@@ -706,6 +848,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Health probe.",
                 params: &[],
                 returns: &[Field { name: "alive", ty: Ty::Bool }],
+                transfers: &[],
             },
             Method {
                 name: "Notify",
@@ -714,6 +857,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Broadcast an event; no reply is expected.",
                 params: &[Field { name: "event", ty: Ty::Struct("Event") }],
                 returns: &[],
+                transfers: &[],
             },
         ],
         structs: &[
@@ -740,6 +884,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Publish `health/<name>` with `status`/`detail`.",
                 params: &[Field { name: "name", ty: Ty::String }, Field { name: "status", ty: Ty::String }, Field { name: "detail", ty: Ty::String }],
                 returns: &[Field { name: "summary", ty: Ty::Struct("HealthRecord") }, Field { name: "records", ty: Ty::Array(&Ty::Struct("HealthRecord")) }],
+                transfers: &[],
             },
             Method {
                 name: "Status",
@@ -748,6 +893,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Snapshot retained health rows plus the aggregate.",
                 params: &[],
                 returns: &[Field { name: "summary", ty: Ty::Struct("HealthRecord") }, Field { name: "records", ty: Ty::Array(&Ty::Struct("HealthRecord")) }],
+                transfers: &[],
             },
         ],
         structs: &[
@@ -787,6 +933,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Snapshot the supervision table.",
                 params: &[],
                 returns: &[Field { name: "services", ty: Ty::Array(&Ty::Struct("ServiceStatus")) }],
+                transfers: &[],
             },
             Method {
                 name: "Launch",
@@ -795,6 +942,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Launch an app as a session child. `session` 0 means the caller's own\nsession; only the session's owner (or root) may launch into it. `args`\nis empty or one absolute path (at most 1024 bytes, no control\ncharacter or `\"`), appended to the app's fixed arguments as a single\n`argv` item; any other value is refused with `EINVAL`.",
                 params: &[Field { name: "app", ty: Ty::String }, Field { name: "args", ty: Ty::String }, Field { name: "session", ty: Ty::U64 }],
                 returns: &[Field { name: "app", ty: Ty::String }, Field { name: "pid", ty: Ty::U64 }, Field { name: "session", ty: Ty::U64 }],
+                transfers: &[],
             },
             Method {
                 name: "ListApps",
@@ -803,6 +951,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Enumerate the app registry: the built-in apps first, then the apps the\npackage manager installed (`AppInfo.installed`; the core packages\nfirst, then the others by `system_name`), read afresh from the\nconfiguration registry on every call. `hidden` is the caller's own.",
                 params: &[],
                 returns: &[Field { name: "apps", ty: Ty::Array(&Ty::Struct("AppInfo")) }],
+                transfers: &[],
             },
             Method {
                 name: "Stop",
@@ -811,6 +960,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Stop every running instance of the app `app` (the app id, as `Launch`\ntakes it): each is killed and its supervision row retired without a\nrestart. `stopped` is how many were running. Only root, a holder of\n`CAP_SETUID` (the package manager) or the session owner may stop; an\nowner reaches only instances in their own session. Unknown or idle apps\nare not an error, `stopped` is just 0.",
                 params: &[Field { name: "app", ty: Ty::String }],
                 returns: &[Field { name: "stopped", ty: Ty::U64 }],
+                transfers: &[],
             },
             Method {
                 name: "Shutdown",
@@ -819,6 +969,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Begin an orderly shutdown (docs/shutdown.md): `mode` is a `PowerMode`\nvalue. The reply is immediate; `init` then stops the session apps, the\nservices in reverse dependency order, syncs and calls the kernel's\n`power`. `reason` is logged (at most 128 bytes, no control character).\nRoot or any caller in a login session may ask; a labelled (installed)\napp is refused with `EPERM`, and an unknown mode is `EINVAL`. A request\nwhile a shutdown is already running is not an error: `accepted` is true\nand `phase` is the current phase. `force` skips the graceful stop: every\nremaining child is killed at once and the machine stops.",
                 params: &[Field { name: "mode", ty: Ty::U32 }, Field { name: "reason", ty: Ty::String }, Field { name: "force", ty: Ty::Bool }],
                 returns: &[Field { name: "accepted", ty: Ty::Bool }, Field { name: "phase", ty: Ty::String }],
+                transfers: &[],
             },
         ],
         structs: &[
@@ -875,6 +1026,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Open an input session bound to the calling task (the kernel-stamped\nsender). `surface` names the window it wants keys for: it must be a\nsurface the compositor registered as owned by this same task, so a\nclient can never claim someone else's window (`EACCES`; `ENOENT` when\nthe compositor has not registered it); an absent `surface` is reserved for\nthe login console and refused with `EINVAL` for now. The parcel transfers the event\nendpoint (`handles[0]`) that receives every event below. A task may hold\nseveral sessions, one per surface.",
                 params: &[Field { name: "surface", ty: Ty::Option(&Ty::U64) }],
                 returns: &[Field { name: "session", ty: Ty::U64 }],
+                transfers: &[Transfer { name: "events", channel: Some("os.lazy.input.v1") }],
             },
             Method {
                 name: "Close",
@@ -883,6 +1035,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "End a session. Only the task that opened it may.",
                 params: &[Field { name: "session", ty: Ty::U64 }],
                 returns: &[],
+                transfers: &[],
             },
             Method {
                 name: "GetState",
@@ -891,6 +1044,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "The current layout name, modifier and lock bits (`mods` as in\n`KeyEvent`) and the key-repeat timing in milliseconds.",
                 params: &[],
                 returns: &[Field { name: "layout", ty: Ty::String }, Field { name: "mods", ty: Ty::U32 }, Field { name: "repeat_delay_ms", ty: Ty::U32 }, Field { name: "repeat_interval_ms", ty: Ty::U32 }],
+                transfers: &[],
             },
             Method {
                 name: "KeyEvent",
@@ -899,6 +1053,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Event: a key changed state. `code` is the physical key, `sym` its\nkeysym under the active layout (a Unicode scalar for character keys,\nan X11-style `0xFFxx` value otherwise, `0` when the key has no meaning\non the current level), `mods` the modifier and lock bits in force after\nthis event (`1` Shift, `2` Ctrl, `4` Alt, `8` Super, `0x10` AltGr,\n`0x20` CapsLock, `0x40` NumLock, `0x80` ScrollLock), `state` a\n`KeyState`, `ts_ns` the kernel timestamp and `seq` the raw sequence\nnumber. Auto-repeat is always flagged `Repeat`, never `Down`.",
                 params: &[Field { name: "code", ty: Ty::U32 }, Field { name: "sym", ty: Ty::U32 }, Field { name: "mods", ty: Ty::U32 }, Field { name: "state", ty: Ty::U32 }, Field { name: "ts_ns", ty: Ty::U64 }, Field { name: "seq", ty: Ty::U64 }],
                 returns: &[],
+                transfers: &[],
             },
             Method {
                 name: "TextInput",
@@ -907,6 +1062,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Event: composed text (UTF-8) for a character-producing press or repeat.",
                 params: &[Field { name: "utf8", ty: Ty::String }],
                 returns: &[],
+                transfers: &[],
             },
             Method {
                 name: "KeyboardEnter",
@@ -915,6 +1071,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Event: keyboard focus arrived. `down` lists the physical keys held right\nnow, so the client seeds its key state.",
                 params: &[Field { name: "down", ty: Ty::Array(&Ty::U32) }],
                 returns: &[],
+                transfers: &[],
             },
             Method {
                 name: "KeyboardLeave",
@@ -923,6 +1080,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Event: keyboard focus left. The client **must release every key** it\nbelieves is down; `inputd` also cancels repeat.",
                 params: &[],
                 returns: &[],
+                transfers: &[],
             },
             Method {
                 name: "LayoutChanged",
@@ -931,6 +1089,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Event: the layout changed (a `confd` write, live).",
                 params: &[Field { name: "layout", ty: Ty::String }],
                 returns: &[],
+                transfers: &[],
             },
         ],
         structs: &[],
@@ -951,6 +1110,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Become the shell client; the parcel transfers the endpoint (`handles[0]`)\nthat receives the shell events below. Attaching again replaces it.",
                 params: &[],
                 returns: &[],
+                transfers: &[Transfer { name: "events", channel: Some("os.lazy.input.shell.v1") }],
             },
             Method {
                 name: "SetFocus",
@@ -959,6 +1119,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Move keyboard focus to `surface` (absent: nobody is focused and no key\ncontent is delivered). The previous holder gets `KeyboardLeave`, the new\none `KeyboardEnter`; repeat is cancelled.",
                 params: &[Field { name: "surface", ty: Ty::Option(&Ty::U64) }],
                 returns: &[],
+                transfers: &[],
             },
             Method {
                 name: "RegisterSurface",
@@ -967,6 +1128,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Declare that `owner` (a task slot, as the compositor stamps in\n`Surface.owner`) created `surface`, so `inputd` can match that task's\n`Open` to the window.",
                 params: &[Field { name: "surface", ty: Ty::U64 }, Field { name: "owner", ty: Ty::U64 }],
                 returns: &[],
+                transfers: &[],
             },
             Method {
                 name: "UnregisterSurface",
@@ -975,6 +1137,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Forget a destroyed surface; its sessions are closed.",
                 params: &[Field { name: "surface", ty: Ty::U64 }],
                 returns: &[],
+                transfers: &[],
             },
             Method {
                 name: "RegisterHotkey",
@@ -983,6 +1146,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Register a chord: `code` (HID usage) with exactly the Shift/Ctrl/Alt/\nSuper bits of `mods`. A match is consumed (its press and release are\nnever delivered to a client) and reported as `HotkeyFired`.",
                 params: &[Field { name: "code", ty: Ty::U32 }, Field { name: "mods", ty: Ty::U32 }],
                 returns: &[Field { name: "id", ty: Ty::U64 }],
+                transfers: &[],
             },
             Method {
                 name: "UnregisterHotkey",
@@ -991,6 +1155,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Drop a chord.",
                 params: &[Field { name: "id", ty: Ty::U64 }],
                 returns: &[],
+                transfers: &[],
             },
             Method {
                 name: "ApproveGrant",
@@ -999,6 +1164,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Answer a `GrantRequested`. Keyboard grabs are not implemented yet, so\nthis is refused with `ENOSYS`; the method is reserved so the interface\ndoes not change when they land.",
                 params: &[Field { name: "session", ty: Ty::U64 }, Field { name: "allow", ty: Ty::Bool }],
                 returns: &[],
+                transfers: &[],
             },
             Method {
                 name: "SetBounds",
@@ -1007,6 +1173,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "The screen size the cursor is clamped to (each side `1..=16384`, else\n`EINVAL`). `inputd` re-clamps the cursor at once and, if that moved it,\nsends a `PointerEvent`. It replaces the kernel's own cursor bounds.",
                 params: &[Field { name: "width", ty: Ty::U32 }, Field { name: "height", ty: Ty::U32 }],
                 returns: &[],
+                transfers: &[],
             },
             Method {
                 name: "GetPointer",
@@ -1015,6 +1182,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "The cursor position and held `buttons` (as in `PointerEvent`), to seed\nthe compositor's cursor after `Attach`.",
                 params: &[],
                 returns: &[Field { name: "x", ty: Ty::I32 }, Field { name: "y", ty: Ty::I32 }, Field { name: "buttons", ty: Ty::U32 }],
+                transfers: &[],
             },
             Method {
                 name: "HotkeyFired",
@@ -1023,6 +1191,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Shell event: a registered chord was pressed.",
                 params: &[Field { name: "id", ty: Ty::U64 }],
                 returns: &[],
+                transfers: &[],
             },
             Method {
                 name: "GrantRequested",
@@ -1031,6 +1200,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Shell event: a client asked for a grab (reserved; never sent yet).",
                 params: &[Field { name: "session", ty: Ty::U64 }, Field { name: "kind", ty: Ty::U32 }],
                 returns: &[],
+                transfers: &[],
             },
             Method {
                 name: "EscapeChord",
@@ -1039,6 +1209,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Shell event: the reserved escape chord was pressed (reserved).",
                 params: &[],
                 returns: &[],
+                transfers: &[],
             },
             Method {
                 name: "SessionOpened",
@@ -1047,6 +1218,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Shell event: `surface` now receives keys through an input session, so\nthe compositor must stop synthesising legacy `KeyDown`/`KeyUp` for it.",
                 params: &[Field { name: "surface", ty: Ty::U64 }],
                 returns: &[],
+                transfers: &[],
             },
             Method {
                 name: "SessionClosed",
@@ -1055,6 +1227,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Shell event: the last input session of `surface` ended; legacy key\ndelivery applies again.",
                 params: &[Field { name: "surface", ty: Ty::U64 }],
                 returns: &[],
+                transfers: &[],
             },
             Method {
                 name: "PointerEvent",
@@ -1063,6 +1236,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Shell event: the pointer changed. One cursor for every pointing device\n(`docs/usb-hid-plan.md`): `x`, `y` are screen pixels inside the bounds,\n`buttons` the bits held after this event (`1` left, `2` right,\n`4` middle, `8` back, `0x10` forward; diff it for the edge), `wheel` and\n`wheel_h` the notches since the previous event (positive is up / right).\nMotion is coalesced; the position and wheel apply *before* the button\nchange. Only the compositor receives it: the window under the cursor is\nits decision. `ts_ns`/`seq` are the newest raw record's.",
                 params: &[Field { name: "x", ty: Ty::I32 }, Field { name: "y", ty: Ty::I32 }, Field { name: "buttons", ty: Ty::U32 }, Field { name: "wheel", ty: Ty::I32 }, Field { name: "wheel_h", ty: Ty::I32 }, Field { name: "ts_ns", ty: Ty::U64 }, Field { name: "seq", ty: Ty::U64 }],
                 returns: &[],
+                transfers: &[],
             },
         ],
         structs: &[],
@@ -1081,6 +1255,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Check a username/password pair against the stored Argon2id verifier.\nThe plaintext `secret` crosses the channel; the kernel stamps the\nsender so `keyd` can audit who asked.",
                 params: &[Field { name: "user", ty: Ty::String }, Field { name: "secret", ty: Ty::String }],
                 returns: &[Field { name: "ok", ty: Ty::Bool }],
+                transfers: &[],
             },
             Method {
                 name: "Sign",
@@ -1089,6 +1264,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "HMAC-SHA256 `digest` under the caller's stored key `key`; returns the tag.",
                 params: &[Field { name: "key", ty: Ty::U64 }, Field { name: "digest", ty: Ty::Bytes }],
                 returns: &[Field { name: "tag", ty: Ty::Bytes }],
+                transfers: &[],
             },
             Method {
                 name: "Wrap",
@@ -1097,6 +1273,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Seal `plaintext` under the caller's stored key `key`; returns an\nauthenticated blob.",
                 params: &[Field { name: "key", ty: Ty::U64 }, Field { name: "plaintext", ty: Ty::Bytes }],
                 returns: &[Field { name: "blob", ty: Ty::Bytes }],
+                transfers: &[],
             },
             Method {
                 name: "Unwrap",
@@ -1105,6 +1282,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Open a `blob` produced by `Wrap` under `key`; returns the plaintext.",
                 params: &[Field { name: "key", ty: Ty::U64 }, Field { name: "blob", ty: Ty::Bytes }],
                 returns: &[Field { name: "plaintext", ty: Ty::Bytes }],
+                transfers: &[],
             },
             Method {
                 name: "Random",
@@ -1113,6 +1291,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "`len` cryptographically strong random bytes.",
                 params: &[Field { name: "len", ty: Ty::U64 }],
                 returns: &[Field { name: "bytes", ty: Ty::Bytes }],
+                transfers: &[],
             },
             Method {
                 name: "Generate",
@@ -1121,6 +1300,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Create a fresh random key of type `kind` (`hmac` or `wrap`); returns\nits opaque id.",
                 params: &[Field { name: "kind", ty: Ty::String }],
                 returns: &[Field { name: "id", ty: Ty::U64 }],
+                transfers: &[],
             },
             Method {
                 name: "List",
@@ -1129,6 +1309,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "The caller's key ids, types and use counters; never material.",
                 params: &[],
                 returns: &[Field { name: "keys", ty: Ty::Array(&Ty::Struct("KeyInfo")) }],
+                transfers: &[],
             },
             Method {
                 name: "Ping",
@@ -1137,6 +1318,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Round-trip probe.",
                 params: &[],
                 returns: &[],
+                transfers: &[],
             },
             Method {
                 name: "Provision",
@@ -1145,6 +1327,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Install or replace an account's password verifier. Root only: the\naccounts service pushes its database here so `Verify` can answer for\nevery account. `keyd` derives and stores the Argon2id verifier and the\nsecret does not outlive the call.",
                 params: &[Field { name: "user", ty: Ty::String }, Field { name: "secret", ty: Ty::String }],
                 returns: &[],
+                transfers: &[],
             },
         ],
         structs: &[
@@ -1169,6 +1352,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Persist and exit. `reason` is the shutdown's reason text, for the log.",
                 params: &[Field { name: "reason", ty: Ty::String }],
                 returns: &[],
+                transfers: &[],
             },
         ],
         structs: &[],
@@ -1187,6 +1371,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Return the newest `count` records; an absent `count` means `10`.",
                 params: &[Field { name: "count", ty: Ty::Option(&Ty::U64) }],
                 returns: &[Field { name: "records", ty: Ty::Array(&Ty::Struct("LogRecord")) }],
+                transfers: &[],
             },
             Method {
                 name: "Count",
@@ -1195,6 +1380,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Return the number of records appended since boot.",
                 params: &[],
                 returns: &[Field { name: "count", ty: Ty::U64 }],
+                transfers: &[],
             },
             Method {
                 name: "Verify",
@@ -1203,6 +1389,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Recompute the hash chain and report `ok`/first bad `index` (the record\ncount when the chain is intact).",
                 params: &[],
                 returns: &[Field { name: "ok", ty: Ty::Bool }, Field { name: "index", ty: Ty::U64 }],
+                transfers: &[],
             },
             Method {
                 name: "Sources",
@@ -1211,6 +1398,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "The sources that have a persisted journal (`/logs/<source>.log`),\nsorted; empty when the store is absent. Served to uid 0 only, like\n`TailFile`: the journals carry every user's activity.",
                 params: &[],
                 returns: &[Field { name: "sources", ty: Ty::Array(&Ty::String) }],
+                transfers: &[],
             },
             Method {
                 name: "TailFile",
@@ -1219,6 +1407,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "The newest `count` lines of `/logs/<source>.log` (records of earlier\nboots included), oldest first. Served to uid 0 only (`EACCES`\notherwise); a source outside `[a-z0-9_-]{1,32}` fails with `EINVAL`\nand one without a journal with `ENOENT`.",
                 params: &[Field { name: "source", ty: Ty::String }, Field { name: "count", ty: Ty::U64 }],
                 returns: &[Field { name: "lines", ty: Ty::Array(&Ty::String) }],
+                transfers: &[],
             },
         ],
         structs: &[
@@ -1243,6 +1432,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Snapshot the session table, oldest session first.",
                 params: &[],
                 returns: &[Field { name: "active", ty: Ty::U64 }, Field { name: "sessions", ty: Ty::Array(&Ty::Struct("Session")) }],
+                transfers: &[],
             },
         ],
         structs: &[
@@ -1316,6 +1506,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "MIME type for `path` from the database; a path the database has no\nentry for reports `application/octet-stream`.",
                 params: &[Field { name: "path", ty: Ty::String }],
                 returns: &[Field { name: "mime", ty: Ty::String }],
+                transfers: &[],
             },
             Method {
                 name: "Lookup",
@@ -1324,6 +1515,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "The app registered for `mime` and `verb`; an empty `app` means none is.",
                 params: &[Field { name: "mime", ty: Ty::String }, Field { name: "verb", ty: Ty::String }],
                 returns: &[Field { name: "app", ty: Ty::Option(&Ty::String) }],
+                transfers: &[],
             },
             Method {
                 name: "Verbs",
@@ -1332,6 +1524,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Verbs registered for `mime` (`open`, `edit`, `reveal`, ...), in\nregistration order.",
                 params: &[Field { name: "mime", ty: Ty::String }],
                 returns: &[Field { name: "verbs", ty: Ty::Array(&Ty::String) }],
+                transfers: &[],
             },
             Method {
                 name: "Open",
@@ -1340,6 +1533,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Guess the type of `path`, resolve the app for `verb` (falling back to\n`open`), ask `init` to launch it and publish the launch event.\n`published` reports whether the event went out, `launched` whether\n`init` accepted the launch request.",
                 params: &[Field { name: "path", ty: Ty::String }, Field { name: "verb", ty: Ty::String }],
                 returns: &[Field { name: "app", ty: Ty::String }, Field { name: "mime", ty: Ty::String }, Field { name: "topic", ty: Ty::String }, Field { name: "published", ty: Ty::Bool }, Field { name: "launched", ty: Ty::Bool }],
+                transfers: &[],
             },
             Method {
                 name: "Register",
@@ -1348,6 +1542,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Add or replace the app registered for `mime` and `verb`; the registry\nkeeps the latest registration for each pair.",
                 params: &[Field { name: "mime", ty: Ty::String }, Field { name: "app", ty: Ty::String }, Field { name: "verb", ty: Ty::String }],
                 returns: &[],
+                transfers: &[],
             },
             Method {
                 name: "Unregister",
@@ -1356,6 +1551,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Withdraw `app`'s registration for `mime` and `verb`, so removing an\ninstalled app leaves no dangling handler. Only the caller's root\nidentity may withdraw (the package manager); the registration is\ndropped only while `app` still holds it, so a later registration by\nanother app is never undone, and the registration `app` had replaced\ntakes over again. Withdrawing a registration that is not there is not\nan error.",
                 params: &[Field { name: "mime", ty: Ty::String }, Field { name: "app", ty: Ty::String }, Field { name: "verb", ty: Ty::String }],
                 returns: &[],
+                transfers: &[],
             },
         ],
         structs: &[
@@ -1379,7 +1575,7 @@ pub static INTERFACES: &[Interface] = &[
     Interface {
         name: "os.lazy.net.nic.v1",
         id: 0x6748c83c2024715b,
-        doc: "A network interface card, **link layer only** (docs/driver-plan.md §3.8,\ndocs/networking-plan.md §5). No IP, ARP or DHCP: those belong to the stack\nservice `netd`, which is just another client of this interface and, by\npolicy, the only one. A NIC driver (`netdrv`, virtio-net first) serves it and\nnever parses a payload.\n\n**The client owns the rings.** Replies cannot carry buffers or handles (the\nkernel refuses transfers in a reply), and the driver must not let its device\nread memory a client can rewrite, so the client creates two shared buffers\nand the driver copies frames between them and its own DMA slots, in both\ndirections (the audio rule, see `os.lazy.audio.v1`). A ring is the\nsingle-producer/single-consumer frame ring of `libs/framering`: fixed\n2048-byte slots, a `u16` length then the frame, a power-of-two slot count,\nfree-running `u32` indices in a header page. Nothing about the wire lives in\na request body except the slot count.\n\n`AttachRing` carries, in the parcel's `handles` and `buffers` vectors (the\nTLV body has no `Handle`/`Buffer` fields, as in `os.lazy.display.v1`):\n\n* `buffers[0]`: one shared buffer holding **both rings**, back to back: the\n**receive ring** (driver produces, client consumes) at byte 0 and the\n**transmit ring** (client produces, driver consumes) at byte\n`framering::ring_bytes(slots)`. (The kernel surfaces only the first\ntransferred buffer of a request to its receiver, so two rings cannot\ntravel as two buffers.)\n* `handles[0]`: the **notify endpoint**, an endpoint the client holds the\nreceiving side of, to which the driver posts `Notify`.\n\nThe buffer must be exactly `2 * framering::ring_bytes(slots)` bytes (two\nheader pages plus `2 * slots` slots) or the call fails with `EINVAL`;\n`slots` must be a power of two from 16 to 1024 or it fails with `EINVAL`. Only one client may\nbe attached (`EBUSY` otherwise); its owner is the kernel-stamped sender of\n`AttachRing`, and calls on the ring by anyone else fail with `EACCES`.\n\n**Wake-up.** This interface replaces the draft's `notify: String` topic: a\ntopic would put a broker round trip on the receive path. Instead each\ndirection has one one-way message and one shared flag, so a waiter needs a\nsingle wait on a single endpoint and a burst costs one message, not one per\nframe (the rule the kernel uses for interrupt messages):\n\n* driver to client, `Notify`: posted to the notify endpoint when frames\narrive in the receive ring, when the transmit ring gains space after\nbeing full, or when the link changes;\n* client to driver, `Kick`: sent to the driver's endpoint after the client\nqueues frames in the transmit ring.\n\nA message is sent only when the consumer of that ring has *armed* it: the\nconsumer sets the ring's `armed` flag before it sleeps (after a final look at\nthe ring, so a frame that lands in between is never missed) and the producer\nclears it with one atomic exchange when it sends. That coalesces a burst to\nat most one outstanding message per ring, with no kernel help. A consumer\nthat never arms simply polls; it can only harm itself.\n\nBoth sides treat the other as hostile: every index and length read from\nshared memory is validated and read exactly once, and a frame is copied out\nbefore it is looked at. A ring whose peer breaks the protocol (an index\nthat claims more frames than the ring holds, an oversized length) is\npoisoned: the driver counts it in `NicStats.ring_errors` and detaches the\nclient. A frame shorter than the 14-byte Ethernet header or longer than\n`NicInfo.max_frame` is dropped and counted, never truncated.\n\nFailures of calls are returned as the shared structured error field\n(`services::error_field`) instead of the declared reply fields.",
+        doc: "A network interface card, **link layer only** (docs/driver-plan.md §3.8,\ndocs/networking-plan.md §5). No IP, ARP or DHCP: those belong to the stack\nservice `netd`, which is just another client of this interface and, by\npolicy, the only one. A NIC driver (`netdrv`, virtio-net first) serves it and\nnever parses a payload.\n\n**The client owns the rings.** Replies cannot carry buffers or handles (the\nkernel refuses transfers in a reply), and the driver must not let its device\nread memory a client can rewrite, so the client creates two shared buffers\nand the driver copies frames between them and its own DMA slots, in both\ndirections (the audio rule, see `os.lazy.audio.v1`). A ring is the\nsingle-producer/single-consumer frame ring of `libs/framering`: fixed\n2048-byte slots, a `u16` length then the frame, a power-of-two slot count,\nfree-running `u32` indices in a header page. Nothing about the wire lives in\na request body except the slot count.\n\n`AttachRing` carries, in the parcel's `handles` and `buffers` vectors (its\n`transfers` clause and the `Rx`/`Tx` ring declarations say the same):\n\n* `buffers[0]`: one shared buffer holding **both rings**, back to back: the\n**receive ring** (driver produces, client consumes) at byte 0 and the\n**transmit ring** (client produces, driver consumes) at byte\n`framering::ring_bytes(slots)`. (The kernel surfaces only the first\ntransferred buffer of a request to its receiver, so two rings cannot\ntravel as two buffers.)\n* `handles[0]`: the **notify endpoint**, an endpoint the client holds the\nreceiving side of, to which the driver posts `Notify`.\n\nThe buffer must be exactly `2 * framering::ring_bytes(slots)` bytes (two\nheader pages plus `2 * slots` slots) or the call fails with `EINVAL`;\n`slots` must be a power of two from 16 to 1024 or it fails with `EINVAL`. Only one client may\nbe attached (`EBUSY` otherwise); its owner is the kernel-stamped sender of\n`AttachRing`, and calls on the ring by anyone else fail with `EACCES`.\n\n**Wake-up.** This interface replaces the draft's `notify: String` topic: a\ntopic would put a broker round trip on the receive path. Instead each\ndirection has one one-way message and one shared flag, so a waiter needs a\nsingle wait on a single endpoint and a burst costs one message, not one per\nframe (the rule the kernel uses for interrupt messages):\n\n* driver to client, `Notify`: posted to the notify endpoint when frames\narrive in the receive ring, when the transmit ring gains space after\nbeing full, or when the link changes;\n* client to driver, `Kick`: sent to the driver's endpoint after the client\nqueues frames in the transmit ring.\n\nA message is sent only when the consumer of that ring has *armed* it: the\nconsumer sets the ring's `armed` flag before it sleeps (after a final look at\nthe ring, so a frame that lands in between is never missed) and the producer\nclears it with one atomic exchange when it sends. That coalesces a burst to\nat most one outstanding message per ring, with no kernel help. A consumer\nthat never arms simply polls; it can only harm itself.\n\nBoth sides treat the other as hostile: every index and length read from\nshared memory is validated and read exactly once, and a frame is copied out\nbefore it is looked at. A ring whose peer breaks the protocol (an index\nthat claims more frames than the ring holds, an oversized length) is\npoisoned: the driver counts it in `NicStats.ring_errors` and detaches the\nclient. A frame shorter than the 14-byte Ethernet header or longer than\n`NicInfo.max_frame` is dropped and counted, never truncated.\n\nFailures of calls are returned as the shared structured error field\n(`services::error_field`) instead of the declared reply fields.",
         methods: &[
             Method {
                 name: "Info",
@@ -1388,6 +1584,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Describe the card: MAC, MTU, link state and the negotiated feature set.",
                 params: &[],
                 returns: &[Field { name: "info", ty: Ty::Struct("NicInfo") }],
+                transfers: &[],
             },
             Method {
                 name: "SetRxMode",
@@ -1396,6 +1593,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Choose which received frames reach the client: an `RxMode` ordinal.\nThe reply says whether the driver applied it (a device without a\nfilter table treats `Filtered` as `Promiscuous` and answers `false`).\nOnly the attached client may change it.",
                 params: &[Field { name: "mode", ty: Ty::U32 }],
                 returns: &[Field { name: "ok", ty: Ty::Bool }],
+                transfers: &[],
             },
             Method {
                 name: "AttachRing",
@@ -1404,6 +1602,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Attach the client's rings and notify endpoint (see the interface\nnotes for what the parcel carries). `slots` is the slot count of both\nrings. The reply is the ring id later calls name.",
                 params: &[Field { name: "slots", ty: Ty::U32 }],
                 returns: &[Field { name: "ring", ty: Ty::U32 }],
+                transfers: &[Transfer { name: "rings", channel: None }, Transfer { name: "notify", channel: Some("os.lazy.net.nic.v1") }],
             },
             Method {
                 name: "DetachRing",
@@ -1412,6 +1611,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Release the rings; the driver stops reading and writing them. Also\nimplied when the owner exits or its notify endpoint reports the peer\ngone.",
                 params: &[Field { name: "ring", ty: Ty::U32 }],
                 returns: &[],
+                transfers: &[],
             },
             Method {
                 name: "Stats",
@@ -1420,6 +1620,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Frame and error counters since the driver started.",
                 params: &[],
                 returns: &[Field { name: "stats", ty: Ty::Struct("NicStats") }],
+                transfers: &[],
             },
             Method {
                 name: "Kick",
@@ -1428,6 +1629,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Event, client to driver: the client queued frames in the transmit ring\nof `ring`. Ignored from anyone but the owner.",
                 params: &[Field { name: "ring", ty: Ty::U32 }],
                 returns: &[],
+                transfers: &[],
             },
             Method {
                 name: "Notify",
@@ -1436,6 +1638,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Event, driver to client: something needs the client's attention.\n`events` is a bitmap: bit *n* is set for the `NotifyBit` with ordinal\n*n*. Reserved bits are zero; a client ignores them.",
                 params: &[Field { name: "ring", ty: Ty::U32 }, Field { name: "events", ty: Ty::U32 }],
                 returns: &[],
+                transfers: &[],
             },
         ],
         structs: &[
@@ -1481,6 +1684,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "The interfaces the stack drives (one today).",
                 params: &[],
                 returns: &[Field { name: "list", ty: Ty::Array(&Ty::Struct("InterfaceInfo")) }],
+                transfers: &[],
             },
             Method {
                 name: "Addresses",
@@ -1489,6 +1693,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "The addresses configured on every interface.",
                 params: &[],
                 returns: &[Field { name: "list", ty: Ty::Array(&Ty::Struct("AddressInfo")) }],
+                transfers: &[],
             },
             Method {
                 name: "Routes",
@@ -1497,6 +1702,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "The routing table.",
                 params: &[],
                 returns: &[Field { name: "list", ty: Ty::Array(&Ty::Struct("RouteInfo")) }],
+                transfers: &[],
             },
             Method {
                 name: "Stats",
@@ -1505,6 +1711,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Stack counters since it started.",
                 params: &[],
                 returns: &[Field { name: "stats", ty: Ty::Struct("StackStats") }],
+                transfers: &[],
             },
             Method {
                 name: "Ping",
@@ -1513,6 +1720,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Send one ICMP echo request to `dst` (four octets) with `payload_len`\nbytes of payload (0 to 1400) and wait for its reply. `timeout_ms`\n(10 to 60000) bounds the wait. Fails with `EINVAL` for a bad argument,\n`ENETUNREACH` when there is no address or route yet, `EAGAIN` when this\ncaller has 4 pings outstanding or all callers together have 8, and `ETIMEDOUT` when no reply came.",
                 params: &[Field { name: "dst", ty: Ty::Bytes }, Field { name: "payload_len", ty: Ty::U32 }, Field { name: "timeout_ms", ty: Ty::U32 }],
                 returns: &[Field { name: "result", ty: Ty::Struct("EchoResult") }],
+                transfers: &[],
             },
             Method {
                 name: "Resolve",
@@ -1521,6 +1729,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Look `name` up (A records) at the resolvers DHCP or the static\nconfiguration gave. `name` is a host name of at most 253 bytes made of\ndot-separated labels of 1 to 63 letters, digits and hyphens (`EINVAL`\notherwise); `timeout_ms` is 10 to 60000. Fails with `ENETUNREACH` when\nthere is no address or no resolver, `EAGAIN` when this caller has 4\nlookups outstanding or all callers together have 8, `ENOENT` when the\nresolver says the name has no address, and `ETIMEDOUT` when no answer\ncame. The reply lists the addresses found, four octets each. A dotted\nquad needs no query and is answered at once.",
                 params: &[Field { name: "name", ty: Ty::String }, Field { name: "timeout_ms", ty: Ty::U32 }],
                 returns: &[Field { name: "addrs", ty: Ty::Array(&Ty::Bytes) }],
+                transfers: &[],
             },
             Method {
                 name: "Renew",
@@ -1529,6 +1738,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Ask for a fresh DHCP lease (drops the current one). Gated by the ACL.",
                 params: &[],
                 returns: &[],
+                transfers: &[],
             },
             Method {
                 name: "Reattach",
@@ -1537,6 +1747,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Drop the attachment to the NIC driver and establish it again, as after\na driver restart: the stack keeps its lease and timers. A recovery and\ntest call; gated by the ACL.",
                 params: &[],
                 returns: &[],
+                transfers: &[],
             },
         ],
         structs: &[
@@ -1605,6 +1816,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Make a socket of `kind` (a `SockKind` ordinal). The reply is the id\nevery other call names.",
                 params: &[Field { name: "kind", ty: Ty::U32 }],
                 returns: &[Field { name: "sock", ty: Ty::U32 }],
+                transfers: &[],
             },
             Method {
                 name: "Bind",
@@ -1613,6 +1825,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Choose the local address and port. `addr.addr` must be all zeros (any)\nor the interface's own address; port 0 picks an ephemeral one.",
                 params: &[Field { name: "sock", ty: Ty::U32 }, Field { name: "addr", ty: Ty::Struct("SockAddr") }],
                 returns: &[],
+                transfers: &[],
             },
             Method {
                 name: "Connect",
@@ -1621,6 +1834,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Stream: open a connection to `addr`; parks until it is established or\nrefused. Datagram: fix the peer `Send`/`Recv` use (never parks).",
                 params: &[Field { name: "sock", ty: Ty::U32 }, Field { name: "addr", ty: Ty::Struct("SockAddr") }, Field { name: "timeout_ms", ty: Ty::U32 }],
                 returns: &[],
+                transfers: &[],
             },
             Method {
                 name: "Listen",
@@ -1629,6 +1843,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Stream only: accept connections on the bound port. `backlog` (1 to 8)\nis how many connections may complete before `Accept` collects them.",
                 params: &[Field { name: "sock", ty: Ty::U32 }, Field { name: "backlog", ty: Ty::U32 }],
                 returns: &[],
+                transfers: &[],
             },
             Method {
                 name: "Accept",
@@ -1637,6 +1852,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Stream only: take one established connection off a listener as a new\nsocket owned by the caller; parks until one is there.",
                 params: &[Field { name: "sock", ty: Ty::U32 }, Field { name: "timeout_ms", ty: Ty::U32 }],
                 returns: &[Field { name: "conn", ty: Ty::U32 }, Field { name: "peer", ty: Ty::Struct("SockAddr") }],
+                transfers: &[],
             },
             Method {
                 name: "Send",
@@ -1645,6 +1861,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Queue `data` (at most 16384 bytes) on a connected socket. Returns how\nmany bytes were taken (possibly fewer than sent); parks while no byte\nwould fit.",
                 params: &[Field { name: "sock", ty: Ty::U32 }, Field { name: "data", ty: Ty::Bytes }, Field { name: "timeout_ms", ty: Ty::U32 }],
                 returns: &[Field { name: "sent", ty: Ty::U32 }],
+                transfers: &[],
             },
             Method {
                 name: "Recv",
@@ -1653,6 +1870,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Take up to `max` (1 to 16384) bytes from a connected socket; parks\nuntil at least one is there. An empty reply is the end of the stream.",
                 params: &[Field { name: "sock", ty: Ty::U32 }, Field { name: "max", ty: Ty::U32 }, Field { name: "timeout_ms", ty: Ty::U32 }],
                 returns: &[Field { name: "data", ty: Ty::Bytes }],
+                transfers: &[],
             },
             Method {
                 name: "SendTo",
@@ -1661,6 +1879,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Datagram: send `data` (at most 1472 bytes) to `addr`. Never parks: a\nfull send queue is `EAGAIN`.",
                 params: &[Field { name: "sock", ty: Ty::U32 }, Field { name: "addr", ty: Ty::Struct("SockAddr") }, Field { name: "data", ty: Ty::Bytes }],
                 returns: &[Field { name: "sent", ty: Ty::U32 }],
+                transfers: &[],
             },
             Method {
                 name: "RecvFrom",
@@ -1669,6 +1888,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Datagram: take the next datagram, cut to `max` bytes (1 to 16384), and\nwhere it came from; parks until one is there.",
                 params: &[Field { name: "sock", ty: Ty::U32 }, Field { name: "max", ty: Ty::U32 }, Field { name: "timeout_ms", ty: Ty::U32 }],
                 returns: &[Field { name: "data", ty: Ty::Bytes }, Field { name: "from", ty: Ty::Struct("SockAddr") }],
+                transfers: &[],
             },
             Method {
                 name: "Poll",
@@ -1677,6 +1897,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Wait until any bit of `interest` (a bitmap of `Ready` ordinals) is\nready; the reply is the bitmap of what is. `Closed` and `Error` are\nalways of interest. Parks until then.",
                 params: &[Field { name: "sock", ty: Ty::U32 }, Field { name: "interest", ty: Ty::U32 }, Field { name: "timeout_ms", ty: Ty::U32 }],
                 returns: &[Field { name: "ready", ty: Ty::U32 }],
+                transfers: &[],
             },
             Method {
                 name: "Shutdown",
@@ -1685,6 +1906,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Stream: end one or both directions (a `Shutdown` ordinal). `Write`\nsends FIN after the queued bytes; the socket stays open for reading.",
                 params: &[Field { name: "sock", ty: Ty::U32 }, Field { name: "how", ty: Ty::U32 }],
                 returns: &[],
+                transfers: &[],
             },
             Method {
                 name: "LocalAddr",
@@ -1693,6 +1915,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "The socket's own address and port (`EINVAL` before `Bind`/`Connect`).",
                 params: &[Field { name: "sock", ty: Ty::U32 }],
                 returns: &[Field { name: "addr", ty: Ty::Struct("SockAddr") }],
+                transfers: &[],
             },
             Method {
                 name: "PeerAddr",
@@ -1701,6 +1924,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "The peer's address and port (`ENOTCONN` when there is none).",
                 params: &[Field { name: "sock", ty: Ty::U32 }],
                 returns: &[Field { name: "addr", ty: Ty::Struct("SockAddr") }],
+                transfers: &[],
             },
             Method {
                 name: "Close",
@@ -1709,6 +1933,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Release the socket. A stream closes gracefully (FIN); a parked call on\nit is answered with `EBADF`.",
                 params: &[Field { name: "sock", ty: Ty::U32 }],
                 returns: &[],
+                transfers: &[],
             },
             Method {
                 name: "Stats",
@@ -1717,6 +1942,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Counters since `netd` started; anyone may read them.",
                 params: &[],
                 returns: &[Field { name: "stats", ty: Ty::Struct("SocketStats") }],
+                transfers: &[],
             },
         ],
         structs: &[
@@ -1750,6 +1976,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Open and validate the `.lzp` at `path` without changing anything. Root\nmay name any absolute path; anyone else a file under `/transient` or\ntheir own home folder (the path is normalised first). `problems` is empty for a package that\ncould be installed; otherwise it lists every reason it cannot be.",
                 params: &[Field { name: "path", ty: Ty::String }],
                 returns: &[Field { name: "info", ty: Ty::Struct("PackageInfo") }],
+                transfers: &[],
             },
             Method {
                 name: "Install",
@@ -1758,6 +1985,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Install the package at `path` (the same source rule as `Inspect`):\nextract it to its install directory under `/apps`, copy its\n`docs/*.md` to `/docs/apps/<system_name>/`, record it, register its\nMIME verbs, load its policy, then publish\n`system/events/pkg/install`. Fails if the same `system_name` is already\ninstalled at this version and digest. Needs the caller to be the\nsession owner or root; `pkgd` audits who asked.",
                 params: &[Field { name: "path", ty: Ty::String }],
                 returns: &[Field { name: "app", ty: Ty::Struct("Installed") }],
+                transfers: &[],
             },
             Method {
                 name: "Remove",
@@ -1766,6 +1994,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Remove `system_name`: stop its running instances, unregister its MIME\nverbs, revoke its policy, delete its install directory and its\ndocumentation, then publish `system/events/pkg/remove`. User data\nunder `/home` is kept.",
                 params: &[Field { name: "system_name", ty: Ty::String }],
                 returns: &[],
+                transfers: &[],
             },
             Method {
                 name: "List",
@@ -1774,6 +2003,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Every installed app, in install order.",
                 params: &[],
                 returns: &[Field { name: "apps", ty: Ty::Array(&Ty::Struct("Installed")) }],
+                transfers: &[],
             },
             Method {
                 name: "Installed",
@@ -1782,6 +2012,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "One installed app by `system_name`, if present.",
                 params: &[Field { name: "system_name", ty: Ty::String }],
                 returns: &[Field { name: "app", ty: Ty::Option(&Ty::Struct("Installed")) }],
+                transfers: &[],
             },
             Method {
                 name: "Provisioned",
@@ -1790,6 +2021,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Whether this start's core package provisioning is finished, and what\nit did (`docs/packages.md`, core packages). `pkgd` answers it while it\nprovisions, so a client such as `init`'s autostart can wait for it\nwithout blocking; `Install` and `Remove` are refused with `EAGAIN`\nuntil `done`.",
                 params: &[],
                 returns: &[Field { name: "state", ty: Ty::Struct("ProvisionState") }],
+                transfers: &[],
             },
         ],
         structs: &[
@@ -1849,6 +2081,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Replace every rule of `label` with `rules` (first match wins, anything\nunmatched is denied). An empty list revokes the label's grants. The\nlabel is interned if new; a malformed label or more rules than the\nkernel stores per label (256) fails with `EINVAL`.",
                 params: &[Field { name: "label", ty: Ty::String }, Field { name: "rules", ty: Ty::Array(&Ty::Struct("LabelRule")) }],
                 returns: &[],
+                transfers: &[],
             },
         ],
         structs: &[
@@ -1873,6 +2106,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Check that the actor may resolve `name`.",
                 params: &[Field { name: "name", ty: Ty::String }],
                 returns: &[],
+                transfers: &[],
             },
         ],
         structs: &[],
@@ -1891,6 +2125,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Publish `endpoint` (a handle in the owner's table) under `name`. The\nowner becomes the registering task. A `lease_ticks` of `0` registers a\npermanent name; otherwise the name expires after that many ticks.",
                 params: &[Field { name: "name", ty: Ty::String }, Field { name: "endpoint", ty: Ty::Option(&Ty::U64) }, Field { name: "interfaces", ty: Ty::Array(&Ty::U64) }, Field { name: "lease_ticks", ty: Ty::U64 }],
                 returns: &[],
+                transfers: &[],
             },
             Method {
                 name: "Resolve",
@@ -1899,6 +2134,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Look `name` up. Over the gate the new handle is the call's return value;\nover the daemon it is `handle`, already open in the caller's table.",
                 params: &[Field { name: "name", ty: Ty::String }],
                 returns: &[Field { name: "handle", ty: Ty::U64 }],
+                transfers: &[],
             },
             Method {
                 name: "Unregister",
@@ -1907,6 +2143,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Withdraw `name`. Only its owner (or an administrator) may.",
                 params: &[Field { name: "name", ty: Ty::String }],
                 returns: &[],
+                transfers: &[],
             },
             Method {
                 name: "List",
@@ -1915,6 +2152,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Snapshot the name table.",
                 params: &[],
                 returns: &[Field { name: "entries", ty: Ty::Array(&Ty::Struct("Entry")) }],
+                transfers: &[],
             },
         ],
         structs: &[
@@ -1939,6 +2177,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "What the shell shows right now: the taskbar's window entries (in\ntaskbar order), the focused window, whether the start menu is open, the\nstart-menu rows and the desktop icons.",
                 params: &[],
                 returns: &[Field { name: "windows", ty: Ty::Array(&Ty::Struct("TaskbarEntry")) }, Field { name: "focused", ty: Ty::Option(&Ty::U64) }, Field { name: "menu_open", ty: Ty::Bool }, Field { name: "menu", ty: Ty::Array(&Ty::Struct("Launcher")) }, Field { name: "desktop", ty: Ty::Array(&Ty::Struct("Launcher")) }],
+                transfers: &[],
             },
             Method {
                 name: "ShowStartMenu",
@@ -1947,6 +2186,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Open (`open` true) or close the start menu.",
                 params: &[Field { name: "open", ty: Ty::Bool }],
                 returns: &[],
+                transfers: &[],
             },
             Method {
                 name: "Launch",
@@ -1955,6 +2195,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Launch the registry app `app` through `init.Launch` in the shell's\nsession, exactly as clicking its start-menu row would (including the\nlaunch-origin zoom). `ENOENT` when the app is unknown or not shipped.",
                 params: &[Field { name: "app", ty: Ty::String }],
                 returns: &[Field { name: "pid", ty: Ty::U64 }],
+                transfers: &[],
             },
             Method {
                 name: "Refresh",
@@ -1963,6 +2204,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Re-read the start menu (`sys/ui/menu` plus installed apps) and the\ndesktop icons (`sys/ui/desktop`); returns how many rows each has.",
                 params: &[],
                 returns: &[Field { name: "menu", ty: Ty::U32 }, Field { name: "desktop", ty: Ty::U32 }],
+                transfers: &[],
             },
             Method {
                 name: "Activate",
@@ -1971,6 +2213,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Activate (restore, raise, focus) the window `surface` as a click on its\ntaskbar entry would. `ENOENT` when the taskbar has no such entry.",
                 params: &[Field { name: "surface", ty: Ty::U64 }],
                 returns: &[],
+                transfers: &[],
             },
         ],
         structs: &[
@@ -2000,6 +2243,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Return one live system-stats snapshot.",
                 params: &[],
                 returns: &[Field { name: "data", ty: Ty::Bytes }],
+                transfers: &[],
             },
         ],
         structs: &[
@@ -2049,6 +2293,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "The current instant and its local-time parameters.",
                 params: &[],
                 returns: &[Field { name: "unix_ms", ty: Ty::I64 }, Field { name: "tz_offset_s", ty: Ty::I32 }, Field { name: "tz_name", ty: Ty::String }, Field { name: "dst", ty: Ty::Bool }],
+                transfers: &[],
             },
             Method {
                 name: "GetZone",
@@ -2057,6 +2302,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "The configured zone name (`UTC` when none is set).",
                 params: &[],
                 returns: &[Field { name: "name", ty: Ty::String }],
+                transfers: &[],
             },
             Method {
                 name: "SetZone",
@@ -2065,6 +2311,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Switch to the built-in zone `name` and persist it to `confd`.\nAn unknown name fails with `EINVAL`.",
                 params: &[Field { name: "name", ty: Ty::String }],
                 returns: &[],
+                transfers: &[],
             },
             Method {
                 name: "SetTime",
@@ -2073,6 +2320,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Step the wall clock to `unix_secs` (UTC). The caller's kernel-stamped\ncredentials must hold `CAP_SYS_TIME`; anyone else gets `EPERM`.",
                 params: &[Field { name: "unix_secs", ty: Ty::I64 }],
                 returns: &[],
+                transfers: &[],
             },
         ],
         structs: &[
@@ -2105,6 +2353,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Publish `payload` under the literal `topic`; `retained` also remembers\nit as the topic's retained value. Returns how many subscriptions the\nevent reached.",
                 params: &[Field { name: "topic", ty: Ty::String }, Field { name: "payload", ty: Ty::Bytes }, Field { name: "retained", ty: Ty::Bool }],
                 returns: &[Field { name: "matched", ty: Ty::U64 }],
+                transfers: &[],
             },
             Method {
                 name: "Subscribe",
@@ -2113,6 +2362,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Create a subscription for `filter`. `qos` is a `Qos` value; `depth` is\nthe queue depth for `Buffered` (clamped to 1..=64) and ignored by the\nother policies, which use fixed depths. Retained values are replayed.",
                 params: &[Field { name: "filter", ty: Ty::String }, Field { name: "qos", ty: Ty::U32 }, Field { name: "depth", ty: Ty::U32 }],
                 returns: &[Field { name: "subscription", ty: Ty::U64 }],
+                transfers: &[],
             },
             Method {
                 name: "Unsubscribe",
@@ -2121,6 +2371,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Drop a subscription; later publishes stop matching it.",
                 params: &[Field { name: "subscription", ty: Ty::U64 }],
                 returns: &[],
+                transfers: &[],
             },
             Method {
                 name: "NextEvent",
@@ -2129,6 +2380,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Wait for (or, with an expired deadline, poll) the next event of a\nsubscription. A `Reliable` subscription redelivers its head until acked.",
                 params: &[Field { name: "subscription", ty: Ty::U64 }],
                 returns: &[Field { name: "event", ty: Ty::Struct("Event") }],
+                transfers: &[],
             },
             Method {
                 name: "Ack",
@@ -2137,6 +2389,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Retire every event up to `sequence` on a `Reliable` subscription.",
                 params: &[Field { name: "subscription", ty: Ty::U64 }, Field { name: "sequence", ty: Ty::U64 }],
                 returns: &[],
+                transfers: &[],
             },
             Method {
                 name: "ListTopics",
@@ -2145,6 +2398,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Topics the broker has seen, with live subscriber counts.",
                 params: &[],
                 returns: &[Field { name: "topics", ty: Ty::Array(&Ty::Struct("TopicInfo")) }],
+                transfers: &[],
             },
             Method {
                 name: "Stats",
@@ -2153,6 +2407,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Queue and drop counters of one subscription.",
                 params: &[Field { name: "subscription", ty: Ty::U64 }],
                 returns: &[Field { name: "stats", ty: Ty::Struct("Stats") }],
+                transfers: &[],
             },
             Method {
                 name: "Ping",
@@ -2161,6 +2416,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Round-trip probe used to detect a live broker.",
                 params: &[],
                 returns: &[],
+                transfers: &[],
             },
         ],
         structs: &[
@@ -2197,6 +2453,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Check `name` (a literal topic) for the actor named by the syscall's\n`txn_id` argument. `mode` must be `0` (publish); `txn` is copied into\ndenial audit records. Fails with `EACCES` when policy refuses a segment.",
                 params: &[Field { name: "name", ty: Ty::String }, Field { name: "mode", ty: Ty::U32 }, Field { name: "txn", ty: Ty::U64 }],
                 returns: &[],
+                transfers: &[],
             },
         ],
         structs: &[],
@@ -2217,6 +2474,7 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Check `name` (a filter, possibly with `+`/trailing `#`) for the actor;\nsee `os.lazy.messenger.topics.publish.v1`.",
                 params: &[Field { name: "name", ty: Ty::String }, Field { name: "mode", ty: Ty::U32 }, Field { name: "txn", ty: Ty::U64 }],
                 returns: &[],
+                transfers: &[],
             },
         ],
         structs: &[],

@@ -55,6 +55,8 @@ programs! {
     FLAKY = "flaky";
     /// `sndd`, the virtio-sound driver.
     SNDD = "sndd";
+    /// `audiod`, the system mixer (docs/audio-plan.md).
+    AUDIOD = "audiod";
     /// `netdrv`, the NIC driver.
     NETDRV = "netdrv";
     /// `netd`, the network stack service.
@@ -101,6 +103,8 @@ programs! {
     BEEP = "beep";
     /// `modplay`, the tracker-module player.
     MODPLAY = "modplay";
+    /// `mixer`, the mixer's volume control command.
+    MIXER = "mixer";
     /// `pkgctl`, the package manager command line.
     PKGCTL = "pkgctl";
     /// `nicctl`, the NIC control tool.

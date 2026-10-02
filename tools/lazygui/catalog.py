@@ -150,18 +150,23 @@ def build_env(cfg: dict) -> dict[str, str]:
         env["LAZYOS_LAZYRAD"] = "1"
         if cfg.get("lazyrad_samples"):
             env["LAZYRAD_SAMPLES"] = cfg["lazyrad_samples"]
+    if cfg.get("doom"):
+        # Places the Doom package (built by `tools/doom/build.py`) in
+        # /system/share/samples; a user installs it through pkgd.
+        env["LAZYOS_DOOM"] = "1"
     return env
 
 
 def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
-                  shell: bool = True, devices: bool = False) -> dict:
+                  shell: bool = True, devices: bool = False, doom: bool = False) -> dict:
     """The full configuration for a Simple-mode choice.
 
     ``build`` is a cargo profile (``dev``/``release``) and ``interface`` is
     ``CLI`` or ``Desktop``; ``lazyrad`` adds the LazyRAD IDE to a Desktop
     image (it is an xui app, so it means nothing on the CLI), ``shell``
-    keeps the LazyShell desktop (taskbar, start menu) on it, and ``devices``
-    opens the Devices app at boot (likewise Desktop only). Machine settings (accelerator, memory, QEMU path)
+    keeps the LazyShell desktop (taskbar, start menu) on it, ``devices``
+    opens the Devices app at boot and ``doom`` adds the Doom package (likewise
+    Desktop only). Machine settings (accelerator, memory, QEMU path)
     come from ``base``; every image switch is decided here so stale Advanced
     checkboxes cannot leak into a Simple boot.
     """
@@ -199,6 +204,7 @@ def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
         "lazyrad": desktop and lazyrad,
         "shell": desktop and shell,
         "devices": desktop and devices,
+        "doom": desktop and doom,
     })
     return cfg
 
@@ -234,6 +240,19 @@ def lazyrad_step(cfg: dict) -> list[dict]:
              "argv": [PY, "tools/lazyrad/build.py"]}]
 
 
+def doom_step(cfg: dict) -> list[dict]:
+    """The step that builds the Doom package, when the image embeds it."""
+    if not cfg.get("doom"):
+        return []
+    return [{"label": "Build Doom package (engine + Freedoom)",
+             "argv": [PY, "tools/doom/build.py", "--require"]}]
+
+
+def app_steps(cfg: dict) -> list[dict]:
+    """Every optional app the image embeds, built before `cargo build`."""
+    return lazyrad_step(cfg) + doom_step(cfg)
+
+
 def _script(cfg: dict) -> tuple:
     """The SCRIPTS entry selected by ``cfg["script"]``."""
     return SCRIPTS[cfg["script"]]
@@ -252,6 +271,9 @@ def build_plan(cfg: dict) -> list[dict]:
             # run_demo builds LazyRAD and sets LAZYOS_LAZYRAD itself; with
             # "Skip build" the existing image is booted as it is.
             argv.append("--lazyrad")
+        if cfg.get("doom") and not cfg["skip_build"]:
+            # run_demo builds the package and sets LAZYOS_DOOM itself.
+            argv.append("--doom")
         if cfg.get("devices") and cfg.get("desktop") and not cfg["skip_build"]:
             # run_demo builds the xui apps and opens Devices at boot itself.
             argv.append("--devices")
@@ -293,7 +315,7 @@ def build_plan(cfg: dict) -> list[dict]:
 
     elif mode == "Headless screenshots":
         if not cfg["skip_build"]:
-            steps += lazyrad_step(cfg)
+            steps += app_steps(cfg)
             steps.append(cargo_step(cfg))
         argv = [PY, "tools/screenshot/qemu_shot.py", "--out", cfg["out"],
                 "--at", cfg["times"], "--accel", cfg["accel"],
@@ -310,7 +332,7 @@ def build_plan(cfg: dict) -> list[dict]:
             # The desktop apps are packages: package the apps already built.
             steps.append(core_packages_step())
         if not cfg["skip_build"]:
-            steps += lazyrad_step(cfg)
+            steps += app_steps(cfg)
             steps.append(cargo_step(cfg))
         script = os.path.join(ROOT, "tools", "screenshot", "examples", file)
         argv = [PY, "tools/screenshot/qemu_session.py", "--image", IMAGE,
@@ -341,7 +363,7 @@ def build_plan(cfg: dict) -> list[dict]:
 
     elif mode == "Build xui app":
         steps += xui_steps()
-        steps += lazyrad_step(cfg)
+        steps += app_steps(cfg)
 
     return steps
 

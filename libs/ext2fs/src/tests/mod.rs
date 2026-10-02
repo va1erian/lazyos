@@ -19,6 +19,7 @@ mod malformed;
 mod ops;
 mod ops_state;
 mod populate_tests;
+mod recover;
 mod rename_file;
 mod review_fixes;
 mod seeded;
