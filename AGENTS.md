@@ -347,10 +347,14 @@ regressions, not kernel-internal correctness or resource leaks.
   flag that builds its artifacts and sets that switch, (c) a control in the GUI
   (the Simple tab for what a normal user wants, the Advanced tab for the raw
   switch) wired through `tools/lazygui/catalog.py` (`build_env`, `build_plan`)
-  with tests in `tools/lazygui/test_catalog.py`, and (d) for a desktop app, an
-  `init` registry row (`user/src/bin/init/apps.rs`) plus an `/system/etc/xapps.lst` line so
-  Settings -> Menu offers it. Verify it by starting it through the launcher or
-  `run_demo.py`, not only by hand-built env vars.
+  with tests in `tools/lazygui/test_catalog.py`, and (d) for a desktop app, a
+  core package under `xui-app/packages/<short>/` (listed in
+  `tools/xui/core_packages.py`) with complete permissions, derived from a run
+  under `LAZYOS_LABEL_TRACE=1` (every refused call is printed as `LABEL:DENY`;
+  `tools/screenshot/examples/core_apps.json` launches every core app), so `pkgd`
+  installs it at boot and Settings -> Menu offers it (`docs/packages.md`, core
+  packages). Verify it by starting it through the launcher or `run_demo.py`, not
+  only by hand-built env vars.
 - Prefer verifying with the existing scripts over ad-hoc commands so results are
   comparable across runs.
 

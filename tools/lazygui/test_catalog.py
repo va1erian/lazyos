@@ -219,6 +219,40 @@ class LazyRadTests(unittest.TestCase):
         self.assertEqual(plan[-1]["argv"][1:], ["tools/lazyrad/build.py"])
 
 
+class CorePackageTests(unittest.TestCase):
+    """Issue #509: the desktop apps are core packages, built after the apps."""
+
+    def labels(self, cfg: dict) -> list[str]:
+        return [step["label"] for step in catalog.build_plan(cfg)]
+
+    def test_the_build_mode_packages_after_building(self) -> None:
+        plan = catalog.build_plan({"mode": "Build xui app", "lazyrad": False})
+        self.assertEqual([s["label"] for s in plan],
+                         ["Build xui apps (static musl)", "Build core packages"])
+        self.assertEqual(plan[0]["argv"][1:], ["tools/xui/build.py", "--no-core-packages"])
+        self.assertEqual(plan[1]["argv"][1:], ["tools/xui/core_packages.py"])
+
+    def test_a_desktop_demo_packages_before_running(self) -> None:
+        cfg = catalog.simple_config(demo_config(), "dev", "Desktop")
+        labels = self.labels(cfg)
+        self.assertEqual(labels[:2], ["Build xui apps (static musl)", "Build core packages"])
+        self.assertEqual(labels[-1], "Interactive demo")
+        self.assertNotIn("Build core packages",
+                         self.labels(catalog.simple_config(demo_config(), "dev", "CLI")))
+
+    def test_desktop_scripts_package_the_apps_before_the_image(self) -> None:
+        index = {entry[0]: i for i, entry in enumerate(catalog.SCRIPTS)}
+        cfg = {"mode": "Scripted session", "script": index["xui_settings.json"], "profile": "dev",
+               "skip_build": False, "accel": "auto", "memory": "512M", "qemu": "",
+               "out": "shots", "timeout": "300", "tablet": False, "lazyrad": False}
+        labels = self.labels(cfg)
+        self.assertEqual(labels[:2], ["Build core packages", "Build image (cargo build)"])
+        viewer = {**cfg, "script": index["xui_editor.json"]}
+        self.assertEqual(self.labels(viewer)[:3], ["Build xui apps (static musl)",
+                                                   "Build core packages",
+                                                   "Build image (cargo build)"])
+
+
 class DevicesAppTests(unittest.TestCase):
     """The Devices app (issue #481): shipped with every desktop, opened at
     boot on request, from the Simple tab, the Advanced tab and run_demo."""

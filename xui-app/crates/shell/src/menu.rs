@@ -71,7 +71,8 @@ pub enum Shipped<'a> {
 impl Shipped<'_> {
     fn has(&self, app: &str) -> bool {
         match self {
-            Shipped::Known(ids) => ids.iter().any(|id| id == app),
+            // A saved short id (`editor`) is shipped when its core app is.
+            Shipped::Known(ids) => ids.iter().any(|id| deskmenu::same_app(id, app)),
             Shipped::Unknown => true,
         }
     }
@@ -96,7 +97,7 @@ impl Menu {
         let room = fit - configured.len();
         let mut rows: Vec<Row> = installed
             .iter()
-            .filter(|entry| !configured.iter().any(|c| c.app == entry.app))
+            .filter(|entry| !configured.iter().any(|c| deskmenu::same_app(&c.app, &entry.app)))
             .take(MAX_INSTALLED.min(room))
             .map(|entry| Row {
                 app: entry.app.clone(),

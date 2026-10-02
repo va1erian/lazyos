@@ -74,12 +74,15 @@ class MainTests(unittest.TestCase):
         self.image.write_bytes(b"\0" * 512)
         self.home = self.dir / "home.img"
         self.builds: list[dict] = []
+        self.commands: list[list[str]] = []
 
     def run_main(self, *argv: str) -> tuple[int, list[str]]:
         launched: list[str] = []
 
         def fake_build(command, cwd=None, env=None, **_):
-            self.builds.append(env or {})
+            self.commands.append([str(part) for part in command])
+            if env is not None:
+                self.builds.append(env)
             return mock.Mock(returncode=0)
 
         with mock.patch.object(run_demo.busybox, "ensure_busybox"), \
@@ -167,6 +170,24 @@ class MainTests(unittest.TestCase):
             os.environ.pop("LAZYOS_RESET_OS", None)
             self.run_main()
         self.assertNotIn("LAZYOS_RESET_OS", self.builds[-1])
+
+    def test_a_desktop_build_packages_the_core_apps_first(self) -> None:
+        # Issue #509: the desktop apps ship as core packages, so the image
+        # build needs `target/pkg/core` from the apps just built.
+        with mock.patch.object(run_demo, "build_xui_shell", return_value=True):
+            code, _ = self.run_main("--desktop")
+        self.assertEqual(code, 0)
+        scripts = [Path(command[1]).name for command in self.commands if len(command) > 1]
+        self.assertIn("core_packages.py", scripts)
+        packaged = scripts.index("core_packages.py")
+        cargo = next(i for i, command in enumerate(self.commands) if "cargo" in command[0])
+        self.assertLess(packaged, cargo)
+        self.assertEqual(self.builds[-1].get("LAZYOS_DESKTOP"), "1")
+
+    def test_a_console_build_does_not_package_apps(self) -> None:
+        code, _ = self.run_main()
+        self.assertEqual(code, 0)
+        self.assertFalse(any("core_packages.py" in " ".join(c) for c in self.commands))
 
     def test_reset_os_cannot_combine_with_no_build(self) -> None:
         with self.assertRaises(SystemExit), redirect_stderr(io.StringIO()):

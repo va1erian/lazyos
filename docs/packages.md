@@ -472,6 +472,91 @@ sandbox. `init` prints `PKGD:LAUNCH:LABEL app:<system_name> pid=<n>`, the label
 read back from the kernel. The desktop right-click menu appends the installed
 apps after its configured entries, re-read each time it opens.
 
+`ListApps` lists the core apps first, then the others by `system_name`, each
+with its `origin` (`core`, `user`, or `system` for a built-in program),
+`category`, `autostart`, its MIME `verbs` from the manifest, and `hidden`, which
+`init` resolves for the *caller's* uid (`user/<uid>/menu/hidden/<id>`, else the
+machine's `sys/menu/hidden/<id>`, `deskmenu::hidden`). A core app also answers to
+its bare short id (`Launch("editor")` starts `os.lazy.editor`), so menus and
+launchers saved before F5 keep working.
+
+### Core packages (issue #509)
+
+Every desktop app is a package, except four programs that stay unlabelled in
+`/system/bin`: LazyShell (the desktop itself), the Installer (`pkgd`'s trusted
+UI; `pkgstore::access` refuses every labelled caller), the Terminal (a child
+inherits its parent's label, so a packaged Terminal would run the shell and
+every command typed in it, `pkgctl` and `powerctl` included, as a sandboxed
+app) and Devices (it reads the kernel's device inspection calls,
+`os.kernel.dev`, which no package permission can name).
+
+* **Sources.** `xui-app/packages/<short>/`: `manifest.toml`
+  (`system_name = "os.lazy.<short>"`, `bin/<short>.elf`, `abi = "linux"`,
+  `args = ["--client"]`, a `category`, `[[mime]]` mirroring `mimed`'s defaults,
+  and the complete `[permissions]`), `icons/` (`tools/pkg/make_icons.py`) and
+  `docs/*.md`.
+* **Permissions come from evidence.** An image built with
+  `LAZYOS_LABEL_TRACE=1` prints one `LABEL:DENY label=<label> iface=<id>
+  method=<id>` (or `resolve=<name>`, `topic=<name>`) line per call the kernel
+  refuses a labelled task; map interface ids with `idl/manifest.json`. The
+  session `tools/screenshot/examples/core_apps.json` launches every core app.
+* **Build.** `tools/xui/build.py` (or `tools/xui/core_packages.py` alone) builds
+  each package twice into `target/pkg/core/`, with `autostart = false` and
+  `= true` (`autostart/`), and lists them in `core.lst`; the version is the root
+  `Cargo.toml`'s. The archives are reproducible, so an unchanged app keeps its
+  digest. `build_support/core_packages.rs` embeds one variant per app as
+  `/system/packages/<system_name>.lzp`, picking the `autostart` one for the apps
+  `LAZYOS_XUI_AUTOSTART` names (stems such as `sysmon` or system names; the
+  built-in Terminal and Devices are read from the same list by `user/build.rs`),
+  and writes `/system/packages/index` (`<system_name> <version> <sha256>
+  [autostart]` per line). Everything goes through the image manifest, so an
+  in-place update replaces a changed package and deletes a dropped one.
+* **"Core"** means the `system_name` is shipped in `/system/packages`, whoever
+  installed the current version. The row caches it (`Installed.origin`).
+
+**Provisioning.** After reconciliation `pkgd` (`user/src/bin/pkgd/provision.rs`,
+decisions in `pkgstore::provision`):
+
+1. lists `/system/packages/*.lzp` and reads the index (an archive the index does
+   not describe is opened to learn it);
+2. compares the stamp `sha256(sorted (system_name, digest))` with
+   `sys/pkgd/provisioned` in `confd`: equal, with a core row for every shipped
+   app, means nothing to do;
+3. otherwise installs what is missing, upgrades a row at another digest whose
+   version is not newer than the shipped one (`1.0` = `1.0.0`), keeps a newer
+   version the user installed (`PKGD:PROVISION:KEEP sn=<..> installed=<v>
+   shipped=<v>`), records an already-installed shipped app as core, and turns a
+   core row the image no longer ships into a user row (it stays installed and
+   becomes removable). A package that fails is reported
+   (`PKGD:PROVISION:FAIL sn=<..> reason=<..>`) and the others go on; it has no
+   row, so the next boot tries again;
+4. writes the stamp and prints `PKGD:PROVISION:DONE installed=<n> upgraded=<n>
+   kept=<n> failed=<n>`.
+
+Every step is audited in `pkg.log` as `op=provision`. The packages that open at
+login go first; once they are in, `pkgd` announces `ready` on
+`system/events/pkg/provision` through `init`'s broker, and `done` at the end.
+`init` waits for `ready` (bounded at 30 s, `INIT:AUTOSTART:WAIT pkgd`, then
+`INIT:AUTOSTART:READY` or `INIT:AUTOSTART:PARTIAL`) before it opens the apps
+whose manifest sets `autostart`, core first, then by `system_name`; hiding does
+not stop an app from autostarting. It watches the announcements instead of
+calling `Provisioned()` because `pkgd` answers requests only between two
+packages. `Install` and `Remove` are refused with `EAGAIN` until the pass is
+over; `Provisioned()` answers throughout.
+
+Provisioning one package is one install: read into the buffer `pkgd` keeps
+(sized once for the largest archive), extract through one kept scratch buffer
+(sized once for the largest file), so a pass over the whole set grows the heap
+by about the largest archive plus the largest file
+(`libs/pkgstore/tests/provision_memory.rs`). On a fresh image the pass writes
+every app to disk; the time it takes is the OS volume's write speed.
+
+**Refusals.** `Remove` of a core app is refused for everyone, root included, with
+`EPERM` and "<name> is part of LazyOS and can't be removed; you can hide it from
+the menu in Settings", audited as `denied`. Installing a version of a core app
+older than the shipped one is refused the same way; a newer one installs over it
+and stays core.
+
 ### Sample package and end-to-end check
 
 `tools/pkg/samples/counter/` is the Counter demo as a package

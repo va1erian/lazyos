@@ -218,3 +218,15 @@ fn choosing_launches_enabled_apps_only() {
     assert_eq!(menu.choose(docs, false), Choice::Nothing);
     assert_eq!(menu.choose(99, false), Choice::Nothing);
 }
+
+#[test]
+fn a_menu_saved_with_short_ids_still_matches_the_core_apps() {
+    // `sys/ui/menu` from before F5 names `editor`; `init` lists
+    // `os.lazy.editor`, which launches for the short id too (issue #509).
+    let configured = vec![entry("editor", "Editor")];
+    let installed = vec![entry("os.lazy.editor", "Editor")];
+    let shipped = vec![String::from("os.lazy.editor")];
+    let menu = Menu::build(&installed, &configured, Shipped::Known(&shipped), H);
+    assert_eq!(ids(&menu)[0], "editor", "no second Editor row");
+    assert!(menu.rows()[0].enabled, "the short id is shipped");
+}

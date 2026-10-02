@@ -5,6 +5,8 @@
 
 #![allow(dead_code)]
 
+#[path = "../core_packages.rs"]
+mod core_packages;
 #[path = "../docs_embed.rs"]
 mod docs_embed;
 #[path = "../os_disk.rs"]
@@ -20,6 +22,8 @@ mod os_manifest;
 mod f3_layout_tests;
 #[cfg(test)]
 mod f4_layout_tests;
+#[cfg(test)]
+mod f5_layout_tests;
 #[cfg(test)]
 mod image_tests;
 #[cfg(test)]

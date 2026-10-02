@@ -3,7 +3,7 @@
 #   path:LINE:reason     one line
 # Prefer a constant from libs/fhs; add an entry only when the literal is the
 # thing under test or the build host cannot depend on the crate yet.
-build_support/xui_embed.rs:278:the file name tools/pkg/build_samples.py writes under target/pkg on the host, not an image path
+build_support/xui_embed.rs:238:the file name tools/pkg/build_samples.py writes under target/pkg on the host, not an image path
 kernel/src/process/linux/path.rs:83:the Linux ABI's synthetic /etc directory, an ABI concept rather than LazyOS layout
 user/src/bin/mimed/selftest.rs:22:test data for MIME guessing by extension, not a boot file
 xui-app/crates/explorer/src/testing.rs:168:fixture directory name of an in-memory test platform

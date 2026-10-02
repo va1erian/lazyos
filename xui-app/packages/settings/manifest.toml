@@ -28,4 +28,5 @@ interfaces = [
     "os.lazy.input.v1",
     "os.lazy.confd.v1",
     "os.lazy.init.v1",
+    "os.lazy.timed.v1",
 ]

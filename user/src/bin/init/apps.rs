@@ -174,17 +174,23 @@ pub fn is_available(app: &AppSpec) -> bool {
         .is_some_and(|index| AVAILABLE.load(Ordering::Relaxed) & (1 << index) != 0)
 }
 
-/// Whether the image build asked for the Terminal at boot
-/// (`LAZYOS_XUI_AUTOSTART` names it, or is unset; `user/build.rs`).
-const TERMINAL_AUTOSTART: bool = cfg!(lazyos_autostart_terminal);
+/// The built-in rows the image build asked to open at boot, comma-separated
+/// registry ids (`LAZYOS_XUI_AUTOSTART`, read by `user/build.rs`): the
+/// Terminal by default, Devices on request.
+const BUILTIN_AUTOSTART: &str = env!("LAZYOS_BUILTIN_AUTOSTART");
 
-/// The built-in rows that open at boot, shell first: the desktop shell, and
-/// the Terminal when the build asked for it, each when the image ships it.
-/// The other apps that autostart are packages ([`super::installed`]).
+/// The built-in rows that open at boot: the desktop shell first, then those
+/// the build asked for, each when the image ships it. The other apps that
+/// autostart are packages ([`super::installed`]).
 pub fn autostart_ids() -> Vec<&'static str> {
-    APPS.iter()
-        .filter(|app| app.id == SHELL_APP_ID || (app.id == "terminal" && TERMINAL_AUTOSTART))
-        .filter(|app| is_available(app))
+    let wanted = |id: &str| BUILTIN_AUTOSTART.split(',').any(|want| want == id);
+    let shell = APPS.iter().filter(|app| app.id == SHELL_APP_ID);
+    let others = BUILTIN_AUTOSTART
+        .split(',')
+        .filter_map(|id| APPS.iter().find(|app| app.id == id && app.id != SHELL_APP_ID));
+    shell
+        .chain(others)
+        .filter(|app| is_available(app) && (app.id == SHELL_APP_ID || wanted(app.id)))
         .map(|app| app.id)
         .collect()
 }

@@ -97,6 +97,22 @@ pub fn defaults() -> Vec<Entry> {
         .collect()
 }
 
+/// The namespace of the core apps' `system_name`s (issue #509).
+pub const CORE_PREFIX: &str = "os.lazy.";
+
+/// Whether two app ids name the same app: equal, or a core app's
+/// `system_name` and the bare short id a menu saved before F5 holds
+/// (`os.lazy.editor` and `editor`; `init` launches the one for the other).
+pub fn same_app(a: &str, b: &str) -> bool {
+    a == b || core_short(a) == Some(b) || core_short(b) == Some(a)
+}
+
+/// The short id of a core `system_name` (`os.lazy.editor` -> `editor`).
+fn core_short(id: &str) -> Option<&str> {
+    id.strip_prefix(CORE_PREFIX)
+        .filter(|short| !short.contains('.'))
+}
+
 /// Whether `app` looks like an `init` registry id: a bare program stem
 /// (`terminal`) or a dotted `system_name` (`os.lazy.terminal`), at most
 /// [`MAX_APP`] bytes. See [`valid_system_name`] for the alphabet.
@@ -192,6 +208,16 @@ pub fn to_value(entries: &[Entry]) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_short_id_is_the_same_app_as_its_core_system_name() {
+        assert!(same_app("os.lazy.editor", "editor"));
+        assert!(same_app("editor", "os.lazy.editor"));
+        assert!(same_app("editor", "editor"));
+        assert!(!same_app("org.lazy.editor", "editor"));
+        assert!(!same_app("os.lazy.a.b", "a.b"));
+        assert!(!same_app("os.lazy.paint", "editor"));
+    }
 
     fn any(_: &str) -> bool {
         true

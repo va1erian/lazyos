@@ -88,7 +88,12 @@ pub fn built(dir: &Path) -> Vec<CorePackage> {
 /// (`os.lazy.terminal`); `none` opens nothing; unset means the Terminal.
 pub fn autostart_shorts() -> Vec<String> {
     println!("cargo:rerun-if-env-changed=LAZYOS_XUI_AUTOSTART");
-    let value = std::env::var("LAZYOS_XUI_AUTOSTART").unwrap_or_else(|_| DEFAULT_AUTOSTART.into());
+    parse_autostart(std::env::var("LAZYOS_XUI_AUTOSTART").ok().as_deref())
+}
+
+/// [`autostart_shorts`] of a `LAZYOS_XUI_AUTOSTART` value (`None`: unset).
+pub fn parse_autostart(value: Option<&str>) -> Vec<String> {
+    let value = value.unwrap_or(DEFAULT_AUTOSTART);
     if value.trim() == "none" {
         return Vec::new();
     }

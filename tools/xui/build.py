@@ -213,6 +213,8 @@ def main() -> int:
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument("--debug", action="store_true", help="build the debug profile")
+    parser.add_argument("--no-core-packages", action="store_true",
+                        help="skip packaging the desktop apps (run tools/xui/core_packages.py later)")
     args = parser.parse_args()
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -257,7 +259,7 @@ def main() -> int:
         built[DOCS_PACKAGE] = str(dest)
 
     build_sample_packages()
-    if not build_core_packages():
+    if not args.no_core_packages and not build_core_packages():
         print(json.dumps(built, indent=2))
         return 1
     print(json.dumps(built, indent=2))

@@ -155,6 +155,20 @@ def build_xui_shell() -> bool:
     return True
 
 
+def build_core_packages() -> bool:
+    """Package the built desktop apps (`tools/xui/core_packages.py`, issue
+    #509): the desktop image embeds `target/pkg/core/*.lzp` in
+    `/system/packages`. Cheap and reproducible (unchanged apps give the same
+    archives, so `pkgd` does nothing at the next boot), so it runs before every
+    desktop build; `tools/xui/build.py` runs it too."""
+    script = ROOT / "tools" / "xui" / "core_packages.py"
+    result = subprocess.run([sys.executable, str(script)], cwd=ROOT, stdout=subprocess.DEVNULL)
+    if result.returncode != 0:
+        print("error: the core packages did not build (run `python tools/xui/build.py`)",
+              file=sys.stderr)
+    return result.returncode == 0
+
+
 def build_rhai() -> None:
     """Rebuild `target/rhai/rhai.elf` so the image never embeds a stale or
     missing `rhai` (issue #319). Optional: a host without the musl target
@@ -328,6 +342,8 @@ def main(argv: list[str]) -> int:
         if args.no_shell:
             env["LAZYOS_SHELL"] = "0"
         elif args.desktop and env.get("LAZYOS_SHELL") != "0" and not build_xui_shell():
+            return 1
+        if args.desktop and not build_core_packages():
             return 1
         result = subprocess.run(cargo, cwd=ROOT, env=env)
         if result.returncode != 0:
