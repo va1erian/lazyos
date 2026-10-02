@@ -25,8 +25,8 @@ cc = { version = "1", features = ["parallel"] }
 
 [dependencies]
 xui-app = { path = ".." }
-xui-core = { git = "https://github.com/va1erian/xui", rev = "7e31d5d6d120fb479e1ff0731bd6a44601acafee" }
+xui-core = { git = "https://github.com/va1erian/xui", rev = "ab0cea2390b0f815df8656df2c71f3a9ffa852b6" }
 # One xui revision for every crate, so a single `xui_core` links. `xui-litehtml`
 # is an ordinary git dependency, not vendored.
-xui-litehtml = { git = "https://github.com/va1erian/xui", rev = "7e31d5d6d120fb479e1ff0731bd6a44601acafee" }
+xui-litehtml = { git = "https://github.com/va1erian/xui", rev = "ab0cea2390b0f815df8656df2c71f3a9ffa852b6" }
 pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }

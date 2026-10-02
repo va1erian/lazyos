@@ -17,8 +17,8 @@ resolver = "2"
 # Cargo.toml and docs/xui-plan.md "Bumping the pinned rev"). LazyRAD's own
 # workspace pins the same revision. `default-features = false` keeps
 # winit/softbuffer/glutin/glow/arboard/xui-gpu out of the image.
-xui-core = { git = "https://github.com/va1erian/xui", rev = "7e31d5d6d120fb479e1ff0731bd6a44601acafee" }
-xui-canvas = { git = "https://github.com/va1erian/xui", rev = "7e31d5d6d120fb479e1ff0731bd6a44601acafee", default-features = false }
+xui-core = { git = "https://github.com/va1erian/xui", rev = "ab0cea2390b0f815df8656df2c71f3a9ffa852b6" }
+xui-canvas = { git = "https://github.com/va1erian/xui", rev = "ab0cea2390b0f815df8656df2c71f3a9ffa852b6", default-features = false }
 # The LazyOS backend (xuid client), fonts, clipboardd client and the portable
 # file-dialog plumbing.
 xui-app = { path = "../xui-app" }

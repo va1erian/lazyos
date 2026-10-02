@@ -31,7 +31,10 @@ file (or welcome.md) --pulldown-cmark--> HTML --litehtml (worker thread)--> disp
   stub shaper that returns empty layouts and litehtml draws boxes with no text.
 * **Fonts.** Droid Sans, Droid Sans Bold (`assets/fonts/`, Apache-2.0) and
   JetBrains Mono. There is no italic face, so italics are synthesised.
-* **Scrolling.** The wheel needs the whole input chain; see *Mouse wheel* in
+* **Scrolling.** `HtmlView` draws a vertical scrollbar along its right edge
+  (xui-core's shared bar: drag the thumb, click the track to page); its strip
+  is always reserved, so the page lays out that much narrower. The wheel needs
+  the whole input chain; see *Mouse wheel* in
   [`architecture/display.md`](architecture/display.md).
 * **Opening documents.** A toolbar above the page has an **Open...** button and
   shows the current path; `Ctrl+O` does the same. Both raise the portable

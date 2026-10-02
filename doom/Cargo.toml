@@ -42,7 +42,7 @@ fhs = { path = "../libs/fhs" }
 libc = "0.2"
 # `Rect` for buffer-slot damage; the same revision `xui-app` pins, so one
 # `xui_core` links.
-xui-core = { git = "https://github.com/va1erian/xui", rev = "7e31d5d6d120fb479e1ff0731bd6a44601acafee" }
+xui-core = { git = "https://github.com/va1erian/xui", rev = "ab0cea2390b0f815df8656df2c71f3a9ffa852b6" }
 
 [build-dependencies]
 cc = { version = "1", features = ["parallel"] }
