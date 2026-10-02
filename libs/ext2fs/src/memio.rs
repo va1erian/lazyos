@@ -19,6 +19,21 @@ struct Shared {
     write_calls: AtomicU64,
     /// The write call that fails once (`u64::MAX`: none armed).
     fail_call: AtomicU64,
+    /// Requests and bytes, for the benchmarks: one vectored call is one request.
+    reads: AtomicU64,
+    read_bytes: AtomicU64,
+    writes: AtomicU64,
+    write_bytes: AtomicU64,
+}
+
+/// What a [`MemIo`] was asked to do (see [`MemIo::counters`]).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Counters {
+    pub reads: u64,
+    pub read_bytes: u64,
+    pub writes: u64,
+    pub write_bytes: u64,
+    pub flushes: u64,
 }
 
 /// A RAM disk of 512-byte sectors.
@@ -44,6 +59,10 @@ impl MemIo {
                 flushes: AtomicU64::new(0),
                 write_calls: AtomicU64::new(0),
                 fail_call: AtomicU64::new(u64::MAX),
+                reads: AtomicU64::new(0),
+                read_bytes: AtomicU64::new(0),
+                writes: AtomicU64::new(0),
+                write_bytes: AtomicU64::new(0),
             }),
         }
     }
@@ -81,6 +100,18 @@ impl MemIo {
         self.shared.write_calls.load(Ordering::Relaxed)
     }
 
+    /// Every request so far (all clones of this disk share the counts).
+    pub fn counters(&self) -> Counters {
+        let shared = &self.shared;
+        Counters {
+            reads: shared.reads.load(Ordering::Relaxed),
+            read_bytes: shared.read_bytes.load(Ordering::Relaxed),
+            writes: shared.writes.load(Ordering::Relaxed),
+            write_bytes: shared.write_bytes.load(Ordering::Relaxed),
+            flushes: shared.flushes.load(Ordering::Relaxed),
+        }
+    }
+
     /// How many times the volume asked the device to flush.
     pub fn flushes(&self) -> u64 {
         self.shared.flushes.load(Ordering::Relaxed)
@@ -111,6 +142,10 @@ impl BlockIo for MemIo {
         let bytes = self.shared.bytes.lock().unwrap();
         let range = self.span(lba, buf.len(), bytes.len())?;
         buf.copy_from_slice(&bytes[range]);
+        self.shared.reads.fetch_add(1, Ordering::Relaxed);
+        self.shared
+            .read_bytes
+            .fetch_add(buf.len() as u64, Ordering::Relaxed);
         Ok(())
     }
 
@@ -135,7 +170,34 @@ impl BlockIo for MemIo {
                 .store(budget - sectors, Ordering::Relaxed);
         }
         bytes[range].copy_from_slice(buf);
+        self.shared.writes.fetch_add(1, Ordering::Relaxed);
+        self.shared
+            .write_bytes
+            .fetch_add(buf.len() as u64, Ordering::Relaxed);
         Ok(())
+    }
+
+    /// One request, like a real device's scatter list (the default would
+    /// count one per buffer).
+    fn read_sectors_vectored(&self, lba: u64, bufs: &mut [&mut [u8]]) -> Result<(), IoError> {
+        let bytes = self.shared.bytes.lock().unwrap();
+        let total = bufs.iter().map(|buf| buf.len()).sum();
+        let mut at = self.span(lba, total, bytes.len())?.start;
+        for buf in bufs.iter_mut() {
+            buf.copy_from_slice(&bytes[at..at + buf.len()]);
+            at += buf.len();
+        }
+        self.shared.reads.fetch_add(1, Ordering::Relaxed);
+        self.shared
+            .read_bytes
+            .fetch_add(total as u64, Ordering::Relaxed);
+        Ok(())
+    }
+
+    /// One request (one write call for the failure injection), all or nothing.
+    fn write_sectors_vectored(&self, lba: u64, bufs: &[&[u8]]) -> Result<(), IoError> {
+        let joined: Vec<u8> = bufs.concat();
+        self.write_sectors(lba, &joined)
     }
 
     fn flush(&self) -> Result<(), IoError> {
