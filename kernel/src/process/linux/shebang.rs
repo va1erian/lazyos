@@ -108,11 +108,12 @@ fn c_arg(bytes: &[u8]) -> Vec<u8> {
     out
 }
 
-/// Map special process paths to a real file (`/proc/self/exe` -> busybox) and
-/// drop the leading `/` the ABI VFS lookups take without.
+/// Map special process paths to a real file (`/proc/self/exe` ->
+/// `/system/bin/busybox`) and drop the leading `/` the ABI VFS lookups take
+/// without.
 fn exe_target(path: &str) -> &str {
     match path {
-        "/proc/self/exe" => "busybox",
+        "/proc/self/exe" => fhs::bin::BUSYBOX.trim_start_matches('/'),
         other => other.trim_start_matches('/'),
     }
 }

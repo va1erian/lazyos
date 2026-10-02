@@ -245,7 +245,7 @@ fn write_block(uid: u32, caps: u32, label: &str) {
     }
     write_bytes(BLOCK, &bytes);
     write_bytes(LABEL_BYTES, label.as_bytes());
-    write_bytes(CMDLINE, b"NOSUCH.ELF\0");
+    write_bytes(CMDLINE, b"/system/bin/nosuch\0");
 }
 
 fn gate(op: u64, a1: u64, a2: u64) -> u64 {

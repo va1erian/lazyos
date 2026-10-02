@@ -46,33 +46,61 @@ fn shell() -> Result<usize, String> {
     Ok(slot)
 }
 
-/// Names a shell can type map to boot-volume files; everything else is left
-/// to the Linux loader (BusyBox applets, real files).
+/// The programs the lookup tests expect on the volume, at their real paths
+/// (the busybox and rhai files are Linux programs, never native).
+const SHIPPED: &[&str] = &[
+    fhs::bin::TOP,
+    fhs::bin::CONFCTL,
+    fhs::bin::MESSENGERCTL,
+    fhs::bin::FAULTPROBE,
+    fhs::bin::BEEP,
+    fhs::bin::MODPLAY,
+    fhs::bin::PKGCTL,
+    fhs::bin::POWERCTL,
+    fhs::bin::BUSYBOX,
+    fhs::bin::RHAI,
+];
+
+/// Put [`SHIPPED`] into the test VFS as empty 0755 files.
+fn install_programs() -> Result<(), String> {
+    let id = crate::fs::vfs::Id::current();
+    for dir in [fhs::SYSTEM, fhs::SYSTEM_BIN] {
+        crate::fs::abi_mkdir(id, dir, 0o755)
+            .map_err(|e| format!("mkdir {dir}: {}", e.message()))?;
+    }
+    for program in SHIPPED {
+        crate::fs::abi_create(id, program, 0o755)
+            .map_err(|e| format!("create {program}: {}", e.message()))?;
+    }
+    Ok(())
+}
+
+/// Names a shell can type map to native programs in `/system/bin`, byte for
+/// byte; everything else is left to the Linux loader (BusyBox applets, real
+/// files, Linux programs in `/system/bin`, programs this image lacks).
 pub fn lookup_maps_names_to_files() -> Result<(), String> {
     fresh();
+    install_programs()?;
     for (path, file) in [
-        ("top", "TOP.ELF"),
-        ("/bin/top", "TOP.ELF"),
-        ("/usr/bin/confctl", "CONFCTL.ELF"),
-        ("/sbin/msgctl", "MSGCTL.ELF"),
-        ("messengerctl", "MSGCTL.ELF"),
-        ("/bin/faultprobe", "FAULTPRB.ELF"),
-        ("/TOP.ELF", "TOP.ELF"),
-        ("top.elf", "TOP.ELF"),
-        ("/faultprb.elf", "FAULTPRB.ELF"),
-        ("beep", "BEEP.ELF"),
-        ("/usr/bin/beep", "BEEP.ELF"),
-        ("/beep.elf", "BEEP.ELF"),
-        ("modplay", "MODPLAY.ELF"),
-        ("/usr/bin/modplay", "MODPLAY.ELF"),
-        ("pkgctl", "PKGCTL.ELF"),
-        ("/usr/bin/pkgctl", "PKGCTL.ELF"),
-        ("/pkgctl.elf", "PKGCTL.ELF"),
-        ("powerctl", "POWERCTL.ELF"),
-        ("shutdown", "POWERCTL.ELF"),
-        ("/sbin/poweroff", "POWERCTL.ELF"),
-        ("/bin/halt", "POWERCTL.ELF"),
-        ("reboot", "POWERCTL.ELF"),
+        ("top", fhs::bin::TOP),
+        ("/bin/top", fhs::bin::TOP),
+        ("/system/bin/top", fhs::bin::TOP),
+        ("/usr/bin/confctl", fhs::bin::CONFCTL),
+        ("/sbin/msgctl", fhs::bin::MESSENGERCTL),
+        ("msgctl", fhs::bin::MESSENGERCTL),
+        ("messengerctl", fhs::bin::MESSENGERCTL),
+        ("/bin/faultprobe", fhs::bin::FAULTPROBE),
+        ("beep", fhs::bin::BEEP),
+        ("/usr/bin/beep", fhs::bin::BEEP),
+        ("modplay", fhs::bin::MODPLAY),
+        ("/usr/bin/modplay", fhs::bin::MODPLAY),
+        ("pkgctl", fhs::bin::PKGCTL),
+        ("/usr/bin/pkgctl", fhs::bin::PKGCTL),
+        ("powerctl", fhs::bin::POWERCTL),
+        ("shutdown", fhs::bin::POWERCTL),
+        ("/sbin/poweroff", fhs::bin::POWERCTL),
+        ("/bin/halt", fhs::bin::POWERCTL),
+        ("reboot", fhs::bin::POWERCTL),
     ] {
         check!(
             native::lookup(path) == Some(file),
@@ -102,6 +130,23 @@ pub fn lookup_maps_names_to_files() -> Result<(), String> {
         "/bin/beepx",
         "/tmp/reboot",
         "/bin/rebootx",
+        // Case-sensitive since F3: the old flat names and other spellings
+        // are not found.
+        "TOP",
+        "top.elf",
+        "/TOP.ELF",
+        "/faultprb.elf",
+        "/beep.elf",
+        "/system/bin/TOP",
+        "/system/bin/top.elf",
+        "/system/bin/msgctl",
+        "/system/bin/reboot",
+        // Linux programs in /system/bin, and natives this image lacks.
+        "/system/bin/busybox",
+        "rhai",
+        "/system/bin/rhai",
+        "ping",
+        fhs::bin::PING,
     ] {
         check!(
             native::lookup(path).is_none(),
@@ -115,8 +160,9 @@ pub fn lookup_maps_names_to_files() -> Result<(), String> {
         ("halt", "poweroff"),
         ("/usr/sbin/reboot", "reboot"),
         ("powerctl", ""),
-        ("/POWERCTL.ELF", ""),
+        (fhs::bin::POWERCTL, ""),
         ("top", ""),
+        ("msgctl", ""),
     ] {
         check!(
             native::preset_args(path) == preset,
@@ -131,9 +177,10 @@ pub fn lookup_maps_names_to_files() -> Result<(), String> {
 /// alias never hides something the user installed.
 pub fn lookup_never_shadows_real_files() -> Result<(), String> {
     fresh();
+    install_programs()?;
     let id = crate::fs::vfs::Id::current();
     check!(
-        native::lookup("/usr/bin/top") == Some("TOP.ELF"),
+        native::lookup("/usr/bin/top") == Some(fhs::bin::TOP),
         "an unclaimed name in a bin directory should alias"
     );
     crate::fs::abi_mkdir(id, "/usr", 0o755).map_err(|e| format!("mkdir /usr: {}", e.message()))?;
@@ -146,9 +193,10 @@ pub fn lookup_never_shadows_real_files() -> Result<(), String> {
         "a real file was shadowed by the native alias"
     );
     check!(
-        native::lookup("/bin/top") == Some("TOP.ELF"),
+        native::lookup("/bin/top") == Some(fhs::bin::TOP),
         "the other search directories stopped resolving"
     );
+
     Ok(())
 }
 

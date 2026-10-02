@@ -117,7 +117,7 @@ pub fn configured_layout() -> Result<(), String> {
         nosuid: true,
     };
     for table in [&tables.native, &tables.abi] {
-        check!(table.mount_flags("/boot/INIT.ELF") == locked, "boot flags");
+        check!(table.mount_flags("/boot/KERNEL.BIN") == locked, "boot flags");
         check!(table.mount_flags("/etc/x") == rootf, "root flags");
         check!(table.mount_flags("/home/a") == homef, "home flags");
         check!(
@@ -221,19 +221,19 @@ pub fn mount_cycles_soak() -> Result<(), String> {
         vfs.mount("/", Arc::new(RamFs::new()), MountFlags::default())
             .map_err(fs_error)?;
         let boot = Arc::new(RamFs::new());
-        crate::fs::vfs::Filesystem::create(&*boot, "INIT.ELF", 0o755, id).map_err(fs_error)?;
+        crate::fs::vfs::Filesystem::create(&*boot, "KERNEL.BIN", 0o755, id).map_err(fs_error)?;
         vfs.mount("/boot", boot, ro).map_err(fs_error)?;
         vfs.mount("/home", Arc::new(RamFs::new()), MountFlags::default())
             .map_err(fs_error)?;
         check!(
-            vfs.stat(id, "/boot/INIT.ELF").is_ok(),
+            vfs.stat(id, "/boot/KERNEL.BIN").is_ok(),
             "stat across the boundary"
         );
         check!(
             vfs.readdir(id, "/").map_err(fs_error)?.len() == 2,
             "listing of /"
         );
-        check!(vfs.mount_flags("/boot/INIT.ELF").noexec, "flags");
+        check!(vfs.mount_flags("/boot/KERNEL.BIN").noexec, "flags");
         check!(
             vfs.create(id, "/boot/y", 0o644).map(|_| ()) == Err(FsError::ReadOnly),
             "ro create"

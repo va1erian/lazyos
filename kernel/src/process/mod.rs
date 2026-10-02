@@ -14,7 +14,7 @@
 //! declared, because native programs have no `argv` stack yet:
 //!
 //! ```text
-//!   rax = 6  rdi -> "PATH.ELF [args...]" (NUL-terminated)   -> pid | -1
+//!   rax = 6  rdi -> "PATH [args...]" (NUL-terminated)   -> pid | -1
 //!   rax = 7  rdi = absolute PIT deadline (0 = forever)       -> pid<<32 | status, or -1
 //!   rax = 8                                                  -> PIT ticks
 //!   rax = 9  rdi -> buffer, rsi = capacity                   -> argument length
@@ -36,7 +36,7 @@
 //!   rax = 10  rdi = op
 //!   op 0 (set):   rsi = target pid (u64::MAX = caller), rdx -> Cred block
 //!   op 1 (get):   rsi = target pid (u64::MAX = caller), rdx <- Cred block
-//!   op 2 (spawn): rsi -> "PATH.ELF [args...]" (NUL),       rdx -> Cred block
+//!   op 2 (spawn): rsi -> "PATH [args...]" (NUL),       rdx -> Cred block
 //! ```
 //!
 //! Every request is validated by [`credentials::transition`] (only an actor

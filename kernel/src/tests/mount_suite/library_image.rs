@@ -36,12 +36,15 @@ fn make_volume(device: &'static dyn BlockDevice, uuid: [u8; 16]) -> Result<(), S
     volume
         .mkdir_p("/data/tmp", 0o1777, 0, 0)
         .map_err(lib_error)?;
+    for dir in [fhs::SYSTEM_BIN, fhs::SYSTEM_ETC] {
+        volume.mkdir_p(dir, 0o755, 0, 0).map_err(lib_error)?;
+    }
     volume
-        .write_file("/PASSWD", b"root:x:0:0\n", 0o644, 0, 0, STAMP)
+        .write_file(fhs::etc::PASSWD, b"root:x:0:0\n", 0o644, 0, 0, STAMP)
         .map_err(lib_error)?;
     let elf = [0x7F, b'E', b'L', b'F', 2, 1, 1, 0];
     volume
-        .write_file("/SUPER.ELF", &elf, 0o755, 0, 0, STAMP)
+        .write_file(fhs::bin::INIT, &elf, 0o755, 0, 0, STAMP)
         .map_err(lib_error)?;
     volume.flush().map_err(lib_error)
 }
@@ -79,18 +82,18 @@ pub fn library_formatted_root_mounts() -> Result<(), String> {
     );
     let tmp = native.stat(id, "/data/tmp").map_err(fs_error)?;
     check!(tmp.mode & 0o7777 == 0o1777, "/data/tmp mode {:o}", tmp.mode);
-    let elf = native.stat(id, "/SUPER.ELF").map_err(fs_error)?;
+    let elf = native.stat(id, fhs::bin::INIT).map_err(fs_error)?;
     check!(
         elf.mode & 0o7777 == 0o755 && elf.size == 8 && elf.times.mtime == STAMP,
-        "SUPER.ELF is {elf:?}"
+        "init is {elf:?}"
     );
     let mut passwd = [0u8; 32];
     let read = native
-        .read(id, "/PASSWD", 0, &mut passwd)
+        .read(id, fhs::etc::PASSWD, 0, &mut passwd)
         .map_err(fs_error)?;
     check!(
         &passwd[..read] == b"root:x:0:0\n",
-        "PASSWD reads back wrong"
+        "passwd reads back wrong"
     );
     let stats = native.statfs(id, "/").map_err(fs_error)?;
     check!(

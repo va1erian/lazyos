@@ -38,8 +38,8 @@ fn main() {
     }
 
     // Fabric observability demo switch (issue #70): `LAZYOS_MESSENGERCTL=1`
-    // boots the `messengerctl` tool (`MSGCTL.ELF`) in the hello window
-    // instead of HELLO.ELF.
+    // boots the `messengerctl` tool (`/system/bin/messengerctl`) in the hello window
+    // instead of `hello`.
     println!("cargo:rerun-if-env-changed=LAZYOS_MESSENGERCTL");
     println!("cargo:rustc-check-cfg=cfg(messengerctl_demo)");
     if env::var_os("LAZYOS_MESSENGERCTL").as_deref() == Some(std::ffi::OsStr::new("1")) {
@@ -47,7 +47,7 @@ fn main() {
     }
 
     // virtio-sound driver switch (docs/driver-plan.md D6): `LAZYOS_SOUND=1`
-    // makes the kernel boot `sndd` (`SNDD.ELF`) when no supervisor runs; under
+    // makes the kernel boot `sndd` (`/system/bin/sndd`) when no supervisor runs; under
     // `LAZYOS_SERVICES=1` `init` starts it from its manifest instead.
     println!("cargo:rerun-if-env-changed=LAZYOS_SOUND");
     println!("cargo:rustc-check-cfg=cfg(sound_demo)");
@@ -56,7 +56,7 @@ fn main() {
     }
 
     // virtio-net driver switch (docs/networking-plan.md N1): `LAZYOS_NET=1`
-    // makes the kernel boot `netdrv` (`NETDRV.ELF`) when no supervisor runs;
+    // makes the kernel boot `netdrv` (`/system/bin/netdrv`) when no supervisor runs;
     // under `LAZYOS_SERVICES=1` `init` starts it from its manifest instead.
     // `LAZYOS_NETD=1` adds the stack service `netd` (docs/networking-plan.md
     // N2) and implies the driver.
@@ -92,7 +92,7 @@ fn main() {
     }
 
     // Registry daemon switch (issue #89): `LAZYOS_MESSENGERD=1` makes the
-    // normal demo boot `messengerd` (`MESSENGERD.ELF`), which claims the
+    // normal demo boot `messengerd` (`/system/bin/messengerd`), which claims the
     // bootstrap channel and serves registry requests.
     println!("cargo:rerun-if-env-changed=LAZYOS_MESSENGERD");
     println!("cargo:rustc-check-cfg=cfg(messengerd_service)");
@@ -101,7 +101,7 @@ fn main() {
     }
 
     // Service supervision mode (issue #93): `LAZYOS_SERVICES=1` boots the
-    // userspace `init` supervisor (`SUPER.ELF`) instead of the two-window
+    // userspace `init` supervisor (`/system/bin/init`) instead of the two-window
     // demo. `init` then starts `messengerd`, `logd`, `healthd` and the
     // crash-test service from its manifest, over the native spawn/wait
     // syscalls.
@@ -112,7 +112,7 @@ fn main() {
     }
 
     // Display protocol demo switch (issue #113): `LAZYOS_XUID=1` boots the
-    // userspace compositor (`XUID.ELF`) and its demo app (`XDEMO.ELF`), which
+    // userspace compositor (`xuid`) and its demo app (`xdemo`), which
     // claim the display device grant from the kernel mux.
     println!("cargo:rerun-if-env-changed=LAZYOS_XUID");
     println!("cargo:rustc-check-cfg=cfg(xuid_demo)");
@@ -134,7 +134,7 @@ fn main() {
 
     // Shell-protocol evidence client (issue #167): with `LAZYOS_XUID=1` and
     // the `LAZYOS_SHELLPROBE=1` demo hook, the kernel also boots `shellprobe`
-    // (`SHELLPRB.ELF`), which exercises the S5.0 display additions. The hook
+    // (`shellprobe`), which exercises the S5.0 display additions. The hook
     // keeps the default compositor sessions byte-identical.
     println!("cargo:rerun-if-env-changed=LAZYOS_SHELLPROBE");
     println!("cargo:rustc-check-cfg=cfg(shellprobe_demo)");
@@ -163,7 +163,7 @@ fn main() {
     // supervisor (`init`, `LAZYOS_SERVICES=1`) launches the embedded apps as
     // its clients. No `xdemo`/`dragdemo` demo clients share the screen. The
     // legacy single-app switch (`LAZYOS_XUI_APP`) wins when both are set, so
-    // `XAPP.ELF` is never started alongside `init`'s apps.
+    // `xapp` is never started alongside `init`'s apps.
     println!("cargo:rerun-if-env-changed=LAZYOS_XUI_APPS");
     println!("cargo:rustc-check-cfg=cfg(xui_desktop)");
     // The desktop profile always embeds the app list (the root build script

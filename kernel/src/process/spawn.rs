@@ -96,7 +96,7 @@ pub(super) fn spawn_program(cmdline_ptr: u64, cred: Option<Cred>, assign_label: 
     let Some(elf) = elf else {
         return -ENOENT;
     };
-    let name = intern_service_name(path);
+    let name = intern_service_name(fhs::bin::name(path));
     let started = if linux {
         // argv[0] is the program name; the rest are the split args (a
         // double-quoted token is one item, see `spawn_line::argv`).
