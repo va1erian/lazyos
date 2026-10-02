@@ -17,7 +17,7 @@ python -m tools.mkdisk [PATH] [--size 64M] [--label NAME] [--block-size N] [--fo
 in `lazyos.cfg`; filesystem plan F1/F2). `--home-volume` formats it: the label
 defaults to `lazyhome`, and `<user>/` directories sit at the **volume root**
 (the root is `/home` once mounted) with the owner and mode `/home/<user>` has
-in the seeded layout (`0755`, that account's `uid:gid`; today `/alice`). There
+in the seeded layout (`0700`, that account's `uid:gid`; today `/alice`). There
 is no `/home` and no `/tmp` inside it: `/tmp` belongs to the OS volume.
 `run_demo.py` creates it on first use (`--home-disk`, `--no-home-disk`,
 `--reset-home`), and the launcher's **Home volume** group manages it.
@@ -31,7 +31,7 @@ formatted. By default the volume gets:
 |------|------|-------|-----|
 | `/data` (root) | `0755` | `root:root` | Safe default; nothing but root can add top-level entries |
 | `/data/home` | `0755` | `root:root` | Parent of the user homes |
-| `/data/home/<user>` | `0755` | that account's `uid:gid` | One per demo account whose home is `/home/<user>` (today `alice`) |
+| `/data/home/<user>` | `0700` | that account's `uid:gid` | One per demo account whose home is `/home/<user>` (today `alice`) |
 | `/data/tmp` | `1777` | `root:root` | World-writable with the sticky bit, so users cannot delete each other's files |
 
 `--root-mode/--root-uid/--root-gid` change the `/data` root itself (for example

@@ -63,8 +63,8 @@ class SeededTreeTests(unittest.TestCase):
         return node["mode"], node["uid"], node["gid"]
 
     def test_owner_and_mode_round_trip(self) -> None:
-        self.assertEqual(self.attributes("/home/alice"), (0o040755, 1000, 1000))
-        self.assertEqual(self.attributes("/home/bob"), (0o040755, 1001, 100))
+        self.assertEqual(self.attributes("/home/alice"), (0o040700, 1000, 1000))
+        self.assertEqual(self.attributes("/home/bob"), (0o040700, 1001, 100))
         self.assertEqual(self.attributes("/home/alice/docs"), (0o040700, 1000, 1000))
         self.assertEqual(self.attributes("/home"), (0o040755, 0, 0))
 
@@ -195,7 +195,7 @@ class HomeVolumeLayoutTests(unittest.TestCase):
     def test_users_sit_at_the_volume_root(self) -> None:
         plan = layout.home_volume(accounts=[ALICE, BOB])
         self.assertEqual([(d.path, d.mode, d.uid, d.gid) for d in plan.dirs],
-                         [("/alice", 0o755, 1000, 1000), ("/bob", 0o755, 1001, 100)])
+                         [("/alice", 0o700, 1000, 1000), ("/bob", 0o700, 1001, 100)])
 
     def test_no_home_or_tmp_directory(self) -> None:
         paths = {d.path for d in layout.home_volume().dirs}
@@ -219,7 +219,7 @@ class HomeVolumeLayoutTests(unittest.TestCase):
         tree = walk(v)
         self.assertEqual(set(tree), {"/", "/lost+found", "/alice", "/bob"})
         node = v.inode(tree["/bob"])
-        self.assertEqual((node["mode"], node["uid"], node["gid"]), (0o040755, 1001, 100))
+        self.assertEqual((node["mode"], node["uid"], node["gid"]), (0o040700, 1001, 100))
 
 
 class DemoAccountsTests(unittest.TestCase):
@@ -278,7 +278,7 @@ class CommandLineTests(unittest.TestCase):
     def test_default_image_is_seeded_with_root_owned_0755_root(self) -> None:
         code, out, _ = self.run_main()
         self.assertEqual(code, 0)
-        self.assertIn("/home/alice (mode 0755, uid 1000, gid 1000)", out)
+        self.assertIn("/home/alice (mode 0700, uid 1000, gid 1000)", out)
         v = Volume(self.path.read_bytes())
         self.assertEqual(v.inode(geometry.ROOT_INO)["mode"], 0o040755)
         self.assertIn("/tmp", walk(v))
@@ -296,7 +296,7 @@ class CommandLineTests(unittest.TestCase):
         code, out, _ = self.run_main("--home-volume")
         self.assertEqual(code, 0)
         self.assertIn("label 'lazyhome'", out)
-        self.assertIn("/alice (mode 0755, uid 1000, gid 1000)", out)
+        self.assertIn("/alice (mode 0700, uid 1000, gid 1000)", out)
         image = self.path.read_bytes()
         self.assertEqual(image[1024 + 120:1024 + 128], b"lazyhome")  # s_volume_name
         self.assertEqual(set(walk(Volume(image))), {"/", "/lost+found", "/alice"})

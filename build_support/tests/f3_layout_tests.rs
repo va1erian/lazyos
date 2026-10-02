@@ -23,7 +23,7 @@ fn bytes(path: &str, mode: u16) -> OsFile {
 /// What an F2 build placed: flat uppercase names at the root, the docs at
 /// `/docs`, the lazyrad samples at `/LAZYRAD`, and no `/system/*` directories.
 fn f2_build() -> (Vec<DirSpec>, Vec<OsFile>) {
-    let layout = dirs(&parse_passwd(PASSWD))
+    let layout = crate::layout_tests::pre_f4_layout()
         .into_iter()
         .filter(|dir| !dir.path.starts_with("/system/"))
         .collect();
@@ -179,7 +179,7 @@ fn an_f2_image_updated_by_the_f3_build_has_a_clean_root() {
     let passwd = volume.lookup(fhs::etc::PASSWD).unwrap();
     assert_eq!(passwd.mode & 0o7777, 0o644);
     assert!(volume.read_file(fhs::docs::README).is_ok());
-    // The old trees left with their files: `/docs` now holds only `os`.
+    // The old trees left with their files: `/docs` holds `os` and `apps`.
     assert!(volume.lookup("/docs/architecture").is_err());
     assert!(volume.lookup("/LAZYRAD").is_err());
     let docs: Vec<String> = volume
@@ -188,7 +188,7 @@ fn an_f2_image_updated_by_the_f3_build_has_a_clean_root() {
         .into_iter()
         .map(|entry| entry.name)
         .collect();
-    assert_eq!(docs, ["os"]);
+    assert_eq!(docs, ["apps", "os"]);
     assert!(new
         .entries
         .keys()

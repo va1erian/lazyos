@@ -35,13 +35,18 @@ expect() { # path, mode regex, uid
   grep -Eq "Mode: +$2" <<<"$out" || { echo "$1: wrong mode"; echo "$out"; exit 1; }
   grep -Eq "User: +$3 " <<<"$out" || { echo "$1: wrong owner"; echo "$out"; exit 1; }
 }
-expect /data/tmp 01777 0
-expect /data/home/alice 0755 1000
 expect /system 0755 0
-for dir in /boot /home /transient /apps /conf /logs /data \
+for dir in /boot /home /transient /apps /docs/apps /data \
            /system/bin /system/etc /system/share /system/packages; do
   expect "$dir" 0755 0
 done
+# F4 (issue #508): service state at its place, private homes, nothing seeded
+# under /data.
+expect /conf 0700 0
+expect /conf/svc 0700 0
+expect /logs 0750 0
+expect /home/alice 0700 1000
+if stat /data/tmp | grep -q "Mode:"; then echo "/data/tmp is still seeded"; exit 1; fi
 expect /system/bin/hello 0755 0
 expect /system/share/samples/hello.txt 0644 0
 expect /system/.image-manifest 0644 0

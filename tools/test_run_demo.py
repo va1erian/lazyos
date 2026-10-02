@@ -52,7 +52,7 @@ class PrepareHomeDiskTests(unittest.TestCase):
         with mock.patch.object(run_demo, "confirm", return_value=False) as ask, \
                 redirect_stderr(io.StringIO()):
             self.assertFalse(run_demo.prepare_home_disk(self.path, True, False))
-        self.assertIn("/alice (mode 0755", ask.call_args.args[0])
+        self.assertIn("/alice (mode 0700", ask.call_args.args[0])
         self.assertEqual(self.path.read_bytes(), b"precious")
 
     def test_reset_with_yes_skips_the_question(self) -> None:

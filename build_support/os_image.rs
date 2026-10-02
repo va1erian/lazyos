@@ -13,7 +13,7 @@ use std::collections::BTreeMap;
 use std::fs::OpenOptions;
 use std::path::{Path, PathBuf};
 
-use ext2fs::{Ext2, Ext2Error, Geometry};
+use ext2fs::{AttrChange, Ext2, Ext2Error, Geometry};
 
 use crate::os_disk::{self, FileIo, OS_START_LBA, SECTOR};
 use crate::os_layout::{self, DirSpec, MANIFEST_PATH};
@@ -265,6 +265,17 @@ pub fn write_volume(
         volume
             .mkdir_p(&dir.path, dir.mode, dir.uid, dir.gid)
             .map_err(|e| volume_error(&format!("mkdir {}", dir.path), e))?;
+        // An existing directory keeps the mode an older table gave it unless
+        // it is applied again (`/logs` 0755 -> 0750 in F4).
+        let change = AttrChange {
+            mode: Some(dir.mode),
+            uid: Some(dir.uid),
+            gid: Some(dir.gid),
+            ..AttrChange::default()
+        };
+        volume
+            .setattr(&dir.path, &change)
+            .map_err(|e| volume_error(&format!("chmod {}", dir.path), e))?;
     }
     for file in files {
         let parent = file.path.rsplit_once('/').map_or("/", |(parent, _)| parent);

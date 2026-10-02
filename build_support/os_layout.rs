@@ -5,9 +5,13 @@
 //! Every file the build places lives below a directory of this table (F3:
 //! programs in `/system/bin`, data in `/system/etc` and `/system/share`, the
 //! documentation in `/docs/os`); nothing but directories sits at the root.
-//! `/data` and what is below it mirrors
-//! `tools/mkdisk/layout.py` so `pkgd`, `confd` and `lazyrad` find the same
-//! tree on the root volume that they found on the data disk.
+//! Since F4 each service keeps its state at its place in the tree (`/conf`,
+//! `/logs`, `/apps`, `/docs/apps`) and the build seeds nothing under `/data`:
+//! an update removes the old `/data/home/<user>` and `/data/tmp` only when they
+//! are empty, so user files there survive until F7 migrates them.
+//!
+//! An update applies each directory's mode and owner again, so an image built
+//! before a change of this table converges to it.
 
 /// One directory: where it lives and who may do what in it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -29,8 +33,8 @@ impl DirSpec {
     }
 }
 
-/// The sticky, world-writable mode of `/data/tmp`.
-pub const STICKY_WORLD_WRITABLE: u16 = 0o1777;
+/// A directory only its owner may enter.
+pub const PRIVATE: u16 = 0o700;
 
 /// Where the build puts the manifest of the paths it placed.
 pub const MANIFEST_PATH: &str = fhs::system::IMAGE_MANIFEST;
@@ -75,12 +79,14 @@ pub fn parse_passwd(text: &str) -> Vec<Account> {
 ///
 /// * the mount points `/boot`, `/home` and `/transient` (root, 0755);
 /// * `/system` with `bin`, `etc`, `share` and `packages` (root, 0755; F5 fills
-///   `packages`) and `/apps`, `/conf`, `/logs` (empty until F4, which also
-///   adjusts the owners to the uid each service runs under);
-/// * the transitional `/data`: `/data/home/<user>` for each account whose home
-///   is `/home/<user>` (the account's uid and gid, 0755) and `/data/tmp`
-///   (1777). root's `/root` and service accounts get none: nobody logs in
-///   there.
+///   `packages`);
+/// * each service's state (the table below);
+/// * the transitional `/data` itself (root, 0755; `lazyrad` still writes
+///   below it until it moves to the home, F7 removes it);
+/// * a home for each account of the embedded passwd whose home is
+///   `/home/<name>`: 0700, owned by the account's uid and gid. These are the
+///   homes without a home volume; a mounted `/home` volume hides them.
+///   Accounts whose home lies elsewhere (`/root`) get none.
 pub fn dirs(accounts: &[Account]) -> Vec<DirSpec> {
     let mut out: Vec<DirSpec> = [
         fhs::mount::BOOT,
@@ -91,26 +97,37 @@ pub fn dirs(accounts: &[Account]) -> Vec<DirSpec> {
         fhs::SYSTEM_ETC,
         fhs::SYSTEM_SHARE,
         fhs::SYSTEM_PACKAGES,
-        "/apps",
-        "/conf",
-        "/logs",
-        fhs::mount::DATA,
-        fhs::state::HOME_ROOT,
     ]
     .iter()
     .map(|path| DirSpec::new(path, 0o755, 0, 0))
     .collect();
+    // Service state. Every service involved runs as uid 0 today
+    // (`user/src/bin/init/state.rs`); when #446/#447 give them their own
+    // uids, these owners change with them.
+    out.extend([
+        // Only `confd` reads the raw store; everyone else goes through it.
+        DirSpec::new(fhs::state::CONF_ROOT, PRIVATE, 0, 0),
+        // Per-service state dirs, each created by its owner.
+        DirSpec::new(fhs::state::CONF_SVC, PRIVATE, 0, 0),
+        // `logd`'s journals and `pkgd`'s audit log carry every user's
+        // activity: only root (and group root) may enter.
+        DirSpec::new(fhs::state::LOGS_ROOT, 0o750, 0, 0),
+        // Written only by `pkgd`.
+        DirSpec::new(fhs::state::APPS_ROOT, 0o755, 0, 0),
+        DirSpec::new(fhs::docs::DOCS_ROOT, 0o755, 0, 0),
+        DirSpec::new(fhs::docs::DOCS_APPS, 0o755, 0, 0),
+        DirSpec::new(fhs::mount::DATA, 0o755, 0, 0),
+    ]);
     for account in accounts {
-        if account.home == format!("/home/{}", account.name) {
+        if account.home == fhs::home_of(&account.name) {
             out.push(DirSpec::new(
-                &format!("/data/home/{}", account.name),
-                0o755,
+                &account.home,
+                PRIVATE,
                 account.uid,
                 account.gid,
             ));
         }
     }
-    out.push(DirSpec::new("/data/tmp", STICKY_WORLD_WRITABLE, 0, 0));
     out
 }
 

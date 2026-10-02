@@ -72,7 +72,7 @@ jobs:
           e2fsck -fn /tmp/home.img
           dumpe2fs -h /tmp/home.img 2>/dev/null | grep -E "Filesystem volume name: +lazyhome"
           debugfs -R "stat /alice" /tmp/home.img | grep -E "User: +1000 +Group: +1000"
-          debugfs -R "stat /alice" /tmp/home.img | grep -E "Mode: +0755"
+          debugfs -R "stat /alice" /tmp/home.img | grep -E "Mode: +0700"
           debugfs -R "ls -p /" /tmp/home.img | tee /tmp/home.ls
           grep -q "/alice/" /tmp/home.ls
           if grep -E "/(home|tmp)/" /tmp/home.ls; then exit 1; fi

@@ -19,6 +19,8 @@ mod os_manifest;
 #[cfg(test)]
 mod f3_layout_tests;
 #[cfg(test)]
+mod f4_layout_tests;
+#[cfg(test)]
 mod image_tests;
 #[cfg(test)]
 mod layout_tests;

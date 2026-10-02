@@ -18,6 +18,8 @@ MODE_MAX = 0o7777
 ID_MAX = 0xFFFF
 NAME_MAX = 255
 STICKY_WORLD_WRITABLE = 0o1777
+# A home: only its owner may enter (docs/filesystem-plan.md F4).
+PRIVATE = 0o700
 HOMES = "/home"
 LOST_FOUND = "/lost+found"  # made by the formatter itself
 
@@ -100,7 +102,7 @@ def home_dirs(accounts: list[Account]) -> tuple[DirSpec, ...]:
     volume hosts *user* homes, and a directory nobody logs in to is clutter.
     """
     return tuple(
-        DirSpec(f"{HOMES}/{account.name}", 0o755, account.uid, account.gid)
+        DirSpec(f"{HOMES}/{account.name}", PRIVATE, account.uid, account.gid)
         for account in accounts
         if account.home == f"{HOMES}/{account.name}")
 
@@ -127,7 +129,7 @@ def home_volume(root_mode: int = 0o755, root_uid: int = 0, root_gid: int = 0,
     """
     users = demo_accounts() if accounts is None else accounts
     dirs = tuple(
-        DirSpec(f"/{account.name}", 0o755, account.uid, account.gid)
+        DirSpec(f"/{account.name}", PRIVATE, account.uid, account.gid)
         for account in users
         if account.home == f"{HOMES}/{account.name}")
     return Layout(root_mode, root_uid, root_gid, dirs)

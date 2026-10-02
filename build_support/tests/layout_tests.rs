@@ -14,31 +14,81 @@ fn spec<'a>(all: &'a [DirSpec], path: &str) -> &'a DirSpec {
 }
 
 #[test]
-fn layout_has_the_mount_points_and_the_transitional_data_tree() {
+fn layout_has_the_mount_points_and_each_service_s_place() {
     let all = dirs(&parse_passwd(PASSWD));
-    for path in [
-        "/boot",
-        "/home",
-        "/transient",
-        "/system",
-        "/apps",
-        "/conf",
-        "/logs",
-        "/data",
+    for (path, mode) in [
+        ("/boot", 0o755),
+        ("/home", 0o755),
+        ("/transient", 0o755),
+        ("/system", 0o755),
+        ("/apps", 0o755),
+        ("/docs", 0o755),
+        ("/docs/apps", 0o755),
+        ("/conf", 0o700),
+        ("/conf/svc", 0o700),
+        ("/logs", 0o750),
+        ("/data", 0o755),
     ] {
         let dir = spec(&all, path);
-        assert_eq!((dir.mode, dir.uid, dir.gid), (0o755, 0, 0), "{path}");
+        assert_eq!((dir.mode, dir.uid, dir.gid), (mode, 0, 0), "{path}");
     }
-    let alice = spec(&all, "/data/home/alice");
-    assert_eq!((alice.mode, alice.uid, alice.gid), (0o755, 1000, 1000));
-    let tmp = spec(&all, "/data/tmp");
-    assert_eq!((tmp.mode, tmp.uid, tmp.gid), (0o1777, 0, 0));
-    // root's /root is not a home on the data tree, and nothing is listed twice.
-    assert!(all.iter().all(|dir| dir.path != "/data/home/root"));
+    // A home per passwd account living in /home, private to its owner.
+    let alice = spec(&all, "/home/alice");
+    assert_eq!((alice.mode, alice.uid, alice.gid), (0o700, 1000, 1000));
+    // root's /root is not under /home; nothing is seeded under /data any more.
+    assert!(all
+        .iter()
+        .all(|dir| dir.path != "/home/root" && dir.path != "/root"));
+    assert!(all.iter().all(|dir| !dir.path.starts_with("/data/")));
     let mut seen: Vec<&str> = all.iter().map(|dir| dir.path.as_str()).collect();
     seen.sort();
     seen.dedup();
     assert_eq!(seen.len(), all.len());
+}
+
+#[test]
+fn homes_follow_the_passwd_table() {
+    // The account rename (issue #508 section 3) changes only the passwd.
+    let text = "admin:0:0:x:/home/admin:sh\nuser:1000:1000:x:/home/user:sh\nsvc:901:901:x:/:sh\n";
+    let all = dirs(&parse_passwd(text));
+    let admin = spec(&all, "/home/admin");
+    assert_eq!((admin.mode, admin.uid, admin.gid), (0o700, 0, 0));
+    let user = spec(&all, "/home/user");
+    assert_eq!((user.mode, user.uid, user.gid), (0o700, 1000, 1000));
+    assert!(all.iter().all(|dir| dir.path != "/home/svc"));
+}
+
+/// The directory table of an F2 or F3 build, before F4 moved the services:
+/// `/apps`, `/conf` and `/logs` 0755, and the transitional `/data` tree with
+/// `/data/home/alice` (1000:1000, 0755) and `/data/tmp` (1777).
+pub fn pre_f4_layout() -> Vec<DirSpec> {
+    let dir = |path: &str, mode: u16, owner: u32| DirSpec {
+        path: path.into(),
+        mode,
+        uid: owner,
+        gid: owner,
+    };
+    let mut out: Vec<DirSpec> = [
+        "/boot",
+        "/home",
+        "/transient",
+        "/system",
+        "/system/bin",
+        "/system/etc",
+        "/system/share",
+        "/system/packages",
+        "/apps",
+        "/conf",
+        "/logs",
+        "/data",
+        "/data/home",
+    ]
+    .iter()
+    .map(|path| dir(path, 0o755, 0))
+    .collect();
+    out.push(dir("/data/home/alice", 0o755, 1000));
+    out.push(dir("/data/tmp", 0o1777, 0));
+    out
 }
 
 #[test]

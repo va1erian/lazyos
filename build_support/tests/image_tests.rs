@@ -129,10 +129,24 @@ fn a_missing_image_is_created_with_three_mbr_entries_and_a_clean_volume() {
     assert_eq!(volume.read_file("/SUPER.ELF").unwrap(), b"super v1");
     let meta = volume.lookup("/SUPER.ELF").unwrap();
     assert_eq!((meta.mode & 0o7777, meta.uid, meta.gid), (0o755, 0, 0));
-    let tmp = volume.lookup("/data/tmp").unwrap();
-    assert_eq!(tmp.mode & 0o7777, 0o1777);
-    let alice = volume.lookup("/data/home/alice").unwrap();
-    assert_eq!((alice.uid, alice.gid), (1000, 1000));
+    for (path, mode, owner) in [
+        ("/home/alice", 0o700, 1000),
+        ("/conf", 0o700, 0),
+        ("/logs", 0o750, 0),
+        ("/apps", 0o755, 0),
+        ("/docs/apps", 0o755, 0),
+    ] {
+        let meta = volume.lookup(path).unwrap();
+        assert_eq!(
+            (meta.mode & 0o7777, meta.uid, meta.gid),
+            (mode, owner, owner),
+            "{path}"
+        );
+    }
+    assert!(
+        volume.lookup("/data/tmp").is_err(),
+        "the build seeds nothing under /data"
+    );
     assert!(volume.read_file(MANIFEST_PATH).is_ok());
 }
 
@@ -141,7 +155,7 @@ fn an_update_keeps_the_uuid_and_user_files_and_applies_the_manifest_diff() {
     let dir = Scratch::new();
     let first = build(&dir, &first_files(), &settings()).unwrap();
 
-    // The user installs something, writes into /data and /conf, and drops a
+    // The user installs something, writes into a home and /conf, and drops a
     // file into a directory the build will stop shipping.
     let volume = open_rw(&dir.image());
     volume.mkdir_p("/apps/demo", 0o755, 1000, 1000).unwrap();
@@ -149,14 +163,7 @@ fn an_update_keeps_the_uuid_and_user_files_and_applies_the_manifest_diff() {
         .write_file("/apps/demo/app.bin", b"installed", 0o755, 1000, 1000, STAMP)
         .unwrap();
     volume
-        .write_file(
-            "/data/home/alice/note.txt",
-            b"mine",
-            0o644,
-            1000,
-            1000,
-            STAMP,
-        )
+        .write_file("/home/alice/note.txt", b"mine", 0o644, 1000, 1000, STAMP)
         .unwrap();
     volume
         .write_file("/conf/settings", b"k=v", 0o600, 0, 0, STAMP)
@@ -201,7 +208,7 @@ fn an_update_keeps_the_uuid_and_user_files_and_applies_the_manifest_diff() {
     // Files in neither manifest survive, and so does the directory holding one.
     for (path, bytes) in [
         ("/apps/demo/app.bin", &b"installed"[..]),
-        ("/data/home/alice/note.txt", b"mine"),
+        ("/home/alice/note.txt", b"mine"),
         ("/conf/settings", b"k=v"),
         ("/docs/gone/mine.txt", b"keep me"),
     ] {
@@ -230,7 +237,7 @@ fn an_empty_directory_that_left_the_manifest_is_removed() {
     build(&dir, &files, &settings()).unwrap();
     let volume = open_rw(&dir.image());
     assert!(volume.lookup("/docs/gone").is_err());
-    assert!(volume.lookup("/docs").is_err());
+    assert!(volume.lookup("/docs/apps").is_ok(), "layout dirs stay");
     assert!(volume.lookup("/data").is_ok(), "layout dirs stay");
 }
 
