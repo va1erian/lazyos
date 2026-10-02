@@ -38,6 +38,11 @@ fn app(i: u64) -> AppInfo {
         category: "utilities".into(),
         hidden: i.is_multiple_of(5),
         autostart: i == 1,
+        icon: if i.is_multiple_of(3) {
+            format!("app{i}/0.1.0-0000000{}/icons/app-32.png", i % 10)
+        } else {
+            String::new()
+        },
     }
 }
 
