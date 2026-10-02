@@ -212,6 +212,7 @@ mod random;
 mod sendfile;
 mod seqpacket_unix;
 mod shebang;
+mod stat_miss;
 
 pub(super) use affinity::*;
 pub(super) use brk_stack::*;
@@ -227,6 +228,7 @@ pub(super) use random::*;
 pub(super) use sendfile::*;
 pub(super) use seqpacket_unix::*;
 pub(super) use shebang::*;
+pub(super) use stat_miss::*;
 
 pub(super) const CASES: &[(&str, Test)] = &[
     ("linux_inet_requests_and_states", inet_requests_and_states),
@@ -380,4 +382,13 @@ pub(super) const CASES: &[(&str, Test)] = &[
         shebang_permissions_every_hop,
     ),
     ("linux_shebang_soak", shebang_soak),
+    (
+        "linux_stat_missing_paths_are_enoent",
+        stat_missing_paths_are_enoent,
+    ),
+    (
+        "linux_stat_applet_alias_only_in_path_dirs",
+        stat_applet_alias_only_in_path_dirs,
+    ),
+    ("linux_stat_miss_soak", stat_miss_soak),
 ];

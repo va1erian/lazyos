@@ -45,13 +45,16 @@ impl Client {
         let body =
             wire::encode_attach_buffer_slot_args(&wire::AttachBufferSlotArgs { surface, slot })
                 .map_err(|_| -errno::EINVAL)?;
-        let buffers = vec![BufferDesc {
-            handle: buffer,
-            offset: 0,
-            len,
-            flags: 0,
-        }];
-        let parcel = request(wire::METHOD_ATTACHBUFFERSLOT, body, Vec::new(), buffers);
+        let (handles, buffers) =
+            wire::encode_attach_buffer_slot_transfers(&wire::AttachBufferSlotTransfers {
+                pixels: BufferDesc {
+                    handle: buffer,
+                    offset: 0,
+                    len,
+                    flags: 0,
+                },
+            });
+        let parcel = request(wire::METHOD_ATTACHBUFFERSLOT, body, handles, buffers);
         self.call(&parcel).map(|_| ())
     }
 

@@ -12,6 +12,7 @@
 //! | 21 | `power` | op | arg | - | (see [`super::power`]) |
 //! | 22 | `fsync` | path | - | - | 0 |
 //! | 28 | `append_file` | path | data | data length | bytes written |
+//! | 30 | `read_at` | path | request `[buf, len, offset]` (3 x u64) | - | bytes read |
 //!
 //! Every call goes through the native VFS as the calling task, so the
 //! permission checks, the read-only FAT boot volume (`-EROFS`) and the writable
@@ -22,6 +23,7 @@
 
 use alloc::format;
 use alloc::string::String;
+use alloc::vec;
 use alloc::vec::Vec;
 
 use crate::fs::vfs::{FileKind, FsError, Id};
@@ -87,7 +89,7 @@ fn path_arg(ptr: u64) -> Result<String, u64> {
     Ok(path)
 }
 
-/// Dispatch native syscall `nr` (15-22, and 28 `append_file`).
+/// Dispatch native syscall `nr` (15-22, 28 `append_file` and 30 `read_at`).
 pub fn dispatch(nr: u64, a1: u64, a2: u64, a3: u64) -> u64 {
     let outcome = match nr {
         15 => stat(a1, a2),
@@ -101,6 +103,7 @@ pub fn dispatch(nr: u64, a1: u64, a2: u64, a3: u64) -> u64 {
         21 => return super::power::dispatch(a1, a2),
         22 => path_arg(a1).and_then(|path| fsync(&path)),
         28 => append_file(a1, a2, a3),
+        30 => read_at(a1, a2),
         _ => return u64::MAX,
     };
     outcome.unwrap_or_else(|code| code)
@@ -192,6 +195,28 @@ fn append_file(path_ptr: u64, data_ptr: u64, len: u64) -> Result<u64, u64> {
     };
     let written = fs::vfs_write(id, &path, end, &data).map_err(|e| failed(errno_of(e)))?;
     Ok(written as u64)
+}
+
+/// Read up to `len` bytes of `path` at `offset` into the caller's `buf`, as
+/// described by the three-word request at `request_ptr`; returns the count
+/// (0 at or past the end of the file).
+///
+/// Syscall 3 (`read_file`) loads a whole file into the kernel heap before
+/// copying it out, which bounds what it can serve by that heap. This call reads
+/// only the asked-for range through the VFS, capped at [`MAX_WRITE`] per call
+/// so one call never pins more than that, so a caller can stream a file of any
+/// size (the package installer reads `.lzp` archives this way). The request is
+/// read before anything else, and the bytes are copied out only after the read
+/// succeeded, so a bad pointer is `EFAULT` and never a partial result.
+fn read_at(path_ptr: u64, request_ptr: u64) -> Result<u64, u64> {
+    let path = path_arg(path_ptr)?;
+    let word = |index| user_ptr::try_read_at::<u64>(request_ptr, index).map_err(|_| failed(EFAULT));
+    let (buf, len, offset) = (word(0)?, word(1)?, word(2)?);
+    let mut data = vec![0u8; len.min(MAX_WRITE) as usize];
+    let read = fs::vfs_read_at(Id::current(), &path, offset, &mut data)
+        .map_err(|e| failed(errno_of(e)))?;
+    user_ptr::try_copy_to(buf, &data[..read]).map_err(|_| failed(EFAULT))?;
+    Ok(read as u64)
 }
 
 fn mkdir(path: &str) -> Result<u64, u64> {

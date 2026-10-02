@@ -17,6 +17,7 @@ const SYS_RENAME: u64 = 20;
 const SYS_POWER: u64 = 21;
 const SYS_FSYNC: u64 = 22;
 const SYS_APPEND_FILE: u64 = 28;
+const SYS_READ_AT: u64 = 30;
 
 /// Largest file `write_file` accepts (mirrors the kernel's `MAX_WRITE`).
 pub const MAX_FILE: usize = 1 << 20;
@@ -147,6 +148,58 @@ pub fn read_up_to(path: &str, limit: usize) -> Result<Vec<u8>, i64> {
         }
         None => Err(2), // ENOENT
     }
+}
+
+/// Read up to `buf.len()` bytes of `path` at `offset` (native syscall 30);
+/// the count read, 0 at the end of the file. The kernel serves at most
+/// [`MAX_FILE`] bytes per call and never loads the whole file, so a big file is
+/// read by calling this in a loop ([`read_large`]).
+pub fn read_at(path: &str, offset: u64, buf: &mut [u8]) -> Result<usize, i64> {
+    let path = nul_terminated(path);
+    let request = [buf.as_mut_ptr() as u64, buf.len() as u64, offset];
+    check(syscall(
+        SYS_READ_AT,
+        path.as_ptr() as u64,
+        request.as_ptr() as u64,
+        0,
+    ))
+    .map(|read| read as usize)
+}
+
+/// Fill `data` with the whole file at `path` (at most `limit` bytes; `EFBIG`
+/// for a larger one), reusing `data`'s allocation. Read in [`MAX_FILE`] ranges
+/// through [`read_at`], so the kernel never holds more than one range of it,
+/// whatever the file's size. A file whose size changes during the read (it
+/// shrank under a range, or its size differs afterwards) is `EINVAL` and
+/// leaves `data` empty. A rewrite that keeps the size cannot be seen here (the
+/// native `stat` has no modification time): callers that need integrity check
+/// the content, as `pkgd` does through `lazypkg`'s per-entry CRC-32.
+pub fn read_large(path: &str, limit: usize, data: &mut Vec<u8>) -> Result<(), i64> {
+    let (size, kind) = stat(path)?;
+    if kind == Kind::Dir {
+        return Err(21); // EISDIR
+    }
+    if size > limit as u64 {
+        return Err(27); // EFBIG
+    }
+    data.clear();
+    data.resize(size as usize, 0);
+    let mut filled = 0;
+    while filled < data.len() {
+        let end = data.len().min(filled + MAX_FILE);
+        let read =
+            read_at(path, filled as u64, &mut data[filled..end]).inspect_err(|_| data.clear())?;
+        if read == 0 {
+            data.clear();
+            return Err(22); // EINVAL: the file shrank under the read
+        }
+        filled += read;
+    }
+    if !matches!(stat(path), Ok((after, Kind::File)) if after == size) {
+        data.clear();
+        return Err(22); // EINVAL: the file changed size during the read
+    }
+    Ok(())
 }
 
 /// Create or replace `path` with `data`.

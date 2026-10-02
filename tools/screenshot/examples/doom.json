@@ -1,0 +1,330 @@
+[
+ {
+  "wait_for": "TERM:UP:PASS",
+  "timeout": 300
+ },
+ {
+  "wait_for": "PKGD:UP:PASS",
+  "timeout": 120
+ },
+ {
+  "wait_for": "PKGD:RECONCILE:PASS",
+  "timeout": 120
+ },
+ {
+  "at": 2.0,
+  "mouse_move": [
+   -300,
+   -300
+  ]
+ },
+ {
+  "at": 2.2,
+  "mouse_move": [
+   -300,
+   -300
+  ]
+ },
+ {
+  "at": 2.4,
+  "mouse_move": [
+   -300,
+   -300
+  ]
+ },
+ {
+  "at": 2.6,
+  "mouse_move": [
+   -300,
+   -300
+  ]
+ },
+ {
+  "at": 2.8,
+  "mouse_move": [
+   -300,
+   -300
+  ]
+ },
+ {
+  "at": 3.0,
+  "mouse_move": [
+   -300,
+   -300
+  ]
+ },
+ {
+  "at": 3.4,
+  "mouse_move": [
+   400,
+   58
+  ]
+ },
+ {
+  "at": 3.8,
+  "mouse_click": "left"
+ },
+ {
+  "at": 4.6,
+  "shot": "01_terminal"
+ },
+ {
+  "at": 0.4,
+  "type": "pkgctl"
+ },
+ {
+  "at": 0.4,
+  "type": " insta"
+ },
+ {
+  "at": 0.4,
+  "type": "ll /DO"
+ },
+ {
+  "at": 0.4,
+  "type": "OM.LZP"
+ },
+ {
+  "at": 0.8,
+  "key": "enter",
+  "until": "TERM:CMD:pkgctl install /DOOM.LZP",
+  "timeout": 30,
+  "retries": 2
+ },
+ {
+  "wait_for": "PKGD:INSTALL:PASS org.lazy.doom",
+  "timeout": 900
+ },
+ {
+  "wait_for": "TERM:OUT:PKGCTL:INSTALL:PASS",
+  "timeout": 60
+ },
+ {
+  "at": 1.0,
+  "shot": "02_installed"
+ },
+ {
+  "at": 0.4,
+  "type": "PS1='#"
+ },
+ {
+  "at": 0.4,
+  "type": " '"
+ },
+ {
+  "at": 0.8,
+  "key": "enter",
+  "until": "TERM:CMD:PS1='# '",
+  "timeout": 30,
+  "retries": 2
+ },
+ {
+  "at": 0.4,
+  "type": "cd /da"
+ },
+ {
+  "at": 0.4,
+  "type": "ta/app"
+ },
+ {
+  "at": 0.4,
+  "type": "s/org."
+ },
+ {
+  "at": 0.4,
+  "type": "lazy.d"
+ },
+ {
+  "at": 0.4,
+  "type": "oom/*/"
+ },
+ {
+  "at": 0.4,
+  "type": "bin"
+ },
+ {
+  "at": 0.8,
+  "key": "enter",
+  "until": "TERM:CMD:cd /data/apps/org.lazy.doom/*/bin",
+  "timeout": 30,
+  "retries": 2
+ },
+ {
+  "at": 0.4,
+  "type": "./doom"
+ },
+ {
+  "at": 0.4,
+  "type": ".elf -"
+ },
+ {
+  "at": 0.4,
+  "type": "frames"
+ },
+ {
+  "at": 0.4,
+  "type": " 200 -"
+ },
+ {
+  "at": 0.4,
+  "type": "timede"
+ },
+ {
+  "at": 0.4,
+  "type": "mo dem"
+ },
+ {
+  "at": 0.4,
+  "type": "o1 >/d"
+ },
+ {
+  "at": 0.4,
+  "type": "ev/nul"
+ },
+ {
+  "at": 0.4,
+  "type": "l;cat "
+ },
+ {
+  "at": 0.4,
+  "type": "/tmp/d"
+ },
+ {
+  "at": 0.4,
+  "type": "oom-re"
+ },
+ {
+  "at": 0.4,
+  "type": "sult.t"
+ },
+ {
+  "at": 0.4,
+  "type": "xt"
+ },
+ {
+  "at": 0.8,
+  "key": "enter",
+  "until": "TERM:CMD:./doom.elf -frames 200 -timedemo demo1 >/dev/null;cat /tmp/doom-result.txt",
+  "timeout": 30,
+  "retries": 2
+ },
+ {
+  "wait_for": "TERM:OUT:DOOM:HEADLESS:PASS",
+  "timeout": 900
+ },
+ {
+  "at": 1.0,
+  "shot": "03_headless"
+ },
+ {
+  "at": 1.0,
+  "mouse_move": [
+   -356,
+   646
+  ]
+ },
+ {
+  "at": 1.0,
+  "mouse_click": "left",
+  "until": "SHELL:MENU:OPEN",
+  "timeout": 30,
+  "retries": 2
+ },
+ {
+  "at": 1.0,
+  "mouse_move": [
+   90,
+   -392
+  ]
+ },
+ {
+  "at": 1.0,
+  "shot": "04_menu_with_doom"
+ },
+ {
+  "at": 0.5,
+  "mouse_click": "left",
+  "until": "SHELL:LAUNCH:PASS app=org.lazy.doom",
+  "timeout": 60,
+  "retries": 1
+ },
+ {
+  "wait_for": "PKGD:LAUNCH:LABEL app:org.lazy.doom",
+  "timeout": 60
+ },
+ {
+  "wait_for": "DOOM:UP:PASS mode=window",
+  "timeout": 300
+ },
+ {
+  "at": 0.5,
+  "mouse_move": [
+   300,
+   300
+  ]
+ },
+ {
+  "at": 8.0,
+  "shot": "05_title"
+ },
+ {
+  "at": 9.0,
+  "key": "esc"
+ },
+ {
+  "at": 10.5,
+  "shot": "06_menu"
+ },
+ {
+  "at": 11.5,
+  "key": "enter"
+ },
+ {
+  "at": 12.5,
+  "key": "enter"
+ },
+ {
+  "at": 13.5,
+  "key": "enter"
+ },
+ {
+  "at": 17.5,
+  "shot": "07_e1m1"
+ },
+ {
+  "at": 18.0,
+  "key_down": "up"
+ },
+ {
+  "at": 19.5,
+  "key_up": "up"
+ },
+ {
+  "at": 19.8,
+  "key_down": "ctrl"
+ },
+ {
+  "at": 20.2,
+  "shot": "08_firing"
+ },
+ {
+  "at": 20.6,
+  "key_up": "ctrl"
+ },
+ {
+  "at": 21.1,
+  "key_down": "left"
+ },
+ {
+  "at": 21.9,
+  "key_up": "left"
+ },
+ {
+  "at": 22.9,
+  "shot": "09_turned"
+ },
+ {
+  "at": 23.9,
+  "quit": true
+ }
+]

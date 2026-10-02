@@ -13,13 +13,12 @@ use alloc::vec::Vec;
 use lazypkg::Package;
 use pkgstore::{access, layout};
 use user::files::{self, Kind};
-use user::sys;
 
-/// Largest package file `pkgd` reads. A package is read whole (the kernel
-/// loads a file into its 16 MiB heap to serve the read), so the documented cap
-/// is well below `lazypkg::MAX_TOTAL_UNCOMPRESSED`, which bounds what it may
-/// *expand* to once extracted.
-pub(crate) const MAX_PACKAGE_FILE: usize = 8 * 1024 * 1024;
+/// Largest package file `pkgd` reads (256 MiB). The package is streamed into
+/// `pkgd`'s own heap one range at a time (`files::read_large`), so the kernel
+/// never holds it whole and this only bounds `pkgd`'s buffer; what a package
+/// may *expand* to is `lazypkg::MAX_TOTAL_UNCOMPRESSED`.
+pub(crate) const MAX_PACKAGE_FILE: usize = 256 * 1024 * 1024;
 /// Deepest directory tree `remove_tree` walks (a package holds at most 255
 /// bytes of name, so this is generous).
 const MAX_DEPTH: usize = 24;
@@ -65,27 +64,12 @@ pub(crate) fn prepare_volume() -> Result<(), i64> {
 /// Read the package at `path` into `buffer`, reusing the buffer's allocation
 /// (the user heap never returns blocks this large, so a service that read every
 /// package into a fresh `Vec` would grow by the package size each time).
-/// `Err` is an errno; a file over [`MAX_PACKAGE_FILE`] is `EFBIG`.
+/// `Err` is an errno; a file over [`MAX_PACKAGE_FILE`] is `EFBIG`, and a file
+/// that changed size during the read is `EINVAL`. A same-size rewrite during
+/// the read is not detected here; it fails validation instead (`lazypkg`
+/// checks every entry's CRC-32 as it is read).
 pub(crate) fn read_package(buffer: &mut Vec<u8>, path: &str) -> Result<(), i64> {
-    let (size, kind) = files::stat(path)?;
-    if kind == Kind::Dir {
-        return Err(21); // EISDIR
-    }
-    if size as usize > MAX_PACKAGE_FILE {
-        return Err(27); // EFBIG
-    }
-    buffer.clear();
-    buffer.resize(size as usize, 0);
-    let mut name = Vec::with_capacity(path.len() + 1);
-    name.extend_from_slice(path.as_bytes());
-    name.push(0);
-    let read = sys::read_file(&name, buffer).ok_or(ENOENT)?;
-    if read != size as usize {
-        // The file changed under the read; never hand back a torn package.
-        buffer.clear();
-        return Err(EINVAL);
-    }
-    Ok(())
+    files::read_large(path, MAX_PACKAGE_FILE, buffer)
 }
 
 /// What went wrong while extracting: the step, for the failure text.

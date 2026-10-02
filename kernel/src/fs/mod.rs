@@ -168,6 +168,12 @@ pub fn vfs_read(id: Id, path: &str) -> Result<Vec<u8>, FsError> {
     with(|vfs| vfs.read_file(id, path)).unwrap_or(Err(FsError::NotFound))
 }
 
+/// Read up to `buf.len()` bytes at `offset` through the native VFS (the
+/// native `read_at` syscall); bounded by `buf`, never by the file's size.
+pub fn vfs_read_at(id: Id, path: &str, offset: u64, buf: &mut [u8]) -> Result<usize, FsError> {
+    with(|vfs| vfs.read(id, path, offset, buf)).unwrap_or(Err(FsError::NotFound))
+}
+
 /// Write at an offset through the VFS (used by tests and future writers).
 pub fn vfs_write(id: Id, path: &str, offset: u64, data: &[u8]) -> Result<usize, FsError> {
     with(|vfs| vfs.write(id, path, offset, data)).unwrap_or(Err(FsError::NotFound))

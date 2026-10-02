@@ -18,6 +18,7 @@ use crate::task::{self, Fd};
 use super::cwd::user_path;
 use super::errno::{err, fs_err, EEXIST, EISDIR, ENOENT, ENOTDIR, EROFS};
 use super::fd::{file_meta, open_device_fd, open_snapshot};
+use super::native::BIN_DIRS;
 use super::vfsfd::open_vfs_fd;
 
 /// `openat(2)` access mode mask.
@@ -56,23 +57,35 @@ impl Access {
     };
 }
 
-/// A bare applet name in a `bin` directory (or with no directory) that isn't a
-/// real file aliases to the BusyBox binary.
+/// A plain applet name that isn't a real file aliases to the BusyBox binary,
+/// but only where a command is looked up: one of the synthetic `$PATH`
+/// directories ([`BIN_DIRS`]: `/bin/ls`, `/usr/local/bin/rhai`), or a bare
+/// name with no directory at all (the kernel's own `execvp`-style callers).
+///
+/// Nowhere else: a resolved absolute path at `/` (`/nope`) or in some other
+/// directory that merely has `bin` in it (an app's `/data/apps/<id>/bin/`)
+/// must name a real file, or `stat` would report a file that does not exist
+/// and `open(O_CREAT)` would refuse to create one there.
 fn applet_name(path: &str) -> Option<&str> {
-    let trimmed = path.trim_start_matches('/');
-    let base = trimmed.rsplit('/').next().unwrap_or(trimmed);
-    let dir = &trimmed[..trimmed.len() - base.len()];
+    let (dir, base) = match path.strip_prefix('/') {
+        Some(absolute) => {
+            let split = absolute.rfind('/').map_or(0, |at| at + 1);
+            let (dir, base) = absolute.split_at(split);
+            (Some(dir), base)
+        }
+        None => (None, path),
+    };
+    let in_bin_dir = match dir {
+        Some(dir) => BIN_DIRS.contains(&dir),
+        None => !path.contains('/'),
+    };
     let plain = !base.is_empty()
         && base.len() <= 12
         && !base.contains('.')
         && base
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-');
-    if plain && (dir.is_empty() || dir.contains("bin")) {
-        Some(base)
-    } else {
-        None
-    }
+    (plain && in_bin_dir).then_some(base)
 }
 
 /// The synthetic root directories that have no filesystem behind them yet
@@ -177,9 +190,10 @@ fn root_elf_path(path: &str) -> Option<String> {
 ///    name at the image root ([`root_elf_path`]) — this must precede the
 ///    BusyBox alias, which would otherwise claim every plain name in a `bin`
 ///    directory;
-/// 3. the BusyBox applet alias, and — when a `$PATH` lookup names one of the
-///    synthetic `bin` directories LazyOS does not back with files — the
-///    basename at the image root. The executable store is the flat image root,
+/// 3. the BusyBox applet alias, and — when a `$PATH` lookup names a
+///    directory LazyOS does not back with files — the basename resolved
+///    through these same steps (its image-root program, else its alias, else
+///    the file of that name). The executable store is the flat image root,
 ///    so this is what lets `execvp("INIT.ELF")` find `/INIT.ELF` after trying
 ///    `/usr/local/bin`, `/bin` and `/usr/bin`.
 pub(super) fn load_executable(path: &str) -> Result<Vec<u8>, FsError> {
@@ -199,9 +213,12 @@ pub(super) fn load_executable(path: &str) -> Result<Vec<u8>, FsError> {
     match load_file(path) {
         Ok(elf) => Ok(elf),
         Err(FsError::NotFound) => {
+            // The basename on its own, through every step above: a program
+            // at the image root still outranks the BusyBox alias. `base` has
+            // no `/`, so this recurses at most once.
             let base = path.rsplit('/').next().unwrap_or(path);
             if base != path && !base.is_empty() {
-                load_file(base)
+                load_executable(base)
             } else {
                 Err(FsError::NotFound)
             }

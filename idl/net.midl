@@ -14,8 +14,8 @@
 /// free-running `u32` indices in a header page. Nothing about the wire lives in
 /// a request body except the slot count.
 ///
-/// `AttachRing` carries, in the parcel's `handles` and `buffers` vectors (the
-/// TLV body has no `Handle`/`Buffer` fields, as in `os.lazy.display.v1`):
+/// `AttachRing` carries, in the parcel's `handles` and `buffers` vectors (its
+/// `transfers` clause and the `Rx`/`Tx` ring declarations say the same):
 ///
 /// * `buffers[0]`: one shared buffer holding **both rings**, back to back: the
 ///   **receive ring** (driver produces, client consumes) at byte 0 and the
@@ -72,7 +72,12 @@ interface os.lazy.net.nic.v1 {
     /// Attach the client's rings and notify endpoint (see the interface
     /// notes for what the parcel carries). `slots` is the slot count of both
     /// rings. The reply is the ring id later calls name.
-    method AttachRing(slots: U32) -> (ring: U32);
+    method AttachRing(slots: U32) -> (ring: U32)
+        transfers (rings: Ring<Rx, Tx>, notify: Channel<os.lazy.net.nic.v1>);
+    /// The receive ring: frames the card received, driver to client.
+    ring Rx : frames producer=server doorbell=Notify;
+    /// The transmit ring: frames to send, client to driver.
+    ring Tx : frames producer=client doorbell=Kick;
     /// Release the rings; the driver stops reading and writing them. Also
     /// implied when the owner exits or its notify endpoint reports the peer
     /// gone.

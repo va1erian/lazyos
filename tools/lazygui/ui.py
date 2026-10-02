@@ -10,7 +10,7 @@ from tkinter import filedialog, ttk
 from . import datavol
 from .catalog import (ACCELS, CARGO, DISKS, MODES, PY, ROOT,
                       SCRIPTS, XUI_VIEWERS, build_env, build_plan,
-                      cargo_step, format_plan, lazyrad_step, simple_config)
+                      app_steps, cargo_step, format_plan, simple_config)
 from .runner import Runner, open_path
 from .simple import build_simple_tab, simple_choice
 from .variables import make_vars
@@ -45,7 +45,8 @@ class Launcher:
             return simple_config(self._advanced_cfg(), profile, iface,
                                  self.v["simple_lazyrad"].get(),
                                  self.v["simple_shell"].get(),
-                                 self.v["simple_devices"].get())
+                                 self.v["simple_devices"].get(),
+                                 self.v["simple_doom"].get())
         return self._advanced_cfg()
 
     def _advanced_cfg(self) -> dict:
@@ -88,6 +89,7 @@ class Launcher:
             "shell": self.v["shell"].get(),
             "lazyrad_samples": self.v["lazyrad_samples"].get().strip(),
             "devices": self.v["devices"].get(),
+            "doom": self.v["doom"].get(),
             "script": SCRIPTS.index(names[0]) if names else 0,
         }
 
@@ -112,7 +114,8 @@ class Launcher:
         self.notebook.add(tab_adv, text="Advanced")
         build_simple_tab(self.tab_simple, self.v["simple_build"],
                          self.v["simple_iface"], self.v["simple_lazyrad"],
-                         self.v["simple_shell"], self.v["simple_devices"], self._run)
+                         self.v["simple_shell"], self.v["simple_devices"],
+                         self.v["simple_doom"], self._run)
         self._build_left(self._scrollable(tab_adv))
         self._build_right(right)
 
@@ -135,6 +138,7 @@ class Launcher:
         self._check(g, "Messengerd daemon (LAZYOS_MESSENGERD)", "msgrd")
         self._check(g, "Compositor client (+ LAZYOS_XUI_CLIENT)", "xui_client")
         self._check(g, "LazyRAD IDE + player (LAZYOS_LAZYRAD)", "lazyrad")
+        self._check(g, "Doom package at /DOOM.LZP (LAZYOS_DOOM)", "doom")
         self._check(g, "Devices app at boot (desktop; LAZYOS_XUI_AUTOSTART += devices)",
                     "devices")
         row = ttk.Frame(g); row.pack(fill="x", padx=6, pady=2)
@@ -364,7 +368,7 @@ class Launcher:
         if self.runner.busy:
             return
         cfg = self.cfg()
-        steps = lazyrad_step(cfg) + [cargo_step(cfg)]
+        steps = app_steps(cfg) + [cargo_step(cfg)]
         self._begin(len(steps), "Build image")
         self.runner.start(steps, build_env(cfg), ROOT)
 

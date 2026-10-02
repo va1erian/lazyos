@@ -18,7 +18,11 @@ SCALARS = {
     "U64": ("u64", "u64"),
     "F64": ("f64", "f64"),
 }
-BUILTINS = set(SCALARS) | {"String", "Bytes", "Handle", "Buffer", "Array", "Option"}
+BUILTINS = set(SCALARS) | {"String", "Bytes", "Array", "Option"}
+# Kernel objects: never a body field (a handle number means nothing in the
+# receiver's table), only a method's `transfers (...)` clause.
+TRANSFER_TYPES = {"Channel", "Buffer", "Ring"}
+BODY_FORBIDDEN = TRANSFER_TYPES | {"Handle"}
 
 
 class MidlError(Exception):
@@ -45,6 +49,40 @@ class Param:
 
 
 @dataclass
+class Transfer:
+    """One kernel object a request carries outside its TLV body
+    (`transfers (...)`, `docs/midl.md`). `kind` is `"channel"` (a slot of the
+    parcel's `handles`) or `"buffer"` (a slot of its `buffers`); `interface`
+    is what the receiver of a channel sends on it; `index` is the slot."""
+
+    name: str
+    kind: str
+    index: int
+    interface: str | None = None
+    # `"rings"` only: the declared rings the buffer holds, back to back.
+    rings: list[str] = field(default_factory=list)
+
+
+@dataclass
+class Ring:
+    """A declared single-producer/single-consumer ring (`ring` in `.midl`,
+    `docs/midl.md`). `layout` is `"frames"` (fixed slots, indices in a shared
+    header, `libs/framering`) or `"stream"` (a byte ring whose position travels
+    in calls). `producer` is `"client"` (the side that transfers the buffer)
+    or `"server"`. A `frames` ring names the `oneway` method its producer
+    sends to wake the consumer (`doorbell`); a `stream` ring names the method
+    that moves its position (`advance`)."""
+
+    name: str
+    layout: str
+    producer: str
+    doorbell: str | None = None
+    advance: str | None = None
+    doc: str = ""
+    line: int = 0
+
+
+@dataclass
 class Method:
     name: str
     params: list[Param]
@@ -52,6 +90,7 @@ class Method:
     method_id: int
     oneway: bool = False
     doc: str = ""
+    transfers: list[Transfer] = field(default_factory=list)
 
 
 @dataclass
@@ -122,6 +161,7 @@ class Interface:
     structs: list[Struct] = field(default_factory=list)
     enums: list[Enum] = field(default_factory=list)
     topics: list[Topic] = field(default_factory=list)
+    rings: list[Ring] = field(default_factory=list)
 
     @property
     def id(self) -> int:

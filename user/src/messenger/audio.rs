@@ -7,7 +7,7 @@
 
 use alloc::vec::Vec;
 
-use libmessenger::{BufferDesc, Header, Parcel, VERSION};
+use libmessenger::{Header, Parcel, VERSION};
 
 /// The generated `os.lazy.audio.v1` stubs.
 pub use messenger_generated::os_lazy_audio_v1 as wire;
@@ -53,15 +53,13 @@ pub fn reply_parcel(interface: u64, method: u32, body: Vec<u8>) -> Parcel {
             deadline_ns: 0,
         },
         body,
-        buffers: Vec::<BufferDesc>::new(),
+        // Replies carry no handles or buffers: the kernel refuses transfers
+        // in a reply, and `audio.midl` declares none.
         ..Parcel::default()
     }
 }
 
 /// A stream-interface parcel of `method` (the driver's replies).
-pub fn parcel(method: u32, body: Vec<u8>, buffers: Vec<BufferDesc>) -> Parcel {
-    Parcel {
-        buffers,
-        ..reply_parcel(INTERFACE, method, body)
-    }
+pub fn parcel(method: u32, body: Vec<u8>) -> Parcel {
+    reply_parcel(INTERFACE, method, body)
 }

@@ -80,13 +80,15 @@ checked before any allocation.
 | Constant | Value | Meaning |
 |---|---|---|
 | `MAX_ENTRIES` | 1024 | most entries in a package |
-| `MAX_TOTAL_UNCOMPRESSED` | 64 MiB | most bytes all entries may expand to |
-| `MAX_ENTRY_UNCOMPRESSED` | 16 MiB | most bytes one entry may expand to |
+| `MAX_TOTAL_UNCOMPRESSED` | 1 GiB | most bytes all entries may expand to |
+| `MAX_ENTRY_UNCOMPRESSED` | 256 MiB | most bytes one entry may expand to |
 | `MAX_NAME_LEN` | 255 | longest entry name, in bytes |
 | `MAX_MANIFEST` | 1 MiB | largest `manifest.toml` |
 
-A zip bomb or a claimed 4 GiB entry is therefore refused cheaply: the declared
-sizes in the central directory are checked before any data is read.
+A claimed 4 GiB entry is therefore refused cheaply: the declared sizes in the
+central directory are checked before any data is read. The caps are generous on
+purpose, so a game can carry its data (the Doom port's 28 MiB Freedoom IWAD is a
+`resources/` entry); they bound declared sizes, not memory use.
 
 ---
 
@@ -256,9 +258,10 @@ with "there is no writable data disk" (`PKGD:STORE:ABSENT` on serial).
 
 ### `Inspect` and `Install`
 
-`Inspect(path)` reads the whole file (at most **8 MiB**: the kernel reads a file
-into its 16 MiB heap to serve the read; the package may still expand to
-`MAX_TOTAL_UNCOMPRESSED`), opens it with `lazypkg`, and fills `PackageInfo`. A
+`Inspect(path)` reads the whole file (at most **256 MiB**, streamed in 1 MiB
+ranges with the native `read_at` syscall so the kernel never holds the whole
+package; it may then expand to `MAX_TOTAL_UNCOMPRESSED`), opens it with
+`lazypkg`, and fills `PackageInfo`. A
 package that fails validation is *not* an error: every problem is in
 `PackageInfo.problems`, so an installer can list them all. Permissions are
 expanded through the explanation table (`pkgstore::explain`, keyed by MIDL
@@ -381,7 +384,9 @@ interfaces the app resolves, `os.lazy.display.v1` and `os.lazy.input.v1`).
 
 ### Limits worth knowing
 
-* The package file limit is 8 MiB and the user heap never returns blocks over
+* The package file limit is 256 MiB. `pkgd` holds the package and one inflated
+  entry in its heap at a time, so installing the Doom package needs about 40 MiB
+  of it, and the user heap never returns blocks over
   64 KiB, so `pkgd` restarts itself (`PKGD:RECYCLE`, `init` starts a new one) once
   its heap has grown by 32 MiB and it is idle. A client that connects during that
   moment retries (`pkgctl` does).

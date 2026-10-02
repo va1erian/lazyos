@@ -53,7 +53,7 @@ declared reply fields.
 |---|---|---|---|
 | Info | 266462757 | sync | `() -> (info: AudioInfo)` |
 | OpenStream | 410137073 | sync | `(dir: U32, format: U32, rate: U32, channels: U32, period_bytes: U32) -> (grant: StreamGrant)` |
-| AttachRing | 62355614 | sync | `(stream: U32) -> ()` |
+| AttachRing | 62355614 | sync | `(stream: U32) -> () transfers (ring: Ring<Samples>)` |
 | Commit | 2036391452 | sync | `(stream: U32, written_frames: U64) -> (consumed: U64)` |
 | Start | 182978943 | sync | `(stream: U32) -> (ok: Bool)` |
 | Stop | 1266644741 | sync | `(stream: U32) -> (ok: Bool)` |
@@ -63,11 +63,26 @@ declared reply fields.
 | SetVolume | 1919741053 | sync | `(stream: U32, gain_q16: U32) -> ()` |
 | SetMute | 1285443642 | sync | `(stream: U32, mute: Bool) -> ()` |
 
+## Transfers
+
+Objects a request carries outside its body, in the parcel's
+`handles` and `buffers` vectors.
+
+| Method | Name | Slot |
+|---|---|---|
+| AttachRing | `ring` | `buffers[0]`, a shared buffer holding the rings `Samples` back to back |
+
 ## Topics
 
 | Topic | Payload | QoS | Retained | Permissions |
 |---|---|---|---|---|
 | `system/audio/+/event` | `AudioEvent` | latest | no | `publish:system/audio/+/event`, `subscribe:system/audio/+/event` |
+
+## Rings
+
+| Ring | Layout | Producer | Doorbell / advance | |
+|---|---|---|---|---|
+| `Samples` | stream | client | advance `Commit` | Interleaved samples, client to driver; `Commit` reports how far the client wrote and replies how far the driver consumed. |
 
 ## struct `AudioInfo`
 

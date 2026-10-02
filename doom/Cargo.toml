@@ -1,0 +1,54 @@
+# Doom on LazyOS (docs/doom-port-plan.md): the doomgeneric engine (C, fetched
+# at a pinned revision by `tools/doom/build.py`, never vendored) linked into a
+# small Rust program that implements the engine's six `DG_*` platform hooks on
+# the `xuid` display protocol. Shipped as the `.lzp` package `org.lazy.doom`
+# with the Freedoom IWAD inside it.
+[package]
+name = "lazydoom"
+version = "0.1.0"
+edition = "2021"
+publish = false
+# The wrapper is GPL-3.0-or-later like the rest of the tree; the engine is
+# GPL-2.0-or-later, so the combined binary is distributed under GPL-3.0 (see
+# NOTICE).
+license = "GPL-3.0-or-later"
+description = "Doom (doomgeneric + Freedoom) as a LazyOS desktop app"
+
+# A standalone workspace, like `xui-app`: a static-musl `std` program built by
+# `tools/doom/build.py` with the zig toolchain (the engine is C). The OS
+# workspace never builds it.
+[workspace]
+resolver = "2"
+
+[lib]
+name = "lazydoom"
+path = "src/lib.rs"
+
+[[bin]]
+name = "lazydoom"
+path = "src/main.rs"
+
+[dependencies]
+# The client-mode display/input plumbing (surfaces, buffer slots, the input
+# session, the syscall shim) is `xui-app`'s; Doom draws raw pixels through it
+# and never builds a widget. Splitting that half into its own crate is the
+# plan's D2 refactor, left for its own change.
+xui-app = { path = "../xui-app" }
+# The parcel type the event channels decode to (`xui-app` re-uses it too).
+libmessenger = { path = "../libs/messenger" }
+# Every well-known path (`/tmp/doom`, the headless result file) lives here.
+fhs = { path = "../libs/fhs" }
+# `getuid`, to find the player's home when `init` passes no `HOME`.
+libc = "0.2"
+# `Rect` for buffer-slot damage; the same revision `xui-app` pins, so one
+# `xui_core` links.
+xui-core = { git = "https://github.com/va1erian/xui", rev = "7e31d5d6d120fb479e1ff0731bd6a44601acafee" }
+
+[build-dependencies]
+cc = { version = "1", features = ["parallel"] }
+
+[profile.release]
+opt-level = 2
+lto = "fat"
+panic = "abort"
+strip = "symbols"

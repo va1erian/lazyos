@@ -11,7 +11,7 @@ someone else's behalf. Everything is per kernel-stamped sender, never per reques
 
 | Method | Id | Kind | Signature |
 |---|---|---|---|
-| Attach | 1 | sync | `() -> ()` |
+| Attach | 1 | sync | `() -> () transfers (events: Channel<os.lazy.input.shell.v1>)` |
 | SetFocus | 2 | sync | `(surface: Option<U64>) -> ()` |
 | RegisterSurface | 3 | sync | `(surface: U64, owner: U64) -> ()` |
 | UnregisterSurface | 4 | sync | `(surface: U64) -> ()` |
@@ -26,3 +26,12 @@ someone else's behalf. Everything is per kernel-stamped sender, never per reques
 | SessionOpened | 23 | oneway | `(surface: U64) -> ()` |
 | SessionClosed | 24 | oneway | `(surface: U64) -> ()` |
 | PointerEvent | 25 | oneway | `(x: I32, y: I32, buttons: U32, wheel: I32, wheel_h: I32, ts_ns: U64, seq: U64) -> ()` |
+
+## Transfers
+
+Objects a request carries outside its body, in the parcel's
+`handles` and `buffers` vectors.
+
+| Method | Name | Slot |
+|---|---|---|
+| Attach | `events` | `handles[0]`, a channel the receiver sends `os.lazy.input.shell.v1` on |

@@ -185,6 +185,11 @@ impl Service {
     /// Call `method` with already-shaped `args` (see [`Service::encode`]).
     pub fn invoke(&self, method: &str, args: Dynamic) -> Fallible<Dynamic> {
         let method = self.method(method)?;
+        if !method.transfers.is_empty() {
+            // The request needs a channel or buffer in the parcel's
+            // `handles`/`buffers`, which a script has no way to create.
+            return Err(self.fail(method, "transfers kernel objects; not callable from a script"));
+        }
         let body = self.encode(method, args)?;
         let fabric = &self.fabric;
         if method.oneway {
@@ -243,11 +248,27 @@ pub fn signature(method: &Method) -> String {
     };
     let tail = if method.oneway { " oneway" } else { "" };
     format!(
-        "{}({}) -> ({}){tail}",
+        "{}({}) -> ({}){tail}{}",
         method.name,
         list(method.params),
-        list(method.returns)
+        list(method.returns),
+        transfers(method.transfers)
     )
+}
+
+/// ` transfers (events: Channel<..>, pixels: Buffer)`, or nothing.
+fn transfers(items: &[super::schema::Transfer]) -> String {
+    if items.is_empty() {
+        return String::new();
+    }
+    let items: Vec<String> = items
+        .iter()
+        .map(|t| match t.channel {
+            Some(interface) => format!("{}: Channel<{interface}>", t.name),
+            None => format!("{}: Buffer", t.name),
+        })
+        .collect();
+    format!(" transfers ({})", items.join(", "))
 }
 
 fn type_name(ty: super::schema::Ty) -> String {

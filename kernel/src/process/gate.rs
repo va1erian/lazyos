@@ -124,6 +124,9 @@ extern "C" fn syscall_dispatch(regs: *mut Regs) {
         // 28: `append_file` (the application installer writes files larger
         // than one `write_file`), served with the other path calls.
         28 => fsops::dispatch(regs.rax, regs.rdi, regs.rsi, regs.rdx),
+        // 30: `read_at`, a bounded read at an offset, so a reader of a big
+        // file (the package installer) never makes the kernel hold all of it.
+        30 => fsops::dispatch(regs.rax, regs.rdi, regs.rsi, regs.rdx),
         // 29: `kill(slot, sig)`, a supervisor ending one task it started
         // (`init` stops an app the package manager is removing).
         29 => super::killsys::dispatch(regs.rdi, regs.rsi),
@@ -163,7 +166,7 @@ pub fn dispatch_for_test(nr: u64, a1: u64, a2: u64, a3: u64) -> u64 {
         25 => crate::input::rawsys::dispatch(a1, a2, a3),
         26 => super::randsys::dispatch(a1, a2),
         27 => super::inetsys::dispatch(a1, a2, a3, 0),
-        28 => fsops::dispatch(nr, a1, a2, a3),
+        28 | 30 => fsops::dispatch(nr, a1, a2, a3),
         29 => super::killsys::dispatch(a1, a2),
         _ => u64::MAX,
     }

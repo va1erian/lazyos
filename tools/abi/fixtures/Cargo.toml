@@ -80,6 +80,10 @@ path = "src/fdinherit.rs"
 name = "fsops"
 path = "src/fsops.rs"
 
+[[bin]]
+name = "statmiss"
+path = "src/statmiss.rs"
+
 # Needs a network (the echo servers of `tools/net/run.py`): run by `netd demo=1`
 # as `linux:NETFIX.ELF`, never by the ABI bench (`tools/abi/run.py`).
 [[bin]]

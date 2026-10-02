@@ -10,7 +10,9 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use audioclient::{wire, Client, Error, Grant, RingBuffer, RingRef, Transport, UNITY_GAIN};
+use audioclient::{
+    wire, Client, Error, Grant, RingBuffer, RingRef, Transfers, Transport, UNITY_GAIN,
+};
 use user::audio::Native;
 use user::sys;
 
@@ -102,7 +104,7 @@ pub(super) fn run() -> Result<u32, String> {
     checks.expect(
         "attach without a buffer",
         is_errno(
-            &client.raw(wire::METHOD_ATTACHRING, no_buffer, None),
+            &client.raw(wire::METHOD_ATTACHRING, no_buffer, Transfers::NONE),
             EINVAL,
         ),
     )?;
@@ -252,25 +254,30 @@ fn volume_rules(client: &Probe, stream: u32, checks: &mut Checks) -> Result<(), 
     )
 }
 
-/// Buffers sent with the wrong method must be closed, not kept: hundreds of
-/// them would fill any handle table that leaked.
+/// A buffer sent with a method that declares none is refused and closed, not
+/// kept: hundreds of them would fill any handle table that leaked.
 fn stray_transfers(
     client: &Probe,
     stream: u32,
     ring: RingRef,
     checks: &mut Checks,
 ) -> Result<(), String> {
+    let stray = || Transfers {
+        handles: Vec::new(),
+        buffers: alloc::vec![ring.desc()],
+    };
     let position =
         wire::encode_position_args(&wire::PositionArgs { stream }).map_err(|_| "encode")?;
     checks.expect(
-        "a stray buffer on another method",
-        client
-            .raw(wire::METHOD_POSITION, position, Some(ring))
-            .is_ok(),
+        "a stray buffer on another method is refused",
+        is_errno(
+            &client.raw(wire::METHOD_POSITION, position, stray()),
+            EINVAL,
+        ),
     )?;
     let flood = (0..300).all(|_| {
         client
-            .raw(wire::METHOD_ATTACHRING, Vec::new(), Some(ring))
+            .raw(wire::METHOD_ATTACHRING, Vec::new(), stray())
             .is_err()
     });
     checks.expect("malformed AttachRing flood is refused", flood)?;

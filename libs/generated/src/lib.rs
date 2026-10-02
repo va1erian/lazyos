@@ -188,6 +188,72 @@ pub mod topics {
     }
 }
 
+/// Out-of-band objects a request carries in the parcel's `handles` and
+/// `buffers` vectors, as declared by `transfers (...)` clauses in `.midl`.
+#[rustfmt::skip]
+pub mod transfers {
+    /// How many handles and shared buffers a request declares.
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+    pub struct Transfers {
+        pub handles: u8,
+        pub buffers: u8,
+    }
+
+    impl Transfers {
+        /// A request that declares no transfers.
+        pub const NONE: Self = Self { handles: 0, buffers: 0 };
+
+        /// Whether a delivery that installed `handles` handles and `buffers`
+        /// shared buffers carries exactly what was declared. Servers check
+        /// this before dispatch, so an undeclared object is refused (and
+        /// closed) instead of leaking into their handle table.
+        pub fn matches(self, handles: u64, buffers: u64) -> bool {
+            handles == u64::from(self.handles) && buffers == u64::from(self.buffers)
+        }
+    }
+}
+
+/// Shared-memory rings declared in `.midl` (`ring` and `Ring<...>` transfers).
+#[rustfmt::skip]
+pub mod rings {
+    /// How a ring is laid out and how its position moves.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum Layout {
+        /// Fixed slots with the indices and an `armed` flag in a header page
+        /// (`libs/framering`); the producer rings a `oneway` doorbell.
+        Frames,
+        /// A byte ring whose position travels in calls (an `advance` method).
+        Stream,
+    }
+
+    /// Which side of the request writes the ring.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum Side {
+        /// The side that transfers the buffer.
+        Client,
+        /// The side that receives it.
+        Server,
+    }
+
+    /// One declared ring.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub struct RingDecl {
+        pub name: &'static str,
+        pub layout: Layout,
+        pub producer: Side,
+        /// Method id of the `oneway` wake-up (`Frames`).
+        pub doorbell: Option<u32>,
+        /// Method id that moves the position (`Stream`).
+        pub advance: Option<u32>,
+    }
+
+    /// Byte offset of ring `index` in a buffer of rings `ring_bytes` long,
+    /// back to back; `None` on overflow.
+    pub fn offset(index: u64, ring_bytes: u64) -> Option<u64> {
+        index.checked_mul(ring_bytes)
+    }
+}
+
 /// `os.lazy.accounts.v1` (interface id `0x2cbf60abbc1951bc`).
 #[rustfmt::skip]
 pub mod os_lazy_accounts_v1 {
@@ -200,6 +266,10 @@ pub mod os_lazy_accounts_v1 {
     // Only interfaces that declare topics use the shared topic runtime.
     #[allow(unused_imports)]
     use super::topics;
+    use super::transfers;
+    // Only interfaces that declare rings use the ring descriptors.
+    #[allow(unused_imports)]
+    use super::rings;
 
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0x2cbf60abbc1951bc;
@@ -525,6 +595,13 @@ pub mod os_lazy_accounts_v1 {
         }
         Ok(out)
     }
+
+    /// The transfers the request `method` declares; `NONE` for a method
+    /// that declares none or an unknown method id.
+    pub fn request_transfers(method: u32) -> transfers::Transfers {
+        let _ = method;
+        transfers::Transfers::NONE
+    }
 }
 
 /// `os.lazy.audio.v1` (interface id `0x536f1f4639cf07f0`).
@@ -539,6 +616,10 @@ pub mod os_lazy_audio_v1 {
     // Only interfaces that declare topics use the shared topic runtime.
     #[allow(unused_imports)]
     use super::topics;
+    use super::transfers;
+    // Only interfaces that declare rings use the ring descriptors.
+    #[allow(unused_imports)]
+    use super::rings;
 
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0x536f1f4639cf07f0;
@@ -849,6 +930,39 @@ pub mod os_lazy_audio_v1 {
             }
         }
         Ok(out)
+    }
+
+    /// What a `AttachRing` request carries outside its body.
+    pub const ATTACH_RING_TRANSFERS: transfers::Transfers = transfers::Transfers { handles: 0, buffers: 1 };
+
+    /// The objects a `AttachRing` request transfers, by name.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct AttachRingTransfers {
+        /// `buffers[0]`, a shared buffer holding the rings `Samples` back to back.
+        pub ring: libmessenger::BufferDesc,
+    }
+
+    /// The parcel's `handles` and `buffers` for a `AttachRing` request.
+    pub fn encode_attach_ring_transfers(value: &AttachRingTransfers) -> (Vec<u64>, Vec<libmessenger::BufferDesc>) {
+        (Vec::new(), alloc::vec![value.ring])
+    }
+
+    /// The rings of `AttachRing`'s `ring` buffer, in order.
+    pub const ATTACH_RING_RINGS: [rings::RingDecl; 1] = [RING_SAMPLES];
+
+    /// Where each ring of `AttachRing`'s buffer starts, and its total size.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub struct AttachRingRings {
+        pub samples: u64,
+        pub total: u64,
+    }
+
+    /// The layout of `AttachRing`'s buffer for rings `ring_bytes` long; `None` on overflow.
+    pub fn attach_ring_rings(ring_bytes: u64) -> Option<AttachRingRings> {
+        Some(AttachRingRings {
+            samples: rings::offset(0, ring_bytes)?,
+            total: rings::offset(1, ring_bytes)?,
+        })
     }
 
     /// Announce that the client has written up to `written_frames` (a total,
@@ -1177,6 +1291,25 @@ pub mod os_lazy_audio_v1 {
         Ok(out)
     }
 
+    /// The transfers the request `method` declares; `NONE` for a method
+    /// that declares none or an unknown method id.
+    pub fn request_transfers(method: u32) -> transfers::Transfers {
+        match method {
+            METHOD_ATTACHRING => ATTACH_RING_TRANSFERS,
+            _ => transfers::Transfers::NONE,
+        }
+    }
+
+    /// Interleaved samples, client to driver; `Commit` reports how far the
+    /// client wrote and replies how far the driver consumed.
+    pub const RING_SAMPLES: rings::RingDecl = rings::RingDecl {
+        name: "Samples",
+        layout: rings::Layout::Stream,
+        producer: rings::Side::Client,
+        doorbell: None,
+        advance: Some(METHOD_COMMIT),
+    };
+
     /// An `EventKind` ordinal.
     /// Xruns and drain completion, for clients that would rather not poll
     /// `Position`. `{card}` is the driver's card name (`virtio-snd0`).
@@ -1238,6 +1371,10 @@ pub mod os_lazy_audio_mixer_v1 {
     // Only interfaces that declare topics use the shared topic runtime.
     #[allow(unused_imports)]
     use super::topics;
+    use super::transfers;
+    // Only interfaces that declare rings use the ring descriptors.
+    #[allow(unused_imports)]
+    use super::rings;
 
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0x39a0c9a99b23a265;
@@ -1507,6 +1644,13 @@ pub mod os_lazy_audio_mixer_v1 {
         }
         Ok(out)
     }
+
+    /// The transfers the request `method` declares; `NONE` for a method
+    /// that declares none or an unknown method id.
+    pub fn request_transfers(method: u32) -> transfers::Transfers {
+        let _ = method;
+        transfers::Transfers::NONE
+    }
 }
 
 /// `os.lazy.clipboard.v1` (interface id `0x5a8da8f22670b758`).
@@ -1521,6 +1665,10 @@ pub mod os_lazy_clipboard_v1 {
     // Only interfaces that declare topics use the shared topic runtime.
     #[allow(unused_imports)]
     use super::topics;
+    use super::transfers;
+    // Only interfaces that declare rings use the ring descriptors.
+    #[allow(unused_imports)]
+    use super::rings;
 
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0x5a8da8f22670b758;
@@ -2000,6 +2148,13 @@ pub mod os_lazy_clipboard_v1 {
         Ok(out)
     }
 
+    /// The transfers the request `method` declares; `NONE` for a method
+    /// that declares none or an unknown method id.
+    pub fn request_transfers(method: u32) -> transfers::Transfers {
+        let _ = method;
+        transfers::Transfers::NONE
+    }
+
     /// The retained per-session offer-announcement topic (issue #307): paste
     /// UIs refresh from it without polling, and a late subscriber is handed
     /// the live offer. The payload is an `OfferMeta`, never content.
@@ -2153,6 +2308,10 @@ pub mod os_lazy_confd_v1 {
     // Only interfaces that declare topics use the shared topic runtime.
     #[allow(unused_imports)]
     use super::topics;
+    use super::transfers;
+    // Only interfaces that declare rings use the ring descriptors.
+    #[allow(unused_imports)]
+    use super::rings;
 
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0xdf3c79dfb9f8f2e0;
@@ -2528,6 +2687,13 @@ pub mod os_lazy_confd_v1 {
         Ok(out)
     }
 
+    /// The transfers the request `method` declares; `NONE` for a method
+    /// that declares none or an unknown method id.
+    pub fn request_transfers(method: u32) -> transfers::Transfers {
+        let _ = method;
+        transfers::Transfers::NONE
+    }
+
     /// Announced for every committed `sys/` change (issue #260): the topic is
     /// `system/confd/changed/<path>`, where `<path>` is the changed path, so a
     /// subscriber watches a subtree with `system/confd/changed/sys/#`. Not
@@ -2590,6 +2756,10 @@ pub mod os_lazy_display_v1 {
     // Only interfaces that declare topics use the shared topic runtime.
     #[allow(unused_imports)]
     use super::topics;
+    use super::transfers;
+    // Only interfaces that declare rings use the ring descriptors.
+    #[allow(unused_imports)]
+    use super::rings;
 
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0x5ef41f254d43c2b4;
@@ -2892,6 +3062,21 @@ pub mod os_lazy_display_v1 {
         Ok(out)
     }
 
+    /// What a `CreateSurface` request carries outside its body.
+    pub const CREATE_SURFACE_TRANSFERS: transfers::Transfers = transfers::Transfers { handles: 1, buffers: 0 };
+
+    /// The objects a `CreateSurface` request transfers, by name.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct CreateSurfaceTransfers {
+        /// `handles[0]`, a channel the receiver sends `os.lazy.display.v1` on.
+        pub events: u64,
+    }
+
+    /// The parcel's `handles` and `buffers` for a `CreateSurface` request.
+    pub fn encode_create_surface_transfers(value: &CreateSurfaceTransfers) -> (Vec<u64>, Vec<libmessenger::BufferDesc>) {
+        (alloc::vec![value.events], Vec::new())
+    }
+
     /// Attach (or replace) `surface`'s pixel buffer with the parcel's shared
     /// buffer. Only the surface's creator may attach. Refused with `EBUSY`
     /// once the surface has used `Present`, which owns slot ownership from
@@ -2916,6 +3101,21 @@ pub mod os_lazy_display_v1 {
             }
         }
         Ok(out)
+    }
+
+    /// What a `AttachBuffer` request carries outside its body.
+    pub const ATTACH_BUFFER_TRANSFERS: transfers::Transfers = transfers::Transfers { handles: 0, buffers: 1 };
+
+    /// The objects a `AttachBuffer` request transfers, by name.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct AttachBufferTransfers {
+        /// `buffers[0]`, a shared buffer.
+        pub pixels: libmessenger::BufferDesc,
+    }
+
+    /// The parcel's `handles` and `buffers` for a `AttachBuffer` request.
+    pub fn encode_attach_buffer_transfers(value: &AttachBufferTransfers) -> (Vec<u64>, Vec<libmessenger::BufferDesc>) {
+        (Vec::new(), alloc::vec![value.pixels])
     }
 
     /// Signal that the damage rectangle of `surface` (content-relative) is
@@ -3440,6 +3640,21 @@ pub mod os_lazy_display_v1 {
         Ok(out)
     }
 
+    /// What a `Subscribe` request carries outside its body.
+    pub const SUBSCRIBE_TRANSFERS: transfers::Transfers = transfers::Transfers { handles: 1, buffers: 0 };
+
+    /// The objects a `Subscribe` request transfers, by name.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct SubscribeTransfers {
+        /// `handles[0]`, a channel the receiver sends `os.lazy.display.v1` on.
+        pub events: u64,
+    }
+
+    /// The parcel's `handles` and `buffers` for a `Subscribe` request.
+    pub fn encode_subscribe_transfers(value: &SubscribeTransfers) -> (Vec<u64>, Vec<libmessenger::BufferDesc>) {
+        (alloc::vec![value.events], Vec::new())
+    }
+
     /// The compositor's chrome palette as `0xRRGGBB` colours. `text` is the
     /// ink on the inactive title bar. `mode` is the desktop preset (`dark` or
     /// `light`, the `sys/ui/mode` setting) and `accent` the accent colour in
@@ -3663,6 +3878,21 @@ pub mod os_lazy_display_v1 {
             }
         }
         Ok(out)
+    }
+
+    /// What a `AttachBufferSlot` request carries outside its body.
+    pub const ATTACH_BUFFER_SLOT_TRANSFERS: transfers::Transfers = transfers::Transfers { handles: 0, buffers: 1 };
+
+    /// The objects a `AttachBufferSlot` request transfers, by name.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct AttachBufferSlotTransfers {
+        /// `buffers[0]`, a shared buffer.
+        pub pixels: libmessenger::BufferDesc,
+    }
+
+    /// The parcel's `handles` and `buffers` for a `AttachBufferSlot` request.
+    pub fn encode_attach_buffer_slot_transfers(value: &AttachBufferSlotTransfers) -> (Vec<u64>, Vec<libmessenger::BufferDesc>) {
+        (Vec::new(), alloc::vec![value.pixels])
     }
 
     /// Pipelined present (no reply): make `slot` the surface's current buffer
@@ -4292,6 +4522,18 @@ pub mod os_lazy_display_v1 {
         }
         Ok(out)
     }
+
+    /// The transfers the request `method` declares; `NONE` for a method
+    /// that declares none or an unknown method id.
+    pub fn request_transfers(method: u32) -> transfers::Transfers {
+        match method {
+            METHOD_CREATESURFACE => CREATE_SURFACE_TRANSFERS,
+            METHOD_ATTACHBUFFER => ATTACH_BUFFER_TRANSFERS,
+            METHOD_SUBSCRIBE => SUBSCRIBE_TRANSFERS,
+            METHOD_ATTACHBUFFERSLOT => ATTACH_BUFFER_SLOT_TRANSFERS,
+            _ => transfers::Transfers::NONE,
+        }
+    }
 }
 
 /// `os.lazy.echo.v1` (interface id `0xcc4ac1057e84db93`).
@@ -4306,6 +4548,10 @@ pub mod os_lazy_echo_v1 {
     // Only interfaces that declare topics use the shared topic runtime.
     #[allow(unused_imports)]
     use super::topics;
+    use super::transfers;
+    // Only interfaces that declare rings use the ring descriptors.
+    #[allow(unused_imports)]
+    use super::rings;
 
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0xcc4ac1057e84db93;
@@ -4453,6 +4699,13 @@ pub mod os_lazy_echo_v1 {
         }
         Ok(out)
     }
+
+    /// The transfers the request `method` declares; `NONE` for a method
+    /// that declares none or an unknown method id.
+    pub fn request_transfers(method: u32) -> transfers::Transfers {
+        let _ = method;
+        transfers::Transfers::NONE
+    }
 }
 
 /// `os.lazy.healthd.v1` (interface id `0xd022082ef0aaed78`).
@@ -4467,6 +4720,10 @@ pub mod os_lazy_healthd_v1 {
     // Only interfaces that declare topics use the shared topic runtime.
     #[allow(unused_imports)]
     use super::topics;
+    use super::transfers;
+    // Only interfaces that declare rings use the ring descriptors.
+    #[allow(unused_imports)]
+    use super::rings;
 
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0xd022082ef0aaed78;
@@ -4628,6 +4885,13 @@ pub mod os_lazy_healthd_v1 {
         Ok(out)
     }
 
+    /// The transfers the request `method` declares; `NONE` for a method
+    /// that declares none or an unknown method id.
+    pub fn request_transfers(method: u32) -> transfers::Transfers {
+        let _ = method;
+        transfers::Transfers::NONE
+    }
+
     /// Service name (`summary` for the aggregate row).
     /// Health status (`ok`/`degraded`/`down`).
     /// Human-readable detail.
@@ -4743,6 +5007,10 @@ pub mod os_lazy_init_v1 {
     // Only interfaces that declare topics use the shared topic runtime.
     #[allow(unused_imports)]
     use super::topics;
+    use super::transfers;
+    // Only interfaces that declare rings use the ring descriptors.
+    #[allow(unused_imports)]
+    use super::rings;
 
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0xa549dce4687b08e;
@@ -5242,6 +5510,13 @@ pub mod os_lazy_init_v1 {
         Ok(out)
     }
 
+    /// The transfers the request `method` declares; `NONE` for a method
+    /// that declares none or an unknown method id.
+    pub fn request_transfers(method: u32) -> transfers::Transfers {
+        let _ = method;
+        transfers::Transfers::NONE
+    }
+
     /// Phase name: `stopping` (requested), `apps`, `services`,
     /// `quiesced`, then `power` just before the kernel call.
     /// A `PowerMode` value.
@@ -5363,6 +5638,10 @@ pub mod os_lazy_input_v1 {
     // Only interfaces that declare topics use the shared topic runtime.
     #[allow(unused_imports)]
     use super::topics;
+    use super::transfers;
+    // Only interfaces that declare rings use the ring descriptors.
+    #[allow(unused_imports)]
+    use super::rings;
 
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0x5026bd54a60f1ff6;
@@ -5456,6 +5735,21 @@ pub mod os_lazy_input_v1 {
             }
         }
         Ok(out)
+    }
+
+    /// What a `Open` request carries outside its body.
+    pub const OPEN_TRANSFERS: transfers::Transfers = transfers::Transfers { handles: 1, buffers: 0 };
+
+    /// The objects a `Open` request transfers, by name.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct OpenTransfers {
+        /// `handles[0]`, a channel the receiver sends `os.lazy.input.v1` on.
+        pub events: u64,
+    }
+
+    /// The parcel's `handles` and `buffers` for a `Open` request.
+    pub fn encode_open_transfers(value: &OpenTransfers) -> (Vec<u64>, Vec<libmessenger::BufferDesc>) {
+        (alloc::vec![value.events], Vec::new())
     }
 
     /// End a session. Only the task that opened it may.
@@ -5657,6 +5951,15 @@ pub mod os_lazy_input_v1 {
         }
         Ok(out)
     }
+
+    /// The transfers the request `method` declares; `NONE` for a method
+    /// that declares none or an unknown method id.
+    pub fn request_transfers(method: u32) -> transfers::Transfers {
+        match method {
+            METHOD_OPEN => OPEN_TRANSFERS,
+            _ => transfers::Transfers::NONE,
+        }
+    }
 }
 
 /// `os.lazy.input.shell.v1` (interface id `0xc258ed5b9b5debfe`).
@@ -5671,6 +5974,10 @@ pub mod os_lazy_input_shell_v1 {
     // Only interfaces that declare topics use the shared topic runtime.
     #[allow(unused_imports)]
     use super::topics;
+    use super::transfers;
+    // Only interfaces that declare rings use the ring descriptors.
+    #[allow(unused_imports)]
+    use super::rings;
 
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0xc258ed5b9b5debfe;
@@ -5705,6 +6012,21 @@ pub mod os_lazy_input_shell_v1 {
     pub const METHOD_SESSIONCLOSED: u32 = 24;
     /// `PointerEvent` method id.
     pub const METHOD_POINTEREVENT: u32 = 25;
+
+    /// What a `Attach` request carries outside its body.
+    pub const ATTACH_TRANSFERS: transfers::Transfers = transfers::Transfers { handles: 1, buffers: 0 };
+
+    /// The objects a `Attach` request transfers, by name.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct AttachTransfers {
+        /// `handles[0]`, a channel the receiver sends `os.lazy.input.shell.v1` on.
+        pub events: u64,
+    }
+
+    /// The parcel's `handles` and `buffers` for a `Attach` request.
+    pub fn encode_attach_transfers(value: &AttachTransfers) -> (Vec<u64>, Vec<libmessenger::BufferDesc>) {
+        (alloc::vec![value.events], Vec::new())
+    }
 
     /// Move keyboard focus to `surface` (absent: nobody is focused and no key
     /// content is delivered). The previous holder gets `KeyboardLeave`, the new
@@ -6147,6 +6469,15 @@ pub mod os_lazy_input_shell_v1 {
         }
         Ok(out)
     }
+
+    /// The transfers the request `method` declares; `NONE` for a method
+    /// that declares none or an unknown method id.
+    pub fn request_transfers(method: u32) -> transfers::Transfers {
+        match method {
+            METHOD_ATTACH => ATTACH_TRANSFERS,
+            _ => transfers::Transfers::NONE,
+        }
+    }
 }
 
 /// `os.lazy.keyd.v1` (interface id `0xd948c3355ba590bf`).
@@ -6161,6 +6492,10 @@ pub mod os_lazy_keyd_v1 {
     // Only interfaces that declare topics use the shared topic runtime.
     #[allow(unused_imports)]
     use super::topics;
+    use super::transfers;
+    // Only interfaces that declare rings use the ring descriptors.
+    #[allow(unused_imports)]
+    use super::rings;
 
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0xd948c3355ba590bf;
@@ -6594,6 +6929,13 @@ pub mod os_lazy_keyd_v1 {
         }
         Ok(out)
     }
+
+    /// The transfers the request `method` declares; `NONE` for a method
+    /// that declares none or an unknown method id.
+    pub fn request_transfers(method: u32) -> transfers::Transfers {
+        let _ = method;
+        transfers::Transfers::NONE
+    }
 }
 
 /// `os.lazy.lifecycle.v1` (interface id `0x778a92e489f41682`).
@@ -6608,6 +6950,10 @@ pub mod os_lazy_lifecycle_v1 {
     // Only interfaces that declare topics use the shared topic runtime.
     #[allow(unused_imports)]
     use super::topics;
+    use super::transfers;
+    // Only interfaces that declare rings use the ring descriptors.
+    #[allow(unused_imports)]
+    use super::rings;
 
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0x778a92e489f41682;
@@ -6637,6 +6983,13 @@ pub mod os_lazy_lifecycle_v1 {
         }
         Ok(out)
     }
+
+    /// The transfers the request `method` declares; `NONE` for a method
+    /// that declares none or an unknown method id.
+    pub fn request_transfers(method: u32) -> transfers::Transfers {
+        let _ = method;
+        transfers::Transfers::NONE
+    }
 }
 
 /// `os.lazy.logd.v1` (interface id `0x9c5197a46ce8a872`).
@@ -6651,6 +7004,10 @@ pub mod os_lazy_logd_v1 {
     // Only interfaces that declare topics use the shared topic runtime.
     #[allow(unused_imports)]
     use super::topics;
+    use super::transfers;
+    // Only interfaces that declare rings use the ring descriptors.
+    #[allow(unused_imports)]
+    use super::rings;
 
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0x9c5197a46ce8a872;
@@ -6829,6 +7186,13 @@ pub mod os_lazy_logd_v1 {
         }
         Ok(out)
     }
+
+    /// The transfers the request `method` declares; `NONE` for a method
+    /// that declares none or an unknown method id.
+    pub fn request_transfers(method: u32) -> transfers::Transfers {
+        let _ = method;
+        transfers::Transfers::NONE
+    }
 }
 
 /// `os.lazy.logind.v1` (interface id `0x98121a421f33722d`).
@@ -6843,6 +7207,10 @@ pub mod os_lazy_logind_v1 {
     // Only interfaces that declare topics use the shared topic runtime.
     #[allow(unused_imports)]
     use super::topics;
+    use super::transfers;
+    // Only interfaces that declare rings use the ring descriptors.
+    #[allow(unused_imports)]
+    use super::rings;
 
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0x98121a421f33722d;
@@ -7118,6 +7486,13 @@ pub mod os_lazy_logind_v1 {
         Ok(out)
     }
 
+    /// The transfers the request `method` declares; `NONE` for a method
+    /// that declares none or an unknown method id.
+    pub fn request_transfers(method: u32) -> transfers::Transfers {
+        let _ = method;
+        transfers::Transfers::NONE
+    }
+
     /// Account name.
     /// User id stamped on the session.
     /// Session id minted by `logind`.
@@ -7322,6 +7697,10 @@ pub mod os_lazy_mimed_v1 {
     // Only interfaces that declare topics use the shared topic runtime.
     #[allow(unused_imports)]
     use super::topics;
+    use super::transfers;
+    // Only interfaces that declare rings use the ring descriptors.
+    #[allow(unused_imports)]
+    use super::rings;
 
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0x69d01278f9971fe6;
@@ -7702,6 +8081,13 @@ pub mod os_lazy_mimed_v1 {
         Ok(out)
     }
 
+    /// The transfers the request `method` declares; `NONE` for a method
+    /// that declares none or an unknown method id.
+    pub fn request_transfers(method: u32) -> transfers::Transfers {
+        let _ = method;
+        transfers::Transfers::NONE
+    }
+
     /// Published when `Open` resolves `<app>` for `path` (issue #307). Not
     /// retained: a launch is an event, not state.
     /// The declared `system/events/open/+` topic (`OpenEvent`, `latest`).
@@ -7762,6 +8148,10 @@ pub mod os_lazy_net_nic_v1 {
     // Only interfaces that declare topics use the shared topic runtime.
     #[allow(unused_imports)]
     use super::topics;
+    use super::transfers;
+    // Only interfaces that declare rings use the ring descriptors.
+    #[allow(unused_imports)]
+    use super::rings;
 
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0x6748c83c2024715b;
@@ -8083,6 +8473,43 @@ pub mod os_lazy_net_nic_v1 {
         Ok(out)
     }
 
+    /// What a `AttachRing` request carries outside its body.
+    pub const ATTACH_RING_TRANSFERS: transfers::Transfers = transfers::Transfers { handles: 1, buffers: 1 };
+
+    /// The objects a `AttachRing` request transfers, by name.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct AttachRingTransfers {
+        /// `buffers[0]`, a shared buffer holding the rings `Rx`, `Tx` back to back.
+        pub rings: libmessenger::BufferDesc,
+        /// `handles[0]`, a channel the receiver sends `os.lazy.net.nic.v1` on.
+        pub notify: u64,
+    }
+
+    /// The parcel's `handles` and `buffers` for a `AttachRing` request.
+    pub fn encode_attach_ring_transfers(value: &AttachRingTransfers) -> (Vec<u64>, Vec<libmessenger::BufferDesc>) {
+        (alloc::vec![value.notify], alloc::vec![value.rings])
+    }
+
+    /// The rings of `AttachRing`'s `rings` buffer, in order.
+    pub const ATTACH_RING_RINGS: [rings::RingDecl; 2] = [RING_RX, RING_TX];
+
+    /// Where each ring of `AttachRing`'s buffer starts, and its total size.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub struct AttachRingRings {
+        pub rx: u64,
+        pub tx: u64,
+        pub total: u64,
+    }
+
+    /// The layout of `AttachRing`'s buffer for rings `ring_bytes` long; `None` on overflow.
+    pub fn attach_ring_rings(ring_bytes: u64) -> Option<AttachRingRings> {
+        Some(AttachRingRings {
+            rx: rings::offset(0, ring_bytes)?,
+            tx: rings::offset(1, ring_bytes)?,
+            total: rings::offset(2, ring_bytes)?,
+        })
+    }
+
     /// Release the rings; the driver stops reading and writing them. Also
     /// implied when the owner exits or its notify endpoint reports the peer
     /// gone.
@@ -8188,6 +8615,33 @@ pub mod os_lazy_net_nic_v1 {
         Ok(out)
     }
 
+    /// The transfers the request `method` declares; `NONE` for a method
+    /// that declares none or an unknown method id.
+    pub fn request_transfers(method: u32) -> transfers::Transfers {
+        match method {
+            METHOD_ATTACHRING => ATTACH_RING_TRANSFERS,
+            _ => transfers::Transfers::NONE,
+        }
+    }
+
+    /// The receive ring: frames the card received, driver to client.
+    pub const RING_RX: rings::RingDecl = rings::RingDecl {
+        name: "Rx",
+        layout: rings::Layout::Frames,
+        producer: rings::Side::Server,
+        doorbell: Some(METHOD_NOTIFY),
+        advance: None,
+    };
+
+    /// The transmit ring: frames to send, client to driver.
+    pub const RING_TX: rings::RingDecl = rings::RingDecl {
+        name: "Tx",
+        layout: rings::Layout::Frames,
+        producer: rings::Side::Client,
+        doorbell: Some(METHOD_KICK),
+        advance: None,
+    };
+
     /// Link changes since the driver started, so a subscriber can tell a
     /// flap from a repeat.
     /// Published by the driver whenever the link changes, and once at start.
@@ -8250,6 +8704,10 @@ pub mod os_lazy_net_stack_v1 {
     // Only interfaces that declare topics use the shared topic runtime.
     #[allow(unused_imports)]
     use super::topics;
+    use super::transfers;
+    // Only interfaces that declare rings use the ring descriptors.
+    #[allow(unused_imports)]
+    use super::rings;
 
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0xb80ce5d5fc59627d;
@@ -8860,6 +9318,13 @@ pub mod os_lazy_net_stack_v1 {
         Ok(out)
     }
 
+    /// The transfers the request `method` declares; `NONE` for a method
+    /// that declares none or an unknown method id.
+    pub fn request_transfers(method: u32) -> transfers::Transfers {
+        let _ = method;
+        transfers::Transfers::NONE
+    }
+
     /// Round trip in milliseconds (10 ms resolution).
     /// Four octets: who answered.
     /// Bytes of echo payload returned.
@@ -8970,6 +9435,10 @@ pub mod os_lazy_net_socket_v1 {
     // Only interfaces that declare topics use the shared topic runtime.
     #[allow(unused_imports)]
     use super::topics;
+    use super::transfers;
+    // Only interfaces that declare rings use the ring descriptors.
+    #[allow(unused_imports)]
+    use super::rings;
 
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0x5cbc5b5a07e2bb16;
@@ -9838,6 +10307,13 @@ pub mod os_lazy_net_socket_v1 {
         }
         Ok(out)
     }
+
+    /// The transfers the request `method` declares; `NONE` for a method
+    /// that declares none or an unknown method id.
+    pub fn request_transfers(method: u32) -> transfers::Transfers {
+        let _ = method;
+        transfers::Transfers::NONE
+    }
 }
 
 /// `os.lazy.pkgd.v1` (interface id `0x2e65545739956542`).
@@ -9852,6 +10328,10 @@ pub mod os_lazy_pkgd_v1 {
     // Only interfaces that declare topics use the shared topic runtime.
     #[allow(unused_imports)]
     use super::topics;
+    use super::transfers;
+    // Only interfaces that declare rings use the ring descriptors.
+    #[allow(unused_imports)]
+    use super::rings;
 
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0x2e65545739956542;
@@ -10403,6 +10883,13 @@ pub mod os_lazy_pkgd_v1 {
         Ok(out)
     }
 
+    /// The transfers the request `method` declares; `NONE` for a method
+    /// that declares none or an unknown method id.
+    pub fn request_transfers(method: u32) -> transfers::Transfers {
+        let _ = method;
+        transfers::Transfers::NONE
+    }
+
     /// uid of the task that asked.
     /// Friendly text: the error for a failure, empty on success.
     /// Published on every install, removal and refused request. Not retained:
@@ -10465,6 +10952,10 @@ pub mod os_lazy_messenger_policy_v1 {
     // Only interfaces that declare topics use the shared topic runtime.
     #[allow(unused_imports)]
     use super::topics;
+    use super::transfers;
+    // Only interfaces that declare rings use the ring descriptors.
+    #[allow(unused_imports)]
+    use super::rings;
 
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0xe625b4ee97525d37;
@@ -10550,6 +11041,13 @@ pub mod os_lazy_messenger_policy_v1 {
         }
         Ok(out)
     }
+
+    /// The transfers the request `method` declares; `NONE` for a method
+    /// that declares none or an unknown method id.
+    pub fn request_transfers(method: u32) -> transfers::Transfers {
+        let _ = method;
+        transfers::Transfers::NONE
+    }
 }
 
 /// `os.lazy.messenger.names.resolve.v1` (interface id `0x51c42ba74885199f`).
@@ -10564,6 +11062,10 @@ pub mod os_lazy_messenger_names_resolve_v1 {
     // Only interfaces that declare topics use the shared topic runtime.
     #[allow(unused_imports)]
     use super::topics;
+    use super::transfers;
+    // Only interfaces that declare rings use the ring descriptors.
+    #[allow(unused_imports)]
+    use super::rings;
 
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0x51c42ba74885199f;
@@ -10593,6 +11095,13 @@ pub mod os_lazy_messenger_names_resolve_v1 {
         }
         Ok(out)
     }
+
+    /// The transfers the request `method` declares; `NONE` for a method
+    /// that declares none or an unknown method id.
+    pub fn request_transfers(method: u32) -> transfers::Transfers {
+        let _ = method;
+        transfers::Transfers::NONE
+    }
 }
 
 /// `os.lazy.messenger.registry.v1` (interface id `0x51d501afec09806c`).
@@ -10607,6 +11116,10 @@ pub mod os_lazy_messenger_registry_v1 {
     // Only interfaces that declare topics use the shared topic runtime.
     #[allow(unused_imports)]
     use super::topics;
+    use super::transfers;
+    // Only interfaces that declare rings use the ring descriptors.
+    #[allow(unused_imports)]
+    use super::rings;
 
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0x51d501afec09806c;
@@ -10836,6 +11349,13 @@ pub mod os_lazy_messenger_registry_v1 {
         }
         Ok(out)
     }
+
+    /// The transfers the request `method` declares; `NONE` for a method
+    /// that declares none or an unknown method id.
+    pub fn request_transfers(method: u32) -> transfers::Transfers {
+        let _ = method;
+        transfers::Transfers::NONE
+    }
 }
 
 /// `os.lazy.shell.v1` (interface id `0x591939ff6e05f1c8`).
@@ -10850,6 +11370,10 @@ pub mod os_lazy_shell_v1 {
     // Only interfaces that declare topics use the shared topic runtime.
     #[allow(unused_imports)]
     use super::topics;
+    use super::transfers;
+    // Only interfaces that declare rings use the ring descriptors.
+    #[allow(unused_imports)]
+    use super::rings;
 
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0x591939ff6e05f1c8;
@@ -11145,6 +11669,13 @@ pub mod os_lazy_shell_v1 {
         }
         Ok(out)
     }
+
+    /// The transfers the request `method` declares; `NONE` for a method
+    /// that declares none or an unknown method id.
+    pub fn request_transfers(method: u32) -> transfers::Transfers {
+        let _ = method;
+        transfers::Transfers::NONE
+    }
 }
 
 /// `os.lazy.sysmond.v1` (interface id `0x5cd4605eb47c3d8f`).
@@ -11159,6 +11690,10 @@ pub mod os_lazy_sysmond_v1 {
     // Only interfaces that declare topics use the shared topic runtime.
     #[allow(unused_imports)]
     use super::topics;
+    use super::transfers;
+    // Only interfaces that declare rings use the ring descriptors.
+    #[allow(unused_imports)]
+    use super::rings;
 
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0x5cd4605eb47c3d8f;
@@ -11349,6 +11884,13 @@ pub mod os_lazy_sysmond_v1 {
         Ok(out)
     }
 
+    /// The transfers the request `method` declares; `NONE` for a method
+    /// that declares none or an unknown method id.
+    pub fn request_transfers(method: u32) -> transfers::Transfers {
+        let _ = method;
+        transfers::Transfers::NONE
+    }
+
     /// The retained memory counters (issue #307): a late subscriber is handed
     /// the latest value immediately.
     /// The declared `system/stats/memory` topic (`MemoryStats`, `latest`, retained).
@@ -11456,6 +11998,10 @@ pub mod os_lazy_timed_v1 {
     // Only interfaces that declare topics use the shared topic runtime.
     #[allow(unused_imports)]
     use super::topics;
+    use super::transfers;
+    // Only interfaces that declare rings use the ring descriptors.
+    #[allow(unused_imports)]
+    use super::rings;
 
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0xc3982ac21906d77;
@@ -11619,6 +12165,13 @@ pub mod os_lazy_timed_v1 {
         Ok(out)
     }
 
+    /// The transfers the request `method` declares; `NONE` for a method
+    /// that declares none or an unknown method id.
+    pub fn request_transfers(method: u32) -> transfers::Transfers {
+        let _ = method;
+        transfers::Transfers::NONE
+    }
+
     /// Published each minute (and on any zone or clock change) and retained, so
     /// a subscriber that starts late immediately learns the current time.
     /// The declared `time/tick` topic (`Tick`, `latest`, retained).
@@ -11679,6 +12232,10 @@ pub mod os_lazy_messenger_topics_v1 {
     // Only interfaces that declare topics use the shared topic runtime.
     #[allow(unused_imports)]
     use super::topics;
+    use super::transfers;
+    // Only interfaces that declare rings use the ring descriptors.
+    #[allow(unused_imports)]
+    use super::rings;
 
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0xc5734f978fef7231;
@@ -12137,6 +12694,13 @@ pub mod os_lazy_messenger_topics_v1 {
         }
         Ok(out)
     }
+
+    /// The transfers the request `method` declares; `NONE` for a method
+    /// that declares none or an unknown method id.
+    pub fn request_transfers(method: u32) -> transfers::Transfers {
+        let _ = method;
+        transfers::Transfers::NONE
+    }
 }
 
 /// `os.lazy.messenger.topics.publish.v1` (interface id `0x7ffc19b03e941e16`).
@@ -12151,6 +12715,10 @@ pub mod os_lazy_messenger_topics_publish_v1 {
     // Only interfaces that declare topics use the shared topic runtime.
     #[allow(unused_imports)]
     use super::topics;
+    use super::transfers;
+    // Only interfaces that declare rings use the ring descriptors.
+    #[allow(unused_imports)]
+    use super::rings;
 
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0x7ffc19b03e941e16;
@@ -12200,6 +12768,13 @@ pub mod os_lazy_messenger_topics_publish_v1 {
         }
         Ok(out)
     }
+
+    /// The transfers the request `method` declares; `NONE` for a method
+    /// that declares none or an unknown method id.
+    pub fn request_transfers(method: u32) -> transfers::Transfers {
+        let _ = method;
+        transfers::Transfers::NONE
+    }
 }
 
 /// `os.lazy.messenger.topics.subscribe.v1` (interface id `0xefbc15f14c9d4bef`).
@@ -12214,6 +12789,10 @@ pub mod os_lazy_messenger_topics_subscribe_v1 {
     // Only interfaces that declare topics use the shared topic runtime.
     #[allow(unused_imports)]
     use super::topics;
+    use super::transfers;
+    // Only interfaces that declare rings use the ring descriptors.
+    #[allow(unused_imports)]
+    use super::rings;
 
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0xefbc15f14c9d4bef;
@@ -12261,6 +12840,13 @@ pub mod os_lazy_messenger_topics_subscribe_v1 {
             }
         }
         Ok(out)
+    }
+
+    /// The transfers the request `method` declares; `NONE` for a method
+    /// that declares none or an unknown method id.
+    pub fn request_transfers(method: u32) -> transfers::Transfers {
+        let _ = method;
+        transfers::Transfers::NONE
     }
 }
 
