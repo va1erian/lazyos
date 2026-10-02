@@ -28,6 +28,7 @@ mod io;
 mod queue;
 
 use super::virtio_diag as diag;
+use super::stats::IoStats;
 use super::{BlockDevice, BlockError, SECTOR_SIZE};
 use core::cell::UnsafeCell;
 use core::sync::atomic::{fence, Ordering};
@@ -103,6 +104,7 @@ pub struct VirtioBlk {
     /// Index into [`SLOTS`]; names the device and finds its DMA memory.
     index: usize,
     state: Mutex<Option<State>>,
+    stats: IoStats,
 }
 
 impl Slot {
@@ -117,6 +119,7 @@ impl Slot {
             device: VirtioBlk {
                 index,
                 state: Mutex::new(None),
+                stats: IoStats::new(),
             },
         }
     }
@@ -275,6 +278,7 @@ impl BlockDevice for VirtioBlk {
         let mut sector = 0u64;
         for chunk in buf.chunks_mut(MAX_REQUEST_BYTES) {
             state.complete(slot, false, lba + sector, chunk.len())?;
+            self.stats.count(false, chunk.len());
             // Safety: the bounce page was filled by the completed request.
             let bounce = unsafe {
                 core::slice::from_raw_parts(slot.bounce.0.get() as *const u8, chunk.len())
@@ -299,6 +303,7 @@ impl BlockDevice for VirtioBlk {
             };
             bounce.copy_from_slice(chunk);
             state.complete(slot, true, lba + sector, chunk.len())?;
+            self.stats.count(true, chunk.len());
             sector += (chunk.len() / SECTOR_SIZE) as u64;
         }
         Ok(())
@@ -306,6 +311,10 @@ impl BlockDevice for VirtioBlk {
 
     fn is_writable(&self) -> bool {
         self.state.lock().is_some()
+    }
+
+    fn stats(&self) -> Option<&IoStats> {
+        Some(&self.stats)
     }
 
     fn flush(&self) -> Result<(), BlockError> {

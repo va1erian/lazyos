@@ -1,0 +1,5 @@
+[
+  {"wait_for": "PKGD:PROVISION:DONE", "timeout": 600},
+  {"at": 8.0, "shot": "01_provisioned"},
+  {"at": 9.0, "quit": true}
+]

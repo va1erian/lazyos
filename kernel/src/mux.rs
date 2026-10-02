@@ -46,6 +46,8 @@ pub fn run() -> ! {
         // An orderly shutdown that never reached `power` (docs/shutdown.md):
         // past the armed deadline the kernel forces the stop itself.
         crate::process::power::watchdog::service();
+        // Report each disk's request counters after a burst of I/O.
+        crate::block::stats::service();
         // A bound compositor owns the screen and input: stop painting entirely
         // and park like any idle task. The check also notices a compositor that
         // exited without unbinding, so this mux is always the fallback.

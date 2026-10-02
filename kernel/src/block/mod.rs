@@ -22,6 +22,7 @@
 pub mod ata;
 pub mod mem;
 pub mod partition;
+pub mod stats;
 pub mod virtio;
 mod virtio_diag;
 
@@ -113,6 +114,12 @@ pub trait BlockDevice: Send + Sync {
     #[cfg_attr(not(lazyos_tests), allow(dead_code))] // no kernel writer yet
     fn flush(&self) -> Result<(), BlockError> {
         Ok(())
+    }
+
+    /// Request counters, for a driver that keeps them ([`stats`]). Partitions
+    /// answer `None`: their requests are counted once, on the whole disk.
+    fn stats(&self) -> Option<&stats::IoStats> {
+        None
     }
 
     /// Whether this is a window onto another device ([`partition`]). Boot-time
