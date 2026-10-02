@@ -126,6 +126,24 @@ impl Ext2 {
         first
     }
 
+    /// An ordering point inside one operation: everything changed so far is
+    /// on the disk before anything changed after it.
+    ///
+    /// The phases order blocks by kind, which serves allocation and frees but
+    /// not an operation whose crash safety needs two blocks *of the same kind*
+    /// in a given order, or a directory block ahead of an inode: a rename must
+    /// put the new name on the disk before the old one goes (else a crash can
+    /// lose the file under both names), and the old name before the link count
+    /// drops. Those operations call this between the steps; uncached, every
+    /// write is already in order and this does nothing.
+    pub(super) fn barrier(&self) -> Result<(), Ext2Error> {
+        if self.cache.is_none() {
+            return Ok(());
+        }
+        self.write_back()?;
+        self.io.flush().map_err(io_error)
+    }
+
     /// Write every dirty cached block back (nothing to do uncached).
     pub(super) fn write_back(&self) -> Result<(), Ext2Error> {
         match &self.cache {

@@ -11,6 +11,7 @@ use super::*;
 use crate::block::BlockDevice;
 use crate::mem;
 
+mod confd_cut;
 mod soak;
 mod virtio;
 
@@ -28,6 +29,10 @@ pub(in crate::tests) const CASES: &[(&str, Test)] = &[
     ("bcache_periodic_writeback", periodic_writeback),
     ("bcache_power_off_sync", power_off_sync),
     ("bcache_pressure_returns_frames", pressure_returns_frames),
+    (
+        "bcache_confd_power_cut_sweep",
+        confd_cut::confd_power_cut_sweep,
+    ),
     ("bcache_virtio_scatter_gather", virtio::scatter_gather),
     ("bcache_virtio_cached_volume", virtio::cached_volume),
     ("bcache_soak_block_ops", soak::block_ops),

@@ -12,7 +12,9 @@
 //! 4. only then is the replaced file released.
 //!
 //! A cut before 2 leaves the old state, after 2 the file under both names with
-//! a link count of two, so unlinking either leaves the other intact. The worst
+//! a link count of two, so unlinking either leaves the other intact. Through
+//! the block cache the steps are kept apart by [`Ext2::barrier`]s, which give
+//! the same guarantee (the cache otherwise orders by block kind). The worst
 //! case is a leaked link count or an unreferenced victim inode (space, never
 //! data). Directories keep the general path in `rename.rs` (their link counts
 //! carry `..` bookkeeping).
@@ -90,7 +92,14 @@ impl Ext2 {
         // removed, the file keeps both names (and both links), but the new
         // name is committed: the victim lost its entry, so it is released
         // before the error is returned instead of leaking until an fsck.
-        if let Err(error) = self.remove_entry(from.parent_ino, from.parent, from.name) {
+        // Cached, each step reaches the disk before the next starts: the new
+        // name before the old one goes, the old one before the link count
+        // drops (see [`Ext2::barrier`]).
+        let removed = self
+            .barrier()
+            .and_then(|()| self.remove_entry(from.parent_ino, from.parent, from.name))
+            .and_then(|_| self.barrier());
+        if let Err(error) = removed {
             if let Some((existing, mut inode)) = victim {
                 let _ = self.release_link(existing, &mut inode);
             }
