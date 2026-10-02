@@ -202,8 +202,8 @@ fn in_home(path: &str) -> bool {
 }
 
 /// The explanation of one `read:<path>` or `write:<path>` entry. Writing is
-/// medium inside `/data/home` and high anywhere else; reading is low inside
-/// `/data/home` and medium anywhere else.
+/// medium inside `/home` and high anywhere else; reading is low inside
+/// `/home` and medium anywhere else.
 pub fn file(entry: &str) -> Explained {
     match entry.split_once(':') {
         Some(("write", path)) => Explained {
@@ -349,12 +349,12 @@ mod tests {
 
     #[test]
     fn file_risk_depends_on_read_write_and_location() {
-        assert_eq!(file("read:/data/home/*/pictures").risk, LOW);
-        assert_eq!(file("write:/data/home/*/pictures").risk, MEDIUM);
+        assert_eq!(file("read:/home/*/pictures").risk, LOW);
+        assert_eq!(file("write:/home/*/pictures").risk, MEDIUM);
         assert_eq!(file("read:/etc/passwd").risk, MEDIUM);
-        assert_eq!(file("write:/data/apps/*").risk, HIGH);
+        assert_eq!(file("write:/apps/*").risk, HIGH);
         // A sibling that merely starts with the home path is not inside it.
-        assert_eq!(file("write:/data/homework").risk, HIGH);
+        assert_eq!(file("write:/homework").risk, HIGH);
         assert_eq!(file("exec:/bin/sh").risk, HIGH);
     }
 
@@ -371,7 +371,7 @@ mod tests {
              [entry]\nbinary = \"bin/app.elf\"\n\
              [permissions]\ninterfaces = [\"os.lazy.clipboard.v1\", \"os.lazy.keyd.v1\"]\n\
              topics = [\"subscribe:system/events/open/+\"]\n\
-             files = [\"read:/data/home/*/pictures\"]\nnetwork = [\"outbound\"]\n",
+             files = [\"read:/home/*/pictures\"]\nnetwork = [\"outbound\"]\n",
         )
         .expect("valid");
         let listed = permissions(&manifest);

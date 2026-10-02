@@ -5,8 +5,9 @@ Interface id: `0x2e65545739956542`
 The application package manager (`docs/packages.md`, phase 3 of the
 package system).
 
-`pkgd` is the only task that writes `/data/apps`, records installed apps in
-`confd`, registers their MIME verbs with `mimed` and loads their Messenger
+`pkgd` is the only task that writes `/apps` and `/docs/apps`, records
+installed apps in `confd`, registers their MIME verbs with `mimed` and loads
+their Messenger
 policy into the kernel (`acl_load`, `CAP_IPC_CONTROL`). A GUI installer is
 an unprivileged client: it calls `Inspect`, shows the user what the package
 asks for, and forwards the user's yes as `Install`. Failures are returned

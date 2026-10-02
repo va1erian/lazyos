@@ -115,8 +115,8 @@ impl Pkgd {
     /// `Inspect(path)`: read and validate the package, change nothing.
     fn inspect(&mut self, caller: &Caller, path: &str) -> Result<wire::PackageInfo, Failure> {
         access::may_inspect(caller).map_err(|why| fail(EPERM, why))?;
-        self.check_source(caller, path)?;
-        store::read_package(&mut self.buffer, path).map_err(read_failure)?;
+        let path = self.check_source(caller, path)?;
+        store::read_package(&mut self.buffer, &path).map_err(read_failure)?;
         let bytes = core::mem::take(&mut self.buffer);
         let info = match assess(&bytes) {
             Ok(assessed) => assessed.info,
@@ -126,9 +126,10 @@ impl Pkgd {
         Ok(info)
     }
 
-    /// Whether `pkgd` will read `path` for `caller` (see `pkgstore::access`).
-    pub(crate) fn check_source(&mut self, caller: &Caller, path: &str) -> Result<(), Failure> {
-        // The home directory is only needed for a path the cheap rules refuse.
+    /// Whether `pkgd` will read `path` for `caller` (see `pkgstore::access`),
+    /// and the normalised path to read.
+    pub(crate) fn check_source(&mut self, caller: &Caller, path: &str) -> Result<String, Failure> {
+        // Root may read anywhere; anyone else may also use their own home.
         let home = if caller.uid == 0 {
             None
         } else {

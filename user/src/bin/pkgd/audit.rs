@@ -1,5 +1,5 @@
 //! `pkgd`'s audit trail: every install, removal and refusal is one record in the
-//! hash-chained `/data/log/pkg.log` (`pkgstore::audit`) *and* one event on
+//! hash-chained `/logs/pkg.log` (`pkgstore::audit`) *and* one event on
 //! `system/events/pkg/<op>`, which `logd` (subscribed to `system/events/#`)
 //! retains independently, so rewriting the file cannot erase what `logd` saw.
 //!
@@ -26,7 +26,7 @@ const PUBLISH_ATTEMPTS: usize = 8;
 /// The chain state, the log's availability and the broker connection.
 pub(crate) struct Audit {
     chain: Chain,
-    /// Whether the log file can be written (the data volume is usable).
+    /// Whether the log file can be written (`/logs` is writable).
     persistent: bool,
     bus: Option<central::Bus>,
 }

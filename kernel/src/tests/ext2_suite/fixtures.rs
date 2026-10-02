@@ -19,6 +19,11 @@ fn raw32(disk: &FakeDisk, offset: usize) -> u32 {
     ])
 }
 
+/// `s_last_orphan`: the head of the on-disk orphan list (0 when empty).
+pub(super) fn last_orphan(disk: &FakeDisk) -> u32 {
+    raw32(disk, SUPER + 0xE8)
+}
+
 /// How many of the first `bits` bits of the bitmap block are clear.
 fn clear_bits(disk: &FakeDisk, block: usize, block_size: usize, bits: usize) -> u32 {
     let data = disk.data.lock();

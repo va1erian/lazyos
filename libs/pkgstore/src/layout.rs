@@ -3,19 +3,28 @@
 //! `pkgd` writes as root, so a path it composes must be right even for a
 //! package `lazypkg` already validated: every component is re-checked here
 //! before it reaches a syscall, and nothing is ever joined from a string that
-//! could climb out of `/data/apps`. (The ext2 volume has no symlinks, so a
-//! lexically safe path is a physically safe one.)
+//! could climb out of `/apps` (or, for an app's documentation, `/docs/apps`).
+//! (The ext2 volume has no symlinks, so a lexically safe path is a physically
+//! safe one.)
 
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 
-/// The data volume's mount point.
-pub const DATA_ROOT: &str = fhs::mount::DATA;
 /// Installed applications, one directory per `system_name` per version.
 pub const APPS_ROOT: &str = fhs::state::APPS_ROOT;
-/// Where `pkgd` keeps its audit log.
-pub const LOG_DIR: &str = fhs::state::PKG_LOG_DIR;
+/// Where `pkgd` keeps its audit log: `logd`'s journal directory, whose
+/// rotation and budget leave `pkg.log` alone.
+pub const LOG_DIR: &str = fhs::state::LOGS_ROOT;
+/// Installed apps' documentation, one `<system_name>/` directory each.
+pub const DOCS_ROOT: &str = fhs::docs::DOCS_APPS;
+/// The package directory whose `.md` files are the app's documentation.
+pub const DOCS_DIR: &str = "docs";
+/// Suffix of the documentation being written for an install, renamed over
+/// the live directory once complete.
+pub const DOCS_STAGING: &str = "~new";
+/// Suffix the live documentation takes while the new one replaces it.
+pub const DOCS_RETIRED: &str = "~old";
 /// The hash-chained audit log (`crate::audit`).
 pub const LOG_FILE: &str = fhs::state::PKG_LOG_FILE;
 /// The `confd` subtree holding one record per installed app.
@@ -86,7 +95,7 @@ pub fn valid_install_dir(install_dir: &str) -> bool {
             .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
 }
 
-/// `/data/apps/<system_name>`: every version of one app.
+/// `/apps/<system_name>`: every version of one app.
 pub fn app_dir(system_name: &str) -> Result<String, PathError> {
     if !valid_system_name(system_name) {
         return Err(PathError::SystemName);
@@ -94,7 +103,7 @@ pub fn app_dir(system_name: &str) -> Result<String, PathError> {
     Ok(format!("{APPS_ROOT}/{system_name}"))
 }
 
-/// `/data/apps/<install_dir>`.
+/// `/apps/<install_dir>`.
 pub fn install_path(install_dir: &str) -> Result<String, PathError> {
     if !valid_install_dir(install_dir) {
         return Err(PathError::InstallDir);
@@ -247,12 +256,12 @@ mod tests {
     fn paths_are_built_only_from_valid_parts() {
         assert_eq!(
             install_path("org.lazy.counter/1.0.0-0a1b2c3d").unwrap(),
-            "/data/apps/org.lazy.counter/1.0.0-0a1b2c3d"
+            "/apps/org.lazy.counter/1.0.0-0a1b2c3d"
         );
         assert_eq!(install_path("../../etc"), Err(PathError::InstallDir));
         assert_eq!(
             app_dir("org.lazy.counter").unwrap(),
-            "/data/apps/org.lazy.counter"
+            "/apps/org.lazy.counter"
         );
         assert_eq!(app_dir("bad"), Err(PathError::SystemName));
         assert_eq!(
@@ -290,10 +299,10 @@ mod tests {
             assert!(!safe_entry(bad), "{bad:?}");
         }
         assert_eq!(
-            entry_path("/data/apps/x.y.z/1.0.0-00000000", "bin/app.elf").unwrap(),
-            "/data/apps/x.y.z/1.0.0-00000000/bin/app.elf"
+            entry_path("/apps/x.y.z/1.0.0-00000000", "bin/app.elf").unwrap(),
+            "/apps/x.y.z/1.0.0-00000000/bin/app.elf"
         );
-        assert_eq!(entry_path("/data/apps/x", "../y"), Err(PathError::Entry));
+        assert_eq!(entry_path("/apps/x", "../y"), Err(PathError::Entry));
     }
 
     #[test]

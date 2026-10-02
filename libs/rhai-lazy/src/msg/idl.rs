@@ -297,7 +297,7 @@ pub static INTERFACES: &[Interface] = &[
                 name: "Info",
                 id: 266462757,
                 oneway: false,
-                doc: "Where the store lives: the directory confd chose and whether it\nsurvives a reboot (`false` when it fell back to the ramfs `/tmp`).\nNot restricted by path, so any caller may ask.",
+                doc: "Where the store lives: the directory confd chose and whether it\nsurvives a reboot (`/conf`; `false` when it fell back to the ramfs\n`/transient/conf`).\nNot restricted by path, so any caller may ask.",
                 params: &[],
                 returns: &[Field { name: "store_dir", ty: Ty::String }, Field { name: "persistent", ty: Ty::Bool }],
             },
@@ -1160,7 +1160,7 @@ pub static INTERFACES: &[Interface] = &[
     Interface {
         name: "os.lazy.lifecycle.v1",
         id: 0x778a92e489f41682,
-        doc: "The service lifecycle contract (docs/shutdown.md): the one control message\n`init` sends a supervised service during an orderly shutdown. A service\nthat serves it registers this interface next to its own; one that does not\nis sent `SIGTERM` instead.\n\nThe service finishes the request it is serving, makes its state durable\n(`confd` fsyncs its store, `logd` drains its feeds into the ring) and exits\nwith status 0. Only a sender holding `CAP_SYS_ADMIN` (the supervisor) is\nobeyed; anyone else's message is ignored. `init` waits for the exit, not\nfor a reply, and kills the service when its stop deadline passes.",
+        doc: "The service lifecycle contract (docs/shutdown.md): the one control message\n`init` sends a supervised service during an orderly shutdown. A service\nthat serves it registers this interface next to its own; one that does not\nis sent `SIGTERM` instead.\n\nThe service finishes the request it is serving, makes its state durable\n(`confd` fsyncs its store, `logd` flushes its journals, `pkgd` fsyncs\n`/logs/pkg.log`) and exits with status 0. Only a sender holding `CAP_SYS_ADMIN` (the supervisor) is\nobeyed; anyone else's message is ignored. `init` waits for the exit, not\nfor a reply, and kills the service when its stop deadline passes.",
         methods: &[
             Method {
                 name: "Shutdown",
@@ -1741,13 +1741,13 @@ pub static INTERFACES: &[Interface] = &[
     Interface {
         name: "os.lazy.pkgd.v1",
         id: 0x2e65545739956542,
-        doc: "The application package manager (`docs/packages.md`, phase 3 of the\npackage system).\n\n`pkgd` is the only task that writes `/data/apps`, records installed apps in\n`confd`, registers their MIME verbs with `mimed` and loads their Messenger\npolicy into the kernel (`acl_load`, `CAP_IPC_CONTROL`). A GUI installer is\nan unprivileged client: it calls `Inspect`, shows the user what the package\nasks for, and forwards the user's yes as `Install`. Failures are returned\nas a structured error field (errno-style code, friendly text), not as a\ntyped reply; a package that fails validation reports every problem in\n`PackageInfo.problems` instead of an error so the installer can list them.",
+        doc: "The application package manager (`docs/packages.md`, phase 3 of the\npackage system).\n\n`pkgd` is the only task that writes `/apps` and `/docs/apps`, records\ninstalled apps in `confd`, registers their MIME verbs with `mimed` and loads\ntheir Messenger\npolicy into the kernel (`acl_load`, `CAP_IPC_CONTROL`). A GUI installer is\nan unprivileged client: it calls `Inspect`, shows the user what the package\nasks for, and forwards the user's yes as `Install`. Failures are returned\nas a structured error field (errno-style code, friendly text), not as a\ntyped reply; a package that fails validation reports every problem in\n`PackageInfo.problems` instead of an error so the installer can list them.",
         methods: &[
             Method {
                 name: "Inspect",
                 id: 1027767735,
                 oneway: false,
-                doc: "Open and validate the `.lzp` at `path` (an absolute path the caller may\nread) without changing anything. `problems` is empty for a package that\ncould be installed; otherwise it lists every reason it cannot be.",
+                doc: "Open and validate the `.lzp` at `path` without changing anything. Root\nmay name any absolute path; anyone else a file under `/transient` or\ntheir own home folder (the path is normalised first). `problems` is empty for a package that\ncould be installed; otherwise it lists every reason it cannot be.",
                 params: &[Field { name: "path", ty: Ty::String }],
                 returns: &[Field { name: "info", ty: Ty::Struct("PackageInfo") }],
             },
@@ -1755,7 +1755,7 @@ pub static INTERFACES: &[Interface] = &[
                 name: "Install",
                 id: 890027328,
                 oneway: false,
-                doc: "Install the package at `path`: extract it to its install directory,\nrecord it, register its MIME verbs, load its policy, then publish\n`system/events/pkg/install`. Fails if the same `system_name` is already\ninstalled at this version and digest. Needs the caller to be the\nsession owner or root; `pkgd` audits who asked.",
+                doc: "Install the package at `path` (the same source rule as `Inspect`):\nextract it to its install directory under `/apps`, copy its\n`docs/*.md` to `/docs/apps/<system_name>/`, record it, register its\nMIME verbs, load its policy, then publish\n`system/events/pkg/install`. Fails if the same `system_name` is already\ninstalled at this version and digest. Needs the caller to be the\nsession owner or root; `pkgd` audits who asked.",
                 params: &[Field { name: "path", ty: Ty::String }],
                 returns: &[Field { name: "app", ty: Ty::Struct("Installed") }],
             },
@@ -1763,7 +1763,7 @@ pub static INTERFACES: &[Interface] = &[
                 name: "Remove",
                 id: 564498461,
                 oneway: false,
-                doc: "Remove `system_name`: stop its running instances, unregister its MIME\nverbs, revoke its policy, delete its install directory, then publish\n`system/events/pkg/remove`. User data under `/data/home` is kept.",
+                doc: "Remove `system_name`: stop its running instances, unregister its MIME\nverbs, revoke its policy, delete its install directory and its\ndocumentation, then publish `system/events/pkg/remove`. User data\nunder `/home` is kept.",
                 params: &[Field { name: "system_name", ty: Ty::String }],
                 returns: &[],
             },
@@ -1792,7 +1792,7 @@ pub static INTERFACES: &[Interface] = &[
             },
             Struct {
                 name: "MimeHandler",
-                doc: "Lowercase hex SHA-256 of the archive.\nWhere it would be installed, relative to `/data/apps`.\nEmpty when the package can be installed.\nOne handled file type.",
+                doc: "Lowercase hex SHA-256 of the archive.\nWhere it would be installed, relative to `/apps`.\nEmpty when the package can be installed.\nOne handled file type.",
                 fields: &[Field { name: "mime_type", ty: Ty::String }, Field { name: "verbs", ty: Ty::Array(&Ty::String) }, Field { name: "has_icon", ty: Ty::Bool }],
             },
             Struct {
@@ -1807,7 +1807,7 @@ pub static INTERFACES: &[Interface] = &[
             },
             Struct {
                 name: "PkgEvent",
-                doc: "Install directory relative to `/data/apps`.\nEntry binary, relative to the install directory (`bin/<name>.elf`).\nKernel ticks at install time.\nThe program's ABI, `native` or `linux`: `init` needs it to pick the\nspawn personality, and an ELF header cannot tell them apart.\nThe manifest's fixed `entry.args`, passed before any launch path.\nOne audit record: the payload of `system/events/pkg/<op>`, where `op`\nis `install`, `remove` or `denied`. The same record, hex-encoded with\na chained SHA-256, is appended to `/data/log/pkg.log`.",
+                doc: "Install directory relative to `/apps`.\nEntry binary, relative to the install directory (`bin/<name>.elf`).\nKernel ticks at install time.\nThe program's ABI, `native` or `linux`: `init` needs it to pick the\nspawn personality, and an ELF header cannot tell them apart.\nThe manifest's fixed `entry.args`, passed before any launch path.\nOne audit record: the payload of `system/events/pkg/<op>`, where `op`\nis `install`, `remove` or `denied`. The same record, hex-encoded with\na chained SHA-256, is appended to `/logs/pkg.log`.",
                 fields: &[Field { name: "op", ty: Ty::String }, Field { name: "system_name", ty: Ty::String }, Field { name: "version", ty: Ty::String }, Field { name: "install_dir", ty: Ty::String }, Field { name: "digest", ty: Ty::String }, Field { name: "actor_uid", ty: Ty::U64 }, Field { name: "ok", ty: Ty::Bool }, Field { name: "detail", ty: Ty::String }],
             },
         ],

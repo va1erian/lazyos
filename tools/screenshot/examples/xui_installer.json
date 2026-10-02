@@ -7,6 +7,85 @@
   "wait": 2.0
  },
  {
+  "type": "cp /sy"
+ },
+ {
+  "wait": 0.5
+ },
+ {
+  "type": "stem/s"
+ },
+ {
+  "wait": 0.5
+ },
+ {
+  "type": "hare/s"
+ },
+ {
+  "wait": 0.5
+ },
+ {
+  "type": "amples"
+ },
+ {
+  "wait": 0.5
+ },
+ {
+  "type": "/pkgde"
+ },
+ {
+  "wait": 0.5
+ },
+ {
+  "type": "mo.lzp"
+ },
+ {
+  "wait": 0.5
+ },
+ {
+  "type": " /tran"
+ },
+ {
+  "wait": 0.5
+ },
+ {
+  "type": "sient/"
+ },
+ {
+  "wait": 0.5
+ },
+ {
+  "type": " && ec"
+ },
+ {
+  "wait": 0.5
+ },
+ {
+  "type": "ho sta"
+ },
+ {
+  "wait": 0.5
+ },
+ {
+  "type": "ged"
+ },
+ {
+  "wait": 0.5
+ },
+ {
+  "key": "enter",
+  "until": "TERM:CMD:cp /system/share/samples/pkgdemo.lzp /transient/ && echo staged",
+  "timeout": 30,
+  "retries": 1
+ },
+ {
+  "wait_for": "TERM:OUT:staged",
+  "timeout": 60
+ },
+ {
+  "wait": 1.0
+ },
+ {
   "type": "pkgctl"
  },
  {
@@ -19,13 +98,25 @@
   "wait": 0.8
  },
  {
-  "type": "/pkgde"
+  "type": "/trans"
  },
  {
   "wait": 0.8
  },
  {
-  "type": "mo.lzp"
+  "type": "ient/p"
+ },
+ {
+  "wait": 0.8
+ },
+ {
+  "type": "kgdemo"
+ },
+ {
+  "wait": 0.8
+ },
+ {
+  "type": ".lzp"
  },
  {
   "wait": 1.0

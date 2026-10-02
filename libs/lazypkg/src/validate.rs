@@ -362,7 +362,7 @@ mod tests {
         good.permissions
             .topics
             .push("publish:app/org.lazy.demo/#".into());
-        good.permissions.files.push("read:/data/home/*".into());
+        good.permissions.files.push("read:/home/*".into());
         let problems = validate(&good, &files(&["bin/app.elf"]));
         assert!(problems.is_empty(), "{problems:?}");
     }
@@ -438,8 +438,8 @@ mod tests {
             "subscribe:system/events/open/+".into(),
         ];
         good.permissions.files = vec![
-            "read:/data/home/*/pictures".into(),
-            "write:/data/home/*/pictures".into(),
+            "read:/home/*/pictures".into(),
+            "write:/home/*/pictures".into(),
         ];
         good.permissions.network = vec!["outbound".into()];
         assert!(validate(&good, &files(&["bin/app.elf"])).is_empty());

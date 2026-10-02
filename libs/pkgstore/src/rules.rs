@@ -332,7 +332,7 @@ mod tests {
             resolve_scope::INTERFACE_ID,
             fnv1a32("os.lazy.net.stack")
         )));
-        let files = compile(&manifest("files = [\"write:/data/home/*/x\"]\n")).unwrap();
+        let files = compile(&manifest("files = [\"write:/home/*/x\"]\n")).unwrap();
         assert!(files.is_empty());
     }
 

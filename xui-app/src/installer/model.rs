@@ -24,7 +24,7 @@ pub struct MimeHandler {
 pub struct Permission {
     /// `interface`, `topic`, `file` or `network`.
     pub kind: String,
-    /// The concrete value (`os.lazy.clipboard.v1`, `read:/data/home/*`, ...).
+    /// The concrete value (`os.lazy.clipboard.v1`, `read:/home/*`, ...).
     pub value: String,
     /// `high`, `medium`, `low`, or anything else (treated as "other").
     pub risk: String,
@@ -47,7 +47,7 @@ pub struct Package {
     pub description: String,
     /// Lowercase hex SHA-256 of the archive.
     pub digest: String,
-    /// Install directory relative to `/data/apps`.
+    /// Install directory relative to `/apps`.
     pub install_dir: String,
     /// Handled file types.
     pub mime: Vec<MimeHandler>,
@@ -66,7 +66,7 @@ pub struct Installed {
     pub name: String,
     /// `MAJOR.MINOR.PATCH`.
     pub version: String,
-    /// Install directory relative to `/data/apps`.
+    /// Install directory relative to `/apps`.
     pub install_dir: String,
     /// Lowercase hex SHA-256 of the archive.
     pub digest: String,
@@ -309,10 +309,10 @@ mod tests {
     #[test]
     fn the_consent_flow_reaches_done_and_returns_to_the_list() {
         let mut model = Model::new();
-        model.set_path("/tmp/paint.lzp");
-        model.inspect_ok("/tmp/paint.lzp".into(), package("org.lazy.paint", &[]));
+        model.set_path("/transient/paint.lzp");
+        model.inspect_ok("/transient/paint.lzp".into(), package("org.lazy.paint", &[]));
         assert_eq!(model.screen, Screen::Consent);
-        assert_eq!(model.inspected_path.as_deref(), Some("/tmp/paint.lzp"));
+        assert_eq!(model.inspected_path.as_deref(), Some("/transient/paint.lzp"));
         // Inspecting clears the typed path so `q` quits again from the list.
         assert!(model.path_input.is_empty());
 
@@ -320,7 +320,7 @@ mod tests {
         assert_eq!(model.screen, Screen::Installing);
         assert_eq!(
             model.pending,
-            Some(Request::Install("/tmp/paint.lzp".into()))
+            Some(Request::Install("/transient/paint.lzp".into()))
         );
 
         let app = installed("org.lazy.paint", "1.0.0");
@@ -347,7 +347,7 @@ mod tests {
     fn a_package_with_problems_offers_only_close() {
         let mut model = Model::new();
         model.inspect_ok(
-            "/tmp/bad.lzp".into(),
+            "/transient/bad.lzp".into(),
             package("org.lazy.bad", &["version \"1\" is not semver"]),
         );
         assert_eq!(model.screen, Screen::Consent);
@@ -369,20 +369,20 @@ mod tests {
     #[test]
     fn inspect_again_drops_the_previous_package_and_pending_request() {
         let mut model = Model::new();
-        model.inspect_ok("/tmp/a.lzp".into(), package("org.lazy.a", &[]));
+        model.inspect_ok("/transient/a.lzp".into(), package("org.lazy.a", &[]));
         model.install_started();
         assert!(model.pending.is_some());
         // A second inspect while the first is pending must not reuse the first.
-        model.inspect_ok("/tmp/b.lzp".into(), package("org.lazy.b", &[]));
+        model.inspect_ok("/transient/b.lzp".into(), package("org.lazy.b", &[]));
         assert_eq!(model.inspected.as_ref().unwrap().system_name, "org.lazy.b");
         assert!(model.pending.is_none(), "the stale install was dropped");
-        assert_eq!(model.inspected_path.as_deref(), Some("/tmp/b.lzp"));
+        assert_eq!(model.inspected_path.as_deref(), Some("/transient/b.lzp"));
     }
 
     #[test]
     fn install_failure_keeps_the_package_and_shows_the_error() {
         let mut model = Model::new();
-        model.inspect_ok("/tmp/paint.lzp".into(), package("org.lazy.paint", &[]));
+        model.inspect_ok("/transient/paint.lzp".into(), package("org.lazy.paint", &[]));
         model.install_started();
         model.install_failed("pkgd error 13");
         assert_eq!(model.screen, Screen::Consent);
@@ -428,7 +428,7 @@ mod tests {
     #[test]
     fn cancel_does_not_interrupt_a_running_install() {
         let mut model = Model::new();
-        model.inspect_ok("/tmp/paint.lzp".into(), package("org.lazy.paint", &[]));
+        model.inspect_ok("/transient/paint.lzp".into(), package("org.lazy.paint", &[]));
         model.install_started();
         model.cancel();
         assert_eq!(model.screen, Screen::Installing);

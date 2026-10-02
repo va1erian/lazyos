@@ -55,8 +55,9 @@ impl ConsentScreen {
         let author_label =
             Label::new(page, rect(MARGIN, 36, width - 2 * MARGIN, 16), &author).map_err(fail)?;
         let meta = format!(
-            "Version {}   ·   installs to /data/apps/{}   ·   sha256 {}",
+            "Version {}   ·   installs to {}/{}   ·   sha256 {}",
             or_unknown(&package.version, 20),
+            fhs::state::APPS_ROOT,
             elide(&package.install_dir, 60),
             short_digest(&package.digest),
         );

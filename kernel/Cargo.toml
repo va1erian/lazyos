@@ -26,6 +26,9 @@ lazyos-crypto = { path = "../libs/crypto" }
 confd = { path = "../libs/confd" }
 # Issue #508: the in-kernel suite drives `logd`'s journal store against ext2.
 logstore = { path = "../libs/logstore" }
+# Issue #508: the in-kernel suite drives `pkgd`'s install trees and audit log
+# (`pkgstore::tree`, `pkgstore::audit`) against ext2.
+pkgstore = { path = "../libs/pkgstore" }
 # Issue #369: the in-kernel suite drives the zone/DST resolution `timed` links.
 timezone = { path = "../libs/timed" }
 # Issue #361: the in-kernel suite drives the display buffer-slot state machines

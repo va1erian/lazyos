@@ -1,7 +1,7 @@
 //! Typed client for `pkgd` (`os.lazy.pkgd.v1`), the application package
 //! manager (`docs/packages.md`, phase 5).
 //!
-//! `pkgd` owns `/data/apps`; this app only asks it to inspect, install, remove
+//! `pkgd` owns `/apps`; this app only asks it to inspect, install, remove
 //! and list. Bodies are built and parsed with the generated
 //! `messenger-generated` stubs, never by hand. Every reply is untrusted: a
 //! decode failure or a malformed field becomes a friendly [`String`] error, so
@@ -68,7 +68,7 @@ pub fn install(path: &str) -> Result<Installed, String> {
     Ok(installed_from_wire(decoded.app))
 }
 
-/// Remove `system_name`. `pkgd` keeps the user's documents under `/data/home`.
+/// Remove `system_name`. `pkgd` keeps the user's documents under `/home`.
 pub fn remove(system_name: &str) -> Result<(), String> {
     let body = wire::encode_remove_args(&wire::RemoveArgs {
         system_name: system_name.to_owned(),
@@ -170,7 +170,7 @@ mod tests {
             }],
             permissions: vec![wire::Permission {
                 kind: "file".into(),
-                value: "read:/data/home/*".into(),
+                value: "read:/home/*".into(),
                 risk: "high".into(),
                 explanation: "read your documents".into(),
             }],

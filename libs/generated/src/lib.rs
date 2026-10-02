@@ -2142,7 +2142,8 @@ pub mod os_lazy_confd_v1 {
     }
 
     /// Where the store lives: the directory confd chose and whether it
-    /// survives a reboot (`false` when it fell back to the ramfs `/tmp`).
+    /// survives a reboot (`/conf`; `false` when it fell back to the ramfs
+    /// `/transient/conf`).
     /// Not restricted by path, so any caller may ask.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct InfoReply {
@@ -9694,7 +9695,7 @@ pub mod os_lazy_pkgd_v1 {
     }
 
     /// Lowercase hex SHA-256 of the archive.
-    /// Where it would be installed, relative to `/data/apps`.
+    /// Where it would be installed, relative to `/apps`.
     /// Empty when the package can be installed.
     /// One handled file type.
     #[derive(Clone, Debug, Default, PartialEq)]
@@ -9857,7 +9858,7 @@ pub mod os_lazy_pkgd_v1 {
         Ok(out)
     }
 
-    /// Install directory relative to `/data/apps`.
+    /// Install directory relative to `/apps`.
     /// Entry binary, relative to the install directory (`bin/<name>.elf`).
     /// Kernel ticks at install time.
     /// The program's ABI, `native` or `linux`: `init` needs it to pick the
@@ -9865,7 +9866,7 @@ pub mod os_lazy_pkgd_v1 {
     /// The manifest's fixed `entry.args`, passed before any launch path.
     /// One audit record: the payload of `system/events/pkg/<op>`, where `op`
     /// is `install`, `remove` or `denied`. The same record, hex-encoded with
-    /// a chained SHA-256, is appended to `/data/log/pkg.log`.
+    /// a chained SHA-256, is appended to `/logs/pkg.log`.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct PkgEvent {
         pub op: alloc::string::String,
@@ -9937,8 +9938,9 @@ pub mod os_lazy_pkgd_v1 {
     /// `Installed` method id.
     pub const METHOD_INSTALLED: u32 = 1755800129;
 
-    /// Open and validate the `.lzp` at `path` (an absolute path the caller may
-    /// read) without changing anything. `problems` is empty for a package that
+    /// Open and validate the `.lzp` at `path` without changing anything. Root
+    /// may name any absolute path; anyone else a file under `/transient` or
+    /// their own home folder (the path is normalised first). `problems` is empty for a package that
     /// could be installed; otherwise it lists every reason it cannot be.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct InspectArgs {
@@ -9984,8 +9986,10 @@ pub mod os_lazy_pkgd_v1 {
         Ok(out)
     }
 
-    /// Install the package at `path`: extract it to its install directory,
-    /// record it, register its MIME verbs, load its policy, then publish
+    /// Install the package at `path` (the same source rule as `Inspect`):
+    /// extract it to its install directory under `/apps`, copy its
+    /// `docs/*.md` to `/docs/apps/<system_name>/`, record it, register its
+    /// MIME verbs, load its policy, then publish
     /// `system/events/pkg/install`. Fails if the same `system_name` is already
     /// installed at this version and digest. Needs the caller to be the
     /// session owner or root; `pkgd` audits who asked.
@@ -10034,8 +10038,9 @@ pub mod os_lazy_pkgd_v1 {
     }
 
     /// Remove `system_name`: stop its running instances, unregister its MIME
-    /// verbs, revoke its policy, delete its install directory, then publish
-    /// `system/events/pkg/remove`. User data under `/data/home` is kept.
+    /// verbs, revoke its policy, delete its install directory and its
+    /// documentation, then publish `system/events/pkg/remove`. User data
+    /// under `/home` is kept.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct RemoveArgs {
         pub system_name: alloc::string::String,

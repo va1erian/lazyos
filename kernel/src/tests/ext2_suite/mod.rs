@@ -166,6 +166,7 @@ pub(super) fn mounted_in(
     Ok((fs, vfs, disk))
 }
 
+mod confd_seed;
 mod confd_store;
 pub(super) mod data_fds;
 mod fixtures;
@@ -175,12 +176,15 @@ mod large_files;
 // `logd`'s journals on ext2 (issue #508), run as their own table.
 pub(super) mod logd_store;
 mod orphan_crash;
+// `pkgd`'s install trees on ext2 (issue #508), run as their own table.
 mod orphans;
 mod persistence;
+pub(super) mod pkg_tree;
 mod rmdir;
 mod sync_state;
 mod truncate;
 
+use confd_seed::*;
 use confd_store::*;
 use fixtures::*;
 pub(super) use format_and_roundtrip::*;
@@ -226,6 +230,11 @@ pub(super) const CASES: &[(&str, Test)] = &[
         "fs_ext2_confd_store_soak_generations",
         confd_store_soak_generations,
     ),
+    (
+        "fs_ext2_confd_seed_from_data_once",
+        confd_seed_from_data_once,
+    ),
+    ("fs_ext2_confd_seed_absent_legacy", confd_seed_absent_legacy),
     ("fs_ext2_soak_remount_generations", soak_remount_generations),
     (
         "fs_ext2_truncate_shrink_grow_zero",

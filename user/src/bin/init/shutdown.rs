@@ -26,7 +26,7 @@ use alloc::vec::Vec;
 use core::sync::atomic::{AtomicBool, Ordering};
 
 use user::files;
-use user::messenger::{self, confd, registry, router, services};
+use user::messenger::{self, confd, pkgd, registry, router, services};
 use user::sys::{self, Cred as SysCred};
 
 use super::service::{Phase, Service};
@@ -46,7 +46,11 @@ const MAX_REASON: usize = 128;
 
 /// The services that serve the lifecycle contract: manifest name, registered
 /// name. Everything else is stopped with `SIGTERM`.
-const GRACEFUL: &[(&str, &str)] = &[("confd", confd::NAME), ("logd", services::LOGD_NAME)];
+const GRACEFUL: &[(&str, &str)] = &[
+    ("confd", confd::NAME),
+    ("logd", services::LOGD_NAME),
+    ("pkgd", pkgd::NAME),
+];
 
 /// Set once a shutdown starts; never cleared (the sequence is one-way).
 static STOPPING: AtomicBool = AtomicBool::new(false);

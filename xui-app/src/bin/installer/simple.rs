@@ -132,7 +132,10 @@ impl ConfirmScreen {
         let detail = Label::new(
             page,
             rect(MARGIN, height / 2 - 14, width - 2 * MARGIN, 16),
-            "Its files under /data/apps are deleted; your documents are kept.",
+            &format!(
+                "Its files under {} and its help pages are deleted; your documents are kept.",
+                fhs::state::APPS_ROOT
+            ),
         )
         .map_err(fail)?;
         let remove = Button::new(
