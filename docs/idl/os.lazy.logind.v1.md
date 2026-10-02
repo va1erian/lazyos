@@ -43,6 +43,7 @@ answers the query `messengerctl sessions` renders.
 - `uid: U32`
 - `pid: U64`
 - `state: String`
+- `home: String`
 
 ## struct `LoginDenied`
 

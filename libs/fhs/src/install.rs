@@ -11,6 +11,15 @@ pub fn install_path(install_dir: &str, binary: &str) -> String {
     format!("{APPS_ROOT}/{install_dir}/{binary}")
 }
 
+/// The 32-pixel app icon every package ships, relative to its install
+/// directory (`lazypkg`'s required icons; the desktop launchers draw it).
+pub const APP_ICON: &str = "icons/app-32.png";
+
+/// The path of the installed app's [`APP_ICON`] in `install_dir`.
+pub fn icon_path(install_dir: &str) -> String {
+    install_path(install_dir, APP_ICON)
+}
+
 /// The home directory of the account `name`, `/home/<name>`.
 ///
 /// Composes only: the caller has validated `name` as one path component (an

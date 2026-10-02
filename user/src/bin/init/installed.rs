@@ -67,6 +67,8 @@ pub(super) struct InstalledApp {
     pub(super) autostart: bool,
     /// The manifest's MIME verbs.
     pub(super) verbs: Vec<String>,
+    /// Its 32-pixel icon (`fhs::icon_path`), for the desktop launchers.
+    pub(super) icon: String,
 }
 
 /// The installed apps as of the last refresh.
@@ -103,10 +105,20 @@ impl InstalledApps {
         &self.apps
     }
 
-    /// The installed apps as `ListApps` rows, `hidden` for the caller `uid`.
-    pub(super) fn infos(&mut self, uid: u32) -> Vec<services::AppInfo> {
+    /// The `ListApps` reply: the `builtin` rows, then the installed apps,
+    /// with `hidden` set for the caller `uid` on both (a built-in such as the
+    /// Terminal can be hidden from the menu too).
+    pub(super) fn infos(
+        &mut self,
+        mut builtin: Vec<services::AppInfo>,
+        uid: u32,
+    ) -> Vec<services::AppInfo> {
         let hidden = self.hidden(uid);
-        self.apps
+        for app in &mut builtin {
+            app.hidden = hidden.hides(&app.id);
+        }
+        let installed = self
+            .apps
             .iter()
             .map(|app| services::AppInfo {
                 id: app.id.to_string(),
@@ -119,8 +131,10 @@ impl InstalledApps {
                 category: app.category.clone(),
                 hidden: hidden.hides(app.id),
                 autostart: app.autostart,
-            })
-            .collect()
+                icon: app.icon.clone(),
+            });
+        builtin.extend(installed);
+        builtin
     }
 
     /// The ids that open when a session starts: core apps first, then the
@@ -212,6 +226,7 @@ impl InstalledApps {
             category: row.category,
             autostart: row.autostart,
             verbs: row.verbs,
+            icon: fhs::icon_path(&row.install_dir),
         }
     }
 

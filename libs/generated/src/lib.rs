@@ -4511,6 +4511,7 @@ pub mod os_lazy_init_v1 {
         pub category: alloc::string::String,
         pub hidden: bool,
         pub autostart: bool,
+        pub icon: alloc::string::String,
     }
 
     pub fn encode_app_info(value: &AppInfo) -> Result<Vec<u8>, Error> {
@@ -4529,6 +4530,7 @@ pub mod os_lazy_init_v1 {
         target.string(8, &value.category)?;
         target.bool(9, value.hidden)?;
         target.bool(10, value.autostart)?;
+        target.string(11, &value.icon)?;
         Ok(target.finish())
     }
 
@@ -4570,6 +4572,9 @@ pub mod os_lazy_init_v1 {
                 10 => {
                     out.autostart = field.as_bool()?;
                 }
+                11 => {
+                    out.icon = field.as_str()?.into();
+                }
                 _ => {}
             }
         }
@@ -4591,6 +4596,9 @@ pub mod os_lazy_init_v1 {
     /// `user/<uid>/menu/hidden/<id>`, else the machine's
     /// `sys/menu/hidden/<id>`. A hidden app still launches and opens files.
     /// Whether the app opens when a session starts.
+    /// An installed app's 32-pixel icon, `icons/app-32.png` in its
+    /// install directory (every package ships one); empty for a
+    /// built-in, which the shell draws from its own icon set.
     /// One service lifecycle event (issue #307): the payload of
     /// `system/events/service/<name>`. The topic carries the service name, so
     /// it is not repeated here; `health` is the service's retained health

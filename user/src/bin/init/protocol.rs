@@ -119,8 +119,7 @@ fn dispatch(state: &mut Supervisor, message: &Message) -> messenger::Result<Parc
                 // manager installed, read afresh so the menu is never stale.
                 installed.refresh();
                 let caller = actor(message)?;
-                let mut apps = app_infos();
-                apps.extend(installed.infos(caller.uid));
+                let apps = installed.infos(app_infos(), caller.uid);
                 services::list_apps_reply(&apps)
             }
             services::init::METHOD_STOP => {

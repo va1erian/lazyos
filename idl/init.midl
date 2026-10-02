@@ -105,7 +105,11 @@ interface os.lazy.init.v1 {
         /// `sys/menu/hidden/<id>`. A hidden app still launches and opens files.
         hidden: Bool,
         /// Whether the app opens when a session starts.
-        autostart: Bool
+        autostart: Bool,
+        /// An installed app's 32-pixel icon, `icons/app-32.png` in its
+        /// install directory (every package ships one); empty for a
+        /// built-in, which the shell draws from its own icon set.
+        icon: String
     }
 
     /// One service lifecycle event (issue #307): the payload of

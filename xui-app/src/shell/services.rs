@@ -42,6 +42,26 @@ pub struct App {
     pub id: String,
     pub name: String,
     pub installed: bool,
+    /// The package's menu category (empty for a built-in).
+    pub category: String,
+    /// Left out of this user's menu and desktop (`init` resolves the
+    /// user-over-machine keys for the caller).
+    pub hidden: bool,
+    /// The package's 32-pixel icon path (empty for a built-in).
+    pub icon: String,
+}
+
+impl App {
+    /// The row as the start-menu model reads it.
+    pub fn listed(&self) -> lazyshell::menu::Listed<'_> {
+        lazyshell::menu::Listed {
+            id: &self.id,
+            name: &self.name,
+            installed: self.installed,
+            category: &self.category,
+            hidden: self.hidden,
+        }
+    }
 }
 
 /// A bounded call on the service registered as `name`.
@@ -74,6 +94,9 @@ pub fn list_apps() -> Result<Vec<App>, i64> {
             id: app.id,
             name: app.name,
             installed: app.installed,
+            category: app.category,
+            hidden: app.hidden,
+            icon: app.icon,
         })
         .collect())
 }
@@ -142,28 +165,6 @@ pub fn confd_get(key: &str) -> Result<Option<Value>, i64> {
         // transport failure (no confd, timeout) is an error to retry.
         Err(code) if is_transport(code) => Err(code),
         Err(_) => Ok(None),
-    }
-}
-
-/// `confd.List(prefix)`: the readable paths under `prefix`; empty when confd
-/// refuses (a transport failure is an error, as for [`confd_get`]).
-pub fn confd_list(prefix: &str) -> Result<Vec<String>, i64> {
-    let body = confd_wire::encode_list_args(&confd_wire::ListArgs {
-        prefix: prefix.to_owned(),
-    })
-    .map_err(|_| -errno::EINVAL)?;
-    match call(
-        CONFD,
-        confd_wire::INTERFACE_ID,
-        confd_wire::METHOD_LIST,
-        body,
-        CONFD_TICKS,
-    ) {
-        Ok(reply) => confd_wire::decode_list_reply(&reply.body)
-            .map(|reply| reply.paths)
-            .map_err(|_| -errno::EINVAL),
-        Err(code) if is_transport(code) => Err(code),
-        Err(_) => Ok(Vec::new()),
     }
 }
 

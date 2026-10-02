@@ -221,8 +221,10 @@ pub fn app_infos() -> Vec<services::AppInfo> {
             installed: false,
             origin: String::from("system"),
             category: String::new(),
+            // Set per caller by `InstalledApps::infos`.
             hidden: false,
             autostart: autostart_ids().contains(&app.id),
+            icon: String::new(),
         })
         .collect()
 }

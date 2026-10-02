@@ -23,6 +23,7 @@
 mod ctx;
 mod desktop;
 mod heartbeat;
+mod icons;
 mod link;
 mod menu;
 mod power;

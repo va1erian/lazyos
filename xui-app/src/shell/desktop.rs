@@ -12,11 +12,13 @@ use lazyshell::{Entry, Rect as ShellRect};
 use xui_core::app::{App, Ui};
 use xui_core::backend::{Canvas, PlatformSpec};
 use xui_core::icon::IconRef;
+use xui_core::image::Image;
 use xui_core::widget::{IconModel, IconSize, IconView};
 use xui_core::{Dip, Rect, Theme};
 use xui_icons::{Icon, Palette, Tone};
 
 use super::ctx::Ctx;
+use super::icons::IconCache;
 use super::taskbar::{self, BarApp};
 use super::theme::desktop_theme;
 use super::{heartbeat, link, menu, service};
@@ -47,11 +49,15 @@ pub struct DesktopApp {
     icons: IconView<DeskMsg>,
     beat: heartbeat::Heartbeat,
     service: service::ShellService,
+    /// The package icons decoded so far.
+    images: IconCache,
 }
 
 /// The launchers as an icon model.
 struct Launchers {
     entries: Vec<Entry>,
+    /// Each launcher's package icon, when it has one.
+    images: Vec<Option<Rc<Image>>>,
     dark: bool,
 }
 
@@ -75,6 +81,10 @@ impl IconModel for Launchers {
         let Some(entry) = self.entries.get(item) else {
             return false;
         };
+        if let Some(image) = self.images.get(item).and_then(Option::as_ref) {
+            canvas.draw_image(image, rect);
+            return true;
+        }
         /// The set's near-black ink is invisible on a dark wallpaper.
         const DARK: Palette =
             Palette::GLOBAL_VILLAGE.with(Tone::Ink, xui_core::backend::Rgba::rgb(0xEC, 0xE6, 0xFF));
@@ -92,9 +102,10 @@ impl IconModel for Launchers {
     }
 }
 
-/// The icon a launcher shows: the core apps (by `system_name`, or the short id
-/// a launcher saved before F5 holds) get a matching picture, any other app
-/// the generic window.
+/// The picture a launcher shows when its app has no package icon (the
+/// built-ins, or an `init` that did not answer): the core apps (by
+/// `system_name`, or the short id a launcher saved before F5 holds) get a
+/// matching picture, any other app the generic window.
 fn icon_for(app: &str) -> Icon {
     match app.strip_prefix("os.lazy.").unwrap_or(app) {
         "files" => Icon::Folder,
@@ -127,6 +138,7 @@ impl DesktopApp {
         let area = Rect::new(right - ICONS_W, ICONS_INSET, right, bottom);
         let model = Launchers {
             entries: ctx.launchers.borrow().clone(),
+            images: Vec::new(),
             dark,
         };
         let icons = IconView::with_model(ui, area, model)
@@ -152,6 +164,7 @@ impl DesktopApp {
             icons,
             beat: heartbeat::Heartbeat::new(),
             service: service::ShellService::default(),
+            images: IconCache::default(),
         }
     }
 
@@ -213,9 +226,17 @@ impl DesktopApp {
         self.beat.report_first_frame(&self.ctx, self.icons.len());
     }
 
-    fn rebuild_icons(&self) {
+    fn rebuild_icons(&mut self) {
+        let images = self
+            .ctx
+            .launcher_icons
+            .borrow()
+            .iter()
+            .map(|path| self.images.get(path))
+            .collect();
         self.icons.set_model(Launchers {
             entries: self.ctx.launchers.borrow().clone(),
+            images,
             dark: self.ctx.theme.borrow().is_dark(),
         });
         self.icons.select(None);

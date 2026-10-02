@@ -55,6 +55,7 @@ reply, so the error field is hand-written next to these stubs.
 - `category: String`
 - `hidden: Bool`
 - `autostart: Bool`
+- `icon: String`
 
 ## struct `ServiceEvent`
 

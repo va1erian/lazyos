@@ -9,8 +9,7 @@
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
-use deskmenu::hidden::{self, Hidden};
-use lazyshell::menu::{visible, Menu};
+use lazyshell::menu::{listed_hidden, visible, Listed, Menu};
 use lazyshell::taskbar::{self, Taskbar, BAR_H};
 use lazyshell::{Entry, Rect};
 use xui_core::app::WindowHandle;
@@ -21,10 +20,6 @@ use super::taskbar::BarMsg;
 use super::theme::ThemeFeed;
 use crate::backend::LazyOSBackend;
 use crate::display::Client;
-
-/// Most hidden-app keys read per layer each time the menu opens: one confd
-/// read each, so a flood of keys cannot stall the menu.
-const MAX_HIDDEN_KEYS: usize = 64;
 
 /// What the pointer is over on the taskbar.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -55,8 +50,12 @@ pub struct Ctx {
     pub bar_hover: Cell<Option<BarHover>>,
     pub menu: RefCell<Menu>,
     pub menu_hover: Cell<Option<usize>>,
-    /// The desktop launchers (`sys/ui/desktop`).
+    /// The desktop launchers on screen: `sys/ui/desktop` minus the apps this
+    /// user hides.
     pub launchers: RefCell<Vec<Entry>>,
+    /// Each launcher's package icon path (`ListApps.icon`; empty: draw the
+    /// built-in picture), parallel to `launchers`.
+    pub launcher_icons: RefCell<Vec<String>>,
     /// Set when `launchers` changed and the desktop must rebuild its view.
     pub launchers_changed: Cell<bool>,
     pub theme: RefCell<ThemeFeed>,
@@ -89,6 +88,7 @@ impl Ctx {
             menu: RefCell::new(Menu::default()),
             menu_hover: Cell::new(None),
             launchers: RefCell::new(lazyshell::desktop::defaults()),
+            launcher_icons: RefCell::new(Vec::new()),
             launchers_changed: Cell::new(false),
             theme: RefCell::new(ThemeFeed::new()),
             bar: RefCell::new(None),
@@ -187,30 +187,27 @@ impl Ctx {
     }
 
     /// Re-read the start menu: `sys/ui/menu` plus `init`'s installed apps,
-    /// minus the apps this user hides.
+    /// minus the apps `ListApps` marks hidden for this user.
     pub fn reload_menu(&self) {
-        let hidden = self.hidden_apps();
         let stored = services::confd_get(deskmenu::KEY).ok().flatten();
-        let configured = visible(deskmenu::from_value(stored.as_ref(), &|_| true), &hidden);
         let apps = services::list_apps();
-        let (installed, ids) = match &apps {
-            Ok(apps) => (
-                visible(
-                    lazyshell::menu::installed_entries(
-                        apps.iter()
-                            .map(|app| (app.id.as_str(), app.name.as_str(), app.installed)),
-                    ),
-                    &hidden,
-                ),
-                Some(apps.iter().map(|app| app.id.clone()).collect::<Vec<_>>()),
-            ),
+        let listed: Vec<Listed<'_>> = match &apps {
+            Ok(apps) => apps.iter().map(services::App::listed).collect(),
             Err(code) => {
                 self.note("list-apps", || {
                     format!("SHELL:MENU:APPS:FAIL err={}", -code)
                 });
-                (Vec::new(), None)
+                Vec::new()
             }
         };
+        let configured = visible(deskmenu::from_value(stored.as_ref(), &|_| true), |app| {
+            listed_hidden(&listed, app)
+        });
+        let installed = lazyshell::menu::installed_entries(listed.iter().copied());
+        let ids: Option<Vec<String>> = apps
+            .as_ref()
+            .ok()
+            .map(|apps| apps.iter().map(|app| app.id.clone()).collect());
         let shipped = match &ids {
             Some(ids) => lazyshell::menu::Shipped::Known(ids),
             None => lazyshell::menu::Shipped::Unknown,
@@ -219,38 +216,34 @@ impl Ctx {
         self.menu_hover.set(None);
     }
 
-    /// The apps this shell's user hides from the menu: their own
-    /// `user/<uid>/menu/hidden/*` over the machine's `sys/menu/hidden/*`.
-    /// Listing first means a session that hides nothing costs two calls.
-    /// Nothing is hidden when the uid or confd is unknown.
-    fn hidden_apps(&self) -> Hidden {
-        let Some(uid) = self.uid else {
-            return Hidden::default();
-        };
-        let mut pairs = Vec::new();
-        for prefix in [hidden::user_prefix(uid), String::from(hidden::SYS_PREFIX)] {
-            let Ok(keys) = services::confd_list(&prefix) else {
-                continue;
-            };
-            for key in keys.into_iter().take(MAX_HIDDEN_KEYS) {
-                if let Ok(Some(value)) = services::confd_get(&key) {
-                    pairs.push((key, value));
-                }
-            }
-        }
-        Hidden::from_pairs(uid, pairs.iter().map(|(key, value)| (key.as_str(), value)))
-    }
-
-    /// Re-read the desktop launchers; `true` when they changed.
+    /// Re-read the desktop launchers (`sys/ui/desktop`, then `ListApps` for
+    /// what this user hides and each package's icon); `true` when they
+    /// changed. An unreachable `init` hides nothing and draws the built-in
+    /// pictures.
     pub fn reload_launchers(&self) -> bool {
         let Ok(stored) = services::confd_get(lazyshell::desktop::KEY) else {
             return false;
         };
-        let next = lazyshell::desktop::from_value(stored.as_ref());
-        if *self.launchers.borrow() == next {
+        let apps = services::list_apps().unwrap_or_default();
+        let listed: Vec<Listed<'_>> = apps.iter().map(services::App::listed).collect();
+        let next = visible(lazyshell::desktop::from_value(stored.as_ref()), |app| {
+            listed_hidden(&listed, app)
+        });
+        let icons: Vec<String> = next
+            .iter()
+            .map(|entry| {
+                apps.iter()
+                    .find(|app| deskmenu::same_app(&app.id, &entry.app))
+                    .map(|app| app.icon.clone())
+                    .unwrap_or_default()
+            })
+            .collect();
+        if *self.launchers.borrow() == next && *self.launcher_icons.borrow() == icons {
             return false;
         }
+        println!("SHELL:DESKTOP:ICONS n={}", next.len());
         *self.launchers.borrow_mut() = next;
+        *self.launcher_icons.borrow_mut() = icons;
         self.launchers_changed.set(true);
         true
     }

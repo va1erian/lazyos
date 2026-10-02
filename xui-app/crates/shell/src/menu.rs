@@ -1,30 +1,40 @@
 //! The start menu: which rows it shows and where they sit.
 //!
-//! Apps the user hides (`deskmenu::hidden`, issue #509) are left out of both
-//! row groups before [`Menu::build`] sees them ([`visible`]); they still
+//! The rows come from `init`'s `ListApps` (issue #509). Apps the user hides
+//! (`ListApps.hidden`, the caller's `user/<uid>/menu/hidden/<sn>` over the
+//! machine's `sys/menu/hidden/<sn>`) are left out of both row groups before
+//! [`Menu::build`] sees them ([`visible`], [`installed_entries`]); they still
 //! launch and open files.
 //!
-//! Rows run top-down: the apps the package manager installed (`init`'s
-//! `ListApps` rows with `installed` set) first, then the configured
-//! `sys/ui/menu` entries, then the two power rows ([`power`]). A configured
-//! entry the image does not ship stays in the list, greyed and disabled, so
-//! configured row `j` of `m` always has the same centre however the image was
-//! built (the screenshot sessions click rows by coordinate): its centre is
+//! Rows run top-down: the installed apps no `sys/ui/menu` entry pins, grouped
+//! by their package's menu category under a header row each ([`groups`]),
+//! then the configured `sys/ui/menu` entries, then the two power rows
+//! ([`power`]). The installed section holds at most
+//! [`groups::MAX_PER_CATEGORY`] apps per category and scrolls with the wheel
+//! ([`Menu::scroll_by`]) when it is taller than the room above the configured
+//! rows. A configured entry the image does not ship stays in the list,
+//! greyed and disabled, so configured row `j` of `m` always has the same
+//! centre however the image was built and whatever is installed (the
+//! screenshot sessions click rows by coordinate): its centre is
 //! `y = H - 48 - (m + 1 - j) * 24`, and the power rows' centres are `H - 72`
-//! ("Restart...") and `H - 48` ("Shut down...").
+//! ("Restart...") and `H - 48` ("Shut down..."). With the default menu
+//! (13 entries) on a 720-pixel screen, Terminal is at `y = 336`, Settings at
+//! `y = 504` and Devices at `y = 624`, all at `x = 134`. Hiding a configured
+//! app removes its row, which moves the rows above it down by one.
 //!
 //! The panel is [`WIDTH`] wide, sits at `x = 0` with its bottom edge on the
 //! taskbar's top edge, and has a [`BANNER_W`]-wide vertical banner on its
 //! left. Geometry here is panel-local.
 
-use deskmenu::hidden::Hidden;
 use deskmenu::Entry;
 
 use crate::taskbar::BAR_H;
 
+pub mod groups;
 mod power;
 
 use crate::Rect;
+pub use groups::{InstalledApp, MAX_PER_CATEGORY};
 pub use power::{Action, Choice, Power, POWER_ROWS};
 
 /// Panel width.
@@ -35,8 +45,6 @@ pub const BANNER_W: i32 = 28;
 pub const ROW_H: i32 = 24;
 /// Padding above the first and below the last row.
 pub const PAD: i32 = 4;
-/// Most installed apps listed (the same cap the old compositor menu used).
-pub const MAX_INSTALLED: usize = 16;
 
 /// One start-menu row.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -55,7 +63,26 @@ pub struct Row {
 /// The rows, installed apps first, power rows last.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Menu {
+    /// The rows on screen: `section[scroll..scroll + window]`, the
+    /// configured rows, the power rows.
     rows: Vec<Row>,
+    /// The whole installed section, headers included.
+    section: Vec<Row>,
+    /// The first section row on screen.
+    scroll: usize,
+    /// How many section rows are on screen.
+    window: usize,
+}
+
+/// Where the installed section's visible part sits in it, for a scroll bar.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Scroll {
+    /// The first visible section row.
+    pub first: usize,
+    /// Visible section rows (the top `shown` rows of the panel).
+    pub shown: usize,
+    /// All section rows.
+    pub total: usize,
 }
 
 /// The app list `init` reported, for deciding which rows are enabled.
@@ -79,13 +106,13 @@ impl Shipped<'_> {
 }
 
 impl Menu {
-    /// Build the menu for a screen `screen_h` tall: `installed` (capped at
-    /// [`MAX_INSTALLED`], minus any app also configured), `configured`, then
-    /// the power rows. When the rows do not fit above the taskbar, installed
-    /// rows are dropped first, so the configured rows keep their positions;
-    /// the power rows always stay.
+    /// Build the menu for a screen `screen_h` tall: the `installed` apps no
+    /// configured entry names, grouped by category ([`groups::rows`]), then
+    /// `configured`, then the power rows. When the rows do not fit above the
+    /// taskbar, the installed section shrinks first (and scrolls), so the
+    /// configured rows keep their positions; the power rows always stay.
     pub fn build(
-        installed: &[Entry],
+        installed: &[InstalledApp],
         configured: &[Entry],
         shipped: Shipped<'_>,
         screen_h: i32,
@@ -95,17 +122,18 @@ impl Menu {
             .saturating_sub(POWER_ROWS);
         let configured = &configured[..configured.len().min(fit)];
         let room = fit - configured.len();
-        let mut rows: Vec<Row> = installed
+        let unpinned: Vec<InstalledApp> = installed
             .iter()
-            .filter(|entry| !configured.iter().any(|c| deskmenu::same_app(&c.app, &entry.app)))
-            .take(MAX_INSTALLED.min(room))
-            .map(|entry| Row {
-                app: entry.app.clone(),
-                label: entry.label.clone(),
-                enabled: true,
-                action: Action::Launch,
+            .filter(|app| {
+                !configured
+                    .iter()
+                    .any(|c| deskmenu::same_app(&c.app, &app.entry.app))
             })
+            .cloned()
             .collect();
+        let section = groups::rows(&unpinned);
+        let window = section.len().min(room);
+        let mut rows: Vec<Row> = section[..window].to_vec();
         rows.extend(configured.iter().map(|entry| Row {
             app: entry.app.clone(),
             label: entry.label.clone(),
@@ -113,7 +141,36 @@ impl Menu {
             action: Action::Launch,
         }));
         rows.extend(power::ask_rows());
-        Menu { rows }
+        Menu {
+            rows,
+            section,
+            scroll: 0,
+            window,
+        }
+    }
+
+    /// Scroll the installed section by `lines` rows (negative: up), within
+    /// its bounds. Returns whether anything moved.
+    pub fn scroll_by(&mut self, lines: i64) -> bool {
+        let last = i64::try_from(self.section.len() - self.window).unwrap_or(0);
+        let now = i64::try_from(self.scroll).unwrap_or(0);
+        let target = usize::try_from(now.saturating_add(lines).clamp(0, last)).unwrap_or(0);
+        if target == self.scroll {
+            return false;
+        }
+        self.scroll = target;
+        let shown = &self.section[target..target + self.window];
+        self.rows.splice(..self.window, shown.iter().cloned());
+        true
+    }
+
+    /// The installed section's scroll position, when it does not all fit.
+    pub fn scroll(&self) -> Option<Scroll> {
+        (self.window < self.section.len()).then_some(Scroll {
+            first: self.scroll,
+            shown: self.window,
+            total: self.section.len(),
+        })
     }
 
     pub fn rows(&self) -> &[Row] {
@@ -165,21 +222,44 @@ impl Menu {
     }
 }
 
-/// `entries` without the apps `hidden` leaves out of the menu, order kept.
-pub fn visible(mut entries: Vec<Entry>, hidden: &Hidden) -> Vec<Entry> {
-    entries.retain(|entry| !hidden.hides(&entry.app));
+/// `entries` without the apps `hidden` says the menu leaves out, order kept.
+pub fn visible(mut entries: Vec<Entry>, hidden: impl Fn(&str) -> bool) -> Vec<Entry> {
+    entries.retain(|entry| !hidden(&entry.app));
     entries
 }
 
-/// The installed-app rows from `init`'s registry rows `(id, name, installed)`:
-/// installed ones only, labelled with their manifest name (cleaned, falling
-/// back to the id).
-pub fn installed_entries<'a>(
-    apps: impl IntoIterator<Item = (&'a str, &'a str, bool)>,
-) -> Vec<Entry> {
+/// One `ListApps` row as the menu reads it.
+#[derive(Clone, Copy, Debug)]
+pub struct Listed<'a> {
+    pub id: &'a str,
+    pub name: &'a str,
+    /// Installed by the package manager (`id` is a `system_name`).
+    pub installed: bool,
+    pub category: &'a str,
+    /// Left out of the caller's menu.
+    pub hidden: bool,
+}
+
+/// Whether `app` (a configured id, possibly a pre-F5 short id) is one of the
+/// `listed` apps `ListApps` marked hidden for the caller.
+pub fn listed_hidden(listed: &[Listed<'_>], app: &str) -> bool {
+    listed
+        .iter()
+        .any(|row| row.hidden && deskmenu::same_app(row.id, app))
+}
+
+/// The installed-app rows from `init`'s registry rows: installed and not
+/// hidden ones only, labelled with their manifest name (cleaned, falling back
+/// to the id).
+pub fn installed_entries<'a>(apps: impl IntoIterator<Item = Listed<'a>>) -> Vec<InstalledApp> {
     apps.into_iter()
-        .filter(|(_, _, installed)| *installed)
-        .filter_map(|(id, name, _)| installed_entry(id, name))
+        .filter(|row| row.installed && !row.hidden)
+        .filter_map(|row| {
+            installed_entry(row.id, row.name).map(|entry| InstalledApp {
+                entry,
+                category: String::from(row.category),
+            })
+        })
         .collect()
 }
 
