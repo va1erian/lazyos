@@ -193,8 +193,7 @@ impl Device {
     /// A pipe to `endpoint` that the calling class drives itself (bulk):
     /// it submits transfers into buffers of its own and gets the events of
     /// its DCI from the dispatcher. Its context is configured with the rest.
-    /// No class uses it yet: it is the hook for one (mass storage).
-    #[allow(dead_code)]
+    /// Mass storage (`msc.rs`) uses it.
     pub(super) fn open_pipe(&mut self, endpoint: &Endpoint) -> Result<Pipe, Error> {
         self.open_window(endpoint).map(|(pipe, _)| pipe)
     }
@@ -347,7 +346,7 @@ impl Device {
     /// Bring endpoint `dci` back after a failure: Reset Endpoint (a halted
     /// one) or Stop Endpoint (one still running), then point it past
     /// everything queued, and drop the stale events.
-    fn recover(&mut self, hc: &mut Hc, dci: u8, pointer: u64) -> Result<(), Error> {
+    pub(super) fn recover(&mut self, hc: &mut Hc, dci: u8, pointer: u64) -> Result<(), Error> {
         if let Err(Error::Completion(_, code::CONTEXT_STATE)) =
             hc.command(trb::reset_endpoint(self.slot, dci))
         {

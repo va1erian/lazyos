@@ -131,6 +131,16 @@ impl Region {
         }
     }
 
+    /// Copy `data` to `offset`, for the device to read (a bulk OUT stage).
+    pub(super) fn write(&mut self, offset: usize, data: &[u8]) {
+        assert!(offset
+            .checked_add(data.len())
+            .is_some_and(|end| end <= self.len));
+        // SAFETY: inside the region (checked above); the device reads it only
+        // after the doorbell the caller rings next, which fences.
+        unsafe { core::ptr::copy_nonoverlapping(data.as_ptr(), self.va.add(offset), data.len()) };
+    }
+
     /// Copy `out.len()` bytes the device wrote at `offset`. The copy is what
     /// the driver parses: the device could rewrite the buffer at any time.
     pub(super) fn read(&self, offset: usize, out: &mut [u8]) {

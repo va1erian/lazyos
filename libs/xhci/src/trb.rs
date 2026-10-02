@@ -203,3 +203,19 @@ pub fn control_transfer(setup: &SetupPacket, buffer: u64) -> ([Trb; 3], usize) {
 pub fn interrupt_in(buffer: u64, length: u16) -> Trb {
     Trb::of(kind::NORMAL, buffer, u32::from(length), IOC | ISP)
 }
+
+/// The most one Normal TRB moves (TRB Transfer Length is 17 bits); a buffer
+/// must also not cross a 64 KiB boundary (xHCI 4.11.7.1), which is the
+/// caller's to guarantee.
+pub const MAX_TRB_TRANSFER: u32 = 64 * 1024;
+
+/// A Normal TRB for one bulk transfer of `length` bytes at `buffer` (either
+/// direction: the endpoint's ring decides), interrupting on completion and on
+/// a short packet (a short IN transfer ends the TD early, which mass storage
+/// reports as a residue).
+pub fn bulk(buffer: u64, length: u32) -> Option<Trb> {
+    if length > MAX_TRB_TRANSFER {
+        return None;
+    }
+    Some(Trb::of(kind::NORMAL, buffer, length, IOC | ISP))
+}

@@ -96,7 +96,15 @@ pub(super) struct Hc {
     /// Device regions ever allocated: bounded by the slot count, whatever
     /// the hot-plug churn (the harness checks it).
     pub(super) regions: u32,
+    /// The bulk data buffer this controller's sticks share (`msc.rs`), made
+    /// on first use and kept: they are served one transfer at a time.
+    bulk: Option<Region>,
 }
+
+/// The bulk window: the most one Normal TRB moves, and an alignment it never
+/// crosses (xHCI 4.11.7.1). Its region is twice as large so an aligned
+/// window always fits.
+pub(super) const BULK_WINDOW: usize = 64 * 1024;
 
 /// Sleep one PIT tick (userspace has no sleep syscall; `wait` doubles as one).
 pub(super) fn nap() {
@@ -196,6 +204,7 @@ impl Hc {
             dropped: 0,
             pool: [const { None }; MAX_SLOTS as usize + 1],
             regions: 0,
+            bulk: None,
         };
         hc.reset()?;
         hc.configure()?;
@@ -340,6 +349,18 @@ impl Hc {
         if let Some(entry) = self.pool.get_mut(usize::from(slot)) {
             *entry = Some(region);
         }
+    }
+
+    /// The bulk window's region and the window's offset in it, allocated on
+    /// first use: one DMA buffer per controller, however many sticks.
+    pub(super) fn bulk(&mut self) -> Result<(&mut Region, usize), Error> {
+        if self.bulk.is_none() {
+            self.bulk = Some(Region::alloc(self.handle, 2 * BULK_WINDOW)?);
+        }
+        let region = self.bulk.as_mut().ok_or(Error::Descriptor("bulk buffer"))?;
+        let bus = region.bus(0);
+        let offset = (bus.next_multiple_of(BULK_WINDOW as u64) - bus) as usize;
+        Ok((region, offset))
     }
 
     /// Point DCBAA entry `slot` at a device context.

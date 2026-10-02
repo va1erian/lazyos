@@ -23,7 +23,8 @@ pub(super) fn start_ready(services: &mut [Service], broker: &mut router::TopicBr
     loop {
         let mut started = false;
         for index in 0..services.len() {
-            if services[index].phase != Phase::Pending {
+            // A row that uses `/home` waits for a late home volume (`home`).
+            if services[index].phase != Phase::Pending || super::home::holds(services[index].name) {
                 continue;
             }
             let deps = services[index].deps;
@@ -56,7 +57,7 @@ fn manifest_cred(name: &str) -> Option<sys::Cred> {
     if name == "inputd" {
         return Some(sys::Cred::new(0, 0, sys::CAP_INPUT_RAW, own.label_id, 0));
     }
-    own.caps &= !(sys::CAP_INPUT_RAW | sys::CAP_INPUT_SOURCE);
+    own.caps &= !(sys::CAP_INPUT_RAW | sys::CAP_INPUT_SOURCE | sys::CAP_BLOCK_PROVIDER);
     Some(own)
 }
 

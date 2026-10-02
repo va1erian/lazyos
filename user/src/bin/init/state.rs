@@ -79,14 +79,15 @@ const USBD_ARGS: &str = if cfg!(lazyos_usb_trace) {
 };
 
 /// The `usbd` driver's identity (docs/usb-hid-plan.md U2): a dedicated system
-/// uid holding only `CAP_DEV_CLAIM` (the controller) and `CAP_INPUT_SOURCE`
-/// (publishing its devices' input). It cannot read the input bus, and the
-/// kernel stamps its records with device ids of their own.
+/// uid holding only `CAP_DEV_CLAIM` (the controller), `CAP_INPUT_SOURCE`
+/// (publishing its devices' input) and `CAP_BLOCK_PROVIDER` (serving a USB
+/// stick to the kernel, docs/architecture/usb-storage.md). It cannot read the
+/// input bus, and the kernel stamps its records with device ids of their own.
 #[cfg(lazyos_usb)]
 const USB_CRED: SysCred = SysCred::new(
     USB_UID,
     USB_UID,
-    user::dev::CAP_DEV_CLAIM | user::sys::CAP_INPUT_SOURCE,
+    user::dev::CAP_DEV_CLAIM | user::sys::CAP_INPUT_SOURCE | user::sys::CAP_BLOCK_PROVIDER,
     0,
     0,
 );

@@ -12,9 +12,11 @@
 //! as a kernel input source of its class, so `inputd` sees it exactly like
 //! the PS/2 devices; a hub has its ports powered and watched.
 //!
-//! It holds `CAP_DEV_CLAIM` and `CAP_INPUT_SOURCE` and nothing else (`init`
-//! runs it as `_usb`); it cannot read the bus and the kernel stamps its
-//! records with device ids of their own.
+//! It holds `CAP_DEV_CLAIM`, `CAP_INPUT_SOURCE` and `CAP_BLOCK_PROVIDER`
+//! and nothing else (`init` runs it as `_usb`); it cannot read the bus and
+//! the kernel stamps its records with device ids of their own. A USB stick
+//! (`usbd/msc.rs`) is served to the kernel as a block device (syscall 32,
+//! docs/architecture/usb-storage.md).
 //!
 //! Serial evidence: `USBD:XHCI hc=<n>` (a controller up, with its BIOS
 //! handoff and port protocols), `USBD:PORT port=<hc>-<root>[.<hub port>...]`
@@ -51,6 +53,10 @@ mod hid;
 mod hub;
 #[path = "usbd/mem.rs"]
 mod mem;
+#[path = "usbd/msc.rs"]
+mod msc;
+#[path = "usbd/msc_link.rs"]
+mod msc_link;
 #[path = "usbd/pipe.rs"]
 mod pipe;
 #[path = "usbd/port.rs"]
@@ -107,7 +113,7 @@ pub(crate) struct Settings {
 pub extern "C" fn _start() -> ! {
     sys::write_str("usbd: USB driver\n");
     // The identity the kernel stamped on this task: `_usb` with only
-    // `CAP_DEV_CLAIM | CAP_INPUT_SOURCE` under `init`.
+    // `CAP_DEV_CLAIM | CAP_INPUT_SOURCE | CAP_BLOCK_PROVIDER` under `init`.
     let mut cred = sys::Cred::default();
     match sys::cred_get(None, &mut cred) {
         Ok(()) => sys::write_str(&format!(
@@ -197,6 +203,9 @@ fn run() -> Result<(), Error> {
     for controller in &mut controllers {
         controller.scan(&settings);
     }
+    // The kernel's late `/home` mount stops waiting for a stick once every
+    // stick present at boot was looked at.
+    let _ = sys::storage_scanned();
     let devices: usize = controllers.iter().map(Controller::devices).sum();
     sys::write_str(&format!(
         "USBD:READY devices={devices} controllers={}\n",
@@ -206,8 +215,9 @@ fn run() -> Result<(), Error> {
         let mut busy = false;
         for controller in &mut controllers {
             busy |= controller.poll(&settings);
+            busy |= controller.serve_storage();
         }
-        if !busy {
+        if !busy && !controllers.iter_mut().any(Controller::wait_storage) {
             hc::nap();
         }
     }

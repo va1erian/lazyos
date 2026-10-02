@@ -12,6 +12,7 @@ use crate::ring::{erst_entry, EventRing, ProducerRing, TrbMem};
 use crate::trb::{self, kind, request, Trb, CHAIN, CYCLE, IDT, IOC};
 use crate::Error;
 
+mod bulk;
 mod extcap;
 mod route;
 

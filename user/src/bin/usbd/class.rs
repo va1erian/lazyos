@@ -3,7 +3,8 @@
 //! [`bind`] sets the configuration, then walks the interfaces (alternate
 //! setting 0) and hands each to the driver of its class code: HID (boot
 //! keyboards and mice wherever they sit in a composite device, else a
-//! report-protocol pointer), or the hub class for a hub. Each bound
+//! report-protocol pointer), mass storage (`msc.rs`: a SCSI Bulk-Only
+//! interface served to the kernel as a disk), or the hub class for a hub. Each bound
 //! interface is a [`Function`]; the controller routes a transfer event to
 //! the function owning its endpoint.
 //!
@@ -18,10 +19,13 @@
 //! [`Function::close`]. `bind` runs one Configure Endpoint for all pipes
 //! after every interface was bound.
 
+use alloc::boxed::Box;
 use alloc::format;
 use alloc::vec::Vec;
 
-use usbhid::desc::{Config, HidInterface, Interface, Protocol, CLASS_HID, CLASS_HUB};
+use usbhid::desc::{
+    Config, HidInterface, Interface, Protocol, CLASS_HID, CLASS_HUB, CLASS_MASS_STORAGE,
+};
 use usbhid::report::{self, Pointer};
 use user::sys;
 use xhci::trb::{request, Trb};
@@ -30,6 +34,7 @@ use super::device::{hex, Device, DATA_BYTES};
 use super::hc::Hc;
 use super::hid::Hid;
 use super::hub::HubFn;
+use super::msc::Msc;
 use super::Error;
 
 /// One bound interface.
@@ -38,6 +43,8 @@ pub(super) enum Function {
     Hid { dci: u8, hid: Hid },
     /// A hub: its status-change pipe and its ports.
     Hub(HubFn),
+    /// A stick: its bulk pipes and the kernel's disk on it.
+    Msc(Box<Msc>),
 }
 
 impl Function {
@@ -46,6 +53,7 @@ impl Function {
         match self {
             Function::Hid { dci: own, .. } => *own == dci,
             Function::Hub(hub) => hub.dci == dci,
+            Function::Msc(msc) => msc.owns(dci),
         }
     }
 
@@ -66,6 +74,7 @@ impl Function {
         match self {
             Function::Hid { hid, .. } => hid.close(trace),
             Function::Hub(_) => {}
+            Function::Msc(msc) => msc.close(),
         }
     }
 }
@@ -94,7 +103,15 @@ pub(super) fn bind(
         }
     });
     match bound {
-        Ok(()) => Ok(functions),
+        Ok(()) => {
+            // Configured: a stick can be talked to now. One that does not
+            // come up as a disk is dropped (and reported).
+            functions.retain_mut(|function| match function {
+                Function::Msc(msc) => msc.start(hc, device),
+                _ => true,
+            });
+            Ok(functions)
+        }
         Err(error) => {
             // Sources already registered are closed, not leaked.
             for function in functions {
@@ -141,6 +158,9 @@ fn bind_interface(
             Some(hid) if hid.endpoint.is_some() => bind_hid(hc, device, hid, report_protocol),
             _ => Ok(None),
         },
+        CLASS_MASS_STORAGE if !report_protocol => {
+            Ok(Msc::bind(device, interface)?.map(|msc| Function::Msc(Box::new(msc))))
+        }
         // New classes go here (see the module documentation).
         _ => Ok(None),
     }

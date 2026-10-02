@@ -293,7 +293,7 @@ def judge_tablet(log: str) -> list[str]:
 
 
 #: `_usb` with `CAP_DEV_CLAIM | CAP_INPUT_SOURCE` (`libs/usbpolicy`).
-USB_CRED = "USBD:CRED uid=904 caps=0x500"
+USB_CRED = "USBD:CRED uid=904 caps=0xd00"
 
 
 def judge_restart(log: str) -> list[str]:

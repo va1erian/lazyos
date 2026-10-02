@@ -1216,6 +1216,7 @@ dependencies = [
  "timezone",
  "uitheme",
  "usbhid",
+ "usbmsc",
  "usbpolicy",
  "virtio",
  "virtio-net",

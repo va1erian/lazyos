@@ -98,6 +98,37 @@ impl Controller {
         busy
     }
 
+    /// Serve the kernel's pending requests to this controller's sticks
+    /// (`msc.rs`), one per stick; returns whether any was served.
+    pub(super) fn serve_storage(&mut self) -> bool {
+        let mut served = false;
+        for node in &mut self.nodes {
+            for function in &mut node.functions {
+                if let Function::Msc(msc) = function {
+                    served |= msc.serve(&mut self.hc, &mut node.device, 0);
+                }
+            }
+        }
+        served
+    }
+
+    /// Idle: wait up to a tick for a request to this controller's first
+    /// live stick (instead of a plain nap, so it is served at once).
+    /// Returns whether there was a stick to wait on.
+    pub(super) fn wait_storage(&mut self) -> bool {
+        for node in &mut self.nodes {
+            for function in &mut node.functions {
+                if let Function::Msc(msc) = function {
+                    if msc.live() {
+                        msc.serve(&mut self.hc, &mut node.device, sys::clock() + 1);
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    }
+
     /// Bring root `port` in line with what is plugged into it.
     fn root_changed(&mut self, root: u8, settings: &Settings) {
         if root == 0 || root > self.hc.info.ports {
@@ -339,6 +370,8 @@ impl Controller {
                     hub.on_report(&report[..len]);
                     hub_changed = true;
                 }
+                // Its pipes are not report pipes: never reached.
+                Function::Msc(_) => {}
             }
         }
         if hub_changed {
@@ -368,6 +401,7 @@ impl Controller {
             .map(|f| match f {
                 Function::Hid { .. } => "hid",
                 Function::Hub(_) => "hub",
+                Function::Msc(_) => "msc",
             })
             .collect();
         for function in gone.functions {
