@@ -105,6 +105,7 @@ impl Ext2 {
     /// next `flush` to report (`libs/ext2fs/src/commit.rs`).
     pub fn writeback(&self, pressure: bool) -> Result<(), FsError> {
         static LOGGED: AtomicBool = AtomicBool::new(false);
+        let _gate = self.gate.lock();
         let result = self.volume.writeback();
         if pressure {
             self.volume.shrink_cache();

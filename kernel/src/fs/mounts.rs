@@ -54,7 +54,7 @@ pub(crate) fn select_root(devices: Devices) -> Option<(Arc<dyn Filesystem>, &'st
 }
 
 /// The first ext2 volume on any device (not `skip`) that satisfies `wanted`.
-fn find_ext2(
+pub(super) fn find_ext2(
     devices: Devices,
     skip: Option<&str>,
     wanted: impl Fn(&ext2::Ext2) -> bool,
@@ -176,10 +176,14 @@ fn configured(
                 });
                 mounts.push((fhs::mount::HOME, Arc::new(volume), flags));
             }
-            None => serial_println!(
-                "fs: home volume {} not found; /home is a directory on /",
-                describe(&home)
-            ),
+            None => {
+                serial_println!(
+                    "fs: home volume {} not found; /home is a directory on /",
+                    describe(&home)
+                );
+                // A USB stick appears later (`usbd`); `init` asks for it.
+                super::late::set_pending(home, cfg.home_flags);
+            }
         }
     }
     // One set of volume instances serves both tables: the ABI sees the same
@@ -267,7 +271,7 @@ fn log_mounts(native: &Vfs, abi: &Vfs) {
     }
 }
 
-fn describe(id: &VolumeId) -> alloc::string::String {
+pub(super) fn describe(id: &VolumeId) -> alloc::string::String {
     match id {
         VolumeId::Uuid(uuid) => fmt_uuid(uuid),
         VolumeId::Label(label) => {

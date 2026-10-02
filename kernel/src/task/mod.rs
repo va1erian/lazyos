@@ -63,6 +63,7 @@ pub mod diag;
 pub mod introspect;
 mod linux_spawn;
 pub mod process;
+pub mod relax;
 pub mod signal;
 mod snapshot;
 pub use snapshot::{
@@ -184,6 +185,9 @@ pub enum WaitKind {
     Signal,
     /// Waiting for a task slot to become free (`clone` under table pressure).
     Slot,
+    /// Waiting for a user-space block provider (`usbd`) to finish a request
+    /// (`block::provider`), or the provider waiting for work.
+    Block,
 }
 
 /// How a blocked task's wait ended. The wake path records it, the wait loop

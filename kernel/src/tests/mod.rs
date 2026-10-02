@@ -154,6 +154,7 @@ mod partition_suite;
 mod pipe_suite;
 mod power_suite;
 mod preempt_lock_suite;
+mod provider_suite;
 mod quota_suite;
 mod ramdisk_suite;
 mod registry_suite;
@@ -242,6 +243,7 @@ const SUITE: &[&[(&str, Test)]] = &[
     ext2_suite::logd_store::CASES,
     ext2_suite::pkg_tree::CASES,
     ext2_suite::block_cache::CASES,
+    provider_suite::CASES,
     topics_suite::CASES,
     topics_gate_suite::CASES,
     service_suite::CASES,
