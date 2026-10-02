@@ -10,7 +10,8 @@ status. Design rationale is not repeated here; the plan docs own it:
 - [Linux ABI plan](linux-abi-plan.md) - compatibility bridge.
 - [XUI plan](xui-plan.md) - userspace toolkit target.
 - [Shell plan](shell-plan.md) - S5 desktop shell (LazyShell) on XUI.
-- [rust-std](rust-std.md), [Dyon feasibility](dyon-feasibility.md) - supporting notes.
+- [rust-std](rust-std.md), [Dyon feasibility](dyon-feasibility.md),
+  [Wi-Fi exploration](wifi-plan.md) - supporting notes.
 
 Path references are relative to the repository root. `path:line` references are
 used only where the line is a stable anchor.

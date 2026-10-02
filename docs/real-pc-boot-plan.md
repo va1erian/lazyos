@@ -41,7 +41,8 @@ no serial port.
 **Out (v1):** persistence to the stick or to internal disks (AHCI, NVMe, USB
 mass storage), networking and sound on real controllers (e1000e, Intel HDA),
 SMP (S8), ACPI power management beyond S5, Secure Boot signing, laptop
-specifics (I2C-HID touchpads, backlight, lid), Wi-Fi, GPU drivers. Each has a
+specifics (I2C-HID touchpads, backlight, lid), Wi-Fi ([wifi-plan.md](wifi-plan.md)
+explores it, with the M.2 card as its last stage), GPU drivers. Each has a
 seam named in the phases; none is needed to boot.
 
 ## What exists, what is missing

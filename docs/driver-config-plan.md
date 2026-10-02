@@ -22,7 +22,7 @@ the split.
 | The driver-binding **table** itself (vendor/device/class to program, uid, caps, restart) | **Static** in `devd` (same shape as `init`'s `MANIFEST`) | It decides which code runs with which authority; an editable registry key must never add a binding, change a uid or widen capabilities |
 | Who may claim what (ACL rules, `CAP_DEV_CLAIM`, quotas) | Kernel ACL/credentials, loaded by `messengerd`/`init` | The authority. `confd` holds preferences only |
 | Runtime **state** (link up, negotiated rate, claimed-by, health, generation) | Messenger topics (`system/devices/<id>`, `system/health/<driver>`) and the driver's class `Info()` call | Changes constantly, is written by unprivileged services (section 3) |
-| Secrets (keys, Wi-Fi passphrases) | `keyd` | `sys/**` is world-readable |
+| Secrets (keys, Wi-Fi passphrases; see [wifi-plan.md](wifi-plan.md) §5.1) | `keyd` | `sys/**` is world-readable |
 | Per-user audio preferences (default volume, preferred output) | `confd` `user/<uid>/audio/...`, read by a future `audiod`, not by the driver | Owned by the user; a driver serves the whole machine |
 
 **What the kernel can never read.** `confd` is a userspace process behind
