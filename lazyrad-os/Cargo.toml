@@ -43,10 +43,10 @@ messenger-generated = { path = "../libs/generated" }
 # once #87 is merged.
 # Bump `rev` on EVERY va1erian/lazyrad line below (runtime, player, ide and
 # the dev-dependency packager) together, then regenerate the lockfile.
-lazyrad-runtime = { git = "https://github.com/va1erian/lazyrad", rev = "623d0df2e4e99f0d187b37fdff11e2050df43727", default-features = false }
-lazyrad-ide = { git = "https://github.com/va1erian/lazyrad", rev = "623d0df2e4e99f0d187b37fdff11e2050df43727", default-features = false }
-lazyrad-packager = { git = "https://github.com/va1erian/lazyrad", rev = "623d0df2e4e99f0d187b37fdff11e2050df43727", default-features = false }
-lazyrad-player = { git = "https://github.com/va1erian/lazyrad", rev = "623d0df2e4e99f0d187b37fdff11e2050df43727", default-features = false }
+lazyrad-runtime = { git = "https://github.com/va1erian/lazyrad", rev = "04e08afdaff4d976d385cfbaea65b82da84ccf7a", default-features = false }
+lazyrad-ide = { git = "https://github.com/va1erian/lazyrad", rev = "04e08afdaff4d976d385cfbaea65b82da84ccf7a", default-features = false }
+lazyrad-packager = { git = "https://github.com/va1erian/lazyrad", rev = "04e08afdaff4d976d385cfbaea65b82da84ccf7a", default-features = false }
+lazyrad-player = { git = "https://github.com/va1erian/lazyrad", rev = "04e08afdaff4d976d385cfbaea65b82da84ccf7a", default-features = false }
 
 [dev-dependencies]
 # The `.lzp` conformance suite (tests/lzp_conformance.rs): packages built by
