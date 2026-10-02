@@ -186,12 +186,18 @@ pub(in crate::tests) const CASES: &[(&str, Test)] = &[
         cwd_paths::soak_fork_chdir_relative_io,
     ),
     // Redirected descriptors shared by dup, fork and execve.
-    ("linux_fd_dups_share_offset", inherit::dups_share_one_description),
+    (
+        "linux_fd_dups_share_offset",
+        inherit::dups_share_one_description,
+    ),
     (
         "linux_fd_fork_exec_inherit_redirect",
         inherit::fork_and_exec_inherit_a_redirect,
     ),
-    ("linux_fd_soak_inherited_redirects", inherit::soak_inherited_redirects),
+    (
+        "linux_fd_soak_inherited_redirects",
+        inherit::soak_inherited_redirects,
+    ),
 ];
 
 // Linux numbers and flags the tests spell out.

@@ -170,7 +170,7 @@ impl Fd {
     pub fn same_file(&self, other: &Fd) -> bool {
         match (self, other) {
             (Fd::Terminal, Fd::Terminal) => true,
-            (Fd::File { data: a, .. }, Fd::File { data: b, .. }) => Arc::ptr_eq(a, b),
+            (Fd::File { file: a }, Fd::File { file: b }) => Arc::ptr_eq(a, b),
             (Fd::Vfs { file: a }, Fd::Vfs { file: b }) => Arc::ptr_eq(a, b),
             (Fd::Pipe { pipe: a, end: x }, Fd::Pipe { pipe: b, end: y }) => {
                 Arc::ptr_eq(a, b) && x == y
