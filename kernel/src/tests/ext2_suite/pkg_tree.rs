@@ -14,7 +14,7 @@ use super::*;
 use crate::block::BlockDevice;
 use crate::fs::vfs::AttrRequest;
 use messenger_generated::os_lazy_pkgd_v1::{encode_pkg_event, PkgEvent};
-use pkgstore::audit::{verify, Chain};
+use pkgstore::audit::{verify_from, Chain};
 use pkgstore::layout;
 use pkgstore::tree::{self, Node, Source, TreeError, TreeFs};
 
@@ -325,6 +325,13 @@ pub fn pkg_tree_docs_repair_after_remount() -> Result<(), String> {
 pub fn pkg_tree_soak_1000_cycles() -> Result<(), String> {
     task::register_kernel();
     let disk = volume()?;
+    // The disk lives in the kernel heap: give it back on failure too.
+    let outcome = soak(disk);
+    release(disk);
+    outcome
+}
+
+fn soak(disk: &'static FakeDisk) -> Result<(), String> {
     let mut chain = Chain::default();
     let mut baseline = None;
     for first in (0..CYCLES).step_by(100) {
@@ -362,18 +369,40 @@ pub fn pkg_tree_soak_1000_cycles() -> Result<(), String> {
         empty(&mut tree_fs, "/docs/apps")?,
         "/docs/apps is not empty"
     );
-    let log = tree_fs
-        .vfs
-        .read_file(Id::ROOT, layout::LOG_FILE)
-        .map_err(fs_error)?;
-    let text = core::str::from_utf8(&log).map_err(|_| String::from("pkg.log is not UTF-8"))?;
-    let verified = verify(text).map_err(|error| format!("pkg.log: {error:?}"))?;
+    let verified = verify_log(&mut tree_fs.vfs)?;
     check!(
-        verified.count == u64::from(CYCLES) * 3,
+        verified.count == u64::from(CYCLES) * 3 && verified == chain,
         "pkg.log holds {} records",
         verified.count
     );
-    drop(tree_fs);
-    release(disk);
     Ok(())
+}
+
+/// Verify `pkg.log` in 16 KiB pieces of whole lines (`audit::verify_from`):
+/// the suite's heap is too fragmented after the other soaks to hold the
+/// whole ~600 KiB log in one allocation.
+fn verify_log(vfs: &mut Vfs) -> Result<Chain, String> {
+    let mut chain = Chain::default();
+    let mut offset = 0u64;
+    let mut pending: Vec<u8> = Vec::new();
+    let mut piece = vec![0u8; 16 * 1024];
+    loop {
+        let read = vfs
+            .read(Id::ROOT, layout::LOG_FILE, offset, &mut piece)
+            .map_err(fs_error)?;
+        if read == 0 {
+            break;
+        }
+        offset += read as u64;
+        pending.extend_from_slice(&piece[..read]);
+        let Some(end) = pending.iter().rposition(|byte| *byte == b'\n') else {
+            continue;
+        };
+        let text = core::str::from_utf8(&pending[..=end])
+            .map_err(|_| String::from("pkg.log is not UTF-8"))?;
+        chain = verify_from(chain, text).map_err(|error| format!("pkg.log: {error:?}"))?;
+        pending.drain(..=end);
+    }
+    check!(pending.is_empty(), "pkg.log ends in a torn record");
+    Ok(chain)
 }

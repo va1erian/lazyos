@@ -73,7 +73,10 @@ elevation service.
 ## 3. Authentication and login
 
 - **Accounts** are managed by the accounts service (users, groups, home dirs,
-  password verifiers). Password hashes are **Argon2id**, and only `keyd` can
+  password verifiers). A home is `/home/<name>`, 0700 and owned by its
+  account: a directory of the optional home volume, or of the OS volume
+  without one (the image build makes one per passwd account, filesystem F4).
+  Password hashes are **Argon2id**, and only `keyd` can
   verify them; the hash never leaves `keyd`'s `SHARE_ONLY` memory.
 - **Login** (`logind`) runs a small PAM-like pipeline: identify → authenticate
   (console password, later key/2FA) → create session → grant the session its
