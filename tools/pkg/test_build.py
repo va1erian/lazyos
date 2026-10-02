@@ -18,6 +18,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import build  # noqa: E402
+import pkgmanifest  # noqa: E402
+
+# Shared with `libs/lazypkg/tests/cases.rs`; the file documents its format.
+CASES = Path(__file__).resolve().parents[2] / "libs" / "lazypkg" / "tests" / "cases" / "manifest.toml"
 
 MANIFEST = """\
 [app]
@@ -203,6 +207,76 @@ class BuildTests(unittest.TestCase):
             message = str(caught.exception)
             self.assertIn("system_name", message)
             self.assertIn("icons/app-32.png", message)
+
+
+def _case_manifest(case):
+    """The template at the top of the shared cases file."""
+    return (
+        '[app]\nname = "Demo"\nsystem_name = "org.lazy.demo"\nauthor = "Tester"\n'
+        f'version = "{case.get("version", "1.0.0")}"\n{case.get("app", "")}\n'
+        f'[entry]\nbinary = "bin/app.elf"\n{case.get("entry", "")}\n'
+        f'[permissions]\n{case.get("permissions", "")}\n'
+    )
+
+
+class SharedCaseTests(unittest.TestCase):
+    """The cases `libs/lazypkg` runs too: the validators must agree."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.cases = tomllib.loads(CASES.read_text(encoding="utf-8"))
+
+    def test_manifest_cases(self):
+        self.assertGreaterEqual(len(self.cases["manifest"]), 30, "the cases file lost cases")
+        for case in self.cases["manifest"]:
+            with self.subTest(case=case["name"]):
+                manifest = tomllib.loads(_case_manifest(case))
+                problems = build.validate_manifest(manifest)
+                if case["valid"]:
+                    self.assertEqual(problems, [])
+                    app, entry = manifest["app"], manifest["entry"]
+                    if "category" in case:
+                        self.assertEqual(app.get("category", pkgmanifest.DEFAULT_CATEGORY), case["category"])
+                    if "autostart" in case:
+                        self.assertEqual(entry.get("autostart", False), case["autostart"])
+                else:
+                    self.assertTrue(any(case["error"] in p for p in problems), problems)
+
+    def test_version_cases(self):
+        versions = self.cases["versions"]
+        for text in versions["valid"]:
+            self.assertEqual(str(pkgmanifest.Version(text)), text)
+        for case in versions["invalid"]:
+            with self.subTest(version=case["text"]):
+                self.assertEqual(pkgmanifest.version_problem(case["text"]), case["reason"])
+        for chain in versions["ascending"]:
+            parsed = [pkgmanifest.Version(text) for text in chain]
+            for index, lower in enumerate(parsed):
+                for higher in parsed[index + 1:]:
+                    self.assertLess(lower, higher)
+                    self.assertGreater(higher, lower)
+                    self.assertNotEqual(lower, higher)
+        for left, right in versions["equal"]:
+            self.assertEqual(pkgmanifest.Version(left), pkgmanifest.Version(right))
+            self.assertEqual(hash(pkgmanifest.Version(left)), hash(pkgmanifest.Version(right)))
+
+    def test_the_absolute_home_switch_is_off_on_both_sides(self):
+        # Flipping it is one line in each validator (F5 cleanup, issue #509).
+        self.assertFalse(pkgmanifest.REJECT_ABSOLUTE_HOME)
+        rust = (CASES.parents[2] / "src" / "files.rs").read_text(encoding="utf-8")
+        self.assertIn("REJECT_ABSOLUTE_HOME: bool = false;", rust)
+        self.assertTrue(pkgmanifest.is_absolute_home("/data/home/*/x"))
+        self.assertFalse(pkgmanifest.is_absolute_home("/data/homework"))
+
+    def test_a_pre_release_package_builds_under_its_version(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "src"
+            make_tree(root)
+            path = root / "manifest.toml"
+            text = path.read_text(encoding="utf-8").replace('"1.0.0"', '"1.1.0-rc1"')
+            path.write_text(text + 'autostart = true\n', encoding="utf-8")
+            archive = build.build(root, Path(tmp) / "dist")
+            self.assertEqual(archive.name, "org.lazy.demo-1.1.0-rc1.lzp")
 
 
 if __name__ == "__main__":

@@ -21,7 +21,6 @@ OS. `.png` files are stored; everything else is deflated. The output is
 from __future__ import annotations
 
 import argparse
-import re
 import sys
 import zipfile
 from pathlib import Path
@@ -30,6 +29,11 @@ try:
     import tomllib
 except ModuleNotFoundError as error:  # pragma: no cover - Python < 3.11
     raise SystemExit("tools/pkg/build.py needs Python 3.11+ for tomllib") from error
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+# The manifest rules live in their own module; `validate_manifest` is part of
+# this tool's interface too (tests and other tools call `build.validate_manifest`).
+from pkgmanifest import Version, validate_manifest  # noqa: E402,F401
 
 # Top-level directories a package may contain, and the extension files inside
 # each must use (`resources/` is unconstrained).
@@ -43,183 +47,13 @@ ALLOWED_DIRS = {
 REQUIRED_ICONS = ["icons/app-16.png", "icons/app-32.png", "icons/app-128.png"]
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 
-MAX_SYSTEM_NAME = 128
-MAX_NAME = 64
-MAX_AUTHOR = 128
-MAX_DESCRIPTION = 1024
-MAX_ARGS = 16
-MAX_ARG = 256
-MAX_VERB = 16
 # Mirrors `lazypkg::MAX_NAME_LEN` and `lazypkg::MAX_MANIFEST`.
 MAX_NAME_LEN = 255
 MAX_MANIFEST = 1024 * 1024
 
-_SYSTEM_LABEL = re.compile(r"^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$")
-_VERSION = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
-_MIME = re.compile(r"^[a-z0-9.+-]+/[a-z0-9.+-]+$")
-_VERB = re.compile(r"^[a-z]+$")
-_INTERFACE = re.compile(r"^[a-z0-9]+(?:\.[a-z0-9]+)*\.v[0-9]+$")
-_FILE_SEGMENT = re.compile(r"^[A-Za-z0-9_.-]+$")
-_TOPIC_SEGMENT = re.compile(r"^[a-z0-9_.-]+$")
-
 
 class BuildError(Exception):
     """A package could not be built; the message lists every problem."""
-
-
-def _check_keys(table, allowed, where, problems):
-    if not isinstance(table, dict):
-        problems.append(f"{where} must be a table")
-        return
-    for key in table:
-        if key not in allowed:
-            problems.append(f"{where} has unknown field {key!r}")
-
-
-def _valid_system_name(name):
-    if not isinstance(name, str) or not (0 < len(name.encode("utf-8")) <= MAX_SYSTEM_NAME):
-        return False
-    labels = name.split(".")
-    return len(labels) >= 3 and all(_SYSTEM_LABEL.match(label) for label in labels)
-
-
-def _valid_version(version):
-    if not isinstance(version, str) or not _VERSION.match(version):
-        return False
-    return all(int(part) < 65536 for part in version.split("."))
-
-
-def _valid_topic(topic):
-    if not isinstance(topic, str):
-        return False
-    if topic.startswith("publish:"):
-        rest = topic[len("publish:"):]
-    elif topic.startswith("subscribe:"):
-        rest = topic[len("subscribe:"):]
-    else:
-        return False
-    segments = rest.split("/")
-    if not rest or not segments:
-        return False
-    for index, segment in enumerate(segments):
-        if segment == "#":
-            if index != len(segments) - 1:
-                return False
-        elif segment == "+":
-            continue
-        elif not _TOPIC_SEGMENT.match(segment):
-            return False
-    return True
-
-
-def _valid_file_rule(rule):
-    if not isinstance(rule, str):
-        return False
-    if rule.startswith("read:"):
-        rest = rule[len("read:"):]
-    elif rule.startswith("write:"):
-        rest = rule[len("write:"):]
-    else:
-        return False
-    if not rest.startswith("/") or rest == "/":
-        return False
-    for segment in rest[1:].split("/"):
-        if not segment or segment == "..":
-            return False
-        if segment != "*" and not _FILE_SEGMENT.match(segment):
-            return False
-    return True
-
-
-def validate_manifest(manifest):
-    """Return every problem in a parsed manifest (empty means valid)."""
-    problems = []
-    _check_keys(manifest, {"app", "entry", "mime", "permissions"}, "manifest", problems)
-    app = manifest.get("app")
-    _check_keys(app, {"name", "system_name", "author", "version", "description"}, "app", problems)
-    if not isinstance(app, dict):
-        return problems + ["app must be a table"]
-    name = app.get("name")
-    if not isinstance(name, str) or not (1 <= len(name) <= MAX_NAME):
-        problems.append(f"app.name must be 1..{MAX_NAME} characters")
-    elif any(ord(char) < 0x20 or 0x7F <= ord(char) <= 0x9F for char in name):
-        problems.append("app.name must not contain control characters")
-    if not _valid_system_name(app.get("system_name")):
-        problems.append(f"app.system_name {app.get('system_name')!r} is not a reverse-DNS name")
-    author = app.get("author")
-    if not isinstance(author, str) or not (1 <= len(author) <= MAX_AUTHOR):
-        problems.append(f"app.author must be 1..{MAX_AUTHOR} characters")
-    if not _valid_version(app.get("version")):
-        problems.append(f"app.version {app.get('version')!r} must be MAJOR.MINOR.PATCH below 65536")
-    description = app.get("description")
-    if description is not None and (not isinstance(description, str) or len(description) > MAX_DESCRIPTION):
-        problems.append(f"app.description must be at most {MAX_DESCRIPTION} characters")
-
-    entry = manifest.get("entry")
-    _check_keys(entry, {"binary", "args", "abi"}, "entry", problems)
-    if not isinstance(entry, dict):
-        return problems + ["entry must be a table"]
-    binary = entry.get("binary")
-    if not isinstance(binary, str) or not binary.endswith(".elf"):
-        problems.append(f"entry.binary {binary!r} must name a .elf file")
-    abi = entry.get("abi")
-    if abi is not None and abi not in ("native", "linux"):
-        problems.append(f'entry.abi {abi!r} must be "native" or "linux"')
-    args = entry.get("args", [])
-    if not isinstance(args, list) or len(args) > MAX_ARGS:
-        problems.append(f"entry.args may hold at most {MAX_ARGS} items")
-    else:
-        for arg in args:
-            if not isinstance(arg, str) or len(arg.encode("utf-8")) > MAX_ARG:
-                problems.append(f"entry.args items must be at most {MAX_ARG} bytes")
-
-    mime = manifest.get("mime", [])
-    if not isinstance(mime, list):
-        problems.append("mime must be an array of tables")
-    else:
-        for index, handler in enumerate(mime):
-            _check_keys(handler, {"type", "verbs", "icon"}, f"mime[{index}]", problems)
-            if not isinstance(handler, dict):
-                continue
-            mime_type = handler.get("type")
-            if not isinstance(mime_type, str) or not _MIME.match(mime_type):
-                problems.append(f"mime[{index}].type must be type/subtype")
-            verbs = handler.get("verbs")
-            if not isinstance(verbs, list) or not verbs:
-                problems.append(f"mime[{index}].verbs must not be empty")
-            else:
-                for verb in verbs:
-                    if not isinstance(verb, str) or not (1 <= len(verb) <= MAX_VERB) or not _VERB.match(verb):
-                        problems.append(f"mime[{index}] verb {verb!r} must be 1..{MAX_VERB} lowercase letters")
-            icon = handler.get("icon")
-            if icon is not None and (not isinstance(icon, str) or not icon.startswith("icons/") or ".." in icon):
-                problems.append(f"mime[{index}].icon must be an icons/ prefix")
-
-    permissions = manifest.get("permissions", {})
-    _check_keys(permissions, {"interfaces", "topics", "files", "network"}, "permissions", problems)
-    if isinstance(permissions, dict):
-        for interface in _list_field(permissions, "interfaces", "permissions", problems):
-            if not isinstance(interface, str) or not _INTERFACE.match(interface):
-                problems.append(f"permissions.interfaces entry {interface!r} is not name.vN")
-        for topic in _list_field(permissions, "topics", "permissions", problems):
-            if not _valid_topic(topic):
-                problems.append(f"permissions.topics entry {topic!r} is not a publish:/subscribe: pattern")
-        for rule in _list_field(permissions, "files", "permissions", problems):
-            if not _valid_file_rule(rule):
-                problems.append(f"permissions.files entry {rule!r} is not a read:/write: absolute path")
-        network = permissions.get("network", [])
-        if network not in ([], ["outbound"]):
-            problems.append('permissions.network must be empty or exactly ["outbound"]')
-    return problems
-
-
-def _list_field(table, key, where, problems):
-    """`table[key]` when it is a list, else record a problem and yield nothing."""
-    value = table.get(key, [])
-    if isinstance(value, list):
-        return value
-    problems.append(f"{where}.{key} must be an array")
-    return []
 
 
 def entry_name_problem(name):
