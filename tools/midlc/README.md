@@ -37,6 +37,7 @@ python tools/midlc/midlc.py --check --out libs/generated/src/lib.rs idl/echo.mid
 python tools/midlc/test_midlc.py
 python tools/midlc/test_midlc_transfers.py
 python tools/midlc/test_midlc_rings.py
+python tools/midlc/test_midl_browser.py
 
 # Generated-code round trips (host).
 cargo test -p messenger-generated
@@ -46,8 +47,12 @@ cargo test -p messenger-generated
 
 `midl_browser.py` is a stdlib-only Tk GUI that scans the repository for
 `*.midl` files, parses them with the compiler's own parser, and shows a
-navigable tree of interfaces, methods, structs and enums with method ids,
-signatures, the interface hash and doc comments:
+navigable tree of every interface (a file may hold several) with its methods,
+events, structs, enums, topics and rings. The detail pane gives method ids,
+signatures including their `transfers (...)`, each transfer's slot, each
+ring's layout, producer and doorbell or advance method (and which method
+transfers it), the interface hash and doc comments. Discovery, loading and
+filtering are in `midl_browser_model.py`:
 
 ```bash
 python tools/midlc/midl_browser.py                 # scan the repo
@@ -55,7 +60,9 @@ python tools/midlc/midl_browser.py idl             # scan a directory
 python tools/midlc/midl_browser.py idl/echo.midl   # scan one file
 ```
 
-Use the filter box to search across interface, method, struct and enum names;
+Use the filter box to search across interface, method, struct, enum, topic and
+ring names (a method also matches on its transfers, so `Channel<` or `Ring<`
+lists every method that carries one);
 `Copy` places the current detail pane on the clipboard.
 
 CI runs all of the above in `.github/workflows/midlc.yml`.

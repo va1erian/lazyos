@@ -3,8 +3,11 @@
 
 Discovers all `*.midl` files under the repository (or the paths you pass),
 parses them with the same parser the compiler uses (`midlc.py`), and shows a
-navigable tree of interfaces, methods, structs and enums with the details
-(method ids, signatures, interface hash, doc comments) in the right pane.
+navigable tree of every interface (a file may hold several) with its methods,
+events, structs, enums, topics and rings, and the details (method ids,
+signatures with their `transfers`, ring layouts, interface hash, doc comments)
+in the right pane. Discovery, loading and filtering live in
+`midl_browser_model.py`.
 
 Usage:
     python tools/midlc/midl_browser.py                 # scan the repo
@@ -18,97 +21,27 @@ from __future__ import annotations
 
 import argparse
 import itertools
-import os
 import sys
 import tkinter as tk
-from dataclasses import dataclass
 from pathlib import Path
 from tkinter import filedialog, ttk
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import midlc  # noqa: E402
 import midlc_transfers  # noqa: E402
-
-REPO_ROOT = Path(__file__).resolve().parents[2]
-SKIP_DIRS = {".git", ".claude", "target", "node_modules", "__pycache__", ".venv"}
-
-
-# ---------------------------------------------------------------------------
-# Model
-# ---------------------------------------------------------------------------
-
-
-@dataclass
-class Loaded:
-    """One `.midl` file, parsed into an interface or carrying a parse error."""
-
-    path: Path
-    interface: midlc.Interface | None = None
-    error: str = ""
-
-
-@dataclass
-class Node:
-    kind: str  # file | interface | group | method | struct | enum
-    payload: object
-    path: Path | None = None
-
-
-def discover(roots: list[Path]) -> list[Path]:
-    found: list[Path] = []
-    for root in roots:
-        root = Path(root)
-        if root.is_file() and root.suffix == ".midl":
-            if not any(part in SKIP_DIRS for part in root.parts):
-                found.append(root)
-        elif root.is_dir():
-            chunk: list[Path] = []
-            for current, dirs, files in os.walk(root):
-                dirs[:] = sorted(d for d in dirs if d not in SKIP_DIRS)
-                for name in sorted(files):
-                    if name.endswith(".midl"):
-                        chunk.append(Path(current) / name)
-            found.extend(sorted(chunk))
-    seen: set[Path] = set()
-    unique: list[Path] = []
-    for path in found:
-        if any(part in SKIP_DIRS for part in path.parts):
-            continue
-        resolved = path.resolve()
-        if resolved in seen:
-            continue
-        seen.add(resolved)
-        unique.append(path)
-    return unique
-
-
-def load(paths: list[Path]) -> list[Loaded]:
-    loaded: list[Loaded] = []
-    for path in paths:
-        try:
-            text = path.read_text(encoding="utf-8")
-            interface = midlc.Parser(midlc.lex(text)).parse_interface()
-            loaded.append(Loaded(path, interface))
-        except (midlc.MidlError, OSError, UnicodeDecodeError) as error:
-            loaded.append(Loaded(path, None, str(error)))
-    return loaded
-
-
-def signature(method: midlc.Method) -> str:
-    args = ", ".join(f"{p.name}: {p.ty}" for p in method.params)
-    rets = ", ".join(f"{p.name}: {p.ty}" for p in method.returns)
-    return f"({args}) -> ({rets}){midlc_transfers.signature(method)}"
-
-
-def kind_of(method: midlc.Method) -> str:
-    """A oneway method is an event (fire-and-forget); the rest are calls."""
-    return "event" if method.oneway else "method"
-
-
-def _matches(query: str, *texts: str) -> bool:
-    if not query:
-        return True
-    return any(query in text.lower() for text in texts)
+from midl_browser_model import (  # noqa: E402
+    REPO_ROOT,
+    Loaded,
+    Node,
+    counts,
+    discover,
+    filtered,
+    kind_of,
+    load,
+    matches,
+    ring_summary,
+    signature,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -178,6 +111,7 @@ class MidlBrowser:
             ("struct", "#8a5a00"),
             ("enum", "#7a2f8a"),
             ("topic", "#0b6e99"),
+            ("ring", "#a6322b"),
             ("error", "#b00020"),
         ):
             self.tree.tag_configure(tag, foreground=colour)
@@ -189,6 +123,7 @@ class MidlBrowser:
         self.detail.tag_configure("struct", foreground="#8a5a00", font=("TkDefaultFont", 10, "bold"))
         self.detail.tag_configure("enum", foreground="#7a2f8a", font=("TkDefaultFont", 10, "bold"))
         self.detail.tag_configure("topic", foreground="#0b6e99", font=("TkDefaultFont", 10, "bold"))
+        self.detail.tag_configure("ring", foreground="#a6322b", font=("TkDefaultFont", 10, "bold"))
         self.detail.tag_configure("meta", foreground="#6c757d")
         self.detail.tag_configure("code", font=("Consolas", 10), foreground="#202020")
         self.detail.tag_configure("doc", foreground="#444444")
@@ -216,32 +151,28 @@ class MidlBrowser:
         self.tree.delete(*self.tree.get_children())
         self.nodes.clear()
         query = self.query.get().strip().lower()
+        files: dict[Path, str] = {}
         for loaded in self.loaded:
-            self._insert_file(loaded, query)
+            self._insert(loaded, query, files)
 
-    def _insert_file(self, loaded: Loaded, query: str) -> None:
+    def _insert(self, loaded: Loaded, query: str, files: dict[Path, str]) -> None:
         label = self._rel(loaded.path)
         if loaded.interface is None:
-            if not _matches(query, label, loaded.error):
+            if not matches(query, label, loaded.error):
                 return
             iid = self._add("", f"{label}   (parse error)", "error")
             self.nodes[iid] = Node("file", loaded, loaded.path)
             return
 
         interface = loaded.interface
-        if query and not _matches(query, interface.name, interface.docs, label, str(loaded.path)):
-            methods = [m for m in interface.methods if _matches(query, m.name, m.doc)]
-            structs = [s for s in interface.structs if _matches(query, s.name, s.doc)]
-            enums = [e for e in interface.enums if _matches(query, e.name)]
-            topics = [t for t in interface.topics if _matches(query, t.name, t.source, t.payload, t.doc, *t.permissions)]
-            if not (methods or structs or enums or topics):
-                return
-            shown = midlc.Interface(interface.name, interface.docs, methods, structs, enums, topics)
-        else:
-            shown = interface
-
-        file_iid = self._add("", label, "file")
-        self.nodes[file_iid] = Node("file", loaded, loaded.path)
+        shown = filtered(interface, query, label, str(loaded.path))
+        if shown is None:
+            return
+        file_iid = files.get(loaded.path)
+        if file_iid is None:
+            file_iid = self._add("", label, "file")
+            self.nodes[file_iid] = Node("file", loaded, loaded.path)
+            files[loaded.path] = file_iid
         iface_iid = self._add(file_iid, f"{interface.name}", "interface")
         self.nodes[iface_iid] = Node("interface", loaded, loaded.path)
 
@@ -267,6 +198,12 @@ class MidlBrowser:
             for topic in shown.topics:
                 iid = self._add(group, topic.name, "topic")
                 self.nodes[iid] = Node("topic", topic, loaded.path)
+        if shown.rings:
+            group = self._add(iface_iid, f"Rings ({len(shown.rings)})", "group")
+            self.nodes[group] = Node("group", loaded, loaded.path)
+            for ring in shown.rings:
+                iid = self._add(group, f"{ring.name}   {ring.layout}", "ring")
+                self.nodes[iid] = Node("ring", ring, loaded.path)
 
     def _add_method_group(self, parent: str, loaded: Loaded, title: str, methods: list[midlc.Method]) -> None:
         if not methods:
@@ -311,6 +248,8 @@ class MidlBrowser:
             self._render_enum(node)
         elif node.kind == "topic":
             self._render_topic(node)
+        elif node.kind == "ring":
+            self._render_ring(node)
         self.detail.configure(state="disabled")
         self.detail.mark_set("insert", "1.0")
 
@@ -320,8 +259,12 @@ class MidlBrowser:
         if loaded.interface is None:
             self._put("\nParse error\n", "error")
             self._put(f"{loaded.error}\n", "error")
-        else:
-            self._render_interface(node)
+            return
+        siblings = [e for e in self.loaded if e.path == loaded.path and e.interface is not None]
+        if len(siblings) > 1:
+            names = ", ".join(e.interface.name for e in siblings)  # type: ignore[union-attr]
+            self._put(f"{len(siblings)} interfaces: {names}\n\n", "meta")
+        self._render_interface(Node("interface", siblings[0], loaded.path))
 
     def _render_interface(self, node: Node) -> None:
         loaded: Loaded = node.payload  # type: ignore[assignment]
@@ -351,6 +294,14 @@ class MidlBrowser:
                     self._put(f"      permission {permission}\n", "meta")
                 if topic.doc:
                     self._put(f"      {topic.doc}\n", "doc")
+
+        if interface.rings:
+            self._put(f"\nRings ({len(interface.rings)})\n", "section")
+            for ring in interface.rings:
+                self._put(f"  {ring.name}\n", "ring")
+                self._put(f"      {ring_summary(ring)}\n", "meta")
+                if ring.doc:
+                    self._put(f"      {ring.doc}\n", "doc")
 
         if interface.structs:
             self._put(f"\nStructs ({len(interface.structs)})\n", "section")
@@ -437,6 +388,30 @@ class MidlBrowser:
         if topic.doc:
             self._put(f"\n{topic.doc}\n", "doc")
 
+    def _render_ring(self, node: Node) -> None:
+        ring: midlc.Ring = node.payload  # type: ignore[assignment]
+        self._put(f"ring {ring.name}\n", "title")
+        self._put(f"layout      {ring.layout}\n", "meta")
+        self._put(f"producer    {ring.producer}\n", "meta")
+        if ring.doorbell:
+            self._put(f"doorbell    {ring.doorbell} (oneway)\n", "code")
+        if ring.advance:
+            self._put(f"advance     {ring.advance}\n", "code")
+        carriers = [
+            (m, t)
+            for entry in self.loaded
+            if entry.interface is not None and entry.path == node.path
+            for m in entry.interface.methods
+            for t in m.transfers
+            if ring.name in t.rings
+        ]
+        if carriers:
+            self._put("\nTransferred by\n", "section")
+            for method, transfer in carriers:
+                self._put(f"  {method.name}: {midlc_transfers.describe(transfer)}\n", "code")
+        if ring.doc:
+            self._put(f"\n{ring.doc}\n", "doc")
+
     def copy_detail(self) -> None:
         text = self.detail.get("1.0", "end-1c")
         self.root.clipboard_clear()
@@ -451,19 +426,15 @@ class MidlBrowser:
             return str(path)
 
     def _update_status(self) -> None:
-        files = len(self.loaded)
-        ok = [entry for entry in self.loaded if entry.interface is not None]
-        methods = sum(len(entry.interface.methods) for entry in ok)  # type: ignore[union-attr]
-        structs = sum(len(entry.interface.structs) for entry in ok)  # type: ignore[union-attr]
-        enums = sum(len(entry.interface.enums) for entry in ok)  # type: ignore[union-attr]
-        topics = sum(len(entry.interface.topics) for entry in ok)  # type: ignore[union-attr]
-        errors = files - len(ok)
+        total = counts(self.loaded)
         text = (
-            f"{len(ok)} interface(s) in {files} file(s) · {methods} methods · "
-            f"{structs} structs · {enums} enums · {topics} topics"
+            f"{total['interfaces']} interface(s) in {total['files']} file(s) · "
+            f"{total['methods']} methods ({total['transferring']} with transfers) · "
+            f"{total['structs']} structs · {total['enums']} enums · "
+            f"{total['topics']} topics · {total['rings']} rings"
         )
-        if errors:
-            text += f" · {errors} file(s) failed to parse"
+        if total["failed"]:
+            text += f" · {total['failed']} file(s) failed to parse"
         self.status.configure(text=text)
 
 

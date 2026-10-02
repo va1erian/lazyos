@@ -35,6 +35,10 @@ jobs:
       - name: Ring declaration tests
         run: python tools/midlc/test_midlc_rings.py
 
+      # Headless model tests; the Tk smoke test skips without a display.
+      - name: MIDL browser tests
+        run: python tools/midlc/test_midl_browser.py
+
       # The Rust stubs and the schema table the Rhai `msg` module reads
       # (`docs/rhai/msg.md`) are both generated from `idl/`.
       - name: Generated stubs and schema are up to date
