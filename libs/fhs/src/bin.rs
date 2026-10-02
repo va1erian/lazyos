@@ -75,32 +75,12 @@ programs! {
     SHELLPROBE = "shellprobe";
     /// The hello demo window.
     HELLO = "hello";
-    /// The Editor xui app.
-    EDITOR = "editor";
-    /// The Files xui app.
-    FILES = "files";
-    /// The Paint xui app.
-    PAINT = "paint";
-    /// The Settings xui app.
-    SETTINGS = "settings";
-    /// The Config xui app.
-    CONFD_EDITOR = "confd-editor";
     /// The Terminal xui app.
     TERMINAL = "terminal";
-    /// The System Monitor xui app.
-    SYSMON = "sysmon";
-    /// The Fabric Monitor xui app.
-    FABRICMON = "fabricmon";
     /// The Devices xui app (issue #481).
     DEVICES = "devices";
-    /// The CPU and Memory widget xui app.
-    WIDGET = "widget";
-    /// The Counter xui app.
-    COUNTER = "counter";
     /// The LazyRAD IDE xui app (`LAZYOS_LAZYRAD=1` images).
     LAZYRAD = "lazyrad";
-    /// The Docs xui app.
-    DOCS = "docs";
     /// The Package Installer xui app.
     INSTALLER = "installer";
     /// LazyShell, the desktop shell xui app (issue #157).

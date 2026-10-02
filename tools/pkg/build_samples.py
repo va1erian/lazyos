@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-"""Build the sample packages the disk image ships (`PKGDEMO.LZP`).
+"""Build the sample packages the disk image ships (`pkgdemo.lzp`).
 
 A sample is a source tree under `tools/pkg/samples/<name>/` whose binary is not
 checked in: this copies the built program into a scratch copy of the tree,
 builds the archive with `tools/pkg/build.py` (the same checks the OS reader
-makes) and writes it as an 8.3 name under `target/pkg/`, where the root
-`build.rs` picks it up and embeds it in the FAT boot volume. The file is
-installed from the Terminal with `pkgctl install /PKGDEMO.LZP`.
+makes) and writes it under `target/pkg/`, where the root `build.rs` picks it
+up and embeds it as `/system/share/samples/<name>` on the OS volume. It is a
+user package (`org.lazy.counter`), not a core one, and is installed from the
+Terminal with `pkgctl install /system/share/samples/pkgdemo.lzp`.
 
 `tools/xui/build.py` runs this after building the xui apps (the Counter ELF is
 one of them); run it by hand after a `cargo build` of `xui-app` only if you do
@@ -32,9 +33,9 @@ sys.path.insert(0, str(HERE))
 import build  # noqa: E402
 
 # name -> (the built program under --xui-dir, where it goes in the package,
-#          the 8.3 name the archive is embedded as)
+#          the file name written under --out, which is also its name on the image)
 SAMPLES = {
-    "counter": ("xui-counter.elf", "bin/counter.elf", "PKGDEMO.LZP"),
+    "counter": ("xui-counter.elf", "bin/counter.elf", "pkgdemo.lzp"),
 }
 
 

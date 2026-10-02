@@ -38,7 +38,6 @@ fn f2_build() -> (Vec<DirSpec>, Vec<OsFile>) {
         bytes("/HELLO.TXT", 0o644),
         bytes("/TESTDOC.MD", 0o644),
         bytes("/PKGDEMO.LZP", 0o644),
-        bytes("/XAPPS.LST", 0o644),
         bytes("/docs/README.md", 0o644),
         bytes("/docs/architecture/boot.md", 0o644),
         bytes("/LAZYRAD/hello/main.lr", 0o644),
@@ -63,7 +62,6 @@ fn f3_build() -> (Vec<DirSpec>, Vec<OsFile>) {
         fhs::share::MIME_TYPES,
         fhs::share::TESTDOC,
         fhs::share::PKGDEMO,
-        fhs::system::XAPPS_LST,
     ] {
         sink.add_bytes(data, data.as_bytes().to_vec());
     }

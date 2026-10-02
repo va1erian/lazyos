@@ -13,6 +13,10 @@ use crate::os_layout::{dirs, parse_passwd};
 
 const STAMP: i64 = 1_700_000_000;
 const PASSWD: &str = "root:0:0:toor:/root:sh\nalice:1000:1000:lazy:/home/alice:sh\n";
+/// Where an F4 image kept the Editor and the app list `init` read; F5 deletes
+/// both (the constants left `fhs` with them).
+const F4_EDITOR: &str = "/system/bin/editor";
+const F4_APP_LIST: &str = "/system/etc/xapps.lst";
 
 /// A scratch `target/pkg/core` with two built packages and their `core.lst`.
 fn core_dir(name: &str) -> PathBuf {
@@ -103,9 +107,9 @@ fn an_f4_image_updated_by_the_f5_build_drops_the_app_programs() {
     let layout = dirs(&parse_passwd(PASSWD));
     let mut f4 = OsFiles::default();
     f4.add_bytes(fhs::etc::PASSWD, PASSWD.as_bytes().to_vec());
-    f4.add_bytes(fhs::bin::EDITOR, b"editor elf".to_vec());
+    f4.add_bytes(F4_EDITOR, b"editor elf".to_vec());
     f4.add_bytes(fhs::bin::TERMINAL, b"terminal elf".to_vec());
-    f4.add_bytes(fhs::system::XAPPS_LST, b"/system/bin/editor\n".to_vec());
+    f4.add_bytes(F4_APP_LIST, b"/system/bin/editor\n".to_vec());
     let old = write_volume(&volume, None, &layout, &f4.files(), STAMP).unwrap();
 
     let dir = core_dir("update");
@@ -116,15 +120,15 @@ fn an_f4_image_updated_by_the_f5_build_drops_the_app_programs() {
     core_packages::embed(&mut f5, &built.iter().collect::<Vec<_>>(), &[]);
     let new = write_volume(&volume, Some(&old), &layout, &f5.files(), STAMP).unwrap();
 
-    assert!(volume.lookup(fhs::bin::EDITOR).is_err(), "the Editor is a package now");
-    assert!(volume.lookup(fhs::system::XAPPS_LST).is_err());
+    assert!(volume.lookup(F4_EDITOR).is_err(), "the Editor is a package now");
+    assert!(volume.lookup(F4_APP_LIST).is_err());
     assert_eq!(volume.read_file(fhs::bin::TERMINAL).unwrap(), b"terminal elf");
     assert_eq!(
         volume.read_file("/system/packages/os.lazy.editor.lzp").unwrap(),
         b"plain editor"
     );
     assert!(new.entries.contains_key(fhs::system::PACKAGES_INDEX));
-    assert!(!new.entries.contains_key(fhs::bin::EDITOR));
+    assert!(!new.entries.contains_key(F4_EDITOR));
     drop(volume);
     let problems = ext2fs::check::fsck(&io.snapshot());
     assert!(problems.is_empty(), "{problems:#?}");

@@ -235,7 +235,7 @@ pub fn embed_sample_packages(sink: &mut dyn Sink) {
         .join("target")
         .join("pkg");
     // (what `build_samples.py` writes, where the image keeps it)
-    for (built, destination) in [("PKGDEMO.LZP", fhs::share::PKGDEMO)] {
+    for (built, destination) in [("pkgdemo.lzp", fhs::share::PKGDEMO)] {
         let path = dir.join(built);
         // Tracked even when missing, so building it later is picked up.
         println!("cargo:rerun-if-changed={}", path.display());

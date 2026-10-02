@@ -26,11 +26,6 @@ pub const PACKAGES_INDEX: &str = "/system/packages/index";
 /// an in-place update may replace or delete (`build_support/os_manifest.rs`).
 pub const IMAGE_MANIFEST: &str = "/system/.image-manifest";
 
-/// The list of optional apps the build embedded, one `/system/bin` path per
-/// line, optionally followed by `autostart`; `init` reads it at boot. Target
-/// (F5): removed, the apps become packages.
-pub const XAPPS_LST: &str = "/system/etc/xapps.lst";
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -43,6 +38,5 @@ mod tests {
         }
         assert!(IMAGE_MANIFEST.starts_with(SYSTEM));
         assert!(PACKAGES_INDEX.starts_with(SYSTEM_PACKAGES));
-        assert!(XAPPS_LST.starts_with(SYSTEM_ETC));
     }
 }

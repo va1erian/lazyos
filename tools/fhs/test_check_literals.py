@@ -38,7 +38,7 @@ class CheckLiterals(unittest.TestCase):
 
     def test_offending_literals_are_caught(self):
         for text in ['"/data/apps"', '"/tmp/x"', '"/docs"', '"/home/u"', '"/conf"',
-                     '"/apps"', '"/logs"', '"INIT.ELF"', '"XAPPS.LST"', '"MIME.TYP"',
+                     '"/apps"', '"/logs"', '"INIT.ELF"', '"APPS.LST"', '"MIME.TYP"',
                      '"PASSWD"', '"BUSYBOX"', 'r#"/data"#', '"cannot spawn TOP.ELF"',
                      '"/system/bin/top"', '"/system"', '"/etc/mime.types"',
                      '"/transient/x"', '"PKGDEMO.LZP"', '"/tmp"']:
