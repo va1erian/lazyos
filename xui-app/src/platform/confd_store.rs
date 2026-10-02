@@ -122,6 +122,26 @@ impl ConfigStore for ConfdStore {
         self.call(wire::METHOD_DELETE, body).map(|_| ())
     }
 
+    /// The paths under `prefix` this task may read; empty on any failure.
+    fn list(&self, prefix: &str) -> Vec<String> {
+        let Ok(body) = wire::encode_list_args(&wire::ListArgs {
+            prefix: prefix.to_owned(),
+        }) else {
+            return Vec::new();
+        };
+        self.call(wire::METHOD_LIST, body)
+            .ok()
+            .and_then(|reply| wire::decode_list_reply(&reply.body).ok())
+            .map(|reply| reply.paths)
+            .unwrap_or_default()
+    }
+
+    /// This task's kernel-stamped uid: confd checks `user/<uid>/**` writes
+    /// against the same one.
+    fn uid(&self) -> Option<u32> {
+        crate::sys::cred_get(None).ok().map(|cred| cred.uid)
+    }
+
     /// The apps `init` can launch (its registry); empty when `init` cannot be
     /// reached, in which case the menu editor only reorders and renames.
     fn apps(&self) -> Vec<AppChoice> {

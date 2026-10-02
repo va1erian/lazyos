@@ -71,6 +71,8 @@ SCRIPTS = [
     ("shell_demo.json", "LazyShell (taskbar, start menu, restart)", ("desktop",), "term"),
     ("xui_settings_time.json", "XUI app: Settings (time, clock format, light mode)",
      ("desktop",), None),
+    ("xui_settings_hidden.json", "XUI app: Settings (hide an app from the start menu)",
+     ("desktop",), None),
 ]
 
 # Simple mode: (label, cargo profile) and (label, description) choices.

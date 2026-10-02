@@ -1,5 +1,45 @@
 use super::*;
 
+#[test]
+fn hidden_apps_leave_both_row_groups() {
+    use confd::Value;
+    use deskmenu::hidden::Hidden;
+    let t = Value::Bool(true);
+    let f = Value::Bool(false);
+    let hidden = Hidden::from_pairs(
+        1000,
+        [
+            ("user/1000/menu/hidden/paint", &t),
+            ("user/1000/menu/hidden/org.lazy.snake", &t),
+            ("sys/menu/hidden/files", &t),
+            ("sys/menu/hidden/editor", &t),
+            ("user/1000/menu/hidden/editor", &f),
+        ],
+    );
+    let installed = visible(
+        vec![
+            entry("org.lazy.snake", "Snake"),
+            entry("org.lazy.dots", "Dots"),
+        ],
+        &hidden,
+    );
+    let configured = visible(deskmenu::defaults(), &hidden);
+    let menu = Menu::build(&installed, &configured, Shipped::Unknown, H);
+    let ids = ids(&menu);
+    assert_eq!(ids[0], "org.lazy.dots");
+    for gone in ["paint", "files", "org.lazy.snake"] {
+        assert!(!ids.contains(&gone), "{gone} is hidden");
+    }
+    assert!(ids.contains(&"editor"), "the user un-hid it");
+    assert_eq!(configured.len(), deskmenu::defaults().len() - 2);
+}
+
+#[test]
+fn nothing_hidden_keeps_every_row() {
+    let hidden = deskmenu::hidden::Hidden::default();
+    assert_eq!(visible(deskmenu::defaults(), &hidden), deskmenu::defaults());
+}
+
 fn entry(app: &str, label: &str) -> Entry {
     Entry::new(app, label).unwrap()
 }

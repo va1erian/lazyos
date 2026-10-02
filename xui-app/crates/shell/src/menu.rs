@@ -1,5 +1,9 @@
 //! The start menu: which rows it shows and where they sit.
 //!
+//! Apps the user hides (`deskmenu::hidden`, issue #509) are left out of both
+//! row groups before [`Menu::build`] sees them ([`visible`]); they still
+//! launch and open files.
+//!
 //! Rows run top-down: the apps the package manager installed (`init`'s
 //! `ListApps` rows with `installed` set) first, then the configured
 //! `sys/ui/menu` entries, then the two power rows ([`power`]). A configured
@@ -13,6 +17,7 @@
 //! taskbar's top edge, and has a [`BANNER_W`]-wide vertical banner on its
 //! left. Geometry here is panel-local.
 
+use deskmenu::hidden::Hidden;
 use deskmenu::Entry;
 
 use crate::taskbar::BAR_H;
@@ -159,8 +164,11 @@ impl Menu {
     }
 }
 
-/// Longest installed-app id: a package `system_name` (`docs/packages.md`).
-const MAX_INSTALLED_ID: usize = 128;
+/// `entries` without the apps `hidden` leaves out of the menu, order kept.
+pub fn visible(mut entries: Vec<Entry>, hidden: &Hidden) -> Vec<Entry> {
+    entries.retain(|entry| !hidden.hides(&entry.app));
+    entries
+}
 
 /// The installed-app rows from `init`'s registry rows `(id, name, installed)`:
 /// installed ones only, labelled with their manifest name (cleaned, falling
@@ -175,15 +183,10 @@ pub fn installed_entries<'a>(
 }
 
 /// One installed-app row. Its id is the package's reverse-DNS `system_name`
-/// (`org.lazy.counter`), which `deskmenu`'s registry-stem rule rejects for
-/// its dots, so the id is checked against the system-name alphabet here.
+/// (`org.lazy.counter`), which may be longer than a configured entry's id
+/// (`deskmenu::MAX_APP`), so it is checked against the system-name rule.
 fn installed_entry(id: &str, name: &str) -> Option<Entry> {
-    let id_ok = !id.is_empty()
-        && id.len() <= MAX_INSTALLED_ID
-        && id.bytes().all(|b| {
-            b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'.' | b'-' | b'_')
-        });
-    if !id_ok {
+    if !deskmenu::valid_system_name(id) {
         return None;
     }
     let label = deskmenu::clean_label(name);
