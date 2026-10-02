@@ -33,7 +33,7 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use crate::fs::vfs::{FsError, Id};
+use crate::fs::vfs::{self, FsError, Id};
 use crate::ipc::pipe;
 use crate::task::signal::{self, SigInfo};
 use crate::task::{self, FdKind, SpawnError, WakeReason};
