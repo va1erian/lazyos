@@ -140,6 +140,12 @@ static SCHEDULING: AtomicBool = AtomicBool::new(false);
 /// enabled). `schedule` only sets a bit; [`reclaim_pending`] does the freeing
 /// from a syscall entry or the mux loop, where the current task holds no lock.
 static PENDING_RECLAIM: slotmask::SlotMask = slotmask::SlotMask::new();
+/// Slots of finished tasks whose descriptors are still open. A process closes
+/// its files when it exits, not when its parent reaps it: a shell reading a
+/// `$(...)` substitution waits for the pipe's end-of-file before it reaps the
+/// writer. [`process::finish_locked`] only sets a bit (it may run on the
+/// scheduler's lock); [`close_exited_fds`] drops the descriptors.
+static PENDING_CLOSE: slotmask::SlotMask = slotmask::SlotMask::new();
 
 /// Which syscall ABI a task uses.
 #[derive(Clone, Copy, PartialEq)]
