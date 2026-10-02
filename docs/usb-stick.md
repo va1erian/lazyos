@@ -43,8 +43,11 @@ slower than any PC), from `usb-storage` only:
 
 | Firmware | Kernel entered | Desktop drawn (`SHELL:DESKTOP:PASS`) |
 |---|---|---|
-| OVMF (UEFI) | 5.7 s | 21.7 s |
-| SeaBIOS | 65.8 s | 79.8 s |
+| OVMF (UEFI) | 5.7 s | 22.2 s |
+| SeaBIOS | 66.3 s | 80.8 s |
+
+In both runs `usbd` bound the USB keyboard and mouse and the kernel mounted
+`usb0p3` (the stick's `lazyhome`) at `/home` late.
 
 The gap is the ramdisk load: the UEFI loader reads it through the firmware's
 USB driver in large blocks, the BIOS loader through INT 13h in small ones.
