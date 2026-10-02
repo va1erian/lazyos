@@ -48,6 +48,10 @@ impl RuleError {
 
 /// Check one files rule.
 pub(crate) fn check_rule(rule: &str) -> Result<(), RuleError> {
+    check_rule_with(rule, REJECT_ABSOLUTE_HOME)
+}
+
+fn check_rule_with(rule: &str, reject_absolute_home: bool) -> Result<(), RuleError> {
     let path = rule
         .strip_prefix("read:")
         .or_else(|| rule.strip_prefix("write:"))
@@ -62,7 +66,7 @@ pub(crate) fn check_rule(rule: &str) -> Result<(), RuleError> {
     if rest.is_empty() || !rest.split('/').all(valid_segment) {
         return Err(RuleError::Shape);
     }
-    if REJECT_ABSOLUTE_HOME && !relative && is_absolute_home(path) {
+    if reject_absolute_home && !relative && is_absolute_home(path) {
         return Err(RuleError::AbsoluteHome);
     }
     Ok(())
@@ -120,7 +124,19 @@ mod tests {
         assert!(is_absolute_home("/home/ada"));
         assert!(!is_absolute_home("/data/homework"));
         assert!(!is_absolute_home("/homes"));
-        // Not rejected yet (issue #509, F5 cleanup).
-        assert!(!REJECT_ABSOLUTE_HOME);
+    }
+
+    #[test]
+    fn the_cleanup_switch_refuses_absolute_home_paths_only() {
+        let strict = |rule| check_rule_with(rule, true);
+        assert_eq!(strict("read:/data/home/*/x"), Err(RuleError::AbsoluteHome));
+        assert_eq!(strict("write:/home/ada"), Err(RuleError::AbsoluteHome));
+        assert_eq!(strict("read:$HOME/x"), Ok(()));
+        assert_eq!(strict("read:/data/homework"), Ok(()));
+        assert!(RuleError::AbsoluteHome
+            .message("read:/home/x")
+            .contains("write it as $HOME/"));
+        // Off until the F5 cleanup (issue #509): the default accepts them.
+        assert_eq!(check_rule("read:/data/home/*/x"), Ok(()));
     }
 }

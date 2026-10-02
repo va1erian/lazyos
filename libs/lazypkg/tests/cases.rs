@@ -84,9 +84,15 @@ fn manifest_cases() {
             (true, Err(error)) => panic!("{}: expected valid, got {error}", case.name),
             (false, Ok(_)) => panic!("{}: expected an error", case.name),
             (false, Err(error)) => {
-                let wanted = case.error.as_deref().expect("an invalid case names its error");
+                let wanted = case
+                    .error
+                    .as_deref()
+                    .expect("an invalid case names its error");
                 assert!(
-                    error.problems().iter().any(|p| p.message().contains(wanted)),
+                    error
+                        .problems()
+                        .iter()
+                        .any(|p| p.message().contains(wanted)),
                     "{}: no problem mentions {wanted:?}: {error}",
                     case.name
                 );
@@ -118,6 +124,9 @@ fn version_cases() {
     }
     for [left, right] in &versions.equal {
         assert_eq!(version(left), version(right), "{left} == {right}");
-        assert_eq!(version(left).cmp(&version(right)), std::cmp::Ordering::Equal);
+        assert_eq!(
+            version(left).cmp(&version(right)),
+            std::cmp::Ordering::Equal
+        );
     }
 }
