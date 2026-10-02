@@ -58,10 +58,12 @@ use zip::ZipEntry;
 
 /// Most entries a package may hold.
 pub const MAX_ENTRIES: usize = 1024;
-/// Most bytes all entries may expand to together (64 MiB).
-pub const MAX_TOTAL_UNCOMPRESSED: u64 = 64 * 1024 * 1024;
-/// Most bytes one entry may expand to (16 MiB).
-pub const MAX_ENTRY_UNCOMPRESSED: u32 = 16 * 1024 * 1024;
+/// Most bytes all entries may expand to together (1 GiB). Generous on
+/// purpose: a game ships its data inside its package (the Doom port's 28 MiB
+/// IWAD), and the declared sizes are still checked before anything is read.
+pub const MAX_TOTAL_UNCOMPRESSED: u64 = 1024 * 1024 * 1024;
+/// Most bytes one entry may expand to (256 MiB).
+pub const MAX_ENTRY_UNCOMPRESSED: u32 = 256 * 1024 * 1024;
 /// Longest entry name, in bytes.
 pub const MAX_NAME_LEN: usize = 255;
 /// Largest `manifest.toml`, in bytes (1 MiB).
