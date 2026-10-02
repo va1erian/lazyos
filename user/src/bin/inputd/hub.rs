@@ -4,11 +4,8 @@
 //! `inputmap::Router`; this module owns the endpoints those decisions refer to
 //! and turns them into Messenger traffic. Key content goes to exactly one
 //! place: the endpoint of the focused session. A session whose endpoint fills
-//! up is marked lagging and resynchronised (`KeyboardLeave` + `KeyboardEnter`)
-//! before it gets anything else, so a dropped release can never leave a client
-//! with a stuck key.
+//! up gets the rest from a bounded backlog as it drains (`delivery.rs`).
 
-use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::format;
 use alloc::vec::Vec;
 
@@ -20,6 +17,7 @@ use user::messenger::input::{self as api, shell_wire, wire};
 use user::messenger::{errno, services, Endpoint, Error, Message, Parcel, Result};
 use user::sys;
 
+use super::delivery::{Delivery, Reach};
 use super::pointer::Cursor;
 
 /// Most hotkey chords the compositor may register.
@@ -46,10 +44,8 @@ struct Shell {
 pub(super) struct Hub {
     pub(super) engine: Engine,
     router: Router,
-    /// session -> the client's event endpoint.
-    endpoints: BTreeMap<u64, Endpoint>,
-    /// Sessions that missed an event and must be resynchronised first.
-    lagging: BTreeSet<u64>,
+    /// The sessions' endpoints and their backlogs.
+    delivery: Delivery,
     shell: Option<Shell>,
     /// The cursor every pointing device moves (`pointer.rs`).
     pub(super) pointer: Cursor,
@@ -60,8 +56,7 @@ impl Hub {
         Hub {
             engine: Engine::new(layout),
             router: Router::new(),
-            endpoints: BTreeMap::new(),
-            lagging: BTreeSet::new(),
+            delivery: Delivery::default(),
             shell: None,
             pointer: Cursor::new(),
         }
@@ -158,7 +153,7 @@ impl Hub {
         if let Some(old) = opened.replaced {
             self.forget_endpoint(old);
         }
-        self.endpoints
+        self.delivery
             .insert(opened.session, Endpoint::from_raw(message.first_handle));
         // Sessions are rare (one per window), so each is worth a boot-log line.
         sys::write_str(&format!(
@@ -343,51 +338,24 @@ impl Hub {
         }
     }
 
-    /// Send an event to `session`, resynchronising it first if it lagged, and
-    /// dropping it when its endpoint is gone.
+    /// Send an event to `session` (behind any backlog it has), dropping the
+    /// session when its endpoint is gone.
     fn send(&mut self, session: u64, method: u32, body: Encoded) {
         let Ok(body) = body else { return };
-        if self.lagging.contains(&session) && !self.resync(session) {
-            return;
-        }
-        match self.transmit(session, method, body) {
-            Ok(()) => {}
-            Err(Error::Errno(code)) if code == -errno::EPIPE => self.drop_session(session),
-            Err(_) => {
-                self.lagging.insert(session);
-            }
+        let engine = &self.engine;
+        let enter = || keyboard_enter(engine);
+        if self.delivery.send(session, method, body, &enter) == Reach::Gone {
+            self.drop_session(session);
         }
     }
 
-    fn transmit(&self, session: u64, method: u32, body: Vec<u8>) -> Result<()> {
-        let endpoint = self
-            .endpoints
-            .get(&session)
-            .ok_or(Error::Errno(-errno::ENOENT))?;
-        endpoint.send(&api::event(api::INTERFACE, method, body))
-    }
-
-    /// Release-everything, then re-seed: the client tells no difference from a
-    /// focus loss and regain, which is exactly the recovery it already has.
-    fn resync(&mut self, session: u64) -> bool {
-        let down = self.engine.held().into_iter().map(u32::from).collect();
-        let enter = match wire::encode_keyboard_enter_args(&wire::KeyboardEnterArgs { down }) {
-            Ok(body) => body,
-            Err(_) => return false,
-        };
-        let sent = self
-            .transmit(session, wire::METHOD_KEYBOARDLEAVE, Vec::new())
-            .and_then(|()| self.transmit(session, wire::METHOD_KEYBOARDENTER, enter));
-        match sent {
-            Ok(()) => {
-                self.lagging.remove(&session);
-                true
-            }
-            Err(Error::Errno(code)) if code == -errno::EPIPE => {
-                self.drop_session(session);
-                false
-            }
-            Err(_) => false,
+    /// Hand every backlog what its client has room for now (once per pass of
+    /// the service loop).
+    pub(super) fn flush(&mut self) {
+        let engine = &self.engine;
+        let enter = || keyboard_enter(engine);
+        for session in self.delivery.flush_all(&enter) {
+            self.drop_session(session);
         }
     }
 
@@ -420,10 +388,7 @@ impl Hub {
     // ---- teardown ---------------------------------------------------------
 
     fn forget_endpoint(&mut self, session: u64) {
-        self.lagging.remove(&session);
-        if let Some(endpoint) = self.endpoints.remove(&session) {
-            let _ = endpoint.close();
-        }
+        self.delivery.forget(session);
     }
 
     /// A session's endpoint died: drop it and tell the compositor.
@@ -447,6 +412,12 @@ impl Hub {
             );
         }
     }
+}
+
+/// The `KeyboardEnter` body for the keys held right now.
+fn keyboard_enter(engine: &Engine) -> Option<Vec<u8>> {
+    let down = engine.held().into_iter().map(u32::from).collect();
+    wire::encode_keyboard_enter_args(&wire::KeyboardEnterArgs { down }).ok()
 }
 
 fn encode_key(key: &KeyOut) -> Encoded {

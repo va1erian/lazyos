@@ -183,16 +183,22 @@ impl From<ext2fs::Ext2Error> for FsError {
 /// A registered device is the library's disk. The explicit `BlockDevice::`
 /// calls matter: method syntax on `&&dyn BlockDevice` would find this very
 /// impl first and recurse.
+///
+/// Every transfer first collects the i8042's bytes (`input::ps2`): a file
+/// syscall runs with interrupts off and may do hundreds of these, long enough
+/// for the keyboard controller's own queue to overflow.
 impl ext2fs::BlockIo for &'static dyn BlockDevice {
     fn sector_count(&self) -> u64 {
         BlockDevice::sector_count(*self)
     }
 
     fn read_sectors(&self, lba: u64, buf: &mut [u8]) -> Result<(), ext2fs::IoError> {
+        crate::input::ps2::service();
         BlockDevice::read_sectors(*self, lba, buf).map_err(io_error)
     }
 
     fn write_sectors(&self, lba: u64, buf: &[u8]) -> Result<(), ext2fs::IoError> {
+        crate::input::ps2::service();
         BlockDevice::write_sectors(*self, lba, buf).map_err(io_error)
     }
 
@@ -201,10 +207,12 @@ impl ext2fs::BlockIo for &'static dyn BlockDevice {
         lba: u64,
         bufs: &mut [&mut [u8]],
     ) -> Result<(), ext2fs::IoError> {
+        crate::input::ps2::service();
         BlockDevice::read_sectors_vectored(*self, lba, bufs).map_err(io_error)
     }
 
     fn write_sectors_vectored(&self, lba: u64, bufs: &[&[u8]]) -> Result<(), ext2fs::IoError> {
+        crate::input::ps2::service();
         BlockDevice::write_sectors_vectored(*self, lba, bufs).map_err(io_error)
     }
 

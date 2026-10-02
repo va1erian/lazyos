@@ -2,9 +2,7 @@
 
 use crate::arch::fault::{contain, Fault};
 use crate::arch::fault_storm::Path;
-use crate::arch::io::inb;
 use crate::arch::pic;
-use crate::input::{keyboard, mouse};
 use crate::task::signal::Exception;
 use alloc::boxed::Box;
 use core::arch::global_asm;
@@ -424,33 +422,17 @@ fn naked_gate(isr: *const ()) -> x86_64::structures::idt::HandlerFunc {
 }
 
 extern "x86-interrupt" fn keyboard_handler(_stack: InterruptStackFrame) {
-    // Drain the i8042 output buffer, but only keyboard bytes (aux bit clear).
-    loop {
-        // Safety: reading the i8042 status/output ports is valid in IRQ1.
-        let status: u8 = unsafe { inb(0x64) };
-        if status & 0x01 == 0 || status & 0x20 != 0 {
-            break;
-        }
-        // Safety: `status` just confirmed the output buffer holds a byte.
-        let scancode: u8 = unsafe { inb(0x60) };
-        keyboard::push_scancode(scancode);
-    }
+    // Drain the i8042 (keyboard and auxiliary bytes alike, in order) and
+    // decode what was collected, including bytes gathered while interrupts
+    // were off (`input::ps2`).
+    crate::input::ps2::on_irq();
     // Safety: we are in the IRQ1 handler.
     unsafe { pic::end_of_interrupt(1) };
 }
 
 extern "x86-interrupt" fn mouse_handler(_stack: InterruptStackFrame) {
-    // Read every pending byte that came from the auxiliary device.
-    loop {
-        // Safety: reading the i8042 status/output ports is valid in IRQ12.
-        let status: u8 = unsafe { inb(0x64) };
-        if status & 0x01 == 0 || status & 0x20 == 0 {
-            break;
-        }
-        // Safety: `status` just confirmed the output buffer holds a byte.
-        let byte: u8 = unsafe { inb(0x60) };
-        mouse::push_byte(byte);
-    }
+    // The same intake as IRQ1: one FIFO keeps both ports' bytes in order.
+    crate::input::ps2::on_irq();
     // Safety: we are in the IRQ12 handler.
     unsafe { pic::end_of_interrupt(12) };
 }

@@ -53,6 +53,23 @@ impl Tap {
         self.down = [0; 4];
     }
 
+    /// Bytes were lost: drop any half-received sequence and publish a release
+    /// for every key still marked down, so no consumer keeps a key held whose
+    /// release may have been among them. Returns how many were released.
+    pub fn release_all(&mut self) -> usize {
+        self.decoder.reset();
+        let mut released = 0;
+        for word in 0..self.down.len() {
+            while self.down[word] != 0 {
+                let bit = self.down[word].trailing_zeros();
+                self.down[word] &= !(1u64 << bit);
+                emit((word as u16) << 6 | bit as u16, value::RELEASE);
+                released += 1;
+            }
+        }
+        released
+    }
+
     /// Feed one scancode byte from IRQ1.
     pub fn feed(&mut self, byte: u8) {
         match self.decoder.feed(byte) {

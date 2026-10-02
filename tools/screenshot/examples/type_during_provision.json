@@ -1,0 +1,17 @@
+[
+  {"wait_for": "TERM:UP:PASS", "timeout": 420},
+  {"wait_for": "PKGD:PROVISION:INSTALL", "timeout": 240},
+  {"type": "echo TYPED:first-during-provisioning-abcdefghijklmnopqrstuvwxyz"},
+  {"key": "enter", "until": "TERM:OUT:TYPED:first-during-provisioning-abcdefghijklmnopqrstuvwxyz\\r?\\n", "regex": true, "timeout": 60},
+  {"type": "echo TYPED:Second-Line-THE-QUICK-BROWN-FOX-0123456789"},
+  {"key": "enter", "until": "TERM:OUT:TYPED:Second-Line-THE-QUICK-BROWN-FOX-0123456789\\r?\\n", "regex": true, "timeout": 60},
+  {"type": "echo 'TYPED:third.with,punct=and+sym/!@%^*()[]{}:;~'"},
+  {"key": "enter", "until": "TERM:OUT:TYPED:third\\.with,punct=and\\+sym/!@%\\^\\*\\(\\)\\[\\]\\{\\}:;~\\r?\\n", "regex": true, "timeout": 60},
+  {"type": "echo TYPED:fourth-line-jumps-over-the-lazy-dog-9876543210"},
+  {"key": "enter", "until": "TERM:OUT:TYPED:fourth-line-jumps-over-the-lazy-dog-9876543210\\r?\\n", "regex": true, "timeout": 60},
+  {"wait_for": "PKGD:PROVISION:DONE", "timeout": 600},
+  {"type": "echo TYPED:after-provisioning-done"},
+  {"key": "enter", "until": "TERM:OUT:TYPED:after-provisioning-done\\r?\\n", "regex": true, "timeout": 60},
+  {"at": 1.0, "shot": "01_typed"},
+  {"at": 2.0, "quit": true}
+]

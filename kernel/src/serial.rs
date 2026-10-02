@@ -84,6 +84,20 @@ pub fn _print(args: fmt::Arguments) {
     }
 }
 
+/// Print unless the port is busy; returns whether it printed. For interrupt
+/// context, where the code just interrupted may hold the port's lock and
+/// waiting for it would deadlock.
+pub fn try_print(args: fmt::Arguments) -> bool {
+    use core::fmt::Write;
+    if let Some(mut guard) = SERIAL1.try_lock() {
+        if let Some(port) = guard.as_mut() {
+            let _ = Stamped(port).write_fmt(args);
+        }
+        return true;
+    }
+    false
+}
+
 /// Write a string to the serial port (used by the unified logging sink).
 pub fn _write_str(s: &str) {
     use core::fmt::Write;

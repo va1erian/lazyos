@@ -10,6 +10,7 @@ use crate::input::hid::{Set1Decoder, Step};
 mod hid_table;
 mod pointer;
 mod pointer_stress;
+mod ps2_intake;
 mod ring;
 mod source;
 mod source_priority;
@@ -108,6 +109,22 @@ pub(super) const CASES: &[(&str, Test)] = &[
     (
         "input_raw_legacy_display_path_unchanged",
         syscall::legacy_path_unchanged,
+    ),
+    (
+        "input_ps2_fifo_order_and_capacity",
+        ps2_intake::fifo_order_and_capacity,
+    ),
+    (
+        "input_ps2_controller_bytes_collected_in_order",
+        ps2_intake::controller_bytes_collected_in_order,
+    ),
+    (
+        "input_ps2_overflow_counted_and_releases_held",
+        ps2_intake::overflow_is_counted_and_releases_held_keys,
+    ),
+    (
+        "input_ps2_stress_interrupts_off_bursts",
+        ps2_intake::soak_interrupts_off_bursts_lose_nothing,
     ),
     ("input_bus_stress_no_silent_loss", stress::no_silent_loss),
     ("input_bus_stress_many_producers", stress::many_producers),

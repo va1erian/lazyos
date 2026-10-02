@@ -19,6 +19,7 @@ mod engine;
 pub mod fuzz;
 pub mod keymap;
 pub mod keysym;
+pub mod outbox;
 pub mod pointer;
 mod repeat;
 pub mod router;
@@ -27,6 +28,7 @@ mod tests;
 
 pub use engine::{Engine, KeyOut, KeyState, Output, RawKey};
 pub use keymap::Layout;
+pub use outbox::Outbox;
 pub use pointer::{Pointer, PointerOut, RawPointer};
 pub use repeat::{REPEAT_DELAY_TICKS, REPEAT_INTERVAL_TICKS, TICK_NS};
 pub use router::Router;

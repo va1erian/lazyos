@@ -119,7 +119,7 @@ mod credio;
 mod creds;
 mod exec_perm;
 pub mod fsops;
-mod gate;
+pub(crate) mod gate;
 pub mod inetsys;
 pub mod killsys;
 pub mod linux;

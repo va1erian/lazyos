@@ -309,6 +309,7 @@ extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
     // lock, so dropping their buffers cannot deadlock (issue #133). Interrupts
     // are off inside the gate.
     task::reclaim_pending();
+    super::gate::LAST_SYSCALL.store(nr, core::sync::atomic::Ordering::Relaxed);
     trace_syscall(nr);
     let result = match nr {
         0 => io::sys_read(a1, a2, a3),
