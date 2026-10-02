@@ -39,8 +39,9 @@ pub(in crate::tests) const CASES: &[(&str, Test)] = &[
     ("bcache_soak_remount_cycles", soak::remount_cycles),
 ];
 
-/// Volume size in 1 KiB blocks (one group): 2 MiB of kernel heap per disk.
-const BLOCKS: u32 = 2048;
+/// Volume size in 1 KiB blocks (one group): 1 MiB of kernel heap per disk,
+/// which a heap fragmented by the earlier suites can still find in one piece.
+const BLOCKS: u32 = 1024;
 
 /// The suite's disks, leaked once and refilled per test; [`release`] hands
 /// their memory back to the heap.
@@ -85,7 +86,13 @@ fn cached(disk: &'static FakeDisk, pages: usize) -> Result<(Arc<Ext2>, Vfs), Str
 /// reboot right now would find, without disturbing the live volume.
 fn reboot_copy(from: &FakeDisk) -> Result<(&'static FakeDisk, Arc<Ext2>, Vfs), String> {
     let copy = pooled(1);
-    *copy.data.lock() = from.data.lock().clone();
+    {
+        // One allocation: no temporary copy on a tight heap.
+        let source = from.data.lock();
+        let mut target = copy.data.lock();
+        target.clear();
+        target.extend_from_slice(&source);
+    }
     let (fs, vfs) = remount_disk(copy)?;
     Ok((copy, fs, vfs))
 }

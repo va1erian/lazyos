@@ -57,10 +57,10 @@ fn churn(vfs: &mut Vfs, rng: &mut Rng, model: &mut [Vec<u8>], index: u32) -> Res
     Ok(())
 }
 
-/// Keep the model within the 2 MiB volume: drop the biggest file when the
-/// model holds more than 1.2 MiB.
+/// Keep the model within the 1 MiB volume: drop the biggest file when the
+/// model holds more than 500 KB.
 fn trim(vfs: &mut Vfs, model: &mut [Vec<u8>]) -> Result<(), String> {
-    while model.iter().map(Vec::len).sum::<usize>() > 1_200_000 {
+    while model.iter().map(Vec::len).sum::<usize>() > 500_000 {
         let (index, _) = model
             .iter()
             .enumerate()
