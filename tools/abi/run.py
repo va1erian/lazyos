@@ -57,6 +57,7 @@ ORDER = [
     "statxio",
     "cwd",
     "fsops",
+    "statmiss",
     "busybox",
 ]
 
@@ -69,9 +70,19 @@ TWO_BOOT = {"persist": "WROTE"}
 # must report having worked in (`ABI:<name>:ROUND:<dir>`) when one is attached.
 ONE_BOOT_WITH_DATA = {"cwd": ("/tmp", "/data"), "fsops": ("/tmp", "/", "/data")}
 
+# Fixtures that need BusyBox on the image beside their `INIT.ELF` (which still
+# owns the boot): `statmiss` checks that a missing path is not mistaken for a
+# BusyBox applet alias, which only exists when there is a BusyBox to alias.
+WITH_BUSYBOX = {"statmiss"}
 
-def build_image(fixture_path: Path, busybox: bool = False) -> Path | None:
-    """Build the image with the fixture embedded; its per-row copy, or `None`."""
+
+def build_image(
+    fixture_path: Path, busybox: bool = False, extra_busybox: Path | None = None
+) -> Path | None:
+    """Build the image with the fixture embedded; its per-row copy, or `None`.
+
+    `extra_busybox` embeds that BusyBox as well, without the bench command:
+    the fixture still owns the boot."""
     env = dict(os.environ)
     # Each row builds a fresh image with its own `INIT.ELF` and copies it: keep
     # the OS volume small (it only needs the fixture and BusyBox) and never
@@ -89,6 +100,8 @@ def build_image(fixture_path: Path, busybox: bool = False) -> Path | None:
         env["LAZYOS_BUSYBOX_TEST"] = "1"
     else:
         env["LAZYOS_INIT"] = str(fixture_path)
+        if extra_busybox:
+            env["LAZYOS_BUSYBOX"] = str(extra_busybox)
     result = subprocess.run(["cargo", "build"], cwd=ROOT, env=env, capture_output=True, text=True)
     if result.returncode != 0:
         print(f"warning: image build failed for {fixture_path.name}", file=sys.stderr)
@@ -306,7 +319,13 @@ def main() -> int:
         if not fixture.is_file():
             record(name, "unavailable", "fixture not built")
             continue
-        image = build_image(fixture, busybox=(name == "busybox"))
+        extra = None
+        if name in WITH_BUSYBOX:
+            extra = FIXTURE_DIR / "busybox.elf"
+            if not extra.is_file():
+                record(name, "unavailable", "needs BusyBox (tools/abi/busybox.py)")
+                continue
+        image = build_image(fixture, busybox=(name == "busybox"), extra_busybox=extra)
         if image is None:
             record(name, "fail", "image build failed")
             continue

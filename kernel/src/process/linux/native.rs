@@ -96,7 +96,7 @@ const PRESETS: &[(&str, &str, &str)] = &[
 /// The directories a `$PATH` search (BusyBox `sh`'s default is
 /// `/sbin:/usr/sbin:/bin:/usr/bin`) or a hand-typed path reaches a command
 /// through, written as `lookup` sees them: no leading slash, trailing slash.
-const BIN_DIRS: &[&str] = &["bin/", "sbin/", "usr/bin/", "usr/sbin/", "usr/local/bin/"];
+pub(super) const BIN_DIRS: &[&str] = &["bin/", "sbin/", "usr/bin/", "usr/sbin/", "usr/local/bin/"];
 
 /// The most bytes of joined arguments a native program is given (`E2BIG`
 /// beyond it).
