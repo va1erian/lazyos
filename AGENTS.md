@@ -100,7 +100,11 @@ A rebuild **updates the OS volume in place**: installed apps, settings, logs
 and your own files survive, and only paths listed in `/system/.image-manifest`
 are replaced or deleted. `LAZYOS_RESET_OS=1 cargo build` (or
 `python tools/run_demo.py --reset-os`) recreates it with a new UUID; so does an
-image that fails validation, with a `cargo:warning=` giving the reason. Changing
+image that fails validation, with a `cargo:warning=` giving the reason. An
+update also checks a volume that was not cleanly unmounted (a closed QEMU
+window) and marks it clean when the independent checker finds nothing wrong;
+the kernel never does (it has no fsck), so until a rebuild every boot of such
+an image prints `ext2: ... was not cleanly unmounted`. Changing
 `LAZYOS_OS_SIZE` on an existing image needs the reset. Do not rebuild while QEMU
 has the image open (the build fails with a message). CI sets `LAZYOS_RESET_OS=1`
 everywhere. ext2 is case-sensitive: look names up exactly as stored, through

@@ -83,10 +83,12 @@ mod state;
 mod truncate;
 mod types;
 
-#[cfg(any(test, feature = "fuzz"))]
+#[cfg(any(test, feature = "check"))]
 extern crate std;
-#[cfg(any(test, feature = "fuzz"))]
+#[cfg(any(test, feature = "check"))]
 pub mod check;
+#[cfg(any(test, feature = "check"))]
+mod recover;
 #[cfg(any(test, feature = "fuzz"))]
 pub mod fuzz;
 #[cfg(any(test, feature = "fuzz"))]
@@ -99,6 +101,13 @@ pub use format::format;
 pub use geometry::Geometry;
 pub use layout::MAX_FILE_SIZE;
 pub use orphans::{OrphanReport, MAX_SCAN_DIRS};
+#[cfg(any(test, feature = "check"))]
+pub use recover::Recovery;
+
+/// The reserved name prefix of files parked by an unlink-while-open
+/// (`.unlinked-<n>`): what [`Ext2::reclaim_orphans`] is handed by the kernel
+/// and by `Ext2::recover` (the image build), so both delete exactly the same names.
+pub const ORPHAN_PREFIX: &str = ".unlinked-";
 pub use types::{
     AttrChange, DirEntry, FileKind, FsStats, InodeMeta, Owner, Times, S_IFDIR, S_IFMT, S_IFREG,
 };

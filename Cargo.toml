@@ -97,8 +97,9 @@ kernel = { path = "kernel", artifact = "bin", target = "x86_64-unknown-none" }
 user = { path = "user", artifact = "bin", target = "x86_64-unknown-none" }
 bootloader = "0.11.17"
 # The OS volume is formatted and updated with the same ext2 code the kernel
-# reads it with (docs/filesystem-plan.md F2).
-ext2fs = { path = "libs/ext2fs" }
+# reads it with (docs/filesystem-plan.md F2). `check` lets an update re-certify
+# a volume that stopped uncleanly (`Ext2::recover`).
+ext2fs = { path = "libs/ext2fs", features = ["check"] }
 
 [profile.dev]
 panic = "abort"

@@ -12,6 +12,7 @@ mod config;
 mod flags;
 mod layout;
 mod library_image;
+mod power_cycle;
 
 pub(super) const CASES: &[(&str, Test)] = &[
     ("mount_cfg_parses_every_key", config::parses_every_key),
@@ -46,6 +47,15 @@ pub(super) const CASES: &[(&str, Test)] = &[
         "mount_library_formatted_root",
         library_image::library_formatted_root_mounts,
     ),
+    (
+        "mount_root_power_cycle_marks_clean",
+        power_cycle::root_power_cycle_marks_clean,
+    ),
+    (
+        "mount_root_unclean_stays_flagged_until_checked",
+        power_cycle::unclean_root_stays_flagged_until_checked,
+    ),
+    ("mount_root_power_cycle_soak", power_cycle::power_cycle_soak),
 ];
 
 /// A UUID whose bytes are `seed` repeated, with the matching text form.
@@ -58,14 +68,19 @@ pub(super) fn uuid(seed: u8) -> ([u8; 16], String) {
     )
 }
 
-/// An ext2 volume on a fresh `FakeDisk` with the given UUID and label.
-fn ext2_disk(name: &'static str, uuid: [u8; 16], label: &str) -> &'static FakeDisk {
-    let disk = FakeDisk::new(name, DISK_SECTORS);
+/// A freshly formatted (clean) ext2 image with the given UUID and label.
+pub(super) fn ext2_image(uuid: [u8; 16], label: &str) -> Vec<u8> {
     let mut image = mkfs(1024, 512, 64);
     image[SUPER + 0x68..SUPER + 0x78].copy_from_slice(&uuid);
     image[SUPER + 0x78..SUPER + 0x88].fill(0); // mkfs names the volume itself
     image[SUPER + 0x78..SUPER + 0x78 + label.len()].copy_from_slice(label.as_bytes());
-    disk.data.lock().copy_from_slice(&image);
+    image
+}
+
+/// An ext2 volume on a fresh `FakeDisk` with the given UUID and label.
+fn ext2_disk(name: &'static str, uuid: [u8; 16], label: &str) -> &'static FakeDisk {
+    let disk = FakeDisk::new(name, DISK_SECTORS);
+    disk.data.lock().copy_from_slice(&ext2_image(uuid, label));
     disk
 }
 
