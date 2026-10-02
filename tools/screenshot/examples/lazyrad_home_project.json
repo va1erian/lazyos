@@ -25,5 +25,5 @@
  {"at": 6.0, "shot": "04_folder_dialog"},
  {"at": 1.0, "key": "enter"},
  {"at": 10.0, "shot": "05_project_created"},
- {"at": 1.0, "quit": true}
+ {"at": 8.0, "quit": true}
 ]

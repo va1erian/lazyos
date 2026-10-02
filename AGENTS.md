@@ -254,6 +254,9 @@ anything that needs one step on disk before the next inside an operation calls
 images), the kernel side is `LAZYOS_TEST_FILTER=bcache`, and
 `cargo test -p ext2fs --release bench -- --ignored --nocapture` prints the I/O cost of a
 30 MB tree. `LAZYOS_BLOCK_CACHE_KB=0` builds a kernel that mounts uncached.
+A session's `quit` kills QEMU without a sync, so a session whose files a later
+boot reads (`lazyrad_home.json` before `lazyrad_home_project.json`) waits a few
+seconds past the flusher's 5 s before it quits.
 
 ## Shutdown and reboot
 
