@@ -18,9 +18,15 @@ use super::{BRK_BASE, MMAP_LIMIT, PAGE, STACK_SIZE, STACK_TOP};
 /// Windows an image may not occupy: the stack, `brk` and `mmap` regions.
 pub(super) const LOAD_RESERVED: [(u64, u64); 1] = [(BRK_BASE, MMAP_LIMIT)];
 
-/// Load a Linux image into `table`, build its start stack with `argv`, and
-/// return `(entry, stack_pointer)`.
-pub fn load(table: PhysAddr, elf_bytes: &[u8], argv: &[&str]) -> Result<(u64, u64), &'static str> {
+/// Load a Linux image into `table`, build its start stack with `argv` and
+/// `envp` (each item as given, without a NUL; one is added), and return
+/// `(entry, stack_pointer)`.
+pub fn load(
+    table: PhysAddr,
+    elf_bytes: &[u8],
+    argv: &[&[u8]],
+    envp: &[&[u8]],
+) -> Result<(u64, u64), &'static str> {
     let entry = load_segments(table, elf_bytes, &LOAD_RESERVED)?;
     let stack = map_range_kind(
         table,
@@ -32,24 +38,31 @@ pub fn load(table: PhysAddr, elf_bytes: &[u8], argv: &[&str]) -> Result<(u64, u6
 
     let phdr = program_header_addr(elf_bytes);
     let (phent, phnum) = phdr_size(elf_bytes);
-    let argv: Vec<Vec<u8>> = argv
-        .iter()
-        .map(|arg| {
-            let mut bytes = Vec::from(arg.as_bytes());
-            bytes.push(0);
-            bytes
-        })
-        .collect();
+    let argv = nul_terminated(argv);
+    let envp = nul_terminated(envp);
     let rsp = build_start_stack(
         &stack,
         &argv,
-        &[],
+        &envp,
         entry,
         (phdr, phent, phnum),
         // A kernel-started program is root (see `task::spawn_linux`).
         (0, 0),
     );
     Ok((entry, rsp))
+}
+
+/// Each item followed by a NUL, as the start stack stores strings.
+fn nul_terminated(items: &[&[u8]]) -> Vec<Vec<u8>> {
+    items
+        .iter()
+        .map(|item| {
+            let mut bytes = Vec::with_capacity(item.len() + 1);
+            bytes.extend_from_slice(item);
+            bytes.push(0);
+            bytes
+        })
+        .collect()
 }
 
 /// Runtime address of the program headers (within a `PT_LOAD` segment).
@@ -160,14 +173,24 @@ const AT_CLKTCK: u64 = 17;
 const AT_RANDOM: u64 = 25;
 const AT_EXECFN: u64 = 31;
 
-/// Write bytes into a mapped user page set (via the kernel's phys map).
-fn write_user(pages: &[(u64, u64)], va: u64, bytes: &[u8]) {
-    let Some(phys) = page_phys(pages, va) else {
-        return;
-    };
-    let dst = crate::mem::phys_to_virt(PhysAddr::new(phys)) + (va & 0xFFF);
-    // Safety: within the freshly-mapped user page.
-    unsafe {
-        core::ptr::copy_nonoverlapping(bytes.as_ptr(), dst.as_mut_ptr::<u8>(), bytes.len());
+/// Write bytes into a mapped user page set (via the kernel's phys map),
+/// page by page: the pages are virtually contiguous but their frames are
+/// not, so a string crossing a page boundary must continue in the next
+/// page's frame, never past the end of this one.
+fn write_user(pages: &[(u64, u64)], mut va: u64, mut bytes: &[u8]) {
+    while !bytes.is_empty() {
+        let Some(phys) = page_phys(pages, va) else {
+            return;
+        };
+        let room = (PAGE - (va & 0xFFF)) as usize;
+        let (chunk, rest) = bytes.split_at(room.min(bytes.len()));
+        let dst = crate::mem::phys_to_virt(PhysAddr::new(phys)) + (va & 0xFFF);
+        // SAFETY: `dst..dst + chunk.len()` stays inside the one freshly
+        // mapped frame backing `va`'s page (`chunk` ends at the page end).
+        unsafe {
+            core::ptr::copy_nonoverlapping(chunk.as_ptr(), dst.as_mut_ptr::<u8>(), chunk.len());
+        }
+        va += chunk.len() as u64;
+        bytes = rest;
     }
 }

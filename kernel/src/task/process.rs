@@ -110,6 +110,16 @@ pub fn sid_of(slot: usize) -> usize {
         .unwrap_or(0)
 }
 
+/// The task name of a slot (`argv[0]` for a program the kernel started with
+/// only an argument string), if occupied.
+pub fn name_of(slot: usize) -> Option<&'static str> {
+    TASKS
+        .lock()
+        .get(slot)
+        .and_then(|task| task.as_ref())
+        .map(|task| task.name)
+}
+
 /// The slot holding pid `pid`, if occupied. Introspection API for tools/tests.
 #[allow(dead_code)]
 pub fn find_by_pid(pid: usize) -> Option<usize> {

@@ -108,40 +108,46 @@ pub(super) fn sys_creds(op: u64, a1: u64, a2: u64) -> u64 {
     }
 }
 
-/// [`cred_op::SPAWN_LABELLED`]: validate the stamp (the label is assigned, not
-/// kept) before a task exists, intern the label, then spawn the child holding
-/// it. Interning is the only side effect of a refused spawn, and it is bounded
-/// by the table capacity.
+/// [`cred_op::SPAWN_LABELLED`]: validate the stamp (see [`approve_labelled`])
+/// before a task exists, then spawn the child holding the label.
 fn spawn_labelled(cmdline_ptr: u64, block_ptr: u64) -> u64 {
-    let Some((mut cred, label)) = credio::read_labelled(block_ptr) else {
+    let Some((cred, label)) = credio::read_labelled(block_ptr) else {
         return syscall_error(EFAULT);
     };
-    let actor = task::current();
-    // Privilege first: an unprivileged caller must not learn anything about
-    // the label table (full, duplicate) through the error it gets back.
-    if let Err(error) = credentials::check_stamp(
-        actor,
-        LabelStamp::Keep { current: 0 },
-        Cred {
-            label_id: 0,
-            ..cred
-        },
-    ) {
-        return transition_error(error);
-    }
-    let Ok(id) = labels::intern(&label) else {
-        return syscall_error(EINVAL);
+    let cred = match approve_labelled(cred, &label) {
+        Ok(cred) => cred,
+        Err(code) => return code,
     };
-    cred.label_id = id;
-    if let Err(error) = credentials::check_stamp(actor, LabelStamp::Assign, cred) {
-        return transition_error(error);
-    }
     let code = spawn_program(cmdline_ptr, Some(cred), true);
     if code < 0 {
         syscall_error(-code)
     } else {
         code as u64
     }
+}
+
+/// Approve a labelled spawn for the calling task: check the privilege, intern
+/// `label` and check the assigned stamp. Returns the credential the child is
+/// stamped with (its `label_id` the interned id), or the syscall error value.
+/// Interning is the only side effect of a refusal, and it is bounded by the
+/// table capacity. Shared by [`cred_op::SPAWN_LABELLED`] and `spawnv`.
+pub(super) fn approve_labelled(mut cred: Cred, label: &str) -> Result<Cred, u64> {
+    let actor = task::current();
+    // Privilege first: an unprivileged caller must not learn anything about
+    // the label table (full, duplicate) through the error it gets back.
+    credentials::check_stamp(
+        actor,
+        LabelStamp::Keep { current: 0 },
+        Cred {
+            label_id: 0,
+            ..cred
+        },
+    )
+    .map_err(transition_error)?;
+    let id = labels::intern(label).map_err(|_| syscall_error(EINVAL))?;
+    cred.label_id = id;
+    credentials::check_stamp(actor, LabelStamp::Assign, cred).map_err(transition_error)?;
+    Ok(cred)
 }
 
 /// [`cred_op::LABEL_NAME`]: copy a label string out to the caller.

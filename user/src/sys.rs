@@ -29,7 +29,8 @@ pub const SYS_SPAWN: u64 = 6;
 pub const SYS_WAIT: u64 = 7;
 /// `clock()` — the PIT tick counter (100 Hz), absolute deadlines.
 pub const SYS_CLOCK: u64 = 8;
-/// `args(buf, len)` — copy this service's manifest argument string.
+/// `args(buf, len, which)` — copy this program's `argv` (`which` 0) or
+/// `envp` (`which` 1) block; see [`args`], [`env`] and [`service_args`].
 pub const SYS_ARGS: u64 = 9;
 /// `creds(op, a1, a2)` — the audited credential gate (issue #101).
 pub const SYS_CREDS: u64 = 10;
@@ -40,6 +41,9 @@ pub const SYS_TASKS: u64 = 13;
 /// `system_stats(op, a1, a2)` — the read-only system monitor surface
 /// (syscall 14). See [`crate::sysinfo`] for the typed client.
 pub const SYS_SYSTEM_STATS: u64 = 14;
+/// `spawnv(req)` — start a program with an `argv` vector, an environment and
+/// a credential stamp (fs F3); see [`spawnv`].
+pub const SYS_SPAWNV: u64 = 30;
 
 /// Value returned by the service syscalls on failure/timeout.
 pub const SERVICE_ERROR: u64 = u64::MAX;
@@ -51,6 +55,7 @@ mod input;
 mod introspect;
 mod kill;
 mod random;
+mod spawn;
 mod wall;
 
 pub use cred::*;
@@ -60,6 +65,7 @@ pub use input::*;
 pub use introspect::*;
 pub use kill::*;
 pub use random::*;
+pub use spawn::*;
 pub use wall::*;
 
 /// Write raw bytes to the console.
@@ -165,7 +171,8 @@ pub fn exit(code: u32) -> ! {
 /// Start the program named by a **NUL-terminated** command line
 /// (`"PATH.ELF [args...]"`) as a child of the calling task. Returns the child's
 /// pid (its task slot), or `None` when the file is missing or no resource is
-/// free. The kernel remembers the argument string for [`service_args`].
+/// free. The kernel splits the arguments on whitespace into the `argv` block
+/// [`args`] reads ([`service_args`] joins them back). Prefer [`spawnv`].
 pub fn spawn(cmdline_z: &[u8]) -> Option<u64> {
     let pid: u64;
     // Safety: `int 0x80` with syscall 6 and a valid NUL-terminated buffer.
@@ -221,25 +228,4 @@ pub fn clock() -> u64 {
         );
     }
     ticks
-}
-
-/// Copy this service's manifest argument string into `buf`; returns its full
-/// length. A zero-length `buf` reports the length without copying.
-pub fn service_args(buf: &mut [u8]) -> usize {
-    let length: u64;
-    // Safety: `int 0x80` with syscall 9; the buffer is valid for its length.
-    unsafe {
-        asm!(
-            "int 0x80",
-            in("rax") SYS_ARGS,
-            in("rdi") buf.as_mut_ptr() as u64,
-            in("rsi") buf.len() as u64,
-            lateout("rax") length,
-            lateout("rcx") _,
-            lateout("r11") _,
-            options(nostack),
-            clobber_abi("sysv64"),
-        );
-    }
-    length as usize
 }

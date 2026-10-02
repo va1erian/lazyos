@@ -99,6 +99,9 @@ pub fn reset() {
     // Dropping removed tasks closes their pipe ends, which may notify a
     // wait queue; do it with `TASKS` unlocked (queue-before-table order).
     drop(removed);
+    for slot in 1..super::MAX_TASKS {
+        crate::process::forget_task_args(slot);
+    }
 }
 
 /// Mark `index` finished, as if it had called `exit` (re-parenting its
