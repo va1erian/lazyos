@@ -34,11 +34,31 @@ fn clock() -> i64 {
 /// Image A: apps 0-4 at 0.1.0.
 fn image_a() -> Image {
     Image::new(vec![
-        ("os.lazy.app0", "0.1.0", package("os.lazy.app0", "0.1.0", PROGRAM, 0)),
-        ("os.lazy.app1", "0.1.0", package("os.lazy.app1", "0.1.0", PROGRAM, 1)),
-        ("os.lazy.app2", "0.1.0", package("os.lazy.app2", "0.1.0", PROGRAM, 2)),
-        ("os.lazy.app3", "0.1.0", package("os.lazy.app3", "0.1.0", PROGRAM, 3)),
-        ("os.lazy.app4", "0.1.0", package("os.lazy.app4", "0.1.0", PROGRAM, 4)),
+        (
+            "os.lazy.app0",
+            "0.1.0",
+            package("os.lazy.app0", "0.1.0", PROGRAM, 0),
+        ),
+        (
+            "os.lazy.app1",
+            "0.1.0",
+            package("os.lazy.app1", "0.1.0", PROGRAM, 1),
+        ),
+        (
+            "os.lazy.app2",
+            "0.1.0",
+            package("os.lazy.app2", "0.1.0", PROGRAM, 2),
+        ),
+        (
+            "os.lazy.app3",
+            "0.1.0",
+            package("os.lazy.app3", "0.1.0", PROGRAM, 3),
+        ),
+        (
+            "os.lazy.app4",
+            "0.1.0",
+            package("os.lazy.app4", "0.1.0", PROGRAM, 4),
+        ),
     ])
 }
 
@@ -49,11 +69,31 @@ fn image_b() -> Image {
     let middle = broken.len() / 2;
     broken[middle] ^= 0xff;
     Image::new(vec![
-        ("os.lazy.app1", "0.2.0", package("os.lazy.app1", "0.2.0", PROGRAM, 11)),
-        ("os.lazy.app2", "0.1.0", package("os.lazy.app2", "0.1.0", PROGRAM, 12)),
-        ("os.lazy.app3", "0.1.0", package("os.lazy.app3", "0.1.0", PROGRAM, 3)),
-        ("os.lazy.app4", "0.1.0", package("os.lazy.app4", "0.1.0", PROGRAM, 4)),
-        ("os.lazy.app5", "0.1.0", package("os.lazy.app5", "0.1.0", PROGRAM, 5)),
+        (
+            "os.lazy.app1",
+            "0.2.0",
+            package("os.lazy.app1", "0.2.0", PROGRAM, 11),
+        ),
+        (
+            "os.lazy.app2",
+            "0.1.0",
+            package("os.lazy.app2", "0.1.0", PROGRAM, 12),
+        ),
+        (
+            "os.lazy.app3",
+            "0.1.0",
+            package("os.lazy.app3", "0.1.0", PROGRAM, 3),
+        ),
+        (
+            "os.lazy.app4",
+            "0.1.0",
+            package("os.lazy.app4", "0.1.0", PROGRAM, 4),
+        ),
+        (
+            "os.lazy.app5",
+            "0.1.0",
+            package("os.lazy.app5", "0.1.0", PROGRAM, 5),
+        ),
         ("os.lazy.app6", "0.1.0", broken),
     ])
 }
@@ -67,9 +107,7 @@ fn check_tree(fs: &Ext2, pkgd: &Pkgd, pass: usize) {
     let names: Vec<String> = pkgd.rows.keys().cloned().collect();
     assert_eq!(apps, names, "pass {pass}: /apps");
     for (name, row) in &pkgd.rows {
-        let versions = tree_fs
-            .list(&layout::app_dir(name).unwrap())
-            .unwrap();
+        let versions = tree_fs.list(&layout::app_dir(name).unwrap()).unwrap();
         let expected = row.install_dir.rsplit('/').next().unwrap();
         assert_eq!(versions, [expected], "pass {pass}: {name}");
     }

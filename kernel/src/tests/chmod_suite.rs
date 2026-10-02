@@ -175,7 +175,10 @@ pub fn chmod_erofs_enoent_efault() -> Result<(), String> {
         crate::user_ptr::set_trust_kernel_pointers(previous);
         check!(kernel == -EFAULT, "a kernel pointer gave {kernel}");
         check!(null == -EFAULT, "a null pointer gave {null}");
-        check!(mode_of(ROOTS)? == 0o644, "a faulting chmod changed the file");
+        check!(
+            mode_of(ROOTS)? == 0o644,
+            "a faulting chmod changed the file"
+        );
         Ok(())
     })
 }
@@ -203,7 +206,10 @@ pub fn chmod_soak_no_leak() -> Result<(), String> {
             let (cred, path, mode, want) = calls[index % calls.len()];
             credentials::set(task::KERNEL_TASK, cred);
             let got = chmod(path, mode);
-            check!(got == want, "cycle {index}: chmod {path} {mode:o} gave {got}, want {want}");
+            check!(
+                got == want,
+                "cycle {index}: chmod {path} {mode:o} gave {got}, want {want}"
+            );
             Ok(())
         };
         for warm in 0..calls.len() * 2 {

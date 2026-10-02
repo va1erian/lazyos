@@ -227,14 +227,16 @@ fn extract_into(bytes: &[u8], entry: &ZipEntry<'_>, out: &mut Vec<u8>) -> Result
     let data = bytes
         .get(entry.data_start..end)
         .ok_or_else(|| ReadError::Corrupt { name: name.into() })?;
-    inflate::decompress_into(entry.method, data, entry.info.size, out).map_err(|error| match error {
+    inflate::decompress_into(entry.method, data, entry.info.size, out).map_err(
+        |error| match error {
             inflate::InflateError::Corrupt => ReadError::Corrupt { name: name.into() },
             inflate::InflateError::SizeMismatch { expected, actual } => ReadError::SizeMismatch {
                 name: name.into(),
                 expected,
                 actual,
             },
-        })?;
+        },
+    )?;
     let actual = inflate::crc32(out);
     if actual != entry.info.crc32 {
         return Err(ReadError::CrcMismatch {

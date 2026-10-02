@@ -88,7 +88,10 @@ pub(crate) fn selftest(db: &MimeDb, apps: &mut AppRegistry) {
     let plain = apps.lookup("text/plain", "open");
     let png = apps.lookup("image/png", "open");
     let markdown = apps.lookup("text/markdown", "open");
-    if plain == Some("os.lazy.editor") && png == Some("os.lazy.paint") && markdown == Some("os.lazy.docs") {
+    if plain == Some("os.lazy.editor")
+        && png == Some("os.lazy.paint")
+        && markdown == Some("os.lazy.docs")
+    {
         sys::write_str("MIME:DEFAULT:PASS text/plain=os.lazy.editor image/png=os.lazy.paint text/markdown=os.lazy.docs\n");
     } else {
         sys::write_str(&format!(

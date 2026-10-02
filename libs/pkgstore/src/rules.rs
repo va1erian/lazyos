@@ -396,10 +396,12 @@ mod tests {
     fn the_clipboard_brings_its_copy_and_paste_scopes() {
         let rules = compile(&manifest("interfaces = [\"os.lazy.clipboard.v1\"]")).unwrap();
         for scope in ["os.lazy.clipboard.write.v1", "os.lazy.clipboard.read.v1"] {
-            assert!(rules.contains(&allow(fnv1a64(scope), ANY_METHOD)), "{scope}");
+            assert!(
+                rules.contains(&allow(fnv1a64(scope), ANY_METHOD)),
+                "{scope}"
+            );
         }
         let rules = compile(&manifest("interfaces = [\"os.lazy.display.v1\"]")).unwrap();
         assert!(!rules.contains(&allow(fnv1a64("os.lazy.clipboard.write.v1"), ANY_METHOD)));
     }
-
 }

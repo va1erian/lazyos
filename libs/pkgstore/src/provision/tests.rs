@@ -145,7 +145,10 @@ fn the_index_round_trips_and_rejects_bad_lines() {
         (&*format!("Editor 0.1.0 {}\n", digest('a')), 1),
         (&*format!("os.lazy.editor 01.0 {}\n", digest('a')), 1),
         (&*format!("os.lazy.editor 0.1.0 {} extra\n", digest('a')), 1),
-        (&*format!("os.lazy.editor 0.1.0 {} autostart x\n", digest('a')), 1),
+        (
+            &*format!("os.lazy.editor 0.1.0 {} autostart x\n", digest('a')),
+            1,
+        ),
         (&*format!("os.lazy.editor 0.1.0 {}\n", digest('A')), 1),
         (
             &*format!(

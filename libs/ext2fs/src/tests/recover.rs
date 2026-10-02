@@ -93,7 +93,10 @@ fn a_cached_recovery_commits_the_reclaim_before_the_check() {
         Ok(Recovery::Recovered { reclaimed: 1 })
     );
     // Before any flush, the disk already holds the reclaim, consistently.
-    assert!(open(&io).lookup("/.unlinked-7").is_err(), "the reclaim is still cached");
+    assert!(
+        open(&io).lookup("/.unlinked-7").is_err(),
+        "the reclaim is still cached"
+    );
     assert_clean(&io);
     fs.write_file("/after", b"more", 0o644, 0, 0, 1).unwrap();
     fs.flush().unwrap();

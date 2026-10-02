@@ -137,7 +137,9 @@ fn load_table() -> Table {
         Ok(bytes) => bytes,
         Err(ENOENT) => return Err(passwd::LoadError::Missing.to_string()),
         Err(EFBIG) => {
-            let size = files::stat(path).map(|(size, _)| size as usize).unwrap_or(0);
+            let size = files::stat(path)
+                .map(|(size, _)| size as usize)
+                .unwrap_or(0);
             return Err(passwd::LoadError::Oversize(size).to_string());
         }
         Err(code) => return Err(passwd::LoadError::Unreadable(code).to_string()),

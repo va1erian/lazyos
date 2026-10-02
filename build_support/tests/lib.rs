@@ -28,3 +28,5 @@ mod f5_layout_tests;
 mod image_tests;
 #[cfg(test)]
 mod layout_tests;
+#[cfg(test)]
+mod recover_tests;

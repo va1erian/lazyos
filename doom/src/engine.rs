@@ -90,4 +90,3 @@ fn enter_config_dir() {
         }
     }
 }
-

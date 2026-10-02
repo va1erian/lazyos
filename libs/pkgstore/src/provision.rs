@@ -236,12 +236,18 @@ pub fn parse_index(text: &str) -> Result<Vec<Shipped>, IndexError> {
         let mut words = line.split_ascii_whitespace();
         let (Some(name), Some(version), Some(digest)) = (words.next(), words.next(), words.next())
         else {
-            return Err(bad("expected `<system_name> <version> <digest> [autostart]`"));
+            return Err(bad(
+                "expected `<system_name> <version> <digest> [autostart]`",
+            ));
         };
         let autostart = match (words.next(), words.next()) {
             (None, _) => false,
             (Some("autostart"), None) => true,
-            _ => return Err(bad("expected `<system_name> <version> <digest> [autostart]`")),
+            _ => {
+                return Err(bad(
+                    "expected `<system_name> <version> <digest> [autostart]`",
+                ))
+            }
         };
         if !layout::valid_system_name(name) {
             return Err(bad("malformed system_name"));

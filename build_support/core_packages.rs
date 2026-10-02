@@ -58,8 +58,12 @@ pub fn built(dir: &Path) -> Vec<CorePackage> {
             continue;
         }
         let words: Vec<&str> = line.split_whitespace().collect();
-        let [short, system_name, version, plain, plain_digest, auto, auto_digest] = words[..] else {
-            panic!("{}: malformed line {line:?}; rerun `python tools/xui/build.py`", list.display());
+        let [short, system_name, version, plain, plain_digest, auto, auto_digest] = words[..]
+        else {
+            panic!(
+                "{}: malformed line {line:?}; rerun `python tools/xui/build.py`",
+                list.display()
+            );
         };
         let package = CorePackage {
             short: short.into(),
@@ -118,8 +122,16 @@ pub fn short_of(stem: &str) -> &str {
 /// `CORE_APPS`): whether `stem`'s app ships as a package, built or not.
 pub fn is_core_stem(stem: &str) -> bool {
     const CORE: &[&str] = &[
-        "sysmon", "fabricmon", "widget", "counter", "editor", "files", "paint", "settings",
-        "confd", "docs",
+        "sysmon",
+        "fabricmon",
+        "widget",
+        "counter",
+        "editor",
+        "files",
+        "paint",
+        "settings",
+        "confd",
+        "docs",
     ];
     CORE.contains(&short_of(stem))
 }

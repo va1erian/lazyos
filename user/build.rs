@@ -82,7 +82,10 @@ fn main() {
             builtins.push(id);
         }
     }
-    println!("cargo:rustc-env=LAZYOS_BUILTIN_AUTOSTART={}", builtins.join(","));
+    println!(
+        "cargo:rustc-env=LAZYOS_BUILTIN_AUTOSTART={}",
+        builtins.join(",")
+    );
 
     // virtio-sound driver (docs/driver-plan.md D6): `LAZYOS_SOUND=1` adds the
     // `sndd` row to `init`'s manifest (the ELF itself is embedded by the root

@@ -3,8 +3,8 @@
 //! Kept beside, not inside, the other `abi_*`/`vfs_*` helpers in `mod.rs` to
 //! hold that file under the size limit.
 
-use super::{abi_with, with};
 use super::vfs::{AttrRequest, FsError, Id, Meta};
+use super::{abi_with, with};
 
 /// Change an attribute of `path` as `id` (search needed on every ancestor).
 pub fn abi_setattr(id: Id, path: &str, request: AttrRequest) -> Result<Meta, FsError> {

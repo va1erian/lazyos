@@ -7,6 +7,8 @@
 
 use std::path::PathBuf;
 
+#[path = "build_support/core_packages.rs"]
+mod core_packages;
 #[path = "build_support/docs_embed.rs"]
 mod docs_embed;
 #[path = "build_support/doom_embed.rs"]
@@ -27,8 +29,6 @@ mod os_layout;
 mod os_manifest;
 #[path = "build_support/rhai_embed.rs"]
 mod rhai_embed;
-#[path = "build_support/core_packages.rs"]
-mod core_packages;
 #[path = "build_support/xui_embed.rs"]
 mod xui_embed;
 

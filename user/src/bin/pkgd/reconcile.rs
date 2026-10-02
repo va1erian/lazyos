@@ -9,9 +9,9 @@ use alloc::format;
 use alloc::string::String;
 
 use lazypkg::Manifest;
-use user::messenger::pkgd::Installed;
 use pkgstore::{layout, tree};
 use user::files;
+use user::messenger::pkgd::Installed;
 use user::sys;
 
 use super::handlers::Pkgd;

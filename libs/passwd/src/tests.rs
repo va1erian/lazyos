@@ -19,7 +19,15 @@ fn the_shipped_file_has_admin_and_user() {
     let entries = parse(SHIPPED).unwrap();
     let rows: Vec<(&str, u32, u32, &str, &str)> = entries
         .iter()
-        .map(|e| (e.name.as_str(), e.uid, e.gid, e.home.as_str(), e.shell.as_str()))
+        .map(|e| {
+            (
+                e.name.as_str(),
+                e.uid,
+                e.gid,
+                e.home.as_str(),
+                e.shell.as_str(),
+            )
+        })
         .collect();
     assert_eq!(
         rows,
@@ -48,7 +56,10 @@ fn an_empty_file_has_no_valid_row() {
 fn a_file_with_only_garbage_has_no_account() {
     assert_eq!(
         parse(b"this is not a passwd file\n"),
-        Err(LoadError::BadRow { line: 1, field: "count" })
+        Err(LoadError::BadRow {
+            line: 1,
+            field: "count"
+        })
     );
 }
 
@@ -73,7 +84,10 @@ fn an_oversize_file_is_refused() {
 #[test]
 fn a_duplicate_uid_is_refused() {
     let text = b"admin:0:0:s:/home/admin:sh\nevil:0:0:s:/home/evil:sh\n";
-    assert_eq!(parse(text), Err(LoadError::DuplicateUid { line: 2, uid: 0 }));
+    assert_eq!(
+        parse(text),
+        Err(LoadError::DuplicateUid { line: 2, uid: 0 })
+    );
     assert_eq!(reason(text), "duplicate-uid line=2 uid=0");
 }
 
@@ -89,7 +103,10 @@ fn a_uid_outside_u32_is_refused() {
         let text = format!("user:{uid}:1000:s:/home/user:sh\n");
         assert_eq!(
             parse(text.as_bytes()),
-            Err(LoadError::BadRow { line: 1, field: "uid" }),
+            Err(LoadError::BadRow {
+                line: 1,
+                field: "uid"
+            }),
             "{uid:?}"
         );
     }
@@ -127,7 +144,10 @@ fn every_field_is_checked() {
 
 #[test]
 fn non_utf8_is_refused() {
-    assert_eq!(parse(b"admin:0:0:\xff:/home/admin:sh\n"), Err(LoadError::NotText));
+    assert_eq!(
+        parse(b"admin:0:0:\xff:/home/admin:sh\n"),
+        Err(LoadError::NotText)
+    );
 }
 
 #[test]

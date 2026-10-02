@@ -14,9 +14,9 @@ use crate::os_image::{
 use crate::os_layout::{dirs, parse_passwd, DirSpec, MANIFEST_PATH};
 
 const SIZE: u64 = 8 << 20;
-const STAMP: i64 = 1_700_000_000;
+pub(crate) const STAMP: i64 = 1_700_000_000;
 
-fn settings() -> Settings {
+pub(crate) fn settings() -> Settings {
     Settings {
         os_size: SIZE,
         reset: false,
@@ -24,10 +24,10 @@ fn settings() -> Settings {
 }
 
 /// A scratch directory unique to one test, removed on drop.
-struct Scratch(PathBuf);
+pub(crate) struct Scratch(PathBuf);
 
 impl Scratch {
-    fn new() -> Scratch {
+    pub(crate) fn new() -> Scratch {
         static N: AtomicU32 = AtomicU32::new(0);
         let dir = std::env::temp_dir().join(format!(
             "lazyos-image-test-{}-{}",
@@ -38,7 +38,7 @@ impl Scratch {
         Scratch(dir)
     }
 
-    fn image(&self) -> PathBuf {
+    pub(crate) fn image(&self) -> PathBuf {
         self.0.join("lazyos.img")
     }
 }
@@ -69,7 +69,7 @@ fn file(path: &str, bytes: &[u8], mode: u16) -> OsFile {
     }
 }
 
-fn first_files() -> Vec<OsFile> {
+pub(crate) fn first_files() -> Vec<OsFile> {
     vec![
         file("/SUPER.ELF", b"super v1", 0o755),
         file("/PASSWD", b"admin:0:0\n", 0o644),
@@ -79,23 +79,23 @@ fn first_files() -> Vec<OsFile> {
     ]
 }
 
-fn build(dir: &Scratch, files: &[OsFile], settings: &Settings) -> Result<Plan, String> {
+pub(crate) fn build(dir: &Scratch, files: &[OsFile], settings: &Settings) -> Result<Plan, String> {
     let planned = plan(&dir.image(), settings)?;
     compose(&planned, &dir.image(), &bios(1), settings, &layout(), files)?;
     Ok(planned)
 }
 
-fn partition_bytes(image: &Path) -> Vec<u8> {
+pub(crate) fn partition_bytes(image: &Path) -> Vec<u8> {
     std::fs::read(image).unwrap()[(OS_START_LBA * SECTOR) as usize..].to_vec()
 }
 
-fn assert_fsck_clean(image: &Path) {
+pub(crate) fn assert_fsck_clean(image: &Path) {
     let problems = ext2fs::check::fsck(&partition_bytes(image));
     assert!(problems.is_empty(), "fsck: {problems:#?}");
 }
 
 /// Open the image's volume writable, for a test to act as a user would.
-fn open_rw(image: &Path) -> Ext2 {
+pub(crate) fn open_rw(image: &Path) -> Ext2 {
     let file = std::fs::OpenOptions::new()
         .read(true)
         .write(true)
@@ -432,73 +432,5 @@ fn a_built_image_is_consistent() {
     assert!(
         at_root.is_empty(),
         "build-placed files at the root: {at_root:?}"
-    );
-}
-
-/// `s_state` of the image's OS volume.
-fn volume_state(image: &Path) -> u8 {
-    partition_bytes(image)[1024 + 0x3A]
-}
-
-/// An unclean stop (a change with no flush) is checked by the next update,
-/// which marks the volume clean again and keeps the user's file; without the
-/// check the kernel would restore "unclean" at every shutdown, for good.
-#[test]
-fn an_update_recovers_a_volume_that_stopped_uncleanly() {
-    let dir = Scratch::new();
-    build(&dir, &first_files(), &settings()).unwrap();
-    let volume = open_rw(&dir.image());
-    volume
-        .write_file("/data/mine.txt", b"user data", 0o644, 0, 0, STAMP)
-        .unwrap();
-    volume
-        .write_file("/data/.unlinked-4", b"parked", 0o644, 0, 0, STAMP)
-        .unwrap();
-    drop(volume); // never flushed: the window was closed
-    assert_eq!(volume_state(&dir.image()) & 1, 0);
-
-    build(&dir, &first_files(), &settings()).unwrap();
-    assert_eq!(
-        volume_state(&dir.image()),
-        1,
-        "the update left the volume unclean"
-    );
-    let volume = open_rw(&dir.image());
-    assert!(volume.was_clean_at_mount());
-    assert_eq!(volume.read_file("/data/mine.txt").unwrap(), b"user data");
-    assert!(
-        volume.lookup("/data/.unlinked-4").is_err(),
-        "the orphan survived"
-    );
-    drop(volume);
-    assert_fsck_clean(&dir.image());
-}
-
-/// A volume the checker finds inconsistent is updated but stays flagged
-/// unclean, and nothing of the user's is removed.
-#[test]
-fn an_update_leaves_an_inconsistent_volume_flagged() {
-    let dir = Scratch::new();
-    build(&dir, &first_files(), &settings()).unwrap();
-    let volume = open_rw(&dir.image());
-    volume
-        .write_file("/data/mine.txt", b"user data", 0o644, 0, 0, STAMP)
-        .unwrap();
-    drop(volume);
-    // Lose one block from the superblock's free counter.
-    let mut bytes = std::fs::read(dir.image()).unwrap();
-    let counter = (OS_START_LBA * SECTOR) as usize + 1024 + 0x0C;
-    bytes[counter] = bytes[counter].wrapping_sub(1);
-    std::fs::write(dir.image(), &bytes).unwrap();
-
-    build(&dir, &first_files(), &settings()).unwrap();
-    assert_eq!(
-        volume_state(&dir.image()) & 1,
-        0,
-        "an inconsistent volume was blessed"
-    );
-    assert_eq!(
-        open_rw(&dir.image()).read_file("/data/mine.txt").unwrap(),
-        b"user data"
     );
 }

@@ -117,22 +117,19 @@ impl InstalledApps {
         for app in &mut builtin {
             app.hidden = hidden.hides(&app.id);
         }
-        let installed = self
-            .apps
-            .iter()
-            .map(|app| services::AppInfo {
-                id: app.id.to_string(),
-                name: app.name.clone(),
-                path: app.path.to_string(),
-                restart: app.restart.label().to_string(),
-                verbs: app.verbs.clone(),
-                installed: true,
-                origin: String::from(if app.core { "core" } else { "user" }),
-                category: app.category.clone(),
-                hidden: hidden.hides(app.id),
-                autostart: app.autostart,
-                icon: app.icon.clone(),
-            });
+        let installed = self.apps.iter().map(|app| services::AppInfo {
+            id: app.id.to_string(),
+            name: app.name.clone(),
+            path: app.path.to_string(),
+            restart: app.restart.label().to_string(),
+            verbs: app.verbs.clone(),
+            installed: true,
+            origin: String::from(if app.core { "core" } else { "user" }),
+            category: app.category.clone(),
+            hidden: hidden.hides(app.id),
+            autostart: app.autostart,
+            icon: app.icon.clone(),
+        });
         builtin.extend(installed);
         builtin
     }

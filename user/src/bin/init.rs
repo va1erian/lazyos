@@ -81,14 +81,14 @@ extern crate alloc;
 mod apps;
 #[path = "init/autostart.rs"]
 mod autostart;
-#[path = "init/provisioning.rs"]
-mod provisioning;
 #[path = "init/installed.rs"]
 mod installed;
 #[path = "init/launch.rs"]
 mod launch;
 #[path = "init/protocol.rs"]
 mod protocol;
+#[path = "init/provisioning.rs"]
+mod provisioning;
 #[path = "init/selftest.rs"]
 mod selftest;
 #[path = "init/service.rs"]

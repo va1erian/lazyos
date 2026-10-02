@@ -21,9 +21,9 @@ pub mod epoll;
 pub mod eventfd;
 pub mod handles;
 pub mod inet;
-pub mod labels;
 #[cfg(lazyos_label_trace)]
 pub mod label_trace;
+pub mod labels;
 pub mod pipe;
 pub mod policy;
 pub mod registry;

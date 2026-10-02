@@ -34,7 +34,12 @@ fn app(i: u64) -> AppInfo {
             Vec::new()
         },
         installed: i.is_multiple_of(3),
-        origin: if i.is_multiple_of(3) { "core" } else { "system" }.into(),
+        origin: if i.is_multiple_of(3) {
+            "core"
+        } else {
+            "system"
+        }
+        .into(),
         category: "utilities".into(),
         hidden: i.is_multiple_of(5),
         autostart: i == 1,

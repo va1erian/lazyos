@@ -357,7 +357,11 @@ pub(crate) fn row_of(
     origin: u32,
 ) -> Installed {
     let mut verbs: Vec<String> = Vec::new();
-    for verb in manifest.mime.iter().flat_map(|handler| handler.verbs.iter()) {
+    for verb in manifest
+        .mime
+        .iter()
+        .flat_map(|handler| handler.verbs.iter())
+    {
         if !verbs.contains(verb) {
             verbs.push(verb.clone());
         }

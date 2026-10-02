@@ -117,7 +117,10 @@ pub fn configured_layout() -> Result<(), String> {
         nosuid: true,
     };
     for table in [&tables.native, &tables.abi] {
-        check!(table.mount_flags("/boot/KERNEL.BIN") == locked, "boot flags");
+        check!(
+            table.mount_flags("/boot/KERNEL.BIN") == locked,
+            "boot flags"
+        );
         check!(table.mount_flags("/etc/x") == rootf, "root flags");
         check!(table.mount_flags("/home/a") == homef, "home flags");
         check!(

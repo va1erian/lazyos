@@ -115,9 +115,7 @@ pub fn library_formatted_root_mounts() -> Result<(), String> {
         volume.was_clean_at_mount(),
         "the sync did not leave the volume clean"
     );
-    let note = volume
-        .read_file("/home/user/note")
-        .map_err(lib_error)?;
+    let note = volume.read_file("/home/user/note").map_err(lib_error)?;
     check!(
         note == b"written by the kernel",
         "the library read {note:?}"

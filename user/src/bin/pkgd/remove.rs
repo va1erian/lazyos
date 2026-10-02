@@ -11,7 +11,9 @@ use pkgstore::{layout, provision, tree};
 use user::messenger::pkgd::{Failure, Installed};
 use user::sys;
 
-use super::handlers::{fail, registry_down, Pkgd, EAGAIN, EINVAL, EIO, ENOENT, EPERM, PROVISIONING};
+use super::handlers::{
+    fail, registry_down, Pkgd, EAGAIN, EINVAL, EIO, ENOENT, EPERM, PROVISIONING,
+};
 use super::install::{event, one_line, Subject};
 use super::policy;
 use super::reconcile::stored_manifest;

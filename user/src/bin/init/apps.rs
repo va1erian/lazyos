@@ -194,9 +194,10 @@ const BUILTIN_AUTOSTART: &str = env!("LAZYOS_BUILTIN_AUTOSTART");
 pub fn autostart_ids() -> Vec<&'static str> {
     let wanted = |id: &str| BUILTIN_AUTOSTART.split(',').any(|want| want == id);
     let shell = APPS.iter().filter(|app| app.id == SHELL_APP_ID);
-    let others = BUILTIN_AUTOSTART
-        .split(',')
-        .filter_map(|id| APPS.iter().find(|app| app.id == id && app.id != SHELL_APP_ID));
+    let others = BUILTIN_AUTOSTART.split(',').filter_map(|id| {
+        APPS.iter()
+            .find(|app| app.id == id && app.id != SHELL_APP_ID)
+    });
     shell
         .chain(others)
         .filter(|app| is_available(app) && (app.id == SHELL_APP_ID || wanted(app.id)))

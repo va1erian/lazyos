@@ -139,7 +139,9 @@ fn fsck(image: &str, start: u64) -> Result<(), String> {
 
 #[cfg(not(feature = "fuzz"))]
 fn fsck(_image: &str, _start: u64) -> Result<(), String> {
-    Err(String::from("fsck needs the checker: run with --features fuzz"))
+    Err(String::from(
+        "fsck needs the checker: run with --features fuzz",
+    ))
 }
 
 fn main() {

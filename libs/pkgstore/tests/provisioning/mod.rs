@@ -178,7 +178,11 @@ impl Image {
     }
 
     pub fn largest(&self) -> usize {
-        self.packages.iter().map(|(_, b)| b.len()).max().unwrap_or(0)
+        self.packages
+            .iter()
+            .map(|(_, b)| b.len())
+            .max()
+            .unwrap_or(0)
     }
 }
 
@@ -315,8 +319,11 @@ impl Pkgd {
             },
         );
         if let Some(old) = previous.filter(|old| old.install_dir != install_dir) {
-            tree::remove_tree(&mut tree_fs, &layout::install_path(&old.install_dir).unwrap())
-                .map_err(|e| format!("{e:?}"))?;
+            tree::remove_tree(
+                &mut tree_fs,
+                &layout::install_path(&old.install_dir).unwrap(),
+            )
+            .map_err(|e| format!("{e:?}"))?;
         }
         tree::commit_docs(&mut tree_fs, name, staged).map_err(|e| format!("{e:?}"))
     }

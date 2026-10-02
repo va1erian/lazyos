@@ -31,8 +31,8 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use super::argstore;
-use super::creds::{approve_labelled, syscall_error, transition_error, EFAULT, EINVAL, ENOENT};
 use super::creds::ENOMEM;
+use super::creds::{approve_labelled, syscall_error, transition_error, EFAULT, EINVAL, ENOENT};
 use super::spawn::{check_exec, intern_service_name};
 use crate::fs;
 use crate::ipc::credentials::{self, Cred, LabelStamp};

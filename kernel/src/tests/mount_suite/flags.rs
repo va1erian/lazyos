@@ -192,7 +192,10 @@ pub fn flags_are_reported() -> Result<(), String> {
         vfs.mount_flags("/etc/passwd") == MountFlags::default(),
         "/etc/passwd"
     );
-    check!(vfs.mount_flags("/boot/KERNEL.BIN").noexec, "noexec on /boot");
+    check!(
+        vfs.mount_flags("/boot/KERNEL.BIN").noexec,
+        "noexec on /boot"
+    );
     Ok(())
 }
 
