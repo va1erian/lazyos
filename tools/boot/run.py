@@ -14,10 +14,12 @@ the serial markers and the pixels (``judge.py``):
         --media virtio --firmware bios                    # the dev image, same judge
 
 ``--media usb`` attaches the image as ``usb-storage`` on a ``qemu-xhci``
-controller and nothing else: no IDE or virtio disk, no NIC, so the kernel
+controller and no other disk: no IDE or virtio disk, no NIC, so the kernel
 cannot read the medium and must run from the ramdisk (``FS:ROOT:ram0p2``).
-``usbd`` claims the same xHCI controller once it starts, which is fine: the
-kernel never touches the stick. The drive is opened with ``snapshot=on``
+Every run also puts a USB keyboard and mouse on that controller, and the judge
+requires ``usbd`` to bind the keyboard (``USBD:HID:KBD``): the target PC may
+have no PS/2 port. ``usbd`` claims the controller once it starts, which is
+fine: the kernel never touches the stick. The drive is opened with ``snapshot=on``
 unless ``--persist``, so a run never changes the image.
 
 Writes ``<out>/serial.log``, ``<out>/screen.png`` and ``<out>/report.json``
