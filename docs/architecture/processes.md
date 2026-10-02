@@ -55,6 +55,7 @@ syscall shim.
 | 27 | `inet(op, a1, a2, a3)` | the `AF_INET` pump: `netd` (root or `_netd` only) fetches the socket requests the kernel queued for Linux programs, answers them, and moves bytes through the kernel's side of each socket (`process/inetsys.rs`, `ipc/inet/`, networking plan N5) |
 | 26 | `random(buf, len)` | up to 256 bytes from the kernel CSPRNG (`entropy.rs`) for native services such as `netd`; open to every task, no capability, `-EFAULT` on a bad destination (`process/randsys.rs`, networking plan N2) |
 | 28 | `append_file(path, data, len)` | append up to 1 MiB to the end of a file, creating it when absent (`process/fsops.rs`); `write_file` of the first chunk plus one append per further chunk writes a file larger than one call, which the package manager `pkgd` needs for binaries |
+| 30 | `read_at(path, request)` | read up to `len` bytes of a file at `offset` into `buf`, where `request` points at three `u64`s `[buf, len, offset]`; at most 1 MiB per call, 0 at the end of the file (`process/fsops.rs`). Unlike syscall 3 it never loads the whole file into the kernel heap, so `pkgd` streams packages of any size with it (`user::files::read_large`) |
 | 29 | `kill(slot, sig)` | end one task by slot (what `spawn` returned) with signal 0 (probe), `SIGTERM` or `SIGKILL`; the sender must share the target's uid or hold `CAP_KILL`; `-ESRCH`/`-EPERM`/`-EINVAL`, no group or broadcast form (`process/killsys.rs`); `init` uses it to stop an app being removed |
 
 - `spawn` reads the ELF from the FAT image, leaks one interned `&'static str`

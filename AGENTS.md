@@ -119,6 +119,25 @@ warning and every other app still builds. `python tools/xui/test_zig.py` tests
 the toolchain helper. Screenshot sessions: `tools/screenshot/examples/xui_docs.json`
 (wheel scrolling) and `xui_docs_open.json` (Open dialog and `/TESTDOC.MD`).
 
+## Doom (an installable `.lzp` package)
+
+Doom is `doom/` (doomgeneric, fetched at a pinned revision and compiled with
+zig, plus a Rust platform layer on `xui-app`'s client window) shipped as the
+package `org.lazy.doom` with the Freedoom IWAD inside; see
+[`doom/README.md`](doom/README.md) and [`docs/doom-port-plan.md`](docs/doom-port-plan.md).
+
+```bash
+python tools/doom/build.py          # target/doom/doom.elf + target/pkg/DOOM.LZP (fetches doomgeneric, Freedoom)
+python tools/run_demo.py --doom     # desktop with /DOOM.LZP; then `pkgctl install /DOOM.LZP`
+cargo test --manifest-path doom/Cargo.toml --lib
+python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/doom     --script tools/screenshot/examples/doom.json   # needs a fresh OS volume (LAZYOS_RESET_OS=1)
+```
+
+The Terminal reports one `TERM:OUT` per command, and a command that wraps past
+80 columns reports its own tail instead: keep typed commands short (`doom.json`
+sets `PS1='# '` first). Shell command substitution (`$(...)`) currently hangs
+the desktop Terminal's shell; avoid it in session scripts.
+
 ## Rhai scripting (`rhai` command and `msg` module)
 
 `rhai` (`rhai-host/`, bindings in `libs/rhai-lazy/`) is a static-musl command

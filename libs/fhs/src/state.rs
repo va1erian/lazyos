@@ -39,6 +39,14 @@ pub const LAZYRAD_DATA: &str = "/data/lazyrad-data";
 /// (F1): under `"/transient"`.
 pub const LAZYRAD_TMP: &str = "/tmp/lazyrad";
 
+/// Doom's config and save directory when the player has no home (otherwise
+/// `$HOME/.doom`). Written by the `org.lazy.doom` package.
+pub const DOOM_TMP: &str = "/tmp/doom";
+
+/// The verdict line Doom's headless mode writes for a harness to read
+/// (`doom/src/headless.rs`).
+pub const DOOM_RESULT: &str = "/tmp/doom-result.txt";
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -60,5 +68,7 @@ mod tests {
         assert!(CONFD_DIRS[0].starts_with(DATA));
         assert!(CONFD_DIRS[2].starts_with(TMP));
         assert!(LAZYRAD_TMP.starts_with(TMP));
+        assert!(DOOM_TMP.starts_with(TMP));
+        assert!(DOOM_RESULT.starts_with(TMP));
     }
 }
