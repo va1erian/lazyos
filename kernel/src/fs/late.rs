@@ -17,6 +17,11 @@
 //! yet. Whatever did touch `/home` on the root before is shadowed by the
 //! mount, as on any Unix.
 //!
+//! Nothing is read before the provider reports its boot-time scan done
+//! ([`provider_scanned`]): until then it is still bringing devices up (a
+//! stick's TEST UNIT READY alone may take seconds) rather than serving
+//! requests, and a read would only time out and count against the disk.
+//!
 //! Every disk read here happens with no filesystem lock held: the volume is
 //! opened and its orphans reclaimed before it is mounted.
 
@@ -65,9 +70,6 @@ pub(super) fn set_pending(id: VolumeId, flags: MountFlags) {
 /// Scan new provider disks and mount the pending home volume if one of them
 /// carries it. Returns a [`state`] code.
 pub fn settle() -> u32 {
-    for disk in provider::take_unscanned() {
-        partition::scan_disk(disk);
-    }
     let Some((id, flags)) = *PENDING.lock() else {
         return if MOUNTED.load(Ordering::Acquire) {
             state::MOUNTED_EARLIER
@@ -75,6 +77,12 @@ pub fn settle() -> u32 {
             state::NONE
         };
     };
+    if !SCANNED.load(Ordering::Acquire) {
+        return state::WAITING;
+    }
+    for disk in provider::take_unscanned() {
+        partition::scan_disk(disk);
+    }
     let candidates: Vec<_> = block::devices()
         .into_iter()
         .filter(|device| provider::is_provider_device(device.name()))
@@ -84,11 +92,7 @@ pub fn settle() -> u32 {
         VolumeId::Label(label) => volume.label() == label,
     });
     let Some((volume, device)) = found else {
-        return if SCANNED.load(Ordering::Acquire) {
-            state::ABSENT
-        } else {
-            state::WAITING
-        };
+        return state::ABSENT;
     };
     // Another `settle` may have won while this one was reading the disk.
     if PENDING.lock().take().is_none() {

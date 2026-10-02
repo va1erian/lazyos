@@ -276,22 +276,27 @@ pub fn late_home_mount() -> Result<(), String> {
         volume.flush().map_err(lib_error)?;
         drop(volume);
 
-        // A label nobody carries: the disk is scanned, nothing mounts.
+        // A label nobody carries. Before the provider's first scan is done
+        // nothing is read (the disk is not even scanned) and the answer is
+        // to wait; after it, the volume is absent.
         crate::fs::late::reset_for_tests(Some((
             VolumeId::Label(label(b"elsewhere")),
             MountFlags::default(),
         )));
+        let partition = format!("{}p1", disk.name());
         check!(
             crate::fs::late::settle() == crate::fs::late::state::WAITING,
-            "a wrong label settled"
+            "settled before the provider's first scan"
         );
-        // Once the provider says its first scan is done, waiting is over.
+        check!(
+            crate::block::device(&partition).is_none(),
+            "{partition} was scanned before the provider's first scan"
+        );
         crate::fs::late::provider_scanned();
         check!(
             crate::fs::late::settle() == crate::fs::late::state::ABSENT,
             "a missing volume is not absent"
         );
-        let partition = format!("{}p1", disk.name());
         check!(
             crate::block::device(&partition).is_some(),
             "{partition} was not registered"
@@ -302,6 +307,7 @@ pub fn late_home_mount() -> Result<(), String> {
             ..Default::default()
         };
         crate::fs::late::reset_for_tests(Some((VolumeId::Label(label(b"lazyhome")), flags)));
+        crate::fs::late::provider_scanned();
         let state = crate::fs::late::settle();
         check!(
             state == crate::fs::late::state::MOUNTED,
