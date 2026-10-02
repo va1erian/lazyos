@@ -13,10 +13,13 @@
 //!   thread (LazyOS threads cannot share descriptors);
 //! * [`pkgd`]: the `pkgd` client behind File → Make LazyOS App;
 //! * [`marker`]: the `LRPLAY:*` / `LRIDE:*` serial evidence lines the
-//!   screenshot sessions grep for.
+//!   screenshot sessions grep for;
+//! * [`messenger`]: the `msg` module for form scripts (Messenger calls,
+//!   topics, services), registered as a LazyRAD script extension.
 
 pub mod args;
 pub mod launcher;
 pub mod marker;
+pub mod messenger;
 pub mod pkgd;
 pub mod platform;

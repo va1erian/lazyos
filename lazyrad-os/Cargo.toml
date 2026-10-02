@@ -31,6 +31,10 @@ fhs = { path = "../libs/fhs" }
 # `init` clients encode with the stubs, never by hand.
 libmessenger = { path = "../libs/messenger" }
 messenger-generated = { path = "../libs/generated" }
+# The `msg` module and the generated `sys::*` modules (Messenger from scripts,
+# docs/rhai/msg.md) with the real `int 0x80` transport, registered as a LazyRAD
+# script extension. Same exact Rhai pin as LazyRAD, so one Rhai links.
+rhai-lazy = { path = "../libs/rhai-lazy", features = ["lazyos"] }
 
 # LazyRAD, from its own repository, `default-features = false` so the `desktop`
 # features (winit, rfd, directories, dark-light, local time) stay off.

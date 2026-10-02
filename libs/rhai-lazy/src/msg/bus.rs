@@ -71,6 +71,16 @@ pub fn errno_name(code: u64) -> Option<(&'static str, &'static str)> {
     })
 }
 
+/// One request received on a served endpoint.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Incoming {
+    pub interface: u64,
+    pub method: u32,
+    /// The transaction to answer, `None` for a one-way message.
+    pub txn: Option<u64>,
+    pub body: Vec<u8>,
+}
+
 /// Synchronous access to the fabric. Handles are this process's endpoint
 /// handles; bodies are TLV bodies (the envelope is the implementation's job).
 pub trait Bus {
@@ -93,4 +103,16 @@ pub trait Bus {
         -> Result<(), BusError>;
     /// Every registered service name.
     fn names(&self) -> Result<Vec<String>, BusError>;
+
+    /// Serving: create an endpoint pair, publish one side under `name`
+    /// (declaring `interfaces`), and return the side to receive on.
+    fn register(&self, name: &str, interfaces: &[u64]) -> Result<u64, BusError>;
+    /// Serving: the next request on `endpoint`, waiting at most `timeout_ms`
+    /// (`0` = poll); `Ok(None)` when nothing arrived in time.
+    fn recv(&self, endpoint: u64, timeout_ms: u64) -> Result<Option<Incoming>, BusError>;
+    /// Serving: answer transaction `txn` with `body`. A caller that already
+    /// gave up is not an error (the reply is dropped).
+    fn reply(&self, txn: u64, interface: u64, method: u32, body: &[u8]) -> Result<(), BusError>;
+    /// Milliseconds on a monotonic clock (for `msg::run(ms)`).
+    fn clock_ms(&self) -> u64;
 }

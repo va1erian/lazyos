@@ -341,3 +341,38 @@ pub fn reply_error(body: &[u8]) -> Option<(u32, String)> {
     }
     None
 }
+
+/// Encode a topic payload of the declared type `payload` (a struct is the
+/// body of its fields, an enum a single `U32` field 1, as the compiled topic
+/// helpers write them).
+pub fn encode_payload(iface: &Interface, payload: &str, value: &Dynamic) -> Result<Vec<u8>> {
+    if let Some(def) = iface.find_struct(payload) {
+        let map = value
+            .read_lock::<Map>()
+            .ok_or_else(|| mismatch(payload, "an object map", value))?;
+        return encode_named(iface, def.fields, &map, 0);
+    }
+    let mut target = Encoder::new();
+    let index = enum_index(payload, value, iface, payload)?;
+    target.u32(1, index).map_err(wire)?;
+    Ok(target.finish())
+}
+
+/// Decode a topic payload of the declared type `payload`.
+pub fn decode_payload(iface: &Interface, payload: &str, body: &[u8]) -> Result<Dynamic> {
+    if let Some(def) = iface.find_struct(payload) {
+        return decode_named(iface, def.fields, body, 0).map(Dynamic::from_map);
+    }
+    let mut decoder = Decoder::new(body);
+    while let Some(tlv) = decoder.next().map_err(wire)? {
+        if tlv.id == 1 {
+            return decode_value(&tlv, Ty::Enum(static_enum_name(iface, payload)), iface, 0);
+        }
+    }
+    Err(format!("{payload}: empty payload"))
+}
+
+/// The `'static` spelling of an enum name declared by `iface`.
+fn static_enum_name(iface: &Interface, name: &str) -> &'static str {
+    iface.find_enum(name).map_or("", |e| e.name)
+}

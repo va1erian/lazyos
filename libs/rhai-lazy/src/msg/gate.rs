@@ -19,7 +19,7 @@ use core::arch::asm;
 use libmessenger::{flags, Header, Parcel, VERSION};
 use messenger_generated::os_lazy_messenger_registry_v1 as registry;
 
-use super::bus::{Bus, BusError};
+use super::bus::{Bus, BusError, Incoming};
 
 /// `messenger(op, args, result)`.
 const SYS_MESSENGER: u64 = 5;
@@ -30,10 +30,20 @@ const TICK_MS: u64 = 10;
 /// Messenger op codes (`user/src/messenger/mod.rs` `op`).
 mod op {
     pub const CALL: u64 = 1;
+    pub const REPLY: u64 = 2;
     pub const SEND: u64 = 3;
+    pub const RECV: u64 = 4;
+    pub const CREATE_PAIR: u64 = 7;
+    pub const REGISTER: u64 = 13;
     pub const RESOLVE: u64 = 14;
     pub const LIST: u64 = 16;
 }
+
+/// `recv` deadline that is already in the past: a poll (the kernel checks the
+/// inbox first, then wakes with `ETIMEDOUT` on the next tick).
+const EXPIRED_DEADLINE: u64 = 1;
+const ETIMEDOUT: i64 = 110;
+const ENOENT: i64 = 2;
 
 /// `MsgArgs::txn_id` for registry ops: act on the calling task.
 const TARGET_SELF: u64 = u64::MAX;
@@ -278,5 +288,75 @@ impl Bus for Gate {
         let reply = decode(&buf, result.bytes)?;
         let list = registry::decode_list_reply(&reply.body).map_err(invalid)?;
         Ok(list.entries.into_iter().map(|entry| entry.name).collect())
+    }
+
+    fn register(&self, name: &str, interfaces: &[u64]) -> Result<u64, BusError> {
+        let mut pair = MsgResult::default();
+        messenger(op::CREATE_PAIR, &MsgArgs::default(), &mut pair)?;
+        let (published, server) = (pair.value, pair.aux);
+        let body = registry::encode_register_args(&registry::RegisterArgs {
+            name: name.into(),
+            endpoint: Some(published),
+            interfaces: interfaces.to_vec(),
+            lease_ticks: 0,
+        })
+        .map_err(invalid)?;
+        let request = encode(registry::INTERFACE_ID, registry::METHOD_REGISTER, 0, &body)?;
+        let args = MsgArgs {
+            txn_id: TARGET_SELF,
+            parcel_ptr: request.as_ptr() as u64,
+            parcel_len: request.len() as u64,
+            ..MsgArgs::default()
+        };
+        messenger(op::REGISTER, &args, &mut MsgResult::default())?;
+        Ok(server)
+    }
+
+    fn recv(&self, endpoint: u64, timeout_ms: u64) -> Result<Option<Incoming>, BusError> {
+        let mut buf = vec![0u8; REPLY_BUFFER];
+        let deadline = if timeout_ms == 0 {
+            EXPIRED_DEADLINE
+        } else {
+            Self::deadline(timeout_ms)
+        };
+        let args = MsgArgs {
+            handle: endpoint,
+            buf_ptr: buf.as_mut_ptr() as u64,
+            buf_cap: buf.len() as u64,
+            deadline,
+            ..MsgArgs::default()
+        };
+        let mut result = MsgResult::default();
+        match messenger(op::RECV, &args, &mut result) {
+            Ok(()) => {}
+            Err(error) if error.code == -ETIMEDOUT => return Ok(None),
+            Err(error) => return Err(error),
+        }
+        let parcel = decode(&buf, result.bytes)?;
+        Ok(Some(Incoming {
+            interface: parcel.header.interface_id,
+            method: parcel.header.method,
+            txn: (result.value != 0).then_some(result.value),
+            body: parcel.body,
+        }))
+    }
+
+    fn reply(&self, txn: u64, interface: u64, method: u32, body: &[u8]) -> Result<(), BusError> {
+        let reply = encode(interface, method, 0, body)?;
+        let args = MsgArgs {
+            txn_id: txn,
+            parcel_ptr: reply.as_ptr() as u64,
+            parcel_len: reply.len() as u64,
+            ..MsgArgs::default()
+        };
+        match messenger(op::REPLY, &args, &mut MsgResult::default()) {
+            // The caller timed out, canceled or exited: an ordinary race.
+            Err(error) if error.code == -ENOENT => Ok(()),
+            other => other,
+        }
+    }
+
+    fn clock_ms(&self) -> u64 {
+        (native(SYS_CLOCK, 0, 0, 0) as u64).saturating_mul(TICK_MS)
     }
 }

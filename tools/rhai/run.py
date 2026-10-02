@@ -13,7 +13,9 @@ missing prerequisite reported as an error instead of skipped:
 5. with `--desktop`, the xui apps and two desktop Terminal sessions: the REPL
    (`rhai_desktop.json`) and the `msg` module against the real services
    (`rhai_msg.json`: list services, call confd, a set/get round trip, the
-   topics broker, a refused call, a missing service).
+   topics broker, a refused call, a missing service) and the event loop
+   (`rhai_msg_loop.json`: a topic round trip, a confd change event, and a
+   service written in Rhai answering another script).
 
     python tools/rhai/run.py                 # console checks
     python tools/rhai/run.py --desktop       # plus the desktop Terminal and msg
@@ -50,6 +52,9 @@ DESKTOP_OUTPUT = ("TERM:OUT:42", "TERM:OUT:HI", "TERM:OUT:123", "TERM:OUT:144", 
 #: `TERM:OUT` line per command, so commands must not wrap) and the script
 #: prints how many of its six checks passed, then their names.
 MSG_MARKER = "TERM:OUT:RHAI:msg:6"
+#: rhai_msg_loop.json: topic round trip, a confd change event, and a service
+#: written in Rhai (run in the background) called from another script.
+MSG_LOOP_MARKER = "TERM:OUT:RHAI:msg2:4"
 
 
 def fail(message: str) -> int:
@@ -122,10 +127,11 @@ def check_desktop(text: str) -> list[str]:
     return [f"missing {line}" for line in DESKTOP_OUTPUT if line not in text]
 
 
-def check_msg(text: str) -> list[str]:
-    found = re.findall(r"TERM:OUT:RHAI:msg:\d+", text)
-    print(f"  {found[-1] if found else 'no RHAI:msg marker'} (want {MSG_MARKER})")
-    return [] if MSG_MARKER in text else ["the msg session did not pass all six checks (see shots/rhai_msg)"]
+def check_marker(text: str, marker: str, out: str) -> list[str]:
+    prefix = marker.rsplit(":", 1)[0] + ":"
+    found = re.findall(re.escape(prefix) + r"\d+", text)
+    print(f"  {found[-1] if found else 'no ' + prefix + ' marker'} (want {marker})")
+    return [] if marker in text else [f"{marker} missing (see {out})"]
 
 
 def main() -> int:
@@ -133,7 +139,7 @@ def main() -> int:
     parser.add_argument("--no-build", action="store_true", help="reuse target/lazyos.img (console only)")
     parser.add_argument("--desktop", action="store_true", help="also run the desktop Terminal sessions")
     parser.add_argument("--msg-only", action="store_true",
-                        help="build the desktop image and run only the msg session")
+                        help="build the desktop image and run only the msg sessions")
     parser.add_argument("--accel", default="auto", choices=["auto", "none", "tcg", "whpx", "kvm"])
     parser.add_argument("--qemu", help="path to qemu-system-x86_64")
     parser.add_argument("--timeout", type=float, default=300.0, help="seconds per session")
@@ -168,8 +174,12 @@ def main() -> int:
         if not args.msg_only:
             problems += check_desktop(run_session(
                 "rhai_desktop.json", "shots/rhai_desktop", args, term_failures))
-        problems += check_msg(run_session(
-            "rhai_msg.json", "shots/rhai_msg", args, term_failures + ["TERM:OUT:RHAI:msg:[0-5]$"]))
+        problems += check_marker(run_session(
+            "rhai_msg.json", "shots/rhai_msg", args, term_failures + ["TERM:OUT:RHAI:msg:[0-5]$"]),
+            MSG_MARKER, "shots/rhai_msg")
+        problems += check_marker(run_session(
+            "rhai_msg_loop.json", "shots/rhai_msg_loop", args, term_failures + ["TERM:OUT:RHAI:msg2:[0-3]$"]),
+            MSG_LOOP_MARKER, "shots/rhai_msg_loop")
 
     if problems:
         for problem in problems:
