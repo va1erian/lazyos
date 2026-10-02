@@ -7,7 +7,15 @@ long case-sensitive names and persistent storage. Companion to
 [`architecture/block-devices.md`](architecture/block-devices.md) and
 [`packages.md`](packages.md).
 
-## 1. Today
+## 1. Where it started
+
+History: the layout before F0. F2 replaced the FAT root with the ext2 OS
+volume, and F3 moved every program to `/system/bin` under its real name
+(`/system/bin/init`, `/system/bin/busybox`, ...), `PASSWD` to
+`/system/etc/passwd`, `MIME.TYP` to `/system/share/mime.types`, the samples to
+`/system/share/samples` and the docs to `/docs/os`; see
+[`architecture/filesystem.md`](architecture/filesystem.md) for the current
+state.
 
 - `bootloader 0.11` `DiskImageBuilder` makes an MBR with one FAT partition that
   holds the kernel and ~60 flat files (`SUPER.ELF`, `XTERM.ELF`, `PASSWD`,

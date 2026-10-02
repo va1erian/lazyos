@@ -8,7 +8,7 @@
 | Tool | Key files | Purpose | CI |
 |---|---|---|---|
 | IDL compiler | `tools/midlc/midlc.py`, `idl/*.midl`, `libs/generated/src/lib.rs`, `docs/idl/`, `idl/manifest.json` | Generate typed Rust wire helpers, per-interface docs and a manifest; `--check` fails when stubs are stale; method ids are stable hashes | `.github/workflows/midlc.yml` |
-| Linux ABI bench | `tools/abi/{build,run,coverage}.py`, `tools/abi/fixtures/src/*` | Build musl fixtures, boot each as `INIT.ELF`, parse serial `ABI:*` lines into `docs/compat/matrix.md` + `compat.json`; coverage lists `ENOSYS` numbers | `.github/workflows/abi-compat.yml` |
+| Linux ABI bench | `tools/abi/{build,run,coverage}.py`, `tools/abi/fixtures/src/*` | Build musl fixtures, boot each as `/system/bin/abi-init`, parse serial `ABI:*` lines into `docs/compat/matrix.md` + `compat.json`; coverage lists `ENOSYS` numbers | `.github/workflows/abi-compat.yml` |
 | Kernel tests | `tools/test/run.py`, `kernel/src/tests/` | Boot a `LAZYOS_TESTS=1` image headless, parse `TEST:*` lines, write `docs/test/report.md` + `.json`; exits non-zero on failure/missing summary | `.github/workflows/kernel-tests.yml` |
 | Screenshots | `tools/screenshot/qemu_shot.py`, `qemu_session.py`, `qemu_qmp.py`, `pngstats.py`, `tools/screenshot/examples/*.json` | Headless screenshot capture, scripted input injection (QMP `input-send-event`), programmatic PNG assertions | `.github/workflows/screenshots.yml` |
 | Parcel codec tests | `libs/messenger/src/lib.rs`, `libs/generated/tests/echo.rs` | Host cargo tests (round-trip, limits, fuzz; generated-stub round trips) | `.github/workflows/messenger.yml`, `midlc.yml` |
@@ -25,7 +25,7 @@
   / `ABI:FAIL:<reason>`, `TEST:<name>:PASS|FAIL:<detail>` ending with
   `TEST:SUMMARY:PASS=<n> FAIL=<n>`.
 - The ABI bench isolates one fixture per boot through the `LAZYOS_INIT` hook
-  (embedded as `INIT.ELF`); BusyBox uses the `LAZYOS_BUSYBOX` hook and the `rhai` command (#319, `tools/rhai/build.py`) the `LAZYOS_RHAI` hook (embedded as `RHAI.ELF`).
+  (embedded as `/system/bin/abi-init`); BusyBox uses the `LAZYOS_BUSYBOX` hook and the `rhai` command (#319, `tools/rhai/build.py`) the `LAZYOS_RHAI` hook (embedded as `/system/bin/rhai`).
 - Every CI workflow that builds an image sets `LAZYOS_RESET_OS=1`, so CI never
   updates a stale image in place; locally a rebuild keeps the OS volume's
   installed apps, settings and logs (docs/architecture/filesystem.md, the OS

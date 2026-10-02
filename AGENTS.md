@@ -93,8 +93,10 @@ python tools/screenshot/qemu_session.py --image target/lazyos.img \
 `cargo build` writes `target/lazyos.img` as an MBR disk with three partitions:
 the bootloader's stage 2, a FAT `/boot` (only the kernel and a generated
 `lazyos.cfg`), and an ext2 OS volume at LBA 131072 (64 MiB; `LAZYOS_OS_SIZE`,
-default `512M`, minimum `128M`) that holds every other file at the flat names
-it always had (`SUPER.ELF`, `PASSWD`, `docs/...`) plus `/data`. The volume is
+default `512M`, minimum `128M`) that holds every other file: programs at their
+real names in `/system/bin` (`/system/bin/init`, `/system/bin/busybox`), data in
+`/system/etc` and `/system/share` (`/system/etc/passwd`), the docs in `/docs/os`,
+plus `/data`; no regular file sits at the root (docs/filesystem-plan.md F3). The volume is
 written by `libs/ext2fs`, the code the kernel mounts it with (`build_support/os_*.rs`).
 A rebuild **updates the OS volume in place**: installed apps, settings, logs
 and your own files survive, and only paths listed in `/system/.image-manifest`
@@ -113,12 +115,12 @@ everywhere. ext2 is case-sensitive: look names up exactly as stored, through
 [`docs/xui-docs.md`](docs/xui-docs.md)). Without zig the script skips it with a
 warning and every other app still builds. `python tools/xui/test_zig.py` tests
 the toolchain helper. Screenshot sessions: `tools/screenshot/examples/xui_docs.json`
-(wheel scrolling) and `xui_docs_open.json` (Open dialog and `/TESTDOC.MD`).
+(wheel scrolling) and `xui_docs_open.json` (Open dialog and `/system/share/samples/testdoc.md`).
 
 ## Rhai scripting (`rhai` command and `msg` module)
 
 `rhai` (`rhai-host/`, bindings in `libs/rhai-lazy/`) is a static-musl command
-embedded as `RHAI.ELF`; the plan is [`docs/rhai-plan.md`](docs/rhai-plan.md).
+embedded as `/system/bin/rhai`; the plan is [`docs/rhai-plan.md`](docs/rhai-plan.md).
 Its `msg` module calls any Messenger service from a script, driven by a table
 `midlc --schema` generates from `idl/` ([`docs/rhai/msg.md`](docs/rhai/msg.md)).
 One command builds `rhai`, BusyBox and the image, boots it and judges it:
@@ -143,7 +145,7 @@ python tools/abi/run.py --at 8       # run each fixture in headless QEMU, write 
 python tools/abi/coverage.py         # summarise ENOSYS syscalls from the logs
 ```
 
-`run.py` embeds one fixture as `INIT.ELF` (via `LAZYOS_INIT`), boots, and
+`run.py` embeds one fixture as `/system/bin/abi-init` (via `LAZYOS_INIT`), boots, and
 classifies it from the serial log (`ABI:<name>:PASS|FAIL`, or `ABI:INIT:SKIP`).
 It writes `docs/compat/matrix.md` (+ `compat.json`). CI
 (`.github/workflows/abi-compat.yml`) runs the bench, publishes the matrix and
@@ -314,7 +316,7 @@ regressions, not kernel-internal correctness or resource leaks.
   authority, every `unsafe` block minimal with a `// SAFETY:` comment),
   readable and elegant (small single-purpose functions, comments explain why).
   See the "Code standards" section of `README.md`.
-- Well-known paths and boot-volume file names come from `libs/fhs`; never write
+- Well-known paths and program paths come from `libs/fhs`; never write
   one as a literal (`python tools/fhs/check_literals.py` enforces it).
 - Keep source files **under 500 lines**; split by responsibility instead of
   growing a file past it. Existing oversized files are tracked in issue #194;
@@ -335,7 +337,7 @@ regressions, not kernel-internal correctness or resource leaks.
   (the Simple tab for what a normal user wants, the Advanced tab for the raw
   switch) wired through `tools/lazygui/catalog.py` (`build_env`, `build_plan`)
   with tests in `tools/lazygui/test_catalog.py`, and (d) for a desktop app, an
-  `init` registry row (`user/src/bin/init/apps.rs`) plus an `XAPPS.LST` line so
+  `init` registry row (`user/src/bin/init/apps.rs`) plus an `/system/etc/xapps.lst` line so
   Settings -> Menu offers it. Verify it by starting it through the launcher or
   `run_demo.py`, not only by hand-built env vars.
 - Prefer verifying with the existing scripts over ad-hoc commands so results are

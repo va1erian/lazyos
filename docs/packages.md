@@ -223,19 +223,19 @@ random bytes, and every truncation of a valid archive) run under plain
 
 ## 7. Installing: `pkgd`
 
-`pkgd` (`user/src/bin/pkgd.rs`, `PKGD.ELF`) is the only task that installs and
+`pkgd` (`user/src/bin/pkgd.rs`, `/system/bin/pkgd`) is the only task that installs and
 removes applications. It serves `os.lazy.pkgd.v1` ([`idl/pkgd.midl`](../idl/pkgd.midl),
 [reference](idl/os.lazy.pkgd.v1.md)) and `init` starts it after `confd` and
 `mimed`. Its pure logic (policy compilation, the permission explanation table,
 the audit chain, install paths, who may ask for what) is `libs/pkgstore`, which
 has host tests; the service is the thin syscall layer on top.
 
-`pkgctl` (`PKGCTL.ELF`) is its command line, and makes the same calls a GUI
+`pkgctl` (`/system/bin/pkgctl`) is its command line, and makes the same calls a GUI
 installer does:
 
 ```text
-pkgctl inspect /PKGDEMO.LZP     # what it declares and asks for; changes nothing
-pkgctl install /PKGDEMO.LZP
+pkgctl inspect /system/share/samples/pkgdemo.lzp     # what it declares and asks for; changes nothing
+pkgctl install /system/share/samples/pkgdemo.lzp
 pkgctl remove org.lazy.counter
 pkgctl list
 ```
@@ -375,7 +375,8 @@ apps after its configured entries, re-read each time it opens.
 (`system_name = "org.lazy.counter"`, `abi = "linux"`, requesting exactly the two
 interfaces the app resolves, `os.lazy.display.v1` and `os.lazy.input.v1`).
 `python tools/pkg/build_samples.py` (run by `tools/xui/build.py`) builds it into
-`target/pkg/PKGDEMO.LZP`, which the root `build.rs` embeds in the FAT root.
+`target/pkg/PKGDEMO.LZP`, which the root `build.rs` embeds as
+`/system/share/samples/pkgdemo.lzp`.
 `tools/pkg/make_icons.py` generates its icons. The visual check is
 `tools/screenshot/examples/pkg_install.json`.
 

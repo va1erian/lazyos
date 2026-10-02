@@ -25,7 +25,7 @@ LazyOS already has the hard parts, which is the reason the plan is short:
 |---|---|---|
 | static `x86_64-unknown-linux-musl` `std` binaries | Linux ABI shim L0-L4 done: mmap/brk, threads + futex, `fork`/`execve`/pipes, signals, `/proc/self/mounts` | `linux-abi-plan.md`, `architecture/processes.md` |
 | xui on the tiny-skia painter, no winit | `xui-app` `LazyOSBackend` (owner mode and `xuid` client mode), upstream `xui-canvas` with `default-features = false`, bundled fonts | `xui-plan.md` |
-| Rhai | `libs/rhai-lazy` + `rhai-host` (`rhai` command, `RHAI.ELF`), Rhai pinned `=1.26.1`, `sync` off, no `std`-only assumptions beyond musl | issue #319 |
+| Rhai | `libs/rhai-lazy` + `rhai-host` (`rhai` command, `/system/bin/rhai`), Rhai pinned `=1.26.1`, `sync` off, no `std`-only assumptions beyond musl | issue #319 |
 | file dialogs (LazyRAD gap G4) | portable xui file dialog with `LazyFileSystem` mount-point wrapper (Editor/Paint/Files use it) | `xui-apps-integration.md` |
 | clipboard (G2) | `clipboardd` client in `xui-app/src/platform/clipboard.rs` | same |
 | window title, resize, maximize | `os.lazy.display.v1` `SetTitle`, resizable/maximizable windows (#412) | `window-resize-plan.md` |
@@ -36,7 +36,7 @@ LazyOS already has the hard parts, which is the reason the plan is short:
 What is **missing** and is the real work:
 
 - **No dynamic app registry.** `init`'s registry is a compile-time table
-  (`user/src/bin/init/apps.rs` `APPS`); `XAPPS.LST` only decides which of those
+  (`user/src/bin/init/apps.rs` `APPS`); `/system/etc/xapps.lst` only decides which of those
   rows the image ships. A user-produced app has nowhere to register (P2).
 - **No per-app sandbox profile for user apps** beyond what the security model
   describes (manifest -> profile compiled by `messengerd`/`init`, not built yet).
@@ -103,7 +103,7 @@ with no windowing crates in the graph.
 
 - New `lazyrad-os/` workspace (Cargo.toml, `src/bin/lrplay.rs`) and
   `tools/lazyrad/build.py` modelled on `tools/xui/build.py`/`tools/rhai/build.py`;
-  `build.rs` embeds `LRPLAY.ELF` the way `rhai_embed` does, and a
+  `build.rs` embeds `/system/bin/lrplay` the way `rhai_embed` does, and a
   `LAZYRAD_SAMPLES` set of `.lrp` projects (hello, calculator, todo) onto the
   FAT volume under `/lazyrad/`.
 - `lrplay --project <dir>`: connect as an `xuid` client
@@ -117,7 +117,7 @@ with no windowing crates in the graph.
 Verification:
 ```bash
 python tools/xui/build.py && python tools/lazyrad/build.py
-LAZYOS_DESKTOP=1 python tools/run_demo.py --headless   # image builds, LRPLAY.ELF present
+LAZYOS_DESKTOP=1 python tools/run_demo.py --headless   # image builds, /system/bin/lrplay present
 python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/lrplay \
     --script tools/screenshot/examples/lazyrad_hello.json   # new: click Say hello
 python tools/screenshot/pngstats.py shots/lrplay/*.png --min-nonblack 0.01 --min-colors 50
@@ -191,7 +191,7 @@ a reboot.
     wants to show them).
   - **theme:** follow the desktop theme (`libs/uitheme`) instead of
     `dark-light`.
-  - **run/debug:** `spawn_player` = `Command::new("/LRPLAY.ELF")` with stdin/
+  - **run/debug:** `spawn_player` = `Command::new("/system/bin/lrplay")` with stdin/
     stdout pipes, keeping the JSON-lines debug protocol. **Spike first (verify):**
     a process spawned by a `xuid` client must itself be able to open a
     window as an `xuid` client (session/display grant inheritance). If it
@@ -254,7 +254,7 @@ the IDE, launch the app from the Start menu, reboot, launch it again.
 | A process spawned by the IDE cannot obtain its own `xuid` window | P3 spike before committing to pipes; D4 fallback (Messenger channel + `init.Launch`) |
 | Cross-repo builds (git rev pins in two repos drift again) | One documented bump procedure (as in `xui-plan.md`); a CI check that both lockfiles resolve a single `xui-core` rev |
 | IDE too slow on the software present path | Measure in P3 before polishing; dirty-rect presents already exist; the editor only paints visible lines |
-| Rhai features inflate `LRPLAY.ELF` | Player builds without `metadata`/`internals`; `opt-level = "z"`, fat LTO, `strip` as `rhai-host` does; track image size in CI (the FAT image is already ~29 MiB) |
+| Rhai features inflate `/system/bin/lrplay` | Player builds without `metadata`/`internals`; `opt-level = "z"`, fat LTO, `strip` as `rhai-host` does; track image size in CI (the FAT image is already ~29 MiB) |
 | `init` registry grows past the small task table / file limits | New `appd` service rather than more code in `init` if needed; soak test in P2 |
 | User scripts escape the sandbox through `file`/`dir` | D5 allowlist implemented in `lazyrad-runtime`, plus tests for traversal, symlinks and absolute paths |
 | A malformed package crashes the installer | `lazypkg` already bounds and fuzzes the reader; the packager only writes, and its output is re-validated by `lazypkg` in tests |
@@ -278,7 +278,7 @@ the IDE, launch the app from the Start menu, reboot, launch it again.
 | Phase | Deliverable | Size |
 |---|---|---|
 | P0 | Shared xui/Rhai rev, platform seam, musl-clean crates | 1 wk |
-| P1 | `LRPLAY.ELF` runs Hello/Calculator | 1-2 wk |
+| P1 | `/system/bin/lrplay` runs Hello/Calculator | 1-2 wk |
 | P2 | `.lzp` writer + packager, `pkgd` install client | 2 wk |
 | P3 | IDE on LazyOS with F5 and debugger | 3-4 wk |
 | P4 | Make App in the IDE | 1 wk |
@@ -322,7 +322,7 @@ client are implemented; P4 onward is not. The LazyRAD half lives on LazyRAD's
   `argv[0]`, or with the install dir as cwd, or pass an absolute `--project`.
   Verified: `LRPLAY:PROJECT:PASS:/tmp/app/resources/project` for `bin/lrplay.elf
   --project resources/project` run from `/tmp/app`.
-- **A `bin/` ELF may be a Linux-ABI xui client: true.** `LRPLAY.ELF` is a static
+- **A `bin/` ELF may be a Linux-ABI xui client: true.** `/system/bin/lrplay` is a static
   musl `xuid` client and runs from the Terminal and from the IDE.
 - **A process spawned by a `xuid` client can open its own window: true** (with
   `--client`; without it the player first tries to bind the display as owner and

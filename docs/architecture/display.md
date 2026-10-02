@@ -76,7 +76,7 @@ compositor demo. Target toolkit design: [xui-plan.md](../xui-plan.md).
   composites and routes input, `xdemo` is the smallest client.
 - `xui-app/` (issue #114) runs an ordinary `xui-core` + `xui-canvas` app on
   LazyOS for milestones M0-M2. It is built by `tools/xui/build.py` for
-  `x86_64-unknown-linux-musl` and embedded as `XAPP.ELF` when `LAZYOS_XUID=1`
+  `x86_64-unknown-linux-musl` and embedded as `/system/bin/xapp` when `LAZYOS_XUID=1`
   and `LAZYOS_XUI_APP=<path>` are set; the kernel then boots it *instead of*
   the `xuid` + `xdemo` session, because the app owns the display grant itself
   (`bind`/`present`/`input_poll`) and paints full-screen. Default
@@ -96,7 +96,7 @@ compositor demo. Target toolkit design: [xui-plan.md](../xui-plan.md).
   `fabricmon` and `counter` call `LazyOSBackend::connect` (`xui-app/src/launch.rs`),
   which is client mode with `--client` and otherwise tries the grant and falls
   back to client mode when `xuid` holds it. `LAZYOS_XUI_APPS` embeds a list of
-  apps (`XTERM/XSYSMON/XFABMON/XCOUNTR/XEDITOR/XFILES/XPAINT.ELF` + `XAPPS.LST`) and `init`'s app
+  apps (`/system/bin/{terminal,sysmon,fabricmon,counter,editor,files,paint}` + `/system/etc/xapps.lst`) and `init`'s app
   registry launches the `autostart` ones with `linux:PATH --client` (the kernel's
   `spawn` selects the Linux ABI from the `linux:` prefix,
   `kernel/src/process/spawn_line.rs`). The whole recipe is the single
@@ -339,7 +339,7 @@ compositor never sees payload bytes (field names below are the IDL parameters):
   the source or the desktop, pressing `Escape`, calling `DragCancel`, or
   destroying the source/target surface sends `DragLeave` plus a cancelled
   `DragEnded(0)`.
-- `dragdemo` (`DRAGDMO.ELF`) is the evidence pair. The kernel boots it in the
+- `dragdemo` (`/system/bin/dragdemo`) is the evidence pair. The kernel boots it in the
   `LAZYOS_XUID=1` path; with no manifest argument it is a launcher and starts a
   `source` and a `target` child (one clipboard session). It logs
   `DND:START:PASS`, `DND:DROP:PASS`, `DND:CANCEL:PASS` and `DND:DENIED:PASS`
@@ -424,7 +424,7 @@ older peers, and the no-shell sessions above are unchanged.
 - The desktop context menu, taskbar and clock that `xuid` used to paint
   (issues #323, #370) moved to LazyShell (issue #157, `xui-app`), which builds
   them from these calls.
-- `shellprobe` (`SHELLPRB.ELF`) is the evidence client. It claims the display
+- `shellprobe` (`/system/bin/shellprobe`) is the evidence client. It claims the display
   for its session, registers as the `"shell"` subscriber, creates a full-screen
   desktop, reads back `ListSurfaces`/`GetWorkArea`/`GetTheme`, creates one
   window, and logs `SHELLPROBE:DESKTOP:PASS`, `SHELLPROBE:LIST:PASS`,
@@ -436,7 +436,7 @@ older peers, and the no-shell sessions above are unchanged.
   wrong-role/unknown-id errors) and `SHELLPROBE:EVICT:PASS` (a privileged
   child subscribing as an observer leaves the shell's work area and event
   channel intact). An unprivileged child in another session
-  (`SHELLPRB.ELF denied <panel>`) must be refused the shell role, an observer
+  (`/system/bin/shellprobe denied <panel>`) must be refused the shell role, an observer
   slot, a desktop and the list (`SHELLPROBE:DENIED:PASS`), and a panel, every
   shell-only call and moving the probe's panel (`SHELLPROBE:SHELLONLY:PASS`).
   The probe also logs the pointer events its desktop and panel receive

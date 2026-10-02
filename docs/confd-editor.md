@@ -67,7 +67,7 @@ path.
 dependency), `tools/xui/build.py` (`xui-confd.elf`), `build.rs` (`confd` →
 `XCONFD`, in `DOCUMENT_XUI_APPS`, so it ships on demand and is not
 autostarted), `user/src/bin/init/apps.rs` (`xui_app("confd", "Config",
-"XCONFD.ELF")`); the desktop menu's built-in list is `deskmenu::defaults()`
+"/system/bin/confd-editor")`); the desktop menu's built-in list is `deskmenu::defaults()`
 (`libs/deskmenu`), where `("confd", "Config")` goes last so the rows the
 screenshot sessions click by coordinate keep their positions.
 

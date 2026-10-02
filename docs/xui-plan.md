@@ -147,7 +147,7 @@ deliberately **not** `winit`, `softbuffer`, `glutin`, `glow`, `xui-gpu`.
 ## Status (issues #114, #153, #168)
 
 Landed in `xui-app/` (a standalone static-musl workspace built by
-`tools/xui/build.py`, embedded as `XAPP.ELF` with `LAZYOS_XUID=1` +
+`tools/xui/build.py`, embedded as `/system/bin/xapp` with `LAZYOS_XUID=1` +
 `LAZYOS_XUI_APP=<path>`):
 
 - **M0** — `src/bin/m0.rs`: a `std` shim over syscall 12 (`bind`/`present`/
@@ -209,7 +209,7 @@ and no `xdemo`, so the app is the first surface at the top-left. Owner mode
 
 **Desktop session (issues #215/#216, `LAZYOS_DESKTOP=1` #217)** — one switch
 expands to the whole recipe: a services session, `xuid`, and the xui apps
-embedded side by side (`XAPPS.LST` names what the image ships; a registered app
+embedded side by side (`/system/etc/xapps.lst` names what the image ships; a registered app
 whose ELF is absent is unavailable and never logged as a failed launch).
 `init`'s app registry opens the `autostart` rows as `xuid` clients; by
 default only the Terminal is autostarted (`LAZYOS_XUI_AUTOSTART` lists other

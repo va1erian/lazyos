@@ -103,7 +103,7 @@ there; the sync is safe regardless (each write is atomic under the VFS lock).
 - **Kernel**: syscall 21 is `power(op, arg)`: `0` reboot, `1` power-off,
   `2` arm the watchdog (`arg` is the stop to force). All three need
   `CAP_SYS_ADMIN`, checked before the op is decoded.
-- **Clients**: `powerctl` (`POWERCTL.ELF`), run by the shell as `shutdown`,
+- **Clients**: `powerctl` (`/system/bin/powerctl`), run by the shell as `shutdown`,
   `poweroff`, `halt` (`powerctl poweroff`) and `reboot` (`powerctl reboot`);
   `-f` sets `force`. LazyShell's start menu (`xui-app/src/shell/power.rs`,
   rows in `xui-app/crates/shell/src/menu/power.rs`) ends with "Restart..." and
@@ -149,7 +149,7 @@ stubbed under `lazyos_tests`):
   pending `SIGTERM` is fatal at its syscall return, ignored signals are
   consumed, a Linux task is left to its own path, and nothing leaks.
 - `native_exec_lookup_maps_names_to_files`: `shutdown`, `poweroff`, `halt` and
-  `reboot` reach `POWERCTL.ELF` with the right preset argument, and never
+  `reboot` reach `/system/bin/powerctl` with the right preset argument, and never
   shadow a real file.
 - The shutdown's filesystem side is the existing ext2 coverage:
   `fs_ext2_sync_all_flushes_every_mount`, `fs_ext2_state_dirty_then_clean` and

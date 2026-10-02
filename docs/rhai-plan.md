@@ -26,7 +26,7 @@ from LazyRAD scripts**, reached through these steps:
 
 | Step | What | State |
 |---|---|---|
-| R0 | `rhai` command (static musl), `os` module, REPL, `RHAI.ELF` in the image (#319) | done (#326) |
+| R0 | `rhai` command (static musl), `os` module, REPL, `/system/bin/rhai` in the image (#319) | done (#326) |
 | Build | `python tools/rhai/run.py` builds `rhai`, BusyBox and the image, boots it and judges the serial markers in one command; `tools/run_demo.py` rebuilds `rhai` before every image | done (this PR) |
 | R3a | `midlc --schema`: every IDL interface as a data table (`libs/rhai-lazy/src/msg/idl.rs`); `msg` module: `msg::connect(interface)`, method sugar (`confd.info()`), `invoke`, one-way sends, structured service errors as catchable Rhai errors; the real `int 0x80` transport (`msg::gate`) | done (this PR) |
 | R3b | Topics: `msg::subscribe`, `msg::publish`, `msg::on(filter, fn)` and `msg::run()`; services written in Rhai (`msg::serve`) | next PR |
@@ -145,7 +145,7 @@ host later (see phase R5).
  .rhai scripts / REPL lines / app bundles
                  │
        ┌─────────▼──────────┐
-       │  RHAI.ELF (host)   │  one binary: REPL, script runner, service runner
+       │  /system/bin/rhai (host)   │  one binary: REPL, script runner, service runner
        │  rhai (no_std)     │
        ├────────────────────┤
        │ libs/rhai-lazy     │  host bindings, no_std + alloc:
@@ -158,7 +158,7 @@ host later (see phase R5).
 ```
 
 - **One host binary.** There is no dynamic linking, so every binary that embeds
-  Rhai pays for the whole engine. One `RHAI.ELF` that runs the REPL, scripts and
+  Rhai pays for the whole engine. One `/system/bin/rhai` that runs the REPL, scripts and
   services keeps the image small; `SH.ELF` becomes a small launcher for it, or an
   alias.
 - **`libs/rhai-lazy`.** This crate holds the engine factory, `Engine`
@@ -178,7 +178,7 @@ host later (see phase R5).
 | P2 | Native file I/O: `open`/`read`/`write`/`close`/`stat`/`readdir` | `read_file` is whole-file, read-only, 8.3 names. Scripts, modules and the shell (`ls`, `cd`, redirection) need the VFS/ext2 the kernel already has. | kernel has it, native ABI lacks it |
 | P3 | `argv`/`env`/`cwd` for native processes | Scripts take arguments; the shell needs `cd`. `service_args` covers services only. | partial |
 | P4 | Pipes between native processes | `ls | grep` in the shell. Messenger channels or a kernel pipe object. | exists for the Linux shim |
-| P5 | `#!` interpreter lookup in `spawn` | `spawn("tool.rhai")` should exec `RHAI.ELF tool.rhai`. | done for Linux-ABI `execve` ([#491](https://github.com/va1erian/lazyos/issues/491)) |
+| P5 | `#!` interpreter lookup in `spawn` | `spawn("tool.rhai")` should exec `/system/bin/rhai tool.rhai`. | done for Linux-ABI `execve` ([#491](https://github.com/va1erian/lazyos/issues/491)) |
 | P6 | Interrupt delivery to a native task | Ctrl-C in the REPL must stop a runaway loop (wired to Rhai's `on_progress`). | signals exist for the shim |
 | P7 | Long file names in the image | `.rhai` doesn't fit 8.3; scripts belong on ext2. | ext2 exists |
 
@@ -197,7 +197,7 @@ matching the ABI/test conventions) and QMP screenshots where it is visual.
   `no_std` build needs a fixed/compile-time hash seed; verify the current
   mechanism for the pinned version).
 - Swap in the freeing allocator (P1) for this bin.
-- Evaluate a hard-coded script printing `RHAI:BOOT:PASS`; embed as `RHAI.ELF`.
+- Evaluate a hard-coded script printing `RHAI:BOOT:PASS`; embed as `/system/bin/rhai`.
 - **Measure and record:** stripped ELF size at `opt-level = "s"`/`"z"` + LTO,
   boot-time read cost, heap high-water mark for a 10k-iteration loop.
 - **Exit:** the numbers are acceptable, or a feature trim list is agreed
@@ -215,7 +215,7 @@ matching the ABI/test conventions) and QMP screenshots where it is visual.
   `read(path)`, `write(path, s)`, `ls(path) -> [#{name, size, kind}]`.
 - A custom `ModuleResolver` over the VFS (`import "lib/util" as util;`), with a
   search path of `./`, `~/.lib/rhai`, `/lib/rhai`, and a compiled-AST cache.
-- `RHAI.ELF script.rhai args…`; `#!` support (P5).
+- `/system/bin/rhai script.rhai args…`; `#!` support (P5).
 - **Tests:** host `cargo test -p rhai-lazy` for every binding against a mock
   `sys`; kernel suite unchanged; a boot fixture runs `tests/rhai/*.rhai`.
 
@@ -346,7 +346,7 @@ and handles:
 - Hand-written `msg` core: `connect`, `call`, `subscribe(topic, |event| …)`,
   `publish`, and an event loop (`msg::run()`) built on `Selector`, so a script can
   wait on several topics and replies.
-- **Services in Rhai:** the `init` manifest gains `exec = "RHAI.ELF /srv/foo.rhai"`
+- **Services in Rhai:** the `init` manifest gains `exec = "/system/bin/rhai /srv/foo.rhai"`
   entries; a script declares `fn on_call(method, args)` / `fn on_start()` and the
   host wires heartbeat and shutdown the same way `service!` does. First
   candidates are policy glue and demos, not core services: an automount notifier
@@ -362,7 +362,7 @@ and handles:
   beyond the process. Engine limits are a second, finer layer, not the security
   boundary.
 - Script bundles use the existing app manifest (`security-model.md` §6); the
-  sandbox profile is enforced by the kernel on `RHAI.ELF`'s process, so
+  sandbox profile is enforced by the kernel on `/system/bin/rhai`'s process, so
   bindings don't reimplement policy.
 - Denied operations surface as a Rhai error that carries the friendly-denial
   text (`ERR_QUOTA` with usage/limit, policy reason), catchable with
@@ -466,7 +466,7 @@ fn update(msg, ui) {
 ## Smallest first step
 
 **P1 + R0 in one PR:** a freeing user allocator behind a feature flag, and a
-`RHAI.ELF` that evaluates `print("RHAI:BOOT:PASS")` in ring 3, with the ELF size
+`/system/bin/rhai` that evaluates `print("RHAI:BOOT:PASS")` in ring 3, with the ELF size
 and heap numbers recorded in the PR. Every later phase depends on those numbers.
 
 ## Open questions

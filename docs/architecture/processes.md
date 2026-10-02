@@ -37,7 +37,7 @@ syscall shim.
 | 0 | `exit(code)` | finish current task; status visible to the supervisor |
 | 1-4 | `write`, `read_char`, `read_file`, `sbrk` | demo surface |
 | 5 | `messenger(op, args, result)` | fabric (see [ipc-fabric.md](ipc-fabric.md)) |
-| 6 | `spawn("PATH.ELF [args]")` | child of caller; stores args per slot |
+| 6 | `spawn("PATH [args]")` | child of caller; stores args per slot |
 | 7 | `wait(deadline)` | reap a child; returns packed pid/status, or `-1` on timeout |
 | 8 | `clock()` | PIT ticks (100 Hz) for backoff and polls |
 | 9 | `args(buf, len)` | copy the manifest argument string |
@@ -57,7 +57,7 @@ syscall shim.
 | 28 | `append_file(path, data, len)` | append up to 1 MiB to the end of a file, creating it when absent (`process/fsops.rs`); `write_file` of the first chunk plus one append per further chunk writes a file larger than one call, which the package manager `pkgd` needs for binaries |
 | 29 | `kill(slot, sig)` | end one task by slot (what `spawn` returned) with signal 0 (probe), `SIGTERM` or `SIGKILL`; the sender must share the target's uid or hold `CAP_KILL`; `-ESRCH`/`-EPERM`/`-EINVAL`, no group or broadcast form (`process/killsys.rs`); `init` uses it to stop an app being removed |
 
-- `spawn` reads the ELF from the FAT image, leaks one interned `&'static str`
+- `spawn` reads the ELF from the OS volume (`/system/bin/<name>`), names the task after the file's basename and leaks one interned `&'static str`
   per distinct service name (at most 64; later spellings share the name
   `service`), and gives the child a copy of the *caller's* credentials before it
   can run; `SERVICE_ARGS` is keyed by slot and cleared on reuse. `fork`, `clone`
@@ -83,7 +83,7 @@ ring-3 fault (bad pointer, privileged instruction, #DE, #UD, ...) terminates the
 faulting process (all threads of its address space) with status `128 + signal`
 (#PF/#GP -> SIGSEGV 11, #DE -> SIGFPE 8, #UD -> SIGILL 4), posts `SIGCHLD`, and
 the scheduler moves on. A `SIGSEGV` handler still gets the first chance for #PF.
-Evidence: the `fault_*` kernel tests; `faultprobe` (`FAULTPRB.ELF`) is also
+Evidence: the `fault_*` kernel tests; `faultprobe` (`/system/bin/faultprobe`) is also
 runnable by hand from BusyBox `sh` (see "Native programs from `sh`" below).
 
 **Linux shim** (`process/linux/`, issues #55-#60; plan: [linux-abi-plan.md](../linux-abi-plan.md))
@@ -186,8 +186,8 @@ runnable by hand from BusyBox `sh` (see "Native programs from `sh`" below).
   `F_SETFL` carry `O_NONBLOCK`, `F_GETFD`/`F_SETFD` carry `FD_CLOEXEC`, and
   `execve` closes marked descriptors while `fork` inherits them.
 - `execve` replaces the image, resets the signal table, and tears down the old
-  PML4 when it has no other users. The ABI bench injects `INIT.ELF` via
-  `LAZYOS_INIT`; `BUSYBOX` runs BusyBox `sh` on the shim, and results are
+  PML4 when it has no other users. The ABI bench injects `/system/bin/abi-init` via
+  `LAZYOS_INIT`; `/system/bin/busybox` runs BusyBox `sh` on the shim, and results are
   generated into `docs/compat/` (git-ignored) by `tools/abi/run.py`.
 - `execve` of a `#!` script (`process/linux/shebang.rs`, issue #491) runs the
   interpreter named on its first line with argv `[interp, (one-arg), script,
@@ -212,16 +212,25 @@ with syscall 2.
 
 BusyBox `sh` runs a command with `fork` + `execve`, so `execve` has to start a
 native program without loading it over the Linux image. `sys_execve` first asks
-`native::lookup(path)`: a small table (`top`, `confctl`, `msgctl`/`messengerctl`,
-`faultprobe`) maps the name a user types (`top`, `/bin/top`, found through the
-synthetic `/bin` that `$PATH` searches, only while no real file has that path)
-or the boot-volume name (`/TOP.ELF`) to the 8.3 `.ELF` file. On a match the
-calling task, which is `sh`'s expendable fork child:
+`native::lookup(path)`. Programs live at their real names in `/system/bin`
+(F3), and a list of the native ones (`top`, `confctl`, `messengerctl`,
+`faultprobe`, `beep`, `pkgctl`, `powerctl`, ...) maps the name a user types
+(`top`, `/bin/top`, found through the synthetic `/bin` that `$PATH` searches,
+only while no real file has that path) or the full path (`/system/bin/top`)
+to `/system/bin/<name>`, byte for byte: `TOP` and `top.elf` are not found.
+An alias table adds the names that differ from the file: `msgctl` is
+`messengerctl`, and `shutdown`/`poweroff`/`halt`/`reboot` run `powerctl` with
+a preset first argument. The list exists because nothing in the ELF tells a
+native program from a Linux one; every other file in `/system/bin` (`busybox`,
+`rhai`, the xui apps) goes through the Linux loader, which resolves an
+applet-shaped name to `/system/bin/<name>` before the BusyBox applet alias. A
+native program this image does not ship is left to the Linux loader too. On a
+match the calling task, which is `sh`'s expendable fork child:
 
-1. checks the execute bit, reads the ELF from the boot volume (`ENOENT` if the
-   image does not ship it, e.g. `top` in the `LAZYOS_DESKTOP=1` image) and joins
+1. checks the execute bit, reads the ELF from `/system/bin` and joins
    `argv[1..]` into the string syscall 9 hands the program (`E2BIG` past 4 KiB);
-2. spawns it as a native child (`task::spawn_child_inheriting_fds`), which copies
+2. spawns it as a native child named after the file (`top`;
+   `task::spawn_child_inheriting_fds`), which copies
    the caller's descriptor table except `FD_CLOEXEC` entries (`EAGAIN` when no
    task slot is free, `ENOMEM`, `ENOEXEC` for an image that will not load, all
    without leaking the slot or the half-built address space);

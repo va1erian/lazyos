@@ -311,7 +311,7 @@ a transmit slot that did not come back.
 ### N2 evidence
 
 `python tools/net/run.py --netd` builds with `LAZYOS_NETD=1` (which adds
-`NETD.ELF`, `NETCTL.ELF` and `PING.ELF` to the N1 image) and boots `netd` with
+`/system/bin/netd`, `/system/bin/netctl` and `/system/bin/ping` to the N1 image) and boots `netd` with
 `demo=1`: it waits for DHCP, then runs `netctl` (info), a real `ping 10.0.2.2 4`,
 `netctl probe=1` and `netctl soak=40`. The capture must show at least 6 complete
 DHCP exchanges (the start, the probe's renewal, and a renewal every tenth soak
@@ -569,7 +569,7 @@ of stream only when the new one attaches; latency is a tick per control step (ab
   a `netd` restart with sockets open, and six seeds of 2 000 random calls with bounds checked at
   every step; each test ends by checking that no descriptor, socket slot, queued request or ring
   was left.
-* **End to end (`python tools/net/run.py --netd`)**: `netd demo=1` runs `linux:NETFIX.ELF`, a static
+* **End to end (`python tools/net/run.py --netd`)**: `netd demo=1` runs `linux:/system/bin/netfix`, a static
   musl Rust program using only `std::net`: a 200 000-byte echo through a duplicated socket and a
   half-close, a timed (non-blocking) connect, a connect that must fail, address queries, 22 UDP
   echoes including the 1472-byte limit, and a server that accepts a connection the harness opens
