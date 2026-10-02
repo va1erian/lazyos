@@ -25,3 +25,6 @@ messenger-generated = { path = "../generated" }
 # The install/upgrade/remove soak runs `tree` on a real ext2 volume (`memio`)
 # and judges it with the library's independent checker (`check::fsck`).
 ext2fs = { path = "../ext2fs", features = ["fuzz"] }
+# The provisioning tests write real `.lzp` archives (`tests/provisioning/lzp.rs`).
+crc = { version = "3", default-features = false }
+miniz_oxide = { version = "0.8", default-features = false, features = ["with-alloc"] }

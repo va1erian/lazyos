@@ -60,6 +60,20 @@ pub trait Source {
     fn entries(&self) -> Vec<(&str, bool)>;
     /// The bytes of the file entry `name`.
     fn read(&self, name: &str) -> Result<Vec<u8>, String>;
+    /// [`Source::read`] into `out`, replacing its contents. A source that can
+    /// fill a caller-owned buffer overrides it, so extraction reuses one
+    /// allocation for every entry (see [`extract_with`]).
+    fn read_into(&self, name: &str, out: &mut Vec<u8>) -> Result<(), String> {
+        let data = self.read(name)?;
+        out.clear();
+        out.extend_from_slice(&data);
+        Ok(())
+    }
+    /// The size of the largest file entry, when the source knows it, so
+    /// [`extract_with`] can size its buffer once.
+    fn largest(&self) -> usize {
+        0
+    }
 }
 
 impl Source for lazypkg::Package<'_> {
@@ -71,6 +85,18 @@ impl Source for lazypkg::Package<'_> {
 
     fn read(&self, name: &str) -> Result<Vec<u8>, String> {
         lazypkg::Package::read(self, name).map_err(|error| format!("{error}"))
+    }
+
+    fn read_into(&self, name: &str, out: &mut Vec<u8>) -> Result<(), String> {
+        lazypkg::Package::read_into(self, name, out).map_err(|error| format!("{error}"))
+    }
+
+    fn largest(&self) -> usize {
+        lazypkg::Package::entries(self)
+            .filter(|entry| !entry.is_dir)
+            .map(|entry| entry.size as usize)
+            .max()
+            .unwrap_or(0)
     }
 }
 
@@ -147,6 +173,19 @@ pub fn extract<F: TreeFs, S: Source + ?Sized>(
     source: &S,
     install_path: &str,
 ) -> Result<usize, TreeError<F::Error>> {
+    extract_with(fs, source, install_path, &mut Vec::new())
+}
+
+/// [`extract`], unpacking every file through `scratch`. A long-lived caller
+/// (`pkgd`, whose heap never returns a block over 64 KiB) passes the same
+/// buffer for every package, so extracting many packages in one run grows
+/// its heap by the largest file once instead of by every file.
+pub fn extract_with<F: TreeFs, S: Source + ?Sized>(
+    fs: &mut F,
+    source: &S,
+    install_path: &str,
+    scratch: &mut Vec<u8>,
+) -> Result<usize, TreeError<F::Error>> {
     let app_dir = install_path
         .rsplit_once('/')
         .map_or(install_path, |(parent, _)| parent);
@@ -161,14 +200,21 @@ pub fn extract<F: TreeFs, S: Source + ?Sized>(
             .map_err(|error| TreeError::Bad(format!("creating {dir}: {error}")))?;
         ensure_dir(fs, &path)?;
     }
+    // Grown once, to exactly the largest file: a buffer that doubled its way
+    // up would leave each smaller block behind in `pkgd`'s heap.
+    let largest = source.largest();
+    if scratch.capacity() < largest {
+        scratch.clear();
+        scratch.reserve_exact(largest);
+    }
     let mut written = 0;
     for &(name, _) in entries.iter().filter(|(_, is_dir)| !is_dir) {
         let path = layout::entry_path(install_path, name)
             .map_err(|error| TreeError::Bad(format!("writing {name}: {error}")))?;
-        let data = source
-            .read(name)
+        source
+            .read_into(name, scratch)
             .map_err(|error| TreeError::Bad(format!("unpacking {name}: {error}")))?;
-        place(fs, &path, name, &data, layout::file_mode(name))?;
+        place(fs, &path, name, scratch, layout::file_mode(name))?;
         written += 1;
     }
     Ok(written)

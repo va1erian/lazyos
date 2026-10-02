@@ -22,6 +22,9 @@
 //! * [`tree`]: extraction, documentation and removal over a [`tree::TreeFs`],
 //!   the same code under `pkgd`'s syscalls, the host tests and the kernel
 //!   suite;
+//! * [`provision`]: which core packages (`/system/packages`) to install,
+//!   upgrade, keep or demote, the provisioning stamp, and the refusals a core
+//!   app adds to `Remove` and `Install`;
 //! * [`hash`]: the FNV-1a hashes the kernel keys policy by.
 //!
 //! The crate is `no_std` + `alloc` and touches no syscall: [`tree`] reaches
@@ -37,5 +40,6 @@ pub mod docs;
 pub mod explain;
 pub mod hash;
 pub mod layout;
+pub mod provision;
 pub mod rules;
 pub mod tree;
