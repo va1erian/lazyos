@@ -87,12 +87,12 @@ mod types;
 extern crate std;
 #[cfg(any(test, feature = "check"))]
 pub mod check;
-#[cfg(any(test, feature = "check"))]
-mod recover;
 #[cfg(any(test, feature = "fuzz"))]
 pub mod fuzz;
 #[cfg(any(test, feature = "fuzz"))]
 pub mod memio;
+#[cfg(any(test, feature = "check"))]
+mod recover;
 #[cfg(test)]
 mod tests;
 
