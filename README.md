@@ -90,6 +90,13 @@ with `--accel none`. Other useful flags: `--no-build`, `--headless`, `--release`
 and `-- --cpu max` to pass extra arguments to QEMU. In the demo, **Tab** moves
 window focus and typed input goes to the focused program.
 
+### On a real PC (USB stick)
+
+`LAZYOS_DESKTOP=1 LAZYOS_USB=1 LAZYOS_USB_IMAGE=1 cargo build` also writes
+`target/lazyos-usb.img`, one image that boots a PC in UEFI or legacy BIOS mode
+from a USB stick and runs from RAM; `tools/boot/write_stick.py` writes it and
+`tools/boot/run.py` boots it in QEMU. See [`docs/usb-stick.md`](docs/usb-stick.md).
+
 ### Scripted sessions and screenshots
 
 LazyOS renders pixels, so verify by looking. Capture a headless screenshot:

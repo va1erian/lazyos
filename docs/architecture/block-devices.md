@@ -78,7 +78,8 @@ the ext2 driver caches above it (the block-cache doc says why), FAT `/boot`
 reads go straight to the device.
 
 **Partitions (`block/partition.rs`, plan F1).** After the drivers attach,
-`block::init` reads the MBR of every whole disk (not `ram0`, not partitions) and
+`block::init` reads the MBR of every whole disk (not partitions; `ram0` scans
+itself when it registers, below) and
 registers each entry of type `0x83` or FAT (`01 04 06 0B 0C`) as `<disk>p<n>`,
 1-based like the MBR slot (`virtio0p3`). The table is hostile input: an entry
 must have `sectors > 0`, `lba >= 1` and `lba + sectors <= disk` (checked add);
@@ -89,14 +90,31 @@ then the offset is added with `checked_add`. Slots are a static pool
 (`MAX_PARTITIONS = 16`, names in static storage), so the registry still holds
 `&'static dyn BlockDevice` with no heap; a full pool or registry is logged.
 `Ext2::open` of a whole disk with a partition table fails on the superblock
-magic and must keep doing so. Tests: `partition_*` in `tests/partition_suite.rs`.
+magic and must keep doing so. A sector that is a FAT volume boot record (a
+jump, then `FAT` at byte 54 or `FAT32` at 82) is not read as a table, so a bare
+FAT image registers no partitions. `partition::scan_disk(disk) -> usize` is the
+entry point for a disk that appears after boot (the USB stick through `usbd`):
+it registers `<disk>p<n>` once per disk and refuses partition devices. Tests:
+`partition_*` in `tests/partition_suite.rs`.
 
-**Ramdisk fallback (#5).** With `LAZYOS_RAMDISK=<fat image>` the build hands
-the image to the bootloader; `kernel_main` registers `BootInfo.ramdisk_*` as
-`ram0` *after* probing ATA/virtio, so a real disk keeps priority and `fs::init`
-falls through to `ram0` when no disk has a volume. `Fat16::open` accepts a bare
-(MBR-less) image whose sector 0 is the BPB. Tests: `block_memdisk_*`,
-`block_ramdisk_*` in `tests/ramdisk_suite.rs`.
+**Ramdisk (#5, the USB stick's RAM root).** The bootloader hands over a
+ramdisk: the USB stick image's whole-disk image (MBR, FAT `lazyos.cfg`, ext2 OS
+volume; [`../usb-stick.md`](../usb-stick.md)) or a bare FAT image from
+`LAZYOS_RAMDISK=<fat image>`. `kernel_main` registers `BootInfo.ramdisk_*` as
+`ram0` (writable, so a root on it is a RAM root) after probing ATA/virtio, and
+`register_ramdisk` scans its MBR (`ram0p1`, `ram0p2`). **When a ramdisk is
+present and its boot volume carries `lazyos.cfg`, it wins:**
+`fs::mounts::build` moves `ram0` and its partitions ahead of every other
+device, so the boot volume, `lazyos.cfg` and the root all come
+from it, and a disk carrying a volume with the same UUID (a QEMU dev run that
+also attaches `target/lazyos.img`) can never take `/`; the choice does not
+depend on probe order. A ramdisk without `lazyos.cfg` (a bare
+`LAZYOS_RAMDISK` FAT image) keeps the registration order. The chosen root is logged as `FS:ROOT:<device>`
+(`FS:ROOT:none` when nothing mounted). Disks are still searched for the home
+volume. `Fat16::open` accepts a bare (MBR-less) image whose sector 0 is the
+BPB. Tests: `block_memdisk_*`, `block_ramdisk_*` in `tests/ramdisk_suite.rs`,
+`partition_fat_vbr_not_a_table`, and `mount_ramdisk_*` in
+`tests/mount_suite/ramdisk_root.rs`.
 
 **Boot device and mount interaction**
 

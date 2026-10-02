@@ -10,6 +10,7 @@ and ring-3 programs, packs them into an MBR disk (a FAT `/boot` plus an ext2 OS 
 | `Cargo.toml` | Workspace; `kernel` and `user` as artifact dependencies via `bootloader` |
 | `.cargo/config.toml` | `bindeps = true` (unstable artifact dependencies) |
 | `rust-toolchain.toml` | Pinned nightly; targets `x86_64-unknown-none`, `x86_64-unknown-uefi` |
+| `build_support/usb_*.rs` | `LAZYOS_USB_IMAGE=1`: also `target/lazyos-usb.img`, the hybrid UEFI/BIOS USB stick image with a RAM root and a `lazyhome` partition ([usb-stick.md](../usb-stick.md)) |
 | `build.rs`, `build_support/os_*.rs` | `DiskImageBuilder` for the BIOS part (kernel + `lazyos.cfg`); every other file goes to the ext2 OS volume, created or updated in place; writes `target/lazyos.img` ([filesystem.md](filesystem.md), the OS image) |
 | `kernel/build.rs` | Rasterizes `assets/fonts/JetBrainsMono-Regular.ttf`; turns env switches into cfgs |
 | `kernel/src/main.rs` | `entry_point!(kernel_main)`; boot order below |
@@ -21,9 +22,15 @@ and ring-3 programs, packs them into an MBR disk (a FAT `/boot` plus an ext2 OS 
 
 1. `serial::init` (COM1 logging); framebuffer from `BootInfo`, else halt.
 2. `console::init`, `display::init` (records geometry for the #113 grant).
-3. `mem::init` - frame allocator, VMA-NX enable, kernel heap mapping.
+3. `boot_media::record` prints `BOOT:MEDIA:<uefi|bios|unknown>`, read from the
+   memory map (the UEFI stage reports firmware types as `UnknownUefi`, the BIOS
+   stage as `UnknownBios`; `bootloader` 0.11 has no explicit flag). Then
+   `mem::init` - frame allocator, VMA-NX enable, kernel heap mapping.
 4. `tests::run()` when built with `LAZYOS_TESTS=1` (replaces normal boot).
-5. `fs::init` - mount boot volume (`/`) and ramfs (`/tmp`).
+5. `fs::init` - mount boot volume (`/`) and ramfs (`/tmp`); a bootloader
+   ramdisk (`ram0`, partitions `ram0p<n>`) whose boot volume has `lazyos.cfg`
+   is searched first, and the root is
+   logged as `FS:ROOT:<device>` ([block-devices.md](block-devices.md)).
 6. `arch::init` - CPU/GDT/IDT/PIC/PIT, Linux syscall MSRs, PS/2 mouse.
 7. `task::register_kernel`; bootstrap channel `create()` + registry name publish.
 8. Spawn branch: `/system/bin/busybox` file, or `/system/bin/abi-init` (ABI bench), or the demo/services
@@ -73,6 +80,7 @@ spelling from `libs/fhs` (`fhs::bin`, `fhs::etc`, `fhs::share`).
 | `LAZYOS_XUI_CLIENT=1` | `xui_client` | (with the two above) boots `xuid` plus `/system/bin/xapp` as a compositor client; no `xdemo` |
 | `LAZYOS_XUI_APPS=<paths>` | `xui_desktop` | (with `LAZYOS_XUID=1` + `LAZYOS_XUI_CLIENT=1`) the desktop session: the kernel boots only `xuid`; `init` (`LAZYOS_SERVICES=1`) opens the embedded apps as clients, so several run side by side. `LAZYOS_XUI_AUTOSTART=term,sysmon` picks which (default `term`, `none` disables) |
 | `LAZYOS_DESKTOP=1` | `services_mode`, `xuid_demo`, `xui_desktop`, `lazyos_desktop` | The desktop profile (issue #217): one switch for the whole recipe. It implies `LAZYOS_SERVICES` + `LAZYOS_XUID`; the root build script embeds the default xui app set (`target/xui/xui-{term,sysmon,fabricmon,counter}.elf`, overridable with `LAZYOS_XUI_APPS`; a missing default app fails the build), and `init` starts only the real session — no `flaky`, clipboard demo pair or `top` launch self-test (`lazyos_desktop` drops their ELFs and manifest rows too) |
+| `LAZYOS_USB_IMAGE=1` | (none; `build.rs` only) | Also write `target/lazyos-usb.img`; needs `LAZYOS_USB=1` and a services session (`LAZYOS_USB_HOME_SIZE`, `LAZYOS_USB_ROOT_FREE`); see [usb-stick.md](../usb-stick.md) |
 | `LAZYOS_KBD_LAYOUT=fr` | (none; `option_env!` in `kernel/src/input/layout.rs` and `user/src/bin/inputd/config.rs`) | Keyboard layout: French AZERTY with AltGr layer instead of the default US QWERTY. Dead keys are not modelled (`^`, `¨` are literal). `inputd` uses it as the boot default; `confd` key `sys/input/layout` overrides it live |
 
 **Invariants / decisions**
