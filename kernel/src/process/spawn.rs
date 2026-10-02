@@ -85,9 +85,21 @@ pub(super) fn spawn_program(cmdline_ptr: u64, cred: Option<Cred>, assign_label: 
     if fs::mount_flags(path).noexec {
         return -EACCES;
     }
+    // Execute permission before a byte is read: `EACCES` for a missing `x`
+    // bit (root included) or a non-file, `ENOENT` for a missing native file.
+    let allowed = if linux {
+        exec_perm::linux_spawn(path)
+    } else {
+        exec_perm::native(path)
+    };
+    match allowed {
+        Ok(()) => {}
+        Err(fs::vfs::FsError::NotFound) => return -ENOENT,
+        Err(_) => return -EACCES,
+    }
     // A Linux program may be a BusyBox applet alias (`sh`, `/bin/ls`), which the
     // Linux loader resolves to the `BUSYBOX` file; a native program is always a
-    // real FAT entry.
+    // real file on the native mount table.
     let elf = if linux {
         linux::load_executable(path).or_else(|| fs::read(path))
     } else {

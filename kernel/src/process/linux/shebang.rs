@@ -119,13 +119,20 @@ fn exe_target(path: &str) -> &str {
 
 /// Load one hop: refuse a `noexec` mount or a missing execute bit, then read
 /// the file. Applet aliases and paths with no VFS node fall through to
-/// [`load_executable`]; root bypasses the permission check as usual.
+/// [`load_executable`]. Root needs an `x` bit like everyone else, and a
+/// directory is `EACCES`, as on Linux.
 fn load_checked(target: &str) -> Result<Vec<u8>, u64> {
     if crate::fs::abi_mount_flags(target).noexec {
         return Err(fs_err(FsError::Access));
     }
     match crate::fs::abi_check(Id::current(), target, vfs::EXECUTE) {
-        Ok(_) | Err(FsError::NotFound) => {}
+        Ok(meta) if meta.kind != vfs::FileKind::File => return Err(fs_err(FsError::Access)),
+        Ok(_) => {}
+        // No node: `target` is a synthetic applet name (`sh`, `bin/ls`,
+        // `rhai`), which `load_executable` maps to a build-placed 0755 file
+        // (BusyBox or a program at the image root), or a missing file it
+        // reports as `ENOENT`. Every name that is a node was checked above.
+        Err(FsError::NotFound) => {}
         Err(error) => return Err(fs_err(error)),
     }
     match load_executable(target) {

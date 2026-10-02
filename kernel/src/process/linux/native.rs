@@ -31,7 +31,7 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use crate::fs::vfs::{self, FsError, Id};
+use crate::fs::vfs::{FsError, Id};
 use crate::ipc::pipe;
 use crate::task::signal::{self, SigInfo};
 use crate::task::{self, FdKind, SpawnError, WakeReason};
@@ -238,11 +238,11 @@ pub(crate) fn try_exec(path: &str, argv: &[Vec<u8>]) -> Option<u64> {
     if crate::fs::mount_flags(file).noexec {
         return Some(fs_err(FsError::Access));
     }
-    // Like the Linux path: a real node must be executable; the boot volume
-    // file usually has no node in the ABI VFS (`NotFound` is fine).
-    match crate::fs::abi_check(Id::current(), file, vfs::EXECUTE) {
-        Ok(_) | Err(FsError::NotFound) => {}
-        Err(error) => return Some(fs_err(error)),
+    // `file` is never a synthetic name: it is the real boot-volume file that
+    // runs, so it is checked where it is read (the native table), exactly as
+    // native `spawn` checks it, and a missing node is `ENOENT`, not a pass.
+    if let Err(error) = crate::process::exec_perm::native(file) {
+        return Some(fs_err(error));
     }
     let Some(elf) = crate::fs::read(file) else {
         return Some(err(ENOENT));
