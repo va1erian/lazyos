@@ -3,6 +3,10 @@
 version = 4
 
 [[package]]
+name = "acpi"
+version = "0.1.0"
+
+[[package]]
 name = "adler2"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -263,6 +267,7 @@ dependencies = [
 name = "lazyos-fuzz"
 version = "0.0.0"
 dependencies = [
+ "acpi",
  "ext2fs",
  "framering",
  "inputmap",

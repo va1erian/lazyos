@@ -513,7 +513,26 @@ def ext2fs_seeds():
     }
 
 
+# ---- acpi: golden firmware dumps as physical-memory images ---------------------
+
+ACPI_GOLDEN = Path(__file__).resolve().parent.parent / "libs" / "acpi" / "golden"
+
+
+def acpi_seeds():
+    """`libs/acpi/src/fuzz.rs` input: a mode byte (1 = re-seal checksums) and
+    the body of a golden dump (`tools/acpi/dump_tables.py`) without its magic."""
+    seeds = {}
+    for dump in sorted(ACPI_GOLDEN.glob("*.bin")):
+        body = dump.read_bytes()[8:]
+        seeds[dump.stem] = bytes([0]) + body
+        seeds[dump.stem + "_sealed"] = bytes([1]) + body
+    seeds["empty"] = b""
+    seeds["rsdp_only"] = bytes([1]) + struct.pack("<Q", 0x1000)
+    return seeds
+
+
 TARGETS = {
+    "acpi": acpi_seeds,
     "ext2fs": ext2fs_seeds,
     "framering": framering_seeds,
     "framering_header": header_seeds,
