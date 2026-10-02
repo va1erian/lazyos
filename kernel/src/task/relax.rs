@@ -45,8 +45,14 @@ impl spin::RelaxStrategy for Yield {
 /// A spin lock whose contenders yield the CPU (see the module docs).
 pub type YieldMutex<T> = spin::mutex::Mutex<T, Yield>;
 
+/// Kernel stack a parking task must still have: the scheduler's frames
+/// (`schedule`, `signal::sweep`) take about 10 KiB on top of the caller's.
+const PARK_HEADROOM: u64 = 14 * 1024;
+
 /// Whether the current context may park: it must not hold the task table
-/// (parking takes it). Callers that cannot park fail their operation instead.
+/// (parking takes it) and must leave the scheduler room on its kernel stack
+/// (an overflow would silently corrupt the next task's). Callers that cannot
+/// park fail their operation instead.
 pub fn can_block() -> bool {
-    !TASKS.is_locked()
+    !TASKS.is_locked() && super::kstack_headroom().is_none_or(|left| left >= PARK_HEADROOM)
 }

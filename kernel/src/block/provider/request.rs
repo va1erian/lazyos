@@ -122,7 +122,8 @@ fn release(state: &mut State) {
     state.busy = false;
 }
 
-/// A request from a context that holds the task table: say so once.
+/// A request from a context that holds the task table or is too deep in its
+/// kernel stack to park: say so once.
 fn report_unparkable() {
     static SEEN: AtomicU32 = AtomicU32::new(0);
     if SEEN.fetch_add(1, Ordering::Relaxed) == 0 {

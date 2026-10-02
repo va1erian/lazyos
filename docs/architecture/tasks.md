@@ -17,9 +17,10 @@ ISR that performs context switches.
 - `MAX_TASKS = 256` (64 until the application package system, 16 until issue
   #204). Slot bitmasks (`PENDING_RECLAIM`, the device `EXITED` mask) are
   `task::slotmask::SlotMask`es, and per-slot snapshots (`stats_snapshot`,
-  `sysinfo`, `ipc::stats`) live on the heap, because a kernel stack is 32 KiB;
+  `sysinfo`, `ipc::stats`) live on the heap, because a kernel stack is 48 KiB;
   slot 0 is the kernel task (`KERNEL_TASK`, the mux), 1.. are
-  user programs/threads, each with a 32 KiB kernel stack (`KSTACKS`).
+  user programs/threads, each with a 48 KiB kernel stack (`KSTACKS`; 32 KiB
+  until USB storage, whose I/O parks the writer deep inside ext2).
 - `Kind`: `Native` (`int 0x80`) or `Linux` (`syscall`/`sysret`). `TaskState`:
   `Runnable`, `Blocked { wait: WaitKind, deadline: Option<u64> }`, `Done` (kept
   until reaped). `WakeReason`: `Woken`, `TimedOut`, `Interrupted`.
