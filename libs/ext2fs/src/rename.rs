@@ -109,13 +109,18 @@ impl Ext2 {
             // One inode, two in-memory copies: the add may have grown it.
             from_parent = to_parent;
         }
-        let moved = self.finish_move(
-            from_parent_ino,
-            &mut from_parent,
-            from_name,
-            (child_ino, &mut child),
-            moves_dir.then_some(to_parent_ino),
-        );
+        // Cached, the new entry reaches the disk before the old one goes, as
+        // it would uncached: a crash shows the directory under both names at
+        // worst, never under neither (see [`Ext2::barrier`]).
+        let moved = self.barrier().and_then(|()| {
+            self.finish_move(
+                from_parent_ino,
+                &mut from_parent,
+                from_name,
+                (child_ino, &mut child),
+                moves_dir.then_some(to_parent_ino),
+            )
+        });
         if let Err(error) = moved {
             put16(&mut to_parent, INO_LINKS, to_links_before);
             let _ = self.remove_entry(to_parent_ino, &mut to_parent, to_name);

@@ -66,9 +66,19 @@ pub trait Filesystem: Send + Sync {
     /// Flush this filesystem's pending writes to stable storage.
     ///
     /// The default is a no-op for in-memory backends (ramfs, the overlay);
-    /// ext2 hands its device cache to the block layer. `confd`'s passthrough
+    /// ext2 writes its block cache back, flushes the device and marks the
+    /// volume clean. `confd`'s passthrough
     /// `fsync` reaches this through [`Vfs::flush`].
     fn flush(&self) -> Result<(), FsError> {
+        Ok(())
+    }
+
+    /// Write cached dirty data back without `flush`'s durability point (the
+    /// volume is not marked clean): the periodic flusher, `fs/flusher.rs`.
+    /// With `pressure`, also give back clean cached memory. The default has
+    /// nothing cached.
+    fn writeback(&self, pressure: bool) -> Result<(), FsError> {
+        let _ = pressure;
         Ok(())
     }
 

@@ -171,6 +171,18 @@ impl BlockDevice for Partition {
             .write_sectors(self.translate(lba, buf.len())?, buf)
     }
 
+    fn read_sectors_vectored(&self, lba: u64, bufs: &mut [&mut [u8]]) -> Result<(), BlockError> {
+        let total = bufs.iter().map(|buf| buf.len()).sum();
+        self.disk
+            .read_sectors_vectored(self.translate(lba, total)?, bufs)
+    }
+
+    fn write_sectors_vectored(&self, lba: u64, bufs: &[&[u8]]) -> Result<(), BlockError> {
+        let total = bufs.iter().map(|buf| buf.len()).sum();
+        self.disk
+            .write_sectors_vectored(self.translate(lba, total)?, bufs)
+    }
+
     fn flush(&self) -> Result<(), BlockError> {
         self.disk.flush()
     }

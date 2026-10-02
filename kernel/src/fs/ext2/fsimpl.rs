@@ -78,6 +78,10 @@ impl Filesystem for Ext2 {
         Ok(self.volume.flush()?)
     }
 
+    fn writeback(&self, pressure: bool) -> Result<(), FsError> {
+        Ext2::writeback(self, pressure)
+    }
+
     fn statfs(&self) -> Result<StatFs, FsError> {
         let FsStats {
             magic,

@@ -48,6 +48,16 @@
 //! An instance is `Sync` so several tasks may call it concurrently, but every
 //! entry point takes one private mutex: a write updates an inode, a bitmap, and
 //! the superblock, and a concurrent lookup must never observe half of that.
+//!
+//! # Caching
+//!
+//! [`Ext2::open`] reads and writes the device directly, one block at a time,
+//! in the order the operations above describe. [`Ext2::open_cached`] puts a
+//! write-back block cache in between (`cache/`): writes stay in memory until a
+//! commit writes them back in a crash-safe phase order, coalesced into large
+//! requests, and frees wait for that commit (`commit.rs`). The kernel and the
+//! host image build mount through the cache; the crash-ordering tests use the
+//! direct path. `docs/architecture/block-cache.md` has the crash semantics.
 
 #![no_std]
 
@@ -62,7 +72,9 @@ use spin::Mutex;
 
 mod attr;
 mod blocks;
+mod cache;
 mod capacity;
+mod commit;
 mod dir;
 mod error;
 mod file_io;
@@ -94,6 +106,8 @@ pub mod memio;
 #[cfg(test)]
 mod tests;
 
+pub use cache::memory::{CacheConfig, CacheMemory, CachePage, HeapMemory, CACHE_PAGE_SIZE};
+pub use cache::CacheStats;
 pub use error::{zeroed, BlockIo, Ext2Error, IoError, SECTOR_SIZE};
 pub use format::format;
 pub use geometry::Geometry;
@@ -157,6 +171,16 @@ pub struct Ext2 {
     /// Whether the on-disk `s_state` currently says clean. Only touched under
     /// `lock`; see `state.rs` for the ordering rules.
     clean: AtomicBool,
+    /// The write-back block cache, when the host asked for one
+    /// ([`Ext2::open_cached`]; `cache/mod.rs`). Only touched under `lock`.
+    cache: Option<Mutex<cache::BlockCache>>,
+    /// Whether frees wait for the next commit (`commit.rs`); on with a cache.
+    defer_frees: bool,
+    pending: Mutex<commit::Pending>,
+    /// A write-back failed this mount: `s_state` will carry the error bit.
+    errored: AtomicBool,
+    /// ... and no `flush` caller has been told yet.
+    error_unreported: AtomicBool,
     /// Serialises every operation; see the module docs.
     lock: Mutex<()>,
 }
@@ -183,20 +207,22 @@ impl Ext2 {
         self.block_size
     }
 
-    /// The superblock's free-block counter (the future `statfs` surface).
+    /// The superblock's free-block counter (the future `statfs` surface), plus
+    /// blocks freed but not yet committed (`commit.rs`).
     pub fn free_blocks(&self) -> Result<u32, Ext2Error> {
         let _guard = self.lock.lock();
         let mut raw = [0u8; 1024];
         self.read_super_raw(&mut raw)?;
-        Ok(le32(&raw, SB_FREE_BLOCKS))
+        Ok(le32(&raw, SB_FREE_BLOCKS).saturating_add(self.pending_frees().0))
     }
 
-    /// The superblock's free-inode counter.
+    /// The superblock's free-inode counter (plus inodes freed but not yet
+    /// committed, like [`Ext2::free_blocks`]).
     pub fn free_inodes(&self) -> Result<u32, Ext2Error> {
         let _guard = self.lock.lock();
         let mut raw = [0u8; 1024];
         self.read_super_raw(&mut raw)?;
-        Ok(le32(&raw, SB_FREE_INODES))
+        Ok(le32(&raw, SB_FREE_INODES).saturating_add(self.pending_frees().1))
     }
 
     /// The on-disk link count of `path`'s inode; the diagnostic the tests use

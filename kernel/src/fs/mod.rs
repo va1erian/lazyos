@@ -38,6 +38,7 @@ pub mod bootcfg;
 pub mod ext2;
 pub mod fallible;
 pub mod fat;
+pub mod flusher;
 pub mod hidden;
 pub(crate) mod mounts;
 pub mod openfile;
@@ -110,7 +111,7 @@ pub fn mount_device(point: &str, device: &str) -> Result<(), FsError> {
         return with(|vfs| vfs.mount(point, Arc::new(volume), MountFlags::default()))
             .unwrap_or(Err(FsError::NotFound));
     }
-    match ext2::Ext2::open(device) {
+    match ext2::Ext2::open_cached(device) {
         Ok(volume) => {
             mounts::reclaim_orphans(&volume, point);
             with(|vfs| vfs.mount(point, Arc::new(volume), MountFlags::default()))
@@ -128,6 +129,12 @@ pub fn mount_flags(path: &str) -> MountFlags {
 /// Run `f` against the global VFS, if it is mounted.
 fn with<T>(f: impl FnOnce(&mut Vfs) -> T) -> Option<T> {
     FS.lock().as_mut().map(|(vfs, _)| f(vfs))
+}
+
+/// [`with`], unless another task holds the VFS right now (`None` then too):
+/// for background work that must never wait on a foreground operation.
+fn try_with<T>(f: impl FnOnce(&mut Vfs) -> T) -> Option<T> {
+    FS.try_lock()?.as_mut().map(|(vfs, _)| f(vfs))
 }
 
 /// Read a whole file as the current task (permission-checked).
