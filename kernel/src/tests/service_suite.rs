@@ -188,7 +188,8 @@ pub fn spawn_linux_child_rejects_bad_image() -> Result<(), String> {
 /// The `linux:` spawn path refuses a missing file like the native one.
 pub fn spawn_linux_unknown_file_fails() -> Result<(), String> {
     fresh();
-    static MISSING: &[u8] = b"linux:/system/bin/nosuch --client\0";
+    // Dotted, so it is not applet-shaped: the BusyBox alias cannot claim it.
+    static MISSING: &[u8] = b"linux:/system/bin/no.such --client\0";
     let packed = process::dispatch_for_test(6, MISSING.as_ptr() as u64, 0, 0);
     check!(
         packed == u64::MAX,
