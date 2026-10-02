@@ -20,6 +20,9 @@ members = [
     # logic shared by the `confd` service and host tests, with no Messenger or
     # syscall dependencies.
     "libs/confd",
+    # logd's persistent journals (issue #508): source naming, the line format,
+    # rotation and the /logs budget, shared by `logd` and the kernel suite.
+    "libs/logstore",
     # Buffer-slot state machines for the pipelined display present (#361).
     "libs/surfbuf",
     # Time-zone and DST resolution for the `timed` service (issue #369): pure
