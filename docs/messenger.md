@@ -115,7 +115,10 @@ old readers can **skip** unknown fields.
 `MAP<K,V>`, `OPTION<T>`, `ERROR` (see section 12).
 
 Unknown kinds and fields are skipped; required fields are declared per method in
-the IDL. Sizes are bounded per process (configurable quota) to prevent
+the IDL. MIDL never puts a `HANDLE` or `BUFFER` in a body (the number would
+mean nothing in the receiver's table): a request's handles and buffers travel
+in the parcel's vectors and are declared by the method's `transfers (...)`
+clause ([`docs/midl.md`](midl.md#transfers-handles-and-buffers)). Sizes are bounded per process (configurable quota) to prevent
 amplification attacks.
 
 ---
@@ -365,7 +368,10 @@ interface os.lazy.notify.v1 {
     method Notify(level: Level, title: String, body: String) -> (id: U64);
     /// Publish a typed event on a topic owned by this service.
     method Publish(topic: String, event: Event) -> ();
-    method Subscribe(topic_filter: String, qos: Qos) -> (handle: Handle<Event>);
+    /// Deliver `Event`s as one-way messages on the transferred channel.
+    method Watch(topic_filter: String, qos: Qos) -> ()
+        transfers (events: Channel<os.lazy.notify.v1>);
+    method Delivered(event: Event) -> () oneway;
     enum Level { Info, Warn, Error, Critical }
     struct Event { topic: String, payload: Bytes, at: U64 }
     enum Qos { Latest, Buffered(u32), Reliable, Conflate }

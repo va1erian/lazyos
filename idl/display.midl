@@ -36,12 +36,14 @@ interface os.lazy.display.v1 {
     /// and below every window, has no chrome, never takes focus and replaces
     /// the previous desktop. The desktop role is compositor-privileged. The
     /// parcel transfers the event endpoint the compositor sends input on.
-    method CreateSurface(width: U32, height: U32, title: String, role: U32) -> (surface: U64) = 1;
+    method CreateSurface(width: U32, height: U32, title: String, role: U32) -> (surface: U64) = 1
+        transfers (events: Channel<os.lazy.display.v1>);
     /// Attach (or replace) `surface`'s pixel buffer with the parcel's shared
     /// buffer. Only the surface's creator may attach. Refused with `EBUSY`
     /// once the surface has used `Present`, which owns slot ownership from
     /// then on.
-    method AttachBuffer(surface: U64) -> () = 2;
+    method AttachBuffer(surface: U64) -> () = 2
+        transfers (pixels: Buffer);
     /// Signal that the damage rectangle of `surface` (content-relative) is
     /// ready to present.
     method Commit(surface: U64, x: U32, y: U32, w: U32, h: U32) -> () = 3;
@@ -98,7 +100,8 @@ interface os.lazy.display.v1 {
     /// that requires uid 0 or `CAP_SETUID` and never replaces the shell
     /// (issue #447). Registering again replaces the caller's previous
     /// endpoint.
-    method Subscribe(subscriber_role: String) -> () = 20;
+    method Subscribe(subscriber_role: String) -> () = 20
+        transfers (events: Channel<os.lazy.display.v1>);
     /// The compositor's chrome palette as `0xRRGGBB` colours. `text` is the
     /// ink on the inactive title bar. `mode` is the desktop preset (`dark` or
     /// `light`, the `sys/ui/mode` setting) and `accent` the accent colour in
@@ -117,7 +120,8 @@ interface os.lazy.display.v1 {
     /// The compositor only reads the *current* slot, so attaching to any
     /// other slot is tear-free; attaching to the current slot fails with
     /// `EBUSY`. Only the surface's creator may attach.
-    method AttachBufferSlot(surface: U64, slot: U32) -> () = 25;
+    method AttachBufferSlot(surface: U64, slot: U32) -> () = 25
+        transfers (pixels: Buffer);
     /// Pipelined present (no reply): make `slot` the surface's current buffer
     /// and composite `damage` (content-relative, clipped to the content; an
     /// empty list or more than 16 rects means the whole content). `seq` is

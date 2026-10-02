@@ -12,7 +12,8 @@ use audiomix::service::{self, Outcome, Request};
 use audiomix::{Config, Mixer};
 
 use crate::{
-    Error, MixerControl, Params, PlaybackStream, Result, RingBuffer, RingRef, Transport, UNITY_GAIN,
+    Error, MixerControl, Params, PlaybackStream, Result, RingBuffer, RingRef, Transfers, Transport,
+    UNITY_GAIN,
 };
 
 const PERIOD: usize = 1024;
@@ -117,12 +118,12 @@ impl Transport for Fake {
         interface: u64,
         method: u32,
         body: Vec<u8>,
-        ring: Option<RingRef>,
+        transfers: Transfers,
         deadline: Option<u64>,
     ) -> Result<Vec<u8>> {
         let outcome = {
             let mut state = self.0.borrow_mut();
-            let ring = ring.and_then(|r| {
+            let ring = transfers.buffers.first().and_then(|r| {
                 let ring = state.rings.get(&r.handle)?.clone();
                 let fits = r.len <= ring.bytes.borrow().len() as u64;
                 fits.then_some(ring)

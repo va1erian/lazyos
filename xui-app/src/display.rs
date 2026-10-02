@@ -185,7 +185,9 @@ impl Client {
             role,
         })
         .map_err(|_| -errno::EINVAL)?;
-        let parcel = request(wire::METHOD_CREATESURFACE, body, vec![events], Vec::new());
+        let (handles, buffers) =
+            wire::encode_create_surface_transfers(&wire::CreateSurfaceTransfers { events });
+        let parcel = request(wire::METHOD_CREATESURFACE, body, handles, buffers);
         let reply = self.call(&parcel)?;
         match wire::decode_create_surface_reply(&reply.body) {
             // Surface ids start at 1; zero is a missing field.

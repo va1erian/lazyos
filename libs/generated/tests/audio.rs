@@ -59,3 +59,16 @@ fn master_roundtrips() {
     let body = mixer::encode_get_master_reply(&reply).unwrap();
     assert_eq!(mixer::decode_get_master_reply(&body).unwrap(), reply);
 }
+
+#[test]
+fn attach_ring_declares_a_client_produced_stream() {
+    use messenger_generated::rings::{Layout, Side};
+    assert_eq!(audio::ATTACH_RING_RINGS, [audio::RING_SAMPLES]);
+    assert_eq!(audio::RING_SAMPLES.layout, Layout::Stream);
+    assert_eq!(audio::RING_SAMPLES.producer, Side::Client);
+    assert_eq!(audio::RING_SAMPLES.advance, Some(audio::METHOD_COMMIT));
+    assert_eq!(
+        audio::request_transfers(audio::METHOD_ATTACHRING),
+        audio::ATTACH_RING_TRANSFERS
+    );
+}

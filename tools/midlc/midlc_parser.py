@@ -11,6 +11,7 @@ import re
 
 from midlc_lexer import Token
 from midlc_model import (
+    BODY_FORBIDDEN,
     BUILTINS,
     Enum,
     Interface,
@@ -24,6 +25,8 @@ from midlc_model import (
     snake_case,
 )
 from midlc_topics import make_topic
+from midlc_rings import make_ring, validate_rings
+from midlc_transfers import claim_names, make_transfers
 
 
 # ---------------------------------------------------------------------------
@@ -107,6 +110,7 @@ class Parser:
         returns = self.parse_params()
         method_id = fnv1a32(name.text)
         oneway = False
+        transfers = []
         while self.peek() and self.peek().text != ";":
             token = self.next()
             if token.text == "=":
@@ -118,10 +122,14 @@ class Parser:
                 oneway = True
             elif token.text == "sync":
                 oneway = False
+            elif token.text == "transfers":
+                if transfers:
+                    raise MidlError(f"method {name.text!r} has two `transfers` clauses", token.line)
+                transfers = make_transfers(self.parse_params(), token.line)
             else:
                 raise MidlError(f"unexpected {token.text!r} in method", token.line)
         self.expect(";")
-        return Method(name.text, params, returns, method_id, oneway, doc)
+        return Method(name.text, params, returns, method_id, oneway, doc, transfers)
 
     def parse_struct(self) -> Struct:
         doc = self.take_doc()
@@ -169,6 +177,28 @@ class Parser:
         # token keeps the quotes, so strip them.
         return make_topic(name.text[1:-1], payload.text, qos, retained, doc, name.line)
 
+    def parse_ring(self):
+        doc = self.take_doc()
+        name = self.next()
+        if name.kind != "ident":
+            raise MidlError(f"expected a ring name, found {name.text!r}", name.line)
+        self.expect(":")
+        layout = self.next()
+        if layout.kind != "ident":
+            raise MidlError(f"expected a ring layout, found {layout.text!r}", layout.line)
+        options: dict[str, str] = {}
+        while self.peek() and self.peek().text != ";":
+            key = self.next()
+            self.expect("=")
+            value = self.next()
+            if key.kind != "ident" or value.kind != "ident":
+                raise MidlError(f"expected key=value in ring {name.text!r}", key.line)
+            if key.text in options:
+                raise MidlError(f"ring {name.text!r}: {key.text!r} given twice", key.line)
+            options[key.text] = value.text
+        self.expect(";")
+        return make_ring(name.text, layout.text, options, doc, name.line)
+
     def parse_enum(self) -> Enum:
         self.take_doc()
         name = self.next()
@@ -210,6 +240,8 @@ class Parser:
                 interface.enums.append(self.parse_enum())
             elif keyword.text == "topic":
                 interface.topics.append(self.parse_topic())
+            elif keyword.text == "ring":
+                interface.rings.append(self.parse_ring())
             else:
                 raise MidlError(f"unexpected {keyword.text!r}", keyword.line)
         self.expect("}")
@@ -257,6 +289,7 @@ def validate(interface: Interface) -> None:
         ids[method.method_id] = method.name
         if method.oneway and method.returns:
             raise MidlError(f"oneway method {method.name!r} cannot return values")
+        claim_names(method, claim)
         if method.params:
             claim(f"encode_{snake_case(method.name)}_args", f"{method.name} (args)")
             claim(f"decode_{snake_case(method.name)}_args", f"{method.name} (args)")
@@ -269,6 +302,7 @@ def validate(interface: Interface) -> None:
         for f in struct.fields:
             check_type(f.ty, named)
     validate_topics(interface, named, claim)
+    validate_rings(interface, claim)
 
 
 def validate_topics(interface: Interface, named: set[str], claim) -> None:
@@ -302,6 +336,12 @@ def validate_topics(interface: Interface, named: set[str], claim) -> None:
 
 
 def check_type(ty: Type, named: set[str]) -> None:
+    if ty.name in BODY_FORBIDDEN:
+        raise MidlError(
+            f"{ty.name} cannot travel in a message body (a handle number means "
+            "nothing in the receiver's table); declare it in the method's "
+            "`transfers (...)` clause"
+        )
     if ty.name in {"Array", "Option"} and len(ty.args) != 1:
         raise MidlError(f"{ty.name} takes exactly one type parameter")
     if ty.name not in BUILTINS and ty.name not in named:

@@ -54,7 +54,11 @@ interface os.lazy.audio.v1 {
     /// Attach the stream's sample ring: the request's `buffers[0]`, at least
     /// `periods * period_bytes` bytes long. Fails with `EINVAL` when it is
     /// shorter and `EBUSY` when a ring is already attached.
-    method AttachRing(stream: U32) -> ();
+    method AttachRing(stream: U32) -> ()
+        transfers (ring: Ring<Samples>);
+    /// Interleaved samples, client to driver; `Commit` reports how far the
+    /// client wrote and replies how far the driver consumed.
+    ring Samples : stream producer=client advance=Commit;
     /// Announce that the client has written up to `written_frames` (a total,
     /// see the interface notes). Replies with the frames the driver has
     /// consumed so far.

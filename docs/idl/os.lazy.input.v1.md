@@ -29,7 +29,7 @@ errno-style code plus friendly text) instead of the declared reply fields.
 
 | Method | Id | Kind | Signature |
 |---|---|---|---|
-| Open | 1 | sync | `(surface: Option<U64>) -> (session: U64)` |
+| Open | 1 | sync | `(surface: Option<U64>) -> (session: U64) transfers (events: Channel<os.lazy.input.v1>)` |
 | Close | 2 | sync | `(session: U64) -> ()` |
 | GetState | 3 | sync | `() -> (layout: String, mods: U32, repeat_delay_ms: U32, repeat_interval_ms: U32)` |
 | KeyEvent | 10 | oneway | `(code: U32, sym: U32, mods: U32, state: U32, ts_ns: U64, seq: U64) -> ()` |
@@ -37,6 +37,15 @@ errno-style code plus friendly text) instead of the declared reply fields.
 | KeyboardEnter | 12 | oneway | `(down: Array<U32>) -> ()` |
 | KeyboardLeave | 13 | oneway | `() -> ()` |
 | LayoutChanged | 14 | oneway | `(layout: String) -> ()` |
+
+## Transfers
+
+Objects a request carries outside its body, in the parcel's
+`handles` and `buffers` vectors.
+
+| Method | Name | Slot |
+|---|---|---|
+| Open | `events` | `handles[0]`, a channel the receiver sends `os.lazy.input.v1` on |
 
 ## enum `KeyState`
 

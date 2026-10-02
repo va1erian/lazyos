@@ -12,7 +12,9 @@ use super::compositor::Compositor;
 use super::geometry::{self, SizeHints};
 use super::layout::place_window;
 use super::present::attach;
-use super::protocol::{drop_rejected_handle, empty_reply, error_reply, typed_reply};
+use super::protocol::{
+    carries_declared, drop_rejected_transfers, empty_reply, error_reply, typed_reply,
+};
 use super::surface::Surface;
 use super::theme::{BORDER, TITLE_H};
 use super::window::{focus_on_create, surface_by_id};
@@ -25,6 +27,12 @@ impl Compositor {
     /// Handle one display request; returns the reply parcel for a synchronous
     /// call.
     pub(super) fn handle_request(&mut self, message: &Message) -> Parcel {
+        // Exactly the declared transfers, or nothing is adopted and the call
+        // is refused: no per-method path can leak what it did not expect.
+        if !carries_declared(message) {
+            drop_rejected_transfers(message);
+            return error_reply(message.method(), messenger::errno::EINVAL);
+        }
         if message.interface_id() != display::INTERFACE {
             return empty_reply(message.method());
         }
@@ -72,7 +80,7 @@ impl Compositor {
     /// `CreateSurface`: a window, or (shell-only) the desktop or a panel.
     fn create_surface(&mut self, message: &Message, body: &[u8]) -> Parcel {
         let Ok(args) = wire::decode_create_surface_args(body) else {
-            drop_rejected_handle(message);
+            drop_rejected_transfers(message);
             return error_reply(message.method(), messenger::errno::EINVAL);
         };
         let (width, height) = (args.width as u64, args.height as u64);
@@ -90,8 +98,13 @@ impl Compositor {
             self.screen.width().max(0) as u64,
             self.screen.height().max(0) as u64,
         );
-        if width == 0 || height == 0 || width > max_w || height > max_h || message.handles == 0 {
-            drop_rejected_handle(message);
+        if width == 0
+            || height == 0
+            || width > max_w
+            || height > max_h
+            || !message.carries(wire::CREATE_SURFACE_TRANSFERS)
+        {
+            drop_rejected_transfers(message);
             return error_reply(message.method(), messenger::errno::EINVAL);
         }
         let panels = self.surfaces.iter().filter(|s| s.is_panel()).count();
@@ -107,7 +120,7 @@ impl Compositor {
             _ => Some(messenger::errno::EINVAL),
         };
         if let Some(code) = refusal {
-            drop_rejected_handle(message);
+            drop_rejected_transfers(message);
             return error_reply(message.method(), code);
         }
         let id = self.next_id;

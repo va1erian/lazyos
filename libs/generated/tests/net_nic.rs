@@ -147,3 +147,25 @@ fn truncated_bodies_are_rejected() {
     .unwrap();
     assert!(decode_nic_stats(&stats[..stats.len() - 3]).is_err());
 }
+
+#[test]
+fn attach_ring_declares_both_rings_and_the_notify_channel() {
+    use messenger_generated::rings::{Layout, Side};
+    assert_eq!(ATTACH_RING_TRANSFERS.handles, 1);
+    assert_eq!(ATTACH_RING_TRANSFERS.buffers, 1);
+    assert_eq!(ATTACH_RING_RINGS, [RING_RX, RING_TX]);
+    // The driver produces received frames and rings `Notify` on the channel;
+    // the client produces frames to send and rings `Kick`.
+    assert_eq!(RING_RX.layout, Layout::Frames);
+    assert_eq!(RING_RX.producer, Side::Server);
+    assert_eq!(RING_RX.doorbell, Some(METHOD_NOTIFY));
+    assert_eq!(RING_TX.producer, Side::Client);
+    assert_eq!(RING_TX.doorbell, Some(METHOD_KICK));
+}
+
+#[test]
+fn attach_ring_layout_is_back_to_back_and_checked() {
+    let layout = attach_ring_rings(4096 + 16 * 2048).unwrap();
+    assert_eq!((layout.rx, layout.tx, layout.total), (0, 36864, 73728));
+    assert!(attach_ring_rings(u64::MAX).is_none());
+}

@@ -50,6 +50,7 @@ version = "0.1.0"
 dependencies = [
  "audiomix",
  "fuzzkit",
+ "libmessenger",
  "messenger-generated",
  "virtio-snd",
 ]
