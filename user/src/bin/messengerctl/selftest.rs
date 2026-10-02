@@ -37,7 +37,7 @@ const SECURITY_PROBE_TICKS: u64 = 200;
 /// dropped credential, so the probe runs in a throwaway child spawned with a
 /// demoted identity (`run_forbidden_publish_probe`) instead of in this one.
 fn selftest_security() -> Result<(), String> {
-    let mut command = format!("{} probe=forbidden-publish", fhs::boot::MSGCTL_ELF).into_bytes();
+    let mut command = format!("{} probe=forbidden-publish", fhs::bin::MESSENGERCTL).into_bytes();
     command.push(0);
     let cred = sys::Cred::new(4200, 4200, 0, 0, 0);
     let pid = sys::spawn_as(&command, &cred).ok_or("spawn_as failed")?;

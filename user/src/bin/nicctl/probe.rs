@@ -371,11 +371,11 @@ fn wait_for(client: &Client, done: impl Fn(&api::Stats) -> bool) -> Result<api::
 
 /// Start `role=intruder` as a child, told the owner's ring id, and wait for it.
 fn run_intruder(ring: u32) -> Result<bool, String> {
-    let command = format!("{} role=intruder ring={ring}\0", fhs::boot::NICCTL_ELF);
+    let command = format!("{} role=intruder ring={ring}\0", fhs::bin::NICCTL);
     let Some(pid) = sys::spawn(command.as_bytes()) else {
         return Err(format!(
             "could not start the intruder task ({} missing?)",
-            fhs::boot::NICCTL_ELF
+            fhs::bin::NICCTL
         ));
     };
     let deadline = sys::clock() + 2 * SETTLE_TICKS;

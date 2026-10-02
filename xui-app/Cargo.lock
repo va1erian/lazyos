@@ -1193,6 +1193,7 @@ name = "xui-docs"
 version = "0.1.0"
 dependencies = [
  "cc",
+ "fhs",
  "pulldown-cmark",
  "xui-app",
  "xui-core",

@@ -209,14 +209,14 @@ pub(super) const MANIFEST: &[ServiceSpec] = &[
         // daemon's serve loop and prints `MSGRD:SOAK`/`MSGRD:TOPICS` evidence
         // (issue #169); it costs a fraction of a second and doubles as a
         // liveness check.
-        path: fhs::boot::MSGRD_ELF,
+        path: fhs::bin::MESSENGERD,
         args: "soak=4096",
         restart: Restart::Once,
         deps: &[],
     },
     ServiceSpec {
         name: "keyd",
-        path: fhs::boot::KEYD_ELF,
+        path: fhs::bin::KEYD,
         args: "",
         restart: Restart::Always,
         deps: &["messengerd"],
@@ -228,7 +228,7 @@ pub(super) const MANIFEST: &[ServiceSpec] = &[
     // real Messenger transport and prints `CONFCTL:SELFTEST:PASS`.
     ServiceSpec {
         name: "confd",
-        path: fhs::boot::CONFD_ELF,
+        path: fhs::bin::CONFD,
         args: "demo=1",
         restart: Restart::Always,
         deps: &["messengerd"],
@@ -239,7 +239,7 @@ pub(super) const MANIFEST: &[ServiceSpec] = &[
     // through `confd` and prints `TIMED:DEMO:PASS` once the service followed.
     ServiceSpec {
         name: "timed",
-        path: fhs::boot::TIMED_ELF,
+        path: fhs::bin::TIMED,
         args: "demo=1",
         restart: Restart::Always,
         deps: &["messengerd", "confd"],
@@ -251,35 +251,35 @@ pub(super) const MANIFEST: &[ServiceSpec] = &[
     // events to serial as boot evidence; the desktop profile stays quiet.
     ServiceSpec {
         name: "inputd",
-        path: fhs::boot::INPUTD_ELF,
+        path: fhs::bin::INPUTD,
         args: if BOOT_EVIDENCE { "trace=1" } else { "" },
         restart: Restart::Always,
         deps: &["confd"],
     },
     ServiceSpec {
         name: "accountsd",
-        path: fhs::boot::ACCTD_ELF,
+        path: fhs::bin::ACCOUNTSD,
         args: "",
         restart: Restart::Always,
         deps: &[],
     },
     ServiceSpec {
         name: "logind",
-        path: fhs::boot::LOGIND_ELF,
+        path: fhs::bin::LOGIND,
         args: "",
         restart: Restart::Always,
         deps: &["accountsd"],
     },
     ServiceSpec {
         name: "logd",
-        path: fhs::boot::LOGD_ELF,
+        path: fhs::bin::LOGD,
         args: "",
         restart: Restart::Always,
         deps: &["messengerd"],
     },
     ServiceSpec {
         name: "healthd",
-        path: fhs::boot::HEALTHD_ELF,
+        path: fhs::bin::HEALTHD,
         args: "",
         restart: Restart::Always,
         deps: &["messengerd"],
@@ -287,13 +287,13 @@ pub(super) const MANIFEST: &[ServiceSpec] = &[
     // The per-session clipboard service (issue #115). It only needs the
     // kernel's name registry, so it depends on nothing. `history=1` is the
     // default one-offer policy; `history=N` keeps up to the service's cap.
-    // `demo=1` makes it spawn the two clipboard demo clients (`CLIPCP.ELF`,
-    // `CLIPPS.ELF`) at startup; they are evidence programs, not supervised
+    // `demo=1` makes it spawn the two clipboard demo clients (`/system/bin/clipcp`,
+    // `/system/bin/clippaste`) at startup; they are evidence programs, not supervised
     // services, so they are spawned and reaped by `clipboardd` instead of
     // adding two more ELF loads to this manifest's boot pass.
     ServiceSpec {
         name: "clipboardd",
-        path: fhs::boot::CLIPD_ELF,
+        path: fhs::bin::CLIPBOARDD,
         args: "history=1 demo=1",
         restart: Restart::Always,
         deps: &[],
@@ -303,7 +303,7 @@ pub(super) const MANIFEST: &[ServiceSpec] = &[
     // directly; it talks to `init`'s topic router to publish launch events.
     ServiceSpec {
         name: "mimed",
-        path: fhs::boot::MIMED_ELF,
+        path: fhs::bin::MIMED,
         args: "",
         restart: Restart::Always,
         deps: &[],
@@ -317,14 +317,14 @@ pub(super) const MANIFEST: &[ServiceSpec] = &[
     // allocator never returns.
     ServiceSpec {
         name: "pkgd",
-        path: fhs::boot::PKGD_ELF,
+        path: fhs::bin::PKGD,
         args: "",
         restart: Restart::Always,
         deps: &["confd", "mimed"],
     },
     ServiceSpec {
         name: "flaky",
-        path: fhs::boot::FLAKY_ELF,
+        path: fhs::bin::FLAKY,
         args: "",
         restart: Restart::OnFailure,
         deps: &["healthd"],
@@ -337,7 +337,7 @@ pub(super) const MANIFEST: &[ServiceSpec] = &[
     #[cfg(lazyos_sound)]
     ServiceSpec {
         name: "sndd",
-        path: fhs::boot::SNDD_ELF,
+        path: fhs::bin::SNDD,
         args: "demo=1",
         restart: Restart::OnFailure,
         deps: &[],
@@ -348,7 +348,7 @@ pub(super) const MANIFEST: &[ServiceSpec] = &[
     #[cfg(lazyos_usb)]
     ServiceSpec {
         name: "usbd",
-        path: fhs::boot::USBD_ELF,
+        path: fhs::bin::USBD,
         args: USBD_ARGS,
         restart: Restart::OnFailure,
         deps: &["inputd"],
@@ -362,7 +362,7 @@ pub(super) const MANIFEST: &[ServiceSpec] = &[
     #[cfg(lazyos_net)]
     ServiceSpec {
         name: "netdrv",
-        path: fhs::boot::NETDRV_ELF,
+        path: fhs::bin::NETDRV,
         args: NET_ARGS,
         restart: Restart::Always,
         deps: &[],
@@ -376,7 +376,7 @@ pub(super) const MANIFEST: &[ServiceSpec] = &[
     #[cfg(lazyos_netd)]
     ServiceSpec {
         name: "netd",
-        path: fhs::boot::NETD_ELF,
+        path: fhs::bin::NETD,
         args: "demo=1",
         restart: Restart::Always,
         deps: &[],
@@ -384,7 +384,7 @@ pub(super) const MANIFEST: &[ServiceSpec] = &[
     // The system monitor (issue #144): `sysmond` wraps the kernel's
     // system-stats syscall as `os.lazy.system.v1` and republishes retained
     // `system/stats/*` topics. It needs only the kernel name registry, like
-    // `mimed`. `demo=1` makes it spawn `top` (`TOP.ELF`), its one-shot
+    // `mimed`. `demo=1` makes it spawn `top` (`/system/bin/top`), its one-shot
     // evidence client, so a headless boot records `SYS:TOP:PASS`. `top` exits
     // as soon as it has printed its verdict, so it is not a service: listed
     // here it would sit `stopped` and `healthd` would report it `down`
@@ -392,7 +392,7 @@ pub(super) const MANIFEST: &[ServiceSpec] = &[
     // pair.
     ServiceSpec {
         name: "sysmond",
-        path: fhs::boot::SYSD_ELF,
+        path: fhs::bin::SYSMOND,
         args: "demo=1",
         restart: Restart::Always,
         deps: &[],

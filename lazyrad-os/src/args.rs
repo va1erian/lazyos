@@ -21,7 +21,7 @@
 //!   (`resources/project` -> `<install>/resources/project`); a relative path may
 //!   not contain `..`;
 //! * `--project <absolute>` and a bare positional path are used as given (a
-//!   developer's `lrplay /LAZYRAD/hello`, or `mimed` opening a `.lrp`);
+//!   developer's `lrplay /system/share/lazyrad/hello`, or `mimed` opening a `.lrp`);
 //! * with neither, `<install>/resources/project` is used when it exists, so the
 //!   packager writes `args = []`.
 //!
@@ -210,9 +210,12 @@ mod tests {
 
     #[test]
     fn the_launcher_line_is_understood() {
-        let args = parse(&["--client", "/LAZYRAD/hello", "attempt=1"]).unwrap();
+        let args = parse(&["--client", "/system/share/lazyrad/hello", "attempt=1"]).unwrap();
         assert!(args.client);
-        assert_eq!(args.project, Some(PathBuf::from("/LAZYRAD/hello")));
+        assert_eq!(
+            args.project,
+            Some(PathBuf::from("/system/share/lazyrad/hello"))
+        );
     }
 
     #[test]
@@ -248,7 +251,10 @@ mod tests {
             install_dir(exe),
             Path::new("/data/apps/user.me.todo/1.0.0-abcd1234")
         );
-        assert_eq!(install_dir(Path::new("/LRPLAY.ELF")), Path::new("/"));
+        assert_eq!(
+            install_dir(Path::new(fhs::bin::LRPLAY)),
+            Path::new(fhs::SYSTEM)
+        );
     }
 
     #[test]
@@ -294,9 +300,12 @@ mod tests {
 
     #[test]
     fn an_absolute_project_is_used_as_given() {
-        let exe = Path::new("/LRPLAY.ELF");
-        let got = resolve_project(Some(Path::new("/LAZYRAD/hello")), exe, |_| false).unwrap();
-        assert_eq!(got, Path::new("/LAZYRAD/hello"));
+        let exe = Path::new("/system/bin/lrplay");
+        let got = resolve_project(Some(Path::new("/system/share/lazyrad/hello")), exe, |_| {
+            false
+        })
+        .unwrap();
+        assert_eq!(got, Path::new("/system/share/lazyrad/hello"));
     }
 
     #[test]

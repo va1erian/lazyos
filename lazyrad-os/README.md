@@ -3,7 +3,7 @@
 LazyRAD on LazyOS (see [`docs/lazyrad-plan.md`](../docs/lazyrad-plan.md)): a
 standalone Rust workspace, like `xui-app` and `rhai-host`, built for
 `x86_64-unknown-linux-musl` by `python tools/lazyrad/build.py` and embedded in the
-disk image as `LRPLAY.ELF` and `LAZYRAD.ELF` (`LAZYOS_LAZYRAD=1`).
+disk image as `/system/bin/lrplay` and `/system/bin/lazyrad` (`LAZYOS_LAZYRAD=1`).
 
 | Bin | What |
 |---|---|
@@ -25,7 +25,7 @@ python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/lr
     --script tools/screenshot/examples/lazyrad_hello.json --fail-on "LRPLAY:[A-Z]+:FAIL"
 ```
 
-In the Terminal: `/LRPLAY.ELF --client /LAZYRAD/hello &`. Command line:
+In the Terminal: `/system/bin/lrplay --client /system/share/lazyrad/hello &`. Command line:
 `lrplay [--client] [--project <dir> | <dir>] [attempt=N]`; see `src/args.rs` for
 how a relative `--project` and the default `resources/project` resolve (against
 the install directory, located from `argv[0]`; `current_exe()` is `/busybox` on

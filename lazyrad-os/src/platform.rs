@@ -5,7 +5,7 @@
 //! * which files a script may touch (decision D5: an app's private data
 //!   directory, its own project read-only, nothing else);
 //! * where LazyRAD keeps settings (`/data/config/lazyrad`);
-//! * where the player binary is (`/LRPLAY.ELF` on the boot volume);
+//! * where the player binary is (`/system/bin/lrplay`);
 //! * the monospace face (the bundled JetBrains Mono).
 //!
 //! Dialogs are left at the trait's "cancel" default here: LazyOS dialogs are
@@ -23,8 +23,8 @@ use xui_core::widget::StdFileSystem;
 /// this).
 pub const APPS_ROOT: &str = fhs::state::APPS_ROOT;
 
-/// The player on the boot volume (`LRPLAY.ELF`, an 8.3 name).
-pub const PLAYER_PATH: &str = fhs::boot::LRPLAY_PATH;
+/// The player the image ships in `/system/bin`.
+pub const PLAYER_PATH: &str = fhs::bin::LRPLAY;
 
 /// The IDE's settings directory.
 pub const CONFIG_DIR: &str = fhs::state::LAZYRAD_CONFIG;
@@ -143,7 +143,7 @@ mod tests {
 
     #[test]
     fn a_dev_run_uses_data_when_mounted_and_tmp_otherwise() {
-        let exe = Path::new("/LRPLAY.ELF");
+        let exe = Path::new("/system/bin/lrplay");
         assert_eq!(installed_app_id(exe), None);
         assert_eq!(data_root(exe, true), Path::new("/data/lazyrad-data"));
         assert_eq!(data_root(exe, false), Path::new(SCRATCH_DIR));

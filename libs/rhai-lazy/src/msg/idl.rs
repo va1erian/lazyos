@@ -839,7 +839,7 @@ pub static INTERFACES: &[Interface] = &[
             },
             Struct {
                 name: "ServiceEvent",
-                doc: "App id: the lowercase program stem (`top` -> `TOP.ELF`).\nDisplay name for menus.\nOn-disk ELF path.\nDefault restart policy (`always`/`on-failure`/`once`).\nMIME verbs the app handles, in registration order.\nWhether the package manager installed the app (`id` is then its\n`system_name`) rather than the image shipping it.\nOne service lifecycle event (issue #307): the payload of\n`system/events/service/<name>`. The topic carries the service name, so\nit is not repeated here; `health` is the service's retained health\ntopic, for display by a consumer that only logs the event.",
+                doc: "App id: the lowercase program stem (`top` -> `/system/bin/top`).\nDisplay name for menus.\nOn-disk ELF path.\nDefault restart policy (`always`/`on-failure`/`once`).\nMIME verbs the app handles, in registration order.\nWhether the package manager installed the app (`id` is then its\n`system_name`) rather than the image shipping it.\nOne service lifecycle event (issue #307): the payload of\n`system/events/service/<name>`. The topic carries the service name, so\nit is not repeated here; `health` is the service's retained health\ntopic, for display by a consumer that only logs the event.",
                 fields: &[Field { name: "state", ty: Ty::String }, Field { name: "pid", ty: Ty::U64 }, Field { name: "restarts", ty: Ty::U64 }, Field { name: "status", ty: Ty::U64 }, Field { name: "health", ty: Ty::String }, Field { name: "detail", ty: Ty::String }],
             },
         ],

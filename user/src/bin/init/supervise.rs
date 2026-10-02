@@ -222,7 +222,7 @@ pub(super) fn child_exited(
             attempt + 1
         ));
         // The machine-parseable restart/backoff marker: a crashing supervised
-        // app (`FLAKY.ELF`) proves the path in a headless boot.
+        // app (`/system/bin/flaky`) proves the path in a headless boot.
         sys::write_str(&format!(
             "INIT:RESTART:PASS name={name} status={status} attempt={} delay={delay}\n",
             attempt + 1

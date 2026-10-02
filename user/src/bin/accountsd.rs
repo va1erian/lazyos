@@ -1,4 +1,4 @@
-//! `accountsd` (`ACCTD.ELF`): the account database service (issue #101).
+//! `accountsd` (`/system/bin/accountsd`): the account database service (issue #101).
 //!
 //! S3 accounts, per `docs/security-model.md` section 3: users, groups, home
 //! dirs and password verifiers. This slice answers the questions `logind`
@@ -14,10 +14,10 @@
 //!
 //! # Where the database lives
 //!
-//! The writable store does not exist in this branch, and the only filesystem is
-//! the read-only boot volume, so the fallback named by the issue is used: a
-//! built-in table, optionally overridden by a passwd-style file
-//! (`name:uid:gid:secret:home:shell`) on the boot volume. `CreateUser` updates
+//! The writable store does not exist in this branch, so the fallback named by
+//! the issue is used: a built-in table, optionally overridden by a
+//! passwd-style file (`name:uid:gid:secret:home:shell`) the image ships at
+//! `/system/etc/passwd`. `CreateUser` updates
 //! the in-memory table; persistence through the store plugs in where
 //! [`WRITABLE_STORE`] flips, exactly as `logd` marks its store decision.
 //!
@@ -43,7 +43,7 @@ use user::sys;
 /// Largest passwd file the daemon reads.
 const PASSWD_MAX: usize = 1024;
 /// The built-in table when no file is present (the same content the image
-/// carries as `PASSWD`, so a boot without the file behaves the same).
+/// carries as `/system/etc/passwd`, so a boot without the file behaves the same).
 const BUILTIN: &str = "root:0:0:toor:/root:sh\nalice:1000:1000:lazy:/home/alice:sh\n";
 /// See the module docs: no writable volume exists in this branch, so updates
 /// stay in memory. Flipping this to `true` (S3) persists them.
@@ -102,7 +102,7 @@ fn run() -> messenger::Result<()> {
         "accountsd: {} account(s) from {} (issue #101)\n",
         table.len(),
         if from_file {
-            fhs::boot::PASSWD
+            fhs::etc::PASSWD
         } else if WRITABLE_STORE {
             "the writable store"
         } else {
@@ -127,12 +127,12 @@ fn run() -> messenger::Result<()> {
     }
 }
 
-/// Load the boot-volume passwd file when present, else the built-in table.
+/// Load the system passwd file when present, else the built-in table.
 /// Returns the table and whether it came from the file.
 fn load_table() -> (Vec<Account>, bool) {
     let mut bytes = alloc::vec![0u8; PASSWD_MAX];
-    // The passwd-style file on the boot volume, NUL-terminated for the syscall.
-    let passwd_z = alloc::format!("{}\0", fhs::boot::PASSWD);
+    // The passwd-style file the image ships, NUL-terminated for the syscall.
+    let passwd_z = alloc::format!("{}\0", fhs::etc::PASSWD);
     let table: Vec<Account> = if let Some(length) = sys::read_file(passwd_z.as_bytes(), &mut bytes)
     {
         let text = core::str::from_utf8(&bytes[..length]).unwrap_or("");

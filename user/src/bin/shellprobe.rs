@@ -11,7 +11,7 @@
 //! authorization negatives in child processes of itself.
 //!
 //! Boot it with `LAZYOS_XUID=1` plus the `LAZYOS_SHELLPROBE=1` demo hook; the
-//! kernel then starts `XUID.ELF` and this program (`SHELLPRB.ELF`). Without the
+//! kernel then starts `/system/bin/xuid` and this program (`/system/bin/shellprobe`). Without the
 //! hook the default `xuid` + `xdemo` + drag & drop sessions are untouched.
 
 #![no_std]
@@ -257,7 +257,7 @@ fn run() -> ! {
 
     // Prove the administrative operations refuse an unprivileged client. The
     // credential drop cannot be undone, so it runs in a short-lived child.
-    let denied = alloc::format!("{} denied {panel}\0", fhs::boot::SHELLPRB_ELF);
+    let denied = alloc::format!("{} denied {panel}\0", fhs::bin::SHELLPROBE);
     if sys::spawn(denied.as_bytes()).is_none() {
         sys::write_str("SHELLPROBE:DENIED:FAIL:could not start the probe\n");
     }

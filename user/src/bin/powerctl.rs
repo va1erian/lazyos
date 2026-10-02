@@ -1,4 +1,4 @@
-//! `powerctl` (`POWERCTL.ELF`): ask `init` for an orderly shutdown or reboot
+//! `powerctl` (`/system/bin/powerctl`): ask `init` for an orderly shutdown or reboot
 //! (docs/shutdown.md). The shell's `shutdown`, `poweroff` and `halt` run it as
 //! `powerctl poweroff`, and `reboot` as `powerctl reboot`.
 //!

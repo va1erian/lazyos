@@ -7,7 +7,7 @@ description = "LazyRAD on LazyOS: the `lrplay` player and the `lazyrad` IDE as x
 
 # A standalone workspace, like `xui-app` and `rhai-host`: both bins build for
 # x86_64-unknown-linux-musl (static) via `tools/lazyrad/build.py` and are
-# embedded in the disk image as LRPLAY.ELF and LAZYRAD.ELF, so the OS workspace
+# embedded in the disk image as /system/bin/lrplay and /system/bin/lazyrad, so the OS workspace
 # never resolves Rhai, xui or LazyRAD.
 [workspace]
 resolver = "2"

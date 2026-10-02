@@ -1,4 +1,4 @@
-//! `netctl` (`NETCTL.ELF`): the network stack's control tool and evidence
+//! `netctl` (`/system/bin/netctl`): the network stack's control tool and evidence
 //! client (`docs/networking-plan.md`, stage N2).
 //!
 //! Usage: `netctl [if | addr | route | stats | renew | reattach]`; with no

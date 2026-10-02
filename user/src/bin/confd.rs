@@ -1,4 +1,4 @@
-//! `confd` (`CONFD.ELF`): the configuration registry service (issue #260).
+//! `confd` (`/system/bin/confd`): the configuration registry service (issue #260).
 //!
 //! This is the v1 service from [`docs/confd-plan.md`](../../docs/confd-plan.md)
 //! (§1-§5). It loads the store logic from `libs/confd` and serves
@@ -75,8 +75,8 @@ const POLL_TICKS: u64 = 5;
 /// How long the serve loop waits before re-probing `/data/confd` while the
 /// store sits on a lower-ranked location (PIT ticks).
 const UPGRADE_TICKS: u64 = 200;
-/// The evidence client `demo=1` spawns at boot (8.3 on-disk name).
-const DEMO_PROGRAM: &[u8] = b"CONFCTL.ELF demo\0";
+/// The evidence client `demo=1` spawns at boot.
+const DEMO_PROGRAM: (&str, &str) = (fhs::bin::CONFCTL, "demo");
 
 /// The `confd` state a request is dispatched against.
 type Service = Confd<VfsStoreFs, TopicSink>;
@@ -270,7 +270,7 @@ fn demo_from_args() -> bool {
 /// Spawn the `confctl` self-test as a child of this service; returns how many
 /// children are outstanding (0 or 1).
 fn spawn_demo() -> u64 {
-    match sys::spawn(DEMO_PROGRAM) {
+    match sys::spawn(&user::cmdline::native(DEMO_PROGRAM.0, DEMO_PROGRAM.1)) {
         Some(pid) => {
             sys::write_str(&format!("CONFD:CTL:START pid={pid}\n"));
             1
@@ -278,7 +278,7 @@ fn spawn_demo() -> u64 {
         None => {
             sys::write_str(&format!(
                 "CONFD:CTL:FAIL: cannot spawn {}\n",
-                fhs::boot::CONFCTL_ELF
+                fhs::bin::CONFCTL
             ));
             0
         }

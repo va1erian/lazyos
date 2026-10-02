@@ -1,4 +1,4 @@
-//! `pkgd` (`PKGD.ELF`): the application package manager (`docs/packages.md`,
+//! `pkgd` (`/system/bin/pkgd`): the application package manager (`docs/packages.md`,
 //! phase 3).
 //!
 //! `pkgd` is the only task that writes `/data/apps`, records installed apps in

@@ -1,4 +1,4 @@
-//! `netdrv` (`NETDRV.ELF`): the virtio-net userspace driver
+//! `netdrv` (`/system/bin/netdrv`): the virtio-net userspace driver
 //! (`docs/networking-plan.md`, stage N1; the NIC half of driver stage D5).
 //!
 //! The driver is an ordinary ring-3 program. It claims the virtio-net PCI
@@ -65,11 +65,11 @@ use service::Service;
 
 /// The evidence clients `demo=1` runs, one after another, once the service is
 /// up. See `user/src/bin/nicctl.rs`.
-const DEMO_CLIENTS: [&[u8]; 4] = [
-    b"NICCTL.ELF\0",
-    b"NICCTL.ELF arp\0",
-    b"NICCTL.ELF probe=1\0",
-    b"NICCTL.ELF soak=40\0",
+const DEMO_CLIENTS: [(&str, &str); 4] = [
+    (fhs::bin::NICCTL, ""),
+    (fhs::bin::NICCTL, "arp"),
+    (fhs::bin::NICCTL, "probe=1"),
+    (fhs::bin::NICCTL, "soak=40"),
 ];
 
 /// Ticks the self-test waits for an interrupt message after its exchange.
@@ -308,12 +308,13 @@ fn run_demo(child: &mut Option<u64>, next: &mut usize) {
             *child = None;
         }
     } else if *next < DEMO_CLIENTS.len() {
-        let pid = sys::spawn(DEMO_CLIENTS[*next]);
+        let (program, args) = DEMO_CLIENTS[*next];
+        let pid = sys::spawn(&user::cmdline::native(program, args));
         match pid {
             Some(pid) => sys::write_str(&format!("NETDRV:DEMO:SPAWN pid={pid}\n")),
             None => sys::write_str(&format!(
                 "NETDRV:DEMO:SPAWN failed ({} missing?)\n",
-                fhs::boot::NICCTL_ELF
+                fhs::bin::NICCTL
             )),
         }
         *child = pid;

@@ -28,8 +28,8 @@ fn holdings() -> Result<Vec<(String, TaskUsage)>, String> {
         sysinfo::snapshot().map_err(|code| format!("system snapshot: errno {}", -code))?;
     let mut out = Vec::new();
     for task in snapshot.live_tasks() {
-        // A task started by the kernel is `netd`; one started by `init` is its
-        // file name (`NETD.ELF`, `NETDRV.E...`, names are eight bytes).
+        // A task is named after its program's basename (`netd`, `netdrv`),
+        // whether the kernel or `init` started it.
         let name = task.name().to_ascii_lowercase();
         let kind = if name.starts_with("netdrv") {
             "netdrv"

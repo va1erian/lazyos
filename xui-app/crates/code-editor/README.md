@@ -51,7 +51,7 @@ fn build<M: 'static>(ui: &Ui<M>) -> xui_core::backend::Result<Editor<M>> {
 
 This copy is the library only. The upstream Notepad example became the
 `xui-editor` binary in `xui-app/src/bin/editor.rs` (with
-`xui-app/src/bin/editor/`), which the desktop image ships as `XEDITOR.ELF`. It
+`xui-app/src/bin/editor/`), which the desktop image ships as `/system/bin/editor`. It
 runs on LazyOS's own backend (`xui-app/src/backend*`) over the `xuid`
 compositor, opens an optional absolute path passed as the first argument (as
 Files' open-with does), and titles its window after the document. Build it with

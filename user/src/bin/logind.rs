@@ -1,4 +1,4 @@
-//! `logind` (`LOGIND.ELF`): console login and sessions (issue #101).
+//! `logind` (`/system/bin/logind`): console login and sessions (issue #101).
 //!
 //! The S3 console login from `docs/security-model.md` section 3, as far as this
 //! branch can carry it:

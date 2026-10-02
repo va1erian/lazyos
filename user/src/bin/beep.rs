@@ -1,4 +1,4 @@
-//! `beep` (`BEEP.ELF`): the smallest audio client, and the sound harness's
+//! `beep` (`/system/bin/beep`): the smallest audio client, and the sound harness's
 //! evidence program.
 //!
 //! It plays a sine tone through the audio driver's `os.lazy.audio.v1`

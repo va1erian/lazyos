@@ -1,4 +1,4 @@
-//! `sndd` (`SNDD.ELF`): the virtio-sound userspace driver
+//! `sndd` (`/system/bin/sndd`): the virtio-sound userspace driver
 //! (`docs/driver-plan.md`, stage D6).
 //!
 //! The driver is an ordinary ring-3 program. It claims the virtio-sound PCI
@@ -14,7 +14,7 @@
 //! 1. `SNDD:CARD` and one `SNDD:PCM` per stream describe the device;
 //! 2. the driver plays a test tone *directly* and prints `SND:PLAY:PASS` once
 //!    the device reported every period consumed;
-//! 3. it registers the service (`SNDD:READY`) and spawns `beep` (`BEEP.ELF`),
+//! 3. it registers the service (`SNDD:READY`) and spawns `beep` (`/system/bin/beep`),
 //!    a real client, which prints `BEEP:PLAY:PASS`.
 //!
 //! The host side (`tools/sound/run.py`) records the audio with QEMU's `wav`
@@ -69,17 +69,17 @@ const AMPLITUDE_Q15: i32 = 16000;
 /// The evidence clients `demo=1` runs, one after another, once the service is
 /// up: a real tone (the recording proves it), a hostile-input probe, and a
 /// stream-lifecycle soak of silence. See `user/src/bin/beep.rs`.
-const BEEP_CLIENTS: [&[u8]; 3] = [
-    b"BEEP.ELF freq=880 ms=800\0",
-    b"BEEP.ELF probe=1\0",
-    b"BEEP.ELF soak=40\0",
+const BEEP_CLIENTS: [(&str, &str); 3] = [
+    (fhs::bin::BEEP, "freq=880 ms=800"),
+    (fhs::bin::BEEP, "probe=1"),
+    (fhs::bin::BEEP, "soak=40"),
 ];
 
 /// `LAZYOS_SOUND_MODPLAY=1` at build time swaps them for the tracker player's
 /// self-test melody (`user/src/bin/modplay.rs`, `tools/sound/run.py --modplay`).
-const MODPLAY_CLIENTS: [&[u8]; 1] = [b"MODPLAY.ELF selftest\0"];
+const MODPLAY_CLIENTS: [(&str, &str); 1] = [(fhs::bin::MODPLAY, "selftest")];
 
-const DEMO_CLIENTS: &[&[u8]] = if option_env!("LAZYOS_SOUND_MODPLAY").is_some() {
+const DEMO_CLIENTS: &[(&str, &str)] = if option_env!("LAZYOS_SOUND_MODPLAY").is_some() {
     &MODPLAY_CLIENTS
 } else {
     &BEEP_CLIENTS
@@ -268,9 +268,10 @@ fn serve(card: Card, infos: &[PcmInfo], demo: bool) -> Result<(), Error> {
     }
 }
 
-/// Start one evidence client; `None` when its ELF is not on the image.
-fn spawn_demo_client(command: &[u8]) -> Option<u64> {
-    let pid = sys::spawn(command);
+/// Start one evidence client, `(program, arguments)`; `None` when its ELF is
+/// not on the image.
+fn spawn_demo_client((program, args): (&str, &str)) -> Option<u64> {
+    let pid = sys::spawn(&user::cmdline::native(program, args));
     match pid {
         Some(pid) => sys::write_str(&format!("SNDD:DEMO:SPAWN pid={pid}\n")),
         None => sys::write_str("SNDD:DEMO:SPAWN failed (client ELF missing?)\n"),

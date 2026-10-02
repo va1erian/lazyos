@@ -1,4 +1,4 @@
-//! `sysmond` (`SYSD.ELF`): the system monitor service (issue #144).
+//! `sysmond` (`/system/bin/sysmond`): the system monitor service (issue #144).
 //!
 //! `sysmond` wraps the kernel's read-only system-stats syscall (14) in the
 //! Messenger fabric:
@@ -21,9 +21,8 @@
 //! ticks and names, and deliberately no addresses or credentials, so the
 //! monitor is safe to expose to unprivileged clients.
 //!
-//! The on-disk name is `SYSD.ELF` (8.3-safe: the kernel's FAT reader only
-//! resolves short names). `init` starts the service from its manifest. With
-//! `demo=1` in the manifest arguments it spawns `top` (`TOP.ELF`), its one-shot
+//! `init` starts the service from its manifest. With `demo=1` in the
+//! manifest arguments it spawns `top` (`/system/bin/top`), its one-shot
 //! evidence client, and reaps it: `top` exits once it has printed its verdict,
 //! so it is not a supervised service.
 
@@ -51,7 +50,7 @@ const PUBLISH_TICKS: u64 = 500;
 /// How long the service sleeps between message polls.
 const IDLE_TICKS: u64 = 5;
 /// The evidence program `demo=1` spawns once the first snapshot is retained.
-const DEMO_PROGRAM: &str = fhs::boot::TOP_ELF;
+const DEMO_PROGRAM: &str = fhs::bin::TOP;
 
 #[no_mangle]
 pub extern "C" fn _start() -> ! {
@@ -164,9 +163,8 @@ fn spawn_demo() -> bool {
     command.push(0);
     match sys::spawn(&command) {
         Some(pid) => {
-            sys::write_str(&format!(
-                "sysmond: started demo {DEMO_PROGRAM} (pid {pid})\n"
-            ));
+            let name = fhs::bin::name(DEMO_PROGRAM);
+            sys::write_str(&format!("sysmond: started demo {name} (pid {pid})\n"));
             true
         }
         None => {

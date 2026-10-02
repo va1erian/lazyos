@@ -80,7 +80,7 @@ interface os.lazy.init.v1 {
     /// One row of `init`'s built-in app registry (issue #158): the S5 start
     /// menu's enumeration unit and the resolution table `Launch` uses.
     struct AppInfo {
-        /// App id: the lowercase program stem (`top` -> `TOP.ELF`).
+        /// App id: the lowercase program stem (`top` -> `/system/bin/top`).
         id: String,
         /// Display name for menus.
         name: String,

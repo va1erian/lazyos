@@ -18,7 +18,7 @@ pub(super) fn launcher() -> ! {
     ensure_clipboard();
     let mut started = 0u64;
     for role in ["source", "target"] {
-        let command = format!("{} {role}\0", fhs::boot::DRAGDMO_ELF);
+        let command = format!("{} {role}\0", fhs::bin::DRAGDEMO);
         match sys::spawn(command.as_bytes()) {
             Some(pid) => {
                 started += 1;
@@ -46,7 +46,7 @@ fn ensure_clipboard() {
         }
         park_tick();
     }
-    match sys::spawn(b"CLIPD.ELF\0") {
+    match sys::spawn(&user::cmdline::native(fhs::bin::CLIPBOARDD, "")) {
         Some(pid) => sys::write_str(&format!("dragdemo: started clipboardd (pid {pid})\n")),
         None => {
             sys::write_str("DND:LAUNCH:FAIL:clipboardd did not start\n");

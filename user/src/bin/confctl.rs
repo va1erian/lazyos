@@ -1,7 +1,7 @@
-//! `confctl` (`CONFCTL.ELF`): the configuration-registry command line (issue #260).
+//! `confctl` (`/system/bin/confctl`): the configuration-registry command line (issue #260).
 //!
 //! A thin Messenger client of `confd`, run from the shell as
-//! `run CONFCTL.ELF <command>`:
+//! `run /system/bin/confctl <command>`:
 //!
 //! ```text
 //! confctl get <path>

@@ -4,7 +4,7 @@
 //!    writes `Europe/Paris` through its own `confd` link (what `SetZone`
 //!    does), deletes the key, and requires the *notification* to bring the
 //!    zone back to UTC (nothing else in the service reverts it).
-//! 2. It spawns `timectl selftest` (`TIMECTL.ELF`), which calls every
+//! 2. It spawns `timectl selftest` (`/system/bin/timectl`), which calls every
 //!    `os.lazy.timed.v1` method as a client, and reaps it.
 
 use alloc::format;
@@ -16,7 +16,7 @@ use crate::state::State;
 /// under software emulation is slow, so this is generous.
 const TIMEOUT_TICKS: u64 = 3000;
 /// The client self-test, spawned with its command as the argument string.
-const CLIENT: &[u8] = b"TIMECTL.ELF selftest\0";
+const CLIENT: (&str, &str) = (fhs::bin::TIMECTL, "selftest");
 
 enum Phase {
     /// Not requested.
@@ -86,12 +86,12 @@ impl Demo {
     }
 
     fn spawn_client(&mut self, now: u64) {
-        match sys::spawn(CLIENT) {
+        match sys::spawn(&user::cmdline::native(CLIENT.0, CLIENT.1)) {
             Some(pid) => {
                 sys::write_str(&format!("TIMED:CLIENT:START pid={pid}\n"));
                 self.phase = Phase::Client(now + TIMEOUT_TICKS);
             }
-            None => self.fail(&format!("cannot spawn {}", fhs::boot::TIMECTL_ELF)),
+            None => self.fail(&format!("cannot spawn {}", fhs::bin::TIMECTL)),
         }
     }
 

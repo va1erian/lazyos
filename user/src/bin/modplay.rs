@@ -1,4 +1,4 @@
-//! `modplay` (`MODPLAY.ELF`): a ProTracker module player, and the audio
+//! `modplay` (`/system/bin/modplay`): a ProTracker module player, and the audio
 //! stack's showcase client.
 //!
 //! The file is parsed and mixed in-process by `libs/modplay` (integer only,

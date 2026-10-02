@@ -69,7 +69,7 @@
 //!
 //! Boot it with `LAZYOS_XUID=1`; the kernel starts this program and `xdemo`.
 //! The shell-probe evidence client (`shellprobe`) boots too when the
-//! `LAZYOS_SHELLPROBE=1` demo hook is set (`SHELLPRB.ELF`).
+//! `LAZYOS_SHELLPROBE=1` demo hook is set (`/system/bin/shellprobe`).
 //!
 //! The compositing model is deliberately simple: one screen-sized RGBA buffer
 //! and rectangle damage. `Commit` copies the app's damaged rectangle into the

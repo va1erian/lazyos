@@ -38,10 +38,10 @@ use grid::{is_prompt, Grid, COLS, ROWS};
 use std::cell::RefCell;
 use std::rc::Rc;
 
-/// The shell to host: the shipped `BUSYBOX`, started as `busybox sh -i`. The
-/// root is case-sensitive, so the path spells the stored name and `argv[0]`
-/// (`fhs::boot::BUSYBOX_ARGV0`) is what BusyBox dispatches on.
-const SHELL: &str = fhs::boot::BUSYBOX_PATH;
+/// The shell to host: the shipped `/system/bin/busybox`, started as
+/// `busybox sh -i`. `argv[0]` (`fhs::boot::BUSYBOX_ARGV0`) is what BusyBox
+/// dispatches on, so it is set explicitly.
+const SHELL: &str = fhs::bin::BUSYBOX;
 /// Window size when a compositor lays the app out; as the display owner the
 /// terminal fills the screen instead.
 const WINDOW: (i32, i32) = (640, 400);

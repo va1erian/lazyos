@@ -1,4 +1,4 @@
-//! `ping` (`PING.ELF`): ICMP echo through the stack service
+//! `ping` (`/system/bin/ping`): ICMP echo through the stack service
 //! (`docs/networking-plan.md`, stage N2).
 //!
 //! Usage: `ping <a.b.c.d> [count]` (default 4 requests, one per second, 56

@@ -1,4 +1,4 @@
-//! `init` (`SUPER.ELF`): the userspace service supervisor (issue #93) and the
+//! `init` (`/system/bin/init`): the userspace service supervisor (issue #93) and the
 //! app-launch path (issue #158).
 //!
 //! This is the S2 supervisor from `docs/messenger.md` section 8 and the
@@ -21,7 +21,7 @@
 //! # App launch and the registry
 //!
 //! The built-in [`APPS`] table maps an **app id** (the lowercase program stem,
-//! `top` -> `TOP.ELF`) to a display name, its ELF path, a default restart
+//! `top` -> `/system/bin/top`) to a display name, its ELF path, a default restart
 //! policy and the MIME verbs it handles. `ListApps` serves it to the S5 start
 //! menu, and `mimed`'s open-with registrations resolve to the same ids.
 //!
@@ -50,16 +50,16 @@
 //! supervision loop without another cap check ([`running_in_session`]).
 //!
 //! Boot evidence: `INIT:APPS:PASS`, `INIT:LAUNCH:PASS` (the self-test launches
-//! `TOP.ELF`; the app's own `SYS:TOP:PASS` and exit prove it ran),
+//! `/system/bin/top`; the app's own `SYS:TOP:PASS` and exit prove it ran),
 //! `INIT:LAUNCH:DENIED:PASS` (the policy self-test) and `INIT:LAUNCH:CAP:PASS`
 //! (the concurrency-cap self-test); supervised restarts print
 //! `INIT:RESTART:PASS`.
 //!
 //! The manifest is a static Rust table today. Each row carries the fields the
-//! issue asks for: name, FAT path, argument string, restart policy, dependency
+//! issue asks for: name, program path, argument string, restart policy, dependency
 //! names and health topic. The supervisor appends `attempt=<n>` to the
 //! argument string on every spawn, so a service can distinguish a restart; that
-//! is how `FLAKY.ELF` crashes exactly once.
+//! is how `/system/bin/flaky` crashes exactly once.
 //!
 //! # Shutdown and reboot
 //!
@@ -184,7 +184,7 @@ fn run() -> messenger::Result<()> {
                     spawn_service(&mut services, index, &mut broker);
                 }
             }
-            // The boot launch self-test: spawn `TOP.ELF` through the real
+            // The boot launch self-test: spawn `/system/bin/top` through the real
             // launch path once a task slot is free (the manifest's one-shot
             // `top` exits around here), proving `Launch` end to end in a
             // headless boot.

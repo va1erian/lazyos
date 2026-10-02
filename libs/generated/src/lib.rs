@@ -4555,7 +4555,7 @@ pub mod os_lazy_init_v1 {
         Ok(out)
     }
 
-    /// App id: the lowercase program stem (`top` -> `TOP.ELF`).
+    /// App id: the lowercase program stem (`top` -> `/system/bin/top`).
     /// Display name for menus.
     /// On-disk ELF path.
     /// Default restart policy (`always`/`on-failure`/`once`).

@@ -1,4 +1,4 @@
-//! `inputd` (`INPUTD.ELF`): the input policy service (`docs/input-plan.md`).
+//! `inputd` (`/system/bin/inputd`): the input policy service (`docs/input-plan.md`).
 //!
 //! The kernel raw event bus carries physical, HID-coded key edges and nothing
 //! else. `inputd` is the only task holding `CAP_INPUT_RAW` and owns everything

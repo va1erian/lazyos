@@ -1,7 +1,6 @@
-//! `messengerctl` (`MSGCTL.ELF`): render the Messenger fabric snapshot and
+//! `messengerctl` (`/system/bin/messengerctl`): render the Messenger fabric snapshot and
 //! browse the name registry, the service supervisor, health and the event log
-//! (issues #70, #89 and #93). The image name is 8.3 because the kernel's FAT
-//! reader only resolves short names.
+//! (issues #70, #89 and #93).
 //!
 //! Calls the native `messenger` syscall's `stats` op with a snapshot-sized
 //! buffer, so the kernel returns the versioned `FabricStats` block (ABI v3),
@@ -26,7 +25,7 @@
 //! With services running the boot self-test also exercises the app registry and
 //! launch path (issue #158): `MSGCTL:APPS:PASS`, `MSGCTL:LAUNCH:PASS` and the
 //! foreign-session `MSGCTL:LAUNCH:DENIED:PASS` probe. The probe runs in a
-//! short-lived child (`MSGCTL.ELF probe`, issue #177): the kernel never lets a
+//! short-lived child (`/system/bin/messengerctl probe`, issue #177): the kernel never lets a
 //! task widen its own credentials back up, so if the console task dropped its
 //! own privilege to run the probe it could never regain it, and every command
 //! typed afterward would run as the probe's uid. A disposable child can drop
@@ -95,7 +94,7 @@ pub extern "C" fn _start() -> ! {
 }
 
 /// Read this task's service argument (see [`probe_role`]): `true` for a
-/// `MSGCTL.ELF probe` child, `false` for the ordinary console tool.
+/// `/system/bin/messengerctl probe` child, `false` for the ordinary console tool.
 fn is_probe_role() -> bool {
     let mut buffer = [0u8; 16];
     let len = sys::service_args(&mut buffer).min(buffer.len());

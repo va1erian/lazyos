@@ -1,4 +1,4 @@
-//! `pkgctl` (`PKGCTL.ELF`): the command line of the package manager `pkgd`
+//! `pkgctl` (`/system/bin/pkgctl`): the command line of the package manager `pkgd`
 //! (`docs/packages.md`).
 //!
 //! ```text

@@ -17,7 +17,6 @@ use user::sys;
 use super::common::{connect, fail, is_errno, now};
 
 /// The intruder's command line (a second task, its own credentials slot).
-const INTRUDER: &[u8] = b"BEEP.ELF role=intruder\0";
 
 struct Checks {
     passed: u32,
@@ -200,7 +199,7 @@ pub(super) fn run() -> Result<u32, String> {
 
 /// Run the intruder task and report whether it was refused everywhere.
 fn intruder() -> Result<bool, String> {
-    let Some(pid) = sys::spawn(INTRUDER) else {
+    let Some(pid) = sys::spawn(&user::cmdline::native(fhs::bin::BEEP, "role=intruder")) else {
         return Err(String::from("could not spawn the intruder"));
     };
     let deadline = now() + 1000;
