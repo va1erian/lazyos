@@ -371,6 +371,31 @@ Two defensible routes; the plan takes the first.
 | RT5370 (~$8) | Cheapest; register-level chip with 8 KiB firmware; OpenBSD `run(4)` ISC | 2.4 GHz n only; nothing transfers | A "first light" toy if a second driver is acceptable; skipped |
 | MT7925 M.2 via VFIO now | The actual device | Needs IOMMU and group isolation, loses host Wi-Fi, still blocked on INTx-only PCI and the missing real-PC path for anything beyond QEMU | W6, after H0–H3 |
 
+### 6.1 Buying one in France (snapshot 2026-10-02)
+
+Chipsets below were verified against the USB ID tables in `mt7925/usb.c`
+and `mt7921/usb.c` and the `morrownr/USB-WiFi` adapter list; prices are
+same-day retailer snapshots and will drift.
+
+| Product | Chip, USB ID | Driver | Seen at | Snapshot price |
+|---|---|---|---|---|
+| **Netgear Nighthawk A8500** (BE5000) | MT7925, `0846:9050` | `mt7925u` (ID added to mainline 2026-03, backports to 6.12–6.18 stable) | amazon.fr, Fnac and Darty marketplace | ~68–70 € |
+| **Netgear Nighthawk A9000** (BE6500) | MT7925, `0846:9072` | `mt7925u` (ID in 6.18, backported to 6.12) | LDLC (first-party, in stock), amazon.fr, materiel.net | 150 € at LDLC; a 76 € amazon.fr offer looked like second-hand stock |
+| **BrosTrend AX9L** (AXE3000) | MT7921AU, `0e8d:7961` | `mt7921u` (generic ID, 5.18+) | amazon.fr | ~40 € |
+| Netgear Nighthawk A8000 (AXE3000) | MT7921AU, `0846:9060` | `mt7921u` (6.4+) | amazon.fr, Fnac, Darty, LDLC, materiel.net, TopAchat | 65–113 € |
+| Alfa AWUS036AXML | MT7921AUN, `0e8d:7961` | `mt7921u` (6.12+ for the BT combo) | getic.fr, amazon.fr | 52–59 € |
+| TP-Link Archer **TXE50UH** | MT7921AU, `35bc:0107` | `mt7921u` (6.14+) | pc21.fr, Fnac marketplace | 48–68 € |
+
+**Wrong chip, do not buy for this:** TP-Link Archer TX20U, TX20U Plus,
+TX20UH and TBE400UH, ASUS USB-AX56, D-Link DWA-X1850, BrosTrend AX1L/AX4L
+are all Realtek (`rtw89` or out-of-tree `rtl8852au`) despite the similar
+names. Comfast CF-953AX is MediaTek but discontinued and was dropped from
+the plug-and-play list for USB resets during its Bluetooth firmware load.
+The A9000 has a known warm-reboot quirk (needs a replug after a reboot).
+
+Pick: the **A8500** is the cheapest way to the exact `mt7925/` code; the
+**AX9L** is the cheapest MediaTek stick of any kind.
+
 ## 7. Stages
 
 Letters W. Each stage ends with evidence captured by a harness, as in every
