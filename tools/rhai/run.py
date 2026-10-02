@@ -15,11 +15,16 @@ missing prerequisite reported as an error instead of skipped:
    (`rhai_msg.json`: list services, call confd, a set/get round trip, the
    topics broker, a refused call, a missing service) and the event loop
    (`rhai_msg_loop.json`: a topic round trip, a confd change event, and a
-   service written in Rhai answering another script).
+   service written in Rhai answering another script);
+6. with `--lazyrad`, LazyRAD and the Messenger sample (`lazyrad-os/samples/
+   messenger`) on the desktop: `lazyrad_msg.json` starts the form, and
+   `poke.rhai` changes the confd key it watches and calls the service it
+   serves (`docs/lazyrad-messenger-plan.md`).
 
     python tools/rhai/run.py                 # console checks
     python tools/rhai/run.py --desktop       # plus the desktop Terminal and msg
     python tools/rhai/run.py --msg-only      # just the msg session (desktop image)
+    python tools/rhai/run.py --lazyrad       # just the LazyRAD Messenger session
     python tools/rhai/run.py --no-build      # reuse target/lazyos.img
     python tools/rhai/run.py --accel none    # force TCG
 
@@ -44,6 +49,17 @@ PY = sys.executable
 SESSION = ROOT / "tools" / "screenshot" / "qemu_session.py"
 EXAMPLES = ROOT / "tools" / "screenshot" / "examples"
 IMAGE = ROOT / "target" / "lazyos.img"
+#: What the LazyRAD Messenger session must show on serial (lazyrad_msg.json):
+#: `msg`/`sys` installed, the form up, the form's service answered poke.rhai,
+#: and a Messenger handler (the confd change, the served call) ran in the form.
+LAZYRAD_MARKERS = (
+    "LRPLAY:MSG:PASS",
+    "LRPLAY:UP:PASS",
+    "TERM:OUT:RHAI:lrserve:hihi",
+    "LRPLAY:MSGEVENT:PASS",
+)
+#: The LazyOS-only LazyRAD samples the image embeds under /LAZYRAD/.
+LAZYRAD_SAMPLES = "lazyrad-os/samples/messenger"
 #: The console session reports this many distinct checks (see rhai_demo.json).
 MIN_CONSOLE_PASSES = 34
 #: Lines the desktop Terminal must echo to serial (rhai_desktop.json).
@@ -134,12 +150,36 @@ def check_marker(text: str, marker: str, out: str) -> list[str]:
     return [] if marker in text else [f"{marker} missing (see {out})"]
 
 
+def lazyrad_session(env: dict[str, str], args: argparse.Namespace) -> list[str]:
+    """Build LazyRAD into a desktop image and run the Messenger sample."""
+    if not args.no_build:
+        if build_tool("tools/lazyrad/build.py", "lrplay") is None:
+            return ["tools/lazyrad/build.py produced no lrplay"]
+        if build_tool("tools/xui/build.py", "xui-term") is None:
+            return ["tools/xui/build.py produced no xui-term"]
+        image_env = {**env, "LAZYOS_DESKTOP": "1", "LAZYOS_XUI_AUTOSTART": "term",
+                     "LAZYOS_LAZYRAD": "1", "LAZYRAD_SAMPLES": LAZYRAD_SAMPLES}
+        if not cargo_build(image_env):
+            return ["cargo build (LAZYOS_DESKTOP=1 LAZYOS_LAZYRAD=1) failed"]
+    out = "shots/lazyrad_msg"
+    text = run_session("lazyrad_msg.json", out, args,
+                       ["TERM:(BIND|RUN|SPAWN|PANIC)", "LRPLAY:[A-Z]+:FAIL", "RHAI:lrserve:none"])
+    problems = []
+    for marker in LAZYRAD_MARKERS:
+        print(f"  {'ok ' if marker in text else 'missing'} {marker}")
+        if marker not in text:
+            problems.append(f"{marker} missing (see {out})")
+    return problems
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--no-build", action="store_true", help="reuse target/lazyos.img (console only)")
     parser.add_argument("--desktop", action="store_true", help="also run the desktop Terminal sessions")
     parser.add_argument("--msg-only", action="store_true",
                         help="build the desktop image and run only the msg sessions")
+    parser.add_argument("--lazyrad", action="store_true",
+                        help="build LazyRAD and run only the LazyRAD Messenger session")
     parser.add_argument("--accel", default="auto", choices=["auto", "none", "tcg", "whpx", "kvm"])
     parser.add_argument("--qemu", help="path to qemu-system-x86_64")
     parser.add_argument("--timeout", type=float, default=300.0, help="seconds per session")
@@ -147,6 +187,7 @@ def main() -> int:
 
     if args.msg_only:
         args.desktop = True
+    only_desktop = args.msg_only or args.lazyrad
     env: dict[str, str] = {}
     if not args.no_build:
         if build_tool("tools/rhai/build.py", "rhai") is None:
@@ -156,11 +197,13 @@ def main() -> int:
             return fail("no BusyBox: run `python tools/abi/busybox.py` (Linux with musl-gcc, "
                         "or Docker), or set LAZYOS_BUSYBOX to a static busybox")
         env["LAZYOS_BUSYBOX"] = str(shell)
-        if not args.msg_only and not cargo_build({**env, "LAZYOS_CLI": "1"}):
+        if not only_desktop and not cargo_build({**env, "LAZYOS_CLI": "1"}):
             return fail("cargo build (LAZYOS_CLI=1) failed")
 
     problems: list[str] = []
-    if not args.msg_only:
+    if args.lazyrad:
+        problems += lazyrad_session(env, args)
+    elif not args.msg_only:
         problems += check_console(run_session(
             "rhai_demo.json", "shots/rhai", args, ["RHAI:[a-z]+:FAIL", "user: task [0-9]+ killed by"]))
 

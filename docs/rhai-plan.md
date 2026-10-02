@@ -29,8 +29,9 @@ from LazyRAD scripts**, reached through these steps:
 | R0 | `rhai` command (static musl), `os` module, REPL, `RHAI.ELF` in the image (#319) | done (#326) |
 | Build | `python tools/rhai/run.py` builds `rhai`, BusyBox and the image, boots it and judges the serial markers in one command; `tools/run_demo.py` rebuilds `rhai` before every image | done (#450) |
 | R3a | `midlc --schema`: every IDL interface as a data table (`libs/rhai-lazy/src/msg/idl.rs`); `msg` module: `msg::connect(interface)`, method sugar (`confd.info()`), `invoke`, one-way sends, structured service errors as catchable Rhai errors; the real `int 0x80` transport (`msg::gate`) | done (#450) |
-| R3b | Topics: `msg::subscribe`, `msg::publish` (declared payload types; the platform wrapper parcel), `msg::on(filter, fn)`, `msg::run([ms])`, `msg::stop()`; services written in Rhai (`msg::serve`) | done (#456) |
-| LazyRAD | `msg` inside LazyRAD form scripts: `lazyrad_runtime::extensions` (va1erian/lazyrad#82) applied to every engine; the LazyOS player registers `rhai_lazy::msg::install_fabric` through it (one shared fabric) | done (this PR); builds once LazyRAD P0 and #82 merge ([`lazyrad-plan.md`](lazyrad-plan.md)) |
+| R3b | Topics: `msg::subscribe`, `msg::publish` (declared payload types; the platform wrapper parcel), `msg::on(filter, fn)`, `msg::run([ms])`, `msg::stop()`; services written in Rhai (`msg::serve`) | done (#456's code reached `main` with the LazyRAD Messenger work: #456 merged into its stacked base after that base was squash-merged) |
+| LazyRAD | `msg` and the generated `sys::*` modules inside LazyRAD form scripts, events delivered by the form's window, permissions derived for packaged apps | done ([`lazyrad-messenger-plan.md`](lazyrad-messenger-plan.md)) |
+| R3c | `midlc --rhai-api`: one documented Rhai module per interface (`sys::confd::get`, struct constructors, enum constants, typed topic helpers) | done ([`rhai/msg.md`](rhai/msg.md#generated-modules-sys)) |
 | R2, R4-R6 | Shell layer, security integration, xui apps, developer experience | later |
 
 Decisions taken while implementing (they refine the sections below):

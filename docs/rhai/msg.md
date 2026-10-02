@@ -14,6 +14,29 @@ rhai -e 'msg::connect("os.lazy.confd.v1").info()'
 The module exists only when `rhai` runs on LazyOS (it checks the kernel name),
 so a host build of the command has no `msg`.
 
+## Generated modules (`sys::*`)
+
+`midlc --rhai-api` also writes one Rhai module per interface, so a script can
+use named, documented functions instead of strings. `sys::<alias>` is the
+interface name without `os.lazy.` and `.vN`:
+
+```rhai
+sys::confd::get("sys/ui/theme");                // = msg::connect("os.lazy.confd.v1").get(...)
+let v = sys::confd::new_value();                // a struct with every field at its zero value
+v.kind = 3; v.str_value = "hi";
+sys::confd::set("sys/test/x", v);
+sys::confd::on_changed("sys/ui/#", |e| print(e.payload.path));   // a typed topic helper
+sys::messenger_topics::QOS_RELIABLE;            // enum variants are constants
+```
+
+Every function is one call into `msg`, so everything below (values, errors,
+timeouts) applies unchanged. The reference, generated with the modules, is
+[`libs/rhai-lazy/api/README.md`](../../libs/rhai-lazy/api/README.md); each
+module's `.rhai` source sits next to it. Methods whose request transfers a
+channel, buffer or ring are not generated (a script cannot create those), and
+neither are the kernel ACL scopes. Regenerate after an IDL change with
+`python tools/midlc/midlc.py --rhai-api libs/rhai-lazy/api idl/*.midl`.
+
 ## Discovering services
 
 | Call | Returns |
@@ -106,7 +129,9 @@ msg::run();          // until msg::stop() is called from a handler
 msg::run(10000);     // or for at most 10 s; returns how many events and calls were handled
 ```
 
-An error thrown by a topic handler ends `msg::run` with that error.
+An error thrown by a topic handler ends `msg::run` with that error. The
+event still counts as delivered: a reliable event is acked first, because
+redelivering it would only fail again.
 
 ## Writing a service in Rhai
 
@@ -134,22 +159,43 @@ msg::run();
 
 ## In LazyRAD form scripts
 
-The LazyRAD player on LazyOS (`lrplay`, `lazyrad-os/`) registers `msg` as a
-LazyRAD script extension (`lazyrad_runtime::extensions`), so every form script
-has the module. All the player's forms share one connection to the fabric.
+The LazyRAD player on LazyOS (`lrplay`, `lazyrad-os/`) gives every form script
+`msg` and `sys::*` (`docs/lazyrad-messenger-plan.md`). All the player's forms
+share one connection to the fabric, and the generated modules are compiled
+once per process.
 
 ```rhai
 fn form_load() {
-    let confd = msg::connect("os.lazy.confd.v1");
-    info_label.text = "confd: " + confd.info().store_dir;
+    theme_label.text = sys::confd::get("sys/ui/theme").str_value;
+    sys::confd::on_changed("sys/ui/#", |e| theme_label.text = e.payload.path);
+    msg::serve("demo.lazyrad", "os.lazy.echo.v1", #{ Ping: || true });
 }
 ```
 
-The player prints `LRPLAY:MSG:PASS` on serial once `msg` is installed. The
-guest check is `tools/screenshot/examples/lazyrad_msg.json`. It writes a small
-project to `/tmp/p` from the Terminal and runs it. The form sets a confd key
-over `msg`, and a separate `rhai` script reads the key back
-(`RHAI:lrmsg:ok`).
+- **Events need no loop.** `on_*` and `msg::on` handlers, and calls to a service
+  the form serves, run on the form's window: while the form has something
+  registered, its window polls the fabric every 50 ms without blocking and
+  runs what is ready in the form's script. `msg::run()` is an error in a form.
+- **Errors** in a handler are shown like an event handler's error (a message
+  box) and the program keeps running. A handler that fails on every event is
+  shown once; the repeats are counted on stderr.
+- **Closing a form** unsubscribes its topics and withdraws the names it served.
+- **Blocking calls** still block the window: a call waits up to
+  `msg::timeout()` (5 s) for a stuck service, so keep slow work out of click
+  handlers or lower the timeout.
+- **Installed apps.** Make LazyOS App declares the interfaces and topics the
+  scripts use (`sys::<alias>::...` and literal `msg::connect`, `msg::on`,
+  `msg::subscribe`, `msg::publish` arguments; `rhai_lazy::msg::permissions`),
+  so the app's kernel rules allow exactly those. A name built at run time
+  cannot be seen; the consent screen lists what was found. Serving a name is a
+  development feature: an installed app's manifest cannot grant it.
+
+The player prints `LRPLAY:MSG:PASS` on serial once `msg` and `sys` are
+installed, and `LRPLAY:MSGEVENT:PASS` after the first Messenger handler ran in
+a form. The sample is `lazyrad-os/samples/messenger` (`/LAZYRAD/messenger` in
+a `--lazyrad` image) and the guest check is `python tools/rhai/run.py
+--lazyrad` (`tools/screenshot/examples/lazyrad_msg.json`): the form starts,
+`poke.rhai` changes the confd key it watches and calls the service it serves.
 
 ## Errors
 
@@ -186,5 +232,8 @@ try {
   missing service. `rhai_msg_loop.json` covers: a topic round trip through the
   broker, a `confd` change event reaching a script, and a service written in
   Rhai, run in the background, answering another script.
-- Generated table: `python tools/midlc/midlc.py --check --schema
-  libs/rhai-lazy/src/msg/idl.rs idl/*.midl` (CI runs it).
+- Generated table and modules: `python tools/midlc/midlc.py --check --schema
+  libs/rhai-lazy/src/msg/idl.rs --rhai-api libs/rhai-lazy/api idl/*.midl`
+  (CI runs it), and `python tools/midlc/test_midlc_rhai.py`.
+- LazyRAD: `python tools/rhai/run.py --lazyrad` (above); the host side is
+  `cd lazyrad-os && cargo test` and LazyRAD's `crates/lazyrad-runtime/tests/events.rs`.

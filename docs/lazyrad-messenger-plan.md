@@ -152,3 +152,27 @@ declare what its scripts use:
 | Polling many subscriptions each tick costs syscalls | Timer runs only while the form has sources; one poll call per source per tick |
 | A topic handler that fails on every event floods message boxes | The pump reports a source's error once per form and handler, then counts repeats on stderr |
 | Two repos move together (LazyRAD seam + LazyOS) | LazyRAD changes are additive; `lazyrad-os` pins the branch head until the upstream PR merges, then the merge commit |
+
+## 5. Implementation status
+
+All phases are implemented. The LazyRAD half is va1erian/lazyrad branch
+`lazyos-msg` (pinned by `lazyrad-os/Cargo.toml` until it merges).
+
+| # | Where | Verified |
+|---|---|---|
+| M0 | `libs/rhai-lazy/src/msg/{topics,runloop}.rs`, `lazyrad-os/src/messenger.rs` | `cargo test --manifest-path libs/rhai-lazy/Cargo.toml` |
+| M1 | `tools/midlc/midlc_rhai.py`, `midlc_rhai_docs.py`, `libs/rhai-lazy/api/`, `src/msg/api.rs` | `tools/midlc/test_midlc_rhai.py`; `src/tests/msg_api_tests.rs` (every module compiles; calls, structs, enums, topic helpers against the in-memory fabric; compiled once per fabric; about 3 ms in a release host build) |
+| M2 | `src/msg/{events,bindings}.rs`; LazyRAD `extensions.rs`, `events.rs` (`Poller`), `Msg::Poll` | `src/tests/msg_events_tests.rs` (ownership, poll-only waits, bounded batches, error suppression, reliable acks, serving, release, a 200-round soak); LazyRAD `crates/lazyrad-runtime/tests/events.rs` on the offscreen backend |
+| M3 | `src/msg/permissions.rs`, `LazyOsPlatform::script_permissions`; LazyRAD `HostPermissions`, `Platform::script_permissions` | `src/tests/msg_permissions_tests.rs`; LazyRAD packager tests; `lazyrad-os/tests/lzp_conformance.rs` (`derived_messenger_permissions_pass_the_lazyos_reader`) |
+| M4 | `lazyrad-os/samples/messenger`, `tools/screenshot/examples/lazyrad_msg.json`, `tools/rhai/run.py --lazyrad` | see below |
+
+Findings while building it:
+
+- `lazyrad-os` did not build on `main` before this work: #522 moved LazyOS to
+  xui `4c2a4fb` while the pinned LazyRAD still used `7e31d5d`, so two
+  `xui-core` crates met in one graph. The LazyRAD branch moves to `4c2a4fb`.
+- The kernel's poll deadline (`EXPIRED_DEADLINE`, `kernel/src/ipc/channels.rs`)
+  is what makes a non-blocking topic pull possible: `NextEvent` is answered if
+  `messengerd` can do so in its current turn, else `ETIMEDOUT` at once.
+- `lrplay.elf` grows by about 0.5 MiB (5.3 to 5.8 MiB): the schema table, the
+  `msg` module and the generated module sources.

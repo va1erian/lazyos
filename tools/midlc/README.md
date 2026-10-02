@@ -33,10 +33,16 @@ python tools/midlc/midlc.py --out libs/generated/src/lib.rs \
 # Fail if the checked-in stubs are stale (CI does this).
 python tools/midlc/midlc.py --check --out libs/generated/src/lib.rs idl/echo.midl
 
+# The Rhai schema table and the generated `sys::*` Rhai modules
+# (docs/rhai/msg.md; one `<alias>.rhai` per interface, `index.rs`, `README.md`).
+python tools/midlc/midlc.py --schema libs/rhai-lazy/src/msg/idl.rs \
+    --rhai-api libs/rhai-lazy/api idl/*.midl
+
 # Compiler tests.
 python tools/midlc/test_midlc.py
 python tools/midlc/test_midlc_transfers.py
 python tools/midlc/test_midlc_rings.py
+python tools/midlc/test_midlc_rhai.py
 python tools/midlc/test_midl_browser.py
 
 # Generated-code round trips (host).

@@ -40,6 +40,7 @@ mod bindings;
 pub mod bus;
 pub mod codec;
 pub mod events;
+pub mod permissions;
 #[cfg(all(feature = "lazyos", target_arch = "x86_64"))]
 pub mod gate;
 mod idl;

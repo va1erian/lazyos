@@ -12,6 +12,7 @@ mod engine_tests;
 mod msg_api_tests;
 mod msg_events_tests;
 mod msg_loop_tests;
+mod msg_permissions_tests;
 mod msg_mock;
 mod msg_tests;
 mod os_tests;

@@ -10,7 +10,9 @@
 //! ends the event loop.
 //!
 //! Command line: see `lazyrad_os::args`. Serial evidence:
-//! `LRPLAY:MSG:PASS` once form scripts have the `msg` module (Messenger),
+//! `LRPLAY:MSG:PASS` once form scripts have the `msg` and `sys::*` modules
+//! (Messenger), `LRPLAY:MSGEVENT:PASS` after the first Messenger handler (a
+//! topic event, a call to a service the script serves) ran without error,
 //! `LRPLAY:UP:PASS` after the first frame reached the compositor,
 //! `LRPLAY:EVENT:PASS` after the first script event handler ran,
 //! `LRPLAY:EXIT:PASS` after the loop ended cleanly, and
@@ -56,7 +58,7 @@ fn main() -> ExitCode {
     }
 
     // Messenger for form scripts, before any engine is built.
-    if lazyrad_os::messenger::install() {
+    if lazyrad_os::messenger::install(Some(Rc::new(MARK.once("MSGEVENT")))) {
         MARK.pass("MSG");
     }
 

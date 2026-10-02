@@ -143,14 +143,19 @@ the desktop Terminal's shell; avoid it in session scripts.
 `rhai` (`rhai-host/`, bindings in `libs/rhai-lazy/`) is a static-musl command
 embedded as `RHAI.ELF`; the plan is [`docs/rhai-plan.md`](docs/rhai-plan.md).
 Its `msg` module calls any Messenger service from a script, driven by a table
-`midlc --schema` generates from `idl/` ([`docs/rhai/msg.md`](docs/rhai/msg.md)).
+`midlc --schema` generates from `idl/` ([`docs/rhai/msg.md`](docs/rhai/msg.md)),
+and `midlc --rhai-api` generates one documented module per interface on top of
+it (`sys::confd::get(...)`, `libs/rhai-lazy/api/`). LazyRAD form scripts on
+LazyOS get both, with events delivered by the form's window
+([`docs/lazyrad-messenger-plan.md`](docs/lazyrad-messenger-plan.md)).
 One command builds `rhai`, BusyBox and the image, boots it and judges it:
 
 ```bash
 python tools/rhai/run.py              # console checks (rhai_demo.json)
 python tools/rhai/run.py --desktop    # plus the desktop Terminal and the msg session
+python tools/rhai/run.py --lazyrad    # the LazyRAD Messenger sample (lazyrad_msg.json)
 cargo test --manifest-path libs/rhai-lazy/Cargo.toml   # bindings vs an in-memory fabric
-python tools/midlc/midlc.py --schema libs/rhai-lazy/src/msg/idl.rs idl/*.midl   # after an IDL change
+python tools/midlc/midlc.py --schema libs/rhai-lazy/src/msg/idl.rs --rhai-api libs/rhai-lazy/api idl/*.midl   # after an IDL change
 ```
 
 `python tools/run_demo.py` rebuilds `rhai` before each image (`--no-rhai` skips it).
