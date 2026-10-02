@@ -73,6 +73,10 @@ name = "cwd"
 path = "src/cwd.rs"
 
 [[bin]]
+name = "fdinherit"
+path = "src/fdinherit.rs"
+
+[[bin]]
 name = "fsops"
 path = "src/fsops.rs"
 

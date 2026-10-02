@@ -12,7 +12,7 @@ use crate::user_ptr;
 
 use super::cwd::{user_path, AT_FDCWD};
 use super::errno::{err, fs_err, EBADF, EFAULT, EINVAL, ENOMEM};
-use super::fd::{fd_meta_get, fd_meta_sync_len};
+use super::fd::fd_meta_get;
 use super::path::synthetic_meta;
 use super::vfsfd;
 
@@ -64,14 +64,13 @@ fn truncate_snapshot(fd: u64, length: u64) -> u64 {
     let Ok(length) = usize::try_from(length) else {
         return err(EINVAL);
     };
-    // Detach and reserve first: once the file is cut, mirroring must not fail.
+    // Reserve first: once the file is cut, mirroring must not fail.
     if !task::prepare_fd_write(fd as usize, length, 0) {
         return err(ENOMEM);
     }
     match crate::fs::abi_truncate(Id::current(), &path, length as u64) {
         Ok(()) => {
             task::fd_set_len(fd as usize, length);
-            fd_meta_sync_len(fd as usize);
             0
         }
         Err(error) => fs_err(error),

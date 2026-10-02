@@ -98,14 +98,14 @@ pub(super) fn fd_attrs(fd: u64) -> Result<Attrs, u64> {
                 // The open recorded the VFS mode/ino/size/owner; report those.
                 None => Attrs {
                     mode: opened.mode,
-                    size: opened.size,
+                    size: task::fd_size(fd as usize).unwrap_or(0),
                     ino: opened.ino,
                     uid: opened.uid,
                     gid: opened.gid,
                     times: Times::default(),
                 },
             },
-            // Inherited fds (fork/exec) have no side-table entry yet.
+            // A description made without a record of its open.
             None => {
                 let size = task::fd_size(fd as usize).unwrap_or(0);
                 Attrs::anonymous(S_IFREG | 0o444, size, fd)
